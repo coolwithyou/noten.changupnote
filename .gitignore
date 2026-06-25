@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environments and secrets
+.env
+.env.*
+!.env.example
+
+# Local build/output scratch
+tmp/
+output/
+dist/
+build/
+
+# Editor/workspace noise
+.idea/
+*.swp
+*.swo
