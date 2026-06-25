@@ -21,7 +21,7 @@ reference: industry_taxonomy · region_hierarchy · size_thresholds · source_cu
 
 ## 2. 기업 프로필 (매칭 입력 절반)
 **company_profiles** (필드 단위 레코드) `id pk · company_id fk · dimension · value jsonb · source(팝빌|국세청|codef|self_declared|ocr) · confidence · as_of · updated_at` (idx: company_id+dimension)
-**company_enrichment_cache** `provider · biz_no · scope · raw_payload jsonb · canonical_payload jsonb · fetched_at · expires_at · payload_hash` (pk: provider+biz_no+scope) — 팝빌/국세청 재과금·중복조회 방지. `company_profiles`는 이 캐시에서 파생된 회사별 canonical 투영.
+**company_enrichment_cache** `provider · biz_no · scope · raw_payload jsonb · canonical_payload jsonb · provider_result_code · provider_result_message · checked_at · fetched_at · expires_at · payload_hash · last_error jsonb` (pk: provider+biz_no+scope) — 팝빌/국세청 재과금·중복조회 방지. `company_profiles`는 이 캐시에서 파생된 회사별 canonical 투영.
 **consents** `id pk · company_id fk · user_id fk · scope(기본정보|홈택스|4대보험) · purpose · granted_at · revoked_at` (신용정보법 동의 원장)
 
 ## 3. 공고 (정규화 grant = 계약)
@@ -43,6 +43,12 @@ reference: industry_taxonomy · region_hierarchy · size_thresholds · source_cu
 
 ## 6. 레퍼런스/운영 (매핑 자산)
 **industry_taxonomy** `ksic · policy_tag · ver` · **region_hierarchy** `sigungu · sido · region_group` · **size_thresholds** `ksic · seg · 매출·고용 임계` · **source_cursor** `source · last_page · last_collected_at`
+
+## 6.5 팝빌 canonical 투영
+- `company_enrichment_cache.provider='popbill_bizinfo'`, `scope='bizinfo_check'`.
+- `raw_payload`에는 팝빌 `BizCheckInfo` 원문을 보존하고, `canonical_payload`에는 `legal_type`, `size`, `industry.ksic`, `industry.raw_text`, `region.address`, `business_status`, `tax_type`, `establish_date`를 정규화해 저장한다.
+- `provider_result_code/result_message/checked_at`은 팝빌 응답의 `result/resultMessage/checkDT`를 보존한다. API 오류(`PopbillException`)는 `last_error`에 저장하고 성공 캐시와 구분한다.
+- `CEOName`은 대표자명 PII로 취급한다. 소유권 검증은 국세청 3요소가 주된 근거이며, 팝빌 대표자명은 사용자 표시/불일치 경고 용도로만 최소 보관한다.
 
 ## 7. 보안/RLS
 - PII 테이블(company_profiles, consents, match_*, app_refresh_tokens): BFF에서 user→company 소유 확인 + (이중방어) Postgres RLS. 워커(service role)는 grants/추출 등 비PII 위주, PII 최소.
