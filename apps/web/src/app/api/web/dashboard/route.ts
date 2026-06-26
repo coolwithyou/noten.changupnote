@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireCompanyAccess();
-    const data = await loadServiceDashboard({ limit: 40 });
+    const access = await requireCompanyAccess();
+    const data = await loadServiceDashboard({ companyId: access.companyId, limit: 40 });
     return NextResponse.json<ActionResult<DashboardResult>>({ ok: true, data });
   } catch (error) {
     return webActionError<DashboardResult>(error, {

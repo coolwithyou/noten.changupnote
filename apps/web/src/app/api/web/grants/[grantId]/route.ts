@@ -16,8 +16,8 @@ interface RouteContext {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { grantId } = await context.params;
-    await requireCompanyAccess();
-    const sheet = await loadServiceApplySheet(grantId);
+    const access = await requireCompanyAccess();
+    const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId });
     if (!sheet) {
       return NextResponse.json<ActionResult<ApplySheet>>({
         ok: false,

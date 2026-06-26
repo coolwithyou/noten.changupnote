@@ -1,5 +1,11 @@
 import { appError } from "@/lib/server/appApi/envelope";
 import { DEMO_COMPANY_ID } from "@/lib/server/repositories/runtime";
+import { getServiceRepositories } from "@/lib/server/serviceData";
+import {
+  CompanyAccessForbiddenError,
+  resolveCompanyAccessFromRecords,
+  type CompanyAccessPermission,
+} from "./companyAccessPolicy";
 import { verifyAppJwt } from "./appTokens";
 
 export interface AppSession {
@@ -58,10 +64,29 @@ export async function requireAppSession(request: Request): Promise<AppSession> {
 export async function requireAppCompanyAccess(
   request: Request,
   companyId = DEMO_COMPANY_ID,
+  options: { permission?: CompanyAccessPermission } = {},
 ): Promise<AppCompanyAccess> {
   const session = await requireAppSession(request);
-  return {
+  if (session.mode === "demo") {
+    if (companyId !== DEMO_COMPANY_ID) throw new CompanyAccessForbiddenError();
+    return {
+      companyId: DEMO_COMPANY_ID,
+      userId: session.user.id,
+      deviceId: session.deviceId,
+      mode: session.mode,
+    };
+  }
+
+  const companies = await getServiceRepositories().companies.listUserCompanies(session.user.id);
+  const access = resolveCompanyAccessFromRecords({
+    companies,
+    userId: session.user.id,
+    mode: session.mode,
     companyId,
+    ...(options.permission ? { permission: options.permission } : {}),
+  });
+  return {
+    companyId: access.companyId,
     userId: session.user.id,
     deviceId: session.deviceId,
     mode: session.mode,

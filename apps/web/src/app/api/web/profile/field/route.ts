@@ -20,7 +20,7 @@ interface ProfileFieldResult {
 
 export async function POST(request: Request) {
   try {
-    const [access, body] = await Promise.all([requireCompanyAccess(), readBody(request)]);
+    const [access, body] = await Promise.all([requireCompanyAccess({ permission: "write" }), readBody(request)]);
     if (!body.field) {
       return NextResponse.json<ActionResult<ProfileFieldResult>>({
         ok: false,

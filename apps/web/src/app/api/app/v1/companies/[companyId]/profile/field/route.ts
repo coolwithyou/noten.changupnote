@@ -20,7 +20,7 @@ interface ProfileFieldRequest {
 export async function POST(request: Request, context: RouteContext) {
   try {
     const [{ companyId }, body] = await Promise.all([context.params, readBody(request)]);
-    const access = await requireAppCompanyAccess(request, companyId);
+    const access = await requireAppCompanyAccess(request, companyId, { permission: "write" });
     if (!body.field) {
       return appError("invalid_profile_field", "field가 필요합니다.", 400, "field");
     }

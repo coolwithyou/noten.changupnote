@@ -115,6 +115,7 @@ export async function loadServiceDashboard(options: {
 export async function loadServiceApplySheet(
   grantIdSegment: string,
   options: {
+    companyId?: string;
     limit?: number;
     asOf?: Date;
   } = {},
@@ -122,7 +123,7 @@ export async function loadServiceApplySheet(
   const asOf = options.asOf ?? new Date();
   const grantId = decodeGrantIdSegment(grantIdSegment);
   const [company, grants] = await Promise.all([
-    repositories.companies.getDefaultCompanyProfile(),
+    resolveDashboardCompany(options.companyId),
     repositories.grants.findGrantById(grantId, { asOf, limit: options.limit ?? 80 }),
   ]);
   if (!grants) return null;

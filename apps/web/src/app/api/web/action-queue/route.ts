@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireCompanyAccess();
-    const dashboard = await loadServiceDashboard({ limit: 40 });
+    const access = await requireCompanyAccess();
+    const dashboard = await loadServiceDashboard({ companyId: access.companyId, limit: 40 });
     return NextResponse.json<ActionResult<ActionQueueItem[]>>({
       ok: true,
       data: dashboard.actionQueue,
