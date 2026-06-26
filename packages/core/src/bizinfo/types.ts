@@ -56,3 +56,40 @@ export interface BizInfoFetchOptions {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
 }
+
+export interface BizInfoAttachmentMarkdown {
+  filename: string;
+  markdown: string;
+  source_uri?: string;
+}
+
+export interface BizInfoExtractionBlock {
+  label: string;
+  source: "api_field" | "attachment_markdown";
+  source_field?: keyof BizInfoProgram;
+  filename?: string;
+  text: string;
+}
+
+export interface BizInfoProgramExtractionInput {
+  source: "bizinfo";
+  source_id: string;
+  title: string;
+  url: string | null;
+  metadata: {
+    target: string | null;
+    jurisdiction_agency: string | null;
+    operating_agency: string | null;
+    category_l1: string | null;
+    category_l2: string | null;
+    apply_period: string | null;
+    application_method: string | null;
+    hashtags: string[];
+    attachments: Array<{
+      filename: string;
+      url: string | null;
+    }>;
+  };
+  blocks: BizInfoExtractionBlock[];
+  text: string;
+}

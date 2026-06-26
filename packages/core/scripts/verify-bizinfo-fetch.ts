@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
-import { assertBizInfoApiResponse, buildBizInfoUrl } from "../src/index.js";
+import { readFileSync } from "node:fs";
+import {
+  assertBizInfoApiResponse,
+  buildBizInfoProgramExtractionInput,
+  buildBizInfoUrl,
+  htmlToText,
+  normalizeBizInfoUrl,
+} from "../src/index.js";
 
 const url = buildBizInfoUrl("https://example.test/uss/rss/bizinfoApi.do", "abc/def==");
 assert.equal(
@@ -27,4 +34,44 @@ assert.throws(
   /missing eventInfoId/,
 );
 
-console.log(JSON.stringify({ ok: true, checked: ["program", "event"] }, null, 2));
+const cleaned = htmlToText("<p>전남도 소재 <b>중소기업</b></p><ul><li>로봇 제조</li></ul>");
+assert.match(cleaned, /전남도 소재 중소기업/);
+assert.match(cleaned, /로봇 제조/);
+assert.equal(
+  normalizeBizInfoUrl("/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1"),
+  "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1",
+);
+
+const sampleAttachment = readFileSync("samples/bizinfo_hwp_converted.md", "utf8");
+const extractionInput = buildBizInfoProgramExtractionInput({
+  pblancId: "PBLN_SAMPLE",
+  pblancNm: "2026년도 SaaS 전환ㆍ개발 컨설팅 2차 수요기업 모집",
+  trgetNm: "중소기업",
+  jrsdInsttNm: "과학기술정보통신부",
+  excInsttNm: "정보통신산업진흥원",
+  pldirSportRealmLclasCodeNm: "기술",
+  pldirSportRealmMlsfcCodeNm: "컨설팅",
+  reqstBeginEndDe: "2026-06-23 ~ 2026-07-20",
+  reqstMthPapersCn: "이메일 접수",
+  bsnsSumryCn: "<p>기존 구축형 AI SW서비스를 SaaS로 전환 및 개발하고자 하는 기업</p>",
+  hashtags: "SaaS,AI,SW",
+  fileNm: "모집공고.hwp",
+  flpthNm: "/file/download.do?id=sample",
+  pblancUrl: "/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_SAMPLE",
+}, {
+  attachmentMarkdowns: [{ filename: "bizinfo_hwp_converted.md", markdown: sampleAttachment }],
+});
+
+assert.equal(extractionInput.source, "bizinfo");
+assert.equal(extractionInput.metadata.hashtags.length, 3);
+assert.equal(extractionInput.metadata.attachments[0]?.filename, "모집공고.hwp");
+assert.ok(extractionInput.blocks.some((block) => block.source === "attachment_markdown"));
+assert.match(extractionInput.text, /source_field: bsnsSumryCn/);
+assert.match(extractionInput.text, /모집대상/);
+assert.match(extractionInput.text, /재무제표/);
+
+console.log(JSON.stringify({
+  ok: true,
+  checked: ["program", "event", "extraction_input"],
+  extraction_input_length: extractionInput.text.length,
+}, null, 2));

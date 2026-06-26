@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
     "fetch:kstartup": "tsx packages/core/scripts/fetch-kstartup-live.ts",
+    "prepare:bizinfo": "tsx packages/core/scripts/prepare-bizinfo-extract-input.ts",
     "verify:bizinfo": "tsx packages/core/scripts/verify-bizinfo-fetch.ts",
     "verify:kstartup": "tsx packages/core/scripts/verify-kstartup-slice.ts",
     "test": "pnpm typecheck && pnpm verify:kstartup && pnpm verify:bizinfo"
