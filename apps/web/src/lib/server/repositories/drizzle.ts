@@ -1,6 +1,7 @@
 import { and, desc, eq, or } from "drizzle-orm";
 import type {
   CompanyProfile,
+  CriterionDimension,
   Grant,
   GrantCriterion,
   GrantRaw,
@@ -107,11 +108,14 @@ class DrizzleCompanyRepository implements CompanyRepository {
     return profile;
   }
 
-  async resolveCompanyProfile(input: { companyId?: string } = {}): Promise<CompanyProfile | null> {
+  async resolveCompanyProfile(input: {
+    companyId?: string;
+    bizNo?: string;
+  } = {}): Promise<CompanyProfile | null> {
     const companyRows = await this.db.client
       .select()
       .from(schema.companies)
-      .where(input.companyId ? eq(schema.companies.id, input.companyId) : undefined)
+      .where(companyWhere(input))
       .limit(1);
     const company = companyRows[0];
     if (!company) return null;
@@ -124,8 +128,29 @@ class DrizzleCompanyRepository implements CompanyRepository {
     return toCompanyProfile(company, profileRows);
   }
 
-  async saveCompanyProfile(_input: SaveCompanyProfileInput): Promise<CompanyProfile> {
-    return _input.profile;
+  async saveCompanyProfile(input: SaveCompanyProfileInput): Promise<CompanyProfile> {
+    const now = new Date();
+    const rows = companyProfileRows(input.companyId, input.profile, now);
+    const [company, profileRows] = await this.db.client.transaction(async (tx) => {
+      const kind: "active" | "preliminary" = input.profile.is_preliminary ? "preliminary" : "active";
+      const [updatedCompany] = await tx
+        .update(schema.companies)
+        .set({
+          kind,
+          name: input.profile.name ?? null,
+        })
+        .where(eq(schema.companies.id, input.companyId))
+        .returning();
+      if (!updatedCompany) throw new Error("회사를 찾지 못했습니다.");
+
+      await tx.delete(schema.companyProfiles).where(eq(schema.companyProfiles.companyId, input.companyId));
+      const savedRows = rows.length > 0
+        ? await tx.insert(schema.companyProfiles).values(rows).returning()
+        : [];
+      return [updatedCompany, savedRows] as const;
+    });
+
+    return toCompanyProfile(company, profileRows);
   }
 
   async listUserCompanies(userId: string): Promise<CompanyRecord[]> {
@@ -214,6 +239,7 @@ type GrantCriteriaRow = typeof schema.grantCriteria.$inferSelect;
 type GrantRawRow = typeof schema.grantRaw.$inferSelect;
 type CompanyRow = typeof schema.companies.$inferSelect;
 type CompanyProfileRow = typeof schema.companyProfiles.$inferSelect;
+type CompanyProfileInsert = typeof schema.companyProfiles.$inferInsert;
 
 function hydrateGrants<TPayload>(
   rows: Array<{
@@ -367,6 +393,74 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
   }
 
   return profile;
+}
+
+function companyWhere(input: { companyId?: string; bizNo?: string }) {
+  if (input.companyId) return eq(schema.companies.id, input.companyId);
+  if (input.bizNo) return eq(schema.companies.bizNo, input.bizNo);
+  return undefined;
+}
+
+function companyProfileRows(
+  companyId: string,
+  profile: CompanyProfile,
+  now: Date,
+): CompanyProfileInsert[] {
+  const rows: CompanyProfileInsert[] = [];
+  const push = (dimension: CriterionDimension, value: Record<string, unknown>) => {
+    rows.push({
+      companyId,
+      dimension,
+      value,
+      source: "self_declared",
+      confidence: profileConfidence(profile, dimension),
+      asOf: now,
+      updatedAt: now,
+    });
+  };
+
+  if (profile.region?.code) {
+    const value: Record<string, unknown> = { code: profile.region.code };
+    if (profile.region.label) value.label = profile.region.label;
+    push("region", value);
+  }
+  if (profile.biz_age_months !== null && profile.biz_age_months !== undefined) {
+    push("biz_age", { biz_age_months: profile.biz_age_months, months: profile.biz_age_months });
+  }
+  if (profile.founder_age !== null && profile.founder_age !== undefined) {
+    push("founder_age", { founder_age: profile.founder_age, age: profile.founder_age });
+  }
+  if (profile.industries?.length) {
+    push("industry", { industries: profile.industries, tags: profile.industries });
+  }
+  if (profile.size) {
+    push("size", { size: profile.size, label: profile.size });
+  }
+  if (profile.traits?.length) {
+    push("founder_trait", { traits: profile.traits });
+  }
+  if (profile.certs?.length) {
+    push("certification", { certs: profile.certs, certifications: profile.certs });
+  }
+  if (profile.prior_awards?.length) {
+    push("prior_award", { prior_awards: profile.prior_awards, programs: profile.prior_awards });
+  }
+  if (profile.business_status) {
+    push("business_status", compactRecord(profile.business_status as Record<string, unknown>));
+  }
+
+  return rows;
+}
+
+function profileConfidence(profile: CompanyProfile, dimension: CriterionDimension): number {
+  const value = profile.confidence?.[dimension];
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.min(1, Math.max(0, value))
+    : 0.8;
+}
+
+function compactRecord(input: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
 }
 
 function parseGrantId(value: string): { source: "kstartup" | "bizinfo" | "bizinfo_event"; sourceId: string } | null {
