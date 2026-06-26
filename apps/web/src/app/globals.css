@@ -25,7 +25,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -1133,6 +1134,94 @@ button:disabled {
   font-size: 13px;
   font-weight: 800;
   text-decoration: none;
+}
+
+.opportunity-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.match-filter-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.match-filter-group button,
+.match-reset-button,
+.match-load-more {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.match-filter-group button.active {
+  border-color: rgba(33, 92, 168, 0.45);
+  background: rgba(33, 92, 168, 0.09);
+  color: var(--blue);
+}
+
+.match-sort-control {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.match-sort-control select {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  padding: 0 30px 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.opportunity-result-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: -2px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.match-list-status {
+  margin: -4px 0 12px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.match-list-status.error {
+  color: var(--red);
+}
+
+.match-load-more-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+.match-load-more {
+  min-width: 120px;
 }
 
 .opportunity-lanes {

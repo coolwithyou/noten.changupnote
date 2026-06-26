@@ -293,6 +293,8 @@ checks.push("web_action_queue_enrich");
 const dashboardHtml = await fetchText("/dashboard");
 expectStatus(dashboardHtml, 200, "web dashboard html status");
 expect(dashboardHtml.body.includes("match-feedback-controls"), "web dashboard renders match feedback controls");
+expect(dashboardHtml.body.includes("opportunity-controls"), "web dashboard renders match filter controls");
+expect(dashboardHtml.body.includes("id=\"match-sort\""), "web dashboard renders match sort control");
 expect(dashboardHtml.body.includes("action-cta"), "web dashboard renders action queue cta");
 expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard renders next question anchor");
 expect(dashboardHtml.body.includes("id=\"company-settings\""), "web dashboard renders company settings anchor");
