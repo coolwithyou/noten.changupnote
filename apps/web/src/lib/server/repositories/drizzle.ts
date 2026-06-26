@@ -198,8 +198,49 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     }));
   }
 
-  async saveMatchState(): Promise<void> {
-    throw notWired(this.db, "MatchRepository.saveMatchState");
+  async saveMatchState(input: {
+    companyId: string;
+    grantId: string;
+    match: MatchResult;
+  }): Promise<void> {
+    const grantId = await this.resolveGrantRowId(input.grantId);
+    if (!grantId) throw new Error("공고를 찾지 못했습니다.");
+
+    await this.db.client
+      .insert(schema.matchState)
+      .values({
+        companyId: input.companyId,
+        grantId,
+        eligibility: input.match.eligibility,
+        matchScore: Math.round(input.match.fit_score),
+        fitScore: Math.round(input.match.fit_score),
+        competitiveness: null,
+        valueScore: null,
+        ruleTrace: input.match.rule_trace as unknown as Array<Record<string, unknown>>,
+        matchConfidence: matchConfidence(input.match),
+        eligibleFrom: null,
+        eligibleUntil: null,
+        rulesetVer: input.match.ruleset_ver,
+        scoringVer: input.match.scoring_ver,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [schema.matchState.companyId, schema.matchState.grantId],
+        set: {
+          eligibility: input.match.eligibility,
+          matchScore: Math.round(input.match.fit_score),
+          fitScore: Math.round(input.match.fit_score),
+          competitiveness: null,
+          valueScore: null,
+          ruleTrace: input.match.rule_trace as unknown as Array<Record<string, unknown>>,
+          matchConfidence: matchConfidence(input.match),
+          eligibleFrom: null,
+          eligibleUntil: null,
+          rulesetVer: input.match.ruleset_ver,
+          scoringVer: input.match.scoring_ver,
+          updatedAt: new Date(),
+        },
+      });
   }
 
   async saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt> {
@@ -263,10 +304,6 @@ class DrizzleFeedbackRepository implements FeedbackRepository {
       receivedAt: row.ts.toISOString(),
     };
   }
-}
-
-function notWired(db: DrizzleDatabaseClient, method: string): Error {
-  return new Error(`${method} is not wired to the ${db.dialect} adapter yet.`);
 }
 
 type GrantRow = typeof schema.grants.$inferSelect;
@@ -496,6 +533,13 @@ function profileConfidence(profile: CompanyProfile, dimension: CriterionDimensio
 
 function compactRecord(input: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+}
+
+function matchConfidence(match: MatchResult): number {
+  if (match.rule_trace.length === 0) return 0;
+  const unknownCount = match.rule_trace.filter((trace) => trace.result === "unknown").length;
+  const ratio = 1 - unknownCount / match.rule_trace.length;
+  return Math.round(Math.max(0.3, ratio) * 100) / 100;
 }
 
 function parseGrantId(value: string): { source: "kstartup" | "bizinfo" | "bizinfo_event"; sourceId: string } | null {
