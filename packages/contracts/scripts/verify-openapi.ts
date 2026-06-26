@@ -1,11 +1,13 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
+import { fileURLToPath } from "node:url";
 import { appV1OpenApi, appV1OpenApiRoutePaths } from "../src/openapi.js";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "options", "head"] as const;
 const ROUTE_METHOD_PATTERN = /\bexport\s+(?:async\s+)?function\s+(GET|PUT|POST|DELETE|PATCH|OPTIONS|HEAD)\b/g;
+const GENERATED_OPENAPI_PATH = "packages/contracts/generated/app-v1.openapi.json";
 
-const workspaceRoot = process.cwd();
+const workspaceRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const appRouteRoot = resolve(workspaceRoot, "apps/web/src/app");
 const appV1RouteRoot = resolve(appRouteRoot, "api/app/v1");
 
@@ -72,6 +74,7 @@ for (const [routePath, pathItemValue] of Object.entries(openApiPathItems)) {
 
 verifyMatchQueryParameters(errors);
 verifyServiceDtoSchemas(errors);
+verifyGeneratedOpenApi(errors);
 
 if (errors.length > 0) {
   console.error("OpenAPI contract verification failed:");
@@ -466,4 +469,18 @@ function schemaEnum(parameter: Record<string, unknown> | undefined): string[] {
 function schemaType(parameter: Record<string, unknown> | undefined): string | null {
   if (!parameter || !isRecord(parameter.schema)) return null;
   return typeof parameter.schema.type === "string" ? parameter.schema.type : null;
+}
+
+function verifyGeneratedOpenApi(errors: string[]) {
+  const generatedPath = resolve(workspaceRoot, GENERATED_OPENAPI_PATH);
+  if (!existsSync(generatedPath)) {
+    errors.push(`${GENERATED_OPENAPI_PATH} is missing. Run pnpm openapi:export.`);
+    return;
+  }
+
+  const expected = `${JSON.stringify(appV1OpenApi, null, 2)}\n`;
+  const actual = readFileSync(generatedPath, "utf8");
+  if (actual !== expected) {
+    errors.push(`${GENERATED_OPENAPI_PATH} is out of sync. Run pnpm openapi:export.`);
+  }
 }

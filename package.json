@@ -20,6 +20,7 @@
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
     "fetch:kstartup": "tsx packages/core/scripts/fetch-kstartup-live.ts",
     "match:live": "tsx packages/core/scripts/match-live-company.ts",
+    "openapi:export": "pnpm --filter @cunote/contracts export:openapi",
     "publish:bizinfo": "tsx apps/web/src/lib/server/ingestion/publish-bizinfo.ts",
     "publish:kstartup": "tsx apps/web/src/lib/server/ingestion/publish-kstartup.ts",
     "prepare:bizinfo": "tsx packages/core/scripts/prepare-bizinfo-extract-input.ts",

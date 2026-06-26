@@ -1,0 +1,3717 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Changup Note App API",
+    "version": "1.0.0",
+    "description": "Versioned mobile API contract owned by cunote-web. Flutter clients should generate code from this document."
+  },
+  "servers": [
+    {
+      "url": "https://dev.changupnote.com",
+      "description": "Development tunnel"
+    },
+    {
+      "url": "http://127.0.0.1:4010",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    {
+      "name": "System"
+    },
+    {
+      "name": "Auth"
+    },
+    {
+      "name": "Discovery"
+    },
+    {
+      "name": "Companies"
+    },
+    {
+      "name": "Consents"
+    },
+    {
+      "name": "Grants"
+    },
+    {
+      "name": "Matches"
+    },
+    {
+      "name": "Devices"
+    },
+    {
+      "name": "Notifications"
+    }
+  ],
+  "paths": {
+    "/api/app/v1/openapi.json": {
+      "get": {
+        "tags": [
+          "System"
+        ],
+        "operationId": "getAppV1OpenApi",
+        "summary": "Fetch the app v1 OpenAPI contract.",
+        "responses": {
+          "200": {
+            "description": "OpenAPI contract.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/app/v1/stats": {
+      "get": {
+        "tags": [
+          "Discovery"
+        ],
+        "operationId": "getAppStats",
+        "summary": "Fetch public grant aggregate statistics.",
+        "responses": {
+          "200": {
+            "description": "Current public aggregate statistics.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatsEnvelope"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/teaser": {
+      "post": {
+        "tags": [
+          "Discovery"
+        ],
+        "operationId": "createAppTeaser",
+        "summary": "Create an anonymous first-pass match teaser.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeaserRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Anonymous teaser result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeaserEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "loginAppUser",
+        "summary": "Exchange email credentials for app access and refresh tokens.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Issued token pair.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppTokenEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "501": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/auth/refresh": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "refreshAppToken",
+        "summary": "Rotate a refresh token and issue a new app token pair.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Rotated token pair.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppTokenEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/auth/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "logoutAppUser",
+        "summary": "Revoke a refresh token or all tokens for the current device.",
+        "security": [
+          {
+            "appBearerAuth": []
+          },
+          {}
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LogoutRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Revocation result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/auth/{provider}": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "operationId": "exchangeAppOAuthCode",
+        "summary": "Exchange a native OAuth code for app tokens.",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "OAuth provider, for example google or kakao.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthCodeExchangeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Issued token pair.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppTokenEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "501": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies": {
+      "get": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "listAppCompanies",
+        "summary": "List companies available to the current app user.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Company list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "createAppCompany",
+        "summary": "Create or save the current user's company profile.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCompanyRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created company.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/action-queue": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "listAppCompanyActionQueue",
+        "summary": "Fetch ranked next actions for a company.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ranked action queue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionQueueEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/profile": {
+      "get": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "getAppCompanyProfile",
+        "summary": "Fetch a company profile.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Company profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyProfileEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/enrich": {
+      "post": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "enrichAppCompany",
+        "summary": "Enrich a company profile from a business registration number.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyEnrichmentRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Enriched company profile and non-PII provider facts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyEnrichmentEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "502": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/verify": {
+      "post": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "verifyAppCompanyOwnership",
+        "summary": "Verify company ownership with business-registration facts.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyVerificationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Verification result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyVerificationEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "501": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/consents": {
+      "get": {
+        "tags": [
+          "Consents"
+        ],
+        "operationId": "listAppCompanyConsents",
+        "summary": "List the current user's consent ledger entries for a company.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Consent list.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentListEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Consents"
+        ],
+        "operationId": "grantAppCompanyConsent",
+        "summary": "Grant or refresh consent for a company data scope.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentGrantRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Stored consent.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentGrantEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/consents/{scope}": {
+      "delete": {
+        "tags": [
+          "Consents"
+        ],
+        "operationId": "revokeAppCompanyConsent",
+        "summary": "Revoke consent for a company data scope.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "path",
+            "required": true,
+            "description": "Consent scope.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Revocation result.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentRevokeEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/profile/field": {
+      "post": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "updateAppCompanyProfileField",
+        "summary": "Persist a progressive profile-field answer.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileFieldUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated company profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyProfileEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/matches": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "listAppCompanyMatches",
+        "summary": "Fetch opportunity-map match cards for a company.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "description": "Optional eligibility or opportunity bucket filter.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "eligible",
+                "conditional",
+                "ineligible",
+                "now",
+                "soon",
+                "preparable"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "Optional match sort order.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "recommended",
+                "fit",
+                "deadline",
+                "amount"
+              ]
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "Opaque pagination cursor from the previous response meta.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Page size, 1 through 40.",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 40
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Match cards and counts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyMatchesEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/next-question": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "getAppCompanyNextQuestion",
+        "summary": "Fetch the highest-leverage progressive question.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Next question, or null when none is useful.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextQuestionEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/companies/{companyId}/roadmap": {
+      "get": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "listAppCompanyRoadmap",
+        "summary": "Fetch future opportunity roadmap nodes.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Roadmap nodes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoadmapEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/grants/{grantId}": {
+      "get": {
+        "tags": [
+          "Grants"
+        ],
+        "operationId": "getAppGrantApplySheet",
+        "summary": "Fetch an application-prep sheet for a grant.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "grantId",
+            "in": "path",
+            "required": true,
+            "description": "Grant id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "companyId",
+            "in": "query",
+            "required": false,
+            "description": "Optional company id. When omitted, the first accessible company is used.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Application-prep sheet.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApplySheetEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/matches/{companyId}/{grantId}/feedback": {
+      "post": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "submitAppMatchFeedback",
+        "summary": "Save user feedback for a grant match.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "grantId",
+            "in": "path",
+            "required": true,
+            "description": "Grant id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchFeedbackRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Feedback accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/matches/{companyId}/{grantId}/events": {
+      "post": {
+        "tags": [
+          "Matches"
+        ],
+        "operationId": "recordAppMatchEvent",
+        "summary": "Record an app interaction with a grant match.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "grantId",
+            "in": "path",
+            "required": true,
+            "description": "Grant id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MatchEventRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Event accepted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchEventEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/notifications/settings": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "operationId": "getAppNotificationSettings",
+        "summary": "Fetch notification settings.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Notifications"
+        ],
+        "operationId": "updateAppNotificationSettings",
+        "summary": "Update notification settings.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationSettings"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Notification settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationSettingsEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/devices": {
+      "post": {
+        "tags": [
+          "Devices"
+        ],
+        "operationId": "registerAppDevice",
+        "summary": "Register the current mobile device for push delivery.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceRegistrationRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Registered device.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
+    "/api/app/v1/devices/{deviceId}": {
+      "delete": {
+        "tags": [
+          "Devices"
+        ],
+        "operationId": "deleteAppDevice",
+        "summary": "Delete a registered mobile device.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "description": "Device id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted device.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteDeviceEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "appBearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "responses": {
+      "AppError": {
+        "description": "App API error envelope.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "type": "object",
+              "required": [
+                "data"
+              ],
+              "properties": {
+                "data": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": true
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "meta": {
+                  "$ref": "#/components/schemas/ApiMeta"
+                },
+                "error": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              },
+              "additionalProperties": false
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApiMeta": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "rulesetVer": {
+            "type": "string"
+          },
+          "scoringVer": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StatsResult": {
+        "type": "object",
+        "required": [
+          "openCount",
+          "totalAmount",
+          "deadlineSoonCount",
+          "updatedAt"
+        ],
+        "properties": {
+          "openCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalAmount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deadlineSoonCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "StatsEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StatsResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TeaserRequest": {
+        "type": "object",
+        "properties": {
+          "bizNo": {
+            "type": "string"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/CompanyProfile"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TeaserResult": {
+        "type": "object",
+        "required": [
+          "attributes",
+          "estimatedMaxAmount",
+          "conditionalUpside",
+          "counts",
+          "matches",
+          "privacyNote"
+        ],
+        "properties": {
+          "attributes": {
+            "$ref": "#/components/schemas/TeaserAttributes"
+          },
+          "estimatedMaxAmount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conditionalUpside": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "counts": {
+            "$ref": "#/components/schemas/EligibilityCounts"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchCard"
+            }
+          },
+          "privacyNote": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TeaserEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/TeaserResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TeaserAttributes": {
+        "type": "object",
+        "required": [
+          "region",
+          "size",
+          "bizAgeMonths",
+          "industry"
+        ],
+        "properties": {
+          "region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bizAgeMonths": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "industry": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "EligibilityCounts": {
+        "type": "object",
+        "required": [
+          "eligible",
+          "conditional",
+          "ineligible",
+          "deadlineSoon"
+        ],
+        "properties": {
+          "eligible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conditional": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ineligible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "deadlineSoon": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "SupportAmount": {
+        "type": "object",
+        "required": [
+          "unit",
+          "per"
+        ],
+        "properties": {
+          "min": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "KRW"
+            ]
+          },
+          "per": {
+            "type": "string",
+            "enum": [
+              "기업",
+              "건"
+            ]
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchCard": {
+        "type": "object",
+        "required": [
+          "grantId",
+          "source",
+          "sourceId",
+          "title",
+          "agency",
+          "status",
+          "eligibility",
+          "bucket",
+          "fitScore",
+          "supportAmount",
+          "applyEnd",
+          "dDay",
+          "ruleTrace",
+          "matchConfidence",
+          "rulesetVer",
+          "scoringVer"
+        ],
+        "properties": {
+          "grantId": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "kstartup",
+              "bizinfo",
+              "bizinfo_event"
+            ]
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "agency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "upcoming",
+              "open",
+              "closed",
+              "unknown"
+            ]
+          },
+          "eligibility": {
+            "type": "string",
+            "enum": [
+              "eligible",
+              "conditional",
+              "ineligible"
+            ]
+          },
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "now",
+              "soon",
+              "preparable",
+              "conditional"
+            ]
+          },
+          "fitScore": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "competitiveness": {
+            "$ref": "#/components/schemas/EstimatedNumber"
+          },
+          "value": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "supportAmount": {
+            "$ref": "#/components/schemas/SupportAmount"
+          },
+          "applyEnd": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dDay": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ruleTrace": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleTraceChip"
+            }
+          },
+          "matchConfidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "rulesetVer": {
+            "type": "string"
+          },
+          "scoringVer": {
+            "type": "string"
+          },
+          "detailUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "EstimatedNumber": {
+        "type": "object",
+        "required": [
+          "value",
+          "estimated"
+        ],
+        "properties": {
+          "value": {
+            "type": "number"
+          },
+          "estimated": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleTraceChip": {
+        "type": "object",
+        "required": [
+          "dimension",
+          "kind",
+          "result",
+          "label",
+          "checklistSection"
+        ],
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "region",
+              "biz_age",
+              "industry",
+              "size",
+              "revenue",
+              "employees",
+              "founder_age",
+              "founder_trait",
+              "certification",
+              "prior_award",
+              "ip",
+              "target_type",
+              "business_status",
+              "other"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "required",
+              "preferred",
+              "exclusion"
+            ]
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "fail",
+              "unknown",
+              "text_only"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "companyValue": {
+            "type": "string"
+          },
+          "sourceSpan": {
+            "type": "string"
+          },
+          "checklistSection": {
+            "type": "string",
+            "enum": [
+              "satisfied",
+              "needs_check",
+              "document",
+              "preferred_miss"
+            ]
+          },
+          "action": {
+            "$ref": "#/components/schemas/RuleTraceAction"
+          },
+          "unlock": {
+            "$ref": "#/components/schemas/RuleTraceUnlock"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleTraceAction": {
+        "type": "object",
+        "required": [
+          "type",
+          "target",
+          "label"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "progressive",
+              "external_link",
+              "apply",
+              "prepare",
+              "verify"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RuleTraceUnlock": {
+        "type": "object",
+        "required": [
+          "kind",
+          "detail"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "time",
+              "attribute"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "etaDate": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoadmapNode": {
+        "type": "object",
+        "required": [
+          "bucket",
+          "grantId",
+          "title"
+        ],
+        "properties": {
+          "bucket": {
+            "type": "string",
+            "enum": [
+              "now",
+              "soon",
+              "preparable",
+              "conditional"
+            ]
+          },
+          "grantId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "unlock": {
+            "$ref": "#/components/schemas/RoadmapUnlock"
+          },
+          "deltaCount": {
+            "type": "integer"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoadmapUnlock": {
+        "type": "object",
+        "required": [
+          "dimension",
+          "kind",
+          "detail"
+        ],
+        "properties": {
+          "dimension": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "time",
+              "attribute"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "etaDate": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NextQuestion": {
+        "type": "object",
+        "required": [
+          "dimension",
+          "prompt",
+          "inputType",
+          "framing",
+          "affectedGrantCount"
+        ],
+        "properties": {
+          "dimension": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "inputType": {
+            "type": "string",
+            "enum": [
+              "number",
+              "select",
+              "boolean",
+              "text"
+            ]
+          },
+          "options": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "framing": {
+            "type": "string"
+          },
+          "affectedGrantCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ActionQueueItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "reason",
+          "ctaLabel",
+          "target",
+          "affectedGrantIds",
+          "affectedGrantCount",
+          "leverageAmount",
+          "urgency",
+          "effort",
+          "score"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "input",
+              "acquire",
+              "apply",
+              "enrich",
+              "review"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "ctaLabel": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "affectedGrantIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "affectedGrantCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "leverageAmount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "urgency": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "effort": {
+            "type": "string",
+            "enum": [
+              "quick",
+              "medium",
+              "long"
+            ]
+          },
+          "score": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ActionQueueResult": {
+        "type": "object",
+        "required": [
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActionQueueItem"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "GrantDetail": {
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "sourceId",
+          "title",
+          "agency",
+          "supportAmount",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "kstartup",
+              "bizinfo",
+              "bizinfo_event"
+            ]
+          },
+          "sourceId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "agency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supportAmount": {
+            "$ref": "#/components/schemas/SupportAmount"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "upcoming",
+              "open",
+              "closed",
+              "unknown"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "RequiredDocument": {
+        "type": "object",
+        "required": [
+          "name",
+          "required",
+          "source"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "self",
+              "portal",
+              "cert"
+            ]
+          },
+          "alreadyHave": {
+            "type": "boolean"
+          },
+          "fromTextOnly": {
+            "type": "boolean"
+          },
+          "sourceSpan": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplySheet": {
+        "type": "object",
+        "required": [
+          "grant",
+          "satisfied",
+          "needsCheck",
+          "documents",
+          "applyMethod",
+          "deepLink",
+          "schedule"
+        ],
+        "properties": {
+          "grant": {
+            "$ref": "#/components/schemas/GrantDetail"
+          },
+          "satisfied": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleTraceChip"
+            }
+          },
+          "needsCheck": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RuleTraceChip"
+            }
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            }
+          },
+          "applyMethod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deepLink": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/ApplySchedule"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplySchedule": {
+        "type": "object",
+        "required": [
+          "applyStart",
+          "applyEnd",
+          "dDay"
+        ],
+        "properties": {
+          "applyStart": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "applyEnd": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "dDay": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyProfile": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "region": {
+            "$ref": "#/components/schemas/CompanyRegion"
+          },
+          "biz_age_months": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "founder_age": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "is_preliminary": {
+            "type": "boolean"
+          },
+          "industries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "size": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "revenue_krw": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "employees_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "traits": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "certs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "prior_awards": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ip": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "target_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "other_conditions": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "business_status": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "confidence": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "CompanyRegion": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyEnrichmentRequest": {
+        "type": "object",
+        "required": [
+          "bizNo"
+        ],
+        "properties": {
+          "bizNo": {
+            "type": "string",
+            "minLength": 10
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyVerificationRequest": {
+        "type": "object",
+        "required": [
+          "bizNo"
+        ],
+        "properties": {
+          "bizNo": {
+            "type": "string",
+            "minLength": 10
+          },
+          "ownerName": {
+            "type": "string"
+          },
+          "openedOn": {
+            "type": "string",
+            "format": "date"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyVerificationResult": {
+        "type": "object",
+        "required": [
+          "companyId",
+          "bizNoMasked",
+          "verified",
+          "verifiedAt",
+          "verifyMethod"
+        ],
+        "properties": {
+          "companyId": {
+            "type": "string"
+          },
+          "bizNoMasked": {
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "verifyMethod": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyVerificationEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyVerificationResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyEnrichmentFacts": {
+        "type": "object",
+        "required": [
+          "maskedBizNo",
+          "result",
+          "resultMessage",
+          "checkedAt",
+          "hasCorpName",
+          "hasRegion",
+          "hasBizAge",
+          "hasSize",
+          "hasIndustry",
+          "closeDownState",
+          "closeDownTaxType"
+        ],
+        "properties": {
+          "maskedBizNo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resultMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "checkedAt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hasCorpName": {
+            "type": "boolean"
+          },
+          "hasRegion": {
+            "type": "boolean"
+          },
+          "hasBizAge": {
+            "type": "boolean"
+          },
+          "hasSize": {
+            "type": "boolean"
+          },
+          "hasIndustry": {
+            "type": "boolean"
+          },
+          "closeDownState": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "closeDownTaxType": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyEnrichmentResult": {
+        "type": "object",
+        "required": [
+          "profile",
+          "facts"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/CompanyProfile"
+          },
+          "facts": {
+            "$ref": "#/components/schemas/CompanyEnrichmentFacts"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyRecord": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "profile"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "profile": {
+            "$ref": "#/components/schemas/CompanyProfile"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member",
+              "viewer"
+            ]
+          },
+          "verified": {
+            "type": "boolean"
+          },
+          "verifiedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "verifyMethod": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bizNoMasked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateCompanyRequest": {
+        "type": "object",
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/CompanyProfile"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProfileFieldUpdateRequest": {
+        "type": "object",
+        "required": [
+          "field",
+          "value"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "region",
+              "biz_age",
+              "industry",
+              "size",
+              "revenue",
+              "employees",
+              "founder_age",
+              "founder_trait",
+              "certification",
+              "prior_award",
+              "ip",
+              "target_type",
+              "business_status",
+              "other"
+            ]
+          },
+          "value": {
+            "description": "Field-specific JSON value."
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyListResult": {
+        "type": "object",
+        "required": [
+          "companies"
+        ],
+        "properties": {
+          "companies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanyRecord"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyResult": {
+        "type": "object",
+        "required": [
+          "company"
+        ],
+        "properties": {
+          "company": {
+            "$ref": "#/components/schemas/CompanyRecord"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyProfileResult": {
+        "type": "object",
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/CompanyProfile"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyMatchesResult": {
+        "type": "object",
+        "required": [
+          "counts",
+          "matches"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/EligibilityCounts"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchCard"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoadmapResult": {
+        "type": "object",
+        "required": [
+          "roadmap"
+        ],
+        "properties": {
+          "roadmap": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoadmapNode"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "deviceId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OAuthCodeExchangeRequest": {
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "codeVerifier": {
+            "type": "string"
+          },
+          "redirectUri": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": [
+          "refreshToken"
+        ],
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LogoutRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          },
+          "allForDevice": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AppTokenResponse": {
+        "type": "object",
+        "required": [
+          "tokenType",
+          "accessToken",
+          "refreshToken",
+          "expiresIn",
+          "refreshExpiresAt",
+          "deviceId",
+          "user"
+        ],
+        "properties": {
+          "tokenType": {
+            "type": "string",
+            "enum": [
+              "Bearer"
+            ]
+          },
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refreshExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/AppTokenUser"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AppTokenUser": {
+        "type": "object",
+        "required": [
+          "id",
+          "email"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "email"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "LogoutResult": {
+        "type": "object",
+        "required": [
+          "revoked"
+        ],
+        "properties": {
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchFeedbackRequest": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "saved",
+              "dismissed",
+              "wrong",
+              "applied",
+              "note"
+            ]
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "FeedbackReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "receivedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FeedbackResult": {
+        "type": "object",
+        "required": [
+          "receipt"
+        ],
+        "properties": {
+          "receipt": {
+            "$ref": "#/components/schemas/FeedbackReceipt"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchEventRequest": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "surfaced",
+              "clicked",
+              "saved",
+              "apply_click"
+            ]
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "surfaced",
+              "clicked",
+              "saved",
+              "apply_click"
+            ],
+            "deprecated": true
+          },
+          "rulesetVer": {
+            "type": "string"
+          },
+          "payload": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchEventResult": {
+        "type": "object",
+        "required": [
+          "accepted",
+          "companyId",
+          "grantId",
+          "event",
+          "receipt"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          },
+          "companyId": {
+            "type": "string"
+          },
+          "grantId": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string",
+            "enum": [
+              "surfaced",
+              "clicked",
+              "saved",
+              "apply_click"
+            ]
+          },
+          "receipt": {
+            "$ref": "#/components/schemas/MatchEventReceipt"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchEventReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "acceptedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentRecord": {
+        "type": "object",
+        "required": [
+          "scope",
+          "purpose",
+          "grantedAt",
+          "revokedAt"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "basic_info",
+              "hometax",
+              "insurance"
+            ]
+          },
+          "purpose": {
+            "type": "string"
+          },
+          "grantedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentListResult": {
+        "type": "object",
+        "required": [
+          "companyId",
+          "consents"
+        ],
+        "properties": {
+          "companyId": {
+            "type": "string"
+          },
+          "consents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConsentRecord"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentGrantRequest": {
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "basic_info",
+              "hometax",
+              "insurance"
+            ]
+          },
+          "purpose": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentGrantResult": {
+        "type": "object",
+        "required": [
+          "consent"
+        ],
+        "properties": {
+          "consent": {
+            "$ref": "#/components/schemas/ConsentRecord"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentRevokeResult": {
+        "type": "object",
+        "required": [
+          "scope",
+          "revoked"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "basic_info",
+              "hometax",
+              "insurance"
+            ]
+          },
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationSettings": {
+        "type": "object",
+        "required": [
+          "deadlineReminder",
+          "newMatch",
+          "quietHoursStart",
+          "quietHoursEnd"
+        ],
+        "properties": {
+          "deadlineReminder": {
+            "type": "boolean"
+          },
+          "newMatch": {
+            "type": "boolean"
+          },
+          "quietHoursStart": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "quietHoursEnd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeviceRegistrationRequest": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "platform",
+          "pushToken"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "pushToken": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeviceResult": {
+        "type": "object",
+        "required": [
+          "deviceId",
+          "platform",
+          "registered"
+        ],
+        "properties": {
+          "deviceId": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "ios",
+              "android"
+            ]
+          },
+          "registered": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeleteDeviceResult": {
+        "type": "object",
+        "required": [
+          "deleted"
+        ],
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AppTokenEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AppTokenResponse"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LogoutEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LogoutResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyListResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyProfileEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyProfileResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyEnrichmentEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyEnrichmentResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyMatchesEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyMatchesResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ActionQueueEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActionQueueResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NextQuestionEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextQuestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RoadmapEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RoadmapResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplySheetEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApplySheet"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "FeedbackEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FeedbackResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchEventEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MatchEventResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentListEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ConsentListResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentGrantEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ConsentGrantResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsentRevokeEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ConsentRevokeResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationSettingsEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NotificationSettings"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeviceEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DeviceResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DeleteDeviceEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DeleteDeviceResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  }
+}
