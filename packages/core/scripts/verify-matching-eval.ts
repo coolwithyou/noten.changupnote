@@ -18,6 +18,14 @@ interface GoldenCase {
   note: string;
 }
 
+interface MatchingGoldenFixture {
+  goldenVer: string;
+  fixture: string;
+  asOf: string;
+  company: CompanyProfile;
+  cases: GoldenCase[];
+}
+
 interface EvalResult extends GoldenCase {
   actual: Eligibility;
   fitScore: number;
@@ -25,37 +33,13 @@ interface EvalResult extends GoldenCase {
 }
 
 const CLASSES: Eligibility[] = ["eligible", "conditional", "ineligible"];
-const asOf = new Date("2026-06-26T00:00:00.000+09:00");
+const goldenFixture = readMatchingGoldenFixture("packages/core/golden/matching/kstartup-sample-v1.json");
+const asOf = new Date(goldenFixture.asOf);
 const fixture = JSON.parse(
-  readFileSync("samples/kstartup_announcement_sample.json", "utf8"),
+  readFileSync(goldenFixture.fixture, "utf8"),
 ) as KStartupApiResponse;
-
-const company: CompanyProfile = {
-  id: "demo-company",
-  name: "(가칭)테크스타트",
-  region: { code: "41", label: "경기" },
-  biz_age_months: 26,
-  founder_age: 35,
-  is_preliminary: false,
-  industries: ["ICT", "SW"],
-  size: "중소",
-  confidence: {
-    region: 0.95,
-    biz_age: 0.9,
-    founder_age: 0.9,
-    industry: 0.65,
-    size: 0.65,
-  },
-};
-
-const goldenCases: GoldenCase[] = [
-  { sourceId: "178246", expected: "eligible", note: "경기 소재 7년 미만/예비 허용" },
-  { sourceId: "178223", expected: "eligible", note: "청년 창업자 연령 조건 충족" },
-  { sourceId: "178235", expected: "conditional", note: "업종 확인 필요" },
-  { sourceId: "178231", expected: "conditional", note: "규모/업종 확인 필요" },
-  { sourceId: "178245", expected: "ineligible", note: "수도권 제외" },
-  { sourceId: "178249", expected: "ineligible", note: "서울 대상" },
-];
+const company = goldenFixture.company;
+const goldenCases = goldenFixture.cases;
 
 const grants = normalizeKStartupPayload(fixture, { asOf, collectedAt: asOf });
 const bySourceId = new Map(grants.map((item) => [item.grant.source_id, item]));
@@ -89,10 +73,11 @@ console.log(JSON.stringify({
   ok: true,
   checked: [
     "matching_golden_cases",
+    "matching_golden_fixture",
     "matching_eval_accuracy",
     "matching_eval_class_recall",
   ],
-  goldenVer: "kstartup-sample-v1",
+  goldenVer: goldenFixture.goldenVer,
   cases: results.map((result) => ({
     sourceId: result.sourceId,
     expected: result.expected,
@@ -103,6 +88,23 @@ console.log(JSON.stringify({
   })),
   metrics,
 }, null, 2));
+
+function readMatchingGoldenFixture(path: string): MatchingGoldenFixture {
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<MatchingGoldenFixture>;
+  assert.equal(typeof parsed.goldenVer, "string", "golden fixture must include goldenVer");
+  assert.equal(typeof parsed.fixture, "string", "golden fixture must include fixture path");
+  assert.equal(typeof parsed.asOf, "string", "golden fixture must include asOf");
+  assert.ok(parsed.company && typeof parsed.company === "object", "golden fixture must include company");
+  assert.ok(Array.isArray(parsed.cases) && parsed.cases.length > 0, "golden fixture must include cases");
+
+  for (const entry of parsed.cases) {
+    assert.ok(entry.sourceId, "golden case must include sourceId");
+    assert.ok(CLASSES.includes(entry.expected), `golden case ${entry.sourceId} has invalid expected class`);
+    assert.ok(entry.note, `golden case ${entry.sourceId} must include note`);
+  }
+
+  return parsed as MatchingGoldenFixture;
+}
 
 function computeMetrics(results: EvalResult[]) {
   const correct = results.filter((result) => result.actual === result.expected).length;
