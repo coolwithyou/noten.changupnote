@@ -18,12 +18,14 @@
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
     "fetch:kstartup": "tsx packages/core/scripts/fetch-kstartup-live.ts",
     "match:live": "tsx packages/core/scripts/match-live-company.ts",
+    "publish:bizinfo": "tsx apps/web/src/lib/server/ingestion/publish-bizinfo.ts",
     "publish:kstartup": "tsx apps/web/src/lib/server/ingestion/publish-kstartup.ts",
     "prepare:bizinfo": "tsx packages/core/scripts/prepare-bizinfo-extract-input.ts",
     "convert:bizinfo-attachment": "tsx packages/core/scripts/convert-bizinfo-attachment-live.ts",
     "verify:company-profile": "tsx packages/core/scripts/verify-company-profile.ts",
     "verify:db-smoke-plan": "tsx apps/web/src/lib/server/db/smoke-drizzle-service.ts --dry-run",
     "verify:demo-seed": "tsx apps/web/src/lib/server/db/seed-demo.ts --dry-run",
+    "verify:bizinfo-publish": "tsx apps/web/src/lib/server/ingestion/verify-bizinfo-publish.ts",
     "verify:ingestion-publish": "tsx apps/web/src/lib/server/ingestion/verify-kstartup-publish.ts",
     "verify:grant-criteria-schema": "tsx packages/contracts/scripts/verify-grant-criteria-schema.ts",
     "verify:openapi": "tsx packages/contracts/scripts/verify-openapi.ts",
@@ -35,7 +37,7 @@
     "verify:rls-policy": "tsx packages/contracts/scripts/verify-rls-policy.ts",
     "verify:bizinfo": "tsx packages/core/scripts/verify-bizinfo-fetch.ts",
     "verify:kstartup": "tsx packages/core/scripts/verify-kstartup-slice.ts",
-    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:route-policy && pnpm verify:admin-routes && pnpm verify:package-boundaries && pnpm verify:company-access && pnpm verify:rls-context && pnpm verify:rls-policy && pnpm verify:kstartup && pnpm verify:demo-seed && pnpm verify:db-smoke-plan && pnpm verify:ingestion-publish && pnpm verify:bizinfo && pnpm verify:company-profile"
+    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:route-policy && pnpm verify:admin-routes && pnpm verify:package-boundaries && pnpm verify:company-access && pnpm verify:rls-context && pnpm verify:rls-policy && pnpm verify:kstartup && pnpm verify:demo-seed && pnpm verify:db-smoke-plan && pnpm verify:ingestion-publish && pnpm verify:bizinfo-publish && pnpm verify:bizinfo && pnpm verify:company-profile"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",
