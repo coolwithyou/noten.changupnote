@@ -7,6 +7,8 @@ export const SESSION_WEB_ROUTES = [
   "GET /dashboard",
   "GET /grants/[grantId]",
   "GET /api/web/dashboard",
+  "GET /api/web/companies",
+  "POST /api/web/companies/switch",
   "GET /api/web/matches",
   "GET /api/web/action-queue",
   "GET /api/web/next-question",

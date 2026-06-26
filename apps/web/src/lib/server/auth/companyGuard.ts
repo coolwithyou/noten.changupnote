@@ -7,6 +7,7 @@ import {
   type CompanyAccessPermission,
   type CompanyAccessResult,
 } from "./companyAccessPolicy";
+import { readSelectedCompanyId } from "./companySelection";
 
 export interface CompanyAccessOptions {
   companyId?: string;
@@ -16,18 +17,25 @@ export interface CompanyAccessOptions {
 export type CompanyAccess = CompanyAccessResult;
 
 export async function requireCompanyAccess(options: CompanyAccessOptions = {}): Promise<CompanyAccess> {
+  const selectedCompanyId = options.companyId ?? await readSelectedCompanyId();
+  const selectedFromCookie = !options.companyId && Boolean(selectedCompanyId);
   const session = await getOptionalWebSession();
   if (session) {
     if (isDefaultMockSession(session.user.id) && !isAuthEnforced()) {
-      return requireDemoCompanyAccess(session.user.id, options.companyId, options.permission);
+      return requireDemoCompanyAccess({
+        userId: session.user.id,
+        selectedFromCookie,
+        ...(selectedCompanyId ? { companyId: selectedCompanyId } : {}),
+        ...(options.permission ? { permission: options.permission } : {}),
+      });
     }
 
     const companies = await getServiceRepositories().companies.listUserCompanies(session.user.id);
-    return resolveCompanyAccessFromRecords({
+    return resolveCompanyAccessWithFallback({
       companies,
       userId: session.user.id,
-      mode: "session",
-      ...(options.companyId ? { companyId: options.companyId } : {}),
+      selectedFromCookie,
+      ...(selectedCompanyId ? { companyId: selectedCompanyId } : {}),
       ...(options.permission ? { permission: options.permission } : {}),
     });
   }
@@ -36,23 +44,56 @@ export async function requireCompanyAccess(options: CompanyAccessOptions = {}): 
     throw new AuthRequiredError();
   }
 
-  return requireDemoCompanyAccess("demo-user", options.companyId, options.permission);
+  return requireDemoCompanyAccess({
+    userId: "demo-user",
+    selectedFromCookie,
+    ...(selectedCompanyId ? { companyId: selectedCompanyId } : {}),
+    ...(options.permission ? { permission: options.permission } : {}),
+  });
 }
 
-function requireDemoCompanyAccess(
-  userId: string,
-  companyId = DEMO_COMPANY_ID,
-  permission: CompanyAccessPermission = "read",
-): CompanyAccess {
-  if (companyId !== DEMO_COMPANY_ID) {
+function requireDemoCompanyAccess(input: {
+  userId: string;
+  companyId?: string;
+  permission?: CompanyAccessPermission;
+  selectedFromCookie?: boolean;
+}): CompanyAccess {
+  const companyId = input.companyId ?? DEMO_COMPANY_ID;
+  if (companyId !== DEMO_COMPANY_ID && !input.selectedFromCookie) {
     throw new CompanyAccessForbiddenError();
   }
   return {
     companyId: DEMO_COMPANY_ID,
-    userId,
+    userId: input.userId,
     role: "owner",
     mode: "demo",
   };
+}
+
+function resolveCompanyAccessWithFallback(input: {
+  companies: Parameters<typeof resolveCompanyAccessFromRecords>[0]["companies"];
+  userId: string;
+  companyId?: string;
+  permission?: CompanyAccessPermission;
+  selectedFromCookie: boolean;
+}): CompanyAccess {
+  try {
+    return resolveCompanyAccessFromRecords({
+      companies: input.companies,
+      userId: input.userId,
+      mode: "session",
+      ...(input.companyId ? { companyId: input.companyId } : {}),
+      ...(input.permission ? { permission: input.permission } : {}),
+    });
+  } catch (error) {
+    if (!(error instanceof CompanyAccessForbiddenError) || !input.selectedFromCookie) throw error;
+    return resolveCompanyAccessFromRecords({
+      companies: input.companies,
+      userId: input.userId,
+      mode: "session",
+      ...(input.permission ? { permission: input.permission } : {}),
+    });
+  }
 }
 
 function isDefaultMockSession(userId: string): boolean {
