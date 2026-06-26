@@ -4,11 +4,18 @@ import {
   resolveCompanyAccessFromRecords,
 } from "./companyAccessPolicy";
 import { DEFAULT_MOCK_USER_ID } from "./mockIdentity";
+import { DEFAULT_DEMO_COMPANY_ID } from "../repositories/runtime";
 
 expectMatch(
   DEFAULT_MOCK_USER_ID,
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
   "default mock user id is uuid-compatible",
+);
+
+expectMatch(
+  DEFAULT_DEMO_COMPANY_ID,
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  "default demo company id is uuid-compatible",
 );
 
 const companies: CompanyRecord[] = [

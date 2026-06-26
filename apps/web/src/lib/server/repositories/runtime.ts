@@ -20,7 +20,12 @@ import type {
   SubmitFeedbackInput,
 } from "@cunote/core";
 
-export const DEMO_COMPANY_ID = "demo-company";
+export const DEFAULT_DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000101";
+export const DEMO_COMPANY_ID = DEFAULT_DEMO_COMPANY_ID;
+
+export function demoCompanyId(): string {
+  return process.env.CUNOTE_DEMO_COMPANY_ID ?? DEFAULT_DEMO_COMPANY_ID;
+}
 
 export interface RuntimeRepositoryLoaders<TPayload = unknown> {
   loadGrants(options?: GrantListOptions): Promise<Array<NormalizedGrant<TPayload>>>;
@@ -59,7 +64,7 @@ class RuntimeCompanyRepository implements CompanyRepository {
   }
 
   async resolveCompanyProfile(input: { companyId?: string; bizNo?: string } = {}) {
-    if (input.companyId && input.companyId !== DEMO_COMPANY_ID) return null;
+    if (input.companyId && input.companyId !== demoCompanyId()) return null;
     return this.loaders.loadCompanyProfile(input.bizNo);
   }
 
@@ -69,7 +74,7 @@ class RuntimeCompanyRepository implements CompanyRepository {
 
   async createCompany(input: CreateCompanyInput): Promise<CompanyRecord> {
     return {
-      id: DEMO_COMPANY_ID,
+      id: demoCompanyId(),
       name: input.profile.name ?? "샘플 기업",
       profile: input.profile,
       role: "owner",
@@ -79,7 +84,7 @@ class RuntimeCompanyRepository implements CompanyRepository {
   async listUserCompanies(_userId: string): Promise<CompanyRecord[]> {
     const profile = await this.loaders.loadCompanyProfile();
     return [{
-      id: DEMO_COMPANY_ID,
+      id: demoCompanyId(),
       name: profile.name ?? "샘플 기업",
       profile,
       role: "owner",

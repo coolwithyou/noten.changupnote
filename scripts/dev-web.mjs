@@ -1,9 +1,13 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
 const localUrl = "http://127.0.0.1:4010";
 const tunnelUrl = "https://dev.changupnote.com";
 const tunnelCommand =
   "cloudflared tunnel --config ~/.cloudflared/changupnote-dev.yml run";
+
+loadDevEnv();
 
 console.log(
   [
@@ -56,3 +60,33 @@ child.on("exit", (code, signal) => {
 
   process.exit(code ?? 0);
 });
+
+function loadDevEnv() {
+  const candidates = [
+    resolve(process.cwd(), ".env.local"),
+    resolve(process.cwd(), ".env"),
+    resolve(process.cwd(), "apps/web/.env.local"),
+    resolve(process.cwd(), "apps/web/.env"),
+  ];
+
+  for (const path of candidates) {
+    if (!existsSync(path)) continue;
+    const body = readFileSync(path, "utf8");
+    for (const line of body.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#") || !trimmed.includes("=")) continue;
+      const [rawKey, ...rest] = trimmed.split("=");
+      if (!rawKey) continue;
+      const key = rawKey.trim();
+      if (process.env[key] !== undefined) continue;
+      let value = rest.join("=").trim();
+      if (
+        (value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))
+      ) {
+        value = value.slice(1, -1);
+      }
+      process.env[key] = value;
+    }
+  }
+}

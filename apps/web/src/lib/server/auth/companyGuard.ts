@@ -1,6 +1,6 @@
 import { AuthRequiredError, getOptionalWebSession, isAuthEnforced } from "./session";
 import { getServiceRepositories } from "@/lib/server/serviceData";
-import { DEMO_COMPANY_ID } from "@/lib/server/repositories/runtime";
+import { demoCompanyId } from "@/lib/server/repositories/runtime";
 import {
   CompanyAccessForbiddenError,
   resolveCompanyAccessFromRecords,
@@ -59,12 +59,13 @@ function requireDemoCompanyAccess(input: {
   permission?: CompanyAccessPermission;
   selectedFromCookie?: boolean;
 }): CompanyAccess {
-  const companyId = input.companyId ?? DEMO_COMPANY_ID;
-  if (companyId !== DEMO_COMPANY_ID && !input.selectedFromCookie) {
+  const defaultCompanyId = demoCompanyId();
+  const companyId = input.companyId ?? defaultCompanyId;
+  if (companyId !== defaultCompanyId && !input.selectedFromCookie) {
     throw new CompanyAccessForbiddenError();
   }
   return {
-    companyId: DEMO_COMPANY_ID,
+    companyId: defaultCompanyId,
     userId: input.userId,
     role: "owner",
     mode: "demo",
