@@ -62,12 +62,56 @@ checks.push("web_teaser");
 const notifications = await fetchJson<ActionResult<{
   deadlineReminder: boolean;
   newMatch: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
 }>>("/api/web/notifications");
 expectStatus(notifications, 200, "web notifications status");
 expect(notifications.body.ok === true, "web notifications envelope ok");
 expect(typeof notifications.body.data?.deadlineReminder === "boolean", "web notifications deadlineReminder");
 expect(typeof notifications.body.data?.newMatch === "boolean", "web notifications newMatch");
 checks.push("web_notifications");
+
+const webNotificationUpdate = await fetchJson<ActionResult<{
+  deadlineReminder: boolean;
+  newMatch: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+}>>("/api/web/notifications", {
+  method: "PUT",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    deadlineReminder: true,
+    newMatch: false,
+    quietHoursStart: "23:00",
+    quietHoursEnd: "08:00",
+  }),
+});
+expectStatus(webNotificationUpdate, 200, "web notification update status");
+expect(webNotificationUpdate.body.ok === true, "web notification update envelope ok");
+expect(webNotificationUpdate.body.data?.newMatch === false, "web notification update newMatch");
+expect(webNotificationUpdate.body.data?.quietHoursEnd === "08:00", "web notification update quietHoursEnd");
+checks.push("web_notification_update");
+
+const webCompanies = await fetchJson<ActionResult<{
+  currentCompanyId: string;
+  companies: Array<{ id: string }>;
+}>>("/api/web/companies");
+expectStatus(webCompanies, 200, "web companies status");
+expect(webCompanies.body.ok === true, "web companies envelope ok");
+const webCompanyId = webCompanies.body.data?.currentCompanyId;
+expect(Boolean(webCompanyId), "web companies current company");
+expect(Boolean(webCompanies.body.data?.companies.find((company) => company.id === webCompanyId)), "web companies include current company");
+checks.push("web_companies");
+
+const webCompanySwitch = await fetchJson<ActionResult<{ currentCompanyId: string }>>("/api/web/companies/switch", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ companyId: webCompanyId }),
+});
+expectStatus(webCompanySwitch, 200, "web company switch status");
+expect(webCompanySwitch.body.ok === true, "web company switch envelope ok");
+expect(webCompanySwitch.body.data?.currentCompanyId === webCompanyId, "web company switch selected company");
+checks.push("web_company_switch");
 
 const dashboard = await fetchJson<ActionResult<{
   matches: Array<{ grantId: string; rulesetVer?: string }>;
@@ -122,6 +166,41 @@ expectStatus(webGrantDetail, 200, "web grant detail status");
 expect(webGrantDetail.body.ok === true, "web grant detail envelope ok");
 expect(webGrantDetail.body.data?.grant.id === webGrant!.grantId, "web grant detail matches dashboard grant");
 checks.push("web_grant_detail");
+
+const webConsentGrant = await fetchJson<ActionResult<{
+  scope: string;
+  revokedAt: string | null;
+}>>("/api/web/consents", {
+  method: "PUT",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ scope: "insurance", purpose: "HTTP 검증" }),
+});
+expectStatus(webConsentGrant, 200, "web consent grant status");
+expect(webConsentGrant.body.ok === true, "web consent grant envelope ok");
+expect(webConsentGrant.body.data?.scope === "insurance", "web consent grant scope");
+expect(webConsentGrant.body.data?.revokedAt === null, "web consent grant active");
+checks.push("web_consent_grant");
+
+const webConsents = await fetchJson<ActionResult<{
+  companyId: string;
+  consents: Array<{ scope: string; revokedAt: string | null }>;
+}>>("/api/web/consents");
+expectStatus(webConsents, 200, "web consents status");
+expect(webConsents.body.ok === true, "web consents envelope ok");
+expect(Boolean(webConsents.body.data?.consents.find((entry) => entry.scope === "insurance" && entry.revokedAt === null)), "web consents include active insurance");
+checks.push("web_consents");
+
+const webConsentRevoke = await fetchJson<ActionResult<{
+  scope: string;
+  revoked: boolean;
+}>>("/api/web/consents/insurance", {
+  method: "DELETE",
+});
+expectStatus(webConsentRevoke, 200, "web consent revoke status");
+expect(webConsentRevoke.body.ok === true, "web consent revoke envelope ok");
+expect(webConsentRevoke.body.data?.scope === "insurance", "web consent revoke scope");
+expect(webConsentRevoke.body.data?.revoked === true, "web consent revoked");
+checks.push("web_consent_revoke");
 
 const webProfileField = await fetchJson<ActionResult<{
   profile: {
