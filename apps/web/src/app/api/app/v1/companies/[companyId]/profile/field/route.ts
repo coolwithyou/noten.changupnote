@@ -25,7 +25,10 @@ export async function POST(request: Request, context: RouteContext) {
       return appError("invalid_profile_field", "field가 필요합니다.", 400, "field");
     }
 
-    const current = await getServiceRepositories().companies.resolveCompanyProfile({ companyId });
+    const current = await getServiceRepositories().companies.resolveCompanyProfile({
+      companyId,
+      userId: access.userId,
+    });
     if (!current) return appError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
 
     const profile = updateCompanyProfileField(current, {

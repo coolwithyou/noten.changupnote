@@ -14,7 +14,7 @@ interface GrantDetailPageProps {
 export default async function GrantDetailPage({ params }: GrantDetailPageProps) {
   const { grantId } = await params;
   const access = await requireCompanyAccess();
-  const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId });
+  const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId, userId: access.userId });
   if (!sheet) notFound();
   return <ApplySheetView sheet={sheet} />;
 }

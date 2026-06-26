@@ -12,7 +12,7 @@ type MatchesPayload = Pick<DashboardResult, "counts" | "matches" | "roadmap" | "
 export async function GET() {
   try {
     const access = await requireCompanyAccess();
-    const dashboard = await loadServiceDashboard({ companyId: access.companyId, limit: 40 });
+    const dashboard = await loadServiceDashboard({ companyId: access.companyId, userId: access.userId, limit: 40 });
     const data: MatchesPayload = {
       counts: dashboard.counts,
       matches: dashboard.matches,

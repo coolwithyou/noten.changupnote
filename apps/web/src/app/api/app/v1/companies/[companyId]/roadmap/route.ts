@@ -12,8 +12,8 @@ interface RouteContext {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { companyId } = await context.params;
-    await requireAppCompanyAccess(_request, companyId);
-    const dashboard = await loadServiceDashboard({ companyId, limit: 40 });
+    const access = await requireAppCompanyAccess(_request, companyId);
+    const dashboard = await loadServiceDashboard({ companyId, userId: access.userId, limit: 40 });
     return appData({ roadmap: dashboard.roadmap });
   } catch (error) {
     return appErrorFromUnknown(error, "로드맵을 불러오지 못했습니다.");

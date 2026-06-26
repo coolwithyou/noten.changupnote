@@ -34,6 +34,7 @@ export async function POST(request: Request) {
 
     const current = await getServiceRepositories().companies.resolveCompanyProfile({
       companyId: access.companyId,
+      userId: access.userId,
     });
     if (!current) {
       return NextResponse.json<ActionResult<ProfileFieldResult>>({

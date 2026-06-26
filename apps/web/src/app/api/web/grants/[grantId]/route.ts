@@ -17,7 +17,7 @@ export async function GET(_request: Request, context: RouteContext) {
   try {
     const { grantId } = await context.params;
     const access = await requireCompanyAccess();
-    const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId });
+    const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId, userId: access.userId });
     if (!sheet) {
       return NextResponse.json<ActionResult<ApplySheet>>({
         ok: false,

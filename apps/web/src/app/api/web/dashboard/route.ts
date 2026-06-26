@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const access = await requireCompanyAccess();
-    const data = await loadServiceDashboard({ companyId: access.companyId, limit: 40 });
+    const data = await loadServiceDashboard({ companyId: access.companyId, userId: access.userId, limit: 40 });
     return NextResponse.json<ActionResult<DashboardResult>>({ ok: true, data });
   } catch (error) {
     return webActionError<DashboardResult>(error, {

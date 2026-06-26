@@ -1,8 +1,10 @@
+import { sql } from "drizzle-orm";
 import { drizzle, type PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "./schema";
 
 export type CunoteDb = PostgresJsDatabase<typeof schema>;
+export type CunoteDbSession = Pick<CunoteDb, "delete" | "execute" | "insert" | "select" | "update">;
 
 let cachedDb: CunoteDb | null = null;
 let cachedSql: postgres.Sql | null = null;
@@ -22,6 +24,17 @@ export async function closeCunoteDb() {
     cachedSql = null;
     cachedDb = null;
   }
+}
+
+export async function withCunoteDbUser<T>(
+  db: CunoteDb,
+  userId: string,
+  run: (session: CunoteDbSession) => Promise<T>,
+): Promise<T> {
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`select set_config('app.current_user_id', ${userId}, true)`);
+    return run(tx as unknown as CunoteDbSession);
+  });
 }
 
 function getDatabaseUrl(): string {

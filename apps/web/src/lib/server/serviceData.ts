@@ -94,17 +94,19 @@ async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProf
 
 export async function loadServiceDashboard(options: {
   companyId?: string;
+  userId?: string;
   limit?: number;
   asOf?: Date;
 } = {}): Promise<DashboardResult> {
   const asOf = options.asOf ?? new Date();
   const [company, grants] = await Promise.all([
-    resolveDashboardCompany(options.companyId),
+    resolveDashboardCompany(options.companyId, options.userId),
     repositories.grants.listActiveGrants({ asOf, limit: options.limit ?? 40 }),
   ]);
   const stateCompanyId = options.companyId ?? company.id;
   await persistMatchStates({
     ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
+    ...(options.userId ? { userId: options.userId } : {}),
     company,
     grants,
   });
@@ -116,6 +118,7 @@ export async function loadServiceApplySheet(
   grantIdSegment: string,
   options: {
     companyId?: string;
+    userId?: string;
     limit?: number;
     asOf?: Date;
   } = {},
@@ -123,7 +126,7 @@ export async function loadServiceApplySheet(
   const asOf = options.asOf ?? new Date();
   const grantId = decodeGrantIdSegment(grantIdSegment);
   const [company, grants] = await Promise.all([
-    resolveDashboardCompany(options.companyId),
+    resolveDashboardCompany(options.companyId, options.userId),
     repositories.grants.findGrantById(grantId, { asOf, limit: options.limit ?? 80 }),
   ]);
   if (!grants) return null;
@@ -142,15 +145,19 @@ export function getServiceRepositories() {
   return repositories;
 }
 
-async function resolveDashboardCompany(companyId?: string): Promise<CompanyProfile> {
+async function resolveDashboardCompany(companyId?: string, userId?: string): Promise<CompanyProfile> {
   if (!companyId) return repositories.companies.getDefaultCompanyProfile();
-  const company = await repositories.companies.resolveCompanyProfile({ companyId });
+  const company = await repositories.companies.resolveCompanyProfile({
+    companyId,
+    ...(userId ? { userId } : {}),
+  });
   if (!company) throw new Error("회사 프로필을 찾지 못했습니다.");
   return company;
 }
 
 async function persistMatchStates(input: {
   companyId?: string;
+  userId?: string;
   company: CompanyProfile;
   grants: Array<NormalizedGrant<KStartupAnnouncement>>;
 }) {
@@ -164,6 +171,7 @@ async function persistMatchStates(input: {
       companyId: input.companyId!,
       grantId: grantKey(state.grant.grant),
       match: state.match,
+      ...(input.userId ? { userId: input.userId } : {}),
     })
   ));
 }

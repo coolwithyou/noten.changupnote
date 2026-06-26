@@ -59,12 +59,12 @@ export async function rotateAppRefreshToken(refreshToken: string): Promise<AppTo
   const payload = verifyAppJwt(refreshToken, "refresh");
   const hash = hashAppToken(refreshToken);
   const store = getAppRefreshTokenStore();
-  const stored = await store.findActiveByHash(hash);
+  const stored = await store.findActiveByHash(hash, payload.sub);
   if (!stored || stored.id !== payload.jti || stored.userId !== payload.sub) {
     throw new Error("refresh token이 유효하지 않습니다.");
   }
 
-  await store.revoke(stored.id);
+  await store.revoke(stored.id, payload.sub);
   return issueAppTokens({
     userId: payload.sub,
     email: payload.email ?? null,
@@ -75,8 +75,8 @@ export async function rotateAppRefreshToken(refreshToken: string): Promise<AppTo
 
 export async function revokeAppRefreshToken(refreshToken: string): Promise<void> {
   const payload = verifyAppJwt(refreshToken, "refresh");
-  const stored = await getAppRefreshTokenStore().findActiveByHash(hashAppToken(refreshToken));
-  if (stored && stored.id === payload.jti) await getAppRefreshTokenStore().revoke(stored.id);
+  const stored = await getAppRefreshTokenStore().findActiveByHash(hashAppToken(refreshToken), payload.sub);
+  if (stored && stored.id === payload.jti) await getAppRefreshTokenStore().revoke(stored.id, payload.sub);
 }
 
 export async function revokeAppDeviceTokens(input: {

@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm";
-import { getCunoteDb } from "@/lib/server/db/client";
+import { getCunoteDb, withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 
 export interface NotificationSettingsDto {
@@ -83,11 +83,11 @@ class MemoryAppPreferencesStore implements AppPreferencesStore {
 
 class DrizzleAppPreferencesStore implements AppPreferencesStore {
   async getNotificationSettings(userId: string): Promise<NotificationSettingsDto> {
-    const [row] = await getCunoteDb()
+    const [row] = await withCunoteDbUser(getCunoteDb(), userId, async (db) => db
       .select()
       .from(schema.notificationSettings)
       .where(eq(schema.notificationSettings.userId, userId))
-      .limit(1);
+      .limit(1));
     return row ? toNotificationSettings(row) : DEFAULT_SETTINGS;
   }
 
@@ -99,7 +99,7 @@ class DrizzleAppPreferencesStore implements AppPreferencesStore {
       ...(await this.getNotificationSettings(userId)),
       ...normalizeSettingsPatch(input),
     };
-    const [row] = await getCunoteDb()
+    const [row] = await withCunoteDbUser(getCunoteDb(), userId, async (db) => db
       .insert(schema.notificationSettings)
       .values({
         userId,
@@ -119,7 +119,7 @@ class DrizzleAppPreferencesStore implements AppPreferencesStore {
           updatedAt: new Date(),
         },
       })
-      .returning();
+      .returning());
     if (!row) throw new Error("알림 설정 저장 결과가 없습니다.");
     return toNotificationSettings(row);
   }
@@ -129,7 +129,7 @@ class DrizzleAppPreferencesStore implements AppPreferencesStore {
     input: DeviceRegistrationInput,
   ): Promise<DeviceRegistrationResult> {
     const now = new Date();
-    const [row] = await getCunoteDb()
+    const [row] = await withCunoteDbUser(getCunoteDb(), userId, async (db) => db
       .insert(schema.appDevices)
       .values({
         userId,
@@ -150,7 +150,7 @@ class DrizzleAppPreferencesStore implements AppPreferencesStore {
           updatedAt: now,
         },
       })
-      .returning();
+      .returning());
     if (!row) throw new Error("기기 등록 결과가 없습니다.");
     return {
       deviceId: row.deviceId,
@@ -160,11 +160,11 @@ class DrizzleAppPreferencesStore implements AppPreferencesStore {
   }
 
   async deleteDevice(userId: string, deviceId: string): Promise<boolean> {
-    const rows = await getCunoteDb()
+    const rows = await withCunoteDbUser(getCunoteDb(), userId, async (db) => db
       .update(schema.appDevices)
       .set({ enabled: false, updatedAt: new Date() })
       .where(and(eq(schema.appDevices.userId, userId), eq(schema.appDevices.deviceId, deviceId)))
-      .returning({ id: schema.appDevices.id });
+      .returning({ id: schema.appDevices.id }));
     return rows.length > 0;
   }
 }

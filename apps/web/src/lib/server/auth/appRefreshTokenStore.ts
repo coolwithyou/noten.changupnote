@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { getCunoteDb } from "@/lib/server/db/client";
+import { getCunoteDb, withCunoteDbUser, type CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 
 export interface StoredRefreshToken {
@@ -24,8 +24,8 @@ export interface SaveRefreshTokenInput {
 
 export interface AppRefreshTokenStore {
   save(input: SaveRefreshTokenInput): Promise<StoredRefreshToken>;
-  findActiveByHash(tokenHash: string): Promise<StoredRefreshToken | null>;
-  revoke(id: string): Promise<void>;
+  findActiveByHash(tokenHash: string, userId?: string): Promise<StoredRefreshToken | null>;
+  revoke(id: string, userId?: string): Promise<void>;
   revokeDevice(userId: string, deviceId: string): Promise<void>;
 }
 
@@ -71,7 +71,7 @@ class MemoryRefreshTokenStore implements AppRefreshTokenStore {
 
 class DrizzleRefreshTokenStore implements AppRefreshTokenStore {
   async save(input: SaveRefreshTokenInput): Promise<StoredRefreshToken> {
-    const [row] = await getCunoteDb()
+    const [row] = await withCunoteDbUser(getCunoteDb(), input.userId, async (db) => db
       .insert(schema.appRefreshTokens)
       .values({
         id: input.id,
@@ -81,13 +81,13 @@ class DrizzleRefreshTokenStore implements AppRefreshTokenStore {
         expiresAt: input.expiresAt,
         rotatedFrom: input.rotatedFrom ?? null,
       })
-      .returning();
+      .returning());
     if (!row) throw new Error("refresh token 저장 결과가 없습니다.");
     return toStored(row);
   }
 
-  async findActiveByHash(tokenHash: string): Promise<StoredRefreshToken | null> {
-    const [row] = await getCunoteDb()
+  async findActiveByHash(tokenHash: string, userId?: string): Promise<StoredRefreshToken | null> {
+    const query = async (db: CunoteDbSession) => db
       .select()
       .from(schema.appRefreshTokens)
       .where(and(
@@ -95,26 +95,31 @@ class DrizzleRefreshTokenStore implements AppRefreshTokenStore {
         isNull(schema.appRefreshTokens.revokedAt),
       ))
       .limit(1);
+    const [row] = userId
+      ? await withCunoteDbUser(getCunoteDb(), userId, query)
+      : await query(getCunoteDb());
     if (!row || row.expiresAt <= new Date()) return null;
     return toStored(row);
   }
 
-  async revoke(id: string): Promise<void> {
-    await getCunoteDb()
+  async revoke(id: string, userId?: string): Promise<void> {
+    const query = async (db: CunoteDbSession) => db
       .update(schema.appRefreshTokens)
       .set({ revokedAt: new Date() })
       .where(eq(schema.appRefreshTokens.id, id));
+    if (userId) await withCunoteDbUser(getCunoteDb(), userId, query);
+    else await query(getCunoteDb());
   }
 
   async revokeDevice(userId: string, deviceId: string): Promise<void> {
-    await getCunoteDb()
+    await withCunoteDbUser(getCunoteDb(), userId, async (db) => db
       .update(schema.appRefreshTokens)
       .set({ revokedAt: new Date() })
       .where(and(
         eq(schema.appRefreshTokens.userId, userId),
         eq(schema.appRefreshTokens.deviceId, deviceId),
         isNull(schema.appRefreshTokens.revokedAt),
-      ));
+      )));
   }
 }
 

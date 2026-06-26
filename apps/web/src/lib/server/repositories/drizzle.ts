@@ -24,7 +24,8 @@ import type {
   ServiceRepositories,
   SubmitFeedbackInput,
 } from "@cunote/core";
-import type { CunoteDb } from "@/lib/server/db/client";
+import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
+import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 
 export interface DrizzleDatabaseClient {
@@ -114,27 +115,30 @@ class DrizzleCompanyRepository implements CompanyRepository {
   async resolveCompanyProfile(input: {
     companyId?: string;
     bizNo?: string;
+    userId?: string;
   } = {}): Promise<CompanyProfile | null> {
-    const companyRows = await this.db.client
+    return this.withOptionalUser(input.userId, async (db) => {
+      const companyRows = await db
       .select()
       .from(schema.companies)
       .where(companyWhere(input))
       .limit(1);
-    const company = companyRows[0];
-    if (!company) return null;
+      const company = companyRows[0];
+      if (!company) return null;
 
-    const profileRows = await this.db.client
+      const profileRows = await db
       .select()
       .from(schema.companyProfiles)
       .where(eq(schema.companyProfiles.companyId, company.id));
 
-    return toCompanyProfile(company, profileRows);
+      return toCompanyProfile(company, profileRows);
+    });
   }
 
   async saveCompanyProfile(input: SaveCompanyProfileInput): Promise<CompanyProfile> {
     const now = new Date();
     const rows = companyProfileRows(input.companyId, input.profile, now);
-    const [company, profileRows] = await this.db.client.transaction(async (tx) => {
+    const [company, profileRows] = await this.transactionWithOptionalUser(input.userId, async (tx) => {
       const kind: "active" | "preliminary" = input.profile.is_preliminary ? "preliminary" : "active";
       const [updatedCompany] = await tx
         .update(schema.companies)
@@ -159,7 +163,7 @@ class DrizzleCompanyRepository implements CompanyRepository {
   async createCompany(input: CreateCompanyInput): Promise<CompanyRecord> {
     const now = new Date();
     const kind: "active" | "preliminary" = input.profile.is_preliminary ? "preliminary" : "active";
-    const [company, profileRows] = await this.db.client.transaction(async (tx) => {
+    const [company, profileRows] = await withCunoteDbUser(this.db.client, input.userId, async (tx) => {
       const [createdCompany] = await tx
         .insert(schema.companies)
         .values({
@@ -192,17 +196,17 @@ class DrizzleCompanyRepository implements CompanyRepository {
   }
 
   async listUserCompanies(userId: string): Promise<CompanyRecord[]> {
-    const rows = await this.db.client
+    const rows = await withCunoteDbUser(this.db.client, userId, async (db) => db
       .select({
         company: schema.companies,
         userCompany: schema.userCompany,
       })
       .from(schema.userCompany)
       .innerJoin(schema.companies, eq(schema.userCompany.companyId, schema.companies.id))
-      .where(eq(schema.userCompany.userId, userId));
+      .where(eq(schema.userCompany.userId, userId)));
 
     return Promise.all(rows.map(async (row): Promise<CompanyRecord> => {
-      const profile = await this.resolveCompanyProfile({ companyId: row.company.id });
+      const profile = await this.resolveCompanyProfile({ companyId: row.company.id, userId });
       if (!profile) throw new Error(`회사 프로필을 찾지 못했습니다: ${row.company.id}`);
       return {
         id: row.company.id,
@@ -211,6 +215,22 @@ class DrizzleCompanyRepository implements CompanyRepository {
         role: row.userCompany.role,
       };
     }));
+  }
+
+  private async withOptionalUser<T>(
+    userId: string | undefined,
+    run: (db: CunoteDbSession) => Promise<T>,
+  ): Promise<T> {
+    if (userId) return withCunoteDbUser(this.db.client, userId, run);
+    return run(this.db.client);
+  }
+
+  private async transactionWithOptionalUser<T>(
+    userId: string | undefined,
+    run: (db: CunoteDbSession) => Promise<T>,
+  ): Promise<T> {
+    if (userId) return withCunoteDbUser(this.db.client, userId, run);
+    return this.db.client.transaction(async (tx) => run(tx as unknown as CunoteDbSession));
   }
 }
 
@@ -238,11 +258,13 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     companyId: string;
     grantId: string;
     match: MatchResult;
+    userId?: string;
   }): Promise<void> {
     const grantId = await this.resolveGrantRowId(input.grantId);
     if (!grantId) throw new Error("공고를 찾지 못했습니다.");
 
-    await this.db.client
+    await this.withOptionalUser(input.userId, async (db) => {
+      await db
       .insert(schema.matchState)
       .values({
         companyId: input.companyId,
@@ -277,13 +299,14 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
           updatedAt: new Date(),
         },
       });
+    });
   }
 
   async saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt> {
     const grantId = await this.resolveGrantRowId(input.grantId);
     if (!grantId) throw new Error("공고를 찾지 못했습니다.");
 
-    const [row] = await this.db.client
+    const [row] = await this.withOptionalUser(input.userId, async (db) => db
       .insert(schema.matchEvents)
       .values({
         companyId: input.companyId,
@@ -291,7 +314,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         event: input.event,
         rulesetVer: input.rulesetVer ?? "unknown",
       })
-      .returning({ id: schema.matchEvents.id, ts: schema.matchEvents.ts });
+      .returning({ id: schema.matchEvents.id, ts: schema.matchEvents.ts }));
     if (!row) throw new Error("매칭 이벤트 저장 결과가 없습니다.");
 
     return {
@@ -311,13 +334,21 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
       .limit(1);
     return rows[0]?.id ?? null;
   }
+
+  private async withOptionalUser<T>(
+    userId: string | undefined,
+    run: (db: CunoteDbSession) => Promise<T>,
+  ): Promise<T> {
+    if (userId) return withCunoteDbUser(this.db.client, userId, run);
+    return run(this.db.client);
+  }
 }
 
 class DrizzleFeedbackRepository implements FeedbackRepository {
   constructor(private readonly db: DrizzleDatabaseClient) {}
 
   async submitFeedback(input: SubmitFeedbackInput): Promise<FeedbackReceipt> {
-    const [row] = await this.db.client
+    const [row] = await this.withOptionalUser(input.userId, async (db) => db
       .insert(schema.feedback)
       .values({
         targetType: "match",
@@ -332,13 +363,21 @@ class DrizzleFeedbackRepository implements FeedbackRepository {
         },
         actor: "user",
       })
-      .returning({ id: schema.feedback.id, ts: schema.feedback.ts });
+      .returning({ id: schema.feedback.id, ts: schema.feedback.ts }));
 
     if (!row) throw new Error("피드백 저장 결과가 없습니다.");
     return {
       id: row.id,
       receivedAt: row.ts.toISOString(),
     };
+  }
+
+  private async withOptionalUser<T>(
+    userId: string | undefined,
+    run: (db: CunoteDbSession) => Promise<T>,
+  ): Promise<T> {
+    if (userId) return withCunoteDbUser(this.db.client, userId, run);
+    return run(this.db.client);
   }
 }
 

@@ -68,6 +68,7 @@ export interface MatchRepository<TPayload = unknown> {
     companyId: string;
     grantId: string;
     match: MatchResult;
+    userId?: string;
   }): Promise<void>;
   saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt>;
 }
@@ -77,6 +78,7 @@ export interface SaveMatchEventInput {
   grantId: string;
   event: MatchEventKind;
   rulesetVer?: string;
+  userId?: string;
 }
 
 export interface MatchEventReceipt {

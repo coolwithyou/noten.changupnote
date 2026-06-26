@@ -12,8 +12,8 @@ interface RouteContext {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { companyId } = await context.params;
-    await requireAppCompanyAccess(_request, companyId);
-    const dashboard = await loadServiceDashboard({ companyId, limit: 40 });
+    const access = await requireAppCompanyAccess(_request, companyId);
+    const dashboard = await loadServiceDashboard({ companyId, userId: access.userId, limit: 40 });
     return appData({
       counts: dashboard.counts,
       matches: dashboard.matches,

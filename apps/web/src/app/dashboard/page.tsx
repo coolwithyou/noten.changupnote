@@ -6,6 +6,6 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const access = await requireCompanyAccess();
-  const dashboard = await loadServiceDashboard({ companyId: access.companyId, limit: 40 });
+  const dashboard = await loadServiceDashboard({ companyId: access.companyId, userId: access.userId, limit: 40 });
   return <DashboardView dashboard={dashboard} />;
 }

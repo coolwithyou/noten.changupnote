@@ -1,6 +1,6 @@
 import { and, desc, eq, isNull } from "drizzle-orm";
 import type { ConsentRecordDto, ConsentScope } from "@cunote/contracts";
-import { getCunoteDb } from "@/lib/server/db/client";
+import { getCunoteDb, withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 
 export interface GrantConsentInput {
@@ -68,11 +68,11 @@ class MemoryConsentStore implements ConsentStore {
 
 class DrizzleConsentStore implements ConsentStore {
   async listCompanyConsents(companyId: string, userId: string): Promise<ConsentRecordDto[]> {
-    const rows = await getCunoteDb()
+    const rows = await withCunoteDbUser(getCunoteDb(), userId, async (db) => db
       .select()
       .from(schema.consents)
       .where(and(eq(schema.consents.companyId, companyId), eq(schema.consents.userId, userId)))
-      .orderBy(desc(schema.consents.grantedAt));
+      .orderBy(desc(schema.consents.grantedAt)));
 
     const latest = new Map<ConsentScope, ConsentRecordDto>();
     for (const row of rows) {
@@ -83,7 +83,7 @@ class DrizzleConsentStore implements ConsentStore {
 
   async grantConsent(input: GrantConsentInput): Promise<ConsentRecordDto> {
     const now = new Date();
-    const [row] = await getCunoteDb().transaction(async (tx) => {
+    const [row] = await withCunoteDbUser(getCunoteDb(), input.userId, async (tx) => {
       await tx
         .update(schema.consents)
         .set({ revokedAt: now })
@@ -111,7 +111,7 @@ class DrizzleConsentStore implements ConsentStore {
   }
 
   async revokeConsent(input: RevokeConsentInput): Promise<boolean> {
-    const rows = await getCunoteDb()
+    const rows = await withCunoteDbUser(getCunoteDb(), input.userId, async (db) => db
       .update(schema.consents)
       .set({ revokedAt: new Date() })
       .where(and(
@@ -120,7 +120,7 @@ class DrizzleConsentStore implements ConsentStore {
         eq(schema.consents.scope, input.scope),
         isNull(schema.consents.revokedAt),
       ))
-      .returning({ id: schema.consents.id });
+      .returning({ id: schema.consents.id }));
     return rows.length > 0;
   }
 }

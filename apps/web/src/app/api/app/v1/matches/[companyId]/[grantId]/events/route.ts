@@ -19,12 +19,13 @@ interface MatchEventRequest {
 export async function POST(request: Request, context: RouteContext) {
   try {
     const [{ companyId, grantId }, body] = await Promise.all([context.params, readBody(request)]);
-    await requireAppCompanyAccess(request, companyId);
+    const access = await requireAppCompanyAccess(request, companyId);
     const event = normalizeEvent(body.event ?? body.type);
     const input: Parameters<ReturnType<typeof getServiceRepositories>["matches"]["saveMatchEvent"]>[0] = {
       companyId,
       grantId,
       event,
+      userId: access.userId,
     };
     if (body.rulesetVer) input.rulesetVer = body.rulesetVer;
     const receipt = await getServiceRepositories().matches.saveMatchEvent(input);
