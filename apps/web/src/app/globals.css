@@ -602,6 +602,68 @@ button:disabled {
   font-weight: 700;
 }
 
+.login-shell {
+  min-height: 100vh;
+  padding: 28px;
+}
+
+.login-nav {
+  max-width: 480px;
+}
+
+.login-panel {
+  display: grid;
+  gap: 18px;
+  max-width: 480px;
+  margin: 72px auto 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 28px;
+}
+
+.login-panel h1 {
+  font-size: 30px;
+}
+
+.login-panel > p:not(.eyebrow):not(.form-error):not(.login-empty) {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.login-provider-list {
+  display: grid;
+  gap: 8px;
+}
+
+.login-provider-list button {
+  min-height: 44px;
+  border: 1px solid rgba(33, 92, 168, 0.34);
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.login-empty {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  padding: 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.login-return-link {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
 .opportunity-board {
   min-height: 520px;
   border: 1px solid var(--line);

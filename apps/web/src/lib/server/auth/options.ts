@@ -10,6 +10,12 @@ import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
 
 ensureAuthEnv();
 
+export interface WebAuthProviderSummary {
+  id: string;
+  name: string;
+  kind: "credentials" | "oauth";
+}
+
 export const authOptions: NextAuthOptions = {
   session: {
     strategy: "jwt",
@@ -27,6 +33,20 @@ if (adapter) authOptions.adapter = adapter;
 
 const secret = process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET;
 if (secret) authOptions.secret = secret;
+
+export function getWebAuthProviderSummaries(env: NodeJS.ProcessEnv = process.env): WebAuthProviderSummary[] {
+  const providers: WebAuthProviderSummary[] = [];
+  if (env.CUNOTE_AUTH_MODE === "mock") {
+    providers.push({ id: "demo", name: "Demo", kind: "credentials" });
+  }
+  if (env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET) {
+    providers.push({ id: "google", name: "Google", kind: "oauth" });
+  }
+  if (env.KAKAO_CLIENT_ID && env.KAKAO_CLIENT_SECRET) {
+    providers.push({ id: "kakao", name: "Kakao", kind: "oauth" });
+  }
+  return providers;
+}
 
 function createProviders(): NextAuthOptions["providers"] {
   const providers: NextAuthOptions["providers"] = [

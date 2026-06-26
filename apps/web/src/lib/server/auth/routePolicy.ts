@@ -1,4 +1,5 @@
 export const PUBLIC_WEB_ROUTES = [
+  "GET /login",
   "GET /api/web/stats",
   "POST /api/web/teaser",
 ] as const;

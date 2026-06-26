@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { ApplySheetView } from "@/features/apply-sheet/ApplySheetView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
+import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
 
 export const dynamic = "force-dynamic";
@@ -13,8 +14,16 @@ interface GrantDetailPageProps {
 
 export default async function GrantDetailPage({ params }: GrantDetailPageProps) {
   const { grantId } = await params;
-  const access = await requireCompanyAccess();
+  const access = await loadGrantAccess(grantId);
   const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId, userId: access.userId });
   if (!sheet) notFound();
   return <ApplySheetView sheet={sheet} />;
+}
+
+async function loadGrantAccess(grantId: string) {
+  try {
+    return await requireCompanyAccess();
+  } catch (error) {
+    redirectOnAuthRequired(error, `/grants/${encodeURIComponent(grantId)}`);
+  }
 }

@@ -78,6 +78,14 @@ if (adminStatus.status === 200) {
 }
 checks.push("admin_status_boundary");
 
+const loginHtml = await fetchText("/login?callbackUrl=%2Fdashboard");
+expectStatus(loginHtml, 200, "web login html status");
+expect(
+  loginHtml.body.includes("로그인") || loginHtml.body.includes("기회 맵"),
+  "web login renders sign-in or redirects authenticated session",
+);
+checks.push("web_login_html");
+
 const teaser = await fetchJson<ActionResult<{
   estimatedMaxAmount: number;
   conditionalUpside: number;

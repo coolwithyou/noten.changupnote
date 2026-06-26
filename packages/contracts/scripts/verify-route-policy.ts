@@ -32,6 +32,7 @@ const allPolicyRoutes = [
   ...PUBLIC_APP_ROUTES,
   ...SESSION_APP_ROUTES,
 ];
+const publicPageRoutes = PUBLIC_WEB_ROUTES.filter((route) => !route.includes(" /api/"));
 const sessionPageRoutes = SESSION_WEB_ROUTES.filter((route) => !route.includes(" /api/"));
 const publicRoutes = new Set<string>([...PUBLIC_WEB_ROUTES, ...PUBLIC_APP_ROUTES]);
 const sessionRoutes = new Set<string>([...SESSION_WEB_ROUTES, ...SESSION_APP_ROUTES]);
@@ -39,6 +40,7 @@ const actualRoutes = apiScopes.flatMap(discoverApiRouteMethods).sort();
 const errors: string[] = [];
 
 compareSets("API route file", actualRoutes, "route policy", [...policyRoutes].sort(), errors);
+verifyPublicPageRoutes(publicPageRoutes, errors);
 verifySessionPageRoutes(sessionPageRoutes, errors);
 
 for (const route of allPolicyRoutes) {
@@ -111,6 +113,21 @@ function verifySessionPageRoutes(routes: readonly string[], errors: string[]) {
     const source = readFileSync(pageFile, "utf8");
     if (!source.includes("requireCompanyAccess(")) {
       errors.push(`session page route ${route} does not call requireCompanyAccess.`);
+    }
+  }
+}
+
+function verifyPublicPageRoutes(routes: readonly string[], errors: string[]) {
+  for (const route of routes) {
+    const [method, path] = route.split(" ");
+    if (method !== "GET" || !path) {
+      errors.push(`public page route ${route} must be a GET page route.`);
+      continue;
+    }
+
+    const pageFile = resolve(appRouteRoot, ...path.split("/").filter(Boolean), "page.tsx");
+    if (!existsSync(pageFile)) {
+      errors.push(`public page route ${route} is missing page file ${relative(workspaceRoot, pageFile)}.`);
     }
   }
 }
