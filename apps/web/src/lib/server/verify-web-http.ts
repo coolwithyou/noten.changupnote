@@ -168,6 +168,13 @@ expect(webGrantDetail.body.ok === true, "web grant detail envelope ok");
 expect(webGrantDetail.body.data?.grant.id === webGrant!.grantId, "web grant detail matches dashboard grant");
 checks.push("web_grant_detail");
 
+const webGrantDetailHtml = await fetchText(`/grants/${encodeURIComponent(webGrant!.grantId)}`);
+expectStatus(webGrantDetailHtml, 200, "web grant detail html status");
+expect(webGrantDetailHtml.body.includes("신청 준비 시트"), "web grant detail renders apply sheet");
+expect(webGrantDetailHtml.body.includes("체크리스트"), "web grant detail renders checklist");
+expect(webGrantDetailHtml.body.includes("신청 페이지 열기"), "web grant detail renders apply link");
+checks.push("web_grant_detail_html");
+
 const webConsentGrant = await fetchJson<ActionResult<{
   scope: string;
   revokedAt: string | null;
