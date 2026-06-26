@@ -6,6 +6,7 @@ import {
   buildCompanyProfileFromPopbill,
   checkPopbillBizInfo,
   fetchKStartupPage,
+  grantKey,
   normalizeKStartupPayload,
   readPopbillEnvConfig,
   sanitizeCorpNum,
@@ -92,14 +93,21 @@ async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProf
 }
 
 export async function loadServiceDashboard(options: {
+  companyId?: string;
   limit?: number;
   asOf?: Date;
 } = {}): Promise<DashboardResult> {
   const asOf = options.asOf ?? new Date();
   const [company, grants] = await Promise.all([
-    repositories.companies.getDefaultCompanyProfile(),
+    resolveDashboardCompany(options.companyId),
     repositories.grants.listActiveGrants({ asOf, limit: options.limit ?? 40 }),
   ]);
+  const stateCompanyId = options.companyId ?? company.id;
+  await persistMatchStates({
+    ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
+    company,
+    grants,
+  });
 
   return buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
 }
@@ -131,6 +139,32 @@ export async function loadServiceApplySheet(
 
 export function getServiceRepositories() {
   return repositories;
+}
+
+async function resolveDashboardCompany(companyId?: string): Promise<CompanyProfile> {
+  if (!companyId) return repositories.companies.getDefaultCompanyProfile();
+  const company = await repositories.companies.resolveCompanyProfile({ companyId });
+  if (!company) throw new Error("회사 프로필을 찾지 못했습니다.");
+  return company;
+}
+
+async function persistMatchStates(input: {
+  companyId?: string;
+  company: CompanyProfile;
+  grants: Array<NormalizedGrant<KStartupAnnouncement>>;
+}) {
+  if (!input.companyId) return;
+  const matchStates = await repositories.matches.calculateGrantMatches({
+    company: input.company,
+    grants: input.grants,
+  });
+  await Promise.all(matchStates.map((state) =>
+    repositories.matches.saveMatchState({
+      companyId: input.companyId!,
+      grantId: grantKey(state.grant.grant),
+      match: state.match,
+    })
+  ));
 }
 
 async function loadEnvInDevelopment() {
