@@ -87,6 +87,7 @@ export interface ListCriterionValue {
   certs?: string[];
   programs?: string[];
   targets?: string[];
+  types?: string[];
 }
 
 export interface TextOnlyCriterionValue {
@@ -174,9 +175,14 @@ export interface CompanyProfile {
   is_preliminary?: boolean;
   industries?: string[];
   size?: string | null;
+  revenue_krw?: number | null;
+  employees_count?: number | null;
   traits?: string[];
   certs?: string[];
   prior_awards?: string[];
+  ip?: string[];
+  target_types?: string[];
+  other_conditions?: Record<string, unknown> | null;
   business_status?: {
     active?: boolean;
     close_down_state?: string | number | null;

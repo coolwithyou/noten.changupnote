@@ -43,6 +43,12 @@ export function updateCompanyProfileField(
     case "size":
       next.size = normalizeString(update.value, "value");
       break;
+    case "revenue":
+      next.revenue_krw = normalizeNonNegativeNumber(update.value, "value");
+      break;
+    case "employees":
+      next.employees_count = normalizeNonNegativeNumber(update.value, "value");
+      break;
     case "founder_age":
       next.founder_age = normalizeNonNegativeNumber(update.value, "value");
       break;
@@ -55,8 +61,17 @@ export function updateCompanyProfileField(
     case "prior_award":
       next.prior_awards = normalizeStringArray(update.value, "value");
       break;
+    case "ip":
+      next.ip = normalizeStringArray(update.value, "value");
+      break;
+    case "target_type":
+      next.target_types = normalizeStringArray(update.value, "value");
+      break;
     case "business_status":
-      next.business_status = normalizeRecord(update.value, "value");
+      next.business_status = normalizeBusinessStatus(update.value);
+      break;
+    case "other":
+      next.other_conditions = normalizeOtherConditions(update.value);
       break;
     default:
       throw new InvalidCompanyProfileFieldError(
@@ -122,6 +137,17 @@ function normalizeRecord(value: unknown, field: string): Record<string, unknown>
     throw new InvalidCompanyProfileFieldError(`${field}는 객체여야 합니다.`, field);
   }
   return value as Record<string, unknown>;
+}
+
+function normalizeBusinessStatus(value: unknown): NonNullable<CompanyProfile["business_status"]> {
+  if (typeof value === "boolean") return { active: value, label: value ? "정상" : "확인 필요" };
+  return normalizeRecord(value, "value") as NonNullable<CompanyProfile["business_status"]>;
+}
+
+function normalizeOtherConditions(value: unknown): Record<string, unknown> {
+  if (typeof value === "string") return { note: normalizeString(value, "value") };
+  if (typeof value === "boolean") return { confirmed: value };
+  return normalizeRecord(value, "value");
 }
 
 function clampConfidence(value: number): number {

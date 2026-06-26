@@ -57,10 +57,18 @@ function nextQuestionFromMatches(matches: DashboardResult["matches"]): Dashboard
   return {
     dimension: first.trace.dimension,
     prompt: `${dimensionLabel(first.trace.dimension)} 정보를 확인해 주세요.`,
-    inputType: "text",
+    inputType: inputTypeForDimension(first.trace.dimension),
     framing: `${sameDimension.length}개 조건부 판단을 확정 또는 제외하는 데 도움이 됩니다.`,
     affectedGrantCount: new Set(sameDimension.map((entry) => entry.grantId)).size,
   };
+}
+
+function inputTypeForDimension(dimension: CriterionDimension): NonNullable<DashboardResult["nextQuestion"]>["inputType"] {
+  if (dimension === "biz_age" || dimension === "founder_age" || dimension === "revenue" || dimension === "employees") {
+    return "number";
+  }
+  if (dimension === "business_status") return "boolean";
+  return "text";
 }
 
 function dimensionLabel(dimension: CriterionDimension): string {

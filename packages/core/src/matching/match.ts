@@ -62,12 +62,30 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
       return evaluateListCriterion(criterion, company.industries ?? [], "tags", "업종/분야");
     case "size":
       return evaluateSingleValueCriterion(criterion, company.size ?? null, "sizes", "기업규모");
+    case "revenue":
+      return evaluateNumericCriterion(criterion, company.revenue_krw ?? null, {
+        label: "매출",
+        unit: "원",
+        minKeys: ["min_krw", "min"],
+        maxKeys: ["max_krw", "max"],
+      });
+    case "employees":
+      return evaluateNumericCriterion(criterion, company.employees_count ?? null, {
+        label: "상시근로자 수",
+        unit: "명",
+        minKeys: ["min"],
+        maxKeys: ["max"],
+      });
     case "certification":
       return evaluateListCriterion(criterion, company.certs ?? [], "certs", "인증");
     case "founder_trait":
       return evaluateListCriterion(criterion, company.traits ?? [], "traits", "대표자 속성");
     case "prior_award":
       return evaluateListCriterion(criterion, company.prior_awards ?? [], "programs", "기수혜");
+    case "ip":
+      return evaluateListCriterion(criterion, company.ip ?? [], "types", "지식재산");
+    case "target_type":
+      return evaluateListCriterion(criterion, company.target_types ?? [], "targets", "신청대상");
     case "business_status":
       return evaluateBusinessStatus(criterion, company);
     default:
@@ -181,6 +199,14 @@ function evaluateListCriterion(
   label: string,
 ): RuleTraceEntry {
   const required = ((criterion.value as ListCriterionValue)[valueKey] ?? []) as string[];
+  if (criterion.operator === "exists") {
+    return trace(
+      criterion,
+      companyValues.length > 0 ? "pass" : "unknown",
+      companyValues.length > 0 ? `${label} 보유 확인 - 귀사 ${companyValues.join(", ")}` : `기업 ${label} 입력 필요`,
+      companyValues.length > 0 ? companyValues : undefined,
+    );
+  }
   if (required.length === 0) return trace(criterion, "unknown", `${label} 조건 확인 필요`);
   if (companyValues.length === 0) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
   const overlaps = required.some((value) => companyValues.includes(value));
@@ -190,6 +216,43 @@ function evaluateListCriterion(
     result ? "pass" : "fail",
     `${label} ${required.join(", ")} - 귀사 ${companyValues.join(", ")}`,
     companyValues,
+  );
+}
+
+function evaluateNumericCriterion(
+  criterion: GrantCriterion,
+  companyValue: number | null,
+  options: {
+    label: string;
+    unit: string;
+    minKeys: string[];
+    maxKeys: string[];
+  },
+): RuleTraceEntry {
+  if (companyValue === null || companyValue === undefined) {
+    return trace(criterion, "unknown", `${options.label} 입력 필요`);
+  }
+
+  if (criterion.operator === "exists") {
+    return trace(criterion, "pass", `${options.label} 확인 - 귀사 ${formatNumber(companyValue)}${options.unit}`, companyValue);
+  }
+
+  const value = criterion.value as Record<string, unknown>;
+  const min = firstNumber(value, options.minKeys);
+  const max = firstNumber(value, options.maxKeys);
+  let ok: boolean | null = null;
+  if (criterion.operator === "gte" && min !== null) ok = companyValue >= min;
+  if (criterion.operator === "lte" && max !== null) ok = companyValue <= max;
+  if (criterion.operator === "between" && (min !== null || max !== null)) {
+    ok = (min === null || companyValue >= min) && (max === null || companyValue <= max);
+  }
+
+  if (ok === null) return trace(criterion, "unknown", `${options.label} 조건 확인 필요`, companyValue);
+  return trace(
+    criterion,
+    ok ? "pass" : "fail",
+    `${options.label} ${numericBoundsLabel(min, max, options.unit)} - 귀사 ${formatNumber(companyValue)}${options.unit}`,
+    companyValue,
   );
 }
 
@@ -256,11 +319,17 @@ function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {
   const priority: CriterionDimension[] = [
     "industry",
     "size",
+    "revenue",
+    "employees",
     "region",
     "biz_age",
     "founder_age",
+    "founder_trait",
     "certification",
+    "ip",
+    "target_type",
     "prior_award",
+    "business_status",
     "other",
   ];
   const field = priority.find((candidate) => fields.includes(candidate));
@@ -331,6 +400,25 @@ function labelFor(dimension: CriterionDimension): string {
     other: "기타",
   };
   return labels[dimension];
+}
+
+function firstNumber(value: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const item = value[key];
+    if (typeof item === "number" && Number.isFinite(item)) return item;
+  }
+  return null;
+}
+
+function numericBoundsLabel(min: number | null, max: number | null, unit: string): string {
+  if (min !== null && max !== null) return `${formatNumber(min)}${unit} 이상 ${formatNumber(max)}${unit} 이하`;
+  if (min !== null) return `${formatNumber(min)}${unit} 이상`;
+  if (max !== null) return `${formatNumber(max)}${unit} 이하`;
+  return "기준";
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("ko-KR").format(value);
 }
 
 function regionLabel(code: string): string {

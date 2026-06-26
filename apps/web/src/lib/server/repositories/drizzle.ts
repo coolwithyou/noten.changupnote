@@ -578,6 +578,14 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
     if (row.dimension === "size") {
       profile.size = stringValue(value.size ?? value.label) ?? null;
     }
+    if (row.dimension === "revenue") {
+      const revenue = numberValue(value.revenue_krw ?? value.annual_revenue_krw ?? value.amount_krw);
+      if (revenue !== null) profile.revenue_krw = revenue;
+    }
+    if (row.dimension === "employees") {
+      const employees = numberValue(value.employees_count ?? value.count);
+      if (employees !== null) profile.employees_count = employees;
+    }
     if (row.dimension === "certification") {
       profile.certs = stringArray(value.certs ?? value.certifications);
     }
@@ -586,6 +594,15 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
     }
     if (row.dimension === "prior_award") {
       profile.prior_awards = stringArray(value.programs ?? value.prior_awards);
+    }
+    if (row.dimension === "ip") {
+      profile.ip = stringArray(value.ip ?? value.types);
+    }
+    if (row.dimension === "target_type") {
+      profile.target_types = stringArray(value.target_types ?? value.targets);
+    }
+    if (row.dimension === "other") {
+      profile.other_conditions = value;
     }
     if (row.dimension === "business_status") {
       const status: NonNullable<CompanyProfile["business_status"]> = {
@@ -641,6 +658,12 @@ function companyProfileRows(
   if (profile.size) {
     push("size", { size: profile.size, label: profile.size });
   }
+  if (profile.revenue_krw !== null && profile.revenue_krw !== undefined) {
+    push("revenue", { revenue_krw: profile.revenue_krw, amount_krw: profile.revenue_krw });
+  }
+  if (profile.employees_count !== null && profile.employees_count !== undefined) {
+    push("employees", { employees_count: profile.employees_count, count: profile.employees_count });
+  }
   if (profile.traits?.length) {
     push("founder_trait", { traits: profile.traits });
   }
@@ -649,6 +672,15 @@ function companyProfileRows(
   }
   if (profile.prior_awards?.length) {
     push("prior_award", { prior_awards: profile.prior_awards, programs: profile.prior_awards });
+  }
+  if (profile.ip?.length) {
+    push("ip", { ip: profile.ip, types: profile.ip });
+  }
+  if (profile.target_types?.length) {
+    push("target_type", { target_types: profile.target_types, targets: profile.target_types });
+  }
+  if (profile.other_conditions) {
+    push("other", compactRecord(profile.other_conditions));
   }
   if (profile.business_status) {
     push("business_status", compactRecord(profile.business_status as Record<string, unknown>));

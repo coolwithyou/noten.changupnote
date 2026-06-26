@@ -9,6 +9,7 @@ import {
   buildApplySheet,
   buildDashboard,
   matchGrantCriteria,
+  updateCompanyProfileField,
 } from "../src/index.js";
 
 const asOf = new Date("2026-06-01T00:00:00.000Z");
@@ -94,15 +95,73 @@ const sheet = buildApplySheet({
 });
 assert.equal(sheet.needsCheck.find((trace) => trace.dimension === "biz_age")?.unlock?.etaDate, "2026-08-01");
 
+const expandedProfile = [
+  { field: "revenue" as const, value: 100_000_000 },
+  { field: "employees" as const, value: 12 },
+  { field: "ip" as const, value: ["특허"] },
+  { field: "target_type" as const, value: ["법인"] },
+].reduce((profile, update) => updateCompanyProfileField(profile, {
+  ...update,
+  confidence: 0.9,
+}), company);
+const expandedGrant = normalizedGrant("expanded-profile", "확장 프로필 조건 지원사업", [
+  {
+    dimension: "revenue",
+    operator: "lte",
+    kind: "required",
+    value: { max_krw: 120_000_000 },
+    confidence: 0.9,
+  },
+  {
+    dimension: "employees",
+    operator: "between",
+    kind: "required",
+    value: { min: 5, max: 50 },
+    confidence: 0.9,
+  },
+  {
+    dimension: "ip",
+    operator: "exists",
+    kind: "required",
+    value: { types: ["특허"] },
+    confidence: 0.9,
+  },
+  {
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    value: { targets: ["법인"] },
+    confidence: 0.9,
+  },
+]);
+const expandedMatch = matchGrantCriteria(expandedGrant.criteria, expandedProfile);
+assert.equal(expandedMatch.eligibility, "eligible");
+assert.deepEqual(expandedMatch.unknown_fields, []);
+assert.equal(expandedProfile.revenue_krw, 100_000_000);
+assert.equal(expandedProfile.employees_count, 12);
+assert.deepEqual(expandedProfile.ip, ["특허"]);
+assert.deepEqual(expandedProfile.target_types, ["법인"]);
+
 console.log(JSON.stringify({
   ok: true,
-  checked: ["biz_age_min_match", "soon_bucket", "roadmap_time_unlock", "apply_sheet_unlock"],
+  checked: [
+    "biz_age_min_match",
+    "soon_bucket",
+    "roadmap_time_unlock",
+    "apply_sheet_unlock",
+    "expanded_profile_field_update",
+    "expanded_profile_match",
+  ],
   soon: {
     bucket: soonMatch.bucket,
     etaDate: soonTrace?.unlock?.etaDate,
   },
   tooOld: {
     bucket: tooOldMatch.bucket,
+  },
+  expanded: {
+    eligibility: expandedMatch.eligibility,
+    fitScore: expandedMatch.fit_score,
   },
 }, null, 2));
 
