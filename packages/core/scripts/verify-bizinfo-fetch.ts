@@ -5,7 +5,10 @@ import {
   buildBizInfoProgramExtractionInput,
   buildBizInfoUrl,
   htmlToText,
+  matchGrantCriteria,
   normalizeBizInfoUrl,
+  normalizeBizInfoLlmCriteria,
+  normalizeBizInfoProgram,
 } from "../src/index.js";
 
 const url = buildBizInfoUrl("https://example.test/uss/rss/bizinfoApi.do", "abc/def==");
@@ -71,8 +74,42 @@ assert.match(extractionInput.text, /source_field: bsnsSumryCn/);
 assert.match(extractionInput.text, /모집대상/);
 assert.match(extractionInput.text, /재무제표/);
 
+const llmCriteria = normalizeBizInfoLlmCriteria({
+  criteria: [{
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    value: { regions: ["41"], labels: ["경기"], nationwide: false },
+    confidence: 0.9,
+    source_span: "경기도 소재 중소기업",
+  }, {
+    dimension: "business_status",
+    operator: "not_in",
+    kind: "exclusion",
+    value: { statuses: ["closed"], labels: ["휴폐업"] },
+    confidence: 0.85,
+    source_span: "휴폐업 중인 기업 제외",
+  }],
+}, "PBLN_SAMPLE");
+assert.equal(llmCriteria.length, 2);
+const normalizedBizinfo = normalizeBizInfoProgram({
+  pblancId: "PBLN_SAMPLE",
+  pblancNm: "기업마당 테스트 공고",
+  reqstBeginEndDe: "2026-06-01 ~ 2026-06-30",
+}, llmCriteria, {
+  asOf: new Date("2026-06-26T00:00:00.000Z"),
+  model: "test-model",
+});
+assert.equal(normalizedBizinfo.grant.status, "open");
+assert.deepEqual(normalizedBizinfo.grant.f_regions, ["41"]);
+const bizinfoMatch = matchGrantCriteria(llmCriteria, {
+  region: { code: "41", label: "경기" },
+  business_status: { active: true, close_down_state: 1, close_down_tax_type: 10 },
+});
+assert.equal(bizinfoMatch.eligibility, "eligible");
+
 console.log(JSON.stringify({
   ok: true,
-  checked: ["program", "event", "extraction_input"],
+  checked: ["program", "event", "extraction_input", "llm_criteria"],
   extraction_input_length: extractionInput.text.length,
 }, null, 2));

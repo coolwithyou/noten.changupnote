@@ -159,6 +159,12 @@ export interface CompanyProfile {
   traits?: string[];
   certs?: string[];
   prior_awards?: string[];
+  business_status?: {
+    active?: boolean;
+    close_down_state?: string | number | null;
+    close_down_tax_type?: string | number | null;
+    label?: string;
+  };
   confidence?: Partial<Record<CriterionDimension, number>>;
 }
 

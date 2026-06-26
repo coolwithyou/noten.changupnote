@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  popbill@1.64.2>popbill: '-'
+
 importers:
 
   .:
@@ -27,6 +30,9 @@ importers:
       '@cunote/contracts':
         specifier: workspace:*
         version: link:../contracts
+      popbill:
+        specifier: 1.64.2
+        version: 1.64.2
 
 packages:
 
@@ -199,6 +205,14 @@ packages:
     engines: {node: ^8.16.0 || ^10.6.0 || >=11.0.0}
     os: [darwin]
 
+  linkhub@1.8.2:
+    resolution: {integrity: sha512-7f5uedgRpdacfZpg+R+A9iNpmDvwL9qn97GAiuG6rUGPKMykDjyDPIF7gyG2mzt3+ey+iXQtzYWzRNfTp4WIGQ==}
+    engines: {node: '>= 0.10.0'}
+
+  popbill@1.64.2:
+    resolution: {integrity: sha512-ciZg1YZKwLHioldIamydM2OQUkYnqMwBu+CittdvjnATuZftF7w+u127Rk/0WR4aAdcvRW/WzfrqEc78BEiNDg==}
+    engines: {node: '>= 0.10.0'}
+
   tsx@4.22.4:
     resolution: {integrity: sha512-X8EX+XV4QR5xCsrgxaED954zTDfY8KqlDtskKEL0cHhyS/P8b4IFOvGDQpsC9Q1XnLq915wEfwwY/zzskCtmhg==}
     engines: {node: '>=18.0.0'}
@@ -211,6 +225,10 @@ packages:
 
   undici-types@7.18.2:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
+
+  xmlhttprequest@1.8.0:
+    resolution: {integrity: sha512-58Im/U0mlVBLM38NdZjHyhuMtCqa61469k2YP/AaPbvCoV9aQGUpbJBj1QRm2ytRiVQBD/fsw7L2bJGDVQswBA==}
+    engines: {node: '>=0.4.0'}
 
 snapshots:
 
@@ -328,6 +346,14 @@ snapshots:
   fsevents@2.3.3:
     optional: true
 
+  linkhub@1.8.2:
+    dependencies:
+      xmlhttprequest: 1.8.0
+
+  popbill@1.64.2:
+    dependencies:
+      linkhub: 1.8.2
+
   tsx@4.22.4:
     dependencies:
       esbuild: 0.28.1
@@ -337,3 +363,5 @@ snapshots:
   typescript@5.9.3: {}
 
   undici-types@7.18.2: {}
+
+  xmlhttprequest@1.8.0: {}

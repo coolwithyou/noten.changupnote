@@ -68,6 +68,8 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
       return evaluateListCriterion(criterion, company.traits ?? [], "traits", "대표자 속성");
     case "prior_award":
       return evaluateListCriterion(criterion, company.prior_awards ?? [], "programs", "기수혜");
+    case "business_status":
+      return evaluateBusinessStatus(criterion, company);
     default:
       return trace(criterion, "unknown", `${labelFor(criterion.dimension)} 조건 확인 필요`);
   }
@@ -188,6 +190,36 @@ function evaluateSingleValueCriterion(
     result ? "pass" : "fail",
     `${label} ${required.join(", ")} - 귀사 ${companyValue}`,
     companyValue,
+  );
+}
+
+function evaluateBusinessStatus(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+  const status = company.business_status;
+  if (status?.active === undefined) {
+    return trace(criterion, "unknown", "휴폐업 상태 확인 필요");
+  }
+
+  const value = criterion.value as { statuses?: string[]; labels?: string[] };
+  const statuses = value.statuses ?? [];
+  const isClosedExcluded = statuses.includes("closed") || /휴.?폐업|폐업/.test(criterion.source_span ?? "");
+  if (!isClosedExcluded) {
+    return trace(criterion, "unknown", "영업상태 조건 원문 확인 필요", status);
+  }
+
+  if (criterion.kind === "exclusion" || criterion.operator === "not_in") {
+    return trace(
+      criterion,
+      status.active ? "pass" : "fail",
+      status.active ? "휴폐업 제외 조건 미해당 - 팝빌 정상 상태" : "휴폐업 제외 조건 해당 가능",
+      status,
+    );
+  }
+
+  return trace(
+    criterion,
+    status.active ? "pass" : "fail",
+    status.active ? "정상 영업 상태 확인" : "정상 영업 상태 확인 필요",
+    status,
   );
 }
 

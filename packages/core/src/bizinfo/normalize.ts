@@ -1,0 +1,147 @@
+import type {
+  BizAgeCriterionValue,
+  Grant,
+  GrantCriterion,
+  GrantRaw,
+  ListCriterionValue,
+  NormalizedGrant,
+  RegionCriterionValue,
+} from "@cunote/contracts";
+import {
+  buildBizInfoProgramExtractionInput,
+  htmlToText,
+  normalizeBizInfoUrl,
+} from "./extraction-input.js";
+import type { BizInfoProgram } from "./types.js";
+
+export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v1";
+
+export function normalizeBizInfoProgram(
+  program: BizInfoProgram,
+  criteria: GrantCriterion[],
+  options: { asOf?: Date; collectedAt?: Date; model?: string | null } = {},
+): NormalizedGrant<BizInfoProgram> {
+  const input = buildBizInfoProgramExtractionInput(program);
+  const applyPeriod = parseBizInfoApplyPeriod(input.metadata.apply_period);
+  const projection = deriveProjection(criteria);
+  const asOf = options.asOf ?? new Date();
+  const raw: GrantRaw<BizInfoProgram> = {
+    source: "bizinfo",
+    source_id: program.pblancId,
+    payload: program,
+    collected_at: (options.collectedAt ?? new Date()).toISOString(),
+    status: criteria.length > 0 ? "normalized" : "extracted",
+  };
+
+  const grant: Grant = {
+    source: "bizinfo",
+    source_id: program.pblancId,
+    title: input.title,
+    url: normalizeBizInfoUrl(program.pblancUrl),
+    agency_jurisdiction: input.metadata.jurisdiction_agency,
+    agency_operator: input.metadata.operating_agency,
+    category_l1: input.metadata.category_l1,
+    category_l2: input.metadata.category_l2,
+    apply_start: applyPeriod.start,
+    apply_end: applyPeriod.end,
+    apply_method: {
+      text: input.metadata.application_method,
+    },
+    support_amount: null,
+    status: statusFromPeriod(applyPeriod.start, applyPeriod.end, asOf),
+    f_regions: projection.f_regions,
+    f_industries: projection.f_industries,
+    f_biz_age_min_months: projection.f_biz_age_min_months,
+    f_biz_age_max_months: projection.f_biz_age_max_months,
+    f_sizes: projection.f_sizes,
+    f_founder_traits: projection.f_founder_traits,
+    f_required_certs: projection.f_required_certs,
+    overall_confidence: projection.overall_confidence,
+    model_ver: options.model ?? null,
+    prompt_ver: BIZINFO_NORMALIZER_VERSION,
+    parser_version: BIZINFO_NORMALIZER_VERSION,
+    updated_at: null,
+  };
+
+  return { raw, grant, criteria };
+}
+
+export function parseBizInfoApplyPeriod(value: string | null | undefined): {
+  start: string | null;
+  end: string | null;
+} {
+  const text = htmlToText(value);
+  const dates = [...text.matchAll(/\d{4}[-.]\d{1,2}[-.]\d{1,2}/g)]
+    .map((match) => normalizeDate(match[0]))
+    .filter(Boolean);
+  return {
+    start: dates[0] ?? null,
+    end: dates[1] ?? dates[0] ?? null,
+  };
+}
+
+function deriveProjection(criteria: GrantCriterion[]) {
+  const regions = criteria
+    .filter((criterion) => criterion.dimension === "region" && criterion.kind === "required")
+    .flatMap((criterion) => (criterion.value as RegionCriterionValue).regions ?? []);
+  const bizAge = criteria.find((criterion) => criterion.dimension === "biz_age");
+  const bizAgeValue = bizAge?.value as BizAgeCriterionValue | undefined;
+  const industryTags = criteria
+    .filter((criterion) => criterion.dimension === "industry")
+    .flatMap((criterion) => (criterion.value as ListCriterionValue).tags ?? []);
+  const sizes = criteria
+    .filter((criterion) => criterion.dimension === "size")
+    .flatMap((criterion) => (criterion.value as ListCriterionValue).sizes ?? []);
+  const traits = criteria
+    .filter((criterion) => criterion.dimension === "founder_trait")
+    .flatMap((criterion) => (criterion.value as ListCriterionValue).traits ?? []);
+  const certs = criteria
+    .filter((criterion) => criterion.dimension === "certification" && criterion.kind === "required")
+    .flatMap((criterion) => (criterion.value as ListCriterionValue).certs ?? []);
+
+  return {
+    f_regions: unique(regions),
+    f_industries: unique(industryTags),
+    f_biz_age_min_months: bizAgeValue?.min_months ?? null,
+    f_biz_age_max_months: bizAgeValue?.max_months ?? null,
+    f_sizes: unique(sizes),
+    f_founder_traits: unique(traits),
+    f_required_certs: unique(certs),
+    overall_confidence: criteria.length
+      ? Math.round((criteria.reduce((sum, criterion) => sum + criterion.confidence, 0) / criteria.length) * 100) / 100
+      : 0,
+  };
+}
+
+function statusFromPeriod(start: string | null, end: string | null, asOf: Date): Grant["status"] {
+  const startDate = parseDate(start);
+  const endDate = parseDate(end);
+  const today = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
+  if (startDate && today < startDate) return "upcoming";
+  if (endDate && today > endDate) return "closed";
+  if (startDate || endDate) return "open";
+  return "unknown";
+}
+
+function normalizeDate(value: string): string | null {
+  const parts = value.split(/[-.]/).map((part) => Number(part));
+  const year = parts[0];
+  const month = parts[1];
+  const day = parts[2];
+  if (!year || !month || !day) return null;
+  return `${year.toString().padStart(4, "0")}-${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`;
+}
+
+function parseDate(value: string | null): Date | null {
+  if (!value) return null;
+  const parts = value.split("-").map((part) => Number(part));
+  const year = parts[0];
+  const month = parts[1];
+  const day = parts[2];
+  if (!year || !month || !day) return null;
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)];
+}
