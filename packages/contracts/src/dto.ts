@@ -51,6 +51,11 @@ export interface StatsResult {
   updatedAt: string;
 }
 
+export interface TeaserRequest {
+  bizNo?: string;
+  profile?: CompanyProfile;
+}
+
 export interface TeaserResult {
   attributes: {
     region: string | null;

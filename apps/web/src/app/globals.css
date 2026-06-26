@@ -518,7 +518,36 @@ button:disabled {
   padding: 18px;
 }
 
+.entry-mode-tabs {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  padding: 4px;
+}
+
+.entry-mode-tabs button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.entry-mode-tabs button.active {
+  background: #fff;
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08);
+}
+
 .biz-form label {
+  display: block;
   margin-bottom: 8px;
 }
 
@@ -530,6 +559,30 @@ button:disabled {
 
 .biz-input-row button {
   min-height: 48px;
+}
+
+.preliminary-grid {
+  display: grid;
+  grid-template-columns: 1fr 110px 1fr;
+  gap: 10px;
+}
+
+.preliminary-grid label {
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.preliminary-grid input,
+.preliminary-grid select {
+  margin-top: 8px;
+}
+
+.preliminary-submit {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 12px;
 }
 
 .form-note,
@@ -2125,7 +2178,8 @@ button:disabled {
   }
 
   .stats-strip,
-  .biz-input-row {
+  .biz-input-row,
+  .preliminary-grid {
     grid-template-columns: 1fr;
   }
 

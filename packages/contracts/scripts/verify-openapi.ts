@@ -177,6 +177,18 @@ function verifyServiceDtoSchemas(errors: string[]) {
     return;
   }
 
+  const teaserRequest = schemas.TeaserRequest;
+  if (!isRecord(teaserRequest) || !isRecord(teaserRequest.properties)) {
+    errors.push("TeaserRequest schema is missing properties.");
+    return;
+  }
+  if (propertyType(teaserRequest.properties.bizNo) !== "string") {
+    errors.push("TeaserRequest.bizNo must be string.");
+  }
+  if (!isRecord(teaserRequest.properties.profile) || teaserRequest.properties.profile.$ref !== "#/components/schemas/CompanyProfile") {
+    errors.push("TeaserRequest.profile must reference CompanyProfile.");
+  }
+
   const fitScore = matchCard.properties.fitScore;
   if (!isRecord(fitScore) || fitScore.minimum !== 0 || fitScore.maximum !== 100) {
     errors.push("MatchCard.fitScore must be documented as a 0..100 score.");

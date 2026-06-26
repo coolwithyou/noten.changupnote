@@ -1,7 +1,29 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import type { ActionResult, MatchCard, StatsResult, TeaserResult } from "@cunote/contracts";
+import type { ActionResult, CompanyProfile, MatchCard, StatsResult, TeaserRequest, TeaserResult } from "@cunote/contracts";
+
+type EntryMode = "active" | "preliminary";
+
+const REGION_OPTIONS = [
+  { code: "41", label: "경기" },
+  { code: "11", label: "서울" },
+  { code: "28", label: "인천" },
+  { code: "26", label: "부산" },
+  { code: "27", label: "대구" },
+  { code: "30", label: "대전" },
+  { code: "29", label: "광주" },
+  { code: "31", label: "울산" },
+  { code: "36", label: "세종" },
+  { code: "51", label: "강원" },
+  { code: "43", label: "충북" },
+  { code: "44", label: "충남" },
+  { code: "52", label: "전북" },
+  { code: "46", label: "전남" },
+  { code: "47", label: "경북" },
+  { code: "48", label: "경남" },
+  { code: "50", label: "제주" },
+] as const;
 
 interface HomeExperienceProps {
   initialStats: StatsResult;
@@ -9,6 +31,10 @@ interface HomeExperienceProps {
 
 export function HomeExperience({ initialStats }: HomeExperienceProps) {
   const [bizNo, setBizNo] = useState("");
+  const [entryMode, setEntryMode] = useState<EntryMode>("active");
+  const [regionCode, setRegionCode] = useState("41");
+  const [founderAge, setFounderAge] = useState("");
+  const [industry, setIndustry] = useState("");
   const [teaser, setTeaser] = useState<TeaserResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -22,14 +48,20 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
       const response = await fetch("/api/web/teaser", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bizNo }),
+        body: JSON.stringify(buildTeaserRequest({
+          mode: entryMode,
+          bizNo,
+          regionCode,
+          founderAge,
+          industry,
+        })),
       });
       const payload = await response.json() as ActionResult<TeaserResult>;
       if (!response.ok || !payload.ok || !payload.data) {
         throw new Error(payload.error?.message ?? "지원사업 티저를 만들지 못했습니다.");
       }
       setTeaser(payload.data);
-      setBizNo("");
+      if (entryMode === "active") setBizNo("");
     } catch (caught) {
       setTeaser(null);
       setError(caught instanceof Error ? caught.message : "지원사업 티저를 만들지 못했습니다.");
@@ -56,7 +88,7 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
           <p className="eyebrow">지원사업 매칭</p>
           <h1>내 사업자가 지금 열 수 있는 기회를 확인합니다.</h1>
           <p className="hero-subcopy">
-            사업자번호로 기본 프로필을 보강하고, K-Startup 공고를 기준으로 적격과 확인 필요를 분리합니다.
+            사업자번호 또는 예비창업 프로필로 K-Startup 공고를 훑고, 적격과 확인 필요를 분리합니다.
           </p>
 
           <div className="stats-strip" aria-label="현재 지원사업 집계">
@@ -66,22 +98,94 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
           </div>
 
           <form className="biz-form" onSubmit={submit}>
-            <label htmlFor="bizNo">사업자번호 10자리</label>
-            <div className="biz-input-row">
-              <input
-                id="bizNo"
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="0000000000"
-                value={bizNo}
-                maxLength={12}
-                onChange={(event) => setBizNo(formatBizNoInput(event.target.value))}
-              />
-              <button type="submit" disabled={isLoading}>
-                {isLoading ? "확인 중" : "내 지원사업 확인"}
+            <div className="entry-mode-tabs" role="tablist" aria-label="기업 상태">
+              <button
+                type="button"
+                className={entryMode === "active" ? "active" : ""}
+                aria-selected={entryMode === "active"}
+                onClick={() => {
+                  setEntryMode("active");
+                  setError(null);
+                }}
+              >
+                기창업
+              </button>
+              <button
+                type="button"
+                className={entryMode === "preliminary" ? "active" : ""}
+                aria-selected={entryMode === "preliminary"}
+                onClick={() => {
+                  setEntryMode("preliminary");
+                  setError(null);
+                }}
+              >
+                예비창업
               </button>
             </div>
-            <p className="form-note">결과 화면에는 사업자번호 원문을 표시하지 않습니다.</p>
+
+            {entryMode === "active" ? (
+              <>
+                <label htmlFor="bizNo">사업자번호 10자리</label>
+                <div className="biz-input-row">
+                  <input
+                    id="bizNo"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    placeholder="0000000000"
+                    value={bizNo}
+                    maxLength={12}
+                    onChange={(event) => setBizNo(formatBizNoInput(event.target.value))}
+                  />
+                  <button type="submit" disabled={isLoading}>
+                    {isLoading ? "확인 중" : "내 지원사업 확인"}
+                  </button>
+                </div>
+                <p className="form-note">결과 화면에는 사업자번호 원문을 표시하지 않습니다.</p>
+              </>
+            ) : (
+              <>
+                <div className="preliminary-grid">
+                  <label htmlFor="preRegion">
+                    지역
+                    <select
+                      id="preRegion"
+                      value={regionCode}
+                      onChange={(event) => setRegionCode(event.currentTarget.value)}
+                    >
+                      {REGION_OPTIONS.map((region) => (
+                        <option key={region.code} value={region.code}>{region.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label htmlFor="founderAge">
+                    대표자 나이
+                    <input
+                      id="founderAge"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="35"
+                      value={founderAge}
+                      maxLength={3}
+                      onChange={(event) => setFounderAge(event.currentTarget.value.replace(/\D/g, "").slice(0, 3))}
+                    />
+                  </label>
+                  <label htmlFor="industry">
+                    예정 업종
+                    <input
+                      id="industry"
+                      autoComplete="off"
+                      placeholder="ICT"
+                      value={industry}
+                      onChange={(event) => setIndustry(event.currentTarget.value)}
+                    />
+                  </label>
+                </div>
+                <button className="preliminary-submit" type="submit" disabled={isLoading}>
+                  {isLoading ? "확인 중" : "예비창업 기회 확인"}
+                </button>
+                <p className="form-note">예비창업 프로필은 자동 보강 없이 수기 입력 기준으로만 계산합니다.</p>
+              </>
+            )}
             {error ? <p className="form-error">{error}</p> : null}
           </form>
         </div>
@@ -201,13 +305,51 @@ function formatBizNoInput(value: string): string {
   return value.replace(/\D/g, "").slice(0, 10);
 }
 
+function buildTeaserRequest(input: {
+  mode: EntryMode;
+  bizNo: string;
+  regionCode: string;
+  founderAge: string;
+  industry: string;
+}): TeaserRequest {
+  if (input.mode === "active") return { bizNo: input.bizNo };
+  return { profile: buildPreliminaryProfile(input) };
+}
+
+function buildPreliminaryProfile(input: {
+  regionCode: string;
+  founderAge: string;
+  industry: string;
+}): CompanyProfile {
+  const region = REGION_OPTIONS.find((candidate) => candidate.code === input.regionCode) ?? REGION_OPTIONS[0];
+  const age = Number(input.founderAge);
+  const industry = input.industry.trim();
+  const confidence: NonNullable<CompanyProfile["confidence"]> = {
+    region: 0.55,
+    biz_age: 0.45,
+  };
+  if (Number.isFinite(age) && age > 0) confidence.founder_age = 0.55;
+  if (industry) confidence.industry = 0.35;
+
+  const profile: CompanyProfile = {
+    is_preliminary: true,
+    region: { code: region.code, label: region.label },
+    confidence,
+  };
+  if (Number.isFinite(age) && age > 0) profile.founder_age = Math.floor(age);
+  if (industry) profile.industries = [industry];
+  return profile;
+}
+
 function profileHeadline(teaser: TeaserResult): string {
+  const industry = teaser.attributes.industry.slice(0, 2).join(", ");
   const parts = [
     teaser.attributes.region,
     teaser.attributes.size,
     teaser.attributes.bizAgeMonths === null ? null : `업력 ${Math.floor(teaser.attributes.bizAgeMonths / 12)}년`,
+    industry || null,
   ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "입력한 기업";
+  return parts.length > 0 ? parts.join(" · ") : "입력한 프로필";
 }
 
 function formatMoney(value: number): string {

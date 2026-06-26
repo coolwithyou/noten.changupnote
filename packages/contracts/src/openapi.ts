@@ -674,6 +674,7 @@ export const appV1OpenApi = {
         type: "object",
         properties: {
           bizNo: { type: "string" },
+          profile: ref("CompanyProfile"),
         },
         additionalProperties: false,
       },

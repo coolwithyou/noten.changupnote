@@ -1,21 +1,18 @@
-import type { TeaserResult } from "@cunote/contracts";
+import type { TeaserRequest, TeaserResult } from "@cunote/contracts";
 import { buildTeaser } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
-import { loadCompanyProfileForTeaser, loadServiceGrants } from "@/lib/server/serviceData";
+import { loadServiceGrants } from "@/lib/server/serviceData";
+import { resolveTeaserCompanyProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-interface TeaserRequest {
-  bizNo?: string;
-}
 
 export async function POST(request: Request) {
   try {
     const body = await readBody(request);
     const asOf = new Date();
     const [company, grants] = await Promise.all([
-      loadCompanyProfileForTeaser(body.bizNo?.trim() || undefined),
+      resolveTeaserCompanyProfile(body),
       loadServiceGrants({ asOf, limit: 40 }),
     ]);
     return appData<TeaserResult>(buildTeaser({ company, grants, asOf }));
@@ -27,7 +24,7 @@ export async function POST(request: Request) {
   }
 }
 
-async function readBody(request: Request): Promise<TeaserRequest> {
+async function readBody(request: Request): Promise<Partial<TeaserRequest>> {
   try {
     const parsed = await request.json() as TeaserRequest;
     return parsed && typeof parsed === "object" ? parsed : {};

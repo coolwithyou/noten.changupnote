@@ -34,6 +34,18 @@ if (!rawBaseUrl) {
 const baseUrl = rawBaseUrl.replace(/\/$/, "");
 const email = process.env.CUNOTE_HTTP_VERIFY_EMAIL?.trim() || "demo@changupnote.com";
 const checks: string[] = [];
+const preliminaryProfile = {
+  is_preliminary: true,
+  region: { code: "41", label: "경기" },
+  founder_age: 35,
+  industries: ["ICT"],
+  confidence: {
+    region: 0.55,
+    biz_age: 0.45,
+    founder_age: 0.55,
+    industry: 0.35,
+  },
+};
 
 const stats = await fetchJson<ActionResult<{ openCount: number }>>("/api/web/stats");
 expectStatus(stats, 200, "web stats status");
@@ -58,6 +70,21 @@ expect(typeof teaser.body.data?.conditionalUpside === "number", "web teaser cond
 expect(Boolean(teaser.body.data?.privacyNote), "web teaser privacy note");
 expect(Boolean(teaser.body.data?.matches.find((entry) => entry.grantId)), "web teaser exposes matches");
 checks.push("web_teaser");
+
+const preliminaryTeaser = await fetchJson<ActionResult<{
+  attributes: { region: string | null; industry: string[] };
+  matches: Array<{ grantId: string; eligibility: string }>;
+}>>("/api/web/teaser", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ profile: preliminaryProfile }),
+});
+expectStatus(preliminaryTeaser, 200, "web preliminary teaser status");
+expect(preliminaryTeaser.body.ok === true, "web preliminary teaser envelope ok");
+expect(preliminaryTeaser.body.data?.attributes.region === "경기", "web preliminary teaser region");
+expect(preliminaryTeaser.body.data?.attributes.industry.includes("ICT"), "web preliminary teaser industry");
+expect(Boolean(preliminaryTeaser.body.data?.matches.find((entry) => entry.grantId)), "web preliminary teaser exposes matches");
+checks.push("web_preliminary_teaser");
 
 const notifications = await fetchJson<ActionResult<{
   deadlineReminder: boolean;
@@ -308,6 +335,20 @@ expect(typeof appTeaser.body.data?.conditionalUpside === "number", "app teaser c
 expect(Boolean(appTeaser.body.data?.privacyNote), "app teaser privacy note");
 expect(Boolean(appTeaser.body.data?.matches.find((entry) => entry.grantId)), "app teaser exposes matches");
 checks.push("app_teaser");
+
+const appPreliminaryTeaser = await fetchJson<ApiEnvelope<{
+  attributes: { region: string | null; industry: string[] };
+  matches: Array<{ grantId: string; eligibility: string }>;
+}>>("/api/app/v1/teaser", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ profile: preliminaryProfile }),
+});
+expectStatus(appPreliminaryTeaser, 200, "app preliminary teaser status");
+expect(appPreliminaryTeaser.body.data?.attributes.region === "경기", "app preliminary teaser region");
+expect(appPreliminaryTeaser.body.data?.attributes.industry.includes("ICT"), "app preliminary teaser industry");
+expect(Boolean(appPreliminaryTeaser.body.data?.matches.find((entry) => entry.grantId)), "app preliminary teaser exposes matches");
+checks.push("app_preliminary_teaser");
 
 const appNotifications = await fetchJson<ApiEnvelope<{
   deadlineReminder: boolean;
