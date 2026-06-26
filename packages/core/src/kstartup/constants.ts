@@ -1,4 +1,6 @@
 export const KSTARTUP_SOURCE = "kstartup" as const;
+export const KSTARTUP_API_ENDPOINT =
+  "https://nidapi.k-startup.go.kr/api/kisedKstartupService/v1/getAnnouncementInformation";
 export const KSTARTUP_NORMALIZER_VERSION = "kstartup-field-parser-v1";
 
 export const REGION_CODES: Record<string, string> = {

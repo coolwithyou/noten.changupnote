@@ -32,9 +32,23 @@ export interface KStartupApiResponse {
   matchCount?: number;
   page?: number;
   perPage?: number;
+  currentCount?: number;
 }
 
 export interface NormalizeKStartupOptions {
   asOf?: Date;
   collectedAt?: Date;
+}
+
+export interface KStartupFetchPageOptions {
+  serviceKey: string;
+  page?: number;
+  perPage?: number;
+  endpoint?: string;
+  fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+}
+
+export interface KStartupFetchManyOptions extends KStartupFetchPageOptions {
+  pages?: number;
 }
