@@ -1230,6 +1230,78 @@ button:disabled {
   color: var(--amber);
 }
 
+.admin-shell {
+  min-height: 100vh;
+  padding: 24px;
+  background:
+    linear-gradient(180deg, #ffffff 0%, #f6f7f9 48%, #edf1f5 100%),
+    repeating-linear-gradient(90deg, rgba(21, 24, 29, 0.045) 0 1px, transparent 1px 88px);
+}
+
+.admin-hero,
+.admin-grid,
+.admin-denied {
+  max-width: 1180px;
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.admin-hero {
+  margin-bottom: 18px;
+}
+
+.admin-hero h1 {
+  font-size: 44px;
+  line-height: 1.08;
+}
+
+.admin-hero p:last-child {
+  max-width: 620px;
+  margin-top: 12px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.admin-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  padding: 18px;
+}
+
+.admin-panel span {
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-panel h2 {
+  margin-top: 12px;
+  font-size: 20px;
+  line-height: 1.25;
+}
+
+.admin-panel p {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.admin-denied {
+  border-color: rgba(183, 61, 61, 0.28);
+}
+
 @media (max-width: 1120px) {
   .dashboard-hero,
   .dashboard-grid,
@@ -1267,6 +1339,18 @@ button:disabled {
 
   .apply-hero h1 {
     font-size: 34px;
+  }
+
+  .admin-shell {
+    padding: 18px;
+  }
+
+  .admin-hero h1 {
+    font-size: 34px;
+  }
+
+  .admin-grid {
+    grid-template-columns: 1fr;
   }
 }
 
