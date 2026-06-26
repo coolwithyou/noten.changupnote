@@ -22,6 +22,12 @@ Current API surface:
 - `src/app/api/app/v1/*`: versioned app API with token auth and OpenAPI at `/api/app/v1/openapi.json`.
 - `src/app/api/matches/live/route.ts`: internal live verification route.
 
+App client contract:
+
+- `pnpm openapi:export` writes `packages/contracts/generated/app-v1.openapi.json`.
+- `pnpm verify:openapi` verifies route coverage, schema expectations, and generated-file sync.
+- Flutter codegen should consume the generated JSON or the live `/api/app/v1/openapi.json` endpoint.
+
 Route adapters should stay thin and call `packages/core` use-cases through
 `src/lib/server/serviceData.ts`.
 
