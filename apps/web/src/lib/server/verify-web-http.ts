@@ -50,6 +50,13 @@ const webGrant = dashboard.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(webGrant), "web dashboard exposes a match grant");
 checks.push("web_dashboard");
 
+const dashboardHtml = await fetchText("/dashboard");
+expectStatus(dashboardHtml, 200, "web dashboard html status");
+expect(dashboardHtml.body.includes("match-feedback-controls"), "web dashboard renders match feedback controls");
+expect(dashboardHtml.body.includes("action-cta"), "web dashboard renders action queue cta");
+expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard renders next question anchor");
+checks.push("web_dashboard_html");
+
 const webEvent = await fetchJson<ActionResult<{ event: string }>>(
   `/api/web/matches/${encodeURIComponent(webGrant!.grantId)}/events`,
   {
@@ -123,6 +130,18 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<JsonRespo
     signal: AbortSignal.timeout(10000),
   });
   const body = await response.json() as T;
+  return {
+    status: response.status,
+    body,
+  };
+}
+
+async function fetchText(path: string, init?: RequestInit): Promise<JsonResponse<string>> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...init,
+    signal: AbortSignal.timeout(10000),
+  });
+  const body = await response.text();
   return {
     status: response.status,
     body,
