@@ -1,4 +1,5 @@
 import type { MatchCard, OpportunityBucket } from "@cunote/contracts";
+import { MatchFeedbackControls } from "./MatchFeedbackControls";
 
 const BUCKETS: Array<{ bucket: OpportunityBucket; title: string; description: string }> = [
   { bucket: "now", title: "지금 받을 수 있어요", description: "필수 조건이 충족된 공고" },
@@ -63,17 +64,16 @@ function OpportunityCard({ match }: { match: MatchCard }) {
     </>
   );
 
-  if (match.detailUrl) {
-    return (
-      <a className="opportunity-card" href={match.detailUrl} aria-label={`${match.title} 신청 준비 시트 보기`}>
-        {content}
-      </a>
-    );
-  }
-
   return (
     <article className="opportunity-card">
-      {content}
+      {match.detailUrl ? (
+        <a className="opportunity-card-link" href={match.detailUrl} aria-label={`${match.title} 신청 준비 시트 보기`}>
+          {content}
+        </a>
+      ) : (
+        <div className="opportunity-card-link">{content}</div>
+      )}
+      <MatchFeedbackControls grantId={match.grantId} title={match.title} />
     </article>
   );
 }
