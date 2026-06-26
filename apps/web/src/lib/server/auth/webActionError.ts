@@ -18,6 +18,17 @@ export function webActionError<T>(
       },
     }, { status: error.status });
   }
+  if (isStatusError(error)) {
+    const actionError: NonNullable<ActionResult<T>["error"]> = {
+      code: error.code,
+      message: error.message,
+    };
+    if (error.field) actionError.field = error.field;
+    return NextResponse.json<ActionResult<T>>({
+      ok: false,
+      error: actionError,
+    }, { status: error.status });
+  }
 
   return NextResponse.json<ActionResult<T>>({
     ok: false,
@@ -26,4 +37,19 @@ export function webActionError<T>(
       message: error instanceof Error ? error.message : fallback.message,
     },
   }, { status: 500 });
+}
+
+function isStatusError(error: unknown): error is {
+  code: string;
+  message: string;
+  status: number;
+  field?: string;
+} {
+  if (!(error instanceof Error)) return false;
+  const candidate = error as Error & {
+    code?: unknown;
+    status?: unknown;
+    field?: unknown;
+  };
+  return typeof candidate.code === "string" && typeof candidate.status === "number";
 }

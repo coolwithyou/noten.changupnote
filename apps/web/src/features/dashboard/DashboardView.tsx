@@ -1,5 +1,6 @@
 import type { DashboardResult } from "@cunote/contracts";
 import { ActionQueuePanel } from "@/features/action-queue/ActionQueuePanel";
+import { ProgressiveQuestionCard } from "@/features/dashboard/ProgressiveQuestionCard";
 import { OpportunityMap } from "@/features/opportunity-map/OpportunityMap";
 import { RoadmapStrip } from "@/features/roadmap/RoadmapStrip";
 
@@ -33,16 +34,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResult }) {
         </div>
       </section>
 
-      {dashboard.nextQuestion ? (
-        <section className="next-question-banner">
-          <div>
-            <span className="eyebrow">다음 질문</span>
-            <h2>{dashboard.nextQuestion.prompt}</h2>
-            <p>{dashboard.nextQuestion.framing}</p>
-          </div>
-          <strong>{dashboard.nextQuestion.affectedGrantCount}건 영향</strong>
-        </section>
-      ) : null}
+      {dashboard.nextQuestion ? <ProgressiveQuestionCard question={dashboard.nextQuestion} /> : null}
 
       <section className="dashboard-grid">
         <ActionQueuePanel actions={dashboard.actionQueue} />
