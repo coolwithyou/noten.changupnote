@@ -40,11 +40,12 @@
     "verify:app-auth": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/auth/verify-app-auth.ts",
     "verify:company-access": "tsx apps/web/src/lib/server/auth/verify-company-access.ts",
     "verify:company-enrichment": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/verify-company-enrichment.ts",
+    "verify:consent-store": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/consents/verify-consent-store.ts",
     "verify:rls-context": "tsx packages/contracts/scripts/verify-rls-context.ts",
     "verify:rls-policy": "tsx packages/contracts/scripts/verify-rls-policy.ts",
     "verify:bizinfo": "tsx packages/core/scripts/verify-bizinfo-fetch.ts",
     "verify:kstartup": "tsx packages/core/scripts/verify-kstartup-slice.ts",
-    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:route-policy && pnpm verify:admin-routes && pnpm verify:package-boundaries && pnpm verify:company-access && pnpm verify:company-enrichment && pnpm verify:runtime-repositories && pnpm verify:app-auth && pnpm verify:rls-context && pnpm verify:rls-policy && pnpm verify:kstartup && pnpm verify:service-usecases && pnpm verify:demo-seed && pnpm verify:db-doctor && pnpm verify:db-smoke-plan && pnpm verify:ingestion-publish && pnpm verify:bizinfo-publish && pnpm verify:bizinfo && pnpm verify:company-profile"
+    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:route-policy && pnpm verify:admin-routes && pnpm verify:package-boundaries && pnpm verify:company-access && pnpm verify:company-enrichment && pnpm verify:consent-store && pnpm verify:runtime-repositories && pnpm verify:app-auth && pnpm verify:rls-context && pnpm verify:rls-policy && pnpm verify:kstartup && pnpm verify:service-usecases && pnpm verify:demo-seed && pnpm verify:db-doctor && pnpm verify:db-smoke-plan && pnpm verify:ingestion-publish && pnpm verify:bizinfo-publish && pnpm verify:bizinfo && pnpm verify:company-profile"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",

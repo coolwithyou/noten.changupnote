@@ -1,6 +1,7 @@
 import type { CompanyEnrichmentRequest } from "@cunote/contracts";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
+import { requireActiveConsent } from "@/lib/server/consents/consentStore";
 import { enrichServiceCompany } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -17,6 +18,12 @@ export async function POST(request: Request, context: RouteContext) {
     if (!body.bizNo?.trim()) {
       return appError("invalid_biz_no", "bizNo가 필요합니다.", 400, "bizNo");
     }
+
+    await requireActiveConsent({
+      companyId,
+      userId: access.userId,
+      scope: "basic_info",
+    });
 
     const data = await enrichServiceCompany({
       companyId,

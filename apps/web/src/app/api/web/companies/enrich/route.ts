@@ -2,6 +2,7 @@ import type { ActionResult, CompanyEnrichmentRequest, CompanyEnrichmentResult } 
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
+import { requireActiveConsent } from "@/lib/server/consents/consentStore";
 import { enrichServiceCompany } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -20,6 +21,12 @@ export async function POST(request: Request) {
         },
       }, { status: 400 });
     }
+
+    await requireActiveConsent({
+      companyId: access.companyId,
+      userId: access.userId,
+      scope: "basic_info",
+    });
 
     const data = await enrichServiceCompany({
       companyId: access.companyId,

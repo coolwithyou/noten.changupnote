@@ -35,6 +35,27 @@ export function getConsentStore(): ConsentStore {
   return new MemoryConsentStore();
 }
 
+export class ConsentRequiredError extends Error {
+  readonly code = "consent_required";
+  readonly status = 403;
+  readonly field = "scope";
+
+  constructor(readonly scope: ConsentScope) {
+    super(`${scope} 동의가 필요합니다.`);
+    this.name = "ConsentRequiredError";
+  }
+}
+
+export async function requireActiveConsent(input: {
+  companyId: string;
+  userId: string;
+  scope: ConsentScope;
+}) {
+  const consents = await getConsentStore().listCompanyConsents(input.companyId, input.userId);
+  const active = consents.some((consent) => consent.scope === input.scope && consent.revokedAt === null);
+  if (!active) throw new ConsentRequiredError(input.scope);
+}
+
 class MemoryConsentStore implements ConsentStore {
   async listCompanyConsents(companyId: string, userId: string): Promise<ConsentRecordDto[]> {
     return [...memoryConsents.entries()]
