@@ -17,6 +17,7 @@ import {
 
 export const companyKindEnum = pgEnum("company_kind", ["active", "preliminary"]);
 export const companyRoleEnum = pgEnum("company_role", ["owner", "member", "viewer"]);
+export const appDevicePlatformEnum = pgEnum("app_device_platform", ["ios", "android"]);
 export const companyProfileSourceEnum = pgEnum("company_profile_source", [
   "popbill",
   "nts",
@@ -140,6 +141,29 @@ export const appRefreshTokens = pgTable("app_refresh_tokens", {
   hashIdx: uniqueIndex("app_refresh_tokens_hash_idx").on(table.tokenHash),
   userDeviceIdx: index("app_refresh_tokens_user_device_idx").on(table.userId, table.deviceId),
 }));
+
+export const appDevices = pgTable("app_devices", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  deviceId: text("device_id").notNull(),
+  platform: appDevicePlatformEnum("platform").notNull(),
+  pushToken: text("push_token").notNull(),
+  enabled: boolean("enabled").default(true).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userDeviceIdx: uniqueIndex("app_devices_user_device_idx").on(table.userId, table.deviceId),
+}));
+
+export const notificationSettings = pgTable("notification_settings", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  deadlineReminder: boolean("deadline_reminder").default(true).notNull(),
+  newMatch: boolean("new_match").default(true).notNull(),
+  quietHoursStart: text("quiet_hours_start"),
+  quietHoursEnd: text("quiet_hours_end"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export const companies = pgTable("companies", {
   id: uuid("id").defaultRandom().primaryKey(),

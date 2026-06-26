@@ -1042,11 +1042,12 @@ export const appV1OpenApi = {
       },
       NotificationSettings: {
         type: "object",
+        required: ["deadlineReminder", "newMatch", "quietHoursStart", "quietHoursEnd"],
         properties: {
           deadlineReminder: { type: "boolean" },
           newMatch: { type: "boolean" },
-          quietHoursStart: { type: "string" },
-          quietHoursEnd: { type: "string" },
+          quietHoursStart: nullable({ type: "string" }),
+          quietHoursEnd: nullable({ type: "string" }),
         },
         additionalProperties: false,
       },
@@ -1062,9 +1063,10 @@ export const appV1OpenApi = {
       },
       DeviceResult: {
         type: "object",
-        required: ["deviceId"],
+        required: ["deviceId", "platform", "registered"],
         properties: {
           deviceId: { type: "string" },
+          platform: { type: "string", enum: ["ios", "android"] },
           registered: { type: "boolean" },
         },
         additionalProperties: false,
