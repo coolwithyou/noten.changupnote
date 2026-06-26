@@ -32,6 +32,10 @@ const steps = [
     command: ["pnpm", "publish:kstartup", "--", "--source=sample"],
   },
   {
+    label: "기업마당 샘플 공고 발행",
+    command: ["pnpm", "publish:bizinfo", "--", "--source=sample"],
+  },
+  {
     label: "DB 상태 재확인",
     command: ["pnpm", "db:doctor"],
   },

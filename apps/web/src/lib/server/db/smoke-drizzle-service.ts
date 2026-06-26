@@ -21,6 +21,7 @@ if (dryRun) {
       "pnpm db:migrate",
       "pnpm seed:demo",
       "pnpm publish:kstartup -- --source=sample",
+      "pnpm publish:bizinfo -- --source=sample",
     ],
   }, null, 2));
 } else {
