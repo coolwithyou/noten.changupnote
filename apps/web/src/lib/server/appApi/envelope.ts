@@ -34,5 +34,26 @@ export function appErrorFromUnknown(error: unknown, fallbackMessage: string) {
   if (error instanceof AuthRequiredError) {
     return appError(error.code, error.message, error.status);
   }
+  if (isApiStatusError(error)) {
+    return appError(error.code, error.message, error.status, error.field);
+  }
+  if (error instanceof Error && /token|토큰/i.test(error.message)) {
+    return appError("invalid_token", error.message, 401);
+  }
   return appError("internal_error", error instanceof Error ? error.message : fallbackMessage);
+}
+
+function isApiStatusError(error: unknown): error is {
+  code: string;
+  message: string;
+  status: number;
+  field?: string;
+} {
+  if (!(error instanceof Error)) return false;
+  const candidate = error as Error & {
+    code?: unknown;
+    status?: unknown;
+    field?: unknown;
+  };
+  return typeof candidate.code === "string" && typeof candidate.status === "number";
 }

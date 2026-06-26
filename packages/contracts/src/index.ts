@@ -214,3 +214,4 @@ export interface MatchResult {
 }
 
 export * from "./dto.js";
+export * from "./openapi.js";

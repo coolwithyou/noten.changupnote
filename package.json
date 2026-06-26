@@ -19,9 +19,10 @@
     "prepare:bizinfo": "tsx packages/core/scripts/prepare-bizinfo-extract-input.ts",
     "convert:bizinfo-attachment": "tsx packages/core/scripts/convert-bizinfo-attachment-live.ts",
     "verify:company-profile": "tsx packages/core/scripts/verify-company-profile.ts",
+    "verify:openapi": "tsx packages/contracts/scripts/verify-openapi.ts",
     "verify:bizinfo": "tsx packages/core/scripts/verify-bizinfo-fetch.ts",
     "verify:kstartup": "tsx packages/core/scripts/verify-kstartup-slice.ts",
-    "test": "pnpm typecheck && pnpm verify:kstartup && pnpm verify:bizinfo && pnpm verify:company-profile"
+    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:kstartup && pnpm verify:bizinfo && pnpm verify:company-profile"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",
