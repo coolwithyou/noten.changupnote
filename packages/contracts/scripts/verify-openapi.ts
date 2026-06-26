@@ -15,8 +15,8 @@ if (!existsSync(appV1RouteRoot)) {
 }
 
 const openApiPathItems: Record<string, unknown> = appV1OpenApi.paths;
-const filesystemOperations = discoverRouteOperations(appV1RouteRoot);
-const filesystemPaths = Object.keys(filesystemOperations).sort();
+const filesystemRoutes = discoverRouteFiles(appV1RouteRoot);
+const filesystemPaths = Object.keys(filesystemRoutes).sort();
 const openApiPaths = Object.keys(openApiPathItems).sort();
 const contractPaths = [...appV1OpenApiRoutePaths].sort();
 const errors: string[] = [];
@@ -49,17 +49,20 @@ for (const [routePath, pathItemValue] of Object.entries(openApiPathItems)) {
     if (!isRecord(operationValue.responses) || Object.keys(operationValue.responses).length === 0) {
       errors.push(`${method.toUpperCase()} ${routePath} is missing responses.`);
     }
+    if (documentsNotImplemented(operationValue) && !filesystemRoutes[routePath]?.source.includes("appNotImplemented(")) {
+      errors.push(`${method.toUpperCase()} ${routePath} documents 501 but route does not call appNotImplemented.`);
+    }
   }
 
   if (operationCount === 0) {
     errors.push(`${routePath} has no HTTP operations.`);
   }
 
-  const filesystemMethods = filesystemOperations[routePath];
-  if (filesystemMethods) {
+  const filesystemRoute = filesystemRoutes[routePath];
+  if (filesystemRoute) {
     compareSets(
       `${routePath} filesystem method`,
-      filesystemMethods,
+      filesystemRoute.methods,
       `${routePath} OpenAPI method`,
       openApiMethods.sort(),
       errors,
@@ -77,12 +80,16 @@ if (errors.length > 0) {
 
 console.log(`OpenAPI contract verification passed (${openApiPaths.length} paths).`);
 
-function discoverRouteOperations(root: string): Record<string, string[]> {
-  const operations: Record<string, string[]> = {};
+function discoverRouteFiles(root: string): Record<string, { methods: string[]; source: string }> {
+  const files: Record<string, { methods: string[]; source: string }> = {};
   for (const routeFile of walkRouteFiles(root)) {
-    operations[routePathFromFile(routeFile)] = exportedMethods(routeFile);
+    const source = readFileSync(routeFile, "utf8");
+    files[routePathFromFile(routeFile)] = {
+      methods: exportedMethods(source),
+      source,
+    };
   }
-  return operations;
+  return files;
 }
 
 function walkRouteFiles(dir: string): string[] {
@@ -118,8 +125,7 @@ function routePathFromFile(routeFile: string): string {
   return `/${segments.join("/")}`;
 }
 
-function exportedMethods(routeFile: string): string[] {
-  const source = readFileSync(routeFile, "utf8");
+function exportedMethods(source: string): string[] {
   const methods = new Set<string>();
   for (const match of source.matchAll(ROUTE_METHOD_PATTERN)) {
     if (match[1]) methods.add(match[1].toLowerCase());
@@ -152,6 +158,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function documentsNotImplemented(operationValue: Record<string, unknown>): boolean {
+  return isRecord(operationValue.responses) && Object.hasOwn(operationValue.responses, "501");
 }
 
 function verifyServiceDtoSchemas(errors: string[]) {
