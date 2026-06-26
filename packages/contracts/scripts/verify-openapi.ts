@@ -1,8 +1,9 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { appV1OpenApi, appV1OpenApiRoutePaths } from "../src/openapi.js";
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "patch", "options", "head"] as const;
+const ROUTE_METHOD_PATTERN = /\bexport\s+(?:async\s+)?function\s+(GET|PUT|POST|DELETE|PATCH|OPTIONS|HEAD)\b/g;
 
 const workspaceRoot = process.cwd();
 const appRouteRoot = resolve(workspaceRoot, "apps/web/src/app");
@@ -14,7 +15,8 @@ if (!existsSync(appV1RouteRoot)) {
 }
 
 const openApiPathItems: Record<string, unknown> = appV1OpenApi.paths;
-const filesystemPaths = discoverRoutePaths(appV1RouteRoot);
+const filesystemOperations = discoverRouteOperations(appV1RouteRoot);
+const filesystemPaths = Object.keys(filesystemOperations).sort();
 const openApiPaths = Object.keys(openApiPathItems).sort();
 const contractPaths = [...appV1OpenApiRoutePaths].sort();
 const errors: string[] = [];
@@ -29,10 +31,12 @@ for (const [routePath, pathItemValue] of Object.entries(openApiPathItems)) {
   }
 
   let operationCount = 0;
+  const openApiMethods: string[] = [];
   for (const method of HTTP_METHODS) {
     const operationValue = pathItemValue[method];
     if (!operationValue) continue;
     operationCount += 1;
+    openApiMethods.push(method);
 
     if (!isRecord(operationValue)) {
       errors.push(`${method.toUpperCase()} ${routePath} operation must be an object.`);
@@ -50,6 +54,17 @@ for (const [routePath, pathItemValue] of Object.entries(openApiPathItems)) {
   if (operationCount === 0) {
     errors.push(`${routePath} has no HTTP operations.`);
   }
+
+  const filesystemMethods = filesystemOperations[routePath];
+  if (filesystemMethods) {
+    compareSets(
+      `${routePath} filesystem method`,
+      filesystemMethods,
+      `${routePath} OpenAPI method`,
+      openApiMethods.sort(),
+      errors,
+    );
+  }
 }
 
 verifyServiceDtoSchemas(errors);
@@ -62,15 +77,12 @@ if (errors.length > 0) {
 
 console.log(`OpenAPI contract verification passed (${openApiPaths.length} paths).`);
 
-function discoverRoutePaths(root: string): string[] {
-  return walkRouteFiles(root)
-    .map((routeFile) => {
-      const routeDir = dirname(routeFile);
-      const relativeRouteDir = relative(appRouteRoot, routeDir);
-      const segments = relativeRouteDir.split(sep).filter(Boolean).map(convertSegment);
-      return `/${segments.join("/")}`;
-    })
-    .sort();
+function discoverRouteOperations(root: string): Record<string, string[]> {
+  const operations: Record<string, string[]> = {};
+  for (const routeFile of walkRouteFiles(root)) {
+    operations[routePathFromFile(routeFile)] = exportedMethods(routeFile);
+  }
+  return operations;
 }
 
 function walkRouteFiles(dir: string): string[] {
@@ -97,6 +109,22 @@ function convertSegment(segment: string): string {
   if (dynamic?.[1]) return `{${dynamic[1]}}`;
 
   return segment;
+}
+
+function routePathFromFile(routeFile: string): string {
+  const routeDir = dirname(routeFile);
+  const relativeRouteDir = relative(appRouteRoot, routeDir);
+  const segments = relativeRouteDir.split(sep).filter(Boolean).map(convertSegment);
+  return `/${segments.join("/")}`;
+}
+
+function exportedMethods(routeFile: string): string[] {
+  const source = readFileSync(routeFile, "utf8");
+  const methods = new Set<string>();
+  for (const match of source.matchAll(ROUTE_METHOD_PATTERN)) {
+    if (match[1]) methods.add(match[1].toLowerCase());
+  }
+  return [...methods].sort();
 }
 
 function compareSets(
