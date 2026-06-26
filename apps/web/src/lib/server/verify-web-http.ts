@@ -123,6 +123,22 @@ expect(webGrantDetail.body.ok === true, "web grant detail envelope ok");
 expect(webGrantDetail.body.data?.grant.id === webGrant!.grantId, "web grant detail matches dashboard grant");
 checks.push("web_grant_detail");
 
+const webProfileField = await fetchJson<ActionResult<{
+  profile: {
+    revenue_krw?: number | null;
+    confidence?: Record<string, number>;
+  };
+}>>("/api/web/profile/field", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ field: "revenue", value: 120000000, confidence: 0.77 }),
+});
+expectStatus(webProfileField, 200, "web profile field status");
+expect(webProfileField.body.ok === true, "web profile field envelope ok");
+expect(webProfileField.body.data?.profile.revenue_krw === 120000000, "web profile field persists revenue");
+expect(webProfileField.body.data?.profile.confidence?.revenue === 0.77, "web profile field persists confidence");
+checks.push("web_profile_field");
+
 const login = await fetchJson<ApiEnvelope<{ accessToken?: string }>>("/api/app/v1/auth/login", {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -144,6 +160,34 @@ const companyId = Array.isArray(companies.body.data)
 expect(Boolean(companyId), "app companies company id");
 checks.push("app_companies");
 
+const appProfile = await fetchJson<ApiEnvelope<{
+  profile: { id?: string; industries?: string[] };
+}>>(`/api/app/v1/companies/${companyId}/profile`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appProfile, 200, "app profile status");
+expect(Boolean(appProfile.body.data?.profile), "app profile payload");
+checks.push("app_profile");
+
+const appProfileField = await fetchJson<ApiEnvelope<{
+  profile: {
+    employees_count?: number | null;
+    target_types?: string[];
+    confidence?: Record<string, number>;
+  };
+}>>(`/api/app/v1/companies/${companyId}/profile/field`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ field: "employees", value: 12, confidence: 0.81 }),
+});
+expectStatus(appProfileField, 200, "app profile field status");
+expect(appProfileField.body.data?.profile.employees_count === 12, "app profile field persists employees");
+expect(appProfileField.body.data?.profile.confidence?.employees === 0.81, "app profile field persists confidence");
+checks.push("app_profile_field");
+
 const appMatches = await fetchJson<ApiEnvelope<{
   matches: Array<{ grantId: string; rulesetVer?: string }>;
 }>>(`/api/app/v1/companies/${companyId}/matches`, {
@@ -162,6 +206,29 @@ const appActionQueue = await fetchJson<ApiEnvelope<{
 expectStatus(appActionQueue, 200, "app action queue status");
 expect(Array.isArray(appActionQueue.body.data?.actions), "app action queue list");
 checks.push("app_action_queue");
+
+const appNextQuestion = await fetchJson<ApiEnvelope<{
+  dimension?: string;
+  affectedGrantCount?: number;
+} | null>>(`/api/app/v1/companies/${companyId}/next-question`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appNextQuestion, 200, "app next question status");
+expect(
+  appNextQuestion.body.data === null || typeof appNextQuestion.body.data?.affectedGrantCount === "number",
+  "app next question payload",
+);
+checks.push("app_next_question");
+
+const appRoadmap = await fetchJson<ApiEnvelope<{
+  roadmap: Array<{ grantId: string; bucket: string }>;
+}>>(`/api/app/v1/companies/${companyId}/roadmap`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appRoadmap, 200, "app roadmap status");
+expect(Array.isArray(appRoadmap.body.data?.roadmap), "app roadmap list");
+expect(Boolean(appRoadmap.body.data?.roadmap.find((entry) => entry.grantId && entry.bucket)), "app roadmap exposes nodes");
+checks.push("app_roadmap");
 
 const appGrantDetail = await fetchJson<ApiEnvelope<{
   grant: { id: string; title: string };
