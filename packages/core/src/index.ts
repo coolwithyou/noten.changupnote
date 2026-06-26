@@ -11,6 +11,7 @@ export * from "./matching/match.js";
 export * from "./matching/live-company-match.js";
 export * from "./popbill/check-biz-info.js";
 export * from "./popbill/types.js";
+export * from "./repositories/ports.js";
 export * from "./use-cases/build-action-queue.js";
 export * from "./use-cases/build-apply-sheet.js";
 export * from "./use-cases/build-dashboard.js";

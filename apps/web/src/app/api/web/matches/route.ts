@@ -1,5 +1,7 @@
 import type { ActionResult, DashboardResult } from "@cunote/contracts";
 import { NextResponse } from "next/server";
+import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
+import { webActionError } from "@/lib/server/auth/webActionError";
 import { loadServiceDashboard } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -9,6 +11,7 @@ type MatchesPayload = Pick<DashboardResult, "counts" | "matches" | "roadmap" | "
 
 export async function GET() {
   try {
+    await requireCompanyAccess();
     const dashboard = await loadServiceDashboard({ limit: 40 });
     const data: MatchesPayload = {
       counts: dashboard.counts,
@@ -19,12 +22,9 @@ export async function GET() {
     };
     return NextResponse.json<ActionResult<MatchesPayload>>({ ok: true, data });
   } catch (error) {
-    return NextResponse.json<ActionResult<MatchesPayload>>({
-      ok: false,
-      error: {
-        code: "matches_failed",
-        message: error instanceof Error ? error.message : "매칭 결과를 불러오지 못했습니다.",
-      },
-    }, { status: 500 });
+    return webActionError<MatchesPayload>(error, {
+      code: "matches_failed",
+      message: "매칭 결과를 불러오지 못했습니다.",
+    });
   }
 }

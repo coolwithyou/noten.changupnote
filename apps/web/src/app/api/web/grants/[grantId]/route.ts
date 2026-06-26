@@ -1,5 +1,7 @@
 import type { ActionResult, ApplySheet } from "@cunote/contracts";
 import { NextResponse } from "next/server";
+import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
+import { webActionError } from "@/lib/server/auth/webActionError";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -14,6 +16,7 @@ interface RouteContext {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { grantId } = await context.params;
+    await requireCompanyAccess();
     const sheet = await loadServiceApplySheet(grantId);
     if (!sheet) {
       return NextResponse.json<ActionResult<ApplySheet>>({
@@ -28,12 +31,9 @@ export async function GET(_request: Request, context: RouteContext) {
 
     return NextResponse.json<ActionResult<ApplySheet>>({ ok: true, data: sheet });
   } catch (error) {
-    return NextResponse.json<ActionResult<ApplySheet>>({
-      ok: false,
-      error: {
-        code: "grant_detail_failed",
-        message: error instanceof Error ? error.message : "공고 상세를 불러오지 못했습니다.",
-      },
-    }, { status: 500 });
+    return webActionError<ApplySheet>(error, {
+      code: "grant_detail_failed",
+      message: "공고 상세를 불러오지 못했습니다.",
+    });
   }
 }

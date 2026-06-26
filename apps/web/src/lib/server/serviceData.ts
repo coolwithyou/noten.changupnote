@@ -6,8 +6,6 @@ import {
   buildCompanyProfileFromPopbill,
   checkPopbillBizInfo,
   fetchKStartupPage,
-  grantKey,
-  matchGrantCriteria,
   normalizeKStartupPayload,
   readPopbillEnvConfig,
   sanitizeCorpNum,
@@ -15,8 +13,14 @@ import {
 import type { ApplySheet, CompanyProfile, NormalizedGrant } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
 import type { KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
+import { createServiceRepositories } from "./repositories/factory";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
+
+const repositories = createServiceRepositories({
+  loadGrants: loadServiceGrantsFromSource,
+  loadCompanyProfile: loadCompanyProfileFromSource,
+});
 
 export interface LoadServiceGrantsOptions {
   limit?: number;
@@ -24,6 +28,13 @@ export interface LoadServiceGrantsOptions {
 }
 
 export async function loadServiceGrants({
+  limit = 20,
+  asOf = new Date(),
+}: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<KStartupAnnouncement>>> {
+  return repositories.grants.listActiveGrants({ limit, asOf });
+}
+
+async function loadServiceGrantsFromSource({
   limit = 20,
   asOf = new Date(),
 }: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<KStartupAnnouncement>>> {
@@ -50,6 +61,14 @@ export async function loadServiceGrants({
 }
 
 export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<CompanyProfile> {
+  const profile = await repositories.companies.resolveCompanyProfile(bizNo ? { bizNo } : {});
+  if (!profile) {
+    throw new Error("회사 프로필을 찾지 못했습니다.");
+  }
+  return profile;
+}
+
+async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProfile> {
   await loadEnvInDevelopment();
 
   const requestedBizNo = bizNo ? sanitizeCorpNum(bizNo) : null;
@@ -78,8 +97,8 @@ export async function loadServiceDashboard(options: {
 } = {}): Promise<DashboardResult> {
   const asOf = options.asOf ?? new Date();
   const [company, grants] = await Promise.all([
-    loadCompanyProfileForTeaser(),
-    loadServiceGrants({ asOf, limit: options.limit ?? 40 }),
+    repositories.companies.getDefaultCompanyProfile(),
+    repositories.grants.listActiveGrants({ asOf, limit: options.limit ?? 40 }),
   ]);
 
   return buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
@@ -95,22 +114,23 @@ export async function loadServiceApplySheet(
   const asOf = options.asOf ?? new Date();
   const grantId = decodeGrantIdSegment(grantIdSegment);
   const [company, grants] = await Promise.all([
-    loadCompanyProfileForTeaser(),
-    loadServiceGrants({ asOf, limit: options.limit ?? 80 }),
+    repositories.companies.getDefaultCompanyProfile(),
+    repositories.grants.findGrantById(grantId, { asOf, limit: options.limit ?? 80 }),
   ]);
-  const item = grants.find((entry) => {
-    const key = grantKey(entry.grant);
-    return key === grantId || entry.grant.source_id === grantId;
-  });
-  if (!item) return null;
+  if (!grants) return null;
+  const match = await repositories.matches.calculateGrantMatch({ company, grant: grants });
 
   return buildApplySheet({
     entry: {
-      item,
-      match: matchGrantCriteria(item.criteria, company),
+      item: grants,
+      match,
     },
     asOf,
   });
+}
+
+export function getServiceRepositories() {
+  return repositories;
 }
 
 async function loadEnvInDevelopment() {
