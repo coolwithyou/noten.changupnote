@@ -10,7 +10,6 @@ import {
 } from "@cunote/core";
 import type { CompanyProfile, NormalizedGrant } from "@cunote/contracts";
 import type { KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
-import { loadMonorepoEnv } from "./loadMonorepoEnv";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 
@@ -23,7 +22,7 @@ export async function loadServiceGrants({
   limit = 20,
   asOf = new Date(),
 }: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<KStartupAnnouncement>>> {
-  loadEnvInDevelopment();
+  await loadEnvInDevelopment();
 
   const source = process.env.CUNOTE_WEB_DATA_SOURCE?.trim().toLowerCase();
   const serviceKey = process.env.KSTARTUP_SERVICE_KEY?.trim();
@@ -46,7 +45,7 @@ export async function loadServiceGrants({
 }
 
 export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<CompanyProfile> {
-  loadEnvInDevelopment();
+  await loadEnvInDevelopment();
 
   const requestedBizNo = bizNo ? sanitizeCorpNum(bizNo) : null;
   try {
@@ -68,8 +67,9 @@ export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<Compa
   return sampleCompanyProfile();
 }
 
-function loadEnvInDevelopment() {
+async function loadEnvInDevelopment() {
   if (process.env.NODE_ENV !== "production") {
+    const { loadMonorepoEnv } = await import("./loadMonorepoEnv");
     loadMonorepoEnv();
   }
 }
