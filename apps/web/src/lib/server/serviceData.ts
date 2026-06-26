@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  buildDashboard,
   buildCompanyProfileFromPopbill,
   checkPopbillBizInfo,
   fetchKStartupPage,
@@ -9,6 +10,7 @@ import {
   sanitizeCorpNum,
 } from "@cunote/core";
 import type { CompanyProfile, NormalizedGrant } from "@cunote/contracts";
+import type { DashboardResult } from "@cunote/contracts";
 import type { KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
@@ -65,6 +67,19 @@ export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<Compa
   }
 
   return sampleCompanyProfile();
+}
+
+export async function loadServiceDashboard(options: {
+  limit?: number;
+  asOf?: Date;
+} = {}): Promise<DashboardResult> {
+  const asOf = options.asOf ?? new Date();
+  const [company, grants] = await Promise.all([
+    loadCompanyProfileForTeaser(),
+    loadServiceGrants({ asOf, limit: options.limit ?? 40 }),
+  ]);
+
+  return buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
 }
 
 async function loadEnvInDevelopment() {
