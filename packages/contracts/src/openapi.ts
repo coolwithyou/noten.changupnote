@@ -1008,18 +1008,35 @@ export const appV1OpenApi = {
       MatchEventRequest: {
         type: "object",
         properties: {
-          type: { type: "string" },
+          event: { type: "string", enum: ["surfaced", "clicked", "saved", "apply_click"] },
+          type: {
+            type: "string",
+            enum: ["surfaced", "clicked", "saved", "apply_click"],
+            deprecated: true,
+          },
+          rulesetVer: { type: "string" },
           payload: { type: "object", additionalProperties: true },
         },
         additionalProperties: false,
       },
       MatchEventResult: {
         type: "object",
-        required: ["accepted", "companyId", "grantId"],
+        required: ["accepted", "companyId", "grantId", "event", "receipt"],
         properties: {
           accepted: { type: "boolean" },
           companyId: { type: "string" },
           grantId: { type: "string" },
+          event: { type: "string", enum: ["surfaced", "clicked", "saved", "apply_click"] },
+          receipt: ref("MatchEventReceipt"),
+        },
+        additionalProperties: false,
+      },
+      MatchEventReceipt: {
+        type: "object",
+        required: ["id", "acceptedAt"],
+        properties: {
+          id: { type: "string" },
+          acceptedAt: { type: "string", format: "date-time" },
         },
         additionalProperties: false,
       },

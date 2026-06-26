@@ -1,5 +1,6 @@
 import type {
   CompanyProfile,
+  MatchEventKind,
   MatchResult,
   NormalizedGrant,
   RoadmapNode,
@@ -62,6 +63,19 @@ export interface MatchRepository<TPayload = unknown> {
     grantId: string;
     match: MatchResult;
   }): Promise<void>;
+  saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt>;
+}
+
+export interface SaveMatchEventInput {
+  companyId: string;
+  grantId: string;
+  event: MatchEventKind;
+  rulesetVer?: string;
+}
+
+export interface MatchEventReceipt {
+  id: string;
+  acceptedAt: string;
 }
 
 export type FeedbackKind = "saved" | "dismissed" | "wrong" | "applied" | "note";

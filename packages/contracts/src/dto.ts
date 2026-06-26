@@ -13,6 +13,7 @@ export type ChecklistSection = "satisfied" | "needs_check" | "document" | "prefe
 export type ActionType = "progressive" | "external_link" | "apply" | "prepare" | "verify";
 export type ActionQueueKind = "input" | "acquire" | "apply" | "enrich" | "review";
 export type DocumentSource = "self" | "portal" | "cert";
+export type MatchEventKind = "surfaced" | "clicked" | "saved" | "apply_click";
 
 export interface ActionResult<T> {
   ok: boolean;

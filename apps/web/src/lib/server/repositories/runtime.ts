@@ -11,7 +11,9 @@ import type {
   FeedbackRepository,
   GrantListOptions,
   GrantRepository,
+  MatchEventReceipt,
   MatchRepository,
+  SaveMatchEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
@@ -95,6 +97,13 @@ class RuntimeMatchRepository<TPayload> implements MatchRepository<TPayload> {
 
   async saveMatchState() {
     // The runtime adapter is stateless until DB-backed match_state is connected.
+  }
+
+  async saveMatchEvent(_input: SaveMatchEventInput): Promise<MatchEventReceipt> {
+    return {
+      id: `match-event:${crypto.randomUUID()}`,
+      acceptedAt: new Date().toISOString(),
+    };
   }
 }
 

@@ -16,7 +16,9 @@ import type {
   FeedbackRepository,
   GrantListOptions,
   GrantRepository,
+  MatchEventReceipt,
   MatchRepository,
+  SaveMatchEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
@@ -198,6 +200,39 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
 
   async saveMatchState(): Promise<void> {
     throw notWired(this.db, "MatchRepository.saveMatchState");
+  }
+
+  async saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt> {
+    const grantId = await this.resolveGrantRowId(input.grantId);
+    if (!grantId) throw new Error("공고를 찾지 못했습니다.");
+
+    const [row] = await this.db.client
+      .insert(schema.matchEvents)
+      .values({
+        companyId: input.companyId,
+        grantId,
+        event: input.event,
+        rulesetVer: input.rulesetVer ?? "unknown",
+      })
+      .returning({ id: schema.matchEvents.id, ts: schema.matchEvents.ts });
+    if (!row) throw new Error("매칭 이벤트 저장 결과가 없습니다.");
+
+    return {
+      id: row.id,
+      acceptedAt: row.ts.toISOString(),
+    };
+  }
+
+  private async resolveGrantRowId(grantId: string): Promise<string | null> {
+    const parsed = parseGrantId(grantId);
+    const rows = await this.db.client
+      .select({ id: schema.grants.id })
+      .from(schema.grants)
+      .where(parsed
+        ? and(eq(schema.grants.source, parsed.source), eq(schema.grants.sourceId, parsed.sourceId))
+        : or(eq(schema.grants.id, grantId), eq(schema.grants.sourceId, grantId)))
+      .limit(1);
+    return rows[0]?.id ?? null;
   }
 }
 
