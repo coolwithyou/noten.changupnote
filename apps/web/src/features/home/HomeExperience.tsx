@@ -36,37 +36,64 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
   const [founderAge, setFounderAge] = useState("");
   const [industry, setIndustry] = useState("");
   const [teaser, setTeaser] = useState<TeaserResult | null>(null);
+  const [lastTeaserRequest, setLastTeaserRequest] = useState<TeaserRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const topMatches = useMemo(() => teaser?.matches.slice(0, 4) ?? [], [teaser]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsLoading(true);
     setError(null);
+    const requestBody = buildTeaserRequest({
+      mode: entryMode,
+      bizNo,
+      regionCode,
+      founderAge,
+      industry,
+    });
     try {
       const response = await fetch("/api/web/teaser", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(buildTeaserRequest({
-          mode: entryMode,
-          bizNo,
-          regionCode,
-          founderAge,
-          industry,
-        })),
+        body: JSON.stringify(requestBody),
       });
       const payload = await response.json() as ActionResult<TeaserResult>;
       if (!response.ok || !payload.ok || !payload.data) {
         throw new Error(payload.error?.message ?? "지원사업 티저를 만들지 못했습니다.");
       }
       setTeaser(payload.data);
+      setLastTeaserRequest(requestBody);
       if (entryMode === "active") setBizNo("");
     } catch (caught) {
       setTeaser(null);
+      setLastTeaserRequest(null);
       setError(caught instanceof Error ? caught.message : "지원사업 티저를 만들지 못했습니다.");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function saveAndOpenDashboard() {
+    if (!lastTeaserRequest) return;
+    setIsSaving(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/web/companies", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(lastTeaserRequest),
+      });
+      const payload = await response.json() as ActionResult<{ currentCompanyId: string }>;
+      if (!response.ok || !payload.ok || !payload.data?.currentCompanyId) {
+        throw new Error(payload.error?.message ?? "기회 맵으로 이어갈 회사 프로필을 저장하지 못했습니다.");
+      }
+      window.location.assign("/dashboard");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "기회 맵으로 이동하지 못했습니다.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -202,7 +229,9 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
             </div>
             <div className="teaser-actions">
               <span className="privacy-pill">PII 비표시</span>
-              <a className="dashboard-link" href="/dashboard">기회 맵 보기</a>
+              <button className="dashboard-link" type="button" onClick={saveAndOpenDashboard} disabled={isSaving}>
+                {isSaving ? "저장 중" : "기회 맵 보기"}
+              </button>
             </div>
           </div>
 

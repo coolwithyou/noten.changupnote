@@ -1,6 +1,7 @@
 interface JsonResponse<T = unknown> {
   status: number;
   body: T;
+  headers: Headers;
 }
 
 interface ActionResult<T> {
@@ -85,6 +86,41 @@ expect(preliminaryTeaser.body.data?.attributes.region === "경기", "web prelimi
 expect(preliminaryTeaser.body.data?.attributes.industry.includes("ICT"), "web preliminary teaser industry");
 expect(Boolean(preliminaryTeaser.body.data?.matches.find((entry) => entry.grantId)), "web preliminary teaser exposes matches");
 checks.push("web_preliminary_teaser");
+
+const webCompanyCreate = await fetchJson<ActionResult<{
+  currentCompanyId: string;
+  company: {
+    id: string;
+    profile: {
+      region?: { code: string; label?: string };
+      is_preliminary?: boolean;
+      industries?: string[];
+    };
+  };
+}>>("/api/web/companies", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ profile: preliminaryProfile }),
+});
+expectStatus(webCompanyCreate, 201, "web company create status");
+expect(webCompanyCreate.body.ok === true, "web company create envelope ok");
+expect(Boolean(webCompanyCreate.body.data?.currentCompanyId), "web company create selected company");
+expect(webCompanyCreate.body.data?.company.profile.is_preliminary === true, "web company create keeps preliminary profile");
+expect(webCompanyCreate.body.data?.company.profile.region?.label === "경기", "web company create keeps region");
+const selectedCompanyCookie = cookieHeader(webCompanyCreate.headers, "cunote_selected_company_id");
+expect(Boolean(selectedCompanyCookie), "web company create sets selected company cookie");
+checks.push("web_company_create");
+
+const preliminaryDashboard = await fetchJson<ActionResult<{
+  company: { region: string | null; industries: string[] };
+}>>("/api/web/dashboard", {
+  headers: { cookie: selectedCompanyCookie! },
+});
+expectStatus(preliminaryDashboard, 200, "web preliminary dashboard status");
+expect(preliminaryDashboard.body.ok === true, "web preliminary dashboard envelope ok");
+expect(preliminaryDashboard.body.data?.company.region === "경기", "web preliminary dashboard uses selected profile");
+expect(preliminaryDashboard.body.data?.company.industries.includes("ICT"), "web preliminary dashboard keeps industry");
+checks.push("web_preliminary_dashboard");
 
 const notifications = await fetchJson<ActionResult<{
   deadlineReminder: boolean;
@@ -614,6 +650,7 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<JsonRespo
   return {
     status: response.status,
     body,
+    headers: response.headers,
   };
 }
 
@@ -626,7 +663,16 @@ async function fetchText(path: string, init?: RequestInit): Promise<JsonResponse
   return {
     status: response.status,
     body,
+    headers: response.headers,
   };
+}
+
+function cookieHeader(headers: Headers, name: string): string | null {
+  const setCookie = headers.get("set-cookie");
+  const cookie = setCookie?.split(/,(?=\s*[^;=]+=)/)
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith(`${name}=`));
+  return cookie?.split(";")[0] ?? null;
 }
 
 function expectStatus(response: JsonResponse, status: number, label: string) {

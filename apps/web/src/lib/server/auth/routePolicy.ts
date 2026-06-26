@@ -9,6 +9,7 @@ export const SESSION_WEB_ROUTES = [
   "GET /roadmap",
   "GET /api/web/dashboard",
   "GET /api/web/companies",
+  "POST /api/web/companies",
   "POST /api/web/companies/enrich",
   "POST /api/web/companies/switch",
   "POST /api/web/companies/verify",
