@@ -2,6 +2,7 @@ import type {
   BizAgeCriterionValue,
   Grant,
   GrantCriterion,
+  GrantRequiredDocument,
   GrantRaw,
   ListCriterionValue,
   NormalizedGrant,
@@ -48,6 +49,7 @@ export function normalizeBizInfoProgram(
       text: input.metadata.application_method,
     },
     support_amount: null,
+    required_documents: parseBizInfoRequiredDocuments(input.metadata.application_method),
     status: statusFromPeriod(applyPeriod.start, applyPeriod.end, asOf),
     f_regions: projection.f_regions,
     f_industries: projection.f_industries,
@@ -78,6 +80,34 @@ export function parseBizInfoApplyPeriod(value: string | null | undefined): {
     start: dates[0] ?? null,
     end: dates[1] ?? dates[0] ?? null,
   };
+}
+
+const BIZINFO_DOCUMENT_PATTERNS: Array<{
+  name: string;
+  source: GrantRequiredDocument["source"];
+  pattern: RegExp;
+}> = [
+  { name: "신청서", source: "portal", pattern: /(?:수요기업\s*)?신청서/ },
+  { name: "사업자등록증", source: "self", pattern: /사업자등록증/ },
+  { name: "재무제표", source: "self", pattern: /재무제표/ },
+];
+
+export function parseBizInfoRequiredDocuments(value: string | null | undefined): GrantRequiredDocument[] | null {
+  const text = htmlToText(value);
+  if (!text) return null;
+  const documents = new Map<string, GrantRequiredDocument>();
+
+  for (const pattern of BIZINFO_DOCUMENT_PATTERNS) {
+    if (!pattern.pattern.test(text)) continue;
+    documents.set(pattern.name, {
+      name: pattern.name,
+      required: true,
+      source: pattern.source,
+      source_span: firstSentenceWith(text, pattern.pattern),
+    });
+  }
+
+  return documents.size > 0 ? [...documents.values()] : null;
 }
 
 function deriveProjection(criteria: GrantCriterion[]) {
@@ -140,6 +170,12 @@ function parseDate(value: string | null): Date | null {
   const day = parts[2];
   if (!year || !month || !day) return null;
   return new Date(Date.UTC(year, month - 1, day));
+}
+
+function firstSentenceWith(text: string, pattern: RegExp): string {
+  const normalized = htmlToText(text);
+  const parts = normalized.split(/[\r\n.。]+/).map((part) => part.trim()).filter(Boolean);
+  return parts.find((part) => pattern.test(part)) ?? normalized.slice(0, 120);
 }
 
 function unique<T>(values: T[]): T[] {

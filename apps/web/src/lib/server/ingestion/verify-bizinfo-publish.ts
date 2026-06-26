@@ -21,6 +21,10 @@ assert.ok(first, "sample entry should exist");
 assert.equal(first.grant.source, "bizinfo");
 assert.deepEqual(first.grant.f_regions, ["41"]);
 assert.ok(first.grant.f_industries.includes("ICT"));
+assert.deepEqual(
+  first.grant.required_documents?.map((document) => document.name),
+  ["신청서", "사업자등록증", "재무제표"],
+);
 assert.equal(
   matchGrantCriteria(first.criteria, {
     region: { code: "41", label: "경기" },
@@ -32,6 +36,6 @@ assert.equal(
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["raw_hash", "grant_projection", "criteria_match"],
+  checked: ["raw_hash", "grant_projection", "required_documents", "criteria_match"],
   ...plan,
 }, null, 2));

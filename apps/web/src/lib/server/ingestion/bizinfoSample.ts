@@ -17,7 +17,7 @@ export function buildBizInfoSampleEntries(options: {
     pldirSportRealmLclasCodeNm: "기술",
     pldirSportRealmMlsfcCodeNm: "사업화",
     reqstBeginEndDe: "2026-06-01 ~ 2026-07-20",
-    reqstMthPapersCn: "온라인 접수",
+    reqstMthPapersCn: "온라인 접수 · 신청자료: ① 수요기업 신청서, ② 사업자등록증, ③ 재무제표(최근 3개년)",
     bsnsSumryCn: "<p>경기도 소재 ICT 중소기업의 SaaS 전환을 지원</p>",
     hashtags: "ICT,SaaS,AI",
     pblancUrl: "/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_SAMPLE",

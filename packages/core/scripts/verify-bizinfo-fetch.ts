@@ -96,12 +96,17 @@ const normalizedBizinfo = normalizeBizInfoProgram({
   pblancId: "PBLN_SAMPLE",
   pblancNm: "기업마당 테스트 공고",
   reqstBeginEndDe: "2026-06-01 ~ 2026-06-30",
+  reqstMthPapersCn: "신청자료: ① 수요기업 신청서, ② 사업자등록증, ③ 재무제표(최근 3개년)",
 }, llmCriteria, {
   asOf: new Date("2026-06-26T00:00:00.000Z"),
   model: "test-model",
 });
 assert.equal(normalizedBizinfo.grant.status, "open");
 assert.deepEqual(normalizedBizinfo.grant.f_regions, ["41"]);
+assert.deepEqual(
+  normalizedBizinfo.grant.required_documents?.map((document) => document.name),
+  ["신청서", "사업자등록증", "재무제표"],
+);
 const bizinfoMatch = matchGrantCriteria(llmCriteria, {
   region: { code: "41", label: "경기" },
   business_status: { active: true, close_down_state: 1, close_down_tax_type: 10 },
@@ -110,6 +115,6 @@ assert.equal(bizinfoMatch.eligibility, "eligible");
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["program", "event", "extraction_input", "llm_criteria"],
+  checked: ["program", "event", "extraction_input", "llm_criteria", "required_documents"],
   extraction_input_length: extractionInput.text.length,
 }, null, 2));
