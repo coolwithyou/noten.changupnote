@@ -1,6 +1,5 @@
 import type { ApiEnvelope } from "@cunote/contracts";
 import { NextResponse } from "next/server";
-import { AuthRequiredError } from "@/lib/server/auth/session";
 
 export function appData<T>(
   data: T,
@@ -30,10 +29,11 @@ export function appNotImplemented(feature: string) {
   return appError("not_implemented", `${feature}은 아직 연결되지 않았습니다.`, 501);
 }
 
+export function invalidAuthRequest(message: string, field?: string) {
+  return appError("invalid_auth_request", message, 400, field);
+}
+
 export function appErrorFromUnknown(error: unknown, fallbackMessage: string) {
-  if (error instanceof AuthRequiredError) {
-    return appError(error.code, error.message, error.status);
-  }
   if (isApiStatusError(error)) {
     return appError(error.code, error.message, error.status, error.field);
   }

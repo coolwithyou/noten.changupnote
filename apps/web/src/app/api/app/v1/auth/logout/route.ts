@@ -1,7 +1,6 @@
-import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
+import { appData, appErrorFromUnknown, invalidAuthRequest } from "@/lib/server/appApi/envelope";
 import { requireAppSession } from "@/lib/server/auth/appSession";
 import {
-  invalidAuthRequest,
   revokeAppDeviceTokens,
   revokeAppRefreshToken,
 } from "@/lib/server/auth/appIssueToken";

@@ -1,4 +1,3 @@
-import { appError } from "@/lib/server/appApi/envelope";
 import {
   createAppTokenPair,
   generateDeviceId,
@@ -84,8 +83,4 @@ export async function revokeAppDeviceTokens(input: {
   deviceId: string;
 }): Promise<void> {
   await getAppRefreshTokenStore().revokeDevice(input.userId, input.deviceId);
-}
-
-export function invalidAuthRequest(message: string, field?: string) {
-  return appError("invalid_auth_request", message, 400, field);
 }
