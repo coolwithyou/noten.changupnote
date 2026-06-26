@@ -14,6 +14,7 @@ export type ActionType = "progressive" | "external_link" | "apply" | "prepare" |
 export type ActionQueueKind = "input" | "acquire" | "apply" | "enrich" | "review";
 export type DocumentSource = "self" | "portal" | "cert";
 export type MatchEventKind = "surfaced" | "clicked" | "saved" | "apply_click";
+export type FeedbackKind = "saved" | "dismissed" | "wrong" | "applied" | "note";
 export type ConsentScope = "basic_info" | "hometax" | "insurance";
 
 export interface ActionResult<T> {
@@ -201,6 +202,20 @@ export interface MatchEventResult {
   grantId: string;
   event: MatchEventKind;
   receipt: MatchEventReceipt;
+}
+
+export interface MatchFeedbackRequest {
+  kind?: FeedbackKind;
+  message?: string | null;
+}
+
+export interface FeedbackReceipt {
+  id: string;
+  receivedAt: string;
+}
+
+export interface FeedbackResult {
+  receipt: FeedbackReceipt;
 }
 
 export interface ConsentRecordDto {

@@ -1,5 +1,11 @@
 import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
+import {
+  buildFeedbackResult,
+  buildSubmitFeedbackInput,
+  decodeGrantIdSegment,
+  readMatchFeedbackRequest,
+} from "@/lib/server/matches/matchFeedback";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -9,33 +15,19 @@ interface RouteContext {
   params: Promise<{ companyId: string; grantId: string }>;
 }
 
-interface FeedbackRequest {
-  kind?: "saved" | "dismissed" | "wrong" | "applied" | "note";
-  message?: string | null;
-}
-
 export async function POST(request: Request, context: RouteContext) {
   try {
-    const [{ companyId, grantId }, body] = await Promise.all([context.params, readBody(request)]);
+    const [{ companyId, grantId }, body] = await Promise.all([context.params, readMatchFeedbackRequest(request)]);
     const access = await requireAppCompanyAccess(request, companyId);
-    const receipt = await getServiceRepositories().feedback.submitFeedback({
+    const input = buildSubmitFeedbackInput({
       companyId,
-      grantId,
+      grantId: decodeGrantIdSegment(grantId),
       userId: access.userId,
-      kind: body.kind ?? "note",
-      message: body.message ?? null,
+      body,
     });
-    return appData({ receipt }, { status: 202 });
+    const receipt = await getServiceRepositories().feedback.submitFeedback(input);
+    return appData(buildFeedbackResult(receipt), { status: 202 });
   } catch (error) {
     return appErrorFromUnknown(error, "피드백을 저장하지 못했습니다.");
-  }
-}
-
-async function readBody(request: Request): Promise<FeedbackRequest> {
-  try {
-    const parsed = await request.json() as FeedbackRequest;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
   }
 }
