@@ -52,6 +52,8 @@ for (const [routePath, pathItemValue] of Object.entries(openApiPathItems)) {
   }
 }
 
+verifyServiceDtoSchemas(errors);
+
 if (errors.length > 0) {
   console.error("OpenAPI contract verification failed:");
   for (const error of errors) console.error(`- ${error}`);
@@ -122,4 +124,48 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function verifyServiceDtoSchemas(errors: string[]) {
+  const schemas = appV1OpenApi.components?.schemas;
+  if (!isRecord(schemas)) {
+    errors.push("OpenAPI components.schemas must be an object.");
+    return;
+  }
+
+  const matchCard = schemas.MatchCard;
+  if (!isRecord(matchCard) || !isRecord(matchCard.properties)) {
+    errors.push("MatchCard schema is missing properties.");
+    return;
+  }
+
+  const fitScore = matchCard.properties.fitScore;
+  if (!isRecord(fitScore) || fitScore.minimum !== 0 || fitScore.maximum !== 100) {
+    errors.push("MatchCard.fitScore must be documented as a 0..100 score.");
+  }
+
+  if (nullableStringFormat(matchCard.properties.applyEnd) !== "date") {
+    errors.push("MatchCard.applyEnd must use nullable date format.");
+  }
+
+  const applySchedule = schemas.ApplySchedule;
+  if (!isRecord(applySchedule) || !isRecord(applySchedule.properties)) {
+    errors.push("ApplySchedule schema is missing properties.");
+    return;
+  }
+  if (nullableStringFormat(applySchedule.properties.applyStart) !== "date") {
+    errors.push("ApplySchedule.applyStart must use nullable date format.");
+  }
+  if (nullableStringFormat(applySchedule.properties.applyEnd) !== "date") {
+    errors.push("ApplySchedule.applyEnd must use nullable date format.");
+  }
+}
+
+function nullableStringFormat(value: unknown): string | null {
+  if (!isRecord(value)) return null;
+  const variants = Array.isArray(value.anyOf) ? value.anyOf : [];
+  const stringVariant = variants.find((variant) => isRecord(variant) && variant.type === "string");
+  return isRecord(stringVariant) && typeof stringVariant.format === "string"
+    ? stringVariant.format
+    : null;
 }
