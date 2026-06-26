@@ -8,7 +8,7 @@ import type {
   MatchResult,
   NormalizedGrant,
 } from "@cunote/contracts";
-import { matchGrantCriteria } from "@cunote/core";
+import { maskCorpNum, matchGrantCriteria } from "@cunote/core";
 import type {
   CompanyRecord,
   CompanyRepository,
@@ -741,9 +741,11 @@ function compactRecord(input: Record<string, unknown>): Record<string, unknown> 
 }
 
 function maskBizNo(value: string): string {
-  const digits = value.replace(/\D/g, "");
-  if (digits.length !== 10) return "**********";
-  return `${digits.slice(0, 3)}-**-${digits.slice(5)}`;
+  try {
+    return maskCorpNum(value);
+  } catch {
+    return "**********";
+  }
 }
 
 function matchConfidence(match: MatchResult): number {

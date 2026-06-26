@@ -288,11 +288,17 @@ function verifyServiceDtoSchemas(errors: string[]) {
   }
   if (!Array.isArray(verificationResult.required) ||
     !verificationResult.required.includes("companyId") ||
-    !verificationResult.required.includes("bizNo") ||
+    !verificationResult.required.includes("bizNoMasked") ||
     !verificationResult.required.includes("verified") ||
     !verificationResult.required.includes("verifiedAt") ||
     !verificationResult.required.includes("verifyMethod")) {
-    errors.push("CompanyVerificationResult must require companyId, bizNo, verified, verifiedAt and verifyMethod.");
+    errors.push("CompanyVerificationResult must require companyId, bizNoMasked, verified, verifiedAt and verifyMethod.");
+  }
+  if (Object.hasOwn(verificationResult.properties, "bizNo")) {
+    errors.push("CompanyVerificationResult must not expose raw bizNo.");
+  }
+  if (propertyType(verificationResult.properties.bizNoMasked) !== "string") {
+    errors.push("CompanyVerificationResult.bizNoMasked must be string.");
   }
   if (propertyType(verificationResult.properties.verified) !== "boolean") {
     errors.push("CompanyVerificationResult.verified must be boolean.");
@@ -307,6 +313,24 @@ function verifyServiceDtoSchemas(errors: string[]) {
     !enrichmentResult.required.includes("profile") ||
     !enrichmentResult.required.includes("facts")) {
     errors.push("CompanyEnrichmentResult must require profile and facts.");
+  }
+
+  const companyRecord = schemas.CompanyRecord;
+  if (!isRecord(companyRecord) || !isRecord(companyRecord.properties)) {
+    errors.push("CompanyRecord schema is missing properties.");
+    return;
+  }
+  if (Object.hasOwn(companyRecord.properties, "bizNo")) {
+    errors.push("CompanyRecord must not expose raw bizNo.");
+  }
+  if (propertyType(companyRecord.properties.verified) !== "boolean") {
+    errors.push("CompanyRecord.verified must be boolean.");
+  }
+  if (nullableStringType(companyRecord.properties.bizNoMasked) !== true) {
+    errors.push("CompanyRecord.bizNoMasked must be nullable string.");
+  }
+  if (nullableStringFormat(companyRecord.properties.verifiedAt) !== "date-time") {
+    errors.push("CompanyRecord.verifiedAt must use nullable date-time format.");
   }
 
   const deviceRequest = schemas.DeviceRegistrationRequest;

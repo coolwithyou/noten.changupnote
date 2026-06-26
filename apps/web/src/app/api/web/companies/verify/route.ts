@@ -1,5 +1,5 @@
 import type { ActionResult, CompanyVerificationRequest, CompanyVerificationResult } from "@cunote/contracts";
-import { sanitizeCorpNum } from "@cunote/core";
+import { maskCorpNum, sanitizeCorpNum } from "@cunote/core";
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    const data = await getServiceRepositories().companies.verifyCompany({
+    const verification = await getServiceRepositories().companies.verifyCompany({
       companyId: access.companyId,
       userId: access.userId,
       bizNo,
@@ -57,6 +57,13 @@ export async function POST(request: Request) {
       ...(body.openedOn ? { openedOn: body.openedOn } : {}),
       verifyMethod: "dev_self_declared",
     });
+    const data: CompanyVerificationResult = {
+      companyId: verification.companyId,
+      bizNoMasked: maskCorpNum(verification.bizNo),
+      verified: verification.verified,
+      verifiedAt: verification.verifiedAt,
+      verifyMethod: verification.verifyMethod,
+    };
     return NextResponse.json<ActionResult<CompanyVerificationResult>>({ ok: true, data });
   } catch (error) {
     return webActionError<CompanyVerificationResult>(error, {

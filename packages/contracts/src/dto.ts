@@ -17,6 +17,7 @@ export type DocumentSource = "self" | "portal" | "cert";
 export type MatchEventKind = "surfaced" | "clicked" | "saved" | "apply_click";
 export type FeedbackKind = "saved" | "dismissed" | "wrong" | "applied" | "note";
 export type ConsentScope = "basic_info" | "hometax" | "insurance";
+export type CompanyRole = "owner" | "admin" | "member" | "viewer";
 
 export interface ActionResult<T> {
   ok: boolean;
@@ -249,6 +250,25 @@ export interface CompanyEnrichmentRequest {
   bizNo: string;
 }
 
+export interface CompanyRecord {
+  id: string;
+  name: string | null;
+  profile: CompanyProfile;
+  role?: CompanyRole;
+  verified?: boolean;
+  verifiedAt?: string | null;
+  verifyMethod?: string | null;
+  bizNoMasked?: string | null;
+}
+
+export interface CompanyListResult {
+  companies: CompanyRecord[];
+}
+
+export interface CompanyResult {
+  company: CompanyRecord;
+}
+
 export interface CompanyVerificationRequest {
   bizNo: string;
   ownerName?: string;
@@ -257,7 +277,7 @@ export interface CompanyVerificationRequest {
 
 export interface CompanyVerificationResult {
   companyId: string;
-  bizNo: string;
+  bizNoMasked: string;
   verified: boolean;
   verifiedAt: string;
   verifyMethod: string;

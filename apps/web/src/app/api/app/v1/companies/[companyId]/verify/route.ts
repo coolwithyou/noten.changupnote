@@ -1,4 +1,5 @@
-import { sanitizeCorpNum } from "@cunote/core";
+import type { CompanyVerificationResult } from "@cunote/contracts";
+import { maskCorpNum, sanitizeCorpNum } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown, appNotImplemented } from "@/lib/server/appApi/envelope";
 import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
 import { getServiceRepositories } from "@/lib/server/serviceData";
@@ -33,7 +34,7 @@ export async function POST(request: Request, context: RouteContext) {
       return appError("invalid_biz_no", error instanceof Error ? error.message : "사업자번호가 올바르지 않습니다.", 400, "bizNo");
     }
 
-    const result = await getServiceRepositories().companies.verifyCompany({
+    const verification = await getServiceRepositories().companies.verifyCompany({
       companyId,
       userId: access.userId,
       bizNo,
@@ -41,6 +42,13 @@ export async function POST(request: Request, context: RouteContext) {
       ...(body.openedOn ? { openedOn: body.openedOn } : {}),
       verifyMethod: "dev_self_declared",
     });
+    const result: CompanyVerificationResult = {
+      companyId: verification.companyId,
+      bizNoMasked: maskCorpNum(verification.bizNo),
+      verified: verification.verified,
+      verifiedAt: verification.verifiedAt,
+      verifyMethod: verification.verifyMethod,
+    };
     return appData(result);
   } catch (error) {
     return appErrorFromUnknown(error, "회사 소유권 검증을 처리하지 못했습니다.");

@@ -115,7 +115,7 @@ checks.push("web_company_switch");
 
 const webCompanyVerify = await fetchJson<ActionResult<{
   companyId: string;
-  bizNo: string;
+  bizNoMasked: string;
   verified: boolean;
   verifyMethod: string;
 }>>("/api/web/companies/verify", {
@@ -126,7 +126,8 @@ const webCompanyVerify = await fetchJson<ActionResult<{
 expectStatus(webCompanyVerify, 200, "web company verify status");
 expect(webCompanyVerify.body.ok === true, "web company verify envelope ok");
 expect(webCompanyVerify.body.data?.companyId === webCompanyId, "web company verify company id");
-expect(webCompanyVerify.body.data?.bizNo === "1234567890", "web company verify bizNo");
+expect(!Object.hasOwn(webCompanyVerify.body.data ?? {}, "bizNo"), "web company verify hides raw bizNo");
+expect(webCompanyVerify.body.data?.bizNoMasked === "123-**-67***", "web company verify masked bizNo");
 expect(webCompanyVerify.body.data?.verified === true, "web company verify result");
 checks.push("web_company_verify");
 
@@ -137,7 +138,7 @@ const webCompaniesAfterVerify = await fetchJson<ActionResult<{
 expectStatus(webCompaniesAfterVerify, 200, "web companies after verify status");
 const verifiedWebCompany = webCompaniesAfterVerify.body.data?.companies.find((company) => company.id === webCompanyId);
 expect(verifiedWebCompany?.verified === true, "web companies expose verified state");
-expect(verifiedWebCompany?.bizNoMasked === "123-**-67890", "web companies expose masked bizNo");
+expect(verifiedWebCompany?.bizNoMasked === "123-**-67***", "web companies expose masked bizNo");
 checks.push("web_company_verified_state");
 
 const dashboard = await fetchJson<ActionResult<{
@@ -386,7 +387,7 @@ checks.push("app_companies");
 
 const appCompanyVerify = await fetchJson<ApiEnvelope<{
   companyId: string;
-  bizNo: string;
+  bizNoMasked: string;
   verified: boolean;
   verifyMethod: string;
 }>>(`/api/app/v1/companies/${companyId}/verify`, {
@@ -403,7 +404,8 @@ const appCompanyVerify = await fetchJson<ApiEnvelope<{
 });
 expectStatus(appCompanyVerify, 200, "app company verify status");
 expect(appCompanyVerify.body.data?.companyId === companyId, "app company verify company id");
-expect(appCompanyVerify.body.data?.bizNo === "1234567890", "app company verify bizNo");
+expect(!Object.hasOwn(appCompanyVerify.body.data ?? {}, "bizNo"), "app company verify hides raw bizNo");
+expect(appCompanyVerify.body.data?.bizNoMasked === "123-**-67***", "app company verify masked bizNo");
 expect(appCompanyVerify.body.data?.verified === true, "app company verified");
 checks.push("app_company_verify");
 

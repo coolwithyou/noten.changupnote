@@ -1,4 +1,4 @@
-import { grantKey, matchGrantCriteria } from "@cunote/core";
+import { grantKey, maskCorpNum, matchGrantCriteria } from "@cunote/core";
 import type {
   CompanyProfile,
   MatchResult,
@@ -98,6 +98,10 @@ class RuntimeCompanyRepository implements CompanyRepository {
       name: profile.name ?? "샘플 기업",
       profile,
       role: "owner",
+      verified: false,
+      verifiedAt: null,
+      verifyMethod: null,
+      bizNoMasked: null,
     };
   }
 
@@ -231,9 +235,11 @@ function cloneProfile(profile: CompanyProfile): CompanyProfile {
 }
 
 function maskBizNo(value: string): string {
-  const digits = value.replace(/\D/g, "");
-  if (digits.length !== 10) return "**********";
-  return `${digits.slice(0, 3)}-**-${digits.slice(5)}`;
+  try {
+    return maskCorpNum(value);
+  } catch {
+    return "**********";
+  }
 }
 
 function enrichmentCacheKey(input: Pick<EnrichmentCacheEntry, "provider" | "bizNo" | "scope">): string {

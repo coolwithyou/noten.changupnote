@@ -1033,10 +1033,10 @@ export const appV1OpenApi = {
       },
       CompanyVerificationResult: {
         type: "object",
-        required: ["companyId", "bizNo", "verified", "verifiedAt", "verifyMethod"],
+        required: ["companyId", "bizNoMasked", "verified", "verifiedAt", "verifyMethod"],
         properties: {
           companyId: { type: "string" },
-          bizNo: { type: "string" },
+          bizNoMasked: { type: "string" },
           verified: { type: "boolean" },
           verifiedAt: { type: "string", format: "date-time" },
           verifyMethod: { type: "string" },
@@ -1091,6 +1091,10 @@ export const appV1OpenApi = {
           name: nullable({ type: "string" }),
           profile: ref("CompanyProfile"),
           role: { type: "string", enum: ["owner", "admin", "member", "viewer"] },
+          verified: { type: "boolean" },
+          verifiedAt: nullable({ type: "string", format: "date-time" }),
+          verifyMethod: nullable({ type: "string" }),
+          bizNoMasked: nullable({ type: "string" }),
         },
         additionalProperties: false,
       },
