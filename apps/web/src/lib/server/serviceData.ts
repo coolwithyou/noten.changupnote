@@ -11,7 +11,7 @@ import {
   readPopbillEnvConfig,
   sanitizeCorpNum,
 } from "@cunote/core";
-import type { ApplySheet, CompanyProfile, NormalizedGrant } from "@cunote/contracts";
+import type { ApplySheet, CompanyEnrichmentFacts, CompanyEnrichmentResult, CompanyProfile, NormalizedGrant } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
 import type { KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
 import { createServiceRepositories } from "./repositories/factory";
@@ -141,6 +141,53 @@ export async function loadServiceApplySheet(
   });
 }
 
+export async function enrichServiceCompany(input: {
+  companyId: string;
+  userId: string;
+  bizNo: string;
+  asOf?: Date;
+}): Promise<CompanyEnrichmentResult> {
+  await loadEnvInDevelopment();
+
+  const bizNo = sanitizeCorpNum(input.bizNo);
+  const popbill = readPopbillEnvConfig();
+  const info = await checkPopbillBizInfo({
+    credentials: popbill.credentials,
+    checkCorpNum: bizNo,
+  });
+  if (String(info.result) !== "100") {
+    throw new ServiceDataError(
+      "company_enrichment_failed",
+      `기업정보조회가 성공하지 못했습니다: ${String(info.result ?? "unknown")}`,
+      502,
+    );
+  }
+
+  const current = await repositories.companies.resolveCompanyProfile({
+    companyId: input.companyId,
+    userId: input.userId,
+  });
+  if (!current) {
+    throw new ServiceDataError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
+  }
+
+  const enriched = buildCompanyProfileFromPopbill(
+    info,
+    input.asOf ? { asOf: input.asOf } : {},
+  );
+  const profile = mergeCompanyProfilesForEnrichment(current, enriched.profile);
+  const saved = await repositories.companies.saveCompanyProfile({
+    companyId: input.companyId,
+    userId: input.userId,
+    profile,
+  });
+
+  return {
+    profile: saved,
+    facts: toCompanyEnrichmentFacts(enriched.facts),
+  };
+}
+
 export function getServiceRepositories() {
   return repositories;
 }
@@ -233,4 +280,62 @@ function sampleCompanyProfile(): CompanyProfile {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
+}
+
+export class ServiceDataError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+    readonly field?: string,
+  ) {
+    super(message);
+    this.name = "ServiceDataError";
+  }
+}
+
+export function mergeCompanyProfilesForEnrichment(current: CompanyProfile, enriched: CompanyProfile): CompanyProfile {
+  const next: CompanyProfile = {
+    ...current,
+    confidence: {
+      ...(current.confidence ?? {}),
+      ...(enriched.confidence ?? {}),
+    },
+  };
+
+  if (enriched.name) next.name = enriched.name;
+  if (enriched.region) next.region = enriched.region;
+  if (enriched.biz_age_months !== null && enriched.biz_age_months !== undefined) {
+    next.biz_age_months = enriched.biz_age_months;
+  }
+  if (enriched.founder_age !== null && enriched.founder_age !== undefined) {
+    next.founder_age = enriched.founder_age;
+  }
+  if (enriched.is_preliminary !== undefined) next.is_preliminary = enriched.is_preliminary;
+  if (enriched.industries?.length) next.industries = enriched.industries;
+  if (enriched.size) next.size = enriched.size;
+  if (enriched.traits?.length) next.traits = enriched.traits;
+  if (enriched.certs?.length) next.certs = enriched.certs;
+  if (enriched.prior_awards?.length) next.prior_awards = enriched.prior_awards;
+  if (enriched.business_status) next.business_status = enriched.business_status;
+
+  return next;
+}
+
+function toCompanyEnrichmentFacts(
+  facts: ReturnType<typeof buildCompanyProfileFromPopbill>["facts"],
+): CompanyEnrichmentFacts {
+  return {
+    maskedBizNo: facts.masked_biz_no,
+    result: facts.result,
+    resultMessage: facts.result_message,
+    checkedAt: facts.check_dt,
+    hasCorpName: facts.has_corp_name,
+    hasRegion: facts.has_region,
+    hasBizAge: facts.has_biz_age,
+    hasSize: facts.has_size,
+    hasIndustry: facts.has_industry,
+    closeDownState: facts.close_down_state,
+    closeDownTaxType: facts.close_down_tax_type,
+  };
 }

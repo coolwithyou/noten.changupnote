@@ -1,4 +1,5 @@
 import type {
+  CompanyProfile,
   CriterionDimension,
   CriterionKind,
   Eligibility,
@@ -238,6 +239,29 @@ export interface ConsentGrantRequest {
 export interface ConsentRevokeResult {
   scope: ConsentScope;
   revoked: boolean;
+}
+
+export interface CompanyEnrichmentRequest {
+  bizNo: string;
+}
+
+export interface CompanyEnrichmentFacts {
+  maskedBizNo: string | null;
+  result: number | string | null;
+  resultMessage: string | null;
+  checkedAt: string | null;
+  hasCorpName: boolean;
+  hasRegion: boolean;
+  hasBizAge: boolean;
+  hasSize: boolean;
+  hasIndustry: boolean;
+  closeDownState: string | number | null;
+  closeDownTaxType: string | number | null;
+}
+
+export interface CompanyEnrichmentResult {
+  profile: CompanyProfile;
+  facts: CompanyEnrichmentFacts;
 }
 
 export interface NotificationSettingsDto {

@@ -177,6 +177,47 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("NotificationSettings.newMatch must be boolean.");
   }
 
+  const enrichmentRequest = schemas.CompanyEnrichmentRequest;
+  if (!isRecord(enrichmentRequest) || !isRecord(enrichmentRequest.properties)) {
+    errors.push("CompanyEnrichmentRequest schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(enrichmentRequest.required) || !enrichmentRequest.required.includes("bizNo")) {
+    errors.push("CompanyEnrichmentRequest must require bizNo.");
+  }
+  if (propertyType(enrichmentRequest.properties.bizNo) !== "string") {
+    errors.push("CompanyEnrichmentRequest.bizNo must be string.");
+  }
+
+  const enrichmentFacts = schemas.CompanyEnrichmentFacts;
+  if (!isRecord(enrichmentFacts) || !isRecord(enrichmentFacts.properties)) {
+    errors.push("CompanyEnrichmentFacts schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(enrichmentFacts.required) ||
+    !enrichmentFacts.required.includes("maskedBizNo") ||
+    !enrichmentFacts.required.includes("hasBizAge") ||
+    !enrichmentFacts.required.includes("hasIndustry")) {
+    errors.push("CompanyEnrichmentFacts must require maskedBizNo, hasBizAge and hasIndustry.");
+  }
+  if (nullableStringType(enrichmentFacts.properties.maskedBizNo) !== true) {
+    errors.push("CompanyEnrichmentFacts.maskedBizNo must be nullable string.");
+  }
+  if (propertyType(enrichmentFacts.properties.hasBizAge) !== "boolean") {
+    errors.push("CompanyEnrichmentFacts.hasBizAge must be boolean.");
+  }
+
+  const enrichmentResult = schemas.CompanyEnrichmentResult;
+  if (!isRecord(enrichmentResult) || !isRecord(enrichmentResult.properties)) {
+    errors.push("CompanyEnrichmentResult schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(enrichmentResult.required) ||
+    !enrichmentResult.required.includes("profile") ||
+    !enrichmentResult.required.includes("facts")) {
+    errors.push("CompanyEnrichmentResult must require profile and facts.");
+  }
+
   const deviceRequest = schemas.DeviceRegistrationRequest;
   if (!isRecord(deviceRequest) || !isRecord(deviceRequest.properties)) {
     errors.push("DeviceRegistrationRequest schema is missing properties.");
@@ -211,6 +252,13 @@ function nullableStringFormat(value: unknown): string | null {
   return isRecord(stringVariant) && typeof stringVariant.format === "string"
     ? stringVariant.format
     : null;
+}
+
+function nullableStringType(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const variants = Array.isArray(value.anyOf) ? value.anyOf : [];
+  return variants.some((variant) => isRecord(variant) && variant.type === "string") &&
+    variants.some((variant) => isRecord(variant) && variant.type === "null");
 }
 
 function propertyType(value: unknown): string | null {
