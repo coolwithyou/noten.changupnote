@@ -1,4 +1,5 @@
 import type { ApplySheet, RequiredDocument, RuleTraceChip, SupportAmount } from "@cunote/contracts";
+import { ApplyLink } from "./ApplyLink";
 
 export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
   const dDayLabel = formatDday(sheet.schedule.dDay);
@@ -41,7 +42,7 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
         <div className="apply-overview-card action">
           <span>신청 링크</span>
           {sheet.deepLink ? (
-            <a href={sheet.deepLink} target="_blank" rel="noreferrer">신청 페이지 열기</a>
+            <ApplyLink href={sheet.deepLink} grantId={sheet.grant.id} />
           ) : (
             <strong>원문 확인 필요</strong>
           )}

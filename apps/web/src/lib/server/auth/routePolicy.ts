@@ -13,6 +13,7 @@ export const SESSION_WEB_ROUTES = [
   "PUT /api/web/consents",
   "DELETE /api/web/consents/[scope]",
   "GET /api/web/matches",
+  "POST /api/web/matches/[grantId]/events",
   "GET /api/web/action-queue",
   "GET /api/web/next-question",
   "GET /api/web/grants/[grantId]",

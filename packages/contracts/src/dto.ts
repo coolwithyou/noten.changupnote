@@ -183,6 +183,26 @@ export interface ActionQueueItem {
   score: number;
 }
 
+export interface MatchEventRequest {
+  event?: MatchEventKind;
+  type?: MatchEventKind;
+  rulesetVer?: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface MatchEventReceipt {
+  id: string;
+  acceptedAt: string;
+}
+
+export interface MatchEventResult {
+  accepted: boolean;
+  companyId: string;
+  grantId: string;
+  event: MatchEventKind;
+  receipt: MatchEventReceipt;
+}
+
 export interface ConsentRecordDto {
   scope: ConsentScope;
   purpose: string;
