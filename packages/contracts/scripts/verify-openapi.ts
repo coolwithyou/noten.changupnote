@@ -70,6 +70,7 @@ for (const [routePath, pathItemValue] of Object.entries(openApiPathItems)) {
   }
 }
 
+verifyMatchQueryParameters(errors);
 verifyServiceDtoSchemas(errors);
 
 if (errors.length > 0) {
@@ -162,6 +163,38 @@ function isNonEmptyString(value: unknown): value is string {
 
 function documentsNotImplemented(operationValue: Record<string, unknown>): boolean {
   return isRecord(operationValue.responses) && Object.hasOwn(operationValue.responses, "501");
+}
+
+function verifyMatchQueryParameters(errors: string[]) {
+  const operation = operationForPath("/api/app/v1/companies/{companyId}/matches", "get");
+  if (!operation) {
+    errors.push("GET /api/app/v1/companies/{companyId}/matches operation is missing.");
+    return;
+  }
+
+  const parameters = Array.isArray(operation.parameters) ? operation.parameters : [];
+  const queryParameters = parameters
+    .filter((parameter) => isRecord(parameter) && parameter.in === "query")
+    .map((parameter) => parameter as Record<string, unknown>);
+  const queryNames = queryParameters.map((parameter) => parameter.name).filter((name): name is string => typeof name === "string");
+  for (const name of ["status", "sort", "cursor", "limit"]) {
+    if (!queryNames.includes(name)) {
+      errors.push(`GET /api/app/v1/companies/{companyId}/matches is missing ${name} query parameter.`);
+    }
+  }
+
+  const status = queryParameters.find((parameter) => parameter.name === "status");
+  const sort = queryParameters.find((parameter) => parameter.name === "sort");
+  const limit = queryParameters.find((parameter) => parameter.name === "limit");
+  if (!schemaEnum(status).includes("eligible") || !schemaEnum(status).includes("preparable")) {
+    errors.push("matches.status query must include eligibility and bucket filters.");
+  }
+  if (!schemaEnum(sort).includes("fit") || !schemaEnum(sort).includes("deadline") || !schemaEnum(sort).includes("amount")) {
+    errors.push("matches.sort query must include fit, deadline and amount.");
+  }
+  if (schemaType(limit) !== "integer") {
+    errors.push("matches.limit query must be integer.");
+  }
 }
 
 function verifyServiceDtoSchemas(errors: string[]) {
@@ -403,4 +436,21 @@ function nullableStringType(value: unknown): boolean {
 
 function propertyType(value: unknown): string | null {
   return isRecord(value) && typeof value.type === "string" ? value.type : null;
+}
+
+function operationForPath(routePath: string, method: string): Record<string, unknown> | null {
+  const pathItem = openApiPathItems[routePath];
+  if (!isRecord(pathItem)) return null;
+  const operation = pathItem[method];
+  return isRecord(operation) ? operation : null;
+}
+
+function schemaEnum(parameter: Record<string, unknown> | undefined): string[] {
+  if (!parameter || !isRecord(parameter.schema) || !Array.isArray(parameter.schema.enum)) return [];
+  return parameter.schema.enum.filter((value): value is string => typeof value === "string");
+}
+
+function schemaType(parameter: Record<string, unknown> | undefined): string | null {
+  if (!parameter || !isRecord(parameter.schema)) return null;
+  return typeof parameter.schema.type === "string" ? parameter.schema.type : null;
 }

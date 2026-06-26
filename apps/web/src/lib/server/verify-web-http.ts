@@ -15,6 +15,12 @@ interface ActionResult<T> {
 
 interface ApiEnvelope<T> {
   data?: T | null;
+  meta?: {
+    cursor?: string | null;
+    hasMore?: boolean;
+    rulesetVer?: string;
+    scoringVer?: string;
+  };
   error?: {
     code?: string;
     message?: string;
@@ -230,6 +236,24 @@ expect(dashboard.body.ok === true, "web dashboard envelope ok");
 const webGrant = dashboard.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(webGrant), "web dashboard exposes a match grant");
 checks.push("web_dashboard");
+
+const webFilteredMatches = await fetchJson<ActionResult<{
+  matches: Array<{ grantId: string; eligibility: string; fitScore: number }>;
+  cursor: string | null;
+  hasMore: boolean;
+  total: number;
+}>>("/api/web/matches?status=eligible&sort=fit&limit=2");
+expectStatus(webFilteredMatches, 200, "web filtered matches status");
+expect(webFilteredMatches.body.ok === true, "web filtered matches envelope ok");
+expect(Array.isArray(webFilteredMatches.body.data?.matches), "web filtered matches list");
+expect(
+  webFilteredMatches.body.data!.matches.every((entry) => entry.eligibility === "eligible"),
+  "web filtered matches eligibility",
+);
+expectSortedByFit(webFilteredMatches.body.data!.matches, "web filtered matches fit sort");
+expect(typeof webFilteredMatches.body.data?.hasMore === "boolean", "web filtered matches hasMore");
+expect(typeof webFilteredMatches.body.data?.total === "number", "web filtered matches total");
+checks.push("web_filtered_matches");
 
 const roadmap = await fetchJson<ActionResult<{
   roadmap: Array<{ grantId: string; bucket: string }>;
@@ -629,6 +653,22 @@ const appGrant = appMatches.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(appGrant), "app matches exposes a match grant");
 checks.push("app_matches");
 
+const appFilteredMatches = await fetchJson<ApiEnvelope<{
+  matches: Array<{ grantId: string; eligibility: string; fitScore: number }>;
+}>>(`/api/app/v1/companies/${companyId}/matches?status=eligible&sort=fit&limit=2`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appFilteredMatches, 200, "app filtered matches status");
+expect(Array.isArray(appFilteredMatches.body.data?.matches), "app filtered matches list");
+expect(
+  appFilteredMatches.body.data!.matches.every((entry) => entry.eligibility === "eligible"),
+  "app filtered matches eligibility",
+);
+expectSortedByFit(appFilteredMatches.body.data!.matches, "app filtered matches fit sort");
+expect(typeof appFilteredMatches.body.meta?.hasMore === "boolean", "app filtered matches hasMore");
+expect(appFilteredMatches.body.meta?.cursor === null || typeof appFilteredMatches.body.meta?.cursor === "string", "app filtered matches cursor");
+checks.push("app_filtered_matches");
+
 const appActionQueue = await fetchJson<ApiEnvelope<{
   actions: Array<{ id: string; affectedGrantIds: string[] }>;
 }>>(`/api/app/v1/companies/${companyId}/action-queue`, {
@@ -749,6 +789,12 @@ function expectStatus(response: JsonResponse, status: number, label: string) {
 
 function expect(condition: boolean, label: string): asserts condition {
   if (!condition) throw new Error(label);
+}
+
+function expectSortedByFit(entries: Array<{ fitScore: number }>, label: string) {
+  for (let index = 1; index < entries.length; index += 1) {
+    expect(entries[index - 1]!.fitScore >= entries[index]!.fitScore, label);
+  }
 }
 
 export {};

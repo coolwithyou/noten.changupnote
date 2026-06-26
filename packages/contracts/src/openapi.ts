@@ -437,7 +437,37 @@ export const appV1OpenApi = {
         operationId: "listAppCompanyMatches",
         summary: "Fetch opportunity-map match cards for a company.",
         security: bearerSecurity,
-        parameters: [pathParam("companyId", "Company id.")],
+        parameters: [
+          pathParam("companyId", "Company id."),
+          {
+            name: "status",
+            in: "query",
+            required: false,
+            description: "Optional eligibility or opportunity bucket filter.",
+            schema: {
+              type: "string",
+              enum: ["all", "eligible", "conditional", "ineligible", "now", "soon", "preparable"],
+            },
+          },
+          {
+            name: "sort",
+            in: "query",
+            required: false,
+            description: "Optional match sort order.",
+            schema: {
+              type: "string",
+              enum: ["recommended", "fit", "deadline", "amount"],
+            },
+          },
+          queryParam("cursor", "Opaque pagination cursor from the previous response meta."),
+          {
+            name: "limit",
+            in: "query",
+            required: false,
+            description: "Page size, 1 through 40.",
+            schema: { type: "integer", minimum: 1, maximum: 40 },
+          },
+        ],
         responses: {
           "200": {
             description: "Match cards and counts.",

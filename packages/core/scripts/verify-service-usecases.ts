@@ -9,6 +9,7 @@ import {
   buildApplySheet,
   buildDashboard,
   matchGrantCriteria,
+  selectMatchCards,
   updateCompanyProfileField,
 } from "../src/index.js";
 
@@ -142,6 +143,36 @@ assert.equal(expandedProfile.employees_count, 12);
 assert.deepEqual(expandedProfile.ip, ["특허"]);
 assert.deepEqual(expandedProfile.target_types, ["법인"]);
 
+const selectableDashboard = buildDashboard({
+  company: expandedProfile,
+  grants: [soonGrant, tooOldGrant, expandedGrant],
+  asOf,
+  limit: 10,
+});
+const eligibleSelection = selectMatchCards(selectableDashboard.matches, {
+  status: "eligible",
+  sort: "amount",
+  limit: 2,
+});
+assert.equal(eligibleSelection.total, 1);
+assert.equal(eligibleSelection.matches[0]?.sourceId, expandedGrant.grant.source_id);
+assert.equal(eligibleSelection.hasMore, false);
+
+const firstPage = selectMatchCards(selectableDashboard.matches, {
+  sort: "fit",
+  limit: 1,
+});
+assert.equal(firstPage.matches.length, 1);
+assert.equal(firstPage.hasMore, true);
+assert.equal(firstPage.cursor, "1");
+const secondPage = selectMatchCards(selectableDashboard.matches, {
+  sort: "fit",
+  cursor: firstPage.cursor,
+  limit: 1,
+});
+assert.equal(secondPage.matches.length, 1);
+assert.notEqual(secondPage.matches[0]?.grantId, firstPage.matches[0]?.grantId);
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -151,6 +182,8 @@ console.log(JSON.stringify({
     "apply_sheet_unlock",
     "expanded_profile_field_update",
     "expanded_profile_match",
+    "match_selector_filter_sort",
+    "match_selector_cursor",
   ],
   soon: {
     bucket: soonMatch.bucket,
