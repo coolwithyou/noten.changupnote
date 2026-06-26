@@ -345,6 +345,19 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("CompanyRecord.verifiedAt must use nullable date-time format.");
   }
 
+  const createCompanyRequest = schemas.CreateCompanyRequest;
+  if (!isRecord(createCompanyRequest) || !isRecord(createCompanyRequest.properties)) {
+    errors.push("CreateCompanyRequest schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(createCompanyRequest.required) || !createCompanyRequest.required.includes("profile")) {
+    errors.push("CreateCompanyRequest must require profile.");
+  }
+  if (!isRecord(createCompanyRequest.properties.profile) ||
+    createCompanyRequest.properties.profile.$ref !== "#/components/schemas/CompanyProfile") {
+    errors.push("CreateCompanyRequest.profile must reference CompanyProfile.");
+  }
+
   const deviceRequest = schemas.DeviceRegistrationRequest;
   if (!isRecord(deviceRequest) || !isRecord(deviceRequest.properties)) {
     errors.push("DeviceRegistrationRequest schema is missing properties.");

@@ -386,6 +386,30 @@ expect(appPreliminaryTeaser.body.data?.attributes.industry.includes("ICT"), "app
 expect(Boolean(appPreliminaryTeaser.body.data?.matches.find((entry) => entry.grantId)), "app preliminary teaser exposes matches");
 checks.push("app_preliminary_teaser");
 
+const appCompanyCreate = await fetchJson<ApiEnvelope<{
+  company: {
+    id: string;
+    profile: {
+      region?: { code: string; label?: string };
+      is_preliminary?: boolean;
+      industries?: string[];
+    };
+  };
+}>>("/api/app/v1/companies", {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ profile: preliminaryProfile }),
+});
+expectStatus(appCompanyCreate, 201, "app company create status");
+expect(Boolean(appCompanyCreate.body.data?.company.id), "app company create id");
+expect(appCompanyCreate.body.data?.company.profile.is_preliminary === true, "app company create keeps preliminary profile");
+expect(appCompanyCreate.body.data?.company.profile.region?.label === "경기", "app company create keeps region");
+expect(appCompanyCreate.body.data?.company.profile.industries?.includes("ICT") === true, "app company create keeps industry");
+checks.push("app_company_create");
+
 const appNotifications = await fetchJson<ApiEnvelope<{
   deadlineReminder: boolean;
   newMatch: boolean;
