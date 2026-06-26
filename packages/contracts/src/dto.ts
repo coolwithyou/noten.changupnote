@@ -1,0 +1,202 @@
+import type {
+  CriterionDimension,
+  CriterionKind,
+  Eligibility,
+  Grant,
+  GrantStatus,
+  MatchResult,
+} from "./index.js";
+
+export type OpportunityBucket = "now" | "soon" | "preparable" | "conditional";
+export type RuleTraceChipResult = "pass" | "fail" | "unknown" | "text_only";
+export type ChecklistSection = "satisfied" | "needs_check" | "document" | "preferred_miss";
+export type ActionType = "progressive" | "external_link" | "apply" | "prepare" | "verify";
+export type ActionQueueKind = "input" | "acquire" | "apply" | "enrich" | "review";
+export type DocumentSource = "self" | "portal" | "cert";
+
+export interface ActionResult<T> {
+  ok: boolean;
+  data?: T;
+  error?: {
+    code: string;
+    message: string;
+    field?: string;
+  };
+}
+
+export interface ApiEnvelope<T> {
+  data: T | null;
+  meta?: {
+    cursor?: string | null;
+    hasMore?: boolean;
+    rulesetVer?: string;
+    scoringVer?: string;
+  };
+  error?: {
+    code: string;
+    message: string;
+    field?: string;
+  };
+}
+
+export interface StatsResult {
+  openCount: number;
+  totalAmount: number;
+  deadlineSoonCount: number;
+  updatedAt: string;
+}
+
+export interface TeaserResult {
+  attributes: {
+    region: string | null;
+    size: string | null;
+    bizAgeMonths: number | null;
+    industry: string[];
+  };
+  estimatedMaxAmount: number;
+  conditionalUpside: number;
+  counts: {
+    eligible: number;
+    conditional: number;
+    ineligible: number;
+    deadlineSoon: number;
+  };
+  matches: MatchCard[];
+  privacyNote: string;
+}
+
+export interface MatchCard {
+  grantId: string;
+  source: Grant["source"];
+  sourceId: string;
+  title: string;
+  agency: string | null;
+  status: GrantStatus;
+  eligibility: Eligibility;
+  bucket: OpportunityBucket;
+  fitScore: number;
+  competitiveness?: {
+    value: number;
+    estimated: true;
+  };
+  value?: number;
+  supportAmount: SupportAmount;
+  applyEnd: string | null;
+  dDay: number | null;
+  ruleTrace: RuleTraceChip[];
+  matchConfidence: number;
+  rulesetVer: string;
+  scoringVer: string;
+  detailUrl?: string | null;
+}
+
+export interface RuleTraceChip {
+  dimension: CriterionDimension;
+  kind: CriterionKind;
+  result: RuleTraceChipResult;
+  label: string;
+  companyValue?: string;
+  sourceSpan?: string;
+  checklistSection: ChecklistSection;
+  action?: {
+    type: ActionType;
+    target: string;
+    label: string;
+  };
+}
+
+export interface RoadmapNode {
+  bucket: OpportunityBucket;
+  grantId: string;
+  title: string;
+  unlock?: {
+    dimension: CriterionDimension;
+    kind: "time" | "attribute";
+    detail: string;
+    etaDate?: string;
+  };
+  deltaCount?: number;
+}
+
+export interface ApplySheet {
+  grant: GrantDetail;
+  satisfied: RuleTraceChip[];
+  needsCheck: RuleTraceChip[];
+  documents: RequiredDocument[];
+  applyMethod: string | null;
+  deepLink: string | null;
+  schedule: {
+    applyStart: string | null;
+    applyEnd: string | null;
+    dDay: number | null;
+  };
+}
+
+export interface GrantDetail {
+  id: string;
+  source: Grant["source"];
+  sourceId: string;
+  title: string;
+  agency: string | null;
+  supportAmount: SupportAmount;
+  status: GrantStatus;
+}
+
+export interface RequiredDocument {
+  name: string;
+  required: boolean;
+  source: DocumentSource;
+  alreadyHave?: boolean;
+  fromTextOnly?: boolean;
+  sourceSpan?: string;
+  note?: string;
+}
+
+export interface NextQuestionDto {
+  dimension: CriterionDimension;
+  prompt: string;
+  inputType: "number" | "select" | "boolean" | "text";
+  options?: string[];
+  framing: string;
+  affectedGrantCount: number;
+}
+
+export interface ActionQueueItem {
+  id: string;
+  kind: ActionQueueKind;
+  title: string;
+  reason: string;
+  ctaLabel: string;
+  target: string;
+  affectedGrantIds: string[];
+  affectedGrantCount: number;
+  leverageAmount: number;
+  urgency: "low" | "medium" | "high";
+  effort: "quick" | "medium" | "long";
+  score: number;
+}
+
+export interface DashboardResult {
+  company: {
+    name: string | null;
+    region: string | null;
+    size: string | null;
+    bizAgeMonths: number | null;
+    industries: string[];
+  };
+  counts: TeaserResult["counts"];
+  matches: MatchCard[];
+  roadmap: RoadmapNode[];
+  nextQuestion?: NextQuestionDto;
+  actionQueue: ActionQueueItem[];
+  rulesetVer: MatchResult["ruleset_ver"];
+  scoringVer: MatchResult["scoring_ver"];
+}
+
+export interface SupportAmount {
+  min?: number | null;
+  max?: number | null;
+  unit: "KRW";
+  per: "기업" | "건";
+  label?: string | null;
+}

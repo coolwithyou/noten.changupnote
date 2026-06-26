@@ -35,6 +35,23 @@ export type Eligibility = (typeof ELIGIBILITIES)[number];
 export type CriterionResult = "pass" | "fail" | "unknown";
 export type GrantSource = "kstartup" | "bizinfo" | "bizinfo_event";
 export type GrantStatus = "upcoming" | "open" | "closed" | "unknown";
+export type GrantDocumentSource = "self" | "portal" | "cert";
+
+export interface GrantSupportAmount {
+  min?: number | null;
+  max?: number | null;
+  unit: "KRW";
+  per: "기업" | "건";
+  label?: string | null;
+}
+
+export interface GrantRequiredDocument {
+  name: string;
+  required: boolean;
+  source: GrantDocumentSource;
+  source_span?: string;
+  note?: string;
+}
 
 export interface RegionCriterionValue {
   regions: string[];
@@ -113,7 +130,8 @@ export interface Grant {
   apply_start?: string | null;
   apply_end?: string | null;
   apply_method?: Record<string, string | null>;
-  support_amount?: Record<string, unknown> | null;
+  support_amount?: GrantSupportAmount | Record<string, unknown> | null;
+  required_documents?: GrantRequiredDocument[] | null;
   status: GrantStatus;
   f_regions: string[];
   f_industries: string[];
@@ -194,3 +212,5 @@ export interface MatchResult {
   ruleset_ver: string;
   scoring_ver: string;
 }
+
+export * from "./dto.js";
