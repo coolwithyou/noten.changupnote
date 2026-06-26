@@ -128,6 +128,15 @@ const appGrant = appMatches.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(appGrant), "app matches exposes a match grant");
 checks.push("app_matches");
 
+const appGrantDetail = await fetchJson<ApiEnvelope<{
+  grant: { id: string; title: string };
+}>>(`/api/app/v1/grants/${encodeURIComponent(appGrant!.grantId)}?companyId=${encodeURIComponent(companyId!)}`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appGrantDetail, 200, "app grant detail status");
+expect(appGrantDetail.body.data?.grant.id === appGrant!.grantId, "app grant detail uses selected company context");
+checks.push("app_grant_detail");
+
 const appEvent = await fetchJson<ApiEnvelope<{ event: string }>>(
   `/api/app/v1/matches/${companyId}/${encodeURIComponent(appGrant!.grantId)}/events`,
   {

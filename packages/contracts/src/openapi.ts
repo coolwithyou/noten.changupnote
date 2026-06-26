@@ -34,6 +34,14 @@ const pathParam = (name: string, description: string) => ({
   schema: { type: "string" },
 });
 
+const queryParam = (name: string, description: string) => ({
+  name,
+  in: "query",
+  required: false,
+  description,
+  schema: { type: "string" },
+});
+
 const bearerSecurity = [{ appBearerAuth: [] }];
 
 export const appV1OpenApiRoutePaths = [
@@ -435,7 +443,10 @@ export const appV1OpenApi = {
         operationId: "getAppGrantApplySheet",
         summary: "Fetch an application-prep sheet for a grant.",
         security: bearerSecurity,
-        parameters: [pathParam("grantId", "Grant id.")],
+        parameters: [
+          pathParam("grantId", "Grant id."),
+          queryParam("companyId", "Optional company id. When omitted, the first accessible company is used."),
+        ],
         responses: {
           "200": {
             description: "Application-prep sheet.",

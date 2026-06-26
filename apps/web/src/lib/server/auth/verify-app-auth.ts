@@ -50,6 +50,10 @@ const demoAccess = await requireAppCompanyAccess(new Request("http://localhost")
 assert.equal(demoAccess.companyId, demoCompanyId());
 assert.equal(demoAccess.mode, "demo");
 
+const defaultDemoAccess = await requireAppCompanyAccess(new Request("http://localhost"));
+assert.equal(defaultDemoAccess.companyId, demoCompanyId());
+assert.equal(defaultDemoAccess.mode, "demo");
+
 await assert.rejects(
   () => requireAppCompanyAccess(new Request("http://localhost"), "00000000-0000-4000-8000-000000000999"),
   (error) => error instanceof CompanyAccessForbiddenError,
@@ -70,7 +74,14 @@ assert.equal(await preferences.deleteDevice(mockUserId(), "verify-device"), fals
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["issue_token_pair", "rotate_refresh", "revoke_refresh", "demo_company_guard", "device_register_delete"],
+  checked: [
+    "issue_token_pair",
+    "rotate_refresh",
+    "revoke_refresh",
+    "demo_company_guard",
+    "demo_default_company_guard",
+    "device_register_delete",
+  ],
   userId: mockUserId(),
   companyId: demoCompanyId(),
   deviceId: issued.deviceId,

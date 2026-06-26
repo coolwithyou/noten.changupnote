@@ -64,13 +64,14 @@ export async function requireAppSession(request: Request): Promise<AppSession> {
 
 export async function requireAppCompanyAccess(
   request: Request,
-  companyId = demoCompanyId(),
+  companyId?: string,
   options: { permission?: CompanyAccessPermission } = {},
 ): Promise<AppCompanyAccess> {
   const session = await requireAppSession(request);
   if (session.mode === "demo") {
     const defaultCompanyId = demoCompanyId();
-    if (companyId !== defaultCompanyId) throw new CompanyAccessForbiddenError();
+    const requestedCompanyId = companyId ?? defaultCompanyId;
+    if (requestedCompanyId !== defaultCompanyId) throw new CompanyAccessForbiddenError();
     return {
       companyId: defaultCompanyId,
       userId: session.user.id,
@@ -84,7 +85,7 @@ export async function requireAppCompanyAccess(
     companies,
     userId: session.user.id,
     mode: session.mode,
-    companyId,
+    ...(companyId ? { companyId } : {}),
     ...(options.permission ? { permission: options.permission } : {}),
   });
   return {
