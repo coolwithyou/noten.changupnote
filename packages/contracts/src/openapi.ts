@@ -59,6 +59,7 @@ export const appV1OpenApiRoutePaths = [
   "/api/app/v1/companies/{companyId}/profile",
   "/api/app/v1/companies/{companyId}/profile/field",
   "/api/app/v1/companies/{companyId}/roadmap",
+  "/api/app/v1/companies/{companyId}/verify",
   "/api/app/v1/devices",
   "/api/app/v1/devices/{deviceId}",
   "/api/app/v1/grants/{grantId}",
@@ -318,6 +319,30 @@ export const appV1OpenApi = {
           "403": { $ref: "#/components/responses/AppError" },
           "404": { $ref: "#/components/responses/AppError" },
           "502": { $ref: "#/components/responses/AppError" },
+          default: { $ref: "#/components/responses/AppError" },
+        },
+      },
+    },
+    "/api/app/v1/companies/{companyId}/verify": {
+      post: {
+        tags: ["Companies"],
+        operationId: "verifyAppCompanyOwnership",
+        summary: "Verify company ownership with business-registration facts.",
+        security: bearerSecurity,
+        parameters: [pathParam("companyId", "Company id.")],
+        requestBody: {
+          required: true,
+          content: json(ref("CompanyVerificationRequest")),
+        },
+        responses: {
+          "200": {
+            description: "Verification result.",
+            content: json(ref("CompanyVerificationEnvelope")),
+          },
+          "400": { $ref: "#/components/responses/AppError" },
+          "401": { $ref: "#/components/responses/AppError" },
+          "403": { $ref: "#/components/responses/AppError" },
+          "501": { $ref: "#/components/responses/AppError" },
           default: { $ref: "#/components/responses/AppError" },
         },
       },
@@ -996,6 +1021,29 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      CompanyVerificationRequest: {
+        type: "object",
+        required: ["bizNo"],
+        properties: {
+          bizNo: { type: "string", minLength: 10 },
+          ownerName: { type: "string" },
+          openedOn: { type: "string", format: "date" },
+        },
+        additionalProperties: false,
+      },
+      CompanyVerificationResult: {
+        type: "object",
+        required: ["companyId", "bizNo", "verified", "verifiedAt", "verifyMethod"],
+        properties: {
+          companyId: { type: "string" },
+          bizNo: { type: "string" },
+          verified: { type: "boolean" },
+          verifiedAt: { type: "string", format: "date-time" },
+          verifyMethod: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+      CompanyVerificationEnvelope: envelope(ref("CompanyVerificationResult")),
       CompanyEnrichmentFacts: {
         type: "object",
         required: [

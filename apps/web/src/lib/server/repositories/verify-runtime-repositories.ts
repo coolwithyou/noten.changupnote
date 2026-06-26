@@ -55,6 +55,19 @@ const companies = await repositories.companies.listUserCompanies(userId);
 assert.equal(companies[0]?.profile.biz_age_months, 42);
 assert.equal(companies[0]?.profile.confidence?.biz_age, 0.92);
 
+const verification = await repositories.companies.verifyCompany({
+  companyId: demoCompanyId(),
+  userId,
+  bizNo: "1234567890",
+  ownerName: "검증 대표",
+  openedOn: "2024-01-01",
+});
+assert.equal(verification.companyId, demoCompanyId());
+assert.equal(verification.bizNo, "1234567890");
+assert.equal(verification.verified, true);
+assert.equal(verification.verifyMethod, "dev_self_declared");
+assert.match(verification.verifiedAt, /^\d{4}-\d{2}-\d{2}T/);
+
 const outsideCompany = await repositories.companies.resolveCompanyProfile({
   companyId: "00000000-0000-4000-8000-000000000999",
   userId,
@@ -100,6 +113,7 @@ console.log(JSON.stringify({
     "runtime_profile_save",
     "runtime_profile_resolve",
     "runtime_list_user_companies",
+    "runtime_company_verify",
     "runtime_company_guard",
     "runtime_enrichment_cache_fresh",
     "runtime_enrichment_cache_expired",

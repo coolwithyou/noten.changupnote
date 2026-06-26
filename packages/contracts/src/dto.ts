@@ -249,6 +249,20 @@ export interface CompanyEnrichmentRequest {
   bizNo: string;
 }
 
+export interface CompanyVerificationRequest {
+  bizNo: string;
+  ownerName?: string;
+  openedOn?: string;
+}
+
+export interface CompanyVerificationResult {
+  companyId: string;
+  bizNo: string;
+  verified: boolean;
+  verifiedAt: string;
+  verifyMethod: string;
+}
+
 export interface CompanyEnrichmentFacts {
   maskedBizNo: string | null;
   result: number | string | null;

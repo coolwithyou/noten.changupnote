@@ -336,6 +336,29 @@ const companyId = Array.isArray(companies.body.data)
 expect(Boolean(companyId), "app companies company id");
 checks.push("app_companies");
 
+const appCompanyVerify = await fetchJson<ApiEnvelope<{
+  companyId: string;
+  bizNo: string;
+  verified: boolean;
+  verifyMethod: string;
+}>>(`/api/app/v1/companies/${companyId}/verify`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    bizNo: "1234567890",
+    ownerName: "검증 대표",
+    openedOn: "2024-01-01",
+  }),
+});
+expectStatus(appCompanyVerify, 200, "app company verify status");
+expect(appCompanyVerify.body.data?.companyId === companyId, "app company verify company id");
+expect(appCompanyVerify.body.data?.bizNo === "1234567890", "app company verify bizNo");
+expect(appCompanyVerify.body.data?.verified === true, "app company verified");
+checks.push("app_company_verify");
+
 const appConsentGrant = await fetchJson<ApiEnvelope<{
   consent: { scope: string; revokedAt: string | null };
 }>>(`/api/app/v1/companies/${companyId}/consents`, {

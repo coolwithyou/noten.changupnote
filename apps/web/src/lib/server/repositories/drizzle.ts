@@ -26,6 +26,8 @@ import type {
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
+  VerifyCompanyInput,
+  CompanyVerificationRecord,
   WriteEnrichmentCacheInput,
 } from "@cunote/core";
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
@@ -220,6 +222,36 @@ class DrizzleCompanyRepository implements CompanyRepository {
         role: row.userCompany.role,
       };
     }));
+  }
+
+  async verifyCompany(input: VerifyCompanyInput): Promise<CompanyVerificationRecord> {
+    const now = new Date();
+    const [row] = await withCunoteDbUser(this.db.client, input.userId, async (db) => db
+      .update(schema.companies)
+      .set({
+        bizNo: input.bizNo,
+        verified: true,
+        verifiedAt: now,
+        verifyMethod: input.verifyMethod ?? "dev_self_declared",
+      })
+      .where(eq(schema.companies.id, input.companyId))
+      .returning({
+        id: schema.companies.id,
+        bizNo: schema.companies.bizNo,
+        verified: schema.companies.verified,
+        verifiedAt: schema.companies.verifiedAt,
+        verifyMethod: schema.companies.verifyMethod,
+      }));
+    if (!row || !row.bizNo || !row.verifiedAt || !row.verifyMethod) {
+      throw new Error("회사 검증 결과가 없습니다.");
+    }
+    return {
+      companyId: row.id,
+      bizNo: row.bizNo,
+      verified: row.verified,
+      verifiedAt: row.verifiedAt.toISOString(),
+      verifyMethod: row.verifyMethod,
+    };
   }
 
   private async withOptionalUser<T>(

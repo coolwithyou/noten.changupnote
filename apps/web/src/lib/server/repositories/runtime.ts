@@ -22,6 +22,8 @@ import type {
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
+  VerifyCompanyInput,
+  CompanyVerificationRecord,
   WriteEnrichmentCacheInput,
 } from "@cunote/core";
 
@@ -64,6 +66,7 @@ class RuntimeGrantRepository<TPayload> implements GrantRepository<TPayload> {
 
 class RuntimeCompanyRepository implements CompanyRepository {
   private readonly savedProfiles = new Map<string, CompanyProfile>();
+  private readonly verifications = new Map<string, CompanyVerificationRecord>();
 
   constructor(private readonly loaders: RuntimeRepositoryLoaders) {}
 
@@ -106,6 +109,22 @@ class RuntimeCompanyRepository implements CompanyRepository {
       profile,
       role: "owner",
     }];
+  }
+
+  async verifyCompany(input: VerifyCompanyInput): Promise<CompanyVerificationRecord> {
+    if (input.companyId !== demoCompanyId()) {
+      throw new Error("회사를 찾지 못했습니다.");
+    }
+    const verification: CompanyVerificationRecord = {
+      companyId: input.companyId,
+      bizNo: input.bizNo,
+      verified: true,
+      verifiedAt: new Date().toISOString(),
+      verifyMethod: input.verifyMethod ?? "dev_self_declared",
+    };
+    this.verifications.set(profileKey(input.companyId, input.userId), verification);
+    this.verifications.set(profileKey(input.companyId), verification);
+    return verification;
   }
 
   private getSavedProfile(companyId: string, userId?: string): CompanyProfile | null {

@@ -42,11 +42,29 @@ export interface CreateCompanyInput {
   userId: string;
 }
 
+export interface VerifyCompanyInput {
+  companyId: string;
+  userId: string;
+  bizNo: string;
+  ownerName?: string;
+  openedOn?: string;
+  verifyMethod?: string;
+}
+
+export interface CompanyVerificationRecord {
+  companyId: string;
+  bizNo: string;
+  verified: boolean;
+  verifiedAt: string;
+  verifyMethod: string;
+}
+
 export interface CompanyRepository {
   getDefaultCompanyProfile(): Promise<CompanyProfile>;
   resolveCompanyProfile(input?: ResolveCompanyProfileInput): Promise<CompanyProfile | null>;
   createCompany(input: CreateCompanyInput): Promise<CompanyRecord>;
   saveCompanyProfile(input: SaveCompanyProfileInput): Promise<CompanyProfile>;
+  verifyCompany(input: VerifyCompanyInput): Promise<CompanyVerificationRecord>;
   listUserCompanies(userId: string): Promise<CompanyRecord[]>;
 }
 

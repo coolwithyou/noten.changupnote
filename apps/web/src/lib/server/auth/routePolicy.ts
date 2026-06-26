@@ -46,6 +46,7 @@ export const SESSION_APP_ROUTES = [
   "POST /api/app/v1/companies/[companyId]/enrich",
   "GET /api/app/v1/companies/[companyId]/profile",
   "POST /api/app/v1/companies/[companyId]/profile/field",
+  "POST /api/app/v1/companies/[companyId]/verify",
   "GET /api/app/v1/companies/[companyId]/matches",
   "GET /api/app/v1/companies/[companyId]/next-question",
   "GET /api/app/v1/companies/[companyId]/roadmap",

@@ -269,6 +269,35 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("CompanyEnrichmentFacts.hasBizAge must be boolean.");
   }
 
+  const verificationRequest = schemas.CompanyVerificationRequest;
+  if (!isRecord(verificationRequest) || !isRecord(verificationRequest.properties)) {
+    errors.push("CompanyVerificationRequest schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(verificationRequest.required) || !verificationRequest.required.includes("bizNo")) {
+    errors.push("CompanyVerificationRequest must require bizNo.");
+  }
+  if (propertyType(verificationRequest.properties.bizNo) !== "string") {
+    errors.push("CompanyVerificationRequest.bizNo must be string.");
+  }
+
+  const verificationResult = schemas.CompanyVerificationResult;
+  if (!isRecord(verificationResult) || !isRecord(verificationResult.properties)) {
+    errors.push("CompanyVerificationResult schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(verificationResult.required) ||
+    !verificationResult.required.includes("companyId") ||
+    !verificationResult.required.includes("bizNo") ||
+    !verificationResult.required.includes("verified") ||
+    !verificationResult.required.includes("verifiedAt") ||
+    !verificationResult.required.includes("verifyMethod")) {
+    errors.push("CompanyVerificationResult must require companyId, bizNo, verified, verifiedAt and verifyMethod.");
+  }
+  if (propertyType(verificationResult.properties.verified) !== "boolean") {
+    errors.push("CompanyVerificationResult.verified must be boolean.");
+  }
+
   const enrichmentResult = schemas.CompanyEnrichmentResult;
   if (!isRecord(enrichmentResult) || !isRecord(enrichmentResult.properties)) {
     errors.push("CompanyEnrichmentResult schema is missing properties.");
