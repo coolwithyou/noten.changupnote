@@ -26,14 +26,22 @@ const policyRoutes = [
   ...PUBLIC_APP_ROUTES,
   ...SESSION_APP_ROUTES,
 ].filter((route) => route.includes(" /api/"));
+const allPolicyRoutes = [
+  ...PUBLIC_WEB_ROUTES,
+  ...SESSION_WEB_ROUTES,
+  ...PUBLIC_APP_ROUTES,
+  ...SESSION_APP_ROUTES,
+];
+const sessionPageRoutes = SESSION_WEB_ROUTES.filter((route) => !route.includes(" /api/"));
 const publicRoutes = new Set<string>([...PUBLIC_WEB_ROUTES, ...PUBLIC_APP_ROUTES]);
 const sessionRoutes = new Set<string>([...SESSION_WEB_ROUTES, ...SESSION_APP_ROUTES]);
 const actualRoutes = apiScopes.flatMap(discoverApiRouteMethods).sort();
 const errors: string[] = [];
 
 compareSets("API route file", actualRoutes, "route policy", [...policyRoutes].sort(), errors);
+verifySessionPageRoutes(sessionPageRoutes, errors);
 
-for (const route of policyRoutes) {
+for (const route of allPolicyRoutes) {
   if (publicRoutes.has(route) && sessionRoutes.has(route)) {
     errors.push(`${route} is listed as both public and session-protected.`);
   }
@@ -45,7 +53,7 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`Route policy verification passed (${actualRoutes.length} API methods).`);
+console.log(`Route policy verification passed (${actualRoutes.length} API methods, ${sessionPageRoutes.length} protected pages).`);
 
 function discoverApiRouteMethods(root: string): string[] {
   if (!existsSync(root)) return [];
@@ -84,6 +92,27 @@ function exportedMethods(routeFile: string): string[] {
     if (match[1]) methods.add(match[1]);
   }
   return [...methods].sort();
+}
+
+function verifySessionPageRoutes(routes: readonly string[], errors: string[]) {
+  for (const route of routes) {
+    const [method, path] = route.split(" ");
+    if (method !== "GET" || !path) {
+      errors.push(`session page route ${route} must be a GET page route.`);
+      continue;
+    }
+
+    const pageFile = resolve(appRouteRoot, ...path.split("/").filter(Boolean), "page.tsx");
+    if (!existsSync(pageFile)) {
+      errors.push(`session page route ${route} is missing page file ${relative(workspaceRoot, pageFile)}.`);
+      continue;
+    }
+
+    const source = readFileSync(pageFile, "utf8");
+    if (!source.includes("requireCompanyAccess(")) {
+      errors.push(`session page route ${route} does not call requireCompanyAccess.`);
+    }
+  }
 }
 
 function compareSets(
