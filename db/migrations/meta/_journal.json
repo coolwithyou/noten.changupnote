@@ -22,6 +22,13 @@
       "when": 1782464115318,
       "tag": "0002_daily_magus",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1782466890000,
+      "tag": "0003_rls_company_scope",
+      "breakpoints": true
     }
   ]
 }
