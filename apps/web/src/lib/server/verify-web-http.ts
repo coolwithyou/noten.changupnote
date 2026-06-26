@@ -393,15 +393,47 @@ expect(webProfileField.body.data?.profile.revenue_krw === 120000000, "web profil
 expect(webProfileField.body.data?.profile.confidence?.revenue === 0.77, "web profile field persists confidence");
 checks.push("web_profile_field");
 
-const login = await fetchJson<ApiEnvelope<{ accessToken?: string }>>("/api/app/v1/auth/login", {
+const login = await fetchJson<ApiEnvelope<{
+  accessToken?: string;
+  refreshToken?: string;
+  deviceId?: string;
+}>>("/api/app/v1/auth/login", {
   method: "POST",
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ email, deviceId: "verify-web-http" }),
 });
 expectStatus(login, 200, "app login status");
 const accessToken = login.body.data?.accessToken;
+const refreshToken = login.body.data?.refreshToken;
 expect(Boolean(accessToken), "app login access token");
+expect(Boolean(refreshToken), "app login refresh token");
+expect(login.body.data?.deviceId === "verify-web-http", "app login device id");
 checks.push("app_login");
+
+const refresh = await fetchJson<ApiEnvelope<{
+  accessToken?: string;
+  refreshToken?: string;
+  deviceId?: string;
+}>>("/api/app/v1/auth/refresh", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ refreshToken }),
+});
+expectStatus(refresh, 200, "app refresh status");
+expect(Boolean(refresh.body.data?.accessToken), "app refresh access token");
+expect(Boolean(refresh.body.data?.refreshToken), "app refresh refresh token");
+expect(refresh.body.data?.refreshToken !== refreshToken, "app refresh rotates token");
+expect(refresh.body.data?.deviceId === "verify-web-http", "app refresh keeps device id");
+checks.push("app_refresh");
+
+const reusedRefresh = await fetchJson<ApiEnvelope<null>>("/api/app/v1/auth/refresh", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ refreshToken }),
+});
+expectStatus(reusedRefresh, 401, "app reused refresh status");
+expect(reusedRefresh.body.error?.code === "invalid_token", "app reused refresh rejected");
+checks.push("app_refresh_reuse_rejected");
 
 const oauthLogin = await fetchJson<ApiEnvelope<{ accessToken?: string; deviceId?: string }>>("/api/app/v1/auth/google", {
   method: "POST",
@@ -754,6 +786,15 @@ const appEvent = await fetchJson<ApiEnvelope<{ event: string }>>(
 expectStatus(appEvent, 202, "app event status");
 expect(appEvent.body.data?.event === "clicked", "app event accepted");
 checks.push("app_match_event");
+
+const appLogout = await fetchJson<ApiEnvelope<{ revoked: boolean }>>("/api/app/v1/auth/logout", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ refreshToken: refresh.body.data?.refreshToken }),
+});
+expectStatus(appLogout, 200, "app logout status");
+expect(appLogout.body.data?.revoked === true, "app logout revoked");
+checks.push("app_logout");
 
 console.log(JSON.stringify({
   ok: true,
