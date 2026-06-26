@@ -45,7 +45,10 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
           <span className="brand-symbol" aria-hidden="true">C</span>
           <span>창업노트</span>
         </a>
-        <a className="internal-link" href="/internal/live-match">내부 검증 콘솔</a>
+        <nav className="service-links">
+          <a href="/dashboard">기회 맵</a>
+          <a href="/internal/live-match">내부 검증 콘솔</a>
+        </nav>
       </header>
 
       <section className="hero-workspace">
@@ -93,7 +96,10 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
               <p className="eyebrow">1차 매칭 티저</p>
               <h2>{profileHeadline(teaser)} 기준 결과</h2>
             </div>
-            <span className="privacy-pill">PII 비표시</span>
+            <div className="teaser-actions">
+              <span className="privacy-pill">PII 비표시</span>
+              <a className="dashboard-link" href="/dashboard">기회 맵 보기</a>
+            </div>
           </div>
 
           <div className="teaser-summary">
