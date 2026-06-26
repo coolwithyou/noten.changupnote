@@ -139,6 +139,7 @@ expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard rende
 expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders deadline notification toggle");
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 expect(dashboardHtml.body.includes("회사정보 보강"), "web dashboard renders company enrichment control");
+expect(dashboardHtml.body.includes("ineligible-disclosure"), "web dashboard renders collapsed ineligible reasons");
 checks.push("web_dashboard_html");
 
 const roadmapHtml = await fetchText("/roadmap");

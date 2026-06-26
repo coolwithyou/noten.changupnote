@@ -9,6 +9,8 @@ const BUCKETS: Array<{ bucket: OpportunityBucket; title: string; description: st
 ];
 
 export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
+  const ineligibleMatches = matches.filter((match) => match.eligibility === "ineligible");
+
   return (
     <section className="dashboard-panel opportunity-panel" aria-labelledby="opportunity-map-title">
       <div className="panel-heading">
@@ -37,6 +39,7 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
           );
         })}
       </div>
+      {ineligibleMatches.length > 0 ? <IneligibleDisclosure matches={ineligibleMatches} /> : null}
     </section>
   );
 }
@@ -76,6 +79,38 @@ function OpportunityCard({ match }: { match: MatchCard }) {
       <MatchFeedbackControls grantId={match.grantId} title={match.title} />
     </article>
   );
+}
+
+function IneligibleDisclosure({ matches }: { matches: MatchCard[] }) {
+  return (
+    <details className="ineligible-disclosure">
+      <summary>
+        <span>부적격 사유</span>
+        <strong>{matches.length}건</strong>
+      </summary>
+      <div className="ineligible-list">
+        {matches.slice(0, 6).map((match) => (
+          <article className="ineligible-item" key={match.grantId}>
+            <div>
+              <span>{match.agency ?? "기관 미확인"}</span>
+              <h4>{match.title}</h4>
+            </div>
+            <p>{ineligibleReason(match)}</p>
+          </article>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ineligibleReason(match: MatchCard): string {
+  const reason = match.ruleTrace.find((trace) => trace.result === "fail")
+    ?? match.ruleTrace.find((trace) => trace.result === "text_only")
+    ?? match.ruleTrace.find((trace) => trace.result === "unknown");
+  if (!reason) return "세부 조건 확인 필요";
+  if (reason.companyValue) return `${reason.label} - ${reason.companyValue}`;
+  if (reason.sourceSpan) return `${reason.label} - ${reason.sourceSpan}`;
+  return reason.label;
 }
 
 function eligibilityLabel(value: MatchCard["eligibility"]): string {
