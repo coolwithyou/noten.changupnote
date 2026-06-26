@@ -105,6 +105,11 @@ export interface RuleTraceChip {
     target: string;
     label: string;
   };
+  unlock?: {
+    kind: "time" | "attribute";
+    detail: string;
+    etaDate?: string;
+  };
 }
 
 export interface RoadmapNode {

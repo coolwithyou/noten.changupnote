@@ -115,11 +115,13 @@ function evaluateBizAge(criterion: GrantCriterion, company: CompanyProfile): Rul
     return trace(criterion, "pass", "예비창업자 허용", { is_preliminary: true });
   }
 
-  if (value.max_months === null || value.max_months === undefined) {
+  const minMonths = value.min_months ?? null;
+  const maxMonths = value.max_months ?? null;
+  if (minMonths === null && maxMonths === null) {
     return trace(
       criterion,
       company.is_preliminary ? "pass" : "fail",
-      value.include_preliminary ? "예비창업자 전용" : "업력 기준 없음",
+      value.include_preliminary ? "예비창업자 전용" : "업력 기준 확인 필요",
       { is_preliminary: company.is_preliminary ?? false },
     );
   }
@@ -128,11 +130,28 @@ function evaluateBizAge(criterion: GrantCriterion, company: CompanyProfile): Rul
     return trace(criterion, "unknown", "업력 확인 필요");
   }
 
-  const ok = company.biz_age_months <= value.max_months;
+  if (minMonths !== null && company.biz_age_months < minMonths) {
+    return trace(
+      criterion,
+      "fail",
+      `${formatMonths(minMonths)} 이상 대상 - 귀사 ${formatMonths(company.biz_age_months)}`,
+      { biz_age_months: company.biz_age_months, unlock_at_months: minMonths },
+    );
+  }
+
+  if (maxMonths !== null && company.biz_age_months > maxMonths) {
+    return trace(
+      criterion,
+      "fail",
+      `${formatMonths(maxMonths)} 이내${value.include_preliminary ? "/예비 허용" : ""} - 귀사 ${formatMonths(company.biz_age_months)}`,
+      { biz_age_months: company.biz_age_months },
+    );
+  }
+
   return trace(
     criterion,
-    ok ? "pass" : "fail",
-    `${Math.floor(value.max_months / 12)}년 이내${value.include_preliminary ? "/예비 허용" : ""} - 귀사 ${formatMonths(company.biz_age_months)}`,
+    "pass",
+    `${bizAgeBoundsLabel(minMonths, maxMonths)}${value.include_preliminary ? "/예비 허용" : ""} - 귀사 ${formatMonths(company.biz_age_months)}`,
     { biz_age_months: company.biz_age_months },
   );
 }
@@ -322,6 +341,15 @@ function formatMonths(months: number): string {
   const years = Math.floor(months / 12);
   const rest = months % 12;
   return rest === 0 ? `${years}년` : `${years}년 ${rest}개월`;
+}
+
+function bizAgeBoundsLabel(minMonths: number | null, maxMonths: number | null): string {
+  if (minMonths !== null && maxMonths !== null) {
+    return `${formatMonths(minMonths)} 이상 ${formatMonths(maxMonths)} 이내`;
+  }
+  if (minMonths !== null) return `${formatMonths(minMonths)} 이상`;
+  if (maxMonths !== null) return `${formatMonths(maxMonths)} 이내`;
+  return "업력 기준";
 }
 
 function unique<T>(values: T[]): T[] {

@@ -16,6 +16,17 @@ export function buildRoadmap({
       title: match.title,
     };
 
+    const firstTimeUnlock = match.ruleTrace.find((trace) => trace.unlock?.kind === "time");
+    if (firstTimeUnlock?.unlock) {
+      node.unlock = {
+        dimension: firstTimeUnlock.dimension,
+        kind: "time",
+        detail: firstTimeUnlock.unlock.detail,
+        ...(firstTimeUnlock.unlock.etaDate ? { etaDate: firstTimeUnlock.unlock.etaDate } : {}),
+      };
+      return node;
+    }
+
     const firstActionable = match.ruleTrace.find((trace) =>
       trace.result === "unknown" || trace.result === "fail" || trace.result === "text_only"
     );

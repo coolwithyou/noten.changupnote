@@ -18,7 +18,7 @@ export function buildApplySheet<TPayload>({
   asOf = new Date(),
 }: BuildApplySheetOptions<TPayload>): ApplySheet {
   const { grant } = entry.item as NormalizedGrant<TPayload>;
-  const chips = entry.match.rule_trace.map(toRuleTraceChip);
+  const chips = entry.match.rule_trace.map((trace) => toRuleTraceChip(trace, { asOf }));
   const textOnlyDocuments = chips
     .filter((chip) => chip.result === "text_only")
     .map((chip) => {

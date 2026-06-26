@@ -40,7 +40,7 @@ export function toMatchCard<TPayload>(
     supportAmount: normalizeSupportAmount(grant.support_amount),
     applyEnd: grant.apply_end ?? null,
     dDay: daysUntil(grant.apply_end ?? null, options.asOf),
-    ruleTrace: entry.match.rule_trace.map(toRuleTraceChip),
+    ruleTrace: entry.match.rule_trace.map((trace) => toRuleTraceChip(trace, options)),
     matchConfidence: estimateMatchConfidence(entry.match),
     rulesetVer: entry.match.ruleset_ver,
     scoringVer: entry.match.scoring_ver,
@@ -48,7 +48,10 @@ export function toMatchCard<TPayload>(
   };
 }
 
-export function toRuleTraceChip(trace: MatchResult["rule_trace"][number]): RuleTraceChip {
+export function toRuleTraceChip(
+  trace: MatchResult["rule_trace"][number],
+  options: { asOf?: Date } = {},
+): RuleTraceChip {
   const result: RuleTraceChipResult = trace.operator === "text_only" ? "text_only" : trace.result;
   const action = actionForTrace(result, trace.dimension);
   const chip: RuleTraceChip = {
@@ -59,9 +62,11 @@ export function toRuleTraceChip(trace: MatchResult["rule_trace"][number]): RuleT
     checklistSection: checklistSectionFor(result, trace.kind),
   };
   const companyValue = summarizeCompanyValue(trace.company_value);
+  const unlock = unlockForTrace(trace, options.asOf);
   if (companyValue) chip.companyValue = companyValue;
   if (trace.source_span) chip.sourceSpan = trace.source_span;
   if (action) chip.action = action;
+  if (unlock) chip.unlock = unlock;
   return chip;
 }
 
@@ -150,6 +155,7 @@ export function urgencyForDday(dDay: number | null): ActionQueueItem["urgency"] 
 function bucketForMatch(match: MatchResult): OpportunityBucket {
   if (match.eligibility === "eligible") return "now";
   if (match.eligibility === "conditional") return "conditional";
+  if (isTimeUnlockableMatch(match)) return "soon";
   return "preparable";
 }
 
@@ -183,6 +189,40 @@ function actionForTrace(result: RuleTraceChipResult, dimension: CriterionDimensi
     };
   }
   return undefined;
+}
+
+function isTimeUnlockableMatch(match: MatchResult): boolean {
+  const hardFails = match.rule_trace.filter((trace) =>
+    trace.result === "fail" && (trace.kind === "required" || trace.kind === "exclusion")
+  );
+  return hardFails.length > 0 && hardFails.every(isUnlockableBizAgeTrace);
+}
+
+function isUnlockableBizAgeTrace(trace: MatchResult["rule_trace"][number]): boolean {
+  const value = trace.company_value;
+  if (trace.dimension !== "biz_age" || trace.kind !== "required" || typeof value !== "object" || value === null) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return typeof record.biz_age_months === "number" &&
+    typeof record.unlock_at_months === "number" &&
+    record.biz_age_months < record.unlock_at_months;
+}
+
+function unlockForTrace(
+  trace: MatchResult["rule_trace"][number],
+  asOf = new Date(),
+): RuleTraceChip["unlock"] | undefined {
+  if (!isUnlockableBizAgeTrace(trace)) return undefined;
+  const record = trace.company_value as Record<string, unknown>;
+  const currentMonths = record.biz_age_months as number;
+  const unlockAtMonths = record.unlock_at_months as number;
+  const monthsUntilUnlock = Math.max(0, unlockAtMonths - currentMonths);
+  return {
+    kind: "time",
+    detail: `${formatMonthCount(monthsUntilUnlock)} 후 업력 조건 충족 가능`,
+    etaDate: addMonthsIsoDate(asOf, monthsUntilUnlock),
+  };
 }
 
 function compareMatch(a: MatchResult, b: MatchResult): number {
@@ -244,4 +284,19 @@ function parseDate(value: string): Date | null {
   const day = parts[2];
   if (!year || !month || !day) return null;
   return new Date(Date.UTC(year, month - 1, day));
+}
+
+function addMonthsIsoDate(value: Date, months: number): string {
+  const result = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  result.setUTCMonth(result.getUTCMonth() + months);
+  return result.toISOString().slice(0, 10);
+}
+
+function formatMonthCount(months: number): string {
+  if (months <= 0) return "지금";
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  if (years === 0) return `${rest}개월`;
+  if (rest === 0) return `${years}년`;
+  return `${years}년 ${rest}개월`;
 }
