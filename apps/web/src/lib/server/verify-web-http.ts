@@ -76,6 +76,7 @@ expect(dashboardHtml.body.includes("action-cta"), "web dashboard renders action 
 expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard renders next question anchor");
 expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders deadline notification toggle");
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
+expect(dashboardHtml.body.includes("회사정보 보강"), "web dashboard renders company enrichment control");
 checks.push("web_dashboard_html");
 
 const roadmapHtml = await fetchText("/roadmap");

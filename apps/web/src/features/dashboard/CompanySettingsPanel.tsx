@@ -1,7 +1,14 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import type { ActionResult, ConsentRecordDto, ConsentScope, NotificationSettingsDto } from "@cunote/contracts";
+import type {
+  ActionResult,
+  CompanyEnrichmentResult,
+  ConsentRecordDto,
+  ConsentScope,
+  NotificationSettingsDto,
+} from "@cunote/contracts";
 import type { CompanyRecord } from "@cunote/core";
 
 interface WebCompaniesResult {
@@ -31,10 +38,12 @@ const NOTIFICATION_FIELDS: Array<{
 ];
 
 export function CompanySettingsPanel() {
+  const router = useRouter();
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [currentCompanyId, setCurrentCompanyId] = useState("");
   const [consents, setConsents] = useState<ConsentRecordDto[]>([]);
   const [notifications, setNotifications] = useState<NotificationSettingsDto | null>(null);
+  const [bizNo, setBizNo] = useState("");
   const [status, setStatus] = useState("불러오는 중");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -45,6 +54,7 @@ export function CompanySettingsPanel() {
   const latestByScope = useMemo(() => {
     return new Map(consents.map((consent) => [consent.scope, consent]));
   }, [consents]);
+  const basicInfoConsent = Boolean(latestByScope.get("basic_info") && !latestByScope.get("basic_info")?.revokedAt);
 
   async function refreshSettings() {
     setStatus("불러오는 중");
@@ -120,6 +130,34 @@ export function CompanySettingsPanel() {
     }
   }
 
+  async function enrichCompany() {
+    if (!basicInfoConsent) {
+      setStatus("기본정보 동의가 필요합니다.");
+      return;
+    }
+    const normalizedBizNo = bizNo.replace(/\D/g, "");
+    if (normalizedBizNo.length !== 10) {
+      setStatus("사업자번호 10자리를 입력하세요.");
+      return;
+    }
+
+    setBusyKey("enrich");
+    try {
+      const result = await fetchJson<CompanyEnrichmentResult>("/api/web/companies/enrich", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bizNo: normalizedBizNo }),
+      });
+      setBizNo("");
+      setStatus(result.facts.hasBizAge || result.facts.hasIndustry ? "회사정보 보강됨" : "보강 결과 확인 필요");
+      router.refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "회사 정보를 보강하지 못했습니다.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
     <section className="dashboard-settings-panel" aria-label="회사, 동의 및 알림 설정">
       <div className="settings-block">
@@ -137,6 +175,29 @@ export function CompanySettingsPanel() {
               </option>
             ))}
           </select>
+        </label>
+      </div>
+
+      <div className="settings-enrich-form">
+        <label htmlFor="company-enrich-biz-no">
+          회사정보 보강
+          <div className="settings-enrich-row">
+            <input
+              id="company-enrich-biz-no"
+              inputMode="numeric"
+              placeholder="사업자번호 10자리"
+              value={bizNo}
+              disabled={busyKey === "enrich"}
+              onChange={(event) => setBizNo(event.currentTarget.value)}
+            />
+            <button
+              type="button"
+              disabled={busyKey === "enrich" || !basicInfoConsent}
+              onClick={() => void enrichCompany()}
+            >
+              {busyKey === "enrich" ? "조회 중" : "보강"}
+            </button>
+          </div>
         </label>
       </div>
 
