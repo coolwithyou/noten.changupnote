@@ -28,11 +28,19 @@ if (dryRun) {
   process.env.CUNOTE_REPOSITORY_ADAPTER = "drizzle";
   try {
     const { loadServiceApplySheet, loadServiceDashboard } = await import("../serviceData");
-    const dashboard = await loadServiceDashboard({ companyId, userId, limit: 10 });
+    const dashboard = await loadServiceDashboard({ companyId, userId, limit: 80 });
     assert.ok(dashboard.matches.length > 0, "DB-backed dashboard should return match cards");
     assert.ok(
       dashboard.counts.eligible + dashboard.counts.conditional + dashboard.counts.ineligible > 0,
       "DB-backed dashboard should return non-empty counts",
+    );
+    assert.ok(
+      dashboard.matches.some((match) => match.source === "kstartup"),
+      "DB-backed dashboard should include sample K-Startup grants",
+    );
+    assert.ok(
+      dashboard.matches.some((match) => match.source === "bizinfo"),
+      "DB-backed dashboard should include sample BizInfo grants",
     );
 
     const firstMatch = dashboard.matches[0];
@@ -41,12 +49,22 @@ if (dryRun) {
     assert.ok(sheet, "DB-backed apply sheet should resolve first match");
     assert.equal(sheet.grant.id, firstMatch.grantId, "apply sheet id should match selected grant");
 
+    const bizInfoMatch = dashboard.matches.find((match) => match.source === "bizinfo");
+    assert.ok(bizInfoMatch, "DB-backed dashboard should expose BizInfo match id");
+    const bizInfoSheet = await loadServiceApplySheet(encodeURIComponent(bizInfoMatch.grantId), { companyId, userId });
+    assert.ok(bizInfoSheet, "DB-backed apply sheet should resolve BizInfo sample");
+    assert.equal(bizInfoSheet.grant.source, "bizinfo", "BizInfo apply sheet should keep source");
+
     console.log(JSON.stringify({
       dryRun: false,
       adapter: "drizzle",
       userId,
       companyId,
       counts: dashboard.counts,
+      sources: {
+        kstartup: dashboard.matches.filter((match) => match.source === "kstartup").length,
+        bizinfo: dashboard.matches.filter((match) => match.source === "bizinfo").length,
+      },
       firstMatch: {
         id: firstMatch.grantId,
         title: firstMatch.title,
@@ -58,6 +76,10 @@ if (dryRun) {
         satisfied: sheet.satisfied.length,
         needsCheck: sheet.needsCheck.length,
         documents: sheet.documents.length,
+      },
+      bizInfoApplySheet: {
+        id: bizInfoSheet.grant.id,
+        title: bizInfoSheet.grant.title,
       },
     }, null, 2));
   } finally {
