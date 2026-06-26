@@ -4,6 +4,7 @@ import {
   rotateAppRefreshToken,
   revokeAppRefreshToken,
 } from "./appIssueToken";
+import { issueDevAppOAuthTokens } from "./appOAuth";
 import { requireAppCompanyAccess } from "./appSession";
 import { verifyAppJwt } from "./appTokens";
 import { CompanyAccessForbiddenError } from "./companyAccessPolicy";
@@ -28,6 +29,22 @@ assert.equal(accessClaims.deviceId, "verify-device");
 const refreshClaims = verifyAppJwt(issued.refreshToken, "refresh");
 assert.equal(refreshClaims.sub, mockUserId());
 assert.equal(refreshClaims.deviceId, "verify-device");
+
+const oauthIssued = await issueDevAppOAuthTokens({
+  provider: "google",
+  code: "verify-oauth-code",
+  deviceId: "verify-oauth-device",
+});
+const oauthClaims = verifyAppJwt(oauthIssued.accessToken, "access");
+assert.equal(oauthClaims.sub, mockUserId());
+assert.equal(oauthClaims.email, mockUserEmail());
+assert.equal(oauthClaims.deviceId, "verify-oauth-device");
+
+await assert.rejects(
+  () => issueDevAppOAuthTokens({ provider: "unknown", code: "verify-oauth-code" }),
+  /지원하지 않는 OAuth provider/,
+  "unsupported app OAuth provider must be rejected",
+);
 
 const rotated = await rotateAppRefreshToken(issued.refreshToken);
 assert.equal(rotated.deviceId, "verify-device");
@@ -76,6 +93,8 @@ console.log(JSON.stringify({
   ok: true,
   checked: [
     "issue_token_pair",
+    "dev_oauth_token_pair",
+    "oauth_provider_guard",
     "rotate_refresh",
     "revoke_refresh",
     "demo_company_guard",

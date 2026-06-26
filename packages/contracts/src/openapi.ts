@@ -221,6 +221,7 @@ export const appV1OpenApi = {
             description: "Issued token pair.",
             content: json(ref("AppTokenEnvelope")),
           },
+          "400": { $ref: "#/components/responses/AppError" },
           "501": { $ref: "#/components/responses/AppError" },
           default: { $ref: "#/components/responses/AppError" },
         },

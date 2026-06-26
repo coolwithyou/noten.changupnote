@@ -228,6 +228,16 @@ const accessToken = login.body.data?.accessToken;
 expect(Boolean(accessToken), "app login access token");
 checks.push("app_login");
 
+const oauthLogin = await fetchJson<ApiEnvelope<{ accessToken?: string; deviceId?: string }>>("/api/app/v1/auth/google", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ code: "verify-oauth-code", deviceId: "verify-web-http-oauth" }),
+});
+expectStatus(oauthLogin, 200, "app oauth login status");
+expect(Boolean(oauthLogin.body.data?.accessToken), "app oauth login access token");
+expect(oauthLogin.body.data?.deviceId === "verify-web-http-oauth", "app oauth login device id");
+checks.push("app_oauth_login");
+
 const appNotifications = await fetchJson<ApiEnvelope<{
   deadlineReminder: boolean;
   newMatch: boolean;
