@@ -24,6 +24,7 @@ export function buildActionQueue({
   limit = 5,
 }: BuildActionQueueOptions): ActionQueueItem[] {
   const actions = new Map<string, ActionAccumulator>();
+  const enrichableUnknowns = new Set<string>();
 
   for (const match of matches) {
     if (match.eligibility === "eligible") {
@@ -45,6 +46,9 @@ export function buildActionQueue({
       if (trace.result === "unknown") {
         const key = `input:${trace.dimension}`;
         const label = dimensionLabel(trace.dimension);
+        if (isEnrichableDimension(trace.dimension)) {
+          enrichableUnknowns.add(match.grantId);
+        }
         addAction(actions, key, {
           kind: "input",
           title: `${label} 정보 확인`,
@@ -93,10 +97,44 @@ export function buildActionQueue({
     }
   }
 
+  if (enrichableUnknowns.size > 0) {
+    addAction(actions, "enrich:basic_info", {
+      kind: "enrich",
+      title: "사업자 정보로 회사정보 보강",
+      reason: "지역, 업력, 규모, 업종 같은 기본정보를 보강하면 조건부 공고 판단을 줄일 수 있습니다.",
+      ctaLabel: "회사정보 보강",
+      target: "#company-settings",
+      affectedGrantIds: enrichableUnknowns,
+      leverageAmount: matches
+        .filter((match) => enrichableUnknowns.has(match.grantId))
+        .reduce((sum, match) => sum + (match.supportAmount.max ?? 0), 0),
+      urgency: maxMatchUrgency(matches.filter((match) => enrichableUnknowns.has(match.grantId))),
+      effort: "quick",
+      baseScore: 80,
+    });
+  }
+
   return [...actions.entries()]
     .map(([id, action]) => toActionQueueItem(id, action))
     .sort((a, b) => b.score - a.score)
     .slice(0, limit);
+}
+
+function isEnrichableDimension(dimension: CriterionDimension): boolean {
+  return (
+    dimension === "region" ||
+    dimension === "biz_age" ||
+    dimension === "industry" ||
+    dimension === "size" ||
+    dimension === "business_status"
+  );
+}
+
+function maxMatchUrgency(matches: MatchCard[]): ActionQueueItem["urgency"] {
+  return matches.reduce<ActionQueueItem["urgency"]>(
+    (current, match) => maxUrgency(current, urgencyForDday(match.dDay)),
+    "low",
+  );
 }
 
 function addAction(

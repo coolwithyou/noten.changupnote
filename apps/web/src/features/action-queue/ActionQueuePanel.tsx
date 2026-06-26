@@ -49,6 +49,7 @@ function effortLabel(effort: ActionQueueItem["effort"]): string {
 
 function actionHref(action: ActionQueueItem): string {
   if (action.kind === "input") return "#next-question";
+  if (action.target.startsWith("#")) return action.target;
   if (action.target.startsWith("/")) return action.target;
   if (/^https?:\/\//.test(action.target)) return action.target;
 

@@ -198,6 +198,9 @@ const industryQuestionDashboard = buildDashboard({
 assert.equal(industryQuestionDashboard.nextQuestion?.dimension, "industry");
 assert.equal(industryQuestionDashboard.nextQuestion?.inputType, "select");
 assert.equal(industryQuestionDashboard.nextQuestion?.options?.includes("바이오"), true);
+const enrichAction = industryQuestionDashboard.actionQueue.find((action) => action.kind === "enrich");
+assert.ok(enrichAction, "enrich action should be generated for enrichable unknown fields");
+assert.equal(enrichAction.target, "#company-settings");
 
 console.log(JSON.stringify({
   ok: true,
@@ -211,6 +214,7 @@ console.log(JSON.stringify({
     "match_selector_filter_sort",
     "match_selector_cursor",
     "next_question_select_options",
+    "action_queue_enrich",
   ],
   soon: {
     bucket: soonMatch.bucket,

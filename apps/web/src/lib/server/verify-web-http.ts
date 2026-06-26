@@ -276,11 +276,26 @@ expect(webNextQuestion.body.ok === true, "web next question envelope ok");
 expectQuestionInputOptions(webNextQuestion.body.data, "web next question options");
 checks.push("web_next_question_options");
 
+const webActionQueue = await fetchJson<ActionResult<Array<{
+  id: string;
+  kind: string;
+  target: string;
+  affectedGrantIds: string[];
+}>>>("/api/web/action-queue", {
+  headers: { cookie: selectedCompanyCookie! },
+});
+expectStatus(webActionQueue, 200, "web action queue status");
+expect(webActionQueue.body.ok === true, "web action queue envelope ok");
+expect(Array.isArray(webActionQueue.body.data), "web action queue list");
+expectActionQueueEnrich(webActionQueue.body.data, "web action queue enrich");
+checks.push("web_action_queue_enrich");
+
 const dashboardHtml = await fetchText("/dashboard");
 expectStatus(dashboardHtml, 200, "web dashboard html status");
 expect(dashboardHtml.body.includes("match-feedback-controls"), "web dashboard renders match feedback controls");
 expect(dashboardHtml.body.includes("action-cta"), "web dashboard renders action queue cta");
 expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard renders next question anchor");
+expect(dashboardHtml.body.includes("id=\"company-settings\""), "web dashboard renders company settings anchor");
 expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders deadline notification toggle");
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 expect(dashboardHtml.body.includes("회사정보 보강"), "web dashboard renders company enrichment control");
@@ -714,12 +729,13 @@ expect(appFilteredMatches.body.meta?.cursor === null || typeof appFilteredMatche
 checks.push("app_filtered_matches");
 
 const appActionQueue = await fetchJson<ApiEnvelope<{
-  actions: Array<{ id: string; affectedGrantIds: string[] }>;
+  actions: Array<{ id: string; kind: string; target: string; affectedGrantIds: string[] }>;
 }>>(`/api/app/v1/companies/${companyId}/action-queue`, {
   headers: { authorization: `Bearer ${accessToken}` },
 });
 expectStatus(appActionQueue, 200, "app action queue status");
 expect(Array.isArray(appActionQueue.body.data?.actions), "app action queue list");
+expectActionQueueEnrich(appActionQueue.body.data?.actions, "app action queue enrich");
 checks.push("app_action_queue");
 
 const appNextQuestion = await fetchJson<ApiEnvelope<{
@@ -856,6 +872,16 @@ function expectSortedByFit(entries: Array<{ fitScore: number }>, label: string) 
 function expectQuestionInputOptions(question: { inputType?: string; options?: string[] } | null | undefined, label: string) {
   if (!question || question.inputType !== "select") return;
   expect(Array.isArray(question.options) && question.options.length > 0, label);
+}
+
+function expectActionQueueEnrich(
+  actions: Array<{ kind: string; target: string; affectedGrantIds: string[] }> | null | undefined,
+  label: string,
+) {
+  const enrich = actions?.find((action) => action.kind === "enrich");
+  expect(Boolean(enrich), label);
+  expect(enrich!.target === "#company-settings", `${label} target`);
+  expect(enrich!.affectedGrantIds.length > 0, `${label} affected grants`);
 }
 
 export {};

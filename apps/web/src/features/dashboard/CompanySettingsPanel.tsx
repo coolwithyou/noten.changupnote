@@ -187,7 +187,7 @@ export function CompanySettingsPanel() {
   }
 
   return (
-    <section className="dashboard-settings-panel" aria-label="회사, 동의 및 알림 설정">
+    <section id="company-settings" className="dashboard-settings-panel" aria-label="회사, 동의 및 알림 설정">
       <div className="settings-block">
         <label htmlFor="company-switcher">
           회사
