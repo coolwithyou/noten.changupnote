@@ -1,5 +1,6 @@
 import type { KStartupAnnouncement } from "@cunote/core";
 import type { ServiceRepositories } from "@cunote/core";
+import { getCunoteDb } from "@/lib/server/db/client";
 import { createDrizzleRepositories } from "./drizzle";
 import {
   createRuntimeRepositories,
@@ -13,13 +14,9 @@ export function createServiceRepositories(
 ): ServiceRepositories<KStartupAnnouncement> {
   const adapter = readAdapterName();
   if (adapter === "drizzle") {
-    const client = process.env.DATABASE_URL ?? process.env.SUPABASE_DB_URL;
-    if (!client) {
-      throw new Error("DATABASE_URL 또는 SUPABASE_DB_URL 없이 drizzle repository adapter를 사용할 수 없습니다.");
-    }
     return createDrizzleRepositories<KStartupAnnouncement>({
       dialect: "drizzle",
-      client,
+      client: getCunoteDb(),
     });
   }
 

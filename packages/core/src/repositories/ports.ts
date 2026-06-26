@@ -15,7 +15,7 @@ export interface GrantRepository<TPayload = unknown> {
   findGrantById(grantId: string, options?: GrantListOptions): Promise<NormalizedGrant<TPayload> | null>;
 }
 
-export type CompanyRole = "owner" | "admin" | "member";
+export type CompanyRole = "owner" | "admin" | "member" | "viewer";
 
 export interface CompanyRecord {
   id: string;

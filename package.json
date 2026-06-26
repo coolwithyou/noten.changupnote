@@ -8,6 +8,10 @@
     "dev:web": "node scripts/dev-web.mjs",
     "build:packages": "pnpm --filter @cunote/contracts build && pnpm --filter @cunote/core build",
     "build:web": "pnpm build:packages && pnpm --filter @cunote/web build",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
     "fetch:kstartup": "tsx packages/core/scripts/fetch-kstartup-live.ts",
@@ -21,6 +25,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.4",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   },

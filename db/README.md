@@ -2,6 +2,9 @@
 
 `0001_initial.sql` is the first Postgres schema draft from the design SSOT.
 
-It is intentionally not applied to a production database in this slice. The next
-step is to translate or adopt it as the Drizzle migration source once Supabase
-project settings are fixed.
+`migrations/` is the Drizzle-owned migration stream generated from
+`apps/web/src/lib/server/db/schema.ts`.
+
+Do not apply either migration stream to production until Supabase project, RLS,
+and role settings are reviewed. New schema changes should be made in the Drizzle
+schema and generated with `pnpm db:generate`.

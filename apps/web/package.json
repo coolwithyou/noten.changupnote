@@ -11,7 +11,9 @@
   "dependencies": {
     "@cunote/contracts": "workspace:*",
     "@cunote/core": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "next": "^16.2.9",
+    "postgres": "^3.4.9",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },

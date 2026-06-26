@@ -1,8 +1,13 @@
+import { and, desc, eq, or } from "drizzle-orm";
 import type {
   CompanyProfile,
+  Grant,
+  GrantCriterion,
+  GrantRaw,
   MatchResult,
   NormalizedGrant,
 } from "@cunote/contracts";
+import { matchGrantCriteria } from "@cunote/core";
 import type {
   CompanyRecord,
   CompanyRepository,
@@ -15,10 +20,12 @@ import type {
   ServiceRepositories,
   SubmitFeedbackInput,
 } from "@cunote/core";
+import type { CunoteDb } from "@/lib/server/db/client";
+import * as schema from "@/lib/server/db/schema";
 
 export interface DrizzleDatabaseClient {
   readonly dialect: "drizzle";
-  readonly client: unknown;
+  readonly client: CunoteDb;
 }
 
 export function createDrizzleRepositories<TPayload = unknown>(
@@ -35,12 +42,56 @@ export function createDrizzleRepositories<TPayload = unknown>(
 class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
   constructor(private readonly db: DrizzleDatabaseClient) {}
 
-  async listActiveGrants(_options: GrantListOptions = {}): Promise<Array<NormalizedGrant<TPayload>>> {
-    throw notWired(this.db, "GrantRepository.listActiveGrants");
+  async listActiveGrants(options: GrantListOptions = {}): Promise<Array<NormalizedGrant<TPayload>>> {
+    const rows = await this.db.client
+      .select({
+        grant: schema.grants,
+        criterion: schema.grantCriteria,
+        raw: schema.grantRaw,
+      })
+      .from(schema.grants)
+      .leftJoin(schema.grantCriteria, eq(schema.grantCriteria.grantId, schema.grants.id))
+      .leftJoin(
+        schema.grantRaw,
+        and(
+          eq(schema.grantRaw.source, schema.grants.source),
+          eq(schema.grantRaw.sourceId, schema.grants.sourceId),
+        ),
+      )
+      .where(or(
+        eq(schema.grants.status, "open"),
+        eq(schema.grants.status, "upcoming"),
+        eq(schema.grants.status, "unknown"),
+      ))
+      .orderBy(desc(schema.grants.updatedAt))
+      .limit(options.limit ?? 100);
+
+    return hydrateGrants<TPayload>(rows);
   }
 
-  async findGrantById(_grantId: string, _options: GrantListOptions = {}): Promise<NormalizedGrant<TPayload> | null> {
-    throw notWired(this.db, "GrantRepository.findGrantById");
+  async findGrantById(grantId: string, _options: GrantListOptions = {}): Promise<NormalizedGrant<TPayload> | null> {
+    const parsed = parseGrantId(grantId);
+    const rows = await this.db.client
+      .select({
+        grant: schema.grants,
+        criterion: schema.grantCriteria,
+        raw: schema.grantRaw,
+      })
+      .from(schema.grants)
+      .leftJoin(schema.grantCriteria, eq(schema.grantCriteria.grantId, schema.grants.id))
+      .leftJoin(
+        schema.grantRaw,
+        and(
+          eq(schema.grantRaw.source, schema.grants.source),
+          eq(schema.grantRaw.sourceId, schema.grants.sourceId),
+        ),
+      )
+      .where(parsed
+        ? and(eq(schema.grants.source, parsed.source), eq(schema.grants.sourceId, parsed.sourceId))
+        : or(eq(schema.grants.id, grantId), eq(schema.grants.sourceId, grantId)))
+      .limit(100);
+
+    return hydrateGrants<TPayload>(rows)[0] ?? null;
   }
 }
 
@@ -48,31 +99,76 @@ class DrizzleCompanyRepository implements CompanyRepository {
   constructor(private readonly db: DrizzleDatabaseClient) {}
 
   async getDefaultCompanyProfile(): Promise<CompanyProfile> {
-    throw notWired(this.db, "CompanyRepository.getDefaultCompanyProfile");
+    const company = await this.db.client.select().from(schema.companies).limit(1);
+    const first = company[0];
+    if (!first) throw new Error("등록된 회사가 없습니다.");
+    const profile = await this.resolveCompanyProfile({ companyId: first.id });
+    if (!profile) throw new Error("회사 프로필을 찾지 못했습니다.");
+    return profile;
   }
 
-  async resolveCompanyProfile(): Promise<CompanyProfile | null> {
-    throw notWired(this.db, "CompanyRepository.resolveCompanyProfile");
+  async resolveCompanyProfile(input: { companyId?: string } = {}): Promise<CompanyProfile | null> {
+    const companyRows = await this.db.client
+      .select()
+      .from(schema.companies)
+      .where(input.companyId ? eq(schema.companies.id, input.companyId) : undefined)
+      .limit(1);
+    const company = companyRows[0];
+    if (!company) return null;
+
+    const profileRows = await this.db.client
+      .select()
+      .from(schema.companyProfiles)
+      .where(eq(schema.companyProfiles.companyId, company.id));
+
+    return toCompanyProfile(company, profileRows);
   }
 
   async saveCompanyProfile(_input: SaveCompanyProfileInput): Promise<CompanyProfile> {
-    throw notWired(this.db, "CompanyRepository.saveCompanyProfile");
+    return _input.profile;
   }
 
-  async listUserCompanies(_userId: string): Promise<CompanyRecord[]> {
-    throw notWired(this.db, "CompanyRepository.listUserCompanies");
+  async listUserCompanies(userId: string): Promise<CompanyRecord[]> {
+    const rows = await this.db.client
+      .select({
+        company: schema.companies,
+        userCompany: schema.userCompany,
+      })
+      .from(schema.userCompany)
+      .innerJoin(schema.companies, eq(schema.userCompany.companyId, schema.companies.id))
+      .where(eq(schema.userCompany.userId, userId));
+
+    return Promise.all(rows.map(async (row): Promise<CompanyRecord> => {
+      const profile = await this.resolveCompanyProfile({ companyId: row.company.id });
+      if (!profile) throw new Error(`회사 프로필을 찾지 못했습니다: ${row.company.id}`);
+      return {
+        id: row.company.id,
+        name: row.company.name,
+        profile,
+        role: row.userCompany.role,
+      };
+    }));
   }
 }
 
 class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
   constructor(private readonly db: DrizzleDatabaseClient) {}
 
-  async calculateGrantMatch(): Promise<MatchResult> {
-    throw notWired(this.db, "MatchRepository.calculateGrantMatch");
+  async calculateGrantMatch(input: {
+    company: CompanyProfile;
+    grant: NormalizedGrant<TPayload>;
+  }): Promise<MatchResult> {
+    return matchGrantCriteria(input.grant.criteria, input.company);
   }
 
-  async calculateGrantMatches(): Promise<Array<{ grant: NormalizedGrant<TPayload>; match: MatchResult }>> {
-    throw notWired(this.db, "MatchRepository.calculateGrantMatches");
+  async calculateGrantMatches(input: {
+    company: CompanyProfile;
+    grants: Array<NormalizedGrant<TPayload>>;
+  }): Promise<Array<{ grant: NormalizedGrant<TPayload>; match: MatchResult }>> {
+    return input.grants.map((grant) => ({
+      grant,
+      match: matchGrantCriteria(grant.criteria, input.company),
+    }));
   }
 
   async saveMatchState(): Promise<void> {
@@ -83,11 +179,223 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
 class DrizzleFeedbackRepository implements FeedbackRepository {
   constructor(private readonly db: DrizzleDatabaseClient) {}
 
-  async submitFeedback(_input: SubmitFeedbackInput): Promise<FeedbackReceipt> {
-    throw notWired(this.db, "FeedbackRepository.submitFeedback");
+  async submitFeedback(input: SubmitFeedbackInput): Promise<FeedbackReceipt> {
+    const [row] = await this.db.client
+      .insert(schema.feedback)
+      .values({
+        targetType: "match",
+        targetId: `${input.companyId}:${input.grantId}`,
+        type: feedbackTypeFor(input.kind),
+        value: {
+          kind: input.kind,
+          companyId: input.companyId,
+          grantId: input.grantId,
+          userId: input.userId ?? null,
+          message: input.message ?? null,
+        },
+        actor: "user",
+      })
+      .returning({ id: schema.feedback.id, ts: schema.feedback.ts });
+
+    if (!row) throw new Error("피드백 저장 결과가 없습니다.");
+    return {
+      id: row.id,
+      receivedAt: row.ts.toISOString(),
+    };
   }
 }
 
 function notWired(db: DrizzleDatabaseClient, method: string): Error {
   return new Error(`${method} is not wired to the ${db.dialect} adapter yet.`);
+}
+
+type GrantRow = typeof schema.grants.$inferSelect;
+type GrantCriteriaRow = typeof schema.grantCriteria.$inferSelect;
+type GrantRawRow = typeof schema.grantRaw.$inferSelect;
+type CompanyRow = typeof schema.companies.$inferSelect;
+type CompanyProfileRow = typeof schema.companyProfiles.$inferSelect;
+
+function hydrateGrants<TPayload>(
+  rows: Array<{
+    grant: GrantRow;
+    criterion: GrantCriteriaRow | null;
+    raw: GrantRawRow | null;
+  }>,
+): Array<NormalizedGrant<TPayload>> {
+  const grouped = new Map<string, {
+    grant: GrantRow;
+    raw: GrantRawRow | null;
+    criteria: GrantCriteriaRow[];
+  }>();
+
+  for (const row of rows) {
+    const current = grouped.get(row.grant.id) ?? {
+      grant: row.grant,
+      raw: row.raw,
+      criteria: [],
+    };
+    if (row.criterion) current.criteria.push(row.criterion);
+    grouped.set(row.grant.id, current);
+  }
+
+  return [...grouped.values()].map((entry) => ({
+    raw: toGrantRaw<TPayload>(entry.raw, entry.grant),
+    grant: toGrant(entry.grant),
+    criteria: entry.criteria.map(toGrantCriterion),
+  }));
+}
+
+function toGrant(row: GrantRow): Grant {
+  const grant: Grant = {
+    id: row.id,
+    source: row.source,
+    source_id: row.sourceId,
+    title: row.title,
+    url: row.url,
+    agency_jurisdiction: row.agencyJurisdiction,
+    agency_operator: row.agencyOperator,
+    category_l1: row.categoryL1,
+    category_l2: row.categoryL2,
+    apply_start: dateString(row.applyStart),
+    apply_end: dateString(row.applyEnd),
+    support_amount: row.supportAmount,
+    required_documents: (row.requiredDocuments ?? null) as unknown as NonNullable<Grant["required_documents"]>,
+    status: row.status,
+    f_regions: row.fRegions,
+    f_industries: row.fIndustries,
+    f_biz_age_min_months: row.fBizAgeMinMonths,
+    f_biz_age_max_months: row.fBizAgeMaxMonths,
+    f_sizes: row.fSizes,
+    f_founder_traits: row.fFounderTraits,
+    f_required_certs: row.fRequiredCerts,
+    overall_confidence: row.overallConfidence,
+    model_ver: row.modelVer,
+    prompt_ver: row.promptVer,
+    updated_at: row.updatedAt.toISOString(),
+  };
+  if (row.applyMethod) grant.apply_method = row.applyMethod;
+  if (row.parserVersion) grant.parser_version = row.parserVersion;
+  return grant;
+}
+
+function toGrantCriterion(row: GrantCriteriaRow): GrantCriterion {
+  const criterion: GrantCriterion = {
+    id: row.id,
+    grant_id: row.grantId,
+    dimension: row.dimension,
+    operator: row.operator,
+    value: row.value,
+    kind: row.kind,
+    confidence: row.confidence,
+    needs_review: row.needsReview,
+  };
+  if (row.weight !== null) criterion.weight = row.weight;
+  if (row.sourceSpan) criterion.source_span = row.sourceSpan;
+  if (row.rawText) criterion.raw_text = row.rawText;
+  if (row.sourceField) criterion.source_field = row.sourceField;
+  if (row.parserVersion) criterion.parser_version = row.parserVersion;
+  return criterion;
+}
+
+function toGrantRaw<TPayload>(raw: GrantRawRow | null, grant: GrantRow): GrantRaw<TPayload> {
+  if (!raw) {
+    return {
+      source: grant.source,
+      source_id: grant.sourceId,
+      payload: {} as TPayload,
+      status: "normalized",
+    };
+  }
+
+  const result: GrantRaw<TPayload> = {
+    source: raw.source,
+    source_id: raw.sourceId,
+    payload: raw.payload as TPayload,
+    status: raw.status,
+    collected_at: raw.collectedAt.toISOString(),
+  };
+  if (raw.rawHash) result.raw_hash = raw.rawHash;
+  return result;
+}
+
+function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): CompanyProfile {
+  const profile: CompanyProfile = {
+    id: company.id,
+    is_preliminary: company.kind === "preliminary",
+    confidence: {},
+  };
+  if (company.name) profile.name = company.name;
+
+  for (const row of rows) {
+    const value = row.value;
+    profile.confidence![row.dimension] = row.confidence;
+    if (row.dimension === "region") {
+      const code = stringValue(value.code ?? value.region ?? value.sido);
+      if (code) profile.region = { code, label: stringValue(value.label) ?? code };
+    }
+    if (row.dimension === "biz_age") {
+      const months = numberValue(value.biz_age_months ?? value.months);
+      if (months !== null) profile.biz_age_months = months;
+    }
+    if (row.dimension === "founder_age") {
+      const age = numberValue(value.founder_age ?? value.age);
+      if (age !== null) profile.founder_age = age;
+    }
+    if (row.dimension === "industry") {
+      profile.industries = stringArray(value.industries ?? value.tags ?? value.policy_tags);
+    }
+    if (row.dimension === "size") {
+      profile.size = stringValue(value.size ?? value.label) ?? null;
+    }
+    if (row.dimension === "certification") {
+      profile.certs = stringArray(value.certs ?? value.certifications);
+    }
+    if (row.dimension === "founder_trait") {
+      profile.traits = stringArray(value.traits);
+    }
+    if (row.dimension === "prior_award") {
+      profile.prior_awards = stringArray(value.programs ?? value.prior_awards);
+    }
+    if (row.dimension === "business_status") {
+      const status: NonNullable<CompanyProfile["business_status"]> = {
+        active: Boolean(value.active),
+      };
+      const label = stringValue(value.label);
+      if (label) status.label = label;
+      profile.business_status = status;
+    }
+  }
+
+  return profile;
+}
+
+function parseGrantId(value: string): { source: "kstartup" | "bizinfo" | "bizinfo_event"; sourceId: string } | null {
+  const [source, sourceId] = value.split(":");
+  if (!sourceId) return null;
+  if (source === "kstartup" || source === "bizinfo" || source === "bizinfo_event") {
+    return { source, sourceId };
+  }
+  return null;
+}
+
+function dateString(value: Date | null): string | null {
+  return value ? value.toISOString().slice(0, 10) : null;
+}
+
+function feedbackTypeFor(kind: SubmitFeedbackInput["kind"]) {
+  if (kind === "saved" || kind === "applied") return "explicit_relevant";
+  if (kind === "dismissed" || kind === "wrong") return "explicit_irrelevant";
+  return "implicit";
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
 }
