@@ -1,4 +1,3 @@
-import type { KStartupAnnouncement } from "@cunote/core";
 import type { ServiceRepositories } from "@cunote/core";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { createDrizzleRepositories } from "./drizzle";
@@ -9,12 +8,12 @@ import {
 
 export type RepositoryAdapterName = "runtime" | "drizzle";
 
-export function createServiceRepositories(
-  loaders: RuntimeRepositoryLoaders<KStartupAnnouncement>,
-): ServiceRepositories<KStartupAnnouncement> {
+export function createServiceRepositories<TPayload = unknown>(
+  loaders: RuntimeRepositoryLoaders<TPayload>,
+): ServiceRepositories<TPayload> {
   const adapter = readAdapterName();
   if (adapter === "drizzle") {
-    return createDrizzleRepositories<KStartupAnnouncement>({
+    return createDrizzleRepositories<TPayload>({
       dialect: "drizzle",
       client: getCunoteDb(),
     });

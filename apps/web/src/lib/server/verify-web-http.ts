@@ -41,6 +41,24 @@ expect(stats.body.ok === true, "web stats envelope ok");
 expect(typeof stats.body.data?.openCount === "number", "web stats openCount");
 checks.push("web_stats");
 
+const teaser = await fetchJson<ActionResult<{
+  estimatedMaxAmount: number;
+  conditionalUpside: number;
+  privacyNote: string;
+  matches: Array<{ grantId: string; eligibility: string }>;
+}>>("/api/web/teaser", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({}),
+});
+expectStatus(teaser, 200, "web teaser status");
+expect(teaser.body.ok === true, "web teaser envelope ok");
+expect(typeof teaser.body.data?.estimatedMaxAmount === "number", "web teaser estimatedMaxAmount");
+expect(typeof teaser.body.data?.conditionalUpside === "number", "web teaser conditionalUpside");
+expect(Boolean(teaser.body.data?.privacyNote), "web teaser privacy note");
+expect(Boolean(teaser.body.data?.matches.find((entry) => entry.grantId)), "web teaser exposes matches");
+checks.push("web_teaser");
+
 const notifications = await fetchJson<ActionResult<{
   deadlineReminder: boolean;
   newMatch: boolean;
@@ -96,6 +114,14 @@ const webEvent = await fetchJson<ActionResult<{ event: string }>>(
 expectStatus(webEvent, 202, "web event status");
 expect(webEvent.body.ok === true && webEvent.body.data?.event === "apply_click", "web event accepted");
 checks.push("web_match_event");
+
+const webGrantDetail = await fetchJson<ActionResult<{
+  grant: { id: string; title: string };
+}>>(`/api/web/grants/${encodeURIComponent(webGrant!.grantId)}`);
+expectStatus(webGrantDetail, 200, "web grant detail status");
+expect(webGrantDetail.body.ok === true, "web grant detail envelope ok");
+expect(webGrantDetail.body.data?.grant.id === webGrant!.grantId, "web grant detail matches dashboard grant");
+checks.push("web_grant_detail");
 
 const login = await fetchJson<ApiEnvelope<{ accessToken?: string }>>("/api/app/v1/auth/login", {
   method: "POST",

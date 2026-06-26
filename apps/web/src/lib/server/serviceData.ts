@@ -14,15 +14,18 @@ import {
 } from "@cunote/core";
 import type { ApplySheet, CompanyEnrichmentFacts, CompanyEnrichmentResult, CompanyProfile, NormalizedGrant } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
-import type { KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
+import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
 import { createServiceRepositories } from "./repositories/factory";
+import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
 const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
 const ENRICHMENT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
-const repositories = createServiceRepositories({
+type ServiceGrantPayload = KStartupAnnouncement | BizInfoProgram;
+
+const repositories = createServiceRepositories<ServiceGrantPayload>({
   loadGrants: loadServiceGrantsFromSource,
   loadCompanyProfile: loadCompanyProfileFromSource,
 });
@@ -35,34 +38,52 @@ export interface LoadServiceGrantsOptions {
 export async function loadServiceGrants({
   limit = 20,
   asOf = new Date(),
-}: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<KStartupAnnouncement>>> {
+}: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<ServiceGrantPayload>>> {
   return repositories.grants.listActiveGrants({ limit, asOf });
 }
 
 async function loadServiceGrantsFromSource({
   limit = 20,
   asOf = new Date(),
-}: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<KStartupAnnouncement>>> {
+}: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<ServiceGrantPayload>>> {
   await loadEnvInDevelopment();
 
   const source = process.env.CUNOTE_WEB_DATA_SOURCE?.trim().toLowerCase();
   const serviceKey = process.env.KSTARTUP_SERVICE_KEY?.trim();
+  const includeBizInfoSample = shouldIncludeBizInfoSample(source);
+  const kstartupLimit = includeBizInfoSample && limit > 1 ? limit - 1 : limit;
+  let kstartupEntries: Array<NormalizedGrant<KStartupAnnouncement>>;
+  let usedSample = false;
+
   if (source !== "sample" && serviceKey) {
     try {
       const payload = await fetchKStartupPage({
         serviceKey,
         page: 1,
-        perPage: limit,
+        perPage: kstartupLimit,
       });
-      return normalizeKStartupPayload(payload, { asOf });
+      kstartupEntries = normalizeKStartupPayload(payload, { asOf });
+      return appendBizInfoSampleIfNeeded(kstartupEntries, {
+        include: includeBizInfoSample,
+        usedSample,
+        limit,
+        asOf,
+      });
     } catch (error) {
       console.warn(`K-Startup live fetch failed. Falling back to sample data: ${errorMessage(error)}`);
     }
   }
 
+  usedSample = true;
   const sample = readKStartupSample();
-  const rows = sample.data.slice(0, limit);
-  return normalizeKStartupPayload(rows, { asOf });
+  const rows = sample.data.slice(0, kstartupLimit);
+  kstartupEntries = normalizeKStartupPayload(rows, { asOf });
+  return appendBizInfoSampleIfNeeded(kstartupEntries, {
+    include: includeBizInfoSample,
+    usedSample,
+    limit,
+    asOf,
+  });
 }
 
 export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<CompanyProfile> {
@@ -247,7 +268,7 @@ async function persistMatchStates(input: {
   companyId?: string;
   userId?: string;
   company: CompanyProfile;
-  grants: Array<NormalizedGrant<KStartupAnnouncement>>;
+  grants: Array<NormalizedGrant<ServiceGrantPayload>>;
 }) {
   if (!input.companyId) return;
   const matchStates = await repositories.matches.calculateGrantMatches({
@@ -280,6 +301,31 @@ function readKStartupSample(): KStartupApiResponse {
   return parsed;
 }
 
+function appendBizInfoSampleIfNeeded(
+  entries: Array<NormalizedGrant<KStartupAnnouncement>>,
+  options: {
+    include: boolean;
+    usedSample: boolean;
+    limit: number;
+    asOf: Date;
+  },
+): Array<NormalizedGrant<ServiceGrantPayload>> {
+  const shouldAppend = options.include || (options.usedSample && process.env.CUNOTE_WEB_INCLUDE_BIZINFO_SAMPLE !== "false");
+  if (!shouldAppend || options.limit <= 1) return entries;
+
+  return [
+    ...entries,
+    ...buildBizInfoSampleEntries({ asOf: options.asOf, collectedAt: options.asOf }),
+  ].slice(0, options.limit);
+}
+
+function shouldIncludeBizInfoSample(source: string | undefined): boolean {
+  const explicit = process.env.CUNOTE_WEB_INCLUDE_BIZINFO_SAMPLE?.trim().toLowerCase();
+  if (explicit === "true") return true;
+  if (explicit === "false") return false;
+  return source === "sample";
+}
+
 function findProjectFile(relativePath: string): string {
   const candidates = [
     resolve(/*turbopackIgnore: true*/ process.cwd(), relativePath),
@@ -303,10 +349,10 @@ function decodeGrantIdSegment(value: string): string {
 function sampleCompanyProfile(): CompanyProfile {
   return {
     name: "샘플 기업",
-    region: { code: "경기", label: "경기" },
+    region: { code: "41", label: "경기" },
     biz_age_months: 26,
     founder_age: null,
-    industries: ["기술기반"],
+    industries: ["ICT", "SaaS", "기술기반"],
     size: "중소",
     business_status: { active: true, label: "정상" },
     confidence: {
