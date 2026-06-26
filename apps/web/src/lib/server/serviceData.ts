@@ -115,7 +115,7 @@ function sampleCompanyProfile(): CompanyProfile {
     name: "샘플 기업",
     region: { code: "경기", label: "경기" },
     biz_age_months: 26,
-    founder_age: 35,
+    founder_age: null,
     industries: ["기술기반"],
     size: "중소",
     business_status: { active: true, label: "정상" },
