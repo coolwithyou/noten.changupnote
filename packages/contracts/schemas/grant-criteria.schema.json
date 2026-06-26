@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://changupnote.com/schemas/grant-criteria.schema.json",
+  "title": "GrantCriterion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dimension", "operator", "value", "kind", "confidence"],
+  "properties": {
+    "id": { "type": "string" },
+    "grant_id": { "type": "string" },
+    "dimension": {
+      "type": "string",
+      "enum": [
+        "region",
+        "biz_age",
+        "industry",
+        "size",
+        "revenue",
+        "employees",
+        "founder_age",
+        "founder_trait",
+        "certification",
+        "prior_award",
+        "ip",
+        "target_type",
+        "business_status",
+        "other"
+      ]
+    },
+    "operator": {
+      "type": "string",
+      "enum": ["in", "not_in", "lte", "gte", "between", "exists", "text_only"]
+    },
+    "value": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["required", "preferred", "exclusion"]
+    },
+    "weight": {
+      "type": "number",
+      "default": 0
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "source_span": {
+      "type": "string"
+    },
+    "raw_text": {
+      "type": "string"
+    },
+    "source_field": {
+      "type": "string"
+    },
+    "needs_review": {
+      "type": "boolean",
+      "default": false
+    },
+    "parser_version": {
+      "type": "string"
+    }
+  }
+}

@@ -14,10 +14,12 @@ __pycache__/
 !.env.example
 
 # Local build/output scratch
+node_modules/
 tmp/
 output/
 dist/
 build/
+coverage/
 
 # Editor/workspace noise
 .idea/
