@@ -18,6 +18,10 @@ const checks: Array<{
     patterns: ["withCunoteDbUser", "findActiveByHash(tokenHash: string, userId?: string)"],
   },
   {
+    file: "apps/web/src/lib/server/db/seed-demo.ts",
+    patterns: ["withCunoteDbUser(getCunoteDb(), input.user.id"],
+  },
+  {
     file: "apps/web/src/lib/server/appApi/preferencesStore.ts",
     patterns: ["withCunoteDbUser"],
   },

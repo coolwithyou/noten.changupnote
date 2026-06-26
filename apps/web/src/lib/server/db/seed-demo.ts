@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { closeCunoteDb, getCunoteDb } from "./client";
+import { closeCunoteDb, getCunoteDb, withCunoteDbUser } from "./client";
 import * as schema from "./schema";
 import {
   DEFAULT_MOCK_USER_ID,
@@ -55,7 +55,7 @@ function buildDemoSeed() {
 
 async function seedDemoData(input: ReturnType<typeof buildDemoSeed>) {
   const now = new Date();
-  await getCunoteDb().transaction(async (tx) => {
+  await withCunoteDbUser(getCunoteDb(), input.user.id, async (tx) => {
     await tx
       .insert(schema.users)
       .values({
