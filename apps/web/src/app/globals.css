@@ -800,6 +800,18 @@ button:disabled {
   font-weight: 700;
 }
 
+.settings-company-status {
+  display: block;
+  min-height: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settings-company-status.verified {
+  color: var(--green);
+}
+
 .settings-enrich-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;

@@ -130,6 +130,16 @@ expect(webCompanyVerify.body.data?.bizNo === "1234567890", "web company verify b
 expect(webCompanyVerify.body.data?.verified === true, "web company verify result");
 checks.push("web_company_verify");
 
+const webCompaniesAfterVerify = await fetchJson<ActionResult<{
+  currentCompanyId: string;
+  companies: Array<{ id: string; verified?: boolean; bizNoMasked?: string | null }>;
+}>>("/api/web/companies");
+expectStatus(webCompaniesAfterVerify, 200, "web companies after verify status");
+const verifiedWebCompany = webCompaniesAfterVerify.body.data?.companies.find((company) => company.id === webCompanyId);
+expect(verifiedWebCompany?.verified === true, "web companies expose verified state");
+expect(verifiedWebCompany?.bizNoMasked === "123-**-67890", "web companies expose masked bizNo");
+checks.push("web_company_verified_state");
+
 const dashboard = await fetchJson<ActionResult<{
   matches: Array<{ grantId: string; rulesetVer?: string }>;
 }>>("/api/web/dashboard");

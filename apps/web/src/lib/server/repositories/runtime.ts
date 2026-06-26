@@ -103,11 +103,16 @@ class RuntimeCompanyRepository implements CompanyRepository {
 
   async listUserCompanies(_userId: string): Promise<CompanyRecord[]> {
     const profile = this.getSavedProfile(demoCompanyId(), _userId) ?? await this.loaders.loadCompanyProfile();
+    const verification = this.getVerification(demoCompanyId(), _userId);
     return [{
       id: demoCompanyId(),
       name: profile.name ?? "샘플 기업",
       profile,
       role: "owner",
+      verified: verification?.verified ?? false,
+      verifiedAt: verification?.verifiedAt ?? null,
+      verifyMethod: verification?.verifyMethod ?? null,
+      bizNoMasked: verification ? maskBizNo(verification.bizNo) : null,
     }];
   }
 
@@ -138,6 +143,12 @@ class RuntimeCompanyRepository implements CompanyRepository {
     const cloned = cloneProfile(profile);
     this.savedProfiles.set(profileKey(companyId), cloned);
     if (userId) this.savedProfiles.set(profileKey(companyId, userId), cloned);
+  }
+
+  private getVerification(companyId: string, userId?: string): CompanyVerificationRecord | null {
+    return userId
+      ? this.verifications.get(profileKey(companyId, userId)) ?? this.verifications.get(profileKey(companyId)) ?? null
+      : this.verifications.get(profileKey(companyId)) ?? null;
   }
 }
 
@@ -217,6 +228,12 @@ function profileKey(companyId: string, userId?: string): string {
 
 function cloneProfile(profile: CompanyProfile): CompanyProfile {
   return JSON.parse(JSON.stringify(profile)) as CompanyProfile;
+}
+
+function maskBizNo(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length !== 10) return "**********";
+  return `${digits.slice(0, 3)}-**-${digits.slice(5)}`;
 }
 
 function enrichmentCacheKey(input: Pick<EnrichmentCacheEntry, "provider" | "bizNo" | "scope">): string {

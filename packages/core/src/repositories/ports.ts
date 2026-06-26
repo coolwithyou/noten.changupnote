@@ -23,6 +23,10 @@ export interface CompanyRecord {
   name: string | null;
   profile: CompanyProfile;
   role?: CompanyRole;
+  verified?: boolean;
+  verifiedAt?: string | null;
+  verifyMethod?: string | null;
+  bizNoMasked?: string | null;
 }
 
 export interface ResolveCompanyProfileInput {

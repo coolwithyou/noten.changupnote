@@ -56,6 +56,10 @@ export function CompanySettingsPanel() {
     return new Map(consents.map((consent) => [consent.scope, consent]));
   }, [consents]);
   const basicInfoConsent = Boolean(latestByScope.get("basic_info") && !latestByScope.get("basic_info")?.revokedAt);
+  const currentCompany = useMemo(
+    () => companies.find((company) => company.id === currentCompanyId) ?? null,
+    [companies, currentCompanyId],
+  );
 
   async function refreshSettings() {
     setStatus("불러오는 중");
@@ -199,6 +203,11 @@ export function CompanySettingsPanel() {
               </option>
             ))}
           </select>
+          <span className={currentCompany?.verified ? "settings-company-status verified" : "settings-company-status"}>
+            {currentCompany?.verified
+              ? `검증됨${currentCompany.bizNoMasked ? ` · ${currentCompany.bizNoMasked}` : ""}`
+              : "소유권 미검증"}
+          </span>
         </label>
       </div>
 

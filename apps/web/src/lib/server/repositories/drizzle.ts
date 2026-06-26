@@ -199,6 +199,10 @@ class DrizzleCompanyRepository implements CompanyRepository {
       name: company.name,
       profile: toCompanyProfile(company, profileRows),
       role: "owner",
+      verified: company.verified,
+      verifiedAt: company.verifiedAt?.toISOString() ?? null,
+      verifyMethod: company.verifyMethod,
+      bizNoMasked: company.bizNo ? maskBizNo(company.bizNo) : null,
     };
   }
 
@@ -220,6 +224,10 @@ class DrizzleCompanyRepository implements CompanyRepository {
         name: row.company.name,
         profile,
         role: row.userCompany.role,
+        verified: row.company.verified,
+        verifiedAt: row.company.verifiedAt?.toISOString() ?? null,
+        verifyMethod: row.company.verifyMethod,
+        bizNoMasked: row.company.bizNo ? maskBizNo(row.company.bizNo) : null,
       };
     }));
   }
@@ -730,6 +738,12 @@ function profileConfidence(profile: CompanyProfile, dimension: CriterionDimensio
 
 function compactRecord(input: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined));
+}
+
+function maskBizNo(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length !== 10) return "**********";
+  return `${digits.slice(0, 3)}-**-${digits.slice(5)}`;
 }
 
 function matchConfidence(match: MatchResult): number {

@@ -67,6 +67,9 @@ assert.equal(verification.bizNo, "1234567890");
 assert.equal(verification.verified, true);
 assert.equal(verification.verifyMethod, "dev_self_declared");
 assert.match(verification.verifiedAt, /^\d{4}-\d{2}-\d{2}T/);
+const verifiedCompanies = await repositories.companies.listUserCompanies(userId);
+assert.equal(verifiedCompanies[0]?.verified, true);
+assert.equal(verifiedCompanies[0]?.bizNoMasked, "123-**-67890");
 
 const outsideCompany = await repositories.companies.resolveCompanyProfile({
   companyId: "00000000-0000-4000-8000-000000000999",
