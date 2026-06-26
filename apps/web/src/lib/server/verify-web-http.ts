@@ -238,6 +238,28 @@ expect(Boolean(oauthLogin.body.data?.accessToken), "app oauth login access token
 expect(oauthLogin.body.data?.deviceId === "verify-web-http-oauth", "app oauth login device id");
 checks.push("app_oauth_login");
 
+const appStats = await fetchJson<ApiEnvelope<{ openCount: number }>>("/api/app/v1/stats");
+expectStatus(appStats, 200, "app stats status");
+expect(typeof appStats.body.data?.openCount === "number", "app stats openCount");
+checks.push("app_stats");
+
+const appTeaser = await fetchJson<ApiEnvelope<{
+  estimatedMaxAmount: number;
+  conditionalUpside: number;
+  privacyNote: string;
+  matches: Array<{ grantId: string; eligibility: string }>;
+}>>("/api/app/v1/teaser", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({}),
+});
+expectStatus(appTeaser, 200, "app teaser status");
+expect(typeof appTeaser.body.data?.estimatedMaxAmount === "number", "app teaser estimatedMaxAmount");
+expect(typeof appTeaser.body.data?.conditionalUpside === "number", "app teaser conditionalUpside");
+expect(Boolean(appTeaser.body.data?.privacyNote), "app teaser privacy note");
+expect(Boolean(appTeaser.body.data?.matches.find((entry) => entry.grantId)), "app teaser exposes matches");
+checks.push("app_teaser");
+
 const appNotifications = await fetchJson<ApiEnvelope<{
   deadlineReminder: boolean;
   newMatch: boolean;
