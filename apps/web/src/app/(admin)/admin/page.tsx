@@ -3,6 +3,10 @@ import {
   getAdminFlywheelSnapshot,
   type AdminFlywheelSnapshot,
 } from "@/lib/server/admin/flywheelStore";
+import {
+  getAdminRuntimeStatus,
+  type AdminRuntimeStatus,
+} from "@/lib/server/admin/runtimeStatus";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +45,7 @@ const SURFACES: Array<{
 export default async function AdminPage() {
   const access = await getOptionalAdminAccess();
   const snapshot = access ? await loadSnapshot() : null;
+  const runtime = access ? getAdminRuntimeStatus() : null;
 
   return (
     <main className="admin-shell">
@@ -63,6 +68,8 @@ export default async function AdminPage() {
 
       {access ? (
         <>
+          {runtime ? <RuntimePanel runtime={runtime} /> : null}
+
           <section className="admin-grid">
             {SURFACES.map((item) => (
               <article className="admin-panel" key={item.title}>
@@ -112,6 +119,32 @@ export default async function AdminPage() {
         </section>
       )}
     </main>
+  );
+}
+
+function RuntimePanel({ runtime }: { runtime: AdminRuntimeStatus }) {
+  const rows = [
+    ["repository", runtime.repositoryAdapter],
+    ["data source", runtime.webDataSource],
+    ["auth required", runtime.authRequired ? "true" : "false"],
+    ["auth mode", runtime.authMode],
+    ["providers", runtime.authProviders.length > 0 ? runtime.authProviders.join(", ") : "none"],
+    ["database", runtime.databaseConfigured ? "configured" : "missing"],
+  ] as const;
+
+  return (
+    <section className="admin-panel admin-runtime">
+      <span>runtime</span>
+      <h2>실행 구성</h2>
+      <dl className="admin-runtime-list">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 

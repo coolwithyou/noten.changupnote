@@ -21,8 +21,8 @@ export class AuthRequiredError extends Error {
   }
 }
 
-export function isAuthEnforced(): boolean {
-  return process.env.CUNOTE_AUTH_REQUIRED === "true";
+export function isAuthEnforced(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CUNOTE_AUTH_REQUIRED === "true";
 }
 
 export async function getOptionalWebSession(): Promise<WebSession | null> {

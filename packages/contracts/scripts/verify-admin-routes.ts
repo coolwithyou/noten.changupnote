@@ -23,6 +23,9 @@ if (existsSync(adminStatusRoute)) {
       errors.push(`/api/admin/status does not expose ${surface}`);
     }
   }
+  if (!source.includes("runtime") || !source.includes("getAdminRuntimeStatus(")) {
+    errors.push("/api/admin/status does not expose runtime status");
+  }
 }
 
 if (errors.length > 0) {

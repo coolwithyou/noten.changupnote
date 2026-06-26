@@ -11,7 +11,7 @@ export type RepositoryAdapterName = "runtime" | "drizzle";
 export function createServiceRepositories<TPayload = unknown>(
   loaders: RuntimeRepositoryLoaders<TPayload>,
 ): ServiceRepositories<TPayload> {
-  const adapter = readAdapterName();
+  const adapter = getRepositoryAdapterName();
   if (adapter === "drizzle") {
     return createDrizzleRepositories<TPayload>({
       dialect: "drizzle",
@@ -22,7 +22,7 @@ export function createServiceRepositories<TPayload = unknown>(
   return createRuntimeRepositories(loaders);
 }
 
-function readAdapterName(): RepositoryAdapterName {
-  const value = process.env.CUNOTE_REPOSITORY_ADAPTER?.trim().toLowerCase();
+export function getRepositoryAdapterName(env: NodeJS.ProcessEnv = process.env): RepositoryAdapterName {
+  const value = env.CUNOTE_REPOSITORY_ADAPTER?.trim().toLowerCase();
   return value === "drizzle" ? "drizzle" : "runtime";
 }

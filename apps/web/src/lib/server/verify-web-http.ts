@@ -65,6 +65,13 @@ const adminStatus = await fetchJson<ApiEnvelope<{
   role: "admin";
   mode: "demo" | "session";
   surfaces: string[];
+  runtime: {
+    repositoryAdapter: "runtime" | "drizzle";
+    webDataSource: "auto" | "sample" | "live";
+    authRequired: boolean;
+    authProviders: string[];
+    databaseConfigured: boolean;
+  };
 }>>("/api/admin/status");
 expect(
   adminStatus.status === 200 || adminStatus.status === 403,
@@ -73,6 +80,8 @@ expect(
 if (adminStatus.status === 200) {
   expect(adminStatus.body.data?.ok === true, "admin status ok");
   expect(adminStatus.body.data?.surfaces.includes("golden_set") === true, "admin status surfaces");
+  expect(["runtime", "drizzle"].includes(adminStatus.body.data.runtime.repositoryAdapter), "admin status runtime adapter");
+  expect(typeof adminStatus.body.data.runtime.authRequired === "boolean", "admin status runtime auth");
 } else {
   expect(adminStatus.body.error?.code === "admin_forbidden", "admin status forbidden code");
 }
