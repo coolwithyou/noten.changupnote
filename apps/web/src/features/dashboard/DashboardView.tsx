@@ -1,5 +1,6 @@
 import type { DashboardResult } from "@cunote/contracts";
 import { ActionQueuePanel } from "@/features/action-queue/ActionQueuePanel";
+import { CompanySettingsPanel } from "@/features/dashboard/CompanySettingsPanel";
 import { ProgressiveQuestionCard } from "@/features/dashboard/ProgressiveQuestionCard";
 import { OpportunityMap } from "@/features/opportunity-map/OpportunityMap";
 import { RoadmapStrip } from "@/features/roadmap/RoadmapStrip";
@@ -33,6 +34,8 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResult }) {
           <SummaryMetric label="마감 임박" value={`${dashboard.counts.deadlineSoon}건`} />
         </div>
       </section>
+
+      <CompanySettingsPanel />
 
       {dashboard.nextQuestion ? <ProgressiveQuestionCard question={dashboard.nextQuestion} /> : null}
 
