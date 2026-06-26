@@ -149,6 +149,71 @@ const accessToken = login.body.data?.accessToken;
 expect(Boolean(accessToken), "app login access token");
 checks.push("app_login");
 
+const appNotifications = await fetchJson<ApiEnvelope<{
+  deadlineReminder: boolean;
+  newMatch: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+}>>("/api/app/v1/notifications/settings", {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appNotifications, 200, "app notifications status");
+expect(typeof appNotifications.body.data?.deadlineReminder === "boolean", "app notifications deadlineReminder");
+checks.push("app_notifications");
+
+const appNotificationUpdate = await fetchJson<ApiEnvelope<{
+  deadlineReminder: boolean;
+  newMatch: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+}>>("/api/app/v1/notifications/settings", {
+  method: "PUT",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    deadlineReminder: false,
+    newMatch: true,
+    quietHoursStart: "22:00",
+    quietHoursEnd: "07:00",
+  }),
+});
+expectStatus(appNotificationUpdate, 200, "app notification update status");
+expect(appNotificationUpdate.body.data?.deadlineReminder === false, "app notification update deadlineReminder");
+expect(appNotificationUpdate.body.data?.quietHoursStart === "22:00", "app notification update quietHoursStart");
+checks.push("app_notification_update");
+
+const deviceId = "verify-web-http-device";
+const appDevice = await fetchJson<ApiEnvelope<{
+  deviceId: string;
+  platform: "ios" | "android";
+  registered: boolean;
+}>>("/api/app/v1/devices", {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({
+    deviceId,
+    platform: "ios",
+    pushToken: "verify-push-token",
+  }),
+});
+expectStatus(appDevice, 201, "app device register status");
+expect(appDevice.body.data?.deviceId === deviceId, "app device id");
+expect(appDevice.body.data?.registered === true, "app device registered");
+checks.push("app_device_register");
+
+const appDeviceDelete = await fetchJson<ApiEnvelope<{ deleted: boolean }>>(`/api/app/v1/devices/${deviceId}`, {
+  method: "DELETE",
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appDeviceDelete, 200, "app device delete status");
+expect(appDeviceDelete.body.data?.deleted === true, "app device deleted");
+checks.push("app_device_delete");
+
 const companies = await fetchJson<ApiEnvelope<Array<{ id: string }> | { companies: Array<{ id: string }> }>>(
   "/api/app/v1/companies",
   { headers: { authorization: `Bearer ${accessToken}` } },
@@ -159,6 +224,43 @@ const companyId = Array.isArray(companies.body.data)
   : companies.body.data?.companies[0]?.id;
 expect(Boolean(companyId), "app companies company id");
 checks.push("app_companies");
+
+const appConsentGrant = await fetchJson<ApiEnvelope<{
+  consent: { scope: string; revokedAt: string | null };
+}>>(`/api/app/v1/companies/${companyId}/consents`, {
+  method: "PUT",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ scope: "hometax", purpose: "HTTP 검증" }),
+});
+expectStatus(appConsentGrant, 200, "app consent grant status");
+expect(appConsentGrant.body.data?.consent.scope === "hometax", "app consent grant scope");
+expect(appConsentGrant.body.data?.consent.revokedAt === null, "app consent grant active");
+checks.push("app_consent_grant");
+
+const appConsents = await fetchJson<ApiEnvelope<{
+  companyId: string;
+  consents: Array<{ scope: string; revokedAt: string | null }>;
+}>>(`/api/app/v1/companies/${companyId}/consents`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appConsents, 200, "app consents status");
+expect(Boolean(appConsents.body.data?.consents.find((entry) => entry.scope === "hometax" && entry.revokedAt === null)), "app consents include active hometax");
+checks.push("app_consents");
+
+const appConsentRevoke = await fetchJson<ApiEnvelope<{
+  scope: string;
+  revoked: boolean;
+}>>(`/api/app/v1/companies/${companyId}/consents/hometax`, {
+  method: "DELETE",
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appConsentRevoke, 200, "app consent revoke status");
+expect(appConsentRevoke.body.data?.scope === "hometax", "app consent revoke scope");
+expect(appConsentRevoke.body.data?.revoked === true, "app consent revoked");
+checks.push("app_consent_revoke");
 
 const appProfile = await fetchJson<ApiEnvelope<{
   profile: { id?: string; industries?: string[] };
