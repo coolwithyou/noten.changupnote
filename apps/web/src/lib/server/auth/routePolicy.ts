@@ -6,6 +6,7 @@ export const PUBLIC_WEB_ROUTES = [
 export const SESSION_WEB_ROUTES = [
   "GET /dashboard",
   "GET /grants/[grantId]",
+  "GET /roadmap",
   "GET /api/web/dashboard",
   "GET /api/web/companies",
   "POST /api/web/companies/switch",
@@ -13,6 +14,7 @@ export const SESSION_WEB_ROUTES = [
   "PUT /api/web/consents",
   "DELETE /api/web/consents/[scope]",
   "GET /api/web/matches",
+  "GET /api/web/roadmap",
   "POST /api/web/matches/[grantId]/feedback",
   "POST /api/web/matches/[grantId]/events",
   "GET /api/web/action-queue",

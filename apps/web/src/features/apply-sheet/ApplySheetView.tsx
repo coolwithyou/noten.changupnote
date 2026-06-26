@@ -13,6 +13,7 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
         </a>
         <nav>
           <a href="/dashboard">기회 맵</a>
+          <a href="/roadmap">로드맵</a>
           <a href="/internal/live-match">내부 검증</a>
         </nav>
       </header>

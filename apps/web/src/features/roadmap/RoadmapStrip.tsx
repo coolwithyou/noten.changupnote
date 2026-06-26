@@ -8,7 +8,7 @@ export function RoadmapStrip({ nodes }: { nodes: RoadmapNode[] }) {
           <span className="eyebrow">로드맵</span>
           <h2 id="roadmap-title">시간 x 조건</h2>
         </div>
-        <span className="panel-count">{nodes.length}개 노드</span>
+        <a className="panel-link" href="/roadmap">{nodes.length}개 노드 전체 보기</a>
       </div>
       <div className="roadmap-strip">
         {nodes.length > 0 ? nodes.map((node) => (

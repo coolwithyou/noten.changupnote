@@ -60,6 +60,15 @@ const webGrant = dashboard.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(webGrant), "web dashboard exposes a match grant");
 checks.push("web_dashboard");
 
+const roadmap = await fetchJson<ActionResult<{
+  roadmap: Array<{ grantId: string; bucket: string }>;
+}>>("/api/web/roadmap");
+expectStatus(roadmap, 200, "web roadmap status");
+expect(roadmap.body.ok === true, "web roadmap envelope ok");
+expect(Array.isArray(roadmap.body.data?.roadmap), "web roadmap list");
+expect(Boolean(roadmap.body.data?.roadmap.find((entry) => entry.grantId && entry.bucket)), "web roadmap exposes nodes");
+checks.push("web_roadmap");
+
 const dashboardHtml = await fetchText("/dashboard");
 expectStatus(dashboardHtml, 200, "web dashboard html status");
 expect(dashboardHtml.body.includes("match-feedback-controls"), "web dashboard renders match feedback controls");
@@ -68,6 +77,12 @@ expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard rende
 expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders deadline notification toggle");
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 checks.push("web_dashboard_html");
+
+const roadmapHtml = await fetchText("/roadmap");
+expectStatus(roadmapHtml, 200, "web roadmap html status");
+expect(roadmapHtml.body.includes("roadmap-lanes"), "web roadmap renders lanes");
+expect(roadmapHtml.body.includes("전략 로드맵"), "web roadmap renders heading");
+checks.push("web_roadmap_html");
 
 const webEvent = await fetchJson<ActionResult<{ event: string }>>(
   `/api/web/matches/${encodeURIComponent(webGrant!.grantId)}/events`,

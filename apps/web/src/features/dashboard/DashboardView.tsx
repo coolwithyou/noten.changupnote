@@ -15,6 +15,7 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResult }) {
         </a>
         <nav>
           <a href="/">다시 조회</a>
+          <a href="/roadmap">로드맵</a>
           <a href="/internal/live-match">내부 검증</a>
         </nav>
       </header>
