@@ -6,9 +6,11 @@
   "packageManager": "pnpm@10.30.1",
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
     "fetch:kstartup": "tsx packages/core/scripts/fetch-kstartup-live.ts",
+    "verify:bizinfo": "tsx packages/core/scripts/verify-bizinfo-fetch.ts",
     "verify:kstartup": "tsx packages/core/scripts/verify-kstartup-slice.ts",
-    "test": "pnpm typecheck && pnpm verify:kstartup"
+    "test": "pnpm typecheck && pnpm verify:kstartup && pnpm verify:bizinfo"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",
