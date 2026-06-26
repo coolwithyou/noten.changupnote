@@ -156,6 +156,13 @@ function assertKnownSampleRegressions() {
   const conditional = matches.find((item) => item.match.eligibility === "conditional");
   assert.ok(conditional, "fixture should include at least one conditional match");
   assert.ok(conditional.match.next_question, "conditional match should suggest a next question");
+
+  const fashionPopup = bySourceId.get("178249");
+  assert.ok(fashionPopup, "fixture must include K-fashion popup program");
+  const documentNames = new Set(fashionPopup.grant.required_documents?.map((document) => document.name) ?? []);
+  assert.ok(documentNames.has("룩북"), "K-fashion popup should extract 룩북 as a required document");
+  assert.ok(documentNames.has("라인시트"), "K-fashion popup should extract 라인시트 as a required document");
+  assert.ok(documentNames.has("매출/수출실적 증빙"), "K-fashion popup should extract sales/export proof as a required document");
 }
 
 function assertFetchHelpers() {

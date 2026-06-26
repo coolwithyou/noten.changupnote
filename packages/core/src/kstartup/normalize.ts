@@ -4,6 +4,7 @@ import type {
   FounderAgeRange,
   Grant,
   GrantCriterion,
+  GrantRequiredDocument,
   GrantRaw,
   NormalizedGrant,
   RegionCriterionValue,
@@ -146,6 +147,7 @@ function buildGrant(
       other: row.aply_mthd_etc_istc ?? null,
     },
     support_amount: null,
+    required_documents: extractKStartupRequiredDocuments(row),
     status: statusFromApplyWindow(row.pbanc_rcpt_bgng_dt, row.pbanc_rcpt_end_dt, asOf),
     f_regions: projection.f_regions,
     f_industries: projection.f_industries,
@@ -289,6 +291,53 @@ function buildScopedTextCriteria(
   }
 
   return criteria;
+}
+
+const DOCUMENT_PATTERNS: Array<{
+  name: string;
+  source: GrantRequiredDocument["source"];
+  pattern: RegExp;
+  note?: string;
+}> = [
+  { name: "신청서", source: "portal", pattern: /참가\s*신청서|신청서/ },
+  {
+    name: "계획서 및 제반서류",
+    source: "self",
+    pattern: /계획서.*제반서류|제반서류.*계획서/,
+    note: "세부 양식은 공고문 확인",
+  },
+  { name: "사업자등록증", source: "self", pattern: /사업자등록증/ },
+  { name: "법인등기부등본", source: "self", pattern: /법인\s*등기|법인등기부등본/ },
+  { name: "룩북", source: "self", pattern: /룩북/ },
+  { name: "라인시트", source: "self", pattern: /라인시트/ },
+  { name: "쇼룸 계약서", source: "self", pattern: /쇼룸\s*계약서/ },
+  { name: "트레이드쇼 참가결과", source: "self", pattern: /트레이드쇼\s*참가결과/ },
+  { name: "매출/수출실적 증빙", source: "self", pattern: /매출\s*\/?\s*수출\s*실적|수출실적/ },
+];
+
+function extractKStartupRequiredDocuments(row: KStartupAnnouncement): GrantRequiredDocument[] | null {
+  const fields = [
+    { sourceField: "aply_trgt_ctnt", text: clean(row.aply_trgt_ctnt) },
+    { sourceField: "aply_excl_trgt_ctnt", text: clean(row.aply_excl_trgt_ctnt) },
+    { sourceField: "pbanc_ctnt", text: clean(row.pbanc_ctnt) },
+  ].filter((field) => field.text);
+  const documents = new Map<string, GrantRequiredDocument>();
+
+  for (const field of fields) {
+    for (const pattern of DOCUMENT_PATTERNS) {
+      if (!pattern.pattern.test(field.text) || documents.has(pattern.name)) continue;
+      const document: GrantRequiredDocument = {
+        name: pattern.name,
+        required: true,
+        source: pattern.source,
+        source_span: firstSentenceWith(field.text, pattern.pattern),
+      };
+      if (pattern.note) document.note = pattern.note;
+      documents.set(pattern.name, document);
+    }
+  }
+
+  return documents.size > 0 ? [...documents.values()] : null;
 }
 
 function deriveProjection(criteria: GrantCriterion[]) {
