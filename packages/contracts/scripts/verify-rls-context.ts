@@ -38,7 +38,39 @@ const checks: Array<{
     patterns: ["userId: access.userId"],
   },
   {
+    file: "apps/web/src/app/api/web/action-queue/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
+    file: "apps/web/src/app/api/web/grants/[grantId]/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
+    file: "apps/web/src/app/api/web/next-question/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
+    file: "apps/web/src/app/api/web/roadmap/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
+    file: "apps/web/src/app/api/app/v1/companies/[companyId]/action-queue/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
     file: "apps/web/src/app/api/app/v1/companies/[companyId]/matches/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
+    file: "apps/web/src/app/api/app/v1/companies/[companyId]/next-question/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
+    file: "apps/web/src/app/api/app/v1/companies/[companyId]/roadmap/route.ts",
+    patterns: ["userId: access.userId"],
+  },
+  {
+    file: "apps/web/src/app/api/app/v1/grants/[grantId]/route.ts",
     patterns: ["userId: access.userId"],
   },
 ];

@@ -3,15 +3,23 @@ import { loadMonorepoEnv } from "../loadMonorepoEnv";
 
 const REQUIRED_TABLES = [
   "users",
+  "accounts",
+  "sessions",
+  "verification_tokens",
+  "app_refresh_tokens",
+  "app_devices",
+  "notification_settings",
   "companies",
   "user_company",
   "company_profiles",
+  "company_enrichment_cache",
+  "consents",
   "grants",
   "grant_raw",
   "grant_criteria",
   "match_state",
   "match_events",
-  "app_refresh_tokens",
+  "feedback",
 ] as const;
 
 const RLS_TABLES = [
@@ -20,6 +28,8 @@ const RLS_TABLES = [
   "company_profiles",
   "consents",
   "app_refresh_tokens",
+  "app_devices",
+  "notification_settings",
   "match_state",
   "match_events",
 ] as const;
