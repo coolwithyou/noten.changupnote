@@ -1,0 +1,75 @@
+import { appError } from "@/lib/server/appApi/envelope";
+import { DEMO_COMPANY_ID } from "@/lib/server/repositories/runtime";
+import { verifyAppJwt } from "./appTokens";
+
+export interface AppSession {
+  user: {
+    id: string;
+    email?: string | null;
+  };
+  deviceId: string;
+  mode: "token" | "demo";
+}
+
+export class AppAuthError extends Error {
+  readonly status = 401;
+  readonly code = "app_auth_required";
+
+  constructor(message = "앱 인증 토큰이 필요합니다.") {
+    super(message);
+    this.name = "AppAuthError";
+  }
+}
+
+export interface AppCompanyAccess {
+  companyId: string;
+  userId: string;
+  deviceId: string;
+  mode: AppSession["mode"];
+}
+
+export async function requireAppSession(request: Request): Promise<AppSession> {
+  const authorization = request.headers.get("authorization");
+  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (token) {
+    const payload = verifyAppJwt(token, "access");
+    return {
+      user: {
+        id: payload.sub,
+        email: payload.email ?? null,
+      },
+      deviceId: payload.deviceId,
+      mode: "token",
+    };
+  }
+
+  if (process.env.CUNOTE_AUTH_REQUIRED === "true") throw new AppAuthError();
+
+  return {
+    user: {
+      id: process.env.CUNOTE_MOCK_USER_ID ?? "demo-user",
+      email: process.env.CUNOTE_MOCK_USER_EMAIL ?? null,
+    },
+    deviceId: "demo-device",
+    mode: "demo",
+  };
+}
+
+export async function requireAppCompanyAccess(
+  request: Request,
+  companyId = DEMO_COMPANY_ID,
+): Promise<AppCompanyAccess> {
+  const session = await requireAppSession(request);
+  return {
+    companyId,
+    userId: session.user.id,
+    deviceId: session.deviceId,
+    mode: session.mode,
+  };
+}
+
+export function appAuthErrorResponse(error: unknown) {
+  if (error instanceof AppAuthError) return appError(error.code, error.message, error.status);
+  if (error instanceof Error && /토큰/.test(error.message)) return appError("invalid_token", error.message, 401);
+  return null;
+}

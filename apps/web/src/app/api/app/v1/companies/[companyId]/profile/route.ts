@@ -1,5 +1,5 @@
-import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
+import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ interface RouteContext {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { companyId } = await context.params;
-    await requireCompanyAccess(companyId);
+    await requireAppCompanyAccess(_request, companyId);
     const profile = await getServiceRepositories().companies.resolveCompanyProfile({ companyId });
     if (!profile) return appError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
     return appData({ profile });

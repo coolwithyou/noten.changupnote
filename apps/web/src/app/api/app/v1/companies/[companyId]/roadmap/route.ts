@@ -1,5 +1,5 @@
-import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
+import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
 import { loadServiceDashboard } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ interface RouteContext {
 export async function GET(_request: Request, context: RouteContext) {
   try {
     const { companyId } = await context.params;
-    await requireCompanyAccess(companyId);
+    await requireAppCompanyAccess(_request, companyId);
     const dashboard = await loadServiceDashboard({ limit: 40 });
     return appData({ roadmap: dashboard.roadmap });
   } catch (error) {

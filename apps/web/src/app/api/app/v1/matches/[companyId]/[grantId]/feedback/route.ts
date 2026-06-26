@@ -1,5 +1,5 @@
-import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
+import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ interface FeedbackRequest {
 export async function POST(request: Request, context: RouteContext) {
   try {
     const [{ companyId, grantId }, body] = await Promise.all([context.params, readBody(request)]);
-    const access = await requireCompanyAccess(companyId);
+    const access = await requireAppCompanyAccess(request, companyId);
     const receipt = await getServiceRepositories().feedback.submitFeedback({
       companyId,
       grantId,
