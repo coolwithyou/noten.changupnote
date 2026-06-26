@@ -21,9 +21,11 @@
     "verify:company-profile": "tsx packages/core/scripts/verify-company-profile.ts",
     "verify:grant-criteria-schema": "tsx packages/contracts/scripts/verify-grant-criteria-schema.ts",
     "verify:openapi": "tsx packages/contracts/scripts/verify-openapi.ts",
+    "verify:package-boundaries": "tsx packages/contracts/scripts/verify-package-boundaries.ts",
+    "verify:route-policy": "tsx packages/contracts/scripts/verify-route-policy.ts",
     "verify:bizinfo": "tsx packages/core/scripts/verify-bizinfo-fetch.ts",
     "verify:kstartup": "tsx packages/core/scripts/verify-kstartup-slice.ts",
-    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:kstartup && pnpm verify:bizinfo && pnpm verify:company-profile"
+    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:route-policy && pnpm verify:package-boundaries && pnpm verify:kstartup && pnpm verify:bizinfo && pnpm verify:company-profile"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",

@@ -18,6 +18,7 @@ export const PUBLIC_APP_ROUTES = [
   "POST /api/app/v1/auth/[provider]",
   "POST /api/app/v1/auth/refresh",
   "POST /api/app/v1/auth/logout",
+  "GET /api/app/v1/openapi.json",
   "GET /api/app/v1/stats",
   "POST /api/app/v1/teaser",
 ] as const;
