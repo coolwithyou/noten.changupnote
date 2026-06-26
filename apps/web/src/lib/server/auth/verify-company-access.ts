@@ -3,6 +3,13 @@ import {
   CompanyAccessForbiddenError,
   resolveCompanyAccessFromRecords,
 } from "./companyAccessPolicy";
+import { DEFAULT_MOCK_USER_ID } from "./mockIdentity";
+
+expectMatch(
+  DEFAULT_MOCK_USER_ID,
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+  "default mock user id is uuid-compatible",
+);
 
 const companies: CompanyRecord[] = [
   {
@@ -68,6 +75,12 @@ console.log("Company access verification passed.");
 function expectEqual<T>(actual: T, expected: T, label: string) {
   if (actual !== expected) {
     throw new Error(`${label}: expected ${String(expected)}, got ${String(actual)}`);
+  }
+}
+
+function expectMatch(actual: string, pattern: RegExp, label: string) {
+  if (!pattern.test(actual)) {
+    throw new Error(`${label}: ${actual}`);
   }
 }
 

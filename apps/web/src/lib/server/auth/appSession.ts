@@ -7,6 +7,7 @@ import {
   type CompanyAccessPermission,
 } from "./companyAccessPolicy";
 import { verifyAppJwt } from "./appTokens";
+import { mockUserEmail, mockUserId } from "./mockIdentity";
 
 export interface AppSession {
   user: {
@@ -53,8 +54,8 @@ export async function requireAppSession(request: Request): Promise<AppSession> {
 
   return {
     user: {
-      id: process.env.CUNOTE_MOCK_USER_ID ?? "demo-user",
-      email: process.env.CUNOTE_MOCK_USER_EMAIL ?? null,
+      id: mockUserId(),
+      email: mockUserEmail(),
     },
     deviceId: "demo-device",
     mode: "demo",

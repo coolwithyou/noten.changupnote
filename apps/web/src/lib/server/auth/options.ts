@@ -6,6 +6,7 @@ import GoogleProvider from "next-auth/providers/google";
 import KakaoProvider from "next-auth/providers/kakao";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
 
 ensureAuthEnv();
 
@@ -38,9 +39,9 @@ function createProviders(): NextAuthOptions["providers"] {
       async authorize(credentials) {
         if (process.env.CUNOTE_AUTH_MODE !== "mock") return null;
         return {
-          id: process.env.CUNOTE_MOCK_USER_ID ?? "demo-user",
-          email: credentials?.email ?? process.env.CUNOTE_MOCK_USER_EMAIL ?? "demo@changupnote.com",
-          name: process.env.CUNOTE_MOCK_USER_NAME ?? "Demo User",
+          id: mockUserId(),
+          email: credentials?.email ?? mockUserEmail(),
+          name: mockUserName(),
         };
       },
     }),

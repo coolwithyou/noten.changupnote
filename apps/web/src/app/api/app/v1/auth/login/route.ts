@@ -1,5 +1,6 @@
 import { appData, appNotImplemented } from "@/lib/server/appApi/envelope";
 import { invalidAuthRequest, issueAppTokens } from "@/lib/server/auth/appIssueToken";
+import { mockUserId } from "@/lib/server/auth/mockIdentity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
     return appNotImplemented("앱 이메일/PW 로그인 검증기");
   }
 
-  const userId = process.env.CUNOTE_MOCK_USER_ID ?? `email:${email}`;
+  const userId = mockUserId();
   const tokenInput: Parameters<typeof issueAppTokens>[0] = {
     userId,
     email,

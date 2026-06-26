@@ -8,6 +8,7 @@ import {
   type CompanyAccessResult,
 } from "./companyAccessPolicy";
 import { readSelectedCompanyId } from "./companySelection";
+import { mockUserId } from "./mockIdentity";
 
 export interface CompanyAccessOptions {
   companyId?: string;
@@ -45,7 +46,7 @@ export async function requireCompanyAccess(options: CompanyAccessOptions = {}): 
   }
 
   return requireDemoCompanyAccess({
-    userId: "demo-user",
+    userId: mockUserId(),
     selectedFromCookie,
     ...(selectedCompanyId ? { companyId: selectedCompanyId } : {}),
     ...(options.permission ? { permission: options.permission } : {}),
@@ -98,5 +99,5 @@ function resolveCompanyAccessWithFallback(input: {
 
 function isDefaultMockSession(userId: string): boolean {
   return process.env.CUNOTE_AUTH_MODE === "mock"
-    && userId === (process.env.CUNOTE_MOCK_USER_ID ?? "demo-user");
+    && userId === mockUserId();
 }

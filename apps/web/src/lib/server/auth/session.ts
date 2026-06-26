@@ -1,5 +1,6 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "./options";
+import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
 
 export interface WebSession {
   user: {
@@ -28,9 +29,9 @@ export async function getOptionalWebSession(): Promise<WebSession | null> {
   if (process.env.CUNOTE_AUTH_MODE === "mock") {
     return {
       user: {
-        id: process.env.CUNOTE_MOCK_USER_ID ?? "demo-user",
-        email: process.env.CUNOTE_MOCK_USER_EMAIL ?? null,
-        name: process.env.CUNOTE_MOCK_USER_NAME ?? "Demo User",
+        id: mockUserId(),
+        email: mockUserEmail(),
+        name: mockUserName(),
       },
       provider: "mock",
     };
