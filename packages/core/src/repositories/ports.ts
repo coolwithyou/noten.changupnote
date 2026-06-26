@@ -105,6 +105,48 @@ export interface FeedbackRepository {
   submitFeedback(input: SubmitFeedbackInput): Promise<FeedbackReceipt>;
 }
 
+export interface EnrichmentCacheEntry {
+  provider: string;
+  bizNo: string;
+  scope: string;
+  rawPayload?: Record<string, unknown> | null;
+  canonicalPayload?: Record<string, unknown> | null;
+  providerResultCode?: string | null;
+  providerResultMessage?: string | null;
+  checkedAt?: Date | null;
+  fetchedAt: Date;
+  expiresAt?: Date | null;
+  payloadHash?: string | null;
+  lastError?: Record<string, unknown> | null;
+}
+
+export interface ReadEnrichmentCacheInput {
+  provider: string;
+  bizNo: string;
+  scope: string;
+  now?: Date;
+}
+
+export interface WriteEnrichmentCacheInput {
+  provider: string;
+  bizNo: string;
+  scope: string;
+  rawPayload?: Record<string, unknown> | null;
+  canonicalPayload?: Record<string, unknown> | null;
+  providerResultCode?: string | null;
+  providerResultMessage?: string | null;
+  checkedAt?: Date | null;
+  fetchedAt?: Date;
+  expiresAt?: Date | null;
+  payloadHash?: string | null;
+  lastError?: Record<string, unknown> | null;
+}
+
+export interface EnrichmentCacheRepository {
+  getFresh(input: ReadEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null>;
+  put(input: WriteEnrichmentCacheInput): Promise<EnrichmentCacheEntry>;
+}
+
 export interface RoadmapRepository {
   listCompanyRoadmap(companyId: string): Promise<RoadmapNode[]>;
 }
@@ -114,4 +156,5 @@ export interface ServiceRepositories<TPayload = unknown> {
   companies: CompanyRepository;
   matches: MatchRepository<TPayload>;
   feedback: FeedbackRepository;
+  enrichmentCache: EnrichmentCacheRepository;
 }

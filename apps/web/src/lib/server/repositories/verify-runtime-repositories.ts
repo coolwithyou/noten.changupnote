@@ -61,6 +61,39 @@ const outsideCompany = await repositories.companies.resolveCompanyProfile({
 });
 assert.equal(outsideCompany, null);
 
+const fetchedAt = new Date("2026-06-26T00:00:00.000Z");
+const expiresAt = new Date("2026-06-27T00:00:00.000Z");
+await repositories.enrichmentCache.put({
+  provider: "popbill",
+  bizNo: "1234567890",
+  scope: "checkBizInfo",
+  canonicalPayload: {
+    profile: { biz_age_months: 42 },
+    facts: { maskedBizNo: "123-**-67***" },
+  },
+  providerResultCode: "100",
+  providerResultMessage: "정상",
+  fetchedAt,
+  expiresAt,
+  payloadHash: "verify-hash",
+});
+const freshCache = await repositories.enrichmentCache.getFresh({
+  provider: "popbill",
+  bizNo: "1234567890",
+  scope: "checkBizInfo",
+  now: new Date("2026-06-26T12:00:00.000Z"),
+});
+assert.equal(freshCache?.providerResultCode, "100");
+assert.deepEqual(freshCache?.canonicalPayload?.profile, { biz_age_months: 42 });
+
+const expiredCache = await repositories.enrichmentCache.getFresh({
+  provider: "popbill",
+  bizNo: "1234567890",
+  scope: "checkBizInfo",
+  now: new Date("2026-06-27T00:00:00.000Z"),
+});
+assert.equal(expiredCache, null);
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -68,6 +101,8 @@ console.log(JSON.stringify({
     "runtime_profile_resolve",
     "runtime_list_user_companies",
     "runtime_company_guard",
+    "runtime_enrichment_cache_fresh",
+    "runtime_enrichment_cache_expired",
   ],
   companyId: demoCompanyId(),
   bizAgeMonths: resolvedAgain?.biz_age_months,

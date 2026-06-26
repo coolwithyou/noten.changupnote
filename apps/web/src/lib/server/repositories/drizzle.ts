@@ -13,16 +13,20 @@ import type {
   CompanyRecord,
   CompanyRepository,
   CreateCompanyInput,
+  EnrichmentCacheEntry,
+  EnrichmentCacheRepository,
   FeedbackReceipt,
   FeedbackRepository,
   GrantListOptions,
   GrantRepository,
   MatchEventReceipt,
   MatchRepository,
+  ReadEnrichmentCacheInput,
   SaveMatchEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
+  WriteEnrichmentCacheInput,
 } from "@cunote/core";
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import { withCunoteDbUser } from "@/lib/server/db/client";
@@ -41,6 +45,7 @@ export function createDrizzleRepositories<TPayload = unknown>(
     companies: new DrizzleCompanyRepository(db),
     matches: new DrizzleMatchRepository<TPayload>(db),
     feedback: new DrizzleFeedbackRepository(db),
+    enrichmentCache: new DrizzleEnrichmentCacheRepository(db),
   };
 }
 
@@ -381,12 +386,65 @@ class DrizzleFeedbackRepository implements FeedbackRepository {
   }
 }
 
+class DrizzleEnrichmentCacheRepository implements EnrichmentCacheRepository {
+  constructor(private readonly db: DrizzleDatabaseClient) {}
+
+  async getFresh(input: ReadEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null> {
+    const rows = await this.db.client
+      .select()
+      .from(schema.companyEnrichmentCache)
+      .where(and(
+        eq(schema.companyEnrichmentCache.provider, input.provider),
+        eq(schema.companyEnrichmentCache.bizNo, input.bizNo),
+        eq(schema.companyEnrichmentCache.scope, input.scope),
+      ))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return null;
+    const now = input.now ?? new Date();
+    if (row.expiresAt && row.expiresAt.getTime() <= now.getTime()) return null;
+    return toEnrichmentCacheEntry(row);
+  }
+
+  async put(input: WriteEnrichmentCacheInput): Promise<EnrichmentCacheEntry> {
+    const values = {
+      provider: input.provider,
+      bizNo: input.bizNo,
+      scope: input.scope,
+      rawPayload: input.rawPayload ?? null,
+      canonicalPayload: input.canonicalPayload ?? null,
+      providerResultCode: input.providerResultCode ?? null,
+      providerResultMessage: input.providerResultMessage ?? null,
+      checkedAt: input.checkedAt ?? null,
+      fetchedAt: input.fetchedAt ?? new Date(),
+      expiresAt: input.expiresAt ?? null,
+      payloadHash: input.payloadHash ?? null,
+      lastError: input.lastError ?? null,
+    };
+    const [row] = await this.db.client
+      .insert(schema.companyEnrichmentCache)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [
+          schema.companyEnrichmentCache.provider,
+          schema.companyEnrichmentCache.bizNo,
+          schema.companyEnrichmentCache.scope,
+        ],
+        set: values,
+      })
+      .returning();
+    if (!row) throw new Error("기업정보 보강 캐시 저장 결과가 없습니다.");
+    return toEnrichmentCacheEntry(row);
+  }
+}
+
 type GrantRow = typeof schema.grants.$inferSelect;
 type GrantCriteriaRow = typeof schema.grantCriteria.$inferSelect;
 type GrantRawRow = typeof schema.grantRaw.$inferSelect;
 type CompanyRow = typeof schema.companies.$inferSelect;
 type CompanyProfileRow = typeof schema.companyProfiles.$inferSelect;
 type CompanyProfileInsert = typeof schema.companyProfiles.$inferInsert;
+type CompanyEnrichmentCacheRow = typeof schema.companyEnrichmentCache.$inferSelect;
 
 function hydrateGrants<TPayload>(
   rows: Array<{
@@ -615,6 +673,24 @@ function matchConfidence(match: MatchResult): number {
   const unknownCount = match.rule_trace.filter((trace) => trace.result === "unknown").length;
   const ratio = 1 - unknownCount / match.rule_trace.length;
   return Math.round(Math.max(0.3, ratio) * 100) / 100;
+}
+
+function toEnrichmentCacheEntry(row: CompanyEnrichmentCacheRow): EnrichmentCacheEntry {
+  const entry: EnrichmentCacheEntry = {
+    provider: row.provider,
+    bizNo: row.bizNo,
+    scope: row.scope,
+    fetchedAt: row.fetchedAt,
+  };
+  if (row.rawPayload !== null) entry.rawPayload = row.rawPayload;
+  if (row.canonicalPayload !== null) entry.canonicalPayload = row.canonicalPayload;
+  if (row.providerResultCode !== null) entry.providerResultCode = row.providerResultCode;
+  if (row.providerResultMessage !== null) entry.providerResultMessage = row.providerResultMessage;
+  if (row.checkedAt !== null) entry.checkedAt = row.checkedAt;
+  if (row.expiresAt !== null) entry.expiresAt = row.expiresAt;
+  if (row.payloadHash !== null) entry.payloadHash = row.payloadHash;
+  if (row.lastError !== null) entry.lastError = row.lastError;
+  return entry;
 }
 
 function parseGrantId(value: string): { source: "kstartup" | "bizinfo" | "bizinfo_event"; sourceId: string } | null {

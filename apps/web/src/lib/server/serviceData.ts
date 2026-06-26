@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -17,6 +18,9 @@ import type { KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
 import { createServiceRepositories } from "./repositories/factory";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
+const ENRICHMENT_CACHE_PROVIDER = "popbill";
+const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
+const ENRICHMENT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 const repositories = createServiceRepositories({
   loadGrants: loadServiceGrantsFromSource,
@@ -149,7 +153,37 @@ export async function enrichServiceCompany(input: {
 }): Promise<CompanyEnrichmentResult> {
   await loadEnvInDevelopment();
 
+  const now = new Date();
+  const asOf = input.asOf ?? now;
   const bizNo = sanitizeCorpNum(input.bizNo);
+  const current = await repositories.companies.resolveCompanyProfile({
+    companyId: input.companyId,
+    userId: input.userId,
+  });
+  if (!current) {
+    throw new ServiceDataError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
+  }
+
+  const cached = await repositories.enrichmentCache.getFresh({
+    provider: ENRICHMENT_CACHE_PROVIDER,
+    bizNo,
+    scope: ENRICHMENT_CACHE_SCOPE,
+    now,
+  });
+  const cachedCanonical = parseCachedCompanyEnrichment(cached?.canonicalPayload);
+  if (cachedCanonical) {
+    const profile = mergeCompanyProfilesForEnrichment(current, cachedCanonical.profile);
+    const saved = await repositories.companies.saveCompanyProfile({
+      companyId: input.companyId,
+      userId: input.userId,
+      profile,
+    });
+    return {
+      profile: saved,
+      facts: cachedCanonical.facts,
+    };
+  }
+
   const popbill = readPopbillEnvConfig();
   const info = await checkPopbillBizInfo({
     credentials: popbill.credentials,
@@ -163,18 +197,8 @@ export async function enrichServiceCompany(input: {
     );
   }
 
-  const current = await repositories.companies.resolveCompanyProfile({
-    companyId: input.companyId,
-    userId: input.userId,
-  });
-  if (!current) {
-    throw new ServiceDataError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
-  }
-
-  const enriched = buildCompanyProfileFromPopbill(
-    info,
-    input.asOf ? { asOf: input.asOf } : {},
-  );
+  const enriched = buildCompanyProfileFromPopbill(info, { asOf });
+  const facts = toCompanyEnrichmentFacts(enriched.facts);
   const profile = mergeCompanyProfilesForEnrichment(current, enriched.profile);
   const saved = await repositories.companies.saveCompanyProfile({
     companyId: input.companyId,
@@ -182,10 +206,27 @@ export async function enrichServiceCompany(input: {
     profile,
   });
 
-  return {
-    profile: saved,
-    facts: toCompanyEnrichmentFacts(enriched.facts),
+  const canonicalPayload: Record<string, unknown> = {
+    profile: enriched.profile,
+    facts,
   };
+  await repositories.enrichmentCache.put({
+    provider: ENRICHMENT_CACHE_PROVIDER,
+    bizNo,
+    scope: ENRICHMENT_CACHE_SCOPE,
+    rawPayload: null,
+    canonicalPayload,
+    providerResultCode: String(info.result),
+    providerResultMessage: facts.resultMessage,
+    checkedAt: parseProviderCheckedAt(facts.checkedAt),
+    fetchedAt: now,
+    expiresAt: new Date(now.getTime() + ENRICHMENT_CACHE_TTL_MS),
+    payloadHash: hashCanonicalPayload(canonicalPayload),
+  }).catch((error) => {
+    console.warn(`Company enrichment cache write failed: ${errorMessage(error)}`);
+  });
+
+  return { profile: saved, facts };
 }
 
 export function getServiceRepositories() {
@@ -338,4 +379,94 @@ function toCompanyEnrichmentFacts(
     closeDownState: facts.close_down_state,
     closeDownTaxType: facts.close_down_tax_type,
   };
+}
+
+function parseCachedCompanyEnrichment(
+  payload: Record<string, unknown> | null | undefined,
+): { profile: CompanyProfile; facts: CompanyEnrichmentFacts } | null {
+  if (!payload) return null;
+  const profile = payload.profile;
+  const facts = payload.facts;
+  if (!isRecord(profile) || !isRecord(facts)) return null;
+  const parsedFacts = parseCachedCompanyEnrichmentFacts(facts);
+  if (!parsedFacts) return null;
+  return {
+    profile: profile as CompanyProfile,
+    facts: parsedFacts,
+  };
+}
+
+function parseCachedCompanyEnrichmentFacts(input: Record<string, unknown>): CompanyEnrichmentFacts | null {
+  const hasCorpName = booleanValue(input.hasCorpName);
+  const hasRegion = booleanValue(input.hasRegion);
+  const hasBizAge = booleanValue(input.hasBizAge);
+  const hasSize = booleanValue(input.hasSize);
+  const hasIndustry = booleanValue(input.hasIndustry);
+  if (
+    hasCorpName === null ||
+    hasRegion === null ||
+    hasBizAge === null ||
+    hasSize === null ||
+    hasIndustry === null
+  ) {
+    return null;
+  }
+
+  return {
+    maskedBizNo: nullableStringValue(input.maskedBizNo),
+    result: nullableStringOrNumberValue(input.result),
+    resultMessage: nullableStringValue(input.resultMessage),
+    checkedAt: nullableStringValue(input.checkedAt),
+    hasCorpName,
+    hasRegion,
+    hasBizAge,
+    hasSize,
+    hasIndustry,
+    closeDownState: nullableStringOrNumberValue(input.closeDownState),
+    closeDownTaxType: nullableStringOrNumberValue(input.closeDownTaxType),
+  };
+}
+
+function parseProviderCheckedAt(value: string | null): Date | null {
+  if (!value) return null;
+  const compact = /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})$/.exec(value);
+  if (compact) {
+    const [, year, month, day, hour, minute, second] = compact;
+    const parsed = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+09:00`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function hashCanonicalPayload(payload: Record<string, unknown>): string {
+  return createHash("sha256")
+    .update(JSON.stringify(stableJsonValue(payload)))
+    .digest("hex");
+}
+
+function stableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, stableJsonValue(entry)]),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function booleanValue(value: unknown): boolean | null {
+  return typeof value === "boolean" ? value : null;
+}
+
+function nullableStringValue(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function nullableStringOrNumberValue(value: unknown): string | number | null {
+  return typeof value === "string" || typeof value === "number" ? value : null;
 }

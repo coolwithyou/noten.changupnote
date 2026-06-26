@@ -8,6 +8,8 @@ import type {
   CompanyRecord,
   CompanyRepository,
   CreateCompanyInput,
+  EnrichmentCacheEntry,
+  EnrichmentCacheRepository,
   FeedbackReceipt,
   FeedbackRepository,
   GrantListOptions,
@@ -15,10 +17,12 @@ import type {
   MatchEventReceipt,
   MatchRepository,
   ResolveCompanyProfileInput,
+  ReadEnrichmentCacheInput,
   SaveMatchEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
+  WriteEnrichmentCacheInput,
 } from "@cunote/core";
 
 export const DEFAULT_DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000101";
@@ -41,6 +45,7 @@ export function createRuntimeRepositories<TPayload = unknown>(
     companies: new RuntimeCompanyRepository(loaders),
     matches: new RuntimeMatchRepository(),
     feedback: new RuntimeFeedbackRepository(),
+    enrichmentCache: new RuntimeEnrichmentCacheRepository(),
   };
 }
 
@@ -156,10 +161,67 @@ class RuntimeFeedbackRepository implements FeedbackRepository {
   }
 }
 
+class RuntimeEnrichmentCacheRepository implements EnrichmentCacheRepository {
+  private readonly entries = new Map<string, EnrichmentCacheEntry>();
+
+  async getFresh(input: ReadEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null> {
+    const entry = this.entries.get(enrichmentCacheKey(input));
+    if (!entry) return null;
+    const now = input.now ?? new Date();
+    if (entry.expiresAt && entry.expiresAt.getTime() <= now.getTime()) return null;
+    return cloneCacheEntry(entry);
+  }
+
+  async put(input: WriteEnrichmentCacheInput): Promise<EnrichmentCacheEntry> {
+    const entry: EnrichmentCacheEntry = {
+      provider: input.provider,
+      bizNo: input.bizNo,
+      scope: input.scope,
+      fetchedAt: input.fetchedAt ?? new Date(),
+    };
+    if (input.rawPayload !== undefined) entry.rawPayload = cloneRecord(input.rawPayload);
+    if (input.canonicalPayload !== undefined) entry.canonicalPayload = cloneRecord(input.canonicalPayload);
+    if (input.providerResultCode !== undefined) entry.providerResultCode = input.providerResultCode;
+    if (input.providerResultMessage !== undefined) entry.providerResultMessage = input.providerResultMessage;
+    if (input.checkedAt !== undefined) entry.checkedAt = input.checkedAt;
+    if (input.expiresAt !== undefined) entry.expiresAt = input.expiresAt;
+    if (input.payloadHash !== undefined) entry.payloadHash = input.payloadHash;
+    if (input.lastError !== undefined) entry.lastError = cloneRecord(input.lastError);
+    this.entries.set(enrichmentCacheKey(input), entry);
+    return cloneCacheEntry(entry);
+  }
+}
+
 function profileKey(companyId: string, userId?: string): string {
   return userId ? `${userId}:${companyId}` : `company:${companyId}`;
 }
 
 function cloneProfile(profile: CompanyProfile): CompanyProfile {
   return JSON.parse(JSON.stringify(profile)) as CompanyProfile;
+}
+
+function enrichmentCacheKey(input: Pick<EnrichmentCacheEntry, "provider" | "bizNo" | "scope">): string {
+  return `${input.provider}:${input.bizNo}:${input.scope}`;
+}
+
+function cloneRecord(value: Record<string, unknown> | null): Record<string, unknown> | null {
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown> | null;
+}
+
+function cloneCacheEntry(entry: EnrichmentCacheEntry): EnrichmentCacheEntry {
+  const cloned: EnrichmentCacheEntry = {
+    provider: entry.provider,
+    bizNo: entry.bizNo,
+    scope: entry.scope,
+    fetchedAt: new Date(entry.fetchedAt),
+  };
+  if (entry.rawPayload !== undefined) cloned.rawPayload = cloneRecord(entry.rawPayload);
+  if (entry.canonicalPayload !== undefined) cloned.canonicalPayload = cloneRecord(entry.canonicalPayload);
+  if (entry.providerResultCode !== undefined) cloned.providerResultCode = entry.providerResultCode;
+  if (entry.providerResultMessage !== undefined) cloned.providerResultMessage = entry.providerResultMessage;
+  if (entry.checkedAt !== undefined) cloned.checkedAt = entry.checkedAt ? new Date(entry.checkedAt) : null;
+  if (entry.expiresAt !== undefined) cloned.expiresAt = entry.expiresAt ? new Date(entry.expiresAt) : null;
+  if (entry.payloadHash !== undefined) cloned.payloadHash = entry.payloadHash;
+  if (entry.lastError !== undefined) cloned.lastError = cloneRecord(entry.lastError);
+  return cloned;
 }
