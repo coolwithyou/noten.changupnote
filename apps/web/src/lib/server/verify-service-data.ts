@@ -4,7 +4,12 @@ process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
 process.env.CUNOTE_WEB_DATA_SOURCE = "sample";
 process.env.CUNOTE_WEB_INCLUDE_BIZINFO_SAMPLE = "true";
 
-const { getServiceRepositories, loadServiceDashboard, loadServiceGrants } = await import("./serviceData");
+const {
+  getServiceRepositories,
+  loadServiceApplySheet,
+  loadServiceDashboard,
+  loadServiceGrants,
+} = await import("./serviceData");
 
 const asOf = new Date("2026-06-26T00:00:00.000+09:00");
 const userId = "00000000-0000-4000-8000-000000000001";
@@ -29,6 +34,17 @@ const bizInfoMatch = dashboard.matches.find((match) => match.source === "bizinfo
 assert.ok(bizInfoMatch, "dashboard should expose BizInfo sample match");
 assert.equal(bizInfoMatch.eligibility, "eligible");
 assert.ok(dashboard.matches.length > 1, "dashboard should expose multiple service matches");
+const bizInfoApplySheet = await loadServiceApplySheet(encodeURIComponent(bizInfoMatch.grantId), {
+  companyId: company.id,
+  userId,
+  limit: 80,
+  asOf,
+});
+assert.ok(bizInfoApplySheet, "BizInfo sample apply sheet should resolve");
+assert.deepEqual(
+  bizInfoApplySheet.documents.map((document) => document.name),
+  ["신청서", "사업자등록증", "재무제표"],
+);
 
 console.log(JSON.stringify({
   ok: true,
@@ -36,6 +52,7 @@ console.log(JSON.stringify({
     "service_grants_kstartup_sample",
     "service_grants_bizinfo_sample",
     "service_dashboard_bizinfo_match",
+    "service_bizinfo_apply_documents",
   ],
   grants: grants.map((entry) => ({
     source: entry.grant.source,
@@ -44,5 +61,8 @@ console.log(JSON.stringify({
   bizInfoMatch: {
     grantId: bizInfoMatch.grantId,
     eligibility: bizInfoMatch.eligibility,
+  },
+  bizInfoApplySheet: {
+    documents: bizInfoApplySheet.documents.map((document) => document.name),
   },
 }, null, 2));
