@@ -1,7 +1,6 @@
 import type { CompanyProfile } from "@cunote/contracts";
-import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
+import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { requireAppSession } from "@/lib/server/auth/appSession";
-import { DEMO_COMPANY_ID } from "@/lib/server/repositories/runtime";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -25,13 +24,15 @@ export async function POST(request: Request) {
   try {
     const session = await requireAppSession(request);
     const body = await readBody(request);
-    const fallback = await getServiceRepositories().companies.getDefaultCompanyProfile();
-    const profile = await getServiceRepositories().companies.saveCompanyProfile({
-      companyId: DEMO_COMPANY_ID,
+    if (!body.profile || typeof body.profile !== "object") {
+      return appError("invalid_company_profile", "profile이 필요합니다.", 400, "profile");
+    }
+
+    const company = await getServiceRepositories().companies.createCompany({
       userId: session.user.id,
-      profile: body.profile ?? fallback,
+      profile: body.profile,
     });
-    return appData({ company: { id: DEMO_COMPANY_ID, name: profile.name ?? "샘플 기업", profile } }, { status: 201 });
+    return appData({ company }, { status: 201 });
   } catch (error) {
     return appErrorFromUnknown(error, "회사 정보를 저장하지 못했습니다.");
   }

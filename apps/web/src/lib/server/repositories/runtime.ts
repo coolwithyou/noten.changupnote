@@ -7,6 +7,7 @@ import type {
 import type {
   CompanyRecord,
   CompanyRepository,
+  CreateCompanyInput,
   FeedbackReceipt,
   FeedbackRepository,
   GrantListOptions,
@@ -64,6 +65,15 @@ class RuntimeCompanyRepository implements CompanyRepository {
 
   async saveCompanyProfile(input: SaveCompanyProfileInput) {
     return input.profile;
+  }
+
+  async createCompany(input: CreateCompanyInput): Promise<CompanyRecord> {
+    return {
+      id: DEMO_COMPANY_ID,
+      name: input.profile.name ?? "샘플 기업",
+      profile: input.profile,
+      role: "owner",
+    };
   }
 
   async listUserCompanies(_userId: string): Promise<CompanyRecord[]> {

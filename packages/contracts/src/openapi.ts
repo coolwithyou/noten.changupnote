@@ -892,6 +892,7 @@ export const appV1OpenApi = {
       },
       CreateCompanyRequest: {
         type: "object",
+        required: ["profile"],
         properties: {
           profile: ref("CompanyProfile"),
         },

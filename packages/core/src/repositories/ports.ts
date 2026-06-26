@@ -37,9 +37,15 @@ export interface SaveCompanyProfileInput {
   userId?: string;
 }
 
+export interface CreateCompanyInput {
+  profile: CompanyProfile;
+  userId: string;
+}
+
 export interface CompanyRepository {
   getDefaultCompanyProfile(): Promise<CompanyProfile>;
   resolveCompanyProfile(input?: ResolveCompanyProfileInput): Promise<CompanyProfile | null>;
+  createCompany(input: CreateCompanyInput): Promise<CompanyRecord>;
   saveCompanyProfile(input: SaveCompanyProfileInput): Promise<CompanyProfile>;
   listUserCompanies(userId: string): Promise<CompanyRecord[]>;
 }

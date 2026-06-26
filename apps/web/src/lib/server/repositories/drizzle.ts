@@ -12,6 +12,7 @@ import { matchGrantCriteria } from "@cunote/core";
 import type {
   CompanyRecord,
   CompanyRepository,
+  CreateCompanyInput,
   FeedbackReceipt,
   FeedbackRepository,
   GrantListOptions,
@@ -153,6 +154,41 @@ class DrizzleCompanyRepository implements CompanyRepository {
     });
 
     return toCompanyProfile(company, profileRows);
+  }
+
+  async createCompany(input: CreateCompanyInput): Promise<CompanyRecord> {
+    const now = new Date();
+    const kind: "active" | "preliminary" = input.profile.is_preliminary ? "preliminary" : "active";
+    const [company, profileRows] = await this.db.client.transaction(async (tx) => {
+      const [createdCompany] = await tx
+        .insert(schema.companies)
+        .values({
+          kind,
+          name: input.profile.name ?? null,
+          createdBy: input.userId,
+        })
+        .returning();
+      if (!createdCompany) throw new Error("회사 생성 결과가 없습니다.");
+
+      await tx.insert(schema.userCompany).values({
+        userId: input.userId,
+        companyId: createdCompany.id,
+        role: "owner",
+      });
+
+      const rows = companyProfileRows(createdCompany.id, input.profile, now);
+      const savedRows = rows.length > 0
+        ? await tx.insert(schema.companyProfiles).values(rows).returning()
+        : [];
+      return [createdCompany, savedRows] as const;
+    });
+
+    return {
+      id: company.id,
+      name: company.name,
+      profile: toCompanyProfile(company, profileRows),
+      role: "owner",
+    };
   }
 
   async listUserCompanies(userId: string): Promise<CompanyRecord[]> {
