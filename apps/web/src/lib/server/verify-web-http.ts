@@ -178,6 +178,18 @@ expectStatus(webEvent, 202, "web event status");
 expect(webEvent.body.ok === true && webEvent.body.data?.event === "apply_click", "web event accepted");
 checks.push("web_match_event");
 
+const webFeedback = await fetchJson<ActionResult<{ receipt: { id: string; receivedAt: string } }>>(
+  `/api/web/matches/${encodeURIComponent(webGrant!.grantId)}/feedback`,
+  {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind: "saved", message: "HTTP 검증" }),
+  },
+);
+expectStatus(webFeedback, 202, "web feedback status");
+expect(Boolean(webFeedback.body.data?.receipt.id), "web feedback receipt id");
+checks.push("web_match_feedback");
+
 const webGrantDetail = await fetchJson<ActionResult<{
   grant: { id: string; title: string };
 }>>(`/api/web/grants/${encodeURIComponent(webGrant!.grantId)}`);
@@ -500,6 +512,21 @@ const appGrantDetail = await fetchJson<ApiEnvelope<{
 expectStatus(appGrantDetail, 200, "app grant detail status");
 expect(appGrantDetail.body.data?.grant.id === appGrant!.grantId, "app grant detail uses selected company context");
 checks.push("app_grant_detail");
+
+const appFeedback = await fetchJson<ApiEnvelope<{ receipt: { id: string; receivedAt: string } }>>(
+  `/api/app/v1/matches/${companyId}/${encodeURIComponent(appGrant!.grantId)}/feedback`,
+  {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ kind: "applied", message: "HTTP 검증" }),
+  },
+);
+expectStatus(appFeedback, 202, "app feedback status");
+expect(Boolean(appFeedback.body.data?.receipt.id), "app feedback receipt id");
+checks.push("app_match_feedback");
 
 const appEvent = await fetchJson<ApiEnvelope<{ event: string }>>(
   `/api/app/v1/matches/${companyId}/${encodeURIComponent(appGrant!.grantId)}/events`,
