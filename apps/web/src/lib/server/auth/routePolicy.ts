@@ -11,6 +11,7 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/companies",
   "POST /api/web/companies/enrich",
   "POST /api/web/companies/switch",
+  "POST /api/web/companies/verify",
   "GET /api/web/consents",
   "PUT /api/web/consents",
   "DELETE /api/web/consents/[scope]",

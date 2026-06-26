@@ -802,7 +802,7 @@ button:disabled {
 
 .settings-enrich-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 8px;
 }
 
@@ -1934,6 +1934,10 @@ button:disabled {
 
   .settings-consent-list,
   .settings-notification-list {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-enrich-row {
     grid-template-columns: 1fr;
   }
 

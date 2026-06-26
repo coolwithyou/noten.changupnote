@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ActionResult,
   CompanyEnrichmentResult,
+  CompanyVerificationResult,
   ConsentRecordDto,
   ConsentScope,
   NotificationSettingsDto,
@@ -158,6 +159,29 @@ export function CompanySettingsPanel() {
     }
   }
 
+  async function verifyCompany() {
+    const normalizedBizNo = bizNo.replace(/\D/g, "");
+    if (normalizedBizNo.length !== 10) {
+      setStatus("사업자번호 10자리를 입력하세요.");
+      return;
+    }
+
+    setBusyKey("verify");
+    try {
+      const result = await fetchJson<CompanyVerificationResult>("/api/web/companies/verify", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bizNo: normalizedBizNo }),
+      });
+      setStatus(result.verified ? "회사 소유권 검증됨" : "검증 결과 확인 필요");
+      router.refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "회사 소유권을 검증하지 못했습니다.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
     <section className="dashboard-settings-panel" aria-label="회사, 동의 및 알림 설정">
       <div className="settings-block">
@@ -187,15 +211,22 @@ export function CompanySettingsPanel() {
               inputMode="numeric"
               placeholder="사업자번호 10자리"
               value={bizNo}
-              disabled={busyKey === "enrich"}
+              disabled={busyKey === "enrich" || busyKey === "verify"}
               onChange={(event) => setBizNo(event.currentTarget.value)}
             />
             <button
               type="button"
-              disabled={busyKey === "enrich" || !basicInfoConsent}
+              disabled={busyKey === "enrich" || busyKey === "verify" || !basicInfoConsent}
               onClick={() => void enrichCompany()}
             >
               {busyKey === "enrich" ? "조회 중" : "보강"}
+            </button>
+            <button
+              type="button"
+              disabled={busyKey === "enrich" || busyKey === "verify"}
+              onClick={() => void verifyCompany()}
+            >
+              {busyKey === "verify" ? "검증 중" : "검증"}
             </button>
           </div>
         </label>

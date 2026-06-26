@@ -113,6 +113,23 @@ expect(webCompanySwitch.body.ok === true, "web company switch envelope ok");
 expect(webCompanySwitch.body.data?.currentCompanyId === webCompanyId, "web company switch selected company");
 checks.push("web_company_switch");
 
+const webCompanyVerify = await fetchJson<ActionResult<{
+  companyId: string;
+  bizNo: string;
+  verified: boolean;
+  verifyMethod: string;
+}>>("/api/web/companies/verify", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ bizNo: "1234567890" }),
+});
+expectStatus(webCompanyVerify, 200, "web company verify status");
+expect(webCompanyVerify.body.ok === true, "web company verify envelope ok");
+expect(webCompanyVerify.body.data?.companyId === webCompanyId, "web company verify company id");
+expect(webCompanyVerify.body.data?.bizNo === "1234567890", "web company verify bizNo");
+expect(webCompanyVerify.body.data?.verified === true, "web company verify result");
+checks.push("web_company_verify");
+
 const dashboard = await fetchJson<ActionResult<{
   matches: Array<{ grantId: string; rulesetVer?: string }>;
 }>>("/api/web/dashboard");
@@ -139,6 +156,7 @@ expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard rende
 expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders deadline notification toggle");
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 expect(dashboardHtml.body.includes("회사정보 보강"), "web dashboard renders company enrichment control");
+expect(dashboardHtml.body.includes("검증"), "web dashboard renders company verification control");
 expect(dashboardHtml.body.includes("ineligible-disclosure"), "web dashboard renders collapsed ineligible reasons");
 checks.push("web_dashboard_html");
 
