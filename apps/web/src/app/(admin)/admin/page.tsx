@@ -22,6 +22,11 @@ const SURFACES: Array<{
     body: "사용자 명시 피드백과 outcome 신호",
   },
   {
+    key: "matchEvents",
+    title: "match_events",
+    body: "노출, 저장, 신청 클릭 행동 신호",
+  },
+  {
     key: "goldenSet",
     title: "golden_set",
     body: "추출/매칭 정답 기준셋",
@@ -80,6 +85,10 @@ export default async function AdminPage() {
                 <RecentList
                   title="feedback"
                   items={snapshot.recent.feedback.map((item) => `${item.type} · ${item.targetType}:${item.targetId}`)}
+                />
+                <RecentList
+                  title="events"
+                  items={snapshot.recent.matchEvents.map((item) => `${item.event} · ${item.rulesetVer} · ${item.grantId}`)}
                 />
                 <RecentList
                   title="golden"
