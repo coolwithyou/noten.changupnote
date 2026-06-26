@@ -37,6 +37,7 @@ assert.throws(
 const cleaned = htmlToText("<p>전남도 소재 <b>중소기업</b></p><ul><li>로봇 제조</li></ul>");
 assert.match(cleaned, /전남도 소재 중소기업/);
 assert.match(cleaned, /로봇 제조/);
+assert.equal(htmlToText("<style>.Section { width: 210mm; }</style><p>본문</p>"), "본문");
 assert.equal(
   normalizeBizInfoUrl("/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1"),
   "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1",

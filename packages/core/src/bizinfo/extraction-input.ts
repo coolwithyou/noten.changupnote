@@ -56,7 +56,7 @@ export function buildBizInfoProgramExtractionInput(
 
 export function htmlToText(value: string | null | undefined): string {
   if (!value) return "";
-  return decodeHtmlEntities(value)
+  return decodeHtmlEntities(value.replace(/<\s*(script|style)\b[^>]*>[\s\S]*?<\/\s*\1\s*>/gi, " "))
     .replace(/<\s*br\s*\/?>/gi, "\n")
     .replace(/<\/\s*(p|div|li|tr|h[1-6])\s*>/gi, "\n")
     .replace(/<\s*(li|tr|h[1-6])\b[^>]*>/gi, "\n")
