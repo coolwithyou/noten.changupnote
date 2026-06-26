@@ -176,6 +176,32 @@ function verifyServiceDtoSchemas(errors: string[]) {
   if (propertyType(notificationSettings.properties.newMatch) !== "boolean") {
     errors.push("NotificationSettings.newMatch must be boolean.");
   }
+
+  const deviceRequest = schemas.DeviceRegistrationRequest;
+  if (!isRecord(deviceRequest) || !isRecord(deviceRequest.properties)) {
+    errors.push("DeviceRegistrationRequest schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(deviceRequest.required) ||
+    !deviceRequest.required.includes("deviceId") ||
+    !deviceRequest.required.includes("platform") ||
+    !deviceRequest.required.includes("pushToken")) {
+    errors.push("DeviceRegistrationRequest must require deviceId, platform and pushToken.");
+  }
+  const platform = deviceRequest.properties.platform;
+  if (!isRecord(platform) || !Array.isArray(platform.enum) ||
+    !platform.enum.includes("ios") || !platform.enum.includes("android")) {
+    errors.push("DeviceRegistrationRequest.platform must allow ios and android.");
+  }
+
+  const deviceResult = schemas.DeviceResult;
+  if (!isRecord(deviceResult) || !isRecord(deviceResult.properties)) {
+    errors.push("DeviceResult schema is missing properties.");
+    return;
+  }
+  if (propertyType(deviceResult.properties.registered) !== "boolean") {
+    errors.push("DeviceResult.registered must be boolean.");
+  }
 }
 
 function nullableStringFormat(value: unknown): string | null {

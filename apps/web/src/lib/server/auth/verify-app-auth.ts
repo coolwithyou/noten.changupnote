@@ -9,6 +9,7 @@ import { verifyAppJwt } from "./appTokens";
 import { CompanyAccessForbiddenError } from "./companyAccessPolicy";
 import { mockUserEmail, mockUserId } from "./mockIdentity";
 import { demoCompanyId } from "../repositories/runtime";
+import { getAppPreferencesStore } from "../appApi/preferencesStore";
 
 process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
 process.env.CUNOTE_AUTH_REQUIRED = "false";
@@ -55,9 +56,21 @@ await assert.rejects(
   "demo app session must reject outside company ids",
 );
 
+const preferences = getAppPreferencesStore();
+const registered = await preferences.registerDevice(mockUserId(), {
+  deviceId: "verify-device",
+  platform: "ios",
+  pushToken: "verify-push-token",
+});
+assert.equal(registered.deviceId, "verify-device");
+assert.equal(registered.platform, "ios");
+assert.equal(registered.registered, true);
+assert.equal(await preferences.deleteDevice(mockUserId(), "verify-device"), true);
+assert.equal(await preferences.deleteDevice(mockUserId(), "verify-device"), false);
+
 console.log(JSON.stringify({
   ok: true,
-  checked: ["issue_token_pair", "rotate_refresh", "revoke_refresh", "demo_company_guard"],
+  checked: ["issue_token_pair", "rotate_refresh", "revoke_refresh", "demo_company_guard", "device_register_delete"],
   userId: mockUserId(),
   companyId: demoCompanyId(),
   deviceId: issued.deviceId,
