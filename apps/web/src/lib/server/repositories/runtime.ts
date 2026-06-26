@@ -14,6 +14,7 @@ import type {
   GrantRepository,
   MatchEventReceipt,
   MatchRepository,
+  ResolveCompanyProfileInput,
   SaveMatchEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
@@ -57,38 +58,62 @@ class RuntimeGrantRepository<TPayload> implements GrantRepository<TPayload> {
 }
 
 class RuntimeCompanyRepository implements CompanyRepository {
+  private readonly savedProfiles = new Map<string, CompanyProfile>();
+
   constructor(private readonly loaders: RuntimeRepositoryLoaders) {}
 
   async getDefaultCompanyProfile() {
+    const saved = this.getSavedProfile(demoCompanyId());
+    if (saved) return saved;
     return this.loaders.loadCompanyProfile();
   }
 
-  async resolveCompanyProfile(input: { companyId?: string; bizNo?: string } = {}) {
+  async resolveCompanyProfile(input: ResolveCompanyProfileInput = {}) {
     if (input.companyId && input.companyId !== demoCompanyId()) return null;
+    if (input.companyId) {
+      const saved = this.getSavedProfile(input.companyId, input.userId);
+      if (saved) return saved;
+    }
     return this.loaders.loadCompanyProfile(input.bizNo);
   }
 
   async saveCompanyProfile(input: SaveCompanyProfileInput) {
-    return input.profile;
+    this.setSavedProfile(input.companyId, input.profile, input.userId);
+    return cloneProfile(input.profile);
   }
 
   async createCompany(input: CreateCompanyInput): Promise<CompanyRecord> {
+    this.setSavedProfile(demoCompanyId(), input.profile, input.userId);
+    const profile = cloneProfile(input.profile);
     return {
       id: demoCompanyId(),
-      name: input.profile.name ?? "샘플 기업",
-      profile: input.profile,
+      name: profile.name ?? "샘플 기업",
+      profile,
       role: "owner",
     };
   }
 
   async listUserCompanies(_userId: string): Promise<CompanyRecord[]> {
-    const profile = await this.loaders.loadCompanyProfile();
+    const profile = this.getSavedProfile(demoCompanyId(), _userId) ?? await this.loaders.loadCompanyProfile();
     return [{
       id: demoCompanyId(),
       name: profile.name ?? "샘플 기업",
       profile,
       role: "owner",
     }];
+  }
+
+  private getSavedProfile(companyId: string, userId?: string): CompanyProfile | null {
+    const profile = userId
+      ? this.savedProfiles.get(profileKey(companyId, userId)) ?? this.savedProfiles.get(profileKey(companyId))
+      : this.savedProfiles.get(profileKey(companyId));
+    return profile ? cloneProfile(profile) : null;
+  }
+
+  private setSavedProfile(companyId: string, profile: CompanyProfile, userId?: string) {
+    const cloned = cloneProfile(profile);
+    this.savedProfiles.set(profileKey(companyId), cloned);
+    if (userId) this.savedProfiles.set(profileKey(companyId, userId), cloned);
   }
 }
 
@@ -129,4 +154,12 @@ class RuntimeFeedbackRepository implements FeedbackRepository {
       receivedAt: new Date().toISOString(),
     };
   }
+}
+
+function profileKey(companyId: string, userId?: string): string {
+  return userId ? `${userId}:${companyId}` : `company:${companyId}`;
+}
+
+function cloneProfile(profile: CompanyProfile): CompanyProfile {
+  return JSON.parse(JSON.stringify(profile)) as CompanyProfile;
 }
