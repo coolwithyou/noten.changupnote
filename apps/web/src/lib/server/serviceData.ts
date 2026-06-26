@@ -1,15 +1,18 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
+  buildApplySheet,
   buildDashboard,
   buildCompanyProfileFromPopbill,
   checkPopbillBizInfo,
   fetchKStartupPage,
+  grantKey,
+  matchGrantCriteria,
   normalizeKStartupPayload,
   readPopbillEnvConfig,
   sanitizeCorpNum,
 } from "@cunote/core";
-import type { CompanyProfile, NormalizedGrant } from "@cunote/contracts";
+import type { ApplySheet, CompanyProfile, NormalizedGrant } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
 import type { KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
 
@@ -82,6 +85,34 @@ export async function loadServiceDashboard(options: {
   return buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
 }
 
+export async function loadServiceApplySheet(
+  grantIdSegment: string,
+  options: {
+    limit?: number;
+    asOf?: Date;
+  } = {},
+): Promise<ApplySheet | null> {
+  const asOf = options.asOf ?? new Date();
+  const grantId = decodeGrantIdSegment(grantIdSegment);
+  const [company, grants] = await Promise.all([
+    loadCompanyProfileForTeaser(),
+    loadServiceGrants({ asOf, limit: options.limit ?? 80 }),
+  ]);
+  const item = grants.find((entry) => {
+    const key = grantKey(entry.grant);
+    return key === grantId || entry.grant.source_id === grantId;
+  });
+  if (!item) return null;
+
+  return buildApplySheet({
+    entry: {
+      item,
+      match: matchGrantCriteria(item.criteria, company),
+    },
+    asOf,
+  });
+}
+
 async function loadEnvInDevelopment() {
   if (process.env.NODE_ENV !== "production") {
     const { loadMonorepoEnv } = await import("./loadMonorepoEnv");
@@ -108,6 +139,14 @@ function findProjectFile(relativePath: string): string {
     throw new Error(`Missing project file: ${relativePath}`);
   }
   return found;
+}
+
+function decodeGrantIdSegment(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 function sampleCompanyProfile(): CompanyProfile {

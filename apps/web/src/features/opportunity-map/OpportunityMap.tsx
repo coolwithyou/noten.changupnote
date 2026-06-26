@@ -41,8 +41,8 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
 }
 
 function OpportunityCard({ match }: { match: MatchCard }) {
-  return (
-    <article className="opportunity-card">
+  const content = (
+    <>
       <div className="card-topline">
         <span className={`match-status ${match.eligibility}`}>{eligibilityLabel(match.eligibility)}</span>
         <span>{match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}</span>
@@ -51,8 +51,23 @@ function OpportunityCard({ match }: { match: MatchCard }) {
       <p>{match.ruleTrace.slice(0, 2).map((trace) => trace.label).join(" / ") || "조건 확인 필요"}</p>
       <div className="card-foot">
         <span>{match.agency ?? "기관 미확인"}</span>
-        <strong>{match.fitScore}</strong>
+        <strong>적합도 {match.fitScore}</strong>
       </div>
+      <span className="card-amount">{formatSupportAmount(match.supportAmount)}</span>
+    </>
+  );
+
+  if (match.detailUrl) {
+    return (
+      <a className="opportunity-card" href={match.detailUrl} aria-label={`${match.title} 신청 준비 시트 보기`}>
+        {content}
+      </a>
+    );
+  }
+
+  return (
+    <article className="opportunity-card">
+      {content}
     </article>
   );
 }
@@ -61,4 +76,10 @@ function eligibilityLabel(value: MatchCard["eligibility"]): string {
   if (value === "eligible") return "적격";
   if (value === "conditional") return "확인 필요";
   return "부적격";
+}
+
+function formatSupportAmount(amount: MatchCard["supportAmount"]): string {
+  if (amount.label) return amount.label;
+  if (!amount.max) return "금액 미확인";
+  return `${new Intl.NumberFormat("ko-KR").format(amount.max)}원`;
 }
