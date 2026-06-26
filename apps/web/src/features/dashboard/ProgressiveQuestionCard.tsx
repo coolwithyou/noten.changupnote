@@ -40,7 +40,7 @@ export function ProgressiveQuestionCard({ question }: { question: NextQuestionDt
   }
 
   return (
-    <section className="next-question-banner">
+    <section id="next-question" className="next-question-banner">
       <div className="next-question-content">
         <span className="eyebrow">다음 질문</span>
         <h2>{question.prompt}</h2>

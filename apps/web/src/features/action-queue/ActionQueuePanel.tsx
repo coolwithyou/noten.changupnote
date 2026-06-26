@@ -18,6 +18,9 @@ export function ActionQueuePanel({ actions }: { actions: ActionQueueItem[] }) {
               <span>{effortLabel(action.effort)}</span>
               <strong>{action.score}</strong>
             </div>
+            <a className="action-cta" href={actionHref(action)}>
+              {action.ctaLabel}
+            </a>
           </article>
         )) : (
           <p className="panel-empty">지금 바로 제안할 행동이 없습니다.</p>
@@ -42,4 +45,14 @@ function effortLabel(effort: ActionQueueItem["effort"]): string {
   if (effort === "quick") return "빠름";
   if (effort === "medium") return "보통";
   return "긴 작업";
+}
+
+function actionHref(action: ActionQueueItem): string {
+  if (action.kind === "input") return "#next-question";
+  if (action.target.startsWith("/")) return action.target;
+  if (/^https?:\/\//.test(action.target)) return action.target;
+
+  const firstGrantId = action.affectedGrantIds[0];
+  if (firstGrantId) return `/grants/${encodeURIComponent(firstGrantId)}`;
+  return "/dashboard";
 }
