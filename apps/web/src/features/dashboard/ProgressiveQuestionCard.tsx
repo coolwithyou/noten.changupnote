@@ -1,6 +1,7 @@
 "use client";
 
 import type { ActionResult, CompanyProfile, NextQuestionDto } from "@cunote/contracts";
+import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 
 interface ProfileFieldResult {
@@ -8,6 +9,7 @@ interface ProfileFieldResult {
 }
 
 export function ProgressiveQuestionCard({ question }: { question: NextQuestionDto }) {
+  const router = useRouter();
   const [value, setValue] = useState(defaultValue(question));
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [message, setMessage] = useState<string>("");
@@ -32,7 +34,8 @@ export function ProgressiveQuestionCard({ question }: { question: NextQuestionDt
         throw new Error(result.error?.message ?? "저장하지 못했습니다.");
       }
       setStatus("saved");
-      setMessage("저장됨");
+      setMessage("저장됨, 결과를 갱신했습니다.");
+      router.refresh();
     } catch (error) {
       setStatus("error");
       setMessage(error instanceof Error ? error.message : "저장하지 못했습니다.");
