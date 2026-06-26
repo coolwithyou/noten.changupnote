@@ -39,6 +39,7 @@ export const PUBLIC_APP_ROUTES = [
 export const SESSION_APP_ROUTES = [
   "GET /api/app/v1/companies",
   "POST /api/app/v1/companies",
+  "GET /api/app/v1/companies/[companyId]/action-queue",
   "GET /api/app/v1/companies/[companyId]/consents",
   "PUT /api/app/v1/companies/[companyId]/consents",
   "DELETE /api/app/v1/companies/[companyId]/consents/[scope]",

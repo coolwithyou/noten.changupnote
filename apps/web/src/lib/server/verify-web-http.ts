@@ -128,6 +128,15 @@ const appGrant = appMatches.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(appGrant), "app matches exposes a match grant");
 checks.push("app_matches");
 
+const appActionQueue = await fetchJson<ApiEnvelope<{
+  actions: Array<{ id: string; affectedGrantIds: string[] }>;
+}>>(`/api/app/v1/companies/${companyId}/action-queue`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appActionQueue, 200, "app action queue status");
+expect(Array.isArray(appActionQueue.body.data?.actions), "app action queue list");
+checks.push("app_action_queue");
+
 const appGrantDetail = await fetchJson<ApiEnvelope<{
   grant: { id: string; title: string };
 }>>(`/api/app/v1/grants/${encodeURIComponent(appGrant!.grantId)}?companyId=${encodeURIComponent(companyId!)}`, {

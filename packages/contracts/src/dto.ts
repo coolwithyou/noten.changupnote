@@ -185,6 +185,10 @@ export interface ActionQueueItem {
   score: number;
 }
 
+export interface ActionQueueResult {
+  actions: ActionQueueItem[];
+}
+
 export interface MatchEventRequest {
   event?: MatchEventKind;
   type?: MatchEventKind;

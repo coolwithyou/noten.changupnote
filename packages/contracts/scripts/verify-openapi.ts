@@ -177,6 +177,30 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("NotificationSettings.newMatch must be boolean.");
   }
 
+  const actionQueue = schemas.ActionQueueResult;
+  if (!isRecord(actionQueue) || !isRecord(actionQueue.properties)) {
+    errors.push("ActionQueueResult schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(actionQueue.required) || !actionQueue.required.includes("actions")) {
+    errors.push("ActionQueueResult must require actions.");
+  }
+
+  const actionQueueItem = schemas.ActionQueueItem;
+  if (!isRecord(actionQueueItem) || !isRecord(actionQueueItem.properties)) {
+    errors.push("ActionQueueItem schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(actionQueueItem.required) ||
+    !actionQueueItem.required.includes("affectedGrantIds") ||
+    !actionQueueItem.required.includes("score")) {
+    errors.push("ActionQueueItem must require affectedGrantIds and score.");
+  }
+  const actionKind = actionQueueItem.properties.kind;
+  if (!isRecord(actionKind) || !Array.isArray(actionKind.enum) || !actionKind.enum.includes("apply")) {
+    errors.push("ActionQueueItem.kind must include apply.");
+  }
+
   const enrichmentRequest = schemas.CompanyEnrichmentRequest;
   if (!isRecord(enrichmentRequest) || !isRecord(enrichmentRequest.properties)) {
     errors.push("CompanyEnrichmentRequest schema is missing properties.");
