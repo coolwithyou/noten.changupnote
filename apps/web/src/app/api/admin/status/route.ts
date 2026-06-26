@@ -11,7 +11,7 @@ export async function GET() {
       ok: true,
       role: access.role,
       mode: access.mode,
-      surfaces: ["extraction_log", "feedback", "golden_set", "eval_runs"],
+      surfaces: ["extraction_log", "feedback", "match_events", "golden_set", "eval_runs"],
     });
   } catch (error) {
     if (error instanceof AdminAccessError) {
