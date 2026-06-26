@@ -54,6 +54,24 @@ expect(stats.body.ok === true, "web stats envelope ok");
 expect(typeof stats.body.data?.openCount === "number", "web stats openCount");
 checks.push("web_stats");
 
+const adminStatus = await fetchJson<ApiEnvelope<{
+  ok: boolean;
+  role: "admin";
+  mode: "demo" | "session";
+  surfaces: string[];
+}>>("/api/admin/status");
+expect(
+  adminStatus.status === 200 || adminStatus.status === 403,
+  `admin status boundary: expected 200 or 403, got ${adminStatus.status}`,
+);
+if (adminStatus.status === 200) {
+  expect(adminStatus.body.data?.ok === true, "admin status ok");
+  expect(adminStatus.body.data?.surfaces.includes("golden_set") === true, "admin status surfaces");
+} else {
+  expect(adminStatus.body.error?.code === "admin_forbidden", "admin status forbidden code");
+}
+checks.push("admin_status_boundary");
+
 const teaser = await fetchJson<ActionResult<{
   estimatedMaxAmount: number;
   conditionalUpside: number;
@@ -240,6 +258,15 @@ expect(roadmapHtml.body.includes("roadmap-lanes"), "web roadmap renders lanes");
 expect(roadmapHtml.body.includes("전략 로드맵"), "web roadmap renders heading");
 checks.push("web_roadmap_html");
 
+const adminHtml = await fetchText("/admin");
+expectStatus(adminHtml, 200, "admin html status");
+expect(adminHtml.body.includes("플라이휠 운영 콘솔"), "admin renders flywheel shell");
+expect(
+  adminHtml.body.includes("어드민 접근 권한 필요") || adminHtml.body.includes("extraction_log"),
+  "admin renders denied state or flywheel surfaces",
+);
+checks.push("admin_html_boundary");
+
 const webEvent = await fetchJson<ActionResult<{ event: string }>>(
   `/api/web/matches/${encodeURIComponent(webGrant!.grantId)}/events`,
   {
@@ -354,6 +381,23 @@ const appStats = await fetchJson<ApiEnvelope<{ openCount: number }>>("/api/app/v
 expectStatus(appStats, 200, "app stats status");
 expect(typeof appStats.body.data?.openCount === "number", "app stats openCount");
 checks.push("app_stats");
+
+const appOpenApi = await fetchJson<{
+  openapi?: string;
+  servers?: Array<{ url?: string }>;
+  paths?: Record<string, unknown>;
+}>("/api/app/v1/openapi.json");
+expectStatus(appOpenApi, 200, "app openapi status");
+expect(appOpenApi.body.openapi === "3.1.0", "app openapi version");
+expect(
+  Boolean(appOpenApi.body.servers?.find((server) => server.url === "https://dev.changupnote.com")),
+  "app openapi dev tunnel server",
+);
+expect(
+  Boolean(appOpenApi.body.paths?.["/api/app/v1/companies/{companyId}/matches"]),
+  "app openapi exposes company matches",
+);
+checks.push("app_openapi");
 
 const appTeaser = await fetchJson<ApiEnvelope<{
   estimatedMaxAmount: number;
