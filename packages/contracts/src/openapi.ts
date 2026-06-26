@@ -42,6 +42,8 @@ export const appV1OpenApiRoutePaths = [
   "/api/app/v1/auth/logout",
   "/api/app/v1/auth/refresh",
   "/api/app/v1/companies",
+  "/api/app/v1/companies/{companyId}/consents",
+  "/api/app/v1/companies/{companyId}/consents/{scope}",
   "/api/app/v1/companies/{companyId}/matches",
   "/api/app/v1/companies/{companyId}/next-question",
   "/api/app/v1/companies/{companyId}/profile",
@@ -81,6 +83,7 @@ export const appV1OpenApi = {
     { name: "Auth" },
     { name: "Discovery" },
     { name: "Companies" },
+    { name: "Consents" },
     { name: "Grants" },
     { name: "Matches" },
     { name: "Devices" },
@@ -261,6 +264,67 @@ export const appV1OpenApi = {
           },
           "401": { $ref: "#/components/responses/AppError" },
           "404": { $ref: "#/components/responses/AppError" },
+          default: { $ref: "#/components/responses/AppError" },
+        },
+      },
+    },
+    "/api/app/v1/companies/{companyId}/consents": {
+      get: {
+        tags: ["Consents"],
+        operationId: "listAppCompanyConsents",
+        summary: "List the current user's consent ledger entries for a company.",
+        security: bearerSecurity,
+        parameters: [pathParam("companyId", "Company id.")],
+        responses: {
+          "200": {
+            description: "Consent list.",
+            content: json(ref("ConsentListEnvelope")),
+          },
+          "401": { $ref: "#/components/responses/AppError" },
+          "403": { $ref: "#/components/responses/AppError" },
+          default: { $ref: "#/components/responses/AppError" },
+        },
+      },
+      put: {
+        tags: ["Consents"],
+        operationId: "grantAppCompanyConsent",
+        summary: "Grant or refresh consent for a company data scope.",
+        security: bearerSecurity,
+        parameters: [pathParam("companyId", "Company id.")],
+        requestBody: {
+          required: true,
+          content: json(ref("ConsentGrantRequest")),
+        },
+        responses: {
+          "200": {
+            description: "Stored consent.",
+            content: json(ref("ConsentGrantEnvelope")),
+          },
+          "400": { $ref: "#/components/responses/AppError" },
+          "401": { $ref: "#/components/responses/AppError" },
+          "403": { $ref: "#/components/responses/AppError" },
+          default: { $ref: "#/components/responses/AppError" },
+        },
+      },
+    },
+    "/api/app/v1/companies/{companyId}/consents/{scope}": {
+      delete: {
+        tags: ["Consents"],
+        operationId: "revokeAppCompanyConsent",
+        summary: "Revoke consent for a company data scope.",
+        security: bearerSecurity,
+        parameters: [
+          pathParam("companyId", "Company id."),
+          pathParam("scope", "Consent scope."),
+        ],
+        responses: {
+          "200": {
+            description: "Revocation result.",
+            content: json(ref("ConsentRevokeEnvelope")),
+          },
+          "400": { $ref: "#/components/responses/AppError" },
+          "401": { $ref: "#/components/responses/AppError" },
+          "403": { $ref: "#/components/responses/AppError" },
           default: { $ref: "#/components/responses/AppError" },
         },
       },
@@ -1040,6 +1104,52 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      ConsentRecord: {
+        type: "object",
+        required: ["scope", "purpose", "grantedAt", "revokedAt"],
+        properties: {
+          scope: { type: "string", enum: ["basic_info", "hometax", "insurance"] },
+          purpose: { type: "string" },
+          grantedAt: { type: "string", format: "date-time" },
+          revokedAt: nullable({ type: "string", format: "date-time" }),
+        },
+        additionalProperties: false,
+      },
+      ConsentListResult: {
+        type: "object",
+        required: ["companyId", "consents"],
+        properties: {
+          companyId: { type: "string" },
+          consents: arrayOf(ref("ConsentRecord")),
+        },
+        additionalProperties: false,
+      },
+      ConsentGrantRequest: {
+        type: "object",
+        required: ["scope"],
+        properties: {
+          scope: { type: "string", enum: ["basic_info", "hometax", "insurance"] },
+          purpose: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+      ConsentGrantResult: {
+        type: "object",
+        required: ["consent"],
+        properties: {
+          consent: ref("ConsentRecord"),
+        },
+        additionalProperties: false,
+      },
+      ConsentRevokeResult: {
+        type: "object",
+        required: ["scope", "revoked"],
+        properties: {
+          scope: { type: "string", enum: ["basic_info", "hometax", "insurance"] },
+          revoked: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
       NotificationSettings: {
         type: "object",
         required: ["deadlineReminder", "newMatch", "quietHoursStart", "quietHoursEnd"],
@@ -1090,6 +1200,9 @@ export const appV1OpenApi = {
       ApplySheetEnvelope: envelope(ref("ApplySheet")),
       FeedbackEnvelope: envelope(ref("FeedbackResult")),
       MatchEventEnvelope: envelope(ref("MatchEventResult")),
+      ConsentListEnvelope: envelope(ref("ConsentListResult")),
+      ConsentGrantEnvelope: envelope(ref("ConsentGrantResult")),
+      ConsentRevokeEnvelope: envelope(ref("ConsentRevokeResult")),
       NotificationSettingsEnvelope: envelope(ref("NotificationSettings")),
       DeviceEnvelope: envelope(ref("DeviceResult")),
       DeleteDeviceEnvelope: envelope(ref("DeleteDeviceResult")),

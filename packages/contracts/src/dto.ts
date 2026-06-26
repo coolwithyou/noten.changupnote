@@ -14,6 +14,7 @@ export type ActionType = "progressive" | "external_link" | "apply" | "prepare" |
 export type ActionQueueKind = "input" | "acquire" | "apply" | "enrich" | "review";
 export type DocumentSource = "self" | "portal" | "cert";
 export type MatchEventKind = "surfaced" | "clicked" | "saved" | "apply_click";
+export type ConsentScope = "basic_info" | "hometax" | "insurance";
 
 export interface ActionResult<T> {
   ok: boolean;
@@ -175,6 +176,28 @@ export interface ActionQueueItem {
   urgency: "low" | "medium" | "high";
   effort: "quick" | "medium" | "long";
   score: number;
+}
+
+export interface ConsentRecordDto {
+  scope: ConsentScope;
+  purpose: string;
+  grantedAt: string;
+  revokedAt: string | null;
+}
+
+export interface ConsentListResult {
+  companyId: string;
+  consents: ConsentRecordDto[];
+}
+
+export interface ConsentGrantRequest {
+  scope: ConsentScope;
+  purpose?: string;
+}
+
+export interface ConsentRevokeResult {
+  scope: ConsentScope;
+  revoked: boolean;
 }
 
 export interface DashboardResult {
