@@ -1,4 +1,4 @@
-import type { NotificationSettingsDto } from "@/lib/server/appApi/preferencesStore";
+import type { NotificationSettingsDto } from "@cunote/contracts";
 import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { getAppPreferencesStore } from "@/lib/server/appApi/preferencesStore";
 import { requireAppSession } from "@/lib/server/auth/appSession";

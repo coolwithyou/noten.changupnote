@@ -1,13 +1,7 @@
 import { and, eq } from "drizzle-orm";
+import type { NotificationSettingsDto } from "@cunote/contracts";
 import { getCunoteDb, withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
-
-export interface NotificationSettingsDto {
-  deadlineReminder: boolean;
-  newMatch: boolean;
-  quietHoursStart: string | null;
-  quietHoursEnd: string | null;
-}
 
 export interface DeviceRegistrationInput {
   deviceId: string;

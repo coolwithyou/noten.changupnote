@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { ActionResult, ConsentRecordDto, ConsentScope } from "@cunote/contracts";
+import type { ActionResult, ConsentRecordDto, ConsentScope, NotificationSettingsDto } from "@cunote/contracts";
 import type { CompanyRecord } from "@cunote/core";
 
 interface WebCompaniesResult {
@@ -22,10 +22,19 @@ const CONSENT_LABELS: Record<ConsentScope, string> = {
 
 const CONSENT_SCOPES: ConsentScope[] = ["basic_info", "hometax", "insurance"];
 
+const NOTIFICATION_FIELDS: Array<{
+  field: keyof Pick<NotificationSettingsDto, "deadlineReminder" | "newMatch">;
+  label: string;
+}> = [
+  { field: "deadlineReminder", label: "마감 알림" },
+  { field: "newMatch", label: "새 매칭" },
+];
+
 export function CompanySettingsPanel() {
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [currentCompanyId, setCurrentCompanyId] = useState("");
   const [consents, setConsents] = useState<ConsentRecordDto[]>([]);
+  const [notifications, setNotifications] = useState<NotificationSettingsDto | null>(null);
   const [status, setStatus] = useState("불러오는 중");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -40,13 +49,15 @@ export function CompanySettingsPanel() {
   async function refreshSettings() {
     setStatus("불러오는 중");
     try {
-      const [companyResult, consentResult] = await Promise.all([
+      const [companyResult, consentResult, notificationResult] = await Promise.all([
         fetchJson<WebCompaniesResult>("/api/web/companies"),
         fetchJson<ConsentListResult>("/api/web/consents"),
+        fetchJson<NotificationSettingsDto>("/api/web/notifications"),
       ]);
       setCompanies(companyResult.companies);
       setCurrentCompanyId(companyResult.currentCompanyId);
       setConsents(consentResult.consents);
+      setNotifications(notificationResult);
       setStatus("동기화됨");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "설정을 불러오지 못했습니다.");
@@ -91,8 +102,26 @@ export function CompanySettingsPanel() {
     }
   }
 
+  async function toggleNotification(field: keyof Pick<NotificationSettingsDto, "deadlineReminder" | "newMatch">) {
+    if (!notifications) return;
+    setBusyKey(field);
+    try {
+      const next = await fetchJson<NotificationSettingsDto>("/api/web/notifications", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ [field]: !notifications[field] }),
+      });
+      setNotifications(next);
+      setStatus("동기화됨");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "알림 설정을 저장하지 못했습니다.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
   return (
-    <section className="dashboard-settings-panel" aria-label="회사 및 동의 설정">
+    <section className="dashboard-settings-panel" aria-label="회사, 동의 및 알림 설정">
       <div className="settings-block">
         <label htmlFor="company-switcher">
           회사
@@ -125,6 +154,24 @@ export function CompanySettingsPanel() {
             >
               <span>{CONSENT_LABELS[scope]}</span>
               <strong>{active ? "활성" : "미동의"}</strong>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="settings-notification-list">
+        {NOTIFICATION_FIELDS.map((item) => {
+          const active = Boolean(notifications?.[item.field]);
+          return (
+            <button
+              key={item.field}
+              type="button"
+              className={active ? "notification-toggle active" : "notification-toggle"}
+              disabled={busyKey === item.field || !notifications}
+              onClick={() => void toggleNotification(item.field)}
+            >
+              <span>{item.label}</span>
+              <strong>{active ? "켬" : "끔"}</strong>
             </button>
           );
         })}

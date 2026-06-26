@@ -41,6 +41,16 @@ expect(stats.body.ok === true, "web stats envelope ok");
 expect(typeof stats.body.data?.openCount === "number", "web stats openCount");
 checks.push("web_stats");
 
+const notifications = await fetchJson<ActionResult<{
+  deadlineReminder: boolean;
+  newMatch: boolean;
+}>>("/api/web/notifications");
+expectStatus(notifications, 200, "web notifications status");
+expect(notifications.body.ok === true, "web notifications envelope ok");
+expect(typeof notifications.body.data?.deadlineReminder === "boolean", "web notifications deadlineReminder");
+expect(typeof notifications.body.data?.newMatch === "boolean", "web notifications newMatch");
+checks.push("web_notifications");
+
 const dashboard = await fetchJson<ActionResult<{
   matches: Array<{ grantId: string; rulesetVer?: string }>;
 }>>("/api/web/dashboard");
@@ -55,6 +65,8 @@ expectStatus(dashboardHtml, 200, "web dashboard html status");
 expect(dashboardHtml.body.includes("match-feedback-controls"), "web dashboard renders match feedback controls");
 expect(dashboardHtml.body.includes("action-cta"), "web dashboard renders action queue cta");
 expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard renders next question anchor");
+expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders deadline notification toggle");
+expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 checks.push("web_dashboard_html");
 
 const webEvent = await fetchJson<ActionResult<{ event: string }>>(

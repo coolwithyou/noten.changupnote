@@ -240,6 +240,13 @@ export interface ConsentRevokeResult {
   revoked: boolean;
 }
 
+export interface NotificationSettingsDto {
+  deadlineReminder: boolean;
+  newMatch: boolean;
+  quietHoursStart: string | null;
+  quietHoursEnd: string | null;
+}
+
 export interface DashboardResult {
   company: {
     name: string | null;

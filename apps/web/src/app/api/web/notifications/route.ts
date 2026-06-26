@@ -1,5 +1,4 @@
-import type { ActionResult } from "@cunote/contracts";
-import type { NotificationSettingsDto } from "@/lib/server/appApi/preferencesStore";
+import type { ActionResult, NotificationSettingsDto } from "@cunote/contracts";
 import { NextResponse } from "next/server";
 import { getAppPreferencesStore } from "@/lib/server/appApi/preferencesStore";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";

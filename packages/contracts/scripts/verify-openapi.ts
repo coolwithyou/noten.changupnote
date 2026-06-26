@@ -159,6 +159,23 @@ function verifyServiceDtoSchemas(errors: string[]) {
   if (nullableStringFormat(applySchedule.properties.applyEnd) !== "date") {
     errors.push("ApplySchedule.applyEnd must use nullable date format.");
   }
+
+  const notificationSettings = schemas.NotificationSettings;
+  if (!isRecord(notificationSettings) || !isRecord(notificationSettings.properties)) {
+    errors.push("NotificationSettings schema is missing properties.");
+    return;
+  }
+  if (!Array.isArray(notificationSettings.required) ||
+    !notificationSettings.required.includes("deadlineReminder") ||
+    !notificationSettings.required.includes("newMatch")) {
+    errors.push("NotificationSettings must require deadlineReminder and newMatch.");
+  }
+  if (propertyType(notificationSettings.properties.deadlineReminder) !== "boolean") {
+    errors.push("NotificationSettings.deadlineReminder must be boolean.");
+  }
+  if (propertyType(notificationSettings.properties.newMatch) !== "boolean") {
+    errors.push("NotificationSettings.newMatch must be boolean.");
+  }
 }
 
 function nullableStringFormat(value: unknown): string | null {
@@ -168,4 +185,8 @@ function nullableStringFormat(value: unknown): string | null {
   return isRecord(stringVariant) && typeof stringVariant.format === "string"
     ? stringVariant.format
     : null;
+}
+
+function propertyType(value: unknown): string | null {
+  return isRecord(value) && typeof value.type === "string" ? value.type : null;
 }
