@@ -12,6 +12,8 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/next-question",
   "GET /api/web/grants/[grantId]",
   "POST /api/web/profile/field",
+  "GET /api/web/notifications",
+  "PUT /api/web/notifications",
 ] as const;
 
 export const PUBLIC_APP_ROUTES = [
