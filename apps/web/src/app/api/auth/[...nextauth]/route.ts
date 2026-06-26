@@ -1,12 +1,9 @@
-import { appNotImplemented } from "@/lib/server/appApi/envelope";
+import NextAuth from "next-auth";
+import { authOptions } from "@/lib/server/auth/options";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return appNotImplemented("NextAuth route");
-}
+const handler = NextAuth(authOptions);
 
-export async function POST() {
-  return appNotImplemented("NextAuth route");
-}
+export { handler as GET, handler as POST };

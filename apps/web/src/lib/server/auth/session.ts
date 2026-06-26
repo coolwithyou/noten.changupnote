@@ -1,3 +1,6 @@
+import { getServerSession } from "next-auth";
+import { authOptions } from "./options";
+
 export interface WebSession {
   user: {
     id: string;
@@ -33,7 +36,17 @@ export async function getOptionalWebSession(): Promise<WebSession | null> {
     };
   }
 
-  return null;
+  const session = await getServerSession(authOptions);
+  const userId = (session?.user as { id?: string } | undefined)?.id;
+  if (!session?.user || !userId) return null;
+  return {
+    user: {
+      id: userId,
+      email: session.user.email ?? null,
+      name: session.user.name ?? null,
+    },
+    provider: "nextauth",
+  };
 }
 
 export async function requireWebSession(): Promise<WebSession> {

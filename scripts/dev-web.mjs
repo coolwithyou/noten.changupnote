@@ -27,6 +27,10 @@ if (forwardedArgs.length > 0) {
 
 const child = spawn("pnpm", pnpmArgs, {
   stdio: "inherit",
+  env: {
+    ...process.env,
+    NEXTAUTH_URL: process.env.NEXTAUTH_URL ?? tunnelUrl,
+  },
 });
 
 child.on("error", (error) => {
