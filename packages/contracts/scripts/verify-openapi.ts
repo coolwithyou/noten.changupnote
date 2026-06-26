@@ -231,6 +231,19 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("MatchCard.applyEnd must use nullable date format.");
   }
 
+  const nextQuestion = schemas.NextQuestion;
+  if (!isRecord(nextQuestion) || !isRecord(nextQuestion.properties)) {
+    errors.push("NextQuestion schema is missing properties.");
+    return;
+  }
+  const inputType = nextQuestion.properties.inputType;
+  if (!isRecord(inputType) || !Array.isArray(inputType.enum) || !inputType.enum.includes("select")) {
+    errors.push("NextQuestion.inputType must include select.");
+  }
+  if (propertyType(nextQuestion.properties.options) !== "array") {
+    errors.push("NextQuestion.options must be an array.");
+  }
+
   const applySchedule = schemas.ApplySchedule;
   if (!isRecord(applySchedule) || !isRecord(applySchedule.properties)) {
     errors.push("ApplySchedule schema is missing properties.");

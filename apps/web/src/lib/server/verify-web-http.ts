@@ -264,6 +264,18 @@ expect(Array.isArray(roadmap.body.data?.roadmap), "web roadmap list");
 expect(Boolean(roadmap.body.data?.roadmap.find((entry) => entry.grantId && entry.bucket)), "web roadmap exposes nodes");
 checks.push("web_roadmap");
 
+const webNextQuestion = await fetchJson<ActionResult<{
+  inputType?: string;
+  options?: string[];
+  affectedGrantCount?: number;
+} | null>>("/api/web/next-question", {
+  headers: { cookie: selectedCompanyCookie! },
+});
+expectStatus(webNextQuestion, 200, "web next question status");
+expect(webNextQuestion.body.ok === true, "web next question envelope ok");
+expectQuestionInputOptions(webNextQuestion.body.data, "web next question options");
+checks.push("web_next_question_options");
+
 const dashboardHtml = await fetchText("/dashboard");
 expectStatus(dashboardHtml, 200, "web dashboard html status");
 expect(dashboardHtml.body.includes("match-feedback-controls"), "web dashboard renders match feedback controls");
@@ -679,6 +691,8 @@ expect(Array.isArray(appActionQueue.body.data?.actions), "app action queue list"
 checks.push("app_action_queue");
 
 const appNextQuestion = await fetchJson<ApiEnvelope<{
+  inputType?: string;
+  options?: string[];
   dimension?: string;
   affectedGrantCount?: number;
 } | null>>(`/api/app/v1/companies/${companyId}/next-question`, {
@@ -689,6 +703,7 @@ expect(
   appNextQuestion.body.data === null || typeof appNextQuestion.body.data?.affectedGrantCount === "number",
   "app next question payload",
 );
+expectQuestionInputOptions(appNextQuestion.body.data, "app next question options");
 checks.push("app_next_question");
 
 const appRoadmap = await fetchJson<ApiEnvelope<{
@@ -795,6 +810,11 @@ function expectSortedByFit(entries: Array<{ fitScore: number }>, label: string) 
   for (let index = 1; index < entries.length; index += 1) {
     expect(entries[index - 1]!.fitScore >= entries[index]!.fitScore, label);
   }
+}
+
+function expectQuestionInputOptions(question: { inputType?: string; options?: string[] } | null | undefined, label: string) {
+  if (!question || question.inputType !== "select") return;
+  expect(Array.isArray(question.options) && question.options.length > 0, label);
 }
 
 export {};

@@ -8,6 +8,26 @@ interface ProfileFieldResult {
   profile: CompanyProfile;
 }
 
+const REGION_CODES: Record<string, string> = {
+  "서울": "11",
+  "부산": "26",
+  "대구": "27",
+  "인천": "28",
+  "광주": "29",
+  "대전": "30",
+  "울산": "31",
+  "세종": "36",
+  "경기": "41",
+  "강원": "42",
+  "충북": "43",
+  "충남": "44",
+  "전북": "45",
+  "전남": "46",
+  "경북": "47",
+  "경남": "48",
+  "제주": "50",
+};
+
 export function ProgressiveQuestionCard({ question }: { question: NextQuestionDto }) {
   const router = useRouter();
   const [value, setValue] = useState(defaultValue(question));
@@ -122,5 +142,14 @@ function defaultValue(question: NextQuestionDto): string {
 function parseValue(question: NextQuestionDto, value: string): unknown {
   if (question.inputType === "number") return Number(value);
   if (question.inputType === "boolean") return value === "true";
+  if (question.dimension === "region") {
+    return {
+      code: REGION_CODES[value] ?? value,
+      label: value,
+    };
+  }
+  if (question.dimension === "industry" || question.dimension === "target_type") {
+    return [value];
+  }
   return value;
 }

@@ -173,6 +173,32 @@ const secondPage = selectMatchCards(selectableDashboard.matches, {
 assert.equal(secondPage.matches.length, 1);
 assert.notEqual(secondPage.matches[0]?.grantId, firstPage.matches[0]?.grantId);
 
+const industryQuestionGrant = normalizedGrant("industry-question", "업종 확인 지원사업", [
+  {
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    value: { regions: ["41"], labels: ["경기"], nationwide: false },
+    confidence: 0.95,
+  },
+  {
+    dimension: "industry",
+    operator: "in",
+    kind: "required",
+    value: { tags: ["바이오"] },
+    confidence: 0.9,
+  },
+]);
+const industryQuestionDashboard = buildDashboard({
+  company: { ...company, industries: [] },
+  grants: [industryQuestionGrant],
+  asOf,
+  limit: 10,
+});
+assert.equal(industryQuestionDashboard.nextQuestion?.dimension, "industry");
+assert.equal(industryQuestionDashboard.nextQuestion?.inputType, "select");
+assert.equal(industryQuestionDashboard.nextQuestion?.options?.includes("바이오"), true);
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -184,6 +210,7 @@ console.log(JSON.stringify({
     "expanded_profile_match",
     "match_selector_filter_sort",
     "match_selector_cursor",
+    "next_question_select_options",
   ],
   soon: {
     bucket: soonMatch.bucket,

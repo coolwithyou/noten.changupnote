@@ -1,5 +1,6 @@
 import type { CompanyProfile, CriterionDimension, DashboardResult, NormalizedGrant } from "@cunote/contracts";
 import { matchGrantCriteria } from "../matching/match.js";
+import { REGION_CODES } from "../kstartup/constants.js";
 import { buildActionQueue } from "./build-action-queue.js";
 import { buildRoadmap } from "./build-roadmap.js";
 import { buildTeaser } from "./build-teaser.js";
@@ -53,14 +54,18 @@ function nextQuestionFromMatches(matches: DashboardResult["matches"]): Dashboard
   const first = unknown[0];
   if (!first) return undefined;
   const sameDimension = unknown.filter((entry) => entry.trace.dimension === first.trace.dimension);
-
-  return {
+  const inputType = inputTypeForDimension(first.trace.dimension);
+  const options = optionsForDimension(first.trace.dimension);
+  const question: NonNullable<DashboardResult["nextQuestion"]> = {
     dimension: first.trace.dimension,
     prompt: `${dimensionLabel(first.trace.dimension)} 정보를 확인해 주세요.`,
-    inputType: inputTypeForDimension(first.trace.dimension),
+    inputType,
     framing: `${sameDimension.length}개 조건부 판단을 확정 또는 제외하는 데 도움이 됩니다.`,
     affectedGrantCount: new Set(sameDimension.map((entry) => entry.grantId)).size,
   };
+  if (options.length > 0) question.options = options;
+
+  return question;
 }
 
 function inputTypeForDimension(dimension: CriterionDimension): NonNullable<DashboardResult["nextQuestion"]>["inputType"] {
@@ -68,7 +73,18 @@ function inputTypeForDimension(dimension: CriterionDimension): NonNullable<Dashb
     return "number";
   }
   if (dimension === "business_status") return "boolean";
+  if (dimension === "region" || dimension === "industry" || dimension === "size" || dimension === "target_type") {
+    return "select";
+  }
   return "text";
+}
+
+function optionsForDimension(dimension: CriterionDimension): string[] {
+  if (dimension === "region") return Object.keys(REGION_CODES);
+  if (dimension === "size") return ["소상공인", "중소", "중견", "대기업"];
+  if (dimension === "industry") return ["ICT", "SW", "AI", "바이오", "제조", "콘텐츠", "패션", "해양", "기타"];
+  if (dimension === "target_type") return ["예비창업자", "개인사업자", "법인", "일반기업", "1인 창조기업", "대학", "연구기관"];
+  return [];
 }
 
 function dimensionLabel(dimension: CriterionDimension): string {
