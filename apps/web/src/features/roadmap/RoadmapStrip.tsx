@@ -13,7 +13,12 @@ export function RoadmapStrip({ nodes }: { nodes: RoadmapNode[] }) {
       <div className="roadmap-strip">
         {nodes.length > 0 ? nodes.map((node) => (
           <article key={`${node.bucket}:${node.grantId}`} className={`roadmap-node ${node.bucket}`}>
-            <span>{bucketLabel(node.bucket)}</span>
+            <div className="roadmap-node-top">
+              <span>{bucketLabel(node.bucket)}</span>
+              {node.unlock?.etaDate ? (
+                <time dateTime={node.unlock.etaDate}>{formatEtaDate(node.unlock.etaDate)}</time>
+              ) : null}
+            </div>
             <h3>{node.title}</h3>
             <p>{node.unlock?.detail ?? "현재 조건 기준으로 표시됩니다."}</p>
           </article>
@@ -28,4 +33,8 @@ function bucketLabel(bucket: RoadmapNode["bucket"]): string {
   if (bucket === "conditional") return "확인";
   if (bucket === "preparable") return "준비";
   return "곧";
+}
+
+function formatEtaDate(value: string): string {
+  return value.replaceAll("-", ".");
 }

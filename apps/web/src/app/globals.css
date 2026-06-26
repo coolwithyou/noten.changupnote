@@ -1119,6 +1119,17 @@ button:disabled {
   font-weight: 800;
 }
 
+.card-unlock {
+  display: inline-flex;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(144, 97, 15, 0.1);
+  color: var(--amber);
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .card-foot strong {
   color: var(--text);
 }
@@ -1144,14 +1155,30 @@ button:disabled {
   padding: 14px;
 }
 
-.roadmap-node > span {
+.roadmap-node-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.roadmap-node-top > span,
+.roadmap-node-top > time {
   display: inline-flex;
   border-radius: 999px;
   padding: 4px 8px;
-  background: var(--surface-muted);
-  color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+}
+
+.roadmap-node-top > span {
+  background: var(--surface-muted);
+  color: var(--muted);
+}
+
+.roadmap-node-top > time {
+  background: rgba(144, 97, 15, 0.1);
+  color: var(--amber);
 }
 
 .roadmap-node h3 {
@@ -1342,6 +1369,11 @@ button:disabled {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.trace-item .trace-unlock {
+  color: var(--amber);
+  font-weight: 800;
 }
 
 .trace-item strong,

@@ -105,6 +105,11 @@ function TraceItem({ item }: { item: RuleTraceChip }) {
       {item.companyValue || item.sourceSpan ? (
         <p>{item.companyValue ? `회사값 ${item.companyValue}` : item.sourceSpan}</p>
       ) : null}
+      {item.unlock ? (
+        <p className="trace-unlock">
+          {item.unlock.detail}{item.unlock.etaDate ? ` · ${formatEtaDate(item.unlock.etaDate)}` : ""}
+        </p>
+      ) : null}
       {item.action ? <strong>{item.action.label}</strong> : null}
     </article>
   );
@@ -164,6 +169,10 @@ function formatDateRange(start: string | null, end: string | null): string {
   if (!start) return `${end} 마감`;
   if (!end) return `${start} 시작`;
   return `${start} - ${end}`;
+}
+
+function formatEtaDate(value: string): string {
+  return value.replaceAll("-", ".");
 }
 
 function grantStatusLabel(status: ApplySheet["grant"]["status"]): string {

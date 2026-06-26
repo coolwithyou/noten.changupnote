@@ -41,6 +41,7 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
 }
 
 function OpportunityCard({ match }: { match: MatchCard }) {
+  const unlock = match.ruleTrace.find((trace) => trace.unlock)?.unlock;
   const content = (
     <>
       <div className="card-topline">
@@ -49,6 +50,11 @@ function OpportunityCard({ match }: { match: MatchCard }) {
       </div>
       <h4>{match.title}</h4>
       <p>{match.ruleTrace.slice(0, 2).map((trace) => trace.label).join(" / ") || "조건 확인 필요"}</p>
+      {unlock ? (
+        <span className="card-unlock">
+          {unlock.detail}{unlock.etaDate ? ` · ${formatEtaDate(unlock.etaDate)}` : ""}
+        </span>
+      ) : null}
       <div className="card-foot">
         <span>{match.agency ?? "기관 미확인"}</span>
         <strong>적합도 {match.fitScore}</strong>
@@ -82,4 +88,8 @@ function formatSupportAmount(amount: MatchCard["supportAmount"]): string {
   if (amount.label) return amount.label;
   if (!amount.max) return "금액 미확인";
   return `${new Intl.NumberFormat("ko-KR").format(amount.max)}원`;
+}
+
+function formatEtaDate(value: string): string {
+  return value.replaceAll("-", ".");
 }
