@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { ActionResult, CompanyProfile, MatchCard, StatsResult, TeaserRequest, TeaserResult } from "@cunote/contracts";
 
 type EntryMode = "active" | "preliminary";
@@ -25,6 +25,8 @@ const REGION_OPTIONS = [
   { code: "50", label: "제주" },
 ] as const;
 
+const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
+
 interface HomeExperienceProps {
   initialStats: StatsResult;
 }
@@ -41,6 +43,17 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const topMatches = useMemo(() => teaser?.matches.slice(0, 4) ?? [], [teaser]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("resumeCompany") !== "1") return;
+
+    const pending = readPendingTeaserRequest();
+    clearResumeFlag(params);
+    if (!pending) return;
+
+    void createCompanyAndOpenDashboard(pending);
+  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -77,15 +90,24 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
 
   async function saveAndOpenDashboard() {
     if (!lastTeaserRequest) return;
+    await createCompanyAndOpenDashboard(lastTeaserRequest);
+  }
+
+  async function createCompanyAndOpenDashboard(requestBody: TeaserRequest) {
     setIsSaving(true);
     setError(null);
     try {
       const response = await fetch("/api/web/companies", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(lastTeaserRequest),
+        body: JSON.stringify(requestBody),
       });
       const payload = await response.json() as ActionResult<{ currentCompanyId: string }>;
+      if (response.status === 401 && payload.error?.code === "auth_required") {
+        persistPendingTeaserRequest(requestBody);
+        redirectToLoginForDashboard();
+        return;
+      }
       if (!response.ok || !payload.ok || !payload.data?.currentCompanyId) {
         throw new Error(payload.error?.message ?? "기회 맵으로 이어갈 회사 프로필을 저장하지 못했습니다.");
       }
@@ -368,6 +390,37 @@ function buildPreliminaryProfile(input: {
   if (Number.isFinite(age) && age > 0) profile.founder_age = Math.floor(age);
   if (industry) profile.industries = [industry];
   return profile;
+}
+
+function persistPendingTeaserRequest(request: TeaserRequest) {
+  try {
+    window.sessionStorage.setItem(PENDING_TEASER_STORAGE_KEY, JSON.stringify(request));
+  } catch {
+    // Storage can be unavailable in private contexts; login still proceeds.
+  }
+}
+
+function readPendingTeaserRequest(): TeaserRequest | null {
+  try {
+    const raw = window.sessionStorage.getItem(PENDING_TEASER_STORAGE_KEY);
+    window.sessionStorage.removeItem(PENDING_TEASER_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as TeaserRequest : null;
+  } catch {
+    return null;
+  }
+}
+
+function redirectToLoginForDashboard() {
+  const params = new URLSearchParams({ callbackUrl: "/?resumeCompany=1" });
+  window.location.assign(`/login?${params.toString()}`);
+}
+
+function clearResumeFlag(params: URLSearchParams) {
+  params.delete("resumeCompany");
+  const query = params.toString();
+  window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
 }
 
 function profileHeadline(teaser: TeaserResult): string {
