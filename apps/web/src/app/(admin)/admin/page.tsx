@@ -1,21 +1,33 @@
 import { getOptionalAdminAccess } from "@/lib/server/auth/adminGuard";
+import {
+  getAdminFlywheelSnapshot,
+  type AdminFlywheelSnapshot,
+} from "@/lib/server/admin/flywheelStore";
 
 export const dynamic = "force-dynamic";
 
-const PLACEHOLDERS = [
+const SURFACES: Array<{
+  key: keyof AdminFlywheelSnapshot["counts"];
+  title: string;
+  body: string;
+}> = [
   {
+    key: "extractionLog",
     title: "extraction_log",
     body: "추출 이력과 confidence 리뷰 큐",
   },
   {
+    key: "feedback",
     title: "feedback",
     body: "사용자 명시 피드백과 outcome 신호",
   },
   {
+    key: "goldenSet",
     title: "golden_set",
     body: "추출/매칭 정답 기준셋",
   },
   {
+    key: "evalRuns",
     title: "eval_runs",
     body: "버전별 회귀 평가 결과",
   },
@@ -23,6 +35,7 @@ const PLACEHOLDERS = [
 
 export default async function AdminPage() {
   const access = await getOptionalAdminAccess();
+  const snapshot = access ? await loadSnapshot() : null;
 
   return (
     <main className="admin-shell">
@@ -44,15 +57,44 @@ export default async function AdminPage() {
       </section>
 
       {access ? (
-        <section className="admin-grid">
-          {PLACEHOLDERS.map((item) => (
-            <article className="admin-panel" key={item.title}>
-              <span>대기</span>
-              <h2>{item.title}</h2>
-              <p>{item.body}</p>
-            </article>
-          ))}
-        </section>
+        <>
+          <section className="admin-grid">
+            {SURFACES.map((item) => (
+              <article className="admin-panel" key={item.title}>
+                <span>{snapshot ? snapshot.counts[item.key].toLocaleString("ko-KR") : "대기"}</span>
+                <h2>{item.title}</h2>
+                <p>{item.body}</p>
+              </article>
+            ))}
+          </section>
+
+          <section className="admin-panel admin-feed">
+            <span>{snapshot ? formatTimestamp(snapshot.generatedAt) : "대기"}</span>
+            <h2>최근 플라이휠 이벤트</h2>
+            {snapshot ? (
+              <div className="admin-feed-grid">
+                <RecentList
+                  title="extraction"
+                  items={snapshot.recent.extractionLog.map((item) => `${item.status} · ${item.inputRef}`)}
+                />
+                <RecentList
+                  title="feedback"
+                  items={snapshot.recent.feedback.map((item) => `${item.type} · ${item.targetType}:${item.targetId}`)}
+                />
+                <RecentList
+                  title="golden"
+                  items={snapshot.recent.goldenSet.map((item) => `${item.kind} · ${item.goldenVer}`)}
+                />
+                <RecentList
+                  title="eval"
+                  items={snapshot.recent.evalRuns.map((item) => `${item.target} · ${item.goldenVer}`)}
+                />
+              </div>
+            ) : (
+              <p>DB 연결 전에는 카운트와 최근 항목을 대기 상태로 표시합니다.</p>
+            )}
+          </section>
+        </>
       ) : (
         <section className="admin-panel admin-denied">
           <span>403</span>
@@ -62,4 +104,37 @@ export default async function AdminPage() {
       )}
     </main>
   );
+}
+
+async function loadSnapshot(): Promise<AdminFlywheelSnapshot | null> {
+  try {
+    return await getAdminFlywheelSnapshot();
+  } catch {
+    return null;
+  }
+}
+
+function RecentList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <h3>{title}</h3>
+      {items.length > 0 ? (
+        <ul>
+          {items.slice(0, 5).map((item, index) => (
+            <li key={`${title}:${index}:${item}`}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <p>최근 항목 없음</p>
+      )}
+    </div>
+  );
+}
+
+function formatTimestamp(value: string): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "short",
+    timeStyle: "short",
+    timeZone: "Asia/Seoul",
+  }).format(new Date(value));
 }

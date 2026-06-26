@@ -1,0 +1,144 @@
+import { count, desc } from "drizzle-orm";
+import { getCunoteDb } from "@/lib/server/db/client";
+import * as schema from "@/lib/server/db/schema";
+
+export interface AdminFlywheelSnapshot {
+  generatedAt: string;
+  counts: {
+    extractionLog: number;
+    feedback: number;
+    goldenSet: number;
+    evalRuns: number;
+  };
+  recent: {
+    extractionLog: AdminExtractionLogItem[];
+    feedback: AdminFeedbackItem[];
+    goldenSet: AdminGoldenSetItem[];
+    evalRuns: AdminEvalRunItem[];
+  };
+}
+
+export interface AdminExtractionLogItem {
+  id: string;
+  grantId: string | null;
+  inputRef: string;
+  status: string;
+  confidence: number;
+  modelVer: string;
+  promptVer: string;
+  ts: string;
+}
+
+export interface AdminFeedbackItem {
+  id: string;
+  targetType: string;
+  targetId: string;
+  type: string;
+  actor: string;
+  valueKeys: string[];
+  ts: string;
+}
+
+export interface AdminGoldenSetItem {
+  id: string;
+  kind: string;
+  ref: string;
+  goldenVer: string;
+}
+
+export interface AdminEvalRunItem {
+  id: string;
+  target: string;
+  goldenVer: string;
+  metricKeys: string[];
+  ts: string;
+}
+
+export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheelSnapshot> {
+  const db = getCunoteDb();
+  const safeLimit = Math.max(1, Math.min(20, limit));
+
+  const [
+    extractionCount,
+    feedbackCount,
+    goldenCount,
+    evalCount,
+    extractionRows,
+    feedbackRows,
+    goldenRows,
+    evalRows,
+  ] = await Promise.all([
+    rowCount(db.select({ value: count() }).from(schema.extractionLog)),
+    rowCount(db.select({ value: count() }).from(schema.feedback)),
+    rowCount(db.select({ value: count() }).from(schema.goldenSet)),
+    rowCount(db.select({ value: count() }).from(schema.evalRuns)),
+    db
+      .select()
+      .from(schema.extractionLog)
+      .orderBy(desc(schema.extractionLog.ts))
+      .limit(safeLimit),
+    db
+      .select()
+      .from(schema.feedback)
+      .orderBy(desc(schema.feedback.ts))
+      .limit(safeLimit),
+    db
+      .select()
+      .from(schema.goldenSet)
+      .orderBy(desc(schema.goldenSet.id))
+      .limit(safeLimit),
+    db
+      .select()
+      .from(schema.evalRuns)
+      .orderBy(desc(schema.evalRuns.ts))
+      .limit(safeLimit),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    counts: {
+      extractionLog: extractionCount,
+      feedback: feedbackCount,
+      goldenSet: goldenCount,
+      evalRuns: evalCount,
+    },
+    recent: {
+      extractionLog: extractionRows.map((row) => ({
+        id: row.id,
+        grantId: row.grantId,
+        inputRef: row.inputRef,
+        status: row.status,
+        confidence: row.confidence,
+        modelVer: row.modelVer,
+        promptVer: row.promptVer,
+        ts: row.ts.toISOString(),
+      })),
+      feedback: feedbackRows.map((row) => ({
+        id: row.id,
+        targetType: row.targetType,
+        targetId: row.targetId,
+        type: row.type,
+        actor: row.actor,
+        valueKeys: Object.keys(row.value).sort(),
+        ts: row.ts.toISOString(),
+      })),
+      goldenSet: goldenRows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        ref: row.ref,
+        goldenVer: row.goldenVer,
+      })),
+      evalRuns: evalRows.map((row) => ({
+        id: row.id,
+        target: row.target,
+        goldenVer: row.goldenVer,
+        metricKeys: Object.keys(row.metrics).sort(),
+        ts: row.ts.toISOString(),
+      })),
+    },
+  };
+}
+
+async function rowCount(query: PromiseLike<Array<{ value: number }>>): Promise<number> {
+  return (await query)[0]?.value ?? 0;
+}

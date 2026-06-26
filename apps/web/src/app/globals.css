@@ -1372,6 +1372,7 @@ button:disabled {
 
 .admin-hero,
 .admin-grid,
+.admin-feed,
 .admin-denied {
   max-width: 1180px;
   margin-right: auto;
@@ -1428,6 +1429,37 @@ button:disabled {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
+}
+
+.admin-feed {
+  margin-top: 12px;
+}
+
+.admin-feed-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.admin-feed-grid h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+
+.admin-feed-grid ul {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-feed-grid li {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .admin-denied {
@@ -1500,6 +1532,10 @@ button:disabled {
   }
 
   .admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-feed-grid {
     grid-template-columns: 1fr;
   }
 }
