@@ -813,6 +813,66 @@
         }
       }
     },
+    "/api/app/v1/companies/{companyId}/profile/fields": {
+      "post": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "updateAppCompanyProfileFields",
+        "summary": "Persist a progressive profile-field answer.",
+        "description": "Plural path alias for mobile clients. The request currently updates one profile field per call.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileFieldUpdateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated company profile.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyProfileEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
     "/api/app/v1/companies/{companyId}/matches": {
       "get": {
         "tags": [

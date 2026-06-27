@@ -756,6 +756,24 @@ expect(appProfileField.body.data?.profile.employees_count === 12, "app profile f
 expect(appProfileField.body.data?.profile.confidence?.employees === 0.81, "app profile field persists confidence");
 checks.push("app_profile_field");
 
+const appProfileFields = await fetchJson<ApiEnvelope<{
+  profile: {
+    target_types?: string[];
+    confidence?: Record<string, number>;
+  };
+}>>(`/api/app/v1/companies/${companyId}/profile/fields`, {
+  method: "POST",
+  headers: {
+    authorization: `Bearer ${accessToken}`,
+    "content-type": "application/json",
+  },
+  body: JSON.stringify({ field: "target_type", value: ["법인"], confidence: 0.82 }),
+});
+expectStatus(appProfileFields, 200, "app profile fields status");
+expect(appProfileFields.body.data?.profile.target_types?.includes("법인") === true, "app profile fields persists target type");
+expect(appProfileFields.body.data?.profile.confidence?.target_type === 0.82, "app profile fields persists confidence");
+checks.push("app_profile_fields");
+
 const appMatches = await fetchJson<ApiEnvelope<{
   matches: Array<{ grantId: string; rulesetVer?: string }>;
 }>>(`/api/app/v1/companies/${companyId}/matches`, {

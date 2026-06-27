@@ -58,6 +58,7 @@ export const appV1OpenApiRoutePaths = [
   "/api/app/v1/companies/{companyId}/next-question",
   "/api/app/v1/companies/{companyId}/profile",
   "/api/app/v1/companies/{companyId}/profile/field",
+  "/api/app/v1/companies/{companyId}/profile/fields",
   "/api/app/v1/companies/{companyId}/roadmap",
   "/api/app/v1/companies/{companyId}/verify",
   "/api/app/v1/devices",
@@ -413,6 +414,30 @@ export const appV1OpenApi = {
         tags: ["Companies"],
         operationId: "updateAppCompanyProfileField",
         summary: "Persist a progressive profile-field answer.",
+        security: bearerSecurity,
+        parameters: [pathParam("companyId", "Company id.")],
+        requestBody: {
+          required: true,
+          content: json(ref("ProfileFieldUpdateRequest")),
+        },
+        responses: {
+          "200": {
+            description: "Updated company profile.",
+            content: json(ref("CompanyProfileEnvelope")),
+          },
+          "400": { $ref: "#/components/responses/AppError" },
+          "401": { $ref: "#/components/responses/AppError" },
+          "404": { $ref: "#/components/responses/AppError" },
+          default: { $ref: "#/components/responses/AppError" },
+        },
+      },
+    },
+    "/api/app/v1/companies/{companyId}/profile/fields": {
+      post: {
+        tags: ["Companies"],
+        operationId: "updateAppCompanyProfileFields",
+        summary: "Persist a progressive profile-field answer.",
+        description: "Plural path alias for mobile clients. The request currently updates one profile field per call.",
         security: bearerSecurity,
         parameters: [pathParam("companyId", "Company id.")],
         requestBody: {
