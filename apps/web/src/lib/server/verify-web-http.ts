@@ -319,6 +319,9 @@ expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders dead
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 expect(dashboardHtml.body.includes("회사정보 보강"), "web dashboard renders company enrichment control");
 expect(dashboardHtml.body.includes("검증"), "web dashboard renders company verification control");
+expect(dashboardHtml.body.includes("수기 프로필"), "web dashboard renders manual profile form");
+expect(dashboardHtml.body.includes("id=\"manual-target-type\""), "web dashboard renders target type input");
+expect(dashboardHtml.body.includes("기수혜 없음"), "web dashboard renders no-prior-award control");
 expect(dashboardHtml.body.includes("ineligible-disclosure"), "web dashboard renders collapsed ineligible reasons");
 checks.push("web_dashboard_html");
 

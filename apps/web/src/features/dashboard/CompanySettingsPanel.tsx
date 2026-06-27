@@ -4,10 +4,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type {
   ActionResult,
+  CompanyProfile,
   CompanyEnrichmentResult,
   CompanyVerificationResult,
   ConsentRecordDto,
   ConsentScope,
+  CriterionDimension,
   NotificationSettingsDto,
 } from "@cunote/contracts";
 import type { CompanyRecord } from "@cunote/core";
@@ -20,6 +22,22 @@ interface WebCompaniesResult {
 interface ConsentListResult {
   companyId: string;
   consents: ConsentRecordDto[];
+}
+
+interface ProfileDraft {
+  revenue: string;
+  employees: string;
+  targetType: string;
+  certifications: string;
+  ip: string;
+  priorAwards: string;
+  noPriorAwards: boolean;
+}
+
+interface ProfileFieldMutation {
+  field: CriterionDimension;
+  value: unknown;
+  confidence: number;
 }
 
 const CONSENT_LABELS: Record<ConsentScope, string> = {
@@ -38,6 +56,17 @@ const NOTIFICATION_FIELDS: Array<{
   { field: "newMatch", label: "새 매칭" },
 ];
 
+const TARGET_TYPE_OPTIONS = ["예비창업자", "개인사업자", "법인", "일반기업", "1인 창조기업", "대학", "연구기관"];
+const EMPTY_PROFILE_DRAFT: ProfileDraft = {
+  revenue: "",
+  employees: "",
+  targetType: "법인",
+  certifications: "",
+  ip: "",
+  priorAwards: "",
+  noPriorAwards: false,
+};
+
 export function CompanySettingsPanel() {
   const router = useRouter();
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
@@ -45,6 +74,7 @@ export function CompanySettingsPanel() {
   const [consents, setConsents] = useState<ConsentRecordDto[]>([]);
   const [notifications, setNotifications] = useState<NotificationSettingsDto | null>(null);
   const [bizNo, setBizNo] = useState("");
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(EMPTY_PROFILE_DRAFT);
   const [status, setStatus] = useState("불러오는 중");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -60,6 +90,10 @@ export function CompanySettingsPanel() {
     () => companies.find((company) => company.id === currentCompanyId) ?? null,
     [companies, currentCompanyId],
   );
+
+  useEffect(() => {
+    setProfileDraft(draftFromProfile(currentCompany?.profile));
+  }, [currentCompany]);
 
   async function refreshSettings() {
     setStatus("불러오는 중");
@@ -130,6 +164,36 @@ export function CompanySettingsPanel() {
       setStatus("동기화됨");
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "알림 설정을 저장하지 못했습니다.");
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  function updateDraft<K extends keyof ProfileDraft>(field: K, value: ProfileDraft[K]) {
+    setProfileDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function saveManualProfile() {
+    const updates = buildProfileUpdates(profileDraft);
+    if (updates.length === 0) {
+      setStatus("저장할 수기 정보가 없습니다.");
+      return;
+    }
+
+    setBusyKey("manual-profile");
+    try {
+      for (const update of updates) {
+        await fetchJson<{ profile: CompanyProfile }>("/api/web/profile/field", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(update),
+        });
+      }
+      await refreshSettings();
+      setStatus(`${updates.length}개 수기 정보 저장됨`);
+      router.refresh();
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "수기 정보를 저장하지 못했습니다.");
     } finally {
       setBusyKey(null);
     }
@@ -279,6 +343,98 @@ export function CompanySettingsPanel() {
       </div>
 
       <p className="settings-status">{status}</p>
+
+      <div className="settings-profile-form" aria-label="수기 프로필 입력">
+        <div className="settings-profile-heading">
+          <span>수기 프로필</span>
+          <strong>자가신고</strong>
+        </div>
+        <div className="settings-profile-grid">
+          <label htmlFor="manual-revenue">
+            매출
+            <input
+              id="manual-revenue"
+              inputMode="numeric"
+              placeholder="120000000"
+              value={profileDraft.revenue}
+              disabled={busyKey === "manual-profile"}
+              onChange={(event) => updateDraft("revenue", event.currentTarget.value.replace(/\D/g, ""))}
+            />
+          </label>
+          <label htmlFor="manual-employees">
+            고용
+            <input
+              id="manual-employees"
+              inputMode="numeric"
+              placeholder="12"
+              value={profileDraft.employees}
+              disabled={busyKey === "manual-profile"}
+              onChange={(event) => updateDraft("employees", event.currentTarget.value.replace(/\D/g, ""))}
+            />
+          </label>
+          <label htmlFor="manual-target-type">
+            신청대상
+            <select
+              id="manual-target-type"
+              value={profileDraft.targetType}
+              disabled={busyKey === "manual-profile"}
+              onChange={(event) => updateDraft("targetType", event.currentTarget.value)}
+            >
+              {TARGET_TYPE_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          </label>
+          <label htmlFor="manual-certifications">
+            인증
+            <input
+              id="manual-certifications"
+              placeholder="벤처기업, 이노비즈"
+              value={profileDraft.certifications}
+              disabled={busyKey === "manual-profile"}
+              onChange={(event) => updateDraft("certifications", event.currentTarget.value)}
+            />
+          </label>
+          <label htmlFor="manual-ip">
+            지식재산
+            <input
+              id="manual-ip"
+              placeholder="특허, 상표"
+              value={profileDraft.ip}
+              disabled={busyKey === "manual-profile"}
+              onChange={(event) => updateDraft("ip", event.currentTarget.value)}
+            />
+          </label>
+          <label htmlFor="manual-prior-awards">
+            기수혜
+            <input
+              id="manual-prior-awards"
+              placeholder="TIPS, 초기창업패키지"
+              value={profileDraft.priorAwards}
+              disabled={busyKey === "manual-profile" || profileDraft.noPriorAwards}
+              onChange={(event) => updateDraft("priorAwards", event.currentTarget.value)}
+            />
+          </label>
+          <label className="settings-profile-checkbox" htmlFor="manual-no-prior-awards">
+            <input
+              id="manual-no-prior-awards"
+              type="checkbox"
+              checked={profileDraft.noPriorAwards}
+              disabled={busyKey === "manual-profile"}
+              onChange={(event) => updateDraft("noPriorAwards", event.currentTarget.checked)}
+            />
+            <span>기수혜 없음</span>
+          </label>
+          <button
+            type="button"
+            className="settings-profile-save"
+            disabled={busyKey === "manual-profile"}
+            onClick={() => void saveManualProfile()}
+          >
+            {busyKey === "manual-profile" ? "저장 중" : "수기 정보 저장"}
+          </button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -290,4 +446,58 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
     throw new Error(payload.error?.message ?? "요청에 실패했습니다.");
   }
   return payload.data;
+}
+
+function draftFromProfile(profile: CompanyProfile | undefined): ProfileDraft {
+  if (!profile) return EMPTY_PROFILE_DRAFT;
+  const priorAwards = profile.prior_awards ?? [];
+  return {
+    revenue: numberString(profile.revenue_krw),
+    employees: numberString(profile.employees_count),
+    targetType: profile.target_types?.[0] ?? EMPTY_PROFILE_DRAFT.targetType,
+    certifications: (profile.certs ?? []).join(", "),
+    ip: (profile.ip ?? []).join(", "),
+    priorAwards: priorAwards.join(", "),
+    noPriorAwards: Array.isArray(profile.prior_awards) && priorAwards.length === 0 && typeof profile.confidence?.prior_award === "number",
+  };
+}
+
+function buildProfileUpdates(draft: ProfileDraft): ProfileFieldMutation[] {
+  const updates: ProfileFieldMutation[] = [];
+  const revenue = numberValue(draft.revenue);
+  const employees = numberValue(draft.employees);
+  const certifications = splitList(draft.certifications);
+  const ip = splitList(draft.ip);
+  const priorAwards = splitList(draft.priorAwards);
+
+  if (revenue !== null) updates.push({ field: "revenue", value: revenue, confidence: 0.78 });
+  if (employees !== null) updates.push({ field: "employees", value: employees, confidence: 0.78 });
+  if (draft.targetType) updates.push({ field: "target_type", value: [draft.targetType], confidence: 0.72 });
+  if (certifications.length > 0) updates.push({ field: "certification", value: certifications, confidence: 0.68 });
+  if (ip.length > 0) updates.push({ field: "ip", value: ip, confidence: 0.68 });
+  if (draft.noPriorAwards) {
+    updates.push({ field: "prior_award", value: [], confidence: 0.8 });
+  } else if (priorAwards.length > 0) {
+    updates.push({ field: "prior_award", value: priorAwards, confidence: 0.72 });
+  }
+
+  return updates;
+}
+
+function numberString(value: number | null | undefined): string {
+  return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+}
+
+function numberValue(value: string): number | null {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function splitList(value: string): string[] {
+  const items = value
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return [...new Set(items)];
 }
