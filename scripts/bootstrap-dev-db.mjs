@@ -36,6 +36,10 @@ const steps = [
     command: ["pnpm", "publish:bizinfo", "--", "--source=sample"],
   },
   {
+    label: "중복 공고 링크 발행",
+    command: ["pnpm", "publish:dedup"],
+  },
+  {
     label: "DB 상태 재확인",
     command: ["pnpm", "db:doctor"],
   },

@@ -22,6 +22,7 @@
     "match:live": "tsx packages/core/scripts/match-live-company.ts",
     "match:transitions:plan": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/plan-match-transitions-cli.ts",
     "openapi:export": "pnpm --filter @cunote/contracts export:openapi",
+    "publish:dedup": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/publish-dedup.ts",
     "publish:bizinfo": "tsx apps/web/src/lib/server/ingestion/publish-bizinfo.ts",
     "publish:kstartup": "tsx apps/web/src/lib/server/ingestion/publish-kstartup.ts",
     "prepare:bizinfo": "tsx packages/core/scripts/prepare-bizinfo-extract-input.ts",

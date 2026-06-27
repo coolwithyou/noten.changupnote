@@ -194,6 +194,8 @@ function nextStepsFor(input: {
       "확인 후 pnpm db:migrate 를 실행한다.",
       "pnpm seed:demo 로 데모 회사/프로필을 생성한다.",
       "pnpm publish:kstartup -- --source=sample 로 샘플 공고를 발행한다.",
+      "pnpm publish:bizinfo -- --source=sample 로 기업마당 샘플 공고를 발행한다.",
+      "pnpm publish:dedup 으로 중복 링크를 발행한다.",
       "다시 pnpm db:doctor 를 실행한다.",
     ];
   }
