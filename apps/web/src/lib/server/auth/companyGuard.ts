@@ -65,7 +65,7 @@ function requireDemoCompanyAccess(input: {
     throw new CompanyAccessForbiddenError();
   }
   return {
-    companyId: defaultCompanyId,
+    companyId,
     userId: input.userId,
     role: "owner",
     mode: "demo",
