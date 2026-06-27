@@ -302,6 +302,34 @@ export const grantCriteria = pgTable("grant_criteria", {
   reviewIdx: index("grant_criteria_review_idx").on(table.needsReview),
 }));
 
+export const grantAttachmentArchives = pgTable("grant_attachment_archives", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  source: grantSourceEnum("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  filename: text("filename").notNull(),
+  sourceUri: text("source_uri").notNull().default(""),
+  archiveUrl: text("archive_url"),
+  storageKey: text("storage_key"),
+  contentType: text("content_type"),
+  bytes: integer("bytes"),
+  sha256: text("sha256"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+  conversionStatus: text("conversion_status"),
+  markdownUrl: text("markdown_url"),
+  markdownStorageKey: text("markdown_storage_key"),
+  markdownSha256: text("markdown_sha256"),
+  markdownBytes: integer("markdown_bytes"),
+  converter: text("converter"),
+  convertedAt: timestamp("converted_at", { withTimezone: true }),
+  conversionError: text("conversion_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  sourceAttachmentIdx: uniqueIndex("grant_attachment_archives_source_attachment_idx")
+    .on(table.source, table.sourceId, table.filename, table.sourceUri),
+  sourceIdIdx: index("grant_attachment_archives_source_id_idx").on(table.source, table.sourceId),
+  shaIdx: index("grant_attachment_archives_sha_idx").on(table.sha256),
+}));
+
 export const dedupLinks = pgTable("dedup_links", {
   canonicalGrantId: uuid("canonical_grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
   memberGrantId: uuid("member_grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),

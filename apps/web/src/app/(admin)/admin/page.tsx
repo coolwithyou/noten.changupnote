@@ -50,6 +50,11 @@ const SURFACES: Array<{
     title: "grant_insight_snapshots",
     body: "지원사업 아카이브 커버리지와 운영 인사이트",
   },
+  {
+    key: "grantAttachmentArchives",
+    title: "grant_attachment_archives",
+    body: "첨부 원본 R2 보관본과 HWP Markdown 변환 상태",
+  },
 ];
 
 export default async function AdminPage() {
@@ -121,6 +126,10 @@ export default async function AdminPage() {
                 <RecentList
                   title="insights"
                   items={snapshot.recent.grantInsightSnapshots.map((item) => `${item.kind} · ${item.insightCount} signals`)}
+                />
+                <RecentList
+                  title="attachments"
+                  items={snapshot.recent.grantAttachmentArchives.map((item) => `${item.conversionStatus ?? "archived"} · ${item.filename}`)}
                 />
               </div>
             ) : (

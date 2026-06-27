@@ -15,14 +15,15 @@ import {
 import { closeCunoteDb, getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { createR2ObjectStorageFromEnv, type R2ObjectStorage } from "../storage/r2ObjectStorage";
 import {
   planGrantArchivePublication,
-  selectPublishableArchiveEntries,
   type ExistingGrantRawHash,
   type GrantArchivePlan,
 } from "./archivePlan";
 import { buildBizInfoSampleEntries } from "./bizinfoSample";
 import { publishBizInfoGrants } from "./bizinfoPublisher";
+import { archiveBizInfoProgramAttachments, type GrantAttachmentArchiveBundle } from "./grantAttachmentArchive";
 import { hashGrantRawPayload } from "./grantRawHash";
 
 const TEXT_ONLY_FALLBACK_VERSION = "bizinfo-text-only-fallback-v1";
@@ -48,10 +49,22 @@ const extractionMode = readEnum(
   ["auto", "anthropic", "text_only"],
   "auto",
 );
+const archiveAttachments = !hasFlag("skip-attachments") && (
+  hasFlag("archive-attachments") ||
+  process.env.CUNOTE_BIZINFO_ARCHIVE_ATTACHMENTS === "true" ||
+  (write && source === "live")
+);
+const convertAttachments = archiveAttachments && !hasFlag("skip-attachment-conversion") &&
+  process.env.CUNOTE_BIZINFO_ARCHIVE_CONVERT_ATTACHMENTS !== "false";
+const autoInstallPyhwp = readArg("autoInstallPyhwp") !== "false" &&
+  process.env.CUNOTE_BIZINFO_ARCHIVE_AUTO_INSTALL_PYHWP !== "false";
+const allowAttachmentFailures = hasFlag("allow-attachment-failures") ||
+  process.env.CUNOTE_BIZINFO_ARCHIVE_ALLOW_ATTACHMENT_FAILURES === "true";
 const collectedAt = dateArg(readArg("collectedAt") ?? process.env.CUNOTE_BIZINFO_ARCHIVE_COLLECTED_AT) ?? new Date();
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY?.trim() || process.env.ANTROPHIC_API_KEY?.trim();
 const anthropicModel = readArg("model") ?? process.env.ANTHROPIC_MODEL;
 const db = compareDb ? getCunoteDb() : null;
+const storage = archiveAttachments ? createR2ObjectStorageFromEnv() : null;
 
 try {
   const result = await archiveBizInfo({
@@ -65,9 +78,14 @@ try {
     skipUnchanged,
     allowTextOnlyFallback,
     extractionMode,
+    archiveAttachments,
+    convertAttachments,
+    autoInstallPyhwp,
+    allowAttachmentFailures,
     collectedAt,
     anthropicApiKey,
     anthropicModel,
+    storage,
   });
   console.log(JSON.stringify(result, null, 2));
 } finally {
@@ -85,9 +103,14 @@ interface ArchiveBizInfoInput {
   skipUnchanged: boolean;
   allowTextOnlyFallback: boolean;
   extractionMode: "auto" | "anthropic" | "text_only";
+  archiveAttachments: boolean;
+  convertAttachments: boolean;
+  autoInstallPyhwp: boolean;
+  allowAttachmentFailures: boolean;
   collectedAt: Date;
   anthropicApiKey: string | undefined;
   anthropicModel: string | undefined;
+  storage: R2ObjectStorage | null;
 }
 
 interface ArchiveBizInfoResult {
@@ -97,6 +120,8 @@ interface ArchiveBizInfoResult {
   skipUnchanged: boolean;
   extractionMode: string;
   allowTextOnlyFallback: boolean;
+  archiveAttachments: boolean;
+  convertAttachments: boolean;
   fetchedCount: number;
   selectedCount: number;
   extractionCandidateCount: number;
@@ -109,6 +134,14 @@ interface ArchiveBizInfoResult {
     skippedUnchangedCount: number;
     failureCount: number;
     failures: Array<{ sourceId: string; message: string }>;
+  };
+  attachments: {
+    archivedCount: number;
+    convertedCount: number;
+    skippedConversionCount: number;
+    attachmentRefreshCount: number;
+    failureCount: number;
+    failures: Array<{ sourceId: string; filename: string; url: string | null; message: string }>;
   };
 }
 
@@ -123,6 +156,7 @@ interface BizInfoExtractionArtifact {
     promptVer: string;
   };
   method: "anthropic" | "text_only";
+  attachments: GrantAttachmentArchiveBundle;
 }
 
 async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<ArchiveBizInfoResult> {
@@ -133,6 +167,9 @@ async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<ArchiveBizInf
   if (input.source === "live" && input.extractionMode === "text_only" && !input.allowTextOnlyFallback) {
     throw new Error("text_only fallback publish는 --allow-text-only-fallback 으로 명시해야 합니다.");
   }
+  if (input.archiveAttachments && !input.storage) {
+    throw new Error("첨부 아카이브에는 R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET/R2_BUCKET_URL 설정이 필요합니다.");
+  }
 
   const programs = input.source === "live"
     ? await readLivePrograms()
@@ -142,6 +179,7 @@ async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<ArchiveBizInf
   const existingHashes = input.db ? await readExistingGrantRawHashes(input.db, selectedPrograms) : [];
   const rawPlan = planRawPrograms(selectedPrograms, existingHashes, {
     skipUnchanged: input.skipUnchanged,
+    archiveAttachments: input.archiveAttachments,
   });
   const extractionCandidates = selectedPrograms.filter((program) =>
     rawPlan.publishableSourceIds.includes(program.pblancId)
@@ -164,7 +202,8 @@ async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<ArchiveBizInf
   const plan = planGrantArchivePublication("bizinfo", entries, existingHashes, {
     skipUnchanged: input.skipUnchanged,
   });
-  const publishableEntries = selectPublishableArchiveEntries(entries, plan);
+  const publishableEntries = selectPublishableEntries(entries, plan, rawPlan.attachmentRefreshSourceIds);
+  const adjustedPlan = adjustPlanForForcedPublish(plan, publishableEntries);
 
   if (input.write && input.db) {
     if (publishableEntries.length > 0) {
@@ -185,19 +224,21 @@ async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<ArchiveBizInf
     skipUnchanged: input.skipUnchanged,
     extractionMode: input.extractionMode,
     allowTextOnlyFallback: input.allowTextOnlyFallback,
+    archiveAttachments: input.archiveAttachments,
+    convertAttachments: input.convertAttachments,
     fetchedCount: programs.length,
     selectedCount: selectedPrograms.length,
     extractionCandidateCount: extractionCandidates.length,
     publishedCount: input.write ? publishableEntries.length : 0,
     collectedAt: input.collectedAt.toISOString(),
     plan: summarizePlan({
-      ...plan,
+      ...adjustedPlan,
       fetchedCount: selectedPrograms.length,
       newCount: rawPlan.newCount,
       changedCount: rawPlan.changedCount,
       unchangedCount: rawPlan.unchangedCount,
-      publishableCount: artifacts.length,
-      publishableSourceIds: artifacts.map((artifact) => artifact.entry.raw.source_id),
+      publishableCount: publishableEntries.length,
+      publishableSourceIds: publishableEntries.map((entry) => entry.raw.source_id),
       unchangedSourceIds: rawPlan.unchangedSourceIds,
       changedSourceIds: rawPlan.changedSourceIds,
       newSourceIds: rawPlan.newSourceIds,
@@ -209,6 +250,7 @@ async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<ArchiveBizInf
       failureCount: failures.length,
       failures,
     },
+    attachments: summarizeAttachmentArchives(artifacts, rawPlan.attachmentRefreshSourceIds.length),
   };
 }
 
@@ -236,6 +278,7 @@ async function buildBizInfoArtifact(
     return {
       entry,
       method: "text_only",
+      attachments: emptyAttachmentArchiveBundle(entry.raw.attachments ?? []),
       extraction: {
         inputRef: `bizinfo:${entry.raw.source_id}:sample`,
         output: {
@@ -250,7 +293,17 @@ async function buildBizInfoArtifact(
     };
   }
 
-  const inputDoc = buildBizInfoProgramExtractionInput(program);
+  const archivedAttachments = await archiveBizInfoProgramAttachments(program, {
+    enabled: input.archiveAttachments,
+    convertHwp: input.convertAttachments,
+    autoInstallPyhwp: input.autoInstallPyhwp,
+    allowFailures: input.allowAttachmentFailures,
+    storage: input.storage,
+    collectedAt: input.collectedAt,
+  });
+  const inputDoc = buildBizInfoProgramExtractionInput(program, {
+    attachmentMarkdowns: archivedAttachments.attachmentMarkdowns,
+  });
   const shouldUseAnthropic = input.extractionMode === "anthropic" ||
     (input.extractionMode === "auto" && Boolean(input.anthropicApiKey));
 
@@ -263,6 +316,8 @@ async function buildBizInfoArtifact(
     });
     const entry = normalizeBizInfoProgram(program, result.criteria, {
       asOf: input.collectedAt,
+      attachmentMarkdowns: archivedAttachments.attachmentMarkdowns,
+      attachments: archivedAttachments.attachments,
       collectedAt: input.collectedAt,
       model: result.model,
       requiredDocuments: result.requiredDocuments,
@@ -270,6 +325,7 @@ async function buildBizInfoArtifact(
     return {
       entry,
       method: "anthropic",
+      attachments: archivedAttachments,
       extraction: {
         inputRef: `bizinfo:${program.pblancId}:anthropic`,
         output: {
@@ -292,6 +348,8 @@ async function buildBizInfoArtifact(
   const criteria = buildTextOnlyFallbackCriteria(program, inputDoc.text);
   const entry = normalizeBizInfoProgram(program, criteria, {
     asOf: input.collectedAt,
+    attachmentMarkdowns: archivedAttachments.attachmentMarkdowns,
+    attachments: archivedAttachments.attachments,
     collectedAt: input.collectedAt,
     model: TEXT_ONLY_FALLBACK_VERSION,
     requiredDocuments: [],
@@ -299,6 +357,7 @@ async function buildBizInfoArtifact(
   return {
     entry,
     method: "text_only",
+    attachments: archivedAttachments,
     extraction: {
       inputRef: `bizinfo:${program.pblancId}:text_only`,
       output: {
@@ -343,13 +402,14 @@ function buildTextOnlyFallbackCriteria(program: BizInfoProgram, text: string): G
 async function readExistingGrantRawHashes(
   db: CunoteDb,
   programs: BizInfoProgram[],
-): Promise<ExistingGrantRawHash[]> {
+): Promise<ExistingBizInfoRawState[]> {
   const sourceIds = [...new Set(programs.map((program) => program.pblancId))];
   if (sourceIds.length === 0) return [];
   const rows = await db
     .select({
       sourceId: schema.grantRaw.sourceId,
       rawHash: schema.grantRaw.rawHash,
+      attachments: schema.grantRaw.attachments,
     })
     .from(schema.grantRaw)
     .where(and(
@@ -359,20 +419,26 @@ async function readExistingGrantRawHashes(
   return rows;
 }
 
+interface ExistingBizInfoRawState extends ExistingGrantRawHash {
+  attachments: Array<Record<string, unknown>> | null;
+}
+
 function planRawPrograms(
   programs: BizInfoProgram[],
-  existingHashes: ExistingGrantRawHash[],
-  options: { skipUnchanged: boolean },
+  existingHashes: ExistingBizInfoRawState[],
+  options: { skipUnchanged: boolean; archiveAttachments: boolean },
 ): Pick<
   GrantArchivePlan,
   "newCount" | "changedCount" | "unchangedCount" | "publishableCount" |
   "newSourceIds" | "changedSourceIds" | "unchangedSourceIds" | "publishableSourceIds"
-> {
+> & { attachmentRefreshSourceIds: string[] } {
   const existingBySourceId = new Map(existingHashes.map((row) => [row.sourceId, row.rawHash]));
+  const existingStateBySourceId = new Map(existingHashes.map((row) => [row.sourceId, row]));
   const newSourceIds: string[] = [];
   const changedSourceIds: string[] = [];
   const unchangedSourceIds: string[] = [];
   const publishableSourceIds: string[] = [];
+  const attachmentRefreshSourceIds: string[] = [];
 
   for (const program of programs) {
     const hash = hashGrantRawPayload(program);
@@ -382,7 +448,12 @@ function planRawPrograms(
     if (!isKnown) newSourceIds.push(program.pblancId);
     if (isKnown && !isUnchanged) changedSourceIds.push(program.pblancId);
     if (isUnchanged) unchangedSourceIds.push(program.pblancId);
-    if (!options.skipUnchanged || !isUnchanged) publishableSourceIds.push(program.pblancId);
+    const needsAttachmentRefresh = options.archiveAttachments &&
+      needsAttachmentArchive(program, existingStateBySourceId.get(program.pblancId));
+    if (needsAttachmentRefresh) attachmentRefreshSourceIds.push(program.pblancId);
+    if (!options.skipUnchanged || !isUnchanged || needsAttachmentRefresh) {
+      publishableSourceIds.push(program.pblancId);
+    }
   }
 
   return {
@@ -394,6 +465,87 @@ function planRawPrograms(
     changedSourceIds,
     unchangedSourceIds,
     publishableSourceIds,
+    attachmentRefreshSourceIds,
+  };
+}
+
+function needsAttachmentArchive(program: BizInfoProgram, existing: ExistingBizInfoRawState | undefined): boolean {
+  const sourceAttachments = buildBizInfoProgramExtractionInput(program).metadata.attachments
+    .filter((attachment) => attachment.url);
+  if (sourceAttachments.length === 0) return false;
+  const existingAttachments = existing?.attachments ?? [];
+  if (existingAttachments.length === 0) return true;
+
+  return sourceAttachments.some((attachment) => {
+    const filename = cleanText(attachment.filename);
+    const url = cleanText(attachment.url);
+    const match = existingAttachments.find((row) => {
+      const value = row as Record<string, unknown>;
+      return cleanText(value.filename as string | undefined) === filename &&
+        (
+          cleanText(value.source_uri as string | undefined) === url ||
+          cleanText(value.url as string | undefined) === url ||
+          cleanText(value.archive_url as string | undefined) === url
+        );
+    });
+    if (!match) return true;
+    const value = match as Record<string, unknown>;
+    return !cleanText(value.archive_url as string | undefined) && !cleanText(value.storage_key as string | undefined);
+  });
+}
+
+function selectPublishableEntries(
+  entries: Array<NormalizedGrant<BizInfoProgram>>,
+  plan: Pick<GrantArchivePlan, "publishableSourceIds">,
+  forcedSourceIds: string[],
+): Array<NormalizedGrant<BizInfoProgram>> {
+  const publishable = new Set([...plan.publishableSourceIds, ...forcedSourceIds]);
+  return entries.filter((entry) => publishable.has(entry.raw.source_id));
+}
+
+function adjustPlanForForcedPublish(
+  plan: GrantArchivePlan,
+  publishableEntries: Array<NormalizedGrant<BizInfoProgram>>,
+): GrantArchivePlan {
+  const publishableSourceIds = publishableEntries.map((entry) => entry.raw.source_id);
+  return {
+    ...plan,
+    publishableCount: publishableSourceIds.length,
+    publishableCriteriaCount: publishableEntries.reduce((sum, entry) => sum + entry.criteria.length, 0),
+    publishableSourceIds,
+  };
+}
+
+function summarizeAttachmentArchives(
+  artifacts: BizInfoExtractionArtifact[],
+  attachmentRefreshCount: number,
+): ArchiveBizInfoResult["attachments"] {
+  return {
+    archivedCount: artifacts.reduce((sum, artifact) => sum + artifact.attachments.archivedCount, 0),
+    convertedCount: artifacts.reduce((sum, artifact) => sum + artifact.attachments.convertedCount, 0),
+    skippedConversionCount: artifacts.reduce((sum, artifact) => sum + artifact.attachments.skippedConversionCount, 0),
+    attachmentRefreshCount,
+    failureCount: artifacts.reduce((sum, artifact) => sum + artifact.attachments.failureCount, 0),
+    failures: artifacts.flatMap((artifact) =>
+      artifact.attachments.failures.map((failure) => ({
+        sourceId: artifact.entry.raw.source_id,
+        ...failure,
+      }))
+    ),
+  };
+}
+
+function emptyAttachmentArchiveBundle(
+  attachments: NonNullable<NormalizedGrant<BizInfoProgram>["raw"]["attachments"]>,
+): GrantAttachmentArchiveBundle {
+  return {
+    attachments,
+    attachmentMarkdowns: [],
+    archivedCount: 0,
+    convertedCount: 0,
+    skippedConversionCount: 0,
+    failureCount: 0,
+    failures: [],
   };
 }
 
@@ -526,13 +678,20 @@ Options:
   --publish-unchanged
   --extraction=auto|anthropic|text_only
   --allow-text-only-fallback
+  --archive-attachments
+  --skip-attachments
+  --skip-attachment-conversion
+  --allow-attachment-failures
+  --autoInstallPyhwp=false
   --model=claude...
   --collectedAt=2026-06-27T00:00:00Z
 
 Environment:
   BIZINFO_SERVICE_KEY
   ANTHROPIC_API_KEY
+  R2_ACCOUNT_ID/R2_ACCESS_KEY_ID/R2_SECRET_ACCESS_KEY/R2_BUCKET/R2_BUCKET_URL
   CUNOTE_BIZINFO_ARCHIVE_SOURCE=sample
   CUNOTE_BIZINFO_ARCHIVE_WRITE=true
+  CUNOTE_BIZINFO_ARCHIVE_ATTACHMENTS=true
 `);
 }

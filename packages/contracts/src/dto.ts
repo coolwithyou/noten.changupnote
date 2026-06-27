@@ -197,6 +197,8 @@ export interface SourceAttachment {
   filename: string;
   url: string | null;
   sourceUri?: string | null;
+  archiveUrl?: string | null;
+  markdownUrl?: string | null;
 }
 
 export interface NextQuestionDto {

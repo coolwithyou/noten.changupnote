@@ -77,6 +77,21 @@ assert.match(extractionInput.text, /source_field: bsnsSumryCn/);
 assert.match(extractionInput.text, /모집대상/);
 assert.match(extractionInput.text, /재무제표/);
 
+const multiAttachmentInput = buildBizInfoProgramExtractionInput({
+  pblancId: "PBLN_MULTI",
+  pblancNm: "첨부 다건 공고",
+  fileNm: "신청서.hwp@규정.zip",
+  flpthNm: "/file/a@/file/b",
+});
+assert.deepEqual(
+  multiAttachmentInput.metadata.attachments.map((attachment) => attachment.filename),
+  ["신청서.hwp", "규정.zip"],
+);
+assert.deepEqual(
+  multiAttachmentInput.metadata.attachments.map((attachment) => attachment.url),
+  ["https://www.bizinfo.go.kr/file/a", "https://www.bizinfo.go.kr/file/b"],
+);
+
 const llmToolSchema = buildBizInfoCriteriaToolSchema().input_schema;
 assert.deepEqual(llmToolSchema.required, ["criteria", "required_documents"]);
 

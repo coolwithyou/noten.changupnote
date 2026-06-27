@@ -189,6 +189,22 @@ export interface GrantRaw<TPayload = unknown> {
     filename: string;
     url?: string | null;
     source_uri?: string | null;
+    archive_url?: string | null;
+    storage_key?: string | null;
+    content_type?: string | null;
+    bytes?: number | null;
+    sha256?: string | null;
+    fetched_at?: string | null;
+    conversion?: {
+      status: "converted" | "skipped" | "failed";
+      markdown_url?: string | null;
+      markdown_storage_key?: string | null;
+      markdown_sha256?: string | null;
+      markdown_bytes?: number | null;
+      converter?: string | null;
+      converted_at?: string | null;
+      error?: string | null;
+    };
   }> | null;
   raw_hash?: string;
   collected_at?: string;

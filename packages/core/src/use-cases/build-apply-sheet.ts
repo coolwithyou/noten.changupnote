@@ -92,8 +92,10 @@ function normalizeSourceAttachments(
     if (!filename) return [];
     return [{
       filename,
-      url: cleanText(attachment.url) ?? null,
+      url: cleanText(attachment.archive_url) ?? cleanText(attachment.url) ?? null,
       ...(attachment.source_uri ? { sourceUri: attachment.source_uri } : {}),
+      ...(attachment.archive_url ? { archiveUrl: attachment.archive_url } : {}),
+      ...(attachment.conversion?.markdown_url ? { markdownUrl: attachment.conversion.markdown_url } : {}),
     }];
   });
 }
