@@ -75,7 +75,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
           options.input.text.slice(0, 12000),
         ].join("\n"),
       }],
-      tools: [criteriaToolSchema()],
+      tools: [buildBizInfoCriteriaToolSchema()],
       tool_choice: { type: "tool", name: "emit_grant_criteria" },
     }),
   });
@@ -170,7 +170,7 @@ function normalizeCriterionValue(
   return objectValue;
 }
 
-function criteriaToolSchema() {
+export function buildBizInfoCriteriaToolSchema() {
   return {
     name: "emit_grant_criteria",
     description: "기업마당 공고 자격조건 추출 결과를 반환한다.",
@@ -213,7 +213,7 @@ function criteriaToolSchema() {
           },
         },
       },
-      required: ["criteria"],
+      required: ["criteria", "required_documents"],
     },
   };
 }

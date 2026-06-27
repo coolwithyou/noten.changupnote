@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   assertBizInfoApiResponse,
+  buildBizInfoCriteriaToolSchema,
   buildBizInfoProgramExtractionInput,
   buildBizInfoUrl,
   htmlToText,
@@ -76,6 +77,9 @@ assert.match(extractionInput.text, /source_field: bsnsSumryCn/);
 assert.match(extractionInput.text, /모집대상/);
 assert.match(extractionInput.text, /재무제표/);
 
+const llmToolSchema = buildBizInfoCriteriaToolSchema().input_schema;
+assert.deepEqual(llmToolSchema.required, ["criteria", "required_documents"]);
+
 const llmPayload = {
   criteria: [{
     dimension: "region",
@@ -108,6 +112,7 @@ assert.equal(llmCriteria.length, 2);
 assert.deepEqual(validateGrantCriteriaContract(llmCriteria), []);
 const llmRequiredDocuments = normalizeBizInfoLlmRequiredDocuments(llmPayload);
 assert.deepEqual(llmRequiredDocuments.map((document) => document.name), ["사업계획서"]);
+assert.deepEqual(normalizeBizInfoLlmRequiredDocuments({ criteria: [], required_documents: [] }), []);
 const firstLlmCriterion = llmCriteria[0];
 assert.ok(firstLlmCriterion);
 const invalidCriteria = validateGrantCriteriaContract([{
@@ -145,6 +150,7 @@ console.log(JSON.stringify({
     "program",
     "event",
     "extraction_input",
+    "llm_tool_schema",
     "llm_criteria",
     "llm_required_documents",
     "criteria_contract",
