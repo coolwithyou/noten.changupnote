@@ -31,7 +31,11 @@ const checks: Array<{
   },
   {
     file: "apps/web/src/lib/server/serviceData.ts",
-    patterns: ["userId?: string", "saveMatchState", "userId: input.userId"],
+    patterns: ["userId?: string", "refreshMatchStates", "userId: input.userId"],
+  },
+  {
+    file: "apps/web/src/lib/server/matches/matchStateRefresh.ts",
+    patterns: ["repositories.matches.saveMatchState", "userId ? { userId }", "write: boolean"],
   },
   {
     file: "apps/web/src/app/api/web/dashboard/route.ts",
