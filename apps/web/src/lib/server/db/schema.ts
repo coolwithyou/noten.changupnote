@@ -89,6 +89,7 @@ export const users = pgTable("users", {
   name: text("name"),
   emailVerified: timestamp("email_verified", { withTimezone: true }),
   image: text("image"),
+  passwordHash: text("password_hash"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   emailIdx: uniqueIndex("users_email_idx").on(table.email),

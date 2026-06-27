@@ -36,6 +36,13 @@
       "when": 1782526593741,
       "tag": "0004_company_role_admin",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1782542205589,
+      "tag": "0005_certain_korg",
+      "breakpoints": true
     }
   ]
 }
