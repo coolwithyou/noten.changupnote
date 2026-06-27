@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { Grant, GrantCriterion, GrantRaw, GrantSource, NormalizedGrant } from "@cunote/contracts";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
+import { hashGrantRawPayload } from "./grantRawHash";
 
 export interface NormalizedGrantPublishPlan {
   source: GrantSource;
@@ -27,7 +27,7 @@ export function planNormalizedGrantPublication<TPayload>(
     rawCount: entries.length,
     grantCount: entries.length,
     criteriaCount: entries.reduce((sum, entry) => sum + entry.criteria.length, 0),
-    rawHashes: entries.map((entry) => rawPayloadHash(entry.raw.payload)),
+    rawHashes: entries.map((entry) => hashGrantRawPayload(entry.raw.payload)),
   };
 }
 
@@ -52,7 +52,7 @@ export async function publishNormalizedGrants<TPayload>(
           sourceId: entry.raw.source_id,
           payload: entry.raw.payload as unknown as Record<string, unknown>,
           attachments: rawAttachments(entry.raw.attachments),
-          rawHash: rawPayloadHash(entry.raw.payload),
+          rawHash: hashGrantRawPayload(entry.raw.payload),
           collectedAt,
           status: "published",
         })
@@ -61,7 +61,7 @@ export async function publishNormalizedGrants<TPayload>(
           set: {
             payload: entry.raw.payload as unknown as Record<string, unknown>,
             attachments: rawAttachments(entry.raw.attachments),
-            rawHash: rawPayloadHash(entry.raw.payload),
+            rawHash: hashGrantRawPayload(entry.raw.payload),
             collectedAt,
             status: "published",
           },
@@ -181,23 +181,6 @@ function rawAttachments(
 ): Array<Record<string, unknown>> | null {
   if (!value || value.length === 0) return null;
   return value as Array<Record<string, unknown>>;
-}
-
-function rawPayloadHash(payload: unknown): string {
-  return createHash("sha256").update(stableJsonStringify(payload)).digest("hex");
-}
-
-function stableJsonStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (value instanceof Date) return JSON.stringify(value.toISOString());
-  if (Array.isArray(value)) return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
-
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
-    .join(",")}}`;
 }
 
 function assertEntriesUseSource<TPayload>(

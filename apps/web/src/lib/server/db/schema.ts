@@ -392,6 +392,19 @@ export const evalRuns = pgTable("eval_runs", {
   targetVerIdx: index("eval_runs_target_ver_idx").on(table.target, table.goldenVer),
 }));
 
+export const grantInsightSnapshots = pgTable("grant_insight_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kind: text("kind").notNull(),
+  windowStart: timestamp("window_start", { withTimezone: true }),
+  windowEnd: timestamp("window_end", { withTimezone: true }),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow().notNull(),
+  metrics: jsonb("metrics").$type<Record<string, number>>().notNull(),
+  dimensions: jsonb("dimensions").$type<Record<string, unknown>>().notNull(),
+  insights: jsonb("insights").$type<Array<Record<string, unknown>>>().notNull(),
+}, (table) => ({
+  kindGeneratedIdx: index("grant_insight_snapshots_kind_generated_idx").on(table.kind, table.generatedAt),
+}));
+
 export const versions = pgTable("versions", {
   id: uuid("id").defaultRandom().primaryKey(),
   type: versionTypeEnum("type").notNull(),
