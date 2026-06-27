@@ -6,6 +6,7 @@ import type {
   ProfileCopyField,
   RequiredDocument,
   RuleTraceChip,
+  SourceAttachment,
   SupportAmount,
 } from "@cunote/contracts";
 import { ApplyLink } from "./ApplyLink";
@@ -78,7 +79,7 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
           items={sheet.needsCheck}
           emptyText="추가 입력이 필요한 조건이 없습니다."
         />
-        <DocumentSection documents={sheet.documents} />
+        <DocumentSection documents={sheet.documents} sourceAttachments={sheet.sourceAttachments} />
       </section>
     </main>
   );
@@ -200,7 +201,13 @@ function TraceItem({ item }: { item: RuleTraceChip }) {
   );
 }
 
-function DocumentSection({ documents }: { documents: RequiredDocument[] }) {
+function DocumentSection({
+  documents,
+  sourceAttachments,
+}: {
+  documents: RequiredDocument[];
+  sourceAttachments: SourceAttachment[];
+}) {
   return (
     <section className="apply-panel documents-panel">
       <div className="panel-heading">
@@ -219,7 +226,21 @@ function DocumentSection({ documents }: { documents: RequiredDocument[] }) {
             <strong>{document.fromTextOnly ? "원문 확인" : sourceLabel(document.source)}</strong>
           </article>
         ))}
-        {documents.length === 0 ? (
+        {sourceAttachments.map((attachment) => (
+          <article className="document-item" key={`${attachment.filename}-${attachment.url ?? attachment.sourceUri ?? "file"}`}>
+            <div>
+              <span>첨부</span>
+              <h3>{attachment.filename}</h3>
+              {attachment.sourceUri && attachment.sourceUri !== attachment.url ? <p>{attachment.sourceUri}</p> : null}
+            </div>
+            {attachment.url ? (
+              <a href={attachment.url} target="_blank" rel="noreferrer">열기</a>
+            ) : (
+              <strong>원문 확인</strong>
+            )}
+          </article>
+        ))}
+        {documents.length === 0 && sourceAttachments.length === 0 ? (
           <p className="panel-empty">공식 공고문에서 필요 서류가 명확히 추출되지 않았습니다.</p>
         ) : null}
       </div>

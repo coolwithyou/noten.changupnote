@@ -7,6 +7,7 @@ import type {
   ProfileCopyField,
   RequiredDocument,
   RuleTraceChip,
+  SourceAttachment,
 } from "@cunote/contracts";
 import {
   normalizeRequiredDocuments,
@@ -44,6 +45,7 @@ export function buildApplySheet<TPayload>({
     });
 
   const documents = [...normalizeRequiredDocuments(grant), ...textOnlyDocuments];
+  const sourceAttachments = normalizeSourceAttachments(entry.item.raw.attachments);
   const satisfied = chips.filter((chip) => chip.checklistSection === "satisfied");
   const needsCheck = chips.filter((chip) => chip.checklistSection === "needs_check");
   const applicationPrepInput = {
@@ -70,6 +72,7 @@ export function buildApplySheet<TPayload>({
     satisfied,
     needsCheck,
     documents,
+    sourceAttachments,
     applicationPrep: buildApplicationPrep(applicationPrepInput),
     applyMethod: summarizeApplyMethod(grant.apply_method),
     deepLink: grant.url ?? null,
@@ -79,6 +82,20 @@ export function buildApplySheet<TPayload>({
       dDay: daysUntil(grant.apply_end ?? null, asOf),
     },
   };
+}
+
+function normalizeSourceAttachments(
+  attachments: NormalizedGrant["raw"]["attachments"] | undefined | null,
+): SourceAttachment[] {
+  return (attachments ?? []).flatMap((attachment) => {
+    const filename = cleanText(attachment.filename);
+    if (!filename) return [];
+    return [{
+      filename,
+      url: cleanText(attachment.url) ?? null,
+      ...(attachment.source_uri ? { sourceUri: attachment.source_uri } : {}),
+    }];
+  });
 }
 
 function buildApplicationPrep(input: {

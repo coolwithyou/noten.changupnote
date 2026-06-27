@@ -2390,6 +2390,39 @@
         },
         "additionalProperties": false
       },
+      "SourceAttachment": {
+        "type": "object",
+        "required": [
+          "filename",
+          "url"
+        ],
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sourceUri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "ProfileCopyField": {
         "type": "object",
         "required": [
@@ -2471,6 +2504,7 @@
           "satisfied",
           "needsCheck",
           "documents",
+          "sourceAttachments",
           "applicationPrep",
           "applyMethod",
           "deepLink",
@@ -2496,6 +2530,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RequiredDocument"
+            }
+          },
+          "sourceAttachments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceAttachment"
             }
           },
           "applicationPrep": {

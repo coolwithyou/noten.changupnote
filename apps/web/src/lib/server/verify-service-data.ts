@@ -45,6 +45,10 @@ assert.deepEqual(
   bizInfoApplySheet.documents.map((document) => document.name),
   ["신청서", "사업자등록증", "재무제표"],
 );
+assert.deepEqual(
+  bizInfoApplySheet.sourceAttachments.map((attachment) => attachment.filename),
+  ["사업계획서.hwp"],
+);
 
 console.log(JSON.stringify({
   ok: true,
@@ -53,6 +57,7 @@ console.log(JSON.stringify({
     "service_grants_bizinfo_sample",
     "service_dashboard_bizinfo_match",
     "service_bizinfo_apply_documents",
+    "service_bizinfo_apply_attachments",
   ],
   grants: grants.map((entry) => ({
     source: entry.grant.source,
@@ -64,5 +69,6 @@ console.log(JSON.stringify({
   },
   bizInfoApplySheet: {
     documents: bizInfoApplySheet.documents.map((document) => document.name),
+    sourceAttachments: bizInfoApplySheet.sourceAttachments.map((attachment) => attachment.filename),
   },
 }, null, 2));

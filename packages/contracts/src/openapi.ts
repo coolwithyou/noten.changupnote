@@ -1042,6 +1042,16 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      SourceAttachment: {
+        type: "object",
+        required: ["filename", "url"],
+        properties: {
+          filename: { type: "string" },
+          url: nullable({ type: "string" }),
+          sourceUri: nullable({ type: "string" }),
+        },
+        additionalProperties: false,
+      },
       ProfileCopyField: {
         type: "object",
         required: ["label", "value", "source"],
@@ -1079,6 +1089,7 @@ export const appV1OpenApi = {
           "satisfied",
           "needsCheck",
           "documents",
+          "sourceAttachments",
           "applicationPrep",
           "applyMethod",
           "deepLink",
@@ -1089,6 +1100,7 @@ export const appV1OpenApi = {
           satisfied: arrayOf(ref("RuleTraceChip")),
           needsCheck: arrayOf(ref("RuleTraceChip")),
           documents: arrayOf(ref("RequiredDocument")),
+          sourceAttachments: arrayOf(ref("SourceAttachment")),
           applicationPrep: ref("ApplicationPrep"),
           applyMethod: nullable({ type: "string" }),
           deepLink: nullable({ type: "string" }),

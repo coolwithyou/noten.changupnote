@@ -143,6 +143,7 @@ export interface ApplySheet {
   satisfied: RuleTraceChip[];
   needsCheck: RuleTraceChip[];
   documents: RequiredDocument[];
+  sourceAttachments: SourceAttachment[];
   applicationPrep: ApplicationPrep;
   applyMethod: string | null;
   deepLink: string | null;
@@ -190,6 +191,12 @@ export interface RequiredDocument {
   fromTextOnly?: boolean;
   sourceSpan?: string;
   note?: string;
+}
+
+export interface SourceAttachment {
+  filename: string;
+  url: string | null;
+  sourceUri?: string | null;
 }
 
 export interface NextQuestionDto {
