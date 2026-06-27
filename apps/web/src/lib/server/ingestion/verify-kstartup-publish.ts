@@ -30,9 +30,34 @@ assert.ok(
   plan.rawHashes.every((hash) => /^[a-f0-9]{64}$/.test(hash)),
   "raw hashes should be sha256 hex strings",
 );
+const firstEntry = entries[0];
+assert.ok(firstEntry, "sample fixture should include at least one entry");
+assert.equal(
+  planKStartupPublication([firstEntry]).rawHashes[0],
+  planKStartupPublication([{
+    ...firstEntry,
+    raw: {
+      ...firstEntry.raw,
+      payload: reverseObjectKeys(firstEntry.raw.payload),
+    },
+  }]).rawHashes[0],
+  "raw hash should not depend on object key order",
+);
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["raw_hash", "grant_count", "criteria_count"],
+  checked: ["raw_hash", "raw_hash_stable_key_order", "grant_count", "criteria_count"],
   ...plan,
 }, null, 2));
+
+function reverseObjectKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(reverseObjectKeys) as T;
+  if (!value || typeof value !== "object") return value;
+
+  return Object.keys(value as Record<string, unknown>)
+    .reverse()
+    .reduce<Record<string, unknown>>((result, key) => {
+      result[key] = reverseObjectKeys((value as Record<string, unknown>)[key]);
+      return result;
+    }, {}) as T;
+}
