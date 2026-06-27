@@ -1,6 +1,6 @@
 "use client";
 
-import type { MatchEventRequest } from "@cunote/contracts";
+import { recordWebMatchEvent } from "@/lib/client/matchEvents";
 
 interface ApplyLinkProps {
   href: string;
@@ -9,23 +9,7 @@ interface ApplyLinkProps {
 
 export function ApplyLink({ href, grantId }: ApplyLinkProps) {
   function recordApplyClick() {
-    const endpoint = `/api/web/matches/${encodeURIComponent(grantId)}/events`;
-    const body: MatchEventRequest = { event: "apply_click" };
-    const payload = JSON.stringify(body);
-
-    if (navigator.sendBeacon) {
-      const blob = new Blob([payload], { type: "application/json" });
-      if (navigator.sendBeacon(endpoint, blob)) return;
-    }
-
-    void fetch(endpoint, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: payload,
-      keepalive: true,
-    }).catch(() => {
-      // Link navigation should not depend on analytics persistence.
-    });
+    recordWebMatchEvent({ grantId, event: "apply_click" });
   }
 
   return (

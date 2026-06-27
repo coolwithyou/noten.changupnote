@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ActionResult, MatchCard, OpportunityBucket } from "@cunote/contracts";
+import { recordWebMatchEvent } from "@/lib/client/matchEvents";
 import { MatchFeedbackControls } from "./MatchFeedbackControls";
 
 type MatchStatusFilter = "all" | "eligible" | "conditional" | "ineligible" | "now" | "soon" | "preparable";
@@ -226,7 +227,16 @@ function OpportunityCard({ match }: { match: MatchCard }) {
   return (
     <article className="opportunity-card">
       {match.detailUrl ? (
-        <a className="opportunity-card-link" href={match.detailUrl} aria-label={`${match.title} 신청 준비 시트 보기`}>
+        <a
+          className="opportunity-card-link"
+          href={match.detailUrl}
+          aria-label={`${match.title} 신청 준비 시트 보기`}
+          onClick={() => recordWebMatchEvent({
+            grantId: match.grantId,
+            event: "clicked",
+            rulesetVer: match.rulesetVer,
+          })}
+        >
           {content}
         </a>
       ) : (
