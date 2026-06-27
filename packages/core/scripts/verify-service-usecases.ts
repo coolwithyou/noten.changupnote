@@ -127,6 +127,11 @@ assert.ok(
   sheet.applicationPrep.profileCopyFields.some((field) => field.label === "소재지" && field.value === "경기"),
   "apply sheet should expose copyable company profile fields",
 );
+assert.equal(
+  sheet.applicationPrep.profileCopyFields.some((field) => field.value.includes("null")),
+  false,
+  "apply sheet should not expose null values as copyable text",
+);
 assert.ok(
   sheet.applicationPrep.planDraftPrompts.some((prompt) => prompt.evidence.includes("경기 대상 - 귀사 경기")),
   "apply sheet should expose business-plan prompt evidence",

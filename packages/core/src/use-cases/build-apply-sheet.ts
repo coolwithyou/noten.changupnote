@@ -115,11 +115,11 @@ function buildProfileCopyFields(
   pushCompany("기업명", company?.name);
   pushCompany("소재지", company?.region?.label ?? company?.region?.code);
   pushCompany("창업 상태", company?.is_preliminary ? "예비창업" : formatBizAge(company?.biz_age_months));
-  pushCompany("대표자 나이", company?.founder_age === undefined ? null : `${company.founder_age}세`);
+  pushCompany("대표자 나이", company?.founder_age === null || company?.founder_age === undefined ? null : `${company.founder_age}세`);
   pushCompany("업종/분야", company?.industries?.join(", "));
   pushCompany("기업규모", company?.size ?? null);
   pushCompany("매출", formatKrw(company?.revenue_krw));
-  pushCompany("상시근로자 수", company?.employees_count === undefined ? null : `${company.employees_count}명`);
+  pushCompany("상시근로자 수", company?.employees_count === null || company?.employees_count === undefined ? null : `${company.employees_count}명`);
   pushCompany("인증/특허", [...(company?.certs ?? []), ...(company?.ip ?? [])].join(", "));
   pushCompany("신청대상 유형", company?.target_types?.join(", "));
 
