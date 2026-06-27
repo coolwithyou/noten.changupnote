@@ -325,6 +325,7 @@ expect(dashboardHtml.body.includes("id=\"match-sort\""), "web dashboard renders 
 expect(dashboardHtml.body.includes("action-cta"), "web dashboard renders action queue cta");
 expect(dashboardHtml.body.includes("id=\"next-question\""), "web dashboard renders next question anchor");
 expect(dashboardHtml.body.includes("id=\"company-settings\""), "web dashboard renders company settings anchor");
+expect(dashboardHtml.body.includes("변경 알림"), "web dashboard renders notification feed");
 expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders deadline notification toggle");
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 expect(dashboardHtml.body.includes("회사정보 보강"), "web dashboard renders company enrichment control");

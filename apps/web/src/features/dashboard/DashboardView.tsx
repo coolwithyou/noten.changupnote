@@ -1,11 +1,18 @@
-import type { DashboardResult } from "@cunote/contracts";
+import type { DashboardResult, NotificationFeedResult } from "@cunote/contracts";
 import { ActionQueuePanel } from "@/features/action-queue/ActionQueuePanel";
 import { CompanySettingsPanel } from "@/features/dashboard/CompanySettingsPanel";
+import { NotificationFeedPanel } from "@/features/dashboard/NotificationFeedPanel";
 import { ProgressiveQuestionCard } from "@/features/dashboard/ProgressiveQuestionCard";
 import { OpportunityMap } from "@/features/opportunity-map/OpportunityMap";
 import { RoadmapStrip } from "@/features/roadmap/RoadmapStrip";
 
-export function DashboardView({ dashboard }: { dashboard: DashboardResult }) {
+export function DashboardView({
+  dashboard,
+  notificationFeed,
+}: {
+  dashboard: DashboardResult;
+  notificationFeed: NotificationFeedResult;
+}) {
   return (
     <main className="dashboard-shell">
       <header className="dashboard-nav">
@@ -41,7 +48,10 @@ export function DashboardView({ dashboard }: { dashboard: DashboardResult }) {
       {dashboard.nextQuestion ? <ProgressiveQuestionCard question={dashboard.nextQuestion} /> : null}
 
       <section className="dashboard-grid">
-        <ActionQueuePanel actions={dashboard.actionQueue} />
+        <div className="dashboard-sidebar-stack">
+          <NotificationFeedPanel feed={notificationFeed} />
+          <ActionQueuePanel actions={dashboard.actionQueue} />
+        </div>
         <OpportunityMap matches={dashboard.matches} />
       </section>
 

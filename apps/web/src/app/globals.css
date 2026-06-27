@@ -1215,6 +1215,11 @@ button:disabled {
   padding: 18px;
 }
 
+.dashboard-sidebar-stack {
+  display: grid;
+  gap: 18px;
+}
+
 .panel-heading {
   margin-bottom: 14px;
 }
@@ -1303,6 +1308,86 @@ button:disabled {
   font-size: 13px;
   font-weight: 800;
   text-decoration: none;
+}
+
+.notification-feed-panel time {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.notification-feed-list {
+  display: grid;
+  gap: 10px;
+}
+
+.notification-feed-item {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  padding: 14px;
+  text-decoration: none;
+}
+
+.notification-feed-item.high {
+  border-color: rgba(183, 61, 61, 0.34);
+}
+
+.notification-feed-item.medium {
+  border-color: rgba(33, 92, 168, 0.3);
+}
+
+.notification-feed-item:hover {
+  border-color: rgba(33, 92, 168, 0.42);
+  box-shadow: 0 12px 26px rgba(17, 25, 39, 0.08);
+}
+
+.notification-feed-top,
+.notification-feed-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notification-feed-top span {
+  display: inline-flex;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.notification-feed-top strong {
+  color: var(--blue);
+  font-size: 12px;
+}
+
+.notification-feed-item h3 {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.notification-feed-item p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notification-feed-meta {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .opportunity-controls {
