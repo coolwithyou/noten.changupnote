@@ -12,9 +12,19 @@ import {
 
 loadMonorepoEnv();
 
+if (hasFlag("help")) {
+  console.log([
+    "Usage: pnpm publish:dedup -- [--dry-run] [--limit=500] [--minScore=0.82] [--asOf=2026-06-27T00:00:00.000Z]",
+    "",
+    "Reads active grants as of --asOf, plans cross-source dedup links, and persists them unless --dry-run is set.",
+  ].join("\n"));
+  process.exit(0);
+}
+
 const dryRun = hasFlag("dry-run") || process.env.CUNOTE_DEDUP_DRY_RUN === "true";
 const limit = boundedInteger(readArg("limit") ?? process.env.CUNOTE_DEDUP_LIMIT, 500, 1, 2_000);
 const minScore = optionalNumber(readArg("minScore") ?? process.env.CUNOTE_DEDUP_MIN_SCORE);
+const asOf = dateArg(readArg("asOf") ?? process.env.CUNOTE_DEDUP_AS_OF) ?? new Date();
 const options = dedupOptions(minScore);
 const db = getCunoteDb();
 
@@ -23,13 +33,14 @@ try {
     dialect: "drizzle",
     client: db,
   });
-  const entries = await repositories.grants.listActiveGrants({ limit });
+  const entries = await repositories.grants.listActiveGrants({ limit, asOf });
   const candidates = findGrantDedupCandidates(entries, options);
   const plan = planDedupLinkPublication(candidates);
 
   if (dryRun) {
     console.log(JSON.stringify({
       dryRun: true,
+      asOf: asOf.toISOString(),
       activeGrantCount: entries.length,
       minScore: options.minScore ?? null,
       ...plan,
@@ -38,6 +49,7 @@ try {
     const result = await publishDedupLinks(db, candidates);
     console.log(JSON.stringify({
       dryRun: false,
+      asOf: asOf.toISOString(),
       activeGrantCount: entries.length,
       minScore: options.minScore ?? null,
       ...result,
@@ -82,4 +94,11 @@ function optionalNumber(value: string | undefined): number | undefined {
     throw new Error(`Invalid minScore: ${value}. Use 0..1.`);
   }
   return parsed;
+}
+
+function dateArg(value: string | undefined): Date | undefined {
+  if (!value) return undefined;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid date: ${value}`);
+  return date;
 }
