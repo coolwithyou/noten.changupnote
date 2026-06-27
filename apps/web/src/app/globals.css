@@ -2304,7 +2304,8 @@ button:disabled {
 }
 
 .trace-item strong,
-.document-item strong {
+.document-item strong,
+.document-item a {
   color: var(--blue);
   font-size: 13px;
 }
@@ -2316,9 +2317,12 @@ button:disabled {
   gap: 12px;
 }
 
-.document-item strong {
+.document-item strong,
+.document-item a {
   flex: 0 0 auto;
   color: var(--amber);
+  font-weight: 800;
+  text-decoration: none;
 }
 
 .admin-shell {
