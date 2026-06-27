@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>창업노트 — 대시보드 레퍼런스 (액션 큐 + 기회 맵)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.5.0/dist/tabler-icons.min.css">
+<style>
+  :root{
+    --bg:#0d1016; --panel:#11151c; --card:#161b24; --card2:#141821; --chip:#1b212c;
+    --line:#262c38; --t1:#e8eaee; --t2:#9aa1ad; --t3:#6b7280;
+    --green:#4ade80; --green-bd:#2f7d4f; --green-bg:#13251a;
+    --amber:#e0a83a; --amber-bd:#7a5e23; --amber-bg:#241d10;
+    --blue:#5b9bf0; --blue-bd:#2f4a73; --blue-bg:#141d2b;
+    --red:#ef6b6b; --red-bg:#251316; --red-bd:#6b2b2f;
+    --teal-bg:#12302a; --teal-t:#5dcaa5; --purple-bg:#201d39; --purple-t:#a79fef; --tan-bg:#2a2620; --tan-t:#c9b48a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--t1);font-family:Pretendard,-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;padding:26px}
+  .wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:22px}
+  /* header */
+  .head{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 20px;flex-wrap:wrap}
+  .avatar{width:40px;height:40px;border-radius:11px;background:var(--blue-bg);color:var(--blue);display:flex;align-items:center;justify-content:center;font-size:20px}
+  .hname{font-size:16px;font-weight:600} .hsub{font-size:13px;color:var(--t2)}
+  .gtrack{display:flex;align-items:center;gap:7px;margin-left:auto}
+  .gdot{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;background:var(--chip);color:var(--t3)}
+  .gdot.done{background:var(--green-bg);color:var(--green)} .gdot.cur{background:var(--blue-bg);color:var(--blue);outline:2px solid var(--blue-bd);outline-offset:2px}
+  .gsep{width:14px;height:2px;background:var(--line)}
+  .glab{font-size:11px;color:var(--t3);margin-left:3px}
+  .stat{display:flex;gap:18px;font-size:13px;color:var(--t2)}
+  .stat b{color:var(--t1)}
+  /* section */
+  .sec{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px 22px}
+  .sectitle{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;margin-bottom:14px}
+  .sectitle .sub{font-size:13px;color:var(--t3);font-weight:400}
+  /* action queue */
+  .act{display:flex;align-items:flex-start;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:13px;padding:13px 15px;margin-bottom:9px}
+  .act.urgent{border-color:var(--red-bd)}
+  .act-ico{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+  .act-t{font-size:14.5px;font-weight:600}
+  .act-tag{font-size:11px;font-weight:600;padding:2px 8px;border-radius:7px;margin-left:7px;vertical-align:middle}
+  .act-why{font-size:13px;color:var(--t2);margin-top:3px}
+  .act-where{font-size:12.5px;color:var(--t3);margin-top:4px}
+  .act-where i{font-size:14px;vertical-align:-2px}
+  .act-cta{font-size:13px;font-weight:600;white-space:nowrap;align-self:center}
+  /* opportunity map */
+  .bucket{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--t2);margin:6px 0 12px}
+  .bucket .dot{width:9px;height:9px;border-radius:50%}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:15px;padding:16px;display:flex;flex-direction:column;gap:11px}
+  .card.elig{border:1.5px solid var(--green-bd)} .card.cond{border:1.5px dashed var(--amber-bd)} .card.lock{background:var(--card2)}
+  .top{display:flex;justify-content:space-between;align-items:center}
+  .chip{font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:8px}
+  .badge{font-size:12.5px;font-weight:600;padding:4px 10px;border-radius:8px;display:inline-flex;align-items:center;gap:5px}
+  .badge i{font-size:14px}
+  .title{font-size:16px;font-weight:600;line-height:1.4;letter-spacing:-.01em}
+  .meta{font-size:12.5px;color:var(--t2)}
+  .row{display:flex;align-items:center;gap:8px;font-size:13.5px;color:var(--t2)}
+  .row i{font-size:17px;width:17px;text-align:center}
+  .row.ok i{color:var(--green)} .row.warn i{color:var(--amber)} .row.lk i{color:var(--blue)}
+  .rewlbl{font-size:11.5px;color:var(--t3);margin-top:3px;margin-bottom:-3px}
+  .rew{display:flex;flex-wrap:wrap;gap:5px}
+  .rew-item{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:4px 8px;border-radius:7px;background:var(--chip);border:1px solid var(--line);color:var(--t1)}
+  .rew-item i{font-size:14px;color:var(--t2)} .rew-item b{font-weight:600} .rew-item .c{font-size:10.5px;color:var(--t3)}
+  .hook{font-size:12.5px;padding:8px 10px;border-radius:8px;display:flex;align-items:center;gap:6px;line-height:1.4}
+  .hook i{font-size:15px}
+  .hook.a{background:var(--amber-bg);color:var(--amber)} .hook.b{background:var(--blue-bg);color:var(--blue)}
+  .foot{display:flex;align-items:center;gap:11px;font-size:12.5px;color:var(--t3);padding-top:10px;border-top:1px solid var(--line)}
+  .foot i{font-size:15px;vertical-align:-2px;margin-right:2px}
+  .cta{margin-left:auto;font-weight:600}
+  .cta.g{color:var(--green)} .cta.a{color:var(--amber)} .cta.b{color:var(--blue)}
+  .trust{font-size:11.5px;color:var(--t3);display:flex;align-items:center;gap:5px;margin-top:4px}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}.gtrack{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="head">
+    <div class="avatar"><i class="ti ti-building"></i></div>
+    <div>
+      <div class="hname">(가칭)테크스타트</div>
+      <div class="hsub">경기 · 업력 2년 2개월 · 대표 35세 · ICT/SW</div>
+    </div>
+    <div class="gtrack">
+      <div class="gdot done"><i class="ti ti-check"></i></div><div class="gsep"></div>
+      <div class="gdot cur"><i class="ti ti-businessplan"></i></div><div class="gsep"></div>
+      <div class="gdot"><i class="ti ti-lock"></i></div><div class="gsep"></div>
+      <div class="gdot"><i class="ti ti-lock"></i></div>
+      <span class="glab">예비 · <b style="color:var(--blue)">Seed</b> · A · B</span>
+    </div>
+  </div>
+
+  <div class="sec">
+    <div class="sectitle"><i class="ti ti-compass" style="color:var(--blue)"></i>다음 할 일 <span class="sub">· 레버리지·긴급순</span></div>
+    <div class="act">
+      <div class="act-ico" style="background:var(--amber-bg);color:var(--amber)"><i class="ti ti-wand"></i></div>
+      <div style="flex:1"><div class="act-t">업종 입력하기 <span class="act-tag" style="background:var(--green-bg);color:var(--green)">1분</span></div>
+      <div class="act-why">지원사업 <b style="color:var(--t1)">3건 즉시 활성화</b> · 최대 1.2억</div></div>
+      <div class="act-cta" style="color:var(--amber)">입력 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></div>
+    </div>
+    <div class="act urgent">
+      <div class="act-ico" style="background:var(--red-bg);color:var(--red)"><i class="ti ti-flame"></i></div>
+      <div style="flex:1"><div class="act-t">스타트업 테크 브릿지 신청 <span class="act-tag" style="background:var(--red-bg);color:var(--red)">마감 D-7</span></div>
+      <div class="act-why">이미 적격 · 필수서류 2종 중 <b style="color:var(--t1)">2종 준비됨</b></div>
+      <div class="act-where"><i class="ti ti-external-link"></i> 접수: 경기 데이터플랫폼</div></div>
+      <div class="act-cta" style="color:var(--red)">신청 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></div>
+    </div>
+    <div class="act">
+      <div class="act-ico" style="background:var(--blue-bg);color:var(--blue)"><i class="ti ti-certificate"></i></div>
+      <div style="flex:1"><div class="act-t">벤처확인 취득하기 <span class="act-tag" style="background:var(--blue-bg);color:var(--blue)">+5건 해금</span></div>
+      <div class="act-why">R&amp;D·스케일업 전용 사업 <b style="color:var(--t1)">5건이 잠금 해제</b></div>
+      <div class="act-where"><i class="ti ti-building-bank"></i> 발급: 벤처확인종합관리시스템</div></div>
+      <div class="act-cta" style="color:var(--blue)">발급처 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></div>
+    </div>
+    <div class="act">
+      <div class="act-ico" style="background:var(--chip);color:var(--t2)"><i class="ti ti-file-upload"></i></div>
+      <div style="flex:1"><div class="act-t">사업자등록증 업로드 <span class="act-tag" style="background:var(--green-bg);color:var(--green)">30초</span></div>
+      <div class="act-why">프로필 자동완성 · 매칭 정확도↑ · 신청서류 재사용</div></div>
+      <div class="act-cta" style="color:var(--t2)">업로드 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></div>
+    </div>
+    <div class="trust"><i class="ti ti-shield-check"></i> 모든 안내는 공고 원문·자격 판정에서 계산됩니다.</div>
+  </div>
+
+  <div class="sec">
+    <div class="sectitle"><i class="ti ti-layout-grid" style="color:var(--green)"></i>기회 맵 <span class="sub">· 적격 63 · 조건부 88 · 부적격 64</span></div>
+
+    <div class="bucket"><span class="dot" style="background:var(--green)"></span><b style="color:var(--green)">지금 적격</b> · 바로 신청 가능 (2)</div>
+    <div class="grid">
+      <div class="card elig">
+        <div class="top"><span class="chip" style="background:var(--teal-bg);color:var(--teal-t)">행사·네트워크</span><span class="badge" style="background:var(--green-bg);color:var(--green)"><i class="ti ti-check"></i>적격</span></div>
+        <div class="title">스타트업 테크 브릿지 참여기업 모집</div>
+        <div class="meta">필수 조건 <span style="color:var(--green);font-weight:600">3/3 충족</span></div>
+        <div class="row ok"><i class="ti ti-map-pin"></i>지역 · 경기 충족</div>
+        <div class="row ok"><i class="ti ti-businessplan"></i>업력 7년 이내 · 예비 허용</div>
+        <div class="row ok"><i class="ti ti-user"></i>대표 35세 · 허용 구간</div>
+        <div class="rewlbl">받을 수 있는 것 · 선정 시</div>
+        <div class="rew"><span class="rew-item"><i class="ti ti-messages"></i>멘토링</span><span class="rew-item"><i class="ti ti-users-group"></i>네트워킹</span><span class="rew-item"><i class="ti ti-trending-up"></i>IR·투자연계</span></div>
+        <div class="foot"><span><i class="ti ti-clock"></i>D-7</span><span>전국</span><span class="cta g">바로 신청 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></span></div>
+      </div>
+      <div class="card elig">
+        <div class="top"><span class="chip" style="background:var(--purple-bg);color:var(--purple-t)">멘토링·교육</span><span class="badge" style="background:var(--green-bg);color:var(--green)"><i class="ti ti-check"></i>적격</span></div>
+        <div class="title">기보 벤처캠프 19기 참여기업 모집</div>
+        <div class="meta">필수 조건 <span style="color:var(--green);font-weight:600">3/3 충족</span></div>
+        <div class="row ok"><i class="ti ti-map-pin"></i>지역 · 전국</div>
+        <div class="row ok"><i class="ti ti-businessplan"></i>업력 3년 이내 충족</div>
+        <div class="row ok"><i class="ti ti-user"></i>대표 35세 · 허용 구간</div>
+        <div class="rewlbl">받을 수 있는 것 · 선정 시</div>
+        <div class="rew"><span class="rew-item"><i class="ti ti-coins"></i>사업자금<span class="c">선정시</span></span><span class="rew-item"><i class="ti ti-message-circle"></i>컨설팅</span><span class="rew-item"><i class="ti ti-school"></i>교육</span></div>
+        <div class="foot"><span><i class="ti ti-clock"></i>D-15</span><span>전국</span><span class="cta g">바로 신청 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></span></div>
+      </div>
+      <div></div>
+    </div>
+
+    <div class="bucket"><span class="dot" style="background:var(--amber)"></span><b style="color:var(--amber)">곧 적격 · 준비하면 적격</b> · 한 가지만 채우면 활성화 (2)</div>
+    <div class="grid">
+      <div class="card cond">
+        <div class="top"><span class="chip" style="background:var(--purple-bg);color:var(--purple-t)">사업화</span><span class="badge" style="background:var(--amber-bg);color:var(--amber)"><i class="ti ti-help-circle"></i>확인 필요</span></div>
+        <div class="title">디지털 창업기업 사업화 지원</div>
+        <div class="meta">필수 조건 <span style="color:var(--amber);font-weight:600">2/3 · 1개 미확인</span></div>
+        <div class="row ok"><i class="ti ti-map-pin"></i>지역 · 전국 충족</div>
+        <div class="row ok"><i class="ti ti-businessplan"></i>업력 10년 이내 충족</div>
+        <div class="row warn"><i class="ti ti-help-circle"></i>업종 · 확인 필요</div>
+        <div class="rewlbl">받을 수 있는 것</div>
+        <div class="rew"><span class="rew-item"><i class="ti ti-coins"></i>사업화자금 <b>최대 5천만</b><span class="c">최대</span></span><span class="rew-item"><i class="ti ti-message-circle"></i>컨설팅</span><span class="rew-item"><i class="ti ti-speakerphone"></i>마케팅</span></div>
+        <div class="hook a"><i class="ti ti-wand"></i>업종 입력 시 확정 — 최대 5천만 원</div>
+        <div class="foot"><span><i class="ti ti-clock"></i>D-12</span><span>전국</span><span class="cta a">정보 입력 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></span></div>
+      </div>
+      <div class="card lock">
+        <div class="top"><span class="chip" style="background:var(--tan-bg);color:var(--tan-t)">기술개발 R&amp;D</span><span class="badge" style="background:var(--blue-bg);color:var(--blue)"><i class="ti ti-lock"></i>준비하면 적격</span></div>
+        <div class="title">벤처기업 전용 기술개발 지원</div>
+        <div class="meta">필수 조건 <span style="color:var(--t1);font-weight:600">2/3 · 1개 준비 필요</span></div>
+        <div class="row ok"><i class="ti ti-map-pin"></i>지역 · 전국 충족</div>
+        <div class="row ok"><i class="ti ti-businessplan"></i>업력 7년 이내 충족</div>
+        <div class="row lk"><i class="ti ti-lock"></i>벤처확인 · 미보유</div>
+        <div class="rewlbl">받을 수 있는 것 · 선정 시 · 자부담 30%</div>
+        <div class="rew"><span class="rew-item"><i class="ti ti-coins"></i>R&amp;D 자금<span class="c">선정시</span></span><span class="rew-item"><i class="ti ti-tools"></i>시제품</span><span class="rew-item"><i class="ti ti-certificate"></i>인증지원</span></div>
+        <div class="hook b"><i class="ti ti-route"></i>벤처확인 취득 시 적격 — 로드맵에 추가</div>
+        <div class="foot"><span><i class="ti ti-clock"></i>D-20</span><span>전국</span><span class="cta b">준비 시작 <i class="ti ti-arrow-up-right" style="font-size:13px"></i></span></div>
+      </div>
+      <div></div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

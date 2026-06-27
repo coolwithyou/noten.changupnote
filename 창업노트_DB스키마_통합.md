@@ -26,12 +26,12 @@ reference: industry_taxonomy · region_hierarchy · size_thresholds · source_cu
 
 ## 3. 공고 (정규화 grant = 계약)
 **grant_raw** `id pk · source(kstartup|bizinfo|bizinfo_event) · source_id · payload jsonb · attachments jsonb(R2 ref) · raw_hash · collected_at · status(fetched|converted|extracted|normalized|published|failed)` (uniq: source+source_id)
-**grants** `id pk · source · source_id · title · url · agency_관할 · agency_수행 · category_대 · category_중 · apply_start · apply_end · apply_method · support_amount jsonb · status(upcoming|open|closed) · f_regions[] · f_industries[] · f_biz_age_min/max_months · f_sizes[] · f_founder_traits[] · f_required_certs[] · embedding vector · overall_confidence · model_ver · prompt_ver · updated_at` (uniq: source+source_id; idx: status, f_regions, embedding)
+**grants** `id pk · source · source_id · title · url · agency_관할 · agency_수행 · category_대 · category_중 · apply_start · apply_end · apply_method · support_amount jsonb · required_documents jsonb(신청 메타, 매칭 비대상 — `[{name,required,source,source_span}]`) · status(upcoming|open|closed) · f_regions[] · f_industries[] · f_biz_age_min/max_months · f_sizes[] · f_founder_traits[] · f_required_certs[] · embedding vector · overall_confidence · model_ver · prompt_ver · updated_at` (uniq: source+source_id; idx: status, f_regions, embedding)
 **grant_criteria** `id pk · grant_id fk · dimension · operator(in|not_in|lte|gte|between|exists|text_only) · value jsonb · kind(required|preferred|exclusion) · weight · confidence · source_span · raw_text · needs_review bool` (idx: grant_id)
 **dedup_links** `canonical_grant_id fk · member_grant_id fk · score · confirmed bool`
 
 ## 4. 매칭
-**match_state** (현재상태, upsert) `company_id fk · grant_id fk · eligibility(eligible|conditional|ineligible) · match_score · fit/comp/value 분해 · rule_trace jsonb · match_confidence · ruleset_ver · scoring_ver · updated_at` (pk: company_id+grant_id)
+**match_state** (현재상태, upsert) `company_id fk · grant_id fk · eligibility(eligible|conditional|ineligible) · match_score · fit/comp/value 분해 · rule_trace jsonb · match_confidence · eligible_from · eligible_until (시간 전이 사전계산 — 살아있는 월드) · ruleset_ver · scoring_ver · updated_at` (pk: company_id+grant_id; idx: eligible_from, eligible_until)
 **match_events** (이력, append) `id pk · company_id · grant_id · event(surfaced|clicked|saved|apply_click) · ruleset_ver · ts`
 **feedback** `id pk · target_type(extraction|match) · target_id · type(implicit|explicit_relevant|explicit_irrelevant|outcome) · value jsonb · actor(user|reviewer) · ts`
 
