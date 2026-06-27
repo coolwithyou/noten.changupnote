@@ -196,6 +196,16 @@ expect(webNotificationUpdate.body.data?.newMatch === false, "web notification up
 expect(webNotificationUpdate.body.data?.quietHoursEnd === "08:00", "web notification update quietHoursEnd");
 checks.push("web_notification_update");
 
+const webNotificationFeed = await fetchJson<ActionResult<{
+  generatedAt: string;
+  notifications: Array<{ id: string; kind: string; priority: string; target: string }>;
+}>>("/api/web/notification-feed");
+expectStatus(webNotificationFeed, 200, "web notification feed status");
+expect(webNotificationFeed.body.ok === true, "web notification feed envelope ok");
+expect(typeof webNotificationFeed.body.data?.generatedAt === "string", "web notification feed generatedAt");
+expect(Array.isArray(webNotificationFeed.body.data?.notifications), "web notification feed list");
+checks.push("web_notification_feed");
+
 const webCompanies = await fetchJson<ActionResult<{
   currentCompanyId: string;
   companies: Array<{ id: string }>;
@@ -534,6 +544,10 @@ expect(
   Boolean(appOpenApi.body.paths?.["/api/app/v1/companies/{companyId}/matches"]),
   "app openapi exposes company matches",
 );
+expect(
+  Boolean(appOpenApi.body.paths?.["/api/app/v1/companies/{companyId}/notifications"]),
+  "app openapi exposes company notifications",
+);
 checks.push("app_openapi");
 
 const appTeaser = await fetchJson<ApiEnvelope<{
@@ -809,6 +823,17 @@ expectStatus(appActionQueue, 200, "app action queue status");
 expect(Array.isArray(appActionQueue.body.data?.actions), "app action queue list");
 expectActionQueueEnrich(appActionQueue.body.data?.actions, "app action queue enrich");
 checks.push("app_action_queue");
+
+const appNotificationFeed = await fetchJson<ApiEnvelope<{
+  generatedAt: string;
+  notifications: Array<{ id: string; kind: string; priority: string; target: string }>;
+}>>(`/api/app/v1/companies/${companyId}/notifications`, {
+  headers: { authorization: `Bearer ${accessToken}` },
+});
+expectStatus(appNotificationFeed, 200, "app notification feed status");
+expect(typeof appNotificationFeed.body.data?.generatedAt === "string", "app notification feed generatedAt");
+expect(Array.isArray(appNotificationFeed.body.data?.notifications), "app notification feed list");
+checks.push("app_notification_feed");
 
 const appNextQuestion = await fetchJson<ApiEnvelope<{
   inputType?: string;

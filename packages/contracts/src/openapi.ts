@@ -56,6 +56,7 @@ export const appV1OpenApiRoutePaths = [
   "/api/app/v1/companies/{companyId}/enrich",
   "/api/app/v1/companies/{companyId}/matches",
   "/api/app/v1/companies/{companyId}/next-question",
+  "/api/app/v1/companies/{companyId}/notifications",
   "/api/app/v1/companies/{companyId}/profile",
   "/api/app/v1/companies/{companyId}/profile/field",
   "/api/app/v1/companies/{companyId}/profile/fields",
@@ -514,6 +515,23 @@ export const appV1OpenApi = {
           "200": {
             description: "Next question, or null when none is useful.",
             content: json(ref("NextQuestionEnvelope")),
+          },
+          "401": { $ref: "#/components/responses/AppError" },
+          default: { $ref: "#/components/responses/AppError" },
+        },
+      },
+    },
+    "/api/app/v1/companies/{companyId}/notifications": {
+      get: {
+        tags: ["Notifications"],
+        operationId: "listAppCompanyNotifications",
+        summary: "Fetch notification feed items derived from current matches.",
+        security: bearerSecurity,
+        parameters: [pathParam("companyId", "Company id.")],
+        responses: {
+          "200": {
+            description: "Notification feed.",
+            content: json(ref("NotificationFeedEnvelope")),
           },
           "401": { $ref: "#/components/responses/AppError" },
           default: { $ref: "#/components/responses/AppError" },
@@ -1447,6 +1465,35 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      NotificationItem: {
+        type: "object",
+        required: ["id", "kind", "title", "body", "priority", "target", "rulesetVer"],
+        properties: {
+          id: { type: "string" },
+          kind: {
+            type: "string",
+            enum: ["deadline", "new_match", "soon_eligible", "needs_input"],
+          },
+          title: { type: "string" },
+          body: { type: "string" },
+          priority: { type: "string", enum: ["low", "medium", "high"] },
+          target: { type: "string" },
+          grantId: { type: "string" },
+          dDay: nullable({ type: "integer" }),
+          etaDate: nullable({ type: "string" }),
+          rulesetVer: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+      NotificationFeedResult: {
+        type: "object",
+        required: ["generatedAt", "notifications"],
+        properties: {
+          generatedAt: { type: "string" },
+          notifications: arrayOf(ref("NotificationItem")),
+        },
+        additionalProperties: false,
+      },
       NotificationSettings: {
         type: "object",
         required: ["deadlineReminder", "newMatch", "quietHoursStart", "quietHoursEnd"],
@@ -1502,6 +1549,7 @@ export const appV1OpenApi = {
       ConsentListEnvelope: envelope(ref("ConsentListResult")),
       ConsentGrantEnvelope: envelope(ref("ConsentGrantResult")),
       ConsentRevokeEnvelope: envelope(ref("ConsentRevokeResult")),
+      NotificationFeedEnvelope: envelope(ref("NotificationFeedResult")),
       NotificationSettingsEnvelope: envelope(ref("NotificationSettings")),
       DeviceEnvelope: envelope(ref("DeviceResult")),
       DeleteDeviceEnvelope: envelope(ref("DeleteDeviceResult")),

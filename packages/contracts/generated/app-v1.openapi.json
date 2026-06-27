@@ -1012,6 +1012,49 @@
         }
       }
     },
+    "/api/app/v1/companies/{companyId}/notifications": {
+      "get": {
+        "tags": [
+          "Notifications"
+        ],
+        "operationId": "listAppCompanyNotifications",
+        "summary": "Fetch notification feed items derived from current matches.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Notification feed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationFeedEnvelope"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
     "/api/app/v1/companies/{companyId}/roadmap": {
       "get": {
         "tags": [
@@ -3403,6 +3446,95 @@
         },
         "additionalProperties": false
       },
+      "NotificationItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "body",
+          "priority",
+          "target",
+          "rulesetVer"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "deadline",
+              "new_match",
+              "soon_eligible",
+              "needs_input"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "target": {
+            "type": "string"
+          },
+          "grantId": {
+            "type": "string"
+          },
+          "dDay": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "etaDate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rulesetVer": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationFeedResult": {
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "notifications"
+        ],
+        "properties": {
+          "generatedAt": {
+            "type": "string"
+          },
+          "notifications": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationItem"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "NotificationSettings": {
         "type": "object",
         "required": [
@@ -3786,6 +3918,24 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/ConsentRevokeResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationFeedEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NotificationFeedResult"
           },
           "meta": {
             "$ref": "#/components/schemas/ApiMeta"

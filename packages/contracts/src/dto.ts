@@ -18,6 +18,8 @@ export type MatchEventKind = "surfaced" | "clicked" | "saved" | "apply_click";
 export type FeedbackKind = "saved" | "dismissed" | "wrong" | "applied" | "note";
 export type ConsentScope = "basic_info" | "hometax" | "insurance";
 export type CompanyRole = "owner" | "admin" | "member" | "viewer";
+export type NotificationKind = "deadline" | "new_match" | "soon_eligible" | "needs_input";
+export type NotificationPriority = "low" | "medium" | "high";
 
 export interface ActionResult<T> {
   ok: boolean;
@@ -331,6 +333,24 @@ export interface NotificationSettingsDto {
   newMatch: boolean;
   quietHoursStart: string | null;
   quietHoursEnd: string | null;
+}
+
+export interface NotificationItem {
+  id: string;
+  kind: NotificationKind;
+  title: string;
+  body: string;
+  priority: NotificationPriority;
+  target: string;
+  grantId?: string;
+  dDay?: number | null;
+  etaDate?: string | null;
+  rulesetVer: string;
+}
+
+export interface NotificationFeedResult {
+  generatedAt: string;
+  notifications: NotificationItem[];
 }
 
 export interface DashboardResult {

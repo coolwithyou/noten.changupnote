@@ -17,6 +17,7 @@ export * from "./repositories/ports.js";
 export * from "./use-cases/build-action-queue.js";
 export * from "./use-cases/build-apply-sheet.js";
 export * from "./use-cases/build-dashboard.js";
+export * from "./use-cases/build-notification-feed.js";
 export * from "./use-cases/build-roadmap.js";
 export * from "./use-cases/build-stats.js";
 export * from "./use-cases/build-teaser.js";

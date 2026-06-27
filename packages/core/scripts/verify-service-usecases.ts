@@ -8,6 +8,7 @@ import type {
 import {
   buildApplySheet,
   buildDashboard,
+  buildNotificationFeed,
   matchGrantCriteria,
   selectMatchCards,
   updateCompanyProfileField,
@@ -212,6 +213,32 @@ const enrichAction = industryQuestionDashboard.actionQueue.find((action) => acti
 assert.ok(enrichAction, "enrich action should be generated for enrichable unknown fields");
 assert.equal(enrichAction.target, "#company-settings");
 
+const deadlineGrant = normalizedGrant("deadline-soon", "마감임박 지원사업", [
+  {
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    value: { regions: ["41"], labels: ["경기"], nationwide: false },
+    confidence: 0.95,
+  },
+]);
+deadlineGrant.grant.apply_end = "2026-06-03";
+const notificationDashboard = buildDashboard({
+  company: { ...company, industries: [] },
+  grants: [deadlineGrant, soonGrant, industryQuestionGrant],
+  asOf,
+  limit: 10,
+});
+const notificationFeed = buildNotificationFeed({
+  matches: notificationDashboard.matches,
+  asOf,
+  settings: { deadlineReminder: true, newMatch: true },
+});
+assert.equal(notificationFeed.generatedAt, asOf.toISOString());
+assert.equal(notificationFeed.notifications.some((item) => item.kind === "deadline" && item.priority === "high"), true);
+assert.equal(notificationFeed.notifications.some((item) => item.kind === "soon_eligible" && item.etaDate === "2026-08-01"), true);
+assert.equal(notificationFeed.notifications.some((item) => item.kind === "needs_input" && item.target === "profile:industry"), true);
+
 const priorAwardQuestionGrant = normalizedGrant("prior-award-question", "중복수혜 자가신고 지원사업", [
   {
     dimension: "region",
@@ -273,6 +300,9 @@ console.log(JSON.stringify({
     "match_selector_cursor",
     "next_question_select_options",
     "action_queue_enrich",
+    "notification_feed_deadline",
+    "notification_feed_soon_eligible",
+    "notification_feed_needs_input",
     "prior_award_next_question_options",
     "prior_award_none_self_report",
     "prior_award_exclusion_self_report",
@@ -292,6 +322,7 @@ console.log(JSON.stringify({
     noneEligibility: noPriorAwardMatch.eligibility,
     tipsEligibility: tipsAwardMatch.eligibility,
   },
+  notifications: notificationFeed.notifications.map((item) => item.kind),
 }, null, 2));
 
 function normalizedGrant(
