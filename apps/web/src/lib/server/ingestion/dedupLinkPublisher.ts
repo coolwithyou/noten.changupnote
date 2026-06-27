@@ -1,5 +1,11 @@
 import { and, eq } from "drizzle-orm";
-import type { GrantDedupCandidate } from "@cunote/core";
+import type { NormalizedGrant } from "@cunote/contracts";
+import {
+  findGrantDedupCandidates,
+  grantDedupKey,
+  type FindGrantDedupCandidatesOptions,
+  type GrantDedupCandidate,
+} from "@cunote/core";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 
@@ -20,6 +26,38 @@ export interface DedupLinkPublishResult extends DedupLinkPublishPlan {
   publishedAt: string;
   resolvedLinkCount: number;
   unresolvedKeys: string[];
+}
+
+export interface DedupLinksForPublicationPlan extends DedupLinkPublishPlan {
+  publishedEntryCount: number;
+  poolEntryCount: number;
+  scopedCandidateCount: number;
+}
+
+export function planDedupLinksForPublication<TPayload>(
+  publishedEntries: Array<NormalizedGrant<TPayload>>,
+  candidatePool: Array<NormalizedGrant<TPayload>>,
+  options: FindGrantDedupCandidatesOptions = {},
+): DedupLinksForPublicationPlan {
+  const publishedKeys = new Set(publishedEntries.map((entry) => grantDedupKey(entry.grant)));
+  const entryByKey = new Map<string, NormalizedGrant<TPayload>>();
+
+  for (const entry of [...candidatePool, ...publishedEntries]) {
+    entryByKey.set(grantDedupKey(entry.grant), entry);
+  }
+
+  const candidates = findGrantDedupCandidates([...entryByKey.values()], options)
+    .filter((candidate) =>
+      publishedKeys.has(candidate.canonicalGrantKey) || publishedKeys.has(candidate.memberGrantKey)
+    );
+  const plan = planDedupLinkPublication(candidates);
+
+  return {
+    ...plan,
+    publishedEntryCount: publishedEntries.length,
+    poolEntryCount: candidatePool.length,
+    scopedCandidateCount: candidates.length,
+  };
 }
 
 export function planDedupLinkPublication(candidates: GrantDedupCandidate[]): DedupLinkPublishPlan {
