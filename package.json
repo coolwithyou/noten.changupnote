@@ -37,6 +37,7 @@
     "verify:match-transitions": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/verify-match-transitions.ts",
     "verify:web-http": "tsx apps/web/src/lib/server/verify-web-http.ts",
     "verify:db-doctor": "tsx apps/web/src/lib/server/db/doctor.ts --dry-run",
+    "verify:db-migrations": "tsx apps/web/src/lib/server/db/verify-migrations.ts",
     "verify:db-bootstrap-plan": "node scripts/bootstrap-dev-db.mjs --dry-run",
     "verify:db-smoke-plan": "tsx apps/web/src/lib/server/db/smoke-drizzle-service.ts --dry-run",
     "verify:demo-seed": "tsx apps/web/src/lib/server/db/seed-demo.ts --dry-run",

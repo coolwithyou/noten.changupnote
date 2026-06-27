@@ -25,8 +25,10 @@ The guarded development bootstrap runs the DB-backed vertical slice setup:
 3. `pnpm seed:demo`
 4. `pnpm publish:kstartup -- --source=sample`
 5. `pnpm publish:bizinfo -- --source=sample`
-6. `pnpm db:doctor`
-7. `pnpm smoke:db`
+6. `pnpm publish:dedup`
+7. `pnpm match:states:refresh -- --write`
+8. `pnpm db:doctor`
+9. `pnpm smoke:db`
 
 By default it is a dry run and does not write:
 
@@ -43,5 +45,5 @@ pnpm db:bootstrap:dev -- --confirm-dev-db
 CUNOTE_DB_BOOTSTRAP_CONFIRM=dev pnpm db:bootstrap:dev
 ```
 
-`pnpm smoke:db` assumes the demo user/company and sample K-Startup/BizInfo
-grants have already been published.
+`pnpm smoke:db` assumes the demo user/company, sample K-Startup/BizInfo grants,
+dedup links, and match_state rows have already been prepared.
