@@ -8,7 +8,6 @@ import {
   checkPopbillBizInfo,
   fetchKStartupPage,
   normalizeKStartupPayload,
-  planMatchStateRefresh,
   readPopbillEnvConfig,
   sanitizeCorpNum,
 } from "@cunote/core";
@@ -17,6 +16,7 @@ import type { DashboardResult } from "@cunote/contracts";
 import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
 import { createServiceRepositories } from "./repositories/factory";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
+import { refreshMatchStates } from "./matches/matchStateRefresh";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
@@ -274,29 +274,15 @@ async function persistMatchStates(input: {
   asOf: Date;
 }) {
   if (!input.companyId) return;
-  const refreshPlan = planMatchStateRefresh({
+  await refreshMatchStates({
+    repositories,
     company: input.company,
     grants: input.grants,
     asOf: input.asOf,
     companyId: input.companyId,
+    ...(input.userId ? { userId: input.userId } : {}),
+    write: true,
   });
-
-  await Promise.all(refreshPlan.states.map((state) => {
-    return repositories.matches.saveMatchState({
-      companyId: input.companyId!,
-      grantId: state.grantId,
-      match: state.match,
-      eligibleFrom: parsePlanDate(state.eligibleFrom),
-      eligibleUntil: parsePlanDate(state.eligibleUntil),
-      ...(input.userId ? { userId: input.userId } : {}),
-    });
-  }));
-}
-
-function parsePlanDate(value: string | null): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 async function loadEnvInDevelopment() {

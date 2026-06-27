@@ -1,10 +1,8 @@
-import {
-  planMatchStateRefresh,
-} from "@cunote/core";
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { mockUserId } from "../auth/mockIdentity";
 import { createDrizzleRepositories } from "../repositories/drizzle";
+import { refreshMatchStates } from "./matchStateRefresh";
 
 const DEFAULT_DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000101";
 
@@ -35,27 +33,19 @@ try {
   if (!company) throw new Error(`회사 프로필을 찾지 못했습니다: ${companyId}`);
 
   const grants = await repositories.grants.listActiveGrants({ limit, asOf });
-  const plan = planMatchStateRefresh({
+  const { plan, savedCount } = await refreshMatchStates({
+    repositories,
     company,
     grants,
     asOf,
     companyId,
+    userId,
+    write,
   });
-
-  if (write) {
-    await Promise.all(plan.states.map((state) => repositories.matches.saveMatchState({
-      companyId,
-      grantId: state.grantId,
-      match: state.match,
-      eligibleFrom: parsePlanDate(state.eligibleFrom),
-      eligibleUntil: parsePlanDate(state.eligibleUntil),
-      userId,
-    })));
-  }
 
   console.log(JSON.stringify({
     dryRun: !write,
-    savedCount: write ? plan.states.length : 0,
+    savedCount,
     companyId,
     userId,
     limit,
@@ -77,12 +67,6 @@ try {
   }, null, 2));
 } finally {
   await closeCunoteDb();
-}
-
-function parsePlanDate(value: string | null): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function readArg(name: string): string | undefined {
