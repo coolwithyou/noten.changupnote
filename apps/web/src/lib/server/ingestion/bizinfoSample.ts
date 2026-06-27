@@ -21,6 +21,8 @@ export function buildBizInfoSampleEntries(options: {
     bsnsSumryCn: "<p>경기도 소재 ICT 중소기업의 SaaS 전환을 지원</p>",
     hashtags: "ICT,SaaS,AI",
     pblancUrl: "/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_SAMPLE",
+    fileNm: "사업계획서.hwp",
+    flpthNm: "/fileDownload.do?atchFileId=PBLN_SAMPLE",
   };
 
   const criteria = normalizeBizInfoLlmCriteria({

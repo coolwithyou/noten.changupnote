@@ -35,6 +35,7 @@ export function normalizeBizInfoProgram(
     source: "bizinfo",
     source_id: program.pblancId,
     payload: program,
+    attachments: input.metadata.attachments.length > 0 ? input.metadata.attachments : null,
     collected_at: (options.collectedAt ?? new Date()).toISOString(),
     status: criteria.length > 0 ? "normalized" : "extracted",
   };

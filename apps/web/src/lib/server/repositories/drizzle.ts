@@ -636,6 +636,9 @@ function toGrantRaw<TPayload>(raw: GrantRawRow | null, grant: GrantRow): GrantRa
     status: raw.status,
     collected_at: raw.collectedAt.toISOString(),
   };
+  if (raw.attachments) {
+    result.attachments = raw.attachments as NonNullable<GrantRaw<TPayload>["attachments"]>;
+  }
   if (raw.rawHash) result.raw_hash = raw.rawHash;
   return result;
 }

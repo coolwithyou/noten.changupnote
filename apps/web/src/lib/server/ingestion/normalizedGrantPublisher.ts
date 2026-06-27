@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { Grant, GrantCriterion, GrantSource, NormalizedGrant } from "@cunote/contracts";
+import type { Grant, GrantCriterion, GrantRaw, GrantSource, NormalizedGrant } from "@cunote/contracts";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 
@@ -51,6 +51,7 @@ export async function publishNormalizedGrants<TPayload>(
           source: entry.raw.source,
           sourceId: entry.raw.source_id,
           payload: entry.raw.payload as unknown as Record<string, unknown>,
+          attachments: rawAttachments(entry.raw.attachments),
           rawHash: rawPayloadHash(entry.raw.payload),
           collectedAt,
           status: "published",
@@ -59,6 +60,7 @@ export async function publishNormalizedGrants<TPayload>(
           target: [schema.grantRaw.source, schema.grantRaw.sourceId],
           set: {
             payload: entry.raw.payload as unknown as Record<string, unknown>,
+            attachments: rawAttachments(entry.raw.attachments),
             rawHash: rawPayloadHash(entry.raw.payload),
             collectedAt,
             status: "published",
@@ -172,6 +174,13 @@ function dateValue(value: string | null | undefined): Date | null {
   if (!value) return null;
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function rawAttachments(
+  value: GrantRaw["attachments"] | undefined | null,
+): Array<Record<string, unknown>> | null {
+  if (!value || value.length === 0) return null;
+  return value as Array<Record<string, unknown>>;
 }
 
 function rawPayloadHash(payload: unknown): string {

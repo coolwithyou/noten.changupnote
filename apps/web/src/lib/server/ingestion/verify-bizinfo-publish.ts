@@ -25,6 +25,10 @@ assert.deepEqual(
   first.grant.required_documents?.map((document) => document.name),
   ["신청서", "사업자등록증", "재무제표"],
 );
+assert.deepEqual(first.raw.attachments, [{
+  filename: "사업계획서.hwp",
+  url: "https://www.bizinfo.go.kr/fileDownload.do?atchFileId=PBLN_SAMPLE",
+}]);
 assert.equal(
   matchGrantCriteria(first.criteria, {
     region: { code: "41", label: "경기" },
@@ -36,6 +40,6 @@ assert.equal(
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["raw_hash", "grant_projection", "required_documents", "criteria_match"],
+  checked: ["raw_hash", "raw_attachments", "grant_projection", "required_documents", "criteria_match"],
   ...plan,
 }, null, 2));

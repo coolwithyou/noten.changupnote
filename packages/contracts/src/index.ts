@@ -185,6 +185,11 @@ export interface GrantRaw<TPayload = unknown> {
   source: GrantSource;
   source_id: string;
   payload: TPayload;
+  attachments?: Array<{
+    filename: string;
+    url?: string | null;
+    source_uri?: string | null;
+  }> | null;
   raw_hash?: string;
   collected_at?: string;
   status: "fetched" | "converted" | "extracted" | "normalized" | "published" | "failed";
