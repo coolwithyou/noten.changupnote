@@ -59,7 +59,7 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
     case "founder_age":
       return evaluateFounderAge(criterion, company);
     case "industry":
-      return evaluateListCriterion(criterion, company.industries ?? [], "tags", "업종/분야");
+      return evaluateListCriterion(criterion, company.industries, "tags", "업종/분야", isKnownListField(company, "industry"));
     case "size":
       return evaluateSingleValueCriterion(criterion, company.size ?? null, "sizes", "기업규모");
     case "revenue":
@@ -77,15 +77,15 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
         maxKeys: ["max"],
       });
     case "certification":
-      return evaluateListCriterion(criterion, company.certs ?? [], "certs", "인증");
+      return evaluateListCriterion(criterion, company.certs, "certs", "인증", isKnownListField(company, "certification"));
     case "founder_trait":
-      return evaluateListCriterion(criterion, company.traits ?? [], "traits", "대표자 속성");
+      return evaluateListCriterion(criterion, company.traits, "traits", "대표자 속성", isKnownListField(company, "founder_trait"));
     case "prior_award":
-      return evaluateListCriterion(criterion, company.prior_awards ?? [], "programs", "기수혜");
+      return evaluateListCriterion(criterion, company.prior_awards, "programs", "기수혜", isKnownListField(company, "prior_award"));
     case "ip":
-      return evaluateListCriterion(criterion, company.ip ?? [], "types", "지식재산");
+      return evaluateListCriterion(criterion, company.ip, "types", "지식재산", isKnownListField(company, "ip"));
     case "target_type":
-      return evaluateListCriterion(criterion, company.target_types ?? [], "targets", "신청대상");
+      return evaluateListCriterion(criterion, company.target_types, "targets", "신청대상", isKnownListField(company, "target_type"));
     case "business_status":
       return evaluateBusinessStatus(criterion, company);
     default:
@@ -194,12 +194,17 @@ function evaluateFounderAge(criterion: GrantCriterion, company: CompanyProfile):
 
 function evaluateListCriterion(
   criterion: GrantCriterion,
-  companyValues: string[],
+  companyValuesInput: string[] | undefined,
   valueKey: keyof ListCriterionValue,
   label: string,
+  known: boolean,
 ): RuleTraceEntry {
+  const companyValues = companyValuesInput ?? [];
   const required = ((criterion.value as ListCriterionValue)[valueKey] ?? []) as string[];
   if (criterion.operator === "exists") {
+    if (companyValues.length === 0 && known) {
+      return trace(criterion, "fail", `기업 ${label} 없음`, companyValues);
+    }
     return trace(
       criterion,
       companyValues.length > 0 ? "pass" : "unknown",
@@ -208,15 +213,28 @@ function evaluateListCriterion(
     );
   }
   if (required.length === 0) return trace(criterion, "unknown", `${label} 조건 확인 필요`);
-  if (companyValues.length === 0) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
+  if (companyValues.length === 0) {
+    if (!known) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
+    return trace(
+      criterion,
+      criterion.operator === "not_in" || criterion.kind === "exclusion" ? "pass" : "fail",
+      `${label} ${required.join(", ")} - 귀사 해당 없음`,
+      companyValues,
+    );
+  }
   const overlaps = required.some((value) => companyValues.includes(value));
-  const result = criterion.operator === "not_in" ? !overlaps : overlaps;
+  const matched = criterion.operator === "not_in" ? !overlaps : overlaps;
+  const result = criterion.kind === "exclusion" && criterion.operator !== "not_in" ? !matched : matched;
   return trace(
     criterion,
     result ? "pass" : "fail",
     `${label} ${required.join(", ")} - 귀사 ${companyValues.join(", ")}`,
     companyValues,
   );
+}
+
+function isKnownListField(company: CompanyProfile, dimension: CriterionDimension): boolean {
+  return typeof company.confidence?.[dimension] === "number";
 }
 
 function evaluateNumericCriterion(

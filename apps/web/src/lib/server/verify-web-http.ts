@@ -440,6 +440,23 @@ expect(webProfileField.body.data?.profile.revenue_krw === 120000000, "web profil
 expect(webProfileField.body.data?.profile.confidence?.revenue === 0.77, "web profile field persists confidence");
 checks.push("web_profile_field");
 
+const webPriorAwardField = await fetchJson<ActionResult<{
+  profile: {
+    prior_awards?: string[];
+    confidence?: Record<string, number>;
+  };
+}>>("/api/web/profile/field", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ field: "prior_award", value: [], confidence: 0.78 }),
+});
+expectStatus(webPriorAwardField, 200, "web prior award field status");
+expect(webPriorAwardField.body.ok === true, "web prior award field envelope ok");
+expect(Array.isArray(webPriorAwardField.body.data?.profile.prior_awards), "web prior award field persists empty list");
+expect(webPriorAwardField.body.data?.profile.prior_awards?.length === 0, "web prior award field stores no-award self report");
+expect(webPriorAwardField.body.data?.profile.confidence?.prior_award === 0.78, "web prior award field persists confidence");
+checks.push("web_prior_award_field");
+
 const login = await fetchJson<ApiEnvelope<{
   accessToken?: string;
   refreshToken?: string;

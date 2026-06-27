@@ -129,8 +129,22 @@ function parseValue(question: NextQuestionDto, value: string): unknown {
       label: value,
     };
   }
-  if (question.dimension === "industry" || question.dimension === "target_type") {
+  if (question.dimension === "prior_award" && value === "해당 없음") {
+    return [];
+  }
+  if (isListDimension(question.dimension)) {
     return [value];
   }
   return value;
+}
+
+function isListDimension(dimension: NextQuestionDto["dimension"]): boolean {
+  return (
+    dimension === "industry" ||
+    dimension === "founder_trait" ||
+    dimension === "certification" ||
+    dimension === "prior_award" ||
+    dimension === "ip" ||
+    dimension === "target_type"
+  );
 }

@@ -53,16 +53,16 @@ export function updateCompanyProfileField(
       next.founder_age = normalizeNonNegativeNumber(update.value, "value");
       break;
     case "founder_trait":
-      next.traits = normalizeStringArray(update.value, "value");
+      next.traits = normalizeStringArray(update.value, "value", { allowEmpty: true });
       break;
     case "certification":
-      next.certs = normalizeStringArray(update.value, "value");
+      next.certs = normalizeStringArray(update.value, "value", { allowEmpty: true });
       break;
     case "prior_award":
-      next.prior_awards = normalizeStringArray(update.value, "value");
+      next.prior_awards = normalizeStringArray(update.value, "value", { allowEmpty: true });
       break;
     case "ip":
-      next.ip = normalizeStringArray(update.value, "value");
+      next.ip = normalizeStringArray(update.value, "value", { allowEmpty: true });
       break;
     case "target_type":
       next.target_types = normalizeStringArray(update.value, "value");
@@ -104,14 +104,18 @@ function normalizeRegion(value: unknown): NonNullable<CompanyProfile["region"]> 
   return label ? { code, label } : { code };
 }
 
-function normalizeStringArray(value: unknown, field: string): string[] {
+function normalizeStringArray(
+  value: unknown,
+  field: string,
+  options: { allowEmpty?: boolean } = {},
+): string[] {
   if (typeof value === "string") return [normalizeString(value, field)];
   if (!Array.isArray(value)) {
     throw new InvalidCompanyProfileFieldError(`${field}는 문자열 배열이어야 합니다.`, field);
   }
 
   const normalized = value.map((item, index) => normalizeString(item, `${field}.${index}`));
-  if (normalized.length === 0) {
+  if (normalized.length === 0 && !options.allowEmpty) {
     throw new InvalidCompanyProfileFieldError(`${field}는 비어 있을 수 없습니다.`, field);
   }
   return normalized;

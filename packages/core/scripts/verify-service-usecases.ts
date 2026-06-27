@@ -212,6 +212,52 @@ const enrichAction = industryQuestionDashboard.actionQueue.find((action) => acti
 assert.ok(enrichAction, "enrich action should be generated for enrichable unknown fields");
 assert.equal(enrichAction.target, "#company-settings");
 
+const priorAwardQuestionGrant = normalizedGrant("prior-award-question", "중복수혜 자가신고 지원사업", [
+  {
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    value: { regions: ["41"], labels: ["경기"], nationwide: false },
+    confidence: 0.95,
+  },
+  {
+    dimension: "prior_award",
+    operator: "not_in",
+    kind: "exclusion",
+    value: { programs: ["TIPS"] },
+    confidence: 0.9,
+    source_span: "TIPS 기선정 기업 제외",
+  },
+]);
+const priorAwardQuestionDashboard = buildDashboard({
+  company,
+  grants: [priorAwardQuestionGrant],
+  asOf,
+  limit: 10,
+});
+assert.equal(priorAwardQuestionDashboard.nextQuestion?.dimension, "prior_award");
+assert.equal(priorAwardQuestionDashboard.nextQuestion?.inputType, "select");
+assert.deepEqual(priorAwardQuestionDashboard.nextQuestion?.options, ["해당 없음", "TIPS"]);
+
+const noPriorAwardProfile = updateCompanyProfileField(company, {
+  field: "prior_award",
+  value: [],
+  confidence: 0.9,
+});
+const noPriorAwardMatch = matchGrantCriteria(priorAwardQuestionGrant.criteria, noPriorAwardProfile);
+assert.equal(noPriorAwardMatch.eligibility, "eligible");
+assert.deepEqual(noPriorAwardProfile.prior_awards, []);
+assert.equal(noPriorAwardProfile.confidence?.prior_award, 0.9);
+
+const tipsAwardProfile = updateCompanyProfileField(company, {
+  field: "prior_award",
+  value: ["TIPS"],
+  confidence: 0.9,
+});
+const tipsAwardMatch = matchGrantCriteria(priorAwardQuestionGrant.criteria, tipsAwardProfile);
+assert.equal(tipsAwardMatch.eligibility, "ineligible");
+assert.equal(tipsAwardMatch.rule_trace.find((trace) => trace.dimension === "prior_award")?.result, "fail");
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -227,6 +273,9 @@ console.log(JSON.stringify({
     "match_selector_cursor",
     "next_question_select_options",
     "action_queue_enrich",
+    "prior_award_next_question_options",
+    "prior_award_none_self_report",
+    "prior_award_exclusion_self_report",
   ],
   soon: {
     bucket: soonMatch.bucket,
@@ -238,6 +287,10 @@ console.log(JSON.stringify({
   expanded: {
     eligibility: expandedMatch.eligibility,
     fitScore: expandedMatch.fit_score,
+  },
+  priorAward: {
+    noneEligibility: noPriorAwardMatch.eligibility,
+    tipsEligibility: tipsAwardMatch.eligibility,
   },
 }, null, 2));
 
