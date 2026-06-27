@@ -11,6 +11,7 @@ import {
   CRITERION_OPERATORS,
 } from "@cunote/contracts";
 import { BIZINFO_NORMALIZER_VERSION } from "./normalize.js";
+import { assertGrantCriteriaContract } from "./criteria-contract.js";
 import type { BizInfoProgramExtractionInput } from "./types.js";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -101,10 +102,12 @@ export function normalizeBizInfoLlmCriteria(payload: unknown, sourceId: string):
     ? (payload as { criteria: unknown[] }).criteria
     : [];
 
-  return rows.flatMap((row, index) => {
+  const criteria = rows.flatMap((row, index) => {
     const criterion = normalizeCriterionRow(row, sourceId, index);
     return criterion ? [criterion] : [];
   });
+  assertGrantCriteriaContract(criteria, `bizinfo:${sourceId}`);
+  return criteria;
 }
 
 function normalizeCriterionRow(row: unknown, sourceId: string, index: number): GrantCriterion | null {

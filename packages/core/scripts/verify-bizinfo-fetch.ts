@@ -9,6 +9,7 @@ import {
   normalizeBizInfoUrl,
   normalizeBizInfoLlmCriteria,
   normalizeBizInfoProgram,
+  validateGrantCriteriaContract,
 } from "../src/index.js";
 
 const url = buildBizInfoUrl("https://example.test/uss/rss/bizinfoApi.do", "abc/def==");
@@ -92,6 +93,16 @@ const llmCriteria = normalizeBizInfoLlmCriteria({
   }],
 }, "PBLN_SAMPLE");
 assert.equal(llmCriteria.length, 2);
+assert.deepEqual(validateGrantCriteriaContract(llmCriteria), []);
+const firstLlmCriterion = llmCriteria[0];
+assert.ok(firstLlmCriterion);
+const invalidCriteria = validateGrantCriteriaContract([{
+  ...firstLlmCriterion,
+  confidence: 2,
+  extra_field: true,
+}]);
+assert.equal(invalidCriteria.some((issue) => issue.path === "$[0].confidence"), true);
+assert.equal(invalidCriteria.some((issue) => issue.path === "$[0].extra_field"), true);
 const normalizedBizinfo = normalizeBizInfoProgram({
   pblancId: "PBLN_SAMPLE",
   pblancNm: "기업마당 테스트 공고",
@@ -115,6 +126,6 @@ assert.equal(bizinfoMatch.eligibility, "eligible");
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["program", "event", "extraction_input", "llm_criteria", "required_documents"],
+  checked: ["program", "event", "extraction_input", "llm_criteria", "criteria_contract", "required_documents"],
   extraction_input_length: extractionInput.text.length,
 }, null, 2));
