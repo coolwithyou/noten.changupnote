@@ -113,8 +113,12 @@ if (dryRun) {
       };
     }));
 
+    const existingTables = new Set(tables.filter((table) => table.exists).map((table) => table.table));
     const missingTables = tables.filter((table) => !table.exists).map((table) => table.table);
-    const missingRls = rls.filter((table) => !table.rowSecurity).map((table) => table.table);
+    const missingRls = rls
+      .filter((table) => existingTables.has(table.table))
+      .filter((table) => !table.rowSecurity)
+      .map((table) => table.table);
     const result = {
       dryRun: false,
       env: {
