@@ -58,6 +58,16 @@ if (dryRun) {
     const bizInfoSheet = await loadServiceApplySheet(encodeURIComponent(bizInfoMatch.grantId), { companyId, userId });
     assert.ok(bizInfoSheet, "DB-backed apply sheet should resolve BizInfo sample");
     assert.equal(bizInfoSheet.grant.source, "bizinfo", "BizInfo apply sheet should keep source");
+    assert.deepEqual(
+      bizInfoSheet.documents.map((document) => document.name),
+      ["신청서", "사업자등록증", "재무제표"],
+      "BizInfo apply sheet should expose required documents",
+    );
+    assert.deepEqual(
+      bizInfoSheet.sourceAttachments.map((attachment) => attachment.filename),
+      ["사업계획서.hwp"],
+      "BizInfo apply sheet should expose source attachments",
+    );
 
     const persistence = await verifyStoredPipelineState({
       db: getCunoteDb(),
@@ -91,6 +101,8 @@ if (dryRun) {
       bizInfoApplySheet: {
         id: bizInfoSheet.grant.id,
         title: bizInfoSheet.grant.title,
+        documents: bizInfoSheet.documents.map((document) => document.name),
+        sourceAttachments: bizInfoSheet.sourceAttachments.map((attachment) => attachment.filename),
       },
       persistence,
     }, null, 2));
