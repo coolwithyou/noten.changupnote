@@ -7,9 +7,8 @@ import {
   buildCompanyProfileFromPopbill,
   checkPopbillBizInfo,
   fetchKStartupPage,
-  calculateMatchTransitionWindow,
-  grantKey,
   normalizeKStartupPayload,
+  planMatchStateRefresh,
   readPopbillEnvConfig,
   sanitizeCorpNum,
 } from "@cunote/core";
@@ -275,21 +274,29 @@ async function persistMatchStates(input: {
   asOf: Date;
 }) {
   if (!input.companyId) return;
-  const matchStates = await repositories.matches.calculateGrantMatches({
+  const refreshPlan = planMatchStateRefresh({
     company: input.company,
     grants: input.grants,
+    asOf: input.asOf,
+    companyId: input.companyId,
   });
-  await Promise.all(matchStates.map((state) => {
-    const transitionWindow = calculateMatchTransitionWindow(state.match, { asOf: input.asOf });
+
+  await Promise.all(refreshPlan.states.map((state) => {
     return repositories.matches.saveMatchState({
       companyId: input.companyId!,
-      grantId: grantKey(state.grant.grant),
+      grantId: state.grantId,
       match: state.match,
-      eligibleFrom: transitionWindow.eligibleFrom,
-      eligibleUntil: transitionWindow.eligibleUntil,
+      eligibleFrom: parsePlanDate(state.eligibleFrom),
+      eligibleUntil: parsePlanDate(state.eligibleUntil),
       ...(input.userId ? { userId: input.userId } : {}),
     });
   }));
+}
+
+function parsePlanDate(value: string | null): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 async function loadEnvInDevelopment() {

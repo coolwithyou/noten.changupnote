@@ -30,6 +30,7 @@
     "verify:dedup": "tsx packages/core/scripts/verify-dedup-candidates.ts",
     "verify:dedup-publish": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-dedup-link-publish.ts",
     "verify:matching-eval": "tsx packages/core/scripts/verify-matching-eval.ts",
+    "verify:match-state-refresh": "tsx packages/core/scripts/verify-match-state-refresh.ts",
     "verify:service-usecases": "tsx packages/core/scripts/verify-service-usecases.ts",
     "verify:match-transitions": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/verify-match-transitions.ts",
     "verify:web-http": "tsx apps/web/src/lib/server/verify-web-http.ts",
