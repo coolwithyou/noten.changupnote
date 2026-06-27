@@ -17,9 +17,14 @@ const REQUIRED_TABLES = [
   "grants",
   "grant_raw",
   "grant_criteria",
+  "source_cursor",
+  "dedup_links",
   "match_state",
   "match_events",
   "feedback",
+  "extraction_log",
+  "golden_set",
+  "eval_runs",
 ] as const;
 
 const RLS_TABLES = [
