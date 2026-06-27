@@ -74,6 +74,8 @@ export function CompanySettingsPanel() {
   const [consents, setConsents] = useState<ConsentRecordDto[]>([]);
   const [notifications, setNotifications] = useState<NotificationSettingsDto | null>(null);
   const [bizNo, setBizNo] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [openedOn, setOpenedOn] = useState("");
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(EMPTY_PROFILE_DRAFT);
   const [status, setStatus] = useState("불러오는 중");
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -233,13 +235,25 @@ export function CompanySettingsPanel() {
       setStatus("사업자번호 10자리를 입력하세요.");
       return;
     }
+    if (!ownerName.trim()) {
+      setStatus("대표자명을 입력하세요.");
+      return;
+    }
+    if (!openedOn) {
+      setStatus("개업일을 입력하세요.");
+      return;
+    }
 
     setBusyKey("verify");
     try {
       const result = await fetchJson<CompanyVerificationResult>("/api/web/companies/verify", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bizNo: normalizedBizNo }),
+        body: JSON.stringify({
+          bizNo: normalizedBizNo,
+          ownerName: ownerName.trim(),
+          openedOn,
+        }),
       });
       setStatus(result.verified ? "회사 소유권 검증됨" : "검증 결과 확인 필요");
       router.refresh();
@@ -272,36 +286,6 @@ export function CompanySettingsPanel() {
               ? `검증됨${currentCompany.bizNoMasked ? ` · ${currentCompany.bizNoMasked}` : ""}`
               : "소유권 미검증"}
           </span>
-        </label>
-      </div>
-
-      <div className="settings-enrich-form">
-        <label htmlFor="company-enrich-biz-no">
-          회사정보 보강
-          <div className="settings-enrich-row">
-            <input
-              id="company-enrich-biz-no"
-              inputMode="numeric"
-              placeholder="사업자번호 10자리"
-              value={bizNo}
-              disabled={busyKey === "enrich" || busyKey === "verify"}
-              onChange={(event) => setBizNo(event.currentTarget.value)}
-            />
-            <button
-              type="button"
-              disabled={busyKey === "enrich" || busyKey === "verify" || !basicInfoConsent}
-              onClick={() => void enrichCompany()}
-            >
-              {busyKey === "enrich" ? "조회 중" : "보강"}
-            </button>
-            <button
-              type="button"
-              disabled={busyKey === "enrich" || busyKey === "verify"}
-              onClick={() => void verifyCompany()}
-            >
-              {busyKey === "verify" ? "검증 중" : "검증"}
-            </button>
-          </div>
         </label>
       </div>
 
@@ -343,6 +327,61 @@ export function CompanySettingsPanel() {
       </div>
 
       <p className="settings-status">{status}</p>
+
+      <div className="settings-enrich-form" aria-label="회사정보 보강 및 검증">
+        <div className="settings-profile-heading">
+          <span>회사정보 보강</span>
+          <strong>3요소 검증</strong>
+        </div>
+        <div className="settings-enrich-row">
+          <label htmlFor="company-enrich-biz-no">
+            사업자번호
+            <input
+              id="company-enrich-biz-no"
+              inputMode="numeric"
+              placeholder="사업자번호 10자리"
+              value={bizNo}
+              disabled={busyKey === "enrich" || busyKey === "verify"}
+              onChange={(event) => setBizNo(event.currentTarget.value)}
+            />
+          </label>
+          <label htmlFor="company-verify-owner-name">
+            대표자명
+            <input
+              id="company-verify-owner-name"
+              autoComplete="off"
+              placeholder="대표자명"
+              value={ownerName}
+              disabled={busyKey === "enrich" || busyKey === "verify"}
+              onChange={(event) => setOwnerName(event.currentTarget.value)}
+            />
+          </label>
+          <label htmlFor="company-verify-opened-on">
+            개업일
+            <input
+              id="company-verify-opened-on"
+              type="date"
+              value={openedOn}
+              disabled={busyKey === "enrich" || busyKey === "verify"}
+              onChange={(event) => setOpenedOn(event.currentTarget.value)}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={busyKey === "enrich" || busyKey === "verify" || !basicInfoConsent}
+            onClick={() => void enrichCompany()}
+          >
+            {busyKey === "enrich" ? "조회 중" : "보강"}
+          </button>
+          <button
+            type="button"
+            disabled={busyKey === "enrich" || busyKey === "verify"}
+            onClick={() => void verifyCompany()}
+          >
+            {busyKey === "verify" ? "검증 중" : "검증"}
+          </button>
+        </div>
+      </div>
 
       <div className="settings-profile-form" aria-label="수기 프로필 입력">
         <div className="settings-profile-heading">

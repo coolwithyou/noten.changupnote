@@ -225,7 +225,7 @@ const webCompanyVerify = await fetchJson<ActionResult<{
 }>>("/api/web/companies/verify", {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ bizNo: "1234567890" }),
+  body: JSON.stringify({ bizNo: "1234567890", ownerName: "검증 대표", openedOn: "2024-01-15" }),
 });
 expectStatus(webCompanyVerify, 200, "web company verify status");
 expect(webCompanyVerify.body.ok === true, "web company verify envelope ok");
@@ -319,6 +319,8 @@ expect(dashboardHtml.body.includes("마감 알림"), "web dashboard renders dead
 expect(dashboardHtml.body.includes("새 매칭"), "web dashboard renders new match notification toggle");
 expect(dashboardHtml.body.includes("회사정보 보강"), "web dashboard renders company enrichment control");
 expect(dashboardHtml.body.includes("검증"), "web dashboard renders company verification control");
+expect(dashboardHtml.body.includes("id=\"company-verify-owner-name\""), "web dashboard renders owner-name verification input");
+expect(dashboardHtml.body.includes("id=\"company-verify-opened-on\""), "web dashboard renders opened-on verification input");
 expect(dashboardHtml.body.includes("수기 프로필"), "web dashboard renders manual profile form");
 expect(dashboardHtml.body.includes("id=\"manual-target-type\""), "web dashboard renders target type input");
 expect(dashboardHtml.body.includes("기수혜 없음"), "web dashboard renders no-prior-award control");

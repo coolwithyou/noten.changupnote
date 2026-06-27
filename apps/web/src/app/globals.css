@@ -904,8 +904,12 @@ button:disabled {
 }
 
 .settings-block label,
-.settings-enrich-form label {
+.settings-enrich-row label {
+  display: grid;
   gap: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
 }
 
 .settings-block select,
@@ -919,6 +923,14 @@ button:disabled {
   padding: 0 12px;
   font: inherit;
   font-weight: 700;
+}
+
+.settings-enrich-form {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
 }
 
 .settings-company-status {
@@ -935,8 +947,9 @@ button:disabled {
 
 .settings-enrich-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 0.85fr) minmax(150px, 0.85fr) auto auto;
   gap: 8px;
+  align-items: end;
 }
 
 .settings-enrich-row button {
