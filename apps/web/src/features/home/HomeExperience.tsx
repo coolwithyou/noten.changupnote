@@ -6,7 +6,7 @@ import { MetricCard } from "@/components/app/metric-card";
 import { PageNav } from "@/components/app/page-nav";
 import { StatusBadge, eligibilityTone } from "@/components/app/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -129,12 +129,17 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
           <span className="brand-symbol" aria-hidden="true">C</span>
           <span>창업노트</span>
         </a>
-        <PageNav
-          links={[
-            { href: "/dashboard", label: "기회 맵" },
-            { href: "/internal/live-match", label: "내부 검증 콘솔" },
-          ]}
-        />
+        <div className="flex items-center gap-3">
+          <PageNav
+            links={[
+              { href: "/dashboard", label: "기회 맵" },
+              { href: "/internal/live-match", label: "내부 검증 콘솔" },
+            ]}
+          />
+          <a className={buttonVariants({ size: "sm", className: "nav-login" })} href="/login">
+            로그인
+          </a>
+        </div>
       </header>
 
       <section className="hero-workspace">
