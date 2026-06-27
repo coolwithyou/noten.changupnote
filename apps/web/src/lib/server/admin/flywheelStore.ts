@@ -10,6 +10,7 @@ export interface AdminFlywheelSnapshot {
     matchEvents: number;
     goldenSet: number;
     evalRuns: number;
+    grantInsightSnapshots: number;
   };
   recent: {
     extractionLog: AdminExtractionLogItem[];
@@ -17,6 +18,7 @@ export interface AdminFlywheelSnapshot {
     matchEvents: AdminMatchEventItem[];
     goldenSet: AdminGoldenSetItem[];
     evalRuns: AdminEvalRunItem[];
+    grantInsightSnapshots: AdminGrantInsightSnapshotItem[];
   };
 }
 
@@ -65,6 +67,14 @@ export interface AdminEvalRunItem {
   ts: string;
 }
 
+export interface AdminGrantInsightSnapshotItem {
+  id: string;
+  kind: string;
+  generatedAt: string;
+  metricKeys: string[];
+  insightCount: number;
+}
+
 export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheelSnapshot> {
   const db = getCunoteDb();
   const safeLimit = Math.max(1, Math.min(20, limit));
@@ -75,17 +85,20 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
     matchEventCount,
     goldenCount,
     evalCount,
+    grantInsightSnapshotCount,
     extractionRows,
     feedbackRows,
     matchEventRows,
     goldenRows,
     evalRows,
+    grantInsightSnapshotRows,
   ] = await Promise.all([
     rowCount(db.select({ value: count() }).from(schema.extractionLog)),
     rowCount(db.select({ value: count() }).from(schema.feedback)),
     rowCount(db.select({ value: count() }).from(schema.matchEvents)),
     rowCount(db.select({ value: count() }).from(schema.goldenSet)),
     rowCount(db.select({ value: count() }).from(schema.evalRuns)),
+    rowCount(db.select({ value: count() }).from(schema.grantInsightSnapshots)),
     db
       .select()
       .from(schema.extractionLog)
@@ -111,6 +124,11 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
       .from(schema.evalRuns)
       .orderBy(desc(schema.evalRuns.ts))
       .limit(safeLimit),
+    db
+      .select()
+      .from(schema.grantInsightSnapshots)
+      .orderBy(desc(schema.grantInsightSnapshots.generatedAt))
+      .limit(safeLimit),
   ]);
 
   return {
@@ -121,6 +139,7 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
       matchEvents: matchEventCount,
       goldenSet: goldenCount,
       evalRuns: evalCount,
+      grantInsightSnapshots: grantInsightSnapshotCount,
     },
     recent: {
       extractionLog: extractionRows.map((row) => ({
@@ -162,6 +181,13 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
         goldenVer: row.goldenVer,
         metricKeys: Object.keys(row.metrics).sort(),
         ts: row.ts.toISOString(),
+      })),
+      grantInsightSnapshots: grantInsightSnapshotRows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        generatedAt: row.generatedAt.toISOString(),
+        metricKeys: Object.keys(row.metrics).sort(),
+        insightCount: row.insights.length,
       })),
     },
   };

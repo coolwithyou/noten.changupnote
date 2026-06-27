@@ -23,7 +23,13 @@ dist/
 build/
 coverage/
 
+# Local DB backups/dumps (실데이터·PII 포함 — 절대 커밋 금지)
+backups/
+*.dump
+*.sql.gz
+
 # Editor/workspace noise
 .idea/
 *.swp
 *.swo
+.vercel

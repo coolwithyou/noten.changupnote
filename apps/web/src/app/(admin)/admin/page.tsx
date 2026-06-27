@@ -45,6 +45,11 @@ const SURFACES: Array<{
     title: "eval_runs",
     body: "버전별 회귀 평가 결과",
   },
+  {
+    key: "grantInsightSnapshots",
+    title: "grant_insight_snapshots",
+    body: "지원사업 아카이브 커버리지와 운영 인사이트",
+  },
 ];
 
 export default async function AdminPage() {
@@ -112,6 +117,10 @@ export default async function AdminPage() {
                 <RecentList
                   title="eval"
                   items={snapshot.recent.evalRuns.map((item) => `${item.target} · ${item.goldenVer}`)}
+                />
+                <RecentList
+                  title="insights"
+                  items={snapshot.recent.grantInsightSnapshots.map((item) => `${item.kind} · ${item.insightCount} signals`)}
                 />
               </div>
             ) : (

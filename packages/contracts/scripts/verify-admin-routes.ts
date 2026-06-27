@@ -4,7 +4,14 @@ import { join, relative, resolve, sep } from "node:path";
 const workspaceRoot = process.cwd();
 const adminRouteRoot = resolve(workspaceRoot, "apps/web/src/app/api/admin");
 const adminStatusRoute = resolve(adminRouteRoot, "status/route.ts");
-const expectedAdminSurfaces = ["extraction_log", "feedback", "match_events", "golden_set", "eval_runs"];
+const expectedAdminSurfaces = [
+  "extraction_log",
+  "feedback",
+  "match_events",
+  "golden_set",
+  "eval_runs",
+  "grant_insight_snapshots",
+];
 const errors: string[] = [];
 
 if (existsSync(adminRouteRoot)) {
