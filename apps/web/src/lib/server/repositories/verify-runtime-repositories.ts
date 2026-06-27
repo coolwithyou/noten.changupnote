@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { updateCompanyProfileField } from "@cunote/core";
-import type { CompanyProfile } from "@cunote/contracts";
+import type { CompanyProfile, Grant, NormalizedGrant } from "@cunote/contracts";
 import { createRuntimeRepositories, demoCompanyId } from "./runtime";
 
 const userId = "00000000-0000-4000-8000-000000000001";
@@ -15,9 +15,16 @@ const baseProfile: CompanyProfile = {
   },
 };
 
+const activeGrantFixtures = [
+  normalizedGrant("open-future", "open", "2026-07-01"),
+  normalizedGrant("closed-status", "closed", "2026-07-01"),
+  normalizedGrant("stale-open", "open", "2026-06-01"),
+  normalizedGrant("unknown-no-end", "unknown", null),
+];
+
 const repositories = createRuntimeRepositories({
   async loadGrants() {
-    return [];
+    return activeGrantFixtures;
   },
   async loadCompanyProfile() {
     return baseProfile;
@@ -77,6 +84,15 @@ const outsideCompany = await repositories.companies.resolveCompanyProfile({
 });
 assert.equal(outsideCompany, null);
 
+const activeGrants = await repositories.grants.listActiveGrants({
+  asOf: new Date("2026-06-27T12:00:00.000Z"),
+  limit: 10,
+});
+assert.deepEqual(
+  activeGrants.map((entry) => entry.grant.source_id),
+  ["open-future", "unknown-no-end"],
+);
+
 const fetchedAt = new Date("2026-06-26T00:00:00.000Z");
 const expiresAt = new Date("2026-06-27T00:00:00.000Z");
 await repositories.enrichmentCache.put({
@@ -118,9 +134,39 @@ console.log(JSON.stringify({
     "runtime_list_user_companies",
     "runtime_company_verify",
     "runtime_company_guard",
+    "runtime_active_grant_filter",
     "runtime_enrichment_cache_fresh",
     "runtime_enrichment_cache_expired",
   ],
   companyId: demoCompanyId(),
   bizAgeMonths: resolvedAgain?.biz_age_months,
 }, null, 2));
+
+function normalizedGrant(
+  sourceId: string,
+  status: Grant["status"],
+  applyEnd: string | null,
+): NormalizedGrant<Record<string, unknown>> {
+  return {
+    raw: {
+      source: "kstartup",
+      source_id: sourceId,
+      payload: { sourceId },
+      status: "normalized",
+    },
+    grant: {
+      source: "kstartup",
+      source_id: sourceId,
+      title: sourceId,
+      status,
+      apply_end: applyEnd,
+      f_regions: [],
+      f_industries: [],
+      f_sizes: [],
+      f_founder_traits: [],
+      f_required_certs: [],
+      overall_confidence: 0.9,
+    },
+    criteria: [],
+  };
+}

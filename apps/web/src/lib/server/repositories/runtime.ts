@@ -26,6 +26,7 @@ import type {
   CompanyVerificationRecord,
   WriteEnrichmentCacheInput,
 } from "@cunote/core";
+import { filterActiveGrants } from "./activeGrantFilter";
 
 export const DEFAULT_DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000101";
 export const DEMO_COMPANY_ID = DEFAULT_DEMO_COMPANY_ID;
@@ -55,7 +56,8 @@ class RuntimeGrantRepository<TPayload> implements GrantRepository<TPayload> {
   constructor(private readonly loaders: RuntimeRepositoryLoaders<TPayload>) {}
 
   async listActiveGrants(options: GrantListOptions = {}) {
-    return this.loaders.loadGrants(options);
+    const grants = await this.loaders.loadGrants(options);
+    return filterActiveGrants(grants, options);
   }
 
   async findGrantById(grantId: string, options: GrantListOptions = {}) {

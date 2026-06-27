@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import type {
   CompanyProfile,
   CriterionDimension,
@@ -33,6 +33,7 @@ import type {
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { activeGrantApplyEndCutoff } from "./activeGrantFilter";
 
 export interface DrizzleDatabaseClient {
   readonly dialect: "drizzle";
@@ -71,9 +72,9 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
         ),
       )
       .where(or(
-        eq(schema.grants.status, "open"),
-        eq(schema.grants.status, "upcoming"),
-        eq(schema.grants.status, "unknown"),
+        and(eq(schema.grants.status, "open"), activeGrantApplyEndWhere(options.asOf)),
+        and(eq(schema.grants.status, "upcoming"), activeGrantApplyEndWhere(options.asOf)),
+        and(eq(schema.grants.status, "unknown"), activeGrantApplyEndWhere(options.asOf)),
       ))
       .orderBy(desc(schema.grants.updatedAt))
       .limit(options.limit ?? 100);
@@ -105,6 +106,13 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
 
     return hydrateGrants<TPayload>(rows)[0] ?? null;
   }
+}
+
+function activeGrantApplyEndWhere(asOf: Date | undefined) {
+  return or(
+    isNull(schema.grants.applyEnd),
+    gte(schema.grants.applyEnd, activeGrantApplyEndCutoff(asOf)),
+  );
 }
 
 class DrizzleCompanyRepository implements CompanyRepository {
