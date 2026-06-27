@@ -28,6 +28,7 @@
     "convert:bizinfo-attachment": "tsx packages/core/scripts/convert-bizinfo-attachment-live.ts",
     "verify:company-profile": "tsx packages/core/scripts/verify-company-profile.ts",
     "verify:dedup": "tsx packages/core/scripts/verify-dedup-candidates.ts",
+    "verify:dedup-publish": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-dedup-link-publish.ts",
     "verify:matching-eval": "tsx packages/core/scripts/verify-matching-eval.ts",
     "verify:service-usecases": "tsx packages/core/scripts/verify-service-usecases.ts",
     "verify:match-transitions": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/verify-match-transitions.ts",
