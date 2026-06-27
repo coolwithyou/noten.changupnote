@@ -55,3 +55,18 @@ export async function requireWebSession(): Promise<WebSession> {
   if (session) return session;
   throw new AuthRequiredError();
 }
+
+export interface HeaderUser {
+  name?: string | null;
+  email?: string | null;
+}
+
+/**
+ * 헤더 계정 영역에 필요한 최소 사용자 정보. 로그인(또는 mock) 세션이 없으면 null.
+ * 서버 컴포넌트에서 호출해 공유 헤더에 전달한다.
+ */
+export async function getOptionalHeaderUser(): Promise<HeaderUser | null> {
+  const session = await getOptionalWebSession();
+  if (!session) return null;
+  return { name: session.user.name ?? null, email: session.user.email ?? null };
+}

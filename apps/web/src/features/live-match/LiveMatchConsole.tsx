@@ -2,6 +2,8 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { MetricCard } from "@/components/app/metric-card";
+import { ServiceHeader } from "@/components/app/service-header";
+import type { HeaderUser } from "@/lib/server/auth/session";
 import { StatusBadge, eligibilityTone } from "@/components/app/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -28,7 +30,7 @@ const initialForm: LiveMatchFormState = {
   bizinfoLlm: true,
 };
 
-export function LiveMatchConsole() {
+export function LiveMatchConsole({ user = null }: { user?: HeaderUser | null }) {
   const [form, setForm] = useState(initialForm);
   const [report, setReport] = useState<LiveMatchReport | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +75,13 @@ export function LiveMatchConsole() {
 
   return (
     <main className="app-shell">
+      <ServiceHeader
+        user={user}
+        links={[
+          { href: "/dashboard", label: "기회 맵" },
+          { href: "/roadmap", label: "로드맵" },
+        ]}
+      />
       <section className="workspace-header">
         <div>
           <p className="eyebrow">창업노트 내부 MVP</p>

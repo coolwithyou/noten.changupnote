@@ -1,6 +1,7 @@
 import type { DashboardResult, NotificationFeedResult } from "@cunote/contracts";
 import { MetricCard } from "@/components/app/metric-card";
-import { PageNav } from "@/components/app/page-nav";
+import { ServiceHeader } from "@/components/app/service-header";
+import type { HeaderUser } from "@/lib/server/auth/session";
 import { ActionQueuePanel } from "@/features/action-queue/ActionQueuePanel";
 import { CompanySettingsPanel } from "@/features/dashboard/CompanySettingsPanel";
 import { NotificationFeedPanel } from "@/features/dashboard/NotificationFeedPanel";
@@ -11,25 +12,22 @@ import { RoadmapStrip } from "@/features/roadmap/RoadmapStrip";
 export function DashboardView({
   dashboard,
   notificationFeed,
+  user = null,
 }: {
   dashboard: DashboardResult;
   notificationFeed: NotificationFeedResult;
+  user?: HeaderUser | null;
 }) {
   return (
     <main className="dashboard-shell">
-      <header className="dashboard-nav">
-        <a className="brand-mark" href="/" aria-label="창업노트 홈">
-          <span className="brand-symbol" aria-hidden="true">C</span>
-          <span>창업노트</span>
-        </a>
-        <PageNav
-          links={[
-            { href: "/", label: "다시 조회" },
-            { href: "/roadmap", label: "로드맵" },
-            { href: "/internal/live-match", label: "내부 검증" },
-          ]}
-        />
-      </header>
+      <ServiceHeader
+        user={user}
+        links={[
+          { href: "/", label: "다시 조회" },
+          { href: "/roadmap", label: "로드맵" },
+          { href: "/internal/live-match", label: "내부 검증" },
+        ]}
+      />
 
       <section className="dashboard-hero">
         <div>

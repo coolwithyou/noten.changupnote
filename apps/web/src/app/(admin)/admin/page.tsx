@@ -1,6 +1,7 @@
 import { getOptionalAdminAccess } from "@/lib/server/auth/adminGuard";
+import { getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { MetricCard } from "@/components/app/metric-card";
-import { PageNav } from "@/components/app/page-nav";
+import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Card } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
@@ -59,21 +60,17 @@ export default async function AdminPage() {
   const [snapshot, transitionPlan] = access
     ? await Promise.all([loadSnapshot(), loadTransitionPlan()])
     : [null, null];
+  const user = await getOptionalHeaderUser();
 
   return (
     <main className="admin-shell">
-      <header className="dashboard-nav">
-        <a className="brand-mark" href="/" aria-label="창업노트 홈">
-          <span className="brand-symbol" aria-hidden="true">C</span>
-          <span>창업노트</span>
-        </a>
-        <PageNav
-          links={[
-            { href: "/dashboard", label: "기회 맵" },
-            { href: "/internal/live-match", label: "내부 검증" },
-          ]}
-        />
-      </header>
+      <ServiceHeader
+        user={user}
+        links={[
+          { href: "/dashboard", label: "기회 맵" },
+          { href: "/internal/live-match", label: "내부 검증" },
+        ]}
+      />
 
       <section className="admin-hero">
         <p className="eyebrow">Admin</p>

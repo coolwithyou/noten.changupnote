@@ -1,6 +1,7 @@
 import type { DashboardResult, MatchCard, OpportunityBucket, RoadmapNode, RuleTraceChip, SupportAmount } from "@cunote/contracts";
 import { MetricCard } from "@/components/app/metric-card";
-import { PageNav } from "@/components/app/page-nav";
+import { ServiceHeader } from "@/components/app/service-header";
+import type { HeaderUser } from "@/lib/server/auth/session";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
@@ -32,7 +33,13 @@ const ROADMAP_BUCKETS: Array<{
   },
 ];
 
-export function RoadmapView({ dashboard }: { dashboard: DashboardResult }) {
+export function RoadmapView({
+  dashboard,
+  user = null,
+}: {
+  dashboard: DashboardResult;
+  user?: HeaderUser | null;
+}) {
   const matchesById = new Map(dashboard.matches.map((match) => [match.grantId, match]));
   const bucketCounts = ROADMAP_BUCKETS.map((bucket) => ({
     ...bucket,
@@ -41,18 +48,13 @@ export function RoadmapView({ dashboard }: { dashboard: DashboardResult }) {
 
   return (
     <main className="roadmap-shell">
-      <header className="dashboard-nav">
-        <a className="brand-mark" href="/" aria-label="창업노트 홈">
-          <span className="brand-symbol" aria-hidden="true">C</span>
-          <span>창업노트</span>
-        </a>
-        <PageNav
-          links={[
-            { href: "/dashboard", label: "기회 맵" },
-            { href: "/internal/live-match", label: "내부 검증" },
-          ]}
-        />
-      </header>
+      <ServiceHeader
+        user={user}
+        links={[
+          { href: "/dashboard", label: "기회 맵" },
+          { href: "/internal/live-match", label: "내부 검증" },
+        ]}
+      />
 
       <section className="roadmap-hero">
         <div>

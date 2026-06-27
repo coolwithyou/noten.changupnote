@@ -147,9 +147,10 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                 {pending === "password" ? <Spinner data-icon="inline-start" /> : null}
                 {pending === "password" ? "처리 중" : mode === "register" ? "가입하고 시작" : "로그인"}
               </Button>
-              <button
+              <Button
                 type="button"
-                className="text-sm text-muted-foreground underline-offset-4 hover:underline"
+                className="h-auto min-h-0 p-0 text-sm text-muted-foreground"
+                variant="link"
                 disabled={busy}
                 onClick={() => {
                   setMode(mode === "register" ? "login" : "register");
@@ -157,7 +158,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                 }}
               >
                 {mode === "register" ? "이미 계정이 있어요 · 로그인" : "처음이신가요? · 회원가입"}
-              </button>
+              </Button>
             </form>
           ) : null}
 

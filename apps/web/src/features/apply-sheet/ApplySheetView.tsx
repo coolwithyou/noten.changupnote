@@ -10,30 +10,26 @@ import type {
   SupportAmount,
 } from "@cunote/contracts";
 import { MetricCard } from "@/components/app/metric-card";
-import { PageNav } from "@/components/app/page-nav";
+import { ServiceHeader } from "@/components/app/service-header";
+import type { HeaderUser } from "@/lib/server/auth/session";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { ApplyLink } from "./ApplyLink";
 
-export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
+export function ApplySheetView({ sheet, user = null }: { sheet: ApplySheet; user?: HeaderUser | null }) {
   const dDayLabel = formatDday(sheet.schedule.dDay);
 
   return (
     <main className="apply-shell">
-      <header className="dashboard-nav">
-        <a className="brand-mark" href="/" aria-label="창업노트 홈">
-          <span className="brand-symbol" aria-hidden="true">C</span>
-          <span>창업노트</span>
-        </a>
-        <PageNav
-          links={[
-            { href: "/dashboard", label: "기회 맵" },
-            { href: "/roadmap", label: "로드맵" },
-            { href: "/internal/live-match", label: "내부 검증" },
-          ]}
-        />
-      </header>
+      <ServiceHeader
+        user={user}
+        links={[
+          { href: "/dashboard", label: "기회 맵" },
+          { href: "/roadmap", label: "로드맵" },
+          { href: "/internal/live-match", label: "내부 검증" },
+        ]}
+      />
 
       <section className="apply-hero">
         <div>
