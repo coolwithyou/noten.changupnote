@@ -31,6 +31,12 @@ const companies: CompanyRecord[] = [
     profile: { id: "company-b", confidence: {} },
     role: "viewer",
   },
+  {
+    id: "company-c",
+    name: "C",
+    profile: { id: "company-c", confidence: {} },
+    role: "admin",
+  },
 ];
 
 expectEqual(
@@ -75,6 +81,18 @@ expectThrows(
   }),
   "company_write_forbidden",
   "viewer write access is rejected",
+);
+
+expectEqual(
+  resolveCompanyAccessFromRecords({
+    companies,
+    userId: "user-1",
+    mode: "session",
+    companyId: "company-c",
+    permission: "write",
+  }).role,
+  "admin",
+  "admin write access is allowed",
 );
 
 console.log("Company access verification passed.");

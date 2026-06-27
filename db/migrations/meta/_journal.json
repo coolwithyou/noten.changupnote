@@ -29,6 +29,13 @@
       "when": 1782466890000,
       "tag": "0003_rls_company_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1782526593741,
+      "tag": "0004_company_role_admin",
+      "breakpoints": true
     }
   ]
 }

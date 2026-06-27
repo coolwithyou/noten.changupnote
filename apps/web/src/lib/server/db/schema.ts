@@ -16,7 +16,7 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const companyKindEnum = pgEnum("company_kind", ["active", "preliminary"]);
-export const companyRoleEnum = pgEnum("company_role", ["owner", "member", "viewer"]);
+export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member", "viewer"]);
 export const appDevicePlatformEnum = pgEnum("app_device_platform", ["ios", "android"]);
 export const companyProfileSourceEnum = pgEnum("company_profile_source", [
   "popbill",
