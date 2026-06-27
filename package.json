@@ -40,6 +40,7 @@
     "verify:demo-seed": "tsx apps/web/src/lib/server/db/seed-demo.ts --dry-run",
     "verify:bizinfo-publish": "tsx apps/web/src/lib/server/ingestion/verify-bizinfo-publish.ts",
     "verify:ingestion-publish": "tsx apps/web/src/lib/server/ingestion/verify-kstartup-publish.ts",
+    "verify:ingestion-batch": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-ingestion-batch-plan.ts",
     "verify:grant-criteria-schema": "tsx packages/contracts/scripts/verify-grant-criteria-schema.ts",
     "verify:openapi": "tsx packages/contracts/scripts/verify-openapi.ts",
     "verify:package-boundaries": "tsx packages/contracts/scripts/verify-package-boundaries.ts",
