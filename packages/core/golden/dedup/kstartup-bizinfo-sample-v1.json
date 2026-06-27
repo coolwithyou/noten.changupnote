@@ -1,0 +1,36 @@
+{
+  "goldenVer": "kstartup-bizinfo-sample-v1",
+  "fixture": "samples/kstartup_announcement_sample.json",
+  "asOf": "2026-06-26T00:00:00.000+09:00",
+  "baseSourceId": "178246",
+  "minScore": 0.82,
+  "cases": [
+    {
+      "name": "tech_bridge_cross_source_duplicate",
+      "expected": "duplicate",
+      "source": "bizinfo",
+      "sourceId": "PBLN_DEDUP_TECH_BRIDGE",
+      "title": "2026년 스타트업 테크 브릿지 참여기업 모집",
+      "minScore": 0.9,
+      "note": "동일 사업이 기업마당에 축약 제목으로 들어온 경우"
+    },
+    {
+      "name": "marketplace_unrelated",
+      "expected": "non_duplicate",
+      "source": "bizinfo",
+      "sourceId": "PBLN_DEDUP_UNRELATED",
+      "title": "전통시장 온라인 판로개척 지원사업",
+      "agencyJurisdiction": "소상공인시장진흥공단",
+      "agencyOperator": "소상공인시장진흥공단",
+      "categoryL1": "판로",
+      "categoryL2": "마케팅",
+      "applyStart": "2026-08-01",
+      "applyEnd": "2026-09-01",
+      "note": "다른 사업은 같은 지원사업 후보로 묶지 않는다"
+    }
+  ],
+  "sameSourceControl": {
+    "sourceId": "178246_COPY",
+    "expectedDefaultCandidateCount": 0
+  }
+}
