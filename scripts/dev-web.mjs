@@ -1,13 +1,23 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { homedir } from "node:os";
 
 const localUrl = "http://127.0.0.1:4010";
 const tunnelUrl = "https://dev.changupnote.com";
-const tunnelCommand =
-  "cloudflared tunnel --config ~/.cloudflared/changupnote-dev.yml run";
+const tunnelName = "changupnote-dev";
+const tunnelConfig = resolve(homedir(), ".cloudflared", "changupnote-dev.yml");
+const tunnelCommand = `cloudflared tunnel --config ${tunnelConfig} run`;
 
 loadDevEnv();
+
+const rawArgs = process.argv.slice(2);
+const tunnelDisabled =
+  rawArgs.includes("--no-tunnel") ||
+  ["0", "false", "no", "off"].includes(
+    (process.env.CUNOTE_DEV_TUNNEL ?? "").trim().toLowerCase(),
+  );
+const forwardedArgs = rawArgs.filter((arg) => arg !== "--no-tunnel");
 
 const repositoryAdapter = process.env.CUNOTE_REPOSITORY_ADAPTER ??
   (hasDatabaseUrl() ? "drizzle" : undefined);
@@ -19,21 +29,19 @@ console.log(
     `- 로컬 접속: ${localUrl}`,
     `- HTTPS 접속: ${tunnelUrl}`,
     `- 데이터 어댑터: ${repositoryAdapter ?? "runtime"}`,
-    "",
-    "Cloudflare tunnel이 실행 중이면 위 HTTPS 주소로 접속하면 됩니다.",
-    `터널 실행: ${tunnelCommand}`,
+    `- Cloudflare 터널: ${tunnelDisabled ? "비활성(--no-tunnel)" : "자동 기동"}`,
     "",
   ].join("\n"),
 );
 
-const forwardedArgs = process.argv.slice(2);
-const pnpmArgs = ["--filter", "@cunote/web", "dev"];
+let shuttingDown = false;
 
+const pnpmArgs = ["--filter", "@cunote/web", "dev"];
 if (forwardedArgs.length > 0) {
   pnpmArgs.push("--", ...forwardedArgs);
 }
 
-const child = spawn("pnpm", pnpmArgs, {
+const webChild = spawn("pnpm", pnpmArgs, {
   stdio: "inherit",
   env: {
     ...process.env,
@@ -42,18 +50,22 @@ const child = spawn("pnpm", pnpmArgs, {
   },
 });
 
-child.on("error", (error) => {
+const tunnelChild = tunnelDisabled ? undefined : startTunnel();
+
+webChild.on("error", (error) => {
   console.error(`웹 개발 서버를 실행하지 못했습니다: ${error.message}`);
+  shutdown("SIGTERM");
   process.exit(1);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    child.kill(signal);
-  });
+  process.on(signal, () => shutdown(signal));
 }
 
-child.on("exit", (code, signal) => {
+webChild.on("exit", (code, signal) => {
+  shuttingDown = true;
+  tunnelChild?.kill("SIGTERM");
+
   if (signal) {
     const signalExitCodes = {
       SIGINT: 130,
@@ -65,6 +77,92 @@ child.on("exit", (code, signal) => {
 
   process.exit(code ?? 0);
 });
+
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  webChild.kill(signal);
+  tunnelChild?.kill(signal);
+}
+
+function startTunnel() {
+  if (!commandExists("cloudflared")) {
+    console.warn(
+      `[tunnel] cloudflared가 설치돼 있지 않아 HTTPS 터널을 건너뜁니다. 로컬 ${localUrl}만 사용하거나 \`brew install cloudflared\` 후 다시 실행하세요.`,
+    );
+    return undefined;
+  }
+
+  if (!existsSync(tunnelConfig)) {
+    console.warn(`[tunnel] 설정 파일이 없어 터널을 건너뜁니다: ${tunnelConfig}`);
+    return undefined;
+  }
+
+  if (isTunnelAlreadyRunning()) {
+    console.log(
+      `[tunnel] ${tunnelName} 커넥터가 이미 실행 중이라 새로 띄우지 않습니다. (${tunnelUrl})`,
+    );
+    return undefined;
+  }
+
+  const child = spawn(
+    "cloudflared",
+    ["tunnel", "--config", tunnelConfig, "run"],
+    { stdio: ["ignore", "pipe", "pipe"] },
+  );
+
+  prefixStream(child.stdout, "[tunnel] ");
+  prefixStream(child.stderr, "[tunnel] ");
+
+  child.on("error", (error) => {
+    console.warn(
+      `[tunnel] 터널 실행 실패(로컬 서버는 계속 동작): ${error.message}`,
+    );
+  });
+
+  child.on("exit", (code, signal) => {
+    if (shuttingDown) return;
+    console.warn(
+      `[tunnel] 터널이 종료됐습니다(code=${code ?? ""} signal=${signal ?? ""}). ` +
+        `${tunnelUrl} 접속은 끊기지만 로컬 ${localUrl}는 계속 동작합니다. ` +
+        `수동 재기동: ${tunnelCommand}`,
+    );
+  });
+
+  return child;
+}
+
+function commandExists(command) {
+  const result = spawnSync(command, ["--version"], { stdio: "ignore" });
+  return !result.error;
+}
+
+function isTunnelAlreadyRunning() {
+  if (process.platform === "win32") return false;
+  const result = spawnSync("pgrep", ["-f", `cloudflared.*${tunnelName}`], {
+    encoding: "utf8",
+  });
+  return result.status === 0 && result.stdout.trim().length > 0;
+}
+
+function prefixStream(stream, prefix) {
+  if (!stream) return;
+  let buffer = "";
+  stream.setEncoding("utf8");
+  stream.on("data", (chunk) => {
+    buffer += chunk;
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      process.stdout.write(`${prefix}${line}\n`);
+    }
+  });
+  stream.on("end", () => {
+    if (buffer.length > 0) {
+      process.stdout.write(`${prefix}${buffer}\n`);
+    }
+  });
+}
 
 function loadDevEnv() {
   const candidates = [
