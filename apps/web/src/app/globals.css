@@ -2367,6 +2367,74 @@ button:disabled {
   margin: 0 auto 12px;
 }
 
+.admin-transitions {
+  max-width: 1180px;
+  margin: 0 auto 12px;
+}
+
+.admin-transition-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.admin-transition-counts strong,
+.admin-transition-counts time {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  padding: 7px 10px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.admin-transition-counts time {
+  color: var(--muted);
+}
+
+.admin-transition-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-transition-list li {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  padding: 12px;
+}
+
+.admin-transition-list strong {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.admin-transition-list p,
+.admin-transition-list time {
+  display: block;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.admin-transition-list p {
+  margin-top: 7px;
+}
+
+.admin-transition-list time {
+  margin-top: 6px;
+  font-weight: 800;
+}
+
 .admin-runtime-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

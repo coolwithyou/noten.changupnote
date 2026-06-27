@@ -7,6 +7,11 @@ import {
   getAdminRuntimeStatus,
   type AdminRuntimeStatus,
 } from "@/lib/server/admin/runtimeStatus";
+import { loadDueMatchTransitionPlan } from "@/lib/server/matches/transitionPlan";
+import type {
+  MatchTransitionAction,
+  MatchTransitionPlan,
+} from "@cunote/core";
 
 export const dynamic = "force-dynamic";
 
@@ -44,8 +49,10 @@ const SURFACES: Array<{
 
 export default async function AdminPage() {
   const access = await getOptionalAdminAccess();
-  const snapshot = access ? await loadSnapshot() : null;
   const runtime = access ? getAdminRuntimeStatus() : null;
+  const [snapshot, transitionPlan] = access
+    ? await Promise.all([loadSnapshot(), loadTransitionPlan()])
+    : [null, null];
 
   return (
     <main className="admin-shell">
@@ -69,6 +76,7 @@ export default async function AdminPage() {
       {access ? (
         <>
           {runtime ? <RuntimePanel runtime={runtime} /> : null}
+          <TransitionPanel plan={transitionPlan} />
 
           <section className="admin-grid">
             {SURFACES.map((item) => (
@@ -156,6 +164,61 @@ async function loadSnapshot(): Promise<AdminFlywheelSnapshot | null> {
   }
 }
 
+async function loadTransitionPlan(): Promise<MatchTransitionPlan | null> {
+  try {
+    return await loadDueMatchTransitionPlan({ limit: 10 });
+  } catch {
+    return null;
+  }
+}
+
+function TransitionPanel({ plan }: { plan: MatchTransitionPlan | null }) {
+  const total = plan
+    ? plan.counts.becomes_eligible + plan.counts.becomes_ineligible
+    : null;
+
+  return (
+    <section className="admin-panel admin-transitions">
+      <span>{total === null ? "대기" : `${total.toLocaleString("ko-KR")}건`}</span>
+      <h2>상태 전이 예정</h2>
+      {plan ? (
+        <>
+          <div className="admin-transition-counts">
+            <strong>해금 {plan.counts.becomes_eligible.toLocaleString("ko-KR")}</strong>
+            <strong>마감 {plan.counts.becomes_ineligible.toLocaleString("ko-KR")}</strong>
+            <time dateTime={plan.asOf}>{formatTimestamp(plan.asOf)}</time>
+          </div>
+          {plan.transitions.length > 0 ? (
+            <ul className="admin-transition-list">
+              {plan.transitions.slice(0, 10).map((item) => (
+                <TransitionItem item={item} key={`${item.companyId}:${item.grantId}:${item.kind}`} />
+              ))}
+            </ul>
+          ) : (
+            <p>현재 처리할 전이 대상이 없습니다.</p>
+          )}
+        </>
+      ) : (
+        <p>전이 플랜을 불러오지 못했습니다.</p>
+      )}
+    </section>
+  );
+}
+
+function TransitionItem({ item }: { item: MatchTransitionAction }) {
+  return (
+    <li>
+      <strong>{transitionLabel(item)}</strong>
+      <p>{shortId(item.companyId)} · {shortId(item.grantId)}</p>
+      <time dateTime={item.dueAt}>{formatTimestamp(item.dueAt)}</time>
+    </li>
+  );
+}
+
+function transitionLabel(item: MatchTransitionAction): string {
+  return item.kind === "becomes_eligible" ? "해금 전이" : "마감 전이";
+}
+
 function RecentList({ title, items }: { title: string; items: string[] }) {
   return (
     <div>
@@ -179,4 +242,9 @@ function formatTimestamp(value: string): string {
     timeStyle: "short",
     timeZone: "Asia/Seoul",
   }).format(new Date(value));
+}
+
+function shortId(value: string): string {
+  if (value.length <= 12) return value;
+  return `${value.slice(0, 8)}...${value.slice(-4)}`;
 }
