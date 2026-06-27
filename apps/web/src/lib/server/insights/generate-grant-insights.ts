@@ -1,4 +1,4 @@
-import { count } from "drizzle-orm";
+import { count, sql } from "drizzle-orm";
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
@@ -25,38 +25,37 @@ const staleCursorHours = boundedInteger(
 const db = getCunoteDb();
 
 try {
-  const [grants, criteria, cursors, activity] = await Promise.all([
-    db
-      .select({
-        source: schema.grants.source,
-        status: schema.grants.status,
-        categoryL1: schema.grants.categoryL1,
-        agencyJurisdiction: schema.grants.agencyJurisdiction,
-        applyStart: schema.grants.applyStart,
-        applyEnd: schema.grants.applyEnd,
-        fRegions: schema.grants.fRegions,
-        overallConfidence: schema.grants.overallConfidence,
-        updatedAt: schema.grants.updatedAt,
-      })
-      .from(schema.grants),
-    db
-      .select({
-        dimension: schema.grantCriteria.dimension,
-        operator: schema.grantCriteria.operator,
-        kind: schema.grantCriteria.kind,
-        confidence: schema.grantCriteria.confidence,
-        needsReview: schema.grantCriteria.needsReview,
-      })
-      .from(schema.grantCriteria),
-    db
-      .select({
-        source: schema.sourceCursor.source,
-        lastPage: schema.sourceCursor.lastPage,
-        lastCollectedAt: schema.sourceCursor.lastCollectedAt,
-      })
-      .from(schema.sourceCursor),
-    readActivityCounts(),
-  ]);
+  await db.execute(sql`set statement_timeout = '30s'`);
+  const grants = await db
+    .select({
+      source: schema.grants.source,
+      status: schema.grants.status,
+      categoryL1: schema.grants.categoryL1,
+      agencyJurisdiction: schema.grants.agencyJurisdiction,
+      applyStart: schema.grants.applyStart,
+      applyEnd: schema.grants.applyEnd,
+      fRegions: schema.grants.fRegions,
+      overallConfidence: schema.grants.overallConfidence,
+      updatedAt: schema.grants.updatedAt,
+    })
+    .from(schema.grants);
+  const criteria = await db
+    .select({
+      dimension: schema.grantCriteria.dimension,
+      operator: schema.grantCriteria.operator,
+      kind: schema.grantCriteria.kind,
+      confidence: schema.grantCriteria.confidence,
+      needsReview: schema.grantCriteria.needsReview,
+    })
+    .from(schema.grantCriteria);
+  const cursors = await db
+    .select({
+      source: schema.sourceCursor.source,
+      lastPage: schema.sourceCursor.lastPage,
+      lastCollectedAt: schema.sourceCursor.lastCollectedAt,
+    })
+    .from(schema.sourceCursor);
+  const activity = await readActivityCounts();
   const snapshot = buildGrantInsightSnapshot({
     asOf,
     staleCursorHours,
@@ -95,29 +94,13 @@ try {
 }
 
 async function readActivityCounts(): Promise<GrantInsightActivityCounts> {
-  const [
-    dedupLinks,
-    extractionLog,
-    feedback,
-    matchEvents,
-    goldenSet,
-    evalRuns,
-  ] = await Promise.all([
-    rowCount(db.select({ value: count() }).from(schema.dedupLinks)),
-    rowCount(db.select({ value: count() }).from(schema.extractionLog)),
-    rowCount(db.select({ value: count() }).from(schema.feedback)),
-    rowCount(db.select({ value: count() }).from(schema.matchEvents)),
-    rowCount(db.select({ value: count() }).from(schema.goldenSet)),
-    rowCount(db.select({ value: count() }).from(schema.evalRuns)),
-  ]);
-
   return {
-    dedupLinks,
-    extractionLog,
-    feedback,
-    matchEvents,
-    goldenSet,
-    evalRuns,
+    dedupLinks: await rowCount(db.select({ value: count() }).from(schema.dedupLinks)),
+    extractionLog: await rowCount(db.select({ value: count() }).from(schema.extractionLog)),
+    feedback: await rowCount(db.select({ value: count() }).from(schema.feedback)),
+    matchEvents: await rowCount(db.select({ value: count() }).from(schema.matchEvents)),
+    goldenSet: await rowCount(db.select({ value: count() }).from(schema.goldenSet)),
+    evalRuns: await rowCount(db.select({ value: count() }).from(schema.evalRuns)),
   };
 }
 

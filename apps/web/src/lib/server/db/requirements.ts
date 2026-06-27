@@ -14,6 +14,7 @@ export const REQUIRED_TABLES = [
   "grants",
   "grant_raw",
   "grant_criteria",
+  "grant_attachment_archives",
   "source_cursor",
   "dedup_links",
   "match_state",

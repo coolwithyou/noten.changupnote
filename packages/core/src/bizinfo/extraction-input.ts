@@ -138,7 +138,7 @@ function splitTags(value: string | null | undefined): string[] {
 
 function splitMaybeMultiValue(value: string | null | undefined): string[] {
   return cleanText(value)
-    .split(/\s*(?:,|\r?\n|\|)\s*/)
+    .split(/\s*(?:,|\r?\n|\||@)\s*/)
     .map((part) => part.trim())
     .filter(Boolean);
 }
