@@ -23,4 +23,5 @@ export * from "./use-cases/build-roadmap.js";
 export * from "./use-cases/build-stats.js";
 export * from "./use-cases/build-teaser.js";
 export * from "./use-cases/match-card.js";
+export * from "./use-cases/plan-match-transitions.js";
 export * from "./use-cases/select-match-cards.js";

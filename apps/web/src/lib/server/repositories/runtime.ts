@@ -178,6 +178,10 @@ class RuntimeMatchRepository<TPayload> implements MatchRepository<TPayload> {
     // The runtime adapter is stateless until DB-backed match_state is connected.
   }
 
+  async listDueMatchTransitions() {
+    return [];
+  }
+
   async saveMatchEvent(_input: SaveMatchEventInput): Promise<MatchEventReceipt> {
     return {
       id: `match-event:${crypto.randomUUID()}`,

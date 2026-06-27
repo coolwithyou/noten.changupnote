@@ -5,6 +5,7 @@ import type {
   NormalizedGrant,
   RoadmapNode,
 } from "@cunote/contracts";
+import type { MatchTransitionCandidate } from "../use-cases/plan-match-transitions.js";
 
 export interface GrantListOptions {
   limit?: number;
@@ -94,6 +95,11 @@ export interface MatchRepository<TPayload = unknown> {
     eligibleUntil?: Date | null;
     userId?: string;
   }): Promise<void>;
+  listDueMatchTransitions(input: {
+    asOf: Date;
+    limit?: number;
+    userId?: string;
+  }): Promise<MatchTransitionCandidate[]>;
   saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt>;
 }
 

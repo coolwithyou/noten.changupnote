@@ -1,4 +1,4 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, asc, desc, eq, lte, or } from "drizzle-orm";
 import type {
   CompanyProfile,
   CriterionDimension,
@@ -347,6 +347,47 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         },
       });
     });
+  }
+
+  async listDueMatchTransitions(input: {
+    asOf: Date;
+    limit?: number;
+    userId?: string;
+  }) {
+    const rows = await this.withOptionalUser(input.userId, async (db) => db
+      .select({
+        companyId: schema.matchState.companyId,
+        grantId: schema.matchState.grantId,
+        eligibility: schema.matchState.eligibility,
+        eligibleFrom: schema.matchState.eligibleFrom,
+        eligibleUntil: schema.matchState.eligibleUntil,
+        updatedAt: schema.matchState.updatedAt,
+      })
+      .from(schema.matchState)
+      .where(or(
+        and(
+          eq(schema.matchState.eligibility, "ineligible"),
+          lte(schema.matchState.eligibleFrom, input.asOf),
+        ),
+        and(
+          or(
+            eq(schema.matchState.eligibility, "eligible"),
+            eq(schema.matchState.eligibility, "conditional"),
+          ),
+          lte(schema.matchState.eligibleUntil, input.asOf),
+        ),
+      ))
+      .orderBy(asc(schema.matchState.eligibleFrom), asc(schema.matchState.eligibleUntil))
+      .limit(input.limit ?? 500));
+
+    return rows.map((row) => ({
+      companyId: row.companyId,
+      grantId: row.grantId,
+      eligibility: row.eligibility,
+      eligibleFrom: row.eligibleFrom,
+      eligibleUntil: row.eligibleUntil,
+      updatedAt: row.updatedAt,
+    }));
   }
 
   async saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt> {
