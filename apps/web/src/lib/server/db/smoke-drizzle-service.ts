@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { closeCunoteDb } from "./client";
+import { count, eq } from "drizzle-orm";
+import { closeCunoteDb, getCunoteDb, withCunoteDbUser, type CunoteDb } from "./client";
+import * as schema from "./schema";
 import { mockUserId } from "../auth/mockIdentity";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 
@@ -56,6 +58,13 @@ if (dryRun) {
     assert.ok(bizInfoSheet, "DB-backed apply sheet should resolve BizInfo sample");
     assert.equal(bizInfoSheet.grant.source, "bizinfo", "BizInfo apply sheet should keep source");
 
+    const persistence = await verifyStoredPipelineState({
+      db: getCunoteDb(),
+      userId,
+      companyId,
+      expectedMatchStateCount: dashboard.matches.length,
+    });
+
     console.log(JSON.stringify({
       dryRun: false,
       adapter: "drizzle",
@@ -82,10 +91,37 @@ if (dryRun) {
         id: bizInfoSheet.grant.id,
         title: bizInfoSheet.grant.title,
       },
+      persistence,
     }, null, 2));
   } finally {
     await closeCunoteDb();
   }
+}
+
+async function verifyStoredPipelineState(input: {
+  db: CunoteDb;
+  userId: string;
+  companyId: string;
+  expectedMatchStateCount: number;
+}) {
+  const [matchStateRow] = await withCunoteDbUser(input.db, input.userId, async (tx) => tx
+    .select({ count: count() })
+    .from(schema.matchState)
+    .where(eq(schema.matchState.companyId, input.companyId)));
+  const matchStateCount = matchStateRow?.count ?? 0;
+  assert.ok(
+    matchStateCount >= input.expectedMatchStateCount,
+    `DB-backed dashboard should persist match_state rows: expected >= ${input.expectedMatchStateCount}, got ${matchStateCount}`,
+  );
+
+  const [dedupRow] = await input.db
+    .select({ count: count() })
+    .from(schema.dedupLinks);
+
+  return {
+    matchStateCount,
+    dedupLinkCount: dedupRow?.count ?? 0,
+  };
 }
 
 function readArg(name: string): string | undefined {
