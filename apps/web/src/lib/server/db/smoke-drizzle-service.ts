@@ -25,6 +25,7 @@ if (dryRun) {
       "pnpm publish:kstartup -- --source=sample",
       "pnpm publish:bizinfo -- --source=sample",
       "pnpm publish:dedup",
+      "pnpm match:states:refresh -- --write",
     ],
   }, null, 2));
 } else {

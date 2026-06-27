@@ -196,6 +196,7 @@ function nextStepsFor(input: {
       "pnpm publish:kstartup -- --source=sample 로 샘플 공고를 발행한다.",
       "pnpm publish:bizinfo -- --source=sample 로 기업마당 샘플 공고를 발행한다.",
       "pnpm publish:dedup 으로 중복 링크를 발행한다.",
+      "pnpm match:states:refresh -- --write 로 match_state를 갱신한다.",
       "다시 pnpm db:doctor 를 실행한다.",
     ];
   }

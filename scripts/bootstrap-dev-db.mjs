@@ -40,6 +40,10 @@ const steps = [
     command: ["pnpm", "publish:dedup"],
   },
   {
+    label: "match_state 갱신",
+    command: ["pnpm", "match:states:refresh", "--", "--write"],
+  },
+  {
     label: "DB 상태 재확인",
     command: ["pnpm", "db:doctor"],
   },
