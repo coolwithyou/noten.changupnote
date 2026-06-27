@@ -363,16 +363,29 @@ checks.push("web_match_feedback");
 
 const webGrantDetail = await fetchJson<ActionResult<{
   grant: { id: string; title: string };
+  applicationPrep: {
+    autoSubmitSupported: boolean;
+    profileCopyFields: Array<{ label: string; value: string }>;
+    planDraftPrompts: Array<{ title: string; evidence: string[] }>;
+  };
 }>>(`/api/web/grants/${encodeURIComponent(webGrant!.grantId)}`);
 expectStatus(webGrantDetail, 200, "web grant detail status");
 expect(webGrantDetail.body.ok === true, "web grant detail envelope ok");
 expect(webGrantDetail.body.data?.grant.id === webGrant!.grantId, "web grant detail matches dashboard grant");
+expect(webGrantDetail.body.data?.applicationPrep.autoSubmitSupported === false, "web grant detail disables auto submit");
+expect(
+  Boolean(webGrantDetail.body.data?.applicationPrep.profileCopyFields.find((field) => field.label === "소재지")),
+  "web grant detail exposes profile copy fields",
+);
+expect(webGrantDetail.body.data?.applicationPrep.planDraftPrompts.length === 3, "web grant detail exposes plan prompts");
 checks.push("web_grant_detail");
 
 const webGrantDetailHtml = await fetchText(`/grants/${encodeURIComponent(webGrant!.grantId)}`);
 expectStatus(webGrantDetailHtml, 200, "web grant detail html status");
 expect(webGrantDetailHtml.body.includes("신청 준비 시트"), "web grant detail renders apply sheet");
 expect(webGrantDetailHtml.body.includes("체크리스트"), "web grant detail renders checklist");
+expect(webGrantDetailHtml.body.includes("복붙 프로필"), "web grant detail renders profile copy section");
+expect(webGrantDetailHtml.body.includes("초안 프롬프트"), "web grant detail renders plan prompt section");
 expect(webGrantDetailHtml.body.includes("신청 페이지 열기"), "web grant detail renders apply link");
 checks.push("web_grant_detail_html");
 
@@ -785,11 +798,21 @@ checks.push("app_roadmap");
 
 const appGrantDetail = await fetchJson<ApiEnvelope<{
   grant: { id: string; title: string };
+  applicationPrep: {
+    autoSubmitSupported: boolean;
+    profileCopyFields: Array<{ label: string; value: string }>;
+    planDraftPrompts: Array<{ title: string; evidence: string[] }>;
+  };
 }>>(`/api/app/v1/grants/${encodeURIComponent(appGrant!.grantId)}?companyId=${encodeURIComponent(companyId!)}`, {
   headers: { authorization: `Bearer ${accessToken}` },
 });
 expectStatus(appGrantDetail, 200, "app grant detail status");
 expect(appGrantDetail.body.data?.grant.id === appGrant!.grantId, "app grant detail uses selected company context");
+expect(appGrantDetail.body.data?.applicationPrep.autoSubmitSupported === false, "app grant detail disables auto submit");
+expect(
+  Boolean(appGrantDetail.body.data?.applicationPrep.profileCopyFields.find((field) => field.label === "소재지")),
+  "app grant detail exposes profile copy fields",
+);
 checks.push("app_grant_detail");
 
 const appFeedback = await fetchJson<ApiEnvelope<{ receipt: { id: string; receivedAt: string } }>>(

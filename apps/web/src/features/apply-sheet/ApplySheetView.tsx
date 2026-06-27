@@ -1,4 +1,12 @@
-import type { ApplySheet, RequiredDocument, RuleTraceChip, SupportAmount } from "@cunote/contracts";
+import type {
+  ApplicationPrep,
+  ApplySheet,
+  PlanDraftPrompt,
+  ProfileCopyField,
+  RequiredDocument,
+  RuleTraceChip,
+  SupportAmount,
+} from "@cunote/contracts";
 import { ApplyLink } from "./ApplyLink";
 
 export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
@@ -50,6 +58,8 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
         </div>
       </section>
 
+      <ApplicationPrepSection prep={sheet.applicationPrep} />
+
       <section className="apply-grid">
         <ChecklistSection
           title="이미 충족"
@@ -66,6 +76,62 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
         <DocumentSection documents={sheet.documents} />
       </section>
     </main>
+  );
+}
+
+function ApplicationPrepSection({ prep }: { prep: ApplicationPrep }) {
+  return (
+    <section className="apply-panel application-prep-panel">
+      <div className="panel-heading">
+        <span className="eyebrow">지원서 준비</span>
+        <h2>복붙 프로필과 사업계획서 초안</h2>
+        <p>접수는 각 포털에서 진행하고, 아래 정보는 신청서 작성 재료로만 사용합니다.</p>
+      </div>
+      <div className="application-prep-grid">
+        <section className="profile-copy-panel" aria-label="복붙 프로필">
+          <h3>복붙 프로필</h3>
+          <div className="profile-copy-list">
+            {prep.profileCopyFields.map((field) => (
+              <ProfileCopyItem key={`${field.source}:${field.label}`} field={field} />
+            ))}
+            {prep.profileCopyFields.length === 0 ? (
+              <p className="panel-empty">복사할 회사 프로필 정보가 아직 없습니다.</p>
+            ) : null}
+          </div>
+        </section>
+        <section className="plan-draft-panel" aria-label="사업계획서 초안">
+          <h3>초안 프롬프트</h3>
+          <div className="plan-draft-list">
+            {prep.planDraftPrompts.map((prompt) => (
+              <PlanDraftItem key={prompt.title} prompt={prompt} />
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function ProfileCopyItem({ field }: { field: ProfileCopyField }) {
+  return (
+    <article className="profile-copy-item">
+      <span>{field.label}</span>
+      <strong>{field.value}</strong>
+    </article>
+  );
+}
+
+function PlanDraftItem({ prompt }: { prompt: PlanDraftPrompt }) {
+  return (
+    <article className="plan-draft-item">
+      <h4>{prompt.title}</h4>
+      <p>{prompt.prompt}</p>
+      <ul>
+        {prompt.evidence.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </article>
   );
 }
 

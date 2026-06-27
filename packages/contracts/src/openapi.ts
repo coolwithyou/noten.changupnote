@@ -979,6 +979,36 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      ProfileCopyField: {
+        type: "object",
+        required: ["label", "value", "source"],
+        properties: {
+          label: { type: "string" },
+          value: { type: "string" },
+          source: { type: "string", enum: ["company_profile", "grant_context"] },
+        },
+        additionalProperties: false,
+      },
+      PlanDraftPrompt: {
+        type: "object",
+        required: ["title", "prompt", "evidence"],
+        properties: {
+          title: { type: "string" },
+          prompt: { type: "string" },
+          evidence: arrayOf({ type: "string" }),
+        },
+        additionalProperties: false,
+      },
+      ApplicationPrep: {
+        type: "object",
+        required: ["autoSubmitSupported", "profileCopyFields", "planDraftPrompts"],
+        properties: {
+          autoSubmitSupported: { type: "boolean", const: false },
+          profileCopyFields: arrayOf(ref("ProfileCopyField")),
+          planDraftPrompts: arrayOf(ref("PlanDraftPrompt")),
+        },
+        additionalProperties: false,
+      },
       ApplySheet: {
         type: "object",
         required: [
@@ -986,6 +1016,7 @@ export const appV1OpenApi = {
           "satisfied",
           "needsCheck",
           "documents",
+          "applicationPrep",
           "applyMethod",
           "deepLink",
           "schedule",
@@ -995,6 +1026,7 @@ export const appV1OpenApi = {
           satisfied: arrayOf(ref("RuleTraceChip")),
           needsCheck: arrayOf(ref("RuleTraceChip")),
           documents: arrayOf(ref("RequiredDocument")),
+          applicationPrep: ref("ApplicationPrep"),
           applyMethod: nullable({ type: "string" }),
           deepLink: nullable({ type: "string" }),
           schedule: ref("ApplySchedule"),

@@ -162,6 +162,7 @@ export async function loadServiceApplySheet(
       item: grants,
       match,
     },
+    company,
     asOf,
   });
 }

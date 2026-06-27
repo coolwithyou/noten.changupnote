@@ -138,6 +138,7 @@ export interface ApplySheet {
   satisfied: RuleTraceChip[];
   needsCheck: RuleTraceChip[];
   documents: RequiredDocument[];
+  applicationPrep: ApplicationPrep;
   applyMethod: string | null;
   deepLink: string | null;
   schedule: {
@@ -145,6 +146,24 @@ export interface ApplySheet {
     applyEnd: string | null;
     dDay: number | null;
   };
+}
+
+export interface ApplicationPrep {
+  autoSubmitSupported: false;
+  profileCopyFields: ProfileCopyField[];
+  planDraftPrompts: PlanDraftPrompt[];
+}
+
+export interface ProfileCopyField {
+  label: string;
+  value: string;
+  source: "company_profile" | "grant_context";
+}
+
+export interface PlanDraftPrompt {
+  title: string;
+  prompt: string;
+  evidence: string[];
 }
 
 export interface GrantDetail {

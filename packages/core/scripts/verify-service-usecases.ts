@@ -92,9 +92,19 @@ const sheet = buildApplySheet({
     item: soonGrant,
     match: matchGrantCriteria(soonGrant.criteria, company),
   },
+  company,
   asOf,
 });
 assert.equal(sheet.needsCheck.find((trace) => trace.dimension === "biz_age")?.unlock?.etaDate, "2026-08-01");
+assert.equal(sheet.applicationPrep.autoSubmitSupported, false);
+assert.ok(
+  sheet.applicationPrep.profileCopyFields.some((field) => field.label === "소재지" && field.value === "경기"),
+  "apply sheet should expose copyable company profile fields",
+);
+assert.ok(
+  sheet.applicationPrep.planDraftPrompts.some((prompt) => prompt.evidence.includes("경기 대상 - 귀사 경기")),
+  "apply sheet should expose business-plan prompt evidence",
+);
 
 const expandedProfile = [
   { field: "revenue" as const, value: 100_000_000 },
@@ -209,6 +219,8 @@ console.log(JSON.stringify({
     "soon_bucket",
     "roadmap_time_unlock",
     "apply_sheet_unlock",
+    "apply_sheet_profile_copy",
+    "apply_sheet_plan_prompts",
     "expanded_profile_field_update",
     "expanded_profile_match",
     "match_selector_filter_sort",

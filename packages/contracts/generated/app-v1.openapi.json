@@ -2231,6 +2231,80 @@
         },
         "additionalProperties": false
       },
+      "ProfileCopyField": {
+        "type": "object",
+        "required": [
+          "label",
+          "value",
+          "source"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "company_profile",
+              "grant_context"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "PlanDraftPrompt": {
+        "type": "object",
+        "required": [
+          "title",
+          "prompt",
+          "evidence"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ApplicationPrep": {
+        "type": "object",
+        "required": [
+          "autoSubmitSupported",
+          "profileCopyFields",
+          "planDraftPrompts"
+        ],
+        "properties": {
+          "autoSubmitSupported": {
+            "type": "boolean",
+            "const": false
+          },
+          "profileCopyFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileCopyField"
+            }
+          },
+          "planDraftPrompts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanDraftPrompt"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "ApplySheet": {
         "type": "object",
         "required": [
@@ -2238,6 +2312,7 @@
           "satisfied",
           "needsCheck",
           "documents",
+          "applicationPrep",
           "applyMethod",
           "deepLink",
           "schedule"
@@ -2263,6 +2338,9 @@
             "items": {
               "$ref": "#/components/schemas/RequiredDocument"
             }
+          },
+          "applicationPrep": {
+            "$ref": "#/components/schemas/ApplicationPrep"
           },
           "applyMethod": {
             "anyOf": [
