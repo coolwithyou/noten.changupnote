@@ -1,4 +1,4 @@
-ALTER TYPE "company_role" ADD VALUE IF NOT EXISTS 'admin';--> statement-breakpoint
+ALTER TYPE "company_role" ADD VALUE IF NOT EXISTS 'admin' BEFORE 'member';--> statement-breakpoint
 DROP POLICY IF EXISTS "companies_writer_update" ON "companies";--> statement-breakpoint
 CREATE POLICY "companies_writer_update"
 ON "companies"

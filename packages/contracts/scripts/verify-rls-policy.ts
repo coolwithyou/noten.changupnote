@@ -61,7 +61,7 @@ if (!journal.includes('"tag": "0004_company_role_admin"')) {
   errors.push(`${journalPath} is missing 0004_company_role_admin`);
 }
 
-requireAdminRolePattern(`ALTER TYPE "company_role" ADD VALUE IF NOT EXISTS 'admin'`, "admin company_role migration");
+requireAdminRolePattern(`ALTER TYPE "company_role" ADD VALUE IF NOT EXISTS 'admin' BEFORE 'member'`, "admin company_role migration");
 requireAdminRolePattern(`"role"::text IN ('owner', 'admin', 'member')`, "admin writer role policy");
 if (!schema.includes(`pgEnum("company_role", ["owner", "admin", "member", "viewer"])`)) {
   errors.push(`${schemaPath} is missing admin company_role enum value`);
