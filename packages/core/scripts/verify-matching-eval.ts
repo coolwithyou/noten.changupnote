@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, extname, isAbsolute, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import type {
   CompanyProfile,
   MatchResult,
@@ -33,10 +35,12 @@ interface EvalResult extends GoldenCase {
 }
 
 const CLASSES: Eligibility[] = ["eligible", "conditional", "ineligible"];
-const goldenFixture = readMatchingGoldenFixture("packages/core/golden/matching/kstartup-sample-v1.json");
+const WORKSPACE_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../..");
+const GOLDEN_FIXTURE_PATH = "packages/core/golden/matching/kstartup-sample-v1.json";
+const goldenFixture = readMatchingGoldenFixture(join(WORKSPACE_ROOT, GOLDEN_FIXTURE_PATH));
 const asOf = new Date(goldenFixture.asOf);
 const fixture = JSON.parse(
-  readFileSync(goldenFixture.fixture, "utf8"),
+  readFileSync(join(WORKSPACE_ROOT, goldenFixture.fixture), "utf8"),
 ) as KStartupApiResponse;
 const company = goldenFixture.company;
 const goldenCases = goldenFixture.cases;
@@ -74,6 +78,10 @@ console.log(JSON.stringify({
   checked: [
     "matching_golden_cases",
     "matching_golden_fixture",
+    "matching_golden_fixture_file",
+    "matching_golden_fixture_as_of",
+    "matching_golden_fixture_unique_source_ids",
+    "matching_golden_fixture_class_coverage",
     "matching_eval_accuracy",
     "matching_eval_class_recall",
   ],
@@ -91,19 +99,56 @@ console.log(JSON.stringify({
 
 function readMatchingGoldenFixture(path: string): MatchingGoldenFixture {
   const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<MatchingGoldenFixture>;
-  assert.equal(typeof parsed.goldenVer, "string", "golden fixture must include goldenVer");
-  assert.equal(typeof parsed.fixture, "string", "golden fixture must include fixture path");
-  assert.equal(typeof parsed.asOf, "string", "golden fixture must include asOf");
+  const goldenVer = requireString(parsed.goldenVer, "golden fixture must include goldenVer");
+  const fixturePath = requireString(parsed.fixture, "golden fixture must include fixture path");
+  const asOfValue = requireString(parsed.asOf, "golden fixture must include asOf");
   assert.ok(parsed.company && typeof parsed.company === "object", "golden fixture must include company");
   assert.ok(Array.isArray(parsed.cases) && parsed.cases.length > 0, "golden fixture must include cases");
 
-  for (const entry of parsed.cases) {
-    assert.ok(entry.sourceId, "golden case must include sourceId");
-    assert.ok(CLASSES.includes(entry.expected), `golden case ${entry.sourceId} has invalid expected class`);
-    assert.ok(entry.note, `golden case ${entry.sourceId} must include note`);
+  const expectedGoldenVer = basename(path, extname(path));
+  assert.equal(goldenVer, expectedGoldenVer, "golden fixture goldenVer must match file name");
+
+  const asOf = new Date(asOfValue);
+  assert.ok(!Number.isNaN(asOf.getTime()), "golden fixture asOf must be a valid date");
+  assert.ok(!isAbsolute(fixturePath), "golden fixture source path must be workspace-relative");
+  assert.ok(
+    existsSync(join(WORKSPACE_ROOT, fixturePath)),
+    `golden fixture source path must exist: ${fixturePath}`,
+  );
+
+  const sourceIds = new Set<string>();
+  const expectedClasses = new Set<Eligibility>();
+  const cases = parsed.cases as Partial<GoldenCase>[];
+  for (const entry of cases) {
+    const sourceId = requireString(entry.sourceId, "golden case must include sourceId");
+    assert.ok(sourceId.trim().length > 0, "golden case sourceId must not be empty");
+    assert.ok(!sourceIds.has(sourceId), `golden case sourceId must be unique: ${sourceId}`);
+    sourceIds.add(sourceId);
+
+    const expected = entry.expected as Eligibility;
+    assert.ok(CLASSES.includes(expected), `golden case ${sourceId} has invalid expected class`);
+    expectedClasses.add(expected);
+
+    const note = requireString(entry.note, `golden case ${sourceId} must include note`);
+    assert.ok(note.trim().length > 0, `golden case ${sourceId} note must not be empty`);
   }
 
-  return parsed as MatchingGoldenFixture;
+  for (const klass of CLASSES) {
+    assert.ok(expectedClasses.has(klass), `golden fixture must include at least one ${klass} case`);
+  }
+
+  return {
+    goldenVer,
+    fixture: fixturePath,
+    asOf: asOfValue,
+    company: parsed.company as CompanyProfile,
+    cases: cases as GoldenCase[],
+  };
+}
+
+function requireString(value: unknown, message: string): string {
+  assert.equal(typeof value, "string", message);
+  return value as string;
 }
 
 function computeMetrics(results: EvalResult[]) {
