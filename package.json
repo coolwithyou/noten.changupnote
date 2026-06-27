@@ -52,6 +52,7 @@
     "verify:company-enrichment": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/verify-company-enrichment.ts",
     "verify:web-regions": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/verify-web-regions.ts",
     "verify:service-data": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/verify-service-data.ts",
+    "verify:service-pipeline-plan": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/verify-service-pipeline-plan.ts",
     "verify:consent-store": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/consents/verify-consent-store.ts",
     "verify:rls-context": "tsx packages/contracts/scripts/verify-rls-context.ts",
     "verify:rls-policy": "tsx packages/contracts/scripts/verify-rls-policy.ts",
