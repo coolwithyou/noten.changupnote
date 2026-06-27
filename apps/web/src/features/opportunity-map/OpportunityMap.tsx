@@ -211,6 +211,13 @@ function OpportunityCard({ match }: { match: MatchCard }) {
       </div>
       <h4>{match.title}</h4>
       <p>{match.ruleTrace.slice(0, 2).map((trace) => trace.label).join(" / ") || "조건 확인 필요"}</p>
+      {match.benefits.length > 0 ? (
+        <div className="card-benefits">
+          {match.benefits.slice(0, 2).map((benefit) => (
+            <span key={`${match.grantId}:${benefit.family}`}>{benefit.label}</span>
+          ))}
+        </div>
+      ) : null}
       {unlock ? (
         <span className="card-unlock">
           {unlock.detail}{unlock.etaDate ? ` · ${formatEtaDate(unlock.etaDate)}` : ""}

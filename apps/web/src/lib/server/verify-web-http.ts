@@ -256,16 +256,17 @@ expect(verifiedWebCompany?.bizNoMasked === "123-**-67***", "web companies expose
 checks.push("web_company_verified_state");
 
 const dashboard = await fetchJson<ActionResult<{
-  matches: Array<{ grantId: string; rulesetVer?: string }>;
+  matches: Array<{ grantId: string; rulesetVer?: string; benefits?: unknown[] }>;
 }>>("/api/web/dashboard");
 expectStatus(dashboard, 200, "web dashboard status");
 expect(dashboard.body.ok === true, "web dashboard envelope ok");
 const webGrant = dashboard.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(webGrant), "web dashboard exposes a match grant");
+expect(Array.isArray(webGrant?.benefits), "web dashboard exposes benefit badges");
 checks.push("web_dashboard");
 
 const webFilteredMatches = await fetchJson<ActionResult<{
-  matches: Array<{ grantId: string; eligibility: string; fitScore: number }>;
+  matches: Array<{ grantId: string; eligibility: string; fitScore: number; benefits?: unknown[] }>;
   cursor: string | null;
   hasMore: boolean;
   total: number;
@@ -278,6 +279,10 @@ expect(
   "web filtered matches eligibility",
 );
 expectSortedByFit(webFilteredMatches.body.data!.matches, "web filtered matches fit sort");
+expect(
+  webFilteredMatches.body.data!.matches.every((entry) => Array.isArray(entry.benefits)),
+  "web filtered matches benefit badges",
+);
 expect(typeof webFilteredMatches.body.data?.hasMore === "boolean", "web filtered matches hasMore");
 expect(typeof webFilteredMatches.body.data?.total === "number", "web filtered matches total");
 checks.push("web_filtered_matches");
@@ -790,17 +795,18 @@ expect(appProfileFields.body.data?.profile.confidence?.target_type === 0.82, "ap
 checks.push("app_profile_fields");
 
 const appMatches = await fetchJson<ApiEnvelope<{
-  matches: Array<{ grantId: string; rulesetVer?: string }>;
+  matches: Array<{ grantId: string; rulesetVer?: string; benefits?: unknown[] }>;
 }>>(`/api/app/v1/companies/${companyId}/matches`, {
   headers: { authorization: `Bearer ${accessToken}` },
 });
 expectStatus(appMatches, 200, "app matches status");
 const appGrant = appMatches.body.data?.matches.find((entry) => entry.grantId);
 expect(Boolean(appGrant), "app matches exposes a match grant");
+expect(Array.isArray(appGrant?.benefits), "app matches exposes benefit badges");
 checks.push("app_matches");
 
 const appFilteredMatches = await fetchJson<ApiEnvelope<{
-  matches: Array<{ grantId: string; eligibility: string; fitScore: number }>;
+  matches: Array<{ grantId: string; eligibility: string; fitScore: number; benefits?: unknown[] }>;
 }>>(`/api/app/v1/companies/${companyId}/matches?status=eligible&sort=fit&limit=2`, {
   headers: { authorization: `Bearer ${accessToken}` },
 });
@@ -811,6 +817,10 @@ expect(
   "app filtered matches eligibility",
 );
 expectSortedByFit(appFilteredMatches.body.data!.matches, "app filtered matches fit sort");
+expect(
+  appFilteredMatches.body.data!.matches.every((entry) => Array.isArray(entry.benefits)),
+  "app filtered matches benefit badges",
+);
 expect(typeof appFilteredMatches.body.meta?.hasMore === "boolean", "app filtered matches hasMore");
 expect(appFilteredMatches.body.meta?.cursor === null || typeof appFilteredMatches.body.meta?.cursor === "string", "app filtered matches cursor");
 checks.push("app_filtered_matches");

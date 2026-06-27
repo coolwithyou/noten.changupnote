@@ -11,6 +11,7 @@ import type {
 import {
   normalizeRequiredDocuments,
   normalizeSupportAmount,
+  deriveGrantBenefits,
   toRuleTraceChip,
   grantKey,
   daysUntil,
@@ -63,6 +64,7 @@ export function buildApplySheet<TPayload>({
       title: grant.title,
       agency: grant.agency_operator ?? grant.agency_jurisdiction ?? null,
       supportAmount: normalizeSupportAmount(grant.support_amount),
+      benefits: deriveGrantBenefits(grant),
       status: grant.status,
     },
     satisfied,

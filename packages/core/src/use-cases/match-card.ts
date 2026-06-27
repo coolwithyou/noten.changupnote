@@ -1,5 +1,6 @@
 import type {
   ActionQueueItem,
+  BenefitBadge,
   ChecklistSection,
   CompanyProfile,
   CriterionDimension,
@@ -38,6 +39,7 @@ export function toMatchCard<TPayload>(
     bucket: bucketForMatch(entry.match),
     fitScore: entry.match.fit_score,
     supportAmount: normalizeSupportAmount(grant.support_amount),
+    benefits: deriveGrantBenefits(grant),
     applyEnd: grant.apply_end ?? null,
     dDay: daysUntil(grant.apply_end ?? null, options.asOf),
     ruleTrace: entry.match.rule_trace.map((trace) => toRuleTraceChip(trace, options)),
@@ -95,6 +97,55 @@ export function normalizeSupportAmount(value: Grant["support_amount"]): SupportA
 
 export function supportAmountMax(value: Grant["support_amount"]): number {
   return normalizeSupportAmount(value).max ?? 0;
+}
+
+export function deriveGrantBenefits(grant: Grant): BenefitBadge[] {
+  const benefits = new Map<BenefitBadge["family"], BenefitBadge>();
+  const push = (benefit: BenefitBadge) => {
+    if (!benefits.has(benefit.family)) benefits.set(benefit.family, benefit);
+  };
+
+  for (const benefit of grant.benefits ?? []) {
+    push({
+      family: benefit.family,
+      label: benefit.label,
+      source: benefit.source,
+      confidence: benefit.confidence ?? 0.95,
+    });
+  }
+
+  const amount = normalizeSupportAmount(grant.support_amount);
+  if ((amount.max ?? 0) > 0 || cleanText(amount.label)) {
+    push({
+      family: "funding",
+      label: "자금",
+      source: "support_amount",
+      confidence: 0.88,
+    });
+  }
+
+  const textSources = [
+    { source: "title" as const, text: grant.title },
+    { source: "category" as const, text: [grant.category_l1, grant.category_l2].filter(Boolean).join(" ") },
+    { source: "apply_method" as const, text: Object.values(grant.apply_method ?? {}).filter(Boolean).join(" ") },
+  ];
+
+  for (const item of textSources) {
+    const text = cleanText(item.text);
+    if (!text) continue;
+    for (const rule of BENEFIT_RULES) {
+      if (rule.pattern.test(text)) {
+        push({
+          family: rule.family,
+          label: rule.label,
+          source: item.source,
+          confidence: item.source === "title" ? 0.74 : 0.64,
+        });
+      }
+    }
+  }
+
+  return [...benefits.values()].slice(0, 5);
 }
 
 export function daysUntil(value: string | null, asOf = new Date()): number | null {
@@ -319,6 +370,53 @@ function amountFromRecord(value: Grant["support_amount"]): number | null {
   }
   return null;
 }
+
+function cleanText(value: string | null | undefined): string | null {
+  const text = value?.replace(/\s+/g, " ").trim();
+  return text || null;
+}
+
+const BENEFIT_RULES: Array<{
+  family: BenefitBadge["family"];
+  label: string;
+  pattern: RegExp;
+}> = [
+  {
+    family: "funding",
+    label: "자금",
+    pattern: /지원금|자금|사업화|바우처|보조금|R&D|연구개발|개발비|시제품|비용|쿠폰/i,
+  },
+  {
+    family: "loan",
+    label: "융자",
+    pattern: /융자|대출|보증|이자|이차보전/,
+  },
+  {
+    family: "capability",
+    label: "역량",
+    pattern: /교육|컨설팅|멘토링|액셀러레이팅|역량|육성|창업교육/,
+  },
+  {
+    family: "space",
+    label: "공간",
+    pattern: /입주|공간|센터|사무|보육센터/,
+  },
+  {
+    family: "market",
+    label: "판로",
+    pattern: /판로|마케팅|홍보|전시|박람회|수출|글로벌|팝업|해외|바이어/,
+  },
+  {
+    family: "certification",
+    label: "인증",
+    pattern: /인증|특허|지식재산|IP|시험|검증|인허가/i,
+  },
+  {
+    family: "network",
+    label: "연결",
+    pattern: /네트워킹|투자|IR|데모데이|연계|교류|협업/i,
+  },
+];
 
 function parseDate(value: string): Date | null {
   const parts = value.split("-").map((part) => Number(part));

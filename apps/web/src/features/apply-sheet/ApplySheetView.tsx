@@ -1,6 +1,7 @@
 import type {
   ApplicationPrep,
   ApplySheet,
+  BenefitBadge,
   PlanDraftPrompt,
   ProfileCopyField,
   RequiredDocument,
@@ -55,6 +56,10 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
           ) : (
             <strong>원문 확인 필요</strong>
           )}
+        </div>
+        <div className="apply-overview-card">
+          <span>받을 수 있는 것</span>
+          <BenefitBadgeList benefits={sheet.grant.benefits} />
         </div>
       </section>
 
@@ -132,6 +137,18 @@ function PlanDraftItem({ prompt }: { prompt: PlanDraftPrompt }) {
         ))}
       </ul>
     </article>
+  );
+}
+
+function BenefitBadgeList({ benefits }: { benefits: BenefitBadge[] }) {
+  if (benefits.length === 0) return <strong>혜택 확인 필요</strong>;
+
+  return (
+    <div className="benefit-badge-list">
+      {benefits.map((benefit) => (
+        <strong key={benefit.family}>{benefit.label}</strong>
+      ))}
+    </div>
   );
 }
 

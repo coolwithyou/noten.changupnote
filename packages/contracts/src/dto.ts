@@ -4,6 +4,8 @@ import type {
   CriterionKind,
   Eligibility,
   Grant,
+  GrantBenefitFamily,
+  GrantBenefitSource,
   GrantStatus,
   MatchResult,
 } from "./index.js";
@@ -93,6 +95,7 @@ export interface MatchCard {
   };
   value?: number;
   supportAmount: SupportAmount;
+  benefits: BenefitBadge[];
   applyEnd: string | null;
   dDay: number | null;
   ruleTrace: RuleTraceChip[];
@@ -175,6 +178,7 @@ export interface GrantDetail {
   title: string;
   agency: string | null;
   supportAmount: SupportAmount;
+  benefits: BenefitBadge[];
   status: GrantStatus;
 }
 
@@ -376,4 +380,11 @@ export interface SupportAmount {
   unit: "KRW";
   per: "기업" | "건";
   label?: string | null;
+}
+
+export interface BenefitBadge {
+  family: GrantBenefitFamily;
+  label: string;
+  source: GrantBenefitSource;
+  confidence: number;
 }

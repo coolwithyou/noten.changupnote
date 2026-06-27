@@ -806,6 +806,23 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      BenefitBadge: {
+        type: "object",
+        required: ["family", "label", "source", "confidence"],
+        properties: {
+          family: {
+            type: "string",
+            enum: ["funding", "loan", "capability", "space", "market", "certification", "network"],
+          },
+          label: { type: "string" },
+          source: {
+            type: "string",
+            enum: ["structured", "support_amount", "title", "category", "apply_method"],
+          },
+          confidence: { type: "number", minimum: 0, maximum: 1 },
+        },
+        additionalProperties: false,
+      },
       MatchCard: {
         type: "object",
         required: [
@@ -819,6 +836,7 @@ export const appV1OpenApi = {
           "bucket",
           "fitScore",
           "supportAmount",
+          "benefits",
           "applyEnd",
           "dDay",
           "ruleTrace",
@@ -839,6 +857,7 @@ export const appV1OpenApi = {
           competitiveness: ref("EstimatedNumber"),
           value: { type: "integer", minimum: 0 },
           supportAmount: ref("SupportAmount"),
+          benefits: arrayOf(ref("BenefitBadge")),
           applyEnd: nullable({ type: "string", format: "date" }),
           dDay: nullable({ type: "integer" }),
           ruleTrace: arrayOf(ref("RuleTraceChip")),
@@ -996,7 +1015,7 @@ export const appV1OpenApi = {
       },
       GrantDetail: {
         type: "object",
-        required: ["id", "source", "sourceId", "title", "agency", "supportAmount", "status"],
+        required: ["id", "source", "sourceId", "title", "agency", "supportAmount", "benefits", "status"],
         properties: {
           id: { type: "string" },
           source: { type: "string", enum: ["kstartup", "bizinfo", "bizinfo_event"] },
@@ -1004,6 +1023,7 @@ export const appV1OpenApi = {
           title: { type: "string" },
           agency: nullable({ type: "string" }),
           supportAmount: ref("SupportAmount"),
+          benefits: arrayOf(ref("BenefitBadge")),
           status: { type: "string", enum: ["upcoming", "open", "closed", "unknown"] },
         },
         additionalProperties: false,

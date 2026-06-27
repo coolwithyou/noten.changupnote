@@ -27,6 +27,22 @@ export const CRITERION_OPERATORS = [
 
 export const CRITERION_KINDS = ["required", "preferred", "exclusion"] as const;
 export const ELIGIBILITIES = ["eligible", "conditional", "ineligible"] as const;
+export const GRANT_BENEFIT_FAMILIES = [
+  "funding",
+  "loan",
+  "capability",
+  "space",
+  "market",
+  "certification",
+  "network",
+] as const;
+export const GRANT_BENEFIT_SOURCES = [
+  "structured",
+  "support_amount",
+  "title",
+  "category",
+  "apply_method",
+] as const;
 
 export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
@@ -36,6 +52,8 @@ export type CriterionResult = "pass" | "fail" | "unknown";
 export type GrantSource = "kstartup" | "bizinfo" | "bizinfo_event";
 export type GrantStatus = "upcoming" | "open" | "closed" | "unknown";
 export type GrantDocumentSource = "self" | "portal" | "cert";
+export type GrantBenefitFamily = (typeof GRANT_BENEFIT_FAMILIES)[number];
+export type GrantBenefitSource = (typeof GRANT_BENEFIT_SOURCES)[number];
 
 export interface GrantSupportAmount {
   min?: number | null;
@@ -51,6 +69,19 @@ export interface GrantRequiredDocument {
   source: GrantDocumentSource;
   source_span?: string;
   note?: string;
+}
+
+export interface GrantBenefit {
+  family: GrantBenefitFamily;
+  label: string;
+  source: GrantBenefitSource;
+  confidence?: number;
+}
+
+export interface GrantObligation {
+  label: string;
+  source: GrantBenefitSource;
+  confidence?: number;
 }
 
 export interface RegionCriterionValue {
@@ -133,6 +164,8 @@ export interface Grant {
   apply_method?: Record<string, string | null>;
   support_amount?: GrantSupportAmount | Record<string, unknown> | null;
   required_documents?: GrantRequiredDocument[] | null;
+  benefits?: GrantBenefit[] | null;
+  obligations?: GrantObligation[] | null;
   status: GrantStatus;
   f_regions: string[];
   f_industries: string[];

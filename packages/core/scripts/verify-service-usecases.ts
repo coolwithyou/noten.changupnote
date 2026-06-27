@@ -10,6 +10,7 @@ import {
   buildDashboard,
   buildNotificationFeed,
   calculateMatchTransitionWindow,
+  deriveGrantBenefits,
   matchGrantCriteria,
   selectMatchCards,
   updateCompanyProfileField,
@@ -130,6 +131,15 @@ assert.ok(
   sheet.applicationPrep.planDraftPrompts.some((prompt) => prompt.evidence.includes("경기 대상 - 귀사 경기")),
   "apply sheet should expose business-plan prompt evidence",
 );
+assert.equal(sheet.grant.benefits.some((benefit) => benefit.family === "funding"), true);
+assert.equal(dashboard.matches.some((match) => match.benefits.some((benefit) => benefit.family === "funding")), true);
+
+const marketBenefits = deriveGrantBenefits({
+  ...soonGrant.grant,
+  title: "글로벌 판로개척 팝업 지원사업",
+  support_amount: null,
+});
+assert.equal(marketBenefits.some((benefit) => benefit.family === "market"), true);
 
 const expandedProfile = [
   { field: "revenue" as const, value: 100_000_000 },
@@ -316,6 +326,8 @@ console.log(JSON.stringify({
     "roadmap_time_unlock",
     "match_state_eligible_from",
     "match_state_eligible_until",
+    "benefit_badge_funding",
+    "benefit_badge_market",
     "apply_sheet_unlock",
     "apply_sheet_profile_copy",
     "apply_sheet_plan_prompts",
