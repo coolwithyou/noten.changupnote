@@ -1,6 +1,24 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import { MetricCard } from "@/components/app/metric-card";
+import { StatusBadge, eligibilityTone } from "@/components/app/status-badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Field, FieldContent, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { LiveMatchFormState, LiveMatchReport } from "./types";
 
 const initialForm: LiveMatchFormState = {
@@ -69,65 +87,77 @@ export function LiveMatchConsole() {
       </section>
 
       <section className="workspace-grid">
-        <form className="control-panel" onSubmit={submit}>
-          <label>
-            사업자번호
-            <input
-              inputMode="numeric"
-              placeholder="기본 테스트 번호 사용"
-              value={form.bizNo}
-              onChange={(event) => setForm((current) => ({ ...current, bizNo: event.target.value }))}
-            />
-          </label>
+        <Card className="control-panel">
+          <CardContent className="p-0">
+            <form className="control-panel-form" onSubmit={submit}>
+              <FieldGroup>
+                <Field>
+                  <FieldLabel>사업자번호</FieldLabel>
+                  <Input
+                    inputMode="numeric"
+                    placeholder="기본 테스트 번호 사용"
+                    value={form.bizNo}
+                    onChange={(event) => setForm((current) => ({ ...current, bizNo: event.target.value }))}
+                  />
+                </Field>
 
-          <div className="field-row">
-            <label>
-              K-Startup 건수
-              <input
-                type="number"
-                min={1}
-                max={20}
-                value={form.kstartupLimit}
-                onChange={(event) => setForm((current) => ({
-                  ...current,
-                  kstartupLimit: Number(event.target.value),
-                }))}
-              />
-            </label>
-            <label>
-              기업마당 건수
-              <input
-                type="number"
-                min={0}
-                max={5}
-                value={form.bizinfoLimit}
-                onChange={(event) => setForm((current) => ({
-                  ...current,
-                  bizinfoLimit: Number(event.target.value),
-                }))}
-              />
-            </label>
-          </div>
+                <div className="field-row">
+                  <Field>
+                    <FieldLabel>K-Startup 건수</FieldLabel>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={20}
+                      value={form.kstartupLimit}
+                      onChange={(event) => setForm((current) => ({
+                        ...current,
+                        kstartupLimit: Number(event.target.value),
+                      }))}
+                    />
+                  </Field>
+                  <Field>
+                    <FieldLabel>기업마당 건수</FieldLabel>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={5}
+                      value={form.bizinfoLimit}
+                      onChange={(event) => setForm((current) => ({
+                        ...current,
+                        bizinfoLimit: Number(event.target.value),
+                      }))}
+                    />
+                  </Field>
+                </div>
 
-          <label className="toggle-row">
-            <input
-              type="checkbox"
-              checked={form.bizinfoLlm}
-              onChange={(event) => setForm((current) => ({ ...current, bizinfoLlm: event.target.checked }))}
-            />
-            기업마당 LLM criteria 추출 사용
-          </label>
+                <Field className="toggle-row" orientation="horizontal">
+                  <Checkbox
+                    checked={form.bizinfoLlm}
+                    onCheckedChange={(checked) => setForm((current) => ({ ...current, bizinfoLlm: checked === true }))}
+                  />
+                  <FieldContent>
+                    <FieldLabel>기업마당 LLM criteria 추출 사용</FieldLabel>
+                  </FieldContent>
+                </Field>
 
-          <button type="submit" disabled={isLoading}>
-            {isLoading ? "조회 중" : "실시간 매칭 실행"}
-          </button>
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? <Spinner data-icon="inline-start" /> : null}
+                  {isLoading ? "조회 중" : "실시간 매칭 실행"}
+                </Button>
 
-          {error ? <p className="error-box">{error}</p> : null}
-        </form>
+                {error ? (
+                  <Alert variant="destructive" className="error-box">
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                ) : null}
+              </FieldGroup>
+            </form>
+          </CardContent>
+        </Card>
 
-        <section className="result-panel" aria-live="polite">
+        <Card className="result-panel" aria-live="polite">
           {report ? (
-            <>
+            <CardContent className="grid gap-4 p-0">
               <CompanySummary report={report} />
               <div className="metric-grid">
                 <Metric label="K-Startup 수집" value={`${report.kstartup.normalized_count}건`} />
@@ -140,14 +170,18 @@ export function LiveMatchConsole() {
                   <MatchCounts title="기업마당 판정" counts={combinedCounts.bizinfo} />
                 </div>
               ) : null}
-            </>
+            </CardContent>
           ) : (
-            <div className="empty-state">
-              <h2>사업자번호를 조회하면 회사 프로필과 지원사업 매칭 결과가 여기에 표시됩니다.</h2>
-              <p>기본값은 `.env`의 테스트 사업자번호를 사용합니다.</p>
-            </div>
+            <Empty className="empty-state">
+              <EmptyHeader>
+                <EmptyTitle>매칭 결과 대기</EmptyTitle>
+                <EmptyDescription>
+                  사업자번호를 조회하면 회사 프로필과 지원사업 매칭 결과가 여기에 표시됩니다. 기본값은 `.env`의 테스트 사업자번호를 사용합니다.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
-        </section>
+        </Card>
       </section>
 
       {report ? (
@@ -163,46 +197,23 @@ export function LiveMatchConsole() {
 function CompanySummary({ report }: { report: LiveMatchReport }) {
   return (
     <div className="company-summary">
-      <div>
-        <span className="label">회사</span>
-        <strong>{report.company.name ?? "회사명 미확인"}</strong>
-      </div>
-      <div>
-        <span className="label">사업자번호</span>
-        <strong>{report.company.masked_biz_no}</strong>
-      </div>
-      <div>
-        <span className="label">소재지</span>
-        <strong>{report.company.region?.label ?? "미확인"}</strong>
-      </div>
-      <div>
-        <span className="label">업력</span>
-        <strong>{report.company.biz_age_months === null ? "미확인" : `${report.company.biz_age_months}개월`}</strong>
-      </div>
-      <div>
-        <span className="label">규모</span>
-        <strong>{report.company.size ?? "미확인"}</strong>
-      </div>
-      <div>
-        <span className="label">업종</span>
-        <strong>{report.company.industries.join(", ") || "미확인"}</strong>
-      </div>
+      <MetricCard label="회사" value={report.company.name ?? "회사명 미확인"} />
+      <MetricCard label="사업자번호" value={report.company.masked_biz_no} />
+      <MetricCard label="소재지" value={report.company.region?.label ?? "미확인"} />
+      <MetricCard label="업력" value={report.company.biz_age_months === null ? "미확인" : `${report.company.biz_age_months}개월`} />
+      <MetricCard label="규모" value={report.company.size ?? "미확인"} />
+      <MetricCard label="업종" value={report.company.industries.join(", ") || "미확인"} />
     </div>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+  return <MetricCard className="metric" label={label} value={value} />;
 }
 
 function MatchCounts({ title, counts }: { title: string; counts: Array<[string, number]> }) {
   return (
-    <div className="count-box">
+    <Card className="count-box" size="sm">
       <h2>{title}</h2>
       {counts.length > 0 ? counts.map(([key, value]) => (
         <div key={key} className="count-row">
@@ -210,33 +221,53 @@ function MatchCounts({ title, counts }: { title: string; counts: Array<[string, 
           <strong>{value}</strong>
         </div>
       )) : <p>판정 없음</p>}
-    </div>
+    </Card>
   );
 }
 
 function MatchList({ title, matches }: { title: string; matches: LiveMatchReport["kstartup"]["top_matches"] }) {
   return (
-    <section className="match-list">
+    <Card className="match-list">
       <div className="section-title">
         <h2>{title}</h2>
         <span>{matches.length}건</span>
       </div>
-      <div className="match-table">
-        {matches.length > 0 ? matches.map((match) => (
-          <article key={`${match.source}:${match.source_id}`} className="match-row">
-            <div>
-              <span className={`badge ${match.eligibility}`}>{eligibilityLabel(match.eligibility)}</span>
-              <h3>{match.title}</h3>
-              <p>{match.trace.join(" / ")}</p>
-            </div>
-            <div className="score-cell">
-              <strong>{match.fit_score}</strong>
-              <span>{match.status}</span>
-            </div>
-          </article>
-        )) : <p className="empty-list">표시할 후보가 없습니다.</p>}
-      </div>
-    </section>
+      {matches.length > 0 ? (
+        <Table className="match-table">
+          <TableHeader>
+            <TableRow>
+              <TableHead>판정</TableHead>
+              <TableHead>공고</TableHead>
+              <TableHead>상태</TableHead>
+              <TableHead className="text-right">점수</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {matches.map((match) => (
+              <TableRow key={`${match.source}:${match.source_id}`}>
+                <TableCell>
+                  <StatusBadge className={`badge ${match.eligibility}`} tone={eligibilityTone(match.eligibility as "eligible" | "conditional" | "ineligible")}>
+                    {eligibilityLabel(match.eligibility)}
+                  </StatusBadge>
+                </TableCell>
+                <TableCell className="match-title-cell">
+                  <h3>{match.title}</h3>
+                  <p>{match.trace.join(" / ")}</p>
+                </TableCell>
+                <TableCell>{match.status}</TableCell>
+                <TableCell className="score-cell">
+                  <strong>{match.fit_score}</strong>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : (
+        <Empty className="empty-list">
+          <EmptyDescription>표시할 후보가 없습니다.</EmptyDescription>
+        </Empty>
+      )}
+    </Card>
   );
 }
 

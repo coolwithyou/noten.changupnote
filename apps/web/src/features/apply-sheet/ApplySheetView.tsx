@@ -9,6 +9,11 @@ import type {
   SourceAttachment,
   SupportAmount,
 } from "@cunote/contracts";
+import { MetricCard } from "@/components/app/metric-card";
+import { PageNav } from "@/components/app/page-nav";
+import { StatusBadge } from "@/components/app/status-badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { ApplyLink } from "./ApplyLink";
 
 export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
@@ -21,11 +26,13 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
           <span className="brand-symbol" aria-hidden="true">C</span>
           <span>창업노트</span>
         </a>
-        <nav>
-          <a href="/dashboard">기회 맵</a>
-          <a href="/roadmap">로드맵</a>
-          <a href="/internal/live-match">내부 검증</a>
-        </nav>
+        <PageNav
+          links={[
+            { href: "/dashboard", label: "기회 맵" },
+            { href: "/roadmap", label: "로드맵" },
+            { href: "/internal/live-match", label: "내부 검증" },
+          ]}
+        />
       </header>
 
       <section className="apply-hero">
@@ -42,26 +49,24 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
       </section>
 
       <section className="apply-overview">
-        <div className="apply-overview-card">
-          <span>접수 기간</span>
-          <strong>{formatDateRange(sheet.schedule.applyStart, sheet.schedule.applyEnd)}</strong>
-        </div>
-        <div className="apply-overview-card">
-          <span>접수 방법</span>
-          <strong>{sheet.applyMethod ?? "원문 확인"}</strong>
-        </div>
-        <div className="apply-overview-card action">
-          <span>신청 링크</span>
-          {sheet.deepLink ? (
-            <ApplyLink href={sheet.deepLink} grantId={sheet.grant.id} />
-          ) : (
-            <strong>원문 확인 필요</strong>
-          )}
-        </div>
-        <div className="apply-overview-card">
-          <span>받을 수 있는 것</span>
-          <BenefitBadgeList benefits={sheet.grant.benefits} />
-        </div>
+        <MetricCard className="apply-overview-card" label="접수 기간" value={formatDateRange(sheet.schedule.applyStart, sheet.schedule.applyEnd)} />
+        <MetricCard className="apply-overview-card" label="접수 방법" value={sheet.applyMethod ?? "원문 확인"} />
+        <Card className="apply-overview-card action" size="sm">
+          <CardContent className="p-0">
+            <span>신청 링크</span>
+            {sheet.deepLink ? (
+              <ApplyLink href={sheet.deepLink} grantId={sheet.grant.id} />
+            ) : (
+              <strong>원문 확인 필요</strong>
+            )}
+          </CardContent>
+        </Card>
+        <Card className="apply-overview-card" size="sm">
+          <CardContent className="p-0">
+            <span>받을 수 있는 것</span>
+            <BenefitBadgeList benefits={sheet.grant.benefits} />
+          </CardContent>
+        </Card>
       </section>
 
       <ApplicationPrepSection prep={sheet.applicationPrep} />
@@ -87,49 +92,55 @@ export function ApplySheetView({ sheet }: { sheet: ApplySheet }) {
 
 function ApplicationPrepSection({ prep }: { prep: ApplicationPrep }) {
   return (
-    <section className="apply-panel application-prep-panel">
+    <Card className="apply-panel application-prep-panel">
       <div className="panel-heading">
         <span className="eyebrow">지원서 준비</span>
         <h2>복붙 프로필과 사업계획서 초안</h2>
         <p>접수는 각 포털에서 진행하고, 아래 정보는 신청서 작성 재료로만 사용합니다.</p>
       </div>
       <div className="application-prep-grid">
-        <section className="profile-copy-panel" aria-label="복붙 프로필">
+        <Card className="profile-copy-panel" aria-label="복붙 프로필" size="sm">
+          <CardContent className="p-0">
           <h3>복붙 프로필</h3>
           <div className="profile-copy-list">
             {prep.profileCopyFields.map((field) => (
               <ProfileCopyItem key={`${field.source}:${field.label}`} field={field} />
             ))}
             {prep.profileCopyFields.length === 0 ? (
-              <p className="panel-empty">복사할 회사 프로필 정보가 아직 없습니다.</p>
+              <Empty className="panel-empty">
+                <EmptyDescription>복사할 회사 프로필 정보가 아직 없습니다.</EmptyDescription>
+              </Empty>
             ) : null}
           </div>
-        </section>
-        <section className="plan-draft-panel" aria-label="사업계획서 초안">
+          </CardContent>
+        </Card>
+        <Card className="plan-draft-panel" aria-label="사업계획서 초안" size="sm">
+          <CardContent className="p-0">
           <h3>초안 프롬프트</h3>
           <div className="plan-draft-list">
             {prep.planDraftPrompts.map((prompt) => (
               <PlanDraftItem key={prompt.title} prompt={prompt} />
             ))}
           </div>
-        </section>
+          </CardContent>
+        </Card>
       </div>
-    </section>
+    </Card>
   );
 }
 
 function ProfileCopyItem({ field }: { field: ProfileCopyField }) {
   return (
-    <article className="profile-copy-item">
+    <Card className="profile-copy-item" size="sm">
       <span>{field.label}</span>
       <strong>{field.value}</strong>
-    </article>
+    </Card>
   );
 }
 
 function PlanDraftItem({ prompt }: { prompt: PlanDraftPrompt }) {
   return (
-    <article className="plan-draft-item">
+    <Card className="plan-draft-item" size="sm">
       <h4>{prompt.title}</h4>
       <p>{prompt.prompt}</p>
       <ul>
@@ -137,7 +148,7 @@ function PlanDraftItem({ prompt }: { prompt: PlanDraftPrompt }) {
           <li key={item}>{item}</li>
         ))}
       </ul>
-    </article>
+    </Card>
   );
 }
 
@@ -147,7 +158,7 @@ function BenefitBadgeList({ benefits }: { benefits: BenefitBadge[] }) {
   return (
     <div className="benefit-badge-list">
       {benefits.map((benefit) => (
-        <strong key={benefit.family}>{benefit.label}</strong>
+        <StatusBadge key={benefit.family} tone="brand">{benefit.label}</StatusBadge>
       ))}
     </div>
   );
@@ -165,7 +176,7 @@ function ChecklistSection({
   emptyText: string;
 }) {
   return (
-    <section className="apply-panel">
+    <Card className="apply-panel">
       <div className="panel-heading">
         <span className="eyebrow">체크리스트</span>
         <h2>{title}</h2>
@@ -175,17 +186,23 @@ function ChecklistSection({
         {items.map((item) => (
           <TraceItem key={`${item.dimension}-${item.kind}-${item.label}`} item={item} />
         ))}
-        {items.length === 0 ? <p className="panel-empty">{emptyText}</p> : null}
+        {items.length === 0 ? (
+          <Empty className="panel-empty">
+            <EmptyDescription>{emptyText}</EmptyDescription>
+          </Empty>
+        ) : null}
       </div>
-    </section>
+    </Card>
   );
 }
 
 function TraceItem({ item }: { item: RuleTraceChip }) {
   return (
-    <article className={`trace-item ${item.result}`}>
+    <Card className={`trace-item ${item.result}`} size="sm">
       <div>
-        <span className="trace-kind">{traceResultLabel(item.result)}</span>
+        <StatusBadge className="trace-kind" tone={traceTone(item.result)}>
+          {traceResultLabel(item.result)}
+        </StatusBadge>
         <h3>{item.label}</h3>
       </div>
       {item.companyValue || item.sourceSpan ? (
@@ -196,8 +213,8 @@ function TraceItem({ item }: { item: RuleTraceChip }) {
           {item.unlock.detail}{item.unlock.etaDate ? ` · ${formatEtaDate(item.unlock.etaDate)}` : ""}
         </p>
       ) : null}
-      {item.action ? <strong>{item.action.label}</strong> : null}
-    </article>
+      {item.action ? <StatusBadge tone="brand">{item.action.label}</StatusBadge> : null}
+    </Card>
   );
 }
 
@@ -209,7 +226,7 @@ function DocumentSection({
   sourceAttachments: SourceAttachment[];
 }) {
   return (
-    <section className="apply-panel documents-panel">
+    <Card className="apply-panel documents-panel">
       <div className="panel-heading">
         <span className="eyebrow">서류와 원문</span>
         <h2>준비 서류</h2>
@@ -217,19 +234,19 @@ function DocumentSection({
       </div>
       <div className="document-list">
         {documents.map((document) => (
-          <article className="document-item" key={`${document.name}-${document.sourceSpan ?? document.source}`}>
+          <Card className="document-item" key={`${document.name}-${document.sourceSpan ?? document.source}`} size="sm">
             <div>
-              <span>{document.required ? "필수" : "선택"}</span>
+              <StatusBadge tone={document.required ? "warning" : "neutral"}>{document.required ? "필수" : "선택"}</StatusBadge>
               <h3>{document.name}</h3>
               {document.sourceSpan || document.note ? <p>{document.sourceSpan ?? document.note}</p> : null}
             </div>
             <strong>{document.fromTextOnly ? "원문 확인" : sourceLabel(document.source)}</strong>
-          </article>
+          </Card>
         ))}
         {sourceAttachments.map((attachment) => (
-          <article className="document-item" key={`${attachment.filename}-${attachment.url ?? attachment.sourceUri ?? "file"}`}>
+          <Card className="document-item" key={`${attachment.filename}-${attachment.url ?? attachment.sourceUri ?? "file"}`} size="sm">
             <div>
-              <span>첨부</span>
+              <StatusBadge tone="brand">첨부</StatusBadge>
               <h3>{attachment.filename}</h3>
               {attachment.sourceUri && attachment.sourceUri !== attachment.url ? <p>{attachment.sourceUri}</p> : null}
             </div>
@@ -238,13 +255,15 @@ function DocumentSection({
             ) : (
               <strong>원문 확인</strong>
             )}
-          </article>
+          </Card>
         ))}
         {documents.length === 0 && sourceAttachments.length === 0 ? (
-          <p className="panel-empty">공식 공고문에서 필요 서류가 명확히 추출되지 않았습니다.</p>
+          <Empty className="panel-empty">
+            <EmptyDescription>공식 공고문에서 필요 서류가 명확히 추출되지 않았습니다.</EmptyDescription>
+          </Empty>
         ) : null}
       </div>
-    </section>
+    </Card>
   );
 }
 
@@ -252,7 +271,7 @@ function SummaryRow({ label, value, emphasis = false }: { label: string; value: 
   return (
     <div className={emphasis ? "summary-row emphasis" : "summary-row"}>
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{label === "상태" ? <StatusBadge tone={value === "접수중" ? "success" : value === "예정" ? "warning" : "neutral"}>{value}</StatusBadge> : value}</strong>
     </div>
   );
 }
@@ -293,6 +312,13 @@ function traceResultLabel(result: RuleTraceChip["result"]): string {
   if (result === "unknown") return "확인";
   if (result === "text_only") return "원문";
   return "미충족";
+}
+
+function traceTone(result: RuleTraceChip["result"]) {
+  if (result === "pass") return "success";
+  if (result === "fail") return "danger";
+  if (result === "text_only") return "brand";
+  return "warning";
 }
 
 function sourceLabel(source: RequiredDocument["source"]): string {

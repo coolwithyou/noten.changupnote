@@ -1,4 +1,9 @@
 import type { DashboardResult, MatchCard, OpportunityBucket, RoadmapNode, RuleTraceChip, SupportAmount } from "@cunote/contracts";
+import { MetricCard } from "@/components/app/metric-card";
+import { PageNav } from "@/components/app/page-nav";
+import { StatusBadge } from "@/components/app/status-badge";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 
 const ROADMAP_BUCKETS: Array<{
   bucket: OpportunityBucket;
@@ -41,10 +46,12 @@ export function RoadmapView({ dashboard }: { dashboard: DashboardResult }) {
           <span className="brand-symbol" aria-hidden="true">C</span>
           <span>창업노트</span>
         </a>
-        <nav>
-          <a href="/dashboard">기회 맵</a>
-          <a href="/internal/live-match">내부 검증</a>
-        </nav>
+        <PageNav
+          links={[
+            { href: "/dashboard", label: "기회 맵" },
+            { href: "/internal/live-match", label: "내부 검증" },
+          ]}
+        />
       </header>
 
       <section className="roadmap-hero">
@@ -57,10 +64,12 @@ export function RoadmapView({ dashboard }: { dashboard: DashboardResult }) {
         </div>
         <div className="roadmap-summary-grid" aria-label="로드맵 구간 요약">
           {bucketCounts.map((bucket) => (
-            <div className={`roadmap-summary ${bucket.bucket}`} key={bucket.bucket}>
-              <span>{bucket.title}</span>
-              <strong>{bucket.count}건</strong>
-            </div>
+            <MetricCard
+              className={`roadmap-summary ${bucket.bucket}`}
+              key={bucket.bucket}
+              label={bucket.title}
+              value={`${bucket.count}건`}
+            />
           ))}
         </div>
       </section>
@@ -69,15 +78,15 @@ export function RoadmapView({ dashboard }: { dashboard: DashboardResult }) {
         {ROADMAP_BUCKETS.map((bucket) => {
           const nodes = dashboard.roadmap.filter((node) => node.bucket === bucket.bucket);
           return (
-            <section className={`roadmap-lane-full ${bucket.bucket}`} key={bucket.bucket}>
-              <header>
+            <Card className={`roadmap-lane-full ${bucket.bucket}`} key={bucket.bucket}>
+              <CardHeader>
                 <div>
                   <span className="eyebrow">{bucket.title}</span>
                   <h2>{bucket.description}</h2>
                 </div>
                 <strong>{nodes.length}</strong>
-              </header>
-              <div className="roadmap-card-list">
+              </CardHeader>
+              <CardContent className="roadmap-card-list">
                 {nodes.map((node) => (
                   <RoadmapCard
                     key={`${node.bucket}:${node.grantId}`}
@@ -85,9 +94,13 @@ export function RoadmapView({ dashboard }: { dashboard: DashboardResult }) {
                     match={matchesById.get(node.grantId) ?? null}
                   />
                 ))}
-                {nodes.length === 0 ? <p className="panel-empty">해당 구간의 공고가 없습니다.</p> : null}
-              </div>
-            </section>
+                {nodes.length === 0 ? (
+                  <Empty className="panel-empty">
+                    <EmptyDescription>해당 구간의 공고가 없습니다.</EmptyDescription>
+                  </Empty>
+                ) : null}
+              </CardContent>
+            </Card>
           );
         })}
       </section>
@@ -100,10 +113,12 @@ function RoadmapCard({ node, match }: { node: RoadmapNode; match: MatchCard | nu
   const traces = actionableTraces(match).slice(0, 3);
 
   return (
-    <article className="roadmap-card">
+    <Card className="roadmap-card" size="sm">
       <a className="roadmap-card-link" href={href}>
         <div className="roadmap-card-header">
-          <span className={`roadmap-bucket ${node.bucket}`}>{bucketLabel(node.bucket)}</span>
+          <StatusBadge className={`roadmap-bucket ${node.bucket}`} tone={bucketTone(node.bucket)}>
+            {bucketLabel(node.bucket)}
+          </StatusBadge>
           <span>{formatDday(match?.dDay ?? null)}</span>
         </div>
         <h3>{node.title}</h3>
@@ -120,13 +135,13 @@ function RoadmapCard({ node, match }: { node: RoadmapNode; match: MatchCard | nu
       {traces.length > 0 ? (
         <div className="roadmap-chip-list" aria-label="주요 조건">
           {traces.map((trace) => (
-            <span className={`roadmap-chip ${trace.result}`} key={`${trace.dimension}:${trace.kind}:${trace.label}`}>
+            <StatusBadge className={`roadmap-chip ${trace.result}`} key={`${trace.dimension}:${trace.kind}:${trace.label}`} tone={trace.result === "pass" ? "success" : trace.result === "fail" ? "danger" : "warning"}>
               {trace.label}
-            </span>
+            </StatusBadge>
           ))}
         </div>
       ) : null}
-    </article>
+    </Card>
   );
 }
 
@@ -141,6 +156,13 @@ function bucketLabel(bucket: OpportunityBucket): string {
   if (bucket === "soon") return "곧";
   if (bucket === "preparable") return "준비";
   return "확인";
+}
+
+function bucketTone(bucket: OpportunityBucket) {
+  if (bucket === "now") return "success";
+  if (bucket === "soon") return "neutral";
+  if (bucket === "preparable") return "brand";
+  return "warning";
 }
 
 function formatDday(value: number | null): string {

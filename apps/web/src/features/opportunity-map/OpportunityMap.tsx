@@ -1,6 +1,21 @@
 "use client";
 
 import { useState } from "react";
+import { StatusBadge, eligibilityTone } from "@/components/app/status-badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { ActionResult, MatchCard, OpportunityBucket } from "@cunote/contracts";
 import { recordWebMatchEvent } from "@/lib/client/matchEvents";
 import { MatchFeedbackControls } from "./MatchFeedbackControls";
@@ -38,6 +53,7 @@ const SORT_OPTIONS: Array<{ value: MatchSortKey; label: string }> = [
   { value: "deadline", label: "마감순" },
   { value: "amount", label: "지원금순" },
 ];
+const SORT_SELECT_ITEMS = SORT_OPTIONS.map((option) => ({ label: option.label, value: option.value }));
 
 export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
   const [visibleMatches, setVisibleMatches] = useState(matches);
@@ -59,82 +75,119 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
           <h2 id="opportunity-map-title">지원사업 상태 보드</h2>
         </div>
         <div className="opportunity-controls" aria-label="지원사업 필터와 정렬">
-          <div className="match-filter-group" aria-label="상태 필터">
+          <ToggleGroup
+            className="match-filter-group"
+            aria-label="상태 필터"
+            value={[status]}
+            onValueChange={(value) => {
+              const nextStatus = value[0] as MatchStatusFilter | undefined;
+              if (nextStatus) updateStatus(nextStatus);
+            }}
+            variant="outline"
+            size="sm"
+            spacing={1}
+          >
             {STATUS_FILTERS.map((filter) => (
-              <button
+              <ToggleGroupItem
                 key={filter.value}
-                type="button"
-                className={status === filter.value ? "active" : ""}
                 disabled={requestState === "loading" || requestState === "loadingMore"}
-                onClick={() => updateStatus(filter.value)}
+                value={filter.value}
+                aria-label={filter.label}
               >
                 {filter.label}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
-          <label className="match-sort-control" htmlFor="match-sort">
-            정렬
-            <select
-              id="match-sort"
+          </ToggleGroup>
+          <div className="match-sort-control">
+            <span>정렬</span>
+            <Select
+              items={SORT_SELECT_ITEMS}
               value={sort}
               disabled={requestState === "loading" || requestState === "loadingMore"}
-              onChange={(event) => updateSort(event.currentTarget.value as MatchSortKey)}
+              onValueChange={(value) => {
+                if (typeof value === "string") updateSort(value as MatchSortKey);
+              }}
             >
-              {SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
+              <SelectTrigger id="match-sort" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {SORT_SELECT_ITEMS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
       </div>
       <div className="opportunity-result-meta">
         <span>{total.toLocaleString("ko-KR")}건 중 {visibleMatches.length.toLocaleString("ko-KR")}건 표시</span>
         {status !== "all" || sort !== "recommended" ? (
-          <button
+          <Button
             type="button"
             className="match-reset-button"
+            variant="outline"
+            size="sm"
             disabled={requestState === "loading" || requestState === "loadingMore"}
             onClick={resetMatches}
           >
             초기화
-          </button>
+          </Button>
         ) : null}
       </div>
-      {error ? <p className="match-list-status error" aria-live="polite">{error}</p> : null}
-      {requestState === "loading" ? <p className="match-list-status" aria-live="polite">매칭 결과를 갱신하는 중입니다.</p> : null}
+      {error ? (
+        <Alert variant="destructive" className="match-list-status error" aria-live="polite">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+      {requestState === "loading" ? (
+        <p className="match-list-status" aria-live="polite">
+          <Spinner data-icon="inline-start" /> 매칭 결과를 갱신하는 중입니다.
+        </p>
+      ) : null}
       <div className="opportunity-lanes">
         {BUCKETS.map((bucket) => {
           const bucketMatches = visibleMatches.filter((match) => match.bucket === bucket.bucket);
           return (
-            <section key={bucket.bucket} className={`opportunity-lane ${bucket.bucket}`}>
-              <header>
+            <Card key={bucket.bucket} className={`opportunity-lane ${bucket.bucket}`} size="sm">
+              <CardHeader>
                 <div>
                   <h3>{bucket.title}</h3>
                   <p>{bucket.description}</p>
                 </div>
                 <strong>{bucketMatches.length}</strong>
-              </header>
-              <div className="lane-card-list">
+              </CardHeader>
+              <CardContent className="lane-card-list">
                 {bucketMatches.slice(0, 4).map((match) => (
                   <OpportunityCard key={match.grantId} match={match} />
                 ))}
-                {bucketMatches.length === 0 ? <p className="panel-empty">해당 공고가 없습니다.</p> : null}
-              </div>
-            </section>
+                {bucketMatches.length === 0 ? (
+                  <Empty className="panel-empty">
+                    <EmptyDescription>해당 공고가 없습니다.</EmptyDescription>
+                  </Empty>
+                ) : null}
+              </CardContent>
+            </Card>
           );
         })}
       </div>
       {ineligibleMatches.length > 0 ? <IneligibleDisclosure matches={ineligibleMatches} /> : null}
       {hasMore ? (
         <div className="match-load-more-row">
-          <button
+          <Button
             type="button"
             className="match-load-more"
+            variant="outline"
             disabled={requestState === "loadingMore" || requestState === "loading"}
             onClick={() => loadMatches({ nextCursor: cursor, mode: "append" })}
           >
+            {requestState === "loadingMore" ? <Spinner data-icon="inline-start" /> : null}
             {requestState === "loadingMore" ? "불러오는 중" : "더 보기"}
-          </button>
+          </Button>
         </div>
       ) : null}
     </section>
@@ -206,7 +259,9 @@ function OpportunityCard({ match }: { match: MatchCard }) {
   const content = (
     <>
       <div className="card-topline">
-        <span className={`match-status ${match.eligibility}`}>{eligibilityLabel(match.eligibility)}</span>
+        <StatusBadge className={`match-status ${match.eligibility}`} tone={eligibilityTone(match.eligibility)}>
+          {eligibilityLabel(match.eligibility)}
+        </StatusBadge>
         <span>{match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}</span>
       </div>
       <h4>{match.title}</h4>
@@ -214,7 +269,9 @@ function OpportunityCard({ match }: { match: MatchCard }) {
       {match.benefits.length > 0 ? (
         <div className="card-benefits">
           {match.benefits.slice(0, 2).map((benefit) => (
-            <span key={`${match.grantId}:${benefit.family}`}>{benefit.label}</span>
+            <StatusBadge key={`${match.grantId}:${benefit.family}`} tone="brand">
+              {benefit.label}
+            </StatusBadge>
           ))}
         </div>
       ) : null}
@@ -232,7 +289,7 @@ function OpportunityCard({ match }: { match: MatchCard }) {
   );
 
   return (
-    <article className="opportunity-card">
+    <Card className="opportunity-card" size="sm">
       {match.detailUrl ? (
         <a
           className="opportunity-card-link"
@@ -250,7 +307,7 @@ function OpportunityCard({ match }: { match: MatchCard }) {
         <div className="opportunity-card-link">{content}</div>
       )}
       <MatchFeedbackControls grantId={match.grantId} title={match.title} />
-    </article>
+    </Card>
   );
 }
 
@@ -263,13 +320,13 @@ function IneligibleDisclosure({ matches }: { matches: MatchCard[] }) {
       </summary>
       <div className="ineligible-list">
         {matches.slice(0, 6).map((match) => (
-          <article className="ineligible-item" key={match.grantId}>
+          <Card className="ineligible-item" key={match.grantId} size="sm">
             <div>
               <span>{match.agency ?? "기관 미확인"}</span>
               <h4>{match.title}</h4>
             </div>
             <p>{ineligibleReason(match)}</p>
-          </article>
+          </Card>
         ))}
       </div>
     </details>

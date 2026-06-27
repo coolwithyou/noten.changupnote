@@ -1,4 +1,10 @@
 import { getOptionalAdminAccess } from "@/lib/server/auth/adminGuard";
+import { MetricCard } from "@/components/app/metric-card";
+import { PageNav } from "@/components/app/page-nav";
+import { StatusBadge } from "@/components/app/status-badge";
+import { Card } from "@/components/ui/card";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import {
   getAdminFlywheelSnapshot,
   type AdminFlywheelSnapshot,
@@ -61,10 +67,12 @@ export default async function AdminPage() {
           <span className="brand-symbol" aria-hidden="true">C</span>
           <span>창업노트</span>
         </a>
-        <nav>
-          <a href="/dashboard">기회 맵</a>
-          <a href="/internal/live-match">내부 검증</a>
-        </nav>
+        <PageNav
+          links={[
+            { href: "/dashboard", label: "기회 맵" },
+            { href: "/internal/live-match", label: "내부 검증" },
+          ]}
+        />
       </header>
 
       <section className="admin-hero">
@@ -80,16 +88,18 @@ export default async function AdminPage() {
 
           <section className="admin-grid">
             {SURFACES.map((item) => (
-              <article className="admin-panel" key={item.title}>
-                <span>{snapshot ? snapshot.counts[item.key].toLocaleString("ko-KR") : "대기"}</span>
-                <h2>{item.title}</h2>
-                <p>{item.body}</p>
-              </article>
+              <MetricCard
+                className="admin-panel"
+                key={item.title}
+                label={item.title}
+                value={snapshot ? snapshot.counts[item.key].toLocaleString("ko-KR") : "대기"}
+                detail={item.body}
+              />
             ))}
           </section>
 
-          <section className="admin-panel admin-feed">
-            <span>{snapshot ? formatTimestamp(snapshot.generatedAt) : "대기"}</span>
+          <Card className="admin-panel admin-feed">
+            <StatusBadge tone="neutral">{snapshot ? formatTimestamp(snapshot.generatedAt) : "대기"}</StatusBadge>
             <h2>최근 플라이휠 이벤트</h2>
             {snapshot ? (
               <div className="admin-feed-grid">
@@ -115,16 +125,18 @@ export default async function AdminPage() {
                 />
               </div>
             ) : (
-              <p>DB 연결 전에는 카운트와 최근 항목을 대기 상태로 표시합니다.</p>
+              <Empty>
+                <EmptyDescription>DB 연결 전에는 카운트와 최근 항목을 대기 상태로 표시합니다.</EmptyDescription>
+              </Empty>
             )}
-          </section>
+          </Card>
         </>
       ) : (
-        <section className="admin-panel admin-denied">
-          <span>403</span>
+        <Card className="admin-panel admin-denied">
+          <StatusBadge tone="danger">403</StatusBadge>
           <h2>어드민 접근 권한 필요</h2>
           <p>현재 세션에는 어드민 role이 없습니다.</p>
-        </section>
+        </Card>
       )}
     </main>
   );
@@ -141,18 +153,20 @@ function RuntimePanel({ runtime }: { runtime: AdminRuntimeStatus }) {
   ] as const;
 
   return (
-    <section className="admin-panel admin-runtime">
-      <span>runtime</span>
+    <Card className="admin-panel admin-runtime">
+      <StatusBadge tone="brand">runtime</StatusBadge>
       <h2>실행 구성</h2>
-      <dl className="admin-runtime-list">
+      <Table className="admin-runtime-list">
+        <TableBody>
         {rows.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
+          <TableRow key={label}>
+            <TableCell>{label}</TableCell>
+            <TableCell>{value}</TableCell>
+          </TableRow>
         ))}
-      </dl>
-    </section>
+        </TableBody>
+      </Table>
+    </Card>
   );
 }
 
@@ -178,8 +192,8 @@ function TransitionPanel({ plan }: { plan: MatchTransitionPlan | null }) {
     : null;
 
   return (
-    <section className="admin-panel admin-transitions">
-      <span>{total === null ? "대기" : `${total.toLocaleString("ko-KR")}건`}</span>
+    <Card className="admin-panel admin-transitions">
+      <StatusBadge tone="neutral">{total === null ? "대기" : `${total.toLocaleString("ko-KR")}건`}</StatusBadge>
       <h2>상태 전이 예정</h2>
       {plan ? (
         <>
@@ -195,13 +209,17 @@ function TransitionPanel({ plan }: { plan: MatchTransitionPlan | null }) {
               ))}
             </ul>
           ) : (
-            <p>현재 처리할 전이 대상이 없습니다.</p>
+            <Empty>
+              <EmptyDescription>현재 처리할 전이 대상이 없습니다.</EmptyDescription>
+            </Empty>
           )}
         </>
       ) : (
-        <p>전이 플랜을 불러오지 못했습니다.</p>
+        <Empty>
+          <EmptyDescription>전이 플랜을 불러오지 못했습니다.</EmptyDescription>
+        </Empty>
       )}
-    </section>
+    </Card>
   );
 }
 

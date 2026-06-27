@@ -1,4 +1,6 @@
 import type { DashboardResult, NotificationFeedResult } from "@cunote/contracts";
+import { MetricCard } from "@/components/app/metric-card";
+import { PageNav } from "@/components/app/page-nav";
 import { ActionQueuePanel } from "@/features/action-queue/ActionQueuePanel";
 import { CompanySettingsPanel } from "@/features/dashboard/CompanySettingsPanel";
 import { NotificationFeedPanel } from "@/features/dashboard/NotificationFeedPanel";
@@ -20,11 +22,13 @@ export function DashboardView({
           <span className="brand-symbol" aria-hidden="true">C</span>
           <span>창업노트</span>
         </a>
-        <nav>
-          <a href="/">다시 조회</a>
-          <a href="/roadmap">로드맵</a>
-          <a href="/internal/live-match">내부 검증</a>
-        </nav>
+        <PageNav
+          links={[
+            { href: "/", label: "다시 조회" },
+            { href: "/roadmap", label: "로드맵" },
+            { href: "/internal/live-match", label: "내부 검증" },
+          ]}
+        />
       </header>
 
       <section className="dashboard-hero">
@@ -61,12 +65,7 @@ export function DashboardView({
 }
 
 function SummaryMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="dashboard-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+  return <MetricCard className="dashboard-metric" label={label} value={value} />;
 }
 
 function companyTitle(dashboard: DashboardResult): string {

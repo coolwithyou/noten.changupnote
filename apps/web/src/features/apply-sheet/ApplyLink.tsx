@@ -1,5 +1,6 @@
 "use client";
 
+import { buttonVariants } from "@/components/ui/button";
 import { recordWebMatchEvent } from "@/lib/client/matchEvents";
 
 interface ApplyLinkProps {
@@ -13,7 +14,13 @@ export function ApplyLink({ href, grantId }: ApplyLinkProps) {
   }
 
   return (
-    <a href={href} target="_blank" rel="noreferrer" onClick={recordApplyClick}>
+    <a
+      className={buttonVariants({ variant: "default", size: "sm" })}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      onClick={recordApplyClick}
+    >
       신청 페이지 열기
     </a>
   );

@@ -3,6 +3,20 @@
 import type { ActionResult, CompanyProfile, NextQuestionDto } from "@cunote/contracts";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { StatusBadge } from "@/components/app/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { regionCodeForLabel } from "@/lib/regions";
 
 interface ProfileFieldResult {
@@ -44,25 +58,30 @@ export function ProgressiveQuestionCard({ question }: { question: NextQuestionDt
   }
 
   return (
-    <section id="next-question" className="next-question-banner">
-      <div className="next-question-content">
-        <span className="eyebrow">다음 질문</span>
-        <h2>{question.prompt}</h2>
-        <p>{question.framing}</p>
-      </div>
-      <form className="next-question-form" onSubmit={handleSubmit}>
-        <strong className="next-question-impact">{question.affectedGrantCount}건 영향</strong>
-        <div className="next-question-control-row">
-          <QuestionInput question={question} value={value} onChange={setValue} />
-          <button type="submit" disabled={status === "saving" || value.trim().length === 0}>
-            {status === "saving" ? "저장 중" : "저장"}
-          </button>
+    <Card id="next-question" className="next-question-banner">
+      <CardContent className="contents">
+        <div className="next-question-content">
+          <span className="eyebrow">다음 질문</span>
+          <h2>{question.prompt}</h2>
+          <p>{question.framing}</p>
         </div>
-        <p className={`question-status ${status === "error" ? "error" : ""}`} aria-live="polite">
-          {message}
-        </p>
-      </form>
-    </section>
+        <form className="next-question-form" onSubmit={handleSubmit}>
+          <StatusBadge className="next-question-impact" tone="warning">
+            {question.affectedGrantCount}건 영향
+          </StatusBadge>
+          <div className="next-question-control-row">
+            <QuestionInput question={question} value={value} onChange={setValue} />
+            <Button type="submit" disabled={status === "saving" || value.trim().length === 0}>
+              {status === "saving" ? <Spinner data-icon="inline-start" /> : null}
+              {status === "saving" ? "저장 중" : "저장"}
+            </Button>
+          </div>
+          <p className={`question-status ${status === "error" ? "error" : ""}`} aria-live="polite">
+            {message}
+          </p>
+        </form>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -76,34 +95,57 @@ function QuestionInput({
   onChange: (value: string) => void;
 }) {
   if (question.inputType === "select" && question.options?.length) {
+    const items = question.options.map((option) => ({ label: option, value: option }));
     return (
-      <select
+      <Select
         aria-label={question.prompt}
+        items={items}
         value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
+        onValueChange={(nextValue) => {
+          if (typeof nextValue === "string") onChange(nextValue);
+        }}
       >
-        {question.options.map((option) => (
-          <option key={option} value={option}>{option}</option>
-        ))}
-      </select>
+        <SelectTrigger className="w-full min-w-40">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectGroup>
+            {items.map((option) => (
+              <SelectItem key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
     );
   }
 
   if (question.inputType === "boolean") {
     return (
-      <select
+      <ToggleGroup
         aria-label={question.prompt}
-        value={value}
-        onChange={(event) => onChange(event.currentTarget.value)}
+        className="next-question-toggle"
+        value={[value]}
+        onValueChange={(nextValue) => {
+          const [selected] = nextValue;
+          if (selected) onChange(selected);
+        }}
+        variant="outline"
+        spacing={1}
       >
-        <option value="true">예</option>
-        <option value="false">아니오</option>
-      </select>
+        <ToggleGroupItem value="true" aria-label="예">
+          예
+        </ToggleGroupItem>
+        <ToggleGroupItem value="false" aria-label="아니오">
+          아니오
+        </ToggleGroupItem>
+      </ToggleGroup>
     );
   }
 
   return (
-    <input
+    <Input
       aria-label={question.prompt}
       inputMode={question.inputType === "number" ? "numeric" : "text"}
       min={question.inputType === "number" ? 0 : undefined}

@@ -2,6 +2,8 @@
 
 import type { ActionResult, FeedbackKind, FeedbackResult, MatchFeedbackRequest } from "@cunote/contracts";
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 const FEEDBACK_ACTIONS: Array<{
   kind: FeedbackKind;
@@ -49,16 +51,19 @@ export function MatchFeedbackControls({ grantId, title }: { grantId: string; tit
     <div className="match-feedback" aria-label={`${title} 피드백`}>
       <div className="match-feedback-controls">
         {FEEDBACK_ACTIONS.map((action) => (
-          <button
+          <Button
             key={action.kind}
             type="button"
+            variant={activeKind === action.kind && status === "saved" ? "secondary" : "outline"}
+            size="sm"
             className={activeKind === action.kind && status === "saved" ? "selected" : ""}
             disabled={status === "saving"}
             onClick={() => submitFeedback(action.kind)}
             aria-label={`${title} ${action.label}`}
           >
+            {status === "saving" && activeKind === action.kind ? <Spinner data-icon="inline-start" /> : null}
             {status === "saving" && activeKind === action.kind ? "저장 중" : action.label}
-          </button>
+          </Button>
         ))}
       </div>
       <p className={`feedback-status ${status === "error" ? "error" : ""}`} aria-live="polite">

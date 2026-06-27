@@ -1,8 +1,11 @@
 import type { NotificationFeedResult, NotificationItem } from "@cunote/contracts";
+import { StatusBadge } from "@/components/app/status-badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 
 export function NotificationFeedPanel({ feed }: { feed: NotificationFeedResult }) {
   return (
-    <section className="dashboard-panel notification-feed-panel" aria-labelledby="notification-feed-title">
+    <Card className="dashboard-panel notification-feed-panel" aria-labelledby="notification-feed-title">
       <div className="panel-heading inline">
         <div>
           <span className="eyebrow">알림</span>
@@ -12,24 +15,32 @@ export function NotificationFeedPanel({ feed }: { feed: NotificationFeedResult }
       </div>
       <div className="notification-feed-list">
         {feed.notifications.length > 0 ? feed.notifications.slice(0, 5).map((item) => (
-          <a className={`notification-feed-item ${item.priority}`} href={notificationHref(item)} key={item.id}>
-            <div className="notification-feed-top">
-              <span>{kindLabel(item.kind)}</span>
-              <strong>{priorityLabel(item.priority)}</strong>
-            </div>
-            <h3>{item.title}</h3>
-            <p>{item.body}</p>
-            <div className="notification-feed-meta">
-              {item.dDay !== undefined && item.dDay !== null ? <span>{dDayLabel(item.dDay)}</span> : null}
-              {item.etaDate ? <span>{item.etaDate}</span> : null}
-              <span>{item.rulesetVer}</span>
-            </div>
-          </a>
+          <Card className={`notification-feed-item ${item.priority}`} key={item.id} size="sm">
+            <CardContent className="p-0">
+              <a href={notificationHref(item)}>
+                <div className="notification-feed-top">
+                  <StatusBadge tone={item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "neutral"}>
+                    {kindLabel(item.kind)}
+                  </StatusBadge>
+                  <strong>{priorityLabel(item.priority)}</strong>
+                </div>
+                <h3>{item.title}</h3>
+                <p>{item.body}</p>
+                <div className="notification-feed-meta">
+                  {item.dDay !== undefined && item.dDay !== null ? <span>{dDayLabel(item.dDay)}</span> : null}
+                  {item.etaDate ? <span>{item.etaDate}</span> : null}
+                  <span>{item.rulesetVer}</span>
+                </div>
+              </a>
+            </CardContent>
+          </Card>
         )) : (
-          <p className="panel-empty">새 알림이 없습니다.</p>
+          <Empty className="panel-empty">
+            <EmptyDescription>새 알림이 없습니다.</EmptyDescription>
+          </Empty>
         )}
       </div>
-    </section>
+    </Card>
   );
 }
 

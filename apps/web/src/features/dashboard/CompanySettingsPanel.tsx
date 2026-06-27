@@ -13,6 +13,21 @@ import type {
   NotificationSettingsDto,
 } from "@cunote/contracts";
 import type { CompanyRecord } from "@cunote/core";
+import { StatusBadge } from "@/components/app/status-badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 
 interface WebCompaniesResult {
   currentCompanyId: string;
@@ -57,6 +72,7 @@ const NOTIFICATION_FIELDS: Array<{
 ];
 
 const TARGET_TYPE_OPTIONS = ["예비창업자", "개인사업자", "법인", "일반기업", "1인 창조기업", "대학", "연구기관"];
+const TARGET_TYPE_ITEMS = TARGET_TYPE_OPTIONS.map((option) => ({ label: option, value: option }));
 const EMPTY_PROFILE_DRAFT: ProfileDraft = {
   revenue: "",
   employees: "",
@@ -267,26 +283,41 @@ export function CompanySettingsPanel() {
   return (
     <section id="company-settings" className="dashboard-settings-panel" aria-label="회사, 동의 및 알림 설정">
       <div className="settings-block">
-        <label htmlFor="company-switcher">
-          회사
-          <select
-            id="company-switcher"
-            value={currentCompanyId}
+        <Field>
+          <FieldLabel htmlFor="company-switcher">회사</FieldLabel>
+          <Select
+            items={companies.map((company) => ({
+              label: company.name ?? company.profile.name ?? company.id,
+              value: company.id,
+            }))}
+            value={currentCompanyId || null}
             disabled={busyKey === "company" || companies.length <= 1}
-            onChange={(event) => void switchCompany(event.target.value)}
+            onValueChange={(value) => {
+              if (typeof value === "string") void switchCompany(value);
+            }}
           >
-            {companies.map((company) => (
-              <option key={company.id} value={company.id}>
-                {company.name ?? company.profile.name ?? company.id}
-              </option>
-            ))}
-          </select>
-          <span className={currentCompany?.verified ? "settings-company-status verified" : "settings-company-status"}>
+            <SelectTrigger id="company-switcher" className="w-full">
+              <SelectValue placeholder="회사 선택" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {companies.map((company) => (
+                  <SelectItem key={company.id} value={company.id}>
+                    {company.name ?? company.profile.name ?? company.id}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <StatusBadge
+            className={currentCompany?.verified ? "settings-company-status verified" : "settings-company-status"}
+            tone={currentCompany?.verified ? "success" : "neutral"}
+          >
             {currentCompany?.verified
               ? `검증됨${currentCompany.bizNoMasked ? ` · ${currentCompany.bizNoMasked}` : ""}`
               : "소유권 미검증"}
-          </span>
-        </label>
+          </StatusBadge>
+        </Field>
       </div>
 
       <div className="settings-consent-list">
@@ -294,16 +325,21 @@ export function CompanySettingsPanel() {
           const consent = latestByScope.get(scope);
           const active = Boolean(consent && !consent.revokedAt);
           return (
-            <button
+            <Field
               key={scope}
-              type="button"
               className={active ? "consent-toggle active" : "consent-toggle"}
-              disabled={busyKey === scope}
-              onClick={() => void toggleConsent(scope, active)}
+              orientation="horizontal"
             >
-              <span>{CONSENT_LABELS[scope]}</span>
-              <strong>{active ? "활성" : "미동의"}</strong>
-            </button>
+              <FieldContent>
+                <FieldTitle>{CONSENT_LABELS[scope]}</FieldTitle>
+                <FieldDescription>{active ? "활성" : "미동의"}</FieldDescription>
+              </FieldContent>
+              <Switch
+                checked={active}
+                disabled={busyKey === scope}
+                onCheckedChange={() => void toggleConsent(scope, active)}
+              />
+            </Field>
           );
         })}
       </div>
@@ -312,21 +348,28 @@ export function CompanySettingsPanel() {
         {NOTIFICATION_FIELDS.map((item) => {
           const active = Boolean(notifications?.[item.field]);
           return (
-            <button
+            <Field
               key={item.field}
-              type="button"
               className={active ? "notification-toggle active" : "notification-toggle"}
-              disabled={busyKey === item.field || !notifications}
-              onClick={() => void toggleNotification(item.field)}
+              orientation="horizontal"
             >
-              <span>{item.label}</span>
-              <strong>{active ? "켬" : "끔"}</strong>
-            </button>
+              <FieldContent>
+                <FieldTitle>{item.label}</FieldTitle>
+                <FieldDescription>{active ? "켬" : "끔"}</FieldDescription>
+              </FieldContent>
+              <Switch
+                checked={active}
+                disabled={busyKey === item.field || !notifications}
+                onCheckedChange={() => void toggleNotification(item.field)}
+              />
+            </Field>
           );
         })}
       </div>
 
-      <p className="settings-status">{status}</p>
+      <StatusBadge className="settings-status" tone={status === "동기화됨" ? "success" : "neutral"}>
+        {status}
+      </StatusBadge>
 
       <div className="settings-enrich-form" aria-label="회사정보 보강 및 검증">
         <div className="settings-profile-heading">
@@ -334,9 +377,9 @@ export function CompanySettingsPanel() {
           <strong>3요소 검증</strong>
         </div>
         <div className="settings-enrich-row">
-          <label htmlFor="company-enrich-biz-no">
-            사업자번호
-            <input
+          <Field>
+            <FieldLabel htmlFor="company-enrich-biz-no">사업자번호</FieldLabel>
+            <Input
               id="company-enrich-biz-no"
               inputMode="numeric"
               placeholder="사업자번호 10자리"
@@ -344,10 +387,10 @@ export function CompanySettingsPanel() {
               disabled={busyKey === "enrich" || busyKey === "verify"}
               onChange={(event) => setBizNo(event.currentTarget.value)}
             />
-          </label>
-          <label htmlFor="company-verify-owner-name">
-            대표자명
-            <input
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="company-verify-owner-name">대표자명</FieldLabel>
+            <Input
               id="company-verify-owner-name"
               autoComplete="off"
               placeholder="대표자명"
@@ -355,31 +398,34 @@ export function CompanySettingsPanel() {
               disabled={busyKey === "enrich" || busyKey === "verify"}
               onChange={(event) => setOwnerName(event.currentTarget.value)}
             />
-          </label>
-          <label htmlFor="company-verify-opened-on">
-            개업일
-            <input
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="company-verify-opened-on">개업일</FieldLabel>
+            <Input
               id="company-verify-opened-on"
               type="date"
               value={openedOn}
               disabled={busyKey === "enrich" || busyKey === "verify"}
               onChange={(event) => setOpenedOn(event.currentTarget.value)}
             />
-          </label>
-          <button
+          </Field>
+          <Button
             type="button"
             disabled={busyKey === "enrich" || busyKey === "verify" || !basicInfoConsent}
             onClick={() => void enrichCompany()}
           >
+            {busyKey === "enrich" ? <Spinner data-icon="inline-start" /> : null}
             {busyKey === "enrich" ? "조회 중" : "보강"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            variant="outline"
             disabled={busyKey === "enrich" || busyKey === "verify"}
             onClick={() => void verifyCompany()}
           >
+            {busyKey === "verify" ? <Spinner data-icon="inline-start" /> : null}
             {busyKey === "verify" ? "검증 중" : "검증"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -388,10 +434,10 @@ export function CompanySettingsPanel() {
           <span>수기 프로필</span>
           <strong>자가신고</strong>
         </div>
-        <div className="settings-profile-grid">
-          <label htmlFor="manual-revenue">
-            매출
-            <input
+        <FieldGroup className="settings-profile-grid">
+          <Field>
+            <FieldLabel htmlFor="manual-revenue">매출</FieldLabel>
+            <Input
               id="manual-revenue"
               inputMode="numeric"
               placeholder="120000000"
@@ -399,10 +445,10 @@ export function CompanySettingsPanel() {
               disabled={busyKey === "manual-profile"}
               onChange={(event) => updateDraft("revenue", event.currentTarget.value.replace(/\D/g, ""))}
             />
-          </label>
-          <label htmlFor="manual-employees">
-            고용
-            <input
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="manual-employees">고용</FieldLabel>
+            <Input
               id="manual-employees"
               inputMode="numeric"
               placeholder="12"
@@ -410,69 +456,80 @@ export function CompanySettingsPanel() {
               disabled={busyKey === "manual-profile"}
               onChange={(event) => updateDraft("employees", event.currentTarget.value.replace(/\D/g, ""))}
             />
-          </label>
-          <label htmlFor="manual-target-type">
-            신청대상
-            <select
-              id="manual-target-type"
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="manual-target-type">신청대상</FieldLabel>
+            <Select
+              items={TARGET_TYPE_ITEMS}
               value={profileDraft.targetType}
               disabled={busyKey === "manual-profile"}
-              onChange={(event) => updateDraft("targetType", event.currentTarget.value)}
+              onValueChange={(value) => {
+                if (typeof value === "string") updateDraft("targetType", value);
+              }}
             >
-              {TARGET_TYPE_OPTIONS.map((option) => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </label>
-          <label htmlFor="manual-certifications">
-            인증
-            <input
+              <SelectTrigger id="manual-target-type" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {TARGET_TYPE_ITEMS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="manual-certifications">인증</FieldLabel>
+            <Input
               id="manual-certifications"
               placeholder="벤처기업, 이노비즈"
               value={profileDraft.certifications}
               disabled={busyKey === "manual-profile"}
               onChange={(event) => updateDraft("certifications", event.currentTarget.value)}
             />
-          </label>
-          <label htmlFor="manual-ip">
-            지식재산
-            <input
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="manual-ip">지식재산</FieldLabel>
+            <Input
               id="manual-ip"
               placeholder="특허, 상표"
               value={profileDraft.ip}
               disabled={busyKey === "manual-profile"}
               onChange={(event) => updateDraft("ip", event.currentTarget.value)}
             />
-          </label>
-          <label htmlFor="manual-prior-awards">
-            기수혜
-            <input
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="manual-prior-awards">기수혜</FieldLabel>
+            <Input
               id="manual-prior-awards"
               placeholder="TIPS, 초기창업패키지"
               value={profileDraft.priorAwards}
               disabled={busyKey === "manual-profile" || profileDraft.noPriorAwards}
               onChange={(event) => updateDraft("priorAwards", event.currentTarget.value)}
             />
-          </label>
-          <label className="settings-profile-checkbox" htmlFor="manual-no-prior-awards">
-            <input
+          </Field>
+          <Field className="settings-profile-checkbox" orientation="horizontal">
+            <Checkbox
               id="manual-no-prior-awards"
-              type="checkbox"
               checked={profileDraft.noPriorAwards}
               disabled={busyKey === "manual-profile"}
-              onChange={(event) => updateDraft("noPriorAwards", event.currentTarget.checked)}
+              onCheckedChange={(checked) => updateDraft("noPriorAwards", checked === true)}
             />
-            <span>기수혜 없음</span>
-          </label>
-          <button
+            <FieldLabel htmlFor="manual-no-prior-awards">기수혜 없음</FieldLabel>
+          </Field>
+          <Button
             type="button"
             className="settings-profile-save"
             disabled={busyKey === "manual-profile"}
             onClick={() => void saveManualProfile()}
           >
+            {busyKey === "manual-profile" ? <Spinner data-icon="inline-start" /> : null}
             {busyKey === "manual-profile" ? "저장 중" : "수기 정보 저장"}
-          </button>
-        </div>
+          </Button>
+        </FieldGroup>
       </div>
     </section>
   );

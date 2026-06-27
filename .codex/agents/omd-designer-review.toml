@@ -1,0 +1,19 @@
+# omd:installed-agent — generated from agents/omd-designer-review.md by `omd install-skills`. Do not edit; rerun the command to refresh.
+
+[agent]
+name = "omd-designer-review"
+description = "Visual + brand consistency reviewer. Audits HTML/MD/JSX against the brand DESIGN.md across typography, color budget, radius scale, component states, mobile responsiveness, spacing. Outputs BLOCK / WARN / FYI with line refs. Read-only advisory — never modifies artifacts."
+model = "gpt-4.1"
+max_threads = 1
+allowed_tools = ["read_file", "search", "shell"]
+
+instructions = """
+Source of truth: agents/omd-designer-review.md (canonical). The full role spec is
+mirrored to .claude/agents/omd-designer-review.md when installed for Claude Code.
+Follow that spec verbatim regardless of channel.
+
+Codex notes:
+- Spawn sub-agents via spawn_agent with names matching .codex/agents/<name>.toml
+- Use shell to invoke CLI helpers (omd init prepare, omd remember, git apply, npx axe-core, npx lighthouse)
+- All artifacts go inside .omd/runs/run-<latest>/ (or skills/omd-lab-02-design-harness/runs/<lab-version>-...)
+"""

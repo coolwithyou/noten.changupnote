@@ -2,6 +2,11 @@
 
 import { signIn } from "next-auth/react";
 import { useState } from "react";
+import { buttonVariants, Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Spinner } from "@/components/ui/spinner";
 import type { WebAuthProviderSummary } from "@/lib/server/auth/options";
 
 interface LoginPanelProps {
@@ -47,30 +52,48 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
         </a>
       </header>
 
-      <section className="login-panel" aria-labelledby="login-title">
-        <p className="eyebrow">계정 연결</p>
-        <h1 id="login-title">로그인</h1>
-        <p>기회 맵과 신청 준비 상태를 회사별로 저장합니다.</p>
+      <Card className="login-panel" aria-labelledby="login-title">
+        <CardHeader className="p-0">
+          <p className="eyebrow">계정 연결</p>
+          <CardTitle id="login-title" className="text-[34px] font-bold leading-tight">
+            로그인
+          </CardTitle>
+          <p>기회 맵과 신청 준비 상태를 회사별로 저장합니다.</p>
+        </CardHeader>
 
-        <div className="login-provider-list">
-          {providers.map((provider) => (
-            <button
-              key={provider.id}
-              type="button"
-              disabled={Boolean(pendingProvider)}
-              onClick={() => startSignIn(provider)}
-            >
-              {pendingProvider === provider.id ? "연결 중" : `${provider.name}로 계속`}
-            </button>
-          ))}
-          {providers.length === 0 ? (
-            <p className="login-empty">활성화된 로그인 provider가 없습니다.</p>
+        <CardContent className="grid gap-4 p-0">
+          <div className="login-provider-list">
+            {providers.map((provider) => (
+              <Button
+                key={provider.id}
+                type="button"
+                disabled={Boolean(pendingProvider)}
+                onClick={() => startSignIn(provider)}
+              >
+                {pendingProvider === provider.id ? <Spinner data-icon="inline-start" /> : null}
+                {pendingProvider === provider.id ? "연결 중" : `${provider.name}로 계속`}
+              </Button>
+            ))}
+            {providers.length === 0 ? (
+              <Empty className="login-empty">
+                <EmptyHeader>
+                  <EmptyTitle>로그인 provider 없음</EmptyTitle>
+                  <EmptyDescription>활성화된 로그인 provider가 없습니다.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : null}
+          </div>
+
+          {error ? (
+            <Alert variant="destructive" className="form-error" aria-live="polite">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : null}
-        </div>
-
-        {error ? <p className="form-error" aria-live="polite">{error}</p> : null}
-        <a className="login-return-link" href="/">처음 화면으로</a>
-      </section>
+          <a className={buttonVariants({ variant: "ghost", size: "sm", className: "login-return-link" })} href="/">
+            처음 화면으로
+          </a>
+        </CardContent>
+      </Card>
     </main>
   );
 }
