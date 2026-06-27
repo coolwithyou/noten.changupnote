@@ -5,8 +5,13 @@ import { planBizInfoPublication, publishBizInfoGrants } from "./bizinfoPublisher
 
 loadMonorepoEnv();
 
+if (hasFlag("help")) {
+  printHelp();
+  process.exit(0);
+}
+
 const source = readArg("source") ?? process.env.CUNOTE_INGEST_SOURCE ?? "sample";
-const dryRun = process.argv.includes("--dry-run") || process.env.CUNOTE_INGEST_DRY_RUN === "true";
+const dryRun = hasFlag("dry-run") || process.env.CUNOTE_INGEST_DRY_RUN === "true";
 const collectedAt = new Date();
 
 if (source !== "sample") {
@@ -36,4 +41,25 @@ try {
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
+}
+
+function hasFlag(name: string): boolean {
+  return process.argv.includes(`--${name}`);
+}
+
+function printHelp() {
+  console.log(`Usage: pnpm publish:bizinfo -- [options]
+
+Publishes the BizInfo sample grant into the selected database.
+Live BizInfo publishing is intentionally blocked until HWP conversion and LLM extraction are operationalized.
+
+Options:
+  --source=sample  Use the built-in BizInfo normalized sample. This is the only supported source.
+  --dry-run        Print the publication plan without writing to the database.
+  --help           Show this help.
+
+Environment:
+  CUNOTE_INGEST_SOURCE=sample
+  CUNOTE_INGEST_DRY_RUN=true
+`);
 }
