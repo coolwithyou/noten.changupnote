@@ -303,6 +303,8 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     companyId: string;
     grantId: string;
     match: MatchResult;
+    eligibleFrom?: Date | null;
+    eligibleUntil?: Date | null;
     userId?: string;
   }): Promise<void> {
     const grantId = await this.resolveGrantRowId(input.grantId);
@@ -321,8 +323,8 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         valueScore: null,
         ruleTrace: input.match.rule_trace as unknown as Array<Record<string, unknown>>,
         matchConfidence: matchConfidence(input.match),
-        eligibleFrom: null,
-        eligibleUntil: null,
+        eligibleFrom: input.eligibleFrom ?? null,
+        eligibleUntil: input.eligibleUntil ?? null,
         rulesetVer: input.match.ruleset_ver,
         scoringVer: input.match.scoring_ver,
         updatedAt: new Date(),
@@ -337,8 +339,8 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
           valueScore: null,
           ruleTrace: input.match.rule_trace as unknown as Array<Record<string, unknown>>,
           matchConfidence: matchConfidence(input.match),
-          eligibleFrom: null,
-          eligibleUntil: null,
+          eligibleFrom: input.eligibleFrom ?? null,
+          eligibleUntil: input.eligibleUntil ?? null,
           rulesetVer: input.match.ruleset_ver,
           scoringVer: input.match.scoring_ver,
           updatedAt: new Date(),

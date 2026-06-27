@@ -105,6 +105,36 @@ export function daysUntil(value: string | null, asOf = new Date()): number | nul
   return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
 }
 
+export interface MatchTransitionWindow {
+  eligibleFrom: Date | null;
+  eligibleUntil: Date | null;
+}
+
+export function calculateMatchTransitionWindow(
+  match: MatchResult,
+  options: { asOf?: Date } = {},
+): MatchTransitionWindow {
+  const asOf = options.asOf ?? new Date();
+  const hardFails = match.rule_trace.filter((trace) =>
+    trace.result === "fail" && (trace.kind === "required" || trace.kind === "exclusion")
+  );
+  const unlockDates = hardFails
+    .filter(isUnlockableBizAgeTrace)
+    .map((trace) => {
+      const record = trace.company_value as Record<string, unknown>;
+      return addMonthsUtcDate(asOf, (record.unlock_at_months as number) - (record.biz_age_months as number));
+    });
+  const lockDates = match.rule_trace
+    .filter((trace) => trace.dimension === "biz_age" && trace.result === "pass")
+    .map(bizAgeLockDate(asOf))
+    .filter((value): value is Date => value !== null);
+
+  return {
+    eligibleFrom: hardFails.length > 0 && hardFails.length === unlockDates.length ? latestDate(unlockDates) : null,
+    eligibleUntil: match.eligibility !== "ineligible" ? earliestDate(lockDates) : null,
+  };
+}
+
 export function grantKey(grant: Pick<Grant, "id" | "source" | "source_id">): string {
   return grant.id ?? `${grant.source}:${grant.source_id}`;
 }
@@ -225,6 +255,19 @@ function unlockForTrace(
   };
 }
 
+function bizAgeLockDate(asOf: Date) {
+  return (trace: MatchResult["rule_trace"][number]): Date | null => {
+    const value = trace.company_value;
+    if (!value || typeof value !== "object") return null;
+    const record = value as Record<string, unknown>;
+    if (typeof record.biz_age_months !== "number" || typeof record.lock_after_months !== "number") {
+      return null;
+    }
+    const monthsUntilLock = record.lock_after_months - record.biz_age_months;
+    return monthsUntilLock > 0 ? addMonthsUtcDate(asOf, monthsUntilLock) : null;
+  };
+}
+
 function compareMatch(a: MatchResult, b: MatchResult): number {
   const rank: Record<MatchResult["eligibility"], number> = {
     eligible: 0,
@@ -287,9 +330,13 @@ function parseDate(value: string): Date | null {
 }
 
 function addMonthsIsoDate(value: Date, months: number): string {
+  return addMonthsUtcDate(value, months).toISOString().slice(0, 10);
+}
+
+function addMonthsUtcDate(value: Date, months: number): Date {
   const result = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
   result.setUTCMonth(result.getUTCMonth() + months);
-  return result.toISOString().slice(0, 10);
+  return result;
 }
 
 function formatMonthCount(months: number): string {
@@ -299,4 +346,14 @@ function formatMonthCount(months: number): string {
   if (years === 0) return `${rest}개월`;
   if (rest === 0) return `${years}년`;
   return `${years}년 ${rest}개월`;
+}
+
+function latestDate(values: Date[]): Date | null {
+  if (values.length === 0) return null;
+  return values.reduce((latest, value) => value.getTime() > latest.getTime() ? value : latest);
+}
+
+function earliestDate(values: Date[]): Date | null {
+  if (values.length === 0) return null;
+  return values.reduce((earliest, value) => value.getTime() < earliest.getTime() ? value : earliest);
 }

@@ -90,6 +90,8 @@ export interface MatchRepository<TPayload = unknown> {
     companyId: string;
     grantId: string;
     match: MatchResult;
+    eligibleFrom?: Date | null;
+    eligibleUntil?: Date | null;
     userId?: string;
   }): Promise<void>;
   saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt>;

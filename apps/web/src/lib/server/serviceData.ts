@@ -7,6 +7,7 @@ import {
   buildCompanyProfileFromPopbill,
   checkPopbillBizInfo,
   fetchKStartupPage,
+  calculateMatchTransitionWindow,
   grantKey,
   normalizeKStartupPayload,
   readPopbillEnvConfig,
@@ -134,6 +135,7 @@ export async function loadServiceDashboard(options: {
     ...(options.userId ? { userId: options.userId } : {}),
     company,
     grants,
+    asOf,
   });
 
   return buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
@@ -270,20 +272,24 @@ async function persistMatchStates(input: {
   userId?: string;
   company: CompanyProfile;
   grants: Array<NormalizedGrant<ServiceGrantPayload>>;
+  asOf: Date;
 }) {
   if (!input.companyId) return;
   const matchStates = await repositories.matches.calculateGrantMatches({
     company: input.company,
     grants: input.grants,
   });
-  await Promise.all(matchStates.map((state) =>
-    repositories.matches.saveMatchState({
+  await Promise.all(matchStates.map((state) => {
+    const transitionWindow = calculateMatchTransitionWindow(state.match, { asOf: input.asOf });
+    return repositories.matches.saveMatchState({
       companyId: input.companyId!,
       grantId: grantKey(state.grant.grant),
       match: state.match,
+      eligibleFrom: transitionWindow.eligibleFrom,
+      eligibleUntil: transitionWindow.eligibleUntil,
       ...(input.userId ? { userId: input.userId } : {}),
-    })
-  ));
+    });
+  }));
 }
 
 async function loadEnvInDevelopment() {

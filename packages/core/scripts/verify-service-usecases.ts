@@ -9,6 +9,7 @@ import {
   buildApplySheet,
   buildDashboard,
   buildNotificationFeed,
+  calculateMatchTransitionWindow,
   matchGrantCriteria,
   selectMatchCards,
   updateCompanyProfileField,
@@ -73,6 +74,9 @@ assert.equal(soonMatch.bucket, "soon");
 const soonTrace = soonMatch.ruleTrace.find((trace) => trace.dimension === "biz_age");
 assert.equal(soonTrace?.unlock?.kind, "time");
 assert.equal(soonTrace?.unlock?.etaDate, "2026-08-01");
+const soonTransition = calculateMatchTransitionWindow(matchGrantCriteria(soonGrant.criteria, company), { asOf });
+assert.equal(soonTransition.eligibleFrom?.toISOString().slice(0, 10), "2026-08-01");
+assert.equal(soonTransition.eligibleUntil, null);
 
 const soonRoadmapNode = dashboard.roadmap.find((node) => node.grantId === soonMatch.grantId);
 assert.equal(soonRoadmapNode?.bucket, "soon");
@@ -87,6 +91,26 @@ assert.equal(
   tooOldMatch.ruleTrace.find((trace) => trace.dimension === "biz_age")?.unlock,
   undefined,
 );
+
+const closingGrant = normalizedGrant("closing-biz-age", "업력 1년 이내 지원사업", [
+  {
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    value: { regions: ["41"], labels: ["경기"], nationwide: false },
+    confidence: 0.95,
+  },
+  {
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    value: { max_months: 12, include_preliminary: true, labels: ["1년 이내"] },
+    confidence: 0.9,
+  },
+]);
+const closingTransition = calculateMatchTransitionWindow(matchGrantCriteria(closingGrant.criteria, company), { asOf });
+assert.equal(closingTransition.eligibleFrom, null);
+assert.equal(closingTransition.eligibleUntil?.toISOString().slice(0, 10), "2026-09-01");
 
 const sheet = buildApplySheet({
   entry: {
@@ -290,6 +314,8 @@ console.log(JSON.stringify({
     "biz_age_min_match",
     "soon_bucket",
     "roadmap_time_unlock",
+    "match_state_eligible_from",
+    "match_state_eligible_until",
     "apply_sheet_unlock",
     "apply_sheet_profile_copy",
     "apply_sheet_plan_prompts",
@@ -309,9 +335,13 @@ console.log(JSON.stringify({
   soon: {
     bucket: soonMatch.bucket,
     etaDate: soonTrace?.unlock?.etaDate,
+    eligibleFrom: soonTransition.eligibleFrom?.toISOString(),
   },
   tooOld: {
     bucket: tooOldMatch.bucket,
+  },
+  closing: {
+    eligibleUntil: closingTransition.eligibleUntil?.toISOString(),
   },
   expanded: {
     eligibility: expandedMatch.eligibility,

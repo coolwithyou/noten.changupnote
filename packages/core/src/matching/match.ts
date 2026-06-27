@@ -170,7 +170,10 @@ function evaluateBizAge(criterion: GrantCriterion, company: CompanyProfile): Rul
     criterion,
     "pass",
     `${bizAgeBoundsLabel(minMonths, maxMonths)}${value.include_preliminary ? "/예비 허용" : ""} - 귀사 ${formatMonths(company.biz_age_months)}`,
-    { biz_age_months: company.biz_age_months },
+    {
+      biz_age_months: company.biz_age_months,
+      ...(maxMonths !== null ? { lock_after_months: maxMonths + 1 } : {}),
+    },
   );
 }
 
