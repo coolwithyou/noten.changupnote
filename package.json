@@ -20,6 +20,7 @@
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
     "fetch:kstartup": "tsx packages/core/scripts/fetch-kstartup-live.ts",
     "match:live": "tsx packages/core/scripts/match-live-company.ts",
+    "match:states:refresh": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/refresh-match-states-cli.ts",
     "match:transitions:plan": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/plan-match-transitions-cli.ts",
     "openapi:export": "pnpm --filter @cunote/contracts export:openapi",
     "publish:dedup": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/publish-dedup.ts",
