@@ -48,6 +48,7 @@ function buildDemoSeed() {
     company: {
       id: companyId,
       name: process.env.CUNOTE_DEMO_COMPANY_NAME ?? "샘플 기업",
+      bizNo: "7465400870",
     },
     profileRows: demoProfileRows(companyId),
   };
@@ -76,14 +77,22 @@ async function seedDemoData(input: ReturnType<typeof buildDemoSeed>) {
       .values({
         id: input.company.id,
         kind: "active",
+        bizNo: input.company.bizNo,
         name: input.company.name,
+        verified: true,
+        verifiedAt: now,
+        verifyMethod: "dev_seed",
         createdBy: input.user.id,
       })
       .onConflictDoUpdate({
         target: schema.companies.id,
         set: {
           kind: "active",
+          bizNo: input.company.bizNo,
           name: input.company.name,
+          verified: true,
+          verifiedAt: now,
+          verifyMethod: "dev_seed",
           createdBy: input.user.id,
         },
       });

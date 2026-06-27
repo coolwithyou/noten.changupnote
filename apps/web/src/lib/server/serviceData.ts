@@ -87,7 +87,14 @@ async function loadServiceGrantsFromSource({
 }
 
 export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<CompanyProfile> {
-  const profile = await repositories.companies.resolveCompanyProfile(bizNo ? { bizNo } : {});
+  if (bizNo) {
+    const normalizedBizNo = sanitizeCorpNum(bizNo);
+    const savedProfile = await repositories.companies.resolveCompanyProfile({ bizNo: normalizedBizNo });
+    if (savedProfile) return savedProfile;
+    return loadCompanyProfileFromSource(normalizedBizNo);
+  }
+
+  const profile = await repositories.companies.resolveCompanyProfile({});
   if (!profile) {
     throw new Error("회사 프로필을 찾지 못했습니다.");
   }
@@ -110,6 +117,10 @@ async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProf
     }
     console.warn(`Popbill checkBizInfo returned non-success result: ${info.result ?? "unknown"}`);
   } catch (error) {
+    if (requestedBizNo && process.env.NODE_ENV !== "production") {
+      console.warn(`Popbill profile fetch failed for requested biz no. Falling back to sample company: ${errorMessage(error)}`);
+      return sampleCompanyProfile();
+    }
     if (requestedBizNo) throw error;
     console.warn(`Popbill profile fetch failed. Falling back to sample company: ${errorMessage(error)}`);
   }
@@ -366,7 +377,9 @@ function sampleCompanyProfile(): CompanyProfile {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "unknown error";
+  if (error instanceof Error) return error.message;
+  if (isRecord(error) && typeof error.message === "string") return error.message;
+  return "unknown error";
 }
 
 export class ServiceDataError extends Error {

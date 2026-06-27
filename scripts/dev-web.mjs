@@ -9,12 +9,16 @@ const tunnelCommand =
 
 loadDevEnv();
 
+const repositoryAdapter = process.env.CUNOTE_REPOSITORY_ADAPTER ??
+  (hasDatabaseUrl() ? "drizzle" : undefined);
+
 console.log(
   [
     "",
     "창업노트 웹 개발 서버",
     `- 로컬 접속: ${localUrl}`,
     `- HTTPS 접속: ${tunnelUrl}`,
+    `- 데이터 어댑터: ${repositoryAdapter ?? "runtime"}`,
     "",
     "Cloudflare tunnel이 실행 중이면 위 HTTPS 주소로 접속하면 됩니다.",
     `터널 실행: ${tunnelCommand}`,
@@ -33,6 +37,7 @@ const child = spawn("pnpm", pnpmArgs, {
   stdio: "inherit",
   env: {
     ...process.env,
+    ...(repositoryAdapter ? { CUNOTE_REPOSITORY_ADAPTER: repositoryAdapter } : {}),
     NEXTAUTH_URL: process.env.NEXTAUTH_URL ?? tunnelUrl,
   },
 });
@@ -89,4 +94,12 @@ function loadDevEnv() {
       process.env[key] = value;
     }
   }
+}
+
+function hasDatabaseUrl() {
+  return Boolean(
+    process.env.DATABASE_URL?.trim() ||
+    process.env.SUPABASE_DB_URL?.trim() ||
+    process.env.DIRECT_URL?.trim(),
+  );
 }
