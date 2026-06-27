@@ -58,17 +58,28 @@ const conditionalGrant = normalizedGrant("industry-unknown", "업종 확인 지�
   },
 ]);
 
+const malformedFounderAgeGrant = normalizedGrant("founder-age-malformed", "대표자 연령 확인 지원사업", [
+  {
+    dimension: "founder_age",
+    operator: "in",
+    kind: "required",
+    value: { labels: ["대표자 연령 조건"] },
+    confidence: 0.2,
+    needs_review: true,
+  },
+]);
+
 const plan = planMatchStateRefresh({
   company: { ...company, industries: [] },
-  grants: [soonGrant, closingGrant, conditionalGrant],
+  grants: [soonGrant, closingGrant, conditionalGrant, malformedFounderAgeGrant],
   asOf,
   companyId,
 });
 
 assert.equal(plan.asOf, asOf.toISOString());
 assert.equal(plan.companyId, companyId);
-assert.equal(plan.grantCount, 3);
-assert.deepEqual(plan.counts, { eligible: 1, conditional: 1, ineligible: 1 });
+assert.equal(plan.grantCount, 4);
+assert.deepEqual(plan.counts, { eligible: 1, conditional: 2, ineligible: 1 });
 assert.deepEqual(plan.transitionWindowCounts, { eligibleFrom: 1, eligibleUntil: 1 });
 
 const soonState = plan.states.find((state) => state.sourceId === "soon-biz-age");
@@ -90,6 +101,11 @@ assert.ok(conditionalState, "conditional match state should exist");
 assert.equal(conditionalState.eligibility, "conditional");
 assert.deepEqual(conditionalState.match.unknown_fields, ["industry"]);
 
+const malformedFounderAgeState = plan.states.find((state) => state.sourceId === "founder-age-malformed");
+assert.ok(malformedFounderAgeState, "malformed founder age match state should exist");
+assert.equal(malformedFounderAgeState.eligibility, "conditional");
+assert.deepEqual(malformedFounderAgeState.match.unknown_fields, ["founder_age"]);
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -99,6 +115,7 @@ console.log(JSON.stringify({
     "match_state_refresh_eligible_until",
     "match_state_refresh_rule_trace",
     "match_state_refresh_unknown_fields",
+    "match_state_refresh_malformed_founder_age",
   ],
   counts: plan.counts,
   transitionWindowCounts: plan.transitionWindowCounts,
