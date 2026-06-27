@@ -65,6 +65,28 @@ try {
       scoringVer: state.scoringVer,
     })),
   }, null, 2));
+} catch (error) {
+  if (isMissingDatabaseSchemaError(error)) {
+    console.error(JSON.stringify({
+      ok: false,
+      dryRun: !write,
+      code: "missing_database_schema",
+      message: "match_state 갱신은 DB 마이그레이션과 샘플 데이터 발행 이후 실행할 수 있습니다.",
+      companyId,
+      userId,
+      prerequisites: [
+        "pnpm db:migrate",
+        "pnpm seed:demo",
+        "pnpm publish:kstartup -- --source=sample",
+        "pnpm publish:bizinfo -- --source=sample",
+        "pnpm publish:dedup",
+      ],
+      nextStep: "개발 DB가 맞으면 pnpm db:bootstrap:dev -- --confirm-dev-db 를 실행하세요.",
+    }, null, 2));
+    process.exitCode = 1;
+  } else {
+    throw error;
+  }
 } finally {
   await closeCunoteDb();
 }
@@ -96,4 +118,15 @@ function dateArg(value: string | undefined): Date | undefined {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) throw new Error(`Invalid date: ${value}`);
   return date;
+}
+
+function isMissingDatabaseSchemaError(error: unknown): boolean {
+  return findErrorCode(error) === "42P01";
+}
+
+function findErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const candidate = error as { code?: unknown; cause?: unknown };
+  if (typeof candidate.code === "string") return candidate.code;
+  return findErrorCode(candidate.cause);
 }
