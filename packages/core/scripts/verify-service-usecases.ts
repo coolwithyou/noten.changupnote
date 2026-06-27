@@ -232,7 +232,6 @@ const notificationDashboard = buildDashboard({
 const notificationFeed = buildNotificationFeed({
   matches: notificationDashboard.matches,
   asOf,
-  settings: { deadlineReminder: true, newMatch: true },
 });
 assert.equal(notificationFeed.generatedAt, asOf.toISOString());
 assert.equal(notificationFeed.notifications.some((item) => item.kind === "deadline" && item.priority === "high"), true);

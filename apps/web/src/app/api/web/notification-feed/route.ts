@@ -1,7 +1,6 @@
 import { buildNotificationFeed } from "@cunote/core";
 import type { ActionResult, NotificationFeedResult } from "@cunote/contracts";
 import { NextResponse } from "next/server";
-import { getAppPreferencesStore } from "@/lib/server/appApi/preferencesStore";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { loadServiceDashboard } from "@/lib/server/serviceData";
@@ -12,13 +11,9 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const access = await requireCompanyAccess();
-    const [dashboard, settings] = await Promise.all([
-      loadServiceDashboard({ companyId: access.companyId, userId: access.userId, limit: 40 }),
-      getAppPreferencesStore().getNotificationSettings(access.userId),
-    ]);
+    const dashboard = await loadServiceDashboard({ companyId: access.companyId, userId: access.userId, limit: 40 });
     const data = buildNotificationFeed({
       matches: dashboard.matches,
-      settings,
     });
     return NextResponse.json<ActionResult<NotificationFeedResult>>({ ok: true, data });
   } catch (error) {

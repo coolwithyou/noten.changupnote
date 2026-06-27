@@ -3,66 +3,54 @@ import type {
   NotificationFeedResult,
   NotificationItem,
   NotificationPriority,
-  NotificationSettingsDto,
   RuleTraceChip,
 } from "@cunote/contracts";
 
 export interface BuildNotificationFeedOptions {
   matches: MatchCard[];
-  settings?: Pick<NotificationSettingsDto, "deadlineReminder" | "newMatch">;
   asOf?: Date;
   limit?: number;
 }
 
-const DEFAULT_SETTINGS: Pick<NotificationSettingsDto, "deadlineReminder" | "newMatch"> = {
-  deadlineReminder: true,
-  newMatch: true,
-};
-
 export function buildNotificationFeed({
   matches,
-  settings = DEFAULT_SETTINGS,
   asOf = new Date(),
   limit = 8,
 }: BuildNotificationFeedOptions): NotificationFeedResult {
   const notifications: NotificationItem[] = [];
   const deadlineGrantIds = new Set<string>();
 
-  if (settings.deadlineReminder) {
-    for (const match of matches) {
-      if (match.eligibility !== "eligible" || match.dDay === null || match.dDay < 0 || match.dDay > 7) {
-        continue;
-      }
-      deadlineGrantIds.add(match.grantId);
-      notifications.push({
-        id: `deadline:${match.grantId}`,
-        kind: "deadline",
-        title: deadlineTitle(match),
-        body: "지원 가능성이 높은 공고입니다. 신청 준비 시트와 제출 서류를 확인하세요.",
-        priority: match.dDay <= 3 ? "high" : "medium",
-        target: `grant:${match.grantId}`,
-        grantId: match.grantId,
-        dDay: match.dDay,
-        rulesetVer: match.rulesetVer,
-      });
+  for (const match of matches) {
+    if (match.eligibility !== "eligible" || match.dDay === null || match.dDay < 0 || match.dDay > 7) {
+      continue;
     }
+    deadlineGrantIds.add(match.grantId);
+    notifications.push({
+      id: `deadline:${match.grantId}`,
+      kind: "deadline",
+      title: deadlineTitle(match),
+      body: "지원 가능성이 높은 공고입니다. 신청 준비 시트와 제출 서류를 확인하세요.",
+      priority: match.dDay <= 3 ? "high" : "medium",
+      target: `grant:${match.grantId}`,
+      grantId: match.grantId,
+      dDay: match.dDay,
+      rulesetVer: match.rulesetVer,
+    });
   }
 
-  if (settings.newMatch) {
-    for (const match of matches) {
-      if (match.eligibility !== "eligible" || deadlineGrantIds.has(match.grantId)) continue;
-      notifications.push({
-        id: `new_match:${match.grantId}`,
-        kind: "new_match",
-        title: `지금 신청 가능한 공고: ${match.title}`,
-        body: `${match.fitScore}점 적합 공고입니다. 상세 조건과 신청 준비 항목을 확인하세요.`,
-        priority: "medium",
-        target: `grant:${match.grantId}`,
-        grantId: match.grantId,
-        dDay: match.dDay,
-        rulesetVer: match.rulesetVer,
-      });
-    }
+  for (const match of matches) {
+    if (match.eligibility !== "eligible" || deadlineGrantIds.has(match.grantId)) continue;
+    notifications.push({
+      id: `new_match:${match.grantId}`,
+      kind: "new_match",
+      title: `지금 신청 가능한 공고: ${match.title}`,
+      body: `${match.fitScore}점 적합 공고입니다. 상세 조건과 신청 준비 항목을 확인하세요.`,
+      priority: "medium",
+      target: `grant:${match.grantId}`,
+      grantId: match.grantId,
+      dDay: match.dDay,
+      rulesetVer: match.rulesetVer,
+    });
   }
 
   for (const match of matches) {
