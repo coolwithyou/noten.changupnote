@@ -4,6 +4,7 @@ import type {
   CriterionOperator,
   CriterionValue,
   GrantCriterion,
+  GrantRequiredDocument,
 } from "@cunote/contracts";
 import {
   CRITERION_DIMENSIONS,
@@ -29,6 +30,7 @@ interface AnthropicMessageResponse {
 
 export interface AnthropicCriteriaResult {
   criteria: GrantCriterion[];
+  requiredDocuments: GrantRequiredDocument[];
   model: string;
   usage: Record<string, unknown> | null;
 }
@@ -60,6 +62,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
         "업종은 공고 표현을 가능한 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 조건으로 남긴다.",
         "휴폐업 제외 조건은 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"closed\"],\"labels\":[\"휴폐업\"]} 로 추출한다.",
         "세금 체납, 제재, 중복수혜처럼 팝빌 휴폐업 상태만으로 판정할 수 없는 배제 조건은 other text_only exclusion으로 남긴다.",
+        "제출 서류는 required_documents에 넣는다. 원문 source_span이 없으면 서류 항목을 만들지 않는다.",
       ].join("\n"),
       messages: [{
         role: "user",
@@ -67,6 +70,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
           "아래 기업마당 공고에서 신청 가능 여부 판정에 필요한 조건만 추출해라.",
           "필수조건은 required, 제외대상은 exclusion, 우대조건은 preferred로 분리해라.",
           "조건이 원문 확인 수준이면 operator=text_only와 value.note를 사용해라.",
+          "제출 서류는 criteria가 아니라 required_documents로 분리해라.",
           "",
           options.input.text.slice(0, 12000),
         ].join("\n"),
@@ -92,6 +96,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
 
   return {
     criteria: normalizeBizInfoLlmCriteria(toolUse.input, options.input.source_id),
+    requiredDocuments: normalizeBizInfoLlmRequiredDocuments(toolUse.input),
     model,
     usage: payload.usage ?? null,
   };
@@ -108,6 +113,21 @@ export function normalizeBizInfoLlmCriteria(payload: unknown, sourceId: string):
   });
   assertGrantCriteriaContract(criteria, `bizinfo:${sourceId}`);
   return criteria;
+}
+
+export function normalizeBizInfoLlmRequiredDocuments(payload: unknown): GrantRequiredDocument[] {
+  const rows = Array.isArray((payload as { required_documents?: unknown[] } | null)?.required_documents)
+    ? (payload as { required_documents: unknown[] }).required_documents
+    : [];
+  const documents = new Map<string, GrantRequiredDocument>();
+
+  for (const row of rows) {
+    const document = normalizeRequiredDocumentRow(row);
+    if (!document || documents.has(document.name)) continue;
+    documents.set(document.name, document);
+  }
+
+  return [...documents.values()];
 }
 
 function normalizeCriterionRow(row: unknown, sourceId: string, index: number): GrantCriterion | null {
@@ -177,10 +197,43 @@ function criteriaToolSchema() {
             required: ["dimension", "operator", "kind", "value", "confidence"],
           },
         },
+        required_documents: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              name: { type: "string" },
+              required: { type: "boolean" },
+              source: { type: "string", enum: ["self", "portal", "cert"] },
+              source_span: { type: "string" },
+              note: { type: "string" },
+            },
+            required: ["name", "required", "source", "source_span"],
+          },
+        },
       },
       required: ["criteria"],
     },
   };
+}
+
+function normalizeRequiredDocumentRow(row: unknown): GrantRequiredDocument | null {
+  if (!row || typeof row !== "object") return null;
+  const value = row as Record<string, unknown>;
+  const name = cleanString(value.name);
+  const sourceSpan = cleanString(value.source_span);
+  if (!name || !sourceSpan) return null;
+
+  const document: GrantRequiredDocument = {
+    name,
+    required: typeof value.required === "boolean" ? value.required : true,
+    source: stringEnum(value.source, ["self", "portal", "cert"] as const) ?? "self",
+    source_span: sourceSpan,
+  };
+  const note = cleanString(value.note);
+  if (note) document.note = note;
+  return document;
 }
 
 function stringEnum<T extends readonly string[]>(value: unknown, options: T): T[number] | null {

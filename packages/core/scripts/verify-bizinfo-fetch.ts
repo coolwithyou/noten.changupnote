@@ -8,6 +8,7 @@ import {
   matchGrantCriteria,
   normalizeBizInfoUrl,
   normalizeBizInfoLlmCriteria,
+  normalizeBizInfoLlmRequiredDocuments,
   normalizeBizInfoProgram,
   validateGrantCriteriaContract,
 } from "../src/index.js";
@@ -75,7 +76,7 @@ assert.match(extractionInput.text, /source_field: bsnsSumryCn/);
 assert.match(extractionInput.text, /모집대상/);
 assert.match(extractionInput.text, /재무제표/);
 
-const llmCriteria = normalizeBizInfoLlmCriteria({
+const llmPayload = {
   criteria: [{
     dimension: "region",
     operator: "in",
@@ -91,9 +92,22 @@ const llmCriteria = normalizeBizInfoLlmCriteria({
     confidence: 0.85,
     source_span: "휴폐업 중인 기업 제외",
   }],
-}, "PBLN_SAMPLE");
+  required_documents: [{
+    name: "사업계획서",
+    required: true,
+    source: "self",
+    source_span: "사업계획서 제출",
+  }, {
+    name: "출처 없는 서류",
+    required: true,
+    source: "self",
+  }],
+};
+const llmCriteria = normalizeBizInfoLlmCriteria(llmPayload, "PBLN_SAMPLE");
 assert.equal(llmCriteria.length, 2);
 assert.deepEqual(validateGrantCriteriaContract(llmCriteria), []);
+const llmRequiredDocuments = normalizeBizInfoLlmRequiredDocuments(llmPayload);
+assert.deepEqual(llmRequiredDocuments.map((document) => document.name), ["사업계획서"]);
 const firstLlmCriterion = llmCriteria[0];
 assert.ok(firstLlmCriterion);
 const invalidCriteria = validateGrantCriteriaContract([{
@@ -111,12 +125,13 @@ const normalizedBizinfo = normalizeBizInfoProgram({
 }, llmCriteria, {
   asOf: new Date("2026-06-26T00:00:00.000Z"),
   model: "test-model",
+  requiredDocuments: llmRequiredDocuments,
 });
 assert.equal(normalizedBizinfo.grant.status, "open");
 assert.deepEqual(normalizedBizinfo.grant.f_regions, ["41"]);
 assert.deepEqual(
   normalizedBizinfo.grant.required_documents?.map((document) => document.name),
-  ["신청서", "사업자등록증", "재무제표"],
+  ["신청서", "사업자등록증", "재무제표", "사업계획서"],
 );
 const bizinfoMatch = matchGrantCriteria(llmCriteria, {
   region: { code: "41", label: "경기" },
@@ -126,6 +141,14 @@ assert.equal(bizinfoMatch.eligibility, "eligible");
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["program", "event", "extraction_input", "llm_criteria", "criteria_contract", "required_documents"],
+  checked: [
+    "program",
+    "event",
+    "extraction_input",
+    "llm_criteria",
+    "llm_required_documents",
+    "criteria_contract",
+    "required_documents",
+  ],
   extraction_input_length: extractionInput.text.length,
 }, null, 2));

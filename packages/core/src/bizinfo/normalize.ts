@@ -20,7 +20,12 @@ export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v1";
 export function normalizeBizInfoProgram(
   program: BizInfoProgram,
   criteria: GrantCriterion[],
-  options: { asOf?: Date; collectedAt?: Date; model?: string | null } = {},
+  options: {
+    asOf?: Date;
+    collectedAt?: Date;
+    model?: string | null;
+    requiredDocuments?: GrantRequiredDocument[];
+  } = {},
 ): NormalizedGrant<BizInfoProgram> {
   const input = buildBizInfoProgramExtractionInput(program);
   const applyPeriod = parseBizInfoApplyPeriod(input.metadata.apply_period);
@@ -49,7 +54,10 @@ export function normalizeBizInfoProgram(
       text: input.metadata.application_method,
     },
     support_amount: null,
-    required_documents: parseBizInfoRequiredDocuments(input.metadata.application_method),
+    required_documents: mergeRequiredDocuments(
+      parseBizInfoRequiredDocuments(input.metadata.application_method),
+      options.requiredDocuments,
+    ),
     status: statusFromPeriod(applyPeriod.start, applyPeriod.end, asOf),
     f_regions: projection.f_regions,
     f_industries: projection.f_industries,
@@ -176,6 +184,20 @@ function firstSentenceWith(text: string, pattern: RegExp): string {
   const normalized = htmlToText(text);
   const parts = normalized.split(/[\r\n.。]+/).map((part) => part.trim()).filter(Boolean);
   return parts.find((part) => pattern.test(part)) ?? normalized.slice(0, 120);
+}
+
+function mergeRequiredDocuments(
+  ...groups: Array<GrantRequiredDocument[] | null | undefined>
+): GrantRequiredDocument[] | null {
+  const documents = new Map<string, GrantRequiredDocument>();
+  for (const group of groups) {
+    for (const document of group ?? []) {
+      const name = document.name.trim();
+      if (!name || documents.has(name)) continue;
+      documents.set(name, { ...document, name });
+    }
+  }
+  return documents.size > 0 ? [...documents.values()] : null;
 }
 
 function unique<T>(values: T[]): T[] {

@@ -1,4 +1,4 @@
-import type { GrantCriterion, MatchResult, NormalizedGrant } from "@cunote/contracts";
+import type { GrantCriterion, GrantRequiredDocument, MatchResult, NormalizedGrant } from "@cunote/contracts";
 import {
   buildBizInfoProgramExtractionInput,
 } from "../bizinfo/extraction-input.js";
@@ -126,6 +126,7 @@ export async function runLiveCompanyMatch(
   for (const program of bizinfoPrograms) {
     const input = buildBizInfoProgramExtractionInput(program);
     let criteria: GrantCriterion[] = [];
+    let requiredDocuments: GrantRequiredDocument[] = [];
     let usage: Record<string, unknown> | null = null;
     if (bizinfoLlm) {
       if (!options.anthropicApiKey) {
@@ -137,9 +138,13 @@ export async function runLiveCompanyMatch(
         model: anthropicModel,
       });
       criteria = extracted.criteria;
+      requiredDocuments = extracted.requiredDocuments;
       usage = extracted.usage;
     }
-    const normalized = normalizeBizInfoProgram(program, criteria, { model: bizinfoLlm ? anthropicModel : null });
+    const normalized = normalizeBizInfoProgram(program, criteria, {
+      model: bizinfoLlm ? anthropicModel : null,
+      requiredDocuments,
+    });
     bizinfoMatches.push({
       item: normalized,
       match: criteria.length > 0 ? matchGrantCriteria(criteria, company.profile) : null,
