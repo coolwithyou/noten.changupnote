@@ -123,6 +123,11 @@ const sheet = buildApplySheet({
 });
 assert.equal(sheet.needsCheck.find((trace) => trace.dimension === "biz_age")?.unlock?.etaDate, "2026-08-01");
 assert.equal(sheet.applicationPrep.autoSubmitSupported, false);
+assert.equal(sheet.applyMethod, "온라인 접수");
+assert.equal(
+  sheet.applicationPrep.profileCopyFields.find((field) => field.label === "접수 방법")?.value,
+  "온라인 접수",
+);
 assert.ok(
   sheet.applicationPrep.profileCopyFields.some((field) => field.label === "소재지" && field.value === "경기"),
   "apply sheet should expose copyable company profile fields",
@@ -138,6 +143,26 @@ assert.ok(
 );
 assert.equal(sheet.grant.benefits.some((benefit) => benefit.family === "funding"), true);
 assert.equal(dashboard.matches.some((match) => match.benefits.some((benefit) => benefit.family === "funding")), true);
+
+const opaqueApplyMethodSheet = buildApplySheet({
+  entry: {
+    item: {
+      ...soonGrant,
+      grant: {
+        ...soonGrant.grant,
+        apply_method: { email: "t3Bm6u2IIJw0lukt9/rHiCaElQjF0KDJjBu8oi31kCA=" },
+      },
+    },
+    match: matchGrantCriteria(soonGrant.criteria, company),
+  },
+  company,
+  asOf,
+});
+assert.equal(
+  opaqueApplyMethodSheet.applyMethod,
+  "이메일 접수",
+  "apply sheet should summarize opaque K-Startup method payloads as labels",
+);
 
 const marketBenefits = deriveGrantBenefits({
   ...soonGrant.grant,
@@ -334,6 +359,8 @@ console.log(JSON.stringify({
     "benefit_badge_funding",
     "benefit_badge_market",
     "apply_sheet_unlock",
+    "apply_sheet_apply_method_label",
+    "apply_sheet_opaque_apply_method_label",
     "apply_sheet_profile_copy",
     "apply_sheet_plan_prompts",
     "expanded_profile_field_update",

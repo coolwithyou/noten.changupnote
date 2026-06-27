@@ -180,9 +180,20 @@ function summarizeApplyMethod(value: Record<string, string | null> | undefined):
   if (!value) return null;
   const enabled = Object.entries(value)
     .filter(([, method]) => Boolean(method))
-    .map(([key, method]) => method ?? key);
+    .map(([key, method]) => summarizeApplyMethodEntry(key, method));
   if (enabled.length === 0) return null;
-  return enabled.join(" · ");
+  return unique(enabled).join(" · ");
+}
+
+function summarizeApplyMethodEntry(key: string, value: string | null): string {
+  if (key === "text") return cleanText(value) ?? "원문 확인";
+  if (key === "online") return "온라인 접수";
+  if (key === "email") return "이메일 접수";
+  if (key === "fax") return "팩스 접수";
+  if (key === "visit") return "방문 접수";
+  if (key === "postal") return "우편 접수";
+  if (key === "other") return cleanText(value) ?? "기타 접수";
+  return cleanText(value) ?? key;
 }
 
 function formatBizAge(value: number | null | undefined): string | null {
@@ -203,4 +214,8 @@ function cleanText(value: string | null | undefined): string | null {
   if (!value) return null;
   const cleaned = value.trim();
   return cleaned.length > 0 ? cleaned : null;
+}
+
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }
