@@ -24,6 +24,7 @@ import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse } from "
 import { createServiceRepositories } from "./repositories/factory";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
+import { notifyPopbillFailure } from "./adminNotifications";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
@@ -176,6 +177,11 @@ async function loadCompanyProfileFromSourceWithEvidence(
   } catch (error) {
     if (requestedBizNo) {
       console.warn(`Popbill profile fetch failed for requested biz no: ${errorMessage(error)}`);
+      await notifyPopbillFailure({
+        surface: "teaser",
+        bizNo: requestedBizNo,
+        error,
+      });
       throw new ServiceDataError(
         "popbill_lookup_failed",
         "사업자 정보를 즉시 확인하지 못했습니다. 사업자번호를 다시 확인하거나 잠시 후 다시 시도해주세요.",
@@ -266,13 +272,25 @@ export async function enrichServiceCompany(input: {
     throw new ServiceDataError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
   }
 
-  const popbill = readPopbillEnvConfig();
-  const resolved = await loadPopbillCompanyProfile({
-    bizNo,
-    credentials: popbill.credentials,
-    asOf,
-    now,
-  });
+  let resolved: PopbillCompanyResolution;
+  try {
+    const popbill = readPopbillEnvConfig();
+    resolved = await loadPopbillCompanyProfile({
+      bizNo,
+      credentials: popbill.credentials,
+      asOf,
+      now,
+    });
+  } catch (error) {
+    console.warn(`Popbill company enrichment failed: ${errorMessage(error)}`);
+    await notifyPopbillFailure({
+      surface: "company_enrichment",
+      bizNo,
+      error,
+      at: now,
+    });
+    throw error;
+  }
   const profile = mergeCompanyProfilesForEnrichment(current, resolved.profile);
   const saved = await repositories.companies.saveCompanyProfile({
     companyId: input.companyId,
