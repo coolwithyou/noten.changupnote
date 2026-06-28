@@ -1,0 +1,100 @@
+{
+  "$schema": "https://design-tokens.org/schema.json",
+  "$meta": {
+    "name": "창업노트 Design Tokens",
+    "version": "0.1.0",
+    "philosophy": "쉽다 = 인지부하 최소화. 한 화면 = 한 결정.",
+    "direction": "refined-minimal (NOT bold/maximalist). 탈-토스. 텍스처는 zoning으로 분리.",
+    "sourceOfTruth": true,
+    "supersedes": [
+      "DESIGN.md (Toss-clone intent)",
+      "globals.css 의 --primary 3중 정의 (canonical = brand.primary 로 통일)"
+    ],
+    "platforms": ["web", "ios", "android"],
+    "note": "이 파일이 토큰의 단일 출처다. globals.css / Figma / 네이티브 테마는 이 값을 따른다."
+  },
+
+  "brand": {
+    "primary":        { "value": "#3182f6", "note": "정본 브랜드 블루. 기존 TDS 전 레이어 배선됨. 프로토타입 #2E6BFF ≈ 동일, #3182f6로 통일" },
+    "primaryPressed": { "value": "#2272eb" },
+    "primaryHover":   { "value": "#1b64da" },
+    "mint":           { "value": "#2bd4a8", "note": "시그니처 액센트. 메시 그라데이션 + 성공 인접 강조. '다크+보라' 클리셰를 피하는 차별화 축" },
+    "mintSoft":       { "value": "#e6fbf1" },
+    "tint":           { "value": "#e8f3ff", "note": "선택/포커스 약한 배경" }
+  },
+
+  "color": {
+    "light": {
+      "bg":      { "canvas": "#ffffff", "lower": "#f2f4f6", "surface": "#ffffff", "dim": "#00000033" },
+      "text":    { "strong": "#191f28", "primary": "#000c1ecc", "secondary": "#031228b2", "tertiary": "#00132b94", "onFill": "#ffffff", "brand": "#2272eb" },
+      "border":  { "default": "#001b371a", "thick": "#f2f4f6" },
+      "fill":    { "neutralWeak": "#07194c0d", "pressed": "#0220470d" },
+      "status":  { "success": "#03b26c", "warning": "#ffc342", "danger": "#f04452",
+                   "successWeak": "#02a26229", "warningWeak": "#ffb33129", "dangerWeak": "#f0445229" }
+    },
+    "dark": {
+      "bg":      { "canvas": "#17171c", "lower": "#101013", "surface": "#202027", "dim": "#0000008f" },
+      "text":    { "strong": "#ffffff", "primary": "#e4e4e5", "secondary": "#fdfdffbf", "tertiary": "#f8f8ff99", "onFill": "#ffffff", "brand": "#449bff" },
+      "border":  { "default": "#dedeff30", "thick": "#101013" },
+      "fill":    { "neutralWeak": "#d9d9ff1c", "pressed": "#d9d9ff1c" },
+      "status":  { "success": "#16bb76", "warning": "#ffb134", "danger": "#f04251" }
+    }
+  },
+
+  "texture": {
+    "$note": "질감은 zoning(아래)에 따라 강도만 다르게 적용. 같은 토큰을 brand/work 두 강도로 재사용.",
+    "gradSurface": { "value": "linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%)", "note": "면 위계용 미세 그라데이션. 명도차 ≤6%" },
+    "meshLight":   { "value": "radial-gradient(60% 55% at 18% 12%, #e1ecff 0%, transparent 60%), radial-gradient(55% 50% at 90% 8%, #d6f7ec 0%, transparent 58%), radial-gradient(70% 60% at 50% 120%, #e7eeff 0%, transparent 62%)", "note": "시그니처 블루+민트 메시. canvas 위에 레이어" },
+    "meshDark":    { "value": "radial-gradient(60% 55% at 18% 12%, #1b2a5b 0%, transparent 60%), radial-gradient(55% 50% at 90% 8%, #123d34 0%, transparent 58%), radial-gradient(75% 65% at 50% 120%, #181c2e 0%, transparent 62%)" },
+    "glowBrand":   { "value": "radial-gradient(closest-side, rgba(49,130,246,.22), transparent 75%)", "note": "버튼/입력 포커스 글로우" },
+    "grain": {
+      "tile":          { "value": "180px" },
+      "blendMode":     { "value": "overlay" },
+      "opacityBrand":  { "value": 0.05 },
+      "opacityWork":   { "value": 0.02 },
+      "svg":           { "value": "feTurbulence type=fractalNoise baseFrequency=0.85 numOctaves=2 stitchTiles=stitch", "note": "자기완결 SVG data-uri 권장(외부 에셋 X)" }
+    }
+  },
+
+  "zoning": {
+    "$rule": "질감은 모든 화면이 아니라 '브랜드 순간'에만. 희소할수록 강하게 각인되고 '쉽다'와 충돌하지 않는다.",
+    "brand": {
+      "appliesTo": ["온보딩", "히어로/랜딩", "빈 상태(empty)", "매칭 성공 순간", "주요 CTA 버튼", "마케팅"],
+      "mesh": true, "grain": "opacityBrand", "glow": true, "gradientButton": true
+    },
+    "work": {
+      "appliesTo": ["사업자번호 입력", "매칭 결과 리스트", "코칭 체크리스트", "대시보드", "관리/내부 콘솔"],
+      "mesh": false, "grain": "opacityWork", "glow": false, "background": "near-plain", "priority": "가독성·명료함 우선"
+    }
+  },
+
+  "shadow": {
+    "$note": "잉크톤 + 낮은 alpha + 2겹. 단일 강한 그림자 금지.",
+    "1": { "value": "0 1px 2px rgba(20,23,26,.04), 0 1px 1px rgba(20,23,26,.03)", "use": "카드" },
+    "2": { "value": "0 4px 12px rgba(20,23,26,.06), 0 1px 3px rgba(20,23,26,.04)", "use": "떠오른 카드/팝오버" },
+    "3": { "value": "0 12px 32px rgba(20,23,26,.10), 0 4px 8px rgba(20,23,26,.05)", "use": "모달/바텀시트" }
+  },
+
+  "radius": {
+    "sm": { "value": "10px" }, "md": { "value": "16px", "note": "카드·CTA 기본" },
+    "lg": { "value": "24px" }, "textField": { "value": "14px" }, "pill": { "value": "999px" }
+  },
+
+  "type": {
+    "fontFamily": { "value": "\"Pretendard\", \"Toss Product Sans\", -apple-system, \"SF Pro KR\", \"Apple SD Gothic Neo\", \"Noto Sans KR\", Roboto, sans-serif", "note": "한글 가독 우선. Inter/Roboto로 수렴 금지" },
+    "display": { "size": "28px", "line": 1.25, "weight": 700 },
+    "title":   { "size": "20px", "line": 1.35, "weight": 600 },
+    "body":    { "size": "16px", "line": 1.55, "weight": 400 },
+    "caption": { "size": "13px", "line": 1.45, "weight": 400 },
+    "numerals": { "value": "tabular-nums", "note": "지표·금액은 tabular" }
+  },
+
+  "spacing": { "$grid": "4pt", "1": "4px", "2": "8px", "3": "12px", "4": "16px", "5": "24px", "6": "32px", "8": "48px" },
+
+  "motion": {
+    "ease":     { "value": "cubic-bezier(.22,1,.36,1)", "note": "ease-out 강조" },
+    "durFast":  { "value": "140ms" },
+    "durBase":  { "value": "220ms" },
+    "pageLoad": { "value": "staggered reveal 1회", "note": "산발적 마이크로 인터랙션보다 진입 1회 오케스트레이션" }
+  }
+}

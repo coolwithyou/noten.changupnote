@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>창업노트 — 매칭 결과 프로토타입</title>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css">
+<style>
+  :root{
+    --bg-base:#FBFBFC; --bg-surface:#FFFFFF; --bg-subtle:#F4F5F7;
+    --border-subtle:#ECEEF1;
+    --text-strong:#15171A; --text-default:#3A3F47; --text-muted:#8A9099;
+    --brand:#2E6BFF; --brand-pressed:#2356D6; --brand-tint:#EAF1FF;
+    --success:#1FA971; --warning:#E5A100; --danger:#E5484D;
+    --shadow-1:0 1px 2px rgba(20,23,26,.04),0 1px 1px rgba(20,23,26,.03);
+    --shadow-2:0 4px 12px rgba(20,23,26,.06),0 1px 3px rgba(20,23,26,.04);
+    --shadow-3:0 12px 32px rgba(20,23,26,.10),0 4px 8px rgba(20,23,26,.05);
+    --r-sm:10px; --r-md:16px; --r-lg:24px; --r-pill:999px;
+    --ease:cubic-bezier(.22,1,.36,1); --dur:220ms;
+    --font:"Pretendard",-apple-system,"SF Pro","Roboto",sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    font-family:var(--font); background:#E9EBEF;
+    min-height:100vh; display:flex; align-items:center; justify-content:center;
+    padding:32px 16px; color:var(--text-default);
+    -webkit-font-smoothing:antialiased;
+  }
+  /* 노이즈/그레인 — 자기완결 SVG feTurbulence */
+  .grain::after{
+    content:""; position:absolute; inset:0; pointer-events:none;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size:180px; mix-blend-mode:overlay; opacity:.06;
+  }
+
+  /* ---------- Phone frame ---------- */
+  .phone{
+    width:390px; height:844px; background:var(--bg-base);
+    border-radius:44px; overflow:hidden; position:relative;
+    box-shadow:0 40px 80px -20px rgba(20,23,26,.45), 0 0 0 10px #15171A, 0 0 0 11px #2a2d33;
+    display:flex; flex-direction:column;
+  }
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:130px;height:30px;background:#15171A;border-radius:0 0 18px 18px;z-index:50}
+  .statusbar{position:absolute;top:0;left:0;right:0;height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 28px;font-size:13px;font-weight:600;color:#fff;z-index:40}
+
+  /* ---------- BRAND ZONE (질감 풀가동) ---------- */
+  .hero{
+    position:relative; padding:64px 24px 56px; overflow:hidden; color:#fff;
+    background:
+      radial-gradient(60% 55% at 18% 12%, #4F8BFF 0%, transparent 60%),
+      radial-gradient(55% 50% at 92% 18%, #2BD4A8 0%, transparent 55%),
+      radial-gradient(80% 70% at 50% 110%, #2E6BFF 0%, transparent 62%),
+      linear-gradient(160deg,#1E47B8 0%, #11307E 100%);
+  }
+  .hero .glow{position:absolute;width:240px;height:240px;border-radius:50%;
+    background:radial-gradient(closest-side,rgba(43,212,168,.5),transparent);
+    top:-60px;right:-40px;filter:blur(6px)}
+  .hero-top{position:relative;z-index:2;display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+  .brandmark{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;letter-spacing:-.02em}
+  .brandmark .dot{width:22px;height:22px;border-radius:7px;background:linear-gradient(180deg,#fff,#dfeaff);box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 2px 8px rgba(0,0,0,.18)}
+  .icon-btn{width:36px;height:36px;border-radius:var(--r-pill);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;color:#fff;backdrop-filter:blur(6px)}
+  .eyebrow{position:relative;z-index:2;font-size:13px;font-weight:600;color:rgba(255,255,255,.78);margin-bottom:10px}
+  .hero h1{position:relative;z-index:2;font-size:27px;line-height:1.28;font-weight:700;letter-spacing:-.03em;margin-bottom:14px}
+  .hero h1 b{color:#7DF0C9}
+  .hero-sub{position:relative;z-index:2;font-size:14px;color:rgba(255,255,255,.72);line-height:1.5}
+  .stats{position:relative;z-index:2;display:flex;gap:10px;margin-top:24px}
+  .stat{flex:1;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.16);border-radius:var(--r-md);padding:12px 14px;backdrop-filter:blur(8px)}
+  .stat .v{font-size:18px;font-weight:700;color:#fff;letter-spacing:-.02em}
+  .stat .l{font-size:11.5px;color:rgba(255,255,255,.72);margin-top:3px}
+
+  /* ---------- WORK ZONE (절제) ---------- */
+  .sheet{
+    position:relative; z-index:5; margin-top:-24px; flex:1;
+    background:var(--bg-base); border-radius:24px 24px 0 0;
+    box-shadow:var(--shadow-3); padding:20px 20px 110px; overflow-y:auto;
+  }
+  .sheet .grabber{width:38px;height:4px;border-radius:99px;background:var(--border-subtle);margin:0 auto 16px}
+  .filters{display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;padding-bottom:2px}
+  .chip{flex:none;font-size:13px;font-weight:600;padding:8px 14px;border-radius:var(--r-pill);background:var(--bg-subtle);color:var(--text-muted);border:1px solid transparent;white-space:nowrap}
+  .chip.active{background:var(--brand-tint);color:var(--brand);border-color:#D6E4FF}
+
+  .card{
+    background:var(--bg-surface); border:1px solid var(--border-subtle);
+    border-radius:var(--r-md); padding:16px; margin-bottom:12px;
+    box-shadow:var(--shadow-1); transition:transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+    cursor:pointer; position:relative;
+  }
+  .card:active{transform:translateY(-2px);box-shadow:var(--shadow-2)}
+  .card-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:12px}
+  .card-title{font-size:15.5px;font-weight:700;color:var(--text-strong);letter-spacing:-.02em;line-height:1.35}
+  .card-org{font-size:12px;color:var(--text-muted);margin-top:4px}
+  .badge{flex:none;font-size:11.5px;font-weight:700;padding:5px 9px;border-radius:var(--r-sm);letter-spacing:-.01em}
+  .badge.urgent{background:#FFF3E0;color:var(--warning)}
+  .badge.normal{background:var(--bg-subtle);color:var(--text-muted)}
+  .badge.always{background:#E6FBF1;color:var(--success)}
+  .card-amount{font-size:18px;font-weight:700;color:var(--text-strong);letter-spacing:-.02em}
+  .card-amount span{font-size:13px;font-weight:500;color:var(--text-muted)}
+  .fit{margin-top:14px;display:flex;align-items:center;gap:10px}
+  .fit-bar{flex:1;height:6px;border-radius:99px;background:var(--bg-subtle);overflow:hidden}
+  .fit-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#2BD4A8,var(--brand))}
+  .fit-val{font-size:12.5px;font-weight:700;color:var(--brand)}
+
+  /* ---------- Bottom CTA (Brand) ---------- */
+  .footer{position:absolute;left:0;right:0;bottom:0;padding:16px 20px 28px;background:linear-gradient(180deg,rgba(251,251,252,0) 0%,var(--bg-base) 32%);z-index:20}
+  .btn-brand{
+    position:relative; width:100%; height:54px; border:none; cursor:pointer;
+    border-radius:var(--r-pill); color:#fff; font-family:var(--font);
+    font-size:16px; font-weight:700; letter-spacing:-.02em; overflow:hidden;
+    background:linear-gradient(180deg,#3D78FF 0%,#2E6BFF 100%);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.28), 0 8px 20px rgba(46,107,255,.34);
+  }
+  .btn-brand:active{transform:translateY(1px)}
+
+  /* entrance */
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .anim{opacity:0;animation:rise .6s var(--ease) forwards}
+  .d1{animation-delay:.05s}.d2{animation-delay:.13s}.d3{animation-delay:.22s}
+  .d4{animation-delay:.30s}.d5{animation-delay:.38s}.d6{animation-delay:.46s}
+</style>
+</head>
+<body>
+  <div class="phone">
+    <div class="notch"></div>
+    <div class="statusbar"><span>9:41</span><span>● ● ●  ▮▮▮</span></div>
+
+    <!-- BRAND ZONE -->
+    <header class="hero grain">
+      <div class="glow"></div>
+      <div class="hero-top anim d1">
+        <div class="brandmark"><span class="dot"></span>창업노트</div>
+        <div class="icon-btn">⋯</div>
+      </div>
+      <div class="eyebrow anim d1">바톤 · 123-45-67890</div>
+      <h1 class="anim d2">지원 가능한 사업<br><b>12건</b>을 찾았어요</h1>
+      <p class="hero-sub anim d2">사업자번호 하나로 찾은 맞춤 결과예요.<br>적합도 순으로 정리해 드렸어요.</p>
+      <div class="stats anim d3">
+        <div class="stat"><div class="v">최대 2.4억</div><div class="l">총 지원 가능액</div></div>
+        <div class="stat"><div class="v">3건</div><div class="l">마감 임박</div></div>
+        <div class="stat"><div class="v">96%</div><div class="l">최고 적합도</div></div>
+      </div>
+    </header>
+
+    <!-- WORK ZONE -->
+    <main class="sheet grain" style="--grain-op:.02">
+      <div class="grabber"></div>
+      <div class="filters anim d3">
+        <div class="chip active">적합도순</div>
+        <div class="chip">마감임박</div>
+        <div class="chip">지원금↑</div>
+        <div class="chip">상시모집</div>
+      </div>
+
+      <div class="card anim d3">
+        <div class="card-head">
+          <div><div class="card-title">청년창업사관학교 13기</div><div class="card-org">중소벤처기업부 · 창업진흥원</div></div>
+          <span class="badge urgent">D-5</span>
+        </div>
+        <div class="card-amount">최대 1억원 <span>· 사업화 자금</span></div>
+        <div class="fit"><div class="fit-bar"><i style="width:96%"></i></div><span class="fit-val">96%</span></div>
+      </div>
+
+      <div class="card anim d4">
+        <div class="card-head">
+          <div><div class="card-title">소상공인 정책자금 융자</div><div class="card-org">소상공인시장진흥공단</div></div>
+          <span class="badge normal">D-21</span>
+        </div>
+        <div class="card-amount">최대 7,000만원 <span>· 운전·시설</span></div>
+        <div class="fit"><div class="fit-bar"><i style="width:92%"></i></div><span class="fit-val">92%</span></div>
+      </div>
+
+      <div class="card anim d5">
+        <div class="card-head">
+          <div><div class="card-title">콘텐츠 제작 지원사업</div><div class="card-org">한국콘텐츠진흥원</div></div>
+          <span class="badge normal">D-12</span>
+        </div>
+        <div class="card-amount">최대 3,000만원 <span>· 제작비</span></div>
+        <div class="fit"><div class="fit-bar"><i style="width:88%"></i></div><span class="fit-val">88%</span></div>
+      </div>
+
+      <div class="card anim d6">
+        <div class="card-head">
+          <div><div class="card-title">수출바우처 사업</div><div class="card-org">KOTRA · 중소벤처기업진흥공단</div></div>
+          <span class="badge always">상시</span>
+        </div>
+        <div class="card-amount">최대 5,000만원 <span>· 바우처</span></div>
+        <div class="fit"><div class="fit-bar"><i style="width:85%"></i></div><span class="fit-val">85%</span></div>
+      </div>
+    </main>
+
+    <!-- Bottom CTA -->
+    <div class="footer">
+      <button class="btn-brand grain">신청 준비 시작하기</button>
+    </div>
+  </div>
+</body>
+</html>

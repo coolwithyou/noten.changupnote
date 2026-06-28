@@ -4,6 +4,12 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/*
+ * 토큰 단일 출처: /design-tokens.json (플랫폼 비종속).
+ * 아래 legacy :root 의 색/raw 값들은 파일 하단 TDS :root(검색: "TDS application system")
+ * 에서 재정의되어 최종 적용된다. 새 값은 design-tokens.json → TDS :root 순으로 반영할 것.
+ * Brand 정본 = --tds-fill-brand (#3182f6). 텍스처/zoning 토큰은 TDS :root 끝에 정의됨.
+ */
 :root {
   color-scheme: light;
   --bg: #f6f7f9;
@@ -3281,6 +3287,21 @@ button:disabled {
   --status-warning-bg: color-mix(in srgb, var(--amber) 14%, #ffffff);
   --status-danger-bg: color-mix(in srgb, var(--red) 12%, #ffffff);
   --status-neutral-bg: var(--toss-grey-100);
+
+  /* === cunote brand + texture layer (source of truth: /design-tokens.json) === */
+  --brand: var(--tds-fill-brand);              /* #3182f6 정본 브랜드 */
+  --brand-mint: #2bd4a8;                        /* 시그니처 액센트(메시/zoning) */
+  --brand-mint-soft: #e6fbf1;
+  --grad-surface: linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%);
+  --grad-mesh:
+    radial-gradient(60% 55% at 18% 12%, #e1ecff 0%, transparent 60%),
+    radial-gradient(55% 50% at 90% 8%, #d6f7ec 0%, transparent 58%),
+    radial-gradient(70% 60% at 50% 120%, #e7eeff 0%, transparent 62%),
+    var(--background);
+  --glow-brand: radial-gradient(closest-side, rgba(49, 130, 246, 0.22), transparent 75%);
+  --grain-opacity-brand: 0.05;
+  --grain-opacity-work: 0.02;
+  --grain-tile: 180px;
 }
 
 .dark {
@@ -3345,6 +3366,22 @@ button:disabled {
   --status-warning-bg: color-mix(in srgb, var(--amber) 22%, var(--background));
   --status-danger-bg: color-mix(in srgb, var(--red) 18%, var(--background));
   --status-neutral-bg: var(--tds-fill-neutral-weak);
+
+  /* cunote: 위 shadcn .dark 블록이 중립으로 남긴 brand 별칭을 복구(다크 brand 버그 수정) */
+  --primary: var(--tds-fill-brand);
+  --primary-foreground: var(--tds-text-on-fill-brand);
+  --ring: var(--tds-fill-brand);
+  --accent: var(--tds-fill-brand-weak);
+  --accent-foreground: var(--tds-text-brand);
+  --brand: var(--tds-fill-brand);
+  --brand-mint: #2bd4a8;
+  --grad-mesh:
+    radial-gradient(60% 55% at 18% 12%, #1b2a5b 0%, transparent 60%),
+    radial-gradient(55% 50% at 90% 8%, #123d34 0%, transparent 58%),
+    radial-gradient(75% 65% at 50% 120%, #181c2e 0%, transparent 62%),
+    var(--background);
+  --glow-brand: radial-gradient(closest-side, rgba(52, 133, 250, 0.3), transparent 75%);
+  --grain-opacity-brand: 0.07;
 }
 
 html {
