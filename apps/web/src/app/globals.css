@@ -4691,6 +4691,7 @@ label {
   display: grid;
   min-width: 0;
   gap: 8px;
+  font-weight: 900;
 }
 
 .hook-value-stack small {
@@ -4700,7 +4701,7 @@ label {
   line-height: 1;
 }
 
-.hook-value-stack strong {
+.hook-value-text {
   color: var(--primary);
   font-size: clamp(38px, 6vw, 64px);
   font-weight: 900;

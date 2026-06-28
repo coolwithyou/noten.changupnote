@@ -389,10 +389,10 @@ function GrantCarousel({
           <span>{formatRegions(activeBanner.regions) ?? "지역 확인"}</span>
         </div>
         <div className="hook-amount-row">
-          <span className="hook-value-stack">
+          <strong className="hook-value-stack">
             <small>{primaryHook.label}</small>
-            <strong>{primaryHook.value}</strong>
-          </span>
+            <span className="hook-value-text">{primaryHook.value}</span>
+          </strong>
           <span>{formatDate(activeBanner.applyEnd)}</span>
         </div>
         <h2>{activeBanner.title}</h2>
