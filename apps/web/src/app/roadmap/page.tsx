@@ -8,7 +8,12 @@ export const dynamic = "force-dynamic";
 
 export default async function RoadmapPage() {
   const access = await loadRoadmapAccess();
-  const dashboard = await loadServiceDashboard({ companyId: access.companyId, userId: access.userId, limit: 40 });
+  const dashboard = await loadServiceDashboard({
+    companyId: access.companyId,
+    userId: access.userId,
+    limit: 40,
+    writeMatchStates: false,
+  });
   const user = await getOptionalHeaderUser();
   return <RoadmapView dashboard={dashboard} user={user} />;
 }

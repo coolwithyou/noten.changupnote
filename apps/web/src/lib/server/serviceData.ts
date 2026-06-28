@@ -198,6 +198,7 @@ export async function loadServiceDashboard(options: {
   userId?: string;
   limit?: number;
   asOf?: Date;
+  writeMatchStates?: boolean;
 } = {}): Promise<DashboardResult> {
   const asOf = options.asOf ?? new Date();
   const [company, grants] = await Promise.all([
@@ -205,13 +206,15 @@ export async function loadServiceDashboard(options: {
     repositories.grants.listActiveGrants({ asOf, limit: options.limit ?? 40 }),
   ]);
   const stateCompanyId = options.companyId ?? company.id;
-  await persistMatchStates({
-    ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
-    ...(options.userId ? { userId: options.userId } : {}),
-    company,
-    grants,
-    asOf,
-  });
+  if (options.writeMatchStates !== false) {
+    await persistMatchStates({
+      ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
+      ...(options.userId ? { userId: options.userId } : {}),
+      company,
+      grants,
+      asOf,
+    });
+  }
 
   return buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
 }
