@@ -6,6 +6,11 @@ import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 class MemoryObjectStorage implements R2ObjectStorage {
   objects: Array<{ key: string; body: Buffer | string; contentType: string }> = [];
 
+  async getObjectText(key: string) {
+    const object = this.objects.find((item) => item.key === key);
+    return object ? object.body.toString() : "";
+  }
+
   async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
     this.objects.push(input);
     return {

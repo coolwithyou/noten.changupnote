@@ -4,6 +4,8 @@ import type {
   CriterionKind,
   Eligibility,
   Grant,
+  GrantDocumentCategory,
+  GrantDocumentPreparationType,
   GrantBenefitFamily,
   GrantBenefitSource,
   GrantStatus,
@@ -223,10 +225,16 @@ export interface RequiredDocument {
   name: string;
   required: boolean;
   source: DocumentSource;
+  category?: GrantDocumentCategory;
+  preparationType?: GrantDocumentPreparationType;
+  canonicalName?: string;
+  templateRequired?: boolean;
+  sourceAttachment?: string;
   alreadyHave?: boolean;
   fromTextOnly?: boolean;
   sourceSpan?: string;
   note?: string;
+  confidence?: number;
 }
 
 export interface SourceAttachment {

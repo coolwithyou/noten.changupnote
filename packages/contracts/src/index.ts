@@ -43,6 +43,32 @@ export const GRANT_BENEFIT_SOURCES = [
   "category",
   "apply_method",
 ] as const;
+export const GRANT_DOCUMENT_CATEGORIES = [
+  "application_form",
+  "business_plan",
+  "proposal_or_intro",
+  "consent_or_pledge",
+  "business_registration",
+  "corporate_register",
+  "company_confirmation",
+  "financial_tax",
+  "employment_insurance",
+  "shareholder",
+  "bank_account",
+  "estimate_budget",
+  "portfolio_catalog",
+  "ip_certification",
+  "recommendation",
+  "performance_evidence",
+  "other",
+] as const;
+export const GRANT_DOCUMENT_PREPARATION_TYPES = [
+  "write",
+  "issue",
+  "attach",
+  "portal",
+  "other",
+] as const;
 
 export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
@@ -54,6 +80,8 @@ export type GrantStatus = "upcoming" | "open" | "closed" | "unknown";
 export type GrantDocumentSource = "self" | "portal" | "cert";
 export type GrantBenefitFamily = (typeof GRANT_BENEFIT_FAMILIES)[number];
 export type GrantBenefitSource = (typeof GRANT_BENEFIT_SOURCES)[number];
+export type GrantDocumentCategory = (typeof GRANT_DOCUMENT_CATEGORIES)[number];
+export type GrantDocumentPreparationType = (typeof GRANT_DOCUMENT_PREPARATION_TYPES)[number];
 
 export interface GrantSupportAmount {
   min?: number | null;
@@ -67,8 +95,14 @@ export interface GrantRequiredDocument {
   name: string;
   required: boolean;
   source: GrantDocumentSource;
+  category?: GrantDocumentCategory;
+  preparation_type?: GrantDocumentPreparationType;
+  canonical_name?: string;
+  template_required?: boolean;
+  source_attachment?: string;
   source_span?: string;
   note?: string;
+  confidence?: number;
 }
 
 export interface GrantBenefit {

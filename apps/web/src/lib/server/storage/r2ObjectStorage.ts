@@ -1,6 +1,7 @@
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 export interface R2ObjectStorage {
+  getObjectText(key: string): Promise<string>;
   putObject(input: {
     key: string;
     body: Buffer | string;
@@ -49,6 +50,14 @@ export function createR2ObjectStorage(config: R2ObjectStorageConfig): R2ObjectSt
   });
 
   return {
+    async getObjectText(key) {
+      const result = await client.send(new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      }));
+      if (!result.Body) return "";
+      return result.Body.transformToString();
+    },
     async putObject(input) {
       await client.send(new PutObjectCommand({
         Bucket: config.bucket,

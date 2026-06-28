@@ -79,8 +79,14 @@ export function normalizeRequiredDocuments(grant: Grant): RequiredDocument[] {
       required: document.required,
       source: document.source,
     };
+    if (document.category) normalized.category = document.category;
+    if (document.preparation_type) normalized.preparationType = document.preparation_type;
+    if (document.canonical_name) normalized.canonicalName = document.canonical_name;
+    if (document.template_required !== undefined) normalized.templateRequired = document.template_required;
+    if (document.source_attachment) normalized.sourceAttachment = document.source_attachment;
     if (document.source_span) normalized.sourceSpan = document.source_span;
     if (document.note) normalized.note = document.note;
+    if (document.confidence !== undefined) normalized.confidence = document.confidence;
     return normalized;
   });
 }

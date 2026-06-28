@@ -13,6 +13,7 @@ import {
   htmlToText,
   normalizeBizInfoUrl,
 } from "./extraction-input.js";
+import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
 import type { BizInfoAttachmentMarkdown, BizInfoProgram } from "./types.js";
 
 export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v1";
@@ -59,10 +60,10 @@ export function normalizeBizInfoProgram(
       text: input.metadata.application_method,
     },
     support_amount: null,
-    required_documents: mergeRequiredDocuments(
+    required_documents: normalizeGrantRequiredDocuments(mergeRequiredDocuments(
       parseBizInfoRequiredDocuments(input.metadata.application_method),
       options.requiredDocuments,
-    ),
+    )),
     status: statusFromPeriod(applyPeriod.start, applyPeriod.end, asOf),
     f_regions: projection.f_regions,
     f_industries: projection.f_industries,

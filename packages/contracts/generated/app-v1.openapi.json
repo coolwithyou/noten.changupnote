@@ -2385,6 +2385,47 @@
               "cert"
             ]
           },
+          "category": {
+            "type": "string",
+            "enum": [
+              "application_form",
+              "business_plan",
+              "proposal_or_intro",
+              "consent_or_pledge",
+              "business_registration",
+              "corporate_register",
+              "company_confirmation",
+              "financial_tax",
+              "employment_insurance",
+              "shareholder",
+              "bank_account",
+              "estimate_budget",
+              "portfolio_catalog",
+              "ip_certification",
+              "recommendation",
+              "performance_evidence",
+              "other"
+            ]
+          },
+          "preparationType": {
+            "type": "string",
+            "enum": [
+              "write",
+              "issue",
+              "attach",
+              "portal",
+              "other"
+            ]
+          },
+          "canonicalName": {
+            "type": "string"
+          },
+          "templateRequired": {
+            "type": "boolean"
+          },
+          "sourceAttachment": {
+            "type": "string"
+          },
           "alreadyHave": {
             "type": "boolean"
           },
@@ -2396,6 +2437,11 @@
           },
           "note": {
             "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
           }
         },
         "additionalProperties": false

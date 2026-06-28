@@ -16,6 +16,7 @@ import {
   REGION_CODES,
   TEXT_HINTS,
 } from "./constants.js";
+import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
 import { parseKStartupDate, statusFromApplyWindow } from "./date.js";
 import type {
   KStartupAnnouncement,
@@ -147,7 +148,7 @@ function buildGrant(
       other: row.aply_mthd_etc_istc ?? null,
     },
     support_amount: null,
-    required_documents: extractKStartupRequiredDocuments(row),
+    required_documents: normalizeGrantRequiredDocuments(extractKStartupRequiredDocuments(row)),
     status: statusFromApplyWindow(row.pbanc_rcpt_bgng_dt, row.pbanc_rcpt_end_dt, asOf),
     f_regions: projection.f_regions,
     f_industries: projection.f_industries,

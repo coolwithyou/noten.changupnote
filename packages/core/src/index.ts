@@ -8,6 +8,7 @@ export * from "./bizinfo/types.js";
 export * from "./company/profile-from-popbill.js";
 export * from "./company/update-profile-field.js";
 export * from "./dedup/grant-dedup.js";
+export * from "./documents/taxonomy.js";
 export * from "./kstartup/fetch.js";
 export * from "./kstartup/normalize.js";
 export * from "./kstartup/types.js";

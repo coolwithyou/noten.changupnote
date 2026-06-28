@@ -11,6 +11,7 @@ import {
   CRITERION_KINDS,
   CRITERION_OPERATORS,
 } from "@cunote/contracts";
+import { normalizeGrantRequiredDocument } from "../documents/taxonomy.js";
 import { BIZINFO_NORMALIZER_VERSION } from "./normalize.js";
 import { assertGrantCriteriaContract } from "./criteria-contract.js";
 import type { BizInfoProgramExtractionInput } from "./types.js";
@@ -233,7 +234,7 @@ function normalizeRequiredDocumentRow(row: unknown): GrantRequiredDocument | nul
   };
   const note = cleanString(value.note);
   if (note) document.note = note;
-  return document;
+  return normalizeGrantRequiredDocument(document);
 }
 
 function stringEnum<T extends readonly string[]>(value: unknown, options: T): T[number] | null {
