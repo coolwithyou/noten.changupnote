@@ -184,14 +184,10 @@ input:focus {
   height: 18px;
 }
 
+/* 전역 bare-button 기본 스타일 제거(레거시 TOSS 잔재). 옛 페이지는 모두 shadcn Button(data-slot)을
+   사용하므로 영향 없음. 새 Claude Design 페이지의 bare button은 유틸리티로 스타일한다. */
 button {
-  min-height: 44px;
-  border: 0;
-  border-radius: 6px;
-  background: var(--blue);
-  color: #fff;
   cursor: pointer;
-  font-weight: 700;
 }
 
 button:disabled {
@@ -3097,9 +3093,9 @@ button:disabled {
 /* TDS application system from tds-figma-variables.json. Keep this after legacy CSS and shadcn base. */
 :root {
   color-scheme: light;
-  --font-cunote-sans: "Toss Product Sans", "SF Pro KR", "SF Pro Display",
-    -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Noto Sans KR",
-    "Segoe UI", Roboto, Arial, sans-serif;
+  --font-cunote-sans: "Pretendard Variable", "Pretendard", "Toss Product Sans",
+    "SF Pro KR", "SF Pro Display", -apple-system, BlinkMacSystemFont,
+    "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto, Arial, sans-serif;
 
   --tds-bg-upper: #00173305;
   --tds-bg-default: #ffffff;
@@ -3302,6 +3298,13 @@ button:disabled {
   --grain-opacity-brand: 0.05;
   --grain-opacity-work: 0.02;
   --grain-tile: 180px;
+  --grain-image: url("data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E");
+  /* CTA brand band (dark) — 브랜드 블루+민트 메시 위 잉크 그라데이션. zoning: Brand zone. */
+  --grad-brand-band:
+    radial-gradient(55% 60% at 16% 14%, #4f8bff 0%, transparent 60%),
+    radial-gradient(50% 55% at 90% 20%, var(--brand-mint) 0%, transparent 56%),
+    radial-gradient(80% 70% at 50% 116%, var(--brand) 0%, transparent 62%),
+    linear-gradient(160deg, #1f4fc4 0%, #11307e 100%);
 }
 
 .dark {
@@ -3448,28 +3451,23 @@ textarea {
   font: inherit;
 }
 
-button:not([data-slot="button"]) {
-  min-height: 48px;
-  border: 0;
-  border-radius: var(--tds-radius-xs);
-  background: var(--primary);
-  color: var(--primary-foreground);
-  cursor: pointer;
-  font-weight: 700;
-  transition:
-    background-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease,
-    opacity 180ms ease;
-}
-
-button:not([data-slot="button"]):hover:not(:disabled) {
-  background: var(--toss-blue-hover);
-  box-shadow: var(--shadow-subtle);
-}
-
-button:not([data-slot="button"]):active:not(:disabled) {
-  transform: translateY(1px);
+/* 새 Claude Design 페이지(.cunote-*)의 bare button 중립 기본값.
+   @layer base에 둬서 Tailwind @layer utilities보다 낮은 우선순위를 갖게 한다 →
+   text-primary / rounded-lg / bg-primary 등 컴포넌트 유틸리티가 이 reset을 덮는다
+   (회원가입 링크 파란색, 눈 아이콘 회색·라운드, 캐러셀 dot 등이 정상 적용).
+   unlayered로 두면 레이어 우선순위상 이 reset이 유틸리티를 거꾸로 덮어버린다. */
+@layer base {
+  .cunote-landing button:not([data-slot="button"]),
+  .cunote-matches button:not([data-slot="button"]),
+  .cunote-auth button:not([data-slot="button"]) {
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font-weight: inherit;
+    cursor: pointer;
+  }
 }
 
 button:disabled {
@@ -5158,4 +5156,155 @@ label {
   .newsletter-category-grid [data-slot="toggle-group-item"] {
     flex: 1 1 auto;
   }
+}
+
+/* =========================================================================
+   창업노트 랜딩 (LandingExperience) — texture/zoning helpers
+   토큰 단일 출처: /design-tokens.json. 색/질감 값은 위 TDS :root 변수만 참조.
+   ========================================================================= */
+.cunote-landing {
+  font-family: var(--font-cunote-sans);
+  color: var(--tds-text-secondary);
+  line-height: 1.55;
+
+  /* 콤마를 포함한 값은 여기(CSS)에 정의하고, 컴포넌트에서는 [var(--lp-*)]로 콤마 없이 참조한다.
+     Next dev(Turbopack)+Tailwind v4가 콤마 포함 arbitrary 유틸을 생성하지 못하는 문제 회피. */
+  --lp-px: clamp(20px, 5vw, 40px);
+  --lp-py-100: clamp(64px, 8vw, 100px);
+  --lp-py-96: clamp(64px, 8vw, 96px);
+  --lp-py-88: clamp(56px, 7vw, 88px);
+  --lp-py-72: clamp(48px, 6vw, 72px);
+  --lp-py-56: clamp(40px, 5vw, 56px);
+  --lp-pt-108: clamp(64px, 9vw, 108px);
+  --lp-pb-92: clamp(64px, 8vw, 92px);
+  --lp-mb-80: clamp(48px, 6vw, 80px);
+  --lp-gap-64: clamp(28px, 4vw, 64px);
+  --lp-gap-56: clamp(28px, 4vw, 56px);
+  --lp-gap-72: clamp(32px, 6vw, 72px);
+
+  --lp-fs-56: clamp(32px, 5.4vw, 56px);
+  --lp-fs-44: clamp(30px, 4vw, 44px);
+  --lp-fs-40: clamp(26px, 3.8vw, 40px);
+  --lp-fs-38: clamp(26px, 3.6vw, 38px);
+  --lp-fs-36: clamp(26px, 3.6vw, 36px);
+  --lp-fs-34: clamp(24px, 3.2vw, 34px);
+  --lp-fs-30: clamp(22px, 2.8vw, 30px);
+  --lp-fs-28: clamp(22px, 2.8vw, 28px);
+  --lp-fs-19: clamp(16px, 2.1vw, 19px);
+  --lp-fs-17: clamp(15px, 1.9vw, 17px);
+  --lp-fs-17h: clamp(15px, 1.9vw, 17.5px);
+
+  --lp-grid-150: repeat(auto-fit, minmax(150px, 1fr));
+  --lp-grid-250: repeat(auto-fit, minmax(250px, 1fr));
+  --lp-grid-260: repeat(auto-fit, minmax(260px, 1fr));
+  --lp-grid-300: repeat(auto-fit, minmax(300px, 1fr));
+
+  --lp-grad-text: linear-gradient(120deg, var(--brand), var(--brand-mint));
+  --lp-grad-bar: linear-gradient(90deg, var(--brand-mint), var(--brand));
+}
+
+/* Brand zone grain overlay — opacity는 토큰(--grain-opacity-brand)으로 강도 제어 */
+.cunote-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: var(--grain-image);
+  background-size: var(--grain-tile);
+  mix-blend-mode: overlay;
+  opacity: var(--grain-opacity-brand);
+}
+
+/* staggered entrance (1회). prefers-reduced-motion 존중 */
+@keyframes cunote-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.cunote-rise {
+  animation: cunote-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cunote-rise {
+    animation: none;
+  }
+}
+
+/* 창업노트 랜딩 — dc.html 픽셀 포트(인라인 스타일 기반). hover/반응형만 클래스로. */
+.lp-root {
+  font-family: var(--font-cunote-sans);
+  color: #4e5968;
+  background: #fbfbfc;
+  line-height: 1.55;
+}
+.lp-root a { text-decoration: none; color: inherit; }
+.lp-navlink {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #8b95a1;
+  padding: 9px 14px;
+  border-radius: 999px;
+  transition: color 0.15s, background 0.15s;
+}
+.lp-navlink:hover { color: #191f28; background: #f2f4f6; }
+.lp-footlink {
+  font-size: 14px;
+  color: #4e5968;
+  transition: color 0.15s;
+}
+.lp-footlink:hover { color: #191f28; }
+@media (max-width: 760px) {
+  .lp-nav-links { display: none !important; }
+}
+
+/* 매칭 결과(/matches) — 콤마 포함 값 격리(Turbopack+Tailwind v4 회피). [var(--m-*)]로 참조. */
+.cunote-matches {
+  font-family: var(--font-cunote-sans);
+  color: var(--tds-text-secondary);
+
+  --m-px: clamp(20px, 5vw, 40px);
+  --m-hpt: clamp(44px, 5vw, 64px);
+  --m-hpb: clamp(36px, 4vw, 52px);
+  --m-mpt: clamp(28px, 4vw, 40px);
+  --m-sec-mb: clamp(40px, 5vw, 56px);
+  --m-h1: clamp(26px, 4vw, 40px);
+  --m-sub: clamp(14px, 1.8vw, 16px);
+  --m-h2: clamp(19px, 2.4vw, 23px);
+  /* 데스크톱(컨테이너 ~1000px)에서 사업자 카드 6개가 5+1로 고아 배치되던 문제 →
+     150px 트랙으로 낮춰 한 줄(6칸)에 정렬, 좁은 화면에서는 자연 래핑. */
+  --m-grid: repeat(auto-fit, minmax(150px, 1fr));
+
+  /* 콤마 포함 그래디언트는 .cunote-landing 스코프에만 정의돼 있어 매칭 페이지에서
+     카운트(N건)·프로그레스 바가 var() 미해석으로 비어 보였다. 동일 스코프에 재정의. */
+  --lp-grad-text: linear-gradient(120deg, var(--brand), var(--brand-mint));
+  --lp-grad-bar: linear-gradient(90deg, var(--brand-mint), var(--brand));
+}
+
+/* 전역 unlayered h1/h2 규칙이 Tailwind 유틸리티 레이어를 덮어 text-[length:var(--m-*)]·
+   font-extrabold·tracking이 무시되던 문제 → 스코프 규칙(특이도 우위)으로 복원. */
+.cunote-matches h1 {
+  font-size: var(--m-h1);
+  font-weight: 800;
+  line-height: 1.22;
+  letter-spacing: -0.035em;
+}
+
+.cunote-matches h2 {
+  font-size: var(--m-h2);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+/* 로그인/회원가입(.cunote-auth) 제목도 동일하게 전역 h1에 덮여 64px로 커졌다. */
+.cunote-auth h1 {
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
 }
