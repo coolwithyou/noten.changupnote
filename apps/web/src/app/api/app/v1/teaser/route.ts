@@ -1,8 +1,8 @@
 import type { TeaserRequest, TeaserResult } from "@cunote/contracts";
 import { buildTeaser } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
-import { loadServiceGrants } from "@/lib/server/serviceData";
-import { resolveTeaserCompanyProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
+import { loadServiceGrants, ServiceDataError } from "@/lib/server/serviceData";
+import { resolveTeaserCompanyProfileWithEvidence } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,12 +11,20 @@ export async function POST(request: Request) {
   try {
     const body = await readBody(request);
     const asOf = new Date();
-    const [company, grants] = await Promise.all([
-      resolveTeaserCompanyProfile(body),
+    const [companyResolution, grants] = await Promise.all([
+      resolveTeaserCompanyProfileWithEvidence(body),
       loadServiceGrants({ asOf, limit: 40 }),
     ]);
-    return appData<TeaserResult>(buildTeaser({ company, grants, asOf }));
+    return appData<TeaserResult>(buildTeaser({
+      company: companyResolution.profile,
+      grants,
+      asOf,
+      companyEvidence: companyResolution.evidence,
+    }));
   } catch (error) {
+    if (error instanceof ServiceDataError) {
+      return appError(error.code, error.message, error.status, error.field);
+    }
     if (error instanceof Error && /사업자번호/.test(error.message)) {
       return appError("invalid_biz_no", error.message, 400, "bizNo");
     }

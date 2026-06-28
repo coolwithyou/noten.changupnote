@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import type {
   ActionResult,
+  CompanyEvidence,
   CompanyProfile,
   CompanyEnrichmentResult,
   CompanyVerificationResult,
@@ -18,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { CompanyEvidenceSummary } from "@/features/company-evidence/CompanyEvidenceSummary";
 import {
   Select,
   SelectContent,
@@ -93,6 +95,7 @@ export function CompanySettingsPanel() {
   const [ownerName, setOwnerName] = useState("");
   const [openedOn, setOpenedOn] = useState("");
   const [profileDraft, setProfileDraft] = useState<ProfileDraft>(EMPTY_PROFILE_DRAFT);
+  const [lastEvidence, setLastEvidence] = useState<CompanyEvidence | null>(null);
   const [status, setStatus] = useState("불러오는 중");
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -236,7 +239,8 @@ export function CompanySettingsPanel() {
         body: JSON.stringify({ bizNo: normalizedBizNo }),
       });
       setBizNo("");
-      setStatus(result.facts.hasBizAge || result.facts.hasIndustry ? "회사정보 보강됨" : "보강 결과 확인 필요");
+      setLastEvidence(result.evidence ?? null);
+      setStatus(enrichmentStatusMessage(result));
       router.refresh();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "회사 정보를 보강하지 못했습니다.");
@@ -427,6 +431,9 @@ export function CompanySettingsPanel() {
             {busyKey === "verify" ? "검증 중" : "검증"}
           </Button>
         </div>
+        {lastEvidence ? (
+          <CompanyEvidenceSummary evidence={lastEvidence} compact />
+        ) : null}
       </div>
 
       <div className="settings-profile-form" aria-label="수기 프로필 입력">
@@ -542,6 +549,13 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
     throw new Error(payload.error?.message ?? "요청에 실패했습니다.");
   }
   return payload.data;
+}
+
+function enrichmentStatusMessage(result: CompanyEnrichmentResult): string {
+  if (result.evidence?.cacheStatus === "hit") return "DB 캐시로 회사정보 보강됨";
+  if (result.evidence?.cacheStatus === "stored") return "팝빌 조회 후 캐시 저장됨";
+  if (result.facts.hasBizAge || result.facts.hasIndustry) return "회사정보 보강됨";
+  return "보강 결과 확인 필요";
 }
 
 function draftFromProfile(profile: CompanyProfile | undefined): ProfileDraft {

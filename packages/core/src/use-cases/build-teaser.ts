@@ -1,4 +1,4 @@
-import type { CompanyProfile, NormalizedGrant, TeaserResult } from "@cunote/contracts";
+import type { CompanyEvidence, CompanyProfile, NormalizedGrant, TeaserResult } from "@cunote/contracts";
 import { matchGrantCriteria } from "../matching/match.js";
 import {
   companyAttributes,
@@ -15,6 +15,7 @@ export interface BuildTeaserOptions<TPayload = unknown> {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf?: Date;
   limit?: number;
+  companyEvidence?: CompanyEvidence | null;
 }
 
 export function buildTeaser<TPayload>({
@@ -22,6 +23,7 @@ export function buildTeaser<TPayload>({
   grants,
   asOf = new Date(),
   limit = 8,
+  companyEvidence,
 }: BuildTeaserOptions<TPayload>): TeaserResult {
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
@@ -34,7 +36,7 @@ export function buildTeaser<TPayload>({
     return entry.match.eligibility !== "ineligible" && dDay !== null && dDay >= 0 && dDay <= 7;
   }).length;
 
-  return {
+  const result: TeaserResult = {
     attributes: companyAttributes(company),
     estimatedMaxAmount: sumAmount(matched, "eligible"),
     conditionalUpside: sumAmount(matched, "conditional"),
@@ -45,6 +47,8 @@ export function buildTeaser<TPayload>({
     matches: sorted.slice(0, limit).map((entry) => toMatchCard(entry, { asOf })),
     privacyNote: "사업자번호 원문, 대표자명, 상세주소는 저장하거나 표시하지 않습니다.",
   };
+  if (companyEvidence !== undefined) result.companyEvidence = companyEvidence;
+  return result;
 }
 
 function sumAmount<TPayload>(

@@ -77,6 +77,7 @@ export interface TeaserResult {
   };
   matches: MatchCard[];
   privacyNote: string;
+  companyEvidence?: CompanyEvidence | null;
 }
 
 export interface MatchCard {
@@ -334,9 +335,38 @@ export interface CompanyEnrichmentFacts {
   closeDownTaxType: string | number | null;
 }
 
+export type CompanyEvidenceProvider = "popbill" | "internal" | "manual" | "sample";
+export type CompanyEvidenceSource =
+  | "popbill_live"
+  | "popbill_cache"
+  | "saved_profile"
+  | "manual_profile"
+  | "sample_profile";
+export type CompanyEvidenceCacheStatus = "hit" | "stored" | "none";
+
+export interface CompanyEvidenceField {
+  key: string;
+  label: string;
+  available: boolean;
+  value: string | null;
+}
+
+export interface CompanyEvidence {
+  provider: CompanyEvidenceProvider;
+  source: CompanyEvidenceSource;
+  cacheStatus: CompanyEvidenceCacheStatus;
+  checkedAt: string | null;
+  cachedUntil: string | null;
+  maskedBizNo: string | null;
+  resultMessage: string | null;
+  fields: CompanyEvidenceField[];
+  summary: string;
+}
+
 export interface CompanyEnrichmentResult {
   profile: CompanyProfile;
   facts: CompanyEnrichmentFacts;
+  evidence?: CompanyEvidence | null;
 }
 
 export interface NotificationSettingsDto {

@@ -1614,6 +1614,16 @@
           },
           "privacyNote": {
             "type": "string"
+          },
+          "companyEvidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompanyEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false
@@ -2937,6 +2947,132 @@
         },
         "additionalProperties": false
       },
+      "CompanyEvidenceField": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "available",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyEvidence": {
+        "type": "object",
+        "required": [
+          "provider",
+          "source",
+          "cacheStatus",
+          "checkedAt",
+          "cachedUntil",
+          "maskedBizNo",
+          "resultMessage",
+          "fields",
+          "summary"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "enum": [
+              "popbill",
+              "internal",
+              "manual",
+              "sample"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "popbill_live",
+              "popbill_cache",
+              "saved_profile",
+              "manual_profile",
+              "sample_profile"
+            ]
+          },
+          "cacheStatus": {
+            "type": "string",
+            "enum": [
+              "hit",
+              "stored",
+              "none"
+            ]
+          },
+          "checkedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cachedUntil": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "maskedBizNo": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "resultMessage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanyEvidenceField"
+            }
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CompanyEnrichmentResult": {
         "type": "object",
         "required": [
@@ -2949,6 +3085,16 @@
           },
           "facts": {
             "$ref": "#/components/schemas/CompanyEnrichmentFacts"
+          },
+          "evidence": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompanyEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false

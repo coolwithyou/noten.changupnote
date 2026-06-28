@@ -1,8 +1,8 @@
 import type { ActionResult, TeaserRequest, TeaserResult } from "@cunote/contracts";
 import { buildTeaser } from "@cunote/core";
 import { NextResponse } from "next/server";
-import { loadServiceGrants } from "@/lib/server/serviceData";
-import { resolveTeaserCompanyProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
+import { loadServiceGrants, ServiceDataError } from "@/lib/server/serviceData";
+import { resolveTeaserCompanyProfileWithEvidence } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,13 +11,31 @@ export async function POST(request: Request) {
   try {
     const body = await readBody(request);
     const asOf = new Date();
-    const [company, grants] = await Promise.all([
-      resolveTeaserCompanyProfile(body),
+    const [companyResolution, grants] = await Promise.all([
+      resolveTeaserCompanyProfileWithEvidence(body),
       loadServiceGrants({ asOf, limit: 40 }),
     ]);
-    const data = buildTeaser({ company, grants, asOf });
+    const data = buildTeaser({
+      company: companyResolution.profile,
+      grants,
+      asOf,
+      companyEvidence: companyResolution.evidence,
+    });
     return NextResponse.json<ActionResult<TeaserResult>>({ ok: true, data });
   } catch (error) {
+    if (error instanceof ServiceDataError) {
+      const responseError: NonNullable<ActionResult<TeaserResult>["error"]> = {
+        code: error.code,
+        message: error.message,
+      };
+      if (error.field) responseError.field = error.field;
+
+      return NextResponse.json<ActionResult<TeaserResult>>({
+        ok: false,
+        error: responseError,
+      }, { status: error.status });
+    }
+
     const isInputError = error instanceof Error && /사업자번호/.test(error.message);
     const responseError: NonNullable<ActionResult<TeaserResult>["error"]> = {
       code: isInputError ? "invalid_biz_no" : "teaser_failed",

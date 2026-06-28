@@ -15,6 +15,7 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { CompanyEvidenceSummary } from "@/features/company-evidence/CompanyEvidenceSummary";
 import type { HeaderUser } from "@/lib/server/auth/session";
 
 type OpportunityHook = {
@@ -134,6 +135,7 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
   const [bizNo, setBizNo] = useState("");
   const [teaser, setTeaser] = useState<TeaserResult | null>(null);
   const [lastTeaserRequest, setLastTeaserRequest] = useState<TeaserRequest | null>(null);
+  const [activeLookupBizNo, setActiveLookupBizNo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -144,6 +146,9 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
   const [newsletterConsent, setNewsletterConsent] = useState(false);
   const [newsletterMessage, setNewsletterMessage] = useState<string | null>(null);
   const topMatches = useMemo(() => teaser?.matches.slice(0, 4) ?? [], [teaser]);
+  const normalizedBizNo = formatBizNoInput(bizNo);
+  const lookupBizNo = activeLookupBizNo ?? normalizedBizNo;
+  const hasConfirmedLookup = Boolean(teaser && lastTeaserRequest?.bizNo === normalizedBizNo);
 
   useEffect(() => {
     if (isCarouselPaused) return;
@@ -173,13 +178,13 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
     event.preventDefault();
     setIsLoading(true);
     setError(null);
-    const normalizedBizNo = formatBizNoInput(bizNo);
     if (normalizedBizNo.length !== 10) {
       setError("사업자번호 10자리를 입력해주세요.");
       setIsLoading(false);
       return;
     }
     const requestBody: TeaserRequest = { bizNo: normalizedBizNo };
+    setActiveLookupBizNo(normalizedBizNo);
 
     try {
       const response = await fetch("/api/web/teaser", {
@@ -193,13 +198,24 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
       }
       setTeaser(payload.data);
       setLastTeaserRequest(requestBody);
-      setBizNo("");
+      setBizNo(normalizedBizNo);
     } catch (caught) {
       setTeaser(null);
       setLastTeaserRequest(null);
       setError(caught instanceof Error ? caught.message : "지원사업 티저를 만들지 못했습니다.");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  function updateBizNoInput(value: string) {
+    const nextBizNo = formatBizNoInput(value);
+    setBizNo(nextBizNo);
+    if (error) setError(null);
+    if (lastTeaserRequest?.bizNo && lastTeaserRequest.bizNo !== nextBizNo) {
+      setTeaser(null);
+      setLastTeaserRequest(null);
+      setActiveLookupBizNo(null);
     }
   }
 
@@ -300,14 +316,17 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
                         placeholder="0000000000"
                         value={bizNo}
                         maxLength={12}
-                        onChange={(event) => setBizNo(formatBizNoInput(event.target.value))}
+                        onChange={(event) => updateBizNoInput(event.target.value)}
                       />
                       <Button type="submit" disabled={isLoading}>
                         {isLoading ? <Spinner data-icon="inline-start" /> : null}
-                        {isLoading ? "확인 중" : "내 기회 확인"}
+                        {isLoading ? "조회 중" : "팝빌로 회사 확인"}
                       </Button>
                     </div>
                     <FieldDescription>입력은 매칭에만 사용하고 결과 화면에는 사업자번호 원문을 표시하지 않습니다.</FieldDescription>
+                    {normalizedBizNo.length === 10 && !isLoading && !hasConfirmedLookup ? (
+                      <p className="biz-ready-note">형식 확인됨. 누르면 팝빌에서 상호, 소재지, 업력, 영업상태를 확인합니다.</p>
+                    ) : null}
                   </Field>
                 </FieldGroup>
                 {error ? (
@@ -318,6 +337,18 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
               </form>
             </CardContent>
           </Card>
+
+          {isLoading ? (
+            <CompanyLookupProgress maskedBizNo={maskBizNoForDisplay(lookupBizNo)} />
+          ) : null}
+
+          {!isLoading && hasConfirmedLookup && teaser?.companyEvidence ? (
+            <CompanyEvidenceSummary
+              evidence={teaser.companyEvidence}
+              privacyNote={teaser.privacyNote}
+              prominent
+            />
+          ) : null}
         </div>
 
         <OpportunityHookCarousel
@@ -328,17 +359,6 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
       </section>
 
       <OpportunityPreview stats={initialStats} teaser={teaser} />
-
-      <NewsletterSignup
-        categories={newsletterCategories}
-        consent={newsletterConsent}
-        email={newsletterEmail}
-        message={newsletterMessage}
-        onCategoriesChange={setNewsletterCategories}
-        onConsentChange={setNewsletterConsent}
-        onEmailChange={setNewsletterEmail}
-        onSubmit={submitNewsletter}
-      />
 
       {teaser ? (
         <Card className="teaser-section" aria-live="polite">
@@ -381,7 +401,35 @@ export function HomeExperience({ initialStats, user = null }: HomeExperienceProp
           </div>
         </Card>
       ) : null}
+
+      <NewsletterSignup
+        categories={newsletterCategories}
+        consent={newsletterConsent}
+        email={newsletterEmail}
+        message={newsletterMessage}
+        onCategoriesChange={setNewsletterCategories}
+        onConsentChange={setNewsletterConsent}
+        onEmailChange={setNewsletterEmail}
+        onSubmit={submitNewsletter}
+      />
     </main>
+  );
+}
+
+function CompanyLookupProgress({ maskedBizNo }: { maskedBizNo: string | null }) {
+  return (
+    <div className="company-lookup-progress" role="status" aria-live="polite">
+      <div className="company-lookup-spinner">
+        <Spinner />
+      </div>
+      <div>
+        <strong>팝빌에서 사업자 정보를 확인하고 있어요.</strong>
+        <p>
+          {maskedBizNo ? `${maskedBizNo} 기준으로 ` : ""}
+          상호와 소재지, 업력, 영업상태를 받으면 바로 아래에 먼저 보여드립니다.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -625,6 +673,12 @@ function MatchPreview({ match }: { match: MatchCard }) {
 
 function formatBizNoInput(value: string): string {
   return value.replace(/\D/g, "").slice(0, 10);
+}
+
+function maskBizNoForDisplay(value: string): string | null {
+  const digits = formatBizNoInput(value);
+  if (digits.length !== 10) return null;
+  return `${digits.slice(0, 3)}-**-${digits.slice(5, 7)}***`;
 }
 
 function persistPendingTeaserRequest(request: TeaserRequest) {

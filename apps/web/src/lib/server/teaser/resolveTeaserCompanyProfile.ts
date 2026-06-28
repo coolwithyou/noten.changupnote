@@ -1,9 +1,28 @@
-import type { CompanyProfile, TeaserRequest } from "@cunote/contracts";
-import { loadCompanyProfileForTeaser } from "@/lib/server/serviceData";
+import type { CompanyEvidence, CompanyProfile, TeaserRequest } from "@cunote/contracts";
+import { buildCompanyEvidence, loadCompanyProfileResolutionForTeaser } from "@/lib/server/serviceData";
 
 export async function resolveTeaserCompanyProfile(body: Partial<TeaserRequest>): Promise<CompanyProfile> {
-  if (isRecord(body.profile)) return normalizeManualProfile(body.profile);
-  return loadCompanyProfileForTeaser(body.bizNo?.trim() || undefined);
+  return (await resolveTeaserCompanyProfileWithEvidence(body)).profile;
+}
+
+export async function resolveTeaserCompanyProfileWithEvidence(body: Partial<TeaserRequest>): Promise<{
+  profile: CompanyProfile;
+  evidence: CompanyEvidence | null;
+}> {
+  if (isRecord(body.profile)) {
+    const profile = normalizeManualProfile(body.profile);
+    return {
+      profile,
+      evidence: buildCompanyEvidence({
+        provider: "manual",
+        source: "manual_profile",
+        cacheStatus: "none",
+        profile,
+        summary: "직접 입력한 회사 프로필로 매칭했습니다.",
+      }),
+    };
+  }
+  return loadCompanyProfileResolutionForTeaser(body.bizNo?.trim() || undefined);
 }
 
 function normalizeManualProfile(input: Record<string, unknown>): CompanyProfile {

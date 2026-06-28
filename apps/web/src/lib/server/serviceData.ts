@@ -11,7 +11,14 @@ import {
   readPopbillEnvConfig,
   sanitizeCorpNum,
 } from "@cunote/core";
-import type { ApplySheet, CompanyEnrichmentFacts, CompanyEnrichmentResult, CompanyProfile, NormalizedGrant } from "@cunote/contracts";
+import type {
+  ApplySheet,
+  CompanyEnrichmentFacts,
+  CompanyEnrichmentResult,
+  CompanyEvidence,
+  CompanyProfile,
+  NormalizedGrant,
+} from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
 import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
 import { createServiceRepositories } from "./repositories/factory";
@@ -24,6 +31,18 @@ const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
 const ENRICHMENT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 type ServiceGrantPayload = KStartupAnnouncement | BizInfoProgram;
+type PopbillCredentials = ReturnType<typeof readPopbillEnvConfig>["credentials"];
+
+interface CompanyProfileResolution {
+  profile: CompanyProfile;
+  evidence: CompanyEvidence | null;
+}
+
+interface PopbillCompanyResolution {
+  profile: CompanyProfile;
+  facts: CompanyEnrichmentFacts;
+  evidence: CompanyEvidence;
+}
 
 const repositories = createServiceRepositories<ServiceGrantPayload>({
   loadGrants: loadServiceGrantsFromSource,
@@ -87,45 +106,91 @@ async function loadServiceGrantsFromSource({
 }
 
 export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<CompanyProfile> {
+  return (await loadCompanyProfileResolutionForTeaser(bizNo)).profile;
+}
+
+export async function loadCompanyProfileResolutionForTeaser(
+  bizNo?: string,
+  options: { asOf?: Date } = {},
+): Promise<CompanyProfileResolution> {
+  const asOf = options.asOf ?? new Date();
   if (bizNo) {
     const normalizedBizNo = sanitizeCorpNum(bizNo);
     const savedProfile = await repositories.companies.resolveCompanyProfile({ bizNo: normalizedBizNo });
-    if (savedProfile) return savedProfile;
-    return loadCompanyProfileFromSource(normalizedBizNo);
+    if (savedProfile) {
+      return {
+        profile: savedProfile,
+        evidence: buildCompanyEvidence({
+          provider: "internal",
+          source: "saved_profile",
+          cacheStatus: "none",
+          profile: savedProfile,
+          summary: "저장된 회사 프로필로 매칭했습니다.",
+        }),
+      };
+    }
+    return loadCompanyProfileFromSourceWithEvidence(normalizedBizNo, { asOf });
   }
 
   const profile = await repositories.companies.resolveCompanyProfile({});
   if (!profile) {
     throw new Error("회사 프로필을 찾지 못했습니다.");
   }
-  return profile;
+  return {
+    profile,
+    evidence: buildCompanyEvidence({
+      provider: "internal",
+      source: "saved_profile",
+      cacheStatus: "none",
+      profile,
+      summary: "저장된 회사 프로필로 매칭했습니다.",
+    }),
+  };
 }
 
 async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProfile> {
+  return (await loadCompanyProfileFromSourceWithEvidence(bizNo)).profile;
+}
+
+async function loadCompanyProfileFromSourceWithEvidence(
+  bizNo?: string,
+  options: { asOf?: Date } = {},
+): Promise<CompanyProfileResolution> {
   await loadEnvInDevelopment();
 
   const requestedBizNo = bizNo ? sanitizeCorpNum(bizNo) : null;
+  const asOf = options.asOf ?? new Date();
   try {
     const popbill = readPopbillEnvConfig();
     const checkCorpNum = requestedBizNo ?? popbill.checkCorpNum;
-    const info = await checkPopbillBizInfo({
+    const result = await loadPopbillCompanyProfile({
+      bizNo: checkCorpNum,
       credentials: popbill.credentials,
-      checkCorpNum,
+      asOf,
+      now: new Date(),
     });
-    if (String(info.result) === "100") {
-      return buildCompanyProfileFromPopbill(info).profile;
-    }
-    console.warn(`Popbill checkBizInfo returned non-success result: ${info.result ?? "unknown"}`);
+    return {
+      profile: result.profile,
+      evidence: result.evidence,
+    };
   } catch (error) {
-    if (requestedBizNo && process.env.NODE_ENV !== "production") {
-      console.warn(`Popbill profile fetch failed for requested biz no. Falling back to sample company: ${errorMessage(error)}`);
-      return sampleCompanyProfile();
+    if (requestedBizNo) {
+      console.warn(`Popbill profile fetch failed for requested biz no: ${errorMessage(error)}`);
+      throw new ServiceDataError(
+        "popbill_lookup_failed",
+        "사업자 정보를 즉시 확인하지 못했습니다. 사업자번호를 다시 확인하거나 잠시 후 다시 시도해주세요.",
+        503,
+        "bizNo",
+      );
     }
-    if (requestedBizNo) throw error;
     console.warn(`Popbill profile fetch failed. Falling back to sample company: ${errorMessage(error)}`);
   }
 
-  return sampleCompanyProfile();
+  const profile = sampleCompanyProfile();
+  return {
+    profile,
+    evidence: sampleCompanyEvidence(profile),
+  };
 }
 
 export async function loadServiceDashboard(options: {
@@ -198,69 +263,143 @@ export async function enrichServiceCompany(input: {
     throw new ServiceDataError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
   }
 
-  const cached = await repositories.enrichmentCache.getFresh({
-    provider: ENRICHMENT_CACHE_PROVIDER,
+  const popbill = readPopbillEnvConfig();
+  const resolved = await loadPopbillCompanyProfile({
     bizNo,
-    scope: ENRICHMENT_CACHE_SCOPE,
+    credentials: popbill.credentials,
+    asOf,
     now,
   });
-  const cachedCanonical = parseCachedCompanyEnrichment(cached?.canonicalPayload);
-  if (cachedCanonical) {
-    const profile = mergeCompanyProfilesForEnrichment(current, cachedCanonical.profile);
-    const saved = await repositories.companies.saveCompanyProfile({
-      companyId: input.companyId,
-      userId: input.userId,
-      profile,
-    });
-    return {
-      profile: saved,
-      facts: cachedCanonical.facts,
-    };
-  }
-
-  const popbill = readPopbillEnvConfig();
-  const info = await checkPopbillBizInfo({
-    credentials: popbill.credentials,
-    checkCorpNum: bizNo,
-  });
-  if (String(info.result) !== "100") {
-    throw new ServiceDataError(
-      "company_enrichment_failed",
-      `기업정보조회가 성공하지 못했습니다: ${String(info.result ?? "unknown")}`,
-      502,
-    );
-  }
-
-  const enriched = buildCompanyProfileFromPopbill(info, { asOf });
-  const facts = toCompanyEnrichmentFacts(enriched.facts);
-  const profile = mergeCompanyProfilesForEnrichment(current, enriched.profile);
+  const profile = mergeCompanyProfilesForEnrichment(current, resolved.profile);
   const saved = await repositories.companies.saveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
     profile,
   });
 
+  return {
+    profile: saved,
+    facts: resolved.facts,
+    evidence: resolved.evidence,
+  };
+}
+
+async function loadPopbillCompanyProfile(input: {
+  bizNo: string;
+  credentials: PopbillCredentials;
+  asOf: Date;
+  now: Date;
+}): Promise<PopbillCompanyResolution> {
+  const cached = await repositories.enrichmentCache.getFresh({
+    provider: ENRICHMENT_CACHE_PROVIDER,
+    bizNo: input.bizNo,
+    scope: ENRICHMENT_CACHE_SCOPE,
+    now: input.now,
+  });
+  const cachedCanonical = parseCachedCompanyEnrichment(cached?.canonicalPayload);
+  if (cachedCanonical) {
+    return {
+      profile: cachedCanonical.profile,
+      facts: cachedCanonical.facts,
+      evidence: buildCompanyEvidence({
+        provider: "popbill",
+        source: "popbill_cache",
+        cacheStatus: "hit",
+        profile: cachedCanonical.profile,
+        facts: cachedCanonical.facts,
+        checkedAt: cached?.checkedAt ?? parseProviderCheckedAt(cachedCanonical.facts.checkedAt),
+        cachedUntil: cached?.expiresAt ?? null,
+        summary: "저장된 팝빌 조회 결과를 재사용해 회사 정보를 바로 확인했습니다.",
+      }),
+    };
+  }
+
+  const info = await checkPopbillBizInfo({
+    credentials: input.credentials,
+    checkCorpNum: input.bizNo,
+  });
+  if (String(info.result) !== "100") {
+    throw new ServiceDataError(
+      "company_enrichment_failed",
+      "팝빌에서 사업자 정보를 확인하지 못했습니다. 사업자번호를 다시 확인하거나 잠시 후 다시 시도해주세요.",
+      502,
+      "bizNo",
+    );
+  }
+
+  const enriched = buildCompanyProfileFromPopbill(info, { asOf: input.asOf });
+  const facts = toCompanyEnrichmentFacts(enriched.facts);
   const canonicalPayload: Record<string, unknown> = {
     profile: enriched.profile,
     facts,
   };
-  await repositories.enrichmentCache.put({
-    provider: ENRICHMENT_CACHE_PROVIDER,
-    bizNo,
-    scope: ENRICHMENT_CACHE_SCOPE,
-    rawPayload: null,
-    canonicalPayload,
-    providerResultCode: String(info.result),
-    providerResultMessage: facts.resultMessage,
-    checkedAt: parseProviderCheckedAt(facts.checkedAt),
-    fetchedAt: now,
-    expiresAt: new Date(now.getTime() + ENRICHMENT_CACHE_TTL_MS),
-    payloadHash: hashCanonicalPayload(canonicalPayload),
-  }).catch((error) => {
-    console.warn(`Company enrichment cache write failed: ${errorMessage(error)}`);
-  });
+  const checkedAt = parseProviderCheckedAt(facts.checkedAt);
+  const expiresAt = new Date(input.now.getTime() + ENRICHMENT_CACHE_TTL_MS);
+  let cacheStatus: CompanyEvidence["cacheStatus"] = "stored";
+  let cachedUntil: Date | null = expiresAt;
 
-  return { profile: saved, facts };
+  try {
+    await repositories.enrichmentCache.put({
+      provider: ENRICHMENT_CACHE_PROVIDER,
+      bizNo: input.bizNo,
+      scope: ENRICHMENT_CACHE_SCOPE,
+      rawPayload: null,
+      canonicalPayload,
+      providerResultCode: String(info.result),
+      providerResultMessage: facts.resultMessage,
+      checkedAt,
+      fetchedAt: input.now,
+      expiresAt,
+      payloadHash: hashCanonicalPayload(canonicalPayload),
+    });
+  } catch (error) {
+    cacheStatus = "none";
+    cachedUntil = null;
+    console.warn(`Company enrichment cache write failed: ${errorMessage(error)}`);
+  }
+
+  return {
+    profile: enriched.profile,
+    facts,
+    evidence: buildCompanyEvidence({
+      provider: "popbill",
+      source: "popbill_live",
+      cacheStatus,
+      profile: enriched.profile,
+      facts,
+      checkedAt: checkedAt ?? input.now,
+      cachedUntil,
+      summary: cacheStatus === "stored"
+        ? "팝빌에서 사업자 정보를 확인했고 다음 조회부터 빠르게 재사용할 수 있게 저장했습니다."
+        : "팝빌에서 사업자 정보를 확인했습니다.",
+    }),
+  };
+}
+
+export function buildCompanyEvidence(input: {
+  provider: CompanyEvidence["provider"];
+  source: CompanyEvidence["source"];
+  cacheStatus: CompanyEvidence["cacheStatus"];
+  profile: CompanyProfile;
+  facts?: CompanyEnrichmentFacts;
+  checkedAt?: Date | null;
+  cachedUntil?: Date | null;
+  maskedBizNo?: string | null;
+  resultMessage?: string | null;
+  summary: string;
+}): CompanyEvidence {
+  const facts = input.facts;
+  return {
+    provider: input.provider,
+    source: input.source,
+    cacheStatus: input.cacheStatus,
+    checkedAt: input.checkedAt?.toISOString() ?? null,
+    cachedUntil: input.cachedUntil?.toISOString() ?? null,
+    maskedBizNo: input.maskedBizNo ?? facts?.maskedBizNo ?? null,
+    resultMessage: input.resultMessage ?? facts?.resultMessage ?? null,
+    fields: buildCompanyEvidenceFields(input.profile, facts),
+    summary: input.summary,
+  };
 }
 
 export function getServiceRepositories() {
@@ -374,6 +513,72 @@ function sampleCompanyProfile(): CompanyProfile {
       size: 0.4,
     },
   };
+}
+
+function sampleCompanyEvidence(profile: CompanyProfile): CompanyEvidence {
+  return buildCompanyEvidence({
+    provider: "sample",
+    source: "sample_profile",
+    cacheStatus: "none",
+    profile,
+    summary: "팝빌 조회를 사용할 수 없어 개발용 샘플 회사 프로필로 매칭했습니다.",
+  });
+}
+
+function buildCompanyEvidenceFields(
+  profile: CompanyProfile,
+  facts?: CompanyEnrichmentFacts,
+): CompanyEvidence["fields"] {
+  return [
+    {
+      key: "corp_name",
+      label: "상호",
+      available: facts?.hasCorpName ?? Boolean(profile.name),
+      value: profile.name ?? null,
+    },
+    {
+      key: "region",
+      label: "소재지",
+      available: facts?.hasRegion ?? Boolean(profile.region?.label ?? profile.region?.code),
+      value: profile.region?.label ?? profile.region?.code ?? null,
+    },
+    {
+      key: "biz_age",
+      label: "업력",
+      available: facts?.hasBizAge ?? (profile.biz_age_months !== null && profile.biz_age_months !== undefined),
+      value: formatBizAgeMonths(profile.biz_age_months),
+    },
+    {
+      key: "size",
+      label: "기업규모",
+      available: facts?.hasSize ?? Boolean(profile.size),
+      value: profile.size ?? null,
+    },
+    {
+      key: "industry",
+      label: "업종",
+      available: facts?.hasIndustry ?? Boolean(profile.industries?.length),
+      value: profile.industries?.length ? profile.industries.join(", ") : null,
+    },
+    {
+      key: "business_status",
+      label: "영업상태",
+      available: Boolean(
+        profile.business_status?.label ||
+        facts?.closeDownState !== null && facts?.closeDownState !== undefined ||
+        facts?.closeDownTaxType !== null && facts?.closeDownTaxType !== undefined
+      ),
+      value: profile.business_status?.label ?? null,
+    },
+  ];
+}
+
+function formatBizAgeMonths(value: number | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  if (value < 12) return `${value}개월`;
+  const years = Math.floor(value / 12);
+  const months = value % 12;
+  return months > 0 ? `${years}년 ${months}개월` : `${years}년`;
 }
 
 function errorMessage(error: unknown): string {

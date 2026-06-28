@@ -182,7 +182,14 @@ function evaluateFounderAge(criterion: GrantCriterion, company: CompanyProfile):
   if (company.founder_age === null || company.founder_age === undefined) {
     return trace(criterion, "unknown", "대표자 연령 확인 필요");
   }
-  const ok = value.ranges.some((range) => {
+  const ranges = Array.isArray(value.ranges) ? value.ranges : [];
+  if (ranges.length === 0) {
+    return trace(criterion, "unknown", "대표자 연령 조건 확인 필요");
+  }
+  const labels = Array.isArray(value.labels) && value.labels.length > 0
+    ? value.labels
+    : ranges.map((range) => range.label).filter(Boolean);
+  const ok = ranges.some((range) => {
     const minOk = range.min === null || range.min === undefined || company.founder_age! >= range.min;
     const maxOk = range.max === null || range.max === undefined || company.founder_age! <= range.max;
     return minOk && maxOk;
@@ -190,7 +197,7 @@ function evaluateFounderAge(criterion: GrantCriterion, company: CompanyProfile):
   return trace(
     criterion,
     ok ? "pass" : "fail",
-    `대표 ${company.founder_age}세 - 허용 구간 ${value.labels.join(", ")}`,
+    `대표 ${company.founder_age}세 - 허용 구간 ${labels.join(", ") || "확인 필요"}`,
     { founder_age: company.founder_age },
   );
 }
