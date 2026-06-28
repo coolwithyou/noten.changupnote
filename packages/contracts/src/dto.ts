@@ -55,6 +55,40 @@ export interface StatsResult {
   updatedAt: string;
 }
 
+export interface LandingGrantStats {
+  totalCount: number;
+  activeCount: number;
+  openCount: number;
+  upcomingCount: number;
+  unknownCount: number;
+  deadlineSoonCount: number;
+  totalAmount: number;
+  sourceCount: number;
+  archivedAttachmentCount: number;
+  markdownAttachmentCount: number;
+  updatedAt: string;
+}
+
+export interface LandingGrantBanner {
+  grantId: string;
+  source: Grant["source"];
+  sourceId: string;
+  title: string;
+  agency: string | null;
+  category: string | null;
+  status: GrantStatus;
+  applyEnd: string | null;
+  dDay: number | null;
+  supportAmountMax: number;
+  regions: string[];
+  url: string | null;
+}
+
+export interface LandingGrantData {
+  stats: LandingGrantStats;
+  banners: LandingGrantBanner[];
+}
+
 export interface TeaserRequest {
   bizNo?: string;
   profile?: CompanyProfile;

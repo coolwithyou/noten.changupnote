@@ -51,6 +51,7 @@
     "verify:bizinfo-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-bizinfo-archive.ts",
     "verify:grant-attachment-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-grant-attachment-archive.ts",
     "verify:grant-insights": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/insights/verify-grant-insights.ts",
+    "verify:landing-grants": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/landing/verify-landing-grant-data.ts",
     "verify:ingestion-batch": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-ingestion-batch-plan.ts",
     "verify:grant-criteria-schema": "tsx packages/contracts/scripts/verify-grant-criteria-schema.ts",
     "verify:openapi": "tsx packages/contracts/scripts/verify-openapi.ts",
