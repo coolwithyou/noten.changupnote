@@ -369,6 +369,7 @@ function GrantCarousel({
   if (!activeBanner) return null;
   const href = activeBanner.url ?? `/grants/${encodeURIComponent(activeBanner.grantId)}`;
   const isExternal = Boolean(activeBanner.url);
+  const primaryHook = formatGrantHook(activeBanner);
 
   return (
     <Card className="hook-carousel grant-hook-carousel" aria-label="현재 지원 가능한 사업">
@@ -388,7 +389,10 @@ function GrantCarousel({
           <span>{formatRegions(activeBanner.regions) ?? "지역 확인"}</span>
         </div>
         <div className="hook-amount-row">
-          <strong>{formatMoney(activeBanner.supportAmountMax)}</strong>
+          <span className="hook-value-stack">
+            <small>{primaryHook.label}</small>
+            <strong>{primaryHook.value}</strong>
+          </span>
           <span>{formatDate(activeBanner.applyEnd)}</span>
         </div>
         <h2>{activeBanner.title}</h2>
@@ -651,6 +655,56 @@ function formatMoney(value: number): string {
   if (value >= 100_000_000) return `${Math.round(value / 100_000_000).toLocaleString("ko-KR")}억원`;
   if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만원`;
   return `${value.toLocaleString("ko-KR")}원`;
+}
+
+function formatGrantHook(banner: LandingGrantBanner): { label: string; value: string } {
+  if (banner.supportAmountMax > 0) {
+    return {
+      label: "금액 확인",
+      value: formatMoney(banner.supportAmountMax),
+    };
+  }
+
+  const benefit = pickPrimaryBenefit(banner.benefits);
+  if (benefit) {
+    return {
+      label: "핵심 혜택",
+      value: benefitHookLabel(benefit.family, benefit.label),
+    };
+  }
+
+  return {
+    label: "지원 내용",
+    value: banner.category ?? "혜택 확인",
+  };
+}
+
+function pickPrimaryBenefit(benefits: LandingGrantBanner["benefits"]): LandingGrantBanner["benefits"][number] | undefined {
+  const priority: Array<LandingGrantBanner["benefits"][number]["family"]> = [
+    "network",
+    "market",
+    "capability",
+    "certification",
+    "space",
+    "loan",
+    "funding",
+  ];
+  for (const family of priority) {
+    const benefit = benefits.find((item) => item.family === family);
+    if (benefit) return benefit;
+  }
+  return benefits[0];
+}
+
+function benefitHookLabel(family: LandingGrantBanner["benefits"][number]["family"], label: string): string {
+  if (family === "capability") return "교육·멘토링";
+  if (family === "market") return "판로·수출";
+  if (family === "certification") return "인증·IP";
+  if (family === "network") return "투자·연결";
+  if (family === "space") return "입주·공간";
+  if (family === "loan") return "융자·보증";
+  if (family === "funding") return "사업화 지원";
+  return label;
 }
 
 function sourceLabel(source: LandingGrantBanner["source"]): string {

@@ -80,6 +80,7 @@ export interface LandingGrantBanner {
   applyEnd: string | null;
   dDay: number | null;
   supportAmountMax: number;
+  benefits: BenefitBadge[];
   regions: string[];
   url: string | null;
 }

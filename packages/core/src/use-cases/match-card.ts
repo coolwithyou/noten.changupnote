@@ -414,7 +414,7 @@ const BENEFIT_RULES: Array<{
   {
     family: "network",
     label: "연결",
-    pattern: /네트워킹|투자|IR|데모데이|연계|교류|협업/i,
+    pattern: /네트워크|네트워킹|오픈이노베이션|행사|투자|IR|데모데이|연계|교류|협업/i,
   },
 ];
 

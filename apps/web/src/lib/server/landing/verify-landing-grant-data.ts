@@ -22,6 +22,7 @@ try {
   const applyEndCutoff = activeGrantApplyEndCutoff(asOf);
   for (const banner of data.banners) {
     assert.ok(["open", "upcoming", "unknown"].includes(banner.status), `banner should be active: ${banner.status}`);
+    assert.ok(Array.isArray(banner.benefits), `banner benefits should be an array: ${banner.source}:${banner.sourceId}`);
     if (banner.applyEnd) {
       assert.ok(
         new Date(banner.applyEnd) >= applyEndCutoff,
@@ -42,6 +43,7 @@ try {
       dDay: banner.dDay,
       applyEnd: banner.applyEnd,
       supportAmountMax: banner.supportAmountMax,
+      benefits: banner.benefits.map((benefit) => benefit.label),
     })),
   }, null, 2));
 } finally {

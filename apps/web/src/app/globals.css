@@ -4650,11 +4650,25 @@ label {
   gap: 18px;
 }
 
-.hook-amount-row strong {
+.hook-value-stack {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.hook-value-stack small {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 13px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.hook-value-stack strong {
   color: var(--primary);
   font-size: clamp(38px, 6vw, 64px);
   font-weight: 900;
   line-height: 1;
+  overflow-wrap: anywhere;
 }
 
 .hook-bell {

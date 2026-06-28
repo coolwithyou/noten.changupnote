@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, gte, isNull, or, sql } from "drizzle-orm";
 import type { Grant, LandingGrantBanner, LandingGrantData, LandingGrantStats, NormalizedGrant } from "@cunote/contracts";
-import { daysUntil, supportAmountMax } from "@cunote/core";
+import { daysUntil, deriveGrantBenefits, supportAmountMax } from "@cunote/core";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { loadServiceGrants, type LoadServiceGrantsOptions } from "@/lib/server/serviceData";
@@ -185,6 +185,7 @@ function toLandingBanner(entry: { grant: Grant }, asOf: Date): LandingGrantBanne
     applyEnd: grant.apply_end ?? null,
     dDay: daysUntil(grant.apply_end ?? null, asOf),
     supportAmountMax: supportAmountMax(grant.support_amount),
+    benefits: deriveGrantBenefits(grant),
     regions: grant.f_regions,
     url: grant.url ?? null,
   };
