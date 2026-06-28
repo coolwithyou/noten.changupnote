@@ -1,7 +1,16 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import type { ActionResult, CompanyProfile, MatchCard, StatsResult, TeaserRequest, TeaserResult } from "@cunote/contracts";
+import type {
+  ActionResult,
+  CompanyProfile,
+  LandingGrantBanner,
+  LandingGrantData,
+  LandingGrantStats,
+  MatchCard,
+  TeaserRequest,
+  TeaserResult,
+} from "@cunote/contracts";
 import { KOREA_REGION_OPTIONS } from "@/lib/regions";
 
 type EntryMode = "active" | "preliminary";
@@ -9,21 +18,24 @@ type EntryMode = "active" | "preliminary";
 const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
 
 interface HomeExperienceProps {
-  initialStats: StatsResult;
+  landingData: LandingGrantData;
 }
 
-export function HomeExperience({ initialStats }: HomeExperienceProps) {
+export function HomeExperience({ landingData }: HomeExperienceProps) {
   const [bizNo, setBizNo] = useState("");
   const [entryMode, setEntryMode] = useState<EntryMode>("active");
   const [regionCode, setRegionCode] = useState("41");
   const [founderAge, setFounderAge] = useState("");
   const [industry, setIndustry] = useState("");
+  const [bannerIndex, setBannerIndex] = useState(0);
   const [teaser, setTeaser] = useState<TeaserResult | null>(null);
   const [lastTeaserRequest, setLastTeaserRequest] = useState<TeaserRequest | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const topMatches = useMemo(() => teaser?.matches.slice(0, 4) ?? [], [teaser]);
+  const banners = landingData.banners;
+  const activeBanner = banners[bannerIndex] ?? banners[0] ?? null;
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -35,6 +47,10 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
 
     void createCompanyAndOpenDashboard(pending);
   }, []);
+
+  useEffect(() => {
+    if (bannerIndex >= banners.length) setBannerIndex(0);
+  }, [bannerIndex, banners.length]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -118,13 +134,14 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
           <p className="eyebrow">지원사업 매칭</p>
           <h1>내 사업자가 지금 열 수 있는 기회를 확인합니다.</h1>
           <p className="hero-subcopy">
-            사업자번호 또는 예비창업 프로필로 K-Startup 공고를 훑고, 적격과 확인 필요를 분리합니다.
+            사업자번호 또는 예비창업 프로필로 K-Startup과 기업마당 공고를 훑고, 적격과 확인 필요를 분리합니다.
           </p>
 
           <div className="stats-strip" aria-label="현재 지원사업 집계">
-            <Metric label="열린 공고" value={`${initialStats.openCount.toLocaleString("ko-KR")}건`} />
-            <Metric label="마감 임박" value={`${initialStats.deadlineSoonCount.toLocaleString("ko-KR")}건`} />
-            <Metric label="지원금 총액" value={formatMoney(initialStats.totalAmount)} />
+            <Metric label="전체 지원사업" value={`${landingData.stats.totalCount.toLocaleString("ko-KR")}건`} />
+            <Metric label="현재 지원 가능" value={`${landingData.stats.activeCount.toLocaleString("ko-KR")}건`} />
+            <Metric label="마감 임박" value={`${landingData.stats.deadlineSoonCount.toLocaleString("ko-KR")}건`} />
+            <Metric label="첨부 아카이브" value={`${landingData.stats.archivedAttachmentCount.toLocaleString("ko-KR")}건`} />
           </div>
 
           <form className="biz-form" onSubmit={submit}>
@@ -220,8 +237,17 @@ export function HomeExperience({ initialStats }: HomeExperienceProps) {
           </form>
         </div>
 
-        <OpportunityPreview stats={initialStats} teaser={teaser} />
+        <OpportunityPreview stats={landingData.stats} teaser={teaser} />
       </section>
+
+      <GrantCarousel
+        banners={banners}
+        activeBanner={activeBanner}
+        activeIndex={bannerIndex}
+        onPrevious={() => setBannerIndex((current) => current <= 0 ? Math.max(banners.length - 1, 0) : current - 1)}
+        onNext={() => setBannerIndex((current) => banners.length === 0 ? 0 : (current + 1) % banners.length)}
+        onSelect={setBannerIndex}
+      />
 
       {teaser ? (
         <section className="teaser-section" aria-live="polite">
@@ -276,36 +302,123 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function OpportunityPreview({ stats, teaser }: { stats: StatsResult; teaser: TeaserResult | null }) {
+function GrantCarousel({
+  banners,
+  activeBanner,
+  activeIndex,
+  onPrevious,
+  onNext,
+  onSelect,
+}: {
+  banners: LandingGrantBanner[];
+  activeBanner: LandingGrantBanner | null;
+  activeIndex: number;
+  onPrevious: () => void;
+  onNext: () => void;
+  onSelect: (index: number) => void;
+}) {
+  if (!activeBanner) return null;
+  const href = activeBanner.url ?? `/grants/${encodeURIComponent(activeBanner.grantId)}`;
+  const isExternal = Boolean(activeBanner.url);
+
+  return (
+    <section className="grant-carousel-section" aria-label="현재 지원 가능한 사업">
+      <div className="grant-carousel-header">
+        <div>
+          <p className="eyebrow">현재 지원 가능</p>
+          <h2>지금 열려 있는 지원사업</h2>
+        </div>
+        <div className="carousel-controls">
+          <button type="button" onClick={onPrevious} aria-label="이전 지원사업">
+            ‹
+          </button>
+          <span>{activeIndex + 1} / {banners.length}</span>
+          <button type="button" onClick={onNext} aria-label="다음 지원사업">
+            ›
+          </button>
+        </div>
+      </div>
+
+      <article className="grant-carousel-banner">
+        <div className="banner-main">
+          <div className="banner-kicker">
+            <span>{sourceLabel(activeBanner.source)}</span>
+            <span>{statusLabel(activeBanner.status)}</span>
+            <span>{formatDday(activeBanner.dDay)}</span>
+          </div>
+          <h3>{activeBanner.title}</h3>
+          <p>
+            {[activeBanner.agency, activeBanner.category, formatRegions(activeBanner.regions)]
+              .filter(Boolean)
+              .join(" · ")}
+          </p>
+        </div>
+        <div className="banner-side">
+          <div>
+            <span>지원금</span>
+            <strong>{formatMoney(activeBanner.supportAmountMax)}</strong>
+          </div>
+          <div>
+            <span>접수 마감</span>
+            <strong>{formatDate(activeBanner.applyEnd)}</strong>
+          </div>
+          <a
+            href={href}
+            {...(isExternal ? { target: "_blank", rel: "noreferrer" } : {})}
+          >
+            공고 보기
+          </a>
+        </div>
+      </article>
+
+      <div className="grant-carousel-rail" role="tablist" aria-label="지원사업 배너 목록">
+        {banners.map((banner, index) => (
+          <button
+            key={`${banner.source}:${banner.sourceId}`}
+            type="button"
+            className={index === activeIndex ? "active" : ""}
+            onClick={() => onSelect(index)}
+            aria-selected={index === activeIndex}
+          >
+            <span>{formatDday(banner.dDay)}</span>
+            <strong>{banner.title}</strong>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function OpportunityPreview({ stats, teaser }: { stats: LandingGrantStats; teaser: TeaserResult | null }) {
   const eligible = teaser?.counts.eligible ?? 0;
-  const conditional = teaser?.counts.conditional ?? 0;
+  const conditional = teaser?.counts.conditional ?? stats.unknownCount;
   const deadline = teaser?.counts.deadlineSoon ?? stats.deadlineSoonCount;
 
   return (
     <div className="opportunity-board" aria-label="기회 맵 미리보기">
       <div className="board-header">
         <span>Opportunity Map</span>
-        <strong>{teaser ? "개인화됨" : "집계 대기"}</strong>
+        <strong>{teaser ? "개인화됨" : `${stats.sourceCount}개 소스`}</strong>
       </div>
       <div className="board-lane active">
         <span className="lane-dot" />
         <div>
           <strong>지금 받을 수 있어요</strong>
-          <span>{eligible || stats.openCount}건 후보</span>
+          <span>{(eligible || stats.activeCount).toLocaleString("ko-KR")}건 후보</span>
         </div>
       </div>
       <div className="board-lane conditional">
         <span className="lane-dot" />
         <div>
           <strong>확인이 필요해요</strong>
-          <span>{conditional}건 조건부</span>
+          <span>{conditional.toLocaleString("ko-KR")}건 조건부</span>
         </div>
       </div>
       <div className="board-lane urgent">
         <span className="lane-dot" />
         <div>
           <strong>곧 닫혀요</strong>
-          <span>{deadline}건 마감 임박</span>
+          <span>{deadline.toLocaleString("ko-KR")}건 마감 임박</span>
         </div>
       </div>
       <div className="board-axis" aria-hidden="true">
@@ -420,6 +533,45 @@ function formatMoney(value: number): string {
   if (value >= 100_000_000) return `${Math.round(value / 100_000_000).toLocaleString("ko-KR")}억원`;
   if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만원`;
   return `${value.toLocaleString("ko-KR")}원`;
+}
+
+function sourceLabel(source: LandingGrantBanner["source"]): string {
+  if (source === "kstartup") return "K-Startup";
+  if (source === "bizinfo") return "기업마당";
+  return "행사";
+}
+
+function statusLabel(status: LandingGrantBanner["status"]): string {
+  if (status === "open") return "접수중";
+  if (status === "upcoming") return "접수예정";
+  if (status === "unknown") return "일정확인";
+  return "마감";
+}
+
+function formatDday(value: number | null): string {
+  if (value === null) return "상시";
+  if (value < 0) return "마감 확인";
+  if (value === 0) return "D-Day";
+  return `D-${value}`;
+}
+
+function formatDate(value: string | null): string {
+  if (!value) return "상시/확인 필요";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function formatRegions(regions: string[]): string | null {
+  if (regions.length === 0) return null;
+  if (regions.includes("nationwide")) return "전국";
+  return regions
+    .slice(0, 2)
+    .map((code) => KOREA_REGION_OPTIONS.find((region) => region.code === code)?.label ?? code)
+    .join(", ");
 }
 
 function eligibilityLabel(value: MatchCard["eligibility"]): string {
