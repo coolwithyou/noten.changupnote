@@ -19,6 +19,10 @@
     "typecheck": "pnpm build:packages && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
     "fetch:kstartup": "tsx packages/core/scripts/fetch-kstartup-live.ts",
+    "archive:kstartup": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/archive-kstartup.ts",
+    "archive:bizinfo": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/archive-bizinfo.ts",
+    "archive:cycle": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/run-grant-archive-cycle.ts",
+    "insights:grants": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/insights/generate-grant-insights.ts",
     "match:live": "tsx packages/core/scripts/match-live-company.ts",
     "match:states:refresh": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/refresh-match-states-cli.ts",
     "match:transitions:plan": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/plan-match-transitions-cli.ts",
@@ -43,6 +47,11 @@
     "verify:demo-seed": "tsx apps/web/src/lib/server/db/seed-demo.ts --dry-run",
     "verify:bizinfo-publish": "tsx apps/web/src/lib/server/ingestion/verify-bizinfo-publish.ts",
     "verify:ingestion-publish": "tsx apps/web/src/lib/server/ingestion/verify-kstartup-publish.ts",
+    "verify:kstartup-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-kstartup-archive.ts",
+    "verify:bizinfo-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-bizinfo-archive.ts",
+    "verify:grant-attachment-archive": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-grant-attachment-archive.ts",
+    "verify:grant-insights": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/insights/verify-grant-insights.ts",
+    "verify:landing-grants": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/landing/verify-landing-grant-data.ts",
     "verify:ingestion-batch": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/verify-ingestion-batch-plan.ts",
     "verify:grant-criteria-schema": "tsx packages/contracts/scripts/verify-grant-criteria-schema.ts",
     "verify:openapi": "tsx packages/contracts/scripts/verify-openapi.ts",
@@ -61,7 +70,7 @@
     "verify:rls-policy": "tsx packages/contracts/scripts/verify-rls-policy.ts",
     "verify:bizinfo": "tsx packages/core/scripts/verify-bizinfo-fetch.ts",
     "verify:kstartup": "tsx packages/core/scripts/verify-kstartup-slice.ts",
-    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:route-policy && pnpm verify:admin-routes && pnpm verify:package-boundaries && pnpm verify:company-access && pnpm verify:company-enrichment && pnpm verify:web-regions && pnpm verify:service-data && pnpm verify:consent-store && pnpm verify:runtime-repositories && pnpm verify:app-auth && pnpm verify:rls-context && pnpm verify:rls-policy && pnpm verify:kstartup && pnpm verify:dedup && pnpm verify:matching-eval && pnpm verify:service-usecases && pnpm verify:match-transitions && pnpm verify:demo-seed && pnpm verify:db-doctor && pnpm verify:db-bootstrap-plan && pnpm verify:db-smoke-plan && pnpm verify:ingestion-publish && pnpm verify:bizinfo-publish && pnpm verify:bizinfo && pnpm verify:company-profile"
+    "test": "pnpm typecheck && pnpm verify:openapi && pnpm verify:grant-criteria-schema && pnpm verify:route-policy && pnpm verify:admin-routes && pnpm verify:package-boundaries && pnpm verify:company-access && pnpm verify:company-enrichment && pnpm verify:web-regions && pnpm verify:service-data && pnpm verify:consent-store && pnpm verify:runtime-repositories && pnpm verify:app-auth && pnpm verify:rls-context && pnpm verify:rls-policy && pnpm verify:kstartup && pnpm verify:kstartup-archive && pnpm verify:bizinfo-archive && pnpm verify:grant-attachment-archive && pnpm verify:grant-insights && pnpm verify:dedup && pnpm verify:matching-eval && pnpm verify:service-usecases && pnpm verify:match-transitions && pnpm verify:demo-seed && pnpm verify:db-doctor && pnpm verify:db-bootstrap-plan && pnpm verify:db-smoke-plan && pnpm verify:ingestion-publish && pnpm verify:bizinfo-publish && pnpm verify:bizinfo && pnpm verify:company-profile"
   },
   "devDependencies": {
     "@types/node": "^24.0.4",

@@ -10,6 +10,8 @@ export interface AdminFlywheelSnapshot {
     matchEvents: number;
     goldenSet: number;
     evalRuns: number;
+    grantInsightSnapshots: number;
+    grantAttachmentArchives: number;
   };
   recent: {
     extractionLog: AdminExtractionLogItem[];
@@ -17,6 +19,8 @@ export interface AdminFlywheelSnapshot {
     matchEvents: AdminMatchEventItem[];
     goldenSet: AdminGoldenSetItem[];
     evalRuns: AdminEvalRunItem[];
+    grantInsightSnapshots: AdminGrantInsightSnapshotItem[];
+    grantAttachmentArchives: AdminGrantAttachmentArchiveItem[];
   };
 }
 
@@ -65,6 +69,25 @@ export interface AdminEvalRunItem {
   ts: string;
 }
 
+export interface AdminGrantInsightSnapshotItem {
+  id: string;
+  kind: string;
+  generatedAt: string;
+  metricKeys: string[];
+  insightCount: number;
+}
+
+export interface AdminGrantAttachmentArchiveItem {
+  id: string;
+  source: string;
+  sourceId: string;
+  filename: string;
+  conversionStatus: string | null;
+  archiveUrl: string | null;
+  markdownUrl: string | null;
+  updatedAt: string;
+}
+
 export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheelSnapshot> {
   const db = getCunoteDb();
   const safeLimit = Math.max(1, Math.min(20, limit));
@@ -75,17 +98,23 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
     matchEventCount,
     goldenCount,
     evalCount,
+    grantInsightSnapshotCount,
+    grantAttachmentArchiveCount,
     extractionRows,
     feedbackRows,
     matchEventRows,
     goldenRows,
     evalRows,
+    grantInsightSnapshotRows,
+    grantAttachmentArchiveRows,
   ] = await Promise.all([
     rowCount(db.select({ value: count() }).from(schema.extractionLog)),
     rowCount(db.select({ value: count() }).from(schema.feedback)),
     rowCount(db.select({ value: count() }).from(schema.matchEvents)),
     rowCount(db.select({ value: count() }).from(schema.goldenSet)),
     rowCount(db.select({ value: count() }).from(schema.evalRuns)),
+    rowCount(db.select({ value: count() }).from(schema.grantInsightSnapshots)),
+    rowCount(db.select({ value: count() }).from(schema.grantAttachmentArchives)),
     db
       .select()
       .from(schema.extractionLog)
@@ -111,6 +140,16 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
       .from(schema.evalRuns)
       .orderBy(desc(schema.evalRuns.ts))
       .limit(safeLimit),
+    db
+      .select()
+      .from(schema.grantInsightSnapshots)
+      .orderBy(desc(schema.grantInsightSnapshots.generatedAt))
+      .limit(safeLimit),
+    db
+      .select()
+      .from(schema.grantAttachmentArchives)
+      .orderBy(desc(schema.grantAttachmentArchives.updatedAt))
+      .limit(safeLimit),
   ]);
 
   return {
@@ -121,6 +160,8 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
       matchEvents: matchEventCount,
       goldenSet: goldenCount,
       evalRuns: evalCount,
+      grantInsightSnapshots: grantInsightSnapshotCount,
+      grantAttachmentArchives: grantAttachmentArchiveCount,
     },
     recent: {
       extractionLog: extractionRows.map((row) => ({
@@ -162,6 +203,23 @@ export async function getAdminFlywheelSnapshot(limit = 8): Promise<AdminFlywheel
         goldenVer: row.goldenVer,
         metricKeys: Object.keys(row.metrics).sort(),
         ts: row.ts.toISOString(),
+      })),
+      grantInsightSnapshots: grantInsightSnapshotRows.map((row) => ({
+        id: row.id,
+        kind: row.kind,
+        generatedAt: row.generatedAt.toISOString(),
+        metricKeys: Object.keys(row.metrics).sort(),
+        insightCount: row.insights.length,
+      })),
+      grantAttachmentArchives: grantAttachmentArchiveRows.map((row) => ({
+        id: row.id,
+        source: row.source,
+        sourceId: row.sourceId,
+        filename: row.filename,
+        conversionStatus: row.conversionStatus,
+        archiveUrl: row.archiveUrl,
+        markdownUrl: row.markdownUrl,
+        updatedAt: row.updatedAt.toISOString(),
       })),
     },
   };

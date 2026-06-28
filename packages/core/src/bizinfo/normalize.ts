@@ -13,7 +13,7 @@ import {
   htmlToText,
   normalizeBizInfoUrl,
 } from "./extraction-input.js";
-import type { BizInfoProgram } from "./types.js";
+import type { BizInfoAttachmentMarkdown, BizInfoProgram } from "./types.js";
 
 export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v1";
 
@@ -22,12 +22,16 @@ export function normalizeBizInfoProgram(
   criteria: GrantCriterion[],
   options: {
     asOf?: Date;
+    attachmentMarkdowns?: BizInfoAttachmentMarkdown[];
+    attachments?: GrantRaw<BizInfoProgram>["attachments"];
     collectedAt?: Date;
     model?: string | null;
     requiredDocuments?: GrantRequiredDocument[];
   } = {},
 ): NormalizedGrant<BizInfoProgram> {
-  const input = buildBizInfoProgramExtractionInput(program);
+  const input = buildBizInfoProgramExtractionInput(program, options.attachmentMarkdowns
+    ? { attachmentMarkdowns: options.attachmentMarkdowns }
+    : {});
   const applyPeriod = parseBizInfoApplyPeriod(input.metadata.apply_period);
   const projection = deriveProjection(criteria);
   const asOf = options.asOf ?? new Date();
@@ -35,7 +39,7 @@ export function normalizeBizInfoProgram(
     source: "bizinfo",
     source_id: program.pblancId,
     payload: program,
-    attachments: input.metadata.attachments.length > 0 ? input.metadata.attachments : null,
+    attachments: options.attachments ?? (input.metadata.attachments.length > 0 ? input.metadata.attachments : null),
     collected_at: (options.collectedAt ?? new Date()).toISOString(),
     status: criteria.length > 0 ? "normalized" : "extracted",
   };

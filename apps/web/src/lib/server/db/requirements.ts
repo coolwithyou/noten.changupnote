@@ -14,6 +14,7 @@ export const REQUIRED_TABLES = [
   "grants",
   "grant_raw",
   "grant_criteria",
+  "grant_attachment_archives",
   "source_cursor",
   "dedup_links",
   "match_state",
@@ -22,6 +23,7 @@ export const REQUIRED_TABLES = [
   "extraction_log",
   "golden_set",
   "eval_runs",
+  "grant_insight_snapshots",
 ] as const;
 
 export const RLS_TABLES = [

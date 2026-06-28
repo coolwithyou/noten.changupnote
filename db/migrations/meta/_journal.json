@@ -40,8 +40,29 @@
     {
       "idx": 5,
       "version": "7",
-      "when": 1782542205589,
-      "tag": "0005_certain_korg",
+      "when": 1782540112677,
+      "tag": "0005_familiar_thaddeus_ross",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782543219587,
+      "tag": "0006_lucky_random",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782544352426,
+      "tag": "0007_restore_grant_insight_snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782607875427,
+      "tag": "0008_users_password_hash",
       "breakpoints": true
     }
   ]

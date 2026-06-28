@@ -1,8 +1,8 @@
-import { createHash } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 import type { Grant, GrantCriterion, GrantRaw, GrantSource, NormalizedGrant } from "@cunote/contracts";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
+import { hashGrantRawPayload } from "./grantRawHash";
 
 export interface NormalizedGrantPublishPlan {
   source: GrantSource;
@@ -27,7 +27,7 @@ export function planNormalizedGrantPublication<TPayload>(
     rawCount: entries.length,
     grantCount: entries.length,
     criteriaCount: entries.reduce((sum, entry) => sum + entry.criteria.length, 0),
-    rawHashes: entries.map((entry) => rawPayloadHash(entry.raw.payload)),
+    rawHashes: entries.map((entry) => hashGrantRawPayload(entry.raw.payload)),
   };
 }
 
@@ -52,7 +52,7 @@ export async function publishNormalizedGrants<TPayload>(
           sourceId: entry.raw.source_id,
           payload: entry.raw.payload as unknown as Record<string, unknown>,
           attachments: rawAttachments(entry.raw.attachments),
-          rawHash: rawPayloadHash(entry.raw.payload),
+          rawHash: hashGrantRawPayload(entry.raw.payload),
           collectedAt,
           status: "published",
         })
@@ -61,7 +61,7 @@ export async function publishNormalizedGrants<TPayload>(
           set: {
             payload: entry.raw.payload as unknown as Record<string, unknown>,
             attachments: rawAttachments(entry.raw.attachments),
-            rawHash: rawPayloadHash(entry.raw.payload),
+            rawHash: hashGrantRawPayload(entry.raw.payload),
             collectedAt,
             status: "published",
           },
@@ -85,6 +85,50 @@ export async function publishNormalizedGrants<TPayload>(
         await tx.insert(schema.grantCriteria).values(
           entry.criteria.map((criterion) => criterionInsertValues(grant.id, criterion)),
         );
+      }
+
+      const archivedAttachments = grantAttachmentArchiveRows(entry);
+      if (archivedAttachments.length > 0) {
+        await tx
+          .delete(schema.grantAttachmentArchives)
+          .where(and(
+            eq(schema.grantAttachmentArchives.source, entry.raw.source),
+            eq(schema.grantAttachmentArchives.sourceId, entry.raw.source_id),
+            notInArray(
+              schema.grantAttachmentArchives.sourceUri,
+              archivedAttachments.map((attachment) => attachment.sourceUri ?? ""),
+            ),
+          ));
+        for (const attachment of archivedAttachments) {
+          await tx
+            .insert(schema.grantAttachmentArchives)
+            .values(attachment)
+            .onConflictDoUpdate({
+              target: [
+                schema.grantAttachmentArchives.source,
+                schema.grantAttachmentArchives.sourceId,
+                schema.grantAttachmentArchives.filename,
+                schema.grantAttachmentArchives.sourceUri,
+              ],
+              set: {
+                archiveUrl: attachment.archiveUrl,
+                storageKey: attachment.storageKey,
+                contentType: attachment.contentType,
+                bytes: attachment.bytes,
+                sha256: attachment.sha256,
+                fetchedAt: attachment.fetchedAt,
+                conversionStatus: attachment.conversionStatus,
+                markdownUrl: attachment.markdownUrl,
+                markdownStorageKey: attachment.markdownStorageKey,
+                markdownSha256: attachment.markdownSha256,
+                markdownBytes: attachment.markdownBytes,
+                converter: attachment.converter,
+                convertedAt: attachment.convertedAt,
+                conversionError: attachment.conversionError,
+                updatedAt: collectedAt,
+              },
+            });
+        }
       }
     }
 
@@ -183,21 +227,44 @@ function rawAttachments(
   return value as Array<Record<string, unknown>>;
 }
 
-function rawPayloadHash(payload: unknown): string {
-  return createHash("sha256").update(stableJsonStringify(payload)).digest("hex");
+function grantAttachmentArchiveRows<TPayload>(
+  entry: NormalizedGrant<TPayload>,
+): Array<typeof schema.grantAttachmentArchives.$inferInsert> {
+  return (entry.raw.attachments ?? []).flatMap((attachment) => {
+    const filename = textValue(attachment.filename);
+    if (!filename) return [];
+    const sourceUri = textValue(attachment.source_uri) ?? textValue(attachment.url) ?? "";
+    const conversion = attachment.conversion;
+    const row: typeof schema.grantAttachmentArchives.$inferInsert = {
+      source: entry.raw.source,
+      sourceId: entry.raw.source_id,
+      filename,
+      sourceUri,
+      archiveUrl: textValue(attachment.archive_url) ?? textValue(attachment.url),
+      storageKey: textValue(attachment.storage_key),
+      contentType: textValue(attachment.content_type),
+      bytes: numberValue(attachment.bytes),
+      sha256: textValue(attachment.sha256),
+      fetchedAt: dateValue(textValue(attachment.fetched_at)),
+      conversionStatus: conversion?.status ?? null,
+      markdownUrl: textValue(conversion?.markdown_url),
+      markdownStorageKey: textValue(conversion?.markdown_storage_key),
+      markdownSha256: textValue(conversion?.markdown_sha256),
+      markdownBytes: numberValue(conversion?.markdown_bytes),
+      converter: textValue(conversion?.converter),
+      convertedAt: dateValue(textValue(conversion?.converted_at)),
+      conversionError: textValue(conversion?.error),
+    };
+    return [row];
+  });
 }
 
-function stableJsonStringify(value: unknown): string {
-  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
-  if (value instanceof Date) return JSON.stringify(value.toISOString());
-  if (Array.isArray(value)) return `[${value.map((item) => stableJsonStringify(item)).join(",")}]`;
+function textValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
 
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .filter((key) => record[key] !== undefined)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`)
-    .join(",")}}`;
+function numberValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function assertEntriesUseSource<TPayload>(

@@ -179,12 +179,12 @@ function evaluateBizAge(criterion: GrantCriterion, company: CompanyProfile): Rul
 
 function evaluateFounderAge(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
   const value = criterion.value as FounderAgeCriterionValue;
-  if (company.founder_age === null || company.founder_age === undefined) {
-    return trace(criterion, "unknown", "대표자 연령 확인 필요");
-  }
   const ranges = Array.isArray(value.ranges) ? value.ranges : [];
   if (ranges.length === 0) {
     return trace(criterion, "unknown", "대표자 연령 조건 확인 필요");
+  }
+  if (company.founder_age === null || company.founder_age === undefined) {
+    return trace(criterion, "unknown", "대표자 연령 확인 필요");
   }
   const labels = Array.isArray(value.labels) && value.labels.length > 0
     ? value.labels

@@ -303,6 +303,34 @@ export const grantCriteria = pgTable("grant_criteria", {
   reviewIdx: index("grant_criteria_review_idx").on(table.needsReview),
 }));
 
+export const grantAttachmentArchives = pgTable("grant_attachment_archives", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  source: grantSourceEnum("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  filename: text("filename").notNull(),
+  sourceUri: text("source_uri").notNull().default(""),
+  archiveUrl: text("archive_url"),
+  storageKey: text("storage_key"),
+  contentType: text("content_type"),
+  bytes: integer("bytes"),
+  sha256: text("sha256"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }),
+  conversionStatus: text("conversion_status"),
+  markdownUrl: text("markdown_url"),
+  markdownStorageKey: text("markdown_storage_key"),
+  markdownSha256: text("markdown_sha256"),
+  markdownBytes: integer("markdown_bytes"),
+  converter: text("converter"),
+  convertedAt: timestamp("converted_at", { withTimezone: true }),
+  conversionError: text("conversion_error"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  sourceAttachmentIdx: uniqueIndex("grant_attachment_archives_source_attachment_idx")
+    .on(table.source, table.sourceId, table.filename, table.sourceUri),
+  sourceIdIdx: index("grant_attachment_archives_source_id_idx").on(table.source, table.sourceId),
+  shaIdx: index("grant_attachment_archives_sha_idx").on(table.sha256),
+}));
+
 export const dedupLinks = pgTable("dedup_links", {
   canonicalGrantId: uuid("canonical_grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
   memberGrantId: uuid("member_grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
@@ -391,6 +419,19 @@ export const evalRuns = pgTable("eval_runs", {
   ts: timestamp("ts", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   targetVerIdx: index("eval_runs_target_ver_idx").on(table.target, table.goldenVer),
+}));
+
+export const grantInsightSnapshots = pgTable("grant_insight_snapshots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kind: text("kind").notNull(),
+  windowStart: timestamp("window_start", { withTimezone: true }),
+  windowEnd: timestamp("window_end", { withTimezone: true }),
+  generatedAt: timestamp("generated_at", { withTimezone: true }).defaultNow().notNull(),
+  metrics: jsonb("metrics").$type<Record<string, number>>().notNull(),
+  dimensions: jsonb("dimensions").$type<Record<string, unknown>>().notNull(),
+  insights: jsonb("insights").$type<Array<Record<string, unknown>>>().notNull(),
+}, (table) => ({
+  kindGeneratedIdx: index("grant_insight_snapshots_kind_generated_idx").on(table.kind, table.generatedAt),
 }));
 
 export const versions = pgTable("versions", {
