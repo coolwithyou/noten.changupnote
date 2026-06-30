@@ -19,6 +19,7 @@ node_modules/
 *.tsbuildinfo
 tmp/
 output/
+_ir_review_tmp/
 dist/
 build/
 coverage/
