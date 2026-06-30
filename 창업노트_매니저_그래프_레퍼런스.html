@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>창업노트 매니저 — 구조화 노드 그래프 (보정본)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.5.0/dist/tabler-icons.min.css">
+<style>
+  :root{--bg:#f5f7fa;--node:#fff;--line:#e3e7ee;--t1:#1f2733;--t2:#697180;--t3:#9aa3b1;
+    --blue:#2f6df0;--mint:#10b497;--green:#2f9e5e;--amber:#c98318;--gbg:#eaf6ef;--abg:#fbf2e2;--bbg:#eaf1fe;--mbg:#eef1f6;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:Pretendard,system-ui,sans-serif;-webkit-font-smoothing:antialiased;color:var(--t1);padding:24px}
+  .frame{max-width:1100px;margin:0 auto;background:#fbfcfe;border:1px solid var(--line);border-radius:16px;overflow:hidden}
+  .bar{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--line);background:#fff}
+  .bar .nm{font-weight:600;font-size:15px} .bar .sub{font-size:13px;color:var(--t2)}
+  .pills{display:flex;gap:8px;margin-left:auto;font-size:12.5px}
+  .pill{padding:4px 10px;border-radius:8px;background:var(--mbg);color:var(--t2)}
+  .pill b{color:var(--t1)}
+  .lanes{display:grid;grid-template-columns:184px 230px 240px 250px;border-bottom:1px solid var(--line);background:#fff}
+  .lanes div{padding:10px 16px;font-size:12.5px;font-weight:600;color:var(--t2);border-right:1px dashed var(--line)}
+  .board{position:relative;height:540px;
+    background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:18px 18px;background-position:8px 8px}
+  svg{position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none}
+  .node{position:absolute;z-index:1;background:var(--node);border:1px solid var(--line);border-radius:13px;padding:11px 13px;width:172px;box-shadow:0 1px 2px rgba(20,30,50,.04)}
+  .node .ttl{font-size:13.5px;font-weight:600;line-height:1.3}
+  .node .mt{font-size:12px;color:var(--t2);margin-top:3px}
+  .node.root{border-color:var(--mint);width:150px}
+  .node.gA{border-left:3px solid var(--green)} .node.gB{border-left:3px solid var(--amber)} .node.gC{border-left:3px solid var(--blue)}
+  .tag{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:6px;margin-bottom:5px}
+  .st{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600}
+  .st i{font-size:14px}
+  .ok{color:var(--green)} .miss{color:var(--amber)} .lk{color:var(--blue)}
+  .badge{float:right;font-size:11.5px;font-weight:600;color:var(--t2)}
+  .coach{position:absolute;top:-9px;right:-9px;width:22px;height:22px;border-radius:50%;background:var(--abg);color:var(--amber);border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:12px}
+  .cap{margin:10px auto 0;max-width:1100px;font-size:12px;color:var(--t3);display:flex;align-items:center;gap:6px}
+</style>
+</head>
+<body>
+<div class="frame">
+  <div class="bar">
+    <i class="ti ti-layout-board" style="font-size:20px;color:var(--blue)"></i>
+    <div><div class="nm">창업노트 매니저</div><div class="sub">(가칭)테크스타트 · 경기 · 신청 준비 워룸</div></div>
+    <div class="pills">
+      <span class="pill">지원 가능 <b>5</b></span><span class="pill">준비 중 <b>3</b></span>
+      <span class="pill" style="background:var(--abg);color:var(--amber)">누락 서류 <b>4</b></span>
+      <span class="pill" style="background:var(--bbg);color:var(--blue)">마감 임박 <b>2</b></span>
+    </div>
+  </div>
+  <div class="lanes"><div>내 사업자</div><div>지원사업</div><div>필요 서류 (표준)</div><div>준비물 · 검토</div></div>
+  <div class="board" id="bd">
+    <svg id="edges"></svg>
+
+    <div class="node root" style="left:14px;top:228px"><div class="ttl">테크스타트</div><div class="mt">경기 · 업력 2년 · ICT/SW</div></div>
+
+    <div class="node gA" style="left:222px;top:54px"><span class="tag" style="background:var(--gbg);color:var(--green)">준비 중</span><span class="badge">서류 5/7</span><div class="ttl">2026 초기창업패키지</div><div class="mt">창업진흥원 · D-6</div></div>
+    <div class="node gB" style="left:222px;top:230px"><span class="tag" style="background:var(--abg);color:var(--amber)">확인 필요</span><span class="badge">서류 3/6</span><div class="ttl">디지털 창업 사업화 지원</div><div class="mt">전국 · D-12</div></div>
+    <div class="node gC" style="left:222px;top:412px"><span class="tag" style="background:var(--bbg);color:var(--blue)">준비 필요</span><div class="ttl">벤처 전용 R&amp;D</div><div class="mt">전국 · D-20 · 벤처확인 必</div></div>
+
+    <div class="node" style="left:506px;top:54px"><span class="tag" style="background:var(--mbg);color:var(--t2)">공통 · 3개 공고</span><div class="ttl">사업자등록증명</div><div class="mt"><span class="st ok"><i class="ti ti-circle-check"></i>보유</span></div></div>
+    <div class="node" style="left:506px;top:160px"><div class="ttl">재무제표</div><div class="mt"><span class="st ok"><i class="ti ti-circle-check"></i>보유 · 2개 공고</span></div></div>
+    <div class="node" style="left:506px;top:262px"><div class="ttl">사업계획서</div><div class="mt"><span class="st miss"><i class="ti ti-alert-circle"></i>누락 · 초안 생성중</span></div></div>
+    <div class="node" style="left:506px;top:366px"><div class="ttl">4대보험 가입자명부</div><div class="mt"><span class="st ok"><i class="ti ti-circle-check"></i>보유</span></div></div>
+
+    <div class="node" style="left:790px;top:54px"><div class="ttl">사업자등록증.pdf</div><div class="mt"><span class="st ok"><i class="ti ti-file-check"></i>업로드 · 매칭됨</span></div></div>
+    <div class="node" style="left:790px;top:250px"><div class="coach"><i class="ti ti-user"></i></div><span class="tag" style="background:var(--bbg);color:var(--blue)">AI 초안</span><div class="ttl">초기창업 사업계획 초안</div><div class="mt"><span class="st miss"><i class="ti ti-pencil"></i>생성중 · 코치 검토 필요</span></div></div>
+  </div>
+</div>
+<div class="cap"><i class="ti ti-shield-check"></i> 자동제출 아님 — 서류 세트 완성·딥링크까지. "사업자등록증 1개 → 3개 공고 재사용"이 한눈에.</div>
+
+<script>
+(function(){
+  const A={ // 앵커 좌표 (board 기준)
+    comp:[164,274], aR:[394,98],bR:[394,274],cR:[394,448],
+    aL:[222,98],bL:[222,274],cL:[222,448],
+    d1L:[506,90],d1R:[678,90], d2L:[506,196], d3L:[506,300],d3R:[678,300], d4L:[506,402],
+    fL:[790,90], drL:[790,300]
+  };
+  const E=[
+    ['comp','aL','m'],['comp','bL','m'],['comp','cL','m'],
+    ['aR','d1L','g'],['bR','d1L','g'],['cR','d1L','g'],
+    ['aR','d2L','g'],['bR','d2L','g'],
+    ['aR','d3L','a'],['bR','d3L','a'],
+    ['aR','d4L','g'],
+    ['d1R','fL','g'],['d3R','drL','a']
+  ];
+  const C={g:'#2f9e5e',a:'#c98318',m:'#b4bdca'};
+  const bd=document.getElementById('bd'), svg=document.getElementById('edges');
+  const W=bd.clientWidth, H=bd.clientHeight; svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+  let p='';
+  for(const [s,e,c] of E){const [x1,y1]=A[s],[x2,y2]=A[e];const dx=Math.max(40,(x2-x1)*0.5);
+    p+=`<path d="M${x1} ${y1} C${x1+dx} ${y1}, ${x2-dx} ${y2}, ${x2} ${y2}" fill="none" stroke="${C[c]}" stroke-width="${c==='m'?1.4:2}" stroke-opacity="${c==='m'?0.5:0.85}"/>`;
+  }
+  svg.innerHTML=p;
+})();
+</script>
+</body>
+</html>

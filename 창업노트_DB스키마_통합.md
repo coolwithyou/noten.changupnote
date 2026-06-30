@@ -41,6 +41,16 @@ reference: industry_taxonomy · region_hierarchy · size_thresholds · source_cu
 **eval_runs** `id pk · target(extraction|matching) · version_refs jsonb · metrics jsonb · golden_ver · ts`
 **versions** `id pk · type(model|prompt|ruleset|scoring|taxonomy) · hash · notes · activated_at`
 
+## 5.5 매니저 워룸 (Phase 2 — 신청 준비)
+**document_types** (서류 표준 타입) `id pk · name · category · default_source(self|portal|cert) · reusable(high|mid|low) · ver`
+**grant_required_docs** `grant_id fk · document_type_id fk · required bool · source_span` (= `required_documents`의 정규화)
+**uploaded_files** `id pk · company_id fk · r2_ref · recognized_type fk document_types · uploaded_at`
+**file_doc_links** `file_id fk · grant_required_doc_id fk · verified bool` (파일↔필요서류 매칭)
+**qa_answers** `id pk · company_id · question_key · answer · updated_at`
+**ai_drafts** `id pk · company_id · grant_id · type(사업계획서|신청서|IR) · status(생성중|초안|검토) · ref`
+**coach_comments** `id pk · target_node(grant|doc|draft+id) · company_id · coach_id · body · status(검토필요|보완요청|승인) · ts`
+**applications** `id pk · company_id · grant_id · prep_status · docs_done/docs_total · updated_at` (공고별 준비 상태)
+
 ## 6. 레퍼런스/운영 (매핑 자산)
 **industry_taxonomy** `ksic · policy_tag · ver` · **region_hierarchy** `sigungu · sido · region_group` · **size_thresholds** `ksic · seg · 매출·고용 임계` · **source_cursor** `source · last_page · last_collected_at`
 
