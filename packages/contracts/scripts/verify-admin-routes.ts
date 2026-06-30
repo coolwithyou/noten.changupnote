@@ -7,10 +7,22 @@ const adminStatusRoute = resolve(adminRouteRoot, "status/route.ts");
 const expectedAdminSurfaces = [
   "extraction_log",
   "feedback",
+  "review_queue",
   "match_events",
   "golden_set",
   "eval_runs",
   "grant_insight_snapshots",
+  "grant_attachment_archives",
+  "support_tickets",
+  "billing_subscriptions",
+  "billing_tax_profiles",
+  "billing_tax_documents",
+  "billing_invoices",
+  "billing_payment_methods",
+  "billing_webhook_events",
+  "legal_readiness",
+  "saas_readiness",
+  "saas_release_checklist",
 ];
 const errors: string[] = [];
 

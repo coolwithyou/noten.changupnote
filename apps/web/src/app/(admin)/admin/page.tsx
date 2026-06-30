@@ -1,11 +1,14 @@
+import { Download } from "lucide-react";
 import { getOptionalAdminAccess } from "@/lib/server/auth/adminGuard";
 import { getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { MetricCard } from "@/components/app/metric-card";
 import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
+import { buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import { AdminSupportTicketPanel } from "@/features/admin/AdminSupportTicketPanel";
 import {
   getAdminFlywheelSnapshot,
   type AdminFlywheelSnapshot,
@@ -38,6 +41,11 @@ const SURFACES: Array<{
     body: "사용자 명시 피드백과 outcome 신호",
   },
   {
+    key: "reviewQueue",
+    title: "review_queue",
+    body: "오류/막힘 피드백 기반 매칭 보정 후보",
+  },
+  {
     key: "matchEvents",
     title: "match_events",
     body: "노출, 저장, 신청 클릭 행동 신호",
@@ -61,6 +69,51 @@ const SURFACES: Array<{
     key: "grantAttachmentArchives",
     title: "grant_attachment_archives",
     body: "첨부 원본 R2 보관본과 HWP Markdown 변환 상태",
+  },
+  {
+    key: "grantDocumentDrafts",
+    title: "grant_document_drafts",
+    body: "지원서 초안 저장본과 자동채움 준비 상태",
+  },
+  {
+    key: "grantDocumentDraftQualityEvents",
+    title: "grant_document_draft_quality_events",
+    body: "초안 품질 피드백과 개선 신호",
+  },
+  {
+    key: "supportTickets",
+    title: "support_tickets",
+    body: "고객지원 문의와 운영 응답 큐",
+  },
+  {
+    key: "billingSubscriptions",
+    title: "billing_subscriptions",
+    body: "회사별 구독 상태와 provider 전환 상태",
+  },
+  {
+    key: "billingTaxProfiles",
+    title: "billing_tax_profiles",
+    body: "청구 담당자와 세금계산서 수신 정보",
+  },
+  {
+    key: "billingTaxDocuments",
+    title: "billing_tax_documents",
+    body: "청구 증빙 파일 R2 보관 상태",
+  },
+  {
+    key: "billingInvoices",
+    title: "billing_invoices",
+    body: "provider 청구서와 영수증 projection",
+  },
+  {
+    key: "billingPaymentMethods",
+    title: "billing_payment_methods",
+    body: "provider 결제수단 표시용 snapshot",
+  },
+  {
+    key: "billingWebhookEvents",
+    title: "billing_webhook_events",
+    body: "결제 provider webhook 수신과 처리 결과",
   },
 ];
 
@@ -91,6 +144,7 @@ export default async function AdminPage() {
       {access ? (
         <>
           {runtime ? <RuntimePanel runtime={runtime} /> : null}
+          {runtime ? <SaasReadinessPanel readiness={runtime.saasReadiness} /> : null}
           <TransitionPanel plan={transitionPlan} />
 
           <section className="admin-grid">
@@ -116,7 +170,27 @@ export default async function AdminPage() {
                 />
                 <RecentList
                   title="feedback"
-                  items={snapshot.recent.feedback.map((item) => `${item.type} · ${item.targetType}:${item.targetId}`)}
+                  items={snapshot.recent.feedback.map((item) =>
+                    [
+                      item.type,
+                      item.kind ?? "kind?",
+                      item.outcome ?? item.reasonCode ?? "signal",
+                      item.hasCorrection ? "correction" : null,
+                      `${item.targetType}:${item.targetId}`,
+                    ].filter(Boolean).join(" · ")
+                  )}
+                />
+                <RecentList
+                  title="review"
+                  items={snapshot.recent.reviewQueue.map((item) =>
+                    [
+                      item.priority,
+                      item.reasonCode ?? item.kind ?? "review",
+                      item.correction?.dimension ?? "match",
+                      item.goldenCandidate?.ready ? "golden-ready" : "needs-label",
+                      item.grantId ?? item.targetId,
+                    ].filter(Boolean).join(" · ")
+                  )}
                 />
                 <RecentList
                   title="events"
@@ -128,7 +202,15 @@ export default async function AdminPage() {
                 />
                 <RecentList
                   title="eval"
-                  items={snapshot.recent.evalRuns.map((item) => `${item.target} · ${item.goldenVer}`)}
+                  items={snapshot.recent.evalRuns.map((item) =>
+                    [
+                      item.target,
+                      item.goldenVer,
+                      item.accuracy === null ? null : `acc ${formatPercent(item.accuracy)}`,
+                      item.coverage === null ? null : `coverage ${formatPercent(item.coverage)}`,
+                      item.evaluable === null ? null : `${item.evaluable} eval`,
+                    ].filter(Boolean).join(" · ")
+                  )}
                 />
                 <RecentList
                   title="insights"
@@ -138,6 +220,55 @@ export default async function AdminPage() {
                   title="attachments"
                   items={snapshot.recent.grantAttachmentArchives.map((item) => `${item.conversionStatus ?? "archived"} · ${item.filename}`)}
                 />
+                <RecentList
+                  title="drafts"
+                  items={snapshot.recent.grantDocumentDrafts.map((item) =>
+                    `${item.status} · ${item.documentName} · 입력필요 ${item.missingFieldCount} · 자동채움 ${item.filledFieldCount}`
+                  )}
+                />
+                <RecentList
+                  title="draft feedback"
+                  items={snapshot.recent.grantDocumentDraftQualityEvents.map((item) =>
+                    `${item.kind ?? "unknown"} · ${item.documentName ?? "document?"} · ${item.status ?? "status?"}`
+                  )}
+                />
+                <RecentList
+                  title="billing"
+                  items={snapshot.recent.billingSubscriptions.map((item) =>
+                    `${item.statusLabel} · ${item.planName} · ${item.providerLabel} · ${item.companyName}`
+                  )}
+                />
+                <RecentList
+                  title="tax"
+                  items={snapshot.recent.billingTaxProfiles.map((item) =>
+                    `${item.taxInvoiceEnabled ? "tax-on" : "tax-off"} · ${item.taxInvoiceEmail ?? item.recipientEmail ?? "email?"} · ${item.companyName}`
+                  )}
+                />
+                <RecentList
+                  title="tax docs"
+                  items={snapshot.recent.billingTaxDocuments.map((item) =>
+                    `${item.statusLabel} · ${item.documentKindLabel} · ${item.filename} · ${item.companyName}`
+                  )}
+                />
+                <RecentList
+                  title="invoices"
+                  items={snapshot.recent.billingInvoices.map((item) =>
+                    `${item.statusLabel} · ${formatMoney(item.amountPaid || item.amountDue, item.currency)} · ${item.companyName}`
+                  )}
+                />
+                <RecentList
+                  title="payment"
+                  items={snapshot.recent.billingPaymentMethods.map((item) =>
+                    `${item.statusLabel} · ${item.displayLabel} · ${item.companyName}`
+                  )}
+                />
+                <RecentList
+                  title="webhooks"
+                  items={snapshot.recent.billingWebhookEvents.map((item) =>
+                    `${item.processingStatus} · ${item.provider} · ${item.eventType}`
+                  )}
+                />
+                <AdminSupportTicketPanel tickets={snapshot.recent.supportTickets} />
               </div>
             ) : (
               <Empty>
@@ -165,12 +296,27 @@ function RuntimePanel({ runtime }: { runtime: AdminRuntimeStatus }) {
     ["auth mode", runtime.authMode],
     ["providers", runtime.authProviders.length > 0 ? runtime.authProviders.join(", ") : "none"],
     ["database", runtime.databaseConfigured ? "configured" : "missing"],
+    ["SaaS readiness", `${runtime.saasReadiness.score}% · ${runtime.saasReadiness.readyCount}/${runtime.saasReadiness.totalCount}`],
+    ["SaaS missing", runtime.saasReadiness.missingKeys.length > 0 ? runtime.saasReadiness.missingKeys.slice(0, 4).join(", ") : "none"],
+    ["legal readiness", `${runtime.legalReadiness.score}% · ${runtime.legalReadiness.statusLabel}`],
+    ["legal missing", runtime.legalReadiness.missingKeys.length > 0 ? runtime.legalReadiness.missingKeys.join(", ") : "none"],
   ] as const;
 
   return (
     <Card className="admin-panel admin-runtime">
-      <StatusBadge tone="brand">runtime</StatusBadge>
+      <StatusBadge tone={runtime.saasReadiness.status === "ready" ? "success" : "warning"}>runtime</StatusBadge>
       <h2>실행 구성</h2>
+      <p>{runtime.legalReadiness.summary}</p>
+      <div className="admin-readiness-actions">
+        <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/api/admin/status/legal-readiness">
+          <Download className="size-3.5" aria-hidden />
+          법무 Markdown
+        </a>
+        <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/api/admin/status/release-checklist">
+          <Download className="size-3.5" aria-hidden />
+          Release checklist
+        </a>
+      </div>
       <Table className="admin-runtime-list">
         <TableBody>
         {rows.map(([label, value]) => (
@@ -183,6 +329,87 @@ function RuntimePanel({ runtime }: { runtime: AdminRuntimeStatus }) {
       </Table>
     </Card>
   );
+}
+
+function SaasReadinessPanel({ readiness }: { readiness: AdminRuntimeStatus["saasReadiness"] }) {
+  return (
+    <Card className="admin-panel admin-readiness">
+      <StatusBadge tone={readiness.status === "ready" ? "success" : "warning"}>
+        SaaS readiness {readiness.score}%
+      </StatusBadge>
+      <h2>SaaS MVP readiness</h2>
+      <p>
+        완결형 SaaS 흐름을 공개 신뢰, 가입/온보딩, 핵심 사용, 워크스페이스, 상업 운영, 운영 콘솔 기준으로 점검합니다.
+      </p>
+      <div className="admin-readiness-actions">
+        <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/api/admin/status/saas-readiness">
+          <Download className="size-3.5" aria-hidden />
+          Markdown
+        </a>
+        <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/api/admin/status/release-checklist">
+          <Download className="size-3.5" aria-hidden />
+          Release checklist
+        </a>
+      </div>
+      <div className="admin-readiness-sections">
+        {readiness.sections.map((section) => (
+          <section className="admin-readiness-section" key={section.key}>
+            <div className="admin-readiness-section-head">
+              <div>
+                <span>{section.key}</span>
+                <h3>{section.label}</h3>
+              </div>
+              <StatusBadge tone={section.status === "ready" ? "success" : "warning"}>
+                {section.readyCount}/{section.totalCount}
+              </StatusBadge>
+            </div>
+            <ul>
+              {section.items.map((item) => (
+                <li key={item.key}>
+                  <div>
+                    <strong>{item.label}</strong>
+                    <p>{item.description}</p>
+                    <small>{readinessEvidenceSummary(item.evidence, item.missing)}</small>
+                    {item.missing.length > 0 ? (
+                      <small>missing: {item.missing.slice(0, 3).join(", ")}</small>
+                    ) : (
+                      <small>evidence: {item.evidence.slice(0, 3).join(", ")}</small>
+                    )}
+                  </div>
+                  <StatusBadge tone={item.status === "ready" ? "success" : "warning"}>
+                    {item.status}
+                  </StatusBadge>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function readinessEvidenceSummary(evidence: string[], missing: string[]): string {
+  const signals = [...evidence, ...missing];
+  const counts = {
+    page: countSignals(signals, "page:"),
+    api: countSignals(signals, "api:"),
+    script: countSignals(signals, "script:"),
+    test: countSignals(signals, "test:"),
+    env: countSignals(signals, "env:"),
+  };
+  const parts = [
+    counts.page > 0 ? `페이지 ${counts.page}` : null,
+    counts.api > 0 ? `API ${counts.api}` : null,
+    counts.script > 0 ? `검증 스크립트 ${counts.script}` : null,
+    counts.test > 0 ? `검증 체인 ${counts.test}` : null,
+    counts.env > 0 ? `환경값 ${counts.env}` : null,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(" · ") : "증거 없음";
+}
+
+function countSignals(signals: string[], prefix: string): number {
+  return signals.filter((signal) => signal.startsWith(prefix)).length;
 }
 
 async function loadSnapshot(): Promise<AdminFlywheelSnapshot | null> {
@@ -275,6 +502,19 @@ function formatTimestamp(value: string): string {
     timeStyle: "short",
     timeZone: "Asia/Seoul",
   }).format(new Date(value));
+}
+
+function formatPercent(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatMoney(amount: number, currency: string): string {
+  const normalizedCurrency = /^[A-Z]{3}$/.test(currency) ? currency : "KRW";
+  return new Intl.NumberFormat("ko-KR", {
+    style: "currency",
+    currency: normalizedCurrency,
+    maximumFractionDigits: normalizedCurrency === "KRW" ? 0 : 2,
+  }).format(amount);
 }
 
 function shortId(value: string): string {

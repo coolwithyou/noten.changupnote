@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, ChevronDown, HelpCircle, Loader2, Minus, Plus } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, HelpCircle, Minus, Plus, RotateCcw, TriangleAlert } from "lucide-react";
 import type {
   ActionResult,
   CompanyEvidenceField,
@@ -17,18 +17,52 @@ import type {
 } from "@cunote/contracts";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
+const TEASER_FALLBACK_MESSAGE = "매칭 결과를 불러오지 못했습니다.";
 
 type Status = "idle" | "loading" | "ready" | "error" | "empty";
+
+class TeaserError extends Error {
+  readonly code: string | null;
+  constructor(message: string, code: string | null) {
+    super(message);
+    this.name = "TeaserError";
+    this.code = code;
+  }
+}
 
 export function MatchesExperience() {
   const [status, setStatus] = useState<Status>("loading");
   const [teaser, setTeaser] = useState<TeaserResult | null>(null);
   const [bizNo, setBizNo] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<TeaserError | null>(null);
+
+  const loadTeaser = useCallback(async (digits: string) => {
+    setStatus("loading");
+    setError(null);
+    try {
+      const response = await fetch("/api/web/teaser", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bizNo: digits } satisfies TeaserRequest),
+      });
+      const payload = (await response.json()) as ActionResult<TeaserResult>;
+      if (!response.ok || !payload.ok || !payload.data) {
+        throw new TeaserError(payload.error?.message ?? TEASER_FALLBACK_MESSAGE, payload.error?.code ?? null);
+      }
+      setTeaser(payload.data);
+      setStatus("ready");
+    } catch (caught) {
+      const next =
+        caught instanceof TeaserError
+          ? caught
+          : new TeaserError(caught instanceof Error ? caught.message : TEASER_FALLBACK_MESSAGE, null);
+      setError(next);
+      setStatus("error");
+    }
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -38,31 +72,11 @@ export function MatchesExperience() {
       return;
     }
     setBizNo(digits);
-    let active = true;
-    (async () => {
-      try {
-        const response = await fetch("/api/web/teaser", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ bizNo: digits } satisfies TeaserRequest),
-        });
-        const payload = (await response.json()) as ActionResult<TeaserResult>;
-        if (!response.ok || !payload.ok || !payload.data) {
-          throw new Error(payload.error?.message ?? "매칭 결과를 불러오지 못했습니다.");
-        }
-        if (!active) return;
-        setTeaser(payload.data);
-        setStatus("ready");
-      } catch (caught) {
-        if (!active) return;
-        setError(caught instanceof Error ? caught.message : "매칭 결과를 불러오지 못했습니다.");
-        setStatus("error");
-      }
-    })();
-    return () => {
-      active = false;
-    };
-  }, []);
+    void loadTeaser(digits);
+  }, [loadTeaser]);
+
+  const maskedBiz = teaser?.companyEvidence?.maskedBizNo ?? (bizNo ? maskBiz(bizNo) : null);
+  const badge = headerBadge(status, maskedBiz);
 
   function saveAndContinue() {
     if (bizNo) {
@@ -88,17 +102,9 @@ export function MatchesExperience() {
         <div className="relative z-[2] mx-auto max-w-[1080px]">
           <div
             className="mb-4 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold"
-            style={{
-              color: "var(--tds-fill-success)",
-              background: "var(--brand-mint-soft)",
-              borderColor: "color-mix(in srgb, var(--tds-fill-success) 24%, transparent)",
-            }}
+            style={badge.style}
           >
-            {status === "ready" && teaser?.companyEvidence?.maskedBizNo
-              ? `${teaser.companyEvidence.maskedBizNo} 조회 완료`
-              : bizNo
-                ? `${maskBiz(bizNo)} 조회 완료`
-                : "사업자 조회"}
+            {badge.text}
           </div>
           <h1 className="text-[length:var(--m-h1)] font-extrabold leading-[1.22] tracking-[-0.035em] text-[var(--tds-grey-900)]">
             {status === "ready" && teaser ? (
@@ -118,7 +124,11 @@ export function MatchesExperience() {
             )}
           </h1>
           <p className="mt-2.5 text-[length:var(--m-sub)] text-[var(--tds-grey-500)]">
-            내 사업자 정보를 표준 조건과 대조한 결과예요. 조건마다 충족 여부를 함께 보여드려요.
+            {status === "error"
+              ? "잠시 문제가 생겨 결과를 보여드리지 못했어요. 아래 안내대로 다시 시도하면 대부분 해결돼요."
+              : status === "empty"
+                ? "사업자번호만 있으면 받을 수 있는 지원사업을 바로 찾아드려요."
+                : "내 사업자 정보를 표준 조건과 대조한 결과예요. 조건마다 충족 여부를 함께 보여드려요."}
           </p>
         </div>
       </header>
@@ -126,7 +136,9 @@ export function MatchesExperience() {
       <main className="mx-auto max-w-[1080px] px-[var(--m-px)] pb-20 pt-[var(--m-mpt)]">
         {status === "loading" ? <LoadingState /> : null}
         {status === "empty" ? <EmptyState /> : null}
-        {status === "error" ? <ErrorState message={error} /> : null}
+        {status === "error" ? (
+          <ErrorState error={error} onRetry={bizNo ? () => void loadTeaser(bizNo) : undefined} />
+        ) : null}
         {status === "ready" && teaser ? (
           <>
             <ProfileSection teaser={teaser} />
@@ -464,19 +476,113 @@ function EmptyState() {
   );
 }
 
-function ErrorState({ message }: { message: string | null }) {
+function ErrorState({ error, onRetry }: { error: TeaserError | null; onRetry?: (() => void) | undefined }) {
+  const isBizIssue = error?.code === "invalid_biz_no";
+  const reason = error?.message ?? TEASER_FALLBACK_MESSAGE;
+  const title = isBizIssue ? "사업자번호를 다시 확인해 주세요" : "잠시 후 다시 시도해 주세요";
+  const steps = isBizIssue
+    ? [
+        "사업자번호 10자리를 정확히 입력했는지 확인해 주세요.",
+        "휴업·폐업 상태이거나 아직 등록되지 않은 번호일 수 있어요.",
+        "번호가 정확하다면 잠시 후 다시 시도해 주세요.",
+      ]
+    : [
+        "인터넷 연결 상태를 확인하고 다시 시도해 주세요.",
+        "국세청·팝빌 조회가 일시적으로 지연될 수 있어요. 잠시 후 다시 시도하면 대부분 정상 처리돼요.",
+        "입력한 사업자번호가 정확한지도 한 번 확인해 주세요.",
+      ];
+
   return (
-    <div className="mx-auto max-w-[460px]">
-      <Alert variant="destructive" className="mb-5">
-        <AlertDescription>{message ?? "매칭 결과를 불러오지 못했습니다."}</AlertDescription>
-      </Alert>
-      <div className="text-center">
-        <Link href="/" className={cn(buttonVariants({ variant: "outline" }), "rounded-[var(--tds-radius-xxs)]")}>
-          처음 화면으로
-        </Link>
+    <div className="mx-auto max-w-[520px]">
+      <div className="rounded-[var(--tds-radius-l)] border border-border bg-card p-8 shadow-[var(--shadow-subtle)]">
+        <div
+          className="mb-5 flex size-14 items-center justify-center rounded-full"
+          style={{ background: "var(--tds-fill-warning-weak)" }}
+        >
+          <TriangleAlert className="size-7" style={{ color: "var(--tds-icon-warning)" }} strokeWidth={2.25} />
+        </div>
+
+        <h2 className="text-[19px] font-extrabold tracking-[-0.02em] text-[var(--tds-grey-900)]">{title}</h2>
+        <p className="mt-2 text-[14px] leading-[1.6] text-[var(--tds-grey-500)]">{reason}</p>
+
+        <div
+          className="mt-6 rounded-[var(--tds-radius-s)] border border-border p-4"
+          style={{ background: "var(--tds-bg-lower)" }}
+        >
+          <div className="mb-3 text-[12.5px] font-extrabold tracking-[0.02em] text-[var(--tds-grey-600)]">
+            이렇게 해보세요
+          </div>
+          <ul className="flex flex-col gap-2.5">
+            {steps.map((step, index) => (
+              <li key={index} className="flex items-start gap-2.5 text-[13.5px] leading-[1.55] text-[var(--tds-grey-700)]">
+                <span
+                  className="mt-0.5 flex size-[18px] flex-none items-center justify-center rounded-full text-[11px] font-extrabold"
+                  style={{ background: "var(--brand-mint-soft)", color: "var(--tds-fill-success)" }}
+                >
+                  {index + 1}
+                </span>
+                {step}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-2.5 sm:flex-row">
+          {!isBizIssue && onRetry ? (
+            <Button
+              type="button"
+              size="lg"
+              onClick={onRetry}
+              className="flex-1 rounded-[var(--tds-radius-xxs)]"
+            >
+              <RotateCcw data-icon="inline-start" />
+              다시 시도하기
+            </Button>
+          ) : null}
+          <Link
+            href="/"
+            className={cn(
+              buttonVariants({ size: "lg", variant: !isBizIssue && onRetry ? "outline" : "default" }),
+              "flex-1 rounded-[var(--tds-radius-xxs)]",
+            )}
+          >
+            사업자번호 다시 입력
+          </Link>
+        </div>
+
+        <p className="mt-4 text-center text-[12px] leading-[1.5] text-[var(--tds-grey-400)]">
+          문제가 계속되면 잠시 후 다시 시도하거나 고객센터로 알려주세요.
+        </p>
       </div>
     </div>
   );
+}
+
+function headerBadge(
+  status: Status,
+  maskedBiz: string | null,
+): { text: string; style: React.CSSProperties } {
+  const successStyle: React.CSSProperties = {
+    color: "var(--tds-fill-success)",
+    background: "var(--brand-mint-soft)",
+    borderColor: "color-mix(in srgb, var(--tds-fill-success) 24%, transparent)",
+  };
+  const neutralStyle: React.CSSProperties = {
+    color: "var(--tds-grey-600)",
+    background: "var(--tds-grey-100)",
+    borderColor: "var(--tds-grey-200)",
+  };
+  const warningStyle: React.CSSProperties = {
+    color: "var(--tds-text-warning)",
+    background: "var(--tds-fill-warning-weak)",
+    borderColor: "color-mix(in srgb, var(--tds-icon-warning) 28%, transparent)",
+  };
+  const label = maskedBiz ?? "사업자";
+
+  if (status === "ready") return { text: `${label} 조회 완료`, style: successStyle };
+  if (status === "loading") return { text: `${label} 조회 중`, style: neutralStyle };
+  if (status === "error") return { text: `${label} 조회 중단`, style: warningStyle };
+  return { text: "사업자 조회", style: neutralStyle };
 }
 
 /* ───────────────────────── helpers ───────────────────────── */

@@ -1,3 +1,5 @@
+export type PopbillEnvironment = "test" | "production";
+
 export interface PopbillCredentials {
   linkId: string;
   secretKey: string;
@@ -7,6 +9,12 @@ export interface PopbillCredentials {
   ipRestrictOnOff: boolean;
   useStaticIp: boolean;
   useLocalTimeYn: boolean;
+}
+
+export interface PopbillApiEndpoint {
+  environment: PopbillEnvironment;
+  baseUrl: string;
+  serviceId: string;
 }
 
 export interface PopbillBizCheckInfo {
@@ -39,4 +47,5 @@ export interface PopbillBizCheckInfo {
 export interface PopbillEnvConfig {
   credentials: PopbillCredentials;
   checkCorpNum: string;
+  endpoint: PopbillApiEndpoint;
 }

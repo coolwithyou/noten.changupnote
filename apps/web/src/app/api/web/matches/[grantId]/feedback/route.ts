@@ -8,6 +8,7 @@ import {
   decodeGrantIdSegment,
   readMatchFeedbackRequest,
 } from "@/lib/server/matches/matchFeedback";
+import { recordApplicationManagementFeedback } from "@/lib/server/applications/applicationManagementFeedback";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -33,6 +34,7 @@ export async function POST(request: Request, context: RouteContext) {
       body,
     });
     const receipt = await getServiceRepositories().feedback.submitFeedback(input);
+    recordApplicationManagementFeedback(input, receipt.receivedAt);
 
     return NextResponse.json<ActionResult<FeedbackResult>>({
       ok: true,

@@ -2,6 +2,12 @@
 
 창업노트 서비스를 개발할거야
 
+## Development server
+
+- 개발 서버는 사용자가 직접 띄운다.
+- Codex는 명시 요청이 없는 한 `pnpm dev:web`, `pnpm dev`, `next dev` 등 장기 실행 개발 서버를 시작하지 않는다.
+- 브라우저 검증이 필요하면 먼저 현재 실행 중인 서버와 포트를 확인하고, 서버가 없으면 사용자에게 실행을 요청한다.
+
 ## Cloudflare access control memory
 
 - Production hosts `changupnote.com`, `www.changupnote.com`, and `dev.changupnote.com` are intentionally Cloudflare-proxied.

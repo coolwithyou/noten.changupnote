@@ -7,7 +7,8 @@ import {
   sanitizeCorpNum,
 } from "../src/index.js";
 
-loadDotEnv();
+loadDotEnv(".env.local");
+loadDotEnv(".env");
 
 const popbill = readPopbillEnvConfig();
 const overrideBizNo = readArg("bizNo");

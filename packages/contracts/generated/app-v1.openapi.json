@@ -1055,6 +1055,65 @@
         }
       }
     },
+    "/api/app/v1/companies/{companyId}/notifications/receipt": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "operationId": "updateAppCompanyNotificationReceipt",
+        "summary": "Mark a notification as read or dismissed for the current app user.",
+        "security": [
+          {
+            "appBearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "companyId",
+            "in": "path",
+            "required": true,
+            "description": "Company id.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationReceiptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated notification receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationReceiptEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
     "/api/app/v1/companies/{companyId}/roadmap": {
       "get": {
         "tags": [
@@ -2475,6 +2534,231 @@
                 "type": "null"
               }
             ]
+          },
+          "archiveUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "markdownUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "MissingFieldQuestion": {
+        "type": "object",
+        "required": [
+          "fieldKey",
+          "label",
+          "reason"
+        ],
+        "properties": {
+          "fieldKey": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "documentName": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "application_form",
+              "business_plan",
+              "proposal_or_intro",
+              "consent_or_pledge",
+              "business_registration",
+              "corporate_register",
+              "company_confirmation",
+              "financial_tax",
+              "employment_insurance",
+              "shareholder",
+              "bank_account",
+              "estimate_budget",
+              "portfolio_catalog",
+              "ip_certification",
+              "recommendation",
+              "performance_evidence",
+              "other"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "DocumentPreparationGroup": {
+        "type": "object",
+        "required": [
+          "preparationType",
+          "label",
+          "description",
+          "documents"
+        ],
+        "properties": {
+          "preparationType": {
+            "type": "string",
+            "enum": [
+              "write",
+              "issue",
+              "attach",
+              "portal",
+              "other",
+              "unknown"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DraftableDocument": {
+        "type": "object",
+        "required": [
+          "documentKey",
+          "name",
+          "category",
+          "canonicalName",
+          "sourceAttachment",
+          "templateRequired",
+          "confidence",
+          "status"
+        ],
+        "properties": {
+          "documentKey": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "application_form",
+              "business_plan",
+              "proposal_or_intro",
+              "consent_or_pledge",
+              "business_registration",
+              "corporate_register",
+              "company_confirmation",
+              "financial_tax",
+              "employment_insurance",
+              "shareholder",
+              "bank_account",
+              "estimate_budget",
+              "portfolio_catalog",
+              "ip_certification",
+              "recommendation",
+              "performance_evidence",
+              "other"
+            ]
+          },
+          "canonicalName": {
+            "type": "string"
+          },
+          "sourceAttachment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "templateRequired": {
+            "type": "boolean"
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "not_started",
+              "draft_ready",
+              "needs_user_input",
+              "reviewed",
+              "done"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "DraftCoverage": {
+        "type": "object",
+        "required": [
+          "totalDocuments",
+          "draftableCount",
+          "issuableCount",
+          "attachableCount",
+          "otherCount",
+          "withAttachmentContextCount",
+          "missingFieldCount"
+        ],
+        "properties": {
+          "totalDocuments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "draftableCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "issuableCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "attachableCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "otherCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "withAttachmentContextCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "missingFieldCount": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -2531,7 +2815,13 @@
         "required": [
           "autoSubmitSupported",
           "profileCopyFields",
-          "planDraftPrompts"
+          "planDraftPrompts",
+          "documentGroups",
+          "draftableDocuments",
+          "issuableDocuments",
+          "attachableDocuments",
+          "missingProfileFields",
+          "draftCoverage"
         ],
         "properties": {
           "autoSubmitSupported": {
@@ -2549,6 +2839,39 @@
             "items": {
               "$ref": "#/components/schemas/PlanDraftPrompt"
             }
+          },
+          "documentGroups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentPreparationGroup"
+            }
+          },
+          "draftableDocuments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DraftableDocument"
+            }
+          },
+          "issuableDocuments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            }
+          },
+          "attachableDocuments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            }
+          },
+          "missingProfileFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MissingFieldQuestion"
+            }
+          },
+          "draftCoverage": {
+            "$ref": "#/components/schemas/DraftCoverage"
           }
         },
         "additionalProperties": false
@@ -3496,10 +3819,180 @@
               "dismissed",
               "wrong",
               "applied",
+              "selected",
+              "rejected",
+              "blocked",
               "note"
             ]
           },
           "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasonCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "wrong_high",
+                  "wrong_low",
+                  "wrong_condition",
+                  "profile_wrong",
+                  "criteria_wrong",
+                  "taxonomy_gap",
+                  "portal_blocked",
+                  "selected",
+                  "rejected",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "selected",
+                  "rejected",
+                  "blocked"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "occurredAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "correction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MatchFeedbackCorrection"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "payload": {
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchFeedbackCorrection": {
+        "type": "object",
+        "properties": {
+          "dimension": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "region",
+                  "biz_age",
+                  "industry",
+                  "size",
+                  "revenue",
+                  "employees",
+                  "founder_age",
+                  "founder_trait",
+                  "certification",
+                  "prior_award",
+                  "ip",
+                  "target_type",
+                  "business_status",
+                  "other"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "criterionId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expectedEligibility": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "eligible",
+                  "conditional",
+                  "ineligible"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "correctedEligibility": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "eligible",
+                  "conditional",
+                  "ineligible"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "correctedResult": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "pass",
+                  "fail",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
             "anyOf": [
               {
                 "type": "string"
@@ -3819,6 +4312,84 @@
             "items": {
               "$ref": "#/components/schemas/NotificationItem"
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationReceiptRequest": {
+        "type": "object",
+        "required": [
+          "notificationId",
+          "action"
+        ],
+        "properties": {
+          "notificationId": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "read",
+              "dismiss"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationReceiptItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NotificationItem"
+          },
+          {
+            "type": "object",
+            "required": [
+              "status",
+              "readAt",
+              "dismissedAt"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "unread",
+                  "read",
+                  "dismissed"
+                ]
+              },
+              "readAt": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dismissedAt": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false
+          }
+        ]
+      },
+      "NotificationReceiptResult": {
+        "type": "object",
+        "required": [
+          "notification"
+        ],
+        "properties": {
+          "notification": {
+            "$ref": "#/components/schemas/NotificationReceiptItem"
           }
         },
         "additionalProperties": false
@@ -4224,6 +4795,24 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/NotificationFeedResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "NotificationReceiptEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NotificationReceiptResult"
           },
           "meta": {
             "$ref": "#/components/schemas/ApiMeta"

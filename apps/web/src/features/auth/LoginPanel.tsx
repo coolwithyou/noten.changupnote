@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Eye, EyeOff, Loader2, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { WebAuthProviderSummary } from "@/lib/server/auth/options";
@@ -27,6 +28,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [legalAccepted, setLegalAccepted] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const busy = Boolean(pending);
@@ -34,6 +36,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
   const emailId = useId();
   const passwordId = useId();
   const nameId = useId();
+  const legalAgreementId = useId();
 
   async function completeSignIn() {
     const result = await signIn("password", { email, password, redirect: false, callbackUrl });
@@ -44,6 +47,10 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
+    if (mode === "register" && !legalAccepted) {
+      setError("이용약관과 개인정보처리방침에 동의해야 가입할 수 있습니다.");
+      return;
+    }
     setPending("password");
 
     try {
@@ -51,7 +58,13 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
         const response = await fetch("/api/web/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password, name: name.trim() || undefined }),
+          body: JSON.stringify({
+            email,
+            password,
+            name: name.trim() || undefined,
+            termsAccepted: legalAccepted,
+            privacyAccepted: legalAccepted,
+          }),
         });
         if (!response.ok) {
           const data = await response.json().catch(() => ({}));
@@ -66,6 +79,10 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
   }
 
   async function startOAuth(provider: WebAuthProviderSummary) {
+    if (mode === "register" && !legalAccepted) {
+      setError("이용약관과 개인정보처리방침에 동의해야 가입할 수 있습니다.");
+      return;
+    }
     setPending(provider.id);
     setError(null);
     try {
@@ -102,7 +119,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
           aria-label="창업노트 홈"
           className="mb-7 flex items-center justify-center gap-2.5 text-[18px] font-extrabold tracking-[-0.03em] text-[var(--tds-grey-900)]"
         >
-          <BrandMark className="size-[27px]" />
+          <AuthBrandMark className="size-[27px]" />
           <span>창업노트</span>
         </Link>
 
@@ -183,7 +200,10 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                 label="비밀번호"
                 action={
                   mode === "login" ? (
-                    <Link href="#" className="text-[12.5px] font-semibold text-primary">
+                    <Link
+                      href={`/forgot-password?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+                      className="text-[12.5px] font-semibold text-primary"
+                    >
                       비밀번호 찾기
                     </Link>
                   ) : null
@@ -212,6 +232,41 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                   </button>
                 </div>
               </Field>
+
+              {mode === "register" ? (
+                <div className="rounded-[var(--tds-radius-xxs)] border border-border bg-muted/35 p-3">
+                  <div className="flex items-start gap-2.5">
+                    <Checkbox
+                      id={legalAgreementId}
+                      checked={legalAccepted}
+                      disabled={busy}
+                      aria-describedby={`${legalAgreementId}-description`}
+                      onCheckedChange={(checked) => setLegalAccepted(checked === true)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <label
+                        htmlFor={legalAgreementId}
+                        className="block text-[13px] font-semibold leading-[1.45] text-foreground"
+                      >
+                        이용약관과 개인정보처리방침에 동의합니다.
+                      </label>
+                      <p
+                        id={`${legalAgreementId}-description`}
+                        className="mt-1 text-[12px] leading-[1.55] text-muted-foreground"
+                      >
+                        <Link href="/terms" className="font-semibold underline underline-offset-4">
+                          이용약관
+                        </Link>
+                        과{" "}
+                        <Link href="/privacy" className="font-semibold underline underline-offset-4">
+                          개인정보처리방침
+                        </Link>
+                        을 확인했습니다.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <Button type="submit" size="lg" disabled={busy} className="mt-2 h-[54px] rounded-[var(--tds-radius-xxs)]">
                 {pending === "password" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
@@ -263,11 +318,11 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
 
         <p className="mt-[22px] text-center text-[12px] leading-[1.6] text-[var(--tds-grey-400)]">
           로그인 시{" "}
-          <Link href="#" className="text-[var(--tds-grey-500)] underline">
+          <Link href="/terms" className="text-[var(--tds-grey-500)] underline">
             이용약관
           </Link>{" "}
           및{" "}
-          <Link href="#" className="text-[var(--tds-grey-500)] underline">
+          <Link href="/privacy" className="text-[var(--tds-grey-500)] underline">
             개인정보처리방침
           </Link>
           에 동의하게 됩니다.
@@ -340,7 +395,7 @@ function GoogleMark() {
   );
 }
 
-function BrandMark({ className }: { className?: string }) {
+export function AuthBrandMark({ className }: { className?: string }) {
   const gradientId = useId();
   return (
     <svg viewBox="0 0 48 48" fill="none" className={className} aria-hidden role="presentation">

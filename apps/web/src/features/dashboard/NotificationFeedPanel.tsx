@@ -1,23 +1,84 @@
-import type { NotificationFeedResult, NotificationItem } from "@cunote/contracts";
+"use client";
+
+import { useMemo, useState } from "react";
+import { CheckCircle2, Download, XCircle } from "lucide-react";
+import type { ActionResult, NotificationItem } from "@cunote/contracts";
 import { StatusBadge } from "@/components/app/status-badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
+import type {
+  NotificationCenterItem,
+  NotificationCenterResult,
+  NotificationReceiptAction,
+} from "@/lib/notifications/types";
 
-export function NotificationFeedPanel({ feed }: { feed: NotificationFeedResult }) {
+export function NotificationFeedPanel({
+  feed,
+  title = "변경 알림",
+  limit = 5,
+}: {
+  feed: NotificationCenterResult;
+  title?: string;
+  limit?: number;
+}) {
+  const [items, setItems] = useState(feed.notifications);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const visibleItems = useMemo(
+    () => items.filter((item) => item.status !== "dismissed").slice(0, limit),
+    [items, limit],
+  );
+  const unreadCount = visibleItems.filter((item) => item.status === "unread").length;
+
+  async function updateReceipt(item: NotificationCenterItem, action: NotificationReceiptAction) {
+    setPendingId(item.id);
+    try {
+      const response = await fetch("/api/web/notification-feed/receipt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        keepalive: true,
+        body: JSON.stringify({ notificationId: item.id, action }),
+      });
+      const payload = await response.json() as ActionResult<NotificationCenterItem>;
+      if (!response.ok || !payload.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "알림 상태를 저장하지 못했습니다.");
+      }
+      setItems((current) => current.map((row) => row.id === payload.data!.id ? payload.data! : row));
+    } catch {
+      setItems((current) => current.map((row) => row.id === item.id
+        ? {
+            ...row,
+            status: action === "dismiss" ? "dismissed" : "read",
+            readAt: row.readAt ?? new Date().toISOString(),
+            dismissedAt: action === "dismiss" ? new Date().toISOString() : row.dismissedAt,
+          }
+        : row));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   return (
     <Card className="dashboard-panel notification-feed-panel" aria-labelledby="notification-feed-title">
       <div className="panel-heading inline">
         <div>
           <span className="eyebrow">알림</span>
-          <h2 id="notification-feed-title">변경 알림</h2>
+          <h2 id="notification-feed-title">{title}</h2>
         </div>
-        <time dateTime={feed.generatedAt}>{formatGeneratedAt(feed.generatedAt)}</time>
+        <div className="notification-feed-summary">
+          <StatusBadge tone={unreadCount > 0 ? "brand" : "neutral"}>읽지 않음 {unreadCount}</StatusBadge>
+          <time dateTime={feed.generatedAt}>{formatGeneratedAt(feed.generatedAt)}</time>
+          <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/api/web/notification-feed/report">
+            <Download data-icon="inline-start" />
+            리포트
+          </a>
+        </div>
       </div>
       <div className="notification-feed-list">
-        {feed.notifications.length > 0 ? feed.notifications.slice(0, 5).map((item) => (
-          <Card className={`notification-feed-item ${item.priority}`} key={item.id} size="sm">
+        {visibleItems.length > 0 ? visibleItems.map((item) => (
+          <Card className={`notification-feed-item ${item.priority} ${item.status}`} key={item.id} size="sm">
             <CardContent className="p-0">
-              <a href={notificationHref(item)}>
+              <a href={item.href} onClick={() => void updateReceipt(item, "read")}>
                 <div className="notification-feed-top">
                   <StatusBadge tone={item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "neutral"}>
                     {kindLabel(item.kind)}
@@ -32,6 +93,30 @@ export function NotificationFeedPanel({ feed }: { feed: NotificationFeedResult }
                   <span>{item.rulesetVer}</span>
                 </div>
               </a>
+              <div className="notification-feed-actions">
+                {item.status === "unread" ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    disabled={pendingId === item.id}
+                    onClick={() => void updateReceipt(item, "read")}
+                  >
+                    <CheckCircle2 data-icon="inline-start" />
+                    읽음
+                  </Button>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={pendingId === item.id}
+                  onClick={() => void updateReceipt(item, "dismiss")}
+                >
+                  <XCircle data-icon="inline-start" />
+                  숨김
+                </Button>
+              </div>
             </CardContent>
           </Card>
         )) : (
@@ -42,16 +127,6 @@ export function NotificationFeedPanel({ feed }: { feed: NotificationFeedResult }
       </div>
     </Card>
   );
-}
-
-function notificationHref(item: NotificationItem): string {
-  if (item.target.startsWith("grant:")) {
-    return `/grants/${encodeURIComponent(item.target.slice("grant:".length))}`;
-  }
-  if (item.target.startsWith("profile:")) return "#company-settings";
-  if (item.target.startsWith("/")) return item.target;
-  if (/^https?:\/\//.test(item.target)) return item.target;
-  return "/dashboard";
 }
 
 function kindLabel(kind: NotificationItem["kind"]): string {
@@ -71,7 +146,8 @@ function priorityLabel(priority: NotificationItem["priority"]): string {
 }
 
 function dDayLabel(dDay: number): string {
-  if (dDay === 0) return "오늘 마감";
+  if (dDay < 0) return `${Math.abs(dDay)}일 지남`;
+  if (dDay === 0) return "오늘";
   return `D-${dDay}`;
 }
 

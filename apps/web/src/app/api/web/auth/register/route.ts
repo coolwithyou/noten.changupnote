@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { users } from "@/lib/server/db/schema";
 import { hashPassword, validateCredentials } from "@/lib/server/auth/password";
+import { getLegalConfig } from "@/lib/server/legal/legalConfig";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "잘못된 요청입니다." }, { status: 400 });
   }
 
-  const { email: rawEmail, password: rawPassword, name: rawName } = (body ?? {}) as Record<string, unknown>;
+  const {
+    email: rawEmail,
+    password: rawPassword,
+    name: rawName,
+    termsAccepted,
+    privacyAccepted,
+  } = (body ?? {}) as Record<string, unknown>;
   const validation = validateCredentials(rawEmail, rawPassword);
   if (!validation.ok || !validation.email || !validation.password) {
     return NextResponse.json({ ok: false, error: validation.error }, { status: 400 });
+  }
+  if (termsAccepted !== true || privacyAccepted !== true) {
+    return NextResponse.json(
+      { ok: false, error: "이용약관과 개인정보처리방침 동의가 필요합니다." },
+      { status: 400 },
+    );
   }
 
   const name = typeof rawName === "string" && rawName.trim() ? rawName.trim().slice(0, 100) : null;
@@ -37,11 +50,21 @@ export async function POST(request: Request) {
   }
 
   const passwordHash = await hashPassword(validation.password);
+  const legal = getLegalConfig();
+  const acceptedAt = new Date();
 
   try {
     const [created] = await db
       .insert(users)
-      .values({ email: validation.email, name, passwordHash })
+      .values({
+        email: validation.email,
+        name,
+        passwordHash,
+        termsAcceptedAt: acceptedAt,
+        privacyAcceptedAt: acceptedAt,
+        termsVersion: legal.termsVersion,
+        privacyVersion: legal.privacyVersion,
+      })
       .returning({ id: users.id, email: users.email });
 
     if (!created) {

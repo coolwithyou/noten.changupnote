@@ -1,7 +1,7 @@
 "use client";
 
 import { signOut } from "next-auth/react";
-import { ChevronDownIcon, LayoutDashboardIcon, LogOutIcon } from "lucide-react";
+import { BriefcaseBusinessIcon, ChevronDownIcon, CreditCardIcon, LayoutDashboardIcon, LifeBuoyIcon, LogOutIcon, RouteIcon, SettingsIcon, UserRoundIcon, UsersRoundIcon } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -12,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { APP_ACCOUNT_LINKS } from "@/components/app/app-navigation";
 import type { HeaderUser } from "@/lib/server/auth/session";
 
 export function AccountMenu({ user }: { user: HeaderUser }) {
@@ -32,10 +33,12 @@ export function AccountMenu({ user }: { user: HeaderUser }) {
       <DropdownMenuContent>
         <DropdownMenuLabel className="truncate">{label}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuLinkItem href="/dashboard">
-          <LayoutDashboardIcon />
-          대시보드
-        </DropdownMenuLinkItem>
+        {APP_ACCOUNT_LINKS.map((link) => (
+          <DropdownMenuLinkItem href={link.href} key={link.href}>
+            {accountLinkIcon(link.href)}
+            {link.menuLabel ?? link.label}
+          </DropdownMenuLinkItem>
+        ))}
         <DropdownMenuItem onClick={() => void signOut({ callbackUrl: "/" })}>
           <LogOutIcon />
           로그아웃
@@ -43,6 +46,17 @@ export function AccountMenu({ user }: { user: HeaderUser }) {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function accountLinkIcon(href: string) {
+  if (href === "/dashboard") return <LayoutDashboardIcon />;
+  if (href === "/applications") return <BriefcaseBusinessIcon />;
+  if (href === "/account") return <UserRoundIcon />;
+  if (href === "/team") return <UsersRoundIcon />;
+  if (href === "/billing") return <CreditCardIcon />;
+  if (href === "/settings") return <SettingsIcon />;
+  if (href === "/onboarding") return <RouteIcon />;
+  return <LifeBuoyIcon />;
 }
 
 function accountInitial(user: HeaderUser): string {

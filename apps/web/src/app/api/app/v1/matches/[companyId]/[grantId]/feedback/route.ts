@@ -6,6 +6,7 @@ import {
   decodeGrantIdSegment,
   readMatchFeedbackRequest,
 } from "@/lib/server/matches/matchFeedback";
+import { recordApplicationManagementFeedback } from "@/lib/server/applications/applicationManagementFeedback";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
@@ -26,6 +27,7 @@ export async function POST(request: Request, context: RouteContext) {
       body,
     });
     const receipt = await getServiceRepositories().feedback.submitFeedback(input);
+    recordApplicationManagementFeedback(input, receipt.receivedAt);
     return appData(buildFeedbackResult(receipt), { status: 202 });
   } catch (error) {
     return appErrorFromUnknown(error, "피드백을 저장하지 못했습니다.");

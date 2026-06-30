@@ -29,7 +29,7 @@ import { notifyPopbillFailure } from "./adminNotifications";
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
 const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
-const ENRICHMENT_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const ENRICHMENT_CACHE_TTL_HOURS_ENV = "CUNOTE_POPBILL_CACHE_TTL_HOURS";
 
 type ServiceGrantPayload = KStartupAnnouncement | BizInfoProgram;
 type PopbillCredentials = ReturnType<typeof readPopbillEnvConfig>["credentials"];
@@ -355,7 +355,7 @@ async function loadPopbillCompanyProfile(input: {
     facts,
   };
   const checkedAt = parseProviderCheckedAt(facts.checkedAt);
-  const expiresAt = new Date(input.now.getTime() + ENRICHMENT_CACHE_TTL_MS);
+  const expiresAt = resolvePopbillCacheExpiresAt(input.now);
   let cacheStatus: CompanyEvidence["cacheStatus"] = "stored";
   let cachedUntil: Date | null = expiresAt;
 
@@ -391,10 +391,19 @@ async function loadPopbillCompanyProfile(input: {
       checkedAt: checkedAt ?? input.now,
       cachedUntil,
       summary: cacheStatus === "stored"
-        ? "팝빌에서 사업자 정보를 확인했고 다음 조회부터 빠르게 재사용할 수 있게 저장했습니다."
+        ? "팝빌에서 사업자 정보를 확인했고 다음 조회부터 추가 조회 없이 저장 결과를 재사용합니다."
         : "팝빌에서 사업자 정보를 확인했습니다.",
     }),
   };
+}
+
+function resolvePopbillCacheExpiresAt(now: Date): Date | null {
+  const rawTtlHours = process.env[ENRICHMENT_CACHE_TTL_HOURS_ENV]?.trim();
+  if (!rawTtlHours) return null;
+
+  const ttlHours = Number(rawTtlHours);
+  if (!Number.isFinite(ttlHours) || ttlHours <= 0) return null;
+  return new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
 }
 
 export function buildCompanyEvidence(input: {

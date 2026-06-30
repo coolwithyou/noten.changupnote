@@ -2,6 +2,7 @@ import type {
   CompanyProfile,
   CriterionDimension,
   CriterionKind,
+  CriterionResult,
   Eligibility,
   Grant,
   GrantDocumentCategory,
@@ -19,11 +20,41 @@ export type ActionType = "progressive" | "external_link" | "apply" | "prepare" |
 export type ActionQueueKind = "input" | "acquire" | "apply" | "enrich" | "review";
 export type DocumentSource = "self" | "portal" | "cert";
 export type MatchEventKind = "surfaced" | "clicked" | "saved" | "apply_click";
-export type FeedbackKind = "saved" | "dismissed" | "wrong" | "applied" | "note";
+export type FeedbackKind =
+  | "saved"
+  | "dismissed"
+  | "wrong"
+  | "applied"
+  | "selected"
+  | "rejected"
+  | "blocked"
+  | "note";
+export type MatchOutcome = "pending" | "selected" | "rejected" | "blocked";
+export type MatchFeedbackReasonCode =
+  | "wrong_high"
+  | "wrong_low"
+  | "wrong_condition"
+  | "profile_wrong"
+  | "criteria_wrong"
+  | "taxonomy_gap"
+  | "portal_blocked"
+  | "selected"
+  | "rejected"
+  | "other";
 export type ConsentScope = "basic_info" | "hometax" | "insurance";
 export type CompanyRole = "owner" | "admin" | "member" | "viewer";
 export type NotificationKind = "deadline" | "new_match" | "soon_eligible" | "needs_input";
 export type NotificationPriority = "low" | "medium" | "high";
+export type DocumentPreparationStatus = "not_started" | "draft_ready" | "needs_user_input" | "reviewed" | "done";
+export type DocumentDraftStatus = "draft" | "needs_input" | "reviewed" | "exported" | "archived";
+export type DocumentFieldType = "text" | "long_text" | "number" | "date" | "currency" | "checkbox" | "table" | "file" | "unknown";
+export type DocumentFillStrategy = "copy" | "summarize" | "generate" | "ask_user" | "manual";
+export type DocumentDraftFeedbackKind =
+  | "incorrect_fact"
+  | "missing_context"
+  | "format_issue"
+  | "too_generic"
+  | "other";
 
 export interface ActionResult<T> {
   ok: boolean;
@@ -196,6 +227,48 @@ export interface ApplicationPrep {
   autoSubmitSupported: false;
   profileCopyFields: ProfileCopyField[];
   planDraftPrompts: PlanDraftPrompt[];
+  documentGroups: DocumentPreparationGroup[];
+  draftableDocuments: DraftableDocument[];
+  issuableDocuments: RequiredDocument[];
+  attachableDocuments: RequiredDocument[];
+  missingProfileFields: MissingFieldQuestion[];
+  draftCoverage: DraftCoverage;
+}
+
+export interface DocumentPreparationGroup {
+  preparationType: GrantDocumentPreparationType | "unknown";
+  label: string;
+  description: string;
+  documents: RequiredDocument[];
+}
+
+export interface DraftableDocument {
+  documentKey: string;
+  name: string;
+  category: GrantDocumentCategory | "other";
+  canonicalName: string;
+  sourceAttachment: string | null;
+  templateRequired: boolean;
+  confidence: number | null;
+  status: DocumentPreparationStatus;
+}
+
+export interface DraftCoverage {
+  totalDocuments: number;
+  draftableCount: number;
+  issuableCount: number;
+  attachableCount: number;
+  otherCount: number;
+  withAttachmentContextCount: number;
+  missingFieldCount: number;
+}
+
+export interface MissingFieldQuestion {
+  fieldKey: string;
+  label: string;
+  reason: string;
+  documentName?: string;
+  category?: GrantDocumentCategory | "other";
 }
 
 export interface ProfileCopyField {
@@ -208,6 +281,96 @@ export interface PlanDraftPrompt {
   title: string;
   prompt: string;
   evidence: string[];
+}
+
+export interface DocumentField {
+  fieldKey: string;
+  label: string;
+  section: string | null;
+  fieldType: DocumentFieldType;
+  required: boolean;
+  sourceSpan: string | null;
+  sourceAttachment: string | null;
+  mappedCompanyField: string | null;
+  fillStrategy: DocumentFillStrategy;
+  confidence: number;
+}
+
+export interface GrantDocumentFormField extends DocumentField {
+  documentName: string;
+  documentCategory: GrantDocumentCategory | "other";
+  parserVersion: string;
+}
+
+export interface DocumentAutofillResult {
+  filledFields: Record<string, string>;
+  missingFields: MissingFieldQuestion[];
+  usedProfileFields: string[];
+}
+
+export interface DocumentDraft {
+  id: string;
+  grantId: string;
+  companyId: string;
+  documentKey: string;
+  documentCategory: GrantDocumentCategory | "other";
+  documentName: string;
+  sourceAttachment: string | null;
+  draftMarkdown: string;
+  filledFields: Record<string, string>;
+  missingFields: MissingFieldQuestion[];
+  usedProfileFields: string[];
+  assumptions: string[];
+  warnings: string[];
+  status: DocumentDraftStatus;
+  modelVer: string;
+  promptVer: string;
+  parserVersion: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DraftGenerationRequest {
+  documentKey: string;
+  answers?: Record<string, string>;
+}
+
+export interface DraftGenerationResult {
+  draft: DocumentDraft;
+}
+
+export interface DocumentDraftSectionRegenerationRequest {
+  sectionTitle: string;
+  answers?: Record<string, string>;
+  filledFields?: Record<string, string>;
+  draftMarkdown?: string;
+}
+
+export interface DocumentDraftFeedbackRequest {
+  kind: DocumentDraftFeedbackKind;
+  message?: string | null;
+  selectedText?: string | null;
+  fieldLabel?: string | null;
+}
+
+export interface DocumentDraftFeedbackResult {
+  draftId: string;
+  eventId: string;
+  kind: DocumentDraftFeedbackKind;
+  receivedAt: string;
+}
+
+export interface GrantPreparationResult {
+  grant: GrantDetail;
+  documents: RequiredDocument[];
+  sourceAttachments: SourceAttachment[];
+  applicationPrep: ApplicationPrep;
+  drafts: DocumentDraft[];
+  formFields: GrantDocumentFormField[];
+  exportUrls: {
+    packageMarkdown: string;
+    attachmentBundleMarkdown: string;
+  };
 }
 
 export interface GrantDetail {
@@ -296,6 +459,20 @@ export interface MatchEventResult {
 export interface MatchFeedbackRequest {
   kind?: FeedbackKind;
   message?: string | null;
+  reasonCode?: MatchFeedbackReasonCode | null;
+  outcome?: MatchOutcome | null;
+  occurredAt?: string | null;
+  correction?: MatchFeedbackCorrection | null;
+  payload?: Record<string, unknown> | null;
+}
+
+export interface MatchFeedbackCorrection {
+  dimension?: CriterionDimension | null;
+  criterionId?: string | null;
+  expectedEligibility?: Eligibility | null;
+  correctedEligibility?: Eligibility | null;
+  correctedResult?: CriterionResult | null;
+  note?: string | null;
 }
 
 export interface FeedbackReceipt {
@@ -437,6 +614,24 @@ export interface NotificationItem {
 export interface NotificationFeedResult {
   generatedAt: string;
   notifications: NotificationItem[];
+}
+
+export type NotificationReceiptAction = "read" | "dismiss";
+export type NotificationReceiptStatus = "unread" | "read" | "dismissed";
+
+export interface NotificationReceiptRequest {
+  notificationId?: string;
+  action?: NotificationReceiptAction;
+}
+
+export interface NotificationReceiptItem extends NotificationItem {
+  status: NotificationReceiptStatus;
+  readAt: string | null;
+  dismissedAt: string | null;
+}
+
+export interface NotificationReceiptResult {
+  notification: NotificationReceiptItem;
 }
 
 export interface DashboardResult {

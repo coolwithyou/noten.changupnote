@@ -621,7 +621,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
           </div>
           <div style={{ display: "flex", gap: "clamp(32px,6vw,72px)", flexWrap: "wrap" }}>
             <FooterCol title="제품" links={[["지원사업 찾기", "/"], ["신청 코칭", "/dashboard"], ["마감 알림", "/dashboard"]]} />
-            <FooterCol title="회사" links={[["도입 문의", "/login"], ["개인정보처리방침", "/login"], ["이용약관", "/login"]]} />
+            <FooterCol title="회사" links={[["도입 문의", "/support"], ["개인정보처리방침", "/privacy"], ["이용약관", "/terms"]]} />
           </div>
         </div>
         <div style={{ maxWidth: 1120, margin: "28px auto 0", paddingTop: 22, borderTop: "1px solid #f2f4f6", fontSize: 13, color: "#a8b0ba" }}>

@@ -18,6 +18,7 @@ import {
   daysUntil,
 } from "./match-card.js";
 import type { MatchedGrant } from "./match-card.js";
+import { buildDocumentPreparation } from "../documents/preparation.js";
 
 export interface BuildApplySheetOptions<TPayload = unknown> {
   entry: MatchedGrant<TPayload>;
@@ -109,11 +110,13 @@ function buildApplicationPrep(input: {
   needsCheck: RuleTraceChip[];
   documents: RequiredDocument[];
 }): ApplicationPrep {
-  return {
-    autoSubmitSupported: false,
-    profileCopyFields: buildProfileCopyFields(input.company, input),
+  const profileCopyFields = buildProfileCopyFields(input.company, input);
+  return buildDocumentPreparation({
+    documents: input.documents,
+    profileCopyFields,
     planDraftPrompts: buildPlanDraftPrompts(input),
-  };
+    ...(input.company ? { company: input.company } : {}),
+  });
 }
 
 function buildProfileCopyFields(

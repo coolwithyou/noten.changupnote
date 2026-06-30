@@ -1,6 +1,10 @@
 import type {
   CompanyProfile,
+  FeedbackKind,
+  MatchFeedbackCorrection,
+  MatchFeedbackReasonCode,
   MatchEventKind,
+  MatchOutcome,
   MatchResult,
   NormalizedGrant,
   RoadmapNode,
@@ -116,7 +120,7 @@ export interface MatchEventReceipt {
   acceptedAt: string;
 }
 
-export type FeedbackKind = "saved" | "dismissed" | "wrong" | "applied" | "note";
+export type { FeedbackKind } from "@cunote/contracts";
 
 export interface SubmitFeedbackInput {
   companyId: string;
@@ -124,6 +128,11 @@ export interface SubmitFeedbackInput {
   kind: FeedbackKind;
   userId?: string;
   message?: string | null;
+  reasonCode?: MatchFeedbackReasonCode | null;
+  outcome?: MatchOutcome | null;
+  occurredAt?: string | null;
+  correction?: MatchFeedbackCorrection | null;
+  payload?: Record<string, unknown> | null;
 }
 
 export interface FeedbackReceipt {

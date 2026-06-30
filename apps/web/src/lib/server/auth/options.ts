@@ -7,6 +7,7 @@ import KakaoProvider from "next-auth/providers/kakao";
 import { eq, sql } from "drizzle-orm";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { getLegalConfig } from "@/lib/server/legal/legalConfig";
 import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
 import { normalizeEmail, verifyPassword } from "./password";
 
@@ -37,6 +38,11 @@ export const authOptions: NextAuthOptions = {
     },
     session({ session, token }) {
       return attachSessionUserId(session, token.sub);
+    },
+  },
+  events: {
+    async signIn({ user }) {
+      await ensureUserLegalAcceptance(user.id);
     },
   },
 };
@@ -173,6 +179,7 @@ async function resolveSessionUserId(input: {
     image: input.image ?? null,
   }) ?? await resolveUserIdByEmail(email);
   if (userId) await linkOAuthAccount(userId, input.account);
+  await ensureUserLegalAcceptance(userId);
   return userId ?? input.tokenSub;
 }
 
@@ -224,6 +231,48 @@ async function linkOAuthAccount(userId: string, account: Account | null | undefi
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+async function ensureUserLegalAcceptance(userId: string | undefined) {
+  if (!userId) return;
+
+  try {
+    const db = getCunoteDb();
+    const [existing] = await db
+      .select({
+        termsAcceptedAt: schema.users.termsAcceptedAt,
+        privacyAcceptedAt: schema.users.privacyAcceptedAt,
+        termsVersion: schema.users.termsVersion,
+        privacyVersion: schema.users.privacyVersion,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+
+    if (!existing) return;
+    if (
+      existing.termsAcceptedAt
+      && existing.privacyAcceptedAt
+      && existing.termsVersion
+      && existing.privacyVersion
+    ) {
+      return;
+    }
+
+    const legal = getLegalConfig();
+    const acceptedAt = new Date();
+    await db
+      .update(schema.users)
+      .set({
+        termsAcceptedAt: existing.termsAcceptedAt ?? acceptedAt,
+        privacyAcceptedAt: existing.privacyAcceptedAt ?? acceptedAt,
+        termsVersion: existing.termsVersion ?? legal.termsVersion,
+        privacyVersion: existing.privacyVersion ?? legal.privacyVersion,
+      })
+      .where(eq(schema.users.id, userId));
+  } catch {
+    // Older databases may not have the legal acceptance columns until migration 0014 is applied.
+  }
 }
 
 function ensureAuthEnv() {

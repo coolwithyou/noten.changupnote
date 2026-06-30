@@ -1,4 +1,5 @@
 import type { DashboardResult, MatchCard, OpportunityBucket, RoadmapNode, RuleTraceChip, SupportAmount } from "@cunote/contracts";
+import { appHeaderLinks } from "@/components/app/app-navigation";
 import { MetricCard } from "@/components/app/metric-card";
 import { ServiceHeader } from "@/components/app/service-header";
 import type { HeaderUser } from "@/lib/server/auth/session";
@@ -48,13 +49,7 @@ export function RoadmapView({
 
   return (
     <main className="roadmap-shell">
-      <ServiceHeader
-        user={user}
-        links={[
-          { href: "/dashboard", label: "기회 맵" },
-          { href: "/internal/live-match", label: "내부 검증" },
-        ]}
-      />
+      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/roadmap" })} />
 
       <section className="roadmap-hero">
         <div>

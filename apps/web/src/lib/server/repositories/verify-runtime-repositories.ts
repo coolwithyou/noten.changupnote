@@ -126,6 +126,30 @@ const expiredCache = await repositories.enrichmentCache.getFresh({
 });
 assert.equal(expiredCache, null);
 
+await repositories.enrichmentCache.put({
+  provider: "popbill",
+  bizNo: "7465400870",
+  scope: "checkBizInfo",
+  canonicalPayload: {
+    profile: { name: "영구 캐시 기업" },
+    facts: { maskedBizNo: "746-**-00***" },
+  },
+  providerResultCode: "100",
+  providerResultMessage: "정상",
+  fetchedAt,
+  expiresAt: null,
+  payloadHash: "verify-permanent-hash",
+});
+const permanentCache = await repositories.enrichmentCache.getFresh({
+  provider: "popbill",
+  bizNo: "7465400870",
+  scope: "checkBizInfo",
+  now: new Date("2036-06-27T00:00:00.000Z"),
+});
+assert.equal(permanentCache?.providerResultCode, "100");
+assert.equal(permanentCache?.expiresAt, null);
+assert.deepEqual(permanentCache?.canonicalPayload?.profile, { name: "영구 캐시 기업" });
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -137,6 +161,7 @@ console.log(JSON.stringify({
     "runtime_active_grant_filter",
     "runtime_enrichment_cache_fresh",
     "runtime_enrichment_cache_expired",
+    "runtime_enrichment_cache_permanent",
   ],
   companyId: demoCompanyId(),
   bizAgeMonths: resolvedAgain?.biz_age_months,

@@ -1,8 +1,9 @@
-import { buildNotificationFeed } from "@cunote/core";
 import { DashboardView } from "@/features/dashboard/DashboardView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { getOptionalHeaderUser } from "@/lib/server/auth/session";
+import { loadNotificationCenter } from "@/lib/server/notifications/notificationCenter";
+import { loadOnboardingProgress } from "@/lib/server/onboarding/onboardingProgress";
 import { loadServiceDashboard } from "@/lib/server/serviceData";
 
 export const dynamic = "force-dynamic";
@@ -15,11 +16,19 @@ export default async function DashboardPage() {
     limit: 40,
     writeMatchStates: false,
   });
-  const notificationFeed = buildNotificationFeed({
-    matches: dashboard.matches,
-  });
+  const [notificationFeed, onboardingProgress] = await Promise.all([
+    loadNotificationCenter({ access, matches: dashboard.matches }),
+    loadOnboardingProgress({ access }),
+  ]);
   const user = await getOptionalHeaderUser();
-  return <DashboardView dashboard={dashboard} notificationFeed={notificationFeed} user={user} />;
+  return (
+    <DashboardView
+      dashboard={dashboard}
+      notificationFeed={notificationFeed}
+      onboardingProgress={onboardingProgress}
+      user={user}
+    />
+  );
 }
 
 async function loadDashboardAccess() {

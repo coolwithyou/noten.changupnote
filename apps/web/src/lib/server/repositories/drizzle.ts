@@ -449,14 +449,8 @@ class DrizzleFeedbackRepository implements FeedbackRepository {
       .values({
         targetType: "match",
         targetId: `${input.companyId}:${input.grantId}`,
-        type: feedbackTypeFor(input.kind),
-        value: {
-          kind: input.kind,
-          companyId: input.companyId,
-          grantId: input.grantId,
-          userId: input.userId ?? null,
-          message: input.message ?? null,
-        },
+        type: feedbackTypeFor(input),
+        value: feedbackValue(input),
         actor: "user",
       })
       .returning({ id: schema.feedback.id, ts: schema.feedback.ts }));
@@ -758,16 +752,16 @@ function companyProfileRows(
   if (profile.employees_count !== null && profile.employees_count !== undefined) {
     push("employees", { employees_count: profile.employees_count, count: profile.employees_count });
   }
-  if (profile.traits?.length) {
+  if (Array.isArray(profile.traits)) {
     push("founder_trait", { traits: profile.traits });
   }
-  if (profile.certs?.length) {
+  if (Array.isArray(profile.certs)) {
     push("certification", { certs: profile.certs, certifications: profile.certs });
   }
-  if (profile.prior_awards?.length) {
+  if (Array.isArray(profile.prior_awards)) {
     push("prior_award", { prior_awards: profile.prior_awards, programs: profile.prior_awards });
   }
-  if (profile.ip?.length) {
+  if (Array.isArray(profile.ip)) {
     push("ip", { ip: profile.ip, types: profile.ip });
   }
   if (profile.target_types?.length) {
@@ -840,10 +834,33 @@ function dateString(value: Date | null): string | null {
   return value ? value.toISOString().slice(0, 10) : null;
 }
 
-function feedbackTypeFor(kind: SubmitFeedbackInput["kind"]) {
-  if (kind === "saved" || kind === "applied") return "explicit_relevant";
-  if (kind === "dismissed" || kind === "wrong") return "explicit_irrelevant";
+function feedbackTypeFor(input: SubmitFeedbackInput) {
+  if (input.kind === "selected" || input.kind === "rejected" || input.kind === "blocked") return "outcome";
+  if (input.outcome && input.outcome !== "pending") return "outcome";
+  if (input.kind === "saved" || input.kind === "applied") return "explicit_relevant";
+  if (input.kind === "dismissed" || input.kind === "wrong") return "explicit_irrelevant";
   return "implicit";
+}
+
+function feedbackValue(input: SubmitFeedbackInput): Record<string, unknown> {
+  return compactRecord({
+    kind: input.kind,
+    companyId: input.companyId,
+    grantId: input.grantId,
+    userId: input.userId ?? null,
+    message: input.message ?? null,
+    reasonCode: input.reasonCode ?? null,
+    outcome: input.outcome ?? outcomeForKind(input.kind),
+    occurredAt: input.occurredAt ?? null,
+    correction: input.correction ?? null,
+    payload: input.payload ?? null,
+  });
+}
+
+function outcomeForKind(kind: SubmitFeedbackInput["kind"]) {
+  if (kind === "selected" || kind === "rejected" || kind === "blocked") return kind;
+  if (kind === "applied") return "pending";
+  return null;
 }
 
 function stringValue(value: unknown): string | undefined {

@@ -1,9 +1,9 @@
-import { buildNotificationFeed } from "@cunote/core";
-import type { ActionResult, NotificationFeedResult } from "@cunote/contracts";
+import type { ActionResult } from "@cunote/contracts";
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
-import { loadServiceDashboard } from "@/lib/server/serviceData";
+import { loadNotificationCenter } from "@/lib/server/notifications/notificationCenter";
+import type { NotificationCenterResult } from "@/lib/notifications/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,13 +11,10 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const access = await requireCompanyAccess();
-    const dashboard = await loadServiceDashboard({ companyId: access.companyId, userId: access.userId, limit: 40 });
-    const data = buildNotificationFeed({
-      matches: dashboard.matches,
-    });
-    return NextResponse.json<ActionResult<NotificationFeedResult>>({ ok: true, data });
+    const data = await loadNotificationCenter({ access });
+    return NextResponse.json<ActionResult<NotificationCenterResult>>({ ok: true, data });
   } catch (error) {
-    return webActionError<NotificationFeedResult>(error, {
+    return webActionError<NotificationCenterResult>(error, {
       code: "notification_feed_failed",
       message: "알림 피드를 불러오지 못했습니다.",
     });
