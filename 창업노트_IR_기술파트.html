@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>창업노트 IR — 기술 파트</title>
+<meta name="hz:slide-selector" content=".slide" />
+<meta name="hz:canvas-width" content="1920" />
+<meta name="hz:canvas-height" content="1080" />
+<link rel="stylesheet" href="https://use.typekit.net/bfy8icp.css" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    display: flex; flex-direction: column; align-items: center; gap: 40px;
+    padding: 40px; background: #e9ecef;
+  }
+  .slide {
+    position: relative; width: 1920px; height: 1080px;
+    background: #ffffff; overflow: hidden;
+    font-family: "pretendard", sans-serif;
+    color: #191f28;
+    font-feature-settings: "tnum";
+  }
+  .slide * { font-family: "pretendard", sans-serif; }
+
+  /* ---- shared roles ---- */
+  .eyebrow {
+    position: absolute; left: 110px; top: 92px;
+    font-family: "pretendard", sans-serif; font-weight: 800;
+    font-size: 22px; letter-spacing: 1px; color: #3182f6;
+  }
+  .s-title {
+    position: absolute; left: 110px; top: 132px; width: 1700px;
+    font-family: "pretendard", sans-serif; font-weight: 800;
+    font-size: 56px; line-height: 1.18; color: #191f28; letter-spacing: -1px;
+  }
+  .s-sub {
+    position: absolute; left: 110px; top: 222px; width: 1700px;
+    font-family: "pretendard", sans-serif; font-weight: 500;
+    font-size: 25px; line-height: 1.4; color: #6b7684;
+  }
+  .content { position: absolute; left: 110px; top: 312px; width: 1700px; }
+  .content.tight { top: 296px; }
+
+  .footer-line { position: absolute; left: 110px; top: 998px; width: 1700px; height: 1px; background: #e5e8eb; }
+  .footer-l { position: absolute; left: 110px; top: 1020px; font-family: "pretendard", sans-serif; font-weight: 600; font-size: 15px; color: #8b95a1; letter-spacing: 0.3px; }
+  .footer-r { position: absolute; right: 110px; top: 1020px; font-family: "pretendard", sans-serif; font-weight: 700; font-size: 15px; color: #b0b8c1; letter-spacing: 0.5px; }
+
+  /* ---- cards / chips ---- */
+  .card { background: #ffffff; border: 1px solid #e5e8eb; border-radius: 20px; padding: 30px 32px; box-shadow: 0 2px 8px rgba(17,24,39,0.04); }
+  .card.tint { background: #f9fafb; border-color: #eef1f4; box-shadow: none; }
+  .card-num { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 12px; background: #eaf2ff; color: #3182f6; font-weight: 800; font-size: 19px; }
+  .card-title { font-family: "pretendard", sans-serif; font-weight: 700; font-size: 24px; color: #333d4b; letter-spacing: -0.3px; }
+  .card-body { font-family: "pretendard", sans-serif; font-weight: 500; font-size: 19px; line-height: 1.5; color: #6b7684; }
+
+  .pill { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px; border-radius: 999px; font-family: "pretendard", sans-serif; font-weight: 700; font-size: 16px; }
+  .dot { width: 11px; height: 11px; border-radius: 999px; display: inline-block; }
+  .p-green { background: #e7f8f0; color: #03935a; }
+  .p-amber { background: #fff3e0; color: #d97e00; }
+  .p-red { background: #fdecee; color: #d83a48; }
+  .p-blue { background: #eaf2ff; color: #2272eb; }
+
+  .flow-box { background: #ffffff; border: 1.5px solid #e5e8eb; border-radius: 18px; padding: 22px 24px; }
+  .arrow { font-weight: 800; font-size: 34px; color: #c5ccd4; }
+  .stage-label { font-family: "pretendard", sans-serif; font-weight: 800; font-size: 14px; letter-spacing: 0.5px; color: #3182f6; margin-bottom: 8px; }
+
+  .metric-num { font-family: "pretendard", sans-serif; font-weight: 800; font-size: 76px; line-height: 1; letter-spacing: -2px; color: #191f28; font-feature-settings: "tnum"; }
+  .metric-num.blue { color: #3182f6; }
+  .metric-label { font-family: "pretendard", sans-serif; font-weight: 600; font-size: 19px; line-height: 1.4; color: #4e5968; }
+  .metric-cap { font-family: "pretendard", sans-serif; font-weight: 600; font-size: 15px; color: #8b95a1; }
+
+  .note-bar { background: #f9fafb; border: 1px solid #eef1f4; border-left: 4px solid #3182f6; border-radius: 14px; padding: 22px 28px; font-family: "pretendard", sans-serif; font-weight: 500; font-size: 19px; line-height: 1.5; color: #4e5968; }
+  .note-bar b { color: #191f28; font-weight: 800; }
+
+  .rule-box { background: #191f28; border-radius: 18px; padding: 28px 34px; color: #e5e8eb; font-family: "pretendard", sans-serif; }
+  .rule-line { font-weight: 600; font-size: 21px; line-height: 1.9; }
+  .rule-line .k { color: #ffffff; font-weight: 800; }
+  .rule-line .g { color: #4ddca0; font-weight: 800; }
+  .rule-line .a { color: #ffc15e; font-weight: 800; }
+  .rule-line .r { color: #ff8a93; font-weight: 800; }
+</style>
+</head>
+<body>
+
+<div class="deck">
+<main class="deck-stage">
+
+<!-- ============ S0 · SECTION OPENER ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div style="position:absolute; left:110px; top:330px; width:50px; height:8px; background:#3182f6; border-radius:99px;"></div>
+  <div style="position:absolute; left:110px; top:372px; font-weight:800; font-size:24px; letter-spacing:2px; color:#3182f6;">TECHNOLOGY · 기술</div>
+  <div style="position:absolute; left:110px; top:420px; width:1500px; font-weight:800; font-size:108px; line-height:1.12; letter-spacing:-3px; color:#191f28;">흩어진 공고를<br/>표준 계약과 설명 가능한<br/>매칭 엔진으로</div>
+  <div style="position:absolute; left:114px; top:800px; width:1450px; font-weight:500; font-size:30px; line-height:1.5; color:#6b7684;">AI는 비정형 공고를 <b style="color:#333d4b;font-weight:800;">읽고(추출)</b>, 결정론 규칙엔진이 <b style="color:#333d4b;font-weight:800;">판정(당락)</b>한다. — 정부지원사업 매칭의 기술 해자</div>
+  <div style="position:absolute; right:110px; top:372px; text-align:right; font-weight:700; font-size:21px; color:#b0b8c1; letter-spacing:0.5px;">창업노트 · (주)노튼</div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 섹션</div>
+</section>
+
+<!-- ============ T1 · 문제 ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 01 / 08</div>
+  <div class="s-title">문제 — 흩어진 공고, 비정형 자격요건</div>
+  <div class="s-sub">정부지원사업은 채널·형식·조건이 모두 제각각이라, 사람이 한 건씩 읽지 않으면 "우리 회사가 되는지"를 알 수 없다.</div>
+
+  <div class="content">
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:22px;">
+      <div class="card">
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;"><span class="card-num">1</span><span class="card-title">채널 파편화</span></div>
+        <div class="card-body">K-Startup·기업마당 등 <b style="color:#333d4b;font-weight:700;">수십 개 채널에 분산</b>. 어디에 무엇이 열려 있는지조차 파악이 어렵다.</div>
+      </div>
+      <div class="card">
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;"><span class="card-num">2</span><span class="card-title">비정형 자격요건</span></div>
+        <div class="card-body">자격요건이 <b style="color:#333d4b;font-weight:700;">본문·HWP 표·첨부 산문</b>에 흩어져 있어, 판정하려면 사람이 일일이 해석해야 한다.</div>
+      </div>
+      <div class="card">
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;"><span class="card-num">3</span><span class="card-title">조건의 미묘함</span></div>
+        <div class="card-body">"업력 7년 이내", "수도권 제외", "신산업은 10년 완화"… 자동화가 어렵고, 잘못하면 <b style="color:#d83a48;font-weight:700;">거짓 탈락</b>이 난다.</div>
+      </div>
+      <div class="card">
+        <div style="display:flex; align-items:center; gap:14px; margin-bottom:14px;"><span class="card-num">4</span><span class="card-title">접수처 파편화 (실측)</span></div>
+        <div class="card-body">K-Startup n=1,000 실측 — 온라인 접수처가 <b style="color:#333d4b;font-weight:700;">225종(forms.gle 138종 등)</b>으로 갈라져 통합 자동제출 자체가 불가능.</div>
+      </div>
+    </div>
+    <div class="note-bar" style="margin-top:24px;">핵심 난제 = <b>비정형 공고 → 신뢰할 수 있는 구조화 + 설명 가능한 판정.</b> 규모로, 거짓 확신 없이, 데이터가 쌓일수록 정교해지게 푸는 것이 우리의 기술이다.</div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 01 / 08</div>
+</section>
+
+<!-- ============ T2 · 해법 한 장 ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 02 / 08</div>
+  <div class="s-title">해법 — 표준 계약 + 설명 가능한 매칭 엔진</div>
+  <div class="s-sub">모든 공고를 회사와 같은 좌표계(14축)로 환원한 뒤, 결정론 규칙엔진이 적격·근거·다음 행동을 자동 산출한다.</div>
+
+  <div class="content" style="top:340px;">
+    <div style="display:flex; align-items:center; gap:18px;">
+      <div class="flow-box" style="flex:1;">
+        <div class="stage-label">INPUT</div>
+        <div style="font-weight:800; font-size:23px; color:#191f28;">비정형 공고</div>
+        <div style="font-weight:500; font-size:17px; color:#8b95a1; margin-top:6px;">본문 · HWP 표 · 첨부</div>
+      </div>
+      <div style="text-align:center;"><div style="font-weight:800;font-size:13px;color:#3182f6;letter-spacing:0.5px;margin-bottom:2px;">AI 추출</div><div class="arrow">→</div></div>
+      <div class="flow-box" style="flex:1.05; border-color:#bcd6ff; background:#f5f9ff;">
+        <div class="stage-label">CONTRACT</div>
+        <div style="font-weight:800; font-size:23px; color:#191f28;">14축 표준 계약</div>
+        <div style="font-weight:500; font-size:17px; color:#6b7684; margin-top:6px;">grant_criteria · confidence · source_span</div>
+      </div>
+      <div style="text-align:center;"><div style="font-weight:800;font-size:13px;color:#3182f6;letter-spacing:0.5px;margin-bottom:2px;">규칙 판정</div><div class="arrow">→</div></div>
+      <div class="flow-box" style="flex:1;">
+        <div class="stage-label">VERDICT</div>
+        <div style="font-weight:800; font-size:23px; color:#191f28;">적격 · 조건부 · 부적격</div>
+        <div style="font-weight:500; font-size:17px; color:#8b95a1; margin-top:6px;">+ 근거(rule_trace) + 다음 행동</div>
+      </div>
+    </div>
+
+    <div style="display:flex; gap:22px; margin-top:30px; align-items:stretch;">
+      <div class="rule-box" style="flex:1.25;">
+        <div style="font-weight:800; font-size:16px; color:#8b95a1; letter-spacing:1px; margin-bottom:14px;">판정 = 단 3줄의 결정론 규칙</div>
+        <div class="rule-line">1. 필수·배제 중 하나라도 <span class="r">fail</span> → 부적격</div>
+        <div class="rule-line">2. fail은 없는데 <span class="a">unknown</span> → 조건부</div>
+        <div class="rule-line">3. 전부 <span class="g">pass</span> → 적격</div>
+      </div>
+      <div class="card tint" style="flex:1; display:flex; flex-direction:column; justify-content:center;">
+        <div style="font-weight:800; font-size:30px; color:#191f28; line-height:1.35; letter-spacing:-0.5px;">"AI는 읽고,<br/>규칙이 판정한다."</div>
+        <div style="font-weight:500; font-size:19px; color:#6b7684; margin-top:16px; line-height:1.5;">블랙박스가 당락을 정하지 않는다. 판정은 늘 재현·감사 가능.</div>
+      </div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 02 / 08</div>
+</section>
+
+<!-- ============ T3 · 아키텍처 ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 03 / 08</div>
+  <div class="s-title">아키텍처 — 2-레이어, 계약으로 분리</div>
+  <div class="s-sub">무거운 비동기 작업(수집)과 빠른 사용자 경로(서빙)를 분리하고, 단일 계약(정규화 grant 스키마)으로 잇는다.</div>
+
+  <div class="content" style="top:336px;">
+    <!-- serving -->
+    <div class="card" style="border-color:#bcd6ff; background:#f5f9ff;">
+      <div style="display:flex; align-items:center; gap:16px;">
+        <span class="pill p-blue">서빙 레이어</span>
+        <span style="font-weight:800; font-size:22px; color:#191f28;">Next.js / Vercel · 결정론 매칭 엔진(@cunote/core)</span>
+        <span style="margin-left:auto; font-weight:600; font-size:18px; color:#6b7684;">사용자 경로 = Postgres <b style="color:#2272eb;font-weight:800;">읽기만</b> → 빠르고 안정</span>
+      </div>
+    </div>
+
+    <div style="text-align:center; font-weight:800; font-size:26px; color:#c5ccd4; margin:8px 0;">▲ &nbsp; 읽기 / 매칭 조회 &nbsp; ▼ &nbsp; 발행(UPSERT)</div>
+
+    <!-- contract -->
+    <div class="card" style="background:#191f28; border:none; padding:24px 32px;">
+      <div style="display:flex; align-items:center; gap:16px;">
+        <span style="display:inline-flex; align-items:center; height:36px; padding:0 16px; border-radius:999px; background:#3182f6; color:#fff; font-weight:800; font-size:16px;">계약 (Contract)</span>
+        <span style="font-weight:800; font-size:22px; color:#ffffff;">Supabase Postgres — 정규화 grant 스키마</span>
+        <span style="margin-left:auto; font-weight:600; font-size:17px; color:#9aa4b0;">grants · grant_criteria · match_state · *_log · golden_set</span>
+      </div>
+    </div>
+
+    <div style="text-align:center; font-weight:800; font-size:26px; color:#c5ccd4; margin:8px 0;">▲ &nbsp; 추출 결과 적재 &nbsp; ▼</div>
+
+    <!-- ingestion -->
+    <div class="card tint">
+      <div style="display:flex; align-items:center; gap:16px;">
+        <span style="display:inline-flex; align-items:center; height:38px; padding:0 16px; border-radius:999px; background:#eef1f4; color:#4e5968; font-weight:800; font-size:16px;">수집 레이어</span>
+        <span style="font-weight:800; font-size:22px; color:#191f28;">Python / GCP — 크롤 → 변환 → 추출 → 정규화</span>
+        <span style="margin-left:auto; font-weight:600; font-size:17px; color:#8b95a1;">상태머신 · 증분 · dedup · backfill</span>
+      </div>
+    </div>
+
+    <!-- side services -->
+    <div style="display:flex; gap:14px; margin-top:20px;">
+      <div class="card" style="flex:1; padding:18px 22px; text-align:center;"><div style="font-weight:800;font-size:19px;color:#333d4b;">Claude</div><div style="font-weight:500;font-size:15px;color:#8b95a1;margin-top:3px;">구조화 추출</div></div>
+      <div class="card" style="flex:1; padding:18px 22px; text-align:center;"><div style="font-weight:800;font-size:19px;color:#333d4b;">팝빌</div><div style="font-weight:500;font-size:15px;color:#8b95a1;margin-top:3px;">기업 기본정보 보강</div></div>
+      <div class="card" style="flex:1; padding:18px 22px; text-align:center;"><div style="font-weight:800;font-size:19px;color:#333d4b;">Cloudflare · R2</div><div style="font-weight:500;font-size:15px;color:#8b95a1;margin-top:3px;">엣지 · 첨부 원본</div></div>
+      <div class="card" style="flex:1; padding:18px 22px; text-align:center;"><div style="font-weight:800;font-size:19px;color:#333d4b;">Upstash Redis</div><div style="font-weight:500;font-size:15px;color:#8b95a1;margin-top:3px;">캐시 · 큐</div></div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 03 / 08</div>
+</section>
+
+<!-- ============ T4 · 차별점 ① ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 04 / 08 · 차별점 ①</div>
+  <div class="s-title">AI는 읽고, 규칙이 판정한다</div>
+  <div class="s-sub">추출(AI)과 판정(규칙)을 구조적으로 분리해, LLM이 틀려도 그 영향이 "입력 품질"에 갇히게 만든다.</div>
+
+  <div class="content" style="top:330px;">
+    <div style="display:flex; gap:22px;">
+      <div class="card" style="flex:1;">
+        <div class="pill p-blue" style="margin-bottom:18px;">추출 = AI (Claude)</div>
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div class="card-body"><b style="color:#191f28;font-weight:800;">tool-use 구조화 출력</b> 강제 — 자유 텍스트 JSON 금지</div>
+          <div class="card-body">필드별 <b style="color:#333d4b;font-weight:700;">confidence + source_span</b>(원문 근거) 동봉</div>
+          <div class="card-body">controlled vocabulary만 허용 (업종·지역·인증)</div>
+          <div class="card-body">근거 없으면 <b style="color:#d83a48;font-weight:700;">null — 날조 금지</b></div>
+        </div>
+      </div>
+      <div class="card" style="flex:1; border-color:#bcd6ff; background:#f5f9ff;">
+        <div class="pill p-blue" style="margin-bottom:18px; background:#3182f6; color:#fff;">판정 = 결정론 규칙엔진</div>
+        <div style="display:flex; flex-direction:column; gap:14px;">
+          <div class="card-body">조건을 한 줄씩 비교 → <span style="color:#03935a;font-weight:800;">pass</span> · <span style="color:#d97e00;font-weight:800;">unknown</span> · <span style="color:#d83a48;font-weight:800;">fail</span></div>
+          <div class="card-body">3줄 규칙으로 <b style="color:#191f28;font-weight:800;">적격·조건부·부적격</b> 확정</div>
+          <div class="card-body"><b style="color:#333d4b;font-weight:700;">재현·감사 가능</b> · 버전드(RULESET_VERSION)</div>
+          <div class="card-body">결측 = unknown → <b style="color:#191f28;font-weight:800;">거짓 탈락 금지</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="note-bar" style="margin-top:24px; border-left-color:#191f28;">예: "업력 7년 이내(필수) — 귀사 4년 2개월 <b style="color:#03935a;">✅</b>" · "운영사 추천 필요(필수·자동판정 불가) — <b style="color:#d97e00;">⚠ 원문 확인</b>". <b>설명이 곧 신뢰의 핵심이자 라벨링 단위.</b></div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 04 / 08</div>
+</section>
+
+<!-- ============ T5 · 차별점 ② ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 05 / 08 · 차별점 ②</div>
+  <div class="s-title">점수 3분해 · 정보이득 · 액션 큐</div>
+  <div class="s-sub">"87점" 같은 거짓 단일점수를 거부한다. 신뢰 가능한 것과 추측을 분리하고, 다음 행동까지 결정론으로 산출한다.</div>
+
+  <div class="content" style="top:330px;">
+    <div style="display:flex; gap:18px; align-items:stretch;">
+      <div class="card" style="flex:1.15;">
+        <div style="font-weight:800; font-size:21px; color:#333d4b; margin-bottom:16px;">점수 3분해</div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div style="display:flex; align-items:center; gap:12px;"><span class="pill p-green" style="width:150px; justify-content:center;">적합도 Fit</span><span style="font-weight:500;font-size:17px;color:#6b7684;">지금 신뢰 가능 · 규칙엔진 · 헤드라인</span></div>
+          <div style="display:flex; align-items:center; gap:12px;"><span class="pill p-amber" style="width:150px; justify-content:center;">선정가능성</span><span style="font-weight:500;font-size:17px;color:#6b7684;">데이터 누적 후 학습 · "추정" 라벨</span></div>
+          <div style="display:flex; align-items:center; gap:12px;"><span class="pill p-blue" style="width:150px; justify-content:center;">가치 Value</span><span style="font-weight:500;font-size:17px;color:#6b7684;">혜택 − 부담 합산 · 보조 배지</span></div>
+        </div>
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid #eef1f4; font-weight:600; font-size:17px; color:#8b95a1;">각 점수에 confidence 동반 · "지금 78점 → 매출 입력 시 최대 92점"</div>
+      </div>
+      <div class="card tint" style="flex:1;">
+        <div style="font-weight:800; font-size:21px; color:#333d4b; margin-bottom:14px;">정보이득 → 다음 질문 1개</div>
+        <div class="card-body" style="margin-bottom:14px;">비어 있는 필드 각각이 <b style="color:#333d4b;font-weight:700;">"몇 건의 조건부 공고를 확정/제외시킬까"</b>를 추정 → 가장 가치 있는 질문 하나만 노출.</div>
+        <div style="background:#fff; border:1px solid #e5e8eb; border-radius:14px; padding:16px 20px; font-weight:700; font-size:18px; color:#2272eb;">"확정 또는 제외에 도움" — 양방향 정직 프레이밍</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:22px; display:flex; align-items:center; gap:24px;">
+      <div style="flex:0 0 auto;"><span class="pill p-blue" style="height:42px; font-size:18px;">NPC 액션 큐</span></div>
+      <div style="flex:1; font-weight:500; font-size:19px; color:#4e5968; line-height:1.5;">정보이득을 <b style="color:#333d4b;font-weight:700;">모든 행동(입력·자격취득·신청·보강)</b>으로 일반화해 "지금 당장 할 일"을 전역 정렬. 무엇·어디서(발급처)·왜(해금)까지 결정론으로 산출, LLM은 표현만.</div>
+      <div style="flex:0 0 auto; background:#191f28; color:#fff; border-radius:14px; padding:16px 24px; font-weight:800; font-size:21px;">(레버리지 × 긴급) ÷ 노력</div>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 05 / 08</div>
+</section>
+
+<!-- ============ T6 · 차별점 ③ ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 06 / 08 · 차별점 ③</div>
+  <div class="s-title">살아있는 월드 + 지속개선 플라이휠</div>
+  <div class="s-sub">시간이 흐르고 데이터가 쌓일수록 정교해지되, 적격 판정은 언제나 결정론·설명 가능하게 유지한다.</div>
+
+  <div class="content" style="top:330px;">
+    <div style="display:flex; gap:22px;">
+      <div class="card" style="flex:1;">
+        <div class="pill p-blue" style="margin-bottom:16px;">살아있는 월드 — 시간 기반 재매칭</div>
+        <div style="display:flex; flex-direction:column; gap:13px;">
+          <div class="card-body"><b style="color:#191f28;font-weight:800;">eligible_from / eligible_until</b> 전이 날짜를 사전계산</div>
+          <div class="card-body">가벼운 일일 잡이 <b style="color:#333d4b;font-weight:700;">그날 전이건만</b> flip + 알림</div>
+          <div class="card-body">프로필·공고 변경은 영향받는 (회사×공고)만 재매칭</div>
+          <div class="card-body" style="color:#2272eb; font-weight:700;">→ 매일 전수 재평가(N×M) 금지 = 비용 가드</div>
+        </div>
+      </div>
+      <div class="card" style="flex:1; border-color:#bcd6ff; background:#f5f9ff;">
+        <div class="pill p-blue" style="margin-bottom:16px; background:#3182f6; color:#fff;">플라이휠 — 1일차부터 점수·버전·라벨링</div>
+        <div style="display:flex; flex-direction:column; gap:13px;">
+          <div class="card-body">모든 산출물에 <b style="color:#191f28;font-weight:800;">model·prompt·ruleset·scoring 버전</b> 태그</div>
+          <div class="card-body">저신뢰·피드백·outcome → 라벨링 큐 → 골든셋</div>
+          <div class="card-body"><b style="color:#333d4b;font-weight:700;">CI 평가 게이트</b> — 회귀 시 활성화 차단</div>
+          <div class="card-body">backfill은 R2 원본으로 재추출(<b style="color:#333d4b;font-weight:700;">재크롤 0</b>)</div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex; gap:14px; margin-top:22px;">
+      <div class="card tint" style="flex:1; text-align:center; padding:18px;"><div style="font-weight:800;font-size:17px;color:#333d4b;">① 추출 정확도</div></div>
+      <div class="card tint" style="flex:1; text-align:center; padding:18px;"><div style="font-weight:800;font-size:17px;color:#333d4b;">② 매핑 자산</div></div>
+      <div class="card tint" style="flex:1; text-align:center; padding:18px;"><div style="font-weight:800;font-size:17px;color:#333d4b;">③ 스코어 가중치 (learn-to-rank)</div></div>
+      <div class="card tint" style="flex:1; text-align:center; padding:18px;"><div style="font-weight:800;font-size:17px;color:#333d4b;">④ 선정가능성 모델</div></div>
+    </div>
+    <div style="text-align:center; margin-top:18px; font-weight:800; font-size:22px; color:#191f28;">"더 똑똑해지되, 당락은 언제나 설명 가능."</div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 06 / 08</div>
+</section>
+
+<!-- ============ T7 · 현시점 실증 (숫자) ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 07 / 08 · NOW</div>
+  <div class="s-title">현시점 실증 — 숫자로 증명된 엔진</div>
+  <div class="s-sub">비정형 공고를 표준 계약으로 환원하고, 설명 가능한 매칭 엔진을 실데이터에서 엔드투엔드로 실증했다. (설계가 아닌 실측)</div>
+
+  <div class="content" style="top:316px;">
+    <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:18px;">
+      <div class="card">
+        <div class="metric-num blue">100<span style="font-size:46px;">%</span></div>
+        <div class="metric-label" style="margin-top:12px;">K-Startup 척추 6차원<br/>파서로 자동 산출</div>
+        <div class="metric-cap" style="margin-top:8px;">지역·업력·연령·분야·대상·일정 · <b style="color:#2272eb;">LLM 0</b></div>
+      </div>
+      <div class="card">
+        <div class="metric-num">29,187</div>
+        <div class="metric-label" style="margin-top:12px;">K-Startup 공고 규모</div>
+        <div class="metric-cap" style="margin-top:8px;">표본 500건 구조화 커버리지 검증</div>
+      </div>
+      <div class="card">
+        <div class="metric-num"><span style="color:#03b26c;">63</span> · <span style="color:#fe9800;">88</span> · <span style="color:#f04452;">64</span></div>
+        <div class="metric-label" style="margin-top:12px;">엔드투엔드 매칭 데모</div>
+        <div class="metric-cap" style="margin-top:8px;">가상 사업자 × open 215건 → 적격·조건부·부적격</div>
+      </div>
+      <div class="card">
+        <div class="metric-num">11<span style="font-size:40px; color:#6b7684;"> 표</span></div>
+        <div class="metric-label" style="margin-top:12px;">HWP 자격요건 표<br/>셀 단위 보존</div>
+        <div class="metric-cap" style="margin-top:8px;">pyhwp hwp5html → LLM-ready 마크다운</div>
+      </div>
+      <div class="card">
+        <div class="metric-num">1/3 <span style="color:#c5ccd4;">→</span> <span class="metric-num blue" style="display:inline;">0</span></div>
+        <div class="metric-label" style="margin-top:12px;">LLM JSON 파싱 실패율</div>
+        <div class="metric-cap" style="margin-top:8px;">tool-use(구조화 출력) 전환 효과</div>
+      </div>
+      <div class="card" style="background:#191f28; border:none;">
+        <div class="metric-num" style="color:#fff;">12<span style="font-size:40px; color:#9aa4b0;"> 종</span></div>
+        <div class="metric-label" style="margin-top:12px; color:#cdd4dc;">구현된 use-case</div>
+        <div class="metric-cap" style="margin-top:8px; color:#8b95a1;">매칭카드·액션큐·로드맵·티저·신청시트… <b style="color:#fff;">동작하는 코드</b></div>
+      </div>
+    </div>
+    <div class="note-bar" style="margin-top:22px;"><b>정직성 게이트.</b> 도메인 전문가 골든셋 기반 엄밀 정밀도/재현율(P/R)은 <b>팀 작업으로 진행 중</b>이며, 그 전에는 "정확도 검증 완료"로 표현하지 않는다. — 이 절제가 곧 제품 철학(거짓 확신 금지)의 일관성.</div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 07 / 08</div>
+</section>
+
+<!-- ============ T8 · 향후 비전 ============ -->
+<section class="slide" data-canvas-width="1920" data-canvas-height="1080">
+  <div class="eyebrow">기술 · 08 / 08 · NEXT</div>
+  <div class="s-title">향후 비전 — 정확도 플라이휠에서 성장 데이터 자산으로</div>
+  <div class="s-sub">데이터가 쌓일수록 추천이 정교해지고, 축적되는 기업 성장 데이터가 (주)노튼의 장기 AI 자산이 된다.</div>
+
+  <div class="content" style="top:330px;">
+    <div style="display:flex; gap:20px; align-items:stretch;">
+      <div class="card" style="flex:1;">
+        <div style="font-weight:800; font-size:15px; color:#3182f6; letter-spacing:0.5px;">단기</div>
+        <div style="font-weight:800; font-size:25px; color:#191f28; margin:8px 0 16px;">정확도 플라이휠 가동</div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div class="card-body">골든셋 P/R 측정 → 프롬프트·매핑 자산 튜닝</div>
+          <div class="card-body"><b style="color:#333d4b;font-weight:700;">HITL 자동화 비율 상승</b></div>
+          <div class="card-body">기업마당 추출 본격화 · 채널 확장 <b style="color:#2272eb;">1,500+</b></div>
+        </div>
+      </div>
+      <div class="card" style="flex:1;">
+        <div style="font-weight:800; font-size:15px; color:#3182f6; letter-spacing:0.5px;">중기</div>
+        <div style="font-weight:800; font-size:25px; color:#191f28; margin:8px 0 16px;">학습으로 정교해지는 랭킹</div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div class="card-body"><b style="color:#333d4b;font-weight:700;">learn-to-rank</b> — 피드백·outcome 가중치 튜닝</div>
+          <div class="card-body">선정가능성 모델 (outcome 누적 후)</div>
+          <div class="card-body">CODEF 동의연동 · 정책자금·민간투자 트랙</div>
+        </div>
+      </div>
+      <div class="card" style="flex:1; border-color:#bcd6ff; background:#f5f9ff;">
+        <div style="font-weight:800; font-size:15px; color:#3182f6; letter-spacing:0.5px;">장기</div>
+        <div style="font-weight:800; font-size:25px; color:#191f28; margin:8px 0 16px;">기업 성장 데이터 = AI 자산</div>
+        <div style="display:flex; flex-direction:column; gap:12px;">
+          <div class="card-body">성장 RPG — 퀘스트·레벨·투자단계가 실데이터에 1:1</div>
+          <div class="card-body">수혜이력 타임라인 + 사업계획서 초안 어시스턴트</div>
+          <div class="card-body" style="color:#2272eb; font-weight:700;">대리 제출 ❌ — 자동완성·초안 도움으로 정직 한정</div>
+        </div>
+      </div>
+    </div>
+    <div class="rule-box" style="margin-top:24px; padding:24px 32px; display:flex; align-items:center; gap:20px;">
+      <span style="font-weight:800; font-size:24px; color:#fff;">데이터 해자</span>
+      <span style="font-weight:500; font-size:20px; color:#cdd4dc; line-height:1.5;">플라이휠의 outcome이 곧 데이터 해자 — 신청→선정 이력과 기업 성장 궤적이 경쟁자가 복제하기 어려운 장기 자산으로 축적된다.</span>
+    </div>
+  </div>
+  <div class="footer-line"></div>
+  <div class="footer-l">창업노트 · (주)노튼 &nbsp;|&nbsp; changupnote.com</div>
+  <div class="footer-r">기술 08 / 08</div>
+</section>
+
+</main>
+</div>
+</body>
+</html>
