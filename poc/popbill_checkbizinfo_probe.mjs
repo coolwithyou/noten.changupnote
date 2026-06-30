@@ -10,6 +10,13 @@
  *
  * Optional env:
  * - POPBILL_USER_ID
+ * - POPBILL_ENVIRONMENT=test|production
+ * - POPBILL_BASE_URL
+ * - POPBILL_SERVICE_ID
+ * - POPBILL_TEST_BASE_URL
+ * - POPBILL_TEST_SERVICE_ID
+ * - POPBILL_PRODUCTION_BASE_URL
+ * - POPBILL_PRODUCTION_SERVICE_ID
  * - POPBILL_IS_TEST=true|false
  * - POPBILL_IP_RESTRICT_ON_OFF=true|false
  * - POPBILL_USE_STATIC_IP=true|false
@@ -21,6 +28,17 @@
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+
+const defaultEndpoints = {
+  test: {
+    baseUrl: "https://popbill-test.linkhub.co.kr",
+    serviceId: "POPBILL_TEST",
+  },
+  production: {
+    baseUrl: "https://popbill.linkhub.co.kr",
+    serviceId: "POPBILL",
+  },
+};
 
 function loadDotEnv(path = ".env") {
   try {
@@ -59,7 +77,39 @@ function requireEnv(name, aliases = []) {
   return null;
 }
 
-loadDotEnv();
+function optionalEnv(name) {
+  const value = process.env[name]?.trim();
+  return value ? value : null;
+}
+
+function readPopbillEnvironment() {
+  const value =
+    optionalEnv("POPBILL_ENVIRONMENT")?.toLowerCase() ??
+    optionalEnv("POPBILL_ENV")?.toLowerCase();
+  if (!value) return null;
+  if (["test", "sandbox", "dev", "development"].includes(value)) return "test";
+  if (["production", "prod", "live"].includes(value)) return "production";
+  throw new Error(`Invalid POPBILL_ENVIRONMENT: ${value}`);
+}
+
+function readPopbillEndpoint(environment) {
+  const prefix = environment === "test" ? "TEST" : "PRODUCTION";
+  const defaults = defaultEndpoints[environment];
+  return {
+    environment,
+    baseUrl:
+      optionalEnv(`POPBILL_${prefix}_BASE_URL`) ??
+      optionalEnv("POPBILL_BASE_URL") ??
+      defaults.baseUrl,
+    serviceId:
+      optionalEnv(`POPBILL_${prefix}_SERVICE_ID`) ??
+      optionalEnv("POPBILL_SERVICE_ID") ??
+      defaults.serviceId,
+  };
+}
+
+loadDotEnv(".env.local");
+loadDotEnv(".env");
 
 const secret = requireEnv("POPBILL_SECRET_KEY", ["POPBILL_API_KEY"]);
 const required = {
@@ -75,9 +125,30 @@ const missing = Object.entries(required)
 
 if (missing.length > 0) {
   console.error("Missing required env keys:", missing.join(", "));
-  console.error("Current POPBILL_API_KEY is usable as POPBILL_SECRET_KEY, but LinkID/CorpNum/CheckCorpNum are still required.");
+  console.error(
+    "Current POPBILL_API_KEY is usable as POPBILL_SECRET_KEY, but LinkID/CorpNum/CheckCorpNum are still required.",
+  );
   process.exit(2);
 }
+
+let popbillEnvironment;
+try {
+  popbillEnvironment = readPopbillEnvironment();
+} catch (error) {
+  console.error(error.message);
+  process.exit(2);
+}
+
+const isTest = boolEnv(
+  "POPBILL_IS_TEST",
+  popbillEnvironment ? popbillEnvironment === "test" : true,
+);
+const activeEnvironment = popbillEnvironment ?? (isTest ? "test" : "production");
+if (popbillEnvironment && isTest !== (popbillEnvironment === "test")) {
+  console.error("POPBILL_ENVIRONMENT and POPBILL_IS_TEST point to different Popbill environments.");
+  process.exit(2);
+}
+const endpoint = readPopbillEndpoint(activeEnvironment);
 
 const require = createRequire(import.meta.url);
 let popbill;
@@ -92,7 +163,7 @@ try {
 popbill.config({
   LinkID: required.POPBILL_LINK_ID.value,
   SecretKey: required.POPBILL_SECRET_KEY.value,
-  IsTest: boolEnv("POPBILL_IS_TEST", true),
+  IsTest: isTest,
   IPRestrictOnOff: boolEnv("POPBILL_IP_RESTRICT_ON_OFF", true),
   UseStaticIP: boolEnv("POPBILL_USE_STATIC_IP", false),
   UseLocalTimeYN: boolEnv("POPBILL_USE_LOCAL_TIME_YN", true),
@@ -129,7 +200,13 @@ function pickResult(result) {
 
 try {
   const result = await checkBizInfo();
-  console.log(JSON.stringify(pickResult(result), null, 2));
+  console.log(JSON.stringify({
+    environment: endpoint.environment,
+    baseUrl: endpoint.baseUrl,
+    serviceId: endpoint.serviceId,
+    isTest,
+    ...pickResult(result),
+  }, null, 2));
 } catch (error) {
   console.error(JSON.stringify({
     code: error.code,
