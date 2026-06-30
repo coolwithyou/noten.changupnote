@@ -37,9 +37,9 @@ selected database is a development database.
 
 ## Cloudflare production IP allowlist
 
-`changupnote.com` and `www.changupnote.com` are currently proxied through
-Cloudflare and protected by a zone WAF custom rule. The rule blocks both hosts
-unless `ip.src` is in the allowlist.
+`changupnote.com`, `www.changupnote.com`, and `dev.changupnote.com` are
+currently proxied through Cloudflare and protected by a zone WAF custom rule.
+The rule blocks these hosts unless `ip.src` is in the allowlist.
 
 Current production setting:
 
@@ -47,14 +47,15 @@ Current production setting:
 - WAF phase: `http_request_firewall_custom`
 - Ruleset: `changupnote.com IP allowlist`
   (`7f1e1bddf00a42f2b88da2c0cfa33467`)
-- Rule: `Block changupnote.com and www except 125.184.29.37/32`
+- Rule: `Block changupnote.com, www, and dev except 125.184.29.37/32, 183.96.140.195/32`
   (`350e2f8e8a964261b035b527a2f56c22`)
 - Expression:
-  `(http.host in {"changupnote.com" "www.changupnote.com"} and not ip.src in {125.184.29.37/32})`
+  `(http.host in {"changupnote.com" "www.changupnote.com" "dev.changupnote.com"} and not ip.src in {125.184.29.37/32 183.96.140.195/32})`
 - DNS records are `proxied=true`:
   - `changupnote.com` A `216.198.79.1`
   - `changupnote.com` A `64.29.17.1`
   - `www.changupnote.com` CNAME `cname.vercel-dns.com`
+  - `dev.changupnote.com` CNAME `be924b5d-a8af-4c43-802c-cb000f391255.cfargotunnel.com`
 
 Use the existing `.env` value `CLOUDFLARE_TOKEN`. Do not print the token or
 commit any `.env*` file.
@@ -65,7 +66,7 @@ Common operations:
 node tools/cloudflare-ip-allowlist.mjs status
 
 # Replace the allowlist.
-node tools/cloudflare-ip-allowlist.mjs restrict 125.184.29.37/32
+node tools/cloudflare-ip-allowlist.mjs restrict 125.184.29.37/32 183.96.140.195/32
 
 # Add or remove one IP/CIDR while keeping the rule enabled state.
 node tools/cloudflare-ip-allowlist.mjs add 203.0.113.10/32
@@ -85,8 +86,10 @@ Verification after a change:
 ```bash
 dig +short @1.1.1.1 changupnote.com A
 dig +short @1.1.1.1 www.changupnote.com A
+dig +short @1.1.1.1 dev.changupnote.com A
 curl -I https://changupnote.com
 curl -I https://www.changupnote.com
+curl -I https://dev.changupnote.com
 ```
 
 When the WAF rule is enabled, requests from non-allowed IPs should return

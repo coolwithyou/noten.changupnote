@@ -3,9 +3,9 @@
 import { existsSync, readFileSync } from "node:fs";
 
 const zoneName = "changupnote.com";
-const hostnames = ["changupnote.com", "www.changupnote.com"];
+const hostnames = ["changupnote.com", "www.changupnote.com", "dev.changupnote.com"];
 const rulesetName = "changupnote.com IP allowlist";
-const ruleDescriptionPrefix = "Block changupnote.com and www except";
+const ruleDescriptionPrefix = "Block changupnote.com";
 
 const usage = `
 Usage:
@@ -115,6 +115,10 @@ function buildExpression(cidrs) {
   return `(http.host in {${hosts}} and not ip.src in {${cidrs.join(" ")}})`;
 }
 
+function buildDescription(cidrs) {
+  return `Block changupnote.com, www, and dev except ${cidrs.join(", ")}`;
+}
+
 function parseCidrs(expression) {
   const match = expression?.match(/not ip\.src in \{([^}]+)\}/);
   if (!match) return [];
@@ -125,7 +129,7 @@ async function upsertRule(zoneId, cidrs, enabled = true) {
   const payloadRule = {
     action: "block",
     expression: buildExpression(cidrs),
-    description: `${ruleDescriptionPrefix} ${cidrs.join(", ")}`,
+    description: buildDescription(cidrs),
     enabled,
   };
   const ruleset = await getEntrypoint(zoneId);
