@@ -9,6 +9,7 @@ export interface AppAccountNavLink extends AppNavLink {
 
 export const APP_HEADER_LINKS = [
   { href: "/dashboard", label: "기회 맵" },
+  { href: "/archive", label: "아카이브" },
   { href: "/applications", label: "신청 관리" },
   { href: "/roadmap", label: "로드맵" },
   { href: "/team", label: "팀" },
@@ -18,6 +19,7 @@ export const APP_HEADER_LINKS = [
 
 export const APP_ACCOUNT_LINKS = [
   { href: "/dashboard", label: "기회 맵", menuLabel: "대시보드" },
+  { href: "/archive", label: "아카이브" },
   { href: "/applications", label: "신청 관리" },
   { href: "/account", label: "내 계정" },
   { href: "/team", label: "팀" },

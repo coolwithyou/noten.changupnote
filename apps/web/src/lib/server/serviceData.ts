@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import {
   buildApplySheet,
   buildDashboard,
+  deriveGrantBenefits,
   fetchKStartupPage,
   normalizeKStartupPayload,
 } from "@cunote/core";
@@ -19,6 +20,7 @@ import type {
   CompanyEnrichmentResult,
   CompanyEvidence,
   CompanyProfile,
+  GrantBenefit,
   NormalizedGrant,
 } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
@@ -85,12 +87,12 @@ async function loadServiceGrantsFromSource({
         perPage: kstartupLimit,
       });
       kstartupEntries = normalizeKStartupPayload(payload, { asOf });
-      return appendBizInfoSampleIfNeeded(kstartupEntries, {
+      return withDerivedBenefits(appendBizInfoSampleIfNeeded(kstartupEntries, {
         include: includeBizInfoSample,
         usedSample,
         limit,
         asOf,
-      });
+      }));
     } catch (error) {
       console.warn(`K-Startup live fetch failed. Falling back to sample data: ${errorMessage(error)}`);
     }
@@ -100,12 +102,12 @@ async function loadServiceGrantsFromSource({
   const sample = readKStartupSample();
   const rows = sample.data.slice(0, kstartupLimit);
   kstartupEntries = normalizeKStartupPayload(rows, { asOf });
-  return appendBizInfoSampleIfNeeded(kstartupEntries, {
+  return withDerivedBenefits(appendBizInfoSampleIfNeeded(kstartupEntries, {
     include: includeBizInfoSample,
     usedSample,
     limit,
     asOf,
-  });
+  }));
 }
 
 export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<CompanyProfile> {
@@ -499,6 +501,27 @@ function appendBizInfoSampleIfNeeded(
     ...entries,
     ...buildBizInfoSampleEntries({ asOf: options.asOf, collectedAt: options.asOf }),
   ].slice(0, options.limit);
+}
+
+function withDerivedBenefits<TPayload extends ServiceGrantPayload>(
+  entries: Array<NormalizedGrant<TPayload>>,
+): Array<NormalizedGrant<TPayload>> {
+  return entries.map((entry) => {
+    if (entry.grant.benefits?.length) return entry;
+    const benefits = deriveGrantBenefits(entry.grant).map((benefit): GrantBenefit => ({
+      family: benefit.family,
+      label: benefit.label,
+      source: benefit.source,
+      confidence: benefit.confidence,
+    }));
+    return {
+      ...entry,
+      grant: {
+        ...entry.grant,
+        benefits,
+      },
+    };
+  });
 }
 
 function shouldIncludeBizInfoSample(source: string | undefined): boolean {

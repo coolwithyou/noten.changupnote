@@ -113,7 +113,7 @@ function ApplicationPrepSection({
   formFields: GrantDocumentFormField[];
 }) {
   return (
-    <Card className="apply-panel application-prep-panel">
+    <Card id="application-prep" className="apply-panel application-prep-panel">
       <div className="panel-heading inline">
         <div>
           <span className="eyebrow">지원서 준비</span>

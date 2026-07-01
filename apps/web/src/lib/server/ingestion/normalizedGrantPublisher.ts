@@ -177,6 +177,7 @@ function grantUpdateValues(
     applyEnd: dateValue(grant.apply_end),
     applyMethod: grant.apply_method ?? null,
     supportAmount: (grant.support_amount ?? null) as Record<string, unknown> | null,
+    benefits: (grant.benefits ?? null) as Array<Record<string, unknown>> | null,
     requiredDocuments: (grant.required_documents ?? null) as Array<Record<string, unknown>> | null,
     status: grant.status,
     fRegions: grant.f_regions,

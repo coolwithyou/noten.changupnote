@@ -493,6 +493,7 @@ export const grants = pgTable("grants", {
   applyEnd: timestamp("apply_end", { withTimezone: true }),
   applyMethod: jsonb("apply_method").$type<Record<string, string | null>>(),
   supportAmount: jsonb("support_amount").$type<Record<string, unknown>>(),
+  benefits: jsonb("benefits").$type<Array<Record<string, unknown>>>(),
   requiredDocuments: jsonb("required_documents").$type<Array<Record<string, unknown>>>(),
   status: grantStatusEnum("status").notNull(),
   fRegions: text("f_regions").array().notNull().default(sql`ARRAY[]::text[]`),
@@ -511,6 +512,10 @@ export const grants = pgTable("grants", {
 }, (table) => ({
   sourceIdIdx: uniqueIndex("grants_source_id_idx").on(table.source, table.sourceId),
   statusIdx: index("grants_status_idx").on(table.status),
+  sourceStatusIdx: index("grants_source_status_idx").on(table.source, table.status),
+  applyEndIdx: index("grants_apply_end_idx").on(table.applyEnd),
+  updatedAtIdx: index("grants_updated_at_idx").on(table.updatedAt),
+  benefitsIdx: index("grants_benefits_idx").using("gin", table.benefits),
   regionIdx: index("grants_f_regions_idx").on(table.fRegions),
 }));
 
@@ -530,6 +535,8 @@ export const grantCriteria = pgTable("grant_criteria", {
   parserVersion: text("parser_version"),
 }, (table) => ({
   grantIdx: index("grant_criteria_grant_id_idx").on(table.grantId),
+  dimensionGrantIdx: index("grant_criteria_dimension_grant_idx").on(table.dimension, table.grantId),
+  operatorGrantIdx: index("grant_criteria_operator_grant_idx").on(table.operator, table.grantId),
   reviewIdx: index("grant_criteria_review_idx").on(table.needsReview),
 }));
 

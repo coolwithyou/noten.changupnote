@@ -23,6 +23,7 @@ export const PUBLIC_WEB_ROUTES = [
 export const SESSION_WEB_ROUTES = [
   "GET /account",
   "GET /applications",
+  "GET /archive",
   "GET /billing",
   "GET /dashboard",
   "GET /grants/[grantId]",
@@ -56,6 +57,8 @@ export const SESSION_WEB_ROUTES = [
   "POST /api/web/team/invitations/accept",
   "PATCH /api/web/team/members/[userId]",
   "GET /api/web/account/export",
+  "GET /api/web/archive",
+  "GET /api/web/archive/facets",
   "POST /api/web/account/deletion-request",
   "PUT /api/web/account/password",
   "PUT /api/web/account/profile",

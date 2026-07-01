@@ -575,6 +575,7 @@ function toGrant(row: GrantRow): Grant {
     apply_start: dateString(row.applyStart),
     apply_end: dateString(row.applyEnd),
     support_amount: row.supportAmount,
+    benefits: (row.benefits ?? null) as unknown as NonNullable<Grant["benefits"]>,
     required_documents: (row.requiredDocuments ?? null) as unknown as NonNullable<Grant["required_documents"]>,
     status: row.status,
     f_regions: row.fRegions,
