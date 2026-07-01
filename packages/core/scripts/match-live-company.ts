@@ -1,11 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import {
-  DEFAULT_ANTHROPIC_MODEL,
-  readPopbillEnvConfig,
-  runLiveCompanyMatch,
-  sanitizeCorpNum,
-} from "../src/index.js";
+import { DEFAULT_ANTHROPIC_MODEL } from "../src/bizinfo/llm-criteria.js";
+import { runLiveCompanyMatch } from "../src/matching/live-company-match.js";
+import { readPopbillEnvConfig, sanitizeCorpNum } from "../src/popbill/check-biz-info.js";
 
 loadDotEnv(".env.local");
 loadDotEnv(".env");

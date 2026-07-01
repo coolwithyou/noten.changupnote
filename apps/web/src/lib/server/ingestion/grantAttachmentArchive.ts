@@ -3,11 +3,13 @@ import { basename, extname } from "node:path";
 import type { GrantRaw, GrantSource } from "@cunote/contracts";
 import {
   buildBizInfoProgramExtractionInput,
-  convertHwpBufferToMarkdown,
-  isHwpFilename,
   type BizInfoAttachmentMarkdown,
   type BizInfoProgram,
 } from "@cunote/core";
+import {
+  convertHwpBufferToMarkdown,
+  isHwpFilename,
+} from "@cunote/core/bizinfo/hwp-markdown";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 
 export interface GrantAttachmentArchiveBundle {

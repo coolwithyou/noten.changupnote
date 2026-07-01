@@ -1,6 +1,6 @@
 import type { CompanyProfile, CriterionDimension } from "@cunote/contracts";
 import { REGION_CODES, REGION_LABELS } from "../kstartup/constants.js";
-import { maskCorpNum } from "../popbill/check-biz-info.js";
+import { maskCorpNum } from "../popbill/corp-num.js";
 import type { PopbillBizCheckInfo } from "../popbill/types.js";
 
 export interface PopbillCompanyProfileResult {

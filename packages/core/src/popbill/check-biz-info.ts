@@ -1,4 +1,3 @@
-import { createRequire } from "node:module";
 import type {
   PopbillBizCheckInfo,
   PopbillApiEndpoint,
@@ -6,6 +5,8 @@ import type {
   PopbillEnvironment,
   PopbillEnvConfig,
 } from "./types.js";
+import { sanitizeCorpNum } from "./corp-num.js";
+export { maskCorpNum, sanitizeCorpNum } from "./corp-num.js";
 
 const POPBILL_DEFAULT_ENDPOINTS: Record<PopbillEnvironment, Omit<PopbillApiEndpoint, "environment">> = {
   test: {
@@ -35,14 +36,31 @@ interface PopbillModule {
       success: (result: unknown) => void,
       error: (error: unknown) => void,
     ): void;
+    getBalance(
+      corpNum: string,
+      success: (remainPoint: number) => void,
+      error: (error: unknown) => void,
+    ): void;
+    getPartnerBalance(
+      corpNum: string,
+      success: (remainPoint: number) => void,
+      error: (error: unknown) => void,
+    ): void;
   };
+}
+
+export interface PopbillBalances {
+  /** 연동회원(CorpNum) 잔여포인트 */
+  memberPoint: number;
+  /** 파트너(LinkID) 잔여포인트 — 사업자등록정보 조회는 이 지갑에서 차감된다. */
+  partnerPoint: number;
 }
 
 export async function checkPopbillBizInfo(options: {
   credentials: PopbillCredentials;
   checkCorpNum: string;
 }): Promise<PopbillBizCheckInfo> {
-  const popbill = loadPopbill();
+  const popbill = await loadPopbill();
   popbill.config({
     LinkID: options.credentials.linkId,
     SecretKey: options.credentials.secretKey,
@@ -63,6 +81,33 @@ export async function checkPopbillBizInfo(options: {
     );
   });
   return result as PopbillBizCheckInfo;
+}
+
+/**
+ * 팝빌 잔여포인트를 조회한다. 포인트 조회는 무과금이라 헬스체크/부팅 로그에 안전하게 쓸 수 있다.
+ */
+export async function getPopbillBalances(credentials: PopbillCredentials): Promise<PopbillBalances> {
+  const popbill = await loadPopbill();
+  popbill.config({
+    LinkID: credentials.linkId,
+    SecretKey: credentials.secretKey,
+    IsTest: credentials.isTest,
+    IPRestrictOnOff: credentials.ipRestrictOnOff,
+    UseStaticIP: credentials.useStaticIp,
+    UseLocalTimeYN: credentials.useLocalTimeYn,
+  });
+
+  const service = popbill.BizInfoCheckService();
+  const [memberPoint, partnerPoint] = await Promise.all([
+    new Promise<number>((resolve, reject) => {
+      service.getBalance(credentials.corpNum, resolve, reject);
+    }),
+    new Promise<number>((resolve, reject) => {
+      service.getPartnerBalance(credentials.corpNum, resolve, reject);
+    }),
+  ]);
+
+  return { memberPoint, partnerPoint };
 }
 
 export function readPopbillEnvConfig(env: NodeJS.ProcessEnv = process.env): PopbillEnvConfig {
@@ -113,22 +158,10 @@ export function readPopbillEnvConfig(env: NodeJS.ProcessEnv = process.env): Popb
   };
 }
 
-export function sanitizeCorpNum(value: string): string {
-  const digits = value.replace(/\D/g, "");
-  if (!/^\d{10}$/.test(digits)) {
-    throw new Error("사업자번호는 숫자 10자리여야 합니다.");
-  }
-  return digits;
-}
-
-export function maskCorpNum(value: string): string {
-  const digits = sanitizeCorpNum(value);
-  return `${digits.slice(0, 3)}-**-${digits.slice(5, 7)}***`;
-}
-
-function loadPopbill(): PopbillModule {
-  const require = createRequire(import.meta.url);
-  return require("popbill") as PopbillModule;
+async function loadPopbill(): Promise<PopbillModule> {
+  const specifier = "popbill";
+  const mod = await import(specifier);
+  return ((mod as { default?: unknown }).default ?? mod) as PopbillModule;
 }
 
 function readEnv(env: NodeJS.ProcessEnv, name: string, alias?: string): string | null {

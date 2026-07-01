@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { detectHwpMarkdownConverter, isHwpFilename } from "@cunote/core";
+import { detectHwpMarkdownConverter, isHwpFilename } from "@cunote/core/bizinfo/hwp-markdown";
 import { archiveGrantAttachments } from "./grantAttachmentArchive";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 

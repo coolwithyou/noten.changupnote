@@ -4,13 +4,15 @@ import { resolve } from "node:path";
 import {
   buildApplySheet,
   buildDashboard,
-  buildCompanyProfileFromPopbill,
-  checkPopbillBizInfo,
   fetchKStartupPage,
   normalizeKStartupPayload,
+} from "@cunote/core";
+import { buildCompanyProfileFromPopbill } from "@cunote/core/company/profile-from-popbill";
+import {
+  checkPopbillBizInfo,
   readPopbillEnvConfig,
   sanitizeCorpNum,
-} from "@cunote/core";
+} from "@cunote/core/popbill/check-biz-info";
 import type {
   ApplySheet,
   CompanyEnrichmentFacts,

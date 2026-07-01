@@ -1,7 +1,6 @@
 export * from "./bizinfo/criteria-contract.js";
 export * from "./bizinfo/extraction-input.js";
 export * from "./bizinfo/fetch.js";
-export * from "./bizinfo/hwp-markdown.js";
 export * from "./bizinfo/llm-criteria.js";
 export * from "./bizinfo/normalize.js";
 export * from "./bizinfo/types.js";
@@ -16,8 +15,7 @@ export * from "./kstartup/fetch.js";
 export * from "./kstartup/normalize.js";
 export * from "./kstartup/types.js";
 export * from "./matching/match.js";
-export * from "./matching/live-company-match.js";
-export * from "./popbill/check-biz-info.js";
+export * from "./popbill/corp-num.js";
 export * from "./popbill/types.js";
 export * from "./repositories/ports.js";
 export * from "./use-cases/build-action-queue.js";

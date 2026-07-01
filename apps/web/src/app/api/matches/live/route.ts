@@ -1,9 +1,9 @@
+import { DEFAULT_ANTHROPIC_MODEL } from "@cunote/core/bizinfo/llm-criteria";
+import { runLiveCompanyMatch } from "@cunote/core/matching/live-company-match";
 import {
-  DEFAULT_ANTHROPIC_MODEL,
   readPopbillEnvConfig,
-  runLiveCompanyMatch,
   sanitizeCorpNum,
-} from "@cunote/core";
+} from "@cunote/core/popbill/check-biz-info";
 import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";

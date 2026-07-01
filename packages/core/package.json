@@ -8,6 +8,26 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./bizinfo/hwp-markdown": {
+      "types": "./dist/bizinfo/hwp-markdown.d.ts",
+      "default": "./dist/bizinfo/hwp-markdown.js"
+    },
+    "./bizinfo/llm-criteria": {
+      "types": "./dist/bizinfo/llm-criteria.d.ts",
+      "default": "./dist/bizinfo/llm-criteria.js"
+    },
+    "./company/profile-from-popbill": {
+      "types": "./dist/company/profile-from-popbill.d.ts",
+      "default": "./dist/company/profile-from-popbill.js"
+    },
+    "./matching/live-company-match": {
+      "types": "./dist/matching/live-company-match.d.ts",
+      "default": "./dist/matching/live-company-match.js"
+    },
+    "./popbill/check-biz-info": {
+      "types": "./dist/popbill/check-biz-info.d.ts",
+      "default": "./dist/popbill/check-biz-info.js"
     }
   },
   "scripts": {

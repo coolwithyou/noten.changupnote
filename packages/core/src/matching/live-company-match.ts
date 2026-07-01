@@ -12,7 +12,8 @@ import type { BizInfoProgram } from "../bizinfo/types.js";
 import { buildCompanyProfileFromPopbill } from "../company/profile-from-popbill.js";
 import { fetchKStartupPage } from "../kstartup/fetch.js";
 import { normalizeKStartupPayload } from "../kstartup/normalize.js";
-import { maskCorpNum, checkPopbillBizInfo } from "../popbill/check-biz-info.js";
+import { checkPopbillBizInfo } from "../popbill/check-biz-info.js";
+import { maskCorpNum } from "../popbill/corp-num.js";
 import type { PopbillCredentials } from "../popbill/types.js";
 import { matchGrantCriteria } from "./match.js";
 

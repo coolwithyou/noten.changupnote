@@ -1,4 +1,4 @@
-import type { LiveCompanyMatchReport } from "@cunote/core";
+import type { LiveCompanyMatchReport } from "@cunote/core/matching/live-company-match";
 
 export type LiveMatchReport = LiveCompanyMatchReport;
 
