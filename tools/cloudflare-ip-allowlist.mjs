@@ -3,7 +3,13 @@
 import { existsSync, readFileSync } from "node:fs";
 
 const zoneName = "changupnote.com";
-const hostnames = ["changupnote.com", "www.changupnote.com", "dev.changupnote.com"];
+const hostnames = [
+  "changupnote.com",
+  "www.changupnote.com",
+  "dev.changupnote.com",
+  "ops.changupnote.com",
+  "dev.ops.changupnote.com",
+];
 const rulesetName = "changupnote.com IP allowlist";
 const ruleDescriptionPrefix = "Block changupnote.com";
 
@@ -116,7 +122,7 @@ function buildExpression(cidrs) {
 }
 
 function buildDescription(cidrs) {
-  return `Block changupnote.com, www, and dev except ${cidrs.join(", ")}`;
+  return `Block changupnote.com, www, dev, ops, and dev.ops except ${cidrs.join(", ")}`;
 }
 
 function parseCidrs(expression) {
