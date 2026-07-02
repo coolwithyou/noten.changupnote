@@ -22,7 +22,10 @@
 > - ⬜ [사람] 로컬 `pnpm install` 후 `@cunote/conversion`·`@cunote/web` typecheck (T1~T8 타입 정합 최종 확인)
 > - ⬜ [사람] origin push (main이 origin보다 다수 커밋 앞섬)
 > - ⬜ 웹폼 샘플 5건 라벨 (브라우저 캡처 필요 — 검수 후 별도 배치)
-> - ⬜ Gate 2 준비: layout 엔진 후보 스파이크 (Document AI Layout/Form Parser vs PaddleOCR 계열 — 마스터 3.3 bbox 소유권 검증)
+> - ⬜ Gate 2 준비: layout 엔진 후보 스파이크 — **후보에 Upstage Document Parse(한국어 특화·$0.01/p)와 kordoc `extractFormFields()` 추가** (Google/Azure/PaddleOCR와 함께, `docs/research/2026-07-02-document-ai-sota.md` 대조표 기준)
+> - ⬜ kordoc `fillHwpx()` 스파이크 — HWPX filled export(마스터 3.2 후속 단계)를 앞당길 후보. 검증 없이 채택 금지
+> - ⬜ confidence 합성 산출 구현 설계 (마스터 13장 신규 정의 — self-consistency + evidence 정렬 + 소스 합의. Gate 3 전 필요)
+> - ⬜ Tier 0 검색(Phase 8)에 contextual retrieval + BM25 하이브리드 반영 (`docs/research/2026-07-02-hitl-loop-sota.md`)
 >
 > **다음 세션 진입 가이드**
 >

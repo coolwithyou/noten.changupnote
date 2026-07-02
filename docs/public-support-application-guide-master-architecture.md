@@ -25,6 +25,7 @@
 관련 문서:
 
 - `docs/hwp-visual-conversion-pipeline-design.md`: 변환 서버/렌더러 체인/GCP 구성/캐싱 상세. 이 문서와 함께 유지하며, 충돌 시 이 마스터 문서가 우선한다.
+- `docs/research/2026-07-02-document-ai-sota.md` · `2026-07-02-hitl-loop-sota.md`: 외부 SOTA 대조 리서치. 3.3 bbox 역할 분리와 18장 lesson 게이트는 외부 근거로 재확인됨. kordoc/Upstage는 Gate 2 측정 후보, confidence 산출 정의는 13장에 반영.
 
 ## 2. 우리의 의도
 
@@ -607,11 +608,12 @@ interface FieldDraftResult {
 LLM 호출 원칙:
 
 - structured output 사용
-- evidenceRefs 필수
+- evidenceRefs 필수. validator는 인용의 존재만이 아니라 **값↔근거 span 정렬**을 검사한다 (인용했으나 실제로 쓰지 않은 post-rationalization 차단)
 - 숫자/실적/인증은 근거 없으면 null
 - temperature 낮게
 - prompt/model version 저장
 - 결과 validator 통과 후 저장
+- confidence는 logprob으로 계산하지 않는다 (structured output에서 포화하며 Claude는 미제공). 산출 정의는 13장
 
 ### 8.9 사용자 검토
 
@@ -1072,6 +1074,12 @@ interface DocumentQualityGate {
 - 심각한 변환 오류 없음
 
 위 임계값(70%, 80%, 0.65)은 잠정치다. PoC Gate 2에서 golden set 기준으로 측정한 분포를 보고 캘리브레이션한 뒤 확정한다.
+
+confidence 산출 정의 (2026-07-02 리서치 반영 — 스키마 곳곳의 `confidence: number`가 공유하는 계산 규약):
+
+- logprob 기반 금지 — structured output에서 0.999+로 포화해 신호가 없고, Claude는 logprob을 제공하지 않는다
+- 합성 confidence = (1) self-consistency: 동일 입력 다중 샘플의 일치도 + (2) evidence 정렬: 값이 근거 span과 실제로 정합하는지 + (3) 소스 합의: text/layout/vision 후보 간 일치 (8.6 신뢰도 규칙과 동일 축)
+- 가중치와 임계값은 Gate 2에서 golden set 대비 캘리브레이션하고, 사용자 노출은 숫자가 아니라 적합도 라벨로 한다 (9.9)
 
 상태 정의:
 
