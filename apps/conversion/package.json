@@ -1,0 +1,27 @@
+{
+  "name": "@cunote/conversion",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./convert-document": {
+      "types": "./dist/convert-document.d.ts",
+      "default": "./dist/convert-document.js"
+    },
+    "./quality": {
+      "types": "./dist/quality.d.ts",
+      "default": "./dist/quality.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cunote/core": "workspace:*"
+  }
+}

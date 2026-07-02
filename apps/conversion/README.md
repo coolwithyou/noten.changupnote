@@ -1,0 +1,121 @@
+# @cunote/conversion — Phase 2 문서 변환 서버 (T1~T3)
+
+HWP/HWPX/PDF/DOCX 원본을 **결정론적으로** PDF · 페이지 이미지 · markdown · quality score 로 변환한다. LLM 호출 없음.
+
+- 계획: `docs/phase2-conversion-server-implementation-plan.md`
+- 전제(Gate 0 확정): LibreOffice 26.x + H2Orestart 0.7.13 (HWP/HWPX 60/60 렌더 성공)
+
+## 현재 범위 (구현 완료: T1~T3)
+
+| 태스크 | 산출물 |
+|---|---|
+| **T1** | `apps/conversion` 스캐폴드 + `Dockerfile` (ubuntu 24.04 + libreoffice + H2Orestart oxt + pyhwp + poppler + node 22) |
+| **T2** | `convertDocument()` — 무결성확인 → soffice PDF → pdftoppm(220dpi) → 텍스트추출(HWPX zip/XML, HWP hwp5html, PDF fallback) |
+| **T3** | `computeQuality()` 순수 함수 + status 판정 (usable / usable_with_review / manual_required / failed) |
+
+미구현(후속): T4 R2 업로드, T5 큐/워커, T6 API 라우트, T7~T10 웹앱 연동/배포.
+
+## 소스 구조
+
+```
+src/
+  types.ts               공용 타입 (ConvertDocumentInput/Result, Phase2ConversionQuality)
+  integrity.ts           1단계: sha256·포맷·암호화·크기 무결성 확인
+  render.ts              2~4단계: soffice PDF·pdftoppm·텍스트추출 (스파이크 승격)
+  quality.ts             T3: computeQuality / decideStatus / estimateTextCoverage (순수 함수)
+  convert-document.ts    오케스트레이터 (부분 성공 규칙)
+  hwp-markdown-adapter.ts @cunote/core 의 convertHwpBufferToMarkdown 주입 어댑터
+  index.ts               배럴 export
+scripts/
+  convert-lib.mjs        의존성 없는 병렬 구현 (샌드박스 검증용, src/*.ts 미러)
+  verify-convert.mjs     단일 파일 검증 → pdf+pages+markdown+quality.json
+  batch-convert.mjs      디렉토리 배치 → 성공률/품질 분포 리포트
+  quality-test.mjs       T3 순수함수 단위 테스트 (node assert)
+```
+
+### `scripts/*.mjs` 와 `src/*.ts` 의 관계
+
+`src/*.ts` 가 **정본**이다. `scripts/convert-lib.mjs` 는 pnpm/빌드 없이(plain node) 파이프라인을
+실행·검증하기 위한 1:1 병렬 구현이다. 로직을 바꾸면 **두 곳을 함께** 갱신해야 한다.
+(샌드박스에 pnpm 이 없어 TS 를 빌드할 수 없으므로 검증 엔트리를 .mjs 로 둔다.)
+
+## 로컬 검증 (pnpm 불필요, node 22 + soffice + poppler 만 있으면 됨)
+
+```bash
+# soffice + H2Orestart 가 기본 HOME 프로필에 설치돼 있어야 한다.
+# (Docker 이미지는 --shared 설치 + CONVERSION_LO_SHARED_H2O=1 로 프로세스 격리)
+
+# T3 단위 테스트 (외부 의존성 없음)
+node apps/conversion/scripts/quality-test.mjs
+
+# 단일 문서 변환
+node apps/conversion/scripts/verify-convert.mjs <파일.hwp|hwpx|pdf|docx> <outdir>
+#   → <outdir>/document.pdf, pages/pNNN.png, markdown.md, quality.json
+
+# 디렉토리 배치 (성공률·품질 분포)
+node apps/conversion/scripts/batch-convert.mjs spike-samples/files <outdir>
+```
+
+### 환경변수
+
+| 변수 | 기본값 | 용도 |
+|---|---|---|
+| `SOFFICE_BIN` | `soffice` | LibreOffice 바이너리 경로 |
+| `PDFTOPPM_BIN` / `PDFTOTEXT_BIN` / `PDFINFO_BIN` | poppler 기본 | poppler 도구 경로 |
+| `CONVERSION_LO_SHARED_H2O` | (미설정) | `1` 이면 워커별 임시 `-env:UserInstallation` 로 프로세스 격리. **H2Orestart 가 `--shared` 설치돼 있어야** 함 (Docker). 샌드박스처럼 사용자 프로필에만 H2O 가 있으면 설정하지 말 것. |
+
+## 파이프라인 (계획 5장)
+
+```
+1. 무결성 확인   sha256 재계산·대조 / 확장자 포맷 / 암호화(HWP FileHeader·HWPX zip flag·PDF /Encrypt) / 50MB 상한
+2. PDF 렌더링    hwp/hwpx/docx → soffice --convert-to pdf (H2Orestart), pdf → passthrough
+3. page image    pdftoppm -png -r 220 (최대 100p, 초과 시 partial)
+4. 텍스트 추출   hwpx → zip/XML 직접, hwp → hwp5html(pyhwp), 실패 시 PDF 텍스트 fallback / pdf → pdftotext -layout / docx → soffice txt
+5. quality score 6장 산출
+```
+
+부분 성공 규칙: PDF 실패 = `failed`(이후 중단). PDF 성공 + (page image 또는 markdown 실패) = `partial`. 전부 성공 = `succeeded`.
+
+## quality status 판정 (계획 6장)
+
+- `failed`: pdfRendered=false
+- `manual_required`: pdfRendered=true, textExtracted=false (이미지만)
+- `usable_with_review`: textCoverage < 0.7 또는 심각 warning(font_substitution/page_image_partial)
+- `usable`: pdfRendered && pageImagesRendered && textCoverage ≥ 0.7
+
+`textCoverage = min(1, extractedCharCount / (pageCount × 800))`. 임계값 0.7·기대 800자/p 는 잠정치(Gate 2 캘리브레이션).
+`visualTextAgreement` · `requiredFieldCoverage` · `fieldCandidateCount` 는 Phase 4 필드로 지금은 `null`.
+
+## Docker 빌드 검증 (샌드박스에서 빌드 불가 — 절차만 기록)
+
+샌드박스에는 Docker 데몬이 없어 이미지 빌드를 수행하지 못한다. 로컬/CI 에서 아래로 검증한다.
+
+```bash
+# 저장소 루트에서 (빌드 컨텍스트 = 루트)
+docker build -f apps/conversion/Dockerfile -t cunote-conversion .
+
+# 1) H2Orestart 설치 검증
+docker run --rm cunote-conversion unopkg list --shared | grep -i H2Orestart
+#   → "ebandal.libreoffice.H2Orestart  Version: 0.7.13" 이 보여야 함
+
+# 2) soffice / poppler / node 버전
+docker run --rm cunote-conversion soffice --version
+docker run --rm cunote-conversion pdftoppm -v
+docker run --rm cunote-conversion node --version   # v22.x
+
+# 3) 대표 HWP 1건 렌더 + 폰트 substitution 경고 확인
+docker run --rm -v "$PWD/spike-samples/files:/samples:ro" cunote-conversion \
+  node apps/conversion/scripts/batch-convert.mjs /samples /tmp/out
+#   → PDF 렌더 30/30, font_substitution warning 유무 확인
+```
+
+**폰트 주의**: 나눔/노토 CJK 미설치는 렌더 깨짐의 최대 원인. 빌드 후 대표 HWP 렌더로 substitution 경고를 확인한다.
+**H2O 격리**: 컨테이너는 `CONVERSION_LO_SHARED_H2O=1` 로 워커별 프로필을 격리한다(soffice 인스턴스 재사용 hang 방지). 이는 H2O `--shared` 설치를 전제로 한다.
+
+## 검증 결과 (샌드박스, 2026-07-02)
+
+- LibreOffice 26.2.4.2 + H2Orestart 0.7.13, poppler, node 22.22.3
+- T3 단위 테스트: 10/10 통과
+- 배치 30건(`spike-samples/files`): **PDF 렌더 30/30 (100%)**, jobStatus 전부 `succeeded`
+- quality 분포: `usable` 4, `usable_with_review` 26
+  (HWP 는 hwp5html 미설치로 PDF 텍스트 fallback → 일부 textCoverage < 0.7 로 review 판정. hwp5html 설치 시 개선)
