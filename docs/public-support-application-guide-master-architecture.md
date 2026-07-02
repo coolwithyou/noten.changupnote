@@ -20,6 +20,11 @@
 - 기능 명세
 - 데이터/API 구조
 - 품질 기준과 PoC 검증 계획
+- 리뷰어 피드백 학습 루프
+
+관련 문서:
+
+- `docs/hwp-visual-conversion-pipeline-design.md`: 변환 서버/렌더러 체인/GCP 구성/캐싱 상세. 이 문서와 함께 유지하며, 충돌 시 이 마스터 문서가 우선한다.
 
 ## 2. 우리의 의도
 
@@ -72,10 +77,11 @@ HWPX, DOCX처럼 구조가 열린 포맷은 후속 단계에서 filled export를
 문서 파싱은 한 경로에 의존하지 않는다.
 
 - 텍스트 파서: markdown/text/table 구조를 빠르고 결정론적으로 추출
-- 시각 파서: PDF/page image를 vision LLM 또는 OCR/layout parser로 읽어 빈칸, 표, 체크박스, 서명란 위치를 추출
-- reconciliation: 두 결과를 합쳐 최종 field map 생성
+- layout 파서: OCR/layout 엔진(Document AI Layout/Form Parser 등)이 블록/표/셀/빈칸의 bbox를 결정론적으로 추출
+- vision LLM: bbox 생성이 아니라 의미 해석을 담당 — 문항과 입력칸 연결, 필드 종류 판정, layout이 놓친 시각 요소 지목
+- reconciliation: 세 결과를 합쳐 최종 field map 생성
 
-텍스트 파서가 놓치는 시각 요소를 vision이 잡고, vision이 잘못 본 문항은 텍스트 근거가 보정한다.
+좌표(bbox)의 1차 소유자는 결정론적 layout 엔진이다. vision LLM의 bbox는 모델별 편차가 커서 단독으로 신뢰하지 않으며, layout 블록에 대한 참조(anchor)와 보정 신호로만 쓴다. 텍스트 파서가 놓치는 시각 요소를 vision이 잡고, vision이 잘못 본 문항은 텍스트/layout 근거가 보정한다.
 
 ### 3.4 근거 없는 자동작성 금지
 
@@ -280,12 +286,9 @@ interface CompanyEvidenceItem {
 
 현재 재사용:
 
-- `grants`
+- `grants` (`required_documents`, `benefits`는 별도 테이블이 아니라 grants의 jsonb 컬럼)
 - `grant_criteria`
-- `required_documents`
-- `benefits`
-- `match_state`
-- `rule_trace`
+- `match_state` (`rule_trace`는 match_state의 jsonb 컬럼)
 
 역할:
 
@@ -387,6 +390,27 @@ interface FieldFillPlan {
 }
 ```
 
+### 7.7 Form Template
+
+공공 양식은 표준 사업계획서처럼 기관 간·연도 간 반복된다. 검증된 field map을 재사용하기 위해 surface 위에 template 개념을 둔다. 이것이 추출 비용·품질·운영 검수 부담을 동시에 줄이는 가장 큰 지렛대다.
+
+재사용 규칙:
+
+- sha256 정확 일치: artifact와 field map 전체 재사용. 회사별로 달라지는 것은 fill plan/draft뿐이다 (`grant_attachment_archives.sha256` 인덱스 재사용)
+- 구조 유사(제목/섹션/필드 시그니처 기반 structure hash 일치): 검수된 field map을 추출 시드로 사용하고 diff만 재검토
+- 운영 검수를 통과한 field map은 template으로 승격해 이후 동일 양식의 추출을 대체한다
+
+```ts
+interface FormTemplate {
+  id: string;
+  title: string;
+  structureHash: string;
+  canonicalSurfaceId: string;
+  verifiedFieldMapVersion: string | null;
+  usageCount: number;
+}
+```
+
 ## 8. 파이프라인 상세
 
 ### 8.1 공고 수집
@@ -466,6 +490,27 @@ interface FieldFillPlan {
 
 변환 서버는 LLM을 호출하지 않는다. 변환 서버는 재현 가능한 artifact 생성에만 집중한다.
 
+#### 렌더러 체인
+
+HWP 시각 렌더링이 이 파이프라인 전체의 최대 기술 리스크다. 아래 체인을 순서대로 시도하고, 어떤 엔진으로 렌더링했는지와 render quality score를 artifact metadata에 기록한다.
+
+| 순위 | 엔진 | 용도 | 비고 |
+|---|---|---|---|
+| 1 | HWPX native (XML/ZIP 직접 파싱) | HWPX 구조/텍스트/렌더링 | 열린 포맷, filled export 후보 |
+| 2 | 상용/전용 HWP 렌더러 또는 한컴 계열 headless | HWP -> PDF 시각 렌더링 | PoC Gate 0에서 후보 비교 후 확정 |
+| 3 | LibreOffice HWP 필터 | 보조 렌더링 | 표/서식 품질 낮음, quality score로 판별 |
+| 4 | pyhwp `hwp5html` (현재 `packages/core/src/bizinfo/hwp-markdown.ts`) | 텍스트/XHTML 추출 | 이미 운영 중, 시각 렌더링 불가 |
+| 5 | 원본 다운로드 fallback | 렌더링 실패 시 | 텍스트 기반 가이드만 제공 |
+
+렌더링에 실패한 문서도 사용자 결과물이 있어야 한다: 원본 다운로드 + markdown 기반 Field Fill Table(5.2) + 준비서류 체크리스트. 렌더링 실패는 내부 상태값이 아니라 별도로 설계된 UX다. 렌더링 성공률이 90%면 사용자 10명 중 1명이 이 경로를 겪는다.
+
+#### 변환/추출 트리거와 비용 정책
+
+- 결정론적 변환(PDF/image/markdown/layout)은 첨부 아카이브 시점에 전량 실행한다. 비용이 낮고 캐시 효율이 높다.
+- vision pass + reconciliation은 티어링한다: 매칭 노출 상위 공고와 마감 임박 공고는 사전 실행, long-tail 공고는 사용자 진입 시 on-demand 실행 + 진행 상태 UI 제공.
+- 캐시 키는 `sha256 + converter/extractor version`이다. 같은 파일은 회사가 달라도 artifact와 field map을 재사용한다 (7.7 Form Template).
+- 문서당 vision 비용 상한과 월 추출 예산 상한을 정하고 16장의 지표로 추적한다.
+
 ### 8.4 Vision Layout Pass
 
 입력:
@@ -474,13 +519,16 @@ interface FieldFillPlan {
 - OCR/layout 후보
 - parser 후보
 
-역할:
+역할 분담 (3.3의 원칙을 따른다):
 
-- 빈칸 위치 탐지
-- 표 셀 구조 탐지
-- 체크박스 탐지
-- 서명/직인/동의란 탐지
-- 문항과 입력칸 연결
+- layout 엔진(결정론적): 빈칸/표 셀/체크박스의 bbox와 구조 탐지
+- vision LLM: layout 블록의 의미 해석 — 문항과 입력칸 연결, 필드 종류/필수 여부 판정, 서명·직인·동의란 식별, layout이 놓친 시각 요소 지목
+
+좌표계 규칙:
+
+- page image 렌더링 DPI는 220(기본)/300(고밀도 양식)으로 고정하고 artifact metadata에 기록한다
+- 저장 좌표는 페이지 크기 기준 0~1 상대좌표로 정규화한다 (viewer zoom, PDF pt 변환 대응)
+- vision이 낸 bbox는 layout 블록에 snap 가능한 경우 layout 좌표로 치환한다
 
 출력:
 
@@ -490,6 +538,8 @@ interface VisionFieldCandidate {
   label: string;
   kind: "text_input" | "long_text" | "checkbox" | "table_cell" | "signature" | "stamp" | "file_attach" | "instruction";
   bbox: { x: number; y: number; width: number; height: number };
+  bboxSource: "layout" | "vision";
+  layoutBlockId: string | null;
   nearbyText: string;
   required: boolean | null;
   confidence: number;
@@ -574,7 +624,7 @@ LLM 호출 원칙:
 - 검토 완료 표시
 - export
 
-이 작업은 `grant_document_drafts`, `grant_document_draft_events`, `quality_feedback`에 남긴다.
+이 작업은 `grant_document_drafts`, `grant_document_draft_events`, 기존 `feedback` 테이블(target_type을 draft/field로 확장)에 남긴다.
 
 ## 9. 기능 명세
 
@@ -634,6 +684,9 @@ LLM 호출 원칙:
 - 복사 버튼
 - 수정 저장
 - 검토 완료
+- 질문하기: 이 항목에 대해 응답 에이전트에게 질문 (18.2 Tier 0, anchor 자동 첨부)
+- 이의 제기: 자동채움 값/해설이 틀렸다고 표시 -> user_challenge 에스컬레이션
+- 답변 뱃지: 이 필드에 도착한 검증 답변 표시
 
 ### 9.5 Draft Workspace
 
@@ -660,14 +713,15 @@ LLM 호출 원칙:
 
 ### 9.7 웹폼 가이드
 
+MVP 범위: 공고문에 기재된 웹폼 항목의 값 준비 가이드(복사 가능한 값 + 첨부 체크리스트)까지만 제공한다. selector 기반 field map은 포털 개편마다 깨지고 로그인 후 폼은 캡처 자체가 불가능한 경우가 많으므로, 사용량이 검증된 상위 포털 2~3개로 한정하고 capture_version 기반 stale 감지 + 재캡처 운영을 갖춘 뒤에만 확장한다. 로그인 후에만 접근 가능한 폼은 selector 캡처 대상에서 제외한다.
+
 기능:
 
 - 신청 링크 저장
-- 포털 단계/필드 map
-- selector/label 기반 입력 가이드
 - 복사 가능한 값
 - 첨부 체크리스트
 - 제출 전 수동 확인
+- (후속) 포털 단계/필드 map, selector/label 기반 입력 가이드 — 상위 포털 한정
 
 금지:
 
@@ -675,6 +729,48 @@ LLM 호출 원칙:
 - CAPTCHA 우회
 - 사용자 확인 없는 동의/서약
 - 자동 제출 버튼 클릭
+
+### 9.8 리뷰어 워크스페이스
+
+리뷰어가 질문에 답하고 시스템 처리 결과를 교정하는 내부 도구다. 상세 동작은 18장.
+
+```txt
+┌──────────────────────────┬────────────────────────────────────┐
+│ 통합 인박스               │ 질문: "매출 규모에 뭘 써야 하나요?"    │
+│ ● 질문 (SLA 4h 남음)      │ anchor: 기관X / 양식Y / 매출 필드     │
+│ ● 질문 (SLA 1d 남음)      │ Tier 0 답변: 연매출 (confidence 0.4) │
+│ ● 이의 제기 1건           │ 공고 원문 해당 위치 미리보기           │
+│ ○ 순회: 양식 A (37개 공고) │────────────────────────────────────│
+│ ○ 순회: 양식 B (21개 공고) │ [답변 작성]                         │
+│ ○ repeat-error 2건       │ "공고 조건 (...)에서는 분기 매출 기준"  │
+│                          │ scope: 기관X + 양식Y + label~/매출/  │
+│                          │ [회신 + golden + lesson 동시 생성]    │
+└──────────────────────────┴────────────────────────────────────┘
+```
+
+구성:
+
+- 통합 인박스: 에스컬레이션 질문(SLA순, 항상 최우선) + 이의 제기 + 순회 큐(template 빈도 x 노출도 x 최근 오류율순) + hallucination report
+- 시스템 처리 결과 나란히 보기: 공고 분류, 자격요건 추출, 필드맵, fill plan, guide/해설
+- 답변 컴포저: 답변 작성 한 번으로 (1) 질문자 회신 (2) golden case (3) scope가 달린 lesson 후보가 함께 생성된다. 지식 등록이 별도 작업이면 쌓이지 않는다 — 답변하는 행위 자체가 지식 생성이어야 한다
+- 순회 교정 액션: 값 수정, 정답 라벨 저장(golden), 조건부 지침 작성(lesson 후보)
+- lesson 승격/충돌 검토 화면
+- Tier 2 이관: 주관기관 문의로 넘기고 사용자에게 상태 표시
+- repeat-error 리포트 (lesson이 있는데 같은 오류가 재발한 케이스)
+
+### 9.9 질문하기 / 검증 Q&A (사용자)
+
+기능:
+
+- field inspector에서 항목 단위 질문 (공고/양식/필드 anchor 자동 첨부)
+- 질문 입력 시 유사 검증 Q&A 먼저 제시 (deflection)
+- Tier 0 즉답: 답변 + 근거(공고 원문 위치) + 적합도 라벨 표시
+- confidence 노출 정책: 일반 사용자에게는 숫자가 아니라 적합도 라벨(예: 확실함 / 확인 필요 / 검증 중)로 표시한다. 숫자 confidence는 관리자/리뷰어 화면(9.8)에만 노출한다
+- 검증 요청 버튼: 리뷰어 에스컬레이션, 예상 응답 시간 안내
+- 미결(구현 중 결정): 검증 대기 중 해당 필드를 임시값으로 채우고 진행할 수 있게 할지 여부
+- 답변 도착 알림 + 해당 필드에 답변 뱃지
+- 공고/양식별 검증 Q&A(FAQ): 반복 질문의 검증된 답을 익명화해 공개
+- 검증된 답변은 해당 scope의 fill plan에도 근거로 주입된다
 
 ## 10. 시스템 구성
 
@@ -731,24 +827,40 @@ flowchart LR
 
 ## 11. 데이터베이스 제안
 
-기존:
+기존 테이블:
 
-- `companies`
-- `company_profiles`
-- `company_enrichment_cache`
-- `grants`
+- `companies`, `company_profiles`, `company_enrichment_cache`
+- `grants` (required_documents/benefits jsonb 포함)
 - `grant_criteria`
-- `match_state`
-- `grant_document_fields`
-- `grant_document_drafts`
-- `grant_document_draft_events`
+- `match_state` (rule_trace jsonb 포함)
+- `grant_attachment_archives` (sha256/conversion_status/converter 컬럼 보유 — artifact 캐시 키의 기반)
+- `grant_document_fields`, `grant_document_drafts`, `grant_document_draft_events`
+
+기존 품질/평가 인프라 — Phase 8이 아니라 PoC부터 재사용한다:
+
+- `golden_set` (kind: extraction | matching — `field_map` kind 추가 필요)
+- `eval_runs` (golden_ver 기준 지표 기록)
+- `extraction_log` (status: auto | review | labeled — 운영 검수 큐의 기반)
+- `versions` (model/prompt/parser version 관리)
+- `feedback` (target_type: extraction | match — draft/field 대상 확장 필요)
 
 추가:
 
 ```sql
+form_templates
+  id uuid primary key
+  title text
+  structure_hash text
+  canonical_surface_id uuid
+  verified_field_map_version text
+  usage_count integer
+  created_at timestamptz
+  updated_at timestamptz
+
 grant_application_surfaces
   id uuid primary key
   grant_id uuid references grants(id)
+  template_id uuid references form_templates(id)
   source text
   source_id text
   type text
@@ -808,6 +920,41 @@ web_form_field_maps
   adapter text
   captured_at timestamptz
   capture_version text
+
+review_lessons
+  id uuid primary key
+  target text                 -- classification | criteria | field_interpretation | fill_value | guide | evaluation
+  scope jsonb                 -- { institution, form_template_id, document_category, field_pattern, condition }
+  instruction text            -- LLM에 주입할 교정 지침
+  rationale text
+  source_feedback_ids jsonb   -- 원천 feedback 링크 (불변 원본 보존)
+  golden_case_ref text        -- 회귀 방지용 golden_set ref
+  status text                 -- proposed | approved | retired
+  lesson_ver text
+  created_by uuid references users(id)
+  approved_by uuid references users(id)
+  created_at timestamptz
+  updated_at timestamptz
+
+field_questions
+  id uuid primary key
+  company_id uuid references companies(id)
+  user_id uuid references users(id)
+  grant_id uuid references grants(id)
+  surface_id uuid references grant_application_surfaces(id)
+  field_id uuid references grant_document_fields(id)
+  question text
+  tier0_answer jsonb          -- { answer, evidence_refs, confidence }
+  status text                 -- agent_answered | escalated | reviewer_answered | expert_pending | closed
+  escalation_reason text      -- low_confidence | user_challenge | reviewer_unknown
+  reviewer_answer text
+  answered_by uuid references users(id)
+  lesson_id uuid references review_lessons(id)
+  golden_case_ref text
+  faq_published boolean default false
+  sla_due_at timestamptz
+  created_at timestamptz
+  updated_at timestamptz
 ```
 
 기존 `grant_document_fields` 확장:
@@ -832,6 +979,13 @@ alter table grant_document_drafts
   add column review_state text default 'user_review_required';
 ```
 
+`surface_id` 백필 전략 — legacy 경로와 surface 경로의 이중 정체성을 방지한다:
+
+1. 기존 `grant_document_fields`의 (source, source_id, source_attachment) 조합마다 `grant_application_surfaces` 레코드를 생성한다
+2. 생성한 surface id를 기존 필드/드래프트 행에 백필한다
+3. 백필 완료 후 신규 쓰기는 surface 경로만 사용한다. legacy (source, sourceId, sourceAttachment) 기반 조회는 읽기 전용으로 유지하다 제거한다
+4. 기존 `parser_version`은 유지하고, reconciliation 도입 후 `extraction_version`으로 승계한다
+
 ## 12. API 제안
 
 ```txt
@@ -854,6 +1008,32 @@ POST /api/web/document-drafts/:draftId/feedback
 
 GET  /api/web/web-form-maps/:surfaceId
 POST /api/web/web-form-maps/:surfaceId/capture
+```
+
+질문/FAQ API (18장):
+
+```txt
+POST /api/web/fields/:fieldId/questions            (질문 생성 -> Tier 0 즉답 반환)
+POST /api/web/questions/:questionId/escalate       (검증 요청)
+GET  /api/web/questions/:questionId
+GET  /api/web/grants/:grantId/faq                  (공고/양식별 검증 Q&A)
+```
+
+리뷰어 워크스페이스 API (18장):
+
+```txt
+GET  /api/admin/inbox                              (질문 SLA순 + 이의 제기 + 순회 큐 통합)
+GET  /api/admin/review-queue/:grantId/outputs
+POST /api/admin/review-queue/:grantId/corrections
+POST /api/admin/questions/:questionId/answer       (회신 + golden + lesson 후보 원자 생성)
+POST /api/admin/questions/:questionId/refer-expert (Tier 2 이관)
+
+GET  /api/admin/lessons
+POST /api/admin/lessons                    (feedback -> lesson 후보 생성)
+POST /api/admin/lessons/:lessonId/approve  (충돌 검출 + golden case 필수)
+POST /api/admin/lessons/:lessonId/retire
+
+GET  /api/admin/reports/repeat-errors
 ```
 
 변환 서버 API:
@@ -890,6 +1070,8 @@ interface DocumentQualityGate {
 - visual/text agreement 0.65 이상
 - 서명/동의/직인 manual 분류
 - 심각한 변환 오류 없음
+
+위 임계값(70%, 80%, 0.65)은 잠정치다. PoC Gate 2에서 golden set 기준으로 측정한 분포를 보고 캘리브레이션한 뒤 확정한다.
 
 상태 정의:
 
@@ -960,6 +1142,17 @@ interface DocumentQualityGate {
 - hallucination report rate
 - 사용자 수정률
 - 문항별 피드백률
+- 문서당 변환/vision 비용, 월 추출 비용 (8.3 예산 상한 대비)
+- template 재사용률 (7.7)
+
+학습 루프 지표 (18.10 상세):
+
+- Tier 0 즉답률 (deflection rate)
+- 질문 -> 최종 답변 시간과 SLA 준수율
+- feedback -> lesson 승격률과 소요 시간
+- repeat-error rate (lesson 존재 scope에서의 동일 오류 재발률)
+- lesson 적용 후 해당 scope의 사용자 수정률 변화
+- golden set 성장 속도
 
 비즈니스 지표:
 
@@ -971,32 +1164,237 @@ interface DocumentQualityGate {
 
 ## 17. PoC 계획
 
+PoC는 Phase 1~6을 관통하는 수직 슬라이스이며, 각 관문(Gate)의 통과 기준을 만족해야 다음으로 진행한다. 산출물은 버리지 않고 Phase 구현의 초기 버전으로 승계한다. coverage/recall/agreement는 모두 golden set을 분모로 계산한다 — 정답 라벨 없이는 어떤 성공 기준도 측정할 수 없으므로 Gate 1이 측정의 전제다.
+
 ### 샘플
 
 - 기업마당 HWP/HWPX 작성양식 30개
 - PDF 양식 10개
 - DOCX 양식 10개
-- 웹폼 링크 5개
+- 웹폼 링크 5개 (값 준비 가이드 검증용)
 
-### 검증 질문
+### Gate 0. HWP 렌더링 스파이크 — 다른 모든 것보다 먼저
 
-1. HWP를 서버에서 원본과 유사한 PDF로 렌더링할 수 있는가?
-2. Vision model이 입력칸/표/체크박스/서명란 bbox를 안정적으로 잡는가?
-3. Text parser와 vision 결과가 충돌할 때 reconciliation이 실무적으로 맞는가?
-4. 사업자 정형값 자동채움 precision이 충분한가?
-5. 서술형 항목은 사용자 evidence 기반으로 쓸 만한 초안이 나오는가?
-6. 사용자는 annotated guide만 보고 실제 양식에 옮겨 적을 수 있는가?
+- 질문: HWP를 서버에서 원본과 유사한 PDF로 렌더링할 수 있는가?
+- 방법: 8.3 렌더러 체인의 2~3순위 후보로 HWP 30개를 렌더링하고 원본과 시각 비교 (표 구조 보존 중심)
+- 통과 기준: PDF/image 렌더링 성공률 90% 이상
+- 실패 시: 시각 overlay를 후순위로 내리고, 현재 hwp-markdown 경로를 강화한 텍스트 기반 가이드로 MVP를 재정의한다. 나머지 Gate는 시작하지 않는다.
 
-### 성공 기준
+### Gate 1. 정답 라벨링 — 측정의 분모
 
-- PDF/image 렌더링 성공률 90% 이상
-- 필드 후보 coverage 80% 이상
-- 정형 필드 자동채움 precision 95% 이상
-- 서명/동의/직인 manual 분류 recall 99% 이상
-- 사용자가 실제 양식에 옮겨 적을 수 있다고 판단한 문서 70% 이상
-- 근거 없는 수치/실적/인증 생성 0건
+- 샘플 55개 문서의 필드맵 정답(라벨/종류/위치/필수 여부/manual 여부)을 사람이 직접 라벨링한다
+- 기존 `golden_set` 테이블에 kind `field_map`을 추가해 저장한다 (golden_ver v0)
+- 문서당 약 30분, 총 4~5일 작업으로 추정
+- 이 라벨 자산은 Phase 8 golden set으로 그대로 승계된다
 
-## 18. 구현 로드맵
+### Gate 2. 추출/Reconciliation 측정
+
+- layout 엔진 + vision + text parser 후보를 reconcile해 golden set과 비교
+- 통과 기준: 필드 후보 coverage 80% 이상, 서명/동의/직인 manual 분류 recall 99% 이상
+- vision bbox 단독 정확도를 layout 엔진 bbox와 비교 측정해 3.3의 역할 분리 가정을 검증한다
+- 측정된 분포로 13장의 임계값을 캘리브레이션한다
+- 결과는 `eval_runs`에 golden_ver와 함께 기록한다
+
+### Gate 3. Fill/Guide 사용성
+
+- 사업자 샘플 1개로 field fill plan + annotated PDF/PPTX guide 생성
+- 통과 기준:
+  - 정형 필드 자동채움 precision 95% 이상
+  - 근거 없는 수치/실적/인증 생성 0건
+  - 사용자가 annotated guide만 보고 실제 양식에 옮겨 적을 수 있다고 판단한 문서 70% 이상
+- 서술형 항목이 사용자 evidence 기반으로 쓸 만한 초안이 나오는지 정성 평가를 병행한다
+
+## 18. 지식 루프: 질문-응답-전파
+
+### 18.1 설계 은유: 지원사업 담당자 조직
+
+이 시스템은 새로운 발명이 아니라, 실제 공공 지원사업 담당자 조직이 하는 일의 소프트웨어화다.
+
+```txt
+사업체가 작성 중 모르는 것을 담당자에게 전화로 묻는다
+  -> 담당자가 알면 즉시 답한다
+  -> 모르거나 틀리면 상사/유관 기관에 물어 확인한다
+  -> 확인된 답은 질문자에게 회신되고
+  -> 다른 담당자들에게 전파되어 조직의 지식이 된다
+  -> 반복되는 질문은 FAQ로 정리된다
+```
+
+대응 관계:
+
+| 담당자 조직 | 이 시스템 |
+|---|---|
+| 전화 받는 담당자 | Tier 0: 응답 에이전트 (즉답) |
+| 상사/선임에게 확인 | Tier 1: 리뷰어 에스컬레이션 (SLA) |
+| 주관기관에 공식 문의 | Tier 2: 외부 검증 (기관 문의/전문가) |
+| 질문자에게 회신 | 답변 회신 + 알림 |
+| 동료에게 전파 | lesson 승격 -> scope 매칭 주입 |
+| FAQ 정리 | 공고/양식별 검증 Q&A 공개 |
+
+핵심 원칙: 이 루프는 모델 가중치 학습이 아니라 지식 루프다. 베타 기간에 실제 효과를 내는 것은 (1) 교정 지식의 검색 주입, (2) golden set 성장, (3) 프롬프트/규칙 버전 개선이며, 모델 fine-tuning은 교정 데이터가 수천 건 누적된 뒤의 선택지다 (18.8).
+
+### 18.2 3-Tier 응답 구조
+
+- Tier 0 (에이전트 즉답): 사용자 질문에 공고 원문 + 양식 field map + approved lesson + 검증 Q&A를 검색해 근거와 confidence를 붙여 즉시 답한다. 근거가 없으면 답을 지어내지 않고 즉시 에스컬레이션한다 (3.4와 동일 원칙).
+- Tier 1 (리뷰어): low confidence 답변, 사용자가 검증을 요청한 답변, 순회에서 발견된 오류를 처리한다. SLA를 갖는다 (베타 기준 영업일 1일).
+- Tier 2 (외부 검증): 리뷰어도 확신할 수 없는 질문은 주관기관 문의/전문가 확인으로 넘기고, 진행 상태를 사용자에게 투명하게 보여준다.
+
+각 Tier의 답은 반드시 아래로 흘러내린다. Tier 1~2에서 확인된 답은 질문자에게 회신되는 동시에 golden case + lesson으로 저장되어, 다음 같은 질문은 Tier 0이 처리한다.
+
+### 18.3 루프 구조: 수요와 공급의 이중 유입
+
+지식 생성의 유입은 두 갈래다. 수요(사용자 질문)가 우선이고, 공급(리뷰어 순회)이 보완한다.
+
+```txt
+[수요 주도 - 우선]
+사용자가 field inspector에서 질문 / 자동채움 값에 이의 제기
+  -> Tier 0 에이전트 즉답 (근거 + confidence 표시)
+  -> 불충분하면 Tier 1 에스컬레이션 (SLA 타이머)
+  -> 리뷰어 답변 한 번 = 회신 + golden case + lesson 후보 동시 생성
+  -> 반복 질문은 공고/양식별 검증 Q&A(FAQ)로 공개
+
+[공급 주도 - 보완]
+리뷰어 순회 큐 (form template 빈도 x 노출도 x 최근 오류율 순)
+  -> 시스템 처리 결과 교정: 값 수정 | 정답 라벨 | 조건부 지침 작성
+  -> feedback (원천 기록, 불변)
+
+[공통 파이프라인]
+  -> 큐레이션: lesson 승격 (scope + instruction + golden case, 충돌 검출)
+  -> 적용: scope가 매칭되는 다음 처리부터 lesson을 컨텍스트로 주입
+  -> 검증: eval_runs 회귀 측정, repeat-error rate 추적
+```
+
+수요 주도를 우선하는 이유: 사용자 질문은 "실제로 헷갈리는 지점"의 가장 정확한 신호이고, 회신이라는 제품 가치가 즉시 발생한다. 순회는 콜드 스타트(질문이 없는 초기)와 사용자가 신고하지 않는 오류를 커버한다.
+
+### 18.4 교정의 두 갈래
+
+리뷰어의 교정 하나는 두 산출물로 분리 저장한다.
+
+- 정답(golden): "이 문서의 이 필드 정답은 분기 매출이다" -> `golden_set`. 측정과 회귀 방지에 쓴다.
+- 지침(lesson): "기관 X의 양식 Y에서 매출 항목은 분기 기준으로 해석한다" -> `review_lessons`. 다음 처리의 품질을 즉시 바꾼다.
+
+예: LLM이 `연매출을 입력하세요`라고 안내했는데 실제로는 분기 매출인 경우 — 리뷰어는 해당 필드의 guide를 수정하고(정답), "이러이러한 조건에서는 분기 매출을 입력해야 함"이라는 조건부 지침을 남긴다(lesson 후보). lesson은 form template 단위로 스코프되므로 같은 양식을 쓰는 모든 공고에 즉시 전파된다 (7.7). 리뷰어 1명의 교정이 공고 1건이 아니라 양식 1종을 고친다.
+
+### 18.5 Lesson 모델과 적용 규칙
+
+```ts
+interface ReviewLesson {
+  id: string;
+  target: "classification" | "criteria" | "field_interpretation" | "fill_value" | "guide" | "evaluation";
+  scope: {
+    institution?: string;
+    formTemplateId?: string;
+    documentCategory?: string;
+    fieldPattern?: string;   // 예: label ~ /매출/
+    condition?: string;      // 자연어 조건, instruction과 함께 주입
+  };
+  instruction: string;
+  rationale: string;
+  sourceFeedbackIds: string[];
+  goldenCaseRef: string | null;
+  status: "proposed" | "approved" | "retired";
+  lessonVer: string;
+}
+```
+
+적용 규칙:
+
+- fill planner / draft / 평가 시점에 scope가 매칭되는 approved lesson만 검색해 프롬프트에 주입한다. 전역 프롬프트에 누적하지 않는다
+- 피드백의 프롬프트 직행을 금지한다. 승격(큐레이션) 단계를 거치지 않은 피드백은 지식이 아니라 노이즈다
+- lesson은 반드시 golden case를 동반한다. golden case 없는 lesson은 회귀를 측정할 수 없으므로 승격 불가
+- 충돌하는 lesson(같은 scope, 다른 지침)은 승격 시점에 검출해 리뷰어에게 되돌린다
+- lesson 적용 여부는 draft 결과의 evidenceRefs에 기록해 추적 가능하게 한다
+
+### 18.6 Field Question 모델
+
+사용자 질문은 (공고, surface, field)에 anchor된 구조화 객체다. 일반 고객지원 티켓(`support_tickets`)과 분리한다 — 라이프사이클이 지식 파이프라인으로 이어지기 때문이다. 답변 알림은 기존 `notification_receipts`/`notification_settings` 인프라를 재사용한다.
+
+```ts
+interface FieldQuestion {
+  id: string;
+  companyId: string;
+  userId: string;
+  grantId: string;
+  surfaceId: string | null;
+  fieldId: string | null;
+  question: string;
+  tier0Answer: {
+    answer: string;
+    evidenceRefs: EvidenceRef[];
+    confidence: number;
+  } | null;
+  status: "agent_answered" | "escalated" | "reviewer_answered" | "expert_pending" | "closed";
+  escalationReason: "low_confidence" | "user_challenge" | "reviewer_unknown" | null;
+  reviewerAnswer: string | null;
+  lessonId: string | null;
+  goldenCaseRef: string | null;
+  faqPublished: boolean;
+  slaDueAt: string | null;
+}
+```
+
+상태 흐름:
+
+- Tier 0 confidence가 기준 이상이면 `agent_answered`로 종료 가능. 사용자는 언제든 검증 요청으로 재개할 수 있다
+- `escalated`부터 SLA 타이머가 돌고 리뷰어 인박스 최상단에 노출된다
+- `reviewer_answered` 시점에 회신 알림 + golden case + lesson 후보가 원자적으로 함께 생성된다
+- 같은 (template, field) anchor에 질문이 반복되면 FAQ 공개 후보로 자동 표시된다
+
+### 18.7 세 파이프라인과 하나의 지식 레이어
+
+`지원서 평가 에이전트`, `작성 도우미`, `응답 에이전트(Tier 0)`는 별도 시스템이 아니라 같은 지식 레이어(`golden_set` + `review_lessons` + 검증 Q&A + `versions`)를 소비하는 세 파이프라인이다.
+
+- 평가 에이전트: 공고/양식 해석과 제출물 평가 — 자격 판단, 필드 해석, 품질 채점
+- 작성 도우미: fill plan / draft / guide 생성
+- 응답 에이전트: 사용자 질문 즉답 (18.2 Tier 0)
+
+교정 지식을 lesson 한 곳에 두므로, 한 번의 리뷰어 답변/교정이 세 파이프라인을 동시에 개선한다.
+
+### 18.8 강화 단계
+
+| 단계 | 방법 | 발효 시점 | 조건 |
+|---|---|---|---|
+| L1 | lesson 검색 주입 | 즉시 (다음 처리부터) | 승격된 lesson |
+| L2 | few-shot exemplar bank (검수 통과 우수 출력 재사용) | 즉시 | 리뷰어 승인 |
+| L3 | 프롬프트/규칙 버전 개선 + eval 게이트 | 주 단위 | `eval_runs` 회귀 없음 |
+| L4 | SFT/선호 기반 fine-tuning | 교정 수천 건 누적 후 | 별도 의사결정 |
+
+리뷰어 베타 1개월의 목표는 L1~L3 루프가 실제로 도는 것이다. L4는 이 문서의 범위 밖에 둔다.
+
+### 18.9 베타/필드 테스트 운영
+
+리뷰어 베타 (1개월):
+
+- 에스컬레이션된 질문이 항상 순회보다 우선한다 (SLA 영업일 1일)
+- 순회 큐는 form template 빈도 x 사용자 노출도 순으로 정렬한다. 같은 양식의 교정은 한 번이면 되므로 템플릿 상위부터 처리하면 커버리지가 빠르게 늘어난다
+- 리뷰어 처리량을 사전 산정한다: 문서당 검수 15~30분, 질문당 답변 5~15분 기준으로 1개월 커버 가능 범위를 계산하고 큐를 그 범위로 제한한다
+- 주간 리듬: 교정/질문 수집 -> lesson 승격 -> eval_runs -> repeat-error 리포트
+- 베타 진입 조건: 최소 루프(질문 흐름 + 리뷰어 인박스 + feedback 기록 + 수동 lesson 승격 + eval)가 구현되어 있어야 한다. 루프 없이 베타를 시작하면 피드백이 처리되지 않은 채 쌓이기만 한다
+
+일반 사용자 필드 테스트 (6개월):
+
+- 질문하기와 검증 Q&A(FAQ)가 지식 유입의 주 경로가 된다. Tier 0 즉답률(deflection)이 이 단계의 핵심 지표다
+- 사용자 수정/피드백은 리뷰어 피드백보다 노이즈가 크다. lesson으로 자동 승격하지 않는다
+- 사용자 수정률이 특정 필드/양식에 클러스터로 나타나면 리뷰어 큐에 우선 배정하는 신호로 쓴다
+- hallucination report는 즉시 리뷰어 인박스 최상단으로 보낸다
+
+### 18.10 루프 건강 지표
+
+수요(질문) 지표:
+
+- Tier 0 즉답률 (deflection rate): 에스컬레이션 없이 종결된 질문 비율
+- 질문 -> 최종 답변 시간과 SLA 준수율
+- FAQ 사전 적중률: 질문 입력 전 유사 Q&A 제시로 해소된 비율
+- 동일 anchor 질문 재발률 (lesson/FAQ 전파 실패의 신호)
+
+지식 파이프라인 지표:
+
+- feedback -> lesson 승격률과 승격 소요 시간
+- repeat-error rate: lesson이 존재하는 scope에서 같은 오류가 재발한 비율 (검색/주입 실패의 신호)
+- lesson 적용 후 해당 scope의 사용자 수정률 변화 (lesson 효과의 직접 증거)
+- golden set 성장 속도 (주당 라벨 수)
+- eval_runs 추세 (golden_ver 별 지표 변화)
+
+## 19. 구현 로드맵
 
 ### Phase 0. 기존 기능 고정
 
@@ -1008,7 +1406,9 @@ interface DocumentQualityGate {
 
 - `grant_application_surfaces`
 - `document_artifacts`
+- `form_templates` (sha256/structure hash 기반 재사용, 7.7)
 - 기존 attachment archive와 연결
+- 기존 `grant_document_fields`/`grant_document_drafts`에 surface_id 백필 (11장 백필 전략)
 - conversion job manifest 저장
 
 ### Phase 2. Conversion Server 연동
@@ -1018,14 +1418,16 @@ interface DocumentQualityGate {
 - conversion quality score
 - 실패 fallback
 
-### Phase 3. Viewer
+### Phase 3. Viewer (Phase 4와 병행)
+
+overlay할 필드는 Phase 4의 산출물이므로 P3는 preview/좌표계를, P4는 필드 공급을 맡아 병행 진행한다.
 
 - page image viewer
-- overlay coordinate system
+- overlay coordinate system (8.4 좌표계 규칙)
 - field click/selection
 - field inspector
 
-### Phase 4. Vision/Text Reconciliation
+### Phase 4. Vision/Text Reconciliation (Phase 3과 병행)
 
 - vision candidate schema
 - text parser candidate schema
@@ -1049,20 +1451,25 @@ interface DocumentQualityGate {
 
 ### Phase 7. 웹폼
 
-- web form map
-- portal별 adapter
-- copy/paste guide
+- copy/paste guide (값 준비 가이드 — MVP 범위)
 - 제출 전 manual guardrail
+- (후속) web form map, portal별 adapter — 상위 포털 2~3개 한정, stale 감지 운영 전제 (9.7)
 
-### Phase 8. 품질 운영
+### Phase 8. 품질 운영 / 지식 루프
 
-- golden set
-- admin review queue
-- model/prompt comparison
-- correction analytics
+리뷰어 베타(1개월) 시작 전에 최소 루프가 완료되어야 한다 (18.9 베타 진입 조건).
+
+- `field_questions` + 질문하기/이의 제기 UI (9.4, 9.9) + Tier 0 응답 에이전트
+- 리뷰어 통합 인박스 + 답변 컴포저 (9.8) + `review_lessons` 승격 파이프라인 (18장)
+- lesson 검색 주입: fill planner / draft / 평가 / 응답 파이프라인에 scope 매칭 lesson 주입
+- 공고/양식별 검증 Q&A(FAQ) 공개
+- golden set 확장 (PoC Gate 1의 `golden_set` kind `field_map` 라벨 자산 승계)
+- admin review queue (`extraction_log` status 체계 재사용)
+- model/prompt comparison (`versions` + `eval_runs` 재사용)
+- correction analytics + repeat-error 리포트
 - 비용/품질 dashboard
 
-## 19. 현재 코드 재사용 지점
+## 20. 현재 코드 재사용 지점
 
 현재 기반:
 
@@ -1078,8 +1485,11 @@ interface DocumentQualityGate {
 - `apps/web/src/lib/server/documents/grantDocumentDrafts.ts`: draft 저장/수정/export/feedback
 - `apps/web/src/features/apply-sheet/DocumentDraftWorkspace.tsx`: 사용자 편집 UI
 - `apps/web/src/lib/server/ingestion/grantAttachmentArchive.ts`: 첨부 아카이브와 HWP markdown 변환
+- `packages/core/src/bizinfo/hwp-markdown.ts`: pyhwp 기반 HWP/HWPX 텍스트 추출 (렌더러 체인 4순위로 승계)
+- `grant_attachment_archives` 테이블: sha256/conversion_status/converter — artifact 캐시와 dedup의 기반
+- `golden_set`/`eval_runs`/`extraction_log`/`versions`/`feedback` 테이블: PoC 측정과 품질 운영 인프라 (신규 구축 불필요, kind/target enum 확장만 필요)
 
-## 20. 비범위
+## 21. 비범위
 
 MVP에서 하지 않는다.
 
@@ -1091,7 +1501,7 @@ MVP에서 하지 않는다.
 - 근거 없는 실적/수치 생성
 - 전문가 검수 없이 고위험 법률/세무 판단 확정
 
-## 21. 최종 제품 정의
+## 22. 최종 제품 정의
 
 최종 제품은 다음 문장으로 정의한다.
 
@@ -1099,17 +1509,17 @@ MVP에서 하지 않는다.
 
 우리가 사용자의 시간을 줄이는 방식은 문서를 대신 제출하는 것이 아니라, 사용자가 어려워하는 해석과 작성 준비를 정확하고 검토 가능한 형태로 바꾸는 것이다.
 
-## 22. 다음 실행 단위
+## 23. 다음 실행 단위
 
-가장 먼저 할 일은 PoC다.
+가장 먼저 할 일은 PoC이며, 17장의 관문 순서를 따른다.
 
-1. 기업마당 HWP/HWPX 양식 30개 수집
-2. GCP 변환 서버로 PDF/page image/markdown/layout JSON 생성
-3. Vision field candidate 추출
-4. 기존 text parser candidate와 reconcile
-5. field overlay viewer prototype
-6. 사업자 샘플 1개로 field fill plan 생성
-7. annotated PDF/PPTX guide export
-8. 사람이 실제 양식에 옮겨 적을 수 있는지 검수
+1. Gate 0: 기업마당 HWP/HWPX 양식 30개 수집 + HWP 렌더러 후보 비교 스파이크
+2. Gate 1: 샘플 55개 정답 필드맵 라벨링 -> `golden_set` (kind `field_map`)
+3. Gate 2: layout/vision/text 추출 + reconcile -> golden set 대비 측정, 13장 임계값 캘리브레이션
+4. field overlay viewer prototype (Gate 2와 병행)
+5. Gate 3: 사업자 샘플 1개로 field fill plan + annotated PDF/PPTX guide 생성
+6. 사람이 실제 양식에 옮겨 적을 수 있는지 검수
 
-이 PoC가 통과하면, 제품의 핵심 가설은 성립한다.
+Gate 0이 실패하면 나머지를 시작하지 않고 텍스트 기반 가이드로 MVP를 재정의한다. 모든 Gate가 통과하면 제품의 핵심 가설은 성립한다.
+
+PoC 통과 후 리뷰어 베타(1개월) 진입 조건: 18장의 최소 루프(질문하기 + Tier 0 즉답 + 리뷰어 인박스/답변 컴포저 + lesson 승격 + eval_runs)가 구현되어 있어야 한다. 루프가 없는 베타는 피드백을 쌓기만 하고 시스템을 강화하지 못한다.
