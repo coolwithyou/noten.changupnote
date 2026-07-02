@@ -25,7 +25,7 @@ import type {
 } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
 import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
-import { createServiceRepositories } from "./repositories/factory";
+import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
 import { notifyPopbillFailure } from "./adminNotifications";
@@ -34,6 +34,13 @@ const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
 const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
 const ENRICHMENT_CACHE_TTL_HOURS_ENV = "CUNOTE_POPBILL_CACHE_TTL_HOURS";
+// 팝빌 조회는 사업자당 과금이므로 기본 90일 동안 DB 캐시를 재사용한다.
+// 90일이 지나면 다음 조회 시 팝빌을 1회 다시 호출해 최신 상태(휴·폐업/주소 변경 등)로 갱신한다.
+// CUNOTE_POPBILL_CACHE_TTL_HOURS로 기간을 조정할 수 있고, 0 이하로 두면 무기한 캐시(재조회 없음)로 동작한다.
+const DEFAULT_ENRICHMENT_CACHE_TTL_HOURS = 24 * 90;
+
+// 동일 사업자번호에 대한 동시 조회를 하나의 팝빌 호출로 합쳐 중복 과금을 막는다(in-flight 요청 dedup).
+const inflightPopbillLookups = new Map<string, Promise<PopbillCompanyResolution>>();
 
 type ServiceGrantPayload = KStartupAnnouncement | BizInfoProgram;
 type PopbillCredentials = ReturnType<typeof readPopbillEnvConfig>["credentials"];
@@ -180,6 +187,12 @@ async function loadCompanyProfileFromSourceWithEvidence(
     };
   } catch (error) {
     if (requestedBizNo) {
+      // 가드/캐시 검증 등 의미가 분명한 오류는 원래 코드(popbill_cache_unavailable 등)를 보존하고
+      // 팝빌 장애 알림도 보내지 않는다(DB 문제를 팝빌 실패로 오인하지 않도록).
+      if (error instanceof ServiceDataError) {
+        console.warn(`Popbill lookup skipped for requested biz no: ${error.code} - ${error.message}`);
+        throw error;
+      }
       console.warn(`Popbill profile fetch failed for requested biz no: ${errorMessage(error)}`);
       await notifyPopbillFailure({
         surface: "teaser",
@@ -309,18 +322,58 @@ export async function enrichServiceCompany(input: {
   };
 }
 
-async function loadPopbillCompanyProfile(input: {
+function loadPopbillCompanyProfile(input: {
   bizNo: string;
   credentials: PopbillCredentials;
   asOf: Date;
   now: Date;
 }): Promise<PopbillCompanyResolution> {
-  const cached = await repositories.enrichmentCache.getFresh({
-    provider: ENRICHMENT_CACHE_PROVIDER,
-    bizNo: input.bizNo,
-    scope: ENRICHMENT_CACHE_SCOPE,
-    now: input.now,
+  // 동일 사업자번호 동시 요청은 진행 중인 조회 하나에 합류시켜 팝빌 중복 호출(중복 과금)을 방지한다.
+  const key = `${ENRICHMENT_CACHE_PROVIDER}:${ENRICHMENT_CACHE_SCOPE}:${input.bizNo}`;
+  const existing = inflightPopbillLookups.get(key);
+  if (existing) return existing;
+
+  const task = fetchPopbillCompanyProfile(input).finally(() => {
+    inflightPopbillLookups.delete(key);
   });
+  inflightPopbillLookups.set(key, task);
+  return task;
+}
+
+async function fetchPopbillCompanyProfile(input: {
+  bizNo: string;
+  credentials: PopbillCredentials;
+  asOf: Date;
+  now: Date;
+}): Promise<PopbillCompanyResolution> {
+  // 가드 1: 캐시가 영속 저장되는 DB(drizzle) 어댑터가 아니면(=in-memory) 매 조회가 과금되므로 팝빌 호출을 차단한다.
+  if (getRepositoryAdapterName() !== "drizzle") {
+    throw new ServiceDataError(
+      "popbill_cache_unavailable",
+      "사업자 정보 캐시 저장소(DB)가 구성되지 않아 조회를 진행할 수 없습니다. DATABASE_URL / CUNOTE_REPOSITORY_ADAPTER 설정을 확인해주세요.",
+      503,
+      "bizNo",
+    );
+  }
+
+  // 가드 2: 캐시 조회(DB read)가 실패하면 캐시 저장도 불가하므로, 과금을 막기 위해 팝빌 호출을 차단한다.
+  let cached: Awaited<ReturnType<typeof repositories.enrichmentCache.getFresh>>;
+  try {
+    cached = await repositories.enrichmentCache.getFresh({
+      provider: ENRICHMENT_CACHE_PROVIDER,
+      bizNo: input.bizNo,
+      scope: ENRICHMENT_CACHE_SCOPE,
+      now: input.now,
+    });
+  } catch (error) {
+    console.warn(`Popbill 조회 차단: 캐시 DB 접속 실패 - ${errorMessage(error)}`);
+    throw new ServiceDataError(
+      "popbill_cache_unavailable",
+      "사업자 정보 캐시 저장소(DB)에 접속할 수 없어 조회를 진행할 수 없습니다. 잠시 후 다시 시도해주세요.",
+      503,
+      "bizNo",
+    );
+  }
   const cachedCanonical = parseCachedCompanyEnrichment(cached?.canonicalPayload);
   if (cachedCanonical) {
     return {
@@ -368,7 +421,8 @@ async function loadPopbillCompanyProfile(input: {
       provider: ENRICHMENT_CACHE_PROVIDER,
       bizNo: input.bizNo,
       scope: ENRICHMENT_CACHE_SCOPE,
-      rawPayload: null,
+      // 팝빌 응답 본문 전체를 원본 그대로 보존한다(향후 재가공/감사/스키마 변경 대비).
+      rawPayload: info as Record<string, unknown>,
       canonicalPayload,
       providerResultCode: String(info.result),
       providerResultMessage: facts.resultMessage,
@@ -403,9 +457,8 @@ async function loadPopbillCompanyProfile(input: {
 
 function resolvePopbillCacheExpiresAt(now: Date): Date | null {
   const rawTtlHours = process.env[ENRICHMENT_CACHE_TTL_HOURS_ENV]?.trim();
-  if (!rawTtlHours) return null;
-
-  const ttlHours = Number(rawTtlHours);
+  const ttlHours = rawTtlHours ? Number(rawTtlHours) : DEFAULT_ENRICHMENT_CACHE_TTL_HOURS;
+  // 0 이하 또는 유효하지 않은 값이면 무기한 캐시(만료 없음)로 둔다.
   if (!Number.isFinite(ttlHours) || ttlHours <= 0) return null;
   return new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
 }

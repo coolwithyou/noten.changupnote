@@ -14,6 +14,7 @@ export const PUBLIC_WEB_ROUTES = [
   "POST /api/web/billing/webhook/[provider]",
   "GET /api/web/applications/calendar-feed/[token]",
   "GET /api/web/stats",
+  "POST /api/web/landing-events",
   "POST /api/web/support/tickets",
   "POST /api/web/support/tickets/handoff",
   "POST /api/web/support/tickets/[ticketId]/attachments",

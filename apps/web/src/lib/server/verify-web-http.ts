@@ -39,6 +39,7 @@ if (!rawBaseUrl) {
 }
 
 const baseUrl = rawBaseUrl.replace(/\/$/, "");
+const opsAdminOrigin = (process.env.CUNOTE_OPS_ADMIN_ORIGIN?.trim() || "https://ops.changupnote.com").replace(/\/$/, "");
 const requestTimeoutMs = readPositiveIntegerEnv("CUNOTE_HTTP_VERIFY_TIMEOUT_MS", 30_000);
 const email = process.env.CUNOTE_HTTP_VERIFY_EMAIL?.trim() || "demo@changupnote.com";
 const checks: string[] = [];
@@ -64,118 +65,35 @@ expect(stats.body.ok === true, "web stats envelope ok");
 expect(typeof stats.body.data?.openCount === "number", "web stats openCount");
 checks.push("web_stats");
 
-const adminStatus = await fetchJson<ApiEnvelope<{
-  ok: boolean;
-  role: "admin";
-  mode: "demo" | "session";
-  surfaces: string[];
-  runtime: {
-    repositoryAdapter: "runtime" | "drizzle";
-    webDataSource: "auto" | "sample" | "live";
-    authRequired: boolean;
-    authProviders: string[];
-    databaseConfigured: boolean;
-    legalReadiness: {
-      status: "ready" | "attention";
-      score: number;
-      missingKeys: string[];
-      items: Array<{ key: string; status: "ready" | "attention" }>;
-    };
-    saasReadiness: {
-      status: "ready" | "attention";
-      score: number;
-      readyCount: number;
-      totalCount: number;
-      missingKeys: string[];
-    };
-  };
-}>>("/api/admin/status");
-expect(
-  adminStatus.status === 200 || adminStatus.status === 403,
-  `admin status boundary: expected 200 or 403, got ${adminStatus.status}`,
-);
-if (adminStatus.status === 200) {
-  expect(adminStatus.body.data?.ok === true, "admin status ok");
-  expect(adminStatus.body.data?.surfaces.includes("golden_set") === true, "admin status surfaces");
-  expect(adminStatus.body.data?.surfaces.includes("billing_subscriptions") === true, "admin status billing subscriptions surface");
-  expect(adminStatus.body.data?.surfaces.includes("billing_tax_profiles") === true, "admin status billing tax profiles surface");
-  expect(adminStatus.body.data?.surfaces.includes("billing_tax_documents") === true, "admin status billing tax documents surface");
-  expect(adminStatus.body.data?.surfaces.includes("billing_invoices") === true, "admin status billing invoices surface");
-  expect(adminStatus.body.data?.surfaces.includes("billing_payment_methods") === true, "admin status billing payment methods surface");
-  expect(adminStatus.body.data?.surfaces.includes("billing_webhook_events") === true, "admin status billing webhook surface");
-  expect(adminStatus.body.data?.surfaces.includes("legal_readiness") === true, "admin status legal readiness surface");
-  expect(adminStatus.body.data?.surfaces.includes("saas_readiness") === true, "admin status saas readiness surface");
-  expect(adminStatus.body.data?.surfaces.includes("saas_release_checklist") === true, "admin status saas release checklist surface");
-  expect(["runtime", "drizzle"].includes(adminStatus.body.data.runtime.repositoryAdapter), "admin status runtime adapter");
-  expect(typeof adminStatus.body.data.runtime.authRequired === "boolean", "admin status runtime auth");
-  expect(typeof adminStatus.body.data.runtime.legalReadiness.score === "number", "admin status legal readiness score");
-  expect(Array.isArray(adminStatus.body.data.runtime.legalReadiness.missingKeys), "admin status legal readiness missing keys");
-  expect(typeof adminStatus.body.data.runtime.saasReadiness.score === "number", "admin status saas readiness score");
-  expect(adminStatus.body.data.runtime.saasReadiness.totalCount >= adminStatus.body.data.runtime.saasReadiness.readyCount, "admin status saas readiness counts");
-} else {
-  expect(adminStatus.body.error?.code === "admin_forbidden", "admin status forbidden code");
-}
-checks.push("admin_status_boundary");
+const adminStatus = await fetchJson<ApiEnvelope<null>>("/api/admin/status");
+expectAdminMovedApi(adminStatus, "admin status moved boundary");
+checks.push("admin_status_moved_to_ops");
+
+const internalLiveMatchHtml = await fetchText("/internal/live-match", { redirect: "manual" });
+expectOpsAdminRedirect(internalLiveMatchHtml, "/internal/live-match", "internal live match moved boundary");
+const internalLiveMatchForbidden = await fetchJson<ApiEnvelope<null>>("/api/matches/live", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({}),
+});
+expectAdminMovedApi(internalLiveMatchForbidden, "internal live match api moved boundary");
+checks.push("internal_live_match_moved_to_ops");
 
 const adminLegalReadinessReport = await fetchText("/api/admin/status/legal-readiness");
-expect(
-  adminLegalReadinessReport.status === 200 || adminLegalReadinessReport.status === 403,
-  `admin legal readiness report boundary: expected 200 or 403, got ${adminLegalReadinessReport.status}`,
-);
-if (adminLegalReadinessReport.status === 200) {
-  expect(adminLegalReadinessReport.headers.get("content-type")?.includes("text/markdown") === true, "admin legal readiness report content type");
-  expect(adminLegalReadinessReport.body.includes("# 창업노트 운영 법무 readiness"), "admin legal readiness report heading");
-  expect(adminLegalReadinessReport.body.includes("## 누락 환경값"), "admin legal readiness report missing env section");
-} else {
-  expect(adminLegalReadinessReport.body.includes("admin_forbidden"), "admin legal readiness report forbidden body");
-}
-checks.push("admin_legal_readiness_report_boundary");
+expectAdminMovedText(adminLegalReadinessReport, "admin legal readiness moved boundary");
+checks.push("admin_legal_readiness_moved_to_ops");
 
 const adminSaasReadinessReport = await fetchText("/api/admin/status/saas-readiness");
-expect(
-  adminSaasReadinessReport.status === 200 || adminSaasReadinessReport.status === 403,
-  `admin saas readiness report boundary: expected 200 or 403, got ${adminSaasReadinessReport.status}`,
-);
-if (adminSaasReadinessReport.status === 200) {
-  expect(adminSaasReadinessReport.headers.get("content-type")?.includes("text/markdown") === true, "admin saas readiness report content type");
-  expect(adminSaasReadinessReport.body.includes("# 창업노트 SaaS MVP readiness"), "admin saas readiness report heading");
-  expect(adminSaasReadinessReport.body.includes("## 공개 신뢰 흐름"), "admin saas readiness report sections");
-} else {
-  expect(adminSaasReadinessReport.body.includes("admin_forbidden"), "admin saas readiness report forbidden body");
-}
-checks.push("admin_saas_readiness_report_boundary");
+expectAdminMovedText(adminSaasReadinessReport, "admin saas readiness moved boundary");
+checks.push("admin_saas_readiness_moved_to_ops");
 
 const adminSaasReleaseChecklist = await fetchText("/api/admin/status/release-checklist");
-expect(
-  adminSaasReleaseChecklist.status === 200 || adminSaasReleaseChecklist.status === 403,
-  `admin saas release checklist boundary: expected 200 or 403, got ${adminSaasReleaseChecklist.status}`,
-);
-if (adminSaasReleaseChecklist.status === 200) {
-  expect(adminSaasReleaseChecklist.headers.get("content-type")?.includes("text/markdown") === true, "admin saas release checklist content type");
-  expect(adminSaasReleaseChecklist.body.includes("# 창업노트 SaaS release checklist"), "admin saas release checklist heading");
-  expect(adminSaasReleaseChecklist.body.includes("## Required Commands"), "admin saas release checklist command section");
-  expect(adminSaasReleaseChecklist.body.includes("## Execution Evidence"), "admin saas release checklist evidence section");
-  expect(adminSaasReleaseChecklist.body.includes("## Runtime Snapshot"), "admin saas release checklist runtime section");
-  expect(adminSaasReleaseChecklist.body.includes("pnpm verify:web-http"), "admin saas release checklist web smoke command");
-  expect(adminSaasReleaseChecklist.body.includes("## Rollback Gate"), "admin saas release checklist rollback section");
-} else {
-  expect(adminSaasReleaseChecklist.body.includes("admin_forbidden"), "admin saas release checklist forbidden body");
-}
-checks.push("admin_saas_release_checklist_boundary");
+expectAdminMovedText(adminSaasReleaseChecklist, "admin saas release checklist moved boundary");
+checks.push("admin_saas_release_checklist_moved_to_ops");
 
 const adminSupportTicketReport = await fetchText("/api/admin/flywheel/support-tickets/report");
-expect(
-  adminSupportTicketReport.status === 200 || adminSupportTicketReport.status === 403,
-  `admin support ticket report boundary: expected 200 or 403, got ${adminSupportTicketReport.status}`,
-);
-if (adminSupportTicketReport.status === 200) {
-  expect(adminSupportTicketReport.headers.get("content-type")?.includes("text/markdown") === true, "admin support ticket report content type");
-  expect(adminSupportTicketReport.body.includes("# 창업노트 고객지원 운영 큐"), "admin support ticket report heading");
-  expect(adminSupportTicketReport.body.includes("## SLA 요약"), "admin support ticket report sla section");
-} else {
-  expect(adminSupportTicketReport.body.includes("admin_forbidden"), "admin support ticket report forbidden body");
-}
-checks.push("admin_support_ticket_report_boundary");
+expectAdminMovedText(adminSupportTicketReport, "admin support ticket report moved boundary");
+checks.push("admin_support_ticket_report_moved_to_ops");
 
 const homeHtml = await fetchText("/");
 expectStatus(homeHtml, 200, "web home html status");
@@ -294,6 +212,40 @@ expect(typeof teaser.body.data?.conditionalUpside === "number", "web teaser cond
 expect(Boolean(teaser.body.data?.privacyNote), "web teaser privacy note");
 expect(Boolean(teaser.body.data?.matches.find((entry) => entry.grantId)), "web teaser exposes matches");
 checks.push("web_teaser");
+
+const landingEvent = await fetchJson<ActionResult<{
+  accepted: true;
+  event: string;
+  receivedAt: string;
+}>>("/api/web/landing-events", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({
+    event: "teaser_match_clicked",
+    requestId: "verify-landing-event",
+    durationMs: 123,
+    inputLength: 10,
+    grantId: teaser.body.data?.matches[0]?.grantId ?? "verify-grant",
+    eligibility: teaser.body.data?.matches[0]?.eligibility ?? "eligible",
+    eligibleCount: teaser.body.data?.matches.filter((entry) => entry.eligibility === "eligible").length ?? 0,
+    conditionalCount: teaser.body.data?.matches.filter((entry) => entry.eligibility === "conditional").length ?? 0,
+    hasAmount: (teaser.body.data?.estimatedMaxAmount ?? 0) > 0 || (teaser.body.data?.conditionalUpside ?? 0) > 0,
+  }),
+});
+expectStatus(landingEvent, 202, "web landing event status");
+expect(landingEvent.body.ok === true, "web landing event envelope");
+expect(landingEvent.body.data?.accepted === true, "web landing event accepted");
+expect(landingEvent.body.data?.event === "teaser_match_clicked", "web landing event name");
+checks.push("web_landing_event");
+
+const invalidLandingEvent = await fetchJson<ActionResult<null>>("/api/web/landing-events", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ event: "raw_biz_no_submitted", bizNo: webVerifyBizNo }),
+});
+expectStatus(invalidLandingEvent, 400, "web invalid landing event status");
+expect(invalidLandingEvent.body.error?.code === "invalid_landing_event", "web invalid landing event code");
+checks.push("web_landing_event_invalid");
 
 const preliminaryTeaser = await fetchJson<ActionResult<{
   attributes: { region: string | null; industry: string[] };
@@ -1363,182 +1315,37 @@ if (supportTicket.body.data?.persisted) {
   checks.push("web_support_ticket_status_reopen");
 }
 
-if (adminStatus.status === 200 && supportTicket.body.data?.persisted) {
-  const supportSlaDueAt = new Date().toISOString().slice(0, 10);
-  const adminSupportTicketUpdate = await fetchJson<ApiEnvelope<{
-    id: string;
-    status: string;
-    priority: string;
-    assignedTo: string | null;
-    slaDueAt: string | null;
-  }>>(`/api/admin/flywheel/support-tickets/${encodeURIComponent(supportTicket.body.data.id)}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      status: "in_progress",
-      priority: "high",
-      assignedTo: "HTTP 검증",
-      slaDueAt: supportSlaDueAt,
-      note: "HTTP 검증 처리",
-    }),
-  });
-  expectStatus(adminSupportTicketUpdate, 200, "admin support ticket update status");
-  expect(adminSupportTicketUpdate.body.data?.status === "in_progress", "admin support ticket update status value");
-  expect(adminSupportTicketUpdate.body.data?.priority === "high", "admin support ticket update priority value");
-  expect(adminSupportTicketUpdate.body.data?.assignedTo === "HTTP 검증", "admin support ticket update assignee value");
-  expect(adminSupportTicketUpdate.body.data?.slaDueAt === supportSlaDueAt, "admin support ticket update sla value");
-  checks.push("admin_support_ticket_update");
+const adminSupportTicketMoved = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/support-tickets/00000000-0000-4000-8000-000000000001", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ status: "in_progress" }),
+});
+expectAdminMovedApi(adminSupportTicketMoved, "admin support ticket moved boundary");
+checks.push("admin_support_ticket_moved_to_ops");
 
-  const webNotificationFeedAfterSupportSla = await fetchJson<ActionResult<{
-    notifications: Array<{ id: string; title: string; target: string; kind: string }>;
-  }>>("/api/web/notification-feed");
-  expectStatus(webNotificationFeedAfterSupportSla, 200, "web notification feed support sla status");
-  expect(
-    webNotificationFeedAfterSupportSla.body.data?.notifications.some((item) =>
-      item.id.startsWith("support_sla:")
-      && item.kind === "needs_input"
-      && item.target === "/account#account-support-tickets"
-    ) === true,
-    "web notification feed exposes support sla",
-  );
-  checks.push("web_notification_feed_support_sla");
+const adminSupportTicketMessageMoved = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/support-tickets/00000000-0000-4000-8000-000000000001/messages", {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ body: "권한 없는 관리자 메시지" }),
+});
+expectAdminMovedApi(adminSupportTicketMessageMoved, "admin support ticket message moved boundary");
+checks.push("admin_support_ticket_message_moved_to_ops");
 
-  const adminSupportTicketMessage = await fetchJson<ApiEnvelope<{
-    id: string;
-    ticketId: string;
-    visibility: "public" | "internal";
-  }>>(`/api/admin/flywheel/support-tickets/${encodeURIComponent(supportTicket.body.data.id)}/messages`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      body: "HTTP 검증 공개 답변입니다.",
-      visibility: "public",
-    }),
-  });
-  expectStatus(adminSupportTicketMessage, 201, "admin support ticket message status");
-  expect(adminSupportTicketMessage.body.data?.visibility === "public", "admin support ticket message visibility");
-  checks.push("admin_support_ticket_message");
+const adminSupportTicketEmailHandoffMoved = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/support-tickets/00000000-0000-4000-8000-000000000001/email-handoff");
+expectAdminMovedApi(adminSupportTicketEmailHandoffMoved, "admin support ticket email handoff moved boundary");
+checks.push("admin_support_ticket_email_handoff_moved_to_ops");
 
-  const adminSupportTicketEmailHandoff = await fetchText(
-    `/api/admin/flywheel/support-tickets/${encodeURIComponent(supportTicket.body.data.id)}/email-handoff`,
-  );
-  expectStatus(adminSupportTicketEmailHandoff, 200, "admin support ticket email handoff status");
-  expect(
-    adminSupportTicketEmailHandoff.headers.get("content-type")?.includes("message/rfc822") === true,
-    "admin support ticket email handoff content-type",
-  );
-  expect(
-    adminSupportTicketEmailHandoff.headers.get("content-disposition")?.includes("attachment") === true,
-    "admin support ticket email handoff attachment",
-  );
-  expect(adminSupportTicketEmailHandoff.body.includes("X-Cunote-Handoff: support-ticket-email"), "admin support ticket email handoff marker");
-  expect(adminSupportTicketEmailHandoff.body.includes("HTTP 검증 공개 답변입니다."), "admin support ticket email handoff reply body");
-  checks.push("admin_support_ticket_email_handoff");
+const adminBillingSubscriptionMoved = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/billing-subscriptions/00000000-0000-4000-8000-000000000101", {
+  method: "PATCH",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ status: "manual_review" }),
+});
+expectAdminMovedApi(adminBillingSubscriptionMoved, "admin billing subscription moved boundary");
+checks.push("admin_billing_subscription_moved_to_ops");
 
-  const webNotificationFeedAfterSupportReply = await fetchJson<ActionResult<{
-    notifications: Array<{ id: string; title: string; target: string; kind: string; body: string }>;
-  }>>("/api/web/notification-feed");
-  expectStatus(webNotificationFeedAfterSupportReply, 200, "web notification feed support reply status");
-  expect(
-    webNotificationFeedAfterSupportReply.body.data?.notifications.some((item) =>
-      item.id.startsWith("support_reply:")
-      && item.kind === "needs_input"
-      && item.target === "/account#account-support-tickets"
-      && item.title.includes("운영팀 답변")
-      && item.body.includes("공개 답변")
-    ) === true,
-    "web notification feed exposes support reply",
-  );
-  checks.push("web_notification_feed_support_reply");
-
-  const adminBillingSubscriptionUpdate = await fetchJson<ApiEnvelope<{
-    companyId: string;
-    persisted: boolean;
-    subscription: {
-      status: string;
-      planName: string;
-      providerLabel: string;
-      seatLimit: number;
-    };
-  }>>(`/api/admin/flywheel/billing-subscriptions/${encodeURIComponent(webCompanyId!)}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      provider: "manual",
-      status: "manual_review",
-      planCode: "team_manual_review",
-      planName: "Team 검토",
-      priceLabel: "상담 후 확정",
-      renewalLabel: "운영팀 확인",
-      seatLimit: 7,
-      autoBillingEnabled: false,
-      invoicesEnabled: false,
-      paymentMethodManaged: false,
-    }),
-  });
-  expect(
-    adminBillingSubscriptionUpdate.status === 200 || adminBillingSubscriptionUpdate.status === 202,
-    `admin billing subscription update status: expected 200 or 202, got ${adminBillingSubscriptionUpdate.status}`,
-  );
-  expect(adminBillingSubscriptionUpdate.body.data?.companyId === webCompanyId, "admin billing subscription update company");
-  expect(adminBillingSubscriptionUpdate.body.data?.subscription.status === "manual_review", "admin billing subscription update status value");
-  expect(adminBillingSubscriptionUpdate.body.data?.subscription.seatLimit === 7, "admin billing subscription update seat limit");
-  checks.push("admin_billing_subscription_update");
-} else if (adminStatus.status === 403) {
-  const adminSupportTicketForbidden = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/support-tickets/00000000-0000-4000-8000-000000000001", {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status: "in_progress" }),
-  });
-  expectStatus(adminSupportTicketForbidden, 403, "admin support ticket forbidden status");
-  expect(adminSupportTicketForbidden.body.error?.code === "admin_forbidden", "admin support ticket forbidden code");
-  checks.push("admin_support_ticket_forbidden");
-
-  const adminSupportTicketMessageForbidden = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/support-tickets/00000000-0000-4000-8000-000000000001/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ body: "권한 없는 관리자 메시지" }),
-  });
-  expectStatus(adminSupportTicketMessageForbidden, 403, "admin support ticket message forbidden status");
-  expect(adminSupportTicketMessageForbidden.body.error?.code === "admin_forbidden", "admin support ticket message forbidden code");
-  checks.push("admin_support_ticket_message_forbidden");
-
-  const adminSupportTicketEmailHandoffForbidden = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/support-tickets/00000000-0000-4000-8000-000000000001/email-handoff");
-  expectStatus(adminSupportTicketEmailHandoffForbidden, 403, "admin support ticket email handoff forbidden status");
-  expect(adminSupportTicketEmailHandoffForbidden.body.error?.code === "admin_forbidden", "admin support ticket email handoff forbidden code");
-  checks.push("admin_support_ticket_email_handoff_forbidden");
-
-  const adminBillingSubscriptionForbidden = await fetchJson<ApiEnvelope<null>>("/api/admin/flywheel/billing-subscriptions/00000000-0000-4000-8000-000000000101", {
-    method: "PATCH",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ status: "manual_review" }),
-  });
-  expectStatus(adminBillingSubscriptionForbidden, 403, "admin billing subscription forbidden status");
-  expect(adminBillingSubscriptionForbidden.body.error?.code === "admin_forbidden", "admin billing subscription forbidden code");
-  checks.push("admin_billing_subscription_forbidden");
-}
-
-const adminHtml = await fetchText("/admin");
-expectStatus(adminHtml, 200, "admin html status");
-expect(adminHtml.body.includes("플라이휠 운영 콘솔"), "admin renders flywheel shell");
-expect(
-  adminHtml.body.includes("어드민 접근 권한 필요") || adminHtml.body.includes("extraction_log"),
-  "admin renders denied state or flywheel surfaces",
-);
-if (adminHtml.body.includes("extraction_log")) {
-  expect(adminHtml.body.includes("legal readiness"), "admin renders legal readiness runtime row");
-  expect(adminHtml.body.includes("/api/admin/status/legal-readiness"), "admin renders legal readiness markdown link");
-  expect(adminHtml.body.includes("SaaS MVP readiness"), "admin renders saas readiness detail panel");
-  expect(adminHtml.body.includes("공개 신뢰 흐름"), "admin renders saas readiness sections");
-  expect(adminHtml.body.includes("검증 체인"), "admin renders saas readiness test chain summary");
-  expect(adminHtml.body.includes("/api/admin/status/saas-readiness"), "admin renders saas readiness markdown link");
-  expect(adminHtml.body.includes("/api/admin/status/release-checklist"), "admin renders saas release checklist markdown link");
-  expect(adminHtml.body.includes("/api/admin/flywheel/support-tickets/report"), "admin renders support queue markdown link");
-  if (supportTicket.body.data?.persisted) {
-    expect(adminHtml.body.includes("/email-handoff"), "admin renders support ticket email handoff link");
-  }
-}
-checks.push("admin_html_boundary");
+const adminHtml = await fetchText("/admin", { redirect: "manual" });
+expectOpsAdminRedirect(adminHtml, "/admin", "admin html moved boundary");
+checks.push("admin_html_moved_to_ops");
 
 const webEvent = await fetchJson<ActionResult<{ event: string }>>(
   `/api/web/matches/${encodeURIComponent(webGrant!.grantId)}/events`,
@@ -2410,6 +2217,21 @@ function maskBizNo(value: string): string {
 
 function expectStatus(response: JsonResponse, status: number, label: string) {
   expect(response.status === status, `${label}: expected ${status}, got ${response.status}`);
+}
+
+function expectAdminMovedApi(response: JsonResponse<ApiEnvelope<unknown>>, label: string) {
+  expectStatus(response, 404, `${label} status`);
+  expect(response.body.error?.code === "admin_moved_to_ops", `${label} error code`);
+}
+
+function expectAdminMovedText(response: JsonResponse<string>, label: string) {
+  expectStatus(response, 404, `${label} status`);
+  expect(response.body.includes("admin_moved_to_ops"), `${label} body`);
+}
+
+function expectOpsAdminRedirect(response: JsonResponse<string>, path: string, label: string) {
+  expect(response.status === 307 || response.status === 308, `${label}: expected redirect, got ${response.status}`);
+  expect(response.headers.get("location") === `${opsAdminOrigin}${path}`, `${label} location`);
 }
 
 function expect(condition: boolean, label: string): asserts condition {

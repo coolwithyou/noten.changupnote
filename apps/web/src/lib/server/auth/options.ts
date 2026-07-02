@@ -69,45 +69,47 @@ export function getWebAuthProviderSummaries(env: NodeJS.ProcessEnv = process.env
 }
 
 function createProviders(): NextAuthOptions["providers"] {
-  const providers: NextAuthOptions["providers"] = [
-    CredentialsProvider({
+  const providers: NextAuthOptions["providers"] = [];
+
+  if (process.env.CUNOTE_AUTH_MODE === "mock") {
+    providers.push(CredentialsProvider({
       id: "demo",
       name: "Demo",
       credentials: {
         email: { label: "Email", type: "email" },
       },
       async authorize(credentials) {
-        if (process.env.CUNOTE_AUTH_MODE !== "mock") return null;
         return {
           id: mockUserId(),
           email: credentials?.email ?? mockUserEmail(),
           name: mockUserName(),
         };
       },
-    }),
-    CredentialsProvider({
-      id: "password",
-      name: "이메일",
-      credentials: {
-        email: { label: "Email", type: "email" },
-        password: { label: "Password", type: "password" },
-      },
-      async authorize(credentials) {
-        if (!credentials?.email || !credentials?.password) return null;
-        const email = normalizeEmail(credentials.email);
-        const db = getCunoteDb();
-        const [user] = await db
-          .select()
-          .from(schema.users)
-          .where(eq(schema.users.email, email))
-          .limit(1);
-        if (!user?.passwordHash) return null;
-        const valid = await verifyPassword(credentials.password, user.passwordHash);
-        if (!valid) return null;
-        return { id: user.id, email: user.email, name: user.name ?? null };
-      },
-    }),
-  ];
+    }));
+  }
+
+  providers.push(CredentialsProvider({
+    id: "password",
+    name: "이메일",
+    credentials: {
+      email: { label: "Email", type: "email" },
+      password: { label: "Password", type: "password" },
+    },
+    async authorize(credentials) {
+      if (!credentials?.email || !credentials?.password) return null;
+      const email = normalizeEmail(credentials.email);
+      const db = getCunoteDb();
+      const [user] = await db
+        .select()
+        .from(schema.users)
+        .where(eq(schema.users.email, email))
+        .limit(1);
+      if (!user?.passwordHash) return null;
+      const valid = await verifyPassword(credentials.password, user.passwordHash);
+      if (!valid) return null;
+      return { id: user.id, email: user.email, name: user.name ?? null };
+    },
+  }));
 
   const googleClientId = process.env.GOOGLE_CLIENT_ID;
   const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;

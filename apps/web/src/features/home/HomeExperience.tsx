@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type {
   ActionResult,
@@ -24,6 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CompanyEvidenceSummary } from "@/features/company-evidence/CompanyEvidenceSummary";
+import { recordLandingEvent } from "@/lib/client/landingEvents";
+import { recordWebMatchEvent } from "@/lib/client/matchEvents";
 import { KOREA_REGION_OPTIONS } from "@/lib/regions";
 import type { HeaderUser } from "@/lib/server/auth/session";
 
@@ -55,6 +57,7 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
   const [lastTeaserRequest, setLastTeaserRequest] = useState<TeaserRequest | null>(null);
   const [activeLookupBizNo, setActiveLookupBizNo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<"bizNo" | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [bannerIndex, setBannerIndex] = useState(0);
@@ -62,6 +65,9 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
   const [newsletterEmail, setNewsletterEmail] = useState("");
   const [newsletterConsent, setNewsletterConsent] = useState(false);
   const [newsletterMessage, setNewsletterMessage] = useState<string | null>(null);
+  const teaserSectionRef = useRef<HTMLDivElement | null>(null);
+  const teaserHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const inputStartedRef = useRef(false);
   const topMatches = useMemo(() => teaser?.matches.slice(0, 4) ?? [], [teaser]);
   const normalizedBizNo = formatBizNoInput(bizNo);
   const lookupBizNo = activeLookupBizNo ?? normalizedBizNo;
@@ -84,17 +90,43 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
     if (bannerIndex >= banners.length) setBannerIndex(0);
   }, [bannerIndex, banners.length]);
 
+  useEffect(() => {
+    if (!teaser) return;
+    const section = teaserSectionRef.current;
+    const heading = teaserHeadingRef.current;
+    if (!section) return;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    section.scrollIntoView({ block: "start", behavior: reduceMotion ? "auto" : "smooth" });
+    window.setTimeout(() => heading?.focus({ preventScroll: true }), reduceMotion ? 0 : 300);
+  }, [teaser]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const requestId = crypto.randomUUID();
+    const startedAt = performance.now();
     setIsLoading(true);
     setError(null);
+    setErrorField(null);
     if (normalizedBizNo.length !== 10) {
       setError("사업자번호 10자리를 입력해주세요.");
+      setErrorField("bizNo");
       setIsLoading(false);
+      recordLandingEvent({
+        event: "biz_no_validation_failed",
+        requestId,
+        inputLength: normalizedBizNo.length,
+        reason: "length_not_10",
+      });
       return;
     }
     const requestBody: TeaserRequest = { bizNo: normalizedBizNo };
     setActiveLookupBizNo(normalizedBizNo);
+    recordLandingEvent({
+      event: "teaser_submitted",
+      requestId,
+      inputLength: normalizedBizNo.length,
+    });
 
     try {
       const response = await fetch("/api/web/teaser", {
@@ -104,11 +136,29 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       });
       const payload = await response.json() as ActionResult<TeaserResult>;
       if (!response.ok || !payload.ok || !payload.data) {
+        recordLandingEvent({
+          event: "teaser_failed",
+          requestId,
+          durationMs: performance.now() - startedAt,
+          errorCode: payload.error?.code ?? `http_${response.status}`,
+        });
+        if (payload.error?.field === "bizNo") setErrorField("bizNo");
         throw new Error(payload.error?.message ?? "지원사업 티저를 만들지 못했습니다.");
       }
       setTeaser(payload.data);
       setLastTeaserRequest(requestBody);
       setBizNo(normalizedBizNo);
+      recordLandingEvent({
+        event: "teaser_succeeded",
+        requestId,
+        durationMs: performance.now() - startedAt,
+        eligibleCount: payload.data.counts.eligible,
+        conditionalCount: payload.data.counts.conditional,
+        ineligibleCount: payload.data.counts.ineligible,
+        deadlineSoonCount: payload.data.counts.deadlineSoon,
+        hasAmount: payload.data.estimatedMaxAmount > 0 || payload.data.conditionalUpside > 0,
+        avgConfidenceBucket: averageConfidenceBucket(payload.data.matches),
+      });
     } catch (caught) {
       setTeaser(null);
       setLastTeaserRequest(null);
@@ -121,7 +171,17 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
   function updateBizNoInput(value: string) {
     const nextBizNo = formatBizNoInput(value);
     setBizNo(nextBizNo);
-    if (error) setError(null);
+    if (!inputStartedRef.current && nextBizNo.length > 0) {
+      inputStartedRef.current = true;
+      recordLandingEvent({
+        event: "biz_no_input_started",
+        inputLength: nextBizNo.length,
+      });
+    }
+    if (error) {
+      setError(null);
+      setErrorField(null);
+    }
     if (lastTeaserRequest?.bizNo && lastTeaserRequest.bizNo !== nextBizNo) {
       setTeaser(null);
       setLastTeaserRequest(null);
@@ -131,6 +191,12 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
 
   async function saveAndOpenDashboard() {
     if (!lastTeaserRequest) return;
+    recordLandingEvent(teaser ? {
+      event: "dashboard_cta_clicked",
+      eligibleCount: teaser.counts.eligible,
+      conditionalCount: teaser.counts.conditional,
+      hasAmount: teaser.estimatedMaxAmount > 0 || teaser.conditionalUpside > 0,
+    } : { event: "dashboard_cta_clicked" });
     await createCompanyAndOpenDashboard(lastTeaserRequest);
   }
 
@@ -172,12 +238,18 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       const payload = await response.json() as ActionResult<{ currentCompanyId: string }>;
       if (response.status === 401 && payload.error?.code === "auth_required") {
         persistPendingTeaserRequest(requestBody);
+        recordLandingEvent({
+          event: "auth_resume_started",
+        });
         redirectToLoginForDashboard();
         return;
       }
       if (!response.ok || !payload.ok || !payload.data?.currentCompanyId) {
         throw new Error(payload.error?.message ?? "기회 맵으로 이어갈 회사 프로필을 저장하지 못했습니다.");
       }
+      recordLandingEvent({
+        event: "company_create_succeeded",
+      });
       window.location.assign("/dashboard");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "기회 맵으로 이동하지 못했습니다.");
@@ -194,7 +266,6 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
         loginCallbackUrl="/"
         links={[
           { href: "/dashboard", label: "기회 맵" },
-          { href: "/internal/live-match", label: "내부 검증 콘솔" },
         ]}
       />
 
@@ -227,21 +298,23 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
                         placeholder="0000000000"
                         value={bizNo}
                         maxLength={12}
+                        aria-describedby={errorField === "bizNo" ? "bizNoDescription bizNoError" : "bizNoDescription"}
+                        aria-invalid={errorField === "bizNo"}
                         onChange={(event) => updateBizNoInput(event.target.value)}
                       />
                       <Button type="submit" disabled={isLoading}>
                         {isLoading ? <Spinner data-icon="inline-start" /> : null}
-                        {isLoading ? "조회 중" : "팝빌로 회사 확인"}
+                        {isLoading ? "확인 중" : "회사 정보 확인"}
                       </Button>
                     </div>
-                    <FieldDescription>입력은 매칭에만 사용하고 결과 화면에는 사업자번호 원문을 표시하지 않습니다.</FieldDescription>
+                    <FieldDescription id="bizNoDescription">저장된 조회 결과를 먼저 확인하고, 없을 때만 팝빌 조회를 진행합니다. 사업자번호 원문은 결과 화면에 표시하지 않습니다.</FieldDescription>
                     {normalizedBizNo.length === 10 && !isLoading && !hasConfirmedLookup ? (
-                      <p className="biz-ready-note">형식 확인됨. 누르면 팝빌에서 상호, 소재지, 업력, 영업상태를 확인합니다.</p>
+                      <p className="biz-ready-note">형식 확인됨. 같은 번호의 저장 결과가 있으면 추가 조회 없이 재사용합니다.</p>
                     ) : null}
                   </Field>
                 </FieldGroup>
                 {error ? (
-                  <Alert variant="destructive" className="form-error">
+                  <Alert id={errorField === "bizNo" ? "bizNoError" : undefined} variant="destructive" className="form-error">
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 ) : null}
@@ -275,11 +348,11 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       <OpportunityPreview stats={landingData.stats} teaser={teaser} />
 
       {teaser ? (
-        <Card className="teaser-section" aria-live="polite">
+        <Card ref={teaserSectionRef} className="teaser-section" aria-live="polite" role="region" aria-labelledby="teaser-result-title">
           <div className="teaser-header">
             <div>
               <p className="eyebrow">1차 매칭 티저</p>
-              <h2>{profileHeadline(teaser)} 기준 결과</h2>
+              <h2 id="teaser-result-title" ref={teaserHeadingRef} tabIndex={-1}>{profileHeadline(teaser)} 기준 결과</h2>
             </div>
             <div className="teaser-actions">
               <StatusBadge className="privacy-pill" tone="neutral">PII 비표시</StatusBadge>
@@ -337,10 +410,10 @@ function CompanyLookupProgress({ maskedBizNo }: { maskedBizNo: string | null }) 
         <Spinner />
       </div>
       <div>
-        <strong>팝빌에서 사업자 정보를 확인하고 있어요.</strong>
+        <strong>저장 결과를 먼저 확인하고 있어요.</strong>
         <p>
           {maskedBizNo ? `${maskedBizNo} 기준으로 ` : ""}
-          상호와 소재지, 업력, 영업상태를 받으면 바로 아래에 먼저 보여드립니다.
+          저장 결과가 없으면 팝빌에서 상호와 소재지, 업력, 영업상태를 확인한 뒤 재사용할 수 있게 보관합니다.
         </p>
       </div>
     </div>
@@ -579,21 +652,48 @@ function OpportunityPreview({ stats, teaser }: { stats: LandingGrantStats; tease
 }
 
 function MatchPreview({ match }: { match: MatchCard }) {
+  const content = (
+    <CardContent>
+      <div>
+        <StatusBadge className={`match-status ${match.eligibility}`} tone={matchEligibilityTone(match)}>
+          {matchEligibilityLabel(match)}
+        </StatusBadge>
+        <h3>{match.title}</h3>
+        <p>{matchEvidenceSummary(match)}</p>
+        {match.detailUrl ? <span className="match-preview-action">조건과 신청 준비 보기</span> : null}
+      </div>
+      <div className="match-score">
+        <strong>{match.fitScore}</strong>
+        <span>{match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}</span>
+      </div>
+    </CardContent>
+  );
+
   return (
     <Card className="match-preview-card" size="sm">
-      <CardContent>
-        <div>
-          <StatusBadge className={`match-status ${match.eligibility}`} tone={eligibilityTone(match.eligibility)}>
-            {eligibilityLabel(match.eligibility)}
-          </StatusBadge>
-          <h3>{match.title}</h3>
-          <p>{match.ruleTrace.slice(0, 2).map((trace) => trace.label).join(" / ") || "조건 확인 필요"}</p>
-        </div>
-        <div className="match-score">
-          <strong>{match.fitScore}</strong>
-          <span>{match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}</span>
-        </div>
-      </CardContent>
+      {match.detailUrl ? (
+        <a
+          className="match-preview-link"
+          href={match.detailUrl}
+          aria-label={`${match.title} 조건과 신청 준비 보기`}
+          onClick={() => {
+            recordLandingEvent({
+              event: "teaser_match_clicked",
+              grantId: match.grantId,
+              eligibility: match.eligibility,
+            });
+            recordWebMatchEvent({
+              grantId: match.grantId,
+              event: "clicked",
+              rulesetVer: match.rulesetVer,
+            });
+          }}
+        >
+          {content}
+        </a>
+      ) : (
+        content
+      )}
     </Card>
   );
 }
@@ -655,6 +755,14 @@ function formatMoney(value: number): string {
   if (value >= 100_000_000) return `${Math.round(value / 100_000_000).toLocaleString("ko-KR")}억원`;
   if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만원`;
   return `${value.toLocaleString("ko-KR")}원`;
+}
+
+function averageConfidenceBucket(matches: MatchCard[]): "none" | "low" | "medium" | "high" {
+  if (matches.length === 0) return "none";
+  const average = matches.reduce((sum, match) => sum + match.matchConfidence, 0) / matches.length;
+  if (average >= 0.75) return "high";
+  if (average >= 0.45) return "medium";
+  return "low";
 }
 
 function formatGrantHook(banner: LandingGrantBanner): { label: string; value: string } {
@@ -746,8 +854,25 @@ function formatRegions(regions: string[]): string | null {
     .join(", ");
 }
 
-function eligibilityLabel(value: MatchCard["eligibility"]): string {
-  if (value === "eligible") return "적격";
-  if (value === "conditional") return "확인 필요";
+function matchEligibilityLabel(match: MatchCard): string {
+  if (isLowEvidenceEligible(match)) return "추정 적격";
+  if (match.eligibility === "eligible") return "적격";
+  if (match.eligibility === "conditional") return "확인 필요";
   return "부적격";
+}
+
+function matchEligibilityTone(match: MatchCard): "brand" | "success" | "warning" | "danger" | "neutral" {
+  if (isLowEvidenceEligible(match)) return "warning";
+  return eligibilityTone(match.eligibility);
+}
+
+function matchEvidenceSummary(match: MatchCard): string {
+  const traceSummary = match.ruleTrace.slice(0, 2).map((trace) => trace.label).join(" / ");
+  if (traceSummary) return traceSummary;
+  if (isLowEvidenceEligible(match)) return "자동 확인 근거가 부족해 원문 확인이 필요합니다.";
+  return "조건 확인 필요";
+}
+
+function isLowEvidenceEligible(match: MatchCard): boolean {
+  return match.eligibility === "eligible" && (match.matchConfidence < 0.45 || match.ruleTrace.length === 0);
 }

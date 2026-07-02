@@ -100,3 +100,9 @@
 1. Playwright fallback 승인을 받은 뒤 desktop/mobile 스크린샷을 저장한다.
 2. 스크린샷 기준으로 결과 위치, 모바일 버튼 줄바꿈, carousel 대비, 키보드 포커스 순서를 재검증한다.
 3. funnel event 구현 후 `teaser_submitted -> teaser_succeeded -> teaser_result_seen -> dashboard_cta_clicked -> dashboard_loaded_after_teaser` 전환율을 첫 번째 운영 지표로 삼는다.
+
+## 후속 반영 로그
+
+- 2026-07-01: 티저 성공 후 결과 섹션으로 스크롤하고 결과 제목에 포커스를 이동하도록 개선했다.
+- 2026-07-01: 랜딩 티저 카드에 `detailUrl` 기반 상세 링크와 `조건과 신청 준비 보기` 액션을 추가했다.
+- 2026-07-01: raw 사업자번호 없이 랜딩 funnel event를 수신하는 `/api/web/landing-events` 경로를 추가했다.
