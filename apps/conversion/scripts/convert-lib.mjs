@@ -602,7 +602,11 @@ export class ConversionQueue {
       const result = convertDocument(
         {
           body, filename: record.request.filename, expectedSha256: record.request.sha256,
-          pageImageDpi: record.request.options?.pageImageDpi ?? this.defaultDpi, workDir,
+          pageImageDpi: record.request.options?.pageImageDpi ?? this.defaultDpi,
+          ...(record.request.options?.sofficeTimeoutMs !== undefined ? { sofficeTimeoutMs: record.request.options.sofficeTimeoutMs } : {}),
+          ...(record.request.options?.maxBytes !== undefined ? { maxBytes: record.request.options.maxBytes } : {}),
+          ...(record.request.options?.maxPages !== undefined ? { maxPages: record.request.options.maxPages } : {}),
+          workDir,
         },
         this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {},
       );

@@ -47,12 +47,22 @@ function validateJobRequest(v) {
   }
   const dpiRaw = v.options?.pageImageDpi;
   const dpi = dpiRaw === 300 ? 300 : dpiRaw === 220 ? 220 : undefined;
+  const posInt = (x) => (typeof x === "number" && Number.isInteger(x) && x > 0 ? x : undefined);
+  const sofficeTimeoutMs = posInt(v.options?.sofficeTimeoutMs);
+  const maxBytes = posInt(v.options?.maxBytes);
+  const maxPages = posInt(v.options?.maxPages);
+  const options = {
+    ...(dpi !== undefined ? { pageImageDpi: dpi } : {}),
+    ...(sofficeTimeoutMs !== undefined ? { sofficeTimeoutMs } : {}),
+    ...(maxBytes !== undefined ? { maxBytes } : {}),
+    ...(maxPages !== undefined ? { maxPages } : {}),
+  };
   const request = {
     jobId: v.jobId, source: v.source, sourceId: v.sourceId, filename: v.filename,
     sourceObjectUrl: v.sourceObjectUrl, sha256: v.sha256,
     ...(typeof v.surfaceId === "string" ? { surfaceId: v.surfaceId } : {}),
     ...(Array.isArray(v.requestedArtifacts) ? { requestedArtifacts: v.requestedArtifacts.filter((x) => typeof x === "string") } : {}),
-    ...(dpi !== undefined ? { options: { pageImageDpi: dpi } } : {}),
+    ...(Object.keys(options).length > 0 ? { options } : {}),
   };
   return { ok: true, value: request };
 }

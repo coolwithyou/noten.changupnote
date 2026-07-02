@@ -79,8 +79,21 @@ function validateJobRequest(v: unknown): { ok: true; value: ConversionJobRequest
       return { ok: false, reason: `missing or invalid field: ${k}` };
     }
   }
-  const dpiRaw = (o.options as Record<string, unknown> | undefined)?.pageImageDpi;
+  const optsRaw = o.options as Record<string, unknown> | undefined;
+  const dpiRaw = optsRaw?.pageImageDpi;
   const dpi = dpiRaw === 300 ? 300 : dpiRaw === 220 ? 220 : undefined;
+  /** 안전 상한 옵션: 양의 정수만 통과 (job 단위 튜닝·타임아웃 주입용, 계획 11장). */
+  const posInt = (x: unknown): number | undefined =>
+    typeof x === "number" && Number.isInteger(x) && x > 0 ? x : undefined;
+  const sofficeTimeoutMs = posInt(optsRaw?.sofficeTimeoutMs);
+  const maxBytes = posInt(optsRaw?.maxBytes);
+  const maxPages = posInt(optsRaw?.maxPages);
+  const options = {
+    ...(dpi !== undefined ? { pageImageDpi: dpi } : {}),
+    ...(sofficeTimeoutMs !== undefined ? { sofficeTimeoutMs } : {}),
+    ...(maxBytes !== undefined ? { maxBytes } : {}),
+    ...(maxPages !== undefined ? { maxPages } : {}),
+  };
   const request: ConversionJobRequest = {
     jobId: o.jobId as string,
     source: o.source as string,
@@ -92,7 +105,7 @@ function validateJobRequest(v: unknown): { ok: true; value: ConversionJobRequest
     ...(Array.isArray(o.requestedArtifacts)
       ? { requestedArtifacts: (o.requestedArtifacts as unknown[]).filter((x): x is string => typeof x === "string") }
       : {}),
-    ...(dpi !== undefined ? { options: { pageImageDpi: dpi } } : {}),
+    ...(Object.keys(options).length > 0 ? { options } : {}),
   };
   return { ok: true, value: request };
 }

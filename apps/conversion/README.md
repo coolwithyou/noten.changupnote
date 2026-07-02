@@ -81,7 +81,36 @@ node apps/conversion/scripts/verify-queue.mjs [파일]
 
 # T6 API 왕복 검증 (한 프로세스 안에서 서버 기동→POST→폴링→artifacts→cached→종료)
 node apps/conversion/scripts/verify-api.mjs <파일.pdf|hwpx> --sdk /tmp/dk/node_modules
+
+# T9 실패 경로 (계획 11장) — 변환 코어 단위 (R2/DB 불필요)
+#   암호화 HWP/HWPX/PDF·손상·타임아웃(주입)·대용량(주입)·sha불일치·미지원·부분성공·page image 상한
+node apps/conversion/scripts/failure-path-test.mjs
+
+# T9 실패 경로 — 전 구간 API→큐→변환→R2 (실패 job 은 artifact 0건 · R2 업로드 0건 확인)
+node apps/conversion/scripts/verify-failure-api.mjs --sdk /tmp/dk/node_modules
+
+# T9 실패 경로 — 전 구간 …→DB (웹앱 T8 상태 전이: failed→failed, partial→preview_ready, 멱등/강등방지)
+#   테스트 surface/artifact 행은 검증 후 자동 삭제(기존 grant 재사용).
+node apps/conversion/scripts/verify-failure-e2e-db.mjs --sdk /tmp/dk/node_modules
+
+# 픽스처만 파일로 덤프해 보고 싶을 때 (합성 샘플 확인용)
+node apps/conversion/scripts/failure-fixtures.mjs /tmp/t9-fixtures
+
+# npm 스크립트 (apps/conversion 에서)
+#   pnpm test:failure  /  test:failure:api  /  test:failure:db  /  test:t9(전체)
 ```
+
+> **합성 픽스처 (`failure-fixtures.mjs`)**: 암호화 HWP=FileHeader 속성 플래그 bit1(0x02) 세팅,
+> 암호화 HWPX=ZIP 로컬헤더 general-purpose bit0(0x0001) 세팅, 암호화 PDF=trailer `/Encrypt` 참조,
+> 손상 HWP=CFB/FileHeader 6KB 유지 후 바디 0xFF 덮기(soffice 로드 실패), 부분성공=텍스트 오퍼레이터
+> 없는 유효 1p PDF(pdftotext 공백 → markdown 실패). 실HWP 는 `spike-samples/files` 재사용.
+>
+> **T9 중 발견·수정된 결함**: `ConversionQueue` 가 `options.pageImageDpi` 만 전달하고
+> `sofficeTimeoutMs`·`maxBytes`·`maxPages` 를 `convertDocument` 로 전달하지 않았다.
+> `ConversionJobRequest.options` 확장 + `runJob` 전달 + API 검증(양의 정수만 통과)으로 수정됨
+> (`src/queue.ts`·`src/server.ts` 및 미러 `scripts/convert-lib.mjs`·`scripts/server-lib.mjs`).
+> 타임아웃/대용량 실패 경로는 코어 단위(`failure-path-test.mjs`) 직접 주입에 더해
+> API 경유 주입 e2e(`verify-failure-api.mjs`)로도 검증한다.
 
 > 샌드박스에는 H2Orestart 가 없어 HWP/HWPX 는 렌더 실패한다. T4·T6 검증은 PDF(passthrough)
 > 샘플로 전 구간(변환→업로드→API)을 확인한다. Docker 이미지(H2O 포함)에서는 HWP/HWPX 도 동일 경로로 동작한다.

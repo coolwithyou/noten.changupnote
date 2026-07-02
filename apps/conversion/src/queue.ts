@@ -33,7 +33,15 @@ export interface ConversionJobRequest {
   sourceObjectUrl: string;
   sha256: string;
   requestedArtifacts?: string[];
-  options?: { pageImageDpi?: 220 | 300 };
+  options?: {
+    pageImageDpi?: 220 | 300;
+    /** soffice 타임아웃 ms (미지정 시 convertDocument 기본 120000). */
+    sofficeTimeoutMs?: number;
+    /** 파일 크기 상한 바이트 (미지정 시 기본 50MB). */
+    maxBytes?: number;
+    /** page image 페이지 수 상한 (미지정 시 기본 100). */
+    maxPages?: number;
+  };
 }
 
 /** 인메모리 job 레코드. */
@@ -218,6 +226,15 @@ export class ConversionQueue {
           filename: record.request.filename,
           expectedSha256: record.request.sha256,
           pageImageDpi: record.request.options?.pageImageDpi ?? this.defaultDpi,
+          ...(record.request.options?.sofficeTimeoutMs !== undefined
+            ? { sofficeTimeoutMs: record.request.options.sofficeTimeoutMs }
+            : {}),
+          ...(record.request.options?.maxBytes !== undefined
+            ? { maxBytes: record.request.options.maxBytes }
+            : {}),
+          ...(record.request.options?.maxPages !== undefined
+            ? { maxPages: record.request.options.maxPages }
+            : {}),
           workDir,
         },
         this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {},
