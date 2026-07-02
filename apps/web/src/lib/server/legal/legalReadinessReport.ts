@@ -58,7 +58,7 @@ function nextActions(readiness: LegalReadiness): string[] {
     ];
   }
   return [
-    "- 누락 환경값을 배포 환경에 설정한 뒤 /api/admin/status/legal-readiness 리포트를 다시 내려받는다.",
+    "- 누락 환경값을 배포 환경에 설정한 뒤 https://ops.changupnote.com/api/admin/status/legal-readiness 리포트를 다시 내려받는다.",
     "- 해당 없음인 항목도 빈 값으로 두지 말고 운영 정책상 해당 없음 문구를 환경값으로 확정한다.",
     "- 약관/개인정보 처리방침의 버전과 회원가입 동의 저장 버전이 같은지 확인한다.",
   ];

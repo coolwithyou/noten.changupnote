@@ -6,7 +6,7 @@ import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
 interface AccountProfileUpdateResult {
@@ -79,10 +79,13 @@ export function AccountProfilePanel({
                 maxLength={80}
                 autoComplete="name"
                 placeholder={email ?? "내 계정"}
+                aria-describedby={error ? "accountProfileNameError accountProfileNameDescription" : "accountProfileNameDescription"}
+                aria-invalid={Boolean(error)}
                 onChange={(event) => setName(event.currentTarget.value)}
                 disabled={pending}
               />
-              <FieldDescription>비워두면 계정 이메일을 표시합니다.</FieldDescription>
+              <FieldDescription id="accountProfileNameDescription">비워두면 계정 이메일을 표시합니다.</FieldDescription>
+              {error ? <FieldError id="accountProfileNameError">{error}</FieldError> : null}
             </Field>
           </FieldGroup>
 
@@ -99,11 +102,6 @@ export function AccountProfilePanel({
           </Alert>
         ) : null}
 
-        {error ? (
-          <Alert variant="destructive" className="mt-4" aria-live="polite">
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        ) : null}
       </CardContent>
     </Card>
   );

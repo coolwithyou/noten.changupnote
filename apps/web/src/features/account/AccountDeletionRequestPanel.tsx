@@ -7,7 +7,7 @@ import type { AccountDeletionRequestHistoryItem } from "@/lib/server/account/acc
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -30,13 +30,21 @@ export function AccountDeletionRequestPanel({
   const [confirmation, setConfirmation] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<"email" | "confirmation" | null>(null);
   const [receipt, setReceipt] = useState<SupportTicketReceipt | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setPending(true);
     setError(null);
+    setErrorField(null);
     setReceipt(null);
+    if (confirmation.trim() !== "삭제 요청") {
+      setPending(false);
+      setErrorField("confirmation");
+      setError("확인 문구에 '삭제 요청'을 정확히 입력해주세요.");
+      return;
+    }
     try {
       const response = await fetch("/api/web/account/deletion-request", {
         method: "POST",
@@ -49,6 +57,8 @@ export function AccountDeletionRequestPanel({
       });
       const payload = await response.json() as ActionResult<SupportTicketReceipt>;
       if (!response.ok || !payload.ok || !payload.data) {
+        const field = payload.error?.field;
+        if (field === "email" || field === "confirmation") setErrorField(field);
         throw new Error(payload.error?.message ?? "삭제 요청을 접수하지 못했습니다.");
       }
       setReceipt(payload.data);
@@ -86,9 +96,12 @@ export function AccountDeletionRequestPanel({
                 value={contactEmail}
                 onChange={(event) => setContactEmail(event.currentTarget.value)}
                 placeholder="you@company.com"
+                aria-describedby={errorField === "email" ? "account-deletion-email-error" : undefined}
+                aria-invalid={errorField === "email"}
                 disabled={pending}
                 required
               />
+              {errorField === "email" && error ? <FieldError id="account-deletion-email-error">{error}</FieldError> : null}
             </Field>
             <Field>
               <FieldLabel htmlFor="account-deletion-reason">요청 사유</FieldLabel>
@@ -107,12 +120,20 @@ export function AccountDeletionRequestPanel({
                 value={confirmation}
                 onChange={(event) => setConfirmation(event.currentTarget.value)}
                 placeholder="삭제 요청"
+                aria-describedby={errorField === "confirmation"
+                  ? "account-deletion-confirmation-description account-deletion-confirmation-error"
+                  : "account-deletion-confirmation-description"}
+                aria-invalid={errorField === "confirmation"}
                 disabled={pending}
                 required
               />
+              <FieldDescription id="account-deletion-confirmation-description">
+                계정 데이터 삭제 또는 처리 정지를 요청하려면 <strong>삭제 요청</strong>을 그대로 입력하세요.
+              </FieldDescription>
+              {errorField === "confirmation" && error ? <FieldError id="account-deletion-confirmation-error">{error}</FieldError> : null}
             </Field>
           </FieldGroup>
-          {error ? <div className="support-ticket-feedback error" role="alert">{error}</div> : null}
+          {error && !errorField ? <div className="support-ticket-feedback error" role="alert">{error}</div> : null}
           {receipt ? (
             <div className="support-ticket-feedback success" role="status">
               <CheckCircle2 aria-hidden />

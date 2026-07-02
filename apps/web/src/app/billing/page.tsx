@@ -1,7 +1,7 @@
 import { BillingPageView } from "@/features/billing/BillingPageView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import { getOptionalWebSession } from "@/lib/server/auth/session";
+import { fallbackHeaderUserForDemoAccess, getOptionalWebSession } from "@/lib/server/auth/session";
 import { buildBillingReadiness } from "@/lib/server/billing/billingReadiness";
 import { listBillingInvoices } from "@/lib/server/billing/invoices";
 import { listBillingPaymentMethods } from "@/lib/server/billing/paymentMethods";
@@ -33,7 +33,7 @@ export default async function BillingPage() {
       taxProfile={taxProfile}
       taxDocuments={taxDocuments}
       readiness={readiness}
-      user={headerUser(session)}
+      user={headerUser(session) ?? fallbackHeaderUserForDemoAccess(access)}
     />
   );
 }

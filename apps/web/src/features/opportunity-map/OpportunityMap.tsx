@@ -259,13 +259,13 @@ function OpportunityCard({ match }: { match: MatchCard }) {
   const content = (
     <>
       <div className="card-topline">
-        <StatusBadge className={`match-status ${match.eligibility}`} tone={eligibilityTone(match.eligibility)}>
-          {eligibilityLabel(match.eligibility)}
+        <StatusBadge className={`match-status ${match.eligibility}`} tone={matchEligibilityTone(match)}>
+          {matchEligibilityLabel(match)}
         </StatusBadge>
         <span>{match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}</span>
       </div>
       <h4>{match.title}</h4>
-      <p>{match.ruleTrace.slice(0, 2).map((trace) => trace.label).join(" / ") || "조건 확인 필요"}</p>
+      <p>{matchEvidenceSummary(match)}</p>
       {match.benefits.length > 0 ? (
         <div className="card-benefits">
           {match.benefits.slice(0, 2).map((benefit) => (
@@ -343,10 +343,27 @@ function ineligibleReason(match: MatchCard): string {
   return reason.label;
 }
 
-function eligibilityLabel(value: MatchCard["eligibility"]): string {
-  if (value === "eligible") return "적격";
-  if (value === "conditional") return "확인 필요";
+function matchEligibilityLabel(match: MatchCard): string {
+  if (isLowEvidenceEligible(match)) return "추정 적격";
+  if (match.eligibility === "eligible") return "적격";
+  if (match.eligibility === "conditional") return "확인 필요";
   return "부적격";
+}
+
+function matchEligibilityTone(match: MatchCard): "brand" | "success" | "warning" | "danger" | "neutral" {
+  if (isLowEvidenceEligible(match)) return "warning";
+  return eligibilityTone(match.eligibility);
+}
+
+function matchEvidenceSummary(match: MatchCard): string {
+  const traceSummary = match.ruleTrace.slice(0, 2).map((trace) => trace.label).join(" / ");
+  if (traceSummary) return traceSummary;
+  if (isLowEvidenceEligible(match)) return "자동 확인 근거가 부족해 원문 확인이 필요합니다.";
+  return "조건 확인 필요";
+}
+
+function isLowEvidenceEligible(match: MatchCard): boolean {
+  return match.eligibility === "eligible" && (match.matchConfidence < 0.45 || match.ruleTrace.length === 0);
 }
 
 function formatSupportAmount(amount: MatchCard["supportAmount"]): string {

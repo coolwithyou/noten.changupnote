@@ -332,110 +332,115 @@ export function TeamManagementPanel({
       </div>
 
       {invitationRows.length > 0 ? (
-        <div className="team-invitation-list" aria-label="팀 초대 이력">
-          <div className="team-panel-heading compact">
-            <div>
+        <details className="saas-disclosure">
+          <summary>
+            <span className="saas-disclosure-summary-copy">
               <span className="eyebrow">초대 이력</span>
-              <h3>최근 초대</h3>
-            </div>
-          </div>
-          {invitationRows.map((invitation) => (
-            <div className="team-invitation-row" key={invitation.id}>
-              <div>
-                <strong>{invitation.email}</strong>
-                <span>{roleLabel(invitation.role)} · {dateLabel(invitation.expiresAt)}까지</span>
-              </div>
-              <div className="team-invitation-actions">
-                <StatusBadge tone={invitation.status === "pending" ? "brand" : "neutral"}>
-                  {invitationStatusLabel(invitation.status)}
-                </StatusBadge>
-                {invitation.inviteUrl ? (
-                  <>
+              <strong>최근 초대</strong>
+            </span>
+            <StatusBadge tone="neutral">{invitationRows.length}</StatusBadge>
+          </summary>
+          <div className="saas-disclosure-content team-invitation-list" aria-label="팀 초대 이력">
+            {invitationRows.map((invitation) => (
+              <div className="team-invitation-row" key={invitation.id}>
+                <div>
+                  <strong>{invitation.email}</strong>
+                  <span>{roleLabel(invitation.role)} · {dateLabel(invitation.expiresAt)}까지</span>
+                </div>
+                <div className="team-invitation-actions">
+                  <StatusBadge tone={invitation.status === "pending" ? "brand" : "neutral"}>
+                    {invitationStatusLabel(invitation.status)}
+                  </StatusBadge>
+                  {invitation.inviteUrl ? (
+                    <>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => copyInviteUrl(invitation.inviteUrl)}
+                      >
+                        <Link2 data-icon="inline-start" />
+                        복사
+                      </Button>
+                      <a
+                        className={buttonVariants({ variant: "outline", size: "sm" })}
+                        href={inviteEmailHandoffHref(invitation.inviteUrl)}
+                      >
+                        <Mail data-icon="inline-start" />
+                        메일 파일
+                      </a>
+                    </>
+                  ) : null}
+                  {canManage && invitation.persisted && (invitation.status === "pending" || invitation.status === "expired") ? (
                     <Button
                       type="button"
                       size="sm"
                       variant="secondary"
-                      onClick={() => copyInviteUrl(invitation.inviteUrl)}
+                      disabled={actingInvitationId === invitation.id || (invitation.status === "expired" && seatLimitReached)}
+                      onClick={() => resendInvitation(invitation)}
                     >
-                      <Link2 data-icon="inline-start" />
-                      복사
+                      <RefreshCw data-icon="inline-start" />
+                      재발행
                     </Button>
-                    <a
-                      className={buttonVariants({ variant: "outline", size: "sm" })}
-                      href={inviteEmailHandoffHref(invitation.inviteUrl)}
+                  ) : null}
+                  {canManage && invitation.persisted && invitation.status === "pending" ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={actingInvitationId === invitation.id}
+                      onClick={() => revokeInvitation(invitation)}
                     >
-                      <Mail data-icon="inline-start" />
-                      메일 파일
-                    </a>
-                  </>
-                ) : null}
-                {canManage && invitation.persisted && (invitation.status === "pending" || invitation.status === "expired") ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    disabled={actingInvitationId === invitation.id || (invitation.status === "expired" && seatLimitReached)}
-                    onClick={() => resendInvitation(invitation)}
-                  >
-                    <RefreshCw data-icon="inline-start" />
-                    재발행
-                  </Button>
-                ) : null}
-                {canManage && invitation.persisted && invitation.status === "pending" ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    disabled={actingInvitationId === invitation.id}
-                    onClick={() => revokeInvitation(invitation)}
-                  >
-                    <XCircle data-icon="inline-start" />
-                    철회
-                  </Button>
-                ) : null}
+                      <XCircle data-icon="inline-start" />
+                      철회
+                    </Button>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        </details>
       ) : null}
 
       {canManage ? (
-        <div className="team-role-history" aria-label="권한 변경 이력">
-          <div className="team-panel-heading compact">
-            <div>
+        <details className="saas-disclosure">
+          <summary>
+            <span className="saas-disclosure-summary-copy">
               <span className="eyebrow">감사 로그</span>
-              <h3>권한 변경 이력</h3>
-            </div>
+              <strong>권한 변경 이력</strong>
+            </span>
             <StatusBadge tone={roleEventRows.length > 0 ? "brand" : "neutral"}>
               최근 {roleEventRows.length.toLocaleString("ko-KR")}
             </StatusBadge>
-          </div>
-          {roleEventRows.length > 0 ? (
-            <div className="team-role-history-list">
-              {roleEventRows.map((event) => (
-                <div className="team-role-history-row" key={event.id}>
-                  <span className="team-role-history-icon" aria-hidden>
-                    <History />
-                  </span>
-                  <div>
-                    <strong>{event.targetName}</strong>
-                    <p>
-                      {roleLabel(event.previousRole)}에서 {roleLabel(event.nextRole)}로 변경
-                      · {event.actorName} · {dateTimeLabel(event.createdAt)}
-                    </p>
+          </summary>
+          <div className="saas-disclosure-content team-role-history" aria-label="권한 변경 이력">
+            {roleEventRows.length > 0 ? (
+              <div className="team-role-history-list">
+                {roleEventRows.map((event) => (
+                  <div className="team-role-history-row" key={event.id}>
+                    <span className="team-role-history-icon" aria-hidden>
+                      <History />
+                    </span>
+                    <div>
+                      <strong>{event.targetName}</strong>
+                      <p>
+                        {roleLabel(event.previousRole)}에서 {roleLabel(event.nextRole)}로 변경
+                        · {event.actorName} · {dateTimeLabel(event.createdAt)}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="team-role-history-empty">
-              <span className="team-role-history-icon" aria-hidden>
-                <History />
-              </span>
-              <p>아직 기록된 권한 변경이 없습니다.</p>
-            </div>
-          )}
-        </div>
+                ))}
+              </div>
+            ) : (
+              <div className="team-role-history-empty">
+                <span className="team-role-history-icon" aria-hidden>
+                  <History />
+                </span>
+                <p>아직 기록된 권한 변경이 없습니다.</p>
+              </div>
+            )}
+          </div>
+        </details>
       ) : null}
     </div>
   );

@@ -55,17 +55,17 @@ export function DashboardView({
 
       <DashboardOnboardingPrompt progress={onboardingProgress} />
 
-      <CompanySettingsPanel />
-
-      {dashboard.nextQuestion ? <ProgressiveQuestionCard question={dashboard.nextQuestion} /> : null}
-
       <section className="dashboard-grid">
         <div className="dashboard-sidebar-stack">
-          <NotificationFeedPanel feed={notificationFeed} />
           <ActionQueuePanel actions={dashboard.actionQueue} />
+          <NotificationFeedPanel feed={notificationFeed} />
         </div>
         <OpportunityMap matches={dashboard.matches} />
       </section>
+
+      <CompanySettingsPanel />
+
+      {dashboard.nextQuestion ? <ProgressiveQuestionCard question={dashboard.nextQuestion} /> : null}
 
       <RoadmapStrip nodes={dashboard.roadmap} />
     </main>

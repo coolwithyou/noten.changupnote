@@ -3433,6 +3433,20 @@ button:disabled {
   line-height: 1.45;
 }
 
+.match-preview-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
+
+.match-preview-action {
+  display: inline-flex;
+  margin-top: 10px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .match-status {
   display: inline-flex;
   border-radius: 999px;
@@ -5848,6 +5862,29 @@ label {
   font-weight: 700;
 }
 
+.document-draft-action-status,
+.application-feedback {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.document-draft-action-status.success,
+.application-feedback.success {
+  background: var(--status-success-bg);
+  color: var(--green);
+}
+
+.document-draft-action-status.warning {
+  background: var(--status-warning-bg);
+  color: var(--amber);
+}
+
 .document-draft-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.86fr) minmax(0, 1.14fr);
@@ -6217,6 +6254,10 @@ label {
   margin: 0 auto 14px;
 }
 
+.application-stage-tabs {
+  display: none;
+}
+
 .application-stat [data-slot="card-content"] {
   display: grid;
   gap: 4px;
@@ -6255,6 +6296,72 @@ label {
 
 .application-stat.dismissed strong {
   color: var(--muted-foreground);
+}
+
+.saas-disclosure {
+  max-width: 1380px;
+  margin: 0 auto;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  box-shadow: var(--shadow-sm);
+}
+
+.saas-disclosure + .saas-disclosure,
+.saas-disclosure + .workspace-panel {
+  margin-top: 14px;
+}
+
+.saas-disclosure summary {
+  display: flex;
+  min-height: 72px;
+  cursor: pointer;
+  list-style: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+}
+
+.saas-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.saas-disclosure summary::after {
+  content: "+";
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted-foreground);
+  font-weight: 900;
+}
+
+.saas-disclosure[open] summary::after {
+  content: "-";
+}
+
+.saas-disclosure-summary-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.saas-disclosure summary strong {
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.3;
+}
+
+.saas-disclosure-content {
+  display: grid;
+  gap: 14px;
+  border-top: 1px solid var(--border);
+  padding: 14px;
 }
 
 .application-board {
@@ -7176,6 +7283,7 @@ label {
     flex-direction: column;
   }
 }
+
 .workspace-shell {
   background: var(--background);
 }
@@ -8000,12 +8108,57 @@ label {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .application-stage-tabs {
+    display: flex;
+    max-width: 1380px;
+    margin: 0 auto 14px;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 2px 8px;
+    scrollbar-width: none;
+  }
+
+  .application-stage-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .application-stage-tabs button {
+    display: inline-flex;
+    flex: 0 0 auto;
+    min-height: 44px;
+    align-items: center;
+    gap: 8px;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: var(--card);
+    color: var(--muted-foreground);
+    padding: 0 14px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .application-stage-tabs button.active {
+    border-color: rgba(49, 130, 246, 0.26);
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  .application-stage-tabs button strong {
+    color: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+
   .onboarding-initial-grid {
     grid-template-columns: 1fr;
   }
 
   .application-lane {
     min-width: 0;
+  }
+
+  .application-board[data-active-stage] .application-lane:not(.is-active) {
+    display: none;
   }
 
   .saas-hero-actions {

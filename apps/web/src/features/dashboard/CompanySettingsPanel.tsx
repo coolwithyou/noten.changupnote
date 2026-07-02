@@ -341,6 +341,7 @@ export function CompanySettingsPanel() {
               <Switch
                 checked={active}
                 disabled={busyKey === scope}
+                aria-label={`${CONSENT_LABELS[scope]} 동의 ${active ? "철회" : "활성화"}`}
                 onCheckedChange={() => void toggleConsent(scope, active)}
               />
             </Field>
@@ -364,6 +365,7 @@ export function CompanySettingsPanel() {
               <Switch
                 checked={active}
                 disabled={busyKey === item.field || !notifications}
+                aria-label={`${item.label} ${active ? "끄기" : "켜기"}`}
                 onCheckedChange={() => void toggleNotification(item.field)}
               />
             </Field>
@@ -371,14 +373,14 @@ export function CompanySettingsPanel() {
         })}
       </div>
 
-      <StatusBadge className="settings-status" tone={status === "동기화됨" ? "success" : "neutral"}>
+      <StatusBadge className="settings-status" role="status" aria-live="polite" tone={status === "동기화됨" ? "success" : "neutral"}>
         {status}
       </StatusBadge>
 
       <div className="settings-enrich-form" aria-label="회사정보 보강 및 검증">
         <div className="settings-profile-heading">
           <span>회사정보 보강</span>
-          <strong>3요소 검증</strong>
+          <strong>캐시 우선 확인</strong>
         </div>
         <div className="settings-enrich-row">
           <Field>
@@ -389,8 +391,9 @@ export function CompanySettingsPanel() {
               placeholder="사업자번호 10자리"
               value={bizNo}
               disabled={busyKey === "enrich" || busyKey === "verify"}
-              onChange={(event) => setBizNo(event.currentTarget.value)}
+              onChange={(event) => setBizNo(event.currentTarget.value.replace(/\D/g, "").slice(0, 10))}
             />
+            <FieldDescription>저장된 팝빌 결과가 있으면 추가 조회 없이 재사용합니다.</FieldDescription>
           </Field>
           <Field>
             <FieldLabel htmlFor="company-verify-owner-name">대표자명</FieldLabel>
@@ -417,18 +420,20 @@ export function CompanySettingsPanel() {
             type="button"
             disabled={busyKey === "enrich" || busyKey === "verify" || !basicInfoConsent}
             onClick={() => void enrichCompany()}
+            title="저장된 결과를 먼저 확인하고, 없을 때만 회사정보 보강을 시도합니다."
           >
             {busyKey === "enrich" ? <Spinner data-icon="inline-start" /> : null}
-            {busyKey === "enrich" ? "조회 중" : "보강"}
+            {busyKey === "enrich" ? "확인 중" : "캐시 확인 후 보강"}
           </Button>
           <Button
             type="button"
             variant="outline"
             disabled={busyKey === "enrich" || busyKey === "verify"}
             onClick={() => void verifyCompany()}
+            title="대표자명과 개업일로 회사 소유권을 검증합니다."
           >
             {busyKey === "verify" ? <Spinner data-icon="inline-start" /> : null}
-            {busyKey === "verify" ? "검증 중" : "검증"}
+            {busyKey === "verify" ? "검증 중" : "소유권 검증"}
           </Button>
         </div>
         {lastEvidence ? (

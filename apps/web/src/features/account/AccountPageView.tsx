@@ -96,51 +96,62 @@ export function AccountPageView({
         <NotificationFeedPanel feed={notificationCenter} title="내 알림센터" limit={6} />
       </section>
 
-      <section className="account-support-section" aria-label="고객지원 기록">
-        <AccountSupportTicketsPanel tickets={supportTickets} />
-      </section>
+      <details className="saas-disclosure">
+        <summary>
+          <span className="saas-disclosure-summary-copy">
+            <span className="eyebrow">보조 관리</span>
+            <strong>지원, 비밀번호, 데이터 요청</strong>
+          </span>
+          <StatusBadge tone="neutral">보조</StatusBadge>
+        </summary>
+        <div className="saas-disclosure-content">
+          <section className="account-support-section" aria-label="고객지원 기록">
+            <AccountSupportTicketsPanel tickets={supportTickets} />
+          </section>
 
-      <section className="account-support-section" aria-label="계정 보안">
-        <AccountPasswordPanel />
-      </section>
+          <section className="account-support-section" aria-label="계정 보안">
+            <AccountPasswordPanel />
+          </section>
 
-      <section className="account-support-section" aria-label="계정 데이터 삭제 요청">
-        <AccountDeletionRequestPanel email={user?.email ?? null} history={deletionRequests} />
-      </section>
+          <section className="account-support-section" aria-label="계정 데이터 삭제 요청">
+            <AccountDeletionRequestPanel email={user?.email ?? null} history={deletionRequests} />
+          </section>
 
-      <section className="saas-two-column">
-        <Card className="saas-panel">
-          <CardHeader>
-            <div>
-              <span className="eyebrow">바로가기</span>
-              <h2>다음 작업</h2>
-            </div>
-          </CardHeader>
-          <CardContent className="saas-action-list">
-            <ActionLink href="/onboarding" icon={<Building2 />} title="온보딩 다시 확인" description="회사 동의, 알림, 수기 프로필을 순서대로 점검합니다." />
-            <ActionLink href="/settings" icon={<Settings />} title="회사 설정" description="사업자 검증, 동의, 알림과 프로필 필드를 관리합니다." />
-            <ActionLink href="/team" icon={<UsersRound />} title="팀과 권한" description="회사 멤버와 역할, 초대 준비 상태를 확인합니다." />
-            <ActionLink href="/billing" icon={<CreditCard />} title="플랜과 청구" description="현재 플랜, 사용량, 결제 연동 상태를 봅니다." />
-            <ActionLink href="/dashboard" icon={<Bell />} title="기회 맵" description="지금 적격, 확인 필요, 마감 임박 항목을 봅니다." />
-            <ActionLink href="/roadmap" icon={<FileText />} title="로드맵" description="앞으로 열릴 가능성이 있는 지원사업을 추적합니다." />
-          </CardContent>
-        </Card>
+          <section className="saas-two-column">
+            <Card className="saas-panel">
+              <CardHeader>
+                <div>
+                  <span className="eyebrow">바로가기</span>
+                  <h2>다음 작업</h2>
+                </div>
+              </CardHeader>
+              <CardContent className="saas-action-list">
+                <ActionLink href="/onboarding" icon={<Building2 />} title="온보딩 다시 확인" description="회사 동의, 알림, 수기 프로필을 순서대로 점검합니다." />
+                <ActionLink href="/settings" icon={<Settings />} title="회사 설정" description="사업자 검증, 동의, 알림과 프로필 필드를 관리합니다." />
+                <ActionLink href="/team" icon={<UsersRound />} title="팀과 권한" description="회사 멤버와 역할, 초대 준비 상태를 확인합니다." />
+                <ActionLink href="/billing" icon={<CreditCard />} title="플랜과 청구" description="현재 플랜, 사용량, 결제 연동 상태를 봅니다." />
+                <ActionLink href="/dashboard" icon={<Bell />} title="기회 맵" description="지금 적격, 확인 필요, 마감 임박 항목을 봅니다." />
+                <ActionLink href="/roadmap" icon={<FileText />} title="로드맵" description="앞으로 열릴 가능성이 있는 지원사업을 추적합니다." />
+              </CardContent>
+            </Card>
 
-        <Card className="saas-panel">
-          <CardHeader>
-            <div>
-              <span className="eyebrow">서비스 문서</span>
-              <h2>약관과 지원</h2>
-            </div>
-          </CardHeader>
-          <CardContent className="saas-doc-links">
-            <a href="/terms">이용약관</a>
-            <a href="/privacy">개인정보 처리방침</a>
-            <a href="/api/web/account/export">계정 데이터 내보내기</a>
-            <a href="/support">고객지원</a>
-          </CardContent>
-        </Card>
-      </section>
+            <Card className="saas-panel">
+              <CardHeader>
+                <div>
+                  <span className="eyebrow">서비스 문서</span>
+                  <h2>약관과 지원</h2>
+                </div>
+              </CardHeader>
+              <CardContent className="saas-doc-links">
+                <a href="/terms">이용약관</a>
+                <a href="/privacy">개인정보 처리방침</a>
+                <a href="/api/web/account/export">계정 데이터 내보내기</a>
+                <a href="/support">고객지원</a>
+              </CardContent>
+            </Card>
+          </section>
+        </div>
+      </details>
     </main>
   );
 }

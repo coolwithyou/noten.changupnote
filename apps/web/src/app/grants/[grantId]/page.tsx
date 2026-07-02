@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { ApplySheetView } from "@/features/apply-sheet/ApplySheetView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import { getOptionalHeaderUser } from "@/lib/server/auth/session";
+import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
 
@@ -20,7 +20,7 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
   const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId, userId: access.userId });
   if (!sheet) notFound();
   const preparation = await loadInitialPreparation(sheet.grant.id, access, sheet);
-  const user = await getOptionalHeaderUser();
+  const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
   return (
     <ApplySheetView
       sheet={sheet}

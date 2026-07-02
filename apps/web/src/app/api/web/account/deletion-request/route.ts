@@ -33,7 +33,7 @@ export async function POST(request: Request) {
         ok: false,
         error: {
           code: "confirmation_required",
-          message: "확인 문구를 입력해주세요.",
+          message: "확인 문구에 '삭제 요청'을 정확히 입력해주세요.",
           field: "confirmation",
         },
       }, { status: 400 });

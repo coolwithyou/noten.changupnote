@@ -88,8 +88,18 @@ export function TeamPageView({
             )}
           </CardContent>
         </Card>
+      </section>
 
-        <Card className="workspace-panel">
+      <details className="saas-disclosure">
+        <summary>
+          <span className="saas-disclosure-summary-copy">
+            <span className="eyebrow">보조 정보</span>
+            <strong>워크스페이스 목록</strong>
+          </span>
+          <StatusBadge tone="neutral">{overview.companies.length}</StatusBadge>
+        </summary>
+        <div className="saas-disclosure-content">
+          <Card className="workspace-panel">
           <CardHeader>
             <div>
               <span className="eyebrow">회사</span>
@@ -110,7 +120,8 @@ export function TeamPageView({
             ))}
           </CardContent>
         </Card>
-      </section>
+        </div>
+      </details>
     </main>
   );
 }

@@ -176,47 +176,71 @@ export function BillingPageView({
         </CardContent>
       </Card>
 
-      <Card className="workspace-panel billing-request-panel">
-        <CardHeader>
-          <div>
-            <span className="eyebrow">청구 프로필</span>
-            <h2>세금계산서 수신 정보</h2>
-          </div>
-          <StatusBadge tone={taxProfile.taxInvoiceEnabled ? "success" : "neutral"}>
-            {taxProfile.taxInvoiceEnabled ? "수신" : "미설정"}
+      <details className="saas-disclosure">
+        <summary>
+          <span className="saas-disclosure-summary-copy">
+            <span className="eyebrow">세금계산서</span>
+            <strong>수신 정보와 증빙 파일</strong>
+          </span>
+          <StatusBadge tone={taxProfile.taxInvoiceEnabled || taxDocuments.length > 0 ? "brand" : "neutral"}>
+            {taxDocuments.length.toLocaleString("ko-KR")}
           </StatusBadge>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 grid gap-2 rounded-[var(--radius-lg)] border border-border bg-muted/30 p-4 text-sm text-muted-foreground md:grid-cols-2">
-            <span>상호: <strong className="text-foreground">{taxProfile.businessName ?? "미입력"}</strong></span>
-            <span>사업자번호: <strong className="text-foreground">{taxProfile.businessRegistrationNumberMasked ?? "미입력"}</strong></span>
-            <span>담당자: <strong className="text-foreground">{taxProfile.recipientName ?? "미입력"}</strong></span>
-            <span>세금계산서 이메일: <strong className="text-foreground">{taxProfile.taxInvoiceEmail ?? "미입력"}</strong></span>
-          </div>
-          <BillingTaxProfileForm
-            initialProfile={taxProfile}
-            canUpdate={canRequestPlanChange(overview.currentCompany.role)}
-          />
-        </CardContent>
-      </Card>
+        </summary>
+        <div className="saas-disclosure-content">
+          <Card className="workspace-panel billing-request-panel">
+            <CardHeader>
+              <div>
+                <span className="eyebrow">청구 프로필</span>
+                <h2>세금계산서 수신 정보</h2>
+              </div>
+              <StatusBadge tone={taxProfile.taxInvoiceEnabled ? "success" : "neutral"}>
+                {taxProfile.taxInvoiceEnabled ? "수신" : "미설정"}
+              </StatusBadge>
+            </CardHeader>
+            <CardContent>
+              <div className="mb-4 grid gap-2 rounded-[var(--radius-lg)] border border-border bg-muted/30 p-4 text-sm text-muted-foreground md:grid-cols-2">
+                <span>상호: <strong className="text-foreground">{taxProfile.businessName ?? "미입력"}</strong></span>
+                <span>사업자번호: <strong className="text-foreground">{taxProfile.businessRegistrationNumberMasked ?? "미입력"}</strong></span>
+                <span>담당자: <strong className="text-foreground">{taxProfile.recipientName ?? "미입력"}</strong></span>
+                <span>세금계산서 이메일: <strong className="text-foreground">{taxProfile.taxInvoiceEmail ?? "미입력"}</strong></span>
+              </div>
+              <BillingTaxProfileForm
+                initialProfile={taxProfile}
+                canUpdate={canRequestPlanChange(overview.currentCompany.role)}
+              />
+            </CardContent>
+          </Card>
 
-      <Card className="workspace-panel billing-request-history">
-        <CardHeader>
-          <div>
-            <span className="eyebrow">청구 증빙</span>
-            <h2>청구 증빙 파일</h2>
-          </div>
-          <StatusBadge tone={taxDocuments.length > 0 ? "brand" : "neutral"}>{taxDocuments.length}</StatusBadge>
-        </CardHeader>
-        <CardContent>
-          <BillingTaxDocumentsPanel
-            initialDocuments={taxDocuments}
-            canUpdate={canRequestPlanChange(overview.currentCompany.role)}
-          />
-        </CardContent>
-      </Card>
+          <Card className="workspace-panel billing-request-history">
+            <CardHeader>
+              <div>
+                <span className="eyebrow">청구 증빙</span>
+                <h2>청구 증빙 파일</h2>
+              </div>
+              <StatusBadge tone={taxDocuments.length > 0 ? "brand" : "neutral"}>{taxDocuments.length}</StatusBadge>
+            </CardHeader>
+            <CardContent>
+              <BillingTaxDocumentsPanel
+                initialDocuments={taxDocuments}
+                canUpdate={canRequestPlanChange(overview.currentCompany.role)}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      </details>
 
-      <Card className="workspace-panel billing-request-history">
+      <details className="saas-disclosure">
+        <summary>
+          <span className="saas-disclosure-summary-copy">
+            <span className="eyebrow">결제 기록</span>
+            <strong>결제수단과 최근 청구 이력</strong>
+          </span>
+          <StatusBadge tone={paymentMethods.length + invoices.length > 0 ? "brand" : "neutral"}>
+            {(paymentMethods.length + invoices.length).toLocaleString("ko-KR")}
+          </StatusBadge>
+        </summary>
+        <div className="saas-disclosure-content">
+          <Card className="workspace-panel billing-request-history">
         <CardHeader>
           <div>
             <span className="eyebrow">결제수단 기록</span>
@@ -318,6 +342,8 @@ export function BillingPageView({
           )}
         </CardContent>
       </Card>
+        </div>
+      </details>
 
       <Card className="workspace-panel billing-request-panel">
         <CardHeader>
@@ -336,7 +362,16 @@ export function BillingPageView({
         </CardContent>
       </Card>
 
-      <Card className="workspace-panel billing-request-history">
+      <details className="saas-disclosure">
+        <summary>
+          <span className="saas-disclosure-summary-copy">
+            <span className="eyebrow">상담 기록</span>
+            <strong>최근 전환 요청</strong>
+          </span>
+          <StatusBadge tone={planRequests.length > 0 ? "brand" : "neutral"}>{planRequests.length}</StatusBadge>
+        </summary>
+        <div className="saas-disclosure-content">
+          <Card className="workspace-panel billing-request-history">
         <CardHeader>
           <div>
             <span className="eyebrow">전환 요청 기록</span>
@@ -384,6 +419,8 @@ export function BillingPageView({
           )}
         </CardContent>
       </Card>
+        </div>
+      </details>
     </main>
   );
 }

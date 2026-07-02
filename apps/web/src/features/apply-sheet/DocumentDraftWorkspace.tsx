@@ -30,6 +30,11 @@ interface DraftFeedbackNotice {
   message: string;
 }
 
+interface DraftActionNotice {
+  tone: "success" | "warning";
+  message: string;
+}
+
 const DRAFT_FEEDBACK_OPTIONS: Array<{ value: DocumentDraftFeedbackKind; label: string }> = [
   { value: "incorrect_fact", label: "사실 오류" },
   { value: "missing_context", label: "맥락 부족" },
@@ -64,6 +69,7 @@ export function DocumentDraftWorkspace({
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [feedbackPendingKey, setFeedbackPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<DraftActionNotice | null>(null);
   const activeDocument = useMemo(
     () => prep.draftableDocuments.find((document) => document.documentKey === activeKey) ?? null,
     [activeKey, prep.draftableDocuments],
@@ -85,6 +91,7 @@ export function DocumentDraftWorkspace({
   async function generateDraft(document: DraftableDocument) {
     setPendingKey(document.documentKey);
     setError(null);
+    setActionNotice(null);
     try {
       const response = await fetch(`/api/web/grants/${encodeURIComponent(grantId)}/drafts`, {
         method: "POST",
@@ -102,6 +109,7 @@ export function DocumentDraftWorkspace({
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draft.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.draft.filledFields }));
       setActiveKey(document.documentKey);
+      setActionNotice({ tone: "success", message: `${document.canonicalName} 초안을 만들었습니다. 내용을 확인한 뒤 저장하거나 검토 완료로 표시하세요.` });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "초안을 만들지 못했습니다.");
     } finally {
@@ -114,6 +122,7 @@ export function DocumentDraftWorkspace({
     if (!draft) return null;
     setPendingKey(document.documentKey);
     setError(null);
+    setActionNotice(null);
     try {
       const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}`, {
         method: "PATCH",
@@ -131,6 +140,14 @@ export function DocumentDraftWorkspace({
       setDrafts((current) => ({ ...current, [document.documentKey]: payload.data! }));
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.filledFields }));
+      setActionNotice({
+        tone: "success",
+        message: status === "reviewed"
+          ? `${document.canonicalName} 초안을 검토 완료로 표시했습니다.`
+          : status === "exported"
+            ? `${document.canonicalName} 초안을 내보내기 상태로 저장했습니다.`
+            : `${document.canonicalName} 초안을 저장했습니다.`,
+      });
       return payload.data;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "초안을 저장하지 못했습니다.");
@@ -145,6 +162,7 @@ export function DocumentDraftWorkspace({
     if (!draft || !sectionTitle) return;
     setPendingKey(document.documentKey);
     setError(null);
+    setActionNotice(null);
     try {
       const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/regenerate`, {
         method: "POST",
@@ -163,6 +181,7 @@ export function DocumentDraftWorkspace({
       setDrafts((current) => ({ ...current, [document.documentKey]: payload.data! }));
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.filledFields }));
+      setActionNotice({ tone: "success", message: `${sectionTitle} 섹션을 다시 생성했습니다. 변경된 문장을 확인한 뒤 저장하세요.` });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "선택한 섹션을 다시 생성하지 못했습니다.");
     } finally {
@@ -173,6 +192,7 @@ export function DocumentDraftWorkspace({
   async function downloadDraft(document: DraftableDocument, format: "markdown" | "html" | "docx" | "pdf") {
     const saved = await updateDraft(document, "exported");
     if (!saved) return;
+    setActionNotice({ tone: "success", message: `${document.canonicalName} 초안을 저장했고 다운로드를 시작합니다.` });
     const query = format === "markdown" ? "" : `?format=${format}`;
     window.location.assign(`/api/web/document-drafts/${encodeURIComponent(saved.id)}/download${query}`);
   }
@@ -231,6 +251,13 @@ export function DocumentDraftWorkspace({
         <div className="document-draft-error" role="alert">
           <AlertCircle className="size-4" aria-hidden />
           <span>{error}</span>
+        </div>
+      ) : null}
+
+      {actionNotice ? (
+        <div className={`document-draft-action-status ${actionNotice.tone}`} role="status" aria-live="polite">
+          {actionNotice.tone === "success" ? <Check className="size-4" aria-hidden /> : <AlertCircle className="size-4" aria-hidden />}
+          <span>{actionNotice.message}</span>
         </div>
       ) : null}
 

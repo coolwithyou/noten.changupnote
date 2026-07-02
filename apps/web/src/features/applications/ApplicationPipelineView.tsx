@@ -46,11 +46,14 @@ export function ApplicationPipelineView({
   );
   const [pendingGrantId, setPendingGrantId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const stats = useMemo(() => buildStats(items), [items]);
+  const [activeStage, setActiveStage] = useState<ApplicationStage>(() => initialActiveStage(pipeline.items));
 
   async function moveItem(item: ApplicationPipelineItem, kind: FeedbackKind, stage: ApplicationStage) {
     setPendingGrantId(item.grantId);
     setError(null);
+    setNotice(null);
     try {
       const response = await fetch(`/api/web/matches/${encodeURIComponent(item.grantId)}/feedback`, {
         method: "POST",
@@ -69,6 +72,7 @@ export function ApplicationPipelineView({
           }
           : candidate
       ));
+      setNotice(`${item.title}을(를) ${stageLabel(stage)} 단계로 이동했습니다.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "상태를 저장하지 못했습니다.");
     } finally {
@@ -80,6 +84,7 @@ export function ApplicationPipelineView({
     const draft = managementDrafts[item.grantId] ?? managementDraftFromItem(item);
     setPendingGrantId(item.grantId);
     setError(null);
+    setNotice(null);
     try {
       const response = await fetch(`/api/web/matches/${encodeURIComponent(item.grantId)}/feedback`, {
         method: "POST",
@@ -110,6 +115,7 @@ export function ApplicationPipelineView({
           : candidate
       ));
       setManagementDrafts((current) => ({ ...current, [item.grantId]: savedDraft }));
+      setNotice(`${item.title}의 담당자, 리마인더, 후속 메모를 저장했습니다.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "후속 관리 정보를 저장하지 못했습니다.");
     } finally {
@@ -162,11 +168,42 @@ export function ApplicationPipelineView({
         </div>
       ) : null}
 
-      <section className="application-board" aria-label="신청 파이프라인">
+      {notice ? (
+        <div className="application-feedback success" role="status" aria-live="polite">
+          <CheckCircle2 aria-hidden />
+          <span>{notice}</span>
+        </div>
+      ) : null}
+
+      <div className="application-stage-tabs" role="tablist" aria-label="신청 단계 선택">
+        {STAGES.map((stage) => (
+          <button
+            key={stage.stage}
+            type="button"
+            role="tab"
+            aria-selected={activeStage === stage.stage}
+            aria-controls={`application-lane-${stage.stage}`}
+            className={activeStage === stage.stage ? "active" : undefined}
+            onClick={() => setActiveStage(stage.stage)}
+          >
+            <span>{stage.title}</span>
+            <strong>{stats[stage.stage].toLocaleString("ko-KR")}</strong>
+          </button>
+        ))}
+      </div>
+
+      <section className="application-board" aria-label="신청 파이프라인" data-active-stage={activeStage}>
         {STAGES.map((stage) => {
           const stageItems = items.filter((item) => item.stage === stage.stage);
           return (
-            <div className="application-lane" key={stage.stage}>
+            <div
+              className={activeStage === stage.stage ? "application-lane is-active" : "application-lane"}
+              data-stage={stage.stage}
+              id={`application-lane-${stage.stage}`}
+              key={stage.stage}
+              role="tabpanel"
+              aria-label={`${stage.title} 단계`}
+            >
               <div className="application-lane-head">
                 <div>
                   <h2>{stage.title}</h2>
@@ -416,6 +453,10 @@ function buildStats(items: ApplicationPipelineItem[]): Record<ApplicationStage, 
     blocked: items.filter((item) => item.stage === "blocked").length,
     dismissed: items.filter((item) => item.stage === "dismissed").length,
   };
+}
+
+function initialActiveStage(items: ApplicationPipelineItem[]): ApplicationStage {
+  return STAGES.find((stage) => items.some((item) => item.stage === stage.stage))?.stage ?? "saved";
 }
 
 function stageLabel(stage: ApplicationStage): string {
