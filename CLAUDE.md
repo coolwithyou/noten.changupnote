@@ -4,6 +4,7 @@ cunote — 사업자번호 하나로 공공 지원사업을 찾고 지원서 작
 
 ## 핵심 문서
 
+- **세션 핸드오프(재개 시 최우선)**: `docs/plans/2026-07-02-poc-execution.md` 상단 "🟡 진행 상황" blockquote
 - 마스터 설계: `docs/public-support-application-guide-master-architecture.md` (단일 설계 문서. 18장 지식 루프, 17장 PoC 관문 포함)
 - Gate 0 (HWP 렌더링): `docs/gate0-hwp-render-spike-plan.md` — **통과 완료** (60/60, LibreOffice+H2Orestart 확정)
 - Gate 1 (라벨링): `docs/gate1-field-map-labeling-guide.md` + `spike-labels/`
