@@ -12,12 +12,12 @@
 > - ✅ `b414264` Phase 2 T4~T6 (R2 업로드·큐·API — 실HWP 전구간 왕복 검증) + 배치3 라벨
 > - ✅ `692683e` Phase 2 T7~T8 (웹앱 후크·폴링, 실DB 검증 후 정리) + 배치4 라벨 (PDF 10·DOCX 4)
 > - ✅ Gate 1 사전 라벨 **45문서 1,579필드** 완료 (`spike-labels/doc*.json`, 기준서 규칙 1~10 확정)
+> - ✅ `5ef6185` golden 적재 스크립트(`apps/web/src/lib/server/db/load-golden-field-maps.ts`, `pnpm load:golden:field-maps`) + 0026 `field_map` enum 마이그레이션 **Supabase 적용 완료**. 순환성 가드(AI 라벨러 거부 + 검수자 이메일 요구), 기본 dry-run, upsert 멱등. 현재 45문서 전부 미검수라 0건 적재가 정상
+> - ✅ `a7a73f4` Phase 2 T9 (세션 2) — 실패 경로 3계층 테스트 49 assertion 실DB·실R2 통과 (`pnpm test:t9`). **큐 결함 수정**: sofficeTimeoutMs/maxBytes/maxPages가 convertDocument로 전달 안 되던 것 수정(src+미러). 상세는 `apps/conversion/README.md`
 >
 > 남음:
 >
-> - ⬜ **[사람·임계경로] REVIEW-QUEUE 45문서 검수** (`spike-labels/REVIEW-QUEUE.md` — 소급 교정 4건 우선). Gate 2 착수의 유일한 블로커
-> - ⬜ golden 적재 스크립트 + `golden_kind`에 `field_map` enum 마이그레이션 (labeledBy가 사람일 때만 적재 허용 — 순환성 가드)
-> - ⬜ Phase 2 T9 통합 테스트·실패 경로 (계획 11장: 부분성공/타임아웃/암호화)
+> - ⬜ **[사람·임계경로] REVIEW-QUEUE 45문서 검수** (`spike-labels/REVIEW-QUEUE.md` — 소급 교정 4건 우선). Gate 2 착수의 유일한 블로커. 검수 후 `pnpm load:golden:field-maps -- --write`로 적재
 > - ⬜ Phase 2 T10 Cloud Run 배포 (사용자 GCP 자격증명 필요)
 > - ⬜ [사람] 로컬 `pnpm install` 후 `@cunote/conversion`·`@cunote/web` typecheck (T1~T8 타입 정합 최종 확인)
 > - ⬜ [사람] origin push (main이 origin보다 다수 커밋 앞섬)
@@ -35,11 +35,12 @@
 > - **새 샌드박스에서 소멸되는 것 (재설치 필요)**:
 >   - H2Orestart: `curl -sL -o /tmp/H2O.oxt "https://github.com/ebandal/H2Orestart/releases/latest/download/H2Orestart.oxt" && unopkg add /tmp/H2O.oxt` (soffice/pdftoppm은 기본 설치됨)
 >   - DB/R2 접근용: `mkdir /tmp/dk && cd /tmp/dk && npm init -y && npm i postgres @aws-sdk/client-s3 drizzle-kit@0.31.10` (자격증명은 저장소 `.env` 재사용, 스크립트 패턴은 이 문서 하단 부록)
+>   - 주의: 이전 세션의 `/tmp/dk`·`/tmp/vc` 등이 nobody 소유 읽기전용으로 남아있을 수 있음 — 그 경우 새 이름(`/tmp/dk2` 등)으로 생성. 마운트 node_modules는 macOS 바이너리라 리눅스에서 실행 불가(esbuild 불일치) — 반드시 /tmp 클린 설치 사용
 > - **유지되는 것**: 마운트 저장소 전체 (`spike-samples*/`, `spike-out*/`, `spike-labels/` 포함), Supabase DB(0025 적용됨), R2 아티팩트
 > - 회귀 검증 커맨드 (재개 직후 실행):
 >   - `node apps/conversion/scripts/quality-test.mjs` → 10/10 통과
 >   - `node apps/conversion/scripts/verify-convert.mjs spike-samples/files/10_*.hwp /tmp/vc` → pdf+pages+markdown 생성 (H2Orestart 설치 후)
-> - 서브태스크 순서: ① 검수 완료분 확인 → golden 적재 스크립트+enum 마이그레이션 (Opus) → ② T9 (Opus) → ③ T10 배포 (사용자 협업) → ④ 웹폼 5건 → ⑤ **Gate 2 착수 전 외부 대조** (`docs/research/CALIBRATION-TEMPLATE.md` 절차, Gate 2 행의 전제 목록 사용 — 직전 대조 2026-07-02 이후 변화분만) → ⑥ Gate 2 layout 엔진 스파이크
+> - 서브태스크 순서 (①② 세션 2 완료): ③ T10 배포 (사용자 협업) → ④ 웹폼 5건 → ⑤ **Gate 2 착수 전 외부 대조** (`docs/research/CALIBRATION-TEMPLATE.md` 절차, Gate 2 행의 전제 목록 사용 — 직전 대조 2026-07-02 이후 변화분만) → ⑥ Gate 2 layout 엔진 스파이크. 검수 완료분 생기면 언제든 `pnpm load:golden:field-maps -- --write`
 > - 수동 E2E 주의: 변환 서버 API 검증 시 R2 키 프리픽스 `conversion-dev/` 사용, DB 검증 행은 검증 후 SQL로 삭제 (파일과 달리 DB 행은 삭제 가능)
 
 ## 문서 지도
