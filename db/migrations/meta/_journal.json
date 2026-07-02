@@ -169,6 +169,13 @@
       "when": 1782908859000,
       "tag": "0023_admin_identity",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1782908860000,
+      "tag": "0024_grant_benefits",
+      "breakpoints": true
     }
   ]
 }
