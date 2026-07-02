@@ -15,9 +15,12 @@
 > - ✅ `5ef6185` golden 적재 스크립트(`apps/web/src/lib/server/db/load-golden-field-maps.ts`, `pnpm load:golden:field-maps`) + 0026 `field_map` enum 마이그레이션 **Supabase 적용 완료**. 순환성 가드(AI 라벨러 거부 + 검수자 이메일 요구), 기본 dry-run, upsert 멱등. 현재 45문서 전부 미검수라 0건 적재가 정상
 > - ✅ `a7a73f4` Phase 2 T9 (세션 2) — 실패 경로 3계층 테스트 49 assertion 실DB·실R2 통과 (`pnpm test:t9`). **큐 결함 수정**: sofficeTimeoutMs/maxBytes/maxPages가 convertDocument로 전달 안 되던 것 수정(src+미러). 상세는 `apps/conversion/README.md`
 >
+> - ✅ **리뷰어 워크스페이스 v1** (세션 3) — `/internal/review` 필드맵 검수 GUI (마스터 9.8 첫 슬라이스, 상시 운영). 0027 마이그레이션 적용, 라벨 45문서+이미지 343장 DB/R2 임포트 완료. 검수 확정=golden 승격. 스펙: `docs/plans/2026-07-03-reviewer-workspace-v1.md`. **정본이 DB로 전환됨** — spike-labels/ 파일은 임포트 소스
+>
 > 남음:
 >
-> - ⬜ **[사람·임계경로] REVIEW-QUEUE 45문서 검수** (`spike-labels/REVIEW-QUEUE.md` — 소급 교정 4건 우선). Gate 2 착수의 유일한 블로커. 검수 후 `pnpm load:golden:field-maps -- --write`로 적재
+> - ⬜ **[사람·임계경로] 리뷰팀 45문서 검수** — 이제 dev.changupnote.com/internal/review에서 GUI로. 선행: `docs/infra-setup-guide.md` B1(Vercel env)·B2(admin_users 등록) + dev 배포 + 브라우저 실검증(게이트 404, 저장/확정 왕복, bbox 오버레이 정렬). Gate 2 착수의 유일한 블로커
+> - ⬜ 리뷰어 워크스페이스 배포 전 [사람] 확인: `pnpm build`·lint 실통과 (샌드박스는 tsc --noEmit만 통과 확인. 선존 에러 2건은 `conversion/pollConversions.ts`·`registerAttachmentConversions.ts` status 유니온 — 이번 변경과 무관하나 build를 막으면 함께 수정 필요)
 > - ⬜ Phase 2 T10 Cloud Run 배포 (사용자 GCP 자격증명 필요)
 > - ⬜ [사람] 로컬 `pnpm install` 후 `@cunote/conversion`·`@cunote/web` typecheck (T1~T8 타입 정합 최종 확인)
 > - ⬜ [사람] origin push (main이 origin보다 다수 커밋 앞섬)
