@@ -39,7 +39,7 @@
 > - 회귀 검증 커맨드 (재개 직후 실행):
 >   - `node apps/conversion/scripts/quality-test.mjs` → 10/10 통과
 >   - `node apps/conversion/scripts/verify-convert.mjs spike-samples/files/10_*.hwp /tmp/vc` → pdf+pages+markdown 생성 (H2Orestart 설치 후)
-> - 서브태스크 순서: ① 검수 완료분 확인 → golden 적재 스크립트+enum 마이그레이션 (Opus) → ② T9 (Opus) → ③ T10 배포 (사용자 협업) → ④ 웹폼 5건 → ⑤ Gate 2 layout 엔진 스파이크
+> - 서브태스크 순서: ① 검수 완료분 확인 → golden 적재 스크립트+enum 마이그레이션 (Opus) → ② T9 (Opus) → ③ T10 배포 (사용자 협업) → ④ 웹폼 5건 → ⑤ **Gate 2 착수 전 외부 대조** (`docs/research/CALIBRATION-TEMPLATE.md` 절차, Gate 2 행의 전제 목록 사용 — 직전 대조 2026-07-02 이후 변화분만) → ⑥ Gate 2 layout 엔진 스파이크
 > - 수동 E2E 주의: 변환 서버 API 검증 시 R2 키 프리픽스 `conversion-dev/` 사용, DB 검증 행은 검증 후 SQL로 삭제 (파일과 달리 DB 행은 삭제 가능)
 
 ## 문서 지도

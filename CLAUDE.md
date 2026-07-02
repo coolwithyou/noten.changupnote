@@ -27,6 +27,7 @@ mkdir -p .git/stale-locks && mv .git/*.lock .git/stale-locks/ 2>/dev/null || tru
 ## 작업 체계
 
 - 구현·대량 작업은 Opus 서브에이전트에 위임하고, 메인(Fable)은 계획·설계·검수·피드백을 담당한다 (토큰 절약)
+- **관문 착수 전 외부 대조 의무**: 각 Gate·Phase 8·베타·필드테스트 착수 전에 `docs/research/CALIBRATION-TEMPLATE.md` 절차대로 외부 SOTA 대조를 수행한다 (마스터 설계 17장 "관문 공통 의례"). 관문별 대조 전제는 템플릿에 미리 등재되어 있음
 - 커밋 메시지: 한국어, 제목은 간결하게, 본문에 변경 이유
 
 ## 마이그레이션
