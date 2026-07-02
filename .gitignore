@@ -34,3 +34,7 @@ backups/
 *.swp
 *.swo
 .vercel
+
+# Gate 0 스파이크 로컬 산출물
+spike-samples/
+spike-out/

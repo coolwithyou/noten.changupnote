@@ -176,6 +176,13 @@
       "when": 1782908860000,
       "tag": "0024_grant_benefits",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1782988805072,
+      "tag": "0025_application_surfaces",
+      "breakpoints": true
     }
   ]
 }

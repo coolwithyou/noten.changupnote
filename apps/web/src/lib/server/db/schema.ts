@@ -614,6 +614,13 @@ export const grantDocumentFields = pgTable("grant_document_fields", {
   fillStrategy: text("fill_strategy").notNull(),
   confidence: real("confidence").notNull(),
   parserVersion: text("parser_version").notNull(),
+  // Phase 1 surface 모델 연결 (백필 전략: 마스터 설계 문서 11장)
+  surfaceId: uuid("surface_id").references(() => grantApplicationSurfaces.id, { onDelete: "set null" }),
+  // DocumentFieldPosition: { page, bbox(0~1 상대좌표), blockId, tablePath, xpath, cssSelector }
+  position: jsonb("position").$type<Record<string, unknown>>(),
+  visualEvidence: jsonb("visual_evidence").$type<Record<string, unknown>>(),
+  textEvidence: jsonb("text_evidence").$type<Record<string, unknown>>(),
+  reviewRequired: boolean("review_required").default(false).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -621,6 +628,7 @@ export const grantDocumentFields = pgTable("grant_document_fields", {
   sourceIdIdx: index("grant_document_fields_source_id_idx").on(table.source, table.sourceId),
   sourceAttachmentIdx: index("grant_document_fields_source_attachment_idx").on(table.source, table.sourceId, table.sourceAttachment),
   categoryIdx: index("grant_document_fields_category_idx").on(table.documentCategory),
+  surfaceIdx: index("grant_document_fields_surface_idx").on(table.surfaceId),
 }));
 
 export const grantDocumentDrafts = pgTable("grant_document_drafts", {
@@ -642,6 +650,14 @@ export const grantDocumentDrafts = pgTable("grant_document_drafts", {
   modelVer: text("model_ver").notNull(),
   promptVer: text("prompt_ver").notNull(),
   parserVersion: text("parser_version").notNull(),
+  // Phase 1 surface 모델 연결 (백필 전략: 마스터 설계 문서 11장)
+  surfaceId: uuid("surface_id").references(() => grantApplicationSurfaces.id, { onDelete: "set null" }),
+  // FieldFillPlan[] (마스터 설계 문서 7.6)
+  draftPlan: jsonb("draft_plan").$type<Array<Record<string, unknown>>>(),
+  evidenceRefs: jsonb("evidence_refs").$type<Array<Record<string, unknown>>>(),
+  llmCost: jsonb("llm_cost").$type<Record<string, unknown>>(),
+  // user_review_required | user_reviewed | exported
+  reviewState: text("review_state").default("user_review_required").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -649,6 +665,7 @@ export const grantDocumentDrafts = pgTable("grant_document_drafts", {
   companyStatusIdx: index("grant_document_drafts_company_status_idx").on(table.companyId, table.status),
   userUpdatedIdx: index("grant_document_drafts_user_updated_idx").on(table.userId, table.updatedAt),
   documentKeyIdx: index("grant_document_drafts_document_key_idx").on(table.grantId, table.companyId, table.documentKey),
+  surfaceIdx: index("grant_document_drafts_surface_idx").on(table.surfaceId),
 }));
 
 export const grantDocumentDraftEvents = pgTable("grant_document_draft_events", {
@@ -866,3 +883,67 @@ export const sourceCursor = pgTable("source_cursor", {
   lastPage: integer("last_page"),
   lastCollectedAt: timestamp("last_collected_at", { withTimezone: true }),
 });
+
+// --- 지원서 작성 가이드: Application Surface / Artifact 모델 (Phase 1) ---
+// 설계: docs/public-support-application-guide-master-architecture.md 7.3, 7.4, 7.7, 11장
+
+export const formTemplates = pgTable("form_templates", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  title: text("title").notNull(),
+  // 제목/섹션/필드 시그니처 기반 구조 해시. sha256 정확 일치보다 넓은 유사 양식 재사용 키.
+  structureHash: text("structure_hash").notNull(),
+  // 대표 surface. 순환 FK를 피하기 위해 제약 없이 uuid만 저장한다.
+  canonicalSurfaceId: uuid("canonical_surface_id"),
+  verifiedFieldMapVersion: text("verified_field_map_version"),
+  usageCount: integer("usage_count").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  structureHashIdx: uniqueIndex("form_templates_structure_hash_idx").on(table.structureHash),
+}));
+
+export const grantApplicationSurfaces = pgTable("grant_application_surfaces", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
+  templateId: uuid("template_id").references(() => formTemplates.id, { onDelete: "set null" }),
+  source: grantSourceEnum("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  // file_template | web_form | freeform_instruction
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  // hwp | hwpx | docx | pptx | pdf | html | web | markdown | unknown
+  format: text("format").notNull(),
+  sourceUrl: text("source_url"),
+  sourceAttachment: text("source_attachment"),
+  // pending | preview_ready | fields_ready | failed
+  extractionStatus: text("extraction_status").default("pending").notNull(),
+  extractionVersion: text("extraction_version"),
+  confidence: real("confidence"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  grantIdx: index("grant_application_surfaces_grant_idx").on(table.grantId),
+  templateIdx: index("grant_application_surfaces_template_idx").on(table.templateId),
+  sourceIdIdx: index("grant_application_surfaces_source_id_idx").on(table.source, table.sourceId),
+  sourceAttachmentIdx: uniqueIndex("grant_application_surfaces_source_attachment_idx")
+    .on(table.source, table.sourceId, table.type, table.sourceAttachment, table.sourceUrl),
+  statusIdx: index("grant_application_surfaces_status_idx").on(table.extractionStatus),
+}));
+
+export const documentArtifacts = pgTable("document_artifacts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  surfaceId: uuid("surface_id").notNull().references(() => grantApplicationSurfaces.id, { onDelete: "cascade" }),
+  // original | pdf | page_image | markdown | layout_json | ocr_json | annotated_pdf | pptx_guide | filled_hwpx | filled_docx
+  kind: text("kind").notNull(),
+  page: integer("page"),
+  storageKey: text("storage_key").notNull(),
+  url: text("url"),
+  contentType: text("content_type"),
+  sha256: text("sha256"),
+  // 렌더링 엔진, DPI, 페이지 크기, quality score 등 (8.3, 8.4 좌표계 규칙)
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  surfaceKindIdx: index("document_artifacts_surface_kind_idx").on(table.surfaceId, table.kind, table.page),
+  shaIdx: index("document_artifacts_sha_idx").on(table.sha256),
+}));
