@@ -91,7 +91,7 @@ export const notificationReceiptStatusEnum = pgEnum("notification_receipt_status
   "dismissed",
 ]);
 export const extractionStatusEnum = pgEnum("extraction_status", ["auto", "review", "labeled"]);
-export const goldenKindEnum = pgEnum("golden_kind", ["extraction", "matching"]);
+export const goldenKindEnum = pgEnum("golden_kind", ["extraction", "matching", "field_map"]);
 export const evalTargetEnum = pgEnum("eval_target", ["extraction", "matching"]);
 export const versionTypeEnum = pgEnum("version_type", [
   "model",

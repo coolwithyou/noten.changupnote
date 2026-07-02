@@ -1,0 +1,1 @@
+ALTER TYPE "public"."golden_kind" ADD VALUE 'field_map';
