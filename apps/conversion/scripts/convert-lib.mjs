@@ -404,3 +404,230 @@ export function convertDocument(input, deps = {}) {
   return { sha256: integrity.sha256, format, converterVersion: CONVERTER_VERSION,
     pdf, pageImages: pageResult.pages, markdown, quality, jobStatus, error: null };
 }
+
+// ==========================================================================
+// T4 storage 미러 (src/storage.ts). 키 규칙: 계획 7장.
+// @aws-sdk/client-s3 는 lazy require (검증 환경의 /tmp/dk/node_modules 에서 로드).
+// ==========================================================================
+
+export function sanitizeKeyPart(value) {
+  return (
+    value
+      .normalize("NFKC")
+      .replace(/[^\w .()[\]{}가-힣ㄱ-ㅎㅏ-ㅣ-]/g, "_")
+      .replace(/\s+/g, "_")
+      .slice(0, 180) || "item"
+  );
+}
+function stripExtension(filename) {
+  const ext = extname(filename);
+  return ext ? filename.slice(0, -ext.length) : filename;
+}
+export function buildStorageKey({ source, sourceId, filename, sourceSha256, kind, page, keyPrefix }) {
+  const sha16 = sourceSha256.slice(0, 16);
+  const stem = sanitizeKeyPart(stripExtension(basename(filename)));
+  const ext = kind === "pdf" ? "pdf" : kind === "markdown" ? "md" : "png";
+  const name =
+    kind === "page_image" && page !== undefined
+      ? `${sha16}-${stem}-p${String(page).padStart(3, "0")}.${ext}`
+      : `${sha16}-${stem}.${ext}`;
+  return [keyPrefix ?? "grant-convert", sanitizeKeyPart(source), sanitizeKeyPart(sourceId), kind, name].join("/");
+}
+function encodeObjectKey(key) {
+  return key.split("/").map((part) => encodeURIComponent(part)).join("/");
+}
+const CONTENT_TYPE = {
+  pdf: "application/pdf",
+  page_image: "image/png",
+  markdown: "text/markdown; charset=utf-8",
+};
+
+/**
+ * R2 클라이언트 (apps/web R2ObjectStorage 패턴 미러). @aws-sdk/client-s3 lazy require.
+ * @param requireFn createRequire(import.meta.url) 결과. SDK 로드 경로를 검증 스크립트가 주입한다.
+ */
+export function createR2ObjectStorage(config, requireFn) {
+  const { GetObjectCommand, PutObjectCommand, S3Client } = requireFn("@aws-sdk/client-s3");
+  const endpoint = (config.endpoint ?? `https://${config.accountId}.r2.cloudflarestorage.com`).replace(/\/+$/, "");
+  const publicBaseUrl = config.publicBaseUrl.replace(/\/+$/, "");
+  const client = new S3Client({
+    endpoint,
+    region: "auto",
+    forcePathStyle: true,
+    credentials: { accessKeyId: config.accessKeyId, secretAccessKey: config.secretAccessKey },
+  });
+  return {
+    async putObject(input) {
+      await client.send(new PutObjectCommand({
+        Bucket: config.bucket, Key: input.key, Body: input.body, ContentType: input.contentType,
+      }));
+      return { key: input.key, url: `${publicBaseUrl}/${encodeObjectKey(input.key)}` };
+    },
+    async getObjectText(key) {
+      const r = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+      if (!r.Body) return "";
+      return r.Body.transformToString();
+    },
+    publicUrl(key) { return `${publicBaseUrl}/${encodeObjectKey(key)}`; },
+  };
+}
+
+export function createR2ObjectStorageFromEnv(env, requireFn) {
+  const e = env ?? process.env;
+  const accountId = e.R2_ACCOUNT_ID?.trim();
+  const accessKeyId = e.R2_ACCESS_KEY_ID?.trim();
+  const secretAccessKey = e.R2_SECRET_ACCESS_KEY?.trim();
+  const bucket = e.R2_BUCKET?.trim();
+  const publicBaseUrl = e.R2_BUCKET_URL?.trim();
+  if (!accountId || !accessKeyId || !secretAccessKey || !bucket || !publicBaseUrl) return null;
+  return createR2ObjectStorage(
+    { accountId, accessKeyId, secretAccessKey, bucket, publicBaseUrl, ...(e.R2_ENDPOINT?.trim() ? { endpoint: e.R2_ENDPOINT.trim() } : {}) },
+    requireFn,
+  );
+}
+
+export async function uploadArtifacts({ storage, result, source, sourceId, filename, sourceSha256, keyPrefix }) {
+  const sha = sourceSha256 ?? result.sha256;
+  const artifacts = [];
+  const mkKey = (kind, page) => buildStorageKey({ source, sourceId, filename, sourceSha256: sha, kind, page, keyPrefix });
+
+  if (result.pdf) {
+    const body = readFileSync(result.pdf.path);
+    const up = await storage.putObject({ key: mkKey("pdf"), body, contentType: CONTENT_TYPE.pdf });
+    artifacts.push({
+      kind: "pdf", page: null, storageKey: up.key, url: up.url, sha256: sha256Hex(body),
+      contentType: CONTENT_TYPE.pdf, bytes: body.length,
+      metadata: { pageCount: result.pdf.pageCount, renderEngine: result.pdf.renderEngine },
+    });
+  }
+  for (const img of result.pageImages) {
+    const body = readFileSync(img.path);
+    const up = await storage.putObject({ key: mkKey("page_image", img.page), body, contentType: CONTENT_TYPE.page_image });
+    artifacts.push({
+      kind: "page_image", page: img.page, storageKey: up.key, url: up.url, sha256: sha256Hex(body),
+      contentType: CONTENT_TYPE.page_image, bytes: body.length,
+      metadata: { width: img.width, height: img.height, dpi: img.dpi },
+    });
+  }
+  if (result.markdown) {
+    const body = Buffer.from(result.markdown.text, "utf8");
+    const up = await storage.putObject({ key: mkKey("markdown"), body, contentType: CONTENT_TYPE.markdown });
+    artifacts.push({
+      kind: "markdown", page: null, storageKey: up.key, url: up.url, sha256: sha256Hex(body),
+      contentType: CONTENT_TYPE.markdown, bytes: body.length,
+      metadata: { charCount: result.markdown.charCount, converter: result.markdown.converter },
+    });
+  }
+  return artifacts;
+}
+
+// ==========================================================================
+// T5 queue 미러 (src/queue.ts).
+// ==========================================================================
+
+export function cacheKey(sha256, converterVersion) {
+  return `${sha256}:${converterVersion}`;
+}
+async function defaultFetchSource(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`source download failed: HTTP ${res.status} ${res.statusText}`);
+  return Buffer.from(await res.arrayBuffer());
+}
+
+export class ConversionQueue {
+  constructor(config) {
+    this.storage = config.storage;
+    this.concurrency = config.concurrency ?? 2;
+    this.hwpToMarkdown = config.hwpToMarkdown;
+    this.fetchSource = config.fetchSource ?? defaultFetchSource;
+    this.keyPrefix = config.keyPrefix;
+    this.defaultDpi = config.defaultDpi ?? 220;
+    this.jobs = new Map();
+    this.cache = new Map();
+    this.pending = [];
+    this.activeCount = 0;
+    this.peakActive = 0;
+  }
+  get(jobId) { return this.jobs.get(jobId); }
+  get active() { return this.activeCount; }
+  enqueue(request) {
+    const existing = this.jobs.get(request.jobId);
+    if (existing) return existing;
+    const now = new Date().toISOString();
+    const hit = this.cache.get(cacheKey(request.sha256, CONVERTER_VERSION));
+    if (hit) {
+      const record = {
+        jobId: request.jobId, status: hit.status, request, converterVersion: CONVERTER_VERSION,
+        quality: hit.quality, artifacts: hit.artifacts, sourceSha256: request.sha256, cached: true,
+        error: null, queuedAt: now, startedAt: now, finishedAt: now,
+      };
+      this.jobs.set(request.jobId, record);
+      return record;
+    }
+    const record = {
+      jobId: request.jobId, status: "queued", request, converterVersion: CONVERTER_VERSION,
+      quality: null, artifacts: [], sourceSha256: null, cached: false,
+      error: null, queuedAt: now, startedAt: null, finishedAt: null,
+    };
+    this.jobs.set(request.jobId, record);
+    this.pending.push(request.jobId);
+    this.pump();
+    return record;
+  }
+  async drain() {
+    while (this.pending.length > 0 || this.activeCount > 0) {
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+  pump() {
+    while (this.activeCount < this.concurrency && this.pending.length > 0) {
+      const jobId = this.pending.shift();
+      if (jobId === undefined) break;
+      const record = this.jobs.get(jobId);
+      if (!record || record.status !== "queued") continue;
+      this.activeCount += 1;
+      this.peakActive = Math.max(this.peakActive, this.activeCount);
+      void this.runJob(record).finally(() => {
+        this.activeCount -= 1;
+        this.pump();
+      });
+    }
+  }
+  async runJob(record) {
+    record.status = "running";
+    record.startedAt = new Date().toISOString();
+    const workDir = mkdtempSync(join(tmpdir(), "cunote-job."));
+    try {
+      const body = await this.fetchSource(record.request.sourceObjectUrl);
+      const result = convertDocument(
+        {
+          body, filename: record.request.filename, expectedSha256: record.request.sha256,
+          pageImageDpi: record.request.options?.pageImageDpi ?? this.defaultDpi, workDir,
+        },
+        this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {},
+      );
+      record.sourceSha256 = result.sha256;
+      record.quality = result.quality;
+      if (result.jobStatus === "failed") {
+        record.status = "failed";
+        record.error = result.error;
+        record.finishedAt = new Date().toISOString();
+        return;
+      }
+      const artifacts = await uploadArtifacts({
+        storage: this.storage, result, source: record.request.source, sourceId: record.request.sourceId,
+        filename: record.request.filename, sourceSha256: result.sha256, keyPrefix: this.keyPrefix,
+      });
+      record.artifacts = artifacts;
+      record.status = result.jobStatus;
+      record.finishedAt = new Date().toISOString();
+      this.cache.set(cacheKey(result.sha256, CONVERTER_VERSION), {
+        status: record.status, artifacts, quality: record.quality,
+      });
+    } catch (err) {
+      record.status = "failed";
+      record.error = err?.message ?? String(err);
+      record.finishedAt = new Date().toISOString();
+    }
+  }
+}

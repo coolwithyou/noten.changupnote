@@ -1,19 +1,22 @@
-# @cunote/conversion — Phase 2 문서 변환 서버 (T1~T3)
+# @cunote/conversion — Phase 2 문서 변환 서버 (T1~T6)
 
 HWP/HWPX/PDF/DOCX 원본을 **결정론적으로** PDF · 페이지 이미지 · markdown · quality score 로 변환한다. LLM 호출 없음.
 
 - 계획: `docs/phase2-conversion-server-implementation-plan.md`
 - 전제(Gate 0 확정): LibreOffice 26.x + H2Orestart 0.7.13 (HWP/HWPX 60/60 렌더 성공)
 
-## 현재 범위 (구현 완료: T1~T3)
+## 현재 범위 (구현 완료: T1~T6)
 
 | 태스크 | 산출물 |
 |---|---|
 | **T1** | `apps/conversion` 스캐폴드 + `Dockerfile` (ubuntu 24.04 + libreoffice + H2Orestart oxt + pyhwp + poppler + node 22) |
 | **T2** | `convertDocument()` — 무결성확인 → soffice PDF → pdftoppm(220dpi) → 텍스트추출(HWPX zip/XML, HWP hwp5html, PDF fallback) |
 | **T3** | `computeQuality()` 순수 함수 + status 판정 (usable / usable_with_review / manual_required / failed) |
+| **T4** | `uploadArtifacts()` + `createR2ObjectStorage()` — R2 업로드 + storage key 규칙 (계획 7장) |
+| **T5** | `ConversionQueue` — in-process 순차 큐 + 워커 풀 (동시성 기본 2, job 상태 인메모리, 문서당 soffice 격리) |
+| **T6** | HTTP API 3종 (`POST/GET/GET`) + sha256 캐시 히트 + shared secret 인증. 엔트리 `src/main.ts` → `dist/main.js` |
 
-미구현(후속): T4 R2 업로드, T5 큐/워커, T6 API 라우트, T7~T10 웹앱 연동/배포.
+미구현(후속): T7~T10 웹앱 연동(아카이브 후크·surface upsert·폴링) / Cloud Run 배포.
 
 ## 소스 구조
 
@@ -24,14 +27,28 @@ src/
   render.ts              2~4단계: soffice PDF·pdftoppm·텍스트추출 (스파이크 승격)
   quality.ts             T3: computeQuality / decideStatus / estimateTextCoverage (순수 함수)
   convert-document.ts    오케스트레이터 (부분 성공 규칙)
+  storage.ts             T4: R2 클라이언트 + buildStorageKey + uploadArtifacts (계획 7장)
+  queue.ts               T5: ConversionQueue (동시성 2, 인메모리 job 상태, sha256+converterVersion 캐시)
+  server.ts              T6: node http API 3종 + shared secret 인증 + 캐시 히트 응답
+  main.ts                T6: 서버 프로세스 엔트리 (Dockerfile CMD → dist/main.js)
   hwp-markdown-adapter.ts @cunote/core 의 convertHwpBufferToMarkdown 주입 어댑터
   index.ts               배럴 export
 scripts/
-  convert-lib.mjs        의존성 없는 병렬 구현 (샌드박스 검증용, src/*.ts 미러)
-  verify-convert.mjs     단일 파일 검증 → pdf+pages+markdown+quality.json
-  batch-convert.mjs      디렉토리 배치 → 성공률/품질 분포 리포트
+  convert-lib.mjs        의존성 없는 병렬 구현 (샌드박스 검증용, src/*.ts 미러). T4·T5 미러 포함.
+  server-lib.mjs         src/server.ts 의 plain-node 미러 (검증용)
+  verify-convert.mjs     T2 단일 파일 검증 → pdf+pages+markdown+quality.json
+  batch-convert.mjs      T2 디렉토리 배치 → 성공률/품질 분포 리포트
   quality-test.mjs       T3 순수함수 단위 테스트 (node assert)
+  verify-storage.mjs     T4 검증: 변환→R2 업로드→인증 GetObject 확인→동일 sha256 캐시 스킵
+  verify-queue.mjs       T5 검증: 동시 5건 등록 → 동시성 2 유지 · 전건 완료
+  verify-api.mjs         T6 검증: 서버 기동→POST→폴링→artifacts→재등록 cached:true→종료, 잘못된 secret 401
 ```
+
+### AWS SDK 의존성 (T4)
+
+`storage.ts` 는 `@aws-sdk/client-s3` 를 정식 import 하고 `package.json` dependencies 에 추가돼 있다
+(pnpm install 로 설치). 검증 `.mjs` (`convert-lib.mjs` 의 R2 헬퍼)는 SDK 를 lazy `require` 로 로드하며,
+검증 스크립트가 `--sdk <node_modules>` 로 로드 경로를 주입한다 (샌드박스는 `/tmp/dk/node_modules`).
 
 ### `scripts/*.mjs` 와 `src/*.ts` 의 관계
 
@@ -54,7 +71,38 @@ node apps/conversion/scripts/verify-convert.mjs <파일.hwp|hwpx|pdf|docx> <outd
 
 # 디렉토리 배치 (성공률·품질 분포)
 node apps/conversion/scripts/batch-convert.mjs spike-samples/files <outdir>
+
+# T4 R2 업로드 검증 (실제 버킷 conversion-dev/ 프리픽스, 삭제 불가 환경이므로 1건)
+#   루트 .env / .env.local 의 R2_* 자격증명을 자동 로드한다.
+node apps/conversion/scripts/verify-storage.mjs <파일.pdf|hwpx> --sdk /tmp/dk/node_modules
+
+# T5 큐/동시성 검증 (R2 불필요, stub storage)
+node apps/conversion/scripts/verify-queue.mjs [파일]
+
+# T6 API 왕복 검증 (한 프로세스 안에서 서버 기동→POST→폴링→artifacts→cached→종료)
+node apps/conversion/scripts/verify-api.mjs <파일.pdf|hwpx> --sdk /tmp/dk/node_modules
 ```
+
+> 샌드박스에는 H2Orestart 가 없어 HWP/HWPX 는 렌더 실패한다. T4·T6 검증은 PDF(passthrough)
+> 샘플로 전 구간(변환→업로드→API)을 확인한다. Docker 이미지(H2O 포함)에서는 HWP/HWPX 도 동일 경로로 동작한다.
+> `R2_BUCKET_URL` 은 S3 API 엔드포인트라 미인증 public GET 은 400 이므로, 업로드 확인은 저장소 관례대로 인증 `getObjectText` 로 한다.
+
+## 서버 실행 (T6)
+
+```bash
+# env: CONVERSION_SHARED_SECRET(필수) · R2_*(필수) · CONVERSION_CONCURRENCY(기본 2) · PORT(기본 8080)
+#      CONVERSION_KEY_PREFIX(기본 grant-convert; 검증은 conversion-dev)
+node apps/conversion/dist/main.js
+```
+
+API (계획 4장, 웹앱이 서버-투-서버로만 호출, `x-shared-secret` 또는 `Authorization: Bearer`):
+
+| 메서드·경로 | 동작 |
+|---|---|
+| `POST /v1/conversion-jobs` | job 등록. 신규면 `202 {status:queued, cached:false}`. 동일 sha256+converterVersion 이 캐시에 있으면 `200 {status:succeeded, cached:true, artifacts:[...]}` |
+| `GET /v1/conversion-jobs/:jobId` | 상태·quality 폴링 (`queued/running/succeeded/partial/failed`) |
+| `GET /v1/conversion-jobs/:jobId/artifacts` | artifact 목록 (kind·storageKey·url·sha256·metadata) |
+| `GET /healthz` | 헬스체크 (인증 불필요) |
 
 ### 환경변수
 

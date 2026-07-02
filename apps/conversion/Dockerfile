@@ -60,5 +60,6 @@ RUN corepack enable && corepack prepare pnpm@latest --activate \
 ENV CONVERSION_LO_SHARED_H2O=1
 
 EXPOSE 8080
-# 서버 엔트리(T5/T6)는 후속 태스크에서 추가. 지금은 배치 툴을 기본 CMD 로 둔다.
-CMD ["node", "apps/conversion/scripts/batch-convert.mjs", "/samples"]
+# 서버 엔트리 (T6): in-process 큐 + HTTP API 3종.
+# env CONVERSION_SHARED_SECRET · R2_* · CONVERSION_CONCURRENCY(기본 2) · PORT(기본 8080) 참조.
+CMD ["node", "apps/conversion/dist/main.js"]
