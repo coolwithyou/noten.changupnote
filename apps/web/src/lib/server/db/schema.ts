@@ -17,6 +17,8 @@ import {
 
 export const companyKindEnum = pgEnum("company_kind", ["active", "preliminary"]);
 export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member", "viewer"]);
+export const adminRoleEnum = pgEnum("admin_role", ["owner", "admin", "support", "viewer"]);
+export const adminStatusEnum = pgEnum("admin_status", ["active", "disabled"]);
 export const teamInvitationStatusEnum = pgEnum("team_invitation_status", [
   "pending",
   "accepted",
@@ -130,6 +132,32 @@ export const accounts = pgTable("accounts", {
 }, (table) => ({
   pk: primaryKey({ columns: [table.provider, table.providerAccountId] }),
   userIdx: index("accounts_user_id_idx").on(table.userId),
+}));
+
+export const adminUsers = pgTable("admin_users", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  email: text("email").notNull(),
+  name: text("name"),
+  passwordHash: text("password_hash"),
+  role: adminRoleEnum("role").default("admin").notNull(),
+  status: adminStatusEnum("status").default("active").notNull(),
+  lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  emailIdx: uniqueIndex("admin_users_email_idx").on(table.email),
+  statusRoleIdx: index("admin_users_status_role_idx").on(table.status, table.role),
+}));
+
+export const adminAccounts = pgTable("admin_accounts", {
+  adminUserId: uuid("admin_user_id").notNull().references(() => adminUsers.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  providerAccountId: text("provider_account_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.provider, table.providerAccountId] }),
+  adminUserIdx: index("admin_accounts_admin_user_id_idx").on(table.adminUserId),
 }));
 
 export const sessions = pgTable("sessions", {

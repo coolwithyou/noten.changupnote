@@ -162,6 +162,13 @@
       "when": 1782742900000,
       "tag": "0022_support_ticket_attachments",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1782908859000,
+      "tag": "0023_admin_identity",
+      "breakpoints": true
     }
   ]
 }

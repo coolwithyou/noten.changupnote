@@ -24,6 +24,40 @@ importers:
         specifier: ^5.8.3
         version: 5.9.3
 
+  apps/admin:
+    dependencies:
+      '@cunote/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      bcryptjs:
+        specifier: ^3.0.3
+        version: 3.0.3
+      next:
+        specifier: ^16.2.9
+        version: 16.2.9(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      next-auth:
+        specifier: ^4.24.14
+        version: 4.24.14(next@16.2.9(@babel/core@7.29.7)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
+      react:
+        specifier: ^19.2.7
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.2.7
+        version: 19.2.7(react@19.2.7)
+    devDependencies:
+      '@types/bcryptjs':
+        specifier: ^3.0.0
+        version: 3.0.0
+      '@types/react':
+        specifier: ^19.2.17
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.2.3
+        version: 19.2.3(@types/react@19.2.17)
+
   apps/web:
     dependencies:
       '@auth/drizzle-adapter':
