@@ -22,6 +22,32 @@ export interface GrantAttachmentArchiveBundle {
   failures: Array<{ filename: string; url: string | null; message: string }>;
 }
 
+/**
+ * 변환 서버가 시각 렌더링(pdf/page_image/markdown)할 수 있는 문서 포맷.
+ * grant_application_surfaces.format 값과 정합 (계획 8.1~8.2, 마스터 7.3).
+ */
+export type ConvertibleSurfaceFormat = "hwp" | "hwpx" | "pdf" | "docx";
+
+/**
+ * 아카이브된 첨부 파일명에서 변환 대상 포맷을 판정한다.
+ * hwp/hwpx/pdf/docx 만 surface + 변환 job 대상. 그 외(zip/xlsx/이미지 등)는 null.
+ */
+export function detectConvertibleSurfaceFormat(
+  filename: string,
+): ConvertibleSurfaceFormat | null {
+  const ext = extname(filename).toLowerCase();
+  if (ext === ".hwp") return "hwp";
+  if (ext === ".hwpx") return "hwpx";
+  if (ext === ".pdf") return "pdf";
+  if (ext === ".docx") return "docx";
+  return null;
+}
+
+/** 첨부가 변환(시각 렌더링) 대상인지 여부. */
+export function isConvertibleAttachment(filename: string): boolean {
+  return detectConvertibleSurfaceFormat(filename) !== null;
+}
+
 export interface GrantAttachmentArchiveOptions {
   source: GrantSource;
   sourceId: string;

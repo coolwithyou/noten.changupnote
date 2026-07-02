@@ -1,0 +1,24 @@
+{
+  "docRef": "bizinfo:PBLN_000000000119026:(워드양식) 2026년도 연구실 안전관리 컨설팅 신청양식.docx",
+  "labeledBy": "opus-prelabel",
+  "labeledAt": "2026-07-02",
+  "pageCount": 4,
+  "fields": [
+    { "key": "application_field", "label": "신청분야 (안전관리 체계 구축/고압가스 안전관리/화학물질 안전관리/우수연구실 인증)", "section": "첨부1 신청서 - 신청분야", "type": "checkbox", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.16, 0.22, 0.82, 0.05], "notes": "options: 안전관리 체계 구축, 고압가스 안전관리, 화학물질 안전관리, 우수연구실 인증. 각 항목 [ ] 체크. 유의사항상 여러 분야 신청 시 분야별 신청서 각각 작성" },
+    { "key": "institution_name", "label": "기관명", "section": "첨부1 신청서 - 기관 기본정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.28, 0.28, 0.35, 0.03], "notes": "" },
+    { "key": "ceo_name", "label": "대표자명", "section": "첨부1 신청서 - 기관 기본정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.62, 0.28, 0.33, 0.03], "notes": "" },
+    { "key": "address", "label": "주소 (연구실 안전관리 컨설팅 대상 연구실 소재지)", "section": "첨부1 신청서 - 기관 기본정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.28, 0.31, 0.67, 0.03], "notes": "컨설팅 대상 연구실 소재지" },
+    { "key": "institution_type", "label": "기관유형 (대학/연구기관/기업부설연구소)", "section": "첨부1 신청서 - 기관 기본정보", "type": "checkbox", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.28, 0.34, 0.67, 0.04], "notes": "options: 대학, 연구기관, 기업부설연구소. 각 [ ] 체크" },
+    { "key": "applicant_dept", "label": "신청인 부서명", "section": "첨부1 신청서 - 신청인", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.28, 0.39, 0.30, 0.03], "notes": "" },
+    { "key": "applicant_name_position", "label": "신청인 성명/직책", "section": "첨부1 신청서 - 신청인", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.62, 0.39, 0.33, 0.03], "notes": "성명+직책 겸용 블록" },
+    { "key": "applicant_phone", "label": "신청인 전화번호", "section": "첨부1 신청서 - 신청인", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.28, 0.42, 0.30, 0.03], "notes": "" },
+    { "key": "applicant_email", "label": "신청인 전자우편", "section": "첨부1 신청서 - 신청인", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.62, 0.42, 0.33, 0.03], "notes": "" },
+    { "key": "lab_info_table", "label": "연구실 정보 (연구실명/연구실책임자명/연구활동종사자 수/연구실 면적/비고)", "section": "첨부1 신청서 - 연구실 정보", "type": "table", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.16, 0.45, 0.80, 0.14], "notes": "열: 연구실명, 연구실책임자명, 연구활동종사자수, 연구실면적(㎡ 대략), 비고. 예시 프리필(OOO연구실 30㎡ 등). tableShape 3행. 하단 '신청 연구실 수 __개'(최대 3개) 포함" },
+    { "key": "applicant_signature", "label": "신청인 성명 (서명 또는 인)", "section": "첨부1 신청서 - 말미", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 2, "bbox": [0.30, 0.10, 0.55, 0.05], "notes": "말미 '기관의 안전관리 역량 제고를 위한 … 신청합니다. 2026년 월 일 신청인 성명: (서명 또는 인) 과학기술정보통신부장관 귀하'. manual=true 확정 규칙 4. p1하단~p2상단 걸침" },
+    { "key": "koita_researcher_count", "label": "사전검토자료 - 기본정보 (안전관리체계 구축: 연구전담요원·연구보조원 수 / 고압가스·화학물질 List·보관량·장소 / 우수연구실 인증 희망사항)", "section": "첨부2 사전 검토자료 - 기본정보", "type": "long_text", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.09, 0.34, 0.85, 0.16], "notes": "신청분야별 안내에 따라 서술. KOITA 신고 처리결과 연구전담요원·연구보조원 수 / 취급 고압가스·유해화학물질 List·보관량·취급보관장소 / 우수연구실 인증제 참여여부·중점 희망사항" },
+    { "key": "main_research_field", "label": "사전검토자료 - 주요 연구분야", "section": "첨부2 사전 검토자료 - 주요 연구분야", "type": "long_text", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.09, 0.56, 0.80, 0.13], "notes": "기계·생물·화학·전기·전자 등 연구활동 분야 및 연구과제 서술" },
+    { "key": "safety_mgmt_status", "label": "사전검토자료 - 안전관리 현황 (유해인자 보유·취급 관리현황 / 안전점검·정밀안전진단 지적사항)", "section": "첨부2 사전 검토자료 - 안전관리 현황", "type": "long_text", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.09, 0.72, 0.80, 0.13], "notes": "취급 화학·생물·장비 등 유해인자 보유·취급·관리현황 / 연구실 안전점검 및 정밀안전진단 지적사항 서술" },
+    { "key": "etc_request", "label": "사전검토자료 - 기타 (컨설턴트에게 사전 제공하고 싶은 정보·요구사항)", "section": "첨부2 사전 검토자료 - 기타", "type": "long_text", "required": false, "applicantFills": true, "manual": false, "page": 3, "bbox": [0.09, 0.10, 0.80, 0.15], "notes": "컨설턴트에게 사전 제공하고 싶은 정보 또는 요구사항 서술" },
+    { "key": "lab_photos", "label": "연구실 내·외부 사진 (5장 내외)", "section": "첨부2 사전 검토자료 - 연구실 사진", "type": "file", "required": false, "applicantFills": true, "manual": true, "page": 3, "bbox": [0.05, 0.28, 0.85, 0.10], "notes": "연구실 내·외부 사진 5장 내외 삽입. p4에 빈 삽입 영역 + '가능한 경우 연구실 도면 첨부' 안내. 이미지 삽입 file+manual (배치2 3-F 관행). 확인 필요: 도면 첨부 통합 여부" }
+  ]
+}

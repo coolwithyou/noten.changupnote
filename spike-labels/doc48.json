@@ -1,0 +1,35 @@
+{
+  "docRef": "bizinfo:PBLN_000000000122136:(신청서식) 2026년 충청남도 1인 자영업자 고용보험료 지원사업.pdf",
+  "labeledBy": "opus-prelabel",
+  "labeledAt": "2026-07-02",
+  "pageCount": 3,
+  "fields": [
+    { "key": "applicant_name", "label": "신청인 성명", "section": "서식1 신청서 - 신청인", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.24, 0.13, 0.24, 0.03], "notes": "일반 개인정보 manual=false" },
+    { "key": "phone_mobile", "label": "휴대전화번호", "section": "서식1 신청서 - 신청인", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.64, 0.13, 0.30, 0.03], "notes": "" },
+    { "key": "birth_date", "label": "생년월일", "section": "서식1 신청서 - 신청인", "type": "date", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.24, 0.16, 0.24, 0.03], "notes": "일반 개인정보 manual=false (확정 규칙 5)" },
+    { "key": "email", "label": "E-Mail", "section": "서식1 신청서 - 신청인", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.64, 0.16, 0.30, 0.03], "notes": "" },
+    { "key": "address", "label": "신청인 주소", "section": "서식1 신청서 - 신청인", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.24, 0.19, 0.70, 0.03], "notes": "" },
+    { "key": "company_name", "label": "사업장명", "section": "서식1 신청서 - 사업장", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.24, 0.24, 0.24, 0.03], "notes": "" },
+    { "key": "biz_reg_no", "label": "사업자등록번호", "section": "서식1 신청서 - 사업장", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.64, 0.24, 0.30, 0.03], "notes": "일반 사업자정보 manual=false" },
+    { "key": "phone_office", "label": "사업장 전화번호", "section": "서식1 신청서 - 사업장", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.24, 0.27, 0.24, 0.03], "notes": "" },
+    { "key": "industry", "label": "업종", "section": "서식1 신청서 - 사업장", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.64, 0.27, 0.30, 0.03], "notes": "" },
+    { "key": "company_address", "label": "사업장 주소", "section": "서식1 신청서 - 사업장", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.24, 0.30, 0.70, 0.03], "notes": "" },
+    { "key": "employment_insurance_no", "label": "고용보험 사업장관리번호", "section": "서식1 신청서 - 고용보험", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.40, 0.35, 0.54, 0.03], "notes": "예) 9********7 안내. 사업장관리번호, 일반 정보 manual=false" },
+    { "key": "insurance_join_date", "label": "자영업자 고용보험 가입일", "section": "서식1 신청서 - 고용보험", "type": "date", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.40, 0.38, 0.54, 0.03], "notes": "" },
+    { "key": "bank_account_table", "label": "지급계좌 (금융기관명/예금주/계좌번호)", "section": "서식1 신청서 - 지급계좌", "type": "table", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.10, 0.42, 0.84, 0.05], "notes": "열: 금융기관명, 예금주, 계좌번호. tableShape 1행x3열. 계좌번호는 일반 정보(고유식별정보 아님) manual=false" },
+    { "key": "fraud_pledge_check", "label": "《부정수급 관련 확약서》 모두 확인하였습니다 (예/아니오)", "section": "서식1 신청서 - 유의사항", "type": "checkbox", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.55, 0.63, 0.40, 0.03], "notes": "options: 예, 아니오. 부정이익 환수·형법 제231조 사문서위조 등 법적 책임 문구 동반 자가확인 서약. manual=true 확정 규칙 8" },
+    { "key": "fraud_pledge_signature", "label": "부정수급 확약 신청인(대리인) 성명 (서명 또는 인)", "section": "서식1 신청서 - 유의사항", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.35, 0.66, 0.60, 0.03], "notes": "부정수급 확약서 서약 서명. manual=true 확정 규칙 4·8" },
+    { "key": "applicant_signature", "label": "신청인(대리인) 성명 (서명 또는 인) - 신청서 말미", "section": "서식1 신청서 - 서명", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.35, 0.72, 0.60, 0.03], "notes": "말미 2026년 월 일 + 신청인(대리인) 성명 (서명 또는 인) + OO시장·군수 귀하. manual=true 확정 규칙 4" },
+    { "key": "attachments", "label": "첨부서류 (개인정보동의서·고용보험가입증명원·통장사본·사업자등록증명원 등 6종)", "section": "서식1 신청서 - 첨부서류", "type": "file", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.10, 0.82, 0.87, 0.10], "notes": "1.개인정보수집이용동의서 2.자영업자고용보험 보험가입증명원 3.통장사본 4.사업자등록증명원및법인등기부등본 5.건강보험자격득실확인서 6.부가가치세과세표준증명 또는 면세사업자수입금액증명. 통합 1개 attachments file manual=true" },
+
+    { "key": "consent_privacy_use", "label": "개인정보 수집·이용 동의 (동의함/동의하지 않음)", "section": "서식2 개인정보 수집·이용 동의서", "type": "checkbox", "required": true, "applicantFills": true, "manual": true, "page": 2, "bbox": [0.42, 0.39, 0.45, 0.03], "notes": "options: 동의함, 동의하지 않음. 개인정보 수집·이용 항목표 후 동의 체크. manual=true 확정 규칙 5" },
+    { "key": "consent_privacy_thirdparty", "label": "개인정보 제3자 제공 동의 (동의함/동의하지 않음)", "section": "서식2 개인정보 수집·이용 동의서", "type": "checkbox", "required": true, "applicantFills": true, "manual": true, "page": 2, "bbox": [0.42, 0.73, 0.45, 0.03], "notes": "options: 동의함, 동의하지 않음. 근로복지공단/소상공인시장진흥공단/중소벤처기업부 제3자 제공표 후 동의 체크. manual=true 확정 규칙 5" },
+    { "key": "consent_signature", "label": "동의서 업체명·성명 (서명/인)", "section": "서식2 개인정보 수집·이용 동의서", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 2, "bbox": [0.10, 0.80, 0.85, 0.05], "notes": "말미 업체명 + 성명 (서명/인) + OO시장·군수 귀하. manual=true 확정 규칙 4" },
+
+    { "key": "delegator_info_table", "label": "위임장 - 권한을 위임하는 자(대표자) 정보 (성명/업체명/생년월일/주소/사업자번호/휴대전화/위임사유)", "section": "서식3 위임장", "type": "table", "required": false, "applicantFills": true, "manual": false, "page": 3, "bbox": [0.10, 0.14, 0.84, 0.18], "notes": "성명(대표자), 업체명(법인명), 생년월일, 주소, 사업자등록번호, 휴대전화번호, 위임사유. 사업자번호·생년월일 일반정보 manual=false. 위임장 서식이 해당 시만 작성(required=false). tableShape 복합" },
+    { "key": "delegatee_info_table", "label": "위임장 - 권한을 위임받는 자 정보 (성명/위임자와의관계/생년월일/휴대전화/주소)", "section": "서식3 위임장", "type": "table", "required": false, "applicantFills": true, "manual": false, "page": 3, "bbox": [0.10, 0.32, 0.84, 0.12], "notes": "성명, 위임자와의 관계, 생년월일, 휴대전화번호, 주소. 일반 개인정보 manual=false. tableShape 복합" },
+    { "key": "delegator_signature", "label": "위임하는 자 (서명 또는 인)", "section": "서식3 위임장 - 위임내용", "type": "signature", "required": false, "applicantFills": true, "manual": true, "page": 3, "bbox": [0.35, 0.56, 0.60, 0.03], "notes": "위임 동의 서술 후 2026년 월 일 + 위임하는 자 (서명 또는 인). manual=true 확정 규칙 4" },
+    { "key": "delegatee_consent_check", "label": "위임받는 자 개인정보 수집·이용 동의 (동의함/동의하지 않음)", "section": "서식3 위임장 - 개인정보 동의", "type": "checkbox", "required": false, "applicantFills": true, "manual": true, "page": 3, "bbox": [0.62, 0.68, 0.33, 0.03], "notes": "options: 동의함, 동의하지 않음. 위임받는 자 개인정보 수집·이용 항목표 후 동의 체크. manual=true 확정 규칙 5" },
+    { "key": "delegatee_signature", "label": "위임받는 자 (서명 또는 인)", "section": "서식3 위임장 - 개인정보 동의", "type": "signature", "required": false, "applicantFills": true, "manual": true, "page": 3, "bbox": [0.35, 0.73, 0.60, 0.03], "notes": "말미 2026년 월 일 + 위임받는 자 (서명 또는 인) + OO시장·군수 귀하. 주1: 위임받는 사람 신분증(주민등록증·여권·운전면허증) 제시 안내(기입란 아님, 증빙 제시). manual=true 확정 규칙 4" }
+  ]
+}

@@ -1,7 +1,11 @@
 import { and, eq, notInArray } from "drizzle-orm";
 import type { Grant, GrantCriterion, GrantRaw, GrantSource, NormalizedGrant } from "@cunote/contracts";
-import type { CunoteDb } from "../db/client";
+import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
+import {
+  registerAttachmentConversions,
+  type ArchivedAttachmentRef,
+} from "../conversion/registerAttachmentConversions";
 import { hashGrantRawPayload } from "./grantRawHash";
 
 export interface NormalizedGrantPublishPlan {
@@ -14,6 +18,8 @@ export interface NormalizedGrantPublishPlan {
 
 export interface NormalizedGrantPublishResult extends NormalizedGrantPublishPlan {
   publishedAt: string;
+  /** T7 후크: surface 생성/변환 job 등록 중 발생한 경고 (아카이브는 성공). */
+  conversionWarnings?: string[];
 }
 
 export function planNormalizedGrantPublication<TPayload>(
@@ -42,6 +48,8 @@ export async function publishNormalizedGrants<TPayload>(
 ): Promise<NormalizedGrantPublishResult> {
   const collectedAt = options.collectedAt ?? new Date();
   assertEntriesUseSource(options.source, entries);
+
+  const conversionWarnings: string[] = [];
 
   return db.transaction(async (tx) => {
     for (const entry of entries) {
@@ -130,6 +138,26 @@ export async function publishNormalizedGrants<TPayload>(
             });
         }
       }
+
+      // T7: 아카이브 완료 후크 — 변환 대상 첨부에 surface 생성 + 변환 job 등록 (계획 8.1~8.2).
+      //   grantId 가 확보된 지점. 실패는 warning 으로 삼키고 아카이브(publish)는 성공 처리한다.
+      try {
+        const attachmentRefs = conversionAttachmentRefs(entry);
+        if (attachmentRefs.length > 0) {
+          const hook = await registerAttachmentConversions(tx as unknown as CunoteDbSession, {
+            grantId: grant.id,
+            source: entry.raw.source,
+            sourceId: entry.raw.source_id,
+            attachments: attachmentRefs,
+          });
+          conversionWarnings.push(...hook.warnings);
+        }
+      } catch (error) {
+        // 후크 전체 실패도 아카이브를 막지 않는다.
+        conversionWarnings.push(
+          `변환 후크 실패 (${entry.raw.source_id}): ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     await tx
@@ -150,7 +178,28 @@ export async function publishNormalizedGrants<TPayload>(
     return {
       ...planNormalizedGrantPublication(options.source, entries),
       publishedAt: collectedAt.toISOString(),
+      ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
     };
+  });
+}
+
+/**
+ * publish 대상 grant 의 아카이브된 첨부에서 변환 후크 입력(sha256/archive_url)을 뽑는다.
+ * archive_url + sha256 이 있는 첨부만 변환 서버가 다운로드·캐시할 수 있다.
+ */
+function conversionAttachmentRefs<TPayload>(
+  entry: NormalizedGrant<TPayload>,
+): ArchivedAttachmentRef[] {
+  return (entry.raw.attachments ?? []).flatMap((attachment) => {
+    const filename = textValue(attachment.filename);
+    if (!filename) return [];
+    return [{
+      filename,
+      storageKey: textValue(attachment.storage_key),
+      archiveUrl: textValue(attachment.archive_url) ?? textValue(attachment.url),
+      sourceUri: textValue(attachment.source_uri) ?? textValue(attachment.url),
+      sha256: textValue(attachment.sha256),
+    }];
   });
 }
 

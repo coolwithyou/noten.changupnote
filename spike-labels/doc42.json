@@ -1,0 +1,22 @@
+{
+  "docRef": "bizinfo:PBLN_000000000118361:[신청서식] 2026 유해물질 시험분석 수수료 지원사업 신청서.pdf",
+  "labeledBy": "opus-prelabel",
+  "labeledAt": "2026-07-02",
+  "pageCount": 1,
+  "fields": [
+    { "key": "company_name", "label": "기업명", "section": "신청 기업 정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.20, 0.185, 0.28, 0.02], "notes": "" },
+    { "key": "biz_reg_no", "label": "사업자등록번호", "section": "신청 기업 정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.185, 0.27, 0.02], "notes": "" },
+    { "key": "manager_name", "label": "담당자 성명/직위", "section": "신청 기업 정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.215, 0.18, 0.02], "notes": "성명/직위 겸용 블록" },
+    { "key": "phone_mobile", "label": "담당자 핸드폰", "section": "신청 기업 정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.215, 0.27, 0.02], "notes": "" },
+    { "key": "phone_office", "label": "담당자 전화", "section": "신청 기업 정보", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.24, 0.18, 0.02], "notes": "" },
+    { "key": "email", "label": "E-mail", "section": "신청 기업 정보", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.24, 0.27, 0.02], "notes": "" },
+    { "key": "revenue", "label": "연매출액 (전년도, 원)", "section": "신청 기업 정보 - 재무현황", "type": "currency", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.265, 0.16, 0.02], "notes": "재무현황(전년도). 단위 원. 정보 없을 시 '-' 또는 '없음' 기재 안내" },
+    { "key": "export_amount", "label": "수출액($) (전년도)", "section": "신청 기업 정보 - 재무현황", "type": "currency", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.60, 0.265, 0.33, 0.02], "notes": "단위 US$. '정보 없을 시 - 또는 없음 기재' 프리필 안내문" },
+    { "key": "test_report_count", "label": "시험성적서 수 (총 O 건)", "section": "유해물질 시험분석 내용", "type": "number", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.36, 0.325, 0.12, 0.02], "notes": "단위 건" },
+    { "key": "support_amount", "label": "지원금 (금 O 원)", "section": "유해물질 시험분석 내용", "type": "currency", "required": false, "applicantFills": false, "manual": false, "page": 1, "bbox": [0.60, 0.325, 0.33, 0.02], "notes": "'진흥원 작성' 프리필 — 기관 기입란이라 applicantFills=false" },
+    { "key": "test_reason", "label": "시험분석 사유 (복수 선택 가능)", "section": "유해물질 시험분석 내용", "type": "checkbox", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.36, 0.63, 0.09], "notes": "options: 국내 거래처 요구에 따른 제출, 해외 거래처 요구 또는 수출을 위한 제출, 국내·외 법령·규제 또는 인증 대응, 공공기관·인증기관 제출, 규제·인증 대응 사전검증 또는 내부 품질관리 목적, 기타(구체적 사유 기재). 복수선택" },
+    { "key": "test_report_table", "label": "시험성적서 내역 (번호/일자/시료명/분석기관/비용)", "section": "유해물질 시험분석 내용", "type": "table", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.07, 0.455, 0.86, 0.13], "notes": "열: 시험성적서 번호, 시험성적서 일자, 시료명, 분석기관, 비용(VAT 제외). tableShape 5행x5열" },
+    { "key": "attachments", "label": "제출 서류 (지원금 신청서/사업자등록증·통장 사본/납세증명서/시험신청서(견적서)/시험성적서/세금계산서 등)", "section": "제출 서류", "type": "file", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.07, 0.60, 0.86, 0.11], "notes": "첨부서류 목록 통합 1개 file 필드. manual=true (확정 규칙 5 파일첨부 지시)" },
+    { "key": "applicant_signature", "label": "서약 및 신청 (년월일 + 대표자 (인))", "section": "서약·신청", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.30, 0.82, 0.45, 0.06], "notes": "허위기재/미제출 불이익·중복수혜 반환 서약문 + 말미 2026년 월 일 + 대표자(인) + 재단법인 부천산업진흥원장 귀하. 확정 규칙 4·7 (서약문+서명 = signature). manual=true" }
+  ]
+}

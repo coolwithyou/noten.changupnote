@@ -1,0 +1,48 @@
+{
+  "docRef": "bizinfo:PBLN_000000000122045:붙임 2. (양식2) 2026년 기술·경영혁신 인증지원사업 신청서.pdf",
+  "labeledBy": "opus-prelabel",
+  "labeledAt": "2026-07-02",
+  "pageCount": 9,
+  "fields": [
+    { "key": "receipt_no", "label": "접수번호", "section": "신청서 - 머리말", "type": "text", "required": false, "applicantFills": false, "manual": false, "page": 1, "bbox": [0.25, 0.08, 0.25, 0.02], "notes": "머리말 접수번호, ※기재하지 말것 안내. 기관기입란 applicantFills=false (확정 규칙: 머리말 접수번호)" },
+    { "key": "application_field", "label": "신청분야 (벤처기업/이노비즈/메인비즈, 각 신규·연장)", "section": "신청서", "type": "checkbox", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.26, 0.16, 0.72, 0.02], "notes": "options: 벤처기업(신규/연장), 이노비즈(신규/연장), 메인비즈(신규/연장). 계층 체크박스 대분류. 예시상 벤처기업 신규 체크됨" },
+    { "key": "project_period", "label": "지원기간", "section": "신청서", "type": "text", "required": false, "applicantFills": false, "manual": false, "page": 1, "bbox": [0.26, 0.19, 0.20, 0.02], "notes": "결과통보일 ~ 2026.12.5 고정 안내. 확인 필요: 기관 사전기재로 보아 applicantFills=false" },
+    { "key": "consulting_request", "label": "컨설팅 신청 (신청/미신청)", "section": "신청서", "type": "checkbox", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.72, 0.19, 0.25, 0.02], "notes": "options: 신청, 미신청" },
+    { "key": "consulting_past_year", "label": "컨설팅 기수혜 여부 (2023/2024/2025년)", "section": "신청서", "type": "checkbox", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.26, 0.21, 0.72, 0.02], "notes": "options: 2023년, 2024년, 2025년. 23~25년 컨설팅 지원 받은 연도 체크" },
+    { "key": "company_name", "label": "기업명", "section": "신청서 - 기업정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.20, 0.245, 0.30, 0.02], "notes": "" },
+    { "key": "ceo_name", "label": "대표자", "section": "신청서 - 기업정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.72, 0.245, 0.25, 0.02], "notes": "" },
+    { "key": "biz_reg_no", "label": "사업자등록번호", "section": "신청서 - 기업정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.20, 0.265, 0.30, 0.02], "notes": "" },
+    { "key": "corp_reg_no", "label": "법인등록번호 (해당시)", "section": "신청서 - 기업정보", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.72, 0.265, 0.25, 0.02], "notes": "해당시만 기재" },
+    { "key": "founded_date", "label": "설립일", "section": "신청서 - 기업정보", "type": "date", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.20, 0.285, 0.30, 0.02], "notes": "예시 2017.01.01 프리필" },
+    { "key": "main_product", "label": "주요생산품", "section": "신청서 - 기업정보", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.72, 0.285, 0.25, 0.02], "notes": "" },
+    { "key": "address", "label": "사업장주소", "section": "신청서 - 기업정보", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.20, 0.305, 0.77, 0.02], "notes": "예시 대구 달서구 프리필" },
+    { "key": "revenue_table", "label": "매출액·상시고용인력·연구개발인력 (2023~2025 3개년)", "section": "신청서 - 현황", "type": "table", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.10, 0.325, 0.87, 0.13], "notes": "행: 매출액(백만원), 상시고용인력(명), 연구개발인력(명) / 열: 2023년, 2024년, 2025년. tableShape 3행x3열" },
+    { "key": "current_certifications", "label": "현재보유인증 (특허/기업부설연구소/벤처기업/이노비즈/메인비즈/기타)", "section": "신청서", "type": "checkbox", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.20, 0.47, 0.77, 0.02], "notes": "options: 특허, 기업부설연구소, 벤처기업, 이노비즈, 메인비즈, 기타(명칭). 예시상 특허 체크" },
+    { "key": "contact_person_table", "label": "실무담당자 (성명/부서·직위/전화/휴대폰/E-mail)", "section": "신청서 - 실무담당자", "type": "table", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.10, 0.50, 0.87, 0.08], "notes": "성명, 부서/직위, 전화, 휴대폰, E-mail. 일반 개인정보 manual=false" },
+    { "key": "attachments", "label": "제출서류 (사업계획서·참여확약서·동의서·적정성확인서·사업자등록증 사본 등 8종)", "section": "신청서 - 제출서류", "type": "file", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.10, 0.59, 0.87, 0.08], "notes": "1.사업계획서 2.참여확약서 3.개인및기업정보 수집이용제공 동의서 4.신청자격 적정성확인서 5.사업자등록증 사본 6.2025결산재무제표 사본 7.국세·지방세 완납증명서 8.회사소개서및인증특허등 사본. 통합 1개 attachments file manual=true (확정 규칙: 첨부목록 통합)" },
+    { "key": "applicant_signature", "label": "대표자 (직인) - 신청서", "section": "신청서 - 서명", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.30, 0.78, 0.55, 0.06], "notes": "말미 2026년 5월 00일 + ㈜00000 대표 000 (직인) + (재)대구테크노파크 원장 귀하. manual=true 확정 규칙 4" },
+
+    { "key": "ceo_philosophy", "label": "대표자의 경영철학", "section": "사업계획서 - 1.기업소개", "type": "long_text", "required": true, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.09, 0.20, 0.82, 0.20], "notes": "창업동기·비전·기술철학·전문성 자유 서술" },
+    { "key": "org_chart", "label": "회사 조직도", "section": "사업계획서 - 1.기업소개", "type": "long_text", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.09, 0.46, 0.82, 0.30], "notes": "그림/표로 작성, 부서별 근무인원수 표시. 확인 필요: 도식 삽입란이나 서술형으로 처리(이미지 삽입 강제 아님)" },
+    { "key": "ip_status_table", "label": "지식재산권 및 인증현황 (특허/실용신안/ISO/HACCP/TL9000/KS/NEP/NET/SQ/성능/기타)", "section": "사업계획서 - 1.기업소개", "type": "table", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.09, 0.80, 0.85, 0.06], "notes": "열: 특허(등록/출원), 실용신안(등록/출원), ISO인증, HACCP, TL9000, KS, NEP, NET, SQ인증, 성능인증, 기타(명칭). tableShape 1행x13열. 예시 특허 1/2 프리필" },
+
+    { "key": "rep_tech_info_table", "label": "대표기술(제품) (기술명/개발방법/권리구분/권리자)", "section": "사업계획서 - 2.대표기술", "type": "table", "required": true, "applicantFills": true, "manual": false, "page": 3, "bbox": [0.09, 0.11, 0.82, 0.14], "notes": "기술(제품)명 + 개발방법(기업단독/공동개발) + 권리구분(특허등록/특허출원/특허이전/기타) + 권리자(대표이사/임원/제3자). 체크형 혼재 표. tableShape 4행" },
+    { "key": "rep_tech_use", "label": "기술(제품)의 용도 및 기능", "section": "사업계획서 - 2.대표기술", "type": "long_text", "required": true, "applicantFills": true, "manual": false, "page": 3, "bbox": [0.09, 0.27, 0.82, 0.20], "notes": "주력 기술(제품) 서술, 그림·사진·도면 포함 자유 서술" },
+    { "key": "market_trend", "label": "기술(제품)의 국내외 시장동향", "section": "사업계획서 - 2.대표기술", "type": "long_text", "required": true, "applicantFills": true, "manual": false, "page": 3, "bbox": [0.09, 0.58, 0.82, 0.20], "notes": "목표시장 규모·현황·전망 자유 서술" },
+
+    { "key": "tech_differentiation_table", "label": "경쟁기술(제품)과의 차별성 (외형/성능/활용/가격/장점/단점/사진)", "section": "사업계획서 - 2.대표기술", "type": "table", "required": true, "applicantFills": true, "manual": false, "page": 4, "bbox": [0.09, 0.11, 0.85, 0.80], "notes": "행: 외형의특징, 성능, 활용, 가격, 장점, 단점, 사진 / 열: 경쟁기술(제품)A, 경쟁기술(제품)B, 본사기술(제품). 사진행은 '사진 첨부' 예시. tableShape 7행x3열. 확인 필요: 사진행 이미지 삽입이나 표에 통합" },
+
+    { "key": "expected_effect", "label": "파급 및 기대효과 (기술적/경제적 측면/활용방안)", "section": "사업계획서 - 2.대표기술", "type": "long_text", "required": true, "applicantFills": true, "manual": false, "page": 5, "bbox": [0.09, 0.08, 0.82, 0.80], "notes": "기술적 측면, 경제적 측면, 활용 방안 각 서술. p5(이미지 상 6쪽 하단 아님, 렌더 4쪽=경쟁차별성 다음 파급효과)" },
+
+    { "key": "business_model", "label": "비즈니스 수익모델 (사업화계획)", "section": "사업계획서 - 사업화계획", "type": "long_text", "required": true, "applicantFills": true, "manual": false, "page": 6, "bbox": [0.09, 0.10, 0.82, 0.20], "notes": "원가·손익분기점·수익구조 서술" },
+    { "key": "commercialization_plan", "label": "사업화 계획", "section": "사업계획서 - 사업화계획", "type": "long_text", "required": true, "applicantFills": true, "manual": false, "page": 6, "bbox": [0.09, 0.32, 0.82, 0.20], "notes": "양산·특허·해외인증·마케팅·해외진출 계획 서술" },
+    { "key": "sales_forecast_table", "label": "매출 및 고용계획 (매출액총매출/본기술관련/고용예정인원/총근로자수, 2026~2028)", "section": "사업계획서 - 사업화계획", "type": "table", "required": true, "applicantFills": true, "manual": false, "page": 6, "bbox": [0.10, 0.54, 0.85, 0.11], "notes": "행: 매출액(총매출), 매출액(본기술관련), 고용예정인원, 총근로자수 / 열: 2026년, 2027년, 2028년. tableShape 4행x3열" },
+
+    { "key": "pledge_signature", "label": "참여확약서 서명 (기업명/대표자명/직인)", "section": "참여확약서", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 7, "bbox": [0.20, 0.68, 0.70, 0.10], "notes": "허위사실·중복지원 등 4개 확약 조항 후 말미 2026년 5월 00일 + 기업명·대표자명(직인) + (재)대구테크노파크 귀하. 서약성 서명, manual=true 확정 규칙 4·8" },
+
+    { "key": "consent_privacy_use", "label": "개인 및 기업정보 수집·이용·제공 동의서 서명 (기업명/대표자명/직인)", "section": "개인 및 기업정보 수집·이용·제공 동의서", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 8, "bbox": [0.20, 0.78, 0.70, 0.08], "notes": "동의서 본문에 체크박스 없이 '위와 같이 동의합니다' 서술 후 말미 기업명·대표자명(직인). 확정 규칙 7 (체크박스 없는 동의문+서명 = signature 1필드). manual=true. 수집항목에 사업자등록번호 포함되나 동의서 직접 기입란 없음" },
+
+    { "key": "eligibility_check_table", "label": "신청자격 적정성 확인서 (신청자격/제외업종/유사중복/참여제한/채무불이행 자가확인)", "section": "신청자격 적정성 확인서", "type": "table", "required": true, "applicantFills": true, "manual": true, "page": 9, "bbox": [0.10, 0.16, 0.87, 0.60], "notes": "각 검토항목 해당/해당없음 체크 자가확인표. '위 내용이 사실임을 확약합니다. 사실 아닐 경우 선정·지원 취소' 법적 책임 문구 동반. 서약성 manual=true 확정 규칙 8. tableShape 약 15행x2열" },
+    { "key": "eligibility_signature", "label": "신청자격 적정성 확인서 서명 (기업명/대표자명/직인)", "section": "신청자격 적정성 확인서", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 9, "bbox": [0.25, 0.78, 0.70, 0.08], "notes": "말미 2026년 5월 00일 + ㈜000000 대표자명 000 (직인). manual=true 확정 규칙 4·8" }
+  ]
+}

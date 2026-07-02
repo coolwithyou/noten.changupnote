@@ -1,0 +1,40 @@
+{
+  "docRef": "bizinfo:PBLN_000000000120957:붙임1.2026년 강릉시 수출기업 홍보 웹사이트 입점 신청서_양식.pdf",
+  "labeledBy": "opus-prelabel",
+  "labeledAt": "2026-07-02",
+  "pageCount": 3,
+  "fields": [
+    { "key": "company_name", "label": "기업명", "section": "서식1 신청서 - 기업현황", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.26, 0.185, 0.28, 0.03], "notes": "" },
+    { "key": "biz_reg_no", "label": "사업자등록번호", "section": "서식1 신청서 - 기업현황", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.185, 0.27, 0.03], "notes": "" },
+    { "key": "ceo_name", "label": "대표자", "section": "서식1 신청서 - 기업현황", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.26, 0.215, 0.28, 0.02], "notes": "" },
+    { "key": "industry", "label": "업종/종목", "section": "서식1 신청서 - 기업현황", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.215, 0.27, 0.02], "notes": "업종/종목 겸용" },
+    { "key": "main_product", "label": "주생산품", "section": "서식1 신청서 - 기업현황", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.26, 0.24, 0.28, 0.02], "notes": "" },
+    { "key": "employee_count", "label": "종업원수", "section": "서식1 신청서 - 기업현황", "type": "number", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.24, 0.27, 0.02], "notes": "단위 명" },
+    { "key": "homepage", "label": "홈페이지", "section": "서식1 신청서 - 기업현황", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.26, 0.265, 0.28, 0.02], "notes": "" },
+    { "key": "phone_office", "label": "연락처", "section": "서식1 신청서 - 기업현황", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.265, 0.27, 0.02], "notes": "" },
+    { "key": "address_head", "label": "주소 (본사)", "section": "서식1 신청서 - 기업현황", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.29, 0.63, 0.02], "notes": "본사 소재지" },
+    { "key": "factory_address", "label": "주소 (공장)", "section": "서식1 신청서 - 기업현황", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.315, 0.63, 0.02], "notes": "공장 소재지" },
+    { "key": "revenue_table", "label": "매출액 (2023/2024/2025년, 원)", "section": "서식1 신청서 - 기업현황", "type": "table", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.19, 0.375, 0.74, 0.025], "notes": "행 1 x 3개년(2023/2024/2025), 단위 원. tableShape 1행x3열" },
+    { "key": "export_amount_table", "label": "수출액 (2023/2024/2025년, US$)", "section": "서식1 신청서 - 기업현황", "type": "table", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.19, 0.40, 0.74, 0.025], "notes": "행 1 x 3개년(2023/2024/2025), 단위 US$. tableShape 1행x3열" },
+    { "key": "manager_name", "label": "사업담당자 성명/직위", "section": "서식1 신청서 - 사업담당자", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.44, 0.24, 0.03], "notes": "성명/직위 겸용" },
+    { "key": "manager_department", "label": "사업담당자 담당부서", "section": "서식1 신청서 - 사업담당자", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.44, 0.27, 0.03], "notes": "" },
+    { "key": "phone_mobile", "label": "사업담당자 연락처(휴대전화)", "section": "서식1 신청서 - 사업담당자", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.30, 0.475, 0.24, 0.03], "notes": "" },
+    { "key": "email", "label": "사업담당자 E-mail", "section": "서식1 신청서 - 사업담당자", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 1, "bbox": [0.66, 0.475, 0.27, 0.03], "notes": "" },
+    { "key": "applicant_signature", "label": "신청 (년월일 + 대표자 (인))", "section": "서식1 신청서 - 서명", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 1, "bbox": [0.55, 0.57, 0.40, 0.06], "notes": "위와 같이 입점 신청서를 제출합니다 + 2026년 월 일 + 대표자(인) + 강원특별자치도경제진흥원장 귀하. 확정 규칙 4. manual=true" },
+
+    { "key": "company_name", "label": "기업명", "section": "서식2 주요제품설명서", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.27, 0.17, 0.63, 0.02], "notes": "" },
+    { "key": "product_name", "label": "상품명", "section": "서식2 주요제품설명서", "type": "text", "required": true, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.27, 0.19, 0.63, 0.02], "notes": "" },
+    { "key": "shelf_life", "label": "유통기한 (제조일로부터 O개월)", "section": "서식2 주요제품설명서", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.60, 0.235, 0.10, 0.02], "notes": "제조일로부터 (O)개월" },
+    { "key": "export_unit_price", "label": "수출단가 (US$)", "section": "서식2 주요제품설명서", "type": "currency", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.27, 0.26, 0.22, 0.02], "notes": "단위 US$" },
+    { "key": "consumer_unit_price", "label": "소비자단가 (원)", "section": "서식2 주요제품설명서", "type": "currency", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.62, 0.26, 0.28, 0.02], "notes": "단위 원" },
+    { "key": "export_country", "label": "제품 수출실적 - 주요 수출국가", "section": "서식2 주요제품설명서", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.36, 0.30, 0.54, 0.02], "notes": "" },
+    { "key": "hs_code", "label": "제품 수출실적 - HS-CODE", "section": "서식2 주요제품설명서", "type": "text", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.36, 0.325, 0.54, 0.02], "notes": "" },
+    { "key": "storage_method", "label": "보관방법 (상온/냉장/냉동)", "section": "서식2 주요제품설명서", "type": "checkbox", "required": false, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.27, 0.36, 0.63, 0.025], "notes": "options: 상온, 냉장, 냉동" },
+    { "key": "product_intro", "label": "상품소개 (특징, 장점 등)", "section": "서식2 주요제품설명서", "type": "long_text", "required": true, "applicantFills": true, "manual": false, "page": 2, "bbox": [0.27, 0.40, 0.63, 0.24], "notes": "객관적 사실에 근거하여 작성 필수. 자유 서술" },
+    { "key": "product_image", "label": "상품사진 (사진1/사진2/사진3)", "section": "서식2 주요제품설명서", "type": "file", "required": false, "applicantFills": true, "manual": true, "page": 2, "bbox": [0.27, 0.66, 0.63, 0.14], "notes": "확인 필요: 상품 이미지 삽입란 3개. 이미지 삽입은 file+manual (배치2 3-F 관행). 사진1/2/3 프리필 플레이스홀더" },
+
+    { "key": "consent_privacy_use", "label": "개인·기업 정보 수집·이용 동의 (필수정보 동의함/동의하지 않음)", "section": "서식3 개인·기업 정보 수집·이용 및 제3자 제공 동의서 - 수집·이용", "type": "checkbox", "required": true, "applicantFills": true, "manual": true, "page": 3, "bbox": [0.11, 0.50, 0.79, 0.05], "notes": "options: 필수정보 동의함/동의하지 않음, 선택정보 동의함/동의하지 않음. 프리필로 동의함 ■ 체크됨(예시). 확정 규칙 5. manual=true" },
+    { "key": "consent_privacy_thirdparty", "label": "개인·기업 정보 제3자 제공 동의 (동의함/동의하지 않음)", "section": "서식3 개인·기업 정보 수집·이용 및 제3자 제공 동의서 - 제3자 제공", "type": "checkbox", "required": true, "applicantFills": true, "manual": true, "page": 3, "bbox": [0.11, 0.685, 0.79, 0.03], "notes": "options: 동의함/동의하지 않음. 제공받는 자 강릉시. 프리필 동의함 ■ 체크됨(예시). 확정 규칙 5. manual=true" },
+    { "key": "consent_signature", "label": "동의 서명 (년월일 + 성명 (서명))", "section": "서식3 개인·기업 정보 수집·이용 및 제3자 제공 동의서 - 서명", "type": "signature", "required": true, "applicantFills": true, "manual": true, "page": 3, "bbox": [0.10, 0.76, 0.85, 0.04], "notes": "본인은 상기 내용과 같이 개인정보를 수집·이용하는데 동의합니다 + 2026년 월 일 성명 (서명) + 강원특별자치도경제진흥원장 귀하. 확정 규칙 4·7. manual=true" }
+  ]
+}
