@@ -49,6 +49,7 @@ interface ReadinessSectionSpec {
 
 const WORKSPACE_ROOT = process.cwd();
 const APP_ROOT = resolve(WORKSPACE_ROOT, "apps/web/src/app");
+const ADMIN_APP_ROOT = resolve(WORKSPACE_ROOT, "apps/admin/src/app");
 
 const SAAS_SECTIONS: ReadinessSectionSpec[] = [
   {
@@ -241,16 +242,18 @@ const SAAS_SECTIONS: ReadinessSectionSpec[] = [
       {
         key: "admin_flywheel",
         label: "플라이휠 운영 콘솔",
-        description: "운영팀이 추출/피드백/고객지원/청구/provider 이벤트를 같은 콘솔에서 본다.",
-        pages: ["/admin", "/internal/live-match"],
+        description: "운영팀이 ops.changupnote.com 전용 세션으로 추출/피드백/고객지원/청구/provider 이벤트를 같은 콘솔에서 본다.",
+        pages: ["https://ops.changupnote.com/"],
         apiRoutes: [
-          "/api/admin/status",
-          "/api/admin/flywheel",
-          "/api/admin/flywheel/support-tickets/[ticketId]",
-          "/api/admin/flywheel/billing-subscriptions/[companyId]",
+          "https://ops.changupnote.com/api/admin/status",
+          "https://ops.changupnote.com/api/admin/flywheel",
+          "https://ops.changupnote.com/api/admin/flywheel/support-tickets/report",
+          "https://ops.changupnote.com/api/admin/flywheel/support-tickets/[ticketId]",
+          "https://ops.changupnote.com/api/admin/flywheel/billing-subscriptions/[companyId]",
         ],
         verifierScripts: [
           "verify:admin-routes",
+          "verify:ops-admin",
           "verify:admin-support-report",
           "verify:admin-review-queue",
           "verify:admin-matching-eval",
@@ -342,7 +345,8 @@ function pageExists(route: string): boolean {
 }
 
 function apiRouteExists(route: string): boolean {
-  return existsSync(resolve(APP_ROOT, routePathToSegments(route).join("/"), "route.ts"));
+  const appRoot = route.startsWith("https://ops.changupnote.com") ? ADMIN_APP_ROOT : APP_ROOT;
+  return existsSync(resolve(appRoot, routePathToSegments(route).join("/"), "route.ts"));
 }
 
 function packageScriptExists(script: string): boolean {
@@ -371,6 +375,9 @@ function readPackageScripts(): Record<string, string> {
 }
 
 function routeCandidateRoots(route: string): string[] {
+  if (route.startsWith("https://ops.changupnote.com")) {
+    return [resolve(ADMIN_APP_ROOT, routePathToSegments(route).join("/"))];
+  }
   const relativePath = routePathToSegments(route).join("/");
   const candidates = [resolve(APP_ROOT, relativePath)];
   try {
@@ -386,5 +393,12 @@ function routeCandidateRoots(route: string): string[] {
 }
 
 function routePathToSegments(route: string): string[] {
+  if (route.startsWith("http://") || route.startsWith("https://")) {
+    try {
+      return new URL(route).pathname.split("/").filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
   return route.split("/").filter(Boolean);
 }

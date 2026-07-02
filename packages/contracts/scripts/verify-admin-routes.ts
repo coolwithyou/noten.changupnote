@@ -2,8 +2,14 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 
 const workspaceRoot = process.cwd();
-const adminRouteRoot = resolve(workspaceRoot, "apps/web/src/app/api/admin");
+const adminRouteRoot = resolve(workspaceRoot, "apps/admin/src/app/api/admin");
 const adminStatusRoute = resolve(adminRouteRoot, "status/route.ts");
+const removedWebAdminPaths = [
+  "apps/web/src/app/(admin)/admin/page.tsx",
+  "apps/web/src/app/internal/live-match/page.tsx",
+  "apps/web/src/app/api/admin",
+  "apps/web/src/app/api/matches/live/route.ts",
+] as const;
 const expectedAdminSurfaces = [
   "extraction_log",
   "feedback",
@@ -23,16 +29,25 @@ const expectedAdminSurfaces = [
   "legal_readiness",
   "saas_readiness",
   "saas_release_checklist",
+  "support_ticket_report",
+  "live_match",
 ];
 const errors: string[] = [];
+
+for (const path of removedWebAdminPaths) {
+  const absolute = resolve(workspaceRoot, path);
+  if (existsSync(absolute)) errors.push(`${path} must be removed from the web app`);
+}
 
 if (existsSync(adminRouteRoot)) {
   for (const routeFile of walkRouteFiles(adminRouteRoot)) {
     const source = readFileSync(routeFile, "utf8");
-    if (!source.includes("requireAdminAccess(")) {
-      errors.push(`${routePath(routeFile)} does not call requireAdminAccess`);
+    if (!source.includes("requireAdminSession(")) {
+      errors.push(`${routePath(routeFile)} does not call requireAdminSession`);
     }
   }
+} else {
+  errors.push(`${relative(workspaceRoot, adminRouteRoot)} is missing`);
 }
 
 if (existsSync(adminStatusRoute)) {
@@ -42,7 +57,7 @@ if (existsSync(adminStatusRoute)) {
       errors.push(`/api/admin/status does not expose ${surface}`);
     }
   }
-  if (!source.includes("runtime") || !source.includes("getAdminRuntimeStatus(")) {
+  if (!source.includes("runtime") || !source.includes("sharedWithWeb: false")) {
     errors.push("/api/admin/status does not expose runtime status");
   }
 }
@@ -72,7 +87,7 @@ function walkRouteFiles(dir: string): string[] {
 }
 
 function routePath(routeFile: string): string {
-  return `/${relative(resolve(workspaceRoot, "apps/web/src/app"), routeFile)
+  return `/${relative(resolve(workspaceRoot, "apps/admin/src/app"), routeFile)
     .split(sep)
     .filter((segment) => segment !== "route.ts")
     .join("/")}`;
