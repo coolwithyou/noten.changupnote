@@ -83,7 +83,7 @@
 ### 디자인 반영
 
 - 변경된 `DESIGN.md` 기준으로 Work zone 표면은 장식 없이 `Card`, `Button`, `StatusBadge`, `Empty` 조합을 사용한다.
-- `.omd/preferences.md`의 pending 지적을 반영해 새 CSS에는 임의 hex/off-palette 색상과 스케일 밖 radius를 추가하지 않는다.
+- `DESIGN.md`의 토큰 원칙을 따라 새 CSS에는 임의 hex/off-palette 색상과 스케일 밖 radius를 추가하지 않는다.
 - App surface radius는 16px, 입력/포커스 보조 radius는 14px, pill은 999px만 사용한다.
 
 ## 3차 구현 범위
