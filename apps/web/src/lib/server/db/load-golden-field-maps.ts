@@ -27,9 +27,8 @@
  */
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { and, eq } from "drizzle-orm";
 import { closeCunoteDb, getCunoteDb } from "./client";
-import * as schema from "./schema";
+import { promoteFieldMapGolden } from "./promote-field-map-golden";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 
 loadMonorepoEnv();
@@ -37,24 +36,6 @@ loadMonorepoEnv();
 const DEFAULT_GOLDEN_VER = "field_map_v0";
 const DEFAULT_DIR = "spike-labels";
 const DEFAULT_GLOB = "doc";
-
-/**
- * AI 라벨러로 간주하여 거부하는 labeledBy 패턴.
- * 검수 없이 golden 으로 승격되는 순환성을 차단한다.
- */
-const AI_LABELER_PATTERNS = [
-  /prelabel/i,
-  /\bopus\b/i,
-  /\bsonnet\b/i,
-  /\bhaiku\b/i,
-  /\bclaude\b/i,
-  /\bgpt\b/i,
-  /\bgemini\b/i,
-  /\bllm\b/i,
-  /(^|[^a-z])ai([^a-z]|$)/i,
-  /-?model$/i,
-  /auto-?label/i,
-];
 
 if (hasFlag("help")) {
   console.log(
@@ -109,22 +90,6 @@ async function main() {
   const db = getCunoteDb();
   const decisions: Decision[] = [];
 
-  // 이메일 -> users.id 매핑 캐시 (curatedBy 채우기용).
-  const userIdByEmail = new Map<string, string | null>();
-  async function resolveUserId(email: string | null): Promise<string | null> {
-    if (!email) return null;
-    const key = email.toLowerCase();
-    if (userIdByEmail.has(key)) return userIdByEmail.get(key) ?? null;
-    const rows = await db
-      .select({ id: schema.users.id })
-      .from(schema.users)
-      .where(eq(schema.users.email, email))
-      .limit(1);
-    const id = rows[0]?.id ?? null;
-    userIdByEmail.set(key, id);
-    return id;
-  }
-
   for (const file of files) {
     const full = resolve(labelDir, file);
     let doc: LabelDoc;
@@ -160,46 +125,22 @@ async function main() {
       continue;
     }
 
-    const gate = evaluateReviewer(labeledBy, reviewedBy);
-    if (!gate.ok) {
-      decisions.push(skip(file, docRef, labeledBy, reviewedBy, fieldCount, gate.reason));
-      continue;
-    }
-
-    // 사람 검수자 확정: curatedBy 는 검수자 이메일을 users 로 조회해 채운다(없으면 null).
-    const curatedBy = await resolveUserId(gate.reviewer);
-
     // gold 는 라벨 JSON 전체를 저장한다 (기준서 "golden_set.gold 에 문서 단위로 저장").
     const gold = doc as unknown as Record<string, unknown>;
 
-    const existing = await db
-      .select({ id: schema.goldenSet.id })
-      .from(schema.goldenSet)
-      .where(
-        and(
-          eq(schema.goldenSet.kind, "field_map"),
-          eq(schema.goldenSet.ref, docRef),
-          eq(schema.goldenSet.goldenVer, goldenVer),
-        ),
-      )
-      .limit(1);
-    const exists = existing.length > 0;
+    // 순환성 가드 + upsert 는 공용 로직(promoteFieldMapGolden)에 위임한다.
+    const result = await promoteFieldMapGolden(db, {
+      docRef,
+      gold,
+      labeledBy,
+      reviewedBy,
+      goldenVer,
+      write,
+    });
 
-    if (write) {
-      if (exists) {
-        await db
-          .update(schema.goldenSet)
-          .set({ gold, curatedBy })
-          .where(eq(schema.goldenSet.id, existing[0].id));
-      } else {
-        await db.insert(schema.goldenSet).values({
-          kind: "field_map",
-          ref: docRef,
-          gold,
-          goldenVer,
-          curatedBy,
-        });
-      }
+    if (!result.ok) {
+      decisions.push(skip(file, docRef, labeledBy, reviewedBy, fieldCount, result.reason));
+      continue;
     }
 
     decisions.push({
@@ -209,9 +150,9 @@ async function main() {
       reviewedBy,
       fieldCount,
       accepted: true,
-      action: exists ? "update" : "insert",
-      reason: exists ? "exists_upsert" : "new",
-      curatedBy,
+      action: result.action,
+      reason: result.action === "update" ? "exists_upsert" : "new",
+      curatedBy: result.curatedBy,
     });
   }
 
@@ -252,37 +193,6 @@ async function main() {
       2,
     ),
   );
-}
-
-/**
- * 순환성 가드 판정.
- * - 검수자 표기(이메일 형태) 요구: reviewedBy(있으면 우선) 또는 labeledBy 가 이메일이어야 한다.
- * - AI 라벨러 패턴이면 거부.
- */
-function evaluateReviewer(
-  labeledBy: string | null,
-  reviewedBy: string | null,
-): { ok: true; reviewer: string } | { ok: false; reason: string } {
-  const reviewer = (reviewedBy ?? labeledBy ?? "").trim();
-  if (!reviewer) {
-    return { ok: false, reason: "no_labeledBy" };
-  }
-  if (isAiLabeler(reviewer)) {
-    return { ok: false, reason: `ai_labeler_unreviewed:${reviewer}` };
-  }
-  if (!isReviewerEmail(reviewer)) {
-    // 사람 검수자는 이메일로 표기한다(기준서 예시 reviewer@ba-ton.kr, REVIEW-QUEUE 규약).
-    return { ok: false, reason: `not_human_reviewer:${reviewer}` };
-  }
-  return { ok: true, reviewer };
-}
-
-function isAiLabeler(value: string): boolean {
-  return AI_LABELER_PATTERNS.some((re) => re.test(value));
-}
-
-function isReviewerEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
 function skip(

@@ -1,7 +1,14 @@
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
 
 export interface R2ObjectStorage {
   getObjectText(key: string): Promise<string>;
+  getObjectBytes(key: string): Promise<{ body: Buffer; contentType: string | null }>;
+  objectExists(key: string): Promise<boolean>;
   putObject(input: {
     key: string;
     body: Buffer | string;
@@ -57,6 +64,27 @@ export function createR2ObjectStorage(config: R2ObjectStorageConfig): R2ObjectSt
       }));
       if (!result.Body) return "";
       return result.Body.transformToString();
+    },
+    async getObjectBytes(key) {
+      const result = await client.send(new GetObjectCommand({
+        Bucket: config.bucket,
+        Key: key,
+      }));
+      const contentType = result.ContentType ?? null;
+      if (!result.Body) return { body: Buffer.alloc(0), contentType };
+      const bytes = await result.Body.transformToByteArray();
+      return { body: Buffer.from(bytes), contentType };
+    },
+    async objectExists(key) {
+      try {
+        await client.send(new HeadObjectCommand({ Bucket: config.bucket, Key: key }));
+        return true;
+      } catch (error) {
+        const status = (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
+        const name = (error as { name?: string }).name;
+        if (status === 404 || name === "NotFound" || name === "NoSuchKey") return false;
+        throw error;
+      }
     },
     async putObject(input) {
       await client.send(new PutObjectCommand({

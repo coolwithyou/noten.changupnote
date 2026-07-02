@@ -11,6 +11,19 @@ class MemoryObjectStorage implements R2ObjectStorage {
     return object ? object.body.toString() : "";
   }
 
+  async getObjectBytes(key: string) {
+    const object = this.objects.find((item) => item.key === key);
+    if (!object) return { body: Buffer.alloc(0), contentType: null };
+    return {
+      body: Buffer.isBuffer(object.body) ? object.body : Buffer.from(object.body),
+      contentType: object.contentType ?? null,
+    };
+  }
+
+  async objectExists(key: string) {
+    return this.objects.some((item) => item.key === key);
+  }
+
   async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
     this.objects.push(input);
     return {

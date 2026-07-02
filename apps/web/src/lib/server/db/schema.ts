@@ -92,6 +92,7 @@ export const notificationReceiptStatusEnum = pgEnum("notification_receipt_status
 ]);
 export const extractionStatusEnum = pgEnum("extraction_status", ["auto", "review", "labeled"]);
 export const goldenKindEnum = pgEnum("golden_kind", ["extraction", "matching", "field_map"]);
+export const reviewStatusEnum = pgEnum("review_status", ["pending", "in_review", "approved"]);
 export const evalTargetEnum = pgEnum("eval_target", ["extraction", "matching"]);
 export const versionTypeEnum = pgEnum("version_type", [
   "model",
@@ -819,6 +820,32 @@ export const goldenSet = pgTable("golden_set", {
   goldenVer: text("golden_ver").notNull(),
 }, (table) => ({
   kindVerIdx: index("golden_set_kind_ver_idx").on(table.kind, table.goldenVer),
+}));
+
+/**
+ * 필드맵 검수 워크스페이스(마스터 9.8 첫 슬라이스, docs/plans/2026-07-03-reviewer-workspace-v1.md).
+ * spike-labels/ 파일 라벨을 임포트해 정본으로 삼고, 검수 확정이 곧 golden_set(kind=field_map) 승격이다.
+ * 필드 단위 정규화는 하지 않고 labelJson.fields 통째로 저장한다.
+ */
+export const fieldMapReviewDocs = pgTable("field_map_review_docs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  docRef: text("doc_ref").notNull(),
+  docId: text("doc_id").notNull(),
+  sourceFilename: text("source_filename"),
+  pageCount: integer("page_count"),
+  labelJson: jsonb("label_json").$type<Record<string, unknown>>().notNull(),
+  labeledBy: text("labeled_by"),
+  labeledAt: text("labeled_at"),
+  reviewStatus: reviewStatusEnum("review_status").default("pending").notNull(),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  correctionNotes: text("correction_notes"),
+  pageImageKeys: jsonb("page_image_keys").$type<string[]>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  docRefIdx: uniqueIndex("field_map_review_docs_doc_ref_idx").on(table.docRef),
+  statusIdx: index("field_map_review_docs_status_idx").on(table.reviewStatus),
 }));
 
 export const evalRuns = pgTable("eval_runs", {
