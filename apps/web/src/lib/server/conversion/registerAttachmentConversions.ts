@@ -130,13 +130,12 @@ export async function registerAttachmentConversions(
 
       if (response.cached && response.artifacts && response.artifacts.length > 0) {
         // 캐시 히트: job 없이 artifact upsert + 상태 전이 즉시 (계획 8.1).
+        // 캐시는 터미널 상태만 저장하므로 매핑이 pending 인 경우는 없지만, 타입 좁힘을 위해 배제한다.
         await upsertDocumentArtifacts(db, surfaceId, response.artifacts);
-        await transitionSurfaceStatus(
-          db,
-          surfaceId,
-          mapJobStatusToExtractionStatus(response.status),
-          CONVERSION_CONVERTER_VERSION,
-        );
+        const nextExtractionStatus = mapJobStatusToExtractionStatus(response.status);
+        if (nextExtractionStatus !== "pending") {
+          await transitionSurfaceStatus(db, surfaceId, nextExtractionStatus, CONVERSION_CONVERTER_VERSION);
+        }
         cacheHits += 1;
       } else {
         jobsEnqueued += 1;

@@ -195,12 +195,12 @@ export async function pollAndPersistSurfaceJob(
   }
 
   const upsert = await upsertDocumentArtifacts(db, job.surfaceId, artifacts);
-  await transitionSurfaceStatus(
-    db,
-    job.surfaceId,
-    mapJobStatusToExtractionStatus(finalStatus),
-    CONVERSION_CONVERTER_VERSION,
-  );
+  // 이 지점의 finalStatus 는 succeeded|partial 뿐이라 매핑은 항상 preview_ready 지만,
+  // 타입 좁힘을 위해 pending 을 명시적으로 배제한다 (pending 이면 전이 없음이 올바른 동작).
+  const nextExtractionStatus = mapJobStatusToExtractionStatus(finalStatus);
+  if (nextExtractionStatus !== "pending") {
+    await transitionSurfaceStatus(db, job.surfaceId, nextExtractionStatus, CONVERSION_CONVERTER_VERSION);
+  }
 
   return {
     ...base,

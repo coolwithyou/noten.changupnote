@@ -81,10 +81,24 @@ export function ReviewDetailView({
 
   const currentImageKey = doc.pageImageKeys[currentPage - 1] ?? null;
 
-  const fieldsOnPage = useMemo(
-    () => fields.map((f, i) => ({ f, i })).filter(({ f }) => (f.page ?? 1) === currentPage),
-    [fields, currentPage],
+  /** "확인 필요" 필터: 사전 라벨러가 notes 에 표시한 우선 확인 지점만 모아 본다 (전 페이지 대상). */
+  const [showNeedsCheckOnly, setShowNeedsCheckOnly] = useState(false);
+  const needsCheck = useMemo(
+    () => fields.map((f, i) => ({ f, i })).filter(({ f }) => (f.notes ?? "").includes("확인 필요")),
+    [fields],
   );
+
+  const fieldsOnPage = useMemo(() => {
+    if (showNeedsCheckOnly) return needsCheck;
+    return fields.map((f, i) => ({ f, i })).filter(({ f }) => (f.page ?? 1) === currentPage);
+  }, [fields, currentPage, showNeedsCheckOnly, needsCheck]);
+
+  /** 필터 모드에서 필드 선택 시 해당 페이지로 점프. */
+  function selectField(index: number) {
+    setSelectedIndex(index);
+    const page = fields[index]?.page;
+    if (typeof page === "number" && page >= 1 && page !== currentPage) setCurrentPage(page);
+  }
 
   function updateField(index: number, patch: Partial<ReviewField>) {
     setFields((prev) => prev.map((f, i) => (i === index ? { ...f, ...patch } : f)));
@@ -316,10 +330,25 @@ export function ReviewDetailView({
         {/* 우: 필드 목록/편집 */}
         <section className="rounded-lg border border-slate-200">
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2">
-            <h2 className="text-sm font-semibold">필드 ({fieldsOnPage.length} / {fields.length} · p{currentPage})</h2>
-            <button onClick={addField} className="rounded border border-slate-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-slate-50">
-              + 필드 추가 (p{currentPage})
-            </button>
+            <h2 className="text-sm font-semibold">
+              필드 ({fieldsOnPage.length} / {fields.length}{showNeedsCheckOnly ? " · 확인 필요" : ` · p${currentPage}`})
+            </h2>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowNeedsCheckOnly((v) => !v)}
+                className={`rounded border px-3 py-1 text-xs font-semibold ${
+                  showNeedsCheckOnly
+                    ? "border-amber-400 bg-amber-50 text-amber-800"
+                    : "border-slate-300 bg-white hover:bg-slate-50"
+                }`}
+                title="사전 라벨러가 '확인 필요'로 표시한 필드만 전 페이지에서 모아 봅니다"
+              >
+                확인 필요만 ({needsCheck.length})
+              </button>
+              <button onClick={addField} className="rounded border border-slate-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-slate-50">
+                + 필드 추가 (p{currentPage})
+              </button>
+            </div>
           </div>
           <div className="max-h-[80vh] divide-y divide-slate-100 overflow-auto">
             {fieldsOnPage.length === 0 && (
@@ -331,7 +360,7 @@ export function ReviewDetailView({
                 index={i}
                 field={f}
                 selected={i === selectedIndex}
-                onSelect={() => setSelectedIndex(i)}
+                onSelect={() => selectField(i)}
                 onChange={(patch) => updateField(i, patch)}
                 onRemove={() => removeField(i)}
               />
