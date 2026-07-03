@@ -88,7 +88,7 @@ function validateJobRequest(v: unknown): { ok: true; value: ConversionJobRequest
   const sofficeTimeoutMs = posInt(optsRaw?.sofficeTimeoutMs);
   const maxBytes = posInt(optsRaw?.maxBytes);
   const maxPages = posInt(optsRaw?.maxPages);
-  const options = {
+  const options: NonNullable<ConversionJobRequest["options"]> = {
     ...(dpi !== undefined ? { pageImageDpi: dpi } : {}),
     ...(sofficeTimeoutMs !== undefined ? { sofficeTimeoutMs } : {}),
     ...(maxBytes !== undefined ? { maxBytes } : {}),
