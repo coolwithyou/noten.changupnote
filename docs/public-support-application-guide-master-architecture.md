@@ -26,6 +26,7 @@
 
 - `docs/hwp-visual-conversion-pipeline-design.md`: 변환 서버/렌더러 체인/GCP 구성/캐싱 상세. 이 문서와 함께 유지하며, 충돌 시 이 마스터 문서가 우선한다.
 - `docs/research/2026-07-02-document-ai-sota.md` · `2026-07-02-hitl-loop-sota.md`: 외부 SOTA 대조 리서치. 3.3 bbox 역할 분리와 18장 lesson 게이트는 외부 근거로 재확인됨. kordoc/Upstage는 Gate 2 측정 후보, confidence 산출 정의는 13장에 반영.
+- `docs/research/2026-07-04-gate2-layout-adapters-calibration.md`: Gate 2 어댑터 착수 전 델타 대조 + 후보 5종 통합 사실표(좌표계·인증·제한). 전제 4건 유지. **kordoc은 bbox 미반환으로 layout 엔진(bbox 소유자)이 아닌 text parser(8.5) 계층 후보로 재분류.** Google·Azure는 국내 처리 리전 부재 — 규제 판정은 필드 테스트 전 대조로 이월.
 
 ## 2. 우리의 의도
 
@@ -1183,6 +1184,7 @@ PoC는 Phase 1~6을 관통하는 수직 슬라이스이며, 각 관문(Gate)의 
 - 산출: `docs/research/YYYY-MM-DD-<주제>-calibration.md` + 판정표(유지/보강/재고) + 이 문서에 결정 반영
 - 원칙: 벤치 수치는 벤더 주장으로 취급하고, **golden set 측정을 통과하기 전에는 어떤 후보도 채택하지 않는다.** 외부 대조는 후보 목록과 측정 설계의 입력이지 결정이 아니다
 - 이력: 2026-07-02 1차 수행 (`document-ai-sota.md`, `hitl-loop-sota.md`) — 3.3/18장 재확인, confidence 정의·kordoc·Upstage 발굴
+- 이력: 2026-07-04 Gate 2 어댑터 착수 전 델타 (`2026-07-04-gate2-layout-adapters-calibration.md`) — 전제 4건 유지, 후보 5종 통합 사실 확정, kordoc을 text parser 계층으로 재분류. 제품·규제 축은 2일 델타로 생략(데이터 처리 위치 사실만 병기, 규제 판정은 필드 테스트 전으로)
 
 ### 샘플
 
