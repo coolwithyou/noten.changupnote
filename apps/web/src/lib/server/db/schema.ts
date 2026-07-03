@@ -840,6 +840,8 @@ export const fieldMapReviewDocs = pgTable("field_map_review_docs", {
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   correctionNotes: text("correction_notes"),
+  // 리뷰어가 운영자에게 남기는 문서별 메모 (v1.1 피드백 채널). 9.8 인박스의 씨앗.
+  reviewerComment: text("reviewer_comment"),
   pageImageKeys: jsonb("page_image_keys").$type<string[]>(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

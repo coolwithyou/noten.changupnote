@@ -15,9 +15,9 @@ export async function POST(request: Request, context: RouteContext) {
   if (!reviewer) return new NextResponse("Not Found", { status: 404 });
 
   const { docId } = await context.params;
-  let body: { labelJson?: ReviewLabelJson };
+  let body: { labelJson?: ReviewLabelJson; reviewerComment?: string | null };
   try {
-    body = (await request.json()) as { labelJson?: ReviewLabelJson };
+    body = (await request.json()) as { labelJson?: ReviewLabelJson; reviewerComment?: string | null };
   } catch {
     return NextResponse.json({ ok: false, error: "invalid_json" }, { status: 400 });
   }
@@ -25,7 +25,11 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ ok: false, error: "labelJson_fields_required" }, { status: 400 });
   }
 
-  const result = await saveReviewDraft(docId, body.labelJson);
+  const reviewerComment =
+    typeof body.reviewerComment === "string" || body.reviewerComment === null
+      ? body.reviewerComment
+      : undefined;
+  const result = await saveReviewDraft(docId, body.labelJson, reviewerComment);
   if (!result.ok) {
     return NextResponse.json({ ok: false, error: result.reason }, { status: result.reason === "not_found" ? 404 : 400 });
   }

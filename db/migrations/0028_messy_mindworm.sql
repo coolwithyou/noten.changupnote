@@ -1,0 +1,1 @@
+ALTER TABLE "field_map_review_docs" ADD COLUMN "reviewer_comment" text;

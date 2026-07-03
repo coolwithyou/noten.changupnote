@@ -51,6 +51,9 @@ export interface ReviewDocSummary {
   reviewedBy: string | null;
   reviewedAt: Date | null;
   hasCorrectionNotes: boolean;
+  /** 필드 notes 가 "판정 보류:" 로 시작하는 필드 수 (목록 뱃지·확정 경고용). */
+  heldCount: number;
+  hasReviewerComment: boolean;
   updatedAt: Date;
 }
 
@@ -59,6 +62,7 @@ export interface ReviewDocDetail extends ReviewDocSummary {
   labeledBy: string | null;
   labeledAt: string | null;
   correctionNotes: string | null;
+  reviewerComment: string | null;
   pageImageKeys: string[];
 }
 
@@ -68,6 +72,20 @@ function toLabelJson(value: unknown): ReviewLabelJson {
 
 function fieldCountOf(labelJson: ReviewLabelJson): number {
   return Array.isArray(labelJson.fields) ? labelJson.fields.length : 0;
+}
+
+/**
+ * 보류 접두어 규약. notes 가 이 문구로 시작하면 "판정 보류" 상태로 취급한다.
+ * UI([보류] 토글)와 목록 카운트가 동일 규약을 공유한다.
+ */
+export const HOLD_PREFIX = "판정 보류:";
+
+/** labelJson.fields 에서 보류(판정 보류:) 필드 수를 센다. 저장 시점의 jsonb 에서 직접 계산. */
+function heldCountOf(labelJson: ReviewLabelJson): number {
+  if (!Array.isArray(labelJson.fields)) return 0;
+  return labelJson.fields.filter(
+    (f) => typeof f?.notes === "string" && f.notes.trimStart().startsWith(HOLD_PREFIX),
+  ).length;
 }
 
 export async function listReviewDocs(): Promise<ReviewDocSummary[]> {
@@ -89,6 +107,8 @@ export async function listReviewDocs(): Promise<ReviewDocSummary[]> {
       reviewedBy: row.reviewedBy,
       reviewedAt: row.reviewedAt,
       hasCorrectionNotes: Boolean(row.correctionNotes && row.correctionNotes.trim()),
+      heldCount: heldCountOf(labelJson),
+      hasReviewerComment: Boolean(row.reviewerComment && row.reviewerComment.trim()),
       updatedAt: row.updatedAt,
     };
   });
@@ -115,11 +135,14 @@ export async function getReviewDocByDocId(docId: string): Promise<ReviewDocDetai
     reviewedBy: row.reviewedBy,
     reviewedAt: row.reviewedAt,
     hasCorrectionNotes: Boolean(row.correctionNotes && row.correctionNotes.trim()),
+    heldCount: heldCountOf(labelJson),
+    hasReviewerComment: Boolean(row.reviewerComment && row.reviewerComment.trim()),
     updatedAt: row.updatedAt,
     labelJson,
     labeledBy: row.labeledBy,
     labeledAt: row.labeledAt,
     correctionNotes: row.correctionNotes,
+    reviewerComment: row.reviewerComment,
     pageImageKeys: Array.isArray(row.pageImageKeys) ? row.pageImageKeys : [],
   };
 }
@@ -144,6 +167,7 @@ export async function reviewDocOwnsImageKey(key: string): Promise<boolean> {
 export async function saveReviewDraft(
   docId: string,
   labelJson: ReviewLabelJson,
+  reviewerComment?: string | null,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const db = getCunoteDb();
   const existing = await getReviewDocByDocId(docId);
@@ -157,6 +181,10 @@ export async function saveReviewDraft(
     .set({
       labelJson: labelJson as unknown as Record<string, unknown>,
       pageCount: typeof labelJson.pageCount === "number" ? labelJson.pageCount : existing.pageCount,
+      // reviewerComment 가 명시적으로 전달됐을 때만 갱신(빈 문자열은 null 로 정규화).
+      ...(reviewerComment !== undefined
+        ? { reviewerComment: reviewerComment && reviewerComment.trim() ? reviewerComment : null }
+        : {}),
       reviewStatus: nextStatus,
       updatedAt: new Date(),
     })

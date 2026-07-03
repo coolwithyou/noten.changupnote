@@ -29,6 +29,7 @@ export default async function ReviewDetailPage({ params }: PageProps) {
         reviewStatus: doc.reviewStatus,
         reviewedBy: doc.reviewedBy,
         correctionNotes: doc.correctionNotes,
+        reviewerComment: doc.reviewerComment,
         labeledBy: doc.labeledBy,
         labelJson: doc.labelJson,
         pageImageKeys: doc.pageImageKeys,
