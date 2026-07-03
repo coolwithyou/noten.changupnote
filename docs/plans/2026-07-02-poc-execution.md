@@ -19,8 +19,9 @@
 >
 > 남음:
 >
-> - ⬜ **[사람·임계경로] 리뷰팀 45문서 검수** — 이제 dev.changupnote.com/internal/review에서 GUI로. 선행: `docs/infra-setup-guide.md` B1(Vercel env)·B2(admin_users 등록) + dev 배포 + 브라우저 실검증(게이트 404, 저장/확정 왕복, bbox 오버레이 정렬). Gate 2 착수의 유일한 블로커
-> - ⬜ 리뷰어 워크스페이스 배포 전 [사람] 확인: `pnpm build`·lint 실통과 (샌드박스는 tsc --noEmit만 통과 확인. 선존 에러 2건은 `conversion/pollConversions.ts`·`registerAttachmentConversions.ts` status 유니온 — 이번 변경과 무관하나 build를 막으면 함께 수정 필요)
+> - ✅ **배포 전 검증 완료** (세션 3 후반) — 리눅스 클린 빌드에서 `next build` 통과(선존 타입에러 2건 수정 포함), 프로덕션 서버 스모크로 게이트 404·mock 인증 검수 왕복(save→approve→unapprove) HTTP 레벨 통과, bbox 오버레이 규약 시각 검증. '확인 필요만' 필터 추가. 검수팀 가이드 `docs/review-team-guide.md`
+>
+> - ⬜ **[사람·임계경로] 배포 + 리뷰팀 45문서 검수** — ① origin push(샌드박스에 git 자격증명 없음) → Vercel 자동 배포 ② `docs/infra-setup-guide.md` B1(Vercel env에 R2_* 확인)·B2(리뷰어 admin_users 등록) ③ 브라우저 1회 확인(로그인→목록→확정 1건→취소) 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 2 착수의 유일한 블로커
 > - ⬜ Phase 2 T10 Cloud Run 배포 (사용자 GCP 자격증명 필요)
 > - ⬜ [사람] 로컬 `pnpm install` 후 `@cunote/conversion`·`@cunote/web` typecheck (T1~T8 타입 정합 최종 확인)
 > - ⬜ [사람] origin push (main이 origin보다 다수 커밋 앞섬)
