@@ -58,6 +58,15 @@ importers:
         specifier: ^19.2.3
         version: 19.2.3(@types/react@19.2.17)
 
+  apps/conversion:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.700.0
+        version: 3.1075.0
+      '@cunote/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+
   apps/web:
     dependencies:
       '@auth/drizzle-adapter':
