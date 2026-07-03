@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getReviewerIdentity } from "@/lib/server/review/reviewAccess";
 import { getReviewDocByDocId } from "@/lib/server/review/reviewDocsRepo";
+import { listQuestionsForDoc } from "@/lib/server/review/reviewQuestionsRepo";
 import { ReviewDetailView } from "@/features/review/ReviewDetailView";
 
 export const runtime = "nodejs";
@@ -18,6 +19,8 @@ export default async function ReviewDetailPage({ params }: PageProps) {
   const doc = await getReviewDocByDocId(docId);
   if (!doc) notFound();
 
+  const questions = await listQuestionsForDoc(doc.id);
+
   return (
     <ReviewDetailView
       reviewerEmail={reviewer.email}
@@ -34,6 +37,17 @@ export default async function ReviewDetailPage({ params }: PageProps) {
         labelJson: doc.labelJson,
         pageImageKeys: doc.pageImageKeys,
       }}
+      questions={questions.map((q) => ({
+        id: q.id,
+        fieldIndex: q.fieldIndex,
+        page: q.page,
+        kind: q.kind,
+        prompt: q.prompt,
+        answerType: q.answerType,
+        options: q.options,
+        orderIndex: q.orderIndex,
+        answer: q.answer,
+      }))}
     />
   );
 }

@@ -17,6 +17,7 @@
     "seed:demo": "tsx apps/web/src/lib/server/db/seed-demo.ts",
     "load:golden:field-maps": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/load-golden-field-maps.ts",
     "import:review-docs": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/import-review-docs.ts",
+    "generate:review-questions": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/generate-review-questions.ts",
     "admin:user:create": "pnpm --filter @cunote/admin admin:user:create --",
     "smoke:db": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/smoke-drizzle-service.ts",
     "db:studio": "drizzle-kit studio",

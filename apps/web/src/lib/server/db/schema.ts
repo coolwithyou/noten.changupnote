@@ -850,6 +850,40 @@ export const fieldMapReviewDocs = pgTable("field_map_review_docs", {
   statusIdx: index("field_map_review_docs_status_idx").on(table.reviewStatus),
 }));
 
+/**
+ * 질문 기반 검수 모드(v2, docs/plans/2026-07-03-reviewer-workspace-v1.md "v2 — 질문 기반 검수 모드").
+ * 리뷰어는 라벨 편집자가 아니라 "질문에 답하는 전문가"다. 질문은 사전 배치(LLM)로 생성한다.
+ * 이 테이블은 마스터 18.6 Field Question 의 씨앗 — 이후 사용자 Q&A 도 같은 구조로 수렴한다.
+ */
+export const fieldMapReviewQuestions = pgTable("field_map_review_questions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  reviewDocId: uuid("review_doc_id")
+    .notNull()
+    .references(() => fieldMapReviewDocs.id, { onDelete: "cascade" }),
+  // null 이면 문서/페이지 레벨 질문 (missing_sweep 등).
+  fieldIndex: integer("field_index"),
+  page: integer("page"),
+  // 'quick_confirm' | 'question' | 'missing_sweep'
+  kind: text("kind").notNull(),
+  prompt: text("prompt").notNull(),
+  // 'confirm' | 'yes_no_unsure' | 'choice' | 'short_text'
+  answerType: text("answer_type").notNull(),
+  // choice 선택지 [{value,label}]
+  options: jsonb("options").$type<Array<{ value: string; label: string }>>(),
+  // 답변값 → 라벨 패치 { "yes": { "manual": true }, ... } (결정적 반영)
+  applyMap: jsonb("apply_map").$type<Record<string, Record<string, unknown>>>(),
+  orderIndex: integer("order_index").notNull(),
+  // { value, text? }
+  answer: jsonb("answer").$type<{ value: string; text?: string }>(),
+  answeredBy: text("answered_by"),
+  answeredAt: timestamp("answered_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  docIdx: index("field_map_review_questions_doc_idx").on(table.reviewDocId),
+  docOrderIdx: index("field_map_review_questions_doc_order_idx").on(table.reviewDocId, table.orderIndex),
+}));
+
 export const evalRuns = pgTable("eval_runs", {
   id: uuid("id").defaultRandom().primaryKey(),
   target: evalTargetEnum("target").notNull(),

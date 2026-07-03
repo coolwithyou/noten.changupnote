@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { ReviewField, ReviewLabelJson, ReviewStatus } from "@/lib/server/review/reviewDocsRepo";
 
 interface ReviewDetailDoc {
@@ -16,6 +16,21 @@ interface ReviewDetailDoc {
   labeledBy: string | null;
   labelJson: ReviewLabelJson;
   pageImageKeys: string[];
+}
+
+export type QuestionKind = "quick_confirm" | "question" | "missing_sweep";
+export type AnswerType = "confirm" | "yes_no_unsure" | "choice" | "short_text";
+
+export interface ReviewQuestion {
+  id: string;
+  fieldIndex: number | null;
+  page: number | null;
+  kind: QuestionKind;
+  prompt: string;
+  answerType: AnswerType;
+  options: Array<{ value: string; label: string }> | null;
+  orderIndex: number;
+  answer: { value: string; text?: string } | null;
 }
 
 const FIELD_TYPES = [
@@ -79,18 +94,90 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
+/**
+ * 상세 화면 최상위. 질문 모드/전문 모드 토글을 관리하고 라벨(fields) 상태를 두 모드가 공유한다.
+ * - 질문이 1개 이상이면 질문 모드가 기본. 0개면 전문 모드로 폴백.
+ * - 질문 모드 답변은 서버에서 라벨을 즉시 갱신하므로, 반영분을 fields 에도 반영해 전문 모드가 최신을 본다.
+ */
 export function ReviewDetailView({
   reviewerEmail,
   doc,
+  questions = [],
 }: {
   reviewerEmail: string;
   doc: ReviewDetailDoc;
+  questions?: ReviewQuestion[];
 }) {
   const initialFields: ReviewField[] = Array.isArray(doc.labelJson.fields)
     ? doc.labelJson.fields.map((f) => ({ ...f }))
     : [];
 
   const [fields, setFields] = useState<ReviewField[]>(initialFields);
+  const hasQuestions = questions.length > 0;
+  const [mode, setMode] = useState<"question" | "expert">(hasQuestions ? "question" : "expert");
+
+  const modeToggle = (
+    <div className="inline-flex overflow-hidden rounded-md border border-slate-300 text-xs font-semibold">
+      <button
+        onClick={() => setMode("question")}
+        disabled={!hasQuestions}
+        className={`px-3 py-1.5 ${
+          mode === "question" ? "bg-indigo-600 text-white" : "bg-white text-slate-600 hover:bg-slate-50"
+        } ${!hasQuestions ? "cursor-not-allowed opacity-50" : ""}`}
+        title={hasQuestions ? "질문에 답하며 검수합니다 (권장)" : "생성된 질문이 없습니다"}
+      >
+        질문 모드{hasQuestions ? ` (${questions.length})` : ""}
+      </button>
+      <button
+        onClick={() => setMode("expert")}
+        className={`border-l border-slate-300 px-3 py-1.5 ${
+          mode === "expert" ? "bg-slate-700 text-white" : "bg-white text-slate-600 hover:bg-slate-50"
+        }`}
+        title="필드를 직접 편집합니다 (운영자·예외 케이스용)"
+      >
+        전문 모드
+      </button>
+    </div>
+  );
+
+  if (mode === "question" && hasQuestions) {
+    return (
+      <QuestionMode
+        reviewerEmail={reviewerEmail}
+        doc={doc}
+        questions={questions}
+        fields={fields}
+        setFields={setFields}
+        modeToggle={modeToggle}
+        onSwitchToExpert={() => setMode("expert")}
+      />
+    );
+  }
+
+  return (
+    <ExpertMode
+      reviewerEmail={reviewerEmail}
+      doc={doc}
+      fields={fields}
+      setFields={setFields}
+      modeToggle={modeToggle}
+    />
+  );
+}
+
+function ExpertMode({
+  reviewerEmail,
+  doc,
+  fields,
+  setFields,
+  modeToggle,
+}: {
+  reviewerEmail: string;
+  doc: ReviewDetailDoc;
+  fields: ReviewField[];
+  setFields: React.Dispatch<React.SetStateAction<ReviewField[]>>;
+  modeToggle: ReactNode;
+}) {
   const [reviewerComment, setReviewerComment] = useState<string>(doc.reviewerComment ?? "");
   const [status, setStatus] = useState<ReviewStatus>(doc.reviewStatus);
   const [dirty, setDirty] = useState(false);
@@ -366,6 +453,7 @@ export function ReviewDetailView({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {modeToggle}
           <button
             onClick={handleSave}
             disabled={busy}
@@ -651,6 +739,481 @@ export function ReviewDetailView({
 
       <p className="mt-6 text-xs text-slate-400">검수자 {reviewerEmail} · 확정 시 labeledBy가 검수자 이메일로 갱신됩니다.</p>
     </main>
+  );
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// 질문 모드 (v2 기본): 카드 흐름으로 질문에 답한다.
+// ──────────────────────────────────────────────────────────────────────────
+
+const KIND_BADGE: Record<QuestionKind, { label: string; cls: string }> = {
+  question: { label: "확인 질문", cls: "bg-indigo-100 text-indigo-800" },
+  quick_confirm: { label: "빠른 확인", cls: "bg-slate-100 text-slate-700" },
+  missing_sweep: { label: "누락 점검", cls: "bg-amber-100 text-amber-800" },
+};
+
+/**
+ * bbox 주변 확대 크롭. 컨테이너는 고정 크기, img 를 absolute 로 배치하고
+ * left/top 을 bbox 기준 음수 offset 으로 밀어 해당 칸만 확대해 보여준다.
+ * bbox 가 없으면 페이지 전체를 컨테이너에 맞춰 축소한다.
+ */
+function BboxCrop({
+  imageUrl,
+  bbox,
+}: {
+  imageUrl: string | null;
+  bbox: [number, number, number, number] | null | undefined;
+}) {
+  const BOX_W = 460;
+  const BOX_H = 300;
+
+  if (!imageUrl) {
+    return (
+      <div
+        className="flex items-center justify-center rounded border border-slate-200 bg-slate-50 text-xs text-slate-400"
+        style={{ width: BOX_W, height: BOX_H }}
+      >
+        이 페이지 이미지가 없습니다
+      </div>
+    );
+  }
+
+  const box = Array.isArray(bbox) ? bbox : null;
+  if (!box) {
+    // 페이지 전체 축소 표시.
+    return (
+      <div
+        className="overflow-hidden rounded border border-slate-200 bg-white"
+        style={{ width: BOX_W, height: BOX_H }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={imageUrl} alt="page" className="h-full w-full object-contain" draggable={false} />
+      </div>
+    );
+  }
+
+  const [x, y, w, h] = box;
+  // 목표 배율: bbox 가 컨테이너의 절반 정도 차지하도록. clamp 2~3x 상당(폭 기준).
+  const cx = x + w / 2;
+  const cy = y + h / 2;
+  const rawScale = w > 0 ? 0.5 / w : 2.5;
+  const scale = Math.max(1.8, Math.min(3, rawScale));
+
+  // 렌더 이미지의 표시 폭(=BOX_W * scale). bbox 중심이 컨테이너 중심에 오도록 offset.
+  const dispW = BOX_W * scale;
+  const dispH = BOX_H * scale;
+  let left = BOX_W / 2 - cx * dispW;
+  let top = BOX_H / 2 - cy * dispH;
+  // 이미지가 컨테이너를 벗어나지 않게 clamp (여백 방지).
+  left = Math.min(0, Math.max(BOX_W - dispW, left));
+  top = Math.min(0, Math.max(BOX_H - dispH, top));
+
+  // 하이라이트 박스(이미지 좌표계 → 컨테이너 좌표계).
+  const hlLeft = left + x * dispW;
+  const hlTop = top + y * dispH;
+  const hlW = w * dispW;
+  const hlH = h * dispH;
+
+  return (
+    <div
+      className="relative overflow-hidden rounded border border-slate-200 bg-white"
+      style={{ width: BOX_W, height: BOX_H }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={imageUrl}
+        alt="crop"
+        className="absolute max-w-none select-none"
+        style={{ left, top, width: dispW, height: dispH }}
+        draggable={false}
+      />
+      <div
+        className="pointer-events-none absolute border-2 border-indigo-500 bg-indigo-400/10"
+        style={{ left: hlLeft, top: hlTop, width: hlW, height: hlH }}
+      />
+    </div>
+  );
+}
+
+type LocalAnswers = Record<string, { value: string; text?: string }>;
+
+function QuestionMode({
+  reviewerEmail,
+  doc,
+  questions,
+  fields,
+  setFields,
+  modeToggle,
+  onSwitchToExpert,
+}: {
+  reviewerEmail: string;
+  doc: ReviewDetailDoc;
+  questions: ReviewQuestion[];
+  fields: ReviewField[];
+  setFields: React.Dispatch<React.SetStateAction<ReviewField[]>>;
+  modeToggle: ReactNode;
+  onSwitchToExpert: () => void;
+}) {
+  // 서버에서 온 기존 답변으로 로컬 상태 초기화.
+  const [answers, setAnswers] = useState<LocalAnswers>(() => {
+    const init: LocalAnswers = {};
+    for (const q of questions) if (q.answer) init[q.id] = q.answer;
+    return init;
+  });
+  const [idx, setIdx] = useState<number>(() => {
+    const firstUnanswered = questions.findIndex((q) => !q.answer);
+    return firstUnanswered === -1 ? questions.length : firstUnanswered;
+  });
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [status, setStatus] = useState<ReviewStatus>(doc.reviewStatus);
+
+  const answeredCount = useMemo(() => Object.keys(answers).length, [answers]);
+  const total = questions.length;
+  const done = idx >= total;
+
+  const current = done ? null : questions[idx];
+
+  function imageUrlForPage(page: number | null): string | null {
+    if (page == null) return doc.pageImageKeys[0] ? pageImageUrl(doc.pageImageKeys[0]) : null;
+    const key = doc.pageImageKeys[page - 1];
+    return key ? pageImageUrl(key) : null;
+  }
+
+  /** applyMap 반영은 서버가 하지만, 전문 모드가 최신을 보도록 로컬 fields 에도 patch 를 반영. */
+  function applyLocalPatch(q: ReviewQuestion, value: string, held: boolean, text?: string) {
+    if (q.fieldIndex == null) return;
+    setFields((prev) =>
+      prev.map((f, i) => {
+        if (i !== q.fieldIndex) return f;
+        const next = { ...f };
+        if (held) {
+          const reason = text?.trim() || "모르겠음(질문 모드)";
+          const rest = (next.notes ?? "").trim();
+          const cleaned = rest.startsWith(HOLD_PREFIX) ? rest.slice(HOLD_PREFIX.length).trim() : rest;
+          const merged = [reason, cleaned].filter(Boolean).join(" / ");
+          next.notes = `${HOLD_PREFIX} ${merged}`;
+        }
+        return next;
+      }),
+    );
+  }
+
+  async function submitAnswer(q: ReviewQuestion, value: string, text?: string) {
+    setBusy(true);
+    setMessage(null);
+    try {
+      const res = await fetch(
+        `/internal/review/api/docs/${doc.docId}/questions/${q.id}/answer`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ value, ...(text ? { text } : {}) }),
+        },
+      );
+      const data = (await res.json().catch(() => null)) as
+        | { ok: boolean; held?: boolean; error?: string }
+        | null;
+      if (res.ok && data?.ok) {
+        setAnswers((prev) => ({ ...prev, [q.id]: { value, ...(text ? { text } : {}) } }));
+        applyLocalPatch(q, value, Boolean(data.held), text);
+        if (status !== "approved") setStatus("in_review");
+        setIdx((i) => i + 1);
+      } else {
+        setMessage(`저장 실패: ${data?.error ?? "unknown"}`);
+      }
+    } catch {
+      setMessage("저장 실패: 네트워크 오류");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const heldCount = useMemo(() => fields.filter((f) => isHeld(f.notes)).length, [fields]);
+
+  async function handleApprove() {
+    const warn =
+      heldCount > 0
+        ? `보류 ${heldCount}건이 있습니다. 그래도 확정하면 golden_set에 승격됩니다. 계속할까요?`
+        : "확정하면 golden_set에 승격됩니다. 계속할까요?";
+    if (!window.confirm(warn)) return;
+    setBusy(true);
+    setMessage(null);
+    // 확정 직전 현재 라벨(질문 반영분)을 저장.
+    const labelJson: ReviewLabelJson = { ...doc.labelJson, docRef: doc.docRef, fields };
+    await fetch(`/internal/review/api/docs/${doc.docId}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ labelJson }),
+    });
+    const res = await fetch(`/internal/review/api/docs/${doc.docId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ labelJson }),
+    });
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; goldenAction?: string; error?: string } | null;
+    setBusy(false);
+    if (res.ok && data?.ok) {
+      setStatus("approved");
+      setMessage(`확정 완료 (golden ${data.goldenAction ?? "upsert"}).`);
+    } else {
+      setMessage(`확정 실패: ${data?.error ?? "unknown"}`);
+    }
+  }
+
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-6 text-slate-900">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <Link href="/internal/review" className="text-sm text-indigo-600 hover:underline">
+            ← 목록
+          </Link>
+          <h1 className="mt-1 text-xl font-bold">
+            {doc.docId}
+            <span className="ml-3 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+              {status === "approved" ? "확정" : status === "in_review" ? "검수중" : "대기"}
+            </span>
+          </h1>
+          <p className="mt-1 max-w-2xl truncate text-sm text-slate-500" title={doc.docRef}>
+            {doc.sourceFilename ?? doc.docRef}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">{modeToggle}</div>
+      </div>
+
+      {doc.correctionNotes && (
+        <div className="mb-3 rounded-md border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-900">
+          <span className="font-semibold">소급 교정·주의: </span>
+          {doc.correctionNotes}
+        </div>
+      )}
+
+      {/* 진행률 */}
+      <div className="mb-4">
+        <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
+          <span>
+            진행 {Math.min(answeredCount, total)}/{total}
+          </span>
+          <Link href="/internal/review/guide" className="text-indigo-600 hover:underline">
+            검수 가이드
+          </Link>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-indigo-500 transition-all"
+            style={{ width: `${total > 0 ? (Math.min(answeredCount, total) / total) * 100 : 0}%` }}
+          />
+        </div>
+      </div>
+
+      {message && (
+        <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">{message}</div>
+      )}
+
+      {current ? (
+        <QuestionCard
+          key={current.id}
+          question={current}
+          imageUrl={imageUrlForPage(current.page)}
+          bbox={current.fieldIndex != null ? fields[current.fieldIndex]?.bbox : null}
+          fieldLabel={current.fieldIndex != null ? fields[current.fieldIndex]?.label : undefined}
+          existing={answers[current.id]?.value}
+          busy={busy}
+          position={`${idx + 1} / ${total}`}
+          onAnswer={(value, text) => submitAnswer(current, value, text)}
+          onPrev={idx > 0 ? () => setIdx((i) => i - 1) : undefined}
+          onNext={() => setIdx((i) => i + 1)}
+        />
+      ) : (
+        // 완료 화면
+        <section className="rounded-lg border border-slate-200 p-6">
+          <h2 className="text-lg font-bold">검수 질문 완료</h2>
+          <p className="mt-2 text-sm text-slate-600">
+            {total}개 질문 중 {answeredCount}개에 답했습니다.
+            {answeredCount < total && " 아직 답하지 않은 질문이 있습니다 (이전으로 돌아가 답할 수 있습니다)."}
+          </p>
+          {heldCount > 0 && (
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+              보류 {heldCount}건이 있습니다. 확정은 가능하지만, 운영자가 전문 모드에서 확인하는 것이 좋습니다.
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {status === "approved" ? (
+              <span className="rounded-md bg-emerald-100 px-4 py-2 text-sm font-semibold text-emerald-800">확정 완료</span>
+            ) : (
+              <button
+                onClick={handleApprove}
+                disabled={busy}
+                className={`rounded-md px-4 py-2 text-sm font-semibold text-white disabled:opacity-50 ${
+                  heldCount > 0 ? "bg-amber-600 hover:bg-amber-700" : "bg-emerald-600 hover:bg-emerald-700"
+                }`}
+              >
+                검수 확정{heldCount > 0 ? ` (보류 ${heldCount})` : ""}
+              </button>
+            )}
+            <button
+              onClick={() => setIdx(0)}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+            >
+              처음부터 다시 보기
+            </button>
+            <button
+              onClick={onSwitchToExpert}
+              className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+            >
+              전문 모드로 검토
+            </button>
+          </div>
+        </section>
+      )}
+
+      <p className="mt-6 text-xs text-slate-400">검수자 {reviewerEmail} · 답변은 즉시 저장되며 라벨에 반영됩니다.</p>
+    </main>
+  );
+}
+
+function QuestionCard({
+  question,
+  imageUrl,
+  bbox,
+  fieldLabel,
+  existing,
+  busy,
+  position,
+  onAnswer,
+  onPrev,
+  onNext,
+}: {
+  question: ReviewQuestion;
+  imageUrl: string | null;
+  bbox: [number, number, number, number] | null | undefined;
+  fieldLabel?: string | undefined;
+  existing?: string | undefined;
+  busy: boolean;
+  position: string;
+  onAnswer: (value: string, text?: string) => void;
+  onPrev?: (() => void) | undefined;
+  onNext: () => void;
+}) {
+  const [textValue, setTextValue] = useState("");
+  const badge = KIND_BADGE[question.kind];
+
+  return (
+    <section className="rounded-lg border border-slate-200 bg-white p-5">
+      <div className="mb-3 flex items-center justify-between">
+        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${badge.cls}`}>{badge.label}</span>
+        <span className="text-xs tabular-nums text-slate-400">{position}</span>
+      </div>
+
+      <div className="mb-4 flex justify-center">
+        <BboxCrop imageUrl={imageUrl} bbox={bbox} />
+      </div>
+
+      {fieldLabel && (
+        <p className="mb-1 text-center text-xs text-slate-400" title={fieldLabel}>
+          대상 칸: {fieldLabel}
+        </p>
+      )}
+      <p className="mb-4 text-center text-base font-semibold leading-relaxed">{question.prompt}</p>
+
+      {existing && (
+        <p className="mb-2 text-center text-xs text-slate-400">이전 답변: {existing} — 다시 답하면 갱신됩니다.</p>
+      )}
+
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {question.answerType === "confirm" && (
+          <>
+            <AnswerButton disabled={busy} onClick={() => onAnswer("ok")} tone="ok">
+              맞음
+            </AnswerButton>
+            <AnswerButton disabled={busy} onClick={() => onAnswer("edit")} tone="warn">
+              수정 필요
+            </AnswerButton>
+          </>
+        )}
+        {question.answerType === "yes_no_unsure" && (
+          <>
+            <AnswerButton disabled={busy} onClick={() => onAnswer("yes")} tone="ok">
+              예
+            </AnswerButton>
+            <AnswerButton disabled={busy} onClick={() => onAnswer("no")} tone="plain">
+              아니오
+            </AnswerButton>
+            <AnswerButton disabled={busy} onClick={() => onAnswer("unsure")} tone="warn">
+              모르겠음
+            </AnswerButton>
+          </>
+        )}
+        {question.answerType === "choice" &&
+          (question.options ?? []).map((o) => (
+            <AnswerButton key={o.value} disabled={busy} onClick={() => onAnswer(o.value)} tone="plain">
+              {o.label}
+            </AnswerButton>
+          ))}
+        {question.answerType === "short_text" && (
+          <div className="flex w-full items-center gap-2">
+            <input
+              value={textValue}
+              onChange={(e) => setTextValue(e.target.value)}
+              placeholder="한 줄로 답해 주세요"
+              className="flex-1 rounded border border-slate-300 px-3 py-2 text-sm"
+            />
+            <AnswerButton
+              disabled={busy || !textValue.trim()}
+              onClick={() => onAnswer(textValue.trim(), textValue.trim())}
+              tone="ok"
+            >
+              저장
+            </AnswerButton>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 flex items-center justify-between text-sm">
+        <button
+          onClick={onPrev}
+          disabled={!onPrev}
+          className="rounded border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+        >
+          ‹ 이전
+        </button>
+        <button
+          onClick={onNext}
+          className="rounded border border-slate-300 bg-white px-3 py-1.5 font-semibold text-slate-600 hover:bg-slate-50"
+          title="답하지 않고 건너뜁니다"
+        >
+          건너뛰기 ›
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function AnswerButton({
+  children,
+  disabled,
+  onClick,
+  tone,
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+  tone: "ok" | "warn" | "plain";
+}) {
+  const cls =
+    tone === "ok"
+      ? "bg-emerald-600 text-white hover:bg-emerald-700"
+      : tone === "warn"
+        ? "bg-amber-500 text-white hover:bg-amber-600"
+        : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`rounded-md px-5 py-2.5 text-sm font-semibold disabled:opacity-50 ${cls}`}
+    >
+      {children}
+    </button>
   );
 }
 

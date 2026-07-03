@@ -93,6 +93,69 @@ field_map_review_docs
    운영자에게 남기는 메모. 목록 화면에 보류 필드 수·코멘트 유무 뱃지. 보류가 있는 문서는
    확정 버튼에 경고 표시(확정은 가능하되 "보류 n건이 있습니다" 확인 다이얼로그)
 
+## v2 — 질문 기반 검수 모드 (2026-07-03 리뷰팀 피드백 2차)
+
+> 배경: 리뷰어들이 필드 편집 화면에서 "뭘 해야 할지 모르겠다"는 피드백 다수.
+> 원칙 전환: 리뷰어는 라벨 데이터 편집자가 아니라 **질문에 답하는 전문가**다.
+> 이 패턴은 마스터 18.6 Field Question 모델·9.9 사용자 Q&A의 원형이며,
+> 이후 사용자 가이드 UX("단순하고 명확하게")에도 그대로 적용된다.
+> 결정(사용자 확정): 질문은 **사전 배치 생성**(LLM, 검수 전 1회) · **질문 모드 기본 + 전문 모드 토글 유지**.
+
+### 데이터 모델 (0029)
+
+```
+field_map_review_questions
+  id           uuid PK
+  reviewDocId  uuid FK → field_map_review_docs (cascade)
+  fieldIndex   integer NULL   -- null이면 문서/페이지 레벨 질문
+  page         integer NULL
+  kind         text: 'quick_confirm' | 'question' | 'missing_sweep'
+  prompt       text           -- 쉬운 한국어 질문/요약 문구
+  answerType   text: 'confirm' | 'yes_no_unsure' | 'choice' | 'short_text'
+  options      jsonb NULL     -- choice 선택지 [{value,label}]
+  applyMap     jsonb NULL     -- 답변값 → 라벨 패치 {"yes":{"manual":true},...} (결정적 반영)
+  orderIndex   integer
+  answer       jsonb NULL     -- {value, text?}
+  answeredBy   text NULL / answeredAt timestamptz NULL
+  createdAt/updatedAt
+```
+
+이 테이블이 마스터 18.6 Field Question의 씨앗 — 이후 사용자 질문도 같은 구조로 수렴.
+
+### 질문 생성 배치 (`generate-review-questions.ts`)
+
+- LLM(ANTHROPIC_API_KEY, claude-sonnet-5)이 문서별 labelJson+notes+기준서 규칙 요약을 입력으로
+  질문 세트 생성. "확인 필요" 필드가 있는 페이지는 해당 페이지 이미지도 첨부(vision)
+- 생성 원칙 (질문 선별이 핵심 — 전 속성 전수 질문 금지):
+  - **애매 필드만 question**: notes에 "확인 필요"/추정 표현, type=unknown, 서명·도장 인접,
+    겸용 셀, manual 판정 경계 사례. 질문은 한 카드에 하나의 판단만
+    (예: "이 칸은 도장이나 서명처럼 사람이 직접 해야 하나요?" 예/아니오/모르겠음)
+  - **나머지 필드는 quick_confirm**: 한 줄 요약("기업명 — 지원자가 쓰는 필수 텍스트 칸") + [맞음]/[수정]
+  - **missing_sweep**: 페이지당 1개 ("이 페이지에 지원자가 써야 하는데 목록에 없는 칸이 있나요?")
+- applyMap은 LLM이 제안하되 서버에서 스키마 검증(허용 키·값만). 검증 실패 질문은 버리고 로그
+- 멱등: 답변된 질문 보존, `--regenerate`는 미답변만 재생성. `--docs doc01,doc02` 부분 실행,
+  기본 dry-run/`--write`
+- 배포 전 품질 검토: 3문서 샘플 생성 → 사람 검토 → 전체 45문서
+
+### 질문 모드 UI (상세 화면 기본)
+
+- 카드 흐름: 진행률("12/38") + **bbox 주변 확대 크롭**(CSS background-position 크롭,
+  bbox 없으면 페이지 축소 전체) + 질문 + 답변 버튼/입력. 이전/다음 이동 가능
+- 답변 즉시: applyMap 패치를 라벨에 반영(클라 상태) + answer API 저장.
+  "모르겠음"은 해당 필드 [보류] 처리. quick_confirm의 [수정]은 그 필드의 미니 질문 3종
+  (무엇 입력? / 필수? / 직접 서명?)으로 전개
+- missing_sweep에서 "있다" → 해당 페이지로 이동해 상자 그리기 + "이 칸은 무엇을 입력하는
+  칸인가요?" 한 줄 답 → 새 필드 생성 (key는 답변 기반 임시, 운영자가 전문 모드에서 정규화)
+- 완료 화면: 답변 요약 + 보류 n건 + [검수 확정]
+- **전문 모드 토글**: 기존 필드 편집 화면 그대로 (운영자·예외 케이스용). 질문 모드 답변이
+  반영된 최신 라벨을 보여줌
+
+### v2에서 하지 않는 것
+
+- 실시간 LLM 호출 (사전 배치만)
+- key 정규화 자동화 (운영자 전문 모드 몫)
+- 사용자향 Q&A (이 구조의 다음 소비자 — Phase 8)
+
 ## 검증
 
 - 임포트 dry-run/실행 → 45행 + R2 343키 확인
