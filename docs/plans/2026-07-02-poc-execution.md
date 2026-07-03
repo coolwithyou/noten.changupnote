@@ -20,6 +20,7 @@
 > 남음:
 >
 > - ✅ **배포 전 검증 완료** (세션 3 후반) — 리눅스 클린 빌드에서 `next build` 통과(선존 타입에러 2건 수정 포함), 프로덕션 서버 스모크로 게이트 404·mock 인증 검수 왕복(save→approve→unapprove) HTTP 레벨 통과, bbox 오버레이 규약 시각 검증. '확인 필요만' 필터 추가. 검수팀 가이드 `docs/review-team-guide.md`
+> - ✅ `758c5b3` **v1.1 — 리뷰팀 첫 피드백 5건 반영** (세션 4): bbox 드래그 재작도·인앱 가이드(/internal/review/guide)·용어 한국어화·오버레이 클릭 선택·보류 토글+리뷰어 코멘트(0028 적용). **bbox 정교화 로드맵**은 v1 plan doc v1.1 섹션에 등재 (Gate 2 layout 엔진 → 골든 bbox 자동 스냅 + 확인 UI — Gate 2 이후 작업)
 >
 > - ⬜ **[사람·임계경로] 배포 + 리뷰팀 45문서 검수** — ① origin push(샌드박스에 git 자격증명 없음) → Vercel 자동 배포 ② `docs/infra-setup-guide.md` B1(Vercel env에 R2_* 확인)·B2(리뷰어 admin_users 등록) ③ 브라우저 1회 확인(로그인→목록→확정 1건→취소) 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 2 착수의 유일한 블로커
 > - ⬜ Phase 2 T10 Cloud Run 배포 (사용자 GCP 자격증명 필요)
