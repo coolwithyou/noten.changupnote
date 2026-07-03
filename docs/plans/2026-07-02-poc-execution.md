@@ -1,6 +1,6 @@
 # PoC 실행 플랜 — 작성 가이드 (Gate 0~2 · Phase 1~2)
 
-> **🟡 진행 상황 (2026-07-02 · 세션 1 종료 시점)**
+> **🟡 진행 상황 (2026-07-03 · 세션 4 종료 — Cowork에서 로컬 Claude Code로 전환)**
 >
 > 완료 (커밋 SHA):
 >
@@ -23,31 +23,30 @@
 > - ✅ `758c5b3` **v1.1 — 리뷰팀 첫 피드백 5건 반영** (세션 4): bbox 드래그 재작도·인앱 가이드(/internal/review/guide)·용어 한국어화·오버레이 클릭 선택·보류 토글+리뷰어 코멘트(0028 적용). **bbox 정교화 로드맵**은 v1 plan doc v1.1 섹션에 등재 (Gate 2 layout 엔진 → 골든 bbox 자동 스냅 + 확인 UI — Gate 2 이후 작업)
 > - ✅ `f76ceca` **v2 — 질문 기반 검수 모드** (세션 4): "직관적이지 않다" 피드백에 검수 UX를 질문 카드 흐름으로 전환. 0029 질문 테이블(적용됨), LLM 사전 배치 생성 완료(45문서 1,965문항: question 150/quick_confirm 1,472/missing_sweep 343), applyMap 화이트리스트 검증, 질문 모드 기본+전문 모드 토글. **재생성 커맨드**: `pnpm generate:review-questions -- --regenerate --write` (라벨 대폭 수정 시)
 >
-> - ⬜ **[사람·임계경로] 배포 + 리뷰팀 45문서 검수** — ① origin push(샌드박스에 git 자격증명 없음) → Vercel 자동 배포 ② `docs/infra-setup-guide.md` B1(Vercel env에 R2_* 확인)·B2(리뷰어 admin_users 등록) ③ 브라우저 1회 확인(로그인→목록→확정 1건→취소) 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 2 착수의 유일한 블로커
-> - ⬜ Phase 2 T10 Cloud Run 배포 (사용자 GCP 자격증명 필요)
-> - ⬜ [사람] 로컬 `pnpm install` 후 `@cunote/conversion`·`@cunote/web` typecheck (T1~T8 타입 정합 최종 확인)
-> - ⬜ [사람] origin push (main이 origin보다 다수 커밋 앞섬)
+> - ⬜ **[임계경로] 배포 + 리뷰팀 45문서 검수 개시** — ① origin push → Vercel 자동 배포 ② `docs/infra-setup-guide.md` B1(Vercel env에 R2_* 확인)·B2(리뷰어 admin_users 등록) ③ 브라우저 1회 확인(로그인→질문 모드 왕복→확정 1건→취소) 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 2 **측정**의 유일한 블로커 — 단 개발 트랙과 병렬 진행 (아래 방침)
+> - ⬜ **개발 트랙 (검수와 병렬, 측정 비의존부터)**: Phase 2 T10 Cloud Run 배포(GCP는 infra-setup-guide A절) → Gate 2 layout 엔진 어댑터 5종 구현·배선(Upstage/kordoc/Google/Azure/PaddleOCR — 실행 인프라까지, **통과 판정·캘리브레이션은 golden 쌓인 후**) → 검수 15~20건 시점에 부분 golden으로 조기 측정 시작 (2026-07-03 사용자 합의: 순차 아닌 병렬)
 > - ⬜ 웹폼 샘플 5건 라벨 (브라우저 캡처 필요 — 검수 후 별도 배치)
 > - ⬜ Gate 2 준비: layout 엔진 후보 스파이크 — **후보에 Upstage Document Parse(한국어 특화·$0.01/p)와 kordoc `extractFormFields()` 추가** (Google/Azure/PaddleOCR와 함께, `docs/research/2026-07-02-document-ai-sota.md` 대조표 기준)
 > - ⬜ kordoc `fillHwpx()` 스파이크 — HWPX filled export(마스터 3.2 후속 단계)를 앞당길 후보. 검증 없이 채택 금지
 > - ⬜ confidence 합성 산출 구현 설계 (마스터 13장 신규 정의 — self-consistency + evidence 정렬 + 소스 합의. Gate 3 전 필요)
 > - ⬜ Tier 0 검색(Phase 8)에 contextual retrieval + BM25 하이브리드 반영 (`docs/research/2026-07-02-hitl-loop-sota.md`)
 >
-> **다음 세션 진입 가이드**
+> **다음 세션 진입 가이드 — 로컬 Claude Code (맥) 기준**
 >
-> - 브랜치: `main` (worktree 없음)
-> - 작업 체계: 구현·대량 작업은 **Opus 서브에이전트** 위임, 메인은 계획·검수·피드백 (CLAUDE.md "작업 체계")
-> - git: 마운트에서 unlink 차단 — **모든 git 명령 직전** `mkdir -p .git/stale-locks && mv .git/*.lock .git/stale-locks/ 2>/dev/null` (CLAUDE.md 참조)
-> - **새 샌드박스에서 소멸되는 것 (재설치 필요)**:
->   - H2Orestart: `curl -sL -o /tmp/H2O.oxt "https://github.com/ebandal/H2Orestart/releases/latest/download/H2Orestart.oxt" && unopkg add /tmp/H2O.oxt` (soffice/pdftoppm은 기본 설치됨)
->   - DB/R2 접근용: `mkdir /tmp/dk && cd /tmp/dk && npm init -y && npm i postgres @aws-sdk/client-s3 drizzle-kit@0.31.10` (자격증명은 저장소 `.env` 재사용, 스크립트 패턴은 이 문서 하단 부록)
->   - 주의: 이전 세션의 `/tmp/dk`·`/tmp/vc` 등이 nobody 소유 읽기전용으로 남아있을 수 있음 — 그 경우 새 이름(`/tmp/dk2` 등)으로 생성. 마운트 node_modules는 macOS 바이너리라 리눅스에서 실행 불가(esbuild 불일치) — 반드시 /tmp 클린 설치 사용
-> - **유지되는 것**: 마운트 저장소 전체 (`spike-samples*/`, `spike-out*/`, `spike-labels/` 포함), Supabase DB(0025 적용됨), R2 아티팩트
-> - 회귀 검증 커맨드 (재개 직후 실행):
->   - `node apps/conversion/scripts/quality-test.mjs` → 10/10 통과
->   - `node apps/conversion/scripts/verify-convert.mjs spike-samples/files/10_*.hwp /tmp/vc` → pdf+pages+markdown 생성 (H2Orestart 설치 후)
-> - 서브태스크 순서 (①② 세션 2 완료): ③ T10 배포 (사용자 협업) → ④ 웹폼 5건 → ⑤ **Gate 2 착수 전 외부 대조** (`docs/research/CALIBRATION-TEMPLATE.md` 절차, Gate 2 행의 전제 목록 사용 — 직전 대조 2026-07-02 이후 변화분만) → ⑥ Gate 2 layout 엔진 스파이크. 검수 완료분 생기면 언제든 `pnpm load:golden:field-maps -- --write`
-> - 수동 E2E 주의: 변환 서버 API 검증 시 R2 키 프리픽스 `conversion-dev/` 사용, DB 검증 행은 검증 후 SQL로 삭제 (파일과 달리 DB 행은 삭제 가능)
+> 2026-07-03부터 작업 환경이 Cowork 샌드박스 → **로컬 맥 Claude Code 터미널**로 전환됨.
+>
+> - 브랜치: `main` (worktree 없음). **미push 커밋 다수 — 첫 작업 전에 `git push origin main`**
+> - 작업 체계 (사용자 확정): 구현·대량 작업은 **Opus 4.8 서브에이전트(Task 도구)** 위임, 메인 세션은 계획·검증·통합·커밋. 위임 스펙은 plan doc에 섹션으로 남긴다 (v1/v1.1/v2 섹션 참조)
+> - **샌드박스 전용 규칙은 로컬에서 전부 해당 없음**: stale-locks 의례 불필요(정상 git), `/tmp/dk*` 불필요(레포에서 직접 `pnpm` 사용), unlink 차단 없음, bash 45초 제한 없음. `.git/stale-locks/`·`.git/objects/*/tmp_obj_*` 잔재는 한 번 `rm -rf`로 정리 권장
+> - **로컬 전환 직후 체크리스트** (순서대로):
+>   1. `git push origin main` (백업 + Vercel dev 배포 트리거)
+>   2. `pnpm install` → `pnpm -r typecheck` 또는 `tsc --noEmit -p apps/web/tsconfig.json` (리눅스 클린 빌드는 통과 상태 — 맥 네이티브 최초 확인)
+>   3. `pnpm --filter @cunote/web build` 통과 확인
+>   4. infra-setup-guide B1·B2 (Vercel env, 리뷰어 등록) → dev.changupnote.com/internal/review 브라우저 확인 → 리뷰팀에 검수 가이드 전달
+> - 변환 서버 회귀(`node apps/conversion/scripts/quality-test.mjs` 10/10)는 로컬에서도 동작. `verify-convert.mjs`·`test:t9`는 LibreOffice+H2Orestart 필요 — 맥에 없으면 스킵하고 Docker/배포 환경에서 확인 (Gate 0 확정 환경은 리눅스)
+> - 이후 트랙 (병렬): [A] 리뷰팀 검수 진행 지원·질문 품질 관찰 [B] T10 Cloud Run 배포 (infra-setup-guide A절) [C] Gate 2 layout 엔진 어댑터 실행 인프라 (**착수 전 외부 대조**: `docs/research/CALIBRATION-TEMPLATE.md` 절차, 2026-07-02 대조 이후 변화분만) [D] 검수 15~20건 시점 부분 golden 조기 측정 (`pnpm load:golden:field-maps -- --write` → eval)
+> - 수동 E2E 주의: 변환 서버 API 검증 시 R2 키 프리픽스 `conversion-dev/`, DB 검증 행·계정은 검증 후 삭제 (이번 세션 관례: `sim-reviewer@ba-ton.kr` 패턴)
+> - 리뷰 도구 운영 메모: 라벨 정본은 **DB**(field_map_review_docs), spike-labels/는 임포트 소스. 라벨 대폭 수정 시 질문 재생성 `pnpm generate:review-questions -- --regenerate --write`. 검수 확정=golden 승격(취소 가능). 보류·리뷰어 코멘트가 쌓이면 운영자 인박스 화면(9.8 후속 슬라이스)이 다음 우선 후보
 
 ## 문서 지도
 
@@ -60,7 +59,7 @@
 | Phase 2 계획 (T1~T10) | `docs/phase2-conversion-server-implementation-plan.md` |
 | 환경/작업 규칙 | `CLAUDE.md` |
 
-## 부록: 샌드박스 DB/R2 스크립트 패턴
+## 부록: 샌드박스 DB/R2 스크립트 패턴 (Cowork 전용 — 로컬 Claude Code에서는 불필요, 레포에서 직접 pnpm/tsx 사용)
 
 ```js
 // /tmp/dk/*.mjs 에서 실행 (node /tmp/dk/x.mjs). env는 저장소 .env.local + .env 순으로 읽는다
