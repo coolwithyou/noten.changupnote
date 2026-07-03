@@ -1,0 +1,32 @@
+# Cloud Build: Phase 2 문서 변환 서버(apps/conversion) 이미지 빌드 (native amd64).
+# 로컬 맥은 arm64라 에뮬레이션 크로스빌드의 리스크(soffice 워밍업 hang 등)를 피해
+# Cloud Build 에서 amd64 로 빌드한다. 계획: docs/phase2-conversion-server-implementation-plan.md 12장.
+#
+# 빌드 컨텍스트는 저장소 루트(.), Dockerfile 은 -f 로 지정한다 (모노레포).
+# 이미지 태그는 git short SHA 를 substitution _TAG 로 주입한다.
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions _TAG=asia-northeast3-docker.pkg.dev/changupnote-com/cunote/conversion:<sha>
+
+steps:
+  # 1) 이미지 빌드
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'apps/conversion/Dockerfile'
+      - '-t'
+      - '${_TAG}'
+      - '.'
+  # 2) Artifact Registry 로 push
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '${_TAG}']
+
+# Cloud Build 기본 타임아웃(10분)은 LibreOffice+H2Orestart 설치·pnpm 빌드에 부족하다.
+timeout: '1800s'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+
+substitutions:
+  # 제출 시 --substitutions 로 덮어쓴다 (git short SHA 태그).
+  _TAG: 'asia-northeast3-docker.pkg.dev/changupnote-com/cunote/conversion:latest'

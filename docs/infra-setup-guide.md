@@ -7,26 +7,15 @@
 
 변환 서버(apps/conversion)는 DB에 직접 붙지 않는다. 필요한 건 R2 자격증명과 공유 시크릿뿐.
 
-- [ ] **A1. 프로젝트**: GCP 콘솔에서 새 프로젝트 생성 (예: `cunote-prod`), 결제 계정 연결
-- [ ] **A2. gcloud CLI**: 로컬에 설치 후 `gcloud auth login` + `gcloud config set project <PROJECT_ID>`
-  (Owner 계정으로 직접 배포하므로 서비스 계정 키 발급 불필요. CI 도입 시 그때 SA 생성)
-- [ ] **A3. API 활성화**:
-  ```bash
-  gcloud services enable run.googleapis.com artifactregistry.googleapis.com secretmanager.googleapis.com
-  ```
-- [ ] **A4. Artifact Registry** (서울 리전):
-  ```bash
-  gcloud artifacts repositories create cunote --repository-format=docker --location=asia-northeast3
-  ```
-- [ ] **A5. Secret Manager에 시크릿 등록** (값은 저장소 `.env`의 R2_* 재사용, 공유 시크릿은 신규 생성):
-  ```bash
-  openssl rand -hex 32   # CONVERSION_SHARED_SECRET 값 생성
-  for s in CONVERSION_SHARED_SECRET R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do
-    printf '<값>' | gcloud secrets create $s --data-file=-
-  done
-  ```
-- [ ] **A6. 배포 자체는 협업 세션에서** (T10): Docker 빌드 → AR push → Cloud Run 배포 → 프로덕션 스모크 + 시드 5건 왕복. 이 세션에서 커맨드를 준비해 드림
-- [ ] **A7. 배포 후 웹앱 연결**: Vercel(dev) 환경변수에 `CONVERSION_SERVER_URL`(Cloud Run URL)과 `CONVERSION_SHARED_SECRET` 추가
+- [x] **A1. 프로젝트**: `changupnote-com` (조직 567880527987 소속, 결제 연결 확인) — 2026-07-03
+- [x] **A2. gcloud CLI**: `sw@noten.im` 인증 + 프로젝트 설정 완료 — 2026-07-03
+- [x] **A3. API 활성화**: run·artifactregistry·secretmanager + cloudbuild(빌드용 추가) — 2026-07-03
+- [x] **A4. Artifact Registry**: `asia-northeast3-docker.pkg.dev/changupnote-com/cunote` 생성 — 2026-07-03
+- [x] **A5. Secret Manager 5종 등록**: `CONVERSION_SHARED_SECRET`(신규 생성) + `R2_*` 4종(.env 재사용) — 2026-07-03
+- [x] **A6. T10 배포**: Cloud Build(amd64) → AR push → Cloud Run `cunote-conversion`(asia-northeast3) — 실행 기록·스모크 결과는 phase2 계획 12장 참조
+- [ ] **A7. 배포 후 웹앱 연결** ✋: Vercel(dev) 환경변수에 `CONVERSION_SERVER_URL`(Cloud Run URL)과 `CONVERSION_SHARED_SECRET`(`gcloud secrets versions access latest --secret=CONVERSION_SHARED_SECRET`로 조회) 추가
+
+> **조직 정책 주의 (2026-07-03 확인)**: 조직에 Domain Restricted Sharing이 걸려 있어 `allUsers` invoker(=`--allow-unauthenticated`)가 불가하다. 대신 **`--no-invoker-iam-check`**(invoker IAM check 비활성화)로 배포해 설계대로 앱 레벨 shared secret 인증만 사용한다. 또 run.app 기본 URL에서 **`/healthz` 경로는 Google 프런트엔드가 가로채 404를 반환**하므로(컨테이너 미도달) 원격 헬스 확인은 `GET /`의 앱 401 응답으로 한다.
 
 ## B. 리뷰어 워크스페이스 (dev.changupnote.com/internal/review)
 
@@ -42,9 +31,9 @@
 
 ## C. 저장소 위생 ✋
 
-- [ ] **C1. origin push**: 로컬 main이 origin보다 다수 커밋 앞섬. 라벨·기준서·리뷰 GUI가 전부 로컬에만 있는 상태 — 유실 위험이자 협업 차단 요인. 최우선
-- [ ] **C2. 로컬 typecheck**: `pnpm install` 후 `@cunote/conversion`·`@cunote/web` typecheck (샌드박스는 macOS 바이너리 문제로 불가)
-- [ ] **C3. (선택) `.git/stale-locks/`·`.git/objects/*/tmp_obj_*` 잔재 정리**: 로컬에서 `rm -rf .git/stale-locks && find .git/objects -name 'tmp_obj_*' -delete`
+- [x] **C1. origin push**: 완료 — 2026-07-03 (34커밋)
+- [x] **C2. 로컬 typecheck**: 완료 — 2026-07-03. conversion에서 선존 타입 에러 1건 발견·수정(`97925d3`), web/admin/packages 통과
+- [x] **C3. 샌드박스 git 잔재 정리**: 완료 — 2026-07-03
 
 ## 이 세션과 무관하게 이미 완료된 것
 

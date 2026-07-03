@@ -385,7 +385,43 @@ curl localhost:8080/v1/conversion-jobs/<jobId>
 | **H2Orestart 릴리스 URL 변동** | 버전(0.7.13)과 자산 URL을 Dockerfile ARG로 고정. 설치 후 `unopkg list --shared`로 검증하는 빌드 스텝 추가. |
 | **캐시 오염 (converter 버전업)** | 캐시 키에 `converterVersion` 포함. 렌더러/추출기 버전 올리면 키가 바뀌어 자동 재변환. 기존 artifact는 남겨두고 신 버전으로 덮어쓰기(upsert). |
 
-## 12. 다음 단계 (Phase 3~4로 이관)
+## 12. T10 배포 실행 스펙 (2026-07-03 위임 — Opus 서브에이전트)
+
+전제 (메인 세션에서 완료): GCP 프로젝트 `changupnote-com`(결제 연결), API 활성화(run·artifactregistry·secretmanager), Artifact Registry repo `cunote`(asia-northeast3, docker), Secret Manager 5종 등록(`CONVERSION_SHARED_SECRET` 신규 생성 + `R2_*` 4종은 `.env` 재사용). gcloud 로컬 인증 완료.
+
+### 결정 사항
+
+- **이미지 빌드는 Cloud Build** (native amd64). 로컬 맥은 arm64라 에뮬레이션 크로스빌드의 리스크(soffice 워밍업 hang 등)를 피한다. `cloudbuild.googleapis.com` 활성화 필요. Cloud Build 기본 타임아웃 10분은 부족 — `timeout: 1800s` + `machineType: E2_HIGHCPU_8` 지정
+- **Dockerfile 사전 수정 2건** (샌드박스에 Docker가 없어 이 Dockerfile은 실빌드 이력 없음):
+  1. `@cunote/core`가 `@cunote/contracts`에 의존하므로 빌드 체인을 contracts → core → conversion으로 보정
+  2. `corepack prepare pnpm@latest` → `pnpm@10.30.1` 고정 (package.json `packageManager`·lockfile과 일치)
+- **Cloud Run 배포**: service `cunote-conversion`, region asia-northeast3, `--allow-unauthenticated`(인증은 앱 레벨 shared secret — 4장 설계), `--memory 2Gi --cpu 2`, **`--max-instances 1`**(인메모리 큐·job 상태·캐시가 인스턴스 로컬이므로 폴링 일관성 필수), `--timeout 300`(POST는 즉시 202 응답), `--set-secrets`로 5종 연결. 런타임 SA에 `roles/secretmanager.secretAccessor` 필요 시 부여
+- **키 프리픽스 2단계**: 스모크 동안 `CONVERSION_KEY_PREFIX=conversion-dev`로 배포 → 스모크 통과 후 `grant-convert`로 env 갱신 (최종 상태). 검증 산출물이 프로덕션 프리픽스를 오염시키지 않기 위함 (저장소 관례)
+- **spike-samples는 gitignore**라 Cloud Build 컨텍스트에서 제외됨 → 인빌드 렌더 검증은 생략하고, H2Orestart 렌더의 프로덕션 첫 검증은 배포 후 스모크가 겸한다
+
+### 스모크 (T10 통과 판정)
+
+시드 5건(HWP 2 · HWPX 1 · PDF 1 · DOCX 1, `spike-samples/files`에서 선정) 왕복: `/healthz` → 잘못된 secret 401 → POST 등록 → 폴링 → artifacts 목록 → R2 인증 GET으로 산출물 실재 확인 → 동일 sha256 재등록 `cached:true`. 스크립트는 `verify-api.mjs` 패턴을 원격 URL 대상으로 옮긴 `smoke-remote.mjs`로 저장 (재사용 가능하게).
+
+### 완료 후 메인 세션 인계
+
+service URL·리비전·스모크 결과 보고 → 메인 세션이 검증·문서 갱신·커밋. 이후 사용자 액션: Vercel(dev)에 `CONVERSION_SERVER_URL` + `CONVERSION_SHARED_SECRET` 등록 (infra-setup-guide A7).
+
+### 실행 결과 (2026-07-03)
+
+- **service URL**: `https://cunote-conversion-644631753751.asia-northeast3.run.app`
+- 이미지: `asia-northeast3-docker.pkg.dev/changupnote-com/cunote/conversion:t10-rc2` (Cloud Build, amd64)
+- Dockerfile 결함 3건 수정 (전부 이미지 첫 실빌드·첫 실행에서 발견):
+  1. **빌드 체인**: contracts 빌드 누락 보정 + pnpm 10.30.1 고정 (스펙 예고분)
+  2. **JVM 탐지**: LibreOffice jvmfwk가 JRE를 못 찾아 unopkg의 H2Orestart 등록 실패 → `libreoffice-java-common` 추가 + `JAVA_HOME` 명시 (Cloud Build 1차 실패에서 발견)
+  3. **UTF-8 로케일**: 로케일 미설정 시 JVM 파일명 인코딩(sun.jnu.encoding)이 ASCII → H2Orestart가 **한글 파일명 HWP/HWPX를 열지 못함** (스모크 1차에서 HWP/HWPX 전건 FileNotFoundException). `LANG`/`LC_ALL=C.UTF-8` 고정으로 해결. 샌드박스·Gate 0 검증은 UTF-8 로케일 환경이라 재현되지 않았음
+- **인증 구조 변경 (조직 정책 대응)**: 조직 DRS로 `allUsers` invoker 불가 → `--allow-unauthenticated` 대신 **`--no-invoker-iam-check`**. 앱 레벨 shared secret이 유일한 인증(4장 설계 그대로)
+- **run.app `/healthz` 가로채기**: Google 프런트엔드가 run.app URL의 `/healthz`를 컨테이너에 전달하지 않고 Google 404를 반환. 원격 도달성 확인은 `GET /` → 앱 401로 대체 (smoke-remote.mjs 반영). 진단 과정에서 이 현상이 "이미지별 라우팅 차단"으로 오인돼 우회 시도가 길어졌음 — 후속 배포 검증 시 참고
+- 배포 설정: 2Gi/2cpu, max-instances 1(인메모리 큐 일관성), timeout 300, Secret Manager 5종 연결, `R2_BUCKET_URL`은 일반 env(공개 URL — 스펙의 시크릿 5종에 누락됐던 필수 env, storage.ts가 요구)
+- **스모크 5/5 PASS** (t10-rc2, `pnpm`+`node apps/conversion/scripts/smoke-remote.mjs <URL>`): HWP 2건 succeeded/usable_with_review(8p·6p, artifacts 10·8), HWPX succeeded(11p, 13), PDF succeeded/usable(1p, 3), DOCX succeeded/usable(14p, 16). 전 artifact R2 실재 확인, 동일 sha256 재등록 cached:true, 잘못된 secret 401. 최종 리비전 `cunote-conversion-00004-b2t` (`CONVERSION_KEY_PREFIX=grant-convert`)
+- **후속 권고**: 큐가 임시 디렉토리에 원본을 **원 파일명 그대로** 쓰는 대신 `source.<ext>`로 정규화하면 로케일 무관하게 견고해짐 (Phase 3 전 소규모 개선 후보)
+
+## 13. 다음 단계 (Phase 3~4로 이관)
 
 - Phase 3: page image viewer + field overlay UI (artifact 소비 측)
 - Phase 4: `layout_json` 실제 생성 (Document AI or 자체 layout) + vision pass + reconciliation. 이때 quality의 `visualTextAgreement`·`requiredFieldCoverage`를 채우고 `fields_ready` 전이를 완성한다.
