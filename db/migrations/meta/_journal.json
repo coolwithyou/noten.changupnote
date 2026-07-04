@@ -211,6 +211,13 @@
       "when": 1783081586305,
       "tag": "0029_tiresome_zombie",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1783123898607,
+      "tag": "0030_sturdy_speedball",
+      "breakpoints": true
     }
   ]
 }

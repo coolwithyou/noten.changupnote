@@ -39,3 +39,6 @@ backups/
 spike-samples*/
 spike-out*/
 spike-labels/pages/
+
+# Gate 2 layout-eval 원시 응답 캐시 (API 재과금 방지, 로컬 산출물)
+apps/web/src/lib/server/layout-eval/eval-cache/

@@ -16,6 +16,8 @@
     "db:bootstrap:dev": "node scripts/bootstrap-dev-db.mjs",
     "seed:demo": "tsx apps/web/src/lib/server/db/seed-demo.ts",
     "load:golden:field-maps": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/load-golden-field-maps.ts",
+    "eval:layout": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/layout-eval/run-layout-eval.ts",
+    "eval:layout:test": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/layout-eval/normalize.test.ts",
     "import:review-docs": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/import-review-docs.ts",
     "generate:review-questions": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/generate-review-questions.ts",
     "admin:user:create": "pnpm --filter @cunote/admin admin:user:create --",

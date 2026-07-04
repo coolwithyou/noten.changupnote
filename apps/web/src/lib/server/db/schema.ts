@@ -93,7 +93,7 @@ export const notificationReceiptStatusEnum = pgEnum("notification_receipt_status
 export const extractionStatusEnum = pgEnum("extraction_status", ["auto", "review", "labeled"]);
 export const goldenKindEnum = pgEnum("golden_kind", ["extraction", "matching", "field_map"]);
 export const reviewStatusEnum = pgEnum("review_status", ["pending", "in_review", "approved"]);
-export const evalTargetEnum = pgEnum("eval_target", ["extraction", "matching"]);
+export const evalTargetEnum = pgEnum("eval_target", ["extraction", "matching", "field_map"]);
 export const versionTypeEnum = pgEnum("version_type", [
   "model",
   "prompt",
