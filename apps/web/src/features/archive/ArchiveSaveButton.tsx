@@ -41,7 +41,7 @@ export function ArchiveSaveButton({
   }
 
   return (
-    <span className="archive-save-action">
+    <span className="inline-flex items-center gap-2">
       <Button
         type="button"
         size="sm"
@@ -52,7 +52,7 @@ export function ArchiveSaveButton({
         {status === "saving" ? <Spinner data-icon="inline-start" /> : status === "saved" ? <Check data-icon="inline-start" /> : <Bookmark data-icon="inline-start" />}
         {status === "saving" ? "저장 중" : status === "saved" ? "저장됨" : "저장"}
       </Button>
-      <span className={status === "error" ? "archive-save-message error" : "archive-save-message"} aria-live="polite">
+      <span className={status === "error" ? "text-xs text-destructive" : "text-xs text-muted-foreground"} aria-live="polite">
         {message}
       </span>
     </span>

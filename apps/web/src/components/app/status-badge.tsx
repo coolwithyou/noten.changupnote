@@ -4,12 +4,12 @@ import type { ComponentProps, ReactNode } from "react";
 
 type StatusTone = "brand" | "success" | "warning" | "danger" | "neutral";
 
-const toneClassName: Record<StatusTone, string> = {
-  brand: "status-badge-brand",
-  success: "status-badge-success",
-  warning: "status-badge-warning",
-  danger: "status-badge-danger",
-  neutral: "status-badge-neutral",
+const toneVariant: Record<StatusTone, ComponentProps<typeof Badge>["variant"]> = {
+  brand: "default",
+  success: "secondary",
+  warning: "outline",
+  danger: "destructive",
+  neutral: "secondary",
 };
 
 export function StatusBadge({
@@ -23,7 +23,7 @@ export function StatusBadge({
   children: ReactNode;
 } & Omit<ComponentProps<typeof Badge>, "variant">) {
   return (
-    <Badge variant="secondary" className={cn("status-badge", toneClassName[tone], className)} {...props}>
+    <Badge variant={toneVariant[tone]} className={cn(className)} {...props}>
       {children}
     </Badge>
   );

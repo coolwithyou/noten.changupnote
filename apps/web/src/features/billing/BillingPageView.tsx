@@ -39,18 +39,19 @@ export function BillingPageView({
   const primaryPaymentMethod = paymentMethods.find((method) => method.isDefault) ?? paymentMethods[0] ?? null;
 
   return (
-    <main className="saas-shell workspace-shell">
+    <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/billing" })} />
 
-      <section className="saas-hero compact">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+      <section className="grid gap-4 rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
-          <p className="eyebrow">플랜과 청구</p>
-          <h1>{overview.plan.planName} 플랜</h1>
-          <p>
+          <p className="text-xs font-medium uppercase text-muted-foreground">플랜과 청구</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-normal sm:text-3xl">{overview.plan.planName} 플랜</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
             현재 사용량과 구독 상태를 확인합니다. 결제 수단과 청구서는 provider 연동 상태에 맞춰 표시합니다.
           </p>
         </div>
-        <div className="saas-hero-actions">
+        <div className="flex flex-wrap gap-2 lg:justify-end">
           <a className={buttonVariants({ variant: "secondary" })} href="/api/web/billing/statement">
             <Download data-icon="inline-start" />
             명세서
@@ -70,24 +71,24 @@ export function BillingPageView({
         </div>
       </section>
 
-      <section className="workspace-two-column billing-layout">
-        <Card className="workspace-panel billing-plan-summary">
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(360px,0.7fr)]">
+        <Card>
           <CardHeader>
             <div>
-              <span className="eyebrow">현재 플랜</span>
-              <h2>{overview.plan.planName}</h2>
+              <span className="text-xs font-medium uppercase text-muted-foreground">현재 플랜</span>
+              <h2 className="mt-1 text-lg font-semibold tracking-normal">{overview.plan.planName}</h2>
             </div>
             <StatusBadge tone={subscriptionTone(subscription.status)}>{overview.plan.status}</StatusBadge>
           </CardHeader>
-          <CardContent className="billing-plan-content">
-            <div className="billing-price">
-              <strong>{overview.plan.priceLabel}</strong>
-              <span>{overview.plan.renewalLabel}</span>
+          <CardContent className="grid gap-5">
+            <div className="rounded-[var(--radius-xl)] border bg-muted/30 p-4">
+              <strong className="block text-3xl font-semibold tracking-normal">{overview.plan.priceLabel}</strong>
+              <span className="mt-1 block text-sm text-muted-foreground">{overview.plan.renewalLabel}</span>
             </div>
-            <div className="billing-feature-list">
+            <div className="grid gap-2 sm:grid-cols-2">
               {overview.plan.included.map((feature) => (
-                <span key={feature}>
-                  <Sparkles aria-hidden />
+                <span key={feature} className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] border bg-card px-3 py-2 text-sm">
+                  <Sparkles className="size-4 text-primary" aria-hidden />
                   {feature}
                 </span>
               ))}
@@ -95,15 +96,15 @@ export function BillingPageView({
           </CardContent>
         </Card>
 
-        <Card className="workspace-panel">
+        <Card>
           <CardHeader>
             <div>
-              <span className="eyebrow">청구 상태</span>
-              <h2>구독 상태</h2>
+              <span className="text-xs font-medium uppercase text-muted-foreground">청구 상태</span>
+              <h2 className="mt-1 text-lg font-semibold tracking-normal">구독 상태</h2>
             </div>
-            <CreditCard aria-hidden />
+            <CreditCard className="size-5 text-muted-foreground" aria-hidden />
           </CardHeader>
-          <CardContent className="billing-state-list">
+          <CardContent className="grid gap-3">
             <BillingState
               icon={<FileText />}
               title="구독 상태"
@@ -133,28 +134,28 @@ export function BillingPageView({
         </Card>
       </section>
 
-      <section className="workspace-usage-grid" aria-label="플랜 사용량">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="플랜 사용량">
         {overview.usage.map((metric) => (
           <UsageCard key={metric.label} metric={metric} />
         ))}
       </section>
 
-      <Card className="workspace-panel billing-readiness-panel">
+      <Card>
         <CardHeader>
           <div>
-            <span className="eyebrow">청구 준비도</span>
-            <h2>유료 전환 체크</h2>
+            <span className="text-xs font-medium uppercase text-muted-foreground">청구 준비도</span>
+            <h2 className="mt-1 text-lg font-semibold tracking-normal">유료 전환 체크</h2>
           </div>
           <StatusBadge tone={readinessTone(readiness.status)}>{readiness.statusLabel}</StatusBadge>
         </CardHeader>
-        <CardContent className="billing-readiness-content">
-          <div className="billing-readiness-score">
-            <strong>{readiness.score}%</strong>
-            <p>{readiness.summary}</p>
-            <span>결제 provider: {readiness.providerLabel}</span>
-            <span>구독 상태: {subscription.statusLabel}</span>
+        <CardContent className="grid gap-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+          <div className="rounded-[var(--radius-xl)] border bg-muted/30 p-4">
+            <strong className="block text-3xl font-semibold tracking-normal">{readiness.score}%</strong>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{readiness.summary}</p>
+            <span className="mt-3 block text-xs text-muted-foreground">결제 provider: {readiness.providerLabel}</span>
+            <span className="mt-1 block text-xs text-muted-foreground">구독 상태: {subscription.statusLabel}</span>
           </div>
-          <div className="billing-readiness-list">
+          <div className="grid gap-3">
             {readiness.items.map((item) => (
               <BillingReadinessRow item={item} key={item.key} />
             ))}
@@ -162,36 +163,36 @@ export function BillingPageView({
         </CardContent>
       </Card>
 
-      <Card className="workspace-panel billing-next-steps">
+      <Card>
         <CardHeader>
           <div>
-            <span className="eyebrow">다음 단계</span>
-            <h2>유료 플랜 전환 전 확인할 것</h2>
+            <span className="text-xs font-medium uppercase text-muted-foreground">다음 단계</span>
+            <h2 className="mt-1 text-lg font-semibold tracking-normal">유료 플랜 전환 전 확인할 것</h2>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="grid gap-2 text-sm leading-6 text-muted-foreground">
           {overview.plan.nextSteps.map((step) => (
             <p key={step}>{step}</p>
           ))}
         </CardContent>
       </Card>
 
-      <details className="saas-disclosure">
-        <summary>
-          <span className="saas-disclosure-summary-copy">
-            <span className="eyebrow">세금계산서</span>
-            <strong>수신 정보와 증빙 파일</strong>
+      <details className="rounded-[var(--radius-xl)] border bg-card shadow-[var(--shadow-subtle)]">
+        <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
+          <span className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase text-muted-foreground">세금계산서</span>
+            <strong className="text-sm font-semibold">수신 정보와 증빙 파일</strong>
           </span>
           <StatusBadge tone={taxProfile.taxInvoiceEnabled || taxDocuments.length > 0 ? "brand" : "neutral"}>
             {taxDocuments.length.toLocaleString("ko-KR")}
           </StatusBadge>
         </summary>
-        <div className="saas-disclosure-content">
-          <Card className="workspace-panel billing-request-panel">
+        <div className="grid gap-4 border-t p-4 lg:grid-cols-2">
+          <Card>
             <CardHeader>
               <div>
-                <span className="eyebrow">청구 프로필</span>
-                <h2>세금계산서 수신 정보</h2>
+                <span className="text-xs font-medium uppercase text-muted-foreground">청구 프로필</span>
+                <h2 className="mt-1 text-lg font-semibold tracking-normal">세금계산서 수신 정보</h2>
               </div>
               <StatusBadge tone={taxProfile.taxInvoiceEnabled ? "success" : "neutral"}>
                 {taxProfile.taxInvoiceEnabled ? "수신" : "미설정"}
@@ -211,11 +212,11 @@ export function BillingPageView({
             </CardContent>
           </Card>
 
-          <Card className="workspace-panel billing-request-history">
+          <Card>
             <CardHeader>
               <div>
-                <span className="eyebrow">청구 증빙</span>
-                <h2>청구 증빙 파일</h2>
+                <span className="text-xs font-medium uppercase text-muted-foreground">청구 증빙</span>
+                <h2 className="mt-1 text-lg font-semibold tracking-normal">청구 증빙 파일</h2>
               </div>
               <StatusBadge tone={taxDocuments.length > 0 ? "brand" : "neutral"}>{taxDocuments.length}</StatusBadge>
             </CardHeader>
@@ -229,22 +230,22 @@ export function BillingPageView({
         </div>
       </details>
 
-      <details className="saas-disclosure">
-        <summary>
-          <span className="saas-disclosure-summary-copy">
-            <span className="eyebrow">결제 기록</span>
-            <strong>결제수단과 최근 청구 이력</strong>
+      <details className="rounded-[var(--radius-xl)] border bg-card shadow-[var(--shadow-subtle)]">
+        <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
+          <span className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase text-muted-foreground">결제 기록</span>
+            <strong className="text-sm font-semibold">결제수단과 최근 청구 이력</strong>
           </span>
           <StatusBadge tone={paymentMethods.length + invoices.length > 0 ? "brand" : "neutral"}>
             {(paymentMethods.length + invoices.length).toLocaleString("ko-KR")}
           </StatusBadge>
         </summary>
-        <div className="saas-disclosure-content">
-          <Card className="workspace-panel billing-request-history">
+        <div className="grid gap-4 border-t p-4 xl:grid-cols-2">
+          <Card>
         <CardHeader>
           <div>
-            <span className="eyebrow">결제수단 기록</span>
-            <h2>등록된 결제수단</h2>
+            <span className="text-xs font-medium uppercase text-muted-foreground">결제수단 기록</span>
+            <h2 className="mt-1 text-lg font-semibold tracking-normal">등록된 결제수단</h2>
           </div>
           <StatusBadge tone={paymentMethods.length > 0 ? "brand" : "neutral"}>{paymentMethods.length}</StatusBadge>
         </CardHeader>
@@ -287,11 +288,11 @@ export function BillingPageView({
         </CardContent>
       </Card>
 
-      <Card className="workspace-panel billing-request-history">
+      <Card>
         <CardHeader>
           <div>
-            <span className="eyebrow">청구/영수증 기록</span>
-            <h2>최근 청구 이력</h2>
+            <span className="text-xs font-medium uppercase text-muted-foreground">청구/영수증 기록</span>
+            <h2 className="mt-1 text-lg font-semibold tracking-normal">최근 청구 이력</h2>
           </div>
           <StatusBadge tone={invoices.length > 0 ? "brand" : "neutral"}>{invoices.length}</StatusBadge>
         </CardHeader>
@@ -345,11 +346,11 @@ export function BillingPageView({
         </div>
       </details>
 
-      <Card className="workspace-panel billing-request-panel">
+      <Card>
         <CardHeader>
           <div>
-            <span className="eyebrow">유료 전환</span>
-            <h2>플랜 전환 요청</h2>
+            <span className="text-xs font-medium uppercase text-muted-foreground">유료 전환</span>
+            <h2 className="mt-1 text-lg font-semibold tracking-normal">플랜 전환 요청</h2>
           </div>
           <StatusBadge tone="neutral">상담 접수</StatusBadge>
         </CardHeader>
@@ -362,20 +363,20 @@ export function BillingPageView({
         </CardContent>
       </Card>
 
-      <details className="saas-disclosure">
-        <summary>
-          <span className="saas-disclosure-summary-copy">
-            <span className="eyebrow">상담 기록</span>
-            <strong>최근 전환 요청</strong>
+      <details className="rounded-[var(--radius-xl)] border bg-card shadow-[var(--shadow-subtle)]">
+        <summary className="flex cursor-pointer items-center justify-between gap-4 px-5 py-4">
+          <span className="flex flex-col gap-1">
+            <span className="text-xs font-medium uppercase text-muted-foreground">상담 기록</span>
+            <strong className="text-sm font-semibold">최근 전환 요청</strong>
           </span>
           <StatusBadge tone={planRequests.length > 0 ? "brand" : "neutral"}>{planRequests.length}</StatusBadge>
         </summary>
-        <div className="saas-disclosure-content">
-          <Card className="workspace-panel billing-request-history">
+        <div className="border-t p-4">
+          <Card>
         <CardHeader>
           <div>
-            <span className="eyebrow">전환 요청 기록</span>
-            <h2>최근 상담 요청</h2>
+            <span className="text-xs font-medium uppercase text-muted-foreground">전환 요청 기록</span>
+            <h2 className="mt-1 text-lg font-semibold tracking-normal">최근 상담 요청</h2>
           </div>
           <StatusBadge tone={planRequests.length > 0 ? "brand" : "neutral"}>{planRequests.length}</StatusBadge>
         </CardHeader>
@@ -421,6 +422,7 @@ export function BillingPageView({
       </Card>
         </div>
       </details>
+      </div>
     </main>
   );
 }
@@ -428,20 +430,20 @@ export function BillingPageView({
 function UsageCard({ metric }: { metric: WorkspaceUsageMetric }) {
   const ratio = metric.limit ? Math.min(100, Math.round((metric.value / metric.limit) * 100)) : 100;
   return (
-    <Card className="workspace-usage-card">
-      <CardContent className="p-0">
-        <div className="workspace-usage-head">
-          <span>{metric.label}</span>
+    <Card size="sm">
+      <CardContent className="grid gap-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">{metric.label}</span>
           <StatusBadge tone={metric.tone}>{metric.limit ? `${ratio}%` : "활성"}</StatusBadge>
         </div>
-        <strong>
+        <strong className="text-2xl font-semibold tracking-normal">
           {metric.value.toLocaleString("ko-KR")}
           {metric.limit ? ` / ${metric.limit.toLocaleString("ko-KR")}` : ""}
           {metric.unit}
         </strong>
-        <p>{metric.description}</p>
-        <div className="workspace-usage-track" aria-hidden>
-          <span style={{ width: `${ratio}%` }} />
+        <p className="text-sm leading-6 text-muted-foreground">{metric.description}</p>
+        <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden>
+          <span className="block h-full rounded-full bg-primary" style={{ width: `${ratio}%` }} />
         </div>
       </CardContent>
     </Card>
@@ -458,11 +460,11 @@ function BillingState({
   description: string;
 }) {
   return (
-    <div className="billing-state-row">
-      <span aria-hidden>{icon}</span>
+    <div className="flex items-start gap-3 rounded-[var(--radius-lg)] border bg-muted/30 p-3">
+      <span className="mt-0.5 text-muted-foreground [&_svg]:size-4" aria-hidden>{icon}</span>
       <div>
-        <strong>{title}</strong>
-        <p>{description}</p>
+        <strong className="text-sm font-semibold text-foreground">{title}</strong>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
     </div>
   );
@@ -471,18 +473,18 @@ function BillingState({
 function BillingReadinessRow({ item }: { item: BillingReadinessItem }) {
   const Icon = item.status === "ready" ? CheckCircle2 : CircleAlert;
   return (
-    <div className="billing-readiness-row">
-      <span aria-hidden className={`billing-readiness-icon ${item.status}`}>
-        <Icon />
+    <div className="flex items-start gap-3 rounded-[var(--radius-lg)] border bg-muted/30 p-4">
+      <span aria-hidden className={item.status === "ready" ? "mt-0.5 text-primary" : "mt-0.5 text-muted-foreground"}>
+        <Icon className="size-4" />
       </span>
-      <div>
-        <div className="billing-readiness-row-head">
-          <strong>{item.label}</strong>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <strong className="text-sm font-semibold text-foreground">{item.label}</strong>
           <StatusBadge tone={readinessTone(item.status)}>{readinessItemLabel(item.status)}</StatusBadge>
         </div>
-        <p>{item.detail}</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">{item.detail}</p>
         {item.actionHref && item.actionLabel ? (
-          <a href={item.actionHref}>{item.actionLabel}</a>
+          <a className="mt-2 inline-flex text-sm font-medium text-primary hover:underline" href={item.actionHref}>{item.actionLabel}</a>
         ) : null}
       </div>
     </div>

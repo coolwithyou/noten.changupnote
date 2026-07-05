@@ -27,9 +27,11 @@ function ToggleGroup({
   spacing = 2,
   orientation = "horizontal",
   children,
+  type: _type,
   ...props
 }: ToggleGroupPrimitive.Props &
   VariantProps<typeof toggleVariants> & {
+    type?: "single" | "multiple"
     spacing?: number
     orientation?: "horizontal" | "vertical"
   }) {

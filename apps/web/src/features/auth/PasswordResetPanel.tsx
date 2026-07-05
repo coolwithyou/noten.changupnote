@@ -8,7 +8,6 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { AuthBrandMark } from "./LoginPanel";
 
 interface PasswordResetPanelProps {
@@ -139,28 +138,23 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
   }
 
   return (
-    <main
-      className="cunote-auth relative flex min-h-screen w-full items-center justify-center overflow-hidden px-5 py-10"
-      style={{ backgroundImage: "var(--grad-mesh)", fontFamily: "var(--font-cunote-sans)" }}
-    >
-      <div className="cunote-grain" aria-hidden />
-
-      <div className="relative z-[2] w-full max-w-[420px]">
+    <main className="flex min-h-screen w-full items-center justify-center bg-background px-5 py-10 text-foreground">
+      <div className="w-full max-w-md">
         <Link
           href="/"
           aria-label="창업노트 홈"
-          className="mb-7 flex items-center justify-center gap-2.5 text-[18px] font-extrabold tracking-[-0.03em] text-[var(--tds-grey-900)]"
+          className="mb-7 flex items-center justify-center gap-2 text-lg font-semibold text-foreground"
         >
-          <AuthBrandMark className="size-[27px]" />
+          <AuthBrandMark className="size-7" />
           <span>창업노트</span>
         </Link>
 
-        <div className="rounded-[var(--tds-radius-l)] border border-border bg-card p-8 shadow-[var(--shadow-elevated)]">
+        <div className="rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] sm:p-8">
           <div className="mb-7 text-center">
-            <h1 className="mb-2 text-[24px] font-extrabold tracking-[-0.03em] text-[var(--tds-grey-900)]">
+            <h1 className="text-2xl font-semibold tracking-normal text-foreground">
               {isConfirm ? "새 비밀번호 설정" : "비밀번호 찾기"}
             </h1>
-            <p className="text-[14.5px] leading-[1.5] text-[var(--tds-grey-500)]">
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {isConfirm
                 ? "재설정 링크가 유효하면 새 비밀번호로 계정을 보호할 수 있습니다"
                 : "가입한 이메일을 입력하면 재설정 안내를 확인할 수 있습니다"}
@@ -181,7 +175,7 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
                     value={password}
                     onChange={(event) => setPassword(event.currentTarget.value)}
                     disabled={pending || complete}
-                    className="h-[50px] rounded-[var(--tds-radius-xxs)]"
+                    className="h-12"
                   />
                   <FieldDescription>8자 이상 입력해주세요.</FieldDescription>
                 </Field>
@@ -197,12 +191,12 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
                     value={passwordConfirm}
                     onChange={(event) => setPasswordConfirm(event.currentTarget.value)}
                     disabled={pending || complete}
-                    className="h-[50px] rounded-[var(--tds-radius-xxs)]"
+                    className="h-12"
                   />
                 </Field>
               </FieldGroup>
 
-              <Button type="submit" size="lg" disabled={pending || complete || !token} className="h-[54px] rounded-[var(--tds-radius-xxs)]">
+              <Button type="submit" size="lg" disabled={pending || complete || !token} className="w-full">
                 {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
                 {pending ? "변경 중" : "비밀번호 변경"}
               </Button>
@@ -221,12 +215,12 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
                     value={email}
                     onChange={(event) => setEmail(event.currentTarget.value)}
                     disabled={pending}
-                    className="h-[50px] rounded-[var(--tds-radius-xxs)]"
+                    className="h-12"
                   />
                 </Field>
               </FieldGroup>
 
-              <Button type="submit" size="lg" disabled={pending} className="h-[54px] rounded-[var(--tds-radius-xxs)]">
+              <Button type="submit" size="lg" disabled={pending} className="w-full">
                 {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
                 {pending ? "요청 중" : "재설정 안내 받기"}
               </Button>
@@ -244,14 +238,14 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
             <div className="mt-3 grid gap-2">
               <Link
                 href={debugResetUrl}
-                className={cn(buttonVariants({ variant: "outline" }), "h-11 w-full rounded-[var(--tds-radius-xxs)]")}
+                className={buttonVariants({ variant: "outline", className: "h-11 w-full" })}
               >
                 재설정 링크 열기
               </Link>
               <Button
                 type="button"
                 variant="outline"
-                className="h-11 w-full rounded-[var(--tds-radius-xxs)]"
+                className="h-11 w-full"
                 disabled={handoffPending}
                 onClick={() => void downloadResetEmailHandoff()}
               >
@@ -267,7 +261,7 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
             </Alert>
           ) : null}
 
-          <div className="mt-[22px] flex items-center justify-center gap-1.5 text-[13.5px] text-[var(--tds-grey-500)]">
+          <div className="mt-6 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
             <Link href={`/login?callbackUrl=${encodeURIComponent(callbackUrl)}`} className="font-bold text-primary">
               로그인으로 돌아가기
             </Link>

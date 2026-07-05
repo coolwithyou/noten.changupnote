@@ -21,21 +21,49 @@ export function ServiceHeader({
   variant = "app",
   loginCallbackUrl,
 }: ServiceHeaderProps) {
+  if (variant === "landing") {
+    return (
+      <header className="service-nav">
+        <a className="brand-mark" href="/" aria-label="창업노트 홈">
+          <span className="brand-symbol" aria-hidden="true">C</span>
+          <span>창업노트</span>
+        </a>
+        <div className="flex flex-wrap items-center gap-3">
+          <PageNav links={links} variant="landing" />
+          {user ? (
+            <AccountMenu user={user} />
+          ) : (
+            <a className={buttonVariants({ size: "sm", className: "nav-login" })} href={loginHref(loginCallbackUrl)}>
+              로그인
+            </a>
+          )}
+        </div>
+      </header>
+    );
+  }
+
   return (
-    <header className={variant === "landing" ? "service-nav" : "dashboard-nav"}>
-      <a className="brand-mark" href="/" aria-label="창업노트 홈">
-        <span className="brand-symbol" aria-hidden="true">C</span>
-        <span>창업노트</span>
-      </a>
-      <div className="flex flex-wrap items-center gap-3">
-        <PageNav links={links} />
-        {user ? (
-          <AccountMenu user={user} />
-        ) : (
-          <a className={buttonVariants({ size: "sm", className: "nav-login" })} href={loginHref(loginCallbackUrl)}>
-            로그인
-          </a>
-        )}
+    <header className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+      <div className="mx-auto flex min-h-16 w-full max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <a className="inline-flex items-center gap-2 text-sm font-semibold text-foreground" href="/" aria-label="창업노트 홈">
+          <span
+            className="flex size-8 items-center justify-center rounded-[var(--radius-lg)] bg-primary text-sm font-semibold text-primary-foreground shadow-[var(--shadow-subtle)]"
+            aria-hidden="true"
+          >
+            C
+          </span>
+          <span>창업노트</span>
+        </a>
+        <div className="flex min-w-0 items-center gap-2">
+          <PageNav links={links} />
+          {user ? (
+            <AccountMenu user={user} />
+          ) : (
+            <a className={buttonVariants({ size: "sm" })} href={loginHref(loginCallbackUrl)}>
+              로그인
+            </a>
+          )}
+        </div>
       </div>
     </header>
   );

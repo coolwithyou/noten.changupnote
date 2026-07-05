@@ -5,7 +5,7 @@ import type { ActionResult, CompanyProfile, TeaserRequest } from "@cunote/contra
 import { ArrowRight, Building2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -76,15 +76,15 @@ export function InitialCompanySetupPanel({ nextHref }: { nextHref: string }) {
   }
 
   return (
-    <Card id="initial-company-setup" className="saas-panel onboarding-panel onboarding-initial-panel">
+    <Card id="initial-company-setup">
       <CardHeader>
-        <div>
-          <span className="eyebrow">첫 회사 설정</span>
-          <h2>회사 프로필 만들기</h2>
-        </div>
-        <StatusBadge tone="warning">필수</StatusBadge>
+        <CardTitle>회사 프로필 만들기</CardTitle>
+        <CardDescription>첫 회사 데이터를 만들면 추천, 로드맵, 신청서류 초안이 같은 기준으로 작동합니다.</CardDescription>
+        <CardAction>
+          <StatusBadge tone="warning">필수</StatusBadge>
+        </CardAction>
       </CardHeader>
-      <CardContent className="onboarding-initial-content">
+      <CardContent className="flex flex-col gap-6">
         <Alert>
           <Building2 aria-hidden />
           <AlertTitle>회사 프로필이 필요합니다</AlertTitle>
@@ -94,8 +94,8 @@ export function InitialCompanySetupPanel({ nextHref }: { nextHref: string }) {
           </AlertDescription>
         </Alert>
 
-        <form className="onboarding-initial-form" onSubmit={createCompany}>
-          <FieldGroup className="onboarding-initial-grid">
+        <form className="flex flex-col gap-4" onSubmit={createCompany}>
+          <FieldGroup className="grid gap-4 md:grid-cols-2">
             <Field>
               <FieldLabel htmlFor={bizNoId}>사업자번호</FieldLabel>
               <Input
@@ -159,10 +159,10 @@ export function InitialCompanySetupPanel({ nextHref }: { nextHref: string }) {
             </Field>
           </FieldGroup>
 
-          {error ? <p className="onboarding-initial-message error">{error}</p> : null}
-          {status ? <p className="onboarding-initial-message success">{status}</p> : null}
+          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {status ? <p className="text-sm text-muted-foreground">{status}</p> : null}
 
-          <Button type="submit" disabled={pending}>
+          <Button className="w-fit" type="submit" disabled={pending}>
             {pending ? <Spinner data-icon="inline-start" /> : null}
             {pending ? "만드는 중" : "회사 프로필 만들기"}
             {pending ? null : <ArrowRight data-icon="inline-end" />}

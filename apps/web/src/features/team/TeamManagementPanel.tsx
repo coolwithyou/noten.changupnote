@@ -12,6 +12,7 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import {
   Select,
   SelectContent,
@@ -207,32 +208,30 @@ export function TeamManagementPanel({
   }
 
   return (
-    <div className="team-management-panel" id="team-invite-panel">
-      <div className="team-invite-panel">
-        <div className="team-panel-heading">
+    <div className="flex flex-col gap-6" id="team-invite-panel">
+      <div className="flex flex-col gap-4 rounded-[var(--radius-lg)] border bg-background p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <span className="eyebrow">초대</span>
-            <h3>팀원을 링크로 초대</h3>
+            <span className="text-xs font-medium text-muted-foreground">초대</span>
+            <h3 className="mt-1 text-base font-semibold text-foreground">팀원을 링크로 초대</h3>
           </div>
           <StatusBadge tone={pendingInvitationCount > 0 ? "brand" : "neutral"}>
             대기 {pendingInvitationCount}
           </StatusBadge>
         </div>
 
-        <div className="team-seat-summary" aria-label="팀 좌석 사용량">
+        <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border bg-muted/20 p-4" aria-label="팀 좌석 사용량">
           <div>
-            <span>좌석 {reservedSeatCount.toLocaleString("ko-KR")}/{seatUsage.seatLimit.toLocaleString("ko-KR")}</span>
-            <p>
+            <span className="text-sm font-semibold text-foreground">좌석 {reservedSeatCount.toLocaleString("ko-KR")}/{seatUsage.seatLimit.toLocaleString("ko-KR")}</span>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               멤버 {memberRows.length.toLocaleString("ko-KR")}명 · 대기 {pendingInvitationCount.toLocaleString("ko-KR")}명 · 남은 {availableSeatCount.toLocaleString("ko-KR")}명
             </p>
           </div>
-          <div className="team-seat-meter" aria-hidden>
-            <span style={{ width: `${seatUsagePercent}%` }} />
-          </div>
+          <Progress value={seatUsagePercent} aria-label={`좌석 사용률 ${seatUsagePercent}%`} />
         </div>
 
         {canManage ? (
-          <form className="team-invite-form" onSubmit={submitInvitation}>
+          <form className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto] md:items-start" onSubmit={submitInvitation}>
             <Field>
               <FieldLabel htmlFor="team-invite-email">이메일</FieldLabel>
               <Input
@@ -272,14 +271,14 @@ export function TeamManagementPanel({
             </Button>
           </form>
         ) : (
-          <div className="team-permission-note">
-            <ShieldCheck aria-hidden />
+          <div className="flex gap-3 rounded-[var(--radius-lg)] border bg-muted/20 p-4 text-sm leading-6 text-muted-foreground">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0" aria-hidden />
             <p>팀 초대와 역할 변경은 소유자 또는 관리자만 사용할 수 있습니다.</p>
           </div>
         )}
 
         {lastInvite ? (
-          <div className="team-invite-result">
+          <div className="grid gap-2 rounded-[var(--radius-lg)] border bg-muted/20 p-4 md:grid-cols-[minmax(0,1fr)_auto_auto]">
             {lastInvite.inviteUrl ? (
               <>
                 <Input readOnly value={lastInvite.inviteUrl} aria-label="초대 링크" />
@@ -293,28 +292,28 @@ export function TeamManagementPanel({
                 </a>
               </>
             ) : (
-              <p>마이그레이션과 DB 연결이 완료되면 초대 링크가 발급됩니다.</p>
+              <p className="text-sm text-muted-foreground">마이그레이션과 DB 연결이 완료되면 초대 링크가 발급됩니다.</p>
             )}
           </div>
         ) : null}
 
         {notice ? (
-          <FieldError className={`team-notice team-notice-${notice.tone}`}>
+          <FieldError className={notice.tone === "danger" ? "text-destructive" : "text-muted-foreground"}>
             {notice.tone === "success" ? <Check aria-hidden /> : null}
             {notice.message}
           </FieldError>
         ) : null}
       </div>
 
-      <div className="team-section-list" aria-label="팀 멤버 목록">
+      <div className="grid gap-3" aria-label="팀 멤버 목록">
         {memberRows.map((member) => (
-          <div className="team-member-row" key={member.userId}>
-            <div className="team-member-avatar" aria-hidden>
+          <div className="grid gap-3 rounded-[var(--radius-lg)] border bg-background p-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center" key={member.userId}>
+            <div className="flex size-10 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground" aria-hidden>
               {memberInitial(member)}
             </div>
-            <div className="team-member-main">
-              <strong>{member.name}</strong>
-              <span>
+            <div className="min-w-0">
+              <strong className="block truncate text-sm font-semibold text-foreground">{member.name}</strong>
+              <span className="mt-1 inline-flex items-center gap-1 text-sm text-muted-foreground">
                 <Mail aria-hidden />
                 {member.email ?? "이메일 없음"}
               </span>
@@ -332,22 +331,22 @@ export function TeamManagementPanel({
       </div>
 
       {invitationRows.length > 0 ? (
-        <details className="saas-disclosure">
-          <summary>
-            <span className="saas-disclosure-summary-copy">
-              <span className="eyebrow">초대 이력</span>
-              <strong>최근 초대</strong>
+        <details className="rounded-[var(--radius-lg)] border bg-background">
+          <summary className="flex cursor-pointer items-center justify-between gap-3 p-4">
+            <span className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">초대 이력</span>
+              <strong className="text-sm font-semibold text-foreground">최근 초대</strong>
             </span>
             <StatusBadge tone="neutral">{invitationRows.length}</StatusBadge>
           </summary>
-          <div className="saas-disclosure-content team-invitation-list" aria-label="팀 초대 이력">
+          <div className="grid gap-3 border-t p-4" aria-label="팀 초대 이력">
             {invitationRows.map((invitation) => (
-              <div className="team-invitation-row" key={invitation.id}>
-                <div>
-                  <strong>{invitation.email}</strong>
-                  <span>{roleLabel(invitation.role)} · {dateLabel(invitation.expiresAt)}까지</span>
+              <div className="grid gap-3 rounded-[var(--radius-lg)] border bg-muted/20 p-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center" key={invitation.id}>
+                <div className="min-w-0">
+                  <strong className="block truncate text-sm font-semibold text-foreground">{invitation.email}</strong>
+                  <span className="text-sm text-muted-foreground">{roleLabel(invitation.role)} · {dateLabel(invitation.expiresAt)}까지</span>
                 </div>
-                <div className="team-invitation-actions">
+                <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge tone={invitation.status === "pending" ? "brand" : "neutral"}>
                     {invitationStatusLabel(invitation.status)}
                   </StatusBadge>
@@ -403,27 +402,27 @@ export function TeamManagementPanel({
       ) : null}
 
       {canManage ? (
-        <details className="saas-disclosure">
-          <summary>
-            <span className="saas-disclosure-summary-copy">
-              <span className="eyebrow">감사 로그</span>
-              <strong>권한 변경 이력</strong>
+        <details className="rounded-[var(--radius-lg)] border bg-background">
+          <summary className="flex cursor-pointer items-center justify-between gap-3 p-4">
+            <span className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">감사 로그</span>
+              <strong className="text-sm font-semibold text-foreground">권한 변경 이력</strong>
             </span>
             <StatusBadge tone={roleEventRows.length > 0 ? "brand" : "neutral"}>
               최근 {roleEventRows.length.toLocaleString("ko-KR")}
             </StatusBadge>
           </summary>
-          <div className="saas-disclosure-content team-role-history" aria-label="권한 변경 이력">
+          <div className="border-t p-4" aria-label="권한 변경 이력">
             {roleEventRows.length > 0 ? (
-              <div className="team-role-history-list">
+              <div className="grid gap-3">
                 {roleEventRows.map((event) => (
-                  <div className="team-role-history-row" key={event.id}>
-                    <span className="team-role-history-icon" aria-hidden>
+                  <div className="grid gap-3 rounded-[var(--radius-lg)] border bg-muted/20 p-3 md:grid-cols-[auto_minmax(0,1fr)]" key={event.id}>
+                    <span className="flex size-9 items-center justify-center rounded-[var(--radius-lg)] bg-background text-muted-foreground" aria-hidden>
                       <History />
                     </span>
                     <div>
-                      <strong>{event.targetName}</strong>
-                      <p>
+                      <strong className="text-sm font-semibold text-foreground">{event.targetName}</strong>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">
                         {roleLabel(event.previousRole)}에서 {roleLabel(event.nextRole)}로 변경
                         · {event.actorName} · {dateTimeLabel(event.createdAt)}
                       </p>
@@ -432,11 +431,11 @@ export function TeamManagementPanel({
                 ))}
               </div>
             ) : (
-              <div className="team-role-history-empty">
-                <span className="team-role-history-icon" aria-hidden>
+              <div className="flex items-center gap-3 rounded-[var(--radius-lg)] border bg-muted/20 p-4">
+                <span className="flex size-9 items-center justify-center rounded-[var(--radius-lg)] bg-background text-muted-foreground" aria-hidden>
                   <History />
                 </span>
-                <p>아직 기록된 권한 변경이 없습니다.</p>
+                <p className="text-sm text-muted-foreground">아직 기록된 권한 변경이 없습니다.</p>
               </div>
             )}
           </div>
@@ -468,9 +467,9 @@ function MemberRoleControl({
   if (!canManage) return <StatusBadge tone="neutral">{roleLabel(member.role)}</StatusBadge>;
 
   return (
-    <div className="team-member-role-form">
+    <div className="flex flex-wrap items-center gap-2">
       <Select value={value} onValueChange={(nextValue) => onValueChange(nextValue as TeamRole)}>
-        <SelectTrigger size="sm" className="team-role-select">
+        <SelectTrigger size="sm" className="w-32">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>

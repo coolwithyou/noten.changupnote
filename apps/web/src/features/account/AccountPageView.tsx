@@ -1,4 +1,5 @@
 import { Bell, Building2, CreditCard, Download, FileText, LifeBuoy, LockKeyhole, Settings, UserRound, UsersRound } from "lucide-react";
+import type { ReactNode } from "react";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import type { HeaderUser } from "@/lib/server/auth/session";
 import type { NotificationCenterResult } from "@/lib/notifications/types";
@@ -9,7 +10,7 @@ import { appHeaderLinks } from "@/components/app/app-navigation";
 import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { NotificationFeedPanel } from "@/features/dashboard/NotificationFeedPanel";
 import { AccountDeletionRequestPanel } from "./AccountDeletionRequestPanel";
 import { AccountPasswordPanel } from "./AccountPasswordPanel";
@@ -35,97 +36,98 @@ export function AccountPageView({
   const label = user?.name?.trim() || user?.email?.trim() || "내 계정";
 
   return (
-    <main className="saas-shell">
+    <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/account" })} />
 
-      <section className="saas-hero compact">
-        <div>
-          <p className="eyebrow">내 계정</p>
-          <h1>{label}</h1>
-          <p>계정, 회사 접근 권한, 알림과 지원 채널을 한 곳에서 확인합니다.</p>
-        </div>
-        <div className="saas-hero-actions">
-          <a className={buttonVariants({ variant: "secondary" })} href="/settings">
-            <Settings data-icon="inline-start" />
-            설정 열기
-          </a>
-          <a className={buttonVariants({ variant: "outline" })} href="/support">
-            <LifeBuoy data-icon="inline-start" />
-            고객지원
-          </a>
-          <a className={buttonVariants({ variant: "outline" })} href="/api/web/account/export">
-            <Download data-icon="inline-start" />
-            데이터 내보내기
-          </a>
-        </div>
-      </section>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex max-w-3xl flex-col gap-3">
+            <span className="text-sm font-medium text-muted-foreground">내 계정</span>
+            <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">{label}</h1>
+            <p className="text-base leading-7 text-muted-foreground">
+              계정, 회사 접근 권한, 알림과 지원 채널을 한 곳에서 확인합니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <a className={buttonVariants({ variant: "secondary" })} href="/settings">
+              <Settings data-icon="inline-start" />
+              설정 열기
+            </a>
+            <a className={buttonVariants({ variant: "outline" })} href="/support">
+              <LifeBuoy data-icon="inline-start" />
+              고객지원
+            </a>
+            <a className={buttonVariants({ variant: "outline" })} href="/api/web/account/export">
+              <Download data-icon="inline-start" />
+              데이터 내보내기
+            </a>
+          </div>
+        </section>
 
-      <section className="saas-grid three" aria-label="계정 요약">
-        <AccountSummaryCard
-          icon={<UserRound />}
-          label="로그인 계정"
-          title={label}
-          description={user?.email ?? "세션에서 이메일을 확인하지 못했습니다."}
-          badge={access.mode === "demo" ? "데모" : "활성"}
-        />
-        <AccountSummaryCard
-          icon={<Building2 />}
-          label="현재 회사"
-          title={access.companyId}
-          description={`역할: ${roleLabel(access.role)}`}
-          badge={roleLabel(access.role)}
-        />
-        <AccountSummaryCard
-          icon={<LockKeyhole />}
-          label="보안"
-          title="세션 보호"
-          description="회사 데이터는 회사 멤버십과 RLS 정책으로 분리됩니다."
-          badge="RLS"
-        />
-      </section>
+        <section className="grid gap-3 md:grid-cols-3" aria-label="계정 요약">
+          <AccountSummaryCard
+            icon={<UserRound />}
+            label="로그인 계정"
+            title={label}
+            description={user?.email ?? "세션에서 이메일을 확인하지 못했습니다."}
+            badge={access.mode === "demo" ? "데모" : "활성"}
+          />
+          <AccountSummaryCard
+            icon={<Building2 />}
+            label="현재 회사"
+            title={access.companyId}
+            description={`역할: ${roleLabel(access.role)}`}
+            badge={roleLabel(access.role)}
+          />
+          <AccountSummaryCard
+            icon={<LockKeyhole />}
+            label="보안"
+            title="세션 보호"
+            description="회사 데이터는 회사 멤버십과 RLS 정책으로 분리됩니다."
+            badge="RLS"
+          />
+        </section>
 
-      <section className="account-support-section" aria-label="계정 프로필">
-        <AccountProfilePanel initialName={user?.name ?? null} email={user?.email ?? null} />
-      </section>
+        <section aria-label="계정 프로필">
+          <AccountProfilePanel initialName={user?.name ?? null} email={user?.email ?? null} />
+        </section>
 
-      <section className="account-support-section" aria-label="계정 보안 상태">
-        <AccountSecurityStatusPanel status={securityStatus} />
-      </section>
+        <section aria-label="계정 보안 상태">
+          <AccountSecurityStatusPanel status={securityStatus} />
+        </section>
 
-      <section className="account-notification-section" aria-label="내 알림">
-        <NotificationFeedPanel feed={notificationCenter} title="내 알림센터" limit={6} />
-      </section>
+        <section aria-label="내 알림">
+          <NotificationFeedPanel feed={notificationCenter} title="내 알림센터" limit={6} />
+        </section>
 
-      <details className="saas-disclosure">
-        <summary>
-          <span className="saas-disclosure-summary-copy">
-            <span className="eyebrow">보조 관리</span>
-            <strong>지원, 비밀번호, 데이터 요청</strong>
-          </span>
-          <StatusBadge tone="neutral">보조</StatusBadge>
-        </summary>
-        <div className="saas-disclosure-content">
-          <section className="account-support-section" aria-label="고객지원 기록">
-            <AccountSupportTicketsPanel tickets={supportTickets} />
-          </section>
+        <details className="rounded-[var(--radius-xl)] border bg-card text-card-foreground shadow-[var(--shadow-subtle)]">
+          <summary className="flex cursor-pointer items-center justify-between gap-3 p-5">
+            <span className="flex flex-col gap-1">
+              <span className="text-xs font-medium text-muted-foreground">보조 관리</span>
+              <strong className="text-base font-semibold text-foreground">지원, 비밀번호, 데이터 요청</strong>
+            </span>
+            <StatusBadge tone="neutral">보조</StatusBadge>
+          </summary>
+          <div className="flex flex-col gap-6 border-t p-5">
+            <section aria-label="고객지원 기록">
+              <AccountSupportTicketsPanel tickets={supportTickets} />
+            </section>
 
-          <section className="account-support-section" aria-label="계정 보안">
-            <AccountPasswordPanel />
-          </section>
+            <section aria-label="계정 보안">
+              <AccountPasswordPanel />
+            </section>
 
-          <section className="account-support-section" aria-label="계정 데이터 삭제 요청">
-            <AccountDeletionRequestPanel email={user?.email ?? null} history={deletionRequests} />
-          </section>
+            <section aria-label="계정 데이터 삭제 요청">
+              <AccountDeletionRequestPanel email={user?.email ?? null} history={deletionRequests} />
+            </section>
 
-          <section className="saas-two-column">
-            <Card className="saas-panel">
+            <section className="grid gap-6 lg:grid-cols-2">
+            <Card>
               <CardHeader>
-                <div>
-                  <span className="eyebrow">바로가기</span>
-                  <h2>다음 작업</h2>
-                </div>
+                <CardTitle>다음 작업</CardTitle>
+                <CardDescription>계정에서 자주 이동하는 관리 화면입니다.</CardDescription>
               </CardHeader>
-              <CardContent className="saas-action-list">
+              <CardContent className="grid gap-2">
                 <ActionLink href="/onboarding" icon={<Building2 />} title="온보딩 다시 확인" description="회사 동의, 알림, 수기 프로필을 순서대로 점검합니다." />
                 <ActionLink href="/settings" icon={<Settings />} title="회사 설정" description="사업자 검증, 동의, 알림과 프로필 필드를 관리합니다." />
                 <ActionLink href="/team" icon={<UsersRound />} title="팀과 권한" description="회사 멤버와 역할, 초대 준비 상태를 확인합니다." />
@@ -135,23 +137,22 @@ export function AccountPageView({
               </CardContent>
             </Card>
 
-            <Card className="saas-panel">
+            <Card>
               <CardHeader>
-                <div>
-                  <span className="eyebrow">서비스 문서</span>
-                  <h2>약관과 지원</h2>
-                </div>
+                <CardTitle>약관과 지원</CardTitle>
+                <CardDescription>계정 데이터와 서비스 문서로 이동합니다.</CardDescription>
               </CardHeader>
-              <CardContent className="saas-doc-links">
-                <a href="/terms">이용약관</a>
-                <a href="/privacy">개인정보 처리방침</a>
-                <a href="/api/web/account/export">계정 데이터 내보내기</a>
-                <a href="/support">고객지원</a>
+              <CardContent className="grid gap-2">
+                <a className={buttonVariants({ variant: "outline", className: "justify-start" })} href="/terms">이용약관</a>
+                <a className={buttonVariants({ variant: "outline", className: "justify-start" })} href="/privacy">개인정보 처리방침</a>
+                <a className={buttonVariants({ variant: "outline", className: "justify-start" })} href="/api/web/account/export">계정 데이터 내보내기</a>
+                <a className={buttonVariants({ variant: "outline", className: "justify-start" })} href="/support">고객지원</a>
               </CardContent>
             </Card>
-          </section>
-        </div>
-      </details>
+            </section>
+          </div>
+        </details>
+      </div>
     </main>
   );
 }
@@ -163,22 +164,26 @@ function AccountSummaryCard({
   description,
   badge,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   title: string;
   description: string;
   badge: string;
 }) {
   return (
-    <Card className="saas-summary-card">
-      <CardContent className="p-0">
-        <div className="saas-summary-icon" aria-hidden>{icon}</div>
-        <div>
-          <span>{label}</span>
-          <h2>{title}</h2>
-          <p>{description}</p>
+    <Card>
+      <CardHeader>
+        <CardAction>
+          <StatusBadge tone="brand">{badge}</StatusBadge>
+        </CardAction>
+        <div className="flex size-9 items-center justify-center rounded-[var(--radius-lg)] bg-muted text-muted-foreground" aria-hidden>
+          {icon}
         </div>
-        <StatusBadge tone="brand">{badge}</StatusBadge>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
+        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
       </CardContent>
     </Card>
   );
@@ -191,15 +196,19 @@ function ActionLink({
   description,
 }: {
   href: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   description: string;
 }) {
   return (
-    <a className="saas-action-link" href={href}>
-      <span aria-hidden>{icon}</span>
-      <strong>{title}</strong>
-      <em>{description}</em>
+    <a className="grid grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-[var(--radius-lg)] border bg-background p-3 transition-colors hover:bg-muted/50" href={href}>
+      <span className="flex size-8 items-center justify-center rounded-[var(--radius-md)] bg-muted text-muted-foreground" aria-hidden>
+        {icon}
+      </span>
+      <span className="min-w-0">
+        <strong className="block text-sm font-semibold text-foreground">{title}</strong>
+        <em className="not-italic text-sm leading-6 text-muted-foreground">{description}</em>
+      </span>
     </a>
   );
 }

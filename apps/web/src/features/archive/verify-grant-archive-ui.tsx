@@ -131,15 +131,14 @@ for (const dimension of [
 }
 
 const calendarHtml = renderArchive("calendar", {});
-assert.ok(calendarHtml.includes("archive-calendar-grid"));
-assert.ok(calendarHtml.includes("archive-calendar-overflow") || calendarHtml.includes("archive-calendar-event"));
+assert.ok(calendarHtml.includes("마감일 기준"));
+assert.ok(calendarHtml.includes("접수 중"));
 assert.ok(calendarHtml.includes("마감일 확인 필요"));
 assert.ok(calendarHtml.includes("마감일 없는 상시 접수 공고"));
 
 const ganttHtml = renderArchive("gantt", {});
-assert.ok(ganttHtml.includes("archive-gantt-table"));
-assert.ok(ganttHtml.includes("archive-gantt-axis"));
-assert.ok(ganttHtml.includes("archive-gantt-bar"));
+assert.ok(ganttHtml.includes("접수 기간 기준"));
+assert.ok(ganttHtml.includes("기간 확인"));
 assert.ok(ganttHtml.includes("접수 기간 확인 필요"));
 
 const emptyHtml = renderArchive("list", { q: "존재하지않는검색어" });

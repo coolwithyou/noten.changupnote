@@ -4,7 +4,7 @@ import { useState } from "react";
 import { StatusBadge, eligibilityTone } from "@/components/app/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import {
   Select,
@@ -68,15 +68,16 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
   const ineligibleMatches = visibleMatches.filter((match) => match.eligibility === "ineligible");
 
   return (
-    <section className="dashboard-panel opportunity-panel" aria-labelledby="opportunity-map-title">
-      <div className="panel-heading inline">
+    <Card aria-labelledby="opportunity-map-title">
+      <CardHeader className="gap-4">
         <div>
-          <span className="eyebrow">기회 맵</span>
-          <h2 id="opportunity-map-title">지원사업 상태 보드</h2>
+          <CardTitle id="opportunity-map-title">지원사업 상태 보드</CardTitle>
+          <CardDescription>조건 충족, 확인 필요, 준비 가능 공고를 한 화면에서 봅니다.</CardDescription>
         </div>
-        <div className="opportunity-controls" aria-label="지원사업 필터와 정렬">
+        <CardAction className="relative col-start-auto row-start-auto justify-self-auto lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:justify-self-end">
+          <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:justify-end" aria-label="지원사업 필터와 정렬">
           <ToggleGroup
-            className="match-filter-group"
+            className="max-w-full overflow-x-auto"
             aria-label="상태 필터"
             value={[status]}
             onValueChange={(value) => {
@@ -98,8 +99,8 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <div className="match-sort-control">
-            <span>정렬</span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-muted-foreground">정렬</span>
             <Select
               items={SORT_SELECT_ITEMS}
               value={sort}
@@ -122,14 +123,17 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
               </SelectContent>
             </Select>
           </div>
-        </div>
-      </div>
-      <div className="opportunity-result-meta">
-        <span>{total.toLocaleString("ko-KR")}건 중 {visibleMatches.length.toLocaleString("ko-KR")}건 표시</span>
+          </div>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-lg)] border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <span>
+          {total.toLocaleString("ko-KR")}건 중 {visibleMatches.length.toLocaleString("ko-KR")}건 표시
+        </span>
         {status !== "all" || sort !== "recommended" ? (
           <Button
             type="button"
-            className="match-reset-button"
             variant="outline"
             size="sm"
             disabled={requestState === "loading" || requestState === "loadingMore"}
@@ -140,47 +144,48 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
         ) : null}
       </div>
       {error ? (
-        <Alert variant="destructive" className="match-list-status error" aria-live="polite">
+        <Alert variant="destructive" aria-live="polite">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       ) : null}
       {requestState === "loading" ? (
-        <p className="match-list-status" aria-live="polite">
+        <p className="inline-flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
           <Spinner data-icon="inline-start" /> 매칭 결과를 갱신하는 중입니다.
         </p>
       ) : null}
-      <div className="opportunity-lanes">
+      <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
         {BUCKETS.map((bucket) => {
           const bucketMatches = visibleMatches.filter((match) => match.bucket === bucket.bucket);
           return (
-            <Card key={bucket.bucket} className={`opportunity-lane ${bucket.bucket}`} size="sm">
-              <CardHeader>
-                <div>
-                  <h3>{bucket.title}</h3>
-                  <p>{bucket.description}</p>
+            <div key={bucket.bucket} className="flex min-h-96 flex-col gap-3 rounded-[var(--radius-lg)] border bg-muted/20 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex flex-col gap-1">
+                  <h3 className="text-sm font-semibold leading-5 text-foreground">{bucket.title}</h3>
+                  <p className="text-xs leading-5 text-muted-foreground">{bucket.description}</p>
                 </div>
-                <strong>{bucketMatches.length}</strong>
-              </CardHeader>
-              <CardContent className="lane-card-list">
+                <strong className="rounded-full bg-background px-2 py-0.5 text-xs font-semibold tabular-nums text-foreground ring-1 ring-border">
+                  {bucketMatches.length}
+                </strong>
+              </div>
+              <div className="flex flex-1 flex-col gap-3">
                 {bucketMatches.slice(0, 4).map((match) => (
                   <OpportunityCard key={match.grantId} match={match} />
                 ))}
                 {bucketMatches.length === 0 ? (
-                  <Empty className="panel-empty">
+                  <Empty className="min-h-48">
                     <EmptyDescription>해당 공고가 없습니다.</EmptyDescription>
                   </Empty>
                 ) : null}
-              </CardContent>
-            </Card>
+              </div>
+            </div>
           );
         })}
       </div>
       {ineligibleMatches.length > 0 ? <IneligibleDisclosure matches={ineligibleMatches} /> : null}
       {hasMore ? (
-        <div className="match-load-more-row">
+        <div className="flex justify-center">
           <Button
             type="button"
-            className="match-load-more"
             variant="outline"
             disabled={requestState === "loadingMore" || requestState === "loading"}
             onClick={() => loadMatches({ nextCursor: cursor, mode: "append" })}
@@ -190,7 +195,8 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
           </Button>
         </div>
       ) : null}
-    </section>
+      </CardContent>
+    </Card>
   );
 
   function updateStatus(nextStatus: MatchStatusFilter) {
@@ -258,16 +264,18 @@ function OpportunityCard({ match }: { match: MatchCard }) {
   const unlock = match.ruleTrace.find((trace) => trace.unlock)?.unlock;
   const content = (
     <>
-      <div className="card-topline">
-        <StatusBadge className={`match-status ${match.eligibility}`} tone={matchEligibilityTone(match)}>
+      <div className="flex items-center justify-between gap-3">
+        <StatusBadge tone={matchEligibilityTone(match)}>
           {matchEligibilityLabel(match)}
         </StatusBadge>
-        <span>{match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          {match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}
+        </span>
       </div>
-      <h4>{match.title}</h4>
-      <p>{matchEvidenceSummary(match)}</p>
+      <h4 className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">{match.title}</h4>
+      <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{matchEvidenceSummary(match)}</p>
       {match.benefits.length > 0 ? (
-        <div className="card-benefits">
+        <div className="flex flex-wrap gap-1.5">
           {match.benefits.slice(0, 2).map((benefit) => (
             <StatusBadge key={`${match.grantId}:${benefit.family}`} tone="brand">
               {benefit.label}
@@ -276,23 +284,23 @@ function OpportunityCard({ match }: { match: MatchCard }) {
         </div>
       ) : null}
       {unlock ? (
-        <span className="card-unlock">
+        <span className="rounded-[var(--radius-md)] bg-muted px-2 py-1 text-xs leading-5 text-muted-foreground">
           {unlock.detail}{unlock.etaDate ? ` · ${formatEtaDate(unlock.etaDate)}` : ""}
         </span>
       ) : null}
-      <div className="card-foot">
+      <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>{match.agency ?? "기관 미확인"}</span>
-        <strong>적합도 {match.fitScore}</strong>
+        <strong className="font-semibold text-foreground">적합도 {match.fitScore}</strong>
       </div>
-      <span className="card-amount">{formatSupportAmount(match.supportAmount)}</span>
+      <span className="text-xs font-medium text-muted-foreground">{formatSupportAmount(match.supportAmount)}</span>
     </>
   );
 
   return (
-    <Card className="opportunity-card" size="sm">
+    <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border bg-background p-3 shadow-[var(--shadow-subtle)]">
       {match.detailUrl ? (
         <a
-          className="opportunity-card-link"
+          className="flex flex-col gap-3"
           href={match.detailUrl}
           aria-label={`${match.title} 신청 준비 시트 보기`}
           onClick={() => recordWebMatchEvent({
@@ -304,29 +312,29 @@ function OpportunityCard({ match }: { match: MatchCard }) {
           {content}
         </a>
       ) : (
-        <div className="opportunity-card-link">{content}</div>
+        <div className="flex flex-col gap-3">{content}</div>
       )}
       <MatchFeedbackControls grantId={match.grantId} title={match.title} />
-    </Card>
+    </div>
   );
 }
 
 function IneligibleDisclosure({ matches }: { matches: MatchCard[] }) {
   return (
-    <details className="ineligible-disclosure">
-      <summary>
+    <details className="rounded-[var(--radius-lg)] border bg-muted/20 p-4">
+      <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm font-semibold text-foreground">
         <span>부적격 사유</span>
-        <strong>{matches.length}건</strong>
+        <strong className="text-muted-foreground">{matches.length}건</strong>
       </summary>
-      <div className="ineligible-list">
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
         {matches.slice(0, 6).map((match) => (
-          <Card className="ineligible-item" key={match.grantId} size="sm">
+          <div className="rounded-[var(--radius-lg)] border bg-background p-3" key={match.grantId}>
             <div>
-              <span>{match.agency ?? "기관 미확인"}</span>
-              <h4>{match.title}</h4>
+              <span className="text-xs text-muted-foreground">{match.agency ?? "기관 미확인"}</span>
+              <h4 className="mt-1 text-sm font-semibold leading-5 text-foreground">{match.title}</h4>
             </div>
-            <p>{ineligibleReason(match)}</p>
-          </Card>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">{ineligibleReason(match)}</p>
+          </div>
         ))}
       </div>
     </details>

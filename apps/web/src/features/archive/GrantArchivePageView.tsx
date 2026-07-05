@@ -1,11 +1,10 @@
 import { Archive, CalendarDays, ExternalLink, FileText, GanttChartSquare, RotateCcw, Search } from "lucide-react";
-import type { CSSProperties } from "react";
 import type { CriterionDimension } from "@cunote/contracts";
 import { appHeaderLinks } from "@/components/app/app-navigation";
 import { ServiceHeader } from "@/components/app/service-header";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import {
   Table,
@@ -16,6 +15,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import type { HeaderUser } from "@/lib/server/auth/session";
+import { cn } from "@/lib/utils";
 import { ArchiveSaveButton } from "./ArchiveSaveButton";
 import {
   benefitFamilyLabel,
@@ -92,16 +92,17 @@ export function GrantArchivePageView({
   const stats = archiveStats(archive.items, archive.total);
 
   return (
-    <main className="saas-shell archive-shell">
+    <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/archive" })} />
 
-      <section className="archive-hero" aria-labelledby="archive-title">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+      <section className="grid gap-4 rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end" aria-labelledby="archive-title">
         <div>
-          <p className="eyebrow">지원사업 아카이브</p>
-          <h1 id="archive-title">전체 공고를 조건과 혜택으로 탐색하세요</h1>
-          <p>정기 수집된 공고를 출처, 기간, 7개 혜택, 14개 신청 조건 축으로 검색합니다.</p>
+          <p className="text-xs font-medium uppercase text-muted-foreground">지원사업 아카이브</p>
+          <h1 id="archive-title" className="mt-2 text-2xl font-semibold tracking-normal sm:text-3xl">전체 공고를 조건과 혜택으로 탐색하세요</h1>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">정기 수집된 공고를 출처, 기간, 7개 혜택, 14개 신청 조건 축으로 검색합니다.</p>
         </div>
-        <div className="archive-view-switch" aria-label="아카이브 보기 전환">
+        <div className="flex flex-wrap gap-2 lg:justify-end" aria-label="아카이브 보기 전환">
           <a className={viewLinkClass(view, "list")} href={viewHref(currentParams, "list")}>
             <Archive data-icon="inline-start" />
             목록
@@ -117,7 +118,7 @@ export function GrantArchivePageView({
         </div>
       </section>
 
-      <section className="archive-stats" aria-label="아카이브 결과 요약">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label="아카이브 결과 요약">
         <Metric label="검색 결과" value={`${stats.total.toLocaleString("ko-KR")}건`} />
         <Metric label="표시 중 접수" value={`${stats.open.toLocaleString("ko-KR")}건`} />
         <Metric label="마감 7일" value={`${stats.deadlineSoon.toLocaleString("ko-KR")}건`} />
@@ -125,24 +126,27 @@ export function GrantArchivePageView({
         <Metric label="첨부 보관" value={`${stats.attachments.toLocaleString("ko-KR")}건`} />
       </section>
 
-      {queryError ? <p className="archive-query-alert" role="alert">{queryError}</p> : null}
+      {queryError ? <p className="rounded-[var(--radius-xl)] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">{queryError}</p> : null}
 
-      <section className="archive-workspace">
+      <section className="grid gap-5 lg:grid-cols-[300px_minmax(0,1fr)]">
         <ArchiveFilterPanel currentParams={currentParams} facets={facets} query={query} />
-        <div className="archive-results">
-          <div className="archive-result-head">
+        <Card>
+          <CardHeader className="lg:grid-cols-[minmax(0,1fr)_auto]">
             <div>
-              <span>{archive.total.toLocaleString("ko-KR")}건 중 {archive.items.length.toLocaleString("ko-KR")}건 표시</span>
-              <strong>{viewTitle(view)}</strong>
+              <CardDescription>{archive.total.toLocaleString("ko-KR")}건 중 {archive.items.length.toLocaleString("ko-KR")}건 표시</CardDescription>
+              <CardTitle className="mt-1 text-lg">{viewTitle(view)}</CardTitle>
             </div>
-            <span>생성 {formatDateTime(archive.generatedAt)}</span>
-          </div>
-          {view === "calendar" ? <ArchiveCalendarPreview items={archive.items} /> : null}
-          {view === "gantt" ? <ArchiveGanttPreview items={archive.items} /> : null}
-          {view === "list" ? <GrantArchiveTable items={archive.items} /> : null}
-          <ArchivePagination archive={archive} currentParams={currentParams} />
-        </div>
+            <CardDescription>생성 {formatDateTime(archive.generatedAt)}</CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-5">
+            {view === "calendar" ? <ArchiveCalendarPreview items={archive.items} /> : null}
+            {view === "gantt" ? <ArchiveGanttPreview items={archive.items} /> : null}
+            {view === "list" ? <GrantArchiveTable items={archive.items} /> : null}
+            <ArchivePagination archive={archive} currentParams={currentParams} />
+          </CardContent>
+        </Card>
       </section>
+      </div>
     </main>
   );
 }
@@ -157,42 +161,42 @@ function ArchiveFilterPanel({
   query: GrantArchiveQuery;
 }) {
   return (
-    <aside className="archive-filter-panel" aria-label="아카이브 필터">
-      <form action="/archive" method="get" className="archive-filter-form">
+    <aside className="self-start rounded-[var(--radius-xl)] border bg-card p-4 shadow-[var(--shadow-subtle)]" aria-label="아카이브 필터">
+      <form action="/archive" method="get" className="grid gap-5">
         <input type="hidden" name="view" value={query.view ?? "list"} />
-        <div className="archive-search-field">
-          <label htmlFor="archive-q">검색</label>
-          <div>
-            <Search aria-hidden />
-            <input id="archive-q" name="q" type="search" defaultValue={query.q ?? ""} placeholder="공고명, 기관명" />
+        <div className="grid gap-2">
+          <label className="text-sm font-medium" htmlFor="archive-q">검색</label>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <input className="h-10 w-full rounded-[var(--radius-lg)] border bg-input py-2 pl-9 pr-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/15" id="archive-q" name="q" type="search" defaultValue={query.q ?? ""} placeholder="공고명, 기관명" />
           </div>
         </div>
 
-        <div className="archive-filter-group">
-          <strong>출처</strong>
+        <div className="grid gap-2">
+          <strong className="text-sm font-medium">출처</strong>
           {SOURCE_OPTIONS.map((option) => (
-            <label key={option.value}>
-              <input type="checkbox" name="source" value={option.value} defaultChecked={query.sources?.includes(option.value)} />
+            <label className="flex items-center gap-2 text-sm" key={option.value}>
+              <input className="size-4 rounded border-input accent-primary" type="checkbox" name="source" value={option.value} defaultChecked={query.sources?.includes(option.value)} />
               <FilterOptionText label={option.label} count={facetCount(facets.sources, option.value)} />
             </label>
           ))}
         </div>
 
-        <div className="archive-filter-group">
-          <strong>상태</strong>
+        <div className="grid gap-2">
+          <strong className="text-sm font-medium">상태</strong>
           {STATUS_OPTIONS.map((option) => (
-            <label key={option.value}>
-              <input type="checkbox" name="status" value={option.value} defaultChecked={query.statuses?.includes(option.value)} />
+            <label className="flex items-center gap-2 text-sm" key={option.value}>
+              <input className="size-4 rounded border-input accent-primary" type="checkbox" name="status" value={option.value} defaultChecked={query.statuses?.includes(option.value)} />
               <FilterOptionText label={option.label} count={facetCount(facets.statuses, option.value)} />
             </label>
           ))}
         </div>
 
-        <div className="archive-filter-group">
-          <strong>지원 혜택</strong>
+        <div className="grid gap-2">
+          <strong className="text-sm font-medium">지원 혜택</strong>
           {BENEFIT_OPTIONS.map((family) => (
-            <label key={family}>
-              <input type="checkbox" name="benefit" value={family} defaultChecked={query.benefitFamilies?.includes(family)} />
+            <label className="flex items-center gap-2 text-sm" key={family}>
+              <input className="size-4 rounded border-input accent-primary" type="checkbox" name="benefit" value={family} defaultChecked={query.benefitFamilies?.includes(family)} />
               <FilterOptionText label={benefitFamilyLabel(family)} count={facetCount(facets.benefits, family)} />
             </label>
           ))}
@@ -228,12 +232,13 @@ function ArchiveFilterPanel({
           ]}
         />
 
-        <div className="archive-filter-group archive-filter-fields">
-          <strong>신청 조건</strong>
+        <div className="grid gap-3">
+          <strong className="text-sm font-medium">신청 조건</strong>
           {CRITERION_OPTIONS.map((option) => (
-            <label key={option.value}>
+            <label className="grid gap-1.5" key={option.value}>
               <FilterOptionText label={option.label} count={criterionFacetCount(facets, option.value)} />
               <input
+                className="h-9 rounded-[var(--radius-lg)] border bg-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/15"
                 name={`criterion.${option.value}`}
                 defaultValue={criterionValue(query, option.value)}
                 placeholder={option.placeholder}
@@ -242,50 +247,50 @@ function ArchiveFilterPanel({
           ))}
         </div>
 
-        <div className="archive-filter-grid">
-          <label>
-            <span>마감 시작</span>
-            <input type="date" name="applyEndFrom" defaultValue={dateInputValue(query.applyEndFrom)} />
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">마감 시작</span>
+            <input className="h-9 rounded-[var(--radius-lg)] border bg-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/15" type="date" name="applyEndFrom" defaultValue={dateInputValue(query.applyEndFrom)} />
           </label>
-          <label>
-            <span>마감 종료</span>
-            <input type="date" name="applyEndTo" defaultValue={dateInputValue(query.applyEndTo)} />
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">마감 종료</span>
+            <input className="h-9 rounded-[var(--radius-lg)] border bg-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/15" type="date" name="applyEndTo" defaultValue={dateInputValue(query.applyEndTo)} />
           </label>
         </div>
 
-        <div className="archive-filter-group">
-          <strong>품질/자료</strong>
-          <label>
-            <input type="checkbox" name="hasRequiredDocuments" value="true" defaultChecked={query.hasRequiredDocuments === true} />
+        <div className="grid gap-2">
+          <strong className="text-sm font-medium">품질/자료</strong>
+          <label className="flex items-center gap-2 text-sm">
+            <input className="size-4 rounded border-input accent-primary" type="checkbox" name="hasRequiredDocuments" value="true" defaultChecked={query.hasRequiredDocuments === true} />
             <FilterOptionText label="제출서류 있음" count={facets.quality.hasRequiredDocuments} />
           </label>
-          <label>
-            <input type="checkbox" name="hasArchivedAttachments" value="true" defaultChecked={query.hasArchivedAttachments === true} />
+          <label className="flex items-center gap-2 text-sm">
+            <input className="size-4 rounded border-input accent-primary" type="checkbox" name="hasArchivedAttachments" value="true" defaultChecked={query.hasArchivedAttachments === true} />
             <FilterOptionText label="첨부 보관 있음" count={facets.quality.hasArchivedAttachments} />
           </label>
-          <label>
-            <input type="checkbox" name="needsReview" value="true" defaultChecked={query.needsReview === true} />
+          <label className="flex items-center gap-2 text-sm">
+            <input className="size-4 rounded border-input accent-primary" type="checkbox" name="needsReview" value="true" defaultChecked={query.needsReview === true} />
             <FilterOptionText label="검수 필요" count={facets.quality.needsReview} />
           </label>
-          <label>
-            <input type="checkbox" name="textOnly" value="true" defaultChecked={query.textOnly === true} />
+          <label className="flex items-center gap-2 text-sm">
+            <input className="size-4 rounded border-input accent-primary" type="checkbox" name="textOnly" value="true" defaultChecked={query.textOnly === true} />
             <FilterOptionText label="원문 확인 조건" count={facets.quality.textOnly} />
           </label>
         </div>
 
-        <div className="archive-filter-grid">
-          <label>
-            <span>정렬</span>
-            <select name="sort" defaultValue={query.sort ?? "deadline"}>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">정렬</span>
+            <select className="h-9 rounded-[var(--radius-lg)] border bg-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/15" name="sort" defaultValue={query.sort ?? "deadline"}>
               <option value="deadline">마감순</option>
               <option value="start_date">시작일순</option>
               <option value="title">공고명순</option>
               <option value="confidence">신뢰도순</option>
             </select>
           </label>
-          <label>
-            <span>표시</span>
-            <select name="limit" defaultValue={String(query.limit ?? 40)}>
+          <label className="grid gap-1.5 text-sm">
+            <span className="font-medium">표시</span>
+            <select className="h-9 rounded-[var(--radius-lg)] border bg-input px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/15" name="limit" defaultValue={String(query.limit ?? 40)}>
               <option value="20">20건</option>
               <option value="40">40건</option>
               <option value="80">80건</option>
@@ -293,7 +298,7 @@ function ArchiveFilterPanel({
           </label>
         </div>
 
-        <div className="archive-filter-actions">
+        <div className="flex flex-wrap gap-2">
           <button className={buttonVariants({ size: "sm" })} type="submit">
             <Search data-icon="inline-start" />
             적용
@@ -322,14 +327,15 @@ function FacetCheckboxGroup({
 }) {
   if (groups.every((group) => group.options.length === 0)) return null;
   return (
-    <div className="archive-filter-group archive-facet-filter-group">
-      <strong>{title}</strong>
+    <div className="grid gap-3">
+      <strong className="text-sm font-medium">{title}</strong>
       {groups.map((group) => (
-        <div key={group.name} className="archive-facet-filter-set">
-          <span>{group.label}</span>
+        <div key={group.name} className="grid gap-2 rounded-[var(--radius-lg)] border bg-muted/30 p-3">
+          <span className="text-xs font-medium text-muted-foreground">{group.label}</span>
           {facetFilterOptions(group.options, group.selected).map((option) => (
-            <label key={`${group.name}-${option.value}`}>
+            <label className="flex items-center gap-2 text-sm" key={`${group.name}-${option.value}`}>
               <input
+                className="size-4 rounded border-input accent-primary"
                 type="checkbox"
                 name={group.name}
                 value={option.value}
@@ -359,9 +365,9 @@ function facetFilterOptions(options: GrantArchiveFacetOption[], selected: string
 
 function FilterOptionText({ label, count }: { label: string; count: number }) {
   return (
-    <span className="archive-filter-option-text">
-      <span>{label}</span>
-      <span className="archive-filter-count">{count.toLocaleString("ko-KR")}</span>
+    <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+      <span className="truncate">{label}</span>
+      <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{count.toLocaleString("ko-KR")}</span>
     </span>
   );
 }
@@ -369,14 +375,14 @@ function FilterOptionText({ label, count }: { label: string; count: number }) {
 function GrantArchiveTable({ items }: { items: GrantArchiveItem[] }) {
   if (items.length === 0) {
     return (
-      <Empty className="archive-empty">
+      <Empty className="border border-border">
         <EmptyDescription>조건에 맞는 공고가 없습니다.</EmptyDescription>
       </Empty>
     );
   }
 
   return (
-    <div className="archive-table-wrap">
+    <div className="overflow-x-auto rounded-[var(--radius-xl)] border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -391,39 +397,45 @@ function GrantArchiveTable({ items }: { items: GrantArchiveItem[] }) {
         <TableBody>
           {items.map((item) => (
             <TableRow key={item.grantId}>
-              <TableCell className="archive-title-cell">
-                <div>
+              <TableCell className="min-w-[260px]">
+                <div className="mb-2 flex flex-wrap gap-1.5">
                   <Badge variant="outline">{sourceLabel(item.source)}</Badge>
                   <Badge variant={statusBadgeVariant(item.status)}>{statusLabel(item.status)}</Badge>
                   {item.applicationStage ? <Badge variant="secondary">{applicationStageLabel(item.applicationStage)}</Badge> : null}
                 </div>
-                <strong>{item.title}</strong>
-                <span>{[item.agencyJurisdiction, item.agencyOperator].filter(Boolean).join(" · ") || "기관 확인"}</span>
+                <strong className="block text-sm font-semibold leading-6">{item.title}</strong>
+                <span className="mt-1 block text-xs text-muted-foreground">{[item.agencyJurisdiction, item.agencyOperator].filter(Boolean).join(" · ") || "기관 확인"}</span>
               </TableCell>
-              <TableCell className="archive-badge-cell">
+              <TableCell className="min-w-[180px]">
+                <div className="flex flex-wrap gap-1.5">
                 {item.benefits.slice(0, 3).map((benefit) => (
                   <Badge key={`${item.grantId}-${benefit.family}`} variant="secondary">{benefitFamilyLabel(benefit.family)}</Badge>
                 ))}
-                {item.supportAmountLabel ? <span>{item.supportAmountLabel}</span> : null}
+                </div>
+                {item.supportAmountLabel ? <span className="mt-2 block text-xs text-muted-foreground">{item.supportAmountLabel}</span> : null}
               </TableCell>
-              <TableCell className="archive-condition-cell">
+              <TableCell className="min-w-[220px]">
+                <div className="grid gap-1">
                 {item.conditionSummary.slice(0, 4).map((condition) => (
-                  <span key={`${item.grantId}-${condition.dimension}`}>
+                  <span className="text-xs text-muted-foreground" key={`${item.grantId}-${condition.dimension}`}>
                     {condition.label}: {condition.valueLabel}
                   </span>
                 ))}
+                </div>
               </TableCell>
               <TableCell>
                 <time>{dateRangeLabel(item.applyStart, item.applyEnd)}</time>
-                <span className="archive-dday">{dDayLabel(item.dDay)}</span>
-              </TableCell>
-              <TableCell className="archive-material-cell">
-                <span><FileText aria-hidden /> 서류 {item.requiredDocumentCount}</span>
-                <span>첨부 {item.archivedAttachmentCount}</span>
-                {item.needsReviewCount > 0 ? <Badge variant="destructive">검수 {item.needsReviewCount}</Badge> : null}
+                <span className="mt-1 block text-xs font-medium text-primary">{dDayLabel(item.dDay)}</span>
               </TableCell>
               <TableCell>
-                <div className="archive-row-actions">
+                <div className="grid gap-1 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1"><FileText className="size-3.5" aria-hidden /> 서류 {item.requiredDocumentCount}</span>
+                <span>첨부 {item.archivedAttachmentCount}</span>
+                {item.needsReviewCount > 0 ? <Badge variant="destructive">검수 {item.needsReviewCount}</Badge> : null}
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex min-w-[220px] flex-wrap gap-2">
                   <ArchiveSaveButton grantId={item.grantId} initialStage={item.applicationStage} />
                   <a className={buttonVariants({ variant: "outline", size: "sm" })} href={item.detailHref}>상세</a>
                   <a className={buttonVariants({ variant: "secondary", size: "sm" })} href={`${item.detailHref}#application-prep`}>지원 준비</a>
@@ -446,45 +458,56 @@ function GrantArchiveTable({ items }: { items: GrantArchiveItem[] }) {
 function ArchiveCalendarPreview({ items }: { items: GrantArchiveItem[] }) {
   const calendar = buildCalendarMonth(items);
   return (
-    <div className="archive-calendar-preview">
-      <div className="archive-calendar-head">
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <strong>{calendar.monthLabel}</strong>
-          <span>마감일 기준 {calendar.scheduledCount.toLocaleString("ko-KR")}건</span>
+          <strong className="text-base font-semibold">{calendar.monthLabel}</strong>
+          <span className="mt-1 block text-sm text-muted-foreground">마감일 기준 {calendar.scheduledCount.toLocaleString("ko-KR")}건</span>
         </div>
-        <div className="archive-calendar-legend" aria-label="캘린더 상태 범례">
-          <span><i className="status-open" /> 접수 중</span>
-          <span><i className="status-upcoming" /> 예정</span>
-          <span><i className="status-closed" /> 마감</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-label="캘린더 상태 범례">
+          <span className="inline-flex items-center gap-1"><i className="size-2 rounded-full bg-primary" /> 접수 중</span>
+          <span className="inline-flex items-center gap-1"><i className="size-2 rounded-full bg-muted-foreground" /> 예정</span>
+          <span className="inline-flex items-center gap-1"><i className="size-2 rounded-full bg-border" /> 마감</span>
         </div>
       </div>
       {calendar.scheduledCount > 0 ? (
-        <div className="archive-calendar-grid" aria-label={`${calendar.monthLabel} 마감 캘린더`}>
+        <div className="grid grid-cols-7 overflow-hidden rounded-[var(--radius-xl)] border" aria-label={`${calendar.monthLabel} 마감 캘린더`}>
           {WEEKDAY_LABELS.map((weekday) => (
-            <div key={weekday} className="archive-calendar-weekday">{weekday}</div>
+            <div key={weekday} className="border-b bg-muted/50 px-2 py-2 text-center text-xs font-medium text-muted-foreground">{weekday}</div>
           ))}
           {calendar.days.map((day) => (
             <div
               key={day.isoDate}
-              className={`archive-calendar-day${day.inMonth ? "" : " is-muted"}${day.items.length > 0 ? " has-events" : ""}`}
+              className={cn(
+                "min-h-28 border-b border-r p-2 last:border-r-0",
+                !day.inMonth && "bg-muted/30 text-muted-foreground",
+                day.items.length > 0 && "bg-card",
+              )}
             >
-              <time dateTime={day.isoDate}>{day.dayOfMonth}</time>
-              <div>
+              <time className="text-xs font-medium" dateTime={day.isoDate}>{day.dayOfMonth}</time>
+              <div className="mt-2 grid gap-1">
                 {day.items.slice(0, 3).map((item) => (
-                  <a key={item.grantId} className={`archive-calendar-event status-${item.status}`} href={item.detailHref}>
-                    <span>{dDayLabel(item.dDay)}</span>
+                  <a
+                    key={item.grantId}
+                    className={cn(
+                      "block truncate rounded-md px-2 py-1 text-xs font-medium hover:underline",
+                      scheduleStatusClass(item.status),
+                    )}
+                    href={item.detailHref}
+                  >
+                    <span className="mr-1 tabular-nums">{dDayLabel(item.dDay)}</span>
                     {item.title}
                   </a>
                 ))}
                 {day.items.length > 3 ? (
-                  <span className="archive-calendar-overflow">+{(day.items.length - 3).toLocaleString("ko-KR")}건</span>
+                  <span className="text-xs text-muted-foreground">+{(day.items.length - 3).toLocaleString("ko-KR")}건</span>
                 ) : null}
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <Empty className="archive-empty">
+        <Empty className="border border-border">
           <EmptyDescription>마감일이 있는 공고가 없습니다.</EmptyDescription>
         </Empty>
       )}
@@ -496,45 +519,45 @@ function ArchiveCalendarPreview({ items }: { items: GrantArchiveItem[] }) {
 function ArchiveGanttPreview({ items }: { items: GrantArchiveItem[] }) {
   const gantt = buildGanttModel(items);
   return (
-    <div className="archive-gantt-preview">
-      <div className="archive-gantt-head">
+    <div className="grid gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <strong>{gantt.rangeLabel}</strong>
-          <span>접수 기간 기준 {gantt.rows.length.toLocaleString("ko-KR")}건</span>
+          <strong className="text-base font-semibold">{gantt.rangeLabel}</strong>
+          <span className="mt-1 block text-sm text-muted-foreground">접수 기간 기준 {gantt.rows.length.toLocaleString("ko-KR")}건</span>
         </div>
-        <div className="archive-gantt-legend" aria-label="간트 상태 범례">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground" aria-label="간트 상태 범례">
           {gantt.legend.map((status) => (
-            <span key={status}><i className={`status-${status}`} /> {statusLabel(status)}</span>
+            <span className="inline-flex items-center gap-1" key={status}><i className={cn("size-2 rounded-full", scheduleDotClass(status))} /> {statusLabel(status)}</span>
           ))}
         </div>
       </div>
       {gantt.rows.length > 0 ? (
-        <div className="archive-gantt-table" style={{ "--archive-gantt-cols": String(gantt.ticks.length) } as CSSProperties}>
-          <div className="archive-gantt-axis" aria-hidden>
+        <div className="grid gap-2 overflow-x-auto rounded-[var(--radius-xl)] border p-3">
+          <div className="grid min-w-[720px] grid-cols-[220px_minmax(360px,1fr)_120px] items-center gap-3 text-xs text-muted-foreground" aria-hidden>
             <span />
-            <div>
+            <div className="grid" style={{ gridTemplateColumns: `repeat(${gantt.ticks.length}, minmax(0, 1fr))` }}>
               {gantt.ticks.map((tick) => (
                 <time key={tick.isoDate} dateTime={tick.isoDate}>{tick.label}</time>
               ))}
             </div>
           </div>
           {gantt.rows.map((row) => (
-            <div key={row.item.grantId} className="archive-gantt-row">
-              <a href={row.item.detailHref}>{row.item.title}</a>
-              <div className="archive-gantt-track">
+            <div key={row.item.grantId} className="grid min-w-[720px] grid-cols-[220px_minmax(360px,1fr)_120px] items-center gap-3 rounded-[var(--radius-lg)] border bg-muted/30 px-3 py-2">
+              <a className="truncate text-sm font-medium hover:underline" href={row.item.detailHref}>{row.item.title}</a>
+              <div className="relative h-7 rounded-full bg-background">
                 <span
-                  className={`archive-gantt-bar status-${row.item.status}`}
+                  className={cn("absolute top-1/2 flex h-5 -translate-y-1/2 items-center justify-center overflow-hidden rounded-full px-2 text-[11px] font-medium", scheduleStatusClass(row.item.status))}
                   style={{ left: `${row.left}%`, width: `${row.width}%` }}
                 >
                   {statusLabel(row.item.status)}
                 </span>
               </div>
-              <time>{dateRangeLabel(row.item.applyStart, row.item.applyEnd)}</time>
+              <time className="text-xs text-muted-foreground">{dateRangeLabel(row.item.applyStart, row.item.applyEnd)}</time>
             </div>
           ))}
         </div>
       ) : (
-        <Empty className="archive-empty">
+        <Empty className="border border-border">
           <EmptyDescription>기간을 비교할 공고가 없습니다.</EmptyDescription>
         </Empty>
       )}
@@ -546,17 +569,17 @@ function ArchiveGanttPreview({ items }: { items: GrantArchiveItem[] }) {
 function ArchiveDatelessList({ title, items }: { title: string; items: GrantArchiveItem[] }) {
   if (items.length === 0) return null;
   return (
-    <div className="archive-dateless-list">
-      <strong>{title}</strong>
-      <div>
+    <div className="grid gap-3 rounded-[var(--radius-xl)] border bg-muted/30 p-4">
+      <strong className="text-sm font-semibold">{title}</strong>
+      <div className="grid gap-2">
         {items.slice(0, 8).map((item) => (
-          <a key={item.grantId} href={item.detailHref}>
+          <a className="flex items-center gap-2 rounded-[var(--radius-lg)] bg-card px-3 py-2 text-sm hover:underline" key={item.grantId} href={item.detailHref}>
             <Badge variant={statusBadgeVariant(item.status)}>{statusLabel(item.status)}</Badge>
-            <span>{item.title}</span>
+            <span className="truncate">{item.title}</span>
           </a>
         ))}
       </div>
-      {items.length > 8 ? <span>외 {(items.length - 8).toLocaleString("ko-KR")}건</span> : null}
+      {items.length > 8 ? <span className="text-xs text-muted-foreground">외 {(items.length - 8).toLocaleString("ko-KR")}건</span> : null}
     </div>
   );
 }
@@ -570,7 +593,7 @@ function ArchivePagination({
 }) {
   if (!archive.hasMore && !currentParams.get("cursor")) return null;
   return (
-    <div className="archive-pagination">
+    <div className="flex flex-wrap justify-end gap-2">
       <a className={buttonVariants({ variant: "outline", size: "sm" })} href={pageHref(currentParams, null)}>처음</a>
       {archive.hasMore ? (
         <a className={buttonVariants({ size: "sm" })} href={pageHref(currentParams, archive.cursor)}>다음</a>
@@ -581,10 +604,10 @@ function ArchivePagination({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <Card className="archive-stat" size="sm">
-      <CardContent>
-        <span>{label}</span>
-        <strong>{value}</strong>
+    <Card size="sm">
+      <CardContent className="grid gap-1">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <strong className="text-2xl font-semibold tracking-normal">{value}</strong>
       </CardContent>
     </Card>
   );
@@ -834,6 +857,20 @@ function statusBadgeVariant(status: GrantArchiveItem["status"]): "default" | "se
   if (status === "open") return "default";
   if (status === "upcoming") return "secondary";
   return "outline";
+}
+
+function scheduleStatusClass(status: GrantArchiveItem["status"]): string {
+  if (status === "open") return "bg-primary text-primary-foreground";
+  if (status === "upcoming") return "bg-secondary text-secondary-foreground";
+  if (status === "closed") return "bg-muted text-muted-foreground";
+  return "bg-card text-muted-foreground ring-1 ring-border";
+}
+
+function scheduleDotClass(status: GrantArchiveItem["status"]): string {
+  if (status === "open") return "bg-primary";
+  if (status === "upcoming") return "bg-secondary";
+  if (status === "closed") return "bg-border";
+  return "bg-muted-foreground";
 }
 
 function sourceLabel(source: GrantArchiveItem["source"]): string {

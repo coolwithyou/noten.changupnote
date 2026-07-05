@@ -1,41 +1,41 @@
 import type { RoadmapNode } from "@cunote/contracts";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 
 export function RoadmapStrip({ nodes }: { nodes: RoadmapNode[] }) {
   return (
-    <Card className="dashboard-panel roadmap-panel" aria-labelledby="roadmap-title">
-      <div className="panel-heading inline">
-        <div>
-          <span className="eyebrow">로드맵</span>
-          <h2 id="roadmap-title">시간 x 조건</h2>
-        </div>
-        <a className={buttonVariants({ variant: "outline", size: "sm", className: "panel-link" })} href="/roadmap">
+    <Card aria-labelledby="roadmap-title">
+      <CardHeader>
+        <CardTitle id="roadmap-title">시간 x 조건</CardTitle>
+        <CardDescription>시간이 지나거나 조건을 채우면 열릴 기회를 정렬합니다.</CardDescription>
+        <CardAction>
+        <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/roadmap">
           {nodes.length}개 노드 전체 보기
         </a>
-      </div>
-      <div className="roadmap-strip">
+        </CardAction>
+      </CardHeader>
+      <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {nodes.length > 0 ? nodes.map((node) => (
-          <Card key={`${node.bucket}:${node.grantId}`} className={`roadmap-node ${node.bucket}`} size="sm">
-            <CardContent className="p-0">
-              <div className="roadmap-node-top">
+          <div key={`${node.bucket}:${node.grantId}`} className="flex min-h-36 flex-col gap-3 rounded-[var(--radius-lg)] border bg-background p-4">
+              <div className="flex items-center justify-between gap-3">
                 <StatusBadge tone={bucketTone(node.bucket)}>{bucketLabel(node.bucket)}</StatusBadge>
                 {node.unlock?.etaDate ? (
-                  <time dateTime={node.unlock.etaDate}>{formatEtaDate(node.unlock.etaDate)}</time>
+                  <time className="text-xs text-muted-foreground" dateTime={node.unlock.etaDate}>
+                    {formatEtaDate(node.unlock.etaDate)}
+                  </time>
                 ) : null}
               </div>
-              <h3>{node.title}</h3>
-              <p>{node.unlock?.detail ?? "현재 조건 기준으로 표시됩니다."}</p>
-            </CardContent>
-          </Card>
+              <h3 className="text-sm font-semibold leading-5 text-foreground">{node.title}</h3>
+              <p className="text-sm leading-6 text-muted-foreground">{node.unlock?.detail ?? "현재 조건 기준으로 표시됩니다."}</p>
+          </div>
         )) : (
-          <Empty className="panel-empty">
+          <Empty className="md:col-span-2 xl:col-span-4">
             <EmptyDescription>로드맵 노드가 없습니다.</EmptyDescription>
           </Empty>
         )}
-      </div>
+      </CardContent>
     </Card>
   );
 }

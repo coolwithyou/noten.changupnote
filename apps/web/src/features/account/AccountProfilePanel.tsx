@@ -5,7 +5,7 @@ import { CheckCircle2, Loader2, UserRound } from "lucide-react";
 import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
@@ -59,13 +59,13 @@ export function AccountProfilePanel({
   }
 
   return (
-    <Card className="saas-panel">
+    <Card>
       <CardHeader>
-        <div>
-          <span className="eyebrow">계정 프로필</span>
-          <h2>표시 이름</h2>
-        </div>
-        <UserRound aria-hidden />
+        <CardTitle>표시 이름</CardTitle>
+        <CardDescription>계정 메뉴와 지원 기록에 표시되는 이름입니다.</CardDescription>
+        <CardAction>
+          <UserRound className="text-muted-foreground" aria-hidden />
+        </CardAction>
       </CardHeader>
       <CardContent>
         <form className="grid gap-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-end" onSubmit={onSubmit}>

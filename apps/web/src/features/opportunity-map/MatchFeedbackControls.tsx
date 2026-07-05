@@ -48,15 +48,14 @@ export function MatchFeedbackControls({ grantId, title }: { grantId: string; tit
   }
 
   return (
-    <div className="match-feedback" aria-label={`${title} 피드백`}>
-      <div className="match-feedback-controls">
+    <div className="flex flex-col gap-2" aria-label={`${title} 피드백`}>
+      <div className="grid grid-cols-2 gap-2">
         {FEEDBACK_ACTIONS.map((action) => (
           <Button
             key={action.kind}
             type="button"
             variant={activeKind === action.kind && status === "saved" ? "secondary" : "outline"}
             size="sm"
-            className={activeKind === action.kind && status === "saved" ? "selected" : ""}
             disabled={status === "saving"}
             onClick={() => submitFeedback(action.kind)}
             aria-label={`${title} ${action.label}`}
@@ -66,7 +65,7 @@ export function MatchFeedbackControls({ grantId, title }: { grantId: string; tit
           </Button>
         ))}
       </div>
-      <p className={`feedback-status ${status === "error" ? "error" : ""}`} aria-live="polite">
+      <p className={status === "error" ? "text-xs text-destructive" : "text-xs text-muted-foreground"} aria-live="polite">
         {message}
       </p>
     </div>

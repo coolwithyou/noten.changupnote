@@ -4,7 +4,7 @@ import { MetricCard } from "@/components/app/metric-card";
 import { ServiceHeader } from "@/components/app/service-header";
 import type { HeaderUser } from "@/lib/server/auth/session";
 import { StatusBadge } from "@/components/app/status-badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 
 const ROADMAP_BUCKETS: Array<{
@@ -48,59 +48,58 @@ export function RoadmapView({
   }));
 
   return (
-    <main className="roadmap-shell">
+    <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/roadmap" })} />
 
-      <section className="roadmap-hero">
-        <div>
-          <p className="eyebrow">전략 로드맵</p>
-          <h1>시간과 조건으로 다시 보는 지원사업 기회</h1>
-          <p>
-            지금 가능한 공고와 앞으로 열릴 공고를 분리해 보여줍니다. 확인 필요 조건은 다음 입력과 신청 준비의 출발점입니다.
-          </p>
-        </div>
-        <div className="roadmap-summary-grid" aria-label="로드맵 구간 요약">
-          {bucketCounts.map((bucket) => (
-            <MetricCard
-              className={`roadmap-summary ${bucket.bucket}`}
-              key={bucket.bucket}
-              label={bucket.title}
-              value={`${bucket.count}건`}
-            />
-          ))}
-        </div>
-      </section>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] lg:items-end">
+          <div className="flex max-w-3xl flex-col gap-3">
+            <span className="text-sm font-medium text-muted-foreground">전략 로드맵</span>
+            <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
+              시간과 조건으로 다시 보는 지원사업 기회
+            </h1>
+            <p className="text-base leading-7 text-muted-foreground">
+              지금 가능한 공고와 앞으로 열릴 공고를 분리해 보여줍니다. 확인 필요 조건은 다음 입력과 신청 준비의 출발점입니다.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3" aria-label="로드맵 구간 요약">
+            {bucketCounts.map((bucket) => (
+              <MetricCard key={bucket.bucket} label={bucket.title} value={`${bucket.count}건`} />
+            ))}
+          </div>
+        </section>
 
-      <section className="roadmap-lanes" aria-label="로드맵 구간">
-        {ROADMAP_BUCKETS.map((bucket) => {
-          const nodes = dashboard.roadmap.filter((node) => node.bucket === bucket.bucket);
-          return (
-            <Card className={`roadmap-lane-full ${bucket.bucket}`} key={bucket.bucket}>
-              <CardHeader>
-                <div>
-                  <span className="eyebrow">{bucket.title}</span>
-                  <h2>{bucket.description}</h2>
-                </div>
-                <strong>{nodes.length}</strong>
-              </CardHeader>
-              <CardContent className="roadmap-card-list">
-                {nodes.map((node) => (
-                  <RoadmapCard
-                    key={`${node.bucket}:${node.grantId}`}
-                    node={node}
-                    match={matchesById.get(node.grantId) ?? null}
-                  />
-                ))}
-                {nodes.length === 0 ? (
-                  <Empty className="panel-empty">
-                    <EmptyDescription>해당 구간의 공고가 없습니다.</EmptyDescription>
-                  </Empty>
-                ) : null}
-              </CardContent>
-            </Card>
-          );
-        })}
-      </section>
+        <section className="grid gap-4 xl:grid-cols-2" aria-label="로드맵 구간">
+          {ROADMAP_BUCKETS.map((bucket) => {
+            const nodes = dashboard.roadmap.filter((node) => node.bucket === bucket.bucket);
+            return (
+              <Card key={bucket.bucket}>
+                <CardHeader>
+                  <CardTitle>{bucket.title}</CardTitle>
+                  <CardDescription>{bucket.description}</CardDescription>
+                  <CardAction>
+                    <StatusBadge tone={bucketTone(bucket.bucket)}>{nodes.length}</StatusBadge>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="grid gap-3">
+                  {nodes.map((node) => (
+                    <RoadmapCard
+                      key={`${node.bucket}:${node.grantId}`}
+                      node={node}
+                      match={matchesById.get(node.grantId) ?? null}
+                    />
+                  ))}
+                  {nodes.length === 0 ? (
+                    <Empty className="min-h-48">
+                      <EmptyDescription>해당 구간의 공고가 없습니다.</EmptyDescription>
+                    </Empty>
+                  ) : null}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </section>
+      </div>
     </main>
   );
 }
@@ -110,34 +109,36 @@ function RoadmapCard({ node, match }: { node: RoadmapNode; match: MatchCard | nu
   const traces = actionableTraces(match).slice(0, 3);
 
   return (
-    <Card className="roadmap-card" size="sm">
-      <a className="roadmap-card-link" href={href}>
-        <div className="roadmap-card-header">
-          <StatusBadge className={`roadmap-bucket ${node.bucket}`} tone={bucketTone(node.bucket)}>
+    <Card size="sm">
+      <CardContent className="flex flex-col gap-3">
+      <a className="flex flex-col gap-3" href={href}>
+        <div className="flex items-center justify-between gap-3">
+          <StatusBadge tone={bucketTone(node.bucket)}>
             {bucketLabel(node.bucket)}
           </StatusBadge>
-          <span>{formatDday(match?.dDay ?? null)}</span>
+          <span className="text-xs font-medium text-muted-foreground">{formatDday(match?.dDay ?? null)}</span>
         </div>
-        <h3>{node.title}</h3>
-        <p>{node.unlock?.detail ?? "현재 회사 조건 기준으로 표시됩니다."}</p>
+        <h3 className="text-sm font-semibold leading-5 text-foreground">{node.title}</h3>
+        <p className="text-sm leading-6 text-muted-foreground">{node.unlock?.detail ?? "현재 회사 조건 기준으로 표시됩니다."}</p>
         {node.unlock?.etaDate ? (
-          <time dateTime={node.unlock.etaDate}>{formatEtaDate(node.unlock.etaDate)}</time>
+          <time className="text-xs text-muted-foreground" dateTime={node.unlock.etaDate}>{formatEtaDate(node.unlock.etaDate)}</time>
         ) : null}
-        <div className="roadmap-card-meta">
+        <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>{match?.agency ?? "기관 확인 필요"}</span>
-          <strong>{match ? `적합도 ${match.fitScore}` : "점수 확인"}</strong>
+          <strong className="font-semibold text-foreground">{match ? `적합도 ${match.fitScore}` : "점수 확인"}</strong>
         </div>
-        <span className="roadmap-card-amount">{formatSupportAmount(match?.supportAmount ?? null)}</span>
+        <span className="text-xs font-medium text-muted-foreground">{formatSupportAmount(match?.supportAmount ?? null)}</span>
       </a>
       {traces.length > 0 ? (
-        <div className="roadmap-chip-list" aria-label="주요 조건">
+        <div className="flex flex-wrap gap-1.5" aria-label="주요 조건">
           {traces.map((trace) => (
-            <StatusBadge className={`roadmap-chip ${trace.result}`} key={`${trace.dimension}:${trace.kind}:${trace.label}`} tone={trace.result === "pass" ? "success" : trace.result === "fail" ? "danger" : "warning"}>
+            <StatusBadge key={`${trace.dimension}:${trace.kind}:${trace.label}`} tone={trace.result === "pass" ? "success" : trace.result === "fail" ? "danger" : "warning"}>
               {trace.label}
             </StatusBadge>
           ))}
         </div>
       ) : null}
+      </CardContent>
     </Card>
   );
 }

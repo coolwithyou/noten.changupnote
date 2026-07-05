@@ -22,7 +22,7 @@ export function AccountMenu({ user }: { user: HeaderUser }) {
     <DropdownMenu>
       <DropdownMenuTrigger
         aria-label="계정 메뉴 열기"
-        className="account-trigger group/account inline-flex items-center gap-2 rounded-full border border-border bg-background py-1 pr-3 pl-1 text-sm font-bold text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20"
+        className="group/account inline-flex max-w-[15rem] items-center gap-2 rounded-full border border-border bg-background py-1 pr-3 pl-1 text-sm font-semibold text-foreground outline-none transition-colors hover:bg-muted focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/20"
       >
         <Avatar className="size-7">
           <AvatarFallback className="text-xs">{accountInitial(user)}</AvatarFallback>

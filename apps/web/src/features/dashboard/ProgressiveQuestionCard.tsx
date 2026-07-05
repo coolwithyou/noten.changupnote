@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -58,25 +58,24 @@ export function ProgressiveQuestionCard({ question }: { question: NextQuestionDt
   }
 
   return (
-    <Card id="next-question" className="next-question-banner">
-      <CardContent className="contents">
-        <div className="next-question-content">
-          <span className="eyebrow">다음 질문</span>
-          <h2>{question.prompt}</h2>
-          <p>{question.framing}</p>
-        </div>
-        <form className="next-question-form" onSubmit={handleSubmit}>
-          <StatusBadge className="next-question-impact" tone="warning">
-            {question.affectedGrantCount}건 영향
-          </StatusBadge>
-          <div className="next-question-control-row">
+    <Card id="next-question">
+      <CardHeader>
+        <CardTitle>{question.prompt}</CardTitle>
+        <CardDescription>{question.framing}</CardDescription>
+        <CardAction>
+          <StatusBadge tone="warning">{question.affectedGrantCount}건 영향</StatusBadge>
+        </CardAction>
+      </CardHeader>
+      <CardContent>
+        <form className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start" onSubmit={handleSubmit}>
+          <div className="min-w-0">
             <QuestionInput question={question} value={value} onChange={setValue} />
-            <Button type="submit" disabled={status === "saving" || value.trim().length === 0}>
-              {status === "saving" ? <Spinner data-icon="inline-start" /> : null}
-              {status === "saving" ? "저장 중" : "저장"}
-            </Button>
           </div>
-          <p className={`question-status ${status === "error" ? "error" : ""}`} aria-live="polite">
+          <Button type="submit" disabled={status === "saving" || value.trim().length === 0}>
+            {status === "saving" ? <Spinner data-icon="inline-start" /> : null}
+            {status === "saving" ? "저장 중" : "저장"}
+          </Button>
+          <p className={status === "error" ? "text-sm text-destructive lg:col-span-2" : "text-sm text-muted-foreground lg:col-span-2"} aria-live="polite">
             {message}
           </p>
         </form>
@@ -125,7 +124,7 @@ function QuestionInput({
     return (
       <ToggleGroup
         aria-label={question.prompt}
-        className="next-question-toggle"
+        className="w-fit"
         value={[value]}
         onValueChange={(nextValue) => {
           const [selected] = nextValue;

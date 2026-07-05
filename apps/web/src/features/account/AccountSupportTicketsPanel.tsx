@@ -11,7 +11,7 @@ import type {
 import type { SupportTicketAttachmentItem } from "@/lib/server/support/supportTicketAttachments";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 
 export function AccountSupportTicketsPanel({
@@ -119,65 +119,70 @@ export function AccountSupportTicketsPanel({
   }
 
   return (
-    <Card id="account-support-tickets" className="saas-panel account-support-panel">
+    <Card id="account-support-tickets">
       <CardHeader>
-        <div>
-          <span className="eyebrow">내 문의</span>
-          <h2>고객지원 기록</h2>
-        </div>
-        <StatusBadge tone={rows.length > 0 ? "brand" : "neutral"}>{rows.length}</StatusBadge>
+        <CardTitle>고객지원 기록</CardTitle>
+        <CardDescription>제품과 계정 문의의 처리 상태와 대화를 확인합니다.</CardDescription>
+        <CardAction>
+          <StatusBadge tone={rows.length > 0 ? "brand" : "neutral"}>{rows.length}</StatusBadge>
+        </CardAction>
       </CardHeader>
-      <CardContent className="account-support-content">
+      <CardContent className="flex flex-col gap-4">
         {rows.length === 0 ? (
-          <div className="account-support-empty">
-            <LifeBuoy aria-hidden />
-            <strong>아직 접수된 문의가 없습니다.</strong>
-            <p>제품, 계정, 결제, 개인정보 문의를 남기면 이곳에서 처리 상태를 이어서 확인할 수 있습니다.</p>
+          <div className="flex min-h-48 flex-col items-start justify-center gap-3 rounded-[var(--radius-lg)] border bg-muted/20 p-5">
+            <LifeBuoy className="text-muted-foreground" aria-hidden />
+            <strong className="text-sm font-semibold text-foreground">아직 접수된 문의가 없습니다.</strong>
+            <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+              제품, 계정, 결제, 개인정보 문의를 남기면 이곳에서 처리 상태를 이어서 확인할 수 있습니다.
+            </p>
             <a className={buttonVariants({ variant: "secondary", size: "sm" })} href="/support">
               문의 남기기
             </a>
           </div>
         ) : (
-          <div className="account-support-list">
+          <div className="flex flex-col gap-4">
             {rows.map((ticket) => (
-              <article className="account-support-ticket-row" key={ticket.id}>
-                <div className="account-support-ticket-header">
-                  <div>
-                    <span>{ticket.category} · {formatDate(ticket.lastPublicMessageAt)}</span>
-                    <strong>{ticket.subject}</strong>
-                    <p>{ticket.lastPublicMessagePreview}</p>
+              <article className="flex flex-col gap-4 rounded-[var(--radius-lg)] border bg-background p-4" key={ticket.id}>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <span className="text-xs font-medium text-muted-foreground">{ticket.category} · {formatDate(ticket.lastPublicMessageAt)}</span>
+                    <strong className="mt-1 block text-base font-semibold text-foreground">{ticket.subject}</strong>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{ticket.lastPublicMessagePreview}</p>
                     {ticket.responseDueAt ? (
-                      <em>예상 응답 기준 {formatDateOnly(ticket.responseDueAt)}</em>
+                      <em className="mt-1 block text-xs not-italic text-muted-foreground">예상 응답 기준 {formatDateOnly(ticket.responseDueAt)}</em>
                     ) : null}
                   </div>
                   <StatusBadge tone={statusTone(ticket.status)}>{statusLabel(ticket.status)}</StatusBadge>
                 </div>
-                <div className="account-support-thread" aria-label={`${ticket.subject} 문의 대화`}>
+                <div className="grid gap-3" aria-label={`${ticket.subject} 문의 대화`}>
                   {ticket.thread.map((message) => (
                     <div
-                      className={`account-support-message ${message.authorType === "admin" ? "from-admin" : "from-user"}`}
+                      className={
+                        message.authorType === "admin"
+                          ? "rounded-[var(--radius-lg)] border bg-muted/30 p-3"
+                          : "rounded-[var(--radius-lg)] border bg-background p-3"
+                      }
                       key={message.id}
                     >
-                      <strong>{message.authorType === "admin" ? "창업노트" : "나"}</strong>
-                      <p>{message.body}</p>
-                      <span>{formatDate(message.createdAt)}</span>
+                      <strong className="text-xs font-semibold text-foreground">{message.authorType === "admin" ? "창업노트" : "나"}</strong>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">{message.body}</p>
+                      <span className="mt-2 block text-xs text-muted-foreground">{formatDate(message.createdAt)}</span>
                     </div>
                   ))}
                 </div>
                 {ticket.attachments.length > 0 ? (
-                  <div className="account-support-attachments" aria-label={`${ticket.subject} 문의 첨부 파일`}>
-                    <span>
+                  <div className="flex flex-col gap-2 rounded-[var(--radius-lg)] border bg-muted/20 p-3" aria-label={`${ticket.subject} 문의 첨부 파일`}>
+                    <span className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
                       <Paperclip aria-hidden />
                       첨부 파일 {ticket.attachments.length}개
                     </span>
-                    <div>
+                    <div className="grid gap-2">
                       {ticket.attachments.map((attachment) => (
-                        <div className="account-support-attachment-item" key={attachment.id}>
+                        <div className="flex flex-wrap items-center gap-2" key={attachment.id}>
                           <a
                             className={buttonVariants({
                               variant: "outline",
                               size: "sm",
-                              className: "account-support-attachment-link",
                             })}
                             href={attachment.archiveUrl}
                             target="_blank"
@@ -202,7 +207,7 @@ export function AccountSupportTicketsPanel({
                     </div>
                   </div>
                 ) : null}
-                <div className="account-support-ticket-actions">
+                <div className="flex flex-wrap items-center gap-2">
                   {ticket.status === "resolved" || ticket.status === "closed" ? (
                     <Button
                       type="button"
@@ -235,7 +240,7 @@ export function AccountSupportTicketsPanel({
                   </a>
                 </div>
                 <form
-                  className="account-support-reply-form"
+                  className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-start"
                   onSubmit={(event) => {
                     event.preventDefault();
                     void submitReply(ticket.id);
@@ -260,7 +265,7 @@ export function AccountSupportTicketsPanel({
           </div>
         )}
         {notice ? (
-          <p className="account-support-notice">
+          <p className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] border bg-muted/30 px-3 py-2 text-sm text-foreground">
             <CheckCircle2 aria-hidden />
             {notice}
           </p>

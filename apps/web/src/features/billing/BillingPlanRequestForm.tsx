@@ -98,20 +98,23 @@ export function BillingPlanRequestForm({
 
   if (!canRequest) {
     return (
-      <div className="billing-request-permission" id="billing-plan-request-form">
-        <ShieldCheck aria-hidden />
+      <div
+        className="flex items-start gap-3 rounded-[var(--radius-xl)] border border-border bg-muted/40 p-4 text-sm"
+        id="billing-plan-request-form"
+      >
+        <ShieldCheck className="mt-0.5 size-4 text-muted-foreground" aria-hidden />
         <div>
-          <strong>플랜 전환 요청 권한이 없습니다.</strong>
-          <p>회사 소유자, 관리자 또는 멤버에게 요청해주세요.</p>
+          <strong className="text-foreground">플랜 전환 요청 권한이 없습니다.</strong>
+          <p className="mt-1 text-muted-foreground">회사 소유자, 관리자 또는 멤버에게 요청해주세요.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <form className="billing-plan-request-form" id="billing-plan-request-form" onSubmit={(event) => void submit(event)}>
+    <form className="flex flex-col gap-5" id="billing-plan-request-form" onSubmit={(event) => void submit(event)}>
       <FieldGroup>
-        <div className="billing-request-grid two">
+        <div className="grid gap-4 md:grid-cols-2">
           <Field>
             <FieldLabel htmlFor="billing-request-email">상담 이메일</FieldLabel>
             <Input
@@ -137,7 +140,7 @@ export function BillingPlanRequestForm({
           </Field>
         </div>
 
-        <div className="billing-request-grid three">
+        <div className="grid gap-4 lg:grid-cols-3">
           <Field>
             <FieldLabel htmlFor="billing-request-plan">희망 플랜</FieldLabel>
             <Select value={desiredPlan} disabled={pending} onValueChange={(value) => setDesiredPlan(value as BillingPlan)}>
@@ -202,10 +205,14 @@ export function BillingPlanRequestForm({
         </Field>
       </FieldGroup>
 
-      {error ? <div className="billing-request-feedback error" role="alert">{error}</div> : null}
+      {error ? (
+        <div className="rounded-[var(--radius-lg)] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+          {error}
+        </div>
+      ) : null}
       {receipt ? (
-        <div className="billing-request-feedback success" role="status">
-          <CheckCircle2 aria-hidden />
+        <div className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary" role="status">
+          <CheckCircle2 className="size-4" aria-hidden />
           <span>전환 요청 접수번호 {receipt.id}</span>
         </div>
       ) : null}

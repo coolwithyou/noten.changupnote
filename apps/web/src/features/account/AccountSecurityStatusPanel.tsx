@@ -1,8 +1,9 @@
 import { CheckCircle2, Download, KeyRound, ShieldCheck, UserRound } from "lucide-react";
+import type { ReactNode } from "react";
 import type { AccountSecurityStatus } from "@/lib/server/account/accountSecurityStatus";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
 export function AccountSecurityStatusPanel({
@@ -11,13 +12,13 @@ export function AccountSecurityStatusPanel({
   status: AccountSecurityStatus;
 }) {
   return (
-    <Card className="saas-panel">
+    <Card>
       <CardHeader>
-        <div>
-          <span className="eyebrow">계정 상태</span>
-          <h2>보안과 세션</h2>
-        </div>
-        <ShieldCheck aria-hidden />
+        <CardTitle>보안과 세션</CardTitle>
+        <CardDescription>로그인 방식, 법무 동의, 계정 식별자를 확인합니다.</CardDescription>
+        <CardAction>
+          <ShieldCheck className="text-muted-foreground" aria-hidden />
+        </CardAction>
       </CardHeader>
       <CardContent className="grid gap-4">
         <div className="grid gap-3 md:grid-cols-3">
@@ -86,7 +87,7 @@ function SecurityMetric({
   badge,
   tone,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
   badge: string;
@@ -95,14 +96,14 @@ function SecurityMetric({
   return (
     <div className="grid gap-3 rounded-[var(--radius-lg)] border border-border bg-muted/30 p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="inline-flex size-9 items-center justify-center rounded-[14px] bg-accent text-primary" aria-hidden>
+        <span className="inline-flex size-9 items-center justify-center rounded-[var(--radius-lg)] bg-muted text-muted-foreground" aria-hidden>
           {icon}
         </span>
         <StatusBadge tone={tone}>{badge}</StatusBadge>
       </div>
       <div>
-        <span className="text-xs font-bold text-muted-foreground">{label}</span>
-        <strong className="mt-1 block break-words text-base font-extrabold text-foreground">{value}</strong>
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <strong className="mt-1 block break-words text-base font-semibold text-foreground">{value}</strong>
       </div>
     </div>
   );
@@ -111,7 +112,7 @@ function SecurityMetric({
 function SecurityDetail({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid gap-1 rounded-[var(--radius-lg)] border border-border px-4 py-3">
-      <dt className="text-xs font-bold text-muted-foreground">{label}</dt>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
       <dd className="break-words font-semibold text-foreground">{value}</dd>
     </div>
   );

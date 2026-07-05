@@ -6,7 +6,7 @@ import type { ActionResult } from "@cunote/contracts";
 import type { AccountDeletionRequestHistoryItem } from "@/lib/server/account/accountDeletionRequestHistory";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -72,20 +72,20 @@ export function AccountDeletionRequestPanel({
   }
 
   return (
-    <Card className="saas-panel account-danger-panel" id="account-deletion-request">
+    <Card id="account-deletion-request">
       <CardHeader>
-        <div>
-          <span className="eyebrow">개인정보 권리 행사</span>
-          <h2>계정 데이터 삭제 요청</h2>
-          <p>삭제는 회사 권한, 법적 보존 의무, 진행 중인 고객지원 기록을 확인한 뒤 처리됩니다.</p>
-        </div>
+        <CardTitle>계정 데이터 삭제 요청</CardTitle>
+        <CardDescription>삭제는 회사 권한, 법적 보존 의무, 진행 중인 고객지원 기록을 확인한 뒤 처리됩니다.</CardDescription>
+        <CardAction>
+          <AlertTriangle className="text-destructive" aria-hidden />
+        </CardAction>
       </CardHeader>
-      <CardContent className="account-danger-content">
-        <div className="account-danger-note">
-          <AlertTriangle aria-hidden />
+      <CardContent className="flex flex-col gap-6">
+        <div className="flex gap-3 rounded-[var(--radius-lg)] border bg-destructive/5 p-4 text-sm leading-6 text-destructive">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>즉시 계정을 삭제하지 않고 개인정보 요청 티켓으로 접수합니다. 운영팀이 보존 대상과 회사 접근권한을 확인합니다.</span>
         </div>
-        <form className="account-deletion-form" onSubmit={(event) => void submit(event)}>
+        <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="account-deletion-email">처리 결과를 받을 이메일</FieldLabel>
@@ -133,9 +133,9 @@ export function AccountDeletionRequestPanel({
               {errorField === "confirmation" && error ? <FieldError id="account-deletion-confirmation-error">{error}</FieldError> : null}
             </Field>
           </FieldGroup>
-          {error && !errorField ? <div className="support-ticket-feedback error" role="alert">{error}</div> : null}
+          {error && !errorField ? <div className="text-sm text-destructive" role="alert">{error}</div> : null}
           {receipt ? (
-            <div className="support-ticket-feedback success" role="status">
+            <div className="flex items-center gap-2 rounded-[var(--radius-lg)] border bg-muted/30 px-3 py-2 text-sm text-foreground" role="status">
               <CheckCircle2 aria-hidden />
               <span>접수번호 {receipt.id}</span>
             </div>
@@ -153,12 +153,12 @@ export function AccountDeletionRequestPanel({
         </form>
         <div className="grid gap-3" aria-label="최근 삭제 요청">
           <div>
-            <span className="eyebrow">최근 삭제 요청</span>
-            <h3 className="text-base font-extrabold text-foreground">처리 상태</h3>
+            <span className="text-xs font-medium text-muted-foreground">최근 삭제 요청</span>
+            <h3 className="text-base font-semibold text-foreground">처리 상태</h3>
           </div>
           {history.length === 0 ? (
             <div className="rounded-[var(--radius-lg)] border border-border bg-muted/30 p-4">
-              <strong className="block text-sm font-extrabold text-foreground">아직 접수된 삭제 요청이 없습니다.</strong>
+              <strong className="block text-sm font-semibold text-foreground">아직 접수된 삭제 요청이 없습니다.</strong>
               <p className="mt-1 text-sm leading-6 text-muted-foreground">
                 삭제 또는 처리 정지 요청을 남기면 이곳에서 접수 상태와 최근 업데이트를 확인할 수 있습니다.
               </p>
@@ -168,7 +168,7 @@ export function AccountDeletionRequestPanel({
               <div className="grid gap-3 rounded-[var(--radius-lg)] border border-border p-4 md:grid-cols-[minmax(0,1fr)_auto]" key={request.id}>
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <strong className="text-sm font-extrabold text-foreground">{request.subject}</strong>
+                    <strong className="text-sm font-semibold text-foreground">{request.subject}</strong>
                     <StatusBadge tone={statusTone(request.status)}>{statusLabel(request.status)}</StatusBadge>
                   </div>
                   <p className="mt-1 text-sm leading-6 text-muted-foreground">{request.messagePreview}</p>
@@ -177,7 +177,7 @@ export function AccountDeletionRequestPanel({
                   </span>
                 </div>
                 <div className="grid gap-1 text-sm md:text-right">
-                  <span className="font-bold text-foreground">최근 업데이트 {formatDate(request.updatedAt)}</span>
+                  <span className="font-semibold text-foreground">최근 업데이트 {formatDate(request.updatedAt)}</span>
                   <span className="text-muted-foreground">
                     {request.responseDueAt ? `응답 기준 ${formatDate(request.responseDueAt)}` : "응답 기준 조정중"}
                   </span>

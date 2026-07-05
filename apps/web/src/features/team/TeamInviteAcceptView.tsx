@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Check, LogIn, ShieldCheck } from "lucide-react";
 import type { ActionResult } from "@cunote/contracts";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface InvitationAcceptance {
   companyId: string;
@@ -48,19 +48,16 @@ export function TeamInviteAcceptView({
   }
 
   return (
-    <section className="team-invite-accept-shell">
-      <Card className="team-invite-accept-card">
+    <section className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
+      <Card className="w-full max-w-lg">
         <CardHeader>
-          <span className="team-invite-accept-icon" aria-hidden>
+          <span className="flex size-10 items-center justify-center rounded-[var(--radius-lg)] bg-muted text-muted-foreground" aria-hidden>
             {accepted ? <Check /> : <ShieldCheck />}
           </span>
-          <div>
-            <span className="eyebrow">팀 초대</span>
-            <h1>창업노트 워크스페이스에 참여</h1>
-            <p>로그인한 이메일과 초대 이메일이 일치해야 멤버 권한으로 연결됩니다.</p>
-          </div>
+          <CardTitle>창업노트 워크스페이스에 참여</CardTitle>
+          <CardDescription>로그인한 이메일과 초대 이메일이 일치해야 멤버 권한으로 연결됩니다.</CardDescription>
         </CardHeader>
-        <CardContent className="team-invite-accept-content">
+        <CardContent className="flex flex-col gap-3">
           {signedIn ? (
             <>
               <Button type="button" onClick={acceptInvitation} disabled={pending || accepted}>
@@ -79,7 +76,7 @@ export function TeamInviteAcceptView({
               로그인하고 수락
             </a>
           )}
-          {message ? <p className="team-invite-accept-message">{message}</p> : null}
+          {message ? <p className="text-sm text-muted-foreground">{message}</p> : null}
         </CardContent>
       </Card>
     </section>

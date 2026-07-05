@@ -92,14 +92,12 @@ select {
   font-weight: 700;
 }
 
-h1,
-h2,
-h3,
-p {
+:where(h1, h2, h3, h4, p) {
   margin: 0;
+  letter-spacing: 0;
 }
 
-h1 {
+.app-shell h1 {
   font-size: 32px;
   line-height: 1.2;
 }
@@ -415,7 +413,7 @@ button:disabled {
     padding: 14px;
   }
 
-  h1 {
+  .app-shell h1 {
     font-size: 25px;
   }
 
@@ -3953,34 +3951,9 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-h1,
-h2,
-h3,
-h4,
-p {
+:where(h1, h2, h3, h4, p) {
   margin: 0;
   letter-spacing: 0;
-}
-
-h1 {
-  color: var(--foreground);
-  font-size: clamp(32px, 4.5vw, 64px);
-  font-weight: 700;
-  line-height: 1.14;
-}
-
-h2 {
-  color: var(--foreground);
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.36;
-}
-
-h3,
-h4 {
-  color: var(--foreground);
-  font-weight: 600;
-  line-height: 1.4;
 }
 
 p,
@@ -6242,62 +6215,6 @@ label {
   color: var(--destructive);
 }
 
-.applications-shell {
-  background: var(--background);
-}
-
-.application-stats {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(128px, 1fr));
-  gap: 10px;
-  max-width: 1380px;
-  margin: 0 auto 14px;
-}
-
-.application-stage-tabs {
-  display: none;
-}
-
-.application-stat [data-slot="card-content"] {
-  display: grid;
-  gap: 4px;
-}
-
-.application-stat span {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.application-stat strong {
-  color: var(--primary);
-  font-size: 24px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.application-stat.preparing strong {
-  color: var(--amber);
-}
-
-.application-stat.submitted strong {
-  color: var(--green);
-}
-
-.application-stat.selected strong {
-  color: var(--green);
-}
-
-.application-stat.rejected strong,
-.application-stat.blocked strong {
-  color: var(--destructive);
-}
-
-.application-stat.dismissed strong {
-  color: var(--muted-foreground);
-}
-
 .saas-disclosure {
   max-width: 1380px;
   margin: 0 auto;
@@ -6362,160 +6279,6 @@ label {
   gap: 14px;
   border-top: 1px solid var(--border);
   padding: 14px;
-}
-
-.application-board {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(232px, 1fr));
-  gap: 12px;
-  max-width: 1380px;
-  margin: 0 auto;
-  overflow-x: auto;
-  padding-bottom: 4px;
-}
-
-.application-lane {
-  display: grid;
-  align-content: start;
-  gap: 12px;
-  min-width: 232px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--surface-muted);
-  padding: 12px;
-}
-
-.application-lane-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.application-lane-head h2 {
-  color: var(--foreground);
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.application-lane-head p {
-  margin-top: 3px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.application-card-list {
-  display: grid;
-  gap: 10px;
-}
-
-.application-card [data-slot="card-content"] {
-  display: grid;
-  gap: 10px;
-}
-
-.application-card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.application-card-head > span {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-weight: 800;
-}
-
-.application-card h3 {
-  color: var(--foreground);
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.application-card p {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  line-height: 1.45;
-}
-
-.application-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.application-card-meta span {
-  border-radius: 999px;
-  background: var(--secondary);
-  color: var(--secondary-foreground);
-  padding: 5px 8px;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.2;
-}
-
-.application-next-action {
-  border-left: 3px solid var(--primary);
-  padding-left: 10px;
-}
-
-.application-outcome-note {
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--surface-muted);
-  padding: 10px;
-}
-
-.application-card-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.application-management-form {
-  display: grid;
-  gap: 8px;
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-}
-
-.application-management-form label {
-  display: grid;
-  gap: 6px;
-}
-
-.application-management-form label > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.application-management-form svg {
-  width: 13px;
-  height: 13px;
-}
-
-.application-management-form [data-slot="input"] {
-  min-height: 38px;
-}
-
-.application-management-form [data-slot="textarea"] {
-  min-height: 82px;
-  border-radius: 14px;
-}
-
-.application-card time {
-  color: var(--muted-foreground);
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .archive-shell {
@@ -8097,68 +7860,14 @@ label {
   .saas-two-column,
   .onboarding-steps,
   .legal-layout,
-  .application-board,
   .workspace-summary-grid,
   .workspace-usage-grid,
   .workspace-two-column {
     grid-template-columns: 1fr;
   }
 
-  .application-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .application-stage-tabs {
-    display: flex;
-    max-width: 1380px;
-    margin: 0 auto 14px;
-    gap: 8px;
-    overflow-x: auto;
-    padding: 4px 2px 8px;
-    scrollbar-width: none;
-  }
-
-  .application-stage-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .application-stage-tabs button {
-    display: inline-flex;
-    flex: 0 0 auto;
-    min-height: 44px;
-    align-items: center;
-    gap: 8px;
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    background: var(--card);
-    color: var(--muted-foreground);
-    padding: 0 14px;
-    font: inherit;
-    font-size: 13px;
-    font-weight: 800;
-  }
-
-  .application-stage-tabs button.active {
-    border-color: rgba(49, 130, 246, 0.26);
-    background: var(--accent);
-    color: var(--accent-foreground);
-  }
-
-  .application-stage-tabs button strong {
-    color: inherit;
-    font-variant-numeric: tabular-nums;
-  }
-
   .onboarding-initial-grid {
     grid-template-columns: 1fr;
-  }
-
-  .application-lane {
-    min-width: 0;
-  }
-
-  .application-board[data-active-stage] .application-lane:not(.is-active) {
-    display: none;
   }
 
   .saas-hero-actions {
@@ -8177,7 +7886,6 @@ label {
   .document-draft-summary,
   .document-draft-meta,
   .document-prep-groups,
-  .application-stats,
   .support-ticket-fields.two,
   .billing-readiness-content,
   .billing-request-grid.two,
@@ -8185,7 +7893,6 @@ label {
     grid-template-columns: 1fr;
   }
 
-  .application-card-actions,
   .document-draft-actions {
     justify-content: flex-start;
   }
@@ -8247,7 +7954,6 @@ label {
     padding: 14px;
   }
 
-  h1,
   .hero-copy h1 {
     font-size: 34px;
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ComponentProps } from "react";
 import { AlertTriangle, Archive, CalendarClock, CheckCircle2, Download, FileText, Loader2, Mail, Save, Send, UserRound, XCircle } from "lucide-react";
 import type { FeedbackKind } from "@cunote/contracts";
 import type {
@@ -10,13 +11,16 @@ import type {
 } from "@/lib/server/applications/pipeline";
 import { appHeaderLinks } from "@/components/app/app-navigation";
 import { ServiceHeader } from "@/components/app/service-header";
-import { StatusBadge } from "@/components/app/status-badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { HeaderUser } from "@/lib/server/auth/session";
+import { cn } from "@/lib/utils";
 
 const STAGES: Array<{
   stage: ApplicationStage;
@@ -124,118 +128,136 @@ export function ApplicationPipelineView({
   }
 
   return (
-    <main className="saas-shell applications-shell">
+    <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/applications" })} />
 
-      <section className="saas-hero compact">
-        <div>
-          <p className="eyebrow">신청 관리</p>
-          <h1>지원사업을 신청 파이프라인으로 관리하세요</h1>
-          <p>추천된 공고를 저장, 준비, 제출, 보류 단계로 나눠 현재 작업 상태를 추적합니다.</p>
-        </div>
-        <div className="saas-hero-actions">
-          <a className={buttonVariants({ variant: "secondary" })} href="/api/web/applications/report">
-            <Download data-icon="inline-start" />
-            리포트
-          </a>
-          <a className={buttonVariants({ variant: "outline" })} href="/api/web/applications/calendar">
-            <CalendarClock data-icon="inline-start" />
-            전체 캘린더
-          </a>
-          <a className={buttonVariants({ variant: "outline" })} href="/api/web/applications/calendar-subscription">
-            <CalendarClock data-icon="inline-start" />
-            구독 URL
-          </a>
-          <a className={buttonVariants()} href="/dashboard">새 기회 보기</a>
-          <a className={buttonVariants({ variant: "outline" })} href="/roadmap">로드맵</a>
-        </div>
-      </section>
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+        <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex max-w-3xl flex-col gap-3">
+            <span className="text-sm font-medium text-muted-foreground">신청 관리</span>
+            <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
+              지원사업을 신청 파이프라인으로 관리하세요
+            </h1>
+            <p className="text-base leading-7 text-muted-foreground">
+              추천된 공고를 저장, 준비, 제출, 보류 단계로 나눠 현재 작업 상태를 추적합니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <a className={buttonVariants({ variant: "secondary" })} href="/api/web/applications/report">
+              <Download data-icon="inline-start" />
+              리포트
+            </a>
+            <a className={buttonVariants({ variant: "outline" })} href="/api/web/applications/calendar">
+              <CalendarClock data-icon="inline-start" />
+              전체 캘린더
+            </a>
+            <a className={buttonVariants({ variant: "outline" })} href="/api/web/applications/calendar-subscription">
+              <CalendarClock data-icon="inline-start" />
+              구독 URL
+            </a>
+            <a className={buttonVariants()} href="/dashboard">새 기회 보기</a>
+            <a className={buttonVariants({ variant: "outline" })} href="/roadmap">로드맵</a>
+          </div>
+        </section>
 
-      <section className="application-stats" aria-label="신청 상태 요약">
-        {STAGES.map((stage) => (
-          <Card className={`application-stat ${stage.stage}`} key={stage.stage} size="sm">
-            <CardContent className="p-0">
-              <span>{stage.title}</span>
-              <strong>{stats[stage.stage].toLocaleString("ko-KR")}건</strong>
-            </CardContent>
-          </Card>
-        ))}
-      </section>
+        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" aria-label="신청 상태 요약">
+          {STAGES.map((stage) => (
+            <Card key={stage.stage}>
+              <CardHeader>
+                <CardDescription>{stage.title}</CardDescription>
+                <CardTitle className="text-2xl font-semibold tracking-normal tabular-nums text-foreground">
+                  {stats[stage.stage].toLocaleString("ko-KR")}건
+                </CardTitle>
+              </CardHeader>
+            </Card>
+          ))}
+        </section>
 
-      {error ? (
-        <div className="document-draft-error" role="alert">
-          <span>{error}</span>
-        </div>
-      ) : null}
+        {error ? (
+          <Alert variant="destructive" role="alert">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      {notice ? (
-        <div className="application-feedback success" role="status" aria-live="polite">
-          <CheckCircle2 aria-hidden />
-          <span>{notice}</span>
-        </div>
-      ) : null}
+        {notice ? (
+          <Alert role="status" aria-live="polite">
+            <CheckCircle2 aria-hidden />
+            <AlertDescription>{notice}</AlertDescription>
+          </Alert>
+        ) : null}
 
-      <div className="application-stage-tabs" role="tablist" aria-label="신청 단계 선택">
-        {STAGES.map((stage) => (
-          <button
-            key={stage.stage}
-            type="button"
-            role="tab"
-            aria-selected={activeStage === stage.stage}
-            aria-controls={`application-lane-${stage.stage}`}
-            className={activeStage === stage.stage ? "active" : undefined}
-            onClick={() => setActiveStage(stage.stage)}
-          >
-            <span>{stage.title}</span>
-            <strong>{stats[stage.stage].toLocaleString("ko-KR")}</strong>
-          </button>
-        ))}
-      </div>
-
-      <section className="application-board" aria-label="신청 파이프라인" data-active-stage={activeStage}>
-        {STAGES.map((stage) => {
-          const stageItems = items.filter((item) => item.stage === stage.stage);
-          return (
-            <div
-              className={activeStage === stage.stage ? "application-lane is-active" : "application-lane"}
-              data-stage={stage.stage}
-              id={`application-lane-${stage.stage}`}
+        <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="신청 단계 선택">
+          {STAGES.map((stage) => (
+            <button
               key={stage.stage}
-              role="tabpanel"
-              aria-label={`${stage.title} 단계`}
+              type="button"
+              role="tab"
+              aria-selected={activeStage === stage.stage}
+              aria-controls={`application-lane-${stage.stage}`}
+              className={buttonVariants({
+                variant: activeStage === stage.stage ? "default" : "outline",
+                size: "sm",
+                className: "gap-2",
+              })}
+              onClick={() => setActiveStage(stage.stage)}
             >
-              <div className="application-lane-head">
-                <div>
-                  <h2>{stage.title}</h2>
-                  <p>{stage.description}</p>
-                </div>
-                <StatusBadge tone={stageTone(stage.stage)}>{stageItems.length}</StatusBadge>
-              </div>
-              <div className="application-card-list">
-                {stageItems.map((item) => (
-                  <PipelineCard
-                    key={item.grantId}
-                    item={item}
-                    draft={managementDrafts[item.grantId] ?? managementDraftFromItem(item)}
-                    pending={pendingGrantId === item.grantId}
-                    onMove={moveItem}
-                    onDraftChange={(draft) => setManagementDrafts((current) => ({
-                      ...current,
-                      [item.grantId]: draft,
-                    }))}
-                    onSaveManagement={saveManagement}
-                  />
-                ))}
-                {stageItems.length === 0 ? (
-                  <Empty className="panel-empty">
-                    <EmptyDescription>이 단계의 공고가 없습니다.</EmptyDescription>
-                  </Empty>
-                ) : null}
-              </div>
-            </div>
-          );
-        })}
-      </section>
+              <span>{stage.title}</span>
+              <strong className="tabular-nums">{stats[stage.stage].toLocaleString("ko-KR")}</strong>
+            </button>
+          ))}
+        </div>
+
+        <section className="grid gap-4 xl:grid-cols-2" aria-label="신청 파이프라인" data-application-board data-active-stage={activeStage}>
+          {STAGES.map((stage) => {
+            const stageItems = items.filter((item) => item.stage === stage.stage);
+            return (
+              <Card
+                className={cn(
+                  "min-h-[26rem]",
+                  activeStage === stage.stage ? "bg-primary/5 ring-primary/30" : "bg-card"
+                )}
+                data-active={activeStage === stage.stage}
+                data-stage={stage.stage}
+                id={`application-lane-${stage.stage}`}
+                key={stage.stage}
+                role="tabpanel"
+                aria-label={`${stage.title} 단계`}
+              >
+                <CardHeader className="border-b">
+                  <CardTitle>{stage.title}</CardTitle>
+                  <CardDescription>{stage.description}</CardDescription>
+                  <CardAction>
+                    <Badge variant={activeStage === stage.stage ? "default" : "secondary"} className="tabular-nums">
+                      {stageItems.length}
+                    </Badge>
+                  </CardAction>
+                </CardHeader>
+                <CardContent className="flex flex-1 flex-col gap-4">
+                  {stageItems.map((item) => (
+                    <PipelineCard
+                      key={item.grantId}
+                      item={item}
+                      draft={managementDrafts[item.grantId] ?? managementDraftFromItem(item)}
+                      pending={pendingGrantId === item.grantId}
+                      onMove={moveItem}
+                      onDraftChange={(draft) => setManagementDrafts((current) => ({
+                        ...current,
+                        [item.grantId]: draft,
+                      }))}
+                      onSaveManagement={saveManagement}
+                    />
+                  ))}
+                  {stageItems.length === 0 ? (
+                    <Empty className="min-h-56 flex-1 bg-muted/20">
+                      <EmptyDescription>이 단계의 공고가 없습니다.</EmptyDescription>
+                    </Empty>
+                  ) : null}
+                </CardContent>
+              </Card>
+            );
+          })}
+        </section>
+      </div>
     </main>
   );
 }
@@ -256,170 +278,184 @@ function PipelineCard({
   onSaveManagement: (item: ApplicationPipelineItem) => Promise<void>;
 }) {
   return (
-    <Card className="application-card" size="sm">
-      <CardContent className="p-0">
-        <div className="application-card-head">
-          <StatusBadge tone={stageTone(item.stage)}>{item.stageLabel}</StatusBadge>
-          <span>{formatDday(item.dDay)}</span>
-        </div>
-        <h3>{item.title}</h3>
-        <p>{item.agency ?? "기관 확인 필요"}</p>
-        <div className="application-card-meta">
+    <Card>
+      <CardHeader>
+        <CardTitle className="line-clamp-2">{item.title}</CardTitle>
+        <CardDescription>{item.agency ?? "기관 확인 필요"}</CardDescription>
+        <CardAction>
+          <div className="flex flex-col items-end gap-2">
+            <Badge variant={stageBadgeVariant(item.stage)}>{item.stageLabel}</Badge>
+            <span className="text-xs font-medium text-muted-foreground">{formatDday(item.dDay)}</span>
+          </div>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
           <span>적합도 {item.fitScore}</span>
           <span>{item.supportLabel}</span>
           <span>초안 {item.reviewedDraftCount}/{item.draftCount}</span>
           {item.assigneeName ? <span>담당 {item.assigneeName}</span> : null}
           {item.reminderAt ? <span>리마인더 {item.reminderAt}</span> : null}
         </div>
-        <p className="application-next-action">{item.nextAction}</p>
+        <p className="rounded-lg bg-muted/50 p-3 text-sm leading-6 text-foreground">{item.nextAction}</p>
         {item.outcomeNote ? (
-          <p className="application-outcome-note">{item.outcomeNote}</p>
+          <p className="rounded-lg border bg-background p-3 text-sm leading-6 text-muted-foreground">{item.outcomeNote}</p>
         ) : null}
-        <div className="application-card-actions">
-          <a className={buttonVariants({ variant: "outline", size: "sm" })} href={item.detailHref}>
-            <FileText data-icon="inline-start" />
-            상세
-          </a>
-          {item.applyEnd || item.reminderAt ? (
-            <a
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-              href={`/api/web/applications/${encodeURIComponent(item.grantId)}/calendar`}
-              title="마감일과 리마인더를 캘린더 파일로 내려받기"
-            >
-              <CalendarClock data-icon="inline-start" />
-              캘린더
-            </a>
-          ) : null}
-          <a
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-            href={`/api/web/grants/${encodeURIComponent(item.grantId)}/package`}
-            title="정규화 서류, 첨부 링크, 저장된 초안을 Markdown으로 내려받기"
-          >
-            <Download data-icon="inline-start" />
-            패키지
-          </a>
-          {item.stage !== "dismissed" ? (
-            <a
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-              href={`/api/web/applications/${encodeURIComponent(item.grantId)}/reminder-email`}
-              title="현재 신청 상태와 다음 액션을 이메일 파일로 내려받기"
-            >
-              <Mail data-icon="inline-start" />
-              리마인더 메일
-            </a>
-          ) : null}
-          {item.stage === "submitted" ? (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={pending}
-                onClick={() => onMove(item, "selected", "selected")}
-              >
-                {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <CheckCircle2 data-icon="inline-start" />}
-                선정
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={pending}
-                onClick={() => onMove(item, "rejected", "rejected")}
-              >
-                <XCircle data-icon="inline-start" />
-                탈락
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={pending}
-                onClick={() => onMove(item, "blocked", "blocked")}
-              >
-                <AlertTriangle data-icon="inline-start" />
-                막힘
-              </Button>
-            </>
-          ) : isFinalOutcomeStage(item.stage) ? null : (
-            <>
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={pending}
-                onClick={() => onMove(item, "saved", "saved")}
-              >
-                {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Save data-icon="inline-start" />}
-                저장
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                disabled={pending}
-                onClick={() => onMove(item, "applied", "submitted")}
-              >
-                <Send data-icon="inline-start" />
-                제출
-              </Button>
-            </>
-          )}
-          <Button
-            type="button"
-            size="icon-sm"
-            variant="ghost"
-            aria-label="보류로 이동"
-            disabled={pending}
-            onClick={() => onMove(item, "dismissed", "dismissed")}
-          >
-            <Archive />
-          </Button>
-        </div>
         {isPostSubmitStage(item.stage) ? (
           <form
-            className="application-management-form"
+            className="rounded-lg border bg-background p-4"
             onSubmit={(event) => {
               event.preventDefault();
               void onSaveManagement(item);
             }}
           >
-            <label>
-              <span><UserRound aria-hidden /> 담당자</span>
-              <Input
-                value={draft.assigneeName}
-                onChange={(event) => onDraftChange({ ...draft, assigneeName: event.currentTarget.value })}
-                placeholder="담당자 이름"
-                disabled={pending}
-              />
-            </label>
-            <label>
-              <span><CalendarClock aria-hidden /> 리마인더</span>
-              <Input
-                type="date"
-                value={draft.reminderAt}
-                onChange={(event) => onDraftChange({ ...draft, reminderAt: event.currentTarget.value })}
-                disabled={pending}
-              />
-            </label>
-            <label className="application-management-note">
-              <span>결과/후속 메모</span>
-              <Textarea
-                value={draft.outcomeNote}
-                onChange={(event) => onDraftChange({ ...draft, outcomeNote: event.currentTarget.value })}
-                placeholder="발표 예정일, 보완 요청, 선정 후 의무, 탈락 사유를 기록하세요."
-                disabled={pending}
-              />
-            </label>
-            <Button type="submit" size="sm" variant="secondary" disabled={pending}>
-              {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Save data-icon="inline-start" />}
-              후속 저장
-            </Button>
+            <FieldGroup className="grid gap-3 md:grid-cols-2">
+              <Field>
+                <FieldLabel>
+                  <UserRound aria-hidden />
+                  담당자
+                </FieldLabel>
+                <Input
+                  value={draft.assigneeName}
+                  onChange={(event) => onDraftChange({ ...draft, assigneeName: event.currentTarget.value })}
+                  placeholder="담당자 이름"
+                  disabled={pending}
+                />
+              </Field>
+              <Field>
+                <FieldLabel>
+                  <CalendarClock aria-hidden />
+                  리마인더
+                </FieldLabel>
+                <Input
+                  type="date"
+                  value={draft.reminderAt}
+                  onChange={(event) => onDraftChange({ ...draft, reminderAt: event.currentTarget.value })}
+                  disabled={pending}
+                />
+              </Field>
+              <Field className="md:col-span-2">
+                <FieldLabel>결과/후속 메모</FieldLabel>
+                <Textarea
+                  value={draft.outcomeNote}
+                  onChange={(event) => onDraftChange({ ...draft, outcomeNote: event.currentTarget.value })}
+                  placeholder="발표 예정일, 보완 요청, 선정 후 의무, 탈락 사유를 기록하세요."
+                  disabled={pending}
+                />
+              </Field>
+              <Button className="w-fit" type="submit" size="sm" variant="secondary" disabled={pending}>
+                {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Save data-icon="inline-start" />}
+                후속 저장
+              </Button>
+            </FieldGroup>
           </form>
         ) : null}
         {item.lastActionAt ? (
-          <time dateTime={item.lastActionAt}>최근 변경 {formatDate(item.lastActionAt)}</time>
+          <time className="text-xs text-muted-foreground" dateTime={item.lastActionAt}>
+            최근 변경 {formatDate(item.lastActionAt)}
+          </time>
         ) : null}
       </CardContent>
+      <CardFooter className="flex flex-wrap items-center justify-start gap-2">
+        <a className={buttonVariants({ variant: "outline", size: "sm" })} href={item.detailHref}>
+          <FileText data-icon="inline-start" />
+          상세
+        </a>
+        {item.applyEnd || item.reminderAt ? (
+          <a
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            href={`/api/web/applications/${encodeURIComponent(item.grantId)}/calendar`}
+            title="마감일과 리마인더를 캘린더 파일로 내려받기"
+          >
+            <CalendarClock data-icon="inline-start" />
+            캘린더
+          </a>
+        ) : null}
+        <a
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+          href={`/api/web/grants/${encodeURIComponent(item.grantId)}/package`}
+          title="정규화 서류, 첨부 링크, 저장된 초안을 Markdown으로 내려받기"
+        >
+          <Download data-icon="inline-start" />
+          패키지
+        </a>
+        {item.stage !== "dismissed" ? (
+          <a
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            href={`/api/web/applications/${encodeURIComponent(item.grantId)}/reminder-email`}
+            title="현재 신청 상태와 다음 액션을 이메일 파일로 내려받기"
+          >
+            <Mail data-icon="inline-start" />
+            리마인더 메일
+          </a>
+        ) : null}
+        {item.stage === "submitted" ? (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => onMove(item, "selected", "selected")}
+            >
+              {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <CheckCircle2 data-icon="inline-start" />}
+              선정
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => onMove(item, "rejected", "rejected")}
+            >
+              <XCircle data-icon="inline-start" />
+              탈락
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={pending}
+              onClick={() => onMove(item, "blocked", "blocked")}
+            >
+              <AlertTriangle data-icon="inline-start" />
+              막힘
+            </Button>
+          </>
+        ) : isFinalOutcomeStage(item.stage) ? null : (
+          <>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={pending}
+              onClick={() => onMove(item, "saved", "saved")}
+            >
+              {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Save data-icon="inline-start" />}
+              저장
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              disabled={pending}
+              onClick={() => onMove(item, "applied", "submitted")}
+            >
+              <Send data-icon="inline-start" />
+              제출
+            </Button>
+          </>
+        )}
+        <Button
+          type="button"
+          size="icon-sm"
+          variant="ghost"
+          aria-label="보류로 이동"
+          disabled={pending}
+          onClick={() => onMove(item, "dismissed", "dismissed")}
+        >
+          <Archive />
+        </Button>
+      </CardFooter>
     </Card>
   );
 }
@@ -470,12 +506,11 @@ function stageLabel(stage: ApplicationStage): string {
   return "보류";
 }
 
-function stageTone(stage: ApplicationStage): "brand" | "success" | "warning" | "danger" | "neutral" {
-  if (stage === "preparing") return "warning";
-  if (stage === "submitted" || stage === "selected") return "success";
-  if (stage === "rejected" || stage === "blocked") return "danger";
-  if (stage === "dismissed") return "neutral";
-  return "brand";
+function stageBadgeVariant(stage: ApplicationStage): ComponentProps<typeof Badge>["variant"] {
+  if (stage === "rejected" || stage === "blocked") return "destructive";
+  if (stage === "preparing") return "outline";
+  if (stage === "dismissed") return "secondary";
+  return "default";
 }
 
 function formatDday(value: number | null): string {

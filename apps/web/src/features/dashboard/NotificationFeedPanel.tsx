@@ -5,7 +5,7 @@ import { CheckCircle2, Download, XCircle } from "lucide-react";
 import type { ActionResult, NotificationItem } from "@cunote/contracts";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import type {
   NotificationCenterItem,
@@ -59,41 +59,45 @@ export function NotificationFeedPanel({
   }
 
   return (
-    <Card className="dashboard-panel notification-feed-panel" aria-labelledby="notification-feed-title">
-      <div className="panel-heading inline">
-        <div>
-          <span className="eyebrow">알림</span>
-          <h2 id="notification-feed-title">{title}</h2>
-        </div>
-        <div className="notification-feed-summary">
+    <Card aria-labelledby="notification-feed-title">
+      <CardHeader>
+        <CardTitle id="notification-feed-title">{title}</CardTitle>
+        <CardDescription>{formatGeneratedAt(feed.generatedAt)} 기준</CardDescription>
+        <CardAction>
+          <div className="flex flex-wrap items-center justify-end gap-2">
           <StatusBadge tone={unreadCount > 0 ? "brand" : "neutral"}>읽지 않음 {unreadCount}</StatusBadge>
-          <time dateTime={feed.generatedAt}>{formatGeneratedAt(feed.generatedAt)}</time>
           <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/api/web/notification-feed/report">
             <Download data-icon="inline-start" />
             리포트
           </a>
-        </div>
-      </div>
-      <div className="notification-feed-list">
+          </div>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
         {visibleItems.length > 0 ? visibleItems.map((item) => (
-          <Card className={`notification-feed-item ${item.priority} ${item.status}`} key={item.id} size="sm">
-            <CardContent className="p-0">
-              <a href={item.href} onClick={() => void updateReceipt(item, "read")}>
-                <div className="notification-feed-top">
+          <div
+            className="rounded-[var(--radius-lg)] border bg-background p-4 data-[status=unread]:border-primary/30 data-[status=unread]:bg-primary/5"
+            data-priority={item.priority}
+            data-status={item.status}
+            key={item.id}
+          >
+            <div className="flex flex-col gap-3">
+              <a className="flex flex-col gap-2" href={item.href} onClick={() => void updateReceipt(item, "read")}>
+                <span className="flex items-center justify-between gap-3">
                   <StatusBadge tone={item.priority === "high" ? "danger" : item.priority === "medium" ? "warning" : "neutral"}>
                     {kindLabel(item.kind)}
                   </StatusBadge>
-                  <strong>{priorityLabel(item.priority)}</strong>
-                </div>
-                <h3>{item.title}</h3>
-                <p>{item.body}</p>
-                <div className="notification-feed-meta">
+                  <strong className="text-xs font-medium text-muted-foreground">{priorityLabel(item.priority)}</strong>
+                </span>
+                <span className="text-sm font-semibold leading-5 text-foreground">{item.title}</span>
+                <span className="text-sm leading-6 text-muted-foreground">{item.body}</span>
+                <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   {item.dDay !== undefined && item.dDay !== null ? <span>{dDayLabel(item.dDay)}</span> : null}
                   {item.etaDate ? <span>{item.etaDate}</span> : null}
                   <span>{item.rulesetVer}</span>
-                </div>
+                </span>
               </a>
-              <div className="notification-feed-actions">
+              <div className="flex flex-wrap items-center gap-2">
                 {item.status === "unread" ? (
                   <Button
                     type="button"
@@ -117,14 +121,14 @@ export function NotificationFeedPanel({
                   숨김
                 </Button>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         )) : (
-          <Empty className="panel-empty">
+          <Empty>
             <EmptyDescription>새 알림이 없습니다.</EmptyDescription>
           </Empty>
         )}
-      </div>
+      </CardContent>
     </Card>
   );
 }

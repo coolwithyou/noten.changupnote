@@ -5,7 +5,7 @@ import { CheckCircle2, KeyRound, Loader2 } from "lucide-react";
 import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 
@@ -65,13 +65,13 @@ export function AccountPasswordPanel() {
   }
 
   return (
-    <Card className="saas-panel">
+    <Card>
       <CardHeader>
-        <div>
-          <span className="eyebrow">계정 보안</span>
-          <h2>비밀번호 변경</h2>
-        </div>
-        <KeyRound aria-hidden />
+        <CardTitle>비밀번호 변경</CardTitle>
+        <CardDescription>이메일 로그인용 비밀번호를 설정하거나 변경합니다.</CardDescription>
+        <CardAction>
+          <KeyRound className="text-muted-foreground" aria-hidden />
+        </CardAction>
       </CardHeader>
       <CardContent>
         <form className="flex flex-col gap-4" onSubmit={onSubmit}>

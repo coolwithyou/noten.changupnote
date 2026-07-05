@@ -14,7 +14,7 @@ export default async function TeamInvitePage({ params }: TeamInvitePageProps) {
   const [{ token }, session] = await Promise.all([params, getOptionalWebSession()]);
   const callbackUrl = `/team/invite/${encodeURIComponent(token)}`;
   return (
-    <main className="saas-shell workspace-shell">
+    <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader
         user={session ? { name: session.user.name ?? null, email: session.user.email ?? null } : null}
         links={[

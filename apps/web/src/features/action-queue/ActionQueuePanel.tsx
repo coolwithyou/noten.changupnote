@@ -1,41 +1,44 @@
 import type { ActionQueueItem } from "@cunote/contracts";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 
 export function ActionQueuePanel({ actions }: { actions: ActionQueueItem[] }) {
   return (
-    <Card className="dashboard-panel action-panel" aria-labelledby="action-queue-title">
-      <div className="panel-heading">
-        <span className="eyebrow">NPC 액션 큐</span>
-        <h2 id="action-queue-title">이번 주 먼저 할 일</h2>
-      </div>
-      <div className="action-list">
+    <Card aria-labelledby="action-queue-title">
+      <CardHeader>
+        <CardTitle id="action-queue-title">이번 주 먼저 할 일</CardTitle>
+        <CardDescription>매칭 결과에 영향을 주는 우선 행동입니다.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
         {actions.length > 0 ? actions.map((action) => (
-          <Card key={action.id} className={`action-item ${action.urgency}`} size="sm">
-            <CardContent className="p-0">
-              <StatusBadge className="action-kind" tone={action.urgency === "high" ? "danger" : action.urgency === "medium" ? "warning" : "neutral"}>
+          <div key={action.id} className="flex flex-col gap-3 rounded-[var(--radius-lg)] border bg-background p-4">
+            <div className="flex items-start justify-between gap-3">
+              <StatusBadge tone={action.urgency === "high" ? "danger" : action.urgency === "medium" ? "warning" : "neutral"}>
                 {actionKindLabel(action.kind)}
               </StatusBadge>
-              <h3>{action.title}</h3>
-              <p>{action.reason}</p>
-              <div className="action-meta">
-                <span>{action.affectedGrantCount}건 영향</span>
-                <span>{effortLabel(action.effort)}</span>
-                <strong>{action.score}</strong>
-              </div>
-              <a className={buttonVariants({ variant: "outline", size: "sm", className: "action-cta" })} href={actionHref(action)}>
-                {action.ctaLabel}
-              </a>
-            </CardContent>
-          </Card>
+              <strong className="text-sm tabular-nums text-muted-foreground">{action.score}</strong>
+            </div>
+            <div className="flex flex-col gap-1">
+              <h3 className="text-sm font-semibold leading-5 text-foreground">{action.title}</h3>
+              <p className="text-sm leading-6 text-muted-foreground">{action.reason}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{action.affectedGrantCount}건 영향</span>
+              <span aria-hidden="true">/</span>
+              <span>{effortLabel(action.effort)}</span>
+            </div>
+            <a className={buttonVariants({ variant: "outline", size: "sm", className: "w-full" })} href={actionHref(action)}>
+              {action.ctaLabel}
+            </a>
+          </div>
         )) : (
-          <Empty className="panel-empty">
+          <Empty>
             <EmptyDescription>지금 바로 제안할 행동이 없습니다.</EmptyDescription>
           </Empty>
         )}
-      </div>
+      </CardContent>
     </Card>
   );
 }

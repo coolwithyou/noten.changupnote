@@ -78,20 +78,23 @@ export function BillingTaxProfileForm({
 
   if (!canUpdate) {
     return (
-      <div className="billing-request-permission" id="billing-tax-profile-form">
-        <ShieldCheck aria-hidden />
+      <div
+        className="flex items-start gap-3 rounded-[var(--radius-xl)] border border-border bg-muted/40 p-4 text-sm"
+        id="billing-tax-profile-form"
+      >
+        <ShieldCheck className="mt-0.5 size-4 text-muted-foreground" aria-hidden />
         <div>
-          <strong>청구 프로필 수정 권한이 없습니다.</strong>
-          <p>회사 소유자, 관리자 또는 멤버에게 요청해주세요.</p>
+          <strong className="text-foreground">청구 프로필 수정 권한이 없습니다.</strong>
+          <p className="mt-1 text-muted-foreground">회사 소유자, 관리자 또는 멤버에게 요청해주세요.</p>
         </div>
       </div>
     );
   }
 
   return (
-    <form className="billing-plan-request-form" id="billing-tax-profile-form" onSubmit={(event) => void submit(event)}>
+    <form className="flex flex-col gap-5" id="billing-tax-profile-form" onSubmit={(event) => void submit(event)}>
       <FieldGroup>
-        <div className="billing-request-grid two">
+        <div className="grid gap-4 md:grid-cols-2">
           <Field>
             <FieldLabel htmlFor="billing-tax-business-name">상호/법인명</FieldLabel>
             <Input
@@ -120,7 +123,7 @@ export function BillingTaxProfileForm({
           </Field>
         </div>
 
-        <div className="billing-request-grid three">
+        <div className="grid gap-4 lg:grid-cols-3">
           <Field>
             <FieldLabel htmlFor="billing-tax-recipient-name">청구 담당자</FieldLabel>
             <Input
@@ -154,7 +157,7 @@ export function BillingTaxProfileForm({
           </Field>
         </div>
 
-        <div className="billing-request-grid three">
+        <div className="grid gap-4 lg:grid-cols-3">
           <Field>
             <FieldLabel htmlFor="billing-tax-email">세금계산서 이메일</FieldLabel>
             <Input
@@ -224,10 +227,14 @@ export function BillingTaxProfileForm({
         </Field>
       </FieldGroup>
 
-      {error ? <div className="billing-request-feedback error" role="alert">{error}</div> : null}
+      {error ? (
+        <div className="rounded-[var(--radius-lg)] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
+          {error}
+        </div>
+      ) : null}
       {savedProfile ? (
-        <div className="billing-request-feedback success" role="status">
-          <CheckCircle2 aria-hidden />
+        <div className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary" role="status">
+          <CheckCircle2 className="size-4" aria-hidden />
           <span>{savedProfile.source === "database" ? "청구 프로필을 저장했습니다." : "청구 프로필 임시 저장 응답을 확인했습니다."}</span>
         </div>
       ) : null}

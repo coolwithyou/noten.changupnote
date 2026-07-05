@@ -4,7 +4,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, Loader2, Mail, Paperclip, Send } from "lucide-react";
 import type { ActionResult } from "@cunote/contracts";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -167,15 +167,15 @@ export function SupportTicketForm({
   }
 
   return (
-    <Card className="support-ticket-panel" id="support-ticket-form">
-      <CardContent className="p-0">
-        <span className="eyebrow">문의 접수</span>
-        <h2>운영팀에 문의하기</h2>
-        <p>계정, 회사 인증, 매칭 결과, 신청서류 초안 문제를 하나의 티켓으로 접수합니다.</p>
-
-        <form className="support-ticket-form" onSubmit={(event) => void submit(event)}>
+    <Card id="support-ticket-form">
+      <CardHeader>
+        <CardTitle>운영팀에 문의하기</CardTitle>
+        <CardDescription>계정, 회사 인증, 매칭 결과, 신청서류 초안 문제를 하나의 티켓으로 접수합니다.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
           <FieldGroup>
-            <div className="support-ticket-fields two">
+            <div className="grid gap-4 md:grid-cols-2">
               <Field>
                 <FieldLabel htmlFor="support-email">이메일</FieldLabel>
                 <Input
@@ -267,23 +267,23 @@ export function SupportTicketForm({
           </FieldGroup>
 
           {error ? (
-            <div className="support-ticket-feedback error" role="alert">
+            <div className="text-sm text-destructive" role="alert">
               {error}
             </div>
           ) : null}
 
           {receipt ? (
-            <div className="support-ticket-feedback success" role="status">
+            <div className="flex flex-col gap-2 rounded-[var(--radius-lg)] border bg-muted/30 p-4 text-sm text-foreground" role="status">
               <CheckCircle2 aria-hidden />
               <span>
                 접수번호 {receipt.id}
                 {!receipt.persisted ? " · 저장소 연결 후 운영팀이 확인합니다." : ""}
               </span>
-              <span className={receipt.emailDelivery?.status === "failed" ? "support-ticket-attachment-warning" : "support-ticket-attachment-ok"}>
+              <span className={receipt.emailDelivery?.status === "failed" ? "text-destructive" : "text-muted-foreground"}>
                 {supportTicketDeliveryMessage(receipt)}
               </span>
               {attachmentNotice ? (
-                <span className={attachmentNotice.ok ? "support-ticket-attachment-ok" : "support-ticket-attachment-warning"}>
+                <span className={attachmentNotice.ok ? "text-muted-foreground" : "text-destructive"}>
                   {attachmentNotice.message}
                 </span>
               ) : null}
@@ -292,7 +292,7 @@ export function SupportTicketForm({
                   className={buttonVariants({
                     variant: "outline",
                     size: "sm",
-                    className: "support-ticket-feedback-link",
+                    className: "w-fit",
                   })}
                   href={accountSupportHref}
                 >
@@ -304,7 +304,7 @@ export function SupportTicketForm({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="support-ticket-feedback-link"
+                  className="w-fit"
                   disabled={handoffPending}
                   onClick={() => void downloadHandoff()}
                 >

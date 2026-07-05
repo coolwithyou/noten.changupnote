@@ -113,9 +113,9 @@ export function BillingTaxDocumentsPanel({
 
   return (
     <div className="grid gap-5" id="billing-tax-documents-panel">
-      <form className="billing-plan-request-form" onSubmit={(event) => void upload(event)}>
+      <form className="flex flex-col gap-5" onSubmit={(event) => void upload(event)}>
         <FieldGroup>
-          <div className="billing-request-grid two">
+          <div className="grid gap-4 md:grid-cols-2">
             <Field>
               <FieldLabel htmlFor="billing-tax-document-kind">문서 종류</FieldLabel>
               <Select value={documentKind} disabled={!canUpdate || pending} onValueChange={(value) => setDocumentKind(value as BillingTaxDocumentKind)}>
@@ -148,7 +148,14 @@ export function BillingTaxDocumentsPanel({
           </div>
         </FieldGroup>
         {feedback ? (
-          <div className={`billing-request-feedback ${feedback.tone === "danger" ? "error" : "success"}`} role="status">
+          <div
+            className={
+              feedback.tone === "danger"
+                ? "rounded-[var(--radius-lg)] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+                : "rounded-[var(--radius-lg)] border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary"
+            }
+            role="status"
+          >
             {feedback.message}
           </div>
         ) : null}

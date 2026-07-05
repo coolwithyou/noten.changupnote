@@ -16,7 +16,7 @@ import { MetricCard } from "@/components/app/metric-card";
 import { ServiceHeader } from "@/components/app/service-header";
 import type { HeaderUser } from "@/lib/server/auth/session";
 import { StatusBadge } from "@/components/app/status-badge";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { buttonVariants } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -38,38 +38,39 @@ export function ApplySheetView({
   const dDayLabel = formatDday(sheet.schedule.dDay);
 
   return (
-    <main className="apply-shell">
+    <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader user={user} links={appHeaderLinks()} />
 
-      <section className="apply-hero">
+      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+      <section className="grid gap-4 rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] lg:grid-cols-[minmax(0,1fr)_320px]">
         <div>
-          <p className="eyebrow">신청 준비 시트</p>
-          <h1>{sheet.grant.title}</h1>
-          <p>{sheet.grant.agency ?? "운영기관 확인 필요"}</p>
+          <p className="text-xs font-medium uppercase text-muted-foreground">신청 준비 시트</p>
+          <h1 className="mt-2 text-2xl font-semibold tracking-normal sm:text-3xl">{sheet.grant.title}</h1>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">{sheet.grant.agency ?? "운영기관 확인 필요"}</p>
         </div>
-        <aside className="apply-summary">
+        <aside className="grid gap-2 rounded-[var(--radius-xl)] border bg-muted/30 p-4">
           <SummaryRow label="상태" value={grantStatusLabel(sheet.grant.status)} />
           <SummaryRow label="마감" value={dDayLabel} emphasis={sheet.schedule.dDay !== null && sheet.schedule.dDay <= 14} />
           <SummaryRow label="지원금" value={formatSupportAmount(sheet.grant.supportAmount)} />
         </aside>
       </section>
 
-      <section className="apply-overview">
-        <MetricCard className="apply-overview-card" label="접수 기간" value={formatDateRange(sheet.schedule.applyStart, sheet.schedule.applyEnd)} />
-        <MetricCard className="apply-overview-card" label="접수 방법" value={sheet.applyMethod ?? "원문 확인"} />
-        <Card className="apply-overview-card action" size="sm">
-          <CardContent className="p-0">
-            <span>신청 링크</span>
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="접수 기간" value={formatDateRange(sheet.schedule.applyStart, sheet.schedule.applyEnd)} />
+        <MetricCard label="접수 방법" value={sheet.applyMethod ?? "원문 확인"} />
+        <Card size="sm">
+          <CardContent className="grid gap-2">
+            <span className="text-sm text-muted-foreground">신청 링크</span>
             {sheet.deepLink ? (
               <ApplyLink href={sheet.deepLink} grantId={sheet.grant.id} />
             ) : (
-              <strong>원문 확인 필요</strong>
+              <strong className="text-lg font-semibold">원문 확인 필요</strong>
             )}
           </CardContent>
         </Card>
-        <Card className="apply-overview-card" size="sm">
-          <CardContent className="p-0">
-            <span>받을 수 있는 것</span>
+        <Card size="sm">
+          <CardContent className="grid gap-2">
+            <span className="text-sm text-muted-foreground">받을 수 있는 것</span>
             <BenefitBadgeList benefits={sheet.grant.benefits} />
           </CardContent>
         </Card>
@@ -82,7 +83,7 @@ export function ApplySheetView({
         formFields={formFields}
       />
 
-      <section className="apply-grid">
+      <section className="grid gap-4 lg:grid-cols-3">
         <ChecklistSection
           title="이미 충족"
           description="회사 정보로 자동 충족된 필수 조건입니다."
@@ -97,6 +98,7 @@ export function ApplySheetView({
         />
         <DocumentSection documents={sheet.documents} sourceAttachments={sheet.sourceAttachments} />
       </section>
+      </div>
     </main>
   );
 }
@@ -113,14 +115,14 @@ function ApplicationPrepSection({
   formFields: GrantDocumentFormField[];
 }) {
   return (
-    <Card id="application-prep" className="apply-panel application-prep-panel">
-      <div className="panel-heading inline">
+    <Card id="application-prep">
+      <CardHeader className="gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
         <div>
-          <span className="eyebrow">지원서 준비</span>
-          <h2>필요 서류와 AI 초안</h2>
-          <p>접수는 각 포털에서 진행하고, 아래 초안은 신청서 작성 재료로만 사용합니다.</p>
+          <span className="text-xs font-medium uppercase text-muted-foreground">지원서 준비</span>
+          <CardTitle className="mt-1 text-lg">필요 서류와 AI 초안</CardTitle>
+          <CardDescription className="mt-1">접수는 각 포털에서 진행하고, 아래 초안은 신청서 작성 재료로만 사용합니다.</CardDescription>
         </div>
-        <div className="application-prep-actions">
+        <div className="flex flex-wrap items-center gap-2 lg:justify-end">
           <a
             className={buttonVariants({ variant: "outline", size: "sm" })}
             href={`/api/web/grants/${encodeURIComponent(grantId)}/package?format=attachments`}
@@ -138,15 +140,16 @@ function ApplicationPrepSection({
             패키지 내보내기
           </a>
         </div>
-      </div>
-      <PreparationGroupSection prep={prep} />
-      <DocumentDraftWorkspace grantId={grantId} prep={prep} initialDrafts={initialDrafts} />
-      <FormFieldMappingSection fields={formFields} />
-      <div className="application-prep-grid">
-        <Card className="profile-copy-panel" aria-label="복붙 프로필" size="sm">
-          <CardContent className="p-0">
-          <h3>복붙 프로필</h3>
-          <div className="profile-copy-list">
+      </CardHeader>
+      <CardContent className="grid gap-5">
+        <PreparationGroupSection prep={prep} />
+        <DocumentDraftWorkspace grantId={grantId} prep={prep} initialDrafts={initialDrafts} />
+        <FormFieldMappingSection fields={formFields} />
+        <div className="grid gap-4 lg:grid-cols-2">
+        <Card aria-label="복붙 프로필" size="sm">
+          <CardContent className="grid gap-3">
+          <h3 className="text-base font-semibold">복붙 프로필</h3>
+          <div className="grid gap-2">
             {prep.profileCopyFields.map((field) => (
               <ProfileCopyItem key={`${field.source}:${field.label}`} field={field} />
             ))}
@@ -158,48 +161,49 @@ function ApplicationPrepSection({
           </div>
           </CardContent>
         </Card>
-        <Card className="plan-draft-panel" aria-label="사업계획서 초안" size="sm">
-          <CardContent className="p-0">
-          <h3>초안 프롬프트</h3>
-          <div className="plan-draft-list">
+        <Card aria-label="사업계획서 초안" size="sm">
+          <CardContent className="grid gap-3">
+          <h3 className="text-base font-semibold">초안 프롬프트</h3>
+          <div className="grid gap-2">
             {prep.planDraftPrompts.map((prompt) => (
               <PlanDraftItem key={prompt.title} prompt={prompt} />
             ))}
           </div>
           </CardContent>
         </Card>
-      </div>
+        </div>
+      </CardContent>
     </Card>
   );
 }
 
 function PreparationGroupSection({ prep }: { prep: ApplicationPrep }) {
   return (
-    <div className="document-prep-groups" aria-label="문서 준비 방식">
+    <div className="grid gap-3 lg:grid-cols-2" aria-label="문서 준비 방식">
       {prep.documentGroups.map((group) => (
-        <section className="document-prep-group" key={group.preparationType}>
-          <div className="document-prep-group-head">
+        <section className="rounded-[var(--radius-xl)] border bg-muted/30 p-4" key={group.preparationType}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <span className="eyebrow">문서 준비 방식</span>
-              <h3>{group.label}</h3>
-              <p>{group.description}</p>
+              <span className="text-xs font-medium uppercase text-muted-foreground">문서 준비 방식</span>
+              <h3 className="mt-1 text-base font-semibold">{group.label}</h3>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{group.description}</p>
             </div>
             <StatusBadge tone={preparationTypeTone(group.preparationType)}>
               {group.documents.length.toLocaleString("ko-KR")}개
             </StatusBadge>
           </div>
-          <div className="document-prep-group-list">
+          <div className="mt-4 grid gap-2">
             {group.documents.map((document) => (
               <div
-                className="document-prep-group-row"
+                className="grid gap-2 rounded-[var(--radius-lg)] border bg-card p-3 sm:grid-cols-[auto_minmax(0,1fr)]"
                 key={`${group.preparationType}:${document.name}:${document.sourceAttachment ?? document.sourceSpan ?? document.source}`}
               >
                 <StatusBadge tone={document.required ? "warning" : "neutral"}>
                   {document.required ? "필수" : "선택"}
                 </StatusBadge>
                 <div>
-                  <strong>{document.canonicalName ?? document.name}</strong>
-                  <span>
+                  <strong className="block text-sm font-semibold">{document.canonicalName ?? document.name}</strong>
+                  <span className="mt-1 block text-xs text-muted-foreground">
                     {documentCategoryLabel(document.category ?? "other")}
                     {" · "}
                     {document.sourceAttachment ?? document.sourceSpan ?? sourceLabel(document.source)}
@@ -224,15 +228,15 @@ function FormFieldMappingSection({ fields }: { fields: GrantDocumentFormField[] 
   const requiredCount = fields.filter((field) => field.required).length;
 
   return (
-    <Card className="form-field-mapping-panel" aria-label="원문 양식 필드 매핑" size="sm">
-      <CardContent className="p-0">
-        <div className="form-field-mapping-head">
+    <Card aria-label="원문 양식 필드 매핑" size="sm">
+      <CardContent className="grid gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <span className="eyebrow">원문 양식</span>
-            <h3>필드 매핑</h3>
-            <p>첨부 양식에서 추출한 항목과 자동채움 전략입니다.</p>
+            <span className="text-xs font-medium uppercase text-muted-foreground">원문 양식</span>
+            <h3 className="mt-1 text-base font-semibold">필드 매핑</h3>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">첨부 양식에서 추출한 항목과 자동채움 전략입니다.</p>
           </div>
-          <div className="form-field-mapping-stats">
+          <div className="flex flex-wrap items-center gap-2">
             <StatusBadge tone={fields.length > 0 ? "brand" : "neutral"}>
               필드 {fields.length.toLocaleString("ko-KR")}
             </StatusBadge>
@@ -245,7 +249,7 @@ function FormFieldMappingSection({ fields }: { fields: GrantDocumentFormField[] 
           </div>
         </div>
         {fields.length > 0 ? (
-          <Table className="form-field-mapping-table">
+          <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>문서</TableHead>
@@ -257,12 +261,12 @@ function FormFieldMappingSection({ fields }: { fields: GrantDocumentFormField[] 
             <TableBody>
               {fields.slice(0, 12).map((field) => (
                 <TableRow key={`${field.documentName}:${field.fieldKey}:${field.label}`}>
-                  <TableCell className="form-field-document">
+                  <TableCell>
                     <strong>{field.documentName}</strong>
                     <span>{field.sourceAttachment ?? documentCategoryLabel(field.documentCategory)}</span>
                   </TableCell>
                   <TableCell>
-                    <div className="form-field-label">
+                    <div className="grid gap-1">
                       <strong>{field.label}</strong>
                       <span>{field.section ?? fieldTypeLabel(field.fieldType)}</span>
                     </div>
@@ -272,7 +276,7 @@ function FormFieldMappingSection({ fields }: { fields: GrantDocumentFormField[] 
                       {fillStrategyLabel(field)}
                     </StatusBadge>
                   </TableCell>
-                  <TableCell className="form-field-source">
+                  <TableCell className="text-muted-foreground">
                     {field.sourceSpan ?? (field.required ? "필수 항목" : "원문 확인")}
                   </TableCell>
                 </TableRow>
@@ -293,23 +297,27 @@ function FormFieldMappingSection({ fields }: { fields: GrantDocumentFormField[] 
 
 function ProfileCopyItem({ field }: { field: ProfileCopyField }) {
   return (
-    <Card className="profile-copy-item" size="sm">
-      <span>{field.label}</span>
-      <strong>{field.value}</strong>
+    <Card size="sm">
+      <CardContent className="grid gap-1">
+      <span className="text-xs text-muted-foreground">{field.label}</span>
+      <strong className="text-sm font-semibold">{field.value}</strong>
+      </CardContent>
     </Card>
   );
 }
 
 function PlanDraftItem({ prompt }: { prompt: PlanDraftPrompt }) {
   return (
-    <Card className="plan-draft-item" size="sm">
-      <h4>{prompt.title}</h4>
-      <p>{prompt.prompt}</p>
-      <ul>
+    <Card size="sm">
+      <CardContent className="grid gap-2">
+      <h4 className="text-sm font-semibold">{prompt.title}</h4>
+      <p className="text-sm leading-6 text-muted-foreground">{prompt.prompt}</p>
+      <ul className="ml-4 list-disc text-sm text-muted-foreground">
         {prompt.evidence.map((item) => (
           <li key={item}>{item}</li>
         ))}
       </ul>
+      </CardContent>
     </Card>
   );
 }
@@ -318,7 +326,7 @@ function BenefitBadgeList({ benefits }: { benefits: BenefitBadge[] }) {
   if (benefits.length === 0) return <strong>혜택 확인 필요</strong>;
 
   return (
-    <div className="benefit-badge-list">
+    <div className="flex flex-wrap gap-1.5">
       {benefits.map((benefit) => (
         <StatusBadge key={benefit.family} tone="brand">{benefit.label}</StatusBadge>
       ))}
@@ -338,13 +346,13 @@ function ChecklistSection({
   emptyText: string;
 }) {
   return (
-    <Card className="apply-panel">
-      <div className="panel-heading">
-        <span className="eyebrow">체크리스트</span>
-        <h2>{title}</h2>
-        <p>{description}</p>
-      </div>
-      <div className="checklist-list">
+    <Card>
+      <CardHeader>
+        <span className="text-xs font-medium uppercase text-muted-foreground">체크리스트</span>
+        <CardTitle className="text-lg">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
         {items.map((item) => (
           <TraceItem key={`${item.dimension}-${item.kind}-${item.label}`} item={item} />
         ))}
@@ -353,29 +361,31 @@ function ChecklistSection({
             <EmptyDescription>{emptyText}</EmptyDescription>
           </Empty>
         ) : null}
-      </div>
+      </CardContent>
     </Card>
   );
 }
 
 function TraceItem({ item }: { item: RuleTraceChip }) {
   return (
-    <Card className={`trace-item ${item.result}`} size="sm">
-      <div>
-        <StatusBadge className="trace-kind" tone={traceTone(item.result)}>
+    <Card size="sm">
+      <CardContent className="grid gap-2">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <StatusBadge tone={traceTone(item.result)}>
           {traceResultLabel(item.result)}
         </StatusBadge>
-        <h3>{item.label}</h3>
+        <h3 className="flex-1 text-sm font-semibold">{item.label}</h3>
       </div>
       {item.companyValue || item.sourceSpan ? (
-        <p>{item.companyValue ? `회사값 ${item.companyValue}` : item.sourceSpan}</p>
+        <p className="text-sm leading-6 text-muted-foreground">{item.companyValue ? `회사값 ${item.companyValue}` : item.sourceSpan}</p>
       ) : null}
       {item.unlock ? (
-        <p className="trace-unlock">
+        <p className="text-sm leading-6 text-muted-foreground">
           {item.unlock.detail}{item.unlock.etaDate ? ` · ${formatEtaDate(item.unlock.etaDate)}` : ""}
         </p>
       ) : null}
       {item.action ? <StatusBadge tone="brand">{item.action.label}</StatusBadge> : null}
+      </CardContent>
     </Card>
   );
 }
@@ -388,31 +398,35 @@ function DocumentSection({
   sourceAttachments: SourceAttachment[];
 }) {
   return (
-    <Card className="apply-panel documents-panel">
-      <div className="panel-heading">
-        <span className="eyebrow">서류와 원문</span>
-        <h2>준비 서류</h2>
-        <p>명확히 추출된 서류와 자동 판정이 어려운 원문 확인 항목입니다.</p>
-      </div>
-      <div className="document-list">
+    <Card>
+      <CardHeader>
+        <span className="text-xs font-medium uppercase text-muted-foreground">서류와 원문</span>
+        <CardTitle className="text-lg">준비 서류</CardTitle>
+        <CardDescription>명확히 추출된 서류와 자동 판정이 어려운 원문 확인 항목입니다.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
         {documents.map((document) => (
-          <Card className="document-item" key={`${document.name}-${document.sourceSpan ?? document.source}`} size="sm">
+          <Card key={`${document.name}-${document.sourceSpan ?? document.source}`} size="sm">
+            <CardContent className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div>
               <StatusBadge tone={document.required ? "warning" : "neutral"}>{document.required ? "필수" : "선택"}</StatusBadge>
-              <h3>{document.name}</h3>
-              {document.sourceSpan || document.note ? <p>{document.sourceSpan ?? document.note}</p> : null}
+              <h3 className="mt-2 text-sm font-semibold">{document.name}</h3>
+              {document.sourceSpan || document.note ? <p className="mt-1 text-sm leading-6 text-muted-foreground">{document.sourceSpan ?? document.note}</p> : null}
             </div>
-            <strong>{document.fromTextOnly ? "원문 확인" : sourceLabel(document.source)}</strong>
+            <strong className="text-sm">{document.fromTextOnly ? "원문 확인" : sourceLabel(document.source)}</strong>
+            </CardContent>
           </Card>
         ))}
         {sourceAttachments.map((attachment) => (
-          <Card className="document-item" key={`${attachment.filename}-${attachment.url ?? attachment.sourceUri ?? "file"}`} size="sm">
+          <Card key={`${attachment.filename}-${attachment.url ?? attachment.sourceUri ?? "file"}`} size="sm">
+            <CardContent className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
             <div>
               <StatusBadge tone="brand">첨부</StatusBadge>
-              <h3>{attachment.filename}</h3>
-              {attachment.sourceUri && attachment.sourceUri !== attachment.url ? <p>{attachment.sourceUri}</p> : null}
+              <h3 className="mt-2 text-sm font-semibold">{attachment.filename}</h3>
+              {attachment.sourceUri && attachment.sourceUri !== attachment.url ? <p className="mt-1 text-sm leading-6 text-muted-foreground">{attachment.sourceUri}</p> : null}
             </div>
             <AttachmentActions attachment={attachment} />
+            </CardContent>
           </Card>
         ))}
         {documents.length === 0 && sourceAttachments.length === 0 ? (
@@ -420,7 +434,7 @@ function DocumentSection({
             <EmptyDescription>공식 공고문에서 필요 서류가 명확히 추출되지 않았습니다.</EmptyDescription>
           </Empty>
         ) : null}
-      </div>
+      </CardContent>
     </Card>
   );
 }
@@ -437,9 +451,9 @@ function AttachmentActions({ attachment }: { attachment: SourceAttachment }) {
   if (links.length === 0) return <strong>원문 확인</strong>;
 
   return (
-    <div className="document-attachment-actions">
+    <div className="flex flex-wrap gap-2 sm:justify-end">
       {links.map((link) => (
-        <a href={link.href} key={`${link.label}:${link.href}`} target="_blank" rel="noreferrer">
+        <a className={buttonVariants({ variant: "outline", size: "sm" })} href={link.href} key={`${link.label}:${link.href}`} target="_blank" rel="noreferrer">
           {link.label}
         </a>
       ))}
@@ -509,9 +523,9 @@ function documentCategoryLabel(value: string): string {
 
 function SummaryRow({ label, value, emphasis = false }: { label: string; value: string; emphasis?: boolean }) {
   return (
-    <div className={emphasis ? "summary-row emphasis" : "summary-row"}>
-      <span>{label}</span>
-      <strong>{label === "상태" ? <StatusBadge tone={value === "접수중" ? "success" : value === "예정" ? "warning" : "neutral"}>{value}</StatusBadge> : value}</strong>
+    <div className={emphasis ? "flex items-center justify-between gap-3 rounded-[var(--radius-lg)] border border-primary/20 bg-primary/10 px-3 py-2" : "flex items-center justify-between gap-3 rounded-[var(--radius-lg)] border bg-card px-3 py-2"}>
+      <span className="text-sm text-muted-foreground">{label}</span>
+      <strong className="text-sm font-semibold">{label === "상태" ? <StatusBadge tone={value === "접수중" ? "success" : value === "예정" ? "warning" : "neutral"}>{value}</StatusBadge> : value}</strong>
     </div>
   );
 }

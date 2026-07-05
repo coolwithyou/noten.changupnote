@@ -107,28 +107,23 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
   }
 
   return (
-    <main
-      className="cunote-auth relative flex min-h-screen w-full items-center justify-center overflow-hidden px-5 py-10"
-      style={{ backgroundImage: "var(--grad-mesh)", fontFamily: "var(--font-cunote-sans)" }}
-    >
-      <div className="cunote-grain" aria-hidden />
-
-      <div className="relative z-[2] w-full max-w-[420px]">
+    <main className="flex min-h-screen w-full items-center justify-center bg-background px-5 py-10 text-foreground">
+      <div className="w-full max-w-md">
         <Link
           href="/"
           aria-label="창업노트 홈"
-          className="mb-7 flex items-center justify-center gap-2.5 text-[18px] font-extrabold tracking-[-0.03em] text-[var(--tds-grey-900)]"
+          className="mb-7 flex items-center justify-center gap-2 text-lg font-semibold text-foreground"
         >
-          <AuthBrandMark className="size-[27px]" />
+          <AuthBrandMark className="size-7" />
           <span>창업노트</span>
         </Link>
 
-        <div className="rounded-[var(--tds-radius-l)] border border-border bg-card p-8 shadow-[var(--shadow-elevated)]">
+        <div className="rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] sm:p-8">
           <div className="mb-7 text-center">
-            <h1 className="mb-2 text-[24px] font-extrabold tracking-[-0.03em] text-[var(--tds-grey-900)]">
+            <h1 className="text-2xl font-semibold tracking-normal text-foreground">
               {mode === "register" ? "창업노트 시작하기" : "다시 오신 걸 환영해요"}
             </h1>
-            <p className="text-[14.5px] leading-[1.5] text-[var(--tds-grey-500)]">
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {mode === "register"
                 ? "사업자번호로 찾은 지원사업을 저장하고 신청까지 이어가세요"
                 : "사업자번호로 찾은 지원사업을 이어서 관리하세요"}
@@ -147,7 +142,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                     variant="outline"
                     disabled={busy}
                     onClick={() => startOAuth(provider)}
-                    className="h-[52px] w-full justify-center gap-2.5 rounded-[var(--tds-radius-xxs)] text-[15px] font-bold"
+                    className="h-12 w-full justify-center gap-2"
                     style={brand?.style}
                   >
                     {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : brand?.icon}
@@ -161,7 +156,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
           {hasPassword && oauthProviders.length > 0 ? (
             <div className="mb-[22px] flex items-center gap-3">
               <span className="h-px flex-1 bg-border" />
-              <span className="text-[12.5px] font-semibold text-[var(--tds-grey-400)]">또는 이메일로</span>
+              <span className="text-xs font-medium text-muted-foreground">또는 이메일로</span>
               <span className="h-px flex-1 bg-border" />
             </div>
           ) : null}
@@ -176,7 +171,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                     onChange={(event) => setName(event.target.value)}
                     autoComplete="name"
                     disabled={busy}
-                    className="h-[50px] rounded-[var(--tds-radius-xxs)]"
+                    className="h-12"
                   />
                 </Field>
               ) : null}
@@ -191,7 +186,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                   onChange={(event) => setEmail(event.target.value)}
                   autoComplete="email"
                   disabled={busy}
-                  className="h-[50px] rounded-[var(--tds-radius-xxs)]"
+                  className="h-12"
                 />
               </Field>
 
@@ -220,13 +215,13 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                     onChange={(event) => setPassword(event.target.value)}
                     autoComplete={mode === "register" ? "new-password" : "current-password"}
                     disabled={busy}
-                    className="h-[50px] rounded-[var(--tds-radius-xxs)] pr-12"
+                    className="h-12 pr-12"
                   />
                   <button
                     type="button"
                     aria-label={showPw ? "비밀번호 숨기기" : "비밀번호 표시"}
                     onClick={() => setShowPw((value) => !value)}
-                    className="absolute right-2 flex size-9 items-center justify-center rounded-lg text-[var(--tds-grey-500)] transition-colors hover:bg-muted"
+                    className="absolute right-2 flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
                   >
                     {showPw ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
                   </button>
@@ -234,7 +229,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
               </Field>
 
               {mode === "register" ? (
-                <div className="rounded-[var(--tds-radius-xxs)] border border-border bg-muted/35 p-3">
+                <div className="rounded-[var(--radius-lg)] border bg-muted/35 p-3">
                   <div className="flex items-start gap-2.5">
                     <Checkbox
                       id={legalAgreementId}
@@ -268,7 +263,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                 </div>
               ) : null}
 
-              <Button type="submit" size="lg" disabled={busy} className="mt-2 h-[54px] rounded-[var(--tds-radius-xxs)]">
+              <Button type="submit" size="lg" disabled={busy} className="mt-2 w-full">
                 {pending === "password" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
                 {pending === "password" ? "처리 중" : mode === "register" ? "가입하고 시작" : "로그인"}
               </Button>
@@ -281,7 +276,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
               variant="ghost"
               disabled={busy}
               onClick={startDemo}
-              className="mt-2.5 h-11 w-full rounded-[var(--tds-radius-xxs)] text-[var(--tds-grey-600)]"
+              className="mt-2.5 h-11 w-full"
             >
               {pending === "demo" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
               {pending === "demo" ? "연결 중" : "데모로 둘러보기"}
@@ -289,7 +284,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
           ) : null}
 
           {!hasPassword && oauthProviders.length === 0 && !demoProvider ? (
-            <p className="text-center text-[14px] text-[var(--tds-grey-500)]">활성화된 로그인 수단이 없습니다.</p>
+            <p className="text-center text-sm text-muted-foreground">활성화된 로그인 수단이 없습니다.</p>
           ) : null}
 
           {error ? (
@@ -298,7 +293,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
             </Alert>
           ) : null}
 
-          <div className="mt-[22px] flex items-center justify-center gap-1.5 text-[13.5px] text-[var(--tds-grey-500)]">
+          <div className="mt-6 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
             {mode === "register" ? "이미 계정이 있으세요?" : "아직 계정이 없으세요?"}
             <button
               type="button"
@@ -316,13 +311,13 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
           </div>
         </div>
 
-        <p className="mt-[22px] text-center text-[12px] leading-[1.6] text-[var(--tds-grey-400)]">
+        <p className="mt-6 text-center text-xs leading-6 text-muted-foreground">
           로그인 시{" "}
-          <Link href="/terms" className="text-[var(--tds-grey-500)] underline">
+          <Link href="/terms" className="font-medium underline">
             이용약관
           </Link>{" "}
           및{" "}
-          <Link href="/privacy" className="text-[var(--tds-grey-500)] underline">
+          <Link href="/privacy" className="font-medium underline">
             개인정보처리방침
           </Link>
           에 동의하게 됩니다.
@@ -346,7 +341,7 @@ function Field({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between px-0.5">
-        <label htmlFor={id} className="text-[12.5px] font-semibold text-[var(--tds-grey-600)]">
+        <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
           {label}
         </label>
         {action}
