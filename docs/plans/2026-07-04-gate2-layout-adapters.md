@@ -1,8 +1,8 @@
 # Gate 2 — layout 엔진 어댑터 5종 실행 인프라 (트랙 C)
 
-> **🟢 상태 (2026-07-04)**: 외부 대조(델타) 완료·판정 반영 → **구현·검증 완료.** 어댑터 5종 + 정규화 + 러너/캐시 + 메트릭 + 0030 마이그레이션(적용됨, enum 반영 DB 확인). 검증 증거: typecheck 통과, normalize 픽스처 12/12, **kordoc 실측 31/45 문서 후보 1,944건**(실패 14건은 아래 한계), **Google Form Parser 실호출 1p 검증**(doc42, 후보 78건, 재실행 캐시 히트 apiUnits=0). 남음: 사용자 키(`UPSTAGE_API_KEY`·Azure) 등록 시 해당 엔진 실측, PaddleOCR 로컬 docker 기동, golden 15~20건 시점 조기 측정.
+> **🟢 상태 (2026-07-05 갱신)**: 외부 대조(델타) 완료·판정 반영 → **구현·검증 완료.** 어댑터 5종 + 정규화 + 러너/캐시 + 메트릭 + 0030 마이그레이션(적용됨, enum 반영 DB 확인). 검증 증거: typecheck 통과, normalize 픽스처 12/12, **kordoc 실측 44/45 문서 후보 2,565건**(세션 6에서 batch4 no_source 해소 — 아래 한계), **Google Form Parser 실호출 1p 검증**(doc42, 후보 78건, 재실행 캐시 히트 apiUnits=0). 남음: 사용자 키(`UPSTAGE_API_KEY`·Azure) 등록 시 해당 엔진 실측, PaddleOCR 로컬 docker 기동, golden 15~20건 시점 조기 측정.
 >
-> **알려진 한계**: kordoc(원본 파일 입력)은 batch4 PDF/DOCX 14건(doc32~45)을 `no_source`로 스킵 — 원본이 합성 파일명(`spike-samples3/files/pdfNN.pdf`)이라 docRef와 기계 매칭 불가. bbox 4개 엔진은 페이지 이미지 입력이라 45건 전부 커버하므로 측정 비차단. 후속(선택): docRef→소스 매핑 파일 등재(아카이브 DB sha 대조로 도출 가능) 시 kordoc도 전수 커버.
+> **알려진 한계 (2026-07-05 갱신)**: ~~batch4 14건 no_source~~ **해소됨** — `spike-labels/source-map.json`(docId→원본 경로, 아카이브 DB sha256 대조로 도출)을 러너가 이름 매칭보다 우선 적용. kordoc PDF 파싱에는 `pdfjs-dist` peer가 필요해 **4.10.38 고정 설치**(kordoc 3.13은 `>=4`를 기대하나 v6은 `doc.destroy` API 부재로 비호환). 잔여 1건: doc54(구형 바이너리 `.doc`)는 kordoc 미지원 형식(OLE HWP로 오인, "FileHeader 스트림 없음") — 엔진 한계로 기록. bbox 4개 엔진은 페이지 이미지 입력이라 45건 전부 커버.
 >
 > 범위 주의 (2026-07-03 사용자 합의): **실행 인프라까지만.** 통과 판정·임계값 캘리브레이션은 리뷰팀 검수로 golden이 쌓인 후(15~20건 시점 조기 측정 시작). 지금은 "어댑터 5종 + 정규화 + 러너 + 메트릭 계산"을 만들어 두고, golden 없이도 후보 산출까지는 돌아가게 한다.
 

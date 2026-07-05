@@ -1,0 +1,61 @@
+{
+  "note": "kordoc 등 원본 파일 입력 어댑터용 docId→소스 매핑. spike-samples3 합성 파일명(pdfNN 등)과 라벨 docRef의 대응을 grant_attachment_archives sha256 대조로 복원 (2026-07-05, 세션 6). 재도출: 로컬 파일 sha256 → archive 행 → source:sourceId:filename == docRef.",
+  "map": {
+    "doc41": {
+      "file": "spike-samples3/files/pdf01.pdf",
+      "docRef": "bizinfo:PBLN_000000000118094:융자신청서(사업계획서 및 개인정보수집동의서).pdf"
+    },
+    "doc42": {
+      "file": "spike-samples3/files/pdf02.pdf",
+      "docRef": "bizinfo:PBLN_000000000118361:[신청서식] 2026 유해물질 시험분석 수수료 지원사업 신청서.pdf"
+    },
+    "doc43": {
+      "file": "spike-samples3/files/pdf03.pdf",
+      "docRef": "bizinfo:PBLN_000000000120957:붙임1.2026년 강릉시 수출기업 홍보 웹사이트 입점 신청서_양식.pdf"
+    },
+    "doc44": {
+      "file": "spike-samples3/files/pdf04.pdf",
+      "docRef": "bizinfo:PBLN_000000000121028:산업안전보건 국제표준 인증기업 지원사업 신청서식.pdf"
+    },
+    "doc45": {
+      "file": "spike-samples3/files/pdf05.pdf",
+      "docRef": "bizinfo:PBLN_000000000121076:(붙임3)_사업_신청서_및_개인정보_제공_동의서.pdf"
+    },
+    "doc46": {
+      "file": "spike-samples3/files/pdf06.pdf",
+      "docRef": "bizinfo:PBLN_000000000121769:(양식) 지원신청서_제주다양성영화 후반단계 작품 인프라 활용 지원사업.pdf"
+    },
+    "doc47": {
+      "file": "spike-samples3/files/pdf07.pdf",
+      "docRef": "bizinfo:PBLN_000000000122045:붙임 2. (양식2) 2026년 기술·경영혁신 인증지원사업 신청서.pdf"
+    },
+    "doc48": {
+      "file": "spike-samples3/files/pdf08.pdf",
+      "docRef": "bizinfo:PBLN_000000000122136:(신청서식) 2026년 충청남도 1인 자영업자 고용보험료 지원사업.pdf"
+    },
+    "doc49": {
+      "file": "spike-samples3/files/pdf13.pdf",
+      "docRef": "bizinfo:PBLN_000000000123292:2026년도+보건복지형+예비사회적기업+지정(공모)+신청서식.pdf"
+    },
+    "doc50": {
+      "file": "spike-samples3/files/pdf14.pdf",
+      "docRef": "bizinfo:PBLN_000000000123593:3_「2026년 지능형 반도체 시험분석·성능검증 지원 (3차)」 지원신청서 및 지정서식 (예시 및 작성요령).pdf"
+    },
+    "doc51": {
+      "file": "spike-samples3/files/docx02.docx",
+      "docRef": "bizinfo:PBLN_000000000118430:(제출_양식_Submission_Form)_특별귀화_추천_신청_Application_for_Recommendation_for_Special_Naturalization.docx"
+    },
+    "doc52": {
+      "file": "spike-samples3/files/docx03.docx",
+      "docRef": "bizinfo:PBLN_000000000119026:(워드양식) 2026년도 연구실 안전관리 컨설팅 신청양식.docx"
+    },
+    "doc53": {
+      "file": "spike-samples3/files/docx01.docx",
+      "docRef": "bizinfo:PBLN_000000000120246:2026년_충남도청_수출입보험료_및_바이어_신용조사_지원사업_공고문.docx"
+    },
+    "doc54": {
+      "file": "spike-samples3/files/doc01.doc",
+      "docRef": "bizinfo:PBLN_000000000123336:(양식)지원신청서 및 사업계획서.doc"
+    }
+  }
+}

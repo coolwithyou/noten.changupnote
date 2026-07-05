@@ -34,7 +34,7 @@
 > - ✅ ~~[E] Phase 3 Viewer v1~~ (세션 6 완료 — 위 완료 목록). 후속 소과제: ⬜ 진입 링크(ApplySheetView — **병렬 세션 머지 후**) ⬜ A7 완료 시 실 conversion artifact로 재검증
 > - ⬜ **[F] Phase 4 Vision/Text Reconciliation 착수 설계** — P3 뷰어에 필드를 공급하는 트랙 (마스터 19장 P4, §8.4~8.6). vision candidate schema·reconciliation은 Gate 2 엔진 선정(=[D] 측정 결과)과 맞물리므로, 검수 전 착수 시 스키마·후보 저장 계층까지만 (엔진 종속 없는 부분)
 > - ⬜ 웹폼 샘플 5건 라벨 (브라우저 캡처 — Claude in Chrome 도구로 가능, 검수 후 별도 배치)
-> - ⬜ kordoc batch4 원본 매핑 (PDF/DOCX 14건 no_source 해소 — 아카이브 DB sha 대조, 소과제)
+> - ✅ ~~kordoc batch4 원본 매핑~~ (세션 6 완료 — `spike-labels/source-map.json` + pdfjs-dist@4.10.38. kordoc 44/45, 잔여 doc54는 `.doc` 미지원 엔진 한계)
 > - ⬜ 운영자 인박스 (9.8 후속 슬라이스) — 검수 진행 중 보류·리뷰어 코멘트가 쌓이면 착수
 > - ⬜ kordoc `fillHwpx()` 스파이크 — filled export 가속 후보. 검증 없이 채택 금지 (Gate 3 이후 실험)
 > - ⬜ confidence 합성 산출 구현 설계 (마스터 13장 정의됨 — 구현은 Gate 3 전)

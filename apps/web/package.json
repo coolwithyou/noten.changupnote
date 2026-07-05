@@ -35,6 +35,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "kordoc": "3.13.0",
+    "pdfjs-dist": "^4.10.38",
     "postcss": "^8.5.15",
     "tailwindcss": "^4.3.1"
   }

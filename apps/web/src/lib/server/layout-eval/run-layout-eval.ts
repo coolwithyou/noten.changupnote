@@ -147,6 +147,27 @@ function buildSourceIndex(root: string): Array<{ base: string; ext: string; path
   return index;
 }
 
+/**
+ * spike-labels/source-map.json — 합성 파일명(pdfNN 등)이라 이름 매칭이 불가능한 문서의
+ * docId→원본 경로 명시 매핑 (아카이브 DB sha256 대조로 도출·등재). 이름 매칭보다 우선한다.
+ */
+function loadSourceMap(root: string): Map<string, string> {
+  const out = new Map<string, string>();
+  try {
+    const parsed = JSON.parse(readFileSync(resolve(root, "spike-labels", "source-map.json"), "utf8")) as {
+      map?: Record<string, { file?: string }>;
+    };
+    for (const [docId, entry] of Object.entries(parsed.map ?? {})) {
+      if (!entry?.file) continue;
+      const path = resolve(root, entry.file);
+      if (existsSync(path)) out.set(docId, path);
+    }
+  } catch {
+    // 파일 없음/파싱 실패 시 이름 매칭만 사용
+  }
+  return out;
+}
+
 /** docRef 파일명으로 원본 파일 경로를 찾는다(확장자 일치 + 정규화 base 동등/포함). */
 function matchSourceFile(
   index: ReadonlyArray<{ base: string; ext: string; path: string }>,
@@ -254,6 +275,7 @@ async function runEngine(
   adapter: LayoutEngineAdapter,
   docs: readonly DocEntry[],
   sourceIndex: ReadonlyArray<{ base: string; ext: string; path: string }>,
+  sourceMap: ReadonlyMap<string, string>,
   golden: Map<string, unknown>,
   goldenVerLabel: string,
 ): Promise<EngineResult> {
@@ -283,7 +305,7 @@ async function runEngine(
 
     try {
       if (adapter.mode === "document") {
-        const sourcePath = matchSourceFile(sourceIndex, doc.sourceFilename);
+        const sourcePath = sourceMap.get(doc.docId) ?? matchSourceFile(sourceIndex, doc.sourceFilename);
         if (!sourcePath) {
           docResults.push(noResult(doc.docId, "no_source", `원본 파일 매칭 실패: ${doc.sourceFilename}`));
           continue;
@@ -458,10 +480,11 @@ async function main(): Promise<void> {
   const goldenVerLabel = goldenSource === "labels" ? LABELS_GOLDEN_VER : goldenVerArg;
   const { map: golden, warnings } = await loadGolden(goldenSource, docs, goldenVerArg);
   const sourceIndex = buildSourceIndex(root);
+  const sourceMap = loadSourceMap(root);
 
   const engineResults: EngineResult[] = [];
   for (const adapter of engines) {
-    engineResults.push(await runEngine(adapter, docs, sourceIndex, golden, goldenVerLabel));
+    engineResults.push(await runEngine(adapter, docs, sourceIndex, sourceMap, golden, goldenVerLabel));
   }
 
   for (const w of warnings) console.error(w);
