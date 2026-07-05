@@ -1,6 +1,6 @@
 # PoC 실행 플랜 — 작성 가이드 (Gate 0~2 · Phase 1~2)
 
-> **🟡 진행 상황 (2026-07-04 · 세션 5 종료 — 로컬 첫 세션: T10 배포 + Gate 2 어댑터 인프라 완료)**
+> **🟡 진행 상황 (2026-07-05 · 세션 6 종료 — Phase 3 Viewer v1 완료)**
 >
 > 완료 (커밋 SHA):
 >
@@ -23,13 +23,16 @@
 >
 > - ✅ **세션 5 (2026-07-03~04, 로컬 맥 첫 세션)** — ① 로컬 전환 체크리스트 완료: 34커밋 push·install·typecheck·build (conversion 선존 타입에러 수정 `97925d3`, lockfile 정비 `aa952aa`) ② `f879793` **Phase 2 T10 Cloud Run 배포 + 스모크 5/5** — `https://cunote-conversion-644631753751.asia-northeast3.run.app` (2Gi/2cpu, max-instances 1). 첫 실빌드 결함 3건 수정(빌드체인·JVM 탐지·**UTF-8 로케일=한글 파일명 HWP 렌더 불가**). 조직 DRS → `--no-invoker-iam-check`(앱 shared secret 인증), **run.app `/healthz`는 Google이 가로챔**(도달성은 `GET /`→앱 401). 상세: phase2 계획 12장 ③ `87da45a`+`f36081b` **[C] Gate 2 layout 어댑터 실행 인프라** — 외부 대조 델타(전제 4건 유지, kordoc→text parser 재분류) 후 어댑터 5종·0~1 정규화·러너/eval-cache·메트릭·0030(적용됨). kordoc 실측 31/45(후보 1,944건), Google Form Parser 실호출 검증(us 프로세서 프로비저닝, `.env.local`의 `GOOGLE_DOCAI_PROCESSOR`). 사용: `pnpm eval:layout -- --engine <name|all> --docs <ids|all> [--allow-paid] [--write]`. 상세·한계(kordoc batch4 14건 no_source): `docs/plans/2026-07-04-gate2-layout-adapters.md`
 >
+> - ✅ **세션 6 (2026-07-05)** — **[E] Phase 3 Viewer v1** (`docs/plans/2026-07-05-phase3-viewer.md`): 사용자용 `/grants/[grantId]/preview` + 이미지 프록시(`/api/web/grants/[grantId]/page-image/[...key]`, DB 소유검증) + §8.4 좌표계 공용 유틸(`lib/documents/bbox.ts`) + `features/document-viewer/` (오버레이·클릭 선택·inspector·줌·페이지 내비). 시드 스크립트 `pnpm --filter @cunote/web seed:preview-demo`(dry-run 기본, --write/--cleanup). typecheck·build·스모크·브라우저 시각 검증 후 시드 정리 완료. 병렬 세션 dirty 파일 0개 수정. **부수 수정**: `grantDocumentFields.ts`·`applicationPackageExport.ts`의 isUuid 정규식 버그(표준 UUID 전면 거부 — 실데이터 유입 시 formFields 빈 배열이 될 뻔) 수정. 진입 링크(ApplySheetView)는 병렬 세션 머지 후 소과제
+>
 > 남음 (우선순위순):
 >
 > - 🔶 **[임계경로·사용자] 리뷰팀 45문서 검수 개시** — ① ⬜ `docs/infra-setup-guide.md` B1(Vercel env R2_* 확인)·B2(리뷰어 admin_users 등록) ② ⬜ dev.changupnote.com/internal/review 브라우저 왕복 확인 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 1 golden·Gate 2 측정의 유일한 블로커
 > - ⬜ **[사용자] A7**: Vercel(dev)에 `CONVERSION_SERVER_URL`(위 Cloud Run URL) + `CONVERSION_SHARED_SECRET`(`gcloud secrets versions access latest --secret=CONVERSION_SHARED_SECRET`) 등록 → **완료 확인되면 세션이 웹앱→Cloud Run E2E 검증** (아카이브 후크→job→artifact 왕복, `conversion-dev/` 프리픽스·검증 행 삭제 관례)
 > - ⬜ **[사용자·선택]** `UPSTAGE_API_KEY`·`AZURE_DI_ENDPOINT`/`AZURE_DI_KEY`를 `.env.local`에 — 없으면 해당 엔진 스킵(Google·kordoc은 이미 가동)
 > - ⬜ **[D] 부분 golden 조기 측정** — 검수 승격 15~20건 시점: `pnpm load:golden:field-maps -- --write` → `pnpm eval:layout -- --engine all --docs all --allow-paid --write` (PaddleOCR는 이때 로컬 docker 기동)
-> - ⬜ **[E] Phase 3 Viewer (사용자용)** — 검수 비의존 다음 대형 트랙 (마스터 19장, P4와 병행 설계). 리뷰어 뷰어(bbox 오버레이·클릭 선택, `/internal/review/[docId]`)를 사용자용 preview/좌표계/field inspector로 일반화. **착수 시 plan doc 신설 + 위임 스펙** (관문 아님 — 외부 대조 의무 없음, 단 §8.4 좌표계 규칙 준수)
+> - ✅ ~~[E] Phase 3 Viewer v1~~ (세션 6 완료 — 위 완료 목록). 후속 소과제: ⬜ 진입 링크(ApplySheetView — **병렬 세션 머지 후**) ⬜ A7 완료 시 실 conversion artifact로 재검증
+> - ⬜ **[F] Phase 4 Vision/Text Reconciliation 착수 설계** — P3 뷰어에 필드를 공급하는 트랙 (마스터 19장 P4, §8.4~8.6). vision candidate schema·reconciliation은 Gate 2 엔진 선정(=[D] 측정 결과)과 맞물리므로, 검수 전 착수 시 스키마·후보 저장 계층까지만 (엔진 종속 없는 부분)
 > - ⬜ 웹폼 샘플 5건 라벨 (브라우저 캡처 — Claude in Chrome 도구로 가능, 검수 후 별도 배치)
 > - ⬜ kordoc batch4 원본 매핑 (PDF/DOCX 14건 no_source 해소 — 아카이브 DB sha 대조, 소과제)
 > - ⬜ 운영자 인박스 (9.8 후속 슬라이스) — 검수 진행 중 보류·리뷰어 코멘트가 쌓이면 착수
@@ -39,12 +42,12 @@
 >
 > **다음 세션 진입 가이드 (세션 6~) — 로컬 맥 Claude Code**
 >
-> 현재 좌표: Gate 0 통과 · Gate 1 검수 대기(golden 0건) · Gate 2 인프라 완비(측정 대기) · Phase 0~2 완료, Phase 3~8 미착수. 전체 구현/미구현 인벤토리는 세션 5 대화 기록 또는 위 남음 목록 기준.
+> 현재 좌표: Gate 0 통과 · Gate 1 검수 대기(golden 0건) · Gate 2 인프라 완비(측정 대기) · Phase 0~2 완료 · Phase 3 Viewer v1 완료(필드 공급은 P4 대기), Phase 4~8 미착수. 전체 구현/미구현 인벤토리는 세션 5 대화 기록 또는 위 남음 목록 기준.
 >
 > - **진입 절차 (순서대로)**:
 >   1. `git pull --ff-only` + `git status` — **병렬 세션 주의**: 사용자가 다른 세션에서 apps/web UI 파일들을 수정 중일 수 있음. 미커밋 web 변경분은 건드리지 말고, 커밋 시 반드시 경로 명시 스테이징 (`git add -A` 금지)
 >   2. 사용자 액션 상태 점검: ⓐ B2 리뷰어 등록 여부(admin_users에 support 행) ⓑ 검수 진행률(field_map_review_docs의 review_status=approved 수) ⓒ A7(Vercel env — 사용자에게 확인) ⓓ `.env.local`에 UPSTAGE/AZURE 키 유무
->   3. 분기: A7 완료 → **웹앱→Cloud Run E2E 검증** 먼저 / approved ≥15 → golden 적재 + **[D] 조기 측정** / 둘 다 아니면 → **[E] Phase 3 Viewer** 착수 (또는 남음 목록의 소과제)
+>   3. 분기: A7 완료 → **웹앱→Cloud Run E2E 검증** 먼저 / approved ≥15 → golden 적재 + **[D] 조기 측정** / 둘 다 아니면 → **[F] Phase 4 스키마·후보 계층 설계** 또는 남음 소과제(웹폼 샘플 라벨·kordoc batch4 매핑·진입 링크는 병렬 머지 후)
 > - 작업 체계 (사용자 확정): 구현·대량 작업은 **Opus 서브에이전트(Agent 도구)** 위임, 메인 세션(Fable)은 계획·검증·통합·커밋. 위임 스펙은 plan doc 섹션으로 (v1/v1.1/v2·Gate2 어댑터 §5 선례). **리서치도 Opus 위임** (외부 대조 등)
 > - 관문 의례: **Gate 3 착수 전 외부 대조 필수** (CALIBRATION-TEMPLATE 사전 등재: fill strategy 5종·evidence 정렬 validator·적합도 라벨 UX). Phase 3 Viewer는 관문 아님 — 의무 없음
 > - GCP: 프로젝트 `changupnote-com`(gcloud 인증 완료 상태였음 — 만료 시 사용자에게 `! gcloud auth login` 요청). 변환 서버 재배포는 `cloudbuild.yaml`(`--substitutions _TAG=...`) → `gcloud run services update`. **조직 DRS로 allUsers 불가 — `--no-invoker-iam-check` 유지.** run.app `/healthz`는 컨테이너 미도달(Google 가로챔) — 도달성은 `GET /`→앱 401로. 원격 스모크: `apps/conversion/scripts/smoke-remote.mjs`
