@@ -1010,3 +1010,109 @@ export const documentArtifacts = pgTable("document_artifacts", {
   surfaceKindIdx: index("document_artifacts_surface_kind_idx").on(table.surfaceId, table.kind, table.page),
   shaIdx: index("document_artifacts_sha_idx").on(table.sha256),
 }));
+
+// --- 운영 지식 인제스천: Knowledge Source / Review Lesson ---
+// 설계: 마스터 18.5(ReviewLesson) + docs/plans/2026-07-05-ops-knowledge-ingestion.md §6.1
+// 제3 유입 채널(운영 보고 문서) — 보고서가 올 때마다 지식 레이어가 누적적으로 강화된다.
+
+/**
+ * 운영 지식 원천 문서 (불변 원본).
+ * 설계: docs/plans/2026-07-05-ops-knowledge-ingestion.md §6.1.
+ * 인터뷰·피드백·공고 해설 문서를 R2에 불변 보관하고, 추출 패스가 항목 단위로 lesson 후보를 뽑는다.
+ * sha256 uniqueIndex 로 같은 파일의 중복 등록을 막는다 (멱등 등록 키).
+ * enum 컬럼은 pgEnum 대신 text + TS union 주석 방식(fieldMapReviewQuestions.kind 선례).
+ */
+export const knowledgeSources = pgTable("knowledge_sources", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  // 'ops_interview' | 'user_feedback_report' | 'official_announcement' | 'program_faq'
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  // 원본 파일 sha256(hex). 같은 파일 재등록 방지·멱등 키.
+  sha256: text("sha256").notNull(),
+  // R2 키: 원본 파일 (PDF/텍스트 등).
+  r2Key: text("r2_key").notNull(),
+  // R2 키: 추출 텍스트([page N] 마커 포함). null 이면 아직 추출 전.
+  extractedTextKey: text("extracted_text_key"),
+  // R2 키: 추출 결과 전문 JSON.
+  extractionJsonKey: text("extraction_json_key"),
+  // 예: "LIPS/TIPS". 추출 시 scope 힌트로 프롬프트에 전달.
+  programHint: text("program_hint"),
+  institutionHint: text("institution_hint"),
+  // 문서 작성 시점(YYYY-MM-DD). lesson 시효(reviewBy) 계산 기준.
+  sourceDate: text("source_date").notNull(),
+  // 등록자 이메일.
+  uploadedBy: text("uploaded_by").notNull(),
+  // 'registered' | 'extracted' | 'curated'
+  status: text("status").default("registered").notNull(),
+  // 추출에 사용한 모델·프롬프트 버전 기록 (재현성).
+  extractionModel: text("extraction_model"),
+  extractionPromptVer: text("extraction_prompt_ver"),
+  // 추출된 비-lesson 항목 요약 (faq_candidate | exemplar | product_feedback). lesson 은 review_lessons 로 분리 적재.
+  nonLessonItems: jsonb("non_lesson_items")
+    .$type<Array<{ kind: string; content: string; quote: string; page: number | null }>>()
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  shaIdx: uniqueIndex("knowledge_sources_sha_idx").on(table.sha256),
+  kindStatusIdx: index("knowledge_sources_kind_status_idx").on(table.kind, table.status),
+}));
+
+/**
+ * 재사용 가능한 검수 교훈 (ReviewLesson).
+ * 설계: 마스터 18.5 + docs/plans/2026-07-05-ops-knowledge-ingestion.md §6.1.
+ * 운영 보고 문서·리뷰어 교정·필드 질문에서 도출한 항목 단위 지식. 승격(approved) 후 scope 매칭으로 주입한다.
+ * 승격 게이트(저장 계층): sourceRefs(원문 인용) 또는 goldenCaseRef 중 하나가 없으면 approved 로 올릴 수 없다
+ *   (계획 §6 "원문 인용 없는 후보 생성/승격 금지"의 DB 버전).
+ * 시효: reviewBy 도래 lesson 은 자동 retire 가 아니라 재검토 큐로 올린다. evidenceTier 는 주입 시 프롬프트에 표기.
+ */
+export const reviewLessons = pgTable("review_lessons", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  // 'classification' | 'criteria' | 'field_interpretation' | 'fill_value' | 'guide' | 'evaluation'
+  target: text("target").notNull(),
+  // 적용 범위(최소 1개 축). 보수적으로: 문서에서 확인되는 범위만 (과일반화 금지).
+  scope: jsonb("scope")
+    .$type<{
+      program?: string;
+      institution?: string;
+      formTemplateId?: string;
+      documentCategory?: string;
+      fieldPattern?: string;
+      condition?: string;
+    }>()
+    .notNull(),
+  instruction: text("instruction").notNull(),
+  rationale: text("rationale").notNull(),
+  // 'reviewer_correction' | 'field_question' | 'ops_report' (유입 채널)
+  sourceKind: text("source_kind").notNull(),
+  // 'official_document' | 'staff_confirmed' | 'ops_inference' (출처 신뢰 등급)
+  evidenceTier: text("evidence_tier").notNull(),
+  // 원문 인용 필수 근거. [{ sourceId, page, quote }]. 승격 게이트의 한 축.
+  sourceRefs: jsonb("source_refs")
+    .$type<Array<{ sourceId: string; page: number | null; quote: string }>>()
+    .default(sql`'[]'::jsonb`)
+    .notNull(),
+  // 원천 문서 FK. 문서가 삭제돼도 lesson 은 남긴다(set null).
+  sourceId: uuid("source_id").references(() => knowledgeSources.id, { onDelete: "set null" }),
+  // golden_set 사례 참조(선택). 승격 게이트의 다른 한 축.
+  goldenCaseRef: text("golden_case_ref"),
+  // 예: "2026 LIPS 2차". 문서에서 확인되면 기입.
+  programRound: text("program_round"),
+  validFrom: timestamp("valid_from", { withTimezone: true }).defaultNow().notNull(),
+  // 이 날짜 이후 재검토 필요(회차 갱신 주기 기반). null 이면 상시 유효.
+  reviewBy: timestamp("review_by", { withTimezone: true }),
+  // 'proposed' | 'approved' | 'rejected' | 'retired'
+  status: text("status").default("proposed").notNull(),
+  lessonVer: text("lesson_ver").default("v1").notNull(),
+  // 승인/기각한 사람 이메일 + 시점 + 사유.
+  curatedBy: text("curated_by"),
+  curatedAt: timestamp("curated_at", { withTimezone: true }),
+  curationNote: text("curation_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  statusIdx: index("review_lessons_status_idx").on(table.status),
+  statusTargetIdx: index("review_lessons_status_target_idx").on(table.status, table.target),
+  sourceIdx: index("review_lessons_source_idx").on(table.sourceId),
+}));

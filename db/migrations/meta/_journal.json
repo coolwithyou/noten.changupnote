@@ -218,6 +218,13 @@
       "when": 1783123898607,
       "tag": "0030_sturdy_speedball",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1783231564267,
+      "tag": "0031_nosy_cloak",
+      "breakpoints": true
     }
   ]
 }

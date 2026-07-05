@@ -27,6 +27,8 @@
 >
 > - ✅ **세션 7 (2026-07-05)** — **[F] Phase 4 후보 스키마·저장 계층·reconciliation 골격** (`docs/plans/2026-07-05-phase4-field-candidates.md`): NormalizedFieldCandidate를 packages/core로 정본화(layout-eval은 re-export, 회귀 12/12 무파괴), text parser 후보화, field_candidates 저장 계층(R2+document_artifacts 멱등), §8.6 reconciliation 순수 골격(11케이스, RECONCILE_THRESHOLDS 잠정), grant_document_fields 반영 경로(reconcile-v0)+fields_ready 전이. verify 실DB·실R2 왕복에서 **P3 뷰어 로더까지 assert** 후 cleanup 0건. 마이그레이션 없음. 잔여(엔진 종속부)는 Gate 2 측정 후: 어댑터 프로덕션 배선·pollConversions 연동·임계값 캘리브레이션·Vision LLM pass
 >
+> - ✅ **세션 8 (2026-07-05)** — **운영 지식 인제스천 v1** (`docs/plans/2026-07-05-ops-knowledge-ingestion.md` — 평가·계획 + Step 0~2 구현): 0031 마이그레이션(`knowledge_sources`·`review_lessons`, 적용됨), `pnpm ingest:knowledge` CLI(LLM 추출 + quote 실재 검증, dry-run 기본), lesson 인박스 `/internal/review/lessons`(승인·수정 후 승인·기각·철회, 충돌 409→force, 기존 검수 인증 가드 재사용). 파일럿: 립스1,2 PDF → lesson 23건 proposed(quote 100%)+비lesson 5건 적재, 승인 왕복 1건 검증. 주입 경로(Step 3)는 Phase 5/8과 정렬 예정
+>
 > 남음 (우선순위순):
 >
 > - 🔶 **[임계경로·사용자] 리뷰팀 45문서 검수 개시** — ① ⬜ `docs/infra-setup-guide.md` B1(Vercel env R2_* 확인)·B2(리뷰어 admin_users 등록) ② ⬜ dev.changupnote.com/internal/review 브라우저 왕복 확인 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 1 golden·Gate 2 측정의 유일한 블로커
@@ -41,6 +43,7 @@
 > - ⬜ kordoc `fillHwpx()` 스파이크 — filled export 가속 후보. 검증 없이 채택 금지 (Gate 3 이후 실험)
 > - ⬜ confidence 합성 산출 구현 설계 (마스터 13장 정의됨 — 구현은 Gate 3 전)
 > - ⬜ Tier 0 검색(Phase 8)에 contextual retrieval + BM25 하이브리드 반영 (`docs/research/2026-07-02-hitl-loop-sota.md`)
+> - ⬜ **운영 지식 인제스천 후속** — v1(Step 0~2)은 세션 8 완료. 잔여: Step 3 주입 경로(Phase 5 fill planner/draft에 scope 매칭 lesson 주입 — Phase 5 착수 시 함께), Step 4 효과 측정·FAQ 공개. 운영 루틴: 새 보고서 → `pnpm ingest:knowledge -- --file <경로> --write` → `/internal/review/lessons` 검수. 계획: `docs/plans/2026-07-05-ops-knowledge-ingestion.md`
 >
 > **다음 세션 진입 가이드 (세션 6~) — 로컬 맥 Claude Code**
 >
