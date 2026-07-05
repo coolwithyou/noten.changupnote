@@ -50,3 +50,6 @@
 ## 진행 로그
 
 - 2026-07-05: plan 작성 (세션 6). 구현 위임 → 검증 → 커밋 예정.
+- 2026-07-05: **v1 구현 완료** (Opus 위임, 세션 6). 설계 결정 1~7 전부 구현, 병렬 세션 dirty 파일 0개 수정 (`apps/web/package.json` 스크립트 1줄만 예외). 검증: typecheck·build 통과, 시드 스모크(페이지 200·프록시 200 PNG·교차 grant 404·비인증 307/401), 브라우저 시각 검증(오버레이 4건·클릭 선택↔inspector·페이지 내비·줌 UI) 후 시드 `--cleanup` 완료. 재현: `pnpm --filter @cunote/web seed:preview-demo -- --write` 후 `/grants/<seedGrantId>/preview`.
+- 부수 발견·수정: `grantDocumentFields.ts`·`applicationPackageExport.ts`의 `isUuid` 정규식이 8-4-4-13 형태로 오기되어 **모든 표준 UUID를 거부**하던 버그 (DB 0건이라 미표면화 상태였음). 별도 커밋으로 수정.
+- 남은 후속(소과제): ① ApplySheetView 등 진입 링크 (병렬 세션 머지 후) ② A7 완료 시 실 conversion artifact로 재검증 ③ P4 필드 공급 연결 시 오버레이 실데이터 검증.

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1 --port 4010",
     "build": "next build",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "seed:preview-demo": "tsx --tsconfig tsconfig.json src/lib/server/db/seed-preview-demo.ts"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.2",
