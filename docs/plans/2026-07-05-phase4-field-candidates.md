@@ -34,3 +34,5 @@
 ## 진행 로그
 
 - 2026-07-05: plan 작성 (세션 7). 상태 재점검: B2 미완·approved 0·A7 미확인 → [F] 분기 확정.
+- 2026-07-05: **F1~F5 + 검증 스크립트 구현 완료** (Opus 위임, 세션 7). canonical 타입 core 승격 + layout-eval re-export 무파괴(회귀 12/12·kordoc doc51 캐시 히트 ok), reconciliation 11케이스 통과, verify 실DB·실R2 왕복(reconciled 7·located 2·P3 뷰어 로더 assert) 후 cleanup 잔여 0건, web build 통과. 설계 이탈 1건 승인: `packages/core/src/index.ts` barrel export 3줄(additive — F1의 export 규약 요구사항).
+- 다음 연결 지점: Gate 2 엔진 선정([D] 측정) 후 → 어댑터 출력을 CandidateSet으로 프로덕션 배선 + pollConversions 연동 + 임계값 캘리브레이션 + Vision LLM pass.

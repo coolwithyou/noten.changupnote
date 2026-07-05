@@ -1,6 +1,6 @@
 # PoC 실행 플랜 — 작성 가이드 (Gate 0~2 · Phase 1~2)
 
-> **🟡 진행 상황 (2026-07-05 · 세션 6 종료 — Phase 3 Viewer v1 완료)**
+> **🟡 진행 상황 (2026-07-05 · 세션 7 종료 — Phase 3 Viewer v1 + Phase 4 후보 계층 완료)**
 >
 > 완료 (커밋 SHA):
 >
@@ -25,6 +25,8 @@
 >
 > - ✅ **세션 6 (2026-07-05)** — **[E] Phase 3 Viewer v1** (`docs/plans/2026-07-05-phase3-viewer.md`): 사용자용 `/grants/[grantId]/preview` + 이미지 프록시(`/api/web/grants/[grantId]/page-image/[...key]`, DB 소유검증) + §8.4 좌표계 공용 유틸(`lib/documents/bbox.ts`) + `features/document-viewer/` (오버레이·클릭 선택·inspector·줌·페이지 내비). 시드 스크립트 `pnpm --filter @cunote/web seed:preview-demo`(dry-run 기본, --write/--cleanup). typecheck·build·스모크·브라우저 시각 검증 후 시드 정리 완료. 병렬 세션 dirty 파일 0개 수정. **부수 수정**: `grantDocumentFields.ts`·`applicationPackageExport.ts`의 isUuid 정규식 버그(표준 UUID 전면 거부 — 실데이터 유입 시 formFields 빈 배열이 될 뻔) 수정. 진입 링크(ApplySheetView)는 병렬 세션 머지 후 소과제
 >
+> - ✅ **세션 7 (2026-07-05)** — **[F] Phase 4 후보 스키마·저장 계층·reconciliation 골격** (`docs/plans/2026-07-05-phase4-field-candidates.md`): NormalizedFieldCandidate를 packages/core로 정본화(layout-eval은 re-export, 회귀 12/12 무파괴), text parser 후보화, field_candidates 저장 계층(R2+document_artifacts 멱등), §8.6 reconciliation 순수 골격(11케이스, RECONCILE_THRESHOLDS 잠정), grant_document_fields 반영 경로(reconcile-v0)+fields_ready 전이. verify 실DB·실R2 왕복에서 **P3 뷰어 로더까지 assert** 후 cleanup 0건. 마이그레이션 없음. 잔여(엔진 종속부)는 Gate 2 측정 후: 어댑터 프로덕션 배선·pollConversions 연동·임계값 캘리브레이션·Vision LLM pass
+>
 > 남음 (우선순위순):
 >
 > - 🔶 **[임계경로·사용자] 리뷰팀 45문서 검수 개시** — ① ⬜ `docs/infra-setup-guide.md` B1(Vercel env R2_* 확인)·B2(리뷰어 admin_users 등록) ② ⬜ dev.changupnote.com/internal/review 브라우저 왕복 확인 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 1 golden·Gate 2 측정의 유일한 블로커
@@ -32,7 +34,7 @@
 > - ⬜ **[사용자·선택]** `UPSTAGE_API_KEY`·`AZURE_DI_ENDPOINT`/`AZURE_DI_KEY`를 `.env.local`에 — 없으면 해당 엔진 스킵(Google·kordoc은 이미 가동)
 > - ⬜ **[D] 부분 golden 조기 측정** — 검수 승격 15~20건 시점: `pnpm load:golden:field-maps -- --write` → `pnpm eval:layout -- --engine all --docs all --allow-paid --write` (PaddleOCR는 이때 로컬 docker 기동)
 > - ✅ ~~[E] Phase 3 Viewer v1~~ (세션 6 완료 — 위 완료 목록). 후속 소과제: ⬜ 진입 링크(ApplySheetView — **병렬 세션 머지 후**) ⬜ A7 완료 시 실 conversion artifact로 재검증
-> - ⬜ **[F] Phase 4 Vision/Text Reconciliation 착수 설계** — P3 뷰어에 필드를 공급하는 트랙 (마스터 19장 P4, §8.4~8.6). vision candidate schema·reconciliation은 Gate 2 엔진 선정(=[D] 측정 결과)과 맞물리므로, 검수 전 착수 시 스키마·후보 저장 계층까지만 (엔진 종속 없는 부분)
+> - ✅ ~~[F] Phase 4 엔진 비종속부~~ (세션 7 완료 — 위 완료 목록). 잔여 **[F2] 엔진 종속부**는 Gate 2 측정([D]) 후: 선정 어댑터 프로덕션 배선 → pollConversions 연동 → 임계값 캘리브레이션 → Vision LLM pass(§8.4 의미 해석)
 > - ⬜ 웹폼 샘플 5건 라벨 (브라우저 캡처 — Claude in Chrome 도구로 가능, 검수 후 별도 배치)
 > - ✅ ~~kordoc batch4 원본 매핑~~ (세션 6 완료 — `spike-labels/source-map.json` + pdfjs-dist@4.10.38. kordoc 44/45, 잔여 doc54는 `.doc` 미지원 엔진 한계)
 > - ⬜ 운영자 인박스 (9.8 후속 슬라이스) — 검수 진행 중 보류·리뷰어 코멘트가 쌓이면 착수
@@ -42,12 +44,12 @@
 >
 > **다음 세션 진입 가이드 (세션 6~) — 로컬 맥 Claude Code**
 >
-> 현재 좌표: Gate 0 통과 · Gate 1 검수 대기(golden 0건) · Gate 2 인프라 완비(측정 대기) · Phase 0~2 완료 · Phase 3 Viewer v1 완료(필드 공급은 P4 대기), Phase 4~8 미착수. 전체 구현/미구현 인벤토리는 세션 5 대화 기록 또는 위 남음 목록 기준.
+> 현재 좌표: Gate 0 통과 · Gate 1 검수 대기(golden 0건) · Gate 2 인프라 완비(측정 대기) · Phase 0~2 완료 · Phase 3 Viewer v1 완료 · Phase 4 엔진 비종속부 완료(엔진 배선·Vision pass는 Gate 2 후), Phase 5~8 미착수. 전체 구현/미구현 인벤토리는 세션 5 대화 기록 또는 위 남음 목록 기준.
 >
 > - **진입 절차 (순서대로)**:
 >   1. `git pull --ff-only` + `git status` — **병렬 세션 주의**: 사용자가 다른 세션에서 apps/web UI 파일들을 수정 중일 수 있음. 미커밋 web 변경분은 건드리지 말고, 커밋 시 반드시 경로 명시 스테이징 (`git add -A` 금지)
 >   2. 사용자 액션 상태 점검: ⓐ B2 리뷰어 등록 여부(admin_users에 support 행) ⓑ 검수 진행률(field_map_review_docs의 review_status=approved 수) ⓒ A7(Vercel env — 사용자에게 확인) ⓓ `.env.local`에 UPSTAGE/AZURE 키 유무
->   3. 분기: A7 완료 → **웹앱→Cloud Run E2E 검증** 먼저 / approved ≥15 → golden 적재 + **[D] 조기 측정** / 둘 다 아니면 → **[F] Phase 4 스키마·후보 계층 설계** 또는 남음 소과제(웹폼 샘플 라벨·kordoc batch4 매핑·진입 링크는 병렬 머지 후)
+>   3. 분기: A7 완료 → **웹앱→Cloud Run E2E 검증** 먼저 / approved ≥15 → golden 적재 + **[D] 조기 측정** → 이어서 [F2] 엔진 배선 / 둘 다 아니면 → 남음 소과제(웹폼 샘플 5건 라벨·운영자 인박스는 검수 진행 후·진입 링크는 병렬 머지 후) — 대형 트랙은 대부분 검수/A7에 수렴했으므로 사용자 액션이 최우선 병목
 > - 작업 체계 (사용자 확정): 구현·대량 작업은 **Opus 서브에이전트(Agent 도구)** 위임, 메인 세션(Fable)은 계획·검증·통합·커밋. 위임 스펙은 plan doc 섹션으로 (v1/v1.1/v2·Gate2 어댑터 §5 선례). **리서치도 Opus 위임** (외부 대조 등)
 > - 관문 의례: **Gate 3 착수 전 외부 대조 필수** (CALIBRATION-TEMPLATE 사전 등재: fill strategy 5종·evidence 정렬 validator·적합도 라벨 UX). Phase 3 Viewer는 관문 아님 — 의무 없음
 > - GCP: 프로젝트 `changupnote-com`(gcloud 인증 완료 상태였음 — 만료 시 사용자에게 `! gcloud auth login` 요청). 변환 서버 재배포는 `cloudbuild.yaml`(`--substitutions _TAG=...`) → `gcloud run services update`. **조직 DRS로 allUsers 불가 — `--no-invoker-iam-check` 유지.** run.app `/healthz`는 컨테이너 미도달(Google 가로챔) — 도달성은 `GET /`→앱 401로. 원격 스모크: `apps/conversion/scripts/smoke-remote.mjs`
