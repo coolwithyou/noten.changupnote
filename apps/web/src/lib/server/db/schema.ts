@@ -996,7 +996,7 @@ export const grantApplicationSurfaces = pgTable("grant_application_surfaces", {
 export const documentArtifacts = pgTable("document_artifacts", {
   id: uuid("id").defaultRandom().primaryKey(),
   surfaceId: uuid("surface_id").notNull().references(() => grantApplicationSurfaces.id, { onDelete: "cascade" }),
-  // original | pdf | page_image | markdown | layout_json | ocr_json | annotated_pdf | pptx_guide | filled_hwpx | filled_docx
+  // original | pdf | page_image | markdown | layout_json | ocr_json | field_candidates | annotated_pdf | pptx_guide | filled_hwpx | filled_docx
   kind: text("kind").notNull(),
   page: integer("page"),
   storageKey: text("storage_key").notNull(),

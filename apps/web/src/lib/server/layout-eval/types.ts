@@ -17,48 +17,19 @@
  *   결과 묶음은 러너가 fetch()/normalize()/costPerPageUsd 를 조합해 산출한다(§ run-layout-eval.ts).
  */
 
-/** 0~1 정규화 축정렬 경계상자 [x, y, w, h]. 골든 라벨 bbox 와 동일 포맷. */
-export type BBox = [number, number, number, number];
-
-/** 후보 종류 — 마스터 §8.4 VisionFieldCandidate.kind 어휘 + unknown 폴백. */
-export type CandidateKind =
-  | "text_input"
-  | "long_text"
-  | "checkbox"
-  | "table_cell"
-  | "signature"
-  | "stamp"
-  | "file_attach"
-  | "instruction"
-  | "unknown";
-
-/** 후보 계층. layout 엔진(bbox 소유자) vs text parser(§8.5, kordoc — bbox 없음). */
-export type CandidateLayer = "layout" | "text_parser";
-
 /**
- * 정규화 후보 — 골든 라벨 필드와 직접 비교 가능한 형태.
- * 위임 스펙: `{ page, bbox: [x,y,w,h] | null, kind, label, text, raw }` 를 확장한다.
- *   - bboxSource / rotationDeg 는 §8.4 좌표계 규칙(회전각 메타 보존, viewer snap)용.
- *   - layer 는 kordoc(text_parser)을 layout 측정표와 분리하기 위한 표식(대조 §5-7).
- *   - confidence 는 소스 per-element 신뢰도(§13 합성 confidence 입력) — 없으면 null.
- *   exactOptionalPropertyTypes 준수를 위해 부가 필드는 optional 대신 `| null` 로 항상 존재시킨다.
+ * 후보 정본 타입은 Phase 4 에서 `@cunote/core` 로 이관됐다(단일 원천).
+ * 여기서는 기존 import 경로(`./types`)를 무파괴로 유지하기 위해 re-export 한다.
+ * AdapterMode/PageInput/DocumentInput/LayoutEngineAdapter 등 eval 전용 타입은 아래에 남긴다.
  */
-export interface NormalizedFieldCandidate {
-  /** 1-기준 페이지 번호. bbox 없는 text parser 후보는 null. */
-  page: number | null;
-  /** 0~1 [x,y,w,h]. layout 엔진은 값, text parser(kordoc)는 null. */
-  bbox: BBox | null;
-  bboxSource: "layout" | "text_parser" | null;
-  layer: CandidateLayer;
-  kind: CandidateKind;
-  label: string;
-  text: string;
-  confidence: number | null;
-  /** 회전각(도) 메타. Azure page.angle / Upstage 회전 개선 등. 없으면 null. */
-  rotationDeg: number | null;
-  /** 원시 요소(디버그·추적용). */
-  raw: Record<string, unknown>;
-}
+import type {
+  BBox,
+  CandidateKind,
+  CandidateLayer,
+  NormalizedFieldCandidate,
+  CandidateSet,
+} from "@cunote/core";
+export type { BBox, CandidateKind, CandidateLayer, NormalizedFieldCandidate, CandidateSet };
 
 /** 어댑터 실행 단위. page = 페이지 이미지 1장, document = 원본 파일 전체(kordoc). */
 export type AdapterMode = "page" | "document";
