@@ -1,6 +1,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { generateDocumentDraftContent } from "@cunote/core";
 import type {
+  CompanyProfile,
   DocumentDraft,
   DocumentDraftFeedbackKind,
   DocumentDraftFeedbackRequest,
@@ -14,7 +15,8 @@ import type {
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, withCunoteDbUser } from "../db/client";
 import * as schema from "../db/schema";
-import { loadServiceApplySheet } from "../serviceData";
+import { getServiceRepositories, loadServiceApplySheet } from "../serviceData";
+import { KOREA_REGION_OPTIONS } from "@/lib/regions";
 
 const DOCUMENT_DRAFT_FEEDBACK_KINDS: DocumentDraftFeedbackKind[] = [
   "incorrect_fact",
@@ -118,6 +120,12 @@ export async function createGrantDocumentDraft(input: {
       status: generated.status,
       missingFieldCount: generated.autofill.missingFields.length,
     },
+  });
+
+  await promoteDraftAnswersToCompanyProfile({
+    access: input.access,
+    answers: input.request.answers,
+    missingProfileFields: sheet.applicationPrep.missingProfileFields,
   });
 
   return { draft: toDocumentDraft(row) };
@@ -293,6 +301,12 @@ export async function regenerateGrantDocumentDraftSection(input: {
     },
   });
 
+  await promoteDraftAnswersToCompanyProfile({
+    access: input.access,
+    answers: input.request.answers,
+    missingProfileFields: sheet.applicationPrep.missingProfileFields,
+  });
+
   return toDocumentDraft(row);
 }
 
@@ -375,6 +389,160 @@ export async function recordGrantDocumentDraftExport(input: {
   });
 
   return toDocumentDraft(row);
+}
+
+const BUSINESS_NARRATIVE_FIELD_KEYS = [
+  "business.product_summary",
+  "business.apply_goal",
+  "business.budget_items",
+  "business.performance_summary",
+] as const;
+
+// KOREA_REGION_OPTIONS 짧은 라벨(서울/경기/…)에 더해 정식 명칭도 prefix 매칭 후보로 둔다.
+const REGION_FORMAL_NAMES: Record<string, readonly string[]> = {
+  서울: ["서울특별시"],
+  부산: ["부산광역시"],
+  대구: ["대구광역시"],
+  인천: ["인천광역시"],
+  광주: ["광주광역시"],
+  대전: ["대전광역시"],
+  울산: ["울산광역시"],
+  세종: ["세종특별자치시", "세종시"],
+  경기: ["경기도"],
+  강원: ["강원도", "강원특별자치도"],
+  충북: ["충청북도"],
+  충남: ["충청남도"],
+  전북: ["전라북도", "전북특별자치도"],
+  전남: ["전라남도"],
+  경북: ["경상북도"],
+  경남: ["경상남도"],
+  제주: ["제주도", "제주특별자치도"],
+};
+
+/**
+ * 초안 생성 시 사용자가 입력한 추가 답변(label 키)을 회사 프로필로 승격한다.
+ * 비치명: 실패해도 초안 결과는 정상 반환되도록 내부에서 예외를 삼킨다.
+ * saveCompanyProfile은 전체 재기록이므로 반드시 resolveCompanyProfile 결과 위에 병합해 저장한다.
+ */
+async function promoteDraftAnswersToCompanyProfile(input: {
+  access: CompanyAccess;
+  answers: Record<string, string> | undefined;
+  missingProfileFields: MissingFieldQuestion[];
+}): Promise<void> {
+  try {
+    const answers = input.answers;
+    if (!answers || Object.keys(answers).length === 0) return;
+
+    // answers는 label 키 → missingProfileFields로 label→fieldKey 역매핑.
+    const fieldKeyByLabel = new Map<string, string>();
+    for (const question of input.missingProfileFields) {
+      if (question.label && question.fieldKey && !fieldKeyByLabel.has(question.label)) {
+        fieldKeyByLabel.set(question.label, question.fieldKey);
+      }
+    }
+
+    const valueByFieldKey = new Map<string, string>();
+    for (const [label, raw] of Object.entries(answers)) {
+      const fieldKey = fieldKeyByLabel.get(label);
+      if (!fieldKey) continue;
+      const cleaned = typeof raw === "string" ? raw.trim() : "";
+      if (!cleaned) continue;
+      if (!valueByFieldKey.has(fieldKey)) valueByFieldKey.set(fieldKey, cleaned);
+    }
+    if (valueByFieldKey.size === 0) return;
+
+    const repositories = getServiceRepositories();
+    const profile = await repositories.companies.resolveCompanyProfile({
+      companyId: input.access.companyId,
+      userId: input.access.userId,
+    });
+    if (!profile) return;
+
+    const next: CompanyProfile = { ...profile };
+    let changed = false;
+
+    const nameValue = valueByFieldKey.get("company.name");
+    if (nameValue && !next.name) {
+      const name = nameValue.slice(0, 80);
+      if (name) {
+        next.name = name;
+        changed = true;
+      }
+    }
+
+    const regionValue = valueByFieldKey.get("company.region");
+    if (regionValue && !next.region) {
+      const resolved = resolveRegionFromText(regionValue);
+      if (resolved) {
+        next.region = resolved;
+        next.confidence = { ...(next.confidence ?? {}), region: 0.6 };
+        changed = true;
+      }
+    }
+
+    const industriesValue = valueByFieldKey.get("company.industries");
+    if (industriesValue && (!next.industries || next.industries.length === 0)) {
+      const tags = splitIndustryTags(industriesValue);
+      if (tags.length > 0) {
+        next.industries = tags;
+        next.confidence = { ...(next.confidence ?? {}), industry: 0.5 };
+        changed = true;
+      }
+    }
+
+    const otherConditions: Record<string, unknown> = { ...(next.other_conditions ?? {}) };
+    let otherChanged = false;
+    for (const fieldKey of BUSINESS_NARRATIVE_FIELD_KEYS) {
+      const value = valueByFieldKey.get(fieldKey);
+      if (!value) continue;
+      const narrative = value.slice(0, 2000);
+      if (!narrative) continue;
+      // 같은 키는 항상 최신값으로 덮어쓴다.
+      otherConditions[fieldKey] = narrative;
+      otherChanged = true;
+    }
+    if (otherChanged) {
+      next.other_conditions = otherConditions;
+      changed = true;
+    }
+
+    if (!changed) return;
+
+    await repositories.companies.saveCompanyProfile({
+      companyId: input.access.companyId,
+      userId: input.access.userId,
+      profile: next,
+    });
+  } catch (error) {
+    console.warn(
+      `초안 추가 입력의 회사 프로필 승격 실패: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+function resolveRegionFromText(text: string): { code: string; label: string } | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  for (const option of KOREA_REGION_OPTIONS) {
+    const candidates = [option.label, ...(REGION_FORMAL_NAMES[option.label] ?? [])];
+    if (candidates.some((candidate) => trimmed.startsWith(candidate))) {
+      return { code: option.code, label: option.label };
+    }
+  }
+  return null;
+}
+
+function splitIndustryTags(value: string): string[] {
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const part of value.split(/[,·;/]/)) {
+    const tag = part.trim().slice(0, 60);
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    tags.push(tag);
+    if (tags.length >= 10) break;
+  }
+  return tags;
 }
 
 async function getGrantDocumentDraftRow(input: {

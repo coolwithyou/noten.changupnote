@@ -145,6 +145,18 @@ function buildProfileCopyFields(
   pushCompany("인증/특허", [...(company?.certs ?? []), ...(company?.ip ?? [])].join(", "));
   pushCompany("신청대상 유형", company?.target_types?.join(", "));
 
+  // 초안 추가 입력에서 승격돼 other_conditions에 저장된 서술을 질문 label과 동일한 라벨로 노출한다.
+  const pushBusinessNarrative = (fieldKey: string, label: string) => {
+    const raw = company?.other_conditions?.[fieldKey];
+    const cleaned = typeof raw === "string" ? cleanText(raw) : null;
+    if (!cleaned) return;
+    fields.push({ label, value: cleaned, source: "company_profile" });
+  };
+  pushBusinessNarrative("business.product_summary", "제품/서비스 설명");
+  pushBusinessNarrative("business.apply_goal", "이번 지원으로 달성할 목표");
+  pushBusinessNarrative("business.budget_items", "예산 항목과 산출근거");
+  pushBusinessNarrative("business.performance_summary", "대표 실적 요약");
+
   fields.push({ label: "지원사업명", value: context.grantTitle, source: "grant_context" });
   if (context.agency) fields.push({ label: "운영기관", value: context.agency, source: "grant_context" });
   if (context.applyMethod) fields.push({ label: "접수 방법", value: context.applyMethod, source: "grant_context" });

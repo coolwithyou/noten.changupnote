@@ -96,13 +96,15 @@ export function DocumentDraftWorkspace({
     setPendingKey(document.documentKey);
     setError(null);
     setActionNotice(null);
+    const answerPayload = draftAnswersForDocument(document, prep, answerText);
+    const sentAnswers = Boolean(answerPayload.answers && Object.keys(answerPayload.answers).length > 0);
     try {
       const response = await fetch(`/api/web/grants/${encodeURIComponent(grantId)}/drafts`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           documentKey: document.documentKey,
-          ...draftAnswersForDocument(document, prep, answerText),
+          ...answerPayload,
         }),
       });
       const payload = (await response.json()) as ActionResult<DraftGenerationResult>;
@@ -113,7 +115,12 @@ export function DocumentDraftWorkspace({
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draft.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.draft.filledFields }));
       setActiveKey(document.documentKey);
-      setActionNotice({ tone: "success", message: `${document.canonicalName} 초안을 만들었습니다. 내용을 확인한 뒤 저장하거나 검토 완료로 표시하세요.` });
+      setActionNotice({
+        tone: "success",
+        message: `${document.canonicalName} 초안을 만들었습니다. 내용을 확인한 뒤 저장하거나 검토 완료로 표시하세요.${
+          sentAnswers ? " 입력한 값은 회사 프로필에 저장돼 다음 서류에서 자동 반영됩니다." : ""
+        }`,
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "초안을 만들지 못했습니다.");
     } finally {

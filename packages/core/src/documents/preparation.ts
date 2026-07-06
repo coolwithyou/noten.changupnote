@@ -201,6 +201,12 @@ function buildMissingFieldQuestionsForDocument(input: {
     });
   };
 
+  const addBusiness = (fieldKey: string, label: string, reason: string) => {
+    // 회사 프로필의 other_conditions에 해당 서술이 이미 저장돼 있으면 재질문하지 않는다.
+    if (hasStoredBusinessNarrative(input.company, fieldKey)) return;
+    add(fieldKey, label, reason);
+  };
+
   if (!input.company?.name) add("company.name", "기업명", "신청서 기본정보에 필요합니다.");
   if (!input.company?.region) add("company.region", "소재지", "지원 대상과 신청서 기본정보에 필요합니다.");
   if (!input.company?.industries || input.company.industries.length === 0) {
@@ -208,17 +214,22 @@ function buildMissingFieldQuestionsForDocument(input: {
   }
 
   if (input.category === "business_plan" || input.category === "proposal_or_intro") {
-    add("business.product_summary", "제품/서비스 설명", "사업계획서와 제안서의 핵심 본문에 필요합니다.");
-    add("business.apply_goal", "이번 지원으로 달성할 목표", "지원 동기와 기대효과를 구체화하는 데 필요합니다.");
+    addBusiness("business.product_summary", "제품/서비스 설명", "사업계획서와 제안서의 핵심 본문에 필요합니다.");
+    addBusiness("business.apply_goal", "이번 지원으로 달성할 목표", "지원 동기와 기대효과를 구체화하는 데 필요합니다.");
   }
   if (input.category === "estimate_budget") {
-    add("business.budget_items", "예산 항목과 산출근거", "예산/산출내역 초안에 필요합니다.");
+    addBusiness("business.budget_items", "예산 항목과 산출근거", "예산/산출내역 초안에 필요합니다.");
   }
   if (input.category === "performance_evidence") {
-    add("business.performance_summary", "대표 실적 요약", "실적 증빙 설명문에 필요합니다.");
+    addBusiness("business.performance_summary", "대표 실적 요약", "실적 증빙 설명문에 필요합니다.");
   }
 
   return questions;
+}
+
+function hasStoredBusinessNarrative(company: CompanyProfile | undefined, fieldKey: string): boolean {
+  const value = company?.other_conditions?.[fieldKey];
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function dedupeQuestions(questions: MissingFieldQuestion[]): MissingFieldQuestion[] {
