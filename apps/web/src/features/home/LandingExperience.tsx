@@ -1,8 +1,13 @@
 "use client";
 
-import { CSSProperties, FormEvent, useEffect, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { LandingGrantData, TeaserRequest } from "@cunote/contracts";
+import { normalizeBusinessLookupBizNo, type BusinessLookupSuggestion } from "@/lib/businessLookupSuggestions";
+import {
+  fetchBusinessLookupSuggestions,
+  readLocalBusinessLookupSuggestions,
+} from "@/lib/client/businessLookupSuggestions";
 import type { HeaderUser } from "@/lib/server/auth/session";
 
 /*
@@ -50,8 +55,13 @@ interface LandingExperienceProps {
 
 export function LandingExperience({ landingData, user = null }: LandingExperienceProps) {
   const [biz, setBiz] = useState("");
+  const [lookupSuggestions, setLookupSuggestions] = useState<BusinessLookupSuggestion[]>([]);
   const [faq, setFaq] = useState(0);
   const activeCount = landingData.stats.activeCount.toLocaleString("ko-KR");
+  const visibleLookupSuggestions = useMemo(
+    () => filterLandingLookupSuggestions(lookupSuggestions, onlyDigits(biz)),
+    [lookupSuggestions, biz],
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -61,8 +71,33 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
     if (pending?.bizNo) void createCompanyAndOpenDashboard(pending);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    const localSuggestions = readLocalBusinessLookupSuggestions();
+    if (localSuggestions.length > 0) {
+      setLookupSuggestions(localSuggestions);
+    }
+
+    fetchBusinessLookupSuggestions().then((result) => {
+      if (cancelled || !result) return;
+      if (result.authenticated) {
+        setLookupSuggestions(result.suggestions);
+      } else if (localSuggestions.length === 0) {
+        setLookupSuggestions(readLocalBusinessLookupSuggestions());
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function onBizInput(value: string) {
     setBiz(fmtBiz(value));
+  }
+
+  function selectLookupSuggestion(suggestion: BusinessLookupSuggestion) {
+    setBiz(fmtBiz(suggestion.bizNo));
   }
 
   function submitBiz(event: FormEvent<HTMLFormElement>) {
@@ -277,6 +312,11 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
               </div>
               <button type="submit" style={heroCtaStyle}>지원사업 찾기</button>
             </div>
+            <LandingLookupSuggestions
+              currentBizNo={onlyDigits(biz)}
+              suggestions={visibleLookupSuggestions}
+              onSelect={selectLookupSuggestion}
+            />
           </form>
 
           <div
@@ -551,6 +591,12 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
                 지원사업 찾기
               </button>
             </div>
+            <LandingLookupSuggestions
+              currentBizNo={onlyDigits(biz)}
+              suggestions={visibleLookupSuggestions}
+              tone="dark"
+              onSelect={selectLookupSuggestion}
+            />
           </form>
           <div
             style={{
@@ -653,6 +699,92 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
 }
 
 /* ───────────────────────── sub components ───────────────────────── */
+
+function LandingLookupSuggestions({
+  suggestions,
+  currentBizNo,
+  tone = "light",
+  onSelect,
+}: {
+  suggestions: BusinessLookupSuggestion[];
+  currentBizNo: string;
+  tone?: "light" | "dark";
+  onSelect: (suggestion: BusinessLookupSuggestion) => void;
+}) {
+  if (suggestions.length === 0) return null;
+  const dark = tone === "dark";
+
+  return (
+    <div
+      role="listbox"
+      aria-label="최근 조회한 사업자"
+      style={{
+        position: "relative",
+        zIndex: 2,
+        display: "grid",
+        gap: 8,
+        marginTop: 12,
+        textAlign: "left",
+      }}
+    >
+      {suggestions.map((suggestion) => {
+        const selected = suggestion.bizNo === currentBizNo;
+        return (
+          <button
+            key={`${suggestion.source}:${suggestion.bizNo}`}
+            type="button"
+            role="option"
+            aria-selected={selected}
+            onClick={() => onSelect(suggestion)}
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 12,
+              width: "100%",
+              minHeight: 62,
+              border: selected ? "1px solid #3182f6" : `1px solid ${dark ? "rgba(255,255,255,.24)" : "#e5e8eb"}`,
+              borderRadius: 16,
+              background: dark ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.92)",
+              color: dark ? "#fff" : "#191f28",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              padding: "11px 13px",
+              boxShadow: dark ? "none" : "0 4px 12px rgba(20,23,26,.06)",
+            }}
+          >
+            <span style={{ display: "grid", flex: "1 1 150px", gap: 3, minWidth: 0 }}>
+              <strong style={{ overflow: "hidden", fontSize: 13.5, fontWeight: 800, lineHeight: 1.25, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {suggestion.companyName ?? "상호 미확인"}
+              </strong>
+              <span style={{ color: dark ? "rgba(255,255,255,.74)" : "#6b7682", fontSize: 12, fontWeight: 700, lineHeight: 1.25 }}>
+                {suggestion.bizNoFormatted}
+              </span>
+            </span>
+            <span style={{ display: "grid", flex: "1 1 170px", gap: 2, minWidth: 0, color: dark ? "rgba(255,255,255,.72)" : "#6b7682", fontSize: 12, fontWeight: 650, lineHeight: 1.35 }}>
+              <span style={ellipsisText}>업종 {suggestion.industry ?? "미확인"}</span>
+              <span style={ellipsisText}>업태 {suggestion.businessType ?? "미확인"}</span>
+            </span>
+            <span
+              style={{
+                border: `1px solid ${dark ? "rgba(255,255,255,.22)" : "#e5e8eb"}`,
+                borderRadius: 999,
+                color: dark ? "rgba(255,255,255,.82)" : "#4e5968",
+                fontSize: 11,
+                fontWeight: 800,
+                padding: "5px 8px",
+                marginLeft: "auto",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {suggestion.source === "account" ? "내 계정" : "이 브라우저"}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function ProblemCard({ emoji, iconBg, title, body }: { emoji: string; iconBg: string; title: string; body: string }) {
   return (
@@ -825,6 +957,7 @@ const trustItem: CSSProperties = { display: "inline-flex", alignItems: "center",
 const featureTag: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: "#3182f6", background: "#e8f3ff", padding: "6px 12px", borderRadius: 999, marginBottom: 18 };
 const featureTitle: CSSProperties = { fontSize: "clamp(22px,2.8vw,28px)", fontWeight: 800, letterSpacing: "-.03em", color: "#191f28", lineHeight: 1.32, marginBottom: 14 };
 const featureBody: CSSProperties = { fontSize: 15.5, color: "#8b95a1", lineHeight: 1.65, marginBottom: 20 };
+const ellipsisText: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
 const heroCtaStyle: CSSProperties = {
   flex: "none",
@@ -891,6 +1024,22 @@ function fmtBiz(v: string): string {
   if (d.length > 5) return `${d.slice(0, 3)}-${d.slice(3, 5)}-${d.slice(5)}`;
   if (d.length > 3) return `${d.slice(0, 3)}-${d.slice(3)}`;
   return d;
+}
+
+function filterLandingLookupSuggestions(
+  suggestions: BusinessLookupSuggestion[],
+  query: string,
+): BusinessLookupSuggestion[] {
+  const normalizedQuery = normalizeBusinessLookupBizNo(query);
+  const filtered = normalizedQuery
+    ? suggestions.filter((suggestion) => {
+      if (suggestion.bizNo === normalizedQuery) return false;
+      return suggestion.bizNo.startsWith(normalizedQuery) ||
+        suggestion.bizNoFormatted.includes(normalizedQuery) ||
+        suggestion.companyName?.includes(normalizedQuery);
+    })
+    : suggestions;
+  return filtered.slice(0, 4);
 }
 
 function readPendingTeaserRequest(): TeaserRequest | null {

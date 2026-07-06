@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type {
   ActionResult,
+  CompanyEvidence,
   LandingGrantBanner,
   LandingGrantData,
   LandingGrantStats,
@@ -24,6 +25,13 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { CompanyEvidenceSummary } from "@/features/company-evidence/CompanyEvidenceSummary";
+import {
+  formatBusinessLookupBizNo,
+  normalizeBusinessLookupBizNo,
+  type BusinessLookupRecordResult,
+  type BusinessLookupSuggestion,
+  type BusinessLookupSuggestionsResult,
+} from "@/lib/businessLookupSuggestions";
 import { recordLandingEvent } from "@/lib/client/landingEvents";
 import { recordWebMatchEvent } from "@/lib/client/matchEvents";
 import { KOREA_REGION_OPTIONS } from "@/lib/regions";
@@ -35,6 +43,8 @@ type NewsletterCategory = {
 };
 
 const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
+const LOCAL_LOOKUP_SUGGESTIONS_STORAGE_KEY = "cunote.businessLookupSuggestions.v1";
+const MAX_LOOKUP_SUGGESTIONS = 6;
 
 const NEWSLETTER_CATEGORIES: NewsletterCategory[] = [
   { value: "rnd", label: "R&D" },
@@ -60,6 +70,7 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
   const [errorField, setErrorField] = useState<"bizNo" | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [lookupSuggestions, setLookupSuggestions] = useState<BusinessLookupSuggestion[]>([]);
   const [bannerIndex, setBannerIndex] = useState(0);
   const [newsletterCategories, setNewsletterCategories] = useState<string[]>(["rnd", "commercialization"]);
   const [newsletterEmail, setNewsletterEmail] = useState("");
@@ -74,6 +85,10 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
   const hasConfirmedLookup = Boolean(teaser && lastTeaserRequest?.bizNo === normalizedBizNo);
   const banners = landingData.banners;
   const activeBanner = banners[bannerIndex] ?? banners[0] ?? null;
+  const visibleLookupSuggestions = useMemo(
+    () => filterBusinessLookupSuggestions(lookupSuggestions, normalizedBizNo),
+    [lookupSuggestions, normalizedBizNo],
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -84,6 +99,34 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
     if (!pending) return;
 
     void createCompanyAndOpenDashboard(pending);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const localSuggestions = readLocalBusinessLookupSuggestions();
+    if (localSuggestions.length > 0) {
+      setLookupSuggestions(localSuggestions);
+    }
+
+    fetch("/api/web/business-lookup-suggestions")
+      .then(async (response) => {
+        const payload = await response.json() as ActionResult<BusinessLookupSuggestionsResult>;
+        if (!response.ok || !payload.ok || !payload.data || cancelled) return;
+        if (payload.data.authenticated) {
+          setLookupSuggestions(payload.data.suggestions);
+        } else if (localSuggestions.length === 0) {
+          setLookupSuggestions(readLocalBusinessLookupSuggestions());
+        }
+      })
+      .catch(() => {
+        if (!cancelled && localSuggestions.length === 0) {
+          setLookupSuggestions(readLocalBusinessLookupSuggestions());
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -148,6 +191,7 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       setTeaser(payload.data);
       setLastTeaserRequest(requestBody);
       setBizNo(normalizedBizNo);
+      void persistSuccessfulBusinessLookup(normalizedBizNo, payload.data);
       recordLandingEvent({
         event: "teaser_succeeded",
         requestId,
@@ -187,6 +231,50 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       setLastTeaserRequest(null);
       setActiveLookupBizNo(null);
     }
+  }
+
+  async function persistSuccessfulBusinessLookup(lookedUpBizNo: string, result: TeaserResult) {
+    const fallback = buildLocalBusinessLookupSuggestion(lookedUpBizNo, result);
+    try {
+      const response = await fetch("/api/web/business-lookup-suggestions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bizNo: lookedUpBizNo }),
+      });
+      const payload = await response.json() as ActionResult<BusinessLookupRecordResult>;
+      if (!response.ok || !payload.ok || !payload.data) throw new Error("lookup suggestion failed");
+
+      const suggestion = payload.data.suggestion ?? fallback;
+      if (!suggestion) return;
+      if (payload.data.authenticated) {
+        setLookupSuggestions((current) => upsertBusinessLookupSuggestion(current, {
+          ...suggestion,
+          source: "account",
+        }));
+        return;
+      }
+
+      const localSuggestion: BusinessLookupSuggestion = {
+        ...suggestion,
+        source: "local",
+      };
+      setLookupSuggestions((current) => {
+        const next = upsertBusinessLookupSuggestion(current, localSuggestion);
+        writeLocalBusinessLookupSuggestions(next.filter((item) => item.source === "local"));
+        return next;
+      });
+    } catch {
+      if (user || !fallback) return;
+      setLookupSuggestions((current) => {
+        const next = upsertBusinessLookupSuggestion(current, fallback);
+        writeLocalBusinessLookupSuggestions(next.filter((item) => item.source === "local"));
+        return next;
+      });
+    }
+  }
+
+  function selectBusinessLookupSuggestion(suggestion: BusinessLookupSuggestion) {
+    updateBizNoInput(suggestion.bizNo);
   }
 
   async function saveAndOpenDashboard() {
@@ -311,6 +399,11 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
                     {normalizedBizNo.length === 10 && !isLoading && !hasConfirmedLookup ? (
                       <p className="biz-ready-note">형식 확인됨. 같은 번호의 저장 결과가 있으면 추가 조회 없이 재사용합니다.</p>
                     ) : null}
+                    <BusinessLookupSuggestionList
+                      suggestions={visibleLookupSuggestions}
+                      currentBizNo={normalizedBizNo}
+                      onSelect={selectBusinessLookupSuggestion}
+                    />
                   </Field>
                 </FieldGroup>
                 {error ? (
@@ -416,6 +509,47 @@ function CompanyLookupProgress({ maskedBizNo }: { maskedBizNo: string | null }) 
           저장 결과가 없으면 팝빌에서 상호와 소재지, 업력, 영업상태를 확인한 뒤 재사용할 수 있게 보관합니다.
         </p>
       </div>
+    </div>
+  );
+}
+
+function BusinessLookupSuggestionList({
+  suggestions,
+  currentBizNo,
+  onSelect,
+}: {
+  suggestions: BusinessLookupSuggestion[];
+  currentBizNo: string;
+  onSelect: (suggestion: BusinessLookupSuggestion) => void;
+}) {
+  if (suggestions.length === 0) return null;
+
+  return (
+    <div className="business-suggestion-list" role="listbox" aria-label="최근 조회한 사업자">
+      {suggestions.map((suggestion) => {
+        const selected = suggestion.bizNo === currentBizNo;
+        return (
+          <Button
+            key={`${suggestion.source}:${suggestion.bizNo}`}
+            aria-selected={selected}
+            className="business-suggestion-item"
+            role="option"
+            type="button"
+            variant="secondary"
+            onClick={() => onSelect(suggestion)}
+          >
+            <span className="business-suggestion-main">
+              <strong>{suggestion.companyName ?? "상호 미확인"}</strong>
+              <span>{suggestion.bizNoFormatted}</span>
+            </span>
+            <span className="business-suggestion-meta">
+              <span>업종 {suggestion.industry ?? "미확인"}</span>
+              <span>업태 {suggestion.businessType ?? "미확인"}</span>
+            </span>
+            <Badge variant="outline">{suggestion.source === "account" ? "내 계정" : "이 브라우저"}</Badge>
+          </Button>
+        );
+      })}
     </div>
   );
 }
@@ -699,13 +833,123 @@ function MatchPreview({ match }: { match: MatchCard }) {
 }
 
 function formatBizNoInput(value: string): string {
-  return value.replace(/\D/g, "").slice(0, 10);
+  return normalizeBusinessLookupBizNo(value);
 }
 
 function maskBizNoForDisplay(value: string): string | null {
   const digits = formatBizNoInput(value);
   if (digits.length !== 10) return null;
   return `${digits.slice(0, 3)}-**-${digits.slice(5, 7)}***`;
+}
+
+function filterBusinessLookupSuggestions(
+  suggestions: BusinessLookupSuggestion[],
+  query: string,
+): BusinessLookupSuggestion[] {
+  const normalizedQuery = normalizeBusinessLookupBizNo(query);
+  const filtered = normalizedQuery
+    ? suggestions.filter((suggestion) => {
+      if (suggestion.bizNo === normalizedQuery) return false;
+      return suggestion.bizNo.startsWith(normalizedQuery) ||
+        suggestion.companyName?.includes(normalizedQuery) ||
+        suggestion.bizNoFormatted.includes(normalizedQuery);
+    })
+    : suggestions;
+  return filtered.slice(0, 4);
+}
+
+function buildLocalBusinessLookupSuggestion(
+  bizNo: string,
+  teaser: TeaserResult,
+): BusinessLookupSuggestion | null {
+  const normalizedBizNo = normalizeBusinessLookupBizNo(bizNo);
+  if (normalizedBizNo.length !== 10) return null;
+
+  const evidence = teaser.companyEvidence ?? null;
+  const industryValue = evidenceFieldValue(evidence, "industry") ?? teaser.attributes.industry.slice(0, 2).join(", ");
+  const industry = industryValue || null;
+  const now = new Date().toISOString();
+
+  return {
+    id: `local:${normalizedBizNo}`,
+    bizNo: normalizedBizNo,
+    bizNoFormatted: formatBusinessLookupBizNo(normalizedBizNo),
+    bizNoMasked: maskBizNoForDisplay(normalizedBizNo) ?? "**********",
+    companyName: evidenceFieldValue(evidence, "corp_name"),
+    industry,
+    businessType: evidenceFieldValue(evidence, "business_type"),
+    checkedAt: evidence?.checkedAt ?? now,
+    lastLookupAt: now,
+    source: "local",
+    cacheSource: "client_storage",
+  };
+}
+
+function evidenceFieldValue(evidence: CompanyEvidence | null, key: string): string | null {
+  return evidence?.fields.find((field) => field.key === key && field.value)?.value ?? null;
+}
+
+function upsertBusinessLookupSuggestion(
+  suggestions: BusinessLookupSuggestion[],
+  suggestion: BusinessLookupSuggestion,
+): BusinessLookupSuggestion[] {
+  return [
+    suggestion,
+    ...suggestions.filter((item) => item.bizNo !== suggestion.bizNo),
+  ].slice(0, MAX_LOOKUP_SUGGESTIONS);
+}
+
+function readLocalBusinessLookupSuggestions(): BusinessLookupSuggestion[] {
+  try {
+    const raw = window.localStorage.getItem(LOCAL_LOOKUP_SUGGESTIONS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map(normalizeStoredBusinessLookupSuggestion)
+      .filter((item): item is BusinessLookupSuggestion => Boolean(item))
+      .slice(0, MAX_LOOKUP_SUGGESTIONS);
+  } catch {
+    return [];
+  }
+}
+
+function writeLocalBusinessLookupSuggestions(suggestions: BusinessLookupSuggestion[]) {
+  try {
+    window.localStorage.setItem(
+      LOCAL_LOOKUP_SUGGESTIONS_STORAGE_KEY,
+      JSON.stringify(suggestions.slice(0, MAX_LOOKUP_SUGGESTIONS)),
+    );
+  } catch {
+    // Storage can be unavailable in private contexts; the current lookup still works.
+  }
+}
+
+function normalizeStoredBusinessLookupSuggestion(value: unknown): BusinessLookupSuggestion | null {
+  if (!isRecord(value) || typeof value.bizNo !== "string") return null;
+  const bizNo = normalizeBusinessLookupBizNo(value.bizNo);
+  if (bizNo.length !== 10) return null;
+  return {
+    id: `local:${bizNo}`,
+    bizNo,
+    bizNoFormatted: formatBusinessLookupBizNo(bizNo),
+    bizNoMasked: typeof value.bizNoMasked === "string" ? value.bizNoMasked : maskBizNoForDisplay(bizNo) ?? "**********",
+    companyName: nullableText(value.companyName),
+    industry: nullableText(value.industry),
+    businessType: nullableText(value.businessType),
+    checkedAt: nullableText(value.checkedAt),
+    lastLookupAt: nullableText(value.lastLookupAt),
+    source: "local",
+    cacheSource: "client_storage",
+  };
+}
+
+function nullableText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function persistPendingTeaserRequest(request: TeaserRequest) {

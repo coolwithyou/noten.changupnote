@@ -483,6 +483,19 @@ export const companyEnrichmentCache = pgTable("company_enrichment_cache", {
   expiryIdx: index("company_enrichment_cache_expiry_idx").on(table.expiresAt),
 }));
 
+export const userBusinessLookupHistory = pgTable("user_business_lookup_history", {
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  bizNo: text("biz_no").notNull(),
+  firstLookedUpAt: timestamp("first_looked_up_at", { withTimezone: true }).defaultNow().notNull(),
+  lastLookedUpAt: timestamp("last_looked_up_at", { withTimezone: true }).defaultNow().notNull(),
+  lookupCount: integer("lookup_count").default(1).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.bizNo] }),
+  userLastLookupIdx: index("user_business_lookup_history_user_last_lookup_idx")
+    .on(table.userId, table.lastLookedUpAt),
+  bizNoIdx: index("user_business_lookup_history_biz_no_idx").on(table.bizNo),
+}));
+
 export const consents = pgTable("consents", {
   id: uuid("id").defaultRandom().primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),

@@ -20,6 +20,12 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  readLocalBusinessLookupSuggestions,
+  recordBusinessLookupSuggestion,
+  upsertBusinessLookupSuggestion,
+  writeLocalBusinessLookupSuggestions,
+} from "@/lib/client/businessLookupSuggestions";
 
 const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
 const TEASER_FALLBACK_MESSAGE = "매칭 결과를 불러오지 못했습니다.";
@@ -56,6 +62,7 @@ export function MatchesExperience() {
       }
       setTeaser(payload.data);
       setStatus("ready");
+      void rememberBusinessLookup(digits);
     } catch (caught) {
       const next =
         caught instanceof TeaserError
@@ -143,6 +150,18 @@ export function MatchesExperience() {
       </main>
     </div>
   );
+}
+
+async function rememberBusinessLookup(digits: string) {
+  const result = await recordBusinessLookupSuggestion(digits);
+  if (!result?.suggestion || result.authenticated) return;
+  const localSuggestion = {
+    ...result.suggestion,
+    source: "local" as const,
+    cacheSource: "client_storage" as const,
+  };
+  const next = upsertBusinessLookupSuggestion(readLocalBusinessLookupSuggestions(), localSuggestion);
+  writeLocalBusinessLookupSuggestions(next);
 }
 
 /* ───────────────────────── Nav ───────────────────────── */

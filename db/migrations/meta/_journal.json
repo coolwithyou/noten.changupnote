@@ -225,6 +225,13 @@
       "when": 1783231564267,
       "tag": "0031_nosy_cloak",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1783339897113,
+      "tag": "0032_fair_raider",
+      "breakpoints": true
     }
   ]
 }

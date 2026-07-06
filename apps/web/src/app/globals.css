@@ -8004,6 +8004,69 @@ label {
   line-height: 1.45;
 }
 
+.business-suggestion-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.business-suggestion-item {
+  justify-content: space-between;
+  width: 100%;
+  min-height: 66px;
+  padding: 12px 14px;
+  border-color: color-mix(in srgb, var(--primary) 12%, var(--border));
+  background: color-mix(in srgb, var(--card) 94%, var(--primary) 6%);
+  text-align: left;
+}
+
+.business-suggestion-item[aria-selected="true"] {
+  border-color: color-mix(in srgb, var(--primary) 42%, var(--border));
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.business-suggestion-main,
+.business-suggestion-meta {
+  display: grid;
+  min-width: 0;
+}
+
+.business-suggestion-main {
+  gap: 3px;
+  flex: 0 1 210px;
+}
+
+.business-suggestion-main strong {
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.business-suggestion-main span {
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.business-suggestion-meta {
+  gap: 2px;
+  flex: 1 1 220px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.business-suggestion-item [data-slot="badge"] {
+  flex: 0 0 auto;
+  background: var(--card);
+}
+
 .company-lookup-progress {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -8545,6 +8608,19 @@ label {
 
   .company-lookup-progress {
     grid-template-columns: 1fr;
+  }
+
+  .business-suggestion-item {
+    align-items: flex-start;
+    min-height: 0;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .business-suggestion-main,
+  .business-suggestion-meta {
+    flex: 1 1 auto;
+    width: 100%;
   }
 
   .hook-carousel {
