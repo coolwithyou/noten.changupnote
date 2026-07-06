@@ -142,11 +142,20 @@
 
 ### 5-1. 사용자 직접 실행 (착수 전 선행 — 순서대로)
 
-1. **공공데이터포털 활용신청 2건** (data.go.kr 로그인 필요, 세션에서 대행 불가):
-   - [SMPP 공공구매종합정보망 인증서 정보](https://www.data.go.kr/data/15062581/openapi.do) → 우측 [활용신청] — 일반 REST라 자동승인 가능성 높음
-   - [중기부 벤처기업확인서](https://www.data.go.kr/data/15106235/openapi.do) → [활용신청] — **LINK형**이라 상세 스펙은 첨부 "OpenApi활용가이드(벤처기업확인서).hwp"에만 있음. **승인 후 이 hwp를 `docs/research/` 아래에 넣어줄 것** (Gate 0 확정 스택 LibreOffice+H2Orestart로 변환해 스펙 추출 예정)
-2. **서비스키 env 등록**: 공공데이터포털 인증키는 계정 단위 공용이라 NTS에 쓴 키와 동일 값일 가능성이 높음. 승인 확인 후 루트 `.env`에 추가:
-   `CUNOTE_SMPP_SERVICE_KEY=...` / `CUNOTE_VENTURE_SERVICE_KEY=...` (같은 값이어도 키 분리 유지 — 개별 교체 유연성)
+1. **SMPP 활용신청 (data.go.kr)** — 실존·스펙 검증 완료 (2026-07-06):
+   [공공구매종합정보망 인증서 정보 제공 서비스](https://www.data.go.kr/data/15062581/openapi.do) → 우측 [활용신청].
+   공식 기술문서(첨부 docx)로 확정한 오퍼레이션:
+   - `getFnrssList` 여성기업확인 상세조회 / `getDspsnList` 장애인기업확인 상세조회 / `getDPrductList` 직접생산확인
+   - 공통 파라미터: `ServiceKey` + `bsnmNo`(사업자번호 10자리) + `stdrDate`(기준일자) — 유무·인증일자·유효기간 응답
+   - 라이브 게이트웨이 프로브로 실존 확인: 두 오퍼레이션 모두 미신청 키에 403(가짜 경로는 404 "API not found")
+2. **벤처·이노비즈·메인비즈확인서 API 신청 (중소벤처24 자체 채널 — data.go.kr 아님!)**:
+   data.go.kr의 [벤처기업확인서](https://www.data.go.kr/data/15106235/openapi.do)·[이노비즈확인서](https://www.data.go.kr/data/15106236/openapi.do)는 LINK 게시물일 뿐, 실제 신청은
+   **[중소벤처24 Open API](https://www.smes.go.kr/main/dbCnrs)에서 기업회원 가입 후 자체 신청 양식**(신청자 정보·시스템명·선택 API·용도)으로 진행.
+   증명(확인)서 정보 API로 벤처기업·이노비즈·메인비즈확인서 3종 제공. ⚠️ 임의 사업자번호 조회 허용 범위(동의 필요 여부)는
+   승인 후 API 가이드로 확인 필요 — 제약이 크면 폴백: [벤처기업명단 파일데이터](https://www.data.go.kr/data/15084581/fileData.do)(신청 불요) 월간 적재.
+   문의: 044-300-0990 / smeshelp@tipa.or.kr
+3. **서비스키 env 등록**: SMPP는 공공데이터포털 인증키(계정 공용 — NTS 키와 동일 값일 가능성 높음)를 `CUNOTE_SMPP_SERVICE_KEY=`로,
+   중소벤처24는 발급 방식 확인 후 `CUNOTE_SMES_API_KEY=`로 루트 `.env`에 추가
 3. **(권장) QA 팀 공지**: 강등 로직으로 티저 헤더가 "eligible 0건"으로 보일 수 있음 — 회귀 아님(2026-07-06 반영분)
 
 ### 5-2. 작업 순서 (위임 계획)
@@ -155,7 +164,7 @@
 |---|---|---|---|
 | ① | **certification 룰 1차 구조화** | **없음 — 즉시 착수 가능** | 인증 조건은 업종보다 정형적(벤처기업·이노비즈·메인비즈·기업부설연구소·ISO·여성기업·사회적기업 등 enum 매칭)이라 룰 정밀도 기대 높음. 인증 enum 사전 신설 → normalize 룰(업종과 동일한 긍정 템플릿+가드 패턴) → 재정규화 CLI를 dimension 일반화해 dry-run→검수→실행. kstartup은 LLM 불필요, bizinfo 429건만 LLM 재추출 대상(후순위) |
 | ② | **SMPP 자동 보강** | 활용신청 승인 + 키 | enrichment provider `smpp` 추가(NTS 패턴 재사용): 사업자번호로 여성기업·장애인기업 확인서 조회 → `certs`/`traits` 자동 채움(공적 확인서라 confidence 0.9), 캐시 TTL은 확인서 유효기간(`validPdEndDe`) 기반 |
-| ③ | **벤처확인서 자동 보강** | 활용가이드 hwp 확보 | hwp 변환→스펙 확정 후 ②와 동일 패턴. 스펙 부적합 시 폴백: [벤처기업명단 파일데이터](https://www.data.go.kr/data/15084581/fileData.do) 월간 적재 |
+| ③ | **벤처·이노비즈·메인비즈 자동 보강** | 중소벤처24 API 승인 + 가이드 확보 | 가이드로 스펙·조회 허용 범위 확정 후 ②와 동일 패턴. 스펙 부적합·동의 제약 시 폴백: [벤처기업명단 파일데이터](https://www.data.go.kr/data/15084581/fileData.do) 월간 적재 |
 | ④ | **엔드투엔드 검증** | ①~③ | dev 서버 티저로 확인서 보유 사업자 실측 + evidence '보유 인증' 자동 확정 확인 |
 
 ### 5-3. 착수 시 주의
