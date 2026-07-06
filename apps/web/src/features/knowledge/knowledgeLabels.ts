@@ -115,12 +115,19 @@ export const labelForNonLessonKind = (key: string): string =>
   NON_LESSON_KIND_LABEL[key] ?? key;
 
 // ── 서식 유틸 ─────────────────────────────────────────────────
+const KOREA_TIME_ZONE = "Asia/Seoul";
 const fullDateFmt = new Intl.DateTimeFormat("ko-KR", {
   year: "numeric",
   month: "long",
   day: "numeric",
+  timeZone: KOREA_TIME_ZONE,
 });
-const timeFmt = new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit" });
+const timeFmt = new Intl.DateTimeFormat("ko-KR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: KOREA_TIME_ZONE,
+});
 
 /** ISO/날짜 문자열 → "2026년 7월 1일". 파싱 실패 시 "-". */
 export function fmtDate(iso: string): string {

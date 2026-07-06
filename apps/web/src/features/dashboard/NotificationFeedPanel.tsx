@@ -156,8 +156,10 @@ function dDayLabel(dDay: number): string {
 }
 
 function formatGeneratedAt(value: string): string {
-  return new Intl.DateTimeFormat("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) return "시각 미확인";
+  const kst = new Date(timestamp + 9 * 60 * 60 * 1000);
+  const hour = String(kst.getUTCHours()).padStart(2, "0");
+  const minute = String(kst.getUTCMinutes()).padStart(2, "0");
+  return `${hour}:${minute}`;
 }
