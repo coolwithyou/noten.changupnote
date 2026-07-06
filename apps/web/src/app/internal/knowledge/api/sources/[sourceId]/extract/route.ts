@@ -18,6 +18,7 @@ import {
   updateKnowledgeSourceExtraction,
   type ProposedLessonInput,
 } from "@/lib/server/knowledge/knowledgeRepo";
+import { listUncoveredPrograms } from "@/lib/server/knowledge/lessonContext";
 import { getReviewerIdentity } from "@/lib/server/review/reviewAccess";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 
@@ -188,6 +189,8 @@ export async function POST(_request: Request, context: RouteContext) {
       nonLessonItems: v.nonLessonItems.length,
       counts: v.counts,
       quotePassRatePct: pct(v.quotePassed, v.quoteTotal),
+      // K3: lesson 후보 scope.program 중 별칭 사전 미등록 값(표기 변형 매칭 불가).
+      uncoveredPrograms: listUncoveredPrograms(v.lessons.map((l) => l.scope?.program)),
       dropped: v.dropped.slice(0, 10),
     },
   });

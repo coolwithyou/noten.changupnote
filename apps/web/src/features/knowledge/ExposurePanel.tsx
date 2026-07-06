@@ -41,6 +41,13 @@ const SCOPE_AXES = [
   "condition",
 ] as const;
 
+// K3 죽은 지식 사유 코드 → 한국어 표기(자립).
+const DEAD_REASON_LABEL: Record<string, string> = {
+  program_not_in_dictionary: "별칭 사전 미등록 (표기 변형 매칭 불가)",
+  no_matching_grant: "매칭되는 공고 없음",
+  unknown: "도달 경로 점검 필요",
+};
+
 /** YYYY-MM-DD(ISO 앞 10자). */
 function fmtDay(iso: string): string {
   return iso.slice(0, 10);
@@ -99,7 +106,7 @@ function DeadKnowledgeSection({ items }: { items: DeadKnowledgeLesson[] }) {
               key={lesson.id}
               className="flex flex-col gap-2 rounded-[var(--radius-md)] border border-amber-500/30 bg-background/60 p-3"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <Badge
                   variant="outline"
                   className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
@@ -107,6 +114,9 @@ function DeadKnowledgeSection({ items }: { items: DeadKnowledgeLesson[] }) {
                   <EyeOff className="size-3" aria-hidden />
                   노출 0
                 </Badge>
+                <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
+                  {DEAD_REASON_LABEL[lesson.reason] ?? "사유 미상"}
+                </span>
                 <span className="ml-auto text-xs text-muted-foreground tabular-nums">
                   승인 {fmtDay(lesson.approvedAt)}
                 </span>

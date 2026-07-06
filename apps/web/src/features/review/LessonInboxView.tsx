@@ -520,6 +520,16 @@ function LessonCard(props: LessonCardProps) {
             {tier.label}
           </Badge>
           {lesson.programRound ? <Badge variant="ghost">{lesson.programRound}</Badge> : null}
+          {!lesson.programAliasCovered ? (
+            <Badge
+              variant="outline"
+              className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              title="scope.program 이 별칭 사전에 없어 표기 변형(한↔영 등) 매칭이 불가합니다. 리터럴 일치에만 의존합니다."
+            >
+              <TriangleAlert className="size-3" aria-hidden />
+              별칭 사전 미등록
+            </Badge>
+          ) : null}
           <span className="ml-auto text-xs text-muted-foreground">
             {lesson.status !== "proposed" && curatedAt ? `${curatedAt} 처리` : null}
           </span>

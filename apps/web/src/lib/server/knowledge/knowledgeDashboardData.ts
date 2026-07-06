@@ -13,6 +13,7 @@ import {
   LESSON_STATUSES,
   countLessonsBySource,
   getLessonExposureCounts,
+  listGrantsForGateEval,
   listKnowledgeSources,
   listLessons,
   type EvidenceTier,
@@ -23,7 +24,14 @@ import {
   type LessonStatus,
   type LessonStatusCounts,
   type LessonTarget,
+  type ReviewLessonRow,
 } from "./knowledgeRepo";
+import {
+  grantMatchText,
+  isProgramCoveredByAliases,
+  lessonMatchesAnyGrant,
+  listUncoveredPrograms,
+} from "./lessonContext";
 
 // ── DTO ────────────────────────────────────────────────────
 export interface KnowledgeDashboardTotals {
@@ -79,6 +87,11 @@ export interface KnowledgeSourceSummary {
   nonLessonItemCount: number;
   /** 이 원천에서 도출된 lesson 들의 전체 노출 합계(누적 도달 — 죽은 소스 식별용). */
   exposureTotal: number;
+  /**
+   * 이 원천의 lesson(proposed+approved) scope.program 중 별칭 사전 미등록 값(중복 제거·정렬).
+   * 비어있지 않으면 표기 변형 매칭이 불가한 프로그램이 섞여 있다는 경고(K3).
+   */
+  uncoveredPrograms: string[];
 }
 
 /** lesson 별 노출 지표(최근 30일 + 전체). approved lesson 만 — 노출 가능한 집합. */
@@ -98,6 +111,14 @@ export interface LessonExposureMetric {
  * 죽은 지식(경보): 승인 후 30일 경과했는데 노출 이벤트가 0건인 approved lesson.
  * "승인만 하고 아무도 못 보는 지식" — 매칭 사전 미커버·매칭 공고 부재 등을 드러내는 신호.
  */
+/**
+ * 죽은 지식 사유(K3):
+ *   - program_not_in_dictionary: scope.program 이 별칭 사전 미등록 → 표기 변형 매칭 불가.
+ *   - no_matching_grant: 게이트는 정상이나 매칭되는 공고가 0건(현재 공고 집합 기준).
+ *   - unknown: 게이트 통과 공고가 있는데도 노출 0(도달 경로 점검 필요).
+ */
+export type DeadKnowledgeReason = "program_not_in_dictionary" | "no_matching_grant" | "unknown";
+
 export interface DeadKnowledgeLesson {
   id: string;
   /** 지침 요약(120자). */
@@ -105,6 +126,8 @@ export interface DeadKnowledgeLesson {
   scope: LessonScope;
   /** 승인일(curatedAt ?? createdAt) ISO. */
   approvedAt: string;
+  /** 노출 0 의 추정 사유(K3 — 대시보드 표기·조치 안내용). */
+  reason: DeadKnowledgeReason;
 }
 
 export interface DashboardNonLessonItem {
@@ -289,20 +312,35 @@ export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardD
 
   // (2) 죽은 지식: 승인 후 30일 경과 & 전체 노출 0(승인일 오름차순 — 오래된 것부터).
   const deadCutoffMs = now.getTime() - DEAD_KNOWLEDGE_MIN_AGE_DAYS * DAY_MS;
-  const deadKnowledge: DeadKnowledgeLesson[] = approvedLessons
+  const deadRows: ReviewLessonRow[] = approvedLessons
     .filter((l) => {
       const approvedAt = l.curatedAt ?? l.createdAt;
       if (!approvedAt) return false;
       if (new Date(approvedAt).getTime() > deadCutoffMs) return false; // 30일 미경과
       return (exposureCounts.total.get(l.id) ?? 0) === 0;
     })
-    .map((l) => ({
-      id: l.id,
-      instruction: summarize(l.instruction, 120),
-      scope: (l.scope ?? {}) as LessonScope,
-      approvedAt: toIso(l.curatedAt ?? l.createdAt),
-    }))
-    .sort((a, b) => a.approvedAt.localeCompare(b.approvedAt));
+    .sort(
+      (a, b) => toIso(a.curatedAt ?? a.createdAt).localeCompare(toIso(b.curatedAt ?? b.createdAt)),
+    );
+
+  // 사유 판정: program 미커버는 공고 로드 없이 즉시 확정. 그 외에만 공고 게이트로 카운트한다.
+  // 죽은 지식이 하나도 없으면 공고 로드를 통째로 건너뛴다(불필요 쿼리 금지 — K3 명시).
+  const needsGrantEval = deadRows.some((l) => {
+    const program =
+      typeof l.scope?.program === "string" ? l.scope.program.trim() : "";
+    return !(program.length > 0 && !isProgramCoveredByAliases(program));
+  });
+  const grantNorms = needsGrantEval
+    ? (await listGrantsForGateEval()).map(grantMatchText)
+    : [];
+  const nowMs = now.getTime();
+  const deadKnowledge: DeadKnowledgeLesson[] = deadRows.map((l) => ({
+    id: l.id,
+    instruction: summarize(l.instruction, 120),
+    scope: (l.scope ?? {}) as LessonScope,
+    approvedAt: toIso(l.curatedAt ?? l.createdAt),
+    reason: classifyDeadReason(l, grantNorms, nowMs),
+  }));
 
   // (3) 소스별 노출 합계(전체 노출을 sourceId 로 합산 — lesson↔source JS 조인).
   const exposureBySource = new Map<string, number>();
@@ -313,7 +351,19 @@ export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardD
     exposureBySource.set(l.sourceId, (exposureBySource.get(l.sourceId) ?? 0) + t);
   }
 
-  // ── sources (문서별 lesson 집계 + 노출 합계) ──
+  // ── 소스별 미커버 프로그램(K3): proposed+approved lesson 의 scope.program 을 소스로 모아 미커버만. ──
+  const programsBySource = new Map<string, string[]>();
+  for (const l of allLessons) {
+    if (!l.sourceId) continue;
+    if (l.status !== "approved" && l.status !== "proposed") continue;
+    const program = typeof l.scope?.program === "string" ? l.scope.program.trim() : "";
+    if (!program) continue;
+    const bucket = programsBySource.get(l.sourceId);
+    if (bucket) bucket.push(program);
+    else programsBySource.set(l.sourceId, [program]);
+  }
+
+  // ── sources (문서별 lesson 집계 + 노출 합계 + 미커버 프로그램) ──
   const sources: KnowledgeSourceSummary[] = await Promise.all(
     sourceRows.map(async (source) => ({
       id: source.id,
@@ -326,6 +376,7 @@ export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardD
       lessonCounts: await countLessonsBySource(source.id),
       nonLessonItemCount: Array.isArray(source.nonLessonItems) ? source.nonLessonItems.length : 0,
       exposureTotal: exposureBySource.get(source.id) ?? 0,
+      uncoveredPrograms: listUncoveredPrograms(programsBySource.get(source.id) ?? []),
     })),
   );
 
@@ -347,6 +398,24 @@ export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardD
 }
 
 // ── 내부 헬퍼 ───────────────────────────────────────────────
+/**
+ * 죽은 지식(노출 0)의 사유를 판정한다(K3).
+ *   1) scope.program 이 있고 별칭 사전 미등록 → program_not_in_dictionary(표기 변형 매칭 불가).
+ *   2) 게이트가 매칭하는 공고가 0건 → no_matching_grant.
+ *   3) 그 외(매칭 공고는 있으나 노출 0) → unknown(도달 경로 문제).
+ */
+function classifyDeadReason(
+  lesson: ReviewLessonRow,
+  grantNorms: readonly string[],
+  nowMs: number,
+): DeadKnowledgeReason {
+  const program = typeof lesson.scope?.program === "string" ? lesson.scope.program.trim() : "";
+  if (program.length > 0 && !isProgramCoveredByAliases(program)) {
+    return "program_not_in_dictionary";
+  }
+  return lessonMatchesAnyGrant(lesson, grantNorms, nowMs) ? "unknown" : "no_matching_grant";
+}
+
 /** 값 배열을 key 별 카운트로 집계(내림차순 count, 동률은 key 오름차순). */
 function tally<T extends string>(values: T[]): KnowledgeDistributionBucket[] {
   const map = new Map<string, number>();

@@ -21,6 +21,7 @@ import {
   type LessonTarget,
   type ReviewLessonRow,
 } from "./knowledgeRepo";
+import { isProgramCoveredByAliases } from "./lessonContext";
 
 export interface LessonSourceMetaDto {
   id: string;
@@ -50,6 +51,11 @@ export interface LessonInboxItemDto {
   curationNote: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * scope.program 이 별칭 사전에 커버되는가(K3). program 축이 없으면 true(경고 대상 아님).
+   * false 면 표기 변형(한↔영 등) 매칭이 불가해 리터럴 일치에만 의존한다는 경고.
+   */
+  programAliasCovered: boolean;
 }
 
 export interface LessonInboxDto {
@@ -68,10 +74,12 @@ export function isLessonStatus(value: string | null | undefined): value is Lesso
 }
 
 export function serializeLesson(row: ReviewLessonRow): LessonInboxItemDto {
+  const scope = (row.scope ?? {}) as LessonScope;
+  const program = typeof scope.program === "string" ? scope.program.trim() : "";
   return {
     id: row.id,
     target: row.target,
-    scope: (row.scope ?? {}) as LessonScope,
+    scope,
     instruction: row.instruction,
     rationale: row.rationale,
     sourceKind: row.sourceKind,
@@ -88,6 +96,7 @@ export function serializeLesson(row: ReviewLessonRow): LessonInboxItemDto {
     curationNote: row.curationNote,
     createdAt: toIso(row.createdAt) ?? new Date(0).toISOString(),
     updatedAt: toIso(row.updatedAt) ?? new Date(0).toISOString(),
+    programAliasCovered: program.length === 0 ? true : isProgramCoveredByAliases(program),
   };
 }
 

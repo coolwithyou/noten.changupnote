@@ -32,6 +32,8 @@ interface ExtractSummary {
   nonLessonItems: number;
   counts: Record<string, number>;
   quotePassRatePct: number;
+  /** K3: 별칭 사전 미등록 프로그램(표기 변형 매칭 불가). 없으면 빈 배열/미정의. */
+  uncoveredPrograms?: string[];
   dropped: unknown[];
 }
 
@@ -197,6 +199,18 @@ function SourceRow({ source, busy, disabled, result, error, onExtract }: SourceR
         <CountChip label="노출" value={source.exposureTotal} muted />
       </div>
 
+      {/* K3: 별칭 사전 미등록 프로그램 경고(표기 변형 매칭 불가) */}
+      {source.uncoveredPrograms.length > 0 ? (
+        <div className="flex items-start gap-1.5 rounded-[var(--radius-md)] border border-amber-500/40 bg-amber-500/5 p-2.5 text-xs text-amber-700 dark:text-amber-400">
+          <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+          <span>
+            <span className="font-medium">별칭 사전 미등록:</span>{" "}
+            <span className="font-medium">{source.uncoveredPrograms.join(", ")}</span>
+            {" — "}표기 변형(한↔영 등) 매칭 불가, 리터럴 일치에만 의존합니다.
+          </span>
+        </div>
+      ) : null}
+
       {/* 추출 결과 */}
       {result ? (
         <div className="rounded-[var(--radius-md)] border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs">
@@ -212,6 +226,15 @@ function SourceRow({ source, busy, disabled, result, error, onExtract }: SourceR
               <li className="text-amber-600 dark:text-amber-500">드롭 {result.dropped.length}건</li>
             ) : null}
           </ul>
+          {result.uncoveredPrograms && result.uncoveredPrograms.length > 0 ? (
+            <p className="mt-2 flex items-start gap-1.5 text-amber-700 dark:text-amber-400">
+              <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
+              <span>
+                별칭 사전 미등록: <span className="font-medium">{result.uncoveredPrograms.join(", ")}</span>
+                {" — "}표기 변형 매칭 불가(리터럴 일치에만 의존).
+              </span>
+            </p>
+          ) : null}
         </div>
       ) : null}
 

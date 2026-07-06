@@ -9,7 +9,13 @@
  *   ③ fieldKey 없는 기존 케이스는 fieldPattern 문자열 폴백 그대로(회귀 없음).
  */
 import assert from "node:assert/strict";
-import { fieldLessonMatches, fieldPatternMatchesLabel, norm } from "./lessonContext";
+import {
+  fieldLessonMatches,
+  fieldPatternMatchesLabel,
+  isProgramCoveredByAliases,
+  listUncoveredPrograms,
+  norm,
+} from "./lessonContext";
 
 let passed = 0;
 function check(name: string, fn: () => void): void {
@@ -96,6 +102,42 @@ check("③ 한쪽이라도 fieldKey 없음 → fieldPattern 문자열 폴백(기
     ),
     false,
     "관련 없는 fieldPattern 은 매칭되지 않아야 한다",
+  );
+});
+
+// ── ④ K3: 프로그램 별칭 사전 커버리지 판정 ──────────────────────────
+check("④ isProgramCoveredByAliases — 등록 프로그램은 covered, 미등록은 uncovered", () => {
+  // 별칭 그룹 등록: LIPS/립스, TIPS/팁스, PRE-TIPS 계열.
+  assert.equal(isProgramCoveredByAliases("LIPS"), true, "LIPS 는 별칭 그룹에 있어 covered");
+  assert.equal(isProgramCoveredByAliases("립스"), true, "립스(한글 표기)도 covered");
+  assert.equal(
+    isProgramCoveredByAliases("수출바우처"),
+    false,
+    "수출바우처는 별칭 사전 미등록 → uncovered",
+  );
+  // 복합: 토큰 1개라도 등록돼 있으면 covered(리터럴/변형 매칭 경로가 하나는 열림).
+  assert.equal(
+    isProgramCoveredByAliases("LIPS/수출바우처"),
+    true,
+    "LIPS 토큰이 등록돼 있으므로 복합 program 도 covered",
+  );
+});
+
+check("⑤ listUncoveredPrograms — 미커버만 추림(중복 제거·null 무시·정렬)", () => {
+  const out = listUncoveredPrograms([
+    "LIPS",
+    "수출바우처",
+    " 수출바우처 ", // trim 후 중복
+    null,
+    undefined,
+    "",
+    "청년창업사관학교",
+    "LIPS/수출바우처", // LIPS 토큰이 있어 covered → 제외
+  ]);
+  assert.deepEqual(
+    out,
+    ["수출바우처", "청년창업사관학교"],
+    "미커버 값만 중복 없이 정렬되어야 한다(LIPS·복합·빈값은 제외)",
   );
 });
 

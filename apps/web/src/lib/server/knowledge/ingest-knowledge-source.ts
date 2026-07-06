@@ -48,6 +48,7 @@ import {
   validateCandidates,
   type RawCandidate,
 } from "./extraction";
+import { listUncoveredPrograms } from "./lessonContext";
 
 loadMonorepoEnv();
 
@@ -154,6 +155,15 @@ async function main() {
   // 4) 서버측 검증 + quote 실재 검사.
   const v = validateCandidates(rawCandidates, normalizedFull, sourceDateArg);
 
+  // 4-b) K3: lesson 후보 scope.program 중 별칭 사전 미등록 값(표기 변형 매칭 불가) 경고.
+  const uncoveredPrograms = listUncoveredPrograms(v.lessons.map((l) => l.scope?.program));
+  if (uncoveredPrograms.length > 0) {
+    console.warn(
+      `⚠️  별칭 사전 미등록 프로그램 ${uncoveredPrograms.length}건: ${uncoveredPrograms.join(", ")} ` +
+        `— 표기 변형(한↔영 등) 매칭 불가, 리터럴 일치에만 의존합니다(PROGRAM_ALIAS_GROUPS 확장 검토).`,
+    );
+  }
+
   // 5) dry-run 리포트.
   const report = {
     dryRun: !write,
@@ -188,6 +198,7 @@ async function main() {
       page: l.sourceRefs[0]?.page ?? null,
     })),
     nonLessonItems: v.nonLessonItems.length,
+    uncoveredPrograms,
     dropped: v.dropped.slice(0, 40),
   };
 

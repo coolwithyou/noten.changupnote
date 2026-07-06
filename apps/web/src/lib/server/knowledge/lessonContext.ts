@@ -99,6 +99,41 @@ function institutionMatches(institution: string, grantNorm: string): boolean {
   return needle.length > 0 && grantNorm.includes(needle);
 }
 
+// ── K3: 프로그램 별칭 사전 커버리지 ─────────────────────────────
+// 별칭 사전(PROGRAM_ALIAS_GROUPS)에 등록된 프로그램만 표기 변형(한↔영 등)까지 확장 매칭된다.
+// 미등록 프로그램은 expandProgramAliases 가 자기 자신만 돌려주므로 "리터럴 일치"에만 의존한다
+// (즉 절대 노출 안 되는 게 아니라 표기 변형 매칭이 불가). CLI·추출 라우트·대시보드가 공유한다.
+
+/** scope.program 이 별칭 사전에 커버되는가(토큰 1개라도 별칭 그룹에 속하면 covered). */
+export function isProgramCoveredByAliases(program: string): boolean {
+  for (const token of tokenizeProgram(program)) {
+    const key = norm(token);
+    if (key.length === 0) continue;
+    for (const group of PROGRAM_ALIAS_GROUPS) {
+      if (group.some((alias) => norm(alias) === key)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * program 값 컬렉션에서 별칭 사전 미커버 값만 추린다(중복 제거·원본 표기 유지·정렬).
+ * null/공백/커버된 값은 제외한다. 인제스천 리포트·소스 뱃지 집계가 공유.
+ */
+export function listUncoveredPrograms(
+  programs: Iterable<string | null | undefined>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of programs) {
+    const program = typeof raw === "string" ? raw.trim() : "";
+    if (!program || seen.has(program)) continue;
+    seen.add(program);
+    if (!isProgramCoveredByAliases(program)) out.push(program);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
 /** scope 에서 비어있지 않은 문자열 축만 뽑는다. */
 function axisValue(scope: LessonScope, key: keyof LessonScope): string | null {
   const value = scope?.[key];
@@ -124,6 +159,23 @@ function passesGrantGate(lesson: ReviewLessonRow, grantNorm: string, now: number
   const byProgram = program ? programMatches(program, grantNorm) : false;
   const byInstitution = institution ? institutionMatches(institution, grantNorm) : false;
   return byProgram || byInstitution;
+}
+
+/** 공고 텍스트(title+agency)를 게이트 매칭용으로 정규화한다(passesGrantGate 의 grantNorm 규격). */
+export function grantMatchText(grant: { title: string; agency: string | null }): string {
+  return norm([grant.title, grant.agency ?? ""].join(" "));
+}
+
+/**
+ * K3 죽은 지식 사유 판정용: lesson 이 공고 집합 중 하나라도 1차 게이트를 통과하는가.
+ * grantNorms 는 grantMatchText 로 사전 정규화된 공고 텍스트 배열이다(short-circuit).
+ */
+export function lessonMatchesAnyGrant(
+  lesson: ReviewLessonRow,
+  grantNorms: readonly string[],
+  now: number = Date.now(),
+): boolean {
+  return grantNorms.some((grantNorm) => passesGrantGate(lesson, grantNorm, now));
 }
 
 /**

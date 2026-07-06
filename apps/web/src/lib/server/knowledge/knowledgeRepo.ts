@@ -506,6 +506,35 @@ export async function updateLessonCuration(
   return toLessonRow(row);
 }
 
+// ── grants (K3 죽은 지식 사유 판정 — 게이트 매칭용 경량 select) ──────
+/** 공고 게이트 매칭에 필요한 최소 필드. agency 는 operator ?? jurisdiction(build-apply-sheet 규격). */
+export interface GrantGateRow {
+  id: string;
+  title: string;
+  agency: string | null;
+}
+
+/**
+ * 전 공고를 게이트 매칭용 최소 필드(id/title/agency)로 로드한다.
+ * K3 죽은 지식 사유 판정("매칭 공고 없음") 전용 — 호출부는 죽은 지식이 있을 때만 호출한다(불필요 쿼리 금지).
+ */
+export async function listGrantsForGateEval(): Promise<GrantGateRow[]> {
+  const db = getCunoteDb();
+  const rows = await db
+    .select({
+      id: schema.grants.id,
+      title: schema.grants.title,
+      agencyOperator: schema.grants.agencyOperator,
+      agencyJurisdiction: schema.grants.agencyJurisdiction,
+    })
+    .from(schema.grants);
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    agency: r.agencyOperator ?? r.agencyJurisdiction ?? null,
+  }));
+}
+
 // ── lesson_exposure_events (경량 노출 텔레메트리) ─────────────────
 // 설계: docs/plans/2026-07-06-knowledge-loop-next-session.md K1.
 // 노출 1회 = 페이지 뷰 1회 raw 기록. 중복 제거는 하지 않고(집계에서 처리),
