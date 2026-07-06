@@ -83,12 +83,15 @@ export function ApplySheetView({
         </Card>
       </section>
 
+      {lessonGuide ? <GrantLessonGuide guide={lessonGuide} /> : null}
+
       <ApplicationPrepSection
         grantId={sheet.grant.id}
         prep={sheet.applicationPrep}
         initialDrafts={initialDrafts}
         formFields={formFields}
         fieldLessonTips={fieldLessonTips}
+        lessonGuide={lessonGuide}
       />
 
       <section className="grid gap-4 lg:grid-cols-3">
@@ -106,8 +109,6 @@ export function ApplySheetView({
         />
         <DocumentSection documents={sheet.documents} sourceAttachments={sheet.sourceAttachments} />
       </section>
-
-      {lessonGuide ? <GrantLessonGuide guide={lessonGuide} /> : null}
       </div>
     </main>
   );
@@ -119,13 +120,16 @@ function ApplicationPrepSection({
   initialDrafts,
   formFields,
   fieldLessonTips,
+  lessonGuide,
 }: {
   grantId: string;
   prep: ApplicationPrep;
   initialDrafts: DocumentDraft[];
   formFields: GrantDocumentFormField[];
   fieldLessonTips: FieldLessonTipsDto | null;
+  lessonGuide: GrantLessonGuideDto | null;
 }) {
+  const lessonCount = lessonGuide?.groups.reduce((sum, group) => sum + group.lessons.length, 0) ?? 0;
   return (
     <Card id="application-prep">
       <CardHeader className="gap-4 lg:grid-cols-[minmax(0,1fr)_auto]">
@@ -135,6 +139,14 @@ function ApplicationPrepSection({
           <CardDescription className="mt-1">접수는 각 포털에서 진행하고, 아래 초안은 신청서 작성 재료로만 사용합니다.</CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          {lessonGuide?.matched && lessonCount > 0 ? (
+            <a
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+              href="#lesson-guide"
+            >
+              작성 유의사항 {lessonCount.toLocaleString("ko-KR")}건
+            </a>
+          ) : null}
           <a
             className={buttonVariants({ variant: "outline", size: "sm" })}
             href={`/api/web/grants/${encodeURIComponent(grantId)}/package?format=attachments`}
@@ -411,9 +423,27 @@ function TraceItem({ item }: { item: RuleTraceChip }) {
           {item.unlock.detail}{item.unlock.etaDate ? ` · ${formatEtaDate(item.unlock.etaDate)}` : ""}
         </p>
       ) : null}
-      {item.action ? <StatusBadge tone="brand">{item.action.label}</StatusBadge> : null}
+      {item.action ? <TraceActionLink action={item.action} /> : null}
       </CardContent>
     </Card>
+  );
+}
+
+function TraceActionLink({ action }: { action: NonNullable<RuleTraceChip["action"]> }) {
+  const isHttp = /^https?:\/\//.test(action.target);
+  const href =
+    action.target.startsWith("#") || action.target.startsWith("/") || isHttp
+      ? action.target
+      : "/dashboard#next-question";
+  const external = isHttp && action.type === "external_link";
+  return (
+    <a
+      className={buttonVariants({ variant: "outline", size: "sm", className: "justify-self-start" })}
+      href={href}
+      {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
+    >
+      {action.label}
+    </a>
   );
 }
 

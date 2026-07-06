@@ -167,7 +167,7 @@ export function MatchesExperience() {
   const maskedBiz = teaser?.companyEvidence?.maskedBizNo ?? (bizNo ? maskBiz(bizNo) : null);
   const badge = headerBadge(status, maskedBiz);
 
-  function saveAndContinue() {
+  function saveAndContinue(grantId?: string) {
     if (bizNo) {
       try {
         const request: TeaserRequest = {
@@ -179,7 +179,8 @@ export function MatchesExperience() {
         // storage 불가 시에도 로그인은 진행
       }
     }
-    const params = new URLSearchParams({ callbackUrl: "/?resumeCompany=1" });
+    const resumeTarget = grantId ? `/?resumeCompany=1&resumeGrant=${grantId}` : "/?resumeCompany=1";
+    const params = new URLSearchParams({ callbackUrl: resumeTarget });
     window.location.assign(`/login?${params.toString()}`);
   }
 
@@ -194,13 +195,7 @@ export function MatchesExperience() {
           </Badge>
           <h1 className="max-w-4xl text-3xl font-semibold tracking-normal sm:text-4xl">
             {status === "ready" && teaser ? (
-              <>
-                지원 가능한 사업{" "}
-                <span className="text-primary">
-                  {teaser.counts.eligible.toLocaleString("ko-KR")}건
-                </span>
-                을 찾았어요
-              </>
+              readyHeadline(teaser.counts)
             ) : status === "error" ? (
               "매칭 결과를 불러오지 못했어요"
             ) : status === "empty" ? (
@@ -449,12 +444,13 @@ function ProfileInputPanel({
             placeholder={profileInputPlaceholder(field.key)}
             showClear
             value={draft.value}
-            onChange={(event) =>
+            onChange={(event) => {
+              const next = profileInputText(field.key, event.currentTarget.value);
               setDraft((current) => ({
                 ...current,
-                value: profileInputText(field.key, event.currentTarget.value),
-              }))
-            }
+                value: next,
+              }));
+            }}
           />
           <ComboboxContent>
             <ComboboxEmpty>직접 입력 후 반영</ComboboxEmpty>
@@ -503,12 +499,13 @@ function StructuredNumericProfileInput({
             inputMode="decimal"
             placeholder={profileInputPlaceholder(fieldKey)}
             value={draft.value}
-            onChange={(event) =>
+            onChange={(event) => {
+              const next = decimalNumberText(event.currentTarget.value);
               onChange((current) => ({
                 ...current,
-                value: decimalNumberText(event.currentTarget.value),
-              }))
-            }
+                value: next,
+              }));
+            }}
           />
         </InputGroup>
         <Select
@@ -549,12 +546,13 @@ function StructuredNumericProfileInput({
             inputMode="numeric"
             placeholder="8"
             value={draft.value}
-            onChange={(event) =>
+            onChange={(event) => {
+              const next = digitsOnly(event.currentTarget.value);
               onChange((current) => ({
                 ...current,
-                value: digitsOnly(event.currentTarget.value),
-              }))
-            }
+                value: next,
+              }));
+            }}
           />
           <InputGroupAddon align="inline-end">
             <InputGroupText>년</InputGroupText>
@@ -566,12 +564,13 @@ function StructuredNumericProfileInput({
             inputMode="numeric"
             placeholder="4"
             value={draft.secondaryValue}
-            onChange={(event) =>
+            onChange={(event) => {
+              const next = digitsOnly(event.currentTarget.value);
               onChange((current) => ({
                 ...current,
-                secondaryValue: digitsOnly(event.currentTarget.value),
-              }))
-            }
+                secondaryValue: next,
+              }));
+            }}
           />
           <InputGroupAddon align="inline-end">
             <InputGroupText>개월</InputGroupText>
@@ -589,12 +588,13 @@ function StructuredNumericProfileInput({
         inputMode="numeric"
         placeholder={profileInputPlaceholder(fieldKey)}
         value={draft.value}
-        onChange={(event) =>
+        onChange={(event) => {
+          const next = profileInputText(fieldKey, event.currentTarget.value);
           onChange((current) => ({
             ...current,
-            value: profileInputText(fieldKey, event.currentTarget.value),
-          }))
-        }
+            value: next,
+          }));
+        }}
       />
       <InputGroupAddon align="inline-end">
         <InputGroupText>{fieldKey === "founder_age" ? "년생" : "명"}</InputGroupText>
@@ -605,7 +605,7 @@ function StructuredNumericProfileInput({
 
 /* ───────────────────────── 지원 가능한 사업 ───────────────────────── */
 
-function ProgramsSection({ matches, onPrepare }: { matches: MatchCard[]; onPrepare: () => void }) {
+function ProgramsSection({ matches, onPrepare }: { matches: MatchCard[]; onPrepare: (grantId?: string) => void }) {
   if (matches.length === 0) {
     return (
       <section>
@@ -649,7 +649,7 @@ function ProgramCard({
 }: {
   match: MatchCard;
   defaultOpen: boolean;
-  onPrepare: () => void;
+  onPrepare: (grantId?: string) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const elig = eligibilityChip(match.eligibility);
@@ -732,7 +732,7 @@ function ProgramCard({
           </p>
           <button
             type="button"
-            onClick={onPrepare}
+            onClick={() => onPrepare(match.grantId)}
             className={cn(buttonVariants({ size: "default" }))}
           >
             이 사업 신청 준비하기
@@ -874,6 +874,28 @@ function ErrorState({ error, onRetry }: { error: TeaserError | null; onRetry?: (
       </Card>
     </div>
   );
+}
+
+function readyHeadline(counts: TeaserResult["counts"]): React.ReactNode {
+  if (counts.eligible > 0) {
+    return (
+      <>
+        지원 가능한 사업{" "}
+        <span className="text-primary">{counts.eligible.toLocaleString("ko-KR")}건</span>
+        을 찾았어요
+      </>
+    );
+  }
+  if (counts.conditional > 0) {
+    return (
+      <>
+        조건을 확인하면 열리는 사업{" "}
+        <span className="text-primary">{counts.conditional.toLocaleString("ko-KR")}건</span>
+        을 찾았어요
+      </>
+    );
+  }
+  return <>아직 조건에 맞는 사업을 찾지 못했어요</>;
 }
 
 function headerBadge(

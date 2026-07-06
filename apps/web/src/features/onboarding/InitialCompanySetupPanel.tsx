@@ -118,7 +118,7 @@ export function InitialCompanySetupPanel({ nextHref }: { nextHref: string }) {
                 disabled={pending}
                 onChange={(event) => setCompanyName(event.currentTarget.value)}
               />
-              <FieldDescription>사업자번호가 없을 때 수기 프로필 이름으로 사용합니다.</FieldDescription>
+              <FieldDescription>사업자번호 조회값이 비어 있으면 이 입력을 회사 이름으로 사용합니다.</FieldDescription>
             </Field>
 
             <Field>
@@ -184,17 +184,20 @@ function buildCreateRequest(input: {
   industries: string;
 }): Partial<TeaserRequest> | null {
   if (input.bizNo.length > 0 && input.bizNo.length !== 10) return null;
-  if (input.bizNo.length === 10) return { bizNo: input.bizNo };
 
   const region = KOREA_REGION_OPTIONS.find((option) => option.code === input.regionCode);
   const industryTags = splitList(input.industries);
   const name = input.companyName.trim();
-  if (!name && !region && industryTags.length === 0) return null;
+  const hasBizNo = input.bizNo.length === 10;
+  const hasManualProfile = Boolean(name) || Boolean(region) || industryTags.length > 0;
 
-  const profile: CompanyProfile = {
-    is_preliminary: true,
-    confidence: {},
-  };
+  if (!hasBizNo && !hasManualProfile) return null;
+  // 사업자번호만 있으면 그대로 조회에 맡긴다.
+  if (hasBizNo && !hasManualProfile) return { bizNo: input.bizNo };
+
+  const profile: CompanyProfile = { confidence: {} };
+  // 등록 사업자(bizNo)면 조회값 위에 수동 입력을 덮어쓰므로 is_preliminary 를 넣지 않는다.
+  if (!hasBizNo) profile.is_preliminary = true;
   if (name) profile.name = name;
   if (region) {
     profile.region = { code: region.code, label: region.label };
@@ -204,7 +207,7 @@ function buildCreateRequest(input: {
     profile.industries = industryTags;
     profile.confidence!.industry = 0.35;
   }
-  return { profile };
+  return hasBizNo ? { bizNo: input.bizNo, profile } : { profile };
 }
 
 function splitList(value: string): string[] {

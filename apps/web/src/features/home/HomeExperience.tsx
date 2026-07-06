@@ -94,11 +94,12 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
     const params = new URLSearchParams(window.location.search);
     if (params.get("resumeCompany") !== "1") return;
 
+    const resumeGrant = params.get("resumeGrant");
     const pending = readPendingTeaserRequest();
     clearResumeFlag(params);
     if (!pending) return;
 
-    void createCompanyAndOpenDashboard(pending);
+    void createCompanyAndOpenDashboard(pending, resumeGrant);
   }, []);
 
   useEffect(() => {
@@ -314,7 +315,7 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
     setNewsletterMessage(`${categoryLabels} 분야 새 공고를 ${email}로 알려드릴게요.`);
   }
 
-  async function createCompanyAndOpenDashboard(requestBody: TeaserRequest) {
+  async function createCompanyAndOpenDashboard(requestBody: TeaserRequest, resumeGrant?: string | null) {
     setIsSaving(true);
     setError(null);
     try {
@@ -329,7 +330,7 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
         recordLandingEvent({
           event: "auth_resume_started",
         });
-        redirectToLoginForDashboard();
+        redirectToLoginForDashboard(resumeGrant);
         return;
       }
       if (!response.ok || !payload.ok || !payload.data?.currentCompanyId) {
@@ -338,7 +339,7 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       recordLandingEvent({
         event: "company_create_succeeded",
       });
-      window.location.assign("/dashboard");
+      window.location.assign(resumeGrant ? `/grants/${encodeURIComponent(resumeGrant)}` : "/dashboard");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "기회 맵으로 이동하지 못했습니다.");
     } finally {
@@ -972,13 +973,15 @@ function readPendingTeaserRequest(): TeaserRequest | null {
   }
 }
 
-function redirectToLoginForDashboard() {
-  const params = new URLSearchParams({ callbackUrl: "/?resumeCompany=1" });
+function redirectToLoginForDashboard(resumeGrant?: string | null) {
+  const resumeTarget = resumeGrant ? `/?resumeCompany=1&resumeGrant=${resumeGrant}` : "/?resumeCompany=1";
+  const params = new URLSearchParams({ callbackUrl: resumeTarget });
   window.location.assign(`/login?${params.toString()}`);
 }
 
 function clearResumeFlag(params: URLSearchParams) {
   params.delete("resumeCompany");
+  params.delete("resumeGrant");
   const query = params.toString();
   window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
 }

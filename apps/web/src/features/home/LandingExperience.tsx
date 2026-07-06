@@ -68,9 +68,10 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("resumeCompany") !== "1") return;
+    const resumeGrant = params.get("resumeGrant");
     clearResumeFlag(params);
     const pending = readPendingTeaserRequest();
-    if (pending?.bizNo) void createCompanyAndOpenDashboard(pending);
+    if (pending?.bizNo) void createCompanyAndOpenDashboard(pending, resumeGrant);
   }, []);
 
   useEffect(() => {
@@ -682,7 +683,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
     </main>
   );
 
-  async function createCompanyAndOpenDashboard(requestBody: TeaserRequest) {
+  async function createCompanyAndOpenDashboard(requestBody: TeaserRequest, resumeGrant?: string | null) {
     try {
       const response = await fetch("/api/web/companies", {
         method: "POST",
@@ -695,7 +696,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
         return;
       }
       if (response.ok && payload.ok && payload.data?.currentCompanyId) {
-        window.location.assign("/dashboard");
+        window.location.assign(resumeGrant ? `/grants/${encodeURIComponent(resumeGrant)}` : "/dashboard");
       }
     } catch {
       /* noop — 사용자는 입력으로 재시도 */
@@ -1068,6 +1069,7 @@ function redirectToLoginForDashboard() {
 
 function clearResumeFlag(params: URLSearchParams) {
   params.delete("resumeCompany");
+  params.delete("resumeGrant");
   const query = params.toString();
   window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
 }

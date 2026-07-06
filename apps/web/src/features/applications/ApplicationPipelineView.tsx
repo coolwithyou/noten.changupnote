@@ -290,8 +290,12 @@ function PipelineCard({
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          <span>적합도 {item.fitScore}</span>
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {item.fitScore !== null ? (
+            <span>적합도 {item.fitScore}</span>
+          ) : (
+            <Badge variant="outline" className="font-normal">매칭 밖 · 직접 준비</Badge>
+          )}
           <span>{item.supportLabel}</span>
           <span>초안 {item.reviewedDraftCount}/{item.draftCount}</span>
           {item.assigneeName ? <span>담당 {item.assigneeName}</span> : null}
@@ -521,11 +525,13 @@ function formatDday(value: number | null): string {
 }
 
 function formatDate(value: string): string {
+  // hourCycle 미지정 시 서버(Node ICU)와 브라우저가 오전/AM 표기를 다르게 골라 hydration이 어긋난다.
   return new Intl.DateTimeFormat("ko-KR", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: "h23",
   }).format(new Date(value));
 }
 

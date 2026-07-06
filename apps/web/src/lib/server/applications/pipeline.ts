@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
+import { daysUntil, normalizeSupportAmount } from "@cunote/core";
 import type { FeedbackKind, MatchCard, SupportAmount } from "@cunote/contracts";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import { getCunoteDb, withCunoteDbUser } from "@/lib/server/db/client";
@@ -24,7 +25,8 @@ export interface ApplicationPipelineItem {
   grantId: string;
   title: string;
   agency: string | null;
-  fitScore: number;
+  /** 현재 매칭 결과 밖(직접 준비)이면 적합도를 산정할 수 없어 null이다. */
+  fitScore: number | null;
   eligibility: MatchCard["eligibility"];
   dDay: number | null;
   applyEnd: string | null;
@@ -40,6 +42,11 @@ export interface ApplicationPipelineItem {
   assigneeName: string | null;
   reminderAt: string | null;
   outcomeNote: string | null;
+  /**
+   * 현재 매칭 목록에는 없지만 초안·피드백 등 사용자 행동이 있어 파이프라인에 편입된 공고.
+   * fitScore/eligibility는 매치 전용 값이므로 UI는 이 플래그로 "매칭 밖 · 직접 준비"를 표기한다.
+   */
+  outsideMatches?: boolean;
 }
 
 export interface ApplicationPipelineResult {
@@ -66,21 +73,26 @@ export async function buildApplicationPipeline(input: {
   matches: MatchCard[];
   now?: Date;
 }): Promise<ApplicationPipelineResult> {
-  const matches = input.matches
-    .filter((match) => match.eligibility !== "ineligible")
-    .slice(0, 80);
-  const [feedback, drafts] = await Promise.all([
-    loadFeedbackSnapshots(input.access, matches.map((match) => match.grantId)),
-    loadDraftSnapshots(input.access),
+  const now = input.now ?? new Date();
+
+  // 초안은 회사 전체를 로드한다 — 매칭 여부와 무관하게 "직접 준비" 공고를 발견하기 위한 원천.
+  const drafts = await loadDraftSnapshots(input.access);
+
+  // 피드백은 (현재 매칭 ∪ 초안이 있는 공고) 전체를 스코프로 로드해, 편입된 공고의 단계·후속 관리도 반영한다.
+  const feedbackGrantIds = uniqueStrings([
+    ...input.matches.map((match) => match.grantId),
+    ...drafts.keys(),
   ]);
-  const items = matches.map((match) => {
-    const feedbackSnapshot = feedback.get(match.grantId) ?? null;
-    const draft = drafts.get(match.grantId) ?? emptyDraftSnapshot();
-    const stage = resolveStage({
-      feedback: feedbackSnapshot,
-      draft,
-    });
-    return {
+  const feedback = await loadFeedbackSnapshots(input.access, feedbackGrantIds);
+
+  // 매칭 아이템: 부적격이어도 초안·피드백 등 사용자 행동이 있으면 유지한다.
+  const matchItems = input.matches
+    .filter((match) =>
+      match.eligibility !== "ineligible" ||
+      drafts.has(match.grantId) ||
+      feedback.has(match.grantId))
+    .slice(0, 80)
+    .map((match) => assemblePipelineItem({
       grantId: match.grantId,
       title: match.title,
       agency: match.agency,
@@ -89,25 +101,86 @@ export async function buildApplicationPipeline(input: {
       dDay: match.dDay,
       applyEnd: match.applyEnd,
       supportLabel: formatSupportAmount(match.supportAmount),
-      stage,
-      stageLabel: stageLabel(stage),
-      lastActionAt: latestDate(feedbackSnapshot?.ts ?? null, draft.updatedAt)?.toISOString() ?? null,
-      draftCount: draft.count,
-      reviewedDraftCount: draft.reviewedCount,
-      warningCount: draft.warningCount,
-      detailHref: `/grants/${encodeURIComponent(match.grantId)}`,
-      nextAction: nextActionFor(stage, draft.count),
-      assigneeName: feedbackSnapshot?.management?.assigneeName ?? null,
-      reminderAt: feedbackSnapshot?.management?.reminderAt ?? null,
-      outcomeNote: feedbackSnapshot?.management?.outcomeNote ?? null,
-    } satisfies ApplicationPipelineItem;
-  }).sort((a, b) => stageOrder(a.stage) - stageOrder(b.stage) || (a.dDay ?? 9999) - (b.dDay ?? 9999));
+      feedback: feedback.get(match.grantId) ?? null,
+      draft: drafts.get(match.grantId) ?? emptyDraftSnapshot(),
+    }));
+
+  // 초안은 있으나 매칭 목록(위 유지분)에 없는 공고를 DB 메타로 보강한다 — "낮은 적합도여도 지원" 시나리오의 핵심.
+  const coveredGrantIds = new Set(matchItems.map((item) => item.grantId));
+  const outsideGrantIds = [...drafts.keys()]
+    .filter((grantId) => !coveredGrantIds.has(grantId))
+    .slice(0, 40);
+  const outsideMeta = await loadOutsideGrantMeta(input.access, outsideGrantIds);
+  const outsideItems = outsideGrantIds
+    .map((grantId) => {
+      const meta = outsideMeta.get(grantId);
+      if (!meta) return null;
+      const applyEnd = meta.applyEnd ? meta.applyEnd.toISOString() : null;
+      return assemblePipelineItem({
+        grantId,
+        title: meta.title,
+        agency: meta.agencyOperator ?? meta.agencyJurisdiction ?? null,
+        fitScore: null,
+        // 매치가 없어 정직한 적격 판정이 없다 — UI는 outsideMatches 플래그로 구분한다.
+        eligibility: "conditional",
+        dDay: daysUntil(applyEnd, now),
+        applyEnd,
+        supportLabel: formatSupportAmount(normalizeSupportAmount(meta.supportAmount)),
+        outsideMatches: true,
+        feedback: feedback.get(grantId) ?? null,
+        draft: drafts.get(grantId) ?? emptyDraftSnapshot(),
+      });
+    })
+    .filter((item): item is ApplicationPipelineItem => item !== null);
+
+  const items = [...matchItems, ...outsideItems]
+    .sort((a, b) => stageOrder(a.stage) - stageOrder(b.stage) || (a.dDay ?? 9999) - (b.dDay ?? 9999));
 
   return {
-    generatedAt: (input.now ?? new Date()).toISOString(),
+    generatedAt: now.toISOString(),
     stats: buildStats(items),
     items,
   };
+}
+
+function assemblePipelineItem(input: {
+  grantId: string;
+  title: string;
+  agency: string | null;
+  fitScore: number | null;
+  eligibility: MatchCard["eligibility"];
+  dDay: number | null;
+  applyEnd: string | null;
+  supportLabel: string;
+  feedback: FeedbackSnapshot | null;
+  draft: DraftSnapshot;
+  outsideMatches?: boolean;
+}): ApplicationPipelineItem {
+  const { feedback: feedbackSnapshot, draft } = input;
+  const stage = resolveStage({ feedback: feedbackSnapshot, draft });
+  const item: ApplicationPipelineItem = {
+    grantId: input.grantId,
+    title: input.title,
+    agency: input.agency,
+    fitScore: input.fitScore,
+    eligibility: input.eligibility,
+    dDay: input.dDay,
+    applyEnd: input.applyEnd,
+    supportLabel: input.supportLabel,
+    stage,
+    stageLabel: stageLabel(stage),
+    lastActionAt: latestDate(feedbackSnapshot?.ts ?? null, draft.updatedAt)?.toISOString() ?? null,
+    draftCount: draft.count,
+    reviewedDraftCount: draft.reviewedCount,
+    warningCount: draft.warningCount,
+    detailHref: `/grants/${encodeURIComponent(input.grantId)}`,
+    nextAction: nextActionFor(stage, draft.count),
+    assigneeName: feedbackSnapshot?.management?.assigneeName ?? null,
+    reminderAt: feedbackSnapshot?.management?.reminderAt ?? null,
+    outcomeNote: feedbackSnapshot?.management?.outcomeNote ?? null,
+  };
+  if (input.outsideMatches) item.outsideMatches = true;
+  return item;
 }
 
 async function loadFeedbackSnapshots(
@@ -173,6 +246,43 @@ async function loadDraftSnapshots(access: CompanyAccess): Promise<Map<string, Dr
     return result;
   } catch {
     return new Map();
+  }
+}
+
+interface OutsideGrantMeta {
+  id: string;
+  title: string;
+  agencyOperator: string | null;
+  agencyJurisdiction: string | null;
+  applyEnd: Date | null;
+  supportAmount: Record<string, unknown> | null;
+}
+
+async function loadOutsideGrantMeta(
+  access: CompanyAccess,
+  grantIds: string[],
+): Promise<Map<string, OutsideGrantMeta>> {
+  const result = new Map<string, OutsideGrantMeta>();
+  if (grantIds.length === 0 || !hasDatabaseUrl()) return result;
+  try {
+    const db = getCunoteDb();
+    const rows = await withCunoteDbUser(db, access.userId, async (tx) => tx
+      .select({
+        id: schema.grants.id,
+        title: schema.grants.title,
+        agencyOperator: schema.grants.agencyOperator,
+        agencyJurisdiction: schema.grants.agencyJurisdiction,
+        applyEnd: schema.grants.applyEnd,
+        supportAmount: schema.grants.supportAmount,
+      })
+      .from(schema.grants)
+      .where(inArray(schema.grants.id, grantIds)));
+    for (const row of rows) {
+      result.set(row.id, row);
+    }
+    return result;
+  } catch {
+    return result;
   }
 }
 
@@ -277,6 +387,10 @@ function latestDate(a: Date | null, b: Date | null): Date | null {
   if (!a) return b;
   if (!b) return a;
   return a.getTime() >= b.getTime() ? a : b;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function hasDatabaseUrl(): boolean {

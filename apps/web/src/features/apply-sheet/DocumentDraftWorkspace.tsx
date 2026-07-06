@@ -63,7 +63,7 @@ export function DocumentDraftWorkspace({
   const [drafts, setDrafts] = useState<Record<string, DocumentDraft>>(() => initialDraftMap);
   const [draftText, setDraftText] = useState<Record<string, string>>(() => draftTextFromMap(initialDraftMap));
   const [fieldText, setFieldText] = useState<Record<string, Record<string, string>>>(() => fieldTextFromMap(initialDraftMap));
-  const [answerText, setAnswerText] = useState<Record<string, Record<string, string>>>({});
+  const [answerText, setAnswerText] = useState<Record<string, string>>({});
   const [sectionSelections, setSectionSelections] = useState<Record<string, string>>({});
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, DraftFeedbackFormState>>({});
   const [feedbackNotices, setFeedbackNotices] = useState<Record<string, DraftFeedbackNotice>>({});
@@ -164,6 +164,7 @@ export function DocumentDraftWorkspace({
   async function regenerateDraftSection(document: DraftableDocument, sectionTitle: string) {
     const draft = drafts[document.documentKey];
     if (!draft || !sectionTitle) return;
+    const previousMarkdown = draftText[document.documentKey] ?? draft.draftMarkdown;
     setPendingKey(document.documentKey);
     setError(null);
     setActionNotice(null);
@@ -173,7 +174,7 @@ export function DocumentDraftWorkspace({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sectionTitle,
-          draftMarkdown: draftText[document.documentKey] ?? draft.draftMarkdown,
+          draftMarkdown: previousMarkdown,
           filledFields: normalizeDraftFieldValues(fieldText[document.documentKey] ?? draft.filledFields),
           ...draftAnswersForDocument(document, prep, answerText),
         }),
@@ -185,7 +186,14 @@ export function DocumentDraftWorkspace({
       setDrafts((current) => ({ ...current, [document.documentKey]: payload.data! }));
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.filledFields }));
-      setActionNotice({ tone: "success", message: `${sectionTitle} 섹션을 다시 생성했습니다. 변경된 문장을 확인한 뒤 저장하세요.` });
+      setActionNotice(
+        payload.data!.draftMarkdown === previousMarkdown
+          ? {
+              tone: "warning",
+              message: `『${sectionTitle}』 섹션 내용이 달라지지 않았습니다. 이 초안은 회사 프로필과 추가 입력을 반영하는 고정 골격이라, 위 추가 입력을 채운 뒤 다시 생성하면 문장이 바뀝니다.`,
+            }
+          : { tone: "success", message: `${sectionTitle} 섹션을 다시 생성했습니다. 변경된 문장을 확인한 뒤 저장하세요.` },
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "선택한 섹션을 다시 생성하지 못했습니다.");
     } finally {
@@ -327,15 +335,12 @@ export function DocumentDraftWorkspace({
                     document={activeDocument}
                     questions={activeQuestions}
                     tipsByLabel={fieldLessonTips?.byLabel ?? {}}
-                    values={answerText[activeDocument.documentKey] ?? {}}
+                    values={answerText}
                     disabled={pendingKey === activeDocument.documentKey}
                     onChange={(question, value) =>
                       setAnswerText((current) => ({
                         ...current,
-                        [activeDocument.documentKey]: {
-                          ...(current[activeDocument.documentKey] ?? {}),
-                          [question.label]: value,
-                        },
+                        [question.label]: value,
                       }))
                     }
                   />
@@ -398,6 +403,16 @@ export function DocumentDraftWorkspace({
                         >
                           <Check className="size-3.5" aria-hidden />
                           검토 완료
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void downloadDraft(activeDocument, "docx")}
+                          disabled={pendingKey === activeDocument.documentKey}
+                        >
+                          <Download className="size-3.5" aria-hidden />
+                          DOCX(한글에 붙여넣기)
                         </Button>
                         <Button
                           type="button"
@@ -594,13 +609,12 @@ function questionsForDocument(prep: ApplicationPrep, document: DraftableDocument
 function draftAnswersForDocument(
   document: DraftableDocument,
   prep: ApplicationPrep,
-  answers: Record<string, Record<string, string>>,
+  answers: Record<string, string>,
 ): { answers?: Record<string, string> } {
   const questions = questionsForDocument(prep, document);
-  const values = answers[document.documentKey] ?? {};
   const result: Record<string, string> = {};
   for (const question of questions) {
-    const value = values[question.label]?.trim();
+    const value = answers[question.label]?.trim();
     if (value) result[question.label] = value;
   }
   return Object.keys(result).length > 0 ? { answers: result } : {};
@@ -693,7 +707,7 @@ function DraftFeedbackPanel({
             onValueChange={(nextValue) => onChange({ ...value, kind: nextValue as DocumentDraftFeedbackKind })}
           >
             <SelectTrigger id={kindId} className="w-full">
-              <SelectValue />
+              <SelectValue>{(selected) => feedbackKindLabel(selected)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -877,6 +891,11 @@ function defaultDraftFeedbackFormState(): DraftFeedbackFormState {
     kind: "too_generic",
     message: "",
   };
+}
+
+function feedbackKindLabel(value: unknown): string {
+  const match = DRAFT_FEEDBACK_OPTIONS.find((option) => option.value === value);
+  return match?.label ?? String(value ?? "");
 }
 
 function draftSectionTitles(markdown: string): string[] {

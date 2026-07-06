@@ -68,7 +68,7 @@ export function GrantLessonGuide({ guide }: { guide: GrantLessonGuideDto }) {
     .filter((group) => group.lessons.length > 0);
 
   return (
-    <Card aria-label="작성 유의사항">
+    <Card id="lesson-guide" aria-label="작성 유의사항">
       <CardHeader className="gap-1.5">
         <span className="flex items-center gap-1.5 text-xs font-medium uppercase text-muted-foreground">
           <ShieldCheck className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
