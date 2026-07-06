@@ -36,6 +36,7 @@ export default async function ReviewDetailPage({ params }: PageProps) {
         labeledBy: doc.labeledBy,
         labelJson: doc.labelJson,
         pageImageKeys: doc.pageImageKeys,
+        evidence: doc.evidence,
       }}
       questions={questions.map((q) => ({
         id: q.id,

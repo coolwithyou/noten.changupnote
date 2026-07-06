@@ -7,6 +7,10 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  ExternalLink,
+  FileText,
+  Link2,
   Minus,
   Plus,
   RotateCcw,
@@ -59,7 +63,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import type { ReviewField, ReviewLabelJson, ReviewStatus } from "@/lib/server/review/reviewDocsRepo";
+import type { ReviewDocEvidence, ReviewField, ReviewLabelJson, ReviewStatus } from "@/lib/server/review/reviewDocsRepo";
 import { ReviewWorkspaceShell } from "./ReviewWorkspaceShell";
 
 interface ReviewDetailDoc {
@@ -74,6 +78,7 @@ interface ReviewDetailDoc {
   labeledBy: string | null;
   labelJson: ReviewLabelJson;
   pageImageKeys: string[];
+  evidence: ReviewDocEvidence | null;
 }
 
 export type QuestionKind = "quick_confirm" | "question" | "missing_sweep";
@@ -882,12 +887,34 @@ function QuestionMode({
   const done = idx >= total;
   const current = done ? null : questions[idx];
   const progress = total > 0 ? Math.round((Math.min(answeredCount, total) / total) * 100) : 0;
+  const totalPages = doc.pageImageKeys.length || doc.pageCount || 1;
+  const currentQuestionPage = useMemo(() => {
+    if (!current) return null;
+    if (typeof current.page === "number" && current.page >= 1) return current.page;
+    if (current.fieldIndex != null) {
+      const fieldPage = fields[current.fieldIndex]?.page;
+      return typeof fieldPage === "number" && fieldPage >= 1 ? fieldPage : null;
+    }
+    return null;
+  }, [current, fields]);
+  const [documentPage, setDocumentPage] = useState(() => currentQuestionPage ?? 1);
+
+  useEffect(() => {
+    if (currentQuestionPage == null) return;
+    setDocumentPage(Math.max(1, Math.min(totalPages, currentQuestionPage)));
+  }, [current?.id, currentQuestionPage, totalPages]);
 
   function imageUrlForPage(page: number | null): string | null {
     if (page == null) return doc.pageImageKeys[0] ? pageImageUrl(doc.pageImageKeys[0]) : null;
     const key = doc.pageImageKeys[page - 1];
     return key ? pageImageUrl(key) : null;
   }
+
+  const documentImageUrl = imageUrlForPage(documentPage);
+  const documentFields = useMemo(
+    () => fields.map((f, i) => ({ f, i })).filter(({ f }) => (f.page ?? 1) === documentPage),
+    [fields, documentPage],
+  );
 
   function applyLocalPatch(q: ReviewQuestion, value: string, held: boolean, text?: string) {
     if (q.fieldIndex == null) return;
@@ -976,7 +1003,7 @@ function QuestionMode({
         docId: doc.docId,
         statusLabel: STATUS_LABEL[status],
         fieldCount: fields.length,
-        pageCount: doc.pageImageKeys.length || doc.pageCount || 1,
+        pageCount: totalPages,
       }}
       metrics={[
         { label: "답변", value: `${Math.min(answeredCount, total)}/${total}` },
@@ -993,7 +1020,7 @@ function QuestionMode({
         </>
       }
     >
-      <div className="mx-auto flex w-full max-w-4xl flex-col gap-5">
+      <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-5">
 
         {doc.correctionNotes ? (
           <Alert variant="destructive">
@@ -1030,19 +1057,38 @@ function QuestionMode({
         ) : null}
 
         {current ? (
-          <QuestionCard
-            key={current.id}
-            question={current}
-            imageUrl={imageUrlForPage(current.page)}
-            bbox={current.fieldIndex != null ? fields[current.fieldIndex]?.bbox : null}
-            fieldLabel={current.fieldIndex != null ? fields[current.fieldIndex]?.label : undefined}
-            existing={answers[current.id]?.value}
-            busy={busy}
-            position={`${idx + 1} / ${total}`}
-            onAnswer={(value, text) => submitAnswer(current, value, text)}
-            onPrev={idx > 0 ? () => setIdx((i) => i - 1) : undefined}
-            onNext={() => setIdx((i) => i + 1)}
-          />
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(280px,0.62fr)_minmax(420px,0.9fr)_minmax(420px,0.9fr)]">
+            <div className="order-2 xl:order-1">
+              <EvidenceSourcePanel evidence={doc.evidence} docRef={doc.docRef} sourceFilename={doc.sourceFilename} />
+            </div>
+            <div className="order-1 xl:order-2">
+              <QuestionCard
+                key={current.id}
+                question={current}
+                imageUrl={imageUrlForPage(current.page)}
+                bbox={current.fieldIndex != null ? fields[current.fieldIndex]?.bbox : null}
+                fieldLabel={current.fieldIndex != null ? fields[current.fieldIndex]?.label : undefined}
+                existing={answers[current.id]?.value}
+                busy={busy}
+                position={`${idx + 1} / ${total}`}
+                onAnswer={(value, text) => submitAnswer(current, value, text)}
+                onPrev={idx > 0 ? () => setIdx((i) => i - 1) : undefined}
+                onNext={() => setIdx((i) => i + 1)}
+              />
+            </div>
+            <div className="order-3">
+              <QuestionDocumentPanel
+                docId={doc.docId}
+                imageUrl={documentImageUrl}
+                page={documentPage}
+                totalPages={totalPages}
+                questionPage={currentQuestionPage}
+                fields={documentFields}
+                activeFieldIndex={current.fieldIndex}
+                onPageChange={setDocumentPage}
+              />
+            </div>
+          </div>
         ) : (
           <Card>
             <CardContent>
@@ -1082,6 +1128,284 @@ function QuestionMode({
       </div>
     </ReviewWorkspaceShell>
   );
+}
+
+function EvidenceSourcePanel({
+  evidence,
+  docRef,
+  sourceFilename,
+}: {
+  evidence: ReviewDocEvidence | null;
+  docRef: string;
+  sourceFilename: string | null;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const grantUrl = evidence?.grant?.url ?? null;
+  const documentUrl = evidence?.attachment?.sourceUri ?? evidence?.surface?.sourceUrl ?? evidence?.attachment?.archiveUrl ?? null;
+  const archiveUrl =
+    evidence?.attachment?.archiveUrl && evidence.attachment.archiveUrl !== documentUrl
+      ? evidence.attachment.archiveUrl
+      : null;
+  const displayFilename = evidence?.sourceFilename ?? sourceFilename ?? evidence?.attachment?.filename ?? docRef;
+
+  async function copyValue(label: string, value: string | null) {
+    if (!value) return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(label);
+      window.setTimeout(() => setCopied((current) => (current === label ? null : current)), 1400);
+    } catch {
+      setCopied(null);
+    }
+  }
+
+  return (
+    <Card className="self-start xl:sticky xl:top-20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Link2 aria-hidden />
+          공고 근거
+        </CardTitle>
+        <CardDescription className="line-clamp-2">
+          {evidence?.grant?.title ?? (evidence ? `${sourceLabel(evidence.source)} ${evidence.sourceId}` : "연결된 공고를 찾지 못했습니다.")}
+        </CardDescription>
+        <CardAction>
+          {evidence?.grant?.status ? <Badge variant="outline">{grantStatusLabel(evidence.grant.status)}</Badge> : null}
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {evidence?.grant ? (
+          <div className="flex flex-col gap-1 text-sm">
+            <strong className="line-clamp-2">{evidence.grant.title}</strong>
+            {evidence.grant.agencyOperator ? (
+              <span className="text-muted-foreground">{evidence.grant.agencyOperator}</span>
+            ) : null}
+          </div>
+        ) : (
+          <Alert>
+            <AlertTitle>공고 링크 미연결</AlertTitle>
+            <AlertDescription>문서 ID는 확인했지만 현재 DB에서 원 공고를 매칭하지 못했습니다.</AlertDescription>
+          </Alert>
+        )}
+
+        <div className="flex flex-col gap-2">
+          <EvidenceActionLink href={grantUrl} label="공고 원 링크" />
+          <EvidenceActionLink href={documentUrl} label="문서 원본" />
+          <EvidenceActionLink href={archiveUrl} label="보관본" />
+        </div>
+
+        <Separator />
+
+        <div className="flex flex-col gap-2 text-xs">
+          <EvidenceMeta label="문서명" value={displayFilename} onCopy={() => copyValue("문서명", displayFilename)} copied={copied === "문서명"} />
+          <EvidenceMeta label="docRef" value={docRef} onCopy={() => copyValue("docRef", docRef)} copied={copied === "docRef"} />
+          {evidence?.surface ? (
+            <>
+              <EvidenceMeta label="변환 상태" value={evidence.surface.extractionStatus} />
+              <EvidenceMeta label="형식" value={evidence.surface.format} />
+            </>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EvidenceActionLink({ href, label }: { href: string | null; label: string }) {
+  if (!href) {
+    return (
+      <Button variant="outline" size="sm" disabled className="justify-start">
+        <ExternalLink data-icon="inline-start" />
+        {label}
+      </Button>
+    );
+  }
+
+  return (
+    <a
+      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "justify-start")}
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+    >
+      <ExternalLink data-icon="inline-start" />
+      {label}
+    </a>
+  );
+}
+
+function EvidenceMeta({
+  label,
+  value,
+  onCopy,
+  copied,
+}: {
+  label: string;
+  value: string | null;
+  onCopy?: (() => void) | undefined;
+  copied?: boolean | undefined;
+}) {
+  if (!value) return null;
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-lg)] border bg-muted/30 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <span className="block text-muted-foreground">{label}</span>
+        <strong className="block truncate font-medium" title={value}>
+          {value}
+        </strong>
+      </div>
+      {onCopy ? (
+        <Button variant="ghost" size="icon-sm" aria-label={`${label} 복사`} onClick={onCopy} title={copied ? "복사됨" : `${label} 복사`}>
+          <Copy />
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+function QuestionDocumentPanel({
+  docId,
+  imageUrl,
+  page,
+  totalPages,
+  questionPage,
+  fields,
+  activeFieldIndex,
+  onPageChange,
+}: {
+  docId: string;
+  imageUrl: string | null;
+  page: number;
+  totalPages: number;
+  questionPage: number | null;
+  fields: Array<{ f: ReviewField; i: number }>;
+  activeFieldIndex: number | null;
+  onPageChange: React.Dispatch<React.SetStateAction<number>>;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const activeField = activeFieldIndex != null ? fields.find(({ i }) => i === activeFieldIndex)?.f ?? null : null;
+
+  return (
+    <Card className="self-start xl:sticky xl:top-20">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <FileText aria-hidden />
+          원 문서
+        </CardTitle>
+        <CardDescription className="tabular-nums">
+          {docId} · {page}/{totalPages} 페이지
+        </CardDescription>
+        <CardAction>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="이전 페이지"
+              onClick={() => onPageChange((value) => Math.max(1, value - 1))}
+              disabled={page <= 1}
+            >
+              <ChevronLeft />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              aria-label="다음 페이지"
+              onClick={() => onPageChange((value) => Math.min(totalPages, value + 1))}
+              disabled={page >= totalPages}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon-sm" aria-label="축소" onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}>
+              <Minus />
+            </Button>
+            <Badge variant="secondary" className="h-7 min-w-14 justify-center tabular-nums">
+              {Math.round(zoom * 100)}%
+            </Badge>
+            <Button variant="outline" size="icon-sm" aria-label="확대" onClick={() => setZoom((value) => Math.min(3, value + 0.25))}>
+              <Plus />
+            </Button>
+          </div>
+          {questionPage != null && questionPage !== page ? (
+            <Button variant="outline" size="sm" onClick={() => onPageChange(questionPage)}>
+              <RotateCcw data-icon="inline-start" />
+              질문 위치
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="max-h-[72vh] overflow-auto rounded-[var(--radius-lg)] border bg-muted/30">
+          {imageUrl ? (
+            <div className="relative inline-block" style={{ width: `${zoom * 100}%` }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={imageUrl} alt={`${docId} page ${page}`} className="pointer-events-none block w-full select-none" draggable={false} />
+              {fields.map(({ f, i }) => {
+                const bbox = Array.isArray(f.bbox) ? f.bbox : null;
+                if (!bbox) return null;
+                const [x, y, w, h] = bbox;
+                const active = i === activeFieldIndex;
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      "pointer-events-none absolute border bg-primary/10",
+                      active ? "border-2 border-primary bg-primary/25" : "border-primary/50",
+                    )}
+                    title={f.label || f.key || `field ${i}`}
+                    style={{
+                      left: `${x * 100}%`,
+                      top: `${y * 100}%`,
+                      width: `${w * 100}%`,
+                      height: `${h * 100}%`,
+                    }}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <Empty className="min-h-80 border-0">
+              <EmptyHeader>
+                <EmptyTitle>문서 이미지가 없습니다.</EmptyTitle>
+                <EmptyDescription>페이지 이미지 업로드 상태를 확인하세요.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </div>
+
+        <div className="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate" title={activeField?.label ?? undefined}>
+            {activeField?.label ? `대상 칸: ${activeField.label}` : `${fields.length}개 필드 표시`}
+          </span>
+          {imageUrl ? (
+            <a className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "shrink-0")} href={imageUrl} target="_blank" rel="noreferrer">
+              <ExternalLink data-icon="inline-start" />
+              이미지 열기
+            </a>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function sourceLabel(source: string): string {
+  if (source === "bizinfo") return "기업마당";
+  if (source === "bizinfo_event") return "기업마당 행사";
+  if (source === "kstartup") return "K-Startup";
+  return source;
+}
+
+function grantStatusLabel(status: string): string {
+  if (status === "open") return "접수중";
+  if (status === "upcoming") return "예정";
+  if (status === "closed") return "마감";
+  if (status === "unknown") return "상태 미확인";
+  return status;
 }
 
 function QuestionCard({

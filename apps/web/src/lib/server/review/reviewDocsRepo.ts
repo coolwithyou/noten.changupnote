@@ -5,6 +5,7 @@
  * 순환성 가드/승격 upsert 는 공용 모듈(promote-field-map-golden)을 재사용한다.
  */
 import { and, asc, eq } from "drizzle-orm";
+import type { GrantSource } from "@cunote/contracts";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { evaluateReviewer } from "../db/field-map-review-guard";
@@ -64,6 +65,35 @@ export interface ReviewDocDetail extends ReviewDocSummary {
   correctionNotes: string | null;
   reviewerComment: string | null;
   pageImageKeys: string[];
+  evidence: ReviewDocEvidence | null;
+}
+
+export interface ReviewDocEvidence {
+  source: GrantSource;
+  sourceId: string;
+  sourceFilename: string | null;
+  grant: {
+    id: string;
+    title: string;
+    url: string | null;
+    agencyOperator: string | null;
+    status: string;
+  } | null;
+  attachment: {
+    filename: string;
+    sourceUri: string | null;
+    archiveUrl: string | null;
+    storageKey: string | null;
+    contentType: string | null;
+  } | null;
+  surface: {
+    id: string;
+    title: string;
+    format: string;
+    sourceUrl: string | null;
+    sourceAttachment: string | null;
+    extractionStatus: string;
+  } | null;
 }
 
 function toLabelJson(value: unknown): ReviewLabelJson {
@@ -124,6 +154,7 @@ export async function getReviewDocByDocId(docId: string): Promise<ReviewDocDetai
   const row = rows[0];
   if (!row) return null;
   const labelJson = toLabelJson(row.labelJson);
+  const evidence = await loadReviewDocEvidence(row.docRef, row.sourceFilename);
   return {
     id: row.id,
     docId: row.docId,
@@ -144,7 +175,198 @@ export async function getReviewDocByDocId(docId: string): Promise<ReviewDocDetai
     correctionNotes: row.correctionNotes,
     reviewerComment: row.reviewerComment,
     pageImageKeys: Array.isArray(row.pageImageKeys) ? row.pageImageKeys : [],
+    evidence,
   };
+}
+
+const GRANT_SOURCES: GrantSource[] = ["kstartup", "bizinfo", "bizinfo_event"];
+
+interface ParsedReviewDocRef {
+  source: GrantSource;
+  sourceId: string;
+  filename: string | null;
+}
+
+function parseReviewDocRef(docRef: string): ParsedReviewDocRef | null {
+  const [source, sourceId, ...filenameParts] = docRef.split(":");
+  if (!source || !sourceId || !isGrantSource(source)) return null;
+  return {
+    source,
+    sourceId,
+    filename: filenameParts.join(":") || null,
+  };
+}
+
+function isGrantSource(value: string): value is GrantSource {
+  return GRANT_SOURCES.includes(value as GrantSource);
+}
+
+async function loadReviewDocEvidence(
+  docRef: string,
+  sourceFilename: string | null,
+): Promise<ReviewDocEvidence | null> {
+  const parsed = parseReviewDocRef(docRef);
+  if (!parsed) return null;
+
+  const db = getCunoteDb();
+  const filename = sourceFilename ?? parsed.filename;
+
+  const [grant] = await db
+    .select({
+      id: schema.grants.id,
+      title: schema.grants.title,
+      url: schema.grants.url,
+      agencyOperator: schema.grants.agencyOperator,
+      status: schema.grants.status,
+    })
+    .from(schema.grants)
+    .where(
+      and(
+        eq(schema.grants.source, parsed.source),
+        eq(schema.grants.sourceId, parsed.sourceId),
+      ),
+    )
+    .limit(1);
+
+  const attachments = await db
+    .select({
+      filename: schema.grantAttachmentArchives.filename,
+      sourceUri: schema.grantAttachmentArchives.sourceUri,
+      archiveUrl: schema.grantAttachmentArchives.archiveUrl,
+      storageKey: schema.grantAttachmentArchives.storageKey,
+      contentType: schema.grantAttachmentArchives.contentType,
+    })
+    .from(schema.grantAttachmentArchives)
+    .where(
+      and(
+        eq(schema.grantAttachmentArchives.source, parsed.source),
+        eq(schema.grantAttachmentArchives.sourceId, parsed.sourceId),
+      ),
+    );
+
+  const surfaces = await db
+    .select({
+      id: schema.grantApplicationSurfaces.id,
+      title: schema.grantApplicationSurfaces.title,
+      format: schema.grantApplicationSurfaces.format,
+      sourceUrl: schema.grantApplicationSurfaces.sourceUrl,
+      sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
+      extractionStatus: schema.grantApplicationSurfaces.extractionStatus,
+    })
+    .from(schema.grantApplicationSurfaces)
+    .where(
+      and(
+        eq(schema.grantApplicationSurfaces.source, parsed.source),
+        eq(schema.grantApplicationSurfaces.sourceId, parsed.sourceId),
+      ),
+    )
+    .orderBy(asc(schema.grantApplicationSurfaces.createdAt));
+
+  const attachment = pickBestAttachment(attachments, filename);
+  const surface = pickBestSurface(surfaces, filename, attachment?.storageKey ?? null);
+
+  return {
+    source: parsed.source,
+    sourceId: parsed.sourceId,
+    sourceFilename: filename,
+    grant: grant
+      ? {
+          id: grant.id,
+          title: grant.title,
+          url: grant.url,
+          agencyOperator: grant.agencyOperator,
+          status: grant.status,
+        }
+      : null,
+    attachment: attachment
+      ? {
+          filename: attachment.filename,
+          sourceUri: nonEmpty(attachment.sourceUri),
+          archiveUrl: nonEmpty(attachment.archiveUrl),
+          storageKey: nonEmpty(attachment.storageKey),
+          contentType: nonEmpty(attachment.contentType),
+        }
+      : null,
+    surface: surface
+      ? {
+          id: surface.id,
+          title: surface.title,
+          format: surface.format,
+          sourceUrl: nonEmpty(surface.sourceUrl),
+          sourceAttachment: nonEmpty(surface.sourceAttachment),
+          extractionStatus: surface.extractionStatus,
+        }
+      : null,
+  };
+}
+
+function pickBestAttachment<T extends {
+  filename: string;
+  sourceUri: string | null;
+  archiveUrl: string | null;
+  storageKey: string | null;
+}>(rows: T[], filename: string | null): T | null {
+  if (rows.length === 0) return null;
+  const scored = rows
+    .map((row) => ({ row, score: scoreEvidenceCandidate(filename, [
+      row.filename,
+      row.sourceUri,
+      row.archiveUrl,
+      row.storageKey,
+    ]) }))
+    .sort((left, right) => right.score - left.score);
+  return scored[0]?.row ?? null;
+}
+
+function pickBestSurface<T extends {
+  title: string;
+  sourceUrl: string | null;
+  sourceAttachment: string | null;
+}>(rows: T[], filename: string | null, storageKey: string | null): T | null {
+  if (rows.length === 0) return null;
+  const scored = rows
+    .map((row) => {
+      const storageMatch = storageKey && row.sourceAttachment === storageKey ? 120 : 0;
+      return {
+        row,
+        score: storageMatch + scoreEvidenceCandidate(filename, [
+          row.title,
+          row.sourceUrl,
+          row.sourceAttachment,
+        ]),
+      };
+    })
+    .sort((left, right) => right.score - left.score);
+  return scored[0]?.row ?? null;
+}
+
+function scoreEvidenceCandidate(filename: string | null, candidates: Array<string | null>): number {
+  if (!filename) return 1;
+  const target = normalizeEvidenceName(filename);
+  if (!target) return 1;
+
+  let score = 0;
+  for (const candidate of candidates) {
+    const normalized = normalizeEvidenceName(candidate);
+    if (!normalized) continue;
+    if (normalized === target) score = Math.max(score, 100);
+    else if (normalized.includes(target) || target.includes(normalized)) score = Math.max(score, 70);
+  }
+  return score;
+}
+
+function normalizeEvidenceName(value: string | null): string {
+  if (!value) return "";
+  const basename = value.split(/[\\/]/).at(-1) ?? value;
+  try {
+    return decodeURIComponent(basename).normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+  } catch {
+    return basename.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+  }
+}
+
+function nonEmpty(value: string | null): string | null {
+  return value && value.trim() ? value : null;
 }
 
 /**
