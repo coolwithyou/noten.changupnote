@@ -41,7 +41,7 @@
 > - ⬜ **[D] 부분 golden 조기 측정** — 검수 승격 15~20건 시점: `pnpm load:golden:field-maps -- --write` → `pnpm eval:layout -- --engine all --docs all --allow-paid --write` (PaddleOCR는 이때 로컬 docker 기동)
 > - ✅ ~~[E] Phase 3 Viewer v1~~ (세션 6 완료 — 위 완료 목록). 후속 소과제: ⬜ 진입 링크(ApplySheetView — **병렬 세션 머지 후**) ⬜ A7 완료 시 실 conversion artifact로 재검증
 > - ✅ ~~[F] Phase 4 엔진 비종속부~~ (세션 7 완료 — 위 완료 목록). 잔여 **[F2] 엔진 종속부**는 Gate 2 측정([D]) 후: 선정 어댑터 프로덕션 배선 → pollConversions 연동 → 임계값 캘리브레이션 → Vision LLM pass(§8.4 의미 해석)
-> - ⬜ 웹폼 샘플 5건 라벨 (브라우저 캡처 — Claude in Chrome 도구로 가능, 검수 후 별도 배치)
+> - ⬜ 웹폼 샘플 5건 라벨 (브라우저 캡처, 검수 후 별도 배치) — **착수 문서: `docs/plans/2026-07-06-webform-labeling-kickoff.md`** (트리거 문장 포함. §9.7 제약: 로그인 폼 제외·캡처만)
 > - ✅ ~~kordoc batch4 원본 매핑~~ (세션 6 완료 — `spike-labels/source-map.json` + pdfjs-dist@4.10.38. kordoc 44/45, 잔여 doc54는 `.doc` 미지원 엔진 한계)
 > - ⬜ 운영자 인박스 (9.8 후속 슬라이스) — 검수 진행 중 보류·리뷰어 코멘트가 쌓이면 착수
 > - ⬜ kordoc `fillHwpx()` 스파이크 — filled export 가속 후보. 검증 없이 채택 금지 (Gate 3 이후 실험)
