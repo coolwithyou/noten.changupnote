@@ -13,6 +13,8 @@
 > - **파일럿 실측 (Step 0 목표 달성)**: 립스1,2 PDF 1건 → lesson 후보 23건 proposed (quote 검증 통과 100%, target 분포: guide 11·criteria 4·fill_value 4·field_interpretation 4·evaluation 1) + 비-lesson 5건(제품 피드백 "재무제표 PDF 자동 기입" 포함, `knowledge_sources.nonLessonItems`) + 승인 왕복 1건 검증. §3에서 예측한 5개 지식 유형 전부 포착됨
 > - **잔여**: Step 3 주입 경로(Phase 5 fill planner/draft와 정렬), Step 4 효과 측정·FAQ 공개, Step 5 L2/L3, Step 6 게이트. 운영팀 보고서가 새로 오면 `pnpm ingest:knowledge`로 적재 → 인박스에서 검수
 >
+> **✅ 파일럿 검수 완료 (2026-07-06)** — 운영팀이 인박스에서 proposed 22건 검수 완료. 실DB 실측: **review_lessons 23건 전량 approved** (기각 0), 전부 staff_confirmed, target 분포 guide 9·field_interpretation 5·fill_value 4·criteria 3·evaluation 2. 루프의 사람 게이트가 실제로 작동함을 확인 — 다음은 Step 3(소비처 주입).
+>
 > **✅ 지식 대시보드 v1 (2026-07-06)** — GUI만으로 전체 루프 운영 가능해짐.
 >
 > - `/internal/knowledge` — 축적 현황판: 지표 카드(누적/승인/검수 대기/재검토 임박), 12주 축적 추이, target·evidenceTier·program 분포, 원천 문서 목록, 비-lesson 항목(제품 피드백·FAQ 후보·예문) 탭, 재검토 임박 목록
