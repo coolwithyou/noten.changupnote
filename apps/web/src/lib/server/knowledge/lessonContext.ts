@@ -60,7 +60,8 @@ const PROGRAM_ALIAS_GROUPS: readonly (readonly string[])[] = [
 ];
 
 /** 대소문자·공백·하이픈·가운뎃점을 제거해 포함 검사를 안정화한다(NFKC 로 전각/변형 흡수). */
-function norm(value: string): string {
+// export: lessonContext.test.ts 가 라벨 정규화를 재현하기 위해 사용(내부 헬퍼).
+export function norm(value: string): string {
   return value.normalize("NFKC").toUpperCase().replace(/[\s\-·]/g, "");
 }
 
@@ -170,9 +171,10 @@ export async function matchApprovedLessonsForGrant(input: {
   return { matched: matched.length > 0, total: matched.length, groups };
 }
 
-// ── 필드 레벨 팁(지식 루프 Step 3 두 번째 슬라이스) ────────────────
-// 지원서 작성 시점에, 승인 lesson 의 scope.fieldPattern 이 입력 항목 라벨에 매칭되면
-// 그 항목 바로 옆에 '작성 팁'으로 노출한다. fieldPattern 필드 레벨 매칭의 첫 소비처다.
+// ── 필드 레벨 팁(지식 루프 Step 3 두 번째 슬라이스 + K2 fieldKey 격상) ────────────────
+// 지원서 작성 시점에, 승인 lesson 이 입력 항목에 매칭되면 그 항목 바로 옆에 '작성 팁'으로 노출한다.
+// K2 이후 매칭 축이 둘이다: (1) scope.fieldKey ↔ 필드 fieldKey 동등성(Gate 1 표준 key — 우선),
+// (2) scope.fieldPattern ↔ 라벨 문자열 포함(폴백). 자세한 규칙은 fieldLessonMatches 주석 참조.
 
 /** 한 입력 항목(라벨)에 붙는 팁 1건(클라이언트로 전달, JSON-safe). */
 export interface FieldLessonTip {
@@ -217,7 +219,8 @@ function tokenizeFieldPattern(pattern: string): string[] {
  * 토큰을 grant 레벨과 같은 정규화(NFKC·대문자·공백류 제거) 후, 라벨(정규화)에 포함되면 성립.
  * 정규화 길이 2 미만 토큰은 무시한다(단문자 과매칭 방지).
  */
-function fieldPatternMatchesLabel(pattern: string, labelNorm: string): boolean {
+// export: lessonContext.test.ts 의 폴백 회귀 검증에 사용(내부 헬퍼).
+export function fieldPatternMatchesLabel(pattern: string, labelNorm: string): boolean {
   for (const token of tokenizeFieldPattern(pattern)) {
     const needle = norm(token);
     if (needle.length < 2) continue;
@@ -226,47 +229,97 @@ function fieldPatternMatchesLabel(pattern: string, labelNorm: string): boolean {
   return false;
 }
 
+/** 매칭 대상 입력 필드 1개(라벨 필수, fieldKey 는 서식 필드에만 존재). */
+export interface FieldInput {
+  label: string;
+  fieldKey?: string | null;
+}
+
+/** 후보 lesson 의 scope 매칭 축(정규화된 문자열, 없으면 null). */
+interface FieldLessonCandidateAxes {
+  fieldKey: string | null;
+  fieldPattern: string | null;
+}
+
 /**
- * 입력 항목 라벨들에 매칭되는 승인 lesson 을 라벨별 팁으로 조립한다.
+ * 필드 팁 매칭 판정(순수 함수 — DB 없이 유닛 테스트 대상, lessonContext.test.ts).
+ *
+ * 매칭 규칙(후보 lesson 은 이미 1차 게이트 통과 && fieldKey 또는 fieldPattern 보유):
+ *   1) lesson·field 양쪽 다 fieldKey 보유 → 동등성만으로 판정한다.
+ *      일치=매칭, 불일치=매칭 안 함. 양쪽 다 Gate 1 표준 사전 기반이므로 불일치는 진짜 다른
+ *      필드이며, 여기서 fieldPattern 문자열 폴백으로 내려가지 않는다(오탐 재유입 금지).
+ *      → "직원 수"↔"상시근로자 수" 문자열 미탐이 fieldKey=employee_count 동등성으로 잡히는 것이 목적.
+ *   2) 그 외(어느 한쪽이라도 fieldKey 없음) → 기존 fieldPattern 문자열 포함 폴백.
+ *      lesson 에 fieldPattern 이 없으면 매칭 안 함.
+ */
+export function fieldLessonMatches(
+  lesson: FieldLessonCandidateAxes,
+  field: { fieldKey: string | null; labelNorm: string },
+): boolean {
+  // (1) 양쪽 다 fieldKey → 동등성 단독 판정(불일치 시 폴백 없음).
+  if (lesson.fieldKey && field.fieldKey) {
+    return lesson.fieldKey === field.fieldKey;
+  }
+  // (2) 폴백: fieldPattern 문자열 포함(fieldPattern 없으면 매칭 안 함).
+  if (!lesson.fieldPattern) return false;
+  return fieldPatternMatchesLabel(lesson.fieldPattern, field.labelNorm);
+}
+
+/**
+ * 입력 항목(라벨 + 선택 fieldKey)들에 매칭되는 승인 lesson 을 라벨별 팁으로 조립한다.
  * - 1차 게이트는 공고 레벨과 동일(passesGrantGate) — LIPS/TIPS 등 program/institution 이 공고에 실재할 때만.
- * - 2차는 scope.fieldPattern 이 있고 라벨에 매칭되는 lesson 만(fieldPatternMatchesLabel).
- * - labels 는 호출부가 중복 제거해 전달하되, 함수도 방어적으로 중복·공백 라벨을 무시한다.
+ * - 2차는 fieldLessonMatches: scope.fieldKey 동등성 우선, scope.fieldPattern 문자열 포함 폴백.
+ * - fields 중복 제거는 label 기준(같은 label 이 프로필 질문·서식 필드로 중복 유입될 수 있음).
+ *   같은 label 에 fieldKey 유무가 갈리면 fieldKey 있는 쪽을 우선 채택한다.
+ * - 출력 byLabel 형태는 K1 노출 텔레메트리가 그대로 소비하므로 변경하지 않는다.
  */
 export async function matchFieldLessonTips(input: {
   title: string;
   agency: string | null;
-  labels: string[];
+  fields: FieldInput[];
 }): Promise<FieldLessonTipsDto> {
   const grantNorm = norm([input.title, input.agency ?? ""].join(" "));
   const now = Date.now();
 
-  // 원본 라벨 → 정규화 라벨(방어적 중복 제거, 빈 라벨 무시).
-  const labelNormMap = new Map<string, string>();
-  for (const raw of input.labels) {
-    const label = typeof raw === "string" ? raw.trim() : "";
-    if (!label || labelNormMap.has(label)) continue;
-    labelNormMap.set(label, norm(label));
+  // 원본 라벨 → { 정규화 라벨, fieldKey }. label 기준 중복 제거, fieldKey 있는 쪽 우선, 빈 라벨 무시.
+  const fieldMap = new Map<string, { labelNorm: string; fieldKey: string | null }>();
+  for (const raw of input.fields) {
+    const label = typeof raw?.label === "string" ? raw.label.trim() : "";
+    if (!label) continue;
+    const fieldKey =
+      typeof raw.fieldKey === "string" && raw.fieldKey.trim().length > 0 ? raw.fieldKey.trim() : null;
+    const existing = fieldMap.get(label);
+    if (!existing) {
+      fieldMap.set(label, { labelNorm: norm(label), fieldKey });
+    } else if (!existing.fieldKey && fieldKey) {
+      existing.fieldKey = fieldKey; // 같은 label — fieldKey 있는 쪽 우선.
+    }
   }
-  if (labelNormMap.size === 0) return { matched: false, byLabel: {} };
+  if (fieldMap.size === 0) return { matched: false, byLabel: {} };
 
   const approved = await listLessons({ status: "approved" });
 
-  // 1차 게이트 통과 + fieldPattern 보유 lesson 만 후보로 남긴다.
+  // 1차 게이트 통과 + (fieldKey 또는 fieldPattern) 보유 lesson 만 후보로 남긴다.
   const candidates = approved
     .filter((lesson) => passesGrantGate(lesson, grantNorm, now))
-    .map((lesson) => ({
-      lesson,
-      fieldPattern: axisValue((lesson.scope ?? {}) as LessonScope, "fieldPattern"),
-    }))
-    .filter((candidate): candidate is { lesson: ReviewLessonRow; fieldPattern: string } =>
-      candidate.fieldPattern !== null,
-    );
+    .map((lesson) => {
+      const scope = (lesson.scope ?? {}) as LessonScope;
+      return {
+        lesson,
+        fieldKey: axisValue(scope, "fieldKey"),
+        fieldPattern: axisValue(scope, "fieldPattern"),
+      };
+    })
+    .filter((candidate) => candidate.fieldKey !== null || candidate.fieldPattern !== null);
 
   const byLabel: Record<string, FieldLessonTip[]> = {};
-  for (const [label, labelNorm] of labelNormMap) {
+  for (const [label, field] of fieldMap) {
     const tips: FieldLessonTip[] = [];
-    for (const { lesson, fieldPattern } of candidates) {
-      if (!fieldPatternMatchesLabel(fieldPattern, labelNorm)) continue;
+    for (const candidate of candidates) {
+      if (!fieldLessonMatches(candidate, { fieldKey: field.fieldKey, labelNorm: field.labelNorm })) {
+        continue;
+      }
+      const lesson = candidate.lesson;
       tips.push({
         id: lesson.id,
         instruction: lesson.instruction,

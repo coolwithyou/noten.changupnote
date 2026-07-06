@@ -96,20 +96,22 @@ async function recordLessonExposureEvents(input: {
   }
 }
 
-// 필드 레벨 팁 매칭(지식 루프 Step 3 두 번째 슬라이스). "입력 필요" 질문 라벨과 서식 필드
-// 라벨을 수집(중복 제거)해 승인 lesson 의 fieldPattern 과 대조한다. 실패해도 null 폴백.
+// 필드 레벨 팁 매칭(지식 루프 Step 3 + K2 fieldKey 격상). "입력 필요" 질문 라벨과 서식 필드
+// (label + fieldKey)를 수집해 승인 lesson 의 fieldKey 동등성·fieldPattern 문자열과 대조한다.
+//   - missingProfileFields 의 fieldKey 는 회사 프로필 필드 네임스페이스(예: company.biz_no)라 Gate 1
+//     표준 key 사전과 다르므로 fieldKey 없이 { label } 만 전달한다(교차 네임스페이스 오탐 방지).
+//   - formFields.fieldKey 는 grant_document_fields.fieldKey(Gate 1 표준 key 정렬 대상)라 함께 전달한다.
+//   - label 기준 중복 제거·fieldKey 우선은 matchFieldLessonTips 가 처리한다. 실패해도 null 폴백.
 async function loadFieldLessonTips(
   sheet: NonNullable<Awaited<ReturnType<typeof loadServiceApplySheet>>>,
   preparation: Awaited<ReturnType<typeof loadInitialPreparation>>,
 ) {
   try {
-    const labels = Array.from(
-      new Set([
-        ...sheet.applicationPrep.missingProfileFields.map((question) => question.label),
-        ...(preparation?.formFields ?? []).map((field) => field.label),
-      ]),
-    );
-    return await matchFieldLessonTips({ title: sheet.grant.title, agency: sheet.grant.agency, labels });
+    const fields = [
+      ...sheet.applicationPrep.missingProfileFields.map((question) => ({ label: question.label })),
+      ...(preparation?.formFields ?? []).map((field) => ({ label: field.label, fieldKey: field.fieldKey })),
+    ];
+    return await matchFieldLessonTips({ title: sheet.grant.title, agency: sheet.grant.agency, fields });
   } catch (error) {
     console.warn(`Field lesson tips match failed: ${error instanceof Error ? error.message : String(error)}`);
     return null;

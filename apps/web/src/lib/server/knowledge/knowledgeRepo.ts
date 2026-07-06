@@ -43,6 +43,12 @@ export interface LessonScope {
   formTemplateId?: string;
   documentCategory?: string;
   fieldPattern?: string;
+  /**
+   * Gate 1 표준 필드 key(정규화된 필드 식별자 — fieldKeyDictionary 화이트리스트).
+   * fieldPattern 이 자유 문자열이라면 fieldKey 는 그 항목의 정규 key 다("직원 수"·"상시근로자 수"가
+   * 모두 employee_count). 필드 팁 매칭에서 fieldPattern 문자열 포함보다 우선하는 동등성 축.
+   */
+  fieldKey?: string;
   condition?: string;
 }
 export interface LessonSourceRef {
@@ -104,6 +110,7 @@ export const LESSON_SCOPE_AXES: readonly (keyof LessonScope)[] = [
   "formTemplateId",
   "documentCategory",
   "fieldPattern",
+  "fieldKey",
   "condition",
 ];
 

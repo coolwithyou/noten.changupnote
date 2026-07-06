@@ -73,6 +73,7 @@ const SCOPE_AXES = [
   "formTemplateId",
   "documentCategory",
   "fieldPattern",
+  "fieldKey",
   "condition",
 ] as const;
 type ScopeAxis = (typeof SCOPE_AXES)[number];
@@ -82,6 +83,7 @@ const SCOPE_AXIS_LABEL: Record<ScopeAxis, string> = {
   formTemplateId: "양식 ID",
   documentCategory: "문서 분류",
   fieldPattern: "필드 패턴",
+  fieldKey: "표준 필드 key",
   condition: "조건",
 };
 
