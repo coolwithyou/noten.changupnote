@@ -31,6 +31,7 @@
 >
 > - ✅ **세션 9 (2026-07-06)** — **지식 대시보드 v1** (`/internal/knowledge`): 축적 현황 시각화(지표·12주 추이·분포·재검토 임박) + GUI 인제스천(업로드→추출 실행→인박스, sha256 멱등·이중 클릭 방지·상태 전이 가드). 추출 코어를 `extraction.ts`로 공용화(CLI 회귀 확인), 집계 계층 `knowledgeDashboardData.ts`. 마이그레이션 없음
 > - ✅ **세션 9 후반 (2026-07-06)** — **lesson 파일럿 검수 완료**(운영팀, 23건 전량 approved) + **Step 3 첫 슬라이스**: `lessonContext.ts` 매칭 모듈(+`buildLessonPromptBlock` Phase 5 선행) → `/grants/[grantId]` "작성 유의사항" 패널. 실측: LIPS/TIPS 공고 307건 대상, 포스트팁스 22/23(보수적 스코핑 검증)·negative 0. 한계·후속은 계획 문서 blockquote
+> - ✅ **세션 9 말 (2026-07-06)** — **Step 3 둘째 슬라이스: 작성 시점 필드 레벨 팁**. `matchFieldLessonTips`(fieldPattern 토큰 매칭, 게이트 공유) → 작성 워크스페이스 "입력 필요" 항목·서식 필드 테이블에 인라인 `FieldLessonTips`. 매출액·사업비 등 매칭/negative/게이트 실측 + 공고 레벨 회귀 23/23. 한계(2자 토큰 과매칭 코너·grant_document_fields 0건)는 계획 문서에
 >
 > 남음 (우선순위순):
 >

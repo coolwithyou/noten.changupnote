@@ -23,8 +23,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ApplyLink } from "./ApplyLink";
 import { DocumentDraftWorkspace } from "./DocumentDraftWorkspace";
 import { GrantLessonGuide } from "@/features/knowledge/GrantLessonGuide";
+import { FieldLessonTips } from "@/features/knowledge/FieldLessonTips";
 import type { GrantDocumentFormField } from "@/lib/server/documents/grantDocumentFields";
-import type { GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
+import type { FieldLessonTipsDto, GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 
 export function ApplySheetView({
   sheet,
@@ -32,12 +33,14 @@ export function ApplySheetView({
   initialDrafts = [],
   formFields = [],
   lessonGuide = null,
+  fieldLessonTips = null,
 }: {
   sheet: ApplySheet;
   user?: HeaderUser | null;
   initialDrafts?: DocumentDraft[];
   formFields?: GrantDocumentFormField[];
   lessonGuide?: GrantLessonGuideDto | null;
+  fieldLessonTips?: FieldLessonTipsDto | null;
 }) {
   const dDayLabel = formatDday(sheet.schedule.dDay);
 
@@ -85,6 +88,7 @@ export function ApplySheetView({
         prep={sheet.applicationPrep}
         initialDrafts={initialDrafts}
         formFields={formFields}
+        fieldLessonTips={fieldLessonTips}
       />
 
       <section className="grid gap-4 lg:grid-cols-3">
@@ -114,11 +118,13 @@ function ApplicationPrepSection({
   prep,
   initialDrafts,
   formFields,
+  fieldLessonTips,
 }: {
   grantId: string;
   prep: ApplicationPrep;
   initialDrafts: DocumentDraft[];
   formFields: GrantDocumentFormField[];
+  fieldLessonTips: FieldLessonTipsDto | null;
 }) {
   return (
     <Card id="application-prep">
@@ -149,8 +155,13 @@ function ApplicationPrepSection({
       </CardHeader>
       <CardContent className="grid gap-5">
         <PreparationGroupSection prep={prep} />
-        <DocumentDraftWorkspace grantId={grantId} prep={prep} initialDrafts={initialDrafts} />
-        <FormFieldMappingSection fields={formFields} />
+        <DocumentDraftWorkspace
+          grantId={grantId}
+          prep={prep}
+          initialDrafts={initialDrafts}
+          fieldLessonTips={fieldLessonTips}
+        />
+        <FormFieldMappingSection fields={formFields} fieldLessonTips={fieldLessonTips} />
         <div className="grid gap-4 lg:grid-cols-2">
         <Card aria-label="복붙 프로필" size="sm">
           <CardContent className="grid gap-3">
@@ -229,9 +240,16 @@ function PreparationGroupSection({ prep }: { prep: ApplicationPrep }) {
   );
 }
 
-function FormFieldMappingSection({ fields }: { fields: GrantDocumentFormField[] }) {
+function FormFieldMappingSection({
+  fields,
+  fieldLessonTips,
+}: {
+  fields: GrantDocumentFormField[];
+  fieldLessonTips: FieldLessonTipsDto | null;
+}) {
   const autoFillCount = fields.filter((field) => field.fillStrategy !== "manual").length;
   const requiredCount = fields.filter((field) => field.required).length;
+  const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
   return (
     <Card aria-label="원문 양식 필드 매핑" size="sm">
@@ -275,6 +293,9 @@ function FormFieldMappingSection({ fields }: { fields: GrantDocumentFormField[] 
                     <div className="grid gap-1">
                       <strong>{field.label}</strong>
                       <span>{field.section ?? fieldTypeLabel(field.fieldType)}</span>
+                      {tipsByLabel[field.label]?.length ? (
+                        <FieldLessonTips tips={tipsByLabel[field.label]!} />
+                      ) : null}
                     </div>
                   </TableCell>
                   <TableCell>

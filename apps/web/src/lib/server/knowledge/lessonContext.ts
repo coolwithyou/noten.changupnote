@@ -105,6 +105,27 @@ function axisValue(scope: LessonScope, key: keyof LessonScope): string | null {
 }
 
 /**
+ * 공고 레벨 1차 게이트: 발효 시효 + program/institution 축이 공고 텍스트에 매칭되는가.
+ * grant 레벨 노출(matchApprovedLessonsForGrant)과 필드 팁(matchFieldLessonTips)이
+ * 동일한 관문을 공유한다(LIPS 지식이 무관 사업으로 새는 과일반화 방지 — 단일 원천).
+ */
+function passesGrantGate(lesson: ReviewLessonRow, grantNorm: string, now: number): boolean {
+  // 시효: 아직 발효 전(validFrom 미래)인 lesson 은 노출하지 않는다.
+  if (lesson.validFrom && new Date(lesson.validFrom).getTime() > now) return false;
+
+  const scope = (lesson.scope ?? {}) as LessonScope;
+  const program = axisValue(scope, "program");
+  const institution = axisValue(scope, "institution");
+
+  // program/institution 축이 하나도 없으면 공고 레벨 노출 대상이 아니다.
+  if (!program && !institution) return false;
+
+  const byProgram = program ? programMatches(program, grantNorm) : false;
+  const byInstitution = institution ? institutionMatches(institution, grantNorm) : false;
+  return byProgram || byInstitution;
+}
+
+/**
  * 공고에 매칭되는 승인 lesson 을 target 그룹으로 묶어 반환한다.
  * - listLessons({ status: "approved" }) 전량 로드 후 JS 매칭(수십 건 규모 — 과공학 금지).
  * - validFrom > now 는 제외. reviewBy < now 는 제외하지 않되 needsReview 플래그.
@@ -118,21 +139,7 @@ export async function matchApprovedLessonsForGrant(input: {
 
   const approved = await listLessons({ status: "approved" });
 
-  const matched = approved.filter((lesson) => {
-    // 시효: 아직 발효 전(validFrom 미래)인 lesson 은 노출하지 않는다.
-    if (lesson.validFrom && new Date(lesson.validFrom).getTime() > now) return false;
-
-    const scope = (lesson.scope ?? {}) as LessonScope;
-    const program = axisValue(scope, "program");
-    const institution = axisValue(scope, "institution");
-
-    // program/institution 축이 하나도 없으면 grant 레벨 노출 대상이 아니다.
-    if (!program && !institution) return false;
-
-    const byProgram = program ? programMatches(program, grantNorm) : false;
-    const byInstitution = institution ? institutionMatches(institution, grantNorm) : false;
-    return byProgram || byInstitution;
-  });
+  const matched = approved.filter((lesson) => passesGrantGate(lesson, grantNorm, now));
 
   // target 그룹으로 묶고 GROUP_ORDER 로 정렬(목록 밖 target 은 뒤에).
   const byTarget = new Map<LessonTarget, GrantLessonItemDto[]>();
@@ -161,6 +168,121 @@ export async function matchApprovedLessonsForGrant(input: {
   }));
 
   return { matched: matched.length > 0, total: matched.length, groups };
+}
+
+// ── 필드 레벨 팁(지식 루프 Step 3 두 번째 슬라이스) ────────────────
+// 지원서 작성 시점에, 승인 lesson 의 scope.fieldPattern 이 입력 항목 라벨에 매칭되면
+// 그 항목 바로 옆에 '작성 팁'으로 노출한다. fieldPattern 필드 레벨 매칭의 첫 소비처다.
+
+/** 한 입력 항목(라벨)에 붙는 팁 1건(클라이언트로 전달, JSON-safe). */
+export interface FieldLessonTip {
+  id: string;
+  instruction: string;
+  rationale: string;
+  target: LessonTarget;
+  evidenceTier: EvidenceTier;
+  /** reviewBy 가 지난 lesson(자동 만료 아님 — 재검토 신호). */
+  needsReview: boolean;
+}
+export interface FieldLessonTipsDto {
+  matched: boolean;
+  /** 원본 라벨 → 그 라벨에 매칭된 팁 목록(매칭된 라벨만 키로 존재). */
+  byLabel: Record<string, FieldLessonTip[]>;
+}
+
+// ── 라벨당 팁 정렬 순서 — 수치·해석(기입값·필드 해석)이 팁 가치 최상. ──
+const FIELD_TIP_TARGET_ORDER: readonly LessonTarget[] = [
+  "fill_value",
+  "field_interpretation",
+  "guide",
+  "evaluation",
+  "criteria",
+  "classification",
+];
+function fieldTipTargetRank(target: LessonTarget): number {
+  const index = FIELD_TIP_TARGET_ORDER.indexOf(target);
+  return index === -1 ? FIELD_TIP_TARGET_ORDER.length : index;
+}
+
+/** fieldPattern 을 "/"·"·"·공백류로 토큰화(라벨과 대조할 최소 단위). */
+function tokenizeFieldPattern(pattern: string): string[] {
+  return pattern
+    .split(/[/·\s]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+/**
+ * fieldPattern 이 라벨에 매칭되는가(보수적):
+ * 토큰을 grant 레벨과 같은 정규화(NFKC·대문자·공백류 제거) 후, 라벨(정규화)에 포함되면 성립.
+ * 정규화 길이 2 미만 토큰은 무시한다(단문자 과매칭 방지).
+ */
+function fieldPatternMatchesLabel(pattern: string, labelNorm: string): boolean {
+  for (const token of tokenizeFieldPattern(pattern)) {
+    const needle = norm(token);
+    if (needle.length < 2) continue;
+    if (labelNorm.includes(needle)) return true;
+  }
+  return false;
+}
+
+/**
+ * 입력 항목 라벨들에 매칭되는 승인 lesson 을 라벨별 팁으로 조립한다.
+ * - 1차 게이트는 공고 레벨과 동일(passesGrantGate) — LIPS/TIPS 등 program/institution 이 공고에 실재할 때만.
+ * - 2차는 scope.fieldPattern 이 있고 라벨에 매칭되는 lesson 만(fieldPatternMatchesLabel).
+ * - labels 는 호출부가 중복 제거해 전달하되, 함수도 방어적으로 중복·공백 라벨을 무시한다.
+ */
+export async function matchFieldLessonTips(input: {
+  title: string;
+  agency: string | null;
+  labels: string[];
+}): Promise<FieldLessonTipsDto> {
+  const grantNorm = norm([input.title, input.agency ?? ""].join(" "));
+  const now = Date.now();
+
+  // 원본 라벨 → 정규화 라벨(방어적 중복 제거, 빈 라벨 무시).
+  const labelNormMap = new Map<string, string>();
+  for (const raw of input.labels) {
+    const label = typeof raw === "string" ? raw.trim() : "";
+    if (!label || labelNormMap.has(label)) continue;
+    labelNormMap.set(label, norm(label));
+  }
+  if (labelNormMap.size === 0) return { matched: false, byLabel: {} };
+
+  const approved = await listLessons({ status: "approved" });
+
+  // 1차 게이트 통과 + fieldPattern 보유 lesson 만 후보로 남긴다.
+  const candidates = approved
+    .filter((lesson) => passesGrantGate(lesson, grantNorm, now))
+    .map((lesson) => ({
+      lesson,
+      fieldPattern: axisValue((lesson.scope ?? {}) as LessonScope, "fieldPattern"),
+    }))
+    .filter((candidate): candidate is { lesson: ReviewLessonRow; fieldPattern: string } =>
+      candidate.fieldPattern !== null,
+    );
+
+  const byLabel: Record<string, FieldLessonTip[]> = {};
+  for (const [label, labelNorm] of labelNormMap) {
+    const tips: FieldLessonTip[] = [];
+    for (const { lesson, fieldPattern } of candidates) {
+      if (!fieldPatternMatchesLabel(fieldPattern, labelNorm)) continue;
+      tips.push({
+        id: lesson.id,
+        instruction: lesson.instruction,
+        rationale: lesson.rationale,
+        target: lesson.target,
+        evidenceTier: lesson.evidenceTier,
+        needsReview: lesson.reviewBy ? new Date(lesson.reviewBy).getTime() < now : false,
+      });
+    }
+    if (tips.length === 0) continue;
+    // fill_value·field_interpretation 을 앞으로(수치·해석 우선). Array.sort 는 안정 정렬.
+    tips.sort((a, b) => fieldTipTargetRank(a.target) - fieldTipTargetRank(b.target));
+    byLabel[label] = tips;
+  }
+
+  return { matched: Object.keys(byLabel).length > 0, byLabel };
 }
 
 // ── Phase 5 LLM 주입용 선행(계획 §6.3) ────────────────────────────

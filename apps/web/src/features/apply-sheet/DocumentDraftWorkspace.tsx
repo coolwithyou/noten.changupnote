@@ -19,6 +19,8 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { FieldLessonTips } from "@/features/knowledge/FieldLessonTips";
+import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 
 interface DraftFeedbackFormState {
   kind: DocumentDraftFeedbackKind;
@@ -47,10 +49,12 @@ export function DocumentDraftWorkspace({
   grantId,
   prep,
   initialDrafts = [],
+  fieldLessonTips = null,
 }: {
   grantId: string;
   prep: ApplicationPrep;
   initialDrafts?: DocumentDraft[];
+  fieldLessonTips?: FieldLessonTipsDto | null;
 }) {
   const initialDraftMap = useMemo(
     () => draftMapFromList(initialDrafts, prep.draftableDocuments),
@@ -322,6 +326,7 @@ export function DocumentDraftWorkspace({
                   <DraftAnswerPanel
                     document={activeDocument}
                     questions={activeQuestions}
+                    tipsByLabel={fieldLessonTips?.byLabel ?? {}}
                     values={answerText[activeDocument.documentKey] ?? {}}
                     disabled={pendingKey === activeDocument.documentKey}
                     onChange={(question, value) =>
@@ -452,12 +457,14 @@ export function DocumentDraftWorkspace({
 function DraftAnswerPanel({
   document,
   questions,
+  tipsByLabel,
   values,
   disabled,
   onChange,
 }: {
   document: DraftableDocument;
   questions: MissingFieldQuestion[];
+  tipsByLabel: FieldLessonTipsDto["byLabel"];
   values: Record<string, string>;
   disabled: boolean;
   onChange: (question: MissingFieldQuestion, value: string) => void;
@@ -486,6 +493,9 @@ function DraftAnswerPanel({
                 disabled={disabled}
               />
               <FieldDescription>{question.reason}</FieldDescription>
+              {tipsByLabel[question.label]?.length ? (
+                <FieldLessonTips tips={tipsByLabel[question.label]!} />
+              ) : null}
             </Field>
           ))}
         </div>

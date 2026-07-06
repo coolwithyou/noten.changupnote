@@ -4,7 +4,7 @@ import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
-import { matchApprovedLessonsForGrant } from "@/lib/server/knowledge/lessonContext";
+import { matchApprovedLessonsForGrant, matchFieldLessonTips } from "@/lib/server/knowledge/lessonContext";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
   if (!sheet) notFound();
   const preparation = await loadInitialPreparation(sheet.grant.id, access, sheet);
   const lessonGuide = await loadLessonGuide(sheet.grant.title, sheet.grant.agency);
+  const fieldLessonTips = await loadFieldLessonTips(sheet, preparation);
   const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
   return (
     <ApplySheetView
@@ -30,8 +31,29 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
       initialDrafts={preparation?.drafts ?? []}
       formFields={preparation?.formFields ?? []}
       lessonGuide={lessonGuide}
+      fieldLessonTips={fieldLessonTips}
     />
   );
+}
+
+// 필드 레벨 팁 매칭(지식 루프 Step 3 두 번째 슬라이스). "입력 필요" 질문 라벨과 서식 필드
+// 라벨을 수집(중복 제거)해 승인 lesson 의 fieldPattern 과 대조한다. 실패해도 null 폴백.
+async function loadFieldLessonTips(
+  sheet: NonNullable<Awaited<ReturnType<typeof loadServiceApplySheet>>>,
+  preparation: Awaited<ReturnType<typeof loadInitialPreparation>>,
+) {
+  try {
+    const labels = Array.from(
+      new Set([
+        ...sheet.applicationPrep.missingProfileFields.map((question) => question.label),
+        ...(preparation?.formFields ?? []).map((field) => field.label),
+      ]),
+    );
+    return await matchFieldLessonTips({ title: sheet.grant.title, agency: sheet.grant.agency, labels });
+  } catch (error) {
+    console.warn(`Field lesson tips match failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
 }
 
 // 승인 lesson 매칭(지식 루프 Step 3). 실패해도 페이지는 깨지지 않게 null 폴백.
