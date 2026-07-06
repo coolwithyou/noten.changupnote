@@ -18,6 +18,7 @@ export * from "./kstartup/fetch.js";
 export * from "./kstartup/normalize.js";
 export * from "./kstartup/types.js";
 export * from "./matching/match.js";
+export * from "./nts/check-business-status.js";
 export * from "./popbill/corp-num.js";
 export * from "./popbill/types.js";
 export * from "./repositories/ports.js";
