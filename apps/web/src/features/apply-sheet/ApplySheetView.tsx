@@ -22,18 +22,22 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApplyLink } from "./ApplyLink";
 import { DocumentDraftWorkspace } from "./DocumentDraftWorkspace";
+import { GrantLessonGuide } from "@/features/knowledge/GrantLessonGuide";
 import type { GrantDocumentFormField } from "@/lib/server/documents/grantDocumentFields";
+import type { GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 
 export function ApplySheetView({
   sheet,
   user = null,
   initialDrafts = [],
   formFields = [],
+  lessonGuide = null,
 }: {
   sheet: ApplySheet;
   user?: HeaderUser | null;
   initialDrafts?: DocumentDraft[];
   formFields?: GrantDocumentFormField[];
+  lessonGuide?: GrantLessonGuideDto | null;
 }) {
   const dDayLabel = formatDday(sheet.schedule.dDay);
 
@@ -98,6 +102,8 @@ export function ApplySheetView({
         />
         <DocumentSection documents={sheet.documents} sourceAttachments={sheet.sourceAttachments} />
       </section>
+
+      {lessonGuide ? <GrantLessonGuide guide={lessonGuide} /> : null}
       </div>
     </main>
   );

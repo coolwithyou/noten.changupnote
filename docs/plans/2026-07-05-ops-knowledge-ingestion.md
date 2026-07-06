@@ -15,6 +15,13 @@
 >
 > **✅ 파일럿 검수 완료 (2026-07-06)** — 운영팀이 인박스에서 proposed 22건 검수 완료. 실DB 실측: **review_lessons 23건 전량 approved** (기각 0), 전부 staff_confirmed, target 분포 guide 9·field_interpretation 5·fill_value 4·criteria 3·evaluation 2. 루프의 사람 게이트가 실제로 작동함을 확인 — 다음은 Step 3(소비처 주입).
 >
+> **✅ Step 3 첫 슬라이스 — 지식의 첫 실소비처 (2026-07-06)** — 승인 lesson이 처음으로 제품에 흐름.
+>
+> - `lessonContext.ts`: `matchApprovedLessonsForGrant()` — 공고(title+agency)와 lesson scope의 보수적 매칭(program 별칭 사전 LIPS↔립스·TIPS↔팁스, NFKC 정규화 포함 검사, program/institution 축 필수), validFrom 시효 제외·reviewBy 경과 시 `needsReview` 플래그. **`buildLessonPromptBlock()`** — Phase 5 LLM 주입용 포맷터 선행(tier 우선순위 명시 헤더)
+> - `/grants/[grantId]` 지원 준비 화면에 "작성 유의사항" 패널(`GrantLessonGuide`) — target 그룹(자격·전제→기입값·한도→필드 해석→작성 지침→심사 관점), evidenceTier 뱃지, "공고 원문 우선" 각주. 실패 시 null 폴백으로 페이지 무영향
+> - 실측: LIPS/TIPS 키워드 매칭 공고 307건. 포스트팁스 공고에서 22/23 매칭(LIPS 전용 1건 정확히 제외 — 보수적 스코핑 검증), 합성 LIPS 공고 23/23, 수출바우처 negative 0건
+> - **알려진 한계(후속)**: 포함 매칭이라 파생 프로그램(포스트팁스·글로벌팁스)도 매칭됨 — 자문 패널+각주로 v0 수용, 프로그램 감지 정밀화는 매칭 엔진 통합 시. 필드 레벨(fieldPattern) 주입은 Phase 5에서
+>
 > **✅ 지식 대시보드 v1 (2026-07-06)** — GUI만으로 전체 루프 운영 가능해짐.
 >
 > - `/internal/knowledge` — 축적 현황판: 지표 카드(누적/승인/검수 대기/재검토 임박), 12주 축적 추이, target·evidenceTier·program 분포, 원천 문서 목록, 비-lesson 항목(제품 피드백·FAQ 후보·예문) 탭, 재검토 임박 목록
