@@ -1,0 +1,152 @@
+{
+  "capturedAt": "2026-07-01T08:23:03.292167+00:00",
+  "baseURL": "https://dev.changupnote.com",
+  "tool": "Playwright fallback via bundled Codex runtime",
+  "notes": [
+    "Desktop and mobile screenshots were accepted by contact-sheet visual inspection.",
+    "Dashboard and settings were recaptured after their initial loading text cleared.",
+    "Popbill paid lookup was not triggered during capture."
+  ],
+  "items": [
+    {
+      "file": "01-home-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 5191,
+      "bytes": 1240371
+    },
+    {
+      "file": "01-home-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 13352,
+      "bytes": 1509926
+    },
+    {
+      "file": "02-login-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 56093
+    },
+    {
+      "file": "02-login-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 1688,
+      "bytes": 97650
+    },
+    {
+      "file": "03-dashboard-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 4141,
+      "bytes": 486192
+    },
+    {
+      "file": "03-dashboard-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 16658,
+      "bytes": 915740
+    },
+    {
+      "file": "04-account-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 7594,
+      "bytes": 847007
+    },
+    {
+      "file": "04-account-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 22024,
+      "bytes": 1671690
+    },
+    {
+      "file": "05-settings-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 1000,
+      "bytes": 175035
+    },
+    {
+      "file": "05-settings-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 5488,
+      "bytes": 324868
+    },
+    {
+      "file": "06-team-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 7552,
+      "bytes": 736077
+    },
+    {
+      "file": "06-team-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 23948,
+      "bytes": 1338768
+    },
+    {
+      "file": "07-billing-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 4953,
+      "bytes": 606989
+    },
+    {
+      "file": "07-billing-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 16200,
+      "bytes": 1173473
+    },
+    {
+      "file": "08-applications-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 2529,
+      "bytes": 342515
+    },
+    {
+      "file": "08-applications-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 8760,
+      "bytes": 684405
+    },
+    {
+      "file": "09-grant-detail-desktop.png",
+      "kind": "desktop",
+      "width": 1440,
+      "height": 2335,
+      "bytes": 264252
+    },
+    {
+      "file": "09-grant-detail-mobile.png",
+      "kind": "mobile",
+      "width": 780,
+      "height": 8732,
+      "bytes": 533151
+    },
+    {
+      "file": "desktop-contact-sheet.png",
+      "kind": "contact-sheet",
+      "width": 1056,
+      "height": 4168,
+      "bytes": 662387
+    },
+    {
+      "file": "mobile-contact-sheet.png",
+      "kind": "contact-sheet",
+      "width": 756,
+      "height": 16249,
+      "bytes": 2373799
+    }
+  ]
+}
