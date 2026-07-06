@@ -4,11 +4,18 @@ import { resolve } from "node:path";
 import {
   buildApplySheet,
   buildDashboard,
+  checkNtsBusinessStatus,
   deriveGrantBenefits,
   fetchKStartupPage,
   normalizeKStartupPayload,
 } from "@cunote/core";
-import { buildCompanyProfileFromPopbill } from "@cunote/core/company/profile-from-popbill";
+import {
+  buildCompanyProfileFromPopbill,
+  isLikelyKsicCode,
+  ksicDivisionLabel,
+  ksicSectionLabel,
+  normalizeCompanyIndustryProfile,
+} from "@cunote/core/company/profile-from-popbill";
 import {
   checkPopbillBizInfo,
   readPopbillEnvConfig,
@@ -24,7 +31,7 @@ import type {
   NormalizedGrant,
 } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
-import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse } from "@cunote/core";
+import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusData } from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
@@ -34,10 +41,16 @@ const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
 const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
 const ENRICHMENT_CACHE_TTL_HOURS_ENV = "CUNOTE_POPBILL_CACHE_TTL_HOURS";
-// 팝빌 조회는 사업자당 과금이므로 기본 90일 동안 DB 캐시를 재사용한다.
-// 90일이 지나면 다음 조회 시 팝빌을 1회 다시 호출해 최신 상태(휴·폐업/주소 변경 등)로 갱신한다.
+// 국세청(NTS) 상태조회는 무료라 팝빌 캐시 히트 경로에서 하루 1회(KST 달력일) 재확인한다.
+const NTS_SERVICE_KEY_ENV = "CUNOTE_NTS_SERVICE_KEY";
+const NTS_CACHE_PROVIDER = "nts";
+const NTS_CACHE_SCOPE = "status";
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+// 팝빌 조회는 사업자당 과금이므로 기본 30일 동안 DB 캐시를 재사용한다.
+// 30일이 지나면 다음 조회 시 팝빌을 1회 다시 호출해 최신 상태(휴·폐업/주소 변경 등)로 갱신한다.
+// 30일 캐시가 살아있는 동안에도 휴·폐업/과세유형 전환은 무료 국세청(NTS) 상태조회로 매일 감지한다.
 // CUNOTE_POPBILL_CACHE_TTL_HOURS로 기간을 조정할 수 있고, 0 이하로 두면 무기한 캐시(재조회 없음)로 동작한다.
-const DEFAULT_ENRICHMENT_CACHE_TTL_HOURS = 24 * 90;
+const DEFAULT_ENRICHMENT_CACHE_TTL_HOURS = 24 * 30;
 
 // 동일 사업자번호에 대한 동시 조회를 하나의 팝빌 호출로 합쳐 중복 과금을 막는다(in-flight 요청 dedup).
 const inflightPopbillLookups = new Map<string, Promise<PopbillCompanyResolution>>();
@@ -376,20 +389,34 @@ async function fetchPopbillCompanyProfile(input: {
   }
   const cachedCanonical = parseCachedCompanyEnrichment(cached?.canonicalPayload);
   if (cachedCanonical) {
-    return {
-      profile: cachedCanonical.profile,
-      facts: cachedCanonical.facts,
-      evidence: buildCompanyEvidence({
+    const checkedAt = cached?.checkedAt ?? parseProviderCheckedAt(cachedCanonical.facts.checkedAt);
+    const cachedUntil = cached?.expiresAt ?? null;
+    const rebuildEvidence = (profile: CompanyProfile, summary: string): CompanyEvidence =>
+      buildCompanyEvidence({
         provider: "popbill",
         source: "popbill_cache",
         cacheStatus: "hit",
-        profile: cachedCanonical.profile,
+        profile,
         facts: cachedCanonical.facts,
-        checkedAt: cached?.checkedAt ?? parseProviderCheckedAt(cachedCanonical.facts.checkedAt),
-        cachedUntil: cached?.expiresAt ?? null,
-        summary: "저장된 팝빌 조회 결과를 재사용해 회사 정보를 바로 확인했습니다.",
-      }),
+        checkedAt,
+        cachedUntil,
+        summary,
+      });
+    const baseResolution: PopbillCompanyResolution = {
+      profile: cachedCanonical.profile,
+      facts: cachedCanonical.facts,
+      evidence: rebuildEvidence(
+        cachedCanonical.profile,
+        "저장된 팝빌 조회 결과를 재사용해 회사 정보를 바로 확인했습니다.",
+      ),
     };
+    // 팝빌 캐시 히트 경로에서만 국세청 상태조회로 휴·폐업 전환을 재확인한다(popbill_live 직후는 중복이라 생략).
+    return applyNtsBusinessStatusOnCacheHit({
+      bizNo: input.bizNo,
+      now: input.now,
+      resolution: baseResolution,
+      rebuildEvidence,
+    });
   }
 
   const info = await checkPopbillBizInfo({
@@ -461,6 +488,133 @@ function resolvePopbillCacheExpiresAt(now: Date): Date | null {
   // 0 이하 또는 유효하지 않은 값이면 무기한 캐시(만료 없음)로 둔다.
   if (!Number.isFinite(ttlHours) || ttlHours <= 0) return null;
   return new Date(now.getTime() + ttlHours * 60 * 60 * 1000);
+}
+
+/**
+ * 팝빌 캐시 히트 시 국세청(NTS) 상태조회를 하루 1회 겹쳐 휴·폐업 전환을 감지한다.
+ * - CUNOTE_NTS_SERVICE_KEY 미설정: 조용히 skip.
+ * - NTS 오류/타임아웃: warn 후 기존(팝빌 캐시) 결과를 그대로 반환(fail-open).
+ * - 휴업/폐업(b_stt_cd "02"/"03"): profile.business_status를 NTS 기준으로 갱신. 팝빌 재조회는 하지 않는다.
+ */
+async function applyNtsBusinessStatusOnCacheHit(input: {
+  bizNo: string;
+  now: Date;
+  resolution: PopbillCompanyResolution;
+  rebuildEvidence: (profile: CompanyProfile, summary: string) => CompanyEvidence;
+}): Promise<PopbillCompanyResolution> {
+  const serviceKey = process.env[NTS_SERVICE_KEY_ENV]?.trim();
+  if (!serviceKey) return input.resolution;
+
+  let statusData: NtsBusinessStatusData | null;
+  try {
+    statusData = await resolveNtsBusinessStatus({ serviceKey, bizNo: input.bizNo, now: input.now });
+  } catch (error) {
+    console.warn(`국세청 사업자 상태조회 실패(기존 캐시 결과 유지): ${errorMessage(error)}`);
+    return input.resolution;
+  }
+  if (!statusData) return input.resolution;
+
+  const closedLabel = ntsClosedLabel(statusData.b_stt_cd);
+  if (!closedLabel) return input.resolution; // 계속사업자(01)이거나 판정 불가(미등록 등) — 그대로 둔다.
+
+  const nextProfile = applyNtsStatusToProfile(input.resolution.profile, statusData);
+  const summary = `저장된 팝빌 조회에 국세청 상태조회를 더해 확인했어요. 국세청 기준 현재 ${closedLabel} 상태로 보여요.`;
+  return {
+    profile: nextProfile,
+    facts: input.resolution.facts,
+    evidence: input.rebuildEvidence(nextProfile, summary),
+  };
+}
+
+/**
+ * NTS 상태를 하루 1회(KST 달력일) 캐시로 조회한다. 같은 날 재조회는 캐시 히트(API 미호출),
+ * 다음날은 만료로 재호출. 캐시 저장 실패는 무과금이라 조회 자체는 허용하되 warn 한다.
+ */
+async function resolveNtsBusinessStatus(input: {
+  serviceKey: string;
+  bizNo: string;
+  now: Date;
+}): Promise<NtsBusinessStatusData | null> {
+  let cached: Awaited<ReturnType<typeof repositories.enrichmentCache.getFresh>> = null;
+  try {
+    cached = await repositories.enrichmentCache.getFresh({
+      provider: NTS_CACHE_PROVIDER,
+      bizNo: input.bizNo,
+      scope: NTS_CACHE_SCOPE,
+      now: input.now,
+    });
+  } catch (error) {
+    // 무과금 API이므로 캐시 조회 실패 시에도 원격 조회로 진행한다(팝빌과 달리 과금 가드 불필요).
+    console.warn(`국세청 상태 캐시 조회 실패(원격 조회로 진행): ${errorMessage(error)}`);
+  }
+  const cachedStatus = parseCachedNtsStatus(cached?.canonicalPayload);
+  if (cachedStatus) return cachedStatus;
+
+  const statusData = await checkNtsBusinessStatus({ serviceKey: input.serviceKey, bizNo: input.bizNo });
+  const canonicalPayload = statusData as unknown as Record<string, unknown>;
+  try {
+    await repositories.enrichmentCache.put({
+      provider: NTS_CACHE_PROVIDER,
+      bizNo: input.bizNo,
+      scope: NTS_CACHE_SCOPE,
+      rawPayload: canonicalPayload,
+      canonicalPayload,
+      providerResultCode: statusData.b_stt_cd || null,
+      providerResultMessage: statusData.b_stt || null,
+      checkedAt: input.now,
+      fetchedAt: input.now,
+      expiresAt: nextKstMidnight(input.now),
+      payloadHash: hashCanonicalPayload(canonicalPayload),
+    });
+  } catch (error) {
+    console.warn(`국세청 상태 캐시 저장 실패(조회 결과는 사용): ${errorMessage(error)}`);
+  }
+  return statusData;
+}
+
+/** NTS 휴·폐업 상태를 CompanyProfile.business_status에 반영한 새 프로필을 만든다(순수 함수). */
+export function applyNtsStatusToProfile(
+  profile: CompanyProfile,
+  statusData: NtsBusinessStatusData,
+): CompanyProfile {
+  const label = ntsClosedLabel(statusData.b_stt_cd);
+  return {
+    ...profile,
+    business_status: {
+      ...(profile.business_status ?? {}),
+      active: false,
+      label: label ?? profile.business_status?.label ?? "휴·폐업",
+      close_down_state: statusData.b_stt_cd,
+      close_down_tax_type: statusData.tax_type_cd || null,
+    },
+    confidence: {
+      ...(profile.confidence ?? {}),
+      business_status: 0.9,
+    },
+  };
+}
+
+/** NTS 상태코드를 라벨로 매핑한다. "02" 휴업, "03" 폐업, 그 외(01/미등록/빈값)는 null. */
+export function ntsClosedLabel(code: string | null | undefined): "휴업" | "폐업" | null {
+  if (code === "02") return "휴업";
+  if (code === "03") return "폐업";
+  return null;
+}
+
+/** now 시점 기준 Asia/Seoul(UTC+9)의 다음 자정을 UTC Date로 반환한다. */
+export function nextKstMidnight(now: Date): Date {
+  const shifted = now.getTime() + KST_OFFSET_MS;
+  const kstDayStart = Math.floor(shifted / 86_400_000) * 86_400_000;
+  const nextKstDayStart = kstDayStart + 86_400_000;
+  return new Date(nextKstDayStart - KST_OFFSET_MS);
+}
+
+function parseCachedNtsStatus(
+  payload: Record<string, unknown> | null | undefined,
+): NtsBusinessStatusData | null {
+  if (!isRecord(payload)) return null;
+  if (typeof payload.b_no !== "string" || typeof payload.b_stt_cd !== "string") return null;
+  return payload as unknown as NtsBusinessStatusData;
 }
 
 export function buildCompanyEvidence(input: {
@@ -665,8 +819,9 @@ function buildCompanyEvidenceFields(
     {
       key: "industry",
       label: "업종",
-      available: facts?.hasIndustry ?? Boolean(profile.industries?.length),
-      value: profile.industries?.length ? profile.industries.join(", ") : null,
+      available: facts?.hasIndustry ?? Boolean(profile.industries?.length || profile.industry_codes?.length),
+      // 라벨만 표시(코드 나열 제거). 라벨이 없으면 KSIC 코드에서 중분류/대분류 명칭으로 보강.
+      value: industryEvidenceValue(profile),
     },
     {
       key: "business_status",
@@ -678,7 +833,54 @@ function buildCompanyEvidenceFields(
       ),
       value: profile.business_status?.label ?? null,
     },
+    // 팝빌로 확인할 수 없는 매칭 핵심 축. 미확보 시 미입력으로 노출해 사용자 입력을 유도한다.
+    {
+      key: "founder_age",
+      label: "대표자 연령",
+      available: typeof profile.founder_age === "number",
+      value: typeof profile.founder_age === "number" ? `만 ${profile.founder_age}세` : null,
+    },
+    {
+      key: "certification",
+      label: "보유 인증·확인서",
+      available: Boolean(profile.certs?.length),
+      value: profile.certs?.length ? profile.certs.join(", ") : null,
+    },
+    {
+      key: "employees",
+      label: "상시근로자",
+      available: typeof profile.employees_count === "number",
+      value: typeof profile.employees_count === "number"
+        ? `${profile.employees_count.toLocaleString("ko-KR")}명`
+        : null,
+    },
+    {
+      key: "revenue",
+      label: "연 매출",
+      available: typeof profile.revenue_krw === "number",
+      value: formatRevenueKrw(profile.revenue_krw),
+    },
   ];
+}
+
+function industryEvidenceValue(profile: CompanyProfile): string | null {
+  const labels = (profile.industries ?? []).filter((entry) => !isLikelyKsicCode(entry));
+  if (labels.length > 0) return labels.join(", ");
+  for (const code of profile.industry_codes ?? []) {
+    const derived = ksicDivisionLabel(code) ?? ksicSectionLabel(code);
+    if (derived) return derived;
+  }
+  return null;
+}
+
+function formatRevenueKrw(value: number | null | undefined): string | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  if (value >= 100_000_000) {
+    const eok = Math.round((value / 100_000_000) * 10) / 10;
+    return `${eok.toLocaleString("ko-KR")}억원`;
+  }
+  if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만원`;
+  return `${value.toLocaleString("ko-KR")}원`;
 }
 
 function formatBizAgeMonths(value: number | null | undefined): string | null {
@@ -726,6 +928,7 @@ export function mergeCompanyProfilesForEnrichment(current: CompanyProfile, enric
   }
   if (enriched.is_preliminary !== undefined) next.is_preliminary = enriched.is_preliminary;
   if (enriched.industries?.length) next.industries = enriched.industries;
+  if (enriched.industry_codes?.length) next.industry_codes = enriched.industry_codes;
   if (enriched.size) next.size = enriched.size;
   if (enriched.traits?.length) next.traits = enriched.traits;
   if (enriched.certs?.length) next.certs = enriched.certs;
@@ -763,7 +966,8 @@ function parseCachedCompanyEnrichment(
   const parsedFacts = parseCachedCompanyEnrichmentFacts(facts);
   if (!parsedFacts) return null;
   return {
-    profile: profile as CompanyProfile,
+    // 구형 캐시(코드가 industries에 섞인 형식)를 읽을 때 새 형식(라벨/코드 분리)으로 재정규화한다.
+    profile: normalizeCompanyIndustryProfile(profile as CompanyProfile),
     facts: parsedFacts,
   };
 }

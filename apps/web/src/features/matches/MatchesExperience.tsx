@@ -136,7 +136,7 @@ export function MatchesExperience() {
         ) : null}
         {status === "ready" && teaser ? (
           <>
-            <ProfileSection teaser={teaser} />
+            <ProfileSection teaser={teaser} onCollect={saveAndContinue} />
             <ProgramsSection matches={teaser.matches} onPrepare={saveAndContinue} />
           </>
         ) : null}
@@ -163,11 +163,12 @@ function MatchesNav({ onSave }: { onSave: () => void }) {
 
 /* ───────────────────────── 내 사업자 분석 ───────────────────────── */
 
-function ProfileSection({ teaser }: { teaser: TeaserResult }) {
+function ProfileSection({ teaser, onCollect }: { teaser: TeaserResult; onCollect: () => void }) {
   const fields = buildProfileFields(teaser);
   const known = fields.filter((field) => field.available).length;
   const total = fields.length || 1;
   const pct = Math.round((known / total) * 100);
+  const checkedNote = evidenceCheckedNote(teaser.companyEvidence ?? null);
 
   return (
     <section className="grid gap-4">
@@ -179,6 +180,9 @@ function ProfileSection({ teaser }: { teaser: TeaserResult }) {
           <p className="mt-1.5 text-sm text-muted-foreground">
             사업자번호로 불러온 정보를 시스템 표준 조건으로 정규화했어요.
           </p>
+          {checkedNote ? (
+            <p className="mt-1 text-xs text-muted-foreground/80">{checkedNote}</p>
+          ) : null}
         </div>
         <div className="min-w-[240px] max-w-[340px] flex-1">
           <div className="mb-2 flex items-center justify-between text-sm">
@@ -203,19 +207,20 @@ function ProfileSection({ teaser }: { teaser: TeaserResult }) {
               <CardContent className="grid gap-2">
                 <div className="text-xs font-medium text-muted-foreground">{field.label}</div>
                 <div className="text-base font-semibold leading-snug">{field.value}</div>
-                <Badge variant="secondary" className="w-fit">{field.source}</Badge>
               </CardContent>
             </Card>
           ) : (
             <Card key={field.key} size="sm" className="border-dashed bg-muted/30">
-              <CardContent className="grid gap-2">
-                <div className="text-xs font-medium text-muted-foreground">{field.label}</div>
-                <div className="text-base font-semibold text-muted-foreground">미입력</div>
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
-                  <Plus className="size-3" strokeWidth={3} />
-                  입력하기
-                </span>
-              </CardContent>
+              <button type="button" onClick={onCollect} className="w-full cursor-pointer text-left">
+                <CardContent className="grid gap-2">
+                  <div className="text-xs font-medium text-muted-foreground">{field.label}</div>
+                  <div className="text-base font-semibold text-muted-foreground">미입력</div>
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-primary">
+                    <Plus className="size-3" strokeWidth={3} />
+                    입력하기
+                  </span>
+                </CardContent>
+              </button>
             </Card>
           ),
         )}
@@ -276,6 +281,7 @@ function ProgramCard({
   const elig = eligibilityChip(match.eligibility);
   const criteria = match.ruleTrace.filter((chip) => chip.result !== "text_only");
   const passCount = criteria.filter((chip) => chip.result === "pass").length;
+  const unscored = match.criteriaExtracted === false;
 
   return (
     <Card>
@@ -302,15 +308,26 @@ function ProgramCard({
           </div>
           <div className="min-w-[150px] flex-none text-right">
             <div className="mb-0.5 text-xs text-muted-foreground">적합도</div>
-            <div className="text-2xl font-semibold leading-none text-primary tabular-nums">
-              {match.fitScore}%
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-              <span
-                className="block h-full rounded-full bg-primary"
-                style={{ width: `${clampPct(match.fitScore)}%` }}
-              />
-            </div>
+            {unscored ? (
+              <div
+                className="text-2xl font-semibold leading-none text-muted-foreground tabular-nums"
+                title="공고 조건이 아직 구조화되지 않아 적합도를 산정하지 못했어요."
+              >
+                —
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl font-semibold leading-none text-primary tabular-nums">
+                  {match.fitScore}%
+                </div>
+                <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full rounded-full bg-primary"
+                    style={{ width: `${clampPct(match.fitScore)}%` }}
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
         <div className="mt-4 flex items-center justify-between border-t pt-3.5">
@@ -501,15 +518,13 @@ function headerBadge(
 
 function buildProfileFields(
   teaser: TeaserResult,
-): Array<{ key: string; label: string; value: string; source: string; available: boolean }> {
+): Array<{ key: string; label: string; value: string; available: boolean }> {
   const evidenceFields = teaser.companyEvidence?.fields;
   if (evidenceFields && evidenceFields.length > 0) {
-    const providerLabel = teaser.companyEvidence?.provider === "popbill" ? "팝빌 연동" : "조회 결과";
     return evidenceFields.map((field: CompanyEvidenceField) => ({
       key: field.key,
       label: field.label,
       value: field.value ?? "",
-      source: providerLabel,
       available: field.available && Boolean(field.value),
     }));
   }
@@ -520,11 +535,21 @@ function buildProfileFields(
       ? ""
       : `${Math.floor(attr.bizAgeMonths / 12)}년 ${attr.bizAgeMonths % 12}개월`;
   return [
-    { key: "region", label: "소재 지역", value: attr.region ?? "", source: "등록 정보", available: Boolean(attr.region) },
-    { key: "size", label: "기업 규모", value: attr.size ?? "", source: "등록 정보", available: Boolean(attr.size) },
-    { key: "industry", label: "업종", value: attr.industry.join(", "), source: "업종 코드", available: attr.industry.length > 0 },
-    { key: "bizAge", label: "업력", value: ageLabel, source: "개업일 기준", available: attr.bizAgeMonths !== null },
+    { key: "region", label: "소재 지역", value: attr.region ?? "", available: Boolean(attr.region) },
+    { key: "size", label: "기업 규모", value: attr.size ?? "", available: Boolean(attr.size) },
+    { key: "industry", label: "업종", value: attr.industry.join(", "), available: attr.industry.length > 0 },
+    { key: "bizAge", label: "업력", value: ageLabel, available: attr.bizAgeMonths !== null },
   ];
+}
+
+function evidenceCheckedNote(evidence: TeaserResult["companyEvidence"]): string | null {
+  if (!evidence || evidence.provider !== "popbill" || !evidence.checkedAt) return null;
+  const checked = new Date(evidence.checkedAt);
+  if (Number.isNaN(checked.getTime())) return null;
+  const formatted = new Intl.DateTimeFormat("ko-KR", { dateStyle: "medium" }).format(checked);
+  const days = Math.floor((Date.now() - checked.getTime()) / 86_400_000);
+  const staleSuffix = days >= 30 ? ` (${days}일 전)` : "";
+  return `국세청·팝빌 정보 확인일 ${formatted}${staleSuffix}`;
 }
 
 function eligibilityChip(value: Eligibility): { label: string } {

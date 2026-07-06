@@ -43,6 +43,7 @@ interface ConsentListResult {
 }
 
 interface ProfileDraft {
+  founderAge: string;
   revenue: string;
   employees: string;
   targetType: string;
@@ -77,6 +78,7 @@ const NOTIFICATION_FIELDS: Array<{
 const TARGET_TYPE_OPTIONS = ["예비창업자", "개인사업자", "법인", "일반기업", "1인 창조기업", "대학", "연구기관"];
 const TARGET_TYPE_ITEMS = TARGET_TYPE_OPTIONS.map((option) => ({ label: option, value: option }));
 const EMPTY_PROFILE_DRAFT: ProfileDraft = {
+  founderAge: "",
   revenue: "",
   employees: "",
   targetType: "법인",
@@ -458,6 +460,17 @@ export function CompanySettingsPanel() {
           </div>
           <FieldGroup className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             <Field>
+              <FieldLabel htmlFor="manual-founder-age">대표자 연령(만)</FieldLabel>
+              <Input
+                id="manual-founder-age"
+                inputMode="numeric"
+                placeholder="39"
+                value={profileDraft.founderAge}
+                disabled={busyKey === "manual-profile"}
+                onChange={(event) => updateDraft("founderAge", event.currentTarget.value.replace(/\D/g, ""))}
+              />
+            </Field>
+            <Field>
               <FieldLabel htmlFor="manual-revenue">매출</FieldLabel>
               <Input
                 id="manual-revenue"
@@ -573,6 +586,7 @@ function draftFromProfile(profile: CompanyProfile | undefined): ProfileDraft {
   if (!profile) return EMPTY_PROFILE_DRAFT;
   const priorAwards = profile.prior_awards ?? [];
   return {
+    founderAge: numberString(profile.founder_age),
     revenue: numberString(profile.revenue_krw),
     employees: numberString(profile.employees_count),
     targetType: profile.target_types?.[0] ?? EMPTY_PROFILE_DRAFT.targetType,
@@ -585,12 +599,14 @@ function draftFromProfile(profile: CompanyProfile | undefined): ProfileDraft {
 
 function buildProfileUpdates(draft: ProfileDraft): ProfileFieldMutation[] {
   const updates: ProfileFieldMutation[] = [];
+  const founderAge = numberValue(draft.founderAge);
   const revenue = numberValue(draft.revenue);
   const employees = numberValue(draft.employees);
   const certifications = splitList(draft.certifications);
   const ip = splitList(draft.ip);
   const priorAwards = splitList(draft.priorAwards);
 
+  if (founderAge !== null) updates.push({ field: "founder_age", value: founderAge, confidence: 0.78 });
   if (revenue !== null) updates.push({ field: "revenue", value: revenue, confidence: 0.78 });
   if (employees !== null) updates.push({ field: "employees", value: employees, confidence: 0.78 });
   if (draft.targetType) updates.push({ field: "target_type", value: [draft.targetType], confidence: 0.72 });

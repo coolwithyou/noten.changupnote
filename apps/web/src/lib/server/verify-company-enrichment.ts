@@ -22,7 +22,8 @@ const enriched: CompanyProfile = {
   name: "보강 회사",
   region: { code: "41", label: "경기" },
   biz_age_months: 42,
-  industries: ["J62", "정보통신업"],
+  industries: ["정보통신업", "소프트웨어 개발"],
+  industry_codes: ["J62", "62", "J"],
   size: "중소기업",
   business_status: {
     active: true,
@@ -31,7 +32,7 @@ const enriched: CompanyProfile = {
   confidence: {
     region: 0.8,
     biz_age: 0.75,
-    industry: 0.6,
+    industry: 0.7,
     size: 0.65,
     business_status: 0.8,
   },
@@ -44,13 +45,14 @@ assert.equal(merged.name, "보강 회사");
 assert.deepEqual(merged.region, { code: "41", label: "경기" });
 assert.equal(merged.biz_age_months, 42);
 assert.equal(merged.founder_age, 35);
-assert.deepEqual(merged.industries, ["J62", "정보통신업"]);
+assert.deepEqual(merged.industries, ["정보통신업", "소프트웨어 개발"]);
+assert.deepEqual(merged.industry_codes, ["J62", "62", "J"]);
 assert.deepEqual(merged.traits, ["여성기업"]);
 assert.equal(merged.size, "중소기업");
 assert.equal(merged.business_status?.active, true);
 assert.equal(merged.confidence?.founder_age, 0.8);
 assert.equal(merged.confidence?.region, 0.8);
-assert.equal(merged.confidence?.industry, 0.6);
+assert.equal(merged.confidence?.industry, 0.7);
 
 console.log(JSON.stringify({
   ok: true,
