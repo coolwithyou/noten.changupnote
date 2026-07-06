@@ -47,7 +47,7 @@
 > - ⬜ kordoc `fillHwpx()` 스파이크 — filled export 가속 후보. 검증 없이 채택 금지 (Gate 3 이후 실험)
 > - ⬜ confidence 합성 산출 구현 설계 (마스터 13장 정의됨 — 구현은 Gate 3 전)
 > - ⬜ Tier 0 검색(Phase 8)에 contextual retrieval + BM25 하이브리드 반영 (`docs/research/2026-07-02-hitl-loop-sota.md`)
-> - ⬜ **운영 지식 인제스천 후속** — v1(Step 0~2)은 세션 8 완료. 잔여: Step 3 주입 경로(Phase 5 fill planner/draft에 scope 매칭 lesson 주입 — Phase 5 착수 시 함께), Step 4 효과 측정·FAQ 공개. 운영 루틴: 새 보고서 → `pnpm ingest:knowledge -- --file <경로> --write` → `/internal/review/lessons` 검수. 계획: `docs/plans/2026-07-05-ops-knowledge-ingestion.md`
+> - ⬜ **지식 루프 다음 슬라이스 (K1~K4)** — 세션 9 말 한계 평가에서 도출된 작업 큐: K1 노출 텔레메트리(최우선·Step 4 분모) → K2 fieldKey 어휘 정규화(Gate 1 표준 key 사전 재사용) → K3 프로그램 사전 미매칭 경고 → K4 후순위 모음. **착수 문서: `docs/plans/2026-07-06-knowledge-loop-next-session.md`** (트리거 문장 포함). 운영 루틴: 새 보고서 → `/internal/knowledge` 업로드→추출 또는 `pnpm ingest:knowledge` → 인박스 검수. 트랙 정본: `docs/plans/2026-07-05-ops-knowledge-ingestion.md`
 >
 > **다음 세션 진입 가이드 (세션 6~) — 로컬 맥 Claude Code**
 >
