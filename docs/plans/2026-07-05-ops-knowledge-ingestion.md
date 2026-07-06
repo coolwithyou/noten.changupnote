@@ -34,6 +34,26 @@
 > - `/internal/knowledge` — 축적 현황판: 지표 카드(누적/승인/검수 대기/재검토 임박), 12주 축적 추이, target·evidenceTier·program 분포, 원천 문서 목록, 비-lesson 항목(제품 피드백·FAQ 후보·예문) 탭, 재검토 임박 목록
 > - **GUI 인제스천**: 대시보드에서 보고서 업로드(.pdf/.txt/.md, sha256 멱등) → [추출 실행](서버 라우트 `maxDuration=300`, 이중 클릭 방지) → 인박스 검수. CLI(`pnpm ingest:knowledge`)와 같은 추출 코어(`extraction.ts`로 공용화, CLI 회귀 확인)
 > - 집계 계층 `knowledgeDashboardData.ts`, 추출 상태 전이 가드(registered→extracted는 lesson 적재 성공 후에만, 추출됨+lesson 존재 시 409)
+>
+> **✅ K1 — lesson 노출 텔레메트리 (2026-07-06, 커밋 b29007c)** — Step 4 효과 측정의 분모 확보.
+>
+> - `lesson_exposure_events` (0033): lessonId FK restrict·grantId plain uuid·surface('grant_panel'|'field_tip')·anchorLabel. 노출 1회 = 페이지 뷰 1회 raw 기록(중복 제거는 집계에서)
+> - 공고 상세 렌더 시 매칭 결과에서 batch insert(await+try/catch — 실패는 warn, 페이지 무손상). 집계는 `getLessonExposureCounts` SQL group by(최근 30일+전체 동시, 전량 로드 금지)
+> - 대시보드 `ExposurePanel`: **죽은 지식 경보(승인 후 30일 경과 & 노출 0)** + 최근 30일 노출 랭킹 + 소스 행 노출 합계 칩. 실측: 포스트팁스 공고 1뷰 = grant_panel 22 + field_tip 21 이벤트
+>
+> **✅ K2 — scope 어휘 정규화, fieldKey 축 (2026-07-06, 커밋 33daada)** — 문자열 포함 매칭을 Gate 1 표준 key 동등성으로 격상.
+>
+> - `fieldKeyDictionary.ts`: 기준서 §표준 key 사전 15개 스냅샷(정본은 기준서). `LessonScope.fieldKey` 축 추가(jsonb — 마이그레이션 불필요)
+> - 추출 프롬프트 `ops_extract_v2`: 사전 주입 + fieldKey 제안(자유 발명 금지), 서버측 화이트리스트 검증(사전 밖 key는 축만 제거)
+> - 매칭: 양쪽 다 fieldKey 보유 시 **동등성 단독 판정**(불일치 시 문자열 폴백 미하강 — 오탐 재유입 금지), 그 외 fieldPattern 폴백. "직원 수"↔"상시근로자 수" 미탐 해소. 유닛 테스트 `pnpm test:lesson-context`
+> - 백필 `pnpm backfill:lesson-field-keys`(dry-run 기본): 대상 17건 → 3건 반영(매출액→revenue·직원 수→employee_count·사업비 구성→budget_table), 애매 14건 보수적 스킵
+>
+> **✅ K3 — 프로그램 별칭 사전 미매칭 경고 (2026-07-06, 커밋 94e6474)** — GUI 지식 유입 vs 코드 사전의 비대칭을 경고로 드러냄.
+>
+> - `isProgramCoveredByAliases`/`listUncoveredPrograms` (CLI 리포트·extract 라우트 summary·대시보드 공유). 소스 행+인박스 카드 "별칭 사전 미등록" 뱃지
+> - K1 죽은 지식 경보에 사유 연결: 사전 미등록 / 매칭 공고 없음(공고 로드는 죽은 지식 존재 시에만) / 도달 경로 점검 필요
+> - 문구 정정: "노출되지 않음"이 아니라 "표기 변형(한↔영) 매칭 불가, 리터럴 일치에만 의존"(미등록이어도 리터럴 일치는 가능). 합성 보고서(수출바우처)로 발현 실측 후 테스트 데이터 정리
+> - **잔여(K4 후순위)**: reviewBy 경과 노출 강등, 수정-승인 시 curationNote 필수화, 검수 가이드 한 줄("의심스러우면 기각이 정상"), exemplar 소비(Phase 5 L2)·FAQ 공개(Phase 8)
 
 ---
 
