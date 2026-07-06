@@ -14,6 +14,7 @@ import type {
 } from "@cunote/contracts";
 import { REGION_LABELS } from "../kstartup/constants.js";
 import { industryCodeMatches } from "../industry/ksic.js";
+import { certsMatch } from "../certification/certs.js";
 
 export const RULESET_VERSION = "ruleset-kstartup-spine-v1";
 export const SCORING_VERSION = "scoring-fit-v1";
@@ -107,7 +108,7 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
         maxKeys: ["max"],
       });
     case "certification":
-      return evaluateListCriterion(criterion, company.certs, "certs", "인증", isKnownListField(company, "certification"));
+      return evaluateCertification(criterion, company);
     case "founder_trait":
       return evaluateListCriterion(criterion, company.traits, "traits", "대표자 속성", isKnownListField(company, "founder_trait"));
     case "prior_award":
@@ -294,6 +295,54 @@ function toStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
     : [];
+}
+
+/**
+ * 인증 평가 — 공고 요구 인증과 기업 보유 인증을 canonical 교집합(certsMatch)으로 비교한다.
+ * 회사 "여성기업확인서"·"벤처기업, 이노비즈"(자유텍스트) vs 공고 "여성기업"·"벤처기업"(canonical) 을 정합시킨다.
+ * 요구 인증은 여러 키에서 수집해 기존 구조화 형식과 하위호환한다: certs(현행)·certifications(bizinfo 기존)·labels(표기).
+ */
+function evaluateCertification(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+  const value = criterion.value as Record<string, unknown>;
+  const label = "인증";
+  const known = isKnownListField(company, "certification");
+  const companyValues = company.certs ?? [];
+  const required = unique([
+    ...toStringArray(value.certs),
+    ...toStringArray(value.certifications),
+    ...toStringArray(value.labels),
+  ]);
+
+  if (criterion.operator === "exists") {
+    if (companyValues.length === 0 && known) return trace(criterion, "fail", `기업 ${label} 없음`, companyValues);
+    return trace(
+      criterion,
+      companyValues.length > 0 ? "pass" : "unknown",
+      companyValues.length > 0 ? `${label} 보유 확인 - 귀사 ${companyValues.join(", ")}` : `기업 ${label} 입력 필요`,
+      companyValues.length > 0 ? companyValues : undefined,
+    );
+  }
+
+  if (required.length === 0) return trace(criterion, "unknown", `${label} 조건 확인 필요`);
+  if (companyValues.length === 0) {
+    if (!known) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
+    return trace(
+      criterion,
+      criterion.operator === "not_in" || criterion.kind === "exclusion" ? "pass" : "fail",
+      `${label} ${required.join(", ")} - 귀사 해당 없음`,
+      companyValues,
+    );
+  }
+
+  const overlaps = certsMatch(companyValues, required);
+  const matched = criterion.operator === "not_in" ? !overlaps : overlaps;
+  const result = criterion.kind === "exclusion" && criterion.operator !== "not_in" ? !matched : matched;
+  return trace(
+    criterion,
+    result ? "pass" : "fail",
+    `${label} ${required.join(", ")} - 귀사 ${companyValues.join(", ")}`,
+    companyValues,
+  );
 }
 
 function evaluateListCriterion(

@@ -20,9 +20,11 @@
  *     apps/web/src/lib/server/ingestion/renormalize-kstartup-cli.ts --execute --limit=50
  *
  * 옵션:
+ *   --dimension=X   진단/재정규화 대상 축. industry(기본)|certification.
+ *                   industry 는 기존 동작 그대로. certification 은 인증 축 통계/샘플을 산출.
  *   --dry-run       기본값. DB 를 절대 건드리지 않고 통계만 산출한다.
  *   --execute       공고 단위로 재발행(criteria delete+reinsert). --dry-run 과 동시 지정 시 dry-run 우선(안전).
- *   --all           kstartup 전 공고를 대상으로. 미지정 시 industry text_only placeholder 보유 공고만.
+ *   --all           kstartup 전 공고를 대상으로. 미지정 시 해당 축의 text_only placeholder 보유 공고만.
  *   --limit=N       대상 공고 수 상한(샘플 실행/점검용).
  *   --batch=N       DB fetch 배치 크기(기본 500).
  *
@@ -34,6 +36,7 @@ import { resolve as resolvePath } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import {
   buildKStartupCriteria,
+  classifyKStartupCertification,
   classifyKStartupIndustry,
   normalizeKStartupAnnouncement,
   INDUSTRY_ANY_PATTERN,
@@ -50,10 +53,11 @@ loadMonorepoEnv();
 if (hasFlag("help")) {
   console.log(
     [
-      "Usage: renormalize-kstartup-cli [--dry-run] [--execute] [--all] [--limit=N] [--batch=N]",
+      "Usage: renormalize-kstartup-cli [--dimension=industry|certification] [--dry-run] [--execute] [--all] [--limit=N] [--batch=N]",
       "",
       "기본 모드는 dry-run (DB 무변경). --execute 는 검수자 전용.",
-      "--all 미지정 시 industry text_only placeholder 보유 kstartup 공고만 대상.",
+      "--dimension 기본 industry(기존 동작 불변). certification 은 인증 축 진단.",
+      "--all 미지정 시 해당 축의 text_only placeholder 보유 kstartup 공고만 대상.",
     ].join("\n"),
   );
   process.exit(0);
@@ -65,6 +69,14 @@ const all = hasFlag("all");
 // --dump: 구조화/전업종/가드발화 후보의 전체 레코드(캡 없음, 신청대상 원문 포함)를
 // .renorm-analysis/ 에 JSONL 로 덤프한다. 로컬 정밀도 분석 전용(커밋 대상 아님).
 const dump = hasFlag("dump");
+// --dimension: 재정규화/진단 대상 축. 기본 industry(기존 동작 불변). certification 추가.
+const dimension = ((): "industry" | "certification" => {
+  const raw = readArg("dimension") ?? "industry";
+  if (raw !== "industry" && raw !== "certification") {
+    throw new Error(`Invalid --dimension=${raw}. Use industry|certification.`);
+  }
+  return raw;
+})();
 const limit = readNumberArg("limit");
 const batchSize = boundedInteger(readArg("batch"), 500, 1, 2_000);
 
@@ -143,7 +155,7 @@ const dumpGuardFired: DumpStructured[] = [];
 let targetGrantCount = 0;
 let processed = 0;
 let unprocessable = 0; // grant_raw payload 미보유
-let placeholderSubjects = 0; // 기존에 industry text_only placeholder 를 가졌던 공고
+let placeholderSubjects = 0; // 기존에 대상 축의 text_only placeholder 를 가졌던 공고
 let nonPlaceholderProcessed = 0; // --all 에서 placeholder 가 없던 공고
 let nationwideRemoved = 0; // ① 전업종 감지 → placeholder 제거
 let ruleStructured = 0; // ② 명시 룰 구조화(operator "in")
@@ -154,6 +166,25 @@ let criteriaBefore = 0;
 let criteriaAfter = 0;
 let published = 0;
 let failed = 0;
+
+// ── 인증(certification) 축 누산기 ──────────────────────────────────
+interface CertSample {
+  sourceId: string;
+  title: string;
+  outcome: "required" | "preferred";
+  certs: string[];
+  span: string;
+}
+let certRequired = 0; // 긍정 보유요건 → required 구조화
+let certPreferred = 0; // 우대·가점 → preferred 구조화
+let certPlaceholderRetained = 0; // placeholder 잔존(text_only)
+let certGuardFired = 0; // 인증 키워드 매치됐으나 구조화 차단(제외/애매)
+let certPlainPlaceholder = 0; // 인증 canonical 미매치(특허/연구소시설 등)
+const certByCanonical: Record<string, number> = {};
+const certByCanonicalPreferred: Record<string, number> = {};
+const certSamples: CertSample[] = [];
+const dumpCertStructured: Array<CertSample & { applyText: string; exclText: string; rawApply: string; rawExcl: string }> = [];
+const dumpCertGuard: Array<{ sourceId: string; title: string; matchedCert: string | null; span: string; applyText: string; exclText: string; rawApply: string; rawExcl: string }> = [];
 
 function bump(map: Record<string, number>, key: string): void {
   map[key] = (map[key] ?? 0) + 1;
@@ -187,7 +218,7 @@ try {
     .where(eq(schema.sourceCursor.source, "kstartup"));
   const preservedLastPage = cursor?.lastPage ?? 1;
 
-  const targetIds = await loadTargetGrantIds(db, all);
+  const targetIds = await loadTargetGrantIds(db, all, dimension);
   targetGrantCount = targetIds.length;
   const scopedIds = typeof limit === "number" ? targetIds.slice(0, limit) : targetIds;
 
@@ -236,7 +267,7 @@ try {
       const oldCriteria = critByGrant.get(row.id) ?? [];
       const newCriteria = buildKStartupCriteria(ann);
       const oldHadTextOnly = oldCriteria.some(
-        (c) => c.dimension === "industry" && c.operator === "text_only",
+        (c) => c.dimension === dimension && c.operator === "text_only",
       );
 
       processed++;
@@ -247,7 +278,10 @@ try {
 
       const newIndustry = newCriteria.find((c) => c.dimension === "industry");
 
-      if (oldHadTextOnly) {
+      if (oldHadTextOnly && dimension === "certification") {
+        placeholderSubjects++;
+        analyzeCertification(row, ann, newCriteria);
+      } else if (oldHadTextOnly && dimension === "industry") {
         placeholderSubjects++;
         if (!newIndustry) {
           // ① 전업종/업종무관 감지 → placeholder 미생성
@@ -354,6 +388,7 @@ try {
 
   const summary = {
     mode,
+    dimension,
     all,
     ...(typeof limit === "number" ? { limit } : {}),
     batchSize,
@@ -362,24 +397,38 @@ try {
     unprocessable,
     placeholderSubjects,
     ...(all ? { nonPlaceholderProcessed } : {}),
-    industry: {
-      nationwideRemoved,
-      ruleStructured,
-      placeholderRetained,
-      ruleBreakdown,
-      guardFired,
-      plainPlaceholder,
-    },
+    ...(dimension === "industry"
+      ? {
+          industry: {
+            nationwideRemoved,
+            ruleStructured,
+            placeholderRetained,
+            ruleBreakdown,
+            guardFired,
+            plainPlaceholder,
+          },
+        }
+      : {
+          certification: {
+            required: certRequired,
+            preferred: certPreferred,
+            placeholderRetained: certPlaceholderRetained,
+            guardFired: certGuardFired,
+            plainPlaceholder: certPlainPlaceholder,
+            byCanonicalRequired: certByCanonical,
+            byCanonicalPreferred: certByCanonicalPreferred,
+          },
+        }),
     criteriaTotals: {
       before: criteriaBefore,
       after: criteriaAfter,
       delta: criteriaAfter - criteriaBefore,
     },
     dimensionTotals: dimensionTotalsReport(),
-    samples: {
-      structured: structuredSamples,
-      nationwide: nationwideSamples,
-    },
+    samples:
+      dimension === "industry"
+        ? { structured: structuredSamples, nationwide: nationwideSamples }
+        : { certification: certSamples },
     ...(mode === "execute"
       ? {
           execute: {
@@ -398,12 +447,20 @@ try {
     const dir = resolvePath(process.cwd(), "apps/web/src/lib/server/ingestion/.renorm-analysis");
     mkdirSync(dir, { recursive: true });
     const toJsonl = (rows: unknown[]) => rows.map((r) => JSON.stringify(r)).join("\n") + "\n";
-    writeFileSync(resolvePath(dir, "structured.jsonl"), toJsonl(dumpStructured), "utf8");
-    writeFileSync(resolvePath(dir, "nationwide.jsonl"), toJsonl(dumpNationwide), "utf8");
-    writeFileSync(resolvePath(dir, "guard-fired.jsonl"), toJsonl(dumpGuardFired), "utf8");
-    console.error(
-      `[renormalize-kstartup] dump 저장: structured=${dumpStructured.length} nationwide=${dumpNationwide.length} guardFired=${dumpGuardFired.length} → ${dir}`,
-    );
+    if (dimension === "certification") {
+      writeFileSync(resolvePath(dir, "cert-structured.jsonl"), toJsonl(dumpCertStructured), "utf8");
+      writeFileSync(resolvePath(dir, "cert-guard-fired.jsonl"), toJsonl(dumpCertGuard), "utf8");
+      console.error(
+        `[renormalize-kstartup] dump 저장(certification): structured=${dumpCertStructured.length} guardFired=${dumpCertGuard.length} → ${dir}`,
+      );
+    } else {
+      writeFileSync(resolvePath(dir, "structured.jsonl"), toJsonl(dumpStructured), "utf8");
+      writeFileSync(resolvePath(dir, "nationwide.jsonl"), toJsonl(dumpNationwide), "utf8");
+      writeFileSync(resolvePath(dir, "guard-fired.jsonl"), toJsonl(dumpGuardFired), "utf8");
+      console.error(
+        `[renormalize-kstartup] dump 저장: structured=${dumpStructured.length} nationwide=${dumpNationwide.length} guardFired=${dumpGuardFired.length} → ${dir}`,
+      );
+    }
   }
 } finally {
   await closeCunoteDb();
@@ -415,6 +472,7 @@ try {
 async function loadTargetGrantIds(
   database: ReturnType<typeof getCunoteDb>,
   allGrants: boolean,
+  targetDimension: "industry" | "certification",
 ): Promise<string[]> {
   if (allGrants) {
     const rows = await database
@@ -431,12 +489,88 @@ async function loadTargetGrantIds(
     .where(
       and(
         eq(schema.grants.source, "kstartup"),
-        eq(schema.grantCriteria.dimension, "industry"),
+        eq(schema.grantCriteria.dimension, targetDimension),
         eq(schema.grantCriteria.operator, "text_only"),
       ),
     )
     .orderBy(schema.grants.id);
   return rows.map((r) => r.id);
+}
+
+// 인증 축 분석 — 재발행된 새 criteria 의 certification 결과를 분류/집계한다.
+// 진단 단일 원천은 classifyKStartupCertification(normalize.ts). placeholder 세부는 그 matchedCert 로 구분.
+function analyzeCertification(
+  row: { sourceId: string; title: string },
+  ann: KStartupAnnouncement,
+  newCriteria: ReturnType<typeof buildKStartupCriteria>,
+): void {
+  const cert = newCriteria.find((c) => c.dimension === "certification");
+  if (!cert) return; // 인증 힌트 소실(거의 없음) — 구조화도 placeholder도 아님
+
+  if (cert.operator === "in" && cert.kind === "required") {
+    certRequired++;
+    const certs = (cert.value as { certs?: string[] }).certs ?? [];
+    for (const c of certs) bump(certByCanonical, c);
+    pushCertSample(row, "required", certs, cert.source_span ?? "");
+    if (dump) pushCertDump(row, ann, "required", certs, cert.source_span ?? "");
+  } else if (cert.operator === "in" && cert.kind === "preferred") {
+    certPreferred++;
+    const certs = (cert.value as { certs?: string[] }).certs ?? [];
+    for (const c of certs) bump(certByCanonicalPreferred, c);
+    pushCertSample(row, "preferred", certs, cert.source_span ?? "");
+    if (dump) pushCertDump(row, ann, "preferred", certs, cert.source_span ?? "");
+  } else {
+    // placeholder(text_only) 잔존 — matchedCert 유무로 가드발화/순수 구분.
+    certPlaceholderRetained++;
+    const classification = classifyKStartupCertification(ann);
+    if (classification.matchedCert) {
+      certGuardFired++;
+      if (dump) {
+        dumpCertGuard.push({
+          sourceId: row.sourceId,
+          title: row.title,
+          matchedCert: classification.matchedCert,
+          span: classification.span ?? "",
+          applyText: clean(ann.aply_trgt_ctnt),
+          exclText: clean(ann.aply_excl_trgt_ctnt),
+          rawApply: ann.aply_trgt_ctnt ?? "",
+          rawExcl: ann.aply_excl_trgt_ctnt ?? "",
+        });
+      }
+    } else {
+      certPlainPlaceholder++;
+    }
+  }
+}
+
+function pushCertSample(
+  row: { sourceId: string; title: string },
+  outcome: "required" | "preferred",
+  certs: string[],
+  span: string,
+): void {
+  if (certSamples.length >= 15) return;
+  certSamples.push({ sourceId: row.sourceId, title: row.title, outcome, certs, span });
+}
+
+function pushCertDump(
+  row: { sourceId: string; title: string },
+  ann: KStartupAnnouncement,
+  outcome: "required" | "preferred",
+  certs: string[],
+  span: string,
+): void {
+  dumpCertStructured.push({
+    sourceId: row.sourceId,
+    title: row.title,
+    outcome,
+    certs,
+    span,
+    applyText: clean(ann.aply_trgt_ctnt),
+    exclText: clean(ann.aply_excl_trgt_ctnt),
+    rawApply: ann.aply_trgt_ctnt ?? "",
+    rawExcl: ann.aply_excl_trgt_ctnt ?? "",
+  });
 }
 
 function dimensionTotalsReport(): Record<string, { before: number; after: number; delta: number }> {

@@ -17,6 +17,7 @@ import {
   TEXT_HINTS,
 } from "./constants.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
+import { extractCerts, findCertMatches, type CanonicalCert } from "../certification/certs.js";
 import { parseKStartupDate, statusFromApplyWindow } from "./date.js";
 import type {
   KStartupAnnouncement,
@@ -414,6 +415,112 @@ export function classifyKStartupIndustry(row: KStartupAnnouncement): IndustryCla
   };
 }
 
+// ── 인증(certification) 축 분류 — 정밀도 우선 ────────────────────────────────
+// 원칙(업종 축과 동일): required-IN 은 "확실히 긍정·인증 보유 요건" 문맥일 때만.
+// 우대·가점은 버리지 않고 preferred 로 구조화한다(하드 탈락 없음 → 안전). 애매하면 placeholder 유지.
+//
+// 실측 코퍼스에서 TEXT_HINTS.certification 은 매우 시끄럽다:
+//   ① "연구소" 시설 언급(본사·지사·연구소 中 택일) — 인증이 아님 → certs 사전이 "부설"을 요구해 회피
+//   ② "특허/실용신안/지식재산/품종보호권" — IP 축 → certs 사전 비대상 → placeholder 유지
+//   ③ "벤처기업 등" 느슨한 나열(대상 예시) — required 위험 → placeholder
+//   ④ "제조업 영위기업, 기업부설연구소 설치·운영" 같은 이질 OR 나열 — required 로 오인 금지
+
+// 우대·가점 문맥 — preferred 로 구조화한다(하드 탈락 없음 → 안전).
+const CERT_PREFERRED_PATTERN = /우대|가점|가산|우선\s*(?:선발|선정|지원|모집|대상|권)|우선순위/;
+// 제외/부정 문맥 — 구조화하지 않고 placeholder 유지.
+const CERT_NEGATIVE_PATTERN = /제외|제한|불가|불허|해당\s*없|아닌|없는|불가능|미보유|없어야|없을|비해당|않은/;
+// 지향/준비 문맥 — 아직 인증이 없는 대상(요구가 아니라 목표). required 로 오인 금지.
+//   예: "벤처확인 인증을 준비", "벤처확인인증을 목표로", "재확인 준비", "인증에 관심", "벤처인증 예상".
+const CERT_ASPIRATIONAL_PATTERN = /준비|도전|목표|재확인|재도전|받고자|받으려|취득\s*예정|발급\s*예정|예상|미인증|희망|관심|받지\s*않은/;
+// 예외·대체 문맥 — 인증이 있으면 다른 조건을 면제/대체한다는 뜻(모두에게 요구하는 게 아님). required 오인 금지.
+//   예: "벤처기업확인서 제출시 업력 무관", "여성기업 확인증으로 대체 가능".
+const CERT_EXEMPTION_PATTERN = /업력\s*무관|업력\s*관계\s*없|대체\s*(?:가능|함|제출|하여|해)|제출기업시|면제/;
+// 인증 요구 명사(키워드 근접 윈도) — status 인증(벤처·이노비즈 등)의 핵심 판별자.
+const CERT_REQUIRE_NOUN = /확인서|인증서|인증|지정서|지정/;
+// 부설연구소·전담부서(시설형 인증)의 보유 서술어.
+const CERT_FACILITY_VERB = /보유|소지|설치[·\s]*운영|운영\s*중/;
+// 자격 게이트임을 뜻하는 주체/한정어.
+const CERT_SUBJECT = /기업|기관|사업자|법인|단체|대상|자로|자에|필수|필요|증빙|한(?:함|정)|만\s*신청|에\s*한(?:함|정)/;
+// 대안 자격(인증이 없어도 되는 OR 나열)을 잇는 접속·나열 신호.
+const CERT_ALT_CONNECTOR = /또는|이거나|거나|및|[,·/]|중\s*(?:1|하나|한|1곳|1개)/;
+// 인증과 함께 나열되는 "인증이 아닌 대안 자격" 토큰 — 이게 접속과 함께 있으면 인증은 필수요건이 아님.
+const CERT_ALT_TOKEN =
+  /예비\s*창업|창업자|창업\s*기업|중소기업확인서|소상공인확인서|본사|본점|지점|지사|공장|주사무소|등록공장|사무소|아이디어|상시\s*근로자|\d+\s*인\s*이상/;
+
+// 시설형(부설연구소·전담부서)과 status 인증을 구분.
+function isFacilityCert(canonical: CanonicalCert): boolean {
+  return canonical === "기업부설연구소" || canonical === "연구개발전담부서";
+}
+
+// 세그먼트 하나가 특정 인증 매치에 대해 "보유 필수" 긍정 템플릿인지.
+function isPositiveCertRequirement(seg: string, match: { index: number; text: string; canonical: CanonicalCert }): boolean {
+  const end = match.index + match.text.length;
+  const after = seg.slice(end, end + 12);
+  if (/^\s*등/.test(after)) return false; // "…기업 등"(느슨한 나열)
+  if (/등\s*을?\s*(?:받|보유|갖|해당)/.test(seg)) return false; // "…등을 받은"(비배타 나열)
+  if (/(?:보유|설치[·\s]*운영)\s*등/.test(seg)) return false; // "…보유 등"(비배타 나열)
+  if (/(?:인증서?|확인서)\s*등/.test(seg)) return false; // "인증서 등"(예시 나열)
+  if (seg.trim().endsWith("등") && CERT_ALT_CONNECTOR.test(seg)) return false; // 나열 후 트레일링 '등'
+  // 요구 신호: status 인증은 인증 명사, 시설형은 보유 서술어(또는 인증 명사)를 키워드 근접에서 요구.
+  const signal = isFacilityCert(match.canonical)
+    ? CERT_REQUIRE_NOUN.test(after) || CERT_FACILITY_VERB.test(after)
+    : CERT_REQUIRE_NOUN.test(after);
+  if (!signal) return false;
+  // 대안 자격 OR 나열(예비창업자·본점/공장·중소기업확인서 등)과 접속되면 인증은 필수요건이 아님.
+  if (CERT_ALT_CONNECTOR.test(seg) && CERT_ALT_TOKEN.test(seg)) return false;
+  return CERT_SUBJECT.test(seg.slice(match.index)); // 주체/한정어로 자격 게이트 확인
+}
+
+export type CertOutcome = "required" | "preferred" | "placeholder" | "none";
+export interface CertClassification {
+  outcome: CertOutcome;
+  /** required/preferred 일 때의 canonical 인증(교집합 매칭 대상). */
+  certs?: CanonicalCert[];
+  /** 원문 표기(표시/근거용). */
+  labels?: string[];
+  span?: string;
+  /** placeholder 인데 인증 키워드는 매치된 경우의 canonical. 진단용(가드 발화 구분). */
+  matchedCert?: CanonicalCert | null;
+}
+
+// 인증 축 분류의 단일 원천. buildScopedTextCriteria 와 진단 CLI 가 함께 사용한다.
+// 탐지는 신청대상 원문(aply_trgt_ctnt)에만 실행한다(제외대상의 "…제외" 역전 방지).
+export function classifyKStartupCertification(row: KStartupAnnouncement): CertClassification {
+  const combined = [row.aply_trgt_ctnt, row.aply_excl_trgt_ctnt].map(clean).filter(Boolean).join("\n");
+  if (!combined || !TEXT_HINTS.certification.test(combined)) return { outcome: "none" };
+
+  const segments = segmentText(row.aply_trgt_ctnt ?? "");
+  let matchedCert: CanonicalCert | null = null;
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (!seg) continue;
+    const matches = findCertMatches(seg);
+    if (matches.length === 0) continue;
+    if (matchedCert === null) matchedCert = matches[0]?.canonical ?? null;
+    const window = [segments[i - 1], seg].filter(Boolean).join(" ");
+    if (CERT_NEGATIVE_PATTERN.test(window)) continue; // 제외/부정 → placeholder
+    const certs = extractCerts(seg);
+    const labels = matches.map((m) => m.text.trim());
+    if (CERT_PREFERRED_PATTERN.test(window)) {
+      // 우대·가점 우선(같은 세그먼트에 요구 신호가 있어도 안전한 preferred 로 처리).
+      return { outcome: "preferred", certs, labels, span: seg };
+    }
+    // 지향/준비·예외/대체 문맥은 required 로 오인하지 않는다(인증 미보유 대상 또는 조건 면제).
+    if (
+      !CERT_ASPIRATIONAL_PATTERN.test(window) &&
+      !CERT_EXEMPTION_PATTERN.test(window) &&
+      matches.some((m) => isPositiveCertRequirement(seg, m))
+    ) {
+      return { outcome: "required", certs, labels, span: seg };
+    }
+  }
+  return {
+    outcome: "placeholder",
+    span: firstSentenceWith(combined, TEXT_HINTS.certification),
+    matchedCert,
+  };
+}
+
 function buildScopedTextCriteria(
   row: KStartupAnnouncement,
   sourceId: string,
@@ -471,7 +578,24 @@ function buildScopedTextCriteria(
   }
   // outcome "any"(전업종) | "none"(업종 힌트 없음) → 업종 criterion 없음
 
-  if (TEXT_HINTS.certification.test(text)) {
+  // 인증 축 — 정밀도 우선 분류(긍정 보유요건=required / 우대·가점=preferred / 그 외=placeholder).
+  const cert = classifyKStartupCertification(row);
+  if (cert.outcome === "required" || cert.outcome === "preferred") {
+    // 룰 기반 구조화 — 검수 전이므로 confidence 0.6, needs_review 유지(확정 취급 금지).
+    // value 는 기존 구조화 형식과 호환: certs(match.ts 주키)·certifications(bizinfo 기존키)·labels(표기).
+    const certs = cert.certs ?? [];
+    criteria.push(makeCriterion(sourceId, cert.outcome === "required" ? "certification-rule" : "certification-preferred", {
+      dimension: "certification",
+      operator: "in",
+      kind: cert.outcome,
+      value: { certs, certifications: certs, labels: cert.labels ?? [] },
+      confidence: 0.6,
+      source_field: "aply_trgt_ctnt",
+      source_span: cert.span ?? "",
+      raw_text: text,
+      needs_review: true,
+    }));
+  } else if (cert.outcome === "placeholder") {
     criteria.push(makeCriterion(sourceId, "certification-text", {
       dimension: "certification",
       operator: "text_only",
@@ -479,11 +603,12 @@ function buildScopedTextCriteria(
       value: { note: "인증/특허/연구소 보유 조건 확인 필요" },
       confidence: 0.5,
       source_field: "aply_trgt_ctnt",
-      source_span: firstSentenceWith(text, TEXT_HINTS.certification),
+      source_span: cert.span ?? firstSentenceWith(text, TEXT_HINTS.certification),
       raw_text: text,
       needs_review: true,
     }));
   }
+  // outcome "none"(인증 힌트 없음) → 인증 criterion 없음
 
   if (TEXT_HINTS.priorAwardOrBadStanding.test(clean(row.aply_excl_trgt_ctnt))) {
     criteria.push(makeCriterion(sourceId, "exclusion-text", {

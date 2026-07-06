@@ -5,6 +5,7 @@ import {
   buildApplySheet,
   buildDashboard,
   checkNtsBusinessStatus,
+  checkSmppCertificates,
   deriveGrantBenefits,
   fetchKStartupPage,
   normalizeKStartupPayload,
@@ -31,7 +32,7 @@ import type {
   NormalizedGrant,
 } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
-import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusData } from "@cunote/core";
+import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
@@ -45,6 +46,12 @@ const ENRICHMENT_CACHE_TTL_HOURS_ENV = "CUNOTE_POPBILL_CACHE_TTL_HOURS";
 const NTS_SERVICE_KEY_ENV = "CUNOTE_NTS_SERVICE_KEY";
 const NTS_CACHE_PROVIDER = "nts";
 const NTS_CACHE_SCOPE = "status";
+// 공공구매종합정보망(SMPP) 여성/장애인 확인서 조회. 팝빌·국세청에 없는 정보라 캐시 히트·라이브 양쪽 경로 모두에 겹친다.
+// 확인서는 연 단위 유효하지만 신규 취득을 30일 내에 감지하기 위해 30일 캐시로 둔다.
+const SMPP_SERVICE_KEY_ENV = "CUNOTE_SMPP_SERVICE_KEY";
+const SMPP_CACHE_PROVIDER = "smpp";
+const SMPP_CACHE_SCOPE = "certs";
+const SMPP_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 // 팝빌 조회는 사업자당 과금이므로 기본 30일 동안 DB 캐시를 재사용한다.
 // 30일이 지나면 다음 조회 시 팝빌을 1회 다시 호출해 최신 상태(휴·폐업/주소 변경 등)로 갱신한다.
@@ -359,6 +366,18 @@ async function fetchPopbillCompanyProfile(input: {
   asOf: Date;
   now: Date;
 }): Promise<PopbillCompanyResolution> {
+  // 팝빌 해석(캐시 히트·라이브 어느 경로든)을 마친 뒤, 공통 후처리로 SMPP 확인서 보강을 겹친다.
+  // SMPP 정보는 팝빌에 아예 없으므로 NTS(캐시 히트 한정)와 달리 두 경로 모두 적용한다.
+  const base = await resolvePopbillCompanyResolution(input);
+  return applySmppCertificates({ bizNo: input.bizNo, now: input.now, resolution: base });
+}
+
+async function resolvePopbillCompanyResolution(input: {
+  bizNo: string;
+  credentials: PopbillCredentials;
+  asOf: Date;
+  now: Date;
+}): Promise<PopbillCompanyResolution> {
   // 가드 1: 캐시가 영속 저장되는 DB(drizzle) 어댑터가 아니면(=in-memory) 매 조회가 과금되므로 팝빌 호출을 차단한다.
   if (getRepositoryAdapterName() !== "drizzle") {
     throw new ServiceDataError(
@@ -615,6 +634,188 @@ function parseCachedNtsStatus(
   if (!isRecord(payload)) return null;
   if (typeof payload.b_no !== "string" || typeof payload.b_stt_cd !== "string") return null;
   return payload as unknown as NtsBusinessStatusData;
+}
+
+/**
+ * 공공구매종합정보망(SMPP) 여성/장애인 확인서를 팝빌 해석 결과에 겹친다(캐시 히트·라이브 공통 후처리).
+ * - CUNOTE_SMPP_SERVICE_KEY 미설정: 조용히 skip.
+ * - SMPP 오류/타임아웃: warn 후 기존 결과 유지(fail-open).
+ * - positive-only: 보유(00)만 프로필에 반영하고, 미보유(90)는 아무것도 바꾸지 않는다.
+ */
+async function applySmppCertificates(input: {
+  bizNo: string;
+  now: Date;
+  resolution: PopbillCompanyResolution;
+}): Promise<PopbillCompanyResolution> {
+  const serviceKey = process.env[SMPP_SERVICE_KEY_ENV]?.trim();
+  if (!serviceKey) return input.resolution;
+
+  let certs: SmppCertificates | null;
+  try {
+    certs = await resolveSmppCertificates({ serviceKey, bizNo: input.bizNo, now: input.now });
+  } catch (error) {
+    console.warn(`공공구매종합정보망 확인서 조회 실패(기존 결과 유지): ${errorMessage(error)}`);
+    return input.resolution;
+  }
+  if (!certs) return input.resolution;
+
+  const { profile, addedLabels } = applySmppCertificatesToProfile(input.resolution.profile, certs);
+  // positive-only: 보유 확인서가 하나도 없으면 프로필/근거를 건드리지 않는다.
+  if (addedLabels.length === 0) return input.resolution;
+
+  const summary = `공공구매종합정보망에서 ${addedLabels.join(", ")}를 확인했습니다.`;
+  return {
+    profile,
+    facts: input.resolution.facts,
+    evidence: appendSmppEvidence(input.resolution.evidence, profile, input.resolution.facts, summary),
+  };
+}
+
+/**
+ * SMPP 확인서를 30일 캐시로 조회한다. 캐시 히트면 API 미호출, 만료되면 재호출.
+ * 미보유(both false) 결과도 캐시해 30일간 재조회를 막는다. 캐시 저장 실패는 warn 후 결과는 사용.
+ */
+async function resolveSmppCertificates(input: {
+  serviceKey: string;
+  bizNo: string;
+  now: Date;
+}): Promise<SmppCertificates | null> {
+  let cached: Awaited<ReturnType<typeof repositories.enrichmentCache.getFresh>> = null;
+  try {
+    cached = await repositories.enrichmentCache.getFresh({
+      provider: SMPP_CACHE_PROVIDER,
+      bizNo: input.bizNo,
+      scope: SMPP_CACHE_SCOPE,
+      now: input.now,
+    });
+  } catch (error) {
+    // 무과금 API이므로 캐시 조회 실패 시에도 원격 조회로 진행한다.
+    console.warn(`공공구매종합정보망 캐시 조회 실패(원격 조회로 진행): ${errorMessage(error)}`);
+  }
+  const cachedCerts = parseCachedSmppCertificates(cached?.canonicalPayload);
+  if (cachedCerts) return cachedCerts;
+
+  const certs = await checkSmppCertificates({
+    serviceKey: input.serviceKey,
+    bizNo: input.bizNo,
+    stdrDate: kstDateCompact(input.now),
+  });
+  const canonicalPayload = certs as unknown as Record<string, unknown>;
+  try {
+    await repositories.enrichmentCache.put({
+      provider: SMPP_CACHE_PROVIDER,
+      bizNo: input.bizNo,
+      scope: SMPP_CACHE_SCOPE,
+      rawPayload: canonicalPayload,
+      canonicalPayload,
+      providerResultCode: smppHeldCode(certs),
+      providerResultMessage: null,
+      checkedAt: input.now,
+      fetchedAt: input.now,
+      expiresAt: new Date(input.now.getTime() + SMPP_CACHE_TTL_MS),
+      payloadHash: hashCanonicalPayload(canonicalPayload),
+    });
+  } catch (error) {
+    console.warn(`공공구매종합정보망 캐시 저장 실패(조회 결과는 사용): ${errorMessage(error)}`);
+  }
+  return certs;
+}
+
+/**
+ * SMPP 확인서 보유(positive)만 CompanyProfile에 반영한 새 프로필을 만든다(순수 함수).
+ * - 여성기업 보유 → certs "여성기업확인서"(중복 방지 union), traits "여성기업".
+ * - 장애인기업 보유 → certs "장애인기업확인서", traits "장애인기업".
+ * - 보유가 하나라도 있으면 confidence.founder_trait = max(기존, 0.9).
+ * - certification 축은 절대 known 처리하지 않는다(SMPP는 여성/장애인만 커버 → 벤처·이노비즈 오탈락 방지).
+ * addedLabels: 이번에 보유로 확인된 확인서 라벨(요약/근거용).
+ */
+export function applySmppCertificatesToProfile(
+  profile: CompanyProfile,
+  certs: SmppCertificates,
+): { profile: CompanyProfile; addedLabels: string[] } {
+  const certLabels: string[] = [];
+  const traitLabels: string[] = [];
+  if (certs.women?.held) {
+    certLabels.push("여성기업확인서");
+    traitLabels.push("여성기업");
+  }
+  if (certs.disabled?.held) {
+    certLabels.push("장애인기업확인서");
+    traitLabels.push("장애인기업");
+  }
+  if (certLabels.length === 0) {
+    // positive-only: 미보유는 known으로 마킹하지 않는다(확인서 미신청 기업 존재).
+    return { profile, addedLabels: [] };
+  }
+
+  return {
+    profile: {
+      ...profile,
+      certs: unionStrings(profile.certs, certLabels),
+      traits: unionStrings(profile.traits, traitLabels),
+      confidence: {
+        ...(profile.confidence ?? {}),
+        // founder_trait만 known 처리한다. certification은 의도적으로 설정하지 않는다.
+        founder_trait: Math.max(profile.confidence?.founder_trait ?? 0, 0.9),
+      },
+    },
+    addedLabels: certLabels,
+  };
+}
+
+/** 기존 근거를 보존하되 새 프로필로 fields(보유 인증·확인서 등)를 재계산하고 SMPP 문구를 요약에 덧붙인다. */
+function appendSmppEvidence(
+  evidence: CompanyEvidence,
+  profile: CompanyProfile,
+  facts: CompanyEnrichmentFacts | undefined,
+  summary: string,
+): CompanyEvidence {
+  return {
+    ...evidence,
+    fields: buildCompanyEvidenceFields(profile, facts),
+    summary: `${evidence.summary} ${summary}`.trim(),
+  };
+}
+
+function smppHeldCode(certs: SmppCertificates): string {
+  const parts: string[] = [];
+  if (certs.women?.held) parts.push("F");
+  if (certs.disabled?.held) parts.push("D");
+  return parts.length > 0 ? parts.join("") : "none";
+}
+
+/** now 시점을 Asia/Seoul(UTC+9) 달력일 YYYYMMDD 문자열로 만든다. */
+function kstDateCompact(now: Date): string {
+  const shifted = new Date(now.getTime() + KST_OFFSET_MS);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${year}${month}${day}`;
+}
+
+function unionStrings(existing: string[] | undefined, additions: string[]): string[] {
+  const result = [...(existing ?? [])];
+  for (const value of additions) {
+    if (!result.includes(value)) result.push(value);
+  }
+  return result;
+}
+
+function parseCachedSmppCertificates(
+  payload: Record<string, unknown> | null | undefined,
+): SmppCertificates | null {
+  if (!isRecord(payload)) return null;
+  if (!("women" in payload) || !("disabled" in payload)) return null;
+  return {
+    women: parseCachedSmppCertResult(payload.women),
+    disabled: parseCachedSmppCertResult(payload.disabled),
+  };
+}
+
+function parseCachedSmppCertResult(value: unknown): SmppCertificates["women"] {
+  if (!isRecord(value)) return null;
+  if (typeof value.held !== "boolean") return null;
+  return value as unknown as NonNullable<SmppCertificates["women"]>;
 }
 
 export function buildCompanyEvidence(input: {
