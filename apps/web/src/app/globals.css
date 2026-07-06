@@ -8777,6 +8777,11 @@ label {
 @media (max-width: 760px) {
   .lp-nav-links { display: none !important; }
 }
+@media (max-width: 520px) {
+  .lp-primary-cta { display: none !important; }
+  .lp-nav-actions [data-slot="avatar"] { width: 1.75rem; height: 1.75rem; }
+  .lp-nav-actions .group\/account { max-width: 11rem; }
+}
 
 /* 매칭 결과(/matches) — 콤마 포함 값 격리(Turbopack+Tailwind v4 회피). [var(--m-*)]로 참조. */
 .cunote-matches {

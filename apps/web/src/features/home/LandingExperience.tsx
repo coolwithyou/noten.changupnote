@@ -3,6 +3,7 @@
 import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { LandingGrantData, TeaserRequest } from "@cunote/contracts";
+import { AccountMenu } from "@/components/app/account-menu";
 import { normalizeBusinessLookupBizNo, type BusinessLookupSuggestion } from "@/lib/businessLookupSuggestions";
 import {
   fetchBusinessLookupSuggestions,
@@ -47,6 +48,7 @@ const NOISE_BG =
 const GRAD_BTN = "linear-gradient(180deg,#4790ff,#3182f6)";
 const GRAD_TEXT = "linear-gradient(120deg,#3182f6,#2bd4a8)";
 const GRAD_BAR = "linear-gradient(90deg,#2bd4a8,#3182f6)";
+const LANDING_LOGIN_HREF = `/login?${new URLSearchParams({ callbackUrl: "/" }).toString()}`;
 
 interface LandingExperienceProps {
   landingData: LandingGrantData;
@@ -147,13 +149,16 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
           <a className="lp-navlink" href="#faq">자주 묻는 질문</a>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="lp-nav-actions" style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
           {user ? (
-            <Link href="/dashboard" style={gradientPill(9, 18)}>기회 맵</Link>
+            <>
+              <Link className="lp-primary-cta" href="/dashboard" style={gradientPill(9, 18)}>기회 맵</Link>
+              <AccountMenu user={user} />
+            </>
           ) : (
             <>
               <Link
-                href="/login"
+                href={LANDING_LOGIN_HREF}
                 style={{
                   fontSize: 14.5,
                   fontWeight: 600,
@@ -166,7 +171,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
               >
                 로그인
               </Link>
-              <Link href="/login" style={gradientPill(9, 18)}>무료로 시작</Link>
+              <Link className="lp-primary-cta" href={LANDING_LOGIN_HREF} style={gradientPill(9, 18)}>무료로 시작</Link>
             </>
           )}
         </div>
