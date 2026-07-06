@@ -232,6 +232,13 @@
       "when": 1783339897113,
       "tag": "0032_fair_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1783347183416,
+      "tag": "0033_thick_marvel_boy",
+      "breakpoints": true
     }
   ]
 }

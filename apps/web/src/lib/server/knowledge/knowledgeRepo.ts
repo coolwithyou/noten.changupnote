@@ -34,6 +34,8 @@ export type LessonTarget =
 export type LessonSourceKind = "reviewer_correction" | "field_question" | "ops_report";
 export type EvidenceTier = "official_document" | "staff_confirmed" | "ops_inference";
 export type LessonStatus = "proposed" | "approved" | "rejected" | "retired";
+/** lesson 노출 표면: 공고 상세 유의사항 패널 | 작성 필드 인라인 팁. */
+export type LessonExposureSurface = "grant_panel" | "field_tip";
 
 export interface LessonScope {
   program?: string;
@@ -90,6 +92,10 @@ export const LESSON_STATUSES: readonly LessonStatus[] = [
   "approved",
   "rejected",
   "retired",
+];
+export const LESSON_EXPOSURE_SURFACES: readonly LessonExposureSurface[] = [
+  "grant_panel",
+  "field_tip",
 ];
 /** scope 가 최소 1개 축을 가지는지(과일반화·빈 scope 승격 방지). */
 export const LESSON_SCOPE_AXES: readonly (keyof LessonScope)[] = [
@@ -491,4 +497,82 @@ export async function updateLessonCuration(
     .returning();
   if (!row) throw new Error(`updateLessonCuration: no row returned for ${id}`);
   return toLessonRow(row);
+}
+
+// ── lesson_exposure_events (경량 노출 텔레메트리) ─────────────────
+// 설계: docs/plans/2026-07-06-knowledge-loop-next-session.md K1.
+// 노출 1회 = 페이지 뷰 1회 raw 기록. 중복 제거는 하지 않고(집계에서 처리),
+// Step 4 효과 측정·"죽은 지식(노출 0)" 탐지의 분모로 쓴다.
+
+/** 노출 이벤트 1건(기록 계층 입력). companyId/userId 는 경량 — 없으면 null. */
+export interface LessonExposureInput {
+  lessonId: string;
+  grantId: string;
+  surface: LessonExposureSurface;
+  anchorLabel?: string | null;
+  companyId?: string | null;
+  userId?: string | null;
+}
+
+/**
+ * 노출 이벤트를 batch insert 한다(단일 INSERT). 빈 배열이면 no-op(0 반환).
+ * 삽입한 행 수를 반환한다. 중복 제거 없음 — 같은 lesson 이 여러 라벨에 매칭되면 여러 건이 정상.
+ */
+export async function recordLessonExposures(events: LessonExposureInput[]): Promise<number> {
+  if (events.length === 0) return 0;
+  const db = getCunoteDb();
+  const rows = await db
+    .insert(schema.lessonExposureEvents)
+    .values(
+      events.map((e) => ({
+        lessonId: e.lessonId,
+        grantId: e.grantId,
+        surface: e.surface,
+        anchorLabel: e.anchorLabel ?? null,
+        companyId: e.companyId ?? null,
+        userId: e.userId ?? null,
+      })),
+    )
+    .returning({ id: schema.lessonExposureEvents.id });
+  return rows.length;
+}
+
+/** lessonId 별 노출 집계(최근 windowDays 창 + 전체). 전량 로드 없이 SQL group by. */
+export interface LessonExposureCounts {
+  /** lessonId → 최근 windowDays 일 노출 수. */
+  recent: Map<string, number>;
+  /** lessonId → 전체 노출 수(죽은 지식 판정용). */
+  total: Map<string, number>;
+}
+
+/**
+ * lesson 별 노출 수를 최근 창(recent)과 전체(total)로 한 번에 집계한다.
+ * 이벤트는 무한 성장 테이블이므로 전량 로드 금지 — group by 로 lessonId 별 카운트만 받는다.
+ * recent 는 count(*) filter 로 한 쿼리에서 함께 뽑는다(추가 왕복 없음).
+ */
+export async function getLessonExposureCounts(
+  options: { windowDays?: number } = {},
+): Promise<LessonExposureCounts> {
+  const windowDays = options.windowDays ?? 30;
+  // 커트오프는 ISO 문자열로 바인딩 후 ::timestamptz 캐스트한다(원시 sql 프래그먼트에는
+  // 컬럼 타입 컨텍스트가 없어 postgres-js 가 JS Date 를 직접 바인딩하지 못함).
+  const cutoffIso = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000).toISOString();
+  const db = getCunoteDb();
+  const t = schema.lessonExposureEvents;
+  const rows = await db
+    .select({
+      lessonId: t.lessonId,
+      total: sql<number>`count(*)::int`,
+      recent: sql<number>`count(*) filter (where ${t.createdAt} >= ${cutoffIso}::timestamptz)::int`,
+    })
+    .from(t)
+    .groupBy(t.lessonId);
+
+  const recent = new Map<string, number>();
+  const total = new Map<string, number>();
+  for (const row of rows) {
+    total.set(row.lessonId, Number(row.total) || 0);
+    recent.set(row.lessonId, Number(row.recent) || 0);
+  }
+  return { recent, total };
 }

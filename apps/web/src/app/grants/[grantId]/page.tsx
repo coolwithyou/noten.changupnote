@@ -4,6 +4,7 @@ import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
+import { recordLessonExposures, type LessonExposureInput } from "@/lib/server/knowledge/knowledgeRepo";
 import { matchApprovedLessonsForGrant, matchFieldLessonTips } from "@/lib/server/knowledge/lessonContext";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
 
@@ -23,6 +24,14 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
   const preparation = await loadInitialPreparation(sheet.grant.id, access, sheet);
   const lessonGuide = await loadLessonGuide(sheet.grant.title, sheet.grant.agency);
   const fieldLessonTips = await loadFieldLessonTips(sheet, preparation);
+  // 노출 텔레메트리(지식 루프 K1): 매칭 결과를 렌더 시점에 raw 기록한다.
+  await recordLessonExposureEvents({
+    grantId: sheet.grant.id,
+    companyId: access.companyId ?? null,
+    userId: access.userId ?? null,
+    lessonGuide,
+    fieldLessonTips,
+  });
   const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
   return (
     <ApplySheetView
@@ -34,6 +43,57 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
       fieldLessonTips={fieldLessonTips}
     />
   );
+}
+
+// 노출 텔레메트리 기록(지식 루프 K1). 서버가 이미 들고 있는 매칭 결과에서 이벤트를 조립해
+// batch insert 한다. 노출 1회 = 페이지 뷰 1회 raw 기록(중복 제거 없음 — 집계에서 처리).
+//   - grant_panel: 매칭된 각 lesson id 당 1건.
+//   - field_tip: byLabel 의 (label, tip) 쌍당 1건(anchorLabel=label). 같은 lesson 이 여러 라벨에
+//     매칭되면 여러 건이 정상이다.
+// 기록 실패는 절대 페이지를 깨뜨리지 않는다: await + try/catch 로 삼키고 warn(서버리스에서
+// 미대기 프로미스가 응답 후 잘릴 수 있어 결정적·검증 가능한 await 방식을 택한다).
+async function recordLessonExposureEvents(input: {
+  grantId: string;
+  companyId: string | null;
+  userId: string | null;
+  lessonGuide: Awaited<ReturnType<typeof loadLessonGuide>>;
+  fieldLessonTips: Awaited<ReturnType<typeof loadFieldLessonTips>>;
+}) {
+  try {
+    const events: LessonExposureInput[] = [];
+    if (input.lessonGuide?.matched) {
+      for (const group of input.lessonGuide.groups) {
+        for (const lesson of group.lessons) {
+          events.push({
+            lessonId: lesson.id,
+            grantId: input.grantId,
+            surface: "grant_panel",
+            companyId: input.companyId,
+            userId: input.userId,
+          });
+        }
+      }
+    }
+    if (input.fieldLessonTips?.matched) {
+      for (const [label, tips] of Object.entries(input.fieldLessonTips.byLabel)) {
+        for (const tip of tips) {
+          events.push({
+            lessonId: tip.id,
+            grantId: input.grantId,
+            surface: "field_tip",
+            anchorLabel: label,
+            companyId: input.companyId,
+            userId: input.userId,
+          });
+        }
+      }
+    }
+    await recordLessonExposures(events);
+  } catch (error) {
+    console.warn(
+      `Lesson exposure record failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 // 필드 레벨 팁 매칭(지식 루프 Step 3 두 번째 슬라이스). "입력 필요" 질문 라벨과 서식 필드

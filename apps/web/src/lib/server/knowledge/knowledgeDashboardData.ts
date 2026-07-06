@@ -12,6 +12,7 @@ import {
   KNOWLEDGE_SOURCE_KINDS,
   LESSON_STATUSES,
   countLessonsBySource,
+  getLessonExposureCounts,
   listKnowledgeSources,
   listLessons,
   type EvidenceTier,
@@ -76,6 +77,34 @@ export interface KnowledgeSourceSummary {
   createdAt: string;
   lessonCounts: LessonStatusCounts;
   nonLessonItemCount: number;
+  /** 이 원천에서 도출된 lesson 들의 전체 노출 합계(누적 도달 — 죽은 소스 식별용). */
+  exposureTotal: number;
+}
+
+/** lesson 별 노출 지표(최근 30일 + 전체). approved lesson 만 — 노출 가능한 집합. */
+export interface LessonExposureMetric {
+  id: string;
+  /** 지침 요약(120자). */
+  instruction: string;
+  target: LessonTarget;
+  program: string | null;
+  /** 최근 30일 노출 수. */
+  exposure30d: number;
+  /** 전체 노출 수. */
+  exposureTotal: number;
+}
+
+/**
+ * 죽은 지식(경보): 승인 후 30일 경과했는데 노출 이벤트가 0건인 approved lesson.
+ * "승인만 하고 아무도 못 보는 지식" — 매칭 사전 미커버·매칭 공고 부재 등을 드러내는 신호.
+ */
+export interface DeadKnowledgeLesson {
+  id: string;
+  /** 지침 요약(120자). */
+  instruction: string;
+  scope: LessonScope;
+  /** 승인일(curatedAt ?? createdAt) ISO. */
+  approvedAt: string;
 }
 
 export interface DashboardNonLessonItem {
@@ -95,6 +124,10 @@ export interface KnowledgeDashboardData {
   reviewDue: ReviewDueLesson[];
   sources: KnowledgeSourceSummary[];
   nonLessonItems: DashboardNonLessonItem[];
+  /** approved lesson 별 노출 지표(최근 30일 내림차순). Step 4 효과 측정의 씨앗. */
+  lessonExposure: LessonExposureMetric[];
+  /** 죽은 지식 경보: 승인 후 30일 경과 & 노출 0. 비어있으면 정상(없음). */
+  deadKnowledge: DeadKnowledgeLesson[];
 }
 
 /** 원천 문서 행의 JSON-safe DTO(sources API 응답 공용). 내부 R2 키는 노출하지 않는다. */
@@ -117,6 +150,10 @@ export interface KnowledgeSourceDto {
 
 const REVIEW_DUE_HORIZON_DAYS = 90;
 const WEEKLY_WINDOW = 12;
+const EXPOSURE_WINDOW_DAYS = 30;
+/** 승인 후 이 일수 경과 & 노출 0 이면 죽은 지식으로 본다. */
+const DEAD_KNOWLEDGE_MIN_AGE_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const toIso = (value: Date | null | undefined): string =>
   value ? new Date(value).toISOString() : new Date(0).toISOString();
@@ -152,7 +189,11 @@ export function serializeKnowledgeSource(row: KnowledgeSourceRow): KnowledgeSour
  */
 export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardData> {
   const now = new Date();
-  const [allLessons, sourceRows] = await Promise.all([listLessons({}), listKnowledgeSources()]);
+  const [allLessons, sourceRows, exposureCounts] = await Promise.all([
+    listLessons({}),
+    listKnowledgeSources(),
+    getLessonExposureCounts({ windowDays: EXPOSURE_WINDOW_DAYS }),
+  ]);
 
   // ── totals.lessons ──
   const lessonCounts = Object.fromEntries(LESSON_STATUSES.map((s) => [s, 0])) as Record<LessonStatus, number>;
@@ -220,7 +261,59 @@ export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardD
       evidenceTier: l.evidenceTier,
     }));
 
-  // ── sources (문서별 lesson 집계) ──
+  // ── 노출 지표 (approved lesson 만 노출 가능) ──
+  const approvedLessons = allLessons.filter((l) => l.status === "approved");
+
+  // (1) lesson 별 노출 지표(최근 30일 내림차순, 동률은 전체 노출·id 로 안정화).
+  const lessonExposure: LessonExposureMetric[] = approvedLessons
+    .map((l) => {
+      const scope = (l.scope ?? {}) as LessonScope;
+      const program = typeof scope.program === "string" && scope.program.trim().length > 0
+        ? scope.program.trim()
+        : null;
+      return {
+        id: l.id,
+        instruction: summarize(l.instruction, 120),
+        target: l.target,
+        program,
+        exposure30d: exposureCounts.recent.get(l.id) ?? 0,
+        exposureTotal: exposureCounts.total.get(l.id) ?? 0,
+      };
+    })
+    .sort(
+      (a, b) =>
+        b.exposure30d - a.exposure30d ||
+        b.exposureTotal - a.exposureTotal ||
+        a.id.localeCompare(b.id),
+    );
+
+  // (2) 죽은 지식: 승인 후 30일 경과 & 전체 노출 0(승인일 오름차순 — 오래된 것부터).
+  const deadCutoffMs = now.getTime() - DEAD_KNOWLEDGE_MIN_AGE_DAYS * DAY_MS;
+  const deadKnowledge: DeadKnowledgeLesson[] = approvedLessons
+    .filter((l) => {
+      const approvedAt = l.curatedAt ?? l.createdAt;
+      if (!approvedAt) return false;
+      if (new Date(approvedAt).getTime() > deadCutoffMs) return false; // 30일 미경과
+      return (exposureCounts.total.get(l.id) ?? 0) === 0;
+    })
+    .map((l) => ({
+      id: l.id,
+      instruction: summarize(l.instruction, 120),
+      scope: (l.scope ?? {}) as LessonScope,
+      approvedAt: toIso(l.curatedAt ?? l.createdAt),
+    }))
+    .sort((a, b) => a.approvedAt.localeCompare(b.approvedAt));
+
+  // (3) 소스별 노출 합계(전체 노출을 sourceId 로 합산 — lesson↔source JS 조인).
+  const exposureBySource = new Map<string, number>();
+  for (const l of allLessons) {
+    if (!l.sourceId) continue;
+    const t = exposureCounts.total.get(l.id) ?? 0;
+    if (t === 0) continue;
+    exposureBySource.set(l.sourceId, (exposureBySource.get(l.sourceId) ?? 0) + t);
+  }
+
+  // ── sources (문서별 lesson 집계 + 노출 합계) ──
   const sources: KnowledgeSourceSummary[] = await Promise.all(
     sourceRows.map(async (source) => ({
       id: source.id,
@@ -232,6 +325,7 @@ export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardD
       createdAt: toIso(source.createdAt),
       lessonCounts: await countLessonsBySource(source.id),
       nonLessonItemCount: Array.isArray(source.nonLessonItems) ? source.nonLessonItems.length : 0,
+      exposureTotal: exposureBySource.get(source.id) ?? 0,
     })),
   );
 
@@ -247,6 +341,8 @@ export async function buildKnowledgeDashboardData(): Promise<KnowledgeDashboardD
     reviewDue,
     sources,
     nonLessonItems,
+    lessonExposure,
+    deadKnowledge,
   };
 }
 

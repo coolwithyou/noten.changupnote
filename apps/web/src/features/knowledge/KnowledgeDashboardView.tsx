@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import type { KnowledgeDashboardData } from "@/lib/server/knowledge/knowledgeDashboardData";
 import { AccumulationChart } from "./AccumulationChart";
 import { DistributionPanels } from "./DistributionPanels";
+import { ExposurePanel } from "./ExposurePanel";
 import { KnowledgeMetricCards } from "./KnowledgeMetricCards";
 import { NonLessonPanel } from "./NonLessonPanel";
 import { ReviewDuePanel } from "./ReviewDuePanel";
@@ -108,6 +109,9 @@ export function KnowledgeDashboardView({ initialData }: KnowledgeDashboardViewPr
 
       {/* (d) 분포 */}
       <DistributionPanels distributions={data.distributions} />
+
+      {/* (d2) 노출 지표 — 죽은 지식 경보 + 최근 30일 노출 랭킹 */}
+      <ExposurePanel lessonExposure={data.lessonExposure} deadKnowledge={data.deadKnowledge} />
 
       {/* (e)+(f) 원천 문서 + 새 보고서 등록 */}
       <SourcesPanel sources={data.sources} onChanged={refetch} onBanner={setBanner} />

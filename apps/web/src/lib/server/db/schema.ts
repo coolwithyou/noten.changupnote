@@ -1129,3 +1129,32 @@ export const reviewLessons = pgTable("review_lessons", {
   statusTargetIdx: index("review_lessons_status_target_idx").on(table.status, table.target),
   sourceIdx: index("review_lessons_source_idx").on(table.sourceId),
 }));
+
+/**
+ * lesson 노출 이벤트 (경량 텔레메트리).
+ * 설계: docs/plans/2026-07-06-knowledge-loop-next-session.md K1 + 마스터 18.10 지표.
+ * 노출 1회 = 공고 상세 페이지 뷰 1회의 raw 기록이다(중복 제거는 집계 단계에서 처리한다).
+ * Step 4 효과 측정과 "승인됐지만 노출 0인 죽은 지식" 탐지의 분모 — 측정의 유일한 근거다.
+ * FK 정책:
+ *   - lessonId → review_lessons 는 restrict(삭제 없음 전제라 cascade/set null 금지 — 텔레메트리가 lesson 을 잡아둔다).
+ *   - grantId/companyId/userId 는 FK 없는 plain uuid — 공고 재수집·회사/유저 정리 작업에
+ *     무한 성장하는 이 텔레메트리가 걸림돌이 되지 않게 한다(경량 기록).
+ */
+export const lessonExposureEvents = pgTable("lesson_exposure_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  // 노출된 lesson. 삭제 없음 전제 — restrict(cascade/set null 금지).
+  lessonId: uuid("lesson_id").notNull().references(() => reviewLessons.id, { onDelete: "restrict" }),
+  // 노출이 일어난 공고. FK 없이 plain uuid(공고 재수집·정리에 텔레메트리가 걸림돌이 되지 않게).
+  grantId: uuid("grant_id").notNull(),
+  // 'grant_panel'(공고 상세 유의사항 패널) | 'field_tip'(작성 필드 인라인 팁)
+  surface: text("surface").notNull(),
+  // field_tip 일 때 매칭된 입력 항목 라벨(grant_panel 은 null).
+  anchorLabel: text("anchor_label"),
+  // 경량 텔레메트리 — FK 없는 plain uuid(없으면 null).
+  companyId: uuid("company_id"),
+  userId: uuid("user_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  lessonCreatedIdx: index("lesson_exposure_events_lesson_created_idx").on(table.lessonId, table.createdAt),
+  grantIdx: index("lesson_exposure_events_grant_idx").on(table.grantId),
+}));

@@ -194,6 +194,7 @@ function SourceRow({ source, busy, disabled, result, error, onExtract }: SourceR
         <CountChip label="기각" value={counts.rejected} />
         {counts.retired > 0 ? <CountChip label="철회" value={counts.retired} /> : null}
         <CountChip label="비-lesson" value={source.nonLessonItemCount} muted />
+        <CountChip label="노출" value={source.exposureTotal} muted />
       </div>
 
       {/* 추출 결과 */}
