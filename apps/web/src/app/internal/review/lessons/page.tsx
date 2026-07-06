@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -33,14 +33,23 @@ export default async function LessonInboxPage({ searchParams }: PageProps) {
 
   const data = await getLessonInboxData({ status, sourceId });
 
-  const backLink = (
-    <Link
-      href="/internal/review"
-      className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-    >
-      <ArrowLeft data-icon="inline-start" />
-      검수 워크스페이스
-    </Link>
+  const actions = (
+    <>
+      <Link
+        href="/internal/review"
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+      >
+        <ArrowLeft data-icon="inline-start" />
+        검수 워크스페이스
+      </Link>
+      <Link
+        href="/internal/knowledge"
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+      >
+        지식 대시보드
+        <ArrowRight data-icon="inline-end" />
+      </Link>
+    </>
   );
 
   return (
@@ -50,7 +59,7 @@ export default async function LessonInboxPage({ searchParams }: PageProps) {
       title="지식 인박스 — lesson 후보 검수"
       description="원문 인용과 지침을 대조해 승인·수정·기각하세요. 승인은 곧 지식 레이어 주입입니다."
       badge="지식 루프 · lesson 큐레이션"
-      actions={backLink}
+      actions={actions}
       metrics={[
         { label: "제안됨", value: data.counts.proposed },
         { label: "승인됨", value: data.counts.approved },

@@ -217,6 +217,58 @@ export async function listKnowledgeSources(
   return rows.map(toSourceRow);
 }
 
+/** 원천 문서 단건 조회(id). 없으면 null. */
+export async function getKnowledgeSourceById(id: string): Promise<KnowledgeSourceRow | null> {
+  const db = getCunoteDb();
+  const rows = await db
+    .select()
+    .from(schema.knowledgeSources)
+    .where(eq(schema.knowledgeSources.id, id))
+    .limit(1);
+  return rows[0] ? toSourceRow(rows[0]) : null;
+}
+
+/** 추출 결과 반영 패치(부분 갱신). status 는 필수, 나머지는 전달된 키만 갱신. updatedAt 은 항상 갱신. */
+export interface KnowledgeSourceExtractionPatch {
+  status: KnowledgeSourceStatus;
+  extractedTextKey?: string | null;
+  extractionJsonKey?: string | null;
+  extractionModel?: string | null;
+  extractionPromptVer?: string | null;
+  nonLessonItems?: NonLessonItem[];
+}
+
+/**
+ * 추출 결과를 원천 문서에 반영한다(GUI 추출 API 가 lesson 적재 성공 후 호출).
+ * 전달된 키만 set 하고 updatedAt 을 갱신한다(exactOptionalPropertyTypes: undefined 미전달).
+ */
+export async function updateKnowledgeSourceExtraction(
+  id: string,
+  patch: KnowledgeSourceExtractionPatch,
+): Promise<KnowledgeSourceRow> {
+  if (!(KNOWLEDGE_SOURCE_STATUSES as readonly string[]).includes(patch.status)) {
+    throw new Error(`invalid knowledge source status: ${patch.status}`);
+  }
+  const db = getCunoteDb();
+  const set: Partial<typeof schema.knowledgeSources.$inferInsert> = {
+    status: patch.status,
+    updatedAt: new Date(),
+  };
+  if (patch.extractedTextKey !== undefined) set.extractedTextKey = patch.extractedTextKey;
+  if (patch.extractionJsonKey !== undefined) set.extractionJsonKey = patch.extractionJsonKey;
+  if (patch.extractionModel !== undefined) set.extractionModel = patch.extractionModel;
+  if (patch.extractionPromptVer !== undefined) set.extractionPromptVer = patch.extractionPromptVer;
+  if (patch.nonLessonItems !== undefined) set.nonLessonItems = patch.nonLessonItems;
+
+  const [row] = await db
+    .update(schema.knowledgeSources)
+    .set(set)
+    .where(eq(schema.knowledgeSources.id, id))
+    .returning();
+  if (!row) throw new Error(`updateKnowledgeSourceExtraction: no row returned for ${id}`);
+  return toSourceRow(row);
+}
+
 // ── review_lessons ───────────────────────────────────────────
 export interface ProposedLessonInput {
   target: LessonTarget;
@@ -294,6 +346,36 @@ export async function listLessons(
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(schema.reviewLessons.createdAt));
   return rows.map(toLessonRow);
+}
+
+/** 원천 문서 1건에 딸린 lesson 의 status 별 경량 집계(대시보드 sources 목록용). */
+export interface LessonStatusCounts {
+  total: number;
+  proposed: number;
+  approved: number;
+  rejected: number;
+  retired: number;
+}
+
+/** sourceId 로 review_lessons 를 status 별 count 집계(전량 로드 없이 SQL group by). */
+export async function countLessonsBySource(sourceId: string): Promise<LessonStatusCounts> {
+  const db = getCunoteDb();
+  const rows = await db
+    .select({ status: schema.reviewLessons.status, n: sql<number>`count(*)::int` })
+    .from(schema.reviewLessons)
+    .where(eq(schema.reviewLessons.sourceId, sourceId))
+    .groupBy(schema.reviewLessons.status);
+
+  const out: LessonStatusCounts = { total: 0, proposed: 0, approved: 0, rejected: 0, retired: 0 };
+  for (const row of rows) {
+    const n = Number(row.n) || 0;
+    out.total += n;
+    if (row.status === "proposed") out.proposed += n;
+    else if (row.status === "approved") out.approved += n;
+    else if (row.status === "rejected") out.rejected += n;
+    else if (row.status === "retired") out.retired += n;
+  }
+  return out;
 }
 
 /**

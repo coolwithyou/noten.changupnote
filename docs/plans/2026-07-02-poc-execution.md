@@ -29,6 +29,8 @@
 >
 > - ✅ **세션 8 (2026-07-05)** — **운영 지식 인제스천 v1** (`docs/plans/2026-07-05-ops-knowledge-ingestion.md` — 평가·계획 + Step 0~2 구현): 0031 마이그레이션(`knowledge_sources`·`review_lessons`, 적용됨), `pnpm ingest:knowledge` CLI(LLM 추출 + quote 실재 검증, dry-run 기본), lesson 인박스 `/internal/review/lessons`(승인·수정 후 승인·기각·철회, 충돌 409→force, 기존 검수 인증 가드 재사용). 파일럿: 립스1,2 PDF → lesson 23건 proposed(quote 100%)+비lesson 5건 적재, 승인 왕복 1건 검증. 주입 경로(Step 3)는 Phase 5/8과 정렬 예정
 >
+> - ✅ **세션 9 (2026-07-06)** — **지식 대시보드 v1** (`/internal/knowledge`): 축적 현황 시각화(지표·12주 추이·분포·재검토 임박) + GUI 인제스천(업로드→추출 실행→인박스, sha256 멱등·이중 클릭 방지·상태 전이 가드). 추출 코어를 `extraction.ts`로 공용화(CLI 회귀 확인), 집계 계층 `knowledgeDashboardData.ts`. 마이그레이션 없음
+>
 > 남음 (우선순위순):
 >
 > - 🔶 **[임계경로·사용자] 리뷰팀 45문서 검수 개시** — ① ⬜ `docs/infra-setup-guide.md` B1(Vercel env R2_* 확인)·B2(리뷰어 admin_users 등록) ② ⬜ dev.changupnote.com/internal/review 브라우저 왕복 확인 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 1 golden·Gate 2 측정의 유일한 블로커
