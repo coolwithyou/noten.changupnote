@@ -1,4 +1,5 @@
 import { getServerSession } from "next-auth";
+import type { Session } from "next-auth";
 import { authOptions } from "./options";
 import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
 
@@ -37,9 +38,16 @@ export async function getOptionalWebSession(): Promise<WebSession | null> {
     };
   }
 
-  const session = await getServerSession(authOptions);
+  let session: Session | null;
+  try {
+    session = await getServerSession(authOptions);
+  } catch (error) {
+    console.warn(`NextAuth optional session lookup failed: ${errorMessage(error)}`);
+    return null;
+  }
+
   const userId = (session?.user as { id?: string } | undefined)?.id;
-  if (!session?.user || !userId) return null;
+  if (!session?.user || !userId || !isUuid(userId)) return null;
   return {
     user: {
       id: userId,
@@ -77,4 +85,12 @@ export async function getOptionalHeaderUser(): Promise<HeaderUser | null> {
   const session = await getOptionalWebSession();
   if (!session) return null;
   return { name: session.user.name ?? null, email: session.user.email ?? null };
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

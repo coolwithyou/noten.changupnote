@@ -737,8 +737,8 @@ function LandingLookupSuggestions({
             aria-selected={selected}
             onClick={() => onSelect(suggestion)}
             style={{
-              display: "flex",
-              flexWrap: "wrap",
+              display: "grid",
+              gridTemplateColumns: "minmax(0,.9fr) minmax(0,1.1fr) auto",
               alignItems: "center",
               gap: 12,
               width: "100%",
@@ -751,9 +751,10 @@ function LandingLookupSuggestions({
               fontFamily: "inherit",
               padding: "11px 13px",
               boxShadow: dark ? "none" : "0 4px 12px rgba(20,23,26,.06)",
+              textAlign: "left",
             }}
           >
-            <span style={{ display: "grid", flex: "1 1 150px", gap: 3, minWidth: 0 }}>
+            <span style={{ display: "grid", gap: 3, minWidth: 0 }}>
               <strong style={{ overflow: "hidden", fontSize: 13.5, fontWeight: 800, lineHeight: 1.25, textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {suggestion.companyName ?? "상호 미확인"}
               </strong>
@@ -761,7 +762,7 @@ function LandingLookupSuggestions({
                 {suggestion.bizNoFormatted}
               </span>
             </span>
-            <span style={{ display: "grid", flex: "1 1 170px", gap: 2, minWidth: 0, color: dark ? "rgba(255,255,255,.72)" : "#6b7682", fontSize: 12, fontWeight: 650, lineHeight: 1.35 }}>
+            <span style={{ display: "grid", gap: 2, minWidth: 0, color: dark ? "rgba(255,255,255,.72)" : "#6b7682", fontSize: 12, fontWeight: 650, lineHeight: 1.35 }}>
               <span style={ellipsisText}>업종 {suggestion.industry ?? "미확인"}</span>
               <span style={ellipsisText}>업태 {suggestion.businessType ?? "미확인"}</span>
             </span>
@@ -775,6 +776,7 @@ function LandingLookupSuggestions({
                 padding: "5px 8px",
                 marginLeft: "auto",
                 whiteSpace: "nowrap",
+                justifySelf: "end",
               }}
             >
               {suggestion.source === "account" ? "내 계정" : "이 브라우저"}

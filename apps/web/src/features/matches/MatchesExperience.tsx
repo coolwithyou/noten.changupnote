@@ -188,6 +188,7 @@ function ProfileSection({ teaser, onCollect }: { teaser: TeaserResult; onCollect
   const total = fields.length || 1;
   const pct = Math.round((known / total) * 100);
   const checkedNote = evidenceCheckedNote(teaser.companyEvidence ?? null);
+  const registryNotice = sparseRegistryNotice(teaser.companyEvidence ?? null);
 
   return (
     <section className="grid gap-4">
@@ -218,6 +219,16 @@ function ProfileSection({ teaser, onCollect }: { teaser: TeaserResult; onCollect
           </div>
         </div>
       </div>
+
+      {registryNotice ? (
+        <div className="flex gap-3 rounded-[var(--radius-lg)] border border-primary/20 bg-primary/5 p-4 text-sm">
+          <TriangleAlert className="mt-0.5 size-4 flex-none text-primary" aria-hidden />
+          <div className="grid gap-1">
+            <div className="font-semibold text-foreground">{registryNotice.title}</div>
+            <p className="leading-6 text-muted-foreground">{registryNotice.body}</p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {fields.map((field) =>
@@ -569,6 +580,21 @@ function evidenceCheckedNote(evidence: TeaserResult["companyEvidence"]): string 
   const days = Math.floor((Date.now() - checked.getTime()) / 86_400_000);
   const staleSuffix = days >= 30 ? ` (${days}일 전)` : "";
   return `국세청·팝빌 정보 확인일 ${formatted}${staleSuffix}`;
+}
+
+function sparseRegistryNotice(evidence: TeaserResult["companyEvidence"]): { title: string; body: string } | null {
+  if (!evidence || evidence.provider !== "popbill") return null;
+  const fields = new Map(evidence.fields.map((field) => [field.key, field]));
+  const checkedKeys = ["corp_name", "region", "biz_age", "industry"];
+  const missingCheckedKeys = checkedKeys.filter((key) => !fields.get(key)?.available);
+  const hasBusinessStatus = Boolean(fields.get("business_status")?.available);
+  const providerSucceeded = evidence.resultMessage === "성공";
+  if (!providerSucceeded || !hasBusinessStatus || missingCheckedKeys.length < 3) return null;
+
+  return {
+    title: "기관 데이터에 법인 기본정보가 아직 반영되지 않았을 수 있어요",
+    body: "팝빌 조회는 성공했지만 상호, 소재지, 개업일, 업종 같은 기본 항목이 비어 있습니다. 설립 직후 법인은 국세청·연계기관 데이터 반영까지 시간이 걸릴 수 있어요. 사업자등록증이나 법인등기부 기준으로 빈 항목을 입력하면 매칭 정확도가 올라갑니다.",
+  };
 }
 
 function eligibilityChip(value: Eligibility): { label: string } {

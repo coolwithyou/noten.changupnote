@@ -45,6 +45,7 @@ export function readLocalBusinessLookupSuggestions(): BusinessLookupSuggestion[]
     return parsed
       .map(normalizeStoredBusinessLookupSuggestion)
       .filter((item): item is BusinessLookupSuggestion => Boolean(item))
+      .sort(compareBusinessLookupSuggestionRecency)
       .slice(0, MAX_LOOKUP_SUGGESTIONS);
   } catch {
     return [];
@@ -55,7 +56,7 @@ export function writeLocalBusinessLookupSuggestions(suggestions: BusinessLookupS
   try {
     window.localStorage.setItem(
       LOCAL_LOOKUP_SUGGESTIONS_STORAGE_KEY,
-      JSON.stringify(suggestions.slice(0, MAX_LOOKUP_SUGGESTIONS)),
+      JSON.stringify([...suggestions].sort(compareBusinessLookupSuggestionRecency).slice(0, MAX_LOOKUP_SUGGESTIONS)),
     );
   } catch {
     // Storage can be unavailable in private contexts; the current lookup still works.
@@ -69,7 +70,20 @@ export function upsertBusinessLookupSuggestion(
   return [
     suggestion,
     ...suggestions.filter((item) => item.bizNo !== suggestion.bizNo),
-  ].slice(0, MAX_LOOKUP_SUGGESTIONS);
+  ].sort(compareBusinessLookupSuggestionRecency).slice(0, MAX_LOOKUP_SUGGESTIONS);
+}
+
+function compareBusinessLookupSuggestionRecency(
+  left: BusinessLookupSuggestion,
+  right: BusinessLookupSuggestion,
+): number {
+  return timestampValue(right.lastLookupAt ?? right.checkedAt) - timestampValue(left.lastLookupAt ?? left.checkedAt);
+}
+
+function timestampValue(value: string | null): number {
+  if (!value) return 0;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? timestamp : 0;
 }
 
 function normalizeStoredBusinessLookupSuggestion(value: unknown): BusinessLookupSuggestion | null {

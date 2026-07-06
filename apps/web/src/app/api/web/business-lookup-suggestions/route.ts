@@ -17,13 +17,14 @@ export async function GET() {
     const data = await listBusinessLookupSuggestionsForSession();
     return NextResponse.json<ActionResult<BusinessLookupSuggestionsResult>>({ ok: true, data });
   } catch (error) {
+    console.warn(`Business lookup suggestions endpoint failed: ${errorMessage(error)}`);
     return NextResponse.json<ActionResult<BusinessLookupSuggestionsResult>>({
-      ok: false,
-      error: {
-        code: "business_lookup_suggestions_failed",
-        message: error instanceof Error ? error.message : "최근 조회 사업자를 불러오지 못했습니다.",
+      ok: true,
+      data: {
+        authenticated: false,
+        suggestions: [],
       },
-    }, { status: 500 });
+    });
   }
 }
 
@@ -34,16 +35,32 @@ export async function POST(request: Request) {
     return NextResponse.json<ActionResult<BusinessLookupRecordResult>>({ ok: true, data }, { status: 202 });
   } catch (error) {
     const isInputError = error instanceof Error && /사업자번호/.test(error.message);
+    if (!isInputError) {
+      console.warn(`Business lookup record endpoint failed: ${errorMessage(error)}`);
+      return NextResponse.json<ActionResult<BusinessLookupRecordResult>>({
+        ok: true,
+        data: {
+          authenticated: false,
+          recorded: false,
+          suggestion: null,
+        },
+      }, { status: 202 });
+    }
+
     const responseError: NonNullable<ActionResult<BusinessLookupRecordResult>["error"]> = {
-      code: isInputError ? "invalid_biz_no" : "business_lookup_record_failed",
+      code: "invalid_biz_no",
       message: error instanceof Error ? error.message : "조회한 사업자를 저장하지 못했습니다.",
     };
-    if (isInputError) responseError.field = "bizNo";
+    responseError.field = "bizNo";
     return NextResponse.json<ActionResult<BusinessLookupRecordResult>>({
       ok: false,
       error: responseError,
-    }, { status: isInputError ? 400 : 500 });
+    }, { status: 400 });
   }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function readBody(request: Request): Promise<{ bizNo: string }> {

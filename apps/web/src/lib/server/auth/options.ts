@@ -37,7 +37,7 @@ export const authOptions: NextAuthOptions = {
       return token;
     },
     session({ session, token }) {
-      return attachSessionUserId(session, token.sub);
+      return attachSessionUserId(session, typeof token.sub === "string" && isUuid(token.sub) ? token.sub : undefined);
     },
   },
   events: {
@@ -161,28 +161,33 @@ async function resolveSessionUserId(input: {
   account?: Account | null | undefined;
 }): Promise<string | undefined> {
   if (input.tokenSub && isUuid(input.tokenSub)) return input.tokenSub;
-  if (!input.email) return input.tokenSub;
+  if (!input.email) return undefined;
 
   const email = normalizeEmail(input.email);
-  const db = getCunoteDb();
-  const [existing] = await db
-    .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(eq(schema.users.email, email))
-    .limit(1);
-  if (existing) {
-    await linkOAuthAccount(existing.id, input.account);
-    return existing.id;
-  }
+  try {
+    const db = getCunoteDb();
+    const [existing] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .limit(1);
+    if (existing) {
+      await linkOAuthAccount(existing.id, input.account);
+      return existing.id;
+    }
 
-  const userId = await createOAuthUser({
-    email,
-    name: input.name ?? null,
-    image: input.image ?? null,
-  }) ?? await resolveUserIdByEmail(email);
-  if (userId) await linkOAuthAccount(userId, input.account);
-  await ensureUserLegalAcceptance(userId);
-  return userId ?? input.tokenSub;
+    const userId = await createOAuthUser({
+      email,
+      name: input.name ?? null,
+      image: input.image ?? null,
+    }) ?? await resolveUserIdByEmail(email);
+    if (userId) await linkOAuthAccount(userId, input.account);
+    await ensureUserLegalAcceptance(userId);
+    return userId && isUuid(userId) ? userId : undefined;
+  } catch (error) {
+    console.warn(`NextAuth user id normalization failed; treating session as anonymous: ${errorMessage(error)}`);
+    return undefined;
+  }
 }
 
 async function createOAuthUser(input: {
@@ -233,6 +238,10 @@ async function linkOAuthAccount(userId: string, account: Account | null | undefi
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function ensureUserLegalAcceptance(userId: string | undefined) {

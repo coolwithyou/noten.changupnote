@@ -21,6 +21,8 @@ const MAX_ACCOUNT_SUGGESTIONS = 8;
 type CacheRow = typeof schema.companyEnrichmentCache.$inferSelect;
 type CompanyRow = typeof schema.companies.$inferSelect;
 type ProfileRow = typeof schema.companyProfiles.$inferSelect;
+type LookupHistoryRow = typeof schema.userBusinessLookupHistory.$inferSelect;
+type UserCompanyLookupRow = { bizNo: string | null };
 
 export async function listBusinessLookupSuggestionsForSession(): Promise<BusinessLookupSuggestionsResult> {
   const session = await getOptionalWebSession();
@@ -40,19 +42,8 @@ export async function listBusinessLookupSuggestionsForSession(): Promise<Busines
   }
 
   const [historyRows, companyRows] = await Promise.all([
-    withCunoteDbUser(db, session.user.id, async (tx) => tx
-      .select()
-      .from(schema.userBusinessLookupHistory)
-      .where(eq(schema.userBusinessLookupHistory.userId, session.user.id))
-      .orderBy(desc(schema.userBusinessLookupHistory.lastLookedUpAt))
-      .limit(MAX_ACCOUNT_SUGGESTIONS)),
-    withCunoteDbUser(db, session.user.id, async (tx) => tx
-      .select({
-        bizNo: schema.companies.bizNo,
-      })
-      .from(schema.userCompany)
-      .innerJoin(schema.companies, eq(schema.userCompany.companyId, schema.companies.id))
-      .where(eq(schema.userCompany.userId, session.user.id))),
+    readLookupHistoryRows(db, session.user.id),
+    readUserCompanyLookupRows(db, session.user.id),
   ]);
 
   const lastLookupByBizNo = new Map<string, string | null>();
@@ -66,7 +57,7 @@ export async function listBusinessLookupSuggestionsForSession(): Promise<Busines
   ]).slice(0, MAX_ACCOUNT_SUGGESTIONS);
 
   const suggestions = await Promise.all(
-    orderedBizNos.map((bizNo) => buildBusinessLookupSuggestion(db, {
+    orderedBizNos.map((bizNo) => buildBusinessLookupSuggestionSafely(db, {
       bizNo,
       source: "account",
       lastLookupAt: lastLookupByBizNo.get(bizNo) ?? null,
@@ -86,7 +77,7 @@ export async function recordBusinessLookupForSession(bizNoInput: string): Promis
   const now = new Date();
   const source: BusinessLookupSuggestionSource = session ? "account" : "local";
   const suggestion = db
-    ? await buildBusinessLookupSuggestion(db, {
+    ? await buildBusinessLookupSuggestionSafely(db, {
       bizNo,
       source,
       lastLookupAt: now.toISOString(),
@@ -95,28 +86,32 @@ export async function recordBusinessLookupForSession(bizNoInput: string): Promis
 
   let recorded = false;
   if (session && db) {
-    await withCunoteDbUser(db, session.user.id, async (tx) => {
-      await tx
-        .insert(schema.userBusinessLookupHistory)
-        .values({
-          userId: session.user.id,
-          bizNo,
-          firstLookedUpAt: now,
-          lastLookedUpAt: now,
-          lookupCount: 1,
-        })
-        .onConflictDoUpdate({
-          target: [
-            schema.userBusinessLookupHistory.userId,
-            schema.userBusinessLookupHistory.bizNo,
-          ],
-          set: {
+    try {
+      await withCunoteDbUser(db, session.user.id, async (tx) => {
+        await tx
+          .insert(schema.userBusinessLookupHistory)
+          .values({
+            userId: session.user.id,
+            bizNo,
+            firstLookedUpAt: now,
             lastLookedUpAt: now,
-            lookupCount: sql`${schema.userBusinessLookupHistory.lookupCount} + 1`,
-          },
-        });
-    });
-    recorded = true;
+            lookupCount: 1,
+          })
+          .onConflictDoUpdate({
+            target: [
+              schema.userBusinessLookupHistory.userId,
+              schema.userBusinessLookupHistory.bizNo,
+            ],
+            set: {
+              lastLookedUpAt: now,
+              lookupCount: sql`${schema.userBusinessLookupHistory.lookupCount} + 1`,
+            },
+          });
+      });
+      recorded = true;
+    } catch (error) {
+      console.warn(`Business lookup history write failed: ${errorMessage(error)}`);
+    }
   }
 
   return {
@@ -128,6 +123,51 @@ export async function recordBusinessLookupForSession(bizNoInput: string): Promis
 
 function getDrizzleDbOrNull(): CunoteDb | null {
   return getRepositoryAdapterName() === "drizzle" ? getCunoteDb() : null;
+}
+
+async function readLookupHistoryRows(db: CunoteDb, userId: string): Promise<LookupHistoryRow[]> {
+  try {
+    return await withCunoteDbUser(db, userId, async (tx) => tx
+      .select()
+      .from(schema.userBusinessLookupHistory)
+      .where(eq(schema.userBusinessLookupHistory.userId, userId))
+      .orderBy(desc(schema.userBusinessLookupHistory.lastLookedUpAt))
+      .limit(MAX_ACCOUNT_SUGGESTIONS));
+  } catch (error) {
+    console.warn(`Business lookup history read failed: ${errorMessage(error)}`);
+    return [];
+  }
+}
+
+async function readUserCompanyLookupRows(db: CunoteDb, userId: string): Promise<UserCompanyLookupRow[]> {
+  try {
+    return await withCunoteDbUser(db, userId, async (tx) => tx
+      .select({
+        bizNo: schema.companies.bizNo,
+      })
+      .from(schema.userCompany)
+      .innerJoin(schema.companies, eq(schema.userCompany.companyId, schema.companies.id))
+      .where(eq(schema.userCompany.userId, userId)));
+  } catch (error) {
+    console.warn(`Business lookup company fallback read failed: ${errorMessage(error)}`);
+    return [];
+  }
+}
+
+async function buildBusinessLookupSuggestionSafely(
+  db: CunoteDb,
+  input: {
+    bizNo: string;
+    source: BusinessLookupSuggestionSource;
+    lastLookupAt: string | null;
+  },
+): Promise<BusinessLookupSuggestion | null> {
+  try {
+    return await buildBusinessLookupSuggestion(db, input);
+  } catch (error) {
+    console.warn(`Business lookup suggestion cache read failed: ${errorMessage(error)}`);
+    return null;
+  }
 }
 
 async function buildBusinessLookupSuggestion(
@@ -320,4 +360,8 @@ function maskBizNoSafely(value: string): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
