@@ -171,6 +171,8 @@ export interface MatchCard {
   matchConfidence: number;
   rulesetVer: string;
   scoringVer: string;
+  /** 공고 조건이 구조화 추출됐는지. false면 적합도 미산정(UI는 숫자 대신 —로 표기). */
+  criteriaExtracted?: boolean;
   detailUrl?: string | null;
 }
 

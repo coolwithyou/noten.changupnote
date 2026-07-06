@@ -2,6 +2,16 @@ import type { CompanyProfile, CriterionDimension } from "@cunote/contracts";
 import { REGION_CODES, REGION_LABELS } from "../kstartup/constants.js";
 import { maskCorpNum } from "../popbill/corp-num.js";
 import type { PopbillBizCheckInfo } from "../popbill/types.js";
+import { expandKsicCodes, isLikelyKsicCode, splitIndustryEntries } from "../industry/ksic.js";
+
+export {
+  expandKsicCodes,
+  isLikelyKsicCode,
+  ksicDivisionLabel,
+  ksicSectionLabel,
+  resolveKsic,
+  splitIndustryEntries,
+} from "../industry/ksic.js";
 
 export interface PopbillCompanyProfileResult {
   profile: CompanyProfile;
@@ -28,16 +38,20 @@ export function buildCompanyProfileFromPopbill(
   const region = resolveRegionFromAddress(info.addr);
   const bizAgeMonths = calculateBizAgeMonths(info.establishDate, asOf);
   const size = resolveCompanySize(info.corpScaleCode);
+  // industries = 라벨만(bizClass/bizType를 '/'로 분해). 코드는 industry_codes로 분리한다.
   const industries = unique([
-    clean(info.industryCode),
-    clean(info.bizClass),
-    clean(info.bizType),
-  ].filter(Boolean));
+    ...splitIndustryLabels(info.bizClass),
+    ...splitIndustryLabels(info.bizType),
+  ]);
+  const industryCodes = expandKsicCodes(info.industryCode);
+  const ksicResolved = industryCodes.length > 0;
+  const hasIndustry = industries.length > 0 || industryCodes.length > 0;
   const confidence: Partial<Record<CriterionDimension, number>> = {};
   if (region) confidence.region = 0.8;
   if (bizAgeMonths !== null) confidence.biz_age = 0.75;
   if (size) confidence.size = 0.65;
-  if (industries.length > 0) confidence.industry = 0.6;
+  // 코드가 유효 KSIC로 해석되면 신뢰도 상향(0.6 → 0.7).
+  if (hasIndustry) confidence.industry = ksicResolved ? 0.7 : 0.6;
   if (info.closeDownState !== undefined || info.closeDownTaxType !== undefined) {
     confidence.business_status = 0.8;
   }
@@ -50,6 +64,7 @@ export function buildCompanyProfileFromPopbill(
     size,
     confidence,
   };
+  if (industryCodes.length > 0) profile.industry_codes = industryCodes;
   if (info.corpNum) profile.id = `popbill:${maskCorpNum(info.corpNum)}`;
   const name = clean(info.corpName);
   if (name) profile.name = name;
@@ -67,7 +82,7 @@ export function buildCompanyProfileFromPopbill(
       has_region: Boolean(region),
       has_biz_age: bizAgeMonths !== null,
       has_size: Boolean(size),
-      has_industry: industries.length > 0,
+      has_industry: hasIndustry,
       close_down_state: info.closeDownState ?? null,
       close_down_tax_type: info.closeDownTaxType ?? null,
     },
@@ -161,6 +176,48 @@ function parseYmd(value: string | null | undefined): Date | null {
   const day = Number(digits.slice(6, 8));
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   return new Date(Date.UTC(year, month - 1, day));
+}
+
+/** bizClass/bizType 문자열을 '/'로 분해해 코드가 아닌 개별 라벨만 남긴다. */
+function splitIndustryLabels(value: string | null | undefined): string[] {
+  const text = clean(value);
+  if (!text) return [];
+  return text
+    .split("/")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && !isLikelyKsicCode(part));
+}
+
+/**
+ * 구형 캐시 하위호환: industries 배열에 코드/'/' 결합 라벨이 섞인 프로필을 새 형식으로 재정규화한다.
+ * - industries → 라벨만 (코드 제거, '/' 분해)
+ * - industry_codes → 기존 코드 + industries에서 뽑은 코드를 KSIC 파생 확장
+ * 멱등(idempotent): 이미 정규화된 프로필을 다시 넣어도 결과가 동일하다.
+ */
+export function normalizeCompanyIndustryProfile(profile: CompanyProfile): CompanyProfile {
+  const rawIndustries = profile.industries ?? [];
+  const existingCodes = profile.industry_codes ?? [];
+  const { labels, codes } = splitIndustryEntries(rawIndustries);
+  const mergedCodes = unique([
+    ...existingCodes.flatMap((code) => expandKsicCodes(code)),
+    ...codes,
+  ]);
+
+  const next: CompanyProfile = { ...profile, industries: labels };
+  if (mergedCodes.length > 0) {
+    next.industry_codes = mergedCodes;
+  } else {
+    delete next.industry_codes;
+  }
+  // 코드가 유효 KSIC로 해석되고 이미 알려진(known) 업종이면 신뢰도만 0.7로 상향(없던 키는 만들지 않음).
+  if (
+    mergedCodes.length > 0 &&
+    typeof profile.confidence?.industry === "number" &&
+    profile.confidence.industry < 0.7
+  ) {
+    next.confidence = { ...profile.confidence, industry: 0.7 };
+  }
+  return next;
 }
 
 function clean(value: string | null | undefined): string {

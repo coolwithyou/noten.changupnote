@@ -13,6 +13,7 @@ import type {
   RuleTraceEntry,
 } from "@cunote/contracts";
 import { REGION_LABELS } from "../kstartup/constants.js";
+import { industryCodeMatches } from "../industry/ksic.js";
 
 export const RULESET_VERSION = "ruleset-kstartup-spine-v1";
 export const SCORING_VERSION = "scoring-fit-v1";
@@ -21,6 +22,12 @@ export function matchGrantCriteria(
   criteria: GrantCriterion[],
   company: CompanyProfile,
 ): MatchResult {
+  // 공고에서 구조화된 조건을 아직 추출하지 못한 경우(criteria 0건)는 적격으로 오인하지 않도록
+  // 조건부(conditional)로 강등하고 적합도를 미산정(0)으로 둔다.
+  if (criteria.length === 0) {
+    return unstructuredCriteriaResult();
+  }
+
   const ruleTrace = criteria.map((criterion) => evaluateCriterion(criterion, company));
   const hardFail = ruleTrace.some(
     (entry) => entry.result === "fail" && (entry.kind === "required" || entry.kind === "exclusion"),
@@ -40,8 +47,31 @@ export function matchGrantCriteria(
     unknown_fields,
     ruleset_ver: RULESET_VERSION,
     scoring_ver: SCORING_VERSION,
+    criteria_extracted: true,
   };
   const question = nextQuestion(unknown_fields);
+  if (question) result.next_question = question;
+  return result;
+}
+
+function unstructuredCriteriaResult(): MatchResult {
+  const entry: RuleTraceEntry = {
+    dimension: "other",
+    kind: "required",
+    operator: "exists",
+    result: "unknown",
+    message: "공고 자격조건이 아직 구조화되지 않았어요. 원문 확인이 필요해요.",
+  };
+  const result: MatchResult = {
+    eligibility: "conditional",
+    fit_score: 0,
+    rule_trace: [entry],
+    unknown_fields: ["other"],
+    ruleset_ver: RULESET_VERSION,
+    scoring_ver: SCORING_VERSION,
+    criteria_extracted: false,
+  };
+  const question = nextQuestion(["other"]);
   if (question) result.next_question = question;
   return result;
 }
@@ -59,7 +89,7 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
     case "founder_age":
       return evaluateFounderAge(criterion, company);
     case "industry":
-      return evaluateListCriterion(criterion, company.industries, "tags", "업종/분야", isKnownListField(company, "industry"));
+      return evaluateIndustry(criterion, company);
     case "size":
       return evaluateSingleValueCriterion(criterion, company.size ?? null, "sizes", "기업규모");
     case "revenue":
@@ -200,6 +230,70 @@ function evaluateFounderAge(criterion: GrantCriterion, company: CompanyProfile):
     `대표 ${company.founder_age}세 - 허용 구간 ${labels.join(", ") || "확인 필요"}`,
     { founder_age: company.founder_age },
   );
+}
+
+/**
+ * 업종/분야 평가. criterion.value.codes(KSIC)가 있으면 회사 industry_codes와 prefix 매칭하고,
+ * 라벨(industries/labels/tags)은 기존 문자열 매칭으로 fallback한다. 기존 구조화 criteria 형식
+ * ({tags}, {industries,labels}, {codes,labels})을 모두 수용한다.
+ */
+function evaluateIndustry(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+  const value = criterion.value as Record<string, unknown>;
+  const known = isKnownListField(company, "industry");
+  const label = "업종/분야";
+  const critCodes = toStringArray(value.codes);
+  const critLabels = unique([
+    ...toStringArray(value.industries),
+    ...toStringArray(value.labels),
+    ...toStringArray(value.tags),
+  ]);
+  const companyLabels = company.industries ?? [];
+  const companyCodes = company.industry_codes ?? [];
+  const companyDisplay = companyLabels.length > 0 ? companyLabels : companyCodes;
+  const requiredDisplay = critLabels.length > 0 ? critLabels : critCodes;
+
+  if (criterion.operator === "exists") {
+    const present = companyLabels.length > 0 || companyCodes.length > 0;
+    if (!present && known) return trace(criterion, "fail", `기업 ${label} 없음`, companyLabels);
+    return trace(
+      criterion,
+      present ? "pass" : "unknown",
+      present ? `${label} 보유 확인 - 귀사 ${companyDisplay.join(", ")}` : `기업 ${label} 입력 필요`,
+      present ? companyDisplay : undefined,
+    );
+  }
+
+  if (critCodes.length === 0 && critLabels.length === 0) {
+    return trace(criterion, "unknown", `${label} 조건 확인 필요`);
+  }
+
+  if (companyLabels.length === 0 && companyCodes.length === 0) {
+    if (!known) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
+    return trace(
+      criterion,
+      criterion.operator === "not_in" || criterion.kind === "exclusion" ? "pass" : "fail",
+      `${label} ${requiredDisplay.join(", ")} - 귀사 해당 없음`,
+      companyLabels,
+    );
+  }
+
+  const codeHit = critCodes.length > 0 && industryCodeMatches(critCodes, companyCodes);
+  const labelHit = critLabels.length > 0 && critLabels.some((entry) => companyLabels.includes(entry));
+  const overlaps = codeHit || labelHit;
+  const matched = criterion.operator === "not_in" ? !overlaps : overlaps;
+  const result = criterion.kind === "exclusion" && criterion.operator !== "not_in" ? !matched : matched;
+  return trace(
+    criterion,
+    result ? "pass" : "fail",
+    `${label} ${requiredDisplay.join(", ")} - 귀사 ${companyDisplay.join(", ")}`,
+    companyDisplay,
+  );
+}
+
+function toStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : [];
 }
 
 function evaluateListCriterion(

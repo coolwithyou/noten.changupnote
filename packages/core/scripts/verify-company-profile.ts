@@ -39,7 +39,10 @@ assert.equal(enriched.profile.name, "테스트 주식회사");
 assert.deepEqual(enriched.profile.region, { code: "41", label: "경기" });
 assert.equal(enriched.profile.biz_age_months, 29);
 assert.equal(enriched.profile.size, "중소기업");
-assert.deepEqual(enriched.profile.industries, ["J62", "정보통신업", "소프트웨어 개발"]);
+// industries = 라벨만(bizClass/bizType), 코드는 industry_codes로 분리
+assert.deepEqual(enriched.profile.industries, ["정보통신업", "소프트웨어 개발"]);
+assert.deepEqual(enriched.profile.industry_codes, ["J62", "62", "J"]);
+assert.equal(enriched.profile.confidence?.industry, 0.7);
 assert.equal(enriched.profile.business_status?.active, true);
 assert.equal(enriched.facts.masked_biz_no, "123-**-67***");
 assert.equal(enriched.facts.has_region, true);

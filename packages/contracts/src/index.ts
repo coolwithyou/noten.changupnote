@@ -262,6 +262,8 @@ export interface CompanyProfile {
   founder_age?: number | null;
   is_preliminary?: boolean;
   industries?: string[];
+  /** KSIC 파생 코드(원 코드 + 중분류 2자리 + 대분류 A~U). 라벨은 industries에 둔다. */
+  industry_codes?: string[];
   size?: string | null;
   revenue_krw?: number | null;
   employees_count?: number | null;
@@ -305,6 +307,8 @@ export interface MatchResult {
   next_question?: NextQuestion;
   ruleset_ver: string;
   scoring_ver: string;
+  /** 공고에서 구조화된 조건(criteria)이 1건 이상 추출됐는지. 0건이면 false(미산정). */
+  criteria_extracted: boolean;
 }
 
 export * from "./dto.js";

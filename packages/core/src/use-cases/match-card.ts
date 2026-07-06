@@ -46,6 +46,7 @@ export function toMatchCard<TPayload>(
     matchConfidence: estimateMatchConfidence(entry.match),
     rulesetVer: entry.match.ruleset_ver,
     scoringVer: entry.match.scoring_ver,
+    criteriaExtracted: entry.match.criteria_extracted !== false,
     detailUrl,
   };
 }
@@ -326,6 +327,11 @@ function bizAgeLockDate(asOf: Date) {
 }
 
 function compareMatch(a: MatchResult, b: MatchResult): number {
+  // 조건이 아직 구조화되지 않은(미산정) 공고는 산정된 공고들 아래로 내린다.
+  const aExtracted = a.criteria_extracted !== false;
+  const bExtracted = b.criteria_extracted !== false;
+  if (aExtracted !== bExtracted) return aExtracted ? -1 : 1;
+
   const rank: Record<MatchResult["eligibility"], number> = {
     eligible: 0,
     conditional: 1,
