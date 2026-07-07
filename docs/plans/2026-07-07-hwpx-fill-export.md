@@ -1,8 +1,17 @@
 # HWPX 원본 양식 채움 저장(fill & export) 설계 — 2026-07-07
 
 > **🟢 Phase 2 완료 (2026-07-07)** — web 배선 구현·검증 통과(contracts·core 빌드 + web typecheck
-> + `next build`). 잔여: **실데이터 브라우저 실측**(hwpx 보관 첨부가 연결된 공고에서 버튼 노출 →
-> 다운로드 → 한컴 확인) — Phase 3 QA에서 수행.
+> + `next build`).
+>
+> **Phase 3 브라우저 실측 (2026-07-08, dev 4010 · 경기 글로벌 오픈이노베이션 공고 실데이터):**
+> - ✅ 버튼 노출 양방향: 신청서(.hwpx 첨부) 초안에 "HWPX (원본 양식에 채움)" 노출,
+>   사업계획서(.hwp 첨부) 초안에는 비노출
+> - ✅ 다운로드 왕복: POST 성공, 채움 2건(기업명·소재지) + **미채움 8건 정직 안내**
+>   (X-Cunote-Hwpx-Unfilled 헤더 왕복: "8개 항목은 자동으로 채우지 못했습니다: 매출, … —
+>   다운로드한 파일에서 직접 입력하세요"), 초안 상태 "내보냄" 전이
+> - ⬜ 잔여 2건: ① 다운로드된 파일 한컴 오픈·셀 안착 확인(사용자) ② answers 동봉 경로 실측 —
+>   이 공고 신청서는 "추가 입력 없음"이라 answerText 경로 미실측. 추가 입력 문항이 있는
+>   공고에서 확인 필요
 >
 > Phase 2 요지: download route POST(`format=hwpx`, answers 동봉·병합), `draftHwpxExport.ts`
 > (R2 원본 조회→매직바이트 가드→채움, 실패 모드별 한국어 에러), `DraftableDocument.hwpxTemplateAvailable`
