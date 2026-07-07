@@ -3,7 +3,7 @@
 > **🟡 진행 상황 (2026-07-08 세션 진행 중)**
 >
 > - 🔶 슬라이스 A: 코드 배선 완료(`ad3d8a8` — 폴링 스윕 헬퍼·cron/on-demand 라우트·ingest 말미 스윕·뷰어 진입 링크·변환 중 배지). **잔여: env 등록 + E2E** — `CONVERSION_SHARED_SECRET`이 GCP Secret Manager에만 있고 `sw@noten.im` 토큰 만료로 접근 불가. 사용자 액션: `gcloud auth login sw@noten.im` 후 세션이 .env.local·Vercel env 등록 → `pnpm conversion:poll -- --write --limit=3` E2E → 배포
-> - 🔶 슬라이스 B: Opus 서브에이전트 구현 진행 중 (B1 유입기·B2 사전라벨·B3 승인 브리지 + verify)
+> - ✅ 슬라이스 B: 구현 완료(`be6bcbf`) — B1 유입기(`pnpm import:review-docs:from-surfaces`)·B2 사전라벨(`pnpm prelabel:review-docs`, 순환성 가드 유지)·B3 승인↔반영 브리지(approve→grant_document_fields+fields_ready, unapprove→롤백). 실DB 왕복 `pnpm verify:review-surface-bridge` 11체크·잔재 0. **실데이터 흐름은 슬라이스 A 점화(env) 후**: 유입기→사전라벨→/internal/review 검수→승인→뷰어 필드 노출. B2 실 LLM 스모크도 그때 1문서로 수행
 > - ✅ 슬라이스 C: 코칭/문의 연결 (`ad3d8a8` — coaching 카테고리, /support prefill, 공고 상세 '도움받기' CTA)
 > - ⬜ 슬라이스 D~G: 후속 등재 (Gate 3 대조 → fill planner, 통합 작성 화면, hwp2hwpx, AI 가이드)
 
