@@ -1,4 +1,5 @@
 import type {
+  AuthoringMode,
   BizAgeCriterionValue,
   FounderAgeCriterionValue,
   FounderAgeRange,
@@ -122,6 +123,39 @@ export function buildKStartupCriteria(
   return criteria;
 }
 
+/** K-Startup API 행에서 apply_method jsonb 객체를 만든다. */
+export function deriveKStartupApplyMethod(row: KStartupAnnouncement): Record<string, string | null> {
+  return {
+    online: row.aply_mthd_onli_rcpt_istc ?? null,
+    email: row.aply_mthd_eml_rcpt_istc ?? null,
+    fax: row.aply_mthd_fax_rcpt_istc ?? null,
+    visit: row.aply_mthd_vst_rcpt_istc ?? null,
+    postal: row.aply_mthd_pssr_rcpt_istc ?? null,
+    other: row.aply_mthd_etc_istc ?? null,
+  };
+}
+
+/**
+ * K-Startup 행(+선택적 detail)에서 작성 방식을 판정한다.
+ * normalize(buildGrant)뿐 아니라, 상세 enrichment 가 normalize 이후에 detail 을 붙이는
+ * 수집 경로(archiveKStartupCore)와 상세 치유(kstartupDetailHeal)도 이 함수로 재판정한다 —
+ * 판정 입력 구성이 갈라지면 같은 공고가 경로에 따라 다른 모드가 되므로 단일 원천 유지가 중요하다.
+ */
+export function deriveKStartupAuthoringMode(row: KStartupAnnouncement): AuthoringMode {
+  const applyMethod = deriveKStartupApplyMethod(row);
+  // detail(첨부·제출서류)이 수집됐을 때만 첨부/제출서류를 신호로 쓴다(미수집이면 attachmentsKnown=false).
+  const detail = row.detail;
+  return classifyAuthoringMode({
+    attachmentFilenames: detail?.attachments.map((attachment) => attachment.filename) ?? [],
+    attachmentsKnown: Boolean(detail),
+    applyMethods: classifyApplyMethods(applyMethod),
+    applyMethodTexts: Object.values(applyMethod).filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    ),
+    submitDocumentsText: detail?.submit_documents_text ?? null,
+  });
+}
+
 function buildGrant(
   row: KStartupAnnouncement,
   sourceId: string,
@@ -131,28 +165,11 @@ function buildGrant(
   const applyStart = parseKStartupDate(row.pbanc_rcpt_bgng_dt);
   const applyEnd = parseKStartupDate(row.pbanc_rcpt_end_dt);
   const projection = deriveProjection(criteria);
-  const applyMethod = {
-    online: row.aply_mthd_onli_rcpt_istc ?? null,
-    email: row.aply_mthd_eml_rcpt_istc ?? null,
-    fax: row.aply_mthd_fax_rcpt_istc ?? null,
-    visit: row.aply_mthd_vst_rcpt_istc ?? null,
-    postal: row.aply_mthd_pssr_rcpt_istc ?? null,
-    other: row.aply_mthd_etc_istc ?? null,
-  };
+  const applyMethod = deriveKStartupApplyMethod(row);
   const agencyJurisdiction = row.pbanc_ntrp_nm ?? null;
   const agencyOperator = row.biz_prch_dprt_nm ?? null;
   const applyMethods = classifyApplyMethods(applyMethod);
-  // detail(첨부·제출서류)이 수집됐을 때만 첨부/제출서류를 신호로 쓴다(미수집이면 attachmentsKnown=false).
-  const detail = row.detail;
-  const authoringMode = classifyAuthoringMode({
-    attachmentFilenames: detail?.attachments.map((attachment) => attachment.filename) ?? [],
-    attachmentsKnown: Boolean(detail),
-    applyMethods,
-    applyMethodTexts: Object.values(applyMethod).filter(
-      (value): value is string => typeof value === "string" && value.trim().length > 0,
-    ),
-    submitDocumentsText: detail?.submit_documents_text ?? null,
-  });
+  const authoringMode = deriveKStartupAuthoringMode(row);
 
   return {
     source: KSTARTUP_SOURCE,

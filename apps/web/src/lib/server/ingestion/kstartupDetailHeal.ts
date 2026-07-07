@@ -8,7 +8,11 @@
 // 절대 다운로드하지 않고 파일명 + 다운로드 URL 메타데이터만 저장한다.
 import { and, eq } from "drizzle-orm";
 import type { GrantRaw } from "@cunote/contracts";
-import type { KStartupDetailContent } from "@cunote/core";
+import {
+  deriveKStartupAuthoringMode,
+  type KStartupAnnouncement,
+  type KStartupDetailContent,
+} from "@cunote/core";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { hashGrantRawPayload } from "./grantRawHash";
@@ -64,6 +68,17 @@ export async function healKStartupGrantDetail(
     .where(and(
       eq(schema.grantRaw.source, "kstartup"),
       eq(schema.grantRaw.sourceId, input.sourceId),
+    ));
+
+  // detail 이 새로 붙었으니 grants 의 작성 방식 판정도 함께 갱신한다
+  // (raw 만 고치면 f_authoring_mode 가 unknown 으로 남는다).
+  const authoringMode = deriveKStartupAuthoringMode(nextPayload as unknown as KStartupAnnouncement);
+  await db
+    .update(schema.grants)
+    .set({ fAuthoringMode: authoringMode })
+    .where(and(
+      eq(schema.grants.source, "kstartup"),
+      eq(schema.grants.sourceId, input.sourceId),
     ));
 
   return { ok: true, status: "updated", detail, attachments };

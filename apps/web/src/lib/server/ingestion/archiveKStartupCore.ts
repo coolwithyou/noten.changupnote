@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
 import type { NormalizedGrant } from "@cunote/contracts";
 import {
+  deriveKStartupAuthoringMode,
   fetchKStartupPage,
   normalizeKStartupPayload,
   type KStartupAnnouncement,
@@ -242,6 +243,9 @@ async function enrichEntriesWithDetail(
       const attachments = attachmentsFromDetail(detail);
       entry.raw.attachments = attachments;
       totals.attachments += attachments.length;
+      // grant 는 detail 이 붙기 전에 normalize 됐으므로, detail 기반 판정을 여기서 재계산한다.
+      // (누락 시 서식 첨부가 있어도 f_authoring_mode 가 unknown 으로 발행되는 버그가 있었다.)
+      entry.grant.f_authoring_mode = deriveKStartupAuthoringMode(entry.raw.payload);
     }
   }
 }

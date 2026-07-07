@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
-import { classifyAuthoringMode } from "../src/index.js";
+import {
+  classifyAuthoringMode,
+  deriveKStartupAuthoringMode,
+  type KStartupAnnouncement,
+} from "../src/index.js";
 
 // ── 규칙 1: 서식성 첨부 존재 → file_form ──────────────────────────────
 assert.equal(
@@ -189,9 +193,34 @@ assert.equal(
   "file_form",
 );
 
+// ── deriveKStartupAuthoringMode: detail 이 normalize 이후에 붙는 수집 경로 회귀 방지 ──
+// (enrichment/heal 이 이 헬퍼로 재판정하지 않으면 서식 첨부가 있어도 unknown 으로 발행된다.)
+const kstartupOnlineRow = {
+  aply_mthd_onli_rcpt_istc: "온라인 접수",
+} as unknown as KStartupAnnouncement;
+assert.equal(deriveKStartupAuthoringMode(kstartupOnlineRow), "unknown");
+assert.equal(
+  deriveKStartupAuthoringMode({
+    ...kstartupOnlineRow,
+    detail: {
+      parser_version: "kstartup-detail-v1",
+      fetched_at: "2026-07-08T00:00:00.000Z",
+      apply_method_text: "온라인 접수",
+      submit_documents_text: null,
+      attachments: [{
+        filename: "(별첨1) 창업기업 사업계획서.hwp",
+        url: "https://www.k-startup.go.kr/afile/fileDownload/x",
+      }],
+    },
+  }),
+  "file_form",
+);
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
+    "derive_kstartup_row_without_detail_unknown",
+    "derive_kstartup_row_with_form_attachment_file_form",
     "rule1_form_attachment",
     "rule1_non_document_extension_skips",
     "rule2_submit_text_beats_rule5",
