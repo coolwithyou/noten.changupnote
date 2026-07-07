@@ -1,0 +1,10 @@
+{
+  "name": "kordoc-probe",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "hwp2hwpx Phase 0 병행 측정 — kordoc(Node) 트랙. 격리 설치(루트 pnpm 무관). 측정만.",
+  "dependencies": {
+    "kordoc": "3.17.0"
+  }
+}
