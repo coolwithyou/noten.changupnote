@@ -15,6 +15,8 @@ export const PUBLIC_WEB_ROUTES = [
   "GET /api/web/applications/calendar-feed/[token]",
   "GET /api/web/stats",
   "POST /api/web/landing-events",
+  "GET /api/web/business-lookup-suggestions",
+  "POST /api/web/business-lookup-suggestions",
   "POST /api/web/support/tickets",
   "POST /api/web/support/tickets/handoff",
   "POST /api/web/support/tickets/[ticketId]/attachments",
@@ -60,6 +62,7 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/account/export",
   "GET /api/web/archive",
   "GET /api/web/archive/facets",
+  "GET /api/web/archive/agencies",
   "POST /api/web/account/deletion-request",
   "PUT /api/web/account/password",
   "PUT /api/web/account/profile",
@@ -84,9 +87,11 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/grants/[grantId]",
   "GET /api/web/grants/[grantId]/preparation",
   "GET /api/web/grants/[grantId]/package",
+  "GET /api/web/grants/[grantId]/page-image/[...key]",
   "POST /api/web/grants/[grantId]/drafts",
   "GET /api/web/document-drafts/[draftId]",
   "GET /api/web/document-drafts/[draftId]/download",
+  "POST /api/web/document-drafts/[draftId]/download",
   "PATCH /api/web/document-drafts/[draftId]",
   "POST /api/web/document-drafts/[draftId]/regenerate",
   "POST /api/web/document-drafts/[draftId]/feedback",
@@ -106,6 +111,14 @@ export const PUBLIC_APP_ROUTES = [
   "GET /api/app/v1/openapi.json",
   "GET /api/app/v1/stats",
   "POST /api/app/v1/teaser",
+] as const;
+
+// 시스템/크론 라우트: 세션·회사 접근 정책이 아니라 CRON_SECRET Bearer 로 보호된다(authorizeCronRequest).
+// Vercel Cron(apps/web/vercel.json) 또는 수동 트리거만 호출한다. 공개/세션 라우트와 인증 클래스가
+// 다르므로 별도 목록으로 분리해 관리하고, verify:route-policy 가 api/cron 스코프와 대조·검증한다.
+export const SYSTEM_CRON_ROUTES = [
+  "GET /api/cron/ingest-kstartup",
+  "GET /api/cron/kstartup-details",
 ] as const;
 
 export const SESSION_APP_ROUTES = [

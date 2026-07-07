@@ -5,6 +5,7 @@ import {
   PUBLIC_WEB_ROUTES,
   SESSION_APP_ROUTES,
   SESSION_WEB_ROUTES,
+  SYSTEM_CRON_ROUTES,
 } from "../../../apps/web/src/lib/server/auth/routePolicy.js";
 
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"] as const;
@@ -37,9 +38,13 @@ const sessionPageRoutes = SESSION_WEB_ROUTES.filter((route) => !route.includes("
 const publicRoutes = new Set<string>([...PUBLIC_WEB_ROUTES, ...PUBLIC_APP_ROUTES]);
 const sessionRoutes = new Set<string>([...SESSION_WEB_ROUTES, ...SESSION_APP_ROUTES]);
 const actualRoutes = apiScopes.flatMap(discoverApiRouteMethods).sort();
+const cronScope = resolve(appRouteRoot, "api/cron");
+const actualCronRoutes = discoverApiRouteMethods(cronScope).sort();
 const errors: string[] = [];
 
 compareSets("API route file", actualRoutes, "route policy", [...policyRoutes].sort(), errors);
+compareSets("cron API route file", actualCronRoutes, "cron route policy", [...SYSTEM_CRON_ROUTES].sort(), errors);
+verifyCronRouteAuth(SYSTEM_CRON_ROUTES, errors);
 verifyPublicPageRoutes(publicPageRoutes, errors);
 verifySessionPageRoutes(sessionPageRoutes, errors);
 
@@ -55,7 +60,30 @@ if (errors.length > 0) {
   process.exit(1);
 }
 
-console.log(`Route policy verification passed (${actualRoutes.length} API methods, ${sessionPageRoutes.length} protected pages).`);
+console.log(
+  `Route policy verification passed (${actualRoutes.length} API methods, ${actualCronRoutes.length} cron methods, ${sessionPageRoutes.length} protected pages).`,
+);
+
+function verifyCronRouteAuth(routes: readonly string[], errors: string[]) {
+  for (const route of routes) {
+    const [method, path] = route.split(" ");
+    if (method !== "GET" || !path) {
+      errors.push(`cron route ${route} must be a GET route (Vercel cron issues GET).`);
+      continue;
+    }
+
+    const routeFile = resolve(appRouteRoot, ...path.split("/").filter(Boolean), "route.ts");
+    if (!existsSync(routeFile)) {
+      errors.push(`cron route ${route} is missing route file ${relative(workspaceRoot, routeFile)}.`);
+      continue;
+    }
+
+    const source = readFileSync(routeFile, "utf8");
+    if (!source.includes("authorizeCronRequest(")) {
+      errors.push(`cron route ${route} does not call authorizeCronRequest (CRON_SECRET guard).`);
+    }
+  }
+}
 
 function discoverApiRouteMethods(root: string): string[] {
   if (!existsSync(root)) return [];

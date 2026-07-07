@@ -19,14 +19,12 @@ import type { KStartupAnnouncement } from "@cunote/core";
 import { closeCunoteDb, getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { hashGrantRawPayload } from "./grantRawHash";
 import {
-  attachmentsFromDetail,
-  fetchKStartupDetailWithRetry,
   resolveKStartupDetailUrl,
   sleep,
   KSTARTUP_DETAIL_REQUEST_DELAY_MS,
 } from "./kstartupDetailFetch";
+import { healKStartupGrantDetail } from "./kstartupDetailHeal";
 
 loadMonorepoEnv();
 
@@ -78,41 +76,29 @@ async function main(): Promise<void> {
     if (!first) await sleep(KSTARTUP_DETAIL_REQUEST_DELAY_MS);
     first = false;
 
-    const outcome = await fetchKStartupDetailWithRetry(url);
-    if (!outcome.ok) {
-      failures.push({ sourceId: target.sourceId, url, reason: outcome.error });
-      logProgress(processed, targets.length);
-      continue;
+    const result = await healKStartupGrantDetail(db, {
+      sourceId: target.sourceId,
+      url,
+      write: !dryRun,
+    });
+
+    if (result.attachments) {
+      // fetch 성공(dry_run · updated · no_raw 공통) — 첨부 통계는 항상 집계한다.
+      succeeded += 1;
+      bump(attachmentCountDistribution, result.attachments.length);
+      if (result.attachments.some((attachment) => FORM_EXTENSIONS.test(attachment.filename))) {
+        withFormFileCount += 1;
+      }
     }
 
-    succeeded += 1;
-    const detail = outcome.content;
-    const attachments = attachmentsFromDetail(detail);
-    bump(attachmentCountDistribution, attachments.length);
-    if (attachments.some((attachment) => FORM_EXTENSIONS.test(attachment.filename))) {
-      withFormFileCount += 1;
-    }
-
-    if (!dryRun) {
-      const existing = await readGrantRaw(db, target.sourceId);
-      if (!existing) {
+    if (!result.ok) {
+      if (result.status === "no_raw") {
         skippedNoRaw += 1;
         failures.push({ sourceId: target.sourceId, url, reason: "grant_raw 행 없음" });
-        logProgress(processed, targets.length);
-        continue;
+      } else {
+        failures.push({ sourceId: target.sourceId, url, reason: result.error ?? "상세 fetch 실패" });
       }
-      const nextPayload: Record<string, unknown> = { ...existing.payload, detail };
-      await db
-        .update(schema.grantRaw)
-        .set({
-          payload: nextPayload,
-          attachments: attachments as unknown as Array<Record<string, unknown>>,
-          rawHash: hashGrantRawPayload(nextPayload),
-        })
-        .where(and(
-          eq(schema.grantRaw.source, "kstartup"),
-          eq(schema.grantRaw.sourceId, target.sourceId),
-        ));
+    } else if (result.status === "updated") {
       updated += 1;
     }
 
@@ -167,18 +153,6 @@ async function readOpenKStartupGrants(db: CunoteDb, cap: number | undefined): Pr
       (payload ? resolveKStartupDetailUrl(payload) : null);
     return { sourceId: row.sourceId, url };
   });
-}
-
-async function readGrantRaw(
-  db: CunoteDb,
-  sourceId: string,
-): Promise<{ payload: Record<string, unknown> } | null> {
-  const [row] = await db
-    .select({ payload: schema.grantRaw.payload })
-    .from(schema.grantRaw)
-    .where(and(eq(schema.grantRaw.source, "kstartup"), eq(schema.grantRaw.sourceId, sourceId)))
-    .limit(1);
-  return row ? { payload: row.payload } : null;
 }
 
 function logProgress(processed: number, total: number): void {
