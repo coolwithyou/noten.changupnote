@@ -1,10 +1,10 @@
 # 이상 플로우 세로 관통 계획 — 갭 분석과 슬라이스 실행
 
-> **🟡 진행 상황 (2026-07-08 작성 — 세션 진행 중)**
+> **🟡 진행 상황 (2026-07-08 세션 진행 중)**
 >
-> - ⬜ 슬라이스 A: 파이프라인 점화 (env 배선·폴링 배선·뷰어 진입 링크)
-> - ⬜ 슬라이스 B: 전문가 보정 브리지 (검수 큐 유입·사전라벨·승인→필드 반영)
-> - ⬜ 슬라이스 C: 코칭/문의 연결
+> - 🔶 슬라이스 A: 코드 배선 완료(`ad3d8a8` — 폴링 스윕 헬퍼·cron/on-demand 라우트·ingest 말미 스윕·뷰어 진입 링크·변환 중 배지). **잔여: env 등록 + E2E** — `CONVERSION_SHARED_SECRET`이 GCP Secret Manager에만 있고 `sw@noten.im` 토큰 만료로 접근 불가. 사용자 액션: `gcloud auth login sw@noten.im` 후 세션이 .env.local·Vercel env 등록 → `pnpm conversion:poll -- --write --limit=3` E2E → 배포
+> - 🔶 슬라이스 B: Opus 서브에이전트 구현 진행 중 (B1 유입기·B2 사전라벨·B3 승인 브리지 + verify)
+> - ✅ 슬라이스 C: 코칭/문의 연결 (`ad3d8a8` — coaching 카테고리, /support prefill, 공고 상세 '도움받기' CTA)
 > - ⬜ 슬라이스 D~G: 후속 등재 (Gate 3 대조 → fill planner, 통합 작성 화면, hwp2hwpx, AI 가이드)
 
 ## 1. 목적

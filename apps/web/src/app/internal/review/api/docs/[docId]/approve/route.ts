@@ -34,5 +34,6 @@ export async function POST(request: Request, context: RouteContext) {
     const status = result.reason === "not_found" ? 404 : 409;
     return NextResponse.json({ ok: false, error: result.reason }, { status });
   }
-  return NextResponse.json({ ok: true, goldenAction: result.goldenAction });
+  // applied: surface 문서면 grant_document_fields 반영 결과(B3 브리지). 스파이크 문서면 미포함.
+  return NextResponse.json({ ok: true, goldenAction: result.goldenAction, applied: result.applied ?? null });
 }
