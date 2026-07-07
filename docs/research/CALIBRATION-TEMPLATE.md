@@ -65,3 +65,4 @@ git 명령 금지. 완료 후: 핵심 발견 3가지와 재고 필요 지점만 
 
 - 2026-07-02: 1차 (Gate 2 사전) — `2026-07-02-document-ai-sota.md`, `2026-07-02-hitl-loop-sota.md`. 판정: 3.3·18장·포지셔닝 유지 확정, confidence 정의 신설(13장), evidenceRefs 정렬 검증(8.8), kordoc·Upstage 후보 등재
 - 2026-07-04: Gate 2 어댑터 착수 전 델타 — `2026-07-04-gate2-layout-adapters-calibration.md`. 판정: 전제 4건 유지. 후보 5종 통합 사실표 확정(bbox 좌표계·인증·제한), kordoc → text parser 계층 재분류. 제품·규제 축은 2일 델타로 생략(감독자 결정) — 데이터 처리 위치(국내 리전 부재) 사실만 병기, 규제 판정은 필드 테스트 전 대조에서
+- 2026-07-08: hwp2hwpx 트랙 착수 전 표적 대조 — `2026-07-08-hwp2hwpx-calibration.md`. 판정: 유지 3건(도구 선택·LO hwpx export 불가·배치 변환 시점), 보강 3건("jar만 추가" 폐기→소스 빌드+CLI 래퍼+uber jar, 렌더 diff 사각지대→구조 단정·채움 왕복·한컴 표본 게이트 추가, 빈 셀·cellAddr 보존은 측정 전 확정 금지). kordoc(Node·MIT, `fillHwpx()`) 병행 측정 후보 등재 — 직결 경쟁 제품 신호는 필드테스트 전 대조로 이월. 하부 한계(hwplib=HWP v5 전용, 암호화·배포용 불가)는 정직 스킵으로 설계 반영
