@@ -20,9 +20,22 @@ import {
 } from "./grantArchiveSearch";
 
 const DEFAULT_DB_CANDIDATE_LIMIT = 20_000;
+const DEFAULT_AGENCY_SEARCH_LIMIT = 20;
+const MAX_AGENCY_SEARCH_LIMIT = 50;
 
 type GrantRow = typeof schema.grants.$inferSelect;
 type CriterionRow = typeof schema.grantCriteria.$inferSelect;
+
+export interface GrantAgencyOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface GrantAgencySearchResult {
+  generatedAt: string;
+  options: GrantAgencyOption[];
+}
 
 export async function loadGrantArchive(input: {
   access?: CompanyAccess;
@@ -62,6 +75,64 @@ export async function loadGrantArchiveFacets(input: {
 
   const entries = await loadServiceGrants({ asOf, limit: 400 });
   return buildGrantArchiveFacets(buildFacetsInput(entries, input.query, asOf));
+}
+
+// 주관기관명 자동완성 — grants.agency_primary 를 count 내림차순으로 집계한다.
+// drizzle 어댑터에서는 DB 그룹 집계를, 비-drizzle 환경에서는 서비스 샘플 in-memory 집계로 폴백한다.
+export async function searchGrantAgencies(input: {
+  q?: string;
+  limit?: number;
+} = {}): Promise<GrantAgencySearchResult> {
+  const generatedAt = new Date().toISOString();
+  const q = input.q?.trim() ? input.q.trim() : undefined;
+  const limit = clampAgencySearchLimit(input.limit);
+
+  if (getRepositoryAdapterName() === "drizzle") {
+    try {
+      const db = getCunoteDb();
+      const conditions: SQL[] = [sql`${schema.grants.agencyPrimary} is not null`];
+      if (q) conditions.push(ilike(schema.grants.agencyPrimary, likePattern(q)));
+      const rows = await db
+        .select({
+          value: schema.grants.agencyPrimary,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(schema.grants)
+        .where(and(...conditions))
+        .groupBy(schema.grants.agencyPrimary)
+        .orderBy(desc(sql`count(*)`), schema.grants.agencyPrimary)
+        .limit(limit);
+      return {
+        generatedAt,
+        options: rows
+          .filter((row): row is { value: string; count: number } => Boolean(row.value))
+          .map((row) => ({ value: row.value, label: row.value, count: row.count })),
+      };
+    } catch (error) {
+      if (process.env.NODE_ENV === "production") throw error;
+      console.warn(`Grant agency search DB query failed. Falling back to service grants: ${errorMessage(error)}`);
+    }
+  }
+
+  const entries = await loadServiceGrants({ limit: 400 });
+  const counts = new Map<string, number>();
+  const needle = q?.toLowerCase();
+  for (const entry of entries) {
+    const value = entry.grant.agency_primary ?? null;
+    if (!value) continue;
+    if (needle && !value.toLowerCase().includes(needle)) continue;
+    counts.set(value, (counts.get(value) ?? 0) + 1);
+  }
+  const options = [...counts.entries()]
+    .map(([value, count]) => ({ value, label: value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "ko-KR"))
+    .slice(0, limit);
+  return { generatedAt, options };
+}
+
+function clampAgencySearchLimit(value: number | undefined): number {
+  if (!value || !Number.isFinite(value)) return DEFAULT_AGENCY_SEARCH_LIMIT;
+  return Math.max(1, Math.min(MAX_AGENCY_SEARCH_LIMIT, Math.trunc(value)));
 }
 
 async function loadGrantArchiveEntriesFromDb(
@@ -202,6 +273,7 @@ function toGrant(row: GrantRow): Grant {
     url: row.url,
     agency_jurisdiction: row.agencyJurisdiction,
     agency_operator: row.agencyOperator,
+    agency_primary: row.agencyPrimary,
     category_l1: row.categoryL1,
     category_l2: row.categoryL2,
     apply_start: dateString(row.applyStart),
@@ -285,6 +357,7 @@ function buildGrantArchiveWhere(query: GrantArchiveQuery | undefined, asOf: Date
     conditions.push(inArray(schema.grants.agencyJurisdiction, query.agencyJurisdictions));
   }
   if (query.agencyOperators?.length) conditions.push(inArray(schema.grants.agencyOperator, query.agencyOperators));
+  if (query.agencies?.length) conditions.push(inArray(schema.grants.agencyPrimary, query.agencies));
   if (query.categoryL1?.length) conditions.push(inArray(schema.grants.categoryL1, query.categoryL1));
   if (query.categoryL2?.length) conditions.push(inArray(schema.grants.categoryL2, query.categoryL2));
   if (query.applyMethods?.length) conditions.push(arrayOverlaps(schema.grants.fApplyMethods, query.applyMethods));
@@ -296,6 +369,7 @@ function buildGrantArchiveWhere(query: GrantArchiveQuery | undefined, asOf: Date
       ilike(schema.grants.sourceId, pattern),
       ilike(schema.grants.agencyJurisdiction, pattern),
       ilike(schema.grants.agencyOperator, pattern),
+      ilike(schema.grants.agencyPrimary, pattern),
       ilike(schema.grants.categoryL1, pattern),
       ilike(schema.grants.categoryL2, pattern),
     )!);

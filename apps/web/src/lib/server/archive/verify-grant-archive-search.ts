@@ -23,6 +23,7 @@ const entries: NormalizedGrant[] = [
       title: "서울 청년 창업 사업화 지원",
       agency_jurisdiction: "서울특별시",
       agency_operator: "서울창업허브",
+      agency_primary: "창업진흥원",
       category_l1: "사업화",
       category_l2: "청년창업",
       apply_start: "2026-07-01T00:00:00.000Z",
@@ -83,6 +84,7 @@ const entries: NormalizedGrant[] = [
       title: "수출 판로 개척 패키지",
       agency_jurisdiction: "중소벤처기업부",
       agency_operator: "중소기업유통센터",
+      agency_primary: "소상공인시장진흥공단",
       category_l1: "판로",
       category_l2: "수출",
       apply_start: "2026-08-01T00:00:00.000Z",
@@ -194,6 +196,24 @@ assert.equal(visitApply.total, 1);
 assert.equal(visitApply.items[0]?.source, "bizinfo");
 assert.deepEqual(visitApply.items[0]?.applyMethods, ["visit"]);
 
+// 주관기관 필터 — grant.agency_primary 정확 일치.
+const agencyMatch = buildGrantArchiveResult({
+  entries,
+  asOf,
+  query: { agencies: ["창업진흥원"] },
+});
+assert.equal(agencyMatch.total, 1);
+assert.equal(agencyMatch.items[0]?.grantId, "grant-1");
+assert.equal(agencyMatch.items[0]?.agencyPrimary, "창업진흥원");
+
+// 주관기관 필터 — 미존재 값은 결과 없음.
+const agencyMiss = buildGrantArchiveResult({
+  entries,
+  asOf,
+  query: { agencies: ["존재하지않는기관"] },
+});
+assert.equal(agencyMiss.total, 0);
+
 const facets = buildGrantArchiveFacets({
   entries,
   asOf,
@@ -216,6 +236,20 @@ const selectedApplyFacets = buildGrantArchiveFacets({
 });
 assert.equal(selectedApplyFacets.applyMethods.find((item) => item.value === "online")?.selected, true);
 
+// 주관기관 파셋 집계 — agency_primary 별 count.
+const agencyFacets = buildGrantArchiveFacets({ entries, asOf });
+assert.equal(agencyFacets.agencies.find((item) => item.value === "창업진흥원")?.count, 1);
+assert.equal(agencyFacets.agencies.find((item) => item.value === "소상공인시장진흥공단")?.count, 1);
+assert.ok(agencyFacets.agencies.length <= 50);
+
+// 주관기관 파셋 — 선택된 값은 캡과 무관하게 selected=true 로 포함.
+const selectedAgencyFacets = buildGrantArchiveFacets({
+  entries,
+  asOf,
+  query: { agencies: ["창업진흥원"] },
+});
+assert.equal(selectedAgencyFacets.agencies.find((item) => item.value === "창업진흥원")?.selected, true);
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -229,6 +263,10 @@ console.log(JSON.stringify({
     "archive_apply_method_filter",
     "archive_apply_method_fallback",
     "archive_apply_method_facets",
+    "archive_agency_filter",
+    "archive_agency_filter_miss",
+    "archive_agency_facets",
+    "archive_agency_facets_selected",
   ],
   totalFixtures: entries.length,
 }, null, 2));

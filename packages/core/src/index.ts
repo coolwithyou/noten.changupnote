@@ -15,6 +15,7 @@ export * from "./documents/field-extraction.js";
 export * from "./documents/field-reconciliation.js";
 export * from "./documents/preparation.js";
 export * from "./documents/taxonomy.js";
+export * from "./grants/agency.js";
 export * from "./grants/apply-method.js";
 export * from "./kstartup/fetch.js";
 export * from "./kstartup/normalize.js";

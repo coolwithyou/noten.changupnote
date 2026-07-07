@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Archive, CalendarDays, ExternalLink, FileText, GanttChartSquare, RotateCcw, Search } from "lucide-react";
 import { APPLY_METHOD_CHANNELS } from "@cunote/contracts";
 import type { CriterionDimension } from "@cunote/contracts";
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/table";
 import type { HeaderUser } from "@/lib/server/auth/session";
 import { cn } from "@/lib/utils";
+import { ArchiveAgencyFilter } from "./ArchiveAgencyFilter";
 import { ArchiveSaveButton } from "./ArchiveSaveButton";
 import {
   applyMethodChannelLabel,
@@ -218,19 +220,13 @@ function ArchiveFilterPanel({
 
         <FacetCheckboxGroup
           title="기관/분야"
+          leading={
+            <div className="grid gap-2 rounded-[var(--radius-lg)] border bg-muted/30 p-3">
+              <span className="text-xs font-medium text-muted-foreground">주관기관</span>
+              <ArchiveAgencyFilter initialOptions={facets.agencies} selected={query.agencies ?? []} />
+            </div>
+          }
           groups={[
-            {
-              label: "지역/부처",
-              name: "agencyJurisdiction",
-              options: facets.agencyJurisdictions,
-              selected: query.agencyJurisdictions,
-            },
-            {
-              label: "수행기관",
-              name: "agencyOperator",
-              options: facets.agencyOperators,
-              selected: query.agencyOperators,
-            },
             {
               label: "대분류",
               name: "categoryL1",
@@ -330,6 +326,7 @@ function ArchiveFilterPanel({
 function FacetCheckboxGroup({
   title,
   groups,
+  leading,
 }: {
   title: string;
   groups: Array<{
@@ -338,11 +335,13 @@ function FacetCheckboxGroup({
     options: GrantArchiveFacetOption[];
     selected?: string[] | undefined;
   }>;
+  leading?: ReactNode;
 }) {
-  if (groups.every((group) => group.options.length === 0)) return null;
+  if (!leading && groups.every((group) => group.options.length === 0)) return null;
   return (
     <div className="grid gap-3">
       <strong className="text-sm font-medium">{title}</strong>
+      {leading}
       {groups.map((group) => (
         <div key={group.name} className="grid gap-2 rounded-[var(--radius-lg)] border bg-muted/30 p-3">
           <span className="text-xs font-medium text-muted-foreground">{group.label}</span>
@@ -418,7 +417,7 @@ function GrantArchiveTable({ items }: { items: GrantArchiveItem[] }) {
                   {item.applicationStage ? <Badge variant="secondary">{applicationStageLabel(item.applicationStage)}</Badge> : null}
                 </div>
                 <strong className="block text-sm font-semibold leading-6">{item.title}</strong>
-                <span className="mt-1 block text-xs text-muted-foreground">{[item.agencyJurisdiction, item.agencyOperator].filter(Boolean).join(" · ") || "기관 확인"}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">{item.agencyPrimary || [item.agencyJurisdiction, item.agencyOperator].filter(Boolean).join(" · ") || "기관 확인"}</span>
               </TableCell>
               <TableCell className="min-w-[180px]">
                 <div className="flex flex-wrap gap-1.5">

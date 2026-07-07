@@ -529,6 +529,7 @@ export const grants = pgTable("grants", {
   url: text("url"),
   agencyJurisdiction: text("agency_jurisdiction"),
   agencyOperator: text("agency_operator"),
+  agencyPrimary: text("agency_primary"),
   categoryL1: text("category_l1"),
   categoryL2: text("category_l2"),
   applyStart: timestamp("apply_start", { withTimezone: true }),
@@ -561,6 +562,7 @@ export const grants = pgTable("grants", {
   benefitsIdx: index("grants_benefits_idx").using("gin", table.benefits),
   regionIdx: index("grants_f_regions_idx").on(table.fRegions),
   applyMethodsIdx: index("grants_f_apply_methods_idx").on(table.fApplyMethods),
+  agencyPrimaryIdx: index("grants_agency_primary_idx").on(table.agencyPrimary),
 }));
 
 export const grantCriteria = pgTable("grant_criteria", {

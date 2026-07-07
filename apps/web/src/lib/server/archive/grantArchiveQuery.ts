@@ -94,6 +94,7 @@ export function parseGrantArchiveSearchParams(params: URLSearchParams): GrantArc
       statuses: statuses.values,
       agencyJurisdictions: parseTextList(params, "agencyJurisdiction"),
       agencyOperators: parseTextList(params, "agencyOperator"),
+      agencies: parseTextList(params, "agency"),
       categoryL1: parseTextList(params, "categoryL1"),
       categoryL2: parseTextList(params, "categoryL2"),
       benefitFamilies: benefitFamilies.values,

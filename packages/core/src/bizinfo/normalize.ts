@@ -15,6 +15,7 @@ import {
 } from "./extraction-input.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
 import { classifyApplyMethods } from "../grants/apply-method.js";
+import { resolveGrantAgencyPrimary } from "../grants/agency.js";
 import type { BizInfoAttachmentMarkdown, BizInfoProgram } from "./types.js";
 
 export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v1";
@@ -57,6 +58,11 @@ export function normalizeBizInfoProgram(
     url: normalizeBizInfoUrl(program.pblancUrl),
     agency_jurisdiction: input.metadata.jurisdiction_agency,
     agency_operator: input.metadata.operating_agency,
+    agency_primary: resolveGrantAgencyPrimary({
+      source: "bizinfo",
+      jurisdiction: input.metadata.jurisdiction_agency,
+      operator: input.metadata.operating_agency,
+    }),
     category_l1: input.metadata.category_l1,
     category_l2: input.metadata.category_l2,
     apply_start: applyPeriod.start,

@@ -220,6 +220,7 @@ function grantUpdateValues(
     url: grant.url ?? null,
     agencyJurisdiction: grant.agency_jurisdiction ?? null,
     agencyOperator: grant.agency_operator ?? null,
+    agencyPrimary: grant.agency_primary ?? null,
     categoryL1: grant.category_l1 ?? null,
     categoryL2: grant.category_l2 ?? null,
     applyStart: dateValue(grant.apply_start),

@@ -45,6 +45,7 @@ export interface GrantArchiveQuery {
   statuses?: GrantStatus[];
   agencyJurisdictions?: string[];
   agencyOperators?: string[];
+  agencies?: string[];
   categoryL1?: string[];
   categoryL2?: string[];
   benefitFamilies?: GrantBenefitFamily[];
@@ -90,6 +91,7 @@ export interface GrantArchiveItem {
   url: string | null;
   agencyJurisdiction: string | null;
   agencyOperator: string | null;
+  agencyPrimary: string | null;
   categoryL1: string | null;
   categoryL2: string | null;
   applyStart: string | null;
@@ -147,6 +149,7 @@ export interface GrantArchiveFacets {
   applyMethods: GrantArchiveFacetOption[];
   agencyJurisdictions: GrantArchiveFacetOption[];
   agencyOperators: GrantArchiveFacetOption[];
+  agencies: GrantArchiveFacetOption[];
   categoryL1: GrantArchiveFacetOption[];
   categoryL2: GrantArchiveFacetOption[];
   criteria: GrantArchiveCriterionFacet[];
@@ -260,6 +263,12 @@ export function buildGrantArchiveFacets(input: {
       countOptional(filtered, (item) => item.agencyOperator),
       selectedSet(query.agencyOperators),
     ),
+    // 주관기관(distinct 약 3,600개)은 페이로드 폭주 방지를 위해 상위 50개로 캡한다.
+    // facetOptions가 selected를 최우선 정렬하므로 선택된 값은 캡과 무관하게 항상 포함된다.
+    agencies: facetOptions(
+      countOptional(filtered, (item) => item.agencyPrimary),
+      selectedSet(query.agencies),
+    ).slice(0, 50),
     categoryL1: facetOptions(
       countOptional(filtered, (item) => item.categoryL1),
       selectedSet(query.categoryL1),
@@ -337,6 +346,7 @@ function projectArchiveItem(entry: GrantArchiveEntry, asOf: Date): GrantArchiveI
     url: grant.url ?? null,
     agencyJurisdiction: grant.agency_jurisdiction ?? null,
     agencyOperator: grant.agency_operator ?? null,
+    agencyPrimary: grant.agency_primary ?? null,
     categoryL1: grant.category_l1 ?? null,
     categoryL2: grant.category_l2 ?? null,
     applyStart,
@@ -390,6 +400,7 @@ function matchesArchiveQuery(item: GrantArchiveItem, query: GrantArchiveQuery): 
   if (query.statuses?.length && !query.statuses.includes(item.status)) return false;
   if (query.agencyJurisdictions?.length && !matchesOptional(item.agencyJurisdiction, query.agencyJurisdictions)) return false;
   if (query.agencyOperators?.length && !matchesOptional(item.agencyOperator, query.agencyOperators)) return false;
+  if (query.agencies?.length && !matchesOptional(item.agencyPrimary, query.agencies)) return false;
   if (query.categoryL1?.length && !matchesOptional(item.categoryL1, query.categoryL1)) return false;
   if (query.categoryL2?.length && !matchesOptional(item.categoryL2, query.categoryL2)) return false;
   if (query.benefitFamilies?.length && !item.benefits.some((benefit) => query.benefitFamilies?.includes(benefit.family))) return false;
@@ -520,6 +531,7 @@ function searchHaystack(item: GrantArchiveItem): string {
     item.sourceId,
     item.agencyJurisdiction,
     item.agencyOperator,
+    item.agencyPrimary,
     item.categoryL1,
     item.categoryL2,
     item.benefits.map((benefit) => `${benefit.family} ${benefit.label}`).join(" "),

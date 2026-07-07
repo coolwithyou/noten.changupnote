@@ -202,6 +202,7 @@ export interface Grant {
   url?: string | null;
   agency_jurisdiction?: string | null;
   agency_operator?: string | null;
+  agency_primary?: string | null;
   category_l1?: string | null;
   category_l2?: string | null;
   apply_start?: string | null;

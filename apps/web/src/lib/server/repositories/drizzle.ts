@@ -571,6 +571,7 @@ function toGrant(row: GrantRow): Grant {
     url: row.url,
     agency_jurisdiction: row.agencyJurisdiction,
     agency_operator: row.agencyOperator,
+    agency_primary: row.agencyPrimary,
     category_l1: row.categoryL1,
     category_l2: row.categoryL2,
     apply_start: dateString(row.applyStart),

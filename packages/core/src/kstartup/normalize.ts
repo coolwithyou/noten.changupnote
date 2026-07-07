@@ -18,6 +18,7 @@ import {
 } from "./constants.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
 import { classifyApplyMethods } from "../grants/apply-method.js";
+import { resolveGrantAgencyPrimary } from "../grants/agency.js";
 import { extractCerts, findCertMatches, type CanonicalCert } from "../certification/certs.js";
 import { parseKStartupDate, statusFromApplyWindow } from "./date.js";
 import type {
@@ -137,14 +138,21 @@ function buildGrant(
     postal: row.aply_mthd_pssr_rcpt_istc ?? null,
     other: row.aply_mthd_etc_istc ?? null,
   };
+  const agencyJurisdiction = row.pbanc_ntrp_nm ?? null;
+  const agencyOperator = row.biz_prch_dprt_nm ?? null;
 
   return {
     source: KSTARTUP_SOURCE,
     source_id: sourceId,
     title: decodeHtml(clean(row.biz_pbanc_nm) || clean(row.intg_pbanc_biz_nm) || sourceId),
     url: row.detl_pg_url ?? row.biz_gdnc_url ?? null,
-    agency_jurisdiction: row.pbanc_ntrp_nm ?? null,
-    agency_operator: row.biz_prch_dprt_nm ?? null,
+    agency_jurisdiction: agencyJurisdiction,
+    agency_operator: agencyOperator,
+    agency_primary: resolveGrantAgencyPrimary({
+      source: KSTARTUP_SOURCE,
+      jurisdiction: agencyJurisdiction,
+      operator: agencyOperator,
+    }),
     category_l1: row.sprv_inst ?? null,
     category_l2: row.supt_biz_clsfc ?? null,
     apply_start: applyStart,
