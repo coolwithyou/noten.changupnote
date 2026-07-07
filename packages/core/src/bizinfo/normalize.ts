@@ -14,6 +14,7 @@ import {
   normalizeBizInfoUrl,
 } from "./extraction-input.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
+import { classifyApplyMethods } from "../grants/apply-method.js";
 import type { BizInfoAttachmentMarkdown, BizInfoProgram } from "./types.js";
 
 export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v1";
@@ -45,6 +46,10 @@ export function normalizeBizInfoProgram(
     status: criteria.length > 0 ? "normalized" : "extracted",
   };
 
+  const applyMethod = {
+    text: input.metadata.application_method,
+  };
+
   const grant: Grant = {
     source: "bizinfo",
     source_id: program.pblancId,
@@ -56,9 +61,7 @@ export function normalizeBizInfoProgram(
     category_l2: input.metadata.category_l2,
     apply_start: applyPeriod.start,
     apply_end: applyPeriod.end,
-    apply_method: {
-      text: input.metadata.application_method,
-    },
+    apply_method: applyMethod,
     support_amount: null,
     required_documents: normalizeGrantRequiredDocuments(mergeRequiredDocuments(
       parseBizInfoRequiredDocuments(input.metadata.application_method),
@@ -72,6 +75,7 @@ export function normalizeBizInfoProgram(
     f_sizes: projection.f_sizes,
     f_founder_traits: projection.f_founder_traits,
     f_required_certs: projection.f_required_certs,
+    f_apply_methods: classifyApplyMethods(applyMethod),
     overall_confidence: projection.overall_confidence,
     model_ver: options.model ?? null,
     prompt_ver: BIZINFO_NORMALIZER_VERSION,

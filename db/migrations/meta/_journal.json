@@ -239,6 +239,13 @@
       "when": 1783347183416,
       "tag": "0033_thick_marvel_boy",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1783425261782,
+      "tag": "0035_nice_morlocks",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,7 @@ import {
   TEXT_HINTS,
 } from "./constants.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
+import { classifyApplyMethods } from "../grants/apply-method.js";
 import { extractCerts, findCertMatches, type CanonicalCert } from "../certification/certs.js";
 import { parseKStartupDate, statusFromApplyWindow } from "./date.js";
 import type {
@@ -128,6 +129,14 @@ function buildGrant(
   const applyStart = parseKStartupDate(row.pbanc_rcpt_bgng_dt);
   const applyEnd = parseKStartupDate(row.pbanc_rcpt_end_dt);
   const projection = deriveProjection(criteria);
+  const applyMethod = {
+    online: row.aply_mthd_onli_rcpt_istc ?? null,
+    email: row.aply_mthd_eml_rcpt_istc ?? null,
+    fax: row.aply_mthd_fax_rcpt_istc ?? null,
+    visit: row.aply_mthd_vst_rcpt_istc ?? null,
+    postal: row.aply_mthd_pssr_rcpt_istc ?? null,
+    other: row.aply_mthd_etc_istc ?? null,
+  };
 
   return {
     source: KSTARTUP_SOURCE,
@@ -140,14 +149,7 @@ function buildGrant(
     category_l2: row.supt_biz_clsfc ?? null,
     apply_start: applyStart,
     apply_end: applyEnd,
-    apply_method: {
-      online: row.aply_mthd_onli_rcpt_istc ?? null,
-      email: row.aply_mthd_eml_rcpt_istc ?? null,
-      fax: row.aply_mthd_fax_rcpt_istc ?? null,
-      visit: row.aply_mthd_vst_rcpt_istc ?? null,
-      postal: row.aply_mthd_pssr_rcpt_istc ?? null,
-      other: row.aply_mthd_etc_istc ?? null,
-    },
+    apply_method: applyMethod,
     support_amount: null,
     required_documents: normalizeGrantRequiredDocuments(extractKStartupRequiredDocuments(row)),
     status: statusFromApplyWindow(row.pbanc_rcpt_bgng_dt, row.pbanc_rcpt_end_dt, asOf),
@@ -158,6 +160,7 @@ function buildGrant(
     f_sizes: projection.f_sizes,
     f_founder_traits: projection.f_founder_traits,
     f_required_certs: projection.f_required_certs,
+    f_apply_methods: classifyApplyMethods(applyMethod),
     overall_confidence: projection.overall_confidence,
     model_ver: null,
     prompt_ver: null,

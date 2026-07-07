@@ -1,4 +1,5 @@
 import type {
+  ApplyMethodChannel,
   BenefitBadge,
   CriterionDimension,
   Grant,
@@ -9,10 +10,12 @@ import type {
   NormalizedGrant,
 } from "@cunote/contracts";
 import {
+  APPLY_METHOD_CHANNELS,
+  APPLY_METHOD_CHANNEL_LABELS,
   CRITERION_DIMENSIONS,
   GRANT_BENEFIT_FAMILIES,
 } from "@cunote/contracts";
-import { daysUntil, deriveGrantBenefits, normalizeSupportAmount } from "@cunote/core";
+import { classifyApplyMethods, daysUntil, deriveGrantBenefits, normalizeSupportAmount } from "@cunote/core";
 
 export type GrantArchiveView = "list" | "calendar" | "gantt";
 export type GrantArchiveSort = "updated" | "deadline" | "start_date" | "title" | "confidence";
@@ -45,6 +48,7 @@ export interface GrantArchiveQuery {
   categoryL1?: string[];
   categoryL2?: string[];
   benefitFamilies?: GrantBenefitFamily[];
+  applyMethods?: ApplyMethodChannel[];
   criterionFilters?: GrantArchiveCriterionFilter[];
   applyStartFrom?: string;
   applyStartTo?: string;
@@ -94,6 +98,7 @@ export interface GrantArchiveItem {
   dDay: number | null;
   supportAmountLabel: string | null;
   benefits: BenefitBadge[];
+  applyMethods: ApplyMethodChannel[];
   conditionSummary: GrantArchiveConditionSummary[];
   requiredDocumentCount: number;
   draftableDocumentCount: number;
@@ -139,6 +144,7 @@ export interface GrantArchiveFacets {
   sources: GrantArchiveFacetOption[];
   statuses: GrantArchiveFacetOption[];
   benefits: GrantArchiveFacetOption[];
+  applyMethods: GrantArchiveFacetOption[];
   agencyJurisdictions: GrantArchiveFacetOption[];
   agencyOperators: GrantArchiveFacetOption[];
   categoryL1: GrantArchiveFacetOption[];
@@ -241,6 +247,11 @@ export function buildGrantArchiveFacets(input: {
       selectedSet(query.benefitFamilies),
       GRANT_BENEFIT_FAMILIES.map((family) => ({ value: family, label: benefitFamilyLabel(family) })),
     ),
+    applyMethods: facetOptions(
+      countMany(filtered, (item) => item.applyMethods),
+      selectedSet(query.applyMethods),
+      APPLY_METHOD_CHANNELS.map((channel) => ({ value: channel, label: applyMethodChannelLabel(channel) })),
+    ),
     agencyJurisdictions: facetOptions(
       countOptional(filtered, (item) => item.agencyJurisdiction),
       selectedSet(query.agencyJurisdictions),
@@ -292,6 +303,10 @@ export function criterionDimensionLabel(dimension: CriterionDimension): string {
   return DIMENSION_LABELS[dimension];
 }
 
+export function applyMethodChannelLabel(channel: ApplyMethodChannel): string {
+  return APPLY_METHOD_CHANNEL_LABELS[channel];
+}
+
 function toArchiveEntry(entry: NormalizedGrant | GrantArchiveEntry): GrantArchiveEntry {
   const archiveEntry: GrantArchiveEntry = {
     grant: entry.grant,
@@ -330,6 +345,7 @@ function projectArchiveItem(entry: GrantArchiveEntry, asOf: Date): GrantArchiveI
     dDay: daysUntil(applyEnd, asOf),
     supportAmountLabel: supportAmountLabel(grant.support_amount),
     benefits: deriveGrantBenefits(grant),
+    applyMethods: resolveApplyMethods(grant),
     conditionSummary: summarizeConditions(entry.criteria),
     requiredDocumentCount: requiredDocuments.length,
     draftableDocumentCount,
@@ -343,6 +359,11 @@ function projectArchiveItem(entry: GrantArchiveEntry, asOf: Date): GrantArchiveI
     applicationStage: entry.applicationStage ?? null,
     detailHref: `/grants/${encodeURIComponent(grant.id ?? `${grant.source}:${grant.source_id}`)}`,
   };
+}
+
+// 접수방법 채널 — 정규화된 f_apply_methods 를 우선 쓰고, 레거시 데이터(미백필)는 apply_method jsonb 를 즉석 분류한다.
+function resolveApplyMethods(grant: Grant): ApplyMethodChannel[] {
+  return grant.f_apply_methods ?? classifyApplyMethods(grant.apply_method);
 }
 
 function summarizeConditions(criteria: GrantCriterion[]): GrantArchiveConditionSummary[] {
@@ -372,6 +393,7 @@ function matchesArchiveQuery(item: GrantArchiveItem, query: GrantArchiveQuery): 
   if (query.categoryL1?.length && !matchesOptional(item.categoryL1, query.categoryL1)) return false;
   if (query.categoryL2?.length && !matchesOptional(item.categoryL2, query.categoryL2)) return false;
   if (query.benefitFamilies?.length && !item.benefits.some((benefit) => query.benefitFamilies?.includes(benefit.family))) return false;
+  if (query.applyMethods?.length && !item.applyMethods.some((channel) => query.applyMethods?.includes(channel))) return false;
   if (!matchesCriterionFilters(item, query.criterionFilters ?? [])) return false;
   if (!matchesDateRange(item.applyStart, query.applyStartFrom, query.applyStartTo)) return false;
   if (!matchesDateRange(item.applyEnd, query.applyEndFrom, query.applyEndTo)) return false;

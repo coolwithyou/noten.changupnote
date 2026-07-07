@@ -1,5 +1,5 @@
-import { and, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm";
-import type { Grant, GrantCriterion } from "@cunote/contracts";
+import { and, arrayOverlaps, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import type { ApplyMethodChannel, Grant, GrantCriterion } from "@cunote/contracts";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { withCunoteDbUser } from "@/lib/server/db/client";
@@ -217,6 +217,7 @@ function toGrant(row: GrantRow): Grant {
     f_sizes: row.fSizes,
     f_founder_traits: row.fFounderTraits,
     f_required_certs: row.fRequiredCerts,
+    f_apply_methods: row.fApplyMethods as ApplyMethodChannel[],
     overall_confidence: row.overallConfidence,
     model_ver: row.modelVer,
     prompt_ver: row.promptVer,
@@ -286,6 +287,7 @@ function buildGrantArchiveWhere(query: GrantArchiveQuery | undefined, asOf: Date
   if (query.agencyOperators?.length) conditions.push(inArray(schema.grants.agencyOperator, query.agencyOperators));
   if (query.categoryL1?.length) conditions.push(inArray(schema.grants.categoryL1, query.categoryL1));
   if (query.categoryL2?.length) conditions.push(inArray(schema.grants.categoryL2, query.categoryL2));
+  if (query.applyMethods?.length) conditions.push(arrayOverlaps(schema.grants.fApplyMethods, query.applyMethods));
   if (query.minConfidence !== undefined) conditions.push(gte(schema.grants.overallConfidence, query.minConfidence));
   if (query.q) {
     const pattern = likePattern(query.q);

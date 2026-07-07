@@ -69,6 +69,7 @@ export const GRANT_DOCUMENT_PREPARATION_TYPES = [
   "portal",
   "other",
 ] as const;
+export const APPLY_METHOD_CHANNELS = ["online", "email", "fax", "visit", "postal", "other"] as const;
 
 export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
@@ -82,6 +83,16 @@ export type GrantBenefitFamily = (typeof GRANT_BENEFIT_FAMILIES)[number];
 export type GrantBenefitSource = (typeof GRANT_BENEFIT_SOURCES)[number];
 export type GrantDocumentCategory = (typeof GRANT_DOCUMENT_CATEGORIES)[number];
 export type GrantDocumentPreparationType = (typeof GRANT_DOCUMENT_PREPARATION_TYPES)[number];
+export type ApplyMethodChannel = (typeof APPLY_METHOD_CHANNELS)[number];
+
+export const APPLY_METHOD_CHANNEL_LABELS: Record<ApplyMethodChannel, string> = {
+  online: "온라인 접수",
+  email: "이메일 접수",
+  fax: "팩스 접수",
+  visit: "방문 접수",
+  postal: "우편 접수",
+  other: "기타 접수",
+};
 
 export interface GrantSupportAmount {
   min?: number | null;
@@ -208,6 +219,7 @@ export interface Grant {
   f_sizes: string[];
   f_founder_traits: string[];
   f_required_certs: string[];
+  f_apply_methods?: ApplyMethodChannel[];
   overall_confidence: number;
   model_ver?: string | null;
   prompt_ver?: string | null;

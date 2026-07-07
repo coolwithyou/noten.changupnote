@@ -1,4 +1,5 @@
 import { Archive, CalendarDays, ExternalLink, FileText, GanttChartSquare, RotateCcw, Search } from "lucide-react";
+import { APPLY_METHOD_CHANNELS } from "@cunote/contracts";
 import type { CriterionDimension } from "@cunote/contracts";
 import { appHeaderLinks } from "@/components/app/app-navigation";
 import { ServiceHeader } from "@/components/app/service-header";
@@ -18,6 +19,7 @@ import type { HeaderUser } from "@/lib/server/auth/session";
 import { cn } from "@/lib/utils";
 import { ArchiveSaveButton } from "./ArchiveSaveButton";
 import {
+  applyMethodChannelLabel,
   benefitFamilyLabel,
   criterionDimensionLabel,
   type GrantArchiveFacetOption,
@@ -59,6 +61,8 @@ const BENEFIT_OPTIONS = [
   "certification",
   "network",
 ] as const;
+
+const APPLY_METHOD_OPTIONS = APPLY_METHOD_CHANNELS;
 
 const CRITERION_OPTIONS = [
   { value: "region", label: criterionDimensionLabel("region"), placeholder: "서울, 전국" },
@@ -198,6 +202,16 @@ function ArchiveFilterPanel({
             <label className="flex items-center gap-2 text-sm" key={family}>
               <input className="size-4 rounded border-input accent-primary" type="checkbox" name="benefit" value={family} defaultChecked={query.benefitFamilies?.includes(family)} />
               <FilterOptionText label={benefitFamilyLabel(family)} count={facetCount(facets.benefits, family)} />
+            </label>
+          ))}
+        </div>
+
+        <div className="grid gap-2">
+          <strong className="text-sm font-medium">접수방법</strong>
+          {APPLY_METHOD_OPTIONS.map((channel) => (
+            <label className="flex items-center gap-2 text-sm" key={channel}>
+              <input className="size-4 rounded border-input accent-primary" type="checkbox" name="applyMethod" value={channel} defaultChecked={query.applyMethods?.includes(channel)} />
+              <FilterOptionText label={applyMethodChannelLabel(channel)} count={facetCount(facets.applyMethods, channel)} />
             </label>
           ))}
         </div>

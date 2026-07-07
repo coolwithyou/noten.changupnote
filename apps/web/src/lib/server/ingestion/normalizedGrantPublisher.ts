@@ -236,6 +236,7 @@ function grantUpdateValues(
     fSizes: grant.f_sizes,
     fFounderTraits: grant.f_founder_traits,
     fRequiredCerts: grant.f_required_certs,
+    fApplyMethods: grant.f_apply_methods ?? [],
     overallConfidence: grant.overall_confidence,
     modelVer: grant.model_ver ?? null,
     promptVer: grant.prompt_ver ?? null,

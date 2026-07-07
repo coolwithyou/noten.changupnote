@@ -1,0 +1,2 @@
+ALTER TABLE "grants" ADD COLUMN "f_apply_methods" text[] DEFAULT ARRAY[]::text[] NOT NULL;--> statement-breakpoint
+CREATE INDEX "grants_f_apply_methods_idx" ON "grants" USING btree ("f_apply_methods");
