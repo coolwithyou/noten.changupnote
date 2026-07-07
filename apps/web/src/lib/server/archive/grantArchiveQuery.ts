@@ -1,5 +1,6 @@
 import {
   APPLY_METHOD_CHANNELS,
+  AUTHORING_MODES,
   CRITERION_DIMENSIONS,
   GRANT_BENEFIT_FAMILIES,
 } from "@cunote/contracts";
@@ -41,11 +42,13 @@ export function parseGrantArchiveSearchParams(params: URLSearchParams): GrantArc
   const statuses = parseEnumList(params, "status", GRANT_STATUSES);
   const benefitFamilies = parseEnumList(params, "benefit", GRANT_BENEFIT_FAMILIES);
   const applyMethods = parseEnumList(params, "applyMethod", APPLY_METHOD_CHANNELS);
+  const authoringModes = parseEnumList(params, "authoring", AUTHORING_MODES);
 
   if (!sources.ok) return invalidQuery("source", `source는 ${GRANT_SOURCES.join(", ")} 중 하나여야 합니다.`);
   if (!statuses.ok) return invalidQuery("status", `status는 ${GRANT_STATUSES.join(", ")} 중 하나여야 합니다.`);
   if (!benefitFamilies.ok) return invalidQuery("benefit", `benefit은 ${GRANT_BENEFIT_FAMILIES.join(", ")} 중 하나여야 합니다.`);
   if (!applyMethods.ok) return invalidQuery("applyMethod", `applyMethod는 ${APPLY_METHOD_CHANNELS.join(", ")} 중 하나여야 합니다.`);
+  if (!authoringModes.ok) return invalidQuery("authoring", `authoring은 ${AUTHORING_MODES.join(", ")} 중 하나여야 합니다.`);
   if (sort && !ARCHIVE_SORTS.includes(sort as GrantArchiveSort)) {
     return invalidQuery("sort", `sort는 ${ARCHIVE_SORTS.join(", ")} 중 하나여야 합니다.`);
   }
@@ -99,6 +102,7 @@ export function parseGrantArchiveSearchParams(params: URLSearchParams): GrantArc
       categoryL2: parseTextList(params, "categoryL2"),
       benefitFamilies: benefitFamilies.values,
       applyMethods: applyMethods.values,
+      authoringModes: authoringModes.values,
       criterionFilters: criterionFilters.query,
       applyStartFrom: params.get("applyStartFrom"),
       applyStartTo: params.get("applyStartTo"),

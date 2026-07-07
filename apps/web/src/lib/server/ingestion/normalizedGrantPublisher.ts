@@ -238,6 +238,7 @@ function grantUpdateValues(
     fFounderTraits: grant.f_founder_traits,
     fRequiredCerts: grant.f_required_certs,
     fApplyMethods: grant.f_apply_methods ?? [],
+    fAuthoringMode: grant.f_authoring_mode ?? "unknown",
     overallConfidence: grant.overall_confidence,
     modelVer: grant.model_ver ?? null,
     promptVer: grant.prompt_ver ?? null,

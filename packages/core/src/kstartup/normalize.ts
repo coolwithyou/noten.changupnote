@@ -18,6 +18,7 @@ import {
 } from "./constants.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
 import { classifyApplyMethods } from "../grants/apply-method.js";
+import { classifyAuthoringMode } from "../grants/authoring-mode.js";
 import { resolveGrantAgencyPrimary } from "../grants/agency.js";
 import { extractCerts, findCertMatches, type CanonicalCert } from "../certification/certs.js";
 import { parseKStartupDate, statusFromApplyWindow } from "./date.js";
@@ -140,6 +141,18 @@ function buildGrant(
   };
   const agencyJurisdiction = row.pbanc_ntrp_nm ?? null;
   const agencyOperator = row.biz_prch_dprt_nm ?? null;
+  const applyMethods = classifyApplyMethods(applyMethod);
+  // detail(첨부·제출서류)이 수집됐을 때만 첨부/제출서류를 신호로 쓴다(미수집이면 attachmentsKnown=false).
+  const detail = row.detail;
+  const authoringMode = classifyAuthoringMode({
+    attachmentFilenames: detail?.attachments.map((attachment) => attachment.filename) ?? [],
+    attachmentsKnown: Boolean(detail),
+    applyMethods,
+    applyMethodTexts: Object.values(applyMethod).filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    ),
+    submitDocumentsText: detail?.submit_documents_text ?? null,
+  });
 
   return {
     source: KSTARTUP_SOURCE,
@@ -168,7 +181,8 @@ function buildGrant(
     f_sizes: projection.f_sizes,
     f_founder_traits: projection.f_founder_traits,
     f_required_certs: projection.f_required_certs,
-    f_apply_methods: classifyApplyMethods(applyMethod),
+    f_apply_methods: applyMethods,
+    f_authoring_mode: authoringMode,
     overall_confidence: projection.overall_confidence,
     model_ver: null,
     prompt_ver: null,

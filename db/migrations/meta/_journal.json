@@ -253,6 +253,13 @@
       "when": 1783426166450,
       "tag": "0036_concerned_blade",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1783433845934,
+      "tag": "0037_striped_gravity",
+      "breakpoints": true
     }
   ]
 }

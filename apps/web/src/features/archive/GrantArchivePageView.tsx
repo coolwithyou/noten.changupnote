@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Archive, CalendarDays, ExternalLink, FileText, GanttChartSquare, RotateCcw, Search } from "lucide-react";
-import { APPLY_METHOD_CHANNELS } from "@cunote/contracts";
+import { APPLY_METHOD_CHANNELS, AUTHORING_MODES } from "@cunote/contracts";
 import type { CriterionDimension } from "@cunote/contracts";
 import { appHeaderLinks } from "@/components/app/app-navigation";
 import { ServiceHeader } from "@/components/app/service-header";
@@ -22,6 +22,7 @@ import { ArchiveAgencyFilter } from "./ArchiveAgencyFilter";
 import { ArchiveSaveButton } from "./ArchiveSaveButton";
 import {
   applyMethodChannelLabel,
+  authoringModeLabel,
   benefitFamilyLabel,
   criterionDimensionLabel,
   type GrantArchiveFacetOption,
@@ -65,6 +66,8 @@ const BENEFIT_OPTIONS = [
 ] as const;
 
 const APPLY_METHOD_OPTIONS = APPLY_METHOD_CHANNELS;
+
+const AUTHORING_MODE_OPTIONS = AUTHORING_MODES;
 
 const CRITERION_OPTIONS = [
   { value: "region", label: criterionDimensionLabel("region"), placeholder: "서울, 전국" },
@@ -214,6 +217,16 @@ function ArchiveFilterPanel({
             <label className="flex items-center gap-2 text-sm" key={channel}>
               <input className="size-4 rounded border-input accent-primary" type="checkbox" name="applyMethod" value={channel} defaultChecked={query.applyMethods?.includes(channel)} />
               <FilterOptionText label={applyMethodChannelLabel(channel)} count={facetCount(facets.applyMethods, channel)} />
+            </label>
+          ))}
+        </div>
+
+        <div className="grid gap-2">
+          <strong className="text-sm font-medium">작성 방식</strong>
+          {AUTHORING_MODE_OPTIONS.map((mode) => (
+            <label className="flex items-center gap-2 text-sm" key={mode}>
+              <input className="size-4 rounded border-input accent-primary" type="checkbox" name="authoring" value={mode} defaultChecked={query.authoringModes?.includes(mode)} />
+              <FilterOptionText label={authoringModeLabel(mode)} count={facetCount(facets.authoringModes, mode)} />
             </label>
           ))}
         </div>

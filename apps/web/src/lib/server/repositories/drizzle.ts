@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
 import type {
   ApplyMethodChannel,
+  AuthoringMode,
   CompanyProfile,
   CriterionDimension,
   Grant,
@@ -588,6 +589,7 @@ function toGrant(row: GrantRow): Grant {
     f_founder_traits: row.fFounderTraits,
     f_required_certs: row.fRequiredCerts,
     f_apply_methods: row.fApplyMethods as ApplyMethodChannel[],
+    f_authoring_mode: row.fAuthoringMode as AuthoringMode,
     overall_confidence: row.overallConfidence,
     model_ver: row.modelVer,
     prompt_ver: row.promptVer,

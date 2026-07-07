@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { NormalizedGrant } from "@cunote/contracts";
 import {
   applyMethodChannelLabel,
+  authoringModeLabel,
   buildGrantArchiveFacets,
   buildGrantArchiveResult,
   benefitFamilyLabel,
@@ -44,6 +45,7 @@ const entries: NormalizedGrant[] = [
       f_founder_traits: ["청년"],
       f_required_certs: [],
       f_apply_methods: ["online", "email"],
+      f_authoring_mode: "file_form",
       overall_confidence: 0.94,
     },
     criteria: [
@@ -175,6 +177,7 @@ assert.equal(paging.cursor, "1");
 assert.equal(benefitFamilyLabel("capability"), "역량강화");
 assert.equal(criterionDimensionLabel("target_type"), "신청 대상");
 assert.equal(applyMethodChannelLabel("online"), "온라인 접수");
+assert.equal(authoringModeLabel("file_form"), "서식 파일 작성");
 
 // 접수방법 필터 — 정규화된 f_apply_methods 사용(grant-1: online·email).
 const onlineApply = buildGrantArchiveResult({
@@ -195,6 +198,26 @@ const visitApply = buildGrantArchiveResult({
 assert.equal(visitApply.total, 1);
 assert.equal(visitApply.items[0]?.source, "bizinfo");
 assert.deepEqual(visitApply.items[0]?.applyMethods, ["visit"]);
+
+// 작성 방식 필터 — f_authoring_mode 사용(grant-1: file_form).
+const fileFormAuthoring = buildGrantArchiveResult({
+  entries,
+  asOf,
+  query: { authoringModes: ["file_form"] },
+});
+assert.equal(fileFormAuthoring.total, 1);
+assert.equal(fileFormAuthoring.items[0]?.grantId, "grant-1");
+assert.equal(fileFormAuthoring.items[0]?.authoringMode, "file_form");
+
+// 작성 방식 필터 — f_authoring_mode 미설정(grant-2)은 "unknown" 폴백.
+const unknownAuthoring = buildGrantArchiveResult({
+  entries,
+  asOf,
+  query: { authoringModes: ["unknown"] },
+});
+assert.equal(unknownAuthoring.total, 1);
+assert.equal(unknownAuthoring.items[0]?.source, "bizinfo");
+assert.equal(unknownAuthoring.items[0]?.authoringMode, "unknown");
 
 // 주관기관 필터 — grant.agency_primary 정확 일치.
 const agencyMatch = buildGrantArchiveResult({
@@ -236,6 +259,19 @@ const selectedApplyFacets = buildGrantArchiveFacets({
 });
 assert.equal(selectedApplyFacets.applyMethods.find((item) => item.value === "online")?.selected, true);
 
+// 작성 방식 파셋 집계 — file_form(grant-1)·unknown(grant-2 폴백) 각 1건, web_form 0건.
+const authoringFacets = buildGrantArchiveFacets({ entries, asOf });
+assert.equal(authoringFacets.authoringModes.find((item) => item.value === "file_form")?.count, 1);
+assert.equal(authoringFacets.authoringModes.find((item) => item.value === "unknown")?.count, 1);
+assert.equal(authoringFacets.authoringModes.find((item) => item.value === "web_form")?.count, 0);
+
+const selectedAuthoringFacets = buildGrantArchiveFacets({
+  entries,
+  asOf,
+  query: { authoringModes: ["file_form"] },
+});
+assert.equal(selectedAuthoringFacets.authoringModes.find((item) => item.value === "file_form")?.selected, true);
+
 // 주관기관 파셋 집계 — agency_primary 별 count.
 const agencyFacets = buildGrantArchiveFacets({ entries, asOf });
 assert.equal(agencyFacets.agencies.find((item) => item.value === "창업진흥원")?.count, 1);
@@ -263,6 +299,9 @@ console.log(JSON.stringify({
     "archive_apply_method_filter",
     "archive_apply_method_fallback",
     "archive_apply_method_facets",
+    "archive_authoring_mode_filter",
+    "archive_authoring_mode_unknown_fallback",
+    "archive_authoring_mode_facets",
     "archive_agency_filter",
     "archive_agency_filter_miss",
     "archive_agency_facets",

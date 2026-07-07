@@ -7,6 +7,7 @@ import {
   normalizeKStartupPayload,
   type KStartupAnnouncement,
   type KStartupApiResponse,
+  type KStartupDetailContent,
 } from "@cunote/core";
 import { closeCunoteDb, getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -17,6 +18,13 @@ import {
   type ExistingGrantRawHash,
   type GrantArchivePlan,
 } from "./archivePlan";
+import {
+  attachmentsFromDetail,
+  fetchKStartupDetailWithRetry,
+  resolveKStartupDetailUrl,
+  sleep,
+  KSTARTUP_DETAIL_REQUEST_DELAY_MS,
+} from "./kstartupDetailFetch";
 import { publishKStartupGrants } from "./kstartupPublisher";
 
 loadMonorepoEnv();
@@ -43,6 +51,7 @@ const stopAfterUnchangedPages = boundedInteger(
   100,
 );
 const collectedAt = dateArg(readArg("collectedAt") ?? process.env.CUNOTE_KSTARTUP_ARCHIVE_COLLECTED_AT) ?? new Date();
+const details = resolveDetailsFlag(source);
 
 if (source === "sample" && allPages) {
   throw new Error("--all은 --source=live 에서만 의미가 있습니다.");
@@ -65,6 +74,7 @@ try {
     skipUnchanged,
     stopAfterUnchangedPages,
     collectedAt,
+    details,
   });
   console.log(JSON.stringify(result, null, 2));
 } finally {
@@ -85,6 +95,7 @@ interface ArchiveKStartupInput {
   skipUnchanged: boolean;
   stopAfterUnchangedPages: number;
   collectedAt: Date;
+  details: boolean;
 }
 
 interface ArchiveKStartupResult {
@@ -92,13 +103,23 @@ interface ArchiveKStartupResult {
   source: "sample" | "live";
   compareDb: boolean;
   skipUnchanged: boolean;
+  details: boolean;
   startPage: number;
   perPage: number;
   pageCount: number;
   stopReason: string;
   collectedAt: string;
   totals: ArchiveTotals;
+  detailTotals: DetailTotals;
   pages: ArchivePageSummary[];
+}
+
+interface DetailTotals {
+  attempted: number;
+  fetched: number;
+  failed: number;
+  skippedNoUrl: number;
+  attachments: number;
 }
 
 interface ArchivePageSummary {
@@ -124,6 +145,7 @@ async function archiveKStartup(input: ArchiveKStartupInput): Promise<ArchiveKSta
   if (input.write && !input.db) throw new Error("--write requires database access.");
   const pages: ArchivePageSummary[] = [];
   const totals = emptyTotals();
+  const detailTotals = emptyDetailTotals();
   let stopReason = "page_limit";
   let unchangedPageStreak = 0;
   let totalCount: number | null = null;
@@ -138,11 +160,18 @@ async function archiveKStartup(input: ArchiveKStartupInput): Promise<ArchiveKSta
       collectedAt: input.collectedAt,
       asOf: input.collectedAt,
     });
-    const existingHashes = input.db ? await readExistingGrantRawHashes(input.db, entries) : [];
+    const existing = input.db ? await readExistingKStartupRawState(input.db, entries) : null;
+    // 이미 저장된 상세(detail)를 base payload 에 다시 붙여, 변경되지 않은 공고가
+    // detail 유무 차이로 매번 "changed" 로 뒤집혀 재발행되는 것을 막는다(멱등성).
+    if (existing) reattachStoredDetail(entries, existing.detailBySourceId);
+    const existingHashes = existing?.hashes ?? [];
     const plan = planGrantArchivePublication("kstartup", entries, existingHashes, {
       skipUnchanged: input.skipUnchanged,
     });
     const publishableEntries = selectPublishableArchiveEntries(entries, plan);
+
+    // 신규/변경 공고에 대해서만 상세 페이지를 fetch 해 payload.detail + attachments 를 채운다.
+    await enrichEntriesWithDetail(publishableEntries, input.details, detailTotals);
 
     if (input.write && input.db) {
       if (publishableEntries.length > 0) {
@@ -203,14 +232,66 @@ async function archiveKStartup(input: ArchiveKStartupInput): Promise<ArchiveKSta
     source: input.source,
     compareDb: input.compareDb,
     skipUnchanged: input.skipUnchanged,
+    details: input.details,
     startPage: input.startPage,
     perPage: input.perPage,
     pageCount: pages.length,
     stopReason,
     collectedAt: input.collectedAt.toISOString(),
     totals,
+    detailTotals,
     pages,
   };
+}
+
+/**
+ * publishable(신규/변경) 공고에 대해 상세 페이지를 순차 fetch 해 payload.detail + attachments 를 채운다.
+ * - details 가 꺼져 있으면 이미 붙어 있는(저장분) detail 로 attachments 만 보존한다.
+ * - 개별 실패는 삼키고(detail 없이 진행) 카운트만 남긴다.
+ */
+async function enrichEntriesWithDetail(
+  entries: Array<NormalizedGrant<KStartupAnnouncement>>,
+  details: boolean,
+  totals: DetailTotals,
+): Promise<void> {
+  let first = true;
+  for (const entry of entries) {
+    if (details) {
+      const url = resolveKStartupDetailUrl(entry.raw.payload);
+      if (!url) {
+        totals.skippedNoUrl += 1;
+      } else {
+        if (!first) await sleep(KSTARTUP_DETAIL_REQUEST_DELAY_MS);
+        first = false;
+        totals.attempted += 1;
+        const outcome = await fetchKStartupDetailWithRetry(url);
+        if (outcome.ok) {
+          totals.fetched += 1;
+          entry.raw.payload.detail = outcome.content;
+        } else {
+          totals.failed += 1;
+        }
+      }
+    }
+    // fresh 또는 저장분 detail 이 있으면 attachments 를 채운다(재발행 시 첨부 유실 방지).
+    const detail = entry.raw.payload.detail;
+    if (detail) {
+      const attachments = attachmentsFromDetail(detail);
+      entry.raw.attachments = attachments;
+      totals.attachments += attachments.length;
+    }
+  }
+}
+
+/** 저장된 grant_raw.payload.detail 을 fresh base entry 에 다시 붙인다(멱등 change-detection). */
+function reattachStoredDetail(
+  entries: Array<NormalizedGrant<KStartupAnnouncement>>,
+  detailBySourceId: Map<string, KStartupDetailContent>,
+): void {
+  for (const entry of entries) {
+    const stored = detailBySourceId.get(entry.raw.source_id);
+    if (stored) entry.raw.payload.detail = stored;
+  }
 }
 
 async function readLivePayload(page: number, perPage: number): Promise<KStartupApiResponse> {
@@ -230,23 +311,37 @@ function readSamplePayload(limit: number): KStartupApiResponse {
   };
 }
 
-async function readExistingGrantRawHashes(
+interface ExistingKStartupRawState {
+  hashes: ExistingGrantRawHash[];
+  detailBySourceId: Map<string, KStartupDetailContent>;
+}
+
+async function readExistingKStartupRawState(
   db: CunoteDb,
   entries: Array<NormalizedGrant<KStartupAnnouncement>>,
-): Promise<ExistingGrantRawHash[]> {
+): Promise<ExistingKStartupRawState> {
   const sourceIds = [...new Set(entries.map((entry) => entry.raw.source_id))];
-  if (sourceIds.length === 0) return [];
+  if (sourceIds.length === 0) return { hashes: [], detailBySourceId: new Map() };
   const rows = await db
     .select({
       sourceId: schema.grantRaw.sourceId,
       rawHash: schema.grantRaw.rawHash,
+      payload: schema.grantRaw.payload,
     })
     .from(schema.grantRaw)
     .where(and(
       eq(schema.grantRaw.source, "kstartup"),
       inArray(schema.grantRaw.sourceId, sourceIds),
     ));
-  return rows;
+  const detailBySourceId = new Map<string, KStartupDetailContent>();
+  for (const row of rows) {
+    const detail = (row.payload as unknown as KStartupAnnouncement).detail;
+    if (detail) detailBySourceId.set(row.sourceId, detail);
+  }
+  return {
+    hashes: rows.map((row) => ({ sourceId: row.sourceId, rawHash: row.rawHash })),
+    detailBySourceId,
+  };
 }
 
 async function updateSourceCursor(db: CunoteDb, page: number, collectedAt: Date): Promise<void> {
@@ -285,6 +380,26 @@ function emptyTotals(): ArchiveTotals {
     criteriaCount: 0,
     publishableCriteriaCount: 0,
   };
+}
+
+function emptyDetailTotals(): DetailTotals {
+  return {
+    attempted: 0,
+    fetched: 0,
+    failed: 0,
+    skippedNoUrl: 0,
+    attachments: 0,
+  };
+}
+
+/** 상세 수집 정책: --details / --no-details 우선, 없으면 env, 기본은 live 소스일 때 on. */
+function resolveDetailsFlag(source: "sample" | "live"): boolean {
+  if (hasFlag("no-details")) return false;
+  if (hasFlag("details")) return true;
+  const env = process.env.CUNOTE_ARCHIVE_KSTARTUP_DETAILS;
+  if (env === "true") return true;
+  if (env === "false") return false;
+  return source === "live";
 }
 
 function addTotals(totals: ArchiveTotals, plan: GrantArchivePlan, publishedCount: number): void {
@@ -374,12 +489,18 @@ Options:
   --write                            Persist changed/new rows and source_cursor
   --publish-unchanged                Publish unchanged rows too
   --stopAfterUnchangedPages=3         Stop live scan after N unchanged pages
+  --details / --no-details           Fetch detail pages for new/changed rows (default: on for live)
   --collectedAt=2026-06-27T00:00:00Z
+
+Detail collection (robots-safe):
+  Only the detail page (/web/contents/*) is fetched. Attachment bodies (/afile/*)
+  are never downloaded — only filename + download URL metadata is stored.
 
 Environment:
   KSTARTUP_SERVICE_KEY
   CUNOTE_KSTARTUP_ARCHIVE_SOURCE=sample
   CUNOTE_KSTARTUP_ARCHIVE_COMPARE_DB=true
   CUNOTE_KSTARTUP_ARCHIVE_WRITE=true
+  CUNOTE_ARCHIVE_KSTARTUP_DETAILS=true|false
 `);
 }

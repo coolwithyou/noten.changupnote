@@ -17,6 +17,8 @@ const allowTextOnlyFallback = hasFlag("allow-text-only-fallback") ||
   process.env.CUNOTE_ARCHIVE_CYCLE_ALLOW_TEXT_ONLY_FALLBACK === "true";
 const kstartupPages = readArg("kstartupPages") ?? process.env.CUNOTE_ARCHIVE_CYCLE_KSTARTUP_PAGES ?? "1";
 const kstartupPerPage = readArg("kstartupPerPage") ?? process.env.CUNOTE_ARCHIVE_CYCLE_KSTARTUP_PER_PAGE ?? "100";
+// 상세 페이지 수집은 archive:kstartup 기본값(live 소스일 때 on)을 따른다. 끄려면 --no-kstartup-details.
+const kstartupDetails = !(hasFlag("no-kstartup-details") || process.env.CUNOTE_ARCHIVE_CYCLE_KSTARTUP_DETAILS === "false");
 const bizinfoLimit = readArg("bizinfoLimit") ?? process.env.CUNOTE_ARCHIVE_CYCLE_BIZINFO_LIMIT ?? (source === "live" ? "20" : "1");
 const asOf = readArg("asOf") ?? process.env.CUNOTE_ARCHIVE_CYCLE_AS_OF;
 
@@ -30,6 +32,7 @@ const steps: CycleStep[] = [
       `--source=${source}`,
       `--pages=${kstartupPages}`,
       `--perPage=${kstartupPerPage}`,
+      ...(kstartupDetails ? [] : ["--no-details"]),
       ...(compareDb ? ["--compare-db"] : []),
       ...(write ? ["--write"] : []),
       ...(asOf ? [`--collectedAt=${asOf}`] : []),
@@ -171,6 +174,7 @@ Options:
   --allow-text-only-fallback
   --kstartupPages=1
   --kstartupPerPage=100
+  --no-kstartup-details              Skip K-Startup detail-page collection (default: on for live)
   --bizinfoLimit=20
   --asOf=2026-06-27T00:00:00Z
 `);

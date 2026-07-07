@@ -1,5 +1,6 @@
 import type {
   ApplyMethodChannel,
+  AuthoringMode,
   BenefitBadge,
   CriterionDimension,
   Grant,
@@ -12,6 +13,8 @@ import type {
 import {
   APPLY_METHOD_CHANNELS,
   APPLY_METHOD_CHANNEL_LABELS,
+  AUTHORING_MODES,
+  AUTHORING_MODE_LABELS,
   CRITERION_DIMENSIONS,
   GRANT_BENEFIT_FAMILIES,
 } from "@cunote/contracts";
@@ -50,6 +53,7 @@ export interface GrantArchiveQuery {
   categoryL2?: string[];
   benefitFamilies?: GrantBenefitFamily[];
   applyMethods?: ApplyMethodChannel[];
+  authoringModes?: AuthoringMode[];
   criterionFilters?: GrantArchiveCriterionFilter[];
   applyStartFrom?: string;
   applyStartTo?: string;
@@ -101,6 +105,7 @@ export interface GrantArchiveItem {
   supportAmountLabel: string | null;
   benefits: BenefitBadge[];
   applyMethods: ApplyMethodChannel[];
+  authoringMode: AuthoringMode;
   conditionSummary: GrantArchiveConditionSummary[];
   requiredDocumentCount: number;
   draftableDocumentCount: number;
@@ -147,6 +152,7 @@ export interface GrantArchiveFacets {
   statuses: GrantArchiveFacetOption[];
   benefits: GrantArchiveFacetOption[];
   applyMethods: GrantArchiveFacetOption[];
+  authoringModes: GrantArchiveFacetOption[];
   agencyJurisdictions: GrantArchiveFacetOption[];
   agencyOperators: GrantArchiveFacetOption[];
   agencies: GrantArchiveFacetOption[];
@@ -255,6 +261,11 @@ export function buildGrantArchiveFacets(input: {
       selectedSet(query.applyMethods),
       APPLY_METHOD_CHANNELS.map((channel) => ({ value: channel, label: applyMethodChannelLabel(channel) })),
     ),
+    authoringModes: facetOptions(
+      countBy(filtered, (item) => item.authoringMode),
+      selectedSet(query.authoringModes),
+      AUTHORING_MODES.map((mode) => ({ value: mode, label: authoringModeLabel(mode) })),
+    ),
     agencyJurisdictions: facetOptions(
       countOptional(filtered, (item) => item.agencyJurisdiction),
       selectedSet(query.agencyJurisdictions),
@@ -316,6 +327,10 @@ export function applyMethodChannelLabel(channel: ApplyMethodChannel): string {
   return APPLY_METHOD_CHANNEL_LABELS[channel];
 }
 
+export function authoringModeLabel(mode: AuthoringMode): string {
+  return AUTHORING_MODE_LABELS[mode];
+}
+
 function toArchiveEntry(entry: NormalizedGrant | GrantArchiveEntry): GrantArchiveEntry {
   const archiveEntry: GrantArchiveEntry = {
     grant: entry.grant,
@@ -356,6 +371,7 @@ function projectArchiveItem(entry: GrantArchiveEntry, asOf: Date): GrantArchiveI
     supportAmountLabel: supportAmountLabel(grant.support_amount),
     benefits: deriveGrantBenefits(grant),
     applyMethods: resolveApplyMethods(grant),
+    authoringMode: grant.f_authoring_mode ?? "unknown",
     conditionSummary: summarizeConditions(entry.criteria),
     requiredDocumentCount: requiredDocuments.length,
     draftableDocumentCount,
@@ -405,6 +421,7 @@ function matchesArchiveQuery(item: GrantArchiveItem, query: GrantArchiveQuery): 
   if (query.categoryL2?.length && !matchesOptional(item.categoryL2, query.categoryL2)) return false;
   if (query.benefitFamilies?.length && !item.benefits.some((benefit) => query.benefitFamilies?.includes(benefit.family))) return false;
   if (query.applyMethods?.length && !item.applyMethods.some((channel) => query.applyMethods?.includes(channel))) return false;
+  if (query.authoringModes?.length && !query.authoringModes.includes(item.authoringMode)) return false;
   if (!matchesCriterionFilters(item, query.criterionFilters ?? [])) return false;
   if (!matchesDateRange(item.applyStart, query.applyStartFrom, query.applyStartTo)) return false;
   if (!matchesDateRange(item.applyEnd, query.applyEndFrom, query.applyEndTo)) return false;

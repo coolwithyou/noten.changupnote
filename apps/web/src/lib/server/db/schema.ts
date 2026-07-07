@@ -547,6 +547,7 @@ export const grants = pgTable("grants", {
   fFounderTraits: text("f_founder_traits").array().notNull().default(sql`ARRAY[]::text[]`),
   fRequiredCerts: text("f_required_certs").array().notNull().default(sql`ARRAY[]::text[]`),
   fApplyMethods: text("f_apply_methods").array().notNull().default(sql`ARRAY[]::text[]`),
+  fAuthoringMode: text("f_authoring_mode").notNull().default("unknown"),
   embedding: jsonb("embedding").$type<number[]>(),
   overallConfidence: real("overall_confidence").notNull(),
   modelVer: text("model_ver"),
@@ -562,6 +563,7 @@ export const grants = pgTable("grants", {
   benefitsIdx: index("grants_benefits_idx").using("gin", table.benefits),
   regionIdx: index("grants_f_regions_idx").on(table.fRegions),
   applyMethodsIdx: index("grants_f_apply_methods_idx").on(table.fApplyMethods),
+  authoringModeIdx: index("grants_f_authoring_mode_idx").on(table.fAuthoringMode),
   agencyPrimaryIdx: index("grants_agency_primary_idx").on(table.agencyPrimary),
 }));
 

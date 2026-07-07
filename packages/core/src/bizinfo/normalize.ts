@@ -15,6 +15,7 @@ import {
 } from "./extraction-input.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
 import { classifyApplyMethods } from "../grants/apply-method.js";
+import { classifyAuthoringMode } from "../grants/authoring-mode.js";
 import { resolveGrantAgencyPrimary } from "../grants/agency.js";
 import type { BizInfoAttachmentMarkdown, BizInfoProgram } from "./types.js";
 
@@ -50,6 +51,17 @@ export function normalizeBizInfoProgram(
   const applyMethod = {
     text: input.metadata.application_method,
   };
+  const applyMethods = classifyApplyMethods(applyMethod);
+  // bizinfo 는 첨부 수집이 상시(1,485건 백필)이므로 attachmentsKnown=true. 목록이 비어도 "수집됐으나 없음"으로 본다.
+  const attachmentList = options.attachments ?? input.metadata.attachments;
+  const authoringMode = classifyAuthoringMode({
+    attachmentFilenames: attachmentList.map((attachment) => attachment.filename),
+    attachmentsKnown: true,
+    applyMethods,
+    applyMethodTexts: [applyMethod.text].filter(
+      (value): value is string => typeof value === "string" && value.trim().length > 0,
+    ),
+  });
 
   const grant: Grant = {
     source: "bizinfo",
@@ -81,7 +93,8 @@ export function normalizeBizInfoProgram(
     f_sizes: projection.f_sizes,
     f_founder_traits: projection.f_founder_traits,
     f_required_certs: projection.f_required_certs,
-    f_apply_methods: classifyApplyMethods(applyMethod),
+    f_apply_methods: applyMethods,
+    f_authoring_mode: authoringMode,
     overall_confidence: projection.overall_confidence,
     model_ver: options.model ?? null,
     prompt_ver: BIZINFO_NORMALIZER_VERSION,

@@ -70,6 +70,7 @@ export const GRANT_DOCUMENT_PREPARATION_TYPES = [
   "other",
 ] as const;
 export const APPLY_METHOD_CHANNELS = ["online", "email", "fax", "visit", "postal", "other"] as const;
+export const AUTHORING_MODES = ["file_form", "web_form", "unknown"] as const;
 
 export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
@@ -84,6 +85,7 @@ export type GrantBenefitSource = (typeof GRANT_BENEFIT_SOURCES)[number];
 export type GrantDocumentCategory = (typeof GRANT_DOCUMENT_CATEGORIES)[number];
 export type GrantDocumentPreparationType = (typeof GRANT_DOCUMENT_PREPARATION_TYPES)[number];
 export type ApplyMethodChannel = (typeof APPLY_METHOD_CHANNELS)[number];
+export type AuthoringMode = (typeof AUTHORING_MODES)[number];
 
 export const APPLY_METHOD_CHANNEL_LABELS: Record<ApplyMethodChannel, string> = {
   online: "온라인 접수",
@@ -92,6 +94,12 @@ export const APPLY_METHOD_CHANNEL_LABELS: Record<ApplyMethodChannel, string> = {
   visit: "방문 접수",
   postal: "우편 접수",
   other: "기타 접수",
+};
+
+export const AUTHORING_MODE_LABELS: Record<AuthoringMode, string> = {
+  file_form: "서식 파일 작성",
+  web_form: "웹폼 직접 작성",
+  unknown: "확인 필요",
 };
 
 export interface GrantSupportAmount {
@@ -221,6 +229,7 @@ export interface Grant {
   f_founder_traits: string[];
   f_required_certs: string[];
   f_apply_methods?: ApplyMethodChannel[];
+  f_authoring_mode?: AuthoringMode;
   overall_confidence: number;
   model_ver?: string | null;
   prompt_ver?: string | null;

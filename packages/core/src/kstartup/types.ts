@@ -1,3 +1,5 @@
+import type { KStartupDetailContent } from "./detail.js";
+
 export interface KStartupAnnouncement {
   aply_excl_trgt_ctnt?: string | null;
   aply_mthd_eml_rcpt_istc?: string | null;
@@ -24,6 +26,7 @@ export interface KStartupAnnouncement {
   sprv_inst?: string | null;
   supt_biz_clsfc?: string | null;
   supt_regin?: string | null;
+  detail?: KStartupDetailContent;
 }
 
 export interface KStartupApiResponse {
