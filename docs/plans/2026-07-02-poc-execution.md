@@ -1,6 +1,6 @@
 # PoC 실행 플랜 — 작성 가이드 (Gate 0~2 · Phase 1~2)
 
-> **🟡 진행 상황 (2026-07-05 · 세션 7 종료 — Phase 3 Viewer v1 + Phase 4 후보 계층 완료)**
+> **🟡 진행 상황 (2026-07-07 · 세션 10 종료 — HWPX 원본 양식 채움 트랙 Phase 0~2 완료)**
 >
 > 완료 (커밋 SHA):
 >
@@ -33,7 +33,11 @@
 > - ✅ **세션 9 후반 (2026-07-06)** — **lesson 파일럿 검수 완료**(운영팀, 23건 전량 approved) + **Step 3 첫 슬라이스**: `lessonContext.ts` 매칭 모듈(+`buildLessonPromptBlock` Phase 5 선행) → `/grants/[grantId]` "작성 유의사항" 패널. 실측: LIPS/TIPS 공고 307건 대상, 포스트팁스 22/23(보수적 스코핑 검증)·negative 0. 한계·후속은 계획 문서 blockquote
 > - ✅ **세션 9 말 (2026-07-06)** — **Step 3 둘째 슬라이스: 작성 시점 필드 레벨 팁**. `matchFieldLessonTips`(fieldPattern 토큰 매칭, 게이트 공유) → 작성 워크스페이스 "입력 필요" 항목·서식 필드 테이블에 인라인 `FieldLessonTips`. 매출액·사업비 등 매칭/negative/게이트 실측 + 공고 레벨 회귀 23/23. 한계(2자 토큰 과매칭 코너·grant_document_fields 0건)는 계획 문서에
 >
+> - ✅ **세션 10 (2026-07-07)** — **HWPX 원본 양식 채움 트랙 Phase 0~2** (`docs/plans/2026-07-07-hwpx-fill-export.md`, 커밋 `ef02bba`→`2bf43ec`→`490a789`): 사용자 답변을 원본 정부 양식(.hwpx)에 채워 다운로드하는 신규 트랙을 설계→검증→구현 완주. ① Phase 0 스파이크 — 바이트 보존 스플라이스+재압축 라운드트립 11/11, Docker 렌더 11/11, 한컴오피스 수동 오픈 확인(사용자), 외부 대조(python-hwpx 선례로 방식 강화) ② Phase 1 — `packages/core/documents/hwpx-fill.ts`(zero-dep, 셀 스캔·라벨 매칭·스플라이스 채움·부분 채움 정직 보고), 단위 15/15+실샘플 렌더 게이트 전건 통과 ③ Phase 2 — download route POST(`format=hwpx`, answers 동봉·병합), `hwpxTemplateAvailable` 플래그, 워크스페이스 HWPX 버튼+미채움 안내. **핵심 발견**: `.hwpx` 위장 HWP 바이너리 실재(3/14) → 형식 판별은 매직 바이트 필수(`detectHwpFormat`); 최근 3개월 공고 한글 첨부의 78%가 여전히 `.hwp`(DB 실측) → hwp2hwpx(Java, JRE는 변환 서버에 기설치) 후속 트랙 우선순위 높음. 잔여는 Phase 3 브라우저 실측 QA
+>
 > 남음 (우선순위순):
+>
+> - ⬜ **[HWPX 트랙 Phase 3] 브라우저 실측 QA** — hwpx 보관 첨부가 연결된 공고 준비 시트에서 버튼 노출→다운로드→한컴 확인 (dev 서버는 사용자 기동). 통과 후 hwp2hwpx 후속 트랙 착수 판단
 >
 > - 🔶 **[임계경로·사용자] 리뷰팀 45문서 검수 개시** — ① ⬜ `docs/infra-setup-guide.md` B1(Vercel env R2_* 확인)·B2(리뷰어 admin_users 등록) ② ⬜ dev.changupnote.com/internal/review 브라우저 왕복 확인 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 1 golden·Gate 2 측정의 유일한 블로커
 > - ⬜ **[사용자] A7**: Vercel(dev)에 `CONVERSION_SERVER_URL`(위 Cloud Run URL) + `CONVERSION_SHARED_SECRET`(`gcloud secrets versions access latest --secret=CONVERSION_SHARED_SECRET`) 등록 → **완료 확인되면 세션이 웹앱→Cloud Run E2E 검증** (아카이브 후크→job→artifact 왕복, `conversion-dev/` 프리픽스·검증 행 삭제 관례)
