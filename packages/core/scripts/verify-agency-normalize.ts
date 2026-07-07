@@ -35,6 +35,13 @@ assert.equal(normalizeAgencyName("의왕시장"), "의왕시");
 assert.equal(normalizeAgencyName("㈜오퍼스이앤씨 센터장"), "오퍼스이앤씨 센터장");
 assert.equal(normalizeAgencyName("신용보증기금 이사장"), "신용보증기금 이사장");
 
+// "테크노파크 원장"/"테크노파크원장" → "테크노파크". 일반 "장" 규칙로는 "…테크노파크원"이
+// 남아 별개 기관처럼 갈라진다(실데이터: 인천테크노파크 151건 vs 인천테크노파크원 109건).
+assert.equal(normalizeAgencyName("인천테크노파크원장"), "인천테크노파크");
+assert.equal(normalizeAgencyName("인천테크노파크 원장"), "인천테크노파크");
+assert.equal(normalizeAgencyName("(재)경기테크노파크원장"), "경기테크노파크");
+assert.equal(normalizeAgencyName("재단법인 인천테크노파크 원장"), "인천테크노파크");
+
 // 도지사 → 도(결과가 "도"로 끝날 때만). 회사 지사("…지사")는 보존.
 assert.equal(normalizeAgencyName("경기도지사"), "경기도");
 assert.equal(normalizeAgencyName("충청남도지사"), "충청남도");

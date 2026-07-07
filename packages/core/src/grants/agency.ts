@@ -75,19 +75,24 @@ function stripTitleSuffix(value: string): string {
   const withoutMinister = value.replace(/\s*장관$/, "");
   if (withoutMinister !== value) return withoutMinister.trimEnd();
 
-  // 2. "도지사" → 도. 결과가 "도"로 끝날 때만 제거해 "(주)크립톤 전북지사"(회사 지사) 오제거를 막는다.
+  // 2. "테크노파크 원장"/"테크노파크원장" → "테크노파크". 일반 "장" 규칙(4번)만 적용하면
+  //    "…테크노파크원"이 남아 "…테크노파크"와 갈라진다(테크노파크는 "원"으로 끝나는 기관이 아니다).
+  const withoutTechnoparkDirector = value.replace(/(테크노파크)\s*원장$/, "$1");
+  if (withoutTechnoparkDirector !== value) return withoutTechnoparkDirector;
+
+  // 3. "도지사" → 도. 결과가 "도"로 끝날 때만 제거해 "(주)크립톤 전북지사"(회사 지사) 오제거를 막는다.
   if (value.endsWith("지사")) {
     const candidate = value.slice(0, -2).trimEnd();
     if (candidate.endsWith("도")) return candidate;
   }
 
-  // 3. "군수" → 군. 결과가 "군"으로 끝날 때만 제거한다.
+  // 4. "군수" → 군. 결과가 "군"으로 끝날 때만 제거한다.
   if (value.endsWith("군수")) {
     const candidate = value.slice(0, -1); // "수" 한 글자만 제거 → "…군"
     if (candidate.endsWith("군")) return candidate;
   }
 
-  // 4. 단일 "장" 제거 — 결과가 기관형 어미(원·청·시)로 끝날 때만.
+  // 5. 단일 "장" 제거 — 결과가 기관형 어미(원·청·시)로 끝날 때만.
   //    "창업진흥원장" → "창업진흥원"(원), "특허청장" → "특허청"(청), "서울특별시장" → "서울특별시"(시).
   //    "창업진흥"으로 뭉개지지 않고(가드 통과), "㈜오퍼스이앤씨 센터장"(→"…센터", 터)은 미제거.
   if (value.endsWith("장")) {
