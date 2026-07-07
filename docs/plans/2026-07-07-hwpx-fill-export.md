@@ -1,7 +1,18 @@
 # HWPX 원본 양식 채움 저장(fill & export) 설계 — 2026-07-07
 
-> **🟢 Phase 0 통과 (2026-07-07)** — 자동 검증 전 항목 + **한컴오피스 수동 오픈 확인(사용자 실측,
-> 2026-07-07: 채움 값 정상 삽입·오류 없이 열림)** 완료. **Phase 1(core 채움 모듈) 착수 가능.**
+> **🟢 Phase 1 완료 (2026-07-07)** — core 채움 모듈 구현·검수 통과. **다음: Phase 2(web 배선).**
+>
+> **Phase 1 증거** (모듈: `packages/core/src/documents/hwpx-fill.ts` + 테스트):
+> - 단위 테스트 15/15 통과 + `@cunote/core` typecheck 통과 (합성 픽스처, 실샘플 비의존)
+> - 실샘플 통합(`scripts/spike/hwpx-fill-integration.ts`): 11/11 실행 성공, 위장 파일 3건
+>   매직 바이트 자동 차단, 라벨 매칭 채움 7/11 문서(0건 문서는 자유서식류 — no_label_cell 정직 보고)
+> - Docker 렌더 게이트: **11/11 렌더 성공 + 페이지 수 11/11 전건 동일** (라벨 타게팅은 리플로우 없음)
+> - 눈검수(07번 신청서): 기업명·성명·이메일이 정확한 입력 셀에 안착, 셀의 입력용 문자 스타일
+>   (파란색) 상속, 그 외 픽셀 동일. "기업명(필수 입력)" 표기의 괄호 정규화 매칭 검증
+> - 구현 이탈 5건 모두 승인: matchLabelCells reason 반환, 괄호 내용 제거 정규화(실측 근거),
+>   planCellFill 비공개 공유, 우측 존재-점유 시 스킵 해석, reason 우선순위 병합
+>
+> Phase 0 통과 기록(2026-07-07): 자동 검증 + 한컴오피스 수동 오픈 확인(사용자 실측) 완료.
 >
 > **Phase 0 증거** (스크립트: `scripts/spike/hwpx-fill-roundtrip.mjs`, 산출: `spike-out/hwpx-fill*/`):
 > - 라운드트립 구조 검증 11/11 PASS (역치환 무손실 + XML well-formed + 비수정 엔트리 바이트 동일)
@@ -83,11 +94,19 @@
 - 단위 테스트: 라운드트립 바이트 diff 최소성(삽입 지점 외 동일), 이스케이프, 빈 셀 판정,
   라벨 정규화 매칭, mimetype 순서·압축 방식
 
-### Phase 2 — web 배선
-- `document-drafts/[draftId]/download/route.ts`에 `format=hwpx` 추가
-- draft documentKey → 공고 첨부(R2) 역참조 로직 (`grantAttachmentArchive` 재사용)
-- `DocumentDraftWorkspace.tsx`: "HWPX (원본 양식에 채움)" 다운로드 버튼 — hwpx 원본 존재 시에만 노출
-- 미채움 필드 목록 안내 UI
+### Phase 2 — web 배선 (배선 지도 실측 완료, 2026-07-07)
+- **원본 조회 경로(확정)**: draft.**sourceAttachment**(파일명, 스키마에 이미 존재) + grant의
+  (source, sourceId) → `grant_attachment_archives` 행 → `storageKey` →
+  `createR2ObjectStorageFromEnv().getObjectBytes(key)` → Buffer (page-image 라우트 선례 있음)
+- **label→값(확정)**: draft.**filledFields**(`Record<string,string>`, label 키잉) — 워크스페이스
+  추가 입력은 초안 (재)생성 시 `POST /drafts`의 answers로 서버에 반영됨.
+  **주의**: 답변 입력 후 재생성 없이 바로 다운로드하면 미반영 — UI에서 재생성 유도 또는
+  다운로드 요청에 answers 동봉 결정 필요
+- `document-drafts/[draftId]/download/route.ts`에 `format=hwpx` 추가 — 응답 전
+  `detectHwpFormat`으로 매직 바이트 가드(위장 파일 방어)
+- `DocumentDraftWorkspace.tsx`: "HWPX (원본 양식에 채움)" 버튼 — 서버 계산 플래그
+  (sourceAttachment 존재 + 보관본이 진짜 hwpx)로 노출 제어
+- 미채움 필드 목록 안내 UI (`fillHwpxTemplate`의 unfilled reason 활용)
 
 ### Phase 3 — QA·정직화 마감
 - 채움 실패 모드 점검(라벨 0매칭, 손상 hwpx, 다중 section)
