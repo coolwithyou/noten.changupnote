@@ -34,6 +34,7 @@ import type {
 import type { DashboardResult } from "@cunote/contracts";
 import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
+import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
 import { notifyPopbillFailure } from "./adminNotifications";
@@ -149,7 +150,7 @@ export async function loadCompanyProfileResolutionForTeaser(
   if (bizNo) {
     const normalizedBizNo = sanitizeCorpNum(bizNo);
     const savedProfile = await repositories.companies.resolveCompanyProfile({ bizNo: normalizedBizNo });
-    if (savedProfile) {
+    if (savedProfile && hasReusableTeaserProfile(savedProfile)) {
       return {
         profile: savedProfile,
         evidence: buildCompanyEvidence({
@@ -280,7 +281,7 @@ export async function loadServiceApplySheet(
   if (!grants) return null;
   const match = await repositories.matches.calculateGrantMatch({ company, grant: grants });
 
-  return buildApplySheet({
+  const sheet = buildApplySheet({
     entry: {
       item: grants,
       match,
@@ -288,6 +289,13 @@ export async function loadServiceApplySheet(
     company,
     asOf,
   });
+  // core 는 보관본 유무를 모르므로(순수 조립), 여기서 grant_attachment_archives 를 배치 조회해
+  // hwpxTemplateAvailable 플래그를 덮어쓴다(HWPX 원본 양식 채움 다운로드 버튼 노출 제어).
+  sheet.applicationPrep.draftableDocuments = await annotateHwpxTemplateAvailability({
+    grant: { source: sheet.grant.source, sourceId: sheet.grant.sourceId },
+    documents: sheet.applicationPrep.draftableDocuments,
+  });
+  return sheet;
 }
 
 export async function enrichServiceCompany(input: {
@@ -1137,6 +1145,21 @@ export function mergeCompanyProfilesForEnrichment(current: CompanyProfile, enric
   if (enriched.business_status) next.business_status = enriched.business_status;
 
   return next;
+}
+
+function hasReusableTeaserProfile(profile: CompanyProfile): boolean {
+  return Boolean(
+    profile.region?.code ||
+    profile.region?.label ||
+    profile.biz_age_months !== null && profile.biz_age_months !== undefined ||
+    profile.industries?.length ||
+    profile.industry_codes?.length ||
+    profile.size ||
+    profile.revenue_krw !== null && profile.revenue_krw !== undefined ||
+    profile.employees_count !== null && profile.employees_count !== undefined ||
+    profile.business_status?.label ||
+    profile.business_status?.active !== undefined
+  );
 }
 
 function toCompanyEnrichmentFacts(

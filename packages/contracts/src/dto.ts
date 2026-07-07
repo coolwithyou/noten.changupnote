@@ -253,6 +253,12 @@ export interface DraftableDocument {
   templateRequired: boolean;
   confidence: number | null;
   status: DocumentPreparationStatus;
+  /**
+   * 원본 첨부(sourceAttachment)가 grant_attachment_archives에 .hwpx 보관본으로 존재해
+   * "원본 양식에 채움" HWPX 다운로드가 가능한지. core 조립부에서는 항상 false 이고,
+   * apps/web 서버 레이어가 보관본을 배치 조회해 덮어쓴다(위장 파일은 다운로드 시 매직바이트로 차단).
+   */
+  hwpxTemplateAvailable: boolean;
 }
 
 export interface DraftCoverage {

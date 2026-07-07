@@ -216,6 +216,50 @@ export function DocumentDraftWorkspace({
     window.location.assign(`/api/web/document-drafts/${encodeURIComponent(saved.id)}/download${query}`);
   }
 
+  // HWPX 원본 양식 채움 다운로드: 워크스페이스 추가 입력(answerText 전역 맵)을 함께 보내 서버에서
+  // draft.filledFields 위에 병합(answers 우선)해 원본 .hwpx 를 채운다. 미채움 항목은 응답 헤더로 받아 안내한다.
+  async function downloadDraftHwpx(document: DraftableDocument) {
+    const saved = await updateDraft(document, "exported");
+    if (!saved) return;
+    setPendingKey(document.documentKey);
+    setError(null);
+    setActionNotice(null);
+    try {
+      const answers = collectAnswerValues(answerText);
+      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(saved.id)}/download`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          format: "hwpx",
+          ...(Object.keys(answers).length > 0 ? { answers } : {}),
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(await hwpxErrorMessage(response));
+      }
+      const blob = await response.blob();
+      const filename = hwpxDownloadFilename(response) ?? `${document.canonicalName}.hwpx`;
+      triggerBlobDownload(blob, filename);
+      const unfilled = parseUnfilledHeader(response.headers.get("X-Cunote-Hwpx-Unfilled"));
+      if (unfilled.length > 0) {
+        const labels = unfilled.map((entry) => entry.label).filter(Boolean).join(", ");
+        setActionNotice({
+          tone: "warning",
+          message: `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
+        });
+      } else {
+        setActionNotice({
+          tone: "success",
+          message: `${document.canonicalName} 원본 HWPX 양식에 값을 채워 다운로드했습니다.`,
+        });
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.");
+    } finally {
+      setPendingKey(null);
+    }
+  }
+
   async function submitDraftFeedback(draft: DocumentDraft) {
     const form = feedbackDrafts[draft.id] ?? defaultDraftFeedbackFormState();
     setFeedbackPendingKey(draft.id);
@@ -421,6 +465,18 @@ export function DocumentDraftWorkspace({
                           <Download className="size-3.5" aria-hidden />
                           DOCX(한글에 붙여넣기)
                         </Button>
+                        {activeDocument.hwpxTemplateAvailable ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void downloadDraftHwpx(activeDocument)}
+                            disabled={pendingKey === activeDocument.documentKey}
+                          >
+                            <Download className="size-3.5" aria-hidden />
+                            HWPX (원본 양식에 채움)
+                          </Button>
+                        ) : null}
                         <Button
                           type="button"
                           variant="outline"
@@ -891,6 +947,68 @@ function normalizeDraftFieldValues(values: Record<string, string>): Record<strin
     if (label && filled) normalized[label] = filled;
   }
   return normalized;
+}
+
+function collectAnswerValues(answers: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [label, value] of Object.entries(answers)) {
+    const trimmedLabel = label.trim();
+    const trimmedValue = value.trim();
+    if (trimmedLabel && trimmedValue) result[trimmedLabel] = trimmedValue;
+  }
+  return result;
+}
+
+function triggerBlobDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = window.document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  window.document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  // 즉시 revoke 하면 일부 브라우저에서 다운로드가 중단될 수 있어 다음 틱에 정리한다.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function parseUnfilledHeader(headerValue: string | null): Array<{ label: string; reason: string }> {
+  if (!headerValue) return [];
+  try {
+    const parsed = JSON.parse(decodeURIComponent(headerValue)) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((entry): entry is { label: string; reason?: string } =>
+        typeof entry === "object" && entry !== null && typeof (entry as { label?: unknown }).label === "string",
+      )
+      .map((entry) => ({ label: entry.label, reason: typeof entry.reason === "string" ? entry.reason : "" }));
+  } catch {
+    return [];
+  }
+}
+
+async function hwpxErrorMessage(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as ActionResult<null>;
+    if (payload?.error?.message) return payload.error.message;
+  } catch {
+    // 비 JSON 응답: 기본 메시지로 폴백.
+  }
+  return "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.";
+}
+
+function hwpxDownloadFilename(response: Response): string | null {
+  const disposition = response.headers.get("content-disposition");
+  if (!disposition) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      // fall through to plain filename
+    }
+  }
+  const plain = /filename="([^"]+)"/i.exec(disposition);
+  return plain?.[1] ?? null;
 }
 
 function defaultDraftFeedbackFormState(): DraftFeedbackFormState {

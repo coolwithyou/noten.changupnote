@@ -13,6 +13,10 @@
       "types": "./dist/bizinfo/hwp-markdown.d.ts",
       "default": "./dist/bizinfo/hwp-markdown.js"
     },
+    "./documents/hwpx-fill": {
+      "types": "./dist/documents/hwpx-fill.d.ts",
+      "default": "./dist/documents/hwpx-fill.js"
+    },
     "./bizinfo/llm-criteria": {
       "types": "./dist/bizinfo/llm-criteria.d.ts",
       "default": "./dist/bizinfo/llm-criteria.js"

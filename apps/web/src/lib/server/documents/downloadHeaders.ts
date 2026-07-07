@@ -32,6 +32,7 @@ export function binaryDownloadResponse(input: {
   filename: string;
   fallbackFilename: string;
   contentType: string;
+  extraHeaders?: Record<string, string>;
 }): Response {
   const body = new ArrayBuffer(input.body.byteLength);
   new Uint8Array(body).set(input.body);
@@ -41,6 +42,7 @@ export function binaryDownloadResponse(input: {
       "cache-control": "no-store",
       "content-disposition": contentDisposition(input.filename, input.fallbackFilename),
       "content-type": input.contentType,
+      ...(input.extraHeaders ?? {}),
     },
   });
 }

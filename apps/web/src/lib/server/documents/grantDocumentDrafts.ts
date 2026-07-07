@@ -349,7 +349,7 @@ export async function submitGrantDocumentDraftFeedback(input: {
 export async function recordGrantDocumentDraftExport(input: {
   draftId: string;
   access: CompanyAccess;
-  format: "markdown" | "html" | "docx" | "pdf";
+  format: "markdown" | "html" | "docx" | "pdf" | "hwpx";
 }): Promise<DocumentDraft> {
   assertDraftId(input.draftId);
   const current = await getGrantDocumentDraftRow({ draftId: input.draftId, access: input.access });

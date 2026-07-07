@@ -1162,6 +1162,7 @@ export const appV1OpenApi = {
           "templateRequired",
           "confidence",
           "status",
+          "hwpxTemplateAvailable",
         ],
         properties: {
           documentKey: { type: "string" },
@@ -1193,6 +1194,7 @@ export const appV1OpenApi = {
           templateRequired: { type: "boolean" },
           confidence: nullable({ type: "number", minimum: 0, maximum: 1 }),
           status: { type: "string", enum: ["not_started", "draft_ready", "needs_user_input", "reviewed", "done"] },
+          hwpxTemplateAvailable: { type: "boolean" },
         },
         additionalProperties: false,
       },

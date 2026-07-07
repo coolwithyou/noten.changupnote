@@ -1,6 +1,15 @@
 # HWPX 원본 양식 채움 저장(fill & export) 설계 — 2026-07-07
 
-> **🟢 Phase 1 완료 (2026-07-07)** — core 채움 모듈 구현·검수 통과. **다음: Phase 2(web 배선).**
+> **🟢 Phase 2 완료 (2026-07-07)** — web 배선 구현·검증 통과(contracts·core 빌드 + web typecheck
+> + `next build`). 잔여: **실데이터 브라우저 실측**(hwpx 보관 첨부가 연결된 공고에서 버튼 노출 →
+> 다운로드 → 한컴 확인) — Phase 3 QA에서 수행.
+>
+> Phase 2 요지: download route POST(`format=hwpx`, answers 동봉·병합), `draftHwpxExport.ts`
+> (R2 원본 조회→매직바이트 가드→채움, 실패 모드별 한국어 에러), `DraftableDocument.hwpxTemplateAvailable`
+> 플래그(`loadServiceApplySheet`에서 보관본 배치 조회로 덮어쓰기, core는 순수 유지), 워크스페이스
+> HWPX 버튼 + 미채움 안내(X-Cunote-Hwpx-Unfilled 헤더). export 이력은 채움 성공 시에만 기록(정직화).
+>
+> **🟢 Phase 1 완료 (2026-07-07)** — core 채움 모듈 구현·검수 통과.
 >
 > **Phase 1 증거** (모듈: `packages/core/src/documents/hwpx-fill.ts` + 테스트):
 > - 단위 테스트 15/15 통과 + `@cunote/core` typecheck 통과 (합성 픽스처, 실샘플 비의존)

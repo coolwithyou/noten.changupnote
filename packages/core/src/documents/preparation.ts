@@ -153,6 +153,9 @@ function toDraftableDocument(
     templateRequired: document.templateRequired ?? true,
     confidence: document.confidence ?? null,
     status: hasMissingFields ? "needs_user_input" : "not_started",
+    // core 는 순수 조립부 — 보관본 유무는 알 수 없으므로 기본 false.
+    // apps/web 서버 레이어가 grant_attachment_archives 배치 조회로 이 플래그를 덮어쓴다.
+    hwpxTemplateAvailable: false,
   };
 }
 
