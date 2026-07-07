@@ -10,6 +10,7 @@ import {
   convertHwpBufferToMarkdown,
   isHwpFilename,
 } from "@cunote/core/bizinfo/hwp-markdown";
+import { detectHwpFormat } from "@cunote/core/documents/hwpx-fill";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 
 export interface GrantAttachmentArchiveBundle {
@@ -46,6 +47,71 @@ export function detectConvertibleSurfaceFormat(
 /** 첨부가 변환(시각 렌더링) 대상인지 여부. */
 export function isConvertibleAttachment(filename: string): boolean {
   return detectConvertibleSurfaceFormat(filename) !== null;
+}
+
+/**
+ * 첨부 바이트(매직 바이트)로 hwp/hwpx surface 포맷을 확정한다 — 확장자 위장 교정(설계 결정 6).
+ *
+ * 실측 근거(2026-07-07): `.hwpx` 확장자를 단 hwp 바이너리 위장 파일이 스파이크 14건 중 3건 발견.
+ * 확장자만 믿으면 위장 파일에 format="hwpx" surface 를 만들어 하류(변환 잡·HWPX 채움 버튼 플래그)를
+ * 오염시킨다. 그래서 바이트가 확보되는 아카이브 시점에 매직 바이트로 확정한다.
+ *
+ * 판정 정책은 이 함수의 **반환값 의미로 고정**한다(주석 규칙이 아니라 코드 계약):
+ *  - 확장자가 hwp/hwpx 계열이 아니면(pdf/docx/비대상) 매직 바이트를 적용하지 않고 확장자 판별을 그대로
+ *    돌려준다. (pdf/docx 는 이번 범위 밖이며, docx·xlsx 도 PK zip 이라 매직만으로는 hwpx 와 구분되지
+ *    않으므로 hancom 확장자에 한해서만 매직을 적용한다.)
+ *  - "hwpx": 바이트 시그니처가 PK(zip 컨테이너) — 진짜 hwpx.
+ *  - "hwp":  바이트 시그니처가 CFBF(D0CF11E0) — 구형 hwp 바이너리. 확장자가 `.hwpx` 여도 이쪽이 이긴다.
+ *  - null:   확장자는 hwp/hwpx 인데 바이트가 zip 도 CFBF 도 아니라 어느 쪽도 확증되지 않음(정체 불명).
+ *            보수적으로 surface 를 만들지 않는다(오염 차단). 확장자가 아예 비대상일 때도 null.
+ */
+export function detectConvertibleSurfaceFormatFromBytes(
+  filename: string,
+  body: Buffer,
+): ConvertibleSurfaceFormat | null {
+  const byExtension = detectConvertibleSurfaceFormat(filename);
+  // hwp/hwpx 계열만 매직 바이트로 교정한다(범위 밖은 확장자 판별 유지).
+  if (byExtension !== "hwp" && byExtension !== "hwpx") return byExtension;
+
+  const magic = detectHwpFormat(body);
+  if (magic === "hwpx") return "hwpx";
+  if (magic === "hwp-binary") return "hwp";
+  // magic === "unknown": 바이트가 hwp/hwpx 어느 쪽도 확증하지 못함 → 보수적으로 제외.
+  return null;
+}
+
+/**
+ * grant_raw.attachments JSON 에 실어 변환 후크(registerAttachmentConversions)까지 검출 결과를
+ * 나르는 런타임 확장 키. contracts 의 attachment 타입 밖이며 grant_raw.attachments(JSONB)에 무해하게
+ * 라이딩한다(DB 스키마 변경 없음 — grant_attachment_archives 컬럼은 건드리지 않는다).
+ */
+export const DETECTED_SURFACE_FORMAT_KEY = "detected_surface_format";
+
+type RawAttachment = NonNullable<GrantRaw["attachments"]>[number];
+
+/** rawAttachment 에 매직 바이트 검출 결과를 실어 둔다(바이트가 확보된 첨부에서만 호출). */
+export function attachDetectedSurfaceFormat(
+  attachment: RawAttachment,
+  detected: ConvertibleSurfaceFormat | null,
+): void {
+  (attachment as Record<string, unknown>)[DETECTED_SURFACE_FORMAT_KEY] = detected;
+}
+
+/**
+ * 첨부 JSON 에서 매직 바이트 검출 결과를 읽는다.
+ *  - undefined: 바이트 검출을 수행하지 않은 첨부(byte-less 경로) → 호출부는 확장자 폴백(하위호환).
+ *  - "hwp"|"hwpx"|"pdf"|"docx": 검출/판별된 포맷.
+ *  - null: 바이트 검출을 했으나 변환 대상이 아님(제외).
+ */
+export function readDetectedSurfaceFormat(
+  attachment: unknown,
+): ConvertibleSurfaceFormat | null | undefined {
+  if (!attachment || typeof attachment !== "object") return undefined;
+  if (!(DETECTED_SURFACE_FORMAT_KEY in attachment)) return undefined;
+  const value = (attachment as Record<string, unknown>)[DETECTED_SURFACE_FORMAT_KEY];
+  if (value === null) return null;
+  if (value === "hwp" || value === "hwpx" || value === "pdf" || value === "docx") return value;
+  return undefined;
 }
 
 export interface GrantAttachmentArchiveOptions {
@@ -186,6 +252,13 @@ async function archiveOneAttachment(
     sha256,
     fetched_at: options.collectedAt.toISOString(),
   };
+
+  // 바이트가 확보된 지점 — 확장자 위장을 매직 바이트로 교정해 surface 포맷을 확정하고,
+  // 변환 후크까지 실어 나른다(설계 결정 6). byte-less 폴백 경로에는 이 키가 없어 확장자로 폴백한다.
+  attachDetectedSurfaceFormat(
+    rawAttachment,
+    detectConvertibleSurfaceFormatFromBytes(attachment.filename, downloaded.body),
+  );
 
   if (!options.convertHwp || !isHwpFilename(attachment.filename)) {
     rawAttachment.conversion = { status: "skipped" };

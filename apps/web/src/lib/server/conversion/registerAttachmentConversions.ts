@@ -12,7 +12,10 @@
 import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDbSession } from "../db/client";
-import { detectConvertibleSurfaceFormat } from "../ingestion/grantAttachmentArchive";
+import {
+  detectConvertibleSurfaceFormat,
+  type ConvertibleSurfaceFormat,
+} from "../ingestion/grantAttachmentArchive";
 import { CONVERSION_CONVERTER_VERSION, CONVERSION_REQUESTED_ARTIFACTS } from "./constants";
 import {
   createConversionClientFromEnv,
@@ -36,6 +39,13 @@ export interface ArchivedAttachmentRef {
   sourceUri: string | null;
   /** 원본 파일 sha256 (캐시 키의 일부). */
   sha256: string | null;
+  /**
+   * 아카이브 시점 매직 바이트로 확정한 surface 포맷(설계 결정 6, 확장자 위장 교정).
+   *  - 생략(undefined): 바이트 검출 없음 → filename 확장자로 폴백(byte-less/구 호출부 하위호환).
+   *  - null: 바이트 검출 결과 변환 대상이 아님 → skip(확장자로 되살리지 않는다).
+   *  - "hwp"|"hwpx"|"pdf"|"docx": 확정 포맷.
+   */
+  detectedFormat?: ConvertibleSurfaceFormat | null;
 }
 
 export interface RegisterAttachmentConversionsInput {
@@ -74,7 +84,12 @@ export async function registerAttachmentConversions(
     input.client !== undefined ? input.client : createConversionClientFromEnv();
 
   for (const attachment of input.attachments) {
-    const format = detectConvertibleSurfaceFormat(attachment.filename);
+    // 바이트로 확정된 포맷이 있으면 확장자보다 우선한다(위장 교정). detectedFormat 가 명시적으로 null 이면
+    // "바이트 검사 결과 대상 아님"이므로 확장자로 되살리지 않고 skip 한다. 생략됐을 때만 확장자 폴백.
+    const format =
+      attachment.detectedFormat !== undefined
+        ? attachment.detectedFormat
+        : detectConvertibleSurfaceFormat(attachment.filename);
     if (!format) {
       skipped += 1;
       continue;

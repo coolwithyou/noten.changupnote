@@ -6,6 +6,7 @@ import {
   registerAttachmentConversions,
   type ArchivedAttachmentRef,
 } from "../conversion/registerAttachmentConversions";
+import { readDetectedSurfaceFormat } from "./grantAttachmentArchive";
 import { hashGrantRawPayload } from "./grantRawHash";
 
 export interface NormalizedGrantPublishPlan {
@@ -193,12 +194,16 @@ function conversionAttachmentRefs<TPayload>(
   return (entry.raw.attachments ?? []).flatMap((attachment) => {
     const filename = textValue(attachment.filename);
     if (!filename) return [];
+    // 아카이브 시점 매직 바이트 검출 결과가 첨부 JSON 에 실려 있으면 그대로 넘긴다.
+    // 없으면(byte-less 경로) detectedFormat 를 생략해 registerAttachmentConversions 가 확장자로 폴백한다.
+    const detectedFormat = readDetectedSurfaceFormat(attachment);
     return [{
       filename,
       storageKey: textValue(attachment.storage_key),
       archiveUrl: textValue(attachment.archive_url) ?? textValue(attachment.url),
       sourceUri: textValue(attachment.source_uri) ?? textValue(attachment.url),
       sha256: textValue(attachment.sha256),
+      ...(detectedFormat !== undefined ? { detectedFormat } : {}),
     }];
   });
 }
