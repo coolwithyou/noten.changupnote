@@ -2,8 +2,9 @@
 
 > **🟡 진행 상황 (2026-07-08 세션 진행 중)**
 >
-> - 🔶 슬라이스 A: 코드 배선 완료(`ad3d8a8` — 폴링 스윕 헬퍼·cron/on-demand 라우트·ingest 말미 스윕·뷰어 진입 링크·변환 중 배지). **잔여: env 등록 + E2E** — `CONVERSION_SHARED_SECRET`이 GCP Secret Manager에만 있고 `sw@noten.im` 토큰 만료로 접근 불가. 사용자 액션: `gcloud auth login sw@noten.im` 후 세션이 .env.local·Vercel env 등록 → `pnpm conversion:poll -- --write --limit=3` E2E → 배포
-> - ✅ 슬라이스 B: 구현 완료(`be6bcbf`) — B1 유입기(`pnpm import:review-docs:from-surfaces`)·B2 사전라벨(`pnpm prelabel:review-docs`, 순환성 가드 유지)·B3 승인↔반영 브리지(approve→grant_document_fields+fields_ready, unapprove→롤백). 실DB 왕복 `pnpm verify:review-surface-bridge` 11체크·잔재 0. **실데이터 흐름은 슬라이스 A 점화(env) 후**: 유입기→사전라벨→/internal/review 검수→승인→뷰어 필드 노출. B2 실 LLM 스모크도 그때 1문서로 수행
+> - ✅ 슬라이스 A: **E2E 완주** (`ad3d8a8` 배선 + `c7ec6e6` 점화). env 등록 완료(.env.local + Vercel prod·preview·dev). **E2E 중 발견·해결한 결함 2건**: ① `archive_url`이 R2 S3 엔드포인트 URL(SigV4 필요, 무인증 400)이라 변환 서버가 다운로드 불가 → presigned GET 공급으로 수정(`presignGetUrl`, 폴링 시점 서명) ② bizinfo 아카이브 2,234건에 surface가 0건(surface 후크 이전 수집분) → `pnpm backfill:attachment-surfaces` 신설(기존 후크 재사용·멱등). 실증: open 공고 4건 백필→변환 4/4 succeeded(artifact 72건, preview_ready). **kstartup 첨부는 robots.txt `/afile*/` Disallow로 다운로드 불가(정책) — pending 191건은 공공데이터 API 파일 채널 검토(후속 과제)로만 해소 가능**
+> - ✅ 슬라이스 B: 구현 완료(`be6bcbf`) + **실데이터 흐름 개시** — B1 유입기로 실공고 4건 검수 큐 등재(docId `s-c9cffb83`·`s-196725bf`·`s-d228f5ee`·`s-000000db`), B2 실 LLM 스모크 1문서 14필드 생성(`s-196725bf`, pending 유지). 실DB 왕복 `pnpm verify:review-surface-bridge` 11체크·잔재 0. **다음: 리뷰팀이 /internal/review에서 위 4건 검수·승인 → 승인 즉시 뷰어에 필드 노출**(B3 브리지)
+> - ✅ 프로덕션 배포: `c7ec6e6` 기준 클린 worktree에서 `vercel deploy --prod` — Ready. 루트 200, cron 폴링 라우트 배포·인증 가드 확인(무효 Bearer 401). CRON_SECRET은 sensitive 타입이라 수동 트리거 불가 — 일일 cron이 자동 호출
 > - ✅ 슬라이스 C: 코칭/문의 연결 (`ad3d8a8` — coaching 카테고리, /support prefill, 공고 상세 '도움받기' CTA)
 > - ⬜ 슬라이스 D~G: 후속 등재 (Gate 3 대조 → fill planner, 통합 작성 화면, hwp2hwpx, AI 가이드)
 
