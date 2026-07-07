@@ -14,6 +14,14 @@
 > - ⬜ 소잔여: answers 동봉 경로 실측 — 이 공고 신청서는 "추가 입력 없음"이라 answerText 경로
 >   미실측. 추가 입력 문항이 있는 공고에서 확인(기능 차단 요소 아님, 병합 로직은 단위 검증됨)
 >
+> **후속 진행 (2026-07-08):**
+> - ✅ 설계 6번 잔여 완료(`fda7452`) — `detectConvertibleSurfaceFormat` 매직 바이트 보강.
+>   아카이브 시점에 `detectHwpFormat`으로 확장자 위장 교정, 검출 결과를 attachments JSON에
+>   라이딩해 변환 후크에서 확장자보다 우선(삼상 규약: 생략=폴백/null=비대상/문자열=확정).
+>   단위 14건 + typecheck 통과
+> - 🔄 hwp2hwpx 후속 트랙 착수 — 외부 대조(`docs/research/2026-07-08-hwp2hwpx-calibration.md`)
+>   → 설계 확정(`docs/plans/2026-07-08-hwp2hwpx-track.md`) 완료, Phase 0 스파이크 진행 중
+>
 > Phase 2 요지: download route POST(`format=hwpx`, answers 동봉·병합), `draftHwpxExport.ts`
 > (R2 원본 조회→매직바이트 가드→채움, 실패 모드별 한국어 에러), `DraftableDocument.hwpxTemplateAvailable`
 > 플래그(`loadServiceApplySheet`에서 보관본 배치 조회로 덮어쓰기, core는 순수 유지), 워크스페이스

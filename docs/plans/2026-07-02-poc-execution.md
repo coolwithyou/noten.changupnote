@@ -37,7 +37,8 @@
 >
 > 남음 (우선순위순):
 >
-> - ⬜ **[HWPX 트랙 Phase 3] 브라우저 실측 QA** — hwpx 보관 첨부가 연결된 공고 준비 시트에서 버튼 노출→다운로드→한컴 확인 (dev 서버는 사용자 기동). 통과 후 hwp2hwpx 후속 트랙 착수 판단
+> - ✅ ~~[HWPX 트랙 Phase 3] 브라우저 실측 QA~~ (2026-07-08 통과, `6926b8b` — 버튼 노출 양방향·다운로드 왕복·미채움 8건 정직 안내·한컴 셀 안착 사용자 확인). 같은 날 후속: ✅ 설계 6번 잔여 매직 바이트 보강(`fda7452`) 완료
+- 🔄 **[HWPX 후속] hwp2hwpx 변환 트랙** (2026-07-08 착수) — 외부 대조(`docs/research/2026-07-08-hwp2hwpx-calibration.md`, 유지 3·보강 3·kordoc 병행 측정 등재) → 설계 확정(**정본: `docs/plans/2026-07-08-hwp2hwpx-track.md`**) 완료, Phase 0 스파이크(uber jar 빌드·전수 변환·구조 단정·채움 왕복·렌더 게이트) 진행 중. 잔여 소과제: answers 동봉 경로 실측(추가 입력 문항 있는 공고, dev 서버 사용자 기동)
 >
 > - 🔶 **[임계경로·사용자] 리뷰팀 45문서 검수 개시** — ① ⬜ `docs/infra-setup-guide.md` B1(Vercel env R2_* 확인)·B2(리뷰어 admin_users 등록) ② ⬜ dev.changupnote.com/internal/review 브라우저 왕복 확인 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 1 golden·Gate 2 측정의 유일한 블로커
 > - ⬜ **[사용자] A7**: Vercel(dev)에 `CONVERSION_SERVER_URL`(위 Cloud Run URL) + `CONVERSION_SHARED_SECRET`(`gcloud secrets versions access latest --secret=CONVERSION_SHARED_SECRET`) 등록 → **완료 확인되면 세션이 웹앱→Cloud Run E2E 검증** (아카이브 후크→job→artifact 왕복, `conversion-dev/` 프리픽스·검증 행 삭제 관례)
