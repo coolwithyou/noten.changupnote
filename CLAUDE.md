@@ -10,6 +10,19 @@ cunote — 사업자번호 하나로 공공 지원사업을 찾고 지원서 작
 - Gate 1 (라벨링): `docs/gate1-field-map-labeling-guide.md` + `spike-labels/`
 - Phase 2 변환 서버: `docs/phase2-conversion-server-implementation-plan.md`
 
+## Vercel CLI·배포 (중요)
+
+- 메인 웹(apps/web)은 **noten 팀의 `changupnote` 프로젝트** (Root Directory: apps/web, changupnote.com). admin(apps/admin)은 team-coolwithyou의 `changupnote-ops`
+- **Vercel CLI 사용·배포 시 반드시 `.env.vercel.local`의 `VERCEL_CLI_TOKEN_FULL` 토큰을 사용한다** (대화형 로그인 계정은 noten 팀이 안 보임):
+
+```bash
+VERCEL_TOKEN=$(grep -E "^VERCEL_CLI_TOKEN_FULL=" .env.vercel.local | cut -d= -f2- | tr -d '"')
+vercel <command> --scope noten --token "$VERCEL_TOKEN"
+```
+
+- 배포는 Git 연동이 아니라 CLI 직접 배포: `vercel deploy --prod`. 미커밋 변경이 섞이지 않게 HEAD 커밋의 클린 worktree에서 실행할 것
+- 토큰 값은 채팅·로그에 출력 금지
+
 ## Cowork/샌드박스 환경에서의 git 규칙 (중요)
 
 이 저장소가 Cowork 샌드박스에 마운트되면 **파일 삭제(unlink)가 전면 차단**된다 (생성·수정·rename은 허용). git이 작업 후 lock 파일을 지우지 못해 다음 git 명령이 막힌다.
