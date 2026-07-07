@@ -11,7 +11,7 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const CATEGORY_VALUES: SupportTicketCategory[] = ["product", "account", "privacy", "billing", "bug"];
+const CATEGORY_VALUES: SupportTicketCategory[] = ["product", "account", "privacy", "billing", "bug", "coaching"];
 
 export async function POST(request: Request) {
   try {

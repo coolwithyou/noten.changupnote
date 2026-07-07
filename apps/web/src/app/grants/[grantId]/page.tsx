@@ -3,6 +3,7 @@ import { ApplySheetView } from "@/features/apply-sheet/ApplySheetView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
+import { getGrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
 import { recordLessonExposures, type LessonExposureInput } from "@/lib/server/knowledge/knowledgeRepo";
 import { matchApprovedLessonsForGrant, matchFieldLessonTips } from "@/lib/server/knowledge/lessonContext";
@@ -22,6 +23,7 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
   const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId, userId: access.userId });
   if (!sheet) notFound();
   const preparation = await loadInitialPreparation(sheet.grant.id, access, sheet);
+  const previewAvailability = await loadPreviewAvailability(sheet.grant.id);
   const lessonGuide = await loadLessonGuide(sheet.grant.title, sheet.grant.agency);
   const fieldLessonTips = await loadFieldLessonTips(sheet, preparation);
   // 노출 텔레메트리(지식 루프 K1): 매칭 결과를 렌더 시점에 raw 기록한다.
@@ -41,6 +43,7 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
       formFields={preparation?.formFields ?? []}
       lessonGuide={lessonGuide}
       fieldLessonTips={fieldLessonTips}
+      previewAvailability={previewAvailability}
     />
   );
 }
@@ -114,6 +117,16 @@ async function loadFieldLessonTips(
     return await matchFieldLessonTips({ title: sheet.grant.title, agency: sheet.grant.agency, fields });
   } catch (error) {
     console.warn(`Field lesson tips match failed: ${error instanceof Error ? error.message : String(error)}`);
+    return null;
+  }
+}
+
+// 미리보기 가용성(경량 조회, 계획 2026-07-08 슬라이스 A4). 실패해도 페이지는 깨지지 않게 null 폴백.
+async function loadPreviewAvailability(grantId: string) {
+  try {
+    return await getGrantPreviewAvailability(grantId);
+  } catch (error) {
+    console.warn(`Preview availability load failed: ${error instanceof Error ? error.message : String(error)}`);
     return null;
   }
 }

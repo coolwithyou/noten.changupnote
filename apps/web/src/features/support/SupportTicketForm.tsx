@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-type SupportTicketCategory = "product" | "account" | "privacy" | "billing" | "bug";
+type SupportTicketCategory = "product" | "account" | "privacy" | "billing" | "bug" | "coaching";
 
 interface SupportTicketReceipt {
   id: string;
@@ -57,6 +57,7 @@ const CATEGORY_ITEMS: Array<{
   { value: "privacy", label: "개인정보/삭제 요청" },
   { value: "billing", label: "플랜/청구" },
   { value: "bug", label: "오류 신고" },
+  { value: "coaching", label: "작성 코칭 신청" },
 ];
 
 export function SupportTicketForm({
@@ -64,17 +65,24 @@ export function SupportTicketForm({
   defaultName,
   accountSupportHref,
   accountSupportLabel = "내 문의 보기",
+  initialCategory = "product",
+  initialSubject = "",
+  initialMessage = "",
 }: {
   defaultEmail?: string | null;
   defaultName?: string | null;
   accountSupportHref?: string;
   accountSupportLabel?: string;
+  /** 공고 상세 등에서 진입 시 prefill (계획 2026-07-08 슬라이스 C). */
+  initialCategory?: SupportTicketCategory;
+  initialSubject?: string;
+  initialMessage?: string;
 }) {
-  const [category, setCategory] = useState<SupportTicketCategory>("product");
+  const [category, setCategory] = useState<SupportTicketCategory>(initialCategory);
   const [email, setEmail] = useState(defaultEmail ?? "");
   const [name, setName] = useState(defaultName ?? "");
-  const [subject, setSubject] = useState("");
-  const [message, setMessage] = useState("");
+  const [subject, setSubject] = useState(initialSubject);
+  const [message, setMessage] = useState(initialMessage);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [attachmentNotice, setAttachmentNotice] = useState<{ ok: boolean; message: string } | null>(null);

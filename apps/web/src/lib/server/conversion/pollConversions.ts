@@ -43,6 +43,8 @@ export interface CollectPendingOptions {
   staleMs?: number;
   /** 특정 source 로 제한. */
   source?: GrantSource;
+  /** 특정 grant 의 surface 로 제한 (on-demand 폴링용). */
+  grantId?: string;
 }
 
 /**
@@ -64,6 +66,7 @@ export async function collectPendingSurfaceJobs(
     eq(surfaces.type, FILE_TEMPLATE_SURFACE_TYPE),
   ];
   if (options.source) conditions.push(eq(surfaces.source, options.source));
+  if (options.grantId) conditions.push(eq(surfaces.grantId, options.grantId));
   if (staleMs > 0) {
     conditions.push(lt(surfaces.updatedAt, new Date(Date.now() - staleMs)));
   }

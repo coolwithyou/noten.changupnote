@@ -11,7 +11,7 @@ import {
   supportTicketIntakeEmailSubject,
 } from "./supportTicketIntakeEmailHandoff";
 
-export type SupportTicketCategory = "product" | "account" | "privacy" | "billing" | "bug";
+export type SupportTicketCategory = "product" | "account" | "privacy" | "billing" | "bug" | "coaching";
 
 export interface SubmitSupportTicketInput {
   email: string;

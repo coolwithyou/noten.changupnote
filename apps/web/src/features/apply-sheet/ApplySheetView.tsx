@@ -10,7 +10,8 @@ import type {
   SourceAttachment,
   SupportAmount,
 } from "@cunote/contracts";
-import { Download, Paperclip } from "lucide-react";
+import { Download, FileSearch, Paperclip } from "lucide-react";
+import Link from "next/link";
 import { appHeaderLinks } from "@/components/app/app-navigation";
 import { MetricCard } from "@/components/app/metric-card";
 import { ServiceHeader } from "@/components/app/service-header";
@@ -21,9 +22,11 @@ import { buttonVariants } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApplyLink } from "./ApplyLink";
+import { ConversionPollTrigger } from "./ConversionPollTrigger";
 import { DocumentDraftWorkspace } from "./DocumentDraftWorkspace";
 import { GrantLessonGuide } from "@/features/knowledge/GrantLessonGuide";
 import { FieldLessonTips } from "@/features/knowledge/FieldLessonTips";
+import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import type { GrantDocumentFormField } from "@/lib/server/documents/grantDocumentFields";
 import type { FieldLessonTipsDto, GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 
@@ -34,6 +37,7 @@ export function ApplySheetView({
   formFields = [],
   lessonGuide = null,
   fieldLessonTips = null,
+  previewAvailability = null,
 }: {
   sheet: ApplySheet;
   user?: HeaderUser | null;
@@ -41,6 +45,7 @@ export function ApplySheetView({
   formFields?: GrantDocumentFormField[];
   lessonGuide?: GrantLessonGuideDto | null;
   fieldLessonTips?: FieldLessonTipsDto | null;
+  previewAvailability?: GrantPreviewAvailability | null;
 }) {
   const dDayLabel = formatDday(sheet.schedule.dDay);
 
@@ -92,7 +97,11 @@ export function ApplySheetView({
         formFields={formFields}
         fieldLessonTips={fieldLessonTips}
         lessonGuide={lessonGuide}
+        previewAvailability={previewAvailability}
       />
+      {(previewAvailability?.pendingSurfaceCount ?? 0) > 0 ? (
+        <ConversionPollTrigger grantId={sheet.grant.id} />
+      ) : null}
 
       <section className="grid gap-4 lg:grid-cols-3">
         <ChecklistSection
@@ -109,8 +118,41 @@ export function ApplySheetView({
         />
         <DocumentSection documents={sheet.documents} sourceAttachments={sheet.sourceAttachments} />
       </section>
+
+      <HelpSection grantTitle={sheet.grant.title} />
       </div>
     </main>
+  );
+}
+
+/** 막히는 지점에서 사람 도움으로 이어지는 진입점 (계획 2026-07-08 슬라이스 C). */
+function HelpSection({ grantTitle }: { grantTitle: string }) {
+  const topic = encodeURIComponent(grantTitle);
+  return (
+    <Card size="sm" aria-label="도움받기">
+      <CardContent className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">헷갈리거나 어려운 부분이 있나요?</h3>
+          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+            작성 항목, 자격 요건, 제출 서류가 막히면 운영팀에 물어보거나 전문가 코칭을 신청하세요.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            href={`/support?category=product&topic=${topic}`}
+          >
+            문의하기
+          </Link>
+          <Link
+            className={buttonVariants({ size: "sm" })}
+            href={`/support?category=coaching&topic=${topic}`}
+          >
+            코칭 신청
+          </Link>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -121,6 +163,7 @@ function ApplicationPrepSection({
   formFields,
   fieldLessonTips,
   lessonGuide,
+  previewAvailability,
 }: {
   grantId: string;
   prep: ApplicationPrep;
@@ -128,6 +171,7 @@ function ApplicationPrepSection({
   formFields: GrantDocumentFormField[];
   fieldLessonTips: FieldLessonTipsDto | null;
   lessonGuide: GrantLessonGuideDto | null;
+  previewAvailability: GrantPreviewAvailability | null;
 }) {
   const lessonCount = lessonGuide?.groups.reduce((sum, group) => sum + group.lessons.length, 0) ?? 0;
   return (
@@ -139,6 +183,18 @@ function ApplicationPrepSection({
           <CardDescription className="mt-1">접수는 각 포털에서 진행하고, 아래 초안은 신청서 작성 재료로만 사용합니다.</CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+          {(previewAvailability?.readySurfaceCount ?? 0) > 0 ? (
+            <Link
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+              href={`/grants/${encodeURIComponent(grantId)}/preview`}
+              title="원문 양식을 페이지 이미지로 보고 필드를 확인합니다"
+            >
+              <FileSearch className="size-3.5" aria-hidden />
+              문서 미리보기
+            </Link>
+          ) : (previewAvailability?.pendingSurfaceCount ?? 0) > 0 ? (
+            <StatusBadge tone="warning">원문 문서 변환 중</StatusBadge>
+          ) : null}
           {lessonGuide?.matched && lessonCount > 0 ? (
             <a
               className={buttonVariants({ variant: "outline", size: "sm" })}

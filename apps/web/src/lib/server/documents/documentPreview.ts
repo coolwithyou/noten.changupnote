@@ -231,3 +231,57 @@ export async function loadGrantDocumentPreview(input: {
     fields,
   };
 }
+
+export interface GrantPreviewAvailability {
+  /** grant 소속 surface 전체 수. */
+  surfaceCount: number;
+  /** page_image artifact 가 1개 이상인, 즉 뷰어에 보여줄 수 있는 surface 수. */
+  readySurfaceCount: number;
+  /** 아직 pending 인 surface 수 — on-demand 폴링 트리거 조건. */
+  pendingSurfaceCount: number;
+  /** page_image artifact 총 수. */
+  pageImageCount: number;
+}
+
+/**
+ * 공고 상세에서 미리보기 진입 여부를 결정하는 경량 조회 (계획 2026-07-08 슬라이스 A4).
+ * loadGrantDocumentPreview 는 필드·좌표까지 전부 로드하므로 링크 노출 판단에는 과하다.
+ */
+export async function getGrantPreviewAvailability(grantId: string): Promise<GrantPreviewAvailability> {
+  const empty: GrantPreviewAvailability = {
+    surfaceCount: 0,
+    readySurfaceCount: 0,
+    pendingSurfaceCount: 0,
+    pageImageCount: 0,
+  };
+  if (!isUuid(grantId)) return empty;
+
+  const db = getCunoteDb();
+  const surfaceRows = await db
+    .select({
+      id: schema.grantApplicationSurfaces.id,
+      extractionStatus: schema.grantApplicationSurfaces.extractionStatus,
+    })
+    .from(schema.grantApplicationSurfaces)
+    .where(eq(schema.grantApplicationSurfaces.grantId, grantId));
+
+  if (surfaceRows.length === 0) return empty;
+
+  const artifactRows = await db
+    .select({ surfaceId: schema.documentArtifacts.surfaceId })
+    .from(schema.documentArtifacts)
+    .where(
+      and(
+        inArray(schema.documentArtifacts.surfaceId, surfaceRows.map((row) => row.id)),
+        eq(schema.documentArtifacts.kind, "page_image"),
+      ),
+    );
+
+  const readySurfaceIds = new Set(artifactRows.map((row) => row.surfaceId));
+  return {
+    surfaceCount: surfaceRows.length,
+    readySurfaceCount: readySurfaceIds.size,
+    pendingSurfaceCount: surfaceRows.filter((row) => row.extractionStatus === "pending").length,
+    pageImageCount: artifactRows.length,
+  };
+}

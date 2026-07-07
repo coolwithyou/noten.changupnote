@@ -89,6 +89,7 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/grants/[grantId]/package",
   "GET /api/web/grants/[grantId]/page-image/[...key]",
   "POST /api/web/grants/[grantId]/drafts",
+  "POST /api/web/grants/[grantId]/conversions/poll",
   "GET /api/web/document-drafts/[draftId]",
   "GET /api/web/document-drafts/[draftId]/download",
   "POST /api/web/document-drafts/[draftId]/download",
@@ -119,6 +120,7 @@ export const PUBLIC_APP_ROUTES = [
 export const SYSTEM_CRON_ROUTES = [
   "GET /api/cron/ingest-kstartup",
   "GET /api/cron/kstartup-details",
+  "GET /api/cron/poll-conversions",
 ] as const;
 
 export const SESSION_APP_ROUTES = [

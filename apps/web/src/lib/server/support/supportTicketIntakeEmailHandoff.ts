@@ -192,6 +192,7 @@ function categoryLabel(value: SupportTicketCategory): string {
   if (value === "account") return "계정/회사 권한";
   if (value === "privacy") return "개인정보/삭제 요청";
   if (value === "billing") return "플랜/청구";
+  if (value === "coaching") return "작성 코칭 신청";
   return "오류 신고";
 }
 

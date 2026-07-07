@@ -28,9 +28,35 @@ const ACCOUNT_SUPPORT_LOGIN_HREF = `/login?${new URLSearchParams({ callbackUrl: 
 
 export const dynamic = "force-dynamic";
 
-export default async function SupportPage() {
+/** ?category= 허용값 (SupportTicketForm CATEGORY_ITEMS 와 정렬). */
+const PREFILL_CATEGORIES = ["product", "account", "privacy", "billing", "bug", "coaching"] as const;
+type PrefillCategory = (typeof PREFILL_CATEGORIES)[number];
+
+export default async function SupportPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const user = await getOptionalHeaderUser();
   const config = getLegalConfig();
+  // 공고 상세 "도움받기" 진입 prefill (계획 2026-07-08 슬라이스 C): ?category=coaching&topic=<공고명>
+  const query = (await searchParams) ?? {};
+  const rawCategory = firstParam(query.category);
+  const initialCategory: PrefillCategory =
+    rawCategory && (PREFILL_CATEGORIES as readonly string[]).includes(rawCategory)
+      ? (rawCategory as PrefillCategory)
+      : "product";
+  const topic = firstParam(query.topic)?.slice(0, 200) ?? null;
+  const initialSubject = topic
+    ? initialCategory === "coaching"
+      ? `[코칭 신청] ${topic}`
+      : `[문의] ${topic}`
+    : "";
+  const initialMessage = topic
+    ? initialCategory === "coaching"
+      ? `지원사업: ${topic}\n\n코칭 받고 싶은 부분(작성 항목, 자격 요건, 제출 서류 등)을 적어주세요.\n`
+      : `지원사업: ${topic}\n\n`
+    : "";
   return (
     <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader
@@ -87,6 +113,9 @@ export default async function SupportPage() {
             defaultName={user?.name ?? null}
             accountSupportHref={user ? ACCOUNT_SUPPORT_CALLBACK : ACCOUNT_SUPPORT_LOGIN_HREF}
             accountSupportLabel={user ? "내 문의 보기" : "로그인 후 문의 보기"}
+            initialCategory={initialCategory}
+            initialSubject={initialSubject}
+            initialMessage={initialMessage}
           />
 
           <div className="flex flex-col gap-6">
@@ -121,4 +150,9 @@ export default async function SupportPage() {
       </div>
     </main>
   );
+}
+
+function firstParam(value: string | string[] | undefined): string | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
