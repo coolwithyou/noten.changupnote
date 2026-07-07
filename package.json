@@ -41,6 +41,7 @@
     "match:transitions:plan": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/plan-match-transitions-cli.ts",
     "normalize:grant-documents": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/normalize-grant-documents.ts",
     "extract:grant-document-fields": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/extract-grant-document-fields.ts",
+    "backfill:attachment-surfaces": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/conversion/backfill-attachment-surfaces.ts",
     "conversion:poll": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/conversion/poll-conversion-jobs.ts",
     "openapi:export": "pnpm --filter @cunote/contracts export:openapi",
     "publish:dedup": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/publish-dedup.ts",

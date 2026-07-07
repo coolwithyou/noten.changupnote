@@ -35,6 +35,10 @@ class MemoryObjectStorage implements R2ObjectStorage {
   publicUrl(key: string): string {
     return `https://r2.example/${key.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
   }
+
+  async presignGetUrl(key: string) {
+    return `${this.publicUrl(key)}?presigned=verify`;
+  }
 }
 
 const storage = new MemoryObjectStorage();

@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDbSession } from "../db/client";
+import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import {
   detectConvertibleSurfaceFormat,
   type ConvertibleSurfaceFormat,
@@ -123,7 +124,17 @@ export async function registerAttachmentConversions(
     // 2) 변환 job 등록. client 없으면(env 미설정) 여기서 멈춤 — surface 는 pending 으로 남는다.
     if (!client) continue;
 
-    const sourceObjectUrl = attachment.archiveUrl ?? attachment.sourceUri;
+    // R2 아카이브분은 presigned GET URL 로 공급한다 — archive_url(S3 엔드포인트)은 SigV4 없이
+    // 400 이라 변환 서버가 다운로드하지 못한다. presign 실패/미설정이면 기존 폴백 유지.
+    let sourceObjectUrl = attachment.archiveUrl ?? attachment.sourceUri;
+    if (attachment.storageKey) {
+      try {
+        const storage = createR2ObjectStorageFromEnv();
+        if (storage) sourceObjectUrl = await storage.presignGetUrl(attachment.storageKey);
+      } catch (error) {
+        warnings.push(`presign 실패 (${attachment.filename}): ${errorMessage(error)} — archive_url 폴백`);
+      }
+    }
     if (!sourceObjectUrl || !attachment.sha256) {
       warnings.push(
         `변환 job 등록 건너뜀 (${attachment.filename}): archive_url 또는 sha256 누락`,

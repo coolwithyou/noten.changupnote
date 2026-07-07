@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export interface R2ObjectStorage {
   getObjectText(key: string): Promise<string>;
@@ -15,6 +16,11 @@ export interface R2ObjectStorage {
     contentType: string;
   }): Promise<{ key: string; url: string }>;
   publicUrl(key: string): string;
+  /**
+   * presigned GET URL. 버킷이 비공개라 외부 소비자(변환 서버 등)가 다운로드하려면 필요하다.
+   * (archive_url/publicUrl 의 S3 엔드포인트 URL 은 SigV4 없이 400 — 2026-07-08 실측.)
+   */
+  presignGetUrl(key: string, expiresInSeconds?: number): Promise<string>;
 }
 
 interface R2ObjectStorageConfig {
@@ -100,6 +106,15 @@ export function createR2ObjectStorage(config: R2ObjectStorageConfig): R2ObjectSt
     },
     publicUrl(key) {
       return `${publicBaseUrl}/${encodeObjectKey(key)}`;
+    },
+    async presignGetUrl(key, expiresInSeconds = 7200) {
+      // exactOptionalPropertyTypes 아래에서 S3Client 와 presigner 의 Client 제네릭이 어긋나
+      // 대입이 거부된다(런타임은 동일 객체) — 시그니처 타입으로 좁혀서 전달한다.
+      return getSignedUrl(
+        client as unknown as Parameters<typeof getSignedUrl>[0],
+        new GetObjectCommand({ Bucket: config.bucket, Key: key }),
+        { expiresIn: expiresInSeconds },
+      );
     },
   };
 }

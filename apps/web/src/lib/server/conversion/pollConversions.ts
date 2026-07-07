@@ -12,6 +12,7 @@ import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
+import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { CONVERSION_CONVERTER_VERSION, CONVERSION_REQUESTED_ARTIFACTS } from "./constants";
 import type { ConversionClient } from "./conversionClient";
 import {
@@ -82,6 +83,7 @@ export async function collectPendingSurfaceJobs(
       sourceUrl: surfaces.sourceUrl,
       sha256: archives.sha256,
       archiveUrl: archives.archiveUrl,
+      storageKey: archives.storageKey,
     })
     .from(surfaces)
     .leftJoin(
@@ -98,17 +100,26 @@ export async function collectPendingSurfaceJobs(
     .where(and(...conditions))
     .limit(limit);
 
-  return rows.map((row) => ({
-    surfaceId: row.surfaceId,
-    source: row.source,
-    sourceId: row.sourceId,
-    filename: row.filename,
-    format: row.format,
-    sourceAttachment: row.sourceAttachment,
-    sourceUrl: row.sourceUrl,
-    sha256: row.sha256,
-    sourceObjectUrl: row.archiveUrl ?? row.sourceUrl,
-  }));
+  // R2 아카이브분은 presigned GET URL 로 공급한다 — 저장된 archive_url(S3 엔드포인트)은
+  // SigV4 없이 400 이라 변환 서버가 다운로드하지 못한다 (2026-07-08 실측). 폴링 시점마다
+  // 새로 서명하므로 만료 걱정이 없다. R2 env 미설정이면 기존 폴백(archiveUrl ?? sourceUrl).
+  const storage = createR2ObjectStorageFromEnv();
+  return Promise.all(
+    rows.map(async (row) => ({
+      surfaceId: row.surfaceId,
+      source: row.source,
+      sourceId: row.sourceId,
+      filename: row.filename,
+      format: row.format,
+      sourceAttachment: row.sourceAttachment,
+      sourceUrl: row.sourceUrl,
+      sha256: row.sha256,
+      sourceObjectUrl:
+        storage && row.storageKey
+          ? await storage.presignGetUrl(row.storageKey)
+          : row.archiveUrl ?? row.sourceUrl,
+    })),
+  );
 }
 
 export interface PollOneResult {
