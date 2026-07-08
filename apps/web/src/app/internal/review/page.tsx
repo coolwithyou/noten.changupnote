@@ -152,9 +152,16 @@ export default async function ReviewListPage() {
                   {docs.map((doc) => (
                     <TableRow key={doc.id}>
                       <TableCell className="font-medium">
-                        <Link href={`/internal/review/${doc.docId}`} className="text-primary hover:underline">
-                          {doc.docId}
+                        <Link
+                          href={`/internal/review/${doc.docId}`}
+                          className="block max-w-[360px] truncate text-primary hover:underline"
+                          title={doc.grantTitle ?? doc.docId}
+                        >
+                          {doc.grantTitle ?? doc.docId}
                         </Link>
+                        {doc.grantTitle ? (
+                          <span className="text-xs text-muted-foreground">{doc.docId}</span>
+                        ) : null}
                       </TableCell>
                       <TableCell className="max-w-[280px] truncate text-muted-foreground" title={doc.sourceFilename ?? ""}>
                         {doc.sourceFilename ?? "-"}

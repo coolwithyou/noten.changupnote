@@ -4,7 +4,7 @@
  * 검수 확정은 곧 golden_set(kind=field_map) 승격이다.
  * 순환성 가드/승격 upsert 는 공용 모듈(promote-field-map-golden)을 재사용한다.
  */
-import { and, asc, eq, ne } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or } from "drizzle-orm";
 import type { GrantSource } from "@cunote/contracts";
 import { getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
@@ -63,6 +63,8 @@ export interface ReviewDocSummary {
   id: string;
   docId: string;
   docRef: string;
+  /** 목록 1차 표기용 공고명(grants.title). docRef 가 공고로 해석되지 않으면 null → docId 폴백. */
+  grantTitle: string | null;
   sourceFilename: string | null;
   fieldCount: number;
   pageCount: number | null;
@@ -142,12 +144,14 @@ export async function listReviewDocs(): Promise<ReviewDocSummary[]> {
     .select()
     .from(schema.fieldMapReviewDocs)
     .orderBy(asc(schema.fieldMapReviewDocs.docId));
+  const titleByDocRef = await resolveGrantTitles(rows.map((row) => row.docRef));
   return rows.map((row) => {
     const labelJson = toLabelJson(row.labelJson);
     return {
       id: row.id,
       docId: row.docId,
       docRef: row.docRef,
+      grantTitle: titleByDocRef.get(row.docRef) ?? null,
       sourceFilename: row.sourceFilename,
       fieldCount: fieldCountOf(labelJson),
       pageCount: row.pageCount,
@@ -160,6 +164,69 @@ export async function listReviewDocs(): Promise<ReviewDocSummary[]> {
       updatedAt: row.updatedAt,
     };
   });
+}
+
+/**
+ * 목록 표기용 공고명 배치 조회 — docRef → grants.title 매핑.
+ * surface 문서(`surface:<id>`)는 surfaces.grantId 로, 스파이크 문서(`<source>:<sourceId>:…`)는
+ * (source, sourceId) 로 되짚는다. 어느 쪽으로도 해석되지 않으면 매핑에 없음(호출부 docId 폴백).
+ */
+async function resolveGrantTitles(docRefs: string[]): Promise<Map<string, string>> {
+  const titles = new Map<string, string>();
+  const docRefBySurfaceId = new Map<string, string>();
+  const docRefsBySourceKey = new Map<string, string[]>();
+
+  for (const docRef of docRefs) {
+    const surfaceId = surfaceIdFromDocRef(docRef);
+    if (surfaceId) {
+      docRefBySurfaceId.set(surfaceId, docRef);
+      continue;
+    }
+    const parsed = parseReviewDocRef(docRef);
+    if (!parsed) continue;
+    const key = `${parsed.source}:${parsed.sourceId}`;
+    const refs = docRefsBySourceKey.get(key) ?? [];
+    refs.push(docRef);
+    docRefsBySourceKey.set(key, refs);
+  }
+
+  const db = getCunoteDb();
+
+  if (docRefBySurfaceId.size > 0) {
+    const rows = await db
+      .select({
+        surfaceId: schema.grantApplicationSurfaces.id,
+        title: schema.grants.title,
+      })
+      .from(schema.grantApplicationSurfaces)
+      .innerJoin(schema.grants, eq(schema.grants.id, schema.grantApplicationSurfaces.grantId))
+      .where(inArray(schema.grantApplicationSurfaces.id, [...docRefBySurfaceId.keys()]));
+    for (const row of rows) {
+      const docRef = docRefBySurfaceId.get(row.surfaceId);
+      if (docRef) titles.set(docRef, row.title);
+    }
+  }
+
+  if (docRefsBySourceKey.size > 0) {
+    const pairs = [...docRefsBySourceKey.keys()].map((key) => {
+      const [source, sourceId] = key.split(":") as [GrantSource, string];
+      return and(eq(schema.grants.source, source), eq(schema.grants.sourceId, sourceId));
+    });
+    const rows = await db
+      .select({
+        source: schema.grants.source,
+        sourceId: schema.grants.sourceId,
+        title: schema.grants.title,
+      })
+      .from(schema.grants)
+      .where(or(...pairs));
+    for (const row of rows) {
+      const refs = docRefsBySourceKey.get(`${row.source}:${row.sourceId}`) ?? [];
+      for (const docRef of refs) titles.set(docRef, row.title);
+    }
+  }
+
+  return titles;
 }
 
 export async function getReviewDocByDocId(docId: string): Promise<ReviewDocDetail | null> {
@@ -177,6 +244,7 @@ export async function getReviewDocByDocId(docId: string): Promise<ReviewDocDetai
     id: row.id,
     docId: row.docId,
     docRef: row.docRef,
+    grantTitle: evidence?.grant?.title ?? null,
     sourceFilename: row.sourceFilename,
     fieldCount: fieldCountOf(labelJson),
     pageCount: row.pageCount,
