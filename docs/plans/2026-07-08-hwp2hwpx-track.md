@@ -1,7 +1,13 @@
 # hwp2hwpx 변환 트랙 — .hwp 바이너리를 채움 경로에 합류 (2026-07-08)
 
+> **🟢 Phase 1 완료 (2026-07-08, 커밋 `4c6f44e`)** — 변환 서버 통합: Dockerfile 멀티스테이지
+> (maven, 핀 커밋 50ae71b) jar 빌드, `requestedArtifacts`에 "hwpx" + hwp 바이너리(매직 바이트)
+> 게이팅, core `writeHwpx` STORE 재포장 정규화, R2 업로드(kind=hwpx). 비치명 계약(outcome 분류,
+> jobStatus 무강등). 웹앱은 아직 "hwpx" 미요청이라 기존 동작 불변 — Phase 2에서 배선.
+> 검증: typecheck·build, hwpx-convert-test 15/15, quality-test 10/10, docker in-container 실측.
+>
 > **🟢 Phase 0 통과 (2026-07-08)** — 자동 3관문(변환·구조·채움) + **한컴 눈검수 사용자 확인 완료**:
-> 변환·채움본에서 기업명·성명·이메일이 정확한 셀에 안착. Phase 1 착수 가능.
+> 변환·채움본에서 기업명·성명·이메일이 정확한 셀에 안착.
 >
 > 핀 커밋 `50ae71b`(2026-06-25) uber jar(재현: `bash scripts/spike/hwp2hwpx/build-jar.sh`),
 > spike-samples 22건 전수. 산출: `spike-out/hwp2hwpx/`(report.json + converted/filled/render).
