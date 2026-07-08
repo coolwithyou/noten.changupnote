@@ -40,7 +40,7 @@
 > 남음 (우선순위순):
 >
 > - ✅ ~~[HWPX 트랙 Phase 3] 브라우저 실측 QA~~ (2026-07-08 통과, `6926b8b` — 버튼 노출 양방향·다운로드 왕복·미채움 8건 정직 안내·한컴 셀 안착 사용자 확인). 같은 날 후속: ✅ 설계 6번 잔여 매직 바이트 보강(`fda7452`) 완료
-- 🔄 **[HWPX 후속] hwp2hwpx 변환 트랙** (2026-07-08 착수) — 외부 대조(`docs/research/2026-07-08-hwp2hwpx-calibration.md`, 유지 3·보강 3·kordoc 병행 측정 등재) → 설계 확정(**정본: `docs/plans/2026-07-08-hwp2hwpx-track.md`**) 완료, Phase 0 측정 완료(`724aab6` — 변환 22/22·구조·채움 통과, H2O 렌더 오라클 부적합 실증, kordoc 대체 후보 제외) — **한컴 눈검수(사용자)가 Phase 1 착수 관문**. 잔여 소과제: answers 동봉 경로 실측(추가 입력 문항 있는 공고, dev 서버 사용자 기동)
+> - 🔄 **[HWPX 후속] hwp2hwpx 변환 트랙** (2026-07-08 착수) — 외부 대조(`docs/research/2026-07-08-hwp2hwpx-calibration.md`, 유지 3·보강 3) → 설계 확정(**정본: `docs/plans/2026-07-08-hwp2hwpx-track.md`**) → **Phase 0 통과**(`724aab6` + 한컴 눈검수 사용자 확인 — 변환 22/22·구조·채움·셀 안착. H2O 렌더 오라클 부적합 실증, kordoc 대체 후보 제외). Phase 1(변환 서버 hwpx sibling artifact) 진행 중
 >
 > - ✅ ~~[차기 세션 최우선·사용자 지시] 리뷰어 워크스페이스 문서 목록에 공고명 표시~~ (2026-07-08 완료, `9745d23`): `listReviewDocs`에 docRef 배치 해석(`resolveGrantTitles` — surface는 surfaces.grantId, spike는 (source,sourceId))으로 `grantTitle` 부여, 목록 문서 컬럼을 공고명 主·docId 부기로 전환(미해석은 docId 폴백). 상세(`ReviewDocDetail`)는 evidence.grant.title 재사용. 실DB 49건(spike 45·surface 4) 전건 해석 확인, typecheck·build 통과. 후속 `aac3e48`: 부기 라인에 접수기간(apply_start~apply_end) 표기 추가(사용자 요청) — surface 4건 전건 표기, 스파이크 29건은 원천 날짜 부재로 docId만
 > - 🔶 **[임계경로·사용자] 리뷰팀 검수 개시 (스파이크 45 + 실공고 4)** — ① ⬜ `docs/infra-setup-guide.md` B1(Vercel env R2_* 확인)·B2(리뷰어 admin_users 등록) ② ⬜ dev.changupnote.com/internal/review 브라우저 왕복 확인 후 리뷰팀에 `docs/review-team-guide.md` 전달. Gate 1 golden·Gate 2 측정의 유일한 블로커. **실공고 4건(s-*)은 승인 즉시 사용자 뷰어에 필드 노출**(B3 브리지)

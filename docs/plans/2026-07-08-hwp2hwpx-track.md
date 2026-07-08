@@ -1,6 +1,7 @@
 # hwp2hwpx 변환 트랙 — .hwp 바이너리를 채움 경로에 합류 (2026-07-08)
 
-> **🟡 Phase 0 측정 완료 (2026-07-08, 커밋 `724aab6`) — 한컴 눈검수 대기**
+> **🟢 Phase 0 통과 (2026-07-08)** — 자동 3관문(변환·구조·채움) + **한컴 눈검수 사용자 확인 완료**:
+> 변환·채움본에서 기업명·성명·이메일이 정확한 셀에 안착. Phase 1 착수 가능.
 >
 > 핀 커밋 `50ae71b`(2026-06-25) uber jar(재현: `bash scripts/spike/hwp2hwpx/build-jar.sh`),
 > spike-samples 22건 전수. 산출: `spike-out/hwp2hwpx/`(report.json + converted/filled/render).
