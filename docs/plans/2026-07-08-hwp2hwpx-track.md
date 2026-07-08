@@ -1,5 +1,15 @@
 # hwp2hwpx 변환 트랙 — .hwp 바이너리를 채움 경로에 합류 (2026-07-08)
 
+> **🟢 Phase 2 완료 (2026-07-08, 커밋 `8d9c61f`)** — web 배선: `CONVERSION_REQUESTED_ARTIFACTS`에
+> "hwpx" 추가, `hwpxTemplateAvailable`이 sibling artifact(kind=hwpx, surface.title=파일명 조인)도
+> 인식(배치 2회+순수 판정), 다운로드가 hwp 원본에서 sibling 변환본으로 합류(부재 시 409 정직
+> 안내, 매직 바이트 가드 합류점 유지). 단위 9건+회귀 14건+typecheck 통과.
+> **운영 전제**: 프로덕션 hwpx sibling 생성은 Cloud Run 재배포(`4c6f44e` 이미지) 이후.
+> 기존 캐시 히트분에는 sibling 없음 — 재변환/신규 아카이브부터 채워짐.
+>
+> **잔여(Phase 3)**: Cloud Run 재배포 → 실공고 hwp 문서로 E2E(변환→플래그→다운로드→한컴) →
+> 커버리지 지표(채움 가능 공고 비율) 재측정.
+>
 > **🟢 Phase 1 완료 (2026-07-08, 커밋 `4c6f44e`)** — 변환 서버 통합: Dockerfile 멀티스테이지
 > (maven, 핀 커밋 50ae71b) jar 빌드, `requestedArtifacts`에 "hwpx" + hwp 바이너리(매직 바이트)
 > 게이팅, core `writeHwpx` STORE 재포장 정규화, R2 업로드(kind=hwpx). 비치명 계약(outcome 분류,
