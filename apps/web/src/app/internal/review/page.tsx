@@ -49,6 +49,26 @@ function statusVariant(status: ReviewStatus): "default" | "secondary" | "outline
   return "outline";
 }
 
+function formatApplyDate(value: Date): string {
+  return new Intl.DateTimeFormat("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    timeZone: "Asia/Seoul",
+  })
+    .format(value)
+    .replace(/\s/g, "")
+    .replace(/\.$/, "");
+}
+
+/** 공고 접수 기간 부기 라벨. 둘 다 없으면 null(미표기). */
+function applyPeriodLabel(start: Date | null, end: Date | null): string | null {
+  if (!start && !end) return null;
+  if (!start) return `마감 ${formatApplyDate(end!)}`;
+  if (!end) return `${formatApplyDate(start)} 시작`;
+  return `${formatApplyDate(start)} ~ ${formatApplyDate(end)}`;
+}
+
 export default async function ReviewListPage() {
   const reviewer = await getReviewerIdentity();
   if (!reviewer) notFound();
@@ -160,7 +180,12 @@ export default async function ReviewListPage() {
                           {doc.grantTitle ?? doc.docId}
                         </Link>
                         {doc.grantTitle ? (
-                          <span className="text-xs text-muted-foreground">{doc.docId}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {doc.docId}
+                            {applyPeriodLabel(doc.grantApplyStart, doc.grantApplyEnd) ? (
+                              <> · {applyPeriodLabel(doc.grantApplyStart, doc.grantApplyEnd)}</>
+                            ) : null}
+                          </span>
                         ) : null}
                       </TableCell>
                       <TableCell className="max-w-[280px] truncate text-muted-foreground" title={doc.sourceFilename ?? ""}>

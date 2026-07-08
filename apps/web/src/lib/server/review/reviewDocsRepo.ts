@@ -65,6 +65,9 @@ export interface ReviewDocSummary {
   docRef: string;
   /** 목록 1차 표기용 공고명(grants.title). docRef 가 공고로 해석되지 않으면 null → docId 폴백. */
   grantTitle: string | null;
+  /** 공고 접수 시작·마감(grants.apply_start/apply_end). 공고 미해석 시 null. */
+  grantApplyStart: Date | null;
+  grantApplyEnd: Date | null;
   sourceFilename: string | null;
   fieldCount: number;
   pageCount: number | null;
@@ -98,6 +101,8 @@ export interface ReviewDocEvidence {
     url: string | null;
     agencyOperator: string | null;
     status: string;
+    applyStart: Date | null;
+    applyEnd: Date | null;
   } | null;
   attachment: {
     filename: string;
@@ -144,14 +149,17 @@ export async function listReviewDocs(): Promise<ReviewDocSummary[]> {
     .select()
     .from(schema.fieldMapReviewDocs)
     .orderBy(asc(schema.fieldMapReviewDocs.docId));
-  const titleByDocRef = await resolveGrantTitles(rows.map((row) => row.docRef));
+  const grantInfoByDocRef = await resolveGrantInfo(rows.map((row) => row.docRef));
   return rows.map((row) => {
     const labelJson = toLabelJson(row.labelJson);
+    const grantInfo = grantInfoByDocRef.get(row.docRef) ?? null;
     return {
       id: row.id,
       docId: row.docId,
       docRef: row.docRef,
-      grantTitle: titleByDocRef.get(row.docRef) ?? null,
+      grantTitle: grantInfo?.title ?? null,
+      grantApplyStart: grantInfo?.applyStart ?? null,
+      grantApplyEnd: grantInfo?.applyEnd ?? null,
       sourceFilename: row.sourceFilename,
       fieldCount: fieldCountOf(labelJson),
       pageCount: row.pageCount,
@@ -166,13 +174,19 @@ export async function listReviewDocs(): Promise<ReviewDocSummary[]> {
   });
 }
 
+interface ReviewGrantInfo {
+  title: string;
+  applyStart: Date | null;
+  applyEnd: Date | null;
+}
+
 /**
- * 목록 표기용 공고명 배치 조회 — docRef → grants.title 매핑.
+ * 목록 표기용 공고 정보 배치 조회 — docRef → grants(title·apply_start·apply_end) 매핑.
  * surface 문서(`surface:<id>`)는 surfaces.grantId 로, 스파이크 문서(`<source>:<sourceId>:…`)는
  * (source, sourceId) 로 되짚는다. 어느 쪽으로도 해석되지 않으면 매핑에 없음(호출부 docId 폴백).
  */
-async function resolveGrantTitles(docRefs: string[]): Promise<Map<string, string>> {
-  const titles = new Map<string, string>();
+async function resolveGrantInfo(docRefs: string[]): Promise<Map<string, ReviewGrantInfo>> {
+  const infos = new Map<string, ReviewGrantInfo>();
   const docRefBySurfaceId = new Map<string, string>();
   const docRefsBySourceKey = new Map<string, string[]>();
 
@@ -197,13 +211,17 @@ async function resolveGrantTitles(docRefs: string[]): Promise<Map<string, string
       .select({
         surfaceId: schema.grantApplicationSurfaces.id,
         title: schema.grants.title,
+        applyStart: schema.grants.applyStart,
+        applyEnd: schema.grants.applyEnd,
       })
       .from(schema.grantApplicationSurfaces)
       .innerJoin(schema.grants, eq(schema.grants.id, schema.grantApplicationSurfaces.grantId))
       .where(inArray(schema.grantApplicationSurfaces.id, [...docRefBySurfaceId.keys()]));
     for (const row of rows) {
       const docRef = docRefBySurfaceId.get(row.surfaceId);
-      if (docRef) titles.set(docRef, row.title);
+      if (docRef) {
+        infos.set(docRef, { title: row.title, applyStart: row.applyStart, applyEnd: row.applyEnd });
+      }
     }
   }
 
@@ -217,16 +235,20 @@ async function resolveGrantTitles(docRefs: string[]): Promise<Map<string, string
         source: schema.grants.source,
         sourceId: schema.grants.sourceId,
         title: schema.grants.title,
+        applyStart: schema.grants.applyStart,
+        applyEnd: schema.grants.applyEnd,
       })
       .from(schema.grants)
       .where(or(...pairs));
     for (const row of rows) {
       const refs = docRefsBySourceKey.get(`${row.source}:${row.sourceId}`) ?? [];
-      for (const docRef of refs) titles.set(docRef, row.title);
+      for (const docRef of refs) {
+        infos.set(docRef, { title: row.title, applyStart: row.applyStart, applyEnd: row.applyEnd });
+      }
     }
   }
 
-  return titles;
+  return infos;
 }
 
 export async function getReviewDocByDocId(docId: string): Promise<ReviewDocDetail | null> {
@@ -245,6 +267,8 @@ export async function getReviewDocByDocId(docId: string): Promise<ReviewDocDetai
     docId: row.docId,
     docRef: row.docRef,
     grantTitle: evidence?.grant?.title ?? null,
+    grantApplyStart: evidence?.grant?.applyStart ?? null,
+    grantApplyEnd: evidence?.grant?.applyEnd ?? null,
     sourceFilename: row.sourceFilename,
     fieldCount: fieldCountOf(labelJson),
     pageCount: row.pageCount,
@@ -308,6 +332,8 @@ async function loadReviewDocEvidence(
       url: schema.grants.url,
       agencyOperator: schema.grants.agencyOperator,
       status: schema.grants.status,
+      applyStart: schema.grants.applyStart,
+      applyEnd: schema.grants.applyEnd,
     })
     .from(schema.grants)
     .where(
@@ -366,6 +392,8 @@ async function loadReviewDocEvidence(
           url: grant.url,
           agencyOperator: grant.agencyOperator,
           status: grant.status,
+          applyStart: grant.applyStart,
+          applyEnd: grant.applyEnd,
         }
       : null,
     attachment: attachment
@@ -424,6 +452,8 @@ async function loadSurfaceEvidence(
       url: schema.grants.url,
       agencyOperator: schema.grants.agencyOperator,
       status: schema.grants.status,
+      applyStart: schema.grants.applyStart,
+      applyEnd: schema.grants.applyEnd,
     })
     .from(schema.grants)
     .where(eq(schema.grants.id, surface.grantId))
@@ -463,6 +493,8 @@ async function loadSurfaceEvidence(
           url: grant.url,
           agencyOperator: grant.agencyOperator,
           status: grant.status,
+          applyStart: grant.applyStart,
+          applyEnd: grant.applyEnd,
         }
       : null,
     attachment: attachment
