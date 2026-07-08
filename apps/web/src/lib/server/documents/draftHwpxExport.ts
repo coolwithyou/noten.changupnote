@@ -6,6 +6,13 @@ import * as schema from "../db/schema";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 
 /**
+ * hwp2hwpx sibling artifact 의 document_artifacts.kind 값
+ * (apps/conversion 이 hwp 바이너리 입력에 대해 올리는 STORE 정규화 hwpx 변환본).
+ * hwp2hwpx 트랙 Phase 2: docs/plans/2026-07-08-hwp2hwpx-track.md.
+ */
+export const HWPX_SIBLING_ARTIFACT_KIND = "hwpx";
+
+/**
  * HWPX 원본 양식 채움 다운로드 서버 배선 — docs/plans/2026-07-07-hwpx-fill-export.md Phase 2.
  *
  * draft(sourceAttachment·grantId) → grants(source·sourceId) → grant_attachment_archives 행 →
@@ -73,10 +80,10 @@ export async function buildDraftHwpxDownload(input: {
     );
   }
 
-  let source: Buffer;
+  let archiveBytes: Buffer;
   try {
     const object = await storage.getObjectBytes(archive.storageKey);
-    source = object.body;
+    archiveBytes = object.body;
   } catch (error) {
     throw new DraftHwpxExportError(
       "hwpx_source_fetch_failed",
@@ -85,6 +92,31 @@ export async function buildDraftHwpxDownload(input: {
     );
   }
 
+  // 보관 원본이 hwpx 면 그대로 사용하고, 원본이 hwp 바이너리(확장자 위장 포함)면 hwp2hwpx
+  // sibling 변환본(kind="hwpx")으로 합류한다. sibling 이 없으면 정직하게 미준비를 알린다.
+  const source = await resolveHwpxTemplateSource({
+    archiveBytes,
+    loadSiblingBytes: async () => {
+      const siblingKey = await resolveHwpxSiblingStorageKey({
+        source: grant.source,
+        sourceId: grant.sourceId,
+        filename,
+      });
+      if (!siblingKey) return null;
+      try {
+        const object = await storage.getObjectBytes(siblingKey);
+        return object.body;
+      } catch (error) {
+        throw new DraftHwpxExportError(
+          "hwpx_source_fetch_failed",
+          `hwpx 변환본을 불러오지 못했습니다: ${error instanceof Error ? error.message : String(error)}`,
+          502,
+        );
+      }
+    },
+  });
+
+  // 매직 바이트 가드(합류점): 원본 hwpx·sibling 변환본은 통과, 그 외(위장/손상)는 정직 차단.
   if (detectHwpFormat(source) !== "hwpx") {
     throw new DraftHwpxExportError(
       "hwpx_disguised_binary",
@@ -113,10 +145,61 @@ export async function buildDraftHwpxDownload(input: {
 }
 
 /**
- * draftableDocuments 에 hwpxTemplateAvailable 플래그를 덮어쓴다(설계 결정 6·8, Phase 2).
- * 해당 공고의 보관 첨부 중 파일명이 .hwpx 이고 storageKey 가 있는 것을 배치 조회해,
- * sourceAttachment 파일명이 일치하면 true 로 표시한다. 위장 파일은 다운로드 시 매직바이트로 차단하므로
- * 여기서는 파일명 기반으로 노출만 결정한다. DB 조회 실패 시에는 전부 false(버튼 비노출)로 안전하게 폴백.
+ * 채움 대상 hwpx 바이트를 결정한다(순수 분기 — DB/R2 의존 없음, 주입된 로더만 사용).
+ *  - 보관 원본이 hwpx(매직 바이트) → 그대로 사용(기존 경로 유지).
+ *  - 원본이 hwp 바이너리(또는 확장자 위장/기타) → hwp2hwpx sibling 변환본으로 합류.
+ *    sibling 이 없으면(loadSiblingBytes → null) 정직하게 미준비를 알린다.
+ * hwp2hwpx 트랙 Phase 2: docs/plans/2026-07-08-hwp2hwpx-track.md.
+ */
+export async function resolveHwpxTemplateSource(input: {
+  archiveBytes: Buffer;
+  loadSiblingBytes: () => Promise<Buffer | null>;
+}): Promise<Buffer> {
+  if (detectHwpFormat(input.archiveBytes) === "hwpx") {
+    return input.archiveBytes;
+  }
+  const sibling = await input.loadSiblingBytes();
+  if (!sibling) {
+    throw new DraftHwpxExportError(
+      "hwpx_sibling_not_ready",
+      "이 문서의 원본은 hwp 형식이며 아직 hwpx 변환본이 준비되지 않았습니다.",
+      409,
+    );
+  }
+  return sibling;
+}
+
+/**
+ * 문서별 hwpxTemplateAvailable 플래그를 순수하게 판정한다(설계 결정 6·8 + hwp2hwpx Phase 2).
+ * true 조건(둘 중 하나):
+ *  1) sourceAttachment 파일명이 .hwpx 보관본 집합에 있음(기존 규칙).
+ *  2) sourceAttachment 파일명이 hwp2hwpx sibling(kind="hwpx") 보유 surface 집합에 있음(신규).
+ * 위장 파일은 다운로드 시 매직 바이트로 차단하므로 여기서는 파일명 기반 노출만 결정한다.
+ */
+export function resolveHwpxTemplateAvailability(input: {
+  documents: DraftableDocument[];
+  hwpxArchiveFilenames: Set<string>;
+  hwpxSiblingFilenames: Set<string>;
+}): DraftableDocument[] {
+  if (input.hwpxArchiveFilenames.size === 0 && input.hwpxSiblingFilenames.size === 0) {
+    return input.documents;
+  }
+  return input.documents.map((document) => {
+    const name = document.sourceAttachment;
+    if (name && (input.hwpxArchiveFilenames.has(name) || input.hwpxSiblingFilenames.has(name))) {
+      return { ...document, hwpxTemplateAvailable: true };
+    }
+    return document;
+  });
+}
+
+/**
+ * draftableDocuments 에 hwpxTemplateAvailable 플래그를 덮어쓴다(설계 결정 6·8, hwp2hwpx Phase 2).
+ * 공고 단위 배치 조회 2회로 두 집합을 만든 뒤 순수 판정(resolveHwpxTemplateAvailability)에 합류한다(N+1 없음):
+ *  1) grant_attachment_archives: 파일명이 .hwpx 이고 storageKey 존재(기존 규칙).
+ *  2) grant_application_surfaces ⨝ document_artifacts(kind="hwpx"): sibling 변환본 보유 surface 의 title.
+ *     surface.title 은 첨부 파일명(registerAttachmentConversions)이라 document.sourceAttachment 와 조인된다.
+ * DB 조회 실패 시에는 해당 집합을 비워 안전하게 폴백(버튼 비노출).
  */
 export async function annotateHwpxTemplateAvailability(input: {
   grant: { source: Grant["source"]; sourceId: string };
@@ -126,9 +209,10 @@ export async function annotateHwpxTemplateAvailability(input: {
   const hasAnyAttachment = input.documents.some((document) => Boolean(document.sourceAttachment));
   if (!hasAnyAttachment) return input.documents;
 
-  let hwpxFilenames: Set<string>;
+  const db = getCunoteDb();
+
+  let hwpxArchiveFilenames = new Set<string>();
   try {
-    const db = getCunoteDb();
     const rows = await db
       .select({
         filename: schema.grantAttachmentArchives.filename,
@@ -141,24 +225,74 @@ export async function annotateHwpxTemplateAvailability(input: {
           eq(schema.grantAttachmentArchives.sourceId, input.grant.sourceId),
         ),
       );
-    hwpxFilenames = new Set(
+    hwpxArchiveFilenames = new Set(
       rows
         .filter((row) => row.storageKey && row.filename.toLowerCase().endsWith(".hwpx"))
         .map((row) => row.filename),
     );
   } catch (error) {
     console.warn(
-      `hwpx 보관본 플래그 조회 실패(버튼 비노출로 폴백): ${error instanceof Error ? error.message : String(error)}`,
+      `hwpx 보관본 플래그 조회 실패(해당 집합 비움으로 폴백): ${error instanceof Error ? error.message : String(error)}`,
     );
-    return input.documents;
   }
 
-  if (hwpxFilenames.size === 0) return input.documents;
-  return input.documents.map((document) =>
-    document.sourceAttachment && hwpxFilenames.has(document.sourceAttachment)
-      ? { ...document, hwpxTemplateAvailable: true }
-      : document,
-  );
+  let hwpxSiblingFilenames = new Set<string>();
+  try {
+    const rows = await db
+      .select({ title: schema.grantApplicationSurfaces.title })
+      .from(schema.documentArtifacts)
+      .innerJoin(
+        schema.grantApplicationSurfaces,
+        eq(schema.documentArtifacts.surfaceId, schema.grantApplicationSurfaces.id),
+      )
+      .where(
+        and(
+          eq(schema.grantApplicationSurfaces.source, input.grant.source),
+          eq(schema.grantApplicationSurfaces.sourceId, input.grant.sourceId),
+          eq(schema.documentArtifacts.kind, HWPX_SIBLING_ARTIFACT_KIND),
+        ),
+      );
+    hwpxSiblingFilenames = new Set(rows.map((row) => row.title));
+  } catch (error) {
+    console.warn(
+      `hwpx sibling 플래그 조회 실패(해당 집합 비움으로 폴백): ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+
+  return resolveHwpxTemplateAvailability({
+    documents: input.documents,
+    hwpxArchiveFilenames,
+    hwpxSiblingFilenames,
+  });
+}
+
+/**
+ * 문서 sourceAttachment(파일명)에 대응하는 hwp2hwpx sibling 변환본(kind="hwpx")의 storage_key 를 찾는다.
+ * surface.title = 첨부 파일명(registerAttachmentConversions)을 조인 근거로 삼는다. 없으면 null.
+ */
+async function resolveHwpxSiblingStorageKey(input: {
+  source: Grant["source"];
+  sourceId: string;
+  filename: string;
+}): Promise<string | null> {
+  const db = getCunoteDb();
+  const [row] = await db
+    .select({ storageKey: schema.documentArtifacts.storageKey })
+    .from(schema.documentArtifacts)
+    .innerJoin(
+      schema.grantApplicationSurfaces,
+      eq(schema.documentArtifacts.surfaceId, schema.grantApplicationSurfaces.id),
+    )
+    .where(
+      and(
+        eq(schema.grantApplicationSurfaces.source, input.source),
+        eq(schema.grantApplicationSurfaces.sourceId, input.sourceId),
+        eq(schema.grantApplicationSurfaces.title, input.filename),
+        eq(schema.documentArtifacts.kind, HWPX_SIBLING_ARTIFACT_KIND),
+      ),
+    )
+    .limit(1);
+  return row?.storageKey ?? null;
 }
 
 async function resolveGrantSource(
