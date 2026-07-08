@@ -1,8 +1,9 @@
+// 매치 상태(match_state) 갱신 CLI. argv/env 파싱 + loadMonorepoEnv + db 생성 후 코어(refreshMatchStatesCore)를 호출한다.
+// 코어 로직·타입은 refreshMatchStatesCore.ts 에 있으며, /api/cron/grant-cycle-post 라우트와 공유한다.
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { mockUserId } from "../auth/mockIdentity";
-import { createDrizzleRepositories } from "../repositories/drizzle";
-import { refreshMatchStates } from "./matchStateRefresh";
+import { runRefreshMatchStates } from "./refreshMatchStatesCore";
 
 const DEFAULT_DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000101";
 
@@ -25,46 +26,8 @@ const write = hasFlag("write") || process.env.CUNOTE_MATCH_STATE_REFRESH_WRITE =
 const db = getCunoteDb();
 
 try {
-  const repositories = createDrizzleRepositories<unknown>({
-    dialect: "drizzle",
-    client: db,
-  });
-  const company = await repositories.companies.resolveCompanyProfile({ companyId, userId });
-  if (!company) throw new Error(`회사 프로필을 찾지 못했습니다: ${companyId}`);
-
-  const grants = await repositories.grants.listActiveGrants({ limit, asOf });
-  const { plan, savedCount } = await refreshMatchStates({
-    repositories,
-    company,
-    grants,
-    asOf,
-    companyId,
-    userId,
-    write,
-  });
-
-  console.log(JSON.stringify({
-    dryRun: !write,
-    savedCount,
-    companyId,
-    userId,
-    limit,
-    asOf: plan.asOf,
-    grantCount: plan.grantCount,
-    counts: plan.counts,
-    transitionWindowCounts: plan.transitionWindowCounts,
-    states: plan.states.map((state) => ({
-      grantId: state.grantId,
-      source: state.source,
-      sourceId: state.sourceId,
-      eligibility: state.eligibility,
-      fitScore: state.fitScore,
-      eligibleFrom: state.eligibleFrom,
-      eligibleUntil: state.eligibleUntil,
-      rulesetVer: state.rulesetVer,
-      scoringVer: state.scoringVer,
-    })),
-  }, null, 2));
+  const summary = await runRefreshMatchStates({ db, companyId, userId, limit, asOf, write });
+  console.log(JSON.stringify(summary, null, 2));
 } catch (error) {
   if (isMissingDatabaseSchemaError(error)) {
     console.error(JSON.stringify({

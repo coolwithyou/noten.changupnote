@@ -120,6 +120,8 @@ export const PUBLIC_APP_ROUTES = [
 export const SYSTEM_CRON_ROUTES = [
   "GET /api/cron/ingest-kstartup",
   "GET /api/cron/kstartup-details",
+  "GET /api/cron/ingest-bizinfo",
+  "GET /api/cron/grant-cycle-post",
   "GET /api/cron/poll-conversions",
 ] as const;
 

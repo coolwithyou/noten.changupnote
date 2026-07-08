@@ -1,11 +1,8 @@
-import { count, sql } from "drizzle-orm";
+// 공고 아카이브 인사이트 스냅샷 생성 CLI. argv/env 파싱 + loadMonorepoEnv + db 생성 후 코어(generateGrantInsightsCore)를 호출한다.
+// 코어 로직·타입은 generateGrantInsightsCore.ts 에 있으며, /api/cron/grant-cycle-post 라우트와 공유한다.
 import { closeCunoteDb, getCunoteDb } from "../db/client";
-import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import {
-  buildGrantInsightSnapshot,
-  type GrantInsightActivityCounts,
-} from "./grantInsights";
+import { runGrantInsights } from "./generateGrantInsightsCore";
 
 loadMonorepoEnv();
 
@@ -25,87 +22,10 @@ const staleCursorHours = boundedInteger(
 const db = getCunoteDb();
 
 try {
-  await db.execute(sql`set statement_timeout = '30s'`);
-  const grants = await db
-    .select({
-      source: schema.grants.source,
-      status: schema.grants.status,
-      categoryL1: schema.grants.categoryL1,
-      agencyJurisdiction: schema.grants.agencyJurisdiction,
-      applyStart: schema.grants.applyStart,
-      applyEnd: schema.grants.applyEnd,
-      fRegions: schema.grants.fRegions,
-      overallConfidence: schema.grants.overallConfidence,
-      updatedAt: schema.grants.updatedAt,
-    })
-    .from(schema.grants);
-  const criteria = await db
-    .select({
-      dimension: schema.grantCriteria.dimension,
-      operator: schema.grantCriteria.operator,
-      kind: schema.grantCriteria.kind,
-      confidence: schema.grantCriteria.confidence,
-      needsReview: schema.grantCriteria.needsReview,
-    })
-    .from(schema.grantCriteria);
-  const cursors = await db
-    .select({
-      source: schema.sourceCursor.source,
-      lastPage: schema.sourceCursor.lastPage,
-      lastCollectedAt: schema.sourceCursor.lastCollectedAt,
-    })
-    .from(schema.sourceCursor);
-  const activity = await readActivityCounts();
-  const snapshot = buildGrantInsightSnapshot({
-    asOf,
-    staleCursorHours,
-    grants,
-    criteria,
-    cursors,
-    activity,
-  });
-
-  if (write) {
-    const [row] = await db
-      .insert(schema.grantInsightSnapshots)
-      .values({
-        kind: snapshot.kind,
-        windowStart: snapshot.windowStart ? new Date(snapshot.windowStart) : null,
-        windowEnd: new Date(snapshot.windowEnd),
-        generatedAt: new Date(snapshot.generatedAt),
-        metrics: snapshot.metrics,
-        dimensions: snapshot.dimensions,
-        insights: snapshot.insights as unknown as Array<Record<string, unknown>>,
-      })
-      .returning({ id: schema.grantInsightSnapshots.id });
-    console.log(JSON.stringify({
-      dryRun: false,
-      snapshotId: row?.id ?? null,
-      ...snapshot,
-    }, null, 2));
-  } else {
-    console.log(JSON.stringify({
-      dryRun: true,
-      ...snapshot,
-    }, null, 2));
-  }
+  const result = await runGrantInsights({ db, write, asOf, staleCursorHours });
+  console.log(JSON.stringify(result, null, 2));
 } finally {
   await closeCunoteDb();
-}
-
-async function readActivityCounts(): Promise<GrantInsightActivityCounts> {
-  return {
-    dedupLinks: await rowCount(db.select({ value: count() }).from(schema.dedupLinks)),
-    extractionLog: await rowCount(db.select({ value: count() }).from(schema.extractionLog)),
-    feedback: await rowCount(db.select({ value: count() }).from(schema.feedback)),
-    matchEvents: await rowCount(db.select({ value: count() }).from(schema.matchEvents)),
-    goldenSet: await rowCount(db.select({ value: count() }).from(schema.goldenSet)),
-    evalRuns: await rowCount(db.select({ value: count() }).from(schema.evalRuns)),
-  };
-}
-
-async function rowCount(query: PromiseLike<Array<{ value: number }>>): Promise<number> {
-  return (await query)[0]?.value ?? 0;
 }
 
 function readArg(name: string): string | undefined {

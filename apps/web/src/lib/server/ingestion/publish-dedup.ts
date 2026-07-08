@@ -1,14 +1,8 @@
-import {
-  findGrantDedupCandidates,
-  type FindGrantDedupCandidatesOptions,
-} from "@cunote/core";
+// 교차 소스 dedup 링크 발행 CLI. argv/env 파싱 + loadMonorepoEnv + db 생성 후 코어(publishDedupCore)를 호출한다.
+// 코어 로직·타입은 publishDedupCore.ts 에 있으며, /api/cron/grant-cycle-post 라우트와 공유한다.
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { createDrizzleRepositories } from "../repositories/drizzle";
-import {
-  planDedupLinkPublication,
-  publishDedupLinks,
-} from "./dedupLinkPublisher";
+import { runDedupPublish } from "./publishDedupCore";
 
 loadMonorepoEnv();
 
@@ -25,44 +19,13 @@ const dryRun = hasFlag("dry-run") || process.env.CUNOTE_DEDUP_DRY_RUN === "true"
 const limit = boundedInteger(readArg("limit") ?? process.env.CUNOTE_DEDUP_LIMIT, 500, 1, 2_000);
 const minScore = optionalNumber(readArg("minScore") ?? process.env.CUNOTE_DEDUP_MIN_SCORE);
 const asOf = dateArg(readArg("asOf") ?? process.env.CUNOTE_DEDUP_AS_OF) ?? new Date();
-const options = dedupOptions(minScore);
 const db = getCunoteDb();
 
 try {
-  const repositories = createDrizzleRepositories<unknown>({
-    dialect: "drizzle",
-    client: db,
-  });
-  const entries = await repositories.grants.listActiveGrants({ limit, asOf });
-  const candidates = findGrantDedupCandidates(entries, options);
-  const plan = planDedupLinkPublication(candidates);
-
-  if (dryRun) {
-    console.log(JSON.stringify({
-      dryRun: true,
-      asOf: asOf.toISOString(),
-      activeGrantCount: entries.length,
-      minScore: options.minScore ?? null,
-      ...plan,
-    }, null, 2));
-  } else {
-    const result = await publishDedupLinks(db, candidates);
-    console.log(JSON.stringify({
-      dryRun: false,
-      asOf: asOf.toISOString(),
-      activeGrantCount: entries.length,
-      minScore: options.minScore ?? null,
-      ...result,
-    }, null, 2));
-  }
+  const result = await runDedupPublish({ db, dryRun, limit, minScore, asOf });
+  console.log(JSON.stringify(result, null, 2));
 } finally {
   await closeCunoteDb();
-}
-
-function dedupOptions(minScore: number | undefined): FindGrantDedupCandidatesOptions {
-  const options: FindGrantDedupCandidatesOptions = {};
-  if (minScore !== undefined) options.minScore = minScore;
-  return options;
 }
 
 function readArg(name: string): string | undefined {
