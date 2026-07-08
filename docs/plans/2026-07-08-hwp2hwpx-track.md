@@ -7,8 +7,14 @@
 > **운영 전제**: 프로덕션 hwpx sibling 생성은 Cloud Run 재배포(`4c6f44e` 이미지) 이후.
 > 기존 캐시 히트분에는 sibling 없음 — 재변환/신규 아카이브부터 채워짐.
 >
-> **잔여(Phase 3)**: Cloud Run 재배포 → 실공고 hwp 문서로 E2E(변환→플래그→다운로드→한컴) →
-> 커버리지 지표(채움 가능 공고 비율) 재측정.
+> **🟡 Phase 3 진행 (2026-07-08)** — ✅ Cloud Run 재배포 완료: Cloud Build `conversion:4a467c5`
+> (3분22초) → 리비전 `cunote-conversion-00005-swk` 100% 트래픽. 원격 스모크 PASS(도달·인증·
+> 기존 artifact 회귀). ✅ **hwpx sibling 원격 생성 실증 PASS**(`scripts/spike/hwp2hwpx/
+> remote-hwpx-probe.mjs`): 신선한 .hwp(cached=false) → succeeded, artifacts 6건
+> (pdf·page_image×3·markdown·**hwpx**), hwpx 바이트 단정 4/4(PK·첫 엔트리 mimetype·STORE·
+> application/hwp+zip), outcome=converted. 검증 잔재 R2 객체 7건 삭제 완료.
+> **잔여**: 실공고 hwp 문서 E2E(변환→플래그→다운로드→한컴 — 신규 job 부터 sibling 자연 축적) →
+> 커버리지 지표(채움 가능 공고 비율) 재측정, answers 동봉 경로 실측(dev 서버 대기).
 >
 > **🟢 Phase 1 완료 (2026-07-08, 커밋 `4c6f44e`)** — 변환 서버 통합: Dockerfile 멀티스테이지
 > (maven, 핀 커밋 50ae71b) jar 빌드, `requestedArtifacts`에 "hwpx" + hwp 바이너리(매직 바이트)
