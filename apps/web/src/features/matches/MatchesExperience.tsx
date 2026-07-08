@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, ChevronDown, HelpCircle, Minus, Plus, RotateCcw, TriangleAlert } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, HelpCircle, Minus, Pencil, Plus, RotateCcw, TriangleAlert } from "lucide-react";
 import type {
   ActionResult,
   CompanyEvidenceField,
@@ -28,12 +28,7 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-  InputGroupText,
-} from "@/components/ui/input-group";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -51,6 +46,7 @@ import {
 } from "@/lib/client/businessLookupSuggestions";
 
 const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
+const MANUAL_PROFILE_STORAGE_KEY = "cunote.matchesManualProfiles.v1";
 const TEASER_FALLBACK_MESSAGE = "매칭 결과를 불러오지 못했습니다.";
 
 type Status = "idle" | "loading" | "ready" | "error" | "empty";
@@ -111,6 +107,7 @@ export function MatchesExperience() {
   const [error, setError] = useState<TeaserError | null>(null);
   const [manualProfile, setManualProfile] = useState<CompanyProfile>({});
   const [profileSubmitting, setProfileSubmitting] = useState(false);
+  const [continuing, setContinuing] = useState(false);
 
   const loadTeaser = useCallback(async (request: TeaserRequest) => {
     setStatus("loading");
@@ -141,6 +138,7 @@ export function MatchesExperience() {
   const applyManualProfile = useCallback(async (patch: CompanyProfile) => {
     const nextProfile = mergeCompanyProfileForRequest(manualProfile, patch);
     setManualProfile(nextProfile);
+    if (bizNo) writeManualProfileDraft(bizNo, nextProfile);
     setProfileSubmitting(true);
     try {
       await loadTeaser({
@@ -160,20 +158,44 @@ export function MatchesExperience() {
       return;
     }
     setBizNo(digits);
-    setManualProfile({});
-    void loadTeaser({ bizNo: digits });
+    const savedManualProfile = readManualProfileDraft(digits);
+    setManualProfile(savedManualProfile ?? {});
+    void loadTeaser({
+      bizNo: digits,
+      ...(savedManualProfile && hasManualProfile(savedManualProfile) ? { profile: savedManualProfile } : {}),
+    });
   }, [loadTeaser]);
 
   const maskedBiz = teaser?.companyEvidence?.maskedBizNo ?? (bizNo ? maskBiz(bizNo) : null);
   const badge = headerBadge(status, maskedBiz);
 
-  function saveAndContinue(grantId?: string) {
-    if (bizNo) {
-      try {
-        const request: TeaserRequest = {
+  async function saveAndContinue(grantId?: string) {
+    if (continuing) return;
+    const request: TeaserRequest | null = bizNo
+      ? {
           bizNo,
           ...(hasManualProfile(manualProfile) ? { profile: manualProfile } : {}),
-        };
+        }
+      : null;
+
+    if (request) {
+      // 이미 로그인된 사용자는 로그인·홈 재개 경유 없이 회사 저장 후 바로 목적지로 이동
+      setContinuing(true);
+      try {
+        const response = await fetch("/api/web/companies", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(request),
+        });
+        const payload = (await response.json()) as ActionResult<{ currentCompanyId: string }>;
+        if (response.ok && payload.ok && payload.data?.currentCompanyId) {
+          window.location.assign(grantId ? `/grants/${encodeURIComponent(grantId)}` : "/dashboard");
+          return;
+        }
+      } catch {
+        // 저장 실패 시 아래 로그인 재개 흐름으로 폴백
+      }
+      try {
         window.sessionStorage.setItem(PENDING_TEASER_STORAGE_KEY, JSON.stringify(request));
       } catch {
         // storage 불가 시에도 로그인은 진행
@@ -186,7 +208,7 @@ export function MatchesExperience() {
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-background text-foreground">
-      <MatchesNav onSave={saveAndContinue} />
+      <MatchesNav onSave={() => void saveAndContinue()} saving={continuing} />
 
       <header className="border-b bg-muted/30">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-10 sm:px-6 lg:px-8">
@@ -227,7 +249,7 @@ export function MatchesExperience() {
               onProfileSubmit={applyManualProfile}
               submitting={profileSubmitting}
             />
-            <ProgramsSection matches={teaser.matches} onPrepare={saveAndContinue} />
+            <ProgramsSection matches={teaser.matches} onPrepare={saveAndContinue} preparing={continuing} />
           </>
         ) : null}
       </main>
@@ -249,15 +271,15 @@ async function rememberBusinessLookup(digits: string) {
 
 /* ───────────────────────── Nav ───────────────────────── */
 
-function MatchesNav({ onSave }: { onSave: () => void }) {
+function MatchesNav({ onSave, saving }: { onSave: () => void; saving: boolean }) {
   return (
     <nav className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b bg-background/95 px-4 py-3.5 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:px-6 lg:px-8">
       <Link href="/" className="flex items-center gap-2.5 text-sm font-semibold text-foreground">
         <span className="flex size-8 items-center justify-center rounded-[var(--radius-lg)] bg-primary text-primary-foreground">C</span>
         <span>창업노트</span>
       </Link>
-      <Button type="button" size="sm" onClick={onSave}>
-        결과 저장하기
+      <Button type="button" size="sm" onClick={() => onSave()} disabled={saving}>
+        {saving ? "저장 중…" : "결과 저장하기"}
       </Button>
     </nav>
   );
@@ -285,7 +307,7 @@ function ProfileSection({
   useEffect(() => {
     if (!activeFieldKey) return;
     const next = fields.find((field) => field.key === activeFieldKey);
-    if (!next || next.available) setActiveFieldKey(null);
+    if (!next) setActiveFieldKey(null);
   }, [activeFieldKey, fields]);
 
   return (
@@ -329,24 +351,23 @@ function ProfileSection({
       ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {fields.map((field) =>
-          field.available ? (
-            <Card key={field.key} size="sm">
-              <CardContent className="grid gap-2">
-                <div className="text-xs font-medium text-muted-foreground">{profileFieldDisplayLabel(field)}</div>
-                <div className="text-base font-semibold leading-snug">{field.value}</div>
-              </CardContent>
-            </Card>
-          ) : (
+        {fields.map((field) => {
+          const isActive = activeFieldKey === field.key;
+          return (
             <Card
               key={field.key}
               size="sm"
-              className={cn("border-dashed bg-muted/30", activeFieldKey === field.key && "border-primary/30 bg-primary/5")}
+              className={cn(
+                !field.available && "border-dashed bg-muted/30",
+                isActive && "border-primary/30 bg-primary/5",
+              )}
             >
               <CardContent className="grid gap-2">
                 <div className="text-xs font-medium text-muted-foreground">{profileFieldDisplayLabel(field)}</div>
-                <div className="text-base font-semibold text-muted-foreground">미입력</div>
-                {activeFieldKey === field.key ? (
+                <div className={cn("text-base font-semibold leading-snug", !field.available && "text-muted-foreground")}>
+                  {field.available ? field.value : "미입력"}
+                </div>
+                {isActive ? (
                   <ProfileInputPanel
                     field={field}
                     submitting={submitting}
@@ -364,14 +385,18 @@ function ProfileSection({
                     onClick={() => setActiveFieldKey(field.key)}
                     className="w-fit px-0 text-primary hover:bg-transparent"
                   >
-                    <Plus data-icon="inline-start" strokeWidth={3} />
-                    입력하기
+                    {field.available ? (
+                      <Pencil data-icon="inline-start" strokeWidth={2.25} />
+                    ) : (
+                      <Plus data-icon="inline-start" strokeWidth={3} />
+                    )}
+                    {field.available ? "수정" : "입력하기"}
                   </Button>
                 )}
               </CardContent>
             </Card>
-          ),
-        )}
+          );
+        })}
       </div>
     </section>
   );
@@ -388,7 +413,7 @@ function ProfileInputPanel({
   onCancel: () => void;
   onSubmit: (patch: CompanyProfile) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState<ProfileInputDraft>(() => initialProfileInputDraft(field.key));
+  const [draft, setDraft] = useState<ProfileInputDraft>(() => initialProfileInputDraft(field.key, field.value));
   const [error, setError] = useState<string | null>(null);
   const suggestions = profileInputSuggestions(field.key);
   const usesStructuredNumericInput =
@@ -399,9 +424,9 @@ function ProfileInputPanel({
     field.key === "revenue";
 
   useEffect(() => {
-    setDraft(initialProfileInputDraft(field.key));
+    setDraft(initialProfileInputDraft(field.key, field.value));
     setError(null);
-  }, [field.key]);
+  }, [field.key, field.value]);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -491,23 +516,22 @@ function StructuredNumericProfileInput({
 }) {
   if (fieldKey === "revenue") {
     return (
-      <div className="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
-        <InputGroup>
-          <InputGroupInput
-            aria-invalid={error}
-            autoFocus
-            inputMode="decimal"
-            placeholder={profileInputPlaceholder(fieldKey)}
-            value={draft.value}
-            onChange={(event) => {
-              const next = decimalNumberText(event.currentTarget.value);
-              onChange((current) => ({
-                ...current,
-                value: next,
-              }));
-            }}
-          />
-        </InputGroup>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_88px] gap-2">
+        <Input
+          aria-invalid={error}
+          autoFocus
+          inputMode="decimal"
+          placeholder={profileInputPlaceholder(fieldKey)}
+          value={draft.value}
+          className="h-8 min-w-0 rounded-lg bg-background px-3 py-1 text-sm shadow-none"
+          onChange={(event) => {
+            const next = decimalNumberText(event.currentTarget.value);
+            onChange((current) => ({
+              ...current,
+              value: next,
+            }));
+          }}
+        />
         <Select
           value={draft.unit}
           onValueChange={(value) =>
@@ -538,74 +562,92 @@ function StructuredNumericProfileInput({
 
   if (fieldKey === "biz_age" || fieldKey === "bizAge") {
     return (
-      <div className="grid grid-cols-2 gap-2">
-        <InputGroup>
-          <InputGroupInput
-            aria-invalid={error}
-            autoFocus
-            inputMode="numeric"
-            placeholder="8"
-            value={draft.value}
-            onChange={(event) => {
-              const next = digitsOnly(event.currentTarget.value);
-              onChange((current) => ({
-                ...current,
-                value: next,
-              }));
-            }}
-          />
-          <InputGroupAddon align="inline-end">
-            <InputGroupText>년</InputGroupText>
-          </InputGroupAddon>
-        </InputGroup>
-        <InputGroup>
-          <InputGroupInput
-            aria-invalid={error}
-            inputMode="numeric"
-            placeholder="4"
-            value={draft.secondaryValue}
-            onChange={(event) => {
-              const next = digitsOnly(event.currentTarget.value);
-              onChange((current) => ({
-                ...current,
-                secondaryValue: next,
-              }));
-            }}
-          />
-          <InputGroupAddon align="inline-end">
-            <InputGroupText>개월</InputGroupText>
-          </InputGroupAddon>
-        </InputGroup>
+      <div className="grid min-w-0 grid-cols-2 gap-2">
+        <NumericSuffixInput
+          ariaInvalid={error}
+          autoFocus
+          placeholder="8"
+          suffix="년"
+          value={draft.value}
+          onValueChange={(next) =>
+            onChange((current) => ({
+              ...current,
+              value: digitsOnly(next),
+            }))
+          }
+        />
+        <NumericSuffixInput
+          ariaInvalid={error}
+          placeholder="4"
+          suffix="개월"
+          value={draft.secondaryValue}
+          onValueChange={(next) =>
+            onChange((current) => ({
+              ...current,
+              secondaryValue: digitsOnly(next),
+            }))
+          }
+        />
       </div>
     );
   }
 
   return (
-    <InputGroup>
-      <InputGroupInput
-        aria-invalid={error}
-        autoFocus
+    <NumericSuffixInput
+      ariaInvalid={error}
+      autoFocus
+      placeholder={profileInputPlaceholder(fieldKey)}
+      suffix={fieldKey === "founder_age" ? "년생" : "명"}
+      value={draft.value}
+      onValueChange={(next) =>
+        onChange((current) => ({
+          ...current,
+          value: profileInputText(fieldKey, next),
+        }))
+      }
+    />
+  );
+}
+
+function NumericSuffixInput({
+  ariaInvalid,
+  autoFocus,
+  placeholder,
+  suffix,
+  value,
+  onValueChange,
+}: {
+  ariaInvalid: boolean;
+  autoFocus?: boolean;
+  placeholder: string;
+  suffix: string;
+  value: string;
+  onValueChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative min-w-0">
+      <Input
+        aria-invalid={ariaInvalid}
+        autoFocus={autoFocus}
         inputMode="numeric"
-        placeholder={profileInputPlaceholder(fieldKey)}
-        value={draft.value}
-        onChange={(event) => {
-          const next = profileInputText(fieldKey, event.currentTarget.value);
-          onChange((current) => ({
-            ...current,
-            value: next,
-          }));
-        }}
+        placeholder={placeholder}
+        value={value}
+        className={cn(
+          "h-8 min-w-0 rounded-lg bg-background py-1 pl-3 text-sm shadow-none",
+          suffix.length >= 2 ? "pr-14" : "pr-9",
+        )}
+        onChange={(event) => onValueChange(event.currentTarget.value)}
       />
-      <InputGroupAddon align="inline-end">
-        <InputGroupText>{fieldKey === "founder_age" ? "년생" : "명"}</InputGroupText>
-      </InputGroupAddon>
-    </InputGroup>
+      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm font-medium text-muted-foreground">
+        {suffix}
+      </span>
+    </div>
   );
 }
 
 /* ───────────────────────── 지원 가능한 사업 ───────────────────────── */
 
-function ProgramsSection({ matches, onPrepare }: { matches: MatchCard[]; onPrepare: (grantId?: string) => void }) {
+function ProgramsSection({ matches, onPrepare, preparing }: { matches: MatchCard[]; onPrepare: (grantId?: string) => void; preparing: boolean }) {
   if (matches.length === 0) {
     return (
       <section>
@@ -635,7 +677,7 @@ function ProgramsSection({ matches, onPrepare }: { matches: MatchCard[]; onPrepa
 
       <div className="flex flex-col gap-3">
         {matches.map((match, index) => (
-          <ProgramCard key={match.grantId} match={match} defaultOpen={index === 0} onPrepare={onPrepare} />
+          <ProgramCard key={match.grantId} match={match} defaultOpen={index === 0} onPrepare={onPrepare} preparing={preparing} />
         ))}
       </div>
     </section>
@@ -646,10 +688,12 @@ function ProgramCard({
   match,
   defaultOpen,
   onPrepare,
+  preparing,
 }: {
   match: MatchCard;
   defaultOpen: boolean;
   onPrepare: (grantId?: string) => void;
+  preparing: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const elig = eligibilityChip(match.eligibility);
@@ -733,9 +777,10 @@ function ProgramCard({
           <button
             type="button"
             onClick={() => onPrepare(match.grantId)}
+            disabled={preparing}
             className={cn(buttonVariants({ size: "default" }))}
           >
-            이 사업 신청 준비하기
+            {preparing ? "준비 중…" : "이 사업 신청 준비하기"}
             <ArrowRight data-icon="inline-end" />
           </button>
         </div>
@@ -963,9 +1008,26 @@ function sparseRegistryNotice(evidence: TeaserResult["companyEvidence"]): { titl
   };
 }
 
-function initialProfileInputDraft(fieldKey: string): ProfileInputDraft {
+function initialProfileInputDraft(fieldKey: string, currentValue?: string): ProfileInputDraft {
+  const value = currentValue?.trim() ?? "";
+  if (fieldKey === "founder_age") {
+    return {
+      value: founderBirthYearDraftValue(value),
+      secondaryValue: "",
+      unit: "manwon",
+    };
+  }
+  if (fieldKey === "employees") {
+    return {
+      value: digitsOnly(value),
+      secondaryValue: "",
+      unit: "manwon",
+    };
+  }
+  if (fieldKey === "revenue") return revenueDraftValue(value);
+  if (fieldKey === "biz_age" || fieldKey === "bizAge") return bizAgeDraftValue(value);
   return {
-    value: fieldKey === "size" ? "중소기업" : fieldKey === "business_status" ? "정상" : "",
+    value: value || (fieldKey === "size" ? "중소기업" : fieldKey === "business_status" ? "정상" : ""),
     secondaryValue: "",
     unit: "manwon",
   };
@@ -1011,6 +1073,35 @@ function profileInputSuggestions(fieldKey: string): string[] {
   if (fieldKey === "certification") return ["여성기업확인서", "벤처기업확인서", "이노비즈", "메인비즈"];
   if (fieldKey === "industry") return ["시각 디자인업", "전자상거래 소매업", "소프트웨어 개발업", "정보통신업"];
   return [];
+}
+
+function founderBirthYearDraftValue(value: string): string {
+  const fourDigitYear = value.match(/\b(19\d{2}|20\d{2})\b/)?.[1];
+  if (fourDigitYear) return fourDigitYear;
+  const age = firstDisplayNumber(value);
+  if (age === null) return "";
+  const birthYear = new Date().getFullYear() - age;
+  return birthYear > 0 ? String(birthYear) : "";
+}
+
+function revenueDraftValue(value: string): ProfileInputDraft {
+  const normalized = value.replace(/[, ]/g, "");
+  const amount = normalized.match(/\d+(\.\d+)?/)?.[0] ?? "";
+  if (!amount) return { value: "", secondaryValue: "", unit: "manwon" };
+  if (normalized.includes("억")) return { value: amount, secondaryValue: "", unit: "eok" };
+  if (normalized.includes("원") && !normalized.includes("만")) return { value: amount, secondaryValue: "", unit: "won" };
+  return { value: amount, secondaryValue: "", unit: "manwon" };
+}
+
+function bizAgeDraftValue(value: string): ProfileInputDraft {
+  const normalized = value.replace(/\s/g, "");
+  const years = normalized.match(/(\d+)년/)?.[1] ?? "";
+  const months = normalized.match(/(\d+)개월/)?.[1] ?? "";
+  return {
+    value: years,
+    secondaryValue: months,
+    unit: "manwon",
+  };
 }
 
 function profileInputMode(fieldKey: string): React.HTMLAttributes<HTMLInputElement>["inputMode"] {
@@ -1143,6 +1234,46 @@ function hasManualProfile(profile: CompanyProfile): boolean {
   return entries.length > 0 || Boolean(profile.confidence && Object.keys(profile.confidence).length > 0);
 }
 
+function readManualProfileDraft(bizNo: string): CompanyProfile | null {
+  const drafts = readManualProfileDrafts();
+  return drafts[bizNo]?.profile ?? null;
+}
+
+function writeManualProfileDraft(bizNo: string, profile: CompanyProfile) {
+  try {
+    if (!hasManualProfile(profile)) return;
+    const drafts = readManualProfileDrafts();
+    drafts[bizNo] = {
+      profile,
+      updatedAt: new Date().toISOString(),
+    };
+    const prunedEntries = Object.entries(drafts)
+      .sort(([, left], [, right]) => right.updatedAt.localeCompare(left.updatedAt))
+      .slice(0, 20);
+    window.localStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, JSON.stringify(Object.fromEntries(prunedEntries)));
+  } catch {
+    // 로컬 초안 저장 실패는 매칭 요청을 막지 않는다.
+  }
+}
+
+function readManualProfileDrafts(): Record<string, { profile: CompanyProfile; updatedAt: string }> {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(MANUAL_PROFILE_STORAGE_KEY) ?? "{}") as unknown;
+    if (!isRecord(parsed)) return {};
+    const drafts: Record<string, { profile: CompanyProfile; updatedAt: string }> = {};
+    for (const [bizNo, value] of Object.entries(parsed)) {
+      if (!/^\d{10}$/.test(bizNo) || !isRecord(value) || !isRecord(value.profile)) continue;
+      drafts[bizNo] = {
+        profile: value.profile as CompanyProfile,
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
+      };
+    }
+    return drafts;
+  } catch {
+    return {};
+  }
+}
+
 function splitCommaList(value: string): string[] {
   return value
     .split(",")
@@ -1160,6 +1291,13 @@ function revenueUnitLabel(value: RevenueUnit): string {
 
 function digitsOnly(value: string): string {
   return value.replace(/\D/g, "");
+}
+
+function firstDisplayNumber(value: string): number | null {
+  const match = value.replace(/,/g, "").match(/\d+/);
+  if (!match) return null;
+  const parsed = Number(match[0]);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function decimalNumberText(value: string): string {
@@ -1190,6 +1328,10 @@ function parseRevenueKrw(value: string, unit: RevenueUnit): number | null {
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   const multiplier = REVENUE_UNIT_OPTIONS.find((option) => option.value === unit)?.multiplier ?? 10_000;
   return Math.round(parsed * multiplier);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function eligibilityChip(value: Eligibility): { label: string } {
