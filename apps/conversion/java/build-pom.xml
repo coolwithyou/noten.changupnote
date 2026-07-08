@@ -1,0 +1,75 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!--
+    hwp2hwpx 오버레이 pom (hwp2hwpx 트랙 Phase 1 — 스파이크 산출물 승격).
+    원본: scripts/spike/hwp2hwpx/build-pom.xml (Phase 0). 로직 불변.
+    원 pom(kr.dogfoot:hwp2hwpx:1.0.0, java 7 타깃)을 대체한다.
+    - release 8 로 승격(최신 JDK 가 java 7 타깃을 거부하는 문제 회피)
+    - maven-shade-plugin 으로 hwplib/hwpxlib 를 포함한 uber jar 생성
+    - mainClass = kr.dogfoot.hwp2hwpx.cli.Main (Dockerfile 이 checkout 에 오버레이)
+    - 의존 hwplib 1.1.10 · hwpxlib 1.0.9 는 Maven Central 자동 해결(실측 확인됨)
+    - 테스트 소스는 test/ 픽스처 의존이라 컴파일/실행 모두 스킵(maven.test.skip)
+  -->
+  <groupId>kr.dogfoot</groupId>
+  <artifactId>hwp2hwpx-cli</artifactId>
+  <packaging>jar</packaging>
+  <version>spike</version>
+
+  <properties>
+    <maven.compiler.release>8</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <maven.test.skip>true</maven.test.skip>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>kr.dogfoot</groupId>
+      <artifactId>hwplib</artifactId>
+      <version>1.1.10</version>
+    </dependency>
+    <dependency>
+      <groupId>kr.dogfoot</groupId>
+      <artifactId>hwpxlib</artifactId>
+      <version>1.0.9</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>hwp2hwpx-cli</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-shade-plugin</artifactId>
+        <version>3.5.1</version>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>shade</goal>
+            </goals>
+            <configuration>
+              <transformers>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                  <mainClass>kr.dogfoot.hwp2hwpx.cli.Main</mainClass>
+                </transformer>
+                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+              </transformers>
+              <filters>
+                <filter>
+                  <artifact>*:*</artifact>
+                  <excludes>
+                    <exclude>META-INF/*.SF</exclude>
+                    <exclude>META-INF/*.DSA</exclude>
+                    <exclude>META-INF/*.RSA</exclude>
+                  </excludes>
+                </filter>
+              </filters>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

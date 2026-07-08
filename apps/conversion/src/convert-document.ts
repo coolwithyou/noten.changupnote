@@ -17,6 +17,8 @@ import {
   CONVERTER_VERSION,
   type ConvertDocumentInput,
   type ConvertDocumentResult,
+  type HwpxArtifact,
+  type HwpxConversionResult,
   type MarkdownArtifact,
   type PdfArtifact,
 } from "./types.js";
@@ -38,12 +40,22 @@ export type HwpToMarkdownFn = (args: { filename: string; body: Buffer }) => {
 };
 
 /**
+ * hwp 바이너리 → hwpx 변환 함수 주입 인터페이스 (hwp2hwpx 트랙 Phase 1).
+ * 프로덕션은 hwpx-convert.ts 의 hwpxConvert(env jar 사용)를 주입한다.
+ * 미주입 시 hwpx 변환 스텝을 건너뛴다(기존 동작 불변).
+ */
+export type HwpxConvertFn = (args: {
+  body: Buffer;
+  workDir: string;
+}) => HwpxConversionResult;
+
+/**
  * 문서 1건 변환. 결정론적 artifact (pdf / page images / markdown / quality) 생성.
  * LLM 호출 없음.
  */
 export function convertDocument(
   input: ConvertDocumentInput,
-  deps: { hwpToMarkdown?: HwpToMarkdownFn } = {},
+  deps: { hwpToMarkdown?: HwpToMarkdownFn; hwpxConvert?: HwpxConvertFn } = {},
 ): ConvertDocumentResult {
   const pageImageDpi = input.pageImageDpi ?? 220;
   const workDir =
@@ -79,6 +91,8 @@ export function convertDocument(
       pdf: null,
       pageImages: [],
       markdown: null,
+      hwpx: null,
+      hwpxConversion: null,
       quality,
       jobStatus: "failed",
       error: integrity.fatalReason ?? "unsupported_format",
@@ -126,6 +140,8 @@ export function convertDocument(
       pdf: null,
       pageImages: [],
       markdown: null,
+      hwpx: null,
+      hwpxConversion: null,
       quality,
       jobStatus: "failed",
       error: pdfRender.error ?? "pdf render failed",
@@ -169,6 +185,25 @@ export function convertDocument(
     };
   }
 
+  // --- 4.5단계: hwp→hwpx 변환 (요청 시, hwp 바이너리만) ---
+  // 요청 artifact 에 "hwpx" 가 포함되고 변환 함수가 주입됐을 때만 시도.
+  // 매직 바이트(hwp 바이너리 여부) 판별은 변환 함수 내부에서 수행하고 스킵 사유를 기록한다.
+  // 비치명: 실패해도 pdf/page_image/markdown 결과를 훼손하지 않는다.
+  let hwpx: HwpxArtifact | null = null;
+  let hwpxConversion: HwpxConversionResult | null = null;
+  if (input.requestedArtifacts?.includes("hwpx") && deps.hwpxConvert) {
+    hwpxConversion = deps.hwpxConvert({ body: input.body, workDir });
+    hwpx = hwpxConversion.artifact;
+    // 실패·미해당은 정직 보고. skip(정상 미해당)은 warning 으로 승격하지 않는다.
+    if (
+      hwpxConversion.outcome !== "converted" &&
+      hwpxConversion.outcome !== "skipped_already_hwpx" &&
+      hwpxConversion.outcome !== "skipped_not_hwp_binary"
+    ) {
+      warnings.push(`hwpx_conversion_${hwpxConversion.outcome}`);
+    }
+  }
+
   const pageCount =
     pageResult.pageCount > 0 ? pageResult.pageCount : pdfRender.renderEngine ? 1 : 0;
 
@@ -204,6 +239,8 @@ export function convertDocument(
     pdf,
     pageImages: pageResult.pages,
     markdown,
+    hwpx,
+    hwpxConversion,
     quality,
     jobStatus,
     error: null,

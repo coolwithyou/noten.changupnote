@@ -7,7 +7,11 @@
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { convertDocument, type HwpToMarkdownFn } from "./convert-document.js";
+import {
+  convertDocument,
+  type HwpToMarkdownFn,
+  type HwpxConvertFn,
+} from "./convert-document.js";
 import type { R2ObjectStorage, UploadedArtifact } from "./storage.js";
 import { uploadArtifacts } from "./storage.js";
 import {
@@ -70,6 +74,8 @@ export interface QueueConfig {
   concurrency?: number;
   /** HWP→markdown 변환 함수 주입 (미주입 시 PDF fallback). */
   hwpToMarkdown?: HwpToMarkdownFn;
+  /** hwp→hwpx 변환 함수 주입 (미주입 시 hwpx artifact 스텝 스킵). */
+  hwpxConvert?: HwpxConvertFn;
   /** 원본 다운로드 함수 (기본: global fetch). */
   fetchSource?: FetchSourceFn;
   /** R2 storage key 프리픽스 override (검증용 conversion-dev). */
@@ -101,6 +107,7 @@ export class ConversionQueue {
   private readonly storage: R2ObjectStorage;
   private readonly concurrency: number;
   private readonly hwpToMarkdown: HwpToMarkdownFn | undefined;
+  private readonly hwpxConvert: HwpxConvertFn | undefined;
   private readonly fetchSource: FetchSourceFn;
   private readonly keyPrefix: string | undefined;
   private readonly defaultDpi: 220 | 300;
@@ -120,6 +127,7 @@ export class ConversionQueue {
     this.storage = config.storage;
     this.concurrency = config.concurrency ?? 2;
     this.hwpToMarkdown = config.hwpToMarkdown;
+    this.hwpxConvert = config.hwpxConvert;
     this.fetchSource = config.fetchSource ?? defaultFetchSource;
     this.keyPrefix = config.keyPrefix;
     this.defaultDpi = config.defaultDpi ?? 220;
@@ -235,9 +243,15 @@ export class ConversionQueue {
           ...(record.request.options?.maxPages !== undefined
             ? { maxPages: record.request.options.maxPages }
             : {}),
+          ...(record.request.requestedArtifacts !== undefined
+            ? { requestedArtifacts: record.request.requestedArtifacts }
+            : {}),
           workDir,
         },
-        this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {},
+        {
+          ...(this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {}),
+          ...(this.hwpxConvert ? { hwpxConvert: this.hwpxConvert } : {}),
+        },
       );
 
       record.sourceSha256 = result.sha256;

@@ -9,7 +9,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { ConversionQueue, type ConversionJobRequest } from "./queue.js";
 import { createR2ObjectStorageFromEnv, type R2ObjectStorage } from "./storage.js";
-import type { HwpToMarkdownFn } from "./convert-document.js";
+import type { HwpToMarkdownFn, HwpxConvertFn } from "./convert-document.js";
 
 export interface ServerConfig {
   queue: ConversionQueue;
@@ -258,7 +258,9 @@ export function createConversionServer(config: ServerConfig): Server {
  * 프로덕션 부트스트랩 (CMD ["node","dist/server.js"]).
  * env 에서 R2 클라이언트/시크릿을 읽고 서버를 기동한다.
  */
-export function bootstrapFromEnv(deps: { hwpToMarkdown?: HwpToMarkdownFn } = {}): Server {
+export function bootstrapFromEnv(
+  deps: { hwpToMarkdown?: HwpToMarkdownFn; hwpxConvert?: HwpxConvertFn } = {},
+): Server {
   const storage: R2ObjectStorage | null = createR2ObjectStorageFromEnv();
   if (!storage) {
     throw new Error("R2 환경변수(R2_ACCOUNT_ID/ACCESS_KEY_ID/SECRET_ACCESS_KEY/BUCKET/BUCKET_URL) 누락");
@@ -268,6 +270,7 @@ export function bootstrapFromEnv(deps: { hwpToMarkdown?: HwpToMarkdownFn } = {})
     storage,
     concurrency,
     ...(deps.hwpToMarkdown ? { hwpToMarkdown: deps.hwpToMarkdown } : {}),
+    ...(deps.hwpxConvert ? { hwpxConvert: deps.hwpxConvert } : {}),
     ...(process.env.CONVERSION_KEY_PREFIX ? { keyPrefix: process.env.CONVERSION_KEY_PREFIX } : {}),
   });
   return createConversionServer({ queue });

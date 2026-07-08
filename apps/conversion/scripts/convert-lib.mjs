@@ -351,7 +351,7 @@ export function convertDocument(input, deps = {}) {
       renderEngine: null, pageCount: 0, pageImageDpi, extractedCharCount: 0, warnings: dedupe(warnings),
     });
     return { sha256: integrity.sha256, format: integrity.format, converterVersion: CONVERTER_VERSION,
-      pdf: null, pageImages: [], markdown: null, quality, jobStatus: "failed", error: integrity.fatalReason ?? "unsupported_format" };
+      pdf: null, pageImages: [], markdown: null, hwpx: null, hwpxConversion: null, quality, jobStatus: "failed", error: integrity.fatalReason ?? "unsupported_format" };
   }
 
   const format = integrity.format;
@@ -369,7 +369,7 @@ export function convertDocument(input, deps = {}) {
       renderEngine: null, pageCount: 0, pageImageDpi, extractedCharCount: 0, warnings: dedupe(warnings),
     });
     return { sha256: integrity.sha256, format, converterVersion: CONVERTER_VERSION,
-      pdf: null, pageImages: [], markdown: null, quality, jobStatus: "failed", error: pdfRender.error ?? "pdf render failed" };
+      pdf: null, pageImages: [], markdown: null, hwpx: null, hwpxConversion: null, quality, jobStatus: "failed", error: pdfRender.error ?? "pdf render failed" };
   }
 
   const pagesOutDir = join(workDir, "pages");
@@ -390,6 +390,21 @@ export function convertDocument(input, deps = {}) {
     markdown = { path: mdPath, text: textResult.text, charCount: textResult.charCount, converter: textResult.converter };
   }
 
+  // hwp→hwpx 변환 (요청 시, hwp 바이너리만). 비치명 — 실패해도 다른 artifact 훼손 안 함.
+  let hwpx = null;
+  let hwpxConversion = null;
+  if (input.requestedArtifacts?.includes("hwpx") && deps.hwpxConvert) {
+    hwpxConversion = deps.hwpxConvert({ body: input.body, workDir });
+    hwpx = hwpxConversion.artifact;
+    if (
+      hwpxConversion.outcome !== "converted" &&
+      hwpxConversion.outcome !== "skipped_already_hwpx" &&
+      hwpxConversion.outcome !== "skipped_not_hwp_binary"
+    ) {
+      warnings.push(`hwpx_conversion_${hwpxConversion.outcome}`);
+    }
+  }
+
   const pageCount = pageResult.pageCount > 0 ? pageResult.pageCount : 1;
 
   const quality = computeQuality({
@@ -402,7 +417,7 @@ export function convertDocument(input, deps = {}) {
   const jobStatus = !pageImagesRendered || markdown === null ? "partial" : "succeeded";
 
   return { sha256: integrity.sha256, format, converterVersion: CONVERTER_VERSION,
-    pdf, pageImages: pageResult.pages, markdown, quality, jobStatus, error: null };
+    pdf, pageImages: pageResult.pages, markdown, hwpx, hwpxConversion, quality, jobStatus, error: null };
 }
 
 // ==========================================================================
@@ -426,7 +441,8 @@ function stripExtension(filename) {
 export function buildStorageKey({ source, sourceId, filename, sourceSha256, kind, page, keyPrefix }) {
   const sha16 = sourceSha256.slice(0, 16);
   const stem = sanitizeKeyPart(stripExtension(basename(filename)));
-  const ext = kind === "pdf" ? "pdf" : kind === "markdown" ? "md" : "png";
+  const ext =
+    kind === "pdf" ? "pdf" : kind === "markdown" ? "md" : kind === "hwpx" ? "hwpx" : "png";
   const name =
     kind === "page_image" && page !== undefined
       ? `${sha16}-${stem}-p${String(page).padStart(3, "0")}.${ext}`
@@ -440,6 +456,7 @@ const CONTENT_TYPE = {
   pdf: "application/pdf",
   page_image: "image/png",
   markdown: "text/markdown; charset=utf-8",
+  hwpx: "application/hwp+zip",
 };
 
 /**
@@ -518,6 +535,18 @@ export async function uploadArtifacts({ storage, result, source, sourceId, filen
       metadata: { charCount: result.markdown.charCount, converter: result.markdown.converter },
     });
   }
+  if (result.hwpx) {
+    const body = readFileSync(result.hwpx.path);
+    const up = await storage.putObject({ key: mkKey("hwpx"), body, contentType: CONTENT_TYPE.hwpx });
+    artifacts.push({
+      kind: "hwpx", page: null, storageKey: up.key, url: up.url, sha256: sha256Hex(body),
+      contentType: CONTENT_TYPE.hwpx, bytes: body.length,
+      metadata: {
+        converter: "hwp2hwpx", converterVersion: result.converterVersion,
+        ...(result.hwpxConversion ? { outcome: result.hwpxConversion.outcome } : {}),
+      },
+    });
+  }
   return artifacts;
 }
 
@@ -539,6 +568,7 @@ export class ConversionQueue {
     this.storage = config.storage;
     this.concurrency = config.concurrency ?? 2;
     this.hwpToMarkdown = config.hwpToMarkdown;
+    this.hwpxConvert = config.hwpxConvert;
     this.fetchSource = config.fetchSource ?? defaultFetchSource;
     this.keyPrefix = config.keyPrefix;
     this.defaultDpi = config.defaultDpi ?? 220;
@@ -606,9 +636,13 @@ export class ConversionQueue {
           ...(record.request.options?.sofficeTimeoutMs !== undefined ? { sofficeTimeoutMs: record.request.options.sofficeTimeoutMs } : {}),
           ...(record.request.options?.maxBytes !== undefined ? { maxBytes: record.request.options.maxBytes } : {}),
           ...(record.request.options?.maxPages !== undefined ? { maxPages: record.request.options.maxPages } : {}),
+          ...(record.request.requestedArtifacts !== undefined ? { requestedArtifacts: record.request.requestedArtifacts } : {}),
           workDir,
         },
-        this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {},
+        {
+          ...(this.hwpToMarkdown ? { hwpToMarkdown: this.hwpToMarkdown } : {}),
+          ...(this.hwpxConvert ? { hwpxConvert: this.hwpxConvert } : {}),
+        },
       );
       record.sourceSha256 = result.sha256;
       record.quality = result.quality;

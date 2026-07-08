@@ -64,6 +64,46 @@ export interface PdfArtifact {
   renderEngine: RenderEngine;
 }
 
+/**
+ * hwp2hwpx 변환 결과 분류 (hwp2hwpx 트랙 Phase 1).
+ *  - converted            : .hwp(바이너리) → .hwpx 변환 + STORE 재포장 정규화 성공.
+ *  - skipped_already_hwpx : 입력이 이미 hwpx(PK 매직) — 변환 불필요.
+ *  - skipped_not_hwp_binary : 입력이 hwp 바이너리도 hwpx 도 아님(매직 바이트 기준).
+ *  - converter_unavailable : jar/java 미탑재·spawn 실패(인프라) — 비치명 스킵.
+ *  - hwp_v3x              : hwplib 이 HWP 5 아님으로 거부(3.x 등) — 커버리지 경계, 정직 스킵.
+ *  - encrypted            : 암호/DRM 문서 — 정직 스킵.
+ *  - distribution         : 배포용 문서 — 정직 스킵.
+ *  - timeout              : java 프로세스 타임아웃.
+ *  - conversion_error     : 그 외 변환 예외(분류 미상).
+ *  - repack_failed        : 변환은 됐으나 STORE 재포장 정규화 실패.
+ */
+export type HwpxConversionOutcome =
+  | "converted"
+  | "skipped_already_hwpx"
+  | "skipped_not_hwp_binary"
+  | "converter_unavailable"
+  | "hwp_v3x"
+  | "encrypted"
+  | "distribution"
+  | "timeout"
+  | "conversion_error"
+  | "repack_failed";
+
+/** 변환 성공 시 산출된 hwpx artifact (STORE 재포장 정규화 완료, 로컬 경로). */
+export interface HwpxArtifact {
+  path: string;
+  bytes: number;
+}
+
+/** hwp→hwpx 변환 1건 결과(진단 포함). */
+export interface HwpxConversionResult {
+  outcome: HwpxConversionOutcome;
+  /** outcome === "converted" 일 때만 non-null. */
+  artifact: HwpxArtifact | null;
+  /** 분류 근거(java stderr·예외 메시지 등). 성공/스킵 시 null 가능. */
+  reason: string | null;
+}
+
 /** convertDocument 입력. */
 export interface ConvertDocumentInput {
   /** 원본 파일 버퍼. */
@@ -84,6 +124,11 @@ export interface ConvertDocumentInput {
   maxBytes?: number;
   /** page image 페이지 수 상한 (기본 100). */
   maxPages?: number;
+  /**
+   * 요청된 artifact 종류. "hwpx" 포함 + 입력이 hwp 바이너리(매직 D0CF11E0)일 때만
+   * hwp→hwpx 변환을 시도한다. 미포함이면 변환 스텝을 건너뛴다(기존 동작 불변).
+   */
+  requestedArtifacts?: string[];
 }
 
 /** convertDocument 출력. */
@@ -94,6 +139,10 @@ export interface ConvertDocumentResult {
   pdf: PdfArtifact | null;
   pageImages: PageImageArtifact[];
   markdown: MarkdownArtifact | null;
+  /** hwp→hwpx 변환 산출(요청·조건 충족 시). 미요청/미해당 시 null. */
+  hwpx: HwpxArtifact | null;
+  /** hwp→hwpx 변환 진단(분류). 미요청 시 null. */
+  hwpxConversion: HwpxConversionResult | null;
   quality: Phase2ConversionQuality;
   /** 최상위 job 상태 (quality.status와 별개인 job 관점 상태). */
   jobStatus: "succeeded" | "partial" | "failed";

@@ -15,7 +15,7 @@ import { basename, extname } from "node:path";
 import type { ConvertDocumentResult } from "./types.js";
 
 /** artifact kind (document_artifacts.kind 와 정합). */
-export type ArtifactKind = "pdf" | "page_image" | "markdown";
+export type ArtifactKind = "pdf" | "page_image" | "markdown" | "hwpx";
 
 /** R2에 업로드된 artifact 1건. GET /:jobId/artifacts 응답의 원소이자 document_artifacts 행 1개. */
 export interface UploadedArtifact {
@@ -158,7 +158,13 @@ export function buildStorageKey(input: {
   const sha16 = input.sourceSha256.slice(0, 16);
   const stem = sanitizeKeyPart(stripExtension(basename(input.filename)));
   const ext =
-    input.kind === "pdf" ? "pdf" : input.kind === "markdown" ? "md" : "png";
+    input.kind === "pdf"
+      ? "pdf"
+      : input.kind === "markdown"
+        ? "md"
+        : input.kind === "hwpx"
+          ? "hwpx"
+          : "png";
   const name =
     input.kind === "page_image" && input.page !== undefined
       ? `${sha16}-${stem}-p${String(input.page).padStart(3, "0")}.${ext}`
@@ -180,6 +186,8 @@ const CONTENT_TYPE: Record<ArtifactKind, string> = {
   pdf: "application/pdf",
   page_image: "image/png",
   markdown: "text/markdown; charset=utf-8",
+  // apps/web 다운로드 라우트/첨부 처리와 정합(application/hwp+zip).
+  hwpx: "application/hwp+zip",
 };
 
 export interface UploadArtifactsInput {
@@ -295,6 +303,40 @@ export async function uploadArtifacts(
       metadata: {
         charCount: input.result.markdown.charCount,
         converter: input.result.markdown.converter,
+      },
+    });
+  }
+
+  // hwpx (hwp2hwpx 트랙 Phase 1) — hwp 바이너리 변환·STORE 재포장 정규화 산출.
+  if (input.result.hwpx) {
+    const body = readFileSync(input.result.hwpx.path);
+    const key = buildStorageKey({
+      source: input.source,
+      sourceId: input.sourceId,
+      filename: input.filename,
+      sourceSha256,
+      kind: "hwpx",
+      ...(keyPrefix !== undefined ? { keyPrefix } : {}),
+    });
+    const up = await input.storage.putObject({
+      key,
+      body,
+      contentType: CONTENT_TYPE.hwpx,
+    });
+    artifacts.push({
+      kind: "hwpx",
+      page: null,
+      storageKey: up.key,
+      url: up.url,
+      sha256: sha256Hex(body),
+      contentType: CONTENT_TYPE.hwpx,
+      bytes: body.length,
+      metadata: {
+        converter: "hwp2hwpx",
+        converterVersion: input.result.converterVersion,
+        ...(input.result.hwpxConversion
+          ? { outcome: input.result.hwpxConversion.outcome }
+          : {}),
       },
     });
   }

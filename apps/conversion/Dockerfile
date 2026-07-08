@@ -2,10 +2,34 @@
 # 계획: docs/phase2-conversion-server-implementation-plan.md 3장
 #
 # 구성: LibreOffice 26.x headless + H2Orestart(HWP 필터) + poppler(pdftoppm/pdftotext)
-#       + CJK 폰트(나눔/노토) + python3(pyhwp, markdown 보조) + node 22.
+#       + CJK 폰트(나눔/노토) + python3(pyhwp, markdown 보조) + node 22
+#       + hwp2hwpx uber jar(hwp 바이너리 → hwpx 변환, hwp2hwpx 트랙 Phase 1).
 #
 # 빌드 검증 절차는 README.md "Docker 빌드 검증" 참조.
 
+# ============================================================
+# 스테이지 1: hwp2hwpx uber jar 빌드 (maven).
+# 설계: docs/plans/2026-07-08-hwp2hwpx-track.md (Phase 0 통과, 핀 커밋 50ae71b).
+# neolord0/hwp2hwpx 를 커밋 핀으로 clone → 스파이크에서 승격한 CLI 래퍼(Main.java) +
+# 오버레이 pom(release=8 승격 · maven-shade · mainClass) 적용 → uber jar.
+# 의존 hwplib 1.1.10 · hwpxlib 1.0.9 는 Maven Central 자동 해결(실측 확인됨).
+# ============================================================
+FROM maven:3.9-eclipse-temurin-17 AS hwp2hwpx-build
+# 재현성: 커밋 핀. 원 리포는 릴리스·Central·CLI·shade 구성이 없어 소스 빌드가 필요하다.
+ARG HWP2HWPX_COMMIT=50ae71bbaf98ec7a00192f72492d6a130a755ac1
+WORKDIR /build
+RUN git clone https://github.com/neolord0/hwp2hwpx . \
+ && git checkout "$HWP2HWPX_COMMIT"
+# 스파이크에서 승격한 CLI 래퍼 + 오버레이 pom (apps/conversion/java, 빌드 컨텍스트=루트).
+COPY apps/conversion/java/Main.java src/main/java/kr/dogfoot/hwp2hwpx/cli/Main.java
+COPY apps/conversion/java/build-pom.xml pom.xml
+RUN mvn -q -B -Dmaven.test.skip=true package \
+ && test -f target/hwp2hwpx-cli.jar \
+ && cp target/hwp2hwpx-cli.jar /hwp2hwpx-cli.jar
+
+# ============================================================
+# 스테이지 2: 런타임 (LibreOffice + poppler + node + hwp2hwpx jar).
+# ============================================================
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -40,6 +64,12 @@ RUN pip3 install --break-system-packages pyhwp
 # default-jre-headless 의 실제 경로는 버전에 따라 달라지므로 심볼릭 링크로 고정한다.
 RUN ln -sfn "$(dirname "$(dirname "$(readlink -f "$(which java)")")")" /usr/lib/jvm/default-jre
 ENV JAVA_HOME=/usr/lib/jvm/default-jre
+
+# hwp2hwpx uber jar (스테이지 1 산출) — .hwp 바이너리 → .hwpx 변환용.
+# 런타임 JRE(default-jre-headless)·JAVA_HOME 은 위에서 확정. convertHwpToHwpx 가
+# HWP2HWPX_JAR 경로의 jar 를 java -jar 로 실행한다(미탑재 시 converter_unavailable 스킵).
+COPY --from=hwp2hwpx-build /hwp2hwpx-cli.jar /opt/hwp2hwpx/hwp2hwpx-cli.jar
+ENV HWP2HWPX_JAR=/opt/hwp2hwpx/hwp2hwpx-cli.jar
 
 # H2Orestart 확장 — 버전 고정 다운로드 후 --shared 설치.
 # --shared 로 설치해야 워커별 임시 UserInstallation(프로세스 격리) 에서도 필터가 잡힌다.
