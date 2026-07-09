@@ -21,14 +21,19 @@ import type {
 } from "@cunote/contracts";
 import type {
   ApplyLedgerEntryInput,
+  CaptureHoldResult,
   CompanyRecord,
   CompanyRepository,
   CreateCompanyInput,
+  CreditHoldRecord,
   CreditLedgerEntryRecord,
   CreditLotRecord,
   CreditRepository,
   CreditSystemRepository,
   CreditWalletRecord,
+  LedgerListRow,
+  TokenUsage,
+  UsageListRow,
   EnrichmentCacheEntry,
   EnrichmentCacheRepository,
   FeedbackReceipt,
@@ -334,6 +339,26 @@ interface MockLot {
   createdAt: Date;
 }
 interface MockLedger extends CreditLedgerEntryRecord {}
+interface MockHold {
+  id: string;
+  walletId: string;
+  usageEventId: string;
+  heldCredits: number;
+  capturedCredits: number | null;
+  status: CreditHoldRecord["status"];
+  expiresAt: Date;
+  releasedReason: string | null;
+  createdAt: Date;
+}
+interface MockUsageEvent {
+  id: string;
+  walletId: string;
+  companyId: string | null;
+  featureCode: string;
+  status: "pending" | "settled" | "failed" | "free";
+  creditsCharged: number;
+  shortfall: number;
+}
 
 const GRANT_ENTRY_TYPES = new Set([
   "signup_bonus_grant", "purchase_grant", "plan_grant", "admin_grant", "promo_grant",
@@ -345,6 +370,8 @@ class RuntimeCreditRepository implements CreditRepository {
   private readonly lots = new Map<string, MockLot>();
   private readonly ledger: MockLedger[] = [];
   private readonly ledgerByKey = new Map<string, MockLedger>();
+  private readonly holds = new Map<string, MockHold>();
+  private readonly usageEventsFull = new Map<string, MockUsageEvent>();
 
   async ensureWalletWithSignupBonus(userId: string): Promise<CreditWalletRecord> {
     requireUserId(userId, "ensureWalletWithSignupBonus");
@@ -391,6 +418,200 @@ class RuntimeCreditRepository implements CreditRepository {
       throw new InvalidLedgerEntryError("본인 지갑이 아니거나 지갑이 없습니다.", { walletId: input.walletId });
     }
     return this.apply(input);
+  }
+
+  // ── hold/capture (in-memory mock, 5.3 근사) ──────────────────────────
+
+  async acquireHold(
+    userId: string,
+    input: { walletId: string; usageEventId: string; estimatedCredits: number; excludeBonusLots?: boolean },
+  ): Promise<CreditHoldRecord> {
+    requireUserId(userId, "acquireHold");
+    const wallet = [...this.wallets.values()].find((x) => x.id === input.walletId);
+    if (!wallet) throw new InvalidLedgerEntryError("지갑을 찾을 수 없습니다.");
+    if (wallet.status === "frozen") throw new WalletFrozenError(input.walletId, wallet.frozenReason);
+    const now = new Date();
+    const pending = [...this.holds.values()]
+      .filter((h) => h.walletId === input.walletId && h.status === "pending")
+      .reduce((s, h) => s + h.heldCredits, 0);
+    let basis = wallet.balanceCredits;
+    if (input.excludeBonusLots) {
+      const bonus = [...this.lots.values()]
+        .filter((l) => l.walletId === input.walletId && l.status === "active" && l.source === "signup_bonus")
+        .reduce((s, l) => s + l.remainingCredits, 0);
+      basis -= bonus;
+    }
+    const available = basis - pending;
+    const held = Math.ceil(input.estimatedCredits * 1.2);
+    if (available < held) throw new InsufficientCreditsError({ required: held, available: Math.max(0, available) });
+    const hold: MockHold = {
+      id: crypto.randomUUID(), walletId: input.walletId, usageEventId: input.usageEventId,
+      heldCredits: held, capturedCredits: null, status: "pending",
+      expiresAt: new Date(now.getTime() + 600_000),
+      releasedReason: input.excludeBonusLots ? "exclude_bonus" : null, createdAt: now,
+    };
+    this.holds.set(hold.id, hold);
+    return { ...hold };
+  }
+
+  async captureHold(
+    userId: string,
+    input: { holdId: string; actualCredits: number; pricingSnapshot?: Record<string, unknown> | null; excludeBonusLots?: boolean },
+  ): Promise<CaptureHoldResult> {
+    requireUserId(userId, "captureHold");
+    const hold = this.holds.get(input.holdId);
+    if (!hold) throw new InvalidLedgerEntryError("hold 를 찾을 수 없습니다.");
+    if (hold.status === "captured") {
+      return { hold: { ...hold }, creditsCharged: hold.capturedCredits ?? 0, shortfall: 0, capturedLate: false };
+    }
+    const need = Math.max(0, input.actualCredits);
+    const ttlExpired = hold.expiresAt.getTime() < Date.now();
+    const excludeBonus = input.excludeBonusLots || hold.releasedReason === "exclude_bonus";
+    // usage 키 멱등.
+    const key = idempotencyKeys.usage(hold.usageEventId);
+    let creditsCharged: number; let shortfall = 0;
+    const existing = this.ledgerByKey.get(key);
+    if (existing) {
+      creditsCharged = -existing.amountCredits;
+    } else {
+      const active = [...this.lots.values()].filter(
+        (l) => l.walletId === hold.walletId && l.status === "active" && l.remainingCredits > 0
+          && (l.expiresAt === null || l.expiresAt.getTime() > hold.createdAt.getTime())
+          && (!excludeBonus || l.source !== "signup_bonus"),
+      );
+      const { lines, shortfall: sf } = allocateFromLots(sortLotsForConsumption(active), need);
+      shortfall = sf;
+      const effectiveNeed = need - sf;
+      creditsCharged = effectiveNeed;
+      for (const line of lines) {
+        const lot = this.lots.get(line.lotId)!;
+        lot.remainingCredits -= line.amount;
+        if (lot.remainingCredits <= 0) lot.status = "exhausted";
+      }
+      if (effectiveNeed > 0) {
+        this.applyCaptureEntry(hold.walletId, -effectiveNeed, lines, hold.usageEventId, key, input.pricingSnapshot ?? null, userId);
+      }
+    }
+    hold.status = "captured";
+    hold.capturedCredits = creditsCharged;
+    if (ttlExpired) hold.releasedReason = "captured_late";
+    const ue = this.usageEventsFull.get(hold.usageEventId);
+    if (ue) { ue.status = "settled"; ue.creditsCharged = creditsCharged; if (shortfall > 0) ue.shortfall = shortfall; }
+    return { hold: { ...hold }, creditsCharged, shortfall, capturedLate: ttlExpired };
+  }
+
+  async releaseHold(userId: string, input: { holdId: string; reason: string }): Promise<CreditHoldRecord> {
+    requireUserId(userId, "releaseHold");
+    const hold = this.holds.get(input.holdId);
+    if (!hold) throw new InvalidLedgerEntryError("hold 를 찾을 수 없습니다.");
+    if (hold.status === "captured") return { ...hold };
+    hold.status = "released";
+    hold.releasedReason = input.reason;
+    return { ...hold };
+  }
+
+  async createPendingUsageEvent(
+    userId: string,
+    input: { walletId: string; companyId: string | null; featureCode: string; provider: string; model: string | null; pricingRuleId: string | null; requestId: string; contextRef?: Record<string, unknown> },
+  ): Promise<{ id: string }> {
+    requireUserId(userId, "createPendingUsageEvent");
+    const id = crypto.randomUUID();
+    this.usageEventsFull.set(id, {
+      id, walletId: input.walletId, companyId: input.companyId, featureCode: input.featureCode,
+      status: "pending", creditsCharged: 0, shortfall: 0,
+    });
+    return { id };
+  }
+
+  async recordUsageTokens(): Promise<void> { /* in-memory: 토큰 기록 생략 */ }
+
+  async markUsageEventFailed(userId: string, input: { usageEventId: string; errorCode: string }): Promise<void> {
+    requireUserId(userId, "markUsageEventFailed");
+    const ue = this.usageEventsFull.get(input.usageEventId);
+    if (ue) ue.status = "failed";
+  }
+
+  async sumCompanyBonusConsumption(userId: string, companyId: string): Promise<number> {
+    requireUserId(userId, "sumCompanyBonusConsumption");
+    // in-memory 근사: usage_capture 분개의 lotBreakdown 중 signup_bonus lot 참조분을 companyId 로 좁혀 합산.
+    let sum = 0;
+    for (const entry of this.ledger) {
+      if (entry.entryType !== "usage_capture") continue;
+      const ueId = (entry as { usageEventId?: string }).usageEventId;
+      const ue = ueId ? this.usageEventsFull.get(ueId) : undefined;
+      if (ue && ue.companyId !== companyId) continue;
+      for (const line of entry.lotBreakdown) {
+        const lot = this.lots.get(line.lotId);
+        if (lot?.source === "signup_bonus") sum += line.amount;
+      }
+    }
+    return sum;
+  }
+
+  async sumPendingHolds(userId: string, walletId: string): Promise<number> {
+    requireUserId(userId, "sumPendingHolds");
+    return [...this.holds.values()]
+      .filter((h) => h.walletId === walletId && h.status === "pending")
+      .reduce((s, h) => s + h.heldCredits, 0);
+  }
+
+  async listLedgerForUser(
+    userId: string,
+    input: { walletId: string; limit: number; cursor?: string | null; entryType?: string | null },
+  ): Promise<{ entries: LedgerListRow[]; nextCursor: string | null; hasMore: boolean }> {
+    requireUserId(userId, "listLedgerForUser");
+    const all = this.ledger
+      .filter((e) => e.walletId === input.walletId && (!input.entryType || e.entryType === input.entryType))
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    const limit = Math.min(Math.max(input.limit, 1), 100);
+    const page = all.slice(0, limit);
+    return {
+      entries: page.map((e) => ({
+        id: e.id, entryType: e.entryType, amountCredits: e.amountCredits,
+        balanceAfter: e.balanceAfter, reason: e.reason, createdAt: e.createdAt,
+      })),
+      nextCursor: null,
+      hasMore: all.length > limit,
+    };
+  }
+
+  async listUsageForUser(
+    userId: string,
+    _input: { walletId: string; from?: Date | null; to?: Date | null; featureCode?: string | null; limit: number; cursor?: string | null },
+  ): Promise<{
+    events: UsageListRow[];
+    summary: { totalCredits: number; byFeature: Array<{ featureCode: string; credits: number; count: number }> };
+    nextCursor: string | null;
+    hasMore: boolean;
+  }> {
+    requireUserId(userId, "listUsageForUser");
+    return { events: [], summary: { totalCredits: 0, byFeature: [] }, nextCursor: null, hasMore: false };
+  }
+
+  private applyCaptureEntry(
+    walletId: string, amount: number, lotBreakdown: LotBreakdownLine[], usageEventId: string,
+    key: string, pricingSnapshot: Record<string, unknown> | null, userId: string,
+  ): void {
+    const wallet = [...this.wallets.values()].find((x) => x.id === walletId)!;
+    const balanceAfter = wallet.balanceCredits + amount;
+    const now = new Date();
+    const prev = [...this.ledger].reverse().find((e) => e.walletId === walletId);
+    const prevChainHash = prev?.chainHash ?? genesisHash(walletId);
+    const id = crypto.randomUUID();
+    const chainHash = computeChainHash({
+      prevChainHash, id, walletId, entryType: "usage_capture", amountCredits: amount, balanceAfter,
+      idempotencyKey: key, createdAt: now,
+    });
+    const entry: MockLedger = {
+      id, walletId, entryType: "usage_capture", amountCredits: amount, balanceAfter, lotBreakdown,
+      idempotencyKey: key, chainHash, actorType: "user", actorId: userId, reason: null, createdAt: now,
+    };
+    (entry as { usageEventId?: string }).usageEventId = usageEventId;
+    void pricingSnapshot;
+    this.ledger.push(entry);
+    this.ledgerByKey.set(key, entry);
+    wallet.balanceCredits = balanceAfter;
+    wallet.updatedAt = now;
   }
 
   private apply(input: ApplyLedgerEntryInput): CreditLedgerEntryRecord {
@@ -489,6 +710,24 @@ class RuntimeCreditSystemRepository implements CreditSystemRepository {
       (r) => r.effectiveFrom.getTime() <= at.getTime()
         && (!r.effectiveUntil || r.effectiveUntil.getTime() > at.getTime()),
     );
+  }
+
+  async readNumericSetting(_key: string, fallback: number): Promise<number> {
+    return fallback;
+  }
+
+  async recordOpsUsageEvent(_input: {
+    featureCode: string;
+    provider: string;
+    model: string | null;
+    usage: TokenUsage | null;
+    providerCostUsdMicros?: number | null;
+    requestId?: string | null;
+    contextRef?: Record<string, unknown>;
+  }): Promise<{ id: string }> {
+    const ev = { id: crypto.randomUUID() };
+    this.usageEvents.push(ev);
+    return ev;
   }
 }
 

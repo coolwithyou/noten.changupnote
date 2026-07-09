@@ -68,6 +68,11 @@ export interface ActionResult<T> {
     code: string;
     message: string;
     field?: string;
+    /**
+     * 6.4 크레딧 오류 규약: 402 insufficient_credits 는 { required, available, shortfall } 를 담는다.
+     * 기존 필드(code/message/field)는 불변이며 meta 는 선택 필드로 추가된다.
+     */
+    meta?: Record<string, unknown>;
   };
 }
 
@@ -727,4 +732,77 @@ export interface BenefitBadge {
   label: string;
   source: GrantBenefitSource;
   confidence: number;
+}
+
+// ── 크레딧 조회 API DTO (설계 9.1) ─────────────────────────────────────
+// 요율 원시값은 노출하지 않는다(4.13 노출 규약) — 파생 계산값만 내려준다.
+
+/** GET /api/web/credits/balance — 표시 잔액은 available(hold·버퍼 반영)로 통일(9.1). */
+export interface CreditBalanceDto {
+  balance: number;
+  pendingHolds: number;
+  available: number;
+  lowBalance: boolean;
+  expiringSoon: Array<{ lotId: string; remaining: number; expiresAt: string }>;
+}
+
+/** GET /api/web/credits/estimate — 사전 견적(요율 원시값이 아니라 계산 결과만, 4.13). */
+export interface CreditEstimateDto {
+  estimatedCredits: number;
+  available: number;
+  sufficient: boolean;
+}
+
+export type CreditLedgerEntryTypeDto =
+  | "signup_bonus_grant"
+  | "purchase_grant"
+  | "plan_grant"
+  | "admin_grant"
+  | "promo_grant"
+  | "usage_capture"
+  | "refund_deduct"
+  | "expiry"
+  | "admin_deduct"
+  | "reversal";
+
+/** GET /api/web/credits/ledger — 분개 목록(커서, 최신순). description 은 서버 한국어 조립. */
+export interface CreditLedgerEntryDto {
+  id: string;
+  entryType: CreditLedgerEntryTypeDto;
+  amount: number;
+  balanceAfter: number;
+  createdAt: string;
+  description: string;
+}
+
+export interface CreditLedgerListDto {
+  entries: CreditLedgerEntryDto[];
+  cursor: string | null;
+  hasMore: boolean;
+}
+
+/** GET /api/web/credits/usage — usage_events 목록 + 기간 합계. 토큰은 상세 토글용(10.3). */
+export interface CreditUsageEventDto {
+  id: string;
+  featureCode: string;
+  featureLabel: string;
+  creditsCharged: number;
+  status: "pending" | "settled" | "failed" | "free";
+  model: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  createdAt: string;
+  contextRef: Record<string, unknown>;
+}
+
+export interface CreditUsageSummaryDto {
+  totalCredits: number;
+  byFeature: Array<{ featureCode: string; featureLabel: string; credits: number; count: number }>;
+}
+
+export interface CreditUsageListDto {
+  events: CreditUsageEventDto[];
+  summary: CreditUsageSummaryDto;
+  cursor: string | null;
+  hasMore: boolean;
 }
