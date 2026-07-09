@@ -126,7 +126,8 @@ function buildDocumentGroups(documents: RequiredDocument[]): ApplicationPrep["do
   return groups.filter((group) => group.documents.length > 0);
 }
 
-function isDraftableDocument(document: RequiredDocument): boolean {
+// 매칭 카드의 writeSupport 파생(match-card.ts)과 상세 준비 화면이 같은 판정 규칙을 쓰도록 export.
+export function isDraftableDocument(document: RequiredDocument): boolean {
   const category = document.category ?? "other";
   if (category === "consent_or_pledge") return false;
   return document.preparationType === "write" && DRAFTABLE_CATEGORIES.has(category);

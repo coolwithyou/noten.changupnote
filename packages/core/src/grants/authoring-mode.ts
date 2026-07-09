@@ -44,6 +44,14 @@ function hasFormAttachment(filenames: string[]): boolean {
   });
 }
 
+/**
+ * 파일명이 작성 대상 서식(신청서/양식/사업계획서 등)으로 보이는지.
+ * 확장자는 검사하지 않는다 — 보관본(.hwpx)과 hwp2hwpx sibling 원본명(.hwp)을 같은 규칙으로 거르기 위함.
+ */
+export function isFormLikeFilename(filename: string): boolean {
+  return FORM_KEYWORD_PATTERN.test(filename.trim());
+}
+
 function hasText(value: string | null | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }

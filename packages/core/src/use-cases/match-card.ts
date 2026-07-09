@@ -13,7 +13,9 @@ import type {
   RuleTraceChip,
   RuleTraceChipResult,
   SupportAmount,
+  WriteSupportLevel,
 } from "@cunote/contracts";
+import { isDraftableDocument } from "../documents/preparation.js";
 
 export interface MatchedGrant<TPayload = unknown> {
   item: NormalizedGrant<TPayload>;
@@ -47,8 +49,23 @@ export function toMatchCard<TPayload>(
     rulesetVer: entry.match.ruleset_ver,
     scoringVer: entry.match.scoring_ver,
     criteriaExtracted: entry.match.criteria_extracted !== false,
+    authoringMode: grant.f_authoring_mode ?? "unknown",
+    writeSupport: deriveWriteSupport(grant),
     detailUrl,
   };
+}
+
+/**
+ * 지원서 작성 도움 수준 파생. core 는 보관본을 모르므로 template_fill 은 내지 않는다
+ * (apps/web 서버가 HWPX 보관본 배치 조회로 ai_draft → template_fill 승격).
+ *   - 작성형 서류가 추출됨 → ai_draft (웹폼 사업이라도 사업계획서 초안은 지원 가능)
+ *   - 웹폼 직접 입력 사업 → web_form_guide
+ *   - 그 외(서류 미추출 file_form 포함) → unknown: 서식 존재만으로 초안을 약속하면 상세에서 빈 화면이 된다
+ */
+export function deriveWriteSupport(grant: Grant): WriteSupportLevel {
+  if (normalizeRequiredDocuments(grant).some(isDraftableDocument)) return "ai_draft";
+  if (grant.f_authoring_mode === "web_form") return "web_form_guide";
+  return "unknown";
 }
 
 export function toRuleTraceChip(
@@ -197,8 +214,22 @@ export function grantKey(grant: Pick<Grant, "id" | "source" | "source_id">): str
   return grant.id ?? `${grant.source}:${grant.source_id}`;
 }
 
+// 같은 적격도 안에서는 지원서 작성을 도와줄 수 있는 사업을 먼저 보여준다(핵심 BM).
+// 적합도보다 앞선 3차 키 — 배지가 정렬 근거를 화면에서 설명한다.
+const WRITE_SUPPORT_SORT_RANK: Record<WriteSupportLevel, number> = {
+  template_fill: 0,
+  ai_draft: 0,
+  web_form_guide: 1,
+  unknown: 2,
+};
+
 export function sortMatchedGrants<TPayload>(entries: MatchedGrant<TPayload>[]): MatchedGrant<TPayload>[] {
-  return [...entries].sort((a, b) => compareMatch(a.match, b.match));
+  const decorated = entries.map((entry) => ({
+    entry,
+    writeSupportRank: WRITE_SUPPORT_SORT_RANK[deriveWriteSupport(entry.item.grant)],
+  }));
+  decorated.sort((a, b) => compareMatch(a.entry.match, b.entry.match, a.writeSupportRank, b.writeSupportRank));
+  return decorated.map((item) => item.entry);
 }
 
 export function countByEligibility(matches: MatchResult[]): {
@@ -326,7 +357,12 @@ function bizAgeLockDate(asOf: Date) {
   };
 }
 
-function compareMatch(a: MatchResult, b: MatchResult): number {
+function compareMatch(
+  a: MatchResult,
+  b: MatchResult,
+  aWriteSupportRank = 0,
+  bWriteSupportRank = 0,
+): number {
   // 조건이 아직 구조화되지 않은(미산정) 공고는 산정된 공고들 아래로 내린다.
   const aExtracted = a.criteria_extracted !== false;
   const bExtracted = b.criteria_extracted !== false;
@@ -337,7 +373,9 @@ function compareMatch(a: MatchResult, b: MatchResult): number {
     conditional: 1,
     ineligible: 2,
   };
-  return rank[a.eligibility] - rank[b.eligibility] || b.fit_score - a.fit_score;
+  return rank[a.eligibility] - rank[b.eligibility] ||
+    aWriteSupportRank - bWriteSupportRank ||
+    b.fit_score - a.fit_score;
 }
 
 function estimateMatchConfidence(match: MatchResult): number {

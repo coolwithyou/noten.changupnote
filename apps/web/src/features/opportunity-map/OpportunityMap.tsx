@@ -16,7 +16,8 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { ActionResult, MatchCard, OpportunityBucket } from "@cunote/contracts";
+import { WRITE_SUPPORT_LABELS } from "@cunote/contracts";
+import type { ActionResult, MatchCard, OpportunityBucket, WriteSupportLevel } from "@cunote/contracts";
 import { recordWebMatchEvent } from "@/lib/client/matchEvents";
 import { MatchFeedbackControls } from "./MatchFeedbackControls";
 
@@ -262,6 +263,7 @@ export function OpportunityMap({ matches }: { matches: MatchCard[] }) {
 
 function OpportunityCard({ match }: { match: MatchCard }) {
   const unlock = match.ruleTrace.find((trace) => trace.unlock)?.unlock;
+  const writeSupportTone = writeSupportBadgeTone(match.writeSupport);
   const content = (
     <>
       <div className="flex items-center justify-between gap-3">
@@ -274,8 +276,13 @@ function OpportunityCard({ match }: { match: MatchCard }) {
       </div>
       <h4 className="line-clamp-2 text-sm font-semibold leading-5 text-foreground">{match.title}</h4>
       <p className="line-clamp-2 text-xs leading-5 text-muted-foreground">{matchEvidenceSummary(match)}</p>
-      {match.benefits.length > 0 ? (
+      {writeSupportTone || match.benefits.length > 0 ? (
         <div className="flex flex-wrap gap-1.5">
+          {writeSupportTone ? (
+            <StatusBadge tone={writeSupportTone}>
+              {WRITE_SUPPORT_LABELS[match.writeSupport]}
+            </StatusBadge>
+          ) : null}
           {match.benefits.slice(0, 2).map((benefit) => (
             <StatusBadge key={`${match.grantId}:${benefit.family}`} tone="brand">
               {benefit.label}
@@ -361,6 +368,13 @@ function matchEligibilityLabel(match: MatchCard): string {
 function matchEligibilityTone(match: MatchCard): "brand" | "success" | "warning" | "danger" | "neutral" {
   if (isLowEvidenceEligible(match)) return "warning";
   return eligibilityTone(match.eligibility);
+}
+
+// unknown 은 배지 없음 — 매칭 화면(MatchesExperience)과 같은 규칙.
+function writeSupportBadgeTone(level: WriteSupportLevel): "brand" | "neutral" | null {
+  if (level === "template_fill" || level === "ai_draft") return "brand";
+  if (level === "web_form_guide") return "neutral";
+  return null;
 }
 
 function matchEvidenceSummary(match: MatchCard): string {

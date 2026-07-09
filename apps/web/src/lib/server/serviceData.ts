@@ -36,6 +36,7 @@ import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusi
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
+import { annotateMatchCardWriteSupport } from "./matches/annotateWriteSupport";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
 import { notifyPopbillFailure } from "./adminNotifications";
 
@@ -260,7 +261,10 @@ export async function loadServiceDashboard(options: {
     });
   }
 
-  return buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
+  const dashboard = buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
+  // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 — /dashboard 와 /api/web/matches 가 함께 탄다.
+  dashboard.matches = await annotateMatchCardWriteSupport(dashboard.matches);
+  return dashboard;
 }
 
 export async function loadServiceApplySheet(

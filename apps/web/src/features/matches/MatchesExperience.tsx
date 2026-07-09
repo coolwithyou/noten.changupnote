@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Check, ChevronDown, HelpCircle, Minus, Pencil, Plus, RotateCcw, TriangleAlert } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, FilePen, HelpCircle, Minus, Pencil, Plus, RotateCcw, TriangleAlert } from "lucide-react";
+import { WRITE_SUPPORT_LABELS } from "@cunote/contracts";
 import type {
   ActionResult,
   CompanyEvidenceField,
@@ -15,6 +16,7 @@ import type {
   SupportAmount,
   TeaserRequest,
   TeaserResult,
+  WriteSupportLevel,
 } from "@cunote/contracts";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -662,12 +664,23 @@ function ProgramsSection({ matches, onPrepare, preparing }: { matches: MatchCard
       </section>
     );
   }
+  const writeSupportedCount = matches.filter((match) => isWriteSupported(match.writeSupport)).length;
+
   return (
     <section>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-4">
-        <h2 className="text-xl font-semibold tracking-normal">
-          지원 가능한 사업
-        </h2>
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold tracking-normal">
+            지원 가능한 사업
+          </h2>
+          {writeSupportedCount > 0 ? (
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              표시된 {matches.length}건 중{" "}
+              <span className="font-semibold text-primary">{writeSupportedCount}건</span>
+              은 지원서·사업계획서 작성을 도와드릴 수 있어요.
+            </p>
+          ) : null}
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="default">충족</Badge>
           <Badge variant="secondary">확인 필요</Badge>
@@ -700,6 +713,7 @@ function ProgramCard({
   const criteria = match.ruleTrace.filter((chip) => chip.result !== "text_only");
   const passCount = criteria.filter((chip) => chip.result === "pass").length;
   const unscored = match.criteriaExtracted === false;
+  const writeBadge = writeSupportBadge(match.writeSupport);
 
   return (
     <Card>
@@ -711,11 +725,17 @@ function ProgramCard({
       >
         <div className="flex flex-wrap justify-between gap-4">
           <div className="min-w-[220px] flex-1">
-            <div className="mb-2 flex items-center gap-1.5">
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
               <Badge variant={match.eligibility === "eligible" ? "default" : match.eligibility === "conditional" ? "secondary" : "outline"}>
                 {elig.label}
               </Badge>
               <Badge variant={match.dDay !== null && match.dDay <= 7 ? "secondary" : "outline"}>{formatDday(match.dDay)}</Badge>
+              {writeBadge ? (
+                <Badge variant={writeBadge.variant} className={writeBadge.className}>
+                  {isWriteSupported(match.writeSupport) ? <FilePen data-icon="inline-start" /> : null}
+                  {writeBadge.label}
+                </Badge>
+              ) : null}
             </div>
             <div className="text-base font-semibold leading-snug">
               {match.title}
@@ -772,7 +792,7 @@ function ProgramCard({
             <p className="mb-5 text-sm text-muted-foreground">표시할 세부 조건이 없어요.</p>
           )}
           <p className="mb-4 text-xs text-muted-foreground">
-            필요 서류와 사업계획서 초안은 결과 저장 후 신청 준비 단계에서 회사 정보로 채워 안내해 드려요.
+            {writeSupportNote(match.writeSupport)}
           </p>
           <button
             type="button"
@@ -780,7 +800,7 @@ function ProgramCard({
             disabled={preparing}
             className={cn(buttonVariants({ size: "default" }))}
           >
-            {preparing ? "준비 중…" : "이 사업 신청 준비하기"}
+            {preparing ? "준비 중…" : writeSupportCta(match.writeSupport)}
             <ArrowRight data-icon="inline-end" />
           </button>
         </div>
@@ -1338,6 +1358,43 @@ function eligibilityChip(value: Eligibility): { label: string } {
   if (value === "eligible") return { label: "적격" };
   if (value === "conditional") return { label: "조건부" };
   return { label: "미해당" };
+}
+
+function isWriteSupported(level: WriteSupportLevel): boolean {
+  return level === "template_fill" || level === "ai_draft";
+}
+
+function writeSupportBadge(
+  level: WriteSupportLevel,
+): { label: string; variant: "default" | "secondary" | "outline"; className?: string } | null {
+  // unknown 은 배지 없음 — 배지 부재 자체가 "작성 도움 미확인" 신호이고, 안내문·CTA가 원문 확인을 유도한다.
+  if (level === "unknown") return null;
+  if (level === "web_form_guide") return { label: WRITE_SUPPORT_LABELS[level], variant: "outline" };
+  return {
+    label: WRITE_SUPPORT_LABELS[level],
+    variant: "secondary",
+    className: "border-primary/25 bg-primary/10 text-primary",
+  };
+}
+
+function writeSupportNote(level: WriteSupportLevel): string {
+  if (level === "template_fill") {
+    return "원본 서식 파일을 확보했어요. 결과 저장 후 회사 정보로 채운 초안과 서식 파일까지 받아볼 수 있어요.";
+  }
+  if (level === "ai_draft") {
+    return "필요 서류와 사업계획서 초안은 결과 저장 후 신청 준비 단계에서 회사 정보로 채워 안내해 드려요.";
+  }
+  if (level === "web_form_guide") {
+    return "이 사업은 포털 웹폼에서 직접 입력해 신청해요. 항목별로 붙여 넣을 답변 초안과 회사 정보 복사를 도와드려요.";
+  }
+  return "작성 서류가 아직 분석되지 않았어요. 원문 공고를 함께 확인하며 신청 준비를 도와드려요.";
+}
+
+function writeSupportCta(level: WriteSupportLevel): string {
+  if (level === "template_fill") return "서식 채워서 준비하기";
+  if (level === "ai_draft") return "지원서 초안 준비하기";
+  if (level === "web_form_guide") return "신청 항목 안내 받기";
+  return "이 사업 신청 준비하기";
 }
 
 function resultVisual(result: RuleTraceChipResult): { icon: React.ReactNode; text: string } {

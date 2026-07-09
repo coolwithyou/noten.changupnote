@@ -57,6 +57,7 @@
     "verify:match-feedback-loop": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/verify-match-feedback-loop.ts",
     "verify:service-usecases": "tsx packages/core/scripts/verify-service-usecases.ts",
     "verify:match-transitions": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/matches/verify-match-transitions.ts",
+    "verify:write-support": "tsx packages/core/scripts/verify-write-support.ts",
     "verify:web-http": "tsx apps/web/src/lib/server/verify-web-http.ts",
     "verify:db-doctor": "tsx apps/web/src/lib/server/db/doctor.ts --dry-run",
     "verify:db-migrations": "tsx apps/web/src/lib/server/db/verify-migrations.ts",

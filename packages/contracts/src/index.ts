@@ -71,6 +71,12 @@ export const GRANT_DOCUMENT_PREPARATION_TYPES = [
 ] as const;
 export const APPLY_METHOD_CHANNELS = ["online", "email", "fax", "visit", "postal", "other"] as const;
 export const AUTHORING_MODES = ["file_form", "web_form", "unknown"] as const;
+// 지원서 작성 도움 수준. 핵심 BM(지원서·사업계획서 작성 지원)을 매칭 카드에서 선언하는 단일 신호.
+//   - template_fill: 원본 서식(HWPX) 보관본이 있어 채움 다운로드까지 가능
+//   - ai_draft:      작성형 서류가 추출되어 AI 초안 작성 가능
+//   - web_form_guide: 포털 웹폼 직접 입력 사업 — 항목별 답변 초안·복붙 프로필로 지원
+//   - unknown:       판별 신호 부족(원문 확인 필요)
+export const WRITE_SUPPORT_LEVELS = ["template_fill", "ai_draft", "web_form_guide", "unknown"] as const;
 
 export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
@@ -86,6 +92,7 @@ export type GrantDocumentCategory = (typeof GRANT_DOCUMENT_CATEGORIES)[number];
 export type GrantDocumentPreparationType = (typeof GRANT_DOCUMENT_PREPARATION_TYPES)[number];
 export type ApplyMethodChannel = (typeof APPLY_METHOD_CHANNELS)[number];
 export type AuthoringMode = (typeof AUTHORING_MODES)[number];
+export type WriteSupportLevel = (typeof WRITE_SUPPORT_LEVELS)[number];
 
 export const APPLY_METHOD_CHANNEL_LABELS: Record<ApplyMethodChannel, string> = {
   online: "온라인 접수",
@@ -100,6 +107,13 @@ export const AUTHORING_MODE_LABELS: Record<AuthoringMode, string> = {
   file_form: "서식 파일 작성",
   web_form: "웹폼 직접 작성",
   unknown: "확인 필요",
+};
+
+export const WRITE_SUPPORT_LABELS: Record<WriteSupportLevel, string> = {
+  template_fill: "서식 채움 지원",
+  ai_draft: "초안 작성 지원",
+  web_form_guide: "웹폼 작성 안내",
+  unknown: "작성 방식 확인 필요",
 };
 
 export interface GrantSupportAmount {

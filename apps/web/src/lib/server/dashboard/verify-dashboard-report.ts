@@ -35,6 +35,8 @@ const dashboard: DashboardResult = {
       matchConfidence: 0.91,
       rulesetVer: "ruleset-test",
       scoringVer: "scoring-test",
+      authoringMode: "file_form",
+      writeSupport: "ai_draft",
       detailUrl: "/grants/grant-1",
     },
     {
@@ -55,6 +57,8 @@ const dashboard: DashboardResult = {
       matchConfidence: 0.74,
       rulesetVer: "ruleset-test",
       scoringVer: "scoring-test",
+      authoringMode: "web_form",
+      writeSupport: "web_form_guide",
       detailUrl: null,
     },
   ],

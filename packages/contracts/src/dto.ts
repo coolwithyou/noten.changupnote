@@ -1,4 +1,5 @@
 import type {
+  AuthoringMode,
   CompanyProfile,
   CriterionDimension,
   CriterionKind,
@@ -11,6 +12,7 @@ import type {
   GrantBenefitSource,
   GrantStatus,
   MatchResult,
+  WriteSupportLevel,
 } from "./index.js";
 
 export type OpportunityBucket = "now" | "soon" | "preparable" | "conditional";
@@ -173,6 +175,13 @@ export interface MatchCard {
   scoringVer: string;
   /** 공고 조건이 구조화 추출됐는지. false면 적합도 미산정(UI는 숫자 대신 —로 표기). */
   criteriaExtracted?: boolean;
+  /** 지원서 작성 방식(수집 시 규칙 분류). */
+  authoringMode: AuthoringMode;
+  /**
+   * 지원서 작성 도움 수준(핵심 BM 신호). core 는 공고 텍스트 신호(작성형 서류·authoring mode)로만
+   * 산출하며, template_fill 승격은 apps/web 서버가 HWPX 보관본을 배치 조회해 덮어쓴다(core 는 보관본을 모름).
+   */
+  writeSupport: WriteSupportLevel;
   detailUrl?: string | null;
 }
 

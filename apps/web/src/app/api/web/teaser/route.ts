@@ -1,6 +1,7 @@
 import type { ActionResult, TeaserRequest, TeaserResult } from "@cunote/contracts";
 import { buildTeaser } from "@cunote/core";
 import { NextResponse } from "next/server";
+import { annotateMatchCardWriteSupport } from "@/lib/server/matches/annotateWriteSupport";
 import { loadServiceGrants, ServiceDataError } from "@/lib/server/serviceData";
 import { resolveTeaserCompanyProfileWithEvidence } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
@@ -21,6 +22,8 @@ export async function POST(request: Request) {
       asOf,
       companyEvidence: companyResolution.evidence,
     });
+    // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 (조회 실패 시 승격 없이 통과)
+    data.matches = await annotateMatchCardWriteSupport(data.matches);
     return NextResponse.json<ActionResult<TeaserResult>>({ ok: true, data });
   } catch (error) {
     if (error instanceof ServiceDataError) {
