@@ -267,6 +267,13 @@
       "when": 1783433845934,
       "tag": "0037_striped_gravity",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1783625364223,
+      "tag": "0038_yielding_leader",
+      "breakpoints": true
     }
   ]
 }
