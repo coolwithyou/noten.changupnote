@@ -2,9 +2,9 @@
 
 > **🟡 진행 상황 (매 세션 종료 시 이 블록만 갱신하고 커밋하라)**
 > - 설계 문서: `docs/plans/2026-07-09-apply-experience-v2.md` (레드팀 v2 반영 완료) — **단일 진실(Single Source of Truth)**
-> - 구현: **P0 완료(`a92c3d2`) · P1 완료(`5b0afcc`) · P2a 완료(`bb4c2d9`, 검수 C1~C5 전건 통과 — 0038 마이그레이션 적용·백필 10/10 완료)** → 다음 작업 = **P2b(sonnet) 위임·검수(D)** → P2c
-> - P2a 비고: core `normalizeLabel` export 승인(채움 엔진과 동일 정규화 공유 — 재구현 드리프트 방지). 구 워크스페이스는 의도된 중간 상태(신규 draft는 suggested만이라 구 편집기 prefill 빈 상태 — P2b·P2c 합류로 해소, 배포는 한 묶음이라 사용자 노출 없음). representative_name·biz_no는 CompanyProfile에 소스 부재로 시드 제외
-> - P1 비고: accordion 프리미티브 신설 승인. B4 브라우저 확인은 사용자 대기(P2b 검수 D4와 묶어서 가능). 옛 상세의 작성 기능은 P2b/P2c에서 workspace로 이관 예정(유실 아님)
+> - 구현: **P0 완료(`a92c3d2`) · P1 완료(`5b0afcc`) · P2a 완료(`bb4c2d9`) · P2b 완료(`aa964fa`, 검수 D에서 결함 2건 발견·수정 — D2 suggested Unfilled 미보고, D1 파일명↔스토리지키 매칭 불일치로 사다리 전부 (c) 강등)** → 다음 작업 = **P2c(opus) 위임·검수(E)** → P3
+> - P2b 비고: surface `source_attachment` 표현이 공고별 혼재(스토리지 키 vs 원본 파일명 — 실측) → 이중 후보 매칭으로 흡수. 잔여: ⓐ 사다리 (a) 시각 확인은 필드 검수 데이터 축적 후(현재 DB에 fields_ready+연결필드 실데이터 0) ⓑ 모바일 탭 전환 시 편집 상태 리셋(minor) ⓒ 노랑 오버레이=duplicateLabels 매핑은 메인 판단 승인 ⓓ P1 B4·P2b D4 브라우저 시각 확인은 사용자 대기
+> - P2a 비고: core `normalizeLabel` export 승인. representative_name·biz_no는 CompanyProfile에 소스 부재로 시드 제외
 > - P0 판정(검수 A 통과, 메인 재실행 검증): **ADR-4 = AI SDK 채택**(실측 `ai@7.0.19`, `sendSources:true` 필수, `providerMetadata.anthropic` 얕은 매핑 필요). ADR-2에 전처리 규약 추기(frontmatter 절단·본문성 archive 우선, PDF 재주입 불필요, 캐싱 실증). P0-3: **함초롬 폰트 미탑재 발견** → poc-execution 이슈 등재(별도 트랙, 라이선스 확인 필요)
 > - 오픈 퀘스천(설계 §12) 사용자 답변: **확인 완료(2026-07-10) — 전건 제안 기본값 채택, 설계 §12에 결정 blockquote 추기.** P1-4 임시 페이지는 생략(P1·P2 한 배포 묶음)
 > - 설계 문서 정정: ADR-5 처분 표의 이식 교차 참조 P2-7→P2-9 (v1 번호 잔재, §14 v2.1)
