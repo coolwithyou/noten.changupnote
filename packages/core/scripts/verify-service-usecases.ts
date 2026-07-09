@@ -9,6 +9,7 @@ import {
   buildApplySheet,
   buildDashboard,
   buildNotificationFeed,
+  buildTeaser,
   calculateMatchTransitionWindow,
   deriveGrantBenefits,
   matchGrantCriteria,
@@ -248,6 +249,16 @@ const secondPage = selectMatchCards(selectableDashboard.matches, {
 assert.equal(secondPage.matches.length, 1);
 assert.notEqual(secondPage.matches[0]?.grantId, firstPage.matches[0]?.grantId);
 
+const simpleRecommendableGrant = normalizedGrant("simple-recommendable", "지역 충족 지원사업", [
+  {
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    value: { regions: ["41"], labels: ["경기"], nationwide: false },
+    confidence: 0.95,
+  },
+]);
+
 const industryQuestionGrant = normalizedGrant("industry-question", "업종 확인 지원사업", [
   {
     dimension: "region",
@@ -264,6 +275,64 @@ const industryQuestionGrant = normalizedGrant("industry-question", "업종 확�
     confidence: 0.9,
   },
 ]);
+
+const notRecommendedTrustGateGrant = normalizedGrant("not-recommended-trust-gate", "지역 미해당 지원사업", [
+  {
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    value: { regions: ["11"], labels: ["서울"], nationwide: false },
+    confidence: 0.95,
+  },
+]);
+
+const trustGateTeaser = buildTeaser({
+  company: { ...company, industries: [] },
+  grants: [industryQuestionGrant, simpleRecommendableGrant, notRecommendedTrustGateGrant],
+  asOf,
+  limit: 10,
+});
+assert.equal(trustGateTeaser.recommendableMatches?.[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
+assert.equal(trustGateTeaser.reviewNeededMatches?.[0]?.sourceId, industryQuestionGrant.grant.source_id);
+assert.equal(trustGateTeaser.reviewNeededMatches?.[0]?.scoreDisplay, "hidden");
+assert.equal(trustGateTeaser.matches[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
+assert.equal(trustGateTeaser.counts.recommendable, 1);
+assert.equal(trustGateTeaser.counts.reviewNeeded, 1);
+assert.equal(trustGateTeaser.counts.notRecommended, 1);
+assert.equal(trustGateTeaser.reviewNeededMatches?.some((match) => match.sourceId === notRecommendedTrustGateGrant.grant.source_id), false);
+assert.equal(trustGateTeaser.matches.some((match) => match.sourceId === notRecommendedTrustGateGrant.grant.source_id), false);
+
+const unverifiedCoreGrant = normalizedGrant("unverified-core", "검수 전 업종 조건 지원사업", [
+  {
+    dimension: "industry",
+    operator: "in",
+    kind: "required",
+    value: { industries: ["ICT"], labels: ["ICT"] },
+    confidence: 0.6,
+    source_span: "ICT 분야 기업",
+    needs_review: true,
+  },
+]);
+const unverifiedCoreTeaser = buildTeaser({
+  company,
+  grants: [unverifiedCoreGrant],
+  asOf,
+  limit: 10,
+});
+assert.equal(unverifiedCoreTeaser.counts.eligible, 1);
+assert.equal(unverifiedCoreTeaser.counts.recommendable, 0);
+assert.equal(unverifiedCoreTeaser.counts.reviewNeeded, 1);
+assert.equal(unverifiedCoreTeaser.counts.notRecommended, 0);
+assert.equal(unverifiedCoreTeaser.recommendableMatches?.length, 0);
+assert.equal(unverifiedCoreTeaser.reviewNeededMatches?.[0]?.sourceId, unverifiedCoreGrant.grant.source_id);
+assert.equal(unverifiedCoreTeaser.reviewNeededMatches?.[0]?.scoreDisplay, "hidden");
+assert.equal(unverifiedCoreTeaser.conditionalUpside, 10_000_000);
+
+const hiddenHighScore = { ...trustGateTeaser.reviewNeededMatches![0]!, fitScore: 99, scoreDisplay: "hidden" as const };
+const numericLowScore = { ...trustGateTeaser.recommendableMatches![0]!, fitScore: 10, scoreDisplay: "numeric" as const };
+const fitSortedTrustGate = selectMatchCards([hiddenHighScore, numericLowScore], { sort: "fit", limit: 2 });
+assert.equal(fitSortedTrustGate.matches[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
+
 const industryQuestionDashboard = buildDashboard({
   company: { ...company, industries: [] },
   grants: [industryQuestionGrant],
@@ -367,6 +436,10 @@ console.log(JSON.stringify({
     "expanded_profile_match",
     "match_selector_filter_sort",
     "match_selector_cursor",
+    "trust_gate_teaser_sections",
+    "trust_gate_excludes_not_recommended_from_review_needed",
+    "trust_gate_needs_review_blocks_recommendable",
+    "trust_gate_fit_sort_hidden_downrank",
     "next_question_select_options",
     "action_queue_enrich",
     "notification_feed_deadline",

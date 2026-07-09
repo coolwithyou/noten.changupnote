@@ -302,8 +302,8 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
         event: "teaser_succeeded",
         requestId,
         durationMs: performance.now() - startedAt,
-        eligibleCount: payload.data.counts.eligible,
-        conditionalCount: payload.data.counts.conditional,
+        eligibleCount: recommendableMatchCount(payload.data),
+        conditionalCount: reviewNeededMatchCount(payload.data),
         ineligibleCount: payload.data.counts.ineligible,
         deadlineSoonCount: payload.data.counts.deadlineSoon,
         hasAmount: payload.data.estimatedMaxAmount > 0 || payload.data.conditionalUpside > 0,
@@ -391,8 +391,8 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
     if (!lastTeaserRequest) return;
     recordLandingEvent(teaser ? {
       event: "dashboard_cta_clicked",
-      eligibleCount: teaser.counts.eligible,
-      conditionalCount: teaser.counts.conditional,
+      eligibleCount: recommendableMatchCount(teaser),
+      conditionalCount: reviewNeededMatchCount(teaser),
       hasAmount: teaser.estimatedMaxAmount > 0 || teaser.conditionalUpside > 0,
     } : { event: "dashboard_cta_clicked" });
     await createCompanyAndOpenDashboard(lastTeaserRequest);
@@ -579,12 +579,12 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
           <div className="teaser-summary">
             <div className="result-number primary">
               <span>지금 적격</span>
-              <strong>{teaser.counts.eligible.toLocaleString("ko-KR")}건</strong>
+              <strong>{recommendableMatchCount(teaser).toLocaleString("ko-KR")}건</strong>
               <small>확정 합계 {formatMoney(teaser.estimatedMaxAmount)}</small>
             </div>
             <div className="result-number">
               <span>확인 필요</span>
-              <strong>{teaser.counts.conditional.toLocaleString("ko-KR")}건</strong>
+              <strong>{reviewNeededMatchCount(teaser).toLocaleString("ko-KR")}건</strong>
               <small>확인 시 추가 {formatMoney(teaser.conditionalUpside)}</small>
             </div>
             <div className="result-number">
@@ -914,8 +914,8 @@ function NewsletterSignup({
 }
 
 function OpportunityPreview({ stats, teaser }: { stats: LandingGrantStats; teaser: TeaserResult | null }) {
-  const eligible = teaser?.counts.eligible ?? 0;
-  const conditional = teaser?.counts.conditional ?? stats.unknownCount;
+  const eligible = teaser ? recommendableMatchCount(teaser) : stats.activeCount;
+  const conditional = teaser ? reviewNeededMatchCount(teaser) : stats.unknownCount;
   const deadline = teaser?.counts.deadlineSoon ?? stats.deadlineSoonCount;
 
   return (
@@ -929,7 +929,7 @@ function OpportunityPreview({ stats, teaser }: { stats: LandingGrantStats; tease
           <CardContent>
             <span className="lane-dot active" />
             <strong>지금 가능</strong>
-            <p>{(eligible || stats.activeCount).toLocaleString("ko-KR")}건의 지원사업 후보를 먼저 확인합니다.</p>
+            <p>{eligible.toLocaleString("ko-KR")}건의 지원사업 후보를 먼저 확인합니다.</p>
           </CardContent>
         </Card>
         <Card className="result-preview-card">
@@ -951,6 +951,30 @@ function OpportunityPreview({ stats, teaser }: { stats: LandingGrantStats; tease
   );
 }
 
+function recommendableMatchCount(teaser: TeaserResult): number {
+  return teaser.counts.recommendable ??
+    (teaser.recommendableMatches ?? teaser.matches.filter(isRecommendableMatch)).length;
+}
+
+function reviewNeededMatchCount(teaser: TeaserResult): number {
+  return teaser.counts.reviewNeeded ??
+    (teaser.reviewNeededMatches ?? teaser.matches.filter(isReviewNeededMatch)).length;
+}
+
+function isRecommendableMatch(match: MatchCard): boolean {
+  return recommendationTierForMatch(match) === "recommendable";
+}
+
+function isReviewNeededMatch(match: MatchCard): boolean {
+  const tier = recommendationTierForMatch(match);
+  return tier === "needs_core_review" || tier === "needs_profile_input";
+}
+
+function recommendationTierForMatch(match: MatchCard): NonNullable<MatchCard["recommendationTier"]> {
+  return match.recommendationTier ??
+    (match.eligibility === "eligible" ? "recommendable" : match.eligibility === "ineligible" ? "not_recommended" : "needs_profile_input");
+}
+
 function MatchPreview({ match }: { match: MatchCard }) {
   const content = (
     <CardContent>
@@ -963,7 +987,7 @@ function MatchPreview({ match }: { match: MatchCard }) {
         {match.detailUrl ? <span className="match-preview-action">조건과 신청 준비 보기</span> : null}
       </div>
       <div className="match-score">
-        <strong>{match.fitScore}</strong>
+        <strong>{match.scoreDisplay === "hidden" ? "확인" : match.fitScore}</strong>
         <span>{match.dDay === null ? "일정 확인" : match.dDay < 0 ? "마감 확인" : `D-${match.dDay}`}</span>
       </div>
     </CardContent>
@@ -1267,6 +1291,7 @@ function formatRegions(regions: string[]): string | null {
 }
 
 function matchEligibilityLabel(match: MatchCard): string {
+  if (match.scoreDisplay === "hidden" && match.eligibility !== "ineligible") return "확인 필요";
   if (isLowEvidenceEligible(match)) return "추정 적격";
   if (match.eligibility === "eligible") return "적격";
   if (match.eligibility === "conditional") return "확인 필요";
@@ -1274,6 +1299,7 @@ function matchEligibilityLabel(match: MatchCard): string {
 }
 
 function matchEligibilityTone(match: MatchCard): "brand" | "success" | "warning" | "danger" | "neutral" {
+  if (match.scoreDisplay === "hidden" && match.eligibility !== "ineligible") return "warning";
   if (isLowEvidenceEligible(match)) return "warning";
   return eligibilityTone(match.eligibility);
 }

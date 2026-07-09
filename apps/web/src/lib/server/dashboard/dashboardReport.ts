@@ -37,6 +37,7 @@ export function renderDashboardReport(input: {
 }): string {
   const generatedAt = input.generatedAt ?? new Date();
   const { dashboard } = input;
+  const counts = dashboardTrustCounts(dashboard.counts);
   const lines = [
     `# ${companyLabel(dashboard)} 기회 맵 리포트`,
     "",
@@ -49,9 +50,9 @@ export function renderDashboardReport(input: {
     markdownTable(
       ["항목", "값"],
       [
-        ["지금 적격", `${dashboard.counts.eligible.toLocaleString("ko-KR")}건`],
-        ["확인 필요", `${dashboard.counts.conditional.toLocaleString("ko-KR")}건`],
-        ["부적격", `${dashboard.counts.ineligible.toLocaleString("ko-KR")}건`],
+        ["지금 적격", `${counts.recommendable.toLocaleString("ko-KR")}건`],
+        ["확인 필요", `${counts.reviewNeeded.toLocaleString("ko-KR")}건`],
+        ["부적격", `${counts.notRecommended.toLocaleString("ko-KR")}건`],
         ["마감 임박", `${dashboard.counts.deadlineSoon.toLocaleString("ko-KR")}건`],
         ["룰셋", dashboard.rulesetVer],
         ["스코어링", dashboard.scoringVer],
@@ -93,13 +94,13 @@ export function renderDashboardReport(input: {
 
 function renderMatches(matches: MatchCard[]): string {
   const rows = matches
-    .filter((match) => match.eligibility !== "ineligible")
+    .filter((match) => recommendationTierForMatch(match) !== "not_recommended")
     .slice(0, 12)
     .map((match) => [
-      eligibilityLabel(match.eligibility),
+      eligibilityLabel(match),
       match.title,
       match.agency ?? "-",
-      `${match.fitScore.toLocaleString("ko-KR")}점`,
+      scoreLabel(match),
       supportAmountLabel(match.supportAmount),
       dDayLabel(match.dDay),
       match.detailUrl ?? `/grants/${encodeURIComponent(match.grantId)}`,
@@ -140,7 +141,7 @@ function renderNextQuestion(dashboard: DashboardResult): string {
 
 function nextActions(dashboard: DashboardResult): string[] {
   const actions: string[] = [];
-  if (dashboard.counts.eligible > 0) {
+  if (dashboardTrustCounts(dashboard.counts).recommendable > 0) {
     actions.push("- 적격 공고는 `/applications`에서 저장, 담당자, 리마인더를 지정한다.");
   }
   if (dashboard.nextQuestion) {
@@ -180,10 +181,29 @@ function companyLabel(dashboard: DashboardResult): string {
   return parts.length > 0 ? parts.join(" · ") : "현재 회사";
 }
 
-function eligibilityLabel(value: MatchCard["eligibility"]): string {
-  if (value === "eligible") return "적격";
-  if (value === "conditional") return "확인 필요";
+function dashboardTrustCounts(counts: DashboardResult["counts"]) {
+  return {
+    recommendable: counts.recommendable ?? counts.eligible,
+    reviewNeeded: counts.reviewNeeded ?? counts.conditional,
+    notRecommended: counts.notRecommended ?? counts.ineligible,
+  };
+}
+
+function recommendationTierForMatch(match: MatchCard): NonNullable<MatchCard["recommendationTier"]> {
+  return match.recommendationTier ??
+    (match.eligibility === "eligible" ? "recommendable" : match.eligibility === "ineligible" ? "not_recommended" : "needs_profile_input");
+}
+
+function eligibilityLabel(match: MatchCard): string {
+  if (match.scoreDisplay === "hidden" && match.eligibility !== "ineligible") return "확인 필요";
+  if (recommendationTierForMatch(match) === "recommendable") return "적격";
+  if (match.eligibility !== "ineligible") return "확인 필요";
   return "부적격";
+}
+
+function scoreLabel(match: MatchCard): string {
+  if (match.scoreDisplay !== "hidden") return `${match.fitScore.toLocaleString("ko-KR")}점`;
+  return match.eligibility === "ineligible" ? "미해당" : "확인 필요";
 }
 
 function supportAmountLabel(amount: MatchCard["supportAmount"]): string {

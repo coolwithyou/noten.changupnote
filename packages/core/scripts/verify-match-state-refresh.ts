@@ -100,11 +100,14 @@ const conditionalState = plan.states.find((state) => state.sourceId === "industr
 assert.ok(conditionalState, "conditional match state should exist");
 assert.equal(conditionalState.eligibility, "conditional");
 assert.deepEqual(conditionalState.match.unknown_fields, ["industry"]);
+assert.equal(conditionalState.match.review_gate?.tier, "needs_core_review");
+assert.equal(conditionalState.match.review_gate?.scoreDisplay, "hidden");
 
 const malformedFounderAgeState = plan.states.find((state) => state.sourceId === "founder-age-malformed");
 assert.ok(malformedFounderAgeState, "malformed founder age match state should exist");
 assert.equal(malformedFounderAgeState.eligibility, "conditional");
 assert.deepEqual(malformedFounderAgeState.match.unknown_fields, ["founder_age"]);
+assert.equal(malformedFounderAgeState.match.review_gate?.tier, "needs_profile_input");
 
 console.log(JSON.stringify({
   ok: true,
@@ -115,6 +118,7 @@ console.log(JSON.stringify({
     "match_state_refresh_eligible_until",
     "match_state_refresh_rule_trace",
     "match_state_refresh_unknown_fields",
+    "match_state_refresh_review_gate",
     "match_state_refresh_malformed_founder_age",
   ],
   counts: plan.counts,

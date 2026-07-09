@@ -1,4 +1,4 @@
-import type { GrantCriterion, GrantRequiredDocument, MatchResult, NormalizedGrant } from "@cunote/contracts";
+import type { GrantCriterion, GrantRequiredDocument, MatchRecommendationTier, MatchResult, NormalizedGrant } from "@cunote/contracts";
 import {
   buildBizInfoProgramExtractionInput,
 } from "../bizinfo/extraction-input.js";
@@ -236,10 +236,30 @@ function countMatches(matches: MatchResult[]): Record<string, number> {
 }
 
 function compareMatch(a: MatchResult, b: MatchResult): number {
+  const trustRank = recommendationTierRank(a) - recommendationTierRank(b);
+  if (trustRank !== 0) return trustRank;
+
   const rank: Record<MatchResult["eligibility"], number> = {
     eligible: 0,
     conditional: 1,
     ineligible: 2,
   };
   return rank[a.eligibility] - rank[b.eligibility] || b.fit_score - a.fit_score;
+}
+
+function recommendationTierRank(match: MatchResult): number {
+  const tier = match.review_gate?.tier ?? fallbackRecommendationTier(match);
+  const rank: Record<MatchRecommendationTier, number> = {
+    recommendable: 0,
+    needs_profile_input: 1,
+    needs_core_review: 2,
+    not_recommended: 3,
+  };
+  return rank[tier];
+}
+
+function fallbackRecommendationTier(match: MatchResult): MatchRecommendationTier {
+  if (match.eligibility === "ineligible") return "not_recommended";
+  if (match.eligibility === "conditional") return "needs_profile_input";
+  return "recommendable";
 }

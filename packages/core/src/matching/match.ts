@@ -7,6 +7,8 @@ import type {
   FounderAgeCriterionValue,
   GrantCriterion,
   ListCriterionValue,
+  MatchReviewGate,
+  MatchReviewReason,
   MatchResult,
   NextQuestion,
   RegionCriterionValue,
@@ -16,8 +18,19 @@ import { REGION_LABELS } from "../kstartup/constants.js";
 import { industryCodeMatches } from "../industry/ksic.js";
 import { certsMatch } from "../certification/certs.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v1";
-export const SCORING_VERSION = "scoring-fit-v1";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v2";
+export const SCORING_VERSION = "scoring-fit-v2-trust-gate";
+
+const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
+  "industry",
+  "certification",
+  "business_status",
+  "target_type",
+  "other",
+]);
+
+const HIGH_RISK_DOMAIN_PATTERN =
+  /원전|원자력|SMR|핵심부품|로봇|서비스로봇|실증로봇|반도체|팹리스|바이오|의료기기|헬스케어|방산|우주|항공|해양|수소|이차전지|배터리|소부장|KEPIC|ASME|(?:최근\s*\d+\s*년.{0,24}(?:매출|실적|납품|기술개발|수행).{0,24}(?:원전|원자력|로봇|반도체|바이오|의료기기|분야))|(?:(?:매출|실적|납품|기술개발|수행).{0,24}(?:원전|원자력|로봇|반도체|바이오|의료기기|분야))/i;
 
 export function matchGrantCriteria(
   criteria: GrantCriterion[],
@@ -40,6 +53,12 @@ export function matchGrantCriteria(
   const unknown_fields = unique(
     ruleTrace.filter((entry) => entry.result === "unknown").map((entry) => entry.dimension),
   );
+  const reviewGate = buildReviewGate({
+    eligibility,
+    traceEntries: ruleTrace,
+    criteria,
+    criteriaExtracted: true,
+  });
 
   const result: MatchResult = {
     eligibility,
@@ -49,6 +68,7 @@ export function matchGrantCriteria(
     ruleset_ver: RULESET_VERSION,
     scoring_ver: SCORING_VERSION,
     criteria_extracted: true,
+    review_gate: reviewGate,
   };
   const question = nextQuestion(unknown_fields);
   if (question) result.next_question = question;
@@ -71,6 +91,12 @@ function unstructuredCriteriaResult(): MatchResult {
     ruleset_ver: RULESET_VERSION,
     scoring_ver: SCORING_VERSION,
     criteria_extracted: false,
+    review_gate: buildReviewGate({
+      eligibility: "conditional",
+      traceEntries: [entry],
+      criteria: [],
+      criteriaExtracted: false,
+    }),
   };
   const question = nextQuestion(["other"]);
   if (question) result.next_question = question;
@@ -484,6 +510,180 @@ function scoreFit(eligibility: Eligibility, traceEntries: RuleTraceEntry[]): num
   if (required.length === 0) return 70;
   const passCount = required.filter((entry) => entry.result === "pass").length;
   return Math.round(60 + (passCount / required.length) * 35);
+}
+
+function buildReviewGate(input: {
+  eligibility: Eligibility;
+  traceEntries: RuleTraceEntry[];
+  criteria: GrantCriterion[];
+  criteriaExtracted: boolean;
+}): MatchReviewGate {
+  if (!input.criteriaExtracted) {
+    return {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: [{
+        code: "unstructured_criteria",
+        dimension: "other",
+        label: "공고 자격조건이 아직 구조화되지 않아 원문 확인이 필요해요.",
+      }],
+    };
+  }
+
+  const hardFails = input.traceEntries.filter(isHardFailTrace);
+  if (hardFails.length > 0) {
+    return {
+      tier: "not_recommended",
+      scoreDisplay: "hidden",
+      reasons: uniqueReasons(hardFails.map((entry) =>
+        reviewReason("hard_fail", entry, "필수 조건을 충족하지 못했어요."),
+      )),
+    };
+  }
+
+  const coreUnknowns = input.traceEntries
+    .map((entry, index) => ({ entry, criterion: input.criteria[index] }))
+    .filter(({ entry, criterion }) => isHardUnknownTrace(entry) && isCoreReviewTrace(entry, criterion));
+  if (coreUnknowns.length > 0) {
+    return {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: uniqueReasons(coreUnknowns.map(({ entry }) =>
+        reviewReason("core_dimension_unknown", entry, "핵심 자격 조건을 원문으로 확인해야 해요."),
+      )),
+    };
+  }
+
+  const unverifiedCoreCriteria = input.criteria
+    .map((criterion, index) => ({ criterion, entry: input.traceEntries[index] }))
+    .filter(({ criterion, entry }) => isUnverifiedCoreCriterion(criterion, entry));
+  if (unverifiedCoreCriteria.length > 0) {
+    return {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: uniqueReasons(unverifiedCoreCriteria.map(({ criterion, entry }) =>
+        unverifiedReviewReason(criterion, entry),
+      )),
+    };
+  }
+
+  const requiredCount = input.traceEntries.filter((entry) => entry.kind === "required").length;
+  const highRiskCriterion = input.criteria.find((criterion) => hasHighRiskSignal(criterion));
+  if (requiredCount <= 1 && highRiskCriterion) {
+    return {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: [{
+        code: "criteria_under_extracted",
+        dimension: highRiskCriterion.dimension,
+        label: "특수 분야 자격 조건이 충분히 구조화되지 않아 원문 확인이 필요해요.",
+        ...(highRiskCriterion.source_span ? { sourceSpan: highRiskCriterion.source_span } : {}),
+      }],
+    };
+  }
+
+  const profileUnknowns = input.traceEntries.filter(isHardUnknownTrace);
+  if (profileUnknowns.length > 0) {
+    return {
+      tier: "needs_profile_input",
+      scoreDisplay: "hidden",
+      reasons: uniqueReasons(profileUnknowns.map((entry) =>
+        reviewReason("profile_missing", entry, "기업 정보를 입력하면 판정을 확정할 수 있어요."),
+      )),
+    };
+  }
+
+  if (input.eligibility === "eligible") {
+    return { tier: "recommendable", scoreDisplay: "numeric", reasons: [] };
+  }
+
+  return { tier: "needs_core_review", scoreDisplay: "hidden", reasons: [] };
+}
+
+function isHardFailTrace(entry: RuleTraceEntry): boolean {
+  return entry.result === "fail" && (entry.kind === "required" || entry.kind === "exclusion");
+}
+
+function isHardUnknownTrace(entry: RuleTraceEntry): boolean {
+  return (
+    (entry.result === "unknown" || entry.operator === "text_only") &&
+    (entry.kind === "required" || entry.kind === "exclusion")
+  );
+}
+
+function isCoreReviewTrace(entry: RuleTraceEntry, criterion: GrantCriterion | undefined): boolean {
+  return CORE_GATE_DIMENSIONS.has(entry.dimension) || hasHighRiskSignal(criterion, entry);
+}
+
+function isUnverifiedCoreCriterion(
+  criterion: GrantCriterion,
+  entry: RuleTraceEntry | undefined,
+): boolean {
+  return criterion.needs_review === true &&
+    (criterion.kind === "required" || criterion.kind === "exclusion") &&
+    entry?.result === "pass" &&
+    (CORE_GATE_DIMENSIONS.has(criterion.dimension) || hasHighRiskSignal(criterion, entry));
+}
+
+function hasHighRiskSignal(criterion?: GrantCriterion, entry?: RuleTraceEntry): boolean {
+  const values = [
+    criterion?.source_span,
+    criterion?.raw_text,
+    criterion?.source_field,
+    criterionValueText(criterion?.value),
+    entry?.source_span,
+    entry?.message,
+  ];
+  return values.some((value) => typeof value === "string" && HIGH_RISK_DOMAIN_PATTERN.test(value));
+}
+
+function criterionValueText(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  return ["note", "label", "labels", "tags", "industries", "certs", "certifications"]
+    .map((key) => record[key])
+    .flatMap((item) => Array.isArray(item) ? item : [item])
+    .filter((item): item is string => typeof item === "string")
+    .join(" ");
+}
+
+function reviewReason(
+  code: MatchReviewReason["code"],
+  entry: RuleTraceEntry,
+  fallbackLabel: string,
+): MatchReviewReason {
+  return {
+    code,
+    dimension: entry.dimension,
+    label: entry.message || fallbackLabel,
+    ...(entry.source_span ? { sourceSpan: entry.source_span } : {}),
+  };
+}
+
+function unverifiedReviewReason(
+  criterion: GrantCriterion,
+  entry: RuleTraceEntry | undefined,
+): MatchReviewReason {
+  const reason: MatchReviewReason = {
+    code: "criteria_under_extracted",
+    dimension: criterion.dimension,
+    label: `${labelFor(criterion.dimension)} 조건은 검수 전 구조화 결과라 원문 확인이 필요해요.`,
+  };
+  const sourceSpan = criterion.source_span ?? entry?.source_span;
+  if (sourceSpan) reason.sourceSpan = sourceSpan;
+  return reason;
+}
+
+function uniqueReasons(reasons: MatchReviewReason[]): MatchReviewReason[] {
+  const seen = new Set<string>();
+  const result: MatchReviewReason[] = [];
+  for (const reason of reasons) {
+    const key = `${reason.code}:${reason.dimension}:${reason.sourceSpan ?? reason.label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(reason);
+  }
+  return result;
 }
 
 function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {

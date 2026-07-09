@@ -11,7 +11,10 @@ import type {
   GrantBenefitFamily,
   GrantBenefitSource,
   GrantStatus,
+  MatchRecommendationTier,
   MatchResult,
+  MatchReviewReason,
+  MatchScoreDisplay,
   WriteSupportLevel,
 } from "./index.js";
 
@@ -144,10 +147,25 @@ export interface TeaserResult {
     conditional: number;
     ineligible: number;
     deadlineSoon: number;
+    recommendable?: number;
+    reviewNeeded?: number;
+    notRecommended?: number;
   };
   matches: MatchCard[];
+  recommendableMatches?: MatchCard[];
+  reviewNeededMatches?: MatchCard[];
+  searchContext?: TeaserSearchContext;
   privacyNote: string;
   companyEvidence?: CompanyEvidence | null;
+}
+
+export interface TeaserSearchContext {
+  /** 매칭 판정 기준 시각. */
+  asOf: string;
+  /** 이번 응답을 만들 때 실제로 판정한 공고 수. */
+  evaluatedGrantCount: number;
+  /** 판정 대상 공고 중 확인 가능한 가장 최근 원본 수집 시각. */
+  lastCollectedAt: string | null;
 }
 
 export interface MatchCard {
@@ -175,6 +193,12 @@ export interface MatchCard {
   scoringVer: string;
   /** 공고 조건이 구조화 추출됐는지. false면 적합도 미산정(UI는 숫자 대신 —로 표기). */
   criteriaExtracted?: boolean;
+  /** 추천 노출 가능 여부. eligibility와 별도로 목록 분리와 정렬에 사용한다. */
+  recommendationTier?: MatchRecommendationTier;
+  /** 숫자 적합도 표시 여부. hidden이면 UI는 확인 필요 문구를 우선한다. */
+  scoreDisplay?: MatchScoreDisplay;
+  /** 추천에서 제외되거나 확인 필요로 내려간 이유. */
+  reviewReasons?: MatchReviewReason[];
   /** 지원서 작성 방식(수집 시 규칙 분류). */
   authoringMode: AuthoringMode;
   /**

@@ -50,6 +50,7 @@ import {
 const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
 const MANUAL_PROFILE_STORAGE_KEY = "cunote.matchesManualProfiles.v1";
 const TEASER_FALLBACK_MESSAGE = "매칭 결과를 불러오지 못했습니다.";
+const KOREA_TIME_ZONE = "Asia/Seoul";
 
 type Status = "idle" | "loading" | "ready" | "error" | "empty";
 type ProfileFieldView = { key: string; label: string; value: string; available: boolean };
@@ -170,6 +171,7 @@ export function MatchesExperience() {
 
   const maskedBiz = teaser?.companyEvidence?.maskedBizNo ?? (bizNo ? maskBiz(bizNo) : null);
   const badge = headerBadge(status, maskedBiz);
+  const searchContextNoteText = teaser ? searchContextNote(teaser.searchContext) : null;
 
   async function saveAndContinue(grantId?: string) {
     if (continuing) return;
@@ -219,7 +221,7 @@ export function MatchesExperience() {
           </Badge>
           <h1 className="max-w-4xl text-3xl font-semibold tracking-normal sm:text-4xl">
             {status === "ready" && teaser ? (
-              readyHeadline(teaser.counts)
+              readyHeadline(teaser)
             ) : status === "error" ? (
               "매칭 결과를 불러오지 못했어요"
             ) : status === "empty" ? (
@@ -235,6 +237,11 @@ export function MatchesExperience() {
                 ? "사업자번호만 있으면 받을 수 있는 지원사업을 바로 찾아드려요."
                 : "내 사업자 정보를 표준 조건과 대조한 결과예요. 조건마다 충족 여부를 함께 보여드려요."}
           </p>
+          {status === "ready" && searchContextNoteText ? (
+            <p className="max-w-3xl text-xs leading-5 text-muted-foreground sm:text-sm">
+              {searchContextNoteText}
+            </p>
+          ) : null}
         </div>
       </header>
 
@@ -251,7 +258,7 @@ export function MatchesExperience() {
               onProfileSubmit={applyManualProfile}
               submitting={profileSubmitting}
             />
-            <ProgramsSection matches={teaser.matches} onPrepare={saveAndContinue} preparing={continuing} />
+            <ProgramsExperience teaser={teaser} onPrepare={saveAndContinue} preparing={continuing} />
           </>
         ) : null}
       </main>
@@ -649,16 +656,66 @@ function NumericSuffixInput({
 
 /* ───────────────────────── 지원 가능한 사업 ───────────────────────── */
 
-function ProgramsSection({ matches, onPrepare, preparing }: { matches: MatchCard[]; onPrepare: (grantId?: string) => void; preparing: boolean }) {
+function ProgramsExperience({
+  teaser,
+  onPrepare,
+  preparing,
+}: {
+  teaser: TeaserResult;
+  onPrepare: (grantId?: string) => void;
+  preparing: boolean;
+}) {
+  const recommendableMatches = teaser.recommendableMatches ?? teaser.matches.filter(isRecommendableMatch);
+  const reviewNeededMatches = teaser.reviewNeededMatches ?? teaser.matches.filter(isReviewNeededMatch);
+
+  return (
+    <>
+      <ProgramsSection
+        title="지원 가능한 사업"
+        emptyText="현재 정보로 바로 지원 가능하다고 확인된 사업은 아직 없어요."
+        matches={recommendableMatches}
+        onPrepare={onPrepare}
+        preparing={preparing}
+      />
+      <ProgramsSection
+        title="확인이 필요한 사업"
+        description="업종, 인증, 수행실적처럼 원문 확인이 필요한 조건이 있어요."
+        emptyText="원문 확인이 필요한 후보 사업은 없어요."
+        matches={reviewNeededMatches}
+        onPrepare={onPrepare}
+        preparing={preparing}
+        tone="review"
+      />
+    </>
+  );
+}
+
+function ProgramsSection({
+  title,
+  description,
+  emptyText,
+  matches,
+  onPrepare,
+  preparing,
+  tone = "default",
+}: {
+  title: string;
+  description?: string;
+  emptyText: string;
+  matches: MatchCard[];
+  onPrepare: (grantId?: string) => void;
+  preparing: boolean;
+  tone?: "default" | "review";
+}) {
   if (matches.length === 0) {
     return (
       <section>
         <h2 className="mb-4 text-xl font-semibold tracking-normal">
-          지원 가능한 사업
+          {title}
         </h2>
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-          아직 적격으로 확인된 사업이 없어요. 정보를 더 입력하면 매칭 범위가 넓어져요.
+            {emptyText}
           </CardContent>
         </Card>
       </section>
@@ -671,9 +728,13 @@ function ProgramsSection({ matches, onPrepare, preparing }: { matches: MatchCard
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold tracking-normal">
-            지원 가능한 사업
+            {title}
           </h2>
-          {writeSupportedCount > 0 ? (
+          {description ? (
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              {description}
+            </p>
+          ) : writeSupportedCount > 0 ? (
             <p className="mt-1.5 text-sm text-muted-foreground">
               표시된 {matches.length}건 중{" "}
               <span className="font-semibold text-primary">{writeSupportedCount}건</span>
@@ -684,7 +745,7 @@ function ProgramsSection({ matches, onPrepare, preparing }: { matches: MatchCard
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="default">충족</Badge>
           <Badge variant="secondary">확인 필요</Badge>
-          <Badge variant="outline">미해당</Badge>
+          {tone === "default" ? <Badge variant="outline">미해당</Badge> : null}
         </div>
       </div>
 
@@ -710,9 +771,11 @@ function ProgramCard({
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const elig = eligibilityChip(match.eligibility);
-  const criteria = match.ruleTrace.filter((chip) => chip.result !== "text_only");
+  const criteria = match.ruleTrace;
   const passCount = criteria.filter((chip) => chip.result === "pass").length;
-  const unscored = match.criteriaExtracted === false;
+  const reviewCount = criteria.filter((chip) => chip.result === "unknown" || chip.result === "text_only").length;
+  const scoreHidden = match.criteriaExtracted === false || match.scoreDisplay === "hidden";
+  const primaryReviewReason = match.reviewReasons?.[0];
   const writeBadge = writeSupportBadge(match.writeSupport);
 
   return (
@@ -746,13 +809,20 @@ function ProgramCard({
           </div>
           <div className="min-w-[150px] flex-none text-right">
             <div className="mb-0.5 text-xs text-muted-foreground">적합도</div>
-            {unscored ? (
-              <div
-                className="text-2xl font-semibold leading-none text-muted-foreground tabular-nums"
-                title="공고 조건이 아직 구조화되지 않아 적합도를 산정하지 못했어요."
-              >
-                —
-              </div>
+            {scoreHidden ? (
+              <>
+                <div
+                  className="text-lg font-semibold leading-none text-muted-foreground"
+                  title="핵심 조건 확인 전에는 숫자 적합도를 표시하지 않아요."
+                >
+                  확인 필요
+                </div>
+                {primaryReviewReason ? (
+                  <div className="mt-2 max-w-[180px] text-xs leading-5 text-muted-foreground">
+                    {primaryReviewReason.label}
+                  </div>
+                ) : null}
+              </>
             ) : (
               <>
                 <div className="text-2xl font-semibold leading-none text-primary tabular-nums">
@@ -770,7 +840,7 @@ function ProgramCard({
         </div>
         <div className="mt-4 flex items-center justify-between border-t pt-3.5">
           <span className="text-xs text-muted-foreground">
-            조건 {criteria.length} · 충족 {passCount}
+            조건 {criteria.length} · 충족 {passCount}{reviewCount > 0 ? ` · 확인 ${reviewCount}` : ""}
           </span>
           <span className="flex items-center gap-1 text-xs font-medium text-primary">
             {open ? "접기" : "조건 자세히 보기"}
@@ -781,7 +851,7 @@ function ProgramCard({
 
       {open ? (
         <div className="border-t bg-muted/30 px-5 pb-5 pt-4">
-          <div className="mb-3 text-xs font-semibold text-muted-foreground">적합 조건</div>
+          <div className="mb-3 text-xs font-semibold text-muted-foreground">세부 조건</div>
           {criteria.length > 0 ? (
             <div className="mb-5 flex flex-col gap-2">
               {criteria.map((chip, index) => (
@@ -822,6 +892,9 @@ function CriterionRow({ chip }: { chip: RuleTraceChip }) {
         </div>
         {chip.companyValue ? (
           <div className="mt-1 text-xs text-muted-foreground">{chip.companyValue}</div>
+        ) : null}
+        {chip.sourceSpan ? (
+          <div className="mt-1 text-xs leading-5 text-muted-foreground">{chip.sourceSpan}</div>
         ) : null}
       </div>
       <span className="flex-none self-center text-xs font-medium text-muted-foreground">
@@ -941,26 +1014,72 @@ function ErrorState({ error, onRetry }: { error: TeaserError | null; onRetry?: (
   );
 }
 
-function readyHeadline(counts: TeaserResult["counts"]): React.ReactNode {
-  if (counts.eligible > 0) {
+function readyHeadline(teaser: TeaserResult): React.ReactNode {
+  const recommendableCount = teaser.counts.recommendable ??
+    (teaser.recommendableMatches ?? teaser.matches.filter(isRecommendableMatch)).length;
+  const reviewNeededCount = teaser.counts.reviewNeeded ??
+    (teaser.reviewNeededMatches ?? teaser.matches.filter(isReviewNeededMatch)).length;
+  if (recommendableCount > 0) {
     return (
       <>
         지원 가능한 사업{" "}
-        <span className="text-primary">{counts.eligible.toLocaleString("ko-KR")}건</span>
+        <span className="text-primary">{recommendableCount.toLocaleString("ko-KR")}건</span>
         을 찾았어요
       </>
     );
   }
-  if (counts.conditional > 0) {
+  if (reviewNeededCount > 0) {
     return (
       <>
         조건을 확인하면 열리는 사업{" "}
-        <span className="text-primary">{counts.conditional.toLocaleString("ko-KR")}건</span>
+        <span className="text-primary">{reviewNeededCount.toLocaleString("ko-KR")}건</span>
         을 찾았어요
       </>
     );
   }
   return <>아직 조건에 맞는 사업을 찾지 못했어요</>;
+}
+
+function searchContextNote(context: TeaserResult["searchContext"]): string | null {
+  if (!context) return null;
+  const asOf = formatKoreanDateTime(context.asOf);
+  if (!asOf) return null;
+  const targetCount = context.evaluatedGrantCount.toLocaleString("ko-KR");
+  const lastCollectedAt = formatKoreanDateTime(context.lastCollectedAt);
+  const collectionNote = lastCollectedAt ? ` 마지막 공고 수집일은 ${lastCollectedAt}예요.` : "";
+  return `${asOf} 기준 지원 가능 여부를 확인할 수 있는 공고 ${targetCount}건을 대상으로 검색했어요.${collectionNote}`;
+}
+
+function formatKoreanDateTime(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: KOREA_TIME_ZONE,
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const byType = new Map(parts.map((part) => [part.type, part.value]));
+  const month = Number(byType.get("month"));
+  const day = Number(byType.get("day"));
+  const hourRaw = Number(byType.get("hour"));
+  const minute = Number(byType.get("minute"));
+  if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(hourRaw) || !Number.isFinite(minute)) {
+    return new Intl.DateTimeFormat("ko-KR", {
+      timeZone: KOREA_TIME_ZONE,
+      month: "long",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+  const hour = hourRaw === 24 ? 0 : hourRaw;
+  const minuteLabel = minute > 0 ? ` ${minute}분` : "";
+  return `${month}월 ${day}일 ${hour}시${minuteLabel}`;
 }
 
 function headerBadge(
@@ -1360,6 +1479,20 @@ function eligibilityChip(value: Eligibility): { label: string } {
   return { label: "미해당" };
 }
 
+function isRecommendableMatch(match: MatchCard): boolean {
+  return recommendationTierForMatch(match) === "recommendable";
+}
+
+function isReviewNeededMatch(match: MatchCard): boolean {
+  const tier = recommendationTierForMatch(match);
+  return tier === "needs_core_review" || tier === "needs_profile_input";
+}
+
+function recommendationTierForMatch(match: MatchCard): NonNullable<MatchCard["recommendationTier"]> {
+  return match.recommendationTier ??
+    (match.eligibility === "eligible" ? "recommendable" : match.eligibility === "ineligible" ? "not_recommended" : "needs_profile_input");
+}
+
 function isWriteSupported(level: WriteSupportLevel): boolean {
   return level === "template_fill" || level === "ai_draft";
 }
@@ -1400,6 +1533,8 @@ function writeSupportCta(level: WriteSupportLevel): string {
 function resultVisual(result: RuleTraceChipResult): { icon: React.ReactNode; text: string } {
   if (result === "pass")
     return { icon: <Check className="size-3" strokeWidth={3} />, text: "충족" };
+  if (result === "text_only")
+    return { icon: <HelpCircle className="size-3.5" />, text: "원문 확인" };
   if (result === "unknown")
     return { icon: <HelpCircle className="size-3.5" />, text: "확인 필요" };
   return { icon: <Minus className="size-3" strokeWidth={3} />, text: "미해당" };

@@ -40,6 +40,8 @@ export async function POST(request: Request) {
     });
     // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 (조회 실패 시 승격 없이 통과)
     data.matches = await annotateMatchCardWriteSupport(data.matches);
+    data.recommendableMatches = data.matches.filter(isRecommendableMatch);
+    data.reviewNeededMatches = data.matches.filter(isReviewNeededMatch);
     return NextResponse.json<ActionResult<TeaserResult>>({ ok: true, data });
   } catch (error) {
     if (error instanceof ServiceDataError) {
@@ -67,6 +69,20 @@ export async function POST(request: Request) {
       error: responseError,
     }, { status: isInputError ? 400 : 500 });
   }
+}
+
+function isRecommendableMatch(match: TeaserResult["matches"][number]): boolean {
+  return recommendationTierForMatch(match) === "recommendable";
+}
+
+function isReviewNeededMatch(match: TeaserResult["matches"][number]): boolean {
+  const tier = recommendationTierForMatch(match);
+  return tier === "needs_core_review" || tier === "needs_profile_input";
+}
+
+function recommendationTierForMatch(match: TeaserResult["matches"][number]): NonNullable<typeof match.recommendationTier> {
+  return match.recommendationTier ??
+    (match.eligibility === "eligible" ? "recommendable" : match.eligibility === "ineligible" ? "not_recommended" : "needs_profile_input");
 }
 
 async function readBody(request: Request): Promise<Partial<TeaserRequest>> {

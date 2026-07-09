@@ -28,6 +28,8 @@ export function DashboardView({
   onboardingProgress: OnboardingProgress;
   user?: HeaderUser | null;
 }) {
+  const counts = dashboardTrustCounts(dashboard.counts);
+
   return (
     <main className="min-h-screen bg-background text-foreground">
       <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/dashboard" })} />
@@ -53,9 +55,9 @@ export function DashboardView({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <SummaryMetric label="지금 적격" value={`${dashboard.counts.eligible}건`} />
-            <SummaryMetric label="확인 필요" value={`${dashboard.counts.conditional}건`} />
-            <SummaryMetric label="부적격" value={`${dashboard.counts.ineligible}건`} />
+            <SummaryMetric label="지금 적격" value={`${counts.recommendable}건`} />
+            <SummaryMetric label="확인 필요" value={`${counts.reviewNeeded}건`} />
+            <SummaryMetric label="부적격" value={`${counts.notRecommended}건`} />
             <SummaryMetric label="마감 임박" value={`${dashboard.counts.deadlineSoon}건`} />
           </div>
         </section>
@@ -78,6 +80,14 @@ export function DashboardView({
       </div>
     </main>
   );
+}
+
+function dashboardTrustCounts(counts: DashboardResult["counts"]) {
+  return {
+    recommendable: counts.recommendable ?? counts.eligible,
+    reviewNeeded: counts.reviewNeeded ?? counts.conditional,
+    notRecommended: counts.notRecommended ?? counts.ineligible,
+  };
 }
 
 function DashboardOnboardingPrompt({ progress }: { progress: OnboardingProgress }) {

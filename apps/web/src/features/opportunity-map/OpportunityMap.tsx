@@ -32,7 +32,7 @@ interface MatchesPayload {
 }
 
 const BUCKETS: Array<{ bucket: OpportunityBucket; title: string; description: string }> = [
-  { bucket: "now", title: "지금 받을 수 있어요", description: "필수 조건이 충족된 공고" },
+  { bucket: "now", title: "지금 받을 수 있어요", description: "필수 조건과 핵심 자격이 충족된 공고" },
   { bucket: "conditional", title: "확인이 필요해요", description: "입력 또는 원문 확인이 필요한 공고" },
   { bucket: "preparable", title: "준비하면 열려요", description: "잠금 조건을 해소해야 하는 공고" },
   { bucket: "soon", title: "곧 받을 수 있어요", description: "시간 조건으로 열릴 가능성" },
@@ -297,7 +297,9 @@ function OpportunityCard({ match }: { match: MatchCard }) {
       ) : null}
       <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span>{match.agency ?? "기관 미확인"}</span>
-        <strong className="font-semibold text-foreground">적합도 {match.fitScore}</strong>
+        <strong className="font-semibold text-foreground">
+          {scoreLabel(match)}
+        </strong>
       </div>
       <span className="text-xs font-medium text-muted-foreground">{formatSupportAmount(match.supportAmount)}</span>
     </>
@@ -359,6 +361,7 @@ function ineligibleReason(match: MatchCard): string {
 }
 
 function matchEligibilityLabel(match: MatchCard): string {
+  if (match.scoreDisplay === "hidden" && match.eligibility !== "ineligible") return "확인 필요";
   if (isLowEvidenceEligible(match)) return "추정 적격";
   if (match.eligibility === "eligible") return "적격";
   if (match.eligibility === "conditional") return "확인 필요";
@@ -366,8 +369,14 @@ function matchEligibilityLabel(match: MatchCard): string {
 }
 
 function matchEligibilityTone(match: MatchCard): "brand" | "success" | "warning" | "danger" | "neutral" {
+  if (match.scoreDisplay === "hidden" && match.eligibility !== "ineligible") return "warning";
   if (isLowEvidenceEligible(match)) return "warning";
   return eligibilityTone(match.eligibility);
+}
+
+function scoreLabel(match: MatchCard): string {
+  if (match.scoreDisplay !== "hidden") return `적합도 ${match.fitScore}`;
+  return match.eligibility === "ineligible" ? "미해당" : "확인 필요";
 }
 
 // unknown 은 배지 없음 — 매칭 화면(MatchesExperience)과 같은 규칙.

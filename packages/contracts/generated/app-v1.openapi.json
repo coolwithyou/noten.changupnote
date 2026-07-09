@@ -1671,6 +1671,21 @@
               "$ref": "#/components/schemas/MatchCard"
             }
           },
+          "recommendableMatches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchCard"
+            }
+          },
+          "reviewNeededMatches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchCard"
+            }
+          },
+          "searchContext": {
+            "$ref": "#/components/schemas/TeaserSearchContext"
+          },
           "privacyNote": {
             "type": "string"
           },
@@ -1701,6 +1716,36 @@
           },
           "error": {
             "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "TeaserSearchContext": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "evaluatedGrantCount",
+          "lastCollectedAt"
+        ],
+        "properties": {
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evaluatedGrantCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "lastCollectedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false
@@ -1776,6 +1821,18 @@
             "minimum": 0
           },
           "deadlineSoon": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recommendable": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "reviewNeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "notRecommended": {
             "type": "integer",
             "minimum": 0
           }
@@ -2013,6 +2070,31 @@
           "scoringVer": {
             "type": "string"
           },
+          "criteriaExtracted": {
+            "type": "boolean"
+          },
+          "recommendationTier": {
+            "type": "string",
+            "enum": [
+              "recommendable",
+              "needs_profile_input",
+              "needs_core_review",
+              "not_recommended"
+            ]
+          },
+          "scoreDisplay": {
+            "type": "string",
+            "enum": [
+              "numeric",
+              "hidden"
+            ]
+          },
+          "reviewReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchReviewReason"
+            }
+          },
           "detailUrl": {
             "anyOf": [
               {
@@ -2022,6 +2104,52 @@
                 "type": "null"
               }
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchReviewReason": {
+        "type": "object",
+        "required": [
+          "code",
+          "dimension",
+          "label"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "core_dimension_unknown",
+              "criteria_under_extracted",
+              "profile_missing",
+              "hard_fail",
+              "unstructured_criteria"
+            ]
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "region",
+              "biz_age",
+              "industry",
+              "size",
+              "revenue",
+              "employees",
+              "founder_age",
+              "founder_trait",
+              "certification",
+              "prior_award",
+              "ip",
+              "target_type",
+              "business_status",
+              "other"
+            ]
+          },
+          "label": {
+            "type": "string"
+          },
+          "sourceSpan": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -2648,7 +2776,8 @@
           "sourceAttachment",
           "templateRequired",
           "confidence",
-          "status"
+          "status",
+          "hwpxTemplateAvailable"
         ],
         "properties": {
           "documentKey": {
@@ -2716,6 +2845,9 @@
               "reviewed",
               "done"
             ]
+          },
+          "hwpxTemplateAvailable": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false
@@ -3027,6 +3159,12 @@
             "type": "boolean"
           },
           "industries": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "industry_codes": {
             "type": "array",
             "items": {
               "type": "string"

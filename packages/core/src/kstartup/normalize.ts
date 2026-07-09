@@ -309,6 +309,9 @@ export const INDUSTRY_RULES: IndustryRule[] = [
 const INDUSTRY_NEGATIVE_PATTERN =
   /제외|제한|불가|불허|우대|가점|가산|해당\s*없|예외|허용|환영|이외|아닌|없는\s*자|없어야|없을|않아도|불문|무관|우선\s*(?:선발|선정|지원|모집|대상)|순위|관심\s*(?:이|을)?\s*(?:있|많)|관계자|참관|수강|교육생|이수|취업|누구나/;
 
+const SPECIAL_DOMAIN_PATTERN =
+  /원전|원자력|SMR|핵심부품|로봇|서비스로봇|실증로봇|반도체|팹리스|소부장|바이오|의료기기|헬스케어|KEPIC|ASME|최근\s*\d+\s*년.{0,24}(?:매출|실적|납품|기술개발|수행)|(?:매출|실적|납품|기술개발|수행).{0,24}(?:원전|원자력|로봇|반도체|바이오|의료기기|분야)/;
+
 // 하드웨어+소프트웨어 동시 언급(기술 무관 서술) — SW 룰 오탐 방지.
 const HARDWARE_SOFTWARE_PATTERN =
   /하드웨어\s*[·,]?\s*(?:및|또는)?\s*소프트웨어|소프트웨어\s*[·,]?\s*(?:및|또는)?\s*하드웨어/;
@@ -652,6 +655,21 @@ function buildScopedTextCriteria(
   }
   // outcome "none"(인증 힌트 없음) → 인증 criterion 없음
 
+  const specialDomainSpan = firstSpecialDomainSentence(text);
+  if (specialDomainSpan) {
+    criteria.push(makeCriterion(sourceId, "special-domain-text", {
+      dimension: "other",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "특수 분야 업종·인증·수행실적 조건 확인 필요" },
+      confidence: 0.5,
+      source_field: "aply_trgt_ctnt",
+      source_span: specialDomainSpan,
+      raw_text: text,
+      needs_review: true,
+    }));
+  }
+
   if (TEXT_HINTS.priorAwardOrBadStanding.test(clean(row.aply_excl_trgt_ctnt))) {
     criteria.push(makeCriterion(sourceId, "exclusion-text", {
       dimension: "other",
@@ -756,6 +774,12 @@ function firstSentenceWith(text: string, pattern: RegExp): string {
   const normalized = clean(text);
   const parts = normalized.split(/[\r\n.。]+/).map((part) => part.trim()).filter(Boolean);
   return parts.find((part) => pattern.test(part)) ?? normalized.slice(0, 120);
+}
+
+function firstSpecialDomainSentence(text: string): string | null {
+  const normalized = clean(text);
+  if (!SPECIAL_DOMAIN_PATTERN.test(normalized)) return null;
+  return firstSentenceWith(normalized, SPECIAL_DOMAIN_PATTERN);
 }
 
 function splitComma(value: string | null | undefined): string[] {

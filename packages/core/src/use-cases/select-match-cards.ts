@@ -76,10 +76,14 @@ function sortMatchCards(matches: MatchCard[], sort: MatchSortKey): MatchCard[] {
 }
 
 function compareMatchCards(left: MatchCard, right: MatchCard, sort: MatchSortKey): number {
-  if (sort === "fit") return right.fitScore - left.fitScore;
+  if (sort === "fit") return scoreDisplayRank(left) - scoreDisplayRank(right) || right.fitScore - left.fitScore;
   if (sort === "amount") return amountMax(right) - amountMax(left);
   if (sort === "deadline") return deadlineRank(left) - deadlineRank(right);
   return 0;
+}
+
+function scoreDisplayRank(match: MatchCard): number {
+  return match.scoreDisplay === "hidden" ? 1 : 0;
 }
 
 function amountMax(match: MatchCard): number {

@@ -27,6 +27,19 @@ export const CRITERION_OPERATORS = [
 
 export const CRITERION_KINDS = ["required", "preferred", "exclusion"] as const;
 export const ELIGIBILITIES = ["eligible", "conditional", "ineligible"] as const;
+export const MATCH_RECOMMENDATION_TIERS = [
+  "recommendable",
+  "needs_profile_input",
+  "needs_core_review",
+  "not_recommended",
+] as const;
+export const MATCH_REVIEW_REASON_CODES = [
+  "core_dimension_unknown",
+  "criteria_under_extracted",
+  "profile_missing",
+  "hard_fail",
+  "unstructured_criteria",
+] as const;
 export const GRANT_BENEFIT_FAMILIES = [
   "funding",
   "loan",
@@ -82,6 +95,9 @@ export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
 export type CriterionKind = (typeof CRITERION_KINDS)[number];
 export type Eligibility = (typeof ELIGIBILITIES)[number];
+export type MatchRecommendationTier = (typeof MATCH_RECOMMENDATION_TIERS)[number];
+export type MatchScoreDisplay = "numeric" | "hidden";
+export type MatchReviewReasonCode = (typeof MATCH_REVIEW_REASON_CODES)[number];
 export type CriterionResult = "pass" | "fail" | "unknown";
 export type GrantSource = "kstartup" | "bizinfo" | "bizinfo_event";
 export type GrantStatus = "upcoming" | "open" | "closed" | "unknown";
@@ -329,6 +345,19 @@ export interface RuleTraceEntry {
   message: string;
 }
 
+export interface MatchReviewReason {
+  code: MatchReviewReasonCode;
+  dimension: CriterionDimension;
+  label: string;
+  sourceSpan?: string;
+}
+
+export interface MatchReviewGate {
+  tier: MatchRecommendationTier;
+  scoreDisplay: MatchScoreDisplay;
+  reasons: MatchReviewReason[];
+}
+
 export interface NextQuestion {
   field: CriterionDimension;
   prompt: string;
@@ -345,6 +374,8 @@ export interface MatchResult {
   scoring_ver: string;
   /** 공고에서 구조화된 조건(criteria)이 1건 이상 추출됐는지. 0건이면 false(미산정). */
   criteria_extracted: boolean;
+  /** 추천 노출 가능 여부와 점수 표시 정책. eligibility 판정과 별도로 UI/정렬에서 사용한다. */
+  review_gate?: MatchReviewGate;
 }
 
 export * from "./bizno.js";

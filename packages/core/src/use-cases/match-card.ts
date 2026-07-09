@@ -6,6 +6,7 @@ import type {
   CriterionDimension,
   Grant,
   MatchCard,
+  MatchRecommendationTier,
   MatchResult,
   NormalizedGrant,
   OpportunityBucket,
@@ -29,6 +30,7 @@ export function toMatchCard<TPayload>(
   const { grant } = entry.item;
   const grantId = grantKey(grant);
   const detailUrl = `/grants/${encodeURIComponent(grantId)}`;
+  const reviewGate = entry.match.review_gate;
 
   return {
     grantId,
@@ -49,6 +51,9 @@ export function toMatchCard<TPayload>(
     rulesetVer: entry.match.ruleset_ver,
     scoringVer: entry.match.scoring_ver,
     criteriaExtracted: entry.match.criteria_extracted !== false,
+    recommendationTier: reviewGate?.tier ?? fallbackRecommendationTier(entry.match),
+    scoreDisplay: reviewGate?.scoreDisplay ?? "numeric",
+    reviewReasons: reviewGate?.reasons ?? [],
     authoringMode: grant.f_authoring_mode ?? "unknown",
     writeSupport: deriveWriteSupport(grant),
     detailUrl,
@@ -272,6 +277,8 @@ export function urgencyForDday(dDay: number | null): ActionQueueItem["urgency"] 
 }
 
 function bucketForMatch(match: MatchResult): OpportunityBucket {
+  const tier = match.review_gate?.tier ?? fallbackRecommendationTier(match);
+  if (match.eligibility !== "ineligible" && tier !== "recommendable") return "conditional";
   if (match.eligibility === "eligible") return "now";
   if (match.eligibility === "conditional") return "conditional";
   if (isTimeUnlockableMatch(match)) return "soon";
@@ -363,6 +370,9 @@ function compareMatch(
   aWriteSupportRank = 0,
   bWriteSupportRank = 0,
 ): number {
+  const trustRank = recommendationTierRank(a) - recommendationTierRank(b);
+  if (trustRank !== 0) return trustRank;
+
   // 조건이 아직 구조화되지 않은(미산정) 공고는 산정된 공고들 아래로 내린다.
   const aExtracted = a.criteria_extracted !== false;
   const bExtracted = b.criteria_extracted !== false;
@@ -376,6 +386,23 @@ function compareMatch(
   return rank[a.eligibility] - rank[b.eligibility] ||
     aWriteSupportRank - bWriteSupportRank ||
     b.fit_score - a.fit_score;
+}
+
+function fallbackRecommendationTier(match: MatchResult): MatchRecommendationTier {
+  if (match.eligibility === "ineligible") return "not_recommended";
+  if (match.eligibility === "conditional") return "needs_profile_input";
+  return "recommendable";
+}
+
+function recommendationTierRank(match: MatchResult): number {
+  const tier = match.review_gate?.tier ?? fallbackRecommendationTier(match);
+  const rank: Record<MatchRecommendationTier, number> = {
+    recommendable: 0,
+    needs_profile_input: 1,
+    needs_core_review: 2,
+    not_recommended: 3,
+  };
+  return rank[tier];
 }
 
 function estimateMatchConfidence(match: MatchResult): number {

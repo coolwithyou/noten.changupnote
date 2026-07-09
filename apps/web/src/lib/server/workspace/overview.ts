@@ -1,5 +1,5 @@
 import { desc, eq } from "drizzle-orm";
-import type { CompanyRole } from "@cunote/contracts";
+import type { CompanyRole, DashboardResult } from "@cunote/contracts";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import type { WebSession } from "@/lib/server/auth/session";
 import { loadBillingSubscriptionSnapshot, type BillingSubscriptionSnapshot } from "@/lib/server/billing/subscription";
@@ -92,7 +92,7 @@ export async function loadWorkspaceOverview(input: {
     loadBillingSubscriptionSnapshot({ access: input.access }),
   ]);
   const currentCompany = companies.find((company) => company.id === input.access.companyId) ?? fallbackCompany(input.access);
-  const activeOpportunityCount = dashboard.counts.eligible + dashboard.counts.conditional;
+  const activeOpportunityCount = recommendableCount(dashboard.counts) + reviewNeededCount(dashboard.counts);
   const seatUsage = buildWorkspaceSeatUsage(members, invitations, new Date(), billingSubscription.seatLimit);
 
   return {
@@ -143,10 +143,18 @@ export async function loadWorkspaceOverview(input: {
         limit: null,
         unit: "건",
         tone: activeOpportunityCount > 0 ? "success" : "neutral",
-        description: "적격과 조건부 확인 공고 합계",
+        description: "지금 적격과 확인 필요 공고 합계",
       },
     ],
   };
+}
+
+function recommendableCount(counts: DashboardResult["counts"]): number {
+  return counts.recommendable ?? counts.eligible;
+}
+
+function reviewNeededCount(counts: DashboardResult["counts"]): number {
+  return counts.reviewNeeded ?? counts.conditional;
 }
 
 function buildWorkspaceSeatUsage(
