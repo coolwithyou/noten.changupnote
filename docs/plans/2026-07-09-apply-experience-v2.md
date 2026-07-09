@@ -145,9 +145,21 @@
 
 **ADR-2 그라운딩: RAG 스킵, 전문 주입 + 프롬프트 캐싱.** 근거 R3·R7. 그라운딩 번들(§7.3) 조립 후 Anthropic `document` 블록 + `cache_control: {type:"ephemeral"}`. markdown 캡은 **토큰 추정 기준 24,000토큰**(대략 한국어 35k~45k자, `chars/1.6` 추정치 사용, env `CHAT_GROUNDING_TOKEN_CAP`) — 초과 시 앞에서부터 절단하고 시스템 프롬프트에 절단 사실 명시.
 
+> **P0-2 실측 추기 (2026-07-10, 메인 확정 — 근거: `scripts/spikes/grounding-input-spike.ts`, 실공고 2건)**:
+> - **PDF 재주입 불필요.** text/plain markdown 인용의 char 오프셋이 원문과 전건 정확 일치(UTF-16·codepoint 모두 — 한글 전부 BMP). 위치 특정 목적에는 markdown 전문 주입으로 충분.
+> - **그라운딩 빌더(§7.3) 전처리 규약 2건 추가**: ① archive markdown의 **YAML frontmatter는 주입 전 절단**(실측: frontmatter의 R2 URL이 인용에 그대로 유출) ② **소스 선택은 공고 본문성 archive 우선** — markdown 보유 archive가 본문이 아닌 첨부 양식(신청서)인 케이스 실측됨. 본문성 소스가 없으면 §4.4 (c) 규약대로 첫 메시지에 그라운딩 한계 고지.
+> - 캐싱 실증: 실공고 markdown 5.1k~8.7k 토큰이 Haiku 최소 캐시 임계(4,096)를 초과해 cache write 발생 확인 — §7.3 배치 규약 실현성 검증.
+> - 인용 span이 섹션 단위로 거친 것(HWP→markdown 문단 구조 한계)은 v1 수용. 문장 단위 하이라이트·페이지 점프는 P6-6에서.
+
 **ADR-3 인용 강제: Anthropic Citations API 사용.** 근거 R4. 공고 markdown을 citations 활성 document로 주입. **주의: Citations와 structured output 동시 사용 불가(400)** — 구조화 추출(필드 제안, 매칭 tool)은 citations 없는 별도 호출로 분리.
 
 **ADR-4 채팅 전송 계층: Vercel AI SDK v6 조건부 채택 — Phase 0 PoC로 확정.** `useChat` + `streamText` + `toUIMessageStreamResponse()`가 기본안. 단 AI SDK가 Anthropic citations 델타를 UIMessage parts로 표면화하지 못하면(PoC 판정) **폴백: 기존 raw fetch 관례를 확장한 자체 SSE**(`ReadableStream` + `citations_delta` 파싱). 폴백 시에도 클라이언트 컴포넌트 인터페이스(§7.2의 메시지 형태)는 동일하게 유지해 상위 UI를 격리한다.
+
+> **P0-1 판정 (2026-07-10, 메인 확정 — 근거: `scripts/spikes/chat-citations-spike.ts` 실측, 메인 재실행 검증)**: **AI SDK 채택.** 버전은 설계 시점 전제(v6)가 아닌 실측 최신 **`ai@7.0.19` + `@ai-sdk/anthropic@4.0.11`** 기준으로 확정(Phase 3 설치 시 이 버전으로 핀). 실측 근거:
+> - `streamText` fullStream에서 citations가 별도 **`source` 파트**로, `toUIMessageStreamResponse({ sendSources: true })` 경유 시 **`source-document`** UIMessage 파트로 표면화됨. **`sendSources: true` 명시 필수**(기본값은 미포함).
+> - `citedText`/`startCharIndex`/`endCharIndex`는 최상위가 아니라 **`providerMetadata.anthropic`에 중첩** — §7.2 `ChatMessageContent.citations`로의 얕은 매핑 계층을 서버 영속화·클라이언트 공용으로 둔다(전송 계층 격리 지점 유지).
+> - `source`/`source-document` 파트는 연관 텍스트 블록(text-start~text-end) **직전**에 위치 — 인용 없는 텍스트 블록의 `generalNotice`(원칙 P4) 구분을 스트림 순서로 구현 가능.
+> - 폴백 경로(raw SSE `citations_delta` 파싱)도 같은 스파이크에서 실측 검증됨(`char_location` 인용 동형) — 헤지 확보.
 
 **ADR-5 필드 답변 상태 모델: `grant_document_drafts`에 `field_answers` JSONB 컬럼 신설.**
 
@@ -170,10 +182,10 @@ type DraftFieldAnswer = {
 
 | 기존 기록 경로 | 처분 (Phase 2) |
 |---|---|
-| `PATCH /api/web/document-drafts/[draftId]`(route.ts:36,44)가 클라이언트 `filledFields`를 그대로 저장 (`DocumentDraftWorkspace.tsx:143`이 사용 중) | **`filledFields` 수용 중단.** 필드 값 변경은 신규 `field-answers` PATCH(§7.1)로만. 구 클라이언트 이식(P2-7) 시 호출부 전환. 전환 완료 전까지 구 PATCH는 유지하되, 저장 시 `fieldAnswers`에 `status:"edited", source:"user"`로 동기 반영해 파생 일관성 유지 |
+| `PATCH /api/web/document-drafts/[draftId]`(route.ts:36,44)가 클라이언트 `filledFields`를 그대로 저장 (`DocumentDraftWorkspace.tsx:143`이 사용 중) | **`filledFields` 수용 중단.** 필드 값 변경은 신규 `field-answers` PATCH(§7.1)로만. 구 클라이언트 이식(P2-9) 시 호출부 전환. 전환 완료 전까지 구 PATCH는 유지하되, 저장 시 `fieldAnswers`에 `status:"edited", source:"user"`로 동기 반영해 파생 일관성 유지 |
 | `createGrantDocumentDraft`(`grantDocumentDrafts.ts:98~110`)가 upsert 시 `filledFields`를 새 템플릿 생성값으로 **통째로 덮어씀** — 사용자가 확정한 뒤 "재생성"하면 미확정 값이 export에 유입 | 생성값은 `fieldAnswers`에 `status:"suggested", source:"template"`로만 기록하되 **이미 `accepted|edited|dismissed`인 label은 건드리지 않는다**(멱등 병합). `filledFields`는 병합 결과에서 파생 재계산 |
 | `regenerateGrantDocumentDraftSection`(같은 파일 245행) | 위와 동일한 병합 규약 적용 |
-| `download/route.ts:104`가 body `answers`를 `filledFields` 위에 덮어씀 | **`answers` 파라미터 폐기.** 다운로드는 서버 저장된 파생 `filledFields`만 사용(컨펌 게이트의 서버 집행). 구 워크스페이스의 answers 동봉 흐름(`DocumentDraftWorkspace.tsx:229~234`)은 P2-7 이식 시 제거 |
+| `download/route.ts:104`가 body `answers`를 `filledFields` 위에 덮어씀 | **`answers` 파라미터 폐기.** 다운로드는 서버 저장된 파생 `filledFields`만 사용(컨펌 게이트의 서버 집행). 구 워크스페이스의 answers 동봉 흐름(`DocumentDraftWorkspace.tsx:229~234`)은 P2-9 이식 시 제거 |
 
 **label 키 충돌 정책** — `normalizeLabel`은 괄호를 제거하므로 "기업명(국문)"/"기업명(영문)"이 같은 키로 붕괴하고, `matchLabelCells`는 첫 매칭 셀만 잡는다(hwpx 채움 엔진의 기존 한계와 동일). 처분: 서버가 해당 surface의 `grant_document_fields`에서 정규화 label 중복을 감지하면 필드 패널에 `동일 항목명 — 수동 확인 필요` 경고 뱃지를 내려주고, HWPX 내보내기 시 해당 label은 채움에서 제외하고 `X-Cunote-Hwpx-Unfilled`로 정직 보고한다. v1에서 엔진 개선(셀 순서 기반 구분)은 하지 않는다.
 
@@ -514,3 +526,4 @@ execute:
   - **M10 수용** — 세션 소유권(companyId+userId 일치, 불일치 404)·draftId 비저장·만료 정책 명시.
   - **minor 전건 수용** — 인덱스 객체형 컨벤션, users FK, write 권한 명시, 미백필 PATCH 정합, hwp2hwpx "E2E 잔여" 정직 표기, 토큰 캡 정합(24k 토큰 기준), 인용 페이지 점프 v1 제외(P6-6), position null UX, 진행률 정의, bigint import, 앱 스코핑 선언(ADR-10).
   - **범위 축소 6건 전건 수용** — Phase 5 별도 착수 게이트(설계는 §7.5에 유지 — 요구 5의 비전은 보존), 인용 점프 제외, 다듬기 3종→regenerate 단일화, 이어보기 UI 후순위(저장은 유지), 포트 폐기, P1 로더 최적화 제외.
+- **v2.1 (2026-07-10, P0 세션)**: §12 결정 5건 추기(사용자 확인, 전건 기본값). P0 실측 판정을 ADR-4(AI SDK v7 채택)·ADR-2(frontmatter 절단·본문성 소스 우선·PDF 재주입 불필요)에 추기. ADR-5 처분 표의 구 클라이언트 이식 교차 참조 오기 2건 정정(P2-7→P2-9 — v1 번호 잔재, 처분 내용 자체는 불변).

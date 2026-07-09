@@ -2,10 +2,12 @@
 
 > **🟡 진행 상황 (매 세션 종료 시 이 블록만 갱신하고 커밋하라)**
 > - 설계 문서: `docs/plans/2026-07-09-apply-experience-v2.md` (레드팀 v2 반영 완료) — **단일 진실(Single Source of Truth)**
-> - 구현: **P0 진행 중** (다음 작업 = P0 산출물 검수 → ADR-4/ADR-2 판정 추기 → P1 ∥ P2a)
+> - 구현: **P0 완료(2026-07-10)** → 다음 작업 = **P1(sonnet) ∥ P2a(opus) 위임·검수** → P2b
+> - P0 판정(검수 A 통과, 메인 재실행 검증): **ADR-4 = AI SDK 채택**(실측 `ai@7.0.19`, `sendSources:true` 필수, `providerMetadata.anthropic` 얕은 매핑 필요). ADR-2에 전처리 규약 추기(frontmatter 절단·본문성 archive 우선, PDF 재주입 불필요, 캐싱 실증). P0-3: **함초롬 폰트 미탑재 발견** → poc-execution 이슈 등재(별도 트랙, 라이선스 확인 필요)
 > - 오픈 퀘스천(설계 §12) 사용자 답변: **확인 완료(2026-07-10) — 전건 제안 기본값 채택, 설계 §12에 결정 blockquote 추기.** P1-4 임시 페이지는 생략(P1·P2 한 배포 묶음)
+> - 설계 문서 정정: ADR-5 처분 표의 이식 교차 참조 P2-7→P2-9 (v1 번호 잔재, §14 v2.1)
 > - 작업 위치: worktree `/Users/ffgg/orca/workspaces/cunote/minimal` (브랜치 `coolwithyou/minimal`, env·빌드 독립 구성 완료 — 위임 프롬프트의 저장소 경로는 이 worktree를 쓸 것)
-> - 마지막 갱신: 2026-07-10 (P0 착수 세션)
+> - 마지막 갱신: 2026-07-10 (P0 완료 세션)
 
 ---
 

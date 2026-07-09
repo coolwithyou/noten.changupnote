@@ -1,0 +1,21 @@
+{
+  "name": "cunote-apply-v2-phase0-spikes",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Apply Experience v2 Phase 0 결정 확정 스파이크 (격리 패키지 — 루트 pnpm workspace 밖)",
+  "type": "module",
+  "scripts": {
+    "p0-1": "tsx chat-citations-spike.ts",
+    "p0-2": "tsx grounding-input-spike.ts"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "latest",
+    "@aws-sdk/client-s3": "latest",
+    "ai": "latest",
+    "postgres": "latest"
+  },
+  "devDependencies": {
+    "tsx": "latest",
+    "typescript": "latest"
+  }
+}

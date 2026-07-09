@@ -1,0 +1,3 @@
+# 스파이크 격리 패키지의 의존성/락파일은 커밋 대상이 아니다(루트 pnpm workspace 밖).
+node_modules/
+package-lock.json
