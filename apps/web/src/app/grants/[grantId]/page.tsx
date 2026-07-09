@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { ApplySheetView } from "@/features/apply-sheet/ApplySheetView";
+import { GrantOverviewView } from "@/features/grant-overview/GrantOverviewView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
@@ -36,13 +36,10 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
   });
   const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
   return (
-    <ApplySheetView
+    <GrantOverviewView
       sheet={sheet}
       user={user}
-      initialDrafts={preparation?.drafts ?? []}
-      formFields={preparation?.formFields ?? []}
       lessonGuide={lessonGuide}
-      fieldLessonTips={fieldLessonTips}
       previewAvailability={previewAvailability}
     />
   );
