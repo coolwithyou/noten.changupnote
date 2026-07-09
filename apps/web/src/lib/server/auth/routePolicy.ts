@@ -21,6 +21,7 @@ export const PUBLIC_WEB_ROUTES = [
   "POST /api/web/support/tickets/handoff",
   "POST /api/web/support/tickets/[ticketId]/attachments",
   "POST /api/web/teaser",
+  "POST /api/web/company-preview",
 ] as const;
 
 export const SESSION_WEB_ROUTES = [

@@ -1,10 +1,11 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, RefObject, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import type {
   ActionResult,
   CompanyEvidence,
+  CompanyPreviewResult,
   LandingGrantBanner,
   LandingGrantData,
   LandingGrantStats,
@@ -12,6 +13,7 @@ import type {
   TeaserRequest,
   TeaserResult,
 } from "@cunote/contracts";
+import { isValidBizNoChecksum } from "@cunote/contracts";
 import { MetricCard } from "@/components/app/metric-card";
 import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge, eligibilityTone } from "@/components/app/status-badge";
@@ -69,6 +71,9 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<"bizNo" | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [preview, setPreview] = useState<CompanyPreviewResult | null>(null);
+  const [pendingBizNo, setPendingBizNo] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [lookupSuggestions, setLookupSuggestions] = useState<BusinessLookupSuggestion[]>([]);
   const [bannerIndex, setBannerIndex] = useState(0);
@@ -78,6 +83,8 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
   const [newsletterMessage, setNewsletterMessage] = useState<string | null>(null);
   const teaserSectionRef = useRef<HTMLDivElement | null>(null);
   const teaserHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const bizNoInputRef = useRef<HTMLInputElement | null>(null);
+  const previewHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const inputStartedRef = useRef(false);
   const topMatches = useMemo(() => teaser?.matches.slice(0, 4) ?? [], [teaser]);
   const normalizedBizNo = formatBizNoInput(bizNo);
@@ -145,17 +152,19 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
     window.setTimeout(() => heading?.focus({ preventScroll: true }), reduceMotion ? 0 : 300);
   }, [teaser]);
 
+  useEffect(() => {
+    if (!preview) return;
+    previewHeadingRef.current?.focus({ preventScroll: true });
+  }, [preview]);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const requestId = crypto.randomUUID();
-    const startedAt = performance.now();
-    setIsLoading(true);
     setError(null);
     setErrorField(null);
     if (normalizedBizNo.length !== 10) {
       setError("사업자번호 10자리를 입력해주세요.");
       setErrorField("bizNo");
-      setIsLoading(false);
       recordLandingEvent({
         event: "biz_no_validation_failed",
         requestId,
@@ -164,12 +173,108 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       });
       return;
     }
-    const requestBody: TeaserRequest = { bizNo: normalizedBizNo };
-    setActiveLookupBizNo(normalizedBizNo);
+    if (!isValidBizNoChecksum(normalizedBizNo)) {
+      setError("유효하지 않은 사업자등록번호입니다. 입력한 번호를 다시 확인해주세요.");
+      setErrorField("bizNo");
+      recordLandingEvent({
+        event: "biz_no_validation_failed",
+        requestId,
+        inputLength: normalizedBizNo.length,
+        reason: "checksum_failed",
+      });
+      return;
+    }
+    // 이미 이 번호로 확인된 결과가 있으면 확인 카드 없이 곧바로 티저를 재실행한다(재사용 경로).
+    if (hasConfirmedLookup) {
+      await runTeaser(normalizedBizNo, requestId);
+      return;
+    }
+    await requestCompanyPreview(normalizedBizNo, requestId);
+  }
+
+  async function requestCompanyPreview(targetBizNo: string, requestId: string) {
+    setIsPreviewing(true);
+    setPreview(null);
+    setPendingBizNo(null);
+    setActiveLookupBizNo(targetBizNo);
+    recordLandingEvent({
+      event: "company_preview_requested",
+      requestId,
+      inputLength: targetBizNo.length,
+    });
+    const startedAt = performance.now();
+
+    try {
+      const response = await fetch("/api/web/company-preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bizNo: targetBizNo }),
+      });
+      const payload = await response.json() as ActionResult<CompanyPreviewResult>;
+      if (!response.ok || !payload.ok || !payload.data) {
+        recordLandingEvent({
+          event: "company_preview_failed",
+          requestId,
+          durationMs: performance.now() - startedAt,
+          errorCode: payload.error?.code ?? `http_${response.status}`,
+        });
+        if (payload.error?.field === "bizNo") setErrorField("bizNo");
+        setError(payload.error?.message ?? "회사 정보를 확인하지 못했습니다.");
+        setActiveLookupBizNo(null);
+        return;
+      }
+      setPreview(payload.data);
+      setPendingBizNo(targetBizNo);
+      recordLandingEvent({
+        event: "company_preview_succeeded",
+        requestId,
+        durationMs: performance.now() - startedAt,
+      });
+    } catch (caught) {
+      recordLandingEvent({
+        event: "company_preview_failed",
+        requestId,
+        durationMs: performance.now() - startedAt,
+        errorCode: "network_error",
+      });
+      setError(caught instanceof Error ? caught.message : "회사 정보를 확인하지 못했습니다.");
+      setActiveLookupBizNo(null);
+    } finally {
+      setIsPreviewing(false);
+    }
+  }
+
+  async function confirmPreview() {
+    if (!pendingBizNo) return;
+    const targetBizNo = pendingBizNo;
+    recordLandingEvent({ event: "company_confirmed" });
+    setPreview(null);
+    setPendingBizNo(null);
+    await runTeaser(targetBizNo, crypto.randomUUID());
+  }
+
+  function rejectPreview() {
+    recordLandingEvent({ event: "company_rejected" });
+    setPreview(null);
+    setPendingBizNo(null);
+    setActiveLookupBizNo(null);
+    setBizNo("");
+    setError(null);
+    setErrorField(null);
+    bizNoInputRef.current?.focus();
+  }
+
+  async function runTeaser(targetBizNo: string, requestId: string) {
+    const requestBody: TeaserRequest = { bizNo: targetBizNo };
+    const startedAt = performance.now();
+    setIsLoading(true);
+    setError(null);
+    setErrorField(null);
+    setActiveLookupBizNo(targetBizNo);
     recordLandingEvent({
       event: "teaser_submitted",
       requestId,
-      inputLength: normalizedBizNo.length,
+      inputLength: targetBizNo.length,
     });
 
     try {
@@ -191,8 +296,8 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
       }
       setTeaser(payload.data);
       setLastTeaserRequest(requestBody);
-      setBizNo(normalizedBizNo);
-      void persistSuccessfulBusinessLookup(normalizedBizNo, payload.data);
+      setBizNo(targetBizNo);
+      void persistSuccessfulBusinessLookup(targetBizNo, payload.data);
       recordLandingEvent({
         event: "teaser_succeeded",
         requestId,
@@ -226,6 +331,10 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
     if (error) {
       setError(null);
       setErrorField(null);
+    }
+    if (pendingBizNo && pendingBizNo !== nextBizNo) {
+      setPreview(null);
+      setPendingBizNo(null);
     }
     if (lastTeaserRequest?.bizNo && lastTeaserRequest.bizNo !== nextBizNo) {
       setTeaser(null);
@@ -381,6 +490,7 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
                     <FieldLabel htmlFor="bizNo">사업자번호 10자리</FieldLabel>
                     <div className="biz-input-row">
                       <Input
+                        ref={bizNoInputRef}
                         id="bizNo"
                         inputMode="numeric"
                         autoComplete="off"
@@ -391,13 +501,13 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
                         aria-invalid={errorField === "bizNo"}
                         onChange={(event) => updateBizNoInput(event.target.value)}
                       />
-                      <Button type="submit" disabled={isLoading}>
-                        {isLoading ? <Spinner data-icon="inline-start" /> : null}
-                        {isLoading ? "확인 중" : "회사 정보 확인"}
+                      <Button type="submit" disabled={isLoading || isPreviewing}>
+                        {isLoading || isPreviewing ? <Spinner data-icon="inline-start" /> : null}
+                        {isLoading || isPreviewing ? "확인 중" : "회사 정보 확인"}
                       </Button>
                     </div>
                     <FieldDescription id="bizNoDescription">저장된 조회 결과를 먼저 확인하고, 없을 때만 팝빌 조회를 진행합니다. 사업자번호 원문은 결과 화면에 표시하지 않습니다.</FieldDescription>
-                    {normalizedBizNo.length === 10 && !isLoading && !hasConfirmedLookup ? (
+                    {normalizedBizNo.length === 10 && !isLoading && !isPreviewing && !preview && !hasConfirmedLookup ? (
                       <p className="biz-ready-note">형식 확인됨. 같은 번호의 저장 결과가 있으면 추가 조회 없이 재사용합니다.</p>
                     ) : null}
                     <BusinessLookupSuggestionList
@@ -415,6 +525,15 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
               </form>
             </CardContent>
           </Card>
+
+          {preview && pendingBizNo && !teaser && !isLoading ? (
+            <CompanyConfirmCard
+              preview={preview}
+              headingRef={previewHeadingRef}
+              onConfirm={confirmPreview}
+              onReject={rejectPreview}
+            />
+          ) : null}
 
           {isLoading ? (
             <CompanyLookupProgress maskedBizNo={maskBizNoForDisplay(lookupBizNo)} />
@@ -494,6 +613,52 @@ export function HomeExperience({ landingData, user = null }: HomeExperienceProps
         onSubmit={submitNewsletter}
       />
     </main>
+  );
+}
+
+function CompanyConfirmCard({
+  preview,
+  headingRef,
+  onConfirm,
+  onReject,
+}: {
+  preview: CompanyPreviewResult;
+  headingRef: RefObject<HTMLHeadingElement | null>;
+  onConfirm: () => void;
+  onReject: () => void;
+}) {
+  const suspended = preview.businessStatus?.active === false;
+  const statusLabel = preview.businessStatus?.label ?? (suspended ? "휴업" : "영업 중");
+
+  return (
+    <Card
+      className="company-confirm-card"
+      role="region"
+      aria-live="polite"
+      aria-labelledby="company-confirm-title"
+    >
+      <div className="company-confirm-body">
+        <p className="eyebrow">회사 정보 확인</p>
+        <h3 id="company-confirm-title" ref={headingRef} tabIndex={-1}>
+          『{preview.name ?? "상호명 미확인"}』 회사가 맞나요?
+        </h3>
+        <div className="company-confirm-meta">
+          <span className="company-confirm-bizno">{preview.maskedBizNo}</span>
+          <StatusBadge tone={suspended ? "warning" : "success"}>{statusLabel}</StatusBadge>
+          {preview.regionLabel ? <Badge variant="outline">{preview.regionLabel}</Badge> : null}
+        </div>
+        {suspended ? (
+          <p className="company-confirm-warning">국세청 기준 {statusLabel} 상태입니다. 그래도 매칭 결과는 확인할 수 있어요.</p>
+        ) : null}
+        {preview.name === null ? (
+          <p className="company-confirm-note">상호명을 확인하지 못했어요. 번호가 맞다면 그대로 진행할 수 있습니다.</p>
+        ) : null}
+      </div>
+      <div className="company-confirm-actions">
+        <Button type="button" onClick={onConfirm}>네, 맞아요</Button>
+        <Button type="button" variant="secondary" onClick={onReject}>아니요, 다시 입력</Button>
+      </div>
+    </Card>
   );
 }
 

@@ -8105,6 +8105,72 @@ label {
   line-height: 1.55;
 }
 
+.company-confirm-card {
+  display: grid;
+  gap: 16px;
+  max-width: 680px;
+  margin-top: 12px;
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  border-radius: 20px;
+  background: var(--toss-blue-soft);
+  padding: 20px;
+}
+
+.company-confirm-body {
+  display: grid;
+  gap: 8px;
+}
+
+.company-confirm-body h3 {
+  color: var(--foreground);
+  font-size: 18px;
+  font-weight: 900;
+  line-height: 1.35;
+  outline: none;
+}
+
+.company-confirm-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.company-confirm-bizno {
+  color: var(--muted-foreground);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.company-confirm-warning {
+  margin: 2px 0 0;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.company-confirm-note {
+  margin: 2px 0 0;
+  color: var(--muted-foreground);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.company-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.company-confirm-actions button {
+  min-height: 48px;
+  flex: 1 1 160px;
+}
+
 .hook-carousel {
   min-height: 560px;
   justify-content: space-between;

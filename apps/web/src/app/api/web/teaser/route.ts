@@ -1,4 +1,5 @@
 import type { ActionResult, TeaserRequest, TeaserResult } from "@cunote/contracts";
+import { isValidBizNoChecksum } from "@cunote/contracts";
 import { buildTeaser } from "@cunote/core";
 import { NextResponse } from "next/server";
 import { annotateMatchCardWriteSupport } from "@/lib/server/matches/annotateWriteSupport";
@@ -11,6 +12,18 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const body = await readBody(request);
+    // API 직접 호출 방어: 사업자번호가 있으면 체크섬으로 명백한 무효 번호를 과금 전에 걸러낸다.
+    const requestedBizNo = body.bizNo?.trim();
+    if (requestedBizNo && !isValidBizNoChecksum(requestedBizNo)) {
+      return NextResponse.json<ActionResult<TeaserResult>>({
+        ok: false,
+        error: {
+          code: "invalid_biz_no",
+          message: "유효하지 않은 사업자등록번호입니다. 입력한 번호를 다시 확인해주세요.",
+          field: "bizNo",
+        },
+      }, { status: 400 });
+    }
     const asOf = new Date();
     const [companyResolution, grants] = await Promise.all([
       resolveTeaserCompanyProfileWithEvidence(body),

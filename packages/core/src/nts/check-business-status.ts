@@ -56,6 +56,38 @@ export interface CheckNtsBusinessStatusInput {
   fetchImpl?: typeof fetch;
 }
 
+/** 국세청 상태조회 결과 분류. */
+export type NtsBusinessStatusClassification =
+  | "active"
+  | "suspended"
+  | "closed"
+  | "not_registered";
+
+/**
+ * 국세청 상태조회 응답 1건을 분류한다(순수 함수, 단위 테스트 가능).
+ * - "01" 계속사업자 → active
+ * - "02" 휴업자     → suspended
+ * - "03" 폐업자     → closed
+ * - "" 또는 상태 메시지에 "등록되지 않은" 포함 → not_registered
+ * 그 외 판정 불가한 상태코드는 보수적으로 active 로 취급한다(팝빌 진행).
+ */
+export function classifyNtsBusinessStatus(
+  data: NtsBusinessStatusData,
+): NtsBusinessStatusClassification {
+  const code = (data.b_stt_cd ?? "").trim();
+  if (code === "01") return "active";
+  if (code === "02") return "suspended";
+  if (code === "03") return "closed";
+
+  const notRegistered =
+    code === "" ||
+    /등록되지 않은/.test(data.tax_type ?? "") ||
+    /등록되지 않은/.test(data.b_stt ?? "");
+  if (notRegistered) return "not_registered";
+
+  return "active";
+}
+
 export class NtsBusinessStatusError extends Error {
   constructor(
     message: string,

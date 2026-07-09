@@ -6,6 +6,7 @@ import {
   buildDashboard,
   checkNtsBusinessStatus,
   checkSmppCertificates,
+  classifyNtsBusinessStatus,
   deriveGrantBenefits,
   fetchKStartupPage,
   normalizeKStartupPayload,
@@ -32,7 +33,7 @@ import type {
   NormalizedGrant,
 } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
-import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
+import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusClassification, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
@@ -450,6 +451,10 @@ async function resolvePopbillCompanyResolution(input: {
     });
   }
 
+  // 팝빌 라이브 조회(과금) 직전 국세청(NTS) 무료 사전 게이트: 미등록/폐업이면 팝빌 미호출로 차단(과금 0),
+  // 휴업이면 통과하되 상태를 라이브 프로필에 병합해 확인 카드에 경고를 노출한다.
+  const ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
+
   const info = await checkPopbillBizInfo({
     credentials: input.credentials,
     checkCorpNum: input.bizNo,
@@ -464,9 +469,13 @@ async function resolvePopbillCompanyResolution(input: {
   }
 
   const enriched = buildCompanyProfileFromPopbill(info, { asOf: input.asOf });
+  // 휴업(02)이면 NTS 상태를 팝빌 라이브 프로필에 병합한다(폐업/미등록은 위에서 이미 throw).
+  const liveProfile = ntsPreGate?.classification === "suspended"
+    ? applyNtsStatusToProfile(enriched.profile, ntsPreGate.statusData)
+    : enriched.profile;
   const facts = toCompanyEnrichmentFacts(enriched.facts);
   const canonicalPayload: Record<string, unknown> = {
-    profile: enriched.profile,
+    profile: liveProfile,
     facts,
   };
   const checkedAt = parseProviderCheckedAt(facts.checkedAt);
@@ -496,13 +505,13 @@ async function resolvePopbillCompanyResolution(input: {
   }
 
   return {
-    profile: enriched.profile,
+    profile: liveProfile,
     facts,
     evidence: buildCompanyEvidence({
       provider: "popbill",
       source: "popbill_live",
       cacheStatus,
-      profile: enriched.profile,
+      profile: liveProfile,
       facts,
       checkedAt: checkedAt ?? input.now,
       cachedUntil,
@@ -601,6 +610,58 @@ async function resolveNtsBusinessStatus(input: {
     console.warn(`국세청 상태 캐시 저장 실패(조회 결과는 사용): ${errorMessage(error)}`);
   }
   return statusData;
+}
+
+/**
+ * 팝빌 라이브 조회(과금) 직전에 국세청(NTS) 무료 상태조회로 명백한 무효 번호를 걸러낸다.
+ * - CUNOTE_NTS_SERVICE_KEY 미설정: skip(팝빌 진행) — 기존 관례.
+ * - NTS 오류/타임아웃: warn 후 fail-open(팝빌 진행).
+ * - 미등록: biz_no_not_registered(404)로 팝빌 호출을 차단(과금 0).
+ * - 폐업: biz_no_closed(409)로 차단(과금 0). 폐업일이 있으면 문구에 YYYY-MM-DD로 노출.
+ * - 휴업: 통과. classification/statusData 를 돌려주어 호출부가 라이브 프로필에 병합하게 한다.
+ * 반환: 휴업/계속 등 통과 시 판정 결과, skip/판정 불가 시 null.
+ */
+async function applyNtsPreGateBeforePopbill(input: {
+  bizNo: string;
+  now: Date;
+}): Promise<{ classification: NtsBusinessStatusClassification; statusData: NtsBusinessStatusData } | null> {
+  const serviceKey = process.env[NTS_SERVICE_KEY_ENV]?.trim();
+  if (!serviceKey) return null;
+
+  let statusData: NtsBusinessStatusData | null;
+  try {
+    statusData = await resolveNtsBusinessStatus({ serviceKey, bizNo: input.bizNo, now: input.now });
+  } catch (error) {
+    // 타임아웃 포함 어떤 실패든 과금을 막지 않고 팝빌로 진행(fail-open).
+    console.warn(`국세청 사전 게이트 조회 실패(팝빌 진행): ${errorMessage(error)}`);
+    return null;
+  }
+  if (!statusData) return null;
+
+  const classification = classifyNtsBusinessStatus(statusData);
+  if (classification === "not_registered") {
+    throw new ServiceDataError(
+      "biz_no_not_registered",
+      "국세청에 등록되지 않은 사업자등록번호입니다. 번호를 다시 확인해주세요.",
+      404,
+      "bizNo",
+    );
+  }
+  if (classification === "closed") {
+    const closedOn = formatNtsEndDate(statusData.end_dt);
+    const message = closedOn
+      ? `폐업한 사업자등록번호입니다(폐업일 ${closedOn}).`
+      : "폐업한 사업자등록번호입니다.";
+    throw new ServiceDataError("biz_no_closed", message, 409, "bizNo");
+  }
+  return { classification, statusData };
+}
+
+/** NTS end_dt(YYYYMMDD)를 YYYY-MM-DD로 포맷한다. 형식이 아니면 null. */
+function formatNtsEndDate(value: string | null | undefined): string | null {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (digits.length !== 8) return null;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
 }
 
 /** NTS 휴·폐업 상태를 CompanyProfile.business_status에 반영한 새 프로필을 만든다(순수 함수). */

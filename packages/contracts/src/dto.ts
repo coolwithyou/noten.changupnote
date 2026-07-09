@@ -527,6 +527,28 @@ export interface CompanyEnrichmentRequest {
   bizNo: string;
 }
 
+/** 랜딩 상호명 확인 게이트(팝빌 과금 전 확인 카드) 요청. */
+export interface CompanyPreviewRequest {
+  bizNo: string;
+}
+
+/**
+ * 랜딩 상호명 확인 카드에 노출할 최소 필드.
+ * 매칭 계산 없이 loadCompanyProfileResolutionForTeaser 결과에서 상호/상태만 추린다.
+ * 사업자번호 원문은 절대 담지 않는다(maskedBizNo 만 노출).
+ */
+export interface CompanyPreviewResult {
+  name: string | null;
+  maskedBizNo: string;
+  businessStatus?: {
+    active?: boolean;
+    label?: string;
+  };
+  regionLabel?: string;
+  checkedAt?: string;
+  cacheStatus?: string;
+}
+
 export interface CompanyRecord {
   id: string;
   name: string | null;

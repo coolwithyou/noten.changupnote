@@ -1344,6 +1344,34 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      CompanyPreviewRequest: {
+        type: "object",
+        required: ["bizNo"],
+        properties: {
+          bizNo: { type: "string", minLength: 10 },
+        },
+        additionalProperties: false,
+      },
+      CompanyPreviewResult: {
+        type: "object",
+        required: ["name", "maskedBizNo"],
+        properties: {
+          name: nullable({ type: "string" }),
+          maskedBizNo: { type: "string" },
+          businessStatus: {
+            type: "object",
+            properties: {
+              active: { type: "boolean" },
+              label: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+          regionLabel: { type: "string" },
+          checkedAt: { type: "string" },
+          cacheStatus: { type: "string" },
+        },
+        additionalProperties: false,
+      },
       CompanyVerificationRequest: {
         type: "object",
         required: ["bizNo"],
