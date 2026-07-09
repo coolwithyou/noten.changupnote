@@ -241,6 +241,13 @@
       "breakpoints": true
     },
     {
+      "idx": 34,
+      "version": "7",
+      "when": 1783419645904,
+      "tag": "0034_sturdy_boom_boom",
+      "breakpoints": true
+    },
+    {
       "idx": 35,
       "version": "7",
       "when": 1783425261782,

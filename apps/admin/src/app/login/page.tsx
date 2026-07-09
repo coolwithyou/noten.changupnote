@@ -6,8 +6,8 @@ export default function LoginPage() {
   return (
     <AdminLoginPanel
       googleEnabled={Boolean(
-        process.env.ADMIN_GOOGLE_CLIENT_ID
-        && process.env.ADMIN_GOOGLE_CLIENT_SECRET,
+        process.env.GOOGLE_CLIENT_ID
+        && process.env.GOOGLE_CLIENT_SECRET,
       )}
     />
   );

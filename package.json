@@ -6,6 +6,7 @@
   "packageManager": "pnpm@10.30.1",
   "scripts": {
     "dev:web": "node scripts/dev-web.mjs",
+    "dev:ops": "node scripts/dev-ops.mjs",
     "build:packages": "pnpm --filter @cunote/contracts build && pnpm --filter @cunote/core build",
     "build:web": "pnpm build:packages && pnpm --filter @cunote/web build",
     "build:admin": "pnpm build:packages && pnpm --filter @cunote/admin build",

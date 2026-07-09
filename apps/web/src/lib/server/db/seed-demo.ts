@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { closeCunoteDb, getCunoteDb, withCunoteDbUser } from "./client";
 import * as schema from "./schema";
 import {
@@ -50,7 +50,7 @@ function buildDemoSeed() {
       name: process.env.CUNOTE_DEMO_COMPANY_NAME ?? "샘플 기업",
       bizNo: "7465400870",
     },
-    profileRows: demoProfileRows(companyId),
+    profileRows: demoProfileRows(companyId, userId),
   };
 }
 
@@ -111,7 +111,10 @@ async function seedDemoData(input: ReturnType<typeof buildDemoSeed>) {
         },
       });
 
-    await tx.delete(schema.companyProfiles).where(eq(schema.companyProfiles.companyId, input.company.id));
+    await tx.delete(schema.companyProfiles).where(and(
+      eq(schema.companyProfiles.companyId, input.company.id),
+      or(isNull(schema.companyProfiles.userId), eq(schema.companyProfiles.userId, input.user.id)),
+    ));
     await tx.insert(schema.companyProfiles).values(
       input.profileRows.map((row) => ({
         ...row,
@@ -128,10 +131,14 @@ async function seedDemoData(input: ReturnType<typeof buildDemoSeed>) {
   };
 }
 
-function demoProfileRows(companyId: string): Array<Omit<typeof schema.companyProfiles.$inferInsert, "asOf" | "updatedAt">> {
+function demoProfileRows(
+  companyId: string,
+  userId: string,
+): Array<Omit<typeof schema.companyProfiles.$inferInsert, "asOf" | "updatedAt">> {
   return [
     {
       companyId,
+      userId,
       dimension: "region",
       value: { code: "41", label: "경기" },
       source: "self_declared",
@@ -139,6 +146,7 @@ function demoProfileRows(companyId: string): Array<Omit<typeof schema.companyPro
     },
     {
       companyId,
+      userId,
       dimension: "biz_age",
       value: { biz_age_months: 26, months: 26 },
       source: "self_declared",
@@ -146,6 +154,7 @@ function demoProfileRows(companyId: string): Array<Omit<typeof schema.companyPro
     },
     {
       companyId,
+      userId,
       dimension: "founder_age",
       value: { founder_age: 35, age: 35 },
       source: "self_declared",
@@ -153,6 +162,7 @@ function demoProfileRows(companyId: string): Array<Omit<typeof schema.companyPro
     },
     {
       companyId,
+      userId,
       dimension: "industry",
       value: { industries: ["ICT", "SW"], tags: ["ICT", "SW"] },
       source: "self_declared",
@@ -160,6 +170,7 @@ function demoProfileRows(companyId: string): Array<Omit<typeof schema.companyPro
     },
     {
       companyId,
+      userId,
       dimension: "size",
       value: { size: "중소", label: "중소" },
       source: "self_declared",
@@ -167,6 +178,7 @@ function demoProfileRows(companyId: string): Array<Omit<typeof schema.companyPro
     },
     {
       companyId,
+      userId,
       dimension: "business_status",
       value: { active: true, label: "정상" },
       source: "self_declared",

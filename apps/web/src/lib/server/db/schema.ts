@@ -455,6 +455,7 @@ export const billingTaxDocuments = pgTable("billing_tax_documents", {
 export const companyProfiles = pgTable("company_profiles", {
   id: uuid("id").defaultRandom().primaryKey(),
   companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
   dimension: criterionDimensionEnum("dimension").notNull(),
   value: jsonb("value").$type<Record<string, unknown>>().notNull(),
   source: companyProfileSourceEnum("source").notNull(),
@@ -463,6 +464,8 @@ export const companyProfiles = pgTable("company_profiles", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   companyDimensionIdx: index("company_profiles_company_dimension_idx").on(table.companyId, table.dimension),
+  companyUserDimensionIdx: index("company_profiles_company_user_dimension_idx")
+    .on(table.companyId, table.userId, table.dimension),
 }));
 
 export const companyEnrichmentCache = pgTable("company_enrichment_cache", {

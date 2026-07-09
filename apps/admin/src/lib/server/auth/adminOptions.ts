@@ -135,8 +135,10 @@ function createAdminProviders(): NextAuthOptions["providers"] {
     },
   }));
 
-  const googleClientId = process.env.ADMIN_GOOGLE_CLIENT_ID;
-  const googleClientSecret = process.env.ADMIN_GOOGLE_CLIENT_SECRET;
+  // changupnote.com 사용자 프론트와 동일한 Google OAuth 클라이언트를 재사용한다.
+  // 로그인 허용 범위는 클라이언트가 아니라 아래 signIn 콜백의 도메인·admin_users 등록 여부로 제한한다.
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (googleClientId && googleClientSecret) {
     providers.push(GoogleProvider({
       clientId: googleClientId,

@@ -58,6 +58,13 @@ const resolvedAgain = await repositories.companies.resolveCompanyProfile({
 assert.equal(resolvedAgain?.biz_age_months, 42);
 assert.equal(resolvedAgain?.confidence?.biz_age, 0.92);
 
+const otherUserProfile = await repositories.companies.resolveCompanyProfile({
+  companyId: demoCompanyId(),
+  userId: "00000000-0000-4000-8000-000000000002",
+});
+assert.equal(otherUserProfile?.biz_age_months, 26);
+assert.equal(otherUserProfile?.confidence?.biz_age, 0.6);
+
 const companies = await repositories.companies.listUserCompanies(userId);
 assert.equal(companies[0]?.profile.biz_age_months, 42);
 assert.equal(companies[0]?.profile.confidence?.biz_age, 0.92);
@@ -155,6 +162,7 @@ console.log(JSON.stringify({
   checked: [
     "runtime_profile_save",
     "runtime_profile_resolve",
+    "runtime_profile_user_scope",
     "runtime_list_user_companies",
     "runtime_company_verify",
     "runtime_company_guard",

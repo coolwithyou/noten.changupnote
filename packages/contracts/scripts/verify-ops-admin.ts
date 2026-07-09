@@ -76,8 +76,8 @@ const webProxy = readIfExists(files.webProxy);
 
 expect(authOptions.includes("CredentialsProvider"), "admin auth must include email/password provider");
 expect(authOptions.includes("GoogleProvider"), "admin auth must include Google provider");
-expect(authOptions.includes("ADMIN_GOOGLE_CLIENT_ID"), "admin Google provider must use ADMIN_GOOGLE_CLIENT_ID");
-expect(authOptions.includes("ADMIN_GOOGLE_CLIENT_SECRET"), "admin Google provider must use ADMIN_GOOGLE_CLIENT_SECRET");
+expect(authOptions.includes("process.env.GOOGLE_CLIENT_ID"), "admin Google provider must reuse the web GOOGLE_CLIENT_ID");
+expect(authOptions.includes("process.env.GOOGLE_CLIENT_SECRET"), "admin Google provider must reuse the web GOOGLE_CLIENT_SECRET");
 expect(!authOptions.includes("KakaoProvider"), "admin auth must not include Kakao provider");
 expect(!authOptions.includes('id: "demo"'), "admin auth must not include demo credentials provider");
 expect(authOptions.includes("ADMIN_ALLOWED_GOOGLE_DOMAIN") && authOptions.includes("noten.im"), "admin auth must enforce noten.im domain default");
@@ -92,8 +92,8 @@ expect(
   authOptions.includes("process.env.ADMIN_AUTH_SECRET ?? process.env.NEXTAUTH_SECRET"),
   "admin auth must prefer ADMIN_AUTH_SECRET over framework fallback secrets",
 );
-expect(!authOptions.includes("process.env.GOOGLE_CLIENT_ID"), "admin auth must not fall back to web GOOGLE_CLIENT_ID");
-expect(!authOptions.includes("process.env.GOOGLE_CLIENT_SECRET"), "admin auth must not fall back to web GOOGLE_CLIENT_SECRET");
+expect(!authOptions.includes("ADMIN_GOOGLE_CLIENT_ID"), "admin auth must not read a separate ADMIN_GOOGLE_CLIENT_ID — reuse the web GOOGLE_CLIENT_ID");
+expect(!authOptions.includes("ADMIN_GOOGLE_CLIENT_SECRET"), "admin auth must not read a separate ADMIN_GOOGLE_CLIENT_SECRET — reuse the web GOOGLE_CLIENT_SECRET");
 expect(!adminSession.includes("getOptionalWebSession"), "admin session must not read web session");
 expect(!adminSession.includes("CUNOTE_AUTH_MODE"), "admin session must not support web mock auth");
 expect(adminUsers.includes("from admin_users"), "admin user lookup must read the admin_users table");
@@ -141,7 +141,7 @@ expect(liveMatchPage.includes("LiveMatchConsole"), "admin live match page must r
 expect(liveMatchRoute.includes("requireAdminSession("), "admin live match API must require admin session");
 expect(liveMatchRoute.includes("runLiveCompanyMatch"), "admin live match API must call the live matching core use case");
 expect(liveMatchConsole.includes("/api/matches/live"), "admin live match console must call the admin live match API");
-expect(loginPage.includes("ADMIN_GOOGLE_CLIENT_ID") && loginPage.includes("ADMIN_GOOGLE_CLIENT_SECRET"), "admin login page must expose only admin Google provider env");
+expect(loginPage.includes("GOOGLE_CLIENT_ID") && loginPage.includes("GOOGLE_CLIENT_SECRET"), "admin login page must gate the Google button on the shared GOOGLE_CLIENT_ID/SECRET");
 expect(packageJson.includes('"name": "@cunote/admin"'), "admin package must be a separate workspace app");
 expect(webProxy.includes("CUNOTE_OPS_ADMIN_ORIGIN"), "web proxy must know the ops admin origin");
 expect(webProxy.includes("/api/admin") && webProxy.includes("/api/matches/live"), "web proxy must close web admin APIs");

@@ -154,18 +154,30 @@ class DrizzleCompanyRepository implements CompanyRepository {
       const company = companyRows[0];
       if (!company) return null;
 
-      const profileRows = await db
-      .select()
-      .from(schema.companyProfiles)
-      .where(eq(schema.companyProfiles.companyId, company.id));
+      const sharedProfileRows = await db
+        .select()
+        .from(schema.companyProfiles)
+        .where(and(
+          eq(schema.companyProfiles.companyId, company.id),
+          isNull(schema.companyProfiles.userId),
+        ));
+      const userProfileRows = input.userId
+        ? await db
+          .select()
+          .from(schema.companyProfiles)
+          .where(and(
+            eq(schema.companyProfiles.companyId, company.id),
+            eq(schema.companyProfiles.userId, input.userId),
+          ))
+        : [];
 
-      return toCompanyProfile(company, profileRows);
+      return toCompanyProfile(company, [...sharedProfileRows, ...userProfileRows]);
     });
   }
 
   async saveCompanyProfile(input: SaveCompanyProfileInput): Promise<CompanyProfile> {
     const now = new Date();
-    const rows = companyProfileRows(input.companyId, input.profile, now);
+    const rows = companyProfileRows(input.companyId, input.profile, now, input.userId);
     const [company, profileRows] = await this.transactionWithOptionalUser(input.userId, async (tx) => {
       const kind: "active" | "preliminary" = input.profile.is_preliminary ? "preliminary" : "active";
       const [updatedCompany] = await tx
@@ -178,7 +190,7 @@ class DrizzleCompanyRepository implements CompanyRepository {
         .returning();
       if (!updatedCompany) throw new Error("회사를 찾지 못했습니다.");
 
-      await tx.delete(schema.companyProfiles).where(eq(schema.companyProfiles.companyId, input.companyId));
+      await tx.delete(schema.companyProfiles).where(companyProfileScopeWhere(input.companyId, input.userId));
       const savedRows = rows.length > 0
         ? await tx.insert(schema.companyProfiles).values(rows).returning()
         : [];
@@ -208,7 +220,7 @@ class DrizzleCompanyRepository implements CompanyRepository {
         role: "owner",
       });
 
-      const rows = companyProfileRows(createdCompany.id, input.profile, now);
+      const rows = companyProfileRows(createdCompany.id, input.profile, now, input.userId);
       const savedRows = rows.length > 0
         ? await tx.insert(schema.companyProfiles).values(rows).returning()
         : [];
@@ -728,15 +740,25 @@ function companyWhere(input: { companyId?: string; bizNo?: string }) {
   return undefined;
 }
 
+function companyProfileScopeWhere(companyId: string, userId: string | undefined) {
+  const companyFilter = eq(schema.companyProfiles.companyId, companyId);
+  const userFilter = userId
+    ? eq(schema.companyProfiles.userId, userId)
+    : isNull(schema.companyProfiles.userId);
+  return and(companyFilter, userFilter);
+}
+
 function companyProfileRows(
   companyId: string,
   profile: CompanyProfile,
   now: Date,
+  userId?: string,
 ): CompanyProfileInsert[] {
   const rows: CompanyProfileInsert[] = [];
   const push = (dimension: CriterionDimension, value: Record<string, unknown>) => {
     rows.push({
       companyId,
+      ...(userId ? { userId } : {}),
       dimension,
       value,
       source: "self_declared",

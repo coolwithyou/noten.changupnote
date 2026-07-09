@@ -16,8 +16,8 @@ export function buildOpsLegalReadiness(): OpsReadinessReport {
   const items: OpsReadinessItem[] = [
     envItem("admin_auth_url", "Admin auth URL", "ADMIN_AUTH_URL", process.env.ADMIN_AUTH_URL ?? process.env.NEXTAUTH_URL),
     envItem("admin_auth_secret", "Admin auth secret", "ADMIN_AUTH_SECRET", process.env.ADMIN_AUTH_SECRET),
-    envItem("admin_google_client", "Admin Google OAuth client", "ADMIN_GOOGLE_CLIENT_ID", process.env.ADMIN_GOOGLE_CLIENT_ID),
-    envItem("admin_google_secret", "Admin Google OAuth secret", "ADMIN_GOOGLE_CLIENT_SECRET", process.env.ADMIN_GOOGLE_CLIENT_SECRET),
+    envItem("admin_google_client", "Admin Google OAuth client (shared with web)", "GOOGLE_CLIENT_ID", process.env.GOOGLE_CLIENT_ID),
+    envItem("admin_google_secret", "Admin Google OAuth secret (shared with web)", "GOOGLE_CLIENT_SECRET", process.env.GOOGLE_CLIENT_SECRET),
     {
       key: "admin_google_domain",
       label: "Google hosted domain restriction",
@@ -68,7 +68,7 @@ export function buildOpsReleaseChecklist(): string {
     "",
     "- NEXTAUTH_URL or ADMIN_AUTH_URL must be https://ops.changupnote.com",
     "- ADMIN_AUTH_SECRET must be different from the changupnote.com web auth secret",
-    "- ADMIN_GOOGLE_CLIENT_ID and ADMIN_GOOGLE_CLIENT_SECRET must be the Google client for ops.changupnote.com",
+    "- GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are shared with changupnote.com web login; https://ops.changupnote.com/api/auth/callback/google must be registered as an authorized redirect URI on that same client",
     "- ADMIN_ALLOWED_GOOGLE_DOMAIN must be noten.im",
     "- ADMIN_ALLOWED_EMAILS should list active operators explicitly",
     "",

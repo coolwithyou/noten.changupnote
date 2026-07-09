@@ -73,16 +73,13 @@ class RuntimeCompanyRepository implements CompanyRepository {
   constructor(private readonly loaders: RuntimeRepositoryLoaders) {}
 
   async getDefaultCompanyProfile() {
-    const saved = this.getSavedProfile(demoCompanyId());
-    if (saved) return saved;
-    return this.loaders.loadCompanyProfile();
+    return this.resolveSavedOrLoadedProfile(demoCompanyId());
   }
 
   async resolveCompanyProfile(input: ResolveCompanyProfileInput = {}) {
     if (input.companyId && input.companyId !== demoCompanyId()) return null;
     if (input.companyId) {
-      const saved = this.getSavedProfile(input.companyId, input.userId);
-      if (saved) return saved;
+      return this.resolveSavedOrLoadedProfile(input.companyId, input.bizNo, input.userId);
     }
     return this.loaders.loadCompanyProfile(input.bizNo);
   }
@@ -108,7 +105,7 @@ class RuntimeCompanyRepository implements CompanyRepository {
   }
 
   async listUserCompanies(_userId: string): Promise<CompanyRecord[]> {
-    const profile = this.getSavedProfile(demoCompanyId(), _userId) ?? await this.loaders.loadCompanyProfile();
+    const profile = await this.resolveSavedOrLoadedProfile(demoCompanyId(), undefined, _userId);
     const verification = this.getVerification(demoCompanyId(), _userId);
     return [{
       id: demoCompanyId(),
@@ -138,17 +135,19 @@ class RuntimeCompanyRepository implements CompanyRepository {
     return verification;
   }
 
-  private getSavedProfile(companyId: string, userId?: string): CompanyProfile | null {
-    const profile = userId
-      ? this.savedProfiles.get(profileKey(companyId, userId)) ?? this.savedProfiles.get(profileKey(companyId))
-      : this.savedProfiles.get(profileKey(companyId));
-    return profile ? cloneProfile(profile) : null;
+  private async resolveSavedOrLoadedProfile(
+    companyId: string,
+    bizNo?: string,
+    userId?: string,
+  ): Promise<CompanyProfile> {
+    const shared = this.savedProfiles.get(profileKey(companyId)) ?? await this.loaders.loadCompanyProfile(bizNo);
+    const personal = userId ? this.savedProfiles.get(profileKey(companyId, userId)) : undefined;
+    return cloneProfile(personal ? mergeRuntimeProfiles(shared, personal) : shared);
   }
 
   private setSavedProfile(companyId: string, profile: CompanyProfile, userId?: string) {
     const cloned = cloneProfile(profile);
-    this.savedProfiles.set(profileKey(companyId), cloned);
-    if (userId) this.savedProfiles.set(profileKey(companyId, userId), cloned);
+    this.savedProfiles.set(userId ? profileKey(companyId, userId) : profileKey(companyId), cloned);
   }
 
   private getVerification(companyId: string, userId?: string): CompanyVerificationRecord | null {
@@ -234,6 +233,17 @@ class RuntimeEnrichmentCacheRepository implements EnrichmentCacheRepository {
 
 function profileKey(companyId: string, userId?: string): string {
   return userId ? `${userId}:${companyId}` : `company:${companyId}`;
+}
+
+function mergeRuntimeProfiles(shared: CompanyProfile, personal: CompanyProfile): CompanyProfile {
+  return {
+    ...shared,
+    ...personal,
+    confidence: {
+      ...(shared.confidence ?? {}),
+      ...(personal.confidence ?? {}),
+    },
+  };
 }
 
 function cloneProfile(profile: CompanyProfile): CompanyProfile {
