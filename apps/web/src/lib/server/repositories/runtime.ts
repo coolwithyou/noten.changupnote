@@ -1,21 +1,44 @@
-import { grantKey, maskCorpNum, matchGrantCriteria } from "@cunote/core";
+import {
+  CreditContextRequiredError,
+  InsufficientCreditsError,
+  InvalidLedgerEntryError,
+  WalletFrozenError,
+  allocateFromLots,
+  allocateFromTargetLots,
+  computeChainHash,
+  genesisHash,
+  grantKey,
+  grantLotBreakdown,
+  idempotencyKeys,
+  maskCorpNum,
+  matchGrantCriteria,
+  sortLotsForConsumption,
+} from "@cunote/core";
 import type {
   CompanyProfile,
   MatchResult,
   NormalizedGrant,
 } from "@cunote/contracts";
 import type {
+  ApplyLedgerEntryInput,
   CompanyRecord,
   CompanyRepository,
   CreateCompanyInput,
+  CreditLedgerEntryRecord,
+  CreditLotRecord,
+  CreditRepository,
+  CreditSystemRepository,
+  CreditWalletRecord,
   EnrichmentCacheEntry,
   EnrichmentCacheRepository,
   FeedbackReceipt,
   FeedbackRepository,
   GrantListOptions,
   GrantRepository,
+  LotBreakdownLine,
   MatchEventReceipt,
   MatchRepository,
+  PricingRule,
   ResolveCompanyProfileInput,
   ReadEnrichmentCacheInput,
   SaveMatchEventInput,
@@ -49,6 +72,8 @@ export function createRuntimeRepositories<TPayload = unknown>(
     matches: new RuntimeMatchRepository(),
     feedback: new RuntimeFeedbackRepository(),
     enrichmentCache: new RuntimeEnrichmentCacheRepository(),
+    credits: new RuntimeCreditRepository(),
+    creditsSystem: new RuntimeCreditSystemRepository(),
   };
 }
 
@@ -282,4 +307,191 @@ function cloneCacheEntry(entry: EnrichmentCacheEntry): EnrichmentCacheEntry {
   if (entry.payloadHash !== undefined) cloned.payloadHash = entry.payloadHash;
   if (entry.lastError !== undefined) cloned.lastError = cloneRecord(entry.lastError);
   return cloned;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 크레딧 (in-memory mock). 설계 5.2/6.6. core 순수 함수로 원장 규칙을 그대로 재현한다.
+// 데모/테스트용 — 프로세스 재시작 시 초기화. 코드 레벨 가드(4.13)는 여기서도 강제한다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface MockWallet {
+  id: string;
+  userId: string;
+  balanceCredits: number;
+  status: "active" | "frozen";
+  frozenReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+interface MockLot {
+  id: string;
+  walletId: string;
+  source: CreditLotRecord["source"];
+  initialCredits: number;
+  remainingCredits: number;
+  expiresAt: Date | null;
+  status: CreditLotRecord["status"];
+  createdAt: Date;
+}
+interface MockLedger extends CreditLedgerEntryRecord {}
+
+const GRANT_ENTRY_TYPES = new Set([
+  "signup_bonus_grant", "purchase_grant", "plan_grant", "admin_grant", "promo_grant",
+]);
+const FROZEN_ALLOWED = new Set(["usage_capture", "refund_deduct", "admin_grant", "admin_deduct", "reversal"]);
+
+class RuntimeCreditRepository implements CreditRepository {
+  private readonly wallets = new Map<string, MockWallet>(); // userId → wallet
+  private readonly lots = new Map<string, MockLot>();
+  private readonly ledger: MockLedger[] = [];
+  private readonly ledgerByKey = new Map<string, MockLedger>();
+
+  async ensureWalletWithSignupBonus(userId: string): Promise<CreditWalletRecord> {
+    requireUserId(userId, "ensureWalletWithSignupBonus");
+    const now = new Date();
+    let wallet = this.wallets.get(userId);
+    if (!wallet) {
+      wallet = {
+        id: crypto.randomUUID(), userId, balanceCredits: 0,
+        status: "active", frozenReason: null, createdAt: now, updatedAt: now,
+      };
+      this.wallets.set(userId, wallet);
+    }
+    this.apply({
+      walletId: wallet.id,
+      entryType: "signup_bonus_grant",
+      amountCredits: 1000,
+      idempotencyKey: idempotencyKeys.signup(userId),
+      actorType: "system",
+      actorId: "system:signup-bonus",
+      reason: "가입 보너스 지급",
+      grantLot: { source: "signup_bonus", expiresAt: new Date(now.getTime() + 90 * 86400000) },
+    });
+    return this.toWalletRecord(this.wallets.get(userId)!);
+  }
+
+  async getWalletForUser(userId: string): Promise<CreditWalletRecord | null> {
+    requireUserId(userId, "getWalletForUser");
+    const w = this.wallets.get(userId);
+    return w ? this.toWalletRecord(w) : null;
+  }
+
+  async listActiveLotsForUser(userId: string): Promise<CreditLotRecord[]> {
+    requireUserId(userId, "listActiveLotsForUser");
+    const w = this.wallets.get(userId);
+    if (!w) return [];
+    const active = [...this.lots.values()].filter((l) => l.walletId === w.id && l.status === "active");
+    return sortLotsForConsumption(active).map((l) => ({ ...l }));
+  }
+
+  async applyLedgerEntry(userId: string, input: ApplyLedgerEntryInput): Promise<CreditLedgerEntryRecord> {
+    requireUserId(userId, "applyLedgerEntry");
+    const w = this.wallets.get(userId);
+    if (!w || w.id !== input.walletId) {
+      throw new InvalidLedgerEntryError("본인 지갑이 아니거나 지갑이 없습니다.", { walletId: input.walletId });
+    }
+    return this.apply(input);
+  }
+
+  private apply(input: ApplyLedgerEntryInput): CreditLedgerEntryRecord {
+    if (input.amountCredits === 0) throw new InvalidLedgerEntryError("분개 금액은 0일 수 없습니다.");
+    const wallet = [...this.wallets.values()].find((x) => x.id === input.walletId);
+    if (!wallet) throw new InvalidLedgerEntryError("지갑을 찾을 수 없습니다.", { walletId: input.walletId });
+    if (wallet.status === "frozen" && !FROZEN_ALLOWED.has(input.entryType)) {
+      throw new WalletFrozenError(input.walletId, wallet.frozenReason);
+    }
+    const existing = this.ledgerByKey.get(input.idempotencyKey);
+    if (existing) return { ...existing };
+
+    const isGrant = input.amountCredits > 0;
+    if (isGrant !== GRANT_ENTRY_TYPES.has(input.entryType)) {
+      throw new InvalidLedgerEntryError("분개 유형과 금액 부호가 일치하지 않습니다.");
+    }
+    const now = new Date();
+    let lotBreakdown: LotBreakdownLine[];
+    let effectiveAmount = input.amountCredits;
+
+    if (isGrant) {
+      if (!input.grantLot) throw new InvalidLedgerEntryError("지급 분개에는 grantLot 이 필요합니다.");
+      const lot: MockLot = {
+        id: crypto.randomUUID(), walletId: input.walletId, source: input.grantLot.source,
+        initialCredits: input.amountCredits, remainingCredits: input.amountCredits,
+        expiresAt: input.grantLot.expiresAt, status: "active", createdAt: now,
+      };
+      this.lots.set(lot.id, lot);
+      lotBreakdown = grantLotBreakdown(lot.id, input.amountCredits);
+    } else {
+      const need = -input.amountCredits;
+      const selection = input.lotSelection ?? "consume_order";
+      let lines: LotBreakdownLine[]; let shortfall: number;
+      if (selection === "consume_order") {
+        const active = [...this.lots.values()].filter(
+          (l) => l.walletId === input.walletId && l.status === "active" && l.remainingCredits > 0
+            && (l.expiresAt === null || l.expiresAt.getTime() > now.getTime()),
+        );
+        ({ lines, shortfall } = allocateFromLots(sortLotsForConsumption(active), need));
+        if (shortfall > 0) {
+          if (input.entryType === "usage_capture") effectiveAmount = -(need - shortfall);
+          else throw new InsufficientCreditsError({ required: need, available: need - shortfall });
+        }
+      } else {
+        const ordered = selection.targetLotIds
+          .map((id) => this.lots.get(id)).filter((l): l is MockLot => Boolean(l));
+        ({ lines, shortfall } = allocateFromTargetLots(ordered, need));
+        if (shortfall > 0) effectiveAmount = -(need - shortfall);
+      }
+      for (const line of lines) {
+        const lot = this.lots.get(line.lotId)!;
+        lot.remainingCredits -= line.amount;
+        if (lot.remainingCredits <= 0) lot.status = "exhausted";
+      }
+      lotBreakdown = lines;
+    }
+
+    const balanceAfter = wallet.balanceCredits + effectiveAmount;
+    if (balanceAfter < 0) throw new InvalidLedgerEntryError("잔액이 음수가 될 수 없습니다.");
+    const prev = [...this.ledger].reverse().find((e) => e.walletId === input.walletId);
+    const prevChainHash = prev?.chainHash ?? genesisHash(input.walletId);
+    const id = crypto.randomUUID();
+    const chainHash = computeChainHash({
+      prevChainHash, id, walletId: input.walletId, entryType: input.entryType,
+      amountCredits: effectiveAmount, balanceAfter, idempotencyKey: input.idempotencyKey, createdAt: now,
+    });
+    const entry: MockLedger = {
+      id, walletId: input.walletId, entryType: input.entryType, amountCredits: effectiveAmount,
+      balanceAfter, lotBreakdown, idempotencyKey: input.idempotencyKey, chainHash,
+      actorType: input.actorType, actorId: input.actorId ?? null, reason: input.reason ?? null, createdAt: now,
+    };
+    this.ledger.push(entry);
+    this.ledgerByKey.set(input.idempotencyKey, entry);
+    wallet.balanceCredits = balanceAfter;
+    wallet.updatedAt = now;
+    return { ...entry };
+  }
+
+  private toWalletRecord(w: MockWallet): CreditWalletRecord {
+    return { ...w };
+  }
+}
+
+class RuntimeCreditSystemRepository implements CreditSystemRepository {
+  private readonly usageEvents: Array<{ id: string }> = [];
+  private readonly pricingRules: PricingRule[] = [];
+
+  async recordFreeUsageEvent(): Promise<{ id: string }> {
+    const ev = { id: crypto.randomUUID() };
+    this.usageEvents.push(ev);
+    return ev;
+  }
+
+  async listEffectivePricingRules(at: Date): Promise<PricingRule[]> {
+    return this.pricingRules.filter(
+      (r) => r.effectiveFrom.getTime() <= at.getTime()
+        && (!r.effectiveUntil || r.effectiveUntil.getTime() > at.getTime()),
+    );
+  }
+}
+
+function requireUserId(userId: unknown, operation: string): asserts userId is string {
+  if (!userId || typeof userId !== "string") throw new CreditContextRequiredError(operation);
 }

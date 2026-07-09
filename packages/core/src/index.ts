@@ -7,6 +7,7 @@ export * from "./bizinfo/types.js";
 export * from "./certification/certs.js";
 export * from "./company/profile-from-popbill.js";
 export * from "./company/update-profile-field.js";
+export * from "./credits/index.js";
 export * from "./dedup/grant-dedup.js";
 export * from "./documents/draft-generation.js";
 export * from "./documents/field-candidates.js";

@@ -41,5 +41,8 @@
   "dependencies": {
     "@cunote/contracts": "workspace:*",
     "popbill": "1.64.2"
+  },
+  "devDependencies": {
+    "postgres": "3.4.9"
   }
 }
