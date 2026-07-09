@@ -1,14 +1,16 @@
 "use client";
 
-import { CSSProperties, FormEvent, useEffect, useMemo, useState } from "react";
+import { CSSProperties, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import type { LandingGrantData, TeaserRequest } from "@cunote/contracts";
+import type { ActionResult, CompanyPreviewResult, LandingGrantData, TeaserRequest } from "@cunote/contracts";
+import { isValidBizNoChecksum } from "@cunote/contracts";
 import { AccountMenu } from "@/components/app/account-menu";
 import { normalizeBusinessLookupBizNo, type BusinessLookupSuggestion } from "@/lib/businessLookupSuggestions";
 import {
   fetchBusinessLookupSuggestions,
   readLocalBusinessLookupSuggestions,
 } from "@/lib/client/businessLookupSuggestions";
+import { recordLandingEvent } from "@/lib/client/landingEvents";
 import type { HeaderUser } from "@/lib/server/auth/session";
 
 /*
@@ -18,6 +20,16 @@ import type { HeaderUser } from "@/lib/server/auth/session";
  */
 
 const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
+
+/**
+ * 사업자번호 제출 → /matches 이동 사이에 끼는 확인 모달 상태.
+ * 무효·미등록·휴폐업은 랜딩을 떠나지 않고 모달로 안내하고,
+ * 정상 확인("네, 맞아요")된 번호만 /matches?biz= 로 넘어간다.
+ */
+type BizLookupModalState =
+  | { phase: "loading"; bizNo: string }
+  | { phase: "confirm"; bizNo: string; preview: CompanyPreviewResult }
+  | { phase: "error"; bizNo: string; title: string; message: string };
 
 const FAQS = [
   {
@@ -58,7 +70,10 @@ interface LandingExperienceProps {
 export function LandingExperience({ landingData, user = null }: LandingExperienceProps) {
   const [biz, setBiz] = useState("");
   const [lookupSuggestions, setLookupSuggestions] = useState<BusinessLookupSuggestion[]>([]);
+  const [lookup, setLookup] = useState<BizLookupModalState | null>(null);
   const [faq, setFaq] = useState(0);
+  const lookupSeqRef = useRef(0);
+  const heroBizInputRef = useRef<HTMLInputElement | null>(null);
   const activeCount = landingData.stats.activeCount.toLocaleString("ko-KR");
   const visibleLookupSuggestions = useMemo(
     () => filterLandingLookupSuggestions(lookupSuggestions, onlyDigits(biz)),
@@ -103,11 +118,124 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
     setBiz(fmtBiz(suggestion.bizNo));
   }
 
+  useEffect(() => {
+    if (!lookup) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") dismissLookup("closed");
+    };
+    document.addEventListener("keydown", onKeyDown);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+    // dismissLookup은 ref/setState만 쓰므로 모달 열림 여부만 의존한다.
+  }, [Boolean(lookup)]);
+
   function submitBiz(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (lookup?.phase === "loading") return;
     const digits = onlyDigits(biz);
-    if (digits.length !== 10) return;
-    window.location.assign(`/matches?biz=${digits}`);
+    const requestId = crypto.randomUUID();
+    if (digits.length !== 10) {
+      recordLandingEvent({
+        event: "biz_no_validation_failed",
+        requestId,
+        inputLength: digits.length,
+        reason: "length_not_10",
+      });
+      setLookup({
+        phase: "error",
+        bizNo: digits,
+        title: "사업자번호를 확인해 주세요",
+        message: "사업자번호 10자리를 입력해주세요.",
+      });
+      return;
+    }
+    if (!isValidBizNoChecksum(digits)) {
+      recordLandingEvent({
+        event: "biz_no_validation_failed",
+        requestId,
+        inputLength: digits.length,
+        reason: "checksum_failed",
+      });
+      setLookup({
+        phase: "error",
+        bizNo: digits,
+        title: "사업자번호를 다시 확인해 주세요",
+        message: "유효하지 않은 사업자등록번호입니다. 입력한 번호를 다시 확인해주세요.",
+      });
+      return;
+    }
+    void requestCompanyPreview(digits, requestId);
+  }
+
+  async function requestCompanyPreview(digits: string, requestId: string) {
+    const seq = ++lookupSeqRef.current;
+    setLookup({ phase: "loading", bizNo: digits });
+    recordLandingEvent({ event: "company_preview_requested", requestId, inputLength: digits.length });
+    const startedAt = performance.now();
+
+    try {
+      const response = await fetch("/api/web/company-preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ bizNo: digits }),
+      });
+      const payload = await response.json() as ActionResult<CompanyPreviewResult>;
+      if (seq !== lookupSeqRef.current) return;
+      if (!response.ok || !payload.ok || !payload.data) {
+        recordLandingEvent({
+          event: "company_preview_failed",
+          requestId,
+          durationMs: performance.now() - startedAt,
+          errorCode: payload.error?.code ?? `http_${response.status}`,
+        });
+        setLookup({
+          phase: "error",
+          bizNo: digits,
+          title: titleForPreviewError(payload.error?.code),
+          message: payload.error?.message ?? "회사 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.",
+        });
+        return;
+      }
+      recordLandingEvent({
+        event: "company_preview_succeeded",
+        requestId,
+        durationMs: performance.now() - startedAt,
+      });
+      setLookup({ phase: "confirm", bizNo: digits, preview: payload.data });
+    } catch {
+      if (seq !== lookupSeqRef.current) return;
+      recordLandingEvent({
+        event: "company_preview_failed",
+        requestId,
+        durationMs: performance.now() - startedAt,
+        errorCode: "network_error",
+      });
+      setLookup({
+        phase: "error",
+        bizNo: digits,
+        title: "잠시 후 다시 시도해 주세요",
+        message: "네트워크 문제로 회사 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.",
+      });
+    }
+  }
+
+  function confirmLookup() {
+    if (lookup?.phase !== "confirm") return;
+    recordLandingEvent({ event: "company_confirmed" });
+    window.location.assign(`/matches?biz=${lookup.bizNo}`);
+  }
+
+  function dismissLookup(reason: "rejected" | "closed") {
+    if (lookup?.phase === "confirm" && reason === "rejected") {
+      recordLandingEvent({ event: "company_rejected" });
+    }
+    lookupSeqRef.current += 1; // 진행 중인 preview 응답은 무시
+    setLookup(null);
+    heroBizInputRef.current?.focus();
   }
 
   return (
@@ -297,6 +425,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
               >
                 <label style={{ fontSize: 11.5, fontWeight: 600, color: "#8b95a1" }}>사업자등록번호</label>
                 <input
+                  ref={heroBizInputRef}
                   inputMode="numeric"
                   maxLength={12}
                   placeholder="000-00-00000"
@@ -680,6 +809,15 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
           © 2026 바톤 (Baton)
         </div>
       </footer>
+
+      {lookup ? (
+        <BizLookupModal
+          lookup={lookup}
+          onConfirm={confirmLookup}
+          onReject={() => dismissLookup("rejected")}
+          onClose={() => dismissLookup("closed")}
+        />
+      ) : null}
     </main>
   );
 
@@ -705,6 +843,138 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
 }
 
 /* ───────────────────────── sub components ───────────────────────── */
+
+function BizLookupModal({
+  lookup,
+  onConfirm,
+  onReject,
+  onClose,
+}: {
+  lookup: BizLookupModalState;
+  onConfirm: () => void;
+  onReject: () => void;
+  onClose: () => void;
+}) {
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, [lookup.phase]);
+
+  const maskedBizNo = lookup.phase === "confirm"
+    ? lookup.preview.maskedBizNo
+    : maskLandingBizNo(lookup.bizNo);
+  const suspended = lookup.phase === "confirm" && lookup.preview.businessStatus?.active === false;
+  const statusLabel = lookup.phase === "confirm"
+    ? lookup.preview.businessStatus?.label ?? (suspended ? "휴업" : "영업 중")
+    : null;
+
+  return (
+    <div
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 120,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        background: "rgba(25,31,40,.46)",
+        backdropFilter: "blur(4px)",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="lp-lookup-title"
+        style={{
+          width: "100%",
+          maxWidth: 420,
+          background: "#fff",
+          borderRadius: 24,
+          padding: "30px 28px 26px",
+          boxShadow: "0 24px 64px rgba(20,23,26,.24),0 8px 20px rgba(20,23,26,.12)",
+          textAlign: "center",
+        }}
+      >
+        {lookup.phase === "loading" ? (
+          <>
+            <ModalSpinner />
+            <h3 id="lp-lookup-title" ref={headingRef} tabIndex={-1} style={modalTitle}>
+              사업자 정보를 확인하고 있어요
+            </h3>
+            <p style={modalBody}>{maskedBizNo} 기준으로 상호와 영업상태를 확인 중이에요.</p>
+          </>
+        ) : null}
+
+        {lookup.phase === "confirm" ? (
+          <>
+            <div style={modalEmoji("#e8f3ff")}>🏢</div>
+            <h3 id="lp-lookup-title" ref={headingRef} tabIndex={-1} style={modalTitle}>
+              『{lookup.preview.name ?? "상호명 미확인"}』<br />회사가 맞으신가요?
+            </h3>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+              <span style={modalChip("#f2f4f6", "#4e5968")}>{maskedBizNo}</span>
+              {statusLabel ? (
+                <span style={modalChip(suspended ? "#fff3e0" : "#e6fbf1", suspended ? "#c77700" : "#03863f")}>
+                  {statusLabel}
+                </span>
+              ) : null}
+              {lookup.preview.regionLabel ? (
+                <span style={modalChip("#f2f4f6", "#4e5968")}>{lookup.preview.regionLabel}</span>
+              ) : null}
+            </div>
+            {suspended ? (
+              <p style={{ ...modalBody, color: "#c77700" }}>
+                국세청 기준 {statusLabel} 상태예요. 그래도 매칭 결과는 확인할 수 있어요.
+              </p>
+            ) : null}
+            {lookup.preview.name === null ? (
+              <p style={modalBody}>상호명을 확인하지 못했어요. 번호가 맞다면 그대로 진행할 수 있어요.</p>
+            ) : null}
+            <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 18 }}>
+              <button type="button" onClick={onConfirm} style={modalPrimaryBtn}>
+                네, 매칭 결과 보기
+              </button>
+              <button type="button" onClick={onReject} style={modalSecondaryBtn}>
+                아니요, 다시 입력할게요
+              </button>
+            </div>
+          </>
+        ) : null}
+
+        {lookup.phase === "error" ? (
+          <>
+            <div style={modalEmoji("#fde9ec")}>⚠️</div>
+            <h3 id="lp-lookup-title" ref={headingRef} tabIndex={-1} style={modalTitle}>
+              {lookup.title}
+            </h3>
+            <p style={modalBody}>{lookup.message}</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9, marginTop: 18 }}>
+              <button type="button" onClick={onClose} style={modalPrimaryBtn}>
+                사업자번호 다시 입력
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function ModalSpinner() {
+  return (
+    <svg viewBox="0 0 44 44" width={44} height={44} style={{ display: "block", margin: "0 auto 16px" }} aria-hidden>
+      <circle cx="22" cy="22" r="18" fill="none" stroke="#e8f3ff" strokeWidth="5" />
+      <path d="M22 4 a18 18 0 0 1 18 18" fill="none" stroke="#3182f6" strokeWidth="5" strokeLinecap="round">
+        <animateTransform attributeName="transform" type="rotate" from="0 22 22" to="360 22 22" dur="0.9s" repeatCount="indefinite" />
+      </path>
+    </svg>
+  );
+}
 
 function LandingLookupSuggestions({
   suggestions,
@@ -967,6 +1237,77 @@ const featureTitle: CSSProperties = { fontSize: "clamp(22px,2.8vw,28px)", fontWe
 const featureBody: CSSProperties = { fontSize: 15.5, color: "#8b95a1", lineHeight: 1.65, marginBottom: 20 };
 const ellipsisText: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
 
+const modalTitle: CSSProperties = {
+  fontSize: 19,
+  fontWeight: 800,
+  letterSpacing: "-.03em",
+  color: "#191f28",
+  lineHeight: 1.35,
+  marginBottom: 10,
+  outline: "none",
+};
+
+const modalBody: CSSProperties = { fontSize: 14, color: "#8b95a1", lineHeight: 1.6, margin: "0 0 4px" };
+
+const modalPrimaryBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: 48,
+  padding: "0 22px",
+  cursor: "pointer",
+  borderRadius: 13,
+  color: "#fff",
+  fontFamily: "inherit",
+  fontSize: 15,
+  fontWeight: 700,
+  border: "none",
+  background: GRAD_BTN,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.3),0 6px 16px rgba(49,130,246,.3)",
+};
+
+const modalSecondaryBtn: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  height: 46,
+  padding: "0 22px",
+  cursor: "pointer",
+  borderRadius: 13,
+  color: "#4e5968",
+  fontFamily: "inherit",
+  fontSize: 14.5,
+  fontWeight: 600,
+  border: "1px solid #e5e8eb",
+  background: "#fff",
+};
+
+function modalEmoji(bg: string): CSSProperties {
+  return {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    background: bg,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 24,
+    margin: "0 auto 16px",
+  };
+}
+
+function modalChip(bg: string, color: string): CSSProperties {
+  return {
+    fontSize: 12.5,
+    fontWeight: 700,
+    color,
+    background: bg,
+    padding: "6px 11px",
+    borderRadius: 999,
+    letterSpacing: ".01em",
+  };
+}
+
 const heroCtaStyle: CSSProperties = {
   flex: "none",
   display: "inline-flex",
@@ -1025,6 +1366,20 @@ function grainStyle(opacity: number): CSSProperties {
 
 function onlyDigits(v: string): string {
   return v.replace(/\D/g, "").slice(0, 10);
+}
+
+/** preview 에러 코드별 모달 제목. 번호 문제는 재확인 유도, 그 외에는 재시도 유도. */
+function titleForPreviewError(code: string | undefined): string {
+  if (code === "invalid_biz_no" || code === "biz_no_not_registered" || code === "biz_no_closed") {
+    return "사업자번호를 다시 확인해 주세요";
+  }
+  return "잠시 후 다시 시도해 주세요";
+}
+
+/** 10자리 사업자번호를 000-**-***** 로 마스킹(서버 maskedBizNo와 동일 포맷). */
+function maskLandingBizNo(digits: string): string {
+  if (digits.length !== 10) return fmtBiz(digits);
+  return `${digits.slice(0, 3)}-**-*****`;
 }
 
 function fmtBiz(v: string): string {
