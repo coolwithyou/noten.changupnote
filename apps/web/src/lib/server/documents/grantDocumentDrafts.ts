@@ -26,6 +26,7 @@ import {
   resolveFieldAnswers,
   syncUserFilledFields,
 } from "./fieldAnswers";
+import { seedProfileFieldAnswers, type SeedFieldInput } from "./seedProfileAnswers";
 
 const DOCUMENT_DRAFT_FEEDBACK_KINDS: DocumentDraftFeedbackKind[] = [
   "incorrect_fact",
@@ -148,10 +149,19 @@ export async function createGrantDocumentDraft(input: {
   return { draft: toDocumentDraft(row) };
 }
 
+/**
+ * DocumentDraft 도메인 형태 + 필드 답변 상태(ADR-5).
+ * HWPX 미채움 정직 보고(D2)·P2b workspace 로더가 fieldAnswers 를 소비한다.
+ * 기존 DocumentDraft 소비처에는 추가 프로퍼티일 뿐이라 영향 없음.
+ */
+export interface DocumentDraftWithFieldAnswers extends DocumentDraft {
+  fieldAnswers: DraftFieldAnswers | null;
+}
+
 export async function getGrantDocumentDraft(input: {
   draftId: string;
   access: CompanyAccess;
-}): Promise<DocumentDraft> {
+}): Promise<DocumentDraftWithFieldAnswers> {
   assertDraftId(input.draftId);
   const db = getCunoteDb();
   const [row] = await withCunoteDbUser(db, input.access.userId, async (tx) => tx
@@ -295,6 +305,68 @@ export async function patchGrantDocumentDraftFieldAnswers(input: {
   });
 
   return { fieldAnswers: mergedAnswers, filledFields };
+}
+
+/**
+ * 결정론적 프로필 시드 배선 (P2-7 / ADR-8 트랙①). 순수 함수 `seedProfileFieldAnswers`(seedProfileAnswers.ts)
+ * 를 draft 로드·프로필 resolve·멱등 저장에 배선한다. workspace 로더가 draft ensure 직후 매 진입 시 호출한다.
+ *
+ * 멱등: `seedProfileFieldAnswers` 는 이미 답변이 있는 label 을 불변으로 두고 새 label 만 추가하므로,
+ * 병합 결과의 키 개수가 늘었을 때만 실제 DB update 한다(무의미한 write·이벤트 로그 방지). 시드 답변은
+ * suggested 라 파생 `filledFields`(accepted|edited)에는 영향이 없다 — 컨펌 게이트 불변식 유지.
+ */
+export async function seedGrantDocumentDraftProfileAnswers(input: {
+  draftId: string;
+  access: CompanyAccess;
+  fields: SeedFieldInput[];
+}): Promise<{ fieldAnswers: DraftFieldAnswers; filledFields: Record<string, string>; seeded: boolean }> {
+  assertDraftId(input.draftId);
+  const current = await getGrantDocumentDraftRow({ draftId: input.draftId, access: input.access });
+  const currentAnswers = resolveFieldAnswers(current);
+
+  const seedableFields = input.fields.filter((field) => Boolean(field.mappedCompanyField));
+  if (seedableFields.length === 0) {
+    return { fieldAnswers: currentAnswers, filledFields: deriveFilledFields(currentAnswers), seeded: false };
+  }
+
+  const profile = await getServiceRepositories().companies.resolveCompanyProfile({
+    companyId: input.access.companyId,
+    userId: input.access.userId,
+  });
+  if (!profile) {
+    return { fieldAnswers: currentAnswers, filledFields: deriveFilledFields(currentAnswers), seeded: false };
+  }
+
+  const mergedAnswers = seedProfileFieldAnswers({ fields: seedableFields, profile, current: currentAnswers });
+  const seeded = Object.keys(mergedAnswers).length !== Object.keys(currentAnswers).length;
+  const filledFields = deriveFilledFields(mergedAnswers);
+  if (!seeded) {
+    return { fieldAnswers: currentAnswers, filledFields, seeded: false };
+  }
+
+  const db = getCunoteDb();
+  const [row] = await withCunoteDbUser(db, input.access.userId, async (tx) => tx
+    .update(schema.grantDocumentDrafts)
+    .set({ fieldAnswers: mergedAnswers, filledFields, updatedAt: new Date() })
+    .where(and(
+      eq(schema.grantDocumentDrafts.id, current.id),
+      eq(schema.grantDocumentDrafts.companyId, input.access.companyId),
+    ))
+    .returning());
+  if (!row) throw new DocumentDraftError("draft_not_found", "초안을 찾지 못했습니다.", 404, "draftId");
+
+  await appendDraftEvent({
+    draftId: row.id,
+    actorUserId: input.access.userId,
+    userId: input.access.userId,
+    event: "profile_seeded",
+    payload: {
+      documentKey: row.documentKey,
+      seededLabels: Object.keys(mergedAnswers).length - Object.keys(currentAnswers).length,
+    },
+  });
+
+  return { fieldAnswers: mergedAnswers, filledFields, seeded: true };
 }
 
 export async function regenerateGrantDocumentDraftSection(input: {
@@ -698,7 +770,7 @@ function uniqueLatestDraftRows(rows: DraftRow[]): DraftRow[] {
   return unique;
 }
 
-function toDocumentDraft(row: DraftRow): DocumentDraft {
+function toDocumentDraft(row: DraftRow): DocumentDraftWithFieldAnswers {
   return {
     id: row.id,
     grantId: row.grantId,
@@ -709,6 +781,7 @@ function toDocumentDraft(row: DraftRow): DocumentDraft {
     sourceAttachment: row.sourceAttachment,
     draftMarkdown: row.draftMarkdown,
     filledFields: row.filledFields,
+    fieldAnswers: row.fieldAnswers ?? null,
     missingFields: row.missingFields as unknown as MissingFieldQuestion[],
     usedProfileFields: row.usedProfileFields,
     assumptions: row.assumptions,

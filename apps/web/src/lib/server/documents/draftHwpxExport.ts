@@ -4,8 +4,8 @@ import type { DocumentDraft, DraftableDocument, Grant } from "@cunote/contracts"
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
-import { detectDuplicateNormalizedLabels } from "./fieldAnswers";
-import { loadConnectedDocumentFields } from "./documentFieldLink";
+import { detectDuplicateNormalizedLabels, type DraftFieldAnswers } from "./fieldAnswers";
+import { loadConnectedDocumentFields, resolveArchiveStorageKey } from "./documentFieldLink";
 
 /**
  * hwp2hwpx sibling artifact 의 document_artifacts.kind 값
@@ -40,12 +40,37 @@ export interface DraftHwpxDownloadResult {
 }
 
 /**
+ * 미확정 제안(suggested) 잔여를 미채움 보고 항목으로 나열한다(순수 — 검수 기준 D2).
+ * suggested 는 컨펌 게이트에 의해 채움에서 제외되지만, 사용자에게는 "미채움 잔여"로서
+ * X-Cunote-Hwpx-Unfilled 에 정직하게 보고돼야 한다(§4.3). dismissed(건너뛰기)는 사용자의
+ * 의도적 제외이므로 보고하지 않는다.
+ */
+export function listSuggestedUnfilled(input: {
+  fieldAnswers: DraftFieldAnswers | null | undefined;
+  filledFields: Record<string, string>;
+}): Array<{ label: string; reason: string }> {
+  const entries: Array<{ label: string; reason: string }> = [];
+  if (!input.fieldAnswers) return entries;
+  for (const [label, answer] of Object.entries(input.fieldAnswers)) {
+    if (!answer || answer.status !== "suggested") continue;
+    if (!answer.value || answer.value.trim().length === 0) continue;
+    if (label in input.filledFields) continue;
+    entries.push({
+      label,
+      reason: "제안 값이 아직 확정되지 않아 채우지 않았습니다. 반영 후 다시 받아주세요.",
+    });
+  }
+  return entries;
+}
+
+/**
  * 초안의 원본 hwpx 양식에 서버 저장 파생 filledFields(accepted|edited 만) 를 채운 파일을 만든다.
  * Apply Experience v2 ADR-5: 컨펌 게이트를 서버가 집행 — 클라이언트 answers 동봉은 폐기됐다.
  * 정규화 label 충돌(예: "기업명(국문)"/"기업명(영문)")은 채움에서 제외하고 미채움으로 정직 보고한다.
+ * 미확정 제안(suggested)도 미채움 잔여로 정직 보고한다(listSuggestedUnfilled — 검수 기준 D2).
  */
 export async function buildDraftHwpxDownload(input: {
-  draft: DocumentDraft;
+  draft: DocumentDraft & { fieldAnswers?: DraftFieldAnswers | null };
 }): Promise<DraftHwpxDownloadResult> {
   const filename = input.draft.sourceAttachment?.trim();
   if (!filename) {
@@ -157,6 +182,12 @@ export async function buildDraftHwpxDownload(input: {
     values[label] = value;
   }
 
+  // D2: 미확정 제안(suggested)은 채움 제외 대상이지만 "미채움 잔여"로 정직 보고한다.
+  const suggestedUnfilled = listSuggestedUnfilled({
+    fieldAnswers: input.draft.fieldAnswers,
+    filledFields: input.draft.filledFields,
+  });
+
   try {
     const result = fillHwpxTemplate({ source, values });
     return {
@@ -165,6 +196,7 @@ export async function buildDraftHwpxDownload(input: {
       unfilled: [
         ...result.unfilled.map((entry) => ({ label: entry.label, reason: entry.reason })),
         ...collisionUnfilled,
+        ...suggestedUnfilled,
       ],
     };
   } catch (error) {
@@ -339,22 +371,4 @@ async function resolveGrantSource(
   return row ?? null;
 }
 
-async function resolveArchiveStorageKey(input: {
-  source: Grant["source"];
-  sourceId: string;
-  filename: string;
-}): Promise<{ storageKey: string | null } | null> {
-  const db = getCunoteDb();
-  const [row] = await db
-    .select({ storageKey: schema.grantAttachmentArchives.storageKey })
-    .from(schema.grantAttachmentArchives)
-    .where(
-      and(
-        eq(schema.grantAttachmentArchives.source, input.source),
-        eq(schema.grantAttachmentArchives.sourceId, input.sourceId),
-        eq(schema.grantAttachmentArchives.filename, input.filename),
-      ),
-    )
-    .limit(1);
-  return row ?? null;
-}
+// resolveArchiveStorageKey 는 documentFieldLink.ts 로 호이스트됐다(workspaceData 와 공유 — 사본 금지).

@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, FileText, Minus, Plus } from "lucide-react";
+import { FileText } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
   Empty,
   EmptyDescription,
@@ -14,18 +14,14 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
-import { boxToPercentStyle } from "@/lib/documents/bbox";
 import type {
   PreviewField,
   PreviewGrant,
   PreviewPage,
   PreviewSurface,
 } from "@/lib/server/documents/documentPreview";
+import { PreviewCanvas, type PreviewOverlayField } from "./PreviewCanvas";
 import { FieldInspectorPanel } from "./FieldInspectorPanel";
-
-const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 3;
-const ZOOM_STEP = 0.25;
 
 const STATUS_LABEL: Record<string, string> = {
   open: "접수중",
@@ -33,11 +29,6 @@ const STATUS_LABEL: Record<string, string> = {
   closed: "마감",
   unknown: "상태 미확인",
 };
-
-function pageImageUrl(grantId: string, key: string): string {
-  const encoded = key.split("/").map((part) => encodeURIComponent(part)).join("/");
-  return `/api/web/grants/${encodeURIComponent(grantId)}/page-image/${encoded}`;
-}
 
 export function DocumentPreviewView({
   grantId,
@@ -54,14 +45,8 @@ export function DocumentPreviewView({
   pages: PreviewPage[];
   fields: PreviewField[];
 }) {
-  const [pageIndex, setPageIndex] = useState(0);
-  const [zoom, setZoom] = useState(1);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
-
   const fieldRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-
-  const currentPage = pages[pageIndex] ?? null;
-  const totalPages = pages.length;
 
   const selectedField = useMemo(
     () => fields.find((field) => field.id === selectedFieldId) ?? null,
@@ -69,27 +54,27 @@ export function DocumentPreviewView({
   );
 
   const locatedCount = useMemo(() => fields.filter((field) => field.box).length, [fields]);
+  const totalPages = pages.length;
 
-  // 현재 페이지에 좌표가 있는 필드만 오버레이한다.
-  const overlayFields = useMemo(() => {
-    if (!currentPage) return [];
-    return fields.filter((field) => field.box && field.page === currentPage.page);
-  }, [fields, currentPage]);
+  // 프리뷰 뷰어는 단색 오버레이만 필요하므로 모든 필드에 plain 상태를 준다(시각 회귀 없음).
+  const overlayFields = useMemo<PreviewOverlayField[]>(
+    () =>
+      fields.map((field) => ({
+        fieldId: field.id,
+        label: field.label || field.fieldKey,
+        page: field.page,
+        box: field.box,
+        state: "plain",
+      })),
+    [fields],
+  );
 
-  function selectFromOverlay(fieldId: string) {
+  // 오버레이 클릭 → 선택 + 리스트 항목으로 스크롤(캔버스의 페이지 이동은 PreviewCanvas 가 담당).
+  function handleOverlaySelect(fieldId: string) {
     setSelectedFieldId(fieldId);
     requestAnimationFrame(() => {
       fieldRefs.current[fieldId]?.scrollIntoView({ behavior: "smooth", block: "center" });
     });
-  }
-
-  function selectFromList(field: PreviewField) {
-    setSelectedFieldId(field.id);
-    // 좌표가 있으면 해당 페이지로 이동해 오버레이가 보이도록 한다.
-    if (field.box && field.page) {
-      const targetIndex = pages.findIndex((page) => page.page === field.page);
-      if (targetIndex >= 0) setPageIndex(targetIndex);
-    }
   }
 
   const hasAnyData = surfaces.length > 0 || fields.length > 0;
@@ -122,9 +107,7 @@ export function DocumentPreviewView({
               <Link
                 key={surface.id}
                 href={`/grants/${encodeURIComponent(grantId)}/preview?surface=${encodeURIComponent(surface.id)}`}
-                className={cn(
-                  buttonVariants({ variant: active ? "default" : "outline", size: "sm" }),
-                )}
+                className={cn(buttonVariants({ variant: active ? "default" : "outline", size: "sm" }))}
                 aria-current={active ? "true" : undefined}
               >
                 <FileText data-icon="inline-start" />
@@ -152,100 +135,15 @@ export function DocumentPreviewView({
         </Empty>
       ) : (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.72fr)]">
-          {/* 문서 이미지 + 오버레이 */}
-          <section className="flex flex-col gap-3 self-start rounded-[var(--radius-xl)] border bg-card p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="이전 페이지"
-                  onClick={() => setPageIndex((index) => Math.max(0, index - 1))}
-                  disabled={pageIndex <= 0}
-                >
-                  <ChevronLeft />
-                </Button>
-                <Badge variant="outline" className="h-7 min-w-16 justify-center tabular-nums">
-                  {totalPages > 0 ? `${pageIndex + 1} / ${totalPages}` : "0 / 0"}
-                </Badge>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="다음 페이지"
-                  onClick={() => setPageIndex((index) => Math.min(totalPages - 1, index + 1))}
-                  disabled={pageIndex >= totalPages - 1}
-                >
-                  <ChevronRight />
-                </Button>
-              </div>
-              <div className="flex items-center gap-1">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="축소"
-                  onClick={() => setZoom((value) => Math.max(ZOOM_MIN, value - ZOOM_STEP))}
-                  disabled={zoom <= ZOOM_MIN}
-                >
-                  <Minus />
-                </Button>
-                <Badge variant="secondary" className="h-7 min-w-14 justify-center tabular-nums">
-                  {Math.round(zoom * 100)}%
-                </Badge>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="확대"
-                  onClick={() => setZoom((value) => Math.min(ZOOM_MAX, value + ZOOM_STEP))}
-                  disabled={zoom >= ZOOM_MAX}
-                >
-                  <Plus />
-                </Button>
-              </div>
-            </div>
-
-            <div className="max-h-[80vh] overflow-auto rounded-[var(--radius-lg)] border bg-muted/30">
-              {currentPage ? (
-                <div className="relative inline-block" style={{ width: `${zoom * 100}%` }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={pageImageUrl(grantId, currentPage.storageKey)}
-                    alt={`${grant.title} ${currentPage.page}페이지`}
-                    className="pointer-events-none block w-full select-none"
-                    draggable={false}
-                  />
-                  {overlayFields.map((field) => {
-                    if (!field.box) return null;
-                    const active = field.id === selectedFieldId;
-                    return (
-                      <button
-                        key={field.id}
-                        type="button"
-                        onClick={() => selectFromOverlay(field.id)}
-                        title={field.label || field.fieldKey}
-                        aria-label={field.label || field.fieldKey}
-                        className={cn(
-                          "absolute rounded-[3px] border transition-colors",
-                          active
-                            ? "border-2 border-primary bg-primary/25"
-                            : "border-primary/60 bg-primary/10 hover:bg-primary/20",
-                        )}
-                        style={boxToPercentStyle(field.box)}
-                      />
-                    );
-                  })}
-                </div>
-              ) : (
-                <Empty className="min-h-80 border-0">
-                  <EmptyHeader>
-                    <EmptyTitle>이 문서의 페이지 이미지가 없습니다.</EmptyTitle>
-                    <EmptyDescription>
-                      아래 작성 항목 목록은 그대로 확인할 수 있습니다.
-                    </EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              )}
-            </div>
-          </section>
+          {/* 문서 이미지 + 오버레이 (PreviewCanvas 재사용) */}
+          <PreviewCanvas
+            grantId={grantId}
+            grantTitle={grant.title}
+            pages={pages}
+            overlayFields={overlayFields}
+            selectedFieldId={selectedFieldId}
+            onSelectField={handleOverlaySelect}
+          />
 
           {/* 필드 목록 + 인스펙터 */}
           <section className="flex flex-col gap-4 self-start">
@@ -275,7 +173,7 @@ export function DocumentPreviewView({
                           ref={(element) => {
                             fieldRefs.current[field.id] = element;
                           }}
-                          onClick={() => selectFromList(field)}
+                          onClick={() => setSelectedFieldId(field.id)}
                           className={cn(
                             "flex w-full flex-col gap-1 px-4 py-3 text-left text-sm transition-colors",
                             active ? "bg-accent" : "hover:bg-muted/50",

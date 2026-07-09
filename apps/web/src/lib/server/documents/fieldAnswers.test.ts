@@ -9,6 +9,8 @@
  *   ② 재생성(upsert) 후에도 accepted/edited 보존 · suggested 미유출
  *   ③ 미백필 행 부분 PATCH 시 기존 값 무유실
  *   ④ 정규화 label 중복 감지
+ * 추가(메인 검수 기준 D2):
+ *   ⑤ 미확정 suggested 는 HWPX 미채움(X-Cunote-Hwpx-Unfilled) 보고에 포함, dismissed 는 미포함
  */
 import assert from "node:assert/strict";
 import {
@@ -19,6 +21,7 @@ import {
   mergeTemplateSuggestions,
   resolveFieldAnswers,
 } from "./fieldAnswers";
+import { listSuggestedUnfilled } from "./draftHwpxExport";
 
 const ISO = "2026-07-10T00:00:00.000Z";
 let passed = 0;
@@ -126,6 +129,30 @@ check("④ detectDuplicateNormalizedLabels: 괄호 붕괴 충돌 감지, 동일 
   const identical = detectDuplicateNormalizedLabels(["상호", "상호"]);
   assert.equal(identical.duplicateLabels.size, 0);
   assert.equal(identical.collisions.length, 0);
+});
+
+// ⑤ (검수 D2) 미확정 suggested 는 채움 제외 + 미채움 보고 포함. dismissed·확정·빈값은 미보고.
+check("⑤ listSuggestedUnfilled: suggested 는 Unfilled 정직 보고, dismissed/확정/빈값 미포함", () => {
+  const fieldAnswers: DraftFieldAnswers = {
+    기업명: { value: "가나상사", status: "suggested", source: "profile", updatedAt: ISO }, // 실측 결함 케이스
+    사업개요: { value: "LLM 제안값", status: "suggested", source: "llm", updatedAt: ISO },
+    매출액: { value: "5억원", status: "accepted", source: "user", updatedAt: ISO },
+    폐업여부: { value: "기각값", status: "dismissed", source: "template", updatedAt: ISO }, // 의도적 제외 → 미보고
+    빈제안: { value: "   ", status: "suggested", source: "template", updatedAt: ISO }, // 값 없음 → 미보고
+  };
+  const filledFields = deriveFilledFields(fieldAnswers); // { 매출액 } 만
+  const unfilled = listSuggestedUnfilled({ fieldAnswers, filledFields });
+  const labels = unfilled.map((entry) => entry.label).sort();
+
+  // accepted→suggested 로 되돌린 "기업명" 이 조용히 사라지지 않고 미채움으로 보고된다.
+  assert.deepEqual(labels, ["기업명", "사업개요"]);
+  assert.ok(unfilled.every((entry) => entry.reason.includes("확정되지 않아")), "정직한 사유 문구");
+  assert.ok(!labels.includes("폐업여부"), "dismissed 는 사용자의 의도적 제외 — 보고 안 함");
+  assert.ok(!labels.includes("매출액"), "확정값은 채움 대상 — 미채움 보고 대상 아님");
+  assert.ok(!labels.includes("빈제안"), "빈 제안값은 보고 대상 아님");
+
+  // fieldAnswers 미존재(미백필 draft)면 빈 목록 — 다운로드 흐름 회귀 없음.
+  assert.deepEqual(listSuggestedUnfilled({ fieldAnswers: null, filledFields: {} }), []);
 });
 
 console.log(`\n✅ ${passed}개 통과`);
