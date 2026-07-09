@@ -77,6 +77,11 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/consents",
   "PUT /api/web/consents",
   "DELETE /api/web/consents/[scope]",
+  "GET /api/web/credits/balance",
+  "GET /api/web/credits/estimate",
+  "GET /api/web/credits/ledger",
+  "GET /api/web/credits/usage",
+  "GET /api/web/credits/usage/export",
   "GET /api/web/matches",
   "GET /api/web/roadmap",
   "POST /api/web/matches/[grantId]/feedback",
@@ -124,6 +129,7 @@ export const SYSTEM_CRON_ROUTES = [
   "GET /api/cron/ingest-bizinfo",
   "GET /api/cron/grant-cycle-post",
   "GET /api/cron/poll-conversions",
+  "GET /api/cron/credits-expire-holds",
 ] as const;
 
 export const SESSION_APP_ROUTES = [
