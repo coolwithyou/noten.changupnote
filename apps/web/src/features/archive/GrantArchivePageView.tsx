@@ -25,6 +25,7 @@ import {
   authoringModeLabel,
   benefitFamilyLabel,
   criterionDimensionLabel,
+  writeSupportLabel,
   type GrantArchiveFacetOption,
   type GrantArchiveFacets,
   type GrantArchiveItem,
@@ -427,6 +428,13 @@ function GrantArchiveTable({ items }: { items: GrantArchiveItem[] }) {
                 <div className="mb-2 flex flex-wrap gap-1.5">
                   <Badge variant="outline">{sourceLabel(item.source)}</Badge>
                   <Badge variant={statusBadgeVariant(item.status)}>{statusLabel(item.status)}</Badge>
+                  {item.writeSupport === "ai_draft" || item.writeSupport === "template_fill" ? (
+                    <Badge variant="secondary" className="border-primary/25 bg-primary/10 text-primary">
+                      {writeSupportLabel(item.writeSupport)}
+                    </Badge>
+                  ) : item.writeSupport === "web_form_guide" ? (
+                    <Badge variant="outline">{writeSupportLabel(item.writeSupport)}</Badge>
+                  ) : null}
                   {item.applicationStage ? <Badge variant="secondary">{applicationStageLabel(item.applicationStage)}</Badge> : null}
                 </div>
                 <strong className="block text-sm font-semibold leading-6">{item.title}</strong>

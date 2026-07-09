@@ -7,6 +7,7 @@ import {
   buildGrantArchiveResult,
   benefitFamilyLabel,
   criterionDimensionLabel,
+  writeSupportLabel,
 } from "./grantArchiveSearch";
 
 const entries: NormalizedGrant[] = [
@@ -209,6 +210,10 @@ assert.equal(fileFormAuthoring.total, 1);
 assert.equal(fileFormAuthoring.items[0]?.grantId, "grant-1");
 assert.equal(fileFormAuthoring.items[0]?.authoringMode, "file_form");
 
+// 작성 지원 수준 — 매칭 카드와 같은 core 규칙(grant-1: 작성형 사업계획서 → ai_draft).
+assert.equal(fileFormAuthoring.items[0]?.writeSupport, "ai_draft");
+assert.equal(writeSupportLabel("ai_draft"), "초안 작성 지원");
+
 // 작성 방식 필터 — f_authoring_mode 미설정(grant-2)은 "unknown" 폴백.
 const unknownAuthoring = buildGrantArchiveResult({
   entries,
@@ -218,6 +223,8 @@ const unknownAuthoring = buildGrantArchiveResult({
 assert.equal(unknownAuthoring.total, 1);
 assert.equal(unknownAuthoring.items[0]?.source, "bizinfo");
 assert.equal(unknownAuthoring.items[0]?.authoringMode, "unknown");
+// 서류·작성 방식 신호가 없는 공고는 writeSupport 도 unknown (행 배지 미표시).
+assert.equal(unknownAuthoring.items[0]?.writeSupport, "unknown");
 
 // 주관기관 필터 — grant.agency_primary 정확 일치.
 const agencyMatch = buildGrantArchiveResult({
@@ -302,6 +309,8 @@ console.log(JSON.stringify({
     "archive_authoring_mode_filter",
     "archive_authoring_mode_unknown_fallback",
     "archive_authoring_mode_facets",
+    "archive_write_support_projection",
+    "archive_write_support_unknown_fallback",
     "archive_agency_filter",
     "archive_agency_filter_miss",
     "archive_agency_facets",

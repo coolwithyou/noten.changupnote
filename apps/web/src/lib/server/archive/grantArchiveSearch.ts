@@ -9,6 +9,7 @@ import type {
   GrantSource,
   GrantStatus,
   NormalizedGrant,
+  WriteSupportLevel,
 } from "@cunote/contracts";
 import {
   APPLY_METHOD_CHANNELS,
@@ -17,8 +18,9 @@ import {
   AUTHORING_MODE_LABELS,
   CRITERION_DIMENSIONS,
   GRANT_BENEFIT_FAMILIES,
+  WRITE_SUPPORT_LABELS,
 } from "@cunote/contracts";
-import { classifyApplyMethods, daysUntil, deriveGrantBenefits, normalizeSupportAmount } from "@cunote/core";
+import { classifyApplyMethods, daysUntil, deriveGrantBenefits, deriveWriteSupport, normalizeSupportAmount } from "@cunote/core";
 
 export type GrantArchiveView = "list" | "calendar" | "gantt";
 export type GrantArchiveSort = "updated" | "deadline" | "start_date" | "title" | "confidence";
@@ -106,6 +108,11 @@ export interface GrantArchiveItem {
   benefits: BenefitBadge[];
   applyMethods: ApplyMethodChannel[];
   authoringMode: AuthoringMode;
+  /**
+   * 지원서 작성 도움 수준 — 매칭 카드와 같은 core 규칙(deriveWriteSupport)으로 파생.
+   * 아카이브 목록은 보관본 배치 조회를 하지 않으므로 template_fill 승격 없이 ai_draft 까지만 표시한다.
+   */
+  writeSupport: WriteSupportLevel;
   conditionSummary: GrantArchiveConditionSummary[];
   requiredDocumentCount: number;
   draftableDocumentCount: number;
@@ -331,6 +338,10 @@ export function authoringModeLabel(mode: AuthoringMode): string {
   return AUTHORING_MODE_LABELS[mode];
 }
 
+export function writeSupportLabel(level: WriteSupportLevel): string {
+  return WRITE_SUPPORT_LABELS[level];
+}
+
 function toArchiveEntry(entry: NormalizedGrant | GrantArchiveEntry): GrantArchiveEntry {
   const archiveEntry: GrantArchiveEntry = {
     grant: entry.grant,
@@ -372,6 +383,7 @@ function projectArchiveItem(entry: GrantArchiveEntry, asOf: Date): GrantArchiveI
     benefits: deriveGrantBenefits(grant),
     applyMethods: resolveApplyMethods(grant),
     authoringMode: grant.f_authoring_mode ?? "unknown",
+    writeSupport: deriveWriteSupport(grant),
     conditionSummary: summarizeConditions(entry.criteria),
     requiredDocumentCount: requiredDocuments.length,
     draftableDocumentCount,
