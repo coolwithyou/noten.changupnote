@@ -7,6 +7,7 @@
 > - ✅ 프로덕션 배포: `c7ec6e6` 기준 클린 worktree에서 `vercel deploy --prod` — Ready. 루트 200, cron 폴링 라우트 배포·인증 가드 확인(무효 Bearer 401). CRON_SECRET은 sensitive 타입이라 수동 트리거 불가 — 일일 cron이 자동 호출
 > - ✅ 슬라이스 C: 코칭/문의 연결 (`ad3d8a8` — coaching 카테고리, /support prefill, 공고 상세 '도움받기' CTA)
 > - ⬜ 슬라이스 D~G: 후속 등재 (Gate 3 대조 → fill planner, 통합 작성 화면, hwp2hwpx, AI 가이드)
+> - 📌 **승계 (2026-07-09)**: 슬라이스 D(fill planner)·E(통합 작성 화면)·G(AI 가이드)는 **`docs/plans/2026-07-09-apply-experience-v2.md`가 승계·대체**한다 (Phase 4·Phase 2·Phase 3에 각각 대응). F(hwp2hwpx)는 별도 트랙으로 이미 완료. 이 문서의 D·E·G를 독립 집행하지 말 것.
 
 ## 1. 목적
 
