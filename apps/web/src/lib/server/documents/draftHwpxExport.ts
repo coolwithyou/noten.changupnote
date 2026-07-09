@@ -1,9 +1,11 @@
 import { and, eq } from "drizzle-orm";
-import { detectHwpFormat, fillHwpxTemplate } from "@cunote/core/documents/hwpx-fill";
+import { detectHwpFormat, fillHwpxTemplate, normalizeLabel } from "@cunote/core/documents/hwpx-fill";
 import type { DocumentDraft, DraftableDocument, Grant } from "@cunote/contracts";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
+import { detectDuplicateNormalizedLabels } from "./fieldAnswers";
+import { loadConnectedDocumentFields } from "./documentFieldLink";
 
 /**
  * hwp2hwpx sibling artifact 의 document_artifacts.kind 값
@@ -38,11 +40,12 @@ export interface DraftHwpxDownloadResult {
 }
 
 /**
- * 초안의 원본 hwpx 양식에 값(draft.filledFields + answers, answers 우선)을 채운 파일을 만든다.
+ * 초안의 원본 hwpx 양식에 서버 저장 파생 filledFields(accepted|edited 만) 를 채운 파일을 만든다.
+ * Apply Experience v2 ADR-5: 컨펌 게이트를 서버가 집행 — 클라이언트 answers 동봉은 폐기됐다.
+ * 정규화 label 충돌(예: "기업명(국문)"/"기업명(영문)")은 채움에서 제외하고 미채움으로 정직 보고한다.
  */
 export async function buildDraftHwpxDownload(input: {
   draft: DocumentDraft;
-  answers?: Record<string, string>;
 }): Promise<DraftHwpxDownloadResult> {
   const filename = input.draft.sourceAttachment?.trim();
   if (!filename) {
@@ -125,15 +128,44 @@ export async function buildDraftHwpxDownload(input: {
     );
   }
 
-  // draft.filledFields 위에 워크스페이스 추가 입력(answers)을 덮어쓴다(answers 우선).
-  const values: Record<string, string> = { ...input.draft.filledFields, ...(input.answers ?? {}) };
+  // ADR-5 label 충돌 정책: 문서에 연결된 grant_document_fields 에서 정규화 label 중복을 감지하고,
+  // 충돌하는 label 은 채움에서 제외한다(matchLabelCells 가 첫 셀만 잡는 한계 → 오기입 방지).
+  // DB 조회 실패 시에는 충돌 감지를 건너뛰고 안전하게 진행한다(다운로드 자체는 막지 않는다).
+  const connectedFields = await loadConnectedDocumentFields({
+    source: grant.source,
+    sourceId: grant.sourceId,
+    sourceAttachment: filename,
+  }).catch((error) => {
+    console.warn(
+      `필드 충돌 감지용 조회 실패(충돌 감지 생략): ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return [];
+  });
+  const { collisions } = detectDuplicateNormalizedLabels(connectedFields.map((field) => field.label));
+  const collidingNormalized = new Set(collisions.map((collision) => collision.normalized));
+
+  const values: Record<string, string> = {};
+  const collisionUnfilled: Array<{ label: string; reason: string }> = [];
+  for (const [label, value] of Object.entries(input.draft.filledFields)) {
+    if (collidingNormalized.size > 0 && collidingNormalized.has(normalizeLabel(label))) {
+      collisionUnfilled.push({
+        label,
+        reason: "동일 항목명(정규화 충돌)이라 자동 채움에서 제외했습니다. 원본 양식에서 직접 확인해 주세요.",
+      });
+      continue;
+    }
+    values[label] = value;
+  }
 
   try {
     const result = fillHwpxTemplate({ source, values });
     return {
       body: result.output,
       filled: result.filled,
-      unfilled: result.unfilled.map((entry) => ({ label: entry.label, reason: entry.reason })),
+      unfilled: [
+        ...result.unfilled.map((entry) => ({ label: entry.label, reason: entry.reason })),
+        ...collisionUnfilled,
+      ],
     };
   } catch (error) {
     throw new DraftHwpxExportError(

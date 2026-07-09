@@ -349,7 +349,7 @@ function finalizeCell(frame: CellFrame, endOffset: number, slice: string): HwpxT
 // =====================================================================
 
 /** 라벨 정규화: 괄호 내용·마커·콜론·공백 제거(공백·콜론 차이 흡수). */
-function normalizeLabel(s: string): string {
+export function normalizeLabel(s: string): string {
   return s
     .replace(/\([^()]*\)/g, "") // (…) 내용 제거: "기업명(필수 입력)" → "기업명"
     .replace(/（[^（）]*）/g, "") // 전각 괄호

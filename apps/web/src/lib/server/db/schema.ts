@@ -14,6 +14,7 @@ import {
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { DraftFieldAnswer } from "../documents/fieldAnswers";
 
 export const companyKindEnum = pgEnum("company_kind", ["active", "preliminary"]);
 export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member", "viewer"]);
@@ -665,6 +666,9 @@ export const grantDocumentDrafts = pgTable("grant_document_drafts", {
   sourceAttachment: text("source_attachment"),
   draftMarkdown: text("draft_markdown").notNull(),
   filledFields: jsonb("filled_fields").$type<Record<string, string>>().notNull(),
+  // Apply Experience v2 ADR-5: 필드 답변 상태 모델. filledFields 는 이 값에서 accepted|edited 만
+  // 걸러 서버가 재계산하는 파생 뷰다. 미백필 행은 NULL(읽기 시 filledFields 로 폴백·구체화).
+  fieldAnswers: jsonb("field_answers").$type<Record<string, DraftFieldAnswer>>(),
   missingFields: jsonb("missing_fields").$type<Array<Record<string, unknown>>>().notNull(),
   usedProfileFields: jsonb("used_profile_fields").$type<string[]>().notNull(),
   assumptions: jsonb("assumptions").$type<string[]>().notNull(),

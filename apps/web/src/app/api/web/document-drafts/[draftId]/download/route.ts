@@ -85,24 +85,21 @@ function normalizeDraftExportFormat(value: string | null): "markdown" | "html" |
 }
 
 /**
- * HWPX 원본 양식 채움 다운로드 (설계 결정 6·8, Phase 2).
- * GET(markdown/html/docx/pdf)과 달리 워크스페이스 추가 입력(answers)을 body 로 동봉받아
- * `{...draft.filledFields, ...answers}`(answers 우선)로 원본 .hwpx 보관본을 채워 반환한다.
- * 미채움 라벨은 X-Cunote-Hwpx-Unfilled 헤더로 클라이언트에 전달한다.
+ * HWPX 원본 양식 채움 다운로드 (설계 결정 6·8, Phase 2 · Apply Experience v2 ADR-5).
+ * 채움 값은 **서버 저장 파생 filledFields(accepted|edited 만)** 를 그대로 사용한다.
+ * 클라이언트 body `answers` 동봉은 폐기됐다(컨펌 게이트의 서버 집행) — body 는 `{format:"hwpx"}` 만 요구.
+ * 미채움 라벨(정규화 label 충돌 제외분 포함)은 X-Cunote-Hwpx-Unfilled 헤더로 전달한다.
  */
 export async function POST(request: Request, context: RouteContext) {
   try {
     const { draftId } = await context.params;
     const access = await requireCompanyAccess();
-    const payload = await parseHwpxDownloadBody(request);
+    await parseHwpxDownloadBody(request);
 
     // 읽기로 초안을 먼저 확보한 뒤 채움을 시도하고, 성공했을 때만 export 이력을 남긴다
     // (위장 파일 등으로 실패한 다운로드를 내보냄으로 기록하지 않기 위함).
     const draft = await getGrantDocumentDraft({ draftId, access });
-    const result = await buildDraftHwpxDownload({
-      draft,
-      ...(payload.answers ? { answers: payload.answers } : {}),
-    });
+    const result = await buildDraftHwpxDownload({ draft });
     await recordGrantDocumentDraftExport({ draftId, access, format: "hwpx" });
 
     const filenameBase = sanitizeDownloadFilename(draft.documentName, "지원서-초안");
@@ -124,9 +121,7 @@ export async function POST(request: Request, context: RouteContext) {
   }
 }
 
-async function parseHwpxDownloadBody(
-  request: Request,
-): Promise<{ answers?: Record<string, string> }> {
+async function parseHwpxDownloadBody(request: Request): Promise<void> {
   let body: unknown;
   try {
     body = await request.json();
@@ -145,18 +140,5 @@ async function parseHwpxDownloadBody(
       "format",
     );
   }
-  const answers = normalizeAnswers(record.answers);
-  return answers ? { answers } : {};
-}
-
-function normalizeAnswers(value: unknown): Record<string, string> | undefined {
-  if (typeof value !== "object" || value === null) return undefined;
-  const result: Record<string, string> = {};
-  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-    if (typeof raw !== "string") continue;
-    const label = key.trim().slice(0, 160);
-    const filled = raw.trim().slice(0, 4000);
-    if (label && filled) result[label] = filled;
-  }
-  return Object.keys(result).length > 0 ? result : undefined;
+  // ADR-5: 클라이언트 answers 는 더 이상 채움에 반영하지 않는다(서버 저장 파생 filledFields 사용).
 }

@@ -17,6 +17,15 @@ import { getCunoteDb, withCunoteDbUser } from "../db/client";
 import * as schema from "../db/schema";
 import { getServiceRepositories, loadServiceApplySheet } from "../serviceData";
 import { KOREA_REGION_OPTIONS } from "@/lib/regions";
+import {
+  applyFieldAnswerPatch,
+  deriveFilledFields,
+  type DraftFieldAnswers,
+  type DraftFieldAnswerStatus,
+  mergeTemplateSuggestions,
+  resolveFieldAnswers,
+  syncUserFilledFields,
+} from "./fieldAnswers";
 
 const DOCUMENT_DRAFT_FEEDBACK_KINDS: DocumentDraftFeedbackKind[] = [
   "incorrect_fact",
@@ -74,6 +83,13 @@ export async function createGrantDocumentDraft(input: {
     userId: input.access.userId,
     documentKey: document.documentKey,
   });
+  // ADR-5: 템플릿 생성값은 fieldAnswers 에 suggested/template 로만 병합(멱등) — 이미 accepted|edited|
+  // dismissed 인 label 은 불변. 내보내기용 filledFields 는 병합 결과에서 파생 재계산한다.
+  const existingAnswers = existing ? resolveFieldAnswers(existing) : {};
+  const mergedAnswers = mergeTemplateSuggestions(existingAnswers, generated.autofill.filledFields, {
+    source: "template",
+  });
+  const derivedFilledFields = deriveFilledFields(mergedAnswers);
   const draftValues = {
     grantId: sheet.grant.id,
     companyId: input.access.companyId,
@@ -83,7 +99,8 @@ export async function createGrantDocumentDraft(input: {
     documentName: document.name,
     sourceAttachment: document.sourceAttachment,
     draftMarkdown: generated.draftMarkdown,
-    filledFields: generated.autofill.filledFields,
+    filledFields: derivedFilledFields,
+    fieldAnswers: mergedAnswers,
     missingFields: generated.autofill.missingFields as unknown as Array<Record<string, unknown>>,
     usedProfileFields: generated.autofill.usedProfileFields,
     assumptions: generated.assumptions,
@@ -183,7 +200,13 @@ export async function updateGrantDocumentDraft(input: {
   };
   if (input.draftMarkdown !== undefined) values.draftMarkdown = input.draftMarkdown;
   if (input.filledFields !== undefined) {
-    const filledFields = normalizeFilledFields(input.filledFields);
+    // ADR-5 표 1행: 구 PATCH 의 filledFields 는 fieldAnswers 에 edited/user 로 동기 반영하고,
+    // 내보내기용 filledFields 는 accepted|edited 파생으로 재계산해 컨펌 게이트 불변식을 유지한다.
+    const incoming = normalizeFilledFields(input.filledFields);
+    const currentAnswers = current ? resolveFieldAnswers(current) : {};
+    const mergedAnswers = syncUserFilledFields(currentAnswers, incoming);
+    const filledFields = deriveFilledFields(mergedAnswers);
+    values.fieldAnswers = mergedAnswers;
     values.filledFields = filledFields;
     values.missingFields = filterResolvedMissingFields(current?.missingFields ?? [], filledFields);
     if (!input.status && current?.status === "needs_input" && values.missingFields.length === 0) {
@@ -222,6 +245,58 @@ export async function updateGrantDocumentDraft(input: {
   return toDocumentDraft(row);
 }
 
+/**
+ * 필드 답변 저장(§7.1 / P2-4): label 당 { value?, status } 병합.
+ * 미백필 행은 resolveFieldAnswers 로 filledFields→fieldAnswers 선구체화 후 병합한다(ADR-5).
+ * 내보내기용 filledFields 는 병합 결과에서 accepted|edited 로 파생 재계산한다.
+ */
+export async function patchGrantDocumentDraftFieldAnswers(input: {
+  draftId: string;
+  access: CompanyAccess;
+  answers: Record<string, { value?: string; status: DraftFieldAnswerStatus }>;
+}): Promise<{ fieldAnswers: DraftFieldAnswers; filledFields: Record<string, string> }> {
+  assertDraftId(input.draftId);
+  const current = await getGrantDocumentDraftRow({ draftId: input.draftId, access: input.access });
+  const currentAnswers = resolveFieldAnswers(current);
+  const mergedAnswers = applyFieldAnswerPatch(currentAnswers, input.answers);
+  const filledFields = deriveFilledFields(mergedAnswers);
+  const missingFields = filterResolvedMissingFields(current.missingFields ?? [], filledFields);
+  const nextStatus = current.status === "needs_input" && missingFields.length === 0 ? "draft" : undefined;
+
+  const db = getCunoteDb();
+  const [row] = await withCunoteDbUser(db, input.access.userId, async (tx) => tx
+    .update(schema.grantDocumentDrafts)
+    .set({
+      fieldAnswers: mergedAnswers,
+      filledFields,
+      missingFields,
+      ...(nextStatus ? { status: nextStatus } : {}),
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(schema.grantDocumentDrafts.id, current.id),
+      eq(schema.grantDocumentDrafts.companyId, input.access.companyId),
+    ))
+    .returning());
+  if (!row) throw new DocumentDraftError("draft_not_found", "초안을 찾지 못했습니다.", 404, "draftId");
+
+  await appendDraftEvent({
+    draftId: row.id,
+    actorUserId: input.access.userId,
+    userId: input.access.userId,
+    event: "field_answers_updated",
+    payload: {
+      documentKey: row.documentKey,
+      status: row.status,
+      answerCount: Object.keys(mergedAnswers).length,
+      filledFieldCount: Object.keys(filledFields).length,
+      patchedLabels: Object.keys(input.answers).length,
+    },
+  });
+
+  return { fieldAnswers: mergedAnswers, filledFields };
+}
+
 export async function regenerateGrantDocumentDraftSection(input: {
   draftId: string;
   access: CompanyAccess;
@@ -255,11 +330,16 @@ export async function regenerateGrantDocumentDraftSection(input: {
     generatedMarkdown: generated.draftMarkdown,
     sectionTitle,
   });
-  const filledFields = normalizeFilledFields({
-    ...current.filledFields,
-    ...generated.autofill.filledFields,
-    ...(input.request.filledFields ? stringRecord(input.request.filledFields, 4000) : {}),
+  // ADR-5: 재생성도 생성 경로와 동일한 병합 규약. 기존 답변(materialize 폴백) 위에 템플릿 생성값을
+  // suggested/template 로 멱등 병합하고, 재생성 요청에 동봉된 사용자 값은 edited/user 로 반영한다.
+  let mergedAnswers = resolveFieldAnswers(current);
+  mergedAnswers = mergeTemplateSuggestions(mergedAnswers, generated.autofill.filledFields, {
+    source: "template",
   });
+  if (input.request.filledFields) {
+    mergedAnswers = syncUserFilledFields(mergedAnswers, stringRecord(input.request.filledFields, 4000));
+  }
+  const filledFields = deriveFilledFields(mergedAnswers);
   const missingFields = filterResolvedMissingFields(
     generated.autofill.missingFields as unknown as Array<Record<string, unknown>>,
     filledFields,
@@ -270,6 +350,7 @@ export async function regenerateGrantDocumentDraftSection(input: {
     .set({
       draftMarkdown,
       filledFields,
+      fieldAnswers: mergedAnswers,
       missingFields,
       usedProfileFields: generated.autofill.usedProfileFields,
       assumptions: generated.assumptions,

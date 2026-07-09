@@ -1,0 +1,1 @@
+ALTER TABLE "grant_document_drafts" ADD COLUMN "field_answers" jsonb;
