@@ -27,7 +27,10 @@ export async function POST(request: Request) {
     const asOf = new Date();
     const [companyResolution, grants] = await Promise.all([
       resolveTeaserCompanyProfileWithEvidence(body),
-      loadServiceGrants({ asOf, limit: 40 }),
+      // 지원 기간 내(active) 공고 전량을 매칭 대상으로 한다 — 마감 지난 공고는
+      // listActiveGrants 의 apply_end 필터가 걸러준다. 2026-07 기준 active ~1.5천 건,
+      // raw payload 평균 1.6kB 라 전량 조회 비용은 낮다. 2000 은 안전 상한(초과 시 상향 필요).
+      loadServiceGrants({ asOf, limit: 2_000 }),
     ]);
     const data = buildTeaser({
       company: companyResolution.profile,

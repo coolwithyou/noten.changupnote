@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
 import type {
   ApplyMethodChannel,
   AuthoringMode,
@@ -58,6 +58,22 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
   constructor(private readonly db: DrizzleDatabaseClient) {}
 
   async listActiveGrants(options: GrantListOptions = {}): Promise<Array<NormalizedGrant<TPayload>>> {
+    // limit 은 조인 전 "공고 수" 기준이어야 한다. criteria LEFT JOIN 결과 행에 limit 을 걸면
+    // 공고당 조건 수만큼 실제 공고 수가 줄어드는 버그가 있었다(limit 40 요청 시 ~13건).
+    // 그래서 1단계에서 공고 id 만 limit 으로 뽑고, 2단계에서 criteria·raw 를 조인한다.
+    const activeWhere = or(
+      and(eq(schema.grants.status, "open"), activeGrantApplyEndWhere(options.asOf)),
+      and(eq(schema.grants.status, "upcoming"), activeGrantApplyEndWhere(options.asOf)),
+      and(eq(schema.grants.status, "unknown"), activeGrantApplyEndWhere(options.asOf)),
+    );
+    const idRows = await this.db.client
+      .select({ id: schema.grants.id })
+      .from(schema.grants)
+      .where(activeWhere)
+      .orderBy(desc(schema.grants.updatedAt))
+      .limit(options.limit ?? 100);
+    if (idRows.length === 0) return [];
+
     const rows = await this.db.client
       .select({
         grant: schema.grants,
@@ -73,13 +89,8 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
           eq(schema.grantRaw.sourceId, schema.grants.sourceId),
         ),
       )
-      .where(or(
-        and(eq(schema.grants.status, "open"), activeGrantApplyEndWhere(options.asOf)),
-        and(eq(schema.grants.status, "upcoming"), activeGrantApplyEndWhere(options.asOf)),
-        and(eq(schema.grants.status, "unknown"), activeGrantApplyEndWhere(options.asOf)),
-      ))
-      .orderBy(desc(schema.grants.updatedAt))
-      .limit(options.limit ?? 100);
+      .where(inArray(schema.grants.id, idRows.map((row) => row.id)))
+      .orderBy(desc(schema.grants.updatedAt));
 
     return hydrateGrants<TPayload>(rows);
   }
