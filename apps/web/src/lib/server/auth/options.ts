@@ -8,6 +8,7 @@ import { eq, sql } from "drizzle-orm";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { getLegalConfig } from "@/lib/server/legal/legalConfig";
+import { ensureWalletWithSignupBonus } from "@/lib/server/credits/ensureWalletWithSignupBonus";
 import { mockUserEmail, mockUserId, mockUserName } from "./mockIdentity";
 import { normalizeEmail, verifyPassword } from "./password";
 
@@ -43,6 +44,9 @@ export const authOptions: NextAuthOptions = {
   events: {
     async signIn({ user }) {
       await ensureUserLegalAcceptance(user.id);
+      // 6.6 배선 (1): 로그인 성공(비밀번호·OAuth 공통) = 인증 완료 시점의 lazy grant.
+      // 멱등(signup:{userId}) — 매 로그인 호출돼도 최초 1회만 지급.
+      await ensureWalletWithSignupBonus(user.id);
     },
   },
 };
@@ -183,6 +187,9 @@ async function resolveSessionUserId(input: {
     }) ?? await resolveUserIdByEmail(email);
     if (userId) await linkOAuthAccount(userId, input.account);
     await ensureUserLegalAcceptance(userId);
+    // 6.6 배선 (2): OAuth 최초 로그인 — provider 가 이메일을 검증하므로 신규 유저 생성 직후 지급.
+    // (signIn 이벤트와 중복 호출되지만 signup:{userId} 멱등이라 안전.)
+    await ensureWalletWithSignupBonus(userId);
     return userId && isUuid(userId) ? userId : undefined;
   } catch (error) {
     console.warn(`NextAuth user id normalization failed; treating session as anonymous: ${errorMessage(error)}`);
