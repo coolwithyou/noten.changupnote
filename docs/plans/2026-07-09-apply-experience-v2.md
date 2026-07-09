@@ -479,6 +479,13 @@ execute:
 4. **`/grants/[grantId]/preview` 처분**: workspace 통합 후 리다이렉트(현 계획) vs 뷰어 단독 유지.
 5. **Phase 5 착수 시점**: 요구 5는 본 계획에서 설계까지 확정했으나 착수는 채팅 v1 안정화 후로 게이트했다(레드팀 권고). 동의 여부.
 
+> **결정 (2026-07-10, 사용자 확인 — 전건 제안 기본값 채택)**
+> 1. Phase 1·2는 **한 배포로 묶는다** — P1-4 임시 workspace 페이지는 생략.
+> 2. `CHAT_DAILY_TOKEN_BUDGET` 기본 **300,000 토큰/일/회사**.
+> 3. workspace 접근은 **`requireCompanyAccess` 전제 유지** (프리뷰 공개는 후속 판단).
+> 4. `/grants/[grantId]/preview`는 **workspace로 리다이렉트**.
+> 5. Phase 5 게이트 **동의** — 채팅 v1 안정화 후 별도 착수.
+
 ## 13. 리서치 근거 링크
 
 - FormFactory 벤치마크: https://arxiv.org/html/2506.01520 · Structured Output Benchmark: https://arxiv.org/html/2604.25359v1 · KORIE: https://doi.org/10.3390/math14010187 · KIEval(Upstage): https://arxiv.org/html/2503.05488
