@@ -10,7 +10,8 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult, DraftGenerationResult, MissingFieldQuestion } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -164,8 +165,6 @@ function MissingFieldQuestions({
   const router = useRouter();
   const [values, setValues] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   if (questions.length === 0) {
     return (
@@ -182,8 +181,6 @@ function MissingFieldQuestions({
       if (trimmed) answers[label] = trimmed;
     }
     setPending(true);
-    setError(null);
-    setNotice(null);
     try {
       const response = await fetch(`/api/web/grants/${encodeURIComponent(grantId)}/drafts`, {
         method: "POST",
@@ -197,10 +194,10 @@ function MissingFieldQuestions({
       if (!response.ok || !payload.ok || !payload.data) {
         throw new Error(payload.error?.message ?? "초안을 다시 만들지 못했습니다.");
       }
-      setNotice("입력을 반영해 초안을 다시 만들었습니다. 화면을 새로고침합니다.");
+      toast.success("입력을 반영해 초안을 다시 만들었습니다. 화면을 새로고침합니다.");
       router.refresh();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "초안을 다시 만들지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "초안을 다시 만들지 못했습니다.");
     } finally {
       setPending(false);
     }
@@ -227,17 +224,6 @@ function MissingFieldQuestions({
           </Field>
         ))}
       </div>
-      {error ? (
-        <div className="flex items-center gap-1.5 text-sm text-destructive" role="alert">
-          <AlertCircle className="size-4" aria-hidden />
-          {error}
-        </div>
-      ) : null}
-      {notice ? (
-        <div className="text-sm text-emerald-700 dark:text-emerald-400" role="status">
-          {notice}
-        </div>
-      ) : null}
       <Button type="button" size="sm" onClick={() => void regenerate()} disabled={pending} className="justify-self-start">
         {pending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Sparkles className="size-3.5" aria-hidden />}
         이 입력으로 다시 만들기

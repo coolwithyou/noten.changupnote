@@ -21,6 +21,7 @@ import { Loader2, MessageSquare, Quote, Send } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
   uiMessagePartsToContent,
@@ -258,15 +259,20 @@ function AssistantBubble({ content }: { content: ChatMessageContent }) {
       {hasCitations ? (
         <div className="flex flex-wrap gap-1">
           {content.citations!.map((citation, index) => (
-            <Badge
-              key={`${index}-${citation.citedText.slice(0, 8)}`}
-              variant="outline"
-              className="max-w-full gap-1 border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400"
-              title={citation.citedText}
-            >
-              <Quote className="size-3 shrink-0" aria-hidden />
-              <span className="truncate">{citation.citedText}</span>
-            </Badge>
+            <Tooltip key={`${index}-${citation.citedText.slice(0, 8)}`}>
+              <TooltipTrigger
+                render={
+                  <Badge
+                    variant="outline"
+                    className="max-w-full gap-1 border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                  />
+                }
+              >
+                <Quote className="size-3 shrink-0" aria-hidden />
+                <span className="truncate">{citation.citedText}</span>
+              </TooltipTrigger>
+              <TooltipContent>{citation.citedText}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
       ) : null}

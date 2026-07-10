@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -50,7 +51,6 @@ export function WorkspaceView({
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pendingLabels, setPendingLabels] = useState<Set<string>>(() => new Set());
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
-  const [error, setError] = useState<string | null>(null);
   const [mobileTab, setMobileTab] = useState("doc");
   const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
@@ -100,7 +100,6 @@ export function WorkspaceView({
       next.add(key);
       return next;
     });
-    setError(null);
     try {
       const response = await fetch(
         `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/field-answers`,
@@ -136,7 +135,7 @@ export function WorkspaceView({
         else next[key] = prev[key];
         return next;
       });
-      setError(caught instanceof Error ? caught.message : "필드 답변을 저장하지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "필드 답변을 저장하지 못했습니다.");
     } finally {
       setPendingLabels((current) => {
         const next = new Set(current);
@@ -157,7 +156,6 @@ export function WorkspaceView({
       next.add(key);
       return next;
     });
-    setError(null);
     try {
       const response = await fetch(
         `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/field-suggestions`,
@@ -180,7 +178,7 @@ export function WorkspaceView({
       // 응답 suggestions 는 이미 서버가 suggested/llm 로 저장한 값이다(저장-반환 일치). 로컬 반영만 한다.
       const suggestion = payload.data.suggestions[field.label] ?? payload.data.suggestions[key];
       if (!suggestion) {
-        setError("근거 있는 제안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        toast.error("근거 있는 제안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");
         return;
       }
       setAnswers((cur) => {
@@ -197,7 +195,7 @@ export function WorkspaceView({
         return { ...cur, [key]: nextEntry };
       });
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "제안을 생성하지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "제안을 생성하지 못했습니다.");
     } finally {
       setSuggestingLabels((current) => {
         const next = new Set(current);
@@ -264,12 +262,6 @@ export function WorkspaceView({
           {badge.label}
         </Badge>
       </div>
-
-      {error ? (
-        <div className="flex items-center gap-1.5 border-b bg-destructive/[0.06] px-4 py-2 text-sm text-destructive" role="alert">
-          <span>{error}</span>
-        </div>
-      ) : null}
 
       {data.ladder === "c" ? (
         <div className="min-h-0 flex-1 overflow-auto">

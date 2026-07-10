@@ -11,7 +11,8 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Check, Download, Loader2 } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -41,12 +42,10 @@ export function WorkspaceFooter({
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
-  const [notice, setNotice] = useState<{ tone: "success" | "warning" | "danger"; message: string } | null>(null);
 
   async function downloadHwpx() {
     if (!draftId) return;
     setPending(true);
-    setNotice(null);
     try {
       const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draftId)}/download`, {
         method: "POST",
@@ -62,18 +61,14 @@ export function WorkspaceFooter({
       const unfilled = parseUnfilledHeader(response.headers.get("X-Cunote-Hwpx-Unfilled"));
       if (unfilled.length > 0) {
         const labels = unfilled.map((entry) => entry.label).filter(Boolean).join(", ");
-        setNotice({
-          tone: "warning",
-          message: `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
-        });
+        toast.warning(
+          `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
+        );
       } else {
-        setNotice({ tone: "success", message: "원본 HWPX 양식에 확정한 값을 채워 다운로드했습니다." });
+        toast.success("원본 HWPX 양식에 확정한 값을 채워 다운로드했습니다.");
       }
     } catch (caught) {
-      setNotice({
-        tone: "danger",
-        message: caught instanceof Error ? caught.message : "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.",
-      });
+      toast.error(caught instanceof Error ? caught.message : "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.");
     } finally {
       setPending(false);
     }
@@ -81,21 +76,6 @@ export function WorkspaceFooter({
 
   return (
     <div className="border-t bg-card">
-      {notice ? (
-        <div
-          className={
-            notice.tone === "success"
-              ? "flex items-center gap-1.5 border-b bg-emerald-500/[0.06] px-4 py-2 text-sm text-emerald-700 dark:text-emerald-400"
-              : notice.tone === "warning"
-                ? "flex items-center gap-1.5 border-b bg-amber-500/[0.06] px-4 py-2 text-sm text-amber-700 dark:text-amber-400"
-                : "flex items-center gap-1.5 border-b bg-destructive/[0.06] px-4 py-2 text-sm text-destructive"
-          }
-          role="status"
-        >
-          {notice.tone === "success" ? <Check className="size-4" aria-hidden /> : <AlertCircle className="size-4" aria-hidden />}
-          <span>{notice.message}</span>
-        </div>
-      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex flex-wrap items-center gap-3">
           {documents.length > 1 && activeDocumentKey ? (
@@ -151,6 +131,7 @@ function ProgressMeter({ progress }: { progress: WorkspaceProgress }) {
   return (
     <div className="flex items-center gap-2">
       <div className="h-1.5 w-28 overflow-hidden rounded-full bg-muted">
+        {/* 동적 계산값(진행률 %) — Tailwind 유틸로 표현 불가, 인라인 style 예외 유지 */}
         <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
       </div>
       <span className="text-xs tabular-nums text-muted-foreground">{label}</span>

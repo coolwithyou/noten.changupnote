@@ -14,6 +14,7 @@ import { Check, HelpCircle, Loader2, MapPinOff, Pencil, RotateCcw, SkipForward, 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { FieldLessonTips } from "@/features/knowledge/FieldLessonTips";
 import type { FieldLessonTip } from "@/lib/server/knowledge/lessonContext";
@@ -131,17 +132,18 @@ export function FieldCard({
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <button
+        <Button
           type="button"
+          variant="ghost"
           onClick={onSelect}
-          className="min-w-0 flex-1 text-left"
           aria-pressed={isSelected}
+          className="h-auto min-w-0 flex-1 flex-col items-start justify-start gap-0 rounded-[var(--radius-md)] px-2 py-1 text-left font-normal"
         >
-          <span className="block truncate text-sm font-medium">{field.label}</span>
+          <span className="block w-full truncate text-sm font-medium">{field.label}</span>
           {field.section ? (
-            <span className="block truncate text-xs text-muted-foreground">{field.section}</span>
+            <span className="block w-full truncate text-xs text-muted-foreground">{field.section}</span>
           ) : null}
-        </button>
+        </Button>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
           {field.required ? <Badge variant="default">필수</Badge> : null}
           <Badge variant="outline" className={badge.className}>
@@ -206,21 +208,27 @@ export function FieldCard({
               </Button>
             ) : null}
             {canSuggest ? (
-              <Button
-                type="button"
-                size="sm"
-                variant={hasValue ? "outline" : "default"}
-                onClick={onRequestSuggestion}
-                disabled={isPending || isSuggesting}
-                title={hasValue ? "AI 제안을 다시 받기" : "AI가 작성 값을 제안"}
-              >
-                {isSuggesting ? (
-                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                ) : (
-                  <Sparkles className="size-3.5" aria-hidden />
-                )}
-                {hasValue ? "다시 제안" : "제안 받기"}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={hasValue ? "outline" : "default"}
+                      onClick={onRequestSuggestion}
+                      disabled={isPending || isSuggesting}
+                    />
+                  }
+                >
+                  {isSuggesting ? (
+                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="size-3.5" aria-hidden />
+                  )}
+                  {hasValue ? "다시 제안" : "제안 받기"}
+                </TooltipTrigger>
+                <TooltipContent>{hasValue ? "AI 제안을 다시 받기" : "AI가 작성 값을 제안"}</TooltipContent>
+              </Tooltip>
             ) : null}
             <Button type="button" size="sm" variant="secondary" onClick={startEditing} disabled={isPending || isSuggesting}>
               <Pencil className="size-3.5" aria-hidden />
@@ -238,18 +246,24 @@ export function FieldCard({
                 되돌리기
               </Button>
             ) : null}
-            <Button
-              type="button"
-              size="sm"
-              variant="ghost"
-              onClick={onAsk}
-              disabled={!onAsk || isPending}
-              title={onAsk ? "채팅으로 이 항목 설명 받기" : "채팅 준비 중"}
-              className="text-muted-foreground"
-            >
-              <HelpCircle className="size-3.5" aria-hidden />
-              이 항목이 뭐예요?
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={onAsk}
+                    disabled={!onAsk || isPending}
+                    className="text-muted-foreground"
+                  />
+                }
+              >
+                <HelpCircle className="size-3.5" aria-hidden />
+                이 항목이 뭐예요?
+              </TooltipTrigger>
+              <TooltipContent>{onAsk ? "채팅으로 이 항목 설명 받기" : "채팅 준비 중"}</TooltipContent>
+            </Tooltip>
           </div>
         </>
       )}

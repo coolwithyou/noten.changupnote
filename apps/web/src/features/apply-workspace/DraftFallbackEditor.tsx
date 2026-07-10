@@ -15,7 +15,8 @@
  *    `{format:"hwpx"}` 만 보내 담당한다(설계 §4.3 하단 바).
  */
 import { useMemo, useState } from "react";
-import { AlertCircle, Check, Download, FileText, Loader2, MessageSquare, Printer, RefreshCw, Save } from "lucide-react";
+import { Check, Download, FileText, Loader2, MessageSquare, Printer, RefreshCw, Save } from "lucide-react";
+import { toast } from "sonner";
 import type {
   ActionResult,
   ApplicationPrep,
@@ -39,16 +40,6 @@ import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 
 interface DraftFeedbackFormState {
   kind: DocumentDraftFeedbackKind;
-  message: string;
-}
-
-interface DraftFeedbackNotice {
-  tone: "success" | "danger";
-  message: string;
-}
-
-interface DraftActionNotice {
-  tone: "success" | "warning";
   message: string;
 }
 
@@ -81,14 +72,11 @@ export function DraftFallbackEditor({
   const [answerText, setAnswerText] = useState<Record<string, string>>({});
   const [sectionSelections, setSectionSelections] = useState<Record<string, string>>({});
   const [feedbackDrafts, setFeedbackDrafts] = useState<Record<string, DraftFeedbackFormState>>({});
-  const [feedbackNotices, setFeedbackNotices] = useState<Record<string, DraftFeedbackNotice>>({});
   const [activeKey, setActiveKey] = useState<string | null>(() =>
     firstDraftableKeyWithDraft(prep, initialDraftMap) ?? prep.draftableDocuments[0]?.documentKey ?? null
   );
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [feedbackPendingKey, setFeedbackPendingKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [actionNotice, setActionNotice] = useState<DraftActionNotice | null>(null);
   const activeDocument = useMemo(
     () => prep.draftableDocuments.find((document) => document.documentKey === activeKey) ?? null,
     [activeKey, prep.draftableDocuments],
@@ -109,8 +97,6 @@ export function DraftFallbackEditor({
 
   async function generateDraft(document: DraftableDocument) {
     setPendingKey(document.documentKey);
-    setError(null);
-    setActionNotice(null);
     const answerPayload = draftAnswersForDocument(document, prep, answerText);
     const sentAnswers = Boolean(answerPayload.answers && Object.keys(answerPayload.answers).length > 0);
     try {
@@ -130,14 +116,13 @@ export function DraftFallbackEditor({
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draft.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.draft.filledFields }));
       setActiveKey(document.documentKey);
-      setActionNotice({
-        tone: "success",
-        message: `${document.canonicalName} 초안을 만들었습니다. 내용을 확인한 뒤 저장하거나 검토 완료로 표시하세요.${
+      toast.success(
+        `${document.canonicalName} 초안을 만들었습니다. 내용을 확인한 뒤 저장하거나 검토 완료로 표시하세요.${
           sentAnswers ? " 입력한 값은 회사 프로필에 저장돼 다음 서류에서 자동 반영됩니다." : ""
         }`,
-      });
+      );
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "초안을 만들지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "초안을 만들지 못했습니다.");
     } finally {
       setPendingKey(null);
     }
@@ -194,8 +179,6 @@ export function DraftFallbackEditor({
     const draft = drafts[document.documentKey];
     if (!draft) return null;
     setPendingKey(document.documentKey);
-    setError(null);
-    setActionNotice(null);
     try {
       // ADR-5: 필드 값은 field-answers PATCH 로 먼저 반영하고, 초안 저장 body 에는 filledFields 를 동봉하지 않는다.
       await flushFieldAnswers(document);
@@ -214,17 +197,17 @@ export function DraftFallbackEditor({
       setDrafts((current) => ({ ...current, [document.documentKey]: payload.data! }));
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.filledFields }));
-      setActionNotice({
-        tone: "success",
-        message: status === "reviewed"
-          ? `${document.canonicalName} 초안을 검토 완료로 표시했습니다.`
-          : status === "exported"
-            ? `${document.canonicalName} 초안을 내보내기 상태로 저장했습니다.`
+      // "exported" 상태 저장은 downloadDraft() 가 이어서 자체 완료 토스트를 띄우므로 여기서는 중복 알림을 생략한다.
+      if (status !== "exported") {
+        toast.success(
+          status === "reviewed"
+            ? `${document.canonicalName} 초안을 검토 완료로 표시했습니다.`
             : `${document.canonicalName} 초안을 저장했습니다.`,
-      });
+        );
+      }
       return payload.data;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "초안을 저장하지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "초안을 저장하지 못했습니다.");
       return null;
     } finally {
       setPendingKey(null);
@@ -236,8 +219,6 @@ export function DraftFallbackEditor({
     if (!draft || !sectionTitle) return;
     const previousMarkdown = draftText[document.documentKey] ?? draft.draftMarkdown;
     setPendingKey(document.documentKey);
-    setError(null);
-    setActionNotice(null);
     try {
       // ADR-5: 사용자 필드 편집을 서버에 먼저 반영(재생성이 파생 filledFields 를 재계산하기 전). 재생성 body 에
       // filledFields 를 동봉하지 않는다 — 서버가 저장된 fieldAnswers 로 확정값(accepted|edited)을 보존한다.
@@ -258,16 +239,15 @@ export function DraftFallbackEditor({
       setDrafts((current) => ({ ...current, [document.documentKey]: payload.data! }));
       setDraftText((current) => ({ ...current, [document.documentKey]: payload.data!.draftMarkdown }));
       setFieldText((current) => ({ ...current, [document.documentKey]: payload.data!.filledFields }));
-      setActionNotice(
-        payload.data!.draftMarkdown === previousMarkdown
-          ? {
-              tone: "warning",
-              message: `『${sectionTitle}』 섹션 내용이 달라지지 않았습니다. 이 초안은 회사 프로필과 추가 입력을 반영하는 고정 골격이라, 위 추가 입력을 채운 뒤 다시 생성하면 문장이 바뀝니다.`,
-            }
-          : { tone: "success", message: `${sectionTitle} 섹션을 다시 생성했습니다. 변경된 문장을 확인한 뒤 저장하세요.` },
-      );
+      if (payload.data!.draftMarkdown === previousMarkdown) {
+        toast.warning(
+          `『${sectionTitle}』 섹션 내용이 달라지지 않았습니다. 이 초안은 회사 프로필과 추가 입력을 반영하는 고정 골격이라, 위 추가 입력을 채운 뒤 다시 생성하면 문장이 바뀝니다.`,
+        );
+      } else {
+        toast.success(`${sectionTitle} 섹션을 다시 생성했습니다. 변경된 문장을 확인한 뒤 저장하세요.`);
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "선택한 섹션을 다시 생성하지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "선택한 섹션을 다시 생성하지 못했습니다.");
     } finally {
       setPendingKey(null);
     }
@@ -276,7 +256,7 @@ export function DraftFallbackEditor({
   async function downloadDraft(document: DraftableDocument, format: "markdown" | "html" | "docx" | "pdf") {
     const saved = await updateDraft(document, "exported");
     if (!saved) return;
-    setActionNotice({ tone: "success", message: `${document.canonicalName} 초안을 저장했고 다운로드를 시작합니다.` });
+    toast.success(`${document.canonicalName} 초안을 저장했고 다운로드를 시작합니다.`);
     const query = format === "markdown" ? "" : `?format=${format}`;
     window.location.assign(`/api/web/document-drafts/${encodeURIComponent(saved.id)}/download${query}`);
   }
@@ -284,7 +264,6 @@ export function DraftFallbackEditor({
   async function submitDraftFeedback(draft: DocumentDraft) {
     const form = feedbackDrafts[draft.id] ?? defaultDraftFeedbackFormState();
     setFeedbackPendingKey(draft.id);
-    setFeedbackNotices((current) => ({ ...current, [draft.id]: { tone: "success", message: "" } }));
     try {
       const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/feedback`, {
         method: "POST",
@@ -302,21 +281,9 @@ export function DraftFallbackEditor({
         ...current,
         [draft.id]: { ...form, message: "" },
       }));
-      setFeedbackNotices((current) => ({
-        ...current,
-        [draft.id]: {
-          tone: "success",
-          message: "피드백을 저장했습니다. 다음 초안 품질 개선에 반영됩니다.",
-        },
-      }));
+      toast.success("피드백을 저장했습니다. 다음 초안 품질 개선에 반영됩니다.");
     } catch (caught) {
-      setFeedbackNotices((current) => ({
-        ...current,
-        [draft.id]: {
-          tone: "danger",
-          message: caught instanceof Error ? caught.message : "초안 피드백을 저장하지 못했습니다.",
-        },
-      }));
+      toast.error(caught instanceof Error ? caught.message : "초안 피드백을 저장하지 못했습니다.");
     } finally {
       setFeedbackPendingKey(null);
     }
@@ -330,20 +297,6 @@ export function DraftFallbackEditor({
         <SummaryMetric label="첨부" value={`${prep.draftCoverage.attachableCount}개`} />
         <SummaryMetric label="입력 필요" value={`${prep.draftCoverage.missingFieldCount}개`} tone={prep.draftCoverage.missingFieldCount > 0 ? "warning" : "success"} />
       </div>
-
-      {error ? (
-        <div className="document-draft-error" role="alert">
-          <AlertCircle className="size-4" aria-hidden />
-          <span>{error}</span>
-        </div>
-      ) : null}
-
-      {actionNotice ? (
-        <div className={`document-draft-action-status ${actionNotice.tone}`} role="status" aria-live="polite">
-          {actionNotice.tone === "success" ? <Check className="size-4" aria-hidden /> : <AlertCircle className="size-4" aria-hidden />}
-          <span>{actionNotice.message}</span>
-        </div>
-      ) : null}
 
       {prep.draftableDocuments.length === 0 ? (
         <Empty className="panel-empty">
@@ -511,7 +464,6 @@ export function DraftFallbackEditor({
                       <DraftFeedbackPanel
                         draft={activeDraft}
                         value={feedbackDrafts[activeDraft.id] ?? defaultDraftFeedbackFormState()}
-                        notice={feedbackNotices[activeDraft.id] ?? null}
                         pending={feedbackPendingKey === activeDraft.id}
                         onChange={(value) =>
                           setFeedbackDrafts((current) => ({
@@ -747,14 +699,12 @@ function DraftMeta({ draft }: { draft: DocumentDraft }) {
 function DraftFeedbackPanel({
   draft,
   value,
-  notice,
   pending,
   onChange,
   onSubmit,
 }: {
   draft: DocumentDraft;
   value: DraftFeedbackFormState;
-  notice: DraftFeedbackNotice | null;
   pending: boolean;
   onChange: (value: DraftFeedbackFormState) => void;
   onSubmit: () => void;
@@ -808,11 +758,6 @@ function DraftFeedbackPanel({
           피드백 저장
         </Button>
       </div>
-      {notice?.message ? (
-        <div className={`document-draft-feedback-status ${notice.tone}`} role="status">
-          {notice.message}
-        </div>
-      ) : null}
     </div>
   );
 }
