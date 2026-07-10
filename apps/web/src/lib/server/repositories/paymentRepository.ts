@@ -92,6 +92,24 @@ export class DrizzlePaymentRepository implements CreditPaymentRepository {
     return row ? toOrderRecord(row) : null;
   }
 
+  async getOrderById(orderId: string): Promise<CreditOrderRecord | null> {
+    const [row] = await this.client
+      .select()
+      .from(schema.creditPaymentOrders)
+      .where(eq(schema.creditPaymentOrders.id, orderId))
+      .limit(1);
+    return row ? toOrderRecord(row) : null;
+  }
+
+  async getProductById(productId: string): Promise<CreditProductRecord | null> {
+    const [row] = await this.client
+      .select()
+      .from(schema.creditProducts)
+      .where(eq(schema.creditProducts.id, productId))
+      .limit(1);
+    return row ? toProductRecord(row) : null;
+  }
+
   async listOrdersForWallet(input: {
     walletId: string;
     limit: number;
@@ -303,6 +321,79 @@ export class DrizzlePaymentRepository implements CreditPaymentRepository {
     fullRefund: boolean;
     reason: string;
   }): Promise<{ recovered: number; shortfall: number; frozen: boolean }> {
+    // 콘솔 발 취소 동기화(7.4 레드팀 M3). 완결 audit action = refund.synced, actor=system:payment.
+    const result = await this.applyRefundLedger({
+      ...input,
+      completedAction: "refund.synced",
+      actorType: "system",
+      actorId: "system:payment",
+    });
+    return { recovered: result.recovered, shortfall: result.shortfall, frozen: result.frozen };
+  }
+
+  async executeRefundForOrder(input: {
+    orderId: string;
+    cancellationId: string;
+    targetLotIds: string[];
+    recoverCredits: number;
+    refundedAmountKrw: number;
+    fullRefund: boolean;
+    reason: string;
+    actorId: string;
+    actorType: "admin" | "system";
+  }): Promise<{ recovered: number; shortfall: number; frozen: boolean; entryId: string | null }> {
+    // admin 발 환불 실행(7.4 executeRefund). 완결 audit action = refund.executed, before/after 포함.
+    return this.applyRefundLedger({
+      orderId: input.orderId,
+      cancellationId: input.cancellationId,
+      targetLotIds: input.targetLotIds,
+      recoverCredits: input.recoverCredits,
+      refundedAmountKrw: input.refundedAmountKrw,
+      fullRefund: input.fullRefund,
+      reason: input.reason,
+      completedAction: "refund.executed",
+      actorType: input.actorType,
+      actorId: input.actorId,
+    });
+  }
+
+  async recordRefundFailedAudit(input: {
+    orderId: string;
+    reason: string;
+    detail: Record<string, unknown>;
+    actorId: string;
+    actorType: "admin" | "system";
+  }): Promise<void> {
+    const at = this.now();
+    await this.client.insert(schema.creditAuditLogs).values({
+      action: "refund.failed",
+      actorType: input.actorType,
+      actorId: input.actorId,
+      targetType: "payment_order",
+      targetId: input.orderId,
+      after: input.detail,
+      reason: input.reason,
+      createdAt: at,
+    });
+  }
+
+  /**
+   * refund_deduct 분개 + lot revoke + order 상태전이 + shortfall/frozen 방어를 단일 트랜잭션으로 집행.
+   * 콘솔 발 동기화(refund.synced)와 admin 발 실행(refund.executed)이 공유하는 원장 코어.
+   * 멱등: refund:{orderId}:{cancellationId}. 회수는 반드시 targetLotIds(레드팀 M1).
+   */
+  private async applyRefundLedger(input: {
+    orderId: string;
+    cancellationId: string;
+    targetLotIds: string[];
+    recoverCredits: number;
+    refundedAmountKrw: number;
+    fullRefund: boolean;
+    reason: string;
+    completedAction: "refund.synced" | "refund.executed";
+    actorType: "system" | "admin";
+    actorId: string;
+  }): Promise<{ recovered: number; shortfall: number; frozen: boolean; entryId: string | null }> {
     const at = this.now();
     const [order] = await this.client
       .select()
@@ -314,9 +405,11 @@ export class DrizzlePaymentRepository implements CreditPaymentRepository {
     return withCunoteDbUser(this.client, order.userId, async (tx) => {
       let recovered = 0;
       let shortfall = 0;
+      let entryId: string | null = null;
+      const beforeStatus = order.status;
 
       if (input.recoverCredits > 0 && input.targetLotIds.length > 0) {
-        // refund_deduct: 반드시 targetLotIds(레드팀 M1). shortfall 은 회수 가능분만(콘솔 취소 규약).
+        // refund_deduct: 반드시 targetLotIds(레드팀 M1). shortfall 은 회수 가능분만.
         const entry = await applyLedgerEntryTx(
           tx,
           {
@@ -325,13 +418,14 @@ export class DrizzlePaymentRepository implements CreditPaymentRepository {
             amountCredits: -input.recoverCredits,
             idempotencyKey: idempotencyKeys.refund(order.id, input.cancellationId),
             lotSelection: { targetLotIds: input.targetLotIds },
-            actorType: "system",
-            actorId: "system:payment",
+            actorType: input.actorType,
+            actorId: input.actorId,
             reason: input.reason,
             paymentOrderId: order.id,
           },
           () => at,
         );
+        entryId = entry.id;
         recovered = -entry.amountCredits; // effectiveAmount 는 회수 가능분(shortfall 클램프 반영).
         shortfall = input.recoverCredits - recovered;
 
@@ -370,8 +464,8 @@ export class DrizzlePaymentRepository implements CreditPaymentRepository {
         frozen = true;
         await insertAuditLog(tx, {
           action: "refund.shortfall",
-          actorType: "system",
-          actorId: "system:payment",
+          actorType: input.actorType,
+          actorId: input.actorId,
           targetType: "wallet",
           targetId: order.walletId,
           after: { orderId: order.id, cancellationId: input.cancellationId, shortfall, recovered },
@@ -381,23 +475,25 @@ export class DrizzlePaymentRepository implements CreditPaymentRepository {
       }
 
       await insertAuditLog(tx, {
-        action: "refund.synced",
-        actorType: "system",
-        actorId: "system:payment",
+        action: input.completedAction,
+        actorType: input.actorType,
+        actorId: input.actorId,
         targetType: "payment_order",
         targetId: order.id,
+        before: { status: beforeStatus },
         after: {
           cancellationId: input.cancellationId,
           recovered,
           shortfall,
           refundedAmountKrw: input.refundedAmountKrw,
           fullRefund: input.fullRefund,
+          status: newStatus,
         },
         reason: input.reason,
         at,
       });
 
-      return { recovered, shortfall, frozen };
+      return { recovered, shortfall, frozen, entryId };
     });
   }
 

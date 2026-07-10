@@ -587,6 +587,35 @@ export class DrizzleSubscriptionRepository implements CreditSubscriptionReposito
     });
   }
 
+  async forceCancelSubscription(input: {
+    subscriptionId: string;
+    reason: string;
+    actorId: string;
+  }): Promise<void> {
+    const at = this.now();
+    // ★ 예약 취소(cancelSchedules)는 서비스(forceCancelSubscription)가 선행한다. 여기선 상태 전이만.
+    await this.client
+      .update(schema.creditPlanSubscriptions)
+      .set({
+        status: "canceled",
+        canceledAt: at,
+        nextScheduleId: null,
+        nextSchedulePaymentId: null,
+        updatedAt: at,
+      })
+      .where(eq(schema.creditPlanSubscriptions.id, input.subscriptionId));
+    await this.client.insert(schema.creditAuditLogs).values({
+      action: "subscription.forced_cancel",
+      actorType: "admin",
+      actorId: input.actorId,
+      targetType: "subscription",
+      targetId: input.subscriptionId,
+      after: { status: "canceled" },
+      reason: input.reason,
+      createdAt: at,
+    });
+  }
+
   async setCancelAtPeriodEnd(input: {
     subscriptionId: string;
     cancel: boolean;

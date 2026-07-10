@@ -789,11 +789,23 @@ class RuntimePaymentRepository implements CreditPaymentRepository {
   async listDueOrders(): Promise<CreditOrderRecord[]> {
     return [];
   }
+  async getOrderById(): Promise<CreditOrderRecord | null> {
+    return null;
+  }
+  async getProductById(): Promise<CreditProductRecord | null> {
+    return null;
+  }
   async getOrderLots(): Promise<OrderLotSnapshot[]> {
     return [];
   }
   async syncRefundForOrder(): Promise<{ recovered: number; shortfall: number; frozen: boolean }> {
     throw new RuntimePaymentUnsupportedError("syncRefundForOrder");
+  }
+  async executeRefundForOrder(): Promise<{ recovered: number; shortfall: number; frozen: boolean; entryId: string | null }> {
+    throw new RuntimePaymentUnsupportedError("executeRefundForOrder");
+  }
+  async recordRefundFailedAudit(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("recordRefundFailedAudit");
   }
   async insertWebhookEvent(): Promise<{ id: string; duplicate: boolean }> {
     throw new RuntimePaymentUnsupportedError("insertWebhookEvent");
@@ -855,6 +867,9 @@ class RuntimeSubscriptionRepository implements CreditSubscriptionRepository {
   }
   async markSubscriptionExpired(): Promise<void> {
     throw new RuntimePaymentUnsupportedError("markSubscriptionExpired");
+  }
+  async forceCancelSubscription(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("forceCancelSubscription");
   }
   async setCancelAtPeriodEnd(): Promise<void> {
     throw new RuntimePaymentUnsupportedError("setCancelAtPeriodEnd");

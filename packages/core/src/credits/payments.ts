@@ -105,6 +105,8 @@ export interface CreditPaymentRepository {
   createOrder(input: CreateOrderInput): Promise<CreditOrderRecord>;
   /** paymentId 로 주문 조회. 웹훅·complete·cron 공통. */
   getOrderByPaymentId(paymentId: string): Promise<CreditOrderRecord | null>;
+  /** orderId 로 주문 조회. admin 환불·동기화 실행 경로(7.4)에서 사용. */
+  getOrderById(orderId: string): Promise<CreditOrderRecord | null>;
   /** 내 주문 목록(walletId 스코프, 최신순, 커서). orders API(9.1). */
   listOrdersForWallet(input: {
     walletId: string;
@@ -171,6 +173,45 @@ export interface CreditPaymentRepository {
     fullRefund: boolean;
     reason: string;
   }): Promise<{ recovered: number; shortfall: number; frozen: boolean }>;
+
+  // ── admin 환불 실행 (7.4 executeRefund — 관리자 발) ───────────────────────
+  /** 상품 id 로 조회(bonusCredits 스냅샷 — 환불 계산의 원금/보너스 분리, 7.4). */
+  getProductById(productId: string): Promise<CreditProductRecord | null>;
+
+  /**
+   * admin 발 환불의 SUCCEEDED 분개를 단일 트랜잭션으로 집행(7.4 executeRefund).
+   * syncRefundForOrder 와 동일한 원장 규칙(refund_deduct + targetLotIds + lot revoke + order 상태전이 +
+   * shortfall/frozen 방어)을 따르되, audit action 을 refund.executed(before/after/reason)로 남긴다.
+   *  - applyLedgerEntry(refund_deduct, -recoverCredits, key=refund:{orderId}:{cancellationId},
+   *    lotSelection={targetLotIds}) — 멱등(같은 cancellationId 재실행·Cancelled 웹훅과 합류 안전).
+   *  - lot status=revoked(전액 회수 시), order status=refunded|partial_refunded, refundedAmountKrw += .
+   *  - audit_log(action="refund.executed", before={order.status}, after={recovered,refundKrw,...}, reason).
+   * ★ 정책 계산(calculateRefund)의 결과(refundKrw·recoverCredits·targetLotIds)를 신뢰 입력으로 받는다.
+   */
+  executeRefundForOrder(input: {
+    orderId: string;
+    cancellationId: string;
+    targetLotIds: string[];
+    recoverCredits: number;
+    refundedAmountKrw: number;
+    fullRefund: boolean;
+    reason: string;
+    /** 감사 로그 actorId(admin_users.id 또는 system 식별자). */
+    actorId: string;
+    /** admin/system 구분 — refund.executed audit 의 actorType. */
+    actorType: "admin" | "system";
+  }): Promise<{ recovered: number; shortfall: number; frozen: boolean; entryId: string | null }>;
+
+  /**
+   * 환불 실행 실패(포트원 cancel FAILED) 감사(7.4 refund.failed). 분개 없음.
+   */
+  recordRefundFailedAudit(input: {
+    orderId: string;
+    reason: string;
+    detail: Record<string, unknown>;
+    actorId: string;
+    actorType: "admin" | "system";
+  }): Promise<void>;
 
   // ── 웹훅 inbox (7.3) ────────────────────────────────────────────────────
   /**

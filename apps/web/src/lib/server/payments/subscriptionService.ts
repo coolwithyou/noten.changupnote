@@ -505,6 +505,71 @@ export async function replaceBillingKey(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// forceCancelSubscription (8.5 강제 해지 — admin 발)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ForceCancelOutcome =
+  | { kind: "not_found" }
+  | { kind: "already_terminal"; status: CreditSubscriptionRecord["status"] }
+  | { kind: "canceled"; previousStatus: CreditSubscriptionRecord["status"] };
+
+/**
+ * 8.5 강제 해지(admin). 첫 단계는 반드시 미소진 예약 전부 취소(cancelSchedules 선행) →
+ * 즉시 canceled 전이(cancelAtPeriodEnd 아님 — 주기 종료 대기 없이 즉시 종료).
+ * @param input.subscriptionId 강제 해지 대상 구독 id.
+ * @param input.reason 감사 근거(필수).
+ * @param input.actorId 감사 actorId(admin_users.id).
+ */
+export async function forceCancelSubscription(
+  input: { subscriptionId: string; reason: string; actorId: string },
+  deps: SubscriptionServiceDeps,
+): Promise<ForceCancelOutcome> {
+  const sub = await deps.subscription.getSubscriptionById(input.subscriptionId);
+  if (!sub) return { kind: "not_found" };
+  if (sub.status === "canceled" || sub.status === "expired") {
+    return { kind: "already_terminal", status: sub.status };
+  }
+
+  // ★ 8.5 첫 단계: 미소진 예약 전부 취소(cancelSchedules 선행 — 3.1 불변 규칙).
+  await cancelAllSchedules(sub, deps);
+  // 즉시 canceled 전이 + audit(subscription.forced_cancel).
+  await deps.subscription.forceCancelSubscription({
+    subscriptionId: sub.id,
+    reason: input.reason,
+    actorId: input.actorId,
+  });
+
+  return { kind: "canceled", previousStatus: sub.status };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// cancelSchedulesForUser (4.1 freeze 연동 — 예약만 취소, 구독은 유지)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type CancelSchedulesForUserOutcome =
+  | { kind: "no_subscription" }
+  | { kind: "schedules_canceled"; subscriptionId: string };
+
+/**
+ * 4.1 지갑 동결 연동: 해당 유저의 활성(active/past_due) 구독의 미소진 포트원 예약을 전부 취소한다.
+ * ★ 구독 상태는 유지(canceled 로 만들지 않는다) — 동결은 "다음 예약결제만 막는" 것이 목적.
+ *   예약이 실행돼 plan_grant 가 지급되면 freeze 예외 목록에 없어 지급되므로, 예약 자체를 제거한다.
+ */
+export async function cancelSchedulesForUser(
+  input: { userId: string },
+  deps: SubscriptionServiceDeps,
+): Promise<CancelSchedulesForUserOutcome> {
+  const sub = await deps.subscription.getActiveOrPastDueForUser(input.userId);
+  if (!sub) return { kind: "no_subscription" };
+
+  // 예약 전부 취소(portone.cancelSchedules + 선생성 예약 주문 정리 + updateSchedule(null)).
+  // 구독 상태는 그대로 — cancelAtPeriodEnd/canceled 전이를 하지 않는다.
+  await cancelAllSchedules(sub, deps);
+
+  return { kind: "schedules_canceled", subscriptionId: sub.id };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // processRenewal (8.3 — 갱신 트랜잭션. 웹훅 Transaction.Paid + cron SUCCEEDED 공유)
 // ─────────────────────────────────────────────────────────────────────────────
 

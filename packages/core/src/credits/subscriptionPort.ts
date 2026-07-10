@@ -282,6 +282,13 @@ export interface CreditSubscriptionRepository {
   markSubscriptionPastDue(input: { subscriptionId: string; retryCount: number }): Promise<void>;
   /** 재시도 소진 → expired. audit_log(subscription.expired). */
   markSubscriptionExpired(subscriptionId: string): Promise<void>;
+  /**
+   * 8.5 강제 해지: 즉시 status=canceled, canceledAt 세팅. audit_log(subscription.forced_cancel).
+   * ★ 호출측(forceCancelSubscription 서비스)이 이 전이 전에 반드시 cancelAllSchedules 를 선행한다
+   *   (3.1 불변 규칙 — 미소진 예약 전부 취소 후 canceled 전이). 이 메서드는 상태 전이만 담당.
+   * @param actorId 감사 로그 actorId(admin_users.id — admin 발 강제 해지).
+   */
+  forceCancelSubscription(input: { subscriptionId: string; reason: string; actorId: string }): Promise<void>;
   /** 해지 예약/취소(8.5). cancelAtPeriodEnd 세팅. */
   setCancelAtPeriodEnd(input: { subscriptionId: string; cancel: boolean }): Promise<void>;
   /** 다운그레이드 예약(8.5). pendingPlanId 세팅(null 이면 clear). */
