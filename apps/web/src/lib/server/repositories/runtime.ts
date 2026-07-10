@@ -30,10 +30,17 @@ import type {
   CreditLotRecord,
   CreditOrderRecord,
   CreditPaymentRepository,
+  CreditPlanRecord,
   CreditProductRecord,
   CreditRepository,
+  CreditSubscriptionRecord,
+  CreditSubscriptionRepository,
   CreditSystemRepository,
   CreditWalletRecord,
+  ActivateSubscriptionResult,
+  RenewSubscriptionResult,
+  UpgradeSubscriptionResult,
+  FailedWebhookEvent,
   OrderLotSnapshot,
   LedgerListRow,
   TokenUsage,
@@ -84,6 +91,7 @@ export function createRuntimeRepositories<TPayload = unknown>(
     credits: new RuntimeCreditRepository(),
     creditsSystem: new RuntimeCreditSystemRepository(),
     creditsPayment: new RuntimePaymentRepository(),
+    creditsSubscription: new RuntimeSubscriptionRepository(),
   };
 }
 
@@ -721,6 +729,10 @@ class RuntimeCreditSystemRepository implements CreditSystemRepository {
     return fallback;
   }
 
+  async readJsonSetting(_key: string): Promise<Record<string, unknown> | null> {
+    return null;
+  }
+
   async recordOpsUsageEvent(_input: {
     featureCode: string;
     provider: string;
@@ -797,6 +809,79 @@ class RuntimePaymentUnsupportedError extends Error {
   constructor(operation: string) {
     super(`결제 기능은 실 DB 어댑터에서만 동작합니다(runtime.${operation}).`);
     this.name = "RuntimePaymentUnsupportedError";
+  }
+}
+
+/** 플랜 구독은 실 DB 어댑터에서만 동작한다(P4). runtime 은 no-throwing 스텁. */
+class RuntimeSubscriptionRepository implements CreditSubscriptionRepository {
+  async listActivePlans(): Promise<CreditPlanRecord[]> {
+    return [];
+  }
+  async getPlanByCode(): Promise<CreditPlanRecord | null> {
+    return null;
+  }
+  async getPlanById(): Promise<CreditPlanRecord | null> {
+    return null;
+  }
+  async getSubscriptionForUser(): Promise<CreditSubscriptionRecord | null> {
+    return null;
+  }
+  async getActiveOrPastDueForUser(): Promise<CreditSubscriptionRecord | null> {
+    return null;
+  }
+  async getSubscriptionById(): Promise<CreditSubscriptionRecord | null> {
+    return null;
+  }
+  async getSubscriptionByNextSchedulePaymentId(): Promise<CreditSubscriptionRecord | null> {
+    return null;
+  }
+  async getSubscriptionByCurrentBillingKey(): Promise<CreditSubscriptionRecord | null> {
+    return null;
+  }
+  async upsertIncompleteSubscription(): Promise<CreditSubscriptionRecord> {
+    throw new RuntimePaymentUnsupportedError("upsertIncompleteSubscription");
+  }
+  async activateSubscriptionWithGrant(): Promise<ActivateSubscriptionResult> {
+    throw new RuntimePaymentUnsupportedError("activateSubscriptionWithGrant");
+  }
+  async renewSubscriptionWithGrant(): Promise<RenewSubscriptionResult> {
+    throw new RuntimePaymentUnsupportedError("renewSubscriptionWithGrant");
+  }
+  async upgradeSubscriptionWithGrant(): Promise<UpgradeSubscriptionResult> {
+    throw new RuntimePaymentUnsupportedError("upgradeSubscriptionWithGrant");
+  }
+  async markSubscriptionPastDue(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("markSubscriptionPastDue");
+  }
+  async markSubscriptionExpired(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("markSubscriptionExpired");
+  }
+  async setCancelAtPeriodEnd(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("setCancelAtPeriodEnd");
+  }
+  async setPendingPlan(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("setPendingPlan");
+  }
+  async updateBillingKey(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("updateBillingKey");
+  }
+  async recordBillingKeyDeleted(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("recordBillingKeyDeleted");
+  }
+  async updateSchedule(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("updateSchedule");
+  }
+  async createPlanOrder(): Promise<CreditOrderRecord> {
+    throw new RuntimePaymentUnsupportedError("createPlanOrder");
+  }
+  async expireCreatedOrdersForSubscription(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("expireCreatedOrdersForSubscription");
+  }
+  async listRenewalDueSubscriptions(): Promise<CreditSubscriptionRecord[]> {
+    return [];
+  }
+  async listFailedWebhookEvents(): Promise<FailedWebhookEvent[]> {
+    return [];
   }
 }
 

@@ -26,6 +26,7 @@ import { paymentIdForOrder } from "@cunote/core";
 import * as schema from "../db/schema";
 import { DrizzleCreditRepository, DrizzleCreditSystemRepository } from "../repositories/creditRepository";
 import { DrizzlePaymentRepository } from "../repositories/paymentRepository";
+import { DrizzleSubscriptionRepository } from "../repositories/subscriptionRepository";
 import { verifyAndGrant, syncRefundFromPortone } from "./paymentService";
 import { handlePortoneWebhook } from "./webhookHandler";
 import type { PortoneClient, PortonePayment } from "./portone";
@@ -52,6 +53,7 @@ const db = drizzle(client, { schema });
 const creditRepo = new DrizzleCreditRepository({ client: db });
 const paymentRepo = new DrizzlePaymentRepository({ client: db });
 const systemRepo = new DrizzleCreditSystemRepository({ client: db });
+const subscriptionRepo = new DrizzleSubscriptionRepository({ client: db });
 
 /** 스텁 포트원 클라이언트 — GET /payments 응답을 시나리오별로 주입한다(실호출 금지). */
 function stubPortone(payment: Partial<PortonePayment> & { status: PortonePayment["status"] }): PortoneClient {
@@ -70,6 +72,9 @@ function stubPortone(payment: Partial<PortonePayment> & { status: PortonePayment
     isConfigured: () => true,
     async getPayment() {
       return full;
+    },
+    async getPaymentSchedule() {
+      return null;
     },
     async cancelPayment() {
       return { cancellation: { id: "c1", status: "SUCCEEDED", totalAmount: full.amount?.total ?? 0, reason: null } };
@@ -200,7 +205,7 @@ async function main() {
     const portone = stubPortone({ id: paymentId, status: "PAID", amount: { total: 30000, paid: 30000, cancelled: null } });
     const webhookId = `wh_${crypto.randomUUID()}`;
     const payload = { type: "Transaction.Paid", data: { paymentId } };
-    const deps = { payment: paymentRepo, system: systemRepo, portone };
+    const deps = { payment: paymentRepo, subscription: subscriptionRepo, system: systemRepo, portone };
     const first = await handlePortoneWebhook(webhookId, payload, deps);
     const second = await handlePortoneWebhook(webhookId, payload, deps);
     assert.equal(first.duplicate, false);
@@ -213,7 +218,7 @@ async function main() {
   await check("웹훅 Paid → 이후 verifyAndGrant(complete) → 이중 지급 없음", async () => {
     const { fx, paymentId } = await seedOrder({ amountKrw: 5000, credits: 5000 });
     const portone = stubPortone({ id: paymentId, status: "PAID", amount: { total: 5000, paid: 5000, cancelled: null } });
-    await handlePortoneWebhook(`wh_${crypto.randomUUID()}`, { type: "Transaction.Paid", data: { paymentId } }, { payment: paymentRepo, system: systemRepo, portone });
+    await handlePortoneWebhook(`wh_${crypto.randomUUID()}`, { type: "Transaction.Paid", data: { paymentId } }, { payment: paymentRepo, subscription: subscriptionRepo, system: systemRepo, portone });
     const complete = await verifyAndGrant(paymentId, { payment: paymentRepo, system: systemRepo, portone });
     assert.equal(complete.kind, "already");
     assert.equal(await ledgerCount(fx.walletId, "purchase_grant"), 1);
@@ -223,7 +228,7 @@ async function main() {
     const { fx, paymentId } = await seedOrder({ amountKrw: 5000, credits: 5000 });
     const portone = stubPortone({ id: paymentId, status: "PAID", amount: { total: 5000, paid: 5000, cancelled: null } });
     await verifyAndGrant(paymentId, { payment: paymentRepo, system: systemRepo, portone });
-    await handlePortoneWebhook(`wh_${crypto.randomUUID()}`, { type: "Transaction.Paid", data: { paymentId } }, { payment: paymentRepo, system: systemRepo, portone });
+    await handlePortoneWebhook(`wh_${crypto.randomUUID()}`, { type: "Transaction.Paid", data: { paymentId } }, { payment: paymentRepo, subscription: subscriptionRepo, system: systemRepo, portone });
     assert.equal(await ledgerCount(fx.walletId, "purchase_grant"), 1);
     assert.equal(await walletBalance(fx.walletId), 5000);
   });

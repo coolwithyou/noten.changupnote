@@ -79,9 +79,23 @@ export class PortoneApiError extends Error {
   }
 }
 
+/** 예약결제 상태(GET /payment-schedules/{id}). 8.3 갱신 안전망 능동 조회에서 사용. */
+export type PortoneScheduleStatus =
+  | "SCHEDULED"
+  | "STARTED"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "REVOKED"
+  | "PENDING";
+
 export interface PortoneClient {
   /** GET /payments/{id} — 진실의 원천(7.2·7.3). 1회 재시도. */
   getPayment(paymentId: string): Promise<PortonePayment>;
+  /**
+   * GET /payment-schedules/{id} — 예약결제 상태 능동 조회(8.3 갱신 안전망).
+   * 상태를 화이트리스트 정규화한 `{ id, status }` 반환. 404(없는 예약)면 null.
+   */
+  getPaymentSchedule(scheduleId: string): Promise<{ id: string; status: string } | null>;
   /** POST /payments/{id}/cancel — 부분취소 지원. Idempotency-Key 필수. */
   cancelPayment(input: {
     paymentId: string;
@@ -188,6 +202,20 @@ export function createPortoneClient(deps: PortoneClientDeps = {}): PortoneClient
     async getPayment(paymentId) {
       const raw = (await callGetWithRetry(`/payments/${encodeURIComponent(paymentId)}`)) as Record<string, unknown>;
       return normalizePayment(paymentId, raw);
+    },
+
+    async getPaymentSchedule(scheduleId) {
+      try {
+        const raw = (await callGetWithRetry(
+          `/payment-schedules/${encodeURIComponent(scheduleId)}`,
+        )) as Record<string, unknown>;
+        const s = ((raw.schedule ?? raw) as Record<string, unknown>) ?? {};
+        return { id: String(s.id ?? scheduleId), status: String(s.status ?? "") };
+      } catch (error) {
+        // 없는 예약(404)은 null — 조회 실패로 오판하지 않는다(cron 이 미실행 분기로 처리).
+        if (error instanceof PortoneApiError && error.httpStatus === 404) return null;
+        throw error;
+      }
     },
 
     async cancelPayment(input) {

@@ -115,6 +115,7 @@ function makeFakes(opts: {
       if (key === "company_bonus_consumption_cap") return opts.cap ?? 3000;
       return fallback;
     },
+    async readJsonSetting() { return null; },
     async recordOpsUsageEvent(input) { calls.ops.push(input); return { id: "ops-1" }; },
   };
   return { deps: { credits, creditsSystem }, calls };

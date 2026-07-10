@@ -10,3 +10,5 @@ export * from "./metering.js";
 export * from "./display.js";
 export * from "./refund.js";
 export * from "./payments.js";
+export * from "./subscriptions.js";
+export * from "./subscriptionPort.js";

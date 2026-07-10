@@ -859,3 +859,67 @@ export interface CreditOrderListDto {
   cursor: string | null;
   hasMore: boolean;
 }
+
+// ── P4 플랜 구독 DTO (설계 9.1 / 10.1 / 10.4) ────────────────────────────────
+
+/** GET /api/web/plans — 플랜 카드. 원시 요율 미노출, 파생 예시 소모량만(4.13). */
+export interface CreditPlanDto {
+  code: string; // "plus" | "pro" | "flex"
+  name: string;
+  monthlyPriceKrw: number;
+  monthlyCredits: number;
+  /** 보너스율 = (monthlyCredits - monthlyPriceKrw) / monthlyPriceKrw (1cr=1krw). 서버 계산. */
+  bonusRate: number;
+  features?: Record<string, unknown>;
+  /** 요율 기반 기능별 예상 소모량(서버가 pricing 으로 채움 — Phase B). 원시 요율 아님(4.13). */
+  exampleUsages: Array<{ featureLabel: string; approxCredits: number; approxCount: number }>;
+}
+
+/** GET /api/web/plans 의 내 구독 상태(세션 있으면). */
+export interface CreditSubscriptionDto {
+  planCode: string;
+  planName: string;
+  status: "incomplete" | "active" | "past_due" | "canceled" | "expired";
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  /** 다음 결제 예정 금액(KRW). 다운그레이드 예약 반영. */
+  nextBillingAmountKrw: number;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  /** 다운그레이드 예약 대상 플랜 코드(없으면 null). */
+  pendingPlanCode: string | null;
+}
+
+/** GET /api/web/plans 응답 — 플랜 목록 + 내 구독 + (선택)충전 상품 비교 표. */
+export interface CreditPlansDto {
+  plans: CreditPlanDto[];
+  subscription: CreditSubscriptionDto | null;
+  products?: CreditProductDto[];
+}
+
+/** POST /api/web/plans/subscribe — 구독 시작 결과. */
+export interface CreditSubscribeResultDto {
+  subscription: CreditSubscriptionDto;
+  grantedCredits: number;
+}
+
+/** POST /api/web/plans/change — 업/다운 분기 결과. */
+export interface CreditPlanChangeResultDto {
+  kind: "upgraded" | "downgrade_scheduled";
+  subscription: CreditSubscriptionDto;
+  /** 즉시 업그레이드 지급분(다운그레이드 예약이면 미포함). */
+  grantedCredits?: number;
+}
+
+/** POST /api/web/plans/cancel — 해지 예약 결과. */
+export interface CreditPlanCancelResultDto {
+  cancelAtPeriodEnd: true;
+  periodEnd: string;
+}
+
+/** POST /api/web/plans/billing-key — 빌링키 교체 결과. */
+export interface CreditBillingKeyResultDto {
+  ok: true;
+  cardBrand: string | null;
+  cardLast4: string | null;
+}

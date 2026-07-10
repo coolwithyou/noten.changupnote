@@ -343,6 +343,14 @@ export interface CreditSystemRepository {
   readNumericSetting(key: string, fallback: number): Promise<number>;
 
   /**
+   * 4.7 설정 KV 원시 객체 읽기. `readNumericSetting` 은 `.value`(숫자)만 읽으므로
+   * 객체값 설정(plan_grant_expiry_cycles = { value, flexValue }, plan_retry_schedule_days = { value: [1,3] })
+   * 의 flexValue·배열을 얻으려면 이 메서드로 raw jsonb 를 통째로 읽는다(P4-B).
+   * key 부재 시 null.
+   */
+  readJsonSetting(key: string): Promise<Record<string, unknown> | null>;
+
+  /**
    * 6.2 운영 배치 원가 미터링(무과금, walletId 없음). usage_events INSERT(status=free, creditsCharged=0)
    * + 실측 토큰/원가 기록. 지원서 등 사용자 과금은 이 경로가 아니라 createPendingUsageEvent+capture 를 쓴다.
    *

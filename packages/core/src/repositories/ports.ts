@@ -12,6 +12,7 @@ import type {
 import type { MatchTransitionCandidate } from "../use-cases/plan-match-transitions.js";
 import type { CreditRepository, CreditSystemRepository } from "../credits/ports.js";
 import type { CreditPaymentRepository } from "../credits/payments.js";
+import type { CreditSubscriptionRepository } from "../credits/subscriptionPort.js";
 
 export interface GrantListOptions {
   limit?: number;
@@ -204,4 +205,6 @@ export interface ServiceRepositories<TPayload = unknown> {
   creditsSystem: CreditSystemRepository;
   /** 결제·충전(포트원 단건). 세션 없는 내부 함수(verifyAndGrant·웹훅·주문 cron). 설계 7장 / P3. */
   creditsPayment: CreditPaymentRepository;
+  /** 플랜 구독(포트원 빌링키·예약결제). 세션 없는 내부 함수(subscribe·갱신 웹훅·갱신 cron). 설계 8장 / P4. */
+  creditsSubscription: CreditSubscriptionRepository;
 }

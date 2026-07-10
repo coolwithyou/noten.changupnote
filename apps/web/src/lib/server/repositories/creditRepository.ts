@@ -661,6 +661,17 @@ export class DrizzleCreditSystemRepository implements CreditSystemRepository {
     return readNumericSetting(row?.value, fallback);
   }
 
+  async readJsonSetting(key: string): Promise<Record<string, unknown> | null> {
+    // 객체값 설정(flexValue·배열 등)을 통째로 읽는다(P4-B). 시스템 신뢰 경로.
+    const [row] = await this.client
+      .select({ value: schema.creditSettings.value })
+      .from(schema.creditSettings)
+      .where(eq(schema.creditSettings.key, key))
+      .limit(1);
+    const value = row?.value;
+    return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  }
+
   async recordOpsUsageEvent(input: {
     featureCode: string;
     provider: string;
