@@ -21,6 +21,7 @@ vercel <command> --scope noten --token "$VERCEL_TOKEN"
 ```
 
 - 배포는 Git 연동이 아니라 CLI 직접 배포: `vercel deploy --prod`. 미커밋 변경이 섞이지 않게 HEAD 커밋의 클린 worktree에서 실행할 것
+- **주의(2026-07-10 실측)**: changupnote 프로젝트가 GitHub 연동(origin `coolwithyou/noten.changupnote`)된 뒤로는, CLI 배포에 로컬 git author(sw@ba-ton.kr — noten 팀 비멤버)가 메타로 붙으면 seat 승인 대기(`BLOCKED`/`TEAM_ACCESS_REQUIRED`)로 빌드가 영영 시작되지 않는다. **배포는 `.git`을 제외한 사본에서 실행할 것**: `rsync -a --exclude='.git' <worktree>/ <사본>/` (`.vercel/project.json` 포함 확인) 후 사본에서 `vercel deploy --prod`. admin(changupnote-ops, team-coolwithyou)은 author가 그 팀 소유자라 해당 없음. ops 프로젝트는 토큰이 아니라 **대화형 로그인 크레덴셜**로 `--scope team-coolwithyou` 사용
 - 토큰 값은 채팅·로그에 출력 금지
 
 ## Cowork/샌드박스 환경에서의 git 규칙 (중요)
