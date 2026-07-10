@@ -339,6 +339,7 @@ body: { labels: string[]; mode: "generate" | "regenerate"; currentValue?: string
 - citations 미사용(ADR-3 제약), structured output(tool_choice 강제)으로 값+근거 추출. 모델 `CHAT_DRAFT_MODEL`. 그라운딩은 §7.3 번들 재사용(citations 비활성 변형).
 - 서버는 결과를 `fieldAnswers[label] = {status:"suggested", source:"llm", basis, ...}`로 저장 후 반환 — 클라이언트가 값을 직접 쓰는 경로 없음(컨펌 게이트). `basis` 없는 제안은 반환·저장하지 않는다.
 - labels ≤ 10개/호출. 일일 예산은 채팅과 합산 집행(ADR-6). "다듬기 3종(짧게/구체적으로/격식)"은 범위에서 제외 — v1은 `regenerate` 하나로 충분(HAX G9의 수정·undo는 FieldCard가 이미 충족).
+- **(v2.4, Gate 3 재대조 반영)** ① **manual류 라벨 제안 금지**(마스터 8.7): 서명·직인·날인·동의·첨부류 라벨은 LLM 제안 생성·저장 대상에서 제외하고 FieldCard에서 '제안 받기'를 노출하지 않는다(자동 처리 금지 필드). ② **basis 실재 검증**(마스터 8.8 축소 적용): 공고문 유래 basis는 그라운딩 markdown 원문에서 실재를 검증(정규화 부분 문자열 매칭 — `ingest:knowledge` quote 검증 선례)하고, 불통과 제안은 폐기한다. 완전한 값↔근거 span 정렬 validator는 FieldDraftResult 파이프라인 확장 시점으로 이월.
 
 ### 7.5 매칭 채팅 tool (Phase 5 — 별도 착수, 설계 초안)
 
@@ -528,3 +529,4 @@ execute:
   - **범위 축소 6건 전건 수용** — Phase 5 별도 착수 게이트(설계는 §7.5에 유지 — 요구 5의 비전은 보존), 인용 점프 제외, 다듬기 3종→regenerate 단일화, 이어보기 UI 후순위(저장은 유지), 포트 폐기, P1 로더 최적화 제외.
 - **v2.1 (2026-07-10, P0 세션)**: §12 결정 5건 추기(사용자 확인, 전건 기본값). P0 실측 판정을 ADR-4(AI SDK v7 채택)·ADR-2(frontmatter 절단·본문성 소스 우선·PDF 재주입 불필요)에 추기. ADR-5 처분 표의 구 클라이언트 이식 교차 참조 오기 2건 정정(P2-7→P2-9 — v1 번호 잔재, 처분 내용 자체는 불변).
 - **v2.3 (2026-07-10, P3 구현 세션)**: P3 구현 검수에서 드러난 내부 모순 2건 정정 — ① ADR-2 절단 고지 위치를 system→dynamicContext로(§7.3 배치 규약 M8과 모순, 배치 규약 우선) ② §7.3-3 fieldContext를 per-메시지 배치로 보강(멀티턴 부정합 방지). 구현 반영 커밋 ae3c226.
+- **v2.4 (2026-07-10, P4 착수 전)**: Gate 3 재대조(`docs/research/2026-07-10-gate3-field-suggestions-calibration.md`) 판정 반영 — §7.4에 manual류 라벨 제안 금지(마스터 8.7 정합)·basis 실재 검증(마스터 8.8 축소 적용) 추가. 적합도 라벨 UX(9.9)는 유지 확인.
