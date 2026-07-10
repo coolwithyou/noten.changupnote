@@ -41,6 +41,8 @@
 
 ## 3. 토큰 (요약 — 정본은 `design-tokens.json`)
 
+> **각주 (2026-07)**: apps/web은 shadcn 표준(neutral oklch 베이스 + `--brand-*` 확장)으로 전환 완료했다. 아래 표의 값 자체(브랜드 블루·mint·status 등)는 그대로 유효하지만, CSS 변수명·전체 아키텍처의 **현행 정본은 `DESIGN.md`**를 참조할 것. TDS `--tds-*` 체계는 폐기됨.
+
 | 범주 | 값 |
 |---|---|
 | Brand primary | `#3182f6` (정본, 전 레이어 배선됨) · pressed `#2272eb` |

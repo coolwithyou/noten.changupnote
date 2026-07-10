@@ -1,4 +1,5 @@
 {
+  "$archived": "ARCHIVED — 이 파일은 Toss Design System(TDS) Figma 변수 원본 덤프이며, 2026-07 shadcn 표준 전환으로 cunote 웹의 canonical 토큰 체계에서 제외되었다. 신체계(shadcn neutral + --brand-* 확장, design-tokens.json 정본)는 DESIGN.md를 참조. 내용은 이력 보존 목적으로만 유지하며 코드/문서 어디에서도 이 파일을 신규 참조하지 않는다.",
   "schemaVersion": 1,
   "exporter": "TDS Variables Exporter",
   "exportedAt": "2026-06-27T07:59:30.815Z",

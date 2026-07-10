@@ -8,10 +8,11 @@
     "sourceOfTruth": true,
     "supersedes": [
       "DESIGN.md (Toss-clone intent)",
-      "globals.css 의 --primary 3중 정의 (canonical = brand.primary 로 통일)"
+      "globals.css 의 --primary 3중 정의 (canonical = brand.primary 로 통일)",
+      "TDS(--tds-*) CSS 변수 체계 — 2026-07 shadcn 표준 전환으로 폐기"
     ],
     "platforms": ["web", "ios", "android"],
-    "note": "이 파일이 토큰의 단일 출처다. globals.css / Figma / 네이티브 테마는 이 값을 따른다."
+    "note": "이 파일이 토큰의 단일 출처다. globals.css / Figma / 네이티브 테마는 이 값을 따른다. 웹의 현행 정본 아키텍처 서술은 DESIGN.md 참조 — 이 파일의 값/구조는 documentExportTokens.ts(문서 내보내기)가 직접 소비하므로 불변."
   },
 
   "brand": {
@@ -33,6 +34,7 @@
                    "successWeak": "#02a26229", "warningWeak": "#ffb33129", "dangerWeak": "#f0445229" }
     },
     "dark": {
+      "$status": "reserved — 웹 미배선(라이트 온리). apps/web globals.css는 .dark 팔레트를 배선하지 않는다 (2026-07 shadcn 전환 확정 결정). 네이티브(iOS/Android) 다크 테마 참조용으로만 보존.",
       "bg":      { "canvas": "#17171c", "lower": "#101013", "surface": "#202027", "dim": "#0000008f" },
       "text":    { "strong": "#ffffff", "primary": "#e4e4e5", "secondary": "#fdfdffbf", "tertiary": "#f8f8ff99", "onFill": "#ffffff", "brand": "#449bff" },
       "border":  { "default": "#dedeff30", "thick": "#101013" },
@@ -42,17 +44,17 @@
   },
 
   "texture": {
-    "$note": "질감은 zoning(아래)에 따라 강도만 다르게 적용. 같은 토큰을 brand/work 두 강도로 재사용.",
+    "$note": "질감은 zoning(아래)에 따라 강도만 다르게 적용. 같은 토큰을 brand/work 두 강도로 재사용. 웹 구현은 apps/web/src/app/globals.css :root(--grad-mesh/--grad-brand-band/--glow-brand/--grain-*)에 이 값 그대로 배선 — $css는 그 CSS 변수/유틸리티 클래스 이름을 가리킨다.",
     "gradSurface": { "value": "linear-gradient(180deg, #ffffff 0%, #fbfbfc 100%)", "note": "면 위계용 미세 그라데이션. 명도차 ≤6%" },
-    "meshLight":   { "value": "radial-gradient(60% 55% at 18% 12%, #e1ecff 0%, transparent 60%), radial-gradient(55% 50% at 90% 8%, #d6f7ec 0%, transparent 58%), radial-gradient(70% 60% at 50% 120%, #e7eeff 0%, transparent 62%)", "note": "시그니처 블루+민트 메시. canvas 위에 레이어" },
-    "meshDark":    { "value": "radial-gradient(60% 55% at 18% 12%, #1b2a5b 0%, transparent 60%), radial-gradient(55% 50% at 90% 8%, #123d34 0%, transparent 58%), radial-gradient(75% 65% at 50% 120%, #181c2e 0%, transparent 62%)" },
-    "glowBrand":   { "value": "radial-gradient(closest-side, rgba(49,130,246,.22), transparent 75%)", "note": "버튼/입력 포커스 글로우" },
+    "meshLight":   { "value": "radial-gradient(60% 55% at 18% 12%, #e1ecff 0%, transparent 60%), radial-gradient(55% 50% at 90% 8%, #d6f7ec 0%, transparent 58%), radial-gradient(70% 60% at 50% 120%, #e7eeff 0%, transparent 62%)", "note": "시그니처 블루+민트 메시. canvas 위에 레이어", "$css": "--grad-mesh (globals.css :root) → .bg-mesh 유틸리티" },
+    "meshDark":    { "value": "radial-gradient(60% 55% at 18% 12%, #1b2a5b 0%, transparent 60%), radial-gradient(55% 50% at 90% 8%, #123d34 0%, transparent 58%), radial-gradient(75% 65% at 50% 120%, #181c2e 0%, transparent 62%)", "$css": "미배선 — 라이트 온리(dark.$status 참조)" },
+    "glowBrand":   { "value": "radial-gradient(closest-side, rgba(49,130,246,.22), transparent 75%)", "note": "버튼/입력 포커스 글로우", "$css": "--glow-brand (globals.css :root) → .glow-brand 유틸리티" },
     "grain": {
-      "tile":          { "value": "180px" },
+      "tile":          { "value": "180px", "$css": "--grain-tile" },
       "blendMode":     { "value": "overlay" },
-      "opacityBrand":  { "value": 0.05 },
-      "opacityWork":   { "value": 0.02 },
-      "svg":           { "value": "feTurbulence type=fractalNoise baseFrequency=0.85 numOctaves=2 stitchTiles=stitch", "note": "자기완결 SVG data-uri 권장(외부 에셋 X)" }
+      "opacityBrand":  { "value": 0.05, "$css": "--grain-opacity-brand" },
+      "opacityWork":   { "value": 0.02, "$css": "--grain-opacity-work" },
+      "svg":           { "value": "feTurbulence type=fractalNoise baseFrequency=0.85 numOctaves=2 stitchTiles=stitch", "note": "자기완결 SVG data-uri 권장(외부 에셋 X)", "$css": "--grain-image (data: URI) · .texture-grain / .texture-grain[data-zone=\"brand\"] 클래스가 opacity 강도를 전환" }
     }
   },
 
@@ -60,11 +62,13 @@
     "$rule": "질감은 모든 화면이 아니라 '브랜드 순간'에만. 희소할수록 강하게 각인되고 '쉽다'와 충돌하지 않는다.",
     "brand": {
       "appliesTo": ["온보딩", "히어로/랜딩", "빈 상태(empty)", "매칭 성공 순간", "주요 CTA 버튼", "마케팅"],
-      "mesh": true, "grain": "opacityBrand", "glow": true, "gradientButton": true
+      "mesh": true, "grain": "opacityBrand", "glow": true, "gradientButton": true,
+      "$css": "bg-mesh, bg-brand-band, glow-brand 유틸리티 + texture-grain[data-zone=\"brand\"]"
     },
     "work": {
       "appliesTo": ["사업자번호 입력", "매칭 결과 리스트", "코칭 체크리스트", "대시보드", "관리/내부 콘솔"],
-      "mesh": false, "grain": "opacityWork", "glow": false, "background": "near-plain", "priority": "가독성·명료함 우선"
+      "mesh": false, "grain": "opacityWork", "glow": false, "background": "near-plain", "priority": "가독성·명료함 우선",
+      "$css": "texture-grain (data-zone 미지정 시 opacityWork 기본값)"
     }
   },
 

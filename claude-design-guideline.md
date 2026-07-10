@@ -1,5 +1,7 @@
 # 창업노트 — Claude Design 활용 가이드라인 & 디자인 시스템 v0.1
 
+> **ARCHIVED — 신체계는 `DESIGN.md` 참조.** 이 문서의 토큰 표·컬러 레퍼런스는 TDS(Toss Design System) 기준이며, 2026-07 shadcn 표준 전환으로 cunote 웹의 canonical 체계에서 대체되었다(shadcn neutral + `--brand-*` 확장, `design-tokens.json` 정본). zoning·refined-minimal 등 전략 서술은 여전히 유효하나 색상값·CSS 변수명은 최신이 아니다. 이력 보존 목적으로만 유지한다.
+
 > 지원사업 매칭 플랫폼(iOS · Android · Web) / 핵심 철학: **"쉽다 = 인지부하 최소화"**
 > 작성 기준: Claude Design (Anthropic Labs, 2026-04 출시 / 2026-06-17 디자인 시스템 import·코드 왕복 업데이트 반영)
 
