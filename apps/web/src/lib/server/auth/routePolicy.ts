@@ -22,6 +22,7 @@ export const PUBLIC_WEB_ROUTES = [
   "POST /api/web/support/tickets/[ticketId]/attachments",
   "POST /api/web/teaser",
   "POST /api/web/company-preview",
+  "GET /api/web/credits/products",
 ] as const;
 
 export const SESSION_WEB_ROUTES = [
@@ -82,6 +83,9 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/credits/ledger",
   "GET /api/web/credits/usage",
   "GET /api/web/credits/usage/export",
+  "GET /api/web/credits/orders",
+  "POST /api/web/credits/checkout",
+  "POST /api/web/credits/checkout/complete",
   "GET /api/web/matches",
   "GET /api/web/roadmap",
   "POST /api/web/matches/[grantId]/feedback",
@@ -130,6 +134,7 @@ export const SYSTEM_CRON_ROUTES = [
   "GET /api/cron/grant-cycle-post",
   "GET /api/cron/poll-conversions",
   "GET /api/cron/credits-expire-holds",
+  "GET /api/cron/credits-expire-orders",
 ] as const;
 
 export const SESSION_APP_ROUTES = [

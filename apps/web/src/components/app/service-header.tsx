@@ -1,6 +1,7 @@
 import { AccountMenu } from "@/components/app/account-menu";
 import { PageNav } from "@/components/app/page-nav";
 import { buttonVariants } from "@/components/ui/button";
+import { CreditBalanceWidget } from "@/features/credits/CreditBalanceWidget";
 import type { HeaderUser } from "@/lib/server/auth/session";
 
 interface ServiceHeaderProps {
@@ -57,7 +58,11 @@ export function ServiceHeader({
         <div className="flex min-w-0 items-center gap-2">
           <PageNav links={links} />
           {user ? (
-            <AccountMenu user={user} />
+            <>
+              {/* 잔액 위젯(10.5) — 인증 상태에서만. available 표시, lowBalance 배지. */}
+              <CreditBalanceWidget />
+              <AccountMenu user={user} />
+            </>
           ) : (
             <a className={buttonVariants({ size: "sm" })} href={loginHref(loginCallbackUrl)}>
               로그인
