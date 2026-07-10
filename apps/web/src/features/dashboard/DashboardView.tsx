@@ -47,10 +47,10 @@ export function DashboardView({
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <SummaryMetric label="지금 적격" value={`${counts.recommendable}건`} />
-            <SummaryMetric label="확인 필요" value={`${counts.reviewNeeded}건`} />
-            <SummaryMetric label="부적격" value={`${counts.notRecommended}건`} />
-            <SummaryMetric label="마감 임박" value={`${dashboard.counts.deadlineSoon}건`} />
+            <MetricCard label="지금 적격" value={`${counts.recommendable}건`} />
+            <MetricCard label="확인 필요" value={`${counts.reviewNeeded}건`} />
+            <MetricCard label="부적격" value={`${counts.notRecommended}건`} />
+            <MetricCard label="마감 임박" value={`${dashboard.counts.deadlineSoon}건`} />
           </div>
         </section>
 
@@ -107,10 +107,6 @@ function DashboardOnboardingPrompt({ progress }: { progress: OnboardingProgress 
       </CardContent>
     </Card>
   );
-}
-
-function SummaryMetric({ label, value }: { label: string; value: string }) {
-  return <MetricCard label={label} value={value} />;
 }
 
 function companyTitle(dashboard: DashboardResult): string {

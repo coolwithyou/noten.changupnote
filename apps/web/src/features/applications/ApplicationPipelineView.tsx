@@ -17,6 +17,7 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 
 const STAGES: Array<{
@@ -178,26 +179,28 @@ export function ApplicationPipelineView({
           </Alert>
         ) : null}
 
-        <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="신청 단계 선택">
+        <ToggleGroup
+          value={[activeStage]}
+          onValueChange={(value) => {
+            const next = value[0] as ApplicationStage | undefined;
+            if (next) setActiveStage(next);
+          }}
+          aria-label="신청 단계 선택"
+          size="sm"
+          className="w-full justify-start overflow-x-auto"
+        >
           {STAGES.map((stage) => (
-            <button
+            <ToggleGroupItem
               key={stage.stage}
-              type="button"
-              role="tab"
-              aria-selected={activeStage === stage.stage}
+              value={stage.stage}
               aria-controls={`application-lane-${stage.stage}`}
-              className={buttonVariants({
-                variant: activeStage === stage.stage ? "default" : "outline",
-                size: "sm",
-                className: "gap-2",
-              })}
-              onClick={() => setActiveStage(stage.stage)}
+              className="gap-2"
             >
               <span>{stage.title}</span>
               <strong className="tabular-nums">{stats[stage.stage].toLocaleString("ko-KR")}</strong>
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
 
         <section className="grid gap-4 xl:grid-cols-2" aria-label="신청 파이프라인" data-application-board data-active-stage={activeStage}>
           {STAGES.map((stage) => {

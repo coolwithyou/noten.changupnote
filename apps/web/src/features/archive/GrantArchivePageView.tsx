@@ -3,9 +3,16 @@ import { Archive, CalendarDays, ExternalLink, FileText, GanttChartSquare, Rotate
 import { APPLY_METHOD_CHANNELS, AUTHORING_MODES } from "@cunote/contracts";
 import type { CriterionDimension } from "@cunote/contracts";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import {
   Table,
   TableBody,
@@ -314,10 +321,10 @@ function ArchiveFilterPanel({
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button className={buttonVariants({ size: "sm" })} type="submit">
+          <Button type="submit" size="sm">
             <Search data-icon="inline-start" />
             적용
-          </button>
+          </Button>
           <a className={buttonVariants({ variant: "outline", size: "sm" })} href={resetHref(currentParams)}>
             <RotateCcw data-icon="inline-start" />
             초기화
@@ -560,6 +567,7 @@ function ArchiveGanttPreview({ items }: { items: GrantArchiveItem[] }) {
         <div className="grid gap-2 overflow-x-auto rounded-[var(--radius-xl)] border p-3">
           <div className="grid min-w-[720px] grid-cols-[220px_minmax(360px,1fr)_120px] items-center gap-3 text-xs text-muted-foreground" aria-hidden>
             <span />
+            {/* 동적 계산값(틱 개수)이라 인라인 style 유지 — Tailwind 유틸로 표현 불가 */}
             <div className="grid" style={{ gridTemplateColumns: `repeat(${gantt.ticks.length}, minmax(0, 1fr))` }}>
               {gantt.ticks.map((tick) => (
                 <time key={tick.isoDate} dateTime={tick.isoDate}>{tick.label}</time>
@@ -572,6 +580,7 @@ function ArchiveGanttPreview({ items }: { items: GrantArchiveItem[] }) {
               <div className="relative h-7 rounded-full bg-background">
                 <span
                   className={cn("absolute top-1/2 flex h-5 -translate-y-1/2 items-center justify-center overflow-hidden rounded-full px-2 text-[11px] font-medium", scheduleStatusClass(row.item.status))}
+                  // 동적 계산값(기간 비율 %)이라 인라인 style 유지 — Tailwind 유틸로 표현 불가
                   style={{ left: `${row.left}%`, width: `${row.width}%` }}
                 >
                   {statusLabel(row.item.status)}
@@ -616,14 +625,27 @@ function ArchivePagination({
   archive: GrantArchiveResult;
   currentParams: URLSearchParams;
 }) {
-  if (!archive.hasMore && !currentParams.get("cursor")) return null;
+  const hasCursor = Boolean(currentParams.get("cursor"));
+  if (!archive.hasMore && !hasCursor) return null;
   return (
-    <div className="flex flex-wrap justify-end gap-2">
-      <a className={buttonVariants({ variant: "outline", size: "sm" })} href={pageHref(currentParams, null)}>처음</a>
-      {archive.hasMore ? (
-        <a className={buttonVariants({ size: "sm" })} href={pageHref(currentParams, archive.cursor)}>다음</a>
-      ) : null}
-    </div>
+    <Pagination className="justify-end">
+      <PaginationContent>
+        <PaginationItem>
+          <PaginationPrevious
+            text="처음"
+            aria-label="처음으로 이동"
+            href={pageHref(currentParams, null)}
+            aria-disabled={!hasCursor}
+            className={!hasCursor ? "pointer-events-none opacity-50" : undefined}
+          />
+        </PaginationItem>
+        {archive.hasMore ? (
+          <PaginationItem>
+            <PaginationNext text="다음" aria-label="다음 페이지로 이동" href={pageHref(currentParams, archive.cursor)} />
+          </PaginationItem>
+        ) : null}
+      </PaginationContent>
+    </Pagination>
   );
 }
 

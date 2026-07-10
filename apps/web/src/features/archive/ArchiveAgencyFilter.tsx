@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, Search, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { GrantArchiveFacetOption } from "@/lib/server/archive/grantArchiveSearch";
 
@@ -180,14 +181,16 @@ export function ArchiveAgencyFilter({ initialOptions, selected }: ArchiveAgencyF
             <li key={value}>
               <span className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-muted py-1 pl-2 pr-1 text-xs font-medium text-foreground">
                 <span className="max-w-[11rem] truncate">{labels[value] ?? value}</span>
-                <button
+                <Button
                   type="button"
-                  className="inline-flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40"
+                  variant="ghost"
+                  size="icon-xs"
+                  className="size-4 rounded-full text-muted-foreground hover:text-foreground"
                   aria-label={`${labels[value] ?? value} 제거`}
                   onClick={() => removeValue(value)}
                 >
                   <X className="size-3" aria-hidden />
-                </button>
+                </Button>
               </span>
             </li>
           ))}
