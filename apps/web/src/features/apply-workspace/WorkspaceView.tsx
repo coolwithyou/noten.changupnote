@@ -10,7 +10,7 @@
  * 사다리:
  *  (a) 프리뷰+오버레이+필드 카드 + HWPX 다운로드
  *  (b) 프리뷰 + "필드 분석 중" + missingFields 질문 카드(진행률 숨김)
- *  (c) 채팅 전면 + DocumentDraftWorkspace 폴백 + 정직 고지
+ *  (c) 채팅 전면 + DraftFallbackEditor(초안 편집기) 폴백 + 정직 고지
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -22,10 +22,10 @@ import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
-import { DocumentDraftWorkspace } from "@/features/apply-sheet/DocumentDraftWorkspace";
 import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-viewer/PreviewCanvas";
 import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
 import { ChatPanelPlaceholder } from "./ChatPanelPlaceholder";
+import { DraftFallbackEditor } from "./DraftFallbackEditor";
 import { FieldPanel } from "./FieldPanel";
 import { WorkspaceFooter, type WorkspaceProgress } from "./WorkspaceFooter";
 
@@ -197,7 +197,7 @@ export function WorkspaceView({ grantId, data }: { grantId: string; data: Worksp
               </div>
             ) : null}
             <ChatPanelPlaceholder variant="front" />
-            <DocumentDraftWorkspace
+            <DraftFallbackEditor
               grantId={grantId}
               prep={data.prep}
               initialDrafts={data.initialDrafts}

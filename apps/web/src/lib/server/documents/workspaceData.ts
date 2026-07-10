@@ -62,9 +62,9 @@ export interface WorkspaceData {
   grant: WorkspaceGrantMeta;
   /** (b) 상태 질문 카드용 draft.missingFields. */
   missingFields: MissingFieldQuestion[];
-  /** (c) 폴백 DocumentDraftWorkspace 용 전체 prep. */
+  /** (c) 폴백 DraftFallbackEditor 용 전체 prep. */
   prep: ApplicationPrep;
-  /** (c) 폴백 DocumentDraftWorkspace 용 기존 초안들. */
+  /** (c) 폴백 DraftFallbackEditor 용 기존 초안들. */
   initialDrafts: DocumentDraft[];
   /** pending surface 가 있어 변환 폴링을 마운트할지. */
   pollConversion: boolean;

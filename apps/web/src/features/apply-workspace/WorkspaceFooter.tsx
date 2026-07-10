@@ -158,7 +158,7 @@ function ProgressMeter({ progress }: { progress: WorkspaceProgress }) {
   );
 }
 
-// ── DocumentDraftWorkspace 의 HWPX 다운로드 클라이언트 헬퍼와 동형(answers 동봉만 제거) ──
+// ── HWPX 다운로드 클라이언트 헬퍼(구 초안 편집기 헬퍼와 동형 · answers 동봉 없이 format 만) ──
 
 function triggerBlobDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

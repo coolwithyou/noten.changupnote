@@ -1,5 +1,19 @@
 "use client";
 
+/**
+ * (c) 폴백 초안 편집기 (Apply Experience v2 · §4.4(c)/§4.3 · P2-9).
+ *
+ * 구 `apply-sheet/DocumentDraftWorkspace` 를 workspace 로 이식한 것. 사다리 (c)(변환 전/실패/.doc·웹폼 —
+ * 연결 필드 0건)에서 채팅 전면과 함께 렌더된다. 이식 규범(설계 §4.3): 초안 markdown 편집 · DOCX/MD/HTML
+ * 내보내기 · 섹션 재생성 · 품질 피드백 · 추가 입력(생성 반영) · 문항별 자동채움 편집.
+ *
+ * ADR-5 클라이언트 규약 전환(P2-9 몫):
+ *  - 구 PATCH 의 `filledFields` 동봉을 제거한다. 초안 저장은 `{draftMarkdown, status}` 만 보낸다.
+ *  - 필드 값 변경은 신 `field-answers` PATCH(edited/dismissed)로만 영속화한다(컨펌 게이트 서버 집행).
+ *  - 섹션 재생성 body 에서도 `filledFields` 를 제거한다 — 서버가 저장된 fieldAnswers 로 확정값을 보존한다.
+ *  - HWPX 채움 다운로드(구 answers 동봉)는 이 편집기에서 제거했다. HWPX 는 하단 바(WorkspaceFooter)가
+ *    `{format:"hwpx"}` 만 보내 담당한다(설계 §4.3 하단 바).
+ */
 import { useMemo, useState } from "react";
 import { AlertCircle, Check, Download, FileText, Loader2, MessageSquare, Printer, RefreshCw, Save } from "lucide-react";
 import type {
@@ -20,6 +34,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FieldLessonTips } from "@/features/knowledge/FieldLessonTips";
+import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 
 interface DraftFeedbackFormState {
@@ -45,7 +60,7 @@ const DRAFT_FEEDBACK_OPTIONS: Array<{ value: DocumentDraftFeedbackKind; label: s
   { value: "other", label: "기타" },
 ];
 
-export function DocumentDraftWorkspace({
+export function DraftFallbackEditor({
   grantId,
   prep,
   initialDrafts = [],
@@ -128,6 +143,53 @@ export function DocumentDraftWorkspace({
     }
   }
 
+  // ADR-5: 문항별 자동채움 편집(fieldText)의 변경분을 신 field-answers PATCH(edited/dismissed)로 영속화한다.
+  // 컨펌 게이트를 서버가 집행하므로 클라이언트가 filledFields 를 직접 쓰지 않는다. 초안 저장·재생성·내보내기
+  // 앞단에서 호출해 사용자 필드 편집을 먼저 반영한다. 서버 파생 filledFields 로 로컬 기준선을 전진시킨다.
+  async function flushFieldAnswers(document: DraftableDocument): Promise<void> {
+    const draft = drafts[document.documentKey];
+    if (!draft) return;
+    const baseline = draft.filledFields;
+    const local = fieldText[document.documentKey] ?? baseline;
+    const patch: Record<string, { value: string; status: DraftFieldAnswerStatus }> = {};
+    const seen = new Set<string>();
+    for (const [rawLabel, rawValue] of Object.entries(local)) {
+      const label = rawLabel.trim();
+      if (!label) continue;
+      seen.add(label);
+      const value = rawValue.trim();
+      const previous = (baseline[label] ?? "").trim();
+      if (value === previous) continue;
+      patch[label] = value ? { value, status: "edited" } : { value: "", status: "dismissed" };
+    }
+    // 로컬에서 제거된(비워진) 기존 값은 dismissed 로 확정 해제한다.
+    for (const [rawLabel, rawValue] of Object.entries(baseline)) {
+      const label = rawLabel.trim();
+      if (!label || seen.has(label)) continue;
+      if (rawValue.trim()) patch[label] = { value: "", status: "dismissed" };
+    }
+    if (Object.keys(patch).length === 0) return;
+    const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/field-answers`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ answers: patch }),
+    });
+    const payload = (await response.json()) as ActionResult<{
+      fieldAnswers: DraftFieldAnswers;
+      filledFields: Record<string, string>;
+    }>;
+    if (!response.ok || !payload.ok || !payload.data) {
+      throw new Error(payload.error?.message ?? "필드 값을 저장하지 못했습니다.");
+    }
+    const filledFields = payload.data.filledFields;
+    setDrafts((current) => {
+      const existing = current[document.documentKey];
+      if (!existing) return current;
+      return { ...current, [document.documentKey]: { ...existing, filledFields } };
+    });
+    setFieldText((current) => ({ ...current, [document.documentKey]: filledFields }));
+  }
+
   async function updateDraft(document: DraftableDocument, status?: DocumentDraft["status"]): Promise<DocumentDraft | null> {
     const draft = drafts[document.documentKey];
     if (!draft) return null;
@@ -135,12 +197,13 @@ export function DocumentDraftWorkspace({
     setError(null);
     setActionNotice(null);
     try {
+      // ADR-5: 필드 값은 field-answers PATCH 로 먼저 반영하고, 초안 저장 body 에는 filledFields 를 동봉하지 않는다.
+      await flushFieldAnswers(document);
       const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           draftMarkdown: draftText[document.documentKey] ?? draft.draftMarkdown,
-          filledFields: normalizeDraftFieldValues(fieldText[document.documentKey] ?? draft.filledFields),
           ...(status ? { status } : {}),
         }),
       });
@@ -176,13 +239,15 @@ export function DocumentDraftWorkspace({
     setError(null);
     setActionNotice(null);
     try {
+      // ADR-5: 사용자 필드 편집을 서버에 먼저 반영(재생성이 파생 filledFields 를 재계산하기 전). 재생성 body 에
+      // filledFields 를 동봉하지 않는다 — 서버가 저장된 fieldAnswers 로 확정값(accepted|edited)을 보존한다.
+      await flushFieldAnswers(document);
       const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draft.id)}/regenerate`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sectionTitle,
           draftMarkdown: previousMarkdown,
-          filledFields: normalizeDraftFieldValues(fieldText[document.documentKey] ?? draft.filledFields),
           ...draftAnswersForDocument(document, prep, answerText),
         }),
       });
@@ -214,50 +279,6 @@ export function DocumentDraftWorkspace({
     setActionNotice({ tone: "success", message: `${document.canonicalName} 초안을 저장했고 다운로드를 시작합니다.` });
     const query = format === "markdown" ? "" : `?format=${format}`;
     window.location.assign(`/api/web/document-drafts/${encodeURIComponent(saved.id)}/download${query}`);
-  }
-
-  // HWPX 원본 양식 채움 다운로드: 워크스페이스 추가 입력(answerText 전역 맵)을 함께 보내 서버에서
-  // draft.filledFields 위에 병합(answers 우선)해 원본 .hwpx 를 채운다. 미채움 항목은 응답 헤더로 받아 안내한다.
-  async function downloadDraftHwpx(document: DraftableDocument) {
-    const saved = await updateDraft(document, "exported");
-    if (!saved) return;
-    setPendingKey(document.documentKey);
-    setError(null);
-    setActionNotice(null);
-    try {
-      const answers = collectAnswerValues(answerText);
-      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(saved.id)}/download`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          format: "hwpx",
-          ...(Object.keys(answers).length > 0 ? { answers } : {}),
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(await hwpxErrorMessage(response));
-      }
-      const blob = await response.blob();
-      const filename = hwpxDownloadFilename(response) ?? `${document.canonicalName}.hwpx`;
-      triggerBlobDownload(blob, filename);
-      const unfilled = parseUnfilledHeader(response.headers.get("X-Cunote-Hwpx-Unfilled"));
-      if (unfilled.length > 0) {
-        const labels = unfilled.map((entry) => entry.label).filter(Boolean).join(", ");
-        setActionNotice({
-          tone: "warning",
-          message: `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
-        });
-      } else {
-        setActionNotice({
-          tone: "success",
-          message: `${document.canonicalName} 원본 HWPX 양식에 값을 채워 다운로드했습니다.`,
-        });
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.");
-    } finally {
-      setPendingKey(null);
-    }
   }
 
   async function submitDraftFeedback(draft: DocumentDraft) {
@@ -465,18 +486,6 @@ export function DocumentDraftWorkspace({
                           <Download className="size-3.5" aria-hidden />
                           DOCX(한글에 붙여넣기)
                         </Button>
-                        {activeDocument.hwpxTemplateAvailable ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => void downloadDraftHwpx(activeDocument)}
-                            disabled={pendingKey === activeDocument.documentKey}
-                          >
-                            <Download className="size-3.5" aria-hidden />
-                            HWPX (원본 양식에 채움)
-                          </Button>
-                        ) : null}
                         <Button
                           type="button"
                           variant="outline"
@@ -937,78 +946,6 @@ function draftAutofillRows(draft: DocumentDraft, values: Record<string, string>)
       };
     });
   return [...filledRows, ...missingRows];
-}
-
-function normalizeDraftFieldValues(values: Record<string, string>): Record<string, string> {
-  const normalized: Record<string, string> = {};
-  for (const [key, value] of Object.entries(values)) {
-    const label = key.trim();
-    const filled = value.trim();
-    if (label && filled) normalized[label] = filled;
-  }
-  return normalized;
-}
-
-function collectAnswerValues(answers: Record<string, string>): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const [label, value] of Object.entries(answers)) {
-    const trimmedLabel = label.trim();
-    const trimmedValue = value.trim();
-    if (trimmedLabel && trimmedValue) result[trimmedLabel] = trimmedValue;
-  }
-  return result;
-}
-
-function triggerBlobDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const anchor = window.document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  window.document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  // 즉시 revoke 하면 일부 브라우저에서 다운로드가 중단될 수 있어 다음 틱에 정리한다.
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function parseUnfilledHeader(headerValue: string | null): Array<{ label: string; reason: string }> {
-  if (!headerValue) return [];
-  try {
-    const parsed = JSON.parse(decodeURIComponent(headerValue)) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((entry): entry is { label: string; reason?: string } =>
-        typeof entry === "object" && entry !== null && typeof (entry as { label?: unknown }).label === "string",
-      )
-      .map((entry) => ({ label: entry.label, reason: typeof entry.reason === "string" ? entry.reason : "" }));
-  } catch {
-    return [];
-  }
-}
-
-async function hwpxErrorMessage(response: Response): Promise<string> {
-  try {
-    const payload = (await response.json()) as ActionResult<null>;
-    if (payload?.error?.message) return payload.error.message;
-  } catch {
-    // 비 JSON 응답: 기본 메시지로 폴백.
-  }
-  return "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.";
-}
-
-function hwpxDownloadFilename(response: Response): string | null {
-  const disposition = response.headers.get("content-disposition");
-  if (!disposition) return null;
-  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
-  if (encoded?.[1]) {
-    try {
-      return decodeURIComponent(encoded[1].trim());
-    } catch {
-      // fall through to plain filename
-    }
-  }
-  const plain = /filename="([^"]+)"/i.exec(disposition);
-  return plain?.[1] ?? null;
 }
 
 function defaultDraftFeedbackFormState(): DraftFeedbackFormState {
