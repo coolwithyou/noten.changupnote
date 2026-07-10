@@ -44,7 +44,12 @@ pnpm dev:web        # 127.0.0.1:4010 (+cloudflared 터널 자동)
 ```
 확인 흐름: `/grants/24a1a417-b5ae-4814-82f2-d86b6d0359a2`(사다리 b: 프리뷰 15p+질문 카드) → 주 CTA → workspace → 채팅 자동 오픈·인용 뱃지·"이 항목이 뭐예요?" 프리필·일반 안내 스타일 → 서술형 필드 "제안 받기"(실 sonnet 과금) → HWPX 다운로드(미채움 안내에 "제안 미확정" 사유) / `/grants/66af6561-…`(사다리 c: 정직 고지+초안 편집기 폴백) / `/grants/[id]/preview` 리다이렉트. 수정 필요분은 핸드오버 §5 규약대로 해당 Phase 에이전트 재위임 또는 직접 소수정.
 
-### 2. 브랜치 병합 준비 — ⚠️ 마이그레이션 번호 충돌 해소 (아래 "주의" 필독)
+### 2. 브랜치 병합 준비 — ✅ 완료 (2026-07-10 후속 세션)
+
+- 이 브랜치 0038·0039 → **0039·0040 재부여** (`851ed93`) — SQL·journal `when` 불변이라 공유 DB 재적용 없음(이력 41행 그대로 실측 확인)
+- **main(크레딧 P1~P7 22커밋) 병합** (`40c234e`) — journal 수퍼셋(38y→39d→40l, when 단조 유지)·schema.ts 양 트랙 테이블 합류·이름 겹친 HANDOFF-2026-07-10.md는 `-apply-v2`/`-ai-credit`로 분리(원 경로는 안내 스텁)
+- 0040 스냅샷에 크레딧 스키마 폴딩 (`a2a1870`) — drizzle generate가 산출한 합류 스냅샷(71테이블)을 0040 자리에 id/prevId 보존해 폴딩, 0039 스냅샷 prevId는 0038y로 재연결
+- 검증: `db:generate` 빈 diff · `db:migrate` no-op · typecheck · 테스트 3종(5·4·8) · `build:web` 통과
 
 ### 3. 배포 (사용자 합의 후, P1~P4 한 묶음)
 
@@ -60,14 +65,14 @@ pnpm dev:web        # 127.0.0.1:4010 (+cloudflared 터널 자동)
 ## 검증 체크리스트 (완료 판정)
 
 - [ ] 브라우저 QA 흐름 전체 통과 (위 1)
-- [ ] 마이그레이션 번호 충돌 해소 후 `pnpm db:generate`가 빈 diff (아래 주의 1)
-- [ ] 병합 후 `pnpm typecheck` · `pnpm build:web` · 테스트 3종 통과
+- [x] 마이그레이션 번호 충돌 해소 후 `pnpm db:generate`가 빈 diff (2026-07-10 후속 세션)
+- [x] 병합 후 `pnpm typecheck` · `pnpm build:web` · 테스트 3종 통과 (동일 세션)
 - [ ] 프로덕션 배포 + 실공고 1건에서 채팅 인용 응답 확인
-- [ ] `docs/plans/2026-07-10-apply-experience-v2-handover.md` 진행 상황 블록 갱신·커밋
+- [x] `docs/plans/2026-07-10-apply-experience-v2-handover.md` 진행 상황 블록 갱신·커밋 (동일 세션)
 
 ## 주의 / 함정
 
-1. **⚠️ 마이그레이션 0038 번호 충돌 (병합 전 필수 해소)**: 이 브랜치에 `0038_draft_field_answers`·`0039_last_impossible_man`(둘 다 **DB 적용 완료**), 메인 저장소(AI 크레딧 트랙)에 별개의 `0038_yielding_leader`가 존재. 병합 시 idx 38 중복으로 journal·스냅샷이 깨진다. 해소: 한쪽 번호를 재부여(파일명+`meta/_journal.json`의 idx/tag+스냅샷 파일명)하되, **drizzle의 `__drizzle_migrations`는 해시 기준이라 SQL 내용이 바뀌지 않으면 재적용되지 않음** — 내용 불변 유지가 원칙. 크레딧 트랙 0038의 DB 적용 여부를 먼저 확인할 것(`select * from drizzle.__drizzle_migrations order by created_at desc limit 5`).
+1. ~~⚠️ 마이그레이션 0038 번호 충돌~~ → **해소 완료** (위 "남은 작업 2" 참조). 실측으로 정정된 사실: 크레딧 0038도 DB 적용 완료였고(`when=1783625364223`, 이 브랜치 0038보다 먼저 생성이라 재부여 후에도 when 단조 유지), drizzle-kit migrate의 실제 판정은 해시가 아니라 **journal `when` 타임스탬프 기준**(DB의 마지막 `created_at`보다 새 것만 적용) — 어느 쪽이든 SQL·when 불변이면 재적용되지 않는다.
 2. **DB 공유**: 이 worktree의 마이그레이션·백필은 이미 공유 DB에 반영됨. 병렬 세션(크레딧 트랙)도 같은 DB에 적용했을 수 있음 — 이변 시 병렬 세션 소행 의심(메모리 규칙).
 3. **surface `source_attachment` 표현 혼재**(실측): 공고에 따라 R2 스토리지 키 또는 원본 파일명. workspace 매칭은 이중 후보로 흡수했지만, 신규 코드가 이 컬럼을 쓸 때 같은 함정 주의. 정본 매핑은 `grant_attachment_archives`(filename→storage_key).
 4. **세션 리밋으로 서브에이전트 사망 시**: `git status`로 부분 변경 확인(P2c 사례에선 무변경) 후 동일 프롬프트 재위임하면 됨.

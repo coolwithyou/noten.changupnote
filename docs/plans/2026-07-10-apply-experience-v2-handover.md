@@ -11,8 +11,9 @@
 > - P0 판정(검수 A 통과, 메인 재실행 검증): **ADR-4 = AI SDK 채택**(실측 `ai@7.0.19`, `sendSources:true` 필수, `providerMetadata.anthropic` 얕은 매핑 필요). ADR-2에 전처리 규약 추기(frontmatter 절단·본문성 archive 우선, PDF 재주입 불필요, 캐싱 실증). P0-3: **함초롬 폰트 미탑재 발견** → poc-execution 이슈 등재(별도 트랙, 라이선스 확인 필요)
 > - 오픈 퀘스천(설계 §12) 사용자 답변: **확인 완료(2026-07-10) — 전건 제안 기본값 채택, 설계 §12에 결정 blockquote 추기.** P1-4 임시 페이지는 생략(P1·P2 한 배포 묶음)
 > - 설계 문서 정정: ADR-5 처분 표의 이식 교차 참조 P2-7→P2-9 (v1 번호 잔재, §14 v2.1)
+> - **병합 준비 완료(2026-07-10 후속 세션)**: 마이그레이션 번호 충돌 해소 — 이 브랜치 0038·0039를 **0039·0040으로 재부여**(`851ed93`, SQL·journal when 불변 → 공유 DB 재적용 없음, DB 이력 41행 그대로 확인) → **main(크레딧 P1~P7) 병합**(`40c234e`, 충돌 3건 해소: journal 수퍼셋·schema.ts 양 트랙 테이블 합류·HANDOFF-2026-07-10.md를 -apply-v2/-ai-credit로 분리) → 0040 스냅샷에 크레딧 스키마 폴딩(`a2a1870`). 검증: `pnpm db:generate` 빈 diff · `db:migrate` no-op · typecheck · 테스트 3종(5·4·8) · `build:web` 전부 통과
 > - 작업 위치: worktree `/Users/ffgg/orca/workspaces/cunote/minimal` (브랜치 `coolwithyou/minimal`, env·빌드 독립 구성 완료 — 위임 프롬프트의 저장소 경로는 이 worktree를 쓸 것)
-> - 마지막 갱신: 2026-07-10 (P0 완료 세션)
+> - 마지막 갱신: 2026-07-10 (병합 준비 완료 세션 — 잔여: 브라우저 QA·배포 합의)
 
 ---
 
