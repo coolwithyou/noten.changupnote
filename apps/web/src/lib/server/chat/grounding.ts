@@ -314,15 +314,22 @@ export interface GroundingDocumentBlock {
   filename: string;
   providerOptions: {
     anthropic: {
-      citations: { enabled: true };
+      // 채팅(Q&A)은 enabled:true, 필드 제안(P4)은 enabled:false — citations 와 structured output 은
+      // 동시 사용 불가(ADR-3). cache_control 은 두 경로 모두 유지(제안 반복 호출도 캐시 이득 · §7.4).
+      citations: { enabled: boolean };
       cacheControl?: { type: "ephemeral" };
     };
   };
 }
 
-function toDocumentBlock(text: string, filename: string, cache: boolean): GroundingDocumentBlock {
+function toDocumentBlock(
+  text: string,
+  filename: string,
+  cache: boolean,
+  citationsEnabled: boolean,
+): GroundingDocumentBlock {
   const anthropic: GroundingDocumentBlock["providerOptions"]["anthropic"] = {
-    citations: { enabled: true },
+    citations: { enabled: citationsEnabled },
   };
   if (cache) anthropic.cacheControl = { type: "ephemeral" };
   return {
@@ -364,13 +371,18 @@ export function assembleGrounding(input: {
   fieldContext?: GroundingFieldContext;
   truncated: boolean;
   bodySourceMissing: boolean;
+  /** 문서 블록 citations 활성 여부(기본 true). 필드 제안(P4)은 structured output 과 병행하려 false. */
+  citationsEnabled?: boolean;
 }): GrantGrounding {
   const documents: GroundingDocumentBlock[] = [];
   const hasMarkdown = input.markdown != null && input.markdown.length > 0;
+  const citationsEnabled = input.citationsEnabled ?? true;
   // 메타는 항상 첫 블록. markdown 이 있으면 메타는 캐시 없음, markdown 이 마지막 캐시 블록.
-  documents.push(toDocumentBlock(input.metaSummary, "공고요약.txt", !hasMarkdown));
+  documents.push(toDocumentBlock(input.metaSummary, "공고요약.txt", !hasMarkdown, citationsEnabled));
   if (hasMarkdown) {
-    documents.push(toDocumentBlock(input.markdown!, input.markdownFilename ?? "공고문.txt", true));
+    documents.push(
+      toDocumentBlock(input.markdown!, input.markdownFilename ?? "공고문.txt", true, citationsEnabled),
+    );
   }
   const result: GrantGrounding = {
     system: buildChatSystemPrompt(),
@@ -396,8 +408,11 @@ export async function buildGrantGrounding(input: {
   grantId: string;
   companyId: string;
   fieldContext?: { label: string; section?: string | null; fieldId?: string | null };
+  /** true 면 문서 블록 citations 비활성(필드 제안 P4 — structured output 병행, ADR-3). 기본 false(채팅). */
+  disableCitations?: boolean;
 }): Promise<GrantGrounding> {
   const db = getCunoteDb();
+  const citationsEnabled = !input.disableCitations;
 
   const grantRows = await db
     .select({
@@ -426,6 +441,7 @@ export async function buildGrantGrounding(input: {
       profileSummary: "",
       truncated: false,
       bodySourceMissing: true,
+      citationsEnabled,
     });
   }
 
@@ -532,6 +548,7 @@ export async function buildGrantGrounding(input: {
     ...(resolvedFieldContext ? { fieldContext: resolvedFieldContext } : {}),
     truncated,
     bodySourceMissing,
+    citationsEnabled,
   });
 }
 

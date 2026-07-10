@@ -138,6 +138,41 @@ export function mergeTemplateSuggestions(
 }
 
 /**
+ * 생성형 LLM 필드 제안 병합(§7.4 / P4-1): 각 label 을 `status:"suggested", source:"llm"` 로 시드한다.
+ * - **basis 필수 불변식**(레드팀·Gate 3 재대조): value·basis 가 없으면 저장하지 않는다(라우트 검증 재확인).
+ * - **컨펌 게이트 멱등**: 이미 accepted|edited|dismissed 인 label 은 건드리지 않는다(mergeTemplateSuggestions 와 동형).
+ *   기존 suggested 는 "다시 제안"으로 갱신 가능. suggested 라 파생 filledFields(accepted|edited)에는 영향 없음.
+ */
+export function mergeLlmSuggestions(
+  current: DraftFieldAnswers,
+  suggestions: Record<string, { value: string; basis: string; fieldId?: string }>,
+  options?: { at?: string },
+): DraftFieldAnswers {
+  const at = options?.at ?? nowIso();
+  const next: DraftFieldAnswers = { ...current };
+  for (const [rawLabel, suggestion] of Object.entries(suggestions)) {
+    const label = normalizeAnswerLabel(rawLabel);
+    const value = normalizeAnswerValue(suggestion.value ?? "");
+    const basis = (suggestion.basis ?? "").trim();
+    if (!label || !value || !basis) continue; // basis 없는 제안은 저장하지 않는다(불변식).
+    const existing = next[label];
+    if (existing && existing.status !== "suggested") continue; // 확정/기각 불변(컨펌 게이트).
+    const answer: DraftFieldAnswer = {
+      value,
+      status: "suggested",
+      source: "llm",
+      suggestedValue: value,
+      basis,
+      updatedAt: at,
+    };
+    const fieldId = suggestion.fieldId ?? existing?.fieldId;
+    if (fieldId !== undefined) answer.fieldId = fieldId;
+    next[label] = answer;
+  }
+  return next;
+}
+
+/**
  * `field-answers` PATCH(§7.1) 적용: label 당 { value?, status } 를 병합한다.
  * 제안 계보(source·suggestedValue·basis·fieldId)는 보존해 KPI 교정률(§11) 소스 귀속을 유지한다.
  * 제안 이력이 없는 신규 label 은 `source:"user"`.

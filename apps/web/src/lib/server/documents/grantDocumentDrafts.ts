@@ -22,6 +22,7 @@ import {
   deriveFilledFields,
   type DraftFieldAnswers,
   type DraftFieldAnswerStatus,
+  mergeLlmSuggestions,
   mergeTemplateSuggestions,
   resolveFieldAnswers,
   syncUserFilledFields,
@@ -367,6 +368,61 @@ export async function seedGrantDocumentDraftProfileAnswers(input: {
   });
 
   return { fieldAnswers: mergedAnswers, filledFields, seeded: true };
+}
+
+/**
+ * 생성형 LLM 필드 제안 저장(§7.4 / P4-1 / ADR-8 트랙③). 검증 통과한 제안(value+basis)을
+ * `status:"suggested", source:"llm"` 로 병합 저장한다(mergeLlmSuggestions — 컨펌 게이트 멱등).
+ * 저장 후의 fieldAnswers 를 반환해 라우트가 "저장-반환 일치"로 응답을 재구성한다. suggested 라
+ * 파생 filledFields(accepted|edited)에는 영향이 없다 — 컨펌 게이트 불변식 유지.
+ *
+ * fieldSuggest.ts(그라운딩·structured output·basis 실재 검증·예산)가 검증된 suggestions 만 넘긴다.
+ */
+export async function applyLlmFieldSuggestions(input: {
+  draftId: string;
+  access: CompanyAccess;
+  suggestions: Record<string, { value: string; basis: string }>;
+}): Promise<{ fieldAnswers: DraftFieldAnswers; filledFields: Record<string, string> }> {
+  assertDraftId(input.draftId);
+  const current = await getGrantDocumentDraftRow({ draftId: input.draftId, access: input.access });
+  const currentAnswers = resolveFieldAnswers(current);
+  if (Object.keys(input.suggestions).length === 0) {
+    return { fieldAnswers: currentAnswers, filledFields: deriveFilledFields(currentAnswers) };
+  }
+
+  const mergedAnswers = mergeLlmSuggestions(currentAnswers, input.suggestions);
+  const filledFields = deriveFilledFields(mergedAnswers);
+  // 실제로 병합이 바뀐 게 없으면(전부 확정/기각 label 이라 스킵) 무의미한 write·이벤트를 남기지 않는다.
+  const changed = Object.keys(mergedAnswers).length !== Object.keys(currentAnswers).length
+    || Object.entries(mergedAnswers).some(([label, answer]) => currentAnswers[label] !== answer);
+  if (!changed) {
+    return { fieldAnswers: mergedAnswers, filledFields };
+  }
+
+  const db = getCunoteDb();
+  const [row] = await withCunoteDbUser(db, input.access.userId, async (tx) => tx
+    .update(schema.grantDocumentDrafts)
+    .set({ fieldAnswers: mergedAnswers, filledFields, updatedAt: new Date() })
+    .where(and(
+      eq(schema.grantDocumentDrafts.id, current.id),
+      eq(schema.grantDocumentDrafts.companyId, input.access.companyId),
+    ))
+    .returning());
+  if (!row) throw new DocumentDraftError("draft_not_found", "초안을 찾지 못했습니다.", 404, "draftId");
+
+  await appendDraftEvent({
+    draftId: row.id,
+    actorUserId: input.access.userId,
+    userId: input.access.userId,
+    event: "field_suggestions_generated",
+    payload: {
+      documentKey: row.documentKey,
+      suggestedLabels: Object.keys(input.suggestions).length,
+      answerCount: Object.keys(mergedAnswers).length,
+    },
+  });
+
+  return { fieldAnswers: mergedAnswers, filledFields };
 }
 
 export async function regenerateGrantDocumentDraftSection(input: {

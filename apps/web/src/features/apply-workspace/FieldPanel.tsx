@@ -31,13 +31,16 @@ export function FieldPanel({
   connectedFields,
   answers,
   duplicateLabels,
+  suggestableLabels,
   fieldLessonTips,
   missingFields,
   selectedFieldId,
   pendingLabels,
+  suggestingLabels,
   onSelectField,
   patchAnswer,
   onAskField,
+  onRequestSuggestion,
 }: {
   ladder: WorkspaceLadder;
   grantId: string;
@@ -45,14 +48,20 @@ export function FieldPanel({
   connectedFields: ConnectedDocumentField[];
   answers: DraftFieldAnswers;
   duplicateLabels: Set<string>;
+  /** '제안 받기' 노출 대상 원문 label 집합(서버 판정, P4). */
+  suggestableLabels: Set<string>;
   fieldLessonTips: FieldLessonTipsDto | null;
   missingFields: MissingFieldQuestion[];
   selectedFieldId: string | null;
   pendingLabels: Set<string>;
+  /** 제안 생성 진행 중인 정규화 label 집합(로딩 스피너). */
+  suggestingLabels: Set<string>;
   onSelectField: (fieldId: string) => void;
   patchAnswer: (label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) => void;
   /** "이 항목이 뭐예요?" → 채팅 프리필(ADR-9). */
   onAskField: (field: ConnectedDocumentField) => void;
+  /** "제안 받기"/"다시 제안" → LLM 필드 제안(P4). */
+  onRequestSuggestion: (field: ConnectedDocumentField) => void;
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
@@ -103,6 +112,8 @@ export function FieldPanel({
               isDuplicate={duplicateLabels.has(field.label)}
               isSelected={selectedFieldId === field.fieldId}
               isPending={pendingLabels.has(key)}
+              isSuggestable={suggestableLabels.has(field.label)}
+              isSuggesting={suggestingLabels.has(key)}
               tips={tipsByLabel[field.label] ?? []}
               onSelect={() => onSelectField(field.fieldId)}
               onAccept={() => patchAnswer(key, { status: "accepted" })}
@@ -115,6 +126,7 @@ export function FieldPanel({
                 }
               }}
               onAsk={() => onAskField(field)}
+              onRequestSuggestion={() => onRequestSuggestion(field)}
             />
           );
         })}

@@ -49,6 +49,7 @@ export function WorkspaceView({
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pendingLabels, setPendingLabels] = useState<Set<string>>(() => new Set());
+  const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [mobileTab, setMobileTab] = useState("doc");
   const chat = useGrantChat({ grantId, draftId: data.draftId });
@@ -58,6 +59,7 @@ export function WorkspaceView({
   }, [answers]);
 
   const duplicateSet = useMemo(() => new Set(data.duplicateLabels), [data.duplicateLabels]);
+  const suggestableSet = useMemo(() => new Set(data.suggestableLabels), [data.suggestableLabels]);
 
   const overlayFields = useMemo<PreviewOverlayField[]>(
     () =>
@@ -144,6 +146,67 @@ export function WorkspaceView({
     }
   }
 
+  async function requestSuggestion(field: ConnectedDocumentField) {
+    if (!data.draftId) return;
+    const key = answerKey(field.label);
+    const existing = answersRef.current[key];
+    // 값이 이미 있으면(제안 상태) '다시 제안', 없으면 최초 '제안 받기'.
+    const mode: "generate" | "regenerate" = existing?.value ? "regenerate" : "generate";
+    setSuggestingLabels((current) => {
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+    setError(null);
+    try {
+      const response = await fetch(
+        `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/field-suggestions`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            labels: [field.label],
+            mode,
+            ...(mode === "regenerate" && existing?.value ? { currentValue: existing.value } : {}),
+          }),
+        },
+      );
+      const payload = (await response.json()) as ActionResult<{
+        suggestions: Record<string, { value: string; basis: string }>;
+      }>;
+      if (!response.ok || !payload.ok || !payload.data) {
+        throw new Error(payload.error?.message ?? "제안을 생성하지 못했습니다.");
+      }
+      // 응답 suggestions 는 이미 서버가 suggested/llm 로 저장한 값이다(저장-반환 일치). 로컬 반영만 한다.
+      const suggestion = payload.data.suggestions[field.label] ?? payload.data.suggestions[key];
+      if (!suggestion) {
+        setError("근거 있는 제안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+      setAnswers((cur) => {
+        const prevEntry = cur[key];
+        const nextEntry: DraftFieldAnswers[string] = {
+          value: suggestion.value,
+          status: "suggested",
+          source: "llm",
+          suggestedValue: suggestion.value,
+          basis: suggestion.basis,
+          updatedAt: new Date().toISOString(),
+        };
+        if (prevEntry?.fieldId !== undefined) nextEntry.fieldId = prevEntry.fieldId;
+        return { ...cur, [key]: nextEntry };
+      });
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "제안을 생성하지 못했습니다.");
+    } finally {
+      setSuggestingLabels((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
+  }
+
   function handleAskField(field: ConnectedDocumentField) {
     chat.askField({ label: field.label, section: field.section, fieldId: field.fieldId });
     setMobileTab("chat"); // 모바일에서 답변이 보이도록 채팅 탭으로 전환.
@@ -171,13 +234,16 @@ export function WorkspaceView({
       connectedFields={data.connectedFields}
       answers={answers}
       duplicateLabels={duplicateSet}
+      suggestableLabels={suggestableSet}
       fieldLessonTips={data.fieldLessonTips}
       missingFields={data.missingFields}
       selectedFieldId={selectedFieldId}
       pendingLabels={pendingLabels}
+      suggestingLabels={suggestingLabels}
       onSelectField={setSelectedFieldId}
       patchAnswer={patchAnswer}
       onAskField={handleAskField}
+      onRequestSuggestion={requestSuggestion}
     />
   );
 

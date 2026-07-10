@@ -19,6 +19,7 @@ import {
 } from "./documentFieldLink";
 import { loadGrantDocumentPreview, type PreviewPage, type PreviewSurface } from "./documentPreview";
 import { detectDuplicateNormalizedLabels, type DraftFieldAnswers } from "./fieldAnswers";
+import { isLlmSuggestableLabel } from "./fieldSuggest";
 import {
   createGrantDocumentDraft,
   listGrantDocumentDraftsForGrant,
@@ -56,6 +57,11 @@ export interface WorkspaceData {
   fieldAnswers: DraftFieldAnswers;
   /** 정규화 label 충돌 원문 label 집합(직렬화 위해 배열). "동일 항목명 — 수동 확인 필요" 근거. */
   duplicateLabels: string[];
+  /**
+   * LLM 제안('제안 받기') 대상 원문 label 집합(P4). 서버 단일 원천 판정:
+   * mappedCompanyField 없음(결정론 프로필 시드 대상 아님) + manual류(서명·직인·동의·첨부…) 아님(마스터 8.7).
+   */
+  suggestableLabels: string[];
   fieldLessonTips: FieldLessonTipsDto | null;
   /** 매칭 surface 의 페이지 이미지들(프리뷰 캔버스용). */
   pages: PreviewPage[];
@@ -108,6 +114,7 @@ export async function loadGrantWorkspaceData(input: {
       connectedFields: [],
       fieldAnswers: {},
       duplicateLabels: [],
+      suggestableLabels: [],
       fieldLessonTips: null,
       pages: [],
       grant,
@@ -205,6 +212,11 @@ export async function loadGrantWorkspaceData(input: {
 
   const { duplicateLabels } = detectDuplicateNormalizedLabels(connectedFields.map((field) => field.label));
 
+  // '제안 받기' 노출 대상(P4): 서술형(프로필 미매핑) + manual류 아님. 서버 단일 원천(fieldSuggest) 판정.
+  const suggestableLabels = connectedFields
+    .filter((field) => !field.mappedCompanyField && isLlmSuggestableLabel(field.label))
+    .map((field) => field.label);
+
   // ConnectedDocumentField 에는 Gate-1 표준 fieldKey 가 없다(fieldId 는 grant_document_fields.id UUID).
   // fieldKey 동등성 오탐을 피하려 label 만 전달한다(fieldPattern 문자열 폴백 매칭 — grant page 의
   // missingProfileFields 전달 관례와 동일).
@@ -235,6 +247,7 @@ export async function loadGrantWorkspaceData(input: {
     connectedFields,
     fieldAnswers: seedResult.fieldAnswers,
     duplicateLabels: [...duplicateLabels],
+    suggestableLabels,
     fieldLessonTips,
     pages,
     grant,

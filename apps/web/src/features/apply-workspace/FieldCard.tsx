@@ -10,7 +10,7 @@
  * 액션은 상위(WorkspaceView)의 patchAnswer 로 위임되며 낙관적 업데이트→PATCH 응답 동기화는 거기서 처리한다.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check, HelpCircle, Loader2, MapPinOff, Pencil, RotateCcw, SkipForward, TriangleAlert } from "lucide-react";
+import { Check, HelpCircle, Loader2, MapPinOff, Pencil, RotateCcw, SkipForward, Sparkles, TriangleAlert } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +57,8 @@ export function FieldCard({
   isDuplicate,
   isSelected,
   isPending,
+  isSuggestable,
+  isSuggesting,
   tips,
   onSelect,
   onAccept,
@@ -64,12 +66,17 @@ export function FieldCard({
   onDismiss,
   onUndo,
   onAsk,
+  onRequestSuggestion,
 }: {
   field: ConnectedDocumentField;
   answer: DraftFieldAnswer | undefined;
   isDuplicate: boolean;
   isSelected: boolean;
   isPending: boolean;
+  /** LLM 제안('제안 받기') 노출 대상인지(서버 판정 — 서술형·manual류 아님, P4). */
+  isSuggestable: boolean;
+  /** 이 필드의 제안 생성 요청이 진행 중인지(로딩 스피너). */
+  isSuggesting: boolean;
   tips: FieldLessonTip[];
   onSelect: () => void;
   onAccept: () => void;
@@ -78,6 +85,8 @@ export function FieldCard({
   onUndo: () => void;
   /** "이 항목이 뭐예요?" → 채팅 프리필(ADR-9). 미제공 시 버튼 비활성. */
   onAsk?: () => void;
+  /** "제안 받기"/"다시 제안" → LLM 필드 제안(P4). 미제공 시 버튼 비노출. */
+  onRequestSuggestion?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draftValue, setDraftValue] = useState(answer?.value ?? "");
@@ -96,6 +105,10 @@ export function FieldCard({
   const canUndo = answer?.suggestedValue !== undefined && status !== "suggested";
   const badge = statusBadge(answer);
   const hasPosition = field.position != null;
+  // '제안 받기'/'다시 제안'(P4): 서버가 제안 대상으로 판정한 서술형 필드에서 미확정(미입력·제안) 상태일 때만.
+  // 확정(accepted/edited)·건너뜀(dismissed)에는 노출하지 않는다(컨펌 게이트 — 서버 병합도 그 상태를 보존).
+  const canSuggest =
+    Boolean(onRequestSuggestion) && isSuggestable && (status === undefined || status === "suggested");
 
   function startEditing() {
     setDraftValue(value);
@@ -187,12 +200,29 @@ export function FieldCard({
           </p>
           <div className="flex flex-wrap items-center gap-1.5">
             {status === "suggested" && hasValue ? (
-              <Button type="button" size="sm" onClick={onAccept} disabled={isPending}>
+              <Button type="button" size="sm" onClick={onAccept} disabled={isPending || isSuggesting}>
                 {isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
                 반영
               </Button>
             ) : null}
-            <Button type="button" size="sm" variant="secondary" onClick={startEditing} disabled={isPending}>
+            {canSuggest ? (
+              <Button
+                type="button"
+                size="sm"
+                variant={hasValue ? "outline" : "default"}
+                onClick={onRequestSuggestion}
+                disabled={isPending || isSuggesting}
+                title={hasValue ? "AI 제안을 다시 받기" : "AI가 작성 값을 제안"}
+              >
+                {isSuggesting ? (
+                  <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Sparkles className="size-3.5" aria-hidden />
+                )}
+                {hasValue ? "다시 제안" : "제안 받기"}
+              </Button>
+            ) : null}
+            <Button type="button" size="sm" variant="secondary" onClick={startEditing} disabled={isPending || isSuggesting}>
               <Pencil className="size-3.5" aria-hidden />
               {hasValue ? "수정" : "값 입력"}
             </Button>
