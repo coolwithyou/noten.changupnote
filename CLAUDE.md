@@ -43,6 +43,14 @@ mkdir -p .git/stale-locks && mv .git/*.lock .git/stale-locks/ 2>/dev/null || tru
 - **관문 착수 전 외부 대조 의무**: 각 Gate·Phase 8·베타·필드테스트 착수 전에 `docs/research/CALIBRATION-TEMPLATE.md` 절차대로 외부 SOTA 대조를 수행한다 (마스터 설계 17장 "관문 공통 의례"). 관문별 대조 전제는 템플릿에 미리 등재되어 있음
 - 커밋 메시지: 한국어, 제목은 간결하게, 본문에 변경 이유
 
+## UI 구현 규칙 (최우선)
+
+- **모든 UI 작업(컴포넌트 추가/수정, 페이지 구현, 스타일링)은 `.claude/skills/shadcn` 스킬을 최우선 참조한다.** 작업 착수 전 스킬을 로드하고 그 지침(프로젝트 컨텍스트 확인 `npx shadcn@latest info`, 컴포넌트 검색/설치 절차)을 따른다.
+- 컴포넌트는 `npx shadcn@latest add <name>`으로 설치한다 (apps/web에서 실행, base-nova 스타일 자동 해석). Button/Card/Dialog 등 shadcn에 존재하는 primitive를 hand-roll 하지 않는다.
+- 블럭(sidebar-07, login-03 등)은 직접 add 하지 않는다(데모 라우트 파일과 충돌) — `npx shadcn@latest view <block>`으로 소스를 열람해 패턴만 이식한다.
+- 색·간격·radius·그림자는 `apps/web/src/app/globals.css`의 토큰(CSS 변수/Tailwind 유틸)만 사용한다. hex 하드코딩 금지.
+- 드리프트 스캔: `rg -n "<button|<input|<select|<label|<table" apps/web/src/features apps/web/src/app --glob '!**/api/**'` 가 0이어야 한다 (동적 좌표 오버레이 예외 없음 — Toggle/Button으로 치환).
+
 ## 마이그레이션
 
 - `pnpm db:generate` → `pnpm db:migrate` 순서 준수. `db:push` 단독 사용 금지
