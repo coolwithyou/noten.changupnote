@@ -54,12 +54,8 @@ const FAQS = [
   },
 ];
 
-const NOISE_BG =
-  "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22200%22 height=%22200%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')";
-
-const GRAD_BTN = "linear-gradient(180deg,#4790ff,#3182f6)";
-const GRAD_TEXT = "linear-gradient(120deg,#3182f6,#2bd4a8)";
-const GRAD_BAR = "linear-gradient(90deg,#2bd4a8,#3182f6)";
+// 그라디언트·그레인 텍스처는 globals.css 토큰(--grad-cta/--grad-text-brand/--grad-bar-brand/
+// --grad-brand-band/--grain-image)을 참조한다. 값은 기존 hex와 1:1 동일 — 시각 변화 0.
 const LANDING_LOGIN_HREF = `/login?${new URLSearchParams({ callbackUrl: "/" }).toString()}`;
 
 interface LandingExperienceProps {
@@ -326,7 +322,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
               gap: 7,
               fontSize: 13,
               fontWeight: 600,
-              color: "#3182f6",
+              color: "var(--brand)",
               background: "rgba(255,255,255,.72)",
               border: "1px solid #d6e4ff",
               padding: "7px 14px",
@@ -341,7 +337,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
                 width: 7,
                 height: 7,
                 borderRadius: "50%",
-                background: "#03b26c",
+                background: "var(--success)",
                 boxShadow: "0 0 0 3px rgba(3,178,108,.18)",
               }}
             />
@@ -362,7 +358,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
             <br />
             <span
               style={{
-                background: GRAD_TEXT,
+                background: "var(--grad-text-brand)",
                 WebkitBackgroundClip: "text",
                 backgroundClip: "text",
                 color: "transparent",
@@ -466,9 +462,9 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
               color: "#8b95a1",
             }}
           >
-            <span style={trustItem}><span style={{ color: "#03b26c" }}>●</span> 회원가입 없이 바로 조회</span>
+            <span style={trustItem}><span style={{ color: "var(--success)" }}>●</span> 회원가입 없이 바로 조회</span>
             <span style={trustItem}>🔒 입력 정보는 안전하게 암호화돼요</span>
-            <span style={trustItem}><span style={{ color: "#03b26c" }}>●</span> 30초면 끝</span>
+            <span style={trustItem}><span style={{ color: "var(--success)" }}>●</span> 30초면 끝</span>
           </div>
         </div>
       </header>
@@ -565,7 +561,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
         >
           <ProblemCard emoji="🔍" iconBg="#fff3e0" title="공고 찾기에 지치는 일" body="수십 개 사이트를 돌며 우리에게 맞는 공고를 직접 골라야 했어요." />
           <ProblemCard emoji="📄" iconBg="#fde9ec" title="자격요건 해석의 벽" body="읽어도 우리가 지원 대상인지 확신이 안 서서 신청을 포기했어요." />
-          <ProblemCard emoji="⏰" iconBg="#e6fbf1" title="놓쳐버린 마감" body="자격이 되는데도 마감일을 몰라 그냥 흘려보낸 지원금이 많았어요." />
+          <ProblemCard emoji="⏰" iconBg="var(--brand-mint-soft)" title="놓쳐버린 마감" body="자격이 되는데도 마감일을 몰라 그냥 흘려보낸 지원금이 많았어요." />
         </div>
       </section>
 
@@ -654,8 +650,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
           overflow: "hidden",
           padding: "clamp(64px,8vw,96px) clamp(20px,5vw,40px)",
           color: "#fff",
-          background:
-            "radial-gradient(55% 60% at 16% 14%,#4f8bff 0%,transparent 60%),radial-gradient(50% 55% at 90% 20%,#2bd4a8 0%,transparent 56%),radial-gradient(80% 70% at 50% 116%,#3182f6 0%,transparent 62%),linear-gradient(160deg,#1f4fc4 0%,#11307e 100%)",
+          background: "var(--grad-brand-band)",
         }}
       >
         <div style={grainStyle(0.06)} />
@@ -719,7 +714,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
                   fontSize: 15.5,
                   fontWeight: 700,
                   border: "none",
-                  background: GRAD_BTN,
+                  background: "var(--grad-cta)",
                   boxShadow: "inset 0 1px 0 rgba(255,255,255,.3),0 6px 16px rgba(8,20,60,.3)",
                 }}
               >
@@ -777,7 +772,7 @@ export function LandingExperience({ landingData, user = null }: LandingExperienc
               >
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
                   <div style={{ fontSize: 16, fontWeight: 700, color: "#191f28", letterSpacing: "-.02em" }}>{f.q}</div>
-                  <span style={{ flex: "none", fontSize: 20, lineHeight: 1, color: open ? "#3182f6" : "#c4ccd4" }}>
+                  <span style={{ flex: "none", fontSize: 20, lineHeight: 1, color: open ? "var(--brand)" : "#c4ccd4" }}>
                     {open ? "−" : "+"}
                   </span>
                 </div>
@@ -912,14 +907,14 @@ function BizLookupModal({
 
         {lookup.phase === "confirm" ? (
           <>
-            <div style={modalEmoji("#e8f3ff")}>🏢</div>
+            <div style={modalEmoji("var(--brand-tint)")}>🏢</div>
             <h3 id="lp-lookup-title" ref={headingRef} tabIndex={-1} style={modalTitle}>
               『{lookup.preview.name ?? "상호명 미확인"}』<br />회사가 맞으신가요?
             </h3>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
               <span style={modalChip("#f2f4f6", "#4e5968")}>{maskedBizNo}</span>
               {statusLabel ? (
-                <span style={modalChip(suspended ? "#fff3e0" : "#e6fbf1", suspended ? "#c77700" : "#03863f")}>
+                <span style={modalChip(suspended ? "#fff3e0" : "var(--brand-mint-soft)", suspended ? "#c77700" : "#03863f")}>
                   {statusLabel}
                 </span>
               ) : null}
@@ -968,8 +963,8 @@ function BizLookupModal({
 function ModalSpinner() {
   return (
     <svg viewBox="0 0 44 44" width={44} height={44} style={{ display: "block", margin: "0 auto 16px" }} aria-hidden>
-      <circle cx="22" cy="22" r="18" fill="none" stroke="#e8f3ff" strokeWidth="5" />
-      <path d="M22 4 a18 18 0 0 1 18 18" fill="none" stroke="#3182f6" strokeWidth="5" strokeLinecap="round">
+      <circle cx="22" cy="22" r="18" fill="none" style={{ stroke: "var(--brand-tint)" }} strokeWidth="5" />
+      <path d="M22 4 a18 18 0 0 1 18 18" fill="none" style={{ stroke: "var(--brand)" }} strokeWidth="5" strokeLinecap="round">
         <animateTransform attributeName="transform" type="rotate" from="0 22 22" to="360 22 22" dur="0.9s" repeatCount="indefinite" />
       </path>
     </svg>
@@ -1019,7 +1014,7 @@ function LandingLookupSuggestions({
               gap: 12,
               width: "100%",
               minHeight: 62,
-              border: selected ? "1px solid #3182f6" : `1px solid ${dark ? "rgba(255,255,255,.24)" : "#e5e8eb"}`,
+              border: selected ? "1px solid var(--brand)" : `1px solid ${dark ? "rgba(255,255,255,.24)" : "#e5e8eb"}`,
               borderRadius: 16,
               background: dark ? "rgba(255,255,255,.12)" : "rgba(255,255,255,.92)",
               color: dark ? "#fff" : "#191f28",
@@ -1079,7 +1074,7 @@ function ProblemCard({ emoji, iconBg, title, body }: { emoji: string; iconBg: st
 function StepCard({ n, title, body }: { n: number; title: string; body: string }) {
   return (
     <div style={{ position: "relative", background: "#fbfbfc", border: "1px solid #ecf0f3", borderRadius: 24, padding: "30px 28px" }}>
-      <div style={{ width: 40, height: 40, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, color: "#3182f6", background: "#e8f3ff", marginBottom: 20 }}>
+      <div style={{ width: 40, height: 40, borderRadius: 12, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 16, color: "var(--brand)", background: "var(--brand-tint)", marginBottom: 20 }}>
         {n}
       </div>
       <h3 style={{ fontSize: 18, fontWeight: 700, letterSpacing: "-.02em", color: "#191f28", marginBottom: 8 }}>{title}</h3>
@@ -1093,7 +1088,7 @@ function Bullets({ items }: { items: string[] }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
       {items.map((it) => (
         <div key={it} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14.5, color: "#4e5968" }}>
-          <span style={{ width: 20, height: 20, borderRadius: "50%", background: "#e6fbf1", color: "#03b26c", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
+          <span style={{ width: 20, height: 20, borderRadius: "50%", background: "var(--brand-mint-soft)", color: "var(--success)", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
           {it}
         </div>
       ))}
@@ -1110,7 +1105,7 @@ function MatchingMock() {
     <div style={{ background: "#fff", border: "1px solid #ecf0f3", borderRadius: 24, padding: 20, boxShadow: "0 12px 32px rgba(20,23,26,.08),0 4px 8px rgba(20,23,26,.04)" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: "#191f28" }}>매칭 결과 · 12건</div>
-        <div style={{ fontSize: 11.5, fontWeight: 600, color: "#3182f6", background: "#e8f3ff", padding: "5px 10px", borderRadius: 999 }}>적합도순</div>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--brand)", background: "var(--brand-tint)", padding: "5px 10px", borderRadius: 999 }}>적합도순</div>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {rows.map((r) => (
@@ -1124,9 +1119,9 @@ function MatchingMock() {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
               <div style={{ flex: 1, height: 6, borderRadius: 99, background: "#f2f4f6", overflow: "hidden" }}>
-                <span style={{ display: "block", height: "100%", width: r.w, background: GRAD_BAR }} />
+                <span style={{ display: "block", height: "100%", width: r.w, background: "var(--grad-bar-brand)" }} />
               </div>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#3182f6" }}>{r.score}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)" }}>{r.score}</span>
             </div>
           </div>
         ))}
@@ -1140,9 +1135,9 @@ function ChecklistMock() {
     <div style={{ background: "#fff", border: "1px solid #ecf0f3", borderRadius: 24, padding: 22, boxShadow: "0 12px 32px rgba(20,23,26,.08),0 4px 8px rgba(20,23,26,.04)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <div style={{ flex: 1, height: 8, borderRadius: 99, background: "#f2f4f6", overflow: "hidden" }}>
-          <span style={{ display: "block", height: "100%", width: "80%", background: GRAD_BAR }} />
+          <span style={{ display: "block", height: "100%", width: "80%", background: "var(--grad-bar-brand)" }} />
         </div>
-        <span style={{ fontSize: 13, fontWeight: 800, color: "#3182f6" }}>80%</span>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "var(--brand)" }}>80%</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
         {[
@@ -1150,7 +1145,7 @@ function ChecklistMock() {
           ["최근 3개년 매출 증빙", "국세청 연동으로 자동 채움"],
         ].map(([t, n]) => (
           <div key={t} style={{ display: "flex", alignItems: "center", gap: 11, border: "1px solid #ecf0f3", borderRadius: 14, padding: "12px 14px" }}>
-            <span style={{ flex: "none", width: 22, height: 22, borderRadius: "50%", background: "linear-gradient(150deg,#2bd4a8,#03b26c)", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
+            <span style={{ flex: "none", width: 22, height: 22, borderRadius: "50%", background: "linear-gradient(150deg,var(--brand-mint),var(--success))", color: "#fff", fontSize: 11, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>✓</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13.5, fontWeight: 700, color: "#191f28" }}>{t}</div>
               <div style={{ fontSize: 11.5, color: "#8b95a1" }}>{n}</div>
@@ -1161,7 +1156,7 @@ function ChecklistMock() {
           <span style={{ flex: "none", width: 22, height: 22, borderRadius: "50%", border: "2px solid #b9cdf2", background: "#fff" }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 13.5, fontWeight: 700, color: "#191f28" }}>4대보험 가입자 명부</div>
-            <div style={{ fontSize: 11.5, color: "#3182f6", fontWeight: 600 }}>직접 올릴 유일한 서류</div>
+            <div style={{ fontSize: 11.5, color: "var(--brand)", fontWeight: 600 }}>직접 올릴 유일한 서류</div>
           </div>
         </div>
       </div>
@@ -1172,7 +1167,7 @@ function ChecklistMock() {
 function AlertsMock() {
   const alerts = [
     { emoji: "⏰", bg: "#fff3e0", title: "청년창업사관학교 13기 · D-5", body: "마감이 5일 남았어요. 신청 준비를 마무리하세요." },
-    { emoji: "✨", bg: "#e6fbf1", title: "새로 맞는 공고 2건", body: "이번 주 우리 회사에 맞는 공고가 추가됐어요." },
+    { emoji: "✨", bg: "var(--brand-mint-soft)", title: "새로 맞는 공고 2건", body: "이번 주 우리 회사에 맞는 공고가 추가됐어요." },
   ];
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -1218,8 +1213,8 @@ function BrandMark({ size }: { size: number }) {
     <svg viewBox="0 0 48 48" width={size} height={size} fill="none" style={{ display: "block", flex: "none" }} aria-hidden>
       <defs>
         <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#3182f6" />
-          <stop offset="1" stopColor="#2bd4a8" />
+          <stop offset="0" style={{ stopColor: "var(--brand)" }} />
+          <stop offset="1" style={{ stopColor: "var(--brand-mint)" }} />
         </linearGradient>
       </defs>
       <rect x="5" y="5" width="38" height="38" rx="11" fill={`url(#${id})`} />
@@ -1230,9 +1225,9 @@ function BrandMark({ size }: { size: number }) {
 
 /* ───────────────────────── shared styles ───────────────────────── */
 
-const eyebrow: CSSProperties = { fontSize: 13, fontWeight: 700, color: "#3182f6", letterSpacing: ".04em", marginBottom: 14 };
+const eyebrow: CSSProperties = { fontSize: 13, fontWeight: 700, color: "var(--brand)", letterSpacing: ".04em", marginBottom: 14 };
 const trustItem: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6 };
-const featureTag: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: "#3182f6", background: "#e8f3ff", padding: "6px 12px", borderRadius: 999, marginBottom: 18 };
+const featureTag: CSSProperties = { display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: "var(--brand)", background: "var(--brand-tint)", padding: "6px 12px", borderRadius: 999, marginBottom: 18 };
 const featureTitle: CSSProperties = { fontSize: "clamp(22px,2.8vw,28px)", fontWeight: 800, letterSpacing: "-.03em", color: "#191f28", lineHeight: 1.32, marginBottom: 14 };
 const featureBody: CSSProperties = { fontSize: 15.5, color: "#8b95a1", lineHeight: 1.65, marginBottom: 20 };
 const ellipsisText: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" };
@@ -1262,7 +1257,7 @@ const modalPrimaryBtn: CSSProperties = {
   fontSize: 15,
   fontWeight: 700,
   border: "none",
-  background: GRAD_BTN,
+  background: "var(--grad-cta)",
   boxShadow: "inset 0 1px 0 rgba(255,255,255,.3),0 6px 16px rgba(49,130,246,.3)",
 };
 
@@ -1324,7 +1319,7 @@ const heroCtaStyle: CSSProperties = {
   letterSpacing: "-.02em",
   whiteSpace: "nowrap",
   border: "none",
-  background: GRAD_BTN,
+  background: "var(--grad-cta)",
   boxShadow: "inset 0 1px 0 rgba(255,255,255,.3),0 8px 20px rgba(49,130,246,.34)",
 };
 
@@ -1345,7 +1340,7 @@ function gradientPill(py: number, px: number): CSSProperties {
     color: "#fff",
     padding: `${py}px ${px}px`,
     borderRadius: 999,
-    background: GRAD_BTN,
+    background: "var(--grad-cta)",
     boxShadow: "inset 0 1px 0 rgba(255,255,255,.25),0 4px 12px rgba(49,130,246,.28)",
   };
 }
@@ -1355,7 +1350,7 @@ function grainStyle(opacity: number): CSSProperties {
     position: "absolute",
     inset: 0,
     pointerEvents: "none",
-    backgroundImage: NOISE_BG,
+    backgroundImage: "var(--grain-image)",
     backgroundSize: "180px",
     mixBlendMode: "overlay",
     opacity,

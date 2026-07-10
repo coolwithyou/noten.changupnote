@@ -19,9 +19,12 @@ import type {
   WriteSupportLevel,
 } from "@cunote/contracts";
 import { cn } from "@/lib/utils";
+import { PublicHeader } from "@/components/app/public-header";
+import type { HeaderUser } from "@/lib/server/auth/session";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Combobox,
   ComboboxContent,
@@ -103,7 +106,7 @@ class TeaserError extends Error {
   }
 }
 
-export function MatchesExperience() {
+export function MatchesExperience({ user = null }: { user?: HeaderUser | null }) {
   const [status, setStatus] = useState<Status>("loading");
   const [teaser, setTeaser] = useState<TeaserResult | null>(null);
   const [bizNo, setBizNo] = useState<string | null>(null);
@@ -212,13 +215,18 @@ export function MatchesExperience() {
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-background text-foreground">
-      <MatchesNav onSave={() => void saveAndContinue()} saving={continuing} />
+      <PublicHeader user={user} />
 
       <header className="border-b bg-muted/30">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 py-10 sm:px-6 lg:px-8">
-          <Badge variant={status === "error" ? "destructive" : status === "ready" ? "default" : "outline"} className="w-fit">
-            {badge.text}
-          </Badge>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <Badge variant={status === "error" ? "destructive" : status === "ready" ? "default" : "outline"} className="w-fit">
+              {badge.text}
+            </Badge>
+            <Button type="button" size="sm" onClick={() => void saveAndContinue()} disabled={continuing}>
+              {continuing ? "저장 중…" : "결과 저장하기"}
+            </Button>
+          </div>
           <h1 className="max-w-4xl text-3xl font-semibold tracking-normal sm:text-4xl">
             {status === "ready" && teaser ? (
               readyHeadline(teaser)
@@ -276,22 +284,6 @@ async function rememberBusinessLookup(digits: string) {
   };
   const next = upsertBusinessLookupSuggestion(readLocalBusinessLookupSuggestions(), localSuggestion);
   writeLocalBusinessLookupSuggestions(next);
-}
-
-/* ───────────────────────── Nav ───────────────────────── */
-
-function MatchesNav({ onSave, saving }: { onSave: () => void; saving: boolean }) {
-  return (
-    <nav className="sticky top-0 z-50 flex items-center justify-between gap-4 border-b bg-background/95 px-4 py-3.5 backdrop-blur supports-[backdrop-filter]:bg-background/75 sm:px-6 lg:px-8">
-      <Link href="/" className="flex items-center gap-2.5 text-sm font-semibold text-foreground">
-        <span className="flex size-8 items-center justify-center rounded-[var(--radius-lg)] bg-primary text-primary-foreground">C</span>
-        <span>창업노트</span>
-      </Link>
-      <Button type="button" size="sm" onClick={() => onSave()} disabled={saving}>
-        {saving ? "저장 중…" : "결과 저장하기"}
-      </Button>
-    </nav>
-  );
 }
 
 /* ───────────────────────── 내 사업자 분석 ───────────────────────── */
@@ -780,12 +772,8 @@ function ProgramCard({
 
   return (
     <Card>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="w-full cursor-pointer px-5 py-5 text-left"
-      >
+      <Collapsible open={open} onOpenChange={setOpen}>
+        <CollapsibleTrigger className="w-full cursor-pointer px-5 py-5 text-left">
         <div className="flex flex-wrap justify-between gap-4">
           <div className="min-w-[220px] flex-1">
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
@@ -847,9 +835,8 @@ function ProgramCard({
             <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} />
           </span>
         </div>
-      </button>
-
-      {open ? (
+        </CollapsibleTrigger>
+        <CollapsibleContent>
         <div className="border-t bg-muted/30 px-5 pb-5 pt-4">
           <div className="mb-3 text-xs font-semibold text-muted-foreground">세부 조건</div>
           {criteria.length > 0 ? (
@@ -864,17 +851,17 @@ function ProgramCard({
           <p className="mb-4 text-xs text-muted-foreground">
             {writeSupportNote(match.writeSupport)}
           </p>
-          <button
+          <Button
             type="button"
             onClick={() => onPrepare(match.grantId)}
             disabled={preparing}
-            className={cn(buttonVariants({ size: "default" }))}
           >
             {preparing ? "준비 중…" : writeSupportCta(match.writeSupport)}
             <ArrowRight data-icon="inline-end" />
-          </button>
+          </Button>
         </div>
-      ) : null}
+        </CollapsibleContent>
+      </Collapsible>
     </Card>
   );
 }
