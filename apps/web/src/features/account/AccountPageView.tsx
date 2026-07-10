@@ -1,4 +1,4 @@
-import { Bell, Building2, CreditCard, Download, FileText, LifeBuoy, LockKeyhole, Settings, UserRound, UsersRound } from "lucide-react";
+import { Bell, Building2, Coins, CreditCard, Download, FileText, LifeBuoy, LockKeyhole, Settings, UserRound, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import type { HeaderUser } from "@/lib/server/auth/session";
@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { NotificationFeedPanel } from "@/features/dashboard/NotificationFeedPanel";
+import { AccountCreditsCard } from "./AccountCreditsCard";
 import { AccountDeletionRequestPanel } from "./AccountDeletionRequestPanel";
 import { AccountPasswordPanel } from "./AccountPasswordPanel";
 import { AccountProfilePanel } from "./AccountProfilePanel";
@@ -88,6 +89,10 @@ export function AccountPageView({
           />
         </section>
 
+        <section aria-label="크레딧과 사용량">
+          <AccountCreditsCard />
+        </section>
+
         <section aria-label="계정 프로필">
           <AccountProfilePanel initialName={user?.name ?? null} email={user?.email ?? null} />
         </section>
@@ -131,6 +136,7 @@ export function AccountPageView({
                 <ActionLink href="/onboarding" icon={<Building2 />} title="온보딩 다시 확인" description="회사 동의, 알림, 수기 프로필을 순서대로 점검합니다." />
                 <ActionLink href="/settings" icon={<Settings />} title="회사 설정" description="사업자 검증, 동의, 알림과 프로필 필드를 관리합니다." />
                 <ActionLink href="/team" icon={<UsersRound />} title="팀과 권한" description="회사 멤버와 역할, 초대 준비 상태를 확인합니다." />
+                <ActionLink href="/account/usage" icon={<Coins />} title="크레딧·사용량" description="AI 작업 사용 내역, 크레딧 원장, 결제 내역을 봅니다." />
                 <ActionLink href="/billing" icon={<CreditCard />} title="플랜과 청구" description="현재 플랜, 사용량, 결제 연동 상태를 봅니다." />
                 <ActionLink href="/dashboard" icon={<Bell />} title="기회 맵" description="지금 적격, 확인 필요, 마감 임박 항목을 봅니다." />
                 <ActionLink href="/roadmap" icon={<FileText />} title="로드맵" description="앞으로 열릴 가능성이 있는 지원사업을 추적합니다." />
