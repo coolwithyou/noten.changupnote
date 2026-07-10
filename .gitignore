@@ -42,3 +42,6 @@ spike-labels/pages/
 
 # Gate 2 layout-eval 원시 응답 캐시 (API 재과금 방지, 로컬 산출물)
 apps/web/src/lib/server/layout-eval/eval-cache/
+
+# 픽셀포트 보관소 — git·검색(rg) 제외. 참조 금지(신 디자인 재구축이 정본)
+temp/
