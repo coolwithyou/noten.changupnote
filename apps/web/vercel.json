@@ -6,6 +6,7 @@
     { "path": "/api/cron/ingest-bizinfo", "schedule": "10 0,6 * * *" },
     { "path": "/api/cron/grant-cycle-post", "schedule": "40 0,6 * * *" },
     { "path": "/api/cron/credits-expire-holds", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/credits-expire-orders", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/credits-expire-orders", "schedule": "*/10 * * * *" },
+    { "path": "/api/cron/credits-plan-renewals", "schedule": "0 * * * *" }
   ]
 }

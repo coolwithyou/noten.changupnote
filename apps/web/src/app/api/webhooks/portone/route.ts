@@ -38,6 +38,7 @@ export async function POST(request: Request) {
     const repositories = getServiceRepositories();
     const result = await handlePortoneWebhook(webhookId, payload, {
       payment: repositories.creditsPayment,
+      subscription: repositories.creditsSubscription,
       system: repositories.creditsSystem,
       portone: getPortoneClient(),
     });

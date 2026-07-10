@@ -24,8 +24,21 @@ export interface PortonePaymentResponse {
   txId?: string;
 }
 
+export interface RequestIssueBillingKeyInput {
+  storeId: string;
+  channelKey: string;
+  billingKeyMethod?: "CARD";
+}
+
+export interface IssueBillingKeyResponse {
+  code?: string; // 실패 코드(있으면 실패).
+  message?: string;
+  billingKey?: string;
+}
+
 interface PortoneBrowserSdk {
   requestPayment(input: Record<string, unknown>): Promise<PortonePaymentResponse | undefined>;
+  requestIssueBillingKey(input: Record<string, unknown>): Promise<IssueBillingKeyResponse | undefined>;
 }
 
 let sdkPromise: Promise<PortoneBrowserSdk> | null = null;
@@ -54,5 +67,21 @@ export async function requestPayment(input: RequestPaymentInput): Promise<Porton
     currency: "CURRENCY_KRW", // 브라우저 SDK 는 CURRENCY_ 접두.
     payMethod: "CARD",
     redirectUrl: input.redirectUrl,
+  });
+}
+
+/**
+ * 빌링키(정기결제 카드) 발급 요청 (설계 8.2 — 플랜 구독·빌링키 교체 공통).
+ * 빌링용 채널키(NEXT_PUBLIC_PORTONE_CHANNEL_KEY_TOSS_BILLING)를 사용한다.
+ * 반환 response 에 code 가 있으면 실패, billingKey 가 있으면 성공.
+ */
+export async function requestIssueBillingKey(
+  input: RequestIssueBillingKeyInput,
+): Promise<IssueBillingKeyResponse | undefined> {
+  const PortOne = await loadSdk();
+  return PortOne.requestIssueBillingKey({
+    storeId: input.storeId,
+    channelKey: input.channelKey,
+    billingKeyMethod: input.billingKeyMethod ?? "CARD",
   });
 }

@@ -4,6 +4,7 @@ export const PUBLIC_WEB_ROUTES = [
   "GET /reset-password",
   "GET /terms",
   "GET /privacy",
+  "GET /pricing",
   "GET /support",
   "GET /team/invite/[token]",
   "GET /api/web/team/invitations/handoff/[token]",
@@ -23,6 +24,7 @@ export const PUBLIC_WEB_ROUTES = [
   "POST /api/web/teaser",
   "POST /api/web/company-preview",
   "GET /api/web/credits/products",
+  "GET /api/web/plans",
 ] as const;
 
 export const SESSION_WEB_ROUTES = [
@@ -86,6 +88,10 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/credits/orders",
   "POST /api/web/credits/checkout",
   "POST /api/web/credits/checkout/complete",
+  "POST /api/web/plans/subscribe",
+  "POST /api/web/plans/change",
+  "POST /api/web/plans/cancel",
+  "POST /api/web/plans/billing-key",
   "GET /api/web/matches",
   "GET /api/web/roadmap",
   "POST /api/web/matches/[grantId]/feedback",
@@ -135,6 +141,7 @@ export const SYSTEM_CRON_ROUTES = [
   "GET /api/cron/poll-conversions",
   "GET /api/cron/credits-expire-holds",
   "GET /api/cron/credits-expire-orders",
+  "GET /api/cron/credits-plan-renewals",
 ] as const;
 
 export const SESSION_APP_ROUTES = [

@@ -15,6 +15,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { BillingPlanRequestForm } from "./BillingPlanRequestForm";
 import { BillingTaxDocumentsPanel } from "./BillingTaxDocumentsPanel";
 import { BillingTaxProfileForm } from "./BillingTaxProfileForm";
+import { CreditPlanSection } from "./CreditPlanSection";
 
 export function BillingPageView({
   overview,
@@ -133,6 +134,8 @@ export function BillingPageView({
           </CardContent>
         </Card>
       </section>
+
+      <CreditPlanSection />
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="플랜 사용량">
         {overview.usage.map((metric) => (
