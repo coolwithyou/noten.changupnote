@@ -806,3 +806,56 @@ export interface CreditUsageListDto {
   cursor: string | null;
   hasMore: boolean;
 }
+
+// ── P3 결제(충전) DTO (설계 9.1) ────────────────────────────────────────────
+
+/** GET /api/web/credits/products — 활성 충전 상품(공개). */
+export interface CreditProductDto {
+  code: string;
+  name: string;
+  amountKrw: number;
+  credits: number;
+  bonusCredits: number;
+  totalCredits: number; // credits + bonusCredits(표시용).
+}
+
+export interface CreditProductListDto {
+  products: CreditProductDto[];
+}
+
+/** POST /api/web/credits/checkout — 브라우저 SDK requestPayment 입력. */
+export interface CreditCheckoutDto {
+  paymentId: string;
+  storeId: string;
+  channelKey: string;
+  orderName: string;
+  totalAmount: number;
+}
+
+/** POST /api/web/credits/checkout/complete — 검증·지급 결과. */
+export interface CreditCheckoutCompleteDto {
+  /** paid=지급 완료 / pending=결제 대기(폴링) / failed=실패 / already=이미 처리. */
+  status: "paid" | "pending" | "failed" | "already";
+  grantedCredits: number;
+  balance: number | null;
+  reason?: string;
+}
+
+/** GET /api/web/credits/orders — 내 주문 내역. */
+export interface CreditOrderDto {
+  paymentId: string;
+  orderType: string;
+  amountKrw: number;
+  creditsToGrant: number;
+  status: string;
+  payMethod: string | null;
+  paidAt: string | null;
+  refundedAmountKrw: number;
+  createdAt: string;
+}
+
+export interface CreditOrderListDto {
+  orders: CreditOrderDto[];
+  cursor: string | null;
+  hasMore: boolean;
+}

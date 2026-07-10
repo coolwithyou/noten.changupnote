@@ -37,6 +37,7 @@ import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { activeGrantApplyEndCutoff } from "./activeGrantFilter";
 import { DrizzleCreditRepository, DrizzleCreditSystemRepository } from "./creditRepository";
+import { DrizzlePaymentRepository } from "./paymentRepository";
 
 export interface DrizzleDatabaseClient {
   readonly dialect: "drizzle";
@@ -54,6 +55,7 @@ export function createDrizzleRepositories<TPayload = unknown>(
     enrichmentCache: new DrizzleEnrichmentCacheRepository(db),
     credits: new DrizzleCreditRepository({ client: db.client }),
     creditsSystem: new DrizzleCreditSystemRepository({ client: db.client }),
+    creditsPayment: new DrizzlePaymentRepository({ client: db.client }),
   };
 }
 

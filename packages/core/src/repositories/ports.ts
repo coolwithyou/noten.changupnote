@@ -11,6 +11,7 @@ import type {
 } from "@cunote/contracts";
 import type { MatchTransitionCandidate } from "../use-cases/plan-match-transitions.js";
 import type { CreditRepository, CreditSystemRepository } from "../credits/ports.js";
+import type { CreditPaymentRepository } from "../credits/payments.js";
 
 export interface GrantListOptions {
   limit?: number;
@@ -201,4 +202,6 @@ export interface ServiceRepositories<TPayload = unknown> {
   credits: CreditRepository;
   /** 크레딧 시스템 경로(웹훅·cron·익명 미터링). user 컨텍스트 없는 신뢰 서버 경로. 설계 4.13. */
   creditsSystem: CreditSystemRepository;
+  /** 결제·충전(포트원 단건). 세션 없는 내부 함수(verifyAndGrant·웹훅·주문 cron). 설계 7장 / P3. */
+  creditsPayment: CreditPaymentRepository;
 }

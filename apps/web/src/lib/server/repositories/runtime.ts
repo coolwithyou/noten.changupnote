@@ -28,9 +28,13 @@ import type {
   CreditHoldRecord,
   CreditLedgerEntryRecord,
   CreditLotRecord,
+  CreditOrderRecord,
+  CreditPaymentRepository,
+  CreditProductRecord,
   CreditRepository,
   CreditSystemRepository,
   CreditWalletRecord,
+  OrderLotSnapshot,
   LedgerListRow,
   TokenUsage,
   UsageListRow,
@@ -79,6 +83,7 @@ export function createRuntimeRepositories<TPayload = unknown>(
     enrichmentCache: new RuntimeEnrichmentCacheRepository(),
     credits: new RuntimeCreditRepository(),
     creditsSystem: new RuntimeCreditSystemRepository(),
+    creditsPayment: new RuntimePaymentRepository(),
   };
 }
 
@@ -728,6 +733,70 @@ class RuntimeCreditSystemRepository implements CreditSystemRepository {
     const ev = { id: crypto.randomUUID() };
     this.usageEvents.push(ev);
     return ev;
+  }
+}
+
+/**
+ * 결제(P3)는 실제 DB(drizzle 어댑터)에서만 동작한다. 런타임(데모/인메모리) 어댑터는
+ * 조회는 빈 결과, 지급·환불·웹훅 경로는 명시적으로 미지원 오류(503 payment_unavailable)를 던진다.
+ */
+class RuntimePaymentRepository implements CreditPaymentRepository {
+  async listActiveProducts(): Promise<CreditProductRecord[]> {
+    return [];
+  }
+  async getActiveProductByCode(): Promise<CreditProductRecord | null> {
+    return null;
+  }
+  async createOrder(): Promise<CreditOrderRecord> {
+    throw new RuntimePaymentUnsupportedError("createOrder");
+  }
+  async getOrderByPaymentId(): Promise<CreditOrderRecord | null> {
+    return null;
+  }
+  async listOrdersForWallet(): Promise<{ orders: CreditOrderRecord[]; nextCursor: string | null; hasMore: boolean }> {
+    return { orders: [], nextCursor: null, hasMore: false };
+  }
+  async countOpenOrdersForUser(): Promise<number> {
+    return 0;
+  }
+  async countRecentOrdersForUser(): Promise<number> {
+    return 0;
+  }
+  async grantPurchaseForOrder(): Promise<{ grantedCredits: number; balance: number }> {
+    throw new RuntimePaymentUnsupportedError("grantPurchaseForOrder");
+  }
+  async markOrderMismatch(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("markOrderMismatch");
+  }
+  async markOrderFailed(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("markOrderFailed");
+  }
+  async markOrderExpired(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("markOrderExpired");
+  }
+  async listDueOrders(): Promise<CreditOrderRecord[]> {
+    return [];
+  }
+  async getOrderLots(): Promise<OrderLotSnapshot[]> {
+    return [];
+  }
+  async syncRefundForOrder(): Promise<{ recovered: number; shortfall: number; frozen: boolean }> {
+    throw new RuntimePaymentUnsupportedError("syncRefundForOrder");
+  }
+  async insertWebhookEvent(): Promise<{ id: string; duplicate: boolean }> {
+    throw new RuntimePaymentUnsupportedError("insertWebhookEvent");
+  }
+  async updateWebhookEvent(): Promise<void> {
+    throw new RuntimePaymentUnsupportedError("updateWebhookEvent");
+  }
+}
+
+class RuntimePaymentUnsupportedError extends Error {
+  readonly status = 503;
+  readonly code = "payment_unavailable";
+  constructor(operation: string) {
+    super(`결제 기능은 실 DB 어댑터에서만 동작합니다(runtime.${operation}).`);
+    this.name = "RuntimePaymentUnsupportedError";
   }
 }
 

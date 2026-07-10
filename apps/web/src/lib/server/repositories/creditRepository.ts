@@ -699,7 +699,7 @@ export class DrizzleCreditSystemRepository implements CreditSystemRepository {
 // 트랜잭션 내부 집행 (5.2). tx 는 이미 withCunoteDbUser 로 user 컨텍스트가 세팅된 세션.
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function applyLedgerEntryTx(
+export async function applyLedgerEntryTx(
   tx: CunoteDbSession,
   input: ApplyLedgerEntryInput,
   now: () => Date,
@@ -1189,7 +1189,7 @@ async function insertUsageCaptureEntry(
 }
 
 /** credit_audit_logs INSERT(12.2). system/user 경로 공용. */
-async function insertAuditLog(
+export async function insertAuditLog(
   tx: CunoteDbSession,
   input: {
     action: string;
@@ -1346,7 +1346,9 @@ function parseCursor(cursor: string | null | undefined): { createdAt: string; id
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return typeof error === "object" && error !== null && (error as { code?: string }).code === "23505";
+  if (typeof error !== "object" || error === null) return false;
+  const e = error as { code?: string; cause?: { code?: string } };
+  return e.code === "23505" || e.cause?.code === "23505";
 }
 
 // ── 매핑 ──────────────────────────────────────────────────────────────
