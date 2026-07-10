@@ -1170,6 +1170,13 @@ periodEnd 도래 → 포트원이 예약 실행 → Transaction.Paid 웹훅
 
 모든 변이 API는 성공 시 `credit_audit_logs`에 기록한다 (12.2). reason 없는 변이 요청은 400.
 
+**admin 결제 실행 경로 (구현 중 확정 — 7.5 단일화 규범과 9.3 실행 요구의 교차 해소)**: 포트원 호출이 필요한 admin 실행 계열(주문 동기화·환불 실행·강제 해지)과 freeze의 예약 취소 연동은 **admin에서 포트원·원장 로직을 재구현하지 않는다**. verifyAndGrant(7.2)·환불 실행(7.4)·구독 전이(8.5)는 웹앱에 단일 구현으로 존재하고 통합 테스트가 이를 검증하므로, admin 측 중복 구현은 정합성 사고의 근원이 된다. 대신:
+
+- 웹앱에 **시스템 내부 엔드포인트**(`/api/internal/credits/*`)를 두고 서버 간 시크릿 헤더(CRON_SECRET과 동일 체계)로 검증한다. 외부 노출 없음(라우트 정책상 시스템 전용).
+- admin 라우트의 책임은 (1) requireAdminRole·reason 검증 (2) `credit_audit_logs` 기록 (3) 내부 엔드포인트 호출·결과 반환까지만.
+- admin→웹 기저 URL은 `WEB_INTERNAL_BASE_URL` env (로컬은 dev 서버 주소, 운영은 웹 프로덕션 도메인).
+- 7.5의 "portone.ts 밖 `api.portone.io` 직접 호출 금지" 규범은 그대로 유지된다. adjust/goodwill처럼 포트원이 개입하지 않는 단순 지급·차감은 기존대로 admin raw SQL(5.2 재현)로 남는다.
+
 ---
 
 ## 10. 웹 UI 페이지 명세 (apps/web)
