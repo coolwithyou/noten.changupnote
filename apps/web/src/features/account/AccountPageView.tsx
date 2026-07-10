@@ -6,8 +6,6 @@ import type { NotificationCenterResult } from "@/lib/notifications/types";
 import type { AccountDeletionRequestHistoryItem } from "@/lib/server/account/accountDeletionRequestHistory";
 import type { AccountSecurityStatus } from "@/lib/server/account/accountSecurityStatus";
 import type { AccountSupportTicketItem } from "@/lib/server/support/supportTicketMessages";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,10 +35,7 @@ export function AccountPageView({
   const label = user?.name?.trim() || user?.email?.trim() || "내 계정";
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/account" })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex max-w-3xl flex-col gap-3">
             <span className="text-sm font-medium text-muted-foreground">내 계정</span>
@@ -158,8 +153,7 @@ export function AccountPageView({
             </section>
           </div>
         </details>
-      </div>
-    </main>
+    </div>
   );
 }
 

@@ -1,7 +1,6 @@
 import { ApplicationPipelineView } from "@/features/applications/ApplicationPipelineView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { buildApplicationPipeline } from "@/lib/server/applications/pipeline";
 import { loadServiceDashboard } from "@/lib/server/serviceData";
 
@@ -15,14 +14,11 @@ export default async function ApplicationsPage() {
     limit: 80,
     writeMatchStates: false,
   });
-  const [user, pipeline] = await Promise.all([
-    getOptionalHeaderUser().then((user) => user ?? fallbackHeaderUserForDemoAccess(access)),
-    buildApplicationPipeline({
-      access,
-      matches: dashboard.matches,
-    }),
-  ]);
-  return <ApplicationPipelineView pipeline={pipeline} user={user} />;
+  const pipeline = await buildApplicationPipeline({
+    access,
+    matches: dashboard.matches,
+  });
+  return <ApplicationPipelineView pipeline={pipeline} />;
 }
 
 async function loadApplicationsAccess() {

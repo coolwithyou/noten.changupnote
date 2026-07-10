@@ -1,9 +1,6 @@
 import { Crown, Download, ShieldCheck, UserPlus, UsersRound } from "lucide-react";
 import type { ReactNode } from "react";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import type { HeaderUser } from "@/lib/server/auth/session";
 import type { WorkspaceOverview } from "@/lib/server/workspace/overview";
-import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,16 +9,11 @@ import { TeamManagementPanel } from "./TeamManagementPanel";
 
 export function TeamPageView({
   overview,
-  user,
 }: {
   overview: WorkspaceOverview;
-  user: HeaderUser | null;
 }) {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/team" })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex max-w-3xl flex-col gap-3">
             <span className="text-sm font-medium text-muted-foreground">팀과 권한</span>
@@ -126,8 +118,7 @@ export function TeamPageView({
         </Card>
         </div>
       </details>
-      </div>
-    </main>
+    </div>
   );
 }
 

@@ -9,8 +9,6 @@ import type {
   ApplicationPipelineResult,
   ApplicationStage,
 } from "@/lib/server/applications/pipeline";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import { ServiceHeader } from "@/components/app/service-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -19,7 +17,6 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import type { HeaderUser } from "@/lib/server/auth/session";
 import { cn } from "@/lib/utils";
 
 const STAGES: Array<{
@@ -39,10 +36,8 @@ const STAGES: Array<{
 
 export function ApplicationPipelineView({
   pipeline,
-  user,
 }: {
   pipeline: ApplicationPipelineResult;
-  user: HeaderUser | null;
 }) {
   const [items, setItems] = useState(pipeline.items);
   const [managementDrafts, setManagementDrafts] = useState<Record<string, ManagementDraft>>(() =>
@@ -128,10 +123,7 @@ export function ApplicationPipelineView({
   }
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/applications" })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex max-w-3xl flex-col gap-3">
             <span className="text-sm font-medium text-muted-foreground">신청 관리</span>
@@ -257,8 +249,7 @@ export function ApplicationPipelineView({
             );
           })}
         </section>
-      </div>
-    </main>
+    </div>
   );
 }
 

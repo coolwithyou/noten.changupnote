@@ -1,7 +1,5 @@
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import { ServiceHeader } from "@/components/app/service-header";
 import { UsagePageView } from "@/features/credits/UsagePageView";
-import { getOptionalHeaderUser, requireWebSession } from "@/lib/server/auth/session";
+import { requireWebSession } from "@/lib/server/auth/session";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +12,9 @@ export default async function AccountUsagePage() {
   } catch (error) {
     redirectOnAuthRequired(error, "/account/usage");
   }
-  const user = await getOptionalHeaderUser();
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/account/usage" })} />
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-col gap-2">
           <span className="text-sm font-medium text-muted-foreground">내 계정 · 사용량</span>

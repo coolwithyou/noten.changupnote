@@ -1,8 +1,5 @@
 import type { DashboardResult, MatchCard, OpportunityBucket, RoadmapNode, RuleTraceChip, SupportAmount } from "@cunote/contracts";
-import { appHeaderLinks } from "@/components/app/app-navigation";
 import { MetricCard } from "@/components/app/metric-card";
-import { ServiceHeader } from "@/components/app/service-header";
-import type { HeaderUser } from "@/lib/server/auth/session";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
@@ -36,10 +33,8 @@ const ROADMAP_BUCKETS: Array<{
 
 export function RoadmapView({
   dashboard,
-  user = null,
 }: {
   dashboard: DashboardResult;
-  user?: HeaderUser | null;
 }) {
   const matchesById = new Map(dashboard.matches.map((match) => [match.grantId, match]));
   const bucketCounts = ROADMAP_BUCKETS.map((bucket) => ({
@@ -48,10 +43,7 @@ export function RoadmapView({
   }));
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/roadmap" })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] lg:items-end">
           <div className="flex max-w-3xl flex-col gap-3">
             <span className="text-sm font-medium text-muted-foreground">전략 로드맵</span>
@@ -99,8 +91,7 @@ export function RoadmapView({
             );
           })}
         </section>
-      </div>
-    </main>
+    </div>
   );
 }
 

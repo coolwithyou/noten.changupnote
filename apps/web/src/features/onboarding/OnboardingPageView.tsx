@@ -1,9 +1,6 @@
 import type { ReactNode } from "react";
 import { ArrowRight, Bell, Building2, ClipboardList, ShieldCheck } from "lucide-react";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import type { HeaderUser } from "@/lib/server/auth/session";
 import type { OnboardingProgress, OnboardingProgressStep, OnboardingStepKey } from "@/lib/server/onboarding/onboardingProgress";
-import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,11 +16,9 @@ const STEP_ICONS: Record<OnboardingStepKey, ReactNode> = {
 };
 
 export function OnboardingPageView({
-  user,
   progress,
   nextHref,
 }: {
-  user: HeaderUser | null;
   progress: OnboardingProgress | null;
   nextHref: string;
 }) {
@@ -33,10 +28,7 @@ export function OnboardingPageView({
   const secondaryLabel = progress ? "나중에 하기" : "도움말";
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/onboarding", includeSupport: true })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex max-w-3xl flex-col gap-3">
             <span className="text-sm font-medium text-muted-foreground">온보딩</span>
@@ -61,8 +53,7 @@ export function OnboardingPageView({
         </section>
 
         {progress ? <OnboardingProgressSection progress={progress} nextHref={nextHref} /> : <InitialCompanySetupPanel nextHref={nextHref} />}
-      </div>
-    </main>
+    </div>
   );
 }
 

@@ -1,13 +1,10 @@
 import type { DashboardResult } from "@cunote/contracts";
 import { ArrowRight, Download } from "lucide-react";
-import { appHeaderLinks } from "@/components/app/app-navigation";
 import { MetricCard } from "@/components/app/metric-card";
-import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import type { HeaderUser } from "@/lib/server/auth/session";
 import type { NotificationCenterResult } from "@/lib/notifications/types";
 import type { OnboardingProgress } from "@/lib/server/onboarding/onboardingProgress";
 import { ActionQueuePanel } from "@/features/action-queue/ActionQueuePanel";
@@ -21,20 +18,15 @@ export function DashboardView({
   dashboard,
   notificationFeed,
   onboardingProgress,
-  user = null,
 }: {
   dashboard: DashboardResult;
   notificationFeed: NotificationCenterResult;
   onboardingProgress: OnboardingProgress;
-  user?: HeaderUser | null;
 }) {
   const counts = dashboardTrustCounts(dashboard.counts);
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/dashboard" })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.8fr)] lg:items-end">
           <div className="flex min-w-0 flex-col gap-4">
             <StatusBadge tone="brand">매칭 대시보드</StatusBadge>
@@ -77,8 +69,7 @@ export function DashboardView({
         {dashboard.nextQuestion ? <ProgressiveQuestionCard question={dashboard.nextQuestion} /> : null}
 
         <RoadmapStrip nodes={dashboard.roadmap} />
-      </div>
-    </main>
+    </div>
   );
 }
 

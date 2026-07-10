@@ -7,8 +7,6 @@ import type { BillingTaxDocumentItem } from "@/lib/server/billing/taxDocuments";
 import type { BillingTaxProfileItem } from "@/lib/server/billing/taxProfile";
 import type { HeaderUser } from "@/lib/server/auth/session";
 import type { WorkspaceOverview, WorkspaceUsageMetric } from "@/lib/server/workspace/overview";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -40,10 +38,7 @@ export function BillingPageView({
   const primaryPaymentMethod = paymentMethods.find((method) => method.isDefault) ?? paymentMethods[0] ?? null;
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/billing" })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <section className="grid gap-4 rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end">
         <div>
           <p className="text-xs font-medium uppercase text-muted-foreground">플랜과 청구</p>
@@ -425,8 +420,7 @@ export function BillingPageView({
       </Card>
         </div>
       </details>
-      </div>
-    </main>
+    </div>
   );
 }
 

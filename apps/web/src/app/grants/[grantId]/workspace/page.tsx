@@ -1,6 +1,8 @@
 import { notFound } from "next/navigation";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import { ServiceHeader } from "@/components/app/service-header";
+import { ArrowLeft } from "lucide-react";
+import { AccountMenu } from "@/components/app/account-menu";
+import { buttonVariants } from "@/components/ui/button";
+import { CreditBalanceWidget } from "@/features/credits/CreditBalanceWidget";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
@@ -42,10 +44,19 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <ServiceHeader
-        user={user}
-        links={appHeaderLinks({ currentHref: `/grants/${grantId}/workspace` })}
-      />
+      <header className="flex min-h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/75 lg:px-6">
+        <a
+          className={buttonVariants({ variant: "ghost", size: "sm" })}
+          href={`/grants/${encodeURIComponent(grantId)}`}
+        >
+          <ArrowLeft data-icon="inline-start" />
+          공고 요약으로
+        </a>
+        <div className="ml-auto flex items-center gap-2">
+          {user ? <CreditBalanceWidget /> : null}
+          {user ? <AccountMenu user={user} /> : null}
+        </div>
+      </header>
       <WorkspaceView grantId={grantId} data={data} greeting={greeting} />
     </div>
   );

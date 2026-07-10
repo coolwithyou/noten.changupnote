@@ -3,7 +3,6 @@ import { CompanyAccessForbiddenError } from "@/lib/server/auth/companyAccessPoli
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
-import { getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { loadOnboardingProgress } from "@/lib/server/onboarding/onboardingProgress";
 
 export const dynamic = "force-dynamic";
@@ -18,11 +17,8 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
   const params = await searchParams;
   const nextHref = normalizeNextHref(params.next);
   const access = await loadOnboardingAccess();
-  const [user, progress] = await Promise.all([
-    getOptionalHeaderUser(),
-    access ? loadOnboardingProgress({ access }) : null,
-  ]);
-  return <OnboardingPageView user={user} progress={progress} nextHref={nextHref} />;
+  const progress = access ? await loadOnboardingProgress({ access }) : null;
+  return <OnboardingPageView progress={progress} nextHref={nextHref} />;
 }
 
 async function loadOnboardingAccess(): Promise<CompanyAccess | null> {

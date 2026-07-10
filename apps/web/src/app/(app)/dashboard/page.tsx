@@ -1,7 +1,6 @@
 import { DashboardView } from "@/features/dashboard/DashboardView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { loadNotificationCenter } from "@/lib/server/notifications/notificationCenter";
 import { loadOnboardingProgress } from "@/lib/server/onboarding/onboardingProgress";
 import { loadServiceDashboard } from "@/lib/server/serviceData";
@@ -20,13 +19,11 @@ export default async function DashboardPage() {
     loadNotificationCenter({ access, matches: dashboard.matches }),
     loadOnboardingProgress({ access }),
   ]);
-  const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
   return (
     <DashboardView
       dashboard={dashboard}
       notificationFeed={notificationFeed}
       onboardingProgress={onboardingProgress}
-      user={user}
     />
   );
 }

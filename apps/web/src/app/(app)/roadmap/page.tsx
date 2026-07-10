@@ -1,7 +1,6 @@
 import { RoadmapView } from "@/features/roadmap/RoadmapView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import { getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { loadServiceDashboard } from "@/lib/server/serviceData";
 
 export const dynamic = "force-dynamic";
@@ -14,8 +13,7 @@ export default async function RoadmapPage() {
     limit: 40,
     writeMatchStates: false,
   });
-  const user = await getOptionalHeaderUser();
-  return <RoadmapView dashboard={dashboard} user={user} />;
+  return <RoadmapView dashboard={dashboard} />;
 }
 
 async function loadRoadmapAccess() {

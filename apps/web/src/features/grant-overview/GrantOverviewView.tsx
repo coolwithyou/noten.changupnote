@@ -1,13 +1,10 @@
 import type { ApplySheet, BenefitBadge, SupportAmount } from "@cunote/contracts";
 import { ExternalLink, MessageCircleQuestion } from "lucide-react";
 import Link from "next/link";
-import { appHeaderLinks } from "@/components/app/app-navigation";
 import { MetricCard } from "@/components/app/metric-card";
-import { ServiceHeader } from "@/components/app/service-header";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Accordion } from "@/components/ui/accordion";
 import { buttonVariants } from "@/components/ui/button";
-import type { HeaderUser } from "@/lib/server/auth/session";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import type { GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
@@ -26,12 +23,10 @@ import { LessonGuideAccordion } from "./LessonGuideAccordion";
  */
 export function GrantOverviewView({
   sheet,
-  user = null,
   lessonGuide = null,
   previewAvailability = null,
 }: {
   sheet: ApplySheet;
-  user?: HeaderUser | null;
   lessonGuide?: GrantLessonGuideDto | null;
   previewAvailability?: GrantPreviewAvailability | null;
 }) {
@@ -45,10 +40,7 @@ export function GrantOverviewView({
   const benefitsCaption = formatBenefitsCaption(sheet.grant.benefits);
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks()} />
-
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
         {/* ① 헤더: 공고 제목 · 주관기관 · 상태 뱃지 */}
         <section className="grid gap-3 rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)]">
           <StatusBadge tone={grantStatusTone(sheet.grant.status)} className="justify-self-start">
@@ -118,8 +110,7 @@ export function GrantOverviewView({
             도움받기
           </Link>
         </section>
-      </div>
-    </main>
+    </div>
   );
 }
 

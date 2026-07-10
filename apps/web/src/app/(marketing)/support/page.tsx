@@ -1,5 +1,4 @@
 import { Clock, LifeBuoy, Mail, ShieldCheck } from "lucide-react";
-import { ServiceHeader } from "@/components/app/service-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getOptionalHeaderUser } from "@/lib/server/auth/session";
@@ -59,16 +58,6 @@ export default async function SupportPage({
     : "";
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader
-        user={user}
-        links={[
-          { href: "/terms", label: "이용약관" },
-          { href: "/privacy", label: "개인정보" },
-          ...(user ? [{ href: "/dashboard", label: "대시보드" }] : []),
-        ]}
-        loginCallbackUrl="/support"
-      />
-
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex max-w-3xl flex-col gap-3">

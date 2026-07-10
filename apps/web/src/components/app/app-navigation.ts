@@ -29,25 +29,10 @@ export const APP_ACCOUNT_LINKS = [
   { href: "/support", label: "고객지원" },
 ] satisfies AppAccountNavLink[];
 
-const OPTIONAL_HEADER_LINKS = {
-  onboarding: { href: "/onboarding", label: "온보딩" },
-  support: { href: "/support", label: "도움말" },
-} satisfies Record<string, AppNavLink>;
-
-export function appHeaderLinks({
-  currentHref,
-  includeOnboarding = false,
-  includeSupport = false,
-}: {
-  currentHref?: string;
-  includeOnboarding?: boolean;
-  includeSupport?: boolean;
-} = {}): AppNavLink[] {
-  const links = [
-    ...APP_HEADER_LINKS,
-    ...(includeOnboarding ? [OPTIONAL_HEADER_LINKS.onboarding] : []),
-    ...(includeSupport ? [OPTIONAL_HEADER_LINKS.support] : []),
-  ];
-
-  return links.filter((link) => link.href !== currentHref);
+/**
+ * 앱 네비게이션 링크 상수. 현재 위치 하이라이트는 Sidebar의 `isActive`(usePathname)로 처리하므로
+ * 구 "현재 링크 숨김" 필터는 제거했다. 링크 전체 집합만 반환한다.
+ */
+export function appHeaderLinks(): AppNavLink[] {
+  return [...APP_HEADER_LINKS];
 }

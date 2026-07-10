@@ -1,4 +1,4 @@
-import { ServiceHeader } from "@/components/app/service-header";
+import { PublicHeader } from "@/components/app/public-header";
 import { TeamInviteAcceptView } from "@/features/team/TeamInviteAcceptView";
 import { getOptionalWebSession } from "@/lib/server/auth/session";
 
@@ -15,10 +15,9 @@ export default async function TeamInvitePage({ params }: TeamInvitePageProps) {
   const callbackUrl = `/team/invite/${encodeURIComponent(token)}`;
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader
+      <PublicHeader
         user={session ? { name: session.user.name ?? null, email: session.user.email ?? null } : null}
         links={[
-          { href: "/dashboard", label: "기회 맵" },
           { href: "/support", label: "고객지원" },
         ]}
         loginCallbackUrl={callbackUrl}

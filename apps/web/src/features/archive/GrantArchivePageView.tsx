@@ -2,8 +2,6 @@ import type { ReactNode } from "react";
 import { Archive, CalendarDays, ExternalLink, FileText, GanttChartSquare, RotateCcw, Search } from "lucide-react";
 import { APPLY_METHOD_CHANNELS, AUTHORING_MODES } from "@cunote/contracts";
 import type { CriterionDimension } from "@cunote/contracts";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import { ServiceHeader } from "@/components/app/service-header";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +14,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { HeaderUser } from "@/lib/server/auth/session";
 import { cn } from "@/lib/utils";
 import { ArchiveAgencyFilter } from "./ArchiveAgencyFilter";
 import { ArchiveSaveButton } from "./ArchiveSaveButton";
@@ -40,7 +37,6 @@ interface GrantArchivePageViewProps {
   facets: GrantArchiveFacets;
   query: GrantArchiveQuery;
   queryError: string | null;
-  user: HeaderUser | null;
 }
 
 const SOURCE_OPTIONS = [
@@ -96,16 +92,12 @@ export function GrantArchivePageView({
   facets,
   query,
   queryError,
-  user,
 }: GrantArchivePageViewProps) {
   const view = query.view ?? "list";
   const stats = archiveStats(archive.items, archive.total);
 
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/archive" })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
       <section className="grid gap-4 rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] lg:grid-cols-[minmax(0,1fr)_auto] lg:items-end" aria-labelledby="archive-title">
         <div>
           <p className="text-xs font-medium uppercase text-muted-foreground">지원사업 아카이브</p>
@@ -156,8 +148,7 @@ export function GrantArchivePageView({
           </CardContent>
         </Card>
       </section>
-      </div>
-    </main>
+    </div>
   );
 }
 

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { AppShell } from "@/components/app/app-shell";
 import { GrantOverviewView } from "@/features/grant-overview/GrantOverviewView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
@@ -36,12 +37,13 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
   });
   const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
   return (
-    <GrantOverviewView
-      sheet={sheet}
-      user={user}
-      lessonGuide={lessonGuide}
-      previewAvailability={previewAvailability}
-    />
+    <AppShell user={user}>
+      <GrantOverviewView
+        sheet={sheet}
+        lessonGuide={lessonGuide}
+        previewAvailability={previewAvailability}
+      />
+    </AppShell>
   );
 }
 

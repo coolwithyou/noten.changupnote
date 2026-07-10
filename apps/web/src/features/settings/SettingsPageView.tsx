@@ -1,18 +1,12 @@
 import { Bell, Building2, Download, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
-import { appHeaderLinks } from "@/components/app/app-navigation";
-import type { HeaderUser } from "@/lib/server/auth/session";
-import { ServiceHeader } from "@/components/app/service-header";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CompanySettingsPanel } from "@/features/dashboard/CompanySettingsPanel";
 
-export function SettingsPageView({ user }: { user: HeaderUser | null }) {
+export function SettingsPageView() {
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <ServiceHeader user={user} links={appHeaderLinks({ currentHref: "/settings", includeOnboarding: true })} />
-
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex max-w-3xl flex-col gap-3">
             <span className="text-sm font-medium text-muted-foreground">설정</span>
@@ -36,8 +30,7 @@ export function SettingsPageView({ user }: { user: HeaderUser | null }) {
         </section>
 
         <CompanySettingsPanel />
-      </div>
-    </main>
+    </div>
   );
 }
 

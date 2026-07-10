@@ -229,7 +229,6 @@ function renderArchive(view: GrantArchiveView, query: GrantArchiveQuery): string
       facets={facets}
       query={viewQuery}
       queryError={null}
-      user={{ name: "검증 사용자", email: "verify@example.com" }}
     />,
   );
 }
