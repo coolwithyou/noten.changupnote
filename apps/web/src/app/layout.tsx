@@ -1,5 +1,13 @@
 import type { Metadata } from "next";
+import localFont from "next/font/local";
 import "./globals.css";
+
+const pretendard = localFont({
+  src: "../../node_modules/pretendard/dist/web/variable/woff2/PretendardVariable.woff2",
+  variable: "--font-pretendard",
+  display: "swap",
+  weight: "45 920",
+});
 
 export const metadata: Metadata = {
   title: "창업노트",
@@ -8,15 +16,11 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" className="font-sans" data-scroll-behavior="smooth">
-      <head>
-        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossOrigin="anonymous" />
-        <link
-          rel="stylesheet"
-          as="style"
-          href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.min.css"
-        />
-      </head>
+    <html
+      lang="ko"
+      className={`font-sans ${pretendard.variable}`}
+      data-scroll-behavior="smooth"
+    >
       <body>{children}</body>
     </html>
   );
