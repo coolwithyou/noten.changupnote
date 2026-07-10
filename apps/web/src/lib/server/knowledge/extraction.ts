@@ -14,6 +14,7 @@
  *   놓친다. 호출 시점에 process.env 를 읽어 CLI/Next 양쪽에서 동일하게 동작하게 한다.
  */
 import { getDocument, VerbosityLevel } from "pdfjs-dist/legacy/build/pdf.mjs";
+import { anthropicUsageToTokenUsage, withOpsBatchMetering } from "../credits/metering";
 import { fieldKeyDictionaryPromptBlock, isKnownFieldKey } from "./fieldKeyDictionary";
 import {
   EVIDENCE_TIERS,
@@ -165,29 +166,47 @@ ${markedText}
 ---
 위 규칙에 따라 항목을 5분류로 분해해 JSON 으로 출력하라.`;
 
-  const res = await fetch(ANTHROPIC_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
+  const model = resolveExtractionModel();
+  const maxOutputTokens = resolveMaxTokens();
+  // 운영 배치 무과금 미터링(6.2 ops_batch, 원가수집). ★ fail-open — 반환값·오류 경로 불변.
+  return withOpsBatchMetering(
+    {
+      featureCode: "ops_batch_knowledge_extraction",
+      model,
+      estimate: { inputTokens: 0, maxOutputTokens },
+      requestId: `knowledge:${kind}`,
+      contextRef: { kind },
     },
-    body: JSON.stringify({
-      model: resolveExtractionModel(),
-      max_tokens: resolveMaxTokens(),
-      system: SYSTEM_PROMPT,
-      messages: [{ role: "user", content: [{ type: "text", text: userText }] }],
-    }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`anthropic_${res.status}: ${body.slice(0, 400)}`);
-  }
-  const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-  const text = (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
-  const parsed = extractJson(text);
-  const candidates = (parsed as { candidates?: unknown })?.candidates;
-  return Array.isArray(candidates) ? (candidates as RawCandidate[]) : [];
+    async ({ report, maxTokens }) => {
+      const res = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: "user", content: [{ type: "text", text: userText }] }],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`anthropic_${res.status}: ${body.slice(0, 400)}`);
+      }
+      const data = (await res.json()) as {
+        content?: Array<{ type: string; text?: string }>;
+        usage?: unknown;
+      };
+      report(anthropicUsageToTokenUsage(data.usage));
+      const text = (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+      const parsed = extractJson(text);
+      const candidates = (parsed as { candidates?: unknown })?.candidates;
+      return Array.isArray(candidates) ? (candidates as RawCandidate[]) : [];
+    },
+  );
 }
 
 // ── 서버측 검증(추출 결과 신뢰 금지) ────────────────────────

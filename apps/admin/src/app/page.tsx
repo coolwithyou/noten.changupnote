@@ -86,6 +86,22 @@ export default async function OpsHomePage() {
           )}
         </article>
       </section>
+
+      <section className="ops-grid" style={{ marginTop: 16 }}>
+        <article className="ops-panel" style={{ gridColumn: "span 3" }}>
+          <h3>크레딧 관리</h3>
+          <div className="ops-actions">
+            <a href="/credits">대시보드</a>
+            <a href="/credits/members">회원 관리</a>
+            <a href="/credits/payments">결제·환불</a>
+            <a href="/credits/subscriptions">구독</a>
+            <a href="/credits/pricing">요율 관리</a>
+            <a href="/credits/settings">설정</a>
+            <a href="/credits/audit">감사 로그</a>
+            <a href="/credits/reconciliation">대사</a>
+          </div>
+        </article>
+      </section>
     </main>
   );
 }

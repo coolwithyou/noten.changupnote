@@ -10,6 +10,9 @@ import type {
   RoadmapNode,
 } from "@cunote/contracts";
 import type { MatchTransitionCandidate } from "../use-cases/plan-match-transitions.js";
+import type { CreditRepository, CreditSystemRepository } from "../credits/ports.js";
+import type { CreditPaymentRepository } from "../credits/payments.js";
+import type { CreditSubscriptionRepository } from "../credits/subscriptionPort.js";
 
 export interface GrantListOptions {
   limit?: number;
@@ -196,4 +199,12 @@ export interface ServiceRepositories<TPayload = unknown> {
   matches: MatchRepository<TPayload>;
   feedback: FeedbackRepository;
   enrichmentCache: EnrichmentCacheRepository;
+  /** 크레딧 원장(user 컨텍스트 경유 진입점). 설계 4.13 / 6.1. */
+  credits: CreditRepository;
+  /** 크레딧 시스템 경로(웹훅·cron·익명 미터링). user 컨텍스트 없는 신뢰 서버 경로. 설계 4.13. */
+  creditsSystem: CreditSystemRepository;
+  /** 결제·충전(포트원 단건). 세션 없는 내부 함수(verifyAndGrant·웹훅·주문 cron). 설계 7장 / P3. */
+  creditsPayment: CreditPaymentRepository;
+  /** 플랜 구독(포트원 빌링키·예약결제). 세션 없는 내부 함수(subscribe·갱신 웹훅·갱신 cron). 설계 8장 / P4. */
+  creditsSubscription: CreditSubscriptionRepository;
 }

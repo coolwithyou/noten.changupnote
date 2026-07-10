@@ -15,6 +15,7 @@ import {
 } from "@cunote/core";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
+import { anthropicUsageToTokenUsage, withOpsBatchMetering } from "../credits/metering";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 import {
   planGrantArchivePublication,
@@ -245,11 +246,25 @@ async function buildBizInfoArtifact(
 
   if (shouldUseAnthropic) {
     if (!input.anthropicApiKey) throw new Error("ANTHROPIC_API_KEY가 필요합니다.");
-    const result = await extractBizInfoCriteriaWithAnthropic({
-      input: inputDoc,
-      apiKey: input.anthropicApiKey,
-      ...(input.anthropicModel ? { model: input.anthropicModel } : {}),
-    });
+    // 운영 배치 무과금 미터링(6.2 ops_batch, 원가수집). ★ fail-open — 반환값·오류 경로 불변.
+    const result = await withOpsBatchMetering(
+      {
+        featureCode: "ops_batch_bizinfo_criteria",
+        model: input.anthropicModel ?? "claude-haiku-4-5-20251001",
+        estimate: { inputTokens: 0, maxOutputTokens: 1800 },
+        requestId: `bizinfo:${program.pblancId}`,
+        contextRef: { pblancId: program.pblancId },
+      },
+      async ({ report }) => {
+        const extracted = await extractBizInfoCriteriaWithAnthropic({
+          input: inputDoc,
+          apiKey: input.anthropicApiKey!,
+          ...(input.anthropicModel ? { model: input.anthropicModel } : {}),
+        });
+        report(anthropicUsageToTokenUsage(extracted.usage));
+        return extracted;
+      },
+    );
     const entry = normalizeBizInfoProgram(program, result.criteria, {
       asOf: input.collectedAt,
       attachmentMarkdowns: archivedAttachments.attachmentMarkdowns,

@@ -1218,3 +1218,308 @@ export const chatMessages = pgTable("chat_messages", {
 }, (table) => ({
   sessionIdx: index("chat_messages_session_idx").on(table.sessionId, table.createdAt),
 }));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AI 크레딧 시스템 (설계: docs/plans/2026-07-09-ai-credit-system.md 4장)
+// 원장 코어 P1. CHECK 제약·append-only 트리거·partial unique index·RLS 는
+// 생성 마이그레이션 SQL 에 수동 추가한다(drizzle 미생성).
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 4.0 enum
+export const creditLotSourceEnum = pgEnum("credit_lot_source", [
+  "signup_bonus", "purchase", "plan_grant", "admin_grant", "promo",
+]);
+export const creditLotStatusEnum = pgEnum("credit_lot_status", [
+  "active", "exhausted", "expired", "revoked",
+]);
+export const creditLedgerEntryTypeEnum = pgEnum("credit_ledger_entry_type", [
+  "signup_bonus_grant", "purchase_grant", "plan_grant", "admin_grant", "promo_grant",
+  "usage_capture", "refund_deduct", "expiry", "admin_deduct", "reversal",
+]);
+export const creditHoldStatusEnum = pgEnum("credit_hold_status", [
+  "pending", "captured", "released", "expired",
+]);
+export const usageEventStatusEnum = pgEnum("usage_event_status", [
+  "pending", "settled", "failed", "free",
+]);
+export const creditOrderStatusEnum = pgEnum("credit_order_status", [
+  "created", "pending", "paid", "failed", "expired", "refunded", "partial_refunded",
+]);
+export const creditPlanSubStatusEnum = pgEnum("credit_plan_sub_status", [
+  "incomplete", "active", "past_due", "canceled", "expired",
+]);
+export const creditActorTypeEnum = pgEnum("credit_actor_type", ["user", "admin", "system"]);
+
+// 4.1 credit_wallets — user 1:1 지갑. balance 는 파생 캐시(2.3).
+// CHECK(balance_credits >= 0) 마이그레이션 수동 추가. shortfall 은 0 클램프(4.1/5.3).
+export const creditWallets = pgTable("credit_wallets", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  balanceCredits: bigint("balance_credits", { mode: "number" }).default(0).notNull(),
+  status: text("status").default("active").notNull(), // active | frozen
+  frozenReason: text("frozen_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userIdx: uniqueIndex("credit_wallets_user_idx").on(table.userId),
+}));
+
+// 4.2 credit_lots — 지급 묶음(만료·출처·잔여). 환불·만료의 회계 단위(2.3/2.5).
+// CHECK(remaining_credits >= 0 AND remaining_credits <= initial_credits) 마이그레이션 수동 추가.
+export const creditLots = pgTable("credit_lots", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  walletId: uuid("wallet_id").notNull().references(() => creditWallets.id, { onDelete: "restrict" }),
+  source: creditLotSourceEnum("source").notNull(),
+  initialCredits: bigint("initial_credits", { mode: "number" }).notNull(),
+  remainingCredits: bigint("remaining_credits", { mode: "number" }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }), // 4.2.1 만료 정책
+  status: creditLotStatusEnum("status").default("active").notNull(),
+  paymentOrderId: uuid("payment_order_id").references(() => creditPaymentOrders.id, { onDelete: "set null" }),
+  planSubscriptionId: uuid("plan_subscription_id").references(() => creditPlanSubscriptions.id, { onDelete: "set null" }),
+  grantedByAdminId: text("granted_by_admin_id"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  walletIdx: index("credit_lots_wallet_idx").on(table.walletId),
+  walletActiveIdx: index("credit_lots_wallet_active_idx").on(table.walletId, table.status, table.expiresAt),
+  orderIdx: index("credit_lots_order_idx").on(table.paymentOrderId),
+}));
+
+// 4.3 credit_ledger — 불변 분개(append-only). 진실의 원천. chainHash 체인(지갑별).
+// append-only 트리거 + reversal partial unique index 는 마이그레이션 수동 추가.
+export const creditLedger = pgTable("credit_ledger", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  walletId: uuid("wallet_id").notNull().references(() => creditWallets.id, { onDelete: "restrict" }),
+  entryType: creditLedgerEntryTypeEnum("entry_type").notNull(),
+  amountCredits: bigint("amount_credits", { mode: "number" }).notNull(), // 양수=지급, 음수=차감, 0 금지
+  balanceAfter: bigint("balance_after", { mode: "number" }).notNull(),
+  lotBreakdown: jsonb("lot_breakdown").$type<Array<{ lotId: string; amount: number }>>()
+    .default(sql`'[]'::jsonb`).notNull(),
+  usageEventId: uuid("usage_event_id").references(() => usageEvents.id, { onDelete: "restrict" }),
+  paymentOrderId: uuid("payment_order_id").references(() => creditPaymentOrders.id, { onDelete: "restrict" }),
+  reversalOfEntryId: uuid("reversal_of_entry_id"), // 자기참조 FK + partial unique 는 마이그레이션에서
+  pricingSnapshot: jsonb("pricing_snapshot").$type<Record<string, unknown>>(),
+  actorType: creditActorTypeEnum("actor_type").notNull(),
+  actorId: text("actor_id"),
+  reason: text("reason"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  chainHash: text("chain_hash").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  walletCreatedIdx: index("credit_ledger_wallet_created_idx").on(table.walletId, table.createdAt),
+  idempotencyIdx: uniqueIndex("credit_ledger_idempotency_idx").on(table.idempotencyKey),
+  entryTypeIdx: index("credit_ledger_entry_type_idx").on(table.entryType, table.createdAt),
+}));
+
+// 4.4 credit_holds — LLM 호출 중 임시 선점(분개 아님). 5.3.
+export const creditHolds = pgTable("credit_holds", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  walletId: uuid("wallet_id").notNull().references(() => creditWallets.id, { onDelete: "restrict" }),
+  usageEventId: uuid("usage_event_id").notNull().references(() => usageEvents.id, { onDelete: "restrict" }),
+  heldCredits: bigint("held_credits", { mode: "number" }).notNull(),
+  capturedCredits: bigint("captured_credits", { mode: "number" }),
+  status: creditHoldStatusEnum("status").default("pending").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  releasedReason: text("released_reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  walletPendingIdx: index("credit_holds_wallet_pending_idx").on(table.walletId, table.status),
+  expiresIdx: index("credit_holds_expires_idx").on(table.status, table.expiresAt),
+  usageEventIdx: uniqueIndex("credit_holds_usage_event_idx").on(table.usageEventId),
+}));
+
+// 4.5 usage_events — 미터링(과금·무과금 공통). 익명/운영배치는 walletId null.
+export const usageEvents = pgTable("usage_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  walletId: uuid("wallet_id").references(() => creditWallets.id, { onDelete: "restrict" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  companyId: uuid("company_id").references(() => companies.id, { onDelete: "set null" }),
+  featureCode: text("feature_code").notNull(),
+  provider: text("provider"),
+  model: text("model"),
+  inputTokens: bigint("input_tokens", { mode: "number" }).default(0).notNull(),
+  outputTokens: bigint("output_tokens", { mode: "number" }).default(0).notNull(),
+  cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }).default(0).notNull(),
+  cacheWriteTokens: bigint("cache_write_tokens", { mode: "number" }).default(0).notNull(),
+  providerCostUsdMicros: bigint("provider_cost_usd_micros", { mode: "number" }),
+  creditsCharged: bigint("credits_charged", { mode: "number" }).default(0).notNull(),
+  pricingRuleId: uuid("pricing_rule_id").references(() => creditPricingRules.id, { onDelete: "set null" }),
+  status: usageEventStatusEnum("status").default("pending").notNull(),
+  requestId: text("request_id"),
+  contextRef: jsonb("context_ref").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  errorCode: text("error_code"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  walletCreatedIdx: index("usage_events_wallet_created_idx").on(table.walletId, table.createdAt),
+  featureIdx: index("usage_events_feature_idx").on(table.featureCode, table.createdAt),
+  statusIdx: index("usage_events_status_idx").on(table.status),
+}));
+
+// 4.6 credit_pricing_rules — 요율(ops 편집, 버전 관리). UPDATE 금지, insert + 이전 마감.
+export const creditPricingRules = pgTable("credit_pricing_rules", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  ruleType: text("rule_type").notNull(), // model_token | feature_flat | feature_free
+  featureCode: text("feature_code"),
+  model: text("model"),
+  inputMillicreditsPer1k: bigint("input_millicredits_per_1k", { mode: "number" }),
+  outputMillicreditsPer1k: bigint("output_millicredits_per_1k", { mode: "number" }),
+  cacheReadMillicreditsPer1k: bigint("cache_read_millicredits_per_1k", { mode: "number" }),
+  cacheWriteMillicreditsPer1k: bigint("cache_write_millicredits_per_1k", { mode: "number" }),
+  flatCredits: bigint("flat_credits", { mode: "number" }),
+  effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
+  effectiveUntil: timestamp("effective_until", { withTimezone: true }),
+  createdByAdminId: text("created_by_admin_id").notNull(),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  lookupIdx: index("credit_pricing_rules_lookup_idx").on(table.ruleType, table.featureCode, table.model, table.effectiveFrom),
+}));
+
+// 4.7 credit_settings — 전역 설정 KV.
+export const creditSettings = pgTable("credit_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<Record<string, unknown>>().notNull(),
+  updatedByAdminId: text("updated_by_admin_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+// 4.8 credit_products — 충전 상품.
+export const creditProducts = pgTable("credit_products", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  amountKrw: integer("amount_krw").notNull(),
+  credits: bigint("credits", { mode: "number" }).notNull(),
+  bonusCredits: bigint("bonus_credits", { mode: "number" }).default(0).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  displayOrder: integer("display_order").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  codeIdx: uniqueIndex("credit_products_code_idx").on(table.code),
+}));
+
+// 4.8 credit_payment_orders — 주문(포트원 paymentId 의 주인).
+export const creditPaymentOrders = pgTable("credit_payment_orders", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  paymentId: text("payment_id").notNull(),
+  walletId: uuid("wallet_id").notNull().references(() => creditWallets.id, { onDelete: "restrict" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  orderType: text("order_type").notNull(), // credit_topup | plan_initial | plan_renewal
+  productId: uuid("product_id").references(() => creditProducts.id, { onDelete: "restrict" }),
+  planSubscriptionId: uuid("plan_subscription_id"),
+  amountKrw: integer("amount_krw").notNull(),
+  creditsToGrant: bigint("credits_to_grant", { mode: "number" }).notNull(),
+  krwPerCreditSnapshot: integer("krw_per_credit_snapshot").notNull(),
+  status: creditOrderStatusEnum("status").default("created").notNull(),
+  portoneStatus: text("portone_status"),
+  portoneTxId: text("portone_tx_id"),
+  payMethod: text("pay_method"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  failReason: text("fail_reason"),
+  refundedAmountKrw: integer("refunded_amount_krw").default(0).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  paymentIdIdx: uniqueIndex("credit_payment_orders_payment_id_idx").on(table.paymentId),
+  walletIdx: index("credit_payment_orders_wallet_idx").on(table.walletId, table.createdAt),
+  statusIdx: index("credit_payment_orders_status_idx").on(table.status, table.createdAt),
+}));
+
+// 4.9 credit_plans — plus/pro/flex 정의.
+export const creditPlans = pgTable("credit_plans", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  monthlyPriceKrw: integer("monthly_price_krw").notNull(),
+  monthlyCredits: bigint("monthly_credits", { mode: "number" }).notNull(),
+  features: jsonb("features").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  displayOrder: integer("display_order").default(0).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  codeIdx: uniqueIndex("credit_plans_code_idx").on(table.code),
+}));
+
+// 4.9 credit_plan_subscriptions — user별 구독. partial unique(one active) 마이그레이션 수동 추가.
+export const creditPlanSubscriptions = pgTable("credit_plan_subscriptions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  walletId: uuid("wallet_id").notNull().references(() => creditWallets.id, { onDelete: "restrict" }),
+  planId: uuid("plan_id").notNull().references(() => creditPlans.id, { onDelete: "restrict" }),
+  status: creditPlanSubStatusEnum("status").default("active").notNull(),
+  billingKey: text("billing_key").notNull(),
+  billingKeyIssuedAt: timestamp("billing_key_issued_at", { withTimezone: true }),
+  cardSummary: jsonb("card_summary").$type<{ brand?: string; last4?: string }>(),
+  currentPeriodStart: timestamp("current_period_start", { withTimezone: true }).notNull(),
+  currentPeriodEnd: timestamp("current_period_end", { withTimezone: true }).notNull(),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false).notNull(),
+  nextScheduleId: text("next_schedule_id"),
+  nextSchedulePaymentId: text("next_schedule_payment_id"),
+  retryCount: integer("retry_count").default(0).notNull(),
+  pendingPlanId: uuid("pending_plan_id"),
+  canceledAt: timestamp("canceled_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  userActiveIdx: index("credit_plan_subs_user_idx").on(table.userId, table.status),
+  scheduleIdx: index("credit_plan_subs_schedule_idx").on(table.nextSchedulePaymentId),
+}));
+
+// 4.10 portone_webhook_events — 웹훅 inbox(멱등). payload 원문 비저장(발췌만).
+export const portoneWebhookEvents = pgTable("portone_webhook_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  webhookId: text("webhook_id").notNull(),
+  eventType: text("event_type").notNull(),
+  paymentId: text("payment_id"),
+  billingKey: text("billing_key"),
+  payloadDigest: jsonb("payload_digest").$type<Record<string, unknown>>().notNull(),
+  processingStatus: text("processing_status").default("received").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  webhookIdIdx: uniqueIndex("portone_webhook_events_webhook_id_idx").on(table.webhookId),
+  paymentIdx: index("portone_webhook_events_payment_idx").on(table.paymentId),
+  statusIdx: index("portone_webhook_events_status_idx").on(table.processingStatus, table.createdAt),
+}));
+
+// 4.11 credit_audit_logs — 감사 로그(append-only). 트리거는 마이그레이션 수동 추가.
+export const creditAuditLogs = pgTable("credit_audit_logs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  action: text("action").notNull(),
+  actorType: creditActorTypeEnum("actor_type").notNull(),
+  actorId: text("actor_id"),
+  actorEmail: text("actor_email"),
+  actorRole: text("actor_role"),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  before: jsonb("before").$type<Record<string, unknown>>(),
+  after: jsonb("after").$type<Record<string, unknown>>(),
+  reason: text("reason"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  requestId: text("request_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  targetIdx: index("credit_audit_logs_target_idx").on(table.targetType, table.targetId, table.createdAt),
+  actorIdx: index("credit_audit_logs_actor_idx").on(table.actorType, table.actorId, table.createdAt),
+  actionIdx: index("credit_audit_logs_action_idx").on(table.action, table.createdAt),
+}));
+
+// 4.12 credit_reconciliation_runs — 일일 대사 결과.
+export const creditReconciliationRuns = pgTable("credit_reconciliation_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runDate: timestamp("run_date", { withTimezone: true }).notNull(),
+  scope: text("scope").notNull(),
+  status: text("status").notNull(),
+  summary: jsonb("summary").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  dateIdx: index("credit_recon_runs_date_idx").on(table.runDate, table.scope),
+}));

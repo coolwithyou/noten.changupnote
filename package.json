@@ -26,6 +26,14 @@
     "ingest:knowledge": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/knowledge/ingest-knowledge-source.ts",
     "backfill:lesson-field-keys": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/knowledge/backfill-lesson-field-keys.ts",
     "test:lesson-context": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/knowledge/lessonContext.test.ts",
+    "test:credits-unit": "tsx packages/core/src/credits/ledger.test.ts && tsx packages/core/src/credits/pricing.test.ts && tsx packages/core/src/credits/metering.test.ts && tsx packages/core/src/credits/refund.test.ts && tsx packages/core/src/credits/subscriptions.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/payments/portoneWebhook.test.ts",
+    "test:credits-integration": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/repositories/creditRepository.integration.test.ts",
+    "test:credits-payment-integration": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/payments/payment.integration.test.ts",
+    "test:credits-subscription-integration": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/payments/subscription.integration.test.ts",
+    "test:credits-refund-integration": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/payments/refund.integration.test.ts",
+    "test:credits-reconcile-integration": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/credits/reconciliation.integration.test.ts",
+    "verify:credit-invariants": "tsx packages/core/scripts/verify-credit-invariants.ts",
+    "verify:popbill-metering": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/repositories/verify-popbill-metering.ts",
     "admin:user:create": "pnpm --filter @cunote/admin admin:user:create --",
     "smoke:db": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/smoke-drizzle-service.ts",
     "db:studio": "drizzle-kit studio",
@@ -145,6 +153,7 @@
   "devDependencies": {
     "@types/node": "^24.0.4",
     "drizzle-kit": "^0.31.10",
+    "postgres": "3.4.9",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   },

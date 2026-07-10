@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
@@ -504,6 +504,14 @@ async function resolvePopbillCompanyResolution(input: {
     console.warn(`Company enrichment cache write failed: ${errorMessage(error)}`);
   }
 
+  // 6.5 팝빌 조회 미터링(무과금): 실호출(popbill_live)일 때만 usage_events 에 원가 추적 이벤트를 남긴다.
+  //   creditsCharged=0, status=free. bizNoRef 는 pepper HMAC-SHA256 가명 키(무염 SHA-256 금지 — 10자리 역산됨).
+  //   랜딩 익명 경로이므로 walletId/userId/companyId 는 null. 캐시 히트는 외부 원가가 없어 기록하지 않는다.
+  await recordPopbillLookupMetering(input.bizNo).catch((error) => {
+    // 미터링 실패가 팝빌 조회 결과 반환을 막지 않는다(부수효과).
+    console.warn(`Popbill lookup metering failed: ${errorMessage(error)}`);
+  });
+
   return {
     profile: liveProfile,
     facts,
@@ -520,6 +528,26 @@ async function resolvePopbillCompanyResolution(input: {
         : "팝빌에서 사업자 정보를 확인했습니다.",
     }),
   };
+}
+
+/**
+ * 6.5 팝빌 실호출 미터링. bizNoRef 는 pepper HMAC-SHA256(익명화가 아니라 join 회피용 가명 키).
+ * CREDIT_BIZNO_HMAC_PEPPER 미설정 시: 무염 해시로 역산 가능(레드팀 m1)하므로 bizNoRef 를 아예 기록하지 않고
+ *   contextRef.pepperMissing=true 로 남긴다(과금은 여전히 0, 이벤트 자체는 기록해 원가 추적은 유지).
+ */
+async function recordPopbillLookupMetering(bizNo: string): Promise<void> {
+  const pepper = process.env.CREDIT_BIZNO_HMAC_PEPPER?.trim();
+  const contextRef: Record<string, unknown> = pepper
+    ? { bizNoRef: createHmac("sha256", pepper).update(bizNo).digest("hex") }
+    : { pepperMissing: true };
+  await repositories.creditsSystem.recordFreeUsageEvent({
+    walletId: null,
+    userId: null,
+    companyId: null,
+    featureCode: "popbill_lookup",
+    provider: "popbill",
+    contextRef,
+  });
 }
 
 function resolvePopbillCacheExpiresAt(now: Date): Date | null {

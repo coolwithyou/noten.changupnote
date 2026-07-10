@@ -2,9 +2,20 @@
 
 > **🟡 진행 상황 (매 세션 종료 시 이 블록만 갱신하고 커밋하라)**
 > - 설계 문서: `docs/plans/2026-07-09-ai-credit-system.md` (레드팀 반영 완료, 커밋 b3a1b5f) — **단일 진실(Single Source of Truth)**
-> - 구현: **미착수. 다음 작업 = P1 (원장 코어)**
-> - 사용자 준비물 상태: 포트원 계정·채널 키 미확보 (P3 착수 전 필요 — §5)
-> - 마지막 갱신: 2026-07-10 (핸드오버 문서 작성 세션)
+> - **P1 완료** (커밋 a6d4f62·b7f6fd6·33e0a4a): 스키마 14테이블+0038 적용, core 도메인+리포지토리, 가입 보너스 훅, 시드. A1~A6 통과. RLS 실측: rolbypassrls=true → 전 테이블 ENABLE+FORCE
+> - **P2 완료** (커밋 1d878aa·6b68cba): hold/withCreditMetering/조회 API 5종/hold cron/팝빌 미터링/운영 배치 3곳 래핑. B1~B4 통과(통합 9건은 일회용 docker에서 — fresh DB 마이그레이션 재생은 실패하므로 **공용 DB 스키마 pg_dump 복원 방식** 사용할 것)
+> - **P6 완료** (커밋 5d9baf5): admin 페이지 8종+API 19종+requireAdminRole. 포트원 호출부(환불·동기화·강제해지)는 501 골격 — P3/P4 후 배선. F1~F3 런타임 확인은 dev 서버에서 사용자와
+> - **소급 지급 완료**: 기존 사용자 10명 전원 1,000cr 지급(사용자 승인, 2026-07-10). 지갑 10·lot 10·분개 10, verify OK
+> - **P3 완료** (커밋 eef9093·72e3859): portone.ts(직접 fetch 래핑)/verifyAndGrant/환불 계산/결제 API 4종/웹훅/주문 만료 cron//credits 페이지/잔액 위젯. C1~C3 통과(결제 통합 10/10, 스텁). **C4 E2E는 포트원 키 세팅 후 사용자와** — 키 미설정 동안 결제 경로만 503
+> - **P4 완료** (커밋 192e9d8·bf92b64): 구독 도메인(incomplete 선생성·전이 시 예약 전부 취소 6경로)/갱신 웹훅·안전망 cron 3분기/재시도 1개씩/플랜 API 5종//pricing//billing 섹션. D1~D4 통과(구독 통합 12/12, 스텁). 빌링 E2E는 빌링 채널 키 확보 후 사용자와
+> - **P5 완료** (커밋 c1315ab): /account/usage 3탭+CSV, 전역 컴포넌트 3종(견적 배지·402 모달·차감 토스트 — LLM 기능 미구현이라 배선은 기능 구현 시 의무). E3 통과, E2는 컴포넌트 완비·수동 확인은 기능 배선 후
+> - **admin 결제 실행 배선 완료** (설계 보강 9e65f50 + 커밋 717fd4e): /api/internal/credits/* 5종 + admin 501 3종 채움 + freeze 예약 취소 연동 + 7.4 executeRefund(환불 통합 7/7). env 신규: INTERNAL_API_SECRET(웹·admin 동일 값), WEB_INTERNAL_BASE_URL(admin)
+> - **P7 완료** (커밋 e4b8ed1·449b602): 대사 cron 5 scope(chainHash 변조 탐지 — 트리거 DISABLE 후 변조도 검출 확인), lot 만료 cron 신규, 수동 재실행(내부 엔드포인트), 이상 신호 대시보드 실데이터화, 시크릿 회전 런북, DB 역할 분리+pgaudit 계획 문서, 운영 가이드. G1~G3 통과. 공용 DB 대사 1회 실행 기록(4 ok + portone은 키 미설정 error=정상)
+> - **구현 전 Phase 완료 (P1~P7 + admin 배선 + 소급 지급)**. 잔여는 전부 사용자 동반 작업: ① 포트원 키 세팅 후 C4·P4 E2E ② dev 서버에서 F1~F3·P5 UI·팝빌 실호출 확인 ③ 배포 시 cron 10종·env 반영 ④ LLM 기능 구현 시 withCreditMetering+견적 UI 의무 규약(6.2·10.5)
+> - 테스트 스위트: 단위 77 + 통합 45(기본 9·결제 10·구독 12·환불 7·대사 7) — 전부 일회용 docker(공용 DB 스키마 pg_dump 복원)에서. verify I1~I10 상시 OK
+> - 미확인: ① 팝빌 실호출 미터링(B2)은 코드경로만 검증 — 실호출 1건은 사용자 환경에서 ② CRON_SECRET·CREDIT_BIZNO_HMAC_PEPPER 실환경 값 설정 필요 ③ 이메일 인증 플로우 부재로 로그인 성공=인증 완료 해석(6.6) ④ 웹훅 서명은 표준 Webhooks 스펙 가정 — 실채널 첫 웹훅에서 헤더 형식 검증 필요 ⑤ admin 501 골격(환불 실행·주문 동기화·강제 해지)은 P4 후 배선
+> - 사용자 준비물 상태: 포트원 계정·채널 키 미확보 (P3 E2E 검수 전 필요 — §5)
+> - 마지막 갱신: 2026-07-10 (P1·P2·P6 완료 세션)
 
 ---
 

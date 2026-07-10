@@ -25,6 +25,7 @@
 import { asc, eq, like } from "drizzle-orm";
 import { closeCunoteDb, getCunoteDb } from "./client";
 import * as schema from "./schema";
+import { anthropicUsageToTokenUsage, withOpsBatchMetering } from "../credits/metering";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { SURFACE_DOC_REF_PREFIX } from "./import-review-docs-from-surfaces";
@@ -271,27 +272,44 @@ ${RULES_SUMMARY}
     content.push({ type: "image", source: { type: "base64", media_type: "image/png", data: b64 } });
   });
 
-  const res = await fetch(ANTHROPIC_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
+  const maxOutputTokens = Number(process.env.PRELABEL_MAX_TOKENS ?? "8192");
+  // 운영 배치 무과금 미터링(6.2 ops_batch, 원가수집). ★ fail-open — 반환값·오류 경로 불변.
+  return withOpsBatchMetering(
+    {
+      featureCode: "ops_batch_prelabel",
       model: MODEL,
-      max_tokens: Number(process.env.PRELABEL_MAX_TOKENS ?? "8192"),
-      system,
-      messages: [{ role: "user", content }],
-    }),
-  });
+      estimate: { inputTokens: 0, maxOutputTokens },
+      requestId: `prelabel:${sourceName}`,
+      contextRef: { pages: imagesBase64.length },
+    },
+    async ({ report, maxTokens }) => {
+      const res = await fetch(ANTHROPIC_URL, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: maxTokens,
+          system,
+          messages: [{ role: "user", content }],
+        }),
+      });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`anthropic_${res.status}: ${body.slice(0, 300)}`);
-  }
-  const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-  return (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`anthropic_${res.status}: ${body.slice(0, 300)}`);
+      }
+      const data = (await res.json()) as {
+        content?: Array<{ type: string; text?: string }>;
+        usage?: unknown;
+      };
+      report(anthropicUsageToTokenUsage(data.usage));
+      return (data.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+    },
+  );
 }
 
 main()

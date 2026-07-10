@@ -4,6 +4,7 @@ export const PUBLIC_WEB_ROUTES = [
   "GET /reset-password",
   "GET /terms",
   "GET /privacy",
+  "GET /pricing",
   "GET /support",
   "GET /team/invite/[token]",
   "GET /api/web/team/invitations/handoff/[token]",
@@ -22,6 +23,8 @@ export const PUBLIC_WEB_ROUTES = [
   "POST /api/web/support/tickets/[ticketId]/attachments",
   "POST /api/web/teaser",
   "POST /api/web/company-preview",
+  "GET /api/web/credits/products",
+  "GET /api/web/plans",
 ] as const;
 
 export const SESSION_WEB_ROUTES = [
@@ -77,6 +80,18 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/consents",
   "PUT /api/web/consents",
   "DELETE /api/web/consents/[scope]",
+  "GET /api/web/credits/balance",
+  "GET /api/web/credits/estimate",
+  "GET /api/web/credits/ledger",
+  "GET /api/web/credits/usage",
+  "GET /api/web/credits/usage/export",
+  "GET /api/web/credits/orders",
+  "POST /api/web/credits/checkout",
+  "POST /api/web/credits/checkout/complete",
+  "POST /api/web/plans/subscribe",
+  "POST /api/web/plans/change",
+  "POST /api/web/plans/cancel",
+  "POST /api/web/plans/billing-key",
   "GET /api/web/matches",
   "GET /api/web/roadmap",
   "POST /api/web/matches/[grantId]/feedback",
@@ -124,6 +139,24 @@ export const SYSTEM_CRON_ROUTES = [
   "GET /api/cron/ingest-bizinfo",
   "GET /api/cron/grant-cycle-post",
   "GET /api/cron/poll-conversions",
+  "GET /api/cron/credits-expire-holds",
+  "GET /api/cron/credits-expire-orders",
+  "GET /api/cron/credits-plan-renewals",
+  "GET /api/cron/credits-expire-lots",
+  "GET /api/cron/credits-reconcile",
+] as const;
+
+// 시스템/내부 라우트: 세션·회사 접근 정책이 아니라 서버 간 공유 시크릿(INTERNAL_API_SECRET)으로
+// 보호된다(authorizeInternalRequest). admin(apps/admin) 서버만 x-internal-secret 헤더로 호출한다
+// (설계 9.3 "admin 결제 실행 경로"). 웹훅(/api/webhooks/*)과 같은 인증 클래스로, verify:route-policy
+// 스코프(api/web, api/app/v1)와 크론 스코프(api/cron) 어디에도 속하지 않으므로 이 목록은 문서화·추적용이다.
+// 미설정 시 INTERNAL_API_SECRET 부재로 401 을 반환해 사실상 비활성(공개 노출 없음).
+export const SYSTEM_INTERNAL_ROUTES = [
+  "POST /api/internal/credits/orders/[orderId]/sync",
+  "POST /api/internal/credits/refunds/preview",
+  "POST /api/internal/credits/refunds",
+  "POST /api/internal/credits/subscriptions/[id]/force-cancel",
+  "POST /api/internal/credits/subscriptions/cancel-schedules-for-user",
 ] as const;
 
 export const SESSION_APP_ROUTES = [

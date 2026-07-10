@@ -1,6 +1,6 @@
 {
   "id": "92ac89d2-6f51-4638-a8bf-50a9e27c3177",
-  "prevId": "17d1b9dc-3b61-4162-821e-2ee1a3d04cc7",
+  "prevId": "64e5fad2-f2e9-41d1-b7bb-0adbbdfcbcf0",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1074,14 +1074,14 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'월 0원'"
+          "default": "'\uc6d4 0\uc6d0'"
         },
         "renewal_label": {
           "name": "renewal_label",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'결제 연동 전'"
+          "default": "'\uacb0\uc81c \uc5f0\ub3d9 \uc804'"
         },
         "seat_limit": {
           "name": "seat_limit",
