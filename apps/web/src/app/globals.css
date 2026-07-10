@@ -278,74 +278,6 @@
   --grain-opacity: var(--grain-opacity-brand);
 }
 
-/* service-header(landing) + page-nav — Phase 6에서 PublicHeader/Sidebar로 이관 */
-.service-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  max-width: 1180px;
-  margin: 0 auto 28px;
-}
-
-.service-links {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
-
-.service-links a {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 36px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--muted);
-  color: var(--muted-foreground);
-  padding: 0 14px;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none;
-  transition:
-    background-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.service-links a:hover {
-  background: var(--accent);
-  color: var(--brand-pressed);
-}
-
-.nav-pill {
-  min-height: 36px;
-  text-decoration: none;
-}
-
-.brand-mark {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--foreground);
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.brand-symbol {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  background: var(--primary);
-  color: #ffffff;
-  font-size: 15px;
-  font-weight: 800;
-  box-shadow: 0 8px 20px rgba(49, 130, 246, 0.2);
-}
-
 .eyebrow {
   margin: 0 0 8px;
   color: var(--primary);
@@ -403,40 +335,6 @@
 }
 
 .document-draft-metric.warning strong {
-  color: var(--warning);
-}
-
-.document-draft-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid color-mix(in srgb, var(--destructive) 28%, transparent);
-  border-radius: 16px;
-  background: color-mix(in srgb, var(--destructive) 8%, var(--card));
-  color: var(--destructive);
-  padding: 12px 14px;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.document-draft-action-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 16px;
-  padding: 12px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.45;
-}
-
-.document-draft-action-status.success {
-  background: var(--success-soft);
-  color: var(--success);
-}
-
-.document-draft-action-status.warning {
-  background: var(--warning-soft);
   color: var(--warning);
 }
 
@@ -660,11 +558,6 @@
   line-height: 1.55;
 }
 
-.document-draft-autofill-table th,
-.document-draft-autofill-table td {
-  white-space: normal;
-}
-
 .document-draft-autofill-editor {
   display: grid;
   gap: 10px;
@@ -686,19 +579,6 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 10px;
-}
-
-.document-draft-field-label {
-  min-width: 84px;
-  color: var(--foreground);
-  font-weight: 800;
-}
-
-.document-draft-field-value {
-  overflow-wrap: anywhere;
-  color: var(--muted-foreground);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 .document-draft-warning-list {
@@ -777,24 +657,6 @@
 
 .document-draft-feedback-form textarea {
   min-height: 84px;
-}
-
-.document-draft-feedback-status {
-  border-radius: 14px;
-  padding: 10px 12px;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.45;
-}
-
-.document-draft-feedback-status.success {
-  background: var(--success-soft);
-  color: var(--success);
-}
-
-.document-draft-feedback-status.danger {
-  background: var(--danger-soft);
-  color: var(--destructive);
 }
 
 /* company-evidence 요약 카드 — Phase 10에서 이관 */

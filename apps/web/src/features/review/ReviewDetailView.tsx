@@ -62,6 +62,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { ReviewDocEvidence, ReviewField, ReviewLabelJson, ReviewStatus } from "@/lib/server/review/reviewDocsRepo";
 import { ReviewWorkspaceShell } from "./ReviewWorkspaceShell";
@@ -523,16 +524,22 @@ function ExpertMode({
               확정 취소
             </Button>
           ) : (
-            <Button
-              variant={heldCount > 0 ? "secondary" : "default"}
-              size="sm"
-              onClick={handleApprove}
-              disabled={busy}
-              title={heldCount > 0 ? `보류 ${heldCount}건이 있습니다` : undefined}
-            >
-              {busy ? <Spinner data-icon="inline-start" /> : <CheckCircle2 data-icon="inline-start" />}
-              검수 확정{heldCount > 0 ? ` (보류 ${heldCount})` : ""}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    variant={heldCount > 0 ? "secondary" : "default"}
+                    size="sm"
+                    onClick={handleApprove}
+                    disabled={busy}
+                  >
+                    {busy ? <Spinner data-icon="inline-start" /> : <CheckCircle2 data-icon="inline-start" />}
+                    검수 확정{heldCount > 0 ? ` (보류 ${heldCount})` : ""}
+                  </Button>
+                }
+              />
+              {heldCount > 0 ? <TooltipContent>보류 {heldCount}건이 있습니다</TooltipContent> : null}
+            </Tooltip>
           )}
         </>
       }
@@ -583,23 +590,31 @@ function ExpertMode({
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Button
-                  variant={redrawMode ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    if (redrawMode) {
-                      cancelRedraw();
-                      setRedrawMode(false);
-                    } else if (canRedraw) {
-                      setRedrawMode(true);
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant={redrawMode ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => {
+                          if (redrawMode) {
+                            cancelRedraw();
+                            setRedrawMode(false);
+                          } else if (canRedraw) {
+                            setRedrawMode(true);
+                          }
+                        }}
+                        disabled={!canRedraw}
+                      >
+                        <ScanLine data-icon="inline-start" />
+                        {redrawMode ? "그리는 중" : "bbox 다시 그리기"}
+                      </Button>
                     }
-                  }}
-                  disabled={!canRedraw}
-                  title={canRedraw ? "선택한 필드의 상자를 이미지 위 드래그로 다시 그립니다" : "먼저 오른쪽에서 필드를 선택하세요"}
-                >
-                  <ScanLine data-icon="inline-start" />
-                  {redrawMode ? "그리는 중" : "bbox 다시 그리기"}
-                </Button>
+                  />
+                  <TooltipContent>
+                    {canRedraw ? "선택한 필드의 상자를 이미지 위 드래그로 다시 그립니다" : "먼저 오른쪽에서 필드를 선택하세요"}
+                  </TooltipContent>
+                </Tooltip>
                 <div className="flex items-center gap-1">
                   <Button variant="outline" size="icon-sm" aria-label="축소" onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))}>
                     <Minus />
@@ -639,23 +654,37 @@ function ExpertMode({
                       const [x, y, w, h] = bbox;
                       const active = i === selectedIndex;
                       const held = isHeld(f.notes);
+                      const overlayLabel = f.label || f.key || `field ${i}`;
                       return (
-                        <button
-                          key={i}
-                          onClick={() => !redrawMode && selectFieldFromOverlay(i)}
-                          title={f.label || f.key || `field ${i}`}
-                          className={cn(
-                            "absolute border bg-primary/10 transition-colors",
-                            redrawMode && "pointer-events-none",
-                            active ? "border-2 border-primary bg-primary/25" : held ? "border-destructive bg-destructive/15" : "border-primary/60",
-                          )}
-                          style={{
-                            left: `${x * 100}%`,
-                            top: `${y * 100}%`,
-                            width: `${w * 100}%`,
-                            height: `${h * 100}%`,
-                          }}
-                        />
+                        <Tooltip key={i}>
+                          <TooltipTrigger
+                            render={
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                aria-label={overlayLabel}
+                                onClick={() => !redrawMode && selectFieldFromOverlay(i)}
+                                className={cn(
+                                  "absolute size-auto min-w-0 rounded-none border bg-primary/10 p-0 transition-colors",
+                                  redrawMode && "pointer-events-none",
+                                  active
+                                    ? "border-2 border-primary bg-primary/25"
+                                    : held
+                                      ? "border-destructive bg-destructive/15"
+                                      : "border-primary/60",
+                                )}
+                                // 동적 좌표: bbox 정규화값(%)의 계산 결과 — 인라인 style 예외 유지
+                                style={{
+                                  left: `${x * 100}%`,
+                                  top: `${y * 100}%`,
+                                  width: `${w * 100}%`,
+                                  height: `${h * 100}%`,
+                                }}
+                              />
+                            }
+                          />
+                          <TooltipContent>{overlayLabel}</TooltipContent>
+                        </Tooltip>
                       );
                     })}
                     {ghost ? (
@@ -697,21 +726,33 @@ function ExpertMode({
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="key/label 검색"
-                  className="h-10 sm:max-w-52"
-                  title="key/label 부분일치로 필드를 좁힙니다"
-                />
-                <Button
-                  variant={showNeedsCheckOnly ? "secondary" : "outline"}
-                  size="sm"
-                  onClick={() => setShowNeedsCheckOnly((v) => !v)}
-                  title="사전 라벨러가 '확인 필요'로 표시한 필드만 전 페이지에서 모아 봅니다"
-                >
-                  확인 필요만 ({needsCheck.length})
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Input
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        placeholder="key/label 검색"
+                        className="h-10 sm:max-w-52"
+                      />
+                    }
+                  />
+                  <TooltipContent>key/label 부분일치로 필드를 좁힙니다</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant={showNeedsCheckOnly ? "secondary" : "outline"}
+                        size="sm"
+                        onClick={() => setShowNeedsCheckOnly((v) => !v)}
+                      >
+                        확인 필요만 ({needsCheck.length})
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>사전 라벨러가 &apos;확인 필요&apos;로 표시한 필드만 전 페이지에서 모아 봅니다</TooltipContent>
+                </Tooltip>
               </div>
 
               <Alert>
@@ -1250,14 +1291,22 @@ function EvidenceMeta({
     <div className="flex min-w-0 items-center gap-2 rounded-[var(--radius-lg)] border bg-muted/30 px-3 py-2">
       <div className="min-w-0 flex-1">
         <span className="block text-muted-foreground">{label}</span>
-        <strong className="block truncate font-medium" title={value}>
-          {value}
-        </strong>
+        <Tooltip>
+          <TooltipTrigger render={<strong className="block truncate font-medium">{value}</strong>} />
+          <TooltipContent>{value}</TooltipContent>
+        </Tooltip>
       </div>
       {onCopy ? (
-        <Button variant="ghost" size="icon-sm" aria-label={`${label} 복사`} onClick={onCopy} title={copied ? "복사됨" : `${label} 복사`}>
-          <Copy />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant="ghost" size="icon-sm" aria-label={`${label} 복사`} onClick={onCopy}>
+                <Copy />
+              </Button>
+            }
+          />
+          <TooltipContent>{copied ? "복사됨" : `${label} 복사`}</TooltipContent>
+        </Tooltip>
       ) : null}
     </div>
   );
@@ -1378,9 +1427,14 @@ function QuestionDocumentPanel({
         </div>
 
         <div className="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate" title={activeField?.label ?? undefined}>
-            {activeField?.label ? `대상 칸: ${activeField.label}` : `${fields.length}개 필드 표시`}
-          </span>
+          {activeField?.label ? (
+            <Tooltip>
+              <TooltipTrigger render={<span className="min-w-0 truncate">대상 칸: {activeField.label}</span>} />
+              <TooltipContent>{activeField.label}</TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="min-w-0 truncate">{fields.length}개 필드 표시</span>
+          )}
           {imageUrl ? (
             <a className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "shrink-0")} href={imageUrl} target="_blank" rel="noreferrer">
               <ExternalLink data-icon="inline-start" />
@@ -1448,9 +1502,14 @@ function QuestionCard({
         </div>
 
         {fieldLabel ? (
-          <p className="max-w-full truncate text-center text-xs text-muted-foreground" title={fieldLabel}>
-            대상 칸: {fieldLabel}
-          </p>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <p className="max-w-full truncate text-center text-xs text-muted-foreground">대상 칸: {fieldLabel}</p>
+              }
+            />
+            <TooltipContent>{fieldLabel}</TooltipContent>
+          </Tooltip>
         ) : null}
 
         {existing ? (
@@ -1514,10 +1573,17 @@ function QuestionCard({
           <ChevronLeft data-icon="inline-start" />
           이전
         </Button>
-        <Button variant="outline" onClick={onNext} title="답하지 않고 건너뜁니다">
-          건너뛰기
-          <ChevronRight data-icon="inline-end" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button variant="outline" onClick={onNext}>
+                건너뛰기
+                <ChevronRight data-icon="inline-end" />
+              </Button>
+            }
+          />
+          <TooltipContent>답하지 않고 건너뜁니다</TooltipContent>
+        </Tooltip>
       </CardFooter>
     </Card>
   );

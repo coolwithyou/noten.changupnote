@@ -24,6 +24,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type {
   LessonInboxDto,
@@ -341,25 +343,21 @@ export function LessonInboxView({ initialData }: { initialData: LessonInboxDto }
         </Alert>
       ) : null}
 
-      {/* 상태 필터 탭 */}
-      <div role="tablist" aria-label="lesson 상태 필터" className="inline-flex w-fit flex-wrap items-center gap-1 rounded-[var(--radius-lg)] bg-muted p-1">
+      {/* 상태 필터 — 단일 선택 ToggleGroup */}
+      <ToggleGroup
+        value={[status]}
+        onValueChange={(value) => {
+          const next = value.at(-1) as LessonStatus | undefined;
+          if (next) void changeStatus(next);
+        }}
+        size="sm"
+        aria-label="lesson 상태 필터"
+        className="flex-wrap"
+      >
         {STATUS_ORDER.map((s) => {
           const active = s === status;
           return (
-            <button
-              key={s}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              disabled={switching}
-              onClick={() => void changeStatus(s)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-[min(var(--radius-md),12px)] px-3 py-1.5 text-[13px] font-medium transition-colors disabled:opacity-60",
-                active
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
+            <ToggleGroupItem key={s} value={s} disabled={switching} className="gap-1.5">
               {STATUS_LABEL[s]}
               <span
                 className={cn(
@@ -369,10 +367,10 @@ export function LessonInboxView({ initialData }: { initialData: LessonInboxDto }
               >
                 {data.counts[s] ?? 0}
               </span>
-            </button>
+            </ToggleGroupItem>
           );
         })}
-      </div>
+      </ToggleGroup>
 
       {switching ? (
         <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
@@ -521,14 +519,22 @@ function LessonCard(props: LessonCardProps) {
           </Badge>
           {lesson.programRound ? <Badge variant="ghost">{lesson.programRound}</Badge> : null}
           {!lesson.programAliasCovered ? (
-            <Badge
-              variant="outline"
-              className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-              title="scope.program 이 별칭 사전에 없어 표기 변형(한↔영 등) 매칭이 불가합니다. 리터럴 일치에만 의존합니다."
-            >
-              <TriangleAlert className="size-3" aria-hidden />
-              별칭 사전 미등록
-            </Badge>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                  >
+                    <TriangleAlert className="size-3" aria-hidden />
+                    별칭 사전 미등록
+                  </Badge>
+                }
+              />
+              <TooltipContent className="max-w-xs">
+                scope.program 이 별칭 사전에 없어 표기 변형(한↔영 등) 매칭이 불가합니다. 리터럴 일치에만 의존합니다.
+              </TooltipContent>
+            </Tooltip>
           ) : null}
           <span className="ml-auto text-xs text-muted-foreground">
             {lesson.status !== "proposed" && curatedAt ? `${curatedAt} 처리` : null}

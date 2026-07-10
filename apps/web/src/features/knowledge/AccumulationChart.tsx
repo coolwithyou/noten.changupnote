@@ -1,6 +1,15 @@
+"use client";
+
+import { Bar, BarChart, Cell, XAxis } from "recharts";
+
 import { Badge } from "@/components/ui/badge";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { cn } from "@/lib/utils";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart";
 import type { WeeklyAccumulationPoint } from "@/lib/server/knowledge/knowledgeDashboardData";
 import { fmtShortDate } from "./knowledgeLabels";
 
@@ -8,15 +17,20 @@ interface AccumulationChartProps {
   points: WeeklyAccumulationPoint[];
 }
 
+// 브랜드 톤 유지: 바 색은 테마 토큰 --primary(= --color-primary)만 사용, 마지막 주만 불투명 강조.
+const chartConfig = {
+  created: { label: "생성", color: "var(--primary)" },
+} satisfies ChartConfig;
+
 /**
- * (c) 축적 추이 — 최근 12주 주별 lesson 생성 수를 CSS 세로 바로.
- * 데이터가 대부분 0 이어도 어색하지 않게: 바 최소 높이 floor + 창 전체가 0 일 때 안내 문구.
- * 누적은 우상단 배지와 마지막 주 강조로 표현한다.
+ * (c) 축적 추이 — 최근 12주 주별 lesson 생성 수를 recharts 세로 바로.
+ * 데이터·집계 로직 불변: 마지막 주 강조 + 창 전체가 0 일 때 안내 문구.
+ * 누적은 우상단 배지와 툴팁으로 표현한다.
  */
 export function AccumulationChart({ points }: AccumulationChartProps) {
-  const maxCreated = Math.max(1, ...points.map((p) => p.created));
   const lastCumulative = points.length > 0 ? (points[points.length - 1]?.cumulative ?? 0) : 0;
   const windowCreated = points.reduce((sum, p) => sum + p.created, 0);
+  const lastIndex = points.length - 1;
 
   return (
     <Card>
@@ -36,58 +50,45 @@ export function AccumulationChart({ points }: AccumulationChartProps) {
           </p>
         ) : null}
 
-        {/* 바 영역 */}
-        <div className="flex items-end gap-1 sm:gap-1.5">
-          {points.map((p, index) => {
-            const isLast = index === points.length - 1;
-            const heightPct = p.created > 0 ? Math.max(10, (p.created / maxCreated) * 100) : 0;
-            return (
-              <div
-                key={p.weekStart}
-                className="flex min-w-0 flex-1 flex-col items-center gap-1"
-                title={`${fmtShortDate(p.weekStart)} 주 · 생성 ${p.created} · 누적 ${p.cumulative}`}
-              >
-                <span
-                  className={cn(
-                    "h-4 text-[10px] leading-4 tabular-nums",
-                    p.created > 0 ? "font-medium text-foreground" : "text-muted-foreground/40",
-                  )}
-                >
-                  {p.created > 0 ? p.created : "·"}
-                </span>
-                <div className="relative h-28 w-full overflow-hidden rounded-[3px] bg-muted/50">
-                  {heightPct > 0 ? (
-                    <div
-                      className={cn(
-                        "absolute inset-x-0 bottom-0 rounded-[3px] transition-[height]",
-                        isLast ? "bg-primary" : "bg-primary/55",
-                      )}
-                      style={{ height: `${heightPct}%` }}
-                    />
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* 주 시작일(MM.DD) 라벨 — 바와 열 정렬 */}
-        <div className="flex items-start gap-1 sm:gap-1.5">
-          {points.map((p, index) => {
-            const isLast = index === points.length - 1;
-            return (
-              <span
-                key={p.weekStart}
-                className={cn(
-                  "min-w-0 flex-1 truncate text-center text-[10px] tabular-nums",
-                  isLast ? "font-semibold text-primary" : "text-muted-foreground",
-                )}
-              >
-                {fmtShortDate(p.weekStart)}
-              </span>
-            );
-          })}
-        </div>
+        <ChartContainer config={chartConfig} className="aspect-auto h-40 w-full">
+          <BarChart accessibilityLayer data={points} margin={{ top: 12, left: 0, right: 0, bottom: 0 }}>
+            <XAxis
+              dataKey="weekStart"
+              tickLine={false}
+              axisLine={false}
+              tickMargin={8}
+              interval={0}
+              tick={{ fontSize: 10 }}
+              tickFormatter={(value: string) => fmtShortDate(value)}
+            />
+            <ChartTooltip
+              cursor={false}
+              content={
+                <ChartTooltipContent
+                  hideIndicator
+                  labelFormatter={(_, payload) => {
+                    const point = payload?.[0]?.payload as WeeklyAccumulationPoint | undefined;
+                    return point ? `${fmtShortDate(point.weekStart)} 주` : "";
+                  }}
+                  formatter={(_value, _name, item) => {
+                    const point = item.payload as WeeklyAccumulationPoint;
+                    return (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-medium text-foreground tabular-nums">생성 {point.created}건</span>
+                        <span className="text-muted-foreground tabular-nums">누적 {point.cumulative}건</span>
+                      </div>
+                    );
+                  }}
+                />
+              }
+            />
+            <Bar dataKey="created" radius={[3, 3, 0, 0]} fill="var(--color-created)">
+              {points.map((point, index) => (
+                <Cell key={point.weekStart} fillOpacity={index === lastIndex ? 1 : 0.55} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ChartContainer>
       </CardContent>
     </Card>
   );
