@@ -25,7 +25,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import postgres from "postgres";
-import { computeChainHash, genesisHash } from "../src/index.js";
+import { recomputeWalletChain, type LedgerEntryForChain } from "../src/index.js";
 
 function loadEnvFile(fileName: string) {
   const path = resolve(process.cwd(), fileName);
@@ -187,39 +187,34 @@ async function main() {
       }
     }
 
-    // I9 + I10: balance_after 누적 일치 + chainHash 체인 재계산
+    // I9 + I10: balance_after 누적 일치 + chainHash 체인 재계산.
+    // ★ 대사 cron(14.1)과 동일한 검증 코어(recomputeWalletChain)를 공유한다(14.2).
     checks.push("I9");
     checks.push("I10");
     const wallets = await sql`SELECT id FROM credit_wallets`;
     for (const w of wallets) {
-      const entries = await sql`
+      const rows = await sql`
         SELECT id, entry_type, amount_credits::bigint AS amount, balance_after::bigint AS balance_after,
                idempotency_key, chain_hash, created_at
         FROM credit_ledger
         WHERE wallet_id = ${w.id}
         ORDER BY created_at ASC, id ASC
       `;
-      let running = 0;
-      let prevChain = genesisHash(w.id as string);
-      for (const e of entries) {
-        running += Number(e.amount);
-        if (running !== Number(e.balance_after)) {
-          violations.push({ invariant: "I9", detail: `entry ${e.id}: running ${running} != balance_after ${e.balance_after}` });
-        }
-        const expected = computeChainHash({
-          prevChainHash: prevChain,
-          id: e.id as string,
-          walletId: w.id as string,
-          entryType: e.entry_type as string,
-          amountCredits: Number(e.amount),
-          balanceAfter: Number(e.balance_after),
-          idempotencyKey: e.idempotency_key as string,
-          createdAt: new Date(e.created_at as string),
-        });
-        if (expected !== e.chain_hash) {
-          violations.push({ invariant: "I10", detail: `entry ${e.id}: chainHash mismatch (변조 의심)` });
-        }
-        prevChain = e.chain_hash as string;
+      const entries: LedgerEntryForChain[] = rows.map((e) => ({
+        id: e.id as string,
+        entryType: e.entry_type as string,
+        amountCredits: Number(e.amount),
+        balanceAfter: Number(e.balance_after),
+        idempotencyKey: e.idempotency_key as string,
+        chainHash: e.chain_hash as string,
+        createdAt: new Date(e.created_at as string),
+      }));
+      const result = recomputeWalletChain(w.id as string, entries);
+      for (const m of result.balanceMismatches) {
+        violations.push({ invariant: "I9", detail: `entry ${m.entryId}: running ${m.running} != balance_after ${m.balanceAfter}` });
+      }
+      for (const m of result.chainMismatches) {
+        violations.push({ invariant: "I10", detail: `entry ${m.entryId}: chainHash mismatch (변조 의심)` });
       }
     }
 

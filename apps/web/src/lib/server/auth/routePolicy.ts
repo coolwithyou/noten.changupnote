@@ -142,6 +142,8 @@ export const SYSTEM_CRON_ROUTES = [
   "GET /api/cron/credits-expire-holds",
   "GET /api/cron/credits-expire-orders",
   "GET /api/cron/credits-plan-renewals",
+  "GET /api/cron/credits-expire-lots",
+  "GET /api/cron/credits-reconcile",
 ] as const;
 
 // 시스템/내부 라우트: 세션·회사 접근 정책이 아니라 서버 간 공유 시크릿(INTERNAL_API_SECRET)으로

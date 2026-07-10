@@ -28,6 +28,12 @@ export class WebhookVerificationError extends Error {
 
 export interface WebhookVerifyDeps {
   secret?: string;
+  /**
+   * 시크릿 회전 병행 검증 창(12.7 — 24h 무중단 전환)용 구(舊) 시크릿. 신규 시크릿 검증 실패 시
+   * 이 값으로도 검증을 시도한다. 미지정이면 PORTONE_WEBHOOK_SECRET_PREVIOUS env 를 읽는다.
+   * 회전 완료(24h 경과) 후에는 이 env 를 제거해 구 시크릿 검증 창을 닫는다.
+   */
+  previousSecret?: string;
   now?: () => Date;
 }
 
@@ -71,16 +77,26 @@ export function verifyPortoneWebhook(
     throw new WebhookVerificationError("웹훅 타임스탬프가 허용 범위를 벗어났습니다.");
   }
 
-  const secretBytes = secretKeyBytes(secretRaw);
   const signedContent = `${webhookId}.${webhookTimestamp}.${rawBody}`;
-  const expected = createHmac("sha256", secretBytes).update(signedContent).digest("base64");
 
   // webhook-signature 는 "v1,{sig} v1,{sig2}" 형태(공백 구분). 하나라도 일치하면 통과.
   const candidates = webhookSignature.split(" ").map((part) => {
     const comma = part.indexOf(",");
     return comma === -1 ? part : part.slice(comma + 1);
   });
-  const ok = candidates.some((cand) => safeEqualBase64(cand, expected));
+
+  // 시크릿 회전 병행 검증(12.7): 신규 → 구 시크릿 순으로 시도. 하나라도 검증되면 통과.
+  // 구 시크릿은 회전 창(24h) 동안만 설정되고, 창이 닫히면 env 를 제거한다.
+  const previousSecretRaw = deps.previousSecret ?? process.env.PORTONE_WEBHOOK_SECRET_PREVIOUS?.trim();
+  const secretsToTry = [secretRaw];
+  if (previousSecretRaw && previousSecretRaw !== secretRaw) {
+    secretsToTry.push(previousSecretRaw);
+  }
+
+  const ok = secretsToTry.some((secret) => {
+    const expected = createHmac("sha256", secretKeyBytes(secret)).update(signedContent).digest("base64");
+    return candidates.some((cand) => safeEqualBase64(cand, expected));
+  });
   if (!ok) {
     throw new WebhookVerificationError();
   }

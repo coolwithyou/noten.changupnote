@@ -38,6 +38,10 @@ const SETTINGS: Array<{ key: string; value: Record<string, unknown> }> = [
   { key: "support_grant_ticket_cap", value: { value: 1000 } },
   { key: "support_grant_daily_cap", value: { value: 2000 } },
   { key: "company_bonus_consumption_cap", value: { value: 3000 } },
+  // P7 이상 신호 임계(12.7 / 13.1) — 스키마 아닌 설정으로 조정. 대사 scope 5·대시보드가 읽는다.
+  { key: "usage_anomaly_hourly_credits", value: { value: 100000 } }, // 단일 사용자 1시간 차감 경보 임계(12.7)
+  { key: "company_new_member_window_days", value: { value: 7 } }, // 13.1 초대 급증 관찰 창
+  { key: "company_new_member_threshold", value: { value: 5 } }, // 13.1 7일 내 5인 초과 시 usage.anomaly
 ];
 
 // ── 4.8 products (5,000 / 10,000 / 30,000+3% / 50,000+5% / 100,000+8%) ──
