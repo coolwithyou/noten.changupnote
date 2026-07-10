@@ -6,6 +6,7 @@ import { CheckCircle2, Loader2, Mail } from "lucide-react";
 import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { AuthBrandMark } from "./LoginPanel";
@@ -138,29 +139,29 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
   }
 
   return (
-    <main className="flex min-h-screen w-full items-center justify-center bg-background px-5 py-10 text-foreground">
-      <div className="w-full max-w-md">
-        <Link
-          href="/"
-          aria-label="창업노트 홈"
-          className="mb-7 flex items-center justify-center gap-2 text-lg font-semibold text-foreground"
-        >
-          <AuthBrandMark className="size-7" />
-          <span>창업노트</span>
-        </Link>
+    <>
+      <Link
+        href="/"
+        aria-label="창업노트 홈"
+        className="mb-7 flex items-center justify-center gap-2 text-lg font-semibold text-foreground"
+      >
+        <AuthBrandMark className="size-7" />
+        <span>창업노트</span>
+      </Link>
 
-        <div className="rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] sm:p-8">
-          <div className="mb-7 text-center">
-            <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-              {isConfirm ? "새 비밀번호 설정" : "비밀번호 찾기"}
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {isConfirm
-                ? "재설정 링크가 유효하면 새 비밀번호로 계정을 보호할 수 있습니다"
-                : "가입한 이메일을 입력하면 재설정 안내를 확인할 수 있습니다"}
-            </p>
-          </div>
+      <Card className="[--card-spacing:--spacing(6)] border shadow-subtle ring-0 sm:[--card-spacing:--spacing(8)]">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-semibold tracking-normal text-foreground">
+            {isConfirm ? "새 비밀번호 설정" : "비밀번호 찾기"}
+          </CardTitle>
+          <CardDescription className="mt-2 text-sm leading-6">
+            {isConfirm
+              ? "재설정 링크가 유효하면 새 비밀번호로 계정을 보호할 수 있습니다"
+              : "가입한 이메일을 입력하면 재설정 안내를 확인할 수 있습니다"}
+          </CardDescription>
+        </CardHeader>
 
+        <CardContent>
           {isConfirm ? (
             <form className="flex flex-col gap-4" onSubmit={onConfirmSubmit}>
               <FieldGroup>
@@ -266,9 +267,9 @@ export function PasswordResetPanel({ mode, token, callbackUrl }: PasswordResetPa
               로그인으로 돌아가기
             </Link>
           </div>
-        </div>
-      </div>
-    </main>
+        </CardContent>
+      </Card>
+    </>
   );
 }
 

@@ -6,8 +6,18 @@ import Link from "next/link";
 import { Eye, EyeOff, Loader2, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldSeparator,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
 import type { WebAuthProviderSummary } from "@/lib/server/auth/options";
 
@@ -107,31 +117,31 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
   }
 
   return (
-    <main className="flex min-h-screen w-full items-center justify-center bg-background px-5 py-10 text-foreground">
-      <div className="w-full max-w-md">
-        <Link
-          href="/"
-          aria-label="창업노트 홈"
-          className="mb-7 flex items-center justify-center gap-2 text-lg font-semibold text-foreground"
-        >
-          <AuthBrandMark className="size-7" />
-          <span>창업노트</span>
-        </Link>
+    <>
+      <Link
+        href="/"
+        aria-label="창업노트 홈"
+        className="mb-7 flex items-center justify-center gap-2 text-lg font-semibold text-foreground"
+      >
+        <AuthBrandMark className="size-7" />
+        <span>창업노트</span>
+      </Link>
 
-        <div className="rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)] sm:p-8">
-          <div className="mb-7 text-center">
-            <h1 className="text-2xl font-semibold tracking-normal text-foreground">
-              {mode === "register" ? "창업노트 시작하기" : "다시 오신 걸 환영해요"}
-            </h1>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {mode === "register"
-                ? "사업자번호로 찾은 지원사업을 저장하고 신청까지 이어가세요"
-                : "사업자번호로 찾은 지원사업을 이어서 관리하세요"}
-            </p>
-          </div>
+      <Card className="[--card-spacing:--spacing(6)] border shadow-subtle ring-0 sm:[--card-spacing:--spacing(8)]">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-semibold tracking-normal text-foreground">
+            {mode === "register" ? "창업노트 시작하기" : "다시 오신 걸 환영해요"}
+          </CardTitle>
+          <CardDescription className="mt-2 text-sm leading-6">
+            {mode === "register"
+              ? "사업자번호로 찾은 지원사업을 저장하고 신청까지 이어가세요"
+              : "사업자번호로 찾은 지원사업을 이어서 관리하세요"}
+          </CardDescription>
+        </CardHeader>
 
+        <CardContent>
           {oauthProviders.length > 0 ? (
-            <div className="mb-[22px] flex flex-col gap-2.5">
+            <Field className="mb-[22px] gap-2.5">
               {oauthProviders.map((provider) => {
                 const brand = providerBrand(provider.id);
                 const isPending = pending === provider.id;
@@ -142,131 +152,133 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                     variant="outline"
                     disabled={busy}
                     onClick={() => startOAuth(provider)}
-                    className="h-12 w-full justify-center gap-2"
-                    style={brand?.style}
+                    className={cn("h-12 w-full justify-center gap-2", brand?.className)}
                   >
                     {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : brand?.icon}
                     {isPending ? "연결 중" : (brand?.label ?? `${provider.name}로 계속`)}
                   </Button>
                 );
               })}
-            </div>
+            </Field>
           ) : null}
 
           {hasPassword && oauthProviders.length > 0 ? (
-            <div className="mb-[22px] flex items-center gap-3">
-              <span className="h-px flex-1 bg-border" />
-              <span className="text-xs font-medium text-muted-foreground">또는 이메일로</span>
-              <span className="h-px flex-1 bg-border" />
-            </div>
+            <FieldSeparator className="mb-[22px] *:data-[slot=field-separator-content]:bg-card">
+              또는 이메일로
+            </FieldSeparator>
           ) : null}
 
           {hasPassword ? (
-            <form className="flex flex-col gap-3" onSubmit={onSubmit}>
-              {mode === "register" ? (
-                <Field id={nameId} label="이름 (선택)">
+            <form onSubmit={onSubmit}>
+              <FieldGroup className="gap-3">
+                {mode === "register" ? (
+                  <Field>
+                    <FieldLabel htmlFor={nameId}>이름 (선택)</FieldLabel>
+                    <Input
+                      id={nameId}
+                      value={name}
+                      onChange={(event) => setName(event.target.value)}
+                      autoComplete="name"
+                      disabled={busy}
+                      className="h-12"
+                    />
+                  </Field>
+                ) : null}
+
+                <Field>
+                  <FieldLabel htmlFor={emailId}>이메일</FieldLabel>
                   <Input
-                    id={nameId}
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    autoComplete="name"
+                    id={emailId}
+                    type="email"
+                    required
+                    placeholder="name@company.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    autoComplete="email"
                     disabled={busy}
                     className="h-12"
                   />
                 </Field>
-              ) : null}
 
-              <Field id={emailId} label="이메일">
-                <Input
-                  id={emailId}
-                  type="email"
-                  required
-                  placeholder="name@company.com"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  autoComplete="email"
-                  disabled={busy}
-                  className="h-12"
-                />
-              </Field>
-
-              <Field
-                id={passwordId}
-                label="비밀번호"
-                action={
-                  mode === "login" ? (
-                    <Link
-                      href={`/forgot-password?callbackUrl=${encodeURIComponent(callbackUrl)}`}
-                      className="text-[12.5px] font-semibold text-primary"
-                    >
-                      비밀번호 찾기
-                    </Link>
-                  ) : null
-                }
-              >
-                <div className="relative flex items-center">
-                  <Input
-                    id={passwordId}
-                    type={showPw ? "text" : "password"}
-                    required
-                    minLength={8}
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    autoComplete={mode === "register" ? "new-password" : "current-password"}
-                    disabled={busy}
-                    className="h-12 pr-12"
-                  />
-                  <button
-                    type="button"
-                    aria-label={showPw ? "비밀번호 숨기기" : "비밀번호 표시"}
-                    onClick={() => setShowPw((value) => !value)}
-                    className="absolute right-2 flex size-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted"
-                  >
-                    {showPw ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
-                  </button>
-                </div>
-              </Field>
-
-              {mode === "register" ? (
-                <div className="rounded-[var(--radius-lg)] border bg-muted/35 p-3">
-                  <div className="flex items-start gap-2.5">
-                    <Checkbox
-                      id={legalAgreementId}
-                      checked={legalAccepted}
-                      disabled={busy}
-                      aria-describedby={`${legalAgreementId}-description`}
-                      onCheckedChange={(checked) => setLegalAccepted(checked === true)}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <label
-                        htmlFor={legalAgreementId}
-                        className="block text-[13px] font-semibold leading-[1.45] text-foreground"
+                <Field>
+                  <div className="flex items-center justify-between px-0.5">
+                    <FieldLabel htmlFor={passwordId}>비밀번호</FieldLabel>
+                    {mode === "login" ? (
+                      <Link
+                        href={`/forgot-password?callbackUrl=${encodeURIComponent(callbackUrl)}`}
+                        className="text-[12.5px] font-semibold text-primary"
                       >
-                        이용약관과 개인정보처리방침에 동의합니다.
-                      </label>
-                      <p
-                        id={`${legalAgreementId}-description`}
-                        className="mt-1 text-[12px] leading-[1.55] text-muted-foreground"
-                      >
-                        <Link href="/terms" className="font-semibold underline underline-offset-4">
-                          이용약관
-                        </Link>
-                        과{" "}
-                        <Link href="/privacy" className="font-semibold underline underline-offset-4">
-                          개인정보처리방침
-                        </Link>
-                        을 확인했습니다.
-                      </p>
-                    </div>
+                        비밀번호 찾기
+                      </Link>
+                    ) : null}
                   </div>
-                </div>
-              ) : null}
+                  <InputGroup className="h-12">
+                    <InputGroupInput
+                      id={passwordId}
+                      type={showPw ? "text" : "password"}
+                      required
+                      minLength={8}
+                      placeholder="••••••••"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      autoComplete={mode === "register" ? "new-password" : "current-password"}
+                      disabled={busy}
+                    />
+                    <InputGroupAddon align="inline-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        disabled={busy}
+                        aria-label={showPw ? "비밀번호 숨기기" : "비밀번호 표시"}
+                        onClick={() => setShowPw((value) => !value)}
+                      >
+                        {showPw ? <EyeOff /> : <Eye />}
+                      </Button>
+                    </InputGroupAddon>
+                  </InputGroup>
+                </Field>
 
-              <Button type="submit" size="lg" disabled={busy} className="mt-2 w-full">
-                {pending === "password" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
-                {pending === "password" ? "처리 중" : mode === "register" ? "가입하고 시작" : "로그인"}
-              </Button>
+                {mode === "register" ? (
+                  <div className="rounded-lg border bg-muted/35 p-3">
+                    <Field orientation="horizontal">
+                      <Checkbox
+                        id={legalAgreementId}
+                        checked={legalAccepted}
+                        disabled={busy}
+                        aria-describedby={`${legalAgreementId}-description`}
+                        onCheckedChange={(checked) => setLegalAccepted(checked === true)}
+                      />
+                      <FieldContent>
+                        <FieldLabel
+                          htmlFor={legalAgreementId}
+                          className="text-[13px] font-semibold leading-[1.45] text-foreground"
+                        >
+                          이용약관과 개인정보처리방침에 동의합니다.
+                        </FieldLabel>
+                        <FieldDescription
+                          id={`${legalAgreementId}-description`}
+                          className="text-[12px] leading-[1.55]"
+                        >
+                          <Link href="/terms" className="font-semibold underline underline-offset-4">
+                            이용약관
+                          </Link>
+                          과{" "}
+                          <Link href="/privacy" className="font-semibold underline underline-offset-4">
+                            개인정보처리방침
+                          </Link>
+                          을 확인했습니다.
+                        </FieldDescription>
+                      </FieldContent>
+                    </Field>
+                  </div>
+                ) : null}
+
+                <Button type="submit" size="lg" disabled={busy} className="mt-2 w-full">
+                  {pending === "password" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
+                  {pending === "password" ? "처리 중" : mode === "register" ? "가입하고 시작" : "로그인"}
+                </Button>
+              </FieldGroup>
             </form>
           ) : null}
 
@@ -295,70 +307,47 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
 
           <div className="mt-6 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
             {mode === "register" ? "이미 계정이 있으세요?" : "아직 계정이 없으세요?"}
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               disabled={busy}
               onClick={() => {
                 setMode(mode === "register" ? "login" : "register");
                 setError(null);
               }}
-              className="font-bold text-primary"
-              // 전역 unlayered `button { font: inherit }`가 font-bold 유틸리티를 덮으므로 인라인으로 강제
-              style={{ fontWeight: 700 }}
+              className="h-auto p-0 font-bold text-primary hover:bg-transparent"
             >
               {mode === "register" ? "로그인" : "회원가입"}
-            </button>
+            </Button>
           </div>
-        </div>
+        </CardContent>
+      </Card>
 
-        <p className="mt-6 text-center text-xs leading-6 text-muted-foreground">
-          로그인 시{" "}
-          <Link href="/terms" className="font-medium underline">
-            이용약관
-          </Link>{" "}
-          및{" "}
-          <Link href="/privacy" className="font-medium underline">
-            개인정보처리방침
-          </Link>
-          에 동의하게 됩니다.
-        </p>
-      </div>
-    </main>
-  );
-}
-
-function Field({
-  id,
-  label,
-  action,
-  children,
-}: {
-  id: string;
-  label: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between px-0.5">
-        <label htmlFor={id} className="text-xs font-medium text-muted-foreground">
-          {label}
-        </label>
-        {action}
-      </div>
-      {children}
-    </div>
+      <p className="mt-6 text-center text-xs leading-6 text-muted-foreground">
+        로그인 시{" "}
+        <Link href="/terms" className="font-medium underline">
+          이용약관
+        </Link>{" "}
+        및{" "}
+        <Link href="/privacy" className="font-medium underline">
+          개인정보처리방침
+        </Link>
+        에 동의하게 됩니다.
+      </p>
+    </>
   );
 }
 
 function providerBrand(
   id: string,
-): { label: string; icon: ReactNode; style?: React.CSSProperties } | null {
+): { label: string; icon: ReactNode; className?: string } | null {
   if (id.includes("kakao")) {
     return {
       label: "카카오로 3초 만에 시작",
-      icon: <MessageCircle className="size-[18px]" fill="currentColor" strokeWidth={0} />,
-      style: { background: "#FEE500", color: "#191600", borderColor: "transparent" },
+      // 카카오 로그인 버튼 브랜드 가이드 고정 색상 — 테마 토큰 대상 아님(예외)
+      icon: <MessageCircle data-icon="inline-start" fill="currentColor" strokeWidth={0} />,
+      className: "border-transparent bg-[#FEE500] text-[#191600] hover:bg-[#FEE500]/90",
     };
   }
   if (id.includes("google")) {
@@ -369,7 +358,8 @@ function providerBrand(
 
 function GoogleMark() {
   return (
-    <svg className="size-[18px]" viewBox="0 0 48 48" aria-hidden role="presentation">
+    // Google 브랜드 가이드의 4색 "G" 로고 고정 색상 — 테마 토큰 대상 아님(예외)
+    <svg data-icon="inline-start" viewBox="0 0 48 48" aria-hidden role="presentation">
       <path
         fill="#4285F4"
         d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"
@@ -403,7 +393,7 @@ export function AuthBrandMark({ className }: { className?: string }) {
       <rect x="5" y="5" width="38" height="38" rx="11" fill={`url(#${gradientId})`} />
       <path
         d="M15.5 24.5 l5.5 5.5 l11.5 -13.5"
-        stroke="#fff"
+        stroke="white"
         strokeWidth="4"
         strokeLinecap="round"
         strokeLinejoin="round"
