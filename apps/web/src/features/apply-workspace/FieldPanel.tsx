@@ -37,6 +37,7 @@ export function FieldPanel({
   pendingLabels,
   onSelectField,
   patchAnswer,
+  onAskField,
 }: {
   ladder: WorkspaceLadder;
   grantId: string;
@@ -50,6 +51,8 @@ export function FieldPanel({
   pendingLabels: Set<string>;
   onSelectField: (fieldId: string) => void;
   patchAnswer: (label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) => void;
+  /** "이 항목이 뭐예요?" → 채팅 프리필(ADR-9). */
+  onAskField: (field: ConnectedDocumentField) => void;
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
@@ -111,6 +114,7 @@ export function FieldPanel({
                   patchAnswer(key, { value: suggestedValue, status: "suggested" });
                 }
               }}
+              onAsk={() => onAskField(field)}
             />
           );
         })}

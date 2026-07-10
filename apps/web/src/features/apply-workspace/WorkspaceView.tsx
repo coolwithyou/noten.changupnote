@@ -20,11 +20,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
+import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
+import type { ChatMessageContent } from "@/lib/chat/messageContent";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
 import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-viewer/PreviewCanvas";
 import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
-import { ChatPanelPlaceholder } from "./ChatPanelPlaceholder";
+import { ChatPanelView, useGrantChat } from "./ChatPanel";
 import { DraftFallbackEditor } from "./DraftFallbackEditor";
 import { FieldPanel } from "./FieldPanel";
 import { WorkspaceFooter, type WorkspaceProgress } from "./WorkspaceFooter";
@@ -35,12 +37,21 @@ const LADDER_BADGE: Record<WorkspaceData["ladder"], { label: string; className: 
   c: { label: "채팅으로 안내", className: "border-border bg-muted/50 text-muted-foreground" },
 };
 
-export function WorkspaceView({ grantId, data }: { grantId: string; data: WorkspaceData }) {
+export function WorkspaceView({
+  grantId,
+  data,
+  greeting,
+}: {
+  grantId: string;
+  data: WorkspaceData;
+  greeting: ChatMessageContent;
+}) {
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pendingLabels, setPendingLabels] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
   const [mobileTab, setMobileTab] = useState("doc");
+  const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
   useEffect(() => {
     answersRef.current = answers;
@@ -133,6 +144,11 @@ export function WorkspaceView({ grantId, data }: { grantId: string; data: Worksp
     }
   }
 
+  function handleAskField(field: ConnectedDocumentField) {
+    chat.askField({ label: field.label, section: field.section, fieldId: field.fieldId });
+    setMobileTab("chat"); // 모바일에서 답변이 보이도록 채팅 탭으로 전환.
+  }
+
   const badge = LADDER_BADGE[data.ladder];
 
   const previewCanvas = (
@@ -161,6 +177,7 @@ export function WorkspaceView({ grantId, data }: { grantId: string; data: Worksp
       pendingLabels={pendingLabels}
       onSelectField={setSelectedFieldId}
       patchAnswer={patchAnswer}
+      onAskField={handleAskField}
     />
   );
 
@@ -196,7 +213,7 @@ export function WorkspaceView({ grantId, data }: { grantId: string; data: Worksp
                 {data.honestNotice}
               </div>
             ) : null}
-            <ChatPanelPlaceholder variant="front" />
+            <ChatPanelView controller={chat} greeting={greeting} variant="front" />
             <DraftFallbackEditor
               grantId={grantId}
               prep={data.prep}
@@ -214,7 +231,7 @@ export function WorkspaceView({ grantId, data }: { grantId: string; data: Worksp
               <div className="min-h-0 flex-1 overflow-auto rounded-[var(--radius-xl)] border bg-card">
                 {fieldPanel}
               </div>
-              <ChatPanelPlaceholder />
+              <ChatPanelView controller={chat} greeting={greeting} />
             </div>
           </div>
 
@@ -233,7 +250,7 @@ export function WorkspaceView({ grantId, data }: { grantId: string; data: Worksp
                 {fieldPanel}
               </TabsContent>
               <TabsContent value="chat" className="min-h-0 overflow-auto">
-                <ChatPanelPlaceholder variant="front" />
+                <ChatPanelView controller={chat} greeting={greeting} variant="front" />
               </TabsContent>
             </Tabs>
           </div>

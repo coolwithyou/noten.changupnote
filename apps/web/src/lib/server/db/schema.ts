@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   index,
   integer,
@@ -15,6 +16,7 @@ import {
   varchar,
 } from "drizzle-orm/pg-core";
 import type { DraftFieldAnswer } from "../documents/fieldAnswers";
+import type { ChatMessageContent } from "../../chat/messageContent";
 
 export const companyKindEnum = pgEnum("company_kind", ["active", "preliminary"]);
 export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member", "viewer"]);
@@ -1170,4 +1172,49 @@ export const lessonExposureEvents = pgTable("lesson_exposure_events", {
 }, (table) => ({
   lessonCreatedIdx: index("lesson_exposure_events_lesson_created_idx").on(table.lessonId, table.createdAt),
   grantIdx: index("lesson_exposure_events_grant_idx").on(table.grantId),
+}));
+
+/**
+ * 채팅 세션 (Apply Experience v2 · §6.1 · Phase 3).
+ *
+ * workspace 진입마다 신규 세션(§7.2 v1 정책 — 저장은 유지, 이유는 usage 집계·원가 데이터).
+ * 접근 제어는 앱 레벨 스코핑(ADR-10): requireCompanyAccess + companyId+userId 소유권 쿼리.
+ * usage 컬럼(bigint)은 어시스턴트 턴별 usage 를 누적한다 — 당일 예산 집행(ADR-6)의 합산 근거.
+ * draftId 는 저장하지 않는다(§6.1) — draft 연관은 요청 시 fieldContext 해석용일 뿐.
+ */
+export const chatSessions = pgTable("chat_sessions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  // 'grant' | 'matching'(matching 은 Phase 5 전까지 라우트에서 400)
+  contextType: text("context_type").notNull(),
+  // contextType='grant' 일 때의 대상 공고. 공고 재수집 시 세션은 남기고 참조만 끊는다.
+  grantId: uuid("grant_id").references(() => grants.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("active"), // 'active' | 'archived'
+  model: text("model").notNull(),
+  inputTokens: bigint("input_tokens", { mode: "number" }).notNull().default(0),
+  outputTokens: bigint("output_tokens", { mode: "number" }).notNull().default(0),
+  cacheReadTokens: bigint("cache_read_tokens", { mode: "number" }).notNull().default(0),
+  cacheWriteTokens: bigint("cache_write_tokens", { mode: "number" }).notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastMessageAt: timestamp("last_message_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  companyIdx: index("chat_sessions_company_idx").on(table.companyId, table.lastMessageAt),
+  grantIdx: index("chat_sessions_grant_idx").on(table.grantId),
+}));
+
+/**
+ * 채팅 메시지 (Apply Experience v2 · §6.1 · Phase 3).
+ * content 는 §7.2 ChatMessageContent(전송 계층 격리 형태) — 인용은 얕은 매핑으로 영속화한다.
+ * usage 는 assistant 턴별 토큰(input/output/cacheRead/cacheWrite) — 당일 예산 정밀 근거(선택 활용).
+ */
+export const chatMessages = pgTable("chat_messages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sessionId: uuid("session_id").notNull().references(() => chatSessions.id, { onDelete: "cascade" }),
+  role: text("role").notNull(), // 'user' | 'assistant'
+  content: jsonb("content").$type<ChatMessageContent>().notNull(),
+  usage: jsonb("usage").$type<Record<string, number>>(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  sessionIdx: index("chat_messages_session_idx").on(table.sessionId, table.createdAt),
 }));

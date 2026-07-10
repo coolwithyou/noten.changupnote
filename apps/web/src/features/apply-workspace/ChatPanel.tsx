@@ -1,0 +1,275 @@
+"use client";
+
+/**
+ * 채팅 패널 (Apply Experience v2 · §4.3/§7.2 · P3-6/P3-7).
+ *
+ * 스트리밍 채팅(AI SDK useChat) · 인용 뱃지(cited_text 표시, 페이지 점프 없음) · 인용 없는 답변은
+ * "일반 안내" 시각 구분(원칙 P4) · 진입 시 자동 오픈 + 서버 상황 인사(첫 assistant 버블).
+ * "이 항목이 뭐예요?"(FieldCard) → fieldContext 프리필 전송(ADR-9).
+ *
+ * **단일 세션 원칙**: 데스크톱 dock 과 모바일 탭이 동시에 마운트되므로, useChat 을 WorkspaceView 에서
+ * `useGrantChat` 로 한 번만 호출해 컨트롤러를 공유한다(멀티 인스턴스→멀티 세션 방지). 각 뷰(ChatPanelView)는
+ * 표현만 담당한다.
+ *
+ * 전송 계층 격리(ADR-4): UIMessage 파트 → ChatMessageContent 매핑은 공용 모듈(lib/chat/messageContent)로.
+ * 세션은 서버가 X-Cunote-Chat-Session 헤더로 발급 → 커스텀 fetch 로 캡처해 다음 턴에 재사용(§7.2 소유권).
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
+import { Loader2, MessageSquare, Quote, Send } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
+import {
+  uiMessagePartsToContent,
+  type ChatMessageContent,
+  type UiMessagePartLike,
+} from "@/lib/chat/messageContent";
+
+export interface ChatFieldPrompt {
+  label: string;
+  section?: string | null;
+  fieldId?: string | null;
+}
+
+interface UiChatMessageLike {
+  id: string;
+  role: string;
+  parts?: readonly UiMessagePartLike[];
+}
+
+export interface GrantChatController {
+  messages: UiChatMessageLike[];
+  isBusy: boolean;
+  hasError: boolean;
+  input: string;
+  setInput: (value: string) => void;
+  submit: () => void;
+  askField: (field: ChatFieldPrompt) => void;
+}
+
+function lastMessageText(message: UiChatMessageLike | undefined): string {
+  if (!message?.parts) return "";
+  return message.parts
+    .filter(
+      (p): p is { type: "text"; text: string } =>
+        p.type === "text" && typeof (p as { text?: unknown }).text === "string",
+    )
+    .map((p) => p.text)
+    .join("");
+}
+
+/** WorkspaceView 에서 단 한 번 호출하는 채팅 컨트롤러 훅(단일 세션). */
+export function useGrantChat(input: { grantId: string; draftId?: string | null }): GrantChatController {
+  const { grantId, draftId } = input;
+  const sessionIdRef = useRef<string | null>(null);
+  const pendingFieldContextRef = useRef<ChatFieldPrompt | null>(null);
+  const [inputValue, setInputValue] = useState("");
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/web/chat",
+        // 서버가 발급하는 세션 id 를 응답 헤더에서 캡처해 다음 턴에 재사용한다.
+        fetch: (async (url: RequestInfo | URL, options?: RequestInit) => {
+          const response = await fetch(url, options);
+          const sid = response.headers.get("X-Cunote-Chat-Session");
+          if (sid) sessionIdRef.current = sid;
+          return response;
+        }) as typeof fetch,
+        // §7.2 바디: 단일 message + sessionId + context(서버가 히스토리를 보유).
+        prepareSendMessagesRequest: ({ messages }) => {
+          const last = messages[messages.length - 1] as UiChatMessageLike | undefined;
+          const fieldPromptForTurn = pendingFieldContextRef.current;
+          pendingFieldContextRef.current = null; // per-메시지 소비.
+          const fieldContext = fieldPromptForTurn
+            ? {
+                label: fieldPromptForTurn.label,
+                ...(fieldPromptForTurn.section ? { section: fieldPromptForTurn.section } : {}),
+                ...(fieldPromptForTurn.fieldId ? { fieldId: fieldPromptForTurn.fieldId } : {}),
+              }
+            : undefined;
+          return {
+            body: {
+              sessionId: sessionIdRef.current,
+              context: { type: "grant", grantId, ...(draftId ? { draftId } : {}) },
+              message: { text: lastMessageText(last), ...(fieldContext ? { fieldContext } : {}) },
+            },
+          };
+        },
+      }),
+    [grantId, draftId],
+  );
+
+  const { messages, sendMessage, status, error } = useChat({ transport });
+  const isBusy = status === "submitted" || status === "streaming";
+
+  const submit = useCallback(() => {
+    const text = inputValue.trim();
+    if (!text || isBusy) return;
+    setInputValue("");
+    void sendMessage({ text });
+  }, [inputValue, isBusy, sendMessage]);
+
+  const askField = useCallback(
+    (field: ChatFieldPrompt) => {
+      pendingFieldContextRef.current = field;
+      const question = `'${field.label}' 항목은 어떤 내용을 어떻게 작성해야 하나요? 공고 기준으로 알려주세요.`;
+      void sendMessage({ text: question });
+    },
+    [sendMessage],
+  );
+
+  return {
+    messages: messages as unknown as UiChatMessageLike[],
+    isBusy,
+    hasError: Boolean(error),
+    input: inputValue,
+    setInput: setInputValue,
+    submit,
+    askField,
+  };
+}
+
+/** 표현 전용 채팅 뷰(컨트롤러를 공유받아 렌더만 한다). */
+export function ChatPanelView({
+  controller,
+  greeting,
+  variant = "dock",
+}: {
+  controller: GrantChatController;
+  greeting: ChatMessageContent;
+  variant?: "dock" | "front";
+}) {
+  const { messages, isBusy, hasError, input, setInput, submit } = controller;
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  const showTypingIndicator =
+    isBusy && (messages.length === 0 || messages[messages.length - 1]?.role !== "assistant");
+
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 rounded-[var(--radius-xl)] border bg-card p-4",
+        variant === "front" ? "min-h-96" : "min-h-0 shrink-0",
+      )}
+    >
+      <div className="flex items-center gap-2 text-sm font-medium">
+        <MessageSquare className="size-4 text-muted-foreground" aria-hidden />
+        이 사업에 대해 물어보세요
+      </div>
+
+      <div
+        ref={scrollRef}
+        className={cn(
+          "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto pr-1",
+          variant === "front" ? "max-h-[28rem]" : "max-h-72",
+        )}
+      >
+        <AssistantBubble content={greeting} />
+        {messages.map((message) => {
+          const content = uiMessagePartsToContent((message.parts ?? []) as UiMessagePartLike[]);
+          if (message.role === "user") {
+            return <UserBubble key={message.id} text={content.text} />;
+          }
+          return <AssistantBubble key={message.id} content={content} />;
+        })}
+        {showTypingIndicator ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+            답변을 작성하고 있어요…
+          </div>
+        ) : null}
+        {hasError ? (
+          <div
+            className="rounded-[var(--radius-md)] border border-destructive/30 bg-destructive/[0.06] px-3 py-2 text-sm text-destructive"
+            role="alert"
+          >
+            답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.
+          </div>
+        ) : null}
+      </div>
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          submit();
+        }}
+        className="flex items-end gap-2"
+      >
+        <Textarea
+          value={input}
+          onChange={(event) => setInput(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              submit();
+            }
+          }}
+          placeholder="공고 내용·자격·마감·작성 요령을 물어보세요"
+          aria-label="채팅 입력"
+          rows={variant === "front" ? 3 : 2}
+          disabled={isBusy}
+          className="min-h-0 flex-1 resize-none"
+        />
+        <Button type="submit" size="icon" disabled={isBusy || input.trim().length === 0} aria-label="보내기">
+          {isBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" aria-hidden />}
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+function UserBubble({ text }: { text: string }) {
+  if (!text.trim()) return null;
+  return (
+    <div className="flex justify-end">
+      <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-[var(--radius-lg)] bg-primary px-3 py-2 text-sm text-primary-foreground">
+        {text}
+      </div>
+    </div>
+  );
+}
+
+function AssistantBubble({ content }: { content: ChatMessageContent }) {
+  const hasCitations = (content.citations?.length ?? 0) > 0;
+  const isGeneralNotice = content.generalNotice === true && !hasCitations;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div
+        className={cn(
+          "max-w-[92%] whitespace-pre-wrap break-words rounded-[var(--radius-lg)] px-3 py-2 text-sm",
+          isGeneralNotice
+            ? "border border-dashed border-border bg-muted/40 text-muted-foreground"
+            : "border bg-background text-foreground",
+        )}
+      >
+        {isGeneralNotice ? (
+          <span className="mb-1 block text-xs font-medium text-muted-foreground">일반 안내</span>
+        ) : null}
+        {content.text || (isGeneralNotice ? "" : "…")}
+      </div>
+      {hasCitations ? (
+        <div className="flex flex-wrap gap-1">
+          {content.citations!.map((citation, index) => (
+            <Badge
+              key={`${index}-${citation.citedText.slice(0, 8)}`}
+              variant="outline"
+              className="max-w-full gap-1 border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400"
+              title={citation.citedText}
+            >
+              <Quote className="size-3 shrink-0" aria-hidden />
+              <span className="truncate">{citation.citedText}</span>
+            </Badge>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}

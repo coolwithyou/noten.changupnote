@@ -6,6 +6,7 @@ import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
 import { loadGrantWorkspaceData } from "@/lib/server/documents/workspaceData";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
+import { buildChatGreeting } from "@/lib/server/chat/greeting";
 import { WorkspaceView } from "@/features/apply-workspace/WorkspaceView";
 
 export const dynamic = "force-dynamic";
@@ -33,6 +34,11 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
 
   const data = await loadGrantWorkspaceData({ sheet, access, requestedDocumentKey });
   const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
+  const greeting = buildChatGreeting({
+    title: sheet.grant.title,
+    applyEnd: sheet.schedule.applyEnd,
+    dDay: sheet.schedule.dDay,
+  });
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -40,7 +46,7 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
         user={user}
         links={appHeaderLinks({ currentHref: `/grants/${grantId}/workspace` })}
       />
-      <WorkspaceView grantId={grantId} data={data} />
+      <WorkspaceView grantId={grantId} data={data} greeting={greeting} />
     </div>
   );
 }

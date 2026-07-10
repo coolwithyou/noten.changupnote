@@ -63,6 +63,7 @@ export function FieldCard({
   onSave,
   onDismiss,
   onUndo,
+  onAsk,
 }: {
   field: ConnectedDocumentField;
   answer: DraftFieldAnswer | undefined;
@@ -75,6 +76,8 @@ export function FieldCard({
   onSave: (value: string) => void;
   onDismiss: () => void;
   onUndo: () => void;
+  /** "이 항목이 뭐예요?" → 채팅 프리필(ADR-9). 미제공 시 버튼 비활성. */
+  onAsk?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draftValue, setDraftValue] = useState(answer?.value ?? "");
@@ -209,8 +212,9 @@ export function FieldCard({
               type="button"
               size="sm"
               variant="ghost"
-              disabled
-              title="곧 제공됩니다"
+              onClick={onAsk}
+              disabled={!onAsk || isPending}
+              title={onAsk ? "채팅으로 이 항목 설명 받기" : "채팅 준비 중"}
               className="text-muted-foreground"
             >
               <HelpCircle className="size-3.5" aria-hidden />
