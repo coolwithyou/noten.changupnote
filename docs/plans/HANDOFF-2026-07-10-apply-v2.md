@@ -10,8 +10,8 @@
 
 ## 작업 환경 (중요)
 
-- **worktree**: `/Users/ffgg/orca/workspaces/cunote/minimal`, 브랜치 **`coolwithyou/minimal`** (메인 저장소 `/Users/ffgg/noten.works/cunote`와 별개 체크아웃)
-- env 독립 구성 완료: 루트 `.env`(DB·ANTHROPIC_API_KEY·R2)·`.env.local`(Popbill·변환서버·OAuth)을 메인 저장소에서 복사해 둠. **`ANTHROPIC_API_KEY`는 `.env.local`이 아니라 `.env`에 있음** (tsx·dev 서버 모두 .env.local→.env 순 로드라 동작)
+- ~~worktree `/Users/ffgg/orca/workspaces/cunote/minimal`~~ → **2026-07-10 main에 fast-forward 병합 완료, worktree·브랜치 제거됨. 이후 작업은 메인 저장소 `/Users/ffgg/noten.works/cunote` (main)에서.**
+- (당시 worktree의 env 독립 구성은 메인 저장소 원본을 복사한 것 — 메인 저장소 env가 정본. **`ANTHROPIC_API_KEY`는 `.env.local`이 아니라 `.env`에 있음** (tsx·dev 서버 모두 .env.local→.env 순 로드라 동작))
 - DB는 메인 저장소와 **같은 원격 Supabase(`changupnote`)를 공유** — 격리 아님
 
 ## 완료된 것 (전부 커밋됨 · 워킹트리 클린)
