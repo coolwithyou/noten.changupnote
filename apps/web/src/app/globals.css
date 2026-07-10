@@ -94,10 +94,6 @@
   --grain-tile: 180px;
   --grain-opacity-brand: 0.05;
   --grain-opacity-work: 0.02;
-
-  /* ── 호환 shim (Phase 4에서 삭제) ─────────────────────────────── */
-  --toss-blue-hover: var(--brand-pressed);
-  --toss-grey-50: oklch(0.985 0 0); /* SHIM — Phase 4에서 삭제 */
 }
 
 @theme inline {

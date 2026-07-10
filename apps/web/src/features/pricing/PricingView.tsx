@@ -11,7 +11,7 @@ import type {
 } from "@cunote/contracts";
 import { AlertTriangle, Check, CheckCircle2, Info, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Spinner } from "@/components/ui/spinner";
@@ -383,7 +383,7 @@ function PlanCta({
     return (
       <a
         href={`/login?callbackUrl=${encodeURIComponent("/pricing")}`}
-        className="inline-flex h-12 w-full items-center justify-center gap-1.5 rounded-[var(--radius-md)] bg-primary px-5 text-[15px] font-medium text-primary-foreground shadow-[var(--shadow-subtle)] hover:bg-[var(--toss-blue-hover)]"
+        className={buttonVariants({ variant: "default", size: "default", className: "w-full" })}
       >
         로그인 후 구독
       </a>

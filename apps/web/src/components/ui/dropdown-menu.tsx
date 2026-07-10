@@ -62,7 +62,7 @@ function DropdownMenuItem({ className, ...props }: MenuPrimitive.Item.Props) {
     <MenuPrimitive.Item
       data-slot="dropdown-menu-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-[min(var(--radius-md),10px)] px-2.5 py-2 text-sm font-medium text-foreground outline-none select-none transition-colors data-highlighted:bg-[var(--toss-grey-50)] data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-2 rounded-[min(var(--radius-md),10px)] px-2.5 py-2 text-sm font-medium text-foreground outline-none select-none transition-colors data-highlighted:bg-muted data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -78,7 +78,7 @@ function DropdownMenuLinkItem({
     <MenuPrimitive.LinkItem
       data-slot="dropdown-menu-link-item"
       className={cn(
-        "relative flex cursor-default items-center gap-2 rounded-[min(var(--radius-md),10px)] px-2.5 py-2 text-sm font-medium text-foreground no-underline outline-none select-none transition-colors data-highlighted:bg-[var(--toss-grey-50)] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "relative flex cursor-default items-center gap-2 rounded-[min(var(--radius-md),10px)] px-2.5 py-2 text-sm font-medium text-foreground no-underline outline-none select-none transition-colors data-highlighted:bg-muted [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
