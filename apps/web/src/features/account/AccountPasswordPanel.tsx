@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, KeyRound, Loader2 } from "lucide-react";
+import { KeyRound, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -21,13 +22,11 @@ export function AccountPasswordPanel() {
   const [newPassword, setNewPassword] = useState("");
   const [newPasswordConfirm, setNewPasswordConfirm] = useState("");
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<"currentPassword" | "newPassword" | "newPasswordConfirm" | null>(null);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage(null);
     setError(null);
     setErrorField(null);
 
@@ -53,7 +52,7 @@ export function AccountPasswordPanel() {
       setCurrentPassword("");
       setNewPassword("");
       setNewPasswordConfirm("");
-      setMessage(payload.data?.mode === "created"
+      toast.success(payload.data?.mode === "created"
         ? "이메일 비밀번호가 설정되었습니다."
         : "비밀번호가 변경되었습니다.");
     } catch (caught) {
@@ -130,13 +129,6 @@ export function AccountPasswordPanel() {
             {pending ? "변경 중" : "비밀번호 변경"}
           </Button>
         </form>
-
-        {message ? (
-          <Alert className="mt-4" aria-live="polite">
-            <CheckCircle2 data-icon="inline-start" />
-            <AlertDescription>{message}</AlertDescription>
-          </Alert>
-        ) : null}
 
         {error && !errorField ? (
           <Alert variant="destructive" className="mt-4" aria-live="polite">

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, Loader2, Save, ShieldCheck } from "lucide-react";
+import { Loader2, Save, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import type { BillingTaxProfileItem, BillingTaxProfileUpdateResult } from "@/lib/server/billing/taxProfile";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -67,6 +69,11 @@ export function BillingTaxProfileForm({
       }
       setSavedProfile(payload.data.profile);
       setBusinessRegistrationNumber("");
+      toast.success(
+        payload.data.profile.source === "database"
+          ? "청구 프로필을 저장했습니다."
+          : "청구 프로필 임시 저장 응답을 확인했습니다.",
+      );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "청구 프로필을 저장하지 못했습니다.");
     } finally {
@@ -228,15 +235,9 @@ export function BillingTaxProfileForm({
       </FieldGroup>
 
       {error ? (
-        <div className="rounded-[var(--radius-lg)] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
-          {error}
-        </div>
-      ) : null}
-      {savedProfile ? (
-        <div className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary" role="status">
-          <CheckCircle2 className="size-4" aria-hidden />
-          <span>{savedProfile.source === "database" ? "청구 프로필을 저장했습니다." : "청구 프로필 임시 저장 응답을 확인했습니다."}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : null}
 
       <Button type="submit" disabled={pending}>

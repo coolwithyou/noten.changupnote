@@ -7,8 +7,20 @@ import type {
   CreditPlansDto,
   CreditSubscriptionDto,
 } from "@cunote/contracts";
-import { AlertTriangle, CheckCircle2, CreditCard } from "lucide-react";
+import { AlertTriangle, CreditCard } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -23,7 +35,6 @@ export function CreditPlanSection() {
   const [subscription, setSubscription] = useState<CreditSubscriptionDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [canceling, setCanceling] = useState(false);
@@ -70,7 +81,7 @@ export function CreditPlanSection() {
       if (!res.ok || !result.ok || !result.data) {
         throw new Error(result.error?.message ?? "구독을 해지하지 못했습니다.");
       }
-      setNotice(`${formatDate(result.data.periodEnd)}에 해지됩니다.`);
+      toast.success(`${formatDate(result.data.periodEnd)}에 해지됩니다.`);
       setCancelOpen(false);
       void load();
     } catch (error) {
@@ -82,7 +93,6 @@ export function CreditPlanSection() {
 
   async function replaceBillingKey() {
     setActionError(null);
-    setNotice(null);
     if (!PAYMENT_READY) return;
     setReplacingKey(true);
     try {
@@ -106,7 +116,7 @@ export function CreditPlanSection() {
       setSubscription((prev) =>
         prev ? { ...prev, cardBrand: result.data!.cardBrand, cardLast4: result.data!.cardLast4 } : prev,
       );
-      setNotice("카드가 변경되었습니다.");
+      toast.success("카드가 변경되었습니다.");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "빌링키를 교체하지 못했습니다.");
     } finally {
@@ -128,23 +138,11 @@ export function CreditPlanSection() {
         )}
       </CardHeader>
       <CardContent className="grid gap-4">
-        {notice ? (
-          <div
-            role="status"
-            className="flex items-center gap-2 rounded-[var(--radius-md)] border border-primary/40 bg-primary/10 px-4 py-3 text-sm text-foreground"
-          >
-            <CheckCircle2 className="size-4 shrink-0 text-primary" aria-hidden="true" />
-            <span>{notice}</span>
-          </div>
-        ) : null}
         {actionError ? (
-          <div
-            role="alert"
-            className="flex items-center gap-2 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-          >
-            <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-            <span>{actionError}</span>
-          </div>
+          <Alert variant="destructive">
+            <AlertTriangle aria-hidden="true" />
+            <AlertDescription>{actionError}</AlertDescription>
+          </Alert>
         ) : null}
 
         {loading ? (
@@ -178,11 +176,14 @@ export function CreditPlanSection() {
         )}
       </CardContent>
 
-      {cancelOpen && subscription ? (
+      {subscription ? (
         <CancelModal
+          open={cancelOpen}
           subscription={subscription}
           busy={canceling}
-          onClose={() => setCancelOpen(false)}
+          onOpenChange={(open) => {
+            if (!canceling) setCancelOpen(open);
+          }}
           onConfirm={() => void confirmCancel()}
         />
       ) : null}
@@ -250,7 +251,6 @@ function SubscriptionDetails({
           onClick={onReplaceKey}
           disabled={!paymentReady || replacingKey}
           aria-busy={replacingKey}
-          title={!paymentReady ? "결제 준비 중" : undefined}
         >
           {replacingKey ? <Spinner /> : paymentReady ? "빌링키 교체" : "결제 준비 중"}
         </Button>
@@ -265,70 +265,49 @@ function SubscriptionDetails({
 }
 
 function CancelModal({
+  open,
   subscription,
   busy,
-  onClose,
+  onOpenChange,
   onConfirm,
 }: {
+  open: boolean;
   subscription: CreditSubscriptionDto;
   busy: boolean;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !busy) onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [busy, onClose]);
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget && !busy) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="cancel-plan-title"
-        aria-describedby="cancel-plan-desc"
-        className="w-full max-w-md rounded-[var(--radius-xl)] border bg-card p-6 shadow-[var(--shadow-subtle)]"
-      >
-        <h2 id="cancel-plan-title" className="text-lg font-semibold text-foreground">
-          크레딧 플랜을 해지할까요?
-        </h2>
-        <div id="cancel-plan-desc" className="mt-3 flex flex-col gap-2 text-sm leading-6 text-muted-foreground">
-          <p>
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>크레딧 플랜을 해지할까요?</AlertDialogTitle>
+          <AlertDialogDescription>
             해지해도 현재 주기 종료일인{" "}
             <strong className="text-foreground">{formatDate(subscription.currentPeriodEnd)}</strong>까지는 플랜이
             유지됩니다. 이후 자동 결제가 중단됩니다.
-          </p>
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-col gap-2 text-sm leading-6 text-muted-foreground">
           <p>
             <strong className="text-foreground">플랜 크레딧 소멸:</strong> 이미 지급된 플랜 크레딧은 각 지급 시점부터
             60일(2주기)이 지나면 소멸합니다(flex 플랜은 90일). 해지하더라도 아직 소멸하지 않은 크레딧은 해당 소멸일까지
             그대로 사용할 수 있습니다.
           </p>
         </div>
-        <div className="mt-5 flex flex-wrap justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onClose} disabled={busy}>
-            계속 이용
-          </Button>
-          <Button
-            autoFocus
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={busy}>계속 이용</AlertDialogCancel>
+          <AlertDialogAction
             variant="destructive"
-            size="sm"
             onClick={onConfirm}
             disabled={busy}
             aria-busy={busy}
           >
             {busy ? <Spinner /> : "해지하기"}
-          </Button>
-        </div>
-      </div>
-    </div>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

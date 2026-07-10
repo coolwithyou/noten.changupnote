@@ -1,14 +1,14 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import { Check, Copy, History, Link2, Mail, RefreshCw, Send, ShieldCheck, XCircle } from "lucide-react";
+import { Copy, History, Link2, Mail, RefreshCw, Send, ShieldCheck, XCircle } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Field,
   FieldDescription,
-  FieldError,
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -21,12 +21,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import type { WorkspaceMember, WorkspaceOverview } from "@/lib/server/workspace/overview";
 
 type TeamInvitation = WorkspaceOverview["invitations"][number];
 type TeamRoleChangeEvent = WorkspaceOverview["roleChangeEvents"][number];
 type TeamRole = "admin" | "member" | "viewer";
-type NoticeTone = "success" | "warning" | "danger" | "neutral";
 
 const ROLE_OPTIONS: Array<{ value: TeamRole; label: string; description: string }> = [
   { value: "admin", label: "관리자", description: "팀 초대와 설정 변경 가능" },
@@ -55,7 +62,6 @@ export function TeamManagementPanel({
   const [roleEventRows, setRoleEventRows] = useState(roleChangeEvents);
   const [roleDrafts, setRoleDrafts] = useState<Record<string, TeamRole>>(() => roleDraftState(members));
   const [lastInvite, setLastInvite] = useState<TeamInvitation | null>(null);
-  const [notice, setNotice] = useState<{ tone: NoticeTone; message: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [actingInvitationId, setActingInvitationId] = useState<string | null>(null);
@@ -72,11 +78,10 @@ export function TeamManagementPanel({
     event.preventDefault();
     if (!canManage) return;
     if (seatLimitReached) {
-      setNotice({ tone: "warning", message: "현재 플랜의 팀 좌석을 모두 사용했습니다." });
+      toast.warning("현재 플랜의 팀 좌석을 모두 사용했습니다.");
       return;
     }
     setSubmitting(true);
-    setNotice(null);
     try {
       const response = await fetch("/api/web/team/invitations", {
         method: "POST",
@@ -91,15 +96,14 @@ export function TeamManagementPanel({
       setLastInvite(payload.data);
       setEmail("");
       const deliveryStatus = payload.data.emailDelivery?.status;
-      setNotice({
-        tone: payload.data.persisted && deliveryStatus !== "failed" ? "success" : "warning",
-        message: inviteNoticeMessage(payload.data),
-      });
+      const inviteMessage = inviteNoticeMessage(payload.data);
+      if (payload.data.persisted && deliveryStatus !== "failed") {
+        toast.success(inviteMessage);
+      } else {
+        toast.warning(inviteMessage);
+      }
     } catch (error) {
-      setNotice({
-        tone: "danger",
-        message: error instanceof Error ? error.message : "초대를 만들지 못했습니다.",
-      });
+      toast.error(error instanceof Error ? error.message : "초대를 만들지 못했습니다.");
     } finally {
       setSubmitting(false);
     }
@@ -108,7 +112,6 @@ export function TeamManagementPanel({
   async function resendInvitation(invitation: TeamInvitation) {
     if (!canManage || actingInvitationId) return;
     setActingInvitationId(invitation.id);
-    setNotice(null);
     try {
       const response = await fetch(`/api/web/team/invitations/${encodeURIComponent(invitation.id)}/resend`, {
         method: "POST",
@@ -121,15 +124,14 @@ export function TeamManagementPanel({
         item.id === payload.data!.id ? payload.data! : item
       ));
       setLastInvite(payload.data);
-      setNotice({
-        tone: payload.data.emailDelivery?.status === "failed" ? "warning" : "success",
-        message: resendNoticeMessage(payload.data),
-      });
+      const resendMessage = resendNoticeMessage(payload.data);
+      if (payload.data.emailDelivery?.status === "failed") {
+        toast.warning(resendMessage);
+      } else {
+        toast.success(resendMessage);
+      }
     } catch (error) {
-      setNotice({
-        tone: "danger",
-        message: error instanceof Error ? error.message : "초대 링크를 재발행하지 못했습니다.",
-      });
+      toast.error(error instanceof Error ? error.message : "초대 링크를 재발행하지 못했습니다.");
     } finally {
       setActingInvitationId(null);
     }
@@ -138,7 +140,6 @@ export function TeamManagementPanel({
   async function revokeInvitation(invitation: TeamInvitation) {
     if (!canManage || actingInvitationId) return;
     setActingInvitationId(invitation.id);
-    setNotice(null);
     try {
       const response = await fetch(`/api/web/team/invitations/${encodeURIComponent(invitation.id)}`, {
         method: "DELETE",
@@ -151,12 +152,9 @@ export function TeamManagementPanel({
         item.id === payload.data!.id ? payload.data! : item
       ));
       if (lastInvite?.id === payload.data.id) setLastInvite(payload.data);
-      setNotice({ tone: "success", message: "초대를 철회했습니다." });
+      toast.success("초대를 철회했습니다.");
     } catch (error) {
-      setNotice({
-        tone: "danger",
-        message: error instanceof Error ? error.message : "초대를 철회하지 못했습니다.",
-      });
+      toast.error(error instanceof Error ? error.message : "초대를 철회하지 못했습니다.");
     } finally {
       setActingInvitationId(null);
     }
@@ -166,7 +164,6 @@ export function TeamManagementPanel({
     const nextRole = roleDrafts[member.userId];
     if (!canManage || !nextRole || nextRole === member.role || member.currentUser || member.role === "owner") return;
     setUpdatingUserId(member.userId);
-    setNotice(null);
     try {
       const response = await fetch(`/api/web/team/members/${encodeURIComponent(member.userId)}`, {
         method: "PATCH",
@@ -190,12 +187,9 @@ export function TeamManagementPanel({
           ...current.filter((event) => event.id !== payload.data!.roleChangeEvent!.id),
         ].slice(0, 12));
       }
-      setNotice({ tone: "success", message: "멤버 역할을 저장했습니다." });
+      toast.success("멤버 역할을 저장했습니다.");
     } catch (error) {
-      setNotice({
-        tone: "danger",
-        message: error instanceof Error ? error.message : "역할을 저장하지 못했습니다.",
-      });
+      toast.error(error instanceof Error ? error.message : "역할을 저장하지 못했습니다.");
     } finally {
       setUpdatingUserId(null);
     }
@@ -204,7 +198,7 @@ export function TeamManagementPanel({
   async function copyInviteUrl(inviteUrl: string | null | undefined = lastInvite?.inviteUrl) {
     if (!inviteUrl) return;
     await navigator.clipboard.writeText(inviteUrl);
-    setNotice({ tone: "success", message: "초대 링크를 복사했습니다." });
+    toast.success("초대 링크를 복사했습니다.");
   }
 
   return (
@@ -297,38 +291,48 @@ export function TeamManagementPanel({
           </div>
         ) : null}
 
-        {notice ? (
-          <FieldError className={notice.tone === "danger" ? "text-destructive" : "text-muted-foreground"}>
-            {notice.tone === "success" ? <Check aria-hidden /> : null}
-            {notice.message}
-          </FieldError>
-        ) : null}
       </div>
 
-      <div className="grid gap-3" aria-label="팀 멤버 목록">
-        {memberRows.map((member) => (
-          <div className="grid gap-3 rounded-[var(--radius-lg)] border bg-background p-4 md:grid-cols-[auto_minmax(0,1fr)_auto] md:items-center" key={member.userId}>
-            <div className="flex size-10 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground" aria-hidden>
-              {memberInitial(member)}
-            </div>
-            <div className="min-w-0">
-              <strong className="block truncate text-sm font-semibold text-foreground">{member.name}</strong>
-              <span className="mt-1 inline-flex items-center gap-1 text-sm text-muted-foreground">
-                <Mail aria-hidden />
-                {member.email ?? "이메일 없음"}
-              </span>
-            </div>
-            <MemberRoleControl
-              member={member}
-              canManage={canManage}
-              value={roleDrafts[member.userId] ?? "viewer"}
-              pending={updatingUserId === member.userId}
-              onValueChange={(value) => setRoleDrafts((current) => ({ ...current, [member.userId]: value }))}
-              onSave={() => updateRole(member)}
-            />
-          </div>
-        ))}
-      </div>
+      <Table aria-label="팀 멤버 목록">
+        <TableHeader>
+          <TableRow>
+            <TableHead>멤버</TableHead>
+            <TableHead className="text-right">역할</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {memberRows.map((member) => (
+            <TableRow key={member.userId}>
+              <TableCell>
+                <div className="flex items-center gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-muted-foreground" aria-hidden>
+                    {memberInitial(member)}
+                  </div>
+                  <div className="min-w-0">
+                    <strong className="block truncate text-sm font-semibold text-foreground">{member.name}</strong>
+                    <span className="mt-1 inline-flex items-center gap-1 text-sm text-muted-foreground">
+                      <Mail aria-hidden />
+                      {member.email ?? "이메일 없음"}
+                    </span>
+                  </div>
+                </div>
+              </TableCell>
+              <TableCell>
+                <div className="flex justify-end">
+                  <MemberRoleControl
+                    member={member}
+                    canManage={canManage}
+                    value={roleDrafts[member.userId] ?? "viewer"}
+                    pending={updatingUserId === member.userId}
+                    onValueChange={(value) => setRoleDrafts((current) => ({ ...current, [member.userId]: value }))}
+                    onSave={() => updateRole(member)}
+                  />
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
 
       {invitationRows.length > 0 ? (
         <details className="rounded-[var(--radius-lg)] border bg-background">

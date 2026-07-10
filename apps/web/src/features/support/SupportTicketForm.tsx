@@ -2,7 +2,9 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { CheckCircle2, Loader2, Mail, Paperclip, Send } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -125,6 +127,7 @@ export function SupportTicketForm({
         })
         : null;
       setReceipt(payload.data);
+      toast.success(`문의가 접수되었습니다. 접수번호 ${payload.data.id}`);
       setHandoffSnapshot({
         ...submitted,
         ticketId: payload.data.id,
@@ -275,9 +278,9 @@ export function SupportTicketForm({
           </FieldGroup>
 
           {error ? (
-            <div className="text-sm text-destructive" role="alert">
-              {error}
-            </div>
+            <Alert variant="destructive">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
           ) : null}
 
           {receipt ? (

@@ -2,6 +2,7 @@
 
 import { Coins, X } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
@@ -74,17 +75,19 @@ export function CreditChargeToast({
             : "사용 내역은 내 계정 · 사용량에서 확인할 수 있습니다."}
         </span>
       </div>
-      <button
+      <Button
+        variant="ghost"
+        size="icon-sm"
         type="button"
         onClick={() => {
           setLeaving(true);
           setTimeout(() => onDismiss?.(), 180);
         }}
-        className="ml-auto shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        className="ml-auto shrink-0 text-muted-foreground"
         aria-label="닫기"
       >
-        <X className="size-4" aria-hidden="true" />
-      </button>
+        <X aria-hidden="true" />
+      </Button>
     </div>
   );
 }

@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, Loader2, UserRound } from "lucide-react";
+import { Loader2, UserRound } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -25,14 +25,12 @@ export function AccountProfilePanel({
   const [savedName, setSavedName] = useState(initialName ?? "");
   const [name, setName] = useState(initialName ?? "");
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const normalizedName = name.replace(/\s+/g, " ").trim();
   const savedNormalizedName = savedName.replace(/\s+/g, " ").trim();
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setMessage(null);
     setError(null);
     setPending(true);
 
@@ -50,7 +48,7 @@ export function AccountProfilePanel({
       const nextName = payload.data?.name ?? "";
       setSavedName(nextName);
       setName(nextName);
-      setMessage(nextName ? "표시 이름을 저장했습니다." : "표시 이름을 비웠습니다.");
+      toast.success(nextName ? "표시 이름을 저장했습니다." : "표시 이름을 비웠습니다.");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "프로필을 저장하지 못했습니다.");
     } finally {
@@ -94,14 +92,6 @@ export function AccountProfilePanel({
             {pending ? "저장 중" : "저장"}
           </Button>
         </form>
-
-        {message ? (
-          <Alert className="mt-4" aria-live="polite">
-            <CheckCircle2 data-icon="inline-start" />
-            <AlertDescription>{message}</AlertDescription>
-          </Alert>
-        ) : null}
-
       </CardContent>
     </Card>
   );

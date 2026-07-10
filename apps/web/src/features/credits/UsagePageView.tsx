@@ -20,8 +20,18 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
@@ -248,38 +258,43 @@ function UsageTab({ onSummary }: { onSummary: (u: CreditUsageListDto) => void })
     <div className="flex flex-col gap-4">
       {/* 필터 바 + CSV */}
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          시작일
-          <input
+        <Field className="w-auto">
+          <FieldLabel htmlFor="usage-filter-from">시작일</FieldLabel>
+          <Input
+            id="usage-filter-from"
             type="date"
             value={from}
             onChange={(e) => setFrom(e.target.value)}
-            className="h-9 rounded-[var(--radius-md)] border bg-background px-2 text-sm text-foreground"
+            className="h-9 w-auto"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          종료일
-          <input
+        </Field>
+        <Field className="w-auto">
+          <FieldLabel htmlFor="usage-filter-to">종료일</FieldLabel>
+          <Input
+            id="usage-filter-to"
             type="date"
             value={to}
             onChange={(e) => setTo(e.target.value)}
-            className="h-9 rounded-[var(--radius-md)] border bg-background px-2 text-sm text-foreground"
+            className="h-9 w-auto"
           />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          기능
-          <select
-            value={feature}
-            onChange={(e) => setFeature(e.target.value)}
-            className="h-9 rounded-[var(--radius-md)] border bg-background px-2 text-sm text-foreground"
-          >
-            {FEATURE_FILTER_OPTIONS.map((o) => (
-              <option key={o.code} value={o.code}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        </Field>
+        <Field className="w-auto">
+          <FieldLabel htmlFor="usage-filter-feature">기능</FieldLabel>
+          <Select value={feature} onValueChange={(value) => setFeature(value ?? "")}>
+            <SelectTrigger id="usage-filter-feature" className="h-9 w-auto">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                {FEATURE_FILTER_OPTIONS.map((o) => (
+                  <SelectItem key={o.code} value={o.code}>
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </Field>
         <a
           href={exportHref}
           className={buttonVariants({ variant: "outline", size: "sm", className: "ml-auto" })}
@@ -359,15 +374,17 @@ function UsageRow({ event }: { event: CreditUsageEventDto }) {
       {/* 상세 토글 — 토큰/모델은 여기에만 노출(기본 테이블 금지 규약) */}
       {hasDetail ? (
         <div>
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => setOpen((v) => !v)}
-            className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+            className="h-auto w-fit gap-1 px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
             aria-expanded={open}
           >
             상세 {open ? "숨기기" : "보기"}
             <ChevronDown className={cn("size-3.5 transition-transform", open ? "rotate-180" : "")} aria-hidden="true" />
-          </button>
+          </Button>
           {open ? (
             <dl className="mt-2 grid grid-cols-2 gap-x-6 gap-y-1 rounded-[var(--radius-md)] bg-muted/40 p-3 text-xs sm:grid-cols-4">
               <DetailCell label="모델" value={event.model ?? "-"} />
@@ -530,14 +547,16 @@ function LedgerTab() {
         </CardContent>
       </Card>
       {hasMore ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => void load(cursor)}
           disabled={loadingMore}
-          className={buttonVariants({ variant: "outline", size: "sm", className: "self-center" })}
+          className="self-center"
         >
           {loadingMore ? "불러오는 중…" : "더 보기"}
-        </button>
+        </Button>
       ) : null}
     </div>
   );
@@ -642,14 +661,16 @@ function PaymentsTab() {
         </CardContent>
       </Card>
       {hasMore ? (
-        <button
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={() => void load(cursor)}
           disabled={loadingMore}
-          className={buttonVariants({ variant: "outline", size: "sm", className: "self-center" })}
+          className="self-center"
         >
           {loadingMore ? "불러오는 중…" : "더 보기"}
-        </button>
+        </Button>
       ) : null}
     </div>
   );

@@ -5,6 +5,16 @@ import { AlertTriangle, CheckCircle2, Loader2, Mail, Send } from "lucide-react";
 import type { ActionResult } from "@cunote/contracts";
 import type { AccountDeletionRequestHistoryItem } from "@/lib/server/account/accountDeletionRequestHistory";
 import { StatusBadge } from "@/components/app/status-badge";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -32,19 +42,25 @@ export function AccountDeletionRequestPanel({
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<"email" | "confirmation" | null>(null);
   const [receipt, setReceipt] = useState<SupportTicketReceipt | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function requestConfirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setPending(true);
     setError(null);
     setErrorField(null);
     setReceipt(null);
     if (confirmation.trim() !== "삭제 요청") {
-      setPending(false);
       setErrorField("confirmation");
       setError("확인 문구에 '삭제 요청'을 정확히 입력해주세요.");
       return;
     }
+    setConfirmOpen(true);
+  }
+
+  async function runDeletionRequest() {
+    setPending(true);
+    setError(null);
+    setErrorField(null);
     try {
       const response = await fetch("/api/web/account/deletion-request", {
         method: "POST",
@@ -64,8 +80,10 @@ export function AccountDeletionRequestPanel({
       setReceipt(payload.data);
       setReason("");
       setConfirmation("");
+      setConfirmOpen(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "삭제 요청을 접수하지 못했습니다.");
+      setConfirmOpen(false);
     } finally {
       setPending(false);
     }
@@ -85,7 +103,7 @@ export function AccountDeletionRequestPanel({
           <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>즉시 계정을 삭제하지 않고 개인정보 요청 티켓으로 접수합니다. 운영팀이 보존 대상과 회사 접근권한을 확인합니다.</span>
         </div>
-        <form className="flex flex-col gap-4" onSubmit={(event) => void submit(event)}>
+        <form className="flex flex-col gap-4" onSubmit={requestConfirm}>
           <FieldGroup>
             <Field>
               <FieldLabel htmlFor="account-deletion-email">처리 결과를 받을 이메일</FieldLabel>
@@ -187,6 +205,27 @@ export function AccountDeletionRequestPanel({
           )}
         </div>
       </CardContent>
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>계정 데이터 삭제 요청을 접수할까요?</AlertDialogTitle>
+            <AlertDialogDescription>
+              즉시 삭제하지 않고 개인정보 요청 티켓으로 접수합니다. 운영팀이 보존 대상과 회사 접근권한을 확인한 뒤 처리하며, 결과는 {contactEmail || "입력한 이메일"}로 안내됩니다.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={pending}
+              onClick={() => void runDeletionRequest()}
+            >
+              {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <Send data-icon="inline-start" />}
+              삭제 요청 접수
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CheckCircle2, Loader2, Send, ShieldCheck } from "lucide-react";
+import { Loader2, Send, ShieldCheck } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Field,
@@ -62,14 +64,12 @@ export function BillingPlanRequestForm({
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [receipt, setReceipt] = useState<BillingPlanRequestReceipt | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canRequest) return;
     setPending(true);
     setError(null);
-    setReceipt(null);
     try {
       const response = await fetch("/api/web/billing/plan-request", {
         method: "POST",
@@ -87,7 +87,7 @@ export function BillingPlanRequestForm({
       if (!response.ok || !payload.ok || !payload.data) {
         throw new Error(payload.error?.message ?? "플랜 전환 요청을 접수하지 못했습니다.");
       }
-      setReceipt(payload.data);
+      toast.success(`전환 요청 접수번호 ${payload.data.id}`);
       setMessage("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "플랜 전환 요청을 접수하지 못했습니다.");
@@ -206,15 +206,9 @@ export function BillingPlanRequestForm({
       </FieldGroup>
 
       {error ? (
-        <div className="rounded-[var(--radius-lg)] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">
-          {error}
-        </div>
-      ) : null}
-      {receipt ? (
-        <div className="flex items-center gap-2 rounded-[var(--radius-lg)] border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary" role="status">
-          <CheckCircle2 className="size-4" aria-hidden />
-          <span>전환 요청 접수번호 {receipt.id}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
       ) : null}
 
       <Button type="submit" disabled={pending}>

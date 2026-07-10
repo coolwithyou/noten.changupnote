@@ -14,7 +14,18 @@ import { useEffect, useMemo, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
+import { FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Table,
+  TableBody,
+  TableCaption,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { StatusBadge } from "@/components/app/status-badge";
 import { requestIssueBillingKey } from "@/features/credits/portoneBrowser";
 
@@ -253,12 +264,12 @@ function ExpiryConsent({
           onCheckedChange={(v) => onChange(v === true)}
         />
         <div className="min-w-0 flex-1">
-          <label
+          <FieldLabel
             htmlFor="plan-expiry-consent"
             className="block text-[13px] font-semibold leading-[1.45] text-foreground"
           >
             지급 크레딧은 60일 후 소멸됩니다. 이에 동의합니다.
-          </label>
+          </FieldLabel>
           <p
             id="plan-expiry-consent-description"
             className="mt-1 text-[12px] leading-[1.55] text-muted-foreground"
@@ -406,15 +417,21 @@ function PlanCta({
   }
   // 구독 없음 → 구독하기(소멸 동의 + 빌링키 발급).
   return (
-    <Button
-      onClick={onSubscribe}
-      disabled={disabled || !paymentReady}
-      aria-busy={pending}
-      className="w-full"
-      title={!paymentReady ? "결제 준비 중" : undefined}
-    >
-      {pending ? <Spinner /> : paymentReady ? "구독하기" : "결제 준비 중"}
-    </Button>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            onClick={onSubscribe}
+            disabled={disabled || !paymentReady}
+            aria-busy={pending}
+            className="w-full"
+          >
+            {pending ? <Spinner /> : paymentReady ? "구독하기" : "결제 준비 중"}
+          </Button>
+        }
+      />
+      {!paymentReady ? <TooltipContent>결제 준비 중</TooltipContent> : null}
+    </Tooltip>
   );
 }
 
@@ -464,35 +481,29 @@ function CreditExplainer({ plans }: { plans: CreditPlanDto[] }) {
       <CardContent>
         {usages.length > 0 ? (
           <div className="overflow-hidden rounded-[var(--radius-md)] border">
-            <table className="w-full text-sm">
-              <caption className="sr-only">기능별 예상 크레딧 소모량</caption>
-              <thead className="bg-muted/40 text-muted-foreground">
-                <tr>
-                  <th scope="col" className="px-4 py-2 text-left font-medium">
-                    기능
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    예상 소모
-                  </th>
-                  <th scope="col" className="px-4 py-2 text-right font-medium">
-                    월 예상 횟수
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="w-full text-sm">
+              <TableCaption className="sr-only">기능별 예상 크레딧 소모량</TableCaption>
+              <TableHeader className="bg-muted/40 text-muted-foreground">
+                <TableRow>
+                  <TableHead className="px-4 py-2 text-left font-medium">기능</TableHead>
+                  <TableHead className="px-4 py-2 text-right font-medium">예상 소모</TableHead>
+                  <TableHead className="px-4 py-2 text-right font-medium">월 예상 횟수</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {usages.map((u) => (
-                  <tr key={u.featureLabel} className="border-t">
-                    <td className="px-4 py-2 text-foreground">{u.featureLabel}</td>
-                    <td className="px-4 py-2 text-right text-muted-foreground">
+                  <TableRow key={u.featureLabel} className="border-t">
+                    <TableCell className="px-4 py-2 text-foreground">{u.featureLabel}</TableCell>
+                    <TableCell className="px-4 py-2 text-right text-muted-foreground">
                       약 {u.approxCredits.toLocaleString("ko-KR")} 크레딧
-                    </td>
-                    <td className="px-4 py-2 text-right text-muted-foreground">
+                    </TableCell>
+                    <TableCell className="px-4 py-2 text-right text-muted-foreground">
                       약 {u.approxCount.toLocaleString("ko-KR")}회
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">기능별 예상 소모량 정보를 준비 중입니다.</p>
@@ -520,41 +531,33 @@ function TopupComparison({ products }: { products: CreditProductDto[] }) {
       </CardHeader>
       <CardContent>
         <div className="overflow-hidden rounded-[var(--radius-md)] border">
-          <table className="w-full text-sm">
-            <caption className="sr-only">충전 상품별 금액과 지급 크레딧</caption>
-            <thead className="bg-muted/40 text-muted-foreground">
-              <tr>
-                <th scope="col" className="px-4 py-2 text-left font-medium">
-                  상품
-                </th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">
-                  결제 금액
-                </th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">
-                  지급 크레딧
-                </th>
-                <th scope="col" className="px-4 py-2 text-right font-medium">
-                  보너스
-                </th>
-              </tr>
-            </thead>
-            <tbody>
+          <Table className="w-full text-sm">
+            <TableCaption className="sr-only">충전 상품별 금액과 지급 크레딧</TableCaption>
+            <TableHeader className="bg-muted/40 text-muted-foreground">
+              <TableRow>
+                <TableHead className="px-4 py-2 text-left font-medium">상품</TableHead>
+                <TableHead className="px-4 py-2 text-right font-medium">결제 금액</TableHead>
+                <TableHead className="px-4 py-2 text-right font-medium">지급 크레딧</TableHead>
+                <TableHead className="px-4 py-2 text-right font-medium">보너스</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {products.map((p) => (
-                <tr key={p.code} className="border-t">
-                  <td className="px-4 py-2 text-foreground">{p.name}</td>
-                  <td className="px-4 py-2 text-right text-muted-foreground">
+                <TableRow key={p.code} className="border-t">
+                  <TableCell className="px-4 py-2 text-foreground">{p.name}</TableCell>
+                  <TableCell className="px-4 py-2 text-right text-muted-foreground">
                     {p.amountKrw.toLocaleString("ko-KR")}원
-                  </td>
-                  <td className="px-4 py-2 text-right font-medium text-foreground">
+                  </TableCell>
+                  <TableCell className="px-4 py-2 text-right font-medium text-foreground">
                     {p.totalCredits.toLocaleString("ko-KR")}
-                  </td>
-                  <td className="px-4 py-2 text-right text-primary">
+                  </TableCell>
+                  <TableCell className="px-4 py-2 text-right text-primary">
                     {p.bonusCredits > 0 ? `+${p.bonusCredits.toLocaleString("ko-KR")}` : "-"}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </CardContent>
     </Card>

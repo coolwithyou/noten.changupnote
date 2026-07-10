@@ -3,6 +3,7 @@
 import type { ActionResult, CreditEstimateDto } from "@cunote/contracts";
 import { Coins } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /**
@@ -65,22 +66,28 @@ export function CreditEstimateBadge({
   const insufficient = !estimate.sufficient;
 
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
-        insufficient
-          ? "border-amber-500/40 bg-amber-500/15 text-amber-600"
-          : "border-border bg-muted/40 text-muted-foreground",
-        className,
-      )}
-      title="이 작업에 소모될 예상 크레딧입니다."
-    >
-      <Coins className="size-3.5" aria-hidden="true" />
-      <span>
-        예상 약 {estimate.estimatedCredits.toLocaleString("ko-KR")} 크레딧 · 잔액{" "}
-        {estimate.available.toLocaleString("ko-KR")}
-      </span>
-      {insufficient ? <span className="font-semibold">(부족)</span> : null}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
+              insufficient
+                ? "border-amber-500/40 bg-amber-500/15 text-amber-600"
+                : "border-border bg-muted/40 text-muted-foreground",
+              className,
+            )}
+          />
+        }
+      >
+        <Coins className="size-3.5" aria-hidden="true" />
+        <span>
+          예상 약 {estimate.estimatedCredits.toLocaleString("ko-KR")} 크레딧 · 잔액{" "}
+          {estimate.available.toLocaleString("ko-KR")}
+        </span>
+        {insufficient ? <span className="font-semibold">(부족)</span> : null}
+      </TooltipTrigger>
+      <TooltipContent>이 작업에 소모될 예상 크레딧입니다.</TooltipContent>
+    </Tooltip>
   );
 }

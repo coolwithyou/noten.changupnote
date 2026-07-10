@@ -8,6 +8,7 @@ import type {
 } from "@cunote/contracts";
 import { AlertTriangle, Coins, Sparkles } from "lucide-react";
 import { useEffect, useState } from "react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
@@ -97,13 +98,10 @@ export function CreditsPurchasePanel() {
       ) : null}
 
       {checkoutError ? (
-        <div
-          role="alert"
-          className="flex items-center gap-2 rounded-[var(--radius-md)] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-        >
-          <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-          <span>{checkoutError}</span>
-        </div>
+        <Alert variant="destructive">
+          <AlertTriangle aria-hidden="true" />
+          <AlertDescription>{checkoutError}</AlertDescription>
+        </Alert>
       ) : null}
 
       <section aria-label="충전 상품" className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

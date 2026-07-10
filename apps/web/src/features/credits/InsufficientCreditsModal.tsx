@@ -1,9 +1,18 @@
 "use client";
 
 import type { ActionResult, CreditProductListDto } from "@cunote/contracts";
-import { AlertTriangle, ArrowRight, X } from "lucide-react";
+import { AlertTriangle, ArrowRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 /**
  * 402 insufficient_credits 메타(설계 6.4).
@@ -75,16 +84,6 @@ export function InsufficientCreditsModal({
     };
   }, [meta]);
 
-  // ESC 로 닫기.
-  useEffect(() => {
-    if (!meta) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [meta, onClose]);
-
   // 부족량 이상 최소 상품(totalCredits 기준). 없으면 가장 큰 상품.
   const recommended = useMemo(() => {
     if (!meta || products.length === 0) return null;
@@ -95,43 +94,21 @@ export function InsufficientCreditsModal({
   if (!meta) return null;
 
   return (
-    <div
-      className="fixed inset-0 z-[70] flex items-center justify-center bg-foreground/40 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="insufficient-credits-title"
-      onClick={onClose}
-    >
-      <div
-        className="flex w-full max-w-md flex-col gap-4 rounded-[var(--radius-xl)] border bg-card p-6 text-card-foreground shadow-[var(--shadow-subtle)]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-3">
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="flex flex-col gap-4 sm:max-w-md">
+        <DialogHeader>
           <span
             className="flex size-10 shrink-0 items-center justify-center rounded-full bg-amber-500/15 text-amber-600"
             aria-hidden="true"
           >
             <AlertTriangle className="size-5" />
           </span>
-          <button
-            type="button"
-            onClick={onClose}
-            className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="닫기"
-          >
-            <X className="size-4" aria-hidden="true" />
-          </button>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <h2 id="insufficient-credits-title" className="text-lg font-semibold text-foreground">
-            크레딧이 부족합니다
-          </h2>
-          <p className="text-sm leading-6 text-muted-foreground">
+          <DialogTitle className="text-lg">크레딧이 부족합니다</DialogTitle>
+          <DialogDescription className="leading-6">
             이 작업을 완료하려면 <strong className="text-foreground">{meta.shortfall.toLocaleString("ko-KR")} 크레딧</strong>이
             더 필요합니다. 크레딧을 충전한 뒤 다시 시도해 주세요.
-          </p>
-        </div>
+          </DialogDescription>
+        </DialogHeader>
 
         <dl className="grid grid-cols-3 gap-2 rounded-[var(--radius-lg)] border bg-muted/40 p-3 text-center">
           <MetaCell label="필요" value={meta.required} tone="foreground" />
@@ -161,7 +138,7 @@ export function InsufficientCreditsModal({
           </div>
         ) : null}
 
-        <div className="flex flex-col gap-2 sm:flex-row-reverse">
+        <DialogFooter>
           <a
             href={recommended ? `/credits?product=${encodeURIComponent(recommended.code)}` : "/credits"}
             className={buttonVariants({ className: "w-full sm:w-auto" })}
@@ -169,12 +146,12 @@ export function InsufficientCreditsModal({
             크레딧 충전하기
             <ArrowRight data-icon="inline-end" />
           </a>
-          <Button variant="outline" className="w-full sm:w-auto" onClick={onClose}>
+          <DialogClose render={<Button variant="outline" className="w-full sm:w-auto" />}>
             나중에
-          </Button>
-        </div>
-      </div>
-    </div>
+          </DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { ExternalLink, FileCheck2, Loader2, Trash2, UploadCloud } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import type {
   BillingTaxDocumentArchiveResult,
@@ -41,18 +42,15 @@ export function BillingTaxDocumentsPanel({
   const [documentKind, setDocumentKind] = useState<BillingTaxDocumentKind>("business_registration");
   const [pending, setPending] = useState(false);
   const [pendingArchiveId, setPendingArchiveId] = useState<string | null>(null);
-  const [feedback, setFeedback] = useState<{ tone: "success" | "warning" | "danger"; message: string } | null>(null);
-
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canUpdate) return;
     const file = fileInputRef.current?.files?.[0] ?? null;
     if (!file) {
-      setFeedback({ tone: "danger", message: "업로드할 파일을 선택해주세요." });
+      toast.error("업로드할 파일을 선택해주세요.");
       return;
     }
     setPending(true);
-    setFeedback(null);
     try {
       const formData = new FormData();
       formData.set("documentKind", documentKind);
@@ -69,15 +67,13 @@ export function BillingTaxDocumentsPanel({
         setDocuments((current) => [payload.data!.document!, ...current.filter((item) => item.id !== payload.data!.document!.id)]);
       }
       if (fileInputRef.current) fileInputRef.current.value = "";
-      setFeedback({
-        tone: payload.data.persisted ? "success" : "warning",
-        message: payload.data.message,
-      });
+      if (payload.data.persisted) {
+        toast.success(payload.data.message);
+      } else {
+        toast.warning(payload.data.message);
+      }
     } catch (caught) {
-      setFeedback({
-        tone: "danger",
-        message: caught instanceof Error ? caught.message : "청구 증빙 파일을 업로드하지 못했습니다.",
-      });
+      toast.error(caught instanceof Error ? caught.message : "청구 증빙 파일을 업로드하지 못했습니다.");
     } finally {
       setPending(false);
     }
@@ -86,7 +82,6 @@ export function BillingTaxDocumentsPanel({
   async function archiveDocument(document: BillingTaxDocumentItem) {
     if (!canUpdate) return;
     setPendingArchiveId(document.id);
-    setFeedback(null);
     try {
       const response = await fetch(`/api/web/billing/tax-documents/${encodeURIComponent(document.id)}`, {
         method: "DELETE",
@@ -97,15 +92,12 @@ export function BillingTaxDocumentsPanel({
       }
       if (payload.data.persisted) {
         setDocuments((current) => current.filter((item) => item.id !== document.id));
-        setFeedback({ tone: "success", message: "청구 증빙 파일을 보관 해제했습니다." });
+        toast.success("청구 증빙 파일을 보관 해제했습니다.");
       } else {
-        setFeedback({ tone: "warning", message: "DB 연결 전이라 보관 해제를 임시 응답으로 처리했습니다." });
+        toast.warning("DB 연결 전이라 보관 해제를 임시 응답으로 처리했습니다.");
       }
     } catch (caught) {
-      setFeedback({
-        tone: "danger",
-        message: caught instanceof Error ? caught.message : "청구 증빙 파일을 보관 해제하지 못했습니다.",
-      });
+      toast.error(caught instanceof Error ? caught.message : "청구 증빙 파일을 보관 해제하지 못했습니다.");
     } finally {
       setPendingArchiveId(null);
     }
@@ -147,18 +139,6 @@ export function BillingTaxDocumentsPanel({
             </Field>
           </div>
         </FieldGroup>
-        {feedback ? (
-          <div
-            className={
-              feedback.tone === "danger"
-                ? "rounded-[var(--radius-lg)] border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-                : "rounded-[var(--radius-lg)] border border-primary/20 bg-primary/10 px-4 py-3 text-sm text-primary"
-            }
-            role="status"
-          >
-            {feedback.message}
-          </div>
-        ) : null}
         <Button type="submit" disabled={!canUpdate || pending}>
           {pending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : <UploadCloud data-icon="inline-start" />}
           증빙 파일 보관

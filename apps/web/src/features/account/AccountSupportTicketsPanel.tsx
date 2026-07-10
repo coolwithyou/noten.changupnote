@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CheckCircle2, Download, LifeBuoy, MessageSquareReply, Paperclip, RotateCcw, Send, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import type {
   AccountSupportTicketItem,
@@ -24,16 +25,14 @@ export function AccountSupportTicketsPanel({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [pendingAttachmentId, setPendingAttachmentId] = useState<string | null>(null);
   const [pendingStatusId, setPendingStatusId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
 
   async function submitReply(ticketId: string) {
     const body = drafts[ticketId]?.trim();
     if (!body) {
-      setNotice("답장 내용을 입력해주세요.");
+      toast.error("답장 내용을 입력해주세요.");
       return;
     }
     setPendingId(ticketId);
-    setNotice(null);
     try {
       const response = await fetch(`/api/web/support/tickets/${encodeURIComponent(ticketId)}/messages`, {
         method: "POST",
@@ -48,9 +47,9 @@ export function AccountSupportTicketsPanel({
         ticket.id === ticketId ? appendMessage(ticket, payload.data!) : ticket
       ));
       setDrafts((current) => ({ ...current, [ticketId]: "" }));
-      setNotice("답장을 저장했습니다.");
+      toast.success("답장을 저장했습니다.");
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "답장을 저장하지 못했습니다.");
+      toast.error(error instanceof Error ? error.message : "답장을 저장하지 못했습니다.");
     } finally {
       setPendingId(null);
     }
@@ -58,7 +57,6 @@ export function AccountSupportTicketsPanel({
 
   async function archiveAttachment(ticketId: string, attachmentId: string) {
     setPendingAttachmentId(attachmentId);
-    setNotice(null);
     try {
       const response = await fetch(
         `/api/web/support/tickets/${encodeURIComponent(ticketId)}/attachments/${encodeURIComponent(attachmentId)}`,
@@ -80,9 +78,9 @@ export function AccountSupportTicketsPanel({
           }
           : ticket
       ));
-      setNotice(payload.data.message);
+      toast.success(payload.data.message);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "첨부 파일 보관 상태를 변경하지 못했습니다.");
+      toast.error(error instanceof Error ? error.message : "첨부 파일 보관 상태를 변경하지 못했습니다.");
     } finally {
       setPendingAttachmentId(null);
     }
@@ -90,7 +88,6 @@ export function AccountSupportTicketsPanel({
 
   async function updateStatus(ticketId: string, action: "resolve" | "reopen") {
     setPendingStatusId(ticketId);
-    setNotice(null);
     try {
       const response = await fetch(`/api/web/support/tickets/${encodeURIComponent(ticketId)}`, {
         method: "PATCH",
@@ -110,9 +107,9 @@ export function AccountSupportTicketsPanel({
           }
           : ticket
       ));
-      setNotice(payload.data.message);
+      toast.success(payload.data.message);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "문의 상태를 저장하지 못했습니다.");
+      toast.error(error instanceof Error ? error.message : "문의 상태를 저장하지 못했습니다.");
     } finally {
       setPendingStatusId(null);
     }
@@ -264,12 +261,6 @@ export function AccountSupportTicketsPanel({
             ))}
           </div>
         )}
-        {notice ? (
-          <p className="inline-flex items-center gap-2 rounded-[var(--radius-lg)] border bg-muted/30 px-3 py-2 text-sm text-foreground">
-            <CheckCircle2 aria-hidden />
-            {notice}
-          </p>
-        ) : null}
       </CardContent>
     </Card>
   );

@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface WebCompaniesResult {
   currentCompanyId: string;
@@ -427,25 +428,37 @@ export function CompanySettingsPanel() {
                 onChange={(event) => setOpenedOn(event.currentTarget.value)}
               />
             </Field>
-            <Button
-              type="button"
-              disabled={busyKey === "enrich" || busyKey === "verify" || !basicInfoConsent}
-              onClick={() => void enrichCompany()}
-              title="저장된 결과를 먼저 확인하고, 없을 때만 회사정보 보강을 시도합니다."
-            >
-              {busyKey === "enrich" ? <Spinner data-icon="inline-start" /> : null}
-              {busyKey === "enrich" ? "확인 중" : "캐시 확인 후 보강"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busyKey === "enrich" || busyKey === "verify"}
-              onClick={() => void verifyCompany()}
-              title="대표자명과 개업일로 회사 소유권을 검증합니다."
-            >
-              {busyKey === "verify" ? <Spinner data-icon="inline-start" /> : null}
-              {busyKey === "verify" ? "검증 중" : "소유권 검증"}
-            </Button>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    disabled={busyKey === "enrich" || busyKey === "verify" || !basicInfoConsent}
+                    onClick={() => void enrichCompany()}
+                  >
+                    {busyKey === "enrich" ? <Spinner data-icon="inline-start" /> : null}
+                    {busyKey === "enrich" ? "확인 중" : "캐시 확인 후 보강"}
+                  </Button>
+                }
+              />
+              <TooltipContent>저장된 결과를 먼저 확인하고, 없을 때만 회사정보 보강을 시도합니다.</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={busyKey === "enrich" || busyKey === "verify"}
+                    onClick={() => void verifyCompany()}
+                  >
+                    {busyKey === "verify" ? <Spinner data-icon="inline-start" /> : null}
+                    {busyKey === "verify" ? "검증 중" : "소유권 검증"}
+                  </Button>
+                }
+              />
+              <TooltipContent>대표자명과 개업일로 회사 소유권을 검증합니다.</TooltipContent>
+            </Tooltip>
           </div>
           {lastEvidence ? <CompanyEvidenceSummary evidence={lastEvidence} compact /> : null}
         </div>
