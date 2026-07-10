@@ -15,6 +15,7 @@ import { CircleAlert, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import type { GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 
@@ -122,17 +123,16 @@ export function GrantLessonGuide({ guide }: { guide: GrantLessonGuideDto }) {
           </section>
         ))}
 
+        {/* "전체 보기" 는 그룹 경계를 가로지르는 prefix 슬라이스라 단순 show/hide 가 아니다.
+            상태는 그대로 두고(재슬라이스) Collapsible 로 트리거만 shadcn 화 — CollapsibleContent 미사용. */}
         {collapsible ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((prev) => !prev)}
-            aria-expanded={expanded}
-            className="justify-self-start text-sm font-medium text-primary underline-offset-4 hover:underline"
-          >
-            {expanded
-              ? "접기"
-              : `유의사항 ${guide.total.toLocaleString("ko-KR")}건 전체 보기`}
-          </button>
+          <Collapsible open={expanded} onOpenChange={setExpanded} className="justify-self-start">
+            <CollapsibleTrigger className="text-sm font-medium text-primary underline-offset-4 hover:underline">
+              {expanded
+                ? "접기"
+                : `유의사항 ${guide.total.toLocaleString("ko-KR")}건 전체 보기`}
+            </CollapsibleTrigger>
+          </Collapsible>
         ) : null}
 
         <p className="border-t pt-3 text-xs leading-5 text-muted-foreground">

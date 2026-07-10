@@ -14,6 +14,7 @@ import { useState } from "react";
 import { CircleAlert, Lightbulb } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Collapsible, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import type { FieldLessonTip } from "@/lib/server/knowledge/lessonContext";
 
@@ -78,15 +79,14 @@ export function FieldLessonTips({ tips }: { tips: FieldLessonTip[] }) {
           );
         })}
       </ul>
+      {/* "더 보기/근거 보기" 는 표시 팁 집합을 재계산(첫 팁↔전체 + 근거 노출)하는 show-more 라
+          단순 토글이 아니다. 상태는 유지하고 Collapsible 로 트리거만 shadcn 화 — CollapsibleContent 미사용. */}
       {canToggle ? (
-        <button
-          type="button"
-          onClick={() => setExpanded((prev) => !prev)}
-          aria-expanded={expanded}
-          className="justify-self-start text-xs font-medium text-amber-700 underline-offset-4 hover:underline dark:text-amber-400"
-        >
-          {expanded ? "접기" : hasMore ? `팁 ${extraCount.toLocaleString("ko-KR")}개 더 보기` : "근거 보기"}
-        </button>
+        <Collapsible open={expanded} onOpenChange={setExpanded} className="justify-self-start">
+          <CollapsibleTrigger className="text-xs font-medium text-amber-700 underline-offset-4 hover:underline dark:text-amber-400">
+            {expanded ? "접기" : hasMore ? `팁 ${extraCount.toLocaleString("ko-KR")}개 더 보기` : "근거 보기"}
+          </CollapsibleTrigger>
+        </Collapsible>
       ) : null}
     </div>
   );

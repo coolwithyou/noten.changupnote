@@ -185,16 +185,19 @@ export function PreviewCanvas({
               const active = field.fieldId === selectedFieldId;
               const tone = OVERLAY_STATE_CLASS[field.state];
               return (
-                <button
+                <Button
                   key={field.fieldId}
-                  type="button"
+                  variant="ghost"
                   onClick={() => onSelectField(field.fieldId)}
                   title={field.label}
                   aria-label={field.label}
                   className={cn(
-                    "absolute rounded-[3px] transition-colors",
+                    // 상태색(미입력/제안/확정/확인 필요)이 오버레이의 본질이라 tone 색을 className 으로 덮어쓴다.
+                    // p-0 으로 버튼 기본 패딩만 제거하고, 위치·크기는 아래 동적 좌표 style 이 결정한다.
+                    "absolute rounded-[3px] p-0 transition-colors",
                     active ? tone.active : tone.base,
                   )}
+                  // 동적 좌표: 필드 bbox(정규화 %)를 오버레이 위치/크기로 매핑한 계산값이라 인라인 style 유지.
                   style={boxToPercentStyle(field.box)}
                 />
               );
