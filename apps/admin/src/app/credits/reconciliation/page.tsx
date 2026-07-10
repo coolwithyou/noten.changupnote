@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getOptionalAdminSession } from "@/lib/server/auth/adminSession";
 import { getAdminSql } from "@/lib/server/db/client";
 import { CreditsNav } from "../CreditsNav";
+import ReconcileRunButton from "./ReconcileRunButton";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -69,9 +70,7 @@ export default async function CreditReconciliationPage({
           <button className="ops-button" type="submit">
             필터
           </button>
-          <button className="ops-button ghost" type="button" disabled>
-            수동 재실행 (준비 중)
-          </button>
+          <ReconcileRunButton />
         </form>
 
         {rows.length === 0 ? (
@@ -111,7 +110,10 @@ export default async function CreditReconciliationPage({
             </table>
           </div>
         )}
-        <p className="ops-note">수동 재실행은 P7에서 구현 예정입니다.</p>
+        <p className="ops-note">
+          수동 재실행은 admin+ 권한이 필요합니다. 05:00 KST 일일 cron 이 5개 범위(원장·lot·hold·포트원·관리행위)를 자동
+          기록하며, 이 버튼은 즉시 재실행합니다.
+        </p>
       </section>
     </main>
   );
