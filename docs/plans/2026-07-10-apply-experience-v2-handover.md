@@ -2,8 +2,9 @@
 
 > **🟡 진행 상황 (매 세션 종료 시 이 블록만 갱신하고 커밋하라)**
 > - 설계 문서: `docs/plans/2026-07-09-apply-experience-v2.md` (레드팀 v2 반영 완료) — **단일 진실(Single Source of Truth)**
-> - 구현: **P0(`a92c3d2`) · P1(`5b0afcc`) · P2a(`bb4c2d9`) · P2b(`aa964fa`) · P2c(`4767389`) · P3(`ae3c226`) 완료** → 다음 작업 = **P4 착수 전 메인이 CALIBRATION Gate 3 등재 항목 재대조 수행·기록(§5-G1)** → P4(opus) 위임·검수(G)
-> - P3 검수 F 전건 통과(메인 직접 실측): 그라운딩 테스트 8종·실공고 실호출(인용 응답·리퓨절·인젝션 무시·2턴째 cache_read 4805)·Mode B(세션·usage 누적·KST 당일 합산)·부정 케이스(타사 sessionId 404·예산 429). 0039 마이그레이션 적용 완료. 설계 모순 2건 정정(§14 v2.3 — 절단 고지 dynamicContext·fieldContext per-메시지). 채팅 브라우저 UI 확인은 사용자 대기 목록에 추가
+> - 구현: **P0~P4 전 Phase 완료 (2026-07-10 단일 세션)** — P0(`a92c3d2`) · P1(`5b0afcc`) · P2a(`bb4c2d9`) · P2b(`aa964fa`) · P2c(`4767389`) · P3(`ae3c226`) · Gate3 재대조(`5981d40`) · P4(`42fdda2`). **P5·P6은 착수 금지 게이트 유지**(§3 — 채팅 v1 안정화 + trust gate 데이터 + 크레딧 matching_chat 등재 + 사용자 승인).
+> - 검수 요약: 전 Phase 메인 직접 실측 검수(A~G). 발견·수정 결함 — P2b D2(suggested Unfilled 미보고)·D1(파일명↔스토리지키 매칭). 설계 정정 — v2.1(P2-9 교차참조)·v2.3(절단 고지·fieldContext 배치)·v2.4(manual류 제안 금지·basis 실재 검증, Gate3 재대조). 마이그레이션 0038·0039 적용, 백필 완료.
+> - **잔여(다음 세션·사용자)**: ⓐ 브라우저 시각 확인 — P1 상세 / workspace (b)(c) / HWPX 미채움 안내 / P3 채팅(자동 오픈·인용 뱃지·프리필·generalNotice) / P4 제안 받기 (dev 서버는 사용자 소유) ⓑ 사다리 (a) 시각 확인은 리뷰팀 필드 승인 데이터 축적 후 ⓒ **배포는 사용자 합의 후**(P1~P4 한 묶음, CLAUDE.md Vercel CLI 절차 — 배포 전 Vercel 3환경에 신규 env 불요: 4종 전부 기본값 내장) ⓓ 알려진 한계 — basis 검증 v1(profile-basis 우회 가능, span 정렬 이월), 제안 usage가 채팅 세션 KPI에 소폭 혼입(P6-3에서 분리), 모바일 탭 전환 시 편집 상태 리셋(minor)
 > - P2 검수 이력: P2b 검수 D에서 결함 2건 발견·수정(D2 suggested Unfilled 미보고 / D1 파일명↔스토리지키 불일치로 사다리 전부 (c) 강등 — surface `source_attachment` 표현이 공고별 혼재해 이중 후보 매칭으로 흡수). P2c에서 구 컴포넌트 5파일 삭제(대조표 29항목 전수 처분, 코드 참조 잔재 0), /preview 리다이렉트(?document= 보존·?surface= 드롭), 구 뷰어(DocumentPreviewView·FieldInspectorPanel)는 import 0 확인 후 메인이 직접 삭제
 > - 잔여(비차단): ⓐ 사다리 (a) 시각 확인은 필드 검수 데이터 축적 후(DB에 fields_ready+연결필드 실데이터 0) ⓑ 모바일 탭 전환 시 편집 상태 리셋(minor) ⓒ P2-10 브라우저 검증(P1 상세·workspace (b)/(c)·HWPX 왕복)은 사용자 dev 서버 확인 대기
 > - P2a 비고: core `normalizeLabel` export 승인. representative_name·biz_no는 CompanyProfile에 소스 부재로 시드 제외
