@@ -42,6 +42,8 @@ export async function GET(request: Request) {
       write: true,
       compareDb: true,
       skipUnchanged: true,
+      // 증분 크론은 강제 재발행 안 함(변경분만). 전량 재추출 백필은 CLI --force-republish 로 별도 실행.
+      forceRepublish: false,
       // 키가 없으면 text-only 폴백으로 criteria 추출을 그레이스풀하게 진행(엔트리 하드 실패 대신 needs_review 발행).
       allowTextOnlyFallback: true,
       extractionMode: "auto",

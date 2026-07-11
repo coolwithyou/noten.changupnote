@@ -19,6 +19,8 @@ const sourceId = readArg("sourceId") ?? process.env.CUNOTE_BIZINFO_ARCHIVE_SOURC
 const write = hasFlag("write") || process.env.CUNOTE_BIZINFO_ARCHIVE_WRITE === "true";
 const compareDb = write || hasFlag("compare-db") || process.env.CUNOTE_BIZINFO_ARCHIVE_COMPARE_DB === "true";
 const skipUnchanged = !hasFlag("publish-unchanged") && process.env.CUNOTE_BIZINFO_ARCHIVE_PUBLISH_UNCHANGED !== "true";
+// 강제 재발행(Minor-6, P5 백필): raw_hash 불변이어도 전량 재추출·재발행. 백필 전용 의도 명시.
+const forceRepublish = hasFlag("force-republish") || process.env.CUNOTE_BIZINFO_ARCHIVE_FORCE_REPUBLISH === "true";
 const allowTextOnlyFallback = hasFlag("allow-text-only-fallback") ||
   process.env.CUNOTE_BIZINFO_ARCHIVE_ALLOW_TEXT_ONLY_FALLBACK === "true";
 const extractionMode = readEnum(
@@ -53,6 +55,7 @@ try {
     write,
     compareDb,
     skipUnchanged,
+    forceRepublish,
     allowTextOnlyFallback,
     extractionMode,
     archiveAttachments,
@@ -128,6 +131,7 @@ Options:
   --compare-db
   --write
   --publish-unchanged
+  --force-republish                  Re-extract & re-publish even when raw_hash unchanged (P5 backfill; Minor-6)
   --extraction=auto|anthropic|text_only
   --allow-text-only-fallback
   --archive-attachments

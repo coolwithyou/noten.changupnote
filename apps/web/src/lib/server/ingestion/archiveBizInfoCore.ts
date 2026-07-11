@@ -39,6 +39,14 @@ export interface ArchiveBizInfoInput {
   write: boolean;
   compareDb: boolean;
   skipUnchanged: boolean;
+  /**
+   * 강제 재발행(Minor-6, P5 백필). 재정규화·재추출 백필 시 raw_hash 불변이면
+   * skipUnchanged 로 건너뛰는 문제를 해소한다. true 면 unchanged 공고도 재추출·재발행 대상에 포함.
+   * 교체 시맨틱은 publisher 의 grant별 delete-insert 로 보장되므로 안전(중복 누적 없음).
+   * skipUnchanged 와 독립적으로 OR 게이트에 참여한다(--publish-unchanged 와 의미상 동치이나,
+   * 백필 전용 의도를 명시하기 위한 별도 플래그).
+   */
+  forceRepublish: boolean;
   allowTextOnlyFallback: boolean;
   extractionMode: "auto" | "anthropic" | "text_only";
   archiveAttachments: boolean;
@@ -117,6 +125,7 @@ export async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<Archiv
   const existingHashes = input.db ? await readExistingGrantRawHashes(input.db, selectedPrograms) : [];
   const rawPlan = planRawPrograms(selectedPrograms, existingHashes, {
     skipUnchanged: input.skipUnchanged,
+    forceRepublish: input.forceRepublish,
     archiveAttachments: input.archiveAttachments,
   });
   const extractionCandidates = selectedPrograms.filter((program) =>
@@ -395,7 +404,7 @@ interface ExistingBizInfoRawState extends ExistingGrantRawHash {
 function planRawPrograms(
   programs: BizInfoProgram[],
   existingHashes: ExistingBizInfoRawState[],
-  options: { skipUnchanged: boolean; archiveAttachments: boolean },
+  options: { skipUnchanged: boolean; forceRepublish: boolean; archiveAttachments: boolean },
 ): Pick<
   GrantArchivePlan,
   "newCount" | "changedCount" | "unchangedCount" | "publishableCount" |
@@ -420,7 +429,8 @@ function planRawPrograms(
     const needsAttachmentRefresh = options.archiveAttachments &&
       needsAttachmentArchive(program, existingStateBySourceId.get(program.pblancId));
     if (needsAttachmentRefresh) attachmentRefreshSourceIds.push(program.pblancId);
-    if (!options.skipUnchanged || !isUnchanged || needsAttachmentRefresh) {
+    // 강제 재발행(Minor-6): forceRepublish 면 unchanged 여부와 무관하게 재추출·재발행 대상.
+    if (options.forceRepublish || !options.skipUnchanged || !isUnchanged || needsAttachmentRefresh) {
       publishableSourceIds.push(program.pblancId);
     }
   }
