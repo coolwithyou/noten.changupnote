@@ -2123,7 +2123,8 @@
               "criteria_under_extracted",
               "profile_missing",
               "hard_fail",
-              "unstructured_criteria"
+              "unstructured_criteria",
+              "disqualification_unconfirmed"
             ]
           },
           "dimension": {
@@ -2142,6 +2143,14 @@
               "ip",
               "target_type",
               "business_status",
+              "tax_compliance",
+              "credit_status",
+              "sanction",
+              "financial_health",
+              "insured_workforce",
+              "investment",
+              "premises",
+              "export_performance",
               "other"
             ]
           },
@@ -2197,6 +2206,14 @@
               "ip",
               "target_type",
               "business_status",
+              "tax_compliance",
+              "credit_status",
+              "sanction",
+              "financial_health",
+              "insured_workforce",
+              "investment",
+              "premises",
+              "export_performance",
               "other"
             ]
           },
@@ -3771,6 +3788,14 @@
               "ip",
               "target_type",
               "business_status",
+              "tax_compliance",
+              "credit_status",
+              "sanction",
+              "financial_health",
+              "insured_workforce",
+              "investment",
+              "premises",
+              "export_performance",
               "other"
             ]
           },
@@ -4127,6 +4152,14 @@
                   "ip",
                   "target_type",
                   "business_status",
+                  "tax_compliance",
+                  "credit_status",
+                  "sanction",
+                  "financial_health",
+                  "insured_workforce",
+                  "investment",
+                  "premises",
+                  "export_performance",
                   "other"
                 ]
               },

@@ -1,19 +1,6 @@
-export const CRITERION_DIMENSIONS = [
-  "region",
-  "biz_age",
-  "industry",
-  "size",
-  "revenue",
-  "employees",
-  "founder_age",
-  "founder_trait",
-  "certification",
-  "prior_award",
-  "ip",
-  "target_type",
-  "business_status",
-  "other",
-] as const;
+// enum 단일 원천은 leaf 모듈(enums.ts). openapi.ts와 공유하며 barrel 순환 import를 피한다.
+export { CRITERION_DIMENSIONS, MATCH_REVIEW_REASON_CODES } from "./enums.js";
+import { CRITERION_DIMENSIONS, MATCH_REVIEW_REASON_CODES } from "./enums.js";
 
 export const CRITERION_OPERATORS = [
   "in",
@@ -32,13 +19,6 @@ export const MATCH_RECOMMENDATION_TIERS = [
   "needs_profile_input",
   "needs_core_review",
   "not_recommended",
-] as const;
-export const MATCH_REVIEW_REASON_CODES = [
-  "core_dimension_unknown",
-  "criteria_under_extracted",
-  "profile_missing",
-  "hard_fail",
-  "unstructured_criteria",
 ] as const;
 export const GRANT_BENEFIT_FAMILIES = [
   "funding",
@@ -208,12 +188,49 @@ export interface TextOnlyCriterionValue {
   note: string;
 }
 
+/** 결격 축 공용 (tax_compliance / credit_status / sanction) — 공고 측 */
+export interface DisqualificationCriterionValue {
+  /** canonical 결격 플래그 (@cunote/core disqualification/canonical) */
+  flags: string[];
+  /** 원문 표기 */
+  labels?: string[];
+  /** 공고가 허용한 예외 canonical */
+  exceptions?: string[];
+}
+
+export interface FinancialHealthCriterionValue {
+  /** 부채비율 배제 임계. inclusive 여부를 값에 내장해 off-by-boundary 제거. "1,000% 이상 제외" → {value:1000, inclusive:true} */
+  debt_ratio_pct_threshold?: { value: number; inclusive: boolean } | null;
+  impairment_excluded?: ("partial" | "full")[];
+  min_interest_coverage?: number | null;
+  labels?: string[];
+}
+
+export interface InsuredWorkforceCriterionValue {
+  employment_insurance_required?: boolean;
+  min_insured?: number | null;
+  max_insured?: number | null;
+  no_layoff_within_months?: number | null;
+  labels?: string[];
+}
+
+export interface InvestmentCriterionValue {
+  min_total_krw?: number | null;
+  rounds?: string[];
+  tips_operator_required?: boolean;
+  labels?: string[];
+}
+
 export type CriterionValue =
   | RegionCriterionValue
   | BizAgeCriterionValue
   | FounderAgeCriterionValue
   | ListCriterionValue
   | TextOnlyCriterionValue
+  | DisqualificationCriterionValue
+  | FinancialHealthCriterionValue
+  | InsuredWorkforceCriterionValue
+  | InvestmentCriterionValue
   | Record<string, unknown>;
 
 export interface GrantCriterion {
@@ -303,6 +320,21 @@ export interface NormalizedGrant<TPayload = unknown> {
   criteria: GrantCriterion[];
 }
 
+/**
+ * 결격 3축 공용 프로필 값 (tax_compliance / credit_status / sanction).
+ * 대칭 구조 + 플래그 단위 지식. `known_flags`는 문항→플래그 커버 매핑
+ * (@cunote/core disqualification/canonical)으로 기록되며, 판정은 이 위에서
+ * 플래그 단위 known 게이트를 적용한다.
+ */
+export interface DisqualificationProfileValue {
+  /** 보유 결격 (canonical) */
+  flags: string[];
+  /** 질의·확인이 이뤄진 플래그 — 문항→플래그 커버 매핑으로 기록 */
+  known_flags: string[];
+  /** 보유 예외 (canonical, 예: payment_deferral_approved) */
+  exceptions: string[];
+}
+
 export interface CompanyProfile {
   id?: string;
   name?: string;
@@ -331,6 +363,30 @@ export interface CompanyProfile {
     close_down_tax_type?: string | number | null;
     label?: string;
   };
+  // ── 결격·재무·고용·투자 축 (공고매칭 차원 확장) ──────────────────────────
+  tax_compliance?: DisqualificationProfileValue;
+  credit_status?: DisqualificationProfileValue;
+  sanction?: DisqualificationProfileValue;
+  financial_health?: {
+    debt_ratio_pct?: number | null;
+    impairment?: "none" | "partial" | "full" | null; // 자본총계·자본금 입력 시 파생 계산 가능(P3)
+    total_assets_krw?: number | null; // size(중기법) 판정 정밀화에도 사용
+    equity_krw?: number | null;
+    capital_krw?: number | null;
+    fiscal_year?: string;
+  };
+  insured_workforce?: {
+    employment_insurance_active?: boolean;
+    insured_count?: number | null;
+    months_since_last_layoff?: number | null; // null=미상. 감원 없음은 no_layoff 로 구분
+    no_layoff?: boolean;
+  };
+  investment?: {
+    total_raised_krw?: number | null;
+    last_round?: string | null;
+    tips_backed?: boolean;
+  };
+  // premises / export_performance: 예약 축 — enum·타입 자리만. 프로필 필드는 후속 트랙에서 신설.
   confidence?: Partial<Record<CriterionDimension, number>>;
 }
 

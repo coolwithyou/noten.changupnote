@@ -212,6 +212,14 @@ const DIMENSION_LABEL_KO: Record<CriterionDimension, string> = {
   ip: "지식재산",
   target_type: "대상 유형",
   business_status: "사업 상태",
+  tax_compliance: "세금 체납",
+  credit_status: "신용 상태",
+  sanction: "제재·참여제한",
+  financial_health: "재무 건전성",
+  insured_workforce: "고용보험 피보험자",
+  investment: "투자 유치",
+  premises: "사업장·입지",
+  export_performance: "수출 실적",
   other: "기타",
 };
 

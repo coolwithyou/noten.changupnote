@@ -719,6 +719,15 @@ function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {
     ip: "보유한 특허나 지식재산권이 있나요?",
     target_type: "신청 주체 유형을 확인해 주세요.",
     business_status: "휴폐업 및 과세 상태를 확인해 주세요.",
+    // 공고매칭 차원 확장 축 — 문항 카피·우선순위는 P2/P3에서 확정.
+    tax_compliance: "국세·지방세·4대보험 체납 여부를 확인해 주세요.",
+    credit_status: "신용 연체·채무불이행·회생·파산 등 신용 상태를 확인해 주세요.",
+    sanction: "정부지원사업 참여제한·부정수급 등 제재 이력을 확인해 주세요.",
+    financial_health: "부채비율·자본잠식 등 재무 상태를 확인해 주세요.",
+    insured_workforce: "고용보험 피보험자 수 등 고용 정보를 확인해 주세요.",
+    investment: "투자 유치 이력을 확인해 주세요.",
+    premises: "사업장·입지 요건에 해당하는지 확인해 주세요.",
+    export_performance: "수출 실적이 있는지 확인해 주세요.",
     other: "제외대상이나 특수 조건에 해당하는지 확인해 주세요.",
   };
 
@@ -768,6 +777,14 @@ function labelFor(dimension: CriterionDimension): string {
     ip: "지식재산",
     target_type: "신청대상",
     business_status: "영업상태",
+    tax_compliance: "세금 체납",
+    credit_status: "신용 상태",
+    sanction: "제재·참여제한",
+    financial_health: "재무 건전성",
+    insured_workforce: "고용보험 피보험자",
+    investment: "투자 유치",
+    premises: "사업장·입지",
+    export_performance: "수출 실적",
     other: "기타",
   };
   return labels[dimension];

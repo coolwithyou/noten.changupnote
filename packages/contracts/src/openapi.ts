@@ -1,3 +1,10 @@
+import { CRITERION_DIMENSIONS, MATCH_REVIEW_REASON_CODES } from "./enums.js";
+
+// 계약 단일 원천에서 파생한 enum 목록(복제 제거, M2). 순서는 CRITERION_DIMENSIONS/
+// MATCH_REVIEW_REASON_CODES 배열과 항상 일치한다.
+const CRITERION_DIMENSION_ENUM = [...CRITERION_DIMENSIONS];
+const MATCH_REVIEW_REASON_CODE_ENUM = [...MATCH_REVIEW_REASON_CODES];
+
 const json = (schema: unknown) => ({
   "application/json": { schema },
 });
@@ -922,32 +929,11 @@ export const appV1OpenApi = {
         properties: {
           code: {
             type: "string",
-            enum: [
-              "core_dimension_unknown",
-              "criteria_under_extracted",
-              "profile_missing",
-              "hard_fail",
-              "unstructured_criteria",
-            ],
+            enum: MATCH_REVIEW_REASON_CODE_ENUM,
           },
           dimension: {
             type: "string",
-            enum: [
-              "region",
-              "biz_age",
-              "industry",
-              "size",
-              "revenue",
-              "employees",
-              "founder_age",
-              "founder_trait",
-              "certification",
-              "prior_award",
-              "ip",
-              "target_type",
-              "business_status",
-              "other",
-            ],
+            enum: CRITERION_DIMENSION_ENUM,
           },
           label: { type: "string" },
           sourceSpan: { type: "string" },
@@ -969,22 +955,7 @@ export const appV1OpenApi = {
         properties: {
           dimension: {
             type: "string",
-            enum: [
-              "region",
-              "biz_age",
-              "industry",
-              "size",
-              "revenue",
-              "employees",
-              "founder_age",
-              "founder_trait",
-              "certification",
-              "prior_award",
-              "ip",
-              "target_type",
-              "business_status",
-              "other",
-            ],
+            enum: CRITERION_DIMENSION_ENUM,
           },
           kind: { type: "string", enum: ["required", "preferred", "exclusion"] },
           result: { type: "string", enum: ["pass", "fail", "unknown", "text_only"] },
@@ -1572,22 +1543,7 @@ export const appV1OpenApi = {
         properties: {
           field: {
             type: "string",
-            enum: [
-              "region",
-              "biz_age",
-              "industry",
-              "size",
-              "revenue",
-              "employees",
-              "founder_age",
-              "founder_trait",
-              "certification",
-              "prior_award",
-              "ip",
-              "target_type",
-              "business_status",
-              "other",
-            ],
+            enum: CRITERION_DIMENSION_ENUM,
           },
           value: {
             description: "Field-specific JSON value.",
@@ -1751,22 +1707,7 @@ export const appV1OpenApi = {
         properties: {
           dimension: nullable({
             type: "string",
-            enum: [
-              "region",
-              "biz_age",
-              "industry",
-              "size",
-              "revenue",
-              "employees",
-              "founder_age",
-              "founder_trait",
-              "certification",
-              "prior_award",
-              "ip",
-              "target_type",
-              "business_status",
-              "other",
-            ],
+            enum: CRITERION_DIMENSION_ENUM,
           }),
           criterionId: nullable({ type: "string" }),
           expectedEligibility: nullable({ type: "string", enum: ["eligible", "conditional", "ineligible"] }),
