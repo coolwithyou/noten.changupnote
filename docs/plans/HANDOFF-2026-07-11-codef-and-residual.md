@@ -1,6 +1,25 @@
 # HANDOFF 2026-07-11 — CODEF 간편인증 + 데이터 소싱 잔여
 
-> 데이터 소싱 트랙의 **다음 세션 진입점**. 앞선 ①(공유키 단일화)·②(NICE 커넥터)는 완료·커밋(`c5a71fb`)됐고, 남은 것은 **③ CODEF 간편인증**(미착수·사용자 동반)과 소소한 잔여 항목이다.
+> **🟢 진행 상황 (2026-07-11 · 세션3)** — 임계 경로가 **D1(사용자 동반) 직전까지** 완주됨.
+> - ✅ **관문 의례**: `docs/research/2026-07-11-CODEF-착수전-외부대조.md`. SDK 실측 교차검증으로 CODEF 계약 확정(재설계 불필요). 유일 승격: **양방향 URL 인코딩**을 client 구현·테스트의 명시 검증 항목으로.
+> - ✅ **Phase A (코어)** 커밋 `82beb6e`: `packages/core/src/codef/`(env·rsa·token·client·two-way·request-params·products 2종·normalize) + `index.ts` 배럴. `@cunote/core` build EXIT 0, `codef.test.ts` **19/19**(fixture 오프라인). 간편인증 파라미터(loginType=5, loginTypeLevel 1~8, organization=국세청 "0001"·usePurposes/submitTargets "99"는 **TODO(D1) 실측 대기**), 2-way(is2Way/twoWayInfo/simpleAuth), 국세청 확정값→`CompanyProfile`(target_types·revenue_krw·founder_age 계약 필드 정합).
+> - ✅ **CLI 스파이크** 커밋 `d5e377b`·`3524a8c`: `scripts/verify-codef.ts` + `pnpm verify:codef`. in-process 2-way(승인 후 Enter)·같은 id 부가세과세표준 연속 호출(세션 SSO 실측)·3대 가정 리포트·민감정보 마스킹·`--dry-run`(네트워크 없이 body 검증, 통과 확인). **`@cunote/core` 심링크가 dangling이라 codef 상대 소스 경로 import**(tsx .js→.ts).
+> - ⏳ **다음 = D1(사용자만 가능)**: 아래 §"D1 실행 가이드"대로 실계정 3종+대표자 휴대폰으로 `pnpm verify:codef` 3회 → 3대 가정 go/no-go 기록. **GO 확인 후에만** Phase B(오케스트레이션+마이그레이션)·Phase C(UI) 착수(플랜 원칙 "UI는 GO 확인 후").
+> - ⏭ **B/C 미착수(의도적)**: DB 오케스트레이션은 UI(Phase C)용이라 GO 전 프로덕션 Supabase 마이그레이션은 보류. D1이 세션 모델(SSO 성립 여부)을 확정한 뒤 착수.
+>
+> 데이터 소싱 트랙의 **다음 세션 진입점**. 앞선 ①(공유키 단일화)·②(NICE 커넥터)는 완료·커밋(`c5a71fb`)됐고, 남은 것은 **③ CODEF 간편인증**(코어·CLI 완료, **D1 실측만 남음**)과 소소한 잔여 항목이다.
+
+## D1 실행 가이드 (사용자 — 실계정·휴대폰 필요)
+
+```bash
+# 사업자 3종을 각각 실행(계층별 ③ 커버리지 기록): 법인 1 · 일반과세 개인 1 · 간이/면세 개인 1
+pnpm verify:codef -- --name "홍길동" --birth 19800101 --phone 01012345678 \
+  --app kakaotalk --bizno 1234567890 [--telecom SKT] [--gender M]
+# --app: kakaotalk|payco|samsungPass|kbMobile|pass|naver|shinhan|toss (또는 1~8). --telecom 은 pass 일 때만.
+# --dry-run 을 붙이면 네트워크 없이 요청 body(마스킹)만 확인.
+```
+실행하면: 토큰 발급 → 사업자등록증명 1차 → **CF-03002 뜨면 인증앱에서 승인 후 Enter** → 부가세과세표준 연속 호출 → 리포트 출력.
+기록할 것: **① 세션 SSO**(부가세과세표준이 2번째 승인 없이 처리됐나) · **③ 개인 매출**(간이/면세 개인도 과세표준 반환되나) · **② 단가**(CODEF 상담·별도). 첫 실행에서 `organization`/`usePurposes`/`submitTargets` 기본값이 거부되면 응답 코드·메시지를 `request-params.ts` TODO(D1)에 반영.
 >
 > - 직전 트랙 핸드오프(①②의 배경·검증): `docs/plans/HANDOFF-2026-07-11-data-sourcing.md`
 > - **CODEF 상세 계획(단일 원천, 이 핸드오프는 이걸 대체하지 않음)**: `docs/plans/2026-07-11-codef-l1-demo.md` (Phase A~D·아키텍처·DB·오픈 결정·리스크)
