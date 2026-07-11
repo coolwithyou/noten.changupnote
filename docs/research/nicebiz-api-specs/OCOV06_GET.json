@@ -1,0 +1,278 @@
+{
+ "summary": "[기업]개요-주요경영지표",
+ "operationId": "OCOV06_prime_/api/opengate/{ver}/company/overview/{companyKey}/indicator",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "tpCd",
+   "in": "query",
+   "description": "회계기준구분(KGAAP = 01, IFRS = 02)",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string",
+    "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+    "enum": [
+     "01",
+     "02"
+    ],
+    "default": "01"
+   }
+  },
+  {
+   "name": "fatpCd",
+   "in": "query",
+   "description": "재무구분 (개별 = 0/연결 = 1)",
+   "required": false,
+   "schema": {
+    "maxLength": 1.0,
+    "type": "string",
+    "description": "재무유형코드(개별(0), 연결(1))",
+    "enum": [
+     "0",
+     "1"
+    ],
+    "default": "0"
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "사용자가 요청한 companyKey",
+          "format": "",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "사용자가 요청한 KEY 타입(BIZNO, CRPNO, UPCHECD)",
+          "format": "",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         },
+         "tpCd": {
+          "maxLength": 2.0,
+          "type": "string",
+          "description": "회계기준구분(KGAAP = 01, IFRS = 02)",
+          "format": "",
+          "example": "01",
+          "enum": [
+           "01",
+           "02"
+          ],
+          "default": "01"
+         },
+         "fatpCd": {
+          "maxLength": 1.0,
+          "type": "string",
+          "description": "재무구분 (개별 = 0/연결 = 1)",
+          "format": "",
+          "example": "0",
+          "enum": [
+           "0",
+           "1"
+          ],
+          "default": "0"
+         }
+        },
+        "description": "주요경영지표 요청항목",
+        "format": ""
+       },
+       "data": {
+        "type": "object",
+        "properties": {
+         "listCount": {
+          "maximum": 100.0,
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 5.0,
+          "default": 20.0
+         },
+         "indicatorMetricsList": {
+          "type": "array",
+          "description": "주요경영지표 정보",
+          "format": "",
+          "items": {
+           "required": [
+            "stacDate",
+            "upchecd"
+           ],
+           "type": "object",
+           "properties": {
+            "upchecd": {
+             "maxLength": 6.0,
+             "minLength": 6.0,
+             "type": "string",
+             "description": "KISCODE",
+             "format": "",
+             "example": "820610"
+            },
+            "stacDate": {
+             "maxLength": 8.0,
+             "minLength": 8.0,
+             "type": "string",
+             "description": "재무결산일자",
+             "format": "date-time(8)",
+             "example": "20231231"
+            },
+            "fatpcd": {
+             "maxLength": 1.0,
+             "minLength": 1.0,
+             "type": "string",
+             "description": "재무구분코드",
+             "format": "",
+             "example": "0"
+            },
+            "stacdivnm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "결산구분명",
+             "format": "",
+             "example": "결산"
+            },
+            "aettamt": {
+             "type": "string",
+             "description": "자산총액",
+             "format": "decimal(13,0)",
+             "example": "469306422"
+            },
+            "dbtTtlFvl": {
+             "type": "string",
+             "description": "부채총계",
+             "format": "decimal(13,0)",
+             "example": "109007005"
+            },
+            "fdsTtlFvl": {
+             "type": "string",
+             "description": "자본총계",
+             "format": "decimal(13,0)",
+             "example": "360299417"
+            },
+            "salesFvl": {
+             "type": "string",
+             "description": "매출액",
+             "format": "decimal(13,0)",
+             "example": "419498048"
+            },
+            "slsprftFvl": {
+             "type": "string",
+             "description": "영업이익",
+             "format": "decimal(13,0)",
+             "example": "66321105"
+            },
+            "nrf": {
+             "type": "string",
+             "description": "순이익",
+             "format": "decimal(13,0)",
+             "example": "56906419"
+            },
+            "salesNrfRtFrt": {
+             "type": "string",
+             "description": "매출액순이익율재무비율값",
+             "format": "decimal(16,2)",
+             "example": "13.57"
+            },
+            "salesSlsprftFrt": {
+             "type": "string",
+             "description": "매출액영업이익재무비율값",
+             "format": "decimal(16,2)",
+             "example": "15.81"
+            },
+            "auditOptionList": {
+             "type": "array",
+             "description": "감사의견",
+             "format": "",
+             "items": {
+              "type": "object",
+              "properties": {
+               "auditKornm": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "감사의견(IFRS)",
+                "format": "",
+                "example": "적정"
+               },
+               "auditEngnm": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "감사의견(IFRS) 영문",
+                "format": "",
+                "example": "Unqualified"
+               },
+               "auditor": {
+                "maxLength": 100.0,
+                "type": "string",
+                "description": "회계감사법인",
+                "format": "",
+                "example": "한영회계법인"
+               }
+              },
+              "description": "감사의견 VO"
+             }
+            }
+           },
+           "description": "주요경영지표 VO(주요경영지표의 경우 감사의견 포함)"
+          }
+         }
+        },
+        "description": "주요경영지표 결과",
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "4b8c8841-8e8f-426f-a801-d6ed4a75ac03"
+}

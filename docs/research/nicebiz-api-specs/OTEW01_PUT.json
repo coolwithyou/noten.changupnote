@@ -1,0 +1,179 @@
+{
+ "summary": "[거래처관리]조기경보-거래처 수정",
+ "operationId": "OTEW01_prime_/api/opengate/{ver}/customer/early-warning",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "bizno",
+   "in": "query",
+   "description": "사업자등록번호",
+   "required": true,
+   "schema": {
+    "maxLength": 10.0,
+    "minLength": 10.0,
+    "pattern": "^[a-zA-Z0-9]*$",
+    "type": "string",
+    "description": "사업자등록번호",
+    "example": ""
+   }
+  },
+  {
+   "name": "cusmgmtcd",
+   "in": "query",
+   "description": "거래처관리코드",
+   "required": false,
+   "schema": {
+    "maxLength": 30.0,
+    "minLength": 0.0,
+    "type": "string",
+    "description": "거래처관리코드"
+   }
+  },
+  {
+   "name": "mgmtBrnm",
+   "in": "query",
+   "description": "관리지점명",
+   "required": false,
+   "schema": {
+    "maxLength": 70.0,
+    "minLength": 0.0,
+    "type": "string",
+    "description": "관리지점명"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "bizno",
+         "svcJinUsrid"
+        ],
+        "type": "object",
+        "properties": {
+         "svcSyncCd": {
+          "maxLength": 3.0,
+          "type": "string",
+          "description": "서비스연계코드(NBL: NICEBizLINE 연계 서비스코드)",
+          "format": "",
+          "enum": [
+           "EWS",
+           "NBL"
+          ],
+          "default": "EWS"
+         },
+         "svcJinUsrid": {
+          "maxLength": 16.0,
+          "minLength": 0.0,
+          "type": "string",
+          "description": "NICE 기업계정",
+          "format": ""
+         },
+         "bizno": {
+          "maxLength": 10.0,
+          "minLength": 10.0,
+          "pattern": "^[a-zA-Z0-9]*$",
+          "type": "string",
+          "description": "사업자등록번호",
+          "format": ""
+         },
+         "cusmgmtcd": {
+          "maxLength": 30.0,
+          "minLength": 0.0,
+          "type": "string",
+          "description": "거래처관리코드",
+          "format": ""
+         },
+         "mgmtBrnm": {
+          "maxLength": 70.0,
+          "minLength": 0.0,
+          "type": "string",
+          "description": "관리지점명",
+          "format": ""
+         }
+        },
+        "description": "조기경보 거래처 수정 요청항목",
+        "format": ""
+       },
+       "data": {
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "응답 메시지",
+          "format": ""
+         },
+         "totalCount": {
+          "type": "integer",
+          "description": "총 요청 건수",
+          "format": "int32"
+         },
+         "successCount": {
+          "type": "integer",
+          "description": "성공 건수",
+          "format": "int32"
+         },
+         "failCount": {
+          "type": "integer",
+          "description": "실패 건수",
+          "format": "int32"
+         },
+         "failList": {
+          "type": "array",
+          "description": "실패 항목",
+          "format": "",
+          "items": {
+           "type": "object",
+           "properties": {
+            "failId": {
+             "type": "string",
+             "description": "실패 항목",
+             "format": ""
+            },
+            "failMessage": {
+             "type": "string",
+             "description": "실패 사유 메시지",
+             "format": ""
+            }
+           },
+           "description": "등록 실패 리스트"
+          }
+         }
+        },
+        "description": "조기경보 거래처 등록결과",
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "5d97dc9e-7e9a-4442-af6f-fd7390c3ee43"
+}

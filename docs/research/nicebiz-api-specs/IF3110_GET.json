@@ -1,0 +1,90 @@
+{
+ "summary": "IF3110",
+ "operationId": "IF3110_/api/faSubmitListPublic/tax/orgPdf",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "pdf_file_pth",
+   "in": "query",
+   "description": "PDF파일경로",
+   "required": true,
+   "schema": {
+    "maxLength": 255.0,
+    "type": "string"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "items": {
+        "type": "object",
+        "properties": {
+         "count": {
+          "type": "string",
+          "description": "건수",
+          "format": "",
+          "example": "1"
+         },
+         "item": {
+          "type": "array",
+          "description": "",
+          "format": "",
+          "xml": {
+           "wrapped": false
+          },
+          "items": {
+           "type": "object",
+           "properties": {
+            "pdf_b64_enc_bin": {
+             "type": "string",
+             "description": "pdf base64 인코딩 바이너리",
+             "format": "",
+             "example": "xxx"
+            }
+           }
+          }
+         }
+        },
+        "description": "",
+        "format": "",
+        "xml": {
+         "name": ""
+        }
+       }
+      },
+      "xml": {
+       "name": ""
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "07e12ecb-f7d3-ff9e-e063-8d1f600a7d28"
+}

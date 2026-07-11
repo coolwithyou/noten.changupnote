@@ -1,0 +1,265 @@
+{
+ "summary": "법인등기 마스터 정보 조회",
+ "operationId": "EG0950_prime_/api/niceRet2/crpRgrnMastIfo",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "crpkndycfno",
+   "in": "query",
+   "description": "법인종류별분류번호",
+   "required": true,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "crprgrnno",
+   "in": "query",
+   "description": "법인등기번호",
+   "required": true,
+   "schema": {
+    "maxLength": 6.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "rggofno",
+   "in": "query",
+   "description": "등기관서번호",
+   "required": true,
+   "schema": {
+    "maxLength": 4.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "eas_ptlr_icd_yn",
+   "in": "query",
+   "description": "말소사항포함여부",
+   "required": false,
+   "schema": {
+    "maxLength": 1.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "seq",
+   "in": "query",
+   "description": "일련번호",
+   "required": false,
+   "schema": {
+    "maxLength": 11.0,
+    "type": "string"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "items": {
+        "type": "object",
+        "properties": {
+         "count": {
+          "type": "string",
+          "description": "건수",
+          "format": "",
+          "example": "1"
+         },
+         "item": {
+          "type": "array",
+          "description": "",
+          "format": "",
+          "items": {
+           "type": "object",
+           "properties": {
+            "atzn_shares": {
+             "type": "string",
+             "description": "수권주식수",
+             "format": "",
+             "example": "200000000"
+            },
+            "bran_addr": {
+             "type": "string",
+             "description": "영업소주소",
+             "format": "",
+             "example": "string"
+            },
+            "crpkndycfno": {
+             "type": "string",
+             "description": "법인종류별분류번호",
+             "format": "",
+             "example": "11"
+            },
+            "crpno": {
+             "type": "string",
+             "description": "법인등록번호",
+             "format": "",
+             "example": "1101110393283"
+            },
+            "crprgrnacmmtd": {
+             "type": "string",
+             "description": "법인등기공고방법",
+             "format": "",
+             "example": "이 회사의 공고는 인터넷 홈페이지(www.niceinfo.co.kr)에 한다. 다만, 전산장애 또는 그 밖의 부득이한 사유로 회사의 인터넷 홈페이지에 공고를 할 수 없는 때에는 서울특별시에서 발행되는 한국경제신문에 게재한다."
+            },
+            "crprgrnno": {
+             "type": "string",
+             "description": "법인등기번호",
+             "format": "",
+             "example": "45784"
+            },
+            "crprgrnocacrsn": {
+             "type": "string",
+             "description": "법인등기개설사유",
+             "format": "",
+             "example": "상업등기처리규칙 부칙  제2조  제1항의 규정에 의하여 구등기용지로 부터이기"
+            },
+            "dor_yn": {
+             "type": "string",
+             "description": "휴면여부",
+             "format": "",
+             "example": "N"
+            },
+            "eas_ptlr_icd_yn": {
+             "type": "string",
+             "description": "말소사항포함여부",
+             "format": "",
+             "example": "N"
+            },
+            "entrnm": {
+             "type": "string",
+             "description": "업체명",
+             "format": "",
+             "example": "나이스평가정보 주식회사"
+            },
+            "etbDate": {
+             "type": "string",
+             "description": "설립일자",
+             "format": "",
+             "example": "19850228"
+            },
+            "file_pth": {
+             "type": "string",
+             "description": "파일경로",
+             "format": "",
+             "example": "iros/2023/10/17/**.xml"
+            },
+            "hof_addr": {
+             "type": "string",
+             "description": "본점주소",
+             "format": "",
+             "example": "서울특별시 영등포구 은행로 17(여의도동)"
+            },
+            "jrdrgofnm": {
+             "type": "string",
+             "description": "관할등기소명",
+             "format": "",
+             "example": "서울중앙지방법원 등기국"
+            },
+            "ocac_date": {
+             "type": "string",
+             "description": "개설일자",
+             "format": "",
+             "example": "19950103"
+            },
+            "parpr": {
+             "type": "string",
+             "description": "액면가",
+             "format": "",
+             "example": "500.00"
+            },
+            "pbs_date": {
+             "type": "string",
+             "description": "발행일자",
+             "format": "",
+             "example": "20231017"
+            },
+            "pbsrgofnm": {
+             "type": "string",
+             "description": "발행등기소명",
+             "format": "",
+             "example": "법원행정처 등기정보중앙관리소"
+            },
+            "rggofno": {
+             "type": "string",
+             "description": "등기관서번호",
+             "format": "",
+             "example": "1101"
+            },
+            "rgrn_iss_req_extseq": {
+             "type": "string",
+             "description": "등기발급신청확장일련번호",
+             "format": "",
+             "example": "3004184"
+            },
+            "rgrncfwnm": {
+             "type": "string",
+             "description": "등기증명서명",
+             "format": "",
+             "example": "등기사항전부증명서(현재 유효사항)"
+            },
+            "rgrnfee": {
+             "type": "string",
+             "description": "등기수수료",
+             "format": "",
+             "example": "700"
+            },
+            "rgs_dtm": {
+             "type": "string",
+             "description": "등록일시",
+             "format": "",
+             "example": "202310"
+            },
+            "tot_cptlamt": {
+             "type": "string",
+             "description": "총자본금",
+             "format": "",
+             "example": "30357410000.0000"
+            },
+            "upt_dtm": {
+             "type": "string",
+             "description": "갱신일시",
+             "format": "",
+             "example": "202310"
+            }
+           }
+          }
+         }
+        },
+        "description": "",
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "07e12ecb-f7a7-ff9e-e063-8d1f600a7d28"
+}

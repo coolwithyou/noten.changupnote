@@ -1,0 +1,432 @@
+{
+ "summary": "[기업]현황-주요주주현황",
+ "operationId": "OCST02_prime_/api/opengate/{ver}/company/state/{companyKey}/shareholders",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "tpCd",
+   "in": "query",
+   "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string",
+    "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+    "enum": [
+     "01",
+     "02"
+    ]
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  },
+  {
+   "name": "baseDate",
+   "in": "query",
+   "description": "일자 옵션선택 : 조회 기준일자",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "일자 옵션선택 : 조회 기준일자",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "pageNo",
+   "in": "query",
+   "description": "Page 옵션선택 : 페이지 번호",
+   "required": false,
+   "schema": {
+    "minimum": 1.0,
+    "type": "integer",
+    "description": "PageNo",
+    "format": "int32",
+    "default": 1.0
+   }
+  },
+  {
+   "name": "pageSize",
+   "in": "query",
+   "description": "Page 옵션선택 : 페이지 사이즈",
+   "required": false,
+   "schema": {
+    "maximum": 100.0,
+    "minimum": 1.0,
+    "type": "integer",
+    "description": "PageSize",
+    "format": "int32",
+    "default": 20.0
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "requestedKey",
+         "requestedKeyType"
+        ],
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "요청 companyKey",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "요청 Key 타입(bizno, crpno, upchecd)",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         },
+         "tpCd": {
+          "maxLength": 2.0,
+          "type": "string",
+          "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+          "enum": [
+           "01",
+           "02"
+          ]
+         },
+         "baseDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "일자 옵션선택 : 조회 기준일자",
+          "format": "date-yyyymmdd"
+         },
+         "pageNo": {
+          "minimum": 1.0,
+          "type": "integer",
+          "description": "PageNo",
+          "format": "int32",
+          "example": 1.0,
+          "default": 1.0
+         },
+         "pageSize": {
+          "maximum": 100.0,
+          "minimum": 1.0,
+          "type": "integer",
+          "description": "PageSize",
+          "format": "int32",
+          "example": 20.0,
+          "default": 20.0
+         }
+        },
+        "description": "기업 현황 주요주주현황 요청항목"
+       },
+       "data": {
+        "required": [
+         "ifrsShareholdersList",
+         "kgaapShareholdersList",
+         "listCount"
+        ],
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)"
+         },
+         "totalCount": {
+          "type": "integer",
+          "description": "전체건수: Page 옵션 사용시 결과출력",
+          "format": "int32",
+          "readOnly": true,
+          "example": 3.0
+         },
+         "listCount": {
+          "maximum": 100.0,
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 3.0,
+          "default": 20.0
+         },
+         "ifrsShareholdersList": {
+          "type": "array",
+          "description": "기업 현황 IFRS 주요주주 정보",
+          "items": {
+           "required": [
+            "datBseDate",
+            "shdSeq",
+            "upchecd"
+           ],
+           "type": "object",
+           "properties": {
+            "upchecd": {
+             "maxLength": 6.0,
+             "minLength": 6.0,
+             "type": "string",
+             "description": "업체코드",
+             "example": "820610"
+            },
+            "datBseDate": {
+             "maxLength": 8.0,
+             "minLength": 8.0,
+             "type": "string",
+             "description": "데이터기준일자",
+             "format": "date-yyyymmdd",
+             "example": "20240630"
+            },
+            "shdSeq": {
+             "type": "integer",
+             "description": "주주일련번호",
+             "format": "int32",
+             "example": 1.0
+            },
+            "ifrsShareholdersDtlList": {
+             "type": "array",
+             "description": "주요주주 리스트",
+             "items": {
+              "required": [
+               "cmnstkpfrstkdivcd"
+              ],
+              "type": "object",
+              "properties": {
+               "cmnstkpfrstkdivcd": {
+                "maxLength": 1.0,
+                "type": "string",
+                "description": "보통주/우선주구분코드",
+                "example": "1"
+               },
+               "cmnstkpfrstkdivnm": {
+                "maxLength": 10.0,
+                "type": "string",
+                "description": "보통주/우선주구분명",
+                "example": "보통주"
+               },
+               "shdnm": {
+                "maxLength": 100.0,
+                "type": "string",
+                "description": "주주명",
+                "example": "(주)NICE홀딩스"
+               },
+               "shdnmEng": {
+                "maxLength": 100.0,
+                "type": "string",
+                "description": "주주명(영문)",
+                "nullable": true,
+                "example": "NICE Holdings Co.,Ltd"
+               },
+               "ftnShares": {
+                "maxLength": 12.0,
+                "type": "string",
+                "description": "기초주식수",
+                "example": "26102906"
+               },
+               "ftnShdrt": {
+                "maxLength": 8.0,
+                "type": "string",
+                "description": "기초지분율",
+                "example": "43.43"
+               },
+               "tmeShares": {
+                "maxLength": 12.0,
+                "type": "string",
+                "description": "기말주식수",
+                "example": "26102906"
+               },
+               "tmeShdrt": {
+                "maxLength": 8.0,
+                "type": "string",
+                "description": "기말지분율",
+                "example": "43.43"
+               },
+               "coWhrs": {
+                "maxLength": 50.0,
+                "type": "string",
+                "description": "회사와의 관계",
+                "nullable": true,
+                "example": "특수관계인"
+               },
+               "shdidtdivcd": {
+                "maxLength": 1.0,
+                "type": "string",
+                "description": "주주식별구분코드",
+                "nullable": true,
+                "example": "1"
+               },
+               "shdidtdivnm": {
+                "maxLength": 20.0,
+                "type": "string",
+                "description": "주주식별구분명",
+                "nullable": true,
+                "example": "업체코드"
+               },
+               "shdupimcd": {
+                "maxLength": 6.0,
+                "type": "string",
+                "description": "주주업체인물코드",
+                "nullable": true,
+                "example": "812919"
+               },
+               "rmkcont": {
+                "maxLength": 200.0,
+                "type": "string",
+                "description": "비고내용",
+                "nullable": true,
+                "example": " "
+               }
+              },
+              "description": "IFRS 주요주주 상세 VO"
+             }
+            }
+           },
+           "description": "IFRS 주요주주 VO"
+          }
+         },
+         "kgaapShareholdersList": {
+          "type": "array",
+          "description": "기업 현황 KGAAP 주요주주 정보",
+          "items": {
+           "required": [
+            "upchecd"
+           ],
+           "type": "object",
+           "properties": {
+            "upchecd": {
+             "maxLength": 6.0,
+             "minLength": 6.0,
+             "type": "string",
+             "description": "업체코드"
+            },
+            "date": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "기준일자"
+            },
+            "seq": {
+             "type": "integer",
+             "description": "일련번호",
+             "format": "int32"
+            },
+            "kgaapShareholdersDtlList": {
+             "type": "array",
+             "description": "주요주주 리스트",
+             "items": {
+              "type": "object",
+              "properties": {
+               "stockGubun": {
+                "maxLength": 1.0,
+                "type": "string",
+                "description": "주식구분"
+               },
+               "stockGubunnm": {
+                "maxLength": 10.0,
+                "type": "string",
+                "description": "주식구분명"
+               },
+               "stockholder": {
+                "maxLength": 30.0,
+                "type": "string",
+                "description": "주주명",
+                "nullable": true
+               },
+               "stockholderEng": {
+                "maxLength": 70.0,
+                "type": "string",
+                "description": "주주명(영문)",
+                "nullable": true
+               },
+               "stockcount": {
+                "maxLength": 28.0,
+                "type": "string",
+                "description": "소유주식수(단위 : 1주)",
+                "nullable": true
+               },
+               "jibun": {
+                "maxLength": 7.0,
+                "type": "string",
+                "description": "지분율",
+                "nullable": true
+               },
+               "relation1": {
+                "maxLength": 30.0,
+                "type": "string",
+                "description": "대주주와의 관계",
+                "nullable": true
+               },
+               "relation2": {
+                "maxLength": 30.0,
+                "type": "string",
+                "description": "회사와의 관계",
+                "nullable": true
+               },
+               "stockholderGubn": {
+                "maxLength": 1.0,
+                "type": "string",
+                "description": "주주구분",
+                "nullable": true
+               },
+               "stockholderGubnnm": {
+                "maxLength": 20.0,
+                "type": "string",
+                "description": "주주구분명",
+                "nullable": true
+               },
+               "stockholderCode": {
+                "maxLength": 6.0,
+                "type": "string",
+                "description": "주주코드",
+                "nullable": true
+               }
+              },
+              "description": "KGAAP 주요주주 상세 VO"
+             }
+            }
+           },
+           "description": "KGAAP 주요주주 VO"
+          }
+         }
+        },
+        "description": "기업 현황 주요주주현황 결과"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "baf6fe11-85f9-48a8-bb54-929e5b74fdc8"
+}

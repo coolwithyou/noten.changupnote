@@ -1,0 +1,254 @@
+{
+ "summary": "공부발급신청(V2)",
+ "operationId": "EG1016_prime_/api/niceRetTupSvc/retRgrnIss",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "pubregknddivcd",
+   "in": "query",
+   "description": "공부종류구분코드",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "niceretpubregidntnumcd",
+   "in": "query",
+   "description": "NICE부동산공부고유번호코드",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "pubreggrpaddr",
+   "in": "query",
+   "description": "공부그룹주소",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "bldgraddr",
+   "in": "query",
+   "description": "건축물대장주소",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "eas_ptlr_icd_yn",
+   "in": "query",
+   "description": "말소사항포함여부",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "jnt_mgg_rnt_clg_icd_yn",
+   "in": "query",
+   "description": "공동담보전세목록포함여부",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "sby_clg_icd_yn",
+   "in": "query",
+   "description": "매매목록포함여부",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "lnddockndcd",
+   "in": "query",
+   "description": "토지서류구분코드",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "lnd_use_rgln_icd_yn",
+   "in": "query",
+   "description": "토지사용규제포함여부",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "hist_prt_coi_yn",
+   "in": "query",
+   "description": "연혁인쇄선택여부",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "cls_lgr_coi_yn",
+   "in": "query",
+   "description": "폐쇄대장선택여부",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "rergogxslctdivcd",
+   "in": "query",
+   "description": "공부원본조회구분코드",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "ivd_req_yn",
+   "in": "query",
+   "description": "개별신청여부(Y:개별,N:대량)",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "rggofno",
+   "in": "query",
+   "description": "등기관서번호",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "crpkndycfno",
+   "in": "query",
+   "description": "법인종류번호",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "crprgrnno",
+   "in": "query",
+   "description": "법인등록번호",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "nice_ret_cncorgamnidtno",
+   "in": "query",
+   "description": "NICE부동산연계기관관리식별번호",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "req_no_mng_extseq",
+   "in": "query",
+   "description": "신청번호매핑확장일련번호",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "items": {
+        "type": "object",
+        "properties": {
+         "count": {
+          "type": "string",
+          "description": "건수",
+          "format": "",
+          "example": "1"
+         },
+         "item": {
+          "type": "array",
+          "description": "",
+          "format": "",
+          "xml": {
+           "wrapped": false
+          },
+          "items": {
+           "type": "object",
+           "properties": {
+            "osdpubregissreqseq": {
+             "type": "string",
+             "description": "대외공부발급신청일련번호",
+             "format": "",
+             "example": "2130****"
+            },
+            "req_no_mng_extseq": {
+             "type": "string",
+             "description": "신청번호매핑확장일련번호",
+             "format": "",
+             "example": "587****"
+            },
+            "status": {
+             "type": "string",
+             "description": "처리상태",
+             "format": "",
+             "example": "SUCCESS"
+            }
+           }
+          }
+         }
+        },
+        "description": "",
+        "format": "",
+        "xml": {
+         "name": ""
+        }
+       }
+      },
+      "xml": {
+       "name": ""
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "07f61318-2ac6-f705-e063-8d1f600a0473"
+}

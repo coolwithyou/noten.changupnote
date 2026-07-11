@@ -1,0 +1,142 @@
+{
+ "summary": "[기업]신용-신용요약정보",
+ "operationId": "OCCD01_prime_/api/opengate/{ver}/company/credit/{companyKey}/summary",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "requestedKey",
+         "requestedKeyType"
+        ],
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "요청 companyKey",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "요청 Key 타입(bizno, crpno, upchecd)",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         }
+        },
+        "description": "기업요약 신용정보 요청항목"
+       },
+       "data": {
+        "required": [
+         "creditSummaryList",
+         "listCount"
+        ],
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)"
+         },
+         "listCount": {
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 1.0
+         },
+         "creditSummaryList": {
+          "type": "array",
+          "description": "기업신용 요약정보",
+          "items": {
+           "type": "object",
+           "properties": {
+            "shorttermOverdueCnt": {
+             "type": "integer",
+             "description": "단기연체정보(한국신용정보원) 건수",
+             "format": "int32",
+             "example": 1.0
+            },
+            "negativeInfoBbCnt": {
+             "type": "integer",
+             "description": "신용도판단정보(한국신용정보원) 건수",
+             "format": "int32",
+             "example": 5.0
+            },
+            "negativeInfoPbCnt": {
+             "type": "integer",
+             "description": "공공정보 건수",
+             "format": "int32"
+            },
+            "negativeInfoCbCnt": {
+             "type": "integer",
+             "description": "신용도판단정보(신용정보사) 건수",
+             "format": "int32",
+             "example": 1.0
+            },
+            "suspensionInfoCnt": {
+             "type": "integer",
+             "description": "당좌거래정지정보 건수",
+             "format": "int32"
+            },
+            "workoutCnt": {
+             "type": "integer",
+             "description": "법정관리/워크아웃정보 건수",
+             "format": "int32",
+             "example": 1.0
+            }
+           },
+           "description": "기업 신용정보 요약 VO"
+          }
+         }
+        },
+        "description": "기업요약 신용정보 결과"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "090e60fd-7f6d-4c32-b77f-6fdb82fbde4d"
+}

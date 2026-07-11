@@ -1,0 +1,182 @@
+{
+ "summary": "[기업]개요-휴폐업정보",
+ "operationId": "OCOV11_prime_/api/opengate/v1/company/overview/{companyKey}/closed",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "requestedKey",
+         "requestedKeyType"
+        ],
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "요청 companyKey",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "요청 Key 타입(bizno, crpno, upchecd)",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         }
+        },
+        "description": "기업 일반정보 휴폐업정보 요청항목"
+       },
+       "data": {
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)"
+         },
+         "listCount": {
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 1.0
+         },
+         "outlineClosedList": {
+          "type": "array",
+          "description": "휴폐업정보",
+          "items": {
+           "required": [
+            "bizno"
+           ],
+           "type": "object",
+           "properties": {
+            "bizno": {
+             "maxLength": 10.0,
+             "minLength": 10.0,
+             "type": "string",
+             "description": "사업자번호"
+            },
+            "ntsTpyrStsCd": {
+             "maxLength": 2.0,
+             "minLength": 2.0,
+             "type": "string",
+             "description": "국세청납세자상태코드(00:국세청미등록사업자 ,01:계속사업자 ,02:휴업자 ,03:폐업자)",
+             "nullable": true
+            },
+            "ntsTpyrStsCdvl": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "국세청납세자상태코드명"
+            },
+            "ntsTtnTcd": {
+             "maxLength": 2.0,
+             "minLength": 2.0,
+             "type": "string",
+             "description": "국세청과세유형코드(01:일반과세자 ,02:간이과세자 ,03:과세특례자 ,04:면세사업자 ,05:비영리법인이거나 단체,국가기관 ,06:고유번호가 부여된단체 ,07:간이과세자(세금계산서발급사업자) )",
+             "nullable": true
+            },
+            "ntsTtnTcdvl": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "국세청과세유형코드명"
+            },
+            "clsbizDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "폐업일자",
+             "format": "date-yyyymmdd",
+             "nullable": true
+            },
+            "unitTtnCnvClsbizYn": {
+             "maxLength": 1.0,
+             "minLength": 1.0,
+             "type": "string",
+             "description": "단위과세전환폐업여부",
+             "nullable": true
+            },
+            "ltstTtnTpCnvDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "최근과세유형전환일자",
+             "format": "date-yyyymmdd",
+             "nullable": true
+            },
+            "taxbllAlyDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "세금계산서적용일자",
+             "format": "date-yyyymmdd",
+             "nullable": true
+            },
+            "agoNtsTtnTcd": {
+             "maxLength": 2.0,
+             "minLength": 2.0,
+             "type": "string",
+             "description": "이전국세청과세유형코드",
+             "nullable": true
+            },
+            "agoNtsTtnTcdvl": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "이전국세청과세유형코드명"
+            },
+            "uptDtm": {
+             "type": "string",
+             "description": "수정일자",
+             "format": "datetime"
+            }
+           },
+           "description": "휴폐업정보 Vo"
+          }
+         }
+        },
+        "description": "기업 개요 휴폐업정보 결과"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "e57de838-c711-41c2-b909-fbe3fe99b4d7"
+}

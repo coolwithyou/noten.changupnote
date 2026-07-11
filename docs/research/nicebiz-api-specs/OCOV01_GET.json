@@ -1,0 +1,402 @@
+{
+ "summary": "[기업]개요-약식정보",
+ "operationId": "OCOV01_prime_/api/opengate/{ver}/company/overview/{companyKey}/summary",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "idscdcg",
+   "in": "query",
+   "description": "표준산업구분코드(09: 9차, 10: 10차, 11: 11차)",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string",
+    "description": "표준산업구분코드(09: 9차, 10: 10차, 11: 11차)",
+    "enum": [
+     "09",
+     "10",
+     "11"
+    ],
+    "default": "10"
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "requestedKey",
+         "requestedKeyType"
+        ],
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "요청 companyKey",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "요청 Key 타입(bizno, crpno, upchecd)",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         },
+         "idscdcg": {
+          "maxLength": 2.0,
+          "type": "string",
+          "description": "표준산업구분코드(09: 9차, 10: 10차, 11: 11차)",
+          "example": "10",
+          "enum": [
+           "09",
+           "10",
+           "11"
+          ],
+          "default": "10"
+         }
+        },
+        "description": "개요약식정보 요청항목"
+       },
+       "data": {
+        "required": [
+         "listCount",
+         "overviewHeadquarterList"
+        ],
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)"
+         },
+         "listCount": {
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 1.0
+         },
+         "overviewHeadquarterList": {
+          "type": "array",
+          "description": "기업개요 요약정보",
+          "items": {
+           "required": [
+            "upchecd"
+           ],
+           "type": "object",
+           "properties": {
+            "upchecd": {
+             "maxLength": 6.0,
+             "type": "string",
+             "description": "업체코드",
+             "example": "820610"
+            },
+            "hofBizno": {
+             "maxLength": 10.0,
+             "type": "string",
+             "description": "본점 사업자등록번호",
+             "example": "1168115020"
+            },
+            "crpno": {
+             "maxLength": 13.0,
+             "type": "string",
+             "description": "법인등록번호",
+             "example": "1101110393283"
+            },
+            "korentrnm": {
+             "maxLength": 100.0,
+             "type": "string",
+             "description": "기업명(본점 기준)",
+             "example": "나이스평가정보(주)"
+            },
+            "engentrnm": {
+             "maxLength": 100.0,
+             "type": "string",
+             "description": "영문 기업명(본점 기준)",
+             "example": "NICE Information Service Co.,Ltd."
+            },
+            "korreprnm": {
+             "maxLength": 70.0,
+             "type": "string",
+             "description": "대표자명(본점 기준)",
+             "example": "신희부"
+            },
+            "engreprnm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "영문 대표자명(본점 기준)"
+            },
+            "sbnDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "창업일자",
+             "format": "date-yyyymmdd",
+             "nullable": true
+            },
+            "etbDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "설립일자",
+             "format": "date-yyyymmdd",
+             "nullable": true,
+             "example": "19850228"
+            },
+            "ltgDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "상장일자",
+             "format": "date-yyyymmdd",
+             "nullable": true
+            },
+            "ltgmktdivcd": {
+             "maxLength": 1.0,
+             "type": "string",
+             "description": "상장시장 구분코드(본점 기준)"
+            },
+            "ltgmktdivnm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "상장시장 구분명(본점 기준)",
+             "example": "코스피"
+            },
+            "scaledivcd": {
+             "maxLength": 1.0,
+             "type": "string",
+             "description": "기업규모구분코드(본점 기준)"
+            },
+            "scaledivnm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "기업규모구분명(본점 기준)",
+             "example": "중견기업"
+            },
+            "listed": {
+             "maxLength": 2.0,
+             "type": "string",
+             "description": "기업공개구분코드",
+             "example": "10"
+            },
+            "empnum": {
+             "type": "string",
+             "description": "종업원 수(본점 기준)",
+             "format": "decimal(10,0)",
+             "example": "748"
+            },
+            "empnumBseDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "종업원 수 기준일자(본점 기준)",
+             "format": "date-yyyymmdd",
+             "example": "20240630"
+            },
+            "idscdcg": {
+             "maxLength": 2.0,
+             "type": "string",
+             "description": "산업코드구분",
+             "example": "10"
+            },
+            "idscd": {
+             "maxLength": 10.0,
+             "type": "string",
+             "description": "산업코드(본점 기준)",
+             "example": "J63991"
+            },
+            "korIdscdnm": {
+             "maxLength": 255.0,
+             "type": "string",
+             "description": "산업명(본점 기준)",
+             "example": "데이터베이스 및 온라인정보 제공업"
+            },
+            "mainpdtpcl": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "주요 상품명(본점 기준)",
+             "example": "데이터베이스,온라인정보 제공(개인,기업정보 솔루션)"
+            },
+            "homepurl": {
+             "maxLength": 100.0,
+             "type": "string",
+             "description": "홈페이지 주소(본점 기준)",
+             "example": "www.niceinfo.co.kr"
+            },
+            "siteInfoList": {
+             "type": "array",
+             "description": "사업장 리스트",
+             "items": {
+              "required": [
+               "bizloSeq",
+               "bizno"
+              ],
+              "type": "object",
+              "properties": {
+               "bizno": {
+                "maxLength": 10.0,
+                "minLength": 10.0,
+                "type": "string",
+                "description": "사업자등록번호(사업자번호 중복 가능)",
+                "example": "1168115020"
+               },
+               "bizloSeq": {
+                "type": "integer",
+                "description": "사업장일련번호",
+                "format": "int32",
+                "example": 1.0
+               },
+               "korBizlonm": {
+                "maxLength": 200.0,
+                "type": "string",
+                "description": "사업장명",
+                "example": "본사"
+               },
+               "engBizlonm": {
+                "maxLength": 200.0,
+                "type": "string",
+                "description": "영문 사업장명"
+               },
+               "bizlodivcd": {
+                "maxLength": 2.0,
+                "type": "string",
+                "description": "사업장 구분코드"
+               },
+               "bizlodivKornm": {
+                "maxLength": 200.0,
+                "type": "string",
+                "description": "사업장구분 한글명"
+               },
+               "btpnm": {
+                "maxLength": 70.0,
+                "type": "string",
+                "description": "업종명"
+               },
+               "bzdnm": {
+                "maxLength": 70.0,
+                "type": "string",
+                "description": "업태명"
+               },
+               "obzDate": {
+                "maxLength": 8.0,
+                "type": "string",
+                "description": "개업일자",
+                "format": "date-yyyymmdd",
+                "example": "19850401"
+               },
+               "ntsSbqcdivcd": {
+                "maxLength": 2.0,
+                "type": "string",
+                "description": "휴폐업구분코드"
+               },
+               "ntsSbqcdivnm": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "휴폐업구분명"
+               },
+               "sbqcDate": {
+                "maxLength": 8.0,
+                "type": "string",
+                "description": "폐업일자",
+                "format": "date-yyyymmdd",
+                "example": " "
+               },
+               "zarcd": {
+                "maxLength": 5.0,
+                "type": "string",
+                "description": "우편번호(5자리)",
+                "example": "07237"
+               },
+               "koraddr": {
+                "maxLength": 130.0,
+                "type": "string",
+                "description": "도로명 한글주소",
+                "example": "서울 영등포구 은행로 17"
+               },
+               "engaddr": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "도로명 영문주소"
+               },
+               "zcd": {
+                "maxLength": 6.0,
+                "type": "string",
+                "description": "(구)우편번호(6자리)",
+                "example": "150871"
+               },
+               "noltKoraddr": {
+                "maxLength": 130.0,
+                "type": "string",
+                "description": "지번 한글주소",
+                "example": "서울 영등포구 여의도동 14-33번지"
+               },
+               "noltEngaddr": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "지번 영문주소"
+               },
+               "tel": {
+                "maxLength": 20.0,
+                "type": "string",
+                "description": "전화번호",
+                "example": "02-2122-4000"
+               },
+               "fax": {
+                "maxLength": 20.0,
+                "type": "string",
+                "description": "팩스번호",
+                "example": "02-3771-1259"
+               }
+              },
+              "description": "개요 지점정보 VO"
+             }
+            }
+           },
+           "description": "개요 약식정보 VO"
+          }
+         }
+        },
+        "description": "기업개요 약식 결과"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "4493f4a9-126e-4877-b7c7-47c40432bc04"
+}

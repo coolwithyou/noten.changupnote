@@ -45,6 +45,7 @@ import type {
   LedgerListRow,
   TokenUsage,
   UsageListRow,
+  DeleteEnrichmentCacheInput,
   EnrichmentCacheEntry,
   EnrichmentCacheRepository,
   FeedbackReceipt,
@@ -271,6 +272,25 @@ class RuntimeEnrichmentCacheRepository implements EnrichmentCacheRepository {
     if (input.lastError !== undefined) entry.lastError = cloneRecord(input.lastError);
     this.entries.set(enrichmentCacheKey(input), entry);
     return cloneCacheEntry(entry);
+  }
+
+  async listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]> {
+    return [...this.entries.values()]
+      .filter((entry) => entry.bizNo === bizNo)
+      .sort((a, b) => a.provider.localeCompare(b.provider) || a.scope.localeCompare(b.scope))
+      .map(cloneCacheEntry);
+  }
+
+  async deleteByBizNo(input: DeleteEnrichmentCacheInput): Promise<number> {
+    let deleted = 0;
+    for (const [key, entry] of this.entries) {
+      if (entry.bizNo !== input.bizNo) continue;
+      if (input.provider && entry.provider !== input.provider) continue;
+      if (input.scope && entry.scope !== input.scope) continue;
+      this.entries.delete(key);
+      deleted += 1;
+    }
+    return deleted;
   }
 }
 

@@ -1510,10 +1510,18 @@ export const appV1OpenApi = {
           "summary",
         ],
         properties: {
-          provider: { type: "string", enum: ["popbill", "internal", "manual", "sample"] },
+          provider: { type: "string", enum: ["popbill", "apick", "internal", "manual", "sample"] },
           source: {
             type: "string",
-            enum: ["popbill_live", "popbill_cache", "saved_profile", "manual_profile", "sample_profile"],
+            enum: [
+              "popbill_live",
+              "popbill_cache",
+              "apick_live",
+              "apick_cache",
+              "saved_profile",
+              "manual_profile",
+              "sample_profile",
+            ],
           },
           cacheStatus: { type: "string", enum: ["hit", "stored", "none"] },
           checkedAt: nullable({ type: "string", format: "date-time" }),

@@ -3560,6 +3560,7 @@
             "type": "string",
             "enum": [
               "popbill",
+              "apick",
               "internal",
               "manual",
               "sample"
@@ -3570,6 +3571,8 @@
             "enum": [
               "popbill_live",
               "popbill_cache",
+              "apick_live",
+              "apick_cache",
               "saved_profile",
               "manual_profile",
               "sample_profile"

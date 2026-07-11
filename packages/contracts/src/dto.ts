@@ -625,10 +625,12 @@ export interface CompanyEnrichmentFacts {
   closeDownTaxType: string | number | null;
 }
 
-export type CompanyEvidenceProvider = "popbill" | "internal" | "manual" | "sample";
+export type CompanyEvidenceProvider = "popbill" | "apick" | "internal" | "manual" | "sample";
 export type CompanyEvidenceSource =
   | "popbill_live"
   | "popbill_cache"
+  | "apick_live"
+  | "apick_cache"
   | "saved_profile"
   | "manual_profile"
   | "sample_profile";

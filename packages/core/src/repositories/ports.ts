@@ -184,9 +184,19 @@ export interface WriteEnrichmentCacheInput {
   lastError?: Record<string, unknown> | null;
 }
 
+export interface DeleteEnrichmentCacheInput {
+  bizNo: string;
+  provider?: string;
+  scope?: string;
+}
+
 export interface EnrichmentCacheRepository {
   getFresh(input: ReadEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null>;
   put(input: WriteEnrichmentCacheInput): Promise<EnrichmentCacheEntry>;
+  /** 만료 여부와 무관하게 사업자번호에 걸린 모든 캐시 행을 반환한다(개발 진단용). */
+  listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]>;
+  /** 사업자번호(옵션: provider/scope)로 캐시 행을 삭제하고 삭제된 행 수를 반환한다. */
+  deleteByBizNo(input: DeleteEnrichmentCacheInput): Promise<number>;
 }
 
 export interface RoadmapRepository {

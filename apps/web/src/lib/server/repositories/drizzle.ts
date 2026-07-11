@@ -15,6 +15,7 @@ import type {
   CompanyRecord,
   CompanyRepository,
   CreateCompanyInput,
+  DeleteEnrichmentCacheInput,
   EnrichmentCacheEntry,
   EnrichmentCacheRepository,
   FeedbackReceipt,
@@ -552,6 +553,29 @@ class DrizzleEnrichmentCacheRepository implements EnrichmentCacheRepository {
       .returning();
     if (!row) throw new Error("기업정보 보강 캐시 저장 결과가 없습니다.");
     return toEnrichmentCacheEntry(row);
+  }
+
+  async listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]> {
+    const rows = await this.db.client
+      .select()
+      .from(schema.companyEnrichmentCache)
+      .where(eq(schema.companyEnrichmentCache.bizNo, bizNo))
+      .orderBy(
+        asc(schema.companyEnrichmentCache.provider),
+        asc(schema.companyEnrichmentCache.scope),
+      );
+    return rows.map(toEnrichmentCacheEntry);
+  }
+
+  async deleteByBizNo(input: DeleteEnrichmentCacheInput): Promise<number> {
+    const filters = [eq(schema.companyEnrichmentCache.bizNo, input.bizNo)];
+    if (input.provider) filters.push(eq(schema.companyEnrichmentCache.provider, input.provider));
+    if (input.scope) filters.push(eq(schema.companyEnrichmentCache.scope, input.scope));
+    const rows = await this.db.client
+      .delete(schema.companyEnrichmentCache)
+      .where(and(...filters))
+      .returning({ provider: schema.companyEnrichmentCache.provider });
+    return rows.length;
   }
 }
 

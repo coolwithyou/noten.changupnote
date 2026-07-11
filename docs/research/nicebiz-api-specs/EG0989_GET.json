@@ -1,0 +1,95 @@
+{
+ "summary": "부동산 등기 PDF파일 전송",
+ "operationId": "EG0989_prime_/api/niceRet2/retCrpRgrnPDF",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "niceretpubregidntnumcd",
+   "in": "query",
+   "description": "NICE부동산공부고유번호코드 (부동산등기 : nicerergissno (NICE부동산발급번호), 법인등기 : nicecrprgrnissno (NICE법인등기발급번호), 건축물대장, 토지대장 : lgr_iss_req_extseq (대장발급요청확장일련번호))",
+   "required": true,
+   "schema": {
+    "maxLength": 40.0,
+    "pattern": "",
+    "type": "string",
+    "example": "20240907008158"
+   }
+  },
+  {
+   "name": "pubregknddivcd",
+   "in": "query",
+   "description": "공부종류구분코드 (RET: 부동산등기, CRP : 법인등기, BLD : 건축물대장, LND : 토지대장)",
+   "required": true,
+   "schema": {
+    "maxLength": 3.0,
+    "pattern": "",
+    "type": "string",
+    "example": "CRP"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "items": {
+        "type": "object",
+        "properties": {
+         "count": {
+          "type": "string",
+          "description": "건수",
+          "format": "",
+          "example": "1"
+         },
+         "item": {
+          "type": "array",
+          "description": "",
+          "format": "",
+          "items": {
+           "type": "object",
+           "properties": {
+            "pdf_stream": {
+             "type": "string",
+             "description": "Base64로 인코딩된 InputStream",
+             "format": "",
+             "example": "*"
+            }
+           }
+          }
+         }
+        },
+        "description": "",
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "07e12ecb-f7af-ff9e-e063-8d1f600a7d28"
+}

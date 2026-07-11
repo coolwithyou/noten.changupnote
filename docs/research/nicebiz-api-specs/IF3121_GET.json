@@ -1,0 +1,277 @@
+{
+ "summary": "민원증명제출이력조회",
+ "operationId": "IF3121_prime_/api/faSubmitListPublic/tax/taxCertificationSubmitList",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "end_date",
+   "in": "query",
+   "description": "종료일자",
+   "required": true,
+   "schema": {
+    "maxLength": 8.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "st_date",
+   "in": "query",
+   "description": "시작일자",
+   "required": true,
+   "schema": {
+    "maxLength": 8.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "bizno",
+   "in": "query",
+   "description": "사업자등록번호",
+   "required": false,
+   "schema": {
+    "maxLength": 10.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "limit",
+   "in": "query",
+   "description": "조회건수",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "pageno",
+   "in": "query",
+   "description": "페이지번호",
+   "required": false,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "pdt_seq",
+   "in": "query",
+   "description": "상품일련번호",
+   "required": false,
+   "schema": {
+    "maxLength": 11.0,
+    "type": "integer",
+    "properties": {},
+    "items": {
+     "type": "object"
+    }
+   }
+  },
+  {
+   "name": "regcono",
+   "in": "query",
+   "description": "주민법인등록번호",
+   "required": false,
+   "schema": {
+    "maxLength": 13.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "tbzacypemgmtno",
+   "in": "query",
+   "description": "세무대리인관리번호",
+   "required": false,
+   "schema": {
+    "maxLength": 6.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "txvsacqsdatstscd",
+   "in": "query",
+   "description": "세무증명원입수데이터상태코드",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "txvscfwdivcd",
+   "in": "query",
+   "description": "세무증명원증명서구분코드",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "txvssndpcsstscd",
+   "in": "query",
+   "description": "세무증명원전송처리상태코드",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string"
+   }
+  },
+  {
+   "name": "txvsusrdivcd",
+   "in": "query",
+   "description": "세무증명원사용자구분코드",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "items": {
+        "type": "object",
+        "properties": {
+         "count": {
+          "type": "string",
+          "description": "건수",
+          "format": "",
+          "example": "303"
+         },
+         "item": {
+          "type": "array",
+          "description": "",
+          "format": "",
+          "items": {
+           "type": "object",
+           "properties": {
+            "bizno": {
+             "type": "string",
+             "description": "사업자번호",
+             "format": "",
+             "example": "*********"
+            },
+            "cfw_req_end_yymm": {
+             "type": "string",
+             "description": "증명서신청종료년월",
+             "format": "",
+             "example": "202112"
+            },
+            "cfw_req_st_yymm": {
+             "type": "string",
+             "description": "증명서신청시작년월",
+             "format": "",
+             "example": "201901"
+            },
+            "entrnm": {
+             "type": "string",
+             "description": "업체명",
+             "format": "",
+             "example": "****"
+            },
+            "inunm": {
+             "type": "string",
+             "description": "기관명",
+             "format": "",
+             "example": "테스트"
+            },
+            "pdf_file_pth": {
+             "type": "string",
+             "description": "PDF파일경로",
+             "format": "",
+             "example": "hometax/2023/02/15/17/1234567890.pdf"
+            },
+            "regcono": {
+             "type": "string",
+             "description": "법인등록번호",
+             "format": "",
+             "example": "*************"
+            },
+            "repr": {
+             "type": "string",
+             "description": "대표자",
+             "format": "",
+             "example": "***"
+            },
+            "rgs_dtm": {
+             "type": "string",
+             "description": "등록일시",
+             "format": "",
+             "example": "2023-02-15 17:57:43.07"
+            },
+            "smt_ofcrnm": {
+             "type": "string",
+             "description": "제출자명",
+             "format": "",
+             "example": "***"
+            },
+            "txvsacqsdatstsnm": {
+             "type": "string",
+             "description": "세무증명원입수데이터상태명",
+             "format": "",
+             "example": "검증완료"
+            },
+            "txvscfwdivcd": {
+             "type": "string",
+             "description": "세무증명원증명서구분코드",
+             "format": "",
+             "example": "A7"
+            },
+            "txvscfwissno": {
+             "type": "string",
+             "description": "세무증명원증명서발급번호",
+             "format": "",
+             "example": "************"
+            },
+            "txvscfwnm": {
+             "type": "string",
+             "description": "세무증명원증명서명",
+             "format": "",
+             "example": "소득금액증명"
+            },
+            "txvssndpcsstsnm": {
+             "type": "string",
+             "description": "세무증명원전송처리상태명",
+             "format": "",
+             "example": "string"
+            }
+           }
+          }
+         }
+        },
+        "description": "",
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "07e4dce8-aa8b-2b19-e063-8d1f600aa2ea"
+}

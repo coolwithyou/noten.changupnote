@@ -1,0 +1,465 @@
+{
+ "summary": "[기업]재무-재무제표",
+ "operationId": "OCFN01_prime_/api/opengate/{ver}/company/finance/{companyKey}/statements",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "tpCd",
+   "in": "query",
+   "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "type": "string",
+    "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+    "enum": [
+     "01",
+     "02"
+    ]
+   }
+  },
+  {
+   "name": "fatpCd",
+   "in": "query",
+   "description": "재무유형코드(개별(0), 연결(1))",
+   "required": false,
+   "schema": {
+    "maxLength": 1.0,
+    "type": "string",
+    "description": "재무유형코드(개별(0), 연결(1))",
+    "enum": [
+     "0",
+     "1"
+    ],
+    "default": "0"
+   }
+  },
+  {
+   "name": "reportCd",
+   "in": "query",
+   "description": "누적(YTD)/기간(PRD) 구분",
+   "required": false,
+   "schema": {
+    "maxLength": 3.0,
+    "type": "string",
+    "description": "누적(YTD)/기간(PRD) 구분",
+    "enum": [
+     "PRD",
+     "YTD"
+    ],
+    "default": "YTD"
+   }
+  },
+  {
+   "name": "stacDivCd",
+   "in": "query",
+   "description": "결산 구분(누적 = 1분기(F), 반기(B), 3분기(T), 결산(K) / 기간 = 1분기(F), 2분기(X), 3분기(Y), 4분기(Z))",
+   "required": false,
+   "schema": {
+    "maxLength": 1.0,
+    "type": "string",
+    "description": "결산 구분(누적(YTD) = 1분기(F), 반기(B), 3분기(T), 결산(K) / 기간(PRD) = 1분기(F), 2분기(X), 3분기(Y), 4분기(Z))",
+    "enum": [
+     "F",
+     "B",
+     "T",
+     "K",
+     "X",
+     "Y",
+     "Z"
+    ],
+    "default": "K"
+   }
+  },
+  {
+   "name": "farptCd",
+   "in": "query",
+   "description": "재무 보고서 코드",
+   "required": false,
+   "schema": {
+    "maxLength": 2.0,
+    "minLength": 2.0,
+    "type": "string",
+    "description": "재무 보고서 코드"
+   }
+  },
+  {
+   "name": "farptItemCd",
+   "in": "query",
+   "description": "재무 보고서 항목코드",
+   "required": false,
+   "schema": {
+    "maxLength": 4.0,
+    "minLength": 4.0,
+    "type": "string",
+    "description": "재무 보고서 항목코드"
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  },
+  {
+   "name": "baseStacDate",
+   "in": "query",
+   "description": "재무결산일자 선택 1 : 조회 기준일자(기준일자 필드의 = 조건)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "재무결산일자 선택 1 : 조회 기준일자(기준일자 필드의 = 조건)",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "startStacDate",
+   "in": "query",
+   "description": "재무결산일자 선택 2 : 조회 시작일자(startStacDate <= 3개년)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "재무결산일자 선택 2 : 조회 시작일자(startStacDate <= 3개년)",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "endStacDate",
+   "in": "query",
+   "description": "재무결산일자 선택 2 : 조회 종료일자(endStacDate >= 3개년)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "재무결산일자 선택 2 : 조회 종료일자(endStacDate >= 3개년)",
+    "format": "date-yyyymmdd"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "requestedKey",
+         "requestedKeyType"
+        ],
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "요청 companyKey",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "요청 Key 타입(bizno, crpno, upchecd)",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         },
+         "tpCd": {
+          "maxLength": 2.0,
+          "type": "string",
+          "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+          "example": "01",
+          "enum": [
+           "01",
+           "02"
+          ]
+         },
+         "fatpCd": {
+          "maxLength": 1.0,
+          "type": "string",
+          "description": "재무유형코드(개별(0), 연결(1))",
+          "example": "0",
+          "enum": [
+           "0",
+           "1"
+          ],
+          "default": "0"
+         },
+         "reportCd": {
+          "maxLength": 3.0,
+          "type": "string",
+          "description": "누적(YTD)/기간(PRD) 구분",
+          "example": "YTD",
+          "enum": [
+           "PRD",
+           "YTD"
+          ],
+          "default": "YTD"
+         },
+         "stacDivCd": {
+          "maxLength": 1.0,
+          "type": "string",
+          "description": "결산 구분(누적(YTD) = 1분기(F), 반기(B), 3분기(T), 결산(K) / 기간(PRD) = 1분기(F), 2분기(X), 3분기(Y), 4분기(Z))",
+          "example": "K",
+          "enum": [
+           "F",
+           "B",
+           "T",
+           "K",
+           "X",
+           "Y",
+           "Z"
+          ],
+          "default": "K"
+         },
+         "farptCd": {
+          "maxLength": 2.0,
+          "minLength": 2.0,
+          "type": "string",
+          "description": "재무 보고서 코드"
+         },
+         "farptItemCd": {
+          "maxLength": 4.0,
+          "minLength": 4.0,
+          "type": "string",
+          "description": "재무 보고서 항목코드"
+         },
+         "baseStacDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "재무결산일자 선택 1 : 조회 기준일자(기준일자 필드의 = 조건)",
+          "format": "date-yyyymmdd"
+         },
+         "startStacDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "재무결산일자 선택 2 : 조회 시작일자(startStacDate <= 3개년)",
+          "format": "date-yyyymmdd"
+         },
+         "endStacDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "재무결산일자 선택 2 : 조회 종료일자(endStacDate >= 3개년)",
+          "format": "date-yyyymmdd"
+         }
+        },
+        "description": "재무정보 요청항목"
+       },
+       "data": {
+        "required": [
+         "financialStatementsList",
+         "listCount"
+        ],
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)"
+         },
+         "listCount": {
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 3.0
+         },
+         "financialStatementsList": {
+          "type": "array",
+          "description": "재무제표 정보",
+          "items": {
+           "required": [
+            "fatpcd",
+            "reportCd",
+            "stacDate",
+            "stacdivcd",
+            "tpCd",
+            "upchecd"
+           ],
+           "type": "object",
+           "properties": {
+            "upchecd": {
+             "maxLength": 6.0,
+             "type": "string",
+             "description": "KISCODE",
+             "example": "820610"
+            },
+            "stacDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "결산일자",
+             "format": "date-yyyymmdd",
+             "example": "20231231"
+            },
+            "tpCd": {
+             "maxLength": 2.0,
+             "type": "string",
+             "description": "회계기준 구분(KGAAP(01), IFRS(02))",
+             "example": "01"
+            },
+            "tpNm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "회계기준 구분명",
+             "example": "KGAAP"
+            },
+            "fatpcd": {
+             "maxLength": 1.0,
+             "type": "string",
+             "description": "재무유형코드(개별(0), 연결(1))",
+             "example": "0"
+            },
+            "fatpnm": {
+             "maxLength": 2.0,
+             "type": "string",
+             "description": "재무유형코드명",
+             "example": "개별"
+            },
+            "reportCd": {
+             "maxLength": 3.0,
+             "type": "string",
+             "description": "누적(YTD)/기간(PRD) 구분코드",
+             "example": "YTD"
+            },
+            "reportNm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "누적(YTD)/기간(PRD) 구분명",
+             "example": "누적"
+            },
+            "stacdivcd": {
+             "maxLength": 1.0,
+             "type": "string",
+             "description": "결산구분코드(1분기(F), 반기(B), 3분기(T), 결산(K), 2분기기간(X), 3분기기간(Y), 4분기기간(Z))",
+             "example": "K"
+            },
+            "stacdivnm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "결산구분코드명",
+             "example": "결산"
+            },
+            "faOgxYn": {
+             "maxLength": 1.0,
+             "type": "string",
+             "description": "재무원본여부",
+             "example": "N"
+            },
+            "financialReportList": {
+             "type": "array",
+             "description": "재무 보고서 계정별 List",
+             "items": {
+              "type": "object",
+              "properties": {
+               "farptcd": {
+                "maxLength": 2.0,
+                "type": "string",
+                "description": "보고서 코드",
+                "example": "26"
+               },
+               "farptitemcd": {
+                "maxLength": 4.0,
+                "type": "string",
+                "description": "보고서 항목코드",
+                "example": "4900"
+               },
+               "farptitemKor": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "보고서 항목 한글명",
+                "example": "기말자본조정"
+               },
+               "farptitemEng": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "보고서 항목 영문명",
+                "example": "Ending amount of capital adjustments"
+               },
+               "amtuit": {
+                "maxLength": 1.0,
+                "type": "string",
+                "description": "금액단위",
+                "example": "2"
+               },
+               "amtuitnm": {
+                "maxLength": 1.0,
+                "type": "string",
+                "description": "금액단위명",
+                "example": "천원"
+               },
+               "tlevel": {
+                "type": "integer",
+                "description": "재무계정레벨",
+                "format": "int32",
+                "example": 1.0
+               },
+               "fvl": {
+                "type": "string",
+                "description": "재무 값",
+                "format": "decimal(13,0)",
+                "example": "36951598"
+               },
+               "cmprt": {
+                "type": "string",
+                "description": "구성비",
+                "format": "decimal(5,1)",
+                "example": "0.0"
+               },
+               "indrt": {
+                "type": "string",
+                "description": "증감률",
+                "format": "decimal(5,1)",
+                "example": "-5.2"
+               }
+              },
+              "description": "재무 계정별 List VO"
+             }
+            }
+           },
+           "description": "재무제표 VO"
+          }
+         }
+        },
+        "description": "기업 재무제표 결과"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "cea8ac22-eb1d-433c-9a7a-e8a0b0d049ee"
+}

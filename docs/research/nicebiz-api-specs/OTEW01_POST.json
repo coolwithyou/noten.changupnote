@@ -1,0 +1,166 @@
+{
+ "summary": "[거래처관리]조기경보-거래처 등록",
+ "operationId": "OTEW01_prime_/api/opengate/{ver}/customer/early-warning",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  }
+ ],
+ "requestBody": {
+  "description": "",
+  "content": {
+   "application/json": {
+    "schema": {
+     "type": "object",
+     "properties": {
+      "companyList": {
+       "type": "array",
+       "description": "관심기업 거래처 등록정보",
+       "format": "",
+       "items": {
+        "required": [
+         "bizno"
+        ],
+        "type": "object",
+        "properties": {
+         "bizno": {
+          "maxLength": 10.0,
+          "minLength": 10.0,
+          "type": "string",
+          "description": "사업자번호",
+          "format": "",
+          "example": "1168115020"
+         },
+         "cusmgmtcd": {
+          "maxLength": 30.0,
+          "type": "string",
+          "description": "거래처관리코드"
+         },
+         "mgmtBrnm": {
+          "maxLength": 70.0,
+          "type": "string",
+          "description": "관리지점명"
+         }
+        },
+        "description": "관심기업 거래처 등록 리스트항목"
+       }
+      }
+     },
+     "items": {
+      "type": "object"
+     }
+    }
+   }
+  },
+  "required": false
+ },
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "svcJinUsrid"
+        ],
+        "type": "object",
+        "properties": {
+         "svcSyncCd": {
+          "maxLength": 3.0,
+          "type": "string",
+          "description": "서비스연계코드(NBL: NICEBizLINE 연계 서비스코드)",
+          "format": "",
+          "enum": [
+           "EWS",
+           "NBL"
+          ],
+          "default": "EWS"
+         },
+         "svcJinUsrid": {
+          "maxLength": 16.0,
+          "minLength": 0.0,
+          "type": "string",
+          "description": "NICE 기업계정",
+          "format": ""
+         }
+        },
+        "description": "관심기업 거래처 등록 요청항목",
+        "format": ""
+       },
+       "data": {
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "응답 메시지",
+          "format": ""
+         },
+         "totalCount": {
+          "type": "integer",
+          "description": "총 요청 건수",
+          "format": "int32"
+         },
+         "successCount": {
+          "type": "integer",
+          "description": "성공 건수",
+          "format": "int32"
+         },
+         "failCount": {
+          "type": "integer",
+          "description": "실패 건수",
+          "format": "int32"
+         },
+         "failList": {
+          "type": "array",
+          "description": "실패 항목",
+          "format": "",
+          "items": {
+           "type": "object",
+           "properties": {
+            "failId": {
+             "type": "string",
+             "description": "실패 항목",
+             "format": ""
+            },
+            "failMessage": {
+             "type": "string",
+             "description": "실패 사유 메시지",
+             "format": ""
+            }
+           },
+           "description": "등록 실패 리스트"
+          }
+         }
+        },
+        "description": "조기경보 거래처 등록결과",
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "88764de6-b833-47ad-a4a2-bd5f91ee6d9b"
+}

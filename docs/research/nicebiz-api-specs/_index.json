@@ -1,0 +1,509 @@
+{
+ "LP0203": {
+  "code": "LP0203",
+  "summary": "기업정보약식조회",
+  "desc": null,
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/nice/sb"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/api/emEprOtlIfo/companyShortOutline",
+    "summary": "기업 개요 정보",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/LP0203_GET.json"
+   }
+  ]
+ },
+ "OCOV01": {
+  "code": "OCOV01",
+  "summary": "[기업]개요-약식정보",
+  "desc": "기업 개요의 약식정보를 제공합니다.  \n **KEY** : UPCHECD, BIZNO, CRPNO  \n **설명** : 요청한 사업자 정보가 본점일 경우 본점정보 제공, 지점일 경우 지점정보로 제공합니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/overview/{companyKey}/summary",
+    "summary": "[기업]개요-약식정보",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCOV01_GET.json"
+   }
+  ]
+ },
+ "OCOV02": {
+  "code": "OCOV02",
+  "summary": "[기업]개요-기본정보",
+  "desc": "기업 개요 중 본점과 지점의 상세정보를 제공합니다.  \n **KEY** : UPCHECD, BIZNO, CRPNO  \n **설명** : 요청한 사업자 정보가 본점일 경우 본점정보, 지점일 경우 지점정보로 제공합니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/overview/{companyKey}/profile",
+    "summary": "[기업]개요-기본정보",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCOV02_GET.json"
+   }
+  ]
+ },
+ "OCOV06": {
+  "code": "OCOV06",
+  "summary": "[기업]개요-주요경영지표",
+  "desc": "기업 지표정보 중 주요경영지표를 제공합니다.  \n **KEY** : UPCHECD  \n **설명** : 최근 5개년 간 자산, 부채, 자본, 매출액, 영업이익, 순이익, 순이익율, 영업이익율 제공  \n 추가로 재무 결산 일자별 감사의견도 제공됩니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/overview/{companyKey}/indicator",
+    "summary": "[기업]개요-주요경영지표",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCOV06_GET.json"
+   }
+  ]
+ },
+ "OCOV11": {
+  "code": "OCOV11",
+  "summary": "[기업]개요-휴폐업정보",
+  "desc": "휴폐업정보.  \n **KEY** : BIZNO  \n **설명** : 사업자Master 휴폐업정보를 조회한다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/overview/{companyKey}/closed",
+    "summary": "[기업]개요-휴폐업정보",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCOV11_GET.json"
+   }
+  ]
+ },
+ "OCCD03": {
+  "code": "OCCD03",
+  "summary": "[기업]신용-신용도 판단정보(공공정보 포함) (한국신용정보원)",
+  "desc": "한국신용정보원에서 제공하는 기업의 신용도판단정보를 제공합니다.  \n **KEY** : CRPNO, BIZNO  \n **DEFAULT** : 일자관련 옵션파라미터를 입력하지 않을 경우 최신 정보를 출력  \n **설명** : 채무불이행(BB), 금융질서문란(FD), 공공정보(PB), 특수기록정보(SB) 제공  \n 사업자번호와 법인번호로 조회할 때의 결과값이 상이할 수 있습니다.  \n 법인번호로 조회했을 경우 해당 사업자의 전체 정보가 노출되며 사업자번호로 조회했을 경우는 해당 사업자만 노출되도록 신정원의 대상차주 기준이 적용  \n (공공정보의 경우는 법인번호로 조회시 출력)",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/credit/{companyKey}/negativeInfo",
+    "summary": "[기업]신용-신용도 판단정보(공공정보 포함) (한국신용정보원)",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCCD03_GET.json"
+   }
+  ]
+ },
+ "OCCD06": {
+  "code": "OCCD06",
+  "summary": "[기업]신용-법정관리/워크아웃정보",
+  "desc": "기업의 법정관리/워크아웃정보를 제공합니다.  \n **KEY** : CRPNO, BIZNO  \n **설명** : 2년동안의 기록을 제공",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/credit/{companyKey}/workout",
+    "summary": "[기업]신용-법정관리/워크아웃정보",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCCD06_GET.json"
+   }
+  ]
+ },
+ "OCGD01": {
+  "code": "OCGD01",
+  "summary": "[기업]등급-기업평가등급",
+  "desc": "NICE의 기업평가등급을 제공합니다.  \n **KEY** : UPCHECD, BIZNO  \n **설명** : 법인등록번호(crpno) 입력 요청 시 나이스 기업정보에서 KISCODE(upchecd)로 전환 후 조회",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/grade/{companyKey}/credit-rating",
+    "summary": "[기업]등급-기업평가등급",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCGD01_GET.json"
+   }
+  ]
+ },
+ "OCGD02": {
+  "code": "OCGD02",
+  "summary": "[기업]등급-WATCH등급",
+  "desc": "NICE의 WATCH 등급 정보를 제공합니다.  \n **KEY** : BIZNO (UPCHECD/CRPNO 입력 요청 시 BIZNO로 전환 후 조회)  \n **설명** : WATCH 정보의 경우 BIZNO를 Key로 사용하기 때문에 NICE 개요정보와 관계없이 조회가 가능합니다.  \n addWatchRsn 옵션 파라미터: Default 값은 WATCH 사유 포함 ",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/grade/{companyKey}/watch",
+    "summary": "[기업]등급-WATCH등급",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCGD02_GET.json"
+   }
+  ]
+ },
+ "OCGD03": {
+  "code": "OCGD03",
+  "summary": "[기업]등급-현금흐름등급",
+  "desc": "기업등급정보 중 현금흐름 등급을 제공합니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/grade/{companyKey}/cashflow",
+    "summary": "[기업]등급-현금흐름등급",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCGD03_GET.json"
+   }
+  ]
+ },
+ "OTEW01": {
+  "code": "OTEW01",
+  "summary": "[거래처관리]조기경보-거래처 조회/등록/수정/삭제",
+  "desc": "거래처 관리의 조기경보 거래처 조회 기능을 제공합니다.  \nNICEBizLINE 연계 가능 : 해당 서비스의 계약이 생성되어 있는 경우만 연계 가능하며 메일 기능과 NBL 거래처관리 화면에 노출됩니다.  \n조기경보 조회는 서비스 코드와 상관없이 전체 조회가 가능 NBL 계약만료 후 EWS 전환을 위함",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/customer/early-warning",
+    "summary": "[거래처관리]조기경보-거래처 조회",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OTEW01_GET.json"
+   },
+   {
+    "method": "POST",
+    "path": "/customer/early-warning",
+    "summary": "[거래처관리]조기경보-거래처 등록",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OTEW01_POST.json"
+   },
+   {
+    "method": "PUT",
+    "path": "/customer/early-warning",
+    "summary": "[거래처관리]조기경보-거래처 수정",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OTEW01_PUT.json"
+   },
+   {
+    "method": "DELETE",
+    "path": "/customer/early-warning",
+    "summary": "[거래처관리]조기경보-거래처 삭제",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OTEW01_DELETE.json"
+   }
+  ]
+ },
+ "OTEW02": {
+  "code": "OTEW02",
+  "summary": "[거래처관리]조기경보-기업평가등급 변동내역",
+  "desc": "조기경보 등록된 거래처 기준의 기업평가등급 변동분 조회 기능을 제공합니다.  \n현재 NICEBizLINE 서비스 연계만 가능(요청시 타 서비스 연계 가능)  \n+기준일자 조회 옵션의 Default는 오늘 일자로 조회",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/customer/early-warning/credit-rating",
+    "summary": "[거래처관리]조기경보-기업평가등급 변동내역",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OTEW02_GET.json"
+   }
+  ]
+ },
+ "OTEW03": {
+  "code": "OTEW03",
+  "summary": "[거래처관리]조기경보-WATCH등급 변동내역",
+  "desc": "조기경보 등록된 거래처 기준의 Watch등급 변동분 조회 기능을 제공합니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/customer/early-warning/watch",
+    "summary": "[거래처관리]조기경보-WATCH등급 변동내역",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OTEW03_GET.json"
+   }
+  ]
+ },
+ "IF2150": {
+  "code": "IF2150",
+  "summary": "사업자인증 API",
+  "desc": null,
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/nice/sb"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/api/biz-cert",
+    "summary": "사업자인증 API",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/IF2150_GET.json"
+   }
+  ]
+ },
+ "IF3110": {
+  "code": "IF3110",
+  "summary": "원본 PDF 파일 조회",
+  "desc": null,
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/nice/sb"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/api/faSubmitListPublic/tax/orgPdf",
+    "summary": "IF3110",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/IF3110_GET.json"
+   }
+  ]
+ },
+ "IF3121": {
+  "code": "IF3121",
+  "summary": "민원증명제출이력조회",
+  "desc": "해당 API는 테스트 앱으로 호출시에는 고정된 응답값을 받게 됩니다.<br>\n오류 응답값도 실제와 다를수 있으므로, 참고용으로만 사용하시기 바랍니다.<br>\n실제 제출이력조회는 계약을 진행한 이후 제공받은 앱을 통해서만 가능합니다.<br>\n<br>\n관련한 자세한 문의가 필요한 경우 <a href=\"/qna\">문의하기</a>를 통해 문의를 남겨주세요.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/nice/sb"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/api/faSubmitListPublic/tax/taxCertificationSubmitList",
+    "summary": "민원증명제출이력조회",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/IF3121_GET.json"
+   }
+  ]
+ },
+ "EG0989": {
+  "code": "EG0989",
+  "summary": "부동산 등기 PDF파일 전송",
+  "desc": "EG1016 공부발급신청을 통해 발급 신청 후 발급 완료된 공부 문서의 원본 PDF 파일을 받아보기 위한 API입니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/nice/sb"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/api/niceRet2/retCrpRgrnPDF",
+    "summary": "부동산 등기 PDF파일 전송",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/EG0989_GET.json"
+   }
+  ]
+ },
+ "EG1016": {
+  "code": "EG1016",
+  "summary": "공부발급신청(V2)",
+  "desc": "6가지 형태(부동산등기, 법인등기, 건축물대장, 토지대장, 토이계, 지적도)의 공부발급이 가능한 API입니다.<br>\n각 공부별 입력 필수값이 다르므로 자세한 입력값에 대한 가이드는 <a href=\"/guide?common=1274\" target=\"_blank\">EG1016 호출 가이드</a> 를 참고해주세요.<br>\n<br>\n해당 API는 테스트 앱으로 호출시에는 고정된 예시 응답값을 받게 됩니다. <br>\n오류 응답값도 실제와 다를수 있으므로, 참고용으로만 사용하시기 바랍니다. <br>\n실제 발급신청은 계약을 진행한 이후 제공받은 앱을 통해서만 가능합니다.<br>\n<br>\n관련한 자세한 문의가 필요한 경우 <a href=\"/qna\">문의하기</a>를 통해 문의를 남겨주세요.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/nice/sb"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/api/niceRetTupSvc/retRgrnIss",
+    "summary": "공부발급신청(V2)",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/EG1016_GET.json"
+   }
+  ]
+ },
+ "EG0950": {
+  "code": "EG0950",
+  "summary": "법인등기 마스터 정보 조회",
+  "desc": null,
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/nice/sb"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/api/niceRet2/crpRgrnMastIfo",
+    "summary": "법인등기 마스터 정보 조회",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/EG0950_GET.json"
+   }
+  ]
+ },
+ "OCST02": {
+  "code": "OCST02",
+  "summary": "[기업]현황-주요주주현황",
+  "desc": "기업의 주요주주현황 정보를 제공합니다.  \n **KEY** : UPCHECD  \n **설명**  \n - 회계기준 구분 : Default는 IFRS이며, 데이터 미존재 시 KGAAP 기준으로 조회합니다.  \n - 조회 기준일자 : Default는 가장 최근의 기준일자입니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/state/{companyKey}/shareholders",
+    "summary": "[기업]현황-주요주주현황",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCST02_GET.json"
+   }
+  ]
+ },
+ "OCFN01": {
+  "code": "OCFN01",
+  "summary": "[기업]재무-재무제표",
+  "desc": "기업재무의 재무제표 정보를 제공합니다.  \n **KEY** : UPCHECD  \n **설명** : Default 조회 조건의 경우 IFRS, 개별, 누적 재무정보의 최신 결산일자 기준입니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/finance/{companyKey}/statements",
+    "summary": "[기업]재무-재무제표",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCFN01_GET.json"
+   }
+  ]
+ },
+ "OCFN03": {
+  "code": "OCFN03",
+  "summary": "[기업]재무-재무비율",
+  "desc": "기업재무의 재무비율 정보를 제공합니다.  \n **KEY** : UPCHECD  \n **설명** : Default 조회 조건의 경우 IFRS, 개별, 누적 재무정보의 최신 결산일자 기준입니다.",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/finance/{companyKey}/ratios",
+    "summary": "[기업]재무-재무비율",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCFN03_GET.json"
+   }
+  ]
+ },
+ "OCCD01": {
+  "code": "OCCD01",
+  "summary": "[기업]신용-신용요약정보",
+  "desc": "기업의 신용정보 요약현황을 제공합니다.  \n **KEY** : CRPNO, BIZNO  \n **설명** : 신용 요약정보의 경우 단기연체정보, 신용도판단정보(신정원, 신정사), 공공정보, 당좌거래정지정보, 법정관리/워크아웃정보에 대한 발생건수를 제공",
+  "cost": 1,
+  "gateway": [
+   {
+    "url": "https://api.nicebizline.com/api/opengate"
+   }
+  ],
+  "ops": [
+   {
+    "method": "GET",
+    "path": "/company/credit/{companyKey}/summary",
+    "summary": "[기업]신용-신용요약정보",
+    "transactionCost": 1,
+    "free": false,
+    "file": "specs/OCCD01_GET.json"
+   }
+  ]
+ }
+}

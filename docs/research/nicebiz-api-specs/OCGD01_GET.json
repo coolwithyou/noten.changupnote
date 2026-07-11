@@ -1,0 +1,266 @@
+{
+ "summary": "[기업]등급-기업평가등급",
+ "operationId": "OCGD01_prime_/api/opengate/{ver}/company/grade/{companyKey}/credit-rating",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  },
+  {
+   "name": "startDate",
+   "in": "query",
+   "description": "일자 옵션선택 : 조회 시작일자(startDate <= 조건)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "일자 옵션선택 : 조회 시작일자(기준일자 필드의 <= 조건)",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "endDate",
+   "in": "query",
+   "description": "일자 옵션선택 : 조회 종료일자(endDate >= 조건)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "일자 옵션선택 : 조회 종료일자(기준일자 필드의 >= 조건)",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "pageNo",
+   "in": "query",
+   "description": "Page 옵션선택 : 페이지 번호",
+   "required": false,
+   "schema": {
+    "minimum": 1.0,
+    "type": "integer",
+    "description": "PageNo",
+    "format": "int32",
+    "default": 1.0
+   }
+  },
+  {
+   "name": "pageSize",
+   "in": "query",
+   "description": "Page 옵션선택 : 페이지 사이즈",
+   "required": false,
+   "schema": {
+    "maximum": 100.0,
+    "minimum": 1.0,
+    "type": "integer",
+    "description": "PageSize",
+    "format": "int32",
+    "default": 20.0
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "requestedKey",
+         "requestedKeyType"
+        ],
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "요청 companyKey",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "요청 Key 타입(bizno, crpno, upchecd)",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         },
+         "startDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "일자 옵션선택 : 조회 시작일자(기준일자 필드의 <= 조건)",
+          "format": "date-yyyymmdd"
+         },
+         "endDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "일자 옵션선택 : 조회 종료일자(기준일자 필드의 >= 조건)",
+          "format": "date-yyyymmdd"
+         },
+         "pageNo": {
+          "minimum": 1.0,
+          "type": "integer",
+          "description": "PageNo",
+          "format": "int32",
+          "example": 1.0,
+          "default": 1.0
+         },
+         "pageSize": {
+          "maximum": 100.0,
+          "minimum": 1.0,
+          "type": "integer",
+          "description": "PageSize",
+          "format": "int32",
+          "example": 20.0,
+          "default": 20.0
+         }
+        },
+        "description": "기업평가등급 요청항목"
+       },
+       "data": {
+        "required": [
+         "creditRatingList",
+         "listCount"
+        ],
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)"
+         },
+         "totalCount": {
+          "type": "integer",
+          "description": "전체건수: Page 옵션 사용시에만 결과출력",
+          "format": "int32",
+          "readOnly": true,
+          "example": 76.0
+         },
+         "listCount": {
+          "maximum": 100.0,
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 20.0,
+          "default": 20.0
+         },
+         "creditRatingList": {
+          "type": "array",
+          "description": "기업평가등급정보",
+          "items": {
+           "required": [
+            "grdBaseDate",
+            "upchecd"
+           ],
+           "type": "object",
+           "properties": {
+            "upchecd": {
+             "maxLength": 6.0,
+             "minLength": 6.0,
+             "type": "string",
+             "description": "업체코드",
+             "example": "820610"
+            },
+            "bizno": {
+             "maxLength": 10.0,
+             "minLength": 10.0,
+             "type": "string",
+             "description": "사업자등록번호",
+             "example": "1168115020"
+            },
+            "grdBaseDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "등급평가일자(조회기준일자)",
+             "format": "date-yyyymmdd",
+             "example": "20230621"
+            },
+            "grdEndDate": {
+             "maxLength": 8.0,
+             "type": "string",
+             "description": "등급종료일자",
+             "format": "date-yyyymmdd",
+             "nullable": true,
+             "example": "99991231"
+            },
+            "crgrade": {
+             "maxLength": 4.0,
+             "type": "string",
+             "description": "기업평가등급",
+             "nullable": true,
+             "example": "R"
+            },
+            "trangrade": {
+             "maxLength": 4.0,
+             "type": "string",
+             "description": "평가변환등급",
+             "example": "R"
+            },
+            "crratdivcd": {
+             "maxLength": 2.0,
+             "type": "string",
+             "description": "신용등급유형코드",
+             "example": "R1"
+            },
+            "crratdivnm": {
+             "maxLength": 255.0,
+             "type": "string",
+             "description": "신용등급유형명",
+             "example": " "
+            },
+            "stacDate": {
+             "maxLength": 8.0,
+             "minLength": 8.0,
+             "type": "string",
+             "description": "재무결산일자",
+             "example": "-"
+            }
+           },
+           "description": "기업평가등급 VO"
+          }
+         }
+        },
+        "description": "기업평가등급 결과"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "642a07de-1052-404e-ab49-c3d0837bf206"
+}

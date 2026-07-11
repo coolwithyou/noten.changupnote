@@ -1,0 +1,337 @@
+{
+ "summary": "[거래처관리]조기경보-WATCH등급 변동내역",
+ "operationId": "OTEW03_prime_/api/opengate/{ver}/customer/early-warning/watch",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "cusmgmtcd",
+   "in": "query",
+   "description": "거래처 관리코드",
+   "required": false,
+   "schema": {
+    "maxLength": 30.0,
+    "minLength": 0.0,
+    "type": "string",
+    "description": "거래처 관리코드"
+   }
+  },
+  {
+   "name": "mgmtBrnm",
+   "in": "query",
+   "description": "거래처 관리 지점명",
+   "required": false,
+   "schema": {
+    "maxLength": 100.0,
+    "minLength": 0.0,
+    "type": "string",
+    "description": "거래처 관리 지점명"
+   }
+  },
+  {
+   "name": "baseDate",
+   "in": "query",
+   "description": "일자 옵션선택 1 : 조회 기준일자(기준일자 필드의 = 조건)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "일자 옵션선택 1 : 조회 기준일자(기준일자 필드의 = 조건)",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "startDate",
+   "in": "query",
+   "description": "일자 옵션선택 2 : 조회 시작일자(startDate <= 조건)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "일자 옵션선택 2 : 조회 시작일자(기준일자 필드의 <= 조건)",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "endDate",
+   "in": "query",
+   "description": "일자 옵션선택 2 : 조회 종료일자(endDate >= 조건)",
+   "required": false,
+   "schema": {
+    "maxLength": 8.0,
+    "minLength": 8.0,
+    "type": "string",
+    "description": "일자 옵션선택 2 : 조회 종료일자(기준일자 필드의 >= 조건)",
+    "format": "date-yyyymmdd"
+   }
+  },
+  {
+   "name": "pageNo",
+   "in": "query",
+   "description": "Page 옵션선택 : 페이지 번호",
+   "required": false,
+   "schema": {
+    "minimum": 1.0,
+    "type": "integer",
+    "properties": {},
+    "description": "PageNo",
+    "format": "int32",
+    "items": {
+     "type": "object"
+    },
+    "default": 1.0
+   }
+  },
+  {
+   "name": "pageSize",
+   "in": "query",
+   "description": "Page 옵션선택 : 페이지 사이즈",
+   "required": false,
+   "schema": {
+    "maximum": 100.0,
+    "minimum": 1.0,
+    "type": "integer",
+    "properties": {},
+    "description": "PageSize",
+    "format": "int32",
+    "items": {
+     "type": "object"
+    },
+    "default": 20.0
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "svcJinUsrid"
+        ],
+        "type": "object",
+        "properties": {
+         "svcSyncCd": {
+          "maxLength": 3.0,
+          "type": "string",
+          "description": "서비스연계코드(NBL: NICEBizLINE 연계 서비스코드)",
+          "format": "",
+          "enum": [
+           "EWS",
+           "NBL"
+          ],
+          "default": "EWS"
+         },
+         "svcJinUsrid": {
+          "maxLength": 16.0,
+          "minLength": 0.0,
+          "type": "string",
+          "description": "NICE 기업계정",
+          "format": ""
+         },
+         "baseDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "일자 옵션선택 1 : 조회 기준일자(기준일자 필드의 = 조건)",
+          "format": "date-yyyymmdd"
+         },
+         "startDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "일자 옵션선택 2 : 조회 시작일자(기준일자 필드의 <= 조건)",
+          "format": "date-yyyymmdd"
+         },
+         "endDate": {
+          "maxLength": 8.0,
+          "minLength": 8.0,
+          "type": "string",
+          "description": "일자 옵션선택 2 : 조회 종료일자(기준일자 필드의 >= 조건)",
+          "format": "date-yyyymmdd"
+         },
+         "pageNo": {
+          "minimum": 1.0,
+          "type": "integer",
+          "description": "PageNo",
+          "format": "int32",
+          "default": 1.0
+         },
+         "pageSize": {
+          "maximum": 100.0,
+          "minimum": 1.0,
+          "type": "integer",
+          "description": "PageSize",
+          "format": "int32",
+          "default": 20.0
+         }
+        },
+        "description": "조기경보 변동분 조회 요청항목",
+        "format": ""
+       },
+       "data": {
+        "required": [
+         "listCount",
+         "updatedWatchList"
+        ],
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)",
+          "format": ""
+         },
+         "totalCount": {
+          "type": "integer",
+          "description": "전체건수: Page 옵션 사용시 결과출력",
+          "format": "int32",
+          "readOnly": true
+         },
+         "listCount": {
+          "maximum": 100.0,
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "default": 20.0
+         },
+         "updatedWatchList": {
+          "type": "array",
+          "description": "조기경보 거래처 기준 Watch 변동분 정보",
+          "format": "",
+          "items": {
+           "required": [
+            "bizno",
+            "watchBseDate"
+           ],
+           "type": "object",
+           "properties": {
+            "bizno": {
+             "maxLength": 10.0,
+             "minLength": 10.0,
+             "type": "string",
+             "description": "사업자등록번호",
+             "format": ""
+            },
+            "watchBseDate": {
+             "maxLength": 8.0,
+             "minLength": 8.0,
+             "type": "string",
+             "description": "WATCH 경보일자(조회기준일자)",
+             "format": "date-yyyymmdd"
+            },
+            "watchGrd": {
+             "maxLength": 10.0,
+             "type": "string",
+             "description": "WATCH 등급",
+             "format": "",
+             "nullable": true
+            },
+            "watchGrdnm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "WATCH 등급명",
+             "format": "",
+             "nullable": true
+            },
+            "watchGrdEngnm": {
+             "maxLength": 150.0,
+             "type": "string",
+             "description": "WATCH 등급영문명",
+             "format": "",
+             "nullable": true
+            },
+            "watchGrdAdtndsc": {
+             "maxLength": 250.0,
+             "type": "string",
+             "description": "WATCH 등급 부가설명",
+             "format": "",
+             "nullable": true
+            },
+            "watchRsnList": {
+             "type": "array",
+             "description": "WATCH 등급사유 리스트",
+             "format": "",
+             "items": {
+              "type": "object",
+              "properties": {
+               "watchRsncd": {
+                "maxLength": 3.0,
+                "minLength": 3.0,
+                "type": "string",
+                "description": "WATCH 사유코드",
+                "format": "",
+                "nullable": true
+               },
+               "watchRsnnm": {
+                "maxLength": 200.0,
+                "type": "string",
+                "description": "WATCH 사유명",
+                "format": "",
+                "nullable": true
+               },
+               "watchRsnEngnm": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "WATCH 사유코드 영문명",
+                "format": "",
+                "nullable": true
+               },
+               "watchRsnDatMdmCfcnm": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "WATCH 사유데이터 중분류명",
+                "format": "",
+                "nullable": true
+               },
+               "watchRsnDatLargeCfcnm": {
+                "maxLength": 150.0,
+                "type": "string",
+                "description": "WATCH 사유데이터 대분류명",
+                "format": "",
+                "nullable": true
+               }
+              },
+              "description": "WATCH 사유 VO"
+             }
+            }
+           },
+           "description": "WATCH 등급 + 사유 Collection VO"
+          }
+         }
+        },
+        "description": "조기경보 Watch 변동분 조회결과",
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "fbb33ced-b114-4c0c-81ac-92f8c8281deb"
+}

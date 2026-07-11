@@ -1,0 +1,264 @@
+{
+ "summary": "[기업]신용-신용도 판단정보(공공정보 포함) (한국신용정보원)",
+ "operationId": "OCCD03_prime_/api/opengate/{ver}/company/credit/{companyKey}/negativeInfo",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "companyKey",
+   "in": "path",
+   "description": "조회할 기업의 사업자번호, 법인번호, 업체코드 중 한개만 입력",
+   "required": true,
+   "schema": {
+    "maxLength": 13.0,
+    "pattern": "\\d{10}|\\d{13}|\\w{6}",
+    "type": "string",
+    "description": "조회 companyKey",
+    "example": "1168115020"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "request": {
+        "required": [
+         "requestedKey",
+         "requestedKeyType"
+        ],
+        "type": "object",
+        "properties": {
+         "requestedKey": {
+          "maxLength": 13.0,
+          "type": "string",
+          "description": "요청 companyKey",
+          "example": "1168115020"
+         },
+         "requestedKeyType": {
+          "maxLength": 6.0,
+          "type": "string",
+          "description": "요청 Key 타입(bizno, crpno, upchecd)",
+          "example": "bizno",
+          "enum": [
+           "BIZNO",
+           "UPCHECD",
+           "CRPNO"
+          ]
+         }
+        },
+        "description": "신용도판단정보(신정원) 요청항목"
+       },
+       "data": {
+        "required": [
+         "creditNegativeInfoList",
+         "listCount"
+        ],
+        "type": "object",
+        "properties": {
+         "message": {
+          "type": "string",
+          "description": "List 설명(데이터가 존재하지 않을 경우 등 이벤트 발생시 노출)",
+          "example": "데이터가 존재하지 않습니다."
+         },
+         "listCount": {
+          "type": "integer",
+          "description": "List 건수",
+          "format": "int32",
+          "example": 1.0
+         },
+         "creditNegativeInfoList": {
+          "type": "array",
+          "description": "신용도판단정보",
+          "items": {
+           "type": "object",
+           "properties": {
+            "totaloccCnt": {
+             "type": "integer",
+             "description": "발생 총건수",
+             "format": "int32",
+             "example": 5.0
+            },
+            "bbCnt": {
+             "type": "integer",
+             "description": "채무불이행 건수",
+             "format": "int32",
+             "example": 5.0
+            },
+            "fdCnt": {
+             "type": "integer",
+             "description": "금융질서문란 건수",
+             "format": "int32"
+            },
+            "pbCnt": {
+             "type": "integer",
+             "description": "공공기록정보 건수",
+             "format": "int32"
+            },
+            "sbCnt": {
+             "type": "integer",
+             "description": "특수기록정보 건수",
+             "format": "int32"
+            },
+            "totalrelCnt": {
+             "type": "integer",
+             "description": "해제 총건수",
+             "format": "int32"
+            },
+            "bbrelCnt": {
+             "type": "integer",
+             "description": "채무불이행 해제건수",
+             "format": "int32"
+            },
+            "fdrelCnt": {
+             "type": "integer",
+             "description": "금융질서문란 해제건수",
+             "format": "int32"
+            },
+            "pbrelCnt": {
+             "type": "integer",
+             "description": "공공기록정보 해제건수",
+             "format": "int32"
+            },
+            "sbrelCnt": {
+             "type": "integer",
+             "description": "특수기록정보 해제건수",
+             "format": "int32"
+            },
+            "negativeInfoDetailList": {
+             "type": "array",
+             "description": "신용도판단정보 Item",
+             "items": {
+              "type": "object",
+              "properties": {
+               "typecode": {
+                "type": "string",
+                "description": "유형구분코드(BB : 신용도판단정보(채무불이행), FD : 금융질서문란, PB : 공공정보, SB : 특수기록정보",
+                "example": "BB"
+               },
+               "typename": {
+                "type": "string",
+                "description": "유형구분명 (예:신용도판단정보(한국신용정보원), 신용도판단정보(공공기록정보) 등",
+                "example": "신용도판단정보(한국신용정보원)"
+               },
+               "gubn": {
+                "type": "string",
+                "description": "구분",
+                "example": "대위변제/대지급 정보"
+               },
+               "delayamt": {
+                "type": "string",
+                "description": "연체금액",
+                "example": "4556"
+               },
+               "causecode": {
+                "type": "string",
+                "description": "등록코드",
+                "example": "0201"
+               },
+               "causename": {
+                "type": "string",
+                "description": "등록사유명",
+                "example": "대위변제/대지급"
+               },
+               "causenameEng": {
+                "type": "string",
+                "description": "등록사유영문명",
+                "example": "Subrogation"
+               },
+               "causecont": {
+                "type": "string",
+                "description": "등록사유설명",
+                "example": "채무를 변제하지 아니한 기간(최장1년), 등록사유발생일로부터 90일 이내 해제시 또는 등록금액 1천만원 이하인 경우 해제와 동시에 삭제(다만 기간경과 해제시는 1년동안 보존)"
+               },
+               "causedetail": {
+                "type": "string",
+                "description": "등록사유상세설명",
+                "example": "지급보증대지급 및 대위변제-지급보증대지급금 또는 대위변제금을 3개월 이상 보유한 거래처[보증보험사의 이행성보증(신용)보험 대위변제금 포함]"
+               },
+               "regamt": {
+                "type": "string",
+                "description": "등록금액",
+                "example": "4556"
+               },
+               "regdate": {
+                "type": "string",
+                "description": "등록일자",
+                "format": "date-yyyymmdd",
+                "example": "20230707"
+               },
+               "relscode": {
+                "type": "string",
+                "description": "해제코드",
+                "example": "00"
+               },
+               "relsname": {
+                "type": "string",
+                "description": "해제명",
+                "example": "미해제"
+               },
+               "relsdate": {
+                "type": "string",
+                "description": "해제일자",
+                "format": "date-yyyymmdd",
+                "example": "00000000"
+               },
+               "orgname": {
+                "type": "string",
+                "description": "발생기관명",
+                "example": "서울보증보험"
+               },
+               "orgnameEng": {
+                "type": "string",
+                "description": "발생기관영문명",
+                "example": "SEOUL GUARANTEE INSURANCE CO.,LTD."
+               },
+               "brcname": {
+                "type": "string",
+                "description": "발생지점명",
+                "example": "본사"
+               },
+               "occdate": {
+                "type": "string",
+                "description": "발생일자",
+                "format": "date-yyyymmdd",
+                "example": "20230705"
+               }
+              },
+              "description": "신용도판단정보-신정원(LF0218) /Item 정보"
+             }
+            }
+           },
+           "description": "기업신용 신용도판단정보 결과 DTO"
+          }
+         }
+        },
+        "description": "신용도판단정보 결과"
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "e65ee460-3abb-4478-86b8-59725c6435a6"
+}

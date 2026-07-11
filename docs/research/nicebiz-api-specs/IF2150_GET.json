@@ -1,0 +1,190 @@
+{
+ "summary": "사업자인증 API",
+ "operationId": "IF2150_/api/biz-cert",
+ "parameters": [
+  {
+   "name": "client-id",
+   "in": "header",
+   "description": "클라이언트 ID",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "client-secret",
+   "in": "header",
+   "description": "클라이언트 Secret",
+   "required": true,
+   "schema": {
+    "type": "string"
+   }
+  },
+  {
+   "name": "bizno",
+   "in": "query",
+   "description": "사업자등록번호",
+   "required": true,
+   "schema": {
+    "type": "string",
+    "example": "1168115020"
+   }
+  }
+ ],
+ "responses": {
+  "200": {
+   "description": "",
+   "content": {
+    "application/json": {
+     "schema": {
+      "type": "object",
+      "properties": {
+       "items": {
+        "type": "object",
+        "properties": {
+         "count": {
+          "type": "string",
+          "description": "건수",
+          "format": "",
+          "example": "1"
+         },
+         "item": {
+          "type": "array",
+          "format": "",
+          "items": {
+           "type": "object",
+           "properties": {
+            "bizno": {
+             "type": "string",
+             "description": "사업자번호 (미존재(국세청 미등록) 사업자의 경우 빈값 \"\")",
+             "format": "",
+             "example": "1168115020"
+            },
+            "nolt_koraddr": {
+             "type": "string",
+             "description": "지번한글주소(소재지)",
+             "format": "",
+             "example": "서울특별시 영등포구 여의도동 14-33 (여의도동, 나이스1사옥)"
+            },
+            "nts_ttn_tcd": {
+             "type": "string",
+             "description": "국세청과세유형코드(01:일반과세자, 02:간이과세자, 03:과세특례자, 04:면세사업자, 05:비영리법인이거나 단체,국가기관, 06:고유번호가 부여된 단체, 07:간이과세자(세금계산서발급사업자))",
+             "format": "",
+             "example": "01"
+            },
+            "entrnm": {
+             "type": "string",
+             "description": "업체명",
+             "format": "",
+             "example": "나이스평가정보주식회사"
+            },
+            "obz_date": {
+             "type": "string",
+             "description": "개업일자",
+             "format": "",
+             "example": "19850401"
+            },
+            "pscrp_divnm": {
+             "type": "string",
+             "description": "개인법인구분명(01: 법인사업자, 02: 개인사업자)",
+             "format": "",
+             "example": "법인사업자"
+            },
+            "pscrpdivcd": {
+             "type": "string",
+             "description": "개인법인구분코드(01: 법인사업자, 02: 개인사업자)",
+             "format": "",
+             "example": "01"
+            },
+            "rdnm_koraddr": {
+             "type": "string",
+             "description": "도로명한글주소(소재지)",
+             "format": "",
+             "example": "서울특별시 영등포구 은행로 17, (여의도동, 나이스1사옥)(여의도동)"
+            },
+            "regcono": {
+             "type": "string",
+             "description": "법인등록번호",
+             "format": "",
+             "example": "1101110393283"
+            },
+            "repr": {
+             "type": "string",
+             "description": "대표자명",
+             "format": "",
+             "example": "신희부"
+            },
+            "sbqc_date": {
+             "type": "string",
+             "description": "휴폐업일자",
+             "format": ""
+            },
+            "tpyr_stsnm": {
+             "type": "string",
+             "description": "휴폐업구분코드명(01: 계속사업자, 02: 휴업자, 03:폐업자)",
+             "format": "",
+             "example": "계속사업자"
+            },
+            "tpyrstscd": {
+             "type": "string",
+             "description": "휴폐업구분코드(01: 계속사업자, 02: 휴업자, 03:폐업자)",
+             "format": "",
+             "example": "01"
+            },
+            "ttn_tp_nm": {
+             "type": "string",
+             "description": "국세청과세유형코드명",
+             "format": "",
+             "example": "부가가치세 일반과세자"
+            },
+            "txvsbzdnm": {
+             "type": "string",
+             "description": "업태명",
+             "format": "",
+             "example": "서비스|제조|도소매|부동산|서비스|전문, 과학 및 기술서비스업|전문, 과학 및 기술서비스업|서비스"
+            },
+            "txvsitemnm": {
+             "type": "string",
+             "description": "종목명",
+             "format": "",
+             "example": "소프트웨어개발및공급|도서출판|도서판매|임대|데이타베이스업|광고 대행업|그 외 기타 광고 관련 서비스업|자료제공"
+            },
+            "jnt_bizr_list_cnt": {
+             "type": "integer",
+             "description": "공동사업자수"
+            },
+            "cItem": {
+             "type": "object",
+             "properties": {
+              "dat_seq": {
+               "type": "integer",
+               "description": "데이터일련번호",
+               "example": 1.0
+              },
+              "jnt_bizr_nam": {
+               "type": "string",
+               "description": "공동사업자성명",
+               "format": "",
+               "example": "홍길동"
+              }
+             },
+             "description": "공동사업자정보",
+             "format": ""
+            }
+           }
+          }
+         }
+        },
+        "format": ""
+       }
+      },
+      "items": {
+       "type": "object"
+      }
+     }
+    }
+   }
+  }
+ },
+ "x-inzent-id": "016d86c3-2322-4fc1-8a79-27d6d8705680"
+}

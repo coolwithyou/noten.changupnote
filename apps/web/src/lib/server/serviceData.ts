@@ -187,7 +187,7 @@ async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProf
   return (await loadCompanyProfileFromSourceWithEvidence(bizNo)).profile;
 }
 
-async function loadCompanyProfileFromSourceWithEvidence(
+export async function loadCompanyProfileFromSourceWithEvidence(
   bizNo?: string,
   options: { asOf?: Date } = {},
 ): Promise<CompanyProfileResolution> {
