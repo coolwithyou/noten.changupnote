@@ -45,6 +45,9 @@ export const codefTwoWayStateEnum = pgEnum("codef_two_way_state", [
   "expired",
 ]);
 export const consentScopeEnum = pgEnum("consent_scope", ["basic_info", "hometax", "insurance"]);
+// registry_index(공개명단 배치) — 매핑 대상 종류와 부재 해석 극성.
+export const registryTypeEnum = pgEnum("registry_type", ["certification", "sanction", "investment"]);
+export const registryPolarityEnum = pgEnum("registry_polarity", ["known_on_absence", "present_only"]);
 export const grantSourceEnum = pgEnum("grant_source", ["kstartup", "bizinfo", "bizinfo_event"]);
 export const grantRawStatusEnum = pgEnum("grant_raw_status", [
   "fetched",
@@ -503,6 +506,34 @@ export const companyEnrichmentCache = pgTable("company_enrichment_cache", {
 }, (table) => ({
   pk: primaryKey({ columns: [table.provider, table.bizNo, table.scope] }),
   expiryIdx: index("company_enrichment_cache_expiry_idx").on(table.expiresAt),
+}));
+
+// 공개명단 배치 색인(설계 §6′-C "명단 일반화"). 조달청 부정당(사업자번호 정확)·인증 공개명단·
+// 중대재해·체불·TIPS(상호 퍼지)를 한 테이블로 흡수하고 매핑만 어댑터별로 얹는다.
+// polarity=known_on_absence 는 소진적 소스(조달청 CSV)만 — 부재를 결격 부재로 확정. 나머지는
+// present_only(부재는 자가신고 보완). detail 은 소스별 원본 필드(처분상태·근거법 등)를 담는다.
+export const registryIndex = pgTable("registry_index", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  registryType: registryTypeEnum("registry_type").notNull(),
+  flagOrCert: text("flag_or_cert").notNull(),
+  polarity: registryPolarityEnum("polarity").notNull(),
+  bizNo: text("biz_no"),
+  corpNo: text("corp_no"),
+  nameNormalized: text("name_normalized").notNull(),
+  representative: text("representative"),
+  regionSido: text("region_sido"),
+  validFrom: timestamp("valid_from", { withTimezone: true }),
+  validUntil: timestamp("valid_until", { withTimezone: true }),
+  detail: jsonb("detail").$type<Record<string, unknown>>(),
+  source: text("source").notNull(),
+  sourceFetchedAt: timestamp("source_fetched_at", { withTimezone: true }).notNull(),
+  confidence: real("confidence").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  bizNoIdx: index("registry_index_biz_no_idx").on(table.bizNo),
+  nameIdx: index("registry_index_name_normalized_idx").on(table.nameNormalized),
+  typeFlagIdx: index("registry_index_type_flag_idx").on(table.registryType, table.flagOrCert),
+  sourceIdx: index("registry_index_source_idx").on(table.source),
 }));
 
 // CODEF 간편인증 2-way 세션 영속(serverless 승인 대기→완료 2요청). requestSnapshot 은 재요청/VAT 에
