@@ -2394,7 +2394,9 @@
               "number",
               "select",
               "boolean",
-              "text"
+              "text",
+              "checklist",
+              "number_group"
             ]
           },
           "options": {

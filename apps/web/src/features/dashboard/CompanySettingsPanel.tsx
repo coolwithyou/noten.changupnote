@@ -14,6 +14,12 @@ import type {
   NotificationSettingsDto,
 } from "@cunote/contracts";
 import type { CompanyRecord } from "@cunote/core";
+import {
+  DISQUALIFICATION_FLAG_LABELS,
+  DISQUALIFICATION_QUESTIONS,
+  type DisqualificationAxis,
+  type DisqualificationFlag,
+} from "@cunote/core";
 import { StatusBadge } from "@/components/app/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -574,9 +580,171 @@ export function CompanySettingsPanel() {
             </Button>
           </FieldGroup>
         </div>
+
+        <DisqualificationEditor
+          profile={currentCompany?.profile}
+          onSaved={() => {
+            void refreshSettings();
+            router.refresh();
+          }}
+        />
       </CardContent>
     </Card>
   );
+}
+
+/**
+ * 결격 답변 수정 섹션(M6) — 결격은 오답 비용이 가장 큰 축이라 정정 수단이 필수다.
+ * 축별 그룹 체크리스트("해당사항 없음" 일괄)로 자가신고 답변을 정정하고 재판정을 트리거한다.
+ */
+function DisqualificationEditor({
+  profile,
+  onSaved,
+}: {
+  profile: CompanyProfile | undefined;
+  onSaved: () => void;
+}) {
+  const [held, setHeld] = useState<Set<DisqualificationFlag>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    setHeld(heldFlagsFromProfile(profile));
+    setMessage("");
+  }, [profile]);
+
+  function toggle(flag: DisqualificationFlag, checked: boolean) {
+    setHeld((current) => {
+      const next = new Set(current);
+      if (checked) next.add(flag);
+      else next.delete(flag);
+      return next;
+    });
+  }
+
+  async function save(axis: DisqualificationAxis, heldOverride?: Set<DisqualificationFlag>) {
+    const heldSet = heldOverride ?? held;
+    setBusy(true);
+    setMessage("");
+    try {
+      await fetchJson<{ profile: CompanyProfile }>("/api/web/profile/field", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          field: axis,
+          value: { answers: buildAxisAnswers(axis, heldSet) },
+          confidence: 0.6,
+        }),
+      });
+      setMessage(`${AXIS_LABELS[axis]} 답변을 저장하고 재판정했습니다.`);
+      onSaved();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "결격 답변을 저장하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-4 rounded-[var(--radius-lg)] border bg-background p-4" aria-label="결격 답변 수정">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">결격 여부 정정</h3>
+          <p className="text-xs text-muted-foreground">체납·신용·제재 등 결격 사유를 정정하면 즉시 재판정됩니다. 자가신고 기준입니다.</p>
+        </div>
+        <StatusBadge tone="neutral">자가신고</StatusBadge>
+      </div>
+      {AXES.map((axis) => {
+        const questions = DISQUALIFICATION_QUESTIONS.filter((question) => question.axis === axis);
+        return (
+          <div key={axis} className="flex flex-col gap-3 rounded-[var(--radius-md)] border bg-muted/20 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="text-sm font-medium text-foreground">{AXIS_LABELS[axis]}</h4>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    const next = clearAxis(held, axis);
+                    setHeld(next);
+                    void save(axis, next);
+                  }}
+                >
+                  해당사항 없음
+                </Button>
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void save(axis)}>
+                  {busy ? <Spinner data-icon="inline-start" /> : null}
+                  저장
+                </Button>
+              </div>
+            </div>
+            <FieldGroup className="grid gap-2 sm:grid-cols-2">
+              {questions.flatMap((question) =>
+                question.covers.map((flag) => (
+                  <Field key={flag} orientation="horizontal" className="rounded-[var(--radius-md)] border bg-card p-3">
+                    <Checkbox
+                      id={`disq-edit-${flag}`}
+                      checked={held.has(flag)}
+                      disabled={busy}
+                      onCheckedChange={(checked) => toggle(flag, checked === true)}
+                    />
+                    <FieldLabel htmlFor={`disq-edit-${flag}`}>{DISQUALIFICATION_FLAG_LABELS[flag]}</FieldLabel>
+                  </Field>
+                )),
+              )}
+            </FieldGroup>
+          </div>
+        );
+      })}
+      {message ? (
+        <p className="text-xs text-muted-foreground" aria-live="polite">
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+const AXES: DisqualificationAxis[] = ["tax_compliance", "credit_status", "sanction"];
+const AXIS_LABELS: Record<DisqualificationAxis, string> = {
+  tax_compliance: "세금·4대보험 체납",
+  credit_status: "신용 상태",
+  sanction: "제재·참여제한",
+};
+
+function heldFlagsFromProfile(profile: CompanyProfile | undefined): Set<DisqualificationFlag> {
+  const held = new Set<DisqualificationFlag>();
+  if (!profile) return held;
+  for (const axis of AXES) {
+    for (const flag of profile[axis]?.flags ?? []) {
+      if (flag in DISQUALIFICATION_FLAG_LABELS) held.add(flag as DisqualificationFlag);
+    }
+  }
+  return held;
+}
+
+function clearAxis(held: Set<DisqualificationFlag>, axis: DisqualificationAxis): Set<DisqualificationFlag> {
+  const next = new Set(held);
+  for (const question of DISQUALIFICATION_QUESTIONS) {
+    if (question.axis !== axis) continue;
+    for (const flag of question.covers) next.delete(flag);
+  }
+  return next;
+}
+
+/** 축 전체 문항을 응답 완료(covers 전체 known)로 묶고, held에 체크된 플래그를 보유로 표기. */
+function buildAxisAnswers(
+  axis: DisqualificationAxis,
+  held: Set<DisqualificationFlag>,
+): Record<string, { held: DisqualificationFlag[] }> {
+  const answers: Record<string, { held: DisqualificationFlag[] }> = {};
+  for (const question of DISQUALIFICATION_QUESTIONS) {
+    if (question.axis !== axis) continue;
+    answers[question.id] = { held: question.covers.filter((flag) => held.has(flag)) };
+  }
+  return answers;
 }
 
 async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promise<T> {

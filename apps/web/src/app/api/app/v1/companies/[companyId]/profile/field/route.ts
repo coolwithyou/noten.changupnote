@@ -1,4 +1,5 @@
 import type { CriterionDimension } from "@cunote/contracts";
+import { CRITERION_DIMENSIONS } from "@cunote/contracts";
 import { updateCompanyProfileField } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
@@ -23,6 +24,9 @@ export async function POST(request: Request, context: RouteContext) {
     const access = await requireAppCompanyAccess(request, companyId, { permission: "write" });
     if (!body.field) {
       return appError("invalid_profile_field", "field가 필요합니다.", 400, "field");
+    }
+    if (!isCriterionDimension(body.field)) {
+      return appError("invalid_profile_field", `${body.field}는 지원하지 않는 프로필 필드입니다.`, 400, "field");
     }
 
     const current = await getServiceRepositories().companies.resolveCompanyProfile({
@@ -55,4 +59,8 @@ async function readBody(request: Request): Promise<ProfileFieldRequest> {
   } catch {
     return {};
   }
+}
+
+function isCriterionDimension(value: unknown): value is CriterionDimension {
+  return typeof value === "string" && (CRITERION_DIMENSIONS as readonly string[]).includes(value);
 }

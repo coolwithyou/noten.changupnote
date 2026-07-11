@@ -760,9 +760,86 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
       if (label) status.label = label;
       profile.business_status = status;
     }
+    // ── 결격·재무·고용·투자 축 (공고매칭 차원 확장, M3 역직렬화) ──────────────
+    if (row.dimension === "tax_compliance") {
+      profile.tax_compliance = toDisqualificationProfileValue(value);
+    }
+    if (row.dimension === "credit_status") {
+      profile.credit_status = toDisqualificationProfileValue(value);
+    }
+    if (row.dimension === "sanction") {
+      profile.sanction = toDisqualificationProfileValue(value);
+    }
+    if (row.dimension === "financial_health") {
+      profile.financial_health = toFinancialHealthProfileValue(value);
+    }
+    if (row.dimension === "insured_workforce") {
+      profile.insured_workforce = toInsuredWorkforceProfileValue(value);
+    }
+    if (row.dimension === "investment") {
+      profile.investment = toInvestmentProfileValue(value);
+    }
   }
 
   return profile;
+}
+
+function toDisqualificationProfileValue(
+  value: Record<string, unknown>,
+): NonNullable<CompanyProfile["tax_compliance"]> {
+  return {
+    flags: stringArray(value.flags),
+    known_flags: stringArray(value.known_flags),
+    exceptions: stringArray(value.exceptions),
+  };
+}
+
+function toFinancialHealthProfileValue(
+  value: Record<string, unknown>,
+): NonNullable<CompanyProfile["financial_health"]> {
+  const result: NonNullable<CompanyProfile["financial_health"]> = {};
+  const debtRatio = numberValue(value.debt_ratio_pct);
+  if (debtRatio !== null) result.debt_ratio_pct = debtRatio;
+  const impairment = stringValue(value.impairment);
+  if (impairment === "none" || impairment === "partial" || impairment === "full") {
+    result.impairment = impairment;
+  }
+  const totalAssets = numberValue(value.total_assets_krw);
+  if (totalAssets !== null) result.total_assets_krw = totalAssets;
+  const equity = numberValue(value.equity_krw);
+  if (equity !== null) result.equity_krw = equity;
+  const capital = numberValue(value.capital_krw);
+  if (capital !== null) result.capital_krw = capital;
+  const fiscalYear = stringValue(value.fiscal_year);
+  if (fiscalYear) result.fiscal_year = fiscalYear;
+  return result;
+}
+
+function toInsuredWorkforceProfileValue(
+  value: Record<string, unknown>,
+): NonNullable<CompanyProfile["insured_workforce"]> {
+  const result: NonNullable<CompanyProfile["insured_workforce"]> = {};
+  if (typeof value.employment_insurance_active === "boolean") {
+    result.employment_insurance_active = value.employment_insurance_active;
+  }
+  const insuredCount = numberValue(value.insured_count);
+  if (insuredCount !== null) result.insured_count = insuredCount;
+  const monthsSince = numberValue(value.months_since_last_layoff);
+  if (monthsSince !== null) result.months_since_last_layoff = monthsSince;
+  if (typeof value.no_layoff === "boolean") result.no_layoff = value.no_layoff;
+  return result;
+}
+
+function toInvestmentProfileValue(
+  value: Record<string, unknown>,
+): NonNullable<CompanyProfile["investment"]> {
+  const result: NonNullable<CompanyProfile["investment"]> = {};
+  const totalRaised = numberValue(value.total_raised_krw);
+  if (totalRaised !== null) result.total_raised_krw = totalRaised;
+  const lastRound = stringValue(value.last_round);
+  if (lastRound) result.last_round = lastRound;
+  if (typeof value.tips_backed === "boolean") result.tips_backed = value.tips_backed;
+  return result;
 }
 
 function companyWhere(input: { companyId?: string; bizNo?: string }) {
@@ -837,6 +914,26 @@ function companyProfileRows(
   if (profile.target_types?.length) {
     push("target_type", { target_types: profile.target_types, targets: profile.target_types });
   }
+  // ── 결격·재무·고용·투자 축 (공고매칭 차원 확장, M3 직렬화) ──────────────────
+  // 이 블록이 없으면 다른 필드 저장 시 결격 답변이 silent drop으로 증발한다.
+  if (profile.tax_compliance) {
+    push("tax_compliance", disqualificationRowValue(profile.tax_compliance));
+  }
+  if (profile.credit_status) {
+    push("credit_status", disqualificationRowValue(profile.credit_status));
+  }
+  if (profile.sanction) {
+    push("sanction", disqualificationRowValue(profile.sanction));
+  }
+  if (profile.financial_health) {
+    push("financial_health", compactRecord(profile.financial_health as Record<string, unknown>));
+  }
+  if (profile.insured_workforce) {
+    push("insured_workforce", compactRecord(profile.insured_workforce as Record<string, unknown>));
+  }
+  if (profile.investment) {
+    push("investment", compactRecord(profile.investment as Record<string, unknown>));
+  }
   if (profile.other_conditions) {
     push("other", compactRecord(profile.other_conditions));
   }
@@ -845,6 +942,16 @@ function companyProfileRows(
   }
 
   return rows;
+}
+
+function disqualificationRowValue(
+  value: NonNullable<CompanyProfile["tax_compliance"]>,
+): Record<string, unknown> {
+  return {
+    flags: value.flags ?? [],
+    known_flags: value.known_flags ?? [],
+    exceptions: value.exceptions ?? [],
+  };
 }
 
 function profileConfidence(profile: CompanyProfile, dimension: CriterionDimension): number {

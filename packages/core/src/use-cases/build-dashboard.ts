@@ -8,6 +8,7 @@ import type {
 } from "@cunote/contracts";
 import { matchGrantCriteria } from "../matching/match.js";
 import { REGION_CODES } from "../kstartup/constants.js";
+import { DISQUALIFICATION_FLAGS, type DisqualificationAxis } from "../disqualification/canonical.js";
 import { buildActionQueue } from "./build-action-queue.js";
 import { buildRoadmap } from "./build-roadmap.js";
 import { buildTeaser } from "./build-teaser.js";
@@ -100,6 +101,14 @@ function inputTypeForDimension(
     return "number";
   }
   if (dimension === "business_status") return "boolean";
+  // 결격 3축(M6): 그룹 체크리스트("해당 없음" 일괄)로 사전 전체 플래그를 저부담 커버(C1).
+  if (dimension === "tax_compliance" || dimension === "credit_status" || dimension === "sanction") {
+    return "checklist";
+  }
+  // 재무·고용·투자(M6): 수치 묶음 입력. 현재 text 폴백은 400/오염 저장 위험.
+  if (dimension === "financial_health" || dimension === "insured_workforce" || dimension === "investment") {
+    return "number_group";
+  }
   if (
     options.length > 0 ||
     dimension === "region" ||
@@ -132,6 +141,10 @@ function defaultOptionsForDimension(dimension: CriterionDimension): string[] {
 }
 
 function criterionOptionsForDimension(dimension: CriterionDimension, criteria: GrantCriterion[]): string[] {
+  // 결격 3축(M6): 옵션은 canonical 플래그 키 전체(사전 전체 커버 — C1). UI가 라벨로 렌더.
+  if (isDisqualificationAxis(dimension)) {
+    return [...DISQUALIFICATION_FLAGS[dimension]];
+  }
   const keys: Partial<Record<CriterionDimension, string[]>> = {
     region: ["labels", "regions"],
     industry: ["tags"],
@@ -151,6 +164,10 @@ function criterionOptionsForDimension(dimension: CriterionDimension, criteria: G
     const record = value as Record<string, unknown>;
     return valueKeys.flatMap((key) => stringValues(record[key]));
   });
+}
+
+function isDisqualificationAxis(dimension: CriterionDimension): dimension is DisqualificationAxis {
+  return dimension === "tax_compliance" || dimension === "credit_status" || dimension === "sanction";
 }
 
 function stringValues(value: unknown): string[] {

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowRight, Bell, Building2, ClipboardList, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bell, Building2, ClipboardList, ShieldCheck, ShieldQuestion } from "lucide-react";
 import type { OnboardingProgress, OnboardingProgressStep, OnboardingStepKey } from "@/lib/server/onboarding/onboardingProgress";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -11,6 +11,7 @@ import { InitialCompanySetupPanel } from "@/features/onboarding/InitialCompanySe
 const STEP_ICONS: Record<OnboardingStepKey, ReactNode> = {
   company: <Building2 />,
   consents: <ShieldCheck />,
+  disqualification: <ShieldQuestion />,
   profile: <ClipboardList />,
   notifications: <Bell />,
 };

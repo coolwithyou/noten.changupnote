@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Check, ChevronDown, FilePen, HelpCircle, Minus } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, FilePen, HelpCircle, Minus, ShieldQuestion } from "lucide-react";
 import type { MatchCard, RuleTraceChip, RuleTraceChipResult, TeaserResult } from "@cunote/contracts";
 import { cn } from "@/lib/utils";
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -148,6 +149,9 @@ function ProgramCard({
   const reviewCount = criteria.filter((chip) => chip.result === "unknown" || chip.result === "text_only").length;
   const scoreHidden = match.criteriaExtracted === false || match.scoreDisplay === "hidden";
   const primaryReviewReason = match.reviewReasons?.[0];
+  const disqualificationReason = match.reviewReasons?.some(
+    (reason) => reason.code === "disqualification_unconfirmed",
+  );
   const writeLabel = writeSupportLabel(match.writeSupport);
   const urgent = isUrgentDday(match.dDay);
 
@@ -230,6 +234,27 @@ function ProgramCard({
               )}
             </div>
 
+            {disqualificationReason ? (
+              <Alert>
+                <ShieldQuestion />
+                <AlertTitle>결격 여부만 확인하면 추천이 확정됩니다</AlertTitle>
+                <AlertDescription>
+                  체납·신용·제재 등 결격 사유를 1분 만에 확인하면 이 사업의 적격 여부가 바로 판정됩니다. 자가신고 기준입니다.
+                </AlertDescription>
+                <AlertAction>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => scrollToDisqualificationCheck()}
+                  >
+                    1분 결격 확인
+                    <ArrowRight data-icon="inline-end" />
+                  </Button>
+                </AlertAction>
+              </Alert>
+            ) : null}
+
             <p className="text-xs leading-5 text-muted-foreground">{writeSupportNote(match.writeSupport)}</p>
 
             <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -247,6 +272,13 @@ function ProgramCard({
       </Collapsible>
     </Card>
   );
+}
+
+function scrollToDisqualificationCheck() {
+  // 결격 빠른 확인 카드(#next-question)가 있으면 그쪽으로, 없으면 결격 정정 섹션(설정)으로.
+  const target =
+    document.getElementById("next-question") ?? document.getElementById("company-settings");
+  target?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function CriterionRow({ chip }: { chip: RuleTraceChip }) {

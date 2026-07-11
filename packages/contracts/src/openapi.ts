@@ -1023,7 +1023,7 @@ export const appV1OpenApi = {
         properties: {
           dimension: { type: "string" },
           prompt: { type: "string" },
-          inputType: { type: "string", enum: ["number", "select", "boolean", "text"] },
+          inputType: { type: "string", enum: ["number", "select", "boolean", "text", "checklist", "number_group"] },
           options: arrayOf({ type: "string" }),
           framing: { type: "string" },
           affectedGrantCount: { type: "integer", minimum: 0 },

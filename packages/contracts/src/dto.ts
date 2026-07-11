@@ -457,7 +457,8 @@ export interface SourceAttachment {
 export interface NextQuestionDto {
   dimension: CriterionDimension;
   prompt: string;
-  inputType: "number" | "select" | "boolean" | "text";
+  // checklist: 결격 그룹 체크리스트("해당 없음" 일괄), number_group: 재무 수치 묶음 입력.
+  inputType: "number" | "select" | "boolean" | "text" | "checklist" | "number_group";
   options?: string[];
   framing: string;
   affectedGrantCount: number;

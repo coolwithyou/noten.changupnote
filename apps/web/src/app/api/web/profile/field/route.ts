@@ -1,4 +1,5 @@
 import type { ActionResult, CompanyProfile, CriterionDimension } from "@cunote/contracts";
+import { CRITERION_DIMENSIONS } from "@cunote/contracts";
 import { updateCompanyProfileField } from "@cunote/core";
 import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
@@ -27,6 +28,16 @@ export async function POST(request: Request) {
         error: {
           code: "invalid_profile_field",
           message: "field가 필요합니다.",
+          field: "field",
+        },
+      }, { status: 400 });
+    }
+    if (!isCriterionDimension(body.field)) {
+      return NextResponse.json<ActionResult<ProfileFieldResult>>({
+        ok: false,
+        error: {
+          code: "invalid_profile_field",
+          message: `${body.field}는 지원하지 않는 프로필 필드입니다.`,
           field: "field",
         },
       }, { status: 400 });
@@ -77,4 +88,8 @@ async function readBody(request: Request): Promise<ProfileFieldRequest> {
   } catch {
     return {};
   }
+}
+
+function isCriterionDimension(value: unknown): value is CriterionDimension {
+  return typeof value === "string" && (CRITERION_DIMENSIONS as readonly string[]).includes(value);
 }

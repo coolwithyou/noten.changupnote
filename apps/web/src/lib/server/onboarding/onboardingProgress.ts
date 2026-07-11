@@ -5,7 +5,7 @@ import { getAppPreferencesStore } from "@/lib/server/appApi/preferencesStore";
 import { getConsentStore } from "@/lib/server/consents/consentStore";
 import { getServiceRepositories } from "@/lib/server/serviceData";
 
-export type OnboardingStepKey = "company" | "consents" | "profile" | "notifications";
+export type OnboardingStepKey = "company" | "consents" | "disqualification" | "profile" | "notifications";
 export type OnboardingStepStatus = "complete" | "attention" | "pending";
 
 export interface OnboardingProgressStep {
@@ -31,6 +31,9 @@ export interface OnboardingProgress {
 }
 
 const REQUIRED_CONSENT_SCOPES: ConsentScope[] = ["basic_info", "hometax", "insurance"];
+
+// 결격 3축 — 각 축 답변 여부는 confidence 기록으로 판정(문항 응답 시 자가신고 confidence 기록).
+const DISQUALIFICATION_AXES = ["tax_compliance", "credit_status", "sanction"] as const;
 
 export async function loadOnboardingProgress(input: {
   access: CompanyAccess;
@@ -103,6 +106,10 @@ function buildSteps(input: {
   const consentStatus = consentCount === REQUIRED_CONSENT_SCOPES.length
     ? "complete"
     : consentCount > 0 ? "attention" : "pending";
+  const disqualificationAnswered = countDisqualificationAnswers(input.profile);
+  const disqualificationStatus: OnboardingStepStatus = disqualificationAnswered === DISQUALIFICATION_AXES.length
+    ? "complete"
+    : disqualificationAnswered > 0 ? "attention" : "pending";
   const profileStatus = profileSignals.manual >= 2
     ? "complete"
     : profileSignals.total > 0 ? "attention" : "pending";
@@ -128,6 +135,16 @@ function buildSteps(input: {
       detail: `${consentCount}/${REQUIRED_CONSENT_SCOPES.length}개 동의가 활성화되어 있습니다.`,
       actionHref: "#company-settings",
       actionLabel: consentStatus === "complete" ? "동의 상태 보기" : "동의 활성화",
+    },
+    {
+      key: "disqualification",
+      title: "결격 빠른 확인",
+      description: "체납·신용·제재 등 결격 사유가 없는지 1분 만에 확인해 추천 결과를 확정합니다.",
+      status: disqualificationStatus,
+      badge: statusBadge(disqualificationStatus),
+      detail: disqualificationDetail(disqualificationAnswered),
+      actionHref: "#company-settings",
+      actionLabel: disqualificationStatus === "complete" ? "결격 답변 확인" : "결격 여부 확인",
     },
     {
       key: "profile",
@@ -177,6 +194,21 @@ function companyDetail(
   if (profile.business_status?.active) return "사업자 상태는 정상으로 확인됐고, 소유권 검증만 남았습니다.";
   if (mode === "demo") return "데모 회사로 연결되어 있으며, 운영 환경에서는 사업자 검증이 필요합니다.";
   return "사업자번호, 대표자명, 개업일을 입력해 소유권을 검증하세요.";
+}
+
+function countDisqualificationAnswers(profile: CompanyProfile): number {
+  // 각 축은 문항 응답 시 프로필 값 + confidence가 기록된다(자가신고). 값 존재로 답변 완료 판정.
+  return DISQUALIFICATION_AXES.filter((axis) => profile[axis] !== undefined).length;
+}
+
+function disqualificationDetail(answered: number): string {
+  if (answered === DISQUALIFICATION_AXES.length) {
+    return "세금·신용·제재 결격 확인이 완료되어 결격 관련 추천이 확정됩니다.";
+  }
+  if (answered > 0) {
+    return `${answered}/${DISQUALIFICATION_AXES.length}개 결격 항목이 확인되어 있습니다. 나머지도 확인해 주세요.`;
+  }
+  return "체납·신용·제재 결격 여부를 확인하면 '확인 필요'로 묶인 사업이 즉시 판정됩니다.";
 }
 
 function activeConsentCount(consents: ConsentRecordDto[]): number {
