@@ -258,10 +258,7 @@ function criterionInsertValues(
 ): typeof schema.grantCriteria.$inferInsert {
   return {
     grantId,
-    // 계약 CriterionDimension(22축)을 DB criterion_dimension PG enum(현재 14값)에 기입.
-    // 신규 8축 값은 P1 마이그레이션으로 enum에 추가될 때까지 DB 타입이 좁으므로 여기서 narrowing.
-    // (P0 단계에선 신규 축 criteria를 생성하는 추출기가 아직 없어 실 데이터에 새 값이 들어오지 않음.)
-    dimension: criterion.dimension as typeof schema.grantCriteria.$inferInsert["dimension"],
+    dimension: criterion.dimension,
     operator: criterion.operator,
     value: criterion.value as Record<string, unknown>,
     kind: criterion.kind,

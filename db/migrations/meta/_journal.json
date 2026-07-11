@@ -288,6 +288,13 @@
       "when": 1783656349575,
       "tag": "0040_last_impossible_man",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1783746497701,
+      "tag": "0041_ambitious_luckman",
+      "breakpoints": true
     }
   ]
 }

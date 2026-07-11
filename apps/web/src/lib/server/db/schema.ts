@@ -61,6 +61,14 @@ export const criterionDimensionEnum = pgEnum("criterion_dimension", [
   "ip",
   "target_type",
   "business_status",
+  "tax_compliance",
+  "credit_status",
+  "sanction",
+  "financial_health",
+  "insured_workforce",
+  "investment",
+  "premises",
+  "export_performance",
   "other",
 ]);
 export const criterionOperatorEnum = pgEnum("criterion_operator", [

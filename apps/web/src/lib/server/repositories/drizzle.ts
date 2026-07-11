@@ -790,10 +790,7 @@ function companyProfileRows(
     rows.push({
       companyId,
       ...(userId ? { userId } : {}),
-      // 계약 CriterionDimension(22축)을 DB criterion_dimension PG enum(현재 14값)에 기입.
-      // 신규 8축은 P1 마이그레이션으로 enum 확장 예정 — 그때까지 DB 타입이 좁아 narrowing.
-      // (P0에선 이 함수가 신규 축을 push하지 않으므로 실제 기입 값은 항상 기존 14축.)
-      dimension: dimension as CompanyProfileInsert["dimension"],
+      dimension: dimension,
       value,
       source: "self_declared",
       confidence: profileConfidence(profile, dimension),
