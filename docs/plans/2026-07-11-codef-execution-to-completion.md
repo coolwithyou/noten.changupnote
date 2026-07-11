@@ -11,6 +11,16 @@
 
 ---
 
+> **🟢 진행 상황 (2026-07-12 · 세션4)**
+>
+> - **STEP 0 완료**: core build 0 · `codef.test.ts` 20/20 · 커밋 계보 확인.
+> - **STEP 1 = Fallback 확정**: 사용자 실시간 부재 → 런북 설계대로 양쪽 SSO 경로·방어 VAT 필드탐색을 유지한 채 STEP 2·3 선진행. D1 실측 3종 계정 런은 **사용자 대기**(하단 STEP 4·`docs/research/2026-07-12-codef-D1-fallback-상태.md`).
+> - **STEP 2(Phase B) 완료**: 마이그레이션 `0042_lumpy_epoch`(운영 Supabase apply 성공) + `session-store`/`orchestrator`(양쪽 SSO·CF-00003 관용) + dev API 라우트 2본. 게이트: core build 0 · web typecheck 0 · web build 0. 커밋 `2a6fb16`(B1) · `0636211`(B2-B5).
+> - **STEP 3(Phase C) 완료**: `CodefSimpleAuthPanel` + ServiceDataMonitor 병합 배선(`runCodefConnector` passive 캐시 판독으로 국세청 7축 · FieldSourceLabel "국세청(CODEF)" · codef 최우선). 드리프트 신규 0(archive 2파일 기존 부채만) · typecheck/build 0. 커밋 `c32b510`(C).
+> - **잔여**: (1) 사용자 동반 D1 3종 실측 + dev 서버 E2E 시각검수, (2) D1 결과로 `CODEF_VAT_SSO_MODE`·`TAX_BASE_*_KEYS` 1곳씩 튜닝, (3) §6′-E known_flags 계약 후 프로덕션 `serviceData.ts` 승격.
+
+---
+
 ## 진행 원칙 (전 단계 공통)
 
 - **순서 직렬**: STEP 1(D1) → STEP 2(Phase B) → STEP 3(Phase C) → STEP 4(E2E). 각 STEP의 **acceptance gate 통과 후** 다음.

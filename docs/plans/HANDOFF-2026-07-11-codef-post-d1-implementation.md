@@ -16,7 +16,8 @@
 - **동작 확인됨(실측)**: `pnpm verify:codef` → 사업자등록증명 `CF-00000` 성공. 토큰·2-way(CF-03002)·카카오 승인·is2Way 재요청·국세청 데이터 수신·정규화 전부 OK. **주민번호 없이 사업자번호(`identity`)만으로 발급** — 프라이버시 설계 성립.
 - **블로커(사용자 처리 중)**: 부가세과세표준 `CF-00003`(상품 미신청). 사용자가 CODEF 콘솔에서 "부가가치세 과세표준증명" 신청 중. 승인되면 D1 완주.
 - **코어·CLI 완성**: `packages/core/src/codef/`(10모듈, build 0·test 20/20), `scripts/verify-codef.ts`(`pnpm verify:codef`). 커밋 `82beb6e`·`d5e377b`·`3524a8c`·`475621d`·`15cd9cc`·`d414141`.
-- **미착수(GO 후)**: Phase B(DB 오케스트레이션·마이그레이션), Phase C(dev UI). 프로덕션 `serviceData.ts` 오버레이는 §6′-E 계약 전까지 미접촉.
+- **✅ Phase B·C 완주(2026-07-12 세션4, Fallback 경로)**: D1 세션모델 미확정이지만 런북대로 **양쪽 SSO 경로·방어 VAT 필드탐색**을 구현해 D1 대기 없이 완주. 마이그레이션 `0042_lumpy_epoch`(운영 Supabase apply 성공) + `session-store`/`orchestrator` + dev API 2본 + `CodefSimpleAuthPanel`/`runCodefConnector`(국세청 7축 병합·codef 최우선). 게이트: core build 0·web typecheck 0·web build 0·드리프트 신규 0. 커밋 `2a6fb16`(B1)·`0636211`(B2-B5)·`c32b510`(C). 상세 상태·D1 튜닝 훅: `docs/research/2026-07-12-codef-D1-fallback-상태.md`.
+- **남은 것**: 사용자 동반 D1 3종 실측(①SSO ③개인매출 ②단가) + dev 서버 E2E 시각검수 → 결과로 `CODEF_VAT_SSO_MODE`·`TAX_BASE_*_KEYS` 튜닝. 프로덕션 `serviceData.ts` 오버레이는 §6′-E 계약 전까지 미접촉.
 - **§2의 CODEF 필드 계약은 D1 실측으로 확정된 값 — 재조사 금지, 그대로 신뢰.**
 
 ---
