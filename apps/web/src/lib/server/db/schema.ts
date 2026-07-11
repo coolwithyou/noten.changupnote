@@ -36,6 +36,14 @@ export const companyProfileSourceEnum = pgEnum("company_profile_source", [
   "self_declared",
   "ocr",
 ]);
+// CODEF 간편인증(2-way) 세션 상태 — 코어 two-way.ts CodefTwoWayState 와 정확히 일치.
+export const codefTwoWayStateEnum = pgEnum("codef_two_way_state", [
+  "pending_approval",
+  "completing",
+  "done",
+  "failed",
+  "expired",
+]);
 export const consentScopeEnum = pgEnum("consent_scope", ["basic_info", "hometax", "insurance"]);
 export const grantSourceEnum = pgEnum("grant_source", ["kstartup", "bizinfo", "bizinfo_event"]);
 export const grantRawStatusEnum = pgEnum("grant_raw_status", [
@@ -496,6 +504,35 @@ export const companyEnrichmentCache = pgTable("company_enrichment_cache", {
   pk: primaryKey({ columns: [table.provider, table.bizNo, table.scope] }),
   expiryIdx: index("company_enrichment_cache_expiry_idx").on(table.expiresAt),
 }));
+
+// CODEF 간편인증 2-way 세션 영속(serverless 승인 대기→완료 2요청). requestSnapshot 은 재요청/VAT 에
+// 필요한 민감 로그인 입력을 담으며 세션 종결(done/failed/expired) 즉시 NULL 로 지운다.
+export const codefTwoWaySessions = pgTable("codef_two_way_sessions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  bizNo: text("biz_no").notNull(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+  productScope: text("product_scope").notNull().default("l1_bundle"),
+  state: codefTwoWayStateEnum("state").notNull(),
+  requestSnapshot: jsonb("request_snapshot").$type<Record<string, unknown>>(),
+  twoWayInfo: jsonb("two_way_info").$type<Record<string, unknown>>(),
+  errorCode: text("error_code"),
+  retryCount: integer("retry_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (table) => ({
+  bizNoIdx: index("codef_two_way_sessions_biz_no_idx").on(table.bizNo),
+  expiresAtIdx: index("codef_two_way_sessions_expires_at_idx").on(table.expiresAt),
+}));
+
+// CODEF OAuth 토큰 단일행 캐시(id 상수 "default"). ≈7일 유효 토큰을 재발급 없이 재사용한다.
+export const codefTokens = pgTable("codef_tokens", {
+  id: text("id").primaryKey(),
+  accessToken: text("access_token").notNull(),
+  tokenType: text("token_type").notNull().default("bearer"),
+  obtainedAtMs: bigint("obtained_at_ms", { mode: "number" }).notNull(),
+  expiresInSec: integer("expires_in_sec").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+});
 
 export const userBusinessLookupHistory = pgTable("user_business_lookup_history", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
