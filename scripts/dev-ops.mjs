@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { homedir } from "node:os";
 
 const localUrl = "http://127.0.0.1:4011";
-const tunnelUrl = "https://dev.ops.changupnote.com";
+const tunnelUrl = "https://dev-ops.changupnote.com";
 const tunnelName = "changupnote-dev";
 const tunnelConfig = resolve(homedir(), ".cloudflared", "changupnote-dev.yml");
 const tunnelCommand = `cloudflared tunnel --config ${tunnelConfig} run`;
