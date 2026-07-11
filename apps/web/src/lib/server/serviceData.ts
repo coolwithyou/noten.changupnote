@@ -40,12 +40,14 @@ import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { annotateMatchCardWriteSupport } from "./matches/annotateWriteSupport";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
 import { notifyPopbillFailure } from "./adminNotifications";
+import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
 const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
 const ENRICHMENT_CACHE_TTL_HOURS_ENV = "CUNOTE_POPBILL_CACHE_TTL_HOURS";
 // 국세청(NTS) 상태조회는 무료라 팝빌 캐시 히트 경로에서 하루 1회(KST 달력일) 재확인한다.
+// 인증키는 공용 CUNOTE_DATA_GO_KR_SERVICE_KEY 우선, 없으면 이 소스별 변수로 폴백(resolveDataGoKrServiceKey).
 const NTS_SERVICE_KEY_ENV = "CUNOTE_NTS_SERVICE_KEY";
 const NTS_CACHE_PROVIDER = "nts";
 const NTS_CACHE_SCOPE = "status";
@@ -560,7 +562,7 @@ function resolvePopbillCacheExpiresAt(now: Date): Date | null {
 
 /**
  * 팝빌 캐시 히트 시 국세청(NTS) 상태조회를 하루 1회 겹쳐 휴·폐업 전환을 감지한다.
- * - CUNOTE_NTS_SERVICE_KEY 미설정: 조용히 skip.
+ * - data.go.kr 인증키(공용/NTS) 미설정: 조용히 skip.
  * - NTS 오류/타임아웃: warn 후 기존(팝빌 캐시) 결과를 그대로 반환(fail-open).
  * - 휴업/폐업(b_stt_cd "02"/"03"): profile.business_status를 NTS 기준으로 갱신. 팝빌 재조회는 하지 않는다.
  */
@@ -570,7 +572,7 @@ async function applyNtsBusinessStatusOnCacheHit(input: {
   resolution: PopbillCompanyResolution;
   rebuildEvidence: (profile: CompanyProfile, summary: string) => CompanyEvidence;
 }): Promise<PopbillCompanyResolution> {
-  const serviceKey = process.env[NTS_SERVICE_KEY_ENV]?.trim();
+  const serviceKey = resolveDataGoKrServiceKey(NTS_SERVICE_KEY_ENV);
   if (!serviceKey) return input.resolution;
 
   let statusData: NtsBusinessStatusData | null;
@@ -642,7 +644,7 @@ async function resolveNtsBusinessStatus(input: {
 
 /**
  * 팝빌 라이브 조회(과금) 직전에 국세청(NTS) 무료 상태조회로 명백한 무효 번호를 걸러낸다.
- * - CUNOTE_NTS_SERVICE_KEY 미설정: skip(팝빌 진행) — 기존 관례.
+ * - data.go.kr 인증키(공용/NTS) 미설정: skip(팝빌 진행) — 기존 관례.
  * - NTS 오류/타임아웃: warn 후 fail-open(팝빌 진행).
  * - 미등록: biz_no_not_registered(404)로 팝빌 호출을 차단(과금 0).
  * - 폐업: biz_no_closed(409)로 차단(과금 0). 폐업일이 있으면 문구에 YYYY-MM-DD로 노출.
@@ -653,7 +655,7 @@ async function applyNtsPreGateBeforePopbill(input: {
   bizNo: string;
   now: Date;
 }): Promise<{ classification: NtsBusinessStatusClassification; statusData: NtsBusinessStatusData } | null> {
-  const serviceKey = process.env[NTS_SERVICE_KEY_ENV]?.trim();
+  const serviceKey = resolveDataGoKrServiceKey(NTS_SERVICE_KEY_ENV);
   if (!serviceKey) return null;
 
   let statusData: NtsBusinessStatusData | null;
@@ -739,7 +741,7 @@ function parseCachedNtsStatus(
 
 /**
  * 공공구매종합정보망(SMPP) 여성/장애인 확인서를 팝빌 해석 결과에 겹친다(캐시 히트·라이브 공통 후처리).
- * - CUNOTE_SMPP_SERVICE_KEY 미설정: 조용히 skip.
+ * - data.go.kr 인증키(공용/SMPP) 미설정: 조용히 skip.
  * - SMPP 오류/타임아웃: warn 후 기존 결과 유지(fail-open).
  * - positive-only: 보유(00)만 프로필에 반영하고, 미보유(90)는 아무것도 바꾸지 않는다.
  */
@@ -748,7 +750,7 @@ async function applySmppCertificates(input: {
   now: Date;
   resolution: PopbillCompanyResolution;
 }): Promise<PopbillCompanyResolution> {
-  const serviceKey = process.env[SMPP_SERVICE_KEY_ENV]?.trim();
+  const serviceKey = resolveDataGoKrServiceKey(SMPP_SERVICE_KEY_ENV);
   if (!serviceKey) return input.resolution;
 
   let certs: SmppCertificates | null;

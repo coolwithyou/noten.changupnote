@@ -3,6 +3,8 @@ import {
   checkFscCorpFinance,
   checkFscPersonalFinance,
   checkKcomwelEmployment,
+  checkNiceCorpCredit,
+  checkNiceCorpIndicator,
   DISQUALIFICATION_EXCEPTION_LABELS,
   DISQUALIFICATION_EXCEPTIONS,
   DISQUALIFICATION_FLAG_LABELS,
@@ -22,6 +24,7 @@ import {
   APICK_BIZ_DETAIL_GUARD,
   loadApickBizDetailCompanyProfile,
 } from "./apickBizDetail";
+import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
 import {
   applySmppCertificatesToProfile,
   getServiceRepositories,
@@ -112,7 +115,7 @@ export type SubjectType = "corporation" | "individual" | "unknown";
 export type FieldCoverageStatus = "self-declared" | "pending" | "live" | "cache" | "failed" | "n/a";
 
 /** 라이브/추론 원천 참조(배지용). */
-export type FieldSourceRef = ServiceDataFieldSource | "derived" | "kcomwel" | "fsc";
+export type FieldSourceRef = ServiceDataFieldSource | "derived" | "kcomwel" | "fsc" | "nice";
 
 /**
  * Phase 2 커넥터가 상태 판정 함수에 넘기는 결과. Phase 1 에선 항상 null 이라 외부소스는 pending 고정.
@@ -131,6 +134,8 @@ export interface ConnectorResult {
   confidence?: number | null;
   /** 라이브일 때 배지에 표시할 원천. */
   source?: FieldSourceRef;
+  /** 라이브 행에 표시할 부가 표식(예: "NICE 데모앱(무계약)"). buildFieldCoverage 가 row.note 로 옮긴다. */
+  note?: string | null;
 }
 
 export interface FieldCoverageRow {
@@ -560,7 +565,7 @@ function confidenceForProfileField(profile: CompanyProfile | null, key: string):
 const ENV_KCOMWEL = ["CUNOTE_KCOMWEL_SERVICE_KEY"] as const;
 const ENV_FSC = ["CUNOTE_FSC_FINANCE_SERVICE_KEY"] as const;
 const ENV_MOEL = ["CUNOTE_MOEL_ACCIDENT_SERVICE_KEY"] as const;
-const ENV_NICE = ["NICE_CLIENT_ID", "NICE_CLIENT_SECRET"] as const;
+const ENV_NICE = ["NICE_BIZ_CLIENT_APP_KEY", "NICE_BIZ_CLIENT_SECRET"] as const;
 const ENV_CODEF = ["CODEF_CLIENT_ID", "CODEF_CLIENT_SECRET"] as const;
 const ENV_KIPRIS = ["KIPRIS_SERVICE_KEY"] as const;
 
@@ -851,11 +856,14 @@ export function buildFieldCoverage(input: {
     });
 
     const isLive = status === "live" || status === "cache";
+    let rowNote = note;
     // 커넥터가 live 를 채웠으면(라이브 소스 필드가 아니라 외부 커넥터) 값/원천은 커넥터 결과에서 온다.
     if (isLive && !live?.available && connectorResult?.ok) {
       value = connectorResult.value ?? null;
       confidence = connectorResult.confidence ?? null;
       source = connectorResult.source ?? null;
+      // 커넥터가 표식 note 를 실었으면(예: "NICE 데모앱(무계약)") live 행에도 노출한다.
+      if (connectorResult.note) rowNote = connectorResult.note;
     }
     return {
       key: entry.key,
@@ -871,7 +879,7 @@ export function buildFieldCoverage(input: {
       value: isLive ? value : null,
       confidence: isLive ? confidence : null,
       source: isLive ? source : null,
-      note,
+      note: rowNote,
     };
   });
 }
@@ -882,17 +890,6 @@ export function buildFieldCoverage(input: {
 // 각 커넥터 결과를 필드 키별 ConnectorResult 로 만들어 buildFieldCoverage 에 주입 →
 // 값 있으면 live, 에러/빈값/스키마불일치 failed, 조회 전제 미충족(법인번호 없음) skip→pending.
 // ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * data.go.kr 인증키 해석(계정당 1키 공용): 공용 변수 우선 → 소스별 변수 폴백.
- * (기존 NTS/SMPP 커넥터의 키 경로는 건드리지 않는다.)
- */
-function resolveDataGoKrServiceKey(specificEnv: string): string | null {
-  const generic = process.env.CUNOTE_DATA_GO_KR_SERVICE_KEY?.trim();
-  if (generic) return generic;
-  const specific = process.env[specificEnv]?.trim();
-  return specific && specific.length > 0 ? specific : null;
-}
 
 /** apick 상세가 실어 준 법인등록번호(13자리)를 프로필에서 추출. 없으면 null(팝빌 경로엔 없음). */
 function extractCorpRegNo(profile: CompanyProfile | null): string | null {
@@ -939,6 +936,7 @@ export async function runExternalConnectors(input: {
     runKcomwelConnector(input.bizNo, results),
     runFscCorpFinanceConnector(input, results),
     runFscPersonalFinanceConnector(input, results),
+    runNiceConnector(input, results),
   ]);
   return results;
 }
@@ -1084,6 +1082,191 @@ async function runFscPersonalFinanceConnector(
     }
   } catch (error) {
     results.set("revenue", { ok: false, reason: connectorErrorReason(error) });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NICE BizAPI(OpenGate) 커넥터(dev 전용, 무계약 데모앱). 법인만 실행.
+// OCOV06 재무 → revenue · financial_health.*, OCCD03 → 신용/납세 결격, OCCD06 → 법정관리/워크아웃.
+// OCCD01(당좌정지)은 테스트앱 미프로비저닝(403) → bond_default 는 skip(pending). 모든 live 값에
+// "NICE 데모앱(무계약)" 표식을 실어 화면에서 데모임을 드러낸다.
+// 주의: OCOV06 는 FSC 기업재무와 같은 revenue·financial_health.* 키를 채운다(둘 다 corporation 에서
+// 실행). FSC 는 법인등록번호 브리지가 있을 때만 값을 채우고 없으면 skip 하므로, 팝빌 경로(브리지 없음)
+// 에서는 NICE 가 채운다. 브리지가 있으면 두 커넥터가 같은 키에 경합할 수 있다(Promise.all 완료 순서 의존).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NICE_DEMO_NOTE = "NICE 데모앱(무계약)";
+
+const NICE_INDICATOR_FIELD_KEYS = [
+  "revenue",
+  "financial_health.total_assets_krw",
+  "financial_health.equity_krw",
+  "financial_health.debt_ratio_pct",
+  "financial_health.impairment",
+] as const;
+
+const NICE_NEGATIVE_FIELD_KEYS = [
+  "credit_status.credit_delinquency",
+  "credit_status.loan_default",
+  "credit_status.financial_misconduct",
+  "tax_compliance.national_tax_delinquent",
+  "tax_compliance.local_tax_delinquent",
+] as const;
+
+const NICE_WORKOUT_FIELD_KEYS = [
+  "credit_status.rehabilitation_in_progress",
+  "credit_status.court_receivership",
+] as const;
+
+/**
+ * NICE BizAPI 커넥터. subject=corporation 일 때만 실행(개인은 결과 없음 → pending/n-a 유지).
+ * fail-open: 최후 try/catch 로 절대 throw 하지 않는다. 키(APP_KEY/SECRET) 둘 다 없으면 무결과 return.
+ */
+async function runNiceConnector(
+  input: { bizNo: string; subject: SubjectType; profile: CompanyProfile | null },
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  try {
+    if (input.subject !== "corporation") return; // 법인 전용(재무/신용 결격은 corpOnly)
+    const appKey = process.env.NICE_BIZ_CLIENT_APP_KEY?.trim();
+    const secret = process.env.NICE_BIZ_CLIENT_SECRET?.trim();
+    if (!appKey || !secret) return; // 키 없음 → pending 유지
+    const companyKey = input.bizNo.replace(/\D/g, "");
+
+    // OCOV06 재무(독립 try) → revenue · financial_health.*
+    try {
+      const indicator = await checkNiceCorpIndicator({ appKey, secret, companyKey });
+      setNiceIndicatorFields(results, indicator);
+    } catch (error) {
+      const failed: ConnectorResult = { ok: false, reason: connectorErrorReason(error) };
+      for (const key of NICE_INDICATOR_FIELD_KEYS) results.set(key, failed);
+    }
+
+    // OCCD03/06/01 신용(오케스트레이터가 내부 guard, throw 안 함) → 신용/납세 결격
+    const credit = await checkNiceCorpCredit({ appKey, secret, companyKey });
+    setNiceCreditFields(results, credit);
+
+    // OCCD01 당좌정지 미프로비저닝 → bond_default 는 skip(pending 유지).
+    results.set("credit_status.bond_default", {
+      ok: false,
+      skipped: true,
+      reason: "OCCD01 당좌정지 미프로비저닝(테스트앱)",
+    });
+    // 파산은 OCCD06 법정관리와 별개축 · 공공정보(OCCD03 PB)로도 재확인 필요 → 미매핑(pending).
+    results.set("credit_status.bankruptcy_filed", {
+      ok: false,
+      skipped: true,
+      reason: "파산은 OCCD06 법정관리와 별개 · 공공정보(OCCD03 PB) 재확인 필요",
+    });
+  } catch {
+    // 최후 안전망 — 절대 throw 금지(runExternalConnectors Promise.all 보호).
+  }
+}
+
+/** OCOV06 요약을 revenue · financial_health.* 로 매핑(금액은 압축 표기, 연도태그·데모표식 부착). */
+function setNiceIndicatorFields(
+  results: Map<string, ConnectorResult>,
+  summary: Awaited<ReturnType<typeof checkNiceCorpIndicator>>,
+): void {
+  if (!summary) {
+    const empty: ConnectorResult = { ok: false, empty: true, reason: "NICE 재무 데이터 없음" };
+    for (const key of NICE_INDICATOR_FIELD_KEYS) results.set(key, empty);
+    return;
+  }
+  const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
+  setNiceNumericField(results, "revenue", formatKrwCompact(summary.revenueWon), yearTag);
+  setNiceNumericField(
+    results,
+    "financial_health.total_assets_krw",
+    formatKrwCompact(summary.totalAssetsWon),
+    yearTag,
+  );
+  setNiceNumericField(
+    results,
+    "financial_health.equity_krw",
+    formatKrwCompact(summary.totalEquityWon),
+    yearTag,
+  );
+  setNiceNumericField(
+    results,
+    "financial_health.debt_ratio_pct",
+    summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
+    yearTag,
+  );
+  results.set("financial_health.impairment", {
+    ok: true,
+    value: `${summary.impaired ? "자본잠식" : "정상"}${yearTag}`,
+    confidence: 0.75,
+    source: "nice",
+    note: NICE_DEMO_NOTE,
+  });
+}
+
+/** OCOV06 수치 필드: 값 있으면 live(nice, 0.75, 데모표식), 없으면 empty(failed). */
+function setNiceNumericField(
+  results: Map<string, ConnectorResult>,
+  key: string,
+  value: string | null,
+  yearTag: string,
+): void {
+  if (value === null) {
+    results.set(key, { ok: false, empty: true, reason: "값 미제공" });
+    return;
+  }
+  results.set(key, {
+    ok: true,
+    value: `${value}${yearTag}`,
+    confidence: 0.75,
+    source: "nice",
+    note: NICE_DEMO_NOTE,
+  });
+}
+
+/** OCCD03(신용/납세 결격) · OCCD06(법정관리/워크아웃) 결과를 필드 키로 매핑. */
+function setNiceCreditFields(
+  results: Map<string, ConnectorResult>,
+  credit: Awaited<ReturnType<typeof checkNiceCorpCredit>>,
+): void {
+  // OCCD03 신용도판단정보 → 신용/납세 결격.
+  const neg = credit.negative;
+  if (!neg.ok || !neg.data) {
+    const failed: ConnectorResult = { ok: false, reason: neg.error ?? "OCCD03 조회 실패" };
+    for (const key of NICE_NEGATIVE_FIELD_KEYS) results.set(key, failed);
+  } else {
+    const c = neg.data.counts;
+    const live = (value: string): ConnectorResult => ({
+      ok: true,
+      value,
+      confidence: 0.7,
+      source: "nice",
+      note: NICE_DEMO_NOTE,
+    });
+    // 채무불이행(BB) — credit_delinquency 와 loan_default 동일신호(대지급/대위변제 포함).
+    const bbValue = c.bb > 0 ? `채무불이행 ${c.bb}건` : "해당없음";
+    results.set("credit_status.credit_delinquency", live(bbValue));
+    results.set("credit_status.loan_default", live(bbValue));
+    // 금융질서문란(FD).
+    results.set(
+      "credit_status.financial_misconduct",
+      live(c.fd > 0 ? `금융질서문란 ${c.fd}건` : "해당없음"),
+    );
+    // 공공정보(PB) — 국세/지방세 미분리 집계라 두 결격에 동일 신호 + 미분리 note.
+    const pbValue = c.pb > 0 ? `공공정보 ${c.pb}건(국세/지방세 미분리)` : "해당없음";
+    results.set("tax_compliance.national_tax_delinquent", live(pbValue));
+    results.set("tax_compliance.local_tax_delinquent", live(pbValue));
+  }
+
+  // OCCD06 법정관리/워크아웃 → rehabilitation_in_progress · court_receivership 동일 신호.
+  const wk = credit.workout;
+  if (!wk.ok || !wk.data) {
+    const failed: ConnectorResult = { ok: false, reason: wk.error ?? "OCCD06 조회 실패" };
+    for (const key of NICE_WORKOUT_FIELD_KEYS) results.set(key, failed);
+  } else {
+    const n = wk.data.count;
+    const value = n > 0 ? `법정관리/워크아웃 ${n}건` : "해당없음";
+    for (const key of NICE_WORKOUT_FIELD_KEYS) {
+      results.set(key, { ok: true, value, confidence: 0.7, source: "nice", note: NICE_DEMO_NOTE });
+    }
   }
 }
 
