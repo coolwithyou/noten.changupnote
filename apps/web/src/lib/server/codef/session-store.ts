@@ -210,10 +210,10 @@ export async function setCachedCodefToken(token: CodefToken): Promise<void> {
 
 // ── 국세청 확정값 캐시 upsert (company_enrichment_cache) ──────────────────────
 
-/** provider="codef" scope별(corporate-registration | vat-base) 결과를 캐시에 upsert 한다. */
+/** provider="codef" scope별(corporate-registration | vat-base | identity) 결과를 캐시에 upsert 한다. */
 export async function upsertCodefEnrichmentCache(input: {
   bizNo: string;
-  scope: "corporate-registration" | "vat-base";
+  scope: "corporate-registration" | "vat-base" | "identity";
   canonicalPayload?: Record<string, unknown> | null;
   providerResultCode?: string | null;
   providerResultMessage?: string | null;

@@ -1,5 +1,6 @@
 import { maskCorpNum } from "@cunote/core";
 import {
+  buildCompanyProfileFromCodef,
   checkFscCorpFinance,
   checkFscPersonalFinance,
   checkKcomwelEmployment,
@@ -11,11 +12,13 @@ import {
   DISQUALIFICATION_QUESTIONS,
 } from "@cunote/core";
 import type {
+  CorporateRegistrationFacts,
   DisqualificationAxis,
   DisqualificationFlag,
   EnrichmentCacheEntry,
   NtsBusinessStatusData,
   SmppCertificates,
+  VatBaseFacts,
 } from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
 import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
@@ -115,7 +118,7 @@ export type SubjectType = "corporation" | "individual" | "unknown";
 export type FieldCoverageStatus = "self-declared" | "pending" | "live" | "cache" | "failed" | "n/a";
 
 /** 라이브/추론 원천 참조(배지용). */
-export type FieldSourceRef = ServiceDataFieldSource | "derived" | "kcomwel" | "fsc" | "nice";
+export type FieldSourceRef = ServiceDataFieldSource | "derived" | "kcomwel" | "fsc" | "nice" | "codef";
 
 /**
  * Phase 2 커넥터가 상태 판정 함수에 넘기는 결과. Phase 1 에선 항상 null 이라 외부소스는 pending 고정.
@@ -837,6 +840,11 @@ export function buildFieldCoverage(input: {
     }
 
     const connectorResult = input.connectorResults?.get(entry.key) ?? null;
+    // CODEF 국세청 확정값은 최우선(handoff §5: codef > popbill/apick > derived/자가신고).
+    // 팝빌 라이브키나 derived(target_type·founder_trait)가 먼저 채워도, codef 커넥터 결과가 있으면
+    // 그 행을 국세청(CODEF)로 덮어쓴다. envKeys 게이팅과 무관하게(라이브키/파생축 포함) 병합된다.
+    const codefOverride =
+      connectorResult?.ok && connectorResult.source === "codef" ? connectorResult : null;
     const external =
       entry.envKeys || entry.batch
         ? {
@@ -864,6 +872,25 @@ export function buildFieldCoverage(input: {
       source = connectorResult.source ?? null;
       // 커넥터가 표식 note 를 실었으면(예: "NICE 데모앱(무계약)") live 행에도 노출한다.
       if (connectorResult.note) rowNote = connectorResult.note;
+    }
+    // CODEF 국세청 확정값이 있으면 라이브키/파생/외부 결과를 덮어 최우선으로 표시한다.
+    if (codefOverride) {
+      return {
+        key: entry.key,
+        parentKey: entry.parentKey,
+        dimension: entry.dimension,
+        flag: entry.flag,
+        subField: entry.subField,
+        label: entry.label,
+        tier: entry.tier,
+        plannedSource: entry.plannedSource,
+        selfDeclarable: entry.selfDeclarable,
+        status: "live",
+        value: codefOverride.value ?? null,
+        confidence: codefOverride.confidence ?? null,
+        source: "codef",
+        note: codefOverride.note ?? null,
+      };
     }
     return {
       key: entry.key,
@@ -937,6 +964,7 @@ export async function runExternalConnectors(input: {
     runFscCorpFinanceConnector(input, results),
     runFscPersonalFinanceConnector(input, results),
     runNiceConnector(input, results),
+    runCodefConnector(input.bizNo, results),
   ]);
   return results;
 }
@@ -1268,6 +1296,97 @@ function setNiceCreditFields(
       results.set(key, { ok: true, value, confidence: 0.7, source: "nice", note: NICE_DEMO_NOTE });
     }
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CODEF 간편인증 캐시 커넥터(dev 전용). 라이브 호출이 아니라 company_enrichment_cache 의
+// provider="codef" 행(corporate-registration·vat-base·identity)을 판독한다 — CODEF 는 사용자
+// 휴대폰 승인이 선행돼야 하므로 조회 경로에서 능동 호출하지 않는다(passive read). 인증은
+// api/dev/codef/* 오케스트레이터가 처리하고 결과를 캐시에 남긴다. 국세청 확정값이라
+// buildFieldCoverage 에서 최우선(codef > popbill/apick > derived/자가신고).
+// fail-open: 어떤 예외도 밖으로 던지지 않는다(runExternalConnectors Promise.all 보호).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CODEF_CACHE_NOTE = "간편인증 캐시(국세청 확정값)";
+
+/** identity scope canonicalPayload(오케스트레이터 finalizeDone 이 남긴 파생값 · 생년월일 원본 없음). */
+interface CodefIdentityCache {
+  founder_age?: number | null;
+  gender?: "M" | "F" | null;
+}
+
+/**
+ * company_enrichment_cache 의 provider="codef" 3 scope 를 판독해 국세청 확정 7축을 채운다.
+ * 캐시 행이 하나도 없으면(=인증 전) 아무 결과도 넣지 않아 pending 을 유지한다.
+ * 값이 없는 축은 스킵해 다른 커넥터/pending 을 침범하지 않는다.
+ */
+async function runCodefConnector(
+  bizNo: string,
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  try {
+    const rows = await getServiceRepositories().enrichmentCache.listByBizNo(bizNo);
+    const byScope = new Map<string, EnrichmentCacheEntry>();
+    for (const row of rows) {
+      if (row.provider === "codef") byScope.set(row.scope, row);
+    }
+    const corpRow = byScope.get("corporate-registration");
+    const vatRow = byScope.get("vat-base");
+    const identityRow = byScope.get("identity");
+    if (!corpRow && !vatRow && !identityRow) return; // 인증 전 → pending 유지
+
+    const corpFacts = (corpRow?.canonicalPayload ?? null) as CorporateRegistrationFacts | null;
+    const vatFacts = (vatRow?.canonicalPayload ?? null) as VatBaseFacts | null;
+    const identity = (identityRow?.canonicalPayload ?? null) as CodefIdentityCache | null;
+
+    // 생년월일 원본은 저장하지 않으므로 birthDate8 없이 파생한다(founder_age 는 identity 캐시 사용).
+    const { profile } = buildCompanyProfileFromCodef({
+      corporateRegistration: corpFacts,
+      vatBase: vatFacts,
+      gender: identity?.gender ?? null,
+    });
+
+    setCodefField(results, "region", profile.region?.label ?? null, 0.95);
+    setCodefField(results, "biz_age", formatBizAgeMonths(profile.biz_age_months ?? null), 0.95);
+    setCodefField(
+      results,
+      "industry",
+      profile.industries?.length ? profile.industries.join(", ") : null,
+      0.95,
+    );
+    setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95);
+    // 매출은 부가세 신고분(profile.revenue_krw)이 있을 때만.
+    setCodefField(results, "revenue", formatKrwCompact(profile.revenue_krw ?? null), 0.95);
+    // 대표자 연령은 identity 캐시의 founder_age(생년월일 파생 정수)만.
+    const founderAge = typeof identity?.founder_age === "number" ? identity.founder_age : null;
+    setCodefField(results, "founder_age", founderAge !== null ? `${founderAge}세` : null, 0.9);
+    // 대표자 특성은 identity 캐시의 gender(여성/남성).
+    const traitLabel = identity?.gender === "F" ? "여성" : identity?.gender === "M" ? "남성" : null;
+    setCodefField(results, "founder_trait", traitLabel, 0.9);
+  } catch {
+    // fail-open — 캐시 판독 실패는 무시(pending 유지, 다른 커넥터 보호).
+  }
+}
+
+/** 값이 있으면 codef live 결과로 세팅, 없으면 스킵(다른 소스/pending 유지). */
+function setCodefField(
+  results: Map<string, ConnectorResult>,
+  key: string,
+  value: string | null,
+  confidence: number,
+): void {
+  if (!value) return;
+  results.set(key, { ok: true, value, confidence, source: "codef", note: CODEF_CACHE_NOTE });
+}
+
+/** biz_age_months 를 "N년 M개월" 로 표기(0개월·null 방어). */
+function formatBizAgeMonths(months: number | null): string | null {
+  if (months === null || !Number.isFinite(months) || months < 0) return null;
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  if (years > 0 && rem > 0) return `${years}년 ${rem}개월`;
+  if (years > 0) return `${years}년`;
+  return `${rem}개월`;
 }
 
 const DISQUALIFICATION_AXIS_LABELS: Record<DisqualificationAxis, string> = {

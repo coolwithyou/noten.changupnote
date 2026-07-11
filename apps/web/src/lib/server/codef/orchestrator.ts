@@ -545,6 +545,17 @@ async function finalizeDone(
     dimensions: codefProfileDimensions(result.profile),
   });
 
+  // identity 캐시(scope="identity") — dev 커넥터가 대표자 연령·특성을 판독하도록 파생값만 남긴다.
+  // founder_age 는 이미 생년월일 파생 정수, gender 는 입력값. 생년월일 원본은 절대 저장하지 않는다.
+  await upsertCodefEnrichmentCache({
+    bizNo: session.bizNo,
+    scope: "identity",
+    canonicalPayload: {
+      founder_age: result.profile.founder_age ?? null,
+      gender: result.facts.gender,
+    },
+  });
+
   await transitionCodefSession({ id: session.id, from: "completing", to: "done" });
   const vatAvailable = vatFacts !== null && vatFacts.hasFiling;
   return { state: "done", sessionId: session.id, fields: buildFields(result, vatAvailable) };

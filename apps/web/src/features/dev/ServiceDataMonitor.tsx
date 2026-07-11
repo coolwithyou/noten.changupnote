@@ -48,6 +48,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { CodefSimpleAuthPanel } from "./CodefSimpleAuthPanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 개발 전용 사업자 데이터 모니터 → 매칭 22축 "필드 커버리지 하네스".
@@ -333,6 +334,15 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
         </CardContent>
       </Card>
 
+      {/* CODEF 간편인증 — 국세청 확정값을 커버리지에 병합 */}
+      <CodefSimpleAuthPanel
+        defaultBizNo={activeBizNo ?? ""}
+        onCompleted={(codefBizNo) => {
+          // 인증 완료 후 같은 사업자번호를 재조회해 커버리지에 국세청(CODEF) 원천을 병합한다.
+          if (activeBizNo && codefBizNo === activeBizNo) void runLookup(activeBizNo, false, provider);
+        }}
+      />
+
       {loading ? <LookupSkeleton /> : null}
 
       {result?.error ? (
@@ -538,6 +548,8 @@ function sourceRefLabel(source: FieldSourceRef | null): string {
   if (source === "smpp") return "공공구매망";
   if (source === "kcomwel") return "근로복지공단";
   if (source === "fsc") return "금융위";
+  if (source === "nice") return "NICE";
+  if (source === "codef") return "국세청(CODEF)";
   if (source === "derived") return "추론";
   return "—";
 }
