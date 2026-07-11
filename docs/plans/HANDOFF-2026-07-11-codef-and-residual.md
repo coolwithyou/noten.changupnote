@@ -1,5 +1,7 @@
 # HANDOFF 2026-07-11 — CODEF 간편인증 + 데이터 소싱 잔여
 
+> **➡️ 최신 진입점(2026-07-11 세션4 이후)**: `docs/plans/HANDOFF-2026-07-11-codef-post-d1-implementation.md` — D1 사업자등록증명 성공 후 남은 구현(D1 완주·Phase B·C) 가이드 + **D1 실측으로 확정된 CODEF 필드 계약(§2)**. 새 세션은 그 문서부터 읽을 것. 이 문서는 spike-first 경로·초기 배경으로 유지.
+>
 > **🟢 진행 상황 (2026-07-11 · 세션3)** — 임계 경로가 **D1(사용자 동반) 직전까지** 완주됨.
 > - ✅ **관문 의례**: `docs/research/2026-07-11-CODEF-착수전-외부대조.md`. SDK 실측 교차검증으로 CODEF 계약 확정(재설계 불필요). 유일 승격: **양방향 URL 인코딩**을 client 구현·테스트의 명시 검증 항목으로.
 > - ✅ **Phase A (코어)** 커밋 `82beb6e`: `packages/core/src/codef/`(env·rsa·token·client·two-way·request-params·products 2종·normalize) + `index.ts` 배럴. `@cunote/core` build EXIT 0, `codef.test.ts` **19/19**(fixture 오프라인). 간편인증 파라미터(loginType=5, loginTypeLevel 1~8, organization=국세청 "0001"·usePurposes/submitTargets "99"는 **TODO(D1) 실측 대기**), 2-way(is2Way/twoWayInfo/simpleAuth), 국세청 확정값→`CompanyProfile`(target_types·revenue_krw·founder_age 계약 필드 정합).
