@@ -83,7 +83,6 @@ Pretendard를 `next/font/local`로 self-host한다(jsDelivr CDN `<link>` 제거 
 - **Work zone** (절제: 거의 무지 + grain `~0.02`, 가독성 우선): 사업자번호 입력, 매칭 결과 리스트, 코칭 체크리스트, 대시보드, 내부/관리 콘솔. 유틸리티: `.texture-grain`(data-zone 미지정 시 work 강도 기본값).
 - **시그니처 변주**: 메시 hue는 **블루+민트**, grain 입자 `180px`·`mix-blend: overlay`로 일관. "다크+보라 메시" 기본값으로 수렴 금지(= generic AI 클리셰).
 - 그라데이션은 *깊이·면 구분/분위기* 전용이며 Work zone에서는 보이지 않을 정도로 절제한다.
-- **랜딩(`LandingExperience.tsx`) 예외**: 랜딩은 시각 변화 0을 목표로 구조 재작성 없이 토큰화만 수행했다(hex → `var(--brand)` 등 1:1 치환). 그라데이션 stop 계산에 쓰이는 일부 1회성 색상(`#4f8bff`, `#1f4fc4` 등 gradient 내부 stop)은 토큰 정의(`--grad-brand-band`) 안으로 흡수되어 있고, 완전히 매핑하기 애매한 극소수 hex가 주석과 함께 잔존할 수 있다 — 이는 **픽셀포트 보존을 위한 의도된 예외**이며 신규 작업에서 다른 화면에 이 패턴을 복제하지 않는다.
 
 ## Component Rules
 

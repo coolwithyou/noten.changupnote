@@ -256,13 +256,7 @@
   background: var(--glow-brand);
 }
 
-/* ============================================================================
-   MIGRATION PENDING — 후속 Phase(6~12)에서 Tailwind 유틸로 이관 예정.
-   아직 TSX가 참조 중인 커스텀 클래스만 유지한다. 구 TDS 토큰 / 별칭 참조는
-   신 토큰으로 치환 완료. audit-css-classes.mjs --skip-pending 시 이 섹션 제외.
-   ============================================================================ */
-
-/* texture-grain — LandingExperience(Phase 11)에서 grainStyle() 인라인을 대체 예정 */
+/* texture-grain — 존(zone)별 grain 오버레이. Work zone 기본, data-zone="brand"로 강도 상향 */
 .texture-grain::after {
   content: "";
   position: absolute;
@@ -277,6 +271,12 @@
 .texture-grain[data-zone="brand"]::after {
   --grain-opacity: var(--grain-opacity-brand);
 }
+
+/* ============================================================================
+   MIGRATION PENDING — 후속 Phase(6~12)에서 Tailwind 유틸로 이관 예정.
+   아직 TSX가 참조 중인 커스텀 클래스만 유지한다. 구 TDS 토큰 / 별칭 참조는
+   신 토큰으로 치환 완료. audit-css-classes.mjs --skip-pending 시 이 섹션 제외.
+   ============================================================================ */
 
 .eyebrow {
   margin: 0 0 8px;
@@ -811,64 +811,5 @@
   .company-evidence-fields,
   .company-evidence-card.compact .company-evidence-fields {
     grid-template-columns: 1fr;
-  }
-}
-
-/* LandingExperience(.lp-*) — Phase 11에서 토큰화/Tailwind 이관 예정.
-   raw hex는 랜딩 비주얼 보존을 위해 그대로 유지(구 TDS 토큰 참조만 치환). */
-.lp-root {
-  font-family: var(--font-sans);
-  color: #4e5968;
-  background: #fbfbfc;
-  line-height: 1.55;
-}
-
-.lp-root a {
-  text-decoration: none;
-  color: inherit;
-}
-
-.lp-navlink {
-  font-size: 14.5px;
-  font-weight: 600;
-  color: #8b95a1;
-  padding: 9px 14px;
-  border-radius: 999px;
-  transition:
-    color 0.15s,
-    background 0.15s;
-}
-
-.lp-navlink:hover {
-  color: #191f28;
-  background: #f2f4f6;
-}
-
-.lp-footlink {
-  font-size: 14px;
-  color: #4e5968;
-  transition: color 0.15s;
-}
-
-.lp-footlink:hover {
-  color: #191f28;
-}
-
-@media (max-width: 760px) {
-  .lp-nav-links {
-    display: none !important;
-  }
-}
-
-@media (max-width: 520px) {
-  .lp-primary-cta {
-    display: none !important;
-  }
-  .lp-nav-actions [data-slot="avatar"] {
-    width: 1.75rem;
-    height: 1.75rem;
-  }
-  .lp-nav-actions .group\/account {
-    max-width: 11rem;
   }
 }
