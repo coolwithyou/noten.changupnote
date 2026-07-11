@@ -51,8 +51,9 @@ export function encodeCodefBody(obj: unknown): string {
 
 /**
  * CODEF 응답 raw 텍스트를 파싱한다(순수).
- * 1차: decodeURIComponent 후 JSON.parse(표준 전문). 실패 시 2차: raw JSON.parse(평문 게이트웨이).
- * 둘 다 실패하면 CodefError.
+ * CODEF 백엔드는 Java URLEncoder 방식으로 전문을 인코딩한다(**공백=`+`**, 원문 `+`는 `%2B`).
+ * 따라서 decodeURIComponent 전에 `+`→공백(`%20`) 치환이 필요하다(codef-node 의 urlencode 라이브러리와 동일).
+ * 1차: form-decode 후 JSON.parse. 실패 시 2차: raw JSON.parse(평문 게이트웨이). 둘 다 실패면 CodefError.
  */
 export function decodeCodefResponse(rawText: string): unknown {
   const trimmed = (rawText ?? "").trim();
@@ -60,7 +61,7 @@ export function decodeCodefResponse(rawText: string): unknown {
     throw new CodefError("CODEF 응답 본문이 비어 있습니다.");
   }
   try {
-    return JSON.parse(decodeURIComponent(trimmed));
+    return JSON.parse(decodeURIComponent(trimmed.replace(/\+/g, "%20")));
   } catch {
     // 폴백: 평문 JSON(URL 인코딩 안 된 게이트웨이).
   }
