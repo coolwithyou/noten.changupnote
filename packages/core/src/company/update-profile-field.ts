@@ -339,6 +339,12 @@ function normalizeFinancialHealth(value: unknown): NonNullable<CompanyProfile["f
   }
   const debtRatio = optionalNonNegativeNumber(record.debt_ratio_pct, "value.debt_ratio_pct");
   if (debtRatio !== undefined) result.debt_ratio_pct = debtRatio;
+  // 이자보상배율은 소수·음수(영업손실) 가능 → floor·비음수 강제 없이 그대로 보존.
+  const interestCoverage = optionalFiniteNumber(
+    record.interest_coverage_ratio,
+    "value.interest_coverage_ratio",
+  );
+  if (interestCoverage !== undefined) result.interest_coverage_ratio = interestCoverage;
   const totalAssets = optionalNonNegativeNumber(record.total_assets_krw, "value.total_assets_krw");
   if (totalAssets !== undefined) result.total_assets_krw = totalAssets;
   const equity = optionalNumber(record.equity_krw, "value.equity_krw");
@@ -432,6 +438,16 @@ function optionalNumber(value: unknown, field: string): number | undefined {
     throw new InvalidCompanyProfileFieldError(`${field}는 숫자여야 합니다.`, field);
   }
   return Math.floor(numberValue);
+}
+
+/** 소수·음수를 보존하는 유한 숫자 파서(예: 이자보상배율). floor·비음수 강제 없음. */
+function optionalFiniteNumber(value: unknown, field: string): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const numberValue = typeof value === "string" ? Number(value) : value;
+  if (typeof numberValue !== "number" || !Number.isFinite(numberValue)) {
+    throw new InvalidCompanyProfileFieldError(`${field}는 숫자여야 합니다.`, field);
+  }
+  return numberValue;
 }
 
 function clampConfidence(value: number): number {

@@ -370,6 +370,7 @@ export interface CompanyProfile {
   financial_health?: {
     debt_ratio_pct?: number | null;
     impairment?: "none" | "partial" | "full" | null; // 자본총계·자본금 입력 시 파생 계산 가능(P3)
+    interest_coverage_ratio?: number | null; // 이자보상배율(영업이익/이자비용). 음수 가능(영업손실). null=미상
     total_assets_krw?: number | null; // size(중기법) 판정 정밀화에도 사용
     equity_krw?: number | null;
     capital_krw?: number | null;

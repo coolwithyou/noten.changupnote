@@ -226,9 +226,10 @@ function NumberGroupForm({ question }: { question: NextQuestionDto }) {
               <FieldLabel htmlFor={`ng-${item.name}`}>{item.label}</FieldLabel>
               <Input
                 id={`ng-${item.name}`}
-                inputMode="numeric"
+                inputMode={item.allowNegative ? "text" : "numeric"}
                 type="number"
-                min={0}
+                min={item.allowNegative ? undefined : 0}
+                step={item.step}
                 placeholder={item.placeholder}
                 value={fields[item.name] ?? ""}
                 disabled={status === "saving"}
@@ -432,7 +433,17 @@ function buildAnswers(
 
 // ── 수치 묶음 스펙 ──────────────────────────────────────────────────────────────
 type NumberGroupItem =
-  | { name: string; type: "number"; label: string; placeholder?: string; hint?: string }
+  | {
+      name: string;
+      type: "number";
+      label: string;
+      placeholder?: string;
+      hint?: string;
+      /** 음수(영업손실 등) 허용 여부. 기본 false. */
+      allowNegative?: boolean;
+      /** number input step. 소수 입력 필요 시 지정. */
+      step?: string;
+    }
   | { name: string; type: "boolean"; label: string; hint?: string };
 
 function numberGroupSpec(dimension: CriterionDimension): NumberGroupItem[] {
@@ -440,6 +451,15 @@ function numberGroupSpec(dimension: CriterionDimension): NumberGroupItem[] {
     return [
       { name: "capital_impaired", type: "boolean", label: "자본잠식 상태인가요?", hint: "자본총계가 자본금보다 작으면 예" },
       { name: "debt_ratio_pct", type: "number", label: "부채비율(%) (선택)", placeholder: "예: 250" },
+      {
+        name: "interest_coverage_ratio",
+        type: "number",
+        label: "이자보상배율 (선택)",
+        placeholder: "예: 1.5",
+        hint: "영업이익÷이자비용. 영업손실이면 음수",
+        allowNegative: true,
+        step: "any",
+      },
     ];
   }
   if (dimension === "insured_workforce") {
@@ -467,6 +487,13 @@ function buildNumberGroupValue(
     if (item.type === "boolean") {
       value[item.name] = raw === "true";
       touched = true;
+    } else if (item.allowNegative) {
+      // 음수·소수 허용 필드(이자보상배율 등)는 floor·비음수 강제 없이 그대로 전달.
+      const parsed = Number(raw);
+      if (Number.isFinite(parsed)) {
+        value[item.name] = parsed;
+        touched = true;
+      }
     } else {
       const parsed = Number(raw);
       if (Number.isFinite(parsed) && parsed >= 0) {

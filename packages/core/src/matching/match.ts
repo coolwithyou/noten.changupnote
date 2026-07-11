@@ -647,9 +647,13 @@ function evaluateFinancialHealth(criterion: GrantCriterion, company: CompanyProf
         (item): item is "partial" | "full" => item === "partial" || item === "full",
       )
     : [];
+  const minInterestCoverage =
+    typeof value.min_interest_coverage === "number" && Number.isFinite(value.min_interest_coverage)
+      ? value.min_interest_coverage
+      : null;
 
   // 공고가 재무 조건을 하나도 명시하지 않으면 판정 근거가 없다.
-  if (threshold === null && impairmentExcluded.length === 0) {
+  if (threshold === null && impairmentExcluded.length === 0 && minInterestCoverage === null) {
     return trace(criterion, "unknown", `${label} 조건 확인 필요`);
   }
 
@@ -689,12 +693,33 @@ function evaluateFinancialHealth(criterion: GrantCriterion, company: CompanyProf
     }
   }
 
+  // 이자보상배율 하한 판정. min 미달(영업이익/이자비용 < 요구치)이면 배제 대상.
+  // 이자보상배율은 영업손실 시 음수 가능하므로 numberOrNull(음수 허용)로 읽는다.
+  if (minInterestCoverage !== null) {
+    const coverage = numberOrNull(profile.interest_coverage_ratio);
+    if (coverage === null) {
+      // 하위 필드 부분입력 → unknown(Minor-3).
+      return trace(criterion, "unknown", `${label} - 이자보상배율 입력 필요`);
+    }
+    if (coverage < minInterestCoverage) {
+      return trace(
+        criterion,
+        "fail",
+        `${label} - 이자보상배율 ${formatNumber(minInterestCoverage)}배 이상 대상, 귀사 ${formatNumber(coverage)}배`,
+        { interest_coverage_ratio: coverage },
+      );
+    }
+  }
+
   return trace(criterion, "pass", `${label} 조건 충족`, {
     ...(profile.debt_ratio_pct !== null && profile.debt_ratio_pct !== undefined
       ? { debt_ratio_pct: profile.debt_ratio_pct }
       : {}),
     ...(profile.impairment !== null && profile.impairment !== undefined
       ? { impairment: profile.impairment }
+      : {}),
+    ...(profile.interest_coverage_ratio !== null && profile.interest_coverage_ratio !== undefined
+      ? { interest_coverage_ratio: profile.interest_coverage_ratio }
       : {}),
   });
 }
@@ -755,15 +780,21 @@ function evaluateInsuredWorkforce(criterion: GrantCriterion, company: CompanyPro
   }
 
   if (noLayoffMonths !== null) {
-    // no_layoff=true(감원 없음 확정)면 충족. months_since_last_layoff는 최근 감원 시점(null=미상).
+    // 판정 매트릭스: no_layoff=true→pass, since>=임계→pass, since<임계→fail,
+    //               no_layoff=false + since=null→unknown(감원 시점 입력 필요), 둘 다 미입력→unknown.
+    // months_since_last_layoff는 최근 감원 시점(null=미상).
     if (profile.no_layoff === true) {
       // 감원 없음 확정 — 통과.
     } else {
       const since = numberOrNull(profile.months_since_last_layoff);
-      if (since === null && profile.no_layoff === undefined) {
-        return trace(criterion, "unknown", `${label} - 감원 여부 입력 필요`);
+      if (since === null) {
+        // 감원 시점 미상: no_layoff=false(감원은 있었으나 시점 미상)든 undefined(미응답)든
+        // pass로 확정할 근거가 없다 → unknown.
+        const detail =
+          profile.no_layoff === false ? "감원 시점 입력 필요" : "감원 여부 입력 필요";
+        return trace(criterion, "unknown", `${label} - ${detail}`);
       }
-      if (since !== null && since < noLayoffMonths) {
+      if (since < noLayoffMonths) {
         return trace(
           criterion,
           "fail",

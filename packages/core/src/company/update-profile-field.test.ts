@@ -219,6 +219,40 @@ check("financial_health 부채비율만 입력 → 부채비율만 반영, impai
   assert.equal(profile.financial_health?.impairment, undefined);
 });
 
+check("financial_health 이자보상배율(소수) 입력 → floor 없이 그대로 보존", () => {
+  const profile = updateCompanyProfileField(emptyProfile(), {
+    field: "financial_health",
+    value: { interest_coverage_ratio: 1.5 },
+  });
+  assert.equal(profile.financial_health?.interest_coverage_ratio, 1.5);
+});
+
+check("financial_health 이자보상배율 음수(영업손실) 허용", () => {
+  const profile = updateCompanyProfileField(emptyProfile(), {
+    field: "financial_health",
+    value: { interest_coverage_ratio: -0.8 },
+  });
+  assert.equal(profile.financial_health?.interest_coverage_ratio, -0.8);
+});
+
+check("이자보상배율: 프로필 입력 → matching이 소비(미달 → fail)", () => {
+  const profile = updateCompanyProfileField(emptyProfile(), {
+    field: "financial_health",
+    value: { interest_coverage_ratio: 0.5 },
+  });
+  const criterion: GrantCriterion = {
+    id: "c",
+    grant_id: "g",
+    dimension: "financial_health",
+    operator: "gte",
+    kind: "exclusion",
+    confidence: 0.9,
+    value: { min_interest_coverage: 1 },
+  };
+  const result = matchGrantCriteria([criterion], profile);
+  assert.equal(result.rule_trace[0]?.result, "fail");
+});
+
 // ── insured_workforce / investment ──────────────────────────────────────────────
 check("insured_workforce 고용보험 가입 + 피보험자 수", () => {
   const profile = updateCompanyProfileField(emptyProfile(), {

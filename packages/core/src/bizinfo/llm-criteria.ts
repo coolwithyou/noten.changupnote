@@ -73,9 +73,13 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
         "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박): dimension=industry, operator=not_in, kind=exclusion, value.labels=[업종명].",
         "",
         "[구조화 금지 — other text_only exclusion 으로만 남긴다]",
-        "- 중복수혜·동일사업 중복지원·타부처 중복·참여 중 과제·창업사관학교/NEST 등 프로그램 수료·참여 이력은 절대 위 축으로 만들지 말고 other text_only exclusion 으로 둔다.",
+        "- 중복수혜·동일사업 중복지원·타부처 중복·참여 중 과제·창업사관학교/NEST 등 프로그램 수료·참여 이력은 절대 prior_award(또는 위 결격 축)로 만들지 말고 other text_only exclusion 으로 둔다.",
         "- 서류 허위·미제출·표절·모방·\"기타 부적합\" 같은 절차·재량 조건도 other text_only exclusion.",
         "- premises, export_performance 축은 이번 스키마에서 사용하지 않는다(제외).",
+        "",
+        "[결격·재무·고용·투자 축 span 규칙 — 반드시 준수]",
+        "- 위 축의 구조화 조건은 반드시 해당 근거 문장만 source_span 에 담는다. source_span 이 없으면 그 조건은 만들지 말고 other text_only 로 남긴다.",
+        "- raw_text 에 공고 전문·문단 전체를 복사하지 마라. 근거 문장(source_span)만 사용한다.",
         "",
         "제출 서류는 required_documents에 넣는다. 원문 source_span이 없으면 서류 항목을 만들지 않는다.",
       ].join("\n"),
@@ -145,13 +149,75 @@ export function normalizeBizInfoLlmRequiredDocuments(payload: unknown): GrantReq
   return [...documents.values()];
 }
 
+/**
+ * 구조화 금지 축 강등(C2/M4). LLM 이 아래를 반환하면 evaluator·프로필이 없어 false pass·해소 불가 unknown 을
+ * 유발하므로 other/text_only exclusion 으로 강등한다(span·label 보존):
+ *   - prior_award + exclusion (중복수혜·참여 이력류) — C2: exact-match evaluator 로는 판정 불가
+ *   - premises / export_performance (예약 2축) — M4: 파이프라인 미활성
+ */
+const PRIOR_AWARD_DIMENSION = "prior_award";
+
+function shouldDowngradeToOther(dimension: CriterionDimension, kind: CriterionKind): boolean {
+  if (RESERVED_LLM_EXCLUDED_DIMENSIONS.has(dimension)) return true; // M4 예약 2축
+  if (dimension === PRIOR_AWARD_DIMENSION && kind === "exclusion") return true; // C2
+  return false;
+}
+
+/**
+ * M1 span 정책 대상 축 — 신규 결격/재무/고용/투자 축. 이 축의 구조화 criteria 는
+ * `source_span` 이 필수이고, `raw_text` 에 원문 전문 복제를 금지한다(HIGH_RISK_DOMAIN_PATTERN 오탐 방지).
+ * source_span 이 없으면 other/text_only 로 강등한다.
+ */
+const SPAN_REQUIRED_DIMENSIONS = new Set<string>([
+  "tax_compliance",
+  "credit_status",
+  "sanction",
+  "financial_health",
+  "insured_workforce",
+  "investment",
+]);
+
 function normalizeCriterionRow(row: unknown, sourceId: string, index: number): GrantCriterion | null {
   if (!row || typeof row !== "object") return null;
   const value = row as Record<string, unknown>;
-  const dimension = stringEnum(value.dimension, CRITERION_DIMENSIONS);
+  let dimension = stringEnum(value.dimension, CRITERION_DIMENSIONS);
   const kind = stringEnum(value.kind, CRITERION_KINDS);
-  const operator = stringEnum(value.operator, CRITERION_OPERATORS) ?? "text_only";
+  let operator = stringEnum(value.operator, CRITERION_OPERATORS) ?? "text_only";
   if (!dimension || !kind) return null;
+
+  const sourceSpan = cleanString(value.source_span);
+
+  // 강등 판정(C2·M4·M1). 강등 대상은 other/text_only exclusion 으로 내리고 span·라벨을 note 로 보존한다.
+  let downgraded = shouldDowngradeToOther(dimension, kind);
+  if (!downgraded && SPAN_REQUIRED_DIMENSIONS.has(dimension) && operator !== "text_only" && !sourceSpan) {
+    // M1: 신규 구조화 축이 source_span 없이 왔으면 판정 근거를 신뢰할 수 없다 → 강등.
+    downgraded = true;
+  }
+  if (downgraded) {
+    const note =
+      cleanString(readNote(value.value)) ||
+      sourceSpan ||
+      `${dimension} 조건 원문 확인 필요`;
+    dimension = "other";
+    operator = "text_only";
+    const criterion: GrantCriterion = {
+      id: `bizinfo:${sourceId}:llm-${index + 1}`,
+      grant_id: sourceId,
+      dimension,
+      operator,
+      kind: "exclusion",
+      value: { note },
+      confidence: clampNumber(value.confidence, 0.1, 0.95, 0.65),
+      needs_review: true,
+      parser_version: BIZINFO_NORMALIZER_VERSION,
+    };
+    if (sourceSpan) {
+      criterion.source_span = sourceSpan;
+      criterion.raw_text = sourceSpan;
+    }
+    criterion.source_field = cleanString(value.source_field) || "llm_extracted";
+    return criterion;
+  }
 
   const criterion: GrantCriterion = {
     id: `bizinfo:${sourceId}:llm-${index + 1}`,
@@ -164,13 +230,23 @@ function normalizeCriterionRow(row: unknown, sourceId: string, index: number): G
     needs_review: Boolean(value.needs_review),
     parser_version: BIZINFO_NORMALIZER_VERSION,
   };
-  const sourceSpan = cleanString(value.source_span);
-  const rawText = cleanString(value.raw_text) || sourceSpan;
   const sourceField = cleanString(value.source_field) || "llm_extracted";
+  // M1 span 정책: 신규 구조화 축은 raw_text 에 원문 전문 복제 금지 → source_span 만 raw_text 로 쓴다.
+  // 그 외 축은 기존대로 LLM raw_text(없으면 source_span)를 보존한다.
+  const rawText = SPAN_REQUIRED_DIMENSIONS.has(dimension)
+    ? sourceSpan
+    : cleanString(value.raw_text) || sourceSpan;
   if (sourceSpan) criterion.source_span = sourceSpan;
   if (rawText) criterion.raw_text = rawText;
   criterion.source_field = sourceField;
   return criterion;
+}
+
+/** value.note(text_only placeholder) 추출 편의 — 강등 시 note 보존용. */
+function readNote(value: unknown): string {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const note = (value as Record<string, unknown>).note;
+  return typeof note === "string" ? note : "";
 }
 
 function normalizeCriterionValue(

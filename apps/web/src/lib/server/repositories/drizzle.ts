@@ -800,6 +800,8 @@ function toFinancialHealthProfileValue(
   const result: NonNullable<CompanyProfile["financial_health"]> = {};
   const debtRatio = numberValue(value.debt_ratio_pct);
   if (debtRatio !== null) result.debt_ratio_pct = debtRatio;
+  const interestCoverage = numberValue(value.interest_coverage_ratio);
+  if (interestCoverage !== null) result.interest_coverage_ratio = interestCoverage;
   const impairment = stringValue(value.impairment);
   if (impairment === "none" || impairment === "partial" || impairment === "full") {
     result.impairment = impairment;

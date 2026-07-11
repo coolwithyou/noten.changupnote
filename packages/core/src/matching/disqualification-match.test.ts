@@ -366,6 +366,71 @@ check("[financial] profile 미존재 → unknown", () => {
   assert.equal(entry.result, "unknown");
 });
 
+// ── financial_health.min_interest_coverage (Codex Major: 미소비 → false pass 차단) ──
+
+const interestCriterion: GrantCriterion = {
+  dimension: "financial_health",
+  operator: "gte",
+  kind: "exclusion",
+  confidence: 0.9,
+  value: { min_interest_coverage: 1 },
+};
+
+check("[financial] 이자보상배율 조건인데 프로필 미입력 → unknown (false pass 차단)", () => {
+  const company: CompanyProfile = {
+    // debt_ratio 만 입력, interest_coverage 미입력.
+    financial_health: { debt_ratio_pct: 100 },
+    confidence: { ...baseConfidence, financial_health: 0.6 },
+  };
+  const { entry } = evalOne(interestCriterion, company);
+  assert.equal(entry.result, "unknown");
+  assert.match(entry.message, /이자보상배율/);
+});
+
+check("[financial] 이자보상배율 미달(0.5 < 1) → fail", () => {
+  const company: CompanyProfile = {
+    financial_health: { interest_coverage_ratio: 0.5 },
+    confidence: { ...baseConfidence, financial_health: 0.6 },
+  };
+  const { entry } = evalOne(interestCriterion, company);
+  assert.equal(entry.result, "fail");
+});
+
+check("[financial] 이자보상배율 충족(2 >= 1) → pass", () => {
+  const company: CompanyProfile = {
+    financial_health: { interest_coverage_ratio: 2 },
+    confidence: { ...baseConfidence, financial_health: 0.6 },
+  };
+  const { entry } = evalOne(interestCriterion, company);
+  assert.equal(entry.result, "pass");
+});
+
+check("[financial] 이자보상배율 음수(영업손실, -1 < 1) → fail", () => {
+  const company: CompanyProfile = {
+    financial_health: { interest_coverage_ratio: -1 },
+    confidence: { ...baseConfidence, financial_health: 0.6 },
+  };
+  const { entry } = evalOne(interestCriterion, company);
+  assert.equal(entry.result, "fail");
+});
+
+check("[financial] 부채비율 통과 + 이자보상배율 조건 미입력 → unknown (이전엔 false pass)", () => {
+  const criterion: GrantCriterion = {
+    dimension: "financial_health",
+    operator: "in",
+    kind: "exclusion",
+    confidence: 0.9,
+    value: { debt_ratio_pct_threshold: { value: 1000, inclusive: true }, min_interest_coverage: 2 },
+  };
+  const company: CompanyProfile = {
+    // 부채비율만 입력(통과 구간), 이자보상배율 미입력.
+    financial_health: { debt_ratio_pct: 200 },
+    confidence: { ...baseConfidence, financial_health: 0.6 },
+  };
+  const { entry } = evalOne(criterion, company);
+  assert.equal(entry.result, "unknown");
+});
+
 // ── insured_workforce (boolean+numeric 복합, 부분입력 unknown) ────────────────
 
 check("[insured] 고용보험 가입 필요 + 가입됨 + 인원 충족 → pass", () => {
@@ -442,6 +507,62 @@ check("[insured] profile 미존재 → unknown", () => {
   };
   const company: CompanyProfile = { confidence: { ...baseConfidence } };
   const { entry } = evalOne(criterion, company);
+  assert.equal(entry.result, "unknown");
+});
+
+// ── no_layoff 매트릭스 (Codex Major: false+null → 이전엔 pass 낙하) ──────────────
+
+const noLayoffCriterion: GrantCriterion = {
+  dimension: "insured_workforce",
+  operator: "gte",
+  kind: "required",
+  confidence: 0.9,
+  value: { no_layoff_within_months: 6 },
+};
+
+check("[insured] no_layoff=true → pass", () => {
+  const company: CompanyProfile = {
+    insured_workforce: { no_layoff: true },
+    confidence: { ...baseConfidence, insured_workforce: 0.6 },
+  };
+  const { entry } = evalOne(noLayoffCriterion, company);
+  assert.equal(entry.result, "pass");
+});
+
+check("[insured] 감원 시점 >= 임계(8 >= 6) → pass", () => {
+  const company: CompanyProfile = {
+    insured_workforce: { no_layoff: false, months_since_last_layoff: 8 },
+    confidence: { ...baseConfidence, insured_workforce: 0.6 },
+  };
+  const { entry } = evalOne(noLayoffCriterion, company);
+  assert.equal(entry.result, "pass");
+});
+
+check("[insured] 감원 시점 < 임계(3 < 6) → fail", () => {
+  const company: CompanyProfile = {
+    insured_workforce: { no_layoff: false, months_since_last_layoff: 3 },
+    confidence: { ...baseConfidence, insured_workforce: 0.6 },
+  };
+  const { entry } = evalOne(noLayoffCriterion, company);
+  assert.equal(entry.result, "fail");
+});
+
+check("[insured] no_layoff=false + 감원 시점 null → unknown (이전엔 false pass)", () => {
+  const company: CompanyProfile = {
+    insured_workforce: { no_layoff: false, months_since_last_layoff: null },
+    confidence: { ...baseConfidence, insured_workforce: 0.6 },
+  };
+  const { entry } = evalOne(noLayoffCriterion, company);
+  assert.equal(entry.result, "unknown");
+  assert.match(entry.message, /감원 시점/);
+});
+
+check("[insured] no_layoff·감원 시점 둘 다 미입력 → unknown", () => {
+  const company: CompanyProfile = {
+    insured_workforce: { employment_insurance_active: true }, // no_layoff/months 미입력
+    confidence: { ...baseConfidence, insured_workforce: 0.6 },
+  };
+  const { entry } = evalOne(noLayoffCriterion, company);
   assert.equal(entry.result, "unknown");
 });
 
