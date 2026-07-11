@@ -61,6 +61,7 @@ function parseArgs(argv: string[]): Args {
   let dryRun = false;
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
+    if (token === "--") continue; // pnpm 이 forward 하는 인자 구분자 무시
     if (token === "--dry-run") {
       dryRun = true;
       continue;
