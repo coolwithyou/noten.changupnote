@@ -874,6 +874,8 @@ export function buildFieldCoverage(input: {
       if (connectorResult.note) rowNote = connectorResult.note;
     }
     // CODEF 국세청 확정값이 있으면 라이브키/파생/외부 결과를 덮어 최우선으로 표시한다.
+    // 커넥터가 라이브 호출이 아니라 company_enrichment_cache passive 판독이므로 status는 "cache"
+    // (인증은 api/dev/codef/* 에서 선행돼 캐시에 남았고, 이 행은 그 캐시를 재사용해 표시한다).
     if (codefOverride) {
       return {
         key: entry.key,
@@ -885,7 +887,7 @@ export function buildFieldCoverage(input: {
         tier: entry.tier,
         plannedSource: entry.plannedSource,
         selfDeclarable: entry.selfDeclarable,
-        status: "live",
+        status: "cache",
         value: codefOverride.value ?? null,
         confidence: codefOverride.confidence ?? null,
         source: "codef",
