@@ -53,7 +53,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 1800,
+      max_tokens: 2400,
       temperature: 0,
       system: [
         "너는 정부지원사업 공고의 신청 자격조건을 구조화하는 추출기다.",
@@ -62,7 +62,21 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
         "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
         "업종은 공고 표현을 가능한 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 조건으로 남긴다.",
         "휴폐업 제외 조건은 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"closed\"],\"labels\":[\"휴폐업\"]} 로 추출한다.",
-        "세금 체납, 제재, 중복수혜처럼 팝빌 휴폐업 상태만으로 판정할 수 없는 배제 조건은 other text_only exclusion으로 남긴다.",
+        "",
+        "[결격(배제) 조건 구조화 — 아래 축으로 반드시 분해한다]",
+        "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 등 예외 문구가 있으면 value.exceptions=[\"payment_deferral_approved\"].",
+        "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 변제 정상이행 예외→exceptions=[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"].",
+        "- 제재·참여제한: dimension=sanction, operator=in, kind=exclusion, value.flags=[참여제한=participation_restricted, 부정수급·환수=subsidy_fraud, 보조금법위반·특수관계=subsidy_law_violation, 의무불이행=obligation_breach, 임금체불명단=wage_arrears_listed, 중대재해명단=serious_accident_listed, 협약·계약위반=agreement_breach] 중 해당.",
+        "- 재무건전성: dimension=financial_health, kind=exclusion, value.debt_ratio_pct_threshold={\"value\":숫자,\"inclusive\":이상=true/초과=false}, value.impairment_excluded=[\"partial\"|\"full\"](자본잠식만 언급 시 [\"partial\",\"full\"]), value.min_interest_coverage=숫자.",
+        "- 고용보험·피보험자: dimension=insured_workforce, value.employment_insurance_required=true / min_insured·max_insured 숫자 / no_layoff_within_months 숫자.",
+        "- 투자유치: dimension=investment, value.min_total_krw(원 단위 정수) / rounds / tips_operator_required.",
+        "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박): dimension=industry, operator=not_in, kind=exclusion, value.labels=[업종명].",
+        "",
+        "[구조화 금지 — other text_only exclusion 으로만 남긴다]",
+        "- 중복수혜·동일사업 중복지원·타부처 중복·참여 중 과제·창업사관학교/NEST 등 프로그램 수료·참여 이력은 절대 위 축으로 만들지 말고 other text_only exclusion 으로 둔다.",
+        "- 서류 허위·미제출·표절·모방·\"기타 부적합\" 같은 절차·재량 조건도 other text_only exclusion.",
+        "- premises, export_performance 축은 이번 스키마에서 사용하지 않는다(제외).",
+        "",
         "제출 서류는 required_documents에 넣는다. 원문 source_span이 없으면 서류 항목을 만들지 않는다.",
       ].join("\n"),
       messages: [{
@@ -171,6 +185,15 @@ function normalizeCriterionValue(
   return objectValue;
 }
 
+/**
+ * LLM 이 emit 할 수 있는 dimension enum — 예약 2축(premises/export_performance)은 제외한다(M4).
+ * 이 축은 프로필 파이프라인·evaluator 가 아직 활성화되지 않아 LLM 이 emit 하면 해소 불가 unknown 이 된다.
+ */
+const RESERVED_LLM_EXCLUDED_DIMENSIONS = new Set(["premises", "export_performance"]);
+const LLM_EMITTABLE_DIMENSIONS = CRITERION_DIMENSIONS.filter(
+  (dimension) => !RESERVED_LLM_EXCLUDED_DIMENSIONS.has(dimension),
+);
+
 export function buildBizInfoCriteriaToolSchema() {
   return {
     name: "emit_grant_criteria",
@@ -185,7 +208,7 @@ export function buildBizInfoCriteriaToolSchema() {
             type: "object",
             additionalProperties: false,
             properties: {
-              dimension: { type: "string", enum: [...CRITERION_DIMENSIONS] },
+              dimension: { type: "string", enum: [...LLM_EMITTABLE_DIMENSIONS] },
               operator: { type: "string", enum: [...CRITERION_OPERATORS] },
               kind: { type: "string", enum: [...CRITERION_KINDS] },
               value: { type: "object" },

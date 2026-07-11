@@ -10,6 +10,7 @@ export * from "./company/update-profile-field.js";
 export * from "./credits/index.js";
 export * from "./dedup/grant-dedup.js";
 export * from "./disqualification/canonical.js";
+export * from "./disqualification/extract.js";
 export * from "./documents/draft-generation.js";
 export * from "./documents/field-candidates.js";
 export * from "./documents/field-candidate-text-parser.js";

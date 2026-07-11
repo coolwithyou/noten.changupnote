@@ -23,6 +23,7 @@ import { classifyAuthoringMode } from "../grants/authoring-mode.js";
 import { resolveGrantAgencyPrimary } from "../grants/agency.js";
 import { extractCerts, findCertMatches, type CanonicalCert } from "../certification/certs.js";
 import { parseKStartupDate, statusFromApplyWindow } from "./date.js";
+import { extractDisqualificationCriteria } from "../disqualification/extract.js";
 import type {
   KStartupAnnouncement,
   KStartupApiResponse,
@@ -670,18 +671,42 @@ function buildScopedTextCriteria(
     }));
   }
 
-  if (TEXT_HINTS.priorAwardOrBadStanding.test(clean(row.aply_excl_trgt_ctnt))) {
-    criteria.push(makeCriterion(sourceId, "exclusion-text", {
-      dimension: "other",
-      operator: "text_only",
-      kind: "exclusion",
-      value: { note: "제외대상 해당 여부 확인 필요" },
+  // 배제(결격) 분해 — rule-based 분해기 선실행 후, 구조화 못 한 잔여 문장만 other text_only(안전망).
+  // 분해기는 신설 결격 축(tax_compliance/credit_status/sanction/financial_health/insured_workforce/
+  // investment) + industry not_in + business_status not_in 로 구조화하고, C2(중복수혜류)·절차·재량
+  // 문장은 residual 로 돌려준다(span 정책 M1: source_span 은 귀속 문장만, raw_text 전체 복제 금지).
+  const exclusionText = clean(row.aply_excl_trgt_ctnt);
+  if (exclusionText) {
+    const extraction = extractDisqualificationCriteria(exclusionText, {
+      sourceField: "aply_excl_trgt_ctnt",
       confidence: 0.6,
-      source_field: "aply_excl_trgt_ctnt",
-      source_span: firstSentenceWith(clean(row.aply_excl_trgt_ctnt), TEXT_HINTS.priorAwardOrBadStanding),
-      raw_text: clean(row.aply_excl_trgt_ctnt),
-      needs_review: true,
-    }));
+    });
+    extraction.criteria.forEach((criterion, index) => {
+      criteria.push(makeCriterion(sourceId, `disq-${criterion.dimension}-${index + 1}`, criterion));
+    });
+    // 잔여 배제 문장 안전망 — 구조화 대상이 남았거나(분해기 미매치) C2/절차 조건이면 원문 검수 유지.
+    // 힌트 어휘가 있는 잔여 문장만 placeholder 로 남겨 노이즈를 줄인다.
+    const residualHit = extraction.residualSpans.find((span) =>
+      TEXT_HINTS.priorAwardOrBadStanding.test(span),
+    );
+    // 구조화가 하나도 안 됐지만 힌트가 걸리는 경우(구조 실패)를 위해 전체 텍스트도 fallback 대상으로 둔다.
+    const fallbackSpan =
+      residualHit ??
+      (extraction.criteria.length === 0 && TEXT_HINTS.priorAwardOrBadStanding.test(exclusionText)
+        ? firstSentenceWith(exclusionText, TEXT_HINTS.priorAwardOrBadStanding)
+        : null);
+    if (fallbackSpan) {
+      criteria.push(makeCriterion(sourceId, "exclusion-text", {
+        dimension: "other",
+        operator: "text_only",
+        kind: "exclusion",
+        value: { note: "제외대상 해당 여부 확인 필요" },
+        confidence: 0.6,
+        source_field: "aply_excl_trgt_ctnt",
+        source_span: fallbackSpan,
+        needs_review: true,
+      }));
+    }
   }
 
   return criteria;

@@ -19,7 +19,9 @@ import { classifyAuthoringMode } from "../grants/authoring-mode.js";
 import { resolveGrantAgencyPrimary } from "../grants/agency.js";
 import type { BizInfoAttachmentMarkdown, BizInfoProgram } from "./types.js";
 
-export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v1";
+// v2: 결격 축(tax_compliance/credit_status/sanction/financial_health/insured_workforce/investment)
+// 프롬프트 갱신 + 폴백 rule-based 분해기 도입 — 배제 문구 구조화(P4, 2026-07-11).
+export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v2";
 
 export function normalizeBizInfoProgram(
   program: BizInfoProgram,

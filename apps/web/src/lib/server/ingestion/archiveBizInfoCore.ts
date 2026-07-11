@@ -9,6 +9,7 @@ import {
   BIZINFO_NORMALIZER_VERSION,
   buildBizInfoProgramExtractionInput,
   extractBizInfoCriteriaWithAnthropic,
+  extractDisqualificationCriteria,
   fetchBizInfoPrograms,
   normalizeBizInfoProgram,
   type BizInfoProgram,
@@ -332,22 +333,39 @@ function buildTextOnlyFallbackCriteria(program: BizInfoProgram, text: string): G
     text,
   ]);
 
-  return [{
-    id: `bizinfo:${program.pblancId}:text-only-fallback-1`,
+  // LLM 없이도 배제(결격) 문구를 rule-based 분해기로 구조화한다(P4). 신설 결격 축 + industry/
+  // business_status not_in 으로 귀속하고, C2(중복수혜류)·절차·재량은 아래 other 잔존으로만 남긴다.
+  // span 정책(M1): 각 criterion.source_span 은 귀속 문장만, raw_text 전체 복제 금지.
+  const extraction = extractDisqualificationCriteria(text, {
+    sourceField: "bizinfo_text_only_fallback",
+    confidence: 0.6,
+  });
+  const disqualificationCriteria: GrantCriterion[] = extraction.criteria.map((criterion, index) => ({
+    ...criterion,
+    id: `bizinfo:${program.pblancId}:disq-${criterion.dimension}-${index + 1}`,
     grant_id: program.pblancId,
-    dimension: "other",
-    operator: "text_only",
-    kind: "required",
-    value: {
-      note: "기업마당 공고의 상세 신청자격을 원문 기준으로 확인해야 합니다.",
-    },
-    confidence: 0.35,
-    source_span: sourceSpan.slice(0, 240),
-    raw_text: text.slice(0, 2000),
-    source_field: "bizinfo_text_only_fallback",
-    needs_review: true,
     parser_version: TEXT_ONLY_FALLBACK_VERSION,
-  }];
+  }));
+
+  return [
+    ...disqualificationCriteria,
+    {
+      id: `bizinfo:${program.pblancId}:text-only-fallback-1`,
+      grant_id: program.pblancId,
+      dimension: "other",
+      operator: "text_only",
+      kind: "required",
+      value: {
+        note: "기업마당 공고의 상세 신청자격을 원문 기준으로 확인해야 합니다.",
+      },
+      confidence: 0.35,
+      source_span: sourceSpan.slice(0, 240),
+      raw_text: text.slice(0, 2000),
+      source_field: "bizinfo_text_only_fallback",
+      needs_review: true,
+      parser_version: TEXT_ONLY_FALLBACK_VERSION,
+    },
+  ];
 }
 
 async function readExistingGrantRawHashes(
