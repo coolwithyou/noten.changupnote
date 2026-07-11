@@ -286,17 +286,27 @@ async function main() {
   );
   const corpFacts = normalizeCorporateRegistration(corp.result.data);
 
-  // 2) 부가세과세표준 (같은 id — 세션 SSO 실측)
+  // 2) 부가세과세표준 (같은 id — 세션 SSO 실측).
+  //    VAT 실패가 성공한 사업자등록증명 데이터를 버리지 않도록 격리(스파이크 복원력).
+  let vatFacts = null as ReturnType<typeof normalizeVatBase> | null;
+  let vatNeededApproval: boolean | null = null;
+  let vatError: string | null = null;
   console.log(`  부가세 조회기간 startDate=${vatInput.startDate} endDate=${vatInput.endDate}`);
-  const vatBody = buildVatBaseRequest(vatInput);
-  const vat = await callProductWithTwoWay(
-    "부가세과세표준증명",
-    VAT_BASE_CERTIFICATE_PATH,
-    token.accessToken,
-    config.apiBaseUrl,
-    vatBody,
-  );
-  const vatFacts = normalizeVatBase(vat.result.data);
+  try {
+    const vatBody = buildVatBaseRequest(vatInput);
+    const vat = await callProductWithTwoWay(
+      "부가세과세표준증명",
+      VAT_BASE_CERTIFICATE_PATH,
+      token.accessToken,
+      config.apiBaseUrl,
+      vatBody,
+    );
+    vatFacts = normalizeVatBase(vat.result.data);
+    vatNeededApproval = vat.neededApproval;
+  } catch (error) {
+    vatError = error instanceof Error ? error.message : String(error);
+    console.log(`  ✗ 부가세과세표준 실패(사업자등록증명 결과는 유지): ${vatError}`);
+  }
 
   // 3) 프로필 병합
   const { profile, facts } = buildCompanyProfileFromCodef({
@@ -327,23 +337,33 @@ async function main() {
   console.log("=".repeat(72));
 
   // 가정 1: 세션 SSO — 부가세과세표준이 2번째 승인 없이 처리됐는가.
-  const ssoWorked = !vat.neededApproval;
-  console.log(
-    `  ① 세션 SSO(1회 인증→2상품): ${ssoWorked ? "GO ✅ 2번째 상품이 추가 승인 없이 처리됨" : "NO ⚠️ 부가세과세표준이 별도 승인을 요구함(승인 2회 폴백 필요)"}`,
-  );
+  const ssoWorked = vatNeededApproval === false;
+  const ssoLine =
+    vatNeededApproval === null
+      ? `미측정 ⚠️ 부가세과세표준이 인증 전 단계에서 실패(${vatError ?? "오류"}) — 상품 경로/구독 확인 후 재측정`
+      : ssoWorked
+        ? "GO ✅ 2번째 상품이 추가 승인 없이 처리됨"
+        : "NO ⚠️ 부가세과세표준이 별도 승인을 요구함(승인 2회 폴백 필요)";
+  console.log(`  ① 세션 SSO(1회 인증→2상품): ${ssoLine}`);
 
   // 가정 3: 개인 매출 커버리지 — 부가세과세표준이 매출을 반환했는가.
   const revenueCovered = vatFacts?.hasFiling === true && vatFacts.taxBaseWon != null;
-  console.log(
-    `  ③ 개인 매출 커버리지: ${revenueCovered ? `GO ✅ 과세표준 ${vatFacts!.taxBaseWon!.toLocaleString("ko-KR")}원 반환` : "NO/미확인 ⚠️ 과세표준 빈 응답(간이/면세 신고이력 없음 또는 필드명 상이 — vat 원문 확인)"}`,
-  );
+  const revenueLine =
+    vatError !== null
+      ? `미측정 ⚠️ 부가세과세표준 호출 실패(${vatError})`
+      : revenueCovered
+        ? `GO ✅ 과세표준 ${vatFacts!.taxBaseWon!.toLocaleString("ko-KR")}원 반환`
+        : "NO/미확인 ⚠️ 과세표준 빈 응답(간이/면세 신고이력 없음 또는 필드명 상이 — vat 원문 확인)";
+  console.log(`  ③ 개인 매출 커버리지: ${revenueLine}`);
 
   // 가정 2: 단가 — CLI로 확인 불가(사람 작업).
   console.log(`  ② 정식 단가: N/A(CODEF 상담·사람 작업) — 이번 호출로는 판정 불가`);
 
+  const mark = (ok: boolean, unmeasured: boolean) => (unmeasured ? "미측정" : ok ? "GO" : "NO");
   console.log(
     `\n  GO 판정식: ①(세션 SSO) ∧ ③(개인 매출) 성립 ∧ ②(단가) 수용 가능 → GO.` +
-      `\n  이번 실행: ①=${ssoWorked ? "GO" : "NO"}, ③=${revenueCovered ? "GO" : "NO/미확인"}, ②=상담대기`,
+      `\n  이번 실행: ①=${mark(ssoWorked, vatNeededApproval === null)}, ③=${mark(revenueCovered, vatError !== null)}, ②=상담대기` +
+      (corpFacts ? `\n  (참고) 사업자등록증명은 CF-00000 성공 — 위 정규화 차원이 국세청 확정값.` : ""),
   );
   console.log(
     "\n  ※ 3종(법인·일반과세 개인·간이/면세 개인)을 각각 실행해 ③ 커버리지를 계층별로 기록하세요.",
