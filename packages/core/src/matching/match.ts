@@ -3,9 +3,13 @@ import type {
   CompanyProfile,
   CriterionDimension,
   CriterionResult,
+  DisqualificationCriterionValue,
   Eligibility,
+  FinancialHealthCriterionValue,
   FounderAgeCriterionValue,
   GrantCriterion,
+  InsuredWorkforceCriterionValue,
+  InvestmentCriterionValue,
   ListCriterionValue,
   MatchReviewGate,
   MatchReviewReason,
@@ -17,8 +21,16 @@ import type {
 import { REGION_LABELS } from "../kstartup/constants.js";
 import { industryCodeMatches } from "../industry/ksic.js";
 import { certsMatch } from "../certification/certs.js";
+import {
+  DISQUALIFICATION_EXCEPTION_LABELS,
+  DISQUALIFICATION_FLAG_LABELS,
+  EXCEPTION_FLAG_COVERAGE,
+  type DisqualificationAxis,
+  type DisqualificationException,
+  type DisqualificationFlag,
+} from "../disqualification/canonical.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v2";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v3";
 export const SCORING_VERSION = "scoring-fit-v2-trust-gate";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
@@ -27,6 +39,13 @@ const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
   "business_status",
   "target_type",
   "other",
+]);
+
+/** 결격 3축 — unknown 시 disqualification_unconfirmed reason으로 "결격 빠른 확인" CTA에 묶는다. */
+const DISQUALIFICATION_AXES = new Set<CriterionDimension>([
+  "tax_compliance",
+  "credit_status",
+  "sanction",
 ]);
 
 const HIGH_RISK_DOMAIN_PATTERN =
@@ -145,6 +164,22 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
       return evaluateListCriterion(criterion, company.target_types, "targets", "신청대상", isKnownListField(company, "target_type"));
     case "business_status":
       return evaluateBusinessStatus(criterion, company);
+    case "tax_compliance":
+      return evaluateDisqualification(criterion, company, "tax_compliance");
+    case "credit_status":
+      return evaluateDisqualification(criterion, company, "credit_status");
+    case "sanction":
+      return evaluateDisqualification(criterion, company, "sanction");
+    case "financial_health":
+      return evaluateFinancialHealth(criterion, company);
+    case "insured_workforce":
+      return evaluateInsuredWorkforce(criterion, company);
+    case "investment":
+      return evaluateInvestment(criterion, company);
+    // 예약 2축 — criteria가 존재할 수 없지만(파서 filter) 방어적으로 unknown 처리.
+    case "premises":
+    case "export_performance":
+      return trace(criterion, "unknown", `${labelFor(criterion.dimension)} 조건 확인 필요`);
     default:
       return trace(criterion, "unknown", `${labelFor(criterion.dimension)} 조건 확인 필요`);
   }
@@ -502,6 +537,341 @@ function evaluateBusinessStatus(criterion: GrantCriterion, company: CompanyProfi
   );
 }
 
+/**
+ * 결격 3축 공용 evaluator (tax_compliance / credit_status / sanction). §2.4 판정 시맨틱.
+ *
+ *   profile 미존재 or confidence[dim] 없음            → unknown
+ *   criterion.flags − profile.known_flags ≠ ∅         → unknown  (플래그 단위 known 게이트, C1)
+ *   hit = criterion.flags ∩ profile.flags
+ *   waived = hit 중, (profile.exceptions ∩ criterion.exceptions)의 예외가 사전 매핑상 커버하는 플래그
+ *   hit − waived ≠ ∅                                   → fail (잔존 플래그·예외 근거 명시)
+ *   else                                               → pass
+ */
+function evaluateDisqualification(
+  criterion: GrantCriterion,
+  company: CompanyProfile,
+  axis: DisqualificationAxis,
+): RuleTraceEntry {
+  const value = criterion.value as DisqualificationCriterionValue;
+  const label = labelFor(axis);
+  const critFlags = uniqueFlags(toFlagArray(value.flags));
+
+  // 공고가 결격 플래그를 하나도 명시하지 않으면 판정 근거가 없다.
+  if (critFlags.length === 0) {
+    return trace(criterion, "unknown", `${label} 조건 확인 필요`);
+  }
+
+  const profile = company[axis];
+  // profile 미존재 or dimension confidence 없음 → unknown.
+  if (!profile || !isKnownListField(company, axis)) {
+    return trace(criterion, "unknown", `${label} 여부 확인 필요`);
+  }
+
+  const knownFlags = new Set(toFlagArray(profile.known_flags));
+  const unqueried = critFlags.filter((flag) => !knownFlags.has(flag));
+  // 플래그 단위 known 게이트(C1): 공고가 요구한 플래그 중 하나라도 질의되지 않았으면 unknown.
+  if (unqueried.length > 0) {
+    return trace(
+      criterion,
+      "unknown",
+      `${label} 미확인 항목 있음 - ${flagLabels(unqueried)} 확인 필요`,
+    );
+  }
+
+  const heldFlags = new Set(toFlagArray(profile.flags));
+  const hit = critFlags.filter((flag) => heldFlags.has(flag));
+  if (hit.length === 0) {
+    return trace(criterion, "pass", `${label} 결격 사유 없음`, {
+      flags: critFlags,
+      known_flags: [...knownFlags],
+    });
+  }
+
+  // 예외 차감(M5): 공고가 허용한 예외 ∩ 회사 보유 예외 → 사전 매핑상 커버하는 플래그만 waive.
+  const critExceptions = new Set(toExceptionArray(value.exceptions));
+  const heldExceptions = toExceptionArray(profile.exceptions).filter((exception) =>
+    critExceptions.has(exception),
+  );
+  const waived = new Set<DisqualificationFlag>();
+  const appliedExceptions = new Set<DisqualificationException>();
+  for (const exception of heldExceptions) {
+    for (const covered of EXCEPTION_FLAG_COVERAGE[exception]) {
+      if (hit.includes(covered)) {
+        waived.add(covered);
+        appliedExceptions.add(exception);
+      }
+    }
+  }
+
+  const residual = hit.filter((flag) => !waived.has(flag));
+  if (residual.length > 0) {
+    const exceptionNote =
+      appliedExceptions.size > 0 ? ` (예외 인정: ${exceptionLabels([...appliedExceptions])})` : "";
+    return trace(
+      criterion,
+      "fail",
+      `${label} 결격 사유 해당 - ${flagLabels(residual)}${exceptionNote}`,
+      { flags: hit, waived: [...waived] },
+    );
+  }
+
+  // 히트 전부가 예외로 면제됨.
+  return trace(
+    criterion,
+    "pass",
+    `${label} 결격 사유 있으나 예외 인정 - ${flagLabels(hit)} (예외: ${exceptionLabels([...appliedExceptions])})`,
+    { flags: hit, waived: [...waived] },
+  );
+}
+
+/**
+ * 재무 건전성 전용 evaluator (Minor-2/Minor-3).
+ * exclusion 극성 반전이 없어 evaluateNumericCriterion을 재사용하지 않는다.
+ * dimension known이어도 criterion이 참조하는 하위 필드가 profile에서 null이면 unknown(Minor-3).
+ */
+function evaluateFinancialHealth(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+  const value = criterion.value as FinancialHealthCriterionValue;
+  const label = labelFor("financial_health");
+  const profile = company.financial_health;
+
+  if (!profile || !isKnownListField(company, "financial_health")) {
+    return trace(criterion, "unknown", `${label} 확인 필요`);
+  }
+
+  const threshold =
+    value.debt_ratio_pct_threshold && typeof value.debt_ratio_pct_threshold.value === "number"
+      ? value.debt_ratio_pct_threshold
+      : null;
+  const impairmentExcluded = Array.isArray(value.impairment_excluded)
+    ? value.impairment_excluded.filter(
+        (item): item is "partial" | "full" => item === "partial" || item === "full",
+      )
+    : [];
+
+  // 공고가 재무 조건을 하나도 명시하지 않으면 판정 근거가 없다.
+  if (threshold === null && impairmentExcluded.length === 0) {
+    return trace(criterion, "unknown", `${label} 조건 확인 필요`);
+  }
+
+  // 부채비율 배제 임계 판정.
+  if (threshold !== null) {
+    const debtRatio = profile.debt_ratio_pct;
+    if (debtRatio === null || debtRatio === undefined) {
+      // 하위 필드 부분입력 → unknown(Minor-3).
+      return trace(criterion, "unknown", `${label} - 부채비율 입력 필요`);
+    }
+    const exceeds = threshold.inclusive ? debtRatio >= threshold.value : debtRatio > threshold.value;
+    if (exceeds) {
+      const boundary = threshold.inclusive ? "이상" : "초과";
+      return trace(
+        criterion,
+        "fail",
+        `${label} - 부채비율 ${formatNumber(threshold.value)}% ${boundary} 배제, 귀사 ${formatNumber(debtRatio)}%`,
+        { debt_ratio_pct: debtRatio },
+      );
+    }
+  }
+
+  // 자본잠식 배제 판정.
+  if (impairmentExcluded.length > 0) {
+    const impairment = profile.impairment;
+    if (impairment === null || impairment === undefined) {
+      // 하위 필드 부분입력 → unknown(Minor-3).
+      return trace(criterion, "unknown", `${label} - 자본잠식 여부 입력 필요`);
+    }
+    if (impairment !== "none" && impairmentExcluded.includes(impairment)) {
+      return trace(
+        criterion,
+        "fail",
+        `${label} - 자본잠식(${impairmentLabel(impairment)}) 배제 대상`,
+        { impairment },
+      );
+    }
+  }
+
+  return trace(criterion, "pass", `${label} 조건 충족`, {
+    ...(profile.debt_ratio_pct !== null && profile.debt_ratio_pct !== undefined
+      ? { debt_ratio_pct: profile.debt_ratio_pct }
+      : {}),
+    ...(profile.impairment !== null && profile.impairment !== undefined
+      ? { impairment: profile.impairment }
+      : {}),
+  });
+}
+
+/**
+ * 고용보험 피보험자 evaluator — boolean+numeric 복합. 하위 필드 부분입력 → unknown.
+ */
+function evaluateInsuredWorkforce(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+  const value = criterion.value as InsuredWorkforceCriterionValue;
+  const label = labelFor("insured_workforce");
+  const profile = company.insured_workforce;
+
+  if (!profile || !isKnownListField(company, "insured_workforce")) {
+    return trace(criterion, "unknown", `${label} 확인 필요`);
+  }
+
+  const requiresInsurance = value.employment_insurance_required === true;
+  const minInsured = numberOrNull(value.min_insured);
+  const maxInsured = numberOrNull(value.max_insured);
+  const noLayoffMonths = numberOrNull(value.no_layoff_within_months);
+
+  if (!requiresInsurance && minInsured === null && maxInsured === null && noLayoffMonths === null) {
+    return trace(criterion, "unknown", `${label} 조건 확인 필요`);
+  }
+
+  if (requiresInsurance) {
+    if (profile.employment_insurance_active === undefined) {
+      return trace(criterion, "unknown", `${label} - 고용보험 가입 여부 입력 필요`);
+    }
+    if (!profile.employment_insurance_active) {
+      return trace(criterion, "fail", `${label} - 고용보험 가입 필요(미가입)`, {
+        employment_insurance_active: false,
+      });
+    }
+  }
+
+  if (minInsured !== null || maxInsured !== null) {
+    const count = numberOrNull(profile.insured_count);
+    if (count === null) {
+      return trace(criterion, "unknown", `${label} - 피보험자 수 입력 필요`);
+    }
+    if (minInsured !== null && count < minInsured) {
+      return trace(
+        criterion,
+        "fail",
+        `${label} - 피보험자 ${formatNumber(minInsured)}명 이상 대상, 귀사 ${formatNumber(count)}명`,
+        { insured_count: count },
+      );
+    }
+    if (maxInsured !== null && count > maxInsured) {
+      return trace(
+        criterion,
+        "fail",
+        `${label} - 피보험자 ${formatNumber(maxInsured)}명 이하 대상, 귀사 ${formatNumber(count)}명`,
+        { insured_count: count },
+      );
+    }
+  }
+
+  if (noLayoffMonths !== null) {
+    // no_layoff=true(감원 없음 확정)면 충족. months_since_last_layoff는 최근 감원 시점(null=미상).
+    if (profile.no_layoff === true) {
+      // 감원 없음 확정 — 통과.
+    } else {
+      const since = numberOrNull(profile.months_since_last_layoff);
+      if (since === null && profile.no_layoff === undefined) {
+        return trace(criterion, "unknown", `${label} - 감원 여부 입력 필요`);
+      }
+      if (since !== null && since < noLayoffMonths) {
+        return trace(
+          criterion,
+          "fail",
+          `${label} - 최근 ${formatNumber(noLayoffMonths)}개월 내 감원 없어야 함, 귀사 ${formatNumber(since)}개월 전 감원`,
+          { months_since_last_layoff: since },
+        );
+      }
+    }
+  }
+
+  return trace(criterion, "pass", `${label} 조건 충족`);
+}
+
+/**
+ * 투자 유치 evaluator — boolean+numeric 복합. 하위 필드 부분입력 → unknown.
+ */
+function evaluateInvestment(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+  const value = criterion.value as InvestmentCriterionValue;
+  const label = labelFor("investment");
+  const profile = company.investment;
+
+  if (!profile || !isKnownListField(company, "investment")) {
+    return trace(criterion, "unknown", `${label} 확인 필요`);
+  }
+
+  const minTotal = numberOrNull(value.min_total_krw);
+  const rounds = toStringArray(value.rounds);
+  const tipsRequired = value.tips_operator_required === true;
+
+  if (minTotal === null && rounds.length === 0 && !tipsRequired) {
+    return trace(criterion, "unknown", `${label} 조건 확인 필요`);
+  }
+
+  if (minTotal !== null) {
+    const raised = numberOrNull(profile.total_raised_krw);
+    if (raised === null) {
+      return trace(criterion, "unknown", `${label} - 투자 유치 금액 입력 필요`);
+    }
+    if (raised < minTotal) {
+      return trace(
+        criterion,
+        "fail",
+        `${label} - ${formatNumber(minTotal)}원 이상 유치 대상, 귀사 ${formatNumber(raised)}원`,
+        { total_raised_krw: raised },
+      );
+    }
+  }
+
+  if (rounds.length > 0) {
+    if (profile.last_round === undefined) {
+      return trace(criterion, "unknown", `${label} - 투자 라운드 입력 필요`);
+    }
+    if (!profile.last_round || !rounds.includes(profile.last_round)) {
+      return trace(
+        criterion,
+        "fail",
+        `${label} - ${rounds.join(", ")} 대상, 귀사 ${profile.last_round || "해당 없음"}`,
+        { last_round: profile.last_round ?? null },
+      );
+    }
+  }
+
+  if (tipsRequired) {
+    if (profile.tips_backed === undefined) {
+      return trace(criterion, "unknown", `${label} - TIPS 선정 여부 입력 필요`);
+    }
+    if (!profile.tips_backed) {
+      return trace(criterion, "fail", `${label} - TIPS 운영사 선정 필요(미선정)`, {
+        tips_backed: false,
+      });
+    }
+  }
+
+  return trace(criterion, "pass", `${label} 조건 충족`);
+}
+
+function toFlagArray(value: unknown): DisqualificationFlag[] {
+  return toStringArray(value).filter(
+    (item): item is DisqualificationFlag => item in DISQUALIFICATION_FLAG_LABELS,
+  );
+}
+
+function toExceptionArray(value: unknown): DisqualificationException[] {
+  return toStringArray(value).filter(
+    (item): item is DisqualificationException => item in DISQUALIFICATION_EXCEPTION_LABELS,
+  );
+}
+
+function uniqueFlags(flags: DisqualificationFlag[]): DisqualificationFlag[] {
+  return [...new Set(flags)];
+}
+
+function flagLabels(flags: DisqualificationFlag[]): string {
+  return flags.map((flag) => DISQUALIFICATION_FLAG_LABELS[flag]).join(", ");
+}
+
+function exceptionLabels(exceptions: DisqualificationException[]): string {
+  return exceptions.map((exception) => DISQUALIFICATION_EXCEPTION_LABELS[exception]).join(", ");
+}
+
+function impairmentLabel(impairment: "partial" | "full"): string {
+  return impairment === "full" ? "완전잠식" : "부분잠식";
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function scoreFit(eligibility: Eligibility, traceEntries: RuleTraceEntry[]): number {
   if (eligibility === "ineligible") return 0;
   if (eligibility === "eligible") return 100;
@@ -588,7 +958,13 @@ function buildReviewGate(input: {
       tier: "needs_profile_input",
       scoreDisplay: "hidden",
       reasons: uniqueReasons(profileUnknowns.map((entry) =>
-        reviewReason("profile_missing", entry, "기업 정보를 입력하면 판정을 확정할 수 있어요."),
+        DISQUALIFICATION_AXES.has(entry.dimension)
+          ? reviewReason(
+              "disqualification_unconfirmed",
+              entry,
+              "결격 사유 해당 여부를 확인하면 판정을 확정할 수 있어요.",
+            )
+          : reviewReason("profile_missing", entry, "기업 정보를 입력하면 판정을 확정할 수 있어요."),
       )),
     };
   }
@@ -626,6 +1002,15 @@ function isUnverifiedCoreCriterion(
 }
 
 function hasHighRiskSignal(criterion?: GrantCriterion, entry?: RuleTraceEntry): boolean {
+  // M1 완화: 결격(exclusion) 조건과 신규 결격 축은 고위험 분야 패턴 검사 대상에서 제외한다.
+  // 배제 조항 원문에 섞인 도메인 단어(원전·로봇 등)가 needs_core_review로 오강등되는 것을 막는다.
+  // (P4 span 정책과 세트 — 결격 criteria는 원문 전문을 raw_text에 복제하지 않는다.)
+  if (
+    criterion &&
+    (criterion.kind === "exclusion" || DISQUALIFICATION_AXES.has(criterion.dimension))
+  ) {
+    return false;
+  }
   const values = [
     criterion?.source_span,
     criterion?.raw_text,
@@ -688,6 +1073,10 @@ function uniqueReasons(reasons: MatchReviewReason[]): MatchReviewReason[] {
 
 function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {
   const priority: CriterionDimension[] = [
+    // 결격 3축 최상위 — 문항 응답 한 번으로 즉시 해소 가능한 최빈 게이트.
+    "tax_compliance",
+    "credit_status",
+    "sanction",
     "industry",
     "size",
     "revenue",
@@ -701,6 +1090,11 @@ function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {
     "target_type",
     "prior_award",
     "business_status",
+    "financial_health",
+    "insured_workforce",
+    "investment",
+    "premises",
+    "export_performance",
     "other",
   ];
   const field = priority.find((candidate) => fields.includes(candidate));
@@ -719,13 +1113,13 @@ function nextQuestion(fields: CriterionDimension[]): NextQuestion | undefined {
     ip: "보유한 특허나 지식재산권이 있나요?",
     target_type: "신청 주체 유형을 확인해 주세요.",
     business_status: "휴폐업 및 과세 상태를 확인해 주세요.",
-    // 공고매칭 차원 확장 축 — 문항 카피·우선순위는 P2/P3에서 확정.
-    tax_compliance: "국세·지방세·4대보험 체납 여부를 확인해 주세요.",
-    credit_status: "신용 연체·채무불이행·회생·파산 등 신용 상태를 확인해 주세요.",
-    sanction: "정부지원사업 참여제한·부정수급 등 제재 이력을 확인해 주세요.",
+    // 결격·재무·고용·투자 축(공고매칭 차원 확장).
+    tax_compliance: "국세·지방세·관세·4대보험 체납이 있나요? 1분이면 확인돼요.",
+    credit_status: "신용 연체·채무불이행·부도·회생·파산·압류·보증제한에 해당하나요?",
+    sanction: "정부지원사업 참여제한·부정수급·임금체불 명단 등 제재 이력이 있나요?",
     financial_health: "부채비율·자본잠식 등 재무 상태를 확인해 주세요.",
-    insured_workforce: "고용보험 피보험자 수 등 고용 정보를 확인해 주세요.",
-    investment: "투자 유치 이력을 확인해 주세요.",
+    insured_workforce: "고용보험 가입 여부와 피보험자 수를 확인해 주세요.",
+    investment: "투자 유치 금액·라운드·TIPS 선정 이력을 확인해 주세요.",
     premises: "사업장·입지 요건에 해당하는지 확인해 주세요.",
     export_performance: "수출 실적이 있는지 확인해 주세요.",
     other: "제외대상이나 특수 조건에 해당하는지 확인해 주세요.",
