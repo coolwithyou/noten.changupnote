@@ -1,0 +1,87 @@
+{
+  "goldenVer": "kstartup-sample-v2",
+  "fixture": "samples/kstartup_announcement_sample.json",
+  "asOf": "2026-06-26T00:00:00.000+09:00",
+  "company": {
+    "id": "demo-company-dq",
+    "name": "(가칭)테크스타트(체납유예)",
+    "region": {
+      "code": "41",
+      "label": "경기"
+    },
+    "biz_age_months": 26,
+    "founder_age": 35,
+    "is_preliminary": false,
+    "industries": ["ICT"],
+    "size": "중소",
+    "tax_compliance": {
+      "flags": ["national_tax_delinquent"],
+      "known_flags": [
+        "national_tax_delinquent",
+        "local_tax_delinquent",
+        "customs_delinquent",
+        "social_insurance_delinquent"
+      ],
+      "exceptions": ["payment_deferral_approved"]
+    },
+    "credit_status": {
+      "flags": [],
+      "known_flags": [
+        "credit_delinquency",
+        "loan_default",
+        "bond_default",
+        "rehabilitation_in_progress",
+        "bankruptcy_filed",
+        "court_receivership",
+        "financial_misconduct",
+        "asset_seizure",
+        "guarantee_restricted"
+      ],
+      "exceptions": []
+    },
+    "sanction": {
+      "flags": [],
+      "known_flags": [
+        "participation_restricted",
+        "subsidy_fraud",
+        "subsidy_law_violation",
+        "obligation_breach",
+        "wage_arrears_listed",
+        "serious_accident_listed",
+        "agreement_breach"
+      ],
+      "exceptions": []
+    },
+    "financial_health": {
+      "impairment": "none",
+      "debt_ratio_pct": 200
+    },
+    "confidence": {
+      "region": 0.95,
+      "biz_age": 0.9,
+      "industry": 0.65,
+      "size": 0.65,
+      "tax_compliance": 0.6,
+      "credit_status": 0.6,
+      "sanction": 0.6,
+      "financial_health": 0.6
+    }
+  },
+  "cases": [
+    {
+      "sourceId": "178229",
+      "expected": "ineligible",
+      "note": "체납(national) 보유 + 공고가 예외 허용 안 함 → tax_compliance 결격 하드 fail"
+    },
+    {
+      "sourceId": "178238",
+      "expected": "conditional",
+      "note": "체납이지만 납부유예 예외 인정(공고가 payment_deferral_approved 허용) → tax PASS, industry text_only 미구조화 → needs_core_review"
+    },
+    {
+      "sourceId": "178246",
+      "expected": "eligible",
+      "note": "경기 소재 7년 미만, 결격 기준 없는 공고 → 체납 유예이더라도 결격 기준 없으므로 eligible"
+    }
+  ]
+}
