@@ -1,5 +1,20 @@
 import { maskCorpNum } from "@cunote/core";
-import type { EnrichmentCacheEntry, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
+import {
+  checkFscCorpFinance,
+  checkFscPersonalFinance,
+  checkKcomwelEmployment,
+  DISQUALIFICATION_EXCEPTION_LABELS,
+  DISQUALIFICATION_EXCEPTIONS,
+  DISQUALIFICATION_FLAG_LABELS,
+  DISQUALIFICATION_QUESTIONS,
+} from "@cunote/core";
+import type {
+  DisqualificationAxis,
+  DisqualificationFlag,
+  EnrichmentCacheEntry,
+  NtsBusinessStatusData,
+  SmppCertificates,
+} from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
 import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
 import {
@@ -16,7 +31,7 @@ import {
 } from "./serviceData";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 개발 전용 사업자 데이터 모니터. 실제 조회 파이프라인(팝빌·국세청·공공구매종합정보망)을
+// 개발 전용 사업자 데이터 모니터. 실제 조회 파이프라인(팝빌·국세청·공공구매종합정보망)과 Apick을
 // 항상 태워(저장 프로필 short-circuit 없이) 캐시/라이브 원천을 투명하게 드러낸다.
 // production 에서는 노출 금지 — 모든 진입점은 assertDevOnly 가드를 통과해야 한다.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -80,12 +95,105 @@ export interface ServiceDataLookupError {
   status: number;
 }
 
+// ── 22축 커버리지 하네스 (매칭 데이터 소싱 검증) ─────────────────────────────
+// 소싱 설계 docs/plans/2026-07-11-matching-data-sourcing.md §4, 키 매니페스트
+// docs/plans/2026-07-11-sourcing-keys-manifest.md 를 화면으로 옮긴 상태 모델.
+
+/** 데이터 접근 물리학(소싱 설계 §2): A층=사업자번호 조회, B층=동의·증빙, reserved=예약축. */
+export type FieldTier = "A" | "B" | "reserved";
+
+/** 사업자 유형(법인/개인). n/a(법인 전용축) 판정에 쓴다. 사업자번호 중간자리로 추론. */
+export type SubjectType = "corporation" | "individual" | "unknown";
+
+/**
+ * 필드 상태 모델(키 매니페스트): 키 누락→pending, 데이터 어긋남→failed.
+ * self-declared 는 서버가 아니라 클라이언트 Q&A 오버레이가 부여한다(이 함수는 나머지 5개를 결정).
+ */
+export type FieldCoverageStatus = "self-declared" | "pending" | "live" | "cache" | "failed" | "n/a";
+
+/** 라이브/추론 원천 참조(배지용). */
+export type FieldSourceRef = ServiceDataFieldSource | "derived" | "kcomwel" | "fsc";
+
+/**
+ * Phase 2 커넥터가 상태 판정 함수에 넘기는 결과. Phase 1 에선 항상 null 이라 외부소스는 pending 고정.
+ * - ok=false | empty | schemaMismatch → computeFieldStatus 가 failed 로 전이.
+ * - skipped=true → 조회 전제 미충족(법인번호 없음 등)이라 pending 유지(crash/failed 아님).
+ * - ok=true → live. value/confidence/source 는 화면 표시에 사용된다.
+ */
+export interface ConnectorResult {
+  ok: boolean;
+  empty?: boolean;
+  schemaMismatch?: boolean;
+  /** 조회 전제 미충족 → pending 유지(failed 금지). */
+  skipped?: boolean;
+  reason?: string;
+  value?: string | null;
+  confidence?: number | null;
+  /** 라이브일 때 배지에 표시할 원천. */
+  source?: FieldSourceRef;
+}
+
+export interface FieldCoverageRow {
+  /** 행 식별자(축 키 또는 하위 플래그/서브필드 유사키). */
+  key: string;
+  /** 하위 플래그·서브필드 행이면 소속 축 dimension 키. */
+  parentKey: string | null;
+  /** 22축 dimension(하위 행은 부모 dimension 을 참조하되 flag/subField 로 구분). */
+  dimension: CriterionDimension | null;
+  /** 결격 하위 플래그(canonical). 없으면 null. */
+  flag: DisqualificationFlag | null;
+  /** 재무·고용·투자 하위 서브필드 키. 없으면 null. */
+  subField: string | null;
+  label: string;
+  tier: FieldTier;
+  /** 계획 소스 라벨(소싱 설계 §4). 라이브가 아니어도 항상 노출. */
+  plannedSource: string;
+  status: FieldCoverageStatus;
+  value: string | null;
+  confidence: number | null;
+  /** 라이브/캐시일 때 실제 원천, 그 외 null. */
+  source: FieldSourceRef | null;
+  /** pending 사유("키 없음"/"배치 파이프라인" 등)·failed 사유. */
+  note: string | null;
+  /** Q&A 로 채울 수 있는 축인지(클라이언트 오버레이 대상). */
+  selfDeclarable: boolean;
+}
+
+// 자가신고 Q&A 스키마(canonical 파생). page.tsx(서버 컴포넌트)가 만들어 클라이언트에 props 로 넘긴다
+// — 클라이언트 번들에 @cunote/core(서버 코드)를 끌어들이지 않기 위함.
+export interface QnaFlagSchema {
+  flag: DisqualificationFlag;
+  label: string;
+}
+export interface QnaQuestionSchema {
+  id: string;
+  label: string;
+  flags: QnaFlagSchema[];
+}
+export interface QnaAxisSchema {
+  axis: DisqualificationAxis;
+  label: string;
+  questions: QnaQuestionSchema[];
+}
+export interface QnaExceptionSchema {
+  key: string;
+  label: string;
+}
+export interface QnaSchema {
+  disqualification: QnaAxisSchema[];
+  exceptions: QnaExceptionSchema[];
+}
+
 export interface ServiceDataLookupResult {
   bizNo: string;
   maskedBizNo: string;
+  /** 사업자 유형 추론(법인 전용축 n/a 판정용). */
+  subject: SubjectType;
   profile: CompanyProfile | null;
   evidence: CompanyEvidence | null;
   fields: ServiceDataField[];
+  /** 22축 + 하위 플래그 커버리지(라이브/pending/n-a 상태). Q&A 는 클라이언트가 오버레이. */
+  coverage: FieldCoverageRow[];
   trace: ServiceDataTraceEntry[];
   error?: ServiceDataLookupError;
 }
@@ -300,12 +408,24 @@ export async function lookupServiceData(
     confidence: confidenceFor(field.key),
   }));
 
+  const subject = resolveSubjectType(normalized);
+  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
+  const coverage = buildFieldCoverage({
+    subject,
+    profile,
+    fields,
+    originBySource: originBySourceFromTrace(trace),
+    connectorResults,
+  });
+
   return {
     bizNo: normalized,
     maskedBizNo: maskBizNoSafe(normalized),
+    subject,
     profile,
     evidence,
     fields,
+    coverage,
     trace,
     ...(error ? { error } : {}),
   };
@@ -354,12 +474,24 @@ async function lookupApickServiceData(
     confidence: confidenceForProfileField(profile, field.key),
   }));
 
+  const subject = resolveSubjectType(normalized);
+  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
+  const coverage = buildFieldCoverage({
+    subject,
+    profile,
+    fields,
+    originBySource: originBySourceFromTrace(trace),
+    connectorResults,
+  });
+
   return {
     bizNo: normalized,
     maskedBizNo: maskBizNoSafe(normalized),
+    subject,
     profile,
     evidence,
     fields,
+    coverage,
     trace,
     ...(error ? { error } : {}),
   };
@@ -414,4 +546,582 @@ function confidenceForProfileField(profile: CompanyProfile | null, key: string):
   if (!dimension || !profile?.confidence) return null;
   const value = profile.confidence[dimension];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 22축 커버리지 하네스 — 무키(Phase 1) 뼈대
+// 기존 라이브 소스(팝빌/NTS/SMPP/Apick)는 그대로 live/cache 로 동작(회귀 금지).
+// 신규 외부소스(kcomwel·금융위·NICE·CODEF·명단 배치)는 커넥터 미배선이라 pending 고정 —
+// 상태 판정은 computeFieldStatus 한 곳으로 수렴하고, Phase 2 커넥터가 connectorResults 로
+// 결과를 넘기면 env 있음+에러/빈값/스키마 불일치 → failed 로 전이한다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 계획 소스별 env 키(키 매니페스트 §B~D). 전부 존재해야 envPresent=true.
+const ENV_KCOMWEL = ["CUNOTE_KCOMWEL_SERVICE_KEY"] as const;
+const ENV_FSC = ["CUNOTE_FSC_FINANCE_SERVICE_KEY"] as const;
+const ENV_MOEL = ["CUNOTE_MOEL_ACCIDENT_SERVICE_KEY"] as const;
+const ENV_NICE = ["NICE_CLIENT_ID", "NICE_CLIENT_SECRET"] as const;
+const ENV_CODEF = ["CODEF_CLIENT_ID", "CODEF_CLIENT_SECRET"] as const;
+const ENV_KIPRIS = ["KIPRIS_SERVICE_KEY"] as const;
+
+interface CoveragePlanEntry {
+  key: string;
+  parentKey: string | null;
+  dimension: CriterionDimension | null;
+  flag: DisqualificationFlag | null;
+  subField: string | null;
+  label: string;
+  tier: FieldTier;
+  plannedSource: string;
+  /** evidence.fields 의 키(이미 배선된 라이브 소스가 채우는 축). */
+  liveKey: string | null;
+  /** 라이브 소스는 아니나 프로필/사업자번호에서 파생하는 축. */
+  derived: "target_type" | "founder_trait" | null;
+  /** 계획 외부소스의 env 키. */
+  envKeys: readonly string[] | null;
+  /** 배치 파이프라인(런타임 키 없음). */
+  batch: boolean;
+  /** 법인 전용축(개인 && !selfDeclarable → n/a). */
+  corpOnly: boolean;
+  /** 예약축(항상 n/a). */
+  reserved: boolean;
+  /** Q&A 로 채울 수 있는지. */
+  selfDeclarable: boolean;
+}
+
+function planRow(
+  e: Partial<CoveragePlanEntry> &
+    Pick<CoveragePlanEntry, "key" | "label" | "tier" | "plannedSource">,
+): CoveragePlanEntry {
+  return {
+    parentKey: null,
+    dimension: null,
+    flag: null,
+    subField: null,
+    liveKey: null,
+    derived: null,
+    envKeys: null,
+    batch: false,
+    corpOnly: false,
+    reserved: false,
+    selfDeclarable: false,
+    ...e,
+  };
+}
+
+// canonical 라벨을 재사용한 결격 하위 플래그 행 팩토리.
+function flagRow(
+  parentKey: DisqualificationAxis,
+  flag: DisqualificationFlag,
+  opts: {
+    tier: FieldTier;
+    plannedSource: string;
+    envKeys?: readonly string[];
+    batch?: boolean;
+    corpOnly?: boolean;
+  },
+): CoveragePlanEntry {
+  return planRow({
+    key: `${parentKey}.${flag}`,
+    parentKey,
+    dimension: parentKey,
+    flag,
+    label: DISQUALIFICATION_FLAG_LABELS[flag],
+    tier: opts.tier,
+    plannedSource: opts.plannedSource,
+    ...(opts.envKeys ? { envKeys: opts.envKeys } : {}),
+    ...(opts.batch ? { batch: opts.batch } : {}),
+    ...(opts.corpOnly ? { corpOnly: opts.corpOnly } : {}),
+    selfDeclarable: true,
+  });
+}
+
+const NICE_CORP = { tier: "A" as const, plannedSource: "NICE OCCD03(법인) · 자가신고", envKeys: ENV_NICE, corpOnly: true };
+
+/** 22축(CRITERION_DIMENSIONS 순) + 하위 플래그·서브필드 커버리지 플랜. */
+const FIELD_COVERAGE_PLAN: readonly CoveragePlanEntry[] = [
+  planRow({ key: "region", dimension: "region", label: "소재지", tier: "A", plannedSource: "팝빌 주소", liveKey: "region" }),
+  planRow({ key: "biz_age", dimension: "biz_age", label: "업력", tier: "A", plannedSource: "팝빌 개업일", liveKey: "biz_age" }),
+  planRow({ key: "industry", dimension: "industry", label: "업종", tier: "A", plannedSource: "팝빌 업태·종목 → KSIC", liveKey: "industry" }),
+  planRow({ key: "size", dimension: "size", label: "기업규모", tier: "A", plannedSource: "팝빌 기업규모(근사)", liveKey: "size" }),
+  planRow({ key: "revenue", dimension: "revenue", label: "매출액", tier: "A", plannedSource: "금융위 재무 V2(법인) · CODEF(개인) · 자가신고", liveKey: "revenue", envKeys: ENV_FSC, selfDeclarable: true }),
+  planRow({ key: "employees", dimension: "employees", label: "상시근로자", tier: "A", plannedSource: "근로복지공단 15059256 · 자가신고", liveKey: "employees", envKeys: ENV_KCOMWEL, selfDeclarable: true }),
+  planRow({ key: "founder_age", dimension: "founder_age", label: "대표자 연령", tier: "B", plannedSource: "CODEF 간편인증 · 자가신고", liveKey: "founder_age", envKeys: ENV_CODEF, selfDeclarable: true }),
+  planRow({ key: "founder_trait", dimension: "founder_trait", label: "대표자 특성", tier: "A", plannedSource: "SMPP(여성·장애인) · 자가신고(청년·시니어)", derived: "founder_trait", selfDeclarable: true }),
+  planRow({ key: "certification", dimension: "certification", label: "보유 인증·확인서", tier: "A", plannedSource: "SMPP + 공개명단 배치 · 자가신고", liveKey: "certification", selfDeclarable: true }),
+  planRow({ key: "prior_award", dimension: "prior_award", label: "수혜 이력", tier: "B", plannedSource: "통합 API 없음 · 자가신고", selfDeclarable: true }),
+  planRow({ key: "ip", dimension: "ip", label: "지식재산권", tier: "B", plannedSource: "KIPRIS Plus · 자가신고", envKeys: ENV_KIPRIS, selfDeclarable: true }),
+  planRow({ key: "target_type", dimension: "target_type", label: "대상 유형(법인/개인)", tier: "A", plannedSource: "사업자번호 추론 · 자가신고(예비창업)", derived: "target_type", selfDeclarable: true }),
+  planRow({ key: "business_status", dimension: "business_status", label: "영업상태", tier: "A", plannedSource: "국세청 · 팝빌", liveKey: "business_status" }),
+
+  // ── tax_compliance (납세 결격) ──
+  planRow({ key: "tax_compliance", dimension: "tax_compliance", label: "납세 결격", tier: "A", plannedSource: "NICE OCCD03/01(법인) · CODEF(개인) · 자가신고", selfDeclarable: true }),
+  flagRow("tax_compliance", "national_tax_delinquent", NICE_CORP),
+  flagRow("tax_compliance", "local_tax_delinquent", NICE_CORP),
+  flagRow("tax_compliance", "customs_delinquent", { tier: "B", plannedSource: "소스 불명 · 자가신고" }),
+  flagRow("tax_compliance", "social_insurance_delinquent", { tier: "B", plannedSource: "소스 불명 · 자가신고" }),
+
+  // ── credit_status (신용 결격) ──
+  planRow({ key: "credit_status", dimension: "credit_status", label: "신용 결격", tier: "A", plannedSource: "NICE OCCD03/06/01(법인) · 자가신고", selfDeclarable: true }),
+  flagRow("credit_status", "credit_delinquency", NICE_CORP),
+  flagRow("credit_status", "loan_default", NICE_CORP),
+  flagRow("credit_status", "bond_default", { tier: "A", plannedSource: "NICE OCCD01 당좌정지(법인) · 자가신고", envKeys: ENV_NICE, corpOnly: true }),
+  flagRow("credit_status", "rehabilitation_in_progress", { tier: "A", plannedSource: "NICE OCCD06(법인) · 자가신고", envKeys: ENV_NICE, corpOnly: true }),
+  flagRow("credit_status", "bankruptcy_filed", { tier: "A", plannedSource: "NICE OCCD06(법인) · 자가신고", envKeys: ENV_NICE, corpOnly: true }),
+  flagRow("credit_status", "court_receivership", { tier: "A", plannedSource: "NICE OCCD06(법인) · 자가신고", envKeys: ENV_NICE, corpOnly: true }),
+  flagRow("credit_status", "financial_misconduct", NICE_CORP),
+  flagRow("credit_status", "asset_seizure", { tier: "B", plannedSource: "OCCD 미커버 · 자가신고" }),
+  flagRow("credit_status", "guarantee_restricted", { tier: "B", plannedSource: "OCCD 미커버 · 자가신고" }),
+
+  // ── sanction (제재·명단 결격) ──
+  planRow({ key: "sanction", dimension: "sanction", label: "제재·명단 결격", tier: "A", plannedSource: "조달청 CSV + 명단 배치 · 자가신고", selfDeclarable: true }),
+  flagRow("sanction", "participation_restricted", { tier: "A", plannedSource: "조달청 부정당제재 CSV 15137996(배치·사업자번호)", batch: true }),
+  flagRow("sanction", "wage_arrears_listed", { tier: "A", plannedSource: "고용부 체불 명단(배치·상호 퍼지)", batch: true }),
+  flagRow("sanction", "serious_accident_listed", { tier: "A", plannedSource: "중대재해 15090150(상호 퍼지)", envKeys: ENV_MOEL }),
+  flagRow("sanction", "subsidy_fraud", { tier: "B", plannedSource: "IRIS 폐쇄형 · 자가신고" }),
+  flagRow("sanction", "subsidy_law_violation", { tier: "B", plannedSource: "소스 불명 · 자가신고" }),
+  flagRow("sanction", "obligation_breach", { tier: "B", plannedSource: "소스 불명 · 자가신고" }),
+  flagRow("sanction", "agreement_breach", { tier: "B", plannedSource: "소스 불명 · 자가신고" }),
+
+  // ── financial_health (재무건전성) ──
+  planRow({ key: "financial_health", dimension: "financial_health", label: "재무건전성", tier: "A", plannedSource: "금융위 재무 V2 · NICE OCOV06(법인)", selfDeclarable: true }),
+  planRow({ key: "financial_health.debt_ratio_pct", parentKey: "financial_health", dimension: "financial_health", subField: "debt_ratio_pct", label: "부채비율", tier: "A", plannedSource: "금융위 재무 V2(법인)", envKeys: ENV_FSC, corpOnly: true }),
+  planRow({ key: "financial_health.impairment", parentKey: "financial_health", dimension: "financial_health", subField: "impairment", label: "자본잠식", tier: "A", plannedSource: "금융위 재무 V2 파생 · 자가신고", envKeys: ENV_FSC, corpOnly: true, selfDeclarable: true }),
+  planRow({ key: "financial_health.total_assets_krw", parentKey: "financial_health", dimension: "financial_health", subField: "total_assets_krw", label: "자산총계", tier: "A", plannedSource: "금융위 재무 V2(법인)", envKeys: ENV_FSC, corpOnly: true }),
+  planRow({ key: "financial_health.equity_krw", parentKey: "financial_health", dimension: "financial_health", subField: "equity_krw", label: "자본총계", tier: "A", plannedSource: "금융위 재무 V2 · 자가신고", envKeys: ENV_FSC, corpOnly: true, selfDeclarable: true }),
+
+  // ── insured_workforce (고용보험 가입) ──
+  planRow({ key: "insured_workforce", dimension: "insured_workforce", label: "고용보험 가입", tier: "A", plannedSource: "근로복지공단(성립) · CODEF(피보험자수) · 자가신고", selfDeclarable: true }),
+  planRow({ key: "insured_workforce.employment_insurance_active", parentKey: "insured_workforce", dimension: "insured_workforce", subField: "employment_insurance_active", label: "고용보험 성립여부", tier: "A", plannedSource: "근로복지공단 15059256", envKeys: ENV_KCOMWEL }),
+  planRow({ key: "insured_workforce.insured_count", parentKey: "insured_workforce", dimension: "insured_workforce", subField: "insured_count", label: "피보험자수", tier: "B", plannedSource: "CODEF 4대보험 명부(인증서)", envKeys: ENV_CODEF }),
+  planRow({ key: "insured_workforce.no_layoff", parentKey: "insured_workforce", dimension: "insured_workforce", subField: "no_layoff", label: "감원 이력", tier: "B", plannedSource: "소스 없음 · 자가신고", selfDeclarable: true }),
+
+  // ── investment (투자 유치) ──
+  planRow({ key: "investment", dimension: "investment", label: "투자 유치", tier: "A", plannedSource: "jointips 명단 배치 · 자가신고", selfDeclarable: true }),
+  planRow({ key: "investment.tips_backed", parentKey: "investment", dimension: "investment", subField: "tips_backed", label: "TIPS 선정", tier: "A", plannedSource: "jointips.or.kr 명단(배치·기업명 퍼지)", batch: true, selfDeclarable: true }),
+  planRow({ key: "investment.total_raised_krw", parentKey: "investment", dimension: "investment", subField: "total_raised_krw", label: "누적 투자금", tier: "B", plannedSource: "소스 없음 · 자가신고", selfDeclarable: true }),
+  planRow({ key: "investment.last_round", parentKey: "investment", dimension: "investment", subField: "last_round", label: "투자 라운드", tier: "B", plannedSource: "소스 없음 · 자가신고", selfDeclarable: true }),
+
+  // ── 예약축 ──
+  planRow({ key: "premises", dimension: "premises", label: "사업장(예약)", tier: "reserved", plannedSource: "법인등기·건축물대장(defer)", reserved: true }),
+  planRow({ key: "export_performance", dimension: "export_performance", label: "수출실적(예약)", tier: "reserved", plannedSource: "무역협회·관세청 유니패스(defer)", reserved: true }),
+
+  // ── other ──
+  planRow({ key: "other", dimension: "other", label: "기타 조건", tier: "B", plannedSource: "Q&A 자유입력", selfDeclarable: true }),
+];
+
+/** 사업자번호 중간 2자리로 법인/개인 추론(81~88=법인격). */
+export function resolveSubjectType(bizNo: string): SubjectType {
+  const digits = bizNo.replace(/\D/g, "");
+  if (digits.length !== 10) return "unknown";
+  const mid = Number(digits.slice(3, 5));
+  if (!Number.isFinite(mid)) return "unknown";
+  return mid >= 81 && mid <= 88 ? "corporation" : "individual";
+}
+
+function envPresent(keys: readonly string[]): boolean {
+  return keys.every((key) => {
+    const value = process.env[key];
+    return typeof value === "string" && value.trim().length > 0;
+  });
+}
+
+function originBySourceFromTrace(
+  trace: ServiceDataTraceEntry[],
+): Map<string, ServiceDataTraceOrigin> {
+  const map = new Map<string, ServiceDataTraceOrigin>();
+  for (const entry of trace) {
+    if (!map.has(entry.provider)) map.set(entry.provider, entry.origin);
+  }
+  return map;
+}
+
+/**
+ * 필드 상태 결정 — 5개 상태(n/a·live·cache·failed·pending)의 단일 판정점.
+ * self-declared 는 클라이언트 Q&A 오버레이가 부여한다.
+ * Phase 2 훅: external.result 가 채워지면(env 있음+커넥터 호출) 에러/빈값/스키마 불일치→failed.
+ * Phase 1 은 external.result=null 로 외부소스를 pending 고정한다.
+ */
+export function computeFieldStatus(input: {
+  reserved: boolean;
+  corpOnly: boolean;
+  subject: SubjectType;
+  selfDeclarable: boolean;
+  live: { available: boolean; origin: ServiceDataTraceOrigin } | null;
+  external: { envPresent: boolean; batch: boolean; result: ConnectorResult | null } | null;
+}): { status: FieldCoverageStatus; note: string | null } {
+  if (input.reserved) return { status: "n/a", note: "예약축 · 판정 비활성" };
+  if (input.corpOnly && input.subject === "individual" && !input.selfDeclarable) {
+    return { status: "n/a", note: "법인 전용축 · 개인사업자 대상 아님" };
+  }
+  if (input.live?.available) {
+    return { status: input.live.origin === "cache" ? "cache" : "live", note: null };
+  }
+  // 법인 소스가 커버 못 하는 개인사업자 결격/재무 축은 Q&A 로만 채운다.
+  if (input.corpOnly && input.subject === "individual") {
+    return { status: "pending", note: "개인 DB 없음 · 자가신고 대기" };
+  }
+  if (input.external) {
+    const result = input.external.result;
+    if (result !== null) {
+      // Phase 2: 커넥터가 결과를 넘김.
+      // skipped: 조회 전제 미충족(법인번호 없음 등) → pending 유지(사유 노출).
+      if (result.skipped) {
+        return { status: "pending", note: result.reason ?? "조회 전제 미충족" };
+      }
+      if (!result.ok || result.empty || result.schemaMismatch) {
+        return { status: "failed", note: result.reason ?? "응답 에러 · 빈값 · 스키마 불일치" };
+      }
+      return { status: "live", note: null };
+    }
+    // Phase 1: 커넥터 미배선 → pending 고정.
+    if (input.external.batch) return { status: "pending", note: "배치 파이프라인 · Phase 2 배선 예정" };
+    return {
+      status: "pending",
+      note: input.external.envPresent ? "키 있음 · 커넥터 Phase 2 배선 대기" : "키 없음",
+    };
+  }
+  return { status: "pending", note: input.selfDeclarable ? "자가신고 대기" : "미배선" };
+}
+
+/**
+ * 22축 + 하위 행 커버리지 산출. 라이브 소스가 채운 필드는 live/cache 로,
+ * 신규 외부소스는 pending 으로, 법인 전용축의 개인사업자는 n/a 로 렌더한다.
+ * @param connectorResults Phase 2 커넥터 결과 맵(entry.key → ConnectorResult). Phase 1 은 미전달.
+ */
+export function buildFieldCoverage(input: {
+  subject: SubjectType;
+  profile: CompanyProfile | null;
+  fields: ServiceDataField[];
+  originBySource: Map<string, ServiceDataTraceOrigin>;
+  connectorResults?: Map<string, ConnectorResult>;
+}): FieldCoverageRow[] {
+  const fieldByKey = new Map(input.fields.map((field) => [field.key, field]));
+  const originForSource = (source: ServiceDataFieldSource | null): ServiceDataTraceOrigin =>
+    (source ? input.originBySource.get(source) : undefined) ?? "live";
+
+  return FIELD_COVERAGE_PLAN.map((entry) => {
+    let live: { available: boolean; origin: ServiceDataTraceOrigin } | null = null;
+    let value: string | null = null;
+    let source: FieldSourceRef | null = null;
+    let confidence: number | null = null;
+
+    if (entry.liveKey) {
+      const field = fieldByKey.get(entry.liveKey);
+      if (field) {
+        live = { available: field.available, origin: originForSource(field.source) };
+        value = field.available ? field.value : null;
+        source = field.source;
+        confidence = field.confidence;
+      }
+    } else if (entry.derived === "founder_trait") {
+      const traits = input.profile?.traits ?? [];
+      if (traits.length > 0) {
+        live = { available: true, origin: originForSource("smpp") };
+        value = traits.join(", ");
+        source = "smpp";
+        confidence = input.profile?.confidence?.founder_trait ?? 0.6;
+      }
+    } else if (entry.derived === "target_type") {
+      if (input.subject !== "unknown") {
+        live = { available: true, origin: "live" };
+        value = input.subject === "corporation" ? "법인" : "개인사업자";
+        source = "derived";
+        confidence = 0.6;
+      }
+    }
+
+    const connectorResult = input.connectorResults?.get(entry.key) ?? null;
+    const external =
+      entry.envKeys || entry.batch
+        ? {
+            envPresent: entry.envKeys ? envPresent(entry.envKeys) : false,
+            batch: entry.batch,
+            result: connectorResult,
+          }
+        : null;
+
+    const { status, note } = computeFieldStatus({
+      reserved: entry.reserved,
+      corpOnly: entry.corpOnly,
+      subject: input.subject,
+      selfDeclarable: entry.selfDeclarable,
+      live,
+      external,
+    });
+
+    const isLive = status === "live" || status === "cache";
+    // 커넥터가 live 를 채웠으면(라이브 소스 필드가 아니라 외부 커넥터) 값/원천은 커넥터 결과에서 온다.
+    if (isLive && !live?.available && connectorResult?.ok) {
+      value = connectorResult.value ?? null;
+      confidence = connectorResult.confidence ?? null;
+      source = connectorResult.source ?? null;
+    }
+    return {
+      key: entry.key,
+      parentKey: entry.parentKey,
+      dimension: entry.dimension,
+      flag: entry.flag,
+      subField: entry.subField,
+      label: entry.label,
+      tier: entry.tier,
+      plannedSource: entry.plannedSource,
+      selfDeclarable: entry.selfDeclarable,
+      status,
+      value: isLive ? value : null,
+      confidence: isLive ? confidence : null,
+      source: isLive ? source : null,
+      note,
+    };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 — data.go.kr 커넥터 배선(dev 전용, 프로덕션 오버레이 체인 미접촉).
+// kcomwel(고용·산재 15059256) · 금융위 기업재무(15043459) · 금융위 개인사업자재무(15108171).
+// 각 커넥터 결과를 필드 키별 ConnectorResult 로 만들어 buildFieldCoverage 에 주입 →
+// 값 있으면 live, 에러/빈값/스키마불일치 failed, 조회 전제 미충족(법인번호 없음) skip→pending.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * data.go.kr 인증키 해석(계정당 1키 공용): 공용 변수 우선 → 소스별 변수 폴백.
+ * (기존 NTS/SMPP 커넥터의 키 경로는 건드리지 않는다.)
+ */
+function resolveDataGoKrServiceKey(specificEnv: string): string | null {
+  const generic = process.env.CUNOTE_DATA_GO_KR_SERVICE_KEY?.trim();
+  if (generic) return generic;
+  const specific = process.env[specificEnv]?.trim();
+  return specific && specific.length > 0 ? specific : null;
+}
+
+/** apick 상세가 실어 준 법인등록번호(13자리)를 프로필에서 추출. 없으면 null(팝빌 경로엔 없음). */
+function extractCorpRegNo(profile: CompanyProfile | null): string | null {
+  const raw = profile?.other_conditions?.["apick_corporate_registration_no"];
+  if (typeof raw !== "string") return null;
+  const digits = raw.replace(/\D/g, "");
+  return digits.length === 13 ? digits : null;
+}
+
+function connectorErrorReason(error: unknown): string {
+  if (error instanceof Error) return error.message.slice(0, 160);
+  return String(error).slice(0, 160);
+}
+
+/** 원(₩) 금액을 억/만원 한글 표기로 압축(음수·0 포함). */
+function formatKrwCompact(value: number | null): string | null {
+  if (value === null || !Number.isFinite(value)) return null;
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 100_000_000) {
+    const eok = Math.round((abs / 100_000_000) * 10) / 10;
+    return `${sign}${eok.toLocaleString("ko-KR")}억원`;
+  }
+  if (abs >= 10_000) return `${sign}${Math.round(abs / 10_000).toLocaleString("ko-KR")}만원`;
+  return `${sign}${abs.toLocaleString("ko-KR")}원`;
+}
+
+/**
+ * dev 조회 경로에서만 실행되는 외부 커넥터 오케스트레이터. 필드 키 → ConnectorResult 맵을 만든다.
+ * - 각 커넥터는 fail-open(내부 try/catch) — 절대 throw 하지 않아 lookup 흐름을 깨지 않는다.
+ * - 키 미설정 소스는 아무 결과도 넣지 않아 pending("키 없음") 을 유지한다.
+ */
+export async function runExternalConnectors(input: {
+  bizNo: string;
+  subject: SubjectType;
+  profile: CompanyProfile | null;
+}): Promise<Map<string, ConnectorResult>> {
+  if (process.env.NODE_ENV !== "production") {
+    const { loadMonorepoEnv } = await import("./loadMonorepoEnv");
+    loadMonorepoEnv();
+  }
+  const results = new Map<string, ConnectorResult>();
+  await Promise.all([
+    runKcomwelConnector(input.bizNo, results),
+    runFscCorpFinanceConnector(input, results),
+    runFscPersonalFinanceConnector(input, results),
+  ]);
+  return results;
+}
+
+/** kcomwel 고용·산재(15059256) → employees · insured_workforce.employment_insurance_active. */
+async function runKcomwelConnector(
+  bizNo: string,
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  const serviceKey = resolveDataGoKrServiceKey("CUNOTE_KCOMWEL_SERVICE_KEY");
+  if (!serviceKey) return; // 키 없음 → pending 유지
+  const employeesKey = "employees";
+  const insuredKey = "insured_workforce.employment_insurance_active";
+  try {
+    const summary = await checkKcomwelEmployment({ serviceKey, bizNo, kind: "employment" });
+    if (!summary) {
+      const empty: ConnectorResult = { ok: false, empty: true, reason: "고용보험 가입 사업장 없음" };
+      results.set(employeesKey, empty);
+      results.set(insuredKey, empty);
+      return;
+    }
+    if (typeof summary.totalWorkers === "number") {
+      results.set(employeesKey, {
+        ok: true,
+        value: `${summary.totalWorkers.toLocaleString("ko-KR")}명${summary.siteCount > 1 ? ` (${summary.siteCount}개 사업장)` : ""}`,
+        confidence: 0.7,
+        source: "kcomwel",
+      });
+    } else {
+      results.set(employeesKey, { ok: false, empty: true, reason: "상시인원 미제공" });
+    }
+    const seongrip = summary.earliestSeongripDt
+      ? `${summary.earliestSeongripDt.slice(0, 4)}-${summary.earliestSeongripDt.slice(4, 6)}-${summary.earliestSeongripDt.slice(6, 8)}`
+      : null;
+    results.set(insuredKey, {
+      ok: true,
+      value: summary.insuranceActive ? `성립${seongrip ? ` (${seongrip})` : ""}` : "미성립",
+      confidence: 0.7,
+      source: "kcomwel",
+    });
+  } catch (error) {
+    const failed: ConnectorResult = { ok: false, reason: connectorErrorReason(error) };
+    results.set(employeesKey, failed);
+    results.set(insuredKey, failed);
+  }
+}
+
+const FSC_CORP_FIELD_KEYS = [
+  "revenue",
+  "financial_health.debt_ratio_pct",
+  "financial_health.impairment",
+  "financial_health.total_assets_krw",
+  "financial_health.equity_krw",
+] as const;
+
+/** 금융위 기업재무(15043459) → revenue · financial_health.*. 법인 && 법인등록번호 브리지 필요. */
+async function runFscCorpFinanceConnector(
+  input: { bizNo: string; subject: SubjectType; profile: CompanyProfile | null },
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  if (input.subject !== "corporation") return; // 법인 전용
+  const serviceKey = resolveDataGoKrServiceKey("CUNOTE_FSC_FINANCE_SERVICE_KEY");
+  if (!serviceKey) return; // 키 없음 → pending 유지
+
+  const corpRegNo = extractCorpRegNo(input.profile);
+  if (!corpRegNo) {
+    // 법인등록번호 없음 → skip(pending 유지). 팝빌 경로엔 법인번호가 없어 apick 조회 시에만 채워진다.
+    const skipped: ConnectorResult = {
+      ok: false,
+      skipped: true,
+      reason: "법인등록번호 없음 · apick 조회 경로에서만 브리지",
+    };
+    for (const key of FSC_CORP_FIELD_KEYS) results.set(key, skipped);
+    return;
+  }
+
+  try {
+    const summary = await checkFscCorpFinance({ serviceKey, corpRegNo });
+    if (!summary) {
+      const empty: ConnectorResult = { ok: false, empty: true, reason: "금융위 재무 데이터 없음(crno 미등재)" };
+      for (const key of FSC_CORP_FIELD_KEYS) results.set(key, empty);
+      return;
+    }
+    const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
+    setNumericField(results, "revenue", formatKrwCompact(summary.saleAmt), 0.85, yearTag);
+    setNumericField(
+      results,
+      "financial_health.debt_ratio_pct",
+      summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
+      0.85,
+      yearTag,
+    );
+    results.set("financial_health.impairment", {
+      ok: true,
+      value: `${summary.impaired ? "자본잠식" : "정상"}${yearTag}`,
+      confidence: 0.85,
+      source: "fsc",
+    });
+    setNumericField(results, "financial_health.total_assets_krw", formatKrwCompact(summary.totalAssets), 0.85, yearTag);
+    setNumericField(results, "financial_health.equity_krw", formatKrwCompact(summary.totalEquity), 0.85, yearTag);
+  } catch (error) {
+    const failed: ConnectorResult = { ok: false, reason: connectorErrorReason(error) };
+    for (const key of FSC_CORP_FIELD_KEYS) results.set(key, failed);
+  }
+}
+
+/** 값이 있으면 live, 없으면 empty(failed)로 세팅. */
+function setNumericField(
+  results: Map<string, ConnectorResult>,
+  key: string,
+  value: string | null,
+  confidence: number,
+  yearTag: string,
+): void {
+  if (value === null) {
+    results.set(key, { ok: false, empty: true, reason: "값 미제공" });
+    return;
+  }
+  results.set(key, { ok: true, value: `${value}${yearTag}`, confidence, source: "fsc" });
+}
+
+/**
+ * 금융위 개인사업자재무(15108171) → revenue(개인).
+ * 실측 반증: 익명 집계셋이라 사업자번호 조회 불가 → schemaMismatch(failed)로 사실을 노출.
+ */
+async function runFscPersonalFinanceConnector(
+  input: { bizNo: string; subject: SubjectType },
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  if (input.subject !== "individual") return; // 개인사업자 전용
+  const serviceKey = resolveDataGoKrServiceKey("CUNOTE_FSC_FINANCE_SERVICE_KEY");
+  if (!serviceKey) return; // 키 없음 → pending 유지
+  try {
+    const classification = await checkFscPersonalFinance({ serviceKey, bizNo: input.bizNo });
+    if (classification.kind === "aggregate") {
+      results.set("revenue", {
+        ok: false,
+        schemaMismatch: true,
+        reason: `익명 집계셋(전체 ${classification.totalCount?.toLocaleString("ko-KR") ?? "?"}건) · 사업자번호 조회 불가`,
+      });
+    } else {
+      results.set("revenue", { ok: false, empty: true, reason: "응답 없음" });
+    }
+  } catch (error) {
+    results.set("revenue", { ok: false, reason: connectorErrorReason(error) });
+  }
+}
+
+const DISQUALIFICATION_AXIS_LABELS: Record<DisqualificationAxis, string> = {
+  tax_compliance: "납세 결격",
+  credit_status: "신용 결격",
+  sanction: "제재·명단 결격",
+};
+
+const DISQUALIFICATION_AXIS_ORDER: readonly DisqualificationAxis[] = [
+  "tax_compliance",
+  "credit_status",
+  "sanction",
+];
+
+/**
+ * canonical 사전에서 자가신고 Q&A 스키마를 만든다(서버 전용 · 직렬화 가능).
+ * page.tsx(서버 컴포넌트)가 호출해 클라이언트에 props 로 넘긴다.
+ */
+export function buildQnaSchema(): QnaSchema {
+  const byAxis = new Map<DisqualificationAxis, QnaQuestionSchema[]>();
+  for (const question of DISQUALIFICATION_QUESTIONS) {
+    const flags: QnaFlagSchema[] = question.covers.map((flag) => ({
+      flag,
+      label: DISQUALIFICATION_FLAG_LABELS[flag],
+    }));
+    const list = byAxis.get(question.axis) ?? [];
+    list.push({ id: question.id, label: question.label, flags });
+    byAxis.set(question.axis, list);
+  }
+  const disqualification: QnaAxisSchema[] = DISQUALIFICATION_AXIS_ORDER.map((axis) => ({
+    axis,
+    label: DISQUALIFICATION_AXIS_LABELS[axis],
+    questions: byAxis.get(axis) ?? [],
+  }));
+  const exceptions: QnaExceptionSchema[] = DISQUALIFICATION_EXCEPTIONS.map((key) => ({
+    key,
+    label: DISQUALIFICATION_EXCEPTION_LABELS[key],
+  }));
+  return { disqualification, exceptions };
 }
