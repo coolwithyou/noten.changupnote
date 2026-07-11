@@ -16,6 +16,31 @@ import type { SimpleAuthLoginInput } from "../request-params.js";
 export const VAT_BASE_CERTIFICATE_PATH =
   "/v1/kr/public/nt/proof-issue/additional-taxstandard";
 
+/** 부가세과세표준 요청 입력 = 간편인증 공용 + 필수 조회기간(yyyyMM). */
+export interface VatBaseRequestInput extends SimpleAuthLoginInput {
+  /** 조회 시작 년월 yyyyMM. MM은 "01"(1기) 또는 "07"(2기). */
+  startDate: string;
+  /** 조회 종료 년월 yyyyMM. */
+  endDate: string;
+}
+
+/**
+ * 부가세과세표준 조회기간 기본 범위를 계산한다(순수).
+ * 개발가이드 제약: 비1분기(4~12월) 4년전~금년, 1분기(1~3월) 5년전~작년. MM은 "01"/"07"만.
+ * 간이과세자(연 1회·1기)도 포함되도록 startDate~endDate 를 넓게 잡고, MM은 "01"(1기)로 시작해
+ * 최근 완료분까지 담는다(응답은 범위 내 전 과세기간을 반환 → normalize가 최신 연도 채택).
+ */
+export function defaultVatBaseDateRange(asOf: Date = new Date()): { startDate: string; endDate: string } {
+  const y = asOf.getUTCFullYear();
+  const m = asOf.getUTCMonth() + 1; // 1~12
+  // 1분기(1~3월)는 금년 조회 불가 → 종료년도를 작년으로. 그 외는 작년까지 안전하게(당해 미신고 회피).
+  const endYear = m <= 3 ? y - 1 : y - 1;
+  // 하반기(7월 이후)면 당해 1기(01)까지 잡을 수 있으나, 신고 지연 회피 위해 보수적으로 작년 2기(07)까지.
+  const endMonth = "07";
+  const startYear = endYear - 2; // 최근 약 3개 사업연도.
+  return { startDate: `${startYear}01`, endDate: `${endYear}${endMonth}` };
+}
+
 /** 과세표준 후보 필드명(top-level·엔트리 공용). D1에서 실측 확정 전 넓게 탐색. */
 const TAX_BASE_AMOUNT_KEYS = [
   "resTaxStandard",
@@ -42,10 +67,14 @@ export interface VatBaseFacts {
 }
 
 /**
- * 부가세과세표준증명 요청 body를 조립한다(간편인증 파라미터, 사업자등록증명과 동형·같은 id 세션 SSO 전제).
+ * 부가세과세표준증명 요청 body를 조립한다(간편인증 공용 + 필수 조회기간).
+ * startDate/endDate(yyyyMM)는 개발가이드상 필수(O). 사업자등록증명과 같은 id 세션 SSO 전제.
  */
-export function buildVatBaseRequest(input: SimpleAuthLoginInput): Record<string, unknown> {
-  return buildSimpleAuthBody(input);
+export function buildVatBaseRequest(input: VatBaseRequestInput): Record<string, unknown> {
+  const body = buildSimpleAuthBody(input);
+  body["startDate"] = input.startDate;
+  body["endDate"] = input.endDate;
+  return body;
 }
 
 /**

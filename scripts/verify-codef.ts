@@ -38,8 +38,10 @@ import {
 import {
   buildVatBaseRequest,
   normalizeVatBase,
+  defaultVatBaseDateRange,
   VAT_BASE_CERTIFICATE_PATH,
 } from "../packages/core/src/codef/products/vat-base-certificate.js";
+import type { VatBaseRequestInput } from "../packages/core/src/codef/products/vat-base-certificate.js";
 import { buildCompanyProfileFromCodef } from "../packages/core/src/codef/normalize.js";
 
 loadMonorepoEnv();
@@ -53,6 +55,8 @@ interface Args {
   bizno: string;
   telecom?: string;
   gender?: "M" | "F";
+  start?: string;
+  end?: string;
   dryRun: boolean;
 }
 
@@ -81,6 +85,8 @@ function parseArgs(argv: string[]): Args {
   const telecom = map.get("telecom");
   const genderRaw = (map.get("gender") ?? "").toUpperCase();
   const gender = genderRaw === "M" || genderRaw === "F" ? (genderRaw as "M" | "F") : undefined;
+  const start = map.get("start");
+  const end = map.get("end");
 
   const missing: string[] = [];
   if (!name) missing.push("--name");
@@ -105,16 +111,18 @@ function parseArgs(argv: string[]): Args {
     dryRun,
     ...(telecom !== undefined ? { telecom } : {}),
     ...(gender !== undefined ? { gender } : {}),
+    ...(start !== undefined ? { start } : {}),
+    ...(end !== undefined ? { end } : {}),
   };
 }
 
-/** 요청 body에서 민감 필드(userName/phoneNo/identity)를 마스킹한 사본을 만든다(로그용). */
+/** 요청 body에서 민감 필드(userName/phoneNo/loginIdentity=생년월일)를 마스킹한 사본을 만든다. */
 function maskBody(body: Record<string, unknown>): Record<string, unknown> {
   const out = { ...body };
   if (typeof out["userName"] === "string") out["userName"] = maskName(out["userName"]);
   if (typeof out["phoneNo"] === "string") out["phoneNo"] = maskPhone(out["phoneNo"]);
-  if (typeof out["identity"] === "string") out["identity"] = maskBirth(out["identity"]);
-  return out;
+  if (typeof out["loginIdentity"] === "string") out["loginIdentity"] = maskBirth(out["loginIdentity"]);
+  return out; // identity(사업자번호)는 마스킹 대상 아님
 }
 
 /** --app 값(이름 또는 1~8 코드)을 loginTypeLevel 코드로 해석. */
@@ -233,22 +241,30 @@ async function main() {
   console.log(`env: environment=${config.environment}, apiBase=${config.apiBaseUrl}`);
 
   const id = buildCodefSessionId("cli-spike", args.bizno);
-  const baseInputPreview: SimpleAuthLoginInput = {
+  const baseInput: SimpleAuthLoginInput = {
     loginTypeLevel,
     userName: args.name,
     phoneNo: args.phone,
-    identity: args.birth,
+    birthDate8: args.birth,
+    bizNo: args.bizno,
     id,
     ...(telecom !== undefined ? { telecom } : {}),
+  };
+  const range = defaultVatBaseDateRange();
+  const vatInput: VatBaseRequestInput = {
+    ...baseInput,
+    startDate: args.start ?? range.startDate,
+    endDate: args.end ?? range.endDate,
   };
 
   if (args.dryRun) {
     console.log("\n[--dry-run] 네트워크 호출 없이 요청 body만 조립·검증합니다.");
     console.log(`  세션 SSO id=${id}`);
+    console.log(`  부가세 조회기간 startDate=${vatInput.startDate} endDate=${vatInput.endDate}`);
     console.log("\n  사업자등록증명 요청 body(마스킹):");
-    console.log("  " + JSON.stringify(maskBody(buildCorporateRegistrationRequest(baseInputPreview)), null, 2).replace(/\n/g, "\n  "));
+    console.log("  " + JSON.stringify(maskBody(buildCorporateRegistrationRequest(baseInput)), null, 2).replace(/\n/g, "\n  "));
     console.log("\n  부가세과세표준 요청 body(마스킹):");
-    console.log("  " + JSON.stringify(maskBody(buildVatBaseRequest(baseInputPreview)), null, 2).replace(/\n/g, "\n  "));
+    console.log("  " + JSON.stringify(maskBody(buildVatBaseRequest(vatInput)), null, 2).replace(/\n/g, "\n  "));
     console.log("\n  ✓ dry-run 통과. 실호출은 --dry-run 없이 실행(데모 쿼터·휴대폰 승인 필요).");
     rl.close();
     return;
@@ -258,8 +274,6 @@ async function main() {
   const token = await requestCodefToken(config);
   console.log(`  ✓ accessToken 발급(만료 ${Math.round(token.expiresInSec / 86400)}일). [토큰 값 비출력]`);
   console.log(`  세션 SSO id=${id}`);
-
-  const baseInput: SimpleAuthLoginInput = baseInputPreview;
 
   // 1) 사업자등록증명 (첫 인증)
   const corpBody = buildCorporateRegistrationRequest(baseInput);
@@ -273,7 +287,8 @@ async function main() {
   const corpFacts = normalizeCorporateRegistration(corp.result.data);
 
   // 2) 부가세과세표준 (같은 id — 세션 SSO 실측)
-  const vatBody = buildVatBaseRequest(baseInput);
+  console.log(`  부가세 조회기간 startDate=${vatInput.startDate} endDate=${vatInput.endDate}`);
+  const vatBody = buildVatBaseRequest(vatInput);
   const vat = await callProductWithTwoWay(
     "부가세과세표준증명",
     VAT_BASE_CERTIFICATE_PATH,

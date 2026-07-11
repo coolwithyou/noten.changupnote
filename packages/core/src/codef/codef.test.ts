@@ -26,7 +26,7 @@ import {
 import { CodefEnvError, readCodefEnvConfig } from "./env.js";
 import { buildCompanyProfileFromCodef } from "./normalize.js";
 import { buildCorporateRegistrationRequest, normalizeCorporateRegistration } from "./products/corporate-registration.js";
-import { normalizeVatBase } from "./products/vat-base-certificate.js";
+import { normalizeVatBase, buildVatBaseRequest, defaultVatBaseDateRange } from "./products/vat-base-certificate.js";
 import { CODEF_SIMPLE_AUTH_APPS, buildSimpleAuthBody } from "./request-params.js";
 import { encryptWithCodefPublicKey } from "./rsa.js";
 import { isCodefTokenExpired, parseTokenResponse } from "./token.js";
@@ -169,7 +169,8 @@ check("extractTwoWayInfo + buildTwoWayRequestBody: is2Way·simpleAuth·twoWayInf
     loginTypeLevel: CODEF_SIMPLE_AUTH_APPS.kakaotalk,
     userName: "홍길동",
     phoneNo: "010-1234-5678",
-    identity: "19800101",
+    birthDate8: "19800101",
+    bizNo: "1234567890",
     id: "cunote-session-1",
   });
   const second = buildTwoWayRequestBody(first, info!);
@@ -199,16 +200,21 @@ check("2-way 상태 전이 가드", () => {
   assert.throws(() => assertTwoWayTransition("done", "pending_approval"));
 });
 
-// ── buildSimpleAuthBody: telecom 조건부 ───────────────────────────────────
-check("buildSimpleAuthBody: telecom은 PASS(5)일 때만, 그 외 생략", () => {
+// ── buildSimpleAuthBody: 필드 매핑(loginIdentity=생년월일, identity=사업자번호) + telecom 조건부 ──
+check("buildSimpleAuthBody: loginIdentity=생년월일 · identity=사업자번호 · telecom은 PASS만", () => {
   const pass = buildSimpleAuthBody({
     loginTypeLevel: CODEF_SIMPLE_AUTH_APPS.pass,
     userName: "홍길동",
     phoneNo: "01012345678",
-    identity: "19800101",
+    birthDate8: "19800101",
+    bizNo: "123-45-67890",
     telecom: "1",
     id: "s1",
   });
+  // 로드베어링(CF-12850 방지): 생년월일은 loginIdentity, 사업자번호는 identity.
+  assert.equal(pass["loginIdentity"], "19800101");
+  assert.equal(pass["identity"], "1234567890"); // 하이픈 제거
+  assert.equal("birthDate" in pass, false); // identityEncYn="N"이라 birthDate 미사용
   assert.equal(pass["telecom"], "1");
   assert.equal(pass["isIdentityViewYN"], "0");
   assert.equal(pass["usePurposes"], "99");
@@ -217,12 +223,34 @@ check("buildSimpleAuthBody: telecom은 PASS(5)일 때만, 그 외 생략", () =>
     loginTypeLevel: CODEF_SIMPLE_AUTH_APPS.kakaotalk,
     userName: "홍길동",
     phoneNo: "010-1234-5678",
-    identity: "19800101",
+    birthDate8: "19800101",
     telecom: "1", // 카카오면 무시돼야 함
     id: "s1",
   });
   assert.equal("telecom" in kakao, false);
+  assert.equal("identity" in kakao, false); // bizNo 미입력 → identity 생략(전체조회)
   assert.equal(kakao["phoneNo"], "01012345678"); // 숫자만 정규화
+});
+
+check("buildVatBaseRequest: startDate/endDate 필수 포함 + defaultVatBaseDateRange 형식", () => {
+  const range = defaultVatBaseDateRange(new Date(Date.UTC(2026, 6, 15))); // 2026-07
+  assert.match(range.startDate, /^\d{6}$/);
+  assert.match(range.endDate, /^\d{6}$/);
+  assert.equal(range.endDate.slice(4), "07");
+  const body = buildVatBaseRequest({
+    loginTypeLevel: CODEF_SIMPLE_AUTH_APPS.kakaotalk,
+    userName: "홍길동",
+    phoneNo: "01012345678",
+    birthDate8: "19800101",
+    bizNo: "1234567890",
+    id: "s1",
+    startDate: "202301",
+    endDate: "202507",
+  });
+  assert.equal(body["startDate"], "202301");
+  assert.equal(body["endDate"], "202507");
+  assert.equal(body["loginIdentity"], "19800101");
+  assert.equal(body["identity"], "1234567890");
 });
 
 // ── 정규화 (합성 fixture) ─────────────────────────────────────────────────
