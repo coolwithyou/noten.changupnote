@@ -466,6 +466,8 @@ export interface NextQuestionDto {
   /** 현재 후보 공고가 실제로 요구하는 수치 경계. */
   criterionThresholds?: QuestionCriterionThresholdDto[];
   preciseFollowUp: "never" | "when_range_straddles_threshold";
+  responseStage?: "direct" | "range" | "precise";
+  rangeOptions?: QuestionRangeOptionDto[];
   framing: string;
   affectedGrantCount: number;
 }
@@ -476,6 +478,14 @@ export interface QuestionCriterionThresholdDto {
   value: number;
   unit: NextQuestionDto["unit"];
   affectedGrantCount: number;
+}
+
+export interface QuestionRangeOptionDto {
+  value: string;
+  label: string;
+  min: number;
+  max: number | null;
+  unit: "krw" | "people";
 }
 
 export interface ActionQueueItem {

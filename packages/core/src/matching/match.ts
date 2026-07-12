@@ -29,6 +29,7 @@ import {
   type DisqualificationException,
   type DisqualificationFlag,
 } from "../disqualification/canonical.js";
+import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 
 export const RULESET_VERSION = "ruleset-kstartup-spine-v3";
 export const SCORING_VERSION = "scoring-fit-v2-trust-gate";
@@ -144,14 +145,14 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
         unit: "원",
         minKeys: ["min_krw", "min"],
         maxKeys: ["max_krw", "max"],
-      });
+      }, activeNumericQuestionRange(company, "revenue"));
     case "employees":
       return evaluateNumericCriterion(criterion, company.employees_count ?? null, {
         label: "상시근로자 수",
         unit: "명",
         minKeys: ["min"],
         maxKeys: ["max"],
-      });
+      }, activeNumericQuestionRange(company, "employees"));
     case "certification":
       return evaluateCertification(criterion, company);
     case "founder_trait":
@@ -460,8 +461,10 @@ function evaluateNumericCriterion(
     minKeys: string[];
     maxKeys: string[];
   },
+  companyRange: NumericQuestionRange | null = null,
 ): RuleTraceEntry {
   if (companyValue === null || companyValue === undefined) {
+    if (companyRange) return evaluateNumericRangeCriterion(criterion, companyRange, options);
     return trace(criterion, "unknown", `${options.label} 입력 필요`);
   }
 
@@ -486,6 +489,46 @@ function evaluateNumericCriterion(
     `${options.label} ${numericBoundsLabel(min, max, options.unit)} - 귀사 ${formatNumber(companyValue)}${options.unit}`,
     companyValue,
   );
+}
+
+function evaluateNumericRangeCriterion(
+  criterion: GrantCriterion,
+  range: NumericQuestionRange,
+  options: { label: string; unit: string; minKeys: string[]; maxKeys: string[] },
+): RuleTraceEntry {
+  const companyValue = { kind: "range", min: range.min, max: range.max, unit: range.unit };
+  if (criterion.operator === "exists") {
+    return trace(criterion, "pass", `${options.label} 구간 확인 - 귀사 ${numericRangeLabel(range, options.unit)}`, companyValue);
+  }
+  const value = criterion.value as Record<string, unknown>;
+  const min = firstNumber(value, options.minKeys);
+  const max = firstNumber(value, options.maxKeys);
+  let result: "pass" | "fail" | "unknown" = "unknown";
+  if (criterion.operator === "gte" && min !== null) {
+    if (range.min >= min) result = "pass";
+    else if (range.max !== null && range.max < min) result = "fail";
+  } else if (criterion.operator === "lte" && max !== null) {
+    if (range.max !== null && range.max <= max) result = "pass";
+    else if (range.min > max) result = "fail";
+  } else if (criterion.operator === "between" && (min !== null || max !== null)) {
+    const whollyInside = (min === null || range.min >= min) && (max === null || (range.max !== null && range.max <= max));
+    const whollyOutside =
+      (min !== null && range.max !== null && range.max < min) ||
+      (max !== null && range.min > max);
+    result = whollyInside ? "pass" : whollyOutside ? "fail" : "unknown";
+  }
+  const bounds = numericBoundsLabel(min, max, options.unit);
+  const rangeLabel = numericRangeLabel(range, options.unit);
+  const message = result === "unknown"
+    ? `${options.label} ${bounds} 경계가 선택 구간(${rangeLabel}) 안에 있어 정확한 값 필요`
+    : `${options.label} ${bounds} - 귀사 구간 ${rangeLabel}`;
+  return trace(criterion, result, message, companyValue);
+}
+
+function numericRangeLabel(range: NumericQuestionRange, unit: string): string {
+  if (range.max === null) return `${formatNumber(range.min)}${unit} 이상`;
+  if (range.min === range.max) return `${formatNumber(range.min)}${unit}`;
+  return `${formatNumber(range.min)}~${formatNumber(range.max)}${unit}`;
 }
 
 function evaluateSingleValueCriterion(

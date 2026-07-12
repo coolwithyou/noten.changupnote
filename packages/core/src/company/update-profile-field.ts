@@ -1,4 +1,11 @@
-import type { CompanyProfile, CriterionDimension, DisqualificationProfileValue } from "@cunote/contracts";
+import type {
+  CompanyProfile,
+  CompanyProfileEvidenceSourceKind,
+  CompanyProfileEvidenceObservation,
+  CriterionDimension,
+  DisqualificationProfileValue,
+  ListProfileDimension,
+} from "@cunote/contracts";
 import {
   ALL_DISQUALIFICATION_FLAGS,
   DISQUALIFICATION_EXCEPTIONS,
@@ -10,11 +17,20 @@ import {
   type DisqualificationFlag,
   type DisqualificationQuestionId,
 } from "../disqualification/canonical.js";
+import { clearProfileQuestionAnswerState } from "./question-answer-state.js";
 
 export interface CompanyProfileFieldUpdate {
   field: CriterionDimension;
   value: unknown;
   confidence?: number | null;
+  /** 점진 질문에서 기존 자동조회 배열을 보존하며 값을 추가할 때 사용한다. 기본은 replace. */
+  mode?: "replace" | "merge";
+  sourceKind?: CompanyProfileEvidenceSourceKind;
+  provider?: string;
+  asOf?: string | null;
+  axisCompleteness?: "partial" | "complete";
+  /** 사용자 확인 UI가 권위 원천과 충돌을 명시적으로 보여준 뒤에만 사용한다. */
+  allowAuthoritativeOverride?: boolean;
 }
 
 /** 자가신고 기본 confidence — 문항 API가 명시 전달하지 않을 때 사용(§공통). */
@@ -37,6 +53,7 @@ export function updateCompanyProfileField(
   profile: CompanyProfile,
   update: CompanyProfileFieldUpdate,
 ): CompanyProfile {
+  assertEvidencePrecedence(profile, update);
   const next: CompanyProfile = {
     ...profile,
     confidence: {
@@ -52,7 +69,7 @@ export function updateCompanyProfileField(
       next.biz_age_months = normalizeNonNegativeNumber(update.value, "value");
       break;
     case "industry":
-      next.industries = normalizeStringArray(update.value, "value");
+      next.industries = updateStringArray(next.industries, update.value, "value", update.mode);
       break;
     case "size":
       next.size = normalizeString(update.value, "value");
@@ -67,19 +84,19 @@ export function updateCompanyProfileField(
       next.founder_age = normalizeNonNegativeNumber(update.value, "value");
       break;
     case "founder_trait":
-      next.traits = normalizeStringArray(update.value, "value", { allowEmpty: true });
+      next.traits = updateStringArray(next.traits, update.value, "value", update.mode, { allowEmpty: true });
       break;
     case "certification":
-      next.certs = normalizeStringArray(update.value, "value", { allowEmpty: true });
+      next.certs = updateStringArray(next.certs, update.value, "value", update.mode, { allowEmpty: true });
       break;
     case "prior_award":
-      next.prior_awards = normalizeStringArray(update.value, "value", { allowEmpty: true });
+      next.prior_awards = updateStringArray(next.prior_awards, update.value, "value", update.mode, { allowEmpty: true });
       break;
     case "ip":
-      next.ip = normalizeStringArray(update.value, "value", { allowEmpty: true });
+      next.ip = updateStringArray(next.ip, update.value, "value", update.mode, { allowEmpty: true });
       break;
     case "target_type":
-      next.target_types = normalizeStringArray(update.value, "value");
+      next.target_types = updateStringArray(next.target_types, update.value, "value", update.mode);
       break;
     case "business_status":
       next.business_status = normalizeBusinessStatus(update.value);
@@ -118,10 +135,21 @@ export function updateCompanyProfileField(
       );
   }
 
+  if (isMergeableListDimension(update.field)) {
+    next.list_completeness = {
+      ...(profile.list_completeness ?? {}),
+      [update.field]: update.mode === "merge" ? "partial" : "complete",
+    };
+  }
+
   if (typeof update.confidence === "number") {
+    const incomingConfidence = clampConfidence(update.confidence);
+    const existingConfidence = profile.confidence?.[update.field];
     next.confidence = {
       ...(next.confidence ?? {}),
-      [update.field]: clampConfidence(update.confidence),
+      [update.field]: update.mode === "merge" && isMergeableListDimension(update.field) && typeof existingConfidence === "number"
+        ? Math.max(existingConfidence, incomingConfidence)
+        : incomingConfidence,
     };
   } else if (isDisqualificationExpandedAxis(update.field) && next.confidence?.[update.field] === undefined) {
     // 결격·재무·고용·투자 축은 문항 응답만으로도 known 게이트가 열려야 한다.
@@ -133,7 +161,67 @@ export function updateCompanyProfileField(
     };
   }
 
-  return next;
+  if (update.sourceKind) {
+    const confidence = typeof update.confidence === "number"
+      ? clampConfidence(update.confidence)
+      : (isDisqualificationExpandedAxis(update.field) ? SELF_DECLARED_CONFIDENCE : next.confidence?.[update.field] ?? null);
+    const axisCompleteness = update.axisCompleteness ??
+      (isMergeableListDimension(update.field)
+        ? next.list_completeness?.[update.field as ListProfileDimension] ?? "partial"
+        : "complete");
+    const observation = {
+      sourceKind: update.sourceKind,
+      provider: update.provider?.trim() || (update.sourceKind === "self_declared" ? "user" : "unknown"),
+      asOf: update.asOf ?? null,
+      axisCompleteness,
+      confidence,
+    };
+    const existingEvidence = profile.profile_evidence?.[update.field];
+    const fieldEvidence = update.mode === "merge" && existingEvidence
+      ? {
+        ...existingEvidence,
+        supplemental: appendEvidenceObservation(existingEvidence.supplemental, observation),
+      }
+      : observation;
+    next.profile_evidence = {
+      ...(profile.profile_evidence ?? {}),
+      [update.field]: fieldEvidence,
+    };
+  }
+
+  return clearProfileQuestionAnswerState(next, update.field);
+}
+
+function assertEvidencePrecedence(
+  profile: CompanyProfile,
+  update: CompanyProfileFieldUpdate,
+): void {
+  if (
+    update.sourceKind !== "self_declared" ||
+    update.allowAuthoritativeOverride === true ||
+    update.mode === "merge"
+  ) return;
+  const existing = profile.profile_evidence?.[update.field];
+  if (existing?.sourceKind !== "authoritative_api" && existing?.sourceKind !== "public_registry") return;
+  throw new InvalidCompanyProfileFieldError(
+    `${update.field}은(는) ${existing.sourceKind === "authoritative_api" ? "공식 API" : "공개명단"} 확인값입니다. 값을 바꾸려면 원천 충돌 확인 절차가 필요합니다.`,
+    "field",
+  );
+}
+
+function appendEvidenceObservation(
+  existing: CompanyProfileEvidenceObservation[] | undefined,
+  incoming: CompanyProfileEvidenceObservation,
+): CompanyProfileEvidenceObservation[] {
+  const observations = [...(existing ?? [])];
+  const duplicate = observations.some((item) =>
+    item.sourceKind === incoming.sourceKind &&
+    item.provider === incoming.provider &&
+    item.asOf === incoming.asOf &&
+    item.axisCompleteness === incoming.axisCompleteness &&
+    item.confidence === incoming.confidence);
+  if (!duplicate) observations.push(incoming);
+  return observations;
 }
 
 function normalizeRegion(value: unknown): NonNullable<CompanyProfile["region"]> {
@@ -165,6 +253,18 @@ function normalizeStringArray(
     throw new InvalidCompanyProfileFieldError(`${field}는 비어 있을 수 없습니다.`, field);
   }
   return normalized;
+}
+
+function updateStringArray(
+  current: string[] | undefined,
+  value: unknown,
+  field: string,
+  mode: CompanyProfileFieldUpdate["mode"],
+  options: { allowEmpty?: boolean } = {},
+): string[] {
+  const incoming = normalizeStringArray(value, field, options);
+  if (mode !== "merge") return incoming;
+  return [...new Set([...(current ?? []), ...incoming])];
 }
 
 function normalizeString(value: unknown, field: string): string {
@@ -208,6 +308,17 @@ function isDisqualificationExpandedAxis(field: CriterionDimension): boolean {
     field === "financial_health" ||
     field === "insured_workforce" ||
     field === "investment"
+  );
+}
+
+function isMergeableListDimension(field: CriterionDimension): boolean {
+  return (
+    field === "industry" ||
+    field === "founder_trait" ||
+    field === "certification" ||
+    field === "prior_award" ||
+    field === "ip" ||
+    field === "target_type"
   );
 }
 

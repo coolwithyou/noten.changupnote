@@ -77,6 +77,14 @@ export type CriterionKind = (typeof CRITERION_KINDS)[number];
 export type Eligibility = (typeof ELIGIBILITIES)[number];
 export type MatchRecommendationTier = (typeof MATCH_RECOMMENDATION_TIERS)[number];
 export type MatchScoreDisplay = "numeric" | "hidden";
+export type ListProfileDimension =
+  | "industry"
+  | "founder_trait"
+  | "certification"
+  | "prior_award"
+  | "ip"
+  | "target_type";
+export type ListProfileCompleteness = "partial" | "complete";
 export type MatchReviewReasonCode = (typeof MATCH_REVIEW_REASON_CODES)[number];
 export type CriterionResult = "pass" | "fail" | "unknown";
 export type GrantSource = "kstartup" | "bizinfo" | "bizinfo_event";
@@ -335,6 +343,36 @@ export interface DisqualificationProfileValue {
   exceptions: string[];
 }
 
+export type CompanyProfileEvidenceSourceKind =
+  | "authoritative_api"
+  | "public_registry"
+  | "auth_supplied"
+  | "self_declared"
+  | "derived";
+
+export interface CompanyProfileEvidenceObservation {
+  sourceKind: CompanyProfileEvidenceSourceKind;
+  provider: string;
+  asOf: string | null;
+  axisCompleteness: "partial" | "complete";
+  confidence: number | null;
+}
+
+export interface CompanyProfileFieldEvidence extends CompanyProfileEvidenceObservation {
+  supplemental?: CompanyProfileEvidenceObservation[];
+}
+
+export interface CompanyProfileQuestionAnswerState {
+  status: "unknown" | "range";
+  answeredAt: string;
+  expiresAt: string;
+  sourceKind: "self_declared";
+  rulesetVer: string | null;
+  min?: number;
+  max?: number | null;
+  unit?: "krw" | "people";
+}
+
 export interface CompanyProfile {
   id?: string;
   name?: string;
@@ -356,6 +394,7 @@ export interface CompanyProfile {
   prior_awards?: string[];
   ip?: string[];
   target_types?: string[];
+  list_completeness?: Partial<Record<ListProfileDimension, ListProfileCompleteness>>;
   other_conditions?: Record<string, unknown> | null;
   business_status?: {
     active?: boolean;
@@ -389,6 +428,8 @@ export interface CompanyProfile {
   };
   // premises / export_performance: 예약 축 — enum·타입 자리만. 프로필 필드는 후속 트랙에서 신설.
   confidence?: Partial<Record<CriterionDimension, number>>;
+  profile_evidence?: Partial<Record<CriterionDimension, CompanyProfileFieldEvidence>>;
+  question_answer_state?: Partial<Record<CriterionDimension, CompanyProfileQuestionAnswerState>>;
 }
 
 export interface RuleTraceEntry {

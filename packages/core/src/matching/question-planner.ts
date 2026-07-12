@@ -132,7 +132,14 @@ function planDimensionQuestion(
   const hardConditionCount = candidates.length;
   const effort = effortForDimension(dimension);
   const definition = questionDefinitionFor(dimension);
-  const options = questionOptions(definition, candidates.map((candidate) => candidate.criterion));
+  const hasRangeAnswer = candidates.some((candidate) => isRangeCompanyValue(candidate.trace.company_value));
+  const rangeStage = Boolean(definition.rangeOptions?.length) && !hasRangeAnswer;
+  const preciseStage = Boolean(definition.rangeOptions?.length) && hasRangeAnswer;
+  const options = rangeStage
+    ? definition.rangeOptions?.map((option) => option.label) ?? []
+    : preciseStage
+      ? []
+      : questionOptions(definition, candidates.map((candidate) => candidate.criterion));
   const criterionThresholds = questionCriterionThresholds(
     dimension,
     candidates.map((candidate) => ({ grantId: candidate.grantId, criterion: candidate.criterion })),
@@ -147,12 +154,14 @@ function planDimensionQuestion(
   const question: NextQuestionDto = {
     dimension,
     definitionId: definition.id,
-    prompt: definition.prompt,
-    inputType: definition.inputType,
+    prompt: preciseStage ? definition.precisePrompt ?? definition.prompt : definition.prompt,
+    inputType: rangeStage ? "select" : definition.inputType,
     framing: framingFor(dimension, affectedGrantIds.length, resolvesGrantIds.length),
     affectedGrantCount: affectedGrantIds.length,
     preciseFollowUp: definition.preciseFollowUp,
+    responseStage: rangeStage ? "range" : preciseStage ? "precise" : "direct",
   };
+  if (rangeStage && definition.rangeOptions) question.rangeOptions = definition.rangeOptions;
   if (definition.unit) question.unit = definition.unit;
   if (criterionThresholds.length > 0) question.criterionThresholds = criterionThresholds;
   if (options.length > 0) question.options = options;
@@ -166,6 +175,10 @@ function planDimensionQuestion(
     hardConditionCount,
     effort,
   };
+}
+
+function isRangeCompanyValue(value: unknown): boolean {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as { kind?: unknown }).kind === "range");
 }
 
 function isProfileResolvableCriterion(criterion: GrantCriterion): boolean {

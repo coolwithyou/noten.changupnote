@@ -19,6 +19,8 @@ export interface QuestionDefinition {
   defaultOptions?: string[];
   responsePolicy: "single" | "multi_partial" | "tri_state_no_default" | "number_group";
   preciseFollowUp: NonNullable<NextQuestionDto["preciseFollowUp"]>;
+  rangeOptions?: NonNullable<NextQuestionDto["rangeOptions"]>;
+  precisePrompt?: string;
 }
 
 const DEFINITIONS: Record<CriterionDimension, QuestionDefinition> = {
@@ -50,13 +52,34 @@ const DEFINITIONS: Record<CriterionDimension, QuestionDefinition> = {
     candidateOptionKeys: ["sizes"],
     defaultOptions: ["소상공인", "소기업", "중소기업", "중견기업", "대기업"],
   }),
-  revenue: definition("revenue", "공고에서 요구하는 기준연도의 매출을 입력해 주세요.", "number", {
+  revenue: definition("revenue", "공고 기준연도의 매출 구간을 선택해 주세요.", "number", {
     unit: "krw",
     preciseFollowUp: "when_range_straddles_threshold",
+    precisePrompt: "선택한 매출 구간 안에 공고 기준이 있어 정확한 매출을 입력해 주세요.",
+    rangeOptions: [
+      range("revenue-under-1eok", "1억원 미만", 0, 99_999_999, "krw"),
+      range("revenue-1-to-3eok", "1억원 이상 3억원 미만", 100_000_000, 299_999_999, "krw"),
+      range("revenue-3-to-5eok", "3억원 이상 5억원 미만", 300_000_000, 499_999_999, "krw"),
+      range("revenue-5-to-10eok", "5억원 이상 10억원 미만", 500_000_000, 999_999_999, "krw"),
+      range("revenue-10-to-30eok", "10억원 이상 30억원 미만", 1_000_000_000, 2_999_999_999, "krw"),
+      range("revenue-30-to-100eok", "30억원 이상 100억원 미만", 3_000_000_000, 9_999_999_999, "krw"),
+      range("revenue-100eok-plus", "100억원 이상", 10_000_000_000, null, "krw"),
+    ],
   }),
-  employees: definition("employees", "공고 기준에 맞는 상시근로자 수를 입력해 주세요.", "number", {
+  employees: definition("employees", "현재 상시근로자 수 구간을 선택해 주세요.", "number", {
     unit: "people",
     preciseFollowUp: "when_range_straddles_threshold",
+    precisePrompt: "선택한 근로자 구간 안에 공고 기준이 있어 정확한 인원수를 입력해 주세요.",
+    rangeOptions: [
+      range("employees-0", "0명", 0, 0, "people"),
+      range("employees-1-4", "1~4명", 1, 4, "people"),
+      range("employees-5-9", "5~9명", 5, 9, "people"),
+      range("employees-10-19", "10~19명", 10, 19, "people"),
+      range("employees-20-49", "20~49명", 20, 49, "people"),
+      range("employees-50-99", "50~99명", 50, 99, "people"),
+      range("employees-100-299", "100~299명", 100, 299, "people"),
+      range("employees-300-plus", "300명 이상", 300, null, "people"),
+    ],
   }),
   founder_age: definition("founder_age", "대표자 연령을 입력해 주세요.", "number", { unit: "years" }),
   founder_trait: definition("founder_trait", "대표자 우대 속성을 확인해 주세요.", "select", {
@@ -157,7 +180,19 @@ function definition(
     ...(options.unit ? { unit: options.unit } : {}),
     ...(options.candidateOptionKeys ? { candidateOptionKeys: options.candidateOptionKeys } : {}),
     ...(options.defaultOptions ? { defaultOptions: options.defaultOptions } : {}),
+    ...(options.rangeOptions ? { rangeOptions: options.rangeOptions } : {}),
+    ...(options.precisePrompt ? { precisePrompt: options.precisePrompt } : {}),
   };
+}
+
+function range(
+  value: string,
+  label: string,
+  min: number,
+  max: number | null,
+  unit: "krw" | "people",
+): NonNullable<NextQuestionDto["rangeOptions"]>[number] {
+  return { value, label, min, max, unit };
 }
 
 function thresholdsForCriterion(

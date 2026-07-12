@@ -2482,6 +2482,58 @@
               "when_range_straddles_threshold"
             ]
           },
+          "responseStage": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "range",
+              "precise"
+            ]
+          },
+          "rangeOptions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "value",
+                "label",
+                "min",
+                "max",
+                "unit"
+              ],
+              "properties": {
+                "value": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "min": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "max": {
+                  "anyOf": [
+                    {
+                      "type": "number",
+                      "minimum": 0
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "unit": {
+                  "type": "string",
+                  "enum": [
+                    "krw",
+                    "people"
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
           "framing": {
             "type": "string"
           },

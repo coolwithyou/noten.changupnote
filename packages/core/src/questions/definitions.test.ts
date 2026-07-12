@@ -16,6 +16,14 @@ for (const dimension of CRITERION_DIMENSIONS) {
 assert.equal(questionDefinitionFor("revenue").unit, "krw");
 assert.equal(questionDefinitionFor("revenue").preciseFollowUp, "when_range_straddles_threshold");
 assert.equal(questionDefinitionFor("employees").preciseFollowUp, "when_range_straddles_threshold");
+assert.equal(questionDefinitionFor("revenue").rangeOptions?.length, 7);
+assert.deepEqual(questionDefinitionFor("employees").rangeOptions?.[1], {
+  value: "employees-1-4",
+  label: "1~4명",
+  min: 1,
+  max: 4,
+  unit: "people",
+});
 assert.equal(questionDefinitionFor("tax_compliance").responsePolicy, "tri_state_no_default");
 
 const revenueCriteria: GrantCriterion[] = [
