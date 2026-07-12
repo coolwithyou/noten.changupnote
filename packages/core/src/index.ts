@@ -1,3 +1,4 @@
+export * from "./autofill/coverage.js";
 export * from "./bizinfo/criteria-contract.js";
 export * from "./bizinfo/extraction-input.js";
 export * from "./bizinfo/fetch.js";

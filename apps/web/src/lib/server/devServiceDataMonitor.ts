@@ -1,5 +1,7 @@
 import { maskCorpNum } from "@cunote/core";
 import {
+  classifyEvidenceSourceKind,
+  defaultAxisCompleteness,
   buildCompanyProfileFromCodef,
   checkFscCorpFinance,
   checkFscPersonalFinance,
@@ -16,6 +18,8 @@ import {
   PROCUREMENT_DEBARMENT_SOURCE,
 } from "@cunote/core";
 import type {
+  AutofillGrantWeights,
+  AxisCompleteness,
   CorporateRegistrationFacts,
   DisqualificationAxis,
   DisqualificationFlag,
@@ -23,6 +27,7 @@ import type {
   NtsBusinessStatusData,
   SmppCertificates,
   VatBaseFacts,
+  EvidenceSourceKind,
 } from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
 import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
@@ -83,6 +88,8 @@ export interface ServiceDataField {
   source: ServiceDataFieldSource | null;
   confidence: number | null;
   available: boolean;
+  /** 원천이 값을 관측·확인한 기준시각. 알 수 없으면 null. */
+  asOf: string | null;
 }
 
 export interface ServiceDataTraceEntry {
@@ -148,6 +155,12 @@ export interface ConnectorResult {
   confidence?: number | null;
   /** 라이브일 때 배지에 표시할 원천. */
   source?: FieldSourceRef;
+  /** 물리 provider와 분리한 증거 분류. 미지정이면 provider 정책으로 계산한다. */
+  sourceKind?: EvidenceSourceKind;
+  /** 해당 값의 기준시각. 조회처가 제공하지 않으면 null/미지정. */
+  asOf?: string | null;
+  /** present-only/fuzzy 등으로 부모축 전체를 판정할 수 없으면 partial. */
+  axisCompleteness?: AxisCompleteness;
   /** 라이브 행에 표시할 부가 표식(예: "NICE 데모앱(무계약)"). buildFieldCoverage 가 row.note 로 옮긴다. */
   note?: string | null;
 }
@@ -172,6 +185,12 @@ export interface FieldCoverageRow {
   confidence: number | null;
   /** 라이브/캐시일 때 실제 원천, 그 외 null. */
   source: FieldSourceRef | null;
+  /** 공식 API/공개명단/인증입력/자가응답/파생값의 의미 분류. */
+  sourceKind: EvidenceSourceKind | null;
+  /** 값의 원천 기준시각. */
+  asOf: string | null;
+  /** 하위 플래그 일부가 부모축 전체 확정으로 과대 집계되지 않게 하는 완전성. */
+  axisCompleteness: AxisCompleteness;
   /** pending 사유("키 없음"/"배치 파이프라인" 등)·failed 사유. */
   note: string | null;
   /** Q&A 로 채울 수 있는 축인지(클라이언트 오버레이 대상). */
@@ -215,6 +234,8 @@ export interface ServiceDataLookupResult {
   fields: ServiceDataField[];
   /** 22축 + 하위 플래그 커버리지(라이브/pending/n-a 상태). Q&A 는 클라이언트가 오버레이. */
   coverage: FieldCoverageRow[];
+  /** 현재 활성·검수 공고 criterion 빈도로 만든 19축 가중치. 불러오지 못하면 null. */
+  coverageGrantWeights: AutofillGrantWeights | null;
   trace: ServiceDataTraceEntry[];
   error?: ServiceDataLookupError;
 }
@@ -236,6 +257,10 @@ const FIELD_DIMENSION: Record<string, CriterionDimension | null> = {
 const POPBILL = { provider: "popbill", scope: "checkBizInfo" } as const;
 const NTS = { provider: "nts", scope: "status" } as const;
 const SMPP = { provider: "smpp", scope: "certs" } as const;
+
+// dev 화면에서 동일 조회가 동시에 들어오면 전체 파이프라인을 하나로 합친다.
+// 팝빌 자체 중복 과금뿐 아니라 NTS/SMPP/외부 커넥터와 DB 조회의 중복도 막는다.
+const inflightServiceDataLookups = new Map<string, Promise<ServiceDataLookupResult>>();
 
 function maskBizNoSafe(bizNo: string): string {
   try {
@@ -314,7 +339,34 @@ function parsePopbillProfile(payload: Record<string, unknown> | null | undefined
  * - forceRefresh: 사업자번호에 걸린 캐시를 먼저 전부 비우고 조회 → 전 provider 라이브 재호출.
  * - before/after fetchedAt 스냅샷 비교로 provider 별 live/cache 판정.
  */
-export async function lookupServiceData(
+export function lookupServiceData(
+  bizNo: string,
+  options: { forceRefresh?: boolean; provider?: ServiceDataProvider } = {},
+): Promise<ServiceDataLookupResult> {
+  const normalized = sanitizeCorpNum(bizNo);
+  const provider = options.provider ?? "popbill";
+  const requestKey = `${provider}:${normalized}:${options.forceRefresh ? "refresh" : "cache"}`;
+  return coalesceServiceDataLookup(requestKey, () => lookupServiceDataOnce(normalized, options));
+}
+
+/** 동일 key의 비동기 조회를 하나로 합치고 완료 후 포인터를 정리한다. */
+export function coalesceServiceDataLookup(
+  requestKey: string,
+  run: () => Promise<ServiceDataLookupResult>,
+): Promise<ServiceDataLookupResult> {
+  const existing = inflightServiceDataLookups.get(requestKey);
+  if (existing) return existing;
+
+  const task = run().finally(() => {
+    if (inflightServiceDataLookups.get(requestKey) === task) {
+      inflightServiceDataLookups.delete(requestKey);
+    }
+  });
+  inflightServiceDataLookups.set(requestKey, task);
+  return task;
+}
+
+async function lookupServiceDataOnce(
   bizNo: string,
   options: { forceRefresh?: boolean; provider?: ServiceDataProvider } = {},
 ): Promise<ServiceDataLookupResult> {
@@ -420,22 +472,31 @@ export async function lookupServiceData(
   };
 
   // evidence.fields 는 파이프라인이 최종 프로필로 계산한 10개 축(키/라벨/값/available)이라 그대로 재사용한다.
-  const fields: ServiceDataField[] = (evidence?.fields ?? []).map((field) => ({
-    key: field.key,
-    label: field.label,
-    value: field.value,
-    available: field.available,
-    source: fieldSource(field.key, field.available),
-    confidence: confidenceFor(field.key),
-  }));
+  const asOfBySource = asOfBySourceFromTrace(trace);
+  const fields: ServiceDataField[] = (evidence?.fields ?? []).map((field) => {
+    const source = fieldSource(field.key, field.available);
+    return {
+      key: field.key,
+      label: field.label,
+      value: field.value,
+      available: field.available,
+      source,
+      confidence: confidenceFor(field.key),
+      asOf: source ? asOfBySource.get(source) ?? null : null,
+    };
+  });
 
   const subject = resolveSubjectType(normalized);
-  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
+  const [connectorResults, coverageGrantWeights] = await Promise.all([
+    runExternalConnectors({ bizNo: normalized, subject, profile }),
+    loadCoverageGrantWeights(),
+  ]);
   const coverage = buildFieldCoverage({
     subject,
     profile,
     fields,
     originBySource: originBySourceFromTrace(trace),
+    asOfBySource,
     connectorResults,
   });
 
@@ -447,6 +508,7 @@ export async function lookupServiceData(
     evidence,
     fields,
     coverage,
+    coverageGrantWeights,
     trace,
     ...(error ? { error } : {}),
   };
@@ -486,6 +548,7 @@ async function lookupApickServiceData(
 
   const afterRows = visibleCacheRows(await cache.listByBizNo(normalized), "apick");
   const trace = buildTrace(afterRows, beforeFetched);
+  const asOfBySource = asOfBySourceFromTrace(trace);
   const fields: ServiceDataField[] = (evidence?.fields ?? []).map((field) => ({
     key: field.key,
     label: field.label,
@@ -493,15 +556,20 @@ async function lookupApickServiceData(
     available: field.available,
     source: field.available ? "apick" : null,
     confidence: confidenceForProfileField(profile, field.key),
+    asOf: field.available ? asOfBySource.get("apick") ?? null : null,
   }));
 
   const subject = resolveSubjectType(normalized);
-  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
+  const [connectorResults, coverageGrantWeights] = await Promise.all([
+    runExternalConnectors({ bizNo: normalized, subject, profile }),
+    loadCoverageGrantWeights(),
+  ]);
   const coverage = buildFieldCoverage({
     subject,
     profile,
     fields,
     originBySource: originBySourceFromTrace(trace),
+    asOfBySource,
     connectorResults,
   });
 
@@ -513,6 +581,7 @@ async function lookupApickServiceData(
     evidence,
     fields,
     coverage,
+    coverageGrantWeights,
     trace,
     ...(error ? { error } : {}),
   };
@@ -757,6 +826,32 @@ function originBySourceFromTrace(
   return map;
 }
 
+function asOfBySourceFromTrace(trace: ServiceDataTraceEntry[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const entry of trace) {
+    const asOf = entry.checkedAt ?? entry.fetchedAt;
+    if (asOf && !map.has(entry.provider)) map.set(entry.provider, asOf);
+  }
+  return map;
+}
+
+/** 활성 공고 중 검수 대기(needs_review)가 아닌 criterion의 dimension 빈도를 집계한다. */
+async function loadCoverageGrantWeights(): Promise<AutofillGrantWeights | null> {
+  try {
+    const grants = await getServiceRepositories().grants.listActiveGrants({ limit: 500, asOf: new Date() });
+    const weights: AutofillGrantWeights = {};
+    for (const grant of grants) {
+      for (const criterion of grant.criteria) {
+        if (criterion.needs_review === true) continue;
+        weights[criterion.dimension] = (weights[criterion.dimension] ?? 0) + 1;
+      }
+    }
+    return Object.keys(weights).length > 0 ? weights : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 필드 상태 결정 — 5개 상태(n/a·live·cache·failed·pending)의 단일 판정점.
  * self-declared 는 클라이언트 Q&A 오버레이가 부여한다.
@@ -815,6 +910,7 @@ export function buildFieldCoverage(input: {
   profile: CompanyProfile | null;
   fields: ServiceDataField[];
   originBySource: Map<string, ServiceDataTraceOrigin>;
+  asOfBySource?: Map<string, string>;
   connectorResults?: Map<string, ConnectorResult>;
 }): FieldCoverageRow[] {
   const fieldByKey = new Map(input.fields.map((field) => [field.key, field]));
@@ -826,6 +922,7 @@ export function buildFieldCoverage(input: {
     let value: string | null = null;
     let source: FieldSourceRef | null = null;
     let confidence: number | null = null;
+    let asOf: string | null = null;
 
     if (entry.liveKey) {
       const field = fieldByKey.get(entry.liveKey);
@@ -834,6 +931,7 @@ export function buildFieldCoverage(input: {
         value = field.available ? field.value : null;
         source = field.source;
         confidence = field.confidence;
+        asOf = field.asOf;
       }
     } else if (entry.derived === "founder_trait") {
       const traits = input.profile?.traits ?? [];
@@ -842,6 +940,7 @@ export function buildFieldCoverage(input: {
         value = traits.join(", ");
         source = "smpp";
         confidence = input.profile?.confidence?.founder_trait ?? 0.6;
+        asOf = input.asOfBySource?.get("smpp") ?? null;
       }
     } else if (entry.derived === "target_type") {
       if (input.subject !== "unknown") {
@@ -884,6 +983,7 @@ export function buildFieldCoverage(input: {
       value = connectorResult.value ?? null;
       confidence = connectorResult.confidence ?? null;
       source = connectorResult.source ?? null;
+      asOf = connectorResult.asOf ?? null;
       // 커넥터가 표식 note 를 실었으면(예: "NICE 데모앱(무계약)") live 행에도 노출한다.
       if (connectorResult.note) rowNote = connectorResult.note;
     }
@@ -898,11 +998,16 @@ export function buildFieldCoverage(input: {
           effectiveStatus = "live";
           source = connectorResult.source ?? source;
           confidence = connectorResult.confidence ?? confidence;
+          asOf = connectorResult.asOf ?? asOf;
           rowNote = connectorResult.note ?? rowNote;
         }
       }
     }
     const isLive = effectiveStatus === "live" || effectiveStatus === "cache";
+    const positiveOnlyAxis =
+      !entry.parentKey &&
+      (entry.dimension === "founder_trait" || entry.dimension === "certification") &&
+      (source === "smpp" || source === "popbill" || source === "registry");
     // CODEF 국세청 확정값이 있으면 라이브키/파생/외부 결과를 덮어 최우선으로 표시한다.
     // 커넥터가 라이브 호출이 아니라 company_enrichment_cache passive 판독이므로 status는 "cache"
     // (인증은 api/dev/codef/* 에서 선행돼 캐시에 남았고, 이 행은 그 캐시를 재사용해 표시한다).
@@ -921,6 +1026,16 @@ export function buildFieldCoverage(input: {
         value: codefOverride.value ?? null,
         confidence: codefOverride.confidence ?? null,
         source: "codef",
+        sourceKind: codefOverride.sourceKind ?? classifyEvidenceSourceKind({
+          provider: "codef",
+          dimension: entry.dimension,
+          status: "cache",
+        }),
+        asOf: codefOverride.asOf ?? null,
+        axisCompleteness: codefOverride.axisCompleteness ?? defaultAxisCompleteness({
+          status: "cache",
+          parentKey: entry.parentKey,
+        }),
         note: codefOverride.note ?? null,
       };
     }
@@ -938,6 +1053,22 @@ export function buildFieldCoverage(input: {
       value: isLive ? value : null,
       confidence: isLive ? confidence : null,
       source: isLive ? source : null,
+      sourceKind: isLive
+        ? (!live?.available ? connectorResult?.sourceKind : undefined) ?? classifyEvidenceSourceKind({
+            provider: source,
+            dimension: entry.dimension,
+            status: effectiveStatus,
+          })
+        : null,
+      asOf: isLive ? asOf : null,
+      axisCompleteness:
+        connectorResult?.axisCompleteness ??
+        (positiveOnlyAxis
+          ? "partial"
+          : defaultAxisCompleteness({
+              status: effectiveStatus,
+              parentKey: entry.parentKey,
+            })),
       note: rowNote,
     };
   });
@@ -1064,6 +1195,9 @@ async function runRegistryConnector(
         value: registryPresentValue(rec),
         confidence: rec.confidence,
         source: "registry",
+        sourceKind: "public_registry",
+        asOf: rec.sourceFetchedAt.toISOString(),
+        axisCompleteness: "partial",
         note: registrySourceLabel(rec.source),
       });
     }
@@ -1073,6 +1207,8 @@ async function runRegistryConnector(
         value: [...new Set(certLabels)].join(", "),
         confidence: 0.55, // 공개명단 상호 퍼지
         source: "registry",
+        sourceKind: "public_registry",
+        axisCompleteness: "partial",
       });
     }
 
@@ -1090,6 +1226,9 @@ async function runRegistryConnector(
           value: `참여제한 있음${until ? ` (~${formatIsoDate(until)})` : " (무기한)"}`,
           confidence: hit.record.confidence,
           source: "registry",
+          sourceKind: "public_registry",
+          asOf: hit.record.sourceFetchedAt.toISOString(),
+          axisCompleteness: "partial",
           note: cfg.label,
         });
       } else {
@@ -1098,6 +1237,8 @@ async function runRegistryConnector(
           value: "참여제한 없음(부정당 명단 부재)",
           confidence: 0.9,
           source: "registry",
+          sourceKind: "public_registry",
+          axisCompleteness: "partial",
           note: cfg.label,
         });
       }
@@ -1496,6 +1637,9 @@ async function runCodefConnector(
     const corpFacts = (corpRow?.canonicalPayload ?? null) as CorporateRegistrationFacts | null;
     const vatFacts = (vatRow?.canonicalPayload ?? null) as VatBaseFacts | null;
     const identity = (identityRow?.canonicalPayload ?? null) as CodefIdentityCache | null;
+    const corpAsOf = cacheEntryAsOf(corpRow);
+    const vatAsOf = cacheEntryAsOf(vatRow);
+    const identityAsOf = cacheEntryAsOf(identityRow);
 
     // 생년월일 원본은 저장하지 않으므로 birthDate8 없이 파생한다(founder_age 는 identity 캐시 사용).
     const { profile } = buildCompanyProfileFromCodef({
@@ -1504,23 +1648,31 @@ async function runCodefConnector(
       gender: identity?.gender ?? null,
     });
 
-    setCodefField(results, "region", profile.region?.label ?? null, 0.95);
-    setCodefField(results, "biz_age", formatBizAgeMonths(profile.biz_age_months ?? null), 0.95);
+    setCodefField(results, "region", profile.region?.label ?? null, 0.95, corpAsOf);
+    setCodefField(results, "biz_age", formatBizAgeMonths(profile.biz_age_months ?? null), 0.95, corpAsOf);
     setCodefField(
       results,
       "industry",
       profile.industries?.length ? profile.industries.join(", ") : null,
       0.95,
+      corpAsOf,
     );
-    setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95);
+    setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95, corpAsOf);
     // 매출은 부가세 신고분(profile.revenue_krw)이 있을 때만.
-    setCodefField(results, "revenue", formatKrwCompact(profile.revenue_krw ?? null), 0.95);
+    setCodefField(results, "revenue", formatKrwCompact(profile.revenue_krw ?? null), 0.95, vatAsOf);
     // 대표자 연령은 identity 캐시의 founder_age(생년월일 파생 정수)만.
     const founderAge = typeof identity?.founder_age === "number" ? identity.founder_age : null;
-    setCodefField(results, "founder_age", founderAge !== null ? `${founderAge}세` : null, 0.9);
+    setCodefField(
+      results,
+      "founder_age",
+      founderAge !== null ? `${founderAge}세` : null,
+      0.9,
+      identityAsOf,
+      "auth_supplied",
+    );
     // 대표자 특성은 identity 캐시의 gender(여성/남성).
     const traitLabel = identity?.gender === "F" ? "여성" : identity?.gender === "M" ? "남성" : null;
-    setCodefField(results, "founder_trait", traitLabel, 0.9);
+    setCodefField(results, "founder_trait", traitLabel, 0.9, identityAsOf, "auth_supplied");
   } catch {
     // fail-open — 캐시 판독 실패는 무시(pending 유지, 다른 커넥터 보호).
   }
@@ -1532,9 +1684,23 @@ function setCodefField(
   key: string,
   value: string | null,
   confidence: number,
+  asOf: string | null,
+  sourceKind: EvidenceSourceKind = "authoritative_api",
 ): void {
   if (!value) return;
-  results.set(key, { ok: true, value, confidence, source: "codef", note: CODEF_CACHE_NOTE });
+  results.set(key, {
+    ok: true,
+    value,
+    confidence,
+    source: "codef",
+    sourceKind,
+    asOf,
+    note: CODEF_CACHE_NOTE,
+  });
+}
+
+function cacheEntryAsOf(entry: EnrichmentCacheEntry | undefined): string | null {
+  return entry?.checkedAt?.toISOString() ?? entry?.fetchedAt.toISOString() ?? null;
 }
 
 /** biz_age_months 를 "N년 M개월" 로 표기(0개월·null 방어). */

@@ -1,6 +1,12 @@
 "use client";
 
-import { memo, useCallback, useMemo, useState } from "react";
+import {
+  measureAutofillCoverage,
+  type AutofillCoverageMetrics,
+  type AutofillGrantWeights,
+  type EvidenceSourceKind,
+} from "@cunote/core/autofill/coverage";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
   FieldCoverageRow,
@@ -142,41 +148,56 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [qna, setQna] = useState<QnaState>(EMPTY_QNA);
+  // React disabled 상태가 반영되기 전의 연속 Enter/클릭도 즉시 차단한다.
+  const searchInFlightRef = useRef(false);
+  const lookupInFlightRef = useRef(new Map<string, Promise<void>>());
   // 커버리지 테이블 상태 필터("all" 이면 전체). 요약 카드의 범례 칩과 연동된다.
   const [statusFilter, setStatusFilter] = useState<StatusGroup | "all">("all");
 
-  const runLookup = useCallback(async (bizNo: string, forceRefresh: boolean, selectedProvider: ServiceDataProvider) => {
-    setLoading(true);
-    try {
-      const res = await fetch("/api/dev/service-data", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ bizNo, forceRefresh, provider: selectedProvider }),
-      });
-      const data = (await res.json()) as ServiceDataLookupResult & { message?: string };
-      if (!res.ok) {
-        toast.error(data.message ?? "조회에 실패했습니다.");
-        return;
-      }
-      setResult(data);
-      if (data.error) {
-        toast.warning(`${data.error.code}: ${data.error.message}`);
-      } else {
-        toast.success(forceRefresh ? "캐시를 비우고 새로 조회했습니다." : "조회를 완료했습니다.");
-      }
-      // 조회 직후 캐시 스냅샷을 갱신해 이후 재조회 시 원천 표시가 최신이 되도록 한다.
-      // 조회 본체는 이미 성공했으므로 스냅샷 갱신 실패가 오류 토스트로 새지 않게 분리한다.
+  const runLookup = useCallback((bizNo: string, forceRefresh: boolean, selectedProvider: ServiceDataProvider) => {
+    const requestKey = `${selectedProvider}:${bizNo}:${forceRefresh ? "refresh" : "cache"}`;
+    const existing = lookupInFlightRef.current.get(requestKey);
+    if (existing) return existing;
+
+    const task = (async () => {
+      setLoading(true);
       try {
-        const refreshed = await fetch(`/api/dev/service-data?bizNo=${bizNo}&provider=${selectedProvider}`);
-        if (refreshed.ok) setInspect((await refreshed.json()) as ServiceDataInspectResult);
+        const res = await fetch("/api/dev/service-data", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ bizNo, forceRefresh, provider: selectedProvider }),
+        });
+        const data = (await res.json()) as ServiceDataLookupResult & { message?: string };
+        if (!res.ok) {
+          toast.error(data.message ?? "조회에 실패했습니다.");
+          return;
+        }
+        setResult(data);
+        if (data.error) {
+          toast.warning(`${data.error.code}: ${data.error.message}`);
+        } else {
+          toast.success(forceRefresh ? "캐시를 비우고 새로 조회했습니다." : "조회를 완료했습니다.");
+        }
+        // 조회 직후 캐시 스냅샷을 갱신해 이후 재조회 시 원천 표시가 최신이 되도록 한다.
+        // 조회 본체는 이미 성공했으므로 스냅샷 갱신 실패가 오류 토스트로 새지 않게 분리한다.
+        try {
+          const refreshed = await fetch(`/api/dev/service-data?bizNo=${bizNo}&provider=${selectedProvider}`);
+          if (refreshed.ok) setInspect((await refreshed.json()) as ServiceDataInspectResult);
+        } catch {
+          // 스냅샷 갱신 실패는 무시(다음 조회 시 재확인).
+        }
       } catch {
-        // 스냅샷 갱신 실패는 무시(다음 조회 시 재확인).
+        toast.error("네트워크 오류로 조회하지 못했습니다.");
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      toast.error("네트워크 오류로 조회하지 못했습니다.");
-    } finally {
-      setLoading(false);
-    }
+    })().finally(() => {
+      if (lookupInFlightRef.current.get(requestKey) === task) {
+        lookupInFlightRef.current.delete(requestKey);
+      }
+    });
+    lookupInFlightRef.current.set(requestKey, task);
+    return task;
   }, []);
 
   const onSearch = useCallback(async () => {
@@ -185,6 +206,8 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
       toast.error("사업자번호 10자리를 입력해주세요.");
       return;
     }
+    if (searchInFlightRef.current) return;
+    searchInFlightRef.current = true;
     setActiveBizNo(digits);
     setResult(null);
     setInspecting(true);
@@ -203,6 +226,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
     } catch {
       toast.error("네트워크 오류로 캐시를 확인하지 못했습니다.");
     } finally {
+      searchInFlightRef.current = false;
       setInspecting(false);
     }
   }, [bizNoInput, provider, runLookup]);
@@ -232,7 +256,10 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
     () => mergeFieldsWithQna(result?.coverage ?? [], qna, qnaSchema),
     [result?.coverage, qna, qnaSchema],
   );
-  const overview = useMemo(() => summarizeCoverage(mergedCoverage), [mergedCoverage]);
+  const overview = useMemo(
+    () => summarizeCoverage(mergedCoverage, result?.coverageGrantWeights ?? null),
+    [mergedCoverage, result?.coverageGrantWeights],
+  );
   const reasonGroups = useMemo(() => groupByReason(mergedCoverage), [mergedCoverage]);
   const filteredCoverage = useMemo(
     () =>
@@ -521,8 +548,6 @@ function CoverageOverview({
   maskedBizNo: string;
   subject: ServiceDataLookupResult["subject"];
 }) {
-  const pct =
-    overview.applicable > 0 ? Math.round((overview.filled / overview.applicable) * 100) : 0;
   const segments = STATUS_GROUPS.map((group) => ({ group, count: overview.counts[group] })).filter(
     (segment) => segment.count > 0,
   );
@@ -532,22 +557,36 @@ function CoverageOverview({
       <CardHeader>
         <CardTitle className="text-base">매칭 필드 커버리지</CardTitle>
         <CardDescription>
-          {maskedBizNo} · {subjectLabel(subject)} · 22축 + 하위 플래그 총 {overview.total}개 중 지금 값이
-          채워진 축과 그 이유
+          {maskedBizNo} · {subjectLabel(subject)} · 운영 구조화 19축은 아래 지표로, 하위 플래그는 별도
+          진단 행으로 집계합니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        {/* 채워짐 분수 — 한눈에 "몇 개가 채워지나" */}
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-semibold tabular-nums text-success">{overview.filled}</span>
-            <span className="text-lg text-muted-foreground tabular-nums">/ {overview.applicable}</span>
-            <span className="text-sm text-muted-foreground">축 채워짐 ({pct}%)</span>
-          </div>
-          <span className="text-xs text-muted-foreground">
-            적용 대상 {overview.applicable}개 · 해당없음 {overview.counts.na}개 = 총 {overview.total}개
-          </span>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <CoverageMetric
+            label="API 확정"
+            metric={overview.metrics.authoritative_axis_coverage}
+            description="공식 API·공개명단으로 complete인 부모축"
+          />
+          <CoverageMetric
+            label="전체 판정 가능"
+            metric={overview.metrics.total_answered_coverage}
+            description="인증 입력·자가응답·파생값까지 포함"
+          />
+          <CoverageMetric
+            label="공고 가중"
+            metric={overview.metrics.grant_weighted_coverage}
+            description={
+              overview.hasGrantWeights
+                ? "활성·검수 공고 criterion 빈도 가중"
+                : "공고 가중치 없음 · 19축 균등 가중"
+            }
+          />
         </div>
+
+        <span className="text-xs text-muted-foreground">
+          상세 진단 행: 적용 대상 {overview.applicable}개 · 해당없음 {overview.counts.na}개 = 총 {overview.total}개
+        </span>
 
         {/* 상태 구성 세그먼트 바 */}
         <div
@@ -660,6 +699,35 @@ function FilterChip({
   );
 }
 
+function CoverageMetric({
+  label,
+  metric,
+  description,
+}: {
+  label: string;
+  metric: AutofillCoverageMetrics["authoritative_axis_coverage"];
+  description: string;
+}) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="mt-1 flex items-baseline gap-1.5">
+        <span className="text-2xl font-semibold tabular-nums">{Math.round(metric.ratio * 100)}%</span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {formatMetricNumber(metric.numerator)} / {formatMetricNumber(metric.denominator)}
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{description}</p>
+    </div>
+  );
+}
+
+function formatMetricNumber(value: number): string {
+  return Number.isInteger(value)
+    ? value.toLocaleString("ko-KR")
+    : value.toLocaleString("ko-KR", { maximumFractionDigits: 1 });
+}
+
 // ── 커버리지 셀 렌더 ──────────────────────────────────────────────────────────
 
 function ValueCell({ row }: { row: MergedCoverageRow }) {
@@ -688,6 +756,11 @@ function UnlockCell({ row }: { row: MergedCoverageRow }) {
     return (
       <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
         <span className="text-foreground/70">{row.note ?? `확보 · ${sourceRefLabel(row.source)}`}</span>
+        <span>
+          원천 종류: {sourceKindLabel(row.sourceKind)} · provider: {sourceRefLabel(row.source)} · 기준일:{" "}
+          {formatDate(row.asOf)}
+        </span>
+        <span>축 완전성: {axisCompletenessLabel(row.axisCompleteness)}</span>
         <span className="opacity-70">계획 소스: {row.plannedSource}</span>
       </div>
     );
@@ -696,6 +769,10 @@ function UnlockCell({ row }: { row: MergedCoverageRow }) {
     return (
       <div className="flex flex-col gap-1 text-xs">
         <span className="text-success">자가신고로 채움</span>
+        <span className="text-muted-foreground">
+          원천 종류: {sourceKindLabel(row.sourceKind)} · 기준일: {formatDate(row.asOf)} · 축 완전성:{" "}
+          {axisCompletenessLabel(row.axisCompleteness)}
+        </span>
         {question ? <ChatQuestion question={question} /> : null}
       </div>
     );
@@ -797,6 +874,22 @@ function sourceRefLabel(source: FieldSourceRef | null): string {
   if (source === "codef") return "국세청(CODEF)";
   if (source === "derived") return "추론";
   return "—";
+}
+
+function sourceKindLabel(sourceKind: EvidenceSourceKind | null): string {
+  if (sourceKind === "authoritative_api") return "공식 API";
+  if (sourceKind === "public_registry") return "공개명단";
+  if (sourceKind === "auth_supplied") return "인증 과정 입력";
+  if (sourceKind === "self_declared") return "사용자 응답";
+  if (sourceKind === "derived") return "파생값";
+  return "—";
+}
+
+function axisCompletenessLabel(value: FieldCoverageRow["axisCompleteness"]): string {
+  if (value === "complete") return "전체 판정 가능";
+  if (value === "partial") return "일부만 확인";
+  if (value === "not_applicable") return "해당 없음";
+  return "미확정";
 }
 
 function subjectLabel(subject: ServiceDataLookupResult["subject"]): string {
@@ -1381,15 +1474,27 @@ interface CoverageOverviewData {
   /** 지금 값이 채워진 축(확보 + 자가신고). */
   filled: number;
   counts: Record<StatusGroup, number>;
+  metrics: AutofillCoverageMetrics;
+  hasGrantWeights: boolean;
 }
 
-function summarizeCoverage(rows: MergedCoverageRow[]): CoverageOverviewData {
+function summarizeCoverage(
+  rows: MergedCoverageRow[],
+  grantWeights: AutofillGrantWeights | null,
+): CoverageOverviewData {
   const counts: Record<StatusGroup, number> = { live: 0, self: 0, pending: 0, failed: 0, na: 0 };
   for (const row of rows) counts[statusGroupOf(row.status)] += 1;
   const total = rows.length;
   const applicable = total - counts.na;
   const filled = counts.live + counts.self;
-  return { total, applicable, filled, counts };
+  return {
+    total,
+    applicable,
+    filled,
+    counts,
+    metrics: measureAutofillCoverage(rows, grantWeights),
+    hasGrantWeights: grantWeights !== null,
+  };
 }
 
 interface ReasonGroup {
@@ -1571,6 +1676,7 @@ const SELF_DECLARE_QUESTIONS: Record<string, string> = {
 
 interface AxisQna {
   answered: boolean;
+  complete: boolean;
   knownFlags: string[];
   presentFlags: string[];
 }
@@ -1585,9 +1691,13 @@ function deriveDisqByAxis(
   for (const axis of schema.disqualification) {
     const known: string[] = [];
     const present: string[] = [];
+    const allFlags = new Set<string>();
     let answered = false;
     for (const group of axis.questions) {
-      for (const flag of group.flags) flagLabel.set(flag.flag, flag.label);
+      for (const flag of group.flags) {
+        flagLabel.set(flag.flag, flag.label);
+        allFlags.add(flag.flag);
+      }
       const groupFlags = qna.disqFlags[group.id] ?? [];
       const groupAnswered = Boolean(qna.disqConfirmed[group.id]) || groupFlags.length > 0;
       if (groupAnswered) {
@@ -1596,7 +1706,13 @@ function deriveDisqByAxis(
         for (const flag of groupFlags) present.push(flag);
       }
     }
-    byAxis.set(axis.axis, { answered, knownFlags: known, presentFlags: present });
+    const knownFlags = [...new Set(known)];
+    byAxis.set(axis.axis, {
+      answered,
+      complete: allFlags.size > 0 && knownFlags.length === allFlags.size,
+      knownFlags,
+      presentFlags: [...new Set(present)],
+    });
   }
   return { byAxis, flagLabel };
 }
@@ -1645,6 +1761,9 @@ function mergeFieldsWithQna(
     value,
     confidence: 0.6,
     source: null,
+    sourceKind: "self_declared",
+    asOf: new Date().toISOString(),
+    axisCompleteness: row.parentKey ? "partial" : "complete",
     ...extra,
   });
 
@@ -1672,6 +1791,7 @@ function mergeFieldsWithQna(
             knownFlagLabels: knownLabels,
             presentFlagLabels: presentLabels,
             exceptionLabels: exceptionLabelsForAxis(row.dimension),
+            axisCompleteness: axis.complete ? "complete" : "partial",
           },
         );
       }
@@ -1699,7 +1819,7 @@ function mergeFieldsWithQna(
       const parts: string[] = [];
       if (qna.capitalImpairment) parts.push(`자본잠식 ${impairmentLabel(qna.capitalImpairment)}`);
       if (isNumeric(qna.equityEok)) parts.push(`자본총계 ${Number(qna.equityEok).toLocaleString("ko-KR")}억원`);
-      return selfDeclared(row, parts.join(" · "));
+      return selfDeclared(row, parts.join(" · "), { axisCompleteness: "partial" });
     }
 
     // 고용 — evaluator 판정 매트릭스(no_layoff=false + 시점 null → unknown)를 표시값에 반영.
@@ -1723,12 +1843,16 @@ function mergeFieldsWithQna(
       if (qna.tipsBacked) parts.push("TIPS 선정");
       if (isNumeric(qna.investmentEok)) parts.push(`${Number(qna.investmentEok).toLocaleString("ko-KR")}억원`);
       if (qna.investmentRound.trim()) parts.push(qna.investmentRound.trim());
-      return selfDeclared(row, parts.join(" · "));
+      return selfDeclared(row, parts.join(" · "), { axisCompleteness: "partial" });
     }
 
     // 레거시 축(매출·근로자·연령·특성·인증·수혜·IP).
     const override = legacy[row.key];
-    if (override !== undefined) return selfDeclared(row, override);
+    if (override !== undefined) {
+      const partialListAnswer =
+        row.key === "founder_trait" || row.key === "certification" || row.key === "prior_award";
+      return selfDeclared(row, override, partialListAnswer ? { axisCompleteness: "partial" } : undefined);
+    }
 
     return row;
   });

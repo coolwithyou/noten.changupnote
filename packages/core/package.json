@@ -21,6 +21,10 @@
       "types": "./dist/bizinfo/llm-criteria.d.ts",
       "default": "./dist/bizinfo/llm-criteria.js"
     },
+    "./autofill/coverage": {
+      "types": "./dist/autofill/coverage.d.ts",
+      "default": "./dist/autofill/coverage.js"
+    },
     "./company/profile-from-popbill": {
       "types": "./dist/company/profile-from-popbill.d.ts",
       "default": "./dist/company/profile-from-popbill.js"
