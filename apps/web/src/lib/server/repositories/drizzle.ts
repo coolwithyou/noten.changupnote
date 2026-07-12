@@ -25,6 +25,9 @@ import type {
   MatchEventReceipt,
   MatchRepository,
   ReadEnrichmentCacheInput,
+  RegistryCandidateQuery,
+  RegistryIndexRepository,
+  RegistryRecord,
   SaveMatchEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
@@ -55,6 +58,7 @@ export function createDrizzleRepositories<TPayload = unknown>(
     matches: new DrizzleMatchRepository<TPayload>(db),
     feedback: new DrizzleFeedbackRepository(db),
     enrichmentCache: new DrizzleEnrichmentCacheRepository(db),
+    registryIndex: new DrizzleRegistryIndexRepository(db),
     credits: new DrizzleCreditRepository({ client: db.client }),
     creditsSystem: new DrizzleCreditSystemRepository({ client: db.client }),
     creditsPayment: new DrizzlePaymentRepository({ client: db.client }),
@@ -579,6 +583,47 @@ class DrizzleEnrichmentCacheRepository implements EnrichmentCacheRepository {
   }
 }
 
+class DrizzleRegistryIndexRepository implements RegistryIndexRepository {
+  constructor(private readonly db: DrizzleDatabaseClient) {}
+
+  async findCandidates(input: RegistryCandidateQuery): Promise<RegistryRecord[]> {
+    const or_conds = [];
+    if (input.bizNo) or_conds.push(eq(schema.registryIndex.bizNo, input.bizNo));
+    if (input.corpNo) or_conds.push(eq(schema.registryIndex.corpNo, input.corpNo));
+    if (input.nameNormalized) {
+      or_conds.push(eq(schema.registryIndex.nameNormalized, input.nameNormalized));
+    }
+    if (or_conds.length === 0) return [];
+    const match = or(...or_conds);
+    const where = input.registryType
+      ? and(eq(schema.registryIndex.registryType, input.registryType), match)
+      : match;
+    const rows = await this.db.client.select().from(schema.registryIndex).where(where);
+    return rows.map(toRegistryRecord);
+  }
+
+  async hasSource(source: string): Promise<boolean> {
+    const rows = await this.db.client
+      .select({ id: schema.registryIndex.id })
+      .from(schema.registryIndex)
+      .where(eq(schema.registryIndex.source, source))
+      .limit(1);
+    return rows.length > 0;
+  }
+
+  async replaceBySource(source: string, records: RegistryRecord[]): Promise<number> {
+    return this.db.client.transaction(async (tx) => {
+      await tx.delete(schema.registryIndex).where(eq(schema.registryIndex.source, source));
+      if (records.length === 0) return 0;
+      const values = records.map(toRegistryInsert);
+      for (let i = 0; i < values.length; i += 1000) {
+        await tx.insert(schema.registryIndex).values(values.slice(i, i + 1000));
+      }
+      return records.length;
+    });
+  }
+}
+
 type GrantRow = typeof schema.grants.$inferSelect;
 type GrantCriteriaRow = typeof schema.grantCriteria.$inferSelect;
 type GrantRawRow = typeof schema.grantRaw.$inferSelect;
@@ -586,6 +631,46 @@ type CompanyRow = typeof schema.companies.$inferSelect;
 type CompanyProfileRow = typeof schema.companyProfiles.$inferSelect;
 type CompanyProfileInsert = typeof schema.companyProfiles.$inferInsert;
 type CompanyEnrichmentCacheRow = typeof schema.companyEnrichmentCache.$inferSelect;
+type RegistryIndexRow = typeof schema.registryIndex.$inferSelect;
+type RegistryIndexInsert = typeof schema.registryIndex.$inferInsert;
+
+function toRegistryRecord(row: RegistryIndexRow): RegistryRecord {
+  return {
+    registryType: row.registryType,
+    flagOrCert: row.flagOrCert,
+    polarity: row.polarity,
+    bizNo: row.bizNo,
+    corpNo: row.corpNo,
+    nameNormalized: row.nameNormalized,
+    representative: row.representative,
+    regionSido: row.regionSido,
+    validFrom: row.validFrom,
+    validUntil: row.validUntil,
+    detail: row.detail,
+    source: row.source,
+    sourceFetchedAt: row.sourceFetchedAt,
+    confidence: row.confidence,
+  };
+}
+
+function toRegistryInsert(record: RegistryRecord): RegistryIndexInsert {
+  return {
+    registryType: record.registryType,
+    flagOrCert: record.flagOrCert,
+    polarity: record.polarity,
+    bizNo: record.bizNo,
+    corpNo: record.corpNo,
+    nameNormalized: record.nameNormalized,
+    representative: record.representative,
+    regionSido: record.regionSido,
+    validFrom: record.validFrom,
+    validUntil: record.validUntil,
+    detail: record.detail,
+    source: record.source,
+    sourceFetchedAt: record.sourceFetchedAt,
+    confidence: record.confidence,
+  };
+}
 
 function hydrateGrants<TPayload>(
   rows: Array<{

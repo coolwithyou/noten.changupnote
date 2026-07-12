@@ -302,6 +302,13 @@
       "when": 1783782543619,
       "tag": "0042_lumpy_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1783803294116,
+      "tag": "0043_flawless_spectrum",
+      "breakpoints": true
     }
   ]
 }

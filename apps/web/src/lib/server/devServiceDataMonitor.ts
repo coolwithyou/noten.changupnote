@@ -10,6 +10,9 @@ import {
   DISQUALIFICATION_EXCEPTIONS,
   DISQUALIFICATION_FLAG_LABELS,
   DISQUALIFICATION_QUESTIONS,
+  matchRegistry,
+  normalizeCompanyName,
+  PROCUREMENT_DEBARMENT_SOURCE,
 } from "@cunote/core";
 import type {
   CorporateRegistrationFacts,
@@ -118,7 +121,14 @@ export type SubjectType = "corporation" | "individual" | "unknown";
 export type FieldCoverageStatus = "self-declared" | "pending" | "live" | "cache" | "failed" | "n/a";
 
 /** 라이브/추론 원천 참조(배지용). */
-export type FieldSourceRef = ServiceDataFieldSource | "derived" | "kcomwel" | "fsc" | "nice" | "codef";
+export type FieldSourceRef =
+  | ServiceDataFieldSource
+  | "derived"
+  | "kcomwel"
+  | "fsc"
+  | "nice"
+  | "codef"
+  | "registry";
 
 /**
  * Phase 2 커넥터가 상태 판정 함수에 넘기는 결과. Phase 1 에선 항상 null 이라 외부소스는 pending 고정.
@@ -967,8 +977,117 @@ export async function runExternalConnectors(input: {
     runFscPersonalFinanceConnector(input, results),
     runNiceConnector(input, results),
     runCodefConnector(input.bizNo, results),
+    runRegistryConnector(input, results),
   ]);
   return results;
+}
+
+/**
+ * 공개명단 배치 색인(registry_index) 조회 커넥터 — 라이브 API 가 아니라 오프라인 적재분을 읽는다.
+ * - present_only(인증·중대재해·체불·TIPS): active present 매칭만 set(부재는 무정보 → pending).
+ * - known_on_absence(조달청 부정당): 소스가 적재됐으면 부재도 "제한 없음"으로 확정(clear).
+ * 명단이 아직 하나도 적재 안 됐으면 아무 결과도 넣지 않아 pending 을 유지한다(fail-open).
+ */
+
+/** known_on_absence 소스별 필드 매핑(소진적 명단만). */
+const REGISTRY_KNOWN_ON_ABSENCE = [
+  {
+    source: PROCUREMENT_DEBARMENT_SOURCE,
+    flagOrCert: "participation_restricted",
+    fieldKey: "sanction.participation_restricted",
+    label: "조달청",
+  },
+] as const;
+
+async function runRegistryConnector(
+  input: { bizNo: string; subject: SubjectType; profile: CompanyProfile | null },
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  try {
+    const repo = getServiceRepositories().registryIndex;
+    const bizNo = input.bizNo.replace(/\D/g, "") || null;
+    const corpNo = extractCorpRegNo(input.profile);
+    const name = input.profile?.name?.trim() || null;
+    const nameNormalized = name ? normalizeCompanyName(name) : null;
+
+    const candidates = await repo.findCandidates({ bizNo, corpNo, nameNormalized });
+    const matches = matchRegistry(candidates, { bizNo, corpNo, name });
+
+    // 1) present_only — active present 매칭만 반영. certification 은 canonical 목록으로 취합.
+    const certLabels: string[] = [];
+    for (const match of matches) {
+      if (!match.active || match.record.polarity !== "present_only") continue;
+      const rec = match.record;
+      if (rec.registryType === "certification") {
+        certLabels.push(rec.flagOrCert);
+        continue;
+      }
+      results.set(`${rec.registryType}.${rec.flagOrCert}`, {
+        ok: true,
+        value: registryPresentValue(rec),
+        confidence: rec.confidence,
+        source: "registry",
+        note: registrySourceLabel(rec.source),
+      });
+    }
+    if (certLabels.length > 0) {
+      results.set("certification", {
+        ok: true,
+        value: [...new Set(certLabels)].join(", "),
+        confidence: 0.55, // 공개명단 상호 퍼지
+        source: "registry",
+      });
+    }
+
+    // 2) known_on_absence — 소스 적재 시 부재도 clear 로 확정.
+    for (const cfg of REGISTRY_KNOWN_ON_ABSENCE) {
+      const loaded = await repo.hasSource(cfg.source);
+      if (!loaded) continue; // 명단 미적재 → pending 유지
+      const hit = matches.find(
+        (m) => m.active && m.record.source === cfg.source && m.record.flagOrCert === cfg.flagOrCert,
+      );
+      if (hit) {
+        const until = hit.record.validUntil;
+        results.set(cfg.fieldKey, {
+          ok: true,
+          value: `참여제한 있음${until ? ` (~${formatIsoDate(until)})` : " (무기한)"}`,
+          confidence: hit.record.confidence,
+          source: "registry",
+          note: cfg.label,
+        });
+      } else {
+        results.set(cfg.fieldKey, {
+          ok: true,
+          value: "참여제한 없음(부정당 명단 부재)",
+          confidence: 0.9,
+          source: "registry",
+          note: cfg.label,
+        });
+      }
+    }
+  } catch {
+    // fail-open — 조회 실패는 무시(pending 유지, 다른 커넥터 보호).
+  }
+}
+
+/** present_only 매칭의 표시값(유효기간이 있으면 덧붙임). */
+function registryPresentValue(rec: {
+  flagOrCert: string;
+  validUntil: Date | null;
+}): string {
+  const base = DISQUALIFICATION_FLAG_LABELS[rec.flagOrCert as DisqualificationFlag] ?? "명단 등재";
+  if (rec.validUntil) return `${base} (~${formatIsoDate(rec.validUntil)})`;
+  return base;
+}
+
+/** source 식별자(data.go.kr:15137996)를 짧은 라벨로. */
+function registrySourceLabel(source: string): string {
+  return source.replace(/^data\.go\.kr:/, "").trim() || source;
+}
+
+/** Date → YYYY-MM-DD. */
+function formatIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 /** kcomwel 고용·산재(15059256) → employees · insured_workforce.employment_insurance_active. */

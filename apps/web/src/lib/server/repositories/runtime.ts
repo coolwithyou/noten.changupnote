@@ -58,6 +58,9 @@ import type {
   PricingRule,
   ResolveCompanyProfileInput,
   ReadEnrichmentCacheInput,
+  RegistryCandidateQuery,
+  RegistryIndexRepository,
+  RegistryRecord,
   SaveMatchEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
@@ -89,6 +92,7 @@ export function createRuntimeRepositories<TPayload = unknown>(
     matches: new RuntimeMatchRepository(),
     feedback: new RuntimeFeedbackRepository(),
     enrichmentCache: new RuntimeEnrichmentCacheRepository(),
+    registryIndex: new RuntimeRegistryIndexRepository(),
     credits: new RuntimeCreditRepository(),
     creditsSystem: new RuntimeCreditSystemRepository(),
     creditsPayment: new RuntimePaymentRepository(),
@@ -292,6 +296,47 @@ class RuntimeEnrichmentCacheRepository implements EnrichmentCacheRepository {
     }
     return deleted;
   }
+}
+
+class RuntimeRegistryIndexRepository implements RegistryIndexRepository {
+  private rows: RegistryRecord[] = [];
+
+  async findCandidates(input: RegistryCandidateQuery): Promise<RegistryRecord[]> {
+    const bizNo = input.bizNo ?? null;
+    const corpNo = input.corpNo ?? null;
+    const name = input.nameNormalized ?? null;
+    if (!bizNo && !corpNo && !name) return [];
+    return this.rows
+      .filter((row) => {
+        if (input.registryType && row.registryType !== input.registryType) return false;
+        return (
+          (bizNo !== null && row.bizNo === bizNo) ||
+          (corpNo !== null && row.corpNo === corpNo) ||
+          (name !== null && name !== "" && row.nameNormalized === name)
+        );
+      })
+      .map(cloneRegistryRecord);
+  }
+
+  async hasSource(source: string): Promise<boolean> {
+    return this.rows.some((row) => row.source === source);
+  }
+
+  async replaceBySource(source: string, records: RegistryRecord[]): Promise<number> {
+    this.rows = this.rows.filter((row) => row.source !== source);
+    this.rows.push(...records.map(cloneRegistryRecord));
+    return records.length;
+  }
+}
+
+function cloneRegistryRecord(record: RegistryRecord): RegistryRecord {
+  return {
+    ...record,
+    validFrom: record.validFrom ? new Date(record.validFrom) : null,
+    validUntil: record.validUntil ? new Date(record.validUntil) : null,
+    sourceFetchedAt: new Date(record.sourceFetchedAt),
+    detail: record.detail ? cloneRecord(record.detail) : null,
+  };
 }
 
 function profileKey(companyId: string, userId?: string): string {

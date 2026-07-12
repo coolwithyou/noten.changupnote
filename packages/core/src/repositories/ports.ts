@@ -10,6 +10,7 @@ import type {
   RoadmapNode,
 } from "@cunote/contracts";
 import type { MatchTransitionCandidate } from "../use-cases/plan-match-transitions.js";
+import type { RegistryRecord, RegistryType } from "../registry/types.js";
 import type { CreditRepository, CreditSystemRepository } from "../credits/ports.js";
 import type { CreditPaymentRepository } from "../credits/payments.js";
 import type { CreditSubscriptionRepository } from "../credits/subscriptionPort.js";
@@ -203,12 +204,40 @@ export interface RoadmapRepository {
   listCompanyRoadmap(companyId: string): Promise<RoadmapNode[]>;
 }
 
+/** registry_index 후보 조회 조건(정확 매칭 인덱스만 — 퍼지는 호출측 matchRegistry). */
+export interface RegistryCandidateQuery {
+  /** 숫자만 정규화된 사업자번호. */
+  bizNo?: string | null;
+  /** 숫자만 정규화된 법인번호. */
+  corpNo?: string | null;
+  /** normalizeCompanyName 결과(정확 일치 후보 로드용). */
+  nameNormalized?: string | null;
+  /** 명단 종류 한정(옵션). */
+  registryType?: RegistryType | null;
+}
+
+/**
+ * 공개명단 배치 색인(registry_index) 접근 포트. 오프라인 적재(replaceBySource)와
+ * 런타임 조회(findCandidates/hasSource)를 한 포트로 노출한다. 퍼지 스코어링은 이 포트가
+ * 아니라 호출측 matchRegistry 가 인메모리로 수행한다.
+ */
+export interface RegistryIndexRepository {
+  /** 사업자번호·법인번호·정규화 상호 중 하나라도 일치하는 후보 행. 조건 전무면 빈 배열. */
+  findCandidates(input: RegistryCandidateQuery): Promise<RegistryRecord[]>;
+  /** 소스(데이터셋)가 1건이라도 적재됐는지. known_on_absence 판정용(적재+부재=clear). */
+  hasSource(source: string): Promise<boolean>;
+  /** 소스 전량 재적재(기존 소스 행 삭제 후 삽입). 삽입된 행 수 반환. */
+  replaceBySource(source: string, records: RegistryRecord[]): Promise<number>;
+}
+
 export interface ServiceRepositories<TPayload = unknown> {
   grants: GrantRepository<TPayload>;
   companies: CompanyRepository;
   matches: MatchRepository<TPayload>;
   feedback: FeedbackRepository;
   enrichmentCache: EnrichmentCacheRepository;
+  /** 공개명단 배치 색인(조달청 부정당·인증 공개명단·중대재해·체불·TIPS). 설계 §6′-C. */
+  registryIndex: RegistryIndexRepository;
   /** 크레딧 원장(user 컨텍스트 경유 진입점). 설계 4.13 / 6.1. */
   credits: CreditRepository;
   /** 크레딧 시스템 경로(웹훅·cron·익명 미터링). user 컨텍스트 없는 신뢰 서버 경로. 설계 4.13. */
