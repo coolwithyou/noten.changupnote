@@ -12,6 +12,11 @@ import { normalizeEmail, validateAdminPassword } from "./password";
 
 ensureAdminAuthEnv();
 
+const adminCookieSecure =
+  process.env.NODE_ENV === "production"
+  || isHttpsUrl(process.env.NEXTAUTH_URL)
+  || isHttpsUrl(process.env.ADMIN_AUTH_URL);
+
 type AdminUserShape = User & {
   role?: AdminRole;
 };
@@ -37,7 +42,7 @@ export const adminAuthOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: process.env.NODE_ENV === "production",
+        secure: adminCookieSecure,
       },
     },
     csrfToken: {
@@ -46,7 +51,7 @@ export const adminAuthOptions: NextAuthOptions = {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: process.env.NODE_ENV === "production",
+        secure: adminCookieSecure,
       },
     },
     callbackUrl: {
@@ -54,7 +59,7 @@ export const adminAuthOptions: NextAuthOptions = {
       options: {
         sameSite: "lax",
         path: "/",
-        secure: process.env.NODE_ENV === "production",
+        secure: adminCookieSecure,
       },
     },
   },
@@ -167,5 +172,14 @@ function allowedGoogleDomain(): string {
 function ensureAdminAuthEnv() {
   if (!process.env.NEXTAUTH_URL && process.env.ADMIN_AUTH_URL) {
     process.env.NEXTAUTH_URL = process.env.ADMIN_AUTH_URL;
+  }
+}
+
+function isHttpsUrl(value: string | undefined): boolean {
+  if (!value) return false;
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
   }
 }
