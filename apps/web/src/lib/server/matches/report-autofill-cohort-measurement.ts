@@ -5,7 +5,7 @@ import {
   buildAutofillCohortReport,
   renderAutofillCohortMarkdown,
   type AutofillCohortSampleInput,
-} from "../../../../../../packages/core/src/evaluation/autofill-cohort-measurement";
+} from "@cunote/core/evaluation/autofill-cohort-measurement";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 
 loadMonorepoEnv();

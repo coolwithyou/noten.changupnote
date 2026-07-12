@@ -29,6 +29,14 @@
       "types": "./dist/company/profile-from-popbill.d.ts",
       "default": "./dist/company/profile-from-popbill.js"
     },
+    "./company/evidence-priority": {
+      "types": "./dist/company/evidence-priority.d.ts",
+      "default": "./dist/company/evidence-priority.js"
+    },
+    "./evaluation/autofill-cohort-measurement": {
+      "types": "./dist/evaluation/autofill-cohort-measurement.d.ts",
+      "default": "./dist/evaluation/autofill-cohort-measurement.js"
+    },
     "./matching/live-company-match": {
       "types": "./dist/matching/live-company-match.d.ts",
       "default": "./dist/matching/live-company-match.js"
