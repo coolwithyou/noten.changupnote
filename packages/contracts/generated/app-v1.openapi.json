@@ -2376,13 +2376,18 @@
         "type": "object",
         "required": [
           "dimension",
+          "definitionId",
           "prompt",
           "inputType",
+          "preciseFollowUp",
           "framing",
           "affectedGrantCount"
         ],
         "properties": {
           "dimension": {
+            "type": "string"
+          },
+          "definitionId": {
             "type": "string"
           },
           "prompt": {
@@ -2404,6 +2409,78 @@
             "items": {
               "type": "string"
             }
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "krw",
+              "people",
+              "months",
+              "years",
+              "percent",
+              "count"
+            ]
+          },
+          "criterionThresholds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "field",
+                "operator",
+                "value",
+                "unit",
+                "affectedGrantCount"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "operator": {
+                  "type": "string",
+                  "enum": [
+                    "gt",
+                    "gte",
+                    "lt",
+                    "lte",
+                    "eq"
+                  ]
+                },
+                "value": {
+                  "type": "number"
+                },
+                "unit": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "krw",
+                        "people",
+                        "months",
+                        "years",
+                        "percent",
+                        "count"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "affectedGrantCount": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "preciseFollowUp": {
+            "type": "string",
+            "enum": [
+              "never",
+              "when_range_straddles_threshold"
+            ]
           },
           "framing": {
             "type": "string"

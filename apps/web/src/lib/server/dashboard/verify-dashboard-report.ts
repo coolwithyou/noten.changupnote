@@ -65,8 +65,10 @@ const dashboard: DashboardResult = {
   roadmap: [],
   nextQuestion: {
     dimension: "region",
+    definitionId: "profile.region.v1",
     prompt: "지역 정보를 확인해 주세요.",
     inputType: "select",
+    preciseFollowUp: "never",
     framing: "조건부 판단을 확정하는 데 도움이 됩니다.",
     affectedGrantCount: 2,
     options: ["서울", "경기"],

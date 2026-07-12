@@ -1019,12 +1019,27 @@ export const appV1OpenApi = {
       },
       NextQuestion: {
         type: "object",
-        required: ["dimension", "prompt", "inputType", "framing", "affectedGrantCount"],
+        required: ["dimension", "definitionId", "prompt", "inputType", "preciseFollowUp", "framing", "affectedGrantCount"],
         properties: {
           dimension: { type: "string" },
+          definitionId: { type: "string" },
           prompt: { type: "string" },
           inputType: { type: "string", enum: ["number", "select", "boolean", "text", "checklist", "number_group"] },
           options: arrayOf({ type: "string" }),
+          unit: { type: "string", enum: ["krw", "people", "months", "years", "percent", "count"] },
+          criterionThresholds: arrayOf({
+            type: "object",
+            required: ["field", "operator", "value", "unit", "affectedGrantCount"],
+            properties: {
+              field: { type: "string" },
+              operator: { type: "string", enum: ["gt", "gte", "lt", "lte", "eq"] },
+              value: { type: "number" },
+              unit: nullable({ type: "string", enum: ["krw", "people", "months", "years", "percent", "count"] }),
+              affectedGrantCount: { type: "integer", minimum: 0 },
+            },
+            additionalProperties: false,
+          }),
+          preciseFollowUp: { type: "string", enum: ["never", "when_range_straddles_threshold"] },
           framing: { type: "string" },
           affectedGrantCount: { type: "integer", minimum: 0 },
         },

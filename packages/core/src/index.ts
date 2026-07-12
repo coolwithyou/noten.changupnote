@@ -47,6 +47,8 @@ export * from "./kstartup/fetch.js";
 export * from "./kstartup/normalize.js";
 export * from "./kstartup/types.js";
 export * from "./matching/match.js";
+export * from "./matching/question-planner.js";
+export * from "./questions/definitions.js";
 export * from "./nicebiz/opengate-client.js";
 export * from "./nicebiz/check-corp-indicator.js";
 export * from "./nicebiz/check-corp-credit.js";

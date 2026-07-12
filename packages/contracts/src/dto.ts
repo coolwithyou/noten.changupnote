@@ -456,11 +456,25 @@ export interface SourceAttachment {
 
 export interface NextQuestionDto {
   dimension: CriterionDimension;
+  /** 문구·선택지·응답 정책의 버전형 정의 ID. */
+  definitionId: string;
   prompt: string;
   // checklist: 결격 그룹 체크리스트("해당 없음" 일괄), number_group: 재무 수치 묶음 입력.
   inputType: "number" | "select" | "boolean" | "text" | "checklist" | "number_group";
   options?: string[];
+  unit?: "krw" | "people" | "months" | "years" | "percent" | "count" | null;
+  /** 현재 후보 공고가 실제로 요구하는 수치 경계. */
+  criterionThresholds?: QuestionCriterionThresholdDto[];
+  preciseFollowUp: "never" | "when_range_straddles_threshold";
   framing: string;
+  affectedGrantCount: number;
+}
+
+export interface QuestionCriterionThresholdDto {
+  field: string;
+  operator: "gt" | "gte" | "lt" | "lte" | "eq";
+  value: number;
+  unit: NextQuestionDto["unit"];
   affectedGrantCount: number;
 }
 
