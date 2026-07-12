@@ -1,0 +1,40 @@
+{
+  "samples": [
+    {
+      "businessNumber": "123-45-67890",
+      "cohorts": ["small-corporation"],
+      "coverageRows": [
+        { "dimension": "region", "parentKey": null, "status": "live", "sourceKind": "authoritative_api", "axisCompleteness": "complete" }
+      ],
+      "questionCount": 2,
+      "unknownsResolved": 5,
+      "sourceCalls": [
+        { "source": "exact-free", "outcome": "empty", "durationMs": 100, "cacheHit": false, "estimatedCost": 0, "joinKind": "exact", "nearlyFree": true },
+        { "source": "fuzzy", "outcome": "found", "durationMs": 20, "cacheHit": true, "estimatedCost": 0.1, "joinKind": "fuzzy", "fuzzyCorrect": true }
+      ],
+      "fields": [
+        { "field": "region", "verified": true, "correct": true, "conflict": false },
+        { "field": "industry", "verified": false }
+      ]
+    },
+    {
+      "businessNumber": "987-65-43210",
+      "cohorts": ["small-corporation"],
+      "coverageRows": [
+        { "dimension": "region", "parentKey": null, "status": "cache", "sourceKind": "authoritative_api", "axisCompleteness": "complete" }
+      ],
+      "questionCount": 0,
+      "unknownsResolved": 0,
+      "sourceCalls": [
+        { "source": "exact-free", "outcome": "empty", "durationMs": 10, "cacheHit": true, "estimatedCost": 0, "joinKind": "exact", "nearlyFree": true },
+        { "source": "exact-paid", "outcome": "failed", "durationMs": 400, "cacheHit": false, "estimatedCost": 1.25, "joinKind": "exact" },
+        { "source": "exact-paid", "outcome": "skipped", "durationMs": 0, "cacheHit": false, "estimatedCost": 0, "joinKind": "exact" },
+        { "source": "fuzzy", "outcome": "found", "durationMs": 80, "cacheHit": false, "estimatedCost": 0.1, "joinKind": "fuzzy", "fuzzyCorrect": false }
+      ],
+      "fields": [
+        { "field": "region", "verified": true, "correct": false, "conflict": true },
+        { "field": "industry", "verified": false }
+      ]
+    }
+  ]
+}
