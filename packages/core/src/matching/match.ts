@@ -128,6 +128,15 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
     return trace(criterion, "unknown", textOnlyMessage(criterion));
   }
 
+  if (scalarEvidenceRequiresConfirmation(criterion.dimension, company)) {
+    return trace(
+      criterion,
+      "unknown",
+      `${scalarDimensionLabel(criterion.dimension)} 후보값은 원천·완전성 보완 확인 필요`,
+      scalarCompanyValue(criterion.dimension, company),
+    );
+  }
+
   switch (criterion.dimension) {
     case "region":
       return evaluateRegion(criterion, company);
@@ -184,6 +193,54 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
     default:
       return trace(criterion, "unknown", `${labelFor(criterion.dimension)} 조건 확인 필요`);
   }
+}
+
+function scalarEvidenceRequiresConfirmation(
+  dimension: CriterionDimension,
+  company: CompanyProfile,
+): boolean {
+  if (!SCALAR_QUESTION_DIMENSIONS.has(dimension)) return false;
+  if (
+    (dimension === "revenue" || dimension === "employees") &&
+    activeNumericQuestionRange(company, dimension) !== null
+  ) return false;
+  const evidence = company.profile_evidence?.[dimension];
+  if (!evidence) return false;
+  return evidence.axisCompleteness !== "complete" || evidence.sourceKind === "derived";
+}
+
+const SCALAR_QUESTION_DIMENSIONS = new Set<CriterionDimension>([
+  "region",
+  "biz_age",
+  "size",
+  "revenue",
+  "employees",
+  "founder_age",
+  "business_status",
+]);
+
+function scalarDimensionLabel(dimension: CriterionDimension): string {
+  const labels: Partial<Record<CriterionDimension, string>> = {
+    region: "지역",
+    biz_age: "업력",
+    size: "기업규모",
+    revenue: "매출",
+    employees: "상시근로자 수",
+    founder_age: "대표자 연령",
+    business_status: "영업상태",
+  };
+  return labels[dimension] ?? dimension;
+}
+
+function scalarCompanyValue(dimension: CriterionDimension, company: CompanyProfile): unknown {
+  if (dimension === "region") return company.region;
+  if (dimension === "biz_age") return company.biz_age_months;
+  if (dimension === "size") return company.size;
+  if (dimension === "revenue") return company.revenue_krw;
+  if (dimension === "employees") return company.employees_count;
+  if (dimension === "founder_age") return company.founder_age;
+  if (dimension === "business_status") return company.business_status;
+  return null;
 }
 
 function evaluateRegion(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {

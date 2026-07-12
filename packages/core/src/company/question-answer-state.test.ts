@@ -45,5 +45,21 @@ assert.deepEqual(activeNumericQuestionRange(ranged, "employees", new Date("2026-
 assert.equal(ranged.question_answer_state?.employees?.status, "range");
 assert.equal(ranged.profile_evidence?.employees?.axisCompleteness, "partial");
 assert.deepEqual(activeUnknownQuestionDimensions(ranged), [], "range 응답은 모름 TTL 억제와 구분해야 한다");
+assert.throws(() => markProfileQuestionRange({
+  profile: {
+    revenue_krw: 500_000_000,
+    profile_evidence: {
+      revenue: {
+        sourceKind: "authoritative_api",
+        provider: "dart",
+        asOf: "2025-12-31T00:00:00.000Z",
+        axisCompleteness: "complete",
+        confidence: 0.9,
+      },
+    },
+  },
+  dimension: "revenue",
+  range: { min: 300_000_000, max: 499_999_999, unit: "krw" },
+}), /already confirmed/);
 
 console.log("question-answer-state: ok");

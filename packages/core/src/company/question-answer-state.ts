@@ -55,6 +55,13 @@ export function markProfileQuestionRange(input: {
   if (max !== null && max < min) throw new Error("range.max must be >= range.min");
   const expectedUnit = input.dimension === "revenue" ? "krw" : "people";
   if (input.range.unit !== expectedUnit) throw new Error(`${input.dimension} range unit must be ${expectedUnit}`);
+  const existingEvidence = input.profile.profile_evidence?.[input.dimension];
+  if (
+    existingEvidence?.axisCompleteness === "complete" &&
+    (existingEvidence.sourceKind === "authoritative_api" || existingEvidence.sourceKind === "public_registry")
+  ) {
+    throw new Error(`${input.dimension} is already confirmed by authoritative evidence`);
+  }
   const expiresAt = new Date(answeredAt.getTime() + ttlDays * 86_400_000);
   return {
     ...input.profile,

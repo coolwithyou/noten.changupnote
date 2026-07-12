@@ -202,7 +202,8 @@ function assertEvidencePrecedence(
     update.mode === "merge"
   ) return;
   const existing = profile.profile_evidence?.[update.field];
-  if (existing?.sourceKind !== "authoritative_api" && existing?.sourceKind !== "public_registry") return;
+  if (existing?.axisCompleteness !== "complete") return;
+  if (existing.sourceKind !== "authoritative_api" && existing.sourceKind !== "public_registry") return;
   throw new InvalidCompanyProfileFieldError(
     `${update.field}은(는) ${existing.sourceKind === "authoritative_api" ? "공식 API" : "공개명단"} 확인값입니다. 값을 바꾸려면 원천 충돌 확인 절차가 필요합니다.`,
     "field",
