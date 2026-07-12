@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
-import type { CriterionDimension } from "@cunote/contracts";
 import {
   measureAutofillCoverage,
+  OPERATIONAL_AUTOFILL_DIMENSIONS,
   type AutofillCoverageMetrics,
   type AutofillCoverageRow,
   type AutofillGrantWeights,
@@ -11,8 +11,22 @@ export type SourceOutcome = "found" | "empty" | "skipped" | "failed";
 export type SourceJoinKind = "exact" | "fuzzy";
 export type GateDecision = "go" | "conditional-call" | "candidate-only" | "no-go" | "insufficient-evidence";
 
+export const ALLOWED_COHORT_IDS = [
+  "individual-general-taxable", "individual-simplified-exempt", "small-corporation",
+  "dart-disclosing-corporation", "inactive-boundary",
+] as const;
+export type AutofillCohortId = (typeof ALLOWED_COHORT_IDS)[number];
+export const ALLOWED_SOURCE_IDS = [
+  "nts", "popbill", "kcomwel", "fsc", "nice", "codef", "kipris", "startup-confirmation",
+  "registry", "opendart", "exact-free", "exact-paid", "fuzzy",
+] as const;
+export type AutofillSourceId = (typeof ALLOWED_SOURCE_IDS)[number];
+export type AutofillFieldId = (typeof OPERATIONAL_AUTOFILL_DIMENSIONS)[number];
+const MINIMUM_FUZZY_REVIEWED = 20;
+const HMAC_DOMAIN = "cunote:autofill-cohort:v1:";
+
 export interface CohortSourceCall {
-  source: string;
+  source: AutofillSourceId;
   outcome: SourceOutcome;
   durationMs: number;
   cacheHit: boolean;
@@ -23,7 +37,7 @@ export interface CohortSourceCall {
 }
 
 export interface CohortFieldObservation {
-  field: string;
+  field: AutofillFieldId;
   verified: boolean;
   correct?: boolean;
   conflict?: boolean;
@@ -31,7 +45,7 @@ export interface CohortFieldObservation {
 
 export interface AutofillCohortSampleInput {
   businessNumber: string;
-  cohorts: string[];
+  cohorts: AutofillCohortId[];
   coverageRows: AutofillCoverageRow[];
   grantWeights?: AutofillGrantWeights;
   questionCount: number;
@@ -80,22 +94,23 @@ export interface FieldMetric {
 export interface AutofillCohortReport {
   schemaVersion: "autofill-cohort-measurement-v1";
   generatedAt: string;
-  status: "measurement_harness_complete_sample_pending" | "initial_measurement_complete" | "stability_measurement_complete";
+  status: "measurement_harness_complete_sample_pending" | "measurement_blocked" | "initial_measurement_complete" | "stability_measurement_complete";
   sampleCount: number;
   verifiedSampleCount: number;
   thresholds: { minimumSamples: 30; stabilitySamples: 100; minimumVerifiedSamples: 3 };
-  gates: { sampleReady: boolean; verificationReady: boolean; overall: "sample-pending" | "go" };
-  samples: Array<{ sampleId: string; cohorts: string[] }>;
+  gates: { sampleReady: boolean; verificationReady: boolean; sourcesReady: boolean; overall: "sample-pending" | "no-go" | "go" };
+  samples: Array<{ sampleId: string; cohorts: AutofillCohortId[] }>;
   cohorts: Record<string, CohortMetric>;
   sources: Record<string, SourceMetric>;
   fields: Record<string, FieldMetric>;
 }
 
 export function anonymizeCohortSampleId(businessNumber: string, secret: string): string {
-  if (!secret) throw new Error("HMAC secret is required");
-  const normalized = businessNumber.replace(/\D/g, "");
-  if (!normalized) throw new Error("business number is required");
-  return `sample_${createHmac("sha256", secret).update(normalized).digest("hex").slice(0, 24)}`;
+  validateSecret(secret);
+  if (!/^[0-9 -]+$/.test(businessNumber)) throw new Error("business number may contain only digits, spaces, and hyphens");
+  const normalized = businessNumber.replace(/[ -]/g, "");
+  if (!/^\d{10}$/.test(normalized)) throw new Error("business number must contain exactly 10 digits");
+  return `sample_${createHmac("sha256", secret).update(`${HMAC_DOMAIN}${normalized}`).digest("hex").slice(0, 24)}`;
 }
 
 export function buildAutofillCohortReport(input: {
@@ -103,27 +118,30 @@ export function buildAutofillCohortReport(input: {
   secret: string;
   generatedAt?: string;
 }): AutofillCohortReport {
-  if (!input.secret) throw new Error("HMAC secret is required");
+  validateSecret(input.secret);
   const sanitized = input.samples.map((sample) => ({
     sampleId: anonymizeCohortSampleId(sample.businessNumber, input.secret),
-    cohorts: [...new Set(sample.cohorts.map((value) => value.trim()).filter(Boolean))],
-    coverageRows: sample.coverageRows,
-    ...(sample.grantWeights ? { grantWeights: sample.grantWeights } : {}),
+    cohorts: [...new Set(sample.cohorts.map(validateCohortId))].sort(),
+    coverageRows: validateCoverageRows(sample.coverageRows),
+    ...(sample.grantWeights ? { grantWeights: validateWeights(sample.grantWeights) } : {}),
     questionCount: nonnegative(sample.questionCount, "questionCount"),
     unknownsResolved: nonnegative(sample.unknownsResolved, "unknownsResolved"),
-    sourceCalls: sample.sourceCalls,
-    fields: sample.fields,
+    sourceCalls: sample.sourceCalls.map(validateSourceCall),
+    fields: sample.fields.map(validateField),
   }));
   const unique = new Map(sanitized.map((sample) => [sample.sampleId, sample]));
   if (unique.size !== sanitized.length) throw new Error("duplicate business number in cohort input");
-  const samples = [...unique.values()];
-  const verifiedSampleCount = samples.filter((sample) => sample.fields.some((field) => field.verified)).length;
+  const samples = [...unique.values()].sort((left, right) => left.sampleId.localeCompare(right.sampleId));
+  const verifiedSampleCount = samples.filter((sample) => sample.fields.some((field) => field.verified && typeof field.correct === "boolean")).length;
   const sampleReady = samples.length >= 30;
   const verificationReady = verifiedSampleCount >= 3;
-  const status = !sampleReady || !verificationReady
-    ? "measurement_harness_complete_sample_pending"
-    : samples.length >= 100 ? "stability_measurement_complete" : "initial_measurement_complete";
   const cohortNames = [...new Set(samples.flatMap((sample) => sample.cohorts))].sort();
+  const sources = aggregateSources(samples.flatMap((sample) => sample.sourceCalls), sampleReady && verificationReady);
+  const sourcesReady = Object.values(sources).every((source) => source.decision === "go" || source.decision === "conditional-call");
+  const overall = !sampleReady || !verificationReady ? "sample-pending" : sourcesReady ? "go" : "no-go";
+  const status = overall === "sample-pending" ? "measurement_harness_complete_sample_pending"
+    : overall === "no-go" ? "measurement_blocked"
+      : samples.length >= 100 ? "stability_measurement_complete" : "initial_measurement_complete";
   return {
     schemaVersion: "autofill-cohort-measurement-v1",
     generatedAt: input.generatedAt ?? new Date().toISOString(),
@@ -131,10 +149,10 @@ export function buildAutofillCohortReport(input: {
     sampleCount: samples.length,
     verifiedSampleCount,
     thresholds: { minimumSamples: 30, stabilitySamples: 100, minimumVerifiedSamples: 3 },
-    gates: { sampleReady, verificationReady, overall: sampleReady && verificationReady ? "go" : "sample-pending" },
+    gates: { sampleReady, verificationReady, sourcesReady, overall },
     samples: samples.map(({ sampleId, cohorts }) => ({ sampleId, cohorts })),
     cohorts: Object.fromEntries(cohortNames.map((name) => [name, aggregateCohort(samples.filter((sample) => sample.cohorts.includes(name)))])),
-    sources: aggregateSources(samples.flatMap((sample) => sample.sourceCalls)),
+    sources,
     fields: aggregateFields(samples.flatMap((sample) => sample.fields)),
   };
 }
@@ -161,24 +179,19 @@ export function renderAutofillCohortMarkdown(report: AutofillCohortReport): stri
 type SanitizedSample = Omit<AutofillCohortSampleInput, "businessNumber"> & { sampleId: string };
 
 function aggregateCohort(samples: SanitizedSample[]): CohortMetric {
-  const rowsByDimension = new Map<CriterionDimension, AutofillCoverageRow[]>();
-  const weights: AutofillGrantWeights = {};
-  for (const sample of samples) {
-    for (const row of sample.coverageRows) if (row.dimension) rowsByDimension.set(row.dimension, [...(rowsByDimension.get(row.dimension) ?? []), row]);
-    for (const [dimension, weight] of Object.entries(sample.grantWeights ?? {})) weights[dimension as CriterionDimension] = (weights[dimension as CriterionDimension] ?? 0) + (weight ?? 0);
-  }
-  const merged = [...rowsByDimension.entries()].map(([dimension, rows]) => {
-    const filled = rows.filter((row) => row.axisCompleteness === "complete" && ["live", "cache", "self-declared"].includes(row.status));
-    return filled.length === samples.length ? filled[0]! : { dimension, parentKey: null, status: "pending" as const, sourceKind: null, axisCompleteness: "unknown" as const };
-  });
+  const coverages = samples.map((sample) => measureAutofillCoverage(sample.coverageRows, sample.grantWeights));
   const questionCount = samples.reduce((sum, sample) => sum + sample.questionCount, 0);
   const unknownsResolved = samples.reduce((sum, sample) => sum + sample.unknownsResolved, 0);
-  return { sampleCount: samples.length, coverage: measureAutofillCoverage(merged, Object.keys(weights).length ? weights : undefined), questionCount, unknownsResolved, unknownsResolvedPerQuestion: ratio(unknownsResolved, questionCount) };
+  return { sampleCount: samples.length, coverage: {
+    authoritative_axis_coverage: sumCoverage(coverages.map((value) => value.authoritative_axis_coverage)),
+    total_answered_coverage: sumCoverage(coverages.map((value) => value.total_answered_coverage)),
+    grant_weighted_coverage: sumCoverage(coverages.map((value) => value.grant_weighted_coverage)),
+  }, questionCount, unknownsResolved, unknownsResolvedPerQuestion: ratio(unknownsResolved, questionCount) };
 }
 
-function aggregateSources(calls: CohortSourceCall[]): Record<string, SourceMetric> {
+function aggregateSources(calls: CohortSourceCall[], measurementReady: boolean): Record<string, SourceMetric> {
   return Object.fromEntries([...new Set(calls.map((call) => call.source))].sort().map((source) => {
-    const values = calls.filter((call) => call.source === source);
+    const values = calls.filter((call) => call.source === source).sort((left, right) => stableCallKey(left).localeCompare(stableCallKey(right)));
     for (const value of values) { nonnegative(value.durationMs, "durationMs"); nonnegative(value.estimatedCost, "estimatedCost"); }
     const attemptedValues = values.filter((call) => call.outcome !== "skipped");
     const found = attemptedValues.filter((call) => call.outcome === "found").length;
@@ -188,18 +201,21 @@ function aggregateSources(calls: CohortSourceCall[]): Record<string, SourceMetri
     const unverifiedFuzzyResults = values.filter((call) => call.joinKind === "fuzzy" && call.outcome === "found" && call.fuzzyCorrect === undefined).length;
     const fuzzyPrecision = values.some((call) => call.joinKind === "fuzzy") ? ratio(verifiedFuzzy.filter((call) => call.fuzzyCorrect).length, verifiedFuzzy.length) : null;
     const usableRate = ratio(found, attemptedValues.length);
-    const joinKind = values.some((call) => call.joinKind === "fuzzy") ? "fuzzy" : "exact";
+    const joinKinds = new Set(values.map((call) => call.joinKind));
+    if (joinKinds.size !== 1) throw new Error(`source ${source} has inconsistent joinKind`);
+    const joinKind = values[0]!.joinKind;
     const nearlyFree = values.every((call) => call.nearlyFree === true || call.estimatedCost === 0);
-    const { decision, reasons } = decideSource({ joinKind, usableRate, fuzzyPrecision, nearlyFree });
+    const { decision, reasons } = decideSource({ joinKind, usableRate, fuzzyPrecision, nearlyFree, measurementReady });
     const outcomes = { found: 0, empty: 0, skipped: 0, failed: 0 };
     for (const value of values) outcomes[value.outcome] += 1;
     return [source, { attempted: attemptedValues.length, skipped: outcomes.skipped, outcomes, usableRate, responseRate: ratio(responded, attemptedValues.length), cacheHitRate: ratio(cached, attemptedValues.length), totalLatency: latency(attemptedValues.map((call) => call.durationMs)), liveLatency: latency(attemptedValues.filter((call) => !call.cacheHit).map((call) => call.durationMs)), estimatedCost: round(values.reduce((sum, call) => sum + call.estimatedCost, 0), 6), joinKind, fuzzyPrecision, unverifiedFuzzyResults, decision, reasons } satisfies SourceMetric];
   }));
 }
 
-function decideSource(input: { joinKind: SourceJoinKind; usableRate: RatioMetric; fuzzyPrecision: RatioMetric | null; nearlyFree: boolean }): Pick<SourceMetric, "decision" | "reasons"> {
+function decideSource(input: { joinKind: SourceJoinKind; usableRate: RatioMetric; fuzzyPrecision: RatioMetric | null; nearlyFree: boolean; measurementReady: boolean }): Pick<SourceMetric, "decision" | "reasons"> {
+  if (!input.measurementReady) return { decision: "insufficient-evidence", reasons: ["sample or verification threshold is pending"] };
   if (input.joinKind === "fuzzy") {
-    if (!input.fuzzyPrecision?.denominator) return { decision: "insufficient-evidence", reasons: ["fuzzy precision has no verified denominator"] };
+    if (!input.fuzzyPrecision || input.fuzzyPrecision.denominator < MINIMUM_FUZZY_REVIEWED) return { decision: "insufficient-evidence", reasons: [`fuzzy precision requires ${MINIMUM_FUZZY_REVIEWED} reviewed results`] };
     if ((input.fuzzyPrecision.ratio ?? 0) < 0.95) return { decision: "candidate-only", reasons: ["fuzzy precision is below 95%"] };
     return { decision: "go", reasons: ["verified fuzzy precision is at least 95%"] };
   }
@@ -230,3 +246,40 @@ function percent(value: number | null): string { return value === null ? "n/a" :
 function decimal(value: number | null): string { return value === null ? "n/a" : value.toFixed(2); }
 function milliseconds(value: number | null): string { return value === null ? "n/a" : `${value}ms`; }
 function escapeCell(value: string): string { return value.replaceAll("|", "\\|").replace(/[\r\n]+/g, " "); }
+
+function validateSecret(secret: string): void { if (Buffer.byteLength(secret.trim(), "utf8") < 32) throw new Error("HMAC secret must be at least 32 bytes"); }
+function validateCohortId(value: AutofillCohortId): AutofillCohortId { if (!(ALLOWED_COHORT_IDS as readonly string[]).includes(value)) throw new Error("unsupported cohort ID"); return value; }
+function validateSourceId(value: AutofillSourceId): AutofillSourceId { if (!(ALLOWED_SOURCE_IDS as readonly string[]).includes(value)) throw new Error("unsupported source ID"); return value; }
+function validateFieldId(value: AutofillFieldId): AutofillFieldId { if (!(OPERATIONAL_AUTOFILL_DIMENSIONS as readonly string[]).includes(value)) throw new Error("unsupported field ID"); return value; }
+function validateSourceCall(call: CohortSourceCall): CohortSourceCall {
+  if (!call || typeof call !== "object") throw new Error("invalid source call");
+  validateSourceId(call.source);
+  if (!["found", "empty", "skipped", "failed"].includes(call.outcome)) throw new Error("invalid source outcome");
+  if (!["exact", "fuzzy"].includes(call.joinKind)) throw new Error("invalid source joinKind");
+  nonnegative(call.durationMs, "durationMs"); nonnegative(call.estimatedCost, "estimatedCost");
+  if (typeof call.cacheHit !== "boolean" || (call.nearlyFree !== undefined && typeof call.nearlyFree !== "boolean") || (call.fuzzyCorrect !== undefined && typeof call.fuzzyCorrect !== "boolean")) throw new Error("invalid source call boolean");
+  if (call.outcome === "skipped" && (call.cacheHit || call.durationMs !== 0 || call.estimatedCost !== 0)) throw new Error("skipped source calls cannot have cache, latency, or cost");
+  if (call.fuzzyCorrect !== undefined && (call.joinKind !== "fuzzy" || call.outcome !== "found")) throw new Error("fuzzyCorrect requires a found fuzzy call");
+  return call;
+}
+function validateField(field: CohortFieldObservation): CohortFieldObservation {
+  if (!field || typeof field !== "object") throw new Error("invalid field observation"); validateFieldId(field.field);
+  if (typeof field.verified !== "boolean" || (field.correct !== undefined && typeof field.correct !== "boolean") || (field.conflict !== undefined && typeof field.conflict !== "boolean")) throw new Error("invalid field observation boolean");
+  if (!field.verified && (field.correct !== undefined || field.conflict !== undefined)) throw new Error("unverified field cannot declare correctness or conflict");
+  return field;
+}
+function validateCoverageRows(rows: AutofillCoverageRow[]): AutofillCoverageRow[] {
+  if (!Array.isArray(rows)) throw new Error("coverageRows must be an array");
+  for (const row of rows) {
+    if (!row || typeof row !== "object") throw new Error("invalid coverage row");
+    if (row.dimension !== null) validateFieldId(row.dimension as AutofillFieldId);
+    if (row.parentKey !== null && typeof row.parentKey !== "string") throw new Error("invalid coverage parentKey");
+    if (!["self-declared", "pending", "live", "cache", "failed", "n/a"].includes(row.status)) throw new Error("invalid coverage status");
+    if (row.sourceKind !== null && !["authoritative_api", "public_registry", "auth_supplied", "self_declared", "derived"].includes(row.sourceKind)) throw new Error("invalid coverage sourceKind");
+    if (!["complete", "partial", "unknown", "not_applicable"].includes(row.axisCompleteness)) throw new Error("invalid axisCompleteness");
+  }
+  return rows;
+}
+function validateWeights(weights: AutofillGrantWeights): AutofillGrantWeights { for (const [key, value] of Object.entries(weights)) { validateFieldId(key as AutofillFieldId); nonnegative(value ?? 0, "grantWeight"); } return weights; }
+function sumCoverage(values: Array<{ numerator: number; denominator: number }>): { numerator: number; denominator: number; ratio: number } { const numerator = values.reduce((sum, value) => sum + value.numerator, 0); const denominator = values.reduce((sum, value) => sum + value.denominator, 0); return { numerator, denominator, ratio: denominator ? numerator / denominator : 0 }; }
+function stableCallKey(call: CohortSourceCall): string { return [call.outcome, call.joinKind, call.durationMs, call.estimatedCost, Number(call.cacheHit), String(call.fuzzyCorrect), String(call.nearlyFree)].join("|"); }
