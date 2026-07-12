@@ -873,16 +873,33 @@ export function buildFieldCoverage(input: {
       external,
     });
 
-    const isLive = status === "live" || status === "cache";
+    let effectiveStatus = status;
+    const externalLive = status === "live" || status === "cache";
     let rowNote = note;
     // 커넥터가 live 를 채웠으면(라이브 소스 필드가 아니라 외부 커넥터) 값/원천은 커넥터 결과에서 온다.
-    if (isLive && !live?.available && connectorResult?.ok) {
+    if (externalLive && !live?.available && connectorResult?.ok) {
       value = connectorResult.value ?? null;
       confidence = connectorResult.confidence ?? null;
       source = connectorResult.source ?? null;
       // 커넥터가 표식 note 를 실었으면(예: "NICE 데모앱(무계약)") live 행에도 노출한다.
       if (connectorResult.note) rowNote = connectorResult.note;
     }
+    // certification 합집합 — SMPP live 인증 ∪ registry 공개명단 배치 인증(설계 §6′-C).
+    // certification 행은 envKeys/batch 가 없어 external=null 이라 computeFieldStatus 밖에서 병합한다.
+    if (entry.key === "certification" && connectorResult?.ok && connectorResult.value) {
+      const merged = mergeCertLabels(value, connectorResult.value);
+      if (merged) {
+        value = merged;
+        if (!live?.available) {
+          // SMPP 라이브 없음 → registry 단독 소스. pending → live 승격.
+          effectiveStatus = "live";
+          source = connectorResult.source ?? source;
+          confidence = connectorResult.confidence ?? confidence;
+          rowNote = connectorResult.note ?? rowNote;
+        }
+      }
+    }
+    const isLive = effectiveStatus === "live" || effectiveStatus === "cache";
     // CODEF 국세청 확정값이 있으면 라이브키/파생/외부 결과를 덮어 최우선으로 표시한다.
     // 커넥터가 라이브 호출이 아니라 company_enrichment_cache passive 판독이므로 status는 "cache"
     // (인증은 api/dev/codef/* 에서 선행돼 캐시에 남았고, 이 행은 그 캐시를 재사용해 표시한다).
@@ -914,13 +931,30 @@ export function buildFieldCoverage(input: {
       tier: entry.tier,
       plannedSource: entry.plannedSource,
       selfDeclarable: entry.selfDeclarable,
-      status,
+      status: effectiveStatus,
       value: isLive ? value : null,
       confidence: isLive ? confidence : null,
       source: isLive ? source : null,
       note: rowNote,
     };
   });
+}
+
+/** 인증 라벨 문자열(", " 구분)의 합집합. a 비면 b, 중복 제거·등장순 유지. */
+function mergeCertLabels(a: string | null, b: string): string | null {
+  const split = (s: string | null): string[] =>
+    (s ?? "")
+      .split(",")
+      .map((x) => x.trim())
+      .filter((x) => x.length > 0);
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  for (const label of [...split(a), ...split(b)]) {
+    if (seen.has(label)) continue;
+    seen.add(label);
+    merged.push(label);
+  }
+  return merged.length > 0 ? merged.join(", ") : null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

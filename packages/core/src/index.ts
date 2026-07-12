@@ -51,6 +51,8 @@ export * from "./registry/normalize.js";
 export * from "./registry/fuzzy-match.js";
 export * from "./registry/matcher.js";
 export * from "./registry/adapters/procurement-debarment.js";
+export * from "./registry/adapters/serious-accident.js";
+export * from "./registry/adapters/venture-confirmation.js";
 export * from "./repositories/ports.js";
 export * from "./smpp/check-certificates.js";
 export * from "./use-cases/build-action-queue.js";
