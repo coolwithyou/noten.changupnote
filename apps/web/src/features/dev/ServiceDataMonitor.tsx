@@ -102,6 +102,8 @@ interface QnaState {
   equityEok: string;
   // 고용
   noLayoff: "" | "yes" | "no";
+  /** 감원 있음일 때 마지막 감원 후 경과 개월(months_since_last_layoff). 미입력이면 매칭은 unknown. */
+  layoffMonths: string;
   // 투자
   investmentEok: string;
   investmentRound: string;
@@ -123,6 +125,7 @@ const EMPTY_QNA: QnaState = {
   capitalImpairment: "",
   equityEok: "",
   noLayoff: "",
+  layoffMonths: "",
   investmentEok: "",
   investmentRound: "",
   tipsBacked: false,
@@ -1096,6 +1099,23 @@ function QnaSection({
             ]}
             onChange={(value) => setQna((prev) => ({ ...prev, noLayoff: value as QnaState["noLayoff"] }))}
           />
+          {qna.noLayoff === "no" ? (
+            <div className="flex items-center gap-2">
+              <Input
+                id="qna-layoff-months"
+                type="number"
+                inputMode="numeric"
+                placeholder="예: 8"
+                className="w-24"
+                value={qna.layoffMonths}
+                disabled={disabled}
+                onChange={(event) => setQna((prev) => ({ ...prev, layoffMonths: event.target.value }))}
+              />
+              <span className="text-xs text-muted-foreground">
+                마지막 감원 후 경과 개월 — 미입력 시 매칭은 unknown(감원 시점 입력 필요)
+              </span>
+            </div>
+          ) : null}
         </QnaField>
 
         <Separator />
@@ -1592,8 +1612,19 @@ function mergeFieldsWithQna(
   schema: QnaSchema,
 ): MergedCoverageRow[] {
   const { byAxis, flagLabel } = deriveDisqByAxis(qna, schema);
-  const exceptionLabel = new Map(schema.exceptions.map((exception) => [exception.key, exception.label]));
-  const exceptionLabels = qna.disqExceptions.map((key) => exceptionLabel.get(key) ?? key);
+  // 예외는 축 구분 없이 체크되지만, 표시는 EXCEPTION_FLAG_COVERAGE가 그 축의 플래그를 실제로
+  // 면제할 때만 한다(계약의 축별 exceptions 시맨틱과 정합 — 무관한 축에 예외 배지 오표시 방지).
+  const checkedExceptions = schema.exceptions.filter((exception) => qna.disqExceptions.includes(exception.key));
+  const exceptionLabelsForAxis = (axisKey: string): string[] => {
+    const axisFlags = new Set(
+      schema.disqualification
+        .find((axis) => axis.axis === axisKey)
+        ?.questions.flatMap((group) => group.flags.map((flag) => flag.flag)) ?? [],
+    );
+    return checkedExceptions
+      .filter((exception) => exception.flags.some((flag) => axisFlags.has(flag)))
+      .map((exception) => exception.label);
+  };
 
   const age = computeAge(qna.birthYear);
   const legacy: Record<string, string> = {};
@@ -1637,7 +1668,11 @@ function mergeFieldsWithQna(
         return selfDeclared(
           row,
           presentLabels.length > 0 ? `결격 보유: ${presentLabels.join(", ")}` : "결격 없음(자가확인)",
-          { knownFlagLabels: knownLabels, presentFlagLabels: presentLabels, exceptionLabels },
+          {
+            knownFlagLabels: knownLabels,
+            presentFlagLabels: presentLabels,
+            exceptionLabels: exceptionLabelsForAxis(row.dimension),
+          },
         );
       }
       return row;
@@ -1667,12 +1702,12 @@ function mergeFieldsWithQna(
       return selfDeclared(row, parts.join(" · "));
     }
 
-    // 고용.
+    // 고용 — evaluator 판정 매트릭스(no_layoff=false + 시점 null → unknown)를 표시값에 반영.
     if (row.subField === "no_layoff" && qna.noLayoff) {
-      return selfDeclared(row, qna.noLayoff === "yes" ? "감원 없음" : "감원 있음");
+      return selfDeclared(row, layoffLabel(qna));
     }
     if (row.dimension === "insured_workforce" && !row.parentKey && qna.noLayoff) {
-      return selfDeclared(row, qna.noLayoff === "yes" ? "감원 없음(자가신고)" : "감원 있음(자가신고)");
+      return selfDeclared(row, `${layoffLabel(qna)}(자가신고)`);
     }
 
     // 투자.
@@ -1697,6 +1732,15 @@ function mergeFieldsWithQna(
 
     return row;
   });
+}
+
+/** 감원 자가신고 표시값 — 감원 있음 + 경과 개월이 있어야 매칭 판정 가능(없으면 unknown 명시). */
+function layoffLabel(qna: QnaState): string {
+  if (qna.noLayoff === "yes") return "감원 없음";
+  if (isNumeric(qna.layoffMonths)) {
+    return `감원 있음 · ${Number(qna.layoffMonths).toLocaleString("ko-KR")}개월 경과`;
+  }
+  return "감원 있음 · 시점 미상(매칭 unknown)";
 }
 
 function impairmentLabel(value: QnaState["capitalImpairment"]): string {

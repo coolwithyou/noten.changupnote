@@ -10,6 +10,7 @@ import {
   DISQUALIFICATION_EXCEPTIONS,
   DISQUALIFICATION_FLAG_LABELS,
   DISQUALIFICATION_QUESTIONS,
+  EXCEPTION_FLAG_COVERAGE,
   matchRegistry,
   normalizeCompanyName,
   PROCUREMENT_DEBARMENT_SOURCE,
@@ -196,6 +197,8 @@ export interface QnaAxisSchema {
 export interface QnaExceptionSchema {
   key: string;
   label: string;
+  /** 이 예외가 면제하는 canonical 플래그(EXCEPTION_FLAG_COVERAGE). 클라이언트가 축별 표시 필터에 쓴다. */
+  flags: DisqualificationFlag[];
 }
 export interface QnaSchema {
   disqualification: QnaAxisSchema[];
@@ -1579,6 +1582,7 @@ export function buildQnaSchema(): QnaSchema {
   const exceptions: QnaExceptionSchema[] = DISQUALIFICATION_EXCEPTIONS.map((key) => ({
     key,
     label: DISQUALIFICATION_EXCEPTION_LABELS[key],
+    flags: [...EXCEPTION_FLAG_COVERAGE[key]],
   }));
   return { disqualification, exceptions };
 }

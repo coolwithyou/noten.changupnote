@@ -326,6 +326,7 @@ evaluatePriorAward(criterion, company):
 | `apps/web/src/features/dashboard/ProgressiveQuestionCard.tsx` | prior_award 구조화 입력 렌더(§6) |
 | `apps/web/src/features/dashboard/CompanySettingsPanel.tsx` | 수혜 이력 수정 섹션(현행 텍스트 `prior_awards` :559-566 → 구조화 이력 편집. 결격 `DisqualificationEditor` :600-707 전례) |
 | `apps/web/src/lib/server/onboarding/onboardingProgress.ts` | 수혜 이력 저부담 스텝(§6) |
+| `apps/web/src/features/dev/ServiceDataMonitor.tsx` (+ `devServiceDataMonitor.ts`) | dev 소싱 커버리지 하네스의 prior_award Q&A(현행 자유 텍스트 1칸)를 신 계약 구조화 입력(self_kind별 `self_flags`·`records`·`known_programs` 커버)으로 갱신 — 소싱 검증 하네스가 신 계약을 따라가지 못하면 커버리지 확인이 무의미해짐 |
 
 **완료 기준**: e2e — self_kind 문항 응답 → 저장 → 매칭 unknown 해소, "현재 유사 지원 수행 중" 응답 시 self/current_similar exclusion이 ineligible 전환, 특정 program 이력 응답 시 `known_programs` 커버로 program exclusion 판정 확정(B1), **다른 필드 저장 후 self_flags·known_programs·records 잔존**(M3), 설정 패널 정정 → 재판정. **방어층 미해제.**
 
