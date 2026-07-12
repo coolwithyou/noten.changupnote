@@ -139,6 +139,8 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [qna, setQna] = useState<QnaState>(EMPTY_QNA);
+  // 커버리지 테이블 상태 필터("all" 이면 전체). 요약 카드의 범례 칩과 연동된다.
+  const [statusFilter, setStatusFilter] = useState<StatusGroup | "all">("all");
 
   const runLookup = useCallback(async (bizNo: string, forceRefresh: boolean, selectedProvider: ServiceDataProvider) => {
     setLoading(true);
@@ -227,7 +229,15 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
     () => mergeFieldsWithQna(result?.coverage ?? [], qna, qnaSchema),
     [result?.coverage, qna, qnaSchema],
   );
-  const stats = useMemo(() => summarizeCoverage(mergedCoverage), [mergedCoverage]);
+  const overview = useMemo(() => summarizeCoverage(mergedCoverage), [mergedCoverage]);
+  const reasonGroups = useMemo(() => groupByReason(mergedCoverage), [mergedCoverage]);
+  const filteredCoverage = useMemo(
+    () =>
+      statusFilter === "all"
+        ? mergedCoverage
+        : mergedCoverage.filter((row) => statusGroupOf(row.status) === statusFilter),
+    [mergedCoverage, statusFilter],
+  );
 
   const busy = inspecting || loading;
   const showCacheChoice = Boolean(inspect?.hasCache && activeBizNo);
@@ -360,71 +370,92 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
 
       {result && !loading ? (
         <>
-          {/* 2. 22축 커버리지 대시보드 */}
+          {/* 2. 커버리지 요약 — 몇 축이 채워지는지 + 왜 그런지 */}
+          <CoverageOverview
+            overview={overview}
+            reasonGroups={reasonGroups}
+            statusFilter={statusFilter}
+            onFilter={setStatusFilter}
+            maskedBizNo={result.maskedBizNo}
+            subject={result.subject}
+          />
+
+          {/* 3. 필드별 상세 테이블 (요약 칩으로 필터) */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-base">22축 커버리지</CardTitle>
-              <CardDescription className="flex flex-col gap-1">
-                <span>
-                  {result.maskedBizNo} · {subjectLabel(result.subject)} · 매칭 차원별 계획 소스와 확보 상태.
-                  자가신고(Q&A) 값은 아래에서 입력하면 즉시 병합됩니다.
-                </span>
-                <span className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <Badge className="bg-primary text-primary-foreground">라이브/캐시 {stats.live}</Badge>
-                  <Badge variant="outline" className="border-success/50 text-success">자가신고 {stats.selfDeclared}</Badge>
-                  <Badge variant="outline">대기 {stats.pending}</Badge>
-                  <Badge variant="destructive">실패 {stats.failed}</Badge>
-                  <Badge variant="secondary">해당없음 {stats.na}</Badge>
-                </span>
-              </CardDescription>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex flex-col gap-0.5">
+                  <CardTitle className="text-base">필드별 상세</CardTitle>
+                  <CardDescription>
+                    {statusFilter === "all"
+                      ? `매칭 축 ${overview.total}개 전체 · 계획 소스와 확보 상태`
+                      : `${GROUP_META[statusFilter].label} ${filteredCoverage.length}개만 표시 중`}
+                  </CardDescription>
+                </div>
+                {statusFilter === "all" ? null : (
+                  <Button size="sm" variant="ghost" onClick={() => setStatusFilter("all")}>
+                    전체 보기
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="min-w-[9rem]">필드</TableHead>
-                      <TableHead className="w-[5%]">층</TableHead>
-                      <TableHead className="w-[24%]">계획 소스</TableHead>
-                      <TableHead className="w-[13%]">상태</TableHead>
-                      <TableHead>값</TableHead>
-                      <TableHead className="w-[9%]">신뢰도</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {mergedCoverage.map((row) => (
-                      <TableRow key={row.key} className={row.parentKey ? "border-0" : "border-t-2 border-border"}>
-                        <TableCell className={row.parentKey ? "py-1.5 pl-6 text-xs text-muted-foreground" : "font-medium"}>
-                          {row.parentKey ? `└ ${row.label}` : row.label}
-                        </TableCell>
-                        <TableCell className={row.parentKey ? "py-1.5" : ""}>
-                          <TierBadge tier={row.tier} />
-                        </TableCell>
-                        <TableCell className={`text-xs text-muted-foreground ${row.parentKey ? "py-1.5" : ""}`}>
-                          {row.plannedSource}
-                        </TableCell>
-                        <TableCell className={row.parentKey ? "py-1.5" : ""}>
-                          <StatusBadge status={row.status} source={row.source} note={row.note} />
-                        </TableCell>
-                        <TableCell className={row.parentKey ? "py-1.5" : ""}>
-                          <ValueCell row={row} />
-                        </TableCell>
-                        <TableCell className={row.parentKey ? "py-1.5" : ""}>
-                          {typeof row.confidence === "number" ? (
-                            `${Math.round(row.confidence * 100)}%`
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
+              {filteredCoverage.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  {statusFilter === "all"
+                    ? "표시할 축이 없습니다."
+                    : `${GROUP_META[statusFilter].label} 상태인 축이 없습니다.`}
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table className="table-fixed">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-[16%] min-w-[7rem]">필드</TableHead>
+                        <TableHead className="w-[6%]">층</TableHead>
+                        <TableHead className="w-[10%]">상태</TableHead>
+                        <TableHead className="w-[22%]">값</TableHead>
+                        <TableHead className="w-[40%]">채워지는 조건 · 근거</TableHead>
+                        <TableHead className="w-[6%] text-right">신뢰도</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredCoverage.map((row) => (
+                        <TableRow key={row.key} className={row.parentKey ? "border-0" : "border-t-2 border-border"}>
+                          <TableCell
+                            className={`align-top ${row.parentKey ? "py-1.5 pl-6 text-xs text-muted-foreground" : "font-medium"}`}
+                          >
+                            <span className="break-words">{row.parentKey ? `└ ${row.label}` : row.label}</span>
+                          </TableCell>
+                          <TableCell className={`align-top ${row.parentKey ? "py-1.5" : ""}`}>
+                            <TierBadge tier={row.tier} />
+                          </TableCell>
+                          <TableCell className={`align-top ${row.parentKey ? "py-1.5" : ""}`}>
+                            <StatusBadge status={row.status} source={row.source} />
+                          </TableCell>
+                          <TableCell className={`align-top ${row.parentKey ? "py-1.5" : ""}`}>
+                            <ValueCell row={row} />
+                          </TableCell>
+                          <TableCell className={`align-top ${row.parentKey ? "py-1.5" : ""}`}>
+                            <UnlockCell row={row} />
+                          </TableCell>
+                          <TableCell className={`align-top text-right tabular-nums ${row.parentKey ? "py-1.5" : ""}`}>
+                            {typeof row.confidence === "number" ? (
+                              `${Math.round(row.confidence * 100)}%`
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
             </CardContent>
           </Card>
 
-          {/* 3. API 트레이스 */}
+          {/* 4. API 트레이스 */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">API 트레이스</CardTitle>
@@ -470,6 +501,162 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
   );
 }
 
+// ── 커버리지 요약(몇 축이 채워지나 + 왜) ─────────────────────────────────────
+
+function CoverageOverview({
+  overview,
+  reasonGroups,
+  statusFilter,
+  onFilter,
+  maskedBizNo,
+  subject,
+}: {
+  overview: CoverageOverviewData;
+  reasonGroups: ReasonGroup[];
+  statusFilter: StatusGroup | "all";
+  onFilter: (next: StatusGroup | "all") => void;
+  maskedBizNo: string;
+  subject: ServiceDataLookupResult["subject"];
+}) {
+  const pct =
+    overview.applicable > 0 ? Math.round((overview.filled / overview.applicable) * 100) : 0;
+  const segments = STATUS_GROUPS.map((group) => ({ group, count: overview.counts[group] })).filter(
+    (segment) => segment.count > 0,
+  );
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">매칭 필드 커버리지</CardTitle>
+        <CardDescription>
+          {maskedBizNo} · {subjectLabel(subject)} · 22축 + 하위 플래그 총 {overview.total}개 중 지금 값이
+          채워진 축과 그 이유
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        {/* 채워짐 분수 — 한눈에 "몇 개가 채워지나" */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-semibold tabular-nums text-success">{overview.filled}</span>
+            <span className="text-lg text-muted-foreground tabular-nums">/ {overview.applicable}</span>
+            <span className="text-sm text-muted-foreground">축 채워짐 ({pct}%)</span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            적용 대상 {overview.applicable}개 · 해당없음 {overview.counts.na}개 = 총 {overview.total}개
+          </span>
+        </div>
+
+        {/* 상태 구성 세그먼트 바 */}
+        <div
+          className="flex h-3 w-full overflow-hidden rounded-full bg-muted"
+          role="img"
+          aria-label={STATUS_GROUPS.map(
+            (group) => `${GROUP_META[group].label} ${overview.counts[group]}`,
+          ).join(", ")}
+        >
+          {segments.map((segment) => (
+            <div
+              key={segment.group}
+              className={GROUP_META[segment.group].dot}
+              style={{ width: `${(segment.count / overview.total) * 100}%` }}
+              title={`${GROUP_META[segment.group].label} ${segment.count}`}
+            />
+          ))}
+        </div>
+
+        {/* 범례 겸 필터 칩 */}
+        <div className="flex flex-col gap-2">
+          <span className="text-xs text-muted-foreground">
+            색을 눌러 아래 표를 필터 · 확보·자가신고 = 채워짐, 대기·실패 = 빈 값, 해당없음 = 대상 아님
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <FilterChip
+              active={statusFilter === "all"}
+              onClick={() => onFilter("all")}
+              dot="bg-foreground"
+              label="전체"
+              count={overview.total}
+            />
+            {STATUS_GROUPS.map((group) => (
+              <FilterChip
+                key={group}
+                active={statusFilter === group}
+                onClick={() => onFilter(group)}
+                dot={GROUP_META[group].dot}
+                label={GROUP_META[group].label}
+                count={overview.counts[group]}
+                meaning={GROUP_META[group].meaning}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* 채워지고 · 안 채워지는 이유 — 근거별 묶음 */}
+        <Accordion defaultValue={["reasons"]}>
+          <AccordionItem value="reasons">
+            <AccordionTrigger>
+              <span className="text-sm font-medium">필드가 채워지고 · 안 채워지는 이유 (근거별 묶음)</span>
+            </AccordionTrigger>
+            <AccordionContent>
+              <ul className="flex flex-col gap-2.5">
+                {reasonGroups.map((reasonGroup) => (
+                  <li
+                    key={reasonGroup.reason}
+                    className={`flex flex-col gap-1 border-l-2 pl-3 ${GROUP_META[reasonGroup.group].border}`}
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-block size-2 shrink-0 rounded-full ${GROUP_META[reasonGroup.group].dot}`}
+                        aria-hidden
+                      />
+                      <span className="text-sm font-medium">{reasonGroup.reason}</span>
+                      <Badge variant="outline" className="tabular-nums">
+                        {reasonGroup.labels.length}축
+                      </Badge>
+                    </div>
+                    <span className="text-xs text-muted-foreground">{reasonGroup.labels.join(" · ")}</span>
+                  </li>
+                ))}
+              </ul>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  dot,
+  label,
+  count,
+  meaning,
+}: {
+  active: boolean;
+  onClick: () => void;
+  dot: string;
+  label: string;
+  count: number;
+  meaning?: string;
+}) {
+  return (
+    <Button
+      type="button"
+      size="sm"
+      variant={active ? "default" : "outline"}
+      className="h-8 gap-1.5"
+      onClick={onClick}
+      {...(meaning ? { title: meaning } : {})}
+    >
+      <span className={`inline-block size-2 rounded-full ${dot}`} aria-hidden />
+      <span>{label}</span>
+      <span className="tabular-nums opacity-70">{count}</span>
+    </Button>
+  );
+}
+
 // ── 커버리지 셀 렌더 ──────────────────────────────────────────────────────────
 
 function ValueCell({ row }: { row: MergedCoverageRow }) {
@@ -477,12 +664,66 @@ function ValueCell({ row }: { row: MergedCoverageRow }) {
   return (
     <div className="flex flex-col gap-1">
       {row.value ? (
-        <span className="text-sm">{row.value}</span>
+        // 값은 줄바꿈 허용 — 잘리지 않고 셀 안에서 감긴다(왜 잘렸었나: 넓은 계획소스·상태 컬럼이 밀어냄).
+        <span className="text-sm break-words whitespace-normal">{row.value}</span>
       ) : (
-        <span className="text-xs text-muted-foreground">{row.status === "n/a" ? "대상 아님" : row.note ?? "미확보"}</span>
+        // 빈 값의 "왜"는 옆 '채워지는 조건' 컬럼으로 이동했으므로 여기선 대시만.
+        <span className="text-xs text-muted-foreground">{row.status === "n/a" ? "대상 아님" : "—"}</span>
       )}
       {hasKnown ? <KnownFlags known={row.knownFlagLabels ?? []} present={row.presentFlagLabels ?? []} exceptions={row.exceptionLabels ?? []} /> : null}
     </div>
+  );
+}
+
+// '채워지는 조건 · 근거' 셀 — 채워진 행은 출처를, 안 채워진 행은 "어떤 남은 작업이 채우나"를,
+// 자가신고 가능한 축은 챗봇이 물어볼 질문 예시를 함께 보여준다.
+function UnlockCell({ row }: { row: MergedCoverageRow }) {
+  const group = statusGroupOf(row.status);
+  const question = row.selfDeclarable ? SELF_DECLARE_QUESTIONS[row.key] : undefined;
+
+  if (group === "live") {
+    return (
+      <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+        <span className="text-foreground/70">{row.note ?? `확보 · ${sourceRefLabel(row.source)}`}</span>
+        <span className="opacity-70">계획 소스: {row.plannedSource}</span>
+      </div>
+    );
+  }
+  if (group === "self") {
+    return (
+      <div className="flex flex-col gap-1 text-xs">
+        <span className="text-success">자가신고로 채움</span>
+        {question ? <ChatQuestion question={question} /> : null}
+      </div>
+    );
+  }
+  if (group === "na") {
+    return <span className="text-xs text-muted-foreground">{row.note ?? "대상 아님"}</span>;
+  }
+
+  // pending / failed — 어떤 남은 작업이 구현되면 채워지나.
+  const kind = classifyUnlock(row);
+  const meta = UNLOCK_META[kind];
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Badge variant="outline" className={`${meta.border} ${meta.text} whitespace-nowrap`}>
+          {meta.label}
+        </Badge>
+        <span className="text-xs text-muted-foreground">{unlockDetail(row, kind)}</span>
+      </div>
+      <span className="text-[11px] text-muted-foreground/80">계획 소스: {row.plannedSource}</span>
+      {question ? <ChatQuestion question={question} prefix={kind === "self" ? "챗봇 질문 예시" : "또는 자가신고"} /> : null}
+    </div>
+  );
+}
+
+function ChatQuestion({ question, prefix = "챗봇 질문 예시" }: { question: string; prefix?: string }) {
+  return (
+    <span className="flex flex-wrap items-baseline gap-1 text-xs">
+      <span className="shrink-0 text-success">{prefix}</span>
+      <span className="text-muted-foreground italic">“{question}”</span>
+    </span>
   );
 }
 
@@ -517,26 +758,27 @@ function TierBadge({ tier }: { tier: FieldTier }) {
   return <Badge variant="secondary" className="text-muted-foreground">예약</Badge>;
 }
 
-function StatusBadge({ status, source, note }: { status: FieldCoverageStatus; source: FieldSourceRef | null; note: string | null }) {
+// 컴팩트 상태 배지 — 사유(note)는 옆 '채워지는 조건' 컬럼이 맡으므로 여기선 상태만 짧게.
+function StatusBadge({ status, source }: { status: FieldCoverageStatus; source: FieldSourceRef | null }) {
   if (status === "live") {
-    return <Badge className="bg-primary text-primary-foreground">라이브 · {sourceRefLabel(source)}</Badge>;
+    return <Badge className="bg-primary text-primary-foreground whitespace-nowrap">라이브 · {sourceRefLabel(source)}</Badge>;
   }
   if (status === "cache") {
-    return <Badge variant="secondary">캐시 · {sourceRefLabel(source)}</Badge>;
+    return <Badge variant="secondary" className="whitespace-nowrap">캐시 · {sourceRefLabel(source)}</Badge>;
   }
   if (status === "self-declared") {
     return <Badge variant="outline" className="border-success/50 text-success">자가신고</Badge>;
   }
   if (status === "failed") {
-    return <Badge variant="destructive">실패{note ? ` · ${note}` : ""}</Badge>;
+    return <Badge variant="destructive">실패</Badge>;
   }
   if (status === "n/a") {
-    return <Badge variant="secondary" className="text-muted-foreground">해당 없음</Badge>;
+    return <Badge variant="secondary" className="whitespace-nowrap text-muted-foreground">해당 없음</Badge>;
   }
-  // pending
+  // pending — 범례의 amber(warning)와 일치시켜 "아직 빈 값"임을 색으로 신호한다.
   return (
-    <Badge variant="outline" className="border-dashed text-muted-foreground">
-      대기{note ? ` · ${note}` : ""}
+    <Badge variant="outline" className="border-dashed border-warning/50 text-warning">
+      대기
     </Badge>
   );
 }
@@ -1057,25 +1299,255 @@ function LookupSkeleton() {
 
 // ── 순수 헬퍼 ────────────────────────────────────────────────────────────────
 
-interface CoverageStats {
-  live: number;
-  selfDeclared: number;
-  pending: number;
-  failed: number;
-  na: number;
+// 6개 서버 상태(live/cache/self-declared/pending/failed/n-a)를 화면 5색 그룹으로 접는다.
+// 색 언어: 확보·자가신고=채워짐(초록/파랑), 대기·실패=빈 값(노랑/빨강), 해당없음=대상 아님(회색).
+const STATUS_GROUPS = ["live", "self", "pending", "failed", "na"] as const;
+type StatusGroup = (typeof STATUS_GROUPS)[number];
+
+const GROUP_META: Record<
+  StatusGroup,
+  { label: string; meaning: string; dot: string; text: string; border: string }
+> = {
+  live: {
+    label: "확보",
+    meaning: "외부 소스에서 실제 값을 받아 채워짐",
+    dot: "bg-primary",
+    text: "text-primary",
+    border: "border-primary/50",
+  },
+  self: {
+    label: "자가신고",
+    meaning: "API로 얻을 수 없어 사용자 입력(Q&A)으로 채워짐",
+    dot: "bg-success",
+    text: "text-success",
+    border: "border-success/50",
+  },
+  pending: {
+    label: "대기",
+    meaning: "아직 빈 값 — 소스 미배선·API 키 대기·자가신고 대기",
+    dot: "bg-warning",
+    text: "text-warning",
+    border: "border-warning/50",
+  },
+  failed: {
+    label: "실패",
+    meaning: "조회했으나 에러·빈값·스키마 불일치로 못 채움",
+    dot: "bg-destructive",
+    text: "text-destructive",
+    border: "border-destructive/50",
+  },
+  na: {
+    label: "해당 없음",
+    meaning: "예약축이거나 개인사업자 대상이 아닌 법인 전용축",
+    dot: "bg-muted-foreground/40",
+    text: "text-muted-foreground",
+    border: "border-border",
+  },
+};
+
+function statusGroupOf(status: FieldCoverageStatus): StatusGroup {
+  if (status === "live" || status === "cache") return "live";
+  if (status === "self-declared") return "self";
+  if (status === "failed") return "failed";
+  if (status === "n/a") return "na";
+  return "pending";
 }
 
-function summarizeCoverage(rows: MergedCoverageRow[]): CoverageStats {
-  const stats: CoverageStats = { live: 0, selfDeclared: 0, pending: 0, failed: 0, na: 0 };
-  for (const row of rows) {
-    if (row.status === "live" || row.status === "cache") stats.live += 1;
-    else if (row.status === "self-declared") stats.selfDeclared += 1;
-    else if (row.status === "failed") stats.failed += 1;
-    else if (row.status === "n/a") stats.na += 1;
-    else stats.pending += 1;
-  }
-  return stats;
+interface CoverageOverviewData {
+  /** 전체 행 수(22축 + 하위 플래그·서브필드). */
+  total: number;
+  /** 적용 대상(전체 − 해당없음). 커버리지율의 분모. */
+  applicable: number;
+  /** 지금 값이 채워진 축(확보 + 자가신고). */
+  filled: number;
+  counts: Record<StatusGroup, number>;
 }
+
+function summarizeCoverage(rows: MergedCoverageRow[]): CoverageOverviewData {
+  const counts: Record<StatusGroup, number> = { live: 0, self: 0, pending: 0, failed: 0, na: 0 };
+  for (const row of rows) counts[statusGroupOf(row.status)] += 1;
+  const total = rows.length;
+  const applicable = total - counts.na;
+  const filled = counts.live + counts.self;
+  return { total, applicable, filled, counts };
+}
+
+interface ReasonGroup {
+  reason: string;
+  group: StatusGroup;
+  labels: string[];
+}
+
+/** 행의 status + note 를 사람이 읽는 한 줄 사유로 환원한다(왜 채워졌나 / 왜 안 채워졌나). */
+function reasonOf(row: MergedCoverageRow): string {
+  const group = statusGroupOf(row.status);
+  if (group === "live") return `확보 · ${sourceRefLabel(row.source)}`;
+  if (group === "self") return "자가신고로 채움";
+  if (group === "failed") return "조회 실패 · 응답 이상";
+  if (group === "na") {
+    if (row.note?.includes("예약")) return "예약축 · 추후 배선";
+    return "법인 전용축 · 개인사업자 대상 아님";
+  }
+  // pending — 계획 소스·note 키워드로 사유를 버킷팅.
+  const note = row.note ?? "";
+  if (row.plannedSource.includes("CODEF 간편인증")) return "CODEF 간편인증 완료 시 채워짐";
+  // "미배선"(라이브 소스가 값 미제공)은 "배선" 부분문자열보다 먼저 걸러야 커넥터 대기로 오분류되지 않는다.
+  if (note.includes("미배선")) return "소스 응답에 값 없음 · 응답 포함 시 자동 채움";
+  if (note.includes("배치")) return "배치 파이프라인 · Phase 2 배선 예정";
+  if (note.includes("개인")) return "개인사업자 통합 소스 없음 · 자가신고 필요";
+  if (note.includes("법인등록번호")) return "법인번호 브리지 필요 · apick 조회 경로에서만";
+  if (note.includes("키 있음")) return "API 키 있음 · 커넥터 Phase 2 배선 대기";
+  if (note.includes("키 없음")) return "외부 API 키 미설정";
+  if (note.includes("커넥터") || note.includes("배선")) return "커넥터 Phase 2 배선 대기";
+  return "자동 소스 없음 · 자가신고 대기";
+}
+
+/** 사유별로 축을 묶고 상태 그룹 순서(확보→자가신고→대기→실패→해당없음), 건수 desc 로 정렬. */
+function groupByReason(rows: MergedCoverageRow[]): ReasonGroup[] {
+  const byReason = new Map<string, ReasonGroup>();
+  for (const row of rows) {
+    const reason = reasonOf(row);
+    const existing = byReason.get(reason);
+    if (existing) existing.labels.push(row.label);
+    else byReason.set(reason, { reason, group: statusGroupOf(row.status), labels: [row.label] });
+  }
+  const order = new Map<StatusGroup, number>(STATUS_GROUPS.map((group, index) => [group, index]));
+  return [...byReason.values()].sort((a, b) => {
+    const byGroup = (order.get(a.group) ?? 0) - (order.get(b.group) ?? 0);
+    return byGroup !== 0 ? byGroup : b.labels.length - a.labels.length;
+  });
+}
+
+// ── 채워지는 조건: 안 채워진 축을 "어떤 남은 작업이 채우나" 로 분류 ──────────────
+// 남은 작업 축(코드 실측 기준):
+//   key         = 외부 API 서비스키 발급·설정(근로복지공단·금융위·NICE·KIPRIS·중대재해)
+//   simple-auth = CODEF 간편인증(사용자 휴대폰 승인 → 국세청 확정값 passive read)
+//   connector   = 키는 있으나 커넥터 Phase 2 배선 미완
+//   batch       = 명단 배치 파이프라인(조달청 CSV·체불·중대재해·TIPS 명단)
+//   apick       = 금융위 법인재무: apick 경로의 법인등록번호 브리지 필요
+//   self        = 공개·자동 소스 없음 → 자가신고(챗봇)
+//   source      = 라이브 소스가 이번 응답에 값을 안 실음(데이터 가용성)
+//   failed      = 조회는 됐으나 에러·빈값·스키마 불일치
+type UnlockKind = "key" | "simple-auth" | "connector" | "batch" | "apick" | "self" | "source" | "failed";
+
+const UNLOCK_META: Record<UnlockKind, { label: string; border: string; text: string }> = {
+  key: { label: "API 키 발급", border: "border-primary/40", text: "text-primary" },
+  "simple-auth": { label: "CODEF 간편인증", border: "border-primary/40", text: "text-primary" },
+  connector: { label: "커넥터 배선(P2)", border: "border-primary/40", text: "text-primary" },
+  batch: { label: "명단 배치 파이프라인", border: "border-primary/40", text: "text-primary" },
+  apick: { label: "apick 조회 경로", border: "border-primary/40", text: "text-primary" },
+  self: { label: "자가신고(챗봇)", border: "border-success/50", text: "text-success" },
+  source: { label: "소스 응답 대기", border: "border-warning/50", text: "text-warning" },
+  failed: { label: "응답 이상", border: "border-destructive/50", text: "text-destructive" },
+};
+
+function classifyUnlock(row: MergedCoverageRow): UnlockKind {
+  if (statusGroupOf(row.status) === "failed") return "failed";
+  const note = row.note ?? "";
+  const source = row.plannedSource;
+  if (source.includes("CODEF 간편인증")) return "simple-auth";
+  // "미배선"은 라이브 소스가 값을 안 실은 경우(예: 기업규모) — "배선" 부분문자열 매칭보다 먼저 걸러야 한다.
+  if (note.includes("미배선")) return "source";
+  if (note.includes("배치")) return "batch";
+  if (note.includes("법인등록번호")) return "apick";
+  if (note.includes("키 있음")) return "connector";
+  if (note.includes("키 없음")) return "key";
+  if (note.includes("커넥터") || note.includes("배선")) return "connector";
+  if (note.includes("개인")) return "self";
+  if (row.selfDeclarable) return "self";
+  return "source";
+}
+
+function unlockDetail(row: MergedCoverageRow, kind: UnlockKind): string {
+  switch (kind) {
+    case "failed":
+      return row.note ?? "원천 응답 확인 필요";
+    case "simple-auth":
+      return "사용자 휴대폰 간편인증 완료 시 국세청 확정값으로 채워짐";
+    case "connector":
+      return "API 키는 있음 · 커넥터 Phase 2 배선 완료 시 채워짐";
+    case "key":
+      return "해당 소스 서비스키 발급·설정 시 자동으로 채워짐";
+    case "batch":
+      return "명단 수집 배치(사업자번호·상호 매칭) 구축 시 채워짐";
+    case "apick":
+      return "apick 조회 경로로 실행 시 법인등록번호가 브리지되어 채워짐";
+    case "self":
+      return "공개·자동 소스가 없어 자가신고로 채움";
+    case "source":
+      return "계획 소스 응답에 값이 포함되면 자동으로 채워짐";
+  }
+}
+
+// 자가신고 축(FIELD_COVERAGE_PLAN 의 selfDeclarable=true)을 챗봇이 대화체로 물어볼 질문 예시.
+// row.key 로 매핑(축·하위 플래그·서브필드 모두). 값 확보 경로가 막혔을 때 사용자에게 직접 받는다.
+const SELF_DECLARE_QUESTIONS: Record<string, string> = {
+  // ── A/B층 프로필 축 ──
+  revenue: "직전 회계연도 매출액이 대략 얼마였나요? (억원 단위로 편하게 알려주세요)",
+  employees: "현재 4대보험에 가입된 상시근로자는 몇 명인가요?",
+  founder_age: "대표자님은 몇 년생이세요? (출생연도만 알려주셔도 돼요)",
+  founder_trait:
+    "대표자님이 여성, 청년(만 39세 이하), 시니어(만 60세 이상), 장애인 중 해당되는 게 있으신가요?",
+  certification:
+    "보유하신 기업 인증·확인서가 있나요? (예: 벤처기업, 이노비즈, 메인비즈, 기업부설연구소, 여성·장애인기업)",
+  prior_award:
+    "최근 3년 안에 정부 지원사업이나 정책자금을 받으신 적이 있나요? 있다면 사업명과 연도를 알려주세요.",
+  ip: "특허·실용신안·상표 같은 지식재산권을 보유하고 계신가요? 몇 건인지 알려주세요.",
+  target_type: "사업자 등록을 이미 마치셨나요, 아니면 아직 준비 중인 예비창업자이신가요?",
+
+  // ── 납세 결격 ──
+  tax_compliance:
+    "세금 체납이 있으신가요? 국세·지방세·관세·4대보험료 중 밀린 게 있으면 알려주세요. 없으면 '없음'이라고 답해 주세요.",
+  "tax_compliance.national_tax_delinquent": "국세(법인세·부가세·소득세 등)를 체납 중인 게 있으신가요?",
+  "tax_compliance.local_tax_delinquent": "지방세(주민세·재산세 등)를 체납 중인 게 있으신가요?",
+  "tax_compliance.customs_delinquent": "수입 관세를 체납 중인 게 있으신가요?",
+  "tax_compliance.social_insurance_delinquent": "국민연금·건강보험 등 4대보험료가 밀려 있으신가요?",
+
+  // ── 신용 결격 ──
+  credit_status:
+    "신용 관련 결격 사유가 있으신가요? (금융 연체, 채무불이행, 부도, 기업회생·파산·법정관리 등) 없으면 '없음'이라고 답해 주세요.",
+  "credit_status.credit_delinquency": "금융기관 대출·카드 등에서 연체 중인 게 있으신가요?",
+  "credit_status.loan_default": "대출금을 갚지 못해 채무불이행(대위변제 등) 상태인 게 있으신가요?",
+  "credit_status.bond_default": "발행한 어음·수표가 부도나 당좌거래가 정지된 적이 있나요?",
+  "credit_status.rehabilitation_in_progress": "현재 기업회생(법정관리) 절차가 진행 중인가요?",
+  "credit_status.bankruptcy_filed": "파산을 신청했거나 파산 절차가 진행 중인가요?",
+  "credit_status.court_receivership": "법원 관리(법정관리·워크아웃)를 받고 계신가요?",
+  "credit_status.financial_misconduct": "금융질서 문란(금융사고) 관련 등록 이력이 있으신가요?",
+  "credit_status.asset_seizure": "회사 자산에 압류·가압류가 걸려 있나요?",
+  "credit_status.guarantee_restricted": "신용보증기금·기술보증기금 등에서 보증제한을 받고 계신가요?",
+
+  // ── 제재·명단 결격 ──
+  sanction:
+    "정부·공공사업 관련 제재나 명단 등재 이력이 있으신가요? (부정당업자 제재, 임금체불 명단, 중대재해, 보조금 부정수급 등) 없으면 '없음'이라고 답해 주세요.",
+  "sanction.participation_restricted": "공공조달에서 부정당업자로 참가제한 제재를 받은 적이 있나요?",
+  "sanction.wage_arrears_listed": "임금체불 사업주 명단에 오른 적이 있나요?",
+  "sanction.serious_accident_listed": "중대재해가 발생했거나 명단이 공표된 적이 있나요?",
+  "sanction.subsidy_fraud": "보조금을 부정하게 받아 제재된 이력이 있나요?",
+  "sanction.subsidy_law_violation": "보조금 관리법을 위반한 이력이 있나요?",
+  "sanction.obligation_breach": "지원사업의 의무 사항을 위반한 이력이 있나요?",
+  "sanction.agreement_breach": "협약(약정) 위반으로 제재받은 이력이 있나요?",
+
+  // ── 재무건전성 ──
+  financial_health:
+    "재무 상태를 여쭐게요. 현재 자본잠식 상태인가요? 자본총계(순자산)를 아시면 대략 얼마인지 알려주세요.",
+  "financial_health.impairment":
+    "현재 자본잠식(자본총계가 자본금보다 적은 상태)인가요? '없음/부분/완전' 중 하나로 알려주세요.",
+  "financial_health.equity_krw": "재무제표상 자본총계(순자산)가 대략 얼마인가요? (억원)",
+
+  // ── 고용보험 가입 ──
+  insured_workforce: "고용 관련해서요. 최근 1년 안에 인위적인 감원(구조조정 해고)이 있었나요?",
+  "insured_workforce.no_layoff": "최근 1년 안에 정리해고 등 인위적인 감원이 있었나요?",
+
+  // ── 투자 유치 ──
+  investment:
+    "투자 유치 이력이 있으신가요? 누적 투자금, 최근 라운드(예: Seed·Series A), TIPS 선정 여부를 알려주세요.",
+  "investment.tips_backed": "TIPS(민간투자주도형 기술창업지원)에 선정된 적이 있나요?",
+  "investment.total_raised_krw": "지금까지 유치한 누적 투자금은 대략 얼마인가요? (억원)",
+  "investment.last_round": "가장 최근에 진행한 투자 라운드는 무엇인가요? (예: Seed, Pre-A, Series A)",
+
+  // ── 기타 ──
+  other: "그 외에 지원 자격에 영향을 줄 만한 특이사항이 있으면 알려주세요.",
+};
 
 interface AxisQna {
   answered: boolean;
