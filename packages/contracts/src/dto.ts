@@ -488,6 +488,38 @@ export interface QuestionRangeOptionDto {
   unit: "krw" | "people";
 }
 
+/** 프로필 한 필드 저장 전후의 동일 공고 집합 판정 변화. 선정 가능성 예측이 아니다. */
+export interface ProfileUpdateImpactDto {
+  scope: "active_grant_window";
+  windowLimit: number;
+  dimension: CriterionDimension;
+  evaluatedGrantCount: number;
+  targetedConditionalCount: number;
+  dimensionResolvedGrantCount: number;
+  eligibilityResolvedCount: number;
+  conditionalToEligibleCount: number;
+  conditionalToIneligibleCount: number;
+  remainingConditionalCount: number;
+  conditionalResolutionRate: number | null;
+  transitionCounts: Record<string, number>;
+  /** 저장이 필요한 match state만 고른 scoped refresh 대상. */
+  changedMatchStateCount: number;
+  refreshGrantIds: string[];
+}
+
+export interface ProfileQuestionRefreshDto {
+  scope: "company_dimension";
+  plannedCount: number;
+  savedCount: number;
+}
+
+export interface ProfileQuestionEventReceiptDto {
+  id: string;
+  sessionId: string;
+  recordedAt: string;
+  persisted: boolean;
+}
+
 export interface ActionQueueItem {
   id: string;
   kind: ActionQueueKind;

@@ -75,5 +75,7 @@ export * from "./use-cases/build-stats.js";
 export * from "./use-cases/build-teaser.js";
 export * from "./use-cases/match-card.js";
 export * from "./use-cases/plan-match-state-refresh.js";
+export * from "./use-cases/evaluate-profile-update-impact.js";
+export * from "./use-cases/plan-scoped-match-state-refresh.js";
 export * from "./use-cases/plan-match-transitions.js";
 export * from "./use-cases/select-match-cards.js";
