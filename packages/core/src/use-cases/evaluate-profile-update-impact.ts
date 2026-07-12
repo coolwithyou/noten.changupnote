@@ -52,7 +52,7 @@ export function evaluateProfileUpdateImpact<TPayload>(
   const eligibilityResolvedCount = conditionalToEligibleCount + conditionalToIneligibleCount;
   return {
     scope: "active_grant_window",
-    windowLimit: input.windowLimit ?? input.grants.length,
+    windowLimit: input.grants.length === 0 ? 0 : input.windowLimit ?? input.grants.length,
     dimension: input.dimension,
     evaluatedGrantCount: input.grants.length,
     targetedConditionalCount,

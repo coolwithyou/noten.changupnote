@@ -75,6 +75,23 @@ const noTarget = evaluateProfileUpdateImpact({
 assert.equal(noTarget.targetedConditionalCount, 0);
 assert.equal(noTarget.conditionalResolutionRate, null);
 
+const emptyWindow = evaluateProfileUpdateImpact({
+  grants: [],
+  beforeProfile,
+  afterProfile,
+  dimension: "revenue",
+  windowLimit: 100,
+});
+assert.equal(emptyWindow.evaluatedGrantCount, 0);
+assert.equal(emptyWindow.windowLimit, 0, "빈 평가 집합은 요청 상한과 무관하게 실제 window 0을 보고한다");
+assert.equal(emptyWindow.targetedConditionalCount, 0);
+assert.equal(emptyWindow.dimensionResolvedGrantCount, 0);
+assert.equal(emptyWindow.eligibilityResolvedCount, 0);
+assert.equal(emptyWindow.changedMatchStateCount, 0);
+assert.deepEqual(emptyWindow.refreshGrantIds, []);
+assert.deepEqual(emptyWindow.transitionCounts, {});
+assert.equal(emptyWindow.conditionalResolutionRate, null, "0/0을 숫자나 NaN으로 만들지 않는다");
+
 const industryGrant = grant("industry-positive-only", [{
   dimension: "industry",
   kind: "required",
