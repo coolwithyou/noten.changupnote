@@ -6,6 +6,9 @@ import {
   checkFscCorpFinance,
   checkFscPersonalFinance,
   checkKcomwelEmployment,
+  checkKiprisApplicant,
+  checkKiprisRights,
+  checkStartupConfirmation,
   checkNiceCorpCredit,
   checkNiceCorpIndicator,
   DISQUALIFICATION_EXCEPTION_LABELS,
@@ -28,6 +31,10 @@ import type {
   SmppCertificates,
   VatBaseFacts,
   EvidenceSourceKind,
+  KiprisApplicantMatch,
+  KiprisRightsSummary,
+  StartupConfirmationLookup,
+  DartFinancialSnapshot,
 } from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
 import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
@@ -37,6 +44,11 @@ import {
   loadApickBizDetailCompanyProfile,
 } from "./apickBizDetail";
 import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
+import {
+  resolveDartCompanyBridge,
+  type DartCompanyBridgeLookup,
+} from "./dartCompanyBridge";
+import { resolveLatestDartOverlay } from "./dartOverlay";
 import {
   applySmppCertificatesToProfile,
   getServiceRepositories,
@@ -128,11 +140,17 @@ export type SubjectType = "corporation" | "individual" | "unknown";
  */
 export type FieldCoverageStatus = "self-declared" | "pending" | "live" | "cache" | "failed" | "n/a";
 
+/** 커넥터 호출 결과의 의미. status와 분리해 정상 빈값·전제 미충족·API 오류를 구별한다. */
+export type ConnectorOutcome = "value" | "empty" | "prerequisite" | "error";
+
 /** 라이브/추론 원천 참조(배지용). */
 export type FieldSourceRef =
   | ServiceDataFieldSource
   | "derived"
   | "kcomwel"
+  | "kipris"
+  | "kised"
+  | "dart"
   | "fsc"
   | "nice"
   | "codef"
@@ -140,7 +158,7 @@ export type FieldSourceRef =
 
 /**
  * Phase 2 커넥터가 상태 판정 함수에 넘기는 결과. Phase 1 에선 항상 null 이라 외부소스는 pending 고정.
- * - ok=false | empty | schemaMismatch → computeFieldStatus 가 failed 로 전이.
+ * - empty → 정상 빈값(pending), ok=false | schemaMismatch → failed 로 전이.
  * - skipped=true → 조회 전제 미충족(법인번호 없음 등)이라 pending 유지(crash/failed 아님).
  * - ok=true → live. value/confidence/source 는 화면 표시에 사용된다.
  */
@@ -150,6 +168,8 @@ export interface ConnectorResult {
   schemaMismatch?: boolean;
   /** 조회 전제 미충족 → pending 유지(failed 금지). */
   skipped?: boolean;
+  /** 30일 캐시 등 외부 커넥터 자체 캐시 출처. 미지정이면 live. */
+  origin?: ServiceDataTraceOrigin;
   reason?: string;
   value?: string | null;
   confidence?: number | null;
@@ -181,9 +201,11 @@ export interface FieldCoverageRow {
   /** 계획 소스 라벨(소싱 설계 §4). 라이브가 아니어도 항상 노출. */
   plannedSource: string;
   status: FieldCoverageStatus;
+  /** 외부 조회 결과의 의미. 정상 빈값을 failed와 구분하는 표시·진단용 메타데이터. */
+  connectorOutcome: ConnectorOutcome | null;
   value: string | null;
   confidence: number | null;
-  /** 라이브/캐시일 때 실제 원천, 그 외 null. */
+  /** 실제 원천. 정상 빈값·조회 실패도 호출한 원천을 알 수 있으면 보존한다. */
   source: FieldSourceRef | null;
   /** 공식 API/공개명단/인증입력/자가응답/파생값의 의미 분류. */
   sourceKind: EvidenceSourceKind | null;
@@ -454,7 +476,7 @@ async function lookupServiceDataOnce(
   const fieldSource = (key: string, available: boolean): ServiceDataFieldSource | null => {
     if (!available) return null;
     if (key === "business_status") {
-      if (ntsClosed) return "nts";
+      if (ntsStatus) return "nts";
       return hasPopbill ? "popbill" : null;
     }
     if (key === "certification") {
@@ -474,12 +496,17 @@ async function lookupServiceDataOnce(
   // evidence.fields 는 파이프라인이 최종 프로필로 계산한 10개 축(키/라벨/값/available)이라 그대로 재사용한다.
   const asOfBySource = asOfBySourceFromTrace(trace);
   const fields: ServiceDataField[] = (evidence?.fields ?? []).map((field) => {
-    const source = fieldSource(field.key, field.available);
+    const ntsBusinessStatus =
+      field.key === "business_status" && ntsStatus
+        ? ntsClosed ?? ntsStatus.b_stt?.trim() ?? field.value
+        : null;
+    const available = field.available || Boolean(ntsBusinessStatus);
+    const source = fieldSource(field.key, available);
     return {
       key: field.key,
       label: field.label,
-      value: field.value,
-      available: field.available,
+      value: ntsBusinessStatus ?? field.value,
+      available,
       source,
       confidence: confidenceFor(field.key),
       asOf: source ? asOfBySource.get(source) ?? null : null,
@@ -738,7 +765,7 @@ const FIELD_COVERAGE_PLAN: readonly CoveragePlanEntry[] = [
   planRow({ key: "employees", dimension: "employees", label: "상시근로자", tier: "A", plannedSource: "근로복지공단 15059256 · 자가신고", liveKey: "employees", envKeys: ENV_KCOMWEL, selfDeclarable: true }),
   planRow({ key: "founder_age", dimension: "founder_age", label: "대표자 연령", tier: "B", plannedSource: "CODEF 간편인증 · 자가신고", liveKey: "founder_age", envKeys: ENV_CODEF, selfDeclarable: true }),
   planRow({ key: "founder_trait", dimension: "founder_trait", label: "대표자 특성", tier: "A", plannedSource: "SMPP(여성·장애인) · 자가신고(청년·시니어)", derived: "founder_trait", selfDeclarable: true }),
-  planRow({ key: "certification", dimension: "certification", label: "보유 인증·확인서", tier: "A", plannedSource: "SMPP + 공개명단 배치 · 자가신고", liveKey: "certification", selfDeclarable: true }),
+  planRow({ key: "certification", dimension: "certification", label: "보유 인증·확인서", tier: "A", plannedSource: "SMPP + 창업진흥원 exact + 공개명단 배치 · 자가신고", liveKey: "certification", selfDeclarable: true }),
   planRow({ key: "prior_award", dimension: "prior_award", label: "수혜 이력", tier: "B", plannedSource: "통합 API 없음 · 자가신고", selfDeclarable: true }),
   planRow({ key: "ip", dimension: "ip", label: "지식재산권", tier: "B", plannedSource: "KIPRIS Plus · 자가신고", envKeys: ENV_KIPRIS, selfDeclarable: true }),
   planRow({ key: "target_type", dimension: "target_type", label: "대상 유형(법인/개인)", tier: "A", plannedSource: "사업자번호 추론 · 자가신고(예비창업)", derived: "target_type", selfDeclarable: true }),
@@ -885,10 +912,13 @@ export function computeFieldStatus(input: {
       if (result.skipped) {
         return { status: "pending", note: result.reason ?? "조회 전제 미충족" };
       }
-      if (!result.ok || result.empty || result.schemaMismatch) {
-        return { status: "failed", note: result.reason ?? "응답 에러 · 빈값 · 스키마 불일치" };
+      if (result.empty) {
+        return { status: "pending", note: result.reason ?? "정상 응답 · 조회 결과 없음" };
       }
-      return { status: "live", note: null };
+      if (!result.ok || result.schemaMismatch) {
+        return { status: "failed", note: result.reason ?? "API 오류 · 스키마 불일치" };
+      }
+      return { status: result.origin === "cache" ? "cache" : "live", note: null };
     }
     // Phase 1: 커넥터 미배선 → pending 고정.
     if (input.external.batch) return { status: "pending", note: "배치 파이프라인 · Phase 2 배선 예정" };
@@ -952,6 +982,7 @@ export function buildFieldCoverage(input: {
     }
 
     const connectorResult = input.connectorResults?.get(entry.key) ?? null;
+    const connectorOutcome = connectorOutcomeOf(connectorResult);
     // CODEF 국세청 확정값은 최우선(handoff §5: codef > popbill/apick > derived/자가신고).
     // 팝빌 라이브키나 derived(target_type·founder_trait)가 먼저 채워도, codef 커넥터 결과가 있으면
     // 그 행을 국세청(CODEF)로 덮어쓴다. envKeys 게이팅과 무관하게(라이브키/파생축 포함) 병합된다.
@@ -1003,6 +1034,10 @@ export function buildFieldCoverage(input: {
         }
       }
     }
+    if (entry.key === "certification" && connectorResult && !connectorResult.ok && !live?.available) {
+      rowNote = connectorResult.reason ?? rowNote;
+      if (!connectorResult.empty && !connectorResult.skipped) effectiveStatus = "failed";
+    }
     const isLive = effectiveStatus === "live" || effectiveStatus === "cache";
     const positiveOnlyAxis =
       !entry.parentKey &&
@@ -1023,6 +1058,7 @@ export function buildFieldCoverage(input: {
         plannedSource: entry.plannedSource,
         selfDeclarable: entry.selfDeclarable,
         status: "cache",
+        connectorOutcome: "value",
         value: codefOverride.value ?? null,
         confidence: codefOverride.confidence ?? null,
         source: "codef",
@@ -1050,17 +1086,19 @@ export function buildFieldCoverage(input: {
       plannedSource: entry.plannedSource,
       selfDeclarable: entry.selfDeclarable,
       status: effectiveStatus,
+      connectorOutcome:
+        connectorOutcome ?? (effectiveStatus === "live" || effectiveStatus === "cache" ? "value" : null),
       value: isLive ? value : null,
       confidence: isLive ? confidence : null,
-      source: isLive ? source : null,
+      source: isLive ? source : connectorResult?.source ?? null,
       sourceKind: isLive
         ? (!live?.available ? connectorResult?.sourceKind : undefined) ?? classifyEvidenceSourceKind({
             provider: source,
             dimension: entry.dimension,
             status: effectiveStatus,
           })
-        : null,
-      asOf: isLive ? asOf : null,
+        : connectorResult?.sourceKind ?? null,
+      asOf: isLive ? asOf : connectorResult?.asOf ?? null,
       axisCompleteness:
         connectorResult?.axisCompleteness ??
         (positiveOnlyAxis
@@ -1072,6 +1110,14 @@ export function buildFieldCoverage(input: {
       note: rowNote,
     };
   });
+}
+
+function connectorOutcomeOf(result: ConnectorResult | null): ConnectorOutcome | null {
+  if (!result) return null;
+  if (result.skipped) return "prerequisite";
+  if (result.empty) return "empty";
+  if (result.ok) return "value";
+  return "error";
 }
 
 /** 인증 라벨 문자열(", " 구분)의 합집합. a 비면 b, 중복 제거·등장순 유지. */
@@ -1139,15 +1185,429 @@ export async function runExternalConnectors(input: {
     loadMonorepoEnv();
   }
   const results = new Map<string, ConnectorResult>();
+  const niceResults = new Map<string, ConnectorResult>();
+  const codefResults = new Map<string, ConnectorResult>();
+  const fscResults = new Map<string, ConnectorResult>();
+  const dartResults = new Map<string, ConnectorResult>();
+  const startupResults = new Map<string, ConnectorResult>();
+  const dartBridge = resolveDartBridgeForFinance(input);
   await Promise.all([
     runKcomwelConnector(input.bizNo, results),
-    runFscCorpFinanceConnector(input, results),
-    runFscPersonalFinanceConnector(input, results),
-    runNiceConnector(input, results),
-    runCodefConnector(input.bizNo, results),
+    runKiprisConnector(input.bizNo, results),
+    dartBridge.then((bridge) => runFscCorpFinanceConnector(input, fscResults, bridge)),
+    dartBridge.then((bridge) => runDartOverlayConnector(input, dartResults, bridge)),
+    runFscPersonalFinanceConnector(input, fscResults),
+    runNiceConnector(input, niceResults),
+    runCodefConnector(input.bizNo, codefResults),
     runRegistryConnector(input, results),
+    runStartupConfirmationConnector(input.bizNo, startupResults),
   ]);
+  mergeNiceAndCodefConnectorResults(results, niceResults, codefResults);
+  mergeFscConnectorResults(results, fscResults);
+  mergeDartConnectorResults(results, dartResults);
+  mergeCertificationConnectorResult(results, startupResults.get("certification"));
   return results;
+}
+
+function mergeNiceAndCodefConnectorResults(
+  results: Map<string, ConnectorResult>,
+  niceResults: Map<string, ConnectorResult>,
+  codefResults: Map<string, ConnectorResult>,
+): void {
+  for (const [key, result] of niceResults) results.set(key, result);
+  for (const [key, incoming] of codefResults) {
+    const existing = results.get(key);
+    if (incoming.ok || !existing?.ok) results.set(key, incoming);
+  }
+}
+
+interface DartBridgeResolution {
+  lookup: DartCompanyBridgeLookup | null;
+  error: string | null;
+}
+
+async function resolveDartBridgeForFinance(input: {
+  bizNo: string;
+  subject: SubjectType;
+  profile: CompanyProfile | null;
+}): Promise<DartBridgeResolution> {
+  if (input.subject !== "corporation") {
+    return { lookup: null, error: null };
+  }
+  const apiKey = process.env.OPENDART_API_KEY?.trim();
+  const companyName = input.profile?.name?.trim();
+  if (!apiKey || !companyName) return { lookup: null, error: null };
+  try {
+    const lookup = await resolveDartCompanyBridge({
+      apiKey,
+      bizNo: input.bizNo,
+      companyName,
+      cache: getServiceRepositories().enrichmentCache,
+    });
+    return { lookup, error: null };
+  } catch (error) {
+    return { lookup: null, error: connectorErrorReason(error) };
+  }
+}
+
+/** 표시값 우선순위: 재무 CODEF > DART > 금융위 > NICE, 직원 근로복지공단 > DART. */
+function mergeDartConnectorResults(
+  results: Map<string, ConnectorResult>,
+  dartResults: Map<string, ConnectorResult>,
+): void {
+  for (const [key, incoming] of dartResults) {
+    const existing = results.get(key);
+    if (!existing) {
+      results.set(key, incoming);
+      continue;
+    }
+    if (existing.source === "codef") continue;
+    if (key === "employees" && existing.source === "kcomwel" && existing.ok) continue;
+    if (incoming.ok || !existing.ok) results.set(key, incoming);
+  }
+}
+
+function mergeFscConnectorResults(
+  results: Map<string, ConnectorResult>,
+  fscResults: Map<string, ConnectorResult>,
+): void {
+  for (const [key, incoming] of fscResults) {
+    const existing = results.get(key);
+    if (!existing) {
+      results.set(key, incoming);
+      continue;
+    }
+    if (existing.source === "codef") continue;
+    if (incoming.ok || !existing.ok) results.set(key, incoming);
+  }
+}
+
+const STARTUP_CONFIRMATION_CACHE = { provider: "kised", scope: "startup-confirmation" } as const;
+const STARTUP_CONFIRMATION_CACHE_TTL_MS = 24 * 60 * 60 * 1_000;
+const inflightStartupConfirmationLookups = new Map<string, Promise<StartupConfirmationLookup>>();
+
+async function runStartupConfirmationConnector(
+  bizNo: string,
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  const serviceKey = resolveDataGoKrServiceKey("CUNOTE_KISED_CERT_SERVICE_KEY");
+  if (!serviceKey) return;
+  const cache = getServiceRepositories().enrichmentCache;
+  const now = new Date();
+  const cached = await cache.getFresh({
+    provider: STARTUP_CONFIRMATION_CACHE.provider,
+    bizNo,
+    scope: STARTUP_CONFIRMATION_CACHE.scope,
+    now,
+  }).catch(() => null);
+  const cachedLookup = readStartupConfirmationCache(cached?.canonicalPayload);
+  if (cached && cachedLookup) {
+    results.set("certification", startupConfirmationResult(cachedLookup, "cache", cacheEntryAsOf(cached)));
+    return;
+  }
+
+  try {
+    const lookup = await coalesceStartupConfirmationLookup(bizNo, () =>
+      checkStartupConfirmation({ serviceKey, bizNo, now }),
+    );
+    const checkedAt = new Date();
+    await cache.put({
+      provider: STARTUP_CONFIRMATION_CACHE.provider,
+      bizNo,
+      scope: STARTUP_CONFIRMATION_CACHE.scope,
+      canonicalPayload: lookup as unknown as Record<string, unknown>,
+      providerResultCode: lookup.state === "active" ? "00" : "03",
+      providerResultMessage: lookup.state,
+      checkedAt,
+      fetchedAt: checkedAt,
+      expiresAt: new Date(checkedAt.getTime() + STARTUP_CONFIRMATION_CACHE_TTL_MS),
+    }).catch(() => null);
+    results.set("certification", startupConfirmationResult(lookup, "live", checkedAt.toISOString()));
+  } catch (error) {
+    results.set("certification", {
+      ok: false,
+      reason: connectorErrorReason(error),
+      source: "kised",
+      sourceKind: "authoritative_api",
+      asOf: now.toISOString(),
+    });
+  }
+}
+
+export function coalesceStartupConfirmationLookup(
+  bizNo: string,
+  run: () => Promise<StartupConfirmationLookup>,
+): Promise<StartupConfirmationLookup> {
+  const existing = inflightStartupConfirmationLookups.get(bizNo);
+  if (existing) return existing;
+  const task = run().finally(() => {
+    if (inflightStartupConfirmationLookups.get(bizNo) === task) {
+      inflightStartupConfirmationLookups.delete(bizNo);
+    }
+  });
+  inflightStartupConfirmationLookups.set(bizNo, task);
+  return task;
+}
+
+function startupConfirmationResult(
+  lookup: StartupConfirmationLookup,
+  origin: ServiceDataTraceOrigin,
+  asOf: string | null,
+): ConnectorResult {
+  const record = lookup.record;
+  const meta = {
+    origin,
+    source: "kised" as const,
+    sourceKind: "authoritative_api" as const,
+    asOf,
+    axisCompleteness: "partial" as const,
+  };
+  if (lookup.state === "active" && record) {
+    return {
+      ok: true,
+      ...meta,
+      value: `창업기업확인서 (유효 ~${formatDateKey(record.expiresOn)})`,
+      confidence: 0.95,
+      note: "창업진흥원 사업자번호 exact",
+    };
+  }
+  if (lookup.state === "expired" && record) {
+    return { ok: false, empty: true, ...meta, reason: `창업기업확인서 만료 (${formatDateKey(record.expiresOn)})` };
+  }
+  if (lookup.state === "future" && record) {
+    return { ok: false, empty: true, ...meta, reason: `창업기업확인서 발급예정 (${formatDateKey(record.issuedOn)})` };
+  }
+  if (lookup.state === "invalid") {
+    return { ok: false, schemaMismatch: true, ...meta, reason: "창업기업확인서 유효기간 필드 누락" };
+  }
+  return { ok: false, empty: true, ...meta, reason: "창업기업확인서 exact 조회 결과 없음" };
+}
+
+function readStartupConfirmationCache(
+  value: Record<string, unknown> | null | undefined,
+): StartupConfirmationLookup | null {
+  if (!value || !["active", "expired", "future", "invalid", "none"].includes(String(value.state))) return null;
+  const exactRecordCount = typeof value.exactRecordCount === "number" ? value.exactRecordCount : 0;
+  const rawRecord = value.record;
+  if (!rawRecord || typeof rawRecord !== "object") {
+    return { state: value.state as StartupConfirmationLookup["state"], record: null, exactRecordCount };
+  }
+  const record = rawRecord as Record<string, unknown>;
+  if (typeof record.businessRegistrationNumber !== "string") return null;
+  const stringOrNull = (input: unknown): string | null => typeof input === "string" ? input : null;
+  return {
+    state: value.state as StartupConfirmationLookup["state"],
+    exactRecordCount,
+    record: {
+      businessRegistrationNumber: record.businessRegistrationNumber,
+      corporateRegistrationNumber: stringOrNull(record.corporateRegistrationNumber),
+      companyName: stringOrNull(record.companyName),
+      companyType: stringOrNull(record.companyType),
+      certificateNumber: stringOrNull(record.certificateNumber),
+      issuedOn: stringOrNull(record.issuedOn),
+      expiresOn: stringOrNull(record.expiresOn),
+    },
+  };
+}
+
+function mergeCertificationConnectorResult(
+  results: Map<string, ConnectorResult>,
+  startup: ConnectorResult | undefined,
+): void {
+  if (!startup) return;
+  const existing = results.get("certification");
+  if (!existing || !existing.ok) {
+    results.set("certification", startup);
+    return;
+  }
+  if (!startup.ok || !startup.value) return;
+  results.set("certification", {
+    ...startup,
+    value: mergeCertLabels(existing.value ?? null, startup.value),
+    confidence: Math.max(existing.confidence ?? 0, startup.confidence ?? 0),
+  });
+}
+
+function formatDateKey(value: string | null): string {
+  if (!value || value.length !== 8) return "날짜 미상";
+  return `${value.slice(0, 4)}-${value.slice(4, 6)}-${value.slice(6, 8)}`;
+}
+
+const KIPRIS_CACHE = { provider: "kipris", scope: "applicant-business-number" } as const;
+const KIPRIS_CACHE_TTL_MS = 31 * 24 * 60 * 60 * 1_000;
+const inflightKiprisLookups = new Map<string, Promise<KiprisApplicantMatch | null>>();
+
+interface KiprisApplicantCachePayload {
+  version: 2;
+  found: boolean;
+  match: KiprisApplicantMatch | null;
+  rights: KiprisRightsSummary | null;
+}
+
+/** KIPRISPlus 사업자번호 exact → 공개·등록 출원 이력. 31일 캐시와 사업자별 single-flight 적용. */
+async function runKiprisConnector(
+  bizNo: string,
+  results: Map<string, ConnectorResult>,
+): Promise<void> {
+  const accessKey = process.env.KIPRIS_SERVICE_KEY?.trim();
+  if (!accessKey) return;
+
+  const cache = getServiceRepositories().enrichmentCache;
+  const now = new Date();
+  const cached = await cache.getFresh({
+    provider: KIPRIS_CACHE.provider,
+    bizNo,
+    scope: KIPRIS_CACHE.scope,
+    now,
+  }).catch(() => null);
+  const cachedPayload = readKiprisCachePayload(cached?.canonicalPayload);
+  if (cached && cachedPayload) {
+    results.set("ip", kiprisConnectorResult(cachedPayload.match, cachedPayload.rights, "cache", cacheEntryAsOf(cached)));
+    return;
+  }
+
+  try {
+    const match = await coalesceKiprisLookup(bizNo, () => checkKiprisApplicant({ accessKey, bizNo }));
+    let rights: KiprisRightsSummary | null = null;
+    if (match) {
+      try {
+        rights = await checkKiprisRights({ accessKey, applicantNumber: match.applicantNumber });
+      } catch (error) {
+        results.set("ip", {
+          ...kiprisConnectorResult(match, null, "live", now.toISOString()),
+          note: `KIPRISPlus exact · 권리별 조회 실패: ${connectorErrorReason(error)}`,
+        });
+        return;
+      }
+    }
+    const checkedAt = new Date();
+    const payload: KiprisApplicantCachePayload = { version: 2, found: match !== null, match, rights };
+    await cache.put({
+      provider: KIPRIS_CACHE.provider,
+      bizNo,
+      scope: KIPRIS_CACHE.scope,
+      canonicalPayload: payload as unknown as Record<string, unknown>,
+      providerResultCode: match ? "00" : "03",
+      providerResultMessage: match ? "exact applicant match" : "no public/registered applicant match",
+      checkedAt,
+      fetchedAt: checkedAt,
+      expiresAt: new Date(checkedAt.getTime() + KIPRIS_CACHE_TTL_MS),
+    }).catch(() => null);
+    results.set("ip", kiprisConnectorResult(match, rights, "live", checkedAt.toISOString()));
+  } catch (error) {
+    results.set("ip", {
+      ok: false,
+      reason: connectorErrorReason(error),
+      source: "kipris",
+      sourceKind: "authoritative_api",
+      asOf: now.toISOString(),
+    });
+  }
+}
+
+export function coalesceKiprisLookup(
+  bizNo: string,
+  run: () => Promise<KiprisApplicantMatch | null>,
+): Promise<KiprisApplicantMatch | null> {
+  const existing = inflightKiprisLookups.get(bizNo);
+  if (existing) return existing;
+  const task = run().finally(() => {
+    if (inflightKiprisLookups.get(bizNo) === task) inflightKiprisLookups.delete(bizNo);
+  });
+  inflightKiprisLookups.set(bizNo, task);
+  return task;
+}
+
+function kiprisConnectorResult(
+  match: KiprisApplicantMatch | null,
+  rights: KiprisRightsSummary | null,
+  origin: ServiceDataTraceOrigin,
+  asOf: string | null,
+): ConnectorResult {
+  if (!match) {
+    return {
+      ok: false,
+      empty: true,
+      origin,
+      reason: "공개·등록 출원인 법인 목록에서 조회되지 않음 · 미공개 출원/IP 부재 확정 아님",
+      source: "kipris",
+      sourceKind: "authoritative_api",
+      asOf,
+      axisCompleteness: "partial",
+    };
+  }
+  if (rights) {
+    const label = (name: string, summary: KiprisRightsSummary["patentUtility"]): string =>
+      `${name} ${summary.totalCount.toLocaleString("ko-KR")}건` +
+      ` (출원 ${summary.appliedCount.toLocaleString("ko-KR")} · 공개 ${summary.publishedCount.toLocaleString("ko-KR")} · 등록 ${summary.registeredCount.toLocaleString("ko-KR")} · 소멸 ${summary.extinguishedCount.toLocaleString("ko-KR")})`;
+    return {
+      ok: true,
+      origin,
+      value: [
+        label("특허·실용", rights.patentUtility),
+        label("디자인", rights.design),
+        label("상표", rights.trademark),
+      ].join(" · "),
+      confidence: rights.truncated ? 0.85 : 0.95,
+      source: "kipris",
+      sourceKind: "authoritative_api",
+      asOf,
+      axisCompleteness: "partial",
+      note: rights.truncated
+        ? `KIPRISPlus 특허고객번호 exact · 전체 ${rights.totalCount.toLocaleString("ko-KR")}건 · 500건 초과 권리 상태 일부 집계`
+        : `KIPRISPlus 특허고객번호 exact · 전체 ${rights.totalCount.toLocaleString("ko-KR")}건`,
+    };
+  }
+  return {
+    ok: true,
+    origin,
+    value: `공개·등록 출원 이력 있음 · 특허고객번호 ${match.applicantNumber}`,
+    confidence: 0.9,
+    source: "kipris",
+    sourceKind: "authoritative_api",
+    asOf,
+    axisCompleteness: "partial",
+    note: "KIPRISPlus 사업자번호 exact · 권리별 건수 후속 배선",
+  };
+}
+
+function readKiprisCachePayload(
+  value: Record<string, unknown> | null | undefined,
+): KiprisApplicantCachePayload | null {
+  if (!value || value.version !== 2 || typeof value.found !== "boolean") return null;
+  const match = value.match;
+  if (!value.found) return { version: 2, found: false, match: null, rights: null };
+  if (!match || typeof match !== "object") return null;
+  const candidate = match as Partial<KiprisApplicantMatch>;
+  if (typeof candidate.applicantNumber !== "string" || typeof candidate.businessRegistrationNumber !== "string") {
+    return null;
+  }
+  const rights = readKiprisRightsCache(value.rights);
+  if (!rights) return null;
+  return {
+    version: 2,
+    found: true,
+    match: {
+      applicantNumber: candidate.applicantNumber,
+      applicantName: typeof candidate.applicantName === "string" ? candidate.applicantName : null,
+      corporationNumber: typeof candidate.corporationNumber === "string" ? candidate.corporationNumber : null,
+      businessRegistrationNumber: candidate.businessRegistrationNumber,
+    },
+    rights,
+  };
+}
+
+function readKiprisRightsCache(value: unknown): KiprisRightsSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Partial<KiprisRightsSummary>;
+  const valid = (summary: unknown): summary is KiprisRightsSummary["patentUtility"] => {
+    if (!summary || typeof summary !== "object") return false;
+    const row = summary as Record<string, unknown>;
+    return typeof row.totalCount === "number" && typeof row.fetchedCount === "number";
+  };
+  if (!valid(candidate.patentUtility) || !valid(candidate.design) || !valid(candidate.trademark)) return null;
+  if (typeof candidate.totalCount !== "number" || typeof candidate.truncated !== "boolean") return null;
+  return candidate as KiprisRightsSummary;
 }
 
 /**
@@ -1277,10 +1737,18 @@ async function runKcomwelConnector(
   if (!serviceKey) return; // 키 없음 → pending 유지
   const employeesKey = "employees";
   const insuredKey = "insured_workforce.employment_insurance_active";
+  const checkedAt = new Date().toISOString();
   try {
     const summary = await checkKcomwelEmployment({ serviceKey, bizNo, kind: "employment" });
     if (!summary) {
-      const empty: ConnectorResult = { ok: false, empty: true, reason: "고용보험 가입 사업장 없음" };
+      const empty: ConnectorResult = {
+        ok: false,
+        empty: true,
+        reason: "고용보험 가입 사업장 없음",
+        source: "kcomwel",
+        sourceKind: "authoritative_api",
+        asOf: checkedAt,
+      };
       results.set(employeesKey, empty);
       results.set(insuredKey, empty);
       return;
@@ -1291,9 +1759,17 @@ async function runKcomwelConnector(
         value: `${summary.totalWorkers.toLocaleString("ko-KR")}명${summary.siteCount > 1 ? ` (${summary.siteCount}개 사업장)` : ""}`,
         confidence: 0.7,
         source: "kcomwel",
+        asOf: checkedAt,
       });
     } else {
-      results.set(employeesKey, { ok: false, empty: true, reason: "상시인원 미제공" });
+      results.set(employeesKey, {
+        ok: false,
+        empty: true,
+        reason: "상시인원 미제공",
+        source: "kcomwel",
+        sourceKind: "authoritative_api",
+        asOf: checkedAt,
+      });
     }
     const seongrip = summary.earliestSeongripDt
       ? `${summary.earliestSeongripDt.slice(0, 4)}-${summary.earliestSeongripDt.slice(4, 6)}-${summary.earliestSeongripDt.slice(6, 8)}`
@@ -1303,9 +1779,16 @@ async function runKcomwelConnector(
       value: summary.insuranceActive ? `성립${seongrip ? ` (${seongrip})` : ""}` : "미성립",
       confidence: 0.7,
       source: "kcomwel",
+      asOf: checkedAt,
     });
   } catch (error) {
-    const failed: ConnectorResult = { ok: false, reason: connectorErrorReason(error) };
+    const failed: ConnectorResult = {
+      ok: false,
+      reason: connectorErrorReason(error),
+      source: "kcomwel",
+      sourceKind: "authoritative_api",
+      asOf: checkedAt,
+    };
     results.set(employeesKey, failed);
     results.set(insuredKey, failed);
   }
@@ -1319,53 +1802,240 @@ const FSC_CORP_FIELD_KEYS = [
   "financial_health.equity_krw",
 ] as const;
 
+const DART_OVERLAY_FIELD_KEYS = [
+  "employees",
+  ...FSC_CORP_FIELD_KEYS,
+] as const;
+
+/** OpenDART 직원·주요계정 → 사업보고서 스냅샷. bridge miss면 상세 API를 호출하지 않는다. */
+async function runDartOverlayConnector(
+  input: { bizNo: string; subject: SubjectType; profile: CompanyProfile | null },
+  results: Map<string, ConnectorResult>,
+  dart: DartBridgeResolution,
+): Promise<void> {
+  if (input.subject !== "corporation") return;
+  const apiKey = process.env.OPENDART_API_KEY?.trim();
+  if (!apiKey) return;
+  if (dart.lookup?.state !== "covered" || !dart.lookup.bridge) {
+    if (!dart.error) return;
+    const failed: ConnectorResult = {
+      ok: false,
+      reason: `OpenDART 브리지 오류 · ${dart.error}`,
+      source: "dart",
+      sourceKind: "authoritative_api",
+      asOf: new Date().toISOString(),
+    };
+    for (const key of DART_OVERLAY_FIELD_KEYS) results.set(key, failed);
+    return;
+  }
+
+  const lookup = await resolveLatestDartOverlay({
+    apiKey,
+    bizNo: input.bizNo,
+    bridge: dart.lookup.bridge,
+    cache: getServiceRepositories().enrichmentCache,
+  });
+  const reportLabel = dartReportLabel(lookup.reportCode);
+  const employeeOrigin = lookup.employeeOrigin;
+  const financialOrigin = lookup.financialOrigin;
+
+  if (lookup.employee) {
+    const employee = lookup.employee;
+    if (employee.totalEmployees !== null) {
+      results.set("employees", {
+        ok: true,
+        value: `${employee.totalEmployees.toLocaleString("ko-KR")}명`,
+        confidence: 0.85,
+        source: "dart",
+        sourceKind: "authoritative_api",
+        origin: employeeOrigin,
+        asOf: employee.settlementDate,
+        axisCompleteness: "complete",
+        note: `OpenDART ${lookup.businessYear} ${reportLabel} 직원 현황`,
+      });
+    } else {
+      results.set("employees", dartEmptyResult(`OpenDART ${lookup.businessYear} ${reportLabel} 직원 수 미제공`, employeeOrigin));
+    }
+  } else if (lookup.employeeError) {
+    results.set("employees", dartErrorResult(lookup.employeeError));
+  } else {
+    results.set("employees", dartEmptyResult(`OpenDART ${lookup.businessYear} ${reportLabel} 직원 현황 없음`, employeeOrigin));
+  }
+
+  const finance = selectDartFinancialSnapshot(lookup.financials);
+  if (finance) {
+    writeDartFinancialResults(results, finance, reportLabel, financialOrigin);
+  } else if (lookup.financialError) {
+    const failed = dartErrorResult(lookup.financialError);
+    for (const key of FSC_CORP_FIELD_KEYS) results.set(key, failed);
+  } else {
+    const empty = dartEmptyResult(`OpenDART ${lookup.businessYear} ${reportLabel} 주요계정 없음`, financialOrigin);
+    for (const key of FSC_CORP_FIELD_KEYS) results.set(key, empty);
+  }
+}
+
+function selectDartFinancialSnapshot(financials: DartFinancialSnapshot[]): DartFinancialSnapshot | null {
+  return financials.find((snapshot) => snapshot.statementType === "CFS")
+    ?? financials.find((snapshot) => snapshot.statementType === "OFS")
+    ?? null;
+}
+
+function writeDartFinancialResults(
+  results: Map<string, ConnectorResult>,
+  snapshot: DartFinancialSnapshot,
+  reportLabel: string,
+  origin: ServiceDataTraceOrigin,
+): void {
+  const statementLabel = snapshot.statementType === "CFS" ? "연결" : "별도";
+  const note = `OpenDART ${snapshot.businessYear} ${reportLabel} · ${statementLabel}재무제표`;
+  const common = {
+    confidence: 0.9,
+    source: "dart" as const,
+    sourceKind: "authoritative_api" as const,
+    origin,
+    asOf: snapshot.periodEnd,
+    axisCompleteness: "complete" as const,
+    note,
+  };
+  setDartNumericField(results, "revenue", snapshot.revenue, common);
+  setDartNumericField(results, "financial_health.total_assets_krw", snapshot.totalAssets, common);
+  setDartNumericField(results, "financial_health.equity_krw", snapshot.totalEquity, common);
+
+  const debtRatio = snapshot.totalLiabilities !== null && snapshot.totalEquity !== null && snapshot.totalEquity !== 0
+    ? Math.round((snapshot.totalLiabilities / snapshot.totalEquity) * 1_000) / 10
+    : null;
+  results.set("financial_health.debt_ratio_pct", debtRatio === null
+    ? { ...common, ok: false, empty: true, reason: "OpenDART 부채비율 계산 필드 미제공" }
+    : { ...common, ok: true, value: `${debtRatio.toLocaleString("ko-KR")}%` });
+  results.set("financial_health.impairment", snapshot.totalEquity === null
+    ? { ...common, ok: false, empty: true, reason: "OpenDART 자본총계 미제공" }
+    : { ...common, ok: true, value: snapshot.totalEquity <= 0 ? "자본잠식" : "정상" });
+}
+
+function setDartNumericField(
+  results: Map<string, ConnectorResult>,
+  key: string,
+  amount: number | null,
+  common: Pick<ConnectorResult, "confidence" | "source" | "sourceKind" | "origin" | "asOf" | "axisCompleteness" | "note">,
+): void {
+  const value = formatKrwCompact(amount);
+  results.set(key, value === null
+    ? { ...common, ok: false, empty: true, reason: "OpenDART 값 미제공" }
+    : { ...common, ok: true, value });
+}
+
+function dartEmptyResult(reason: string, origin: ServiceDataTraceOrigin): ConnectorResult {
+  return {
+    ok: false,
+    empty: true,
+    reason,
+    source: "dart",
+    sourceKind: "authoritative_api",
+    origin,
+  };
+}
+
+function dartErrorResult(reason: string): ConnectorResult {
+  return {
+    ok: false,
+    reason,
+    source: "dart",
+    sourceKind: "authoritative_api",
+    asOf: new Date().toISOString(),
+  };
+}
+
+function dartReportLabel(reportCode: string): string {
+  if (reportCode === "11013") return "1분기보고서";
+  if (reportCode === "11012") return "반기보고서";
+  if (reportCode === "11014") return "3분기보고서";
+  return "사업보고서";
+}
+
 /** 금융위 기업재무(15043459) → revenue · financial_health.*. 법인 && 법인등록번호 브리지 필요. */
 async function runFscCorpFinanceConnector(
   input: { bizNo: string; subject: SubjectType; profile: CompanyProfile | null },
   results: Map<string, ConnectorResult>,
+  dart: DartBridgeResolution = { lookup: null, error: null },
 ): Promise<void> {
   if (input.subject !== "corporation") return; // 법인 전용
   const serviceKey = resolveDataGoKrServiceKey("CUNOTE_FSC_FINANCE_SERVICE_KEY");
   if (!serviceKey) return; // 키 없음 → pending 유지
 
-  const corpRegNo = extractCorpRegNo(input.profile);
+  const profileCorpRegNo = extractCorpRegNo(input.profile);
+  const dartCorpRegNo = dart.lookup?.state === "covered"
+    ? dart.lookup.bridge?.corporateRegistrationNumber ?? null
+    : null;
+  const corpRegNo = profileCorpRegNo ?? dartCorpRegNo;
   if (!corpRegNo) {
     // 법인등록번호 없음 → skip(pending 유지). 팝빌 경로엔 법인번호가 없어 apick 조회 시에만 채워진다.
     const skipped: ConnectorResult = {
       ok: false,
       skipped: true,
-      reason: "법인등록번호 없음 · apick 조회 경로에서만 브리지",
+      reason:
+        dart.error
+          ? `OpenDART 브리지 오류 · ${dart.error}`
+          : dart.lookup?.state === "not_covered"
+            ? `${dart.lookup.reason} · not_covered`
+            : "법인등록번호 없음 · apick 또는 OpenDART 브리지 필요",
+      source: "fsc",
+      sourceKind: "authoritative_api",
     };
     for (const key of FSC_CORP_FIELD_KEYS) results.set(key, skipped);
     return;
   }
 
   try {
+    const checkedAt = new Date().toISOString();
     const summary = await checkFscCorpFinance({ serviceKey, corpRegNo });
     if (!summary) {
-      const empty: ConnectorResult = { ok: false, empty: true, reason: "금융위 재무 데이터 없음(crno 미등재)" };
+      const empty: ConnectorResult = {
+        ok: false,
+        empty: true,
+        reason: "금융위 재무 데이터 없음(crno 미등재)",
+        source: "fsc",
+        sourceKind: "authoritative_api",
+        asOf: checkedAt,
+      };
       for (const key of FSC_CORP_FIELD_KEYS) results.set(key, empty);
       return;
     }
     const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
-    setNumericField(results, "revenue", formatKrwCompact(summary.saleAmt), 0.85, yearTag);
+    const asOf = compactDateToIso(summary.basDt) ?? (summary.bizYear ? `${summary.bizYear}-12-31` : checkedAt);
+    setNumericField(results, "revenue", formatKrwCompact(summary.saleAmt), 0.85, yearTag, asOf);
     setNumericField(
       results,
       "financial_health.debt_ratio_pct",
       summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
       0.85,
       yearTag,
+      asOf,
     );
     results.set("financial_health.impairment", {
       ok: true,
       value: `${summary.impaired ? "자본잠식" : "정상"}${yearTag}`,
       confidence: 0.85,
       source: "fsc",
+      asOf,
     });
-    setNumericField(results, "financial_health.total_assets_krw", formatKrwCompact(summary.totalAssets), 0.85, yearTag);
-    setNumericField(results, "financial_health.equity_krw", formatKrwCompact(summary.totalEquity), 0.85, yearTag);
+    setNumericField(results, "financial_health.total_assets_krw", formatKrwCompact(summary.totalAssets), 0.85, yearTag, asOf);
+    setNumericField(results, "financial_health.equity_krw", formatKrwCompact(summary.totalEquity), 0.85, yearTag, asOf);
+    if (dartCorpRegNo) {
+      for (const key of FSC_CORP_FIELD_KEYS) {
+        const result = results.get(key);
+        if (result?.ok) {
+          results.set(key, { ...result, note: `법인번호 브리지: OpenDART ${dart.lookup?.origin ?? "live"}` });
+        }
+      }
+    }
   } catch (error) {
-    const failed: ConnectorResult = { ok: false, reason: connectorErrorReason(error) };
+    const failed: ConnectorResult = {
+      ok: false,
+      reason: connectorErrorReason(error),
+      source: "fsc",
+      sourceKind: "authoritative_api",
+      asOf: new Date().toISOString(),
+    };
     for (const key of FSC_CORP_FIELD_KEYS) results.set(key, failed);
   }
 }
@@ -1377,12 +2047,26 @@ function setNumericField(
   value: string | null,
   confidence: number,
   yearTag: string,
+  asOf: string,
 ): void {
   if (value === null) {
-    results.set(key, { ok: false, empty: true, reason: "값 미제공" });
+    results.set(key, {
+      ok: false,
+      empty: true,
+      reason: "값 미제공",
+      source: "fsc",
+      sourceKind: "authoritative_api",
+      asOf,
+    });
     return;
   }
-  results.set(key, { ok: true, value: `${value}${yearTag}`, confidence, source: "fsc" });
+  results.set(key, { ok: true, value: `${value}${yearTag}`, confidence, source: "fsc", asOf });
+}
+
+function compactDateToIso(value: string | null | undefined): string | null {
+  const digits = value?.replace(/\D/g, "") ?? "";
+  if (digits.length !== 8) return null;
+  return `${digits.slice(0, 4)}-${digits.slice(4, 6)}-${digits.slice(6, 8)}`;
 }
 
 /**
@@ -1396,6 +2080,7 @@ async function runFscPersonalFinanceConnector(
   if (input.subject !== "individual") return; // 개인사업자 전용
   const serviceKey = resolveDataGoKrServiceKey("CUNOTE_FSC_FINANCE_SERVICE_KEY");
   if (!serviceKey) return; // 키 없음 → pending 유지
+  const checkedAt = new Date().toISOString();
   try {
     const classification = await checkFscPersonalFinance({ serviceKey, bizNo: input.bizNo });
     if (classification.kind === "aggregate") {
@@ -1403,12 +2088,28 @@ async function runFscPersonalFinanceConnector(
         ok: false,
         schemaMismatch: true,
         reason: `익명 집계셋(전체 ${classification.totalCount?.toLocaleString("ko-KR") ?? "?"}건) · 사업자번호 조회 불가`,
+        source: "fsc",
+        sourceKind: "authoritative_api",
+        asOf: checkedAt,
       });
     } else {
-      results.set("revenue", { ok: false, empty: true, reason: "응답 없음" });
+      results.set("revenue", {
+        ok: false,
+        empty: true,
+        reason: "응답 없음",
+        source: "fsc",
+        sourceKind: "authoritative_api",
+        asOf: checkedAt,
+      });
     }
   } catch (error) {
-    results.set("revenue", { ok: false, reason: connectorErrorReason(error) });
+    results.set("revenue", {
+      ok: false,
+      reason: connectorErrorReason(error),
+      source: "fsc",
+      sourceKind: "authoritative_api",
+      asOf: checkedAt,
+    });
   }
 }
 
@@ -1465,7 +2166,7 @@ async function runNiceConnector(
       const indicator = await checkNiceCorpIndicator({ appKey, secret, companyKey });
       setNiceIndicatorFields(results, indicator);
     } catch (error) {
-      const failed: ConnectorResult = { ok: false, reason: connectorErrorReason(error) };
+      const failed: ConnectorResult = niceResultMeta({ ok: false, reason: connectorErrorReason(error) });
       for (const key of NICE_INDICATOR_FIELD_KEYS) results.set(key, failed);
     }
 
@@ -1478,12 +2179,16 @@ async function runNiceConnector(
       ok: false,
       skipped: true,
       reason: "OCCD01 당좌정지 미프로비저닝(테스트앱)",
+      source: "nice",
+      sourceKind: "authoritative_api",
     });
     // 파산은 OCCD06 법정관리와 별개축 · 공공정보(OCCD03 PB)로도 재확인 필요 → 미매핑(pending).
     results.set("credit_status.bankruptcy_filed", {
       ok: false,
       skipped: true,
       reason: "파산은 OCCD06 법정관리와 별개 · 공공정보(OCCD03 PB) 재확인 필요",
+      source: "nice",
+      sourceKind: "authoritative_api",
     });
   } catch {
     // 최후 안전망 — 절대 throw 금지(runExternalConnectors Promise.all 보호).
@@ -1496,29 +2201,33 @@ function setNiceIndicatorFields(
   summary: Awaited<ReturnType<typeof checkNiceCorpIndicator>>,
 ): void {
   if (!summary) {
-    const empty: ConnectorResult = { ok: false, empty: true, reason: "NICE 재무 데이터 없음" };
+    const empty: ConnectorResult = niceResultMeta({ ok: false, empty: true, reason: "NICE 재무 데이터 없음" });
     for (const key of NICE_INDICATOR_FIELD_KEYS) results.set(key, empty);
     return;
   }
   const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
-  setNiceNumericField(results, "revenue", formatKrwCompact(summary.revenueWon), yearTag);
+  const asOf = summary.bizYear ? `${summary.bizYear}-12-31` : new Date().toISOString();
+  setNiceNumericField(results, "revenue", formatKrwCompact(summary.revenueWon), yearTag, asOf);
   setNiceNumericField(
     results,
     "financial_health.total_assets_krw",
     formatKrwCompact(summary.totalAssetsWon),
     yearTag,
+    asOf,
   );
   setNiceNumericField(
     results,
     "financial_health.equity_krw",
     formatKrwCompact(summary.totalEquityWon),
     yearTag,
+    asOf,
   );
   setNiceNumericField(
     results,
     "financial_health.debt_ratio_pct",
     summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
     yearTag,
+    asOf,
   );
   results.set("financial_health.impairment", {
     ok: true,
@@ -1526,6 +2235,7 @@ function setNiceIndicatorFields(
     confidence: 0.75,
     source: "nice",
     note: NICE_DEMO_NOTE,
+    asOf,
   });
 }
 
@@ -1535,9 +2245,10 @@ function setNiceNumericField(
   key: string,
   value: string | null,
   yearTag: string,
+  asOf: string,
 ): void {
   if (value === null) {
-    results.set(key, { ok: false, empty: true, reason: "값 미제공" });
+    results.set(key, niceResultMeta({ ok: false, empty: true, reason: "값 미제공", asOf }));
     return;
   }
   results.set(key, {
@@ -1546,7 +2257,18 @@ function setNiceNumericField(
     confidence: 0.75,
     source: "nice",
     note: NICE_DEMO_NOTE,
+    asOf,
   });
+}
+
+function niceResultMeta(result: ConnectorResult): ConnectorResult {
+  return {
+    ...result,
+    source: "nice",
+    sourceKind: "authoritative_api",
+    asOf: result.asOf ?? new Date().toISOString(),
+    note: result.note ?? NICE_DEMO_NOTE,
+  };
 }
 
 /** OCCD03(신용/납세 결격) · OCCD06(법정관리/워크아웃) 결과를 필드 키로 매핑. */
@@ -1557,16 +2279,14 @@ function setNiceCreditFields(
   // OCCD03 신용도판단정보 → 신용/납세 결격.
   const neg = credit.negative;
   if (!neg.ok || !neg.data) {
-    const failed: ConnectorResult = { ok: false, reason: neg.error ?? "OCCD03 조회 실패" };
+    const failed: ConnectorResult = niceResultMeta({ ok: false, reason: neg.error ?? "OCCD03 조회 실패" });
     for (const key of NICE_NEGATIVE_FIELD_KEYS) results.set(key, failed);
   } else {
     const c = neg.data.counts;
-    const live = (value: string): ConnectorResult => ({
+    const live = (value: string): ConnectorResult => niceResultMeta({
       ok: true,
       value,
       confidence: 0.7,
-      source: "nice",
-      note: NICE_DEMO_NOTE,
     });
     // 채무불이행(BB) — credit_delinquency 와 loan_default 동일신호(대지급/대위변제 포함).
     const bbValue = c.bb > 0 ? `채무불이행 ${c.bb}건` : "해당없음";
@@ -1586,13 +2306,13 @@ function setNiceCreditFields(
   // OCCD06 법정관리/워크아웃 → rehabilitation_in_progress · court_receivership 동일 신호.
   const wk = credit.workout;
   if (!wk.ok || !wk.data) {
-    const failed: ConnectorResult = { ok: false, reason: wk.error ?? "OCCD06 조회 실패" };
+    const failed: ConnectorResult = niceResultMeta({ ok: false, reason: wk.error ?? "OCCD06 조회 실패" });
     for (const key of NICE_WORKOUT_FIELD_KEYS) results.set(key, failed);
   } else {
     const n = wk.data.count;
     const value = n > 0 ? `법정관리/워크아웃 ${n}건` : "해당없음";
     for (const key of NICE_WORKOUT_FIELD_KEYS) {
-      results.set(key, { ok: true, value, confidence: 0.7, source: "nice", note: NICE_DEMO_NOTE });
+      results.set(key, niceResultMeta({ ok: true, value, confidence: 0.7 }));
     }
   }
 }

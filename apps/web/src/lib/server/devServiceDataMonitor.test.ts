@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { measureAutofillCoverage } from "@cunote/core/autofill/coverage";
 import {
   buildFieldCoverage,
+  coalesceKiprisLookup,
   coalesceServiceDataLookup,
+  coalesceStartupConfirmationLookup,
   type ConnectorResult,
   type ServiceDataLookupResult,
 } from "./devServiceDataMonitor";
@@ -77,6 +79,103 @@ assert.equal(
   0,
   "하위 제재 플래그 하나는 sanction 부모축 전체 확정으로 집계하면 안 된다",
 );
+
+const connectorOutcomes = new Map<string, ConnectorResult>([
+  [
+    "employees",
+    {
+      ok: false,
+      empty: true,
+      reason: "고용보험 가입 사업장 없음",
+      source: "kcomwel",
+      sourceKind: "authoritative_api",
+      asOf: "2026-07-12T01:00:00.000Z",
+    },
+  ],
+  [
+    "financial_health.debt_ratio_pct",
+    {
+      ok: false,
+      skipped: true,
+      reason: "법인등록번호 없음",
+      source: "fsc",
+      sourceKind: "authoritative_api",
+    },
+  ],
+  [
+    "financial_health.total_assets_krw",
+    {
+      ok: false,
+      reason: "HTTP 500",
+      source: "fsc",
+      sourceKind: "authoritative_api",
+      asOf: "2026-07-12T01:00:00.000Z",
+    },
+  ],
+]);
+const outcomeRows = buildFieldCoverage({
+  subject: "corporation",
+  profile: null,
+  fields: [],
+  originBySource: new Map(),
+  connectorResults: connectorOutcomes,
+});
+const emptyEmployees = outcomeRows.find((row) => row.key === "employees");
+assert.equal(emptyEmployees?.status, "pending", "정상 빈값은 API 실패로 집계하면 안 된다");
+assert.equal(emptyEmployees?.connectorOutcome, "empty");
+assert.equal(emptyEmployees?.source, "kcomwel");
+assert.equal(emptyEmployees?.asOf, "2026-07-12T01:00:00.000Z");
+assert.equal(
+  outcomeRows.find((row) => row.key === "financial_health.debt_ratio_pct")?.connectorOutcome,
+  "prerequisite",
+);
+assert.equal(
+  outcomeRows.find((row) => row.key === "financial_health.total_assets_krw")?.status,
+  "failed",
+);
+assert.equal(
+  outcomeRows.find((row) => row.key === "financial_health.total_assets_krw")?.connectorOutcome,
+  "error",
+);
+
+let kiprisRuns = 0;
+let releaseKipris!: () => void;
+const kiprisGate = new Promise<void>((resolve) => {
+  releaseKipris = resolve;
+});
+const firstKipris = coalesceKiprisLookup("3948603207", async () => {
+  kiprisRuns += 1;
+  await kiprisGate;
+  return null;
+});
+const duplicateKipris = coalesceKiprisLookup("3948603207", async () => {
+  kiprisRuns += 1;
+  return null;
+});
+assert.equal(firstKipris, duplicateKipris, "동일 사업자의 KIPRIS 월 쿼터 호출은 하나로 합쳐야 한다");
+assert.equal(kiprisRuns, 1);
+releaseKipris();
+await firstKipris;
+
+let startupRuns = 0;
+let releaseStartup!: () => void;
+const startupGate = new Promise<void>((resolve) => {
+  releaseStartup = resolve;
+});
+const startupLookup = { state: "none" as const, record: null, exactRecordCount: 0 };
+const firstStartup = coalesceStartupConfirmationLookup("3948603207", async () => {
+  startupRuns += 1;
+  await startupGate;
+  return startupLookup;
+});
+const duplicateStartup = coalesceStartupConfirmationLookup("3948603207", async () => {
+  startupRuns += 1;
+  return startupLookup;
+});
+assert.equal(firstStartup, duplicateStartup, "동일 사업자의 창업기업확인서 조회는 하나로 합쳐야 한다");
+assert.equal(startupRuns, 1);
+releaseStartup();
+await firstStartup;
 
 let lookupRuns = 0;
 let releaseLookup!: () => void;

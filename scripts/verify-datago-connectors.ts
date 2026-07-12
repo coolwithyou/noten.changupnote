@@ -10,6 +10,20 @@
  */
 import type { CompanyProfile } from "@cunote/contracts";
 import { buildFieldCoverage, runExternalConnectors } from "../apps/web/src/lib/server/devServiceDataMonitor";
+import { loadMonorepoEnv } from "../apps/web/src/lib/server/loadMonorepoEnv";
+
+loadMonorepoEnv();
+
+const PREFLIGHT_KEYS = [
+  "CUNOTE_DATA_GO_KR_SERVICE_KEY",
+  "CUNOTE_KCOMWEL_SERVICE_KEY",
+  "CUNOTE_FSC_FINANCE_SERVICE_KEY",
+] as const;
+
+console.log("[masked env preflight]");
+for (const key of PREFLIGHT_KEYS) {
+  console.log(`  ${key}: ${process.env[key]?.trim() ? "configured" : "missing"}`);
+}
 
 const corpBizNo = (process.argv[2] ?? "1248100998").replace(/\D/g, "");
 const corpRegNo = (process.argv[3] ?? "1301110006246").replace(/\D/g, "");
@@ -44,10 +58,11 @@ async function runCase(
   for (const key of WATCH_KEYS) {
     const row = byKey.get(key);
     if (!row) continue;
-    const badge = row.status.toUpperCase().padEnd(8);
+    const badge = `${row.status}/${row.connectorOutcome ?? "none"}`.toUpperCase().padEnd(22);
     const val = row.value ?? row.note ?? "—";
     const src = row.source ? ` [${row.source}]` : "";
-    console.log(`  ${key.padEnd(46)} ${badge} ${val}${src}`);
+    const asOf = row.asOf ? ` asOf=${row.asOf}` : "";
+    console.log(`  ${key.padEnd(46)} ${badge} ${val}${src}${asOf}`);
   }
 }
 

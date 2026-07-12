@@ -461,7 +461,11 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
                             <TierBadge tier={row.tier} />
                           </TableCell>
                           <TableCell className={`align-top ${row.parentKey ? "py-1.5" : ""}`}>
-                            <StatusBadge status={row.status} source={row.source} />
+                            <StatusBadge
+                              status={row.status}
+                              source={row.source}
+                              connectorOutcome={row.connectorOutcome}
+                            />
                           </TableCell>
                           <TableCell className={`align-top ${row.parentKey ? "py-1.5" : ""}`}>
                             <ValueCell row={row} />
@@ -792,6 +796,11 @@ function UnlockCell({ row }: { row: MergedCoverageRow }) {
         </Badge>
         <span className="text-xs text-muted-foreground">{unlockDetail(row, kind)}</span>
       </div>
+      {row.connectorOutcome ? (
+        <span className="text-[11px] text-muted-foreground/80">
+          provider: {sourceRefLabel(row.source)} · 기준일: {formatDate(row.asOf)}
+        </span>
+      ) : null}
       <span className="text-[11px] text-muted-foreground/80">계획 소스: {row.plannedSource}</span>
       {question ? <ChatQuestion question={question} prefix={kind === "self" ? "챗봇 질문 예시" : "또는 자가신고"} /> : null}
     </div>
@@ -839,7 +848,15 @@ function TierBadge({ tier }: { tier: FieldTier }) {
 }
 
 // 컴팩트 상태 배지 — 사유(note)는 옆 '채워지는 조건' 컬럼이 맡으므로 여기선 상태만 짧게.
-function StatusBadge({ status, source }: { status: FieldCoverageStatus; source: FieldSourceRef | null }) {
+function StatusBadge({
+  status,
+  source,
+  connectorOutcome,
+}: {
+  status: FieldCoverageStatus;
+  source: FieldSourceRef | null;
+  connectorOutcome: FieldCoverageRow["connectorOutcome"];
+}) {
   if (status === "live") {
     return <Badge className="bg-primary text-primary-foreground whitespace-nowrap">라이브 · {sourceRefLabel(source)}</Badge>;
   }
@@ -850,7 +867,13 @@ function StatusBadge({ status, source }: { status: FieldCoverageStatus; source: 
     return <Badge variant="outline" className="border-success/50 text-success">자가신고</Badge>;
   }
   if (status === "failed") {
-    return <Badge variant="destructive">실패</Badge>;
+    return <Badge variant="destructive">API 오류</Badge>;
+  }
+  if (connectorOutcome === "empty") {
+    return <Badge variant="outline" className="border-dashed text-muted-foreground">정상 빈값</Badge>;
+  }
+  if (connectorOutcome === "prerequisite") {
+    return <Badge variant="outline" className="border-dashed border-warning/50 text-warning">전제 미충족</Badge>;
   }
   if (status === "n/a") {
     return <Badge variant="secondary" className="whitespace-nowrap text-muted-foreground">해당 없음</Badge>;
@@ -869,6 +892,9 @@ function sourceRefLabel(source: FieldSourceRef | null): string {
   if (source === "nts") return "국세청";
   if (source === "smpp") return "공공구매망";
   if (source === "kcomwel") return "근로복지공단";
+  if (source === "kipris") return "KIPRISPlus";
+  if (source === "kised") return "창업진흥원";
+  if (source === "dart") return "OpenDART";
   if (source === "fsc") return "금융위";
   if (source === "nice") return "NICE";
   if (source === "codef") return "국세청(CODEF)";
@@ -1017,7 +1043,11 @@ function QnaSection({
           />
         </QnaField>
 
-        <QnaField id="qna-employees" label="상시근로자 수" hint="공공 API에 상시근로자 수 응답이 없습니다.">
+        <QnaField
+          id="qna-employees"
+          label="상시근로자 수"
+          hint="근로복지공단 응답에 상시인원이 없거나 실제 현원과 다를 때 보완합니다."
+        >
           <Input
             id="qna-employees"
             type="number"
@@ -1047,7 +1077,7 @@ function QnaSection({
 
         <QnaField
           label="보유 인증·확인서"
-          hint="공공구매망은 여성·장애인 확인서만 조회되며 벤처·이노비즈 등은 알 수 없습니다."
+          hint="창업기업확인서는 exact 자동 조회하고, 공공구매망·공개명단이 커버하지 않는 인증만 보완합니다."
         >
           <CheckboxGroup
             options={CERT_OPTIONS}
@@ -1072,7 +1102,11 @@ function QnaSection({
           />
         </QnaField>
 
-        <QnaField id="qna-ip-count" label="특허·지재권 보유 건수" hint="KIPRIS 매칭은 별도 확인이 필요합니다.">
+        <QnaField
+          id="qna-ip-count"
+          label="특허·지재권 보유 건수"
+          hint="KIPRIS exact로 공개·등록 출원 이력은 확인하며, 권리별 현재 보유 건수는 보완 입력합니다."
+        >
           <Input
             id="qna-ip-count"
             type="number"
@@ -1508,13 +1542,15 @@ function reasonOf(row: MergedCoverageRow): string {
   const group = statusGroupOf(row.status);
   if (group === "live") return `확보 · ${sourceRefLabel(row.source)}`;
   if (group === "self") return "자가신고로 채움";
-  if (group === "failed") return "조회 실패 · 응답 이상";
+  if (group === "failed") return "API 오류 · 응답 확인 필요";
   if (group === "na") {
     if (row.note?.includes("예약")) return "예약축 · 추후 배선";
     return "법인 전용축 · 개인사업자 대상 아님";
   }
   // pending — 계획 소스·note 키워드로 사유를 버킷팅.
   const note = row.note ?? "";
+  if (row.connectorOutcome === "empty") return "정상 응답 · 조회 결과 없음";
+  if (row.connectorOutcome === "prerequisite") return "조회 전제 미충족";
   if (row.plannedSource.includes("CODEF 간편인증")) return "CODEF 간편인증 완료 시 채워짐";
   // "미배선"(라이브 소스가 값 미제공)은 "배선" 부분문자열보다 먼저 걸러야 커넥터 대기로 오분류되지 않는다.
   if (note.includes("미배선")) return "소스 응답에 값 없음 · 응답 포함 시 자동 채움";
@@ -1553,7 +1589,7 @@ function groupByReason(rows: MergedCoverageRow[]): ReasonGroup[] {
 //   self        = 공개·자동 소스 없음 → 자가신고(챗봇)
 //   source      = 라이브 소스가 이번 응답에 값을 안 실음(데이터 가용성)
 //   failed      = 조회는 됐으나 에러·빈값·스키마 불일치
-type UnlockKind = "key" | "simple-auth" | "connector" | "batch" | "apick" | "self" | "source" | "failed";
+type UnlockKind = "key" | "simple-auth" | "connector" | "batch" | "apick" | "self" | "source" | "empty" | "failed";
 
 const UNLOCK_META: Record<UnlockKind, { label: string; border: string; text: string }> = {
   key: { label: "API 키 발급", border: "border-primary/40", text: "text-primary" },
@@ -1563,11 +1599,13 @@ const UNLOCK_META: Record<UnlockKind, { label: string; border: string; text: str
   apick: { label: "apick 조회 경로", border: "border-primary/40", text: "text-primary" },
   self: { label: "자가신고(챗봇)", border: "border-success/50", text: "text-success" },
   source: { label: "소스 응답 대기", border: "border-warning/50", text: "text-warning" },
+  empty: { label: "정상 빈값", border: "border-muted-foreground/40", text: "text-muted-foreground" },
   failed: { label: "응답 이상", border: "border-destructive/50", text: "text-destructive" },
 };
 
 function classifyUnlock(row: MergedCoverageRow): UnlockKind {
   if (statusGroupOf(row.status) === "failed") return "failed";
+  if (row.connectorOutcome === "empty") return "empty";
   const note = row.note ?? "";
   const source = row.plannedSource;
   if (source.includes("CODEF 간편인증")) return "simple-auth";
@@ -1587,6 +1625,8 @@ function unlockDetail(row: MergedCoverageRow, kind: UnlockKind): string {
   switch (kind) {
     case "failed":
       return row.note ?? "원천 응답 확인 필요";
+    case "empty":
+      return row.note ?? "API는 정상 응답했지만 해당 사업자 데이터가 없음";
     case "simple-auth":
       return "사용자 휴대폰 간편인증 완료 시 국세청 확정값으로 채워짐";
     case "connector":
