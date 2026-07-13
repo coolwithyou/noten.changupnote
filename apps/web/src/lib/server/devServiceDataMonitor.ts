@@ -37,6 +37,7 @@ import type {
   ProfileFieldKey,
   StartupConfirmationLookup,
   DartFinancialSnapshot,
+  CompanyProfileFieldUpdate,
 } from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
 import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
@@ -58,6 +59,14 @@ import {
   ntsClosedLabel,
   ServiceDataError,
 } from "./serviceData";
+import {
+  buildCertificationProfileUpdates,
+  buildInsuredWorkforceProfileUpdates,
+  buildRevenueProfileUpdates,
+  type DevServiceDataNormalizationFailure,
+  type DevServiceDataProfileMetadata,
+  type DevServiceDataProfileNormalization,
+} from "./devServiceDataProfile";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 개발 전용 사업자 데이터 모니터. 실제 조회 파이프라인(팝빌·국세청·공공구매종합정보망)과 Apick을
@@ -183,8 +192,73 @@ export interface ConnectorResult {
   asOf?: string | null;
   /** present-only/fuzzy 등으로 부모축 전체를 판정할 수 없으면 partial. */
   axisCompleteness?: AxisCompleteness;
+  /** 표시값과 함께 matcher 경계 검증을 통과한 canonical update. */
+  profileUpdates?: CompanyProfileFieldUpdate[];
+  /** provider/API 성공 의미를 바꾸지 않는 typed 변환 실패 진단. */
+  normalizationFailure?: DevServiceDataNormalizationFailure;
   /** 라이브 행에 표시할 부가 표식(예: "NICE 데모앱(무계약)"). buildFieldCoverage 가 row.note 로 옮긴다. */
   note?: string | null;
+}
+
+export function attachConnectorProfileNormalization(
+  result: ConnectorResult,
+  normalization: DevServiceDataProfileNormalization,
+): ConnectorResult {
+  if (!normalization.ok) {
+    return { ...result, normalizationFailure: normalization.failure };
+  }
+  if (normalization.profileUpdates.length === 0) return result;
+  return { ...result, profileUpdates: normalization.profileUpdates };
+}
+
+function profileMetadata(
+  result: ConnectorResult,
+  provider: string,
+  fallbackCompleteness: "partial" | "complete",
+): DevServiceDataProfileMetadata {
+  return {
+    sourceKind: result.sourceKind ?? "authoritative_api",
+    provider,
+    asOf: result.asOf ?? null,
+    confidence: result.confidence ?? null,
+    axisCompleteness:
+      result.axisCompleteness === "partial" || result.axisCompleteness === "complete"
+        ? result.axisCompleteness
+        : fallbackCompleteness,
+  };
+}
+
+function withRevenueProfileUpdate(
+  result: ConnectorResult,
+  revenueWon: unknown,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildRevenueProfileUpdates(revenueWon, profileMetadata(result, provider, "complete")),
+  );
+}
+
+function withCertificationProfileUpdates(
+  result: ConnectorResult,
+  certifications: readonly unknown[],
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildCertificationProfileUpdates(certifications, profileMetadata(result, provider, "partial")),
+  );
+}
+
+function withInsuredWorkforceProfileUpdates(
+  result: ConnectorResult,
+  value: Parameters<typeof buildInsuredWorkforceProfileUpdates>[0],
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildInsuredWorkforceProfileUpdates(value, profileMetadata(result, provider, "partial")),
+  );
 }
 
 export interface FieldCoverageRow {
@@ -1395,13 +1469,14 @@ function startupConfirmationResult(
     axisCompleteness: "partial" as const,
   };
   if (lookup.state === "active" && record) {
-    return {
+    const result: ConnectorResult = {
       ok: true,
       ...meta,
       value: `창업기업확인서 (유효 ~${formatDateKey(record.expiresOn)})`,
       confidence: 0.95,
       note: "창업진흥원 사업자번호 exact",
     };
+    return withCertificationProfileUpdates(result, ["창업기업확인서"], "startup_confirmation");
   }
   if (lookup.state === "expired" && record) {
     return { ok: false, empty: true, ...meta, reason: `창업기업확인서 만료 (${formatDateKey(record.expiresOn)})` };
@@ -1442,7 +1517,7 @@ function readStartupConfirmationCache(
   };
 }
 
-function mergeCertificationConnectorResult(
+export function mergeCertificationConnectorResult(
   results: Map<string, ConnectorResult>,
   startup: ConnectorResult | undefined,
 ): void {
@@ -1453,10 +1528,17 @@ function mergeCertificationConnectorResult(
     return;
   }
   if (!startup.ok || !startup.value) return;
+  const profileUpdates = [
+    ...(existing.profileUpdates ?? []),
+    ...(startup.profileUpdates ?? []),
+  ];
+  const normalizationFailure = startup.normalizationFailure ?? existing.normalizationFailure;
   results.set("certification", {
     ...startup,
     value: mergeCertLabels(existing.value ?? null, startup.value),
     confidence: Math.max(existing.confidence ?? 0, startup.confidence ?? 0),
+    ...(profileUpdates.length > 0 ? { profileUpdates } : {}),
+    ...(normalizationFailure ? { normalizationFailure } : {}),
   });
 }
 
@@ -1675,11 +1757,14 @@ async function runRegistryConnector(
 
     // 1) present_only — active present 매칭만 반영. certification 은 canonical 목록으로 취합.
     const certLabels: string[] = [];
+    let certificationAsOf: string | null = null;
     for (const match of matches) {
       if (!match.active || match.record.polarity !== "present_only") continue;
       const rec = match.record;
       if (rec.registryType === "certification") {
         certLabels.push(rec.flagOrCert);
+        const fetchedAt = rec.sourceFetchedAt.toISOString();
+        if (certificationAsOf === null || fetchedAt > certificationAsOf) certificationAsOf = fetchedAt;
         continue;
       }
       results.set(`${rec.registryType}.${rec.flagOrCert}`, {
@@ -1694,14 +1779,19 @@ async function runRegistryConnector(
       });
     }
     if (certLabels.length > 0) {
-      results.set("certification", {
+      const result: ConnectorResult = {
         ok: true,
         value: [...new Set(certLabels)].join(", "),
         confidence: 0.55, // 공개명단 상호 퍼지
         source: "registry",
         sourceKind: "public_registry",
+        asOf: certificationAsOf,
         axisCompleteness: "partial",
-      });
+      };
+      results.set(
+        "certification",
+        withCertificationProfileUpdates(result, [...new Set(certLabels)], "registry"),
+      );
     }
 
     // 2) known_on_absence — 소스 적재 시 부재도 clear 로 확정.
@@ -1806,13 +1896,23 @@ async function runKcomwelConnector(
     const seongrip = summary.earliestSeongripDt
       ? `${summary.earliestSeongripDt.slice(0, 4)}-${summary.earliestSeongripDt.slice(4, 6)}-${summary.earliestSeongripDt.slice(6, 8)}`
       : null;
-    results.set(insuredKey, {
+    const insuredResult: ConnectorResult = {
       ok: true,
       value: summary.insuranceActive ? `성립${seongrip ? ` (${seongrip})` : ""}` : "미성립",
       confidence: 0.7,
       source: "kcomwel",
+      sourceKind: "authoritative_api",
       asOf: checkedAt,
-    });
+      axisCompleteness: "partial",
+    };
+    results.set(
+      insuredKey,
+      withInsuredWorkforceProfileUpdates(
+        insuredResult,
+        { employment_insurance_active: summary.insuranceActive },
+        "kcomwel",
+      ),
+    );
   } catch (error) {
     const failed: ConnectorResult = {
       ok: false,
@@ -1951,9 +2051,12 @@ function setDartNumericField(
   common: Pick<ConnectorResult, "confidence" | "source" | "sourceKind" | "origin" | "asOf" | "axisCompleteness" | "note">,
 ): void {
   const value = formatKrwCompact(amount);
-  results.set(key, value === null
-    ? { ...common, ok: false, empty: true, reason: "OpenDART 값 미제공" }
-    : { ...common, ok: true, value });
+  if (value === null || amount === null) {
+    results.set(key, { ...common, ok: false, empty: true, reason: "OpenDART 값 미제공" });
+    return;
+  }
+  const result: ConnectorResult = { ...common, ok: true, value };
+  results.set(key, key === "revenue" ? withRevenueProfileUpdate(result, amount, "dart") : result);
 }
 
 function dartEmptyResult(reason: string, origin: ServiceDataTraceOrigin): ConnectorResult {
@@ -2034,7 +2137,15 @@ async function runFscCorpFinanceConnector(
     }
     const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
     const asOf = compactDateToIso(summary.basDt) ?? (summary.bizYear ? `${summary.bizYear}-12-31` : checkedAt);
-    setNumericField(results, "revenue", formatKrwCompact(summary.saleAmt), 0.85, yearTag, asOf);
+    setNumericField(
+      results,
+      "revenue",
+      formatKrwCompact(summary.saleAmt),
+      0.85,
+      yearTag,
+      asOf,
+      summary.saleAmt,
+    );
     setNumericField(
       results,
       "financial_health.debt_ratio_pct",
@@ -2073,13 +2184,14 @@ async function runFscCorpFinanceConnector(
 }
 
 /** 값이 있으면 live, 없으면 empty(failed)로 세팅. */
-function setNumericField(
+export function setNumericField(
   results: Map<string, ConnectorResult>,
   key: string,
   value: string | null,
   confidence: number,
   yearTag: string,
   asOf: string,
+  profileValue?: number | null,
 ): void {
   if (value === null) {
     results.set(key, {
@@ -2092,7 +2204,21 @@ function setNumericField(
     });
     return;
   }
-  results.set(key, { ok: true, value: `${value}${yearTag}`, confidence, source: "fsc", asOf });
+  const result: ConnectorResult = {
+    ok: true,
+    value: `${value}${yearTag}`,
+    confidence,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+    ...(key === "revenue" ? { axisCompleteness: "complete" as const } : {}),
+  };
+  results.set(
+    key,
+    key === "revenue" && profileValue !== undefined
+      ? withRevenueProfileUpdate(result, profileValue, "fsc")
+      : result,
+  );
 }
 
 function compactDateToIso(value: string | null | undefined): string | null {
@@ -2239,7 +2365,14 @@ function setNiceIndicatorFields(
   }
   const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
   const asOf = summary.bizYear ? `${summary.bizYear}-12-31` : new Date().toISOString();
-  setNiceNumericField(results, "revenue", formatKrwCompact(summary.revenueWon), yearTag, asOf);
+  setNiceNumericField(
+    results,
+    "revenue",
+    formatKrwCompact(summary.revenueWon),
+    yearTag,
+    asOf,
+    summary.revenueWon,
+  );
   setNiceNumericField(
     results,
     "financial_health.total_assets_krw",
@@ -2278,19 +2411,24 @@ function setNiceNumericField(
   value: string | null,
   yearTag: string,
   asOf: string,
+  profileValue?: number | null,
 ): void {
   if (value === null) {
     results.set(key, niceResultMeta({ ok: false, empty: true, reason: "값 미제공", asOf }));
     return;
   }
-  results.set(key, {
+  const result = niceResultMeta({
     ok: true,
     value: `${value}${yearTag}`,
     confidence: 0.75,
-    source: "nice",
-    note: NICE_DEMO_NOTE,
     asOf,
   });
+  results.set(
+    key,
+    key === "revenue" && profileValue !== undefined
+      ? withRevenueProfileUpdate(result, profileValue, "nice")
+      : result,
+  );
 }
 
 function niceResultMeta(result: ConnectorResult): ConnectorResult {
@@ -2411,7 +2549,15 @@ async function runCodefConnector(
     );
     setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95, corpAsOf);
     // 매출은 부가세 신고분(profile.revenue_krw)이 있을 때만.
-    setCodefField(results, "revenue", formatKrwCompact(profile.revenue_krw ?? null), 0.95, vatAsOf);
+    setCodefField(
+      results,
+      "revenue",
+      formatKrwCompact(profile.revenue_krw ?? null),
+      0.95,
+      vatAsOf,
+      "authoritative_api",
+      profile.revenue_krw ?? null,
+    );
     // 대표자 연령은 identity 캐시의 founder_age(생년월일 파생 정수)만.
     const founderAge = typeof identity?.founder_age === "number" ? identity.founder_age : null;
     setCodefField(
@@ -2438,17 +2584,25 @@ function setCodefField(
   confidence: number,
   asOf: string | null,
   sourceKind: EvidenceSourceKind = "authoritative_api",
+  profileValue?: number | null,
 ): void {
   if (!value) return;
-  results.set(key, {
+  const result: ConnectorResult = {
     ok: true,
     value,
     confidence,
     source: "codef",
     sourceKind,
     asOf,
+    axisCompleteness: "complete",
     note: CODEF_CACHE_NOTE,
-  });
+  };
+  results.set(
+    key,
+    key === "revenue" && profileValue !== undefined
+      ? withRevenueProfileUpdate(result, profileValue, "codef")
+      : result,
+  );
 }
 
 function cacheEntryAsOf(entry: EnrichmentCacheEntry | undefined): string | null {
