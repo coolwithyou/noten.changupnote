@@ -77,7 +77,7 @@
 | asOf 관통: matchNormalizedGrant에 asOf 수용 → prior_award 판정의 시스템 시각 의존 제거 (Codex P1, 재현됨) | ⬜ |
 | industry 양방향 substring 매칭 → 코드/사전 매칭만 확정, 라벨 substring은 unknown (Codex P1, exclusion 오확정 재현됨) | ⬜ |
 | scalar evidence gate 순서: nationwide 등 회사 값 불필요 판정을 게이트보다 먼저 | ⬜ |
-| **원자 커밋**: 매칭 리팩토링 + 이번 수정 + regions.ts + 골든셋·holdout manifest 전부 (병렬 세션 P3 트랙 종료 확인 후) | ⬜ |
+| **원자 커밋**: 매칭 리팩토링 + 이번 수정 + regions.ts + 골든셋·holdout manifest 전부 | ✅ 완료 (ba3a290 체크포인트, 2026-07-13 19:14 — 398파일에 본 세션 수정분·골든 manifest 포함 확인) |
 | GitHub Actions 최소 CI: typecheck + 매칭 verify 계열 + test:matching-unit | ⬜ |
 | (기존) tsx 별칭 환경 실패 2종(bizinfo-publish/ingestion-publish)에 --tsconfig 부여 | ⬜ |
 
@@ -135,8 +135,8 @@
 | matchNormalizedGrant asOf 미수용 → prior_award 시각 의존 (Codex 재현) | P1 | unresolved | WS-A |
 | industry substring 오확정 — exclusion이면 확정 탈락 (Codex 재현) | P1 | unresolved | WS-A |
 | scalar evidence gate가 nationwide 판정보다 선행 → 불필요 conditional | P2 | unresolved | WS-A |
-| 엔진이 untracked 파일 의존 → tracked만 커밋 시 빌드 파손 | P2 | unresolved (원자 커밋으로 해소) | WS-A |
-| CI 부재 + 골든셋·holdout manifest git 미추적 | 긴급 | unresolved | WS-A |
+| 엔진이 untracked 파일 의존 → tracked만 커밋 시 빌드 파손 | P2 | **resolved** (ba3a290 원자 체크포인트) | WS-A |
+| CI 부재 (골든셋·holdout manifest는 ba3a290으로 커밋 완료) | 긴급 | unresolved — CI만 잔존 | WS-A |
 | reviewed 정답 0건 → 모든 정확도 게이트 측정 불능 | 긴급 | unresolved (**최대 병목**) | WS-B |
 | audience 미영속·미적용 (개인 공고 0.33~2.2% 잔존) | major | unresolved (검수 81건이면 개방) | WS-B |
 | prior_award 분해기 비활성 (최다 빈출 배제 유형 text_only 잔존) | major | unresolved (검수 10건이면 개방) | WS-B |
