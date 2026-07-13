@@ -708,7 +708,7 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 
 - [x] G1 field SSOT/parity
 - [x] G2A scalar/list/compound vertical slice
-- [ ] G2B current connector/Q&A typed conversion
+- [x] G2B current connector/Q&A typed conversion
 - [ ] G3 final CompanyProfile merge
 - [ ] G4 active-universe read-only shadow match
 - [ ] G5 dev UI/coverage/weighting correction
@@ -732,13 +732,25 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 
 - Orca root/task/dispatch: root `task_011d0d6c6538`; implement `task_7d2c4ae7e06f` / `ctx_f3b74f82bc69`; review `task_ad432286c69b` / `ctx_d6f646e48030`; fix `task_6f1e92f53792` / `ctx_36f895bdd572`; re-review `task_671611312339` / `ctx_e9bb039766f3`
 - 모델/terminal: implementer `gpt-5.6-sol` xhigh `term_8975fffc-3f04-42f3-8c9a-55d005601568`; reviewer Fable 5 max `term_6caf7905-59e4-4778-acae-9819755f80b1`; fixer `gpt-5.6-sol` xhigh `term_00763bae-504c-49b8-9e97-01574d4cfdd2`; re-reviewer Fable 5 max `term_196c1e1a-3cda-40f3-b5b8-71834adb8f32`
-- 구현 기준점: G1 checkpoint `7ce3688c3fb3909ec77364cd484fe056072d4a9b`; G2A는 같은 child worktree에서 미커밋 상태로 유지
+- 구현 기준점: G1 checkpoint `7ce3688c3fb3909ec77364cd484fe056072d4a9b`; G2A checkpoint `195f485374e1e0d92a1101e80267f20ac62cb769`
 - 구현 파일: `apps/web/src/lib/server/devServiceDataProfile.ts`, `apps/web/src/lib/server/devServiceDataProfile.test.ts`, `apps/web/src/lib/server/devServiceDataMonitor.ts`, `apps/web/src/lib/server/devServiceDataMonitor.test.ts`
 - 구현 검증: `devServiceDataProfile.test.ts`, `devServiceDataMonitor.test.ts`, core `update-profile-field.test.ts` 36건, core/web typecheck, tracked/untracked changed-file `git diff --check` 모두 통과
 - 독립 리뷰: `task_ad432286c69b`, BLOCKER 0 / MAJOR 0 / MINOR 2; FSC 하위 진단행 completeness 표시와 certification 병합 시 드문 normalization failure 진단 유실 가능성은 matcher·coverage 수치·데이터 의미에 영향 없는 비핵심 가시성 finding으로 기록
 - 수정·재리뷰: `task_6f1e92f53792`에서 원 MINOR 2건만 수정; `task_671611312339` 재리뷰에서 두 건 해소와 코드 BLOCKER 0 / MAJOR 0 / MINOR 0 확인. 재리뷰의 영수증 staleness MINOR 1건은 이 행 갱신으로 해소
 - 외부 대기: G0B 예약축 표본 검수, G7E 사용자 실행 dev server 브라우저·개인15/법인15 실표본·live provider truth
-- 다음 Gate: G2B not started; 사용자 승인 대기
+- 다음 Gate: G2B completed
+
+### G2B 영수증 — 2026-07-14
+
+- Orca root/task/dispatch: root `task_011d0d6c6538`; implement `task_0faf9812f7e1` / `ctx_731d50047c55`; review `task_55bc70064867` / `ctx_68d137b87796`; fix `task_7707c62d16dd` / `ctx_e4662a2fc5e7`; re-review `task_462c6ae95554` / `ctx_bdc38eeff49a`; negative-ratio fix `task_d67e21e344d9` / `ctx_851bb135b0ef`; full re-review `task_1d89312329aa` / `ctx_d8c1600e89be`; final MINOR fix `task_ec74bcd52f92` / `ctx_e323b7feb06f`; final re-review `task_73027bace0b8` / `ctx_3d6d22eb39ae`
+- 모델/terminal: implementer `gpt-5.6-sol` xhigh `term_8a710bbd-7e19-455d-bda5-4b581150a232`; first reviewer Fable 5 max `term_416b4172-48e1-48f1-9aaa-840b6d95bafe`; fixers `gpt-5.6-sol` xhigh `term_7bceaa99-0b3d-428d-b810-e3e8181c3cf6`, `term_d491e62b-dc45-4e03-85be-9ae69bc38447`, `term_6f9c4065-a39e-4efc-9b25-219372a2a20d`; re-reviewers Fable 5 max `term_2d43b9cd-25e6-4d12-9c55-e82387d36520`, `term_e4365f3e-39b5-4f8d-9191-b0f03d520d15`, `term_c0df75a2-40e4-4975-af40-63c3f4af1a29`
+- 구현 파일: `apps/web/src/lib/server/devServiceDataProfile.ts`, `apps/web/src/lib/server/devServiceDataProfile.test.ts`, `apps/web/src/lib/server/devServiceDataMonitor.ts`, `apps/web/src/lib/server/devServiceDataMonitor.test.ts`, `apps/web/src/features/dev/ServiceDataMonitor.tsx`, `apps/web/src/app/api/dev/service-data/route.ts`
+- 구현 검증: profile/monitor focused tests, core `update-profile-field.test.ts` 36건, core `match.test.ts` 24건, core/web typecheck, changed-file `git diff --check` 모두 통과
+- 독립 리뷰: 최초 `task_55bc70064867` BLOCKER 1 / MAJOR 2 / MINOR 3; KIPRIS completeness, FSC+DART parent merge, production connector tests, preliminary union, dead builders, G3 baseProfile 경계를 모두 수용해 보정. `task_462c6ae95554`에서 원 finding 전부 해소, 새 MAJOR 1 / MINOR 1을 수용해 음수 부채비율 typed 생략·미사용 helper 제거
+- 수정·재리뷰: `task_1d89312329aa` 전면 재리뷰 BLOCKER 0 / MAJOR 0 / MINOR 2; NICE 미분리 결격 신호를 unknown으로 보존하고 FSC/NICE 자본총계·자본금 결측 문구를 구분. `task_73027bace0b8` 최종 재리뷰 BLOCKER 0 / MAJOR 0 / MINOR 0, INFO 2는 의도적 unknown 보류 audit 노이즈와 비차단 지역 변수로 수용
+- 판단 기록: 불명확한 NICE PB/OCCD06 양성 신호는 두 플래그를 동시에 확정하지 않고 diagnostic display만 보존한다. 0건과 분리된 exact 신호만 known/pass 또는 held/fail로 사용해 false eligible·false ineligible을 모두 피한다. `product_consumed`는 production promotion 전까지 pending으로 둔다.
+- 외부 대기: G0B 예약축 표본 검수, G7E 브라우저·개인15/법인15 실표본·live provider truth
+- 다음 Gate: G3 approved by user continuation request; not started at this receipt
 
 ## 12. 전체 중단 조건
 

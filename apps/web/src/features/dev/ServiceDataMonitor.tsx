@@ -19,6 +19,7 @@ import type {
   ServiceDataProvider,
   ServiceDataTraceEntry,
 } from "@/lib/server/devServiceDataMonitor";
+import type { DevQnaAnswerDto } from "@/lib/server/devServiceDataProfile";
 import {
   Accordion,
   AccordionContent,
@@ -53,7 +54,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { CodefSimpleAuthPanel } from "./CodefSimpleAuthPanel";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,6 +78,8 @@ const CERT_OPTIONS = [
 ] as const;
 
 const TRAIT_OPTIONS = ["여성", "장애인", "청년", "시니어"] as const;
+const IP_KIND_OPTIONS = ["특허·실용신안", "디자인", "상표"] as const;
+const APPLICANT_TAG_OPTIONS = ["창업기업", "중소기업", "소상공인", "여성기업", "장애인기업"] as const;
 
 const DISQ_AXES = ["tax_compliance", "credit_status", "sanction"] as const;
 
@@ -91,14 +93,22 @@ type MergedCoverageRow = FieldCoverageRow & {
 };
 
 interface QnaState {
+  scenario: DevQnaAnswerDto["scenario"];
+  industryLabels: string;
+  industryCodes: string;
   birthYear: string;
   traits: string[];
   employees: string;
   revenueEok: string;
   certs: string[];
-  priorAward: string;
-  ipCount: string;
-  isPreliminary: boolean;
+  priorAwardProgram: string;
+  priorAwardAgency: string;
+  priorAwardYear: string;
+  priorAwardState: "participating" | "completed" | "graduated";
+  priorAwardHeld: "" | "yes" | "no";
+  priorCurrentSimilar: "" | "yes" | "no";
+  ipKinds: string[];
+  applicantTags: string[];
   // 결격 3축 — 문항 그룹(canonical)별: 확인함 + 보유(있음) 플래그.
   disqConfirmed: Record<string, boolean>;
   disqFlags: Record<string, string[]>;
@@ -106,6 +116,9 @@ interface QnaState {
   // 재무건전성
   capitalImpairment: "" | "none" | "partial" | "full";
   equityEok: string;
+  capitalEok: string;
+  interestCoverage: string;
+  fiscalYear: string;
   // 고용
   noLayoff: "" | "yes" | "no";
   /** 감원 있음일 때 마지막 감원 후 경과 개월(months_since_last_layoff). 미입력이면 매칭은 unknown. */
@@ -117,19 +130,30 @@ interface QnaState {
 }
 
 const EMPTY_QNA: QnaState = {
+  scenario: "registered_business",
+  industryLabels: "",
+  industryCodes: "",
   birthYear: "",
   traits: [],
   employees: "",
   revenueEok: "",
   certs: [],
-  priorAward: "",
-  ipCount: "",
-  isPreliminary: false,
+  priorAwardProgram: "",
+  priorAwardAgency: "",
+  priorAwardYear: "",
+  priorAwardState: "completed",
+  priorAwardHeld: "",
+  priorCurrentSimilar: "",
+  ipKinds: [],
+  applicantTags: [],
   disqConfirmed: {},
   disqFlags: {},
   disqExceptions: [],
   capitalImpairment: "",
   equityEok: "",
+  capitalEok: "",
+  interestCoverage: "",
+  fiscalYear: "",
   noLayoff: "",
   layoffMonths: "",
   investmentEok: "",
@@ -153,6 +177,34 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
   const lookupInFlightRef = useRef(new Map<string, Promise<void>>());
   // 커버리지 테이블 상태 필터("all" 이면 전체). 요약 카드의 범례 칩과 연동된다.
   const [statusFilter, setStatusFilter] = useState<StatusGroup | "all">("all");
+  const qnaDto = useMemo(() => buildDevQnaAnswerDto(qna, qnaSchema), [qna, qnaSchema]);
+
+  const validateQna = useCallback(async () => {
+    try {
+      const response = await fetch("/api/dev/service-data", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "normalize_qna", answers: qnaDto }),
+      });
+      const data = (await response.json()) as {
+        profileUpdates?: unknown[];
+        failures?: Array<{ message?: string }>;
+        message?: string;
+      };
+      if (!response.ok) {
+        toast.error(data.message ?? "Q&A typed 변환에 실패했습니다.");
+        return;
+      }
+      const failures = data.failures ?? [];
+      if (failures.length > 0) {
+        toast.warning(`typed update ${data.profileUpdates?.length ?? 0}개 · 변환 실패 ${failures.length}개`);
+      } else {
+        toast.success(`typed update ${data.profileUpdates?.length ?? 0}개를 확인했습니다.`);
+      }
+    } catch {
+      toast.error("Q&A typed 변환을 확인하지 못했습니다.");
+    }
+  }, [qnaDto]);
 
   const runLookup = useCallback((bizNo: string, forceRefresh: boolean, selectedProvider: ServiceDataProvider) => {
     const requestKey = `${selectedProvider}:${bizNo}:${forceRefresh ? "refresh" : "cache"}`;
@@ -511,7 +563,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
       ) : null}
 
       {/* 4. Q&A 섹션 */}
-      <QnaSection qna={qna} setQna={setQna} disabled={!result} schema={qnaSchema} />
+      <QnaSection qna={qna} setQna={setQna} disabled={false} schema={qnaSchema} onValidate={validateQna} />
 
       <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
         <AlertDialogContent>
@@ -991,11 +1043,13 @@ function QnaSection({
   setQna,
   disabled,
   schema,
+  onValidate,
 }: {
   qna: QnaState;
   setQna: React.Dispatch<React.SetStateAction<QnaState>>;
   disabled: boolean;
   schema: QnaSchema;
+  onValidate: () => void;
 }) {
   const toggleInArray = (list: string[], value: string): string[] =>
     list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
@@ -1011,6 +1065,40 @@ function QnaSection({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
+        <QnaField label="응답 시나리오" hint="예비창업은 사업자번호 조회의 기본값이 아니라 별도 typed 시나리오입니다.">
+          <SegmentedChoice
+            value={qna.scenario}
+            disabled={disabled}
+            options={[
+              { value: "registered_business", label: "등록 사업자" },
+              { value: "preliminary", label: "예비창업" },
+            ]}
+            onChange={(value) => setQna((prev) => ({
+              ...prev,
+              scenario: value as QnaState["scenario"],
+            }))}
+          />
+        </QnaField>
+
+        <QnaField label="업종 라벨·KSIC 코드" hint="표시 라벨과 matcher가 쓰는 industry_codes를 구분해 입력합니다.">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              aria-label="업종 라벨"
+              placeholder="소프트웨어, 인공지능"
+              value={qna.industryLabels}
+              disabled={disabled}
+              onChange={(event) => setQna((prev) => ({ ...prev, industryLabels: event.target.value }))}
+            />
+            <Input
+              aria-label="KSIC 코드"
+              placeholder="62010, 62, J"
+              value={qna.industryCodes}
+              disabled={disabled}
+              onChange={(event) => setQna((prev) => ({ ...prev, industryCodes: event.target.value }))}
+            />
+          </div>
+        </QnaField>
+
         <QnaField
           id="qna-birth-year"
           label="대표자 출생연도"
@@ -1088,46 +1176,82 @@ function QnaSection({
           />
         </QnaField>
 
-        <QnaField
-          id="qna-prior-award"
-          label="정책자금·지원사업 수혜 이력"
-          hint="수혜 이력은 통합 공개 API가 없습니다."
-        >
-          <Textarea
-            id="qna-prior-award"
-            placeholder="예: 2024 창업도약패키지 선정"
-            value={qna.priorAward}
-            disabled={disabled}
-            onChange={(event) => setQna((prev) => ({ ...prev, priorAward: event.target.value }))}
-          />
-        </QnaField>
-
-        <QnaField
-          id="qna-ip-count"
-          label="특허·지재권 보유 건수"
-          hint="KIPRIS exact로 공개·등록 출원 이력은 확인하며, 권리별 현재 보유 건수는 보완 입력합니다."
-        >
-          <Input
-            id="qna-ip-count"
-            type="number"
-            inputMode="numeric"
-            placeholder="예: 2"
-            value={qna.ipCount}
-            disabled={disabled}
-            onChange={(event) => setQna((prev) => ({ ...prev, ipCount: event.target.value }))}
-          />
-        </QnaField>
-
-        <QnaField label="예비창업자 여부" hint="사업자 미등록 상태는 공공 API로 확인할 수 없습니다.">
-          <Label htmlFor="qna-preliminary" className="font-normal">
-            <Checkbox
-              id="qna-preliminary"
-              checked={qna.isPreliminary}
+        <QnaField label="정책자금·지원사업 수혜 이력" hint="조회한 프로그램 범위와 self 범위를 구조화해 unknown을 보존합니다.">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <Input
+              aria-label="지원사업명"
+              placeholder="예: TIPS"
+              value={qna.priorAwardProgram}
               disabled={disabled}
-              onCheckedChange={(checked) => setQna((prev) => ({ ...prev, isPreliminary: checked === true }))}
+              onChange={(event) => setQna((prev) => ({ ...prev, priorAwardProgram: event.target.value }))}
             />
-            예비창업자입니다
-          </Label>
+            <Input
+              aria-label="지원기관"
+              placeholder="예: 창업진흥원"
+              value={qna.priorAwardAgency}
+              disabled={disabled}
+              onChange={(event) => setQna((prev) => ({ ...prev, priorAwardAgency: event.target.value }))}
+            />
+            <Input
+              aria-label="수혜연도"
+              type="number"
+              inputMode="numeric"
+              placeholder="예: 2025"
+              value={qna.priorAwardYear}
+              disabled={disabled}
+              onChange={(event) => setQna((prev) => ({ ...prev, priorAwardYear: event.target.value }))}
+            />
+          </div>
+          <SegmentedChoice
+            value={qna.priorAwardHeld}
+            disabled={disabled}
+            options={[
+              { value: "yes", label: "해당 프로그램 참여/수혜" },
+              { value: "no", label: "해당 없음" },
+            ]}
+            onChange={(value) => setQna((prev) => ({ ...prev, priorAwardHeld: value as QnaState["priorAwardHeld"] }))}
+          />
+          {qna.priorAwardHeld === "yes" ? (
+            <SegmentedChoice
+              value={qna.priorAwardState}
+              disabled={disabled}
+              options={[
+                { value: "participating", label: "참여 중" },
+                { value: "completed", label: "완료" },
+                { value: "graduated", label: "졸업" },
+              ]}
+              onChange={(value) => setQna((prev) => ({ ...prev, priorAwardState: value as QnaState["priorAwardState"] }))}
+            />
+          ) : null}
+          <SegmentedChoice
+            value={qna.priorCurrentSimilar}
+            disabled={disabled}
+            options={[
+              { value: "yes", label: "현재 유사사업 참여 중" },
+              { value: "no", label: "현재 유사사업 없음" },
+            ]}
+            onChange={(value) => setQna((prev) => ({ ...prev, priorCurrentSimilar: value as QnaState["priorCurrentSimilar"] }))}
+          />
+        </QnaField>
+
+        <QnaField label="특허·지재권 종류" hint="KIPRIS miss는 unknown으로 두고, 답한 권리 종류만 partial 목록으로 보완합니다.">
+          <CheckboxGroup
+            options={IP_KIND_OPTIONS}
+            selected={qna.ipKinds}
+            disabled={disabled}
+            name="ip-kind"
+            onToggle={(value) => setQna((prev) => ({ ...prev, ipKinds: toggleInArray(prev.ipKinds, value) }))}
+          />
+        </QnaField>
+
+        <QnaField label="신청 주체 태그" hint="사업자등록의 법적 형태(법인/개인)와 공고 신청 주체 태그를 구분합니다.">
+          <CheckboxGroup
+            options={APPLICANT_TAG_OPTIONS}
+            selected={qna.applicantTags}
+            disabled={disabled}
+            name="applicant-tag"
+            onToggle={(value) => setQna((prev) => ({ ...prev, applicantTags: toggleInArray(prev.applicantTags, value) }))}
+          />
         </QnaField>
 
         <Separator />
@@ -1213,6 +1337,42 @@ function QnaSection({
           />
         </QnaField>
 
+        <QnaField id="qna-capital-eok" label="자본금 (억원, 선택)" hint="자본총계가 0보다 크고 자본금보다 작으면 partial 자본잠식으로 파생합니다.">
+          <Input
+            id="qna-capital-eok"
+            type="number"
+            inputMode="decimal"
+            placeholder="예: 20"
+            value={qna.capitalEok}
+            disabled={disabled}
+            onChange={(event) => setQna((prev) => ({ ...prev, capitalEok: event.target.value }))}
+          />
+        </QnaField>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <QnaField id="qna-interest-coverage" label="이자보상배율" hint="소수와 음수를 보존합니다.">
+            <Input
+              id="qna-interest-coverage"
+              type="number"
+              inputMode="decimal"
+              placeholder="예: 1.8"
+              value={qna.interestCoverage}
+              disabled={disabled}
+              onChange={(event) => setQna((prev) => ({ ...prev, interestCoverage: event.target.value }))}
+            />
+          </QnaField>
+          <QnaField id="qna-fiscal-year" label="재무 기준연도" hint="예: 2025">
+            <Input
+              id="qna-fiscal-year"
+              inputMode="numeric"
+              placeholder="예: 2025"
+              value={qna.fiscalYear}
+              disabled={disabled}
+              onChange={(event) => setQna((prev) => ({ ...prev, fiscalYear: event.target.value }))}
+            />
+          </QnaField>
+        </div>
+
         <Separator />
 
         {/* 고용 */}
@@ -1281,6 +1441,12 @@ function QnaSection({
             TIPS 선정기업입니다
           </Label>
         </QnaField>
+
+        <div className="flex justify-end">
+          <Button type="button" variant="outline" disabled={disabled} onClick={onValidate}>
+            typed update 변환 확인
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
@@ -1757,6 +1923,97 @@ function deriveDisqByAxis(
   return { byAxis, flagLabel };
 }
 
+/** 직렬화 가능한 클라이언트 답을 production QuestionDefinition id 기반 DTO로 만든다. */
+function buildDevQnaAnswerDto(qna: QnaState, schema: QnaSchema): DevQnaAnswerDto {
+  const answers: DevQnaAnswerDto["answers"] = [];
+  const add = (dimension: keyof QnaSchema["definitionIds"], value: unknown): void => {
+    answers.push({ definitionId: schema.definitionIds[dimension], value });
+  };
+  const split = (raw: string): string[] => raw
+    .split(/[,\n]/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const won = (raw: string): number | undefined =>
+    isNumeric(raw) ? Math.round(Number(raw) * 100_000_000) : undefined;
+
+  const industryLabels = split(qna.industryLabels);
+  const industryCodes = split(qna.industryCodes);
+  if (industryLabels.length > 0 || industryCodes.length > 0) {
+    add("industry", { labels: industryLabels, codes: industryCodes });
+  }
+  const age = computeAge(qna.birthYear);
+  if (age !== null) add("founder_age", age);
+  if (isNumeric(qna.employees)) add("employees", Number(qna.employees));
+  const revenueWon = won(qna.revenueEok);
+  if (revenueWon !== undefined) add("revenue", revenueWon);
+  if (qna.traits.length > 0) add("founder_trait", qna.traits);
+  if (qna.certs.length > 0) add("certification", qna.certs);
+
+  const priorProgram = qna.priorAwardProgram.trim();
+  const priorAnswered = qna.priorAwardHeld !== "" || qna.priorCurrentSimilar !== "";
+  if (priorAnswered) {
+    const records = priorProgram && qna.priorAwardHeld === "yes" ? [{
+      program: priorProgram,
+      ...(qna.priorAwardAgency.trim() ? { agency: qna.priorAwardAgency.trim() } : {}),
+      ...(isNumeric(qna.priorAwardYear) ? { year: Number(qna.priorAwardYear) } : {}),
+      state: qna.priorAwardState,
+    }] : [];
+    add("prior_award", {
+      records,
+      known_programs: priorProgram && qna.priorAwardHeld ? [priorProgram] : [],
+      known_program_types: [],
+      ...(qna.priorCurrentSimilar ? {
+        self_flags: { current_similar: qna.priorCurrentSimilar === "yes" },
+      } : {}),
+    });
+  }
+  if (qna.ipKinds.length > 0) add("ip", qna.ipKinds);
+  if (qna.applicantTags.length > 0) add("target_type", qna.applicantTags);
+
+  for (const axis of schema.disqualification) {
+    const axisAnswers: Record<string, { held: string[] }> = {};
+    const axisFlags = new Set(axis.questions.flatMap((question) => question.flags.map((flag) => flag.flag)));
+    for (const question of axis.questions) {
+      const held = qna.disqFlags[question.id] ?? [];
+      if (qna.disqConfirmed[question.id] || held.length > 0) axisAnswers[question.id] = { held };
+    }
+    const exceptions = schema.exceptions
+      .filter((exception) =>
+        qna.disqExceptions.includes(exception.key) && exception.flags.some((flag) => axisFlags.has(flag)))
+      .map((exception) => exception.key);
+    if (Object.keys(axisAnswers).length > 0 || exceptions.length > 0) {
+      add(axis.axis, { answers: axisAnswers, exceptions });
+    }
+  }
+
+  const financial: Record<string, unknown> = {};
+  if (qna.capitalImpairment) financial.impairment = qna.capitalImpairment;
+  const equityWon = won(qna.equityEok);
+  if (equityWon !== undefined) financial.equity_krw = equityWon;
+  const capitalWon = won(qna.capitalEok);
+  if (capitalWon !== undefined) financial.capital_krw = capitalWon;
+  if (isNumeric(qna.interestCoverage)) financial.interest_coverage_ratio = Number(qna.interestCoverage);
+  if (qna.fiscalYear.trim()) financial.fiscal_year = qna.fiscalYear.trim();
+  if (Object.keys(financial).length > 0) add("financial_health", financial);
+
+  if (qna.noLayoff) {
+    add("insured_workforce", {
+      no_layoff: qna.noLayoff === "yes",
+      ...(qna.noLayoff === "no" && isNumeric(qna.layoffMonths)
+        ? { months_since_last_layoff: Number(qna.layoffMonths) }
+        : {}),
+    });
+  }
+  const investment: Record<string, unknown> = {};
+  const investmentWon = won(qna.investmentEok);
+  if (investmentWon !== undefined) investment.total_raised_krw = investmentWon;
+  if (qna.investmentRound.trim()) investment.last_round = qna.investmentRound.trim();
+  if (qna.tipsBacked) investment.tips_backed = true;
+  if (Object.keys(investment).length > 0) add("investment", investment);
+
+  return { scenario: qna.scenario, answers };
+}
+
 /**
  * 서버 커버리지(22축)에 Q&A 자가신고를 오버레이한다. 라이브/캐시/해당없음 행은 원천을 유지하고(회귀 금지),
  * pending/failed 행만 자가신고 값으로 self-declared 전환한다. 결격 3축은 {flags, known_flags, exceptions}를
@@ -1791,9 +2048,18 @@ function mergeFieldsWithQna(
   if (qna.revenueEok.trim() && Number.isFinite(revenueEok)) legacy.revenue = `${revenueEok.toLocaleString("ko-KR")}억원`;
   if (qna.certs.length > 0) legacy.certification = qna.certs.join(", ");
   if (qna.traits.length > 0) legacy.founder_trait = qna.traits.join(", ");
-  if (qna.priorAward.trim()) legacy.prior_award = qna.priorAward.trim();
-  const ipCount = Number(qna.ipCount);
-  if (qna.ipCount.trim() && Number.isFinite(ipCount)) legacy.ip = `${ipCount.toLocaleString("ko-KR")}건`;
+  const industry = [...splitQnaList(qna.industryLabels), ...splitQnaList(qna.industryCodes)];
+  if (industry.length > 0) legacy.industry = industry.join(", ");
+  if (qna.priorAwardHeld || qna.priorCurrentSimilar) {
+    const parts: string[] = [];
+    if (qna.priorAwardProgram.trim() && qna.priorAwardHeld) {
+      parts.push(`${qna.priorAwardProgram.trim()} ${qna.priorAwardHeld === "yes" ? qna.priorAwardState : "해당 없음"}`);
+    }
+    if (qna.priorCurrentSimilar) parts.push(`현재 유사사업 ${qna.priorCurrentSimilar === "yes" ? "참여" : "없음"}`);
+    legacy.prior_award = parts.join(" · ");
+  }
+  if (qna.ipKinds.length > 0) legacy.ip = qna.ipKinds.join(", ");
+  if (qna.applicantTags.length > 0) legacy.target_type = qna.applicantTags.join(", ");
 
   const selfDeclared = (row: FieldCoverageRow, value: string, extra?: Partial<MergedCoverageRow>): MergedCoverageRow => ({
     ...row,
@@ -1807,16 +2073,65 @@ function mergeFieldsWithQna(
     ...extra,
   });
 
-  const financialAnswered = qna.capitalImpairment !== "" || isNumeric(qna.equityEok);
+  const financialAnswered = qna.capitalImpairment !== "" || isNumeric(qna.equityEok) ||
+    isNumeric(qna.capitalEok) || isNumeric(qna.interestCoverage) || qna.fiscalYear.trim().length > 0;
+  const effectiveImpairment = qna.capitalImpairment || deriveQnaImpairment(qna.equityEok, qna.capitalEok);
   const investmentAnswered = qna.tipsBacked || isNumeric(qna.investmentEok) || qna.investmentRound.trim().length > 0;
 
   return coverage.map((row): MergedCoverageRow => {
-    // 예비창업 자가신고는 파생-라이브 target_type도 덮는다(사용자 의도 우선).
-    if (row.key === "target_type" && qna.isPreliminary) {
-      return selfDeclared(row, "예비창업자");
-    }
     // 라이브/캐시/해당없음은 원천 유지(회귀 금지).
     if (row.status === "live" || row.status === "cache" || row.status === "n/a") return row;
+    if (row.key === "target_type" && qna.scenario === "preliminary") {
+      return selfDeclared(row, "예비창업자", { axisCompleteness: "partial" });
+    }
+    if (row.key === "biz_age.is_preliminary" && qna.scenario === "preliminary") {
+      return selfDeclared(row, "예비창업 시나리오", { axisCompleteness: "partial" });
+    }
+
+    if (row.key === "industry.industry_codes" && splitQnaList(qna.industryCodes).length > 0) {
+      return selfDeclared(row, splitQnaList(qna.industryCodes).join(", "), { axisCompleteness: "partial" });
+    }
+    if (row.key === "industry.list_completeness" && industry.length > 0) {
+      return selfDeclared(row, "partial", { axisCompleteness: "partial" });
+    }
+    if (row.key === "founder_trait.list_completeness" && qna.traits.length > 0) {
+      return selfDeclared(row, "partial", { axisCompleteness: "partial" });
+    }
+    if (row.key === "certification.list_completeness" && qna.certs.length > 0) {
+      return selfDeclared(row, "partial", { axisCompleteness: "partial" });
+    }
+    if (row.key === "prior_award.records" && qna.priorAwardProgram.trim() && qna.priorAwardHeld === "yes") {
+      const record = [qna.priorAwardProgram.trim(), qna.priorAwardAgency.trim(), qna.priorAwardYear.trim(), qna.priorAwardState]
+        .filter(Boolean)
+        .join(" · ");
+      return selfDeclared(row, record, { axisCompleteness: "partial" });
+    }
+    if (row.key === "prior_award.known_programs" && qna.priorAwardProgram.trim() && qna.priorAwardHeld) {
+      return selfDeclared(row, qna.priorAwardProgram.trim(), { axisCompleteness: "partial" });
+    }
+    if (row.key === "prior_award.self_flags" && qna.priorCurrentSimilar) {
+      return selfDeclared(
+        row,
+        `current_similar=${qna.priorCurrentSimilar === "yes" ? "true" : "false"}`,
+        { axisCompleteness: "partial" },
+      );
+    }
+    if (row.key === "prior_award.list_completeness" && (qna.priorAwardHeld || qna.priorCurrentSimilar)) {
+      return selfDeclared(row, "partial", { axisCompleteness: "partial" });
+    }
+    if (row.key === "ip.right_kinds" && qna.ipKinds.length > 0) {
+      return selfDeclared(row, qna.ipKinds.join(", "), { axisCompleteness: "partial" });
+    }
+    if (row.key === "ip.list_completeness" && qna.ipKinds.length > 0) {
+      return selfDeclared(row, "partial", { axisCompleteness: "partial" });
+    }
+    if (row.key === "target_type.applicant_tags" && qna.applicantTags.length > 0) {
+      return selfDeclared(row, qna.applicantTags.join(", "), { axisCompleteness: "partial" });
+    }
+    if (row.key === "target_type.list_completeness" &&
+      (qna.applicantTags.length > 0 || qna.scenario === "preliminary")) {
+      return selfDeclared(row, "partial", { axisCompleteness: "partial" });
+    }
 
     // 결격 3축 부모 행.
     if (row.dimension && (DISQ_AXES as readonly string[]).includes(row.dimension) && !row.parentKey) {
@@ -1849,16 +2164,28 @@ function mergeFieldsWithQna(
     }
 
     // 재무건전성.
-    if (row.subField === "impairment" && qna.capitalImpairment) {
-      return selfDeclared(row, impairmentLabel(qna.capitalImpairment));
+    if (row.subField === "impairment" && effectiveImpairment) {
+      return selfDeclared(row, impairmentLabel(effectiveImpairment));
     }
     if (row.subField === "equity_krw" && isNumeric(qna.equityEok)) {
       return selfDeclared(row, `${Number(qna.equityEok).toLocaleString("ko-KR")}억원`);
     }
+    if (row.subField === "capital_krw" && isNumeric(qna.capitalEok)) {
+      return selfDeclared(row, `${Number(qna.capitalEok).toLocaleString("ko-KR")}억원`);
+    }
+    if (row.subField === "interest_coverage_ratio" && isNumeric(qna.interestCoverage)) {
+      return selfDeclared(row, qna.interestCoverage);
+    }
+    if (row.subField === "fiscal_year" && qna.fiscalYear.trim()) {
+      return selfDeclared(row, qna.fiscalYear.trim());
+    }
     if (row.dimension === "financial_health" && !row.parentKey && financialAnswered) {
       const parts: string[] = [];
-      if (qna.capitalImpairment) parts.push(`자본잠식 ${impairmentLabel(qna.capitalImpairment)}`);
+      if (effectiveImpairment) parts.push(`자본잠식 ${impairmentLabel(effectiveImpairment)}`);
       if (isNumeric(qna.equityEok)) parts.push(`자본총계 ${Number(qna.equityEok).toLocaleString("ko-KR")}억원`);
+      if (isNumeric(qna.capitalEok)) parts.push(`자본금 ${Number(qna.capitalEok).toLocaleString("ko-KR")}억원`);
+      if (isNumeric(qna.interestCoverage)) parts.push(`이자보상배율 ${qna.interestCoverage}`);
+      if (qna.fiscalYear.trim()) parts.push(`기준연도 ${qna.fiscalYear.trim()}`);
       return selfDeclared(row, parts.join(" · "), { axisCompleteness: "partial" });
     }
 
@@ -1889,8 +2216,9 @@ function mergeFieldsWithQna(
     // 레거시 축(매출·근로자·연령·특성·인증·수혜·IP).
     const override = legacy[row.key];
     if (override !== undefined) {
-      const partialListAnswer =
-        row.key === "founder_trait" || row.key === "certification" || row.key === "prior_award";
+      const partialListAnswer = row.key === "industry" || row.key === "founder_trait" ||
+        row.key === "certification" || row.key === "prior_award" || row.key === "ip" ||
+        row.key === "target_type";
       return selfDeclared(row, override, partialListAnswer ? { axisCompleteness: "partial" } : undefined);
     }
 
@@ -1916,6 +2244,22 @@ function impairmentLabel(value: QnaState["capitalImpairment"]): string {
 
 function isNumeric(raw: string): boolean {
   return raw.trim().length > 0 && Number.isFinite(Number(raw));
+}
+
+function splitQnaList(raw: string): string[] {
+  return raw.split(/[,\n]/).map((value) => value.trim()).filter(Boolean);
+}
+
+function deriveQnaImpairment(
+  equityRaw: string,
+  capitalRaw: string,
+): QnaState["capitalImpairment"] {
+  if (!isNumeric(equityRaw) || !isNumeric(capitalRaw)) return "";
+  const equity = Number(equityRaw);
+  const capital = Number(capitalRaw);
+  if (equity <= 0) return "full";
+  if (equity < capital) return "partial";
+  return "none";
 }
 
 function computeAge(birthYearRaw: string): number | null {

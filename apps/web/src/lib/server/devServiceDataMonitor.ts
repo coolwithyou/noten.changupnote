@@ -11,6 +11,7 @@ import {
   checkStartupConfirmation,
   checkNiceCorpCredit,
   checkNiceCorpIndicator,
+  DISQUALIFICATION_FLAGS,
   DISQUALIFICATION_EXCEPTION_LABELS,
   DISQUALIFICATION_EXCEPTIONS,
   DISQUALIFICATION_FLAG_LABELS,
@@ -19,6 +20,7 @@ import {
   matchRegistry,
   normalizeCompanyName,
   PROCUREMENT_DEBARMENT_SOURCE,
+  questionDefinitionFor,
   requireProfileFieldKey,
 } from "@cunote/core";
 import type {
@@ -38,6 +40,8 @@ import type {
   StartupConfirmationLookup,
   DartFinancialSnapshot,
   CompanyProfileFieldUpdate,
+  QuestionDefinitionId,
+  RegistryMatch,
 } from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
 import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
@@ -60,9 +64,24 @@ import {
   ServiceDataError,
 } from "./serviceData";
 import {
+  buildBizAgeProfileUpdates,
   buildCertificationProfileUpdates,
+  buildDisqualificationProfileUpdates,
+  buildEmployeesProfileUpdates,
+  buildFinancialHealthProfileUpdates,
+  buildFounderAgeProfileUpdates,
+  buildFounderTraitProfileUpdates,
+  buildIndustryProfileUpdates,
   buildInsuredWorkforceProfileUpdates,
+  buildInvestmentProfileUpdates,
+  buildIpProfileUpdates,
+  buildRegionProfileUpdates,
   buildRevenueProfileUpdates,
+  buildTargetTypeProfileUpdates,
+  DEV_QNA_DIMENSIONS,
+  type DevFinancialHealthValue,
+  type DevInvestmentValue,
+  type DevQnaDimension,
   type DevServiceDataNormalizationFailure,
   type DevServiceDataProfileMetadata,
   type DevServiceDataProfileNormalization,
@@ -239,6 +258,51 @@ function withRevenueProfileUpdate(
   );
 }
 
+function withEmployeesProfileUpdate(
+  result: ConnectorResult,
+  employees: unknown,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildEmployeesProfileUpdates(employees, profileMetadata(result, provider, "complete")),
+  );
+}
+
+function withFinancialHealthProfileUpdate(
+  result: ConnectorResult,
+  value: DevFinancialHealthValue,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildFinancialHealthProfileUpdates(value, profileMetadata(result, provider, "partial")),
+  );
+}
+
+function withDisqualificationProfileUpdate(
+  result: ConnectorResult,
+  field: "tax_compliance" | "credit_status" | "sanction",
+  value: unknown,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildDisqualificationProfileUpdates(field, value, profileMetadata(result, provider, "partial")),
+  );
+}
+
+function withInvestmentProfileUpdate(
+  result: ConnectorResult,
+  value: DevInvestmentValue,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildInvestmentProfileUpdates(value, profileMetadata(result, provider, "partial")),
+  );
+}
+
 function withCertificationProfileUpdates(
   result: ConnectorResult,
   certifications: readonly unknown[],
@@ -318,6 +382,7 @@ export interface QnaExceptionSchema {
   flags: DisqualificationFlag[];
 }
 export interface QnaSchema {
+  definitionIds: Record<DevQnaDimension, QuestionDefinitionId>;
   disqualification: QnaAxisSchema[];
   exceptions: QnaExceptionSchema[];
 }
@@ -332,10 +397,20 @@ export interface ServiceDataLookupResult {
   fields: ServiceDataField[];
   /** 22축 + 하위 플래그 커버리지(라이브/pending/n-a 상태). Q&A 는 클라이언트가 오버레이. */
   coverage: FieldCoverageRow[];
+  /** G2B dev 경계: connector 표시 결과와 별도로 matcher 입력 가능한 typed update를 노출한다. */
+  connectorProfileUpdates: CompanyProfileFieldUpdate[];
+  connectorNormalizationFailures: DevServiceDataNormalizationFailure[];
+  connectorProfileAudit: ConnectorProfileUpdateAudit;
   /** 현재 활성·검수 공고 criterion 빈도로 만든 19축 가중치. 불러오지 못하면 null. */
   coverageGrantWeights: AutofillGrantWeights | null;
   trace: ServiceDataTraceEntry[];
   error?: ServiceDataLookupError;
+}
+
+export interface ConnectorProfileUpdateAudit {
+  valueProducingKeys: string[];
+  typedDimensions: CriterionDimension[];
+  missingTypedUpdateKeys: string[];
 }
 
 // 필드 키 → confidence 축 매핑(신뢰도 표시용). corp_name 은 축이 없어 null.
@@ -602,6 +677,7 @@ async function lookupServiceDataOnce(
     asOfBySource,
     connectorResults,
   });
+  const connectorProfile = collectConnectorProfileUpdates(connectorResults);
 
   return {
     bizNo: normalized,
@@ -611,6 +687,9 @@ async function lookupServiceDataOnce(
     evidence,
     fields,
     coverage,
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+    connectorProfileAudit: connectorProfile.audit,
     coverageGrantWeights,
     trace,
     ...(error ? { error } : {}),
@@ -675,6 +754,7 @@ async function lookupApickServiceData(
     asOfBySource,
     connectorResults,
   });
+  const connectorProfile = collectConnectorProfileUpdates(connectorResults);
 
   return {
     bizNo: normalized,
@@ -684,9 +764,42 @@ async function lookupApickServiceData(
     evidence,
     fields,
     coverage,
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+    connectorProfileAudit: connectorProfile.audit,
     coverageGrantWeights,
     trace,
     ...(error ? { error } : {}),
+  };
+}
+
+/** 실제 최종 connector map의 값 생산축마다 typed update가 있는지 dev 응답에 영수증을 남긴다. */
+export function collectConnectorProfileUpdates(results: Map<string, ConnectorResult>): {
+  profileUpdates: CompanyProfileFieldUpdate[];
+  normalizationFailures: DevServiceDataNormalizationFailure[];
+  audit: ConnectorProfileUpdateAudit;
+} {
+  const profileUpdates = [...results.values()]
+    .flatMap((result) => result.profileUpdates ?? [])
+    .sort((a, b) => `${a.field}:${a.provider ?? ""}`.localeCompare(`${b.field}:${b.provider ?? ""}`));
+  const normalizationFailures = [...results.values()]
+    .flatMap((result) => result.normalizationFailure ? [result.normalizationFailure] : [])
+    .sort((a, b) => `${a.field}:${a.message}`.localeCompare(`${b.field}:${b.message}`));
+  const typedDimensions = [...new Set(profileUpdates.map((update) => update.field))];
+  const typed = new Set<CriterionDimension>(typedDimensions);
+  const valueProducingKeys = [...results]
+    .filter(([, result]) => result.ok && typeof result.value === "string" && result.value.trim().length > 0)
+    .map(([key]) => key)
+    .sort();
+  const dimensionByKey = new Map(FIELD_COVERAGE_PLAN.map((entry) => [entry.key, entry.dimension]));
+  const missingTypedUpdateKeys = valueProducingKeys.filter((key) => {
+    const dimension = dimensionByKey.get(key);
+    return dimension !== null && dimension !== undefined && !typed.has(dimension);
+  });
+  return {
+    profileUpdates,
+    normalizationFailures,
+    audit: { valueProducingKeys, typedDimensions, missingTypedUpdateKeys },
   };
 }
 
@@ -862,7 +975,7 @@ const FIELD_COVERAGE_PLAN: readonly CoveragePlanEntry[] = [
   planRow({ key: "ip.right_statuses", parentKey: "ip", dimension: "ip", subField: "right_statuses", label: "권리 상태", tier: "B", plannedSource: "KIPRIS Plus source detail" }),
   planRow({ key: "ip.list_completeness", parentKey: "ip", dimension: "ip", subField: "list_completeness", label: "권리 목록 완전성", tier: "B", plannedSource: "typed profile evidence" }),
   planRow({ key: "target_type", dimension: "target_type", label: "대상 유형(법인/개인)", tier: "A", plannedSource: "사업자번호 추론 · 자가신고(예비창업)", derived: "target_type", selfDeclarable: true }),
-  planRow({ key: "target_type.legal_form", parentKey: "target_type", dimension: "target_type", subField: "legal_form", label: "법적 사업자 형태", tier: "A", plannedSource: "사업자등록정보" }),
+  planRow({ key: "target_type.legal_form", parentKey: "target_type", dimension: "target_type", subField: "legal_form", label: "법적 사업자 형태", tier: "A", plannedSource: "사업자등록정보", derived: "target_type" }),
   planRow({ key: "target_type.applicant_tags", parentKey: "target_type", dimension: "target_type", subField: "applicant_tags", label: "신청 주체 태그", tier: "B", plannedSource: "확인서 · 자가신고", selfDeclarable: true }),
   planRow({ key: "target_type.list_completeness", parentKey: "target_type", dimension: "target_type", subField: "list_completeness", label: "대상 유형 목록 완전성", tier: "A", plannedSource: "typed profile evidence" }),
   planRow({ key: "business_status", dimension: "business_status", label: "영업상태", tier: "A", plannedSource: "국세청 · 팝빌", liveKey: "business_status" }),
@@ -1095,7 +1208,7 @@ export function buildFieldCoverage(input: {
     const codefOverride =
       connectorResult?.ok && connectorResult.source === "codef" ? connectorResult : null;
     const external =
-      entry.envKeys || entry.batch
+      entry.envKeys || entry.batch || connectorResult
         ? {
             envPresent: entry.envKeys ? envPresent(entry.envKeys) : false,
             batch: entry.batch,
@@ -1149,6 +1262,8 @@ export function buildFieldCoverage(input: {
       !entry.parentKey &&
       (entry.dimension === "founder_trait" || entry.dimension === "certification") &&
       (source === "smpp" || source === "popbill" || source === "registry");
+    const legalFormOnlyAxis =
+      !entry.parentKey && entry.dimension === "target_type" && source === "derived";
     // CODEF 국세청 확정값이 있으면 라이브키/파생/외부 결과를 덮어 최우선으로 표시한다.
     // 커넥터가 라이브 호출이 아니라 company_enrichment_cache passive 판독이므로 status는 "cache"
     // (인증은 api/dev/codef/* 에서 선행돼 캐시에 남았고, 이 행은 그 캐시를 재사용해 표시한다).
@@ -1207,7 +1322,7 @@ export function buildFieldCoverage(input: {
       asOf: isLive ? asOf : connectorResult?.asOf ?? null,
       axisCompleteness:
         connectorResult?.axisCompleteness ??
-        (positiveOnlyAxis
+        (positiveOnlyAxis || legalFormOnlyAxis
           ? "partial"
           : defaultAxisCompleteness({
               status: effectiveStatus,
@@ -1312,7 +1427,28 @@ export async function runExternalConnectors(input: {
   mergeFscConnectorResults(results, fscResults);
   mergeDartConnectorResults(results, dartResults);
   mergeCertificationConnectorResult(results, startupResults.get("certification"));
+  addListCompletenessDiagnostics(results);
   return results;
+}
+
+export function addListCompletenessDiagnostics(results: Map<string, ConnectorResult>): void {
+  for (const dimension of ["industry", "founder_trait", "certification", "ip", "target_type"] as const) {
+    const parent = results.get(dimension);
+    const update = parent?.profileUpdates?.find((candidate) => candidate.field === dimension);
+    if (!parent?.ok || !update) continue;
+    const completeness = update.mode === "merge" ? "partial" : "complete";
+    results.set(`${dimension}.list_completeness`, {
+      ok: true,
+      ...(parent.origin ? { origin: parent.origin } : {}),
+      value: completeness,
+      confidence: parent.confidence ?? null,
+      ...(parent.source ? { source: parent.source } : {}),
+      ...(parent.sourceKind ? { sourceKind: parent.sourceKind } : {}),
+      asOf: parent.asOf ?? null,
+      axisCompleteness: completeness,
+      note: parent.note ?? null,
+    });
+  }
 }
 
 function mergeNiceAndCodefConnectorResults(
@@ -1357,7 +1493,7 @@ async function resolveDartBridgeForFinance(input: {
 }
 
 /** 표시값 우선순위: 재무 CODEF > DART > 금융위 > NICE, 직원 근로복지공단 > DART. */
-function mergeDartConnectorResults(
+export function mergeDartConnectorResults(
   results: Map<string, ConnectorResult>,
   dartResults: Map<string, ConnectorResult>,
 ): void {
@@ -1369,8 +1505,35 @@ function mergeDartConnectorResults(
     }
     if (existing.source === "codef") continue;
     if (key === "employees" && existing.source === "kcomwel" && existing.ok) continue;
+    if (
+      key === "financial_health.impairment" &&
+      existing.source === "fsc" &&
+      existing.ok &&
+      hasFinancialImpairment(results.get("financial_health"), "fsc")
+    ) continue;
+    if (key === "financial_health" && existing.source === "fsc" && existing.ok && incoming.ok) {
+      const profileUpdates = [
+        ...(existing.profileUpdates ?? []),
+        ...(incoming.profileUpdates ?? []),
+      ].sort((a, b) => `${a.provider ?? ""}:${a.asOf ?? ""}`.localeCompare(`${b.provider ?? ""}:${b.asOf ?? ""}`));
+      results.set(key, {
+        ...existing,
+        ...(profileUpdates.length > 0 ? { profileUpdates } : {}),
+        ...(existing.normalizationFailure || incoming.normalizationFailure
+          ? { normalizationFailure: existing.normalizationFailure ?? incoming.normalizationFailure }
+          : {}),
+      });
+      continue;
+    }
     if (incoming.ok || !existing.ok) results.set(key, incoming);
   }
+}
+
+function hasFinancialImpairment(result: ConnectorResult | undefined, provider: string): boolean {
+  return result?.profileUpdates?.some((update) => {
+    if (update.field !== "financial_health" || update.provider !== provider) return false;
+    return typeof update.value === "object" && update.value !== null && "impairment" in update.value;
+  }) ?? false;
 }
 
 function mergeFscConnectorResults(
@@ -1576,7 +1739,13 @@ async function runKiprisConnector(
   }).catch(() => null);
   const cachedPayload = readKiprisCachePayload(cached?.canonicalPayload);
   if (cached && cachedPayload) {
-    results.set("ip", kiprisConnectorResult(cachedPayload.match, cachedPayload.rights, "cache", cacheEntryAsOf(cached)));
+    setKiprisConnectorResults(
+      results,
+      cachedPayload.match,
+      cachedPayload.rights,
+      "cache",
+      cacheEntryAsOf(cached),
+    );
     return;
   }
 
@@ -1607,7 +1776,7 @@ async function runKiprisConnector(
       fetchedAt: checkedAt,
       expiresAt: new Date(checkedAt.getTime() + KIPRIS_CACHE_TTL_MS),
     }).catch(() => null);
-    results.set("ip", kiprisConnectorResult(match, rights, "live", checkedAt.toISOString()));
+    setKiprisConnectorResults(results, match, rights, "live", checkedAt.toISOString());
   } catch (error) {
     results.set("ip", {
       ok: false,
@@ -1617,6 +1786,59 @@ async function runKiprisConnector(
       asOf: now.toISOString(),
     });
   }
+}
+
+export function setKiprisConnectorResults(
+  results: Map<string, ConnectorResult>,
+  match: KiprisApplicantMatch | null,
+  rights: KiprisRightsSummary | null,
+  origin: ServiceDataTraceOrigin,
+  asOf: string | null,
+): void {
+  const parent = kiprisConnectorResult(match, rights, origin, asOf);
+  results.set("ip", parent);
+  if (!match || !rights) return;
+  const rightKinds = [
+    rights.patentUtility.totalCount > 0 ? "특허·실용신안" : null,
+    rights.design.totalCount > 0 ? "디자인" : null,
+    rights.trademark.totalCount > 0 ? "상표" : null,
+  ].filter((kind): kind is string => kind !== null);
+  if (rightKinds.length > 0) {
+    results.set("ip.right_kinds", {
+      ok: true,
+      origin,
+      value: rightKinds.join(", "),
+      confidence: parent.confidence ?? null,
+      source: "kipris",
+      sourceKind: "authoritative_api",
+      asOf,
+      axisCompleteness: parent.axisCompleteness ?? "partial",
+    });
+  }
+  const summaries = [rights.patentUtility, rights.design, rights.trademark];
+  const statusCounts = {
+    applied: summaries.reduce((sum, summary) => sum + summary.appliedCount, 0),
+    published: summaries.reduce((sum, summary) => sum + summary.publishedCount, 0),
+    registered: summaries.reduce((sum, summary) => sum + summary.registeredCount, 0),
+    extinguished: summaries.reduce((sum, summary) => sum + summary.extinguishedCount, 0),
+  };
+  const statusValue = [
+    `출원 ${statusCounts.applied.toLocaleString("ko-KR")}`,
+    `공개 ${statusCounts.published.toLocaleString("ko-KR")}`,
+    `등록 ${statusCounts.registered.toLocaleString("ko-KR")}`,
+    `소멸 ${statusCounts.extinguished.toLocaleString("ko-KR")}`,
+  ].join(" · ");
+  results.set("ip.right_statuses", {
+    ok: true,
+    origin,
+    value: statusValue,
+    confidence: parent.confidence ?? null,
+    source: "kipris",
+    sourceKind: "authoritative_api",
+    asOf,
+    axisCompleteness: parent.axisCompleteness ?? "partial",
+    note: rights.truncated ? "500건 초과 권리 상태 일부 집계" : null,
+  });
 }
 
 export function coalesceKiprisLookup(
@@ -1654,7 +1876,7 @@ function kiprisConnectorResult(
     const label = (name: string, summary: KiprisRightsSummary["patentUtility"]): string =>
       `${name} ${summary.totalCount.toLocaleString("ko-KR")}건` +
       ` (출원 ${summary.appliedCount.toLocaleString("ko-KR")} · 공개 ${summary.publishedCount.toLocaleString("ko-KR")} · 등록 ${summary.registeredCount.toLocaleString("ko-KR")} · 소멸 ${summary.extinguishedCount.toLocaleString("ko-KR")})`;
-    return {
+    const result: ConnectorResult = {
       ok: true,
       origin,
       value: [
@@ -1666,11 +1888,22 @@ function kiprisConnectorResult(
       source: "kipris",
       sourceKind: "authoritative_api",
       asOf,
+      // 특허고객번호 exact는 개인 명의·다른 출원인번호까지 소진하지 못하고 KIPRIS 종류도
+      // matcher criterion vocabulary와 동일하지 않으므로, 비절단이어도 IP 축 부재를 확정하지 않는다.
       axisCompleteness: "partial",
       note: rights.truncated
         ? `KIPRISPlus 특허고객번호 exact · 전체 ${rights.totalCount.toLocaleString("ko-KR")}건 · 500건 초과 권리 상태 일부 집계`
         : `KIPRISPlus 특허고객번호 exact · 전체 ${rights.totalCount.toLocaleString("ko-KR")}건`,
     };
+    const rightKinds = [
+      rights.patentUtility.totalCount > 0 ? "특허·실용신안" : null,
+      rights.design.totalCount > 0 ? "디자인" : null,
+      rights.trademark.totalCount > 0 ? "상표" : null,
+    ].filter((kind): kind is string => kind !== null);
+    return attachConnectorProfileNormalization(
+      result,
+      buildIpProfileUpdates(rightKinds, profileMetadata(result, "kipris", "partial")),
+    );
   }
   return {
     ok: true,
@@ -1754,79 +1987,151 @@ async function runRegistryConnector(
 
     const candidates = await repo.findCandidates({ bizNo, corpNo, nameNormalized });
     const matches = matchRegistry(candidates, { bizNo, corpNo, name });
-
-    // 1) present_only — active present 매칭만 반영. certification 은 canonical 목록으로 취합.
-    const certLabels: string[] = [];
-    let certificationAsOf: string | null = null;
-    for (const match of matches) {
-      if (!match.active || match.record.polarity !== "present_only") continue;
-      const rec = match.record;
-      if (rec.registryType === "certification") {
-        certLabels.push(rec.flagOrCert);
-        const fetchedAt = rec.sourceFetchedAt.toISOString();
-        if (certificationAsOf === null || fetchedAt > certificationAsOf) certificationAsOf = fetchedAt;
-        continue;
-      }
-      results.set(`${rec.registryType}.${rec.flagOrCert}`, {
-        ok: true,
-        value: registryPresentValue(rec),
-        confidence: rec.confidence,
-        source: "registry",
-        sourceKind: "public_registry",
-        asOf: rec.sourceFetchedAt.toISOString(),
-        axisCompleteness: "partial",
-        note: registrySourceLabel(rec.source),
-      });
-    }
-    if (certLabels.length > 0) {
-      const result: ConnectorResult = {
-        ok: true,
-        value: [...new Set(certLabels)].join(", "),
-        confidence: 0.55, // 공개명단 상호 퍼지
-        source: "registry",
-        sourceKind: "public_registry",
-        asOf: certificationAsOf,
-        axisCompleteness: "partial",
-      };
-      results.set(
-        "certification",
-        withCertificationProfileUpdates(result, [...new Set(certLabels)], "registry"),
-      );
-    }
-
-    // 2) known_on_absence — 소스 적재 시 부재도 clear 로 확정.
+    const loadedKnownSources = new Set<string>();
     for (const cfg of REGISTRY_KNOWN_ON_ABSENCE) {
-      const loaded = await repo.hasSource(cfg.source);
-      if (!loaded) continue; // 명단 미적재 → pending 유지
-      const hit = matches.find(
-        (m) => m.active && m.record.source === cfg.source && m.record.flagOrCert === cfg.flagOrCert,
-      );
-      if (hit) {
-        const until = hit.record.validUntil;
-        results.set(cfg.fieldKey, {
-          ok: true,
-          value: `참여제한 있음${until ? ` (~${formatIsoDate(until)})` : " (무기한)"}`,
-          confidence: hit.record.confidence,
-          source: "registry",
-          sourceKind: "public_registry",
-          asOf: hit.record.sourceFetchedAt.toISOString(),
-          axisCompleteness: "partial",
-          note: cfg.label,
-        });
-      } else {
-        results.set(cfg.fieldKey, {
-          ok: true,
-          value: "참여제한 없음(부정당 명단 부재)",
-          confidence: 0.9,
-          source: "registry",
-          sourceKind: "public_registry",
-          axisCompleteness: "partial",
-          note: cfg.label,
-        });
-      }
+      if (await repo.hasSource(cfg.source)) loadedKnownSources.add(cfg.source);
     }
+    applyRegistryMatches(results, matches, loadedKnownSources);
   } catch {
     // fail-open — 조회 실패는 무시(pending 유지, 다른 커넥터 보호).
+  }
+}
+
+/** registry DB 조회 뒤 실제 typed 결과를 만드는 순수 경계. */
+export function applyRegistryMatches(
+  results: Map<string, ConnectorResult>,
+  matches: readonly RegistryMatch[],
+  loadedKnownSources: ReadonlySet<string>,
+): void {
+  const sanctionFlags = new Set<DisqualificationFlag>();
+  const sanctionKnownFlags = new Set<DisqualificationFlag>();
+  let sanctionAsOf: string | null = null;
+  let sanctionConfidence = 1;
+  let tipsBacked = false;
+  let investmentAsOf: string | null = null;
+  let investmentConfidence = 1;
+  const certLabels: string[] = [];
+  let certificationAsOf: string | null = null;
+
+  // 1) present_only — active present 매칭만 반영. certification 은 canonical 목록으로 취합.
+  for (const match of matches) {
+    if (!match.active || match.record.polarity !== "present_only") continue;
+    const rec = match.record;
+    if (rec.registryType === "certification") {
+      certLabels.push(rec.flagOrCert);
+      const fetchedAt = rec.sourceFetchedAt.toISOString();
+      if (certificationAsOf === null || fetchedAt > certificationAsOf) certificationAsOf = fetchedAt;
+      continue;
+    }
+    if (
+      rec.registryType === "sanction" &&
+      DISQUALIFICATION_FLAGS.sanction.includes(rec.flagOrCert as DisqualificationFlag)
+    ) {
+      const flag = rec.flagOrCert as DisqualificationFlag;
+      sanctionFlags.add(flag);
+      sanctionKnownFlags.add(flag);
+      sanctionConfidence = Math.min(sanctionConfidence, rec.confidence);
+      const fetchedAt = rec.sourceFetchedAt.toISOString();
+      if (sanctionAsOf === null || fetchedAt > sanctionAsOf) sanctionAsOf = fetchedAt;
+    }
+    if (rec.registryType === "investment" && rec.flagOrCert === "tips_backed") {
+      tipsBacked = true;
+      investmentConfidence = Math.min(investmentConfidence, rec.confidence);
+      const fetchedAt = rec.sourceFetchedAt.toISOString();
+      if (investmentAsOf === null || fetchedAt > investmentAsOf) investmentAsOf = fetchedAt;
+    }
+    results.set(`${rec.registryType}.${rec.flagOrCert}`, {
+      ok: true,
+      value: registryPresentValue(rec),
+      confidence: rec.confidence,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: rec.sourceFetchedAt.toISOString(),
+      axisCompleteness: "partial",
+      note: registrySourceLabel(rec.source),
+    });
+  }
+  if (certLabels.length > 0) {
+    const labels = [...new Set(certLabels)];
+    const result: ConnectorResult = {
+      ok: true,
+      value: labels.join(", "),
+      confidence: 0.55,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: certificationAsOf,
+      axisCompleteness: "partial",
+    };
+    results.set("certification", withCertificationProfileUpdates(result, labels, "registry"));
+  }
+
+  // 2) known_on_absence — 소스 적재 시 부재도 clear 로 확정.
+  for (const cfg of REGISTRY_KNOWN_ON_ABSENCE) {
+    if (!loadedKnownSources.has(cfg.source)) continue;
+    const hit = matches.find(
+      (match) => match.active && match.record.source === cfg.source && match.record.flagOrCert === cfg.flagOrCert,
+    );
+    if (hit) {
+      const until = hit.record.validUntil;
+      results.set(cfg.fieldKey, {
+        ok: true,
+        value: `참여제한 있음${until ? ` (~${formatIsoDate(until)})` : " (무기한)"}`,
+        confidence: hit.record.confidence,
+        source: "registry",
+        sourceKind: "public_registry",
+        asOf: hit.record.sourceFetchedAt.toISOString(),
+        axisCompleteness: "partial",
+        note: cfg.label,
+      });
+      const flag = cfg.flagOrCert as DisqualificationFlag;
+      sanctionFlags.add(flag);
+      sanctionKnownFlags.add(flag);
+      sanctionConfidence = Math.min(sanctionConfidence, hit.record.confidence);
+      const fetchedAt = hit.record.sourceFetchedAt.toISOString();
+      if (sanctionAsOf === null || fetchedAt > sanctionAsOf) sanctionAsOf = fetchedAt;
+    } else {
+      results.set(cfg.fieldKey, {
+        ok: true,
+        value: "참여제한 없음(부정당 명단 부재)",
+        confidence: 0.9,
+        source: "registry",
+        sourceKind: "public_registry",
+        axisCompleteness: "partial",
+        note: cfg.label,
+      });
+      sanctionKnownFlags.add(cfg.flagOrCert as DisqualificationFlag);
+      sanctionConfidence = Math.min(sanctionConfidence, 0.9);
+    }
+  }
+  if (sanctionKnownFlags.size > 0) {
+    const result: ConnectorResult = {
+      ok: true,
+      value: sanctionFlags.size > 0
+        ? [...sanctionFlags].map((flag) => DISQUALIFICATION_FLAG_LABELS[flag]).join(", ")
+        : "조회한 제재 명단 해당 없음",
+      confidence: sanctionConfidence,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: sanctionAsOf,
+      axisCompleteness: "partial",
+    };
+    results.set("sanction", withDisqualificationProfileUpdate(result, "sanction", {
+      flags: [...sanctionFlags],
+      known_flags: [...sanctionKnownFlags],
+      exceptions: [],
+    }, "registry"));
+  }
+  if (tipsBacked) {
+    const result: ConnectorResult = {
+      ok: true,
+      value: "TIPS 선정",
+      confidence: investmentConfidence,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: investmentAsOf,
+      axisCompleteness: "partial",
+    };
+    results.set("investment", withInvestmentProfileUpdate(result, { tips_backed: true }, "registry"));
   }
 }
 
@@ -1876,13 +2181,19 @@ async function runKcomwelConnector(
       return;
     }
     if (typeof summary.totalWorkers === "number") {
-      results.set(employeesKey, {
+      const result: ConnectorResult = {
         ok: true,
         value: `${summary.totalWorkers.toLocaleString("ko-KR")}명${summary.siteCount > 1 ? ` (${summary.siteCount}개 사업장)` : ""}`,
         confidence: 0.7,
         source: "kcomwel",
+        sourceKind: "authoritative_api",
         asOf: checkedAt,
-      });
+        axisCompleteness: "complete",
+      };
+      results.set(
+        employeesKey,
+        withEmployeesProfileUpdate(result, summary.totalWorkers, "kcomwel"),
+      );
     } else {
       results.set(employeesKey, {
         ok: false,
@@ -1928,10 +2239,13 @@ async function runKcomwelConnector(
 
 const FSC_CORP_FIELD_KEYS = [
   "revenue",
+  "financial_health",
   "financial_health.debt_ratio_pct",
   "financial_health.impairment",
   "financial_health.total_assets_krw",
   "financial_health.equity_krw",
+  "financial_health.capital_krw",
+  "financial_health.fiscal_year",
 ] as const;
 
 const DART_OVERLAY_FIELD_KEYS = [
@@ -1974,7 +2288,7 @@ async function runDartOverlayConnector(
   if (lookup.employee) {
     const employee = lookup.employee;
     if (employee.totalEmployees !== null) {
-      results.set("employees", {
+      const result: ConnectorResult = {
         ok: true,
         value: `${employee.totalEmployees.toLocaleString("ko-KR")}명`,
         confidence: 0.85,
@@ -1984,7 +2298,11 @@ async function runDartOverlayConnector(
         asOf: employee.settlementDate,
         axisCompleteness: "complete",
         note: `OpenDART ${lookup.businessYear} ${reportLabel} 직원 현황`,
-      });
+      };
+      results.set(
+        "employees",
+        withEmployeesProfileUpdate(result, employee.totalEmployees, "dart"),
+      );
     } else {
       results.set("employees", dartEmptyResult(`OpenDART ${lookup.businessYear} ${reportLabel} 직원 수 미제공`, employeeOrigin));
     }
@@ -2012,7 +2330,7 @@ function selectDartFinancialSnapshot(financials: DartFinancialSnapshot[]): DartF
     ?? null;
 }
 
-function writeDartFinancialResults(
+export function writeDartFinancialResults(
   results: Map<string, ConnectorResult>,
   snapshot: DartFinancialSnapshot,
   reportLabel: string,
@@ -2032,6 +2350,17 @@ function writeDartFinancialResults(
   setDartNumericField(results, "revenue", snapshot.revenue, common);
   setDartNumericField(results, "financial_health.total_assets_krw", snapshot.totalAssets, common);
   setDartNumericField(results, "financial_health.equity_krw", snapshot.totalEquity, common);
+  results.set("financial_health.capital_krw", {
+    ...common,
+    ok: false,
+    empty: true,
+    reason: "OpenDART 주요계정 자본금 미제공",
+  });
+  results.set("financial_health.fiscal_year", {
+    ...common,
+    ok: true,
+    value: snapshot.businessYear,
+  });
 
   const debtRatio = snapshot.totalLiabilities !== null && snapshot.totalEquity !== null && snapshot.totalEquity !== 0
     ? Math.round((snapshot.totalLiabilities / snapshot.totalEquity) * 1_000) / 10
@@ -2041,7 +2370,33 @@ function writeDartFinancialResults(
     : { ...common, ok: true, value: `${debtRatio.toLocaleString("ko-KR")}%` });
   results.set("financial_health.impairment", snapshot.totalEquity === null
     ? { ...common, ok: false, empty: true, reason: "OpenDART 자본총계 미제공" }
-    : { ...common, ok: true, value: snapshot.totalEquity <= 0 ? "자본잠식" : "정상" });
+    : {
+        ...common,
+        ok: true,
+        value: snapshot.totalEquity <= 0
+          ? "완전자본잠식"
+          : "자본금 미제공 · 부분자본잠식 판정 불가",
+      });
+  const financialResult: ConnectorResult = {
+    ...common,
+    ok: true,
+    value: `${snapshot.businessYear} ${statementLabel}재무 · 자본금 미제공`,
+    axisCompleteness: "partial",
+  };
+  results.set(
+    "financial_health",
+    withFinancialHealthProfileUpdate(
+      financialResult,
+      {
+        ...(debtRatio !== null && debtRatio >= 0 ? { debt_ratio_pct: debtRatio } : {}),
+        ...(snapshot.totalAssets !== null ? { total_assets_krw: snapshot.totalAssets } : {}),
+        ...(snapshot.totalEquity !== null ? { equity_krw: snapshot.totalEquity } : {}),
+        ...(snapshot.totalEquity !== null && snapshot.totalEquity <= 0 ? { impairment: "full" as const } : {}),
+        fiscal_year: snapshot.businessYear,
+      },
+      "dart",
+    ),
+  );
 }
 
 function setDartNumericField(
@@ -2135,34 +2490,7 @@ async function runFscCorpFinanceConnector(
       for (const key of FSC_CORP_FIELD_KEYS) results.set(key, empty);
       return;
     }
-    const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
-    const asOf = compactDateToIso(summary.basDt) ?? (summary.bizYear ? `${summary.bizYear}-12-31` : checkedAt);
-    setNumericField(
-      results,
-      "revenue",
-      formatKrwCompact(summary.saleAmt),
-      0.85,
-      yearTag,
-      asOf,
-      summary.saleAmt,
-    );
-    setNumericField(
-      results,
-      "financial_health.debt_ratio_pct",
-      summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
-      0.85,
-      yearTag,
-      asOf,
-    );
-    results.set("financial_health.impairment", {
-      ok: true,
-      value: `${summary.impaired ? "자본잠식" : "정상"}${yearTag}`,
-      confidence: 0.85,
-      source: "fsc",
-      asOf,
-    });
-    setNumericField(results, "financial_health.total_assets_krw", formatKrwCompact(summary.totalAssets), 0.85, yearTag, asOf);
-    setNumericField(results, "financial_health.equity_krw", formatKrwCompact(summary.totalEquity), 0.85, yearTag, asOf);
+    writeFscFinancialResults(results, summary, checkedAt);
     if (dartCorpRegNo) {
       for (const key of FSC_CORP_FIELD_KEYS) {
         const result = results.get(key);
@@ -2181,6 +2509,98 @@ async function runFscCorpFinanceConnector(
     };
     for (const key of FSC_CORP_FIELD_KEYS) results.set(key, failed);
   }
+}
+
+/** 금융위 요약 응답에서 표시행과 실제 financial_health typed update를 함께 만드는 순수 경계. */
+export function writeFscFinancialResults(
+  results: Map<string, ConnectorResult>,
+  summary: NonNullable<Awaited<ReturnType<typeof checkFscCorpFinance>>>,
+  checkedAt: string,
+): void {
+  const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
+  const asOf = compactDateToIso(summary.basDt) ?? (summary.bizYear ? `${summary.bizYear}-12-31` : checkedAt);
+  setNumericField(
+    results,
+    "revenue",
+    formatKrwCompact(summary.saleAmt),
+    0.85,
+    yearTag,
+    asOf,
+    summary.saleAmt,
+  );
+  setNumericField(
+    results,
+    "financial_health.debt_ratio_pct",
+    summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
+    0.85,
+    yearTag,
+    asOf,
+  );
+  const impairment = deriveFinancialImpairment(summary.totalEquity, summary.capital);
+  results.set("financial_health.impairment", {
+    ok: true,
+    value: `${impairment === "full"
+      ? "완전자본잠식"
+      : impairment === "partial"
+        ? "부분자본잠식"
+        : impairment === "none"
+          ? "정상"
+          : summary.totalEquity === null
+            ? "자본총계 미제공 · 부분자본잠식 판정 불가"
+            : "자본금 미제공 · 부분자본잠식 판정 불가"}${yearTag}`,
+    confidence: 0.85,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+  });
+  setNumericField(results, "financial_health.total_assets_krw", formatKrwCompact(summary.totalAssets), 0.85, yearTag, asOf);
+  setNumericField(results, "financial_health.equity_krw", formatKrwCompact(summary.totalEquity), 0.85, yearTag, asOf);
+  setNumericField(results, "financial_health.capital_krw", formatKrwCompact(summary.capital), 0.85, yearTag, asOf);
+  results.set("financial_health.fiscal_year", {
+    ok: true,
+    value: summary.bizYear ?? "기준연도 미상",
+    confidence: 0.85,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+    axisCompleteness: "partial",
+  });
+  const financialResult: ConnectorResult = {
+    ok: true,
+    value: `${summary.bizYear ?? "기준연도 미상"} 재무 · ${impairment === null ? "부분잠식 판정 미완료" : "잠식 판정 가능"}`,
+    confidence: 0.85,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+    axisCompleteness: "partial",
+  };
+  results.set(
+    "financial_health",
+    withFinancialHealthProfileUpdate(
+      financialResult,
+      {
+        ...(summary.debtRatioPct !== null && summary.debtRatioPct >= 0
+          ? { debt_ratio_pct: summary.debtRatioPct }
+          : {}),
+        ...(summary.totalAssets !== null ? { total_assets_krw: summary.totalAssets } : {}),
+        ...(summary.totalEquity !== null ? { equity_krw: summary.totalEquity } : {}),
+        ...(summary.capital !== null ? { capital_krw: summary.capital } : {}),
+        ...(impairment !== null ? { impairment } : {}),
+        ...(summary.bizYear ? { fiscal_year: summary.bizYear } : {}),
+      },
+      "fsc",
+    ),
+  );
+}
+
+function deriveFinancialImpairment(
+  equity: number | null,
+  capital: number | null,
+): "none" | "partial" | "full" | null {
+  if (equity === null) return null;
+  if (equity <= 0) return "full";
+  if (capital === null) return null;
+  return equity < capital ? "partial" : "none";
 }
 
 /** 값이 있으면 live, 없으면 empty(failed)로 세팅. */
@@ -2285,10 +2705,13 @@ const NICE_DEMO_NOTE = "NICE 데모앱(무계약)";
 
 const NICE_INDICATOR_FIELD_KEYS = [
   "revenue",
+  "financial_health",
   "financial_health.total_assets_krw",
   "financial_health.equity_krw",
+  "financial_health.capital_krw",
   "financial_health.debt_ratio_pct",
   "financial_health.impairment",
+  "financial_health.fiscal_year",
 ] as const;
 
 const NICE_NEGATIVE_FIELD_KEYS = [
@@ -2354,7 +2777,7 @@ async function runNiceConnector(
 }
 
 /** OCOV06 요약을 revenue · financial_health.* 로 매핑(금액은 압축 표기, 연도태그·데모표식 부착). */
-function setNiceIndicatorFields(
+export function setNiceIndicatorFields(
   results: Map<string, ConnectorResult>,
   summary: Awaited<ReturnType<typeof checkNiceCorpIndicator>>,
 ): void {
@@ -2394,14 +2817,53 @@ function setNiceIndicatorFields(
     yearTag,
     asOf,
   );
+  results.set("financial_health.capital_krw", niceResultMeta({
+    ok: false,
+    empty: true,
+    reason: "NICE OCOV06 자본금 미제공",
+    asOf,
+  }));
+  results.set("financial_health.fiscal_year", niceResultMeta({
+    ok: true,
+    value: summary.bizYear ?? "기준연도 미상",
+    confidence: 0.75,
+    asOf,
+    axisCompleteness: "partial",
+  }));
   results.set("financial_health.impairment", {
     ok: true,
-    value: `${summary.impaired ? "자본잠식" : "정상"}${yearTag}`,
+    value: `${summary.totalEquityWon !== null && summary.totalEquityWon <= 0
+      ? "완전자본잠식"
+      : summary.totalEquityWon === null
+        ? "자본총계 미제공 · 부분자본잠식 판정 불가"
+        : "자본금 미제공 · 부분자본잠식 판정 불가"}${yearTag}`,
     confidence: 0.75,
     source: "nice",
+    sourceKind: "authoritative_api",
     note: NICE_DEMO_NOTE,
     asOf,
   });
+  const financialResult = niceResultMeta({
+    ok: true,
+    value: `${summary.bizYear ?? "기준연도 미상"} 재무 · 자본금 미제공`,
+    confidence: 0.75,
+    asOf,
+    axisCompleteness: "partial",
+  });
+  results.set(
+    "financial_health",
+    withFinancialHealthProfileUpdate(
+      financialResult,
+      {
+        ...(summary.debtRatioPct !== null ? { debt_ratio_pct: summary.debtRatioPct } : {}),
+        ...(summary.totalAssetsWon !== null ? { total_assets_krw: summary.totalAssetsWon } : {}),
+        ...(summary.totalEquityWon !== null ? { equity_krw: summary.totalEquityWon } : {}),
+        ...(summary.totalEquityWon !== null && summary.totalEquityWon <= 0 ? { impairment: "full" as const } : {}),
+        ...(summary.bizYear ? { fiscal_year: summary.bizYear } : {}),
+      },
+      "nice",
+    ),
+  );
 }
 
 /** OCOV06 수치 필드: 값 있으면 live(nice, 0.75, 데모표식), 없으면 empty(failed). */
@@ -2442,10 +2904,14 @@ function niceResultMeta(result: ConnectorResult): ConnectorResult {
 }
 
 /** OCCD03(신용/납세 결격) · OCCD06(법정관리/워크아웃) 결과를 필드 키로 매핑. */
-function setNiceCreditFields(
+export function setNiceCreditFields(
   results: Map<string, ConnectorResult>,
   credit: Awaited<ReturnType<typeof checkNiceCorpCredit>>,
 ): void {
+  const creditFlags: DisqualificationFlag[] = [];
+  const creditKnown: DisqualificationFlag[] = [];
+  const taxFlags: DisqualificationFlag[] = [];
+  const taxKnown: DisqualificationFlag[] = [];
   // OCCD03 신용도판단정보 → 신용/납세 결격.
   const neg = credit.negative;
   if (!neg.ok || !neg.data) {
@@ -2462,15 +2928,21 @@ function setNiceCreditFields(
     const bbValue = c.bb > 0 ? `채무불이행 ${c.bb}건` : "해당없음";
     results.set("credit_status.credit_delinquency", live(bbValue));
     results.set("credit_status.loan_default", live(bbValue));
+    creditKnown.push("credit_delinquency", "loan_default");
+    if (c.bb > 0) creditFlags.push("credit_delinquency", "loan_default");
     // 금융질서문란(FD).
     results.set(
       "credit_status.financial_misconduct",
       live(c.fd > 0 ? `금융질서문란 ${c.fd}건` : "해당없음"),
     );
-    // 공공정보(PB) — 국세/지방세 미분리 집계라 두 결격에 동일 신호 + 미분리 note.
+    creditKnown.push("financial_misconduct");
+    if (c.fd > 0) creditFlags.push("financial_misconduct");
+    // 공공정보(PB) — 국세/지방세 미분리 집계. 양수는 정확한 flag를 알 수 없어 표시만 남기고
+    // typed known/held 승격을 보류한다. 0건은 둘 다 해당없음이므로 두 flag를 known 처리할 수 있다.
     const pbValue = c.pb > 0 ? `공공정보 ${c.pb}건(국세/지방세 미분리)` : "해당없음";
     results.set("tax_compliance.national_tax_delinquent", live(pbValue));
     results.set("tax_compliance.local_tax_delinquent", live(pbValue));
+    if (c.pb === 0) taxKnown.push("national_tax_delinquent", "local_tax_delinquent");
   }
 
   // OCCD06 법정관리/워크아웃 → rehabilitation_in_progress · court_receivership 동일 신호.
@@ -2484,6 +2956,48 @@ function setNiceCreditFields(
     for (const key of NICE_WORKOUT_FIELD_KEYS) {
       results.set(key, niceResultMeta({ ok: true, value, confidence: 0.7 }));
     }
+    // OCCD06도 회생/법정관리 미분리 집계다. 양수는 표시만 남겨 정확한 flag를 unknown으로
+    // 보존하고, 0건일 때만 두 flag를 known 해당없음으로 확정한다.
+    if (n === 0) creditKnown.push("rehabilitation_in_progress", "court_receivership");
+  }
+
+  if (creditKnown.length > 0) {
+    const result = niceResultMeta({
+      ok: true,
+      value: creditFlags.length > 0
+        ? `신용 결격 ${creditFlags.length}개 신호`
+        : `신용 결격 ${creditKnown.length}개 항목 해당없음`,
+      confidence: 0.7,
+      axisCompleteness: "partial",
+    });
+    results.set(
+      "credit_status",
+      withDisqualificationProfileUpdate(
+        result,
+        "credit_status",
+        { flags: creditFlags, known_flags: creditKnown, exceptions: [] },
+        "nice",
+      ),
+    );
+  }
+  if (taxKnown.length > 0) {
+    const result = niceResultMeta({
+      ok: true,
+      value: taxFlags.length > 0
+        ? "국세/지방세 미분리 공공정보 신호 있음"
+        : "국세/지방세 미분리 공공정보 해당없음",
+      confidence: 0.7,
+      axisCompleteness: "partial",
+    });
+    results.set(
+      "tax_compliance",
+      withDisqualificationProfileUpdate(
+        result,
+        "tax_compliance",
+        { flags: taxFlags, known_flags: taxKnown, exceptions: [] },
+        "nice",
+      ),
+    );
   }
 }
 
@@ -2538,16 +3052,55 @@ async function runCodefConnector(
       gender: identity?.gender ?? null,
     });
 
-    setCodefField(results, "region", profile.region?.label ?? null, 0.95, corpAsOf);
-    setCodefField(results, "biz_age", formatBizAgeMonths(profile.biz_age_months ?? null), 0.95, corpAsOf);
+    setCodefField(results, "region", profile.region?.label ?? null, 0.95, corpAsOf, {
+      normalize: (result) => buildRegionProfileUpdates(
+        profile.region,
+        profileMetadata(result, "codef", "complete"),
+      ),
+    });
+    setCodefField(results, "biz_age", formatBizAgeMonths(profile.biz_age_months ?? null), 0.95, corpAsOf, {
+      normalize: (result) => buildBizAgeProfileUpdates(
+        profile.biz_age_months,
+        profileMetadata(result, "codef", "complete"),
+      ),
+    });
     setCodefField(
       results,
       "industry",
       profile.industries?.length ? profile.industries.join(", ") : null,
       0.95,
       corpAsOf,
+      {
+        axisCompleteness: "partial",
+        normalize: (result) => buildIndustryProfileUpdates({
+          labels: profile.industries ?? [],
+          codes: profile.industry_codes ?? [],
+        }, profileMetadata(result, "codef", "partial")),
+      },
     );
-    setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95, corpAsOf);
+    setCodefField(
+      results,
+      "industry.industry_codes",
+      profile.industry_codes?.length ? profile.industry_codes.join(", ") : null,
+      0.95,
+      corpAsOf,
+      { axisCompleteness: "partial" },
+    );
+    setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95, corpAsOf, {
+      axisCompleteness: "partial",
+      normalize: (result) => buildTargetTypeProfileUpdates(
+        profile.target_types ?? [],
+        profileMetadata(result, "codef", "partial"),
+      ),
+    });
+    setCodefField(
+      results,
+      "target_type.legal_form",
+      profile.target_types?.[0] ?? null,
+      0.95,
+      corpAsOf,
+      { axisCompleteness: "partial" },
+    );
     // 매출은 부가세 신고분(profile.revenue_krw)이 있을 때만.
     setCodefField(
       results,
@@ -2555,8 +3108,12 @@ async function runCodefConnector(
       formatKrwCompact(profile.revenue_krw ?? null),
       0.95,
       vatAsOf,
-      "authoritative_api",
-      profile.revenue_krw ?? null,
+      {
+        normalize: (result) => buildRevenueProfileUpdates(
+          profile.revenue_krw,
+          profileMetadata(result, "codef", "complete"),
+        ),
+      },
     );
     // 대표자 연령은 identity 캐시의 founder_age(생년월일 파생 정수)만.
     const founderAge = typeof identity?.founder_age === "number" ? identity.founder_age : null;
@@ -2566,11 +3123,24 @@ async function runCodefConnector(
       founderAge !== null ? `${founderAge}세` : null,
       0.9,
       identityAsOf,
-      "auth_supplied",
+      {
+        sourceKind: "auth_supplied",
+        normalize: (result) => buildFounderAgeProfileUpdates(
+          founderAge,
+          profileMetadata(result, "codef", "complete"),
+        ),
+      },
     );
     // 대표자 특성은 identity 캐시의 gender(여성/남성).
     const traitLabel = identity?.gender === "F" ? "여성" : identity?.gender === "M" ? "남성" : null;
-    setCodefField(results, "founder_trait", traitLabel, 0.9, identityAsOf, "auth_supplied");
+    setCodefField(results, "founder_trait", traitLabel, 0.9, identityAsOf, {
+      sourceKind: "auth_supplied",
+      axisCompleteness: "partial",
+      normalize: (result) => buildFounderTraitProfileUpdates(
+        traitLabel ? [traitLabel] : [],
+        profileMetadata(result, "codef", "partial"),
+      ),
+    });
   } catch {
     // fail-open — 캐시 판독 실패는 무시(pending 유지, 다른 커넥터 보호).
   }
@@ -2583,8 +3153,11 @@ function setCodefField(
   value: string | null,
   confidence: number,
   asOf: string | null,
-  sourceKind: EvidenceSourceKind = "authoritative_api",
-  profileValue?: number | null,
+  options: {
+    sourceKind?: EvidenceSourceKind;
+    axisCompleteness?: AxisCompleteness;
+    normalize?: (result: ConnectorResult) => DevServiceDataProfileNormalization;
+  } = {},
 ): void {
   if (!value) return;
   const result: ConnectorResult = {
@@ -2592,17 +3165,14 @@ function setCodefField(
     value,
     confidence,
     source: "codef",
-    sourceKind,
+    sourceKind: options.sourceKind ?? "authoritative_api",
     asOf,
-    axisCompleteness: "complete",
+    axisCompleteness: options.axisCompleteness ?? "complete",
     note: CODEF_CACHE_NOTE,
   };
-  results.set(
-    key,
-    key === "revenue" && profileValue !== undefined
-      ? withRevenueProfileUpdate(result, profileValue, "codef")
-      : result,
-  );
+  results.set(key, options.normalize
+    ? attachConnectorProfileNormalization(result, options.normalize(result))
+    : result);
 }
 
 function cacheEntryAsOf(entry: EnrichmentCacheEntry | undefined): string | null {
@@ -2656,5 +3226,8 @@ export function buildQnaSchema(): QnaSchema {
     label: DISQUALIFICATION_EXCEPTION_LABELS[key],
     flags: [...EXCEPTION_FLAG_COVERAGE[key]],
   }));
-  return { disqualification, exceptions };
+  const definitionIds = Object.fromEntries(
+    DEV_QNA_DIMENSIONS.map((dimension) => [dimension, questionDefinitionFor(dimension).id]),
+  ) as Record<DevQnaDimension, QuestionDefinitionId>;
+  return { definitionIds, disqualification, exceptions };
 }

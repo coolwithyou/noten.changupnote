@@ -6,6 +6,10 @@ import {
   lookupServiceData,
   type ServiceDataProvider,
 } from "@/lib/server/devServiceDataMonitor";
+import {
+  buildDevQnaProfileUpdates,
+  type DevQnaAnswerDto,
+} from "@/lib/server/devServiceDataProfile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -53,8 +57,26 @@ export async function POST(request: Request) {
   assertDevOnly();
 
   const body = (await request.json().catch(() => null)) as
-    | { bizNo?: unknown; forceRefresh?: unknown; provider?: unknown }
+    | { action?: unknown; answers?: unknown; bizNo?: unknown; forceRefresh?: unknown; provider?: unknown }
     | null;
+  if (body?.action === "normalize_qna") {
+    const answers = body.answers as DevQnaAnswerDto | null;
+    if (
+      !answers ||
+      (answers.scenario !== "registered_business" && answers.scenario !== "preliminary") ||
+      !Array.isArray(answers.answers) ||
+      !answers.answers.every((answer) =>
+        answer !== null && typeof answer === "object" && typeof answer.definitionId === "string")
+    ) {
+      return NextResponse.json(
+        { error: "invalid_qna_answers", message: "Q&A 답변 형식이 올바르지 않습니다." },
+        { status: 400 },
+      );
+    }
+    // G2B는 직렬화 답의 typed 검증까지만 맡는다. G3에서 실제 병합할 때는 connector-merged
+    // CompanyProfile을 baseProfile로 전달해 다시 변환해야 authoritative/compound 값을 보존한다.
+    return NextResponse.json(buildDevQnaProfileUpdates(answers));
+  }
   const bizNo = normalizeBizNo(typeof body?.bizNo === "string" ? body.bizNo : null);
   if (!bizNo) return invalidBizNo();
 
