@@ -71,17 +71,17 @@
 
 | 항목 | 상태 |
 |---|---|
-| unlock_at_months 복원 + verify-service-usecases 신 계약 갱신 | ✅ 완료 (2026-07-13, 워킹트리) |
-| region 방어 (라벨→코드 사전, 미해석 unknown 강등, exclusion 빈배열 unknown, parseRegion 폴백 제거, 프로필 서버 가드) — DB 오염 22건은 매칭 시점 canonicalize로 무해화됨 | ✅ 완료 (2026-07-13, 워킹트리) |
+| unlock_at_months 복원 + verify-service-usecases 신 계약 갱신 | ✅ 완료 (`ba3a290`, 2026-07-13) |
+| region 방어 (라벨→코드 사전, 미해석 unknown 강등, exclusion 빈배열 unknown, parseRegion 폴백 제거, 프로필 서버 가드) — DB 오염 22건은 매칭 시점 canonicalize로 무해화됨 | ✅ 완료 (`ba3a290`, 2026-07-13) |
 | **178229 정답 방향 확정 → v2/v3 게이트 단일화** | 🔶 사용자 결정 대기. 권고: golden pair를 2케이스로 분리 — as-extracted(needs_review=true) 기대값 conditional + reviewed 변형(needs_review=false) 기대값 ineligible. 진실 라벨을 보존하면서 defer 정책도 검증. 단일 게이트로 통합 후 v2 폐기 |
 | asOf 관통: matchNormalizedGrant에 asOf 수용 → prior_award 판정의 시스템 시각 의존 제거 (Codex P1, 재현됨) | ⬜ |
 | industry 양방향 substring 매칭 → 코드/사전 매칭만 확정, 라벨 substring은 unknown (Codex P1, exclusion 오확정 재현됨) | ⬜ |
 | scalar evidence gate 순서: nationwide 등 회사 값 불필요 판정을 게이트보다 먼저 | ⬜ |
 | **원자 커밋**: 매칭 리팩토링 + 이번 수정 + regions.ts + 골든셋·holdout manifest 전부 | ✅ 완료 (ba3a290 체크포인트, 2026-07-13 19:14 — 398파일에 본 세션 수정분·골든 manifest 포함 확인) |
 | GitHub Actions 최소 CI: typecheck + 매칭 verify 계열 + test:matching-unit | ⬜ |
-| (기존) tsx 별칭 환경 실패 2종(bizinfo-publish/ingestion-publish)에 --tsconfig 부여 | ⬜ |
+| (기존) tsx 별칭 환경 실패 2종(bizinfo-publish/ingestion-publish)에 --tsconfig 부여 | ✅ 완료 (`8346982`, 2026-07-13) |
 
-**완료 기준: `pnpm test` 그린 + CI가 PR마다 돈다.** (현재 verify:service-data 미종료 문제는 워치독으로 우회 유지)
+**완료 기준: `pnpm test` 그린 + CI가 PR마다 돈다.** `pnpm test`는 2026-07-13 통합 후보에서 그린이며, WS-A의 남은 완료 조건은 CI 배선이다. (verify:service-data 미종료 문제는 워치독으로 우회 유지)
 
 ### WS-B. 데이터 주입 (핵심 경로, 주 단위) — "정확도에 처음으로 숫자를 붙인다"
 
@@ -127,10 +127,10 @@
 
 | 결함 | 심각도 | 상태 (2026-07-13) | 소속 |
 |---|---|---|---|
-| unlock_at_months 소실 → soon 버킷·해금 칩 사망, pnpm test 파손 | 긴급 | **fixed-in-worktree** (커밋 대기) | WS-A |
-| region 값 오염(비코드 9 + '37'류 13, open 5+) → 전 회사 확정 탈락 | 긴급 | **fixed-in-worktree** (canonicalize가 매칭 시점 무해화; DB 원본 정정은 선택) | WS-A |
-| region exclusion 빈배열 무성 pass | major | **fixed-in-worktree** | WS-A |
-| 프로필 답변 라벨이 code로 저장되는 오염 경로 | minor | **fixed-in-worktree** (서버 400 가드) | WS-A |
+| unlock_at_months 소실 → soon 버킷·해금 칩 사망, pnpm test 파손 | 긴급 | **resolved** (`ba3a290`, `pnpm test` 그린) | WS-A |
+| region 값 오염(비코드 9 + '37'류 13, open 5+) → 전 회사 확정 탈락 | 긴급 | **resolved** (`ba3a290`; canonicalize가 매칭 시점 무해화, DB 원본 정정은 선택) | WS-A |
+| region exclusion 빈배열 무성 pass | major | **resolved** (`ba3a290`) | WS-A |
+| 프로필 답변 라벨이 code로 저장되는 오염 경로 | minor | **resolved** (`ba3a290`, 서버 400 가드) | WS-A |
 | v2/v3 평가 게이트 상호 배타 (178229) | 긴급 | **decision-needed** (권고안 §5 WS-A) | WS-A |
 | matchNormalizedGrant asOf 미수용 → prior_award 시각 의존 (Codex 재현) | P1 | unresolved | WS-A |
 | industry substring 오확정 — exclusion이면 확정 탈락 (Codex 재현) | P1 | unresolved | WS-A |
@@ -146,7 +146,8 @@
 | needs_profile_input/needs_core_review UI 뭉뚱그림 → 해소 루프 매몰 | major | unresolved | WS-D |
 | 첨부 미변환 2,787건 → 활성 98% manifest partial → recommendable 0.61% | 긴급 | unresolved | WS-D |
 | f_industries 0% / dedup_links 0 / stale open 469 | minor | unresolved (배치 1회씩) | WS-D |
-| tsx 별칭 환경 실패 2종 (HEAD에도 존재) | minor | unresolved | WS-A |
+| route policy 검증기가 Next route group을 실제 URL로 해석하지 못하고 세션 API 3개를 누락 | major | **resolved** (`fed42d0`, 131 API/10 cron/10 보호 페이지 검증) | WS-A |
+| tsx 별칭 환경 실패 2종 | minor | **resolved** (`8346982`) | WS-A |
 | dev 하네스와 운영 DB 공유 | 점검 필요 | open question | — |
 
 ---
@@ -170,3 +171,14 @@
 | 2026-07-13-first-mission-recovery-plan.md | 안전 불변식·기준선 수치 참조 |
 | 2026-07-11-matching-data-sourcing.md + 사업자번호-우선-자동채움-실행가이드 | WS-C 상세 절차 참조 |
 | 마스터 아키텍처 문서 | 제품 비전·지원서 트랙 참조 — 매칭 관련 서술은 stale, 본 문서가 우선 (개정은 백로그) |
+
+---
+
+## 9. `main` 통합 준비 영수증 (2026-07-13)
+
+- 통합 후보: `codex/first-mission-gates-20260713` (`8346982` 까지 제품·검증 변경 포함, 본 영수증은 docs-only 후속 커밋)
+- 통과: frozen lockfile, `pnpm test`, `pnpm test:matching-unit`, `pnpm verify:first-mission-recovery`, `pnpm test:prior-award-integration`, `pnpm verify:db-migrations`, `pnpm build:web`, `pnpm build:admin`, `git diff --check main...HEAD`
+- 확인: `0044`·`0045` 마이그레이션에 파괴적 데이터 삭제 구문 없음; `0045`는 RLS enable/force/policy 포함
+- 비차단 경고: web production build의 Turbopack NFT 범위 경고 1건 (`archiveKStartupCore.ts` import trace). build는 성공했으며 통합 후 WS-A 성능·패키징 점검으로 이관
+- 외부 대기: 운영 DB 마이그레이션 적용, 사용자 실행 서버 브라우저 smoke, live provider/30사 표본, reviewed 정답셋, `origin/main` push
+- 해석 제한: 로컬 회귀·빌드가 그린이라는 뜻이지 실사업자 정확도나 운영 배포 완료를 의미하지 않는다.
