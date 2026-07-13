@@ -96,9 +96,9 @@
 
 ### WS-C. 충전 승격 (며칠) — "사업자번호 하나로"를 실서비스에서 참으로
 
-> 선행 단계 편입 (2026-07-13 main 통합으로 합류): `2026-07-13-service-data-매칭입력-필드-개선계획.md` — dev 하네스 표시값과 실제 matcher 사이의 끊어진 경계를 잇는 섀도 매칭 E2E. WS-C 0단계로 취급하며, 상태 갱신은 해당 문서가 아니라 본 표에 기록한다.
+> 선행 단계 편입 (2026-07-13 main 통합으로 합류): `HANDOFF-2026-07-13-service-data-매칭입력.md` — 개선계획과 Orca 실행계약을 통합한 WS-C 0단계 세부 정본. dev 하네스 표시값과 실제 matcher 사이의 끊어진 경계를 잇는 shadow matching E2E를 Gate별로 수행하며, 트랙 상태 판정은 본 표가 원천이다.
 
-0. **dev 섀도 매칭 E2E** (service-data 개선계획): 사업자번호 1개 → typed CompanyProfile → 활성 공고 전체 shadow matching → unknown 감소량·판정 변화 확인.
+0. **dev 섀도 매칭 E2E** (service-data 통합 실행계획): 사업자번호 1개 → typed CompanyProfile → 활성 공고 전체 shadow matching → unknown 감소량·판정 변화 확인.
 1. **§6′-E 내부 계약 문서 확정 (0.5일)** — 외부 협상이 아니라 내부 합의다. 소스→커버 플래그 맵 + known-on-absence 예외 확정.
 2. **positive-only 커넥터 3종 프로덕션 승격** (kcomwel employees · KIPRIS ip · 창업확인 certification) — 병합 경로는 이미 존재, 온디맨드 캐시 충전만 배선. 기능 플래그 뒤. 라이브 실측 완료된 축들이다.
 3. 승격 직후 **STEP 3 실표본 30사 코호트 측정 실행** (하네스 완성 상태 — 실행만).
@@ -173,7 +173,7 @@
 | 2026-07-12-matching-first-mission-implementation-plan.md | 게이트 지표 정의·구현 이력 참조 |
 | 2026-07-13-first-mission-recovery-plan.md | 안전 불변식·기준선 수치 참조 |
 | 2026-07-11-matching-data-sourcing.md + 사업자번호-우선-자동채움-실행가이드 | WS-C 상세 절차 참조 |
-| 2026-07-13-service-data-매칭입력-필드-개선계획.md (+ 문제인식·HANDOFF) | WS-C 0단계 상세 참조 — 진행 상태는 본 문서 §5 WS-C가 원천 |
+| HANDOFF-2026-07-13-service-data-매칭입력.md (+ 문제인식) | WS-C 0단계 통합 실행 정본 — 진행 상태는 본 문서 §5 WS-C가 원천 |
 | 마스터 아키텍처 문서 | 제품 비전·지원서 트랙 참조 — 매칭 관련 서술은 stale, 본 문서가 우선 (개정은 백로그) |
 
 ---
