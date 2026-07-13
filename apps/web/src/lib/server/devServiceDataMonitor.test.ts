@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { PROFILE_FIELD_SPEC_BY_KEY } from "@cunote/core";
 import { measureAutofillCoverage } from "@cunote/core/autofill/coverage";
 import {
   buildFieldCoverage,
   coalesceKiprisLookup,
   coalesceServiceDataLookup,
   coalesceStartupConfirmationLookup,
+  profileFieldKeyForCoverageRow,
   type ConnectorResult,
   type ServiceDataLookupResult,
 } from "./devServiceDataMonitor";
@@ -41,6 +43,36 @@ const codefRows = buildFieldCoverage({
   originBySource: new Map(),
   connectorResults: codefIdentity,
 });
+for (const row of codefRows) {
+  const profileFieldKey = profileFieldKeyForCoverageRow(row.key);
+  assert.ok(
+    profileFieldKey !== null && PROFILE_FIELD_SPEC_BY_KEY.has(profileFieldKey),
+    `${row.key} dev coverage 행은 core field spec을 참조해야 한다`,
+  );
+}
+assert.equal(
+  codefRows.filter((row) => row.parentKey === null && row.dimension !== null).length,
+  22,
+  "criterion dimension 부모 행은 정확히 하나씩 유지해야 한다",
+);
+for (const key of [
+  "industry.industry_codes",
+  "industry.list_completeness",
+  "prior_award.records",
+  "prior_award.known_programs",
+  "prior_award.known_program_types",
+  "ip.right_kinds",
+  "ip.right_statuses",
+  "ip.list_completeness",
+  "target_type.legal_form",
+  "target_type.applicant_tags",
+  "financial_health.interest_coverage_ratio",
+  "financial_health.capital_krw",
+  "financial_health.fiscal_year",
+  "insured_workforce.months_since_last_layoff",
+] as const) {
+  assert.equal(profileFieldKeyForCoverageRow(key), key);
+}
 const founderAge = codefRows.find((row) => row.key === "founder_age");
 assert.equal(founderAge?.status, "cache");
 assert.equal(founderAge?.sourceKind, "auth_supplied");

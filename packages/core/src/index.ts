@@ -2,6 +2,7 @@ export * from "./audience/classify.js";
 export * from "./audience/evaluation.js";
 export * from "./audience/business-filter-simulation.js";
 export * from "./autofill/coverage.js";
+export * from "./autofill/profile-field-spec.js";
 export * from "./bizinfo/criteria-contract.js";
 export * from "./bizinfo/deterministic-criteria.js";
 export * from "./bizinfo/extraction-input.js";

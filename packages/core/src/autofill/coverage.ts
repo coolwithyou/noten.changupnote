@@ -1,4 +1,5 @@
 import type { CriterionDimension } from "@cunote/contracts";
+import { OPERATIONAL_PROFILE_DIMENSIONS } from "./profile-field-spec.js";
 
 /**
  * 값이 들어온 물리 provider와 별개로, 매칭 프로필에서 그 값을 어떤 증거로 취급할지 나타낸다.
@@ -22,27 +23,7 @@ export type AutofillCoverageStatus =
   | "n/a";
 
 /** 예약축 premises/export_performance와 자유입력 other를 제외한 운영 구조화 19축. */
-export const OPERATIONAL_AUTOFILL_DIMENSIONS = [
-  "region",
-  "biz_age",
-  "industry",
-  "size",
-  "revenue",
-  "employees",
-  "founder_age",
-  "founder_trait",
-  "certification",
-  "prior_award",
-  "ip",
-  "target_type",
-  "business_status",
-  "tax_compliance",
-  "credit_status",
-  "sanction",
-  "financial_health",
-  "insured_workforce",
-  "investment",
-] as const satisfies readonly CriterionDimension[];
+export const OPERATIONAL_AUTOFILL_DIMENSIONS = OPERATIONAL_PROFILE_DIMENSIONS;
 
 export type OperationalAutofillDimension = (typeof OPERATIONAL_AUTOFILL_DIMENSIONS)[number];
 
