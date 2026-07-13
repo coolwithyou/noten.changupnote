@@ -40,6 +40,7 @@ const sessionRoutes = new Set<string>([...SESSION_WEB_ROUTES, ...SESSION_APP_ROU
 const actualRoutes = apiScopes.flatMap(discoverApiRouteMethods).sort();
 const cronScope = resolve(appRouteRoot, "api/cron");
 const actualCronRoutes = discoverApiRouteMethods(cronScope).sort();
+const pageFilesByRoute = indexPageFiles(appRouteRoot);
 const errors: string[] = [];
 
 compareSets("API route file", actualRoutes, "route policy", [...policyRoutes].sort(), errors);
@@ -109,10 +110,48 @@ function walkRouteFiles(dir: string): string[] {
   return routeFiles;
 }
 
+function indexPageFiles(root: string): Map<string, string[]> {
+  const indexed = new Map<string, string[]>();
+  if (!existsSync(root)) return indexed;
+
+  for (const pageFile of walkPageFiles(root)) {
+    const routePath = pageRoutePathFromFile(pageFile);
+    const files = indexed.get(routePath) ?? [];
+    files.push(pageFile);
+    indexed.set(routePath, files);
+  }
+
+  return indexed;
+}
+
+function walkPageFiles(dir: string): string[] {
+  const entries = readdirSync(dir, { withFileTypes: true });
+  const pageFiles: string[] = [];
+
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      pageFiles.push(...walkPageFiles(fullPath));
+      continue;
+    }
+    if (entry.isFile() && entry.name === "page.tsx") pageFiles.push(fullPath);
+  }
+
+  return pageFiles;
+}
+
 function routePathFromFile(routeFile: string): string {
   const routeDir = dirname(routeFile);
   const relativeRouteDir = relative(appRouteRoot, routeDir);
   return `/${relativeRouteDir.split(sep).filter(Boolean).join("/")}`;
+}
+
+function pageRoutePathFromFile(pageFile: string): string {
+  const routeDir = dirname(pageFile);
+  const segments = relative(appRouteRoot, routeDir)
+    .split(sep)
+    .filter((segment) => segment && !(segment.startsWith("(") && segment.endsWith(")")));
+  return segments.length > 0 ? `/${segments.join("/")}` : "/";
 }
 
 function exportedMethods(routeFile: string): string[] {
@@ -132,11 +171,8 @@ function verifySessionPageRoutes(routes: readonly string[], errors: string[]) {
       continue;
     }
 
-    const pageFile = resolve(appRouteRoot, ...path.split("/").filter(Boolean), "page.tsx");
-    if (!existsSync(pageFile)) {
-      errors.push(`session page route ${route} is missing page file ${relative(workspaceRoot, pageFile)}.`);
-      continue;
-    }
+    const pageFile = resolvePageFile(path, `session page route ${route}`, errors);
+    if (!pageFile) continue;
 
     const source = readFileSync(pageFile, "utf8");
     if (!source.includes("requireCompanyAccess(")) {
@@ -153,11 +189,23 @@ function verifyPublicPageRoutes(routes: readonly string[], errors: string[]) {
       continue;
     }
 
-    const pageFile = resolve(appRouteRoot, ...path.split("/").filter(Boolean), "page.tsx");
-    if (!existsSync(pageFile)) {
-      errors.push(`public page route ${route} is missing page file ${relative(workspaceRoot, pageFile)}.`);
-    }
+    resolvePageFile(path, `public page route ${route}`, errors);
   }
+}
+
+function resolvePageFile(path: string, label: string, errors: string[]): string | null {
+  const pageFiles = pageFilesByRoute.get(path) ?? [];
+  if (pageFiles.length === 0) {
+    errors.push(`${label} is missing a page file.`);
+    return null;
+  }
+  if (pageFiles.length > 1) {
+    errors.push(
+      `${label} resolves to multiple page files: ${pageFiles.map((file) => relative(workspaceRoot, file)).join(", ")}.`,
+    );
+    return null;
+  }
+  return pageFiles[0] ?? null;
 }
 
 function compareSets(
