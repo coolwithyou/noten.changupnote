@@ -709,7 +709,7 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - [x] G1 field SSOT/parity
 - [x] G2A scalar/list/compound vertical slice
 - [x] G2B current connector/Q&A typed conversion
-- [ ] G3 final CompanyProfile merge
+- [x] G3 final CompanyProfile merge
 - [ ] G4 active-universe read-only shadow match
 - [ ] G5 dev UI/coverage/weighting correction
 - [ ] G7L local completion audit
@@ -751,6 +751,18 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - 판단 기록: 불명확한 NICE PB/OCCD06 양성 신호는 두 플래그를 동시에 확정하지 않고 diagnostic display만 보존한다. 0건과 분리된 exact 신호만 known/pass 또는 held/fail로 사용해 false eligible·false ineligible을 모두 피한다. `product_consumed`는 production promotion 전까지 pending으로 둔다.
 - 외부 대기: G0B 예약축 표본 검수, G7E 브라우저·개인15/법인15 실표본·live provider truth
 - 다음 Gate: G3 approved by user continuation request; not started at this receipt
+
+### G3 영수증 — 2026-07-14
+
+- Orca root/task/dispatch: root `task_011d0d6c6538`; implement `task_ba241987e7c0` / `ctx_ed32537b7bd3`; review `task_a2071db69deb` / `ctx_cb727335e32e`; fix `task_5a7dce3d2ad5` / `ctx_4282e594b0f5`; re-review `task_db4510e93526` / `ctx_8e7443256de1`
+- 모델/terminal: implementer `gpt-5.6-sol` xhigh `term_6e00bb96-15a0-4e0f-9be2-352ade6c342f`; reviewer Fable 5 max `term_ca68153b-2a0f-44cd-b81e-b909e1e834e5`; fixer `gpt-5.6-sol` xhigh `term_5ec2ccec-e09d-4531-8cc0-4c08b186dbce`; re-reviewer Fable 5 max `term_47e0c43f-45c0-4970-b9bc-8d22280c09db`
+- 구현 파일: `apps/web/src/lib/server/devServiceDataProfile.ts`, `apps/web/src/lib/server/devServiceDataProfile.test.ts`, `apps/web/src/lib/server/devServiceDataMonitor.ts`, `apps/web/src/lib/server/devServiceDataMonitor.test.ts`, `apps/web/src/app/api/dev/service-data/route.ts`
+- 구현 검증: profile/monitor focused tests, core `evidence-priority.test.ts` 10건, `update-profile-field.test.ts` 36건, `match.test.ts` 24건, core/web typecheck, `verify:company-enrichment` 9 checks, `verify:service-data` 6 checks, changed-file `git diff --check` 모두 통과. verify 명령은 Popbill/DB env 부재 시 정해진 sample fallback으로 `ok:true`, DB write와 live provider 호출 없음
+- 독립 리뷰: `task_a2071db69deb` BLOCKER 0 / MAJOR 0 / MINOR 3; `other_conditions` overlay, retained confidence, raw payload redaction 범위를 모두 수용
+- 수정·재리뷰: `task_5a7dce3d2ad5`에서 profile 구현·테스트 두 파일만 보정. `task_db4510e93526` 최종 재리뷰 BLOCKER 0 / MAJOR 0 / MINOR 0 / NOTE 3; production scalar/list/compound/evidence parity, connector→Q&A order, byte-equal replay, partial absence, supplemental 보존, 상태 분리와 민감정보 비노출을 재확인
+- 판단 기록: G3 final merge API를 위한 `route.ts`는 최소 dev response 경계로 승인한다. raw payload 전체를 숨기지 않고 비민감 provider 진단은 보존하되 CODEF `birthDate8`/`loginIdentity`/phone/mobile/대표자/`resCeoNm`/token 계열은 casing·separator 변형까지 재귀 제거한다. 같은 base·ordered updates·명시 `qna.asOf`는 같은 preview/decision을 만들며, `product_consumed`는 production promotion 전까지 항상 pending이다.
+- 외부 대기: G7E 브라우저에서 실제 profileMerge·redaction 가시성, 개인15/법인15 실표본·live provider truth
+- 다음 Gate: G4 approved by user continuation request; not started at this receipt
 
 ## 12. 전체 중단 조건
 

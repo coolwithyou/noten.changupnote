@@ -69,6 +69,7 @@ import {
   buildDisqualificationProfileUpdates,
   buildEmployeesProfileUpdates,
   buildFinancialHealthProfileUpdates,
+  buildDevFinalCompanyProfile,
   buildFounderAgeProfileUpdates,
   buildFounderTraitProfileUpdates,
   buildIndustryProfileUpdates,
@@ -85,6 +86,7 @@ import {
   type DevServiceDataNormalizationFailure,
   type DevServiceDataProfileMetadata,
   type DevServiceDataProfileNormalization,
+  type DevFinalCompanyProfileResult,
 } from "./devServiceDataProfile";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,6 +217,8 @@ export interface ConnectorResult {
   profileUpdates?: CompanyProfileFieldUpdate[];
   /** provider/API 성공 의미를 바꾸지 않는 typed 변환 실패 진단. */
   normalizationFailure?: DevServiceDataNormalizationFailure;
+  /** partial empty/no-update까지 포함한 typed normalizer 실행 영수증. */
+  profileNormalization?: "normalized" | "failed";
   /** 라이브 행에 표시할 부가 표식(예: "NICE 데모앱(무계약)"). buildFieldCoverage 가 row.note 로 옮긴다. */
   note?: string | null;
 }
@@ -224,10 +228,20 @@ export function attachConnectorProfileNormalization(
   normalization: DevServiceDataProfileNormalization,
 ): ConnectorResult {
   if (!normalization.ok) {
-    return { ...result, normalizationFailure: normalization.failure };
+    return {
+      ...result,
+      normalizationFailure: normalization.failure,
+      profileNormalization: "failed",
+    };
   }
-  if (normalization.profileUpdates.length === 0) return result;
-  return { ...result, profileUpdates: normalization.profileUpdates };
+  if (normalization.profileUpdates.length === 0) {
+    return { ...result, profileNormalization: "normalized" };
+  }
+  return {
+    ...result,
+    profileUpdates: normalization.profileUpdates,
+    profileNormalization: "normalized",
+  };
 }
 
 function profileMetadata(
@@ -401,6 +415,8 @@ export interface ServiceDataLookupResult {
   connectorProfileUpdates: CompanyProfileFieldUpdate[];
   connectorNormalizationFailures: DevServiceDataNormalizationFailure[];
   connectorProfileAudit: ConnectorProfileUpdateAudit;
+  /** G3 dev-memory-only connector merge preview/proof. product_consumed stays pending. */
+  profileMerge: DevFinalCompanyProfileResult;
   /** 현재 활성·검수 공고 criterion 빈도로 만든 19축 가중치. 불러오지 못하면 null. */
   coverageGrantWeights: AutofillGrantWeights | null;
   trace: ServiceDataTraceEntry[];
@@ -410,6 +426,8 @@ export interface ServiceDataLookupResult {
 export interface ConnectorProfileUpdateAudit {
   valueProducingKeys: string[];
   typedDimensions: CriterionDimension[];
+  sourcedDimensions: CriterionDimension[];
+  normalizedDimensions: CriterionDimension[];
   missingTypedUpdateKeys: string[];
 }
 
@@ -678,6 +696,13 @@ async function lookupServiceDataOnce(
     connectorResults,
   });
   const connectorProfile = collectConnectorProfileUpdates(connectorResults);
+  const profileMerge = buildDevFinalCompanyProfile({
+    baseProfile: profile ?? { confidence: {} },
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorSourcedDimensions: connectorProfile.audit.sourcedDimensions,
+    connectorNormalizedDimensions: connectorProfile.audit.normalizedDimensions,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+  });
 
   return {
     bizNo: normalized,
@@ -690,6 +715,7 @@ async function lookupServiceDataOnce(
     connectorProfileUpdates: connectorProfile.profileUpdates,
     connectorNormalizationFailures: connectorProfile.normalizationFailures,
     connectorProfileAudit: connectorProfile.audit,
+    profileMerge,
     coverageGrantWeights,
     trace,
     ...(error ? { error } : {}),
@@ -755,6 +781,13 @@ async function lookupApickServiceData(
     connectorResults,
   });
   const connectorProfile = collectConnectorProfileUpdates(connectorResults);
+  const profileMerge = buildDevFinalCompanyProfile({
+    baseProfile: profile ?? { confidence: {} },
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorSourcedDimensions: connectorProfile.audit.sourcedDimensions,
+    connectorNormalizedDimensions: connectorProfile.audit.normalizedDimensions,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+  });
 
   return {
     bizNo: normalized,
@@ -767,6 +800,7 @@ async function lookupApickServiceData(
     connectorProfileUpdates: connectorProfile.profileUpdates,
     connectorNormalizationFailures: connectorProfile.normalizationFailures,
     connectorProfileAudit: connectorProfile.audit,
+    profileMerge,
     coverageGrantWeights,
     trace,
     ...(error ? { error } : {}),
@@ -792,14 +826,31 @@ export function collectConnectorProfileUpdates(results: Map<string, ConnectorRes
     .map(([key]) => key)
     .sort();
   const dimensionByKey = new Map(FIELD_COVERAGE_PLAN.map((entry) => [entry.key, entry.dimension]));
+  const sourcedDimensions = [...new Set(valueProducingKeys.flatMap((key) => {
+    const dimension = dimensionByKey.get(key);
+    return dimension ? [dimension] : [];
+  }))].sort();
+  const normalizedDimensions = [...new Set([...results].flatMap(([key, result]) => {
+    if (result.profileNormalization !== "normalized") return [];
+    const updateDimensions = (result.profileUpdates ?? []).map((update) => update.field);
+    const dimension = dimensionByKey.get(key);
+    return dimension ? [...updateDimensions, dimension] : updateDimensions;
+  }))].sort();
   const missingTypedUpdateKeys = valueProducingKeys.filter((key) => {
+    if (results.get(key)?.profileNormalization === "normalized") return false;
     const dimension = dimensionByKey.get(key);
     return dimension !== null && dimension !== undefined && !typed.has(dimension);
   });
   return {
     profileUpdates,
     normalizationFailures,
-    audit: { valueProducingKeys, typedDimensions, missingTypedUpdateKeys },
+    audit: {
+      valueProducingKeys,
+      typedDimensions,
+      sourcedDimensions,
+      normalizedDimensions,
+      missingTypedUpdateKeys,
+    },
   };
 }
 

@@ -247,6 +247,7 @@ assert.equal(displayValueWithNormalizationFailure.ok, true, "typed 변환 실패
 assert.equal(displayValueWithNormalizationFailure.value, "12억원", "기존 표시값을 보존해야 한다");
 assert.equal(displayValueWithNormalizationFailure.normalizationFailure?.code, "normalization_failed");
 assert.equal(displayValueWithNormalizationFailure.profileUpdates, undefined);
+assert.equal(displayValueWithNormalizationFailure.profileNormalization, "failed");
 
 const displayValueWithProfileUpdate = attachConnectorProfileNormalization(
   {
@@ -267,6 +268,36 @@ const displayValueWithProfileUpdate = attachConnectorProfileNormalization(
 );
 assert.equal(displayValueWithProfileUpdate.value, "12억원");
 assert.equal(displayValueWithProfileUpdate.profileUpdates?.[0]?.value, 1_200_000_000);
+assert.equal(displayValueWithProfileUpdate.profileNormalization, "normalized");
+
+const normalizedPartialEmpty = attachConnectorProfileNormalization(
+  {
+    ok: true,
+    value: "exact 조회 0건",
+    source: "registry",
+    sourceKind: "public_registry",
+    axisCompleteness: "partial",
+  },
+  buildCertificationProfileUpdates([], {
+    sourceKind: "public_registry",
+    provider: "registry",
+    asOf: "2026-06-30",
+    confidence: 0.7,
+    axisCompleteness: "partial",
+  }),
+);
+assert.equal(normalizedPartialEmpty.profileNormalization, "normalized");
+assert.equal(normalizedPartialEmpty.profileUpdates, undefined);
+const normalizedPartialEmptyAudit = collectConnectorProfileUpdates(new Map([
+  ["certification", normalizedPartialEmpty],
+]));
+assert.deepEqual(normalizedPartialEmptyAudit.audit.sourcedDimensions, ["certification"]);
+assert.deepEqual(normalizedPartialEmptyAudit.audit.normalizedDimensions, ["certification"]);
+assert.deepEqual(
+  normalizedPartialEmptyAudit.audit.missingTypedUpdateKeys,
+  [],
+  "partial empty는 정상 no-update이며 typed 누락으로 분류하면 안 된다",
+);
 
 const fscNumericResults = new Map<string, ConnectorResult>();
 setNumericField(fscNumericResults, "revenue", "12억원", 0.85, " (2025)", "2025-12-31", 1_200_000_000);
@@ -477,6 +508,14 @@ assert.deepEqual(
 );
 assert.deepEqual(
   new Set(typedPathAudit.audit.typedDimensions),
+  new Set(typedPathCases.map(([key]) => key)),
+);
+assert.deepEqual(
+  new Set(typedPathAudit.audit.sourcedDimensions),
+  new Set(typedPathCases.map(([key]) => key)),
+);
+assert.deepEqual(
+  new Set(typedPathAudit.audit.normalizedDimensions),
   new Set(typedPathCases.map(([key]) => key)),
 );
 

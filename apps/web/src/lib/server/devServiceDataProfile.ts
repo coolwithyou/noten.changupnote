@@ -2,15 +2,19 @@ import {
   DISQUALIFICATION_FLAGS,
   normalizeCompanyIndustryProfile,
   questionDefinitionFor,
+  resolveEvidencePrecedence,
   updateCompanyProfileField,
   type CompanyProfileFieldUpdate,
   type QuestionDefinitionId,
 } from "@cunote/core";
 import type {
   CompanyProfile,
+  CompanyProfileEvidenceObservation,
+  CompanyProfileFieldEvidence,
   CompanyProfileEvidenceSourceKind,
   CriterionDimension,
   DisqualificationProfileValue,
+  ListProfileDimension,
   PriorAwardProfileValue,
 } from "@cunote/contracts";
 
@@ -67,6 +71,57 @@ export interface DevQnaAnswerDto {
 export interface DevQnaProfileBuildResult {
   profileUpdates: CompanyProfileFieldUpdate[];
   failures: DevServiceDataNormalizationFailure[];
+}
+
+export type DevProfileMergeStage = "connector" | "qna";
+
+export interface DevProfileMergeDecision {
+  sequence: number;
+  stage: DevProfileMergeStage;
+  field: CriterionDimension;
+  valueDisposition: "applied" | "merged_supplemental" | "retained";
+  evidenceDisposition: "incoming_primary" | "current_primary_incoming_supplemental";
+  reason:
+    | "no_current_evidence"
+    | "completeness"
+    | "source_priority"
+    | "provider_priority"
+    | "same_provider_confidence"
+    | "same_provider_freshness"
+    | "same_provider_tie"
+    | "unknown_provider_tie";
+  primaryEvidence: CompanyProfileEvidenceObservation;
+  supplementalEvidence: CompanyProfileEvidenceObservation[];
+}
+
+export interface DevProfileFieldState {
+  field: CriterionDimension;
+  sourced: boolean;
+  normalized: boolean;
+  match_ready: boolean;
+  product_consumed: "pending";
+}
+
+export interface DevFinalCompanyProfileResult {
+  /** Dev-memory-only preview. This value is never persisted by this module. */
+  profilePreview: CompanyProfile;
+  mergeDecisions: DevProfileMergeDecision[];
+  fieldStates: DevProfileFieldState[];
+  normalizationFailures: DevServiceDataNormalizationFailure[];
+  mergeOrder: readonly ["connector", "qna"];
+}
+
+export interface BuildDevFinalCompanyProfileInput {
+  baseProfile: CompanyProfile;
+  connectorProfileUpdates: readonly CompanyProfileFieldUpdate[];
+  connectorSourcedDimensions?: readonly CriterionDimension[];
+  connectorNormalizedDimensions?: readonly CriterionDimension[];
+  connectorNormalizationFailures?: readonly DevServiceDataNormalizationFailure[];
+  qna?: {
+    answers: DevQnaAnswerDto;
+    /** Explicit replay timestamp. Callers must not hide Date.now() inside this pure merge. */
+    asOf: string;
+  };
 }
 
 const EMPTY_PROFILE: CompanyProfile = { confidence: {} };
@@ -290,7 +345,12 @@ export type DevQnaDimension = (typeof DEV_QNA_DIMENSIONS)[number];
  */
 export function buildDevQnaProfileUpdates(
   dto: DevQnaAnswerDto,
-  options: { baseProfile?: CompanyProfile; now?: Date } = {},
+  options: {
+    baseProfile?: CompanyProfile;
+    now?: Date;
+    /** G3 records a losing self-declared observation instead of dropping it during G2B validation. */
+    preserveEvidenceConflicts?: boolean;
+  } = {},
 ): DevQnaProfileBuildResult {
   const failures: DevServiceDataNormalizationFailure[] = [];
   const profileUpdates: CompanyProfileFieldUpdate[] = [];
@@ -351,10 +411,14 @@ export function buildDevQnaProfileUpdates(
     }
     for (const update of normalized.profileUpdates) {
       try {
-        const prepared = prepareQnaUpdate(validationProfile, update);
-        validationProfile = normalizeCompanyIndustryProfile(
-          updateCompanyProfileField(validationProfile, prepared),
+        const prepared = prepareQnaUpdate(
+          validationProfile,
+          update,
+          options.preserveEvidenceConflicts === true,
         );
+        validationProfile = options.preserveEvidenceConflicts === true
+          ? mergeDevProfileUpdate(validationProfile, prepared, "qna").profile
+          : normalizeCompanyIndustryProfile(updateCompanyProfileField(validationProfile, prepared));
         profileUpdates.push(prepared);
       } catch (error) {
         failures.push(failure(
@@ -490,10 +554,12 @@ function qnaCompleteness(
 function prepareQnaUpdate(
   profile: CompanyProfile,
   update: CompanyProfileFieldUpdate,
+  preserveEvidenceConflicts = false,
 ): CompanyProfileFieldUpdate {
   const evidence = profile.profile_evidence?.[update.field];
   const authoritative = evidence?.sourceKind === "authoritative_api" || evidence?.sourceKind === "public_registry";
   if (authoritative && !isSupplementalDimension(update.field)) {
+    if (preserveEvidenceConflicts) return update;
     throw new Error(`${update.field}은(는) 권위 원천 primary가 있어 자가신고로 덮어쓸 수 없습니다.`);
   }
   if (isListDimension(update.field)) return { ...update, mode: "merge" };
@@ -684,4 +750,329 @@ function arrayOrEmpty(value: unknown): readonly unknown[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) throw new Error("목록 답변은 배열이어야 합니다.");
   return value;
+}
+
+/**
+ * G3 final merge. The caller supplies every input including the Q&A timestamp,
+ * so the same base and ordered update sequence always produce byte-equivalent
+ * JSON. Connector observations are applied before Q&A observations, and Q&A is
+ * normalized against the connector-merged profile rather than EMPTY_PROFILE.
+ */
+export function buildDevFinalCompanyProfile(
+  input: BuildDevFinalCompanyProfileInput,
+): DevFinalCompanyProfileResult {
+  let profile = sanitizeDevServiceDataJson(input.baseProfile);
+  const mergeDecisions: DevProfileMergeDecision[] = [];
+  const normalized = new Set<CriterionDimension>(input.connectorNormalizedDimensions ?? []);
+  const sourced = new Set<CriterionDimension>(input.connectorSourcedDimensions ?? []);
+  const normalizationFailures: DevServiceDataNormalizationFailure[] = [
+    ...(input.connectorNormalizationFailures ?? []),
+  ];
+
+  for (const update of input.connectorProfileUpdates) {
+    sourced.add(update.field);
+    const merged = mergeDevProfileUpdate(profile, update, "connector");
+    profile = merged.profile;
+    normalized.add(update.field);
+    mergeDecisions.push({ ...merged.decision, sequence: mergeDecisions.length });
+  }
+
+  if (input.qna) {
+    const qnaDate = parseReplayDate(input.qna.asOf);
+    const qnaDimensions = qnaSourcedDimensions(input.qna.answers);
+    for (const dimension of qnaDimensions) sourced.add(dimension);
+    const qna = buildDevQnaProfileUpdates(input.qna.answers, {
+      baseProfile: profile,
+      now: qnaDate,
+      preserveEvidenceConflicts: true,
+    });
+    normalizationFailures.push(...qna.failures);
+    for (const update of qna.profileUpdates) {
+      const merged = mergeDevProfileUpdate(profile, update, "qna");
+      profile = merged.profile;
+      normalized.add(update.field);
+      mergeDecisions.push({ ...merged.decision, sequence: mergeDecisions.length });
+    }
+  }
+
+  const failedFields = new Set(
+    normalizationFailures.flatMap((failure) => failure.field === "qna" ? [] : [failure.field]),
+  );
+  const stateDimensions = [...new Set<CriterionDimension>([
+    ...Object.keys(profile.profile_evidence ?? {}) as CriterionDimension[],
+    ...sourced,
+    ...normalized,
+    ...failedFields,
+  ])].sort();
+  const fieldStates = stateDimensions.map((field): DevProfileFieldState => ({
+    field,
+    sourced: sourced.has(field) || Boolean(input.baseProfile.profile_evidence?.[field]),
+    normalized: normalized.has(field) || (
+      Boolean(input.baseProfile.profile_evidence?.[field]) && hasMatchableProfileValue(profile, field)
+    ),
+    match_ready: isMatchReady(profile, field),
+    product_consumed: "pending",
+  }));
+
+  return sanitizeDevServiceDataJson({
+    profilePreview: profile,
+    mergeDecisions,
+    fieldStates,
+    normalizationFailures,
+    mergeOrder: ["connector", "qna"] as const,
+  });
+}
+
+function mergeDevProfileUpdate(
+  profile: CompanyProfile,
+  update: CompanyProfileFieldUpdate,
+  stage: DevProfileMergeStage,
+): { profile: CompanyProfile; decision: Omit<DevProfileMergeDecision, "sequence"> } {
+  const evidenceWithoutField = { ...(profile.profile_evidence ?? {}) };
+  delete evidenceWithoutField[update.field];
+  const validationSeed: CompanyProfile = {
+    ...profile,
+    profile_evidence: evidenceWithoutField,
+  };
+  if (Object.keys(evidenceWithoutField).length === 0) delete validationSeed.profile_evidence;
+  const candidate = normalizeCompanyIndustryProfile(updateCompanyProfileField(validationSeed, {
+    ...update,
+    // G3 decides precedence explicitly below. This only permits the existing
+    // normalizer to validate/construct a candidate without mutating storage.
+    allowAuthoritativeOverride: true,
+  }));
+  const incomingEvidence = candidate.profile_evidence?.[update.field];
+  if (!incomingEvidence) {
+    throw new Error(`${update.field} update에 evidence metadata가 없습니다.`);
+  }
+  const currentEvidence = profile.profile_evidence?.[update.field];
+  const precedence = currentEvidence
+    ? resolveEvidencePrecedence({ dimension: update.field, current: currentEvidence, incoming: incomingEvidence })
+    : null;
+  const incomingPrimary = precedence?.decision === "replace" || !currentEvidence;
+  const supplementalMerge = !incomingPrimary && stage === "qna" && update.mode === "merge";
+  let next = incomingPrimary
+    ? mergeWinningCompoundValue(profile, candidate, update.field)
+    : supplementalMerge
+      ? candidate
+      : profile;
+  const mergedEvidence = mergeFieldEvidence(currentEvidence, incomingEvidence, incomingPrimary);
+  const shouldWriteConfidence = incomingPrimary || supplementalMerge;
+  next = {
+    ...next,
+    confidence: {
+      ...(next.confidence ?? {}),
+      ...(shouldWriteConfidence && typeof mergedEvidence.confidence === "number"
+        ? { [update.field]: mergedEvidence.confidence }
+        : {}),
+    },
+    profile_evidence: {
+      ...(next.profile_evidence ?? {}),
+      [update.field]: mergedEvidence,
+    },
+  };
+
+  return {
+    profile: sanitizeDevServiceDataJson(next),
+    decision: {
+      stage,
+      field: update.field,
+      valueDisposition: incomingPrimary
+        ? "applied"
+        : supplementalMerge
+          ? "merged_supplemental"
+          : "retained",
+      evidenceDisposition: incomingPrimary
+        ? "incoming_primary"
+        : "current_primary_incoming_supplemental",
+      reason: precedence?.reason ?? "no_current_evidence",
+      primaryEvidence: stripSupplemental(mergedEvidence),
+      supplementalEvidence: [...(mergedEvidence.supplemental ?? [])],
+    },
+  };
+}
+
+/** Mirrors production serviceData.ts shallow overlays for compound dimensions. */
+function mergeWinningCompoundValue(
+  current: CompanyProfile,
+  incoming: CompanyProfile,
+  field: CriterionDimension,
+): CompanyProfile {
+  switch (field) {
+    case "business_status":
+      return {
+        ...incoming,
+        business_status: { ...(current.business_status ?? {}), ...(incoming.business_status ?? {}) },
+      };
+    case "financial_health":
+      return {
+        ...incoming,
+        financial_health: { ...(current.financial_health ?? {}), ...(incoming.financial_health ?? {}) },
+      };
+    case "insured_workforce":
+      return {
+        ...incoming,
+        insured_workforce: { ...(current.insured_workforce ?? {}), ...(incoming.insured_workforce ?? {}) },
+      };
+    case "investment":
+      return {
+        ...incoming,
+        investment: { ...(current.investment ?? {}), ...(incoming.investment ?? {}) },
+      };
+    case "other":
+      return {
+        ...incoming,
+        other_conditions: { ...(current.other_conditions ?? {}), ...(incoming.other_conditions ?? {}) },
+      };
+    default:
+      return incoming;
+  }
+}
+
+function mergeFieldEvidence(
+  current: CompanyProfileFieldEvidence | undefined,
+  incoming: CompanyProfileFieldEvidence,
+  incomingPrimary: boolean,
+): CompanyProfileFieldEvidence {
+  if (!current) return incoming;
+  const primary = incomingPrimary ? incoming : current;
+  const secondary = incomingPrimary ? current : incoming;
+  const supplemental = [
+    ...(primary.supplemental ?? []),
+    stripSupplemental(secondary),
+    ...(secondary.supplemental ?? []),
+  ].reduce<CompanyProfileEvidenceObservation[]>(appendUniqueEvidence, []);
+  return supplemental.length > 0 ? { ...stripSupplemental(primary), supplemental } : stripSupplemental(primary);
+}
+
+function stripSupplemental(
+  evidence: CompanyProfileEvidenceObservation,
+): CompanyProfileEvidenceObservation {
+  return {
+    sourceKind: evidence.sourceKind,
+    provider: evidence.provider,
+    asOf: evidence.asOf,
+    axisCompleteness: evidence.axisCompleteness,
+    confidence: evidence.confidence,
+  };
+}
+
+function appendUniqueEvidence(
+  values: CompanyProfileEvidenceObservation[],
+  incoming: CompanyProfileEvidenceObservation,
+): CompanyProfileEvidenceObservation[] {
+  if (!values.some((item) => sameEvidence(item, incoming))) values.push(incoming);
+  return values;
+}
+
+function sameEvidence(
+  left: CompanyProfileEvidenceObservation,
+  right: CompanyProfileEvidenceObservation,
+): boolean {
+  return left.sourceKind === right.sourceKind &&
+    left.provider === right.provider &&
+    left.asOf === right.asOf &&
+    left.axisCompleteness === right.axisCompleteness &&
+    left.confidence === right.confidence;
+}
+
+function qnaSourcedDimensions(dto: DevQnaAnswerDto): CriterionDimension[] {
+  const byDefinitionId = new Map<QuestionDefinitionId, DevQnaDimension>(
+    DEV_QNA_DIMENSIONS.map((dimension) => [questionDefinitionFor(dimension).id, dimension]),
+  );
+  return dto.answers.flatMap((answer) => {
+    const dimension = byDefinitionId.get(answer.definitionId);
+    return dimension ? [dimension] : [];
+  });
+}
+
+function parseReplayDate(value: string): Date {
+  const date = new Date(value);
+  if (!value || Number.isNaN(date.getTime())) throw new Error("qna.asOf는 유효한 ISO 시각이어야 합니다.");
+  return date;
+}
+
+const LIST_DIMENSIONS = new Set<CriterionDimension>([
+  "industry",
+  "founder_trait",
+  "certification",
+  "prior_award",
+  "ip",
+  "target_type",
+]);
+
+function isMatchReady(profile: CompanyProfile, field: CriterionDimension): boolean {
+  const evidence = profile.profile_evidence?.[field];
+  if (!evidence || evidence.axisCompleteness !== "complete") return false;
+  if (LIST_DIMENSIONS.has(field)) {
+    return profile.list_completeness?.[field as ListProfileDimension] === "complete";
+  }
+  return hasMatchableProfileValue(profile, field);
+}
+
+function hasMatchableProfileValue(profile: CompanyProfile, field: CriterionDimension): boolean {
+  switch (field) {
+    case "region": return Boolean(profile.region?.code || profile.region?.label);
+    case "biz_age": return typeof profile.biz_age_months === "number";
+    case "industry": return Boolean(profile.industries || profile.industry_codes);
+    case "size": return Boolean(profile.size);
+    case "revenue": return typeof profile.revenue_krw === "number";
+    case "employees": return typeof profile.employees_count === "number";
+    case "founder_age": return typeof profile.founder_age === "number";
+    case "founder_trait": return Boolean(profile.traits);
+    case "certification": return Boolean(profile.certs);
+    case "prior_award": return Boolean(profile.prior_award_history || profile.prior_awards);
+    case "ip": return Boolean(profile.ip);
+    case "target_type": return Boolean(profile.target_types);
+    case "business_status": return Boolean(profile.business_status);
+    case "tax_compliance": return Boolean(profile.tax_compliance);
+    case "credit_status": return Boolean(profile.credit_status);
+    case "sanction": return Boolean(profile.sanction);
+    case "financial_health": return Boolean(profile.financial_health);
+    case "insured_workforce": return Boolean(profile.insured_workforce);
+    case "investment": return Boolean(profile.investment);
+    case "premises":
+    case "export_performance": return false;
+    case "other": return Boolean(profile.other_conditions);
+  }
+}
+
+const SENSITIVE_DEV_JSON_KEY_TOKENS = [
+  "birth",
+  "phone",
+  "mobile",
+  "representative",
+  "resceonm",
+  "loginidentity",
+  "accesstoken",
+  "refreshtoken",
+  "token",
+  "생년월일",
+  "출생",
+  "휴대폰",
+  "핸드폰",
+  "전화번호",
+  "연락처",
+  "대표자",
+  "토큰",
+] as const;
+
+/** Remove CODEF identity/auth fields before any preview, snapshot, or API JSON serialization. */
+export function sanitizeDevServiceDataJson<T>(value: T): T {
+  return sanitizeDevJsonValue(value) as T;
+}
+
+function sanitizeDevJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sanitizeDevJsonValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !isSensitiveDevJsonKey(key))
+      .map(([key, entry]) => [key, sanitizeDevJsonValue(entry)]),
+  );
+}
+
+function isSensitiveDevJsonKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9가-힣]/g, "");
+  return SENSITIVE_DEV_JSON_KEY_TOKENS.some((token) => normalized.includes(token));
 }
