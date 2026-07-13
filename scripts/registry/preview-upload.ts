@@ -48,4 +48,3 @@ function parseArgs(argv: string[]): { source: string | null; file: string | null
   }
   return { source, file };
 }
-

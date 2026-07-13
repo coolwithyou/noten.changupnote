@@ -22,4 +22,3 @@ export async function POST(request: Request) {
     return adminError("registry_rollback_failed", error instanceof Error ? error.message : "이전 버전으로 되돌리지 못했습니다.");
   }
 }
-

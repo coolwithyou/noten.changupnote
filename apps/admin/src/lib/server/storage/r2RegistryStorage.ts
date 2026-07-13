@@ -39,4 +39,3 @@ export function createRegistryStorageFromEnv(env: NodeJS.ProcessEnv = process.en
     },
   };
 }
-

@@ -38,4 +38,3 @@ function registryRouteError(error: unknown, code: string, fallback: string): Res
   if (error instanceof RegistryImportError) return adminError(error.code, error.message, error.status);
   return adminError(code, error instanceof Error ? error.message : fallback);
 }
-

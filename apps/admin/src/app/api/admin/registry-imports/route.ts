@@ -19,4 +19,3 @@ export async function GET() {
     return adminError("registry_import_list_failed", error instanceof Error ? error.message : "반입 이력을 불러오지 못했습니다.");
   }
 }
-

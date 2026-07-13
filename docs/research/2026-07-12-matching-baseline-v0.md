@@ -1,7 +1,7 @@
 # 매칭 정확도 baseline v0
 
-> 측정일: 2026-07-12  
-> fixture: `kstartup-sample-v1`, `kstartup-sample-v2`  
+> 측정일: 2026-07-12\
+> fixture: `kstartup-sample-v1`, `kstartup-sample-v2`\
 > 재현 명령: `pnpm report:matching-eval -- --format=markdown`
 
 ## 결과 요약
