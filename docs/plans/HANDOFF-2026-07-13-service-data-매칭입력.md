@@ -713,8 +713,8 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - [x] G4 active-universe read-only shadow match
 - [x] G5 dev UI/coverage/weighting correction
 - [ ] G7L local completion audit
-- [ ] G0B reserved-axis human review or explicit pending
-- [ ] G6 approved axis activation or explicit not approved
+- [x] G0B reserved-axis human review or explicit pending
+- [x] G6 approved axis activation or explicit not approved
 - [ ] G7E browser/30-sample/live truth or explicit external pending
 
 ### G1 영수증 — 2026-07-13
@@ -787,6 +787,19 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - 판단 기록: UI는 identity prerequisite, eligibility 19축, reserved, supporting/derivation, ranking goals, final typed profile, shadow/unknown의 7개 역할 섹션을 유지한다. `sourcing_coverage`, `canonical_match_ready_coverage`, `grant_extraction_readiness`, `end_to_end_decidability`는 합치지 않는다. 전체 active deduped universe를 한 번 로드·평가하며 500건 cap·균등가중 fallback 없이 reviewed/pending과 제외 축을 분리한다. Q&A는 lookup과 정확히 같은 `asOf`만 쓰고 실제 dimension별 unknown 감소가 있을 때만 완료 표시한다. coverage 전용 표시값은 현재 확인된 `ip.right_statuses`만 known 보존하며 그 밖의 새 미정 값은 추론하지 않고 unknown으로 닫는다. Fable NOTE의 항상 참인 방어 guard, 파일 상단의 과거 `22축` 주석, 기존 Drizzle `requestedLimit + 500` headroom은 동작·계약에 영향 없는 비차단 항목으로 기록하고 일반화하지 않는다. `product_consumed`는 production promotion 전까지 pending이다.
 - 외부 대기: G7E에서 bounded child dev server의 접근·오류·unavailable·Q&A normalize·desktop/mobile을 확인한다. 승인된 개인15/법인15, live provider credential/consent, full DB universe가 없으므로 live success·정상 빈값·cache truth·30표본 정확도는 증거가 생길 때까지 external pending으로 남긴다.
 - 다음 Gate: G0B/G6 decision 기록과 G7L은 사용자 continuation 요청으로 승인됨; 이 checkpoint에는 포함하지 않음
+
+### G0B/G6 영수증 — 2026-07-14
+
+- Orca/provenance: root `task_011d0d6c6538`; 구현 dispatch 없이 coordinator가 G0B read-only audit을 수행하고 `/root/g0b_reserved_review` 및 `/root/g0b_reserved_review/g0b_report_sanity`가 분류·합계·반례를 독립 재검산했다. 이 collaboration 검증을 사후 Orca dispatch로 표현하지 않는다.
+- 검수 증거: main checkout의 기존 env loader는 값·host·token을 출력하지 않고 child worktree의 Drizzle `listActiveGrants` SELECT 경로에만 사용했다. migration·transaction write·insert/update/delete·provider·server 실행 없음. snapshot/current 모두 active confirmed-dedup universe 1,802건, export 70 grants / 85 criteria, premises 125 / 168이며 limit 미도달. 전체 사람 검수 mapping은 export 51개, premises 54개 고유 공고이고 축별 최소 30개를 충족했다.
+- 사람 분류: export 51개 = hard 13 / existing-axis·오분류 15 / long-tail 16 / benefit 5 / performance 2 / ranking 0. premises 54개 = hard 10 / existing-axis·오분류 21 / long-tail 12 / benefit 5 / performance 5 / ranking 1. 로컬 audit report `/tmp/G0B-reserved-axis-audit-2026-07-14.md` SHA-256 `8a0a87a3d25747c9f726ec16eebf56f2518f8d1ac6eecc3e171c8a9f6149a586`; 민감정보 없는 보조 산출물은 mode 600으로 유지했다.
+- 독립 검산: BLOCKER 0 / MAJOR 0 / MINOR 0. 51/54 고유 ID, current/snapshot 후보 포함, 분류 합계, revenue 오분류 9건, `/i`의 `BI`가 `AI·Bio`에 매치되는 query false positive를 재현했다. 현재 row 기반 snapshot은 immutable history 복원이 아니라는 한계도 유지했다.
+- 판단 기록 — `export_performance`: `remain_reserved`. 실제 hard eligibility는 있으나 현재/예정, direct/indirect/total, 국가·기간·통화·납품관계가 섞여 하나의 안전 계약이 아니다. 수출액 9건이 총매출 `revenue`로 오분류되어 있고, 특히 USD 20M을 KRW 20B로 저장한 사례는 총매출 matcher에서 false pass/fail을 만들 수 있다. 향후에는 9건을 먼저 재라벨하고 verified actual direct/total records, 기간, 원통화, completeness가 확보된 좁은 계약만 재검토한다.
+- 판단 기록 — `premises`: `remain_reserved`. 현재 특정 시설 입주, 공장 등록·가동, 기존 `region`, 입주 우대, 선정 후 이전 의무, 신규 입주 혜택이 한 축에 섞여 있다. 향후 `current_named_tenancy`와 `registered_operating_factory`를 분리 검토하고, 단순 소재는 `region`, performance/ranking/benefit은 hard eligibility 밖에 둔다. 후보 regex의 `BI`는 독립 토큰 문맥으로 경계화해야 한다.
+- G6 결정: 두 축 모두 decision criteria를 통과하지 못했으므로 activation은 **explicit not approved**이며 G6를 시작하지 않았다. enum 예약 자리, matcher `unknown`, question planner 비노출, eligibility/coverage 분모 제외를 그대로 유지한다. `activate` 결과가 아니므로 사용자 activation gate도 생성하지 않았다.
+- 변경·검증: 이 Gate의 production/code 변경 없음. handoff 체크리스트와 본 영수증만 갱신하며 `git diff --check`로 문서 checkpoint를 검증한다.
+- 외부 대기: 향후 실제 계약 후보를 다시 만들 때만 승인 표본·verified provider/input completeness로 재검수한다. 현재 로컬 완료와 G7E를 막지 않는다.
+- 다음 Gate: G7L local completion audit approved; G6 code not started
 
 ## 12. 전체 중단 조건
 
