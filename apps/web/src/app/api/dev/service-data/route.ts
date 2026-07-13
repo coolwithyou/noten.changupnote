@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import {
   assertDevOnly,
+  buildDevServiceDataMonitorSections,
   clearServiceDataCache,
   inspectServiceData,
+  loadDevServiceDataMonitorAnalysis,
   loadDevServiceDataShadowMatch,
   lookupServiceData,
   type ServiceDataProvider,
@@ -78,6 +80,7 @@ export async function POST(request: Request) {
         provider?: unknown;
         qnaAsOf?: unknown;
         scanLimit?: unknown;
+        withShadow?: unknown;
       }
     | null;
   if (body?.action === "shadow_match") {
@@ -136,14 +139,24 @@ export async function POST(request: Request) {
   }
   if (body?.action === "merge_profile") {
     const answers = body.answers as DevQnaAnswerDto | null;
+    const withShadow = body.withShadow === true;
+    const mergeBizNo = withShadow
+      ? normalizeBizNo(typeof body.bizNo === "string" ? body.bizNo : null)
+      : null;
     if (
-      !isRecord(body.baseProfile) ||
+      !isShadowCompanyProfile(body.baseProfile) ||
       !Array.isArray(body.connectorProfileUpdates) ||
       !body.connectorProfileUpdates.every(isProfileUpdate) ||
       !isDimensionArray(body.connectorSourcedDimensions) ||
       !isDimensionArray(body.connectorNormalizedDimensions) ||
       (answers !== null && answers !== undefined && !isQnaAnswers(answers)) ||
-      (answers && (typeof body.qnaAsOf !== "string" || Number.isNaN(Date.parse(body.qnaAsOf))))
+      (answers && (typeof body.qnaAsOf !== "string" || Number.isNaN(Date.parse(body.qnaAsOf)))) ||
+      (withShadow && (
+        !mergeBizNo ||
+        typeof body.asOf !== "string" ||
+        Number.isNaN(Date.parse(body.asOf)) ||
+        (answers && body.qnaAsOf !== body.asOf)
+      ))
     ) {
       return NextResponse.json(
         { error: "invalid_profile_merge", message: "프로필 병합 입력 형식이 올바르지 않습니다." },
@@ -151,13 +164,33 @@ export async function POST(request: Request) {
       );
     }
     try {
+      const connectorProfile = buildDevFinalCompanyProfile({
+        baseProfile: body.baseProfile,
+        connectorProfileUpdates: body.connectorProfileUpdates,
+        connectorSourcedDimensions: body.connectorSourcedDimensions,
+        connectorNormalizedDimensions: body.connectorNormalizedDimensions,
+      });
       const result = buildDevFinalCompanyProfile({
-        baseProfile: body.baseProfile as CompanyProfile,
+        baseProfile: body.baseProfile,
         connectorProfileUpdates: body.connectorProfileUpdates,
         connectorSourcedDimensions: body.connectorSourcedDimensions,
         connectorNormalizedDimensions: body.connectorNormalizedDimensions,
         ...(answers ? { qna: { answers, asOf: body.qnaAsOf as string } } : {}),
       });
+      if (withShadow && mergeBizNo && typeof body.asOf === "string") {
+        const monitor = await loadDevServiceDataMonitorAnalysis({
+          baseProfile: connectorProfile.profilePreview,
+          finalProfile: result.profilePreview,
+          profileMerge: result,
+          asOf: new Date(body.asOf),
+        });
+        const sections = buildDevServiceDataMonitorSections({
+          bizNo: mergeBizNo,
+          profileMerge: result,
+          monitor,
+        });
+        return NextResponse.json(sanitizeDevServiceDataJson({ profileMerge: result, sections }));
+      }
       return NextResponse.json(sanitizeDevServiceDataJson(result));
     } catch {
       return NextResponse.json(

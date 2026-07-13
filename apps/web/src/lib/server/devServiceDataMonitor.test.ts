@@ -19,6 +19,10 @@ import {
   type NormalizedGrant,
 } from "@cunote/contracts";
 import {
+  eligibilityCoverageRows,
+  reconcileQnaSections,
+} from "../../features/dev/ServiceDataMonitor";
+import {
   buildCertificationProfileUpdates,
   buildBizAgeProfileUpdates,
   buildDisqualificationProfileUpdates,
@@ -33,12 +37,15 @@ import {
   buildRegionProfileUpdates,
   buildRevenueProfileUpdates,
   buildTargetTypeProfileUpdates,
+  buildDevFinalCompanyProfile,
 } from "./devServiceDataProfile";
 import {
   addListCompletenessDiagnostics,
   applyRegistryMatches,
   attachConnectorProfileNormalization,
   buildDevServiceDataShadowMatch,
+  buildDevServiceDataMonitorAnalysis,
+  buildDevServiceDataMonitorSections,
   buildFieldCoverage,
   buildQnaSchema,
   coalesceKiprisLookup,
@@ -48,6 +55,7 @@ import {
   mergeCertificationConnectorResult,
   mergeDartConnectorResults,
   loadDevServiceDataShadowMatch,
+  loadDevServiceDataMonitorAnalysis,
   profileFieldKeyForCoverageRow,
   setNiceCreditFields,
   setNiceIndicatorFields,
@@ -1711,6 +1719,372 @@ try {
 } finally {
   if (previousRepositoryAdapter === undefined) delete process.env.CUNOTE_REPOSITORY_ADAPTER;
   else process.env.CUNOTE_REPOSITORY_ADAPTER = previousRepositoryAdapter;
+}
+
+const g5PartialProfile: CompanyProfile = {
+  traits: ["청년"],
+  list_completeness: { founder_trait: "partial" },
+  confidence: { founder_trait: 0.8 },
+  profile_evidence: {
+    founder_trait: {
+      sourceKind: "self_declared",
+      provider: "manual",
+      asOf: shadowAsOf.toISOString(),
+      axisCompleteness: "partial",
+      confidence: 0.8,
+    },
+  },
+};
+const g5ProfileMerge = buildDevFinalCompanyProfile({
+  baseProfile: g5PartialProfile,
+  connectorProfileUpdates: [],
+});
+assert.ok(
+  g5ProfileMerge.fieldStates.every((state) => state.product_consumed === "pending"),
+  "G5 final typed profile은 production promotion 전 product_consumed를 pending으로 유지해야 한다",
+);
+
+const duplicateRevenue = shadowGrant("g5-duplicate-revenue", [
+  shadowRevenueCriterion(),
+  { ...shadowRevenueCriterion(), operator: "lte", value: { max_krw: 500_000_000 } },
+]);
+const pendingRevenue = shadowGrant(
+  "g5-pending-revenue",
+  [shadowRevenueCriterion()],
+  "structured_unreviewed",
+);
+const excludedCriteriaGrant = shadowGrant("g5-excluded-criteria", [
+  { ...shadowRegionCriterion("11", "서울"), kind: "preferred" },
+  {
+    dimension: "industry",
+    operator: "text_only",
+    kind: "required",
+    confidence: 0.5,
+    source_span: "특수 업종 원문 확인",
+    value: { note: "원문 확인" },
+  },
+  {
+    dimension: "other",
+    operator: "exists",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "기타 조건",
+    value: { required: true },
+  },
+  {
+    dimension: "premises",
+    operator: "exists",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "사업장 조건",
+    value: { required: true },
+  },
+  {
+    dimension: "export_performance",
+    operator: "exists",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "수출 조건",
+    value: { required: true },
+  },
+  {
+    dimension: "employees",
+    operator: "gte",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "형식이 잘못된 고용 조건",
+    value: {},
+  },
+]);
+const partialDecidableLooking = shadowGrant(
+  "g5-partial-is-not-decidable",
+  [{
+    dimension: "founder_trait",
+    operator: "in",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "청년 대표 기업",
+    value: { traits: ["청년"] },
+  }],
+  "partial",
+);
+const g5Analysis = buildDevServiceDataMonitorAnalysis({
+  baseProfile: g5PartialProfile,
+  finalProfile: g5PartialProfile,
+  profileMerge: g5ProfileMerge,
+  grants: [duplicateRevenue, pendingRevenue, excludedCriteriaGrant, partialDecidableLooking],
+  asOf: shadowAsOf,
+});
+assert.equal(g5Analysis.metrics.sourcing_coverage.availability, "available");
+if (g5Analysis.metrics.sourcing_coverage.availability === "available") {
+  assert.equal(g5Analysis.metrics.sourcing_coverage.value.denominator, 19);
+  assert.equal(g5Analysis.metrics.sourcing_coverage.value.answered.numerator, 1);
+}
+assert.equal(g5Analysis.metrics.canonical_match_ready_coverage.availability, "available");
+if (g5Analysis.metrics.canonical_match_ready_coverage.availability === "available") {
+  assert.equal(
+    g5Analysis.metrics.canonical_match_ready_coverage.value.reviewed.after.numerator,
+    0,
+    "sourced/answered profile 축을 canonical 공고 pair match-ready로 합치면 안 된다",
+  );
+  assert.equal(g5Analysis.metrics.canonical_match_ready_coverage.value.reviewed.after.denominator, 1);
+  assert.equal(g5Analysis.metrics.canonical_match_ready_coverage.value.pending.after.denominator, 2);
+}
+assert.equal(g5Analysis.dimensionDemandWeights.availability, "available");
+if (g5Analysis.dimensionDemandWeights.availability === "available") {
+  assert.deepEqual(g5Analysis.dimensionDemandWeights.value.reviewed, { revenue: 1 });
+  assert.deepEqual(g5Analysis.dimensionDemandWeights.value.pending, { revenue: 1, founder_trait: 1 });
+  assert.equal(
+    g5Analysis.dimensionDemandWeights.value.reviewedPairs,
+    1,
+    "동일 공고의 duplicate revenue criterion은 공고×dimension 1회로 접어야 한다",
+  );
+  for (const excluded of ["industry", "other", "premises", "export_performance", "employees"] as const) {
+    assert.equal(Object.hasOwn(g5Analysis.dimensionDemandWeights.value.reviewed, excluded), false);
+    assert.equal(Object.hasOwn(g5Analysis.dimensionDemandWeights.value.pending, excluded), false);
+  }
+}
+assert.equal(g5Analysis.metrics.grant_extraction_readiness.availability, "available");
+if (g5Analysis.metrics.grant_extraction_readiness.availability === "available") {
+  assert.equal(g5Analysis.metrics.grant_extraction_readiness.value.universeSize, 4);
+  assert.equal(g5Analysis.metrics.grant_extraction_readiness.value.byReadiness.reviewed, 2);
+  assert.equal(g5Analysis.metrics.grant_extraction_readiness.value.byReadiness.structured_unreviewed, 1);
+  assert.equal(g5Analysis.metrics.grant_extraction_readiness.value.byReadiness.partial, 1);
+  assert.equal(
+    Object.values(g5Analysis.metrics.grant_extraction_readiness.value.byReadiness)
+      .reduce((sum, count) => sum + count, 0),
+    g5Analysis.metrics.grant_extraction_readiness.value.universeSize,
+    "extraction readiness 4상태 합계는 full universe와 같아야 한다",
+  );
+}
+assert.equal(g5Analysis.metrics.end_to_end_decidability.availability, "available");
+if (g5Analysis.metrics.end_to_end_decidability.availability === "available") {
+  const partialDetail = g5Analysis.shadowMatch.availability === "available"
+    ? g5Analysis.shadowMatch.value.details.find((detail) =>
+      detail.grantId === "kstartup:g5-partial-is-not-decidable")
+    : null;
+  assert.equal(partialDetail?.after.eligibility, "eligible");
+  assert.equal(partialDetail?.after.productState, "원문 확인");
+  assert.equal(
+    g5Analysis.metrics.end_to_end_decidability.value.after.denominator,
+    4,
+    "end-to-end 분모는 partial을 포함한 full universe여야 한다",
+  );
+  assert.equal(
+    g5Analysis.metrics.end_to_end_decidability.value.after.numerator,
+    0,
+    "engine eligible인 partial 공고를 end-to-end decidable로 세면 안 된다",
+  );
+}
+
+assert.equal(founderTraitDelta?.completed, false, "unknown 감소 0인 Q&A 축은 completed가 아니어야 한다");
+
+const mixedRevenueResolvedProfile: CompanyProfile = {
+  revenue_krw: 200_000_000,
+  confidence: { revenue: 0.9 },
+  profile_evidence: {
+    revenue: {
+      sourceKind: "self_declared",
+      provider: "manual",
+      asOf: shadowAsOf.toISOString(),
+      axisCompleteness: "complete",
+      confidence: 0.9,
+    },
+  },
+};
+const mixedRevenueAnalysis = buildDevServiceDataMonitorAnalysis({
+  baseProfile: { confidence: {} },
+  finalProfile: mixedRevenueResolvedProfile,
+  profileMerge: buildDevFinalCompanyProfile({
+    baseProfile: mixedRevenueResolvedProfile,
+    connectorProfileUpdates: [],
+  }),
+  grants: [reviewedMixedRevenue],
+  asOf: shadowAsOf,
+});
+assert.equal(mixedRevenueAnalysis.metrics.canonical_match_ready_coverage.availability, "available");
+if (mixedRevenueAnalysis.metrics.canonical_match_ready_coverage.availability === "available") {
+  assert.equal(mixedRevenueAnalysis.metrics.canonical_match_ready_coverage.value.reviewed.after.denominator, 1);
+  assert.equal(
+    mixedRevenueAnalysis.metrics.canonical_match_ready_coverage.value.reviewed.after.numerator,
+    0,
+    "같은 dimension의 clean criterion이 해결돼도 text_only hard unknown이 남으면 actual match-ready가 아니다",
+  );
+}
+assert.equal(mixedRevenueAnalysis.dimensionDemandWeights.availability, "available");
+if (mixedRevenueAnalysis.dimensionDemandWeights.availability === "available") {
+  assert.deepEqual(
+    mixedRevenueAnalysis.dimensionDemandWeights.value.reviewed,
+    { revenue: 1 },
+    "mixed same-dimension에서도 denominator/weight는 resolvable 공고×dimension 1회만 유지해야 한다",
+  );
+}
+
+const over500Grants = Array.from({ length: 500 }, (_, index) =>
+  shadowGrant(`g5-over-500-${String(index).padStart(3, "0")}`, [shadowRegionCriterion("11", "서울")]))
+  .concat(shadowGrant("g5-over-500-last", [shadowEmployeesCriterion()]));
+const over500Analysis = buildDevServiceDataMonitorAnalysis({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  profileMerge: buildDevFinalCompanyProfile({ baseProfile: shadowBase, connectorProfileUpdates: [] }),
+  grants: over500Grants,
+  asOf: shadowAsOf,
+  detailLimit: 1,
+});
+assert.equal(
+  over500Analysis.metrics.grant_extraction_readiness.availability === "available"
+    ? over500Analysis.metrics.grant_extraction_readiness.value.universeSize
+    : 0,
+  501,
+  "500건 뒤 마지막 공고도 full universe 집계에 포함해야 한다",
+);
+assert.equal(
+  over500Analysis.dimensionDemandWeights.availability === "available"
+    ? over500Analysis.dimensionDemandWeights.value.reviewed.employees
+    : 0,
+  1,
+  "501번째 공고의 dimension demand를 sample-500처럼 버리면 안 된다",
+);
+
+const g5Sections = buildDevServiceDataMonitorSections({
+  bizNo: "3948603207",
+  profileMerge: g5ProfileMerge,
+  monitor: g5Analysis,
+});
+assert.deepEqual(Object.keys(g5Sections), [
+  "identity_prerequisite",
+  "eligibility_19_axes",
+  "reserved_axes",
+  "supporting_derivation",
+  "ranking_goals",
+  "final_typed_profile",
+  "shadow_match_and_unknown_causes",
+]);
+assert.equal(g5Sections.eligibility_19_axes.length, 19);
+assert.ok(g5Sections.eligibility_19_axes.every((row) =>
+  row.role === "eligibility" && row.includedInEligibilityDenominator));
+assert.ok(g5Sections.reserved_axes.every((row) =>
+  row.role === "reserved_eligibility" && !row.includedInEligibilityDenominator));
+assert.ok(g5Sections.supporting_derivation.some((row) =>
+  row.key === "other" && row.role === "grant_unstructured" && row.state === "unknown"));
+for (const row of [...g5Sections.ranking_goals, ...g5Sections.identity_prerequisite]) {
+  if (row.key === "identity.business_number") continue;
+  assert.equal(row.state, "unknown", `${row.key} 누락을 trace나 다른 profile 값에서 추론하면 안 된다`);
+}
+
+const eligibilityDisplay = eligibilityCoverageRows(
+  codefRows,
+  new Set(g5Sections.eligibility_19_axes.map((row) => row.key)),
+);
+assert.equal(eligibilityDisplay.parents.length, 19, "overview 분모는 SSOT 부모 19축만 유지해야 한다");
+assert.ok(
+  eligibilityDisplay.details.length > eligibilityDisplay.parents.length,
+  "eligibility 상세에는 부모축 아래 진단 하위행을 함께 표시해야 한다",
+);
+assert.ok(
+  eligibilityDisplay.details.some((row) => row.parentKey === "financial_health"),
+  "재무 eligibility 하위 진단 행이 상세 필터에서 사라지면 안 된다",
+);
+assert.ok(
+  eligibilityDisplay.details.every((row) =>
+    row.parentKey === null
+      ? g5Sections.eligibility_19_axes.some((section) => section.key === row.key)
+      : g5Sections.eligibility_19_axes.some((section) => section.key === row.parentKey)),
+  "상세 행은 SSOT parent key 또는 parentKey로만 선택해야 한다",
+);
+
+const kiprisCoverage = buildFieldCoverage({
+  subject: "corporation",
+  profile: null,
+  fields: [],
+  originBySource: new Map(),
+  connectorResults: kiprisResults,
+});
+const priorDisplaySections = buildDevServiceDataMonitorSections({
+  bizNo: "3948603207",
+  coverage: kiprisCoverage,
+  profileMerge: g5ProfileMerge,
+  monitor: g5Analysis,
+});
+const incomingTypedSections = {
+  ...g5Sections,
+  eligibility_19_axes: g5Sections.eligibility_19_axes.map((row) =>
+    row.key === "region"
+      ? { ...row, value: "11", state: "known" as const }
+      : row),
+};
+const reconciledQnaSections = reconcileQnaSections(priorDisplaySections, incomingTypedSections);
+const priorRightStatuses = priorDisplaySections.supporting_derivation.find(
+  (row) => row.key === "ip.right_statuses",
+);
+const reconciledRightStatuses = reconciledQnaSections.supporting_derivation.find(
+  (row) => row.key === "ip.right_statuses",
+);
+assert.equal(reconciledRightStatuses?.label, priorRightStatuses?.label);
+assert.equal(reconciledRightStatuses?.value, priorRightStatuses?.value);
+assert.equal(reconciledRightStatuses?.state, "known");
+assert.equal(
+  reconciledQnaSections.eligibility_19_axes.find((row) => row.key === "region")?.value,
+  "11",
+  "새 server typed 값은 prior display evidence보다 우선해야 한다",
+);
+assert.equal(
+  reconciledQnaSections.reserved_axes.find((row) => row.key === "premises")?.label,
+  priorDisplaySections.reserved_axes.find((row) => row.key === "premises")?.label,
+  "Q&A section 교체 뒤에도 coverage 유래 label을 유지해야 한다",
+);
+
+const unavailableAnalysis = await loadDevServiceDataMonitorAnalysis(
+  {
+    baseProfile: g5PartialProfile,
+    finalProfile: g5PartialProfile,
+    profileMerge: g5ProfileMerge,
+    asOf: shadowAsOf,
+  },
+  {
+    loadGrantUniverse: async () => {
+      throw new Error("repository offline");
+    },
+  },
+);
+assert.equal(unavailableAnalysis.metrics.sourcing_coverage.availability, "available");
+assert.equal(unavailableAnalysis.metrics.canonical_match_ready_coverage.availability, "unavailable");
+assert.equal(unavailableAnalysis.metrics.grant_extraction_readiness.availability, "unavailable");
+assert.equal(unavailableAnalysis.metrics.end_to_end_decidability.availability, "unavailable");
+assert.equal(unavailableAnalysis.dimensionDemandWeights.availability, "unavailable");
+assert.equal(unavailableAnalysis.shadowMatch.availability, "unavailable");
+assert.equal(
+  "value" in unavailableAnalysis.dimensionDemandWeights,
+  false,
+  "universe unavailable일 때 equal-weight/sample fallback을 만들면 안 된다",
+);
+
+const deterministicG5 = buildDevServiceDataMonitorAnalysis({
+  baseProfile: g5PartialProfile,
+  finalProfile: g5PartialProfile,
+  profileMerge: g5ProfileMerge,
+  grants: [duplicateRevenue, pendingRevenue],
+  asOf: shadowAsOf,
+});
+const deterministicG5Reversed = buildDevServiceDataMonitorAnalysis({
+  baseProfile: g5PartialProfile,
+  finalProfile: g5PartialProfile,
+  profileMerge: g5ProfileMerge,
+  grants: [pendingRevenue, duplicateRevenue],
+  asOf: shadowAsOf,
+});
+assert.equal(JSON.stringify(deterministicG5), JSON.stringify(deterministicG5Reversed));
+const safeG5Payload = JSON.stringify({ sections: g5Sections, monitor: deterministicG5 });
+for (const forbidden of [
+  "\"source_span\":",
+  "\"raw_text\":",
+  "\"criteria\":",
+  "\"raw\":",
+  "\"payload\":",
+  "특수 업종 원문 확인",
+  "\"min_krw\":",
+]) {
+  assert.equal(safeG5Payload.includes(forbidden), false, `브라우저 payload에 ${forbidden}가 노출되면 안 된다`);
 }
 
 console.log("devServiceDataMonitor.test.ts: all assertions passed");

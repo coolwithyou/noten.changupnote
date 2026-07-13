@@ -711,7 +711,7 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - [x] G2B current connector/Q&A typed conversion
 - [x] G3 final CompanyProfile merge
 - [x] G4 active-universe read-only shadow match
-- [ ] G5 dev UI/coverage/weighting correction
+- [x] G5 dev UI/coverage/weighting correction
 - [ ] G7L local completion audit
 - [ ] G0B reserved-axis human review or explicit pending
 - [ ] G6 approved axis activation or explicit not approved
@@ -775,6 +775,18 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - 판단 기록: runtime/sample repository는 전체 universe 증거로 사용하지 않고 503 unavailable로 닫는다. 공고 준비도와 profile 질문 가능성을 분리해 같은 dimension이 `profile_missing`과 `grant_unready` 양쪽에 있을 수 있게 한다. 비검수 hard fail은 `지원 어려움`으로 승격하지 않고 `원문 확인`에 둔다. 기존 Drizzle 조회의 `requestedLimit + 500` headroom, legacy alias의 보수적 grant-unready, process 중 env mutation 차이는 기존 비차단 NOTE로 기록하고 이 Gate에서 일반화하지 않는다. `product_consumed`는 production promotion 전까지 pending이다.
 - 외부 대기: G7E 브라우저에서 full-universe unavailable/available 응답, before/after 4상태·unknown 감소, redaction을 확인. 실사업자 30표본과 live provider truth는 사용 가능한 승인 표본·credential 범위에서만 검증
 - 다음 Gate: G5 approved by user continuation request; not started at this receipt
+
+### G5 영수증 — 2026-07-14
+
+- Orca root/task/dispatch: root `task_011d0d6c6538`; implement `task_a9927d9d63fb` / `ctx_4353b6e120da`; first successful review `task_ff00b7014683` / `ctx_a229dcfedd6c`; findings fix `task_ed30ff641478` / `ctx_61e401293435`; final re-review `task_07a32f741497` / `ctx_ae236fc0c5b9`
+- 모델/terminal: implementer `gpt-5.6-sol` xhigh `term_2b552aba-dc0b-4345-9ecd-39c45a6e8c50`; first successful reviewer Fable 5 max `term_a35c7f38-b7dc-4abd-bc5c-1f2867a22fa1`; fixer `gpt-5.6-sol` xhigh `term_d173a228-7a79-4ff1-a4b8-22a18c66be3d`; final reviewer Fable 5 max `term_8b0c279a-4183-4058-a9f7-b60a492ace65`. `task_0d4f6ca2d63f` / `term_e3a1a24f-4948-4a94-b130-7c055f61fb7c`는 잘못된 model alias와 interactive transport로 리뷰 시작 전에 종료되어 판정 증거로 사용하지 않음
+- 구현 파일: `apps/web/src/app/api/dev/service-data/route.ts`, `apps/web/src/features/dev/ServiceDataMonitor.tsx`, `apps/web/src/lib/server/devServiceDataMonitor.test.ts`, `apps/web/src/lib/server/devServiceDataMonitor.ts`
+- 구현 검증: monitor/profile focused tests, `profile-field-spec.test.ts`, `coverage.test.ts`, `canonicalize.test.ts`, `match.test.ts` 24 checks, `question-planner.test.ts`, core/web typecheck, `verify:service-data` 6 checks `ok:true`, 4개 changed-file `git diff --check` 모두 통과. verify 명령은 provider/DB env 부재 시 기존 sample fallback을 사용했고 DB write·live provider 호출 없음
+- 독립 리뷰: `task_ff00b7014683` BLOCKER 0 / MAJOR 3 / MINOR 0. 느린 A사 Q&A 응답의 B사 결과 덮어쓰기, Q&A 뒤 coverage 유래 label·`ip.right_statuses` 값 회귀, 부모행만 남겨 하위 진단이 사라지는 세 finding을 모두 수용
+- 수정·재리뷰: `task_ed30ff641478`에서 result-generation guard와 동시 실행 차단, 기존 display evidence와 새 typed section의 좁은 client reconciliation, 부모 19축 집계와 parent+child 상세행 분리를 구현. `task_07a32f741497` 최종 전면 재리뷰 PASS, BLOCKER 0 / MAJOR 0 / MINOR 0 / NOTE 4. 별도 read-only post-fix 감사도 같은 세 보정과 focused test/typecheck를 0 / 0 / 0으로 확인
+- 판단 기록: UI는 identity prerequisite, eligibility 19축, reserved, supporting/derivation, ranking goals, final typed profile, shadow/unknown의 7개 역할 섹션을 유지한다. `sourcing_coverage`, `canonical_match_ready_coverage`, `grant_extraction_readiness`, `end_to_end_decidability`는 합치지 않는다. 전체 active deduped universe를 한 번 로드·평가하며 500건 cap·균등가중 fallback 없이 reviewed/pending과 제외 축을 분리한다. Q&A는 lookup과 정확히 같은 `asOf`만 쓰고 실제 dimension별 unknown 감소가 있을 때만 완료 표시한다. coverage 전용 표시값은 현재 확인된 `ip.right_statuses`만 known 보존하며 그 밖의 새 미정 값은 추론하지 않고 unknown으로 닫는다. Fable NOTE의 항상 참인 방어 guard, 파일 상단의 과거 `22축` 주석, 기존 Drizzle `requestedLimit + 500` headroom은 동작·계약에 영향 없는 비차단 항목으로 기록하고 일반화하지 않는다. `product_consumed`는 production promotion 전까지 pending이다.
+- 외부 대기: G7E에서 bounded child dev server의 접근·오류·unavailable·Q&A normalize·desktop/mobile을 확인한다. 승인된 개인15/법인15, live provider credential/consent, full DB universe가 없으므로 live success·정상 빈값·cache truth·30표본 정확도는 증거가 생길 때까지 external pending으로 남긴다.
+- 다음 Gate: G0B/G6 decision 기록과 G7L은 사용자 continuation 요청으로 승인됨; 이 checkpoint에는 포함하지 않음
 
 ## 12. 전체 중단 조건
 

@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  measureAutofillCoverage,
-  type AutofillCoverageMetrics,
-  type AutofillGrantWeights,
-  type EvidenceSourceKind,
-} from "@cunote/core/autofill/coverage";
+import type { EvidenceSourceKind } from "@cunote/core/autofill/coverage";
 import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
@@ -13,6 +8,16 @@ import type {
   FieldCoverageStatus,
   FieldSourceRef,
   FieldTier,
+  DevCoverageRatio,
+  DevCanonicalMatchReadyCoverage,
+  DevEndToEndDecidability,
+  DevGrantExtractionReadiness,
+  DevMetricState,
+  DevSourcingCoverage,
+  DevServiceDataMonitorAnalysis,
+  DevServiceDataSectionRow,
+  DevServiceDataMonitorSections,
+  DevShadowMatchCounts,
   QnaSchema,
   ServiceDataInspectResult,
   ServiceDataLookupResult,
@@ -161,6 +166,72 @@ const EMPTY_QNA: QnaState = {
   tipsBacked: false,
 };
 
+const QNA_COVERAGE_ONLY_VALUE_KEYS = new Set(["ip.right_statuses"]);
+
+function reconcileQnaSectionRows(
+  previousRows: readonly DevServiceDataSectionRow[],
+  incomingRows: readonly DevServiceDataSectionRow[],
+): DevServiceDataSectionRow[] {
+  const previousByKey = new Map(previousRows.map((row) => [row.key, row]));
+  return incomingRows.map((incoming) => {
+    const previous = previousByKey.get(incoming.key);
+    if (!previous) return incoming;
+    const label = previous.label;
+    if (
+      QNA_COVERAGE_ONLY_VALUE_KEYS.has(incoming.key) &&
+      incoming.value === null &&
+      previous.state === "known" &&
+      previous.value !== null
+    ) {
+      return {
+        ...incoming,
+        label,
+        value: previous.value,
+        state: "known",
+        sourceKind: previous.sourceKind,
+      };
+    }
+    return { ...incoming, label };
+  });
+}
+
+export function reconcileQnaSections(
+  previous: DevServiceDataMonitorSections,
+  incoming: DevServiceDataMonitorSections,
+): DevServiceDataMonitorSections {
+  return {
+    identity_prerequisite: reconcileQnaSectionRows(
+      previous.identity_prerequisite,
+      incoming.identity_prerequisite,
+    ),
+    eligibility_19_axes: reconcileQnaSectionRows(
+      previous.eligibility_19_axes,
+      incoming.eligibility_19_axes,
+    ),
+    reserved_axes: reconcileQnaSectionRows(previous.reserved_axes, incoming.reserved_axes),
+    supporting_derivation: reconcileQnaSectionRows(
+      previous.supporting_derivation,
+      incoming.supporting_derivation,
+    ),
+    ranking_goals: reconcileQnaSectionRows(previous.ranking_goals, incoming.ranking_goals),
+    final_typed_profile: incoming.final_typed_profile,
+    shadow_match_and_unknown_causes: incoming.shadow_match_and_unknown_causes,
+  };
+}
+
+export function eligibilityCoverageRows<T extends FieldCoverageRow>(
+  coverage: readonly T[],
+  eligibilityKeys: ReadonlySet<string>,
+): { parents: T[]; details: T[] } {
+  const details = coverage.filter((row) =>
+    eligibilityKeys.has(row.key) ||
+    (row.parentKey !== null && eligibilityKeys.has(row.parentKey)));
+  return {
+    parents: details.filter((row) => row.parentKey === null),
+    details,
+  };
+}
+
 export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
   const [bizNoInput, setBizNoInput] = useState("");
   const [provider, setProvider] = useState<ServiceDataProvider>("popbill");
@@ -172,15 +243,90 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [qna, setQna] = useState<QnaState>(EMPTY_QNA);
+  const [qnaApplying, setQnaApplying] = useState(false);
+  const [appliedQnaSignature, setAppliedQnaSignature] = useState<string | null>(null);
+  const [completedQnaDimensions, setCompletedQnaDimensions] = useState<Set<string>>(() => new Set());
   // React disabled 상태가 반영되기 전의 연속 Enter/클릭도 즉시 차단한다.
   const searchInFlightRef = useRef(false);
+  const qnaInFlightRef = useRef(false);
   const lookupInFlightRef = useRef(new Map<string, Promise<void>>());
+  const resultGenerationRef = useRef(0);
   // 커버리지 테이블 상태 필터("all" 이면 전체). 요약 카드의 범례 칩과 연동된다.
   const [statusFilter, setStatusFilter] = useState<StatusGroup | "all">("all");
   const qnaDto = useMemo(() => buildDevQnaAnswerDto(qna, qnaSchema), [qna, qnaSchema]);
+  const qnaSignature = useMemo(() => JSON.stringify(qnaDto), [qnaDto]);
+
+  const beginResultGeneration = useCallback(() => {
+    resultGenerationRef.current += 1;
+    setAppliedQnaSignature(null);
+    setCompletedQnaDimensions(new Set());
+    return resultGenerationRef.current;
+  }, []);
 
   const validateQna = useCallback(async () => {
+    if (
+      qnaInFlightRef.current ||
+      searchInFlightRef.current ||
+      lookupInFlightRef.current.size > 0 ||
+      clearing
+    ) return;
+    qnaInFlightRef.current = true;
+    const resultGeneration = resultGenerationRef.current;
     try {
+      setQnaApplying(true);
+      if (result && activeBizNo) {
+        const asOf = result.sections.shadow_match_and_unknown_causes.asOf;
+        const response = await fetch("/api/dev/service-data", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            action: "merge_profile",
+            answers: qnaDto,
+            asOf,
+            baseProfile: result.profile ?? { confidence: {} },
+            bizNo: activeBizNo,
+            connectorProfileUpdates: result.connectorProfileUpdates,
+            connectorSourcedDimensions: result.connectorProfileAudit.sourcedDimensions,
+            connectorNormalizedDimensions: result.connectorProfileAudit.normalizedDimensions,
+            qnaAsOf: asOf,
+            withShadow: true,
+          }),
+        });
+        const data = (await response.json()) as {
+          profileMerge?: ServiceDataLookupResult["profileMerge"];
+          sections?: DevServiceDataMonitorSections;
+          message?: string;
+        };
+        if (resultGeneration !== resultGenerationRef.current) return;
+        if (!response.ok || !data.profileMerge || !data.sections) {
+          toast.error(data.message ?? "Q&A 병합·shadow match에 실패했습니다.");
+          return;
+        }
+        setResult((previous) =>
+          resultGeneration === resultGenerationRef.current && previous
+            ? {
+                ...previous,
+                profileMerge: data.profileMerge!,
+                sections: reconcileQnaSections(previous.sections, data.sections!),
+              }
+            : previous);
+        setAppliedQnaSignature(qnaSignature);
+        const shadow = data.sections.shadow_match_and_unknown_causes.shadowMatch;
+        if (shadow.availability === "unavailable") {
+          setCompletedQnaDimensions(new Set());
+          toast.warning(`Q&A는 병합했지만 전수 shadow match는 unavailable입니다 (${shadow.reason.code}).`);
+          return;
+        }
+        const reducedDimensions = shadow.value.unknownReductionByDimension
+          .filter((entry) => entry.reduced)
+          .map((entry) => entry.dimension);
+        setCompletedQnaDimensions(new Set(reducedDimensions));
+        if (reducedDimensions.length > 0) {
+          toast.success(`Q&A 병합 완료 · 실제 unknown 감소 ${reducedDimensions.length}축`);
+        }
+        else toast.warning("Q&A는 병합됐지만 실제 unknown 수가 줄지 않아 완료로 표시하지 않습니다.");
+        return;
+      }
       const response = await fetch("/api/dev/service-data", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -191,6 +337,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
         failures?: Array<{ message?: string }>;
         message?: string;
       };
+      if (resultGeneration !== resultGenerationRef.current) return;
       if (!response.ok) {
         toast.error(data.message ?? "Q&A typed 변환에 실패했습니다.");
         return;
@@ -202,14 +349,20 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
         toast.success(`typed update ${data.profileUpdates?.length ?? 0}개를 확인했습니다.`);
       }
     } catch {
-      toast.error("Q&A typed 변환을 확인하지 못했습니다.");
+      if (resultGeneration === resultGenerationRef.current) {
+        toast.error("Q&A typed 변환을 확인하지 못했습니다.");
+      }
+    } finally {
+      setQnaApplying(false);
+      qnaInFlightRef.current = false;
     }
-  }, [qnaDto]);
+  }, [activeBizNo, clearing, qnaDto, qnaSignature, result]);
 
   const runLookup = useCallback((bizNo: string, forceRefresh: boolean, selectedProvider: ServiceDataProvider) => {
     const requestKey = `${selectedProvider}:${bizNo}:${forceRefresh ? "refresh" : "cache"}`;
     const existing = lookupInFlightRef.current.get(requestKey);
     if (existing) return existing;
+    const resultGeneration = beginResultGeneration();
 
     const task = (async () => {
       setLoading(true);
@@ -220,6 +373,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
           body: JSON.stringify({ bizNo, forceRefresh, provider: selectedProvider }),
         });
         const data = (await res.json()) as ServiceDataLookupResult & { message?: string };
+        if (resultGeneration !== resultGenerationRef.current) return;
         if (!res.ok) {
           toast.error(data.message ?? "조회에 실패했습니다.");
           return;
@@ -234,14 +388,19 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
         // 조회 본체는 이미 성공했으므로 스냅샷 갱신 실패가 오류 토스트로 새지 않게 분리한다.
         try {
           const refreshed = await fetch(`/api/dev/service-data?bizNo=${bizNo}&provider=${selectedProvider}`);
-          if (refreshed.ok) setInspect((await refreshed.json()) as ServiceDataInspectResult);
+          if (refreshed.ok) {
+            const refreshedInspect = (await refreshed.json()) as ServiceDataInspectResult;
+            if (resultGeneration === resultGenerationRef.current) setInspect(refreshedInspect);
+          }
         } catch {
           // 스냅샷 갱신 실패는 무시(다음 조회 시 재확인).
         }
       } catch {
-        toast.error("네트워크 오류로 조회하지 못했습니다.");
+        if (resultGeneration === resultGenerationRef.current) {
+          toast.error("네트워크 오류로 조회하지 못했습니다.");
+        }
       } finally {
-        setLoading(false);
+        if (resultGeneration === resultGenerationRef.current) setLoading(false);
       }
     })().finally(() => {
       if (lookupInFlightRef.current.get(requestKey) === task) {
@@ -250,7 +409,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
     });
     lookupInFlightRef.current.set(requestKey, task);
     return task;
-  }, []);
+  }, [beginResultGeneration]);
 
   const onSearch = useCallback(async () => {
     const digits = bizNoInput.replace(/\D/g, "");
@@ -258,14 +417,20 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
       toast.error("사업자번호 10자리를 입력해주세요.");
       return;
     }
-    if (searchInFlightRef.current) return;
+    if (
+      searchInFlightRef.current ||
+      qnaInFlightRef.current ||
+      lookupInFlightRef.current.size > 0
+    ) return;
     searchInFlightRef.current = true;
+    const resultGeneration = beginResultGeneration();
     setActiveBizNo(digits);
     setResult(null);
     setInspecting(true);
     try {
       const res = await fetch(`/api/dev/service-data?bizNo=${digits}&provider=${provider}`);
       const data = (await res.json()) as ServiceDataInspectResult & { message?: string };
+      if (resultGeneration !== resultGenerationRef.current) return;
       if (!res.ok) {
         toast.error(data.message ?? "캐시 조회에 실패했습니다.");
         return;
@@ -276,19 +441,28 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
         await runLookup(digits, false, provider);
       }
     } catch {
-      toast.error("네트워크 오류로 캐시를 확인하지 못했습니다.");
+      if (resultGeneration === resultGenerationRef.current) {
+        toast.error("네트워크 오류로 캐시를 확인하지 못했습니다.");
+      }
     } finally {
       searchInFlightRef.current = false;
       setInspecting(false);
     }
-  }, [bizNoInput, provider, runLookup]);
+  }, [beginResultGeneration, bizNoInput, provider, runLookup]);
 
   const onClearCache = useCallback(async () => {
-    if (!activeBizNo) return;
+    if (
+      !activeBizNo ||
+      qnaInFlightRef.current ||
+      searchInFlightRef.current ||
+      lookupInFlightRef.current.size > 0
+    ) return;
+    const resultGeneration = beginResultGeneration();
     setClearing(true);
     try {
       const res = await fetch(`/api/dev/service-data?bizNo=${activeBizNo}&provider=${provider}`, { method: "DELETE" });
       const data = (await res.json()) as { deleted?: number; message?: string };
+      if (resultGeneration !== resultGenerationRef.current) return;
       if (!res.ok) {
         toast.error(data.message ?? "캐시를 비우지 못했습니다.");
         return;
@@ -297,31 +471,49 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
       setResult(null);
       setInspect((prev) => (prev ? { ...prev, hasCache: false, rows: [] } : prev));
     } catch {
-      toast.error("네트워크 오류로 캐시를 비우지 못했습니다.");
+      if (resultGeneration === resultGenerationRef.current) {
+        toast.error("네트워크 오류로 캐시를 비우지 못했습니다.");
+      }
     } finally {
       setClearing(false);
       setClearOpen(false);
     }
-  }, [activeBizNo, provider]);
+  }, [activeBizNo, beginResultGeneration, provider]);
 
   const mergedCoverage = useMemo(
-    () => mergeFieldsWithQna(result?.coverage ?? [], qna, qnaSchema),
-    [result?.coverage, qna, qnaSchema],
+    () => mergeFieldsWithQna(
+      result?.coverage ?? [],
+      appliedQnaSignature === qnaSignature ? qna : EMPTY_QNA,
+      qnaSchema,
+      completedQnaDimensions,
+    ),
+    [appliedQnaSignature, completedQnaDimensions, qna, qnaSchema, qnaSignature, result?.coverage],
+  );
+  const eligibilityKeys = useMemo(
+    () => new Set(result?.sections.eligibility_19_axes.map((row) => row.key) ?? []),
+    [result?.sections.eligibility_19_axes],
+  );
+  const eligibilityCoverage = useMemo(
+    () => eligibilityCoverageRows(mergedCoverage, eligibilityKeys),
+    [eligibilityKeys, mergedCoverage],
   );
   const overview = useMemo(
-    () => summarizeCoverage(mergedCoverage, result?.coverageGrantWeights ?? null),
-    [mergedCoverage, result?.coverageGrantWeights],
+    () => summarizeCoverage(eligibilityCoverage.parents),
+    [eligibilityCoverage.parents],
   );
-  const reasonGroups = useMemo(() => groupByReason(mergedCoverage), [mergedCoverage]);
+  const reasonGroups = useMemo(
+    () => groupByReason(eligibilityCoverage.parents),
+    [eligibilityCoverage.parents],
+  );
   const filteredCoverage = useMemo(
     () =>
       statusFilter === "all"
-        ? mergedCoverage
-        : mergedCoverage.filter((row) => statusGroupOf(row.status) === statusFilter),
-    [mergedCoverage, statusFilter],
+        ? eligibilityCoverage.details
+        : eligibilityCoverage.details.filter((row) => statusGroupOf(row.status) === statusFilter),
+    [eligibilityCoverage.details, statusFilter],
   );
 
-  const busy = inspecting || loading;
+  const busy = inspecting || loading || clearing || qnaApplying;
   const showCacheChoice = Boolean(inspect?.hasCache && activeBizNo);
 
   return (
@@ -330,11 +522,11 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
         <div className="flex items-center gap-2">
           <h1 className="text-xl font-semibold">사업자 데이터 모니터</h1>
           <Badge variant="outline">dev</Badge>
-          <Badge variant="secondary">22축 커버리지 하네스</Badge>
+          <Badge variant="secondary">19축 + reserved + supporting</Badge>
         </div>
         <p className="text-sm text-muted-foreground">
-          사업자번호로 조회 provider를 선택해 실행하고, 매칭 22축의 계획 소스·상태·값·신뢰도와
-          라이브/캐시 여부, 원본 응답을 확인합니다. 신규 외부소스는 키 확보 전까지 대기(pending)로 표시됩니다.
+          사업자번호로 조회 provider를 실행하고, 필드 역할·typed profile·활성 공고 전수 shadow match를
+          분리해 확인합니다. production 저장·승격은 수행하지 않습니다.
         </p>
       </header>
 
@@ -354,6 +546,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
                     className="h-8"
                     disabled={busy}
                     onClick={() => {
+                      beginResultGeneration();
                       setProvider(item);
                       setInspect(null);
                       setResult(null);
@@ -408,7 +601,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
                 <Button
                   size="sm"
                   onClick={() => activeBizNo && void runLookup(activeBizNo, false, provider)}
-                  disabled={loading}
+                  disabled={busy}
                 >
                   캐시 사용해 조회
                 </Button>
@@ -416,7 +609,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
                   size="sm"
                   variant="outline"
                   onClick={() => activeBizNo && void runLookup(activeBizNo, true, provider)}
-                  disabled={loading}
+                  disabled={busy}
                 >
                   캐시 무효화 후 새로 조회
                 </Button>
@@ -452,7 +645,13 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
 
       {result && !loading ? (
         <>
-          {/* 2. 커버리지 요약 — 몇 축이 채워지는지 + 왜 그런지 */}
+          <ServiceDataFieldSectionCard
+            title="1. 조회 전제·식별 정보"
+            description="사업자번호·상호·법인번호·인증 상태·registry match method입니다. trace에서 추론하지 않으며 값이 없으면 unknown을 유지합니다."
+            rows={result.sections.identity_prerequisite}
+          />
+
+          {/* 2. 운영 19축 커버리지 — 몇 축이 채워지는지 + 왜 그런지 */}
           <CoverageOverview
             overview={overview}
             reasonGroups={reasonGroups}
@@ -460,6 +659,7 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
             onFilter={setStatusFilter}
             maskedBizNo={result.maskedBizNo}
             subject={result.subject}
+            monitor={result.sections.shadow_match_and_unknown_causes}
           />
 
           {/* 3. 필드별 상세 테이블 (요약 칩으로 필터) */}
@@ -467,11 +667,11 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-col gap-0.5">
-                  <CardTitle className="text-base">필드별 상세</CardTitle>
+                  <CardTitle className="text-base">2. Eligibility 운영 19축 상세</CardTitle>
                   <CardDescription>
                     {statusFilter === "all"
-                      ? `매칭 축 ${overview.total}개 전체 · 계획 소스와 확보 상태`
-                      : `${GROUP_META[statusFilter].label} ${filteredCoverage.length}개만 표시 중`}
+                      ? `운영 부모축 ${overview.total}개 + 하위 진단 행 · 계획 소스와 확보 상태`
+                      : `${GROUP_META[statusFilter].label} 진단 행 ${filteredCoverage.length}개만 표시 중`}
                   </CardDescription>
                 </div>
                 {statusFilter === "all" ? null : (
@@ -541,7 +741,29 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
             </CardContent>
           </Card>
 
-          {/* 4. API 트레이스 */}
+          <ServiceDataFieldSectionCard
+            title="3. Reserved axes"
+            description="premises와 export_performance는 사람 검수·승인 전까지 분모와 가중치에서 제외됩니다."
+            rows={result.sections.reserved_axes}
+          />
+
+          <ServiceDataFieldSectionCard
+            title="4. Supporting / derivation"
+            description="자산·자본·기준연도 같은 보조·파생 필드와 other 비구조화 버킷입니다. 자격 분모에 포함하지 않습니다."
+            rows={result.sections.supporting_derivation}
+          />
+
+          <ServiceDataFieldSectionCard
+            title="5. Ranking goals"
+            description="지원·관심 목표는 추천 정렬용입니다. 누락값을 trace나 자격 필드에서 추론하지 않습니다."
+            rows={result.sections.ranking_goals}
+          />
+
+          <FinalTypedProfileSection profileMerge={result.sections.final_typed_profile} />
+
+          <ShadowMatchSection monitor={result.sections.shadow_match_and_unknown_causes} />
+
+          {/* 진단: API 트레이스 */}
           <Card>
             <CardHeader>
               <CardTitle className="text-base">API 트레이스</CardTitle>
@@ -563,7 +785,14 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
       ) : null}
 
       {/* 4. Q&A 섹션 */}
-      <QnaSection qna={qna} setQna={setQna} disabled={false} schema={qnaSchema} onValidate={validateQna} />
+      <QnaSection
+        qna={qna}
+        setQna={setQna}
+        disabled={busy}
+        schema={qnaSchema}
+        onValidate={validateQna}
+        hasLookup={Boolean(result)}
+      />
 
       <AlertDialog open={clearOpen} onOpenChange={setClearOpen}>
         <AlertDialogContent>
@@ -587,6 +816,228 @@ export function ServiceDataMonitor({ qnaSchema }: { qnaSchema: QnaSchema }) {
   );
 }
 
+function ServiceDataFieldSectionCard({
+  title,
+  description,
+  rows,
+}: {
+  title: string;
+  description: string;
+  rows: DevServiceDataSectionRow[];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>필드</TableHead>
+                <TableHead>역할</TableHead>
+                <TableHead>상태</TableHead>
+                <TableHead>값</TableHead>
+                <TableHead>원천 종류</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
+                <TableRow key={row.key}>
+                  <TableCell className="font-medium">{row.label}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{row.role}</TableCell>
+                  <TableCell>
+                    <Badge variant={row.state === "known" ? "default" : "outline"}>
+                      {row.state}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="max-w-md break-words text-sm">{row.value ?? "unknown"}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground">{sourceKindLabel(row.sourceKind)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function FinalTypedProfileSection({
+  profileMerge,
+}: {
+  profileMerge: ServiceDataLookupResult["profileMerge"];
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">6. Final typed profile</CardTitle>
+        <CardDescription>
+          connector → Q&A 순서로 evidence precedence를 적용한 dev-memory-only 결과입니다. production 소비는 승인 전까지 pending입니다.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>dimension</TableHead>
+                <TableHead>sourced</TableHead>
+                <TableHead>normalized</TableHead>
+                <TableHead>match_ready</TableHead>
+                <TableHead>product_consumed</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {profileMerge.fieldStates.map((state) => (
+                <TableRow key={state.field}>
+                  <TableCell className="font-medium">{state.field}</TableCell>
+                  <TableCell>{state.sourced ? "yes" : "no"}</TableCell>
+                  <TableCell>{state.normalized ? "yes" : "no"}</TableCell>
+                  <TableCell>{state.match_ready ? "yes" : "no"}</TableCell>
+                  <TableCell><Badge variant="outline">{state.product_consumed}</Badge></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+        <JsonBlock
+          label="sanitized CompanyProfile preview"
+          value={profileMerge.profilePreview as unknown as Record<string, unknown>}
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ShadowMatchSection({ monitor }: { monitor: DevServiceDataMonitorAnalysis }) {
+  const shadow = monitor.shadowMatch;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">7. Shadow match · unknown causes</CardTitle>
+        <CardDescription>
+          명시 asOf {formatDate(monitor.asOf)} · 같은 전수 universe 평가에서 engine/product 상태, unknown 원인, 공고 수요 가중치를 집계합니다.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {shadow.availability === "unavailable" ? (
+          <Alert>
+            <AlertTitle>전수 shadow metric unavailable</AlertTitle>
+            <AlertDescription>
+              {shadow.reason.message} ({shadow.reason.code}) · 일부 표본이나 균등 가중치로 대체하지 않았습니다.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ShadowCounts label="before" counts={shadow.value.counts.before} />
+              <ShadowCounts label="after" counts={shadow.value.counts.after} />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <UnknownCause label="profile_missing" value={shadow.value.unknownCauses.after.profile_missing} />
+              <UnknownCause label="grant_unready" value={shadow.value.unknownCauses.after.grant_unready} />
+            </div>
+            <div className="rounded-lg border p-3 text-sm">
+              <div className="font-medium">다음 질문</div>
+              <p className="mt-1 text-muted-foreground">
+                {shadow.value.nextQuestion
+                  ? `${shadow.value.nextQuestion.dimension} · ${shadow.value.nextQuestion.prompt}`
+                  : "현재 전수 결과에서 제안할 질문이 없습니다."}
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>dimension</TableHead>
+                    <TableHead>profile unknown before → after</TableHead>
+                    <TableHead>grant unready before → after</TableHead>
+                    <TableHead>Q&A 완료</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {shadow.value.unknownReductionByDimension
+                    .filter((delta) => delta.before.profile_missing > 0 || delta.before.grant_unready > 0)
+                    .map((delta) => (
+                      <TableRow key={delta.dimension}>
+                        <TableCell className="font-medium">{delta.dimension}</TableCell>
+                        <TableCell>{delta.before.profile_missing} → {delta.after.profile_missing}</TableCell>
+                        <TableCell>{delta.before.grant_unready} → {delta.after.grant_unready}</TableCell>
+                        <TableCell>
+                          <Badge variant={delta.completed ? "default" : "outline"}>
+                            {delta.completed ? "completed" : "not completed"}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </div>
+          </>
+        )}
+        <DimensionDemandWeights state={monitor.dimensionDemandWeights} />
+      </CardContent>
+    </Card>
+  );
+}
+
+function ShadowCounts({
+  label,
+  counts,
+}: {
+  label: string;
+  counts: DevShadowMatchCounts;
+}) {
+  return (
+    <div className="rounded-lg border p-3 text-xs">
+      <div className="mb-2 font-medium">{label}</div>
+      <div className="text-muted-foreground">
+        engine: eligible {counts.engine.eligible} · conditional {counts.engine.conditional} · ineligible {counts.engine.ineligible}
+      </div>
+      <div className="mt-1 text-muted-foreground">
+        product: 높음 {counts.product["지원 가능성이 높음"]} · 정보 확인 {counts.product["정보 확인"]} · 원문 확인 {counts.product["원문 확인"]} · 어려움 {counts.product["지원 어려움"]}
+      </div>
+    </div>
+  );
+}
+
+function UnknownCause({
+  label,
+  value,
+}: {
+  label: string;
+  value: { total: number; byDimension: Array<{ dimension: string; count: number }> };
+}) {
+  return (
+    <div className="rounded-lg border p-3 text-xs">
+      <div className="font-medium">{label} · {value.total}</div>
+      <p className="mt-1 text-muted-foreground">
+        {value.byDimension.map((entry) => `${entry.dimension} ${entry.count}`).join(" · ") || "없음"}
+      </p>
+    </div>
+  );
+}
+
+function DimensionDemandWeights({ state }: { state: DevServiceDataMonitorAnalysis["dimensionDemandWeights"] }) {
+  if (state.availability === "unavailable") {
+    return <MetricUnavailable label="dimension-demand weights" reason={state.reason} />;
+  }
+  return (
+    <div className="rounded-lg border p-3 text-xs">
+      <div className="font-medium">공고 dimension 수요 가중치</div>
+      <p className="mt-1 text-muted-foreground">
+        reviewed {state.value.reviewedPairs} pairs · {Object.entries(state.value.reviewed).map(([key, count]) => `${key} ${count}`).join(" · ") || "없음"}
+      </p>
+      <p className="mt-1 text-muted-foreground">
+        pending {state.value.pendingPairs} pairs · {Object.entries(state.value.pending).map(([key, count]) => `${key} ${count}`).join(" · ") || "없음"}
+      </p>
+    </div>
+  );
+}
+
 // ── 커버리지 요약(몇 축이 채워지나 + 왜) ─────────────────────────────────────
 
 function CoverageOverview({
@@ -596,6 +1047,7 @@ function CoverageOverview({
   onFilter,
   maskedBizNo,
   subject,
+  monitor,
 }: {
   overview: CoverageOverviewData;
   reasonGroups: ReasonGroup[];
@@ -603,6 +1055,7 @@ function CoverageOverview({
   onFilter: (next: StatusGroup | "all") => void;
   maskedBizNo: string;
   subject: ServiceDataLookupResult["subject"];
+  monitor: DevServiceDataMonitorAnalysis;
 }) {
   const segments = STATUS_GROUPS.map((group) => ({ group, count: overview.counts[group] })).filter(
     (segment) => segment.count > 0,
@@ -611,37 +1064,22 @@ function CoverageOverview({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">매칭 필드 커버리지</CardTitle>
+        <CardTitle className="text-base">2. Eligibility 19축 · 네 지표</CardTitle>
         <CardDescription>
           {maskedBizNo} · {subjectLabel(subject)} · 운영 구조화 19축은 아래 지표로, 하위 플래그는 별도
-          진단 행으로 집계합니다.
+          분모 밖 진단 행으로 표시합니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
-        <div className="grid gap-3 sm:grid-cols-3">
-          <CoverageMetric
-            label="API 확정"
-            metric={overview.metrics.authoritative_axis_coverage}
-            description="공식 API·공개명단으로 complete인 부모축"
-          />
-          <CoverageMetric
-            label="전체 판정 가능"
-            metric={overview.metrics.total_answered_coverage}
-            description="인증 입력·자가응답·파생값까지 포함"
-          />
-          <CoverageMetric
-            label="공고 가중"
-            metric={overview.metrics.grant_weighted_coverage}
-            description={
-              overview.hasGrantWeights
-                ? "활성·검수 공고 criterion 빈도 가중"
-                : "공고 가중치 없음 · 19축 균등 가중"
-            }
-          />
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SourcingMetricCard state={monitor.metrics.sourcing_coverage} />
+          <CanonicalMetricCard state={monitor.metrics.canonical_match_ready_coverage} />
+          <ExtractionMetricCard state={monitor.metrics.grant_extraction_readiness} />
+          <DecidabilityMetricCard state={monitor.metrics.end_to_end_decidability} />
         </div>
 
         <span className="text-xs text-muted-foreground">
-          상세 진단 행: 적용 대상 {overview.applicable}개 · 해당없음 {overview.counts.na}개 = 총 {overview.total}개
+          운영 19축 상태: 적용 대상 {overview.applicable}개 · 해당없음 {overview.counts.na}개 = 총 {overview.total}개
         </span>
 
         {/* 상태 구성 세그먼트 바 */}
@@ -755,27 +1193,99 @@ function FilterChip({
   );
 }
 
-function CoverageMetric({
+function MetricUnavailable({ label, reason }: { label: string; reason: { code: string; message: string } }) {
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <div className="mt-1 text-sm font-semibold text-warning">unavailable</div>
+      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+        {reason.message} ({reason.code}) · fallback 수치 없음
+      </p>
+    </div>
+  );
+}
+
+function SourcingMetricCard({ state }: { state: DevMetricState<DevSourcingCoverage> }) {
+  if (state.availability === "unavailable") return <MetricUnavailable label="sourcing_coverage" reason={state.reason} />;
+  return (
+    <MetricCard
+      label="sourcing_coverage"
+      primary={state.value.answered}
+      secondary={`sourced ${formatRatio(state.value.sourced)} · ${state.value.sourceBreakdown.map((item) => `${sourceKindLabel(item.sourceKind === "unknown" ? null : item.sourceKind)} ${item.count}`).join(" · ") || "source 없음"}`}
+      description="분모는 SSOT 운영 19축입니다. sourced 관측과 typed answered를 세며 공고 판정 가능률로 해석하지 않습니다."
+    />
+  );
+}
+
+function CanonicalMetricCard({ state }: { state: DevMetricState<DevCanonicalMatchReadyCoverage> }) {
+  if (state.availability === "unavailable") {
+    return <MetricUnavailable label="canonical_match_ready_coverage" reason={state.reason} />;
+  }
+  return (
+    <MetricCard
+      label="canonical_match_ready_coverage"
+      primary={state.value.reviewed.after}
+      secondary={`reviewed ${formatRatio(state.value.reviewed.before)} → ${formatRatio(state.value.reviewed.after)} · pending ${formatRatio(state.value.pending.before)} → ${formatRatio(state.value.pending.after)}`}
+      description="canonical hard required/exclusion 중 non-text-only·profile-resolvable 공고×dimension pair를 한 번만 셉니다. reviewed와 pending은 합치지 않습니다."
+    />
+  );
+}
+
+function ExtractionMetricCard({ state }: { state: DevMetricState<DevGrantExtractionReadiness> }) {
+  if (state.availability === "unavailable") {
+    return <MetricUnavailable label="grant_extraction_readiness" reason={state.reason} />;
+  }
+  const value = state.value;
+  return (
+    <MetricCard
+      label="grant_extraction_readiness"
+      primary={value.reviewed}
+      secondary={`reviewed ${value.byReadiness.reviewed} · structured pending ${value.byReadiness.structured_unreviewed} · partial ${value.byReadiness.partial} · unstructured ${value.byReadiness.unstructured}`}
+      description="전체 활성·deduped universe를 분모로 공고 추출·검수 준비도만 셉니다. 회사 데이터 커버리지와 별개입니다."
+    />
+  );
+}
+
+function DecidabilityMetricCard({ state }: { state: DevMetricState<DevEndToEndDecidability> }) {
+  if (state.availability === "unavailable") {
+    return <MetricUnavailable label="end_to_end_decidability" reason={state.reason} />;
+  }
+  return (
+    <MetricCard
+      label="end_to_end_decidability"
+      primary={state.value.after}
+      secondary={`before ${formatRatio(state.value.before)} → after ${formatRatio(state.value.after)} · high ${state.value.after.high} · difficult ${state.value.after.difficult}`}
+      description="지원 가능성이 높음 + 지원 어려움만 결정 가능으로 세고, 분모는 partial/unreviewed를 포함한 전체 universe입니다."
+    />
+  );
+}
+
+function MetricCard({
   label,
-  metric,
+  primary,
+  secondary,
   description,
 }: {
   label: string;
-  metric: AutofillCoverageMetrics["authoritative_axis_coverage"];
+  primary: DevCoverageRatio;
+  secondary: string;
   description: string;
 }) {
   return (
     <div className="rounded-lg border bg-muted/20 p-3">
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <div className="mt-1 flex items-baseline gap-1.5">
-        <span className="text-2xl font-semibold tabular-nums">{Math.round(metric.ratio * 100)}%</span>
-        <span className="text-xs text-muted-foreground tabular-nums">
-          {formatMetricNumber(metric.numerator)} / {formatMetricNumber(metric.denominator)}
-        </span>
+        <span className="text-2xl font-semibold tabular-nums">{Math.round(primary.ratio * 100)}%</span>
+        <span className="text-xs text-muted-foreground tabular-nums">{formatRatio(primary)}</span>
       </div>
+      <p className="mt-1 text-[11px] text-foreground/70">{secondary}</p>
       <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">{description}</p>
     </div>
   );
+}
+
+function formatRatio(metric: DevCoverageRatio): string {
+  return `${formatMetricNumber(metric.numerator)} / ${formatMetricNumber(metric.denominator)}`;
 }
 
 function formatMetricNumber(value: number): string {
@@ -1044,12 +1554,14 @@ function QnaSection({
   disabled,
   schema,
   onValidate,
+  hasLookup,
 }: {
   qna: QnaState;
   setQna: React.Dispatch<React.SetStateAction<QnaState>>;
   disabled: boolean;
   schema: QnaSchema;
   onValidate: () => void;
+  hasLookup: boolean;
 }) {
   const toggleInArray = (list: string[], value: string): string[] =>
     list.includes(value) ? list.filter((item) => item !== value) : [...list, value];
@@ -1059,9 +1571,9 @@ function QnaSection({
       <CardHeader>
         <CardTitle className="text-base">자가신고 (Q&A)</CardTitle>
         <CardDescription>
-          API로 확보할 수 없어 사용자에게 받아야 하는 축입니다. 입력하면 위 커버리지 대시보드에 즉시
-          병합됩니다(서버 저장 없음, 모니터 확인용). 결격 3축은 그룹 체크리스트로 확인 시 해당 플래그가
-          known_flags로 채워집니다.
+          API로 확보할 수 없어 사용자에게 받아야 하는 축입니다. 버튼을 누르면 같은 명시 asOf로 typed
+          profile을 병합한 뒤 전수 shadow match를 한 번 실행합니다(서버 저장 없음). 실제 unknown이 줄지
+          않으면 문항을 완료로 표시하지 않습니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -1444,7 +1956,11 @@ function QnaSection({
 
         <div className="flex justify-end">
           <Button type="button" variant="outline" disabled={disabled} onClick={onValidate}>
-            typed update 변환 확인
+            {disabled
+              ? "병합·shadow match 중…"
+              : hasLookup
+                ? "typed profile 병합 + shadow match"
+                : "typed update 변환 확인"}
           </Button>
         </div>
       </CardContent>
@@ -1667,21 +2183,16 @@ function statusGroupOf(status: FieldCoverageStatus): StatusGroup {
 }
 
 interface CoverageOverviewData {
-  /** 전체 행 수(22축 + 하위 플래그·서브필드). */
+  /** 운영 eligibility 부모축 수(현재 SSOT 19축). */
   total: number;
   /** 적용 대상(전체 − 해당없음). 커버리지율의 분모. */
   applicable: number;
   /** 지금 값이 채워진 축(확보 + 자가신고). */
   filled: number;
   counts: Record<StatusGroup, number>;
-  metrics: AutofillCoverageMetrics;
-  hasGrantWeights: boolean;
 }
 
-function summarizeCoverage(
-  rows: MergedCoverageRow[],
-  grantWeights: AutofillGrantWeights | null,
-): CoverageOverviewData {
+function summarizeCoverage(rows: MergedCoverageRow[]): CoverageOverviewData {
   const counts: Record<StatusGroup, number> = { live: 0, self: 0, pending: 0, failed: 0, na: 0 };
   for (const row of rows) counts[statusGroupOf(row.status)] += 1;
   const total = rows.length;
@@ -1692,8 +2203,6 @@ function summarizeCoverage(
     applicable,
     filled,
     counts,
-    metrics: measureAutofillCoverage(rows, grantWeights),
-    hasGrantWeights: grantWeights !== null,
   };
 }
 
@@ -2023,6 +2532,7 @@ function mergeFieldsWithQna(
   coverage: FieldCoverageRow[],
   qna: QnaState,
   schema: QnaSchema,
+  completedDimensions: ReadonlySet<string>,
 ): MergedCoverageRow[] {
   const { byAxis, flagLabel } = deriveDisqByAxis(qna, schema);
   // 예외는 축 구분 없이 체크되지만, 표시는 EXCEPTION_FLAG_COVERAGE가 그 축의 플래그를 실제로
@@ -2081,6 +2591,9 @@ function mergeFieldsWithQna(
   return coverage.map((row): MergedCoverageRow => {
     // 라이브/캐시/해당없음은 원천 유지(회귀 금지).
     if (row.status === "live" || row.status === "cache" || row.status === "n/a") return row;
+    // typed profile 병합 자체와 질문 완료는 별개다. 실제 전수 matcher에서 해당 dimension의
+    // profile_missing이 감소한 경우에만 self-declared 완료 표시를 허용한다.
+    if (!row.dimension || !completedDimensions.has(row.dimension)) return row;
     if (row.key === "target_type" && qna.scenario === "preliminary") {
       return selfDeclared(row, "예비창업자", { axisCompleteness: "partial" });
     }

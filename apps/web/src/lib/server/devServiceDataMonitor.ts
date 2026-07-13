@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { maskCorpNum } from "@cunote/core";
 import {
   activeUnknownQuestionDimensions,
+  canonicalizeGrantCriteria,
   classifyEvidenceSourceKind,
   countByEligibility,
   defaultAxisCompleteness,
@@ -26,13 +27,13 @@ import {
   matchGrantCriteria,
   normalizeCompanyName,
   planProfileQuestions,
+  PROFILE_FIELD_SPEC_BY_KEY,
   PROCUREMENT_DEBARMENT_SOURCE,
   questionDefinitionFor,
   requireProfileFieldKey,
   resolveGrantExtractionManifest,
 } from "@cunote/core";
 import type {
-  AutofillGrantWeights,
   AxisCompleteness,
   CorporateRegistrationFacts,
   DisqualificationAxis,
@@ -45,6 +46,7 @@ import type {
   KiprisApplicantMatch,
   KiprisRightsSummary,
   ProfileFieldKey,
+  ProfileFieldRole,
   StartupConfirmationLookup,
   DartFinancialSnapshot,
   CompanyProfileFieldUpdate,
@@ -440,8 +442,8 @@ export interface ServiceDataLookupResult {
   connectorProfileAudit: ConnectorProfileUpdateAudit;
   /** G3 dev-memory-only connector merge preview/proof. product_consumed stays pending. */
   profileMerge: DevFinalCompanyProfileResult;
-  /** 현재 활성·검수 공고 criterion 빈도로 만든 19축 가중치. 불러오지 못하면 null. */
-  coverageGrantWeights: AutofillGrantWeights | null;
+  /** G5 field-role sections and full-universe aggregate proof. */
+  sections: DevServiceDataMonitorSections;
   trace: ServiceDataTraceEntry[];
   error?: ServiceDataLookupError;
 }
@@ -512,7 +514,7 @@ export interface DevShadowMatchGrantState {
   /** Concise extraction/criterion reasons that keep the product state fail-closed. */
   grantUnreadyReasons: DevShadowMatchGrantUnreadyReason[];
   /** Matcher review-gate diagnostics, including reviewed high-risk pass reasons. */
-  reviewGateReasons: MatchReviewReason[];
+  reviewGateReasons: Array<Omit<MatchReviewReason, "sourceSpan">>;
 }
 
 export interface DevShadowMatchDetail {
@@ -543,6 +545,104 @@ export interface DevServiceDataShadowMatchResult {
   details: DevShadowMatchDetail[];
 }
 
+export interface DevCoverageRatio {
+  numerator: number;
+  denominator: number;
+  ratio: number;
+}
+
+export interface DevSourcingCoverage {
+  denominator: number;
+  sourced: DevCoverageRatio;
+  answered: DevCoverageRatio;
+  sourceBreakdown: Array<{
+    sourceKind: EvidenceSourceKind | "unknown";
+    count: number;
+  }>;
+}
+
+export interface DevCanonicalMatchReadyCoverage {
+  reviewed: {
+    before: DevCoverageRatio;
+    after: DevCoverageRatio;
+  };
+  pending: {
+    before: DevCoverageRatio;
+    after: DevCoverageRatio;
+  };
+}
+
+export interface DevGrantExtractionReadiness {
+  universeSize: number;
+  reviewed: DevCoverageRatio;
+  pending: DevCoverageRatio;
+  byReadiness: Record<MatchExtractionReadiness, number>;
+}
+
+export interface DevEndToEndDecidability {
+  before: DevCoverageRatio & { high: number; difficult: number };
+  after: DevCoverageRatio & { high: number; difficult: number };
+}
+
+export interface DevDimensionDemandWeights {
+  reviewed: Partial<Record<CriterionDimension, number>>;
+  pending: Partial<Record<CriterionDimension, number>>;
+  reviewedPairs: number;
+  pendingPairs: number;
+}
+
+export interface DevUnavailableReason {
+  code: string;
+  message: string;
+}
+
+export type DevMetricState<T> =
+  | { availability: "available"; value: T }
+  | { availability: "unavailable"; reason: DevUnavailableReason };
+
+export interface DevServiceDataMonitorAnalysis {
+  schemaVersion: "dev-service-data-monitor-g5-v1";
+  asOf: string;
+  metrics: {
+    sourcing_coverage: DevMetricState<DevSourcingCoverage>;
+    canonical_match_ready_coverage: DevMetricState<DevCanonicalMatchReadyCoverage>;
+    grant_extraction_readiness: DevMetricState<DevGrantExtractionReadiness>;
+    end_to_end_decidability: DevMetricState<DevEndToEndDecidability>;
+  };
+  dimensionDemandWeights: DevMetricState<DevDimensionDemandWeights>;
+  shadowMatch: DevMetricState<DevServiceDataShadowMatchResult>;
+}
+
+export type DevServiceDataSectionKey =
+  | "identity_prerequisite"
+  | "eligibility_19_axes"
+  | "reserved_axes"
+  | "supporting_derivation"
+  | "ranking_goals"
+  | "final_typed_profile"
+  | "shadow_match_and_unknown_causes";
+
+export interface DevServiceDataSectionRow {
+  key: string;
+  label: string;
+  role: ProfileFieldRole;
+  dimension: CriterionDimension | null;
+  includedInEligibilityDenominator: boolean;
+  value: string | null;
+  state: "known" | "unknown" | "reserved";
+  sourceKind: EvidenceSourceKind | null;
+}
+
+export interface DevServiceDataMonitorSections {
+  identity_prerequisite: DevServiceDataSectionRow[];
+  eligibility_19_axes: DevServiceDataSectionRow[];
+  reserved_axes: DevServiceDataSectionRow[];
+  supporting_derivation: DevServiceDataSectionRow[];
+  ranking_goals: DevServiceDataSectionRow[];
+  final_typed_profile: DevFinalCompanyProfileResult;
+  shadow_match_and_unknown_causes: DevServiceDataMonitorAnalysis;
+}
+
 export interface BuildDevServiceDataShadowMatchInput<TPayload = unknown> {
   baseProfile: CompanyProfile;
   finalProfile: CompanyProfile;
@@ -550,6 +650,17 @@ export interface BuildDevServiceDataShadowMatchInput<TPayload = unknown> {
   /** Explicit replay time; never replaced with Date.now() inside the evaluator. */
   asOf: Date;
   detailLimit?: number;
+}
+
+export interface BuildDevServiceDataMonitorAnalysisInput<TPayload = unknown>
+  extends BuildDevServiceDataShadowMatchInput<TPayload> {
+  profileMerge: DevFinalCompanyProfileResult;
+}
+
+export interface LoadDevServiceDataMonitorAnalysisInput
+  extends Omit<LoadDevServiceDataShadowMatchInput, "scanLimit"> {
+  profileMerge: DevFinalCompanyProfileResult;
+  scanLimit?: number;
 }
 
 export interface LoadDevServiceDataShadowMatchInput {
@@ -594,6 +705,14 @@ interface ShadowUnknownClassification {
   grantUnreadyReasons: DevShadowMatchGrantUnreadyReason[];
 }
 
+interface DevShadowEvaluation {
+  shadowMatch: DevServiceDataShadowMatchResult;
+  canonicalMatchReadyCoverage: DevCanonicalMatchReadyCoverage;
+  grantExtractionReadiness: DevGrantExtractionReadiness;
+  endToEndDecidability: DevEndToEndDecidability;
+  dimensionDemandWeights: DevDimensionDemandWeights;
+}
+
 /**
  * Pure G4 evaluator. The deterministic matcher remains the sole eligibility authority;
  * this function only projects its result into safe product states and diagnostics.
@@ -601,15 +720,46 @@ interface ShadowUnknownClassification {
 export function buildDevServiceDataShadowMatch<TPayload>(
   input: BuildDevServiceDataShadowMatchInput<TPayload>,
 ): DevServiceDataShadowMatchResult {
+  return evaluateDevServiceDataShadowMatch(input).shadowMatch;
+}
+
+/** Build every G5 grant aggregate from the same full-universe G4 matcher pass. */
+export function buildDevServiceDataMonitorAnalysis<TPayload>(
+  input: BuildDevServiceDataMonitorAnalysisInput<TPayload>,
+): DevServiceDataMonitorAnalysis {
+  const evaluation = evaluateDevServiceDataShadowMatch(input);
+  return {
+    schemaVersion: "dev-service-data-monitor-g5-v1",
+    asOf: input.asOf.toISOString(),
+    metrics: {
+      sourcing_coverage: availableMetric(buildSourcingCoverage(input.profileMerge)),
+      canonical_match_ready_coverage: availableMetric(evaluation.canonicalMatchReadyCoverage),
+      grant_extraction_readiness: availableMetric(evaluation.grantExtractionReadiness),
+      end_to_end_decidability: availableMetric(evaluation.endToEndDecidability),
+    },
+    dimensionDemandWeights: availableMetric(evaluation.dimensionDemandWeights),
+    shadowMatch: availableMetric(evaluation.shadowMatch),
+  };
+}
+
+function evaluateDevServiceDataShadowMatch<TPayload>(
+  input: BuildDevServiceDataShadowMatchInput<TPayload>,
+): DevShadowEvaluation {
   if (Number.isNaN(input.asOf.getTime())) throw new Error("shadow match asOf가 유효하지 않습니다.");
   const detailLimit = devShadowDetailLimit(input.detailLimit);
   const asOf = input.asOf.toISOString();
   const grants = [...input.grants]
-    .map((item) => ({
-      item,
-      grantId: grantKey(item.grant),
-      manifest: resolveGrantExtractionManifest(item),
-    }))
+    .map((item) => {
+      const canonicalItem = {
+        ...item,
+        criteria: canonicalizeGrantCriteria(item.criteria),
+      };
+      return {
+        item: canonicalItem,
+        grantId: grantKey(item.grant),
+        manifest: resolveGrantExtractionManifest(item),
+      };
+    })
     .sort((left, right) =>
       stableStringCompare(left.grantId, right.grantId) ||
       stableStringCompare(left.manifest.revision, right.manifest.revision));
@@ -658,7 +808,7 @@ export function buildDevServiceDataShadowMatch<TPayload>(
     after: entry.afterState,
   }));
 
-  return {
+  const shadowMatch: DevServiceDataShadowMatchResult = {
     schemaVersion: "dev-service-data-shadow-match-v1",
     asOf,
     universeSize: evaluated.length,
@@ -707,6 +857,188 @@ export function buildDevServiceDataShadowMatch<TPayload>(
     nextQuestion: plannedAfter,
     details,
   };
+  const grantAggregates = buildGrantUniverseAggregates(evaluated);
+  return {
+    shadowMatch,
+    canonicalMatchReadyCoverage: grantAggregates.canonicalMatchReadyCoverage,
+    grantExtractionReadiness: grantAggregates.grantExtractionReadiness,
+    endToEndDecidability: grantAggregates.endToEndDecidability,
+    dimensionDemandWeights: grantAggregates.dimensionDemandWeights,
+  };
+}
+
+function buildGrantUniverseAggregates<TPayload>(
+  evaluated: Array<EvaluatedShadowGrant<TPayload>>,
+): Omit<DevShadowEvaluation, "shadowMatch"> {
+  const readinessCounts: Record<MatchExtractionReadiness, number> = {
+    reviewed: 0,
+    structured_unreviewed: 0,
+    partial: 0,
+    unstructured: 0,
+  };
+  const reviewed = { before: 0, after: 0, denominator: 0 };
+  const pending = { before: 0, after: 0, denominator: 0 };
+  const reviewedWeights = new Map<CriterionDimension, number>();
+  const pendingWeights = new Map<CriterionDimension, number>();
+
+  for (const entry of evaluated) {
+    const readiness = entry.before.quality.extractionReadiness;
+    readinessCounts[readiness] += 1;
+    const bucket = readiness === "reviewed" ? reviewed : pending;
+    const weightBucket = readiness === "reviewed" ? reviewedWeights : pendingWeights;
+    for (const [dimension, criterionIndexes] of canonicalDemandPairs(entry.item.criteria)) {
+      bucket.denominator += 1;
+      weightBucket.set(dimension, (weightBucket.get(dimension) ?? 0) + 1);
+      if (
+        criterionIndexes.length > 0 &&
+        dimensionActuallyDecidable(entry.before, dimension)
+      ) {
+        bucket.before += 1;
+      }
+      if (
+        criterionIndexes.length > 0 &&
+        dimensionActuallyDecidable(entry.after, dimension)
+      ) {
+        bucket.after += 1;
+      }
+    }
+  }
+
+  const universeSize = evaluated.length;
+  const reviewedCount = readinessCounts.reviewed;
+  const beforeHigh = evaluated.filter((entry) => entry.beforeState.productState === "지원 가능성이 높음").length;
+  const beforeDifficult = evaluated.filter((entry) => entry.beforeState.productState === "지원 어려움").length;
+  const afterHigh = evaluated.filter((entry) => entry.afterState.productState === "지원 가능성이 높음").length;
+  const afterDifficult = evaluated.filter((entry) => entry.afterState.productState === "지원 어려움").length;
+
+  return {
+    canonicalMatchReadyCoverage: {
+      reviewed: {
+        before: coverageRatio(reviewed.before, reviewed.denominator),
+        after: coverageRatio(reviewed.after, reviewed.denominator),
+      },
+      pending: {
+        before: coverageRatio(pending.before, pending.denominator),
+        after: coverageRatio(pending.after, pending.denominator),
+      },
+    },
+    grantExtractionReadiness: {
+      universeSize,
+      reviewed: coverageRatio(reviewedCount, universeSize),
+      pending: coverageRatio(universeSize - reviewedCount, universeSize),
+      byReadiness: readinessCounts,
+    },
+    endToEndDecidability: {
+      before: {
+        ...coverageRatio(beforeHigh + beforeDifficult, universeSize),
+        high: beforeHigh,
+        difficult: beforeDifficult,
+      },
+      after: {
+        ...coverageRatio(afterHigh + afterDifficult, universeSize),
+        high: afterHigh,
+        difficult: afterDifficult,
+      },
+    },
+    dimensionDemandWeights: {
+      reviewed: orderedDimensionWeights(reviewedWeights),
+      pending: orderedDimensionWeights(pendingWeights),
+      reviewedPairs: reviewed.denominator,
+      pendingPairs: pending.denominator,
+    },
+  };
+}
+
+function dimensionActuallyDecidable(match: MatchResult, dimension: CriterionDimension): boolean {
+  return !match.rule_trace.some((trace) =>
+    trace.dimension === dimension &&
+    (trace.kind === "required" || trace.kind === "exclusion") &&
+    trace.result === "unknown");
+}
+
+function canonicalDemandPairs(
+  criteria: readonly GrantCriterion[],
+): Map<CriterionDimension, number[]> {
+  const pairs = new Map<CriterionDimension, number[]>();
+  for (const [index, criterion] of criteria.entries()) {
+    if (criterion.kind !== "required" && criterion.kind !== "exclusion") continue;
+    if (criterion.operator === "text_only" || !isEligibilityDenominatorDimension(criterion.dimension)) continue;
+    if (!isProfileResolvableCriterion(criterion)) continue;
+    const indexes = pairs.get(criterion.dimension) ?? [];
+    indexes.push(index);
+    pairs.set(criterion.dimension, indexes);
+  }
+  return pairs;
+}
+
+function isEligibilityDenominatorDimension(dimension: CriterionDimension): boolean {
+  const spec = PROFILE_FIELD_SPEC_BY_KEY.get(dimension as ProfileFieldKey);
+  return spec?.role === "eligibility" && spec.includedInEligibilityDenominator;
+}
+
+function orderedDimensionWeights(
+  input: ReadonlyMap<CriterionDimension, number>,
+): Partial<Record<CriterionDimension, number>> {
+  return Object.fromEntries(
+    [...PROFILE_FIELD_SPEC_BY_KEY.values()]
+      .filter((entry) => entry.includedInEligibilityDenominator && entry.parentDimension !== null)
+      .flatMap((entry) => {
+        const count = input.get(entry.parentDimension as CriterionDimension) ?? 0;
+        return count > 0 ? [[entry.parentDimension, count] as const] : [];
+      }),
+  );
+}
+
+function buildSourcingCoverage(profileMerge: DevFinalCompanyProfileResult): DevSourcingCoverage {
+  const denominatorFields = [...PROFILE_FIELD_SPEC_BY_KEY.values()]
+    .filter((entry) => entry.includedInEligibilityDenominator && entry.parentDimension !== null);
+  const stateByField = new Map(profileMerge.fieldStates.map((state) => [state.field, state]));
+  const sourceCounts = new Map<EvidenceSourceKind | "unknown", number>();
+  let sourced = 0;
+  let answered = 0;
+  for (const entry of denominatorFields) {
+    const dimension = entry.parentDimension as CriterionDimension;
+    const state = stateByField.get(dimension);
+    if (state?.sourced) {
+      sourced += 1;
+      const sourceKind = profileMerge.profilePreview.profile_evidence?.[dimension]?.sourceKind ?? "unknown";
+      sourceCounts.set(sourceKind, (sourceCounts.get(sourceKind) ?? 0) + 1);
+    }
+    if (state?.normalized) answered += 1;
+  }
+  const sourceOrder: Array<EvidenceSourceKind | "unknown"> = [
+    "authoritative_api",
+    "public_registry",
+    "auth_supplied",
+    "self_declared",
+    "derived",
+    "unknown",
+  ];
+  return {
+    denominator: denominatorFields.length,
+    sourced: coverageRatio(sourced, denominatorFields.length),
+    answered: coverageRatio(answered, denominatorFields.length),
+    sourceBreakdown: sourceOrder.flatMap((sourceKind) => {
+      const count = sourceCounts.get(sourceKind) ?? 0;
+      return count > 0 ? [{ sourceKind, count }] : [];
+    }),
+  };
+}
+
+function coverageRatio(numerator: number, denominator: number): DevCoverageRatio {
+  return {
+    numerator,
+    denominator,
+    ratio: denominator > 0 ? numerator / denominator : 0,
+  };
+}
+
+function availableMetric<T>(value: T): DevMetricState<T> {
+  return { availability: "available", value };
+}
+
+function unavailableMetric<T>(reason: DevUnavailableReason): DevMetricState<T> {
+  return { availability: "unavailable", reason };
 }
 
 /** Load the full active universe through the existing fail-closed scan helper, then evaluate read-only. */
@@ -734,6 +1066,156 @@ export async function loadDevServiceDataShadowMatch(
     asOf: input.asOf,
     ...(input.detailLimit !== undefined ? { detailLimit: input.detailLimit } : {}),
   });
+}
+
+/**
+ * G5 lookup wrapper. Universe failures remain fail-closed for grant-dependent metrics, while
+ * the unrelated provider lookup and sourcing metric stay available to the dev UI.
+ */
+export async function loadDevServiceDataMonitorAnalysis(
+  input: LoadDevServiceDataMonitorAnalysisInput,
+  dependencies: DevServiceDataShadowMatchDependencies = {},
+): Promise<DevServiceDataMonitorAnalysis> {
+  if (Number.isNaN(input.asOf.getTime())) throw new Error("monitor asOf가 유효하지 않습니다.");
+  const sourcing = availableMetric(buildSourcingCoverage(input.profileMerge));
+  let grants: Array<NormalizedGrant<unknown>>;
+  try {
+    const injectedLoadGrantUniverse = dependencies.loadGrantUniverse;
+    if (!injectedLoadGrantUniverse && getRepositoryAdapterName() !== "drizzle") {
+      throw new ServiceDataError(
+        "shadow_match_universe_unavailable",
+        "shadow match 전수 활성 공고는 drizzle 저장소에서만 불러올 수 있습니다.",
+        503,
+      );
+    }
+    const loadGrantUniverse = injectedLoadGrantUniverse ?? loadServiceGrantUniverse;
+    grants = await loadGrantUniverse({
+      asOf: input.asOf,
+      ...(input.scanLimit !== undefined ? { scanLimit: input.scanLimit } : {}),
+    });
+  } catch (error) {
+    const reason = universeUnavailableReason(error) ?? {
+      code: "shadow_match_universe_unavailable",
+      message: "shadow match 전수 활성 공고를 불러오지 못했습니다.",
+    };
+    return {
+      schemaVersion: "dev-service-data-monitor-g5-v1",
+      asOf: input.asOf.toISOString(),
+      metrics: {
+        sourcing_coverage: sourcing,
+        canonical_match_ready_coverage: unavailableMetric(reason),
+        grant_extraction_readiness: unavailableMetric(reason),
+        end_to_end_decidability: unavailableMetric(reason),
+      },
+      dimensionDemandWeights: unavailableMetric(reason),
+      shadowMatch: unavailableMetric(reason),
+    };
+  }
+  return buildDevServiceDataMonitorAnalysis({
+    baseProfile: input.baseProfile,
+    finalProfile: input.finalProfile,
+    profileMerge: input.profileMerge,
+    grants,
+    asOf: input.asOf,
+    ...(input.detailLimit !== undefined ? { detailLimit: input.detailLimit } : {}),
+  });
+}
+
+function universeUnavailableReason(error: unknown): DevUnavailableReason | null {
+  if (error instanceof ServiceDataError && error.status === 503) {
+    return { code: error.code, message: error.message };
+  }
+  if (error instanceof Error) {
+    const candidate = error as Error & { code?: unknown; status?: unknown };
+    if (candidate.status === 503 && typeof candidate.code === "string") {
+      return { code: candidate.code, message: candidate.message };
+    }
+  }
+  return null;
+}
+
+export function buildDevServiceDataMonitorSections(input: {
+  bizNo: string;
+  coverage?: readonly FieldCoverageRow[];
+  profileMerge: DevFinalCompanyProfileResult;
+  monitor: DevServiceDataMonitorAnalysis;
+}): DevServiceDataMonitorSections {
+  const coverageByKey = new Map((input.coverage ?? []).map((row) => [row.key, row]));
+  const profile = input.profileMerge.profilePreview;
+  const rows = [...PROFILE_FIELD_SPEC_BY_KEY.values()].map((entry): DevServiceDataSectionRow => {
+    const coverage = coverageByKey.get(entry.key);
+    const rawValue = explicitSectionValue(entry.key, entry.profileOrUpdatePath, input.bizNo, profile);
+    const value = displaySectionValue(rawValue) ?? coverage?.value ?? null;
+    const sourceKind = entry.parentDimension
+      ? profile.profile_evidence?.[entry.parentDimension]?.sourceKind ?? coverage?.sourceKind ?? null
+      : null;
+    return {
+      key: entry.key,
+      label: coverage?.label ?? entry.key,
+      role: entry.role,
+      dimension: entry.parentDimension,
+      includedInEligibilityDenominator: entry.includedInEligibilityDenominator,
+      value,
+      state: entry.role === "reserved_eligibility" ? "reserved" : value === null ? "unknown" : "known",
+      sourceKind,
+    };
+  });
+  return {
+    identity_prerequisite: rows.filter((row) => row.role === "identity_prerequisite"),
+    eligibility_19_axes: rows.filter((row) => row.includedInEligibilityDenominator),
+    reserved_axes: rows.filter((row) => row.role === "reserved_eligibility"),
+    supporting_derivation: rows.filter((row) =>
+      row.role === "supporting" || row.role === "grant_unstructured"),
+    ranking_goals: rows.filter((row) => row.role === "ranking"),
+    final_typed_profile: input.profileMerge,
+    shadow_match_and_unknown_causes: input.monitor,
+  };
+}
+
+function explicitSectionValue(
+  key: string,
+  profilePath: string,
+  bizNo: string,
+  profile: CompanyProfile,
+): unknown {
+  if (key === "identity.business_number") return maskBizNoSafe(bizNo);
+  // `other` stays an unstructured supporting bucket; nested identity/ranking values must not
+  // make it look like a canonical eligibility answer.
+  if (key === "other") {
+    const excluded = new Set([
+      "apick_corporate_registration_no",
+      "authentication_status",
+      "registry_match_method",
+      "support_goals",
+      "interest_goals",
+    ]);
+    const supportingKeys = Object.keys(profile.other_conditions ?? {}).filter((field) => !excluded.has(field));
+    return supportingKeys.length > 0 ? `비구조화 보조 항목 ${supportingKeys.length}개` : null;
+  }
+  const prefix = "CompanyProfile.";
+  if (!profilePath.startsWith(prefix)) return null;
+  let value: unknown = profile;
+  for (const segment of profilePath.slice(prefix.length).split(".")) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    value = (value as Record<string, unknown>)[segment];
+  }
+  if (key === "identity.corporate_registration_number" && typeof value === "string") {
+    const digits = value.replace(/\D/g, "");
+    return digits.length > 4 ? `${"*".repeat(digits.length - 4)}${digits.slice(-4)}` : value;
+  }
+  return value ?? null;
+}
+
+function displaySectionValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.length > 0 ? value.map(String).join(", ") : null;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return entries.length > 0 ? JSON.stringify(stableJsonValue(value)) : null;
+  }
+  return null;
 }
 
 function classifyShadowUnknowns<TPayload>(
@@ -822,7 +1304,7 @@ function shadowGrantState(
     profileMissingDimensions: classification.profileMissingDimensions,
     grantUnreadyDimensions: classification.grantUnreadyDimensions,
     grantUnreadyReasons: classification.grantUnreadyReasons,
-    reviewGateReasons: match.review_gate?.reasons.map((reason) => ({ ...reason })) ?? [],
+    reviewGateReasons: match.review_gate?.reasons.map(({ sourceSpan: _sourceSpan, ...reason }) => reason) ?? [],
   };
 }
 
@@ -1191,10 +1673,8 @@ async function lookupServiceDataOnce(
   });
 
   const subject = resolveSubjectType(normalized);
-  const [connectorResults, coverageGrantWeights] = await Promise.all([
-    runExternalConnectors({ bizNo: normalized, subject, profile }),
-    loadCoverageGrantWeights(),
-  ]);
+  const monitorAsOf = new Date();
+  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
   const coverage = buildFieldCoverage({
     subject,
     profile,
@@ -1211,6 +1691,18 @@ async function lookupServiceDataOnce(
     connectorNormalizedDimensions: connectorProfile.audit.normalizedDimensions,
     connectorNormalizationFailures: connectorProfile.normalizationFailures,
   });
+  const monitor = await loadDevServiceDataMonitorAnalysis({
+    baseProfile: profile ?? { confidence: {} },
+    finalProfile: profileMerge.profilePreview,
+    profileMerge,
+    asOf: monitorAsOf,
+  });
+  const sections = buildDevServiceDataMonitorSections({
+    bizNo: normalized,
+    coverage,
+    profileMerge,
+    monitor,
+  });
 
   return {
     bizNo: normalized,
@@ -1224,7 +1716,7 @@ async function lookupServiceDataOnce(
     connectorNormalizationFailures: connectorProfile.normalizationFailures,
     connectorProfileAudit: connectorProfile.audit,
     profileMerge,
-    coverageGrantWeights,
+    sections,
     trace,
     ...(error ? { error } : {}),
   };
@@ -1276,10 +1768,8 @@ async function lookupApickServiceData(
   }));
 
   const subject = resolveSubjectType(normalized);
-  const [connectorResults, coverageGrantWeights] = await Promise.all([
-    runExternalConnectors({ bizNo: normalized, subject, profile }),
-    loadCoverageGrantWeights(),
-  ]);
+  const monitorAsOf = new Date();
+  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
   const coverage = buildFieldCoverage({
     subject,
     profile,
@@ -1296,6 +1786,18 @@ async function lookupApickServiceData(
     connectorNormalizedDimensions: connectorProfile.audit.normalizedDimensions,
     connectorNormalizationFailures: connectorProfile.normalizationFailures,
   });
+  const monitor = await loadDevServiceDataMonitorAnalysis({
+    baseProfile: profile ?? { confidence: {} },
+    finalProfile: profileMerge.profilePreview,
+    profileMerge,
+    asOf: monitorAsOf,
+  });
+  const sections = buildDevServiceDataMonitorSections({
+    bizNo: normalized,
+    coverage,
+    profileMerge,
+    monitor,
+  });
 
   return {
     bizNo: normalized,
@@ -1309,7 +1811,7 @@ async function lookupApickServiceData(
     connectorNormalizationFailures: connectorProfile.normalizationFailures,
     connectorProfileAudit: connectorProfile.audit,
     profileMerge,
-    coverageGrantWeights,
+    sections,
     trace,
     ...(error ? { error } : {}),
   };
@@ -1638,23 +2140,6 @@ function asOfBySourceFromTrace(trace: ServiceDataTraceEntry[]): Map<string, stri
     if (asOf && !map.has(entry.provider)) map.set(entry.provider, asOf);
   }
   return map;
-}
-
-/** 활성 공고 중 검수 대기(needs_review)가 아닌 criterion의 dimension 빈도를 집계한다. */
-async function loadCoverageGrantWeights(): Promise<AutofillGrantWeights | null> {
-  try {
-    const grants = await getServiceRepositories().grants.listActiveGrants({ limit: 500, asOf: new Date() });
-    const weights: AutofillGrantWeights = {};
-    for (const grant of grants) {
-      for (const criterion of grant.criteria) {
-        if (criterion.needs_review === true) continue;
-        weights[criterion.dimension] = (weights[criterion.dimension] ?? 0) + 1;
-      }
-    }
-    return Object.keys(weights).length > 0 ? weights : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
