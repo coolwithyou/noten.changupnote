@@ -715,7 +715,7 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - [x] G7L local completion audit
 - [x] G0B reserved-axis human review or explicit pending
 - [x] G6 approved axis activation or explicit not approved
-- [ ] G7E browser/30-sample/live truth or explicit external pending
+- [x] G7E browser/30-sample/live truth or explicit external pending
 
 ### G1 영수증 — 2026-07-13
 
@@ -811,6 +811,21 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - 로컬 완료 주장: typed `CompanyProfile`, 19축 SSOT, connector/Q&A typed updates, evidence precedence merge, read-only full-universe shadow matcher, 7개 역할 섹션과 4개 분리 지표가 exact-base child worktree에서 검증됐다. 이 결과를 실사업자·브라우저·provider truth 완료로 확대하지 않는다.
 - 외부 대기: G7E bounded browser/API evidence, 승인된 개인15/법인15 표본, live provider credential/consent, full DB universe truth.
 - 다음 Gate: G7E external evidence approved; production promotion과 G6 activation은 범위 밖
+
+### G7E 영수증 — 2026-07-14
+
+- 실행 경계: 기존 main checkout 서버 `127.0.0.1:4010` PID 55990를 건드리지 않고, 사전 빌드 `pnpm build:packages` 통과 후 env 파일·DB/provider runtime key가 없는 child worktree에서 `pnpm --filter @cunote/web exec next dev --hostname 127.0.0.1 --port 4012`만 bounded 실행했다. WAF·Cloudflare·cache delete·force refresh·DB write·provider credential·실사업자번호는 사용하지 않았다.
+- 접근/초기 화면: `GET /dev/service-data` HTTP 200, redirect 없음, HTML에서 `사업자 데이터 모니터`, `19축 + reserved + supporting`, `조회 provider`, `typed update 변환 확인` 확인. dev-only page/API가 인증 redirect 없이 child 서버에서 접근됐다.
+- 입력/inspect: 3자리 사업자번호는 `invalid_biz_no` HTTP 400, 잘못된 provider는 `invalid_provider` 400. 합성 `0000000000`의 Popbill inspect는 200, `hasCache:false`, 빈 rows, 표시값 `000-**-00***`를 반환했다.
+- Q&A/profile API: `normalize_qna` revenue 입력은 200, self-declared typed update 1개와 failure 0개. `merge_profile`은 200, `revenue_krw=2000000000`, evidence `asOf=2026-07-14T00:00:00.000Z`, `product_consumed=pending`. `qnaAsOf != asOf` withShadow 요청은 `invalid_profile_merge` 400으로 거절됐다.
+- 7-section/unavailable truth: 동일 `asOf` withShadow 합성 요청은 200이며 top-level role section key가 정확히 7개, eligibility 부모행 19개, metric key 4개였다. `sourcing_coverage`만 available, canonical match-ready / grant extraction / end-to-end / weights / shadow는 모두 `shadow_match_universe_unavailable`로 명시되고 대체 수치가 없었다. 직접 `shadow_match` 요청도 같은 이유로 HTTP 503 fail-closed였다.
+- 안전 payload: withShadow 합성 응답에 raw 10자리 입력 문자열과 birth/phone/mobile/token/source_span/raw_text/raw_payload/criteria key가 없음을 재귀 assertion으로 확인했다. 일반 lookup DTO는 기존 계약대로 top-level raw `bizNo`를 보존하므로 실제 번호를 사용하지 않았고 network body·snapshot·문서에 남기지 않았다. lookup 표시·section은 마스킹을 유지했다.
+- controlled failure: 합성 lookup은 HTTP 200 + `popbill_lookup_failed`(내부 status 503), 7개 section을 반환했다. 서버 로그에는 필수 Popbill key 부재만 기록됐고 credential이 없어 외부 provider 호출은 시작되지 않았다.
+- 브라우저 상태: 이 세션에서 앱 내 브라우저 자동화 surface가 노출되지 않아 실제 click/toast, 1440×900, 390×844 overflow screenshot은 실행 증거를 만들 수 없었다. HTTP/SSR/API 증거와 코드·focused test를 시각 증거로 바꿔 쓰지 않고 explicit external pending으로 남긴다.
+- 실표본/live truth: repo의 개인15/법인15는 실제 사업자번호 없는 synthetic `CompanyProfile`이고 사용 승인된 30개 번호도 없다. child에는 DB/provider env와 CODEF consent가 없다. 따라서 live provider 성공·정상 빈값·cache truth·실제 Q&A unknown 감소·CODEF redaction·source별 응답률·normalization 정확도·충돌률은 미실행이며 external pending이다.
+- 종료 검증: child 서버를 `Ctrl-C`로 종료하고 4012 listener 없음 확인. 기존 4010 listener는 그대로 유지. 테스트 전후 worktree clean.
+- 완료 해석: G7E 체크는 **bounded external evidence + 명시적 external pending 기록**으로 닫는다. 브라우저 시각·30표본·live provider/DB truth가 완료됐다는 뜻이 아니다.
+- 다음 Gate: 계획된 구현 Gate 없음. final cleanup과 root/task 상태 정리만 남음
 
 ## 12. 전체 중단 조건
 
