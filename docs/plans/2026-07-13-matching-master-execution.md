@@ -78,10 +78,10 @@
 | industry 양방향 substring 매칭 → 코드/사전 매칭만 확정, 라벨 substring은 unknown (Codex P1, exclusion 오확정 재현됨) | ⬜ |
 | scalar evidence gate 순서: nationwide 등 회사 값 불필요 판정을 게이트보다 먼저 | ⬜ |
 | **원자 커밋**: 매칭 리팩토링 + 이번 수정 + regions.ts + 골든셋·holdout manifest 전부 | ✅ 완료 (ba3a290 체크포인트, 2026-07-13 19:14 — 398파일에 본 세션 수정분·골든 manifest 포함 확인) |
-| GitHub Actions 최소 CI: typecheck + 매칭 verify 계열 + test:matching-unit | ⬜ |
+| GitHub Actions 최소 CI: typecheck + 매칭 verify 계열 + test:matching-unit | 🔶 구현 완료 (`827a07a`, `actionlint`·로컬 명령 그린) · 원격 최초 실행 대기 |
 | (기존) tsx 별칭 환경 실패 2종(bizinfo-publish/ingestion-publish)에 --tsconfig 부여 | ✅ 완료 (`8346982`, 2026-07-13) |
 
-**완료 기준: `pnpm test` 그린 + CI가 PR마다 돈다.** `pnpm test`는 2026-07-13 통합 후보에서 그린이며, WS-A의 남은 완료 조건은 CI 배선이다. (verify:service-data 미종료 문제는 워치독으로 우회 유지)
+**완료 기준: `pnpm test` 그린 + CI가 PR마다 돈다.** `pnpm test`와 CI 정의의 로컬 검증은 2026-07-13 그린이다. WS-A의 남은 완료 조건은 `origin/main` 반영 후 GitHub Actions 최초 성공과 PR 실행 확인이다. (verify:service-data 미종료 문제는 워치독으로 우회 유지)
 
 ### WS-B. 데이터 주입 (핵심 경로, 주 단위) — "정확도에 처음으로 숫자를 붙인다"
 
@@ -180,5 +180,6 @@
 - 통과: frozen lockfile, `pnpm test`, `pnpm test:matching-unit`, `pnpm verify:first-mission-recovery`, `pnpm test:prior-award-integration`, `pnpm verify:db-migrations`, `pnpm build:web`, `pnpm build:admin`, `git diff --check main...HEAD`
 - 확인: `0044`·`0045` 마이그레이션에 파괴적 데이터 삭제 구문 없음; `0045`는 RLS enable/force/policy 포함
 - 비차단 경고: web production build의 Turbopack NFT 범위 경고 1건 (`archiveKStartupCore.ts` import trace). build는 성공했으며 통합 후 WS-A 성능·패키징 점검으로 이관
-- 외부 대기: 운영 DB 마이그레이션 적용, 사용자 실행 서버 브라우저 smoke, live provider/30사 표본, reviewed 정답셋, `origin/main` push
+- `main` 후속 개선: 최소 GitHub Actions 매칭 CI를 `827a07a`로 추가하고 `actionlint`, typecheck, 계약·RLS·DB 검증, 매칭 회귀 명령을 로컬 통과
+- 외부 대기: 운영 DB 마이그레이션 적용, 사용자 실행 서버 브라우저 smoke, live provider/30사 표본, reviewed 정답셋, `origin/main` push와 CI 최초 실행
 - 해석 제한: 로컬 회귀·빌드가 그린이라는 뜻이지 실사업자 정확도나 운영 배포 완료를 의미하지 않는다.
