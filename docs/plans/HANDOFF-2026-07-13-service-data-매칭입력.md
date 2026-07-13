@@ -712,7 +712,7 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - [x] G3 final CompanyProfile merge
 - [x] G4 active-universe read-only shadow match
 - [x] G5 dev UI/coverage/weighting correction
-- [ ] G7L local completion audit
+- [x] G7L local completion audit
 - [x] G0B reserved-axis human review or explicit pending
 - [x] G6 approved axis activation or explicit not approved
 - [ ] G7E browser/30-sample/live truth or explicit external pending
@@ -800,6 +800,17 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - 변경·검증: 이 Gate의 production/code 변경 없음. handoff 체크리스트와 본 영수증만 갱신하며 `git diff --check`로 문서 checkpoint를 검증한다.
 - 외부 대기: 향후 실제 계약 후보를 다시 만들 때만 승인 표본·verified provider/input completeness로 재검수한다. 현재 로컬 완료와 G7E를 막지 않는다.
 - 다음 Gate: G7L local completion audit approved; G6 code not started
+
+### G7L 영수증 — 2026-07-14
+
+- 실행 주체/provenance: root `task_011d0d6c6538`; coordinator가 G1~G5 및 G0B/G6 checkpoint가 모두 clean인 `9dc0b7e`에서 계획의 로컬 완료 명령을 직접 재실행했다. G5 최종 Fable review `task_07a32f741497` / `ctx_ae236fc0c5b9`의 동일 회귀 묶음 PASS와 별개인 새 실행이다.
+- focused tests: `profile-field-spec.test.ts`, `coverage.test.ts`, `devServiceDataProfile.test.ts`, `canonicalize.test.ts`, `devServiceDataMonitor.test.ts` 모두 all assertions passed. `match.test.ts` 24 checks passed. `question-planner.test.ts` `ok:true`, 10 checks passed.
+- 정적 검증: `pnpm --filter @cunote/core typecheck`, `pnpm --filter @cunote/web typecheck` 모두 exit 0. exact base `f9491d7d2a68b6910cac3c2a7d366ed6bc6ac983`부터 `HEAD`까지 `git diff --check` exit 0. 테스트 뒤 worktree clean을 확인했다.
+- 통합 검증: `pnpm verify:service-data` exit 0, `ok:true`, 6 checks 통과. Popbill·DB env가 없어 명령 자체의 명시적 K-Startup/BizInfo sample fallback을 사용했으며 DB write·live provider 호출·승격은 없었다.
+- baseline/회귀 분리: 실행 실패나 pre-existing baseline noise 없음. changed-file regression 0건. sample fallback 메시지는 실패가 아니라 live credential/DB 부재를 표시하는 의도된 외부 경계다.
+- 로컬 완료 주장: typed `CompanyProfile`, 19축 SSOT, connector/Q&A typed updates, evidence precedence merge, read-only full-universe shadow matcher, 7개 역할 섹션과 4개 분리 지표가 exact-base child worktree에서 검증됐다. 이 결과를 실사업자·브라우저·provider truth 완료로 확대하지 않는다.
+- 외부 대기: G7E bounded browser/API evidence, 승인된 개인15/법인15 표본, live provider credential/consent, full DB universe truth.
+- 다음 Gate: G7E external evidence approved; production promotion과 G6 activation은 범위 밖
 
 ## 12. 전체 중단 조건
 
