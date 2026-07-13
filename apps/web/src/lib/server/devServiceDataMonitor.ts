@@ -1,6 +1,9 @@
+import { createHash } from "node:crypto";
 import { maskCorpNum } from "@cunote/core";
 import {
+  activeUnknownQuestionDimensions,
   classifyEvidenceSourceKind,
+  countByEligibility,
   defaultAxisCompleteness,
   buildCompanyProfileFromCodef,
   checkFscCorpFinance,
@@ -17,11 +20,16 @@ import {
   DISQUALIFICATION_FLAG_LABELS,
   DISQUALIFICATION_QUESTIONS,
   EXCEPTION_FLAG_COVERAGE,
+  grantKey,
+  isProfileResolvableCriterion,
   matchRegistry,
+  matchGrantCriteria,
   normalizeCompanyName,
+  planProfileQuestions,
   PROCUREMENT_DEBARMENT_SOURCE,
   questionDefinitionFor,
   requireProfileFieldKey,
+  resolveGrantExtractionManifest,
 } from "@cunote/core";
 import type {
   AutofillGrantWeights,
@@ -44,7 +52,20 @@ import type {
   RegistryMatch,
 } from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
-import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
+import {
+  CRITERION_DIMENSIONS,
+  type CompanyEvidence,
+  type CompanyProfile,
+  type CriterionDimension,
+  type Eligibility,
+  type GrantCriterion,
+  type MatchExtractionReadiness,
+  type MatchRecommendationTier,
+  type MatchReviewReason,
+  type MatchResult,
+  type NextQuestionDto,
+  type NormalizedGrant,
+} from "@cunote/contracts";
 import {
   APICK_BIZ_DETAIL,
   APICK_BIZ_DETAIL_GUARD,
@@ -60,6 +81,7 @@ import {
   applySmppCertificatesToProfile,
   getServiceRepositories,
   loadCompanyProfileFromSourceWithEvidence,
+  loadServiceGrantUniverse,
   ntsClosedLabel,
   ServiceDataError,
 } from "./serviceData";
@@ -88,6 +110,7 @@ import {
   type DevServiceDataProfileNormalization,
   type DevFinalCompanyProfileResult,
 } from "./devServiceDataProfile";
+import { getRepositoryAdapterName } from "./repositories/factory";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 개발 전용 사업자 데이터 모니터. 실제 조회 파이프라인(팝빌·국세청·공공구매종합정보망)과 Apick을
@@ -429,6 +452,491 @@ export interface ConnectorProfileUpdateAudit {
   sourcedDimensions: CriterionDimension[];
   normalizedDimensions: CriterionDimension[];
   missingTypedUpdateKeys: string[];
+}
+
+export type DevShadowMatchProductState =
+  | "지원 가능성이 높음"
+  | "정보 확인"
+  | "원문 확인"
+  | "지원 어려움";
+
+export type DevShadowMatchGrantUnreadyReasonCode =
+  | "extraction_not_reviewed"
+  | "text_only_criterion_present"
+  | "criterion_review_required"
+  | "hard_criterion_evidence_missing"
+  | "reserved_dimension"
+  | "criterion_not_profile_resolvable"
+  | "criterion_mapping_missing";
+
+export interface DevShadowMatchGrantUnreadyReason {
+  code: DevShadowMatchGrantUnreadyReasonCode;
+  dimension?: CriterionDimension;
+}
+
+export interface DevShadowMatchCounts {
+  engine: Record<Eligibility, number>;
+  product: Record<DevShadowMatchProductState, number>;
+}
+
+export interface DevShadowMatchUnknownCauseSummary {
+  profile_missing: {
+    total: number;
+    byDimension: Array<{ dimension: CriterionDimension; count: number }>;
+  };
+  grant_unready: {
+    total: number;
+    byDimension: Array<{ dimension: CriterionDimension; count: number }>;
+  };
+}
+
+export interface DevShadowMatchDimensionDelta {
+  dimension: CriterionDimension;
+  before: { profile_missing: number; grant_unready: number };
+  after: { profile_missing: number; grant_unready: number };
+  profileMissingReduction: number;
+  grantUnreadyReduction: number;
+  /** Matching actually became less unknown for this profile dimension. */
+  reduced: boolean;
+  /** Every prior profile_missing occurrence for this dimension was resolved. */
+  completed: boolean;
+}
+
+export interface DevShadowMatchGrantState {
+  eligibility: Eligibility;
+  recommendationTier: MatchRecommendationTier;
+  extractionReadiness: MatchExtractionReadiness;
+  productState: DevShadowMatchProductState;
+  profileMissingDimensions: CriterionDimension[];
+  grantUnreadyDimensions: CriterionDimension[];
+  /** Concise extraction/criterion reasons that keep the product state fail-closed. */
+  grantUnreadyReasons: DevShadowMatchGrantUnreadyReason[];
+  /** Matcher review-gate diagnostics, including reviewed high-risk pass reasons. */
+  reviewGateReasons: MatchReviewReason[];
+}
+
+export interface DevShadowMatchDetail {
+  grantId: string;
+  revision: string;
+  before: DevShadowMatchGrantState;
+  after: DevShadowMatchGrantState;
+}
+
+export interface DevServiceDataShadowMatchResult {
+  schemaVersion: "dev-service-data-shadow-match-v1";
+  asOf: string;
+  universeSize: number;
+  returnedCount: number;
+  detailLimit: number;
+  /** Stable hash of sorted grant ids plus matching-relevant review state; raw payload is never included. */
+  universeRevisionSignature: string;
+  counts: {
+    before: DevShadowMatchCounts;
+    after: DevShadowMatchCounts;
+  };
+  unknownCauses: {
+    before: DevShadowMatchUnknownCauseSummary;
+    after: DevShadowMatchUnknownCauseSummary;
+  };
+  unknownReductionByDimension: DevShadowMatchDimensionDelta[];
+  nextQuestion: NextQuestionDto | null;
+  details: DevShadowMatchDetail[];
+}
+
+export interface BuildDevServiceDataShadowMatchInput<TPayload = unknown> {
+  baseProfile: CompanyProfile;
+  finalProfile: CompanyProfile;
+  grants: Array<NormalizedGrant<TPayload>>;
+  /** Explicit replay time; never replaced with Date.now() inside the evaluator. */
+  asOf: Date;
+  detailLimit?: number;
+}
+
+export interface LoadDevServiceDataShadowMatchInput {
+  baseProfile: CompanyProfile;
+  finalProfile: CompanyProfile;
+  /** Explicit replay time shared by universe loading, matching, ranking, and question planning. */
+  asOf: Date;
+  detailLimit?: number;
+  scanLimit?: number;
+}
+
+export interface DevServiceDataShadowMatchDependencies {
+  /** The only external port: confirmed-deduped active grants. No write dependency exists. */
+  loadGrantUniverse?: (input: {
+    asOf: Date;
+    scanLimit?: number;
+  }) => Promise<Array<NormalizedGrant<unknown>>>;
+}
+
+const DEFAULT_DEV_SHADOW_DETAIL_LIMIT = 50;
+const MAX_DEV_SHADOW_DETAIL_LIMIT = 200;
+const RESERVED_QUESTION_DIMENSIONS = new Set<CriterionDimension>([
+  "premises",
+  "export_performance",
+  "other",
+]);
+
+interface EvaluatedShadowGrant<TPayload> {
+  item: NormalizedGrant<TPayload>;
+  grantId: string;
+  revision: string;
+  before: MatchResult;
+  after: MatchResult;
+  beforeState: DevShadowMatchGrantState;
+  afterState: DevShadowMatchGrantState;
+}
+
+interface ShadowUnknownClassification {
+  grantUnready: boolean;
+  profileMissingDimensions: CriterionDimension[];
+  grantUnreadyDimensions: CriterionDimension[];
+  grantUnreadyReasons: DevShadowMatchGrantUnreadyReason[];
+}
+
+/**
+ * Pure G4 evaluator. The deterministic matcher remains the sole eligibility authority;
+ * this function only projects its result into safe product states and diagnostics.
+ */
+export function buildDevServiceDataShadowMatch<TPayload>(
+  input: BuildDevServiceDataShadowMatchInput<TPayload>,
+): DevServiceDataShadowMatchResult {
+  if (Number.isNaN(input.asOf.getTime())) throw new Error("shadow match asOf가 유효하지 않습니다.");
+  const detailLimit = devShadowDetailLimit(input.detailLimit);
+  const asOf = input.asOf.toISOString();
+  const grants = [...input.grants]
+    .map((item) => ({
+      item,
+      grantId: grantKey(item.grant),
+      manifest: resolveGrantExtractionManifest(item),
+    }))
+    .sort((left, right) =>
+      stableStringCompare(left.grantId, right.grantId) ||
+      stableStringCompare(left.manifest.revision, right.manifest.revision));
+  const evaluated = grants.map<EvaluatedShadowGrant<TPayload>>(({ item, grantId, manifest }) => {
+    const before = matchGrantCriteria(item.criteria, input.baseProfile, {
+      asOf: input.asOf,
+      extractionManifest: manifest,
+    });
+    const after = matchGrantCriteria(item.criteria, input.finalProfile, {
+      asOf: input.asOf,
+      extractionManifest: manifest,
+    });
+    const beforeClassification = classifyShadowUnknowns(item, before);
+    const afterClassification = classifyShadowUnknowns(item, after);
+    return {
+      item,
+      grantId,
+      revision: manifest.revision,
+      before,
+      after,
+      beforeState: shadowGrantState(before, beforeClassification),
+      afterState: shadowGrantState(after, afterClassification),
+    };
+  });
+  const beforeUnknowns = evaluated.map((entry) => entry.beforeState);
+  const afterUnknowns = evaluated.map((entry) => entry.afterState);
+  const beforeUnknownSummary = shadowUnknownCauseSummary(beforeUnknowns);
+  const afterUnknownSummary = shadowUnknownCauseSummary(afterUnknowns);
+  const plannedAfter = planProfileQuestions(
+    evaluated
+      .filter((entry) => entry.after.quality.extractionReadiness === "reviewed")
+      .map((entry) => ({ item: entry.item, match: entry.after })),
+    {
+      asOf: input.asOf,
+      limit: 1,
+      excludeDimensions: uniqueDimensions([
+        ...activeUnknownQuestionDimensions(input.finalProfile, input.asOf),
+        ...RESERVED_QUESTION_DIMENSIONS,
+      ]),
+    },
+  )[0]?.question ?? null;
+  const details = evaluated.slice(0, detailLimit).map<DevShadowMatchDetail>((entry) => ({
+    grantId: entry.grantId,
+    revision: entry.revision,
+    before: entry.beforeState,
+    after: entry.afterState,
+  }));
+
+  return {
+    schemaVersion: "dev-service-data-shadow-match-v1",
+    asOf,
+    universeSize: evaluated.length,
+    returnedCount: details.length,
+    detailLimit,
+    universeRevisionSignature: createHash("sha256")
+      .update(JSON.stringify(grants.map(({ item, grantId, manifest }) => [
+        grantId,
+        manifest.revision,
+        manifest.readiness,
+        manifest.reviewedAt ?? null,
+        manifest.extractorVersion,
+        [...manifest.warnings].sort(stableStringCompare),
+        matchingCriteriaSignature(item.criteria),
+      ])))
+      .digest("hex"),
+    counts: {
+      before: shadowMatchCounts(evaluated.map((entry) => entry.before), beforeUnknowns),
+      after: shadowMatchCounts(evaluated.map((entry) => entry.after), afterUnknowns),
+    },
+    unknownCauses: {
+      before: beforeUnknownSummary,
+      after: afterUnknownSummary,
+    },
+    unknownReductionByDimension: CRITERION_DIMENSIONS.map((dimension) => {
+      const beforeProfileMissing = dimensionCauseCount(beforeUnknownSummary.profile_missing.byDimension, dimension);
+      const afterProfileMissing = dimensionCauseCount(afterUnknownSummary.profile_missing.byDimension, dimension);
+      const beforeGrantUnready = dimensionCauseCount(beforeUnknownSummary.grant_unready.byDimension, dimension);
+      const afterGrantUnready = dimensionCauseCount(afterUnknownSummary.grant_unready.byDimension, dimension);
+      return {
+        dimension,
+        before: {
+          profile_missing: beforeProfileMissing,
+          grant_unready: beforeGrantUnready,
+        },
+        after: {
+          profile_missing: afterProfileMissing,
+          grant_unready: afterGrantUnready,
+        },
+        profileMissingReduction: beforeProfileMissing - afterProfileMissing,
+        grantUnreadyReduction: beforeGrantUnready - afterGrantUnready,
+        reduced: beforeProfileMissing > afterProfileMissing,
+        completed: beforeProfileMissing > 0 && afterProfileMissing === 0,
+      };
+    }),
+    nextQuestion: plannedAfter,
+    details,
+  };
+}
+
+/** Load the full active universe through the existing fail-closed scan helper, then evaluate read-only. */
+export async function loadDevServiceDataShadowMatch(
+  input: LoadDevServiceDataShadowMatchInput,
+  dependencies: DevServiceDataShadowMatchDependencies = {},
+): Promise<DevServiceDataShadowMatchResult> {
+  const injectedLoadGrantUniverse = dependencies.loadGrantUniverse;
+  if (!injectedLoadGrantUniverse && getRepositoryAdapterName() !== "drizzle") {
+    throw new ServiceDataError(
+      "shadow_match_universe_unavailable",
+      "shadow match 전수 활성 공고는 drizzle 저장소에서만 불러올 수 있습니다.",
+      503,
+    );
+  }
+  const loadGrantUniverse = injectedLoadGrantUniverse ?? loadServiceGrantUniverse;
+  const grants = await loadGrantUniverse({
+    asOf: input.asOf,
+    ...(input.scanLimit !== undefined ? { scanLimit: input.scanLimit } : {}),
+  });
+  return buildDevServiceDataShadowMatch({
+    baseProfile: input.baseProfile,
+    finalProfile: input.finalProfile,
+    grants,
+    asOf: input.asOf,
+    ...(input.detailLimit !== undefined ? { detailLimit: input.detailLimit } : {}),
+  });
+}
+
+function classifyShadowUnknowns<TPayload>(
+  item: NormalizedGrant<TPayload>,
+  match: MatchResult,
+): ShadowUnknownClassification {
+  const hardUnknowns = match.rule_trace
+    .map((trace, index) => ({ trace, criterion: item.criteria[index] }))
+    .filter(({ trace }) =>
+      trace.result === "unknown" && (trace.kind === "required" || trace.kind === "exclusion"));
+  const readinessUnready = match.quality.extractionReadiness !== "reviewed";
+  const grantUnreadyDimensions = uniqueDimensions(hardUnknowns
+    .filter(({ criterion }) =>
+      readinessUnready || !criterion || !isProfileResolvableCriterion(criterion))
+    .map(({ trace }) => trace.dimension));
+  const profileMissingDimensions = uniqueDimensions(hardUnknowns
+    .filter(({ criterion }) =>
+      !readinessUnready && criterion !== undefined && isProfileResolvableCriterion(criterion))
+    .map(({ trace }) => trace.dimension));
+  const grantUnreadyReasons = shadowGrantUnreadyReasons(
+    item.criteria,
+    match.quality.extractionReadiness,
+    hardUnknowns,
+  );
+  return {
+    grantUnready: grantUnreadyReasons.length > 0 || grantUnreadyDimensions.length > 0,
+    profileMissingDimensions,
+    grantUnreadyDimensions,
+    grantUnreadyReasons,
+  };
+}
+
+function shadowGrantUnreadyReasons(
+  criteria: GrantCriterion[],
+  readiness: MatchExtractionReadiness,
+  hardUnknowns: Array<{
+    trace: MatchResult["rule_trace"][number];
+    criterion: GrantCriterion | undefined;
+  }>,
+): DevShadowMatchGrantUnreadyReason[] {
+  const reasons: DevShadowMatchGrantUnreadyReason[] = [];
+  if (readiness !== "reviewed") reasons.push({ code: "extraction_not_reviewed" });
+  for (const criterion of criteria) {
+    if (criterion.kind !== "required" && criterion.kind !== "exclusion") continue;
+    if (RESERVED_QUESTION_DIMENSIONS.has(criterion.dimension)) {
+      reasons.push({ code: "reserved_dimension", dimension: criterion.dimension });
+    }
+    if (criterion.operator === "text_only") {
+      reasons.push({ code: "text_only_criterion_present", dimension: criterion.dimension });
+    }
+    if (criterion.needs_review === true) {
+      reasons.push({ code: "criterion_review_required", dimension: criterion.dimension });
+    }
+    if (!criterion.source_span?.trim() && !criterion.source_field?.trim()) {
+      reasons.push({ code: "hard_criterion_evidence_missing", dimension: criterion.dimension });
+    }
+  }
+  for (const { trace, criterion } of hardUnknowns) {
+    if (!criterion) {
+      reasons.push({ code: "criterion_mapping_missing", dimension: trace.dimension });
+      continue;
+    }
+    if (!isProfileResolvableCriterion(criterion) && !hasSpecificGrantUnreadyReason(criterion)) {
+      reasons.push({ code: "criterion_not_profile_resolvable", dimension: trace.dimension });
+    }
+  }
+  const uniqueReasons = new Map<string, DevShadowMatchGrantUnreadyReason>();
+  for (const reason of reasons) {
+    uniqueReasons.set(`${reason.code}:${reason.dimension ?? ""}`, reason);
+  }
+  return [...uniqueReasons.values()].sort((left, right) =>
+    stableStringCompare(left.code, right.code) ||
+    stableStringCompare(left.dimension ?? "", right.dimension ?? ""));
+}
+
+function shadowGrantState(
+  match: MatchResult,
+  classification: ShadowUnknownClassification,
+): DevShadowMatchGrantState {
+  const recommendationTier = match.review_gate?.tier ?? fallbackShadowRecommendationTier(match);
+  return {
+    eligibility: match.eligibility,
+    recommendationTier,
+    extractionReadiness: match.quality.extractionReadiness,
+    productState: shadowProductState(match, recommendationTier, classification.grantUnready),
+    profileMissingDimensions: classification.profileMissingDimensions,
+    grantUnreadyDimensions: classification.grantUnreadyDimensions,
+    grantUnreadyReasons: classification.grantUnreadyReasons,
+    reviewGateReasons: match.review_gate?.reasons.map((reason) => ({ ...reason })) ?? [],
+  };
+}
+
+function shadowProductState(
+  match: MatchResult,
+  tier: MatchRecommendationTier,
+  grantUnready: boolean,
+): DevShadowMatchProductState {
+  if (match.quality.extractionReadiness !== "reviewed") return "원문 확인";
+  if (match.eligibility === "ineligible" || tier === "not_recommended") return "지원 어려움";
+  if (grantUnready || tier === "needs_core_review") return "원문 확인";
+  if (
+    match.eligibility === "eligible" &&
+    tier === "recommendable" &&
+    match.quality.extractionReadiness === "reviewed"
+  ) return "지원 가능성이 높음";
+  if (match.eligibility === "conditional" || tier === "needs_profile_input") return "정보 확인";
+  return "원문 확인";
+}
+
+function fallbackShadowRecommendationTier(match: MatchResult): MatchRecommendationTier {
+  if (match.eligibility === "eligible") return "recommendable";
+  if (match.eligibility === "ineligible") return "not_recommended";
+  return "needs_profile_input";
+}
+
+function shadowMatchCounts(
+  matches: MatchResult[],
+  states: DevShadowMatchGrantState[],
+): DevShadowMatchCounts {
+  const product: Record<DevShadowMatchProductState, number> = {
+    "지원 가능성이 높음": 0,
+    "정보 확인": 0,
+    "원문 확인": 0,
+    "지원 어려움": 0,
+  };
+  for (const state of states) product[state.productState] += 1;
+  return { engine: countByEligibility(matches), product };
+}
+
+function shadowUnknownCauseSummary(
+  states: DevShadowMatchGrantState[],
+): DevShadowMatchUnknownCauseSummary {
+  const profileMissing = dimensionHistogram(states.flatMap((state) => state.profileMissingDimensions));
+  const grantUnready = dimensionHistogram(states.flatMap((state) => state.grantUnreadyDimensions));
+  return {
+    profile_missing: {
+      total: profileMissing.reduce((sum, entry) => sum + entry.count, 0),
+      byDimension: profileMissing,
+    },
+    grant_unready: {
+      total: grantUnready.reduce((sum, entry) => sum + entry.count, 0),
+      byDimension: grantUnready,
+    },
+  };
+}
+
+function dimensionHistogram(dimensions: CriterionDimension[]): Array<{
+  dimension: CriterionDimension;
+  count: number;
+}> {
+  const counts = new Map<CriterionDimension, number>();
+  for (const dimension of dimensions) counts.set(dimension, (counts.get(dimension) ?? 0) + 1);
+  return CRITERION_DIMENSIONS.flatMap((dimension) => {
+    const count = counts.get(dimension) ?? 0;
+    return count > 0 ? [{ dimension, count }] : [];
+  });
+}
+
+function dimensionCauseCount(
+  values: Array<{ dimension: CriterionDimension; count: number }>,
+  dimension: CriterionDimension,
+): number {
+  return values.find((entry) => entry.dimension === dimension)?.count ?? 0;
+}
+
+function uniqueDimensions(values: Iterable<CriterionDimension>): CriterionDimension[] {
+  const included = new Set(values);
+  return CRITERION_DIMENSIONS.filter((dimension) => included.has(dimension));
+}
+
+function stableStringCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function hasSpecificGrantUnreadyReason(criterion: GrantCriterion): boolean {
+  return RESERVED_QUESTION_DIMENSIONS.has(criterion.dimension) ||
+    criterion.operator === "text_only" ||
+    criterion.needs_review === true ||
+    (!criterion.source_span?.trim() && !criterion.source_field?.trim());
+}
+
+function matchingCriteriaSignature(criteria: GrantCriterion[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify(stableJsonValue(criteria)))
+    .digest("hex");
+}
+
+function stableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => stableStringCompare(left, right))
+      .map(([key, entry]) => [key, stableJsonValue(entry)]),
+  );
+}
+
+function devShadowDetailLimit(value: number | undefined): number {
+  const resolved = value ?? DEFAULT_DEV_SHADOW_DETAIL_LIMIT;
+  if (!Number.isInteger(resolved) || resolved < 1 || resolved > MAX_DEV_SHADOW_DETAIL_LIMIT) {
+    throw new Error(`shadow detailLimit은 1..${MAX_DEV_SHADOW_DETAIL_LIMIT} 정수여야 합니다.`);
+  }
+  return resolved;
 }
 
 // 필드 키 → confidence 축 매핑(신뢰도 표시용). corp_name 은 축이 없어 null.

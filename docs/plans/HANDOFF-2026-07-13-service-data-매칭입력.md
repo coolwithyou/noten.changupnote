@@ -710,7 +710,7 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - [x] G2A scalar/list/compound vertical slice
 - [x] G2B current connector/Q&A typed conversion
 - [x] G3 final CompanyProfile merge
-- [ ] G4 active-universe read-only shadow match
+- [x] G4 active-universe read-only shadow match
 - [ ] G5 dev UI/coverage/weighting correction
 - [ ] G7L local completion audit
 - [ ] G0B reserved-axis human review or explicit pending
@@ -763,6 +763,18 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - 판단 기록: G3 final merge API를 위한 `route.ts`는 최소 dev response 경계로 승인한다. raw payload 전체를 숨기지 않고 비민감 provider 진단은 보존하되 CODEF `birthDate8`/`loginIdentity`/phone/mobile/대표자/`resCeoNm`/token 계열은 casing·separator 변형까지 재귀 제거한다. 같은 base·ordered updates·명시 `qna.asOf`는 같은 preview/decision을 만들며, `product_consumed`는 production promotion 전까지 항상 pending이다.
 - 외부 대기: G7E 브라우저에서 실제 profileMerge·redaction 가시성, 개인15/법인15 실표본·live provider truth
 - 다음 Gate: G4 approved by user continuation request; not started at this receipt
+
+### G4 영수증 — 2026-07-14
+
+- Orca root/task/dispatch: root `task_011d0d6c6538`; implement `task_730748aedc53` / `ctx_25c9782aad7a`; first review `task_11203483fb49` / `ctx_892ec8c76177`; findings fix `task_8f15b0b31126` / `ctx_8f49aebc21e3`; structured-unreviewed fix `task_ef057859353b` / `ctx_6f1d4c554af5`; first re-review `task_2d64ff0954a9` / `ctx_00d4dd23876f`; safety fix `task_97db73a6a727` / `ctx_26767a269638`; final review `task_50bf18c0d2de` / `ctx_69984b79d2c3`
+- 모델/terminal: implementer `gpt-5.6-sol` xhigh `term_a405dcca-112f-4d46-a4fb-e95b3d8da40d`; first reviewer Fable 5 max `term_5067f1a0-0dfb-4efc-89e4-30172a9fcaad`; fixers `gpt-5.6-sol` xhigh `term_e89f0349-e1f2-4875-97b0-622401fef5ac`, `term_fe630304-498a-428b-b7ab-380a645181b5`, `term_368382a1-66e8-4f8c-9fe2-6c64d02e5d48`; re-reviewers Fable 5 max `term_882a766f-4106-41f2-adc3-e8dbc30af555`, `term_e049e5f2-c924-4bc4-9d51-0c40cb79f0ff`
+- 구현 파일: `apps/web/src/app/api/dev/service-data/route.ts`, `apps/web/src/lib/server/devServiceDataMonitor.ts`, `apps/web/src/lib/server/devServiceDataMonitor.test.ts`, `packages/core/src/matching/question-planner.ts`, `packages/core/src/matching/question-planner.test.ts`
+- 구현 검증: monitor/profile focused tests, core question planner 10건, match 24건, canonicalize/question-visibility/range-question-flow tests, core/web typecheck, `verify:service-data` 6 checks `ok:true`, changed-file `git diff --check` 모두 통과. verify 명령은 provider/DB env 부재 시 정해진 sample fallback을 사용했으며 DB write와 live provider 호출 없음
+- 독립 리뷰: 최초 `task_11203483fb49` BLOCKER 0 / MAJOR 1 / MINOR 3. 원 findings 수정 뒤 첫 re-review가 PASS를 보고했으나 coordinator가 active-universe 경계, 혼합 criterion, malformed reviewed criterion, structured-unreviewed hard fail, high-risk review reason을 각각 재현해 PASS를 기각하고 추가 안전 보정을 지시
+- 수정·재리뷰: `task_97db73a6a727`에서 default repository adapter를 `drizzle`로 fail-closed 제한하고, criterion resolvability를 core planner와 공유하며, 같은 dimension의 clean/text-only 병존·malformed reviewed·non-reviewed hard fail·review reason 회귀 테스트를 추가. `task_50bf18c0d2de` 최종 전면 재리뷰 BLOCKER 0 / MAJOR 0 / MINOR 0 / NOTE 3
+- 판단 기록: runtime/sample repository는 전체 universe 증거로 사용하지 않고 503 unavailable로 닫는다. 공고 준비도와 profile 질문 가능성을 분리해 같은 dimension이 `profile_missing`과 `grant_unready` 양쪽에 있을 수 있게 한다. 비검수 hard fail은 `지원 어려움`으로 승격하지 않고 `원문 확인`에 둔다. 기존 Drizzle 조회의 `requestedLimit + 500` headroom, legacy alias의 보수적 grant-unready, process 중 env mutation 차이는 기존 비차단 NOTE로 기록하고 이 Gate에서 일반화하지 않는다. `product_consumed`는 production promotion 전까지 pending이다.
+- 외부 대기: G7E 브라우저에서 full-universe unavailable/available 응답, before/after 4상태·unknown 감소, redaction을 확인. 실사업자 30표본과 live provider truth는 사용 가능한 승인 표본·credential 범위에서만 검증
+- 다음 Gate: G5 approved by user continuation request; not started at this receipt
 
 ## 12. 전체 중단 조건
 

@@ -11,7 +11,13 @@ import {
   type RegistryMatch,
 } from "@cunote/core";
 import { measureAutofillCoverage } from "@cunote/core/autofill/coverage";
-import { CRITERION_DIMENSIONS, type CompanyProfile, type GrantCriterion } from "@cunote/contracts";
+import {
+  CRITERION_DIMENSIONS,
+  type CompanyProfile,
+  type GrantCriterion,
+  type MatchExtractionReadiness,
+  type NormalizedGrant,
+} from "@cunote/contracts";
 import {
   buildCertificationProfileUpdates,
   buildBizAgeProfileUpdates,
@@ -32,6 +38,7 @@ import {
   addListCompletenessDiagnostics,
   applyRegistryMatches,
   attachConnectorProfileNormalization,
+  buildDevServiceDataShadowMatch,
   buildFieldCoverage,
   buildQnaSchema,
   coalesceKiprisLookup,
@@ -40,6 +47,7 @@ import {
   collectConnectorProfileUpdates,
   mergeCertificationConnectorResult,
   mergeDartConnectorResults,
+  loadDevServiceDataShadowMatch,
   profileFieldKeyForCoverageRow,
   setNiceCreditFields,
   setNiceIndicatorFields,
@@ -48,6 +56,7 @@ import {
   writeDartFinancialResults,
   writeFscFinancialResults,
   type ConnectorResult,
+  type DevServiceDataShadowMatchDependencies,
   type ServiceDataLookupResult,
 } from "./devServiceDataMonitor";
 
@@ -1143,4 +1152,655 @@ assert.equal(lookupRuns, 1);
 releaseLookup();
 assert.equal(await firstLookup, fakeLookupResult);
 
+const shadowAsOf = new Date("2026-07-14T00:00:00.000Z");
+const shadowBase: CompanyProfile = {
+  region: { code: "11", label: "서울" },
+  confidence: { region: 0.95 },
+};
+const reviewedRegion = shadowGrant("reviewed-region", [shadowRegionCriterion("11", "서울")]);
+const reviewedRevenue = shadowGrant("reviewed-revenue", [shadowRevenueCriterion()]);
+const reviewedIneligible = shadowGrant("reviewed-ineligible", [shadowRegionCriterion("26", "부산")]);
+const unreviewedEligible = shadowGrant(
+  "unreviewed-eligible",
+  [shadowRegionCriterion("11", "서울")],
+  "structured_unreviewed",
+);
+const partialEmployees = shadowGrant(
+  "partial-employees",
+  [shadowEmployeesCriterion()],
+  "partial",
+);
+const fullUniverse = [
+  reviewedRegion,
+  reviewedRevenue,
+  reviewedIneligible,
+  unreviewedEligible,
+  partialEmployees,
+];
+const limitedShadow = buildDevServiceDataShadowMatch({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  grants: fullUniverse,
+  asOf: shadowAsOf,
+  detailLimit: 2,
+});
+assert.equal(limitedShadow.universeSize, 5, "detail limit보다 큰 전체 universe를 모두 평가해야 한다");
+assert.equal(limitedShadow.returnedCount, 2);
+assert.equal(limitedShadow.detailLimit, 2);
+assert.equal(
+  Object.values(limitedShadow.counts.before.engine).reduce((sum, count) => sum + count, 0),
+  limitedShadow.universeSize,
+  "engine count는 detail 반환 제한과 무관하게 전체 universe 합계여야 한다",
+);
+for (const state of ["지원 가능성이 높음", "정보 확인", "원문 확인", "지원 어려움"] as const) {
+  assert.ok(limitedShadow.counts.before.product[state] > 0, `${state} 제품 상태가 독립적으로 집계되어야 한다`);
+}
+assert.equal(
+  limitedShadow.details.find((entry) => entry.grantId === "kstartup:unreviewed-eligible"),
+  undefined,
+  "detail limit은 stable id 순서로만 자르고 평가 count에는 영향을 주지 않는다",
+);
+const unreviewedSafety = buildDevServiceDataShadowMatch({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  grants: [unreviewedEligible],
+  asOf: shadowAsOf,
+}).details[0];
+assert.equal(unreviewedSafety?.before.eligibility, "eligible");
+assert.equal(
+  unreviewedSafety?.before.productState,
+  "원문 확인",
+  "engine eligible이어도 검수 미완료 공고를 지원 가능성이 높음으로 승격하면 안 된다",
+);
+const unreviewedRevenue = shadowGrant(
+  "unreviewed-revenue",
+  [shadowRevenueCriterion()],
+  "structured_unreviewed",
+);
+const unreviewedRevenueShadow = buildDevServiceDataShadowMatch({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  grants: [unreviewedRevenue],
+  asOf: shadowAsOf,
+});
+assert.deepEqual(
+  unreviewedRevenueShadow.details[0]?.before.grantUnreadyDimensions,
+  ["revenue"],
+  "검수 전 profile-resolvable unknown은 공고 준비도 부족으로 분류되어야 한다",
+);
+assert.equal(
+  unreviewedRevenueShadow.nextQuestion,
+  null,
+  "structured_unreviewed 공고의 매출 unknown을 기업 프로필 질문으로 넘기면 안 된다",
+);
+const reviewedSameRevision = shadowGrant(
+  "unreviewed-eligible",
+  [shadowRegionCriterion("11", "서울")],
+);
+const reviewedSignature = buildDevServiceDataShadowMatch({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  grants: [reviewedSameRevision],
+  asOf: shadowAsOf,
+});
+assert.equal(
+  reviewedSignature.details[0]?.revision,
+  unreviewedSafety?.revision,
+  "readiness 전환 fixture는 동일한 raw revision을 유지해야 한다",
+);
+assert.notEqual(
+  reviewedSignature.universeRevisionSignature,
+  buildDevServiceDataShadowMatch({
+    baseProfile: shadowBase,
+    finalProfile: shadowBase,
+    grants: [unreviewedEligible],
+    asOf: shadowAsOf,
+  }).universeRevisionSignature,
+  "같은 raw revision의 검수 readiness 전환도 universe signature가 포착해야 한다",
+);
+const changedCriteriaSameRevision = shadowGrant(
+  "unreviewed-eligible",
+  [shadowRegionCriterion("26", "부산")],
+);
+assert.equal(
+  changedCriteriaSameRevision.extraction_manifest?.revision,
+  reviewedSameRevision.extraction_manifest?.revision,
+);
+assert.notEqual(
+  reviewedSignature.universeRevisionSignature,
+  buildDevServiceDataShadowMatch({
+    baseProfile: shadowBase,
+    finalProfile: shadowBase,
+    grants: [changedCriteriaSameRevision],
+    asOf: shadowAsOf,
+  }).universeRevisionSignature,
+  "raw revision/readiness가 같아도 matcher criterion 입력이 바뀌면 universe signature가 바뀌어야 한다",
+);
+const changedExtractorSameRevision = {
+  ...reviewedSameRevision,
+  extraction_manifest: {
+    ...reviewedSameRevision.extraction_manifest!,
+    extractorVersion: "fixture-v2",
+  },
+};
+assert.notEqual(
+  reviewedSignature.universeRevisionSignature,
+  buildDevServiceDataShadowMatch({
+    baseProfile: shadowBase,
+    finalProfile: shadowBase,
+    grants: [changedExtractorSameRevision],
+    asOf: shadowAsOf,
+  }).universeRevisionSignature,
+  "extractorVersion 전환도 universe signature가 포착해야 한다",
+);
+const partialEligible = shadowGrant(
+  "partial-eligible",
+  [shadowRegionCriterion("11", "서울")],
+  "partial",
+);
+const unstructuredGrant = shadowGrant("unstructured", [], "unstructured");
+const evidenceMissing = shadowGrant("evidence-missing", [{
+  dimension: "region",
+  operator: "in",
+  kind: "required",
+  confidence: 0.95,
+  value: { regions: ["11"], labels: ["서울"] },
+}]);
+const reviewIncomplete = shadowGrant("review-incomplete", [{
+  ...shadowRegionCriterion("11", "서울"),
+  needs_review: true,
+}]);
+const unsafeHighStates = buildDevServiceDataShadowMatch({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  grants: [partialEligible, unstructuredGrant, evidenceMissing, reviewIncomplete],
+  asOf: shadowAsOf,
+}).details;
+for (const detail of unsafeHighStates) {
+  assert.notEqual(
+    detail.before.productState,
+    "지원 가능성이 높음",
+    `${detail.grantId} 공고 준비도 부족을 높은 지원 가능성으로 승격하면 안 된다`,
+  );
+}
+const needsReviewPass = unsafeHighStates.find((detail) => detail.grantId === "kstartup:review-incomplete");
+assert.equal(needsReviewPass?.before.eligibility, "eligible");
+assert.deepEqual(needsReviewPass?.before.grantUnreadyDimensions, []);
+assert.deepEqual(
+  needsReviewPass?.before.grantUnreadyReasons,
+  [{ code: "criterion_review_required", dimension: "region" }],
+  "unknown dimension이 없어도 원문 확인의 grant-unready 사유를 진단할 수 있어야 한다",
+);
+assert.equal(needsReviewPass?.before.productState, "원문 확인");
+
+for (const readiness of ["structured_unreviewed", "partial", "unstructured"] as const) {
+  const nonReviewedHardFail = buildDevServiceDataShadowMatch({
+    baseProfile: shadowBase,
+    finalProfile: shadowBase,
+    grants: [shadowGrant(`non-reviewed-hard-fail-${readiness}`, [
+      shadowRegionCriterion("26", "부산"),
+    ], readiness)],
+    asOf: shadowAsOf,
+  }).details[0]?.before;
+  assert.equal(nonReviewedHardFail?.eligibility, "ineligible");
+  assert.equal(
+    nonReviewedHardFail?.productState,
+    "원문 확인",
+    `${readiness} hard fail은 검수 전이므로 지원 어려움으로 확정하면 안 된다`,
+  );
+}
+assert.equal(
+  buildDevServiceDataShadowMatch({
+    baseProfile: shadowBase,
+    finalProfile: shadowBase,
+    grants: [reviewedIneligible],
+    asOf: shadowAsOf,
+  }).details[0]?.before.productState,
+  "지원 어려움",
+  "reviewed deterministic hard fail은 지원 어려움으로 유지해야 한다",
+);
+
+const reviewedHighRiskPass = shadowGrant("reviewed-high-risk-pass", [{
+  dimension: "industry",
+  operator: "in",
+  kind: "required",
+  confidence: 0.95,
+  source_span: "반도체 분야 기업",
+  value: { tags: ["반도체"], labels: ["반도체"] },
+}]);
+const reviewedHighRiskState = buildDevServiceDataShadowMatch({
+  baseProfile: {
+    industries: ["반도체"],
+    list_completeness: { industry: "complete" },
+    confidence: { industry: 0.95 },
+  },
+  finalProfile: {
+    industries: ["반도체"],
+    list_completeness: { industry: "complete" },
+    confidence: { industry: 0.95 },
+  },
+  grants: [reviewedHighRiskPass],
+  asOf: shadowAsOf,
+}).details[0]?.before;
+assert.equal(reviewedHighRiskState?.eligibility, "eligible");
+assert.equal(reviewedHighRiskState?.recommendationTier, "needs_core_review");
+assert.equal(reviewedHighRiskState?.productState, "원문 확인");
+assert.deepEqual(reviewedHighRiskState?.grantUnreadyDimensions, []);
+assert.deepEqual(reviewedHighRiskState?.grantUnreadyReasons, []);
+assert.ok(
+  reviewedHighRiskState?.reviewGateReasons.some((reason) =>
+    reason.code === "criteria_under_extracted" && reason.dimension === "industry"),
+  "grant-unready 진단이 비어도 matcher review_gate 원문 확인 사유를 노출해야 한다",
+);
+
+const reviewedMalformedRevenue = shadowGrant("reviewed-malformed-revenue", [{
+  dimension: "revenue",
+  operator: "gte",
+  kind: "required",
+  confidence: 0.95,
+  source_span: "매출 기준 충족 기업",
+  value: {},
+}]);
+const malformedRevenueShadow = buildDevServiceDataShadowMatch({
+  baseProfile: { confidence: {} },
+  finalProfile: { confidence: {} },
+  grants: [reviewedMalformedRevenue],
+  asOf: shadowAsOf,
+});
+assert.deepEqual(malformedRevenueShadow.details[0]?.before.profileMissingDimensions, []);
+assert.deepEqual(malformedRevenueShadow.details[0]?.before.grantUnreadyDimensions, ["revenue"]);
+assert.deepEqual(
+  malformedRevenueShadow.details[0]?.before.grantUnreadyReasons,
+  [{ code: "criterion_not_profile_resolvable", dimension: "revenue" }],
+);
+assert.equal(malformedRevenueShadow.details[0]?.before.productState, "원문 확인");
+assert.equal(malformedRevenueShadow.nextQuestion, null);
+
+const reviewedMixedRevenue = shadowGrant("reviewed-mixed-revenue", [
+  shadowRevenueCriterion(),
+  {
+    dimension: "revenue",
+    operator: "text_only",
+    kind: "required",
+    confidence: 0.5,
+    source_span: "최근 매출 실적은 원문 확인 필요",
+    value: { note: "원문 확인 필요" },
+  },
+]);
+const reviewedMixedRevenueShadow = buildDevServiceDataShadowMatch({
+  baseProfile: { confidence: {} },
+  finalProfile: { confidence: {} },
+  grants: [reviewedMixedRevenue],
+  asOf: shadowAsOf,
+});
+assert.deepEqual(
+  reviewedMixedRevenueShadow.details[0]?.before.profileMissingDimensions,
+  ["revenue"],
+);
+assert.deepEqual(
+  reviewedMixedRevenueShadow.details[0]?.before.grantUnreadyDimensions,
+  ["revenue"],
+  "같은 축이어도 clean criterion과 text_only criterion 원인을 서로 덮어쓰면 안 된다",
+);
+assert.equal(reviewedMixedRevenueShadow.nextQuestion?.dimension, "revenue");
+assert.doesNotMatch(
+  reviewedMixedRevenueShadow.nextQuestion?.framing ?? "",
+  /판정을 확정/,
+  "질문 가능한 clean criterion이 있어도 같은 공고의 text_only hard unknown까지 해소한다고 과대 표시하면 안 된다",
+);
+
+const reviewedIndustryRevenue = shadowGrant("reviewed-industry-revenue", [
+  shadowIndustryCriterion(),
+  shadowRevenueCriterion(),
+]);
+const reviewedMixedShadow = buildDevServiceDataShadowMatch({
+  baseProfile: { confidence: {} },
+  finalProfile: {
+    industries: ["소프트웨어 개발업"],
+    list_completeness: { industry: "complete" },
+    confidence: { industry: 0.9 },
+  },
+  grants: [reviewedIndustryRevenue],
+  asOf: shadowAsOf,
+});
+assert.deepEqual(
+  reviewedMixedShadow.details[0]?.before.profileMissingDimensions,
+  ["industry", "revenue"],
+  "review gate tier와 무관하게 reviewed profile-resolvable unknown은 profile_missing이어야 한다",
+);
+assert.deepEqual(reviewedMixedShadow.details[0]?.before.grantUnreadyDimensions, []);
+assert.equal(
+  reviewedMixedShadow.nextQuestion?.dimension,
+  "revenue",
+  "reviewed 공고에서 업종을 채운 뒤 남은 profile unknown은 질문 계획에 유지되어야 한다",
+);
+const industryDelta = reviewedMixedShadow.unknownReductionByDimension.find(
+  (entry) => entry.dimension === "industry",
+);
+assert.deepEqual(industryDelta, {
+  dimension: "industry",
+  before: { profile_missing: 1, grant_unready: 0 },
+  after: { profile_missing: 0, grant_unready: 0 },
+  profileMissingReduction: 1,
+  grantUnreadyReduction: 0,
+  reduced: true,
+  completed: true,
+});
+assert.notEqual(
+  reviewedMixedShadow.details[0]?.before.productState,
+  "지원 가능성이 높음",
+  "핵심축 profile unknown은 귀속을 바로잡아도 높은 지원 가능성으로 승격하면 안 된다",
+);
+assert.notEqual(
+  reviewedMixedShadow.details[0]?.after.productState,
+  "지원 가능성이 높음",
+  "남은 revenue unknown이 있는 동안 높은 지원 가능성으로 승격하면 안 된다",
+);
+
+const reviewedFounderTrait = shadowGrant("reviewed-founder-trait", [{
+  dimension: "founder_trait",
+  operator: "in",
+  kind: "required",
+  confidence: 0.95,
+  source_span: "여성 대표 기업",
+  value: { traits: ["여성"] },
+}]);
+const reductionShadow = buildDevServiceDataShadowMatch({
+  baseProfile: { confidence: {} },
+  finalProfile: {
+    revenue_krw: 200_000_000,
+    traits: ["청년"],
+    list_completeness: { founder_trait: "partial" },
+    confidence: { revenue: 0.9, founder_trait: 0.8 },
+    profile_evidence: {
+      revenue: {
+        sourceKind: "authoritative_api",
+        provider: "fixture",
+        asOf: shadowAsOf.toISOString(),
+        axisCompleteness: "complete",
+        confidence: 0.9,
+      },
+      founder_trait: {
+        sourceKind: "authoritative_api",
+        provider: "fixture",
+        asOf: shadowAsOf.toISOString(),
+        axisCompleteness: "partial",
+        confidence: 0.8,
+      },
+    },
+  },
+  grants: [reviewedRevenue, reviewedFounderTrait],
+  asOf: shadowAsOf,
+});
+const revenueDelta = reductionShadow.unknownReductionByDimension.find((entry) => entry.dimension === "revenue");
+assert.deepEqual(
+  revenueDelta,
+  {
+    dimension: "revenue",
+    before: { profile_missing: 1, grant_unready: 0 },
+    after: { profile_missing: 0, grant_unready: 0 },
+    profileMissingReduction: 1,
+    grantUnreadyReduction: 0,
+    reduced: true,
+    completed: true,
+  },
+);
+const founderTraitDelta = reductionShadow.unknownReductionByDimension.find(
+  (entry) => entry.dimension === "founder_trait",
+);
+assert.equal(founderTraitDelta?.before.profile_missing, 1);
+assert.equal(founderTraitDelta?.after.profile_missing, 1);
+assert.equal(founderTraitDelta?.reduced, false);
+assert.equal(
+  founderTraitDelta?.completed,
+  false,
+  "sourced/normalized여도 matcher unknown이 줄지 않으면 질문 완료로 표시하면 안 된다",
+);
+
+const textOnlyGrant = shadowGrant("text-only", [{
+  dimension: "industry",
+  operator: "text_only",
+  kind: "required",
+  confidence: 0.5,
+  source_span: "특수 산업 실적 보유 기업",
+  value: { note: "원문 확인" },
+}], "partial");
+const reservedGrant = shadowGrant("reserved", [{
+  dimension: "premises",
+  operator: "exists",
+  kind: "required",
+  confidence: 0.9,
+  source_span: "사업장 보유 기업",
+  value: { required: true },
+}]);
+const exportGrant = shadowGrant("export", [{
+  dimension: "export_performance",
+  operator: "exists",
+  kind: "required",
+  confidence: 0.9,
+  source_span: "수출 실적 보유 기업",
+  value: { required: true },
+}]);
+const otherGrant = shadowGrant("other", [{
+  dimension: "other",
+  operator: "exists",
+  kind: "required",
+  confidence: 0.9,
+  source_span: "기타 자격 조건",
+  value: { required: true },
+}]);
+const causeShadow = buildDevServiceDataShadowMatch({
+  baseProfile: { confidence: {} },
+  finalProfile: { confidence: {} },
+  grants: [partialEmployees, reviewedRevenue, textOnlyGrant, reservedGrant, exportGrant, otherGrant],
+  asOf: shadowAsOf,
+});
+assert.equal(
+  causeShadow.unknownCauses.before.profile_missing.byDimension.find((entry) => entry.dimension === "revenue")?.count,
+  1,
+);
+assert.equal(
+  causeShadow.unknownCauses.before.grant_unready.byDimension.find((entry) => entry.dimension === "employees")?.count,
+  1,
+);
+assert.equal(
+  causeShadow.unknownCauses.before.grant_unready.byDimension.find((entry) => entry.dimension === "industry")?.count,
+  1,
+  "text_only/extraction 미완료는 grant_unready에만 속해야 한다",
+);
+for (const dimension of ["premises", "export_performance", "other"] as const) {
+  assert.equal(
+    causeShadow.unknownCauses.before.grant_unready.byDimension.find(
+      (entry) => entry.dimension === dimension,
+    )?.count,
+    1,
+    `${dimension} 예약축은 profile_missing이 아니라 grant_unready로 유지해야 한다`,
+  );
+  const reservedDetail = causeShadow.details.find((entry) =>
+    entry.before.grantUnreadyReasons.some((reason) =>
+      reason.code === "reserved_dimension" && reason.dimension === dimension));
+  assert.ok(reservedDetail, `${dimension} 원문 확인 사유를 detail에서 진단할 수 있어야 한다`);
+}
+assert.equal(
+  causeShadow.details.find((entry) => entry.grantId === "kstartup:text-only")?.before.productState,
+  "원문 확인",
+);
+assert.equal(causeShadow.nextQuestion?.dimension, "revenue");
+assert.notEqual(causeShadow.nextQuestion?.dimension, "employees");
+assert.notEqual(causeShadow.nextQuestion?.dimension, "premises");
+assert.notEqual(causeShadow.nextQuestion?.dimension, "other");
+
+const orderedShadow = buildDevServiceDataShadowMatch({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  grants: fullUniverse,
+  asOf: shadowAsOf,
+  detailLimit: 5,
+});
+const reversedShadow = buildDevServiceDataShadowMatch({
+  baseProfile: shadowBase,
+  finalProfile: shadowBase,
+  grants: [...fullUniverse].reverse(),
+  asOf: shadowAsOf,
+  detailLimit: 5,
+});
+assert.equal(
+  JSON.stringify(orderedShadow),
+  JSON.stringify(reversedShadow),
+  "동일 profile/asOf/grant revision은 입력 순서와 무관하게 byte-stable해야 한다",
+);
+
+let shadowReadCalls = 0;
+const shadowReadOnlyDependencies = new Proxy<DevServiceDataShadowMatchDependencies>({
+  loadGrantUniverse: async ({ asOf }: { asOf: Date }) => {
+    shadowReadCalls += 1;
+    assert.equal(asOf.toISOString(), shadowAsOf.toISOString());
+    return [reviewedRegion];
+  },
+}, {
+  get(target, property, receiver) {
+    if (property !== "loadGrantUniverse") {
+      throw new Error(`read-only shadow loader가 금지된 dependency ${String(property)}에 접근했습니다`);
+    }
+    return Reflect.get(target, property, receiver);
+  },
+});
+const loadedShadow = await loadDevServiceDataShadowMatch(
+  {
+    baseProfile: shadowBase,
+    finalProfile: shadowBase,
+    asOf: shadowAsOf,
+    detailLimit: 1,
+  },
+  shadowReadOnlyDependencies,
+);
+assert.equal(loadedShadow.universeSize, 1);
+assert.equal(shadowReadCalls, 1);
+await assert.rejects(
+  () => loadDevServiceDataShadowMatch(
+    { baseProfile: shadowBase, finalProfile: shadowBase, asOf: shadowAsOf },
+    {
+      loadGrantUniverse: async () => {
+        const error = new Error("active grant scan incomplete") as Error & { code: string; status: number };
+        error.code = "active_grant_scan_incomplete";
+        error.status = 503;
+        throw error;
+      },
+    },
+  ),
+  (error: unknown) =>
+    error instanceof Error &&
+    (error as Error & { code?: string }).code === "active_grant_scan_incomplete",
+  "기존 fail-closed universe loader의 scan overflow 진단을 삼키면 안 된다",
+);
+const previousRepositoryAdapter = process.env.CUNOTE_REPOSITORY_ADAPTER;
+try {
+  process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
+  await assert.rejects(
+    () => loadDevServiceDataShadowMatch({
+      baseProfile: shadowBase,
+      finalProfile: shadowBase,
+      asOf: shadowAsOf,
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code?: string }).code === "shadow_match_universe_unavailable" &&
+      (error as Error & { status?: number }).status === 503,
+    "기본 runtime/sample loader를 confirmed-dedup 전수 universe로 오인하지 않고 source 호출 전에 막아야 한다",
+  );
+} finally {
+  if (previousRepositoryAdapter === undefined) delete process.env.CUNOTE_REPOSITORY_ADAPTER;
+  else process.env.CUNOTE_REPOSITORY_ADAPTER = previousRepositoryAdapter;
+}
+
 console.log("devServiceDataMonitor.test.ts: all assertions passed");
+
+function shadowGrant(
+  sourceId: string,
+  criteria: GrantCriterion[],
+  readiness: MatchExtractionReadiness = "reviewed",
+): NormalizedGrant<Record<string, never>> {
+  const revision = `revision-${sourceId}`;
+  return {
+    raw: {
+      source: "kstartup",
+      source_id: sourceId,
+      payload: {},
+      raw_hash: revision,
+      collected_at: "2026-07-13T00:00:00.000Z",
+      status: "normalized",
+    },
+    grant: {
+      source: "kstartup",
+      source_id: sourceId,
+      title: sourceId,
+      status: "open",
+      apply_end: "2026-08-31",
+      f_regions: [],
+      f_industries: [],
+      f_sizes: [],
+      f_founder_traits: [],
+      f_required_certs: [],
+      overall_confidence: 0.9,
+    },
+    criteria,
+    extraction_manifest: {
+      grantId: `kstartup:${sourceId}`,
+      revision,
+      sourceFieldsSeen: ["required"],
+      attachmentsExpected: readiness === "partial" ? 1 : 0,
+      attachmentsFetched: 0,
+      attachmentsConverted: 0,
+      sectionsDetected: ["required"],
+      extractorVersion: "fixture",
+      completedAt: "2026-07-13T00:00:00.000Z",
+      warnings: readiness === "partial" ? ["attachment_fetch_incomplete"] : [],
+      readiness,
+      ...(readiness === "reviewed" ? { reviewedAt: "2026-07-13T01:00:00.000Z" } : {}),
+    },
+  };
+}
+
+function shadowRegionCriterion(code: string, label: string): GrantCriterion {
+  return {
+    dimension: "region",
+    operator: "in",
+    kind: "required",
+    confidence: 0.95,
+    source_span: `${label} 소재 기업`,
+    value: { regions: [code], labels: [label] },
+  };
+}
+
+function shadowRevenueCriterion(): GrantCriterion {
+  return {
+    dimension: "revenue",
+    operator: "gte",
+    kind: "required",
+    confidence: 0.95,
+    source_span: "매출 1억원 이상 기업",
+    value: { min_krw: 100_000_000 },
+  };
+}
+
+function shadowIndustryCriterion(): GrantCriterion {
+  return {
+    dimension: "industry",
+    operator: "in",
+    kind: "required",
+    confidence: 0.95,
+    source_span: "소프트웨어 개발업 대상",
+    value: { tags: ["소프트웨어 개발업"] },
+  };
+}
+
+function shadowEmployeesCriterion(): GrantCriterion {
+  return {
+    dimension: "employees",
+    operator: "gte",
+    kind: "required",
+    confidence: 0.95,
+    source_span: "상시근로자 5명 이상 기업",
+    value: { min: 5 },
+  };
+}

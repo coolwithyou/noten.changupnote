@@ -111,6 +111,8 @@ function candidatesForMatch<TPayload>(
   if (resolvable.length === 0) return [];
 
   const unresolvedDimensions = new Set(hardUnknowns.map((item) => item.trace.dimension));
+  const allHardUnknownsProfileResolvable = hardUnknowns.every(({ criterion }) =>
+    isProfileResolvableCriterion(criterion));
   const grantId = grantKey(entry.item.grant);
   const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
   return resolvable.map(({ trace, criterion }) => ({
@@ -118,7 +120,10 @@ function candidatesForMatch<TPayload>(
     criterion,
     grantId,
     dDay,
-    onlyRemainingDimension: unresolvedDimensions.size === 1 && isExhaustiveQuestionDimension(trace.dimension),
+    onlyRemainingDimension:
+      allHardUnknownsProfileResolvable &&
+      unresolvedDimensions.size === 1 &&
+      isExhaustiveQuestionDimension(trace.dimension),
   }));
 }
 
@@ -244,13 +249,16 @@ function isRangeCompanyValue(value: unknown): boolean {
   return Boolean(value && typeof value === "object" && !Array.isArray(value) && (value as { kind?: unknown }).kind === "range");
 }
 
-function isProfileResolvableCriterion(criterion: GrantCriterion): boolean {
+/** 기업 프로필 답변만으로 판정 가능한 구조화 hard criterion인지 확인한다. */
+export function isProfileResolvableCriterion(criterion: GrantCriterion): boolean {
   if (criterion.operator === "text_only" || criterion.needs_review === true) return false;
   if (!criterion.source_span?.trim() && !criterion.source_field?.trim()) return false;
   if (criterion.dimension === "other" || criterion.dimension === "premises" || criterion.dimension === "export_performance") {
     return false;
   }
-  const value = criterion.value as Record<string, unknown>;
+  const value = criterion.value && typeof criterion.value === "object" && !Array.isArray(criterion.value)
+    ? criterion.value as Record<string, unknown>
+    : {};
   switch (criterion.dimension) {
     case "region":
       return value.nationwide === true || hasValues(value.regions);

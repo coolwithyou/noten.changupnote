@@ -64,6 +64,43 @@ const textOnly = matched("text-only", "2026-07-20", [{
 }]);
 assert.equal(planProfileQuestions([malformed, textOnly], { asOf }).length, 0);
 
+const mixedRevenueCriteria = matched("mixed-revenue", "2026-07-20", [
+  numericCriterion("revenue", "매출 1억원 이상", { min_krw: 100_000_000 }),
+  {
+    dimension: "revenue",
+    operator: "text_only",
+    kind: "required",
+    confidence: 0.5,
+    source_span: "최근 매출 실적은 원문 확인 필요",
+    value: { note: "원문 확인 필요" },
+  },
+]);
+mixedRevenueCriteria.match = matchGrantCriteria(mixedRevenueCriteria.item.criteria, company, {
+  asOf,
+  extractionManifest: {
+    grantId: "kstartup:mixed-revenue",
+    revision: "r1",
+    sourceFieldsSeen: ["revenue"],
+    attachmentsExpected: 0,
+    attachmentsFetched: 0,
+    attachmentsConverted: 0,
+    sectionsDetected: ["required"],
+    extractorVersion: "test",
+    completedAt: asOf.toISOString(),
+    warnings: [],
+    readiness: "reviewed",
+    reviewedAt: asOf.toISOString(),
+  },
+});
+const mixedRevenuePlan = planProfileQuestions([mixedRevenueCriteria], { asOf });
+assert.equal(mixedRevenuePlan[0]?.question.dimension, "revenue");
+assert.equal(
+  mixedRevenuePlan[0]?.resolvesGrantCount,
+  0,
+  "같은 축에 non-resolvable hard unknown이 남으면 답변 하나로 공고 판정을 확정한다고 계산하면 안 된다",
+);
+assert.doesNotMatch(mixedRevenuePlan[0]?.question.framing ?? "", /판정을 확정/);
+
 const extractionIncomplete = matched("extraction-incomplete", "2026-07-20", [numericCriterion(
   "revenue",
   "매출 1억원 이상",
@@ -170,6 +207,7 @@ console.log(JSON.stringify({
     "question_planner_resolution_count",
     "question_planner_disqualification_framing",
     "question_planner_skips_unstructured",
+    "question_planner_mixed_same_dimension_not_overclaimed",
     "question_planner_skips_extraction_incomplete",
     "question_planner_skips_ineligible",
     "question_planner_positive_only_not_resolved",

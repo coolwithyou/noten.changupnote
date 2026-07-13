@@ -3,6 +3,7 @@ import {
   assertDevOnly,
   clearServiceDataCache,
   inspectServiceData,
+  loadDevServiceDataShadowMatch,
   lookupServiceData,
   type ServiceDataProvider,
 } from "@/lib/server/devServiceDataMonitor";
@@ -12,6 +13,7 @@ import {
   sanitizeDevServiceDataJson,
   type DevQnaAnswerDto,
 } from "@/lib/server/devServiceDataProfile";
+import { ServiceDataError } from "@/lib/server/serviceData";
 import { CRITERION_DIMENSIONS, type CompanyProfile, type CriterionDimension } from "@cunote/contracts";
 import type { CompanyProfileFieldUpdate } from "@cunote/core";
 
@@ -64,16 +66,56 @@ export async function POST(request: Request) {
     | {
         action?: unknown;
         answers?: unknown;
+        asOf?: unknown;
         baseProfile?: unknown;
         bizNo?: unknown;
         connectorNormalizedDimensions?: unknown;
         connectorProfileUpdates?: unknown;
         connectorSourcedDimensions?: unknown;
+        detailLimit?: unknown;
+        finalProfile?: unknown;
         forceRefresh?: unknown;
         provider?: unknown;
         qnaAsOf?: unknown;
+        scanLimit?: unknown;
       }
     | null;
+  if (body?.action === "shadow_match") {
+    if (
+      !isShadowCompanyProfile(body.baseProfile) ||
+      !isShadowCompanyProfile(body.finalProfile) ||
+      typeof body.asOf !== "string" ||
+      Number.isNaN(Date.parse(body.asOf)) ||
+      !isOptionalBoundedInteger(body.detailLimit, 1, 200) ||
+      !isOptionalBoundedInteger(body.scanLimit, 1, 20_000)
+    ) {
+      return NextResponse.json(
+        { error: "invalid_shadow_match", message: "shadow match 프로필·asOf·limit 입력 형식이 올바르지 않습니다." },
+        { status: 400 },
+      );
+    }
+    try {
+      const result = await loadDevServiceDataShadowMatch({
+        baseProfile: body.baseProfile,
+        finalProfile: body.finalProfile,
+        asOf: new Date(body.asOf),
+        ...(body.detailLimit !== undefined ? { detailLimit: body.detailLimit } : {}),
+        ...(body.scanLimit !== undefined ? { scanLimit: body.scanLimit } : {}),
+      });
+      return NextResponse.json(sanitizeDevServiceDataJson(result));
+    } catch (error) {
+      if (error instanceof ServiceDataError) {
+        return NextResponse.json(
+          { error: error.code, message: error.message },
+          { status: error.status },
+        );
+      }
+      return NextResponse.json(
+        { error: "shadow_match_failed", message: "shadow match 입력을 평가하지 못했습니다." },
+        { status: 400 },
+      );
+    }
+  }
   if (body?.action === "normalize_qna") {
     const answers = body.answers as DevQnaAnswerDto | null;
     if (
@@ -170,4 +212,54 @@ function isQnaAnswers(value: unknown): value is DevQnaAnswerDto {
   return (value.scenario === "registered_business" || value.scenario === "preliminary") &&
     Array.isArray(value.answers) &&
     value.answers.every((answer) => isRecord(answer) && typeof answer.definitionId === "string");
+}
+
+function isOptionalBoundedInteger(value: unknown, min: number, max: number): value is number | undefined {
+  return value === undefined || (typeof value === "number" && Number.isInteger(value) && value >= min && value <= max);
+}
+
+function isShadowCompanyProfile(value: unknown): value is CompanyProfile {
+  if (!isRecord(value)) return false;
+  for (const key of ["industries", "industry_codes", "traits", "certs", "prior_awards", "ip", "target_types"] as const) {
+    if (value[key] !== undefined && !isStringArray(value[key])) return false;
+  }
+  for (const key of ["biz_age_months", "founder_age", "revenue_krw", "employees_count"] as const) {
+    if (value[key] !== undefined && value[key] !== null && !isFiniteNumber(value[key])) return false;
+  }
+  for (const key of [
+    "other_conditions",
+    "business_status",
+    "tax_compliance",
+    "credit_status",
+    "sanction",
+    "financial_health",
+    "insured_workforce",
+    "investment",
+    "profile_evidence",
+    "question_answer_state",
+  ] as const) {
+    if (value[key] !== undefined && value[key] !== null && !isRecord(value[key])) return false;
+  }
+  if (value.region !== undefined &&
+    (!isRecord(value.region) || typeof value.region.code !== "string")) return false;
+  if (value.confidence !== undefined &&
+    (!isRecord(value.confidence) || Object.entries(value.confidence).some(([dimension, entry]) =>
+      !isDimension(dimension) || !isFiniteNumber(entry)))) return false;
+  if (value.list_completeness !== undefined &&
+    (!isRecord(value.list_completeness) || Object.values(value.list_completeness).some((entry) =>
+      entry !== "partial" && entry !== "complete"))) return false;
+  if (value.prior_award_history !== undefined) {
+    if (!isRecord(value.prior_award_history) || !Array.isArray(value.prior_award_history.records) ||
+      !isStringArray(value.prior_award_history.known_programs) ||
+      !isStringArray(value.prior_award_history.known_program_types)) return false;
+  }
+  return true;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
