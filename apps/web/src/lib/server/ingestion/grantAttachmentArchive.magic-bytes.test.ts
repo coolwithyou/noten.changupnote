@@ -19,8 +19,11 @@
 import assert from "node:assert/strict";
 import { Buffer } from "node:buffer";
 import type { GrantSource } from "@cunote/contracts";
+import { writeHwpx } from "@cunote/core/documents/hwpx-fill";
 import type { CunoteDbSession } from "../db/client";
+import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 import {
+  archiveGrantAttachments,
   attachDetectedSurfaceFormat,
   detectConvertibleSurfaceFormat,
   detectConvertibleSurfaceFormatFromBytes,
@@ -79,6 +82,171 @@ async function main(): Promise<void> {
   await check("비대상 확장자(.zip)는 PK 여도 null (변환 대상 아님)", () => {
     assert.equal(detectConvertibleSurfaceFormatFromBytes("첨부.zip", PK), null);
     assert.equal(detectConvertibleSurfaceFormat("첨부.zip"), null);
+  });
+
+  await check("UTF-8 txt 첨부는 별도 변환 서버 없이 markdown으로 보관", async () => {
+    const uploads: Array<{ key: string; contentType: string; body: Buffer | string }> = [];
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        uploads.push(input);
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const result = await archiveGrantAttachments([{
+      filename: "포스터 대체텍스트.txt",
+      url: "https://origin.example/poster.txt",
+    }], {
+      source: "kstartup",
+      sourceId: "178373",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      fetchImpl: (async () => new Response("지원대상: 창업기업", {
+        status: 200,
+        headers: { "content-type": "text/plain; charset=utf-8" },
+      })) as typeof fetch,
+    });
+    assert.equal(result.archivedCount, 1);
+    assert.equal(result.convertedCount, 1);
+    assert.equal(result.attachments[0]?.conversion?.status, "converted");
+    assert.equal(result.attachments[0]?.conversion?.converter, "plain-text-v1");
+    assert.equal(result.attachmentMarkdowns[0]?.markdown, "지원대상: 창업기업");
+    assert.equal(uploads.length, 2);
+    assert.equal(uploads[0]?.contentType, "text/plain; charset=utf-8");
+    assert.equal(uploads[1]?.contentType, "text/markdown; charset=utf-8");
+  });
+
+  await check("ZIP 첨부는 안전한 내부 문서를 별도 archive 항목으로 확장", async () => {
+    const uploads: Array<{ key: string; contentType: string }> = [];
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        uploads.push({ key: input.key, contentType: input.contentType });
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const zip = writeHwpx([{ name: "notice.txt", data: Buffer.from("지원대상: 중소기업"), method: 0 }]);
+    const result = await archiveGrantAttachments([{
+      filename: "첨부파일.zip",
+      url: "https://origin.example/bundle.zip",
+    }], {
+      source: "bizinfo",
+      sourceId: "PBLN_TEST",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      fetchImpl: (async () => new Response(new Uint8Array(zip), {
+        status: 200,
+        headers: { "content-type": "application/zip" },
+      })) as typeof fetch,
+    });
+    assert.equal(result.archivedCount, 2);
+    assert.equal(result.convertedCount, 1);
+    assert.equal(result.attachments[0]?.conversion?.status, "skipped");
+    assert.equal(result.attachments[1]?.conversion?.status, "converted");
+    assert.match(result.attachments[1]?.filename ?? "", /\.txt$/);
+    assert.match(result.attachmentMarkdowns[0]?.markdown ?? "", /지원대상: 중소기업/);
+    assert.equal(uploads.length, 3);
+  });
+
+  await check("XLSX 첨부는 shared strings와 worksheet 값을 markdown으로 변환", async () => {
+    const uploads: string[] = [];
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        uploads.push(input.key);
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const xlsx = writeHwpx([
+      { name: "xl/sharedStrings.xml", data: Buffer.from('<sst><si><t>지원대상</t></si><si><t>중소기업</t></si></sst>'), method: 0 },
+      { name: "xl/worksheets/sheet1.xml", data: Buffer.from('<worksheet><sheetData><row><c t="s"><v>0</v></c><c t="s"><v>1</v></c></row></sheetData></worksheet>'), method: 0 },
+    ]);
+    const result = await archiveGrantAttachments([{
+      filename: "지원목록.xlsx",
+      url: "https://origin.example/list.xlsx",
+    }], {
+      source: "bizinfo",
+      sourceId: "PBLN_XLSX",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      fetchImpl: (async () => new Response(new Uint8Array(xlsx), { status: 200 })) as typeof fetch,
+    });
+    assert.equal(result.archivedCount, 1);
+    assert.equal(result.convertedCount, 1);
+    assert.equal(result.attachments[0]?.conversion?.converter, "office-openxml-v1");
+    assert.match(result.attachmentMarkdowns[0]?.markdown ?? "", /지원대상 \| 중소기업/);
+    assert.equal(uploads.length, 2);
+  });
+
+  await check("이미지 OCR은 신뢰도와 provider를 conversion provenance로 보관", async () => {
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const result = await archiveGrantAttachments([{
+      filename: "모집공고.png",
+      url: "https://origin.example/notice.png",
+    }], {
+      source: "bizinfo",
+      sourceId: "PBLN_IMAGE",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: false,
+      storage,
+      fetchImpl: (async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as typeof fetch,
+      imageOcr: async () => ({
+        markdown: "지원대상: 서울특별시에 소재한 중소기업 및 소상공인",
+        confidence: 0.82,
+        provider: "test_vision",
+        converter: "test-vision-v1",
+      }),
+    });
+    assert.equal(result.convertedCount, 1);
+    assert.equal(result.attachments[0]?.conversion?.ocr_provider, "test_vision");
+    assert.equal(result.attachments[0]?.conversion?.ocr_confidence, 0.82);
+  });
+
+  await check("낮은 신뢰도의 이미지 OCR은 converted로 승격하지 않음", async () => {
+    const storage = {
+      async putObject(input: { key: string; body: Buffer | string; contentType: string }) {
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const result = await archiveGrantAttachments([{
+      filename: "흐린공고.jpg",
+      url: "https://origin.example/blurry.jpg",
+    }], {
+      source: "bizinfo",
+      sourceId: "PBLN_LOW_OCR",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: true,
+      autoInstallPyhwp: false,
+      allowFailures: true,
+      storage,
+      fetchImpl: (async () => new Response(new Uint8Array([1, 2, 3]), { status: 200 })) as typeof fetch,
+      imageOcr: async () => ({
+        markdown: "인식은 되었지만 신뢰도가 낮은 공고 텍스트",
+        confidence: 0.4,
+        provider: "test_vision",
+        converter: "test-vision-v1",
+      }),
+    });
+    assert.equal(result.convertedCount, 0);
+    assert.equal(result.failureCount, 1);
+    assert.equal(result.attachments[0]?.conversion?.status, "failed");
   });
 
   // -------------------------------------------------------------------
@@ -159,6 +327,21 @@ async function main(): Promise<void> {
     assert.equal(inserts.length, 0);
   });
 
+  await check("filename 기반 legacy surface는 storageKey 정체성으로 승격되고 중복 insert하지 않는다", async () => {
+    const { db, inserts, updates } = makeFakeDb([[], [{ id: "legacy-surface" }]]);
+    const result = await registerAttachmentConversions(db, {
+      grantId: "grant-1",
+      source: SOURCE,
+      sourceId: "src-1",
+      client: null,
+      attachments: [ref({ filename: "모집공고.pdf", storageKey: "grant-archive/body.pdf" })],
+    });
+    assert.equal(result.surfacesUpserted, 1);
+    assert.equal(inserts.length, 0);
+    assert.equal(updates.length, 1);
+    assert.equal(updates[0]?.sourceAttachment, "grant-archive/body.pdf");
+  });
+
   console.log(`\n${passed} passed`);
 }
 
@@ -176,8 +359,14 @@ function ref(over: Partial<ArchivedAttachmentRef> & { filename: string }): Archi
 }
 
 /** upsertApplicationSurface 가 쓰는 select/insert/update 체인만 흉내 내는 인메모리 세션. */
-function makeFakeDb(): { db: CunoteDbSession; inserts: Array<Record<string, unknown>> } {
+function makeFakeDb(selectResponses: unknown[][] = []): {
+  db: CunoteDbSession;
+  inserts: Array<Record<string, unknown>>;
+  updates: Array<Record<string, unknown>>;
+} {
   const inserts: Array<Record<string, unknown>> = [];
+  const updates: Array<Record<string, unknown>> = [];
+  let selectIndex = 0;
   const selectBuilder = {
     from() {
       return selectBuilder;
@@ -186,8 +375,7 @@ function makeFakeDb(): { db: CunoteDbSession; inserts: Array<Record<string, unkn
       return selectBuilder;
     },
     limit() {
-      // 기존 surface 없음 → insert 경로.
-      return Promise.resolve([] as unknown[]);
+      return Promise.resolve(selectResponses[selectIndex++] ?? []);
     },
   };
   const db = {
@@ -204,7 +392,8 @@ function makeFakeDb(): { db: CunoteDbSession; inserts: Array<Record<string, unkn
     },
     update() {
       return {
-        set() {
+        set(value: Record<string, unknown>) {
+          updates.push(value);
           return {
             where() {
               return Promise.resolve();
@@ -214,7 +403,7 @@ function makeFakeDb(): { db: CunoteDbSession; inserts: Array<Record<string, unkn
       };
     },
   };
-  return { db: db as unknown as CunoteDbSession, inserts };
+  return { db: db as unknown as CunoteDbSession, inserts, updates };
 }
 
 main().catch((error) => {

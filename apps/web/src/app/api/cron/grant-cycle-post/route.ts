@@ -3,8 +3,8 @@
 // cron 으로 쪼개지 않고 한 라우트에서 순차 실행한다. env 는 Vercel 이 이미 주입하므로 loadMonorepoEnv 불필요.
 //
 // 쓰기 모드 판단: run-grant-archive-cycle 의 프로덕션 실행(--write --with-db-steps --refresh-match-states)이
-// 자동화 대상이다. publish:dedup 의 CLI 기본값이 이미 write 이므로, 세 단계의 정합성을 위해 match·insights 도
-// write 로 실행한다(dry-run 이면 dedup 만 커밋되고 나머지는 무효과라 cron 목적이 무너진다). 그 외 파라미터
+// 자동화 대상이다. cron은 CLI의 수동 승인 pair scope와 별개인 신뢰 서버 경로로 dedup을 write 실행하고,
+// 세 단계의 정합성을 위해 match·insights도 write로 실행한다. 그 외 파라미터
 // (limit·minScore·asOf·staleCursorHours·companyId)는 각 CLI 기본값을 그대로 쓴다.
 //
 // 실패 처리: 각 단계는 커밋된 DB 상태만 읽고(메모리 핸드오프 없음) 앞 단계 성공을 하드 의존하지 않으므로,

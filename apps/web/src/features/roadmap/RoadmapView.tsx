@@ -116,7 +116,7 @@ function RoadmapCard({ node, match }: { node: RoadmapNode; match: MatchCard | nu
         ) : null}
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span>{match?.agency ?? "기관 확인 필요"}</span>
-          <strong className="font-semibold text-foreground">{match ? `적합도 ${match.fitScore}` : "점수 확인"}</strong>
+          <strong className="font-semibold text-foreground">{match ? `조건 확인도 ${match.fitScore}` : "조건 확인"}</strong>
         </div>
         <span className="text-xs font-medium text-muted-foreground">{formatSupportAmount(match?.supportAmount ?? null)}</span>
       </a>

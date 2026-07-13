@@ -145,7 +145,12 @@ export function MatchResultsExperience() {
         {status === "ready" && teaser ? (
           <>
             <ResultsHero teaser={teaser} maskedBiz={maskedBiz} onSave={() => void saveAndContinue()} saving={continuing} />
-            <ProfileSection teaser={teaser} onProfileSubmit={applyManualProfile} submitting={profileSubmitting} />
+            <ProfileSection
+              teaser={teaser}
+              currentProfile={manualProfile}
+              onProfileSubmit={applyManualProfile}
+              submitting={profileSubmitting}
+            />
             <ProgramsExperience teaser={teaser} onPrepare={saveAndContinue} preparing={continuing} />
           </>
         ) : null}

@@ -8,16 +8,22 @@ import type {
   FinancialHealthCriterionValue,
   FounderAgeCriterionValue,
   GrantCriterion,
+  GrantExtractionManifest,
   InsuredWorkforceCriterionValue,
   InvestmentCriterionValue,
   ListCriterionValue,
   MatchReviewGate,
   MatchReviewReason,
+  MatchQuality,
   MatchResult,
   NextQuestion,
+  NormalizedGrant,
   RegionCriterionValue,
   RuleTraceEntry,
 } from "@cunote/contracts";
+import { canonicalizeGrantCriteria } from "../criteria/canonicalize.js";
+import { evaluatePriorAward } from "../prior-award/evaluate.js";
+import { resolveGrantExtractionManifest } from "../extraction/manifest.js";
 import { REGION_LABELS } from "../kstartup/constants.js";
 import { industryCodeMatches } from "../industry/ksic.js";
 import { certsMatch } from "../certification/certs.js";
@@ -31,8 +37,8 @@ import {
 } from "../disqualification/canonical.js";
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v3";
-export const SCORING_VERSION = "scoring-fit-v2-trust-gate";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v5";
+export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
   "industry",
@@ -55,14 +61,18 @@ const HIGH_RISK_DOMAIN_PATTERN =
 export function matchGrantCriteria(
   criteria: GrantCriterion[],
   company: CompanyProfile,
+  options: { extractionManifest?: GrantExtractionManifest; asOf?: Date } = {},
 ): MatchResult {
   // 공고에서 구조화된 조건을 아직 추출하지 못한 경우(criteria 0건)는 적격으로 오인하지 않도록
-  // 조건부(conditional)로 강등하고 적합도를 미산정(0)으로 둔다.
+  // 조건부(conditional)로 강등하고 조건 확인도를 미산정(0)으로 둔다.
   if (criteria.length === 0) {
     return unstructuredCriteriaResult();
   }
 
-  const ruleTrace = criteria.map((criterion) => evaluateCriterion(criterion, company));
+  const canonicalCriteria = canonicalizeGrantCriteria(criteria);
+  const asOf = options.asOf ?? new Date();
+  const ruleTrace = canonicalCriteria.map((criterion) =>
+    deferUnreviewedHardFail(criterion, evaluateCriterion(criterion, company, asOf)));
   const hardFail = ruleTrace.some(
     (entry) => entry.result === "fail" && (entry.kind === "required" || entry.kind === "exclusion"),
   );
@@ -76,23 +86,36 @@ export function matchGrantCriteria(
   const reviewGate = buildReviewGate({
     eligibility,
     traceEntries: ruleTrace,
-    criteria,
+    criteria: canonicalCriteria,
     criteriaExtracted: true,
+    ...(options.extractionManifest ? { extractionManifest: options.extractionManifest } : {}),
   });
+  const quality = buildMatchQuality(canonicalCriteria, ruleTrace, reviewGate, options.extractionManifest);
 
   const result: MatchResult = {
     eligibility,
-    fit_score: scoreFit(eligibility, ruleTrace),
+    fit_score: quality.verificationCompleteness,
     rule_trace: ruleTrace,
     unknown_fields,
     ruleset_ver: RULESET_VERSION,
     scoring_ver: SCORING_VERSION,
     criteria_extracted: true,
     review_gate: reviewGate,
+    quality,
   };
   const question = nextQuestion(unknown_fields);
   if (question) result.next_question = question;
   return result;
+}
+
+/** 공고 입력 완전성까지 포함하는 제품 경로용 매칭 진입점. */
+export function matchNormalizedGrant<TPayload>(
+  entry: NormalizedGrant<TPayload>,
+  company: CompanyProfile,
+): MatchResult {
+  return matchGrantCriteria(entry.criteria, company, {
+    extractionManifest: resolveGrantExtractionManifest(entry),
+  });
 }
 
 function unstructuredCriteriaResult(): MatchResult {
@@ -117,17 +140,22 @@ function unstructuredCriteriaResult(): MatchResult {
       criteria: [],
       criteriaExtracted: false,
     }),
+    quality: {
+      eligibilityConfidence: "low",
+      verificationCompleteness: 0,
+      evidenceCoverage: 0,
+      extractionReadiness: "unstructured",
+    },
   };
   const question = nextQuestion(["other"]);
   if (question) result.next_question = question;
   return result;
 }
 
-function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile, asOf: Date): RuleTraceEntry {
   if (criterion.operator === "text_only") {
     return trace(criterion, "unknown", textOnlyMessage(criterion));
   }
-
   if (scalarEvidenceRequiresConfirmation(criterion.dimension, company)) {
     return trace(
       criterion,
@@ -147,7 +175,7 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
     case "industry":
       return evaluateIndustry(criterion, company);
     case "size":
-      return evaluateSingleValueCriterion(criterion, company.size ?? null, "sizes", "기업규모");
+      return evaluateSizeCriterion(criterion, company.size ?? null);
     case "revenue":
       return evaluateNumericCriterion(criterion, company.revenue_krw ?? null, {
         label: "매출",
@@ -165,13 +193,13 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
     case "certification":
       return evaluateCertification(criterion, company);
     case "founder_trait":
-      return evaluateListCriterion(criterion, company.traits, "traits", "대표자 속성", isKnownListField(company, "founder_trait"));
+      return evaluateListCriterion(criterion, company.traits, "traits", "대표자 속성", isCompleteListField(company, "founder_trait"));
     case "prior_award":
-      return evaluateListCriterion(criterion, company.prior_awards, "programs", "기수혜", isKnownListField(company, "prior_award"));
+      return priorAwardTrace(criterion, company, asOf);
     case "ip":
-      return evaluateListCriterion(criterion, company.ip, "types", "지식재산", isKnownListField(company, "ip"));
+      return evaluateListCriterion(criterion, company.ip, "types", "지식재산", isCompleteListField(company, "ip"));
     case "target_type":
-      return evaluateListCriterion(criterion, company.target_types, "targets", "신청대상", isKnownListField(company, "target_type"));
+      return evaluateTargetType(criterion, company);
     case "business_status":
       return evaluateBusinessStatus(criterion, company);
     case "tax_compliance":
@@ -195,6 +223,31 @@ function evaluateCriterion(criterion: GrantCriterion, company: CompanyProfile): 
   }
 }
 
+/**
+ * 자동추출 결과가 아직 사람 검수를 통과하지 않았다면 불일치를 곧바로 탈락으로 확정하지 않는다.
+ * false ineligible 비용이 가장 크므로 검수 전 hard fail은 core review unknown으로 보존한다.
+ */
+function deferUnreviewedHardFail(
+  criterion: GrantCriterion,
+  entry: RuleTraceEntry,
+): RuleTraceEntry {
+  if (
+    criterion.needs_review !== true ||
+    entry.result !== "fail" ||
+    (criterion.kind !== "required" && criterion.kind !== "exclusion")
+  ) return entry;
+  return {
+    ...entry,
+    result: "unknown",
+    message: `${labelFor(criterion.dimension)} 자동 추출 조건은 검수 후 판정을 확정해요.`,
+  };
+}
+
+function priorAwardTrace(criterion: GrantCriterion, company: CompanyProfile, asOf: Date): RuleTraceEntry {
+  const evaluated = evaluatePriorAward({ value: criterion.value, kind: criterion.kind, company, asOf });
+  return trace(criterion, evaluated.result, evaluated.message, evaluated.companyValue);
+}
+
 function scalarEvidenceRequiresConfirmation(
   dimension: CriterionDimension,
   company: CompanyProfile,
@@ -205,7 +258,7 @@ function scalarEvidenceRequiresConfirmation(
     activeNumericQuestionRange(company, dimension) !== null
   ) return false;
   const evidence = company.profile_evidence?.[dimension];
-  if (!evidence) return false;
+  if (!evidence) return false; // legacy profile compatibility
   return evidence.axisCompleteness !== "complete" || evidence.sourceKind === "derived";
 }
 
@@ -252,6 +305,11 @@ function evaluateRegion(criterion: GrantCriterion, company: CompanyProfile): Rul
 
   const regions = value.regions ?? [];
   if (criterion.kind === "exclusion" || criterion.operator === "not_in") {
+    if (regions.length === 0) {
+      // 시군구 라벨만 있고 시도 코드가 없는 제외 조건을 무성 pass 처리하면
+      // 배제 대상 회사가 걸러지지 않는다. required와 동일하게 원문 확인으로 보존한다.
+      return trace(criterion, "unknown", "제외 지역 조건 확인 필요", company.region);
+    }
     const excluded = regions.includes(companyRegion);
     const group = value.region_group ?? value.labels?.join(", ") ?? "제외 지역";
     return trace(
@@ -264,8 +322,12 @@ function evaluateRegion(criterion: GrantCriterion, company: CompanyProfile): Rul
     );
   }
 
-  if (value.nationwide || regions.length === 0) {
+  if (value.nationwide === true) {
     return trace(criterion, "pass", "전국 대상", company.region);
+  }
+
+  if (regions.length === 0) {
+    return trace(criterion, "unknown", "세부 소재지 조건 확인 필요", company.region);
   }
 
   const ok = regions.includes(companyRegion);
@@ -280,48 +342,41 @@ function evaluateRegion(criterion: GrantCriterion, company: CompanyProfile): Rul
 function evaluateBizAge(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
   const value = criterion.value as BizAgeCriterionValue;
   if (company.is_preliminary && value.include_preliminary) {
-    return trace(criterion, "pass", "예비창업자 허용", { is_preliminary: true });
+    return trace(
+      criterion,
+      predicateResult(criterion, true),
+      criterion.kind === "exclusion" ? "예비창업자 제외 조건 해당" : "예비창업자 허용",
+      { is_preliminary: true },
+    );
   }
 
   const minMonths = value.min_months ?? null;
   const maxMonths = value.max_months ?? null;
   if (minMonths === null && maxMonths === null) {
-    return trace(
-      criterion,
-      company.is_preliminary ? "pass" : "fail",
-      value.include_preliminary ? "예비창업자 전용" : "업력 기준 확인 필요",
-      { is_preliminary: company.is_preliminary ?? false },
-    );
+    // 임계값이 추출되지 않은 criterion을 기존 사업자라는 이유만으로 탈락시키면 false negative가 된다.
+    // 예비창업자 허용 여부만으로 기존 사업자 배제를 확정할 수도 없으므로 원문 확인으로 보존한다.
+    return trace(criterion, "unknown", "업력 기준 확인 필요", {
+      is_preliminary: company.is_preliminary ?? false,
+    });
   }
 
   if (company.biz_age_months === null || company.biz_age_months === undefined) {
     return trace(criterion, "unknown", "업력 확인 필요");
   }
 
-  if (minMonths !== null && company.biz_age_months < minMonths) {
-    return trace(
-      criterion,
-      "fail",
-      `${formatMonths(minMonths)} 이상 대상 - 귀사 ${formatMonths(company.biz_age_months)}`,
-      { biz_age_months: company.biz_age_months, unlock_at_months: minMonths },
-    );
-  }
-
-  if (maxMonths !== null && company.biz_age_months > maxMonths) {
-    return trace(
-      criterion,
-      "fail",
-      `${formatMonths(maxMonths)} 이내${value.include_preliminary ? "/예비 허용" : ""} - 귀사 ${formatMonths(company.biz_age_months)}`,
-      { biz_age_months: company.biz_age_months },
-    );
-  }
-
+  const matches =
+    (minMonths === null || company.biz_age_months >= minMonths) &&
+    (maxMonths === null || company.biz_age_months <= maxMonths);
+  // unlock_at_months: min 미달 fail에서만 방출 — match-card의 soon 버킷·해금 칩·
+  // eligible_from 전이(plan-match-transitions)가 이 필드를 소비한다.
+  const belowMin = minMonths !== null && company.biz_age_months < minMonths;
   return trace(
     criterion,
-    "pass",
+    predicateResult(criterion, matches),
     `${bizAgeBoundsLabel(minMonths, maxMonths)}${value.include_preliminary ? "/예비 허용" : ""} - 귀사 ${formatMonths(company.biz_age_months)}`,
     {
       biz_age_months: company.biz_age_months,
+      ...(belowMin ? { unlock_at_months: minMonths } : {}),
       ...(maxMonths !== null ? { lock_after_months: maxMonths + 1 } : {}),
     },
   );
@@ -346,7 +401,7 @@ function evaluateFounderAge(criterion: GrantCriterion, company: CompanyProfile):
   });
   return trace(
     criterion,
-    ok ? "pass" : "fail",
+    predicateResult(criterion, ok),
     `대표 ${company.founder_age}세 - 허용 구간 ${labels.join(", ") || "확인 필요"}`,
     { founder_age: company.founder_age },
   );
@@ -360,6 +415,7 @@ function evaluateFounderAge(criterion: GrantCriterion, company: CompanyProfile):
 function evaluateIndustry(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
   const value = criterion.value as Record<string, unknown>;
   const known = isKnownListField(company, "industry");
+  const complete = isCompleteListField(company, "industry");
   const label = "업종/분야";
   const critCodes = toStringArray(value.codes);
   const critLabels = unique([
@@ -374,7 +430,7 @@ function evaluateIndustry(criterion: GrantCriterion, company: CompanyProfile): R
 
   if (criterion.operator === "exists") {
     const present = companyLabels.length > 0 || companyCodes.length > 0;
-    if (!present && known) return trace(criterion, "fail", `기업 ${label} 없음`, companyLabels);
+    if (!present && complete) return trace(criterion, "fail", `기업 ${label} 없음`, companyLabels);
     return trace(
       criterion,
       present ? "pass" : "unknown",
@@ -388,26 +444,67 @@ function evaluateIndustry(criterion: GrantCriterion, company: CompanyProfile): R
   }
 
   if (companyLabels.length === 0 && companyCodes.length === 0) {
-    if (!known) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
+    if (complete) {
+      const exclusion = criterion.operator === "not_in" || criterion.kind === "exclusion";
+      return trace(
+        criterion,
+        exclusion ? "pass" : "fail",
+        `${label} ${requiredDisplay.join(", ")} - 귀사 해당 없음`,
+        companyLabels,
+      );
+    }
     return trace(
       criterion,
-      criterion.operator === "not_in" || criterion.kind === "exclusion" ? "pass" : "fail",
-      `${label} ${requiredDisplay.join(", ")} - 귀사 해당 없음`,
+      "unknown",
+      known ? `기업 ${label} 세부 정보 확인 필요` : `기업 ${label} 입력 필요`,
       companyLabels,
     );
   }
 
   const codeHit = critCodes.length > 0 && industryCodeMatches(critCodes, companyCodes);
-  const labelHit = critLabels.length > 0 && critLabels.some((entry) => companyLabels.includes(entry));
+  const labelHit = critLabels.length > 0 && critLabels.some((entry) =>
+    companyLabels.some((companyLabel) => industryLabelsOverlap(entry, companyLabel)));
   const overlaps = codeHit || labelHit;
-  const matched = criterion.operator === "not_in" ? !overlaps : overlaps;
-  const result = criterion.kind === "exclusion" && criterion.operator !== "not_in" ? !matched : matched;
+  const exclusion = criterion.operator === "not_in" || criterion.kind === "exclusion";
+  if (overlaps) {
+    return trace(
+      criterion,
+      exclusion ? "fail" : "pass",
+      `${label} ${requiredDisplay.join(", ")} - 귀사 ${companyDisplay.join(", ")}`,
+      companyDisplay,
+    );
+  }
+
+  // 자동조회/점진 질문으로 얻은 업종은 positive-only(partial)일 수 있다. 이때 no-hit는
+  // 회사가 해당 업종을 영위하지 않는다는 증거가 아니므로 탈락 근거로 쓰지 않는다.
+  if (!complete) {
+    return trace(
+      criterion,
+      "unknown",
+      `${label} ${requiredDisplay.join(", ")} 세부 해당 여부 확인 필요 - 귀사 ${companyDisplay.join(", ")}`,
+      companyDisplay,
+    );
+  }
+
   return trace(
     criterion,
-    result ? "pass" : "fail",
+    exclusion ? "pass" : "fail",
     `${label} ${requiredDisplay.join(", ")} - 귀사 ${companyDisplay.join(", ")}`,
     companyDisplay,
   );
+}
+
+function industryLabelsOverlap(left: string, right: string): boolean {
+  const a = canonicalIndustryLabel(left);
+  const b = canonicalIndustryLabel(right);
+  return a === b || (a.length >= 3 && b.includes(a)) || (b.length >= 3 && a.includes(b));
+}
+
+function canonicalIndustryLabel(value: string): string {
+  const normalized = value.toLowerCase().replace(/[\s·ㆍ_\-/]/g, "");
+  if (normalized === "sw" || normalized.includes("소프트웨어")) return "소프트웨어";
+  if (normalized === "ict" || normalized.includes("정보통신")) return "정보통신";
+  return normalized.replace(/(?:산업|업종|업|분야|기업)$/g, "");
 }
 
 function toStringArray(value: unknown): string[] {
@@ -424,7 +521,7 @@ function toStringArray(value: unknown): string[] {
 function evaluateCertification(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
   const value = criterion.value as Record<string, unknown>;
   const label = "인증";
-  const known = isKnownListField(company, "certification");
+  const complete = isCompleteListField(company, "certification");
   const companyValues = company.certs ?? [];
   const required = unique([
     ...toStringArray(value.certs),
@@ -433,7 +530,7 @@ function evaluateCertification(criterion: GrantCriterion, company: CompanyProfil
   ]);
 
   if (criterion.operator === "exists") {
-    if (companyValues.length === 0 && known) return trace(criterion, "fail", `기업 ${label} 없음`, companyValues);
+    if (companyValues.length === 0 && complete) return trace(criterion, "fail", `기업 ${label} 없음`, companyValues);
     return trace(
       criterion,
       companyValues.length > 0 ? "pass" : "unknown",
@@ -444,7 +541,7 @@ function evaluateCertification(criterion: GrantCriterion, company: CompanyProfil
 
   if (required.length === 0) return trace(criterion, "unknown", `${label} 조건 확인 필요`);
   if (companyValues.length === 0) {
-    if (!known) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
+    if (!complete) return trace(criterion, "unknown", `기업 ${label} 보유 목록 추가 확인 필요`);
     return trace(
       criterion,
       criterion.operator === "not_in" || criterion.kind === "exclusion" ? "pass" : "fail",
@@ -454,11 +551,18 @@ function evaluateCertification(criterion: GrantCriterion, company: CompanyProfil
   }
 
   const overlaps = certsMatch(companyValues, required);
-  const matched = criterion.operator === "not_in" ? !overlaps : overlaps;
-  const result = criterion.kind === "exclusion" && criterion.operator !== "not_in" ? !matched : matched;
+  const exclusion = criterion.operator === "not_in" || criterion.kind === "exclusion";
+  if (!overlaps && !complete) {
+    return trace(
+      criterion,
+      "unknown",
+      `${label} ${required.join(", ")} 추가 보유 여부 확인 필요 - 귀사 ${companyValues.join(", ")}`,
+      companyValues,
+    );
+  }
   return trace(
     criterion,
-    result ? "pass" : "fail",
+    overlaps ? (exclusion ? "fail" : "pass") : (exclusion ? "pass" : "fail"),
     `${label} ${required.join(", ")} - 귀사 ${companyValues.join(", ")}`,
     companyValues,
   );
@@ -469,12 +573,12 @@ function evaluateListCriterion(
   companyValuesInput: string[] | undefined,
   valueKey: keyof ListCriterionValue,
   label: string,
-  known: boolean,
+  complete: boolean,
 ): RuleTraceEntry {
   const companyValues = companyValuesInput ?? [];
   const required = ((criterion.value as ListCriterionValue)[valueKey] ?? []) as string[];
   if (criterion.operator === "exists") {
-    if (companyValues.length === 0 && known) {
+    if (companyValues.length === 0 && complete) {
       return trace(criterion, "fail", `기업 ${label} 없음`, companyValues);
     }
     return trace(
@@ -486,7 +590,7 @@ function evaluateListCriterion(
   }
   if (required.length === 0) return trace(criterion, "unknown", `${label} 조건 확인 필요`);
   if (companyValues.length === 0) {
-    if (!known) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
+    if (!complete) return trace(criterion, "unknown", `기업 ${label} 목록 추가 확인 필요`);
     return trace(
       criterion,
       criterion.operator === "not_in" || criterion.kind === "exclusion" ? "pass" : "fail",
@@ -495,14 +599,67 @@ function evaluateListCriterion(
     );
   }
   const overlaps = required.some((value) => companyValues.includes(value));
-  const matched = criterion.operator === "not_in" ? !overlaps : overlaps;
-  const result = criterion.kind === "exclusion" && criterion.operator !== "not_in" ? !matched : matched;
+  const exclusion = criterion.operator === "not_in" || criterion.kind === "exclusion";
+  if (!overlaps && !complete) {
+    return trace(
+      criterion,
+      "unknown",
+      `${label} ${required.join(", ")} 추가 해당 여부 확인 필요 - 귀사 ${companyValues.join(", ")}`,
+      companyValues,
+    );
+  }
   return trace(
     criterion,
-    result ? "pass" : "fail",
+    overlaps ? (exclusion ? "fail" : "pass") : (exclusion ? "pass" : "fail"),
     `${label} ${required.join(", ")} - 귀사 ${companyValues.join(", ")}`,
     companyValues,
   );
+}
+
+/**
+ * target_type은 개인/법인처럼 상호배타적인 법적 유형과 창업기업·대학 같은 독립 태그가 섞인 축이다.
+ * 목록 전체가 partial이어도 공고 조건과 회사 값이 모두 개인/법인 유형만 가리킬 때는 반대 유형을
+ * 확정할 수 있다. 그 외 태그의 no-hit는 기존 positive-only 규칙대로 unknown을 유지한다.
+ */
+function evaluateTargetType(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
+  const required = ((criterion.value as ListCriterionValue).targets ?? []) as string[];
+  const requiredKinds = required.map(canonicalBusinessKindTarget);
+  const companyKinds = unique((company.target_types ?? [])
+    .map(canonicalBusinessKindTarget)
+    .filter((value): value is "individual" | "corporation" => value !== null));
+  const onlyBusinessKindRequirement = required.length > 0 && requiredKinds.every((value) => value !== null);
+  if (criterion.operator !== "exists" && onlyBusinessKindRequirement && companyKinds.length === 1) {
+    const overlaps = requiredKinds.includes(companyKinds[0]!);
+    const exclusion = criterion.operator === "not_in" || criterion.kind === "exclusion";
+    const companyLabel = companyKinds[0] === "individual" ? "개인사업자" : "법인";
+    return trace(
+      criterion,
+      overlaps ? (exclusion ? "fail" : "pass") : (exclusion ? "pass" : "fail"),
+      `신청대상 ${required.join(", ")} - 귀사 ${companyLabel}`,
+      company.target_types,
+    );
+  }
+  return evaluateListCriterion(
+    criterion,
+    company.target_types,
+    "targets",
+    "신청대상",
+    isCompleteListField(company, "target_type"),
+  );
+}
+
+function canonicalBusinessKindTarget(value: string): "individual" | "corporation" | null {
+  const normalized = value.replace(/[\s·ㆍ]/g, "");
+  if (normalized === "개인사업자") return "individual";
+  if (normalized === "법인" || normalized === "법인사업자" || normalized === "법인기업") return "corporation";
+  return null;
+}
+
+function isCompleteListField(
+  company: CompanyProfile,
+  dimension: "industry" | "founder_trait" | "certification" | "prior_award" | "ip" | "target_type",
+): boolean {
+  return company.list_completeness?.[dimension] === "complete";
 }
 
 function isKnownListField(company: CompanyProfile, dimension: CriterionDimension): boolean {
@@ -526,7 +683,12 @@ function evaluateNumericCriterion(
   }
 
   if (criterion.operator === "exists") {
-    return trace(criterion, "pass", `${options.label} 확인 - 귀사 ${formatNumber(companyValue)}${options.unit}`, companyValue);
+    return trace(
+      criterion,
+      predicateResult(criterion, true),
+      `${options.label} 확인 - 귀사 ${formatNumber(companyValue)}${options.unit}`,
+      companyValue,
+    );
   }
 
   const value = criterion.value as Record<string, unknown>;
@@ -542,7 +704,7 @@ function evaluateNumericCriterion(
   if (ok === null) return trace(criterion, "unknown", `${options.label} 조건 확인 필요`, companyValue);
   return trace(
     criterion,
-    ok ? "pass" : "fail",
+    predicateResult(criterion, ok),
     `${options.label} ${numericBoundsLabel(min, max, options.unit)} - 귀사 ${formatNumber(companyValue)}${options.unit}`,
     companyValue,
   );
@@ -555,7 +717,12 @@ function evaluateNumericRangeCriterion(
 ): RuleTraceEntry {
   const companyValue = { kind: "range", min: range.min, max: range.max, unit: range.unit };
   if (criterion.operator === "exists") {
-    return trace(criterion, "pass", `${options.label} 구간 확인 - 귀사 ${numericRangeLabel(range, options.unit)}`, companyValue);
+    return trace(
+      criterion,
+      predicateResult(criterion, true),
+      `${options.label} 구간 확인 - 귀사 ${numericRangeLabel(range, options.unit)}`,
+      companyValue,
+    );
   }
   const value = criterion.value as Record<string, unknown>;
   const min = firstNumber(value, options.minKeys);
@@ -579,7 +746,21 @@ function evaluateNumericRangeCriterion(
   const message = result === "unknown"
     ? `${options.label} ${bounds} 경계가 선택 구간(${rangeLabel}) 안에 있어 정확한 값 필요`
     : `${options.label} ${bounds} - 귀사 구간 ${rangeLabel}`;
-  return trace(criterion, result, message, companyValue);
+  return trace(criterion, applyExclusionPolarity(criterion, result), message, companyValue);
+}
+
+function predicateResult(criterion: GrantCriterion, matches: boolean): "pass" | "fail" {
+  return criterion.kind === "exclusion"
+    ? (matches ? "fail" : "pass")
+    : (matches ? "pass" : "fail");
+}
+
+function applyExclusionPolarity(
+  criterion: GrantCriterion,
+  result: "pass" | "fail" | "unknown",
+): "pass" | "fail" | "unknown" {
+  if (criterion.kind !== "exclusion" || result === "unknown") return result;
+  return result === "pass" ? "fail" : "pass";
 }
 
 function numericRangeLabel(range: NumericQuestionRange, unit: string): string {
@@ -588,23 +769,65 @@ function numericRangeLabel(range: NumericQuestionRange, unit: string): string {
   return `${formatNumber(range.min)}~${formatNumber(range.max)}${unit}`;
 }
 
-function evaluateSingleValueCriterion(
+function evaluateSizeCriterion(
   criterion: GrantCriterion,
   companyValue: string | null,
-  valueKey: keyof ListCriterionValue,
-  label: string,
 ): RuleTraceEntry {
-  const required = ((criterion.value as ListCriterionValue)[valueKey] ?? []) as string[];
+  const label = "기업규모";
+  const requiredRaw = (criterion.value as ListCriterionValue).sizes ?? [];
+  const required = unique(requiredRaw.map(canonicalSize).filter((value): value is CanonicalSize => value !== null));
   if (required.length === 0) return trace(criterion, "unknown", `${label} 조건 확인 필요`);
   if (!companyValue) return trace(criterion, "unknown", `기업 ${label} 입력 필요`);
-  const overlaps = required.includes(companyValue);
-  const result = criterion.operator === "not_in" ? !overlaps : overlaps;
+
+  const companySize = canonicalSize(companyValue);
+  if (!companySize) return trace(criterion, "unknown", `기업 ${label} 표준화 확인 필요`, companyValue);
+  const compatibleSizes = SIZE_COMPATIBILITY[companySize];
+  const overlaps = required.some((size) => compatibleSizes.includes(size));
+  const ambiguous = required.some((size) => isMoreSpecificSize(size, companySize));
+  const exclusion = criterion.kind === "exclusion" || criterion.operator === "not_in";
+
+  if (ambiguous && !overlaps) {
+    return trace(
+      criterion,
+      "unknown",
+      `${label} ${requiredRaw.join(", ")} 세부 구분 확인 필요 - 귀사 ${companyValue}`,
+      companyValue,
+    );
+  }
+
+  const pass = exclusion ? !overlaps : overlaps;
   return trace(
     criterion,
-    result ? "pass" : "fail",
-    `${label} ${required.join(", ")} - 귀사 ${companyValue}`,
+    pass ? "pass" : "fail",
+    `${label} ${requiredRaw.join(", ")} - 귀사 ${companyValue}`,
     companyValue,
   );
+}
+
+type CanonicalSize = "소상공인" | "소기업" | "중소기업" | "중견기업" | "대기업";
+
+const SIZE_COMPATIBILITY: Record<CanonicalSize, CanonicalSize[]> = {
+  소상공인: ["소상공인", "소기업", "중소기업"],
+  소기업: ["소기업", "중소기업"],
+  중소기업: ["중소기업"],
+  중견기업: ["중견기업"],
+  대기업: ["대기업"],
+};
+
+function canonicalSize(value: string): CanonicalSize | null {
+  const normalized = value.replace(/[\s·ㆍ]/g, "");
+  if (/소상공인/.test(normalized)) return "소상공인";
+  if (/중소(?:기업)?/.test(normalized)) return "중소기업";
+  if (/소기업/.test(normalized)) return "소기업";
+  if (/중견(?:기업)?/.test(normalized)) return "중견기업";
+  if (/대기업/.test(normalized)) return "대기업";
+  return null;
+}
+
+function isMoreSpecificSize(required: CanonicalSize, company: CanonicalSize): boolean {
+  if (company === "중소기업") return required === "소기업" || required === "소상공인";
+  if (company === "소기업") return required === "소상공인";
+  return false;
 }
 
 function evaluateBusinessStatus(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
@@ -1003,14 +1226,79 @@ function numberOrNull(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function scoreFit(eligibility: Eligibility, traceEntries: RuleTraceEntry[]): number {
-  if (eligibility === "ineligible") return 0;
-  if (eligibility === "eligible") return 100;
+function buildMatchQuality(
+  criteria: GrantCriterion[],
+  traceEntries: RuleTraceEntry[],
+  reviewGate: MatchReviewGate,
+  extractionManifest?: GrantExtractionManifest,
+): MatchQuality {
+  const weighted = criteria
+    .map((criterion, index) => ({ criterion, trace: traceEntries[index], weight: criterionWeight(criterion) }))
+    .filter((entry) => entry.weight > 0);
+  const totalWeight = weighted.reduce((sum, entry) => sum + entry.weight, 0);
+  const confirmedWeight = weighted
+    .filter(({ criterion, trace }) =>
+      trace !== undefined &&
+      trace.result !== "unknown" &&
+      criterion.operator !== "text_only" &&
+      criterion.needs_review !== true)
+    .reduce((sum, entry) => sum + entry.weight, 0);
+  const evidenceWeight = weighted
+    .filter(({ criterion }) => hasCriterionEvidence(criterion))
+    .reduce((sum, entry) => sum + entry.weight, 0);
+  const verificationCompleteness = weightedPercent(confirmedWeight, totalWeight);
+  const evidenceCoverage = weightedPercent(evidenceWeight, totalWeight);
+  const extractionReadiness = extractionReadinessFor(criteria, extractionManifest);
+  const lowConfidence =
+    extractionReadiness === "unstructured" ||
+    extractionReadiness === "partial" ||
+    verificationCompleteness < 100 ||
+    evidenceCoverage < 100 ||
+    reviewGate.tier === "needs_core_review";
 
-  const required = traceEntries.filter((entry) => entry.kind === "required");
-  if (required.length === 0) return 70;
-  const passCount = required.filter((entry) => entry.result === "pass").length;
-  return Math.round(60 + (passCount / required.length) * 35);
+  return {
+    eligibilityConfidence: lowConfidence
+      ? "low"
+      : extractionReadiness === "reviewed"
+        ? "high"
+        : "medium",
+    verificationCompleteness,
+    evidenceCoverage,
+    extractionReadiness,
+  };
+}
+
+function criterionWeight(criterion: GrantCriterion): number {
+  if (criterion.kind === "exclusion") return 2;
+  if (criterion.kind !== "required") return 0;
+  return CORE_GATE_DIMENSIONS.has(criterion.dimension) ? 2 : 1;
+}
+
+function weightedPercent(numerator: number, denominator: number): number {
+  if (denominator <= 0) return 0;
+  return Math.round((numerator / denominator) * 100);
+}
+
+function hasCriterionEvidence(criterion: GrantCriterion): boolean {
+  return Boolean(criterion.source_span?.trim() || criterion.source_field?.trim());
+}
+
+function extractionReadinessFor(
+  criteria: GrantCriterion[],
+  extractionManifest?: GrantExtractionManifest,
+): MatchQuality["extractionReadiness"] {
+  if (extractionManifest) return extractionManifest.readiness;
+  if (criteria.length === 0) return "unstructured";
+  const hardCriteria = criteria.filter((criterion) =>
+    criterion.kind === "required" || criterion.kind === "exclusion");
+  if (
+    hardCriteria.length === 0 ||
+    hardCriteria.some((criterion) => criterion.operator === "text_only" || !hasCriterionEvidence(criterion))
+  ) {
+    return "partial";
+  }
+  // 현재 criterion 계약에는 reviewer 승인 provenance가 없으므로 reviewed로 추정하지 않는다.
+  return "structured_unreviewed";
 }
 
 function buildReviewGate(input: {
@@ -1018,6 +1306,7 @@ function buildReviewGate(input: {
   traceEntries: RuleTraceEntry[];
   criteria: GrantCriterion[];
   criteriaExtracted: boolean;
+  extractionManifest?: GrantExtractionManifest;
 }): MatchReviewGate {
   if (!input.criteriaExtracted) {
     return {
@@ -1039,6 +1328,24 @@ function buildReviewGate(input: {
       reasons: uniqueReasons(hardFails.map((entry) =>
         reviewReason("hard_fail", entry, "필수 조건을 충족하지 못했어요."),
       )),
+    };
+  }
+
+  const evidenceMissing = input.criteria
+    .map((criterion, index) => ({ criterion, entry: input.traceEntries[index] }))
+    .filter(({ criterion }) =>
+      (criterion.kind === "required" || criterion.kind === "exclusion") &&
+      !hasCriterionEvidence(criterion));
+  if (evidenceMissing.length > 0) {
+    return {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: uniqueReasons(evidenceMissing.map(({ criterion, entry }) => ({
+        code: "criteria_under_extracted" as const,
+        dimension: criterion.dimension,
+        label: `${labelFor(criterion.dimension)} 조건의 공고 원문 근거를 확인해야 해요.`,
+        ...(entry?.source_span ? { sourceSpan: entry.source_span } : {}),
+      }))),
     };
   }
 
@@ -1083,6 +1390,21 @@ function buildReviewGate(input: {
     };
   }
 
+  if (
+    input.extractionManifest &&
+    (input.extractionManifest.readiness === "partial" || input.extractionManifest.readiness === "unstructured")
+  ) {
+    return {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: [{
+        code: "extraction_incomplete",
+        dimension: "other",
+        label: extractionIncompleteLabel(input.extractionManifest),
+      }],
+    };
+  }
+
   const profileUnknowns = input.traceEntries.filter(isHardUnknownTrace);
   if (profileUnknowns.length > 0) {
     return {
@@ -1107,6 +1429,19 @@ function buildReviewGate(input: {
   return { tier: "needs_core_review", scoreDisplay: "hidden", reasons: [] };
 }
 
+function extractionIncompleteLabel(manifest: GrantExtractionManifest): string {
+  if (manifest.warnings.includes("attachment_fetch_incomplete")) {
+    return "공고 첨부파일 수집이 완료되지 않아 원문 확인이 필요해요.";
+  }
+  if (
+    manifest.warnings.includes("attachment_conversion_failed") ||
+    manifest.warnings.includes("attachment_conversion_incomplete")
+  ) {
+    return "공고 첨부파일 분석이 완료되지 않아 원문 확인이 필요해요.";
+  }
+  return "공고 자격조건 추출이 완료되지 않아 원문 확인이 필요해요.";
+}
+
 function isHardFailTrace(entry: RuleTraceEntry): boolean {
   return entry.result === "fail" && (entry.kind === "required" || entry.kind === "exclusion");
 }
@@ -1119,7 +1454,9 @@ function isHardUnknownTrace(entry: RuleTraceEntry): boolean {
 }
 
 function isCoreReviewTrace(entry: RuleTraceEntry, criterion: GrantCriterion | undefined): boolean {
-  return CORE_GATE_DIMENSIONS.has(entry.dimension) || hasHighRiskSignal(criterion, entry);
+  return criterion?.needs_review === true ||
+    CORE_GATE_DIMENSIONS.has(entry.dimension) ||
+    hasHighRiskSignal(criterion, entry);
 }
 
 function isUnverifiedCoreCriterion(

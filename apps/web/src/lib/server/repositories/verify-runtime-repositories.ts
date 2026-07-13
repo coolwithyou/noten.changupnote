@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { updateCompanyProfileField } from "@cunote/core";
-import type { CompanyProfile, Grant, NormalizedGrant } from "@cunote/contracts";
+import { matchGrantCriteria, updateCompanyProfileField } from "@cunote/core";
+import type { CompanyProfile, Grant, GrantCriterion, NormalizedGrant } from "@cunote/contracts";
 import { createRuntimeRepositories, demoCompanyId } from "./runtime";
 
 const userId = "00000000-0000-4000-8000-000000000001";
@@ -58,6 +58,75 @@ const resolvedAgain = await repositories.companies.resolveCompanyProfile({
 assert.equal(resolvedAgain?.biz_age_months, 42);
 assert.equal(resolvedAgain?.confidence?.biz_age, 0.92);
 
+const priorAwardUpdated = updateCompanyProfileField(resolvedAgain!, {
+  field: "prior_award",
+  value: {
+    records: [{ program: "Start-up NEST", state: "graduated", year: 2025 }],
+    self_flags: { current_similar: false, same_project: false },
+    has_incubation_tenancy: false,
+    known_programs: ["TIPS"],
+    known_program_types: ["Start-up NEST"],
+  },
+  confidence: 0.6,
+  mode: "replace",
+  sourceKind: "self_declared",
+  provider: "cunote_profile_question",
+  asOf: "2026-07-12T00:00:00.000Z",
+});
+await repositories.companies.saveCompanyProfile({
+  companyId: demoCompanyId(),
+  userId,
+  profile: priorAwardUpdated,
+});
+const priorAwardResolved = await repositories.companies.resolveCompanyProfile({
+  companyId: demoCompanyId(),
+  userId,
+});
+assert.deepEqual(priorAwardResolved?.prior_award_history, {
+  records: [{ program: "startup_nest", state: "graduated", year: 2025 }],
+  self_flags: { current_similar: false, same_project: false },
+  has_incubation_tenancy: false,
+  known_programs: ["tips"],
+  known_program_types: ["startup_nest"],
+});
+assert.equal(priorAwardResolved?.confidence?.prior_award, 0.6);
+const priorAwardCriterion: GrantCriterion = {
+  id: "runtime:prior-award",
+  grant_id: "runtime-prior-award",
+  dimension: "prior_award",
+  operator: "in",
+  kind: "exclusion",
+  value: { scope: "program_type", programs: ["startup_nest"], states: ["graduated"] },
+  confidence: 0.9,
+  source_span: "Start-up NEST 수료기업 제외",
+};
+assert.equal(
+  matchGrantCriteria([priorAwardCriterion], priorAwardResolved!, {
+    asOf: new Date("2026-07-12T00:00:00.000Z"),
+  }).eligibility,
+  "ineligible",
+  "저장된 구조화 수혜 이력이 실제 exclusion 재판정에 소비되어야 함",
+);
+const afterUnrelatedUpdate = updateCompanyProfileField(priorAwardResolved!, {
+  field: "revenue",
+  value: 250_000_000,
+  confidence: 0.8,
+});
+await repositories.companies.saveCompanyProfile({
+  companyId: demoCompanyId(),
+  userId,
+  profile: afterUnrelatedUpdate,
+});
+const afterUnrelatedResolved = await repositories.companies.resolveCompanyProfile({
+  companyId: demoCompanyId(),
+  userId,
+});
+assert.deepEqual(
+  afterUnrelatedResolved?.prior_award_history,
+  priorAwardResolved?.prior_award_history,
+  "다른 필드 저장 후에도 prior_award 구조가 silent drop되면 안 됨",
+);
+
 const otherUserProfile = await repositories.companies.resolveCompanyProfile({
   companyId: demoCompanyId(),
   userId: "00000000-0000-4000-8000-000000000002",
@@ -99,6 +168,32 @@ assert.deepEqual(
   activeGrants.map((entry) => entry.grant.source_id),
   ["open-future", "unknown-no-end"],
 );
+
+const questionSessionId = "00000000-0000-4000-8000-000000000777";
+const questionEvent = await repositories.matches.saveProfileQuestionEvent({
+  companyId: demoCompanyId(),
+  userId,
+  sessionId: questionSessionId,
+  rulesetVer: "runtime-verifier",
+  impact: {
+    scope: "active_grant_window",
+    windowLimit: 40,
+    dimension: "biz_age",
+    evaluatedGrantCount: 2,
+    targetedConditionalCount: 1,
+    dimensionResolvedGrantCount: 1,
+    eligibilityResolvedCount: 1,
+    conditionalToEligibleCount: 1,
+    conditionalToIneligibleCount: 0,
+    remainingConditionalCount: 0,
+    conditionalResolutionRate: 1,
+    transitionCounts: { conditional_to_eligible: 1, eligible_to_eligible: 1 },
+    changedMatchStateCount: 1,
+    refreshGrantIds: ["runtime:open-future"],
+  },
+});
+assert.equal(questionEvent.sessionId, questionSessionId);
+assert.equal(questionEvent.persisted, false, "runtime adapter must not claim durable telemetry");
 
 const fetchedAt = new Date("2026-06-26T00:00:00.000Z");
 const expiresAt = new Date("2026-06-27T00:00:00.000Z");
@@ -162,11 +257,15 @@ console.log(JSON.stringify({
   checked: [
     "runtime_profile_save",
     "runtime_profile_resolve",
+    "runtime_prior_award_structured_roundtrip",
+    "runtime_prior_award_match_recalculation",
+    "runtime_prior_award_survives_unrelated_update",
     "runtime_profile_user_scope",
     "runtime_list_user_companies",
     "runtime_company_verify",
     "runtime_company_guard",
     "runtime_active_grant_filter",
+    "runtime_profile_question_event_nonpersistent",
     "runtime_enrichment_cache_fresh",
     "runtime_enrichment_cache_expired",
     "runtime_enrichment_cache_permanent",

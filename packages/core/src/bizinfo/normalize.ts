@@ -14,14 +14,15 @@ import {
   normalizeBizInfoUrl,
 } from "./extraction-input.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
+import { classifyGrantAudience } from "../audience/classify.js";
 import { classifyApplyMethods } from "../grants/apply-method.js";
 import { classifyAuthoringMode } from "../grants/authoring-mode.js";
 import { resolveGrantAgencyPrimary } from "../grants/agency.js";
+import { projectGrantIndustryTags } from "../grants/industry-projection.js";
 import type { BizInfoAttachmentMarkdown, BizInfoProgram } from "./types.js";
 
-// v2: 결격 축(tax_compliance/credit_status/sanction/financial_health/insured_workforce/investment)
-// 프롬프트 갱신 + 폴백 rule-based 분해기 도입 — 배제 문구 구조화(P4, 2026-07-11).
-export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v2";
+// v3: 결격 축 구조화(v2)에 industry value alias→tags 정규화와 prompt canonical key를 추가.
+export const BIZINFO_NORMALIZER_VERSION = "bizinfo-llm-criteria-v3";
 
 export function normalizeBizInfoProgram(
   program: BizInfoProgram,
@@ -88,6 +89,7 @@ export function normalizeBizInfoProgram(
       options.requiredDocuments,
     )),
     status: statusFromPeriod(applyPeriod.start, applyPeriod.end, asOf),
+    audience: classifyGrantAudience({ source: "bizinfo", title: input.title, payload: program }).audience,
     f_regions: projection.f_regions,
     f_industries: projection.f_industries,
     f_biz_age_min_months: projection.f_biz_age_min_months,
@@ -155,9 +157,7 @@ function deriveProjection(criteria: GrantCriterion[]) {
     .flatMap((criterion) => (criterion.value as RegionCriterionValue).regions ?? []);
   const bizAge = criteria.find((criterion) => criterion.dimension === "biz_age");
   const bizAgeValue = bizAge?.value as BizAgeCriterionValue | undefined;
-  const industryTags = criteria
-    .filter((criterion) => criterion.dimension === "industry")
-    .flatMap((criterion) => (criterion.value as ListCriterionValue).tags ?? []);
+  const industryTags = projectGrantIndustryTags(criteria);
   const sizes = criteria
     .filter((criterion) => criterion.dimension === "size")
     .flatMap((criterion) => (criterion.value as ListCriterionValue).sizes ?? []);

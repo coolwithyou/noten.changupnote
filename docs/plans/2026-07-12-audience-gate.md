@@ -1,9 +1,13 @@
 # P6 audience 상류 게이트 — 구현계획 설계
 
-> 🟠 상태: 리뷰 반영 완료(조건부 승인 → 반영). 심층 리뷰(codex gpt-5.5 xhigh fast mode) 발견 5건(Major 4·Minor 1) 전건 반영 완료(§리뷰 반영 기록). 사용자 승인 후 별도 세션에서 구현.
+> 🟠 상태: 구현 진행 — P0 계약·deterministic 분류기·P6a 검수 패킷/평가기 완료. DB enum·백필·매칭 제외는 사람 검수 gate 전이라 미적용.
 > 출처 핸드오프: `docs/plans/HANDOFF-2026-07-12-p6-prior-award-design.md` 트랙 1
 > 단일 원천(기반 트랙): `docs/plans/2026-07-11-matching-dimension-expansion.md` (§1 D8·P6 골격, §6 M2 enum 복제 전례)
 > 근거 연구: `docs/research/2026-07-11-공고매칭-14차원-확장-검토.md` §3.3(개인 대상 공고는 상류 게이트), `docs/research/2026-07-11-차원확장-백필-층화측정.md`(백필 실측 방법론)
+
+> 구현 메모 (2026-07-12): `GrantAudience` 계약과 OpenAPI, `classifyGrantAudience()` 순수 분류기, 함정 케이스 단위테스트, 읽기 전용 `report:grant-audience-candidates`, 2인 검수용 `export:grant-audience-review-tasks`, `report|verify:grant-audience-eval`을 구현했다. 명백한 과거 K-Startup 34건 freshness guard 적용 후 활성 1,898건 실측 결과는 company 1,838 / mixed 29 / unknown 25 / 안전한 individual 후보 6이다. K-Startup `aply_trgt=일반인` 단독은 실제 입주기업·워크숍 오표기가 있어 individual로 확정하지 않고, 제목/대상본문의 개인 전용 신호가 함께 있을 때만 `safeToExcludeFromBusinessMatching=true`가 된다. freshness guard 이후 검수 패킷 81건(individual 6 / mixed 10 / unknown 25 / company 40)으로 재생성했다. reviewed=0이므로 evaluator `operationalReady=false`; DB write와 audience 매칭 필터는 계속 꺼져 있다.
+
+> 구현 메모 (2026-07-12, ingestion/P1 경계): K-Startup·BizInfo normalizer가 신규 `Grant.audience`를 deterministic 분류해 메모리 결과에 싣도록 배선하고 source별 테스트를 추가했다. P1 스키마를 시험 생성했을 때 SQL은 `CREATE TYPE grant_audience`, `grants.audience DEFAULT unknown NOT NULL`, audience index 3개 구문만 생성되는 것을 확인했다. 그러나 현재 DB에 migration을 적용하지 않은 채 schema.ts를 먼저 바꾸면 실행 중 조회가 깨지므로, 승인 없는 DB write 원칙에 따라 schema/publisher/0045 생성본은 되돌렸다. P1 승인 시 같은 3구문을 재생성·검수하고 migration과 런타임 코드를 한 단위로 적용한다.
 
 ---
 
@@ -142,6 +146,8 @@ audience는 **grant 객체에 실리는 필드**라 openapi.ts에서 GrantDetail
 
 ### P0 — 계약 · canonical 신호 사전 (선행)
 
+현재 상태: **완료**. `GRANT_AUDIENCES`, `GrantAudience`, 라벨, `Grant.audience?`, OpenAPI enum과 deterministic 신호 사전을 구현했고 packages build·OpenAPI 검증이 통과한다. DB 컬럼은 P1 소유 범위다.
+
 | 파일 | 작업 |
 |---|---|
 | `packages/contracts/src/enums.ts` | `GRANT_AUDIENCES` 추가 |
@@ -155,6 +161,8 @@ audience는 **grant 객체에 실리는 필드**라 openapi.ts에서 GrantDetail
 
 ### P1 — DB 마이그레이션
 
+현재 상태: **SQL shape 검증 완료 / 적용 대기**. migration 실행 권한과 P6a gate가 충족되기 전에는 `schema.ts`, publisher 저장 매핑, 조회 필터를 활성화하지 않는다.
+
 1. `schema.ts:48` 인근에 `grantAudienceEnum`, grants 테이블(575-619)에 `audience` 컬럼+인덱스(§3.2)
 2. `pnpm db:generate` → **생성 SQL 검수**(CLAUDE.md 규칙): 신규 enum이라 `CREATE TYPE grant_audience AS ENUM(...)` + `ALTER TABLE grants ADD COLUMN audience ... DEFAULT 'unknown' NOT NULL` + `CREATE INDEX` 형태 예상(0037 striped_gravity의 `f_authoring_mode DEFAULT 'unknown' NOT NULL` 전례와 동형). **기존 객체 재생성이 섞이면 SQL에서 제거·스냅샷만 유지**(0018~0024 교훈)
 3. `pnpm db:migrate`
@@ -162,6 +170,8 @@ audience는 **grant 객체에 실리는 필드**라 openapi.ts에서 GrantDetail
 **완료 기준**: `select enum_range(null::grant_audience)` = `{company,individual,mixed,unknown}`. `select audience, count(*) from grants group by 1` → 전량 `unknown`(기본값). 기존 행 무손상.
 
 ### P2 — 분류기 (`packages/core/src/audience/classify.ts` 신규)
+
+현재 상태: **deterministic 단계 완료 / LLM 보조 대기**. 현재 운영 실측에서 unknown은 34/1,932건뿐이며, P6a 사람 검수 전에는 LLM 호출이나 individual 확정 확대를 하지 않는다.
 
 3단 분류 함수. **입력은 grant_raw payload + title**(D6), 순수 함수(deterministic 부분)와 LLM 보조를 분리.
 
@@ -183,6 +193,8 @@ audience는 **grant 객체에 실리는 필드**라 openapi.ts에서 GrantDetail
 **완료 기준(A3 gate)**: dry-run에서 audience 분포 리포트(개인 후보 수)·계측 산출까지가 **골든(P6a) 전 허용 범위**. **`--write`는 P6a 골든 individual precision ≥ 0.95 확인 후에만 실행**(그 전 dry-run·계측만). gate 통과 후 `--write --active-only`로 활성 우주 먼저 반영·검증 → 전량. individual 표본 사람 검수(false individual 0 확인).
 
 ### P4 — ingestion 자동 분류 배선 (D11)
+
+현재 상태: **normalizer 메모리 배선 완료 / DB publisher 저장 대기**. K-Startup·BizInfo 신규 normalize 결과에는 audience가 포함되지만 현재 DB schema에는 컬럼이 없으므로 영속화하지 않는다.
 
 - kstartup: `packages/core/src/kstartup/normalize.ts`가 반환하는 Grant에 audience 세팅(payload 접근 가능 지점). normalizer가 payload 원문을 못 받으면 publish 경로(정규화 후 grants insert 직전)에서 `classifyAudience` 호출
 - bizinfo: `apps/web/src/lib/server/ingestion/archiveBizInfoCore.ts` publish 경로에서 `classifyAudience`(trgetNm/bsnsSumryCn/pblancNm 기반) → grants.audience
@@ -209,6 +221,24 @@ audience는 **grant 객체에 실리는 필드**라 openapi.ts에서 GrantDetail
 - `packages/core/golden/matching/` 또는 audience 전용 골든 픽스처: §2 golden 셋(individual/company/mixed + company 함정 케이스). 사람 검수로 확정(AI 라벨 무검수 승격 금지)
 - 분류 precision/recall 측정 리포트 — **individual precision ≥ 0.95 실측 확인이 P3 `--write`·P5 필터 활성화의 선결 gate**(A3). 미달 시 write 진입 금지, 임계·룰 튜닝 후 재측정
 - **individual 확정 confidence 임계 확정**: 초기값 0.85(§2-3)는 "LLM individual **후보** 임계"로만 사용하고, 실제 individual 확정 임계는 이 골든 실측 후 확정(§2 임계정책)
+
+현재 실행 절차:
+
+```bash
+# DB write와 필터 적용 없이 전체 활성 분포 확인
+pnpm report:grant-audience-candidates -- --limit=2000
+
+# 층화된 90건 검수 패킷과 draft annotation 생성
+pnpm export:grant-audience-review-tasks -- --force
+
+# draft 상태 확인. reviewed=0이면 정상적으로 operationalReady=false
+pnpm report:grant-audience-eval
+
+# 두 사람 검수 완료 후에만 실행하는 write gate
+pnpm verify:grant-audience-eval
+```
+
+검수자는 `expectedAudience`를 원문 기준으로 수정하고 `annotatorId/annotatedAt`을 기록한다. 서로 다른 reviewer가 `reviewerId/reviewedAt`, `labelStatus=reviewed`를 기록해야 하며 AI 식별자나 동일인이 reviewer이면 로더가 거부한다. `sourceRevision`은 수정하지 않는다.
 
 **P6b — 전체 회귀·시각 검수 (P5 후)**:
 - 전체 회귀: typecheck·test·build, `verify:service-data`(미종료 현상 — 출력 완주 판정)

@@ -12,6 +12,11 @@ import {
 } from "@cunote/core/bizinfo/hwp-markdown";
 import { detectHwpFormat } from "@cunote/core/documents/hwpx-fill";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
+import {
+  extractOfficeContainerMarkdown,
+  extractSupportedArchiveEntries,
+  isArchiveContainerFilename,
+} from "./archiveContainerInspection";
 
 export interface GrantAttachmentArchiveBundle {
   attachments: NonNullable<GrantRaw["attachments"]>;
@@ -124,7 +129,20 @@ export interface GrantAttachmentArchiveOptions {
   allowFailures: boolean;
   storage: R2ObjectStorage | null;
   fetchImpl?: typeof fetch;
+  imageOcr?: GrantImageOcrAdapter;
+  minImageOcrConfidence?: number;
 }
+
+export type GrantImageOcrAdapter = (input: {
+  filename: string;
+  body: Buffer;
+  contentType: string | null;
+}) => Promise<{
+  markdown: string;
+  confidence: number;
+  provider: string;
+  converter: string;
+}>;
 
 interface SourceAttachment {
   filename: string;
@@ -169,15 +187,19 @@ export async function archiveGrantAttachments(
 
   for (const attachment of sourceAttachments) {
     try {
-      const archived = await archiveOneAttachment(attachment, options);
-      attachments.push(archived.rawAttachment);
-      archivedCount += 1;
-      if (archived.failure) failures.push(archived.failure);
-      if (archived.markdown) {
-        convertedCount += 1;
-      attachmentMarkdowns.push(archived.markdown);
-      } else if (archived.rawAttachment.conversion?.status === "skipped") {
-        skippedConversionCount += 1;
+      const archivedItems = isArchiveContainerFilename(attachment.filename)
+        ? await archiveContainerAttachment(attachment, options)
+        : [await archiveOneAttachment(attachment, options)];
+      for (const archived of archivedItems) {
+        attachments.push(archived.rawAttachment);
+        archivedCount += 1;
+        if (archived.failure) failures.push(archived.failure);
+        if (archived.markdown) {
+          convertedCount += 1;
+          attachmentMarkdowns.push(archived.markdown);
+        } else if (archived.rawAttachment.conversion?.status === "skipped") {
+          skippedConversionCount += 1;
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -207,6 +229,7 @@ export async function archiveGrantAttachments(
 async function archiveOneAttachment(
   attachment: SourceAttachment,
   options: GrantAttachmentArchiveOptions,
+  downloadedInput?: { body: Buffer; contentType: string | null },
 ): Promise<{
   rawAttachment: NonNullable<GrantRaw["attachments"]>[number];
   markdown: BizInfoAttachmentMarkdown | null;
@@ -225,8 +248,10 @@ async function archiveOneAttachment(
     };
   }
 
-  const downloaded = await downloadAttachment(originalUrl, options.fetchImpl ?? fetch);
-  const contentType = downloaded.contentType ?? inferContentType(attachment.filename);
+  const downloaded = downloadedInput ?? await downloadAttachment(originalUrl, options.fetchImpl ?? fetch);
+  const contentType = isPlainTextFilename(attachment.filename)
+    ? inferContentType(attachment.filename)
+    : downloaded.contentType ?? inferContentType(attachment.filename);
   const sha256 = sha256Hex(downloaded.body);
   const storageKey = objectKey({
     source: options.source,
@@ -260,18 +285,43 @@ async function archiveOneAttachment(
     detectConvertibleSurfaceFormatFromBytes(attachment.filename, downloaded.body),
   );
 
-  if (!options.convertHwp || !isHwpFilename(attachment.filename)) {
-    rawAttachment.conversion = { status: "skipped" };
-    return { rawAttachment, markdown: null };
-  }
-
-  let converted: ReturnType<typeof convertHwpBufferToMarkdown>;
+  let converted: { markdown: string; converter: string; ocrProvider?: string; ocrConfidence?: number };
   try {
-    converted = convertHwpBufferToMarkdown({
-      filename: attachment.filename,
-      body: downloaded.body,
-      autoInstallPyhwp: options.autoInstallPyhwp,
-    });
+    if (isImageFilename(attachment.filename)) {
+      if (!options.imageOcr) throw new Error("Image OCR adapter is not configured");
+      const ocr = await options.imageOcr({ filename: attachment.filename, body: downloaded.body, contentType });
+      const confidence = Math.min(1, Math.max(0, ocr.confidence));
+      const minimumConfidence = options.minImageOcrConfidence ?? 0.6;
+      const markdown = ocr.markdown.trim();
+      if (confidence < minimumConfidence) {
+        throw new Error(`Image OCR confidence ${confidence.toFixed(3)} is below ${minimumConfidence.toFixed(3)}`);
+      }
+      if (markdown.length < 20) throw new Error("Image OCR returned insufficient text");
+      converted = {
+        markdown,
+        converter: ocr.converter,
+        ocrProvider: ocr.provider,
+        ocrConfidence: confidence,
+      };
+    } else if (isPlainTextFilename(attachment.filename)) {
+      converted = {
+        markdown: decodePlainText(downloaded.body),
+        converter: "plain-text-v1",
+      };
+    } else if (/\.(?:xlsx|pptx)$/i.test(attachment.filename)) {
+      const markdown = extractOfficeContainerMarkdown(attachment.filename, downloaded.body);
+      if (!markdown) throw new Error("Office attachment did not contain extractable text");
+      converted = { markdown, converter: "office-openxml-v1" };
+    } else if (options.convertHwp && isHwpFilename(attachment.filename)) {
+      converted = convertHwpBufferToMarkdown({
+        filename: attachment.filename,
+        body: downloaded.body,
+        autoInstallPyhwp: options.autoInstallPyhwp,
+      });
+    } else {
+      rawAttachment.conversion = { status: "skipped" };
+      return { rawAttachment, markdown: null };
+    }
   } catch (error) {
     if (!options.allowFailures) throw error;
     const message = error instanceof Error ? error.message : String(error);
@@ -314,6 +364,8 @@ async function archiveOneAttachment(
     markdown_sha256: markdownSha256,
     markdown_bytes: Buffer.byteLength(markdownBody),
     converter: converted.converter,
+    ...(converted.ocrProvider ? { ocr_provider: converted.ocrProvider } : {}),
+    ...(typeof converted.ocrConfidence === "number" ? { ocr_confidence: converted.ocrConfidence } : {}),
     converted_at: options.collectedAt.toISOString(),
   };
 
@@ -325,6 +377,51 @@ async function archiveOneAttachment(
       source_uri: markdownUpload.url,
     },
   };
+}
+
+type ArchivedAttachmentResult = Awaited<ReturnType<typeof archiveOneAttachment>>;
+
+async function archiveContainerAttachment(
+  attachment: SourceAttachment,
+  options: GrantAttachmentArchiveOptions,
+): Promise<ArchivedAttachmentResult[]> {
+  if (!attachment.url) return [await archiveOneAttachment(attachment, options)];
+  const downloaded = await downloadAttachment(attachment.url, options.fetchImpl ?? fetch);
+  const parent = await archiveOneAttachment(attachment, options, downloaded);
+  if (extname(attachment.filename).toLowerCase() !== ".zip") return [parent];
+  try {
+    const entries = extractSupportedArchiveEntries(attachment.filename, downloaded.body, {
+      maxEntries: 10,
+      maxEntryBytes: 20 * 1024 * 1024,
+      maxTotalBytes: 50 * 1024 * 1024,
+    });
+    const nested: ArchivedAttachmentResult[] = [];
+    for (const [index, entry] of entries.entries()) {
+      const nestedFilename = nestedArchiveFilename(attachment.filename, entry.filename, index);
+      const nestedSourceUri = `zip:${attachment.url}#${encodeURIComponent(entry.filename)}`;
+      nested.push(await archiveOneAttachment({
+        filename: nestedFilename,
+        url: nestedSourceUri,
+      }, options, {
+        body: entry.body,
+        contentType: inferContentType(entry.filename),
+      }));
+    }
+    return [parent, ...nested];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!options.allowFailures) throw error;
+    parent.rawAttachment.conversion = { status: "failed", error: message };
+    parent.failure = { filename: attachment.filename, url: attachment.url, message };
+    return [parent];
+  }
+}
+
+function nestedArchiveFilename(containerFilename: string, entryFilename: string, index: number): string {
+  const extension = extname(entryFilename).slice(0, 12);
+  const container = stripExtension(basename(containerFilename)).slice(0, 80);
+  const entry = stripExtension(basename(entryFilename)).slice(0, 120);
+  return `${container}__${String(index + 1).padStart(2, "0")}__${entry}${extension}`;
 }
 
 async function downloadAttachment(url: string, fetchImpl: typeof fetch): Promise<{
@@ -390,12 +487,30 @@ function renderArchivedMarkdown(input: {
 
 function inferContentType(filename: string): string {
   const ext = extname(filename).toLowerCase();
+  if (ext === ".txt") return "text/plain; charset=utf-8";
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".hwp") return "application/x-hwp";
   if (ext === ".pdf") return "application/pdf";
   if (ext === ".zip") return "application/zip";
   if (ext === ".docx") return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
   if (ext === ".xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
   return "application/octet-stream";
+}
+
+function isPlainTextFilename(filename: string): boolean {
+  return extname(filename).toLowerCase() === ".txt";
+}
+
+function isImageFilename(filename: string): boolean {
+  return /\.(?:png|jpe?g)$/i.test(filename);
+}
+
+function decodePlainText(body: Buffer): string {
+  if (body.length > 5 * 1024 * 1024) throw new Error("Plain text attachment exceeds 5 MiB");
+  const text = new TextDecoder("utf-8", { fatal: true }).decode(body).replace(/\u0000/g, "").trim();
+  if (!text) throw new Error("Plain text attachment is empty");
+  return text;
 }
 
 function sanitizeKeyPart(value: string): string {

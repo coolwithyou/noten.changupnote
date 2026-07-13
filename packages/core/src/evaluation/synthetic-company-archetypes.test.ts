@@ -1,0 +1,20 @@
+import assert from "node:assert/strict";
+import { buildSyntheticCompanyArchetypes } from "./synthetic-company-archetypes.js";
+import { parseV3AnnotationJsonl } from "./v3-annotations.js";
+
+const companies = buildSyntheticCompanyArchetypes();
+assert.equal(companies.length, 30);
+assert.equal(new Set(companies.map((company) => company.companyId)).size, 30);
+assert.equal(companies.filter((company) => company.businessKind === "individual").length, 15);
+assert.equal(companies.filter((company) => company.businessKind === "corporation").length, 15);
+assert.equal(new Set(companies.map((company) => company.profile.region?.code)).size, 15);
+assert.equal(new Set(companies.flatMap((company) => company.profile.industries ?? [])).size >= 20, true);
+assert.equal(companies.some((company) => (company.profile.tax_compliance?.flags.length ?? 0) > 0), true);
+assert.equal(companies.some((company) => (company.profile.credit_status?.flags.length ?? 0) > 0), true);
+assert.equal(companies.some((company) => (company.profile.sanction?.flags.length ?? 0) > 0), true);
+assert.equal(companies.every((company) => company.labelStatus === "draft"), true);
+const serialized = companies.map((company) => JSON.stringify(company)).join("\n");
+assert.equal(serialized.includes("bizNo"), false);
+assert.equal(serialized.includes("representative"), false);
+assert.equal(parseV3AnnotationJsonl(serialized).companies.length, 30);
+console.log("synthetic-company-archetypes.test.ts: all assertions passed");

@@ -278,7 +278,7 @@ function buildPipelineDescription(item: ApplicationPipelineItem): string {
     item.agency ? `운영기관: ${item.agency}` : null,
     `지원금: ${item.supportLabel}`,
     `신청 단계: ${item.stageLabel}`,
-    item.fitScore !== null ? `적합도: ${item.fitScore}` : "적합도: 매칭 밖 · 직접 준비",
+    item.fitScore !== null ? `조건 확인도: ${item.fitScore}` : "조건 확인도: 매칭 밖 · 직접 준비",
     item.assigneeName ? `담당자: ${item.assigneeName}` : null,
     item.outcomeNote ? `메모: ${item.outcomeNote}` : null,
     `창업노트 상세: ${item.detailHref}`,

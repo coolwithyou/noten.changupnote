@@ -1,16 +1,27 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, notExists, or } from "drizzle-orm";
+import {
+  CRITERION_DIMENSIONS,
+  type CompanyProfileFieldEvidence,
+  type CompanyProfileQuestionAnswerState,
+  type CompanyProfileEvidenceObservation,
+  type CompanyProfile,
+  type CriterionDimension,
+} from "@cunote/contracts";
 import type {
   ApplyMethodChannel,
   AuthoringMode,
-  CompanyProfile,
-  CriterionDimension,
   Grant,
   GrantCriterion,
   GrantRaw,
   MatchResult,
   NormalizedGrant,
 } from "@cunote/contracts";
-import { maskCorpNum, matchGrantCriteria } from "@cunote/core";
+import {
+  buildGrantExtractionManifest,
+  collapseConfirmedGrantOccurrences,
+  maskCorpNum,
+  matchNormalizedGrant,
+} from "@cunote/core";
 import type {
   CompanyRecord,
   CompanyRepository,
@@ -24,11 +35,13 @@ import type {
   GrantRepository,
   MatchEventReceipt,
   MatchRepository,
+  ProfileQuestionEventReceipt,
   ReadEnrichmentCacheInput,
   RegistryCandidateQuery,
   RegistryIndexRepository,
   RegistryRecord,
   SaveMatchEventInput,
+  SaveProfileQuestionEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
@@ -39,7 +52,11 @@ import type {
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
-import { activeGrantApplyEndCutoff } from "./activeGrantFilter";
+import {
+  activeGrantApplyEndCutoff,
+  isClearlyStaleUndatedGrant,
+  isKStartupRecruitmentClosedPayload,
+} from "./activeGrantFilter";
 import { DrizzleCreditRepository, DrizzleCreditSystemRepository } from "./creditRepository";
 import { DrizzlePaymentRepository } from "./paymentRepository";
 import { DrizzleSubscriptionRepository } from "./subscriptionRepository";
@@ -78,13 +95,58 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       and(eq(schema.grants.status, "upcoming"), activeGrantApplyEndWhere(options.asOf)),
       and(eq(schema.grants.status, "unknown"), activeGrantApplyEndWhere(options.asOf)),
     );
-    const idRows = await this.db.client
-      .select({ id: schema.grants.id })
+    const requestedLimit = options.limit ?? 100;
+    const confirmedMemberFilter = options.includeConfirmedDuplicates
+      ? undefined
+      : notExists(this.db.client
+        .select({ memberGrantId: schema.dedupLinks.memberGrantId })
+        .from(schema.dedupLinks)
+        .where(and(
+          eq(schema.dedupLinks.memberGrantId, schema.grants.id),
+          eq(schema.dedupLinks.confirmed, true),
+        )));
+    const candidateRows = await this.db.client
+      .select({
+        id: schema.grants.id,
+        source: schema.grants.source,
+        status: schema.grants.status,
+        title: schema.grants.title,
+        applyEnd: schema.grants.applyEnd,
+        rawPayload: schema.grantRaw.payload,
+      })
       .from(schema.grants)
-      .where(activeWhere)
+      .leftJoin(
+        schema.grantRaw,
+        and(
+          eq(schema.grantRaw.source, schema.grants.source),
+          eq(schema.grantRaw.sourceId, schema.grants.sourceId),
+        ),
+      )
+      .where(and(activeWhere, confirmedMemberFilter))
       .orderBy(desc(schema.grants.updatedAt))
-      .limit(options.limit ?? 100);
+      .limit(requestedLimit + 500);
+    const idRows = candidateRows
+      .filter((row) =>
+        !isClearlyStaleUndatedGrant({
+          source: row.source,
+          status: row.status,
+          title: row.title,
+          apply_end: row.applyEnd?.toISOString() ?? null,
+        }, options.asOf) &&
+        !isKStartupRecruitmentClosedPayload(row.source, row.rawPayload)
+      )
+      .slice(0, requestedLimit);
     if (idRows.length === 0) return [];
+    const confirmedLinks = options.includeConfirmedDuplicates
+      ? []
+      : await this.db.client
+        .select({
+          canonicalGrantKey: schema.dedupLinks.canonicalGrantId,
+          memberGrantKey: schema.dedupLinks.memberGrantId,
+        })
+        .from(schema.dedupLinks)
+        .where(eq(schema.dedupLinks.confirmed, true));
+    const hydrationIds = reachableDedupIds(idRows.map((row) => row.id), confirmedLinks);
 
     const rows = await this.db.client
       .select({
@@ -101,10 +163,20 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
           eq(schema.grantRaw.sourceId, schema.grants.sourceId),
         ),
       )
-      .where(inArray(schema.grants.id, idRows.map((row) => row.id)))
+      .where(inArray(schema.grants.id, hydrationIds))
       .orderBy(desc(schema.grants.updatedAt));
 
-    return hydrateGrants<TPayload>(rows);
+    const grants = hydrateGrants<TPayload>(rows);
+    const [archives, surfaces] = await Promise.all([
+      this.loadAttachmentArchives(grants),
+      this.loadApplicationSurfaces(grants),
+    ]);
+    const hydrated = await this.hydrateReviewedExtractionManifests(
+      mergeCurrentAttachmentArchiveState(grants, archives, surfaces),
+    );
+    return options.includeConfirmedDuplicates
+      ? hydrated
+      : collapseConfirmedGrantOccurrences(hydrated, confirmedLinks);
   }
 
   async findGrantById(grantId: string, _options: GrantListOptions = {}): Promise<NormalizedGrant<TPayload> | null> {
@@ -129,8 +201,94 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
         : or(eq(schema.grants.id, grantId), eq(schema.grants.sourceId, grantId)))
       .limit(100);
 
-    return hydrateGrants<TPayload>(rows)[0] ?? null;
+    const grants = hydrateGrants<TPayload>(rows);
+    const [archives, surfaces] = await Promise.all([
+      this.loadAttachmentArchives(grants),
+      this.loadApplicationSurfaces(grants),
+    ]);
+    const hydrated = await this.hydrateReviewedExtractionManifests(
+      mergeCurrentAttachmentArchiveState(grants, archives, surfaces),
+    );
+    return hydrated[0] ?? null;
   }
+
+  private async hydrateReviewedExtractionManifests(
+    grants: Array<NormalizedGrant<TPayload>>,
+  ): Promise<Array<NormalizedGrant<TPayload>>> {
+    const grantIds = grants.flatMap((entry) => entry.grant.id ? [entry.grant.id] : []);
+    if (grantIds.length === 0) return grants;
+    const rows = await this.db.client
+      .select({
+        grantId: schema.extractionLog.grantId,
+        output: schema.extractionLog.output,
+        ts: schema.extractionLog.ts,
+        modelVer: schema.extractionLog.modelVer,
+      })
+      .from(schema.extractionLog)
+      .where(and(
+        eq(schema.extractionLog.status, "labeled"),
+        inArray(schema.extractionLog.grantId, grantIds),
+      ))
+      .orderBy(desc(schema.extractionLog.ts));
+    return mergeReviewedExtractionManifestState(grants, rows);
+  }
+
+  private async loadAttachmentArchives(
+    grants: Array<NormalizedGrant<TPayload>>,
+  ): Promise<Array<typeof schema.grantAttachmentArchives.$inferSelect>> {
+    const sourceIds = uniqueStrings(grants.map((entry) => entry.grant.source_id));
+    if (sourceIds.length === 0) return [];
+    return this.db.client
+      .select()
+      .from(schema.grantAttachmentArchives)
+      .where(inArray(schema.grantAttachmentArchives.sourceId, sourceIds));
+  }
+
+  private async loadApplicationSurfaces(
+    grants: Array<NormalizedGrant<TPayload>>,
+  ): Promise<Array<typeof schema.grantApplicationSurfaces.$inferSelect>> {
+    const sourceIds = uniqueStrings(grants.map((entry) => entry.grant.source_id));
+    if (sourceIds.length === 0) return [];
+    return this.db.client
+      .select()
+      .from(schema.grantApplicationSurfaces)
+      .where(inArray(schema.grantApplicationSurfaces.sourceId, sourceIds));
+  }
+}
+
+export interface ReviewedExtractionMetadataRow {
+  grantId: string | null;
+  output: unknown;
+  ts: Date;
+  modelVer: string;
+}
+
+export function mergeReviewedExtractionManifestState<TPayload>(
+  grants: Array<NormalizedGrant<TPayload>>,
+  rows: ReviewedExtractionMetadataRow[],
+): Array<NormalizedGrant<TPayload>> {
+  const latestByGrant = new Map<string, ReviewedExtractionMetadataRow>();
+  for (const row of rows) {
+    if (row.grantId && !latestByGrant.has(row.grantId)) latestByGrant.set(row.grantId, row);
+  }
+  return grants.map((entry) => {
+    if (!entry.grant.id) return entry;
+    const review = latestByGrant.get(entry.grant.id);
+    if (!review) return entry;
+    const output = isPlainRecord(review.output) ? review.output : {};
+    const reviewedAt = typeof output.reviewedAt === "string" ? output.reviewedAt : review.ts.toISOString();
+    return {
+      ...entry,
+      extraction_manifest: buildGrantExtractionManifest(entry, {
+        reviewedAt,
+        extractorVersion: typeof output.parserVersion === "string" ? output.parserVersion : review.modelVer,
+      }),
+    };
+  });
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function activeGrantApplyEndWhere(asOf: Date | undefined) {
@@ -138,6 +296,23 @@ function activeGrantApplyEndWhere(asOf: Date | undefined) {
     isNull(schema.grants.applyEnd),
     gte(schema.grants.applyEnd, activeGrantApplyEndCutoff(asOf)),
   );
+}
+
+function reachableDedupIds(
+  seedIds: string[],
+  links: Array<{ canonicalGrantKey: string; memberGrantKey: string }>,
+): string[] {
+  const reachable = new Set(seedIds);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const link of links) {
+      if (!reachable.has(link.canonicalGrantKey) || reachable.has(link.memberGrantKey)) continue;
+      reachable.add(link.memberGrantKey);
+      changed = true;
+    }
+  }
+  return [...reachable];
 }
 
 class DrizzleCompanyRepository implements CompanyRepository {
@@ -183,13 +358,13 @@ class DrizzleCompanyRepository implements CompanyRepository {
           ))
         : [];
 
-      return toCompanyProfile(company, [...sharedProfileRows, ...userProfileRows]);
+      return decodeCompanyProfileRows(company, [...sharedProfileRows, ...userProfileRows]);
     });
   }
 
   async saveCompanyProfile(input: SaveCompanyProfileInput): Promise<CompanyProfile> {
     const now = new Date();
-    const rows = companyProfileRows(input.companyId, input.profile, now, input.userId);
+    const rows = encodeCompanyProfileRows(input.companyId, input.profile, now, input.userId);
     const [company, profileRows] = await this.transactionWithOptionalUser(input.userId, async (tx) => {
       const kind: "active" | "preliminary" = input.profile.is_preliminary ? "preliminary" : "active";
       const [updatedCompany] = await tx
@@ -209,7 +384,7 @@ class DrizzleCompanyRepository implements CompanyRepository {
       return [updatedCompany, savedRows] as const;
     });
 
-    return toCompanyProfile(company, profileRows);
+    return decodeCompanyProfileRows(company, profileRows);
   }
 
   async createCompany(input: CreateCompanyInput): Promise<CompanyRecord> {
@@ -232,7 +407,7 @@ class DrizzleCompanyRepository implements CompanyRepository {
         role: "owner",
       });
 
-      const rows = companyProfileRows(createdCompany.id, input.profile, now, input.userId);
+      const rows = encodeCompanyProfileRows(createdCompany.id, input.profile, now, input.userId);
       const savedRows = rows.length > 0
         ? await tx.insert(schema.companyProfiles).values(rows).returning()
         : [];
@@ -242,7 +417,7 @@ class DrizzleCompanyRepository implements CompanyRepository {
     return {
       id: company.id,
       name: company.name,
-      profile: toCompanyProfile(company, profileRows),
+      profile: decodeCompanyProfileRows(company, profileRows),
       role: "owner",
       verified: company.verified,
       verifiedAt: company.verifiedAt?.toISOString() ?? null,
@@ -331,7 +506,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     company: CompanyProfile;
     grant: NormalizedGrant<TPayload>;
   }): Promise<MatchResult> {
-    return matchGrantCriteria(input.grant.criteria, input.company);
+    return matchNormalizedGrant(input.grant, input.company);
   }
 
   async calculateGrantMatches(input: {
@@ -340,7 +515,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
   }): Promise<Array<{ grant: NormalizedGrant<TPayload>; match: MatchResult }>> {
     return input.grants.map((grant) => ({
       grant,
-      match: matchGrantCriteria(grant.criteria, input.company),
+      match: matchNormalizedGrant(grant, input.company),
     }));
   }
 
@@ -453,6 +628,36 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
     return {
       id: row.id,
       acceptedAt: row.ts.toISOString(),
+    };
+  }
+
+
+  async saveProfileQuestionEvent(input: SaveProfileQuestionEventInput): Promise<ProfileQuestionEventReceipt> {
+    const impact = input.impact;
+    const [row] = await this.withOptionalUser(input.userId, async (db) => db
+      .insert(schema.profileQuestionEvents)
+      .values({
+        companyId: input.companyId,
+        sessionId: input.sessionId,
+        dimension: impact.dimension,
+        windowLimit: impact.windowLimit,
+        evaluatedGrantCount: impact.evaluatedGrantCount,
+        targetedConditionalCount: impact.targetedConditionalCount,
+        dimensionResolvedGrantCount: impact.dimensionResolvedGrantCount,
+        eligibilityResolvedCount: impact.eligibilityResolvedCount,
+        conditionalToEligibleCount: impact.conditionalToEligibleCount,
+        conditionalToIneligibleCount: impact.conditionalToIneligibleCount,
+        remainingConditionalCount: impact.remainingConditionalCount,
+        conditionalResolutionRate: impact.conditionalResolutionRate,
+        rulesetVer: input.rulesetVer,
+      })
+      .returning({ id: schema.profileQuestionEvents.id, ts: schema.profileQuestionEvents.ts }));
+    if (!row) throw new Error("프로필 질문 이벤트 저장 결과가 없습니다.");
+    return {
+      id: row.id,
+      sessionId: input.sessionId,
+      recordedAt: row.ts.toISOString(),
+      persisted: true,
     };
   }
 
@@ -595,18 +800,43 @@ class DrizzleRegistryIndexRepository implements RegistryIndexRepository {
     }
     if (or_conds.length === 0) return [];
     const match = or(...or_conds);
+    const activeRunIds = this.db.client
+      .select({ id: schema.registrySourceState.activeRunId })
+      .from(schema.registrySourceState);
+    // 마이그레이션 직후 기존 build.ts 적재분(import_run_id=null)은 source_state가 아직 없을
+    // 때만 읽는다. ops에서 첫 버전을 publish하면 active_run_id 행만 조회해 이전 버전과 격리한다.
+    const visible = or(
+      inArray(schema.registryIndex.importRunId, activeRunIds),
+      and(
+        isNull(schema.registryIndex.importRunId),
+        notExists(
+          this.db.client
+            .select({ source: schema.registrySourceState.source })
+            .from(schema.registrySourceState)
+            .where(eq(schema.registrySourceState.source, schema.registryIndex.source)),
+        ),
+      ),
+    );
     const where = input.registryType
-      ? and(eq(schema.registryIndex.registryType, input.registryType), match)
-      : match;
+      ? and(eq(schema.registryIndex.registryType, input.registryType), match, visible)
+      : and(match, visible);
     const rows = await this.db.client.select().from(schema.registryIndex).where(where);
     return rows.map(toRegistryRecord);
   }
 
   async hasSource(source: string): Promise<boolean> {
+    const state = await this.db.client
+      .select({ freshUntil: schema.registrySourceState.freshUntil })
+      .from(schema.registrySourceState)
+      .where(eq(schema.registrySourceState.source, source))
+      .limit(1);
+    if (state[0]) return state[0].freshUntil.getTime() > Date.now();
+
+    // 첫 ops publish 전의 레거시 적재분 호환. source_state 생성 후에는 freshness를 강제한다.
     const rows = await this.db.client
       .select({ id: schema.registryIndex.id })
       .from(schema.registryIndex)
-      .where(eq(schema.registryIndex.source, source))
+      .where(and(eq(schema.registryIndex.source, source), isNull(schema.registryIndex.importRunId)))
       .limit(1);
     return rows.length > 0;
   }
@@ -629,7 +859,7 @@ type GrantCriteriaRow = typeof schema.grantCriteria.$inferSelect;
 type GrantRawRow = typeof schema.grantRaw.$inferSelect;
 type CompanyRow = typeof schema.companies.$inferSelect;
 type CompanyProfileRow = typeof schema.companyProfiles.$inferSelect;
-type CompanyProfileInsert = typeof schema.companyProfiles.$inferInsert;
+export type CompanyProfilePersistenceInsert = typeof schema.companyProfiles.$inferInsert;
 type CompanyEnrichmentCacheRow = typeof schema.companyEnrichmentCache.$inferSelect;
 type RegistryIndexRow = typeof schema.registryIndex.$inferSelect;
 type RegistryIndexInsert = typeof schema.registryIndex.$inferInsert;
@@ -700,6 +930,90 @@ function hydrateGrants<TPayload>(
     grant: toGrant(entry.grant),
     criteria: entry.criteria.map(toGrantCriterion),
   }));
+}
+
+export function mergeCurrentAttachmentArchiveState<TPayload>(
+  grants: Array<NormalizedGrant<TPayload>>,
+  archiveRows: Array<Pick<
+    typeof schema.grantAttachmentArchives.$inferSelect,
+    | "source" | "sourceId" | "filename" | "sourceUri" | "archiveUrl" | "storageKey"
+    | "contentType" | "bytes" | "sha256" | "fetchedAt" | "conversionStatus"
+    | "markdownUrl" | "markdownStorageKey" | "markdownSha256" | "markdownBytes"
+    | "converter" | "convertedAt" | "conversionError"
+  >>,
+  surfaceRows: Array<Pick<
+    typeof schema.grantApplicationSurfaces.$inferSelect,
+    "source" | "sourceId" | "title" | "sourceAttachment" | "extractionStatus"
+  >> = [],
+): Array<NormalizedGrant<TPayload>> {
+  const rowsByGrant = new Map<string, typeof archiveRows>();
+  for (const row of archiveRows) {
+    const key = `${row.source}:${row.sourceId}`;
+    rowsByGrant.set(key, [...(rowsByGrant.get(key) ?? []), row]);
+  }
+
+  return grants.map((entry) => {
+    const rows = rowsByGrant.get(`${entry.grant.source}:${entry.grant.source_id}`) ?? [];
+    if (rows.length === 0 || !entry.raw.attachments?.length) return entry;
+    return {
+      ...entry,
+      raw: {
+        ...entry.raw,
+        attachments: entry.raw.attachments.map((attachment) => {
+          const sourceUri = attachment.source_uri ?? attachment.url ?? "";
+          const row = rows.find((candidate) =>
+            candidate.filename === attachment.filename &&
+            (!candidate.sourceUri || !sourceUri || candidate.sourceUri === sourceUri)) ??
+            rows.find((candidate) => candidate.filename === attachment.filename);
+          if (!row) return attachment;
+          const surface = surfaceRows.find((candidate) =>
+            candidate.source === entry.grant.source &&
+            candidate.sourceId === entry.grant.source_id &&
+            (
+              candidate.title === attachment.filename ||
+              (candidate.sourceAttachment !== null && candidate.sourceAttachment === row.storageKey)
+            ));
+          const conversionStatus = surfaceConversionStatus(surface?.extractionStatus) ??
+            normalizedConversionStatus(row.conversionStatus);
+          return {
+            ...attachment,
+            ...(row.archiveUrl !== null ? { archive_url: row.archiveUrl } : {}),
+            ...(row.storageKey !== null ? { storage_key: row.storageKey } : {}),
+            ...(row.contentType !== null ? { content_type: row.contentType } : {}),
+            ...(row.bytes !== null ? { bytes: row.bytes } : {}),
+            ...(row.sha256 !== null ? { sha256: row.sha256 } : {}),
+            ...(row.fetchedAt !== null ? { fetched_at: row.fetchedAt.toISOString() } : {}),
+            ...(conversionStatus ? {
+              conversion: {
+                status: conversionStatus,
+                markdown_url: row.markdownUrl,
+                markdown_storage_key: row.markdownStorageKey,
+                markdown_sha256: row.markdownSha256,
+                markdown_bytes: row.markdownBytes,
+                converter: row.converter,
+                converted_at: row.convertedAt?.toISOString() ?? null,
+                error: row.conversionError,
+              },
+            } : {}),
+          };
+        }),
+      },
+    };
+  });
+}
+
+function normalizedConversionStatus(value: string | null): "converted" | "skipped" | "failed" | null {
+  return value === "converted" || value === "skipped" || value === "failed" ? value : null;
+}
+
+function surfaceConversionStatus(value: string | undefined): "converted" | "failed" | null {
+  if (value === "preview_ready" || value === "fields_ready") return "converted";
+  if (value === "failed") return "failed";
+  return null;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function toGrant(row: GrantRow): Grant {
@@ -782,7 +1096,28 @@ function toGrantRaw<TPayload>(raw: GrantRawRow | null, grant: GrantRow): GrantRa
   return result;
 }
 
-function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): CompanyProfile {
+export interface CompanyProfilePersistenceCompany {
+  id: string;
+  kind: "active" | "preliminary";
+  name: string | null;
+}
+
+export interface CompanyProfilePersistenceRow {
+  dimension: CriterionDimension;
+  value: Record<string, unknown>;
+  source: CompanyProfilePersistenceInsert["source"];
+  confidence: number;
+  asOf: Date;
+}
+
+const PROFILE_EVIDENCE_META_KEY = "_cunote_profile_evidence";
+const QUESTION_STATE_META_KEY = "_cunote_question_answer_state";
+const VALUE_PRESENT_META_KEY = "_cunote_value_present";
+
+export function decodeCompanyProfileRows(
+  company: CompanyProfilePersistenceCompany,
+  rows: CompanyProfilePersistenceRow[],
+): CompanyProfile {
   const profile: CompanyProfile = {
     id: company.id,
     is_preliminary: company.kind === "preliminary",
@@ -791,7 +1126,24 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
   if (company.name) profile.name = company.name;
 
   for (const row of rows) {
-    const value = row.value;
+    const persistedValue = row.value;
+    const valuePresent = persistedValue[VALUE_PRESENT_META_KEY] !== false;
+    const value = withoutProfilePersistenceMetadata(persistedValue);
+    const evidence = profileEvidenceFromRow(row, persistedValue, valuePresent);
+    if (evidence) {
+      profile.profile_evidence = {
+        ...(profile.profile_evidence ?? {}),
+        [row.dimension]: evidence,
+      };
+    }
+    const questionState = parseQuestionAnswerState(persistedValue[QUESTION_STATE_META_KEY]);
+    if (questionState) {
+      profile.question_answer_state = {
+        ...(profile.question_answer_state ?? {}),
+        [row.dimension]: questionState,
+      };
+    }
+    if (!valuePresent) continue;
     profile.confidence![row.dimension] = row.confidence;
     if (row.dimension === "region") {
       const code = stringValue(value.code ?? value.region ?? value.sido);
@@ -807,6 +1159,7 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
     }
     if (row.dimension === "industry") {
       profile.industries = stringArray(value.industries ?? value.tags ?? value.policy_tags);
+      setListCompleteness(profile, "industry", value.list_completeness);
     }
     if (row.dimension === "size") {
       profile.size = stringValue(value.size ?? value.label) ?? null;
@@ -821,18 +1174,25 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
     }
     if (row.dimension === "certification") {
       profile.certs = stringArray(value.certs ?? value.certifications);
+      setListCompleteness(profile, "certification", value.list_completeness);
     }
     if (row.dimension === "founder_trait") {
       profile.traits = stringArray(value.traits);
+      setListCompleteness(profile, "founder_trait", value.list_completeness);
     }
     if (row.dimension === "prior_award") {
       profile.prior_awards = stringArray(value.programs ?? value.prior_awards);
+      const history = toPriorAwardProfileValue(value.prior_award_history);
+      if (history) profile.prior_award_history = history;
+      setListCompleteness(profile, "prior_award", value.list_completeness);
     }
     if (row.dimension === "ip") {
       profile.ip = stringArray(value.ip ?? value.types);
+      setListCompleteness(profile, "ip", value.list_completeness);
     }
     if (row.dimension === "target_type") {
       profile.target_types = stringArray(value.target_types ?? value.targets);
+      setListCompleteness(profile, "target_type", value.list_completeness);
     }
     if (row.dimension === "other") {
       profile.other_conditions = value;
@@ -869,6 +1229,113 @@ function toCompanyProfile(company: CompanyRow, rows: CompanyProfileRow[]): Compa
   return profile;
 }
 
+function withoutProfilePersistenceMetadata(value: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(value).filter(([key]) =>
+    key !== PROFILE_EVIDENCE_META_KEY &&
+    key !== QUESTION_STATE_META_KEY &&
+    key !== VALUE_PRESENT_META_KEY));
+}
+
+function profileEvidenceFromRow(
+  row: CompanyProfilePersistenceRow,
+  persistedValue: Record<string, unknown>,
+  valuePresent: boolean,
+): CompanyProfileFieldEvidence | null {
+  const embedded = parseProfileEvidence(persistedValue[PROFILE_EVIDENCE_META_KEY]);
+  if (embedded) return embedded;
+  if (!valuePresent) return null;
+
+  const sourceKind = legacyEvidenceSourceKind(row.source, row.dimension);
+  const listDimension = row.dimension === "industry" ||
+    row.dimension === "founder_trait" ||
+    row.dimension === "certification" ||
+    row.dimension === "prior_award" ||
+    row.dimension === "ip" ||
+    row.dimension === "target_type";
+  return {
+    sourceKind,
+    provider: row.source === "self_declared" ? "legacy_company_profile" : row.source,
+    asOf: row.asOf.toISOString(),
+    axisCompleteness: listDimension && persistedValue.list_completeness !== "complete"
+      ? "partial"
+      : "complete",
+    confidence: row.confidence,
+  };
+}
+
+function legacyEvidenceSourceKind(
+  source: CompanyProfilePersistenceRow["source"],
+  dimension: CriterionDimension,
+): CompanyProfileFieldEvidence["sourceKind"] {
+  if (source === "self_declared") return "self_declared";
+  if (source === "ocr") return "derived";
+  if (source === "codef" && (dimension === "founder_age" || dimension === "founder_trait")) {
+    return "auth_supplied";
+  }
+  return "authoritative_api";
+}
+
+function parseProfileEvidence(value: unknown): CompanyProfileFieldEvidence | null {
+  const primary = parseEvidenceObservation(value);
+  if (!primary) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return primary;
+  const supplemental = Array.isArray((value as Record<string, unknown>).supplemental)
+    ? ((value as Record<string, unknown>).supplemental as unknown[])
+      .flatMap((item) => {
+        const parsed = parseEvidenceObservation(item);
+        return parsed ? [parsed] : [];
+      })
+    : [];
+  return supplemental.length > 0 ? { ...primary, supplemental } : primary;
+}
+
+function parseEvidenceObservation(value: unknown): CompanyProfileEvidenceObservation | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (
+    row.sourceKind !== "authoritative_api" &&
+    row.sourceKind !== "public_registry" &&
+    row.sourceKind !== "auth_supplied" &&
+    row.sourceKind !== "self_declared" &&
+    row.sourceKind !== "derived"
+  ) return null;
+  const provider = stringValue(row.provider);
+  if (!provider) return null;
+  if (row.axisCompleteness !== "partial" && row.axisCompleteness !== "complete") return null;
+  const asOf = row.asOf === null || typeof row.asOf === "string" ? row.asOf : null;
+  const confidence = row.confidence === null ||
+    (typeof row.confidence === "number" && Number.isFinite(row.confidence))
+    ? row.confidence
+    : null;
+  return {
+    sourceKind: row.sourceKind,
+    provider,
+    asOf,
+    axisCompleteness: row.axisCompleteness,
+    confidence,
+  };
+}
+
+function parseQuestionAnswerState(value: unknown): CompanyProfileQuestionAnswerState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  if (row.status !== "unknown" && row.status !== "range") return null;
+  if (typeof row.answeredAt !== "string" || typeof row.expiresAt !== "string") return null;
+  if (row.sourceKind !== "self_declared") return null;
+  if (row.rulesetVer !== null && typeof row.rulesetVer !== "string") return null;
+  const state: CompanyProfileQuestionAnswerState = {
+    status: row.status,
+    answeredAt: row.answeredAt,
+    expiresAt: row.expiresAt,
+    sourceKind: "self_declared",
+    rulesetVer: row.rulesetVer,
+  };
+  if (typeof row.min === "number" && Number.isFinite(row.min)) state.min = row.min;
+  if (row.max === null || (typeof row.max === "number" && Number.isFinite(row.max))) state.max = row.max;
+  if (row.unit === "krw" || row.unit === "people") state.unit = row.unit;
+  return state;
+}
+
 function toDisqualificationProfileValue(
   value: Record<string, unknown>,
 ): NonNullable<CompanyProfile["tax_compliance"]> {
@@ -876,6 +1343,39 @@ function toDisqualificationProfileValue(
     flags: stringArray(value.flags),
     known_flags: stringArray(value.known_flags),
     exceptions: stringArray(value.exceptions),
+  };
+}
+
+function toPriorAwardProfileValue(value: unknown): CompanyProfile["prior_award_history"] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const records = Array.isArray(row.records) ? row.records.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return [];
+    const record = item as Record<string, unknown>;
+    if (record.state !== "participating" && record.state !== "completed" && record.state !== "graduated") return [];
+    const result: NonNullable<CompanyProfile["prior_award_history"]>["records"][number] = { state: record.state };
+    const program = stringValue(record.program);
+    if (program) result.program = program;
+    const agency = stringValue(record.agency);
+    if (agency) result.agency = agency;
+    const year = numberValue(record.year);
+    if (year !== null) result.year = year;
+    else if (record.year === null) result.year = null;
+    return [result];
+  }) : [];
+  const selfFlagsRow = row.self_flags && typeof row.self_flags === "object" && !Array.isArray(row.self_flags)
+    ? row.self_flags as Record<string, unknown>
+    : null;
+  const selfFlags: NonNullable<CompanyProfile["prior_award_history"]>["self_flags"] = {};
+  for (const key of ["current_similar", "same_project", "same_business_prior", "same_year_other_support"] as const) {
+    if (typeof selfFlagsRow?.[key] === "boolean") selfFlags[key] = selfFlagsRow[key];
+  }
+  return {
+    records,
+    ...(Object.keys(selfFlags).length > 0 ? { self_flags: selfFlags } : {}),
+    ...(typeof row.has_incubation_tenancy === "boolean" ? { has_incubation_tenancy: row.has_incubation_tenancy } : {}),
+    known_programs: stringArray(row.known_programs),
+    known_program_types: stringArray(row.known_program_types),
   };
 }
 
@@ -943,24 +1443,30 @@ function companyProfileScopeWhere(companyId: string, userId: string | undefined)
   return and(companyFilter, userFilter);
 }
 
-function companyProfileRows(
+export function encodeCompanyProfileRows(
   companyId: string,
   profile: CompanyProfile,
   now: Date,
   userId?: string,
-): CompanyProfileInsert[] {
-  const rows: CompanyProfileInsert[] = [];
-  const push = (dimension: CriterionDimension, value: Record<string, unknown>) => {
+): CompanyProfilePersistenceInsert[] {
+  const rows: CompanyProfilePersistenceInsert[] = [];
+  const pushedDimensions = new Set<CriterionDimension>();
+  const push = (
+    dimension: CriterionDimension,
+    value: Record<string, unknown>,
+    valuePresent = true,
+  ) => {
     rows.push({
       companyId,
       ...(userId ? { userId } : {}),
       dimension: dimension,
-      value,
-      source: "self_declared",
-      confidence: profileConfidence(profile, dimension),
+      value: withProfilePersistenceMetadata(profile, dimension, value, valuePresent),
+      source: profilePersistenceSource(profile, dimension),
+      confidence: valuePresent ? profileConfidence(profile, dimension) : 0,
       asOf: now,
       updatedAt: now,
     });
+    pushedDimensions.add(dimension);
   };
 
   if (profile.region?.code) {
@@ -975,7 +1481,7 @@ function companyProfileRows(
     push("founder_age", { founder_age: profile.founder_age, age: profile.founder_age });
   }
   if (profile.industries?.length) {
-    push("industry", { industries: profile.industries, tags: profile.industries });
+    push("industry", withListCompleteness(profile, "industry", { industries: profile.industries, tags: profile.industries }));
   }
   if (profile.size) {
     push("size", { size: profile.size, label: profile.size });
@@ -987,19 +1493,23 @@ function companyProfileRows(
     push("employees", { employees_count: profile.employees_count, count: profile.employees_count });
   }
   if (Array.isArray(profile.traits)) {
-    push("founder_trait", { traits: profile.traits });
+    push("founder_trait", withListCompleteness(profile, "founder_trait", { traits: profile.traits }));
   }
   if (Array.isArray(profile.certs)) {
-    push("certification", { certs: profile.certs, certifications: profile.certs });
+    push("certification", withListCompleteness(profile, "certification", { certs: profile.certs, certifications: profile.certs }));
   }
-  if (Array.isArray(profile.prior_awards)) {
-    push("prior_award", { prior_awards: profile.prior_awards, programs: profile.prior_awards });
+  if (Array.isArray(profile.prior_awards) || profile.prior_award_history) {
+    push("prior_award", withListCompleteness(profile, "prior_award", {
+      prior_awards: profile.prior_awards ?? [],
+      programs: profile.prior_awards ?? [],
+      ...(profile.prior_award_history ? { prior_award_history: profile.prior_award_history } : {}),
+    }));
   }
   if (Array.isArray(profile.ip)) {
-    push("ip", { ip: profile.ip, types: profile.ip });
+    push("ip", withListCompleteness(profile, "ip", { ip: profile.ip, types: profile.ip }));
   }
   if (profile.target_types?.length) {
-    push("target_type", { target_types: profile.target_types, targets: profile.target_types });
+    push("target_type", withListCompleteness(profile, "target_type", { target_types: profile.target_types, targets: profile.target_types }));
   }
   // ── 결격·재무·고용·투자 축 (공고매칭 차원 확장, M3 직렬화) ──────────────────
   // 이 블록이 없으면 다른 필드 저장 시 결격 답변이 silent drop으로 증발한다.
@@ -1028,7 +1538,39 @@ function companyProfileRows(
     push("business_status", compactRecord(profile.business_status as Record<string, unknown>));
   }
 
+  for (const dimension of CRITERION_DIMENSIONS) {
+    if (pushedDimensions.has(dimension)) continue;
+    if (!profile.profile_evidence?.[dimension] && !profile.question_answer_state?.[dimension]) continue;
+    push(dimension, {}, false);
+  }
+
   return rows;
+}
+
+function withProfilePersistenceMetadata(
+  profile: CompanyProfile,
+  dimension: CriterionDimension,
+  value: Record<string, unknown>,
+  valuePresent: boolean,
+): Record<string, unknown> {
+  const evidence = profile.profile_evidence?.[dimension];
+  const questionState = profile.question_answer_state?.[dimension];
+  return {
+    ...value,
+    ...(evidence ? { [PROFILE_EVIDENCE_META_KEY]: evidence } : {}),
+    ...(questionState ? { [QUESTION_STATE_META_KEY]: questionState } : {}),
+    ...(!valuePresent ? { [VALUE_PRESENT_META_KEY]: false } : {}),
+  };
+}
+
+function profilePersistenceSource(
+  profile: CompanyProfile,
+  dimension: CriterionDimension,
+): CompanyProfilePersistenceInsert["source"] {
+  const provider = profile.profile_evidence?.[dimension]?.provider.trim().toLowerCase();
+  if (provider === "popbill" || provider === "nts" || provider === "codef") return provider;
+  if (provider === "ocr" || provider?.includes("ocr")) return "ocr";
+  return "self_declared";
 }
 
 function disqualificationRowValue(
@@ -1046,6 +1588,27 @@ function profileConfidence(profile: CompanyProfile, dimension: CriterionDimensio
   return typeof value === "number" && Number.isFinite(value)
     ? Math.min(1, Math.max(0, value))
     : 0.8;
+}
+
+function setListCompleteness(
+  profile: CompanyProfile,
+  dimension: "industry" | "founder_trait" | "certification" | "prior_award" | "ip" | "target_type",
+  value: unknown,
+): void {
+  if (value !== "partial" && value !== "complete") return;
+  profile.list_completeness = {
+    ...(profile.list_completeness ?? {}),
+    [dimension]: value,
+  };
+}
+
+function withListCompleteness(
+  profile: CompanyProfile,
+  dimension: "industry" | "founder_trait" | "certification" | "prior_award" | "ip" | "target_type",
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const completeness = profile.list_completeness?.[dimension];
+  return completeness ? { ...value, list_completeness: completeness } : value;
 }
 
 function compactRecord(input: Record<string, unknown>): Record<string, unknown> {
@@ -1118,6 +1681,7 @@ function feedbackValue(input: SubmitFeedbackInput): Record<string, unknown> {
     occurredAt: input.occurredAt ?? null,
     correction: input.correction ?? null,
     payload: input.payload ?? null,
+    provenance: input.provenance ?? null,
   });
 }
 

@@ -155,6 +155,17 @@ function nextStepsFor(input: {
   missingRls: string[];
   migration: MigrationStatus;
 }): string[] {
+  if (
+    input.missingTables.length === 1 &&
+    input.missingTables[0] === "profile_question_events"
+  ) {
+    return [
+      "현재 DB에는 질문 품질 이벤트용 0045_mushy_daimon_hellstrom 마이그레이션만 누락되어 있다.",
+      "대상 DB가 개발용인지 확인한 뒤 pnpm db:migrate 를 실행한다.",
+      "공고·회사 데이터 seed/publish는 이 누락과 무관하므로 다시 실행하지 않는다.",
+      "pnpm db:doctor 로 테이블과 RLS를 재확인한 뒤 질문 저장 E2E를 실행한다.",
+    ];
+  }
   if (input.missingTables.length > 0) {
     return [
       "대상 DB가 개발용인지 확인한다.",

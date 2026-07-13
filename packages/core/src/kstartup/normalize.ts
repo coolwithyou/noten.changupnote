@@ -14,16 +14,19 @@ import {
   KSTARTUP_NORMALIZER_VERSION,
   KSTARTUP_SOURCE,
   METRO_REGION_CODES,
-  REGION_CODES,
   TEXT_HINTS,
 } from "./constants.js";
+import { expandRegionToken, isNationwideRegionToken } from "../criteria/regions.js";
 import { normalizeGrantRequiredDocuments } from "../documents/taxonomy.js";
+import { classifyGrantAudience } from "../audience/classify.js";
 import { classifyApplyMethods } from "../grants/apply-method.js";
 import { classifyAuthoringMode } from "../grants/authoring-mode.js";
 import { resolveGrantAgencyPrimary } from "../grants/agency.js";
+import { projectGrantIndustryTags } from "../grants/industry-projection.js";
 import { extractCerts, findCertMatches, type CanonicalCert } from "../certification/certs.js";
 import { parseKStartupDate, statusFromApplyWindow } from "./date.js";
 import { extractDisqualificationCriteria } from "../disqualification/extract.js";
+import { extractPriorAwardCriteria } from "../prior-award/extract.js";
 import type {
   KStartupAnnouncement,
   KStartupApiResponse,
@@ -45,7 +48,9 @@ export function normalizeKStartupAnnouncement(
   const asOf = options.asOf ?? new Date();
   const collectedAt = options.collectedAt ?? new Date();
   const sourceId = String(row.pbanc_sn);
-  const criteria = buildKStartupCriteria(row, sourceId);
+  const criteria = buildKStartupCriteria(row, sourceId, {
+    priorAwardSplit: options.priorAwardSplit === true,
+  });
   const grant = buildGrant(row, sourceId, criteria, asOf);
   const raw: GrantRaw<KStartupAnnouncement> = {
     source: KSTARTUP_SOURCE,
@@ -61,6 +66,7 @@ export function normalizeKStartupAnnouncement(
 export function buildKStartupCriteria(
   row: KStartupAnnouncement,
   sourceId = String(row.pbanc_sn),
+  options: { priorAwardSplit?: boolean } = {},
 ): GrantCriterion[] {
   const criteria: GrantCriterion[] = [];
   const region = parseRegion(row.supt_regin);
@@ -120,7 +126,7 @@ export function buildKStartupCriteria(
     }));
   }
 
-  criteria.push(...buildScopedTextCriteria(row, sourceId));
+  criteria.push(...buildScopedTextCriteria(row, sourceId, options));
   return criteria;
 }
 
@@ -171,11 +177,12 @@ function buildGrant(
   const agencyOperator = row.biz_prch_dprt_nm ?? null;
   const applyMethods = classifyApplyMethods(applyMethod);
   const authoringMode = deriveKStartupAuthoringMode(row);
+  const title = decodeHtml(clean(row.biz_pbanc_nm) || clean(row.intg_pbanc_biz_nm) || sourceId);
 
   return {
     source: KSTARTUP_SOURCE,
     source_id: sourceId,
-    title: decodeHtml(clean(row.biz_pbanc_nm) || clean(row.intg_pbanc_biz_nm) || sourceId),
+    title,
     url: row.detl_pg_url ?? row.biz_gdnc_url ?? null,
     agency_jurisdiction: agencyJurisdiction,
     agency_operator: agencyOperator,
@@ -191,7 +198,8 @@ function buildGrant(
     apply_method: applyMethod,
     support_amount: null,
     required_documents: normalizeGrantRequiredDocuments(extractKStartupRequiredDocuments(row)),
-    status: statusFromApplyWindow(row.pbanc_rcpt_bgng_dt, row.pbanc_rcpt_end_dt, asOf),
+    status: kStartupGrantStatus(row, asOf),
+    audience: classifyGrantAudience({ source: KSTARTUP_SOURCE, title, payload: row }).audience,
     f_regions: projection.f_regions,
     f_industries: projection.f_industries,
     f_biz_age_min_months: projection.f_biz_age_min_months,
@@ -209,14 +217,28 @@ function buildGrant(
   };
 }
 
+function kStartupGrantStatus(row: KStartupAnnouncement, asOf: Date): Grant["status"] {
+  if (row.rcrt_prgs_yn?.trim().toUpperCase() === "N") return "closed";
+  return statusFromApplyWindow(row.pbanc_rcpt_bgng_dt, row.pbanc_rcpt_end_dt, asOf);
+}
+
 export function parseRegion(value: string | null | undefined): RegionCriterionValue {
   const label = clean(value);
-  if (!label || label === "전국") return { regions: [], labels: [], nationwide: true };
-  return {
-    regions: [REGION_CODES[label] ?? label],
-    labels: [label],
-    nationwide: false,
-  };
+  if (!label || isNationwideRegionToken(label)) return { regions: [], labels: [], nationwide: true };
+  // 복수 지역 표기('서울,경기')는 토큰 단위로 환원하고, 하나라도 시도 코드로
+  // 환원되지 않으면 regions를 비워 evaluator가 unknown으로 보존하게 한다.
+  // 과거의 원문 라벨 폴백(REGION_CODES[label] ?? label)은 비코드 값이 required IN에
+  // 들어가 전 회사를 확정 탈락시키는 오염 원천이었다.
+  const tokens = label.split(/[,，·/]/).map((token) => token.trim()).filter(Boolean);
+  const codes = tokens.map((token) => expandRegionToken(token));
+  if (tokens.length > 0 && codes.every((item): item is string[] => item !== null)) {
+    return {
+      regions: [...new Set(codes.flat())],
+      labels: tokens,
+      nationwide: false,
+    };
+  }
+  return { regions: [], labels: [label], nationwide: false };
 }
 
 export function parseBizAge(value: string | null | undefined): BizAgeCriterionValue {
@@ -457,7 +479,8 @@ export function classifyKStartupIndustry(row: KStartupAnnouncement): IndustryCla
   return {
     outcome: "placeholder",
     span: firstSentenceWith(combined, TEXT_HINTS.industry),
-    matchedRuleLabel: result.matchedRuleLabel,
+    // `hit`의 truthiness만으로는 현재 TS가 이 구조적 union을 완전히 좁히지 못한다.
+    matchedRuleLabel: "matchedRuleLabel" in result ? result.matchedRuleLabel : null,
   };
 }
 
@@ -570,6 +593,7 @@ export function classifyKStartupCertification(row: KStartupAnnouncement): CertCl
 function buildScopedTextCriteria(
   row: KStartupAnnouncement,
   sourceId: string,
+  options: { priorAwardSplit?: boolean },
 ): GrantCriterion[] {
   const text = [row.aply_trgt_ctnt, row.aply_excl_trgt_ctnt].map(clean).filter(Boolean).join("\n");
   const criteria: GrantCriterion[] = [];
@@ -684,15 +708,27 @@ function buildScopedTextCriteria(
     extraction.criteria.forEach((criterion, index) => {
       criteria.push(makeCriterion(sourceId, `disq-${criterion.dimension}-${index + 1}`, criterion));
     });
+    // P3 배선: L1은 명시 flag가 true일 때만 열린다. 기본 false에서는 기존 residual이 그대로 유지된다.
+    const priorAwardExtraction = extractPriorAwardCriteria(extraction.residualSpans.join("\n"), {
+      enabled: options.priorAwardSplit === true,
+      sourceField: "aply_excl_trgt_ctnt",
+      confidence: 0.6,
+    });
+    priorAwardExtraction.criteria.forEach((criterion, index) => {
+      criteria.push(makeCriterion(sourceId, `prior-award-${index + 1}`, criterion));
+    });
+    const residualSpans = options.priorAwardSplit === true
+      ? priorAwardExtraction.residualSpans
+      : extraction.residualSpans;
     // 잔여 배제 문장 안전망 — 구조화 대상이 남았거나(분해기 미매치) C2/절차 조건이면 원문 검수 유지.
     // 힌트 어휘가 있는 잔여 문장만 placeholder 로 남겨 노이즈를 줄인다.
-    const residualHit = extraction.residualSpans.find((span) =>
+    const residualHit = residualSpans.find((span) =>
       TEXT_HINTS.priorAwardOrBadStanding.test(span),
     );
     // 구조화가 하나도 안 됐지만 힌트가 걸리는 경우(구조 실패)를 위해 전체 텍스트도 fallback 대상으로 둔다.
     const fallbackSpan =
       residualHit ??
-      (extraction.criteria.length === 0 && TEXT_HINTS.priorAwardOrBadStanding.test(exclusionText)
+      (extraction.criteria.length + priorAwardExtraction.criteria.length === 0 && TEXT_HINTS.priorAwardOrBadStanding.test(exclusionText)
         ? firstSentenceWith(exclusionText, TEXT_HINTS.priorAwardOrBadStanding)
         : null);
     if (fallbackSpan) {
@@ -771,7 +807,7 @@ function deriveProjection(criteria: GrantCriterion[]) {
       const value = criterion.value as RegionCriterionValue;
       return value.regions ?? [];
     }),
-    f_industries: [] as string[],
+    f_industries: projectGrantIndustryTags(criteria),
     f_biz_age_min_months: bizAgeValue?.min_months ?? null,
     f_biz_age_max_months: bizAgeValue?.max_months ?? null,
     f_sizes: [] as string[],

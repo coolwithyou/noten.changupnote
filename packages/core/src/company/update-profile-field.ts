@@ -5,6 +5,9 @@ import type {
   CriterionDimension,
   DisqualificationProfileValue,
   ListProfileDimension,
+  PriorAwardProfileValue,
+  PriorAwardRecord,
+  PriorAwardSelfKind,
 } from "@cunote/contracts";
 import {
   ALL_DISQUALIFICATION_FLAGS,
@@ -18,6 +21,8 @@ import {
   type DisqualificationQuestionId,
 } from "../disqualification/canonical.js";
 import { clearProfileQuestionAnswerState } from "./question-answer-state.js";
+import { normalizePriorAwardProgramLabel } from "../prior-award/canonical.js";
+import { isValidSidoCode, sidoCodeForToken } from "../criteria/regions.js";
 
 export interface CompanyProfileFieldUpdate {
   field: CriterionDimension;
@@ -90,7 +95,16 @@ export function updateCompanyProfileField(
       next.certs = updateStringArray(next.certs, update.value, "value", update.mode, { allowEmpty: true });
       break;
     case "prior_award":
-      next.prior_awards = updateStringArray(next.prior_awards, update.value, "value", update.mode, { allowEmpty: true });
+      if (isPlainRecord(update.value)) {
+        next.prior_award_history = normalizePriorAwardHistory(
+          update.value,
+          update.mode === "merge" ? next.prior_award_history : undefined,
+        );
+        next.prior_awards = next.prior_award_history.records.flatMap((record) => record.program ? [record.program] : []);
+      } else {
+        // 하위호환 자유 문자열 목록. 구조화 history를 추측 생성하지 않아 known_program 커버를 과장하지 않는다.
+        next.prior_awards = updateStringArray(next.prior_awards, update.value, "value", update.mode, { allowEmpty: true });
+      }
       break;
     case "ip":
       next.ip = updateStringArray(next.ip, update.value, "value", update.mode, { allowEmpty: true });
@@ -227,16 +241,32 @@ function appendEvidenceObservation(
 
 function normalizeRegion(value: unknown): NonNullable<CompanyProfile["region"]> {
   if (typeof value === "string") {
-    const code = normalizeString(value, "value");
-    return { code, label: code };
+    const token = normalizeString(value, "value");
+    return { code: resolveSidoCode(token, "value"), label: token };
   }
 
   const record = normalizeRecord(value, "value");
-  const code = normalizeString(record.code, "value.code");
+  const rawCode = normalizeString(record.code, "value.code");
   const label = typeof record.label === "string" && record.label.trim()
     ? record.label.trim()
     : undefined;
+  // 라벨('수도권', '서울특별시')이 code 자리에 그대로 저장되면 이후 모든 공고의
+  // region 비교가 이 비코드 값과 이뤄져 프로필이 오염된다. 시도 코드로 환원해 저장한다.
+  const code = isValidSidoCode(rawCode)
+    ? rawCode
+    : resolveSidoCode(label ?? rawCode, "value.code");
   return label ? { code, label } : { code };
+}
+
+function resolveSidoCode(token: string, field: string): string {
+  const code = sidoCodeForToken(token);
+  if (!code) {
+    throw new InvalidCompanyProfileFieldError(
+      `${field}는 시도 코드 또는 시도 명칭이어야 합니다: ${token}`,
+      field,
+    );
+  }
+  return code;
 }
 
 function normalizeStringArray(
@@ -309,7 +339,127 @@ function isDisqualificationExpandedAxis(field: CriterionDimension): boolean {
     field === "financial_health" ||
     field === "insured_workforce" ||
     field === "investment"
+    || field === "prior_award"
   );
+}
+
+function normalizePriorAwardHistory(
+  value: Record<string, unknown>,
+  current?: PriorAwardProfileValue,
+): PriorAwardProfileValue {
+  const incomingRecords = value.records === undefined
+    ? undefined
+    : normalizePriorAwardRecords(value.records);
+  const selfFlags = value.self_flags === undefined
+    ? current?.self_flags
+    : normalizePriorAwardSelfFlags(value.self_flags);
+  const tenancy = value.has_incubation_tenancy === undefined
+    ? current?.has_incubation_tenancy
+    : normalizeBoolean(value.has_incubation_tenancy, "value.has_incubation_tenancy");
+  const incomingKnownPrograms = normalizeKnownPrograms(value.known_programs, "value.known_programs");
+  const incomingKnownProgramTypes = normalizeKnownPrograms(value.known_program_types, "value.known_program_types");
+  const knownPrograms = uniqueStrings([...(current?.known_programs ?? []), ...incomingKnownPrograms]);
+  const knownProgramTypes = uniqueStrings([...(current?.known_program_types ?? []), ...incomingKnownProgramTypes]);
+  return {
+    records: mergePriorAwardRecords(
+      incomingRecords === undefined
+        ? current?.records ?? []
+        : removePriorAwardRecordsInAnsweredScope(
+          current?.records ?? [],
+          incomingKnownPrograms,
+          incomingKnownProgramTypes,
+        ),
+      incomingRecords ?? [],
+    ),
+    ...(selfFlags && Object.keys(selfFlags).length > 0 ? {
+      self_flags: { ...(current?.self_flags ?? {}), ...selfFlags },
+    } : {}),
+    ...(tenancy !== undefined ? { has_incubation_tenancy: tenancy } : {}),
+    known_programs: knownPrograms,
+    known_program_types: knownProgramTypes,
+  };
+}
+
+/**
+ * A structured merge is a scoped answer, not an append-only event. When a user
+ * answers "no" for a program, the payload contains an empty records array plus
+ * the program in known_programs. Remove the stale positive record for exactly
+ * that answered scope while retaining records for every unrelated scope.
+ */
+function removePriorAwardRecordsInAnsweredScope(
+  records: PriorAwardRecord[],
+  knownPrograms: string[],
+  knownProgramTypes: string[],
+): PriorAwardRecord[] {
+  const answered = new Set([...knownPrograms, ...knownProgramTypes]);
+  if (answered.size === 0) return records;
+  return records.filter((record) => {
+    if (!record.program) return true;
+    const program = normalizePriorAwardProgramLabel(record.program) ?? record.program.trim();
+    return !answered.has(program);
+  });
+}
+
+function normalizePriorAwardRecords(value: unknown): PriorAwardRecord[] {
+  if (!Array.isArray(value)) throw new InvalidCompanyProfileFieldError("value.records는 배열이어야 합니다.", "value.records");
+  return value.map((item, index) => {
+    const row = normalizeRecord(item, `value.records.${index}`);
+    const state = row.state;
+    if (state !== "participating" && state !== "completed" && state !== "graduated") {
+      throw new InvalidCompanyProfileFieldError(`value.records.${index}.state가 올바르지 않습니다.`, `value.records.${index}.state`);
+    }
+    const program = typeof row.program === "string" && row.program.trim()
+      ? normalizePriorAwardProgramLabel(row.program) ?? row.program.trim()
+      : undefined;
+    const agency = typeof row.agency === "string" && row.agency.trim() ? row.agency.trim() : undefined;
+    const year = row.year === null || row.year === undefined ? row.year : normalizePriorAwardYear(row.year, `value.records.${index}.year`);
+    return {
+      state,
+      ...(program ? { program } : {}),
+      ...(agency ? { agency } : {}),
+      ...(year !== undefined ? { year } : {}),
+    };
+  });
+}
+
+function normalizePriorAwardSelfFlags(value: unknown): Partial<Record<PriorAwardSelfKind, boolean>> {
+  const row = normalizeRecord(value, "value.self_flags");
+  const result: Partial<Record<PriorAwardSelfKind, boolean>> = {};
+  for (const key of ["current_similar", "same_project", "same_business_prior", "same_year_other_support"] as const) {
+    if (row[key] !== undefined) result[key] = normalizeBoolean(row[key], `value.self_flags.${key}`);
+  }
+  return result;
+}
+
+function normalizeKnownPrograms(value: unknown, field: string): string[] {
+  if (value === undefined) return [];
+  return normalizeStringArray(value, field, { allowEmpty: true })
+    .map((program) => normalizePriorAwardProgramLabel(program) ?? program);
+}
+
+function mergePriorAwardRecords(current: PriorAwardRecord[], incoming: PriorAwardRecord[]): PriorAwardRecord[] {
+  return [...new Map([...current, ...incoming].map((record) => [
+    JSON.stringify([record.program ?? null, record.agency ?? null, record.year ?? null, record.state]),
+    record,
+  ])).values()];
+}
+
+function normalizePriorAwardYear(value: unknown, field: string): number {
+  const year = typeof value === "string" ? Number(value) : value;
+  if (!Number.isInteger(year) || (year as number) < 1900 || (year as number) > 2100) {
+    throw new InvalidCompanyProfileFieldError(`${field}는 1900~2100 연도여야 합니다.`, field);
+  }
+  return year as number;
+}
+function normalizeBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") throw new InvalidCompanyProfileFieldError(`${field}는 boolean이어야 합니다.`, field);
+  return value;
+}
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function isMergeableListDimension(field: CriterionDimension): boolean {

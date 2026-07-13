@@ -79,7 +79,7 @@ function SettingRow({ item }: { item: SettingItem }) {
           disabled={pending}
         />
         {item.updatedAt ? (
-          <span style={{ fontSize: 11, color: "var(--muted)" }}>
+          <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
             최근 수정: {item.updatedAt}
           </span>
         ) : null}

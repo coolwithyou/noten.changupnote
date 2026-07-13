@@ -42,6 +42,8 @@ export async function GET(request: Request) {
       collectedAt: new Date(),
       details: true,
       maxDetailFetches: maxDetails,
+      // 첨부 본문 다운로드는 별도 측정·예산 확정 전까지 명시적으로 비활성화한다.
+      archiveAttachments: false,
     });
 
     // 잔여 예산 변환 폴링 스윕 (계획 2026-07-08 슬라이스 A3): 이 수집이 등록한 pending surface 를
@@ -54,6 +56,8 @@ export async function GET(request: Request) {
       params: { pages, perPage, maxDetails },
       totals: result.totals,
       detailTotals: result.detailTotals,
+      attachmentArchiveTotals: result.attachmentArchiveTotals,
+      revisionRefresh: result.revisionRefresh,
       stopReason: result.stopReason,
       pageCount: result.pageCount,
       collectedAt: result.collectedAt,

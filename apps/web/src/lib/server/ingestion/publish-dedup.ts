@@ -8,21 +8,30 @@ loadMonorepoEnv();
 
 if (hasFlag("help")) {
   console.log([
-    "Usage: pnpm publish:dedup -- [--dry-run] [--limit=500] [--minScore=0.82] [--asOf=2026-06-27T00:00:00.000Z]",
+    "Usage: pnpm publish:dedup -- [--limit=500] [--minScore=0.82] [--asOf=2026-06-27T00:00:00.000Z]",
+    "       pnpm publish:dedup -- --write --confirm=PUBLISH_DEDUP_LINKS [options]",
+    "       write additionally requires one or more --pair=<canonicalGrantKey>,<memberGrantKey>",
     "",
-    "Reads active grants as of --asOf, plans cross-source dedup links, and persists them unless --dry-run is set.",
+    "Default is read-only dry-run. DB publication requires both --write and the exact confirmation string.",
   ].join("\n"));
   process.exit(0);
 }
 
-const dryRun = hasFlag("dry-run") || process.env.CUNOTE_DEDUP_DRY_RUN === "true";
+const write = hasFlag("write");
+if (write && readArg("confirm") !== "PUBLISH_DEDUP_LINKS") {
+  throw new Error("--write requires --confirm=PUBLISH_DEDUP_LINKS");
+}
+if (write && hasFlag("dry-run")) throw new Error("--write and --dry-run cannot be used together");
+const pairKeys = parsePairArgs(readArgs("pair"), 20);
+if (write && pairKeys.length === 0) throw new Error("--write requires at least one exact --pair scope");
+const dryRun = !write;
 const limit = boundedInteger(readArg("limit") ?? process.env.CUNOTE_DEDUP_LIMIT, 500, 1, 2_000);
 const minScore = optionalNumber(readArg("minScore") ?? process.env.CUNOTE_DEDUP_MIN_SCORE);
 const asOf = dateArg(readArg("asOf") ?? process.env.CUNOTE_DEDUP_AS_OF) ?? new Date();
 const db = getCunoteDb();
 
 try {
-  const result = await runDedupPublish({ db, dryRun, limit, minScore, asOf });
+  const result = await runDedupPublish({ db, dryRun, limit, minScore, asOf, pairKeys });
   console.log(JSON.stringify(result, null, 2));
 } finally {
   await closeCunoteDb();
@@ -31,6 +40,25 @@ try {
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
+}
+
+function readArgs(name: string): string[] {
+  const prefix = `--${name}=`;
+  return process.argv.filter((arg) => arg.startsWith(prefix)).map((arg) => arg.slice(prefix.length));
+}
+
+function parsePairArgs(values: string[], max: number) {
+  if (values.length > max) throw new Error(`--pair supports at most ${max} values`);
+  return values.map((value) => {
+    const [canonicalGrantKey, memberGrantKey, ...rest] = value.split(",");
+    if (rest.length > 0 || !canonicalGrantKey || !memberGrantKey || canonicalGrantKey === memberGrantKey) {
+      throw new Error(`Invalid --pair: ${value}. Use <canonicalGrantKey>,<memberGrantKey>.`);
+    }
+    for (const key of [canonicalGrantKey, memberGrantKey]) {
+      if (!/^[A-Za-z0-9._:-]+$/.test(key)) throw new Error(`Unsafe grant key in --pair: ${key}`);
+    }
+    return { canonicalGrantKey, memberGrantKey };
+  });
 }
 
 function hasFlag(name: string): boolean {

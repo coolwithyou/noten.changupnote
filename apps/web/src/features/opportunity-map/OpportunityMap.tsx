@@ -50,7 +50,7 @@ const STATUS_FILTERS: Array<{ value: MatchStatusFilter; label: string }> = [
 
 const SORT_OPTIONS: Array<{ value: MatchSortKey; label: string }> = [
   { value: "recommended", label: "추천순" },
-  { value: "fit", label: "적합도순" },
+  { value: "fit", label: "조건 확인도순" },
   { value: "deadline", label: "마감순" },
   { value: "amount", label: "지원금순" },
 ];
@@ -375,7 +375,7 @@ function matchEligibilityTone(match: MatchCard): "brand" | "success" | "warning"
 }
 
 function scoreLabel(match: MatchCard): string {
-  if (match.scoreDisplay !== "hidden") return `적합도 ${match.fitScore}`;
+  if (match.scoreDisplay !== "hidden") return `조건 확인도 ${match.fitScore}`;
   return match.eligibility === "ineligible" ? "미해당" : "확인 필요";
 }
 

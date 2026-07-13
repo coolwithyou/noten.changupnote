@@ -5,6 +5,7 @@ const migrationPath = "db/migrations/0003_rls_company_scope.sql";
 const adminRoleMigrationPath = "db/migrations/0004_company_role_admin.sql";
 const profileScopeMigrationPath = "db/migrations/0034_sturdy_boom_boom.sql";
 const creditMigrationPath = "db/migrations/0038_yielding_leader.sql";
+const profileQuestionMigrationPath = "db/migrations/0045_mushy_daimon_hellstrom.sql";
 const journalPath = "db/migrations/meta/_journal.json";
 const schemaPath = "apps/web/src/lib/server/db/schema.ts";
 
@@ -12,6 +13,7 @@ const migration = readFileSync(resolve(process.cwd(), migrationPath), "utf8");
 const adminRoleMigration = readFileSync(resolve(process.cwd(), adminRoleMigrationPath), "utf8");
 const profileScopeMigration = readFileSync(resolve(process.cwd(), profileScopeMigrationPath), "utf8");
 const creditMigration = readFileSync(resolve(process.cwd(), creditMigrationPath), "utf8");
+const profileQuestionMigration = readFileSync(resolve(process.cwd(), profileQuestionMigrationPath), "utf8");
 const journal = readFileSync(resolve(process.cwd(), journalPath), "utf8");
 const schema = readFileSync(resolve(process.cwd(), schemaPath), "utf8");
 
@@ -105,6 +107,19 @@ requireCreditPattern("credit_wallets_balance_nonneg", "credit wallet balance CHE
 requireCreditPattern("credit_lots_remaining_bounds", "credit lot remaining CHECK");
 if (!journal.includes('"tag": "0038_yielding_leader"')) {
   errors.push(`${journalPath} is missing 0038_yielding_leader`);
+}
+for (const pattern of [
+  `ALTER TABLE "profile_question_events" ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE "profile_question_events" FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY "profile_question_events_member"`,
+  `"user_company"."company_id" = "profile_question_events"."company_id"`,
+]) {
+  if (!profileQuestionMigration.includes(pattern)) {
+    errors.push(`${profileQuestionMigrationPath} is missing ${pattern}`);
+  }
+}
+if (!journal.includes('"tag": "0045_mushy_daimon_hellstrom"')) {
+  errors.push(`${journalPath} is missing 0045_mushy_daimon_hellstrom`);
 }
 
 if (!journal.includes('"tag": "0003_rls_company_scope"')) {

@@ -5,6 +5,7 @@ import {
   matchGrantCriteria,
   maskCorpNum,
   resolveCompanySize,
+  resolvePopbillTargetType,
   resolveRegionFromAddress,
   sanitizeCorpNum,
 } from "../src/index.js";
@@ -13,6 +14,9 @@ assert.equal(sanitizeCorpNum("123-45-67890"), "1234567890");
 assert.equal(maskCorpNum("1234567890"), "123-**-67***");
 assert.equal(resolveCompanySize("30"), "중소기업");
 assert.equal(resolveCompanySize("21"), "중견기업");
+assert.equal(resolvePopbillTargetType(1), "법인");
+assert.equal(resolvePopbillTargetType("2"), "개인사업자");
+assert.equal(resolvePopbillTargetType(99), null);
 assert.deepEqual(resolveRegionFromAddress("경기도 성남시 분당구"), { code: "41", label: "경기" });
 assert.equal(calculateBizAgeMonths("20240115", new Date("2026-06-26T00:00:00.000Z")), 29);
 
@@ -24,6 +28,7 @@ const enriched = buildCompanyProfileFromPopbill({
   corpName: "테스트 주식회사",
   CEOName: "홍길동",
   corpScaleCode: "30",
+  personCorpCode: 1,
   industryCode: "J62",
   bizClass: "정보통신업",
   bizType: "소프트웨어 개발",
@@ -39,6 +44,11 @@ assert.equal(enriched.profile.name, "테스트 주식회사");
 assert.deepEqual(enriched.profile.region, { code: "41", label: "경기" });
 assert.equal(enriched.profile.biz_age_months, 29);
 assert.equal(enriched.profile.size, "중소기업");
+assert.deepEqual(enriched.profile.target_types, ["법인"]);
+assert.equal(enriched.profile.list_completeness?.target_type, "partial");
+assert.equal(enriched.profile.profile_evidence?.target_type?.sourceKind, "authoritative_api");
+assert.equal(enriched.profile.profile_evidence?.target_type?.provider, "popbill");
+assert.equal(enriched.profile.profile_evidence?.target_type?.axisCompleteness, "partial");
 // industries = 라벨만(bizClass/bizType), 코드는 industry_codes로 분리
 assert.deepEqual(enriched.profile.industries, ["정보통신업", "소프트웨어 개발"]);
 assert.deepEqual(enriched.profile.industry_codes, ["J62", "62", "J"]);
@@ -64,7 +74,7 @@ assert.equal(statusMatch.rule_trace[0]?.result, "pass");
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["corp_num", "region", "biz_age", "size", "industry", "business_status"],
+  checked: ["corp_num", "region", "biz_age", "size", "target_type", "industry", "business_status"],
   sample_profile: {
     region: enriched.profile.region,
     biz_age_months: enriched.profile.biz_age_months,

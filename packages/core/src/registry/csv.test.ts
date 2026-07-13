@@ -70,4 +70,11 @@ check("완전 빈 입력 → 빈 행렬", () => {
   assert.deepEqual(parseCsv(""), []);
 });
 
+check("탭 구분 TSV와 필드 내부 콤마", () => {
+  assert.deepEqual(parseCsv('a\tb\n"가나다, 주식회사"\t서울', { delimiter: "\t" }), [
+    ["a", "b"],
+    ["가나다, 주식회사", "서울"],
+  ]);
+});
+
 console.log(`\nregistry csv: ${passed} cases passed.`);

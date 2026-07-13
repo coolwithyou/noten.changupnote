@@ -32,6 +32,7 @@ export const REQUIRED_TABLES = [
   "dedup_links",
   "match_state",
   "match_events",
+  "profile_question_events",
   "feedback",
   "support_tickets",
   "support_ticket_messages",
@@ -57,6 +58,7 @@ export const RLS_TABLES = [
   "notification_receipts",
   "match_state",
   "match_events",
+  "profile_question_events",
   "grant_document_drafts",
   "grant_document_draft_events",
 ] as const;

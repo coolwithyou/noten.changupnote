@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Pencil, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
+import { CircleHelp, Pencil, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
 import type { CompanyProfile, TeaserResult } from "@cunote/contracts";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -45,13 +45,16 @@ import {
   type ProfileFieldView,
   type ProfileInputDraft,
 } from "./logic";
+import { TeaserQuestionForm } from "./TeaserQuestionForm";
 
 export function ProfileSection({
   teaser,
+  currentProfile,
   onProfileSubmit,
   submitting,
 }: {
   teaser: TeaserResult;
+  currentProfile: CompanyProfile;
   onProfileSubmit: (patch: CompanyProfile) => Promise<void>;
   submitting: boolean;
 }) {
@@ -103,6 +106,28 @@ export function ProfileSection({
               <div className="font-medium text-foreground">{registryNotice.title}</div>
               <p className="text-sm leading-6 text-muted-foreground">{registryNotice.body}</p>
             </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {teaser.nextQuestion ? (
+        <Card size="sm" className="ring-primary/25">
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex gap-3">
+              <CircleHelp className="mt-0.5 size-4 flex-none text-primary" aria-hidden />
+              <div className="flex flex-col gap-1">
+                <div className="font-medium text-foreground">{teaser.nextQuestion.prompt}</div>
+                <p className="text-sm leading-6 text-muted-foreground">
+                  이 답변은 확인이 필요한 공고 {teaser.nextQuestion.affectedGrantCount.toLocaleString("ko-KR")}건의 판정을 개선합니다.
+                </p>
+              </div>
+            </div>
+            <TeaserQuestionForm
+              question={teaser.nextQuestion}
+              currentProfile={currentProfile}
+              onProfileSubmit={onProfileSubmit}
+              submitting={submitting}
+            />
           </CardContent>
         </Card>
       ) : null}

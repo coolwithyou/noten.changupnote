@@ -38,6 +38,7 @@ export function buildCompanyProfileFromPopbill(
   const region = resolveRegionFromAddress(info.addr);
   const bizAgeMonths = calculateBizAgeMonths(info.establishDate, asOf);
   const size = resolveCompanySize(info.corpScaleCode);
+  const targetType = resolvePopbillTargetType(info.personCorpCode);
   // industries = 라벨만(bizClass/bizType를 '/'로 분해). 코드는 industry_codes로 분리한다.
   const industries = unique([
     ...splitIndustryLabels(info.bizClass),
@@ -50,6 +51,7 @@ export function buildCompanyProfileFromPopbill(
   if (region) confidence.region = 0.8;
   if (bizAgeMonths !== null) confidence.biz_age = 0.75;
   if (size) confidence.size = 0.65;
+  if (targetType) confidence.target_type = 1;
   // 코드가 유효 KSIC로 해석되면 신뢰도 상향(0.6 → 0.7).
   if (hasIndustry) confidence.industry = ksicResolved ? 0.7 : 0.6;
   if (info.closeDownState !== undefined || info.closeDownTaxType !== undefined) {
@@ -62,8 +64,32 @@ export function buildCompanyProfileFromPopbill(
     is_preliminary: false,
     industries,
     size,
+    ...(targetType ? { target_types: [targetType] } : {}),
     confidence,
   };
+  const evidenceAsOf = asOf.toISOString();
+  profile.profile_evidence = {};
+  if (region) {
+    profile.profile_evidence.region = fieldEvidence("authoritative_api", "popbill", evidenceAsOf, "complete", confidence.region);
+  }
+  if (bizAgeMonths !== null) {
+    profile.profile_evidence.biz_age = fieldEvidence("derived", "popbill_establish_date", evidenceAsOf, "complete", confidence.biz_age);
+  }
+  if (size) {
+    profile.profile_evidence.size = fieldEvidence("derived", "popbill_corp_scale", evidenceAsOf, "complete", confidence.size);
+  }
+  if (targetType) {
+    profile.profile_evidence.target_type = fieldEvidence("authoritative_api", "popbill", evidenceAsOf, "partial", confidence.target_type);
+    profile.list_completeness = { ...(profile.list_completeness ?? {}), target_type: "partial" };
+  }
+  if (hasIndustry) {
+    profile.profile_evidence.industry = fieldEvidence("authoritative_api", "popbill", evidenceAsOf, "partial", confidence.industry);
+    profile.list_completeness = { ...(profile.list_completeness ?? {}), industry: "partial" };
+  }
+  if (businessStatus) {
+    profile.profile_evidence.business_status = fieldEvidence("authoritative_api", "popbill", evidenceAsOf, "complete", confidence.business_status);
+  }
+  if (Object.keys(profile.profile_evidence).length === 0) delete profile.profile_evidence;
   if (industryCodes.length > 0) profile.industry_codes = industryCodes;
   if (info.corpNum) profile.id = `popbill:${maskCorpNum(info.corpNum)}`;
   const name = clean(info.corpName);
@@ -86,6 +112,22 @@ export function buildCompanyProfileFromPopbill(
       close_down_state: info.closeDownState ?? null,
       close_down_tax_type: info.closeDownTaxType ?? null,
     },
+  };
+}
+
+function fieldEvidence(
+  sourceKind: "authoritative_api" | "derived",
+  provider: string,
+  asOf: string,
+  axisCompleteness: "partial" | "complete",
+  confidence: number | undefined,
+) {
+  return {
+    sourceKind,
+    provider,
+    asOf,
+    axisCompleteness,
+    confidence: confidence ?? null,
   };
 }
 
@@ -113,6 +155,14 @@ export function resolveCompanySize(value: string | number | null | undefined): s
   if (/소상공인/.test(text)) return "소상공인";
   if (/소기업/.test(text)) return "소기업";
   return text;
+}
+
+/** 팝빌 공식 개인/법인코드: 1=법인, 2=개인, 99=기타. 기타·미상은 추측하지 않는다. */
+export function resolvePopbillTargetType(value: string | number | null | undefined): "법인" | "개인사업자" | null {
+  const code = clean(String(value ?? ""));
+  if (code === "1") return "법인";
+  if (code === "2") return "개인사업자";
+  return null;
 }
 
 export function resolveRegionFromAddress(

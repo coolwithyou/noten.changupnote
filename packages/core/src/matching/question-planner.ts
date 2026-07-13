@@ -12,6 +12,7 @@ import {
   type QuestionDefinitionId,
 } from "../questions/definitions.js";
 import { daysUntil, grantKey, type MatchedGrant } from "../use-cases/match-card.js";
+import { priorAwardProgramLabel } from "../prior-award/canonical.js";
 
 export interface PlannedProfileQuestion {
   question: NextQuestionDto;
@@ -125,42 +126,49 @@ function planDimensionQuestion(
   dimension: CriterionDimension,
   candidates: QuestionCandidate[],
 ): PlannedProfileQuestion {
-  const affectedGrantIds = unique(candidates.map((candidate) => candidate.grantId));
-  const resolvesGrantIds = unique(candidates
+  const scopedCandidates = dimension === "prior_award" ? selectPriorAwardQuestionCandidates(candidates) : candidates;
+  const affectedGrantIds = unique(scopedCandidates.map((candidate) => candidate.grantId));
+  const resolvesGrantIds = unique(scopedCandidates
     .filter((candidate) => candidate.onlyRemainingDimension)
     .map((candidate) => candidate.grantId));
-  const hardConditionCount = candidates.length;
+  const hardConditionCount = scopedCandidates.length;
   const effort = effortForDimension(dimension);
   const definition = questionDefinitionFor(dimension);
-  const hasRangeAnswer = candidates.some((candidate) => isRangeCompanyValue(candidate.trace.company_value));
+  const hasRangeAnswer = scopedCandidates.some((candidate) => isRangeCompanyValue(candidate.trace.company_value));
   const rangeStage = Boolean(definition.rangeOptions?.length) && !hasRangeAnswer;
   const preciseStage = Boolean(definition.rangeOptions?.length) && hasRangeAnswer;
   const options = rangeStage
     ? definition.rangeOptions?.map((option) => option.label) ?? []
     : preciseStage
       ? []
-      : questionOptions(definition, candidates.map((candidate) => candidate.criterion));
+      : questionOptions(definition, scopedCandidates.map((candidate) => candidate.criterion));
   const criterionThresholds = questionCriterionThresholds(
     dimension,
-    candidates.map((candidate) => ({ grantId: candidate.grantId, criterion: candidate.criterion })),
+    scopedCandidates.map((candidate) => ({ grantId: candidate.grantId, criterion: candidate.criterion })),
   );
   const score = Math.max(0, Math.round(
     affectedGrantIds.length * 10 +
     resolvesGrantIds.length * 12 +
-    candidates.reduce((sum, candidate) => sum + conditionWeight(candidate), 0) +
-    candidates.reduce((sum, candidate) => sum + deadlineWeight(candidate.dDay), 0) -
+    scopedCandidates.reduce((sum, candidate) => sum + conditionWeight(candidate), 0) +
+    scopedCandidates.reduce((sum, candidate) => sum + deadlineWeight(candidate.dDay), 0) -
     effortCost(effort),
   ));
+  const priorAwardContext = dimension === "prior_award"
+    ? priorAwardContextFromTrace(scopedCandidates[0]?.trace.company_value)
+    : null;
   const question: NextQuestionDto = {
     dimension,
     definitionId: definition.id,
-    prompt: preciseStage ? definition.precisePrompt ?? definition.prompt : definition.prompt,
-    inputType: rangeStage ? "select" : definition.inputType,
+    prompt: priorAwardContext
+      ? priorAwardPrompt(priorAwardContext)
+      : preciseStage ? definition.precisePrompt ?? definition.prompt : definition.prompt,
+    inputType: priorAwardContext ? "boolean" : rangeStage ? "select" : definition.inputType,
     framing: framingFor(dimension, affectedGrantIds.length, resolvesGrantIds.length),
     affectedGrantCount: affectedGrantIds.length,
     preciseFollowUp: definition.preciseFollowUp,
     responseStage: rangeStage ? "range" : preciseStage ? "precise" : "direct",
   };
+  if (priorAwardContext) question.priorAwardContext = priorAwardContext;
   if (rangeStage && definition.rangeOptions) question.rangeOptions = definition.rangeOptions;
   if (definition.unit) question.unit = definition.unit;
   if (criterionThresholds.length > 0) question.criterionThresholds = criterionThresholds;
@@ -175,6 +183,61 @@ function planDimensionQuestion(
     hardConditionCount,
     effort,
   };
+}
+
+function selectPriorAwardQuestionCandidates(candidates: QuestionCandidate[]): QuestionCandidate[] {
+  const grouped = new Map<string, QuestionCandidate[]>();
+  for (const candidate of candidates) {
+    const context = priorAwardContextFromTrace(candidate.trace.company_value);
+    const key = context ? JSON.stringify(context) : "legacy";
+    grouped.set(key, [...(grouped.get(key) ?? []), candidate]);
+  }
+  return [...grouped.values()].sort((left, right) =>
+    right.length - left.length || left[0]!.grantId.localeCompare(right[0]!.grantId))[0] ?? candidates;
+}
+
+function priorAwardContextFromTrace(value: unknown): NonNullable<NextQuestionDto["priorAwardContext"]> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const context = (value as { priorAwardQuestion?: unknown }).priorAwardQuestion;
+  if (!context || typeof context !== "object" || Array.isArray(context)) return null;
+  const row = context as Record<string, unknown>;
+  if (row.scope !== "self" && row.scope !== "program" && row.scope !== "program_type") return null;
+  const programs = Array.isArray(row.programs)
+    ? row.programs.filter((item): item is string => typeof item === "string" && item.length > 0).slice(0, 1)
+    : [];
+  const states = Array.isArray(row.states)
+    ? row.states.filter((item): item is "participating" | "completed" | "graduated" =>
+      item === "participating" || item === "completed" || item === "graduated")
+    : [];
+  return {
+    scope: row.scope,
+    ...(row.selfKind === "current_similar" || row.selfKind === "same_project" ||
+      row.selfKind === "same_business_prior" || row.selfKind === "same_year_other_support"
+      ? { selfKind: row.selfKind } : {}),
+    ...(row.channel === "general" || row.channel === "incubation_tenancy" ? { channel: row.channel } : {}),
+    ...(programs.length > 0 ? { programs } : {}),
+    ...(states.length > 0 ? { states } : {}),
+    requiresYear: row.requiresYear === true,
+  };
+}
+
+function priorAwardPrompt(context: NonNullable<NextQuestionDto["priorAwardContext"]>): string {
+  if (context.channel === "incubation_tenancy") return "현재 다른 창업보육센터·BI에 입주 중인가요?";
+  if (context.scope === "self") {
+    const prompts = {
+      current_similar: "현재 다른 정부·지자체 지원사업을 수행 중이거나 동일·유사 지원을 받고 있나요?",
+      same_project: "동일 과제로 다른 정부지원사업에 동시에 참여 중인가요?",
+      same_business_prior: "이번 공모와 동일한 사업에 과거 선정·입상한 적이 있나요?",
+      same_year_other_support: "올해 다른 부처·공공기관의 유사 정부보조금을 중복 수혜하고 있나요?",
+    } as const;
+    return prompts[context.selfKind ?? "current_similar"];
+  }
+  const program = context.programs?.[0] ? priorAwardProgramLabel(context.programs[0]) : "해당 프로그램";
+  const [state] = context.states ?? [];
+  if (state === "participating") return `현재 ${program}에 참여·수행 중인가요?`;
+  if (state === "completed") return `${program} 선정·수혜 완료 이력이 있나요?`;
+  if (state === "graduated") return `${program} 수료 이력이 있나요?`;
+  return `${program} 참여·수혜·수료 이력이 있나요?`;
 }
 
 function isRangeCompanyValue(value: unknown): boolean {
@@ -208,7 +271,8 @@ function isProfileResolvableCriterion(criterion: GrantCriterion): boolean {
     case "founder_trait":
       return hasValues(value.traits);
     case "prior_award":
-      return hasValues(value.programs) || hasValues(value.flags) || typeof value.note === "string";
+      return value.scope === "self" || value.scope === "program" || value.scope === "program_type" ||
+        hasValues(value.programs) || hasValues(value.flags) || typeof value.note === "string";
     case "ip":
       return hasValues(value.types);
     case "target_type":

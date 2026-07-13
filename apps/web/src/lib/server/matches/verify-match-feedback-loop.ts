@@ -55,6 +55,20 @@ assert.equal(blocked.reasonCode, "portal_blocked");
 assert.equal(blocked.correction?.dimension, "region");
 assert.equal(blocked.correction?.correctedEligibility, "ineligible");
 
+const stale = buildSubmitFeedbackInput({
+  companyId: "company-1",
+  grantId: "kstartup:grant-stale",
+  body: { kind: "wrong", reasonCode: "stale_grant" },
+});
+assert.equal(stale.reasonCode, "stale_grant");
+
+const duplicate = buildSubmitFeedbackInput({
+  companyId: "company-1",
+  grantId: "kstartup:grant-duplicate",
+  body: { kind: "wrong", reasonCode: "duplicate_grant" },
+});
+assert.equal(duplicate.reasonCode, "duplicate_grant");
+
 const sanitized = buildSubmitFeedbackInput({
   companyId: "company-1",
   grantId: "kstartup:grant-3",

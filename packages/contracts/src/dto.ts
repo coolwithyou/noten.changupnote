@@ -12,6 +12,8 @@ import type {
   GrantBenefitSource,
   GrantStatus,
   MatchRecommendationTier,
+  MatchQuality,
+  MatchRanking,
   MatchResult,
   MatchReviewReason,
   MatchScoreDisplay,
@@ -36,13 +38,20 @@ export type FeedbackKind =
   | "note";
 export type MatchOutcome = "pending" | "selected" | "rejected" | "blocked";
 export type MatchFeedbackReasonCode =
+  | "wrong_eligibility"
   | "wrong_high"
   | "wrong_low"
   | "wrong_condition"
+  | "missing_condition"
   | "profile_wrong"
+  | "wrong_company_fact"
   | "criteria_wrong"
   | "taxonomy_gap"
+  | "duplicate_grant"
+  | "stale_grant"
   | "portal_blocked"
+  | "rejected_at_eligibility"
+  | "accepted_for_review"
   | "selected"
   | "rejected"
   | "other";
@@ -157,6 +166,8 @@ export interface TeaserResult {
     notRecommended?: number;
   };
   matches: MatchCard[];
+  /** 전체 활성 공고에서 현재 판정을 가장 많이 개선하는 다음 질문. */
+  nextQuestion: NextQuestionDto | null;
   recommendableMatches?: MatchCard[];
   reviewNeededMatches?: MatchCard[];
   searchContext?: TeaserSearchContext;
@@ -182,7 +193,12 @@ export interface MatchCard {
   status: GrantStatus;
   eligibility: Eligibility;
   bucket: OpportunityBucket;
+  /** @deprecated 호환 필드. 현재는 quality.verificationCompleteness와 같다. */
   fitScore: number;
+  /** 자격조건 확인 완성도와 공고 추출·근거 품질. */
+  quality?: MatchQuality;
+  /** 자격과 분리된 관련성·실행 우선순위 정렬 신호. */
+  ranking?: MatchRanking;
   competitiveness?: {
     value: number;
     estimated: true;
@@ -470,6 +486,17 @@ export interface NextQuestionDto {
   rangeOptions?: QuestionRangeOptionDto[];
   framing: string;
   affectedGrantCount: number;
+  /** prior_award는 같은 dimension 안에서도 self/program/program_type 문항을 독립 known 게이트로 묻는다. */
+  priorAwardContext?: PriorAwardQuestionContextDto;
+}
+
+export interface PriorAwardQuestionContextDto {
+  scope: "self" | "program" | "program_type";
+  selfKind?: "current_similar" | "same_project" | "same_business_prior" | "same_year_other_support";
+  channel?: "general" | "incubation_tenancy";
+  programs?: string[];
+  states?: Array<"participating" | "completed" | "graduated">;
+  requiresYear: boolean;
 }
 
 export interface QuestionCriterionThresholdDto {
@@ -579,6 +606,40 @@ export interface MatchFeedbackCorrection {
   correctedEligibility?: Eligibility | null;
   correctedResult?: CriterionResult | null;
   note?: string | null;
+}
+
+export interface MatchFeedbackCriterionRef {
+  criterionId: string | null;
+  dimension: CriterionDimension;
+  kind: CriterionKind;
+  result: CriterionResult;
+  sourceSpanHash: string | null;
+}
+
+export interface MatchFeedbackCompanyFactRef {
+  dimension: CriterionDimension;
+  present: boolean;
+  valueHash: string | null;
+  confidence: number | null;
+}
+
+/**
+ * 피드백이 발생한 순간의 재현 가능한 매칭 참조값.
+ * 회사 원값과 공고 원문은 저장하지 않고 hash·revision·criterion ref만 보존한다.
+ */
+export interface MatchFeedbackProvenance {
+  captureStatus: "complete" | "grant_missing" | "company_missing";
+  capturedAt: string;
+  grantSource: Grant["source"] | null;
+  grantSourceId: string | null;
+  grantRevision: string | null;
+  rulesetVersion: string | null;
+  scoringVersion: string | null;
+  eligibility: Eligibility | null;
+  extractionReadiness: MatchQuality["extractionReadiness"] | null;
+  evidenceCoverage: number | null;
+  criterionRefs: MatchFeedbackCriterionRef[];
+  companyFactRefs: MatchFeedbackCompanyFactRef[];
 }
 
 export interface FeedbackReceipt {
@@ -719,6 +780,19 @@ export interface CompanyEnrichmentResult {
   profile: CompanyProfile;
   facts: CompanyEnrichmentFacts;
   evidence?: CompanyEvidence | null;
+  /** 사업자정보 저장 직후 전체 활성 공고를 평가한 첫 결과. */
+  initialMatch: CompanyInitialMatchResult;
+}
+
+export interface CompanyInitialMatchResult {
+  asOf: string;
+  evaluatedGrantCount: number;
+  counts: TeaserResult["counts"];
+  /** 추천 가능/확인 필요 순으로 제한된 첫 화면 공고. */
+  matches: MatchCard[];
+  nextQuestion: NextQuestionDto | null;
+  rulesetVer: MatchResult["ruleset_ver"];
+  scoringVer: MatchResult["scoring_ver"];
 }
 
 export interface NotificationSettingsDto {

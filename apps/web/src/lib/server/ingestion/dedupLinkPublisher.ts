@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { NormalizedGrant } from "@cunote/contracts";
 import {
   findGrantDedupCandidates,
@@ -13,6 +13,7 @@ export interface DedupLinkPlanItem {
   canonicalGrantKey: string;
   memberGrantKey: string;
   score: number;
+  confirmed: boolean;
 }
 
 export interface DedupLinkPublishPlan {
@@ -69,16 +70,18 @@ export function planDedupLinkPublication(candidates: GrantDedupCandidate[]): Ded
       skippedCount += 1;
       continue;
     }
-    const [canonicalGrantKey, memberGrantKey] = sortPair(candidate.canonicalGrantKey, candidate.memberGrantKey);
-    const key = `${canonicalGrantKey}\u0000${memberGrantKey}`;
+    const [leftKey, rightKey] = sortPair(candidate.canonicalGrantKey, candidate.memberGrantKey);
+    const key = `${leftKey}\u0000${rightKey}`;
     const current = links.get(key);
     if (!current || candidate.score > current.score) {
       links.set(key, {
-        canonicalGrantKey,
-        memberGrantKey,
+        canonicalGrantKey: candidate.canonicalGrantKey,
+        memberGrantKey: candidate.memberGrantKey,
         score: candidate.score,
+        confirmed: current?.confirmed === true || candidate.decision === "auto_duplicate",
       });
     } else {
+      if (candidate.decision === "auto_duplicate" && !current.confirmed) current.confirmed = true;
       skippedCount += 1;
     }
   }
@@ -120,12 +123,13 @@ export async function publishDedupLinks(
           canonicalGrantId,
           memberGrantId,
           score: link.score,
-          confirmed: false,
+          confirmed: link.confirmed,
         })
         .onConflictDoUpdate({
           target: [schema.dedupLinks.canonicalGrantId, schema.dedupLinks.memberGrantId],
           set: {
             score: link.score,
+            confirmed: sql`${schema.dedupLinks.confirmed} OR ${link.confirmed}`,
           },
         });
       resolvedLinkCount += 1;

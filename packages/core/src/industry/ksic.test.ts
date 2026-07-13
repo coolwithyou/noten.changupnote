@@ -173,6 +173,9 @@ check("buildCompanyProfileFromPopbill: 라벨/코드 분리 + 0.7 상향", () =>
   assert.deepEqual(profile.industries, ["시각 디자인업", "일반 서적 출판업", "정보통신업"]);
   assert.deepEqual(profile.industry_codes, ["58222", "58", "J"]);
   assert.equal(profile.confidence?.industry, 0.7);
+  assert.equal(profile.profile_evidence?.industry?.sourceKind, "authoritative_api");
+  assert.equal(profile.profile_evidence?.industry?.provider, "popbill");
+  assert.equal(profile.profile_evidence?.industry?.axisCompleteness, "partial");
   assert.equal(facts.has_industry, true);
 });
 
@@ -352,7 +355,7 @@ check("라벨 문자열 criterion(기존 {industries}) → 라벨 매칭 fallbac
   assert.equal(matchGrantCriteria(criteria, labeled).rule_trace[0]?.result, "pass");
 });
 
-check("제조업 제외(exclusion not_in) → SW 회사는 통과(비제외)", () => {
+check("제조업 제외(exclusion not_in) → positive-only SW 회사는 비영위를 확정하지 않고 unknown", () => {
   const criteria: GrantCriterion[] = [{
     dimension: "industry",
     operator: "not_in",
@@ -360,7 +363,16 @@ check("제조업 제외(exclusion not_in) → SW 회사는 통과(비제외)", (
     value: { codes: ["C"], labels: ["제조업"] },
     confidence: 0.9,
   }];
-  assert.equal(matchGrantCriteria(criteria, softwareProfile).rule_trace[0]?.result, "pass");
+  assert.equal(matchGrantCriteria(criteria, softwareProfile).rule_trace[0]?.result, "unknown");
+  const completeSoftwareProfile: CompanyProfile = {
+    ...softwareProfile,
+    list_completeness: { industry: "complete" },
+  };
+  assert.equal(
+    matchGrantCriteria(criteria, completeSoftwareProfile).rule_trace[0]?.result,
+    "pass",
+    "소진적 업종 목록일 때만 제조업 비영위를 통과 근거로 사용한다",
+  );
 });
 
 console.log(`\nksic.test.ts: ${passed} checks passed.`);

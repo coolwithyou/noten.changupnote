@@ -9,6 +9,7 @@
 //   --limit=50              한 사이클에 처리할 surface 수
 //   --staleMs=3600000       재조정 스윕: 이 ms 이상 pending 인 surface 만 (기본 0=전부)
 //   --source=bizinfo        source 제한
+//   --sourceIds=id1,id2     특정 공고 source_id 제한
 //   --maxAttempts=120       job 폴링 최대 시도
 //   --intervalMs=250        폴링 간격
 //
@@ -31,10 +32,15 @@ if (hasFlag("help")) {
   process.exit(0);
 }
 
-const write = hasFlag("write") || process.env.CUNOTE_CONVERSION_POLL_WRITE === "true";
+const cliWrite = hasFlag("write");
+const write = cliWrite || process.env.CUNOTE_CONVERSION_POLL_WRITE === "true";
+if (cliWrite && readArg("confirm") !== "POLL_CONVERSION_JOBS") {
+  throw new Error("--write requires --confirm=POLL_CONVERSION_JOBS");
+}
 const limit = boundedInteger(readArg("limit") ?? process.env.CUNOTE_CONVERSION_POLL_LIMIT, 50, 1, 1000);
 const staleMs = boundedInteger(readArg("staleMs") ?? process.env.CUNOTE_CONVERSION_POLL_STALE_MS, 0, 0, 7 * 24 * 3600 * 1000);
 const source = readOptionalEnum(readArg("source") ?? process.env.CUNOTE_CONVERSION_POLL_SOURCE, ["kstartup", "bizinfo", "bizinfo_event"]);
+const sourceIds = csvArg(readArg("sourceIds"), 100);
 const maxAttempts = boundedInteger(readArg("maxAttempts"), 120, 1, 5000);
 const intervalMs = boundedInteger(readArg("intervalMs"), 250, 25, 10_000);
 
@@ -52,6 +58,7 @@ try {
     limit,
     staleMs,
     ...(source ? { source } : {}),
+    ...(sourceIds.length ? { sourceIds } : {}),
   });
 
   const results: PollOneResult[] = [];
@@ -96,6 +103,7 @@ try {
     limit,
     staleMs,
     source: source ?? "all",
+    sourceIds,
     pendingCount: jobs.length,
     previewReady: results.filter((r) => r.outcome === "preview_ready").length,
     failed: results.filter((r) => r.outcome === "failed").length,
@@ -139,10 +147,11 @@ document_artifacts, and transitions extraction_status (pending -> preview_ready|
 Doubles as the reconciliation sweep (plan section 2). Default mode is dry-run.
 
 Options:
-  --write
+  --write --confirm=POLL_CONVERSION_JOBS
   --limit=50
   --staleMs=3600000
   --source=kstartup|bizinfo|bizinfo_event
+  --sourceIds=id1,id2
   --maxAttempts=120
   --intervalMs=250
 
@@ -151,4 +160,11 @@ Environment:
   CONVERSION_SHARED_SECRET
   DATABASE_URL / SUPABASE_DB_URL / DIRECT_URL
 `);
+}
+
+function csvArg(value: string | undefined, max: number): string[] {
+  if (!value) return [];
+  const values = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  if (values.length > max) throw new Error(`sourceIds supports at most ${max} values`);
+  return values;
 }

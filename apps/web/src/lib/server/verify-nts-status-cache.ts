@@ -77,12 +77,23 @@ async function main() {
       business_status: { active: true, label: "정상" },
       confidence: { region: 0.8 },
     };
-    const updated = applyNtsStatusToProfile(base, closedStatus({ b_stt_cd: "03" }));
+    const updated = applyNtsStatusToProfile(
+      base,
+      closedStatus({ b_stt_cd: "03" }),
+      "2026-07-12T00:00:00.000Z",
+    );
     assert.equal(updated.business_status?.active, false);
     assert.equal(updated.business_status?.label, "폐업");
     assert.equal(updated.business_status?.close_down_state, "03");
     assert.equal(updated.confidence?.business_status, 0.9);
     assert.equal(updated.confidence?.region, 0.8); // 기존 confidence 보존
+    assert.deepEqual(updated.profile_evidence?.business_status, {
+      sourceKind: "authoritative_api",
+      provider: "nts",
+      asOf: "2026-07-12T00:00:00.000Z",
+      axisCompleteness: "complete",
+      confidence: 0.9,
+    });
     // 원본은 변경되지 않아야 한다(순수 함수).
     assert.equal(base.business_status?.active, true);
     assert.equal(base.confidence?.business_status, undefined);

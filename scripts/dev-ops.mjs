@@ -11,6 +11,12 @@ const tunnelCommand = `cloudflared tunnel --config ${tunnelConfig} run`;
 
 loadDevEnv();
 
+// dev-ops는 Cloudflare Tunnel을 통해 접속하며, zone의 브라우저 캐시 TTL이
+// 개발용 _next 자산에도 적용된다. Turbopack dev 파일명은 서버 재시작 사이에
+// 재사용될 수 있으므로 매 실행마다 deployment id를 바꿔 CDN 캐시를 분리한다.
+const devDeploymentId =
+  process.env.NEXT_DEPLOYMENT_ID ?? `ops-dev-${Date.now().toString(36)}`;
+
 const rawArgs = process.argv.slice(2);
 const tunnelDisabled =
   rawArgs.includes("--no-tunnel") ||
@@ -25,6 +31,7 @@ console.log(
     "창업노트 어드민(ops) 개발 서버",
     `- 로컬 접속: ${localUrl}`,
     `- HTTPS 접속: ${tunnelUrl}`,
+    `- 개발 자산 ID: ${devDeploymentId}`,
     `- Cloudflare 터널: ${tunnelDisabled ? "비활성(--no-tunnel)" : "자동 기동(웹 서버와 공유)"}`,
     "",
   ].join("\n"),
@@ -44,6 +51,8 @@ const adminChild = spawn("pnpm", pnpmArgs, {
     // 루트 .env.local의 NEXTAUTH_URL은 웹 앱(dev.changupnote.com) 값이라 여기서 신뢰하지 않는다.
     // admin 전용 ADMIN_AUTH_URL이 없으면 ops 터널 URL을 쓴다.
     NEXTAUTH_URL: process.env.ADMIN_AUTH_URL ?? tunnelUrl,
+    // Next가 모든 CSS/JS URL에 ?dpl=<id>를 붙여 Cloudflare의 오래된 dev 자산을 우회한다.
+    NEXT_DEPLOYMENT_ID: devDeploymentId,
   },
 });
 

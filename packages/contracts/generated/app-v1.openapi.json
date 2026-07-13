@@ -793,7 +793,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CompanyProfileEnvelope"
+                  "$ref": "#/components/schemas/CompanyProfileUpdateEnvelope"
                 }
               }
             }
@@ -853,7 +853,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CompanyProfileEnvelope"
+                  "$ref": "#/components/schemas/CompanyProfileUpdateEnvelope"
                 }
               }
             }
@@ -1648,6 +1648,7 @@
           "conditionalUpside",
           "counts",
           "matches",
+          "nextQuestion",
           "privacyNote"
         ],
         "properties": {
@@ -1670,6 +1671,16 @@
             "items": {
               "$ref": "#/components/schemas/MatchCard"
             }
+          },
+          "nextQuestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextQuestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "recommendableMatches": {
             "type": "array",
@@ -2070,6 +2081,12 @@
           "scoringVer": {
             "type": "string"
           },
+          "quality": {
+            "$ref": "#/components/schemas/MatchQuality"
+          },
+          "ranking": {
+            "$ref": "#/components/schemas/MatchRanking"
+          },
           "criteriaExtracted": {
             "type": "boolean"
           },
@@ -2121,6 +2138,7 @@
             "enum": [
               "core_dimension_unknown",
               "criteria_under_extracted",
+              "extraction_incomplete",
               "profile_missing",
               "hard_fail",
               "unstructured_criteria",
@@ -2159,6 +2177,86 @@
           },
           "sourceSpan": {
             "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchRanking": {
+        "type": "object",
+        "required": [
+          "relevanceScore",
+          "priorityScore",
+          "reasons"
+        ],
+        "properties": {
+          "relevanceScore": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "priorityScore": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchQuality": {
+        "type": "object",
+        "required": [
+          "eligibilityConfidence",
+          "verificationCompleteness",
+          "evidenceCoverage",
+          "extractionReadiness"
+        ],
+        "properties": {
+          "eligibilityConfidence": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "verificationCompleteness": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "evidenceCoverage": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "extractionReadiness": {
+            "type": "string",
+            "enum": [
+              "reviewed",
+              "structured_unreviewed",
+              "partial",
+              "unstructured"
+            ]
           }
         },
         "additionalProperties": false
@@ -2540,6 +2638,60 @@
           "affectedGrantCount": {
             "type": "integer",
             "minimum": 0
+          },
+          "priorAwardContext": {
+            "type": "object",
+            "required": [
+              "scope",
+              "requiresYear"
+            ],
+            "properties": {
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "self",
+                  "program",
+                  "program_type"
+                ]
+              },
+              "selfKind": {
+                "type": "string",
+                "enum": [
+                  "current_similar",
+                  "same_project",
+                  "same_business_prior",
+                  "same_year_other_support"
+                ]
+              },
+              "channel": {
+                "type": "string",
+                "enum": [
+                  "general",
+                  "incubation_tenancy"
+                ]
+              },
+              "programs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "states": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "participating",
+                    "completed",
+                    "graduated"
+                  ]
+                }
+              },
+              "requiresYear": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -2692,6 +2844,15 @@
               "upcoming",
               "open",
               "closed",
+              "unknown"
+            ]
+          },
+          "audience": {
+            "type": "string",
+            "enum": [
+              "company",
+              "individual",
+              "mixed",
               "unknown"
             ]
           }
@@ -3368,6 +3529,88 @@
               "type": "string"
             }
           },
+          "prior_award_history": {
+            "type": "object",
+            "required": [
+              "records",
+              "known_programs",
+              "known_program_types"
+            ],
+            "properties": {
+              "records": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "state"
+                  ],
+                  "properties": {
+                    "program": {
+                      "type": "string"
+                    },
+                    "agency": {
+                      "type": "string"
+                    },
+                    "year": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1900,
+                          "maximum": 2100
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "state": {
+                      "type": "string",
+                      "enum": [
+                        "participating",
+                        "completed",
+                        "graduated"
+                      ]
+                    }
+                  },
+                  "additionalProperties": false
+                }
+              },
+              "self_flags": {
+                "type": "object",
+                "properties": {
+                  "current_similar": {
+                    "type": "boolean"
+                  },
+                  "same_project": {
+                    "type": "boolean"
+                  },
+                  "same_business_prior": {
+                    "type": "boolean"
+                  },
+                  "same_year_other_support": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "has_incubation_tenancy": {
+                "type": "boolean"
+              },
+              "known_programs": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "known_program_types": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
           "ip": {
             "type": "array",
             "items": {
@@ -3378,6 +3621,16 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "list_completeness": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "partial",
+                "complete"
+              ]
             }
           },
           "other_conditions": {
@@ -3400,9 +3653,205 @@
             "additionalProperties": {
               "type": "number"
             }
+          },
+          "profile_evidence": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CompanyProfileFieldEvidence"
+            }
+          },
+          "question_answer_state": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/CompanyProfileQuestionAnswerState"
+            }
           }
         },
         "additionalProperties": true
+      },
+      "CompanyProfileFieldEvidence": {
+        "type": "object",
+        "required": [
+          "sourceKind",
+          "provider",
+          "asOf",
+          "axisCompleteness",
+          "confidence"
+        ],
+        "properties": {
+          "sourceKind": {
+            "type": "string",
+            "enum": [
+              "authoritative_api",
+              "public_registry",
+              "auth_supplied",
+              "self_declared",
+              "derived"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "asOf": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "axisCompleteness": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete"
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supplemental": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanyProfileEvidenceObservation"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyProfileEvidenceObservation": {
+        "type": "object",
+        "required": [
+          "sourceKind",
+          "provider",
+          "asOf",
+          "axisCompleteness",
+          "confidence"
+        ],
+        "properties": {
+          "sourceKind": {
+            "type": "string",
+            "enum": [
+              "authoritative_api",
+              "public_registry",
+              "auth_supplied",
+              "self_declared",
+              "derived"
+            ]
+          },
+          "provider": {
+            "type": "string"
+          },
+          "asOf": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "axisCompleteness": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "complete"
+            ]
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyProfileQuestionAnswerState": {
+        "type": "object",
+        "required": [
+          "status",
+          "answeredAt",
+          "expiresAt",
+          "sourceKind",
+          "rulesetVer"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "range"
+            ]
+          },
+          "answeredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sourceKind": {
+            "type": "string",
+            "enum": [
+              "self_declared"
+            ]
+          },
+          "rulesetVer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "min": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "krw",
+              "people"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "CompanyRegion": {
         "type": "object",
@@ -3792,7 +4241,8 @@
         "type": "object",
         "required": [
           "profile",
-          "facts"
+          "facts",
+          "initialMatch"
         ],
         "properties": {
           "profile": {
@@ -3810,6 +4260,57 @@
                 "type": "null"
               }
             ]
+          },
+          "initialMatch": {
+            "$ref": "#/components/schemas/CompanyInitialMatchResult"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyInitialMatchResult": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "evaluatedGrantCount",
+          "counts",
+          "matches",
+          "nextQuestion",
+          "rulesetVer",
+          "scoringVer"
+        ],
+        "properties": {
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "evaluatedGrantCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "counts": {
+            "$ref": "#/components/schemas/EligibilityCounts"
+          },
+          "matches": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchCard"
+            }
+          },
+          "nextQuestion": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NextQuestion"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "rulesetVer": {
+            "type": "string"
+          },
+          "scoringVer": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -3899,8 +4400,29 @@
       "ProfileFieldUpdateRequest": {
         "type": "object",
         "required": [
-          "field",
-          "value"
+          "field"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "value"
+            ]
+          },
+          {
+            "required": [
+              "unknown"
+            ],
+            "properties": {
+              "unknown": {
+                "const": true
+              }
+            }
+          },
+          {
+            "required": [
+              "range"
+            ]
+          }
         ],
         "properties": {
           "field": {
@@ -3944,6 +4466,56 @@
                 "type": "null"
               }
             ]
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "merge"
+            ]
+          },
+          "unknown": {
+            "type": "boolean",
+            "description": "True records a temporary unknown answer without writing a profile value."
+          },
+          "range": {
+            "type": "object",
+            "required": [
+              "min",
+              "max",
+              "unit"
+            ],
+            "properties": {
+              "min": {
+                "type": "number",
+                "minimum": 0
+              },
+              "max": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "unit": {
+                "type": "string",
+                "enum": [
+                  "krw",
+                  "people"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "description": "Self-declared revenue or employee interval. It resolves only criteria fully outside/inside the interval."
+          },
+          "questionSessionId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Optional 30-minute progressive-question session id. Invalid values are replaced server-side."
           }
         },
         "additionalProperties": false
@@ -3987,11 +4559,229 @@
         },
         "additionalProperties": false
       },
+      "ProfileUpdateImpact": {
+        "type": "object",
+        "required": [
+          "scope",
+          "windowLimit",
+          "dimension",
+          "evaluatedGrantCount",
+          "targetedConditionalCount",
+          "dimensionResolvedGrantCount",
+          "eligibilityResolvedCount",
+          "conditionalToEligibleCount",
+          "conditionalToIneligibleCount",
+          "remainingConditionalCount",
+          "conditionalResolutionRate",
+          "transitionCounts",
+          "changedMatchStateCount",
+          "refreshGrantIds"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "active_grant_window"
+            ]
+          },
+          "windowLimit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "region",
+              "biz_age",
+              "industry",
+              "size",
+              "revenue",
+              "employees",
+              "founder_age",
+              "founder_trait",
+              "certification",
+              "prior_award",
+              "ip",
+              "target_type",
+              "business_status",
+              "tax_compliance",
+              "credit_status",
+              "sanction",
+              "financial_health",
+              "insured_workforce",
+              "investment",
+              "premises",
+              "export_performance",
+              "other"
+            ]
+          },
+          "evaluatedGrantCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "targetedConditionalCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dimensionResolvedGrantCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "eligibilityResolvedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conditionalToEligibleCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conditionalToIneligibleCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "remainingConditionalCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conditionalResolutionRate": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "transitionCounts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "changedMatchStateCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refreshGrantIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProfileQuestionRefresh": {
+        "type": "object",
+        "required": [
+          "scope",
+          "status",
+          "plannedCount",
+          "savedCount",
+          "failedCount",
+          "failedGrantIds"
+        ],
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "company_dimension"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "no_op",
+              "succeeded",
+              "partial",
+              "failed"
+            ]
+          },
+          "plannedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "savedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failedGrantIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyProfileUpdateResult": {
+        "type": "object",
+        "required": [
+          "profile",
+          "impact",
+          "refresh",
+          "event",
+          "initialMatch"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/CompanyProfile"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/ProfileUpdateImpact"
+          },
+          "refresh": {
+            "$ref": "#/components/schemas/ProfileQuestionRefresh"
+          },
+          "event": {
+            "$ref": "#/components/schemas/ProfileQuestionEventReceipt"
+          },
+          "initialMatch": {
+            "$ref": "#/components/schemas/CompanyInitialMatchResult"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProfileQuestionEventReceipt": {
+        "type": "object",
+        "required": [
+          "id",
+          "sessionId",
+          "recordedAt",
+          "persisted"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "persisted": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "CompanyMatchesResult": {
         "type": "object",
         "required": [
           "counts",
-          "matches"
+          "matches",
+          "total"
         ],
         "properties": {
           "counts": {
@@ -4002,6 +4792,10 @@
             "items": {
               "$ref": "#/components/schemas/MatchCard"
             }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -4194,13 +4988,20 @@
               {
                 "type": "string",
                 "enum": [
+                  "wrong_eligibility",
                   "wrong_high",
                   "wrong_low",
                   "wrong_condition",
+                  "missing_condition",
                   "profile_wrong",
+                  "wrong_company_fact",
                   "criteria_wrong",
                   "taxonomy_gap",
+                  "duplicate_grant",
+                  "stale_grant",
                   "portal_blocked",
+                  "rejected_at_eligibility",
+                  "accepted_for_review",
                   "selected",
                   "rejected",
                   "other"
@@ -4934,6 +5735,24 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CompanyProfileResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyProfileUpdateEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyProfileUpdateResult"
           },
           "meta": {
             "$ref": "#/components/schemas/ApiMeta"

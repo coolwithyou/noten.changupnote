@@ -42,7 +42,22 @@ const COL = {
 
 /** 헤더 셀 정규화(BOM·공백 제거). */
 function cleanHeader(cell: string): string {
-  return cell.replace(/^\uFEFF/, "").trim();
+  return cell.replace(/^\uFEFF/, "").replace(/\s+/g, "").trim();
+}
+
+/** 나라장터 내보내기의 검색조건/출력일자 preamble 뒤 실제 헤더부터 자른다. */
+function findTableStart(text: string): { table: string; delimiter: "," | "\t" } | null {
+  const lines = text.split(/\r?\n/);
+  const headerIndex = lines.findIndex((line) => {
+    const compact = line.replace(/\s+/g, "");
+    return compact.includes(COL.업체) && compact.includes(COL.사업자등록번호);
+  });
+  if (headerIndex < 0) return null;
+  const header = lines[headerIndex] ?? "";
+  return {
+    table: lines.slice(headerIndex).join("\n"),
+    delimiter: header.includes("\t") ? "\t" : ",",
+  };
 }
 
 /** detail 에 담을 값을 빈 문자열이 아닐 때만 추가. */
@@ -59,7 +74,9 @@ export function parseProcurementDebarmentCsv(
   csvText: string,
   opts?: { fetchedAt?: Date },
 ): RegistryRecord[] {
-  const rows = parseCsv(csvText);
+  const located = findTableStart(csvText);
+  if (!located) return [];
+  const rows = parseCsv(located.table, { delimiter: located.delimiter });
   if (rows.length < 2) return [];
 
   const headerRow = rows[0]!;
@@ -70,7 +87,7 @@ export function parseProcurementDebarmentCsv(
   });
 
   // 업체(상호) 컬럼이 없으면 이 어댑터로 해석 불가 → 전체 skip.
-  if (!colIndex.has(COL.업체)) return [];
+  if (!colIndex.has(cleanHeader(COL.업체))) return [];
 
   const fetchedAt = opts?.fetchedAt ?? new Date();
   const records: RegistryRecord[] = [];
@@ -78,7 +95,7 @@ export function parseProcurementDebarmentCsv(
   for (let r = 1; r < rows.length; r += 1) {
     const row = rows[r]!;
     const get = (colName: string): string => {
-      const idx = colIndex.get(colName);
+      const idx = colIndex.get(cleanHeader(colName));
       if (idx === undefined) return "";
       return row[idx] ?? "";
     };

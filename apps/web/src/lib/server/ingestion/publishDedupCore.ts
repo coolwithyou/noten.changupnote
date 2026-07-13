@@ -6,6 +6,7 @@
 import {
   findGrantDedupCandidates,
   type FindGrantDedupCandidatesOptions,
+  type GrantDedupCandidate,
 } from "@cunote/core";
 import type { CunoteDb } from "../db/client";
 import { createDrizzleRepositories } from "../repositories/drizzle";
@@ -20,6 +21,12 @@ export interface RunDedupPublishInput {
   limit: number;
   minScore: number | undefined;
   asOf: Date;
+  pairKeys?: DedupPairKey[];
+}
+
+export interface DedupPairKey {
+  canonicalGrantKey: string;
+  memberGrantKey: string;
 }
 
 export async function runDedupPublish(input: RunDedupPublishInput): Promise<Record<string, unknown>> {
@@ -28,8 +35,13 @@ export async function runDedupPublish(input: RunDedupPublishInput): Promise<Reco
     dialect: "drizzle",
     client: input.db,
   });
-  const entries = await repositories.grants.listActiveGrants({ limit: input.limit, asOf: input.asOf });
-  const candidates = findGrantDedupCandidates(entries, options);
+  const entries = await repositories.grants.listActiveGrants({
+    limit: input.limit,
+    asOf: input.asOf,
+    includeConfirmedDuplicates: true,
+  });
+  const allCandidates = findGrantDedupCandidates(entries, options);
+  const candidates = scopeDedupCandidates(allCandidates, input.pairKeys ?? []);
 
   if (input.dryRun) {
     const plan = planDedupLinkPublication(candidates);
@@ -38,6 +50,8 @@ export async function runDedupPublish(input: RunDedupPublishInput): Promise<Reco
       asOf: input.asOf.toISOString(),
       activeGrantCount: entries.length,
       minScore: options.minScore ?? null,
+      requestedPairs: input.pairKeys ?? [],
+      unscopedCandidateCount: allCandidates.length,
       ...plan,
     };
   }
@@ -48,8 +62,34 @@ export async function runDedupPublish(input: RunDedupPublishInput): Promise<Reco
     asOf: input.asOf.toISOString(),
     activeGrantCount: entries.length,
     minScore: options.minScore ?? null,
+    requestedPairs: input.pairKeys ?? [],
+    unscopedCandidateCount: allCandidates.length,
     ...result,
   };
+}
+
+export function scopeDedupCandidates(
+  candidates: GrantDedupCandidate[],
+  pairs: DedupPairKey[],
+): GrantDedupCandidate[] {
+  if (pairs.length === 0) return candidates;
+  const requested = new Set(pairs.map((pair) => unorderedPairKey(pair.canonicalGrantKey, pair.memberGrantKey)));
+  if (requested.size !== pairs.length) throw new Error("dedup pair scope contains duplicates");
+  const scoped = candidates.filter((candidate) => requested.has(unorderedPairKey(
+    candidate.canonicalGrantKey,
+    candidate.memberGrantKey,
+  )));
+  const found = new Set(scoped.map((candidate) => unorderedPairKey(
+    candidate.canonicalGrantKey,
+    candidate.memberGrantKey,
+  )));
+  const missing = [...requested].filter((pair) => !found.has(pair));
+  if (missing.length > 0) throw new Error(`dedup pair scope no longer matches current candidates: ${missing.join(",")}`);
+  return scoped;
+}
+
+function unorderedPairKey(left: string, right: string): string {
+  return [left, right].sort().join("\u0000");
 }
 
 function dedupOptions(minScore: number | undefined): FindGrantDedupCandidatesOptions {

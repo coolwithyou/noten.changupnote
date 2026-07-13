@@ -4,19 +4,24 @@ import { resolve } from "node:path";
 import {
   buildApplySheet,
   buildDashboard,
+  buildInitialCompanyMatch,
+  clearProfileQuestionAnswerState,
   checkNtsBusinessStatus,
   checkSmppCertificates,
   classifyNtsBusinessStatus,
   deriveGrantBenefits,
   fetchKStartupPage,
+  grantKey,
   normalizeKStartupPayload,
 } from "@cunote/core";
+import { resolveEvidencePrecedence } from "@cunote/core/company/evidence-priority";
 import {
   buildCompanyProfileFromPopbill,
   isLikelyKsicCode,
   ksicDivisionLabel,
   ksicSectionLabel,
   normalizeCompanyIndustryProfile,
+  resolvePopbillTargetType,
 } from "@cunote/core/company/profile-from-popbill";
 import {
   checkPopbillBizInfo,
@@ -29,9 +34,12 @@ import type {
   CompanyEnrichmentResult,
   CompanyEvidence,
   CompanyProfile,
+  CompanyProfileEvidenceObservation,
+  CriterionDimension,
   GrantBenefit,
   NormalizedGrant,
 } from "@cunote/contracts";
+import { isValidBizNoChecksum } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
 import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusClassification, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
@@ -41,6 +49,7 @@ import { annotateMatchCardWriteSupport } from "./matches/annotateWriteSupport";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
 import { notifyPopbillFailure } from "./adminNotifications";
 import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
+import { loadCachedTeaserProfileEnrichment } from "./teaser/cachedProfileEnrichment";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
@@ -63,6 +72,8 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 // 30일 캐시가 살아있는 동안에도 휴·폐업/과세유형 전환은 무료 국세청(NTS) 상태조회로 매일 감지한다.
 // CUNOTE_POPBILL_CACHE_TTL_HOURS로 기간을 조정할 수 있고, 0 이하로 두면 무기한 캐시(재조회 없음)로 동작한다.
 const DEFAULT_ENRICHMENT_CACHE_TTL_HOURS = 24 * 30;
+const DEFAULT_ACTIVE_GRANT_SCAN_LIMIT = 5_000;
+const DEFAULT_INITIAL_MATCH_LIMIT = 12;
 
 // 동일 사업자번호에 대한 동시 조회를 하나의 팝빌 호출로 합쳐 중복 과금을 막는다(in-flight 요청 dedup).
 const inflightPopbillLookups = new Map<string, Promise<PopbillCompanyResolution>>();
@@ -96,6 +107,29 @@ export async function loadServiceGrants({
   asOf = new Date(),
 }: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<ServiceGrantPayload>>> {
   return repositories.grants.listActiveGrants({ limit, asOf });
+}
+
+export async function loadServiceGrantUniverse(input: {
+  asOf: Date;
+  scanLimit?: number;
+}): Promise<Array<NormalizedGrant<ServiceGrantPayload>>> {
+  const scanLimit = input.scanLimit ?? DEFAULT_ACTIVE_GRANT_SCAN_LIMIT;
+  if (!Number.isInteger(scanLimit) || scanLimit < 1 || scanLimit > 20_000) {
+    throw new Error("scanLimit은 1..20000 정수여야 합니다.");
+  }
+  const grants = await repositories.grants.listActiveGrants({
+    asOf: input.asOf,
+    // 상한을 넘겼는지 검출하기 위한 sentinel 한 건을 추가한다.
+    limit: scanLimit + 1,
+  });
+  if (grants.length > scanLimit) {
+    throw new ServiceDataError(
+      "active_grant_scan_incomplete",
+      `활성 공고가 ${scanLimit.toLocaleString("ko-KR")}건을 초과해 일부 결과만 반환할 수 없습니다. scanLimit을 높여주세요.`,
+      503,
+    );
+  }
+  return grants;
 }
 
 async function loadServiceGrantsFromSource({
@@ -154,8 +188,9 @@ export async function loadCompanyProfileResolutionForTeaser(
   if (bizNo) {
     const normalizedBizNo = sanitizeCorpNum(bizNo);
     const savedProfile = await repositories.companies.resolveCompanyProfile({ bizNo: normalizedBizNo });
+    let resolution: CompanyProfileResolution;
     if (savedProfile && hasReusableTeaserProfile(savedProfile)) {
-      return {
+      resolution = {
         profile: savedProfile,
         evidence: buildCompanyEvidence({
           provider: "internal",
@@ -165,8 +200,10 @@ export async function loadCompanyProfileResolutionForTeaser(
           summary: "저장된 회사 프로필로 매칭했습니다.",
         }),
       };
+    } else {
+      resolution = await loadCompanyProfileFromSourceWithEvidence(normalizedBizNo, { asOf });
     }
-    return loadCompanyProfileFromSourceWithEvidence(normalizedBizNo, { asOf });
+    return applyCachedTeaserProfileEnrichment(normalizedBizNo, resolution, asOf);
   }
 
   const profile = await repositories.companies.resolveCompanyProfile({});
@@ -181,6 +218,36 @@ export async function loadCompanyProfileResolutionForTeaser(
       cacheStatus: "none",
       profile,
       summary: "저장된 회사 프로필로 매칭했습니다.",
+    }),
+  };
+}
+
+async function applyCachedTeaserProfileEnrichment(
+  bizNo: string,
+  base: CompanyProfileResolution,
+  now: Date,
+): Promise<CompanyProfileResolution> {
+  const cached = await loadCachedTeaserProfileEnrichment({
+    cache: repositories.enrichmentCache,
+    bizNo,
+    now,
+  });
+  if (cached.profiles.length === 0) return base;
+  const profile = cached.profiles.reduce(mergeCompanyProfilesForEnrichment, base.profile);
+  const providerLabels = cached.providers.map((provider) =>
+    provider === "startup_confirmation" ? "창업기업확인" : provider.toUpperCase());
+  return {
+    profile,
+    evidence: base.evidence ? {
+      ...base.evidence,
+      fields: buildCompanyEvidenceFields(profile),
+      summary: `${base.evidence.summary} 저장된 ${providerLabels.join("·")} 확인값을 함께 반영했습니다.`,
+    } : buildCompanyEvidence({
+      provider: "internal",
+      source: "saved_profile",
+      cacheStatus: "hit",
+      profile,
+      summary: `저장된 ${providerLabels.join("·")} 확인값으로 매칭했습니다.`,
     }),
   };
 }
@@ -244,29 +311,39 @@ export async function loadCompanyProfileFromSourceWithEvidence(
 export async function loadServiceDashboard(options: {
   companyId?: string;
   userId?: string;
+  /** 화면에 반환하고 match_state로 저장할 상위 공고 수. */
   limit?: number;
+  /** 평가할 활성 공고 전체 상한. limit과 분리해 최신 일부만 매칭하는 오류를 막는다. */
+  scanLimit?: number;
   asOf?: Date;
   writeMatchStates?: boolean;
 } = {}): Promise<DashboardResult> {
   const asOf = options.asOf ?? new Date();
+  const resultLimit = options.limit ?? 24;
   const [company, grants] = await Promise.all([
     resolveDashboardCompany(options.companyId, options.userId),
-    repositories.grants.listActiveGrants({ asOf, limit: options.limit ?? 40 }),
+    loadServiceGrantUniverse({
+      asOf,
+      ...(options.scanLimit !== undefined ? { scanLimit: options.scanLimit } : {}),
+    }),
   ]);
+  const dashboard = buildDashboard({ company, grants, asOf, limit: resultLimit });
+  // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 — /dashboard 와 /api/web/matches 가 함께 탄다.
+  dashboard.matches = await annotateMatchCardWriteSupport(dashboard.matches);
+
   const stateCompanyId = options.companyId ?? company.id;
   if (options.writeMatchStates !== false) {
+    // 전체 공고의 판정은 counts/question에 사용하되, 요청마다 수천 행을 쓰지 않도록
+    // 실제 응답에 노출한 상위 공고만 match_state로 갱신한다.
+    const visibleGrantIds = new Set(dashboard.matches.map((match) => match.grantId));
     await persistMatchStates({
       ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
       ...(options.userId ? { userId: options.userId } : {}),
       company,
-      grants,
+      grants: grants.filter((grant) => visibleGrantIds.has(grantKey(grant.grant))),
       asOf,
     });
   }
-
-  const dashboard = buildDashboard({ company, grants, asOf, limit: options.limit ?? 24 });
-  // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 — /dashboard 와 /api/web/matches 가 함께 탄다.
-  dashboard.matches = await annotateMatchCardWriteSupport(dashboard.matches);
   return dashboard;
 }
 
@@ -316,6 +393,14 @@ export async function enrichServiceCompany(input: {
   const now = new Date();
   const asOf = input.asOf ?? now;
   const bizNo = sanitizeCorpNum(input.bizNo);
+  if (!isValidBizNoChecksum(bizNo)) {
+    throw new ServiceDataError(
+      "invalid_biz_no",
+      "유효하지 않은 사업자등록번호입니다. 입력한 번호를 다시 확인해주세요.",
+      400,
+      "bizNo",
+    );
+  }
   const current = await repositories.companies.resolveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
@@ -350,10 +435,31 @@ export async function enrichServiceCompany(input: {
     profile,
   });
 
+  const grants = await loadServiceGrantUniverse({ asOf });
+  const initialMatch = buildInitialCompanyMatch({
+    company: saved,
+    grants,
+    asOf,
+    limit: DEFAULT_INITIAL_MATCH_LIMIT,
+  });
+  initialMatch.matches = await annotateMatchCardWriteSupport(initialMatch.matches);
+
+  // 자동채움 직후 응답에 포함한 상위 결과만 지속화한다. 전체 universe는 응답 counts와
+  // 다음 질문 산정에 이미 사용됐으며, 수천 건의 동시 upsert는 요청 지연을 만들므로 피한다.
+  const visibleGrantIds = new Set(initialMatch.matches.map((match) => match.grantId));
+  await persistMatchStates({
+    companyId: input.companyId,
+    userId: input.userId,
+    company: saved,
+    grants: grants.filter((grant) => visibleGrantIds.has(grantKey(grant.grant))),
+    asOf,
+  });
+
   return {
     profile: saved,
     facts: resolved.facts,
     evidence: resolved.evidence,
+    initialMatch,
   };
 }
 
@@ -425,6 +531,11 @@ async function resolvePopbillCompanyResolution(input: {
   if (cachedCanonical) {
     const checkedAt = cached?.checkedAt ?? parseProviderCheckedAt(cachedCanonical.facts.checkedAt);
     const cachedUntil = cached?.expiresAt ?? null;
+    const cachedProfile = backfillCachedPopbillTargetType(
+      cachedCanonical.profile,
+      cached?.rawPayload,
+      checkedAt,
+    );
     const rebuildEvidence = (profile: CompanyProfile, summary: string): CompanyEvidence =>
       buildCompanyEvidence({
         provider: "popbill",
@@ -437,10 +548,10 @@ async function resolvePopbillCompanyResolution(input: {
         summary,
       });
     const baseResolution: PopbillCompanyResolution = {
-      profile: cachedCanonical.profile,
+      profile: cachedProfile,
       facts: cachedCanonical.facts,
       evidence: rebuildEvidence(
-        cachedCanonical.profile,
+        cachedProfile,
         "저장된 팝빌 조회 결과를 재사용해 회사 정보를 바로 확인했습니다.",
       ),
     };
@@ -473,7 +584,7 @@ async function resolvePopbillCompanyResolution(input: {
   const enriched = buildCompanyProfileFromPopbill(info, { asOf: input.asOf });
   // 휴업(02)이면 NTS 상태를 팝빌 라이브 프로필에 병합한다(폐업/미등록은 위에서 이미 throw).
   const liveProfile = ntsPreGate?.classification === "suspended"
-    ? applyNtsStatusToProfile(enriched.profile, ntsPreGate.statusData)
+    ? applyNtsStatusToProfile(enriched.profile, ntsPreGate.statusData, input.now.toISOString())
     : enriched.profile;
   const facts = toCompanyEnrichmentFacts(enriched.facts);
   const canonicalPayload: Record<string, unknown> = {
@@ -587,7 +698,7 @@ async function applyNtsBusinessStatusOnCacheHit(input: {
   const closedLabel = ntsClosedLabel(statusData.b_stt_cd);
   if (!closedLabel) return input.resolution; // 계속사업자(01)이거나 판정 불가(미등록 등) — 그대로 둔다.
 
-  const nextProfile = applyNtsStatusToProfile(input.resolution.profile, statusData);
+  const nextProfile = applyNtsStatusToProfile(input.resolution.profile, statusData, input.now.toISOString());
   const summary = `저장된 팝빌 조회에 국세청 상태조회를 더해 확인했어요. 국세청 기준 현재 ${closedLabel} 상태로 보여요.`;
   return {
     profile: nextProfile,
@@ -698,9 +809,10 @@ function formatNtsEndDate(value: string | null | undefined): string | null {
 export function applyNtsStatusToProfile(
   profile: CompanyProfile,
   statusData: NtsBusinessStatusData,
+  asOf: string | null = null,
 ): CompanyProfile {
   const label = ntsClosedLabel(statusData.b_stt_cd);
-  return {
+  const next: CompanyProfile = {
     ...profile,
     business_status: {
       ...(profile.business_status ?? {}),
@@ -714,6 +826,13 @@ export function applyNtsStatusToProfile(
       business_status: 0.9,
     },
   };
+  return withProfileFieldEvidence(next, "business_status", {
+    sourceKind: "authoritative_api",
+    provider: "nts",
+    asOf,
+    axisCompleteness: "complete",
+    confidence: 0.9,
+  }, "replace");
 }
 
 /** NTS 상태코드를 라벨로 매핑한다. "02" 휴업, "03" 폐업, 그 외(01/미등록/빈값)는 null. */
@@ -762,7 +881,11 @@ async function applySmppCertificates(input: {
   }
   if (!certs) return input.resolution;
 
-  const { profile, addedLabels } = applySmppCertificatesToProfile(input.resolution.profile, certs);
+  const { profile, addedLabels } = applySmppCertificatesToProfile(
+    input.resolution.profile,
+    certs,
+    input.now.toISOString(),
+  );
   // positive-only: 보유 확인서가 하나도 없으면 프로필/근거를 건드리지 않는다.
   if (addedLabels.length === 0) return input.resolution;
 
@@ -835,6 +958,7 @@ async function resolveSmppCertificates(input: {
 export function applySmppCertificatesToProfile(
   profile: CompanyProfile,
   certs: SmppCertificates,
+  asOf: string | null = null,
 ): { profile: CompanyProfile; addedLabels: string[] } {
   const certLabels: string[] = [];
   const traitLabels: string[] = [];
@@ -851,19 +975,74 @@ export function applySmppCertificatesToProfile(
     return { profile, addedLabels: [] };
   }
 
-  return {
-    profile: {
-      ...profile,
-      certs: unionStrings(profile.certs, certLabels),
-      traits: unionStrings(profile.traits, traitLabels),
-      confidence: {
-        ...(profile.confidence ?? {}),
-        // founder_trait만 known 처리한다. certification은 의도적으로 설정하지 않는다.
-        founder_trait: Math.max(profile.confidence?.founder_trait ?? 0, 0.9),
-      },
+  let next: CompanyProfile = {
+    ...profile,
+    certs: unionStrings(profile.certs, certLabels),
+    traits: unionStrings(profile.traits, traitLabels),
+    confidence: {
+      ...(profile.confidence ?? {}),
+      // founder_trait만 known 처리한다. certification은 의도적으로 설정하지 않는다.
+      founder_trait: Math.max(profile.confidence?.founder_trait ?? 0, 0.9),
     },
-    addedLabels: certLabels,
   };
+  next.list_completeness = {
+    ...(profile.list_completeness ?? {}),
+    founder_trait: "partial",
+    certification: "partial",
+  };
+  next = withProfileFieldEvidence(next, "founder_trait", {
+    sourceKind: "authoritative_api",
+    provider: "smpp",
+    asOf,
+    axisCompleteness: "partial",
+    confidence: 0.9,
+  }, "supplemental");
+  next = withProfileFieldEvidence(next, "certification", {
+    sourceKind: "authoritative_api",
+    provider: "smpp",
+    asOf,
+    axisCompleteness: "partial",
+    confidence: null,
+  }, "supplemental");
+  return { profile: next, addedLabels: certLabels };
+}
+
+function withProfileFieldEvidence(
+  profile: CompanyProfile,
+  dimension: CriterionDimension,
+  observation: CompanyProfileEvidenceObservation,
+  mode: "replace" | "supplemental",
+): CompanyProfile {
+  const existing = profile.profile_evidence?.[dimension];
+  const evidence = mode === "supplemental" && existing
+    ? {
+      ...existing,
+      supplemental: appendUniqueObservation(existing.supplemental, observation),
+    }
+    : observation;
+  return {
+    ...profile,
+    profile_evidence: {
+      ...(profile.profile_evidence ?? {}),
+      [dimension]: evidence,
+    },
+  };
+}
+
+function appendUniqueObservation(
+  existing: CompanyProfileEvidenceObservation[] | undefined,
+  incoming: CompanyProfileEvidenceObservation,
+): CompanyProfileEvidenceObservation[] {
+  const values = [...(existing ?? [])];
+  if (!values.some((item) =>
+    item.sourceKind === incoming.sourceKind &&
+    item.provider === incoming.provider &&
+    item.asOf === incoming.asOf &&
+    item.axisCompleteness === incoming.axisCompleteness &&
+    item.confidence === incoming.confidence)) {
+    values.push(incoming);
+  }
+  return values;
 }
 
 /** 기존 근거를 보존하되 새 프로필로 fields(보유 인증·확인서 등)를 재계산하고 SMPP 문구를 요약에 덧붙인다. */
@@ -1137,6 +1316,12 @@ function buildCompanyEvidenceFields(
       ),
       value: profile.business_status?.label ?? null,
     },
+    {
+      key: "target_type",
+      label: "사업자 유형",
+      available: Boolean(profile.target_types?.length),
+      value: profile.target_types?.length ? profile.target_types.join(", ") : null,
+    },
     // 팝빌로 확인할 수 없는 매칭 핵심 축. 미확보 시 미입력으로 노출해 사용자 입력을 유도한다.
     {
       key: "founder_age",
@@ -1213,33 +1398,233 @@ export class ServiceDataError extends Error {
   }
 }
 
+/** 이전 버전 캐시의 raw personCorpCode를 안전하게 재투영한다. 기존 canonical 값은 덮지 않는다. */
+export function backfillCachedPopbillTargetType(
+  profile: CompanyProfile,
+  rawPayload: Record<string, unknown> | null | undefined,
+  checkedAt: Date | null,
+): CompanyProfile {
+  if (profile.target_types?.length || !rawPayload) return profile;
+  const targetType = resolvePopbillTargetType(
+    rawPayload.personCorpCode as string | number | null | undefined,
+  );
+  if (!targetType) return profile;
+  const asOf = checkedAt && !Number.isNaN(checkedAt.getTime()) ? checkedAt.toISOString() : null;
+  return {
+    ...profile,
+    target_types: [targetType],
+    list_completeness: { ...(profile.list_completeness ?? {}), target_type: "partial" },
+    confidence: { ...(profile.confidence ?? {}), target_type: 1 },
+    profile_evidence: {
+      ...(profile.profile_evidence ?? {}),
+      target_type: {
+        sourceKind: "authoritative_api",
+        provider: "popbill",
+        asOf,
+        axisCompleteness: "partial",
+        confidence: 1,
+      },
+    },
+  };
+}
+
 export function mergeCompanyProfilesForEnrichment(current: CompanyProfile, enriched: CompanyProfile): CompanyProfile {
+  const mergedEvidence = mergeProfileEvidence(current.profile_evidence, enriched.profile_evidence);
   const next: CompanyProfile = {
     ...current,
     confidence: {
       ...(current.confidence ?? {}),
-      ...(enriched.confidence ?? {}),
     },
+    ...(mergedEvidence && Object.keys(mergedEvidence).length > 0 ? { profile_evidence: mergedEvidence } : {}),
+    ...(current.list_completeness && Object.keys(current.list_completeness).length > 0
+      ? { list_completeness: { ...current.list_completeness } }
+      : {}),
   };
 
   if (enriched.name) next.name = enriched.name;
-  if (enriched.region) next.region = enriched.region;
-  if (enriched.biz_age_months !== null && enriched.biz_age_months !== undefined) {
+  if (enriched.region && shouldApplyEnrichedDimension(current, enriched, "region")) next.region = enriched.region;
+  if (
+    enriched.biz_age_months !== null &&
+    enriched.biz_age_months !== undefined &&
+    shouldApplyEnrichedDimension(current, enriched, "biz_age")
+  ) {
     next.biz_age_months = enriched.biz_age_months;
   }
-  if (enriched.founder_age !== null && enriched.founder_age !== undefined) {
+  if (
+    enriched.founder_age !== null &&
+    enriched.founder_age !== undefined &&
+    shouldApplyEnrichedDimension(current, enriched, "founder_age")
+  ) {
     next.founder_age = enriched.founder_age;
   }
   if (enriched.is_preliminary !== undefined) next.is_preliminary = enriched.is_preliminary;
-  if (enriched.industries?.length) next.industries = enriched.industries;
-  if (enriched.industry_codes?.length) next.industry_codes = enriched.industry_codes;
-  if (enriched.size) next.size = enriched.size;
-  if (enriched.traits?.length) next.traits = enriched.traits;
-  if (enriched.certs?.length) next.certs = enriched.certs;
-  if (enriched.prior_awards?.length) next.prior_awards = enriched.prior_awards;
-  if (enriched.business_status) next.business_status = enriched.business_status;
+  const industries = mergeProfileList(current, enriched, "industry", current.industries, enriched.industries);
+  const industryCodes = mergeProfileList(current, enriched, "industry", current.industry_codes, enriched.industry_codes);
+  if (industries?.length) next.industries = industries;
+  if (industryCodes?.length) next.industry_codes = industryCodes;
+  if (enriched.size && shouldApplyEnrichedDimension(current, enriched, "size")) next.size = enriched.size;
+  const traits = mergeProfileList(current, enriched, "founder_trait", current.traits, enriched.traits);
+  const certs = mergeProfileList(current, enriched, "certification", current.certs, enriched.certs);
+  const priorAwards = mergeProfileList(current, enriched, "prior_award", current.prior_awards, enriched.prior_awards);
+  const ip = mergeProfileList(current, enriched, "ip", current.ip, enriched.ip);
+  const targetTypes = mergeProfileList(current, enriched, "target_type", current.target_types, enriched.target_types);
+  if (traits?.length) next.traits = traits;
+  if (certs?.length) next.certs = certs;
+  if (priorAwards?.length) next.prior_awards = priorAwards;
+  if (ip?.length) next.ip = ip;
+  if (targetTypes?.length) next.target_types = targetTypes;
+  for (const [rawDimension, completeness] of Object.entries(enriched.list_completeness ?? {})) {
+    const dimension = rawDimension as CriterionDimension;
+    if (shouldApplyEnrichedDimension(current, enriched, dimension)) {
+      next.list_completeness = { ...(next.list_completeness ?? {}), [dimension]: completeness };
+    }
+  }
+  if (
+    enriched.revenue_krw !== null &&
+    enriched.revenue_krw !== undefined &&
+    shouldApplyEnrichedDimension(current, enriched, "revenue")
+  ) next.revenue_krw = enriched.revenue_krw;
+  if (
+    enriched.employees_count !== null &&
+    enriched.employees_count !== undefined &&
+    shouldApplyEnrichedDimension(current, enriched, "employees")
+  ) next.employees_count = enriched.employees_count;
+  if (enriched.business_status && shouldApplyEnrichedDimension(current, enriched, "business_status")) {
+    next.business_status = { ...(current.business_status ?? {}), ...enriched.business_status };
+  }
+  if (enriched.tax_compliance && shouldApplyEnrichedDimension(current, enriched, "tax_compliance")) {
+    next.tax_compliance = enriched.tax_compliance;
+  }
+  if (enriched.credit_status && shouldApplyEnrichedDimension(current, enriched, "credit_status")) {
+    next.credit_status = enriched.credit_status;
+  }
+  if (enriched.sanction && shouldApplyEnrichedDimension(current, enriched, "sanction")) {
+    next.sanction = enriched.sanction;
+  }
+  if (enriched.financial_health && shouldApplyEnrichedDimension(current, enriched, "financial_health")) {
+    next.financial_health = { ...(current.financial_health ?? {}), ...enriched.financial_health };
+  }
+  if (enriched.insured_workforce && shouldApplyEnrichedDimension(current, enriched, "insured_workforce")) {
+    next.insured_workforce = { ...(current.insured_workforce ?? {}), ...enriched.insured_workforce };
+  }
+  if (enriched.investment && shouldApplyEnrichedDimension(current, enriched, "investment")) {
+    next.investment = { ...(current.investment ?? {}), ...enriched.investment };
+  }
+  if (enriched.other_conditions) {
+    next.other_conditions = { ...(current.other_conditions ?? {}), ...enriched.other_conditions };
+  }
+  if (enriched.question_answer_state) {
+    next.question_answer_state = {
+      ...(current.question_answer_state ?? {}),
+      ...enriched.question_answer_state,
+    };
+  }
 
-  return next;
+  for (const [rawDimension, confidence] of Object.entries(enriched.confidence ?? {})) {
+    const dimension = rawDimension as CriterionDimension;
+    if (typeof confidence === "number" && shouldApplyEnrichedDimension(current, enriched, dimension)) {
+      next.confidence = { ...(next.confidence ?? {}), [dimension]: confidence };
+    }
+  }
+
+  if (next.industries?.length === 0) delete next.industries;
+  if (next.industry_codes?.length === 0) delete next.industry_codes;
+  if (next.traits?.length === 0) delete next.traits;
+  if (next.certs?.length === 0) delete next.certs;
+  if (next.prior_awards?.length === 0) delete next.prior_awards;
+  if (next.ip?.length === 0) delete next.ip;
+  if (next.target_types?.length === 0) delete next.target_types;
+  if (next.profile_evidence && Object.keys(next.profile_evidence).length === 0) delete next.profile_evidence;
+  if (next.list_completeness && Object.keys(next.list_completeness).length === 0) delete next.list_completeness;
+
+  let result = next;
+  for (const rawDimension of Object.keys(enriched.profile_evidence ?? {})) {
+    const dimension = rawDimension as CriterionDimension;
+    if (shouldApplyEnrichedDimension(current, enriched, dimension)) {
+      result = clearProfileQuestionAnswerState(result, dimension);
+    }
+  }
+  return result;
+}
+
+function mergeProfileList(
+  currentProfile: CompanyProfile,
+  enrichedProfile: CompanyProfile,
+  dimension: CriterionDimension,
+  current: string[] | undefined,
+  incoming: string[] | undefined,
+): string[] | undefined {
+  if (!incoming?.length) return current;
+  if (!current?.length) return incoming;
+  const incomingEvidence = enrichedProfile.profile_evidence?.[dimension];
+  const incomingPrimary = shouldApplyEnrichedDimension(currentProfile, enrichedProfile, dimension);
+  if (!incomingPrimary) return current;
+  if (!incomingEvidence || incomingEvidence.axisCompleteness === "complete") return incoming;
+  return unionStrings(current, incoming);
+}
+
+function shouldApplyEnrichedDimension(
+  current: CompanyProfile,
+  enriched: CompanyProfile,
+  dimension: CriterionDimension,
+): boolean {
+  const incoming = enriched.profile_evidence?.[dimension];
+  const existing = current.profile_evidence?.[dimension];
+  if (!incoming || !existing) return true;
+  return resolveEvidencePrecedence({ dimension, current: existing, incoming }).decision === "replace";
+}
+
+function mergeProfileEvidence(
+  current: CompanyProfile["profile_evidence"],
+  incoming: CompanyProfile["profile_evidence"],
+): CompanyProfile["profile_evidence"] {
+  const merged = { ...(current ?? {}) };
+  for (const [rawDimension, incomingEvidence] of Object.entries(incoming ?? {})) {
+    if (!incomingEvidence) continue;
+    const dimension = rawDimension as CriterionDimension;
+    const currentEvidence = merged[dimension];
+    if (!currentEvidence) {
+      merged[dimension] = incomingEvidence;
+      continue;
+    }
+    const incomingPrimary = resolveEvidencePrecedence({
+      dimension,
+      current: currentEvidence,
+      incoming: incomingEvidence,
+    }).decision === "replace";
+    const primary = incomingPrimary ? incomingEvidence : currentEvidence;
+    const secondary = incomingPrimary ? currentEvidence : incomingEvidence;
+    const supplemental = [
+      ...(primary.supplemental ?? []),
+      stripSupplemental(secondary),
+      ...(secondary.supplemental ?? []),
+    ].reduce<CompanyProfileEvidenceObservation[]>(appendObservationReducer, []);
+    merged[dimension] = supplemental.length > 0 ? { ...primary, supplemental } : primary;
+  }
+  return merged;
+}
+
+function stripSupplemental(evidence: CompanyProfileEvidenceObservation): CompanyProfileEvidenceObservation {
+  return {
+    sourceKind: evidence.sourceKind,
+    provider: evidence.provider,
+    asOf: evidence.asOf,
+    axisCompleteness: evidence.axisCompleteness,
+    confidence: evidence.confidence,
+  };
+}
+
+function appendObservationReducer(
+  values: CompanyProfileEvidenceObservation[],
+  incoming: CompanyProfileEvidenceObservation,
+): CompanyProfileEvidenceObservation[] {
+  if (!values.some((item) =>
+    item.sourceKind === incoming.sourceKind &&
+    item.provider === incoming.provider &&
+    item.asOf === incoming.asOf &&
+    item.axisCompleteness === incoming.axisCompleteness &&
+    item.confidence === incoming.confidence)) values.push(incoming);
+  return values;
 }
 
 function hasReusableTeaserProfile(profile: CompanyProfile): boolean {

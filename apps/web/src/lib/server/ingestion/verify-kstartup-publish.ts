@@ -20,6 +20,11 @@ assert.equal(plan.source, "kstartup");
 assert.equal(plan.rawCount, 20, "sample fixture should produce 20 raw rows");
 assert.equal(plan.grantCount, 20, "sample fixture should produce 20 grant rows");
 assert.ok(plan.criteriaCount > 0, "sample fixture should produce grant_criteria rows");
+assert.equal(
+  Object.values(plan.extractionReadinessCounts).reduce((sum, count) => sum + count, 0),
+  plan.grantCount,
+  "each grant should have one extraction readiness",
+);
 assert.equal(plan.rawHashes.length, plan.rawCount, "each raw row should have one hash");
 assert.equal(
   new Set(plan.rawHashes).size,
@@ -46,7 +51,7 @@ assert.equal(
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["raw_hash", "raw_hash_stable_key_order", "grant_count", "criteria_count"],
+  checked: ["raw_hash", "raw_hash_stable_key_order", "grant_count", "criteria_count", "extraction_readiness"],
   ...plan,
 }, null, 2));
 

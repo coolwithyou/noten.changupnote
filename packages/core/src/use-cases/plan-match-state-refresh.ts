@@ -4,7 +4,7 @@ import type {
   MatchResult,
   NormalizedGrant,
 } from "@cunote/contracts";
-import { matchGrantCriteria } from "../matching/match.js";
+import { matchNormalizedGrant } from "../matching/match.js";
 import { calculateMatchTransitionWindow, countByEligibility, grantKey } from "./match-card.js";
 
 export interface PlanMatchStateRefreshOptions<TPayload = unknown> {
@@ -52,7 +52,7 @@ export function planMatchStateRefresh<TPayload>({
   companyId,
 }: PlanMatchStateRefreshOptions<TPayload>): MatchStateRefreshPlan {
   const states = grants.map<MatchStateRefreshItem>((item) => {
-    const match = matchGrantCriteria(item.criteria, company);
+    const match = matchNormalizedGrant(item, company);
     const transitionWindow = calculateMatchTransitionWindow(match, { asOf });
     return {
       ...(companyId ? { companyId } : {}),

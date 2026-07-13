@@ -75,7 +75,7 @@ export function ResultsHero({
           />
           <StatTile
             icon={<Sparkles className="size-4" aria-hidden />}
-            label="최고 적합도"
+            label="최고 조건 확인도"
             value={best === null ? "확인 필요" : `${best}%`}
           />
         </div>

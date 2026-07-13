@@ -27,6 +27,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { CompanyEvidenceSummary } from "@/features/company-evidence/CompanyEvidenceSummary";
+import { PriorAwardHistoryEditor } from "./PriorAwardHistoryEditor";
 import {
   Select,
   SelectContent,
@@ -56,8 +57,6 @@ interface ProfileDraft {
   targetType: string;
   certifications: string;
   ip: string;
-  priorAwards: string;
-  noPriorAwards: boolean;
 }
 
 interface ProfileFieldMutation {
@@ -91,8 +90,6 @@ const EMPTY_PROFILE_DRAFT: ProfileDraft = {
   targetType: "법인",
   certifications: "",
   ip: "",
-  priorAwards: "",
-  noPriorAwards: false,
 };
 
 export function CompanySettingsPanel() {
@@ -555,31 +552,20 @@ export function CompanySettingsPanel() {
                 onChange={(event) => updateDraft("ip", event.currentTarget.value)}
               />
             </Field>
-            <Field>
-              <FieldLabel htmlFor="manual-prior-awards">기수혜</FieldLabel>
-              <Input
-                id="manual-prior-awards"
-                placeholder="TIPS, 초기창업패키지"
-                value={profileDraft.priorAwards}
-                disabled={busyKey === "manual-profile" || profileDraft.noPriorAwards}
-                onChange={(event) => updateDraft("priorAwards", event.currentTarget.value)}
-              />
-            </Field>
-            <Field className="rounded-[var(--radius-lg)] border bg-muted/20 p-3" orientation="horizontal">
-              <Checkbox
-                id="manual-no-prior-awards"
-                checked={profileDraft.noPriorAwards}
-                disabled={busyKey === "manual-profile"}
-                onCheckedChange={(checked) => updateDraft("noPriorAwards", checked === true)}
-              />
-              <FieldLabel htmlFor="manual-no-prior-awards">기수혜 없음</FieldLabel>
-            </Field>
             <Button type="button" disabled={busyKey === "manual-profile"} onClick={() => void saveManualProfile()}>
               {busyKey === "manual-profile" ? <Spinner data-icon="inline-start" /> : null}
               {busyKey === "manual-profile" ? "저장 중" : "수기 정보 저장"}
             </Button>
           </FieldGroup>
         </div>
+
+        <PriorAwardHistoryEditor
+          profile={currentCompany?.profile}
+          onSaved={() => {
+            void refreshSettings();
+            router.refresh();
+          }}
+        />
 
         <DisqualificationEditor
           profile={currentCompany?.profile}
@@ -757,15 +743,17 @@ async function fetchJson<T>(input: RequestInfo | URL, init?: RequestInit): Promi
 }
 
 function enrichmentStatusMessage(result: CompanyEnrichmentResult): string {
-  if (result.evidence?.cacheStatus === "hit") return "DB 캐시로 회사정보 보강됨";
-  if (result.evidence?.cacheStatus === "stored") return "팝빌 조회 후 캐시 저장됨";
-  if (result.facts.hasBizAge || result.facts.hasIndustry) return "회사정보 보강됨";
-  return "보강 결과 확인 필요";
+  const recommendable = result.initialMatch.counts.recommendable ?? 0;
+  const reviewNeeded = result.initialMatch.counts.reviewNeeded ?? 0;
+  const matchSummary = ` · 전체 ${result.initialMatch.evaluatedGrantCount.toLocaleString("ko-KR")}개 중 추천 ${recommendable.toLocaleString("ko-KR")}개, 확인 필요 ${reviewNeeded.toLocaleString("ko-KR")}개`;
+  if (result.evidence?.cacheStatus === "hit") return `DB 캐시로 회사정보 보강됨${matchSummary}`;
+  if (result.evidence?.cacheStatus === "stored") return `팝빌 조회 후 캐시 저장됨${matchSummary}`;
+  if (result.facts.hasBizAge || result.facts.hasIndustry) return `회사정보 보강됨${matchSummary}`;
+  return `보강 결과 확인 필요${matchSummary}`;
 }
 
 function draftFromProfile(profile: CompanyProfile | undefined): ProfileDraft {
   if (!profile) return EMPTY_PROFILE_DRAFT;
-  const priorAwards = profile.prior_awards ?? [];
   return {
     founderAge: numberString(profile.founder_age),
     revenue: numberString(profile.revenue_krw),
@@ -773,8 +761,6 @@ function draftFromProfile(profile: CompanyProfile | undefined): ProfileDraft {
     targetType: profile.target_types?.[0] ?? EMPTY_PROFILE_DRAFT.targetType,
     certifications: (profile.certs ?? []).join(", "),
     ip: (profile.ip ?? []).join(", "),
-    priorAwards: priorAwards.join(", "),
-    noPriorAwards: Array.isArray(profile.prior_awards) && priorAwards.length === 0 && typeof profile.confidence?.prior_award === "number",
   };
 }
 
@@ -785,7 +771,6 @@ function buildProfileUpdates(draft: ProfileDraft): ProfileFieldMutation[] {
   const employees = numberValue(draft.employees);
   const certifications = splitList(draft.certifications);
   const ip = splitList(draft.ip);
-  const priorAwards = splitList(draft.priorAwards);
 
   if (founderAge !== null) updates.push({ field: "founder_age", value: founderAge, confidence: 0.78 });
   if (revenue !== null) updates.push({ field: "revenue", value: revenue, confidence: 0.78 });
@@ -793,11 +778,6 @@ function buildProfileUpdates(draft: ProfileDraft): ProfileFieldMutation[] {
   if (draft.targetType) updates.push({ field: "target_type", value: [draft.targetType], confidence: 0.72 });
   if (certifications.length > 0) updates.push({ field: "certification", value: certifications, confidence: 0.68 });
   if (ip.length > 0) updates.push({ field: "ip", value: ip, confidence: 0.68 });
-  if (draft.noPriorAwards) {
-    updates.push({ field: "prior_award", value: [], confidence: 0.8 });
-  } else if (priorAwards.length > 0) {
-    updates.push({ field: "prior_award", value: priorAwards, confidence: 0.72 });
-  }
 
   return updates;
 }

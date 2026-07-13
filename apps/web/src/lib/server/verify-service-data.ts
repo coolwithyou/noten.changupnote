@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { closeCunoteDb } from "./db/client";
 
 process.env.CUNOTE_REPOSITORY_ADAPTER = "runtime";
 process.env.CUNOTE_WEB_DATA_SOURCE = "sample";
@@ -29,6 +30,18 @@ const company = await getServiceRepositories().companies.createCompany({
   },
 });
 const dashboard = await loadServiceDashboard({ companyId: company.id, userId, limit: 8, asOf });
+const limitedDashboard = await loadServiceDashboard({
+  companyId: company.id,
+  userId,
+  limit: 1,
+  asOf,
+  writeMatchStates: false,
+});
+const limitedEvaluatedCount = limitedDashboard.counts.eligible +
+  limitedDashboard.counts.conditional +
+  limitedDashboard.counts.ineligible;
+assert.equal(limitedDashboard.matches.length, 1, "dashboard response limit should cap only returned cards");
+assert.ok(limitedEvaluatedCount > limitedDashboard.matches.length, "dashboard counts must evaluate beyond response limit");
 const bizInfoMatch = dashboard.matches.find((match) => match.source === "bizinfo");
 
 assert.ok(bizInfoMatch, "dashboard should expose BizInfo sample match");
@@ -56,6 +69,7 @@ console.log(JSON.stringify({
     "service_grants_kstartup_sample",
     "service_grants_bizinfo_sample",
     "service_dashboard_bizinfo_match",
+    "service_dashboard_full_scan_separate_from_response_limit",
     "service_bizinfo_apply_documents",
     "service_bizinfo_apply_attachments",
   ],
@@ -72,3 +86,5 @@ console.log(JSON.stringify({
     sourceAttachments: bizInfoApplySheet.sourceAttachments.map((attachment) => attachment.filename),
   },
 }, null, 2));
+
+await closeCunoteDb();

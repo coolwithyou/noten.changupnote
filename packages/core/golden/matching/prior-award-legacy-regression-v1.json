@@ -1,0 +1,792 @@
+{
+  "goldenVer": "prior-award-legacy-regression-v1",
+  "snapshotStatus": "legacy_format_regression_not_eligibility_truth",
+  "capturedAt": "2026-07-12T00:00:00.000Z",
+  "expectedCaseCount": 38,
+  "expectedValueKeyCounts": {
+    "note": 33,
+    "program": 2,
+    "labels": 3,
+    "period": 1,
+    "support_type": 1,
+    "years": 1,
+    "awards": 2
+  },
+  "cases": [
+    {
+      "criterionId": "5441fc7c-d2a4-4583-a49a-25d09acb56f9",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117303",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "거제시 중소기업 육성자금을 지원받고 있는 기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "거제시 중소기업 육성자금을 지원받고 있는 기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "071bd885-c5d3-422f-9909-8bf7f3765d03",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117540",
+      "status": "unknown",
+      "kind": "required",
+      "operator": "exists",
+      "value": {
+        "note": "전북도 통상닥터 참여기업이어야 함",
+        "program": "통상닥터"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "program",
+        "programs": [
+          "free:통상닥터"
+        ],
+        "labels": [
+          "통상닥터"
+        ]
+      }
+    },
+    {
+      "criterionId": "0fa54ff2-8a5e-4c87-8b27-9f33050e88b5",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118090",
+      "status": "unknown",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "글로벌 강소기업 1000+ 지정기업은 5,000만불 이상도 지원 가능"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "글로벌 강소기업 1000+ 지정기업은 5,000만불 이상도 지원 가능"
+        ]
+      }
+    },
+    {
+      "criterionId": "6ab3c05e-2496-4a76-b422-0fc94d042710",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118880",
+      "status": "unknown",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "인천시 일하기 좋은 뿌리기업으로 선정된 기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "인천시 일하기 좋은 뿌리기업으로 선정된 기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "b906d500-22e7-40b3-8d0e-f360f37a0b65",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118880",
+      "status": "unknown",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "인천시 일자리 창출 우수기업으로 선정된 기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "인천시 일자리 창출 우수기업으로 선정된 기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "d1e8a327-c459-41b4-b7cc-1ebf61c6d3f3",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119624",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "우선지원대상기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "우선지원대상기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "1a6330f3-39c9-4cab-be83-61d720dc2037",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119754",
+      "status": "unknown",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "팁스 비R&D 연계사업: 2025년까지 팁스 R&D(일반ㆍ딥테크ㆍ글로벌 트랙) 사업의 협약을 완료한 기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "팁스 비R&D 연계사업: 2025년까지 팁스 R&D(일반ㆍ딥테크ㆍ글로벌 트랙) 사업의 협약을 완료한 기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "b26f6339-d0d3-45d6-a931-a52f5026d0b0",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119754",
+      "status": "unknown",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "R&D딥테크트랙: 팁스(일반트랙)를 수행하여 '완료'판정을 받은 기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "R&D딥테크트랙: 팁스(일반트랙)를 수행하여 '완료'판정을 받은 기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "6338f92e-434f-44c6-8791-f5527574cc7b",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122492",
+      "status": "unknown",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "2024년~2026년도 IP디딤돌 프로그램 아이디어 권리화를 지원받은 창업자"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "2024년~2026년도 IP디딤돌 프로그램 아이디어 권리화를 지원받은 창업자"
+        ]
+      }
+    },
+    {
+      "criterionId": "cc56c1b4-76ce-477e-a438-92dd90afd27a",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122850",
+      "status": "open",
+      "kind": "exclusion",
+      "operator": "text_only",
+      "value": {
+        "note": "과거 본 사업(변화와 기회의 경기창업공모/새로운 경기 창업공모 등) 입상여부"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "과거 본 사업(변화와 기회의 경기창업공모/새로운 경기 창업공모 등) 입상여부"
+        ]
+      }
+    },
+    {
+      "criterionId": "7b48ae2c-a09a-4a81-967f-8150c52320da",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122973",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "not_in",
+      "value": {
+        "labels": [
+          "전년도 시흥산업진흥원 해외전시회 공동관 참가지원 사업 미수혜"
+        ]
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "program",
+        "programs": [
+          "free:전년도시흥산업진흥원해외전시회공동관참가지원사업미수혜"
+        ],
+        "labels": [
+          "전년도 시흥산업진흥원 해외전시회 공동관 참가지원 사업 미수혜"
+        ]
+      }
+    },
+    {
+      "criterionId": "c52ac01f-cfd1-4a57-b3da-acc860663663",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122990",
+      "status": "open",
+      "kind": "required",
+      "operator": "in",
+      "value": {
+        "note": "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "590b2b70-15c7-444e-89e4-31e995c29834",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122992",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "654e630e-4777-45b0-9e48-e870fbd9a620",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122994",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "exists",
+      "value": {
+        "note": "경기도 반려동물산업 창업 공모전 입상자"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "경기도 반려동물산업 창업 공모전 입상자"
+        ]
+      }
+    },
+    {
+      "criterionId": "182e6945-dbe4-44b5-87cf-de07e7df0594",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122996",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "d6cad51c-62b2-4d3f-8fa4-d7ba4f6264e8",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122997",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "최근 2년간(2024~25년) 본 사업을 수혜받지 않은 기업 우선 선발"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "최근 2년간(2024~25년) 본 사업을 수혜받지 않은 기업 우선 선발"
+        ]
+      }
+    },
+    {
+      "criterionId": "d2d61cf7-d908-4f15-8e57-8fce526a2df5",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122998",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "최근 2년간(2024~25년) 본 사업을 수혜받지 않은 기업 우선 선발"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "최근 2년간(2024~25년) 본 사업을 수혜받지 않은 기업 우선 선발"
+        ]
+      }
+    },
+    {
+      "criterionId": "8faeee53-df10-4854-a782-33287efe68d7",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122999",
+      "status": "open",
+      "kind": "required",
+      "operator": "in",
+      "value": {
+        "note": "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "2024, 2025, 2026년도 글로벌IP스타기업육성사업 선정기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "96ac10c3-8df0-4d3c-8cfb-3d33cb552398",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123218",
+      "status": "unknown",
+      "kind": "required",
+      "operator": "exists",
+      "value": {
+        "period": "2024~2026년",
+        "program": "IP디딤돌프로그램",
+        "support_type": "권리화"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "program",
+        "programs": [
+          "free:ip디딤돌프로그램"
+        ],
+        "labels": [
+          "IP디딤돌프로그램"
+        ]
+      }
+    },
+    {
+      "criterionId": "1deaf7e1-46e9-479b-a3bc-c93ceda3eae9",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123284",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "과기정통부 지원받은 사업(과제) 중 스마트 안전장비 해당 제품에 대해 ① 또는 ②가 충족하는 제품을 보유: ① 접수마감일 기준 최근 3년 이내에 과기정통부 우수 연구개발 혁신제품으로 지정받은 제품 또는 ② 비 R&D과제 중 현장 적용ㆍ실증 및 상용화 성공 제품"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "과기정통부 지원받은 사업(과제) 중 스마트 안전장비 해당 제품에 대해 ① 또는 ②가 충족하는 제품을 보유: ① 접수마감일 기준 최근 3년 이내에 과기정통부 우수 연구개발 혁신제품으로 지정받은 제품 또는 ② 비 R&D과제 중 현장 적용ㆍ실증 및 상용화 성공 제품"
+        ]
+      }
+    },
+    {
+      "criterionId": "dd24c897-9dc6-4a4f-be44-832e42db8b5b",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123309",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "in",
+      "value": {
+        "note": "최근 2개년 캐릭터 지원사업 우수 참가사(콘텐츠 IP 라이선싱 지원, 신규 캐릭터 IP 개발 지원사업 결과평가 85점 이상)"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "최근 2개년 캐릭터 지원사업 우수 참가사(콘텐츠 IP 라이선싱 지원, 신규 캐릭터 IP 개발 지원사업 결과평가 85점 이상)"
+        ]
+      }
+    },
+    {
+      "criterionId": "6007729e-570f-45cc-a057-eec888180372",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123312",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "in",
+      "value": {
+        "note": "최근 2개년 캐릭터 지원사업 우수 참가사 가점 부여 (콘텐츠 IP 라이선싱 지원, 신규 캐릭터 IP 개발 지원사업 결과평가 85점 이상)",
+        "years": [
+          2024,
+          2025
+        ]
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "최근 2개년 캐릭터 지원사업 우수 참가사 가점 부여 (콘텐츠 IP 라이선싱 지원, 신규 캐릭터 IP 개발 지원사업 결과평가 85점 이상)"
+        ]
+      }
+    },
+    {
+      "criterionId": "bc47da9a-623d-4e43-81dc-79ffdb0e32dd",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123373",
+      "status": "open",
+      "kind": "exclusion",
+      "operator": "not_in",
+      "value": {
+        "awards": [
+          "2024-2025년 안산시 BI 입주기업 브랜드 강화사업"
+        ],
+        "labels": [
+          "중복수혜"
+        ]
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "program",
+        "programs": [
+          "free:20242025년안산시bi입주기업브랜드강화사업",
+          "free:중복수혜"
+        ],
+        "labels": [
+          "2024-2025년 안산시 BI 입주기업 브랜드 강화사업",
+          "중복수혜"
+        ]
+      }
+    },
+    {
+      "criterionId": "fc7b29ce-6e23-406a-9791-66022807f0fe",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123415",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "백년소공인(3점), 2025 스마트 역량강화 교육수료 소공인(2점), 집적지구 소공인(2점), 풍수해 가입(2점), 여성기업(1점), 장애인기업(1점)"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "백년소공인(3점), 2025 스마트 역량강화 교육수료 소공인(2점), 집적지구 소공인(2점), 풍수해 가입(2점), 여성기업(1점), 장애인기업(1점)"
+        ]
+      }
+    },
+    {
+      "criterionId": "80a9e8ad-3dc8-4c33-858e-4f28b5c3cd41",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123599",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "exists",
+      "value": {
+        "awards": [
+          "울산 유망 중소기업",
+          "수출유망기업",
+          "중견성장사다리기업",
+          "울산시 수출유공"
+        ]
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "program",
+        "programs": [
+          "free:울산유망중소기업",
+          "free:수출유망기업",
+          "free:중견성장사다리기업",
+          "free:울산시수출유공"
+        ],
+        "labels": [
+          "울산 유망 중소기업",
+          "수출유망기업",
+          "중견성장사다리기업",
+          "울산시 수출유공"
+        ]
+      }
+    },
+    {
+      "criterionId": "b535acea-04df-485a-814e-05507649bca4",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123607",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "exists",
+      "value": {
+        "note": "경상북도, 김천시 선정 유망 중소기업 (경북PRIDE기업, 실라리안, 스타기업, 경북향토뿌리기업, 김천시 이달의기업 등 최근 3년 이내)"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "경상북도, 김천시 선정 유망 중소기업 (경북PRIDE기업, 실라리안, 스타기업, 경북향토뿌리기업, 김천시 이달의기업 등 최근 3년 이내)"
+        ]
+      }
+    },
+    {
+      "criterionId": "619220b2-10f7-4331-a32b-a4a76d06c793",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123620",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "in",
+      "value": {
+        "labels": [
+          "경북 PRIDE 기업",
+          "실라리안",
+          "스타기업",
+          "경북향토뿌리기업",
+          "성주군 이달의기업"
+        ]
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "program",
+        "programs": [
+          "free:경북pride기업",
+          "free:실라리안",
+          "free:스타기업",
+          "free:경북향토뿌리기업",
+          "free:성주군이달의기업"
+        ],
+        "labels": [
+          "경북 PRIDE 기업",
+          "실라리안",
+          "스타기업",
+          "경북향토뿌리기업",
+          "성주군 이달의기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "ff4d2ab7-5cf0-404f-8e2c-44e8759aae6e",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123642",
+      "status": "open",
+      "kind": "exclusion",
+      "operator": "text_only",
+      "value": {
+        "note": "정부 또는 지방자치단체 및 유관기관으로부터 동일 또는 유사한 내용의 지원을 받은 사실이 있거나, 지원을 받은 사업에 참여중인 경우"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "정부 또는 지방자치단체 및 유관기관으로부터 동일 또는 유사한 내용의 지원을 받은 사실이 있거나, 지원을 받은 사업에 참여중인 경우"
+        ]
+      }
+    },
+    {
+      "criterionId": "103c2959-5dbd-4085-800f-291302af1934",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123657",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "최근 3년 이내 영화, 드라마, 다큐멘터리, 미드폼 등 실사 기반 영상콘텐츠 제작 실적 보유(단순 홍보영상, 행사기록영상, 교육영상 제작 실적 제외)"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "최근 3년 이내 영화, 드라마, 다큐멘터리, 미드폼 등 실사 기반 영상콘텐츠 제작 실적 보유(단순 홍보영상, 행사기록영상, 교육영상 제작 실적 제외)"
+        ]
+      }
+    },
+    {
+      "criterionId": "54bfdbf1-3df2-4594-a493-c5146ce7a4a1",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123772",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "중소벤처기업부 '중소기업 R&D 과제'를 성공적으로 완료(우수, 보통)하였거나 수행 중인 기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "중소벤처기업부 '중소기업 R&D 과제'를 성공적으로 완료(우수, 보통)하였거나 수행 중인 기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "82f49ed2-c554-44d8-8e9a-45abaae9bb75",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123944",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "강원특별자치도 지역특화 프로젝트에 선정된 참여기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "강원특별자치도 지역특화 프로젝트에 선정된 참여기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "0b57fcaa-24f9-4ea2-8a1a-799dff47df7e",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124005",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "「2026년 신개념 세대융합 청년창업 지원」 멘토링 참여자"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "「2026년 신개념 세대융합 청년창업 지원」 멘토링 참여자"
+        ]
+      }
+    },
+    {
+      "criterionId": "befc9f5b-bcef-4a74-af35-672525b034b5",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124091",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "2023~2026년 「K-Health 국민의료 AI서비스 및 산업생태계 구축(대구 AI 의료생태계 구축)」사업 수행기관으로부터 지원받은 기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "2023~2026년 「K-Health 국민의료 AI서비스 및 산업생태계 구축(대구 AI 의료생태계 구축)」사업 수행기관으로부터 지원받은 기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "a03b27c3-fda6-43ed-b9b7-7bdc68e35ce0",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124106",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "2024년~2026년 제품화 및 양산화 지원 프로그램(제품화 샘플제작 지원, 초도 양산 비매품 제작 지원, 제품명/브랜드/디자인 제작 지원) 수혜기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "2024년~2026년 제품화 및 양산화 지원 프로그램(제품화 샘플제작 지원, 초도 양산 비매품 제작 지원, 제품명/브랜드/디자인 제작 지원) 수혜기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "10eb419b-1fbd-474c-a4f7-4f227aeca6b4",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124162",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "'25년, '26년 중기부 수출바우처 참여기업"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "'25년, '26년 중기부 수출바우처 참여기업"
+        ]
+      }
+    },
+    {
+      "criterionId": "18271fd0-a7c9-4d8a-a8bb-6adc6b6e828f",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124234",
+      "status": "open",
+      "kind": "preferred",
+      "operator": "text_only",
+      "value": {
+        "note": "최근 2년간(2024~25년) 본 사업을 수혜받지 않은 기업 우선 선발"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "최근 2년간(2024~25년) 본 사업을 수혜받지 않은 기업 우선 선발"
+        ]
+      }
+    },
+    {
+      "criterionId": "8ada3e65-f020-46eb-a191-030c5b56382c",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124236",
+      "status": "open",
+      "kind": "required",
+      "operator": "text_only",
+      "value": {
+        "note": "접수마감일 기준 5년('21. 8. 12. ~ '26. 8. 11.) 이내 중기부 소관 중소기업 R&D사업 수행 완료(우수, 보통) 후 그 기술을 사업화한 중소기업의 제품"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v2",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "접수마감일 기준 5년('21. 8. 12. ~ '26. 8. 11.) 이내 중기부 소관 중소기업 R&D사업 수행 완료(우수, 보통) 후 그 기술을 사업화한 중소기업의 제품"
+        ]
+      }
+    },
+    {
+      "criterionId": "934d3de6-5008-45a0-9bf2-593ff45ce38c",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124256",
+      "status": "open",
+      "kind": "exclusion",
+      "operator": "not_in",
+      "value": {
+        "note": "최근 2년 이내 달성군 군비 지원 사업 수혜내역이 있는 경우"
+      },
+      "parserVersion": "bizinfo-llm-criteria-v1",
+      "expectedAdapted": {
+        "scope": "self",
+        "self_kind": "current_similar",
+        "labels": [
+          "최근 2년 이내 달성군 군비 지원 사업 수혜내역이 있는 경우"
+        ]
+      }
+    }
+  ]
+}

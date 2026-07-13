@@ -60,6 +60,7 @@ export const BUSINESS_STATUS_OPTIONS = [
   { label: "휴업", value: "suspended" },
   { label: "폐업", value: "closed" },
 ];
+export const TARGET_TYPE_OPTIONS = ["개인사업자", "법인"].map((value) => ({ label: value, value }));
 export const REVENUE_UNIT_OPTIONS: Array<{ label: string; value: RevenueUnit; multiplier: number }> = [
   { label: "만원", value: "manwon", multiplier: 10_000 },
   { label: "억원", value: "eok", multiplier: 100_000_000 },
@@ -173,6 +174,7 @@ export function profileInputDescription(fieldKey: string): string {
   if (fieldKey === "size") return "중소기업확인서 또는 내부 기준에 맞는 기업규모를 선택합니다.";
   if (fieldKey === "industry") return "주요 업종이나 사업 분야를 쉼표로 구분해 입력합니다.";
   if (fieldKey === "business_status") return "현재 국세청 기준 영업상태를 선택합니다.";
+  if (fieldKey === "target_type") return "사업자등록증 기준 개인사업자 또는 법인을 선택합니다.";
   if (fieldKey === "founder_age") return "대표자 출생연도 4자리만 입력합니다. 연령은 현재 연도 기준으로 계산해 반영합니다.";
   if (fieldKey === "certification") return "여성기업확인서, 벤처기업확인서처럼 보유한 인증·확인서를 입력합니다.";
   if (fieldKey === "employees") return "4대보험 또는 내부 인사 기준의 상시근로자 수를 입력합니다.";
@@ -186,6 +188,7 @@ export function profileInputPlaceholder(fieldKey: string): string {
   if (fieldKey === "biz_age" || fieldKey === "bizAge") return "8";
   if (fieldKey === "size") return "중소기업";
   if (fieldKey === "business_status") return "정상";
+  if (fieldKey === "target_type") return "개인사업자";
   if (fieldKey === "founder_age") return "1987";
   if (fieldKey === "certification") return "여성기업확인서, 벤처기업확인서";
   if (fieldKey === "employees") return "12";
@@ -198,6 +201,7 @@ export function profileInputSuggestions(fieldKey: string): string[] {
   if (fieldKey === "region") return REGION_OPTIONS.map((option) => option.label);
   if (fieldKey === "size") return SIZE_OPTIONS.map((option) => option.label);
   if (fieldKey === "business_status") return BUSINESS_STATUS_OPTIONS.map((option) => option.label);
+  if (fieldKey === "target_type") return TARGET_TYPE_OPTIONS.map((option) => option.label);
   if (fieldKey === "certification") return ["여성기업확인서", "벤처기업확인서", "이노비즈", "메인비즈"];
   if (fieldKey === "industry") return ["시각 디자인업", "전자상거래 소매업", "소프트웨어 개발업", "정보통신업"];
   return [];
@@ -300,6 +304,18 @@ export function buildProfilePatch(
     };
   }
 
+  if (fieldKey === "target_type") {
+    const option = TARGET_TYPE_OPTIONS.find((item) => item.label === rawValue || item.value === rawValue);
+    if (!option) return { error: "사업자 유형을 선택해 주세요." };
+    return {
+      profile: {
+        target_types: [option.value],
+        list_completeness: { target_type: "partial" },
+        confidence: { target_type: 0.78 },
+      },
+    };
+  }
+
   if (fieldKey === "founder_age") {
     const birthYear = parseBirthYear(rawValue);
     if (birthYear === null) return { error: "대표자 출생연도 4자리를 숫자로 입력해 주세요." };
@@ -339,6 +355,42 @@ export function mergeCompanyProfileForRequest(current: CompanyProfile, patch: Co
   return {
     ...current,
     ...patch,
+    ...(current.list_completeness || patch.list_completeness ? {
+      list_completeness: {
+        ...(current.list_completeness ?? {}),
+        ...(patch.list_completeness ?? {}),
+      },
+    } : {}),
+    ...(current.other_conditions || patch.other_conditions ? {
+      other_conditions: {
+        ...(current.other_conditions ?? {}),
+        ...(patch.other_conditions ?? {}),
+      },
+    } : {}),
+    ...(current.business_status || patch.business_status ? {
+      business_status: {
+        ...(current.business_status ?? {}),
+        ...(patch.business_status ?? {}),
+      },
+    } : {}),
+    ...(current.financial_health || patch.financial_health ? {
+      financial_health: {
+        ...(current.financial_health ?? {}),
+        ...(patch.financial_health ?? {}),
+      },
+    } : {}),
+    ...(current.insured_workforce || patch.insured_workforce ? {
+      insured_workforce: {
+        ...(current.insured_workforce ?? {}),
+        ...(patch.insured_workforce ?? {}),
+      },
+    } : {}),
+    ...(current.investment || patch.investment ? {
+      investment: {
+        ...(current.investment ?? {}),
+        ...(patch.investment ?? {}),
+      },
+    } : {}),
     confidence: {
       ...(current.confidence ?? {}),
       ...(patch.confidence ?? {}),
@@ -358,9 +410,10 @@ export function readManualProfileDraft(bizNo: string): CompanyProfile | null {
 
 export function writeManualProfileDraft(bizNo: string, profile: CompanyProfile) {
   try {
-    if (!hasManualProfile(profile)) return;
+    const persistedProfile = sanitizeManualProfileForStorage(profile);
+    if (!hasManualProfile(persistedProfile)) return;
     const drafts = readManualProfileDrafts();
-    drafts[bizNo] = { profile, updatedAt: new Date().toISOString() };
+    drafts[bizNo] = { profile: persistedProfile, updatedAt: new Date().toISOString() };
     const prunedEntries = Object.entries(drafts)
       .sort(([, left], [, right]) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, 20);
@@ -368,6 +421,31 @@ export function writeManualProfileDraft(bizNo: string, profile: CompanyProfile) 
   } catch {
     // 로컬 초안 저장 실패는 매칭 요청을 막지 않는다.
   }
+}
+
+/** 결격·상세 재무·고용보험·투자 응답은 브라우저 장기 저장 없이 현재 메모리 요청에만 사용한다. */
+export function sanitizeManualProfileForStorage(profile: CompanyProfile): CompanyProfile {
+  const {
+    tax_compliance: _taxCompliance,
+    credit_status: _creditStatus,
+    sanction: _sanction,
+    financial_health: _financialHealth,
+    insured_workforce: _insuredWorkforce,
+    investment: _investment,
+    profile_evidence: _profileEvidence,
+    ...safe
+  } = profile;
+  const next: CompanyProfile = { ...safe, confidence: { ...(safe.confidence ?? {}) } };
+  for (const dimension of [
+    "tax_compliance",
+    "credit_status",
+    "sanction",
+    "financial_health",
+    "insured_workforce",
+    "investment",
+  ] as const) delete next.confidence?.[dimension];
+  if (Object.keys(next.confidence ?? {}).length === 0) delete next.confidence;
+  return next;
 }
 
 function readManualProfileDrafts(): Record<string, { profile: CompanyProfile; updatedAt: string }> {
@@ -378,7 +456,7 @@ function readManualProfileDrafts(): Record<string, { profile: CompanyProfile; up
     for (const [bizNo, value] of Object.entries(parsed)) {
       if (!/^\d{10}$/.test(bizNo) || !isRecord(value) || !isRecord(value.profile)) continue;
       drafts[bizNo] = {
-        profile: value.profile as CompanyProfile,
+        profile: sanitizeManualProfileForStorage(value.profile as CompanyProfile),
         updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
       };
     }
@@ -568,7 +646,7 @@ export function readyHeadlineCount(teaser: TeaserResult): {
   return { tone: "none", count: 0 };
 }
 
-/** 히어로 요약 통계: 최고 적합도(숫자 표시 가능한 매치 기준). */
+/** 히어로 요약 통계: 최고 조건 확인도(숫자 표시 가능한 매치 기준). */
 export function bestFitScore(teaser: TeaserResult): number | null {
   const scored = teaser.matches.filter(
     (match) => match.criteriaExtracted !== false && match.scoreDisplay !== "hidden",

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { matchGrantCriteria } from "@cunote/core";
+import { matchNormalizedGrant } from "@cunote/core";
 import { buildBizInfoSampleEntries } from "./bizinfoSample";
 import { planBizInfoPublication } from "./bizinfoPublisher";
 
@@ -15,6 +15,8 @@ assert.equal(plan.grantCount, 1);
 assert.equal(plan.criteriaCount, 3);
 assert.equal(plan.rawHashes.length, 1);
 assert.match(plan.rawHashes[0] ?? "", /^[a-f0-9]{64}$/);
+assert.equal(plan.extractionReadinessCounts.partial, 1, "unarchived source attachment keeps extraction partial");
+assert.equal(plan.extractionWarningCounts.attachment_fetch_incomplete, 1);
 
 const first = entries[0];
 assert.ok(first, "sample entry should exist");
@@ -30,16 +32,25 @@ assert.deepEqual(first.raw.attachments, [{
   url: "https://www.bizinfo.go.kr/fileDownload.do?atchFileId=PBLN_SAMPLE",
 }]);
 assert.equal(
-  matchGrantCriteria(first.criteria, {
+  matchNormalizedGrant(first, {
     region: { code: "41", label: "경기" },
     industries: ["ICT", "SW"],
     size: "중소",
   }).eligibility,
   "eligible",
 );
+assert.equal(
+  matchNormalizedGrant(first, {
+    region: { code: "41", label: "경기" },
+    industries: ["ICT", "SW"],
+    size: "중소",
+  }).review_gate?.tier,
+  "needs_core_review",
+  "attachment-incomplete grant must not be recommendable",
+);
 
 console.log(JSON.stringify({
   ok: true,
-  checked: ["raw_hash", "raw_attachments", "grant_projection", "required_documents", "criteria_match"],
+  checked: ["raw_hash", "raw_attachments", "grant_projection", "required_documents", "criteria_match", "extraction_gate"],
   ...plan,
 }, null, 2));

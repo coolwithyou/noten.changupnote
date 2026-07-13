@@ -43,7 +43,7 @@ const COL = {
 
 /** 헤더 셀 정규화(BOM·공백 제거). */
 function cleanHeader(cell: string): string {
-  return cell.replace(/^\uFEFF/, "").trim();
+  return cell.replace(/^\uFEFF/, "").replace(/\s+/g, "").trim();
 }
 
 /** detail 에 담을 값을 빈 문자열이 아닐 때만 추가. */
@@ -77,7 +77,7 @@ export function parseVentureConfirmationCsv(
   });
 
   // 업체명(상호) 컬럼이 없으면 이 어댑터로 해석 불가 → 전체 skip.
-  if (!colIndex.has(COL.업체명)) return [];
+  if (!colIndex.has(cleanHeader(COL.업체명))) return [];
 
   const fetchedAt = opts?.fetchedAt ?? new Date();
   const records: RegistryRecord[] = [];
@@ -85,7 +85,7 @@ export function parseVentureConfirmationCsv(
   for (let r = 1; r < rows.length; r += 1) {
     const row = rows[r]!;
     const get = (colName: string): string => {
-      const idx = colIndex.get(colName);
+      const idx = colIndex.get(cleanHeader(colName));
       if (idx === undefined) return "";
       return row[idx] ?? "";
     };

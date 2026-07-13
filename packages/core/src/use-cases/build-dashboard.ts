@@ -1,20 +1,18 @@
 import type {
   CompanyProfile,
-  CriterionDimension,
   DashboardResult,
-  GrantCriterion,
   NormalizedGrant,
-  RuleTraceEntry,
 } from "@cunote/contracts";
-import { matchGrantCriteria } from "../matching/match.js";
-import { REGION_CODES } from "../kstartup/constants.js";
-import { DISQUALIFICATION_FLAGS, type DisqualificationAxis } from "../disqualification/canonical.js";
+import { matchNormalizedGrant } from "../matching/match.js";
+import { planProfileQuestions } from "../matching/question-planner.js";
+import { activeUnknownQuestionDimensions } from "../company/question-answer-state.js";
+import { withMatchRanking } from "../matching/ranking.js";
 import { buildActionQueue } from "./build-action-queue.js";
 import { buildRoadmap } from "./build-roadmap.js";
-import { buildTeaser } from "./build-teaser.js";
 import {
+  countByEligibility,
   companySummary,
-  grantKey,
+  daysUntil,
   sortMatchedGrants,
   toMatchCard,
   type MatchedGrant,
@@ -33,18 +31,23 @@ export function buildDashboard<TPayload>({
   asOf = new Date(),
   limit = 24,
 }: BuildDashboardOptions<TPayload>): DashboardResult {
-  const teaser = buildTeaser({ company, grants, asOf, limit });
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
-    match: matchGrantCriteria(item.criteria, company),
+    match: withMatchRanking(item, company, matchNormalizedGrant(item, company), { asOf }),
   }));
-  const sortedMatched = sortMatchedGrants(matched).slice(0, limit);
+  const rankedMatched = sortMatchedGrants(matched);
+  const sortedMatched = rankedMatched.slice(0, limit);
   const matches = sortedMatched.map((entry) => toMatchCard(entry, { asOf }));
-  const nextQuestion = nextQuestionFromMatches(sortedMatched);
+  const nextQuestion = planProfileQuestions(rankedMatched, {
+    asOf,
+    limit: 1,
+    excludeDimensions: activeUnknownQuestionDimensions(company, asOf),
+  })[0]?.question;
+  const counts = dashboardCounts(matched, asOf);
 
   const dashboard: DashboardResult = {
     company: companySummary(company),
-    counts: teaser.counts,
+    counts,
     matches,
     roadmap: buildRoadmap({ matches }),
     actionQueue: buildActionQueue({ matches }),
@@ -55,161 +58,36 @@ export function buildDashboard<TPayload>({
   return dashboard;
 }
 
-interface UnknownTraceCandidate {
-  trace: RuleTraceEntry;
-  criterion?: GrantCriterion;
-  grantId: string;
-}
-
-function nextQuestionFromMatches<TPayload>(matches: Array<MatchedGrant<TPayload>>): DashboardResult["nextQuestion"] {
-  const unknown = matches.flatMap<UnknownTraceCandidate>((match) => {
-    const grantId = grantKey(match.item.grant);
-    return match.match.rule_trace
-      .map((trace, index) => {
-        const candidate: UnknownTraceCandidate = { trace, grantId };
-        const criterion = match.item.criteria[index];
-        if (criterion) candidate.criterion = criterion;
-        return candidate;
-      })
-      .filter((entry) => entry.trace.result === "unknown");
-  });
-  const first = unknown[0];
-  if (!first) return undefined;
-  const sameDimension = unknown.filter((entry) => entry.trace.dimension === first.trace.dimension);
-  const options = optionsForDimension(
-    first.trace.dimension,
-    sameDimension.map((entry) => entry.criterion).filter(isGrantCriterion),
-  );
-  const inputType = inputTypeForDimension(first.trace.dimension, options);
-  const question: NonNullable<DashboardResult["nextQuestion"]> = {
-    dimension: first.trace.dimension,
-    prompt: `${dimensionLabel(first.trace.dimension)} 정보를 확인해 주세요.`,
-    inputType,
-    framing: `${sameDimension.length}개 조건부 판단을 확정 또는 제외하는 데 도움이 됩니다.`,
-    affectedGrantCount: new Set(sameDimension.map((entry) => entry.grantId)).size,
+function dashboardCounts<TPayload>(
+  matched: Array<MatchedGrant<TPayload>>,
+  asOf: Date,
+): DashboardResult["counts"] {
+  const eligibility = countByEligibility(matched.map((entry) => entry.match));
+  const recommendation = {
+    recommendable: 0,
+    reviewNeeded: 0,
+    notRecommended: 0,
   };
-  if (options.length > 0) question.options = options;
+  let deadlineSoon = 0;
+  for (const entry of matched) {
+    const tier = entry.match.review_gate?.tier ??
+      (entry.match.eligibility === "eligible"
+        ? "recommendable"
+        : entry.match.eligibility === "ineligible"
+          ? "not_recommended"
+          : "needs_profile_input");
+    if (tier === "recommendable") recommendation.recommendable += 1;
+    else if (tier === "not_recommended") recommendation.notRecommended += 1;
+    else recommendation.reviewNeeded += 1;
 
-  return question;
-}
-
-function inputTypeForDimension(
-  dimension: CriterionDimension,
-  options: string[] = [],
-): NonNullable<DashboardResult["nextQuestion"]>["inputType"] {
-  if (dimension === "biz_age" || dimension === "founder_age" || dimension === "revenue" || dimension === "employees") {
-    return "number";
+    const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
+    if (entry.match.eligibility !== "ineligible" && dDay !== null && dDay >= 0 && dDay <= 7) {
+      deadlineSoon += 1;
+    }
   }
-  if (dimension === "business_status") return "boolean";
-  // 결격 3축(M6): 그룹 체크리스트("해당 없음" 일괄)로 사전 전체 플래그를 저부담 커버(C1).
-  if (dimension === "tax_compliance" || dimension === "credit_status" || dimension === "sanction") {
-    return "checklist";
-  }
-  // 재무·고용·투자(M6): 수치 묶음 입력. 현재 text 폴백은 400/오염 저장 위험.
-  if (dimension === "financial_health" || dimension === "insured_workforce" || dimension === "investment") {
-    return "number_group";
-  }
-  if (
-    options.length > 0 ||
-    dimension === "region" ||
-    dimension === "industry" ||
-    dimension === "size" ||
-    dimension === "target_type"
-  ) {
-    return "select";
-  }
-  return "text";
-}
-
-function optionsForDimension(dimension: CriterionDimension, criteria: GrantCriterion[] = []): string[] {
-  const criterionOptions = criterionOptionsForDimension(dimension, criteria);
-  if (dimension === "prior_award" && criterionOptions.length > 0) {
-    return unique(["해당 없음", ...criterionOptions]);
-  }
-  return unique([
-    ...criterionOptions,
-    ...defaultOptionsForDimension(dimension),
-  ]);
-}
-
-function defaultOptionsForDimension(dimension: CriterionDimension): string[] {
-  if (dimension === "region") return Object.keys(REGION_CODES);
-  if (dimension === "size") return ["소상공인", "중소", "중견", "대기업"];
-  if (dimension === "industry") return ["ICT", "SW", "AI", "바이오", "제조", "콘텐츠", "패션", "해양", "기타"];
-  if (dimension === "target_type") return ["예비창업자", "개인사업자", "법인", "일반기업", "1인 창조기업", "대학", "연구기관"];
-  return [];
-}
-
-function criterionOptionsForDimension(dimension: CriterionDimension, criteria: GrantCriterion[]): string[] {
-  // 결격 3축(M6): 옵션은 canonical 플래그 키 전체(사전 전체 커버 — C1). UI가 라벨로 렌더.
-  if (isDisqualificationAxis(dimension)) {
-    return [...DISQUALIFICATION_FLAGS[dimension]];
-  }
-  const keys: Partial<Record<CriterionDimension, string[]>> = {
-    region: ["labels", "regions"],
-    industry: ["tags"],
-    size: ["sizes"],
-    founder_trait: ["traits"],
-    certification: ["certs"],
-    prior_award: ["programs"],
-    ip: ["types"],
-    target_type: ["targets"],
+  return {
+    ...eligibility,
+    deadlineSoon,
+    ...recommendation,
   };
-  const valueKeys = keys[dimension] ?? [];
-  if (valueKeys.length === 0) return [];
-
-  return criteria.flatMap((criterion) => {
-    const value = criterion.value;
-    if (typeof value !== "object" || value === null || Array.isArray(value)) return [];
-    const record = value as Record<string, unknown>;
-    return valueKeys.flatMap((key) => stringValues(record[key]));
-  });
-}
-
-function isDisqualificationAxis(dimension: CriterionDimension): dimension is DisqualificationAxis {
-  return dimension === "tax_compliance" || dimension === "credit_status" || dimension === "sanction";
-}
-
-function stringValues(value: unknown): string[] {
-  if (typeof value === "string" && value.trim()) return [value.trim()];
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-    .map((item) => item.trim());
-}
-
-function isGrantCriterion(criterion: GrantCriterion | undefined): criterion is GrantCriterion {
-  return Boolean(criterion);
-}
-
-function unique(values: string[]): string[] {
-  return [...new Set(values)];
-}
-
-function dimensionLabel(dimension: CriterionDimension): string {
-  const labels: Record<CriterionDimension, string> = {
-    region: "지역",
-    biz_age: "업력",
-    industry: "업종",
-    size: "기업규모",
-    revenue: "매출",
-    employees: "고용",
-    founder_age: "대표자 연령",
-    founder_trait: "대표자 속성",
-    certification: "인증",
-    prior_award: "기수혜",
-    ip: "지식재산",
-    target_type: "신청대상",
-    business_status: "영업상태",
-    tax_compliance: "세금 체납",
-    credit_status: "신용 상태",
-    sanction: "제재·참여제한",
-    financial_health: "재무 건전성",
-    insured_workforce: "고용보험 피보험자",
-    investment: "투자 유치",
-    premises: "사업장·입지",
-    export_performance: "수출 실적",
-    other: "기타 조건",
-  };
-  return labels[dimension];
 }

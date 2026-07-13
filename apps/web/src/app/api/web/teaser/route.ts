@@ -3,7 +3,7 @@ import { isValidBizNoChecksum } from "@cunote/contracts";
 import { buildTeaser } from "@cunote/core";
 import { NextResponse } from "next/server";
 import { annotateMatchCardWriteSupport } from "@/lib/server/matches/annotateWriteSupport";
-import { loadServiceGrants, ServiceDataError } from "@/lib/server/serviceData";
+import { loadServiceGrantUniverse, ServiceDataError } from "@/lib/server/serviceData";
 import { resolveTeaserCompanyProfileWithEvidence } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
 export const runtime = "nodejs";
@@ -27,10 +27,9 @@ export async function POST(request: Request) {
     const asOf = new Date();
     const [companyResolution, grants] = await Promise.all([
       resolveTeaserCompanyProfileWithEvidence(body),
-      // 지원 기간 내(active) 공고 전량을 매칭 대상으로 한다 — 마감 지난 공고는
-      // listActiveGrants 의 apply_end 필터가 걸러준다. 2026-07 기준 active ~1.5천 건,
-      // raw payload 평균 1.6kB 라 전량 조회 비용은 낮다. 2000 은 안전 상한(초과 시 상향 필요).
-      loadServiceGrants({ asOf, limit: 2_000 }),
+      // 응답 카드 수와 무관하게 active 공고 전량을 평가한다. 공용 loader가
+      // 안전 상한을 넘으면 조용히 일부만 평가하지 않고 명시적으로 실패시킨다.
+      loadServiceGrantUniverse({ asOf }),
     ]);
     const data = buildTeaser({
       company: companyResolution.profile,

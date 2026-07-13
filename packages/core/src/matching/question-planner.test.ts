@@ -3,6 +3,7 @@ import type { CompanyProfile, Grant, GrantCriterion, NormalizedGrant } from "@cu
 import { matchGrantCriteria } from "./match.js";
 import { planProfileQuestions } from "./question-planner.js";
 import type { MatchedGrant } from "../use-cases/match-card.js";
+import { updateCompanyProfileField } from "../company/update-profile-field.js";
 
 const asOf = new Date("2026-07-12T00:00:00.000Z");
 const company: CompanyProfile = {
@@ -112,6 +113,56 @@ assert.equal(industryPlan[0]?.question.dimension, "industry");
 assert.equal(industryPlan[0]?.question.affectedGrantCount, 1);
 assert.equal(industryPlan[0]?.resolvesGrantCount, 0, "단일 positive-only 응답은 전체 업종 목록을 소진하지 않는다");
 
+const priorAwardCompany: CompanyProfile = { confidence: {} };
+const priorAwardCriteria: GrantCriterion[] = [{
+  dimension: "prior_award",
+  operator: "exists",
+  kind: "exclusion",
+  confidence: 0.95,
+  source_span: "현재 유사 정부지원사업 중복 수행 기업 제외",
+  value: { scope: "self", self_kind: "current_similar" },
+}];
+const priorAwardMatches = [
+  matchedForCompany("prior-self-1", priorAwardCriteria, priorAwardCompany),
+  matchedForCompany("prior-self-2", priorAwardCriteria, priorAwardCompany),
+  matchedForCompany("prior-program", [{
+    dimension: "prior_award",
+    operator: "in",
+    kind: "exclusion",
+    confidence: 0.95,
+    source_span: "초기창업패키지 기수혜 기업 제외",
+    value: { scope: "program", programs: ["chogi_startup_package"], states: ["completed"] },
+  }], priorAwardCompany),
+];
+const priorAwardPlan = planProfileQuestions(priorAwardMatches, { asOf, limit: 2 });
+assert.equal(priorAwardPlan[0]?.question.dimension, "prior_award");
+assert.equal(priorAwardPlan[0]?.question.inputType, "boolean");
+assert.equal(priorAwardPlan[0]?.question.affectedGrantCount, 2, "같은 self 범위만 한 질문으로 묶는다");
+assert.deepEqual(priorAwardPlan[0]?.question.priorAwardContext, {
+  scope: "self",
+  selfKind: "current_similar",
+  channel: "general",
+  requiresYear: false,
+});
+
+const selfAnswered = updateCompanyProfileField(priorAwardCompany, {
+  field: "prior_award",
+  value: { self_flags: { current_similar: false } },
+});
+const afterSelf = priorAwardMatches.map((entry) => ({
+  item: entry.item,
+  match: matchGrantCriteria(entry.item.criteria, selfAnswered, { asOf }),
+}));
+assert.equal(afterSelf[0]?.match.eligibility, "eligible");
+assert.equal(afterSelf[1]?.match.eligibility, "eligible");
+const nextPriorAward = planProfileQuestions(afterSelf, { asOf, limit: 1 })[0]?.question;
+assert.deepEqual(nextPriorAward?.priorAwardContext, {
+  scope: "program",
+  programs: ["chogi_startup_package"],
+  states: ["completed"],
+  requiresYear: false,
+});
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -122,6 +173,8 @@ console.log(JSON.stringify({
     "question_planner_skips_extraction_incomplete",
     "question_planner_skips_ineligible",
     "question_planner_positive_only_not_resolved",
+    "question_planner_prior_award_context_partition",
+    "question_planner_prior_award_sequential_known_gate",
   ],
   planned: planned.map((item) => ({
     dimension: item.question.dimension,
@@ -144,6 +197,15 @@ function numericCriterion(
     source_span: sourceSpan,
     value,
   };
+}
+
+function matchedForCompany(
+  sourceId: string,
+  criteria: GrantCriterion[],
+  companyValue: CompanyProfile,
+): MatchedGrant<Record<string, unknown>> {
+  const item = normalizedGrant(sourceId, "2026-08-31", criteria);
+  return { item, match: matchGrantCriteria(criteria, companyValue, { asOf }) };
 }
 
 function matched(

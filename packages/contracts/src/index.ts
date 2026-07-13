@@ -1,6 +1,6 @@
 // enum 단일 원천은 leaf 모듈(enums.ts). openapi.ts와 공유하며 barrel 순환 import를 피한다.
-export { CRITERION_DIMENSIONS, MATCH_REVIEW_REASON_CODES } from "./enums.js";
-import { CRITERION_DIMENSIONS, MATCH_REVIEW_REASON_CODES } from "./enums.js";
+export { CRITERION_DIMENSIONS, GRANT_AUDIENCES, MATCH_REVIEW_REASON_CODES } from "./enums.js";
+import { CRITERION_DIMENSIONS, GRANT_AUDIENCES, MATCH_REVIEW_REASON_CODES } from "./enums.js";
 
 export const CRITERION_OPERATORS = [
   "in",
@@ -77,6 +77,22 @@ export type CriterionKind = (typeof CRITERION_KINDS)[number];
 export type Eligibility = (typeof ELIGIBILITIES)[number];
 export type MatchRecommendationTier = (typeof MATCH_RECOMMENDATION_TIERS)[number];
 export type MatchScoreDisplay = "numeric" | "hidden";
+export type MatchEligibilityConfidence = "high" | "medium" | "low";
+export type MatchExtractionReadiness =
+  | "reviewed"
+  | "structured_unreviewed"
+  | "partial"
+  | "unstructured";
+export type GrantExtractionWarningCode =
+  | "criteria_missing"
+  | "text_only_criterion_present"
+  | "criterion_review_required"
+  | "hard_criterion_evidence_missing"
+  | "source_field_missing"
+  | "source_section_missing"
+  | "attachment_fetch_incomplete"
+  | "attachment_conversion_incomplete"
+  | "attachment_conversion_failed";
 export type ListProfileDimension =
   | "industry"
   | "founder_trait"
@@ -89,6 +105,7 @@ export type MatchReviewReasonCode = (typeof MATCH_REVIEW_REASON_CODES)[number];
 export type CriterionResult = "pass" | "fail" | "unknown";
 export type GrantSource = "kstartup" | "bizinfo" | "bizinfo_event";
 export type GrantStatus = "upcoming" | "open" | "closed" | "unknown";
+export type GrantAudience = (typeof GRANT_AUDIENCES)[number];
 export type GrantDocumentSource = "self" | "portal" | "cert";
 export type GrantBenefitFamily = (typeof GRANT_BENEFIT_FAMILIES)[number];
 export type GrantBenefitSource = (typeof GRANT_BENEFIT_SOURCES)[number];
@@ -97,6 +114,13 @@ export type GrantDocumentPreparationType = (typeof GRANT_DOCUMENT_PREPARATION_TY
 export type ApplyMethodChannel = (typeof APPLY_METHOD_CHANNELS)[number];
 export type AuthoringMode = (typeof AUTHORING_MODES)[number];
 export type WriteSupportLevel = (typeof WRITE_SUPPORT_LEVELS)[number];
+
+export const GRANT_AUDIENCE_LABELS: Record<GrantAudience, string> = {
+  company: "기업 대상",
+  individual: "개인 대상",
+  mixed: "기업·개인 혼합",
+  unknown: "미분류",
+};
 
 export const APPLY_METHOD_CHANNEL_LABELS: Record<ApplyMethodChannel, string> = {
   online: "온라인 접수",
@@ -229,6 +253,40 @@ export interface InvestmentCriterionValue {
   labels?: string[];
 }
 
+export type PriorAwardScope = "self" | "program" | "program_type";
+export type PriorAwardSelfKind =
+  | "current_similar"
+  | "same_project"
+  | "same_business_prior"
+  | "same_year_other_support";
+export type PriorAwardState = "participating" | "completed" | "graduated";
+
+/** 공고가 요구·배제·우대하는 수혜/참여 이력 조건. */
+export interface PriorAwardCriterionValue {
+  scope: PriorAwardScope;
+  self_kind?: PriorAwardSelfKind;
+  channel?: "general" | "incubation_tenancy";
+  programs?: string[];
+  states?: PriorAwardState[];
+  within?: { value: number; unit: "year" | "month" } | null;
+  labels?: string[];
+}
+
+export interface PriorAwardRecord {
+  program?: string;
+  agency?: string;
+  year?: number | null;
+  state: PriorAwardState;
+}
+
+export interface PriorAwardProfileValue {
+  records: PriorAwardRecord[];
+  self_flags?: Partial<Record<PriorAwardSelfKind, boolean>>;
+  has_incubation_tenancy?: boolean;
+  known_programs: string[];
+  known_program_types: string[];
+}
+
 export type CriterionValue =
   | RegionCriterionValue
   | BizAgeCriterionValue
@@ -239,6 +297,7 @@ export type CriterionValue =
   | FinancialHealthCriterionValue
   | InsuredWorkforceCriterionValue
   | InvestmentCriterionValue
+  | PriorAwardCriterionValue
   | Record<string, unknown>;
 
 export interface GrantCriterion {
@@ -276,6 +335,7 @@ export interface Grant {
   benefits?: GrantBenefit[] | null;
   obligations?: GrantObligation[] | null;
   status: GrantStatus;
+  audience?: GrantAudience;
   f_regions: string[];
   f_industries: string[];
   f_biz_age_min_months?: number | null;
@@ -313,6 +373,8 @@ export interface GrantRaw<TPayload = unknown> {
       markdown_sha256?: string | null;
       markdown_bytes?: number | null;
       converter?: string | null;
+      ocr_provider?: string | null;
+      ocr_confidence?: number | null;
       converted_at?: string | null;
       error?: string | null;
     };
@@ -326,6 +388,23 @@ export interface NormalizedGrant<TPayload = unknown> {
   raw: GrantRaw<TPayload>;
   grant: Grant;
   criteria: GrantCriterion[];
+  /** 공고 입력·첨부·조건 추출의 완전성. 미제공 시 소비 시점에 raw/criteria에서 재계산한다. */
+  extraction_manifest?: GrantExtractionManifest;
+}
+
+export interface GrantExtractionManifest {
+  grantId: string;
+  revision: string;
+  sourceFieldsSeen: string[];
+  attachmentsExpected: number;
+  attachmentsFetched: number;
+  attachmentsConverted: number;
+  sectionsDetected: string[];
+  extractorVersion: string;
+  completedAt: string;
+  warnings: GrantExtractionWarningCode[];
+  readiness: MatchExtractionReadiness;
+  reviewedAt?: string | null;
 }
 
 /**
@@ -359,6 +438,7 @@ export interface CompanyProfileEvidenceObservation {
 }
 
 export interface CompanyProfileFieldEvidence extends CompanyProfileEvidenceObservation {
+  /** merge로 권위값에 사용자 보완값 등을 더했을 때 primary를 지우지 않고 보존한다. */
   supplemental?: CompanyProfileEvidenceObservation[];
 }
 
@@ -368,6 +448,7 @@ export interface CompanyProfileQuestionAnswerState {
   expiresAt: string;
   sourceKind: "self_declared";
   rulesetVer: string | null;
+  /** range 상태에서만 사용. max=null은 상한 없음. */
   min?: number;
   max?: number | null;
   unit?: "krw" | "people";
@@ -392,8 +473,13 @@ export interface CompanyProfile {
   traits?: string[];
   certs?: string[];
   prior_awards?: string[];
+  prior_award_history?: PriorAwardProfileValue;
   ip?: string[];
   target_types?: string[];
+  /**
+   * list 값의 부재를 판정 근거로 쓸 수 있는지 표시한다.
+   * 미설정/partial은 positive-only이며, complete일 때만 no-hit를 fail/pass로 확정한다.
+   */
   list_completeness?: Partial<Record<ListProfileDimension, ListProfileCompleteness>>;
   other_conditions?: Record<string, unknown> | null;
   business_status?: {
@@ -428,7 +514,9 @@ export interface CompanyProfile {
   };
   // premises / export_performance: 예약 축 — enum·타입 자리만. 프로필 필드는 후속 트랙에서 신설.
   confidence?: Partial<Record<CriterionDimension, number>>;
+  /** 축별 원천·기준일·완전성. 값과 분리해 API/자가응답/파생값을 추적한다. */
   profile_evidence?: Partial<Record<CriterionDimension, CompanyProfileFieldEvidence>>;
+  /** 값이 아니라 질문 반복 억제 상태. unknown은 매칭의 known 근거로 사용하지 않는다. */
   question_answer_state?: Partial<Record<CriterionDimension, CompanyProfileQuestionAnswerState>>;
 }
 
@@ -456,6 +544,32 @@ export interface MatchReviewGate {
   reasons: MatchReviewReason[];
 }
 
+/**
+ * 자격 판정의 신뢰 근거. `fit_score`와 선정 가능성을 혼동하지 않도록
+ * 조건 확인 완성도·원문 근거·공고 추출 준비도를 분리한다.
+ */
+export interface MatchQuality {
+  eligibilityConfidence: MatchEligibilityConfidence;
+  /** 필수·제외조건 중 회사 값으로 pass/fail을 확정한 가중 비율(0..100). */
+  verificationCompleteness: number;
+  /** 필수·제외조건 중 source_span/source_field 근거가 있는 가중 비율(0..100). */
+  evidenceCoverage: number;
+  extractionReadiness: MatchExtractionReadiness;
+}
+
+/**
+ * 자격 판정과 독립적인 목록 정렬 신호. 두 점수 모두 선정 가능성을 뜻하지 않으며,
+ * 자격·검수 게이트를 통과한 동일 그룹 안에서만 순서를 정하는 데 사용한다.
+ */
+export interface MatchRanking {
+  /** 회사 업종·KSIC·관심 목표와 공고 분야의 설명 가능한 관련성(0..100). */
+  relevanceScore: number | null;
+  /** 마감·혜택·준비 부담·미확인 조건을 합친 실행 우선순위(0..100). */
+  priorityScore: number | null;
+  /** 사용자에게 퍼센트 대신 보여줄 수 있는 짧은 정렬 근거. */
+  reasons: string[];
+}
+
 export interface NextQuestion {
   field: CriterionDimension;
   prompt: string;
@@ -464,6 +578,7 @@ export interface NextQuestion {
 
 export interface MatchResult {
   eligibility: Eligibility;
+  /** @deprecated 호환 필드. 현재는 `quality.verificationCompleteness`와 동일하다. */
   fit_score: number;
   rule_trace: RuleTraceEntry[];
   unknown_fields: CriterionDimension[];
@@ -474,6 +589,10 @@ export interface MatchResult {
   criteria_extracted: boolean;
   /** 추천 노출 가능 여부와 점수 표시 정책. eligibility 판정과 별도로 UI/정렬에서 사용한다. */
   review_gate?: MatchReviewGate;
+  /** 자격 판정·확인 완성도·근거 품질. 선정 가능성 점수가 아니다. */
+  quality: MatchQuality;
+  /** 목록 정렬용 관련성·실행 우선순위. eligibility를 변경하지 않는다. */
+  ranking?: MatchRanking;
 }
 
 export * from "./bizno.js";

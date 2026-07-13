@@ -1,8 +1,8 @@
 export const KSTARTUP_SOURCE = "kstartup" as const;
 export const KSTARTUP_API_ENDPOINT =
   "https://nidapi.k-startup.go.kr/api/kisedKstartupService/v1/getAnnouncementInformation";
-// v2: 결격 축 rule-based 분해기(disqualification/extract) 도입 — 배제 문구 구조화(P4, 2026-07-11).
-export const KSTARTUP_NORMALIZER_VERSION = "kstartup-field-parser-v2";
+// v3: 결격 축(v2)에 긍정 industry criterion → f_industries projection을 추가.
+export const KSTARTUP_NORMALIZER_VERSION = "kstartup-field-parser-v3";
 
 export const REGION_CODES: Record<string, string> = {
   "서울": "11",

@@ -107,7 +107,8 @@ const malformedFounderAgeState = plan.states.find((state) => state.sourceId === 
 assert.ok(malformedFounderAgeState, "malformed founder age match state should exist");
 assert.equal(malformedFounderAgeState.eligibility, "conditional");
 assert.deepEqual(malformedFounderAgeState.match.unknown_fields, ["founder_age"]);
-assert.equal(malformedFounderAgeState.match.review_gate?.tier, "needs_profile_input");
+assert.equal(malformedFounderAgeState.match.review_gate?.tier, "needs_core_review");
+assert.equal(malformedFounderAgeState.match.quality.extractionReadiness, "partial");
 
 console.log(JSON.stringify({
   ok: true,
@@ -119,7 +120,7 @@ console.log(JSON.stringify({
     "match_state_refresh_rule_trace",
     "match_state_refresh_unknown_fields",
     "match_state_refresh_review_gate",
-    "match_state_refresh_malformed_founder_age",
+    "match_state_refresh_malformed_founder_age_core_review",
   ],
   counts: plan.counts,
   transitionWindowCounts: plan.transitionWindowCounts,
@@ -164,6 +165,9 @@ function normalizedGrant(
       status: "normalized",
     },
     grant,
-    criteria,
+    criteria: criteria.map((criterion) => ({
+      ...criterion,
+      source_field: criterion.source_field ?? "test_fixture",
+    })),
   };
 }

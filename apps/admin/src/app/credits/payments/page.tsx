@@ -18,7 +18,7 @@ interface OrderRow {
   created_at: string | null;
 }
 
-const STATUS_OPTIONS = ["paid", "pending", "failed", "refunded", "partially_refunded"];
+const STATUS_OPTIONS = ["created", "pending", "paid", "failed", "expired", "refunded", "partial_refunded"] as const;
 
 function fmtKrw(v: string | null | undefined): string {
   const n = Number(v ?? "0");
@@ -36,7 +36,7 @@ function fmtDate(v: string | null | undefined): string {
 function statusBadge(status: string | null): string {
   if (status === "paid") return "ops-badge success";
   if (status === "failed") return "ops-badge danger";
-  if (status === "refunded" || status === "partially_refunded") return "ops-badge warning";
+  if (status === "refunded" || status === "partial_refunded" || status === "expired") return "ops-badge warning";
   return "ops-badge";
 }
 
@@ -53,13 +53,17 @@ export default async function CreditPaymentsPage({
   const session = await getOptionalAdminSession();
   if (!session) redirect("/login");
   const params = await searchParams;
-  const status = firstParam(params.status).trim();
+  const requestedStatus = firstParam(params.status).trim();
+  const status = STATUS_OPTIONS.includes(requestedStatus as (typeof STATUS_OPTIONS)[number])
+    ? requestedStatus
+    : "";
   const sql = getAdminSql();
+  const statusFilter = status ? sql`o.status = ${status}` : sql`true`;
 
   const rows = await sql<OrderRow[]>`
     SELECT o.id, o.payment_id, u.email, o.order_type, o.amount_krw, o.status, o.paid_at, o.refunded_amount_krw, o.created_at
     FROM credit_payment_orders o JOIN users u ON u.id = o.user_id
-    WHERE (${status} = '' OR o.status = ${status})
+    WHERE ${statusFilter}
     ORDER BY o.created_at DESC LIMIT 30
   `;
 

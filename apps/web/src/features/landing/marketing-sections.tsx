@@ -17,7 +17,7 @@ const AGENCIES = [
 
 const STEPS: Array<{ n: number; title: string; body: string }> = [
   { n: 1, title: "사업자번호 입력", body: "번호 하나만 넣으면 사업자 정보를 자동으로 불러와요. 따로 작성할 게 없어요." },
-  { n: 2, title: "맞춤 매칭", body: "표준화된 지원사업과 우리 회사를 대조해 지원 가능한 사업만 적합도 순으로 보여줘요." },
+  { n: 2, title: "맞춤 매칭", body: "표준화된 지원사업과 우리 회사를 대조해 지원 가능성이 높은 사업과 확인이 필요한 사업을 나눠 보여줘요." },
   { n: 3, title: "신청 코칭", body: "필요한 서류와 데이터를 회사에 맞춰 채워주고, 빠진 것만 알려드려요." },
 ];
 
@@ -25,9 +25,9 @@ const FEATURES: Array<{ icon: typeof Target; tag: string; title: string; body: s
   {
     icon: Target,
     tag: "표준화 매칭 엔진",
-    title: "지원 가능한 사업만 적합도 순으로",
+    title: "지원 가능성과 확인할 조건을 한눈에",
     body: "업종·업력·지역·매출을 공고의 자격요건과 대조해, 받을 수 있는 사업만 점수와 함께 정렬해요.",
-    bullets: ["자격요건 자동 대조로 적합도 점수화", "지원금 규모·마감일까지 한눈에"],
+    bullets: ["필수·제외조건 자동 대조와 확인도 표시", "지원금 규모·마감일까지 한눈에"],
   },
   {
     icon: ClipboardCheck,

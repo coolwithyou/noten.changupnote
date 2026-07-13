@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -48,6 +49,13 @@ export const consentScopeEnum = pgEnum("consent_scope", ["basic_info", "hometax"
 // registry_index(공개명단 배치) — 매핑 대상 종류와 부재 해석 극성.
 export const registryTypeEnum = pgEnum("registry_type", ["certification", "sanction", "investment"]);
 export const registryPolarityEnum = pgEnum("registry_polarity", ["known_on_absence", "present_only"]);
+export const registryImportStatusEnum = pgEnum("registry_import_status", [
+  "staged",
+  "validated",
+  "published",
+  "failed",
+  "superseded",
+]);
 export const grantSourceEnum = pgEnum("grant_source", ["kstartup", "bizinfo", "bizinfo_event"]);
 export const grantRawStatusEnum = pgEnum("grant_raw_status", [
   "fetched",
@@ -508,6 +516,53 @@ export const companyEnrichmentCache = pgTable("company_enrichment_cache", {
   expiryIdx: index("company_enrichment_cache_expiry_idx").on(table.expiresAt),
 }));
 
+// 공개명단 배치 업로드 1회 이력. 원본 파일은 R2 에 보관하고, DB 에는 provenance/품질 지표만 둔다.
+export const registryImportRuns = pgTable("registry_import_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  source: text("source").notNull(),
+  status: registryImportStatusEnum("status").default("staged").notNull(),
+  filename: text("filename").notNull(),
+  fileSize: bigint("file_size", { mode: "number" }).notNull(),
+  contentType: text("content_type"),
+  encoding: text("encoding").notNull(),
+  sha256: text("sha256").notNull(),
+  rawObjectKey: text("raw_object_key"),
+  sourcePublishedAt: timestamp("source_published_at", { withTimezone: true }),
+  downloadedAt: timestamp("downloaded_at", { withTimezone: true }).defaultNow().notNull(),
+  parserVersion: text("parser_version").notNull(),
+  schemaSignature: text("schema_signature").notNull(),
+  rawRowCount: integer("raw_row_count").notNull(),
+  parsedRowCount: integer("parsed_row_count").notNull(),
+  rejectedRowCount: integer("rejected_row_count").notNull(),
+  exactKeyCount: integer("exact_key_count").notNull(),
+  activeRowCount: integer("active_row_count").notNull(),
+  errorSummary: jsonb("error_summary").$type<Record<string, unknown>>(),
+  uploadedByAdminUserId: uuid("uploaded_by_admin_user_id")
+    .notNull()
+    .references(() => adminUsers.id, { onDelete: "restrict" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => ({
+  sourceCreatedIdx: index("registry_import_runs_source_created_idx").on(table.source, table.createdAt),
+  uploaderIdx: index("registry_import_runs_uploader_idx").on(table.uploadedByAdminUserId),
+  sourceShaIdx: uniqueIndex("registry_import_runs_source_sha_idx").on(table.source, table.sha256),
+}));
+
+// 소스별 조회에 사용할 published run 포인터. 포인터 전환만 짧은 트랜잭션에서 수행한다.
+export const registrySourceState = pgTable("registry_source_state", {
+  source: text("source").primaryKey(),
+  activeRunId: uuid("active_run_id")
+    .notNull()
+    .references(() => registryImportRuns.id, { onDelete: "restrict" }),
+  lastSuccessAt: timestamp("last_success_at", { withTimezone: true }).notNull(),
+  freshUntil: timestamp("fresh_until", { withTimezone: true }).notNull(),
+  lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
+  lastErrorCode: text("last_error_code"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  activeRunIdx: index("registry_source_state_active_run_idx").on(table.activeRunId),
+}));
+
 // 공개명단 배치 색인(설계 §6′-C "명단 일반화"). 조달청 부정당(사업자번호 정확)·인증 공개명단·
 // 중대재해·체불·TIPS(상호 퍼지)를 한 테이블로 흡수하고 매핑만 어댑터별로 얹는다.
 // polarity=known_on_absence 는 소진적 소스(조달청 CSV)만 — 부재를 결격 부재로 확정. 나머지는
@@ -526,6 +581,9 @@ export const registryIndex = pgTable("registry_index", {
   validUntil: timestamp("valid_until", { withTimezone: true }),
   detail: jsonb("detail").$type<Record<string, unknown>>(),
   source: text("source").notNull(),
+  importRunId: uuid("import_run_id").references(() => registryImportRuns.id, { onDelete: "cascade" }),
+  sourceRecordKey: text("source_record_key"),
+  sourceYear: integer("source_year"),
   sourceFetchedAt: timestamp("source_fetched_at", { withTimezone: true }).notNull(),
   confidence: real("confidence").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -534,6 +592,8 @@ export const registryIndex = pgTable("registry_index", {
   nameIdx: index("registry_index_name_normalized_idx").on(table.nameNormalized),
   typeFlagIdx: index("registry_index_type_flag_idx").on(table.registryType, table.flagOrCert),
   sourceIdx: index("registry_index_source_idx").on(table.source),
+  importRunIdx: index("registry_index_import_run_idx").on(table.importRunId),
+  runRecordIdx: uniqueIndex("registry_index_run_record_idx").on(table.importRunId, table.sourceRecordKey),
 }));
 
 // CODEF 간편인증 2-way 세션 영속(serverless 승인 대기→완료 2요청). requestSnapshot 은 재요청/VAT 에
@@ -824,6 +884,48 @@ export const matchEvents = pgTable("match_events", {
   ts: timestamp("ts", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   companyGrantIdx: index("match_events_company_grant_idx").on(table.companyId, table.grantId),
+}));
+
+/**
+ * 점진 질문의 원문 답변 없이 판정 변화 집계값만 보존한다.
+ * 사업자번호·프로필 값·공고별 trace는 저장하지 않는다.
+ */
+export const profileQuestionEvents = pgTable("profile_question_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  sessionId: uuid("session_id").notNull(),
+  dimension: criterionDimensionEnum("dimension").notNull(),
+  windowLimit: integer("window_limit").notNull(),
+  evaluatedGrantCount: integer("evaluated_grant_count").notNull(),
+  targetedConditionalCount: integer("targeted_conditional_count").notNull(),
+  dimensionResolvedGrantCount: integer("dimension_resolved_grant_count").notNull(),
+  eligibilityResolvedCount: integer("eligibility_resolved_count").notNull(),
+  conditionalToEligibleCount: integer("conditional_to_eligible_count").notNull(),
+  conditionalToIneligibleCount: integer("conditional_to_ineligible_count").notNull(),
+  remainingConditionalCount: integer("remaining_conditional_count").notNull(),
+  conditionalResolutionRate: real("conditional_resolution_rate"),
+  rulesetVer: text("ruleset_ver").notNull(),
+  ts: timestamp("ts", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  companyTsIdx: index("profile_question_events_company_ts_idx").on(table.companyId, table.ts),
+  sessionTsIdx: index("profile_question_events_session_ts_idx").on(table.sessionId, table.ts),
+  countsNonnegative: check("profile_question_events_counts_nonnegative", sql`
+    ${table.windowLimit} >= 0 AND
+    ${table.evaluatedGrantCount} >= 0 AND
+    ${table.targetedConditionalCount} >= 0 AND
+    ${table.dimensionResolvedGrantCount} >= 0 AND
+    ${table.eligibilityResolvedCount} >= 0 AND
+    ${table.conditionalToEligibleCount} >= 0 AND
+    ${table.conditionalToIneligibleCount} >= 0 AND
+    ${table.remainingConditionalCount} >= 0 AND
+    ${table.eligibilityResolvedCount} = ${table.conditionalToEligibleCount} + ${table.conditionalToIneligibleCount} AND
+    ${table.targetedConditionalCount} = ${table.eligibilityResolvedCount} + ${table.remainingConditionalCount} AND
+    ${table.dimensionResolvedGrantCount} <= ${table.targetedConditionalCount}
+  `),
+  rateRange: check("profile_question_events_rate_range", sql`
+    ${table.conditionalResolutionRate} IS NULL OR
+    (${table.conditionalResolutionRate} >= 0 AND ${table.conditionalResolutionRate} <= 1)
+  `),
 }));
 
 export const feedback = pgTable("feedback", {

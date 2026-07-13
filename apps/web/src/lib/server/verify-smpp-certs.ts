@@ -135,7 +135,7 @@ async function main() {
     const { profile, addedLabels } = applySmppCertificatesToProfile(base, {
       women: { held: true, validPdBeginDe: "20240715" },
       disabled: { held: false },
-    });
+    }, "2026-07-12T00:00:00.000Z");
     assert.deepEqual(addedLabels, ["여성기업확인서"]);
     assert.deepEqual(profile.certs, ["중소기업확인서", "여성기업확인서"]);
     assert.deepEqual(profile.traits, ["청년창업", "여성기업"]);
@@ -143,6 +143,10 @@ async function main() {
     assert.equal(profile.confidence?.region, 0.8); // 기존 보존
     // certification 축은 절대 known 처리하지 않는다(오탈락 방지).
     assert.equal(profile.confidence?.certification, undefined);
+    assert.equal(profile.profile_evidence?.founder_trait?.provider, "smpp");
+    assert.equal(profile.profile_evidence?.founder_trait?.axisCompleteness, "partial");
+    assert.equal(profile.profile_evidence?.certification?.provider, "smpp");
+    assert.equal(profile.profile_evidence?.certification?.confidence, null);
     // 원본 불변(순수 함수).
     assert.deepEqual(base.certs, ["중소기업확인서"]);
     assert.equal(base.confidence?.founder_trait, 0.5);

@@ -11,7 +11,7 @@ import {
   grantLotBreakdown,
   idempotencyKeys,
   maskCorpNum,
-  matchGrantCriteria,
+  matchNormalizedGrant,
   sortLotsForConsumption,
 } from "@cunote/core";
 import type {
@@ -55,6 +55,7 @@ import type {
   LotBreakdownLine,
   MatchEventReceipt,
   MatchRepository,
+  ProfileQuestionEventReceipt,
   PricingRule,
   ResolveCompanyProfileInput,
   ReadEnrichmentCacheInput,
@@ -62,6 +63,7 @@ import type {
   RegistryIndexRepository,
   RegistryRecord,
   SaveMatchEventInput,
+  SaveProfileQuestionEventInput,
   SaveCompanyProfileInput,
   ServiceRepositories,
   SubmitFeedbackInput,
@@ -210,7 +212,7 @@ class RuntimeMatchRepository<TPayload> implements MatchRepository<TPayload> {
     company: CompanyProfile;
     grant: NormalizedGrant<TPayload>;
   }): Promise<MatchResult> {
-    return matchGrantCriteria(input.grant.criteria, input.company);
+    return matchNormalizedGrant(input.grant, input.company);
   }
 
   async calculateGrantMatches(input: {
@@ -219,7 +221,7 @@ class RuntimeMatchRepository<TPayload> implements MatchRepository<TPayload> {
   }) {
     return input.grants.map((grant) => ({
       grant,
-      match: matchGrantCriteria(grant.criteria, input.company),
+      match: matchNormalizedGrant(grant, input.company),
     }));
   }
 
@@ -235,6 +237,15 @@ class RuntimeMatchRepository<TPayload> implements MatchRepository<TPayload> {
     return {
       id: `match-event:${crypto.randomUUID()}`,
       acceptedAt: new Date().toISOString(),
+    };
+  }
+
+  async saveProfileQuestionEvent(input: SaveProfileQuestionEventInput): Promise<ProfileQuestionEventReceipt> {
+    return {
+      id: `profile-question-event:${crypto.randomUUID()}`,
+      sessionId: input.sessionId,
+      recordedAt: new Date().toISOString(),
+      persisted: false,
     };
   }
 }

@@ -16,7 +16,7 @@ interface SubRow {
   monthly_price_krw: string | null;
 }
 
-const STATUS_OPTIONS = ["active", "past_due", "canceled", "paused"];
+const STATUS_OPTIONS = ["incomplete", "active", "past_due", "canceled", "expired"] as const;
 
 function fmtKrw(v: string | null | undefined): string {
   const n = Number(v ?? "0");
@@ -34,7 +34,7 @@ function fmtDate(v: string | null | undefined): string {
 function statusBadge(status: string | null): string {
   if (status === "active") return "ops-badge success";
   if (status === "past_due") return "ops-badge danger";
-  if (status === "paused") return "ops-badge warning";
+  if (status === "incomplete" || status === "expired") return "ops-badge warning";
   return "ops-badge";
 }
 
@@ -51,15 +51,19 @@ export default async function CreditSubscriptionsPage({
   const session = await getOptionalAdminSession();
   if (!session) redirect("/login");
   const params = await searchParams;
-  const status = firstParam(params.status).trim();
+  const requestedStatus = firstParam(params.status).trim();
+  const status = STATUS_OPTIONS.includes(requestedStatus as (typeof STATUS_OPTIONS)[number])
+    ? requestedStatus
+    : "";
   const sql = getAdminSql();
+  const statusFilter = status ? sql`s.status = ${status}` : sql`true`;
 
   const rows = await sql<SubRow[]>`
     SELECT s.id, u.email, p.name as plan_name, s.status, s.current_period_start, s.current_period_end, p.monthly_price_krw
     FROM credit_plan_subscriptions s
     JOIN users u ON u.id = s.user_id
     JOIN credit_plans p ON p.id = s.plan_id
-    WHERE (${status} = '' OR s.status = ${status})
+    WHERE ${statusFilter}
     ORDER BY s.created_at DESC LIMIT 30
   `;
 

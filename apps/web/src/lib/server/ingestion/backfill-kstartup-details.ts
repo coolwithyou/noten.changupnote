@@ -10,11 +10,11 @@
  * 절대 다운로드하지 않고 파일명 + 다운로드 URL 메타데이터만 저장한다.
  *
  * 사용:
- *   dry-run(기본 아님, 명시 필요):  pnpm backfill:kstartup-details -- --dry-run
- *   실제 반영:                       pnpm backfill:kstartup-details
- *   일부만:                          pnpm backfill:kstartup-details -- --limit=20
+ *   dry-run(기본): pnpm backfill:kstartup-details -- --sourceIds=178373,178410 --limit=2
+ *   실제 반영:     pnpm backfill:kstartup-details -- --sourceIds=178373,178410 --limit=2 \
+ *                    --write --confirm=BACKFILL_KSTARTUP_DETAILS
  */
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import type { KStartupAnnouncement } from "@cunote/core";
 import { closeCunoteDb, getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -31,8 +31,13 @@ loadMonorepoEnv();
 const PROGRESS_EVERY = 25;
 const FORM_EXTENSIONS = /\.(hwp|hwpx|docx?)$/i;
 
-const dryRun = hasFlag("dry-run");
+const write = hasFlag("write");
+const confirmation = readArg("confirm");
 const limit = optionalPositiveInteger(readArg("limit"));
+const sourceIds = csvArg(readArg("sourceIds"), 100);
+if (write && confirmation !== "BACKFILL_KSTARTUP_DETAILS") {
+  throw new Error("--write requires --confirm=BACKFILL_KSTARTUP_DETAILS");
+}
 
 interface TargetGrant {
   sourceId: string;
@@ -47,10 +52,10 @@ interface FailureRecord {
 
 async function main(): Promise<void> {
   const db = getCunoteDb();
-  const mode = dryRun ? "DRY-RUN" : "WRITE";
-  console.log(`K-Startup 상세 백필 (${mode})${limit ? ` limit=${limit}` : ""}\n`);
+  const mode = write ? "WRITE" : "DRY-RUN";
+  console.log(`K-Startup 상세 백필 (${mode})${limit ? ` limit=${limit}` : ""}${sourceIds.length ? ` sourceIds=${sourceIds.length}` : ""}\n`);
 
-  const targets = await readOpenKStartupGrants(db, limit);
+  const targets = await readOpenKStartupGrants(db, limit, sourceIds);
   console.log(`대상: 모집 중 K-Startup 공고 ${targets.length}건\n`);
 
   let processed = 0;
@@ -59,6 +64,7 @@ async function main(): Promise<void> {
   let skippedNoUrl = 0;
   let skippedNoRaw = 0;
   const failures: FailureRecord[] = [];
+  const detailResults: Array<{ sourceId: string; status: string; filenames: string[] }> = [];
   const attachmentCountDistribution = new Map<number, number>();
   let withFormFileCount = 0;
   let first = true;
@@ -79,7 +85,7 @@ async function main(): Promise<void> {
     const result = await healKStartupGrantDetail(db, {
       sourceId: target.sourceId,
       url,
-      write: !dryRun,
+      write,
     });
 
     if (result.attachments) {
@@ -88,6 +94,13 @@ async function main(): Promise<void> {
       bump(attachmentCountDistribution, result.attachments.length);
       if (result.attachments.some((attachment) => FORM_EXTENSIONS.test(attachment.filename))) {
         withFormFileCount += 1;
+      }
+      if (sourceIds.length > 0) {
+        detailResults.push({
+          sourceId: target.sourceId,
+          status: result.status,
+          filenames: result.attachments.map((attachment) => attachment.filename),
+        });
       }
     }
 
@@ -107,7 +120,7 @@ async function main(): Promise<void> {
 
   console.log("\n요약");
   console.log(`  처리: ${processed}건 (성공 ${succeeded}, 실패 ${failures.length})`);
-  if (!dryRun) console.log(`  반영: grant_raw 갱신 ${updated}건 (grant_raw 없음 ${skippedNoRaw}건)`);
+  if (write) console.log(`  반영: grant_raw 갱신 ${updated}건 (grant_raw 없음 ${skippedNoRaw}건)`);
   console.log(`  detail URL 없음: ${skippedNoUrl}건`);
   console.log(`  서식성 파일(.hwp/.hwpx/.doc/.docx) 보유 공고: ${withFormFileCount}건`);
   console.log("  첨부 수 분포:");
@@ -122,12 +135,21 @@ async function main(): Promise<void> {
     }
   }
 
-  if (dryRun) {
-    console.log("\n(dry-run — DB 미변경. 반영하려면 --dry-run 없이 실행)");
+  if (detailResults.length > 0) {
+    console.log("\n선택 대상 상세:");
+    console.log(JSON.stringify(detailResults, null, 2));
+  }
+
+  if (!write) {
+    console.log("\n(dry-run — DB 미변경. 반영하려면 --write --confirm=BACKFILL_KSTARTUP_DETAILS가 필요함)");
   }
 }
 
-async function readOpenKStartupGrants(db: CunoteDb, cap: number | undefined): Promise<TargetGrant[]> {
+async function readOpenKStartupGrants(
+  db: CunoteDb,
+  cap: number | undefined,
+  sourceIds: string[],
+): Promise<TargetGrant[]> {
   const query = db
     .select({
       sourceId: schema.grants.sourceId,
@@ -142,7 +164,11 @@ async function readOpenKStartupGrants(db: CunoteDb, cap: number | undefined): Pr
         eq(schema.grantRaw.sourceId, schema.grants.sourceId),
       ),
     )
-    .where(and(eq(schema.grants.source, "kstartup"), eq(schema.grants.status, "open")))
+    .where(and(
+      eq(schema.grants.source, "kstartup"),
+      eq(schema.grants.status, "open"),
+      sourceIds.length > 0 ? inArray(schema.grants.sourceId, sourceIds) : undefined,
+    ))
     .orderBy(asc(schema.grants.sourceId));
 
   const rows = cap ? await query.limit(cap) : await query;
@@ -185,6 +211,13 @@ function optionalPositiveInteger(value: string | undefined): number | undefined 
     throw new Error(`Invalid --limit: ${value}. Use a positive integer.`);
   }
   return parsed;
+}
+
+function csvArg(value: string | undefined, max: number): string[] {
+  if (!value) return [];
+  const values = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  if (values.length > max) throw new Error(`sourceIds supports at most ${max} values`);
+  return values;
 }
 
 main()

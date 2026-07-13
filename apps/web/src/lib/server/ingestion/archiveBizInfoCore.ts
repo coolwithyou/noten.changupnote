@@ -89,6 +89,15 @@ export interface ArchiveBizInfoResult {
     failureCount: number;
     failures: Array<{ sourceId: string; filename: string; url: string | null; message: string }>;
   };
+  revisionRefresh: {
+    newCount: number;
+    changedCount: number;
+    unchangedCount: number;
+    matchStateInvalidatedCount: number;
+    matchStateRefreshedCount: number;
+    matchStateRefreshRequired: boolean;
+    grantIds: string[];
+  };
 }
 
 interface BizInfoExtractionArtifact {
@@ -152,9 +161,10 @@ export async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<Archiv
   const publishableEntries = selectPublishableEntries(entries, plan, rawPlan.attachmentRefreshSourceIds);
   const adjustedPlan = adjustPlanForForcedPublish(plan, publishableEntries);
 
+  let published: Awaited<ReturnType<typeof publishBizInfoGrants>> | null = null;
   if (input.write && input.db) {
     if (publishableEntries.length > 0) {
-      await publishBizInfoGrants(input.db, publishableEntries, {
+      published = await publishBizInfoGrants(input.db, publishableEntries, {
         page: 1,
         collectedAt: input.collectedAt,
       });
@@ -198,6 +208,15 @@ export async function archiveBizInfo(input: ArchiveBizInfoInput): Promise<Archiv
       failures,
     },
     attachments: summarizeAttachmentArchives(artifacts, rawPlan.attachmentRefreshSourceIds.length),
+    revisionRefresh: {
+      newCount: published?.revisionCounts.new ?? 0,
+      changedCount: published?.revisionCounts.changed ?? 0,
+      unchangedCount: published?.revisionCounts.unchanged ?? 0,
+      matchStateInvalidatedCount: published?.matchStateInvalidatedCount ?? 0,
+      matchStateRefreshedCount: published?.matchStateRefreshedCount ?? 0,
+      matchStateRefreshRequired: published?.matchStateRefreshRequired ?? false,
+      grantIds: published?.matchStateRefreshGrantIds ?? [],
+    },
   };
 }
 

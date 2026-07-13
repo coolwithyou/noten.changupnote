@@ -60,7 +60,7 @@ console.log("range-question-flow: ok");
 function evaluate(company: CompanyProfile) {
   const matched: Array<MatchedGrant<Record<string, never>>> = grants.map((item) => ({
     item,
-    match: matchGrantCriteria(item.criteria, company, { extractionManifest: item.extraction_manifest }),
+    match: matchGrantCriteria(item.criteria, company, { extractionManifest: item.extraction_manifest! }),
   }));
   const eligibility = matched.map((entry) => entry.match.eligibility);
   return {

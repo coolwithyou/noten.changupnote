@@ -89,6 +89,37 @@ export async function upsertApplicationSurface(
     return { surfaceId: existing[0].id, created: false };
   }
 
+  // 과거 K-Startup detail 경로는 첨부 본문을 아카이브하기 전에 filename을 sourceAttachment로
+  // pending surface를 만들었다. 이후 R2 storageKey가 생기면 새 surface를 중복 생성하지 않고
+  // 같은 filename/title의 legacy surface를 아카이브 정체성으로 승격한다.
+  if (input.sourceAttachment !== input.title) {
+    const legacy = await db
+      .select({ id: schema.grantApplicationSurfaces.id })
+      .from(schema.grantApplicationSurfaces)
+      .where(and(
+        eq(schema.grantApplicationSurfaces.source, input.source),
+        eq(schema.grantApplicationSurfaces.sourceId, input.sourceId),
+        eq(schema.grantApplicationSurfaces.type, type),
+        eq(schema.grantApplicationSurfaces.title, input.title),
+        eq(schema.grantApplicationSurfaces.sourceAttachment, input.title),
+      ))
+      .limit(1);
+    if (legacy[0]) {
+      await db
+        .update(schema.grantApplicationSurfaces)
+        .set({
+          grantId: input.grantId,
+          format: input.format,
+          sourceAttachment: input.sourceAttachment,
+          sourceUrl: input.sourceUrl,
+          extractionVersion,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.grantApplicationSurfaces.id, legacy[0].id));
+      return { surfaceId: legacy[0].id, created: false };
+    }
+  }
+
   const id = randomUUID();
   await db.insert(schema.grantApplicationSurfaces).values({
     id,

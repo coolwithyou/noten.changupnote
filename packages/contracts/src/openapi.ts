@@ -1,9 +1,10 @@
-import { CRITERION_DIMENSIONS, MATCH_REVIEW_REASON_CODES } from "./enums.js";
+import { CRITERION_DIMENSIONS, GRANT_AUDIENCES, MATCH_REVIEW_REASON_CODES } from "./enums.js";
 
 // 계약 단일 원천에서 파생한 enum 목록(복제 제거, M2). 순서는 CRITERION_DIMENSIONS/
 // MATCH_REVIEW_REASON_CODES 배열과 항상 일치한다.
 const CRITERION_DIMENSION_ENUM = [...CRITERION_DIMENSIONS];
 const MATCH_REVIEW_REASON_CODE_ENUM = [...MATCH_REVIEW_REASON_CODES];
+const GRANT_AUDIENCE_ENUM = [...GRANT_AUDIENCES];
 
 const json = (schema: unknown) => ({
   "application/json": { schema },
@@ -432,7 +433,7 @@ export const appV1OpenApi = {
         responses: {
           "200": {
             description: "Updated company profile.",
-            content: json(ref("CompanyProfileEnvelope")),
+            content: json(ref("CompanyProfileUpdateEnvelope")),
           },
           "400": { $ref: "#/components/responses/AppError" },
           "401": { $ref: "#/components/responses/AppError" },
@@ -456,7 +457,7 @@ export const appV1OpenApi = {
         responses: {
           "200": {
             description: "Updated company profile.",
-            content: json(ref("CompanyProfileEnvelope")),
+            content: json(ref("CompanyProfileUpdateEnvelope")),
           },
           "400": { $ref: "#/components/responses/AppError" },
           "401": { $ref: "#/components/responses/AppError" },
@@ -790,6 +791,7 @@ export const appV1OpenApi = {
           "conditionalUpside",
           "counts",
           "matches",
+          "nextQuestion",
           "privacyNote",
         ],
         properties: {
@@ -798,6 +800,7 @@ export const appV1OpenApi = {
           conditionalUpside: { type: "integer", minimum: 0 },
           counts: ref("EligibilityCounts"),
           matches: arrayOf(ref("MatchCard")),
+          nextQuestion: nullable(ref("NextQuestion")),
           recommendableMatches: arrayOf(ref("MatchCard")),
           reviewNeededMatches: arrayOf(ref("MatchCard")),
           searchContext: ref("TeaserSearchContext"),
@@ -912,6 +915,8 @@ export const appV1OpenApi = {
           matchConfidence: { type: "number", minimum: 0, maximum: 1 },
           rulesetVer: { type: "string" },
           scoringVer: { type: "string" },
+          quality: ref("MatchQuality"),
+          ranking: ref("MatchRanking"),
           criteriaExtracted: { type: "boolean" },
           recommendationTier: {
             type: "string",
@@ -937,6 +942,35 @@ export const appV1OpenApi = {
           },
           label: { type: "string" },
           sourceSpan: { type: "string" },
+        },
+        additionalProperties: false,
+      },
+      MatchRanking: {
+        type: "object",
+        required: ["relevanceScore", "priorityScore", "reasons"],
+        properties: {
+          relevanceScore: nullable({ type: "number", minimum: 0, maximum: 100 }),
+          priorityScore: nullable({ type: "number", minimum: 0, maximum: 100 }),
+          reasons: arrayOf({ type: "string" }),
+        },
+        additionalProperties: false,
+      },
+      MatchQuality: {
+        type: "object",
+        required: [
+          "eligibilityConfidence",
+          "verificationCompleteness",
+          "evidenceCoverage",
+          "extractionReadiness",
+        ],
+        properties: {
+          eligibilityConfidence: { type: "string", enum: ["high", "medium", "low"] },
+          verificationCompleteness: { type: "number", minimum: 0, maximum: 100 },
+          evidenceCoverage: { type: "number", minimum: 0, maximum: 100 },
+          extractionReadiness: {
+            type: "string",
+            enum: ["reviewed", "structured_unreviewed", "partial", "unstructured"],
+          },
         },
         additionalProperties: false,
       },
@@ -1055,6 +1089,22 @@ export const appV1OpenApi = {
           }),
           framing: { type: "string" },
           affectedGrantCount: { type: "integer", minimum: 0 },
+          priorAwardContext: {
+            type: "object",
+            required: ["scope", "requiresYear"],
+            properties: {
+              scope: { type: "string", enum: ["self", "program", "program_type"] },
+              selfKind: {
+                type: "string",
+                enum: ["current_similar", "same_project", "same_business_prior", "same_year_other_support"],
+              },
+              channel: { type: "string", enum: ["general", "incubation_tenancy"] },
+              programs: arrayOf({ type: "string" }),
+              states: arrayOf({ type: "string", enum: ["participating", "completed", "graduated"] }),
+              requiresYear: { type: "boolean" },
+            },
+            additionalProperties: false,
+          },
         },
         additionalProperties: false,
       },
@@ -1110,6 +1160,7 @@ export const appV1OpenApi = {
           supportAmount: ref("SupportAmount"),
           benefits: arrayOf(ref("BenefitBadge")),
           status: { type: "string", enum: ["upcoming", "open", "closed", "unknown"] },
+          audience: { type: "string", enum: GRANT_AUDIENCE_ENUM },
         },
         additionalProperties: false,
       },
@@ -1378,13 +1429,102 @@ export const appV1OpenApi = {
           traits: arrayOf({ type: "string" }),
           certs: arrayOf({ type: "string" }),
           prior_awards: arrayOf({ type: "string" }),
+          prior_award_history: {
+            type: "object",
+            required: ["records", "known_programs", "known_program_types"],
+            properties: {
+              records: arrayOf({
+                type: "object",
+                required: ["state"],
+                properties: {
+                  program: { type: "string" },
+                  agency: { type: "string" },
+                  year: nullable({ type: "integer", minimum: 1900, maximum: 2100 }),
+                  state: { type: "string", enum: ["participating", "completed", "graduated"] },
+                },
+                additionalProperties: false,
+              }),
+              self_flags: {
+                type: "object",
+                properties: {
+                  current_similar: { type: "boolean" },
+                  same_project: { type: "boolean" },
+                  same_business_prior: { type: "boolean" },
+                  same_year_other_support: { type: "boolean" },
+                },
+                additionalProperties: false,
+              },
+              has_incubation_tenancy: { type: "boolean" },
+              known_programs: arrayOf({ type: "string" }),
+              known_program_types: arrayOf({ type: "string" }),
+            },
+            additionalProperties: false,
+          },
           ip: arrayOf({ type: "string" }),
           target_types: arrayOf({ type: "string" }),
+          list_completeness: {
+            type: "object",
+            additionalProperties: { type: "string", enum: ["partial", "complete"] },
+          },
           other_conditions: nullable({ type: "object", additionalProperties: true }),
           business_status: { type: "object", additionalProperties: true },
           confidence: { type: "object", additionalProperties: { type: "number" } },
+          profile_evidence: {
+            type: "object",
+            additionalProperties: ref("CompanyProfileFieldEvidence"),
+          },
+          question_answer_state: {
+            type: "object",
+            additionalProperties: ref("CompanyProfileQuestionAnswerState"),
+          },
         },
         additionalProperties: true,
+      },
+      CompanyProfileFieldEvidence: {
+        type: "object",
+        required: ["sourceKind", "provider", "asOf", "axisCompleteness", "confidence"],
+        properties: {
+          sourceKind: {
+            type: "string",
+            enum: ["authoritative_api", "public_registry", "auth_supplied", "self_declared", "derived"],
+          },
+          provider: { type: "string" },
+          asOf: nullable({ type: "string", format: "date-time" }),
+          axisCompleteness: { type: "string", enum: ["partial", "complete"] },
+          confidence: nullable({ type: "number", minimum: 0, maximum: 1 }),
+          supplemental: arrayOf(ref("CompanyProfileEvidenceObservation")),
+        },
+        additionalProperties: false,
+      },
+      CompanyProfileEvidenceObservation: {
+        type: "object",
+        required: ["sourceKind", "provider", "asOf", "axisCompleteness", "confidence"],
+        properties: {
+          sourceKind: {
+            type: "string",
+            enum: ["authoritative_api", "public_registry", "auth_supplied", "self_declared", "derived"],
+          },
+          provider: { type: "string" },
+          asOf: nullable({ type: "string", format: "date-time" }),
+          axisCompleteness: { type: "string", enum: ["partial", "complete"] },
+          confidence: nullable({ type: "number", minimum: 0, maximum: 1 }),
+        },
+        additionalProperties: false,
+      },
+      CompanyProfileQuestionAnswerState: {
+        type: "object",
+        required: ["status", "answeredAt", "expiresAt", "sourceKind", "rulesetVer"],
+        properties: {
+          status: { type: "string", enum: ["unknown", "range"] },
+          answeredAt: { type: "string", format: "date-time" },
+          expiresAt: { type: "string", format: "date-time" },
+          sourceKind: { type: "string", enum: ["self_declared"] },
+          rulesetVer: nullable({ type: "string" }),
+          min: { type: "number", minimum: 0 },
+          max: nullable({ type: "number", minimum: 0 }),
+          unit: { type: "string", enum: ["krw", "people"] },
+        },
+        additionalProperties: false,
       },
       CompanyRegion: {
         type: "object",
@@ -1534,11 +1674,34 @@ export const appV1OpenApi = {
       },
       CompanyEnrichmentResult: {
         type: "object",
-        required: ["profile", "facts"],
+        required: ["profile", "facts", "initialMatch"],
         properties: {
           profile: ref("CompanyProfile"),
           facts: ref("CompanyEnrichmentFacts"),
           evidence: nullable(ref("CompanyEvidence")),
+          initialMatch: ref("CompanyInitialMatchResult"),
+        },
+        additionalProperties: false,
+      },
+      CompanyInitialMatchResult: {
+        type: "object",
+        required: [
+          "asOf",
+          "evaluatedGrantCount",
+          "counts",
+          "matches",
+          "nextQuestion",
+          "rulesetVer",
+          "scoringVer",
+        ],
+        properties: {
+          asOf: { type: "string", format: "date-time" },
+          evaluatedGrantCount: { type: "integer", minimum: 0 },
+          counts: ref("EligibilityCounts"),
+          matches: arrayOf(ref("MatchCard")),
+          nextQuestion: nullable(ref("NextQuestion")),
+          rulesetVer: { type: "string" },
+          scoringVer: { type: "string" },
         },
         additionalProperties: false,
       },
@@ -1567,7 +1730,12 @@ export const appV1OpenApi = {
       },
       ProfileFieldUpdateRequest: {
         type: "object",
-        required: ["field", "value"],
+        required: ["field"],
+        anyOf: [
+          { required: ["value"] },
+          { required: ["unknown"], properties: { unknown: { const: true } } },
+          { required: ["range"] },
+        ],
         properties: {
           field: {
             type: "string",
@@ -1577,6 +1745,27 @@ export const appV1OpenApi = {
             description: "Field-specific JSON value.",
           },
           confidence: nullable({ type: "number", minimum: 0, maximum: 1 }),
+          mode: { type: "string", enum: ["replace", "merge"] },
+          unknown: {
+            type: "boolean",
+            description: "True records a temporary unknown answer without writing a profile value.",
+          },
+          range: {
+            type: "object",
+            required: ["min", "max", "unit"],
+            properties: {
+              min: { type: "number", minimum: 0 },
+              max: nullable({ type: "number", minimum: 0 }),
+              unit: { type: "string", enum: ["krw", "people"] },
+            },
+            additionalProperties: false,
+            description: "Self-declared revenue or employee interval. It resolves only criteria fully outside/inside the interval.",
+          },
+          questionSessionId: {
+            type: "string",
+            format: "uuid",
+            description: "Optional 30-minute progressive-question session id. Invalid values are replaced server-side.",
+          },
         },
         additionalProperties: false,
       },
@@ -1604,12 +1793,88 @@ export const appV1OpenApi = {
         },
         additionalProperties: false,
       },
+      ProfileUpdateImpact: {
+        type: "object",
+        required: [
+          "scope",
+          "windowLimit",
+          "dimension",
+          "evaluatedGrantCount",
+          "targetedConditionalCount",
+          "dimensionResolvedGrantCount",
+          "eligibilityResolvedCount",
+          "conditionalToEligibleCount",
+          "conditionalToIneligibleCount",
+          "remainingConditionalCount",
+          "conditionalResolutionRate",
+          "transitionCounts",
+          "changedMatchStateCount",
+          "refreshGrantIds",
+        ],
+        properties: {
+          scope: { type: "string", enum: ["active_grant_window"] },
+          windowLimit: { type: "integer", minimum: 0 },
+          dimension: { type: "string", enum: CRITERION_DIMENSION_ENUM },
+          evaluatedGrantCount: { type: "integer", minimum: 0 },
+          targetedConditionalCount: { type: "integer", minimum: 0 },
+          dimensionResolvedGrantCount: { type: "integer", minimum: 0 },
+          eligibilityResolvedCount: { type: "integer", minimum: 0 },
+          conditionalToEligibleCount: { type: "integer", minimum: 0 },
+          conditionalToIneligibleCount: { type: "integer", minimum: 0 },
+          remainingConditionalCount: { type: "integer", minimum: 0 },
+          conditionalResolutionRate: nullable({ type: "number", minimum: 0, maximum: 1 }),
+          transitionCounts: {
+            type: "object",
+            additionalProperties: { type: "integer", minimum: 0 },
+          },
+          changedMatchStateCount: { type: "integer", minimum: 0 },
+          refreshGrantIds: arrayOf({ type: "string" }),
+        },
+        additionalProperties: false,
+      },
+      ProfileQuestionRefresh: {
+        type: "object",
+        required: ["scope", "status", "plannedCount", "savedCount", "failedCount", "failedGrantIds"],
+        properties: {
+          scope: { type: "string", enum: ["company_dimension"] },
+          status: { type: "string", enum: ["no_op", "succeeded", "partial", "failed"] },
+          plannedCount: { type: "integer", minimum: 0 },
+          savedCount: { type: "integer", minimum: 0 },
+          failedCount: { type: "integer", minimum: 0 },
+          failedGrantIds: arrayOf({ type: "string" }),
+        },
+        additionalProperties: false,
+      },
+      CompanyProfileUpdateResult: {
+        type: "object",
+        required: ["profile", "impact", "refresh", "event", "initialMatch"],
+        properties: {
+          profile: ref("CompanyProfile"),
+          impact: ref("ProfileUpdateImpact"),
+          refresh: ref("ProfileQuestionRefresh"),
+          event: ref("ProfileQuestionEventReceipt"),
+          initialMatch: ref("CompanyInitialMatchResult"),
+        },
+        additionalProperties: false,
+      },
+      ProfileQuestionEventReceipt: {
+        type: "object",
+        required: ["id", "sessionId", "recordedAt", "persisted"],
+        properties: {
+          id: { type: "string" },
+          sessionId: { type: "string", format: "uuid" },
+          recordedAt: { type: "string", format: "date-time" },
+          persisted: { type: "boolean" },
+        },
+        additionalProperties: false,
+      },
       CompanyMatchesResult: {
         type: "object",
-        required: ["counts", "matches"],
+        required: ["counts", "matches", "total"],
         properties: {
           counts: ref("EligibilityCounts"),
           matches: arrayOf(ref("MatchCard")),
+          total: { type: "integer", minimum: 0 },
         },
         additionalProperties: false,
       },
@@ -1708,13 +1973,20 @@ export const appV1OpenApi = {
           reasonCode: nullable({
             type: "string",
             enum: [
+              "wrong_eligibility",
               "wrong_high",
               "wrong_low",
               "wrong_condition",
+              "missing_condition",
               "profile_wrong",
+              "wrong_company_fact",
               "criteria_wrong",
               "taxonomy_gap",
+              "duplicate_grant",
+              "stale_grant",
               "portal_blocked",
+              "rejected_at_eligibility",
+              "accepted_for_review",
               "selected",
               "rejected",
               "other",
@@ -1948,6 +2220,7 @@ export const appV1OpenApi = {
       CompanyListEnvelope: envelope(ref("CompanyListResult")),
       CompanyEnvelope: envelope(ref("CompanyResult")),
       CompanyProfileEnvelope: envelope(ref("CompanyProfileResult")),
+      CompanyProfileUpdateEnvelope: envelope(ref("CompanyProfileUpdateResult")),
       CompanyEnrichmentEnvelope: envelope(ref("CompanyEnrichmentResult")),
       CompanyMatchesEnvelope: envelope(ref("CompanyMatchesResult")),
       ActionQueueEnvelope: envelope(ref("ActionQueueResult")),

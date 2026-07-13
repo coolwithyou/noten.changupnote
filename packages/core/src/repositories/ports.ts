@@ -2,11 +2,14 @@ import type {
   CompanyProfile,
   FeedbackKind,
   MatchFeedbackCorrection,
+  MatchFeedbackProvenance,
   MatchFeedbackReasonCode,
   MatchEventKind,
   MatchOutcome,
   MatchResult,
   NormalizedGrant,
+  ProfileQuestionEventReceiptDto,
+  ProfileUpdateImpactDto,
   RoadmapNode,
 } from "@cunote/contracts";
 import type { MatchTransitionCandidate } from "../use-cases/plan-match-transitions.js";
@@ -18,6 +21,8 @@ import type { CreditSubscriptionRepository } from "../credits/subscriptionPort.j
 export interface GrantListOptions {
   limit?: number;
   asOf?: Date;
+  /** dedup 품질 보고·재발행에서만 confirmed member occurrence까지 포함한다. 사용자 목록 기본값은 false. */
+  includeConfirmedDuplicates?: boolean;
 }
 
 export interface GrantRepository<TPayload = unknown> {
@@ -109,6 +114,7 @@ export interface MatchRepository<TPayload = unknown> {
     userId?: string;
   }): Promise<MatchTransitionCandidate[]>;
   saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt>;
+  saveProfileQuestionEvent(input: SaveProfileQuestionEventInput): Promise<ProfileQuestionEventReceipt>;
 }
 
 export interface SaveMatchEventInput {
@@ -124,6 +130,16 @@ export interface MatchEventReceipt {
   acceptedAt: string;
 }
 
+export interface SaveProfileQuestionEventInput {
+  companyId: string;
+  sessionId: string;
+  impact: ProfileUpdateImpactDto;
+  rulesetVer: string;
+  userId?: string;
+}
+
+export type ProfileQuestionEventReceipt = ProfileQuestionEventReceiptDto;
+
 export type { FeedbackKind } from "@cunote/contracts";
 
 export interface SubmitFeedbackInput {
@@ -137,6 +153,7 @@ export interface SubmitFeedbackInput {
   occurredAt?: string | null;
   correction?: MatchFeedbackCorrection | null;
   payload?: Record<string, unknown> | null;
+  provenance?: MatchFeedbackProvenance | null;
 }
 
 export interface FeedbackReceipt {

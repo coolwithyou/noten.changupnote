@@ -7,7 +7,7 @@
 //   - 아직이면 queued 로 돌아오고, GET 폴링으로 succeeded/partial/failed 까지 기다린다.
 //   이 흐름은 T8 폴링이자 동시에 재조정 스윕(계획 2장)이다: 큐 유실·후크 누락·재시작을 회복한다.
 
-import { and, eq, lt, or } from "drizzle-orm";
+import { and, eq, inArray, lt, or } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import type { GrantSource } from "@cunote/contracts";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
@@ -44,6 +44,8 @@ export interface CollectPendingOptions {
   staleMs?: number;
   /** 특정 source 로 제한. */
   source?: GrantSource;
+  /** priority report에서 선택한 공고 source_id만 처리한다. */
+  sourceIds?: string[];
   /** 특정 grant 의 surface 로 제한 (on-demand 폴링용). */
   grantId?: string;
 }
@@ -67,6 +69,7 @@ export async function collectPendingSurfaceJobs(
     eq(surfaces.type, FILE_TEMPLATE_SURFACE_TYPE),
   ];
   if (options.source) conditions.push(eq(surfaces.source, options.source));
+  if (options.sourceIds?.length) conditions.push(inArray(surfaces.sourceId, options.sourceIds));
   if (options.grantId) conditions.push(eq(surfaces.grantId, options.grantId));
   if (staleMs > 0) {
     conditions.push(lt(surfaces.updatedAt, new Date(Date.now() - staleMs)));

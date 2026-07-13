@@ -2,7 +2,9 @@ import {
   CRITERION_DIMENSIONS,
   ELIGIBILITIES,
 } from "@cunote/contracts";
+import { createHash } from "node:crypto";
 import type {
+  CompanyProfile,
   CriterionDimension,
   CriterionResult,
   Eligibility,
@@ -12,9 +14,12 @@ import type {
   MatchFeedbackCorrection,
   MatchFeedbackReasonCode,
   MatchFeedbackRequest,
+  MatchFeedbackProvenance,
   MatchOutcome,
+  NormalizedGrant,
 } from "@cunote/contracts";
-import type { SubmitFeedbackInput } from "@cunote/core";
+import { resolveGrantExtractionManifest } from "@cunote/core";
+import type { ServiceRepositories, SubmitFeedbackInput } from "@cunote/core";
 
 const FEEDBACK_KINDS: FeedbackKind[] = [
   "saved",
@@ -28,13 +33,20 @@ const FEEDBACK_KINDS: FeedbackKind[] = [
 ];
 const OUTCOMES: MatchOutcome[] = ["pending", "selected", "rejected", "blocked"];
 const REASON_CODES: MatchFeedbackReasonCode[] = [
+  "wrong_eligibility",
   "wrong_high",
   "wrong_low",
   "wrong_condition",
+  "missing_condition",
   "profile_wrong",
+  "wrong_company_fact",
   "criteria_wrong",
   "taxonomy_gap",
+  "duplicate_grant",
+  "stale_grant",
   "portal_blocked",
+  "rejected_at_eligibility",
+  "accepted_for_review",
   "selected",
   "rejected",
   "other",
@@ -73,6 +85,55 @@ export function buildSubmitFeedbackInput(input: {
 
 export function buildFeedbackResult(receipt: FeedbackReceipt): FeedbackResult {
   return { receipt };
+}
+
+export async function attachMatchFeedbackProvenance<TPayload>(
+  input: SubmitFeedbackInput,
+  repositories: ServiceRepositories<TPayload>,
+): Promise<SubmitFeedbackInput> {
+  const grant = await repositories.grants.findGrantById(input.grantId);
+  if (!grant) return { ...input, provenance: emptyProvenance("grant_missing") };
+  const company = await repositories.companies.resolveCompanyProfile({
+    companyId: input.companyId,
+    ...(input.userId ? { userId: input.userId } : {}),
+  });
+  if (!company) return { ...input, provenance: grantOnlyProvenance(grant, "company_missing") };
+  const match = await repositories.matches.calculateGrantMatch({ company, grant });
+  const criterionRefs = match.rule_trace.map((entry) => ({
+    criterionId: entry.criterion_id ?? null,
+    dimension: entry.dimension,
+    kind: entry.kind,
+    result: entry.result,
+    sourceSpanHash: entry.source_span ? hashValue(entry.source_span) : null,
+  }));
+  const companyFactRefs = unique(match.rule_trace.map((entry) => entry.dimension)).map((dimension) => {
+    const values = match.rule_trace
+      .filter((entry) => entry.dimension === dimension && entry.company_value !== undefined)
+      .map((entry) => entry.company_value);
+    return {
+      dimension,
+      present: values.some((value) => value !== null && value !== undefined),
+      valueHash: values.length > 0 ? hashValue(values) : null,
+      confidence: finiteNumber(company.confidence?.[dimension]),
+    };
+  });
+  return {
+    ...input,
+    provenance: {
+      captureStatus: "complete",
+      capturedAt: new Date().toISOString(),
+      grantSource: grant.grant.source,
+      grantSourceId: grant.grant.source_id,
+      grantRevision: resolveGrantExtractionManifest(grant).revision,
+      rulesetVersion: match.ruleset_ver,
+      scoringVersion: match.scoring_ver,
+      eligibility: match.eligibility,
+      extractionReadiness: match.quality.extractionReadiness,
+      evidenceCoverage: match.quality.evidenceCoverage,
+      criterionRefs,
+      companyFactRefs,
+    },
+  };
 }
 
 export function decodeGrantIdSegment(value: string): string {
@@ -144,4 +205,57 @@ function normalizePayload(value: unknown): Record<string, unknown> | null {
 function normalizeOptionalString(value: unknown): string | null {
   if (value === null) return null;
   return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function emptyProvenance(status: "grant_missing"): MatchFeedbackProvenance {
+  return {
+    captureStatus: status,
+    capturedAt: new Date().toISOString(),
+    grantSource: null,
+    grantSourceId: null,
+    grantRevision: null,
+    rulesetVersion: null,
+    scoringVersion: null,
+    eligibility: null,
+    extractionReadiness: null,
+    evidenceCoverage: null,
+    criterionRefs: [],
+    companyFactRefs: [],
+  };
+}
+
+function grantOnlyProvenance<TPayload>(
+  grant: NormalizedGrant<TPayload>,
+  status: "company_missing",
+): MatchFeedbackProvenance {
+  return {
+    ...emptyProvenance("grant_missing"),
+    captureStatus: status,
+    grantSource: grant.grant.source,
+    grantSourceId: grant.grant.source_id,
+    grantRevision: resolveGrantExtractionManifest(grant).revision,
+  };
+}
+
+function hashValue(value: unknown): string {
+  return createHash("sha256").update(stableStringify(value)).digest("hex");
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function unique<T>(values: T[]): T[] {
+  return [...new Set(values)];
 }

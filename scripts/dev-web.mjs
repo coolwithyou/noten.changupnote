@@ -10,6 +10,7 @@ const tunnelConfig = resolve(homedir(), ".cloudflared", "changupnote-dev.yml");
 const tunnelCommand = `cloudflared tunnel --config ${tunnelConfig} run`;
 
 loadDevEnv();
+buildWorkspacePackages();
 
 const rawArgs = process.argv.slice(2);
 const tunnelDisabled =
@@ -200,4 +201,23 @@ function hasDatabaseUrl() {
     process.env.SUPABASE_DB_URL?.trim() ||
     process.env.DIRECT_URL?.trim(),
   );
+}
+
+function buildWorkspacePackages() {
+  console.log("[packages] 현재 소스 기준으로 contracts/core 런타임을 빌드합니다.");
+  const build = spawnSync("pnpm", ["build:packages"], { stdio: "inherit" });
+  if (build.error) {
+    console.error(`[packages] 워크스페이스 패키지를 빌드하지 못했습니다: ${build.error.message}`);
+    process.exit(1);
+  }
+  if (build.status !== 0) {
+    console.error(`[packages] 워크스페이스 패키지 빌드가 실패했습니다(code=${build.status ?? "unknown"}).`);
+    process.exit(build.status ?? 1);
+  }
+
+  const verification = spawnSync("pnpm", ["verify:package-runtime-freshness"], { stdio: "inherit" });
+  if (verification.error || verification.status !== 0) {
+    console.error("[packages] 빌드 산출물 검증이 실패했습니다.");
+    process.exit(verification.status ?? 1);
+  }
 }

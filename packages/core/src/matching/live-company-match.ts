@@ -15,7 +15,7 @@ import { normalizeKStartupPayload } from "../kstartup/normalize.js";
 import { checkPopbillBizInfo } from "../popbill/check-biz-info.js";
 import { maskCorpNum } from "../popbill/corp-num.js";
 import type { PopbillCredentials } from "../popbill/types.js";
-import { matchGrantCriteria } from "./match.js";
+import { matchNormalizedGrant } from "./match.js";
 
 export interface LiveCompanyMatchOptions {
   kstartupServiceKey: string;
@@ -115,7 +115,7 @@ export async function runLiveCompanyMatch(
   const kstartupNormalized = normalizeKStartupPayload(kstartupPayload);
   const kstartupMatches = kstartupNormalized.map((item) => ({
     item,
-    match: matchGrantCriteria(item.criteria, company.profile),
+    match: matchNormalizedGrant(item, company.profile),
   }));
 
   const bizinfoPayload = bizinfoLimit > 0
@@ -148,7 +148,7 @@ export async function runLiveCompanyMatch(
     });
     bizinfoMatches.push({
       item: normalized,
-      match: criteria.length > 0 ? matchGrantCriteria(criteria, company.profile) : null,
+      match: criteria.length > 0 ? matchNormalizedGrant(normalized, company.profile) : null,
       extraction_input_length: input.text.length,
       llm_usage: usage,
     });

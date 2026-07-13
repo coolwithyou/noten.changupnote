@@ -1,124 +1,244 @@
-import { redirect } from "next/navigation";
-import { getOpsFlywheelSnapshot } from "@/lib/server/admin/flywheel";
-import { getOptionalAdminSession } from "@/lib/server/auth/adminSession";
+import Link from "next/link"
+import { redirect } from "next/navigation"
+import {
+  ActivityIcon,
+  ArrowUpRightIcon,
+  CircleGaugeIcon,
+  Clock3Icon,
+  DatabaseZapIcon,
+  HeartPulseIcon,
+  LifeBuoyIcon,
+  ReceiptTextIcon,
+  ShieldCheckIcon,
+} from "lucide-react"
 
-export const dynamic = "force-dynamic";
+import { OpsDashboardShell } from "@/components/OpsDashboardShell"
+import { Badge } from "@/components/ui/badge"
+import { buttonVariants } from "@/components/ui/button"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { getOpsFlywheelSnapshot, type OpsFlywheelSurface } from "@/lib/server/admin/flywheel"
+import { getOptionalAdminSession } from "@/lib/server/auth/adminSession"
 
-const OPS_SURFACES = [
-  {
-    title: "운영 상태",
-    badge: "active",
-    body: "ops.changupnote.com 전용 세션과 admin status API를 기준으로 상태를 확인합니다.",
-  },
-  {
-    title: "고객지원 큐",
-    badge: "next",
-    body: "기존 /admin support ticket 운영 패널을 이 앱으로 이전할 대상입니다.",
-  },
-  {
-    title: "플라이휠 리포트",
-    badge: "next",
-    body: "readiness, release checklist, matching eval, review queue를 순차 이전합니다.",
-  },
-];
+export const dynamic = "force-dynamic"
 
 export default async function OpsHomePage() {
-  const session = await getOptionalAdminSession();
-  if (!session) redirect("/login");
-  const snapshot = await loadFlywheelSnapshot();
+  const session = await getOptionalAdminSession()
+  if (!session) redirect("/login")
+  const snapshot = await loadFlywheelSnapshot()
+  const surfaces = snapshot?.surfaces ?? []
+  const available = surfaces.filter((surface) => surface.available)
+
+  const metrics = [
+    {
+      label: "연결된 운영 데이터",
+      value: snapshot ? `${available.length}/${surfaces.length}` : "-",
+      description: snapshot ? `${surfaces.length - available.length}개 소스 확인 필요` : "DB 연결 확인 필요",
+      icon: DatabaseZapIcon,
+      href: "/registry-imports",
+    },
+    metricFromSurface(surfaces, "match_events", "매칭 이벤트", ActivityIcon, "/internal/live-match"),
+    metricFromSurface(surfaces, "support_tickets", "고객지원 티켓", LifeBuoyIcon, "/api/admin/flywheel/support-tickets/report"),
+    metricFromSurface(surfaces, "billing_subscriptions", "구독 상태", ReceiptTextIcon, "/credits/subscriptions"),
+  ]
 
   return (
-    <main className="ops-shell">
-      <header className="ops-header">
-        <div>
-          <p className="ops-eyebrow">Cunote Ops</p>
-          <h1 className="ops-title">창업노트 운영 콘솔</h1>
-          <p className="ops-subtitle">
-            {session.user.email} 계정으로 로그인했습니다. 이 세션은 changupnote.com 사용자 프론트와 공유되지 않습니다.
+    <OpsDashboardShell
+      title="운영 개요"
+      user={{ email: session.user.email, name: session.user.name ?? null, role: session.user.role }}
+    >
+      <main className="flex flex-col gap-6 p-4 md:p-6">
+        <section className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-heading text-2xl font-semibold tracking-tight">창업노트 운영 현황</h2>
+            <Badge variant={snapshot ? "secondary" : "destructive"}>
+              {snapshot ? "시스템 연결됨" : "연결 확인 필요"}
+            </Badge>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            서비스 데이터, 매칭, 고객지원과 결제 운영 상태를 한곳에서 확인합니다.
           </p>
-        </div>
-        <span className="ops-badge success">{session.user.role}</span>
-      </header>
+        </section>
 
-      <section className="ops-grid">
-        {OPS_SURFACES.map((surface) => (
-          <article className="ops-panel" key={surface.title}>
-            <span className={surface.badge === "active" ? "ops-badge success" : "ops-badge warning"}>
-              {surface.badge}
-            </span>
-            <h2>{surface.title}</h2>
-            <p>{surface.body}</p>
-          </article>
-        ))}
-      </section>
+        <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {metrics.map((metric) => (
+            <Card key={metric.label}>
+              <CardHeader>
+                <CardDescription>{metric.label}</CardDescription>
+                <CardAction>
+                  <metric.icon className="text-muted-foreground" />
+                </CardAction>
+                <CardTitle className="text-3xl tabular-nums">{metric.value}</CardTitle>
+              </CardHeader>
+              <CardFooter className="justify-between gap-2">
+                <span className="truncate text-xs text-muted-foreground">{metric.description}</span>
+                <Link
+                  className={buttonVariants({ size: "icon-xs", variant: "ghost" })}
+                  href={metric.href}
+                  aria-label={`${metric.label} 열기`}
+                >
+                  <ArrowUpRightIcon />
+                </Link>
+              </CardFooter>
+            </Card>
+          ))}
+        </section>
 
-      <section className="ops-grid" style={{ marginTop: 16 }}>
-        <article className="ops-panel">
-          <h3>인증 경계</h3>
-          <ul className="ops-list">
-            <li>Google 로그인 허용 도메인: {process.env.ADMIN_ALLOWED_GOOGLE_DOMAIN ?? "noten.im"}</li>
-            <li>세션 쿠키: {process.env.ADMIN_SESSION_COOKIE_NAME ?? "__Secure-cunote-admin.session-token"}</li>
-            <li>프론트 세션 공유: false</li>
-          </ul>
-          <div className="ops-actions">
-            <a href="/api/admin/status/legal-readiness">Legal readiness</a>
-            <a href="/api/admin/status/saas-readiness">SaaS readiness</a>
-            <a href="/api/admin/status/release-checklist">Release checklist</a>
-            <a href="/api/admin/flywheel/support-tickets/report">Support queue</a>
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(20rem,1fr)]">
+          <Card>
+            <CardHeader>
+              <CardTitle>운영 데이터 상태</CardTitle>
+              <CardDescription>플라이휠을 구성하는 실제 테이블의 연결 상태와 현재 누적 건수입니다.</CardDescription>
+              <CardAction>
+                <Badge variant="outline">{snapshot ? formatDateTime(snapshot.generatedAt) : "대기 중"}</Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <Progress value={surfaces.length > 0 ? (available.length / surfaces.length) * 100 : 0} />
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {available.length}/{surfaces.length}
+                </span>
+              </div>
+              <div className="overflow-hidden rounded-lg border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>운영 영역</TableHead>
+                      <TableHead>상태</TableHead>
+                      <TableHead className="text-right">누적 건수</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {surfaces.slice(0, 8).map((surface) => (
+                      <TableRow key={surface.key}>
+                        <TableCell className="font-medium">{surface.label}</TableCell>
+                        <TableCell>
+                          <Badge variant={surface.available ? "secondary" : "destructive"}>
+                            {surface.available ? "connected" : "missing"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {surface.available ? surface.count?.toLocaleString("ko-KR") : "-"}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                    {surfaces.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={3} className="h-28 text-center text-muted-foreground">
+                          DB 연결 또는 migration 적용 상태를 확인해 주세요.
+                        </TableCell>
+                      </TableRow>
+                    ) : null}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>빠른 작업</CardTitle>
+                <CardDescription>반복적으로 사용하는 운영 업무입니다.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <QuickAction href="/registry-imports" icon={DatabaseZapIcon} label="공개명단 CSV 업데이트" />
+                <QuickAction href="/internal/live-match" icon={HeartPulseIcon} label="라이브 매칭 확인" />
+                <QuickAction href="/credits/members" icon={CircleGaugeIcon} label="회원 크레딧 조회" />
+                <QuickAction href="/credits/audit" icon={Clock3Icon} label="감사 로그 확인" />
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>인증 경계</CardTitle>
+                <CardDescription>Ops 세션은 사용자 프론트와 완전히 분리됩니다.</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 text-sm">
+                <BoundaryRow label="Google 도메인" value={process.env.ADMIN_ALLOWED_GOOGLE_DOMAIN ?? "noten.im"} />
+                <BoundaryRow label="프론트 세션 공유" value="false" />
+                <BoundaryRow label="현재 권한" value={session.user.role} />
+              </CardContent>
+              <CardFooter className="gap-2 text-xs text-muted-foreground">
+                <ShieldCheckIcon />
+                민감한 변경은 관리자 식별자와 함께 기록됩니다.
+              </CardFooter>
+            </Card>
           </div>
-        </article>
-        <article className="ops-panel" style={{ gridColumn: "span 2" }}>
-          <span className={snapshot ? "ops-badge success" : "ops-badge warning"}>
-            {snapshot ? "connected" : "pending"}
-          </span>
-          <h3>운영 지표</h3>
-          {snapshot ? (
-            <ul className="ops-metric-grid">
-              {snapshot.surfaces.map((surface) => (
-                <li key={surface.key}>
-                  <strong>{surface.available ? surface.count?.toLocaleString("ko-KR") : "-"}</strong>
-                  <span>{surface.label}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>DB 연결 또는 migration 적용 전에는 운영 지표를 표시하지 않습니다.</p>
-          )}
-        </article>
-      </section>
+        </section>
+      </main>
+    </OpsDashboardShell>
+  )
+}
 
-      <section className="ops-grid" style={{ marginTop: 16 }}>
-        <article className="ops-panel" style={{ gridColumn: "span 3" }}>
-          <h3>크레딧 관리</h3>
-          <div className="ops-actions">
-            <a href="/credits">대시보드</a>
-            <a href="/credits/members">회원 관리</a>
-            <a href="/credits/payments">결제·환불</a>
-            <a href="/credits/subscriptions">구독</a>
-            <a href="/credits/pricing">요율 관리</a>
-            <a href="/credits/settings">설정</a>
-            <a href="/credits/audit">감사 로그</a>
-            <a href="/credits/reconciliation">대사</a>
-          </div>
-        </article>
-      </section>
-    </main>
-  );
+function metricFromSurface(
+  surfaces: OpsFlywheelSurface[],
+  key: string,
+  label: string,
+  icon: typeof ActivityIcon,
+  href: string,
+) {
+  const surface = surfaces.find((item) => item.key === key)
+  return {
+    label,
+    value: surface?.available ? (surface.count ?? 0).toLocaleString("ko-KR") : "-",
+    description: surface?.available ? "누적 데이터" : "데이터 소스 확인 필요",
+    icon,
+    href,
+  }
+}
+
+function QuickAction({ href, icon: Icon, label }: { href: string; icon: typeof ActivityIcon; label: string }) {
+  return (
+    <Link className={buttonVariants({ className: "h-10 justify-start", variant: "outline" })} href={href}>
+      <Icon data-icon="inline-start" />
+      {label}
+      <ArrowUpRightIcon data-icon="inline-end" className="ml-auto" />
+    </Link>
+  )
+}
+
+function BoundaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b pb-3 last:border-0 last:pb-0">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-medium">{value}</span>
+    </div>
+  )
 }
 
 async function loadFlywheelSnapshot() {
   try {
-    return await withTimeout(getOpsFlywheelSnapshot(), 5_000);
+    return await withTimeout(getOpsFlywheelSnapshot(), 5_000)
   } catch {
-    return null;
+    return null
   }
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("ops_flywheel_snapshot_timeout")), timeoutMs);
-    promise
-      .then(resolve, reject)
-      .finally(() => clearTimeout(timeout));
-  });
+    const timeout = setTimeout(() => reject(new Error("ops_flywheel_snapshot_timeout")), timeoutMs)
+    promise.then(resolve, reject).finally(() => clearTimeout(timeout))
+  })
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("ko-KR", { dateStyle: "short", timeStyle: "short" }).format(new Date(value))
 }

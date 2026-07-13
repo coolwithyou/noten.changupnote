@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://changupnote.com/schemas/matching-v3-annotation.json",
+  "title": "Cunote matching v3 annotation record",
+  "oneOf": [
+    { "$ref": "#/$defs/company" },
+    { "$ref": "#/$defs/grant" },
+    { "$ref": "#/$defs/eligibilityPair" }
+  ],
+  "$defs": {
+    "labelStatus": {
+      "type": "string",
+      "enum": ["legacy", "draft", "reviewed"]
+    },
+    "eligibility": {
+      "type": "string",
+      "enum": ["eligible", "conditional", "ineligible"]
+    },
+    "base": {
+      "type": "object",
+      "required": ["recordType", "schemaVersion", "labelStatus"],
+      "properties": {
+        "recordType": { "type": "string" },
+        "schemaVersion": { "const": "matching-v3" },
+        "labelStatus": { "$ref": "#/$defs/labelStatus" },
+        "annotatorId": { "type": ["string", "null"] },
+        "reviewerId": { "type": ["string", "null"] },
+        "annotatedAt": { "type": ["string", "null"], "format": "date-time" },
+        "reviewedAt": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "company": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["recordType", "companyId", "businessKind", "profile", "sourceFixture"],
+          "properties": {
+            "recordType": { "const": "company" },
+            "companyId": { "type": "string", "minLength": 1 },
+            "businessKind": { "type": "string", "enum": ["individual", "corporation", "unknown"] },
+            "profile": { "type": "object" },
+            "sourceFixture": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "criterionAnnotation": {
+      "type": "object",
+      "required": ["criterionId", "dimension", "kind", "operator", "value", "sourceSpan"],
+      "properties": {
+        "criterionId": { "type": "string", "minLength": 1 },
+        "dimension": { "type": "string" },
+        "kind": { "type": "string", "enum": ["required", "preferred", "exclusion"] },
+        "operator": { "type": "string" },
+        "value": {},
+        "sourceSpan": { "type": ["string", "null"], "minLength": 1 },
+        "sourceField": { "type": ["string", "null"] },
+        "annotationConfidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "note": { "type": ["string", "null"] }
+      }
+    },
+    "grant": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": ["recordType", "grantId", "source", "sourceId", "title", "audience", "criteria", "sourceFixture"],
+          "properties": {
+            "recordType": { "const": "grant" },
+            "grantId": { "type": "string", "minLength": 1 },
+            "source": { "type": "string", "minLength": 1 },
+            "sourceId": { "type": "string", "minLength": 1 },
+            "title": { "type": "string", "minLength": 1 },
+            "audience": { "type": "string", "enum": ["company", "individual", "mixed", "unknown"] },
+            "criteria": { "type": "array", "items": { "$ref": "#/$defs/criterionAnnotation" } },
+            "textOnlyConditions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["sourceSpan", "reason"],
+                "properties": {
+                  "sourceSpan": { "type": "string", "minLength": 1 },
+                  "reason": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "sourceFixture": { "type": "string", "minLength": 1 },
+            "sourceRevision": { "type": ["string", "null"], "minLength": 1 }
+          }
+        }
+      ]
+    },
+    "eligibilityPair": {
+      "allOf": [
+        { "$ref": "#/$defs/base" },
+        {
+          "type": "object",
+          "required": [
+            "recordType",
+            "pairId",
+            "grantId",
+            "companyId",
+            "expectedEligibility",
+            "split",
+            "hardFailCriterionIds",
+            "unknownCriterionIds",
+            "resolvableByProfileInput",
+            "note"
+          ],
+          "properties": {
+            "recordType": { "const": "eligibility_pair" },
+            "pairId": { "type": "string", "minLength": 1 },
+            "grantId": { "type": "string", "minLength": 1 },
+            "companyId": { "type": "string", "minLength": 1 },
+            "expectedEligibility": { "$ref": "#/$defs/eligibility" },
+            "split": { "type": "string", "enum": ["development", "holdout"] },
+            "hardFailCriterionIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "unknownCriterionIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "resolvableByProfileInput": { "type": ["boolean", "null"] },
+            "note": { "type": "string", "minLength": 1 },
+            "rulesetVer": { "type": "string", "minLength": 1 },
+            "scoringVer": { "type": "string", "minLength": 1 },
+            "inputFingerprint": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+          }
+        }
+      ]
+    }
+  }
+}

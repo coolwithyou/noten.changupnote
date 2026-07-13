@@ -86,6 +86,7 @@ export async function GET(request: Request) {
         attachmentRefreshCount: result.attachments.attachmentRefreshCount,
         failureCount: result.attachments.failureCount,
       },
+      revisionRefresh: result.revisionRefresh,
       collectedAt: result.collectedAt,
       elapsedMs: Date.now() - startedAt,
     });

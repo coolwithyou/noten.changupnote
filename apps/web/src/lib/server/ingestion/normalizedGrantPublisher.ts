@@ -1,5 +1,14 @@
-import { and, eq, notInArray } from "drizzle-orm";
-import type { Grant, GrantCriterion, GrantRaw, GrantSource, NormalizedGrant } from "@cunote/contracts";
+import { and, eq, inArray, notInArray } from "drizzle-orm";
+import type {
+  Grant,
+  GrantCriterion,
+  GrantExtractionWarningCode,
+  GrantRaw,
+  GrantSource,
+  MatchExtractionReadiness,
+  NormalizedGrant,
+} from "@cunote/contracts";
+import { buildGrantExtractionManifest } from "@cunote/core";
 import type { CunoteDb, CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
 import {
@@ -8,6 +17,13 @@ import {
 } from "../conversion/registerAttachmentConversions";
 import { readDetectedSurfaceFormat } from "./grantAttachmentArchive";
 import { hashGrantRawPayload } from "./grantRawHash";
+import {
+  classifyPublishedGrantRevision,
+  expandConfirmedGrantComponentIds,
+  matchingAttachmentRevisionProjection,
+  type PublishedGrantRevisionKind,
+} from "./grantRevisionInvalidation";
+import { runGrantRevisionScopedRefresh } from "../matches/grantRevisionScopedRefreshCore";
 
 export interface NormalizedGrantPublishPlan {
   source: GrantSource;
@@ -15,10 +31,18 @@ export interface NormalizedGrantPublishPlan {
   grantCount: number;
   criteriaCount: number;
   rawHashes: string[];
+  extractionReadinessCounts: Record<MatchExtractionReadiness, number>;
+  extractionWarningCounts: Partial<Record<GrantExtractionWarningCode, number>>;
 }
 
 export interface NormalizedGrantPublishResult extends NormalizedGrantPublishPlan {
   publishedAt: string;
+  revisionCounts: Record<PublishedGrantRevisionKind, number>;
+  matchStateInvalidatedCount: number;
+  matchStateRefreshedCount: number;
+  matchStateRefreshRequired: boolean;
+  /** grant-scope 재계산 대상. confirmed member 변경 시 canonical component도 포함한다. */
+  matchStateRefreshGrantIds: string[];
   /** T7 후크: surface 생성/변환 job 등록 중 발생한 경고 (아카이브는 성공). */
   conversionWarnings?: string[];
 }
@@ -28,6 +52,7 @@ export function planNormalizedGrantPublication<TPayload>(
   entries: Array<NormalizedGrant<TPayload>>,
 ): NormalizedGrantPublishPlan {
   assertEntriesUseSource(source, entries);
+  const manifests = entries.map((entry) => buildGrantExtractionManifest(entry));
 
   return {
     source,
@@ -35,7 +60,20 @@ export function planNormalizedGrantPublication<TPayload>(
     grantCount: entries.length,
     criteriaCount: entries.reduce((sum, entry) => sum + entry.criteria.length, 0),
     rawHashes: entries.map((entry) => hashGrantRawPayload(entry.raw.payload)),
+    extractionReadinessCounts: histogram(
+      manifests.map((manifest) => manifest.readiness),
+      ["reviewed", "structured_unreviewed", "partial", "unstructured"],
+    ),
+    extractionWarningCounts: histogram(
+      manifests.flatMap((manifest) => manifest.warnings),
+    ),
   };
+}
+
+function histogram<T extends string>(values: T[], keys: T[] = []): Record<T, number> {
+  const counts = Object.fromEntries(keys.map((key) => [key, 0])) as Record<T, number>;
+  for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
+  return counts;
 }
 
 export async function publishNormalizedGrants<TPayload>(
@@ -53,7 +91,65 @@ export async function publishNormalizedGrants<TPayload>(
   const conversionWarnings: string[] = [];
 
   return db.transaction(async (tx) => {
+    const confirmedLinks = await tx
+      .select({
+        canonicalGrantId: schema.dedupLinks.canonicalGrantId,
+        memberGrantId: schema.dedupLinks.memberGrantId,
+      })
+      .from(schema.dedupLinks)
+      .where(eq(schema.dedupLinks.confirmed, true));
+    const revisionCounts: Record<PublishedGrantRevisionKind, number> = {
+      new: 0,
+      unchanged: 0,
+      changed: 0,
+    };
+    const refreshGrantIds = new Set<string>();
+    const invalidatedStateKeys = new Set<string>();
+    const invalidatedCompanyIds = new Set<string>();
+
     for (const entry of entries) {
+      const nextRawHash = hashGrantRawPayload(entry.raw.payload);
+      const [previous] = await tx
+        .select({
+          grant: schema.grants,
+          grantId: schema.grants.id,
+          rawHash: schema.grantRaw.rawHash,
+          attachments: schema.grantRaw.attachments,
+          parserVersion: schema.grants.parserVersion,
+          modelVer: schema.grants.modelVer,
+          promptVer: schema.grants.promptVer,
+        })
+        .from(schema.grants)
+        .leftJoin(schema.grantRaw, and(
+          eq(schema.grantRaw.source, schema.grants.source),
+          eq(schema.grantRaw.sourceId, schema.grants.sourceId),
+        ))
+        .where(and(
+          eq(schema.grants.source, entry.grant.source),
+          eq(schema.grants.sourceId, entry.grant.source_id),
+        ))
+        .limit(1);
+      const previousCriteria = previous
+        ? await tx.select().from(schema.grantCriteria)
+          .where(eq(schema.grantCriteria.grantId, previous.grantId))
+        : [];
+      const revisionKind = classifyPublishedGrantRevision(previous ? {
+        rawHash: previous.rawHash,
+        matchingProjectionHash: hashGrantRawPayload(storedMatchingProjection(previous.grant, previousCriteria)),
+        attachments: matchingAttachmentRevisionProjection(previous.attachments),
+        parserVersion: previous.parserVersion,
+        modelVer: previous.modelVer,
+        promptVer: previous.promptVer,
+      } : null, {
+        rawHash: nextRawHash,
+        matchingProjectionHash: hashGrantRawPayload(incomingMatchingProjection(entry)),
+        attachments: matchingAttachmentRevisionProjection(rawAttachments(entry.raw.attachments)),
+        parserVersion: entry.grant.parser_version ?? null,
+        modelVer: entry.grant.model_ver ?? null,
+        promptVer: entry.grant.prompt_ver ?? null,
+      });
+      revisionCounts[revisionKind] += 1;
+
       await tx
         .insert(schema.grantRaw)
         .values({
@@ -61,7 +157,7 @@ export async function publishNormalizedGrants<TPayload>(
           sourceId: entry.raw.source_id,
           payload: entry.raw.payload as unknown as Record<string, unknown>,
           attachments: rawAttachments(entry.raw.attachments),
-          rawHash: hashGrantRawPayload(entry.raw.payload),
+          rawHash: nextRawHash,
           collectedAt,
           status: "published",
         })
@@ -70,7 +166,7 @@ export async function publishNormalizedGrants<TPayload>(
           set: {
             payload: entry.raw.payload as unknown as Record<string, unknown>,
             attachments: rawAttachments(entry.raw.attachments),
-            rawHash: hashGrantRawPayload(entry.raw.payload),
+            rawHash: nextRawHash,
             collectedAt,
             status: "published",
           },
@@ -87,6 +183,22 @@ export async function publishNormalizedGrants<TPayload>(
 
       if (!grant) {
         throw new Error(`${options.source} grant publish failed: ${entry.grant.source_id}`);
+      }
+
+      if (revisionKind === "changed" && previous?.grantId) {
+        const affectedGrantIds = expandConfirmedGrantComponentIds([previous.grantId], confirmedLinks);
+        for (const grantId of affectedGrantIds) refreshGrantIds.add(grantId);
+        const deleted = await tx
+          .delete(schema.matchState)
+          .where(inArray(schema.matchState.grantId, affectedGrantIds))
+          .returning({
+            companyId: schema.matchState.companyId,
+            grantId: schema.matchState.grantId,
+          });
+        for (const row of deleted) {
+          invalidatedStateKeys.add(`${row.companyId}:${row.grantId}`);
+          invalidatedCompanyIds.add(row.companyId);
+        }
       }
 
       await tx.delete(schema.grantCriteria).where(eq(schema.grantCriteria.grantId, grant.id));
@@ -176,12 +288,150 @@ export async function publishNormalizedGrants<TPayload>(
         },
       });
 
+    let matchStateRefreshedCount = 0;
+    if (refreshGrantIds.size > 0 && invalidatedCompanyIds.size > 0) {
+      const refresh = await runGrantRevisionScopedRefresh({
+        db: tx as unknown as CunoteDb,
+        grantIds: [...refreshGrantIds],
+        companyIds: [...invalidatedCompanyIds],
+        companyLimit: invalidatedCompanyIds.size,
+        asOf: collectedAt,
+        write: true,
+      });
+      matchStateRefreshedCount = numberField(refresh.savedCount);
+      if (matchStateRefreshedCount !== invalidatedCompanyIds.size * numberField(refresh.candidateGrantCount)) {
+        throw new Error(
+          `incomplete grant revision match-state refresh: invalidated=${invalidatedStateKeys.size}, refreshed=${matchStateRefreshedCount}`,
+        );
+      }
+    }
+
     return {
       ...planNormalizedGrantPublication(options.source, entries),
       publishedAt: collectedAt.toISOString(),
+      revisionCounts,
+      matchStateInvalidatedCount: invalidatedStateKeys.size,
+      matchStateRefreshedCount,
+      matchStateRefreshRequired: invalidatedStateKeys.size > 0 && matchStateRefreshedCount === 0,
+      matchStateRefreshGrantIds: [...refreshGrantIds].sort(),
       ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
     };
   });
+}
+
+function numberField(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function incomingMatchingProjection<TPayload>(entry: NormalizedGrant<TPayload>): Record<string, unknown> {
+  return {
+    grant: normalizedGrantProjection({
+      title: entry.grant.title,
+      url: entry.grant.url ?? null,
+      agencyJurisdiction: entry.grant.agency_jurisdiction ?? null,
+      agencyOperator: entry.grant.agency_operator ?? null,
+      agencyPrimary: entry.grant.agency_primary ?? null,
+      categoryL1: entry.grant.category_l1 ?? null,
+      categoryL2: entry.grant.category_l2 ?? null,
+      applyStart: dateValue(entry.grant.apply_start),
+      applyEnd: dateValue(entry.grant.apply_end),
+      applyMethod: entry.grant.apply_method ?? null,
+      supportAmount: entry.grant.support_amount ?? null,
+      benefits: entry.grant.benefits ?? null,
+      requiredDocuments: entry.grant.required_documents ?? null,
+      status: entry.grant.status,
+      fRegions: entry.grant.f_regions,
+      fIndustries: entry.grant.f_industries,
+      fBizAgeMinMonths: entry.grant.f_biz_age_min_months ?? null,
+      fBizAgeMaxMonths: entry.grant.f_biz_age_max_months ?? null,
+      fSizes: entry.grant.f_sizes,
+      fFounderTraits: entry.grant.f_founder_traits,
+      fRequiredCerts: entry.grant.f_required_certs,
+      fApplyMethods: entry.grant.f_apply_methods ?? [],
+      fAuthoringMode: entry.grant.f_authoring_mode ?? "unknown",
+      overallConfidence: entry.grant.overall_confidence,
+    }),
+    criteria: normalizedCriteriaProjection(entry.criteria.map((criterion) => ({
+      dimension: criterion.dimension,
+      operator: criterion.operator,
+      value: criterion.value,
+      kind: criterion.kind,
+      weight: criterion.weight ?? null,
+      confidence: criterion.confidence,
+      sourceSpan: criterion.source_span ?? null,
+      rawText: criterion.raw_text ?? null,
+      sourceField: criterion.source_field ?? null,
+      needsReview: criterion.needs_review ?? false,
+      parserVersion: criterion.parser_version ?? null,
+    }))),
+  };
+}
+
+function storedMatchingProjection(
+  grant: typeof schema.grants.$inferSelect,
+  criteria: Array<typeof schema.grantCriteria.$inferSelect>,
+): Record<string, unknown> {
+  return {
+    grant: normalizedGrantProjection(grant),
+    criteria: normalizedCriteriaProjection(criteria.map((criterion) => ({
+      dimension: criterion.dimension,
+      operator: criterion.operator,
+      value: criterion.value,
+      kind: criterion.kind,
+      weight: criterion.weight,
+      confidence: criterion.confidence,
+      sourceSpan: criterion.sourceSpan,
+      rawText: criterion.rawText,
+      sourceField: criterion.sourceField,
+      needsReview: criterion.needsReview,
+      parserVersion: criterion.parserVersion,
+    }))),
+  };
+}
+
+function normalizedGrantProjection(grant: {
+  title: string;
+  url: string | null;
+  agencyJurisdiction: string | null;
+  agencyOperator: string | null;
+  agencyPrimary: string | null;
+  categoryL1: string | null;
+  categoryL2: string | null;
+  applyStart: Date | null;
+  applyEnd: Date | null;
+  applyMethod: unknown;
+  supportAmount: unknown;
+  benefits: unknown;
+  requiredDocuments: unknown;
+  status: string;
+  fRegions: string[];
+  fIndustries: string[];
+  fBizAgeMinMonths: number | null;
+  fBizAgeMaxMonths: number | null;
+  fSizes: string[];
+  fFounderTraits: string[];
+  fRequiredCerts: string[];
+  fApplyMethods: string[];
+  fAuthoringMode: string;
+  overallConfidence: number;
+}): Record<string, unknown> {
+  return {
+    ...grant,
+    applyStart: grant.applyStart?.toISOString() ?? null,
+    applyEnd: grant.applyEnd?.toISOString() ?? null,
+    fRegions: [...grant.fRegions].sort(),
+    fIndustries: [...grant.fIndustries].sort(),
+    fSizes: [...grant.fSizes].sort(),
+    fFounderTraits: [...grant.fFounderTraits].sort(),
+    fRequiredCerts: [...grant.fRequiredCerts].sort(),
+    fApplyMethods: [...grant.fApplyMethods].sort(),
+  };
+}
+
+function normalizedCriteriaProjection(criteria: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  return criteria
+    .map((criterion) => ({ ...criterion }))
+    .sort((left, right) => hashGrantRawPayload(left).localeCompare(hashGrantRawPayload(right)));
 }
 
 /**

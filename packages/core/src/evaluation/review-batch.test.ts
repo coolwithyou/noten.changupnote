@@ -1,0 +1,28 @@
+import assert from "node:assert/strict";
+import { buildMatchingV3CompanyReviewTasks } from "./review-workbench.js";
+import { validateMatchingV3ReviewBatch } from "./review-batch.js";
+import { buildMatchingV3PairReviewTasks } from "./pair-review-packet.js";
+import type { V3CompanyAnnotation, V3GrantAnnotation, V3EligibilityPairAnnotation } from "./v3-annotations.js";
+import type { MatchingV3GrantReviewTask } from "./review-packet.js";
+import type { MatchingV3PairReviewTask } from "./pair-review-packet.js";
+
+const meta = { labelStatus: "reviewed" as const, annotatorId: "human-a", annotatedAt: "2026-07-12T00:00:00Z", reviewerId: "human-b", reviewedAt: "2026-07-12T01:00:00Z" };
+const company: V3CompanyAnnotation = { recordType: "company", schemaVersion: "matching-v3", companyId: "c1", businessKind: "corporation", profile: { region: { code: "11" } }, sourceFixture: "synthetic", ...meta };
+const grant: V3GrantAnnotation = { recordType: "grant", schemaVersion: "matching-v3", grantId: "bizinfo:g1", source: "bizinfo", sourceId: "g1", title: "지원", audience: "company", sourceFixture: "fixture", sourceRevision: "r1", criteria: [{ criterionId: "criterion-1", dimension: "region", kind: "required", operator: "in", value: { regions: ["11"] }, sourceSpan: "서울", sourceField: "target", annotationConfidence: 1, note: "원문 확인" }], ...meta };
+const generatedPairTask = buildMatchingV3PairReviewTasks({ grants: [grant], companies: [company] })[0]!;
+const pair: V3EligibilityPairAnnotation = { recordType: "eligibility_pair", schemaVersion: "matching-v3", pairId: "bizinfo:g1::c1", grantId: "bizinfo:g1", companyId: "c1", expectedEligibility: "eligible", split: "development", hardFailCriterionIds: [], unknownCriterionIds: [], resolvableByProfileInput: false, note: "모든 필수조건 충족", rulesetVer: generatedPairTask.rulesetVer, scoringVer: generatedPairTask.scoringVer, inputFingerprint: generatedPairTask.inputFingerprint, ...meta };
+const grantTask = { grantId: grant.grantId, source: grant.source, sourceId: grant.sourceId, title: grant.title, annotationTemplate: grant } as MatchingV3GrantReviewTask;
+const pairTask = { ...generatedPairTask, annotationTemplate: { ...generatedPairTask.annotationTemplate, split: pair.split } } as MatchingV3PairReviewTask;
+const report = validateMatchingV3ReviewBatch({ companies: [company], grants: [grant], pairs: [pair], companyTasks: buildMatchingV3CompanyReviewTasks([company]), grantTasks: [grantTask], pairTasks: [pairTask], stage: "reviewed" });
+assert.equal(report.batchReady, true);
+assert.equal(report.missionReady, false);
+const stale = validateMatchingV3ReviewBatch({ companies: [company], grants: [{ ...grant, sourceRevision: "r2" }], pairs: [pair], companyTasks: buildMatchingV3CompanyReviewTasks([company]), grantTasks: [grantTask], pairTasks: [pairTask], stage: "reviewed" });
+assert.equal(stale.errors.some((error) => error.includes("sourceRevision changed")), true);
+const invalidPair = validateMatchingV3ReviewBatch({ companies: [company], grants: [grant], pairs: [{ ...pair, expectedEligibility: "ineligible" }], companyTasks: buildMatchingV3CompanyReviewTasks([company]), grantTasks: [grantTask], pairTasks: [pairTask], stage: "reviewed" });
+assert.equal(invalidPair.errors.some((error) => error.includes("requires hard-fail")), true);
+const staleEngine = validateMatchingV3ReviewBatch({ companies: [company], grants: [grant], pairs: [{ ...pair, rulesetVer: "ruleset-old" }], companyTasks: buildMatchingV3CompanyReviewTasks([company]), grantTasks: [grantTask], pairTasks: [pairTask], stage: "reviewed" });
+assert.equal(staleEngine.errors.some((error) => error.includes("annotation engine provenance")), true);
+const changedCompany = { ...company, profile: { region: { code: "41" } } };
+const inputDrift = validateMatchingV3ReviewBatch({ companies: [changedCompany], grants: [grant], pairs: [pair], companyTasks: buildMatchingV3CompanyReviewTasks([company]), grantTasks: [grantTask], pairTasks: [pairTask], stage: "reviewed" });
+assert.equal(inputDrift.errors.some((error) => error.includes("evaluation input drift")), true);
+console.log("review-batch.test.ts: all assertions passed");

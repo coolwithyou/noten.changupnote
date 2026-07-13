@@ -44,7 +44,7 @@ export function buildNotificationFeed({
       id: `new_match:${match.grantId}`,
       kind: "new_match",
       title: `지금 신청 가능한 공고: ${match.title}`,
-      body: `${match.fitScore}점 적합 공고입니다. 상세 조건과 신청 준비 항목을 확인하세요.`,
+      body: `자격조건 확인도 ${match.fitScore}%인 공고입니다. 상세 조건과 신청 준비 항목을 확인하세요.`,
       priority: "medium",
       target: `grant:${match.grantId}`,
       grantId: match.grantId,

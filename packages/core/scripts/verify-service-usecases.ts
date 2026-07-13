@@ -34,6 +34,7 @@ const soonGrant = normalizedGrant("soon-biz-age", "업력 1년 이상 지원사�
     kind: "required",
     value: { regions: ["41"], labels: ["경기"], nationwide: false },
     confidence: 0.95,
+    source_field: "supt_regin",
   },
   {
     dimension: "biz_age",
@@ -51,6 +52,7 @@ const tooOldGrant = normalizedGrant("too-old-biz-age", "업력 6개월 이내 �
     kind: "required",
     value: { regions: ["41"], labels: ["경기"], nationwide: false },
     confidence: 0.95,
+    source_field: "supt_regin",
   },
   {
     dimension: "biz_age",
@@ -101,6 +103,7 @@ const closingGrant = normalizedGrant("closing-biz-age", "업력 1년 이내 지�
     kind: "required",
     value: { regions: ["41"], labels: ["경기"], nationwide: false },
     confidence: 0.95,
+    source_span: "경기도 소재 기업",
   },
   {
     dimension: "biz_age",
@@ -256,6 +259,7 @@ const simpleRecommendableGrant = normalizedGrant("simple-recommendable", "지역
     kind: "required",
     value: { regions: ["41"], labels: ["경기"], nationwide: false },
     confidence: 0.95,
+    source_field: "supt_regin",
   },
 ]);
 
@@ -266,6 +270,7 @@ const industryQuestionGrant = normalizedGrant("industry-question", "업종 확�
     kind: "required",
     value: { regions: ["41"], labels: ["경기"], nationwide: false },
     confidence: 0.95,
+    source_field: "supt_regin",
   },
   {
     dimension: "industry",
@@ -273,6 +278,7 @@ const industryQuestionGrant = normalizedGrant("industry-question", "업종 확�
     kind: "required",
     value: { tags: ["바이오"] },
     confidence: 0.9,
+    source_span: "바이오 분야 기업",
   },
 ]);
 
@@ -283,6 +289,7 @@ const notRecommendedTrustGateGrant = normalizedGrant("not-recommended-trust-gate
     kind: "required",
     value: { regions: ["11"], labels: ["서울"], nationwide: false },
     confidence: 0.95,
+    source_field: "supt_regin",
   },
 ]);
 
@@ -293,6 +300,9 @@ const trustGateTeaser = buildTeaser({
   limit: 10,
 });
 assert.equal(trustGateTeaser.recommendableMatches?.[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
+assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.verificationCompleteness, 100);
+assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.evidenceCoverage, 100);
+assert.equal(trustGateTeaser.recommendableMatches?.[0]?.quality?.extractionReadiness, "structured_unreviewed");
 assert.equal(trustGateTeaser.reviewNeededMatches?.[0]?.sourceId, industryQuestionGrant.grant.source_id);
 assert.equal(trustGateTeaser.reviewNeededMatches?.[0]?.scoreDisplay, "hidden");
 assert.equal(trustGateTeaser.matches[0]?.sourceId, simpleRecommendableGrant.grant.source_id);
@@ -378,6 +388,7 @@ const priorAwardQuestionGrant = normalizedGrant("prior-award-question", "중복�
     kind: "required",
     value: { regions: ["41"], labels: ["경기"], nationwide: false },
     confidence: 0.95,
+    source_span: "경기도 소재 기업",
   },
   {
     dimension: "prior_award",
@@ -395,7 +406,11 @@ const priorAwardQuestionDashboard = buildDashboard({
   limit: 10,
 });
 assert.equal(priorAwardQuestionDashboard.nextQuestion?.dimension, "prior_award");
-assert.equal(priorAwardQuestionDashboard.nextQuestion?.inputType, "select");
+// P3 prior_award 재설계(2026-07-12): named-program 조건은 select가 아니라
+// 프로그램 단위 boolean 질문 + priorAwardContext로 나간다.
+assert.equal(priorAwardQuestionDashboard.nextQuestion?.inputType, "boolean");
+assert.equal(priorAwardQuestionDashboard.nextQuestion?.priorAwardContext?.scope, "program");
+assert.deepEqual(priorAwardQuestionDashboard.nextQuestion?.priorAwardContext?.programs, ["tips"]);
 assert.deepEqual(priorAwardQuestionDashboard.nextQuestion?.options, ["해당 없음", "TIPS"]);
 
 const noPriorAwardProfile = updateCompanyProfileField(company, {

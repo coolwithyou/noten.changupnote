@@ -224,14 +224,87 @@ function verifyServiceDtoSchemas(errors: string[]) {
   if (!isRecord(teaserRequest.properties.profile) || teaserRequest.properties.profile.$ref !== "#/components/schemas/CompanyProfile") {
     errors.push("TeaserRequest.profile must reference CompanyProfile.");
   }
+  const companyProfile = schemas.CompanyProfile;
+  if (!isRecord(companyProfile) || !isRecord(companyProfile.properties)) {
+    errors.push("CompanyProfile schema is missing properties.");
+  } else {
+    const listCompleteness = companyProfile.properties.list_completeness;
+    const values = isRecord(listCompleteness) && isRecord(listCompleteness.additionalProperties)
+      ? listCompleteness.additionalProperties.enum
+      : undefined;
+    if (!Array.isArray(values) || !values.includes("partial") || !values.includes("complete")) {
+      errors.push("CompanyProfile.list_completeness must include partial and complete.");
+    }
+  }
 
   const fitScore = matchCard.properties.fitScore;
   if (!isRecord(fitScore) || fitScore.minimum !== 0 || fitScore.maximum !== 100) {
     errors.push("MatchCard.fitScore must be documented as a 0..100 score.");
   }
+  const qualityRef = matchCard.properties.quality;
+  if (!isRecord(qualityRef) || qualityRef.$ref !== "#/components/schemas/MatchQuality") {
+    errors.push("MatchCard.quality must reference MatchQuality.");
+  }
+  const matchQuality = schemas.MatchQuality;
+  if (!isRecord(matchQuality) || !isRecord(matchQuality.properties)) {
+    errors.push("MatchQuality schema is missing properties.");
+  } else {
+    for (const field of ["verificationCompleteness", "evidenceCoverage"] as const) {
+      const property = matchQuality.properties[field];
+      if (!isRecord(property) || property.minimum !== 0 || property.maximum !== 100) {
+        errors.push(`MatchQuality.${field} must be documented as 0..100.`);
+      }
+    }
+  }
+  const rankingRef = matchCard.properties.ranking;
+  if (!isRecord(rankingRef) || rankingRef.$ref !== "#/components/schemas/MatchRanking") {
+    errors.push("MatchCard.ranking must reference MatchRanking.");
+  }
+  const matchRanking = schemas.MatchRanking;
+  if (!isRecord(matchRanking) || !isRecord(matchRanking.properties)) {
+    errors.push("MatchRanking schema is missing properties.");
+  } else {
+    for (const field of ["relevanceScore", "priorityScore"] as const) {
+      const property = matchRanking.properties[field];
+      const variants = isRecord(property) && Array.isArray(property.anyOf) ? property.anyOf : [];
+      const numberVariant = variants.find((variant) => isRecord(variant) && variant.type === "number");
+      if (!isRecord(numberVariant) || numberVariant.minimum !== 0 || numberVariant.maximum !== 100) {
+        errors.push(`MatchRanking.${field} must be documented as nullable 0..100.`);
+      }
+    }
+  }
 
   if (nullableStringFormat(matchCard.properties.applyEnd) !== "date") {
     errors.push("MatchCard.applyEnd must use nullable date format.");
+  }
+
+  const profileFieldUpdate = schemas.ProfileFieldUpdateRequest;
+  if (!isRecord(profileFieldUpdate) || !isRecord(profileFieldUpdate.properties)) {
+    errors.push("ProfileFieldUpdateRequest schema is missing properties.");
+  } else {
+    const mode = profileFieldUpdate.properties.mode;
+    if (!isRecord(mode) || !Array.isArray(mode.enum) || !mode.enum.includes("replace") || !mode.enum.includes("merge")) {
+      errors.push("ProfileFieldUpdateRequest.mode must include replace and merge.");
+    }
+  }
+
+  const profileUpdateImpact = schemas.ProfileUpdateImpact;
+  if (!isRecord(profileUpdateImpact) || !isRecord(profileUpdateImpact.properties) ||
+    !isRecord(profileUpdateImpact.properties.windowLimit) || profileUpdateImpact.properties.windowLimit.minimum !== 0) {
+    errors.push("ProfileUpdateImpact.windowLimit must allow an empty active-grant window.");
+  }
+  const profileQuestionRefresh = schemas.ProfileQuestionRefresh;
+  if (!isRecord(profileQuestionRefresh) || !isRecord(profileQuestionRefresh.properties)) {
+    errors.push("ProfileQuestionRefresh schema is missing properties.");
+  } else {
+    const required: unknown[] = Array.isArray(profileQuestionRefresh.required) ? profileQuestionRefresh.required : [];
+    for (const field of ["status", "plannedCount", "savedCount", "failedCount", "failedGrantIds"]) {
+      if (!required.includes(field)) errors.push(`ProfileQuestionRefresh must require ${field}.`);
+    }
+    const status = profileQuestionRefresh.properties.status;
+    if (!isRecord(status) || !Array.isArray(status.enum) || !status.enum.includes("partial") || !status.enum.includes("failed")) {
+      errors.push("ProfileQuestionRefresh.status must document partial and failed refreshes.");
+    }
   }
 
   const nextQuestion = schemas.NextQuestion;

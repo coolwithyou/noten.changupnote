@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "matching-v3-pair-holdout-v1",
+  "createdAt": "2026-07-12T08:20:00.000Z",
+  "selectionMethod": "sha256_pair_id_within_source_business_kind",
+  "targetRatio": 0.3,
+  "pairIds": [
+    "bizinfo:PBLN_000000000117579::seed-corporation-01",
+    "bizinfo:PBLN_000000000117688::seed-corporation-01",
+    "bizinfo:PBLN_000000000117688::seed-individual-01",
+    "bizinfo:PBLN_000000000118386::seed-corporation-01",
+    "bizinfo:PBLN_000000000118386::seed-individual-01",
+    "bizinfo:PBLN_000000000120262::seed-individual-02",
+    "bizinfo:PBLN_000000000121145::seed-individual-02",
+    "bizinfo:PBLN_000000000123596::seed-individual-01",
+    "bizinfo:PBLN_000000000124200::seed-individual-01",
+    "kstartup:178215::seed-individual-02",
+    "kstartup:178216::seed-corporation-01",
+    "kstartup:178217::seed-corporation-01",
+    "kstartup:178217::seed-individual-01",
+    "kstartup:178219::seed-corporation-01",
+    "kstartup:178219::seed-individual-02",
+    "kstartup:178220::seed-individual-02",
+    "kstartup:178222::seed-individual-01",
+    "kstartup:178222::seed-individual-02",
+    "kstartup:178223::seed-corporation-01",
+    "kstartup:178226::seed-corporation-01",
+    "kstartup:178227::seed-individual-01",
+    "kstartup:178239::seed-individual-02",
+    "kstartup:178240::seed-individual-01",
+    "kstartup:178244::seed-corporation-01",
+    "kstartup:178244::seed-individual-01",
+    "kstartup:178245::seed-individual-01",
+    "kstartup:178245::seed-individual-02"
+  ],
+  "strata": {
+    "bizinfo:corporation": { "total": 10, "holdout": 3 },
+    "bizinfo:individual": { "total": 20, "holdout": 6 },
+    "kstartup:corporation": { "total": 20, "holdout": 6 },
+    "kstartup:individual": { "total": 40, "holdout": 12 }
+  }
+}

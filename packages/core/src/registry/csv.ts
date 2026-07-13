@@ -6,8 +6,9 @@
  * 유지한다. 인코딩 디코딩(EUC-KR 등)은 범위 밖 — 이 파서는 이미 디코딩된 문자열을 받는다.
  */
 
-/** CSV 텍스트 → 헤더 포함 전체 행렬(각 행은 필드 문자열 배열). */
-export function parseCsv(text: string): string[][] {
+/** CSV/TSV 텍스트 → 헤더 포함 전체 행렬(각 행은 필드 문자열 배열). */
+export function parseCsv(text: string, opts?: { delimiter?: "," | "\t" }): string[][] {
+  const delimiter = opts?.delimiter ?? ",";
   const rows: string[][] = [];
   let field = "";
   let row: string[] = [];
@@ -52,8 +53,14 @@ export function parseCsv(text: string): string[][] {
         fieldStarted = true;
         break;
       case ",":
-        pushField();
-        fieldStarted = false;
+      case "\t":
+        if (ch === delimiter) {
+          pushField();
+          fieldStarted = false;
+        } else {
+          field += ch;
+          fieldStarted = true;
+        }
         break;
       case "\r":
         // CRLF 의 CR 은 무시하고 LF 에서 행을 종료한다. 단독 CR 은 다음 문자가 LF 가

@@ -25,7 +25,7 @@ export interface ApplicationPipelineItem {
   grantId: string;
   title: string;
   agency: string | null;
-  /** 현재 매칭 결과 밖(직접 준비)이면 적합도를 산정할 수 없어 null이다. */
+  /** 현재 매칭 결과 밖(직접 준비)이면 조건 확인도를 산정할 수 없어 null이다. */
   fitScore: number | null;
   eligibility: MatchCard["eligibility"];
   dDay: number | null;
@@ -105,7 +105,7 @@ export async function buildApplicationPipeline(input: {
       draft: drafts.get(match.grantId) ?? emptyDraftSnapshot(),
     }));
 
-  // 초안은 있으나 매칭 목록(위 유지분)에 없는 공고를 DB 메타로 보강한다 — "낮은 적합도여도 지원" 시나리오의 핵심.
+  // 초안은 있으나 매칭 목록(위 유지분)에 없는 공고를 DB 메타로 보강한다 — "매칭 밖이어도 지원" 시나리오의 핵심.
   const coveredGrantIds = new Set(matchItems.map((item) => item.grantId));
   const outsideGrantIds = [...drafts.keys()]
     .filter((grantId) => !coveredGrantIds.has(grantId))

@@ -16,6 +16,7 @@ import {
   type KStartupDetailContent,
 } from "@cunote/core";
 import type { CunoteDb } from "../db/client";
+import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 import * as schema from "../db/schema";
 import {
   planGrantArchivePublication,
@@ -31,6 +32,11 @@ import {
   KSTARTUP_DETAIL_REQUEST_DELAY_MS,
 } from "./kstartupDetailFetch";
 import { publishKStartupGrants } from "./kstartupPublisher";
+import { archiveGrantAttachments } from "./grantAttachmentArchive";
+import {
+  mergeArchivedKStartupAttachments,
+  selectKStartupAttachmentsForArchive,
+} from "./kstartupAttachmentSelection";
 
 export interface ArchiveKStartupInput {
   db: CunoteDb | null;
@@ -52,6 +58,13 @@ export interface ArchiveKStartupInput {
    * detailTotals.skippedBudget 로 집계한다(라우트 B / 백필이 나중에 치유). 미지정이면 무제한.
    */
   maxDetailFetches?: number;
+  /** 명시 활성화 시에만 detail 첨부 본문을 다운로드해 R2에 보관한다. */
+  archiveAttachments?: boolean;
+  storage?: R2ObjectStorage | null;
+  maxAttachmentsPerGrant?: number;
+  convertHwpAttachments?: boolean;
+  autoInstallPyhwp?: boolean;
+  allowAttachmentFailures?: boolean;
 }
 
 export interface ArchiveKStartupResult {
@@ -67,7 +80,27 @@ export interface ArchiveKStartupResult {
   collectedAt: string;
   totals: ArchiveTotals;
   detailTotals: DetailTotals;
+  attachmentArchiveTotals: AttachmentArchiveTotals;
+  revisionRefresh: RevisionRefreshSummary;
   pages: ArchivePageSummary[];
+}
+
+export interface RevisionRefreshSummary {
+  newCount: number;
+  changedCount: number;
+  unchangedCount: number;
+  matchStateInvalidatedCount: number;
+  matchStateRefreshedCount: number;
+  matchStateRefreshRequired: boolean;
+  grantIds: string[];
+}
+
+export interface AttachmentArchiveTotals {
+  selected: number;
+  archived: number;
+  converted: number;
+  skippedConversion: number;
+  failed: number;
 }
 
 export interface DetailTotals {
@@ -103,11 +136,13 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
   const pages: ArchivePageSummary[] = [];
   const totals = emptyTotals();
   const detailTotals = emptyDetailTotals();
+  const attachmentArchiveTotals = emptyAttachmentArchiveTotals();
   const detailBudget = input.maxDetailFetches !== undefined ? { remaining: input.maxDetailFetches } : null;
   let stopReason = "page_limit";
   let unchangedPageStreak = 0;
   let totalCount: number | null = null;
   let fetchedRows = 0;
+  const revisionRefresh = emptyRevisionRefreshSummary();
 
   for (let offset = 0; offset < input.pages; offset += 1) {
     const page = input.startPage + offset;
@@ -130,13 +165,15 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
 
     // 신규/변경 공고에 대해서만 상세 페이지를 fetch 해 payload.detail + attachments 를 채운다.
     await enrichEntriesWithDetail(publishableEntries, input.details, detailTotals, detailBudget);
+    await archiveEntryAttachments(publishableEntries, input, attachmentArchiveTotals);
 
     if (input.write && input.db) {
       if (publishableEntries.length > 0) {
-        await publishKStartupGrants(input.db, publishableEntries, {
+        const published = await publishKStartupGrants(input.db, publishableEntries, {
           page,
           collectedAt: input.collectedAt,
         });
+        mergeRevisionRefreshSummary(revisionRefresh, published);
       } else {
         await updateSourceCursor(input.db, page, input.collectedAt);
       }
@@ -198,8 +235,70 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
     collectedAt: input.collectedAt.toISOString(),
     totals,
     detailTotals,
+    attachmentArchiveTotals,
+    revisionRefresh: finalizeRevisionRefreshSummary(revisionRefresh),
     pages,
   };
+}
+
+function emptyRevisionRefreshSummary(): RevisionRefreshSummary {
+  return {
+    newCount: 0,
+    changedCount: 0,
+    unchangedCount: 0,
+    matchStateInvalidatedCount: 0,
+    matchStateRefreshedCount: 0,
+    matchStateRefreshRequired: false,
+    grantIds: [],
+  };
+}
+
+function mergeRevisionRefreshSummary(
+  target: RevisionRefreshSummary,
+  published: Awaited<ReturnType<typeof publishKStartupGrants>>,
+): void {
+  target.newCount += published.revisionCounts.new;
+  target.changedCount += published.revisionCounts.changed;
+  target.unchangedCount += published.revisionCounts.unchanged;
+  target.matchStateInvalidatedCount += published.matchStateInvalidatedCount;
+  target.matchStateRefreshedCount += published.matchStateRefreshedCount;
+  target.matchStateRefreshRequired ||= published.matchStateRefreshRequired;
+  target.grantIds.push(...published.matchStateRefreshGrantIds);
+}
+
+function finalizeRevisionRefreshSummary(value: RevisionRefreshSummary): RevisionRefreshSummary {
+  return { ...value, grantIds: [...new Set(value.grantIds)].sort() };
+}
+
+async function archiveEntryAttachments(
+  entries: Array<NormalizedGrant<KStartupAnnouncement>>,
+  input: ArchiveKStartupInput,
+  totals: AttachmentArchiveTotals,
+): Promise<void> {
+  // archiveAttachments 플래그만으로 dry-run이 R2에 쓰지 않도록 write와 함께 게이트한다.
+  if (!input.archiveAttachments || !input.write) return;
+  if (!input.storage) throw new Error("K-Startup attachment archive requires R2 storage configuration.");
+  const maxAttachments = input.maxAttachmentsPerGrant ?? 3;
+  for (const entry of entries) {
+    const selected = selectKStartupAttachmentsForArchive(entry.raw.attachments, maxAttachments);
+    if (selected.length === 0) continue;
+    totals.selected += selected.length;
+    const bundle = await archiveGrantAttachments(selected, {
+      source: "kstartup",
+      sourceId: entry.raw.source_id,
+      collectedAt: input.collectedAt,
+      enabled: true,
+      convertHwp: input.convertHwpAttachments ?? true,
+      autoInstallPyhwp: input.autoInstallPyhwp ?? false,
+      allowFailures: input.allowAttachmentFailures ?? true,
+      storage: input.storage,
+    });
+    entry.raw.attachments = mergeArchivedKStartupAttachments(entry.raw.attachments, bundle.attachments);
+    totals.archived += bundle.archivedCount;
+    totals.converted += bundle.convertedCount;
+    totals.skippedConversion += bundle.skippedConversionCount;
+    totals.failed += bundle.failureCount;
+  }
 }
 
 /**
@@ -358,6 +457,10 @@ function emptyDetailTotals(): DetailTotals {
     skippedBudget: 0,
     attachments: 0,
   };
+}
+
+function emptyAttachmentArchiveTotals(): AttachmentArchiveTotals {
+  return { selected: 0, archived: 0, converted: 0, skippedConversion: 0, failed: 0 };
 }
 
 function addTotals(totals: ArchiveTotals, plan: GrantArchivePlan, publishedCount: number): void {

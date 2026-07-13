@@ -1,5 +1,8 @@
 import type { CompanyEvidence, CompanyProfile, MatchCard, NormalizedGrant, TeaserResult } from "@cunote/contracts";
-import { matchGrantCriteria } from "../matching/match.js";
+import { matchNormalizedGrant } from "../matching/match.js";
+import { planProfileQuestions } from "../matching/question-planner.js";
+import { withMatchRanking } from "../matching/ranking.js";
+import { activeUnknownQuestionDimensions } from "../company/question-answer-state.js";
 import {
   companyAttributes,
   countByEligibility,
@@ -15,6 +18,10 @@ export interface BuildTeaserOptions<TPayload = unknown> {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf?: Date;
   limit?: number;
+  /** 전체 카드 제한 안에서 우선 확보할 추천 가능 카드 수. 기본 8개 응답에서는 5개다. */
+  recommendableLimit?: number;
+  /** 전체 카드 제한 안에서 우선 확보할 검토 필요 카드 수. 기본 8개 응답에서는 3개다. */
+  reviewNeededLimit?: number;
   companyEvidence?: CompanyEvidence | null;
 }
 
@@ -23,19 +30,32 @@ export function buildTeaser<TPayload>({
   grants,
   asOf = new Date(),
   limit = 8,
+  recommendableLimit,
+  reviewNeededLimit,
   companyEvidence,
 }: BuildTeaserOptions<TPayload>): TeaserResult {
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
-    match: matchGrantCriteria(item.criteria, company),
+    match: withMatchRanking(item, company, matchNormalizedGrant(item, company), { asOf }),
   }));
   const sorted = sortMatchedGrants(matched);
+  const nextQuestion = planProfileQuestions(sorted, {
+    asOf,
+    limit: 1,
+    excludeDimensions: activeUnknownQuestionDimensions(company, asOf),
+  })[0]?.question ?? null;
   const cards = sorted.map((entry) => toMatchCard(entry, { asOf }));
   const recommendableCards = cards.filter(isRecommendableCard);
   const reviewNeededCards = cards.filter(isReviewNeededCard);
   const notRecommendedCards = cards.filter(isNotRecommendedCard);
-  const recommendableMatches = recommendableCards.slice(0, limit);
-  const reviewNeededMatches = reviewNeededCards.slice(0, Math.max(0, limit - recommendableMatches.length));
+  const {
+    recommendable: recommendableMatches,
+    reviewNeeded: reviewNeededMatches,
+  } = selectVisibleTeaserBuckets(recommendableCards, reviewNeededCards, {
+    limit,
+    ...(recommendableLimit === undefined ? {} : { recommendableLimit }),
+    ...(reviewNeededLimit === undefined ? {} : { reviewNeededLimit }),
+  });
   const visibleMatches = [...recommendableMatches, ...reviewNeededMatches];
   const counts = countByEligibility(matched.map((entry) => entry.match));
   const deadlineSoon = matched.filter((entry) => {
@@ -55,6 +75,7 @@ export function buildTeaser<TPayload>({
       notRecommended: notRecommendedCards.length,
     },
     matches: visibleMatches,
+    nextQuestion,
     recommendableMatches,
     reviewNeededMatches,
     searchContext: {
@@ -66,6 +87,49 @@ export function buildTeaser<TPayload>({
   };
   if (companyEvidence !== undefined) result.companyEvidence = companyEvidence;
   return result;
+}
+
+function selectVisibleTeaserBuckets(
+  recommendableCards: MatchCard[],
+  reviewNeededCards: MatchCard[],
+  options: { limit: number; recommendableLimit?: number; reviewNeededLimit?: number },
+): { recommendable: MatchCard[]; reviewNeeded: MatchCard[] } {
+  const limit = nonNegativeInteger(options.limit);
+  const defaultReviewQuota = limit >= 2 ? Math.max(1, Math.floor(limit * 3 / 8)) : 0;
+  const requestedRecommendable = options.recommendableLimit === undefined
+    ? limit - defaultReviewQuota
+    : nonNegativeInteger(options.recommendableLimit);
+  const recommendableQuota = Math.min(limit, requestedRecommendable);
+  const requestedReview = options.reviewNeededLimit === undefined
+    ? limit - recommendableQuota
+    : nonNegativeInteger(options.reviewNeededLimit);
+  const reviewQuota = Math.min(limit - recommendableQuota, requestedReview);
+
+  let recommendable = recommendableCards.slice(0, recommendableQuota);
+  let reviewNeeded = reviewNeededCards.slice(0, reviewQuota);
+  let remaining = limit - recommendable.length - reviewNeeded.length;
+
+  if (remaining > 0) {
+    const additionalRecommendable = recommendableCards.slice(
+      recommendable.length,
+      recommendable.length + remaining,
+    );
+    recommendable = [...recommendable, ...additionalRecommendable];
+    remaining -= additionalRecommendable.length;
+  }
+  if (remaining > 0) {
+    reviewNeeded = [
+      ...reviewNeeded,
+      ...reviewNeededCards.slice(reviewNeeded.length, reviewNeeded.length + remaining),
+    ];
+  }
+
+  return { recommendable, reviewNeeded };
+}
+
+function nonNegativeInteger(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.floor(value));
 }
 
 function isRecommendableCard(card: MatchCard): boolean {

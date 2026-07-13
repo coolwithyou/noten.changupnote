@@ -21,10 +21,10 @@
  *
  * 사용:
  *   pnpm backfill:attachment-surfaces                          # dry-run (limit 5 grants)
- *   pnpm backfill:attachment-surfaces -- --write --limit=5
- *   pnpm backfill:attachment-surfaces -- --source=bizinfo --all --limit=100 --write
+ *   pnpm backfill:attachment-surfaces -- --write --confirm=REGISTER_ATTACHMENT_SURFACES --limit=5
+ *   pnpm backfill:attachment-surfaces -- --source=bizinfo --all --limit=100 --write --confirm=REGISTER_ATTACHMENT_SURFACES
  */
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { GrantSource } from "@cunote/contracts";
 import { closeCunoteDb, getCunoteDb, type CunoteDbSession } from "../db/client";
 import * as schema from "../db/schema";
@@ -45,9 +45,13 @@ const write = process.argv.includes("--write");
 const includeAllStatuses = process.argv.includes("--all");
 const limit = boundedInteger(readArg("limit"), 5, 1, 500);
 const source = (readArg("source") ?? "bizinfo") as GrantSource;
+const sourceIds = csvArg(readArg("sourceIds"), 100);
 if (!["bizinfo", "kstartup", "bizinfo_event"].includes(source)) {
   console.error(`지원하지 않는 source: ${source}`);
   process.exit(1);
+}
+if (write && readArg("confirm") !== "REGISTER_ATTACHMENT_SURFACES") {
+  throw new Error("--write requires --confirm=REGISTER_ATTACHMENT_SURFACES");
 }
 
 const db = getCunoteDb();
@@ -87,6 +91,7 @@ try {
         isNotNull(schema.grantAttachmentArchives.sha256),
         isNotNull(schema.grantAttachmentArchives.storageKey),
         ...(includeAllStatuses ? [] : [eq(schema.grants.status, "open")]),
+        ...(sourceIds.length ? [inArray(schema.grantAttachmentArchives.sourceId, sourceIds)] : []),
       ),
     )
     // 최근 갱신분부터 (archives 테이블에는 updatedAt 만 있다).
@@ -129,6 +134,7 @@ try {
     source,
     grantStatusFilter: includeAllStatuses ? "all" : "open",
     limit,
+    sourceIds,
     candidateGrants: groups.size,
     results: [] as Array<Record<string, unknown>>,
     totals: { surfacesUpserted: 0, jobsEnqueued: 0, cacheHits: 0, skipped: 0, warnings: 0 },
@@ -191,9 +197,18 @@ R2 아카이브가 끝난 첨부(sha256/storage_key 확보)에 surface 를 소�
 변환 job 을 등록한다. 기존 후크(registerAttachmentConversions)를 재사용하며 멱등이다.
 
 Options:
-  --write            실제 등록 (기본 dry-run)
+  --write --confirm=REGISTER_ATTACHMENT_SURFACES
+                     실제 등록 (기본 dry-run)
   --limit=5          처리할 grant 수 (1..500)
   --source=bizinfo   bizinfo|kstartup|bizinfo_event
+  --sourceIds=id1,id2 특정 공고 source_id만 처리 (최대 100)
   --all              open 외 상태의 grant 도 포함
 `);
+}
+
+function csvArg(value: string | undefined, max: number): string[] {
+  if (!value) return [];
+  const values = [...new Set(value.split(",").map((item) => item.trim()).filter(Boolean))];
+  if (values.length > max) throw new Error(`sourceIds supports at most ${max} values`);
+  return values;
 }

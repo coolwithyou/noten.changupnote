@@ -42,6 +42,8 @@ export function toMatchCard<TPayload>(
     eligibility: entry.match.eligibility,
     bucket: bucketForMatch(entry.match),
     fitScore: entry.match.fit_score,
+    quality: entry.match.quality,
+    ...(entry.match.ranking ? { ranking: entry.match.ranking } : {}),
     supportAmount: normalizeSupportAmount(grant.support_amount),
     benefits: deriveGrantBenefits(grant),
     applyEnd: grant.apply_end ?? null,
@@ -220,7 +222,7 @@ export function grantKey(grant: Pick<Grant, "id" | "source" | "source_id">): str
 }
 
 // 같은 적격도 안에서는 지원서 작성을 도와줄 수 있는 사업을 먼저 보여준다(핵심 BM).
-// 적합도보다 앞선 3차 키 — 배지가 정렬 근거를 화면에서 설명한다.
+// 조건 확인도보다 앞선 3차 키 — 배지가 정렬 근거를 화면에서 설명한다.
 const WRITE_SUPPORT_SORT_RANK: Record<WriteSupportLevel, number> = {
   template_fill: 0,
   ai_draft: 0,
@@ -229,11 +231,14 @@ const WRITE_SUPPORT_SORT_RANK: Record<WriteSupportLevel, number> = {
 };
 
 export function sortMatchedGrants<TPayload>(entries: MatchedGrant<TPayload>[]): MatchedGrant<TPayload>[] {
-  const decorated = entries.map((entry) => ({
+  const decorated = entries.map((entry, index) => ({
     entry,
+    index,
     writeSupportRank: WRITE_SUPPORT_SORT_RANK[deriveWriteSupport(entry.item.grant)],
   }));
-  decorated.sort((a, b) => compareMatch(a.entry.match, b.entry.match, a.writeSupportRank, b.writeSupportRank));
+  decorated.sort((a, b) =>
+    compareMatchedGrant(a.entry, b.entry, a.writeSupportRank, b.writeSupportRank) || a.index - b.index
+  );
   return decorated.map((item) => item.entry);
 }
 
@@ -364,28 +369,51 @@ function bizAgeLockDate(asOf: Date) {
   };
 }
 
-function compareMatch(
-  a: MatchResult,
-  b: MatchResult,
+function compareMatchedGrant<TPayload>(
+  a: MatchedGrant<TPayload>,
+  b: MatchedGrant<TPayload>,
   aWriteSupportRank = 0,
   bWriteSupportRank = 0,
 ): number {
-  const trustRank = recommendationTierRank(a) - recommendationTierRank(b);
+  const trustRank = recommendationTierRank(a.match) - recommendationTierRank(b.match);
   if (trustRank !== 0) return trustRank;
-
-  // 조건이 아직 구조화되지 않은(미산정) 공고는 산정된 공고들 아래로 내린다.
-  const aExtracted = a.criteria_extracted !== false;
-  const bExtracted = b.criteria_extracted !== false;
-  if (aExtracted !== bExtracted) return aExtracted ? -1 : 1;
 
   const rank: Record<MatchResult["eligibility"], number> = {
     eligible: 0,
     conditional: 1,
     ineligible: 2,
   };
-  return rank[a.eligibility] - rank[b.eligibility] ||
+  return rank[a.match.eligibility] - rank[b.match.eligibility] ||
+    extractionReadinessRank(a.match) - extractionReadinessRank(b.match) ||
+    descendingNullable(a.match.ranking?.relevanceScore, b.match.ranking?.relevanceScore) ||
+    descendingNullable(a.match.ranking?.priorityScore, b.match.ranking?.priorityScore) ||
+    deadlineSortRank(a.item.grant.apply_end) - deadlineSortRank(b.item.grant.apply_end) ||
     aWriteSupportRank - bWriteSupportRank ||
-    b.fit_score - a.fit_score;
+    b.match.fit_score - a.match.fit_score ||
+    // cursor pagination은 요청마다 DB row 순서가 달라도 동일한 정렬을 재현해야 한다.
+    grantKey(a.item.grant).localeCompare(grantKey(b.item.grant));
+}
+
+function extractionReadinessRank(match: MatchResult): number {
+  const rank: Record<MatchResult["quality"]["extractionReadiness"], number> = {
+    reviewed: 0,
+    structured_unreviewed: 1,
+    partial: 2,
+    unstructured: 3,
+  };
+  return rank[match.quality.extractionReadiness];
+}
+
+function descendingNullable(a: number | null | undefined, b: number | null | undefined): number {
+  if (a === null || a === undefined) return b === null || b === undefined ? 0 : 1;
+  if (b === null || b === undefined) return -1;
+  return b - a;
+}
+
+function deadlineSortRank(value: string | null | undefined): number {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const time = parseDate(value)?.getTime();
+  return time === undefined ? Number.MAX_SAFE_INTEGER : time;
 }
 
 function fallbackRecommendationTier(match: MatchResult): MatchRecommendationTier {

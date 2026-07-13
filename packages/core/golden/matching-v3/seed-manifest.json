@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "matching-v3-seed-v2",
+  "createdAt": "2026-07-12T00:00:00+09:00",
+  "status": "labeling_pending",
+  "sourceFixture": "samples/kstartup_announcement_sample.json",
+  "grantSelection": [
+    { "source": "kstartup", "sourceId": "178249", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178246", "status": "legacy_seed" },
+    { "source": "kstartup", "sourceId": "178245", "status": "legacy_seed" },
+    { "source": "kstartup", "sourceId": "178244", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178240", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178239", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178238", "status": "legacy_seed" },
+    { "source": "kstartup", "sourceId": "178235", "status": "legacy_seed" },
+    { "source": "kstartup", "sourceId": "178231", "status": "legacy_seed" },
+    { "source": "kstartup", "sourceId": "178229", "status": "legacy_seed" },
+    { "source": "kstartup", "sourceId": "178228", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178227", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178226", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178223", "status": "legacy_seed" },
+    { "source": "kstartup", "sourceId": "178222", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178220", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178219", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178217", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178216", "status": "pending" },
+    { "source": "kstartup", "sourceId": "178215", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000124200", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000123596", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000120262", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000121145", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000117490", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000117579", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000117688", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000118386", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000118617", "status": "pending" },
+    { "source": "bizinfo", "sourceId": "PBLN_000000000118665", "status": "pending" }
+  ],
+  "companySelection": [
+    { "companyId": "demo-company", "businessKind": "unknown", "status": "legacy_seed" },
+    { "companyId": "demo-company-dq", "businessKind": "unknown", "status": "legacy_seed" },
+    { "companyId": "seed-individual-01", "businessKind": "individual", "status": "draft_ready" },
+    { "companyId": "seed-individual-02", "businessKind": "individual", "status": "draft_ready" },
+    { "companyId": "seed-corporation-01", "businessKind": "corporation", "status": "draft_ready" }
+  ],
+  "notes": [
+    "legacy_seed는 기존 v1/v2 회귀 라벨이며 reviewed 정답이 아니다.",
+    "pending 항목과 draft_ready 프로필은 독립 reviewer 확정 전 운영 평가에 포함하지 않는다.",
+    "draft_ready 프로필은 실제 사업자정보가 아닌 비식별 synthetic archetype이며 자동조회 정확도 근거가 아니다.",
+    "기업마당 10건은 2026-07-12 readiness report의 고위험 표본에서 선정했다.",
+    "review task export는 정답 라벨이 아니며 reviewer 확정 전 평가에 포함하지 않는다."
+  ]
+}

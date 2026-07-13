@@ -14,6 +14,8 @@ import {
 import { normalizeGrantRequiredDocument } from "../documents/taxonomy.js";
 import { BIZINFO_NORMALIZER_VERSION } from "./normalize.js";
 import { assertGrantCriteriaContract } from "./criteria-contract.js";
+import { canonicalizeGrantCriteria, canonicalizeGrantCriterion } from "../criteria/canonicalize.js";
+import { buildBizInfoDeterministicCriteria, mergeBizInfoDeterministicCriteria } from "./deterministic-criteria.js";
 import type { BizInfoProgramExtractionInput } from "./types.js";
 
 export const DEFAULT_ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
@@ -34,6 +36,13 @@ export interface AnthropicCriteriaResult {
   requiredDocuments: GrantRequiredDocument[];
   model: string;
   usage: Record<string, unknown> | null;
+}
+
+export interface LlmCriteriaNormalizationOptions {
+  sourcePrefix: string;
+  parserVersion: string;
+  contractLabel?: string;
+  forceNeedsReview?: boolean;
 }
 
 export async function extractBizInfoCriteriaWithAnthropic(options: {
@@ -60,7 +69,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
         "입력 텍스트에 명시된 조건만 추출하고, 추정하지 않는다.",
         "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
         "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
-        "업종은 공고 표현을 가능한 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 조건으로 남긴다.",
+        "업종은 dimension=industry의 value.tags 배열에 공고 표현을 가능한 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 조건으로 남긴다.",
         "휴폐업 제외 조건은 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"closed\"],\"labels\":[\"휴폐업\"]} 로 추출한다.",
         "",
         "[결격(배제) 조건 구조화 — 아래 축으로 반드시 분해한다]",
@@ -70,10 +79,15 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
         "- 재무건전성: dimension=financial_health, kind=exclusion, value.debt_ratio_pct_threshold={\"value\":숫자,\"inclusive\":이상=true/초과=false}, value.impairment_excluded=[\"partial\"|\"full\"](자본잠식만 언급 시 [\"partial\",\"full\"]), value.min_interest_coverage=숫자.",
         "- 고용보험·피보험자: dimension=insured_workforce, value.employment_insurance_required=true / min_insured·max_insured 숫자 / no_layoff_within_months 숫자.",
         "- 투자유치: dimension=investment, value.min_total_krw(원 단위 정수) / rounds / tips_operator_required.",
-        "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박): dimension=industry, operator=not_in, kind=exclusion, value.labels=[업종명].",
+        "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박): dimension=industry, operator=not_in, kind=exclusion, value.tags=[업종명].",
+        "",
+        "[수혜·참여 이력 구조화 — prior_award]",
+        "- 동일·유사 지원 수행, 동일 과제 동시참여, 본 사업 과거 선정, 당해연도 타부처 중복은 dimension=prior_award, kind=exclusion, operator=exists, value={\"scope\":\"self\",\"self_kind\":\"current_similar|same_project|same_business_prior|same_year_other_support\",\"channel\":\"general\"}.",
+        "- 다른 창업보육센터·BI 중복입주는 value={\"scope\":\"self\",\"channel\":\"incubation_tenancy\",\"self_kind\":\"same_year_other_support\"}.",
+        "- 특정 지원사업 참여·수혜·수료 이력은 operator=in, value={\"scope\":\"program\"|\"program_type\",\"programs\":[\"사업명\"],\"states\":[\"participating\"|\"completed\"|\"graduated\"]}. 최근 N년·개월 조건은 within={\"value\":N,\"unit\":\"year\"|\"month\"}.",
+        "- prior_award 구조화 조건에도 해당 근거 문장 source_span이 반드시 있어야 한다. 범위나 사업명을 특정할 수 없으면 other text_only exclusion으로 남긴다.",
         "",
         "[구조화 금지 — other text_only exclusion 으로만 남긴다]",
-        "- 중복수혜·동일사업 중복지원·타부처 중복·참여 중 과제·창업사관학교/NEST 등 프로그램 수료·참여 이력은 절대 prior_award(또는 위 결격 축)로 만들지 말고 other text_only exclusion 으로 둔다.",
         "- 서류 허위·미제출·표절·모방·\"기타 부적합\" 같은 절차·재량 조건도 other text_only exclusion.",
         "- premises, export_performance 축은 이번 스키마에서 사용하지 않는다(제외).",
         "",
@@ -94,7 +108,7 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
           options.input.text.slice(0, 12000),
         ].join("\n"),
       }],
-      tools: [buildBizInfoCriteriaToolSchema()],
+      tools: [buildGrantCriteriaToolSchema()],
       tool_choice: { type: "tool", name: "emit_grant_criteria" },
     }),
   });
@@ -113,8 +127,14 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
     throw new Error("Anthropic response did not contain emit_grant_criteria tool_use");
   }
 
+  const normalizedCriteria = normalizeBizInfoLlmCriteria(toolUse.input, options.input.source_id);
+  const criteria = canonicalizeGrantCriteria(mergeBizInfoDeterministicCriteria(
+    buildBizInfoDeterministicCriteria(options.input),
+    normalizedCriteria,
+  ));
+  assertGrantCriteriaContract(criteria, `bizinfo:${options.input.source_id}:merged`);
   return {
-    criteria: normalizeBizInfoLlmCriteria(toolUse.input, options.input.source_id),
+    criteria,
     requiredDocuments: normalizeBizInfoLlmRequiredDocuments(toolUse.input),
     model,
     usage: payload.usage ?? null,
@@ -122,15 +142,28 @@ export async function extractBizInfoCriteriaWithAnthropic(options: {
 }
 
 export function normalizeBizInfoLlmCriteria(payload: unknown, sourceId: string): GrantCriterion[] {
+  return normalizeGrantLlmCriteria(payload, sourceId, {
+    sourcePrefix: "bizinfo",
+    parserVersion: BIZINFO_NORMALIZER_VERSION,
+    contractLabel: `bizinfo:${sourceId}`,
+    forceNeedsReview: true,
+  });
+}
+
+export function normalizeGrantLlmCriteria(
+  payload: unknown,
+  sourceId: string,
+  options: LlmCriteriaNormalizationOptions,
+): GrantCriterion[] {
   const rows = Array.isArray((payload as { criteria?: unknown[] } | null)?.criteria)
     ? (payload as { criteria: unknown[] }).criteria
     : [];
 
   const criteria = rows.flatMap((row, index) => {
-    const criterion = normalizeCriterionRow(row, sourceId, index);
+    const criterion = normalizeCriterionRow(row, sourceId, index, options);
     return criterion ? [criterion] : [];
   });
-  assertGrantCriteriaContract(criteria, `bizinfo:${sourceId}`);
+  assertGrantCriteriaContract(criteria, options.contractLabel ?? `${options.sourcePrefix}:${sourceId}`);
   return criteria;
 }
 
@@ -150,16 +183,12 @@ export function normalizeBizInfoLlmRequiredDocuments(payload: unknown): GrantReq
 }
 
 /**
- * 구조화 금지 축 강등(C2/M4). LLM 이 아래를 반환하면 evaluator·프로필이 없어 false pass·해소 불가 unknown 을
+ * 구조화 금지 축 강등(M4). LLM 이 아래를 반환하면 evaluator·프로필이 없어 false pass·해소 불가 unknown 을
  * 유발하므로 other/text_only exclusion 으로 강등한다(span·label 보존):
- *   - prior_award + exclusion (중복수혜·참여 이력류) — C2: exact-match evaluator 로는 판정 불가
  *   - premises / export_performance (예약 2축) — M4: 파이프라인 미활성
  */
-const PRIOR_AWARD_DIMENSION = "prior_award";
-
-function shouldDowngradeToOther(dimension: CriterionDimension, kind: CriterionKind): boolean {
+function shouldDowngradeToOther(dimension: CriterionDimension): boolean {
   if (RESERVED_LLM_EXCLUDED_DIMENSIONS.has(dimension)) return true; // M4 예약 2축
-  if (dimension === PRIOR_AWARD_DIMENSION && kind === "exclusion") return true; // C2
   return false;
 }
 
@@ -169,6 +198,7 @@ function shouldDowngradeToOther(dimension: CriterionDimension, kind: CriterionKi
  * source_span 이 없으면 other/text_only 로 강등한다.
  */
 const SPAN_REQUIRED_DIMENSIONS = new Set<string>([
+  "prior_award",
   "tax_compliance",
   "credit_status",
   "sanction",
@@ -177,7 +207,12 @@ const SPAN_REQUIRED_DIMENSIONS = new Set<string>([
   "investment",
 ]);
 
-function normalizeCriterionRow(row: unknown, sourceId: string, index: number): GrantCriterion | null {
+function normalizeCriterionRow(
+  row: unknown,
+  sourceId: string,
+  index: number,
+  options: LlmCriteriaNormalizationOptions,
+): GrantCriterion | null {
   if (!row || typeof row !== "object") return null;
   const value = row as Record<string, unknown>;
   let dimension = stringEnum(value.dimension, CRITERION_DIMENSIONS);
@@ -187,8 +222,8 @@ function normalizeCriterionRow(row: unknown, sourceId: string, index: number): G
 
   const sourceSpan = cleanString(value.source_span);
 
-  // 강등 판정(C2·M4·M1). 강등 대상은 other/text_only exclusion 으로 내리고 span·라벨을 note 로 보존한다.
-  let downgraded = shouldDowngradeToOther(dimension, kind);
+  // 강등 판정(M4·M1). 강등 대상은 other/text_only exclusion 으로 내리고 span·라벨을 note 로 보존한다.
+  let downgraded = shouldDowngradeToOther(dimension);
   if (!downgraded && SPAN_REQUIRED_DIMENSIONS.has(dimension) && operator !== "text_only" && !sourceSpan) {
     // M1: 신규 구조화 축이 source_span 없이 왔으면 판정 근거를 신뢰할 수 없다 → 강등.
     downgraded = true;
@@ -201,7 +236,7 @@ function normalizeCriterionRow(row: unknown, sourceId: string, index: number): G
     dimension = "other";
     operator = "text_only";
     const criterion: GrantCriterion = {
-      id: `bizinfo:${sourceId}:llm-${index + 1}`,
+      id: `${options.sourcePrefix}:${sourceId}:llm-${index + 1}`,
       grant_id: sourceId,
       dimension,
       operator,
@@ -209,7 +244,7 @@ function normalizeCriterionRow(row: unknown, sourceId: string, index: number): G
       value: { note },
       confidence: clampNumber(value.confidence, 0.1, 0.95, 0.65),
       needs_review: true,
-      parser_version: BIZINFO_NORMALIZER_VERSION,
+      parser_version: options.parserVersion,
     };
     if (sourceSpan) {
       criterion.source_span = sourceSpan;
@@ -220,15 +255,15 @@ function normalizeCriterionRow(row: unknown, sourceId: string, index: number): G
   }
 
   const criterion: GrantCriterion = {
-    id: `bizinfo:${sourceId}:llm-${index + 1}`,
+    id: `${options.sourcePrefix}:${sourceId}:llm-${index + 1}`,
     grant_id: sourceId,
     dimension,
     operator,
     kind,
     value: normalizeCriterionValue(operator, value.value, dimension),
     confidence: clampNumber(value.confidence, 0.1, 0.95, 0.65),
-    needs_review: Boolean(value.needs_review),
-    parser_version: BIZINFO_NORMALIZER_VERSION,
+    needs_review: options.forceNeedsReview ? true : Boolean(value.needs_review),
+    parser_version: options.parserVersion,
   };
   const sourceField = cleanString(value.source_field) || "llm_extracted";
   // M1 span 정책: 신규 구조화 축은 raw_text 에 원문 전문 복제 금지 → source_span 만 raw_text 로 쓴다.
@@ -239,7 +274,24 @@ function normalizeCriterionRow(row: unknown, sourceId: string, index: number): G
   if (sourceSpan) criterion.source_span = sourceSpan;
   if (rawText) criterion.raw_text = rawText;
   criterion.source_field = sourceField;
-  return criterion;
+  const canonical = canonicalizeGrantCriterion(criterion);
+
+  // region 방어: canonicalize가 시도 코드로 환원하지 못한 지역 값은 regions가 비워진다.
+  // 그대로 두면 계약 검증(non-empty regions or nationwide)이 공고 전체 추출을 차단하므로,
+  // 해당 criterion만 text_only로 강등해 원문 확인 대상으로 보존한다.
+  if (canonical.dimension === "region" && canonical.operator !== "text_only") {
+    const regionValue = canonical.value as { regions?: string[]; labels?: string[]; nationwide?: boolean };
+    if ((regionValue.regions ?? []).length === 0 && regionValue.nationwide !== true) {
+      const labelText = (regionValue.labels ?? []).join(", ");
+      return {
+        ...canonical,
+        operator: "text_only",
+        value: { note: labelText ? `지역 조건 원문 확인 필요: ${labelText}` : "지역 조건 원문 확인 필요" },
+        needs_review: true,
+      };
+    }
+  }
+  return canonical;
 }
 
 /** value.note(text_only placeholder) 추출 편의 — 강등 시 note 보존용. */
@@ -258,7 +310,74 @@ function normalizeCriterionValue(
   if (operator === "text_only") {
     return { note: cleanString(objectValue.note) || `${dimension} 조건 원문 확인 필요` };
   }
+  if (dimension === "size") return normalizeSizeValue(objectValue);
+  if (dimension === "industry") return normalizeIndustryValue(objectValue);
+  if (dimension === "employees") return normalizeNumericBounds(objectValue, {
+    min: ["min", "min_employees", "minimum"],
+    max: ["max", "max_employees", "maximum"],
+  });
+  if (dimension === "revenue") return normalizeNumericBounds(objectValue, {
+    min_krw: ["min_krw", "min_revenue_krw", "minimum_krw"],
+    max_krw: ["max_krw", "max_revenue_krw", "maximum_krw"],
+  });
   return objectValue;
+}
+
+function normalizeIndustryValue(value: Record<string, unknown>): CriterionValue {
+  const tags = [...new Set(
+    [value.tags, value.industries, value.labels]
+      .flatMap((candidate) => Array.isArray(candidate) ? candidate : [])
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  )];
+  const codes = [...new Set(
+    [value.codes, value.ksic_codes, value.kics_codes]
+      .flatMap((candidate) => Array.isArray(candidate) ? candidate : [])
+      .filter((item): item is string => typeof item === "string")
+      .map((item) => item.trim().toUpperCase())
+      .filter(Boolean),
+  )];
+  const normalized: Record<string, unknown> = { ...value, tags };
+  if (codes.length > 0) normalized.codes = codes;
+  delete normalized.industries;
+  delete normalized.labels;
+  delete normalized.ksic_codes;
+  delete normalized.kics_codes;
+  return normalized;
+}
+
+const CANONICAL_SIZES = new Set(["예비", "소상공인", "소기업", "중소기업", "중견기업", "대기업"]);
+
+function normalizeSizeValue(value: Record<string, unknown>): CriterionValue {
+  const source = Array.isArray(value.sizes) ? value.sizes : [];
+  const sizes = [...new Set(source.flatMap((item) => {
+    if (typeof item !== "string") return [];
+    const normalized = item.replace(/\s+/g, "").trim();
+    if (normalized === "중소" || normalized === "소중기업") return ["중소기업"];
+    if (normalized === "소상공") return ["소상공인"];
+    return CANONICAL_SIZES.has(normalized) ? [normalized] : [];
+  }))];
+  return {
+    ...value,
+    sizes,
+  };
+}
+
+function normalizeNumericBounds(
+  value: Record<string, unknown>,
+  aliases: Record<string, string[]>,
+): CriterionValue {
+  const normalized: Record<string, unknown> = { ...value };
+  for (const [canonical, keys] of Object.entries(aliases)) {
+    const candidate = keys.map((key) => value[key]).find((item) =>
+      typeof item === "number" && Number.isFinite(item));
+    if (candidate !== undefined) normalized[canonical] = candidate;
+    for (const alias of keys) {
+      if (alias !== canonical) delete normalized[alias];
+    }
+  }
+  return normalized;
 }
 
 /**
@@ -270,7 +389,7 @@ const LLM_EMITTABLE_DIMENSIONS = CRITERION_DIMENSIONS.filter(
   (dimension) => !RESERVED_LLM_EXCLUDED_DIMENSIONS.has(dimension),
 );
 
-export function buildBizInfoCriteriaToolSchema() {
+export function buildGrantCriteriaToolSchema() {
   return {
     name: "emit_grant_criteria",
     description: "기업마당 공고 자격조건 추출 결과를 반환한다.",
@@ -317,6 +436,9 @@ export function buildBizInfoCriteriaToolSchema() {
     },
   };
 }
+
+/** @deprecated source-neutral schema는 buildGrantCriteriaToolSchema를 사용한다. */
+export const buildBizInfoCriteriaToolSchema = buildGrantCriteriaToolSchema;
 
 function normalizeRequiredDocumentRow(row: unknown): GrantRequiredDocument | null {
   if (!row || typeof row !== "object") return null;

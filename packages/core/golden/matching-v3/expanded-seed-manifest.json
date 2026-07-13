@@ -1,0 +1,914 @@
+{
+  "schemaVersion": "matching-v3-expanded-seed-v1",
+  "createdAt": "2026-07-13T08:48:44.391Z",
+  "asOf": "2026-07-13T08:47:43.000Z",
+  "selectionMethod": "source_quota_then_readiness_and_criterion_risk",
+  "activeUniverseCount": 1802,
+  "activeUniverseLimit": 2000,
+  "activeUniverseComplete": true,
+  "perSource": 50,
+  "companyFixture": "packages/core/golden/matching-v3/company-profiles.expanded.draft.jsonl",
+  "companyCount": 30,
+  "grantSelection": [
+    {
+      "grantId": "kstartup:178493",
+      "source": "kstartup",
+      "sourceId": "178493",
+      "title": "국민대학교 청년도약 인재양성 부트캠프 참가자 모집",
+      "sourceRevision": "407c1b80d88348cd920d13a42295d8efb32e63a45a49d7fc2253fbeee2e0fa19",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178483",
+      "source": "kstartup",
+      "sourceId": "178483",
+      "title": "2026년 강북창업지원센터 7월 창업 상담 참가자 모집(온라인 판로 및 마케팅 전략)",
+      "sourceRevision": "267664ceaffca5af3b655f9447d23d44f64007aff577a73ecedb74ce545cee84",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178511",
+      "source": "kstartup",
+      "sourceId": "178511",
+      "title": "2026년 대학연대 창업 네트워크 캠프",
+      "sourceRevision": "fa7507614b2855814272d4e86dda8eb0ac3674aee2cba322f0edc40fa74400b1",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178223",
+      "source": "kstartup",
+      "sourceId": "178223",
+      "title": "성장창업트랙:청년창업자를 위한 창업 실전 역량 강화 프로그램",
+      "sourceRevision": "be18f2b83ea89373302fe5cad56e393b8dfc3e6eb910b82581954b863f085372",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178188",
+      "source": "kstartup",
+      "sourceId": "178188",
+      "title": "[강동구 청년해냄센터] 취약분야 상시 컨설팅 7월 참가자 모집 공고",
+      "sourceRevision": "924804db40d89e16f369a6cfaba220d19654c038a4cab944650951b7c8193fdb",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178265",
+      "source": "kstartup",
+      "sourceId": "178265",
+      "title": "인베스트서울 2026년도 하반기 Core기업 모집 공고",
+      "sourceRevision": "f2710ef8a6a587ac0fc1e5d0ac0353b20788e017b9c29822a0cf28ce745749a4",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:177874",
+      "source": "kstartup",
+      "sourceId": "177874",
+      "title": "2026-2차 Station C 성장자립지원 로컬라이제이션 모집공고",
+      "sourceRevision": "c596a4c10fa335c01a1404ad1afaccec8d0f0c7ecbac7674a74c168d070bf1aa",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178269",
+      "source": "kstartup",
+      "sourceId": "178269",
+      "title": "2026 경기AI기업 글로벌 공동연구ㆍ해외진출 예비참여기업 공개모집",
+      "sourceRevision": "83ac93822c836899b64177c63111c5b20bb214751ce4cc2adfba381c6d97cd7d",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178461",
+      "source": "kstartup",
+      "sourceId": "178461",
+      "title": "2026년 동두천시 청년창업지원센터 2차 입주기업 모집 공고",
+      "sourceRevision": "b4ccc1d4a7f381957b5324303d6dcb34abfcb257d6b5d1ff8efe009ad43bfccc",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178491",
+      "source": "kstartup",
+      "sourceId": "178491",
+      "title": "바이오·메디컬 연구인프라 활용 지원사업",
+      "sourceRevision": "50d85bc3c5d5d9d707eb702d222ac9c6b76367974eb2d2d38fe7467fa8d63adb",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178494",
+      "source": "kstartup",
+      "sourceId": "178494",
+      "title": "2026년 제2차 대전 팁스타운 입주기업 모집 공고",
+      "sourceRevision": "e42d8f60fa317e8e89ca8fabdb4cd66f21efce41248cce4eed0927bfa3121fe4",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178258",
+      "source": "kstartup",
+      "sourceId": "178258",
+      "title": "[글로컬대학]Station C 2026-2차 성장단계별 시장검증형 전주기 지원사업 공고",
+      "sourceRevision": "8ec05bb50e298e7eb3d84ddadf9be19f52f467dd437b1d241d6717bf05971f0a",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178368",
+      "source": "kstartup",
+      "sourceId": "178368",
+      "title": "( ?투자금 3억원!?)제8회 창업투자경진대회 B-스타트업챌린지",
+      "sourceRevision": "398531d29c4a301567b05c28bd2b1910e4358f3611317592b5cdb20bc210850f",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178422",
+      "source": "kstartup",
+      "sourceId": "178422",
+      "title": "중앙대-금천구 창업 협력공간(창업교육스튜디오) 입주자 모집 공고",
+      "sourceRevision": "de0d42d809bfc9f0909922033646a3488e9dfe7c0ebf83d67e22b34c529e1003",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178249",
+      "source": "kstartup",
+      "sourceId": "178249",
+      "title": "K-패션 브랜드 글로벌 팝업 지원사업(2차) 참여기업 모집",
+      "sourceRevision": "87a9e10334bc2dc7ecb760cf40e9727d9d161bbf94667d629a16a6884089459b",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178185",
+      "source": "kstartup",
+      "sourceId": "178185",
+      "title": "2026년 DB손해보험 교통환경챌린지 8기(스타트업지원사업 / 자금, 교육, 데모데이) 참여기업 모집공고",
+      "sourceRevision": "65d3f7ae61a7234b93053fbe289a2f2530fbf3c008da0eb66ffef4202ae16560",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178381",
+      "source": "kstartup",
+      "sourceId": "178381",
+      "title": "[은평창업지원센터] 2026 하반기 은평창업지원센터 입주기업 모집",
+      "sourceRevision": "f72cf9942fb01536f4ba4ee2475bbe73353856672e5343b69c16e4801a90383e",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178473",
+      "source": "kstartup",
+      "sourceId": "178473",
+      "title": "동국대학교 창업보육센터(서울) 신규 입주기업 모집 공고",
+      "sourceRevision": "dc40318504b531b88733a17b6097ee0970f7be8215d30c962f4987a1a5b39dc9",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:176755",
+      "source": "kstartup",
+      "sourceId": "176755",
+      "title": "「2026년 경남창조경제혁신센터 창업-BuS 프로그램」참여 스타트업 모집 공고",
+      "sourceRevision": "a8ebb2bfd525aa5edcfa8996c390a48840b304f4fb92c4351df7839a031a486d",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:177121",
+      "source": "kstartup",
+      "sourceId": "177121",
+      "title": "[성남 식품제조 소공인특화지원센터] 소공인 기술 컨설팅 참여기업 모집공고",
+      "sourceRevision": "3a59fae38e66bb51891f80fd8465eda7d90a1558c68da359f0b18096fef9f181",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178490",
+      "source": "kstartup",
+      "sourceId": "178490",
+      "title": "2026년 혁신 창업 스타트업 챌린지 (Start Round) 참가자 모집",
+      "sourceRevision": "01fe51559a121e8182d85a4a46ba55e26eef7aa44d764b59ef258e6d6835c532",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178345",
+      "source": "kstartup",
+      "sourceId": "178345",
+      "title": "2026 서울창업허브 공덕 AI 솔로창업단 참가자 모집",
+      "sourceRevision": "7f0e3de2403f2f6ea39f1d52b9b731d767856f4bd62ee176d24436ba77062840",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:177877",
+      "source": "kstartup",
+      "sourceId": "177877",
+      "title": "서울바이오허브 '2026 서울-BMS 이노베이션 스퀘어 챌린지' 참여기업 모집공고",
+      "sourceRevision": "793e9b82a6c82a643739ef15e6716f268bc3e4c2a0b07a1651c0406f080bcb90",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:176085",
+      "source": "kstartup",
+      "sourceId": "176085",
+      "title": "[성남 식품제조 소공인특화지원센터] 촬영스튜디오 대관 및 사용자 모집",
+      "sourceRevision": "a013a6204c1580e9317ab4735e445c68a88db0612270ad562642bb41c42cb450",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178434",
+      "source": "kstartup",
+      "sourceId": "178434",
+      "title": "2026 수원기업IR데이 수원. 판(PANN) 참여 기업 추가 모집",
+      "sourceRevision": "890d0fb34108371a149556c03ae9c13732e5db846ff659909a19853240f79ec0",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:177505",
+      "source": "kstartup",
+      "sourceId": "177505",
+      "title": "2026 관악S밸리 GROW-UP 기술컨설팅 참여기업 모집",
+      "sourceRevision": "72708df82c3503e2487abdb6d6274c3aa15fab611a8df2c496f0c9ad29d833c1",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:177922",
+      "source": "kstartup",
+      "sourceId": "177922",
+      "title": "2026년 생애 최초 경영안정화 교육지원 사업",
+      "sourceRevision": "bf14154f248e6fab2ca9842d68ca9a2ef674c3f81bfe93df7ef9b999823554b1",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178200",
+      "source": "kstartup",
+      "sourceId": "178200",
+      "title": "[동국대BMC창업보육센터] 바이오ㆍ메디컬 패키지지원 프로그램 참여기업 모집(~9/30(금)까지)",
+      "sourceRevision": "2f6150d79bb2f45d3743a1aeaeaf5a7865996d4d5bd1d0c846b7e6b64b2fdbc4",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178193",
+      "source": "kstartup",
+      "sourceId": "178193",
+      "title": "[은평창업지원센터] 도전! 2026 은평스타트업리그 모집",
+      "sourceRevision": "d9dd16d75eb625e6bb70880d5c1999cdba5e5183dc776f9389b218b9452ad341",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:176968",
+      "source": "kstartup",
+      "sourceId": "176968",
+      "title": "2026년 K-Global 해외진출 지원사업 참여기업 모집 공고",
+      "sourceRevision": "6a7fde35b86b03b99c76d4fe1e09c5f0d51488b7824ba1da80a0c80c2be872f5",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178476",
+      "source": "kstartup",
+      "sourceId": "178476",
+      "title": "수원시 기업지원센터 중소벤처기업 신규 모집",
+      "sourceRevision": "d4f67816234de587ead2d78c36449ea26b48ae95f8411c858a39aba5a4f8a41a",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178376",
+      "source": "kstartup",
+      "sourceId": "178376",
+      "title": "벤처확인인증 사전진단&일대일 무료 밋업 지원사업",
+      "sourceRevision": "bdf691579441642a7875d8bb642826765337e6e7ef16ceaf8134a869414cf28f",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178342",
+      "source": "kstartup",
+      "sourceId": "178342",
+      "title": "2026년 글로벌 액셀러레이팅 지원사업",
+      "sourceRevision": "5de1fadf9998862a1c701cdaae919b2110548dd3fff9b4f61aeed4612a3ceab5",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178275",
+      "source": "kstartup",
+      "sourceId": "178275",
+      "title": "수원도시재단 「2026 창업오디션」 모집",
+      "sourceRevision": "9449fe38820bb878e74e8d252cb50ea932aa41395649798718947937260daabf",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178502",
+      "source": "kstartup",
+      "sourceId": "178502",
+      "title": "단국대(죽전) 창업보육센터 2026년 3차 입주기업 정기 모집 공고",
+      "sourceRevision": "d3f75c18f22d26b57dcde9ad488927d16ff1fd09bb95d89130d996328d7dc531",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178358",
+      "source": "kstartup",
+      "sourceId": "178358",
+      "title": "2026 협성대학교 창업보육센터 하반기 신규 입주기업 모집 공고",
+      "sourceRevision": "c4c2a1232cce6a01239d067e7ec73ab4503517ef97e35aa7df3c14c0d4fdca4a",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178331",
+      "source": "kstartup",
+      "sourceId": "178331",
+      "title": "2026년 달구벌여성창업보육센터 입주기업 모집",
+      "sourceRevision": "2521c15a832119e0b0b44ca7322ddbf58046078a8ebf5888afbe0ce6ee5df465",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178346",
+      "source": "kstartup",
+      "sourceId": "178346",
+      "title": "2026 벤처확인 인증준비기업 맞춤형 무료 진단 지원사업",
+      "sourceRevision": "66860f0990bf3e260bfce412794005fb2cbb89b13265b9c0f319e3bbb35d101f",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178274",
+      "source": "kstartup",
+      "sourceId": "178274",
+      "title": "2026 바이오 오픈이노베이션 체인 - 참여기업 모집",
+      "sourceRevision": "75e5570a527507a1e07e5683f8e4b57e7d466ba3857033841ea9b8564e2f0fd5",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178351",
+      "source": "kstartup",
+      "sourceId": "178351",
+      "title": "2026년 하반기 중랑창업지원센터 신규 입주기업 모집",
+      "sourceRevision": "152510aa3284c309fc0a005b959a306e2e115e7347091c01f6598d4ca5ee8904",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178475",
+      "source": "kstartup",
+      "sourceId": "178475",
+      "title": "수원시 기업지원센터 1인창조기업 신규모집",
+      "sourceRevision": "ef1ec69a2f151724cf22aa61c83c0b2a3813fd056fcfa2ae9f24dafc544baf7d",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178283",
+      "source": "kstartup",
+      "sourceId": "178283",
+      "title": "[제64차] 2026년 대구스타트업 리더스포럼 IR피칭 참여기업 모집",
+      "sourceRevision": "c9e76776f1674400aaf6b038dcf9e8aaaf52367a926e9c0409fbccd25bfb798b",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178285",
+      "source": "kstartup",
+      "sourceId": "178285",
+      "title": "2026 대전 미스터리 스토리 기반 콘텐츠 제작 지원사업",
+      "sourceRevision": "dc4bcdd7472b625c82608581a1c38e5c3e025b7f11d6aaa8f56cd09c30d7bec1",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178238",
+      "source": "kstartup",
+      "sourceId": "178238",
+      "title": "제19기 기보벤처캠프 참여기업 모집 공고",
+      "sourceRevision": "0806b355226b7349e806168dac7bb10bd6742c3939674ef7acb22a069ce4e70b",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:176685",
+      "source": "kstartup",
+      "sourceId": "176685",
+      "title": "2026년 전북글로벌게임센터 입주기업 모집 공고",
+      "sourceRevision": "245837d3fafb7806e56adffc458a4a6d8c9fd50604460c9167d9801f0ee3efcc",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178385",
+      "source": "kstartup",
+      "sourceId": "178385",
+      "title": "『2026 창업활성화 멘토링 참여기업』 모집 공고",
+      "sourceRevision": "c38217be408543fcc5501593627c005770264c4c86b8920cecb62eb61a9fdea3",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178386",
+      "source": "kstartup",
+      "sourceId": "178386",
+      "title": "『2026 창업활성화 전문가 멘토 위원』 모집 공고",
+      "sourceRevision": "ced53fb25de8d3582a278758dbc07ea33db0d4e6ec48ecc31a453994b16f3a2a",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178453",
+      "source": "kstartup",
+      "sourceId": "178453",
+      "title": "[영산대학교 창업보육센터] 2026년 신규입주기업 모집 공고",
+      "sourceRevision": "c70f0c4b2399321736eda4321f8a48a61b34474ea977606942038fce428ea3e1",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:177837",
+      "source": "kstartup",
+      "sourceId": "177837",
+      "title": "「한동대학교 제네시스랩」 스타트업 모집 공고",
+      "sourceRevision": "7118f526a4b89e681d1b01bcd2e18f89783719b93139a407164bb16808333295",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "kstartup:178418",
+      "source": "kstartup",
+      "sourceId": "178418",
+      "title": "충북대학교 『글로벌(G)테크벤처센터(BI) 』 입주기업 모집",
+      "sourceRevision": "6fcb372e9e8595b1e4956da487f00157bd471fbdf862545dfdfdeb039811cc42",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000122623",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122623",
+      "title": "[전북] 2026년 2차 자동차 대체부품 분야 기업지원 사업 공고",
+      "sourceRevision": "102e1579c6cab7c4efce56d2a53f04fa6ff2b9348566e53d5c625b477c89a2a2",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000122886",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122886",
+      "title": "[전남] 2026년 1차 뿌리산업 선도기업 육성사업 신규지원 통합 공고",
+      "sourceRevision": "8a6eaad7c74e206b8d4dd80ff68e8ac769dba737fcfa9d46ad1b092902b70edc",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000118371",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118371",
+      "title": "[강원] 2026년 1차 소상공인 경영안정자금 지원사업 공고",
+      "sourceRevision": "0669ed6618322ec34b41fd93f4d05fad8bfa7ec3c21bc697afcdfbbc735cf64e",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117710",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117710",
+      "title": "2026년 미래내일 일경험(프로젝트형) 참여기업 모집 공고",
+      "sourceRevision": "307b2d2ec8c6acac96e360a79588061cdd40ef840882adde5265002321a092a0",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000119184",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119184",
+      "title": "[서울] 2026년 상반기 찾아가는 회계 세무 서비스 참여기업 모집 공고",
+      "sourceRevision": "34c9147948bf25126a6bb0e2b754823e2bc63eeb29450dedbe061640747d1836",
+      "readiness": "structured_unreviewed",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000118189",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118189",
+      "title": "[전남] 2026년 해외박람회 개별 참가 지원사업 모집 공고",
+      "sourceRevision": "e378da29f4bce3af27bf76d1f550769e22a3744849dc2a12e94121c3c40e264f",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117257",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117257",
+      "title": "[경남] 사천시 2026년 상반기 소상공인 육성자금 지원 공고",
+      "sourceRevision": "f370bcb101e559e04a8bb803c32ef37aeb5c065a4778c4909947425dde4906a5",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000119523",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119523",
+      "title": "[대전] 2026년 중동사태로 인한 수출 피해 기업 대상 중소기업 긴급경영안정자금 지원 공고",
+      "sourceRevision": "10be15f37f612cd019e9b075f2016e0aac5e87390cb9d8a544ac5677007e90fb",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000122587",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122587",
+      "title": "[대전] 2026년 소상공인 육아휴직자 대체인력 인건비 지원사업 모집 변경 공고",
+      "sourceRevision": "421d8e87cca8fe70cf969b44bb249ea079a746945c77c6c89a6dd6d18a2fdfc4",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000121444",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000121444",
+      "title": "[경기] 군포시 2026년 품질경쟁력 강화 지원사업 참여기업 모집 공고",
+      "sourceRevision": "9ec2abbee6a9672a2133287d84b42b4b44626bb52842693f62b7a28c684fdd88",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000122195",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122195",
+      "title": "[부산] 2026년 신발기업 해외물류 바우처 지원사업 참여기업 모집 공고(지원확대)",
+      "sourceRevision": "a5cd0bffa028508cf1c64e560110b98f9673498200f7e2fdaabda04218048bbe",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000118135",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118135",
+      "title": "[인천] 2026년 상반기 소상공인시장진흥자금 융자 계획 공고",
+      "sourceRevision": "a969ac5503559065fe4880d21b357aedceab6d9b9011b53e9ff9cfa3d1b52706",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123782",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123782",
+      "title": "[충남] 2026년 콘텐츠코리아랩 미드폼 영상콘텐츠 제작 지원사업 모집 공고",
+      "sourceRevision": "19122bee7a90cae103c1e021bf10460591fc6ea3b943bf54f39ebafa2b559961",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123932",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123932",
+      "title": "[전남광주] 미래 라이프스타일 제품 상품화 지원 사업 공고",
+      "sourceRevision": "d942bba08faf412ef37f0c5e70f6a229edca456c6869e58e181825e45f53c4ac",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000122726",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122726",
+      "title": "[강원] 2026년 바이오기업 성장 촉진 및 고용 활성화 지원기업 상시 모집 공고(지역산업맞춤형 일자리창출 지원사업)",
+      "sourceRevision": "d8a476cda50241b821fa9e80507735eaef81040b8703a12d862e17d50f452222",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117294",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117294",
+      "title": "[경남] 창녕군 2026년 중소기업 전시(박람)회 참가 지원 계획 공고",
+      "sourceRevision": "879a5b10ffe5bbe829c885ac7cd7d89bc4cc1f78fbf63eb010c74f15f56b3636",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000121028",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000121028",
+      "title": "[울산] 2026년 상반기 산업안전보건 국제표준 인증기업 지원사업 시행 공고",
+      "sourceRevision": "a81cd964138284d868864729495f8e1aaef8f46e3d4e40bd6cc9f6fef456c84b",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123387",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123387",
+      "title": "[경기] 안양시 2026년 우수기업 선정 공고",
+      "sourceRevision": "1cdc47c7a94119202ca1d340c08d6d0a16be3e7282f0ff2732b219c9e281ca3d",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000120233",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000120233",
+      "title": "[전남] 2026년 중소기업 수출보험료 지원사업 신청 안내 변경 공고",
+      "sourceRevision": "8bef13175b7965daf924c2ecba240a24c93d3e462a696e99c922d5cb6bf15256",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000120023",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000120023",
+      "title": "[경남] 2026년 소상공인 정책자금 운용계획 변경 공고",
+      "sourceRevision": "d155463512e2017fe2ee824b11db37de5b4ffd8bc0a7d2105968c9e99357e428",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000124040",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124040",
+      "title": "[부산] 2026년 청년디자이너-소상공인 협업 디자인 프로젝트 지원 과제 모집 공고",
+      "sourceRevision": "3b366a02b10ffa96a6130e522e1cbc798f8b9c42dd1246a0900d1e4f4a761917",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000122346",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122346",
+      "title": "[인천] 2026년 원도심ㆍ지역상권 활성화를 위한 상권 활성화 특례보증 지원사업 공고",
+      "sourceRevision": "1898bc1e857daf65152104726d0fc12c149c4e315903caacffeec0aa9d5c3173",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123147",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123147",
+      "title": "2027년 식품소재 및 반가공산업 육성 사업자 선정계획 공고",
+      "sourceRevision": "88da6779a78f3ca539128ae38fe35a222fb5682c2c238890209d4b3556bc9bf6",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000122371",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122371",
+      "title": "[경기] 제조데이터 기반 디지털전환 실증 참여기업 모집 공고",
+      "sourceRevision": "9d4ff7ad7a53adf1365dc0b3c47ff59f6780d3248bc09133313665604090ef1c",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117309",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117309",
+      "title": "[경남] 함안군 2026년 소상공인 육성자금(이자) 지원계획 공고",
+      "sourceRevision": "12f570a3c26def0c93565b8a811aa1d6ddca37ff5c5fa18c3ef0486e2ae8a1b3",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123125",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123125",
+      "title": "[전북] 군산시ㆍ김제시 2026년 3차 자유무역지역 기업지원사업 통합 공고",
+      "sourceRevision": "959f8ea49be490327da2b730aedab1c1bf02197dfebec2b2c84996f16642533e",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123655",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123655",
+      "title": "[경기] 고양시 2026년 혁신 창업 스타트업 챌린지(Start Round) 참가자 모집 공고",
+      "sourceRevision": "1063b12d189cca40191994232c0b0fc41434493c76e1fc2fb0d9709e382a9f75",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123990",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123990",
+      "title": "[전북] 2026년 2차 스케일업 공공실증 지원사업 참여기업 모집 공고(공공실증ㆍ규제 해소ㆍ혁신 시제품 선정 지원)",
+      "sourceRevision": "22e303c3b75cfd24d2b66243138212587c7228aafeb9831100628fc91c667e9e",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123263",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123263",
+      "title": "[제주] 2026년 벤처기업 육성사업(벤처나라 입점지원) 추가 모집 공고",
+      "sourceRevision": "d0a72a51f47555bcd029afbe7d4986a1bb9434cef4f4d96b4b1c6fe830e3de90",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000121001",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000121001",
+      "title": "[울산] 소상공인 포장재 구입비 긴급 지원 사업 공고(온라인 판로ㆍ마케팅 지원)",
+      "sourceRevision": "9ae3e85494d140d33e0cc6fa3b8d51702ea05a8c2e4baa62bdf9cf9807b8d5d5",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000120506",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000120506",
+      "title": "[대전] 소상공인ㆍ자영업자 재기지원사업(컨설팅ㆍ경영개선) 참여자 모집 공고(새출발기금 협업)",
+      "sourceRevision": "813570437b2eec444063f112a8418c5a70c3b8a1edeac123d95e58cc750b99d9",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123847",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123847",
+      "title": "[경기] 평택시 2026년 우수기업 선정 지원사업 모집 공고",
+      "sourceRevision": "95ae031d8c054651e64ac4a29f9e9fed090b3eab84df3e09470ae3a7a4679d38",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123907",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123907",
+      "title": "[경남] 진주시 2026년 하반기 중소기업육성기금 지원계획 공고",
+      "sourceRevision": "4abb9b09cce0ce2a139001114bdcdbdeeaf116e917b8c28c32c3a0c523308a98",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123992",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123992",
+      "title": "[전남광주] 2026년 하반기 해외박람회 개별 참가 지원사업 모집 공고",
+      "sourceRevision": "8b6f849fe7533e622beb49f2a6785168e990b61f5ec0396e74a0b64f0f76b6dd",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000119851",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119851",
+      "title": "[경북] 안동시 2026년 로케이션 제작지원 사업 공고",
+      "sourceRevision": "e4b92f99d8c16db49fb3c203dcd42720c2f2923c17f4cf2dde1a230251a6ff79",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117809",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117809",
+      "title": "[대전] 2026년 상반기 중소기업 경영안정자금 지원 공고",
+      "sourceRevision": "3f866ad172d738af20e7b7bcaf6ee801a6ce9c242ddde0712513aed0e5abdfe9",
+      "readiness": "unstructured",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000120556",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000120556",
+      "title": "[충북] 2026년 2분기 청년 소상공인 창업응원금 지원 참여자 모집 공고",
+      "sourceRevision": "34a6aad338caf8c4343c26c9ae97600b4997e2c0952dd6a79022097cfe99220c",
+      "readiness": "unstructured",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000121063",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000121063",
+      "title": "[경기] 2026년 소상공인 사업정리 지원사업 모집 공고",
+      "sourceRevision": "5af09f0cc196b50ec1576fc6e483dbbc7b8ee1221a327a4cc88d95f4cd3d95ba",
+      "readiness": "unstructured",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117296",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117296",
+      "title": "[경남] 거제시 2026년 상반기 중소기업 육성자금 융자지원 계획 공고",
+      "sourceRevision": "ffdacad75d59bcb586ec740680bd7f7a4705657bf1ddbec7b51f91494fb7c68a",
+      "readiness": "unstructured",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000124200",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124200",
+      "title": "2026년 콘텐츠 해외 투자유치 지원 프로그램 U-KNOCK 2026 in USA 참가기업 모집 공고",
+      "sourceRevision": "32c56ae32af9ab45e8141ccf2684889716445c0a6a9b61be4dcf81414ca695fe",
+      "readiness": "unstructured",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000118108",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000118108",
+      "title": "[서울] 은평구 2026년 소규모 자영업자 LED간판 설치 지원사업 공고",
+      "sourceRevision": "162ea832abe6d6eb1432d6cbe292d8a3be37f13fec994ce36cc46603f8a87158",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117154",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117154",
+      "title": "[경북] 2026년 산불피해기업 재해시설자금 이차보전 지원 계획 공고",
+      "sourceRevision": "c452b5ab3203d8e52a4d0bcd4cf7d5fa9813e0fb82a6ee5f5993c1cf17673f7b",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000121681",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000121681",
+      "title": "[광주] 2026년 첫걸음입점 광주소상공인 지원사업 참여 소상공인 모집 공고",
+      "sourceRevision": "254205be9275e69d84597fff9a0796abd38ad787de1d6c91c5a33dd0fe9ea32f",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000124062",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124062",
+      "title": "[부산] 2026년 시니어 일자리 창출 우수기업 환경개선 지원사업 시행 공고",
+      "sourceRevision": "f8709eb14f26a7071f959b8a138be4c2b9192fd90739a47e044ee0c7f79cb72a",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000117588",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000117588",
+      "title": "[강원] 춘천시 2026년 중소기업 특례보증 지원계획 공고",
+      "sourceRevision": "9c4c90aac0f0e7a6b5c1666bac962b6ae23eb3aaaa3c3cb7e230e88aa98fbc0d",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000119852",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119852",
+      "title": "[경북] 2026년 로케이션 제작지원 사업 공고",
+      "sourceRevision": "ef91109baf9263ad72c653ed6eed2f3179f29620bae6f246524e2faeb2a42276",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000119260",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119260",
+      "title": "[충남] 아산시 2026년 음식점 위생등급제 컨설팅 참여업소 모집 공고",
+      "sourceRevision": "7f356166bb7aad95e39156f77ea73404b8b3c792beba82ccdfb4d237be265c53",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123985",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123985",
+      "title": "[경북] 영주시 2026년 소상공인 재창업 지원사업 참여자 추가모집 공고",
+      "sourceRevision": "e052ee1c9c168cc7ce479d00281af3771e05cf79bbcaa5127dad44a7870c95c3",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000120838",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000120838",
+      "title": "[강원] 춘천시 2026년 사회보험료(10인 미만) 지원 공고",
+      "sourceRevision": "7e6a98d42200b59792fceae96ff9f599082f320f52206d7272c4935a9c00851a",
+      "readiness": "partial",
+      "status": "draft_pending"
+    },
+    {
+      "grantId": "bizinfo:PBLN_000000000123991",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123991",
+      "title": "[전남광주] 2026년 2차 빛고을투자챌린지 IR 예선 참여기업 모집 공고",
+      "sourceRevision": "6ec97712e74953f71f2e52f0b7b0e07117c95082d2a55a4cd0bb6bfcb6447015",
+      "readiness": "partial",
+      "status": "draft_pending"
+    }
+  ]
+}

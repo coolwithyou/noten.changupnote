@@ -21,12 +21,18 @@ export async function GET(request: Request, context: RouteContext) {
 
     const { companyId } = await context.params;
     const access = await requireAppCompanyAccess(request, companyId);
-    const dashboard = await loadServiceDashboard({ companyId, userId: access.userId, limit: 40 });
+    const dashboard = await loadServiceDashboard({
+      companyId,
+      userId: access.userId,
+      limit: 5_000,
+      writeMatchStates: false,
+    });
     const selected = selectMatchCards(dashboard.matches, parsedQuery.query);
 
     return appData({
       counts: dashboard.counts,
       matches: selected.matches,
+      total: selected.total,
     }, undefined, {
       rulesetVer: dashboard.rulesetVer,
       scoringVer: dashboard.scoringVer,

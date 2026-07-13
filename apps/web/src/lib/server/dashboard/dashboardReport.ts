@@ -106,7 +106,7 @@ function renderMatches(matches: MatchCard[]): string {
       match.detailUrl ?? `/grants/${encodeURIComponent(match.grantId)}`,
     ]);
   if (rows.length === 0) return "_현재 적격 또는 확인 필요 기회가 없습니다._";
-  return markdownTable(["상태", "공고", "기관", "적합도", "지원", "마감", "링크"], rows);
+  return markdownTable(["상태", "공고", "기관", "조건 확인도", "지원", "마감", "링크"], rows);
 }
 
 function renderActions(actions: ActionQueueItem[]): string {

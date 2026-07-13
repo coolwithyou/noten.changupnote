@@ -62,11 +62,17 @@ export function splitDisqualificationSentences(text: string): string[] {
   const withBreaks = normalized
     // 문두 또는 공백이 앞선 가운뎃점(불릿)만 경계로. 뒤 공백은 소비하지 않아 접속사 오분할을 막는다.
     .replace(/(^|\s)[·∙]\s*/g, "\n")
-    .replace(/\s*[ㅇ○◦▪▶]\s*/g, "\n")
+    // ※는 직전 조건의 예외 설명인 경우가 많아 경계로 자르지 않는다.
+    .replace(/\s*[ㅇ○◦▪▶▷►□■◇◆☞]\s*/g, "\n")
     .replace(/\s*[-–]\s+/g, "\n")
-    .replace(/\s*(?:①|②|③|④|⑤|⑥|⑦|⑧|⑨|⑩)\s*/g, "\n")
+    .replace(/\s*(?:①|②|③|④|⑤|⑥|⑦|⑧|⑨|⑩|⑪|⑫|⑬|⑭|⑮|⑯|⑰|⑱|⑲|⑳)\s*/g, "\n")
     .replace(/(?:^|\s)(\d{1,2})\.\s+/g, "\n")
-    .replace(/[。\n]+/g, "\n");
+    .replace(/(?:^|\s)(?:가|나|다|라|마|바|사|아|자|차|카|타|파|하)\.\s*/g, "\n")
+    // K-Startup API에서 괄호 표제로 이어 붙은 대표 배제 항목을 독립 span으로 복원한다.
+    .replace(/\s*\((?:중복\s*참여|서류\s*허위\s*제출)\)\s*/g, "\n")
+    // ASCII 마침표·물음표·느낌표도 실제 문장 끝(공백/문말)에서만 분리한다. 1000.5 같은 소수점은 보존.
+    .replace(/[.!?。](?=\s|$)/g, "\n")
+    .replace(/\n+/g, "\n");
   return withBreaks
     .split("\n")
     .map((part) => part.trim())

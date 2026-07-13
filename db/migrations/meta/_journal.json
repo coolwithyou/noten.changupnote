@@ -309,6 +309,20 @@
       "when": 1783803294116,
       "tag": "0043_flawless_spectrum",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1783832887552,
+      "tag": "0044_boring_stellaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1783847305914,
+      "tag": "0045_mushy_daimon_hellstrom",
+      "breakpoints": true
     }
   ]
 }

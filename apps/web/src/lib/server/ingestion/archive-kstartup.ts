@@ -3,6 +3,7 @@
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { archiveKStartup } from "./archiveKStartupCore";
+import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 
 loadMonorepoEnv();
 
@@ -29,6 +30,14 @@ const stopAfterUnchangedPages = boundedInteger(
 );
 const collectedAt = dateArg(readArg("collectedAt") ?? process.env.CUNOTE_KSTARTUP_ARCHIVE_COLLECTED_AT) ?? new Date();
 const details = resolveDetailsFlag(source);
+const archiveAttachments = hasFlag("archive-attachments") ||
+  process.env.CUNOTE_KSTARTUP_ARCHIVE_ATTACHMENTS === "true";
+const maxAttachmentsPerGrant = boundedInteger(readArg("maxAttachmentsPerGrant"), 3, 1, 10);
+const convertHwpAttachments = !hasFlag("skip-attachment-conversion") &&
+  process.env.CUNOTE_KSTARTUP_ARCHIVE_CONVERT_ATTACHMENTS !== "false";
+const allowAttachmentFailures = hasFlag("allow-attachment-failures") ||
+  process.env.CUNOTE_KSTARTUP_ARCHIVE_ALLOW_ATTACHMENT_FAILURES === "true";
+const storage = archiveAttachments ? createR2ObjectStorageFromEnv() : null;
 
 if (source === "sample" && allPages) {
   throw new Error("--all은 --source=live 에서만 의미가 있습니다.");
@@ -52,6 +61,11 @@ try {
     stopAfterUnchangedPages,
     collectedAt,
     details,
+    archiveAttachments,
+    storage,
+    maxAttachmentsPerGrant,
+    convertHwpAttachments,
+    allowAttachmentFailures,
   });
   console.log(JSON.stringify(result, null, 2));
 } finally {
@@ -131,11 +145,15 @@ Options:
   --publish-unchanged                Publish unchanged rows too
   --stopAfterUnchangedPages=3         Stop live scan after N unchanged pages
   --details / --no-details           Fetch detail pages for new/changed rows (default: on for live)
+  --archive-attachments              Download selected detail attachments and archive them to R2
+  --maxAttachmentsPerGrant=3         Max convertible attachments archived per grant
+  --skip-attachment-conversion       Skip local HWP-to-markdown conversion
+  --allow-attachment-failures        Continue after individual attachment failures
   --collectedAt=2026-06-27T00:00:00Z
 
 Detail collection (robots-safe):
-  Only the detail page (/web/contents/*) is fetched. Attachment bodies (/afile/*)
-  are never downloaded — only filename + download URL metadata is stored.
+  기본은 detail page(/web/contents/*)만 수집하고 첨부는 filename + URL metadata만 저장합니다.
+  --archive-attachments를 명시한 경우에만 선택된 변환 가능 첨부 본문을 다운로드해 R2에 보관합니다.
 
 Environment:
   KSTARTUP_SERVICE_KEY
@@ -143,5 +161,6 @@ Environment:
   CUNOTE_KSTARTUP_ARCHIVE_COMPARE_DB=true
   CUNOTE_KSTARTUP_ARCHIVE_WRITE=true
   CUNOTE_ARCHIVE_KSTARTUP_DETAILS=true|false
+  CUNOTE_KSTARTUP_ARCHIVE_ATTACHMENTS=true
 `);
 }

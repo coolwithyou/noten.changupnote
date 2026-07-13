@@ -286,7 +286,7 @@ function PipelineCard({
       <CardContent className="flex flex-col gap-4">
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {item.fitScore !== null ? (
-            <span>적합도 {item.fitScore}</span>
+            <span>조건 확인도 {item.fitScore}</span>
           ) : (
             <Badge variant="outline" className="font-normal">매칭 밖 · 직접 준비</Badge>
           )}

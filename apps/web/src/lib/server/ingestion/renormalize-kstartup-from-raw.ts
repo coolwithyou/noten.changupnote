@@ -16,6 +16,10 @@
 //   실제 쓰기:        ... renormalize-kstartup-from-raw.ts --write
 //   활성만:          ... --active-only            (open/upcoming/unknown + apply_end 미도래)
 //   배치 크기:        --batch=500                 (default 500)
+//   prior dry-run:    ... --active-only --prior-award-split
+//   prior 실제 쓰기:  ... --write --prior-award-split --prior-award-annotations=<reviewed.jsonl>
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { eq, inArray, sql } from "drizzle-orm";
 import type { Grant, GrantCriterion } from "@cunote/contracts";
 import {
@@ -25,11 +29,20 @@ import {
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import * as schema from "../db/schema";
+import { assessPriorAwardIndependentReview, type PriorAwardReviewCandidate } from "./priorAwardReviewGate";
 
 loadMonorepoEnv();
 
 const write = hasFlag("write");
 const activeOnly = hasFlag("active-only");
+const priorAwardSplit = hasFlag("prior-award-split");
+const priorAwardAnnotationsPath = readArg("prior-award-annotations");
+if (write && priorAwardSplit && !priorAwardAnnotationsPath) {
+  throw new Error("--write --prior-award-split requires --prior-award-annotations=<reviewed.jsonl>");
+}
+if (priorAwardAnnotationsPath && !existsSync(priorAwardAnnotationsPath)) {
+  throw new Error(`prior_award annotations file not found: ${priorAwardAnnotationsPath}`);
+}
 const batchSize = boundedInt(readArg("batch"), 500, 1, 2000);
 const limit = readArg("limit") ? boundedInt(readArg("limit"), 100, 1, 1_000_000) : undefined;
 
@@ -47,6 +60,8 @@ async function main() {
   const summary = {
     dryRun: !write,
     activeOnly,
+    priorAwardSplit,
+    priorAwardAnnotationsPath: priorAwardAnnotationsPath ?? null,
     batchSize,
     limit: limit ?? null,
     startedAt: startedIso,
@@ -55,6 +70,10 @@ async function main() {
     criteriaBefore: 0,
     criteriaAfter: 0,
     newDisqCriteria: 0,
+    priorAwardCriteria: 0,
+    priorAwardReviewRequired: 0,
+    priorAwardReviewAccepted: 0,
+    priorAwardReviewReady: false,
     disqByDimension: {} as Record<string, number>,
     errors: [] as Array<{ sourceId: string; message: string }>,
   };
@@ -73,12 +92,28 @@ async function main() {
     `)) as unknown as RawRow[];
 
     summary.targetCount = rows.length;
-    console.log(`[renormalize-kstartup] target=${rows.length} write=${write} activeOnly=${activeOnly} batch=${batchSize}`);
-
     const asOf = new Date();
+    if (priorAwardSplit) {
+      const candidates = buildPriorAwardCandidates(rows, asOf);
+      const assessment = assessPriorAwardIndependentReview(
+        candidates,
+        priorAwardAnnotationsPath ? readFileSync(priorAwardAnnotationsPath, "utf8") : null,
+        priorAwardAnnotationsPath ?? undefined,
+      );
+      summary.priorAwardReviewRequired = candidates.length;
+      summary.priorAwardReviewAccepted = assessment.acceptedCriterionCount;
+      summary.priorAwardReviewReady = assessment.ready;
+      if (write && !assessment.ready) {
+        throw new Error(
+          `prior_award independent review gate failed: accepted ${assessment.acceptedCriterionCount}/${candidates.length}`,
+        );
+      }
+    }
+    console.log(`[renormalize-kstartup] target=${rows.length} write=${write} activeOnly=${activeOnly} priorAwardSplit=${priorAwardSplit} batch=${batchSize}`);
+
     for (let i = 0; i < rows.length; i += batchSize) {
       const chunk = rows.slice(i, i + batchSize);
-      await processBatch(db, chunk, asOf, summary);
+      await processBatch(db, chunk, asOf, summary, { priorAwardSplit });
       const done = Math.min(i + batchSize, rows.length);
       console.log(`[renormalize-kstartup] progress ${done}/${rows.length} renorm=${summary.renormalizedGrants} newDisq=${summary.newDisqCriteria} err=${summary.errors.length}`);
     }
@@ -99,9 +134,11 @@ async function processBatch(
     criteriaBefore: number;
     criteriaAfter: number;
     newDisqCriteria: number;
+    priorAwardCriteria: number;
     disqByDimension: Record<string, number>;
     errors: Array<{ sourceId: string; message: string }>;
   },
+  options: { priorAwardSplit: boolean },
 ): Promise<void> {
   const disqDims = new Set([
     "tax_compliance", "credit_status", "sanction",
@@ -119,12 +156,17 @@ async function processBatch(
 
   for (const row of chunk) {
     try {
-      const normalized = normalizeKStartupAnnouncement(row.payload, { asOf, collectedAt: asOf });
+      const normalized = normalizeKStartupAnnouncement(row.payload, {
+        asOf,
+        collectedAt: asOf,
+        priorAwardSplit: options.priorAwardSplit,
+      });
       const grant = normalized.grant;
       const criteria = normalized.criteria;
 
       // 신규 결격 criteria 집계
       for (const c of criteria) {
+        if (c.dimension === "prior_award") summary.priorAwardCriteria += 1;
         if (disqDims.has(c.dimension)) {
           summary.newDisqCriteria += 1;
           summary.disqByDimension[c.dimension] = (summary.disqByDimension[c.dimension] ?? 0) + 1;
@@ -158,6 +200,28 @@ async function processBatch(
       }
     }
   }
+}
+
+function buildPriorAwardCandidates(rows: RawRow[], asOf: Date): PriorAwardReviewCandidate[] {
+  return rows.flatMap((row) => {
+    const criteria = normalizeKStartupAnnouncement(row.payload, {
+      asOf,
+      collectedAt: asOf,
+      priorAwardSplit: true,
+    }).criteria.filter((criterion) => criterion.dimension === "prior_award");
+    const inputSha256 = createHash("sha256")
+      .update(JSON.stringify({ sourceId: row.sourceId, exclusion: row.payload.aply_excl_trgt_ctnt ?? null }))
+      .digest("hex");
+    return criteria.map((criterion) => ({
+      grantId: `kstartup:${row.sourceId}`,
+      sourceId: row.sourceId,
+      sourceFixture: `prior-award-p5:kstartup:${row.sourceId}:${inputSha256}`,
+      criterionId: criterion.id ?? `kstartup:${row.sourceId}:prior-award-unknown`,
+      operator: criterion.operator,
+      value: criterion.value,
+      sourceSpan: criterion.source_span ?? null,
+    }));
+  });
 }
 
 // normalizedGrantPublisher.grantUpdateValues 와 동일 매핑(재정규화가 바꿀 수 있는 필드 전부).

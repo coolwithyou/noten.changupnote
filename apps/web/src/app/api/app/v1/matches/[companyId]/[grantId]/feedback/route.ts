@@ -3,6 +3,7 @@ import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
 import {
   buildFeedbackResult,
   buildSubmitFeedbackInput,
+  attachMatchFeedbackProvenance,
   decodeGrantIdSegment,
   readMatchFeedbackRequest,
 } from "@/lib/server/matches/matchFeedback";
@@ -20,13 +21,14 @@ export async function POST(request: Request, context: RouteContext) {
   try {
     const [{ companyId, grantId }, body] = await Promise.all([context.params, readMatchFeedbackRequest(request)]);
     const access = await requireAppCompanyAccess(request, companyId);
-    const input = buildSubmitFeedbackInput({
+    const repositories = getServiceRepositories();
+    const input = await attachMatchFeedbackProvenance(buildSubmitFeedbackInput({
       companyId,
       grantId: decodeGrantIdSegment(grantId),
       userId: access.userId,
       body,
-    });
-    const receipt = await getServiceRepositories().feedback.submitFeedback(input);
+    }), repositories);
+    const receipt = await repositories.feedback.submitFeedback(input);
     recordApplicationManagementFeedback(input, receipt.receivedAt);
     return appData(buildFeedbackResult(receipt), { status: 202 });
   } catch (error) {

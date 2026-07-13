@@ -79,6 +79,23 @@ check("불릿·번호 마커를 문장 경계로 분할한다", () => {
   assert.ok(s.some((x) => x.includes("완전자본잠식")), "자본잠식 문장 분리 실패");
 });
 
+check("ASCII 마침표는 문장 경계로 분할하고 소수점은 보존한다", () => {
+  const sentences = splitDisqualificationSentences(
+    "국세 체납 기업은 제외한다. 부채비율 1000.5% 이상 기업은 제외한다.",
+  );
+  assert.deepEqual(sentences, [
+    "국세 체납 기업은 제외한다",
+    "부채비율 1000.5% 이상 기업은 제외한다",
+  ]);
+});
+
+check("삼각 불릿·한글 번호·괄호 표제를 문장 경계로 분할한다", () => {
+  const sentences = splitDisqualificationSentences(
+    "▷ 국세 체납자 나. 동일 과제 중복 참여자 (서류 허위제출) 허위 서류 제출자",
+  );
+  assert.deepEqual(sentences, ["국세 체납자", "동일 과제 중복 참여자", "허위 서류 제출자"]);
+});
+
 // ── C2: 구조화 금지(prior_award 절대 미생성) ─────────────────────────────────
 check("어떤 블록에서도 prior_award 를 생성하지 않는다(C2)", () => {
   for (const key of Object.keys(EXCLUSION_BLOCKS)) {

@@ -34,8 +34,11 @@ export const CRITERION_DIMENSIONS = [
 export const MATCH_REVIEW_REASON_CODES = [
   "core_dimension_unknown",
   "criteria_under_extracted",
+  "extraction_incomplete",
   "profile_missing",
   "hard_fail",
   "unstructured_criteria",
   "disqualification_unconfirmed",
 ] as const;
+
+export const GRANT_AUDIENCES = ["company", "individual", "mixed", "unknown"] as const;

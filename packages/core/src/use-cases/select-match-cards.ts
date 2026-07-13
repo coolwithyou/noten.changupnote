@@ -91,7 +91,7 @@ function amountMax(match: MatchCard): number {
 }
 
 function deadlineRank(match: MatchCard): number {
-  if (match.dDay === null) return Number.MAX_SAFE_INTEGER;
+  if (match.dDay === null || match.dDay < 0) return Number.MAX_SAFE_INTEGER;
   return match.dDay;
 }
 

@@ -1,0 +1,94 @@
+{
+  "goldenVer": "prior-award-scenarios-v1",
+  "asOf": "2026-07-12T00:00:00.000Z",
+  "cases": [
+    {
+      "caseId": "self-unanswered",
+      "tags": ["self", "unqueried"],
+      "criterion": { "dimension": "prior_award", "operator": "exists", "kind": "exclusion", "value": { "scope": "self", "self_kind": "same_project", "channel": "general" }, "confidence": 0.9, "source_span": "동일 과제 중복 참여 기업 제외" },
+      "profile": {},
+      "expectedTrace": "unknown",
+      "expectedEligibility": "conditional"
+    },
+    {
+      "caseId": "self-explicit-clean",
+      "tags": ["self"],
+      "criterion": { "dimension": "prior_award", "operator": "exists", "kind": "exclusion", "value": { "scope": "self", "self_kind": "same_project", "channel": "general" }, "confidence": 0.9, "source_span": "동일 과제 중복 참여 기업 제외" },
+      "profile": { "prior_award_history": { "records": [], "self_flags": { "same_project": false }, "known_programs": [], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "pass",
+      "expectedEligibility": "eligible"
+    },
+    {
+      "caseId": "self-explicit-hit",
+      "tags": ["self"],
+      "criterion": { "dimension": "prior_award", "operator": "exists", "kind": "exclusion", "value": { "scope": "self", "self_kind": "same_project", "channel": "general" }, "confidence": 0.9, "source_span": "동일 과제 중복 참여 기업 제외" },
+      "profile": { "prior_award_history": { "records": [], "self_flags": { "same_project": true }, "known_programs": [], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "fail",
+      "expectedEligibility": "ineligible"
+    },
+    {
+      "caseId": "program-unqueried",
+      "tags": ["program", "unqueried"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program", "programs": ["tips"], "states": ["completed"] }, "confidence": 0.9, "source_span": "TIPS 수혜 기업 제외" },
+      "profile": { "prior_award_history": { "records": [], "known_programs": [], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "unknown",
+      "expectedEligibility": "conditional"
+    },
+    {
+      "caseId": "program-explicit-clean",
+      "tags": ["program"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program", "programs": ["tips"], "states": ["completed"] }, "confidence": 0.9, "source_span": "TIPS 수혜 기업 제외" },
+      "profile": { "prior_award_history": { "records": [], "known_programs": ["tips"], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "pass",
+      "expectedEligibility": "eligible"
+    },
+    {
+      "caseId": "program-explicit-hit",
+      "tags": ["program"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program", "programs": ["tips"], "states": ["completed"] }, "confidence": 0.9, "source_span": "TIPS 수혜 기업 제외" },
+      "profile": { "prior_award_history": { "records": [{ "program": "tips", "state": "completed", "year": 2025 }], "known_programs": ["tips"], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "fail",
+      "expectedEligibility": "ineligible"
+    },
+    {
+      "caseId": "program-type-explicit-clean",
+      "tags": ["program_type"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program_type", "programs": ["startup_nest"], "states": ["graduated"] }, "confidence": 0.9, "source_span": "Start-up NEST 수료 기업 제외" },
+      "profile": { "prior_award_history": { "records": [], "known_programs": [], "known_program_types": ["startup_nest"] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "pass",
+      "expectedEligibility": "eligible"
+    },
+    {
+      "caseId": "program-type-explicit-hit",
+      "tags": ["program_type"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program_type", "programs": ["startup_nest"], "states": ["graduated"] }, "confidence": 0.9, "source_span": "Start-up NEST 수료 기업 제외" },
+      "profile": { "prior_award_history": { "records": [{ "program": "startup_nest", "state": "graduated", "year": 2024 }], "known_programs": [], "known_program_types": ["startup_nest"] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "fail",
+      "expectedEligibility": "ineligible"
+    },
+    {
+      "caseId": "period-year-unknown",
+      "tags": ["program", "year_unknown"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program", "programs": ["chogi_startup_package"], "states": ["completed"], "within": { "value": 3, "unit": "year" } }, "confidence": 0.9, "source_span": "최근 3년 초기창업패키지 수혜 기업 제외" },
+      "profile": { "prior_award_history": { "records": [{ "program": "chogi_startup_package", "state": "completed", "year": null }], "known_programs": ["chogi_startup_package"], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "unknown",
+      "expectedEligibility": "conditional"
+    },
+    {
+      "caseId": "period-outside",
+      "tags": ["program", "period_outside"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program", "programs": ["chogi_startup_package"], "states": ["completed"], "within": { "value": 3, "unit": "year" } }, "confidence": 0.9, "source_span": "최근 3년 초기창업패키지 수혜 기업 제외" },
+      "profile": { "prior_award_history": { "records": [{ "program": "chogi_startup_package", "state": "completed", "year": 2020 }], "known_programs": ["chogi_startup_package"], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "pass",
+      "expectedEligibility": "eligible"
+    },
+    {
+      "caseId": "period-inside",
+      "tags": ["program", "period_inside"],
+      "criterion": { "dimension": "prior_award", "operator": "in", "kind": "exclusion", "value": { "scope": "program", "programs": ["chogi_startup_package"], "states": ["completed"], "within": { "value": 3, "unit": "year" } }, "confidence": 0.9, "source_span": "최근 3년 초기창업패키지 수혜 기업 제외" },
+      "profile": { "prior_award_history": { "records": [{ "program": "chogi_startup_package", "state": "completed", "year": 2025 }], "known_programs": ["chogi_startup_package"], "known_program_types": [] }, "confidence": { "prior_award": 0.6 } },
+      "expectedTrace": "fail",
+      "expectedEligibility": "ineligible"
+    }
+  ]
+}

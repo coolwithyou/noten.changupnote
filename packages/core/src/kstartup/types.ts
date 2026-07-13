@@ -23,6 +23,8 @@ export interface KStartupAnnouncement {
   pbanc_rcpt_end_dt?: string | null;
   pbanc_sn: number | string;
   prfn_matr?: string | null;
+  /** K-Startup API 모집진행여부. `N`이면 접수일 누락 여부와 무관하게 모집 종료다. */
+  rcrt_prgs_yn?: string | null;
   sprv_inst?: string | null;
   supt_biz_clsfc?: string | null;
   supt_regin?: string | null;
@@ -41,6 +43,30 @@ export interface KStartupApiResponse {
 export interface NormalizeKStartupOptions {
   asOf?: Date;
   collectedAt?: Date;
+  /** P5 전까지 기본 false. prior_award 결정론 splitter를 명시적으로 활성화할 때만 사용한다. */
+  priorAwardSplit?: boolean;
+}
+
+export interface KStartupAttachmentMarkdown {
+  filename: string;
+  markdown: string;
+}
+
+export interface KStartupExtractionBlock {
+  label: string;
+  source: "api_field" | "detail_section" | "attachment_markdown";
+  source_field?: keyof KStartupAnnouncement | "detail.apply_method_text" | "detail.submit_documents_text";
+  filename?: string;
+  text: string;
+}
+
+export interface KStartupExtractionInput {
+  source: "kstartup";
+  source_id: string;
+  title: string;
+  category: string | null;
+  blocks: KStartupExtractionBlock[];
+  text: string;
 }
 
 export interface KStartupFetchPageOptions {

@@ -153,6 +153,11 @@ function ProgramCard({
     (reason) => reason.code === "disqualification_unconfirmed",
   );
   const writeLabel = writeSupportLabel(match.writeSupport);
+  const relevanceLabel = match.ranking?.relevanceScore == null || match.ranking.relevanceScore < 40
+    ? null
+    : match.ranking.relevanceScore >= 70
+      ? "관련성 높음"
+      : "관련성 보통";
   const urgent = isUrgentDday(match.dDay);
 
   return (
@@ -180,6 +185,7 @@ function ProgramCard({
                     {writeLabel}
                   </Badge>
                 ) : null}
+                {relevanceLabel ? <Badge variant="outline">{relevanceLabel}</Badge> : null}
               </div>
               <div className="font-heading text-base font-semibold leading-snug">{match.title}</div>
               <div className="text-sm text-muted-foreground">
@@ -187,7 +193,7 @@ function ProgramCard({
               </div>
             </div>
             <div className="flex min-w-[136px] flex-none flex-col items-end gap-2">
-              <div className="text-xs text-muted-foreground">적합도</div>
+              <div className="text-xs text-muted-foreground">조건 확인도</div>
               {scoreHidden ? (
                 <>
                   <div className="font-heading text-base font-semibold leading-none text-muted-foreground">확인 필요</div>
@@ -202,7 +208,7 @@ function ProgramCard({
                   <div className="font-heading text-2xl font-semibold leading-none text-primary tabular-nums">
                     {match.fitScore}%
                   </div>
-                  <Progress value={clampPct(match.fitScore)} className="w-28" aria-label="적합도" />
+                  <Progress value={clampPct(match.fitScore)} className="w-28" aria-label="조건 확인도" />
                 </>
               )}
             </div>
@@ -253,6 +259,20 @@ function ProgramCard({
                   </Button>
                 </AlertAction>
               </Alert>
+            ) : null}
+
+            {match.ranking && match.ranking.reasons.length > 0 ? (
+              <div className="rounded-md border bg-background px-3 py-2.5">
+                <div className="text-xs font-semibold text-muted-foreground">추천 순서 근거</div>
+                <ul className="mt-1.5 space-y-1 text-xs leading-5 text-muted-foreground">
+                  {match.ranking.reasons.slice(0, 3).map((reason) => (
+                    <li key={reason}>· {reason}</li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+                  관련성과 준비 우선순위는 선정 가능성을 뜻하지 않아요.
+                </p>
+              </div>
             ) : null}
 
             <p className="text-xs leading-5 text-muted-foreground">{writeSupportNote(match.writeSupport)}</p>

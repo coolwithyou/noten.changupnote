@@ -1612,18 +1612,40 @@ checks.push("web_profile_field");
 const webPriorAwardField = await fetchJson<ActionResult<{
   profile: {
     prior_awards?: string[];
+    prior_award_history?: {
+      records: Array<{ program?: string; state: string; year?: number | null }>;
+      self_flags?: Record<string, boolean>;
+      has_incubation_tenancy?: boolean;
+      known_programs: string[];
+      known_program_types: string[];
+    };
     confidence?: Record<string, number>;
   };
 }>>("/api/web/profile/field", {
   method: "POST",
   headers: { "content-type": "application/json" },
-  body: JSON.stringify({ field: "prior_award", value: [], confidence: 0.78 }),
+  body: JSON.stringify({
+    field: "prior_award",
+    value: {
+      records: [{ program: "초기창업패키지", state: "completed", year: 2024 }],
+      self_flags: { current_similar: false, same_project: false },
+      has_incubation_tenancy: false,
+      known_programs: ["초기창업패키지", "TIPS"],
+      known_program_types: ["Start-up NEST"],
+    },
+    confidence: 0.6,
+    mode: "replace",
+  }),
 });
 expectStatus(webPriorAwardField, 200, "web prior award field status");
 expect(webPriorAwardField.body.ok === true, "web prior award field envelope ok");
-expect(Array.isArray(webPriorAwardField.body.data?.profile.prior_awards), "web prior award field persists empty list");
-expect(webPriorAwardField.body.data?.profile.prior_awards?.length === 0, "web prior award field stores no-award self report");
-expect(webPriorAwardField.body.data?.profile.confidence?.prior_award === 0.78, "web prior award field persists confidence");
+expect(webPriorAwardField.body.data?.profile.prior_awards?.[0] === "chogi_startup_package", "web prior award field mirrors canonical program");
+expect(webPriorAwardField.body.data?.profile.prior_award_history?.records[0]?.year === 2024, "web prior award field persists record year");
+expect(webPriorAwardField.body.data?.profile.prior_award_history?.self_flags?.current_similar === false, "web prior award field persists negative self answer");
+expect(webPriorAwardField.body.data?.profile.prior_award_history?.has_incubation_tenancy === false, "web prior award field persists tenancy answer");
+expect(webPriorAwardField.body.data?.profile.prior_award_history?.known_programs.includes("tips") === true, "web prior award field persists canonical known program");
+expect(webPriorAwardField.body.data?.profile.prior_award_history?.known_program_types.includes("startup_nest") === true, "web prior award field persists known program type");
+expect(webPriorAwardField.body.data?.profile.confidence?.prior_award === 0.6, "web prior award field persists self-declared confidence");
 checks.push("web_prior_award_field");
 
 const login = await fetchJson<ApiEnvelope<{

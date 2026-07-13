@@ -20,7 +20,10 @@ function check(name: string, fn: () => void): void {
 
 /** 단일 criterion을 회사 프로필에 대해 평가하고 첫 trace 엔트리를 반환한다. */
 function evalOne(criterion: GrantCriterion, company: CompanyProfile) {
-  const result = matchGrantCriteria([criterion], company);
+  const result = matchGrantCriteria([{
+    ...criterion,
+    source_field: criterion.source_field ?? "test_fixture",
+  }], company);
   const entry = result.rule_trace[0];
   assert.ok(entry, "trace entry 존재");
   return { result, entry };
@@ -100,6 +103,7 @@ check("[tax] 예외(징수유예)로 히트 전부 면제 → pass", () => {
     operator: "in",
     kind: "exclusion",
     confidence: 0.9,
+    source_field: "aply_excl_trgt_ctnt",
     value: { flags: ["national_tax_delinquent"], exceptions: ["payment_deferral_approved"] },
   };
   const company: CompanyProfile = {
@@ -668,6 +672,7 @@ check("[gate] 결격 축 unknown 시 disqualification_unconfirmed reason + needs
     operator: "in",
     kind: "exclusion",
     confidence: 0.9,
+    source_field: "aply_excl_trgt_ctnt",
     value: { flags: ["national_tax_delinquent"] },
   };
   const company: CompanyProfile = { confidence: { ...baseConfidence } };
@@ -707,6 +712,7 @@ check("[gate] nextQuestion 우선순위: 결격 축이 최상위", () => {
       operator: "in",
       kind: "required",
       confidence: 0.9,
+      source_field: "supt_regin",
       value: { regions: ["11"], labels: ["서울"] },
     },
     {
@@ -714,6 +720,7 @@ check("[gate] nextQuestion 우선순위: 결격 축이 최상위", () => {
       operator: "in",
       kind: "exclusion",
       confidence: 0.9,
+      source_field: "aply_excl_trgt_ctnt",
       value: { flags: ["national_tax_delinquent"] },
     },
   ];

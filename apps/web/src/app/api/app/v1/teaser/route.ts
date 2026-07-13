@@ -1,7 +1,8 @@
 import type { TeaserRequest, TeaserResult } from "@cunote/contracts";
+import { isValidBizNoChecksum } from "@cunote/contracts";
 import { buildTeaser } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
-import { loadServiceGrants, ServiceDataError } from "@/lib/server/serviceData";
+import { loadServiceGrantUniverse, ServiceDataError } from "@/lib/server/serviceData";
 import { resolveTeaserCompanyProfileWithEvidence } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
 export const runtime = "nodejs";
@@ -10,10 +11,19 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const body = await readBody(request);
+    const requestedBizNo = body.bizNo?.trim();
+    if (requestedBizNo && !isValidBizNoChecksum(requestedBizNo)) {
+      return appError(
+        "invalid_biz_no",
+        "유효하지 않은 사업자등록번호입니다. 입력한 번호를 다시 확인해주세요.",
+        400,
+        "bizNo",
+      );
+    }
     const asOf = new Date();
     const [companyResolution, grants] = await Promise.all([
       resolveTeaserCompanyProfileWithEvidence(body),
-      loadServiceGrants({ asOf, limit: 40 }),
+      loadServiceGrantUniverse({ asOf }),
     ]);
     return appData<TeaserResult>(buildTeaser({
       company: companyResolution.profile,

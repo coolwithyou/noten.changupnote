@@ -80,7 +80,7 @@ export function renderApplicationReminderEmailHandoff(input: {
     `현재 단계: ${input.item.stageLabel}`,
     `다음 액션: ${input.item.nextAction}`,
     `지원금/혜택: ${input.item.supportLabel}`,
-    input.item.fitScore !== null ? `적합도: ${input.item.fitScore}` : "적합도: 매칭 밖 · 직접 준비",
+    input.item.fitScore !== null ? `조건 확인도: ${input.item.fitScore}` : "조건 확인도: 매칭 밖 · 직접 준비",
     input.item.applyEnd ? `신청 마감: ${formatDate(input.item.applyEnd)}` : "신청 마감: 일정 확인 필요",
     input.item.reminderAt ? `내부 리마인더: ${formatDate(input.item.reminderAt)}` : null,
     input.item.assigneeName ? `담당자: ${input.item.assigneeName}` : null,

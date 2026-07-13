@@ -279,6 +279,116 @@ check("M3: 결격 값 JSON 직렬화 라운드트립 무손실(DB JSON 컬럼 �
   assert.deepEqual(stored.exceptions, ["repayment_plan_in_good_standing"]);
 });
 
+check("prior_award 구조화 응답은 self/program 커버와 record를 보존", () => {
+  const profile = updateCompanyProfileField(emptyProfile(), {
+    field: "prior_award",
+    value: {
+      self_flags: { current_similar: false, same_year_other_support: true },
+      records: [{ program: "2024년 초기창업패키지", state: "completed", year: 2024 }],
+      known_programs: ["초기창업패키지"],
+      known_program_types: [],
+    },
+    sourceKind: "self_declared",
+    provider: "cunote_profile_question",
+  });
+  assert.deepEqual(profile.prior_award_history, {
+    records: [{ program: "chogi_startup_package", state: "completed", year: 2024 }],
+    self_flags: { current_similar: false, same_year_other_support: true },
+    known_programs: ["chogi_startup_package"],
+    known_program_types: [],
+  });
+  assert.deepEqual(profile.prior_awards, ["chogi_startup_package"]);
+  assert.equal(profile.confidence?.prior_award, 0.6);
+  assert.equal(profile.profile_evidence?.prior_award?.sourceKind, "self_declared");
+});
+
+check("prior_award merge는 다른 self 범위와 기존 records를 silent drop하지 않음", () => {
+  let profile = updateCompanyProfileField(emptyProfile(), {
+    field: "prior_award",
+    value: {
+      self_flags: { current_similar: false },
+      records: [{ program: "startup_nest", state: "graduated", year: 2025 }],
+      known_program_types: ["startup_nest"],
+    },
+  });
+  profile = updateCompanyProfileField(profile, {
+    field: "prior_award",
+    mode: "merge",
+    value: {
+      self_flags: { same_business_prior: true },
+      known_programs: ["tips"],
+    },
+  });
+  assert.deepEqual(profile.prior_award_history?.self_flags, {
+    current_similar: false,
+    same_business_prior: true,
+  });
+  assert.equal(profile.prior_award_history?.records.length, 1);
+  assert.deepEqual(profile.prior_award_history?.known_program_types, ["startup_nest"]);
+  assert.deepEqual(profile.prior_award_history?.known_programs, ["tips"]);
+});
+
+check("prior_award program 없음 merge는 해당 scope의 stale positive record만 제거", () => {
+  const profile = updateCompanyProfileField({
+    confidence: { prior_award: 0.8 },
+    prior_award_history: {
+      records: [
+        { program: "tips", state: "participating", year: 2026 },
+        { program: "chogi_startup_package", state: "completed", year: 2024 },
+      ],
+      self_flags: { current_similar: true, same_project: true },
+      known_programs: ["chogi_startup_package"],
+      known_program_types: [],
+    },
+    prior_awards: ["tips", "chogi_startup_package"],
+  }, {
+    field: "prior_award",
+    mode: "merge",
+    value: { records: [], known_programs: ["tips"] },
+    sourceKind: "self_declared",
+  });
+
+  assert.deepEqual(profile.prior_award_history?.records, [
+    { program: "chogi_startup_package", state: "completed", year: 2024 },
+  ]);
+  assert.deepEqual(profile.prior_awards, ["chogi_startup_package"]);
+  assert.deepEqual(profile.prior_award_history?.known_programs, ["chogi_startup_package", "tips"]);
+  assert.deepEqual(profile.prior_award_history?.self_flags, { current_similar: true, same_project: true });
+});
+
+check("prior_award self 없음 merge는 해당 flag만 덮고 records와 다른 scope를 보존", () => {
+  const profile = updateCompanyProfileField({
+    prior_award_history: {
+      records: [{ program: "tips", state: "participating", year: 2026 }],
+      self_flags: { current_similar: true, same_project: true },
+      known_programs: ["tips"],
+      known_program_types: [],
+    },
+  }, {
+    field: "prior_award",
+    mode: "merge",
+    value: { self_flags: { current_similar: false } },
+  });
+
+  assert.deepEqual(profile.prior_award_history?.self_flags, {
+    current_similar: false,
+    same_project: true,
+  });
+  assert.deepEqual(profile.prior_award_history?.records, [
+    { program: "tips", state: "participating", year: 2026 },
+  ]);
+  assert.deepEqual(profile.prior_award_history?.known_programs, ["tips"]);
+});
+
+check("legacy prior_award 문자열 배열은 구조화 known 커버를 추측 생성하지 않음", () => {
+  const profile = updateCompanyProfileField(emptyProfile(), {
+    field: "prior_award",
+    value: ["초기창업패키지"],
+  });
+  assert.deepEqual(profile.prior_awards, ["초기창업패키지"]);
+  assert.equal(profile.prior_award_history, undefined);
+});
+
 check("점진 질문 merge 모드는 자동조회 업종을 보존하고 새 세부 업종만 추가", () => {
   const profile = updateCompanyProfileField({
     industries: ["ICT", "SW"],

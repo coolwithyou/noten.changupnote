@@ -5,6 +5,7 @@ import { webActionError } from "@/lib/server/auth/webActionError";
 import {
   buildFeedbackResult,
   buildSubmitFeedbackInput,
+  attachMatchFeedbackProvenance,
   decodeGrantIdSegment,
   readMatchFeedbackRequest,
 } from "@/lib/server/matches/matchFeedback";
@@ -27,13 +28,14 @@ export async function POST(request: Request, context: RouteContext) {
       readMatchFeedbackRequest(request),
       requireCompanyAccess({ permission: "write" }),
     ]);
-    const input = buildSubmitFeedbackInput({
+    const repositories = getServiceRepositories();
+    const input = await attachMatchFeedbackProvenance(buildSubmitFeedbackInput({
       companyId: access.companyId,
       grantId: decodeGrantIdSegment(grantId),
       userId: access.userId,
       body,
-    });
-    const receipt = await getServiceRepositories().feedback.submitFeedback(input);
+    }), repositories);
+    const receipt = await repositories.feedback.submitFeedback(input);
     recordApplicationManagementFeedback(input, receipt.receivedAt);
 
     return NextResponse.json<ActionResult<FeedbackResult>>({
