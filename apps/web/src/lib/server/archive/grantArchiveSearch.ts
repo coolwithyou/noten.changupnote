@@ -513,7 +513,7 @@ function criterionValueLabel(criterion: GrantCriterion): string {
   return candidates.find((candidate) => candidate && candidate.length > 0) ?? criterion.raw_text ?? criterion.source_span ?? "조건 확인";
 }
 
-function supportAmountLabel(value: Grant["support_amount"]): string | null {
+export function supportAmountLabel(value: Grant["support_amount"]): string | null {
   const amount = normalizeSupportAmount(value);
   if (amount.label) return amount.label;
   if (typeof amount.max === "number" && amount.max > 0) return `${amount.max.toLocaleString("ko-KR")}원`;
@@ -608,13 +608,13 @@ function emptyAttachmentSummary(): GrantArchiveAttachmentSummary {
   };
 }
 
-function sourceLabel(source: GrantSource): string {
+export function sourceLabel(source: GrantSource): string {
   if (source === "kstartup") return "K-Startup";
   if (source === "bizinfo") return "기업마당";
   return "기업마당 행사";
 }
 
-function statusLabel(status: GrantStatus): string {
+export function statusLabel(status: GrantStatus): string {
   if (status === "open") return "접수중";
   if (status === "upcoming") return "예정";
   if (status === "closed") return "마감";

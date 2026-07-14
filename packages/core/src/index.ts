@@ -26,6 +26,17 @@ export * from "./company/assemble-company-profile.js";
 export * from "./company/question-answer-state.js";
 export * from "./company/update-profile-field.js";
 export * from "./criteria/canonicalize.js";
+// 지역 코드·라벨·정규화 유틸 — 매칭 파이프라인 내부 전용이었으나 비로그인 공개 캘린더가
+// 시도 코드 검증(VALID_SIDO_CODES)과 토큰 확장(expandRegionToken, 수도권→3코드)을 공유해야 한다.
+// 배럴(export *) 체인에 없던 심볼이라 named export로만 노출한다(이름 충돌 회피 — export * 금지).
+export { METRO_REGION_CODES, REGION_CODES, REGION_LABELS } from "./kstartup/constants.js";
+export {
+  VALID_SIDO_CODES,
+  expandRegionToken,
+  isNationwideRegionToken,
+  isValidSidoCode,
+  sidoCodeForToken,
+} from "./criteria/regions.js";
 export * from "./credits/index.js";
 export * from "./dedup/grant-dedup.js";
 export * from "./disqualification/canonical.js";
@@ -50,6 +61,7 @@ export * from "./evaluation/criteria-extraction.js";
 export * from "./evaluation/business-number-first-results.js";
 export * from "./evaluation/autofill-cohort-measurement.js";
 export * from "./evaluation/extraction-improvement-priority.js";
+export * from "./evaluation/grant-analysis-pilot.js";
 export * from "./evaluation/kstartup-drafts.js";
 export * from "./evaluation/review-packet.js";
 export * from "./evaluation/reviewed-publication.js";
