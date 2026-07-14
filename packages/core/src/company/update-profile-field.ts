@@ -2,6 +2,8 @@ import type {
   CompanyProfile,
   CompanyProfileEvidenceSourceKind,
   CompanyProfileEvidenceObservation,
+  CompanyProfileFieldEvidence,
+  CompanyProfileObservationMetadata,
   CriterionDimension,
   DisqualificationProfileValue,
   ListProfileDimension,
@@ -36,6 +38,10 @@ export interface CompanyProfileFieldUpdate {
   axisCompleteness?: "partial" | "complete";
   /** 사용자 확인 UI가 권위 원천과 충돌을 명시적으로 보여준 뒤에만 사용한다. */
   allowAuthoritativeOverride?: boolean;
+  /** P1 persistence/assembly identity. Existing callers may omit it. */
+  observation?: CompanyProfileObservationMetadata;
+  /** Existing provenance carried by persistence/profile snapshot adapters. */
+  supplementalEvidence?: readonly CompanyProfileEvidenceObservation[];
 }
 
 /** 자가신고 기본 confidence — 문항 API가 명시 전달하지 않을 때 사용(§공통). */
@@ -189,6 +195,7 @@ export function updateCompanyProfileField(
       asOf: update.asOf ?? null,
       axisCompleteness,
       confidence,
+      ...(update.observation ?? {}),
     };
     const existingEvidence = profile.profile_evidence?.[update.field];
     const fieldEvidence = update.mode === "merge" && existingEvidence
@@ -197,9 +204,16 @@ export function updateCompanyProfileField(
         supplemental: appendEvidenceObservation(existingEvidence.supplemental, observation),
       }
       : observation;
+    const withSupplemental = (update.supplementalEvidence ?? []).reduce<CompanyProfileFieldEvidence>(
+      (current, supplemental) => ({
+        ...current,
+        supplemental: appendEvidenceObservation(current.supplemental, supplemental),
+      }),
+      fieldEvidence,
+    );
     next.profile_evidence = {
       ...(profile.profile_evidence ?? {}),
-      [update.field]: fieldEvidence,
+      [update.field]: withSupplemental,
     };
   }
 
@@ -593,26 +607,33 @@ function normalizeFinancialHealth(value: unknown): NonNullable<CompanyProfile["f
   const record = normalizeRecord(value, "value");
   const result: NonNullable<CompanyProfile["financial_health"]> = {};
 
-  if (record.impairment !== undefined && record.impairment !== null) {
+  if (record.impairment === null) {
+    result.impairment = null;
+  } else if (record.impairment !== undefined) {
     result.impairment = normalizeImpairment(record.impairment);
   } else if (typeof record.capital_impaired === "boolean") {
     // 저부담 예/아니오 문항: 자본잠식 여부만. 전부/부분 구분 없이 full로 보수 처리.
     result.impairment = record.capital_impaired ? "full" : "none";
   }
-  const debtRatio = optionalNonNegativeNumber(record.debt_ratio_pct, "value.debt_ratio_pct");
+  const debtRatio = optionalNonNegativeFiniteNumber(record.debt_ratio_pct, "value.debt_ratio_pct");
   if (debtRatio !== undefined) result.debt_ratio_pct = debtRatio;
+  else if (record.debt_ratio_pct === null) result.debt_ratio_pct = null;
   // 이자보상배율은 소수·음수(영업손실) 가능 → floor·비음수 강제 없이 그대로 보존.
   const interestCoverage = optionalFiniteNumber(
     record.interest_coverage_ratio,
     "value.interest_coverage_ratio",
   );
   if (interestCoverage !== undefined) result.interest_coverage_ratio = interestCoverage;
+  else if (record.interest_coverage_ratio === null) result.interest_coverage_ratio = null;
   const totalAssets = optionalNonNegativeNumber(record.total_assets_krw, "value.total_assets_krw");
   if (totalAssets !== undefined) result.total_assets_krw = totalAssets;
+  else if (record.total_assets_krw === null) result.total_assets_krw = null;
   const equity = optionalNumber(record.equity_krw, "value.equity_krw");
   if (equity !== undefined) result.equity_krw = equity;
+  else if (record.equity_krw === null) result.equity_krw = null;
   const capital = optionalNonNegativeNumber(record.capital_krw, "value.capital_krw");
   if (capital !== undefined) result.capital_krw = capital;
+  else if (record.capital_krw === null) result.capital_krw = null;
   if (typeof record.fiscal_year === "string" && record.fiscal_year.trim()) {
     result.fiscal_year = record.fiscal_year.trim();
   }
@@ -653,11 +674,13 @@ function normalizeInsuredWorkforce(value: unknown): NonNullable<CompanyProfile["
   }
   const insuredCount = optionalNonNegativeNumber(record.insured_count, "value.insured_count");
   if (insuredCount !== undefined) result.insured_count = insuredCount;
+  else if (record.insured_count === null) result.insured_count = null;
   const monthsSince = optionalNonNegativeNumber(
     record.months_since_last_layoff,
     "value.months_since_last_layoff",
   );
   if (monthsSince !== undefined) result.months_since_last_layoff = monthsSince;
+  else if (record.months_since_last_layoff === null) result.months_since_last_layoff = null;
   if (typeof record.no_layoff === "boolean") result.no_layoff = record.no_layoff;
 
   return result;
@@ -670,6 +693,7 @@ function normalizeInvestment(value: unknown): NonNullable<CompanyProfile["invest
 
   const totalRaised = optionalNonNegativeNumber(record.total_raised_krw, "value.total_raised_krw");
   if (totalRaised !== undefined) result.total_raised_krw = totalRaised;
+  else if (record.total_raised_krw === null) result.total_raised_krw = null;
   if (record.last_round !== undefined) {
     if (record.last_round === null || record.last_round === "") {
       result.last_round = null;
@@ -691,6 +715,14 @@ function optionalNonNegativeNumber(value: unknown, field: string): number | unde
   if (value === undefined) return undefined;
   if (value === null || value === "") return undefined;
   return normalizeNonNegativeNumber(value, field);
+}
+
+function optionalNonNegativeFiniteNumber(value: unknown, field: string): number | undefined {
+  const numberValue = optionalFiniteNumber(value, field);
+  if (numberValue !== undefined && numberValue < 0) {
+    throw new InvalidCompanyProfileFieldError(`${field}는 0 이상이어야 합니다.`, field);
+  }
+  return numberValue;
 }
 
 function optionalNumber(value: unknown, field: string): number | undefined {

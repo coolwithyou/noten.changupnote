@@ -3645,8 +3645,25 @@
             ]
           },
           "business_status": {
-            "type": "object",
-            "additionalProperties": true
+            "$ref": "#/components/schemas/CompanyBusinessStatus"
+          },
+          "tax_compliance": {
+            "$ref": "#/components/schemas/DisqualificationProfileValue"
+          },
+          "credit_status": {
+            "$ref": "#/components/schemas/DisqualificationProfileValue"
+          },
+          "sanction": {
+            "$ref": "#/components/schemas/DisqualificationProfileValue"
+          },
+          "financial_health": {
+            "$ref": "#/components/schemas/FinancialHealthProfileValue"
+          },
+          "insured_workforce": {
+            "$ref": "#/components/schemas/InsuredWorkforceProfileValue"
+          },
+          "investment": {
+            "$ref": "#/components/schemas/InvestmentProfileValue"
           },
           "confidence": {
             "type": "object",
@@ -3722,6 +3739,35 @@
               }
             ]
           },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "shared",
+              "user"
+            ]
+          },
+          "observationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observationVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "canonicalValue": {
+            "type": "string"
+          },
+          "persistenceClass": {
+            "type": "string",
+            "enum": [
+              "portable_user_answer",
+              "versioned_provider_observation"
+            ]
+          },
+          "resolverVersion": {
+            "type": "string",
+            "minLength": 1
+          },
           "supplemental": {
             "type": "array",
             "items": {
@@ -3783,6 +3829,250 @@
                 "type": "null"
               }
             ]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "shared",
+              "user"
+            ]
+          },
+          "observationId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "observationVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "canonicalValue": {
+            "type": "string"
+          },
+          "persistenceClass": {
+            "type": "string",
+            "enum": [
+              "portable_user_answer",
+              "versioned_provider_observation"
+            ]
+          },
+          "resolverVersion": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyBusinessStatus": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "close_down_state": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "close_down_tax_type": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "DisqualificationProfileValue": {
+        "type": "object",
+        "required": [
+          "flags",
+          "known_flags",
+          "exceptions"
+        ],
+        "properties": {
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "known_flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exceptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "FinancialHealthProfileValue": {
+        "type": "object",
+        "properties": {
+          "debt_ratio_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impairment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "none",
+                  "partial",
+                  "full"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "interest_coverage_ratio": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "total_assets_krw": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "equity_krw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "capital_krw": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "fiscal_year": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "InsuredWorkforceProfileValue": {
+        "type": "object",
+        "properties": {
+          "employment_insurance_active": {
+            "type": "boolean"
+          },
+          "insured_count": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "months_since_last_layoff": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "no_layoff": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "InvestmentProfileValue": {
+        "type": "object",
+        "properties": {
+          "total_raised_krw": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_round": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tips_backed": {
+            "type": "boolean"
           }
         },
         "additionalProperties": false

@@ -5,6 +5,8 @@ import {
   buildApplySheet,
   buildDashboard,
   buildInitialCompanyMatch,
+  assembleCompanyProfile,
+  companyProfileToFieldUpdates,
   clearProfileQuestionAnswerState,
   checkNtsBusinessStatus,
   checkSmppCertificates,
@@ -233,7 +235,10 @@ async function applyCachedTeaserProfileEnrichment(
     now,
   });
   if (cached.profiles.length === 0) return base;
-  const profile = cached.profiles.reduce(mergeCompanyProfilesForEnrichment, base.profile);
+  const profile = cached.profiles.reduce(
+    (current, enriched) => mergeCompanyProfilesForEnrichmentAt(current, enriched, now.toISOString()),
+    base.profile,
+  );
   const providerLabels = cached.providers.map((provider) =>
     provider === "startup_confirmation" ? "창업기업확인" : provider.toUpperCase());
   return {
@@ -428,7 +433,7 @@ export async function enrichServiceCompany(input: {
     });
     throw error;
   }
-  const profile = mergeCompanyProfilesForEnrichment(current, resolved.profile);
+  const profile = mergeCompanyProfilesForEnrichmentAt(current, resolved.profile, asOf.toISOString());
   const saved = await repositories.companies.saveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
@@ -1428,7 +1433,32 @@ export function backfillCachedPopbillTargetType(
   };
 }
 
+/** P1 compatibility wrapper for callers that do not yet carry request asOf. */
 export function mergeCompanyProfilesForEnrichment(current: CompanyProfile, enriched: CompanyProfile): CompanyProfile {
+  return mergeCompanyProfilesForEnrichmentAt(current, enriched, profileMergeAsOf(enriched));
+}
+
+export function mergeCompanyProfilesForEnrichmentAt(
+  current: CompanyProfile,
+  enriched: CompanyProfile,
+  asOf: string,
+): CompanyProfile {
+  const legacy = legacyMergeCompanyProfilesForEnrichment(current, enriched);
+  const updates = companyProfileToFieldUpdates(enriched);
+  if (updates.length === 0) return legacy;
+  const assembled = assembleCompanyProfile({ baseProfile: current, updates, asOf }).profile;
+  let result = legacy;
+  for (const field of new Set(updates.map((update) => update.field))) {
+    result = copyAssembledDimension(result, assembled, field);
+  }
+  return result;
+}
+
+/** Frozen P0 behavior used only by the P1 old/new parity fixture. */
+export function legacyMergeCompanyProfilesForEnrichment(
+  current: CompanyProfile,
+  enriched: CompanyProfile,
+): CompanyProfile {
   const mergedEvidence = mergeProfileEvidence(current.profile_evidence, enriched.profile_evidence);
   const next: CompanyProfile = {
     ...current,
@@ -1545,6 +1575,85 @@ export function mergeCompanyProfilesForEnrichment(current: CompanyProfile, enric
     }
   }
   return result;
+}
+
+function profileMergeAsOf(profile: CompanyProfile): string {
+  const timestamps = Object.values(profile.profile_evidence ?? {})
+    .flatMap((evidence) => evidence?.asOf ? [evidence.asOf] : [])
+    .filter((value) => !Number.isNaN(Date.parse(value)))
+    .sort();
+  return timestamps.at(-1) ?? "1970-01-01T00:00:00.000Z";
+}
+
+function copyAssembledDimension(
+  target: CompanyProfile,
+  assembled: CompanyProfile,
+  field: CriterionDimension,
+): CompanyProfile {
+  const next: CompanyProfile = { ...target };
+  const copy = <K extends keyof CompanyProfile>(key: K) => {
+    if (assembled[key] === undefined) delete next[key];
+    else next[key] = assembled[key];
+  };
+  switch (field) {
+    case "region": copy("region"); break;
+    case "biz_age": copy("biz_age_months"); break;
+    case "industry": copy("industries"); copy("industry_codes"); break;
+    case "size": copy("size"); break;
+    case "revenue": copy("revenue_krw"); break;
+    case "employees": copy("employees_count"); break;
+    case "founder_age": copy("founder_age"); break;
+    case "founder_trait": copy("traits"); break;
+    case "certification": copy("certs"); break;
+    case "prior_award": copy("prior_awards"); copy("prior_award_history"); break;
+    case "ip": copy("ip"); break;
+    case "target_type": copy("target_types"); break;
+    case "business_status": copy("business_status"); break;
+    case "tax_compliance": copy("tax_compliance"); break;
+    case "credit_status": copy("credit_status"); break;
+    case "sanction": copy("sanction"); break;
+    case "financial_health": copy("financial_health"); break;
+    case "insured_workforce": copy("insured_workforce"); break;
+    case "investment": copy("investment"); break;
+    case "other": copy("other_conditions"); break;
+    case "premises":
+    case "export_performance": break;
+  }
+  const confidence = copyDimensionEntry(target.confidence, assembled.confidence, field);
+  const profileEvidence = copyDimensionEntry(target.profile_evidence, assembled.profile_evidence, field);
+  const questionState = copyDimensionEntry(
+    target.question_answer_state,
+    assembled.question_answer_state,
+    field,
+  );
+  if (confidence && Object.keys(confidence).length > 0) next.confidence = confidence;
+  else delete next.confidence;
+  if (profileEvidence && Object.keys(profileEvidence).length > 0) next.profile_evidence = profileEvidence;
+  else delete next.profile_evidence;
+  if (questionState && Object.keys(questionState).length > 0) next.question_answer_state = questionState;
+  else delete next.question_answer_state;
+  if (isProfileListDimension(field)) {
+    const completeness = copyDimensionEntry(target.list_completeness, assembled.list_completeness, field);
+    if (completeness && Object.keys(completeness).length > 0) next.list_completeness = completeness;
+    else delete next.list_completeness;
+  }
+  return next;
+}
+
+function copyDimensionEntry<T extends Partial<Record<CriterionDimension, unknown>>>(
+  target: T | undefined,
+  source: T | undefined,
+  field: CriterionDimension,
+): T | undefined {
+  const next = { ...(target ?? {}) } as T;
+  if (source?.[field] === undefined) delete next[field];
+  else next[field] = source[field];
+  return next;
+}
+
+function isProfileListDimension(field: CriterionDimension): boolean {
+  return field === "industry" || field === "founder_trait" || field === "certification" ||
+    field === "prior_award" || field === "ip" || field === "target_type";
 }
 
 function mergeProfileList(

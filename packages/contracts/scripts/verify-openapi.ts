@@ -235,6 +235,72 @@ function verifyServiceDtoSchemas(errors: string[]) {
     if (!Array.isArray(values) || !values.includes("partial") || !values.includes("complete")) {
       errors.push("CompanyProfile.list_completeness must include partial and complete.");
     }
+    const operationalProfileProperties = [
+      "region",
+      "biz_age_months",
+      "industries",
+      "industry_codes",
+      "size",
+      "revenue_krw",
+      "employees_count",
+      "founder_age",
+      "traits",
+      "certs",
+      "prior_award_history",
+      "ip",
+      "target_types",
+      "business_status",
+      "tax_compliance",
+      "credit_status",
+      "sanction",
+      "financial_health",
+      "insured_workforce",
+      "investment",
+      "profile_evidence",
+      "question_answer_state",
+    ];
+    for (const property of operationalProfileProperties) {
+      if (!Object.hasOwn(companyProfile.properties, property)) {
+        errors.push(`CompanyProfile.${property} is required for 19-axis contract parity.`);
+      }
+    }
+    for (const [property, schemaName] of [
+      ["tax_compliance", "DisqualificationProfileValue"],
+      ["credit_status", "DisqualificationProfileValue"],
+      ["sanction", "DisqualificationProfileValue"],
+      ["financial_health", "FinancialHealthProfileValue"],
+      ["insured_workforce", "InsuredWorkforceProfileValue"],
+      ["investment", "InvestmentProfileValue"],
+    ] as const) {
+      const propertySchema = companyProfile.properties[property];
+      if (!isRecord(propertySchema) || propertySchema.$ref !== `#/components/schemas/${schemaName}`) {
+        errors.push(`CompanyProfile.${property} must reference ${schemaName}.`);
+      }
+    }
+  }
+  for (const schemaName of ["CompanyProfileFieldEvidence", "CompanyProfileEvidenceObservation"] as const) {
+    const evidenceSchema = schemas[schemaName];
+    if (!isRecord(evidenceSchema) || !isRecord(evidenceSchema.properties)) {
+      errors.push(`${schemaName} schema is missing properties.`);
+      continue;
+    }
+    for (const property of [
+      "sourceKind",
+      "provider",
+      "asOf",
+      "axisCompleteness",
+      "confidence",
+      "scope",
+      "observationId",
+      "observationVersion",
+      "canonicalValue",
+      "persistenceClass",
+      "resolverVersion",
+    ]) {
+      if (!Object.hasOwn(evidenceSchema.properties, property)) {
+        errors.push(`${schemaName}.${property} is required for observation identity parity.`);
+      }
+    }
   }
 
   const fitScore = matchCard.properties.fitScore;

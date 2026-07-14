@@ -1,8 +1,8 @@
 import {
   DISQUALIFICATION_FLAGS,
+  assembleCompanyProfile,
   normalizeCompanyIndustryProfile,
   questionDefinitionFor,
-  resolveEvidencePrecedence,
   updateCompanyProfileField,
   type CompanyProfileFieldUpdate,
   type QuestionDefinitionId,
@@ -10,7 +10,6 @@ import {
 import type {
   CompanyProfile,
   CompanyProfileEvidenceObservation,
-  CompanyProfileFieldEvidence,
   CompanyProfileEvidenceSourceKind,
   CriterionDimension,
   DisqualificationProfileValue,
@@ -79,8 +78,8 @@ export interface DevProfileMergeDecision {
   sequence: number;
   stage: DevProfileMergeStage;
   field: CriterionDimension;
-  valueDisposition: "applied" | "merged_supplemental" | "retained";
-  evidenceDisposition: "incoming_primary" | "current_primary_incoming_supplemental";
+  valueDisposition: "applied" | "merged_supplemental" | "retained" | "deduplicated" | "conflict_unknown";
+  evidenceDisposition: "incoming_primary" | "current_primary_incoming_supplemental" | "conflict_supplemental";
   reason:
     | "no_current_evidence"
     | "completeness"
@@ -89,7 +88,9 @@ export interface DevProfileMergeDecision {
     | "same_provider_confidence"
     | "same_provider_freshness"
     | "same_provider_tie"
-    | "unknown_provider_tie";
+    | "unknown_provider_tie"
+    | "equal_value_tie"
+    | "unequal_value_tie";
   primaryEvidence: CompanyProfileEvidenceObservation;
   supplementalEvidence: CompanyProfileEvidenceObservation[];
 }
@@ -117,6 +118,8 @@ export interface BuildDevFinalCompanyProfileInput {
   connectorSourcedDimensions?: readonly CriterionDimension[];
   connectorNormalizedDimensions?: readonly CriterionDimension[];
   connectorNormalizationFailures?: readonly DevServiceDataNormalizationFailure[];
+  /** Optional wrapper boundary. The neutral assembly always receives an explicit timestamp. */
+  asOf?: string;
   qna?: {
     answers: DevQnaAnswerDto;
     /** Explicit replay timestamp. Callers must not hide Date.now() inside this pure merge. */
@@ -417,7 +420,11 @@ export function buildDevQnaProfileUpdates(
           options.preserveEvidenceConflicts === true,
         );
         validationProfile = options.preserveEvidenceConflicts === true
-          ? mergeDevProfileUpdate(validationProfile, prepared, "qna").profile
+          ? assembleCompanyProfile({
+            baseProfile: validationProfile,
+            updates: [prepared],
+            asOf: prepared.asOf ?? asOf,
+          }).profile
           : normalizeCompanyIndustryProfile(updateCompanyProfileField(validationProfile, prepared));
         profileUpdates.push(prepared);
       } catch (error) {
@@ -761,8 +768,15 @@ function arrayOrEmpty(value: unknown): readonly unknown[] {
 export function buildDevFinalCompanyProfile(
   input: BuildDevFinalCompanyProfileInput,
 ): DevFinalCompanyProfileResult {
-  let profile = sanitizeDevServiceDataJson(input.baseProfile);
-  const mergeDecisions: DevProfileMergeDecision[] = [];
+  const baseProfile = sanitizeDevServiceDataJson(input.baseProfile);
+  const assemblyAsOf = resolveAssemblyAsOf(input);
+  const connectorAssembly = assembleCompanyProfile({
+    baseProfile,
+    updates: input.connectorProfileUpdates,
+    asOf: assemblyAsOf,
+  });
+  let profile = connectorAssembly.profile;
+  let qnaProfileUpdates: CompanyProfileFieldUpdate[] = [];
   const normalized = new Set<CriterionDimension>(input.connectorNormalizedDimensions ?? []);
   const sourced = new Set<CriterionDimension>(input.connectorSourcedDimensions ?? []);
   const normalizationFailures: DevServiceDataNormalizationFailure[] = [
@@ -771,10 +785,7 @@ export function buildDevFinalCompanyProfile(
 
   for (const update of input.connectorProfileUpdates) {
     sourced.add(update.field);
-    const merged = mergeDevProfileUpdate(profile, update, "connector");
-    profile = merged.profile;
     normalized.add(update.field);
-    mergeDecisions.push({ ...merged.decision, sequence: mergeDecisions.length });
   }
 
   if (input.qna) {
@@ -787,13 +798,31 @@ export function buildDevFinalCompanyProfile(
       preserveEvidenceConflicts: true,
     });
     normalizationFailures.push(...qna.failures);
-    for (const update of qna.profileUpdates) {
-      const merged = mergeDevProfileUpdate(profile, update, "qna");
-      profile = merged.profile;
+    qnaProfileUpdates = qna.profileUpdates;
+    for (const update of qnaProfileUpdates) {
       normalized.add(update.field);
-      mergeDecisions.push({ ...merged.decision, sequence: mergeDecisions.length });
     }
   }
+
+  const assembly = assembleCompanyProfile({
+    baseProfile,
+    updates: [...input.connectorProfileUpdates, ...qnaProfileUpdates],
+    asOf: assemblyAsOf,
+  });
+  profile = assembly.profile;
+  const mergeDecisions = assembly.decisions.map((decision): DevProfileMergeDecision => ({
+    sequence: decision.sequence,
+    stage: decision.observation.sourceKind === "self_declared" &&
+        decision.observation.provider === "dev_service_data_qna"
+      ? "qna"
+      : "connector",
+    field: decision.field,
+    valueDisposition: decision.valueDisposition,
+    evidenceDisposition: decision.evidenceDisposition,
+    reason: decision.reason,
+    primaryEvidence: decision.primaryEvidence,
+    supplementalEvidence: decision.supplementalEvidence,
+  }));
 
   const failedFields = new Set(
     normalizationFailures.flatMap((failure) => failure.field === "qna" ? [] : [failure.field]),
@@ -823,157 +852,14 @@ export function buildDevFinalCompanyProfile(
   });
 }
 
-function mergeDevProfileUpdate(
-  profile: CompanyProfile,
-  update: CompanyProfileFieldUpdate,
-  stage: DevProfileMergeStage,
-): { profile: CompanyProfile; decision: Omit<DevProfileMergeDecision, "sequence"> } {
-  const evidenceWithoutField = { ...(profile.profile_evidence ?? {}) };
-  delete evidenceWithoutField[update.field];
-  const validationSeed: CompanyProfile = {
-    ...profile,
-    profile_evidence: evidenceWithoutField,
-  };
-  if (Object.keys(evidenceWithoutField).length === 0) delete validationSeed.profile_evidence;
-  const candidate = normalizeCompanyIndustryProfile(updateCompanyProfileField(validationSeed, {
-    ...update,
-    // G3 decides precedence explicitly below. This only permits the existing
-    // normalizer to validate/construct a candidate without mutating storage.
-    allowAuthoritativeOverride: true,
-  }));
-  const incomingEvidence = candidate.profile_evidence?.[update.field];
-  if (!incomingEvidence) {
-    throw new Error(`${update.field} update에 evidence metadata가 없습니다.`);
-  }
-  const currentEvidence = profile.profile_evidence?.[update.field];
-  const precedence = currentEvidence
-    ? resolveEvidencePrecedence({ dimension: update.field, current: currentEvidence, incoming: incomingEvidence })
-    : null;
-  const incomingPrimary = precedence?.decision === "replace" || !currentEvidence;
-  const supplementalMerge = !incomingPrimary && stage === "qna" && update.mode === "merge";
-  let next = incomingPrimary
-    ? mergeWinningCompoundValue(profile, candidate, update.field)
-    : supplementalMerge
-      ? candidate
-      : profile;
-  const mergedEvidence = mergeFieldEvidence(currentEvidence, incomingEvidence, incomingPrimary);
-  const shouldWriteConfidence = incomingPrimary || supplementalMerge;
-  next = {
-    ...next,
-    confidence: {
-      ...(next.confidence ?? {}),
-      ...(shouldWriteConfidence && typeof mergedEvidence.confidence === "number"
-        ? { [update.field]: mergedEvidence.confidence }
-        : {}),
-    },
-    profile_evidence: {
-      ...(next.profile_evidence ?? {}),
-      [update.field]: mergedEvidence,
-    },
-  };
-
-  return {
-    profile: sanitizeDevServiceDataJson(next),
-    decision: {
-      stage,
-      field: update.field,
-      valueDisposition: incomingPrimary
-        ? "applied"
-        : supplementalMerge
-          ? "merged_supplemental"
-          : "retained",
-      evidenceDisposition: incomingPrimary
-        ? "incoming_primary"
-        : "current_primary_incoming_supplemental",
-      reason: precedence?.reason ?? "no_current_evidence",
-      primaryEvidence: stripSupplemental(mergedEvidence),
-      supplementalEvidence: [...(mergedEvidence.supplemental ?? [])],
-    },
-  };
-}
-
-/** Mirrors production serviceData.ts shallow overlays for compound dimensions. */
-function mergeWinningCompoundValue(
-  current: CompanyProfile,
-  incoming: CompanyProfile,
-  field: CriterionDimension,
-): CompanyProfile {
-  switch (field) {
-    case "business_status":
-      return {
-        ...incoming,
-        business_status: { ...(current.business_status ?? {}), ...(incoming.business_status ?? {}) },
-      };
-    case "financial_health":
-      return {
-        ...incoming,
-        financial_health: { ...(current.financial_health ?? {}), ...(incoming.financial_health ?? {}) },
-      };
-    case "insured_workforce":
-      return {
-        ...incoming,
-        insured_workforce: { ...(current.insured_workforce ?? {}), ...(incoming.insured_workforce ?? {}) },
-      };
-    case "investment":
-      return {
-        ...incoming,
-        investment: { ...(current.investment ?? {}), ...(incoming.investment ?? {}) },
-      };
-    case "other":
-      return {
-        ...incoming,
-        other_conditions: { ...(current.other_conditions ?? {}), ...(incoming.other_conditions ?? {}) },
-      };
-    default:
-      return incoming;
-  }
-}
-
-function mergeFieldEvidence(
-  current: CompanyProfileFieldEvidence | undefined,
-  incoming: CompanyProfileFieldEvidence,
-  incomingPrimary: boolean,
-): CompanyProfileFieldEvidence {
-  if (!current) return incoming;
-  const primary = incomingPrimary ? incoming : current;
-  const secondary = incomingPrimary ? current : incoming;
-  const supplemental = [
-    ...(primary.supplemental ?? []),
-    stripSupplemental(secondary),
-    ...(secondary.supplemental ?? []),
-  ].reduce<CompanyProfileEvidenceObservation[]>(appendUniqueEvidence, []);
-  return supplemental.length > 0 ? { ...stripSupplemental(primary), supplemental } : stripSupplemental(primary);
-}
-
-function stripSupplemental(
-  evidence: CompanyProfileEvidenceObservation,
-): CompanyProfileEvidenceObservation {
-  return {
-    sourceKind: evidence.sourceKind,
-    provider: evidence.provider,
-    asOf: evidence.asOf,
-    axisCompleteness: evidence.axisCompleteness,
-    confidence: evidence.confidence,
-  };
-}
-
-function appendUniqueEvidence(
-  values: CompanyProfileEvidenceObservation[],
-  incoming: CompanyProfileEvidenceObservation,
-): CompanyProfileEvidenceObservation[] {
-  if (!values.some((item) => sameEvidence(item, incoming))) values.push(incoming);
-  return values;
-}
-
-function sameEvidence(
-  left: CompanyProfileEvidenceObservation,
-  right: CompanyProfileEvidenceObservation,
-): boolean {
-  return left.sourceKind === right.sourceKind &&
-    left.provider === right.provider &&
-    left.asOf === right.asOf &&
-    left.axisCompleteness === right.axisCompleteness &&
-    left.confidence === right.confidence;
+function resolveAssemblyAsOf(input: BuildDevFinalCompanyProfileInput): string {
+  const candidates = [
+    input.asOf,
+    input.qna?.asOf,
+    ...input.connectorProfileUpdates.map((update) => update.asOf ?? undefined),
+    ...Object.values(input.baseProfile.profile_evidence ?? {}).map((evidence) => evidence?.asOf ?? undefined),
+  ].filter((value): value is string => Boolean(value) && !Number.isNaN(Date.parse(value!)));
+  return candidates.sort().at(-1) ?? "1970-01-01T00:00:00.000Z";
 }
 
 function qnaSourcedDimensions(dto: DevQnaAnswerDto): CriterionDimension[] {

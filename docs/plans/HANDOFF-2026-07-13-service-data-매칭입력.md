@@ -848,6 +848,19 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 - 완료 해석: G7E 체크는 **bounded external evidence + 명시적 external pending 기록**으로 닫는다. 브라우저 시각·30표본·live provider/DB truth가 완료됐다는 뜻이 아니다.
 - 다음 Gate: 계획된 구현 Gate 없음. final cleanup과 root/task 상태 정리만 남음
 
+### P1 영수증 — 2026-07-14
+
+- 실행 기준: clean product-integration HEAD `8d98ef8ffae82ae2ada57cd63f400ea6bff2abc2`에서 P1만 수행했다. P2 resolver, route wiring, UI, provider 호출, schema migration은 시작하지 않았다.
+- 모델 라우팅 변경(2026-07-14): 사용자의 최신 지시로 남은 모든 구현과 독립 리뷰는 각각 fresh `gpt-5.6-sol` ultra 세션을 사용한다. Fable은 더 이상 필요하지 않으며, 이 기록이 이 날짜 이전의 §5.2/Fable 필수 라우팅 문구보다 우선한다.
+- assembly 결정: `buildDevFinalCompanyProfile()`의 merge/evidence 결정을 `assembleCompanyProfile(baseProfile, typed updates, explicit asOf)` 중립 core 경계로 옮기고 dev wrapper와 production enrichment merge가 함께 사용한다. production old/new scalar·list·compound fixture는 동순위 충돌 보정 외 deep-equal이다. core 결과에는 `product_consumed`나 I/O 상태가 없다.
+- observation 결정: dimension, normalized source kind/provider, shared/user scope, asOf, canonical value, stable observation id/version을 canonical identity로 고정했다. 기존 semantic precedence가 먼저이며, 완전 동률 같은 값은 dedupe하고 다른 값은 `conflict_unknown`으로 닫아 두 관측을 canonical supplemental로 보존한다. fixed-seed update/DB-row permutation 회귀가 decisions와 profile 직렬화까지 동일함을 확인한다.
+- persistence/rollback: 기존 `company_profiles.value` JSON meta와 `user_id`만 사용해 user answer를 `portable_user_answer`, provider/cache row를 `versioned_provider_observation`으로 표현한다. generic provider 때문에 legacy enum transport가 `self_declared`여도 embedded source kind/provider가 authoritative/public-registry로 유지되며 decoder는 이를 self-declared로 재해석하지 않는다. schema 변경 없이 scope, resolver version, canonical value, observation identity를 보존했고 N-1 adapter 및 typed answer write → legacy rollback profile/source/match parity가 통과했다.
+- loss/contract 보정: `industry_codes`, `business_status.active` unknown, `investment.last_round=null`, structured `prior_award_history`, nullable compound 값, evidence/question state를 encode/decode/normalize에서 보존한다. TypeScript/OpenAPI/generated contract에 운영 19축 compound schema와 observation identity를 맞추고 모든 `PROFILE_FIELD_SPEC` CompanyProfile matcher path를 deep-equal로 고정했다.
+- P0 step-6 tripwire: 한 sorted JSON fixture와 한 focused assertion만 추가해 현재 product entrypoint 23개와 direct matcher/legacy-merge call site 15그룹을 고정했다. AST/scanner framework는 만들지 않았고 새 우회 경로 정리는 P3로 남긴다.
+- 검증: assembly/evidence/update/profile-spec/match, dev wrapper, production merge parity, full persistence/N-1/rollback, tripwire focused tests 모두 exit 0. contracts/core/web typecheck도 exit 0. OpenAPI export/verify와 `pnpm verify:service-data`의 pnpm `tsx` wrapper는 sandbox의 `listen EPERM`으로 시작되지 않았고, 각각 동일 소스·tsconfig의 `node --import tsx` fallback으로 generated export + 27 paths와 `ok:true` + 6 checks를 통과했다. `git diff --check`도 통과했다.
+- 의도한 동작 차이: unknown/same-provider 완전 동률의 서로 다른 값만 input-first winner 대신 unknown conflict가 되고, 위 round-trip 손실과 provider 오표기만 교정한다. 그 밖의 production response/merge fixture는 유지한다.
+- 남은 범위: 중앙 legacy adapter와 direct matcher call은 P3 배선을 위해 의도적으로 남아 있다. P2 source/privacy resolver, P3 route/background wiring, P4 UI/answer loop, P5/P6 shadow·live·canary는 미착수다.
+
 ## 12. 전체 중단 조건
 
 다음 중 하나면 현재 Gate를 중지한다.

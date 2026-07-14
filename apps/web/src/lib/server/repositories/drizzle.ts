@@ -18,9 +18,17 @@ import type {
 } from "@cunote/contracts";
 import {
   buildGrantExtractionManifest,
+  assembleCompanyProfile,
+  canonicalCompanyProfileObservationIdentity,
   collapseConfirmedGrantOccurrences,
+  companyProfileValueForDimension,
+  companyProfileToFieldUpdates,
   maskCorpNum,
   matchNormalizedGrant,
+  normalizeCompanyIndustryProfile,
+  resolveEvidencePrecedence,
+  stableCanonicalStringify,
+  type CompanyProfileFieldUpdate,
 } from "@cunote/core";
 import type {
   CompanyRecord,
@@ -1108,6 +1116,7 @@ export interface CompanyProfilePersistenceRow {
   source: CompanyProfilePersistenceInsert["source"];
   confidence: number;
   asOf: Date;
+  userId?: string | null;
 }
 
 const PROFILE_EVIDENCE_META_KEY = "_cunote_profile_evidence";
@@ -1115,6 +1124,78 @@ const QUESTION_STATE_META_KEY = "_cunote_question_answer_state";
 const VALUE_PRESENT_META_KEY = "_cunote_value_present";
 
 export function decodeCompanyProfileRows(
+  company: CompanyProfilePersistenceCompany,
+  rows: CompanyProfilePersistenceRow[],
+): CompanyProfile {
+  const baseProfile: CompanyProfile = {
+    id: company.id,
+    is_preliminary: company.kind === "preliminary",
+    confidence: {},
+  };
+  if (company.name) baseProfile.name = company.name;
+  const updates: CompanyProfileFieldUpdate[] = [];
+  const questionStates = new Map<CriterionDimension, Array<{
+    state: CompanyProfileQuestionAnswerState;
+    sortKey: string;
+  }>>();
+  const metadataOnlyEvidence = new Map<CriterionDimension, CompanyProfileFieldEvidence[]>();
+
+  for (const row of rows) {
+    const decoded = decodeCompanyProfileRowsLegacy(company, [row]);
+    const evidence = decoded.profile_evidence?.[row.dimension];
+    const state = decoded.question_answer_state?.[row.dimension];
+    if (state) {
+      const values = questionStates.get(row.dimension) ?? [];
+      values.push({
+        state,
+        sortKey: `${state.answeredAt}|${row.asOf.toISOString()}|${stableCanonicalStringify({ state, value: row.value })}`,
+      });
+      questionStates.set(row.dimension, values);
+    }
+    if (row.value[VALUE_PRESENT_META_KEY] === false) {
+      if (evidence) {
+        const values = metadataOnlyEvidence.get(row.dimension) ?? [];
+        values.push(evidence);
+        metadataOnlyEvidence.set(row.dimension, values);
+      }
+      continue;
+    }
+    if (!evidence) continue;
+    updates.push(...companyProfileToFieldUpdates(decoded, {
+      scope: evidence.scope ?? (row.userId ? "user" : "shared"),
+      persistenceClass: evidence.persistenceClass ?? (
+        evidence.sourceKind === "self_declared"
+          ? "portable_user_answer"
+          : "versioned_provider_observation"
+      ),
+      resolverVersion: evidence.resolverVersion ?? "p1-v1",
+    }));
+  }
+
+  const asOf = rows
+    .map((row) => row.asOf.toISOString())
+    .sort()
+    .at(-1) ?? "1970-01-01T00:00:00.000Z";
+  const result = assembleCompanyProfile({ baseProfile, updates, asOf }).profile;
+  for (const [dimension, candidates] of metadataOnlyEvidence) {
+    if (result.profile_evidence?.[dimension]) continue;
+    const evidence = preferredMetadataOnlyEvidence(dimension, candidates);
+    if (!evidence) continue;
+    result.profile_evidence = { ...(result.profile_evidence ?? {}), [dimension]: evidence };
+  }
+  for (const [dimension, candidates] of questionStates) {
+    const selected = [...candidates].sort((left, right) => left.sortKey.localeCompare(right.sortKey)).at(-1);
+    if (!selected) continue;
+    result.question_answer_state = {
+      ...(result.question_answer_state ?? {}),
+      [dimension]: selected.state,
+    };
+  }
+  return result;
+}
+
+/** P0 row-order decoder retained as the N-1 rollback adapter. */
+export function decodeCompanyProfileRowsLegacy(
   company: CompanyProfilePersistenceCompany,
   rows: CompanyProfilePersistenceRow[],
 ): CompanyProfile {
@@ -1159,6 +1240,7 @@ export function decodeCompanyProfileRows(
     }
     if (row.dimension === "industry") {
       profile.industries = stringArray(value.industries ?? value.tags ?? value.policy_tags);
+      profile.industry_codes = stringArray(value.industry_codes ?? value.codes);
       setListCompleteness(profile, "industry", value.list_completeness);
     }
     if (row.dimension === "size") {
@@ -1198,11 +1280,14 @@ export function decodeCompanyProfileRows(
       profile.other_conditions = value;
     }
     if (row.dimension === "business_status") {
-      const status: NonNullable<CompanyProfile["business_status"]> = {
-        active: Boolean(value.active),
-      };
+      const status: NonNullable<CompanyProfile["business_status"]> = {};
+      if (typeof value.active === "boolean") status.active = value.active;
       const label = stringValue(value.label);
       if (label) status.label = label;
+      const closeDownState = stringOrNumberOrNull(value.close_down_state);
+      if (closeDownState !== null || value.close_down_state === null) status.close_down_state = closeDownState;
+      const closeDownTaxType = stringOrNumberOrNull(value.close_down_tax_type);
+      if (closeDownTaxType !== null || value.close_down_tax_type === null) status.close_down_tax_type = closeDownTaxType;
       profile.business_status = status;
     }
     // ── 결격·재무·고용·투자 축 (공고매칭 차원 확장, M3 역직렬화) ──────────────
@@ -1307,12 +1392,27 @@ function parseEvidenceObservation(value: unknown): CompanyProfileEvidenceObserva
     (typeof row.confidence === "number" && Number.isFinite(row.confidence))
     ? row.confidence
     : null;
+  const scope = row.scope === "shared" || row.scope === "user" ? row.scope : undefined;
+  const observationId = stringValue(row.observationId) ?? undefined;
+  const observationVersion = stringValue(row.observationVersion) ?? undefined;
+  const canonicalValue = typeof row.canonicalValue === "string" ? row.canonicalValue : undefined;
+  const persistenceClass = row.persistenceClass === "portable_user_answer" ||
+      row.persistenceClass === "versioned_provider_observation"
+    ? row.persistenceClass
+    : undefined;
+  const resolverVersion = stringValue(row.resolverVersion) ?? undefined;
   return {
     sourceKind: row.sourceKind,
     provider,
     asOf,
     axisCompleteness: row.axisCompleteness,
     confidence,
+    ...(scope ? { scope } : {}),
+    ...(observationId ? { observationId } : {}),
+    ...(observationVersion ? { observationVersion } : {}),
+    ...(canonicalValue !== undefined ? { canonicalValue } : {}),
+    ...(persistenceClass ? { persistenceClass } : {}),
+    ...(resolverVersion ? { resolverVersion } : {}),
   };
 }
 
@@ -1385,18 +1485,23 @@ function toFinancialHealthProfileValue(
   const result: NonNullable<CompanyProfile["financial_health"]> = {};
   const debtRatio = numberValue(value.debt_ratio_pct);
   if (debtRatio !== null) result.debt_ratio_pct = debtRatio;
+  else if (value.debt_ratio_pct === null) result.debt_ratio_pct = null;
   const interestCoverage = numberValue(value.interest_coverage_ratio);
   if (interestCoverage !== null) result.interest_coverage_ratio = interestCoverage;
+  else if (value.interest_coverage_ratio === null) result.interest_coverage_ratio = null;
   const impairment = stringValue(value.impairment);
   if (impairment === "none" || impairment === "partial" || impairment === "full") {
     result.impairment = impairment;
   }
   const totalAssets = numberValue(value.total_assets_krw);
   if (totalAssets !== null) result.total_assets_krw = totalAssets;
+  else if (value.total_assets_krw === null) result.total_assets_krw = null;
   const equity = numberValue(value.equity_krw);
   if (equity !== null) result.equity_krw = equity;
+  else if (value.equity_krw === null) result.equity_krw = null;
   const capital = numberValue(value.capital_krw);
   if (capital !== null) result.capital_krw = capital;
+  else if (value.capital_krw === null) result.capital_krw = null;
   const fiscalYear = stringValue(value.fiscal_year);
   if (fiscalYear) result.fiscal_year = fiscalYear;
   return result;
@@ -1411,8 +1516,10 @@ function toInsuredWorkforceProfileValue(
   }
   const insuredCount = numberValue(value.insured_count);
   if (insuredCount !== null) result.insured_count = insuredCount;
+  else if (value.insured_count === null) result.insured_count = null;
   const monthsSince = numberValue(value.months_since_last_layoff);
   if (monthsSince !== null) result.months_since_last_layoff = monthsSince;
+  else if (value.months_since_last_layoff === null) result.months_since_last_layoff = null;
   if (typeof value.no_layoff === "boolean") result.no_layoff = value.no_layoff;
   return result;
 }
@@ -1423,8 +1530,10 @@ function toInvestmentProfileValue(
   const result: NonNullable<CompanyProfile["investment"]> = {};
   const totalRaised = numberValue(value.total_raised_krw);
   if (totalRaised !== null) result.total_raised_krw = totalRaised;
+  else if (value.total_raised_krw === null) result.total_raised_krw = null;
   const lastRound = stringValue(value.last_round);
   if (lastRound) result.last_round = lastRound;
+  else if (value.last_round === null) result.last_round = null;
   if (typeof value.tips_backed === "boolean") result.tips_backed = value.tips_backed;
   return result;
 }
@@ -1460,7 +1569,7 @@ export function encodeCompanyProfileRows(
       companyId,
       ...(userId ? { userId } : {}),
       dimension: dimension,
-      value: withProfilePersistenceMetadata(profile, dimension, value, valuePresent),
+      value: withProfilePersistenceMetadata(profile, dimension, value, valuePresent, now, userId),
       source: profilePersistenceSource(profile, dimension),
       confidence: valuePresent ? profileConfidence(profile, dimension) : 0,
       asOf: now,
@@ -1480,8 +1589,13 @@ export function encodeCompanyProfileRows(
   if (profile.founder_age !== null && profile.founder_age !== undefined) {
     push("founder_age", { founder_age: profile.founder_age, age: profile.founder_age });
   }
-  if (profile.industries?.length) {
-    push("industry", withListCompleteness(profile, "industry", { industries: profile.industries, tags: profile.industries }));
+  if (profile.industries?.length || profile.industry_codes?.length) {
+    push("industry", withListCompleteness(profile, "industry", {
+      industries: profile.industries ?? [],
+      tags: profile.industries ?? [],
+      industry_codes: profile.industry_codes ?? [],
+      codes: profile.industry_codes ?? [],
+    }));
   }
   if (profile.size) {
     push("size", { size: profile.size, label: profile.size });
@@ -1552,24 +1666,94 @@ function withProfilePersistenceMetadata(
   dimension: CriterionDimension,
   value: Record<string, unknown>,
   valuePresent: boolean,
+  now: Date,
+  userId: string | undefined,
 ): Record<string, unknown> {
   const evidence = profile.profile_evidence?.[dimension];
   const questionState = profile.question_answer_state?.[dimension];
+  const persistedEvidence = evidence
+    ? versionedPersistenceEvidence(evidence, profile, dimension, valuePresent, now, userId)
+    : null;
   return {
     ...value,
-    ...(evidence ? { [PROFILE_EVIDENCE_META_KEY]: evidence } : {}),
+    ...(persistedEvidence ? { [PROFILE_EVIDENCE_META_KEY]: persistedEvidence } : {}),
     ...(questionState ? { [QUESTION_STATE_META_KEY]: questionState } : {}),
     ...(!valuePresent ? { [VALUE_PRESENT_META_KEY]: false } : {}),
   };
+}
+
+function versionedPersistenceEvidence(
+  evidence: CompanyProfileFieldEvidence,
+  profile: CompanyProfile,
+  dimension: CriterionDimension,
+  valuePresent: boolean,
+  now: Date,
+  userId: string | undefined,
+): CompanyProfileFieldEvidence {
+  const sourceKind = evidence.sourceKind;
+  const scope = evidence.scope ?? (userId ? "user" : "shared");
+  const persistenceClass = evidence.persistenceClass ?? (
+    sourceKind === "self_declared"
+      ? "portable_user_answer"
+      : "versioned_provider_observation"
+  );
+  const resolverVersion = evidence.resolverVersion ?? "p1-v1";
+  const observationVersion = evidence.observationVersion ?? "1";
+  const asOf = evidence.asOf && !Number.isNaN(Date.parse(evidence.asOf))
+    ? evidence.asOf
+    : now.toISOString();
+  const normalizedProfile = dimension === "industry"
+    ? normalizeCompanyIndustryProfile(profile)
+    : profile;
+  const canonicalValue = valuePresent
+    ? companyProfileValueForDimension(normalizedProfile, dimension)
+    : undefined;
+  const identity = canonicalCompanyProfileObservationIdentity({
+    dimension,
+    sourceKind,
+    provider: evidence.provider,
+    scope,
+    asOf,
+    value: canonicalValue,
+    ...(evidence.observationId ? { observationId: evidence.observationId } : {}),
+    observationVersion,
+  });
+  return {
+    ...evidence,
+    provider: identity.provider,
+    asOf,
+    scope,
+    observationId: identity.observationId,
+    observationVersion,
+    canonicalValue: identity.canonicalValue,
+    persistenceClass,
+    resolverVersion,
+  };
+}
+
+function preferredMetadataOnlyEvidence(
+  dimension: CriterionDimension,
+  candidates: readonly CompanyProfileFieldEvidence[],
+): CompanyProfileFieldEvidence | undefined {
+  const maximal = candidates.filter((candidate) => !candidates.some((other) => {
+    if (other === candidate) return false;
+    return resolveEvidencePrecedence({ dimension, current: candidate, incoming: other }).decision === "replace";
+  }));
+  return [...maximal].sort((left, right) =>
+    stableCanonicalStringify(left).localeCompare(stableCanonicalStringify(right))).at(0);
 }
 
 function profilePersistenceSource(
   profile: CompanyProfile,
   dimension: CriterionDimension,
 ): CompanyProfilePersistenceInsert["source"] {
+  if (profile.profile_evidence?.[dimension]?.sourceKind === "self_declared") return "self_declared";
   const provider = profile.profile_evidence?.[dimension]?.provider.trim().toLowerCase();
   if (provider === "popbill" || provider === "nts" || provider === "codef") return provider;
   if (provider === "ocr" || provider?.includes("ocr")) return "ocr";
+  // The enum is a legacy transport column. Provider semantics remain in the
+  // versioned JSON evidence above, so unsupported providers are never decoded
+  // as self-declared merely because this compatibility value is required.
   return "self_declared";
 }
 
@@ -1697,6 +1881,13 @@ function stringValue(value: unknown): string | undefined {
 
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringOrNumberOrNull(value: unknown): string | number | null {
+  if (value === null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return null;
 }
 
 function stringArray(value: unknown): string[] {

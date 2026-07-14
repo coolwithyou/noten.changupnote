@@ -374,7 +374,8 @@ const providerMerged = buildDevFinalCompanyProfile(providerMergeInput);
 assert.equal(providerMerged.profilePreview.revenue_krw, 3_000_000_000);
 assert.deepEqual(
   providerMerged.mergeDecisions.map((decision) => decision.reason),
-  ["provider_priority", "same_provider_freshness"],
+  ["same_provider_freshness", "provider_priority"],
+  "decisions는 입력 순서가 아니라 canonical observation 순서다",
 );
 assert.deepEqual(
   buildDevFinalCompanyProfile(providerMergeInput),
@@ -406,9 +407,10 @@ const unknownProviderTie = buildDevFinalCompanyProfile({
     confidence: 0.8,
   }],
 });
-assert.equal(unknownProviderTie.profilePreview.employees_count, 10);
-assert.equal(unknownProviderTie.mergeDecisions[0]?.reason, "unknown_provider_tie");
-assert.equal(unknownProviderTie.profilePreview.profile_evidence?.employees?.supplemental?.length, 1);
+assert.equal(unknownProviderTie.profilePreview.employees_count, undefined);
+assert.equal(unknownProviderTie.mergeDecisions[0]?.reason, "unequal_value_tie");
+assert.equal(unknownProviderTie.mergeDecisions[0]?.valueDisposition, "conflict_unknown");
+assert.equal(unknownProviderTie.profilePreview.profile_evidence?.employees?.supplemental?.length, 2);
 
 // 완전히 retained 된 update는 supplemental evidence만 기록하고, evidence와
 // 다를 수 있는 legacy base confidence를 production처럼 그대로 둔다.

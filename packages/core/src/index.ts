@@ -22,6 +22,7 @@ export * from "./codef/products/corporate-registration.js";
 export * from "./codef/products/vat-base-certificate.js";
 export * from "./codef/normalize.js";
 export * from "./company/profile-from-popbill.js";
+export * from "./company/assemble-company-profile.js";
 export * from "./company/question-answer-state.js";
 export * from "./company/update-profile-field.js";
 export * from "./criteria/canonicalize.js";

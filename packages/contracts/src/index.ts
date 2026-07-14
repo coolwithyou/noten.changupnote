@@ -429,7 +429,28 @@ export type CompanyProfileEvidenceSourceKind =
   | "self_declared"
   | "derived";
 
-export interface CompanyProfileEvidenceObservation {
+export type CompanyProfileObservationScope = "shared" | "user";
+
+export type CompanyProfileObservationPersistenceClass =
+  | "portable_user_answer"
+  | "versioned_provider_observation";
+
+/**
+ * Optional wire metadata for observations persisted in the legacy profile row.
+ * Older readers ignore these additive keys while P1 readers use them to make
+ * row order irrelevant and rollback-safe.
+ */
+export interface CompanyProfileObservationMetadata {
+  scope?: CompanyProfileObservationScope;
+  observationId?: string;
+  observationVersion?: string;
+  /** Stable canonical JSON used by deterministic tie/conflict handling. */
+  canonicalValue?: string;
+  persistenceClass?: CompanyProfileObservationPersistenceClass;
+  resolverVersion?: string;
+}
+
+export interface CompanyProfileEvidenceObservation extends CompanyProfileObservationMetadata {
   sourceKind: CompanyProfileEvidenceSourceKind;
   provider: string;
   asOf: string | null;
