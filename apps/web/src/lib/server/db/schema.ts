@@ -631,6 +631,7 @@ export const userBusinessLookupHistory = pgTable("user_business_lookup_history",
   firstLookedUpAt: timestamp("first_looked_up_at", { withTimezone: true }).defaultNow().notNull(),
   lastLookedUpAt: timestamp("last_looked_up_at", { withTimezone: true }).defaultNow().notNull(),
   lookupCount: integer("lookup_count").default(1).notNull(),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
 }, (table) => ({
   pk: primaryKey({ columns: [table.userId, table.bizNo] }),
   userLastLookupIdx: index("user_business_lookup_history_user_last_lookup_idx")

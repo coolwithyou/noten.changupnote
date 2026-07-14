@@ -22,6 +22,7 @@ export const PUBLIC_WEB_ROUTES = [
   "POST /api/web/landing-events",
   "GET /api/web/business-lookup-suggestions",
   "POST /api/web/business-lookup-suggestions",
+  "DELETE /api/web/business-lookup-suggestions",
   "POST /api/web/support/tickets",
   "POST /api/web/support/tickets/handoff",
   "POST /api/web/support/tickets/[ticketId]/attachments",

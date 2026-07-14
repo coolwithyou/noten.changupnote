@@ -3,10 +3,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import type { ActionResult, CompanyPreviewResult, TeaserRequest } from "@cunote/contracts";
 import { isValidBizNoChecksum } from "@cunote/contracts";
+import { toast } from "sonner";
 import type { BusinessLookupSuggestion } from "@/lib/businessLookupSuggestions";
 import {
+  deleteBusinessLookupSuggestion,
   fetchBusinessLookupSuggestions,
   readLocalBusinessLookupSuggestions,
+  removeBusinessLookupSuggestion,
+  writeLocalBusinessLookupSuggestions,
 } from "@/lib/client/businessLookupSuggestions";
 import { recordLandingEvent } from "@/lib/client/landingEvents";
 import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
@@ -37,6 +41,8 @@ export interface BizLookupController {
   markActiveInput: (input: HTMLInputElement | null) => void;
   suggestions: BusinessLookupSuggestion[];
   selectSuggestion: (suggestion: BusinessLookupSuggestion) => void;
+  deleteSuggestion: (suggestion: BusinessLookupSuggestion) => void;
+  deletingSuggestionIds: ReadonlySet<string>;
 }
 
 /**
@@ -49,6 +55,7 @@ export interface BizLookupController {
 export function useBizLookup(): BizLookupController {
   const [biz, setBiz] = useState("");
   const [rawSuggestions, setRawSuggestions] = useState<BusinessLookupSuggestion[]>([]);
+  const [deletingSuggestionIds, setDeletingSuggestionIds] = useState<ReadonlySet<string>>(() => new Set());
   const [lookup, setLookup] = useState<BizLookupModalState | null>(null);
   const lookupSeqRef = useRef(0);
   const heroInputRef = useRef<HTMLInputElement | null>(null);
@@ -103,6 +110,36 @@ export function useBizLookup(): BizLookupController {
   function selectSuggestion(suggestion: BusinessLookupSuggestion) {
     setBiz(fmtBiz(suggestion.bizNo));
     focusActiveInput();
+  }
+
+  function deleteSuggestion(suggestion: BusinessLookupSuggestion) {
+    if (deletingSuggestionIds.has(suggestion.id)) return;
+
+    if (suggestion.source === "local") {
+      setRawSuggestions((current) => {
+        const next = removeBusinessLookupSuggestion(current, suggestion.bizNo);
+        writeLocalBusinessLookupSuggestions(next);
+        return next;
+      });
+      return;
+    }
+
+    setDeletingSuggestionIds((current) => new Set(current).add(suggestion.id));
+    void deleteBusinessLookupSuggestion(suggestion.bizNo)
+      .then((result) => {
+        if (!result?.deleted) {
+          toast.error("최근 조회 기록을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.");
+          return;
+        }
+        setRawSuggestions((current) => removeBusinessLookupSuggestion(current, suggestion.bizNo));
+      })
+      .finally(() => {
+        setDeletingSuggestionIds((current) => {
+          const next = new Set(current);
+          next.delete(suggestion.id);
+          return next;
+        });
+      });
   }
 
   function submitBiz(event: FormEvent<HTMLFormElement>) {
@@ -260,5 +297,7 @@ export function useBizLookup(): BizLookupController {
     },
     suggestions,
     selectSuggestion,
+    deleteSuggestion,
+    deletingSuggestionIds,
   };
 }

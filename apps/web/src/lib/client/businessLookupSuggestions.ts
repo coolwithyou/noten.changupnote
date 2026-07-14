@@ -3,6 +3,7 @@ import {
   formatBusinessLookupBizNo,
   normalizeBusinessLookupBizNo,
   type BusinessLookupRecordResult,
+  type BusinessLookupDeleteResult,
   type BusinessLookupSuggestion,
   type BusinessLookupSuggestionsResult,
 } from "@/lib/businessLookupSuggestions";
@@ -29,6 +30,21 @@ export async function recordBusinessLookupSuggestion(bizNo: string): Promise<Bus
       body: JSON.stringify({ bizNo }),
     });
     const payload = await response.json() as ActionResult<BusinessLookupRecordResult>;
+    if (!response.ok || !payload.ok || !payload.data) return null;
+    return payload.data;
+  } catch {
+    return null;
+  }
+}
+
+export async function deleteBusinessLookupSuggestion(bizNo: string): Promise<BusinessLookupDeleteResult | null> {
+  try {
+    const response = await fetch("/api/web/business-lookup-suggestions", {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ bizNo }),
+    });
+    const payload = await response.json() as ActionResult<BusinessLookupDeleteResult>;
     if (!response.ok || !payload.ok || !payload.data) return null;
     return payload.data;
   } catch {
@@ -71,6 +87,14 @@ export function upsertBusinessLookupSuggestion(
     suggestion,
     ...suggestions.filter((item) => item.bizNo !== suggestion.bizNo),
   ].sort(compareBusinessLookupSuggestionRecency).slice(0, MAX_LOOKUP_SUGGESTIONS);
+}
+
+export function removeBusinessLookupSuggestion(
+  suggestions: BusinessLookupSuggestion[],
+  bizNo: string,
+): BusinessLookupSuggestion[] {
+  const normalizedBizNo = normalizeBusinessLookupBizNo(bizNo);
+  return suggestions.filter((suggestion) => suggestion.bizNo !== normalizedBizNo);
 }
 
 function compareBusinessLookupSuggestionRecency(

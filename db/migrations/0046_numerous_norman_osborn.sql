@@ -1,0 +1,1 @@
+ALTER TABLE "user_business_lookup_history" ADD COLUMN "dismissed_at" timestamp with time zone;

@@ -79,7 +79,12 @@ export function BizLookupForm({
           </InputGroup>
         </Field>
       </FieldGroup>
-      <LookupSuggestions suggestions={controller.suggestions} onSelect={controller.selectSuggestion} />
+      <LookupSuggestions
+        suggestions={controller.suggestions}
+        deletingSuggestionIds={controller.deletingSuggestionIds}
+        onSelect={controller.selectSuggestion}
+        onDelete={controller.deleteSuggestion}
+      />
     </form>
   );
 }

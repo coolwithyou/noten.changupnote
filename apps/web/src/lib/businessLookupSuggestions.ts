@@ -27,6 +27,11 @@ export interface BusinessLookupRecordResult {
   suggestion: BusinessLookupSuggestion | null;
 }
 
+export interface BusinessLookupDeleteResult {
+  authenticated: boolean;
+  deleted: boolean;
+}
+
 export function formatBusinessLookupBizNo(value: string): string {
   const digits = normalizeBusinessLookupBizNo(value);
   if (digits.length !== 10) return digits;

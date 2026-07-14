@@ -2,10 +2,12 @@ import type { ActionResult } from "@cunote/contracts";
 import { NextResponse } from "next/server";
 import type {
   BusinessLookupRecordResult,
+  BusinessLookupDeleteResult,
   BusinessLookupSuggestionsResult,
 } from "@/lib/businessLookupSuggestions";
 import {
   listBusinessLookupSuggestionsForSession,
+  deleteBusinessLookupForSession,
   recordBusinessLookupForSession,
 } from "@/lib/server/landing/businessLookupSuggestions";
 
@@ -53,6 +55,24 @@ export async function POST(request: Request) {
     };
     responseError.field = "bizNo";
     return NextResponse.json<ActionResult<BusinessLookupRecordResult>>({
+      ok: false,
+      error: responseError,
+    }, { status: 400 });
+  }
+}
+
+export async function DELETE(request: Request) {
+  try {
+    const body = await readBody(request);
+    const data = await deleteBusinessLookupForSession(body.bizNo);
+    return NextResponse.json<ActionResult<BusinessLookupDeleteResult>>({ ok: true, data });
+  } catch (error) {
+    const responseError: NonNullable<ActionResult<BusinessLookupDeleteResult>["error"]> = {
+      code: "invalid_biz_no",
+      message: error instanceof Error ? error.message : "조회 목록에서 삭제하지 못했습니다.",
+      field: "bizNo",
+    };
+    return NextResponse.json<ActionResult<BusinessLookupDeleteResult>>({
       ok: false,
       error: responseError,
     }, { status: 400 });

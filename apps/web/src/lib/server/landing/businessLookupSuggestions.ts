@@ -1,9 +1,10 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { CompanyProfile } from "@cunote/contracts";
 import { isLikelyKsicCode, ksicDivisionLabel, ksicSectionLabel } from "@cunote/core/company/profile-from-popbill";
 import { maskCorpNum, sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
 import {
   formatBusinessLookupBizNo,
+  type BusinessLookupDeleteResult,
   type BusinessLookupRecordResult,
   type BusinessLookupSuggestion,
   type BusinessLookupSuggestionSource,
@@ -41,10 +42,13 @@ export async function listBusinessLookupSuggestionsForSession(): Promise<Busines
     };
   }
 
-  const [historyRows, companyRows] = await Promise.all([
+  const [historyRows, companyRows, dismissedRows] = await Promise.all([
     readLookupHistoryRows(db, session.user.id),
     readUserCompanyLookupRows(db, session.user.id),
+    readDismissedLookupRows(db, session.user.id),
   ]);
+
+  const dismissedBizNos = new Set(dismissedRows.map((row) => row.bizNo));
 
   const lastLookupByBizNo = new Map<string, string | null>();
   for (const row of historyRows) {
@@ -53,7 +57,7 @@ export async function listBusinessLookupSuggestionsForSession(): Promise<Busines
 
   const orderedBizNos = uniqueBizNos([
     ...historyRows.map((row) => row.bizNo),
-    ...companyRows.flatMap((row) => row.bizNo ? [row.bizNo] : []),
+    ...companyRows.flatMap((row) => row.bizNo && !dismissedBizNos.has(row.bizNo) ? [row.bizNo] : []),
   ]).slice(0, MAX_ACCOUNT_SUGGESTIONS);
 
   const suggestions = await Promise.all(
@@ -105,6 +109,7 @@ export async function recordBusinessLookupForSession(bizNoInput: string): Promis
             set: {
               lastLookedUpAt: now,
               lookupCount: sql`${schema.userBusinessLookupHistory.lookupCount} + 1`,
+              dismissedAt: null,
             },
           });
       });
@@ -121,6 +126,53 @@ export async function recordBusinessLookupForSession(bizNoInput: string): Promis
   };
 }
 
+export async function deleteBusinessLookupForSession(bizNoInput: string): Promise<BusinessLookupDeleteResult> {
+  const bizNo = sanitizeCorpNum(bizNoInput);
+  const session = await getOptionalWebSession();
+  const db = getDrizzleDbOrNull();
+  if (!session || !db) {
+    return {
+      authenticated: Boolean(session),
+      deleted: false,
+    };
+  }
+
+  const now = new Date();
+  try {
+    await withCunoteDbUser(db, session.user.id, async (tx) => {
+      await tx
+        .insert(schema.userBusinessLookupHistory)
+        .values({
+          userId: session.user.id,
+          bizNo,
+          firstLookedUpAt: now,
+          lastLookedUpAt: now,
+          lookupCount: 0,
+          dismissedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.userBusinessLookupHistory.userId,
+            schema.userBusinessLookupHistory.bizNo,
+          ],
+          set: {
+            dismissedAt: now,
+          },
+        });
+    });
+    return {
+      authenticated: true,
+      deleted: true,
+    };
+  } catch (error) {
+    console.warn(`Business lookup history delete failed: ${errorMessage(error)}`);
+    return {
+      authenticated: true,
+      deleted: false,
+    };
+  }
+}
+
 function getDrizzleDbOrNull(): CunoteDb | null {
   return getRepositoryAdapterName() === "drizzle" ? getCunoteDb() : null;
 }
@@ -130,11 +182,29 @@ async function readLookupHistoryRows(db: CunoteDb, userId: string): Promise<Look
     return await withCunoteDbUser(db, userId, async (tx) => tx
       .select()
       .from(schema.userBusinessLookupHistory)
-      .where(eq(schema.userBusinessLookupHistory.userId, userId))
+      .where(and(
+        eq(schema.userBusinessLookupHistory.userId, userId),
+        isNull(schema.userBusinessLookupHistory.dismissedAt),
+      ))
       .orderBy(desc(schema.userBusinessLookupHistory.lastLookedUpAt))
       .limit(MAX_ACCOUNT_SUGGESTIONS));
   } catch (error) {
     console.warn(`Business lookup history read failed: ${errorMessage(error)}`);
+    return [];
+  }
+}
+
+async function readDismissedLookupRows(db: CunoteDb, userId: string): Promise<Array<{ bizNo: string }>> {
+  try {
+    return await withCunoteDbUser(db, userId, async (tx) => tx
+      .select({ bizNo: schema.userBusinessLookupHistory.bizNo })
+      .from(schema.userBusinessLookupHistory)
+      .where(and(
+        eq(schema.userBusinessLookupHistory.userId, userId),
+        isNotNull(schema.userBusinessLookupHistory.dismissedAt),
+      )));
+  } catch (error) {
+    console.warn(`Dismissed business lookup history read failed: ${errorMessage(error)}`);
     return [];
   }
 }
