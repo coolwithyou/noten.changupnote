@@ -26,6 +26,7 @@ const publicCacheProfile: CompanyProfile = {
   },
 };
 const ownedProfile: CompanyProfile = {
+  size: "중소",
   employees_count: 8,
   revenue_krw: 1_200_000_000,
   founder_age: 41,
@@ -142,6 +143,7 @@ const revokedOwner = await resolveProductCompanyProfile({
   asOf,
 }, dependencies);
 assert.equal(revokedOwner.profile.employees_count, 8, "same-user portable answer remains visible");
+assert.equal(revokedOwner.profile.size, "중소", "legacy persisted user fields pass through the single compatibility adapter");
 assert.equal(revokedOwner.profile.id, companyId);
 assert.equal(revokedOwner.profile.name, "테스트 회사");
 assert.equal(revokedOwner.profile.revenue_krw, undefined, "revoked basic_info observation must be excluded");
@@ -206,6 +208,7 @@ const companyScoped = await resolveProductCompanyProfile({
   asOf,
 }, dependencies);
 assert.equal(companyScoped.profile.employees_count, undefined, "company state must not absorb a user overlay");
+assert.equal(companyScoped.profile.size, undefined, "company state must not absorb a legacy user overlay");
 assert.equal(companyScoped.stateScope, "company");
 
 assert.equal(PRODUCT_PROFILE_SOURCE_POLICIES.find((policy) => policy.id === "nice_demo")?.classification, "disabled");

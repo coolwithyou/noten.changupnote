@@ -3,7 +3,7 @@ import type { CompanyRecord } from "@cunote/core";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import { getAppPreferencesStore } from "@/lib/server/appApi/preferencesStore";
 import { getConsentStore } from "@/lib/server/consents/consentStore";
-import { getServiceRepositories } from "@/lib/server/serviceData";
+import { getServiceRepositories, resolveProductCompanyProfile } from "@/lib/server/serviceData";
 
 export type OnboardingStepKey = "company" | "consents" | "disqualification" | "profile" | "notifications";
 export type OnboardingStepStatus = "complete" | "attention" | "pending";
@@ -69,18 +69,27 @@ async function loadCurrentCompany(access: CompanyAccess): Promise<CompanyRecord 
   const repositories = getServiceRepositories();
   try {
     const companies = await repositories.companies.listUserCompanies(access.userId);
-    return companies.find((company) => company.id === access.companyId) ?? companies[0] ?? null;
+    const company = companies.find((entry) => entry.id === access.companyId) ?? companies[0] ?? null;
+    if (!company) return null;
+    const resolution = await resolveProductCompanyProfile({
+      context: "owned_read",
+      companyId: company.id,
+      userId: access.userId,
+      asOf: new Date().toISOString(),
+    });
+    return { ...company, name: company.name ?? resolution.profile.name ?? null, profile: resolution.profile };
   } catch {
     try {
-      const profile = await repositories.companies.resolveCompanyProfile({
+      const resolution = await resolveProductCompanyProfile({
+        context: "owned_read",
         companyId: access.companyId,
         userId: access.userId,
+        asOf: new Date().toISOString(),
       });
-      if (!profile) return null;
       return {
         id: access.companyId,
-        name: profile.name ?? null,
-        profile,
+        name: resolution.profile.name ?? null,
+        profile: resolution.profile,
         role: access.role,
         verified: false,
         verifiedAt: null,

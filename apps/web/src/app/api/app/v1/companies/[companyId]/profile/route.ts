@@ -1,6 +1,6 @@
-import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
+import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
-import { getServiceRepositories } from "@/lib/server/serviceData";
+import { resolveProductCompanyProfile } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,12 +13,13 @@ export async function GET(_request: Request, context: RouteContext) {
   try {
     const { companyId } = await context.params;
     const access = await requireAppCompanyAccess(_request, companyId);
-    const profile = await getServiceRepositories().companies.resolveCompanyProfile({
+    const resolution = await resolveProductCompanyProfile({
+      context: "owned_read",
       companyId,
       userId: access.userId,
+      asOf: new Date().toISOString(),
     });
-    if (!profile) return appError("company_not_found", "회사를 찾지 못했습니다.", 404, "companyId");
-    return appData({ profile });
+    return appData({ profile: resolution.profile, profileView: resolution.view });
   } catch (error) {
     return appErrorFromUnknown(error, "회사 프로필을 불러오지 못했습니다.");
   }

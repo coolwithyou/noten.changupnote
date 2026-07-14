@@ -1,44 +1,5 @@
 import { CRITERION_DIMENSIONS } from "@cunote/contracts";
-import type { CompanyEvidence, CompanyProfile, CriterionDimension, TeaserRequest } from "@cunote/contracts";
-import {
-  buildCompanyEvidence,
-  loadCompanyProfileResolutionForTeaser,
-  mergeCompanyProfilesForEnrichment,
-} from "@/lib/server/serviceData";
-
-export async function resolveTeaserCompanyProfile(body: Partial<TeaserRequest>): Promise<CompanyProfile> {
-  return (await resolveTeaserCompanyProfileWithEvidence(body)).profile;
-}
-
-export async function resolveTeaserCompanyProfileWithEvidence(body: Partial<TeaserRequest>): Promise<{
-  profile: CompanyProfile;
-  evidence: CompanyEvidence | null;
-}> {
-  if (isRecord(body.profile)) {
-    const manualProfile = normalizeManualProfile(body.profile);
-    const bizNo = body.bizNo?.trim() || undefined;
-    if (bizNo) {
-      const base = await loadCompanyProfileResolutionForTeaser(bizNo);
-      const profile = mergeCompanyProfilesForEnrichment(base.profile, manualProfile);
-      return {
-        profile,
-        evidence: buildMergedManualEvidence(base.evidence, profile),
-      };
-    }
-
-    return {
-      profile: manualProfile,
-      evidence: buildCompanyEvidence({
-        provider: "manual",
-        source: "manual_profile",
-        cacheStatus: "none",
-        profile: manualProfile,
-        summary: "직접 입력한 회사 프로필로 매칭했습니다.",
-      }),
-    };
-  }
-  return loadCompanyProfileResolutionForTeaser(body.bizNo?.trim() || undefined);
-}
+import type { CompanyProfile, CriterionDimension } from "@cunote/contracts";
 
 export function normalizeManualProfile(
   input: Record<string, unknown>,
@@ -106,20 +67,6 @@ export function normalizeManualProfile(
   if (questionAnswerState) profile.question_answer_state = questionAnswerState;
   if (Object.keys(confidence).length > 0) profile.confidence = confidence;
   return withSelfDeclaredEvidence(profile, options.asOf ?? new Date().toISOString());
-}
-
-function buildMergedManualEvidence(baseEvidence: CompanyEvidence | null, profile: CompanyProfile): CompanyEvidence {
-  return buildCompanyEvidence({
-    provider: baseEvidence?.provider ?? "manual",
-    source: baseEvidence?.source ?? "manual_profile",
-    cacheStatus: baseEvidence?.cacheStatus ?? "none",
-    checkedAt: parseEvidenceDate(baseEvidence?.checkedAt),
-    cachedUntil: parseEvidenceDate(baseEvidence?.cachedUntil),
-    maskedBizNo: baseEvidence?.maskedBizNo ?? null,
-    resultMessage: baseEvidence?.resultMessage ?? null,
-    profile,
-    summary: `${baseEvidence?.summary ?? "사업자 정보를 확인했습니다."} 직접 입력한 항목을 반영했습니다.`.trim(),
-  });
 }
 
 function normalizeRegion(value: unknown): CompanyProfile["region"] | undefined {
@@ -318,12 +265,6 @@ function normalizeFiniteNumber(value: unknown, minimum?: number): number | null 
   const numberValue = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
   if (!Number.isFinite(numberValue) || (minimum !== undefined && numberValue < minimum)) return null;
   return numberValue;
-}
-
-function parseEvidenceDate(value: string | null | undefined): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,14 +1,10 @@
-import type { CompanyProfile } from "@cunote/contracts";
-import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
+import type { TeaserRequest } from "@cunote/contracts";
+import { appData, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { requireAppSession } from "@/lib/server/auth/appSession";
-import { getServiceRepositories } from "@/lib/server/serviceData";
+import { getServiceRepositories, resolveAnonymousProductCompanyProfile } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-interface CreateCompanyRequest {
-  profile?: CompanyProfile;
-}
 
 export async function GET(request: Request) {
   try {
@@ -24,13 +20,10 @@ export async function POST(request: Request) {
   try {
     const session = await requireAppSession(request);
     const body = await readBody(request);
-    if (!body.profile || typeof body.profile !== "object") {
-      return appError("invalid_company_profile", "profile이 필요합니다.", 400, "profile");
-    }
-
+    const resolution = await resolveAnonymousProductCompanyProfile(body, { asOf: new Date() });
     const company = await getServiceRepositories().companies.createCompany({
       userId: session.user.id,
-      profile: body.profile,
+      profile: resolution.profile,
     });
     return appData({ company }, { status: 201 });
   } catch (error) {
@@ -38,10 +31,10 @@ export async function POST(request: Request) {
   }
 }
 
-async function readBody(request: Request): Promise<CreateCompanyRequest> {
+async function readBody(request: Request): Promise<Partial<TeaserRequest>> {
   try {
-    const parsed = await request.json() as CreateCompanyRequest;
-    return parsed && typeof parsed === "object" ? parsed : {};
+    const parsed = await request.json() as Partial<TeaserRequest>;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }

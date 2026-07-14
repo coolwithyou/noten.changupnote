@@ -511,8 +511,9 @@ function verifyServiceDtoSchemas(errors: string[]) {
   }
   if (!Array.isArray(enrichmentResult.required) ||
     !enrichmentResult.required.includes("profile") ||
+    !enrichmentResult.required.includes("profileView") ||
     !enrichmentResult.required.includes("facts")) {
-    errors.push("CompanyEnrichmentResult must require profile and facts.");
+    errors.push("CompanyEnrichmentResult must require profile, profileView and facts.");
   }
 
   const companyRecord = schemas.CompanyRecord;
@@ -538,8 +539,16 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("CreateCompanyRequest schema is missing properties.");
     return;
   }
-  if (!Array.isArray(createCompanyRequest.required) || !createCompanyRequest.required.includes("profile")) {
-    errors.push("CreateCompanyRequest must require profile.");
+  if (Array.isArray(createCompanyRequest.required) && createCompanyRequest.required.includes("profile")) {
+    errors.push("CreateCompanyRequest must not require the legacy profile input.");
+  }
+  if (propertyType(createCompanyRequest.properties.bizNo) !== "string") {
+    errors.push("CreateCompanyRequest.bizNo must be string.");
+  }
+  const answers = createCompanyRequest.properties.answers;
+  if (!isRecord(answers) || answers.type !== "array" ||
+    !isRecord(answers.items) || answers.items.$ref !== "#/components/schemas/MatchingProfileAnswerRequest") {
+    errors.push("CreateCompanyRequest.answers must contain MatchingProfileAnswerRequest items.");
   }
   if (!isRecord(createCompanyRequest.properties.profile) ||
     createCompanyRequest.properties.profile.$ref !== "#/components/schemas/CompanyProfile") {

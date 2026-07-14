@@ -374,6 +374,46 @@
         }
       }
     },
+    "/api/app/v1/companies/preview": {
+      "post": {
+        "tags": [
+          "Companies"
+        ],
+        "operationId": "previewAppCompany",
+        "summary": "Preview public company information from fresh anonymous-safe cache data.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyPreviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Safe company preview.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyPreviewEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppError"
+          },
+          "default": {
+            "$ref": "#/components/responses/AppError"
+          }
+        }
+      }
+    },
     "/api/app/v1/companies/{companyId}/action-queue": {
       "get": {
         "tags": [
@@ -4836,12 +4876,16 @@
         "type": "object",
         "required": [
           "profile",
+          "profileView",
           "facts",
           "initialMatch"
         ],
         "properties": {
           "profile": {
             "$ref": "#/components/schemas/CompanyProfile"
+          },
+          "profileView": {
+            "$ref": "#/components/schemas/MatchingProfileView"
           },
           "facts": {
             "$ref": "#/components/schemas/CompanyEnrichmentFacts"
@@ -4982,10 +5026,16 @@
       },
       "CreateCompanyRequest": {
         "type": "object",
-        "required": [
-          "profile"
-        ],
         "properties": {
+          "bizNo": {
+            "type": "string"
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchingProfileAnswerRequest"
+            }
+          },
           "profile": {
             "$ref": "#/components/schemas/CompanyProfile"
           }
@@ -5145,11 +5195,15 @@
       "CompanyProfileResult": {
         "type": "object",
         "required": [
-          "profile"
+          "profile",
+          "profileView"
         ],
         "properties": {
           "profile": {
             "$ref": "#/components/schemas/CompanyProfile"
+          },
+          "profileView": {
+            "$ref": "#/components/schemas/MatchingProfileView"
           }
         },
         "additionalProperties": false
@@ -5321,6 +5375,7 @@
         "type": "object",
         "required": [
           "profile",
+          "profileView",
           "impact",
           "refresh",
           "event",
@@ -5329,6 +5384,9 @@
         "properties": {
           "profile": {
             "$ref": "#/components/schemas/CompanyProfile"
+          },
+          "profileView": {
+            "$ref": "#/components/schemas/MatchingProfileView"
           },
           "impact": {
             "$ref": "#/components/schemas/ProfileUpdateImpact"
@@ -6316,6 +6374,24 @@
         "properties": {
           "data": {
             "$ref": "#/components/schemas/CompanyResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CompanyPreviewEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CompanyPreviewResult"
           },
           "meta": {
             "$ref": "#/components/schemas/ApiMeta"

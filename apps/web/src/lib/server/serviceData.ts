@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   buildApplySheet,
-  buildDashboard,
   buildInitialCompanyMatch,
   assembleCompanyProfile,
   companyProfileToFieldUpdates,
@@ -14,6 +13,7 @@ import {
   deriveGrantBenefits,
   fetchKStartupPage,
   grantKey,
+  maskCorpNum,
   normalizeKStartupPayload,
 } from "@cunote/core";
 import { resolveEvidencePrecedence } from "@cunote/core/company/evidence-priority";
@@ -37,6 +37,7 @@ import type {
   CompanyEvidence,
   CompanyProfile,
   CompanyProfileEvidenceObservation,
+  CompanyPreviewResult,
   CriterionDimension,
   GrantBenefit,
   NormalizedGrant,
@@ -44,7 +45,6 @@ import type {
   TeaserRequest,
 } from "@cunote/contracts";
 import { isValidBizNoChecksum } from "@cunote/contracts";
-import type { DashboardResult } from "@cunote/contracts";
 import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusClassification, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
@@ -55,6 +55,7 @@ import { notifyPopbillFailure } from "./adminNotifications";
 import { getConsentStore } from "./consents/consentStore";
 import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
 import {
+  buildMatchingProfileView,
   resolveProductCompanyProfile as resolveProductCompanyProfileWithDependencies,
   type ResolveProductCompanyProfileInput,
   type ResolvedProductCompanyProfile,
@@ -65,7 +66,6 @@ import {
   buildProductTeaserSnapshot,
   type ProductDashboardResult,
 } from "./productProfile/productMatchSnapshot";
-import { loadCachedTeaserProfileEnrichment } from "./teaser/cachedProfileEnrichment";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
@@ -192,85 +192,6 @@ async function loadServiceGrantsFromSource({
   }));
 }
 
-export async function loadCompanyProfileForTeaser(bizNo?: string): Promise<CompanyProfile> {
-  return (await loadCompanyProfileResolutionForTeaser(bizNo)).profile;
-}
-
-export async function loadCompanyProfileResolutionForTeaser(
-  bizNo?: string,
-  options: { asOf?: Date } = {},
-): Promise<CompanyProfileResolution> {
-  const asOf = options.asOf ?? new Date();
-  if (bizNo) {
-    const normalizedBizNo = sanitizeCorpNum(bizNo);
-    const savedProfile = await repositories.companies.resolveCompanyProfile({ bizNo: normalizedBizNo });
-    let resolution: CompanyProfileResolution;
-    if (savedProfile && hasReusableTeaserProfile(savedProfile)) {
-      resolution = {
-        profile: savedProfile,
-        evidence: buildCompanyEvidence({
-          provider: "internal",
-          source: "saved_profile",
-          cacheStatus: "none",
-          profile: savedProfile,
-          summary: "저장된 회사 프로필로 매칭했습니다.",
-        }),
-      };
-    } else {
-      resolution = await loadCompanyProfileFromSourceWithEvidence(normalizedBizNo, { asOf });
-    }
-    return applyCachedTeaserProfileEnrichment(normalizedBizNo, resolution, asOf);
-  }
-
-  const profile = await repositories.companies.resolveCompanyProfile({});
-  if (!profile) {
-    throw new Error("회사 프로필을 찾지 못했습니다.");
-  }
-  return {
-    profile,
-    evidence: buildCompanyEvidence({
-      provider: "internal",
-      source: "saved_profile",
-      cacheStatus: "none",
-      profile,
-      summary: "저장된 회사 프로필로 매칭했습니다.",
-    }),
-  };
-}
-
-async function applyCachedTeaserProfileEnrichment(
-  bizNo: string,
-  base: CompanyProfileResolution,
-  now: Date,
-): Promise<CompanyProfileResolution> {
-  const cached = await loadCachedTeaserProfileEnrichment({
-    cache: repositories.enrichmentCache,
-    bizNo,
-    now,
-  });
-  if (cached.profiles.length === 0) return base;
-  const profile = cached.profiles.reduce(
-    (current, enriched) => mergeCompanyProfilesForEnrichmentAt(current, enriched, now.toISOString()),
-    base.profile,
-  );
-  const providerLabels = cached.providers.map((provider) =>
-    provider === "startup_confirmation" ? "창업기업확인" : provider.toUpperCase());
-  return {
-    profile,
-    evidence: base.evidence ? {
-      ...base.evidence,
-      fields: buildCompanyEvidenceFields(profile),
-      summary: `${base.evidence.summary} 저장된 ${providerLabels.join("·")} 확인값을 함께 반영했습니다.`,
-    } : buildCompanyEvidence({
-      provider: "internal",
-      source: "saved_profile",
-      cacheStatus: "hit",
-      profile,
-      summary: `저장된 ${providerLabels.join("·")} 확인값으로 매칭했습니다.`,
-    }),
-  };
-}
-
 async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProfile> {
   return (await loadCompanyProfileFromSourceWithEvidence(bizNo)).profile;
 }
@@ -336,17 +257,22 @@ export async function loadServiceDashboard(options: {
   scanLimit?: number;
   asOf?: Date;
   writeMatchStates?: boolean;
-} = {}): Promise<DashboardResult> {
+} = {}): Promise<ProductDashboardResult> {
   const asOf = options.asOf ?? new Date();
   const resultLimit = options.limit ?? 24;
-  const [company, grants] = await Promise.all([
-    resolveDashboardCompany(options.companyId, options.userId),
+  const [resolution, grants] = await Promise.all([
+    resolveDashboardProductProfile({
+      ...(options.companyId ? { companyId: options.companyId } : {}),
+      ...(options.userId ? { userId: options.userId } : {}),
+      asOf,
+    }),
     loadServiceGrantUniverse({
       asOf,
       ...(options.scanLimit !== undefined ? { scanLimit: options.scanLimit } : {}),
     }),
   ]);
-  const dashboard = buildDashboard({ company, grants, asOf, limit: resultLimit });
+  const company = resolution.profile;
+  const dashboard = buildProductDashboardSnapshot({ resolution, grants, asOf, limit: resultLimit });
   // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 — /dashboard 와 /api/web/matches 가 함께 탄다.
   dashboard.matches = await annotateMatchCardWriteSupport(dashboard.matches);
 
@@ -377,11 +303,16 @@ export async function loadServiceApplySheet(
 ): Promise<ApplySheet | null> {
   const asOf = options.asOf ?? new Date();
   const grantId = decodeGrantIdSegment(grantIdSegment);
-  const [company, grants] = await Promise.all([
-    resolveDashboardCompany(options.companyId, options.userId),
+  const [resolution, grants] = await Promise.all([
+    resolveDashboardProductProfile({
+      ...(options.companyId ? { companyId: options.companyId } : {}),
+      ...(options.userId ? { userId: options.userId } : {}),
+      asOf,
+    }),
     repositories.grants.findGrantById(grantId, { asOf, limit: options.limit ?? 80 }),
   ]);
   if (!grants) return null;
+  const company = resolution.profile;
   const match = await repositories.matches.calculateGrantMatch({ company, grant: grants });
 
   const sheet = buildApplySheet({
@@ -448,15 +379,22 @@ export async function enrichServiceCompany(input: {
     throw error;
   }
   const profile = mergeCompanyProfilesForEnrichmentAt(current, resolved.profile, asOf.toISOString());
-  const saved = await repositories.companies.saveCompanyProfile({
+  await repositories.companies.saveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
     profile,
   });
 
+  const materialized = await resolveProductCompanyProfile({
+    context: "owned_read",
+    companyId: input.companyId,
+    userId: input.userId,
+    asOf: asOf.toISOString(),
+  });
+
   const grants = await loadServiceGrantUniverse({ asOf });
   const initialMatch = buildInitialCompanyMatch({
-    company: saved,
+    company: materialized.profile,
     grants,
     asOf,
     limit: DEFAULT_INITIAL_MATCH_LIMIT,
@@ -469,13 +407,14 @@ export async function enrichServiceCompany(input: {
   await persistMatchStates({
     companyId: input.companyId,
     userId: input.userId,
-    company: saved,
+    company: materialized.profile,
     grants: grants.filter((grant) => visibleGrantIds.has(grantKey(grant.grant))),
     asOf,
   });
 
   return {
-    profile: saved,
+    profile: materialized.profile,
+    profileView: materialized.view,
     facts: resolved.facts,
     evidence: resolved.evidence,
     initialMatch,
@@ -1215,30 +1154,61 @@ export async function resolveAnonymousProductCompanyProfile(
   });
 }
 
+export async function loadProductCompanyPreview(
+  bizNoInput: string,
+  options: { asOf?: Date } = {},
+): Promise<CompanyPreviewResult> {
+  const bizNo = bizNoInput.trim();
+  if (!bizNo || !isValidBizNoChecksum(bizNo)) {
+    throw new ServiceDataError(
+      "invalid_biz_no",
+      "유효하지 않은 사업자등록번호입니다. 입력한 번호를 다시 확인해주세요.",
+      400,
+      "bizNo",
+    );
+  }
+
+  const resolution = await resolveAnonymousProductCompanyProfile({ bizNo }, options);
+  const profile = resolution.profile;
+  const businessStatus: NonNullable<CompanyPreviewResult["businessStatus"]> = {};
+  if (typeof profile.business_status?.active === "boolean") {
+    businessStatus.active = profile.business_status.active;
+  }
+  if (profile.business_status?.label) {
+    businessStatus.label = profile.business_status.label;
+  }
+
+  const result: CompanyPreviewResult = {
+    name: profile.name ?? null,
+    maskedBizNo: maskCorpNum(bizNo),
+  };
+  if (Object.keys(businessStatus).length > 0) result.businessStatus = businessStatus;
+  const regionLabel = profile.region?.label ?? profile.region?.code;
+  if (regionLabel) result.regionLabel = regionLabel;
+  const checkedAt = resolution.view.rows
+    .flatMap((row) => row.asOf ? [row.asOf] : [])
+    .sort()
+    .at(-1);
+  if (checkedAt) result.checkedAt = checkedAt;
+  if (resolution.sourceReceipts.some((receipt) => receipt.state === "consumed")) {
+    result.cacheStatus = "hit";
+  }
+  return result;
+}
+
 export async function loadProductDashboard(input: {
   companyId: string;
   userId: string;
   asOf?: Date;
   limit?: number;
 }): Promise<ProductDashboardResult> {
-  const asOf = input.asOf ?? new Date();
-  const [resolution, grants] = await Promise.all([
-    resolveProductCompanyProfile({
-      context: "owned_read",
-      companyId: input.companyId,
-      userId: input.userId,
-      asOf: asOf.toISOString(),
-    }),
-    loadServiceGrantUniverse({ asOf }),
-  ]);
-  const result = buildProductDashboardSnapshot({
-    resolution,
-    grants,
-    asOf,
+  return loadServiceDashboard({
+    companyId: input.companyId,
+    userId: input.userId,
+    ...(input.asOf ? { asOf: input.asOf } : {}),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
+    writeMatchStates: false,
   });
-  result.matches = await annotateMatchCardWriteSupport(result.matches);
-  return result;
 }
 
 function recommendationTierForMatch(
@@ -1252,14 +1222,28 @@ function recommendationTierForMatch(
         : "needs_profile_input");
 }
 
-async function resolveDashboardCompany(companyId?: string, userId?: string): Promise<CompanyProfile> {
-  if (!companyId) return repositories.companies.getDefaultCompanyProfile();
-  const company = await repositories.companies.resolveCompanyProfile({
-    companyId,
-    ...(userId ? { userId } : {}),
-  });
-  if (!company) throw new Error("회사 프로필을 찾지 못했습니다.");
-  return company;
+async function resolveDashboardProductProfile(input: {
+  companyId?: string;
+  userId?: string;
+  asOf: Date;
+}): Promise<Pick<ResolvedProductCompanyProfile, "profile" | "view">> {
+  if (!input.companyId) {
+    // Sample/dev verification is the sole compatibility boundary without a persisted company id.
+    const profile = await repositories.companies.getDefaultCompanyProfile();
+    return { profile, view: buildMatchingProfileView(profile, input.asOf.toISOString()) };
+  }
+  return resolveProductCompanyProfile(input.userId
+    ? {
+      context: "owned_read",
+      companyId: input.companyId,
+      userId: input.userId,
+      asOf: input.asOf.toISOString(),
+    }
+    : {
+      context: "system_recompute",
+      companyId: input.companyId,
+      asOf: input.asOf.toISOString(),
+    });
 }
 
 async function persistMatchStates(input: {
@@ -1851,21 +1835,6 @@ function appendObservationReducer(
     item.axisCompleteness === incoming.axisCompleteness &&
     item.confidence === incoming.confidence)) values.push(incoming);
   return values;
-}
-
-function hasReusableTeaserProfile(profile: CompanyProfile): boolean {
-  return Boolean(
-    profile.region?.code ||
-    profile.region?.label ||
-    profile.biz_age_months !== null && profile.biz_age_months !== undefined ||
-    profile.industries?.length ||
-    profile.industry_codes?.length ||
-    profile.size ||
-    profile.revenue_krw !== null && profile.revenue_krw !== undefined ||
-    profile.employees_count !== null && profile.employees_count !== undefined ||
-    profile.business_status?.label ||
-    profile.business_status?.active !== undefined
-  );
 }
 
 function toCompanyEnrichmentFacts(

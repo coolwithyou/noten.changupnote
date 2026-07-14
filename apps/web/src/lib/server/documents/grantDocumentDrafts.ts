@@ -15,7 +15,12 @@ import type {
 import type { CompanyAccess } from "../auth/companyGuard";
 import { getCunoteDb, withCunoteDbUser } from "../db/client";
 import * as schema from "../db/schema";
-import { getServiceRepositories, loadServiceApplySheet } from "../serviceData";
+import {
+  getServiceRepositories,
+  loadServiceApplySheet,
+  resolveProductCompanyProfile,
+} from "../serviceData";
+import { applyCompanyProfileAnswer } from "../productProfile/applyCompanyProfileAnswer";
 import { KOREA_REGION_OPTIONS } from "@/lib/regions";
 import {
   applyFieldAnswerPatch,
@@ -330,15 +335,14 @@ export async function seedGrantDocumentDraftProfileAnswers(input: {
     return { fieldAnswers: currentAnswers, filledFields: deriveFilledFields(currentAnswers), seeded: false };
   }
 
-  const profile = await getServiceRepositories().companies.resolveCompanyProfile({
+  const resolution = await resolveProductCompanyProfile({
+    context: "owned_read",
     companyId: input.access.companyId,
     userId: input.access.userId,
+    asOf: new Date().toISOString(),
   });
-  if (!profile) {
-    return { fieldAnswers: currentAnswers, filledFields: deriveFilledFields(currentAnswers), seeded: false };
-  }
 
-  const mergedAnswers = seedProfileFieldAnswers({ fields: seedableFields, profile, current: currentAnswers });
+  const mergedAnswers = seedProfileFieldAnswers({ fields: seedableFields, profile: resolution.profile, current: currentAnswers });
   const seeded = Object.keys(mergedAnswers).length !== Object.keys(currentAnswers).length;
   const filledFields = deriveFilledFields(mergedAnswers);
   if (!seeded) {
@@ -660,13 +664,43 @@ async function promoteDraftAnswersToCompanyProfile(input: {
     }
     if (valueByFieldKey.size === 0) return;
 
+    const resolution = await resolveProductCompanyProfile({
+      context: "owned_read",
+      companyId: input.access.companyId,
+      userId: input.access.userId,
+      asOf: new Date().toISOString(),
+    });
+
+    const regionValue = valueByFieldKey.get("company.region");
+    if (regionValue && !resolution.profile.region) {
+      const resolved = resolveRegionFromText(regionValue);
+      if (resolved) {
+        await applyCompanyProfileAnswer({
+          companyId: input.access.companyId,
+          userId: input.access.userId,
+          answer: { field: "region", value: resolved },
+        });
+      }
+    }
+
+    const industriesValue = valueByFieldKey.get("company.industries");
+    if (industriesValue && (!resolution.profile.industries || resolution.profile.industries.length === 0)) {
+      const tags = splitIndustryTags(industriesValue);
+      if (tags.length > 0) {
+        await applyCompanyProfileAnswer({
+          companyId: input.access.companyId,
+          userId: input.access.userId,
+          answer: { field: "industry", value: tags },
+        });
+      }
+    }
+
     const repositories = getServiceRepositories();
     const profile = await repositories.companies.resolveCompanyProfile({
       companyId: input.access.companyId,
       userId: input.access.userId,
     });
     if (!profile) return;
-
     const next: CompanyProfile = { ...profile };
     let changed = false;
 
@@ -675,26 +709,6 @@ async function promoteDraftAnswersToCompanyProfile(input: {
       const name = nameValue.slice(0, 80);
       if (name) {
         next.name = name;
-        changed = true;
-      }
-    }
-
-    const regionValue = valueByFieldKey.get("company.region");
-    if (regionValue && !next.region) {
-      const resolved = resolveRegionFromText(regionValue);
-      if (resolved) {
-        next.region = resolved;
-        next.confidence = { ...(next.confidence ?? {}), region: 0.6 };
-        changed = true;
-      }
-    }
-
-    const industriesValue = valueByFieldKey.get("company.industries");
-    if (industriesValue && (!next.industries || next.industries.length === 0)) {
-      const tags = splitIndustryTags(industriesValue);
-      if (tags.length > 0) {
-        next.industries = tags;
-        next.confidence = { ...(next.confidence ?? {}), industry: 0.5 };
         changed = true;
       }
     }

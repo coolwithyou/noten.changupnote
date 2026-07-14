@@ -720,14 +720,14 @@ export interface CompanyEnrichmentRequest {
   bizNo: string;
 }
 
-/** 랜딩 상호명 확인 게이트(팝빌 과금 전 확인 카드) 요청. */
+/** 랜딩 상호명 확인 게이트 요청. 익명 product resolver의 공개 cache 범위만 사용한다. */
 export interface CompanyPreviewRequest {
   bizNo: string;
 }
 
 /**
  * 랜딩 상호명 확인 카드에 노출할 최소 필드.
- * 매칭 계산 없이 loadCompanyProfileResolutionForTeaser 결과에서 상호/상태만 추린다.
+ * 매칭 계산 없이 product resolver 결과에서 상호/상태만 추린다.
  * 사업자번호 원문은 절대 담지 않는다(maskedBizNo 만 노출).
  */
 export interface CompanyPreviewResult {
@@ -821,6 +821,7 @@ export interface CompanyEvidence {
 
 export interface CompanyEnrichmentResult {
   profile: CompanyProfile;
+  profileView: MatchingProfileView;
   facts: CompanyEnrichmentFacts;
   evidence?: CompanyEvidence | null;
   /** 사업자정보 저장 직후 전체 활성 공고를 평가한 첫 결과. */

@@ -13,6 +13,8 @@ if (dataMode === "sample") {
 
 const { POST } = await import("@/app/api/web/teaser/route");
 const { POST: APP_POST } = await import("@/app/api/app/v1/teaser/route");
+const { POST: WEB_PREVIEW_POST } = await import("@/app/api/web/company-preview/route");
+const { POST: APP_PREVIEW_POST } = await import("@/app/api/app/v1/companies/preview/route");
 
 try {
   const invalid = await POST(request({ bizNo: "1234567890" }));
@@ -125,6 +127,15 @@ try {
     "web/app teaser는 같은 전체 universe를 평가해야 함",
   );
 
+  const webPreviewInvalid = await WEB_PREVIEW_POST(request({ bizNo: "1234567890" }));
+  const webPreviewInvalidBody = await webPreviewInvalid.json() as ActionResult<unknown>;
+  const appPreviewInvalid = await APP_PREVIEW_POST(request({ bizNo: "1234567890" }));
+  const appPreviewInvalidBody = await appPreviewInvalid.json() as ApiEnvelope<unknown>;
+  assert.equal(webPreviewInvalid.status, 400);
+  assert.equal(appPreviewInvalid.status, 400);
+  assert.equal(webPreviewInvalidBody.error?.code, "invalid_biz_no");
+  assert.equal(appPreviewInvalidBody.error?.code, "invalid_biz_no");
+
   console.log(JSON.stringify({
     ok: true,
     dataMode,
@@ -142,6 +153,7 @@ try {
       "expanded_manual_profile_route_acceptance",
       "app_invalid_biz_no_preflight",
       "web_app_teaser_universe_parity",
+      "web_app_company_preview_boundary_parity",
     ],
     evaluatedGrantCount: firstBody.data.searchContext?.evaluatedGrantCount ?? 0,
     returnedMatchCount: firstBody.data.matches.length,

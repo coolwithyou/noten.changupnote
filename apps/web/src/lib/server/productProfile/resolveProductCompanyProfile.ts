@@ -316,7 +316,7 @@ export async function resolveProductCompanyProfile(
     profileInputs.push({ source: "portable_user_answer", profile });
   }
 
-  const updates = collectAllowedUpdates(input, profileInputs, activeConsents, receipts);
+  const updates = collectAllowedUpdates(input, profileInputs, activeConsents, receipts, asOf);
   if (input.context === "anonymous_teaser" && updates.length === 0) {
     throw new ProductProfileResolutionError(
       "product_profile_unavailable",
@@ -458,14 +458,18 @@ function collectAllowedUpdates(
   profiles: ProfileInput[],
   activeConsents: ReadonlySet<ConsentScope>,
   receipts: Map<ProductProfileSourceId, ProductProfileSourceReceipt>,
+  asOf: string,
 ): CompanyProfileFieldUpdate[] {
   const updates: CompanyProfileFieldUpdate[] = [];
   for (const item of profiles) {
-    const candidates = companyProfileToFieldUpdates(item.profile, {
+    const evidenceBacked = companyProfileToFieldUpdates(item.profile, {
       ...(item.scopeOverride ? { scope: item.scopeOverride } : {}),
       ...(item.persistenceClass ? { persistenceClass: item.persistenceClass } : {}),
       resolverVersion: "product-profile-r2-v1",
     });
+    const candidates = item.source === "portable_user_answer"
+      ? [...evidenceBacked, ...legacyPortableProfileUpdates(item.profile, asOf)]
+      : evidenceBacked;
     for (const update of candidates) {
       if (!OPERATIONAL_DIMENSION_SET.has(update.field)) continue;
       const source = sourceForUpdate(update, item.source);
@@ -486,6 +490,38 @@ function collectAllowedUpdates(
     }
   }
   return updates;
+}
+
+/** Single compatibility adapter for pre-evidence persisted user profiles. */
+function legacyPortableProfileUpdates(profile: CompanyProfile, asOf: string): CompanyProfileFieldUpdate[] {
+  const updates: CompanyProfileFieldUpdate[] = [];
+  for (const field of OPERATIONAL_PROFILE_DIMENSIONS) {
+    if (profile.profile_evidence?.[field]) continue;
+    const value = companyProfileValueForDimension(profile, field);
+    if (value === undefined || value === null) continue;
+    const listCompleteness = isListDimension(field) ? profile.list_completeness?.[field] ?? "partial" : "complete";
+    updates.push({
+      field,
+      value,
+      mode: isListDimension(field) && listCompleteness === "partial" ? "merge" : "replace",
+      sourceKind: "self_declared",
+      provider: "legacy_company_profile",
+      asOf,
+      axisCompleteness: listCompleteness,
+      confidence: profile.confidence?.[field] ?? 0.6,
+      observation: {
+        scope: "user",
+        persistenceClass: "portable_user_answer",
+        resolverVersion: "product-profile-r4-legacy-adapter-v1",
+      },
+    });
+  }
+  return updates;
+}
+
+function isListDimension(field: CriterionDimension): field is "industry" | "founder_trait" | "certification" | "prior_award" | "ip" | "target_type" {
+  return field === "industry" || field === "founder_trait" || field === "certification" ||
+    field === "prior_award" || field === "ip" || field === "target_type";
 }
 
 function isUpdateAllowed(

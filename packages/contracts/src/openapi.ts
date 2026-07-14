@@ -58,6 +58,7 @@ export const appV1OpenApiRoutePaths = [
   "/api/app/v1/auth/logout",
   "/api/app/v1/auth/refresh",
   "/api/app/v1/companies",
+  "/api/app/v1/companies/preview",
   "/api/app/v1/companies/{companyId}/action-queue",
   "/api/app/v1/companies/{companyId}/consents",
   "/api/app/v1/companies/{companyId}/consents/{scope}",
@@ -269,6 +270,26 @@ export const appV1OpenApi = {
             content: json(ref("CompanyEnvelope")),
           },
           "401": { $ref: "#/components/responses/AppError" },
+          default: { $ref: "#/components/responses/AppError" },
+        },
+      },
+    },
+    "/api/app/v1/companies/preview": {
+      post: {
+        tags: ["Companies"],
+        operationId: "previewAppCompany",
+        summary: "Preview public company information from fresh anonymous-safe cache data.",
+        requestBody: {
+          required: true,
+          content: json(ref("CompanyPreviewRequest")),
+        },
+        responses: {
+          "200": {
+            description: "Safe company preview.",
+            content: json(ref("CompanyPreviewEnvelope")),
+          },
+          "400": { $ref: "#/components/responses/AppError" },
+          "503": { $ref: "#/components/responses/AppError" },
           default: { $ref: "#/components/responses/AppError" },
         },
       },
@@ -1833,9 +1854,10 @@ export const appV1OpenApi = {
       },
       CompanyEnrichmentResult: {
         type: "object",
-        required: ["profile", "facts", "initialMatch"],
+        required: ["profile", "profileView", "facts", "initialMatch"],
         properties: {
           profile: ref("CompanyProfile"),
+          profileView: ref("MatchingProfileView"),
           facts: ref("CompanyEnrichmentFacts"),
           evidence: nullable(ref("CompanyEvidence")),
           initialMatch: ref("CompanyInitialMatchResult"),
@@ -1881,8 +1903,9 @@ export const appV1OpenApi = {
       },
       CreateCompanyRequest: {
         type: "object",
-        required: ["profile"],
         properties: {
+          bizNo: { type: "string" },
+          answers: arrayOf(ref("MatchingProfileAnswerRequest")),
           profile: ref("CompanyProfile"),
         },
         additionalProperties: false,
@@ -1946,9 +1969,10 @@ export const appV1OpenApi = {
       },
       CompanyProfileResult: {
         type: "object",
-        required: ["profile"],
+        required: ["profile", "profileView"],
         properties: {
           profile: ref("CompanyProfile"),
+          profileView: ref("MatchingProfileView"),
         },
         additionalProperties: false,
       },
@@ -2006,9 +2030,10 @@ export const appV1OpenApi = {
       },
       CompanyProfileUpdateResult: {
         type: "object",
-        required: ["profile", "impact", "refresh", "event", "initialMatch"],
+        required: ["profile", "profileView", "impact", "refresh", "event", "initialMatch"],
         properties: {
           profile: ref("CompanyProfile"),
+          profileView: ref("MatchingProfileView"),
           impact: ref("ProfileUpdateImpact"),
           refresh: ref("ProfileQuestionRefresh"),
           event: ref("ProfileQuestionEventReceipt"),
@@ -2379,6 +2404,7 @@ export const appV1OpenApi = {
       LogoutEnvelope: envelope(ref("LogoutResult")),
       CompanyListEnvelope: envelope(ref("CompanyListResult")),
       CompanyEnvelope: envelope(ref("CompanyResult")),
+      CompanyPreviewEnvelope: envelope(ref("CompanyPreviewResult")),
       CompanyProfileEnvelope: envelope(ref("CompanyProfileResult")),
       CompanyProfileUpdateEnvelope: envelope(ref("CompanyProfileUpdateResult")),
       CompanyEnrichmentEnvelope: envelope(ref("CompanyEnrichmentResult")),
