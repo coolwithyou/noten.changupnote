@@ -411,6 +411,11 @@ function compareCandidatePriority(left: Candidate, right: Candidate): number {
 }
 
 function compareCandidateCanonicalKey(left: Candidate, right: Candidate): number {
+  const semanticOrder = canonicalSemanticObservationKey(left.identity)
+    .localeCompare(canonicalSemanticObservationKey(right.identity));
+  if (semanticOrder !== 0) return semanticOrder;
+  const metadataOrder = observationMetadataScore(right.evidence) - observationMetadataScore(left.evidence);
+  if (metadataOrder !== 0) return metadataOrder;
   return canonicalObservationKey(left.identity).localeCompare(canonicalObservationKey(right.identity));
 }
 
@@ -480,10 +485,15 @@ function mergeWinningCompoundValue(
 
 function mergedCandidateEvidence(winner: Candidate, candidates: Candidate[]): CompanyProfileFieldEvidence {
   const primary = stripSupplemental(winner.evidence);
-  const primaryKey = evidenceCanonicalKey(primary);
+  const primarySemanticKey = canonicalSemanticObservationKey(winner.identity);
   const supplemental = candidates
-    .flatMap((candidate) => [stripSupplemental(candidate.evidence), ...(candidate.evidence.supplemental ?? [])])
-    .filter((evidence) => evidenceCanonicalKey(evidence) !== primaryKey)
+    .flatMap((candidate) => [
+      ...(canonicalSemanticObservationKey(candidate.identity) === primarySemanticKey
+        ? []
+        : [stripSupplemental(candidate.evidence)]),
+      ...(candidate.evidence.supplemental ?? []),
+    ])
+    .filter((evidence) => evidenceCanonicalKey(evidence) !== evidenceCanonicalKey(primary))
     .reduce<CompanyProfileEvidenceObservation[]>(appendUniqueObservation, [])
     .sort(compareEvidenceCanonical);
   return supplemental.length > 0 ? { ...primary, supplemental } : primary;
@@ -635,6 +645,27 @@ function canonicalObservationKey(identity: CanonicalCompanyProfileObservationIde
   return stableCanonicalStringify(identity);
 }
 
+function canonicalSemanticObservationKey(identity: CanonicalCompanyProfileObservationIdentity): string {
+  return stableCanonicalStringify({
+    dimension: identity.dimension,
+    sourceKind: identity.sourceKind,
+    provider: identity.provider,
+    scope: identity.scope,
+    asOf: identity.asOf,
+    canonicalValue: identity.canonicalValue,
+  });
+}
+
+function observationMetadataScore(evidence: CompanyProfileEvidenceObservation): number {
+  return [
+    evidence.observationId,
+    evidence.observationVersion,
+    evidence.canonicalValue,
+    evidence.persistenceClass,
+    evidence.resolverVersion,
+  ].filter((value) => value !== undefined).length;
+}
+
 function canonicalizeCompanyProfile(profile: CompanyProfile, touched: ReadonlySet<CriterionDimension>): CompanyProfile {
   const next = cloneValue(profile);
   if (touched.has("industry")) {
@@ -664,7 +695,17 @@ function canonicalizeCompanyProfile(profile: CompanyProfile, touched: ReadonlySe
     const evidence = next.profile_evidence[field];
     if (evidence?.supplemental) evidence.supplemental = [...evidence.supplemental].sort(compareEvidenceCanonical);
   }
-  return next;
+  return canonicalizeObjectKeyOrder(next);
+}
+
+function canonicalizeObjectKeyOrder<T>(value: T): T {
+  if (Array.isArray(value)) return value.map((item) => canonicalizeObjectKeyOrder(item)) as T;
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, canonicalizeObjectKeyOrder(entry)]),
+  ) as T;
 }
 
 function sortUniqueStrings(values: string[]): string[] {

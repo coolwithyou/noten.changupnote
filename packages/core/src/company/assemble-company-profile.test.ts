@@ -92,6 +92,89 @@ assert.equal(identity.provider, "cunote_profile_question");
 assert.equal(identity.scope, "user");
 assert.match(identity.observationId, /^profile-observation-[0-9a-f]{16}$/);
 
+const businessStatusByApiOrder: CompanyProfileFieldUpdate = {
+  field: "business_status",
+  value: { active: true, close_down_state: null, label: "계속사업자" },
+  sourceKind: "authoritative_api",
+  provider: "nts",
+  asOf,
+  axisCompleteness: "complete",
+  confidence: 0.95,
+};
+const businessStatusByRowOrder: CompanyProfileFieldUpdate = {
+  ...businessStatusByApiOrder,
+  value: { label: "계속사업자", close_down_state: null, active: true },
+};
+const apiOrderedStatus = assembleCompanyProfile({
+  baseProfile: { confidence: {} },
+  updates: [businessStatusByApiOrder],
+  asOf,
+});
+const rowOrderedStatus = assembleCompanyProfile({
+  baseProfile: { confidence: {} },
+  updates: [businessStatusByRowOrder],
+  asOf,
+});
+assert.equal(
+  JSON.stringify(rowOrderedStatus),
+  JSON.stringify(apiOrderedStatus),
+  "compound key insertion order must not change the serialized assembly result",
+);
+
+const legacyEmployee = update("employees", 12, "authoritative_api", "kcomwel", asOf, 0.9);
+const versionedEmployee: CompanyProfileFieldUpdate = {
+  ...legacyEmployee,
+  observation: {
+    scope: "shared",
+    observationId: "zzzz-kcomwel-employees-20260714",
+    observationVersion: "kcomwel-v2",
+    persistenceClass: "versioned_provider_observation",
+    resolverVersion: "p1-v1",
+  },
+};
+const versionedEmployeeProfile = assembleCompanyProfile({
+  baseProfile: { confidence: {} },
+  updates: [versionedEmployee],
+  asOf,
+}).profile;
+const legacyReplayOnVersioned = assembleCompanyProfile({
+  baseProfile: versionedEmployeeProfile,
+  updates: [legacyEmployee],
+  asOf,
+}).profile;
+assert.deepEqual(
+  legacyReplayOnVersioned,
+  versionedEmployeeProfile,
+  "legacy replay of the same semantic observation must not change selected evidence",
+);
+const legacyEmployeeProfile = assembleCompanyProfile({
+  baseProfile: { confidence: {} },
+  updates: [legacyEmployee],
+  asOf,
+}).profile;
+assert.deepEqual(
+  assembleCompanyProfile({
+    baseProfile: legacyEmployeeProfile,
+    updates: [versionedEmployee],
+    asOf,
+  }).profile,
+  versionedEmployeeProfile,
+  "versioned replay must enrich the legacy envelope without retaining a semantic duplicate",
+);
+assert.deepEqual(
+  assembleCompanyProfile({
+    baseProfile: { confidence: {} },
+    updates: [legacyEmployee, versionedEmployee],
+    asOf,
+  }),
+  assembleCompanyProfile({
+    baseProfile: { confidence: {} },
+    updates: [versionedEmployee, legacyEmployee],
+    asOf,
+  }),
+  "legacy and versioned row order must not change the assembly result",
+);
+
 console.log("company/assemble-company-profile.test.ts: all assertions passed");
 
 function evidence(
