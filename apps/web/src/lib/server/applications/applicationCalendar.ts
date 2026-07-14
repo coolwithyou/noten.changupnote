@@ -11,6 +11,12 @@ import {
   type ApplicationManagement,
 } from "./applicationManagementFeedback";
 import { buildApplicationPipeline, type ApplicationPipelineItem } from "./pipeline";
+import {
+  IcsDateError,
+  renderIcsCalendar,
+  stableId,
+  type CalendarIcsEvent,
+} from "@/lib/server/calendar/ics";
 
 export class ApplicationCalendarError extends Error {
   constructor(
@@ -54,7 +60,7 @@ export async function buildApplicationCalendar(input: {
     grantId: sheet.grant.id,
     access: input.access,
   });
-  const events: CalendarEvent[] = [];
+  const events: CalendarIcsEvent[] = [];
   const description = buildDescription({
     title: sheet.grant.title,
     agency: sheet.grant.agency,
@@ -97,7 +103,7 @@ export async function buildApplicationCalendar(input: {
   return {
     filename: `창업노트-${sanitizeDownloadFilename(sheet.grant.title, "지원사업")}-일정.ics`,
     fallbackFilename: `cunote-application-calendar-${stableId(sheet.grant.id)}.ics`,
-    ics: renderIcsCalendar({
+    ics: renderCalendarIcs({
       productId: "-//Cunote//Application Calendar//KO",
       generatedAt,
       events,
@@ -138,7 +144,7 @@ export async function buildApplicationBoardCalendar(input: {
   return {
     filename: `창업노트-${filenameBase}-신청일정-${dateStamp(generatedAt)}.ics`,
     fallbackFilename: `cunote-application-board-calendar-${dateStamp(generatedAt)}.ics`,
-    ics: renderIcsCalendar({
+    ics: renderCalendarIcs({
       productId: "-//Cunote//Application Board Calendar//KO",
       generatedAt,
       events,
@@ -146,9 +152,9 @@ export async function buildApplicationBoardCalendar(input: {
   };
 }
 
-function pipelineCalendarEvents(item: ApplicationPipelineItem): CalendarEvent[] {
+function pipelineCalendarEvents(item: ApplicationPipelineItem): CalendarIcsEvent[] {
   const description = buildPipelineDescription(item);
-  const events: CalendarEvent[] = [];
+  const events: CalendarIcsEvent[] = [];
   if (item.applyEnd) {
     events.push({
       uid: `board-deadline-${stableId(item.grantId)}@cunote`,
@@ -212,44 +218,21 @@ async function loadFeedbackCalendarSnapshot(input: {
   }
 }
 
-interface CalendarEvent {
-  uid: string;
-  date: string;
-  summary: string;
-  description: string;
-  url: string | null;
-}
-
-function renderIcsCalendar(input: {
+// ics 렌더러는 @/lib/server/calendar/ics로 이전했다. 렌더링 중 날짜 오류로
+// IcsDateError가 발생하면 기존과 동일한 ApplicationCalendarError 계약으로 재래핑한다.
+function renderCalendarIcs(input: {
   productId: string;
   generatedAt: Date;
-  events: CalendarEvent[];
+  events: CalendarIcsEvent[];
 }): string {
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    `PRODID:${input.productId}`,
-    "CALSCALE:GREGORIAN",
-    "METHOD:PUBLISH",
-    ...input.events.flatMap((event) => renderIcsEvent(event, input.generatedAt)),
-    "END:VCALENDAR",
-  ];
-  return `${lines.map(foldIcsLine).join("\r\n")}\r\n`;
-}
-
-function renderIcsEvent(event: CalendarEvent, generatedAt: Date): string[] {
-  const date = toIcsDate(event.date);
-  return [
-    "BEGIN:VEVENT",
-    `UID:${escapeIcsText(event.uid)}`,
-    `DTSTAMP:${toIcsDateTime(generatedAt)}`,
-    `DTSTART;VALUE=DATE:${date}`,
-    `DTEND;VALUE=DATE:${nextIcsDate(event.date)}`,
-    `SUMMARY:${escapeIcsText(event.summary)}`,
-    `DESCRIPTION:${escapeIcsText(event.description)}`,
-    ...(event.url ? [`URL:${escapeIcsText(event.url)}`] : []),
-    "END:VEVENT",
-  ];
+  try {
+    return renderIcsCalendar(input);
+  } catch (error) {
+    if (error instanceof IcsDateError) {
+      throw new ApplicationCalendarError("invalid_calendar_date", error.message, 500);
+    }
+    throw error;
+  }
 }
 
 function buildDescription(input: {
@@ -317,59 +300,6 @@ function formatSupportAmount(amount: SupportAmount): string {
   if (amount.label) return amount.label;
   if (amount.max) return `${new Intl.NumberFormat("ko-KR").format(amount.max)}원`;
   return "금액 미확인";
-}
-
-function dateString(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim().length === 0) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
-}
-
-function toIcsDate(value: string): string {
-  const normalized = dateString(value);
-  if (!normalized) {
-    throw new ApplicationCalendarError("invalid_calendar_date", "캘린더 날짜가 올바르지 않습니다.", 500);
-  }
-  return normalized.replaceAll("-", "");
-}
-
-function nextIcsDate(value: string): string {
-  const normalized = dateString(value);
-  if (!normalized) {
-    throw new ApplicationCalendarError("invalid_calendar_date", "캘린더 날짜가 올바르지 않습니다.", 500);
-  }
-  const date = new Date(`${normalized}T00:00:00.000Z`);
-  date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10).replaceAll("-", "");
-}
-
-function toIcsDateTime(value: Date): string {
-  return value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
-}
-
-function escapeIcsText(value: string): string {
-  return value
-    .replace(/\\/g, "\\\\")
-    .replace(/\n/g, "\\n")
-    .replace(/;/g, "\\;")
-    .replace(/,/g, "\\,");
-}
-
-function foldIcsLine(value: string): string {
-  if (value.length <= 74) return value;
-  const chunks: string[] = [];
-  let remaining = value;
-  while (remaining.length > 74) {
-    chunks.push(remaining.slice(0, 74));
-    remaining = ` ${remaining.slice(74)}`;
-  }
-  chunks.push(remaining);
-  return chunks.join("\r\n");
-}
-
-function stableId(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 48) || "grant";
 }
 
 function dateStamp(value: Date): string {

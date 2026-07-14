@@ -1,20 +1,12 @@
 import assert from "node:assert/strict";
+import * as dates from "@/lib/calendar/dates";
 import { calendarDday, dateKey, monthStart } from "./ApplicationCalendarView";
 
-assert.equal(dateKey("2026-07-14T15:30:00.000Z"), "2026-07-15");
-assert.equal(dateKey("2026-07-31T15:30:00.000Z"), "2026-08-01");
-assert.equal(dateKey("2026-08-04"), "2026-08-04");
-assert.equal(monthStart("2026-07-31T15:30:00.000Z").toISOString(), "2026-08-01T00:00:00.000Z");
+// 순수 로직은 @/lib/calendar/dates로 이전했고, 이 뷰는 기존 계약 유지를 위해
+// dateKey/monthStart/calendarDday를 re-export 한다. 셋이 dates 모듈의 동일 함수를
+// 가리키는지(동작 검증은 dates.test.ts가 담당) 최소 sanity로만 가드한다.
+assert.equal(dateKey, dates.dateKey);
+assert.equal(monthStart, dates.monthStart);
+assert.equal(calendarDday, dates.calendarDday);
 
-const beforeKoreaMidnight = dateKey("2026-07-14T14:59:59.000Z");
-const atKoreaMidnight = dateKey("2026-07-14T15:00:00.000Z");
-assert.equal(beforeKoreaMidnight, "2026-07-14");
-assert.equal(atKoreaMidnight, "2026-07-15");
-assert.equal(calendarDday("2026-07-15", beforeKoreaMidnight), 1);
-assert.equal(calendarDday("2026-07-15", atKoreaMidnight), 0);
-
-assert.equal(calendarDday(dateKey("2026-08-04"), "2026-08-01"), 3);
-assert.equal(calendarDday(dateKey("2026-08-03T15:00:00.000Z"), "2026-08-01"), 3);
-assert.equal(calendarDday("invalid", "2026-08-01"), null);
-
-console.log("application-calendar-view: ok");
+console.log("application-calendar-view: re-export contract ok");

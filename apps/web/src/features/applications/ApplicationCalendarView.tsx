@@ -43,6 +43,21 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import {
+  WEEKDAYS,
+  addMonths,
+  calendarDays,
+  calendarDday,
+  dateKey,
+  formatFullDate,
+  formatMonth,
+  indexEventsByDate,
+  monthStart,
+} from "@/lib/calendar/dates";
+
+// 순수 날짜 유틸은 서버·클라 공용 모듈(@/lib/calendar/dates)로 이전했다.
+// 기존에 이 파일에서 export되던 함수는 계약 유지를 위해 그대로 re-export 한다.
+export { dateKey, monthStart, calendarDday } from "@/lib/calendar/dates";
 
 type CalendarEventKind = "deadline" | "reminder";
 
@@ -55,9 +70,6 @@ interface ApplicationCalendarEvent {
   title: string;
   detailHref: string;
 }
-
-const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"] as const;
-const KOREA_TIME_ZONE = "Asia/Seoul";
 
 export function ApplicationCalendarView({
   pipeline,
@@ -348,91 +360,6 @@ function calendarEventsFromItems(
     }
   }
   return events.sort((left, right) => left.date.localeCompare(right.date) || left.title.localeCompare(right.title, "ko"));
-}
-
-function indexEventsByDate(events: ApplicationCalendarEvent[]): Map<string, ApplicationCalendarEvent[]> {
-  const index = new Map<string, ApplicationCalendarEvent[]>();
-  for (const event of events) {
-    const current = index.get(event.date) ?? [];
-    current.push(event);
-    index.set(event.date, current);
-  }
-  return index;
-}
-
-function calendarDays(month: Date): Array<{ date: string; dayOfMonth: number; weekday: number } | null> {
-  const year = month.getUTCFullYear();
-  const monthIndex = month.getUTCMonth();
-  const firstWeekday = new Date(Date.UTC(year, monthIndex, 1)).getUTCDay();
-  const dayCount = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
-  const cells: Array<{ date: string; dayOfMonth: number; weekday: number } | null> = [];
-  for (let index = 0; index < firstWeekday; index += 1) cells.push(null);
-  for (let day = 1; day <= dayCount; day += 1) {
-    const date = new Date(Date.UTC(year, monthIndex, day));
-    cells.push({ date: date.toISOString().slice(0, 10), dayOfMonth: day, weekday: date.getUTCDay() });
-  }
-  while (cells.length % 7 !== 0) cells.push(null);
-  return cells;
-}
-
-export function monthStart(value: string): Date {
-  const parts = koreaDateParts(value);
-  return new Date(Date.UTC(parts.year, parts.month - 1, 1));
-}
-
-function addMonths(value: Date, amount: number): Date {
-  return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth() + amount, 1));
-}
-
-export function dateKey(value: string): string {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value.slice(0, 10);
-  const parts = koreaDateParts(date);
-  return `${parts.year.toString().padStart(4, "0")}-${parts.month.toString().padStart(2, "0")}-${parts.day.toString().padStart(2, "0")}`;
-}
-
-export function calendarDday(eventDateKey: string, todayKey: string): number | null {
-  const eventDate = dateKeyToUtcDate(eventDateKey);
-  const today = dateKeyToUtcDate(todayKey);
-  if (!eventDate || !today) return null;
-  return Math.round((eventDate.getTime() - today.getTime()) / 86_400_000);
-}
-
-function dateKeyToUtcDate(value: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.toISOString().slice(0, 10) === value ? date : null;
-}
-
-function formatMonth(value: Date): string {
-  return `${value.getUTCFullYear()}년 ${value.getUTCMonth() + 1}월`;
-}
-
-function formatFullDate(value: string): string {
-  return new Intl.DateTimeFormat("ko-KR", {
-    month: "long",
-    day: "numeric",
-    weekday: "short",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T00:00:00.000Z`));
-}
-
-function koreaDateParts(value: string | Date): { year: number; month: number; day: number } {
-  const date = typeof value === "string" ? new Date(value) : value;
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: KOREA_TIME_ZONE,
-    year: "numeric",
-    month: "numeric",
-    day: "numeric",
-  }).formatToParts(date);
-  const read = (type: "year" | "month" | "day") =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-  return { year: read("year"), month: read("month"), day: read("day") };
 }
 
 function eventLabel(event: ApplicationCalendarEvent): string {
