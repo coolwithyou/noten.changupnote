@@ -117,13 +117,19 @@ export function normalizeRequiredDocuments(grant: Grant): RequiredDocument[] {
 }
 
 export function normalizeSupportAmount(value: Grant["support_amount"]): SupportAmount {
-  if (isSupportAmount(value)) return value;
-  return {
-    min: null,
-    max: amountFromRecord(value),
+  if (!value || typeof value !== "object") {
+    return { min: null, max: null, unit: "KRW", per: "기업" };
+  }
+
+  const record = value as Record<string, unknown>;
+  const amount: SupportAmount = {
+    min: amountFromRecord(record, ["min", "min_krw"]),
+    max: amountFromRecord(record, ["max", "max_krw", "amount", "value"]),
     unit: "KRW",
-    per: "기업",
+    per: record.per === "건" ? "건" : "기업",
   };
+  if (typeof record.label === "string" || record.label === null) amount.label = record.label;
+  return amount;
 }
 
 export function supportAmountMax(value: Grant["support_amount"]): number {
@@ -133,7 +139,10 @@ export function supportAmountMax(value: Grant["support_amount"]): number {
 export function deriveGrantBenefits(grant: Grant): BenefitBadge[] {
   const benefits = new Map<BenefitBadge["family"], BenefitBadge>();
   const push = (benefit: BenefitBadge) => {
-    if (!benefits.has(benefit.family)) benefits.set(benefit.family, benefit);
+    const current = benefits.get(benefit.family);
+    if (!current || compareBenefitStrength(benefit, current) < 0) {
+      benefits.set(benefit.family, benefit);
+    }
   };
 
   for (const benefit of grant.benefits ?? []) {
@@ -141,12 +150,12 @@ export function deriveGrantBenefits(grant: Grant): BenefitBadge[] {
       family: benefit.family,
       label: benefit.label,
       source: benefit.source,
-      confidence: benefit.confidence ?? 0.95,
+      confidence: benefit.confidence ?? STRUCTURED_BENEFIT_DEFAULT_CONFIDENCE,
     });
   }
 
   const amount = normalizeSupportAmount(grant.support_amount);
-  if ((amount.max ?? 0) > 0 || cleanText(amount.label)) {
+  if (hasPositiveSupportAmount(amount) || isBenefitBearingSupportLabel(amount.label)) {
     push({
       family: "funding",
       label: "자금",
@@ -165,18 +174,21 @@ export function deriveGrantBenefits(grant: Grant): BenefitBadge[] {
     const text = cleanText(item.text);
     if (!text) continue;
     for (const rule of BENEFIT_RULES) {
-      if (rule.pattern.test(text)) {
+      const pattern = item.source === "title" ? rule.titlePattern : rule.contextPattern;
+      if (pattern.test(text)) {
         push({
           family: rule.family,
           label: rule.label,
           source: item.source,
-          confidence: item.source === "title" ? 0.74 : 0.64,
+          confidence: item.source === "title" ? rule.titleConfidence : CONTEXT_BENEFIT_CONFIDENCE,
         });
       }
     }
   }
 
-  return [...benefits.values()].slice(0, 5);
+  return [...benefits.values()]
+    .sort((a, b) => BENEFIT_FAMILY_RANK[a.family] - BENEFIT_FAMILY_RANK[b.family])
+    .slice(0, MAX_BENEFITS);
 }
 
 export function daysUntil(value: string | null, asOf = new Date()): number | null {
@@ -480,20 +492,8 @@ function summarizeCompanyValue(value: unknown): string | undefined {
   return undefined;
 }
 
-function isSupportAmount(value: Grant["support_amount"]): value is SupportAmount {
-  return Boolean(
-    value &&
-      typeof value === "object" &&
-      "unit" in value &&
-      value.unit === "KRW" &&
-      "per" in value,
-  );
-}
-
-function amountFromRecord(value: Grant["support_amount"]): number | null {
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ["max", "max_krw", "amount", "value"]) {
+function amountFromRecord(record: Record<string, unknown>, keys: readonly string[]): number | null {
+  for (const key of keys) {
     const candidate = record[key];
     if (typeof candidate === "number" && Number.isFinite(candidate)) return candidate;
   }
@@ -508,44 +508,103 @@ function cleanText(value: string | null | undefined): string | null {
 const BENEFIT_RULES: Array<{
   family: BenefitBadge["family"];
   label: string;
-  pattern: RegExp;
+  titlePattern: RegExp;
+  contextPattern: RegExp;
+  titleConfidence: number;
 }> = [
   {
     family: "funding",
     label: "자금",
-    pattern: /지원금|자금|사업화|바우처|보조금|R&D|연구개발|개발비|시제품|비용|쿠폰/i,
+    titlePattern: /지원금|사업화\s*자금|바우처|보조금|R&D|연구개발비?|개발비|시제품\s*(?:제작|개발)\s*지원|쿠폰/i,
+    contextPattern: /지원금|자금|사업화|바우처|보조금|R&D|연구개발|개발비|시제품|비용|쿠폰/i,
+    titleConfidence: 0.86,
   },
   {
     family: "loan",
     label: "융자",
-    pattern: /융자|대출|보증|이자|이차보전/,
+    titlePattern: /융자|대출|(?:신용|기술|정책)?보증|이차보전/,
+    contextPattern: /융자|대출|보증|이자|이차보전/,
+    titleConfidence: 0.9,
   },
   {
     family: "capability",
     label: "역량",
-    pattern: /교육|컨설팅|멘토링|액셀러레이팅|역량|육성|창업교육/,
+    titlePattern: /교육|컨설팅|멘토링|액셀러레이팅|역량\s*강화|창업교육/,
+    contextPattern: /교육|컨설팅|멘토링|액셀러레이팅|역량|육성|창업교육/,
+    titleConfidence: 0.86,
   },
   {
     family: "space",
     label: "공간",
-    pattern: /입주|공간|센터|사무|보육센터/,
+    titlePattern: /입주(?:기업|사|지원|공간|모집)?|(?:창업|업무|사무|보육)\s*공간/,
+    contextPattern: /입주|공간|센터|사무|보육센터/,
+    titleConfidence: 0.86,
   },
   {
     family: "market",
     label: "판로",
-    pattern: /판로|마케팅|홍보|전시|박람회|수출|글로벌|팝업|해외|바이어/,
+    titlePattern: /판로|수출|해외\s*진출|바이어|(?:전시회|박람회)\s*참가|팝업\s*스토어/,
+    contextPattern: /판로|마케팅|홍보|전시|박람회|수출|글로벌|팝업|해외|바이어/,
+    titleConfidence: 0.88,
   },
   {
     family: "certification",
     label: "인증",
-    pattern: /인증|특허|지식재산|IP|시험|검증|인허가/i,
+    titlePattern: /인증|특허|지식재산|\bIP\b|인허가/i,
+    contextPattern: /인증|특허|지식재산|IP|시험|검증|인허가/i,
+    titleConfidence: 0.9,
   },
   {
     family: "network",
     label: "연결",
-    pattern: /네트워크|네트워킹|오픈이노베이션|행사|투자|IR|데모데이|연계|교류|협업/i,
+    titlePattern: /네트워킹|오픈\s*이노베이션|투자\s*유치|IR\s*(?:피칭|데모데이|투자)|데모데이|교류회/i,
+    contextPattern: /네트워크|네트워킹|오픈이노베이션|행사|투자|IR|데모데이|연계|교류|협업/i,
+    titleConfidence: 0.88,
   },
 ];
+
+const STRUCTURED_BENEFIT_DEFAULT_CONFIDENCE = 0.7;
+const CONTEXT_BENEFIT_CONFIDENCE = 0.64;
+const MAX_BENEFITS = 5;
+const BENEFIT_FAMILY_ORDER: BenefitBadge["family"][] = [
+  "funding",
+  "loan",
+  "capability",
+  "space",
+  "market",
+  "certification",
+  "network",
+];
+const BENEFIT_FAMILY_RANK = Object.fromEntries(
+  BENEFIT_FAMILY_ORDER.map((family, index) => [family, index]),
+) as Record<BenefitBadge["family"], number>;
+const BENEFIT_SOURCE_RANK: Record<BenefitBadge["source"], number> = {
+  structured: 0,
+  support_amount: 1,
+  title: 2,
+  category: 3,
+  apply_method: 4,
+};
+const SUPPORT_AMOUNT_BENEFIT_LABEL_PATTERN =
+  /지원금|보조금|바우처|쿠폰|사업화\s*자금|사업비|개발비|연구비|상금|현금|\d[\d,.]*\s*(?:원|만원|천만원|백만원|억원)/i;
+
+function compareBenefitStrength(a: BenefitBadge, b: BenefitBadge): number {
+  const sourceRank = BENEFIT_SOURCE_RANK[a.source] - BENEFIT_SOURCE_RANK[b.source];
+  if (sourceRank !== 0) return sourceRank;
+  const confidenceRank = b.confidence - a.confidence;
+  if (confidenceRank !== 0) return confidenceRank;
+  if (a.label === b.label) return 0;
+  return a.label < b.label ? -1 : 1;
+}
+
+function hasPositiveSupportAmount(amount: SupportAmount): boolean {
+  return (amount.min ?? 0) > 0 || (amount.max ?? 0) > 0;
+}
+
+function isBenefitBearingSupportLabel(label: string | null | undefined): boolean {
+  const text = cleanText(label);
+  return text ? SUPPORT_AMOUNT_BENEFIT_LABEL_PATTERN.test(text) : false;
+}
 
 function parseDate(value: string): Date | null {
   const parts = value.split("-").map((part) => Number(part));
