@@ -50,7 +50,13 @@ import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { annotateMatchCardWriteSupport } from "./matches/annotateWriteSupport";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
 import { notifyPopbillFailure } from "./adminNotifications";
+import { getConsentStore } from "./consents/consentStore";
 import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
+import {
+  resolveProductCompanyProfile as resolveProductCompanyProfileWithDependencies,
+  type ResolveProductCompanyProfileInput,
+  type ResolvedProductCompanyProfile,
+} from "./productProfile/resolveProductCompanyProfile";
 import { loadCachedTeaserProfileEnrichment } from "./teaser/cachedProfileEnrichment";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
@@ -1133,6 +1139,28 @@ export function buildCompanyEvidence(input: {
 
 export function getServiceRepositories() {
   return repositories;
+}
+
+export async function resolveProductCompanyProfile(
+  input: ResolveProductCompanyProfileInput,
+): Promise<ResolvedProductCompanyProfile> {
+  return resolveProductCompanyProfileWithDependencies(input, {
+    companies: repositories.companies,
+    enrichmentCache: repositories.enrichmentCache,
+    consents: getConsentStore(),
+    refreshOwnedSource: async (refresh) => {
+      await loadEnvInDevelopment();
+      const popbill = readPopbillEnvConfig();
+      const at = new Date(refresh.asOf);
+      const resolved = await loadPopbillCompanyProfile({
+        bizNo: refresh.bizNo,
+        credentials: popbill.credentials,
+        asOf: at,
+        now: at,
+      });
+      return resolved.profile;
+    },
+  });
 }
 
 async function resolveDashboardCompany(companyId?: string, userId?: string): Promise<CompanyProfile> {
