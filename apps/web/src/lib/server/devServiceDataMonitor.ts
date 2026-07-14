@@ -1,6 +1,10 @@
+import { createHash } from "node:crypto";
 import { maskCorpNum } from "@cunote/core";
 import {
+  activeUnknownQuestionDimensions,
+  canonicalizeGrantCriteria,
   classifyEvidenceSourceKind,
+  countByEligibility,
   defaultAxisCompleteness,
   buildCompanyProfileFromCodef,
   checkFscCorpFinance,
@@ -11,17 +15,25 @@ import {
   checkStartupConfirmation,
   checkNiceCorpCredit,
   checkNiceCorpIndicator,
+  DISQUALIFICATION_FLAGS,
   DISQUALIFICATION_EXCEPTION_LABELS,
   DISQUALIFICATION_EXCEPTIONS,
   DISQUALIFICATION_FLAG_LABELS,
   DISQUALIFICATION_QUESTIONS,
   EXCEPTION_FLAG_COVERAGE,
+  grantKey,
+  isProfileResolvableCriterion,
   matchRegistry,
+  matchGrantCriteria,
   normalizeCompanyName,
+  planProfileQuestions,
+  PROFILE_FIELD_SPEC_BY_KEY,
   PROCUREMENT_DEBARMENT_SOURCE,
+  questionDefinitionFor,
+  requireProfileFieldKey,
+  resolveGrantExtractionManifest,
 } from "@cunote/core";
 import type {
-  AutofillGrantWeights,
   AxisCompleteness,
   CorporateRegistrationFacts,
   DisqualificationAxis,
@@ -33,11 +45,29 @@ import type {
   EvidenceSourceKind,
   KiprisApplicantMatch,
   KiprisRightsSummary,
+  ProfileFieldKey,
+  ProfileFieldRole,
   StartupConfirmationLookup,
   DartFinancialSnapshot,
+  CompanyProfileFieldUpdate,
+  QuestionDefinitionId,
+  RegistryMatch,
 } from "@cunote/core";
 import { sanitizeCorpNum } from "@cunote/core/popbill/check-biz-info";
-import type { CompanyEvidence, CompanyProfile, CriterionDimension } from "@cunote/contracts";
+import {
+  CRITERION_DIMENSIONS,
+  type CompanyEvidence,
+  type CompanyProfile,
+  type CriterionDimension,
+  type Eligibility,
+  type GrantCriterion,
+  type MatchExtractionReadiness,
+  type MatchRecommendationTier,
+  type MatchReviewReason,
+  type MatchResult,
+  type NextQuestionDto,
+  type NormalizedGrant,
+} from "@cunote/contracts";
 import {
   APICK_BIZ_DETAIL,
   APICK_BIZ_DETAIL_GUARD,
@@ -53,9 +83,36 @@ import {
   applySmppCertificatesToProfile,
   getServiceRepositories,
   loadCompanyProfileFromSourceWithEvidence,
+  loadServiceGrantUniverse,
   ntsClosedLabel,
   ServiceDataError,
 } from "./serviceData";
+import {
+  buildBizAgeProfileUpdates,
+  buildCertificationProfileUpdates,
+  buildDisqualificationProfileUpdates,
+  buildEmployeesProfileUpdates,
+  buildFinancialHealthProfileUpdates,
+  buildDevFinalCompanyProfile,
+  buildFounderAgeProfileUpdates,
+  buildFounderTraitProfileUpdates,
+  buildIndustryProfileUpdates,
+  buildInsuredWorkforceProfileUpdates,
+  buildInvestmentProfileUpdates,
+  buildIpProfileUpdates,
+  buildRegionProfileUpdates,
+  buildRevenueProfileUpdates,
+  buildTargetTypeProfileUpdates,
+  DEV_QNA_DIMENSIONS,
+  type DevFinancialHealthValue,
+  type DevInvestmentValue,
+  type DevQnaDimension,
+  type DevServiceDataNormalizationFailure,
+  type DevServiceDataProfileMetadata,
+  type DevServiceDataProfileNormalization,
+  type DevFinalCompanyProfileResult,
+} from "./devServiceDataProfile";
+import { getRepositoryAdapterName } from "./repositories/factory";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 개발 전용 사업자 데이터 모니터. 실제 조회 파이프라인(팝빌·국세청·공공구매종합정보망)과 Apick을
@@ -181,8 +238,130 @@ export interface ConnectorResult {
   asOf?: string | null;
   /** present-only/fuzzy 등으로 부모축 전체를 판정할 수 없으면 partial. */
   axisCompleteness?: AxisCompleteness;
+  /** 표시값과 함께 matcher 경계 검증을 통과한 canonical update. */
+  profileUpdates?: CompanyProfileFieldUpdate[];
+  /** provider/API 성공 의미를 바꾸지 않는 typed 변환 실패 진단. */
+  normalizationFailure?: DevServiceDataNormalizationFailure;
+  /** partial empty/no-update까지 포함한 typed normalizer 실행 영수증. */
+  profileNormalization?: "normalized" | "failed";
   /** 라이브 행에 표시할 부가 표식(예: "NICE 데모앱(무계약)"). buildFieldCoverage 가 row.note 로 옮긴다. */
   note?: string | null;
+}
+
+export function attachConnectorProfileNormalization(
+  result: ConnectorResult,
+  normalization: DevServiceDataProfileNormalization,
+): ConnectorResult {
+  if (!normalization.ok) {
+    return {
+      ...result,
+      normalizationFailure: normalization.failure,
+      profileNormalization: "failed",
+    };
+  }
+  if (normalization.profileUpdates.length === 0) {
+    return { ...result, profileNormalization: "normalized" };
+  }
+  return {
+    ...result,
+    profileUpdates: normalization.profileUpdates,
+    profileNormalization: "normalized",
+  };
+}
+
+function profileMetadata(
+  result: ConnectorResult,
+  provider: string,
+  fallbackCompleteness: "partial" | "complete",
+): DevServiceDataProfileMetadata {
+  return {
+    sourceKind: result.sourceKind ?? "authoritative_api",
+    provider,
+    asOf: result.asOf ?? null,
+    confidence: result.confidence ?? null,
+    axisCompleteness:
+      result.axisCompleteness === "partial" || result.axisCompleteness === "complete"
+        ? result.axisCompleteness
+        : fallbackCompleteness,
+  };
+}
+
+function withRevenueProfileUpdate(
+  result: ConnectorResult,
+  revenueWon: unknown,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildRevenueProfileUpdates(revenueWon, profileMetadata(result, provider, "complete")),
+  );
+}
+
+function withEmployeesProfileUpdate(
+  result: ConnectorResult,
+  employees: unknown,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildEmployeesProfileUpdates(employees, profileMetadata(result, provider, "complete")),
+  );
+}
+
+function withFinancialHealthProfileUpdate(
+  result: ConnectorResult,
+  value: DevFinancialHealthValue,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildFinancialHealthProfileUpdates(value, profileMetadata(result, provider, "partial")),
+  );
+}
+
+function withDisqualificationProfileUpdate(
+  result: ConnectorResult,
+  field: "tax_compliance" | "credit_status" | "sanction",
+  value: unknown,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildDisqualificationProfileUpdates(field, value, profileMetadata(result, provider, "partial")),
+  );
+}
+
+function withInvestmentProfileUpdate(
+  result: ConnectorResult,
+  value: DevInvestmentValue,
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildInvestmentProfileUpdates(value, profileMetadata(result, provider, "partial")),
+  );
+}
+
+function withCertificationProfileUpdates(
+  result: ConnectorResult,
+  certifications: readonly unknown[],
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildCertificationProfileUpdates(certifications, profileMetadata(result, provider, "partial")),
+  );
+}
+
+function withInsuredWorkforceProfileUpdates(
+  result: ConnectorResult,
+  value: Parameters<typeof buildInsuredWorkforceProfileUpdates>[0],
+  provider: string,
+): ConnectorResult {
+  return attachConnectorProfileNormalization(
+    result,
+    buildInsuredWorkforceProfileUpdates(value, profileMetadata(result, provider, "partial")),
+  );
 }
 
 export interface FieldCoverageRow {
@@ -242,6 +421,7 @@ export interface QnaExceptionSchema {
   flags: DisqualificationFlag[];
 }
 export interface QnaSchema {
+  definitionIds: Record<DevQnaDimension, QuestionDefinitionId>;
   disqualification: QnaAxisSchema[];
   exceptions: QnaExceptionSchema[];
 }
@@ -256,10 +436,989 @@ export interface ServiceDataLookupResult {
   fields: ServiceDataField[];
   /** 22축 + 하위 플래그 커버리지(라이브/pending/n-a 상태). Q&A 는 클라이언트가 오버레이. */
   coverage: FieldCoverageRow[];
-  /** 현재 활성·검수 공고 criterion 빈도로 만든 19축 가중치. 불러오지 못하면 null. */
-  coverageGrantWeights: AutofillGrantWeights | null;
+  /** G2B dev 경계: connector 표시 결과와 별도로 matcher 입력 가능한 typed update를 노출한다. */
+  connectorProfileUpdates: CompanyProfileFieldUpdate[];
+  connectorNormalizationFailures: DevServiceDataNormalizationFailure[];
+  connectorProfileAudit: ConnectorProfileUpdateAudit;
+  /** G3 dev-memory-only connector merge preview/proof. product_consumed stays pending. */
+  profileMerge: DevFinalCompanyProfileResult;
+  /** G5 field-role sections and full-universe aggregate proof. */
+  sections: DevServiceDataMonitorSections;
   trace: ServiceDataTraceEntry[];
   error?: ServiceDataLookupError;
+}
+
+export interface ConnectorProfileUpdateAudit {
+  valueProducingKeys: string[];
+  typedDimensions: CriterionDimension[];
+  sourcedDimensions: CriterionDimension[];
+  normalizedDimensions: CriterionDimension[];
+  missingTypedUpdateKeys: string[];
+}
+
+export type DevShadowMatchProductState =
+  | "지원 가능성이 높음"
+  | "정보 확인"
+  | "원문 확인"
+  | "지원 어려움";
+
+export type DevShadowMatchGrantUnreadyReasonCode =
+  | "extraction_not_reviewed"
+  | "text_only_criterion_present"
+  | "criterion_review_required"
+  | "hard_criterion_evidence_missing"
+  | "reserved_dimension"
+  | "criterion_not_profile_resolvable"
+  | "criterion_mapping_missing";
+
+export interface DevShadowMatchGrantUnreadyReason {
+  code: DevShadowMatchGrantUnreadyReasonCode;
+  dimension?: CriterionDimension;
+}
+
+export interface DevShadowMatchCounts {
+  engine: Record<Eligibility, number>;
+  product: Record<DevShadowMatchProductState, number>;
+}
+
+export interface DevShadowMatchUnknownCauseSummary {
+  profile_missing: {
+    total: number;
+    byDimension: Array<{ dimension: CriterionDimension; count: number }>;
+  };
+  grant_unready: {
+    total: number;
+    byDimension: Array<{ dimension: CriterionDimension; count: number }>;
+  };
+}
+
+export interface DevShadowMatchDimensionDelta {
+  dimension: CriterionDimension;
+  before: { profile_missing: number; grant_unready: number };
+  after: { profile_missing: number; grant_unready: number };
+  profileMissingReduction: number;
+  grantUnreadyReduction: number;
+  /** Matching actually became less unknown for this profile dimension. */
+  reduced: boolean;
+  /** Every prior profile_missing occurrence for this dimension was resolved. */
+  completed: boolean;
+}
+
+export interface DevShadowMatchGrantState {
+  eligibility: Eligibility;
+  recommendationTier: MatchRecommendationTier;
+  extractionReadiness: MatchExtractionReadiness;
+  productState: DevShadowMatchProductState;
+  profileMissingDimensions: CriterionDimension[];
+  grantUnreadyDimensions: CriterionDimension[];
+  /** Concise extraction/criterion reasons that keep the product state fail-closed. */
+  grantUnreadyReasons: DevShadowMatchGrantUnreadyReason[];
+  /** Matcher review-gate diagnostics, including reviewed high-risk pass reasons. */
+  reviewGateReasons: Array<Omit<MatchReviewReason, "sourceSpan">>;
+}
+
+export interface DevShadowMatchDetail {
+  grantId: string;
+  revision: string;
+  before: DevShadowMatchGrantState;
+  after: DevShadowMatchGrantState;
+}
+
+export interface DevServiceDataShadowMatchResult {
+  schemaVersion: "dev-service-data-shadow-match-v1";
+  asOf: string;
+  universeSize: number;
+  returnedCount: number;
+  detailLimit: number;
+  /** Stable hash of sorted grant ids plus matching-relevant review state; raw payload is never included. */
+  universeRevisionSignature: string;
+  counts: {
+    before: DevShadowMatchCounts;
+    after: DevShadowMatchCounts;
+  };
+  unknownCauses: {
+    before: DevShadowMatchUnknownCauseSummary;
+    after: DevShadowMatchUnknownCauseSummary;
+  };
+  unknownReductionByDimension: DevShadowMatchDimensionDelta[];
+  nextQuestion: NextQuestionDto | null;
+  details: DevShadowMatchDetail[];
+}
+
+export interface DevCoverageRatio {
+  numerator: number;
+  denominator: number;
+  ratio: number;
+}
+
+export interface DevSourcingCoverage {
+  denominator: number;
+  sourced: DevCoverageRatio;
+  answered: DevCoverageRatio;
+  sourceBreakdown: Array<{
+    sourceKind: EvidenceSourceKind | "unknown";
+    count: number;
+  }>;
+}
+
+export interface DevCanonicalMatchReadyCoverage {
+  reviewed: {
+    before: DevCoverageRatio;
+    after: DevCoverageRatio;
+  };
+  pending: {
+    before: DevCoverageRatio;
+    after: DevCoverageRatio;
+  };
+}
+
+export interface DevGrantExtractionReadiness {
+  universeSize: number;
+  reviewed: DevCoverageRatio;
+  pending: DevCoverageRatio;
+  byReadiness: Record<MatchExtractionReadiness, number>;
+}
+
+export interface DevEndToEndDecidability {
+  before: DevCoverageRatio & { high: number; difficult: number };
+  after: DevCoverageRatio & { high: number; difficult: number };
+}
+
+export interface DevDimensionDemandWeights {
+  reviewed: Partial<Record<CriterionDimension, number>>;
+  pending: Partial<Record<CriterionDimension, number>>;
+  reviewedPairs: number;
+  pendingPairs: number;
+}
+
+export interface DevUnavailableReason {
+  code: string;
+  message: string;
+}
+
+export type DevMetricState<T> =
+  | { availability: "available"; value: T }
+  | { availability: "unavailable"; reason: DevUnavailableReason };
+
+export interface DevServiceDataMonitorAnalysis {
+  schemaVersion: "dev-service-data-monitor-g5-v1";
+  asOf: string;
+  metrics: {
+    sourcing_coverage: DevMetricState<DevSourcingCoverage>;
+    canonical_match_ready_coverage: DevMetricState<DevCanonicalMatchReadyCoverage>;
+    grant_extraction_readiness: DevMetricState<DevGrantExtractionReadiness>;
+    end_to_end_decidability: DevMetricState<DevEndToEndDecidability>;
+  };
+  dimensionDemandWeights: DevMetricState<DevDimensionDemandWeights>;
+  shadowMatch: DevMetricState<DevServiceDataShadowMatchResult>;
+}
+
+export type DevServiceDataSectionKey =
+  | "identity_prerequisite"
+  | "eligibility_19_axes"
+  | "reserved_axes"
+  | "supporting_derivation"
+  | "ranking_goals"
+  | "final_typed_profile"
+  | "shadow_match_and_unknown_causes";
+
+export interface DevServiceDataSectionRow {
+  key: string;
+  label: string;
+  role: ProfileFieldRole;
+  dimension: CriterionDimension | null;
+  includedInEligibilityDenominator: boolean;
+  value: string | null;
+  state: "known" | "unknown" | "reserved";
+  sourceKind: EvidenceSourceKind | null;
+}
+
+export interface DevServiceDataMonitorSections {
+  identity_prerequisite: DevServiceDataSectionRow[];
+  eligibility_19_axes: DevServiceDataSectionRow[];
+  reserved_axes: DevServiceDataSectionRow[];
+  supporting_derivation: DevServiceDataSectionRow[];
+  ranking_goals: DevServiceDataSectionRow[];
+  final_typed_profile: DevFinalCompanyProfileResult;
+  shadow_match_and_unknown_causes: DevServiceDataMonitorAnalysis;
+}
+
+export interface BuildDevServiceDataShadowMatchInput<TPayload = unknown> {
+  baseProfile: CompanyProfile;
+  finalProfile: CompanyProfile;
+  grants: Array<NormalizedGrant<TPayload>>;
+  /** Explicit replay time; never replaced with Date.now() inside the evaluator. */
+  asOf: Date;
+  detailLimit?: number;
+}
+
+export interface BuildDevServiceDataMonitorAnalysisInput<TPayload = unknown>
+  extends BuildDevServiceDataShadowMatchInput<TPayload> {
+  profileMerge: DevFinalCompanyProfileResult;
+}
+
+export interface LoadDevServiceDataMonitorAnalysisInput
+  extends Omit<LoadDevServiceDataShadowMatchInput, "scanLimit"> {
+  profileMerge: DevFinalCompanyProfileResult;
+  scanLimit?: number;
+}
+
+export interface LoadDevServiceDataShadowMatchInput {
+  baseProfile: CompanyProfile;
+  finalProfile: CompanyProfile;
+  /** Explicit replay time shared by universe loading, matching, ranking, and question planning. */
+  asOf: Date;
+  detailLimit?: number;
+  scanLimit?: number;
+}
+
+export interface DevServiceDataShadowMatchDependencies {
+  /** The only external port: confirmed-deduped active grants. No write dependency exists. */
+  loadGrantUniverse?: (input: {
+    asOf: Date;
+    scanLimit?: number;
+  }) => Promise<Array<NormalizedGrant<unknown>>>;
+}
+
+const DEFAULT_DEV_SHADOW_DETAIL_LIMIT = 50;
+const MAX_DEV_SHADOW_DETAIL_LIMIT = 200;
+const RESERVED_QUESTION_DIMENSIONS = new Set<CriterionDimension>([
+  "premises",
+  "export_performance",
+  "other",
+]);
+
+interface EvaluatedShadowGrant<TPayload> {
+  item: NormalizedGrant<TPayload>;
+  grantId: string;
+  revision: string;
+  before: MatchResult;
+  after: MatchResult;
+  beforeState: DevShadowMatchGrantState;
+  afterState: DevShadowMatchGrantState;
+}
+
+interface ShadowUnknownClassification {
+  grantUnready: boolean;
+  profileMissingDimensions: CriterionDimension[];
+  grantUnreadyDimensions: CriterionDimension[];
+  grantUnreadyReasons: DevShadowMatchGrantUnreadyReason[];
+}
+
+interface DevShadowEvaluation {
+  shadowMatch: DevServiceDataShadowMatchResult;
+  canonicalMatchReadyCoverage: DevCanonicalMatchReadyCoverage;
+  grantExtractionReadiness: DevGrantExtractionReadiness;
+  endToEndDecidability: DevEndToEndDecidability;
+  dimensionDemandWeights: DevDimensionDemandWeights;
+}
+
+/**
+ * Pure G4 evaluator. The deterministic matcher remains the sole eligibility authority;
+ * this function only projects its result into safe product states and diagnostics.
+ */
+export function buildDevServiceDataShadowMatch<TPayload>(
+  input: BuildDevServiceDataShadowMatchInput<TPayload>,
+): DevServiceDataShadowMatchResult {
+  return evaluateDevServiceDataShadowMatch(input).shadowMatch;
+}
+
+/** Build every G5 grant aggregate from the same full-universe G4 matcher pass. */
+export function buildDevServiceDataMonitorAnalysis<TPayload>(
+  input: BuildDevServiceDataMonitorAnalysisInput<TPayload>,
+): DevServiceDataMonitorAnalysis {
+  const evaluation = evaluateDevServiceDataShadowMatch(input);
+  return {
+    schemaVersion: "dev-service-data-monitor-g5-v1",
+    asOf: input.asOf.toISOString(),
+    metrics: {
+      sourcing_coverage: availableMetric(buildSourcingCoverage(input.profileMerge)),
+      canonical_match_ready_coverage: availableMetric(evaluation.canonicalMatchReadyCoverage),
+      grant_extraction_readiness: availableMetric(evaluation.grantExtractionReadiness),
+      end_to_end_decidability: availableMetric(evaluation.endToEndDecidability),
+    },
+    dimensionDemandWeights: availableMetric(evaluation.dimensionDemandWeights),
+    shadowMatch: availableMetric(evaluation.shadowMatch),
+  };
+}
+
+function evaluateDevServiceDataShadowMatch<TPayload>(
+  input: BuildDevServiceDataShadowMatchInput<TPayload>,
+): DevShadowEvaluation {
+  if (Number.isNaN(input.asOf.getTime())) throw new Error("shadow match asOf가 유효하지 않습니다.");
+  const detailLimit = devShadowDetailLimit(input.detailLimit);
+  const asOf = input.asOf.toISOString();
+  const grants = [...input.grants]
+    .map((item) => {
+      const canonicalItem = {
+        ...item,
+        criteria: canonicalizeGrantCriteria(item.criteria),
+      };
+      return {
+        item: canonicalItem,
+        grantId: grantKey(item.grant),
+        manifest: resolveGrantExtractionManifest(item),
+      };
+    })
+    .sort((left, right) =>
+      stableStringCompare(left.grantId, right.grantId) ||
+      stableStringCompare(left.manifest.revision, right.manifest.revision));
+  const evaluated = grants.map<EvaluatedShadowGrant<TPayload>>(({ item, grantId, manifest }) => {
+    const before = matchGrantCriteria(item.criteria, input.baseProfile, {
+      asOf: input.asOf,
+      extractionManifest: manifest,
+    });
+    const after = matchGrantCriteria(item.criteria, input.finalProfile, {
+      asOf: input.asOf,
+      extractionManifest: manifest,
+    });
+    const beforeClassification = classifyShadowUnknowns(item, before);
+    const afterClassification = classifyShadowUnknowns(item, after);
+    return {
+      item,
+      grantId,
+      revision: manifest.revision,
+      before,
+      after,
+      beforeState: shadowGrantState(before, beforeClassification),
+      afterState: shadowGrantState(after, afterClassification),
+    };
+  });
+  const beforeUnknowns = evaluated.map((entry) => entry.beforeState);
+  const afterUnknowns = evaluated.map((entry) => entry.afterState);
+  const beforeUnknownSummary = shadowUnknownCauseSummary(beforeUnknowns);
+  const afterUnknownSummary = shadowUnknownCauseSummary(afterUnknowns);
+  const plannedAfter = planProfileQuestions(
+    evaluated
+      .filter((entry) => entry.after.quality.extractionReadiness === "reviewed")
+      .map((entry) => ({ item: entry.item, match: entry.after })),
+    {
+      asOf: input.asOf,
+      limit: 1,
+      excludeDimensions: uniqueDimensions([
+        ...activeUnknownQuestionDimensions(input.finalProfile, input.asOf),
+        ...RESERVED_QUESTION_DIMENSIONS,
+      ]),
+    },
+  )[0]?.question ?? null;
+  const details = evaluated.slice(0, detailLimit).map<DevShadowMatchDetail>((entry) => ({
+    grantId: entry.grantId,
+    revision: entry.revision,
+    before: entry.beforeState,
+    after: entry.afterState,
+  }));
+
+  const shadowMatch: DevServiceDataShadowMatchResult = {
+    schemaVersion: "dev-service-data-shadow-match-v1",
+    asOf,
+    universeSize: evaluated.length,
+    returnedCount: details.length,
+    detailLimit,
+    universeRevisionSignature: createHash("sha256")
+      .update(JSON.stringify(grants.map(({ item, grantId, manifest }) => [
+        grantId,
+        manifest.revision,
+        manifest.readiness,
+        manifest.reviewedAt ?? null,
+        manifest.extractorVersion,
+        [...manifest.warnings].sort(stableStringCompare),
+        matchingCriteriaSignature(item.criteria),
+      ])))
+      .digest("hex"),
+    counts: {
+      before: shadowMatchCounts(evaluated.map((entry) => entry.before), beforeUnknowns),
+      after: shadowMatchCounts(evaluated.map((entry) => entry.after), afterUnknowns),
+    },
+    unknownCauses: {
+      before: beforeUnknownSummary,
+      after: afterUnknownSummary,
+    },
+    unknownReductionByDimension: CRITERION_DIMENSIONS.map((dimension) => {
+      const beforeProfileMissing = dimensionCauseCount(beforeUnknownSummary.profile_missing.byDimension, dimension);
+      const afterProfileMissing = dimensionCauseCount(afterUnknownSummary.profile_missing.byDimension, dimension);
+      const beforeGrantUnready = dimensionCauseCount(beforeUnknownSummary.grant_unready.byDimension, dimension);
+      const afterGrantUnready = dimensionCauseCount(afterUnknownSummary.grant_unready.byDimension, dimension);
+      return {
+        dimension,
+        before: {
+          profile_missing: beforeProfileMissing,
+          grant_unready: beforeGrantUnready,
+        },
+        after: {
+          profile_missing: afterProfileMissing,
+          grant_unready: afterGrantUnready,
+        },
+        profileMissingReduction: beforeProfileMissing - afterProfileMissing,
+        grantUnreadyReduction: beforeGrantUnready - afterGrantUnready,
+        reduced: beforeProfileMissing > afterProfileMissing,
+        completed: beforeProfileMissing > 0 && afterProfileMissing === 0,
+      };
+    }),
+    nextQuestion: plannedAfter,
+    details,
+  };
+  const grantAggregates = buildGrantUniverseAggregates(evaluated);
+  return {
+    shadowMatch,
+    canonicalMatchReadyCoverage: grantAggregates.canonicalMatchReadyCoverage,
+    grantExtractionReadiness: grantAggregates.grantExtractionReadiness,
+    endToEndDecidability: grantAggregates.endToEndDecidability,
+    dimensionDemandWeights: grantAggregates.dimensionDemandWeights,
+  };
+}
+
+function buildGrantUniverseAggregates<TPayload>(
+  evaluated: Array<EvaluatedShadowGrant<TPayload>>,
+): Omit<DevShadowEvaluation, "shadowMatch"> {
+  const readinessCounts: Record<MatchExtractionReadiness, number> = {
+    reviewed: 0,
+    structured_unreviewed: 0,
+    partial: 0,
+    unstructured: 0,
+  };
+  const reviewed = { before: 0, after: 0, denominator: 0 };
+  const pending = { before: 0, after: 0, denominator: 0 };
+  const reviewedWeights = new Map<CriterionDimension, number>();
+  const pendingWeights = new Map<CriterionDimension, number>();
+
+  for (const entry of evaluated) {
+    const readiness = entry.before.quality.extractionReadiness;
+    readinessCounts[readiness] += 1;
+    const bucket = readiness === "reviewed" ? reviewed : pending;
+    const weightBucket = readiness === "reviewed" ? reviewedWeights : pendingWeights;
+    for (const [dimension, criterionIndexes] of canonicalDemandPairs(entry.item.criteria)) {
+      bucket.denominator += 1;
+      weightBucket.set(dimension, (weightBucket.get(dimension) ?? 0) + 1);
+      if (
+        criterionIndexes.length > 0 &&
+        dimensionActuallyDecidable(entry.before, dimension)
+      ) {
+        bucket.before += 1;
+      }
+      if (
+        criterionIndexes.length > 0 &&
+        dimensionActuallyDecidable(entry.after, dimension)
+      ) {
+        bucket.after += 1;
+      }
+    }
+  }
+
+  const universeSize = evaluated.length;
+  const reviewedCount = readinessCounts.reviewed;
+  const beforeHigh = evaluated.filter((entry) => entry.beforeState.productState === "지원 가능성이 높음").length;
+  const beforeDifficult = evaluated.filter((entry) => entry.beforeState.productState === "지원 어려움").length;
+  const afterHigh = evaluated.filter((entry) => entry.afterState.productState === "지원 가능성이 높음").length;
+  const afterDifficult = evaluated.filter((entry) => entry.afterState.productState === "지원 어려움").length;
+
+  return {
+    canonicalMatchReadyCoverage: {
+      reviewed: {
+        before: coverageRatio(reviewed.before, reviewed.denominator),
+        after: coverageRatio(reviewed.after, reviewed.denominator),
+      },
+      pending: {
+        before: coverageRatio(pending.before, pending.denominator),
+        after: coverageRatio(pending.after, pending.denominator),
+      },
+    },
+    grantExtractionReadiness: {
+      universeSize,
+      reviewed: coverageRatio(reviewedCount, universeSize),
+      pending: coverageRatio(universeSize - reviewedCount, universeSize),
+      byReadiness: readinessCounts,
+    },
+    endToEndDecidability: {
+      before: {
+        ...coverageRatio(beforeHigh + beforeDifficult, universeSize),
+        high: beforeHigh,
+        difficult: beforeDifficult,
+      },
+      after: {
+        ...coverageRatio(afterHigh + afterDifficult, universeSize),
+        high: afterHigh,
+        difficult: afterDifficult,
+      },
+    },
+    dimensionDemandWeights: {
+      reviewed: orderedDimensionWeights(reviewedWeights),
+      pending: orderedDimensionWeights(pendingWeights),
+      reviewedPairs: reviewed.denominator,
+      pendingPairs: pending.denominator,
+    },
+  };
+}
+
+function dimensionActuallyDecidable(match: MatchResult, dimension: CriterionDimension): boolean {
+  return !match.rule_trace.some((trace) =>
+    trace.dimension === dimension &&
+    (trace.kind === "required" || trace.kind === "exclusion") &&
+    trace.result === "unknown");
+}
+
+function canonicalDemandPairs(
+  criteria: readonly GrantCriterion[],
+): Map<CriterionDimension, number[]> {
+  const pairs = new Map<CriterionDimension, number[]>();
+  for (const [index, criterion] of criteria.entries()) {
+    if (criterion.kind !== "required" && criterion.kind !== "exclusion") continue;
+    if (criterion.operator === "text_only" || !isEligibilityDenominatorDimension(criterion.dimension)) continue;
+    if (!isProfileResolvableCriterion(criterion)) continue;
+    const indexes = pairs.get(criterion.dimension) ?? [];
+    indexes.push(index);
+    pairs.set(criterion.dimension, indexes);
+  }
+  return pairs;
+}
+
+function isEligibilityDenominatorDimension(dimension: CriterionDimension): boolean {
+  const spec = PROFILE_FIELD_SPEC_BY_KEY.get(dimension as ProfileFieldKey);
+  return spec?.role === "eligibility" && spec.includedInEligibilityDenominator;
+}
+
+function orderedDimensionWeights(
+  input: ReadonlyMap<CriterionDimension, number>,
+): Partial<Record<CriterionDimension, number>> {
+  return Object.fromEntries(
+    [...PROFILE_FIELD_SPEC_BY_KEY.values()]
+      .filter((entry) => entry.includedInEligibilityDenominator && entry.parentDimension !== null)
+      .flatMap((entry) => {
+        const count = input.get(entry.parentDimension as CriterionDimension) ?? 0;
+        return count > 0 ? [[entry.parentDimension, count] as const] : [];
+      }),
+  );
+}
+
+function buildSourcingCoverage(profileMerge: DevFinalCompanyProfileResult): DevSourcingCoverage {
+  const denominatorFields = [...PROFILE_FIELD_SPEC_BY_KEY.values()]
+    .filter((entry) => entry.includedInEligibilityDenominator && entry.parentDimension !== null);
+  const stateByField = new Map(profileMerge.fieldStates.map((state) => [state.field, state]));
+  const sourceCounts = new Map<EvidenceSourceKind | "unknown", number>();
+  let sourced = 0;
+  let answered = 0;
+  for (const entry of denominatorFields) {
+    const dimension = entry.parentDimension as CriterionDimension;
+    const state = stateByField.get(dimension);
+    if (state?.sourced) {
+      sourced += 1;
+      const sourceKind = profileMerge.profilePreview.profile_evidence?.[dimension]?.sourceKind ?? "unknown";
+      sourceCounts.set(sourceKind, (sourceCounts.get(sourceKind) ?? 0) + 1);
+    }
+    if (state?.normalized) answered += 1;
+  }
+  const sourceOrder: Array<EvidenceSourceKind | "unknown"> = [
+    "authoritative_api",
+    "public_registry",
+    "auth_supplied",
+    "self_declared",
+    "derived",
+    "unknown",
+  ];
+  return {
+    denominator: denominatorFields.length,
+    sourced: coverageRatio(sourced, denominatorFields.length),
+    answered: coverageRatio(answered, denominatorFields.length),
+    sourceBreakdown: sourceOrder.flatMap((sourceKind) => {
+      const count = sourceCounts.get(sourceKind) ?? 0;
+      return count > 0 ? [{ sourceKind, count }] : [];
+    }),
+  };
+}
+
+function coverageRatio(numerator: number, denominator: number): DevCoverageRatio {
+  return {
+    numerator,
+    denominator,
+    ratio: denominator > 0 ? numerator / denominator : 0,
+  };
+}
+
+function availableMetric<T>(value: T): DevMetricState<T> {
+  return { availability: "available", value };
+}
+
+function unavailableMetric<T>(reason: DevUnavailableReason): DevMetricState<T> {
+  return { availability: "unavailable", reason };
+}
+
+/** Load the full active universe through the existing fail-closed scan helper, then evaluate read-only. */
+export async function loadDevServiceDataShadowMatch(
+  input: LoadDevServiceDataShadowMatchInput,
+  dependencies: DevServiceDataShadowMatchDependencies = {},
+): Promise<DevServiceDataShadowMatchResult> {
+  const injectedLoadGrantUniverse = dependencies.loadGrantUniverse;
+  if (!injectedLoadGrantUniverse && getRepositoryAdapterName() !== "drizzle") {
+    throw new ServiceDataError(
+      "shadow_match_universe_unavailable",
+      "shadow match 전수 활성 공고는 drizzle 저장소에서만 불러올 수 있습니다.",
+      503,
+    );
+  }
+  const loadGrantUniverse = injectedLoadGrantUniverse ?? loadServiceGrantUniverse;
+  const grants = await loadGrantUniverse({
+    asOf: input.asOf,
+    ...(input.scanLimit !== undefined ? { scanLimit: input.scanLimit } : {}),
+  });
+  return buildDevServiceDataShadowMatch({
+    baseProfile: input.baseProfile,
+    finalProfile: input.finalProfile,
+    grants,
+    asOf: input.asOf,
+    ...(input.detailLimit !== undefined ? { detailLimit: input.detailLimit } : {}),
+  });
+}
+
+/**
+ * G5 lookup wrapper. Universe failures remain fail-closed for grant-dependent metrics, while
+ * the unrelated provider lookup and sourcing metric stay available to the dev UI.
+ */
+export async function loadDevServiceDataMonitorAnalysis(
+  input: LoadDevServiceDataMonitorAnalysisInput,
+  dependencies: DevServiceDataShadowMatchDependencies = {},
+): Promise<DevServiceDataMonitorAnalysis> {
+  if (Number.isNaN(input.asOf.getTime())) throw new Error("monitor asOf가 유효하지 않습니다.");
+  const sourcing = availableMetric(buildSourcingCoverage(input.profileMerge));
+  let grants: Array<NormalizedGrant<unknown>>;
+  try {
+    const injectedLoadGrantUniverse = dependencies.loadGrantUniverse;
+    if (!injectedLoadGrantUniverse && getRepositoryAdapterName() !== "drizzle") {
+      throw new ServiceDataError(
+        "shadow_match_universe_unavailable",
+        "shadow match 전수 활성 공고는 drizzle 저장소에서만 불러올 수 있습니다.",
+        503,
+      );
+    }
+    const loadGrantUniverse = injectedLoadGrantUniverse ?? loadServiceGrantUniverse;
+    grants = await loadGrantUniverse({
+      asOf: input.asOf,
+      ...(input.scanLimit !== undefined ? { scanLimit: input.scanLimit } : {}),
+    });
+  } catch (error) {
+    const reason = universeUnavailableReason(error) ?? {
+      code: "shadow_match_universe_unavailable",
+      message: "shadow match 전수 활성 공고를 불러오지 못했습니다.",
+    };
+    return {
+      schemaVersion: "dev-service-data-monitor-g5-v1",
+      asOf: input.asOf.toISOString(),
+      metrics: {
+        sourcing_coverage: sourcing,
+        canonical_match_ready_coverage: unavailableMetric(reason),
+        grant_extraction_readiness: unavailableMetric(reason),
+        end_to_end_decidability: unavailableMetric(reason),
+      },
+      dimensionDemandWeights: unavailableMetric(reason),
+      shadowMatch: unavailableMetric(reason),
+    };
+  }
+  return buildDevServiceDataMonitorAnalysis({
+    baseProfile: input.baseProfile,
+    finalProfile: input.finalProfile,
+    profileMerge: input.profileMerge,
+    grants,
+    asOf: input.asOf,
+    ...(input.detailLimit !== undefined ? { detailLimit: input.detailLimit } : {}),
+  });
+}
+
+function universeUnavailableReason(error: unknown): DevUnavailableReason | null {
+  if (error instanceof ServiceDataError && error.status === 503) {
+    return { code: error.code, message: error.message };
+  }
+  if (error instanceof Error) {
+    const candidate = error as Error & { code?: unknown; status?: unknown };
+    if (candidate.status === 503 && typeof candidate.code === "string") {
+      return { code: candidate.code, message: candidate.message };
+    }
+  }
+  return null;
+}
+
+export function buildDevServiceDataMonitorSections(input: {
+  bizNo: string;
+  coverage?: readonly FieldCoverageRow[];
+  profileMerge: DevFinalCompanyProfileResult;
+  monitor: DevServiceDataMonitorAnalysis;
+}): DevServiceDataMonitorSections {
+  const coverageByKey = new Map((input.coverage ?? []).map((row) => [row.key, row]));
+  const profile = input.profileMerge.profilePreview;
+  const rows = [...PROFILE_FIELD_SPEC_BY_KEY.values()].map((entry): DevServiceDataSectionRow => {
+    const coverage = coverageByKey.get(entry.key);
+    const rawValue = explicitSectionValue(entry.key, entry.profileOrUpdatePath, input.bizNo, profile);
+    const value = displaySectionValue(rawValue) ?? coverage?.value ?? null;
+    const sourceKind = entry.parentDimension
+      ? profile.profile_evidence?.[entry.parentDimension]?.sourceKind ?? coverage?.sourceKind ?? null
+      : null;
+    return {
+      key: entry.key,
+      label: coverage?.label ?? entry.key,
+      role: entry.role,
+      dimension: entry.parentDimension,
+      includedInEligibilityDenominator: entry.includedInEligibilityDenominator,
+      value,
+      state: entry.role === "reserved_eligibility" ? "reserved" : value === null ? "unknown" : "known",
+      sourceKind,
+    };
+  });
+  return {
+    identity_prerequisite: rows.filter((row) => row.role === "identity_prerequisite"),
+    eligibility_19_axes: rows.filter((row) => row.includedInEligibilityDenominator),
+    reserved_axes: rows.filter((row) => row.role === "reserved_eligibility"),
+    supporting_derivation: rows.filter((row) =>
+      row.role === "supporting" || row.role === "grant_unstructured"),
+    ranking_goals: rows.filter((row) => row.role === "ranking"),
+    final_typed_profile: input.profileMerge,
+    shadow_match_and_unknown_causes: input.monitor,
+  };
+}
+
+function explicitSectionValue(
+  key: string,
+  profilePath: string,
+  bizNo: string,
+  profile: CompanyProfile,
+): unknown {
+  if (key === "identity.business_number") return maskBizNoSafe(bizNo);
+  // `other` stays an unstructured supporting bucket; nested identity/ranking values must not
+  // make it look like a canonical eligibility answer.
+  if (key === "other") {
+    const excluded = new Set([
+      "apick_corporate_registration_no",
+      "authentication_status",
+      "registry_match_method",
+      "support_goals",
+      "interest_goals",
+    ]);
+    const supportingKeys = Object.keys(profile.other_conditions ?? {}).filter((field) => !excluded.has(field));
+    return supportingKeys.length > 0 ? `비구조화 보조 항목 ${supportingKeys.length}개` : null;
+  }
+  const prefix = "CompanyProfile.";
+  if (!profilePath.startsWith(prefix)) return null;
+  let value: unknown = profile;
+  for (const segment of profilePath.slice(prefix.length).split(".")) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    value = (value as Record<string, unknown>)[segment];
+  }
+  if (key === "identity.corporate_registration_number" && typeof value === "string") {
+    const digits = value.replace(/\D/g, "");
+    return digits.length > 4 ? `${"*".repeat(digits.length - 4)}${digits.slice(-4)}` : value;
+  }
+  return value ?? null;
+}
+
+function displaySectionValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.length > 0 ? value.map(String).join(", ") : null;
+  if (typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>);
+    return entries.length > 0 ? JSON.stringify(stableJsonValue(value)) : null;
+  }
+  return null;
+}
+
+function classifyShadowUnknowns<TPayload>(
+  item: NormalizedGrant<TPayload>,
+  match: MatchResult,
+): ShadowUnknownClassification {
+  const hardUnknowns = match.rule_trace
+    .map((trace, index) => ({ trace, criterion: item.criteria[index] }))
+    .filter(({ trace }) =>
+      trace.result === "unknown" && (trace.kind === "required" || trace.kind === "exclusion"));
+  const readinessUnready = match.quality.extractionReadiness !== "reviewed";
+  const grantUnreadyDimensions = uniqueDimensions(hardUnknowns
+    .filter(({ criterion }) =>
+      readinessUnready || !criterion || !isProfileResolvableCriterion(criterion))
+    .map(({ trace }) => trace.dimension));
+  const profileMissingDimensions = uniqueDimensions(hardUnknowns
+    .filter(({ criterion }) =>
+      !readinessUnready && criterion !== undefined && isProfileResolvableCriterion(criterion))
+    .map(({ trace }) => trace.dimension));
+  const grantUnreadyReasons = shadowGrantUnreadyReasons(
+    item.criteria,
+    match.quality.extractionReadiness,
+    hardUnknowns,
+  );
+  return {
+    grantUnready: grantUnreadyReasons.length > 0 || grantUnreadyDimensions.length > 0,
+    profileMissingDimensions,
+    grantUnreadyDimensions,
+    grantUnreadyReasons,
+  };
+}
+
+function shadowGrantUnreadyReasons(
+  criteria: GrantCriterion[],
+  readiness: MatchExtractionReadiness,
+  hardUnknowns: Array<{
+    trace: MatchResult["rule_trace"][number];
+    criterion: GrantCriterion | undefined;
+  }>,
+): DevShadowMatchGrantUnreadyReason[] {
+  const reasons: DevShadowMatchGrantUnreadyReason[] = [];
+  if (readiness !== "reviewed") reasons.push({ code: "extraction_not_reviewed" });
+  for (const criterion of criteria) {
+    if (criterion.kind !== "required" && criterion.kind !== "exclusion") continue;
+    if (RESERVED_QUESTION_DIMENSIONS.has(criterion.dimension)) {
+      reasons.push({ code: "reserved_dimension", dimension: criterion.dimension });
+    }
+    if (criterion.operator === "text_only") {
+      reasons.push({ code: "text_only_criterion_present", dimension: criterion.dimension });
+    }
+    if (criterion.needs_review === true) {
+      reasons.push({ code: "criterion_review_required", dimension: criterion.dimension });
+    }
+    if (!criterion.source_span?.trim() && !criterion.source_field?.trim()) {
+      reasons.push({ code: "hard_criterion_evidence_missing", dimension: criterion.dimension });
+    }
+  }
+  for (const { trace, criterion } of hardUnknowns) {
+    if (!criterion) {
+      reasons.push({ code: "criterion_mapping_missing", dimension: trace.dimension });
+      continue;
+    }
+    if (!isProfileResolvableCriterion(criterion) && !hasSpecificGrantUnreadyReason(criterion)) {
+      reasons.push({ code: "criterion_not_profile_resolvable", dimension: trace.dimension });
+    }
+  }
+  const uniqueReasons = new Map<string, DevShadowMatchGrantUnreadyReason>();
+  for (const reason of reasons) {
+    uniqueReasons.set(`${reason.code}:${reason.dimension ?? ""}`, reason);
+  }
+  return [...uniqueReasons.values()].sort((left, right) =>
+    stableStringCompare(left.code, right.code) ||
+    stableStringCompare(left.dimension ?? "", right.dimension ?? ""));
+}
+
+function shadowGrantState(
+  match: MatchResult,
+  classification: ShadowUnknownClassification,
+): DevShadowMatchGrantState {
+  const recommendationTier = match.review_gate?.tier ?? fallbackShadowRecommendationTier(match);
+  return {
+    eligibility: match.eligibility,
+    recommendationTier,
+    extractionReadiness: match.quality.extractionReadiness,
+    productState: shadowProductState(match, recommendationTier, classification.grantUnready),
+    profileMissingDimensions: classification.profileMissingDimensions,
+    grantUnreadyDimensions: classification.grantUnreadyDimensions,
+    grantUnreadyReasons: classification.grantUnreadyReasons,
+    reviewGateReasons: match.review_gate?.reasons.map(({ sourceSpan: _sourceSpan, ...reason }) => reason) ?? [],
+  };
+}
+
+function shadowProductState(
+  match: MatchResult,
+  tier: MatchRecommendationTier,
+  grantUnready: boolean,
+): DevShadowMatchProductState {
+  if (match.quality.extractionReadiness !== "reviewed") return "원문 확인";
+  if (match.eligibility === "ineligible" || tier === "not_recommended") return "지원 어려움";
+  if (grantUnready || tier === "needs_core_review") return "원문 확인";
+  if (
+    match.eligibility === "eligible" &&
+    tier === "recommendable" &&
+    match.quality.extractionReadiness === "reviewed"
+  ) return "지원 가능성이 높음";
+  if (match.eligibility === "conditional" || tier === "needs_profile_input") return "정보 확인";
+  return "원문 확인";
+}
+
+function fallbackShadowRecommendationTier(match: MatchResult): MatchRecommendationTier {
+  if (match.eligibility === "eligible") return "recommendable";
+  if (match.eligibility === "ineligible") return "not_recommended";
+  return "needs_profile_input";
+}
+
+function shadowMatchCounts(
+  matches: MatchResult[],
+  states: DevShadowMatchGrantState[],
+): DevShadowMatchCounts {
+  const product: Record<DevShadowMatchProductState, number> = {
+    "지원 가능성이 높음": 0,
+    "정보 확인": 0,
+    "원문 확인": 0,
+    "지원 어려움": 0,
+  };
+  for (const state of states) product[state.productState] += 1;
+  return { engine: countByEligibility(matches), product };
+}
+
+function shadowUnknownCauseSummary(
+  states: DevShadowMatchGrantState[],
+): DevShadowMatchUnknownCauseSummary {
+  const profileMissing = dimensionHistogram(states.flatMap((state) => state.profileMissingDimensions));
+  const grantUnready = dimensionHistogram(states.flatMap((state) => state.grantUnreadyDimensions));
+  return {
+    profile_missing: {
+      total: profileMissing.reduce((sum, entry) => sum + entry.count, 0),
+      byDimension: profileMissing,
+    },
+    grant_unready: {
+      total: grantUnready.reduce((sum, entry) => sum + entry.count, 0),
+      byDimension: grantUnready,
+    },
+  };
+}
+
+function dimensionHistogram(dimensions: CriterionDimension[]): Array<{
+  dimension: CriterionDimension;
+  count: number;
+}> {
+  const counts = new Map<CriterionDimension, number>();
+  for (const dimension of dimensions) counts.set(dimension, (counts.get(dimension) ?? 0) + 1);
+  return CRITERION_DIMENSIONS.flatMap((dimension) => {
+    const count = counts.get(dimension) ?? 0;
+    return count > 0 ? [{ dimension, count }] : [];
+  });
+}
+
+function dimensionCauseCount(
+  values: Array<{ dimension: CriterionDimension; count: number }>,
+  dimension: CriterionDimension,
+): number {
+  return values.find((entry) => entry.dimension === dimension)?.count ?? 0;
+}
+
+function uniqueDimensions(values: Iterable<CriterionDimension>): CriterionDimension[] {
+  const included = new Set(values);
+  return CRITERION_DIMENSIONS.filter((dimension) => included.has(dimension));
+}
+
+function stableStringCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function hasSpecificGrantUnreadyReason(criterion: GrantCriterion): boolean {
+  return RESERVED_QUESTION_DIMENSIONS.has(criterion.dimension) ||
+    criterion.operator === "text_only" ||
+    criterion.needs_review === true ||
+    (!criterion.source_span?.trim() && !criterion.source_field?.trim());
+}
+
+function matchingCriteriaSignature(criteria: GrantCriterion[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify(stableJsonValue(criteria)))
+    .digest("hex");
+}
+
+function stableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stableJsonValue);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => stableStringCompare(left, right))
+      .map(([key, entry]) => [key, stableJsonValue(entry)]),
+  );
+}
+
+function devShadowDetailLimit(value: number | undefined): number {
+  const resolved = value ?? DEFAULT_DEV_SHADOW_DETAIL_LIMIT;
+  if (!Number.isInteger(resolved) || resolved < 1 || resolved > MAX_DEV_SHADOW_DETAIL_LIMIT) {
+    throw new Error(`shadow detailLimit은 1..${MAX_DEV_SHADOW_DETAIL_LIMIT} 정수여야 합니다.`);
+  }
+  return resolved;
 }
 
 // 필드 키 → confidence 축 매핑(신뢰도 표시용). corp_name 은 축이 없어 null.
@@ -514,10 +1673,8 @@ async function lookupServiceDataOnce(
   });
 
   const subject = resolveSubjectType(normalized);
-  const [connectorResults, coverageGrantWeights] = await Promise.all([
-    runExternalConnectors({ bizNo: normalized, subject, profile }),
-    loadCoverageGrantWeights(),
-  ]);
+  const monitorAsOf = new Date();
+  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
   const coverage = buildFieldCoverage({
     subject,
     profile,
@@ -525,6 +1682,26 @@ async function lookupServiceDataOnce(
     originBySource: originBySourceFromTrace(trace),
     asOfBySource,
     connectorResults,
+  });
+  const connectorProfile = collectConnectorProfileUpdates(connectorResults);
+  const profileMerge = buildDevFinalCompanyProfile({
+    baseProfile: profile ?? { confidence: {} },
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorSourcedDimensions: connectorProfile.audit.sourcedDimensions,
+    connectorNormalizedDimensions: connectorProfile.audit.normalizedDimensions,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+  });
+  const monitor = await loadDevServiceDataMonitorAnalysis({
+    baseProfile: profile ?? { confidence: {} },
+    finalProfile: profileMerge.profilePreview,
+    profileMerge,
+    asOf: monitorAsOf,
+  });
+  const sections = buildDevServiceDataMonitorSections({
+    bizNo: normalized,
+    coverage,
+    profileMerge,
+    monitor,
   });
 
   return {
@@ -535,7 +1712,11 @@ async function lookupServiceDataOnce(
     evidence,
     fields,
     coverage,
-    coverageGrantWeights,
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+    connectorProfileAudit: connectorProfile.audit,
+    profileMerge,
+    sections,
     trace,
     ...(error ? { error } : {}),
   };
@@ -587,10 +1768,8 @@ async function lookupApickServiceData(
   }));
 
   const subject = resolveSubjectType(normalized);
-  const [connectorResults, coverageGrantWeights] = await Promise.all([
-    runExternalConnectors({ bizNo: normalized, subject, profile }),
-    loadCoverageGrantWeights(),
-  ]);
+  const monitorAsOf = new Date();
+  const connectorResults = await runExternalConnectors({ bizNo: normalized, subject, profile });
   const coverage = buildFieldCoverage({
     subject,
     profile,
@@ -598,6 +1777,26 @@ async function lookupApickServiceData(
     originBySource: originBySourceFromTrace(trace),
     asOfBySource,
     connectorResults,
+  });
+  const connectorProfile = collectConnectorProfileUpdates(connectorResults);
+  const profileMerge = buildDevFinalCompanyProfile({
+    baseProfile: profile ?? { confidence: {} },
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorSourcedDimensions: connectorProfile.audit.sourcedDimensions,
+    connectorNormalizedDimensions: connectorProfile.audit.normalizedDimensions,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+  });
+  const monitor = await loadDevServiceDataMonitorAnalysis({
+    baseProfile: profile ?? { confidence: {} },
+    finalProfile: profileMerge.profilePreview,
+    profileMerge,
+    asOf: monitorAsOf,
+  });
+  const sections = buildDevServiceDataMonitorSections({
+    bizNo: normalized,
+    coverage,
+    profileMerge,
+    monitor,
   });
 
   return {
@@ -608,9 +1807,60 @@ async function lookupApickServiceData(
     evidence,
     fields,
     coverage,
-    coverageGrantWeights,
+    connectorProfileUpdates: connectorProfile.profileUpdates,
+    connectorNormalizationFailures: connectorProfile.normalizationFailures,
+    connectorProfileAudit: connectorProfile.audit,
+    profileMerge,
+    sections,
     trace,
     ...(error ? { error } : {}),
+  };
+}
+
+/** 실제 최종 connector map의 값 생산축마다 typed update가 있는지 dev 응답에 영수증을 남긴다. */
+export function collectConnectorProfileUpdates(results: Map<string, ConnectorResult>): {
+  profileUpdates: CompanyProfileFieldUpdate[];
+  normalizationFailures: DevServiceDataNormalizationFailure[];
+  audit: ConnectorProfileUpdateAudit;
+} {
+  const profileUpdates = [...results.values()]
+    .flatMap((result) => result.profileUpdates ?? [])
+    .sort((a, b) => `${a.field}:${a.provider ?? ""}`.localeCompare(`${b.field}:${b.provider ?? ""}`));
+  const normalizationFailures = [...results.values()]
+    .flatMap((result) => result.normalizationFailure ? [result.normalizationFailure] : [])
+    .sort((a, b) => `${a.field}:${a.message}`.localeCompare(`${b.field}:${b.message}`));
+  const typedDimensions = [...new Set(profileUpdates.map((update) => update.field))];
+  const typed = new Set<CriterionDimension>(typedDimensions);
+  const valueProducingKeys = [...results]
+    .filter(([, result]) => result.ok && typeof result.value === "string" && result.value.trim().length > 0)
+    .map(([key]) => key)
+    .sort();
+  const dimensionByKey = new Map(FIELD_COVERAGE_PLAN.map((entry) => [entry.key, entry.dimension]));
+  const sourcedDimensions = [...new Set(valueProducingKeys.flatMap((key) => {
+    const dimension = dimensionByKey.get(key);
+    return dimension ? [dimension] : [];
+  }))].sort();
+  const normalizedDimensions = [...new Set([...results].flatMap(([key, result]) => {
+    if (result.profileNormalization !== "normalized") return [];
+    const updateDimensions = (result.profileUpdates ?? []).map((update) => update.field);
+    const dimension = dimensionByKey.get(key);
+    return dimension ? [...updateDimensions, dimension] : updateDimensions;
+  }))].sort();
+  const missingTypedUpdateKeys = valueProducingKeys.filter((key) => {
+    if (results.get(key)?.profileNormalization === "normalized") return false;
+    const dimension = dimensionByKey.get(key);
+    return dimension !== null && dimension !== undefined && !typed.has(dimension);
+  });
+  return {
+    profileUpdates,
+    normalizationFailures,
+    audit: {
+      valueProducingKeys,
+      typedDimensions,
+      sourcedDimensions,
+      normalizedDimensions,
+      missingTypedUpdateKeys,
+    },
   };
 }
 
@@ -683,6 +1933,7 @@ const ENV_KIPRIS = ["KIPRIS_SERVICE_KEY"] as const;
 
 interface CoveragePlanEntry {
   key: string;
+  profileFieldKey: ProfileFieldKey;
   parentKey: string | null;
   dimension: CriterionDimension | null;
   flag: DisqualificationFlag | null;
@@ -723,6 +1974,7 @@ function planRow(
     reserved: false,
     selfDeclarable: false,
     ...e,
+    profileFieldKey: e.profileFieldKey ?? requireProfileFieldKey(e.key),
   };
 }
 
@@ -740,6 +1992,7 @@ function flagRow(
 ): CoveragePlanEntry {
   return planRow({
     key: `${parentKey}.${flag}`,
+    profileFieldKey: requireProfileFieldKey(`${parentKey}.flags`),
     parentKey,
     dimension: parentKey,
     flag,
@@ -759,17 +2012,35 @@ const NICE_CORP = { tier: "A" as const, plannedSource: "NICE OCCD03(법인) · �
 const FIELD_COVERAGE_PLAN: readonly CoveragePlanEntry[] = [
   planRow({ key: "region", dimension: "region", label: "소재지", tier: "A", plannedSource: "팝빌 주소", liveKey: "region" }),
   planRow({ key: "biz_age", dimension: "biz_age", label: "업력", tier: "A", plannedSource: "팝빌 개업일", liveKey: "biz_age" }),
+  planRow({ key: "biz_age.is_preliminary", parentKey: "biz_age", dimension: "biz_age", subField: "is_preliminary", label: "예비창업 여부", tier: "B", plannedSource: "별도 시나리오 · 자가신고", selfDeclarable: true }),
   planRow({ key: "industry", dimension: "industry", label: "업종", tier: "A", plannedSource: "팝빌 업태·종목 → KSIC", liveKey: "industry" }),
+  planRow({ key: "industry.industry_codes", parentKey: "industry", dimension: "industry", subField: "industry_codes", label: "KSIC 업종코드", tier: "A", plannedSource: "팝빌 업종코드 canonicalization" }),
+  planRow({ key: "industry.list_completeness", parentKey: "industry", dimension: "industry", subField: "list_completeness", label: "업종 목록 완전성", tier: "A", plannedSource: "typed profile evidence" }),
   planRow({ key: "size", dimension: "size", label: "기업규모", tier: "A", plannedSource: "팝빌 기업규모(근사)", liveKey: "size" }),
   planRow({ key: "revenue", dimension: "revenue", label: "매출액", tier: "A", plannedSource: "금융위 재무 V2(법인) · CODEF(개인) · 자가신고", liveKey: "revenue", envKeys: ENV_FSC, selfDeclarable: true }),
   planRow({ key: "employees", dimension: "employees", label: "상시근로자", tier: "A", plannedSource: "근로복지공단 15059256 · 자가신고", liveKey: "employees", envKeys: ENV_KCOMWEL, selfDeclarable: true }),
   planRow({ key: "founder_age", dimension: "founder_age", label: "대표자 연령", tier: "B", plannedSource: "CODEF 간편인증 · 자가신고", liveKey: "founder_age", envKeys: ENV_CODEF, selfDeclarable: true }),
   planRow({ key: "founder_trait", dimension: "founder_trait", label: "대표자 특성", tier: "A", plannedSource: "SMPP(여성·장애인) · 자가신고(청년·시니어)", derived: "founder_trait", selfDeclarable: true }),
+  planRow({ key: "founder_trait.list_completeness", parentKey: "founder_trait", dimension: "founder_trait", subField: "list_completeness", label: "대표자 특성 목록 완전성", tier: "B", plannedSource: "typed profile evidence" }),
   planRow({ key: "certification", dimension: "certification", label: "보유 인증·확인서", tier: "A", plannedSource: "SMPP + 창업진흥원 exact + 공개명단 배치 · 자가신고", liveKey: "certification", selfDeclarable: true }),
+  planRow({ key: "certification.list_completeness", parentKey: "certification", dimension: "certification", subField: "list_completeness", label: "인증 목록 완전성", tier: "A", plannedSource: "typed profile evidence" }),
   planRow({ key: "prior_award", dimension: "prior_award", label: "수혜 이력", tier: "B", plannedSource: "통합 API 없음 · 자가신고", selfDeclarable: true }),
+  planRow({ key: "prior_award.records", parentKey: "prior_award", dimension: "prior_award", subField: "records", label: "구조화 수혜 이력", tier: "B", plannedSource: "기관·사업명·상태·연도 자가신고", selfDeclarable: true }),
+  planRow({ key: "prior_award.self_flags", parentKey: "prior_award", dimension: "prior_award", subField: "self_flags", label: "동일·유사 지원 범위", tier: "B", plannedSource: "범위별 자가신고", selfDeclarable: true }),
+  planRow({ key: "prior_award.has_incubation_tenancy", parentKey: "prior_award", dimension: "prior_award", subField: "has_incubation_tenancy", label: "타 보육센터 입주", tier: "B", plannedSource: "자가신고", selfDeclarable: true }),
+  planRow({ key: "prior_award.known_programs", parentKey: "prior_award", dimension: "prior_award", subField: "known_programs", label: "확인한 사업 범위", tier: "B", plannedSource: "질의 범위" }),
+  planRow({ key: "prior_award.known_program_types", parentKey: "prior_award", dimension: "prior_award", subField: "known_program_types", label: "확인한 사업유형 범위", tier: "B", plannedSource: "질의 범위" }),
+  planRow({ key: "prior_award.list_completeness", parentKey: "prior_award", dimension: "prior_award", subField: "list_completeness", label: "수혜 목록 완전성", tier: "B", plannedSource: "typed profile evidence" }),
   planRow({ key: "ip", dimension: "ip", label: "지식재산권", tier: "B", plannedSource: "KIPRIS Plus · 자가신고", envKeys: ENV_KIPRIS, selfDeclarable: true }),
+  planRow({ key: "ip.right_kinds", parentKey: "ip", dimension: "ip", subField: "right_kinds", label: "권리 종류", tier: "B", plannedSource: "KIPRIS Plus typed update" }),
+  planRow({ key: "ip.right_statuses", parentKey: "ip", dimension: "ip", subField: "right_statuses", label: "권리 상태", tier: "B", plannedSource: "KIPRIS Plus source detail" }),
+  planRow({ key: "ip.list_completeness", parentKey: "ip", dimension: "ip", subField: "list_completeness", label: "권리 목록 완전성", tier: "B", plannedSource: "typed profile evidence" }),
   planRow({ key: "target_type", dimension: "target_type", label: "대상 유형(법인/개인)", tier: "A", plannedSource: "사업자번호 추론 · 자가신고(예비창업)", derived: "target_type", selfDeclarable: true }),
+  planRow({ key: "target_type.legal_form", parentKey: "target_type", dimension: "target_type", subField: "legal_form", label: "법적 사업자 형태", tier: "A", plannedSource: "사업자등록정보", derived: "target_type" }),
+  planRow({ key: "target_type.applicant_tags", parentKey: "target_type", dimension: "target_type", subField: "applicant_tags", label: "신청 주체 태그", tier: "B", plannedSource: "확인서 · 자가신고", selfDeclarable: true }),
+  planRow({ key: "target_type.list_completeness", parentKey: "target_type", dimension: "target_type", subField: "list_completeness", label: "대상 유형 목록 완전성", tier: "A", plannedSource: "typed profile evidence" }),
   planRow({ key: "business_status", dimension: "business_status", label: "영업상태", tier: "A", plannedSource: "국세청 · 팝빌", liveKey: "business_status" }),
+  planRow({ key: "business_status.active", parentKey: "business_status", dimension: "business_status", subField: "active", label: "영업 중 여부", tier: "A", plannedSource: "국세청 · 팝빌" }),
 
   // ── tax_compliance (납세 결격) ──
   planRow({ key: "tax_compliance", dimension: "tax_compliance", label: "납세 결격", tier: "A", plannedSource: "NICE OCCD03/01(법인) · CODEF(개인) · 자가신고", selfDeclarable: true }),
@@ -804,13 +2075,17 @@ const FIELD_COVERAGE_PLAN: readonly CoveragePlanEntry[] = [
   planRow({ key: "financial_health", dimension: "financial_health", label: "재무건전성", tier: "A", plannedSource: "금융위 재무 V2 · NICE OCOV06(법인)", selfDeclarable: true }),
   planRow({ key: "financial_health.debt_ratio_pct", parentKey: "financial_health", dimension: "financial_health", subField: "debt_ratio_pct", label: "부채비율", tier: "A", plannedSource: "금융위 재무 V2(법인)", envKeys: ENV_FSC, corpOnly: true }),
   planRow({ key: "financial_health.impairment", parentKey: "financial_health", dimension: "financial_health", subField: "impairment", label: "자본잠식", tier: "A", plannedSource: "금융위 재무 V2 파생 · 자가신고", envKeys: ENV_FSC, corpOnly: true, selfDeclarable: true }),
+  planRow({ key: "financial_health.interest_coverage_ratio", parentKey: "financial_health", dimension: "financial_health", subField: "interest_coverage_ratio", label: "이자보상배율", tier: "A", plannedSource: "재무제표 파생 · 자가신고", selfDeclarable: true }),
   planRow({ key: "financial_health.total_assets_krw", parentKey: "financial_health", dimension: "financial_health", subField: "total_assets_krw", label: "자산총계", tier: "A", plannedSource: "금융위 재무 V2(법인)", envKeys: ENV_FSC, corpOnly: true }),
   planRow({ key: "financial_health.equity_krw", parentKey: "financial_health", dimension: "financial_health", subField: "equity_krw", label: "자본총계", tier: "A", plannedSource: "금융위 재무 V2 · 자가신고", envKeys: ENV_FSC, corpOnly: true, selfDeclarable: true }),
+  planRow({ key: "financial_health.capital_krw", parentKey: "financial_health", dimension: "financial_health", subField: "capital_krw", label: "자본금", tier: "A", plannedSource: "재무제표 · 자가신고", selfDeclarable: true }),
+  planRow({ key: "financial_health.fiscal_year", parentKey: "financial_health", dimension: "financial_health", subField: "fiscal_year", label: "재무 기준연도", tier: "A", plannedSource: "재무제표 기준연도" }),
 
   // ── insured_workforce (고용보험 가입) ──
   planRow({ key: "insured_workforce", dimension: "insured_workforce", label: "고용보험 가입", tier: "A", plannedSource: "근로복지공단(성립) · CODEF(피보험자수) · 자가신고", selfDeclarable: true }),
   planRow({ key: "insured_workforce.employment_insurance_active", parentKey: "insured_workforce", dimension: "insured_workforce", subField: "employment_insurance_active", label: "고용보험 성립여부", tier: "A", plannedSource: "근로복지공단 15059256", envKeys: ENV_KCOMWEL }),
   planRow({ key: "insured_workforce.insured_count", parentKey: "insured_workforce", dimension: "insured_workforce", subField: "insured_count", label: "피보험자수", tier: "B", plannedSource: "CODEF 4대보험 명부(인증서)", envKeys: ENV_CODEF }),
+  planRow({ key: "insured_workforce.months_since_last_layoff", parentKey: "insured_workforce", dimension: "insured_workforce", subField: "months_since_last_layoff", label: "최근 감원 경과개월", tier: "B", plannedSource: "자가신고", selfDeclarable: true }),
   planRow({ key: "insured_workforce.no_layoff", parentKey: "insured_workforce", dimension: "insured_workforce", subField: "no_layoff", label: "감원 이력", tier: "B", plannedSource: "소스 없음 · 자가신고", selfDeclarable: true }),
 
   // ── investment (투자 유치) ──
@@ -826,6 +2101,11 @@ const FIELD_COVERAGE_PLAN: readonly CoveragePlanEntry[] = [
   // ── other ──
   planRow({ key: "other", dimension: "other", label: "기타 조건", tier: "B", plannedSource: "Q&A 자유입력", selfDeclarable: true }),
 ];
+
+/** dev 전용 행 메타가 참조하는 core CompanyProfile field key. */
+export function profileFieldKeyForCoverageRow(key: string): ProfileFieldKey | null {
+  return FIELD_COVERAGE_PLAN.find((entry) => entry.key === key)?.profileFieldKey ?? null;
+}
 
 /** 사업자번호 중간 2자리로 법인/개인 추론(81~88=법인격). */
 export function resolveSubjectType(bizNo: string): SubjectType {
@@ -860,23 +2140,6 @@ function asOfBySourceFromTrace(trace: ServiceDataTraceEntry[]): Map<string, stri
     if (asOf && !map.has(entry.provider)) map.set(entry.provider, asOf);
   }
   return map;
-}
-
-/** 활성 공고 중 검수 대기(needs_review)가 아닌 criterion의 dimension 빈도를 집계한다. */
-async function loadCoverageGrantWeights(): Promise<AutofillGrantWeights | null> {
-  try {
-    const grants = await getServiceRepositories().grants.listActiveGrants({ limit: 500, asOf: new Date() });
-    const weights: AutofillGrantWeights = {};
-    for (const grant of grants) {
-      for (const criterion of grant.criteria) {
-        if (criterion.needs_review === true) continue;
-        weights[criterion.dimension] = (weights[criterion.dimension] ?? 0) + 1;
-      }
-    }
-    return Object.keys(weights).length > 0 ? weights : null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -989,7 +2252,7 @@ export function buildFieldCoverage(input: {
     const codefOverride =
       connectorResult?.ok && connectorResult.source === "codef" ? connectorResult : null;
     const external =
-      entry.envKeys || entry.batch
+      entry.envKeys || entry.batch || connectorResult
         ? {
             envPresent: entry.envKeys ? envPresent(entry.envKeys) : false,
             batch: entry.batch,
@@ -1043,6 +2306,8 @@ export function buildFieldCoverage(input: {
       !entry.parentKey &&
       (entry.dimension === "founder_trait" || entry.dimension === "certification") &&
       (source === "smpp" || source === "popbill" || source === "registry");
+    const legalFormOnlyAxis =
+      !entry.parentKey && entry.dimension === "target_type" && source === "derived";
     // CODEF 국세청 확정값이 있으면 라이브키/파생/외부 결과를 덮어 최우선으로 표시한다.
     // 커넥터가 라이브 호출이 아니라 company_enrichment_cache passive 판독이므로 status는 "cache"
     // (인증은 api/dev/codef/* 에서 선행돼 캐시에 남았고, 이 행은 그 캐시를 재사용해 표시한다).
@@ -1101,7 +2366,7 @@ export function buildFieldCoverage(input: {
       asOf: isLive ? asOf : connectorResult?.asOf ?? null,
       axisCompleteness:
         connectorResult?.axisCompleteness ??
-        (positiveOnlyAxis
+        (positiveOnlyAxis || legalFormOnlyAxis
           ? "partial"
           : defaultAxisCompleteness({
               status: effectiveStatus,
@@ -1206,7 +2471,28 @@ export async function runExternalConnectors(input: {
   mergeFscConnectorResults(results, fscResults);
   mergeDartConnectorResults(results, dartResults);
   mergeCertificationConnectorResult(results, startupResults.get("certification"));
+  addListCompletenessDiagnostics(results);
   return results;
+}
+
+export function addListCompletenessDiagnostics(results: Map<string, ConnectorResult>): void {
+  for (const dimension of ["industry", "founder_trait", "certification", "ip", "target_type"] as const) {
+    const parent = results.get(dimension);
+    const update = parent?.profileUpdates?.find((candidate) => candidate.field === dimension);
+    if (!parent?.ok || !update) continue;
+    const completeness = update.mode === "merge" ? "partial" : "complete";
+    results.set(`${dimension}.list_completeness`, {
+      ok: true,
+      ...(parent.origin ? { origin: parent.origin } : {}),
+      value: completeness,
+      confidence: parent.confidence ?? null,
+      ...(parent.source ? { source: parent.source } : {}),
+      ...(parent.sourceKind ? { sourceKind: parent.sourceKind } : {}),
+      asOf: parent.asOf ?? null,
+      axisCompleteness: completeness,
+      note: parent.note ?? null,
+    });
+  }
 }
 
 function mergeNiceAndCodefConnectorResults(
@@ -1251,7 +2537,7 @@ async function resolveDartBridgeForFinance(input: {
 }
 
 /** 표시값 우선순위: 재무 CODEF > DART > 금융위 > NICE, 직원 근로복지공단 > DART. */
-function mergeDartConnectorResults(
+export function mergeDartConnectorResults(
   results: Map<string, ConnectorResult>,
   dartResults: Map<string, ConnectorResult>,
 ): void {
@@ -1263,8 +2549,35 @@ function mergeDartConnectorResults(
     }
     if (existing.source === "codef") continue;
     if (key === "employees" && existing.source === "kcomwel" && existing.ok) continue;
+    if (
+      key === "financial_health.impairment" &&
+      existing.source === "fsc" &&
+      existing.ok &&
+      hasFinancialImpairment(results.get("financial_health"), "fsc")
+    ) continue;
+    if (key === "financial_health" && existing.source === "fsc" && existing.ok && incoming.ok) {
+      const profileUpdates = [
+        ...(existing.profileUpdates ?? []),
+        ...(incoming.profileUpdates ?? []),
+      ].sort((a, b) => `${a.provider ?? ""}:${a.asOf ?? ""}`.localeCompare(`${b.provider ?? ""}:${b.asOf ?? ""}`));
+      results.set(key, {
+        ...existing,
+        ...(profileUpdates.length > 0 ? { profileUpdates } : {}),
+        ...(existing.normalizationFailure || incoming.normalizationFailure
+          ? { normalizationFailure: existing.normalizationFailure ?? incoming.normalizationFailure }
+          : {}),
+      });
+      continue;
+    }
     if (incoming.ok || !existing.ok) results.set(key, incoming);
   }
+}
+
+function hasFinancialImpairment(result: ConnectorResult | undefined, provider: string): boolean {
+  return result?.profileUpdates?.some((update) => {
+    if (update.field !== "financial_health" || update.provider !== provider) return false;
+    return typeof update.value === "object" && update.value !== null && "impairment" in update.value;
+  }) ?? false;
 }
 
 function mergeFscConnectorResults(
@@ -1363,13 +2676,14 @@ function startupConfirmationResult(
     axisCompleteness: "partial" as const,
   };
   if (lookup.state === "active" && record) {
-    return {
+    const result: ConnectorResult = {
       ok: true,
       ...meta,
       value: `창업기업확인서 (유효 ~${formatDateKey(record.expiresOn)})`,
       confidence: 0.95,
       note: "창업진흥원 사업자번호 exact",
     };
+    return withCertificationProfileUpdates(result, ["창업기업확인서"], "startup_confirmation");
   }
   if (lookup.state === "expired" && record) {
     return { ok: false, empty: true, ...meta, reason: `창업기업확인서 만료 (${formatDateKey(record.expiresOn)})` };
@@ -1410,7 +2724,7 @@ function readStartupConfirmationCache(
   };
 }
 
-function mergeCertificationConnectorResult(
+export function mergeCertificationConnectorResult(
   results: Map<string, ConnectorResult>,
   startup: ConnectorResult | undefined,
 ): void {
@@ -1421,10 +2735,17 @@ function mergeCertificationConnectorResult(
     return;
   }
   if (!startup.ok || !startup.value) return;
+  const profileUpdates = [
+    ...(existing.profileUpdates ?? []),
+    ...(startup.profileUpdates ?? []),
+  ];
+  const normalizationFailure = startup.normalizationFailure ?? existing.normalizationFailure;
   results.set("certification", {
     ...startup,
     value: mergeCertLabels(existing.value ?? null, startup.value),
     confidence: Math.max(existing.confidence ?? 0, startup.confidence ?? 0),
+    ...(profileUpdates.length > 0 ? { profileUpdates } : {}),
+    ...(normalizationFailure ? { normalizationFailure } : {}),
   });
 }
 
@@ -1462,7 +2783,13 @@ async function runKiprisConnector(
   }).catch(() => null);
   const cachedPayload = readKiprisCachePayload(cached?.canonicalPayload);
   if (cached && cachedPayload) {
-    results.set("ip", kiprisConnectorResult(cachedPayload.match, cachedPayload.rights, "cache", cacheEntryAsOf(cached)));
+    setKiprisConnectorResults(
+      results,
+      cachedPayload.match,
+      cachedPayload.rights,
+      "cache",
+      cacheEntryAsOf(cached),
+    );
     return;
   }
 
@@ -1493,7 +2820,7 @@ async function runKiprisConnector(
       fetchedAt: checkedAt,
       expiresAt: new Date(checkedAt.getTime() + KIPRIS_CACHE_TTL_MS),
     }).catch(() => null);
-    results.set("ip", kiprisConnectorResult(match, rights, "live", checkedAt.toISOString()));
+    setKiprisConnectorResults(results, match, rights, "live", checkedAt.toISOString());
   } catch (error) {
     results.set("ip", {
       ok: false,
@@ -1503,6 +2830,59 @@ async function runKiprisConnector(
       asOf: now.toISOString(),
     });
   }
+}
+
+export function setKiprisConnectorResults(
+  results: Map<string, ConnectorResult>,
+  match: KiprisApplicantMatch | null,
+  rights: KiprisRightsSummary | null,
+  origin: ServiceDataTraceOrigin,
+  asOf: string | null,
+): void {
+  const parent = kiprisConnectorResult(match, rights, origin, asOf);
+  results.set("ip", parent);
+  if (!match || !rights) return;
+  const rightKinds = [
+    rights.patentUtility.totalCount > 0 ? "특허·실용신안" : null,
+    rights.design.totalCount > 0 ? "디자인" : null,
+    rights.trademark.totalCount > 0 ? "상표" : null,
+  ].filter((kind): kind is string => kind !== null);
+  if (rightKinds.length > 0) {
+    results.set("ip.right_kinds", {
+      ok: true,
+      origin,
+      value: rightKinds.join(", "),
+      confidence: parent.confidence ?? null,
+      source: "kipris",
+      sourceKind: "authoritative_api",
+      asOf,
+      axisCompleteness: parent.axisCompleteness ?? "partial",
+    });
+  }
+  const summaries = [rights.patentUtility, rights.design, rights.trademark];
+  const statusCounts = {
+    applied: summaries.reduce((sum, summary) => sum + summary.appliedCount, 0),
+    published: summaries.reduce((sum, summary) => sum + summary.publishedCount, 0),
+    registered: summaries.reduce((sum, summary) => sum + summary.registeredCount, 0),
+    extinguished: summaries.reduce((sum, summary) => sum + summary.extinguishedCount, 0),
+  };
+  const statusValue = [
+    `출원 ${statusCounts.applied.toLocaleString("ko-KR")}`,
+    `공개 ${statusCounts.published.toLocaleString("ko-KR")}`,
+    `등록 ${statusCounts.registered.toLocaleString("ko-KR")}`,
+    `소멸 ${statusCounts.extinguished.toLocaleString("ko-KR")}`,
+  ].join(" · ");
+  results.set("ip.right_statuses", {
+    ok: true,
+    origin,
+    value: statusValue,
+    confidence: parent.confidence ?? null,
+    source: "kipris",
+    sourceKind: "authoritative_api",
+    asOf,
+    axisCompleteness: parent.axisCompleteness ?? "partial",
+    note: rights.truncated ? "500건 초과 권리 상태 일부 집계" : null,
+  });
 }
 
 export function coalesceKiprisLookup(
@@ -1540,7 +2920,7 @@ function kiprisConnectorResult(
     const label = (name: string, summary: KiprisRightsSummary["patentUtility"]): string =>
       `${name} ${summary.totalCount.toLocaleString("ko-KR")}건` +
       ` (출원 ${summary.appliedCount.toLocaleString("ko-KR")} · 공개 ${summary.publishedCount.toLocaleString("ko-KR")} · 등록 ${summary.registeredCount.toLocaleString("ko-KR")} · 소멸 ${summary.extinguishedCount.toLocaleString("ko-KR")})`;
-    return {
+    const result: ConnectorResult = {
       ok: true,
       origin,
       value: [
@@ -1552,11 +2932,22 @@ function kiprisConnectorResult(
       source: "kipris",
       sourceKind: "authoritative_api",
       asOf,
+      // 특허고객번호 exact는 개인 명의·다른 출원인번호까지 소진하지 못하고 KIPRIS 종류도
+      // matcher criterion vocabulary와 동일하지 않으므로, 비절단이어도 IP 축 부재를 확정하지 않는다.
       axisCompleteness: "partial",
       note: rights.truncated
         ? `KIPRISPlus 특허고객번호 exact · 전체 ${rights.totalCount.toLocaleString("ko-KR")}건 · 500건 초과 권리 상태 일부 집계`
         : `KIPRISPlus 특허고객번호 exact · 전체 ${rights.totalCount.toLocaleString("ko-KR")}건`,
     };
+    const rightKinds = [
+      rights.patentUtility.totalCount > 0 ? "특허·실용신안" : null,
+      rights.design.totalCount > 0 ? "디자인" : null,
+      rights.trademark.totalCount > 0 ? "상표" : null,
+    ].filter((kind): kind is string => kind !== null);
+    return attachConnectorProfileNormalization(
+      result,
+      buildIpProfileUpdates(rightKinds, profileMetadata(result, "kipris", "partial")),
+    );
   }
   return {
     ok: true,
@@ -1640,71 +3031,151 @@ async function runRegistryConnector(
 
     const candidates = await repo.findCandidates({ bizNo, corpNo, nameNormalized });
     const matches = matchRegistry(candidates, { bizNo, corpNo, name });
-
-    // 1) present_only — active present 매칭만 반영. certification 은 canonical 목록으로 취합.
-    const certLabels: string[] = [];
-    for (const match of matches) {
-      if (!match.active || match.record.polarity !== "present_only") continue;
-      const rec = match.record;
-      if (rec.registryType === "certification") {
-        certLabels.push(rec.flagOrCert);
-        continue;
-      }
-      results.set(`${rec.registryType}.${rec.flagOrCert}`, {
-        ok: true,
-        value: registryPresentValue(rec),
-        confidence: rec.confidence,
-        source: "registry",
-        sourceKind: "public_registry",
-        asOf: rec.sourceFetchedAt.toISOString(),
-        axisCompleteness: "partial",
-        note: registrySourceLabel(rec.source),
-      });
-    }
-    if (certLabels.length > 0) {
-      results.set("certification", {
-        ok: true,
-        value: [...new Set(certLabels)].join(", "),
-        confidence: 0.55, // 공개명단 상호 퍼지
-        source: "registry",
-        sourceKind: "public_registry",
-        axisCompleteness: "partial",
-      });
-    }
-
-    // 2) known_on_absence — 소스 적재 시 부재도 clear 로 확정.
+    const loadedKnownSources = new Set<string>();
     for (const cfg of REGISTRY_KNOWN_ON_ABSENCE) {
-      const loaded = await repo.hasSource(cfg.source);
-      if (!loaded) continue; // 명단 미적재 → pending 유지
-      const hit = matches.find(
-        (m) => m.active && m.record.source === cfg.source && m.record.flagOrCert === cfg.flagOrCert,
-      );
-      if (hit) {
-        const until = hit.record.validUntil;
-        results.set(cfg.fieldKey, {
-          ok: true,
-          value: `참여제한 있음${until ? ` (~${formatIsoDate(until)})` : " (무기한)"}`,
-          confidence: hit.record.confidence,
-          source: "registry",
-          sourceKind: "public_registry",
-          asOf: hit.record.sourceFetchedAt.toISOString(),
-          axisCompleteness: "partial",
-          note: cfg.label,
-        });
-      } else {
-        results.set(cfg.fieldKey, {
-          ok: true,
-          value: "참여제한 없음(부정당 명단 부재)",
-          confidence: 0.9,
-          source: "registry",
-          sourceKind: "public_registry",
-          axisCompleteness: "partial",
-          note: cfg.label,
-        });
-      }
+      if (await repo.hasSource(cfg.source)) loadedKnownSources.add(cfg.source);
     }
+    applyRegistryMatches(results, matches, loadedKnownSources);
   } catch {
     // fail-open — 조회 실패는 무시(pending 유지, 다른 커넥터 보호).
+  }
+}
+
+/** registry DB 조회 뒤 실제 typed 결과를 만드는 순수 경계. */
+export function applyRegistryMatches(
+  results: Map<string, ConnectorResult>,
+  matches: readonly RegistryMatch[],
+  loadedKnownSources: ReadonlySet<string>,
+): void {
+  const sanctionFlags = new Set<DisqualificationFlag>();
+  const sanctionKnownFlags = new Set<DisqualificationFlag>();
+  let sanctionAsOf: string | null = null;
+  let sanctionConfidence = 1;
+  let tipsBacked = false;
+  let investmentAsOf: string | null = null;
+  let investmentConfidence = 1;
+  const certLabels: string[] = [];
+  let certificationAsOf: string | null = null;
+
+  // 1) present_only — active present 매칭만 반영. certification 은 canonical 목록으로 취합.
+  for (const match of matches) {
+    if (!match.active || match.record.polarity !== "present_only") continue;
+    const rec = match.record;
+    if (rec.registryType === "certification") {
+      certLabels.push(rec.flagOrCert);
+      const fetchedAt = rec.sourceFetchedAt.toISOString();
+      if (certificationAsOf === null || fetchedAt > certificationAsOf) certificationAsOf = fetchedAt;
+      continue;
+    }
+    if (
+      rec.registryType === "sanction" &&
+      DISQUALIFICATION_FLAGS.sanction.includes(rec.flagOrCert as DisqualificationFlag)
+    ) {
+      const flag = rec.flagOrCert as DisqualificationFlag;
+      sanctionFlags.add(flag);
+      sanctionKnownFlags.add(flag);
+      sanctionConfidence = Math.min(sanctionConfidence, rec.confidence);
+      const fetchedAt = rec.sourceFetchedAt.toISOString();
+      if (sanctionAsOf === null || fetchedAt > sanctionAsOf) sanctionAsOf = fetchedAt;
+    }
+    if (rec.registryType === "investment" && rec.flagOrCert === "tips_backed") {
+      tipsBacked = true;
+      investmentConfidence = Math.min(investmentConfidence, rec.confidence);
+      const fetchedAt = rec.sourceFetchedAt.toISOString();
+      if (investmentAsOf === null || fetchedAt > investmentAsOf) investmentAsOf = fetchedAt;
+    }
+    results.set(`${rec.registryType}.${rec.flagOrCert}`, {
+      ok: true,
+      value: registryPresentValue(rec),
+      confidence: rec.confidence,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: rec.sourceFetchedAt.toISOString(),
+      axisCompleteness: "partial",
+      note: registrySourceLabel(rec.source),
+    });
+  }
+  if (certLabels.length > 0) {
+    const labels = [...new Set(certLabels)];
+    const result: ConnectorResult = {
+      ok: true,
+      value: labels.join(", "),
+      confidence: 0.55,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: certificationAsOf,
+      axisCompleteness: "partial",
+    };
+    results.set("certification", withCertificationProfileUpdates(result, labels, "registry"));
+  }
+
+  // 2) known_on_absence — 소스 적재 시 부재도 clear 로 확정.
+  for (const cfg of REGISTRY_KNOWN_ON_ABSENCE) {
+    if (!loadedKnownSources.has(cfg.source)) continue;
+    const hit = matches.find(
+      (match) => match.active && match.record.source === cfg.source && match.record.flagOrCert === cfg.flagOrCert,
+    );
+    if (hit) {
+      const until = hit.record.validUntil;
+      results.set(cfg.fieldKey, {
+        ok: true,
+        value: `참여제한 있음${until ? ` (~${formatIsoDate(until)})` : " (무기한)"}`,
+        confidence: hit.record.confidence,
+        source: "registry",
+        sourceKind: "public_registry",
+        asOf: hit.record.sourceFetchedAt.toISOString(),
+        axisCompleteness: "partial",
+        note: cfg.label,
+      });
+      const flag = cfg.flagOrCert as DisqualificationFlag;
+      sanctionFlags.add(flag);
+      sanctionKnownFlags.add(flag);
+      sanctionConfidence = Math.min(sanctionConfidence, hit.record.confidence);
+      const fetchedAt = hit.record.sourceFetchedAt.toISOString();
+      if (sanctionAsOf === null || fetchedAt > sanctionAsOf) sanctionAsOf = fetchedAt;
+    } else {
+      results.set(cfg.fieldKey, {
+        ok: true,
+        value: "참여제한 없음(부정당 명단 부재)",
+        confidence: 0.9,
+        source: "registry",
+        sourceKind: "public_registry",
+        axisCompleteness: "partial",
+        note: cfg.label,
+      });
+      sanctionKnownFlags.add(cfg.flagOrCert as DisqualificationFlag);
+      sanctionConfidence = Math.min(sanctionConfidence, 0.9);
+    }
+  }
+  if (sanctionKnownFlags.size > 0) {
+    const result: ConnectorResult = {
+      ok: true,
+      value: sanctionFlags.size > 0
+        ? [...sanctionFlags].map((flag) => DISQUALIFICATION_FLAG_LABELS[flag]).join(", ")
+        : "조회한 제재 명단 해당 없음",
+      confidence: sanctionConfidence,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: sanctionAsOf,
+      axisCompleteness: "partial",
+    };
+    results.set("sanction", withDisqualificationProfileUpdate(result, "sanction", {
+      flags: [...sanctionFlags],
+      known_flags: [...sanctionKnownFlags],
+      exceptions: [],
+    }, "registry"));
+  }
+  if (tipsBacked) {
+    const result: ConnectorResult = {
+      ok: true,
+      value: "TIPS 선정",
+      confidence: investmentConfidence,
+      source: "registry",
+      sourceKind: "public_registry",
+      asOf: investmentAsOf,
+      axisCompleteness: "partial",
+    };
+    results.set("investment", withInvestmentProfileUpdate(result, { tips_backed: true }, "registry"));
   }
 }
 
@@ -1754,13 +3225,19 @@ async function runKcomwelConnector(
       return;
     }
     if (typeof summary.totalWorkers === "number") {
-      results.set(employeesKey, {
+      const result: ConnectorResult = {
         ok: true,
         value: `${summary.totalWorkers.toLocaleString("ko-KR")}명${summary.siteCount > 1 ? ` (${summary.siteCount}개 사업장)` : ""}`,
         confidence: 0.7,
         source: "kcomwel",
+        sourceKind: "authoritative_api",
         asOf: checkedAt,
-      });
+        axisCompleteness: "complete",
+      };
+      results.set(
+        employeesKey,
+        withEmployeesProfileUpdate(result, summary.totalWorkers, "kcomwel"),
+      );
     } else {
       results.set(employeesKey, {
         ok: false,
@@ -1774,13 +3251,23 @@ async function runKcomwelConnector(
     const seongrip = summary.earliestSeongripDt
       ? `${summary.earliestSeongripDt.slice(0, 4)}-${summary.earliestSeongripDt.slice(4, 6)}-${summary.earliestSeongripDt.slice(6, 8)}`
       : null;
-    results.set(insuredKey, {
+    const insuredResult: ConnectorResult = {
       ok: true,
       value: summary.insuranceActive ? `성립${seongrip ? ` (${seongrip})` : ""}` : "미성립",
       confidence: 0.7,
       source: "kcomwel",
+      sourceKind: "authoritative_api",
       asOf: checkedAt,
-    });
+      axisCompleteness: "partial",
+    };
+    results.set(
+      insuredKey,
+      withInsuredWorkforceProfileUpdates(
+        insuredResult,
+        { employment_insurance_active: summary.insuranceActive },
+        "kcomwel",
+      ),
+    );
   } catch (error) {
     const failed: ConnectorResult = {
       ok: false,
@@ -1796,10 +3283,13 @@ async function runKcomwelConnector(
 
 const FSC_CORP_FIELD_KEYS = [
   "revenue",
+  "financial_health",
   "financial_health.debt_ratio_pct",
   "financial_health.impairment",
   "financial_health.total_assets_krw",
   "financial_health.equity_krw",
+  "financial_health.capital_krw",
+  "financial_health.fiscal_year",
 ] as const;
 
 const DART_OVERLAY_FIELD_KEYS = [
@@ -1842,7 +3332,7 @@ async function runDartOverlayConnector(
   if (lookup.employee) {
     const employee = lookup.employee;
     if (employee.totalEmployees !== null) {
-      results.set("employees", {
+      const result: ConnectorResult = {
         ok: true,
         value: `${employee.totalEmployees.toLocaleString("ko-KR")}명`,
         confidence: 0.85,
@@ -1852,7 +3342,11 @@ async function runDartOverlayConnector(
         asOf: employee.settlementDate,
         axisCompleteness: "complete",
         note: `OpenDART ${lookup.businessYear} ${reportLabel} 직원 현황`,
-      });
+      };
+      results.set(
+        "employees",
+        withEmployeesProfileUpdate(result, employee.totalEmployees, "dart"),
+      );
     } else {
       results.set("employees", dartEmptyResult(`OpenDART ${lookup.businessYear} ${reportLabel} 직원 수 미제공`, employeeOrigin));
     }
@@ -1880,7 +3374,7 @@ function selectDartFinancialSnapshot(financials: DartFinancialSnapshot[]): DartF
     ?? null;
 }
 
-function writeDartFinancialResults(
+export function writeDartFinancialResults(
   results: Map<string, ConnectorResult>,
   snapshot: DartFinancialSnapshot,
   reportLabel: string,
@@ -1900,6 +3394,17 @@ function writeDartFinancialResults(
   setDartNumericField(results, "revenue", snapshot.revenue, common);
   setDartNumericField(results, "financial_health.total_assets_krw", snapshot.totalAssets, common);
   setDartNumericField(results, "financial_health.equity_krw", snapshot.totalEquity, common);
+  results.set("financial_health.capital_krw", {
+    ...common,
+    ok: false,
+    empty: true,
+    reason: "OpenDART 주요계정 자본금 미제공",
+  });
+  results.set("financial_health.fiscal_year", {
+    ...common,
+    ok: true,
+    value: snapshot.businessYear,
+  });
 
   const debtRatio = snapshot.totalLiabilities !== null && snapshot.totalEquity !== null && snapshot.totalEquity !== 0
     ? Math.round((snapshot.totalLiabilities / snapshot.totalEquity) * 1_000) / 10
@@ -1909,7 +3414,33 @@ function writeDartFinancialResults(
     : { ...common, ok: true, value: `${debtRatio.toLocaleString("ko-KR")}%` });
   results.set("financial_health.impairment", snapshot.totalEquity === null
     ? { ...common, ok: false, empty: true, reason: "OpenDART 자본총계 미제공" }
-    : { ...common, ok: true, value: snapshot.totalEquity <= 0 ? "자본잠식" : "정상" });
+    : {
+        ...common,
+        ok: true,
+        value: snapshot.totalEquity <= 0
+          ? "완전자본잠식"
+          : "자본금 미제공 · 부분자본잠식 판정 불가",
+      });
+  const financialResult: ConnectorResult = {
+    ...common,
+    ok: true,
+    value: `${snapshot.businessYear} ${statementLabel}재무 · 자본금 미제공`,
+    axisCompleteness: "partial",
+  };
+  results.set(
+    "financial_health",
+    withFinancialHealthProfileUpdate(
+      financialResult,
+      {
+        ...(debtRatio !== null && debtRatio >= 0 ? { debt_ratio_pct: debtRatio } : {}),
+        ...(snapshot.totalAssets !== null ? { total_assets_krw: snapshot.totalAssets } : {}),
+        ...(snapshot.totalEquity !== null ? { equity_krw: snapshot.totalEquity } : {}),
+        ...(snapshot.totalEquity !== null && snapshot.totalEquity <= 0 ? { impairment: "full" as const } : {}),
+        fiscal_year: snapshot.businessYear,
+      },
+      "dart",
+    ),
+  );
 }
 
 function setDartNumericField(
@@ -1919,9 +3450,12 @@ function setDartNumericField(
   common: Pick<ConnectorResult, "confidence" | "source" | "sourceKind" | "origin" | "asOf" | "axisCompleteness" | "note">,
 ): void {
   const value = formatKrwCompact(amount);
-  results.set(key, value === null
-    ? { ...common, ok: false, empty: true, reason: "OpenDART 값 미제공" }
-    : { ...common, ok: true, value });
+  if (value === null || amount === null) {
+    results.set(key, { ...common, ok: false, empty: true, reason: "OpenDART 값 미제공" });
+    return;
+  }
+  const result: ConnectorResult = { ...common, ok: true, value };
+  results.set(key, key === "revenue" ? withRevenueProfileUpdate(result, amount, "dart") : result);
 }
 
 function dartEmptyResult(reason: string, origin: ServiceDataTraceOrigin): ConnectorResult {
@@ -2000,26 +3534,7 @@ async function runFscCorpFinanceConnector(
       for (const key of FSC_CORP_FIELD_KEYS) results.set(key, empty);
       return;
     }
-    const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
-    const asOf = compactDateToIso(summary.basDt) ?? (summary.bizYear ? `${summary.bizYear}-12-31` : checkedAt);
-    setNumericField(results, "revenue", formatKrwCompact(summary.saleAmt), 0.85, yearTag, asOf);
-    setNumericField(
-      results,
-      "financial_health.debt_ratio_pct",
-      summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
-      0.85,
-      yearTag,
-      asOf,
-    );
-    results.set("financial_health.impairment", {
-      ok: true,
-      value: `${summary.impaired ? "자본잠식" : "정상"}${yearTag}`,
-      confidence: 0.85,
-      source: "fsc",
-      asOf,
-    });
-    setNumericField(results, "financial_health.total_assets_krw", formatKrwCompact(summary.totalAssets), 0.85, yearTag, asOf);
-    setNumericField(results, "financial_health.equity_krw", formatKrwCompact(summary.totalEquity), 0.85, yearTag, asOf);
+    writeFscFinancialResults(results, summary, checkedAt);
     if (dartCorpRegNo) {
       for (const key of FSC_CORP_FIELD_KEYS) {
         const result = results.get(key);
@@ -2040,14 +3555,107 @@ async function runFscCorpFinanceConnector(
   }
 }
 
+/** 금융위 요약 응답에서 표시행과 실제 financial_health typed update를 함께 만드는 순수 경계. */
+export function writeFscFinancialResults(
+  results: Map<string, ConnectorResult>,
+  summary: NonNullable<Awaited<ReturnType<typeof checkFscCorpFinance>>>,
+  checkedAt: string,
+): void {
+  const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
+  const asOf = compactDateToIso(summary.basDt) ?? (summary.bizYear ? `${summary.bizYear}-12-31` : checkedAt);
+  setNumericField(
+    results,
+    "revenue",
+    formatKrwCompact(summary.saleAmt),
+    0.85,
+    yearTag,
+    asOf,
+    summary.saleAmt,
+  );
+  setNumericField(
+    results,
+    "financial_health.debt_ratio_pct",
+    summary.debtRatioPct !== null ? `${summary.debtRatioPct.toLocaleString("ko-KR")}%` : null,
+    0.85,
+    yearTag,
+    asOf,
+  );
+  const impairment = deriveFinancialImpairment(summary.totalEquity, summary.capital);
+  results.set("financial_health.impairment", {
+    ok: true,
+    value: `${impairment === "full"
+      ? "완전자본잠식"
+      : impairment === "partial"
+        ? "부분자본잠식"
+        : impairment === "none"
+          ? "정상"
+          : summary.totalEquity === null
+            ? "자본총계 미제공 · 부분자본잠식 판정 불가"
+            : "자본금 미제공 · 부분자본잠식 판정 불가"}${yearTag}`,
+    confidence: 0.85,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+  });
+  setNumericField(results, "financial_health.total_assets_krw", formatKrwCompact(summary.totalAssets), 0.85, yearTag, asOf);
+  setNumericField(results, "financial_health.equity_krw", formatKrwCompact(summary.totalEquity), 0.85, yearTag, asOf);
+  setNumericField(results, "financial_health.capital_krw", formatKrwCompact(summary.capital), 0.85, yearTag, asOf);
+  results.set("financial_health.fiscal_year", {
+    ok: true,
+    value: summary.bizYear ?? "기준연도 미상",
+    confidence: 0.85,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+    axisCompleteness: "partial",
+  });
+  const financialResult: ConnectorResult = {
+    ok: true,
+    value: `${summary.bizYear ?? "기준연도 미상"} 재무 · ${impairment === null ? "부분잠식 판정 미완료" : "잠식 판정 가능"}`,
+    confidence: 0.85,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+    axisCompleteness: "partial",
+  };
+  results.set(
+    "financial_health",
+    withFinancialHealthProfileUpdate(
+      financialResult,
+      {
+        ...(summary.debtRatioPct !== null && summary.debtRatioPct >= 0
+          ? { debt_ratio_pct: summary.debtRatioPct }
+          : {}),
+        ...(summary.totalAssets !== null ? { total_assets_krw: summary.totalAssets } : {}),
+        ...(summary.totalEquity !== null ? { equity_krw: summary.totalEquity } : {}),
+        ...(summary.capital !== null ? { capital_krw: summary.capital } : {}),
+        ...(impairment !== null ? { impairment } : {}),
+        ...(summary.bizYear ? { fiscal_year: summary.bizYear } : {}),
+      },
+      "fsc",
+    ),
+  );
+}
+
+function deriveFinancialImpairment(
+  equity: number | null,
+  capital: number | null,
+): "none" | "partial" | "full" | null {
+  if (equity === null) return null;
+  if (equity <= 0) return "full";
+  if (capital === null) return null;
+  return equity < capital ? "partial" : "none";
+}
+
 /** 값이 있으면 live, 없으면 empty(failed)로 세팅. */
-function setNumericField(
+export function setNumericField(
   results: Map<string, ConnectorResult>,
   key: string,
   value: string | null,
   confidence: number,
   yearTag: string,
   asOf: string,
+  profileValue?: number | null,
 ): void {
   if (value === null) {
     results.set(key, {
@@ -2060,7 +3668,21 @@ function setNumericField(
     });
     return;
   }
-  results.set(key, { ok: true, value: `${value}${yearTag}`, confidence, source: "fsc", asOf });
+  const result: ConnectorResult = {
+    ok: true,
+    value: `${value}${yearTag}`,
+    confidence,
+    source: "fsc",
+    sourceKind: "authoritative_api",
+    asOf,
+    ...(key === "revenue" ? { axisCompleteness: "complete" as const } : {}),
+  };
+  results.set(
+    key,
+    key === "revenue" && profileValue !== undefined
+      ? withRevenueProfileUpdate(result, profileValue, "fsc")
+      : result,
+  );
 }
 
 function compactDateToIso(value: string | null | undefined): string | null {
@@ -2127,10 +3749,13 @@ const NICE_DEMO_NOTE = "NICE 데모앱(무계약)";
 
 const NICE_INDICATOR_FIELD_KEYS = [
   "revenue",
+  "financial_health",
   "financial_health.total_assets_krw",
   "financial_health.equity_krw",
+  "financial_health.capital_krw",
   "financial_health.debt_ratio_pct",
   "financial_health.impairment",
+  "financial_health.fiscal_year",
 ] as const;
 
 const NICE_NEGATIVE_FIELD_KEYS = [
@@ -2196,7 +3821,7 @@ async function runNiceConnector(
 }
 
 /** OCOV06 요약을 revenue · financial_health.* 로 매핑(금액은 압축 표기, 연도태그·데모표식 부착). */
-function setNiceIndicatorFields(
+export function setNiceIndicatorFields(
   results: Map<string, ConnectorResult>,
   summary: Awaited<ReturnType<typeof checkNiceCorpIndicator>>,
 ): void {
@@ -2207,7 +3832,14 @@ function setNiceIndicatorFields(
   }
   const yearTag = summary.bizYear ? ` (${summary.bizYear})` : "";
   const asOf = summary.bizYear ? `${summary.bizYear}-12-31` : new Date().toISOString();
-  setNiceNumericField(results, "revenue", formatKrwCompact(summary.revenueWon), yearTag, asOf);
+  setNiceNumericField(
+    results,
+    "revenue",
+    formatKrwCompact(summary.revenueWon),
+    yearTag,
+    asOf,
+    summary.revenueWon,
+  );
   setNiceNumericField(
     results,
     "financial_health.total_assets_krw",
@@ -2229,14 +3861,53 @@ function setNiceIndicatorFields(
     yearTag,
     asOf,
   );
+  results.set("financial_health.capital_krw", niceResultMeta({
+    ok: false,
+    empty: true,
+    reason: "NICE OCOV06 자본금 미제공",
+    asOf,
+  }));
+  results.set("financial_health.fiscal_year", niceResultMeta({
+    ok: true,
+    value: summary.bizYear ?? "기준연도 미상",
+    confidence: 0.75,
+    asOf,
+    axisCompleteness: "partial",
+  }));
   results.set("financial_health.impairment", {
     ok: true,
-    value: `${summary.impaired ? "자본잠식" : "정상"}${yearTag}`,
+    value: `${summary.totalEquityWon !== null && summary.totalEquityWon <= 0
+      ? "완전자본잠식"
+      : summary.totalEquityWon === null
+        ? "자본총계 미제공 · 부분자본잠식 판정 불가"
+        : "자본금 미제공 · 부분자본잠식 판정 불가"}${yearTag}`,
     confidence: 0.75,
     source: "nice",
+    sourceKind: "authoritative_api",
     note: NICE_DEMO_NOTE,
     asOf,
   });
+  const financialResult = niceResultMeta({
+    ok: true,
+    value: `${summary.bizYear ?? "기준연도 미상"} 재무 · 자본금 미제공`,
+    confidence: 0.75,
+    asOf,
+    axisCompleteness: "partial",
+  });
+  results.set(
+    "financial_health",
+    withFinancialHealthProfileUpdate(
+      financialResult,
+      {
+        ...(summary.debtRatioPct !== null ? { debt_ratio_pct: summary.debtRatioPct } : {}),
+        ...(summary.totalAssetsWon !== null ? { total_assets_krw: summary.totalAssetsWon } : {}),
+        ...(summary.totalEquityWon !== null ? { equity_krw: summary.totalEquityWon } : {}),
+        ...(summary.totalEquityWon !== null && summary.totalEquityWon <= 0 ? { impairment: "full" as const } : {}),
+        ...(summary.bizYear ? { fiscal_year: summary.bizYear } : {}),
+      },
+      "nice",
+    ),
+  );
 }
 
 /** OCOV06 수치 필드: 값 있으면 live(nice, 0.75, 데모표식), 없으면 empty(failed). */
@@ -2246,19 +3917,24 @@ function setNiceNumericField(
   value: string | null,
   yearTag: string,
   asOf: string,
+  profileValue?: number | null,
 ): void {
   if (value === null) {
     results.set(key, niceResultMeta({ ok: false, empty: true, reason: "값 미제공", asOf }));
     return;
   }
-  results.set(key, {
+  const result = niceResultMeta({
     ok: true,
     value: `${value}${yearTag}`,
     confidence: 0.75,
-    source: "nice",
-    note: NICE_DEMO_NOTE,
     asOf,
   });
+  results.set(
+    key,
+    key === "revenue" && profileValue !== undefined
+      ? withRevenueProfileUpdate(result, profileValue, "nice")
+      : result,
+  );
 }
 
 function niceResultMeta(result: ConnectorResult): ConnectorResult {
@@ -2272,10 +3948,14 @@ function niceResultMeta(result: ConnectorResult): ConnectorResult {
 }
 
 /** OCCD03(신용/납세 결격) · OCCD06(법정관리/워크아웃) 결과를 필드 키로 매핑. */
-function setNiceCreditFields(
+export function setNiceCreditFields(
   results: Map<string, ConnectorResult>,
   credit: Awaited<ReturnType<typeof checkNiceCorpCredit>>,
 ): void {
+  const creditFlags: DisqualificationFlag[] = [];
+  const creditKnown: DisqualificationFlag[] = [];
+  const taxFlags: DisqualificationFlag[] = [];
+  const taxKnown: DisqualificationFlag[] = [];
   // OCCD03 신용도판단정보 → 신용/납세 결격.
   const neg = credit.negative;
   if (!neg.ok || !neg.data) {
@@ -2292,15 +3972,21 @@ function setNiceCreditFields(
     const bbValue = c.bb > 0 ? `채무불이행 ${c.bb}건` : "해당없음";
     results.set("credit_status.credit_delinquency", live(bbValue));
     results.set("credit_status.loan_default", live(bbValue));
+    creditKnown.push("credit_delinquency", "loan_default");
+    if (c.bb > 0) creditFlags.push("credit_delinquency", "loan_default");
     // 금융질서문란(FD).
     results.set(
       "credit_status.financial_misconduct",
       live(c.fd > 0 ? `금융질서문란 ${c.fd}건` : "해당없음"),
     );
-    // 공공정보(PB) — 국세/지방세 미분리 집계라 두 결격에 동일 신호 + 미분리 note.
+    creditKnown.push("financial_misconduct");
+    if (c.fd > 0) creditFlags.push("financial_misconduct");
+    // 공공정보(PB) — 국세/지방세 미분리 집계. 양수는 정확한 flag를 알 수 없어 표시만 남기고
+    // typed known/held 승격을 보류한다. 0건은 둘 다 해당없음이므로 두 flag를 known 처리할 수 있다.
     const pbValue = c.pb > 0 ? `공공정보 ${c.pb}건(국세/지방세 미분리)` : "해당없음";
     results.set("tax_compliance.national_tax_delinquent", live(pbValue));
     results.set("tax_compliance.local_tax_delinquent", live(pbValue));
+    if (c.pb === 0) taxKnown.push("national_tax_delinquent", "local_tax_delinquent");
   }
 
   // OCCD06 법정관리/워크아웃 → rehabilitation_in_progress · court_receivership 동일 신호.
@@ -2314,6 +4000,48 @@ function setNiceCreditFields(
     for (const key of NICE_WORKOUT_FIELD_KEYS) {
       results.set(key, niceResultMeta({ ok: true, value, confidence: 0.7 }));
     }
+    // OCCD06도 회생/법정관리 미분리 집계다. 양수는 표시만 남겨 정확한 flag를 unknown으로
+    // 보존하고, 0건일 때만 두 flag를 known 해당없음으로 확정한다.
+    if (n === 0) creditKnown.push("rehabilitation_in_progress", "court_receivership");
+  }
+
+  if (creditKnown.length > 0) {
+    const result = niceResultMeta({
+      ok: true,
+      value: creditFlags.length > 0
+        ? `신용 결격 ${creditFlags.length}개 신호`
+        : `신용 결격 ${creditKnown.length}개 항목 해당없음`,
+      confidence: 0.7,
+      axisCompleteness: "partial",
+    });
+    results.set(
+      "credit_status",
+      withDisqualificationProfileUpdate(
+        result,
+        "credit_status",
+        { flags: creditFlags, known_flags: creditKnown, exceptions: [] },
+        "nice",
+      ),
+    );
+  }
+  if (taxKnown.length > 0) {
+    const result = niceResultMeta({
+      ok: true,
+      value: taxFlags.length > 0
+        ? "국세/지방세 미분리 공공정보 신호 있음"
+        : "국세/지방세 미분리 공공정보 해당없음",
+      confidence: 0.7,
+      axisCompleteness: "partial",
+    });
+    results.set(
+      "tax_compliance",
+      withDisqualificationProfileUpdate(
+        result,
+        "tax_compliance",
+        { flags: taxFlags, known_flags: taxKnown, exceptions: [] },
+        "nice",
+      ),
+    );
   }
 }
 
@@ -2368,18 +4096,69 @@ async function runCodefConnector(
       gender: identity?.gender ?? null,
     });
 
-    setCodefField(results, "region", profile.region?.label ?? null, 0.95, corpAsOf);
-    setCodefField(results, "biz_age", formatBizAgeMonths(profile.biz_age_months ?? null), 0.95, corpAsOf);
+    setCodefField(results, "region", profile.region?.label ?? null, 0.95, corpAsOf, {
+      normalize: (result) => buildRegionProfileUpdates(
+        profile.region,
+        profileMetadata(result, "codef", "complete"),
+      ),
+    });
+    setCodefField(results, "biz_age", formatBizAgeMonths(profile.biz_age_months ?? null), 0.95, corpAsOf, {
+      normalize: (result) => buildBizAgeProfileUpdates(
+        profile.biz_age_months,
+        profileMetadata(result, "codef", "complete"),
+      ),
+    });
     setCodefField(
       results,
       "industry",
       profile.industries?.length ? profile.industries.join(", ") : null,
       0.95,
       corpAsOf,
+      {
+        axisCompleteness: "partial",
+        normalize: (result) => buildIndustryProfileUpdates({
+          labels: profile.industries ?? [],
+          codes: profile.industry_codes ?? [],
+        }, profileMetadata(result, "codef", "partial")),
+      },
     );
-    setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95, corpAsOf);
+    setCodefField(
+      results,
+      "industry.industry_codes",
+      profile.industry_codes?.length ? profile.industry_codes.join(", ") : null,
+      0.95,
+      corpAsOf,
+      { axisCompleteness: "partial" },
+    );
+    setCodefField(results, "target_type", profile.target_types?.[0] ?? null, 0.95, corpAsOf, {
+      axisCompleteness: "partial",
+      normalize: (result) => buildTargetTypeProfileUpdates(
+        profile.target_types ?? [],
+        profileMetadata(result, "codef", "partial"),
+      ),
+    });
+    setCodefField(
+      results,
+      "target_type.legal_form",
+      profile.target_types?.[0] ?? null,
+      0.95,
+      corpAsOf,
+      { axisCompleteness: "partial" },
+    );
     // 매출은 부가세 신고분(profile.revenue_krw)이 있을 때만.
-    setCodefField(results, "revenue", formatKrwCompact(profile.revenue_krw ?? null), 0.95, vatAsOf);
+    setCodefField(
+      results,
+      "revenue",
+      formatKrwCompact(profile.revenue_krw ?? null),
+      0.95,
+      vatAsOf,
+      {
+        normalize: (result) => buildRevenueProfileUpdates(
+          profile.revenue_krw,
+          profileMetadata(result, "codef", "complete"),
+        ),
+      },
+    );
     // 대표자 연령은 identity 캐시의 founder_age(생년월일 파생 정수)만.
     const founderAge = typeof identity?.founder_age === "number" ? identity.founder_age : null;
     setCodefField(
@@ -2388,11 +4167,24 @@ async function runCodefConnector(
       founderAge !== null ? `${founderAge}세` : null,
       0.9,
       identityAsOf,
-      "auth_supplied",
+      {
+        sourceKind: "auth_supplied",
+        normalize: (result) => buildFounderAgeProfileUpdates(
+          founderAge,
+          profileMetadata(result, "codef", "complete"),
+        ),
+      },
     );
     // 대표자 특성은 identity 캐시의 gender(여성/남성).
     const traitLabel = identity?.gender === "F" ? "여성" : identity?.gender === "M" ? "남성" : null;
-    setCodefField(results, "founder_trait", traitLabel, 0.9, identityAsOf, "auth_supplied");
+    setCodefField(results, "founder_trait", traitLabel, 0.9, identityAsOf, {
+      sourceKind: "auth_supplied",
+      axisCompleteness: "partial",
+      normalize: (result) => buildFounderTraitProfileUpdates(
+        traitLabel ? [traitLabel] : [],
+        profileMetadata(result, "codef", "partial"),
+      ),
+    });
   } catch {
     // fail-open — 캐시 판독 실패는 무시(pending 유지, 다른 커넥터 보호).
   }
@@ -2405,18 +4197,26 @@ function setCodefField(
   value: string | null,
   confidence: number,
   asOf: string | null,
-  sourceKind: EvidenceSourceKind = "authoritative_api",
+  options: {
+    sourceKind?: EvidenceSourceKind;
+    axisCompleteness?: AxisCompleteness;
+    normalize?: (result: ConnectorResult) => DevServiceDataProfileNormalization;
+  } = {},
 ): void {
   if (!value) return;
-  results.set(key, {
+  const result: ConnectorResult = {
     ok: true,
     value,
     confidence,
     source: "codef",
-    sourceKind,
+    sourceKind: options.sourceKind ?? "authoritative_api",
     asOf,
+    axisCompleteness: options.axisCompleteness ?? "complete",
     note: CODEF_CACHE_NOTE,
-  });
+  };
+  results.set(key, options.normalize
+    ? attachConnectorProfileNormalization(result, options.normalize(result))
+    : result);
 }
 
 function cacheEntryAsOf(entry: EnrichmentCacheEntry | undefined): string | null {
@@ -2470,5 +4270,8 @@ export function buildQnaSchema(): QnaSchema {
     label: DISQUALIFICATION_EXCEPTION_LABELS[key],
     flags: [...EXCEPTION_FLAG_COVERAGE[key]],
   }));
-  return { disqualification, exceptions };
+  const definitionIds = Object.fromEntries(
+    DEV_QNA_DIMENSIONS.map((dimension) => [dimension, questionDefinitionFor(dimension).id]),
+  ) as Record<DevQnaDimension, QuestionDefinitionId>;
+  return { definitionIds, disqualification, exceptions };
 }

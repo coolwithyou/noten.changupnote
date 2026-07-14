@@ -49,8 +49,9 @@
 | D5 | **검수는 "AI 사전라벨 + 창업자 단독 사람 reviewer"** (v3-annotations의 AI 차단은 reviewerId에만 적용 — 코드 수정 불요). holdout blind 유지, 일치 쌍 20% 표본 감사. | "검수자 2인 확보될 때까지 대기"라는 무기한 정지 |
 | D6 | **검수 순서: 공고 criteria 먼저, pair는 그 다음.** 공고 검수는 골든셋 선행조건 + recommendable 해금의 이중 배당. | pair 500쌍부터 시작 |
 | D7 | **베타 게이트 150~200쌍, 정식 게이트 500쌍.** 임계값(0.90/0.95/0.97)은 골든셋 실측 후 재산정. | 500쌍 완료 전 "정확하다" 무조건 주장 / 실측 없이 임계값 논쟁 |
-| D8 | **평가 인프라는 완성 상태(20모듈). 신규 제작 금지.** | 새 평가 도구·새 리포트·새 하네스 만들기 |
+| D8 | **평가 인프라는 완성 상태(20모듈). 신규 정확도 평가 도구 제작 금지.** D10을 강제하는 product parity CI는 기존 테스트를 묶고 route·19축 누락을 막는 최소 sentinel만 추가하는 명시적 예외다. | 새 정확도 평가 도구·새 리포트·새 범용 하네스 만들기 / parity 명목으로 평가 체계를 재구축하기 |
 | D9 | **결격 3축이 자가신고인 동안 "지원 가능성이 높음" 문구 게이트는 닫아둔다.** 포지셔닝은 "자동 검증"이 아니라 "구조화된 사전 점검". | 결격 자동 검증 마케팅 |
+| D10 | **매칭·자동채움 로직은 실제 제품 경로와 수직 parity가 있을 때만 완료다.** 운영 19축의 source→typed update→profile→persistence→matcher→UI 연결을 CI가 강제하고, 모든 사용자 matcher 진입점은 하나의 제품 resolver를 사용한다. | dev 하네스만 개선하고 제품 배선을 후속으로 미루기 / route별 profile merge·Q&A 복제 / UI 리디자인을 연결 완료보다 먼저 하기 |
 
 ---
 
@@ -96,19 +97,20 @@
 
 ### WS-C. 충전 승격 (며칠) — "사업자번호 하나로"를 실서비스에서 참으로
 
-> 선행 단계 편입 (2026-07-13 main 통합으로 합류): `HANDOFF-2026-07-13-service-data-매칭입력.md` — 개선계획과 Orca 실행계약을 통합한 WS-C 0단계 세부 정본. dev 하네스 표시값과 실제 matcher 사이의 끊어진 경계를 잇는 shadow matching E2E를 Gate별로 수행하며, 트랙 상태 판정은 본 표가 원천이다.
+> 세부 정본: `HANDOFF-2026-07-13-service-data-매칭입력.md`. G1~G7 dev 증명은 child `fcc190c`에서 완료됐다. 2026-07-14 사용자 결정에 따라 다음 우선순위는 provider 수 확대가 아니라 **검증된 typed profile·matcher·Q&A를 모든 실제 사용자 경로의 단일 정본으로 만드는 P0~P6 제품 승격**이다.
 
-0. **dev 섀도 매칭 E2E** (service-data 통합 실행계획): 사업자번호 1개 → typed CompanyProfile → 활성 공고 전체 shadow matching → unknown 감소량·판정 변화 확인.
-1. **§6′-E 내부 계약 문서 확정 (0.5일)** — 외부 협상이 아니라 내부 합의다. 소스→커버 플래그 맵 + known-on-absence 예외 확정.
-2. **positive-only 커넥터 3종 프로덕션 승격** (kcomwel employees · KIPRIS ip · 창업확인 certification) — 병합 경로는 이미 존재, 온디맨드 캐시 충전만 배선. 기능 플래그 뒤. 라이브 실측 완료된 축들이다.
-3. 승격 직후 **STEP 3 실표본 30사 코호트 측정 실행** (하네스 완성 상태 — 실행만).
-4. 조달청 부정당 CSV 전량본(사업자번호 포함) 재확보 → sanction 축 첫 실검증. 공공마이데이터 이용기관 **사전 문의 발송**(STEP 4A — CODEF 규제 리스크 헤지, 문의 자체는 반나절).
+0. **dev 섀도 매칭 E2E** — ✅ 완료 (`fcc190c`): typed `CompanyProfile` → active universe shadow matching → 19축/unknown/다음 질문 증명. 제품 소비는 아직 pending이다.
+1. **제품 단일 resolver 기반** — G1~G7 순수 assembly를 neutral core로 승격하고, 19축 contract/OpenAPI/persistence 의미 손실과 source/consent policy를 먼저 닫는다.
+2. **모든 제품 진입점 전환** — 익명 teaser, dashboard/matches/detail, web/app create·enrich·answer, background refresh/feedback가 같은 dispatcher/resolver 계약을 사용한다. 결과 parity는 동일 context·materialized observations·grant universe·explicit `asOf` 안에서 판정한다.
+3. **기능적 19축 인터페이스** — 현재 하드코딩 10축을 19축 SSOT adapter로 교체하고 range/prior-award/insured/investment 질문을 공통 answer loop로 연결한다. 이 단계는 시각 리디자인이 아니다.
+4. **수직 parity CI와 제품 승격** — source→update→merge→persist→match→safe UI 검증, bounded shadow, 승인 30표본 외부 검증, 10→50→100% 전환 후 legacy 경로를 제거한다.
+5. 연결 완료 뒤에만 **logic/source 개선 측정**을 시작한다. positive-only source 확대, 조달청 sanction, 마이데이터/CODEF는 제품 resolver의 권한·동의 경계를 통과한 항목만 순차 승격한다.
 
-**완료 기준: 실표본 30사에서 축별 자동충전율 실측표가 존재하고, 자동충전이 6축 → 9축 내외로 확장된다.**
+**완료 기준: 모든 제품 matcher 진입점이 하나의 resolved profile을 사용하고, 운영 19축이 사용자 화면에 상태·근거·해소 행동과 함께 나타나며, source/route별 `product_consumed=pending`이 0이다. web/app parity·privacy·30표본 live 증거와 필수 CI가 존재하고 legacy merge/Q&A/UI list가 제거된다.**
 
 ### WS-D. 체감 루프 (며칠) — "확인 필요 목록"을 "확정까지의 경로"로
 
-1. **4상태 UX 계약 구현** (first-mission plan §1.3 그대로): needs_profile_input("이 정보만 확인하면 판정 가능" + 질문 CTA)을 needs_core_review와 분리 렌더. "답변 1개로 확정되는 공고 N건" 노출. 유일한 실측(질문 1개 → 19건 중 14건 확정)이 이 루프의 가치를 이미 증명했다.
+1. **4상태 기능 계약과 질문 CTA 연결은 WS-C P4로 선행 편입한다.** needs_profile_input("이 정보만 확인하면 판정 가능" + 질문 CTA)을 needs_core_review와 분리하고, "답변 1개로 확정되는 공고 N건"을 실제 공통 answer loop 결과로 노출한다. 시각·상호작용 리디자인은 WS-C 연결 완료와 이후 logic 개선 측정 뒤로 미룬다.
 2. **변환 서버 재분류·가동**: Cloud Run 재배포 → 활성 공고 첨부 우선 일괄 변환 → LLM 재추출 → manifest 승격. 재추출 자동 트리거 여부 확인·배선. (활성 98% manifest partial의 최대 원인 = 첨부 미변환 2,787건)
 3. **데이터 표면 정리 배치** (전부 deterministic, LLM 비용 0): f_industries v3 백필, publish:dedup 1회, stale open 469건 상태 전환, provider 식별자 단일화, founder_trait/ip 별칭 소사전.
 4. conditional_resolution_rate / question_burden_p50 상시 계측 배선.
@@ -116,6 +118,8 @@
 **완료 기준: recommendable율이 0.61%에서 유의미하게 상승했음을 층화 측정으로 보이고, 해소율이 상시 계측된다.**
 
 ### 주차 배치 (기준선)
+
+> 2026-07-14 재정렬: 기존 W1~W4의 WS-B 정확도 작업은 병렬로 유지할 수 있지만, WS-C/WS-D 제품 변경은 `P0~P6 연결 완료 → 실제 제품 경로 logic 개선 → 인터페이스 리디자인` 순서를 우선한다. 아래 배치는 최초 기준선 기록으로 보존한다.
 
 - **W1**: WS-A 완주 + WS-B 1(소단위 검수 2건) + WS-C 1(§6′-E)
 - **W2**: WS-C 2~3(승격+실측) + WS-B 2 착수(공고 검수) + WS-D 1(UX)
@@ -143,10 +147,13 @@
 | reviewed 정답 0건 → 모든 정확도 게이트 측정 불능 | 긴급 | unresolved (**최대 병목**) | WS-B |
 | audience 미영속·미적용 (개인 공고 0.33~2.2% 잔존) | major | unresolved (검수 81건이면 개방) | WS-B |
 | prior_award 분해기 비활성 (최다 빈출 배제 유형 text_only 잔존) | major | unresolved (검수 10건이면 개방) | WS-B |
-| 커넥터 9종 dev 격리 → 실사용 자동충전 6축 | 긴급 | unresolved | WS-C |
+| G1~G7 typed profile이 dev-memory-only이고 제품 matcher에서 `product_consumed=pending` | 긴급 | dev proof **resolved** (`fcc190c`) · P0~P6 제품 승격 not started | WS-C |
+| teaser cache overlay·dashboard persisted profile·background direct matcher의 profile 의미 분리 | 긴급 | planned — handoff P1~P3 단일 resolver cutover | WS-C |
+| `/matches` 상시 UI 10/19축, range/prior-award/insured/investment Q&A 불일치, persistence/OpenAPI 의미 손실 | major | planned — handoff P1·P4·P5 parity gate | WS-C |
+| anonymous/owner/consent observation visibility와 user-overlay/company `match_state` scope 충돌 | 긴급 | planned — handoff P2·P3 privacy/state gate | WS-C |
 | 결격 3축 외부 소싱 0 (100% 자가신고; 오판정은 허위/오인 신고 시 한정) | major | unresolved (조달청 CSV + 마이데이터 문의) | WS-C |
 | 실표본 충전율 미측정 (목표치는 전부 추정) | major | unresolved (하네스 완성, 실행만) | WS-C |
-| needs_profile_input/needs_core_review UI 뭉뚱그림 → 해소 루프 매몰 | major | unresolved | WS-D |
+| needs_profile_input/needs_core_review UI 뭉뚱그림 → 해소 루프 매몰 | major | planned — 기능 연결은 WS-C P4, visual polish는 연결·logic 개선 뒤 WS-D | WS-D |
 | 첨부 미변환 2,787건 → 활성 98% manifest partial → recommendable 0.61% | 긴급 | unresolved | WS-D |
 | f_industries 0% / dedup_links 0 / stale open 469 | minor | unresolved (배치 1회씩) | WS-D |
 | route policy 검증기가 Next route group을 실제 URL로 해석하지 못하고 세션 API 3개를 누락 | major | **resolved** (`fed42d0`, 131 API/10 cron/10 보호 페이지 검증) | WS-A |
@@ -174,7 +181,7 @@
 | 2026-07-12-matching-first-mission-implementation-plan.md | 게이트 지표 정의·구현 이력 참조 |
 | 2026-07-13-first-mission-recovery-plan.md | 안전 불변식·기준선 수치 참조 |
 | 2026-07-11-matching-data-sourcing.md + 사업자번호-우선-자동채움-실행가이드 | WS-C 상세 절차 참조 |
-| HANDOFF-2026-07-13-service-data-매칭입력.md (+ 문제인식) | WS-C 0단계 통합 실행 정본 — 진행 상태는 본 문서 §5 WS-C가 원천 |
+| HANDOFF-2026-07-13-service-data-매칭입력.md (+ 문제인식) | WS-C G1~G7 dev 증명과 P0~P6 제품 승격의 통합 실행 정본 — 진행 상태 판정은 본 문서 §5 WS-C가 원천 |
 | 마스터 아키텍처 문서 | 제품 비전·지원서 트랙 참조 — 매칭 관련 서술은 stale, 본 문서가 우선 (개정은 백로그) |
 
 ---
