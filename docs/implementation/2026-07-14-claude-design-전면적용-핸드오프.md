@@ -74,7 +74,7 @@
 후속 단계는 이 시그니처를 그대로 임포트할 것:
 
 - **`verdict-badge.tsx`** — `VerdictStatus = "open" | "one_answer" | "check_source" | "closed"`, `VERDICT_LABEL`(지금 신청 가능/답하면 확정/원문 확인 필요/이번엔 어려움), `VerdictBadge({ status, … })`. **판정 4상태 어휘의 SSOT — 5번째 상태 발명 금지.**
-- **`notice-card.tsx`** (client) — `NoticeCard({ title, dday, amount, status, isNew?, note?, href?, onClick? })`, `status: VerdictStatus | "upcoming"`. 접힘 카드 4요소 계약(제목/뱃지/D-day/금액). `D-N` N≤14 → 레드. `upcoming`은 뱃지 없이 D-day 자리 텍스트+`알림 받기`. `href`→`<a>`, `onClick`→`<button>`.
+- **`notice-card.tsx`** (client) — `NoticeCard({ title, dday, supportSummary, status, isNew?, note?, href?, onClick? })`, `status: VerdictStatus | "upcoming"`. 접힘 카드 4요소 계약(제목/뱃지/D-day/지원 요약): 실데이터 매칭 표면은 `실제 금액 > 신뢰 가능한 혜택 분류 > 공고문 확인 필요` 순으로 정하고, 기존 우측 굵은 텍스트 스타일을 유지한다. 정적 랜딩 예시는 금액을 그대로 쓸 수 있다. `D-N` N≤14 → 레드. `upcoming`은 뱃지 없이 D-day 자리 텍스트+정적 `접수 예정` 안내를 표시한다. `href`→`<a>`, `onClick`→`<button>`.
 - **`precision-gauge.tsx`** — `PrecisionGauge({ pct, label, caption, meta, delta? })`. pct 0~100 클램프, 8px 민트 그라디언트 바, delta 민트 뱃지.
 - **`app-header.tsx`** — `AppHeader({ user, links?, loginCallbackUrl?, homeHref? })`. 64px 스티키. 비로그인=로그인 버튼만, 로그인=링크(최대 3, `MAX_HEADER_LINKS`)+아바타(AccountMenu `variant="avatar"`). 기본 링크: 내 신청 현황→`/applications`, 내 정보→`/settings`(추후 내 정보 **시트** 트리거로 교체 예정 — Phase 3).
 

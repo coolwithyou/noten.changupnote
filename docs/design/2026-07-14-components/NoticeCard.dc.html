@@ -34,9 +34,9 @@
     <sc-if value="{{ notUrgent }}" hint-placeholder-val="{{ true }}">
       <span style="font-size:13.5px;font-weight:600;color:#6B7280;font-variant-numeric:tabular-nums">{{ dday }}</span>
     </sc-if>
-    <span style="margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums">{{ amount }}</span>
+    <span style="margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums">{{ supportSummary }}</span>
     <sc-if value="{{ isUpcoming }}" hint-placeholder-val="{{ false }}">
-      <span style="font-size:13px;font-weight:700;color:#3182F6;cursor:pointer;white-space:nowrap">알림 받기</span>
+      <span style="font-size:13px;font-weight:700;color:#6B7280;white-space:nowrap">접수 예정</span>
     </sc-if>
   </div>
   <sc-if value="{{ hasNote }}" hint-placeholder-val="{{ false }}">
@@ -44,7 +44,7 @@
   </sc-if>
 </a>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:720,&quot;height&quot;:96},&quot;title&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;초기창업패키지&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;dday&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;D-12&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;amount&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;최대 1억 원&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;status&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;open&quot;,&quot;options&quot;:[&quot;open&quot;,&quot;confirm&quot;,&quot;check&quot;,&quot;hard&quot;,&quot;upcoming&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;isNew&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;note&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;href&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;#s5&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:720,&quot;height&quot;:96},&quot;title&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;초기창업패키지&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;dday&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;D-12&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;supportSummary&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;최대 1억 원&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;status&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;open&quot;,&quot;options&quot;:[&quot;open&quot;,&quot;confirm&quot;,&quot;check&quot;,&quot;hard&quot;,&quot;upcoming&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;isNew&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;note&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;href&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;#s5&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
   renderVals() {
     const s = this.props.status ?? 'open';
