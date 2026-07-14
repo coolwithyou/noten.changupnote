@@ -1,22 +1,27 @@
-# `/dev/service-data` 매칭 입력 필드 통합 실행계획
+# service-data 매칭 입력 통합·제품 승격 실행계획
 
 > 작성일: 2026-07-13
 > 통합일: 2026-07-13
 > 대상: 신규 Codex 메인 세션과 그 세션이 감독하는 Orca worker
-> 상태: 문제인식·개선계획·Orca 실행계약 통합 완료 · G1부터 한 Gate씩 실행
+> 상태: G1~G7 dev 증명 완료 (`fcc190c`, 2026-07-14) · 제품 승격 P0~P6 계획 초안 작성 완료 · 제품 코드 구현 전
 > 단일 정본: 이 파일이 service-data 하위 트랙의 범위·순서·수용 조건·Orca 실행 방식을 모두 소유한다.
 > 권장 모델: coordinator·implementer·fixer는 `gpt-5.6-sol` xhigh, reviewer·re-reviewer는 fresh `Claude Fable 5` max
 > 통합 이력: 이전 `2026-07-13-service-data-매칭입력-필드-개선계획.md`의 실행 내용을 이 파일에 흡수했으며, 이전 파일은 다시 만들거나 별도 상태 원천으로 사용하지 않는다.
+> 제품 승격 결정: 2026-07-14부터 다음 목표는 새 로직 추가가 아니라 **검증된 매칭·자동채움 로직을 모든 실제 사용자 진입점의 단일 경로로 만드는 것**이다. P0~P6가 끝날 때까지 별도 인터페이스 리디자인은 시작하지 않는다.
 
 ## 1. 문서 목적과 성공 기준
 
 이 문서는 기존 “매칭 입력 필드 개선 계획”과 Orca 구현 핸드오프를 합친 **단일 실행 정본**이다. 신규 세션은 [문제인식 문서](../research/2026-07-13-service-data-매칭입력-필드-문제인식.md)의 확인 사실을 이 문서의 Gate 계약에 대조해 실제 코드로 옮긴다.
 
-핵심 목표는 하나다.
+G1~G7의 dev 증명 목표는 다음과 같았고 `fcc190c`에서 완료됐다.
 
 > 현재 연결된 사업자 데이터와 최소 Q&A를 typed `CompanyProfile`로 만들고, 실제 matcher에 넣어 어떤 공고의 `unknown`이 줄었는지 dev 페이지에서 증명한다.
 
-성공 흐름은 다음으로 고정한다.
+이제 이 문서의 최종 목표는 다음으로 확장한다.
+
+> 익명 `/matches`, 로그인 대시보드와 매칭 페이지, web/app API, 자동채움·답변 저장·재평가가 모두 하나의 제품용 profile resolution과 matcher 경로를 사용하게 한다. 이후 matcher·자동채움 로직을 한 곳에서 개선하면 별도 UI 재배선 없이 모든 사용자 화면과 결과에 즉시 반영되어야 한다.
+
+dev 증명에 사용한 원래 성공 흐름은 다음과 같다.
 
 ```text
 사업자번호 조회
@@ -28,9 +33,21 @@
   -> 남은 unknown의 원인과 다음 최적 질문
 ```
 
-1차 로컬 완료는 현재 커넥터와 Q&A가 typed profile을 만들고, 실제 matcher 입력 전후의 `unknown` 감소와 판정 변화를 재현 가능한 로컬 증거로 설명할 수 있는 상태다. 실사업자·브라우저·live provider truth는 별도 외부 Gate다.
+제품 성공 흐름은 이 위에 다음 단일 경로를 고정한다.
 
-신규 세션은 전체 계획을 한 번에 구현하지 않는다. 한 Gate마다 다음 순서를 지킨다.
+```text
+제품 접근 컨텍스트(anonymous / owned cache / owned refresh)
+  -> 그 컨텍스트에 허용된 source acquisition
+  -> canonical CompanyProfileFieldUpdate[]
+  -> 동일한 evidence precedence와 final CompanyProfile resolver
+  -> 동일한 deterministic matcher + question planner
+  -> 안전한 19축 MatchingProfileView + 제품 4상태 + 다음 질문
+  -> /matches · dashboard · web/app API가 같은 결과 소비
+```
+
+G1~G7의 1차 로컬 완료는 현재 커넥터와 Q&A가 typed profile을 만들고, 실제 matcher 입력 전후의 `unknown` 감소와 판정 변화를 재현 가능한 로컬 증거로 설명하는 상태였다. P0~P6 제품 완료는 그 결과가 실제 사용자 경로에서 같은 의미로 소비되고, `product_consumed=pending`이 하나도 남지 않는 상태다.
+
+신규 세션은 전체 계획을 한 번에 구현하지 않는다. G/P Gate마다 다음 순서를 지킨다.
 
 ```text
 사전 감사
@@ -43,7 +60,7 @@
   -> 중지 및 사용자 보고
 ```
 
-사용자가 명시적으로 다음 Gate 진행을 요청하기 전에는 다음 구현을 시작하지 않는다.
+G1~G7에서 사용한 사용자 승인 단위 진행 규칙은 당시 영수증에 그대로 보존한다. P0~P6 구현을 시작할 때도 Gate마다 구현·독립 리뷰·회귀·checkpoint commit을 남기되, 사용자가 P0~P6 전체 실행을 명시적으로 승인하면 BLOCKER나 중단 조건이 없는 한 다음 Gate로 자율 진행할 수 있다.
 
 ## 2. 문서 우선순위와 충돌 규칙
 
@@ -78,6 +95,8 @@
 
 ### 4.1 포함 범위
 
+아래 목록은 G1~G7 dev 증명 범위다. P0~P6 제품 승격 범위는 §17~§24가 추가로 소유한다.
+
 - matcher 기준 필드 SSOT와 화면·matcher parity
 - 현재 connector 결과와 Q&A의 typed update 변환
 - 기존 evidence 우선순위를 사용한 final `CompanyProfile` 병합
@@ -87,6 +106,8 @@
 - 로컬 검증과 사용자 실행 서버의 별도 외부 Gate
 
 ### 4.2 제외 범위
+
+아래 제외는 G1~G7에 적용된 역사적 경계다. §17 이후의 명시적 제품 승격 항목은 `production dashboard/UI·source promotion` 제외를 대체하지만, 신규 provider·generic framework·근거 없는 값 확정 금지는 계속 유지한다.
 
 - 신규 외부 API·유료 provider·env key
 - production dashboard/UI·source promotion
@@ -118,11 +139,11 @@
 4. hard eligibility의 pass/fail은 결정론 matcher가 담당한다.
 5. AI는 공고 추출·canonicalization·설명·ranking 보조에만 쓴다.
 6. 값이 부족하거나 불명확하면 `unknown`을 유지한다. 테스트를 위해 pass로 바꾸지 않는다.
-7. 새 API/provider/env key를 추가하지 않는다.
-8. DB migration, production UI, production source promotion을 하지 않는다.
+7. G1~G7에서는 새 API/provider/env key를 추가하지 않는다. P0~P6도 현재 연결·검증된 소스의 제품 배선만 허용하며, 새 provider는 마스터 문서 개정 없이는 추가하지 않는다.
+8. G1~G7에서는 DB migration, production UI, production source promotion을 하지 않는다. P0~P6에서는 §17~§24에 적힌 제품 배선·기능 UI만 허용하고, schema migration은 19축 round-trip 결함이 기존 schema로 해소되지 않는다는 증거와 별도 Gate 없이는 하지 않는다.
 9. generic connector/plugin/schema framework를 만들지 않는다.
 10. 현재 dev 페이지 전체 리팩터링을 하지 않는다.
-11. 외부 provider live 호출, 유료 호출, DB write를 하지 않는다.
+11. G1~G7 검증에서는 외부 provider live 호출, 유료 호출, DB write를 하지 않는다. P0~P5도 fixture/cache 중심으로 검증하고, P6에서만 승인된 표본·권한·사용자 실행 서버로 bounded live read와 owner-scoped write를 허용한다.
 12. 개발 서버는 사용자가 직접 실행한다.
 13. 관련 없는 dirty 변경을 되돌리거나 staging/commit하지 않는다.
 14. 커밋은 사용자가 별도로 요청하고 범위를 승인한 경우만 한다.
@@ -517,7 +538,7 @@ G3 dev proof는 앞의 세 상태만 요구한다. `product_consumed`는 product
 - dimension별 unknown 감소와 다음 질문
 - provider별 ablation 전수 분석은 후순위
 
-사용자 노출 4상태는 “지원 가능성이 높음”, “정보 확인”, “원문 확인”, “지원 어려움”으로 고정한다. engine 상태와 제품 상태를 같은 enum이나 숫자로 합치지 않는다.
+G5 dev proof의 사용자 노출 4상태는 “지원 가능성이 높음”, “정보 확인”, “원문 확인”, “지원 어려움”으로 검증했다. engine 상태와 제품 상태를 같은 enum이나 숫자로 합치지 않는다. 다만 production copy는 마스터 D9와 P4가 우선하므로 D9 해제 전에는 positive label을 중립 표현으로 바꾼다.
 
 평가 universe와 API 반환 limit를 구분하고, 같은 profile과 grant revision에서 결과가 재현되어야 한다. `text_only`나 extraction/review 미완료는 profile 질문 부족으로 집계하지 않는다. 질문 응답 후 unknown 감소가 없으면 해당 문항을 “채움 완료”로 표시하지 않는다.
 
@@ -831,44 +852,48 @@ Gate 상태는 다음 체크리스트에서 영수증과 함께 갱신한다.
 
 다음 중 하나면 현재 Gate를 중지한다.
 
-- 새 API가 필요하다는 이유로 provider 구현을 시작하려 함
+- 현재 연결 완료 목표를 벗어나 새 API/provider·유료 계약 구현을 시작하려 함
 - field spec이 generic schema framework로 커짐
-- dev proof 전에 production `serviceData.ts` 승격이나 persistence를 요구함
+- 익명 조회가 owner-scoped 저장 프로필·동의 기반 값·민감 evidence를 읽을 가능성이 있는데 visibility 경계 없이 승격하려 함
+- 제품 진입점 하나라도 canonical resolver를 우회해 repository profile이나 별도 merge를 matcher에 직접 넣음
+- 비교 기간이 끝났는데도 legacy와 신규 resolver를 장기 이중 운영하거나, 장애 시 legacy 의미로 조용히 fallback하려 함
 - `other`를 줄이기 위해 새 top-level dimension을 추가함
 - premises/export를 검수 없이 활성화함
 - AI가 hard eligibility를 직접 판정하게 함
 - unknown을 pass로 바꿔 테스트를 맞춤
+- 기능 연결보다 시각 리디자인·generic form builder·새 상태관리 체계에 범위를 씀
+- 기존 schema로 19축 round-trip이 가능한지 증명하기 전에 migration을 추가함
 - 허용 파일 밖의 dirty 변경과 충돌
 - reviewer BLOCKER가 두 fix cycle 후에도 남음
 - Orca dispatch provenance 또는 worker_done을 확인할 수 없음
 
-## 13. 신규 세션 필수 트리거 문장
+## 13. 제품 승격 신규 세션 필수 트리거 문장
 
 아래 전체 블록을 신규 세션의 첫 요청으로 그대로 사용한다.
 
 ```text
-/Users/ffgg/noten.works/cunote/docs/plans/HANDOFF-2026-07-13-service-data-매칭입력.md를 이번 작업의 실행 정본으로 사용해줘.
+P0 통합 전에는 /Users/ffgg/orca/workspaces/cunote/cunote-service-data-g1/docs/plans/HANDOFF-2026-07-13-service-data-매칭입력.md를, `PLAN_CHECKPOINT_SHA`가 product-integration branch에 merge된 뒤에는 그 product worktree의 동일 상대경로 문서를 이번 작업의 실행 정본으로 사용해줘. 로컬 main의 copy가 `PLAN_CHECKPOINT_SHA`를 포함하지 않으면 stale이므로 사용하지 마.
 
-먼저 매칭 마스터 문서, 이 통합 실행계획, 문제인식 문서, 기존 자동채움 실행가이드, 현재 git branch/HEAD/status/diff를 읽고 preflight를 수행해. 현재 worktree의 미커밋 변경을 보존해. 통합 전이면 현재 트랙 branch의 exact HEAD, 이 문서가 검증되어 로컬 `main`으로 통합된 후라면 로컬 `main`의 exact HEAD를 base로 사용해. 과거 HEAD, `origin/main`, 또는 미커밋 변경이 빠지는 base에서 시작하지 마.
+먼저 매칭 마스터 문서, 이 통합 실행계획, 문제인식 문서, 기존 자동채움 실행가이드, 현재 git branch/HEAD/status/diff를 읽고 P0 preflight를 수행해. G1~G7 완료 HEAD `fcc190c`와 작업 시작 시점 로컬 `main` exact HEAD의 계보를 모두 확인하고, 둘을 보존하는 clean product-integration child worktree를 만들어. 과거 HEAD, `origin/main`, 또는 미커밋 변경이 빠지는 base에서 시작하지 마. 관련 없는 main의 dirty/untracked 파일은 절대 가져오거나 수정하지 마.
 
 반드시 Orca orchestration CLI의 실제 task/dispatch 상태를 사용해. `orca status --json`과 기존 task/terminal 상태를 확인한 뒤, `task-create -> fresh implementer terminal -> dispatch --inject -> worker_done -> fresh read-only reviewer task -> 필요한 좁은 fix -> 재리뷰` 순서를 지켜. 일반 subagent/spawn으로 대체하지 말고, runtime-global 기존 task를 reset하지 마. 같은 worktree의 writer는 한 명만 허용해.
 
 모델 라우팅은 coordinator·implementer·fixer에 `gpt-5.6-sol` xhigh, reviewer·re-reviewer에 fresh `Claude Fable 5` max를 사용해. Claude terminal은 `claude --model fable --effort max`로 만들고 `claude ultrareview`나 기존 reviewer 세션 재사용으로 대체하지 마. Fable entitlement나 usage credit이 거부되면 다른 모델로 fallback하지 말고 review pending blocker로 보고해.
 
-이번 세션에서는 G1(Phase 0A + Phase 1 field SSOT/parity)만 구현하고 독립 리뷰까지 완료해. 허용 파일과 acceptance gate는 통합 실행계획 §9의 G1을 그대로 적용해. 새 API/provider, DB migration, production UI, production source promotion, generic framework, premises/export_performance 활성화, 전체 dev 페이지 리팩터링은 금지야. `other`는 eligibility 분모에서 제외하고 unknown 안전 경계를 유지해. 개발 서버와 live/유료 API는 실행하지 마.
+P0부터 §21의 P0~P6을 순서대로 구현하고, 각 Gate의 acceptance·독립 리뷰·회귀가 통과할 때마다 checkpoint commit과 Gate 영수증을 남겨. 목표는 새 로직 추가가 아니라 모든 실제 사용자 진입점을 하나의 제품용 profile resolution·matcher·question 경로에 100% 연결하는 것이야. 새 API/provider, 근거 없는 migration, generic framework, premises/export_performance 활성화, 인터페이스 시각 리디자인은 금지야. `other`는 eligibility 분모에서 제외하고 unknown·consent·owner visibility 안전 경계를 유지해.
 
-구현과 리뷰 증거를 Gate 영수증 형식으로 보고하고, BLOCKER/MAJOR가 0이거나 재리뷰로 해소됐는지 명확히 밝혀. G1이 통과해도 G2A는 시작하지 말고 내 다음 지시를 기다려.
+P0~P5는 fixture/cache와 자동 회귀로 진행하고 개발 서버를 직접 시작하지 마. P6 브라우저·live 검증은 현재 사용자가 실행 중인 서버를 먼저 확인해 사용하고, 서버가 없으면 사용자 실행을 요청해. 승인된 표본·권한만 사용하고 비밀값이나 원시 민감 payload를 기록하지 마. BLOCKER/MAJOR가 남거나 §12 중단 조건을 만나지 않으면 다음 Gate까지 자율 진행하고, P6 완료 후에만 최종 보고해.
 ```
 
-## 14. 다음 Gate 반복 트리거
+## 14. 제품 Gate 반복 트리거
 
-G1 이후에는 다음 형식으로 한 Gate씩 요청한다.
+한 Gate만 좁게 실행할 때는 다음 형식을 사용한다.
 
 ```text
-HANDOFF-2026-07-13-service-data-매칭입력.md의 현재 영수증, Gate 계약, 문제-작업 추적성을 다시 확인하고, Orca orchestration 수동 루프로 G<번호>만 구현·독립 리뷰·필요한 fix·재리뷰까지 진행해줘. 이전 Gate의 범위와 unknown 안전 경계를 보존하고, 다음 Gate는 시작하지 마.
+HANDOFF-2026-07-13-service-data-매칭입력.md의 현재 영수증과 §21 Gate 계약을 다시 확인하고, Orca orchestration 수동 루프로 P<번호>만 구현·독립 리뷰·필요한 fix·재리뷰·checkpoint commit까지 진행해줘. 이전 Gate의 unknown·privacy·persistence 경계를 보존하고, 다음 Gate는 시작하지 마.
 ```
 
-## 15. 최종 완료 정의
+## 15. G1~G7 dev 완료 정의
 
 이 트랙의 1차 로컬 완료는 다음 모두가 충족될 때다.
 
@@ -891,7 +916,541 @@ HANDOFF-2026-07-13-service-data-매칭입력.md의 현재 영수증, Gate 계약
 orca orchestration task-update --id <root-task-id> --status completed --result '{"local":"complete","external":"pending"}' --json
 ```
 
-## 16. 관련 문서
+## 16. 제품 승격 결정과 `100% 연결`의 정의
+
+2026-07-14 사용자 결정으로 다음 순서를 고정한다.
+
+1. 먼저 매칭·자동채움의 **제품 연결을 100%**로 만든다.
+2. 그 다음 실제 제품 경로에서 측정하며 matcher·source·question logic을 개선한다.
+3. 마지막에 시각·상호작용 인터페이스를 개선한다.
+
+여기서 `100%`는 값의 완전성이 아니라 **경로와 계약의 완전성**이다.
+
+| 경계 | 100% 완료 조건 |
+|---|---|
+| source consumption | 현재 승격 대상으로 승인된 connector/cache/Q&A가 canonical typed update를 만들고, 제품 resolver가 실제 소비한다. 미승인·미계약·미동의 source는 `disabled/not_authorized/unavailable`로 명시하며 `product_consumed=pending`으로 방치하지 않는다. |
+| profile resolution | 모든 제품 matcher 진입점이 같은 evidence precedence, explicit `asOf`, final `CompanyProfile` resolver를 사용한다. repository profile·route-local merge·raw request profile을 matcher에 직접 넣는 우회 경로가 없다. |
+| matcher | 익명 teaser, 로그인 dashboard/matches/detail, web/app API, answer/enrich 후 refresh, background recompute가 **동일 context + 동일 materialized observations + 동일 `asOf`**에서 같은 final profile과 deterministic matcher 의미를 사용한다. context가 다르면 privacy 때문에 profile이 의도적으로 다를 수 있다. |
+| user interface | 운영 19축 모두가 사용자 화면에 `known/unknown/partial` 상태로 나타나며 값, 안전한 source label, `asOf`, completeness, 편집 또는 다음 행동을 가진다. |
+| answer loop | 지원하는 모든 질문 형식이 하나의 server-side normalize → merge → evaluate 경로를 사용하고, 답변 응답 안에서 profile·매칭 수·카드·다음 질문이 함께 갱신된다. |
+| persistence | owner path는 19축·evidence·question state를 의미 손실 없이 round-trip한다. 익명 답변은 request/session 범위에만 있고 owner/private 값을 읽거나 저장하지 않는다. |
+| parity/CI | matcher 축·경로가 추가 또는 변경되면 contract, UI adapter, question, persistence, product E2E 중 하나라도 빠진 PR이 CI에서 실패한다. |
+| live proof | 같은 회사·profile·`asOf`에 대해 web/app 및 주요 사용자 화면이 같은 판정을 보이고, 동의 철회·provider 장애·빈 결과에서도 누출이나 거짓 확정 없이 동작한다. |
+
+다음은 `100% 연결`이 뜻하지 않는 것이다.
+
+- 모든 회사가 19/19 값을 자동으로 채운다는 뜻이 아니다.
+- 판정 정확도·recall·coverage가 100%라는 뜻이 아니다.
+- 모든 유료·동의 기반 provider를 활성화하거나 모든 요청에서 live 호출한다는 뜻이 아니다.
+- `unknown`을 임의 값으로 채우거나 `not_found`를 부재 증거로 일반화한다는 뜻이 아니다.
+- `premises`, `export_performance`, `other`를 운영 eligibility 19축에 넣는다는 뜻이 아니다.
+- 카드 배치·타이포그래피·애니메이션 등 인터페이스 리디자인을 완료한다는 뜻이 아니다.
+
+## 17. 2026-07-14 제품 연결 감사 기준선
+
+계획 작성 시점의 코드 감사 기준은 child `fcc190c`와 로컬 `main` `04d1d45`다. 두 branch는 공통 조상 이후 갈라져 있으므로 제품 구현을 현재 child에 바로 덧붙이지 않는다. P0에서 최신 로컬 `main`과 G1~G7 전체 이력을 모두 포함하는 clean integration branch를 먼저 만든다. 이 HEAD 값은 감사 영수증이지 미래 세션의 고정 base가 아니며, 시작 시 실제 graph를 다시 확인한다.
+
+| 경계 | 현재 확인 상태 | 제품 목표 |
+|---|---|---|
+| G3 final profile | `buildDevFinalCompanyProfile()`과 `product_consumed=pending`은 dev-memory-only다. production acquisition/merge/save는 G1~G7 전과 같다. | 순수 assembly만 중립 core로 승격하고 dev와 product가 같은 함수를 사용한다. dev monitor 전체나 raw trace를 product에서 import하지 않는다. |
+| anonymous teaser | `/api/web/teaser`와 app teaser는 기존 teaser resolver를 사용하며 APICK·K-Startup·KIPRIS cache overlay를 적용한다. | anonymous 정책으로 허용된 typed updates만 canonical resolver에 넣는다. owner/private/consent source는 배제한다. |
+| authenticated product | `loadServiceDashboard()` 계열은 주로 persisted profile을 직접 사용해 teaser와 이미 의미가 다르다. apply sheet, feedback, ruleset/background refresh에도 별도 direct matcher 경로가 있다. | dashboard·matches·detail·apply sheet·feedback·refresh가 모두 resolved final profile만 matcher에 전달한다. |
+| create/enrich/answer | web company create는 teaser 결과를 쓰지만 app create는 raw request profile을 저장한다. web/app field route와 enrichment가 각각 별도 merge·save·refresh를 수행한다. | 하나의 command service가 resolve → persist → 동일 객체로 match/refresh 순서를 보장한다. |
+| persisted precedence | shared/user/provider row 해석이 조회 순서에 의존할 수 있고, provider evidence가 `self_declared`로 오표기될 수 있다. | row 순서와 무관한 evidence precedence, 정확한 source kind, primary/supplemental 보존을 보장한다. |
+| match state | profile은 user overlay를 지원하지만 `match_state`는 company 단위다. 일부 GET 경로는 읽는 중 state를 쓸 수 있다. | user-facing truth는 현재 resolved profile의 즉시 matcher 결과다. GET write를 끄고 user overlay 결과를 company 공용 state에 저장하지 않는다. |
+| 19축 UI | matcher와 TypeScript profile은 운영 19축을 소비하지만 `CompanyEvidence.fields`와 `/matches` 상시 카드는 10축만 노출한다. | `OPERATIONAL_PROFILE_DIMENSIONS` 순서 그대로 19축을 노출하고 누락을 typecheck/CI가 막는다. |
+| Q&A | `/matches`의 revenue/employees range와 structured `prior_award`가 dashboard와 다른 의미로 처리된다. insured layoff와 investment last round 입력도 빠져 있다. | web/app/teaser가 같은 answer normalizer와 question-state 계약을 사용한다. |
+| round-trip | `industry_codes`, `business_status.active`의 unknown, `investment.last_round=null`, teaser의 `prior_award_history`에서 의미 손실이 확인됐다. | full-profile encode/decode/normalize 후 모든 matcher path가 deep-equal이다. |
+| API contract | TypeScript profile과 OpenAPI profile shape가 확장 6축에서 다르다. | 두 계약이 운영 19축과 evidence/question state를 같은 의미로 표현한다. |
+| privacy | bizNo-only anonymous resolution에 owner/consent-derived 값을 추가하면 다른 사용자의 정보가 섞일 위험이 있다. CODEF cache·shared row는 특히 별도 scope가 필요하다. | anonymous/owner/consent scope를 acquisition 전에 강제하고, safe allowlist DTO만 사용자에게 반환한다. |
+
+이 감사에서 확인된 문제를 별도 리팩터링 목록으로 확장하지 않는다. P0~P6의 수용 조건을 통과시키는 최소 변경만 한다.
+
+## 18. 목표 아키텍처
+
+### 18.1 하나의 assembly, 컨텍스트별 acquisition
+
+source를 가져오는 정책과 값을 병합·판정하는 로직을 분리한다.
+
+```text
+ProductProfileResolutionContext
+  -> acquire allowed observations (I/O, context-specific)
+  -> immutable ProductProfileMaterialization (request당 한 번)
+  -> rollout dispatcher
+       -> LegacyProductProfileAdapter (P6 안정화까지만)
+       -> canonical CompanyProfileFieldUpdate[]
+          -> assembleCompanyProfile(base, orderedUpdates, asOf) (pure)
+  -> mode/cohort가 선택한 immutable ResolvedCompanyProfile
+  -> buildProductMatchSnapshot(profile, grants, asOf) (pure/core use-case)
+  -> MatchingProfileView + product 4-state + next question
+  -> every web/app/user consumer
+```
+
+구현 책임은 다음 다섯 경계로 제한한다.
+
+1. `assembleCompanyProfile`: G3의 typed merge/evidence decision을 dev 명칭에서 분리한 순수 core 함수다. provider 호출·DB·redaction·UI·`product_consumed`를 모른다.
+2. `materializeProductProfileInputs`: server I/O facade다. 접근 컨텍스트에 허용된 base/observations를 request당 한 번만 수집한다.
+3. `resolveProductCompanyProfile`: rollout dispatcher다. 같은 materialization을 단 하나의 `LegacyProductProfileAdapter`와 typed assembly에 전달하고 `legacy|shadow|rollout|typed` mode가 response authority를 고른다. P3/P4의 기본은 `legacy`, P5는 `shadow`, P6에서만 cohort typed를 시작하며 안정화 뒤 legacy adapter와 dispatcher 분기를 제거한다.
+4. `buildProductMatchSnapshot`: selected final profile, active deduped grant universe, explicit `asOf`를 한 번 받아 matcher·4상태·question planner·safe view를 계산한다.
+5. `applyCompanyProfileAnswer`: web/app이 공유하는 command다. answer normalize → mode가 선택한 final resolve → 허용 시 persist → 같은 객체로 impact/match refresh → 새 snapshot 반환을 한 transaction/receipt 경계로 묶는다. shadow typed candidate는 저장하거나 state에 쓰지 않는다.
+
+production이 `devServiceDataMonitor.ts`, dev route, raw/canonical trace를 import하는 것은 금지한다. production-safe pure 함수만 neutral module로 옮기고 dev도 그 함수를 역으로 소비한다.
+
+rollout 기간의 legacy 허용 지점은 중앙 `LegacyProductProfileAdapter` 하나뿐이다. route-local legacy merge, repository profile의 direct matcher 입력, 별도 provider 재호출은 금지한다. P6 안정화 후 이 adapter와 mode 분기를 삭제한다.
+
+### 18.2 접근 컨텍스트
+
+초기 구현은 다음 고정 표만 사용한다. generic policy/plugin engine을 만들지 않는다.
+
+| 컨텍스트 | 읽기 허용 | live acquisition | 저장 | state 처리 |
+|---|---|---|---|---|
+| `anonymous_teaser` | 공개/basic source와 안전한 cache, 현재 request의 ephemeral answer | 기존 익명 기본조회 외에는 금지. 공공 connector는 cache-only | 금지 | 응답에서만 계산, 공용 state write 금지 |
+| `owned_read` | owner profile, 공개 cache, 아직 유효한 owner-scoped consent observation | 금지 | 금지 | 응답의 resolved snapshot이 진실 원천 |
+| `owned_refresh` | `owned_read` + 회사 접근권한·활성 consent가 허용한 source | provider별 allowlist·deadline·single-flight·budget 안에서만 | owner/company scope에 canonical evidence로 저장 | 저장한 동일 profile로 scoped refresh |
+| `system_recompute` | 명시된 company scope와, schema가 구분할 수 있을 때만 명시된 user scope | 금지 | profile write 금지 | company profile 결과만 company state에 저장. user overlay는 공용 state에 저장 금지 |
+
+source 정책의 최소 결정은 다음과 같다.
+
+- 익명 `/matches`는 기존 공개/basic 경계를 유지한다. 공공 cache hit는 사용할 수 있지만 owner row, CODEF, hometax, insurance, 신용 관측은 사용하지 않는다.
+- 로그인 enrichment는 company access를 먼저 확인하고 source별 consent를 확인한다. `basic_info`, `hometax`, `insurance`를 서로 대체 가능한 하나의 동의로 취급하지 않는다.
+- CODEF 및 consent-derived observation은 bizNo 전역 cache/shared row로 제품 재사용하지 않는다. user/company/consent scope와 철회 가능성을 가진다.
+- NICE의 현재 무계약 demo 경로는 production disabled다. 계약·동의·source semantics가 별도 승인되기 전에는 `disabled`가 완료 상태다.
+- cache miss·read 실패가 유료/live 호출의 암묵적 트리거가 되면 안 된다. 제품 request에는 cache delete나 force refresh를 노출하지 않는다.
+- exact/fuzzy, exhaustive/partial, positive/absence capability를 source policy에 고정한다. fuzzy hit나 partial list miss로 보유/부재를 확정하지 않는다.
+- consent 철회 시 신규 acquisition을 즉시 막고 해당 observation을 resolved profile에서 제외한 뒤 영향받은 state를 재계산한다.
+
+실패 계약은 source class별로 다르다.
+
+| source class | 실패 계약 |
+|---|---|
+| request identity/access/consent prerequisite | fail-closed 4xx. matcher와 provider acquisition을 시작하지 않는다. |
+| required base identity lookup | 안전한 persisted/cache base도 없으면 기존 route 계약의 명시적 unavailable/503으로 닫는다. sample이나 빈 profile로 대체하지 않는다. |
+| optional enrichment overlay | 해당 source만 `failed/unavailable`, 관련 축은 기존 값 또는 unknown으로 유지하고 나머지 매칭은 계속한다. |
+| explicit owner refresh | refresh receipt를 `partial/failed`로 반환하고 새 observation을 저장하지 않는다. 기존 snapshot을 함께 보여줄 수 있지만 refresh 성공으로 표시하지 않는다. |
+| active grant universe | 명시적 unavailable/503. sample universe나 cap 결과로 제품 판정을 만들지 않는다. |
+
+### 18.3 제품 안전 DTO
+
+사용자 응답은 raw `CompanyProfile`, provider raw payload, dev trace를 그대로 노출하지 않고 `MatchingProfileView` allowlist를 사용한다.
+
+```ts
+type MatchingProfileViewRow = {
+  dimension: OperationalAutofillDimension;
+  status: "known" | "partial" | "unknown";
+  displayValue: string | null;
+  sourceKind: EvidenceSourceKind | null;
+  sourceLabel: string | null;
+  asOf: string | null;
+  completeness: "complete" | "partial" | "not_covered" | null;
+  editMode: "direct" | "question_only" | "read_only";
+  action: { kind: "answer" | "connect" | "refresh" | "none"; label: string };
+};
+```
+
+구체 이름은 구현 시 기존 contract convention에 맞춰 조정할 수 있지만 의미는 축소하지 않는다. provider token, 생년월일 원문, 전화번호, 대표자명, raw text/payload, 내부 rule trace는 이 DTO에 들어갈 수 없다.
+
+### 18.4 match-state 원칙
+
+- 사용자에게 반환하는 현재 판정은 항상 `resolved profile + matcher + explicit asOf`의 결과다. `match_state`는 파생 cache이지 진실 원천이 아니다.
+- GET/read 경로는 기본적으로 state를 쓰지 않는다.
+- company-scoped profile 결과만 company-scoped state에 저장한다.
+- user overlay별 state가 꼭 필요하다는 실제 제품 요구가 증명되기 전에는 새 schema를 만들지 않고 응답에서 계산한다.
+- 최초 제품 전환 뒤 legacy state 전체를 한 번 재계산하되, user overlay를 회사 공용 PK에 덮어쓰지 않는다.
+
+## 19. 운영 19축의 기능 인터페이스 계약
+
+모든 행은 값 유무와 무관하게 `/matches`와 로그인 profile/matching 화면에 나타난다. 복잡한 축을 위해 범용 form builder를 만들지 않는다. 작은 `Record<OperationalAutofillDimension, ProfilePresentationAdapter>`를 두고 각 축에 `direct | question_only | read_only`를 명시한다.
+
+| 축 | 기본 편집/확인 방식 | P4 기능 완료 조건 |
+|---|---|---|
+| `region` | direct 지역 선택 | canonical 지역 코드와 표시 label이 분리되고 source/asOf를 표시한다. |
+| `biz_age` | read-only 자동 계산 + 정정 경로 | 개업일과 공고 기준일로 계산하며 explicit `asOf`를 사용한다. |
+| `industry` | direct KSIC/업종 다중 선택 | `industries`와 `industry_codes`가 함께 round-trip하며 substring 오확정을 만들지 않는다. |
+| `size` | direct 단일 선택 | known/unknown을 구분하고 근거 없는 derived size를 complete로 세지 않는다. |
+| `revenue` | range → 필요 시 precise | 첫 range 응답이 question state로 저장되고 임계값을 가로지를 때만 정확값을 묻는다. |
+| `employees` | range → 필요 시 precise | revenue와 같은 range 계약을 쓰며 피보험자수와 의미를 섞지 않는다. |
+| `founder_age` | 선택형 연·월 또는 승인된 auth-supplied 값 | 민감 원문 없이 matcher용 age/asOf만 노출한다. |
+| `founder_trait` | 선택적 question-only 다중 확인 | API 확정과 self-declared를 구분하고 기본 `없음`을 두지 않는다. |
+| `certification` | direct 검색 가능한 checklist | canonical certificate와 만료/기준일을 보존한다. fuzzy 후보는 확인 전 known이 아니다. |
+| `prior_award` | question-only 구조화 이력 | yes/no만 저장하지 않고 scope/kind/channel/program/state/기간의 구조를 보존한다. |
+| `ip` | source result + question-only 확인 | 종류·상태·기준일을 표시하고 exact miss를 `IP 없음`으로 일반화하지 않는다. |
+| `target_type` | direct 단일/다중 선택 | business/pre-startup 등 canonical 값만 저장한다. |
+| `business_status` | read-only source 상태 + 정정 경로 | `active: undefined`와 `false`를 보존하고 unknown을 휴폐업으로 바꾸지 않는다. |
+| `tax_compliance` | question-only 플래그별 3상태 | 해당/없음 확인/모름을 분리하고 기본값을 두지 않는다. |
+| `credit_status` | question-only 법적 상태별 3상태 | source별 known 범위 밖 플래그는 unknown으로 남긴다. |
+| `sanction` | question-only 제재 유형별 3상태 | partial registry miss로 `제재 없음`을 확정하지 않는다. |
+| `financial_health` | question-only number group | debt ratio, interest coverage, equity/capital, fiscal year를 criterion별 completeness와 함께 보존한다. |
+| `insured_workforce` | question-only number/status group | 가입·피보험자수뿐 아니라 `no_layoff`, `months_since_last_layoff`를 입력·보존한다. |
+| `investment` | question-only 구조화 group | amount, TIPS, `last_round`를 입력하며 `null`과 unknown을 구분해 round-trip한다. |
+
+각 adapter는 label과 display만 소유한다. matcher path, source precedence, question definition을 UI adapter 안에 복제하지 않는다. 새 운영 축이나 matcher path가 생기면 `satisfies Record<OperationalAutofillDimension, ...>`와 parity test가 누락을 즉시 실패시켜야 한다.
+
+## 20. 제품 승격 Gate DAG
+
+```text
+P0 baseline/integration
+  -> P1 pure assembly + contract/persistence parity
+  -> P2 product resolver + source/privacy policy
+  -> P3 all read/write/background entrypoints behind legacy-default dispatcher
+  -> P4 functional 19-axis UI + shared answer loop
+  -> P5 CI vertical completeness + bounded legacy-response shadow
+  -> P6A preview/live truth
+  -> P6B 10/50/100 production promotion
+  -> P6C stabilization + legacy retirement
+```
+
+P0~P6은 순차 실행한다. P1 이전 route 배선, P2 이전 live source promotion, P3 이전 UI가 client-side profile을 정본으로 갖는 구현, P6A 통과 이전 typed product response 전환은 금지한다.
+
+## 21. 제품 Gate별 실행 계약
+
+### P0 — clean 통합 기준선과 계획 checkpoint
+
+**목표:** G1~G7 결과와 최신 로컬 `main`을 빠짐없이 포함하고, 제품 코드 변경 전 기준선을 재현 가능하게 만든다.
+
+작업:
+
+1. 이 계획을 현재 service-data child의 docs-only checkpoint commit으로 고정하고 그 SHA를 `PLAN_CHECKPOINT_SHA` 영수증에 기록한다. 이 commit은 `fcc190c`의 descendant여야 한다.
+2. 시작 시점 로컬 `main` exact HEAD를 `PRODUCT_BASE_SHA`로 기록하고, 그 exact HEAD에서 clean product-integration child worktree를 만든다.
+3. 새 child에 `PLAN_CHECKPOINT_SHA` 전체 history를 merge한다. `fcc190c`까지만 merge하거나 docs를 copy/cherry-pick해 provenance를 분리하지 않는다.
+4. 충돌은 이 정본과 마스터 상태만 좁게 조정하고 관련 없는 main dirty/untracked 파일을 포함하지 않는다.
+5. merge 후 G7L focused tests, core/web typecheck, `pnpm verify:service-data`, `git diff --check`를 재실행한다.
+6. 현재 제품 진입점 목록과 direct matcher/legacy merger 호출 목록을 기계적으로 캡처해 P3 tripwire fixture로 고정한다.
+
+수용 조건:
+
+- branch는 `PRODUCT_BASE_SHA`와 `PLAN_CHECKPOINT_SHA` 모두의 descendant이며, 따라서 `fcc190c`와 이 실행 정본을 함께 포함한다.
+- worktree는 clean이고 제품 동작 변경이 없다.
+- baseline 회귀가 green이며 기존 실패는 별도 영수증으로 분리된다.
+- checkpoint 예시: `docs: define service-data product promotion gates`
+
+### P1 — pure assembly, 계약, persistence parity
+
+**목표:** dev에서 증명된 profile assembly를 production-safe 단일 권위로 만들고, 19축이 저장·계약 경계에서 의미를 잃지 않게 한다.
+
+작업:
+
+1. `buildDevFinalCompanyProfile()`의 순수 merge/evidence decision만 neutral core module로 추출한다. dev monitor와 기존 production merger가 같은 함수를 사용한다.
+2. 입력을 `base profile + typed updates + explicit asOf`, 출력을 `final profile + merge decisions`로 고정한다. caller의 우연한 배열 순서는 의미가 될 수 없다.
+3. update/evidence에 canonical identity를 정의한다: `dimension + normalized sourceKind/provider + scope + asOf + canonical value + stable observation id/version`. 먼저 기존 semantic precedence를 적용한다. 완전 동률에서 값이 같으면 dedupe하고, 값이 다르면 입력 첫 항목을 primary로 고르지 말고 `conflict/unknown`으로 닫아 둘 다 supplemental에 보존한다. serialization/display만 canonical key로 정렬한다.
+4. supplemental evidence도 canonical key로 정렬하고, updates/DB rows의 모든 permutation에서 final profile·decisions·serialized DTO가 동일한 property test를 추가한다.
+5. DB shared/user/provider rows를 deterministic typed updates로 변환한다.
+6. provider observation을 `self_declared`로 오표기하지 않도록 existing source contract를 최소 additive하게 보정한다.
+7. `industry_codes`, `business_status.active` unknown, `investment.last_round=null`, `prior_award_history`의 encode/decode/normalize 손실을 보정한다.
+8. TypeScript와 OpenAPI `CompanyProfile`을 운영 19축·evidence·question state 기준으로 맞춘다.
+9. persistence observation을 두 class로 고정한다. 사용자 Q&A/direct edit는 `portable_user_answer`로 저장해 N과 N-1 adapter가 같은 최신 값을 읽는다. provider/cache 관측은 `versioned_provider_observation`으로 저장해 resolverVersion, source ownership/scope, stable observation identity를 가진다.
+10. P3~P5 shadow는 typed provider candidate를 저장하지 않는다. P6 canary의 provider write는 기존 observation을 파괴하지 않는 versioned 형태만 허용하며, 사용자 answer write는 resolver mode와 무관하게 portable 형식 하나만 저장한다.
+11. full-profile round-trip, 모든 `PROFILE_FIELD_SPEC` matcher path deep-equal, N-1 legacy reconstruction, `typed answer write → legacy rollback` test를 추가한다.
+
+수용 조건:
+
+- 기존 G1~G7 fixtures의 final profile·evidence decision이 의도된 migration 차이를 제외하고 동일하다.
+- 같은 base/updates/asOf는 호출 위치와 row order에 관계없이 같은 결과다.
+- 동순위 충돌은 입력 순서로 승자를 만들지 않고 conflict/unknown이며, supplemental 순서까지 permutation-invariant다.
+- production runtime은 `dev*` module을 import하지 않는다.
+- pure result에 `product_consumed`나 provider I/O 상태가 없다. 이 값은 product caller 영수증으로 이동한다.
+- full 19축 fixture가 persistence와 API normalize를 왕복해 matcher 의미를 보존한다.
+- typed provider observation을 추가한 뒤에도 `LegacyProductProfileAdapter`가 N-1 profile을 재구성할 수 있고, typed rollback이 기존 observation 삭제를 요구하지 않는다.
+- canary 중 새로 저장한 모든 `direct|question_only` 사용자 답변은 legacy rollback 뒤에도 동일 값·evidence source·profile·match를 만든다.
+- P1에서는 product response mode를 바꾸지 않는다. 기존 production merger를 새 assembly에 위임하려면 old/new output parity가 먼저 증명되어야 한다.
+- checkpoint 예시: `core: promote typed service-data profile assembly`
+
+### P2 — 제품 resolver와 source/privacy policy
+
+**목표:** 접근 컨텍스트에 맞는 observation만 수집하고, 모든 제품 caller가 사용할 단일 resolver를 만든다.
+
+작업:
+
+1. §18.2의 네 context를 받는 `resolveProductCompanyProfile` facade를 만든다.
+2. 현재 Popbill/APICK/K-Startup/KIPRIS/DART/FSC/공공 registry/CODEF 등 실제 producer를 전수 목록화하고 `public`, `owner`, `consent`, `disabled` 중 하나로 고정한다. 추측한 source를 새로 연결하지 않는다.
+3. anonymous 경로가 owner/user row나 consent-derived cache를 읽지 못하는 negative test를 먼저 작성한다.
+4. source별 exact/fuzzy, absence capability, TTL, asOf, timeout, call budget, §18.2 source class와 fail-open/fail-closed를 작은 고정 mapping으로 둔다.
+5. live는 explicit refresh command에서만 허용하고 사업자/provider별 single-flight와 전체 deadline을 적용한다. cache miss가 live 호출을 암묵적으로 유발하지 않게 한다.
+6. consent revoke가 observation 제외 → re-resolve → scoped recompute로 이어지게 한다.
+7. safe `MatchingProfileView`와 redaction/allowlist test를 추가한다.
+8. typed provider persistence는 기존 observation을 overwrite/delete하지 않고 resolver/source version과 owner/consent scope가 있는 새 observation으로 저장한다. legacy adapter는 N-1 provider rows와 resolver 공통 `portable_user_answer`를 함께 읽어야 한다.
+9. consent/user scope와 version을 기존 schema로 안전하게 표현할 수 없는 source는 먼저 `disabled`로 닫는다. 좁은 additive migration이 꼭 필요하다는 증거가 나오면 현재 구현을 멈추고 정본과 P2 영수증에 schema·N-1 read·rollback 계약을 추가한 뒤, 별도 checkpoint와 독립 리뷰 BLOCKER/MAJOR 0을 통과해야 재개한다.
+
+수용 조건:
+
+- anonymous/other-user/owner/consent-revoked matrix에서 cross-scope 값 노출 0건이다.
+- NICE demo는 명시적 `disabled`; 미승인 source는 `pending`이 아니라 완료 가능한 비활성 상태다.
+- optional provider 실패·timeout·빈 결과는 전체 매칭을 500으로 만들거나 hard pass/fail을 만들지 않고, required base/grant-universe 실패는 sample fallback 없이 명시적 unavailable로 닫힌다.
+- 같은 materialized observations를 재생하면 live 호출 없이 같은 final profile이 나온다.
+- raw payload와 민감 식별자가 safe DTO·로그·snapshot에 없다.
+- typed provider write 후 mode를 legacy로 되돌리면 N-1 provider profile·match가 복원되며, cache/row 삭제나 역마이그레이션이 필요 없다.
+- canary에서 새로 받은 사용자 답변은 N-1 reader가 같은 최신 값·profile·match로 읽는다. 손실 없는 portable 표현이 불가능한 answer dimension은 P6B 전에 고쳐야 하며 disable로 완료 처리하지 않는다.
+- checkpoint 예시: `web: add product profile resolver and source policy`
+
+### P3 — 모든 제품 진입점을 중앙 dispatcher 뒤로 배선
+
+**목표:** 아직 typed 응답으로 전환하지 않고, 모든 product read/write/background 경로가 같은 materialization·mode dispatcher를 지나게 한다. P3/P4의 기본 response authority는 `legacy`이고 typed 결과는 비교 전용이다.
+
+전환 대상:
+
+- web/app teaser와 `/matches`
+- web/app company preview/create
+- `loadServiceDashboard()`를 소비하는 dashboard, matches, roadmap, action queue, applications, reports, notifications
+- `loadServiceApplySheet()`와 grant detail/document generation
+- web/app enrich
+- web/app profile field/answer
+- initial match, ruleset/grant-scope/background refresh, feedback provenance
+
+#### P3A — read 경로
+
+1. teaser, dashboard/matches, apply sheet/detail read가 `materializeProductProfileInputs`와 중앙 dispatcher를 사용하게 한다.
+2. base observations, active deduped grant universe, `asOf`를 request당 한 번만 만들고 legacy/typed candidate가 공유한다.
+3. mode 기본값은 `legacy`; typed candidate는 response, persistence, state에 쓰지 않는다.
+4. checkpoint: `web: route product reads through profile dispatcher`
+
+#### P3B — command/write 경로
+
+1. web/app create·enrich·answer를 공통 command service로 모은다. raw `body.profile` 직접 저장과 route-local merge를 금지한다.
+2. user answer는 mode와 무관하게 `portable_user_answer` 하나로 저장하고 두 adapter가 같은 update를 소비한다. provider result는 mode가 허용한 observation만 저장한다. materialized final profile snapshot으로 기존 rows를 파괴적으로 덮어쓰지 않는다.
+3. `legacy|shadow`에서는 typed provider candidate를 저장하지 않는다. P6 typed/rollout provider write는 P1/P2의 versioned non-destructive observation 계약을 만족할 때만 열린다.
+4. 저장 성공 후 annotation/telemetry/일부 state refresh 실패는 기존 receipt/best-effort 계약을 유지한다.
+5. checkpoint: `web: unify product profile commands behind dispatcher`
+
+#### P3C — background/state/feedback 경로
+
+1. initial match, ruleset/grant-scope refresh, feedback provenance도 중앙 dispatcher가 선택한 profile을 사용한다.
+2. GET/read 중 state write를 끄고 user overlay 결과를 company `match_state`에 저장하지 않는다.
+3. background job은 `system_recompute` context와 state scope를 명시한다. scope가 불명확하면 write하지 않는다.
+4. checkpoint: `web: align background matching with resolved profiles`
+
+rollout 기간의 `ProductConsumptionReceipt`는 중앙 dispatcher가 생성한다.
+
+```ts
+type ProductConsumptionReceipt = {
+  resolverVersion: string;
+  consumerId: ProductProfileConsumerId;
+  context: ProductProfileResolutionContext;
+  mode: "legacy" | "shadow" | "rollout" | "typed";
+  authority: "legacy_product" | "typed_candidate" | "typed_product";
+  asOf: string;
+  sources: Array<{ source: string; dimension: string; status: "consumed" | "disabled" | "not_authorized" | "unavailable" }>;
+  selectedProfileFingerprint: string;
+  typedCandidateFingerprint?: string;
+};
+```
+
+receipt에는 raw 식별자·profile 값이 없다. product consumer 목록은 작은 typed registry로 고정하고 route/integration test가 모든 consumer의 receipt 생성을 검증한다. P5 CI는 pending/누락을 실패시키고, production은 집계 metric만 저장하며, Gate별 durable 결과는 이 handoff의 영수증에 commit·명령·집계와 함께 기록한다.
+
+P3 전체 수용 조건:
+
+- 동일 context + 동일 materialized observations + 동일 asOf/grant universe의 web/app 결과가 같다. anonymous와 owner 결과가 다른 것은 privacy 정책에 따른 정상 차이다.
+- web/app create round-trip이 같고 raw request profile이 final authority가 아니다.
+- `legacy|shadow`에서 기존 사용자 응답·저장 의미가 유지되고 typed candidate write/state write가 0이다.
+- background recompute/feedback도 dispatcher를 우회하지 않는다.
+- company state에 user-specific overlay가 쓰이지 않는다.
+- production route의 legacy 사용은 중앙 `LegacyProductProfileAdapter` 하나만 allowlist한다. core 평가도구·명시적 test 외 direct repository profile → matcher 호출은 tripwire가 실패시킨다.
+
+### P4 — 기능적 19축 projection과 공통 answer loop
+
+**목표:** 시각 리디자인 없이 현재 컴포넌트 구조에서 모든 matcher 입력의 상태와 해소 경로를 제공한다. public deployment 전까지 typed projection/answer는 rollout mode 뒤에서만 검증한다.
+
+#### P4A — 19축 safe projection
+
+1. `buildCompanyEvidenceFields`의 하드코딩 10축을 제거하고 19축 presentation adapter 순회로 교체한다.
+2. `/matches`와 로그인 화면은 server `MatchingProfileView`를 소비하고 client가 raw profile을 별도 추론하지 않는다.
+3. 모든 축에 known/partial/unknown, 안전한 source label, asOf, completeness, `direct/question_only/read_only`, 다음 행동을 표시한다.
+4. identity/supporting/diagnostic은 19축 eligibility와 다른 section에 둔다.
+5. checkpoint: `web: project all operational profile dimensions`
+
+#### P4B — shared answer loop
+
+1. `/matches`, dashboard, web/app이 같은 answer builder와 P3B command를 사용한다.
+2. revenue/employees range, structured prior award, insured layoff/months, investment last round 회귀를 고친다.
+3. 답변 성공 응답에 최신 profile view, 영향 공고 수, 4상태 카드/카운트, 다음 질문을 함께 반환하고 화면이 즉시 그 값을 사용한다.
+4. anonymous answer는 ephemeral이고 로그인 answer만 owner scope로 저장한다.
+5. checkpoint: `web: unify matching profile answer loop`
+
+P4 전체 수용 조건:
+
+- `CompanyEvidence.fields`의 operational key와 순서가 19축 SSOT와 정확히 같다. identity/supporting row는 별도 section이다.
+- 19축 어느 것도 `other_conditions` fallback으로 저장되지 않는다.
+- range/prior-award/compound 답변이 동일 context의 `/matches`와 dashboard에서 같은 profile 의미를 만든다.
+- 답변 후 강제 reload 없이 결과와 다음 질문이 갱신된다. 로그인 경로는 reload 후에도 동일하다.
+- D9가 닫힌 동안 4상태 내부 판정이 있더라도 사용자 문구는 `조건 확인 완료`, `추가 정보 필요`, `원문 확인 필요` 같은 중립 표현을 사용하고 `지원 가능성이 높음`을 노출하지 않는다.
+- P5 전 기본 mode는 legacy이며 typed candidate가 response/persistence/state authority가 되지 않는다.
+
+### P5 — vertical completeness CI와 bounded shadow
+
+**목표:** 이후 matcher·source 개선이 UI 배선 누락 없이 제품에 도달하도록 CI를 만들고, 실제 전환 전 의미 차이를 짧게 관찰한다.
+
+#### P5A — parity CI와 semantic replay
+
+1. `verify:profile-product-parity`를 추가해 core spec, contract/OpenAPI, source mapping, persistence round-trip, 19축 adapter, Q&A, product route E2E를 묶고 root test/CI의 필수 job으로 연결한다.
+2. full-profile fixture와 축별 sparse/unknown fixture로 source → update → merge → persist → resolve → match → safe view를 수직 검증한다.
+3. 모든 `ProductProfileConsumerId`의 route/integration fixture가 legacy product와 typed candidate receipt를 만들고, source/route matrix에 누락·`pending`이 없음을 검증한다.
+4. 승인 30표본 또는 동일 범위의 안전한 fixture materialization을 고정해 legacy/typed semantic replay를 수행한다. provider I/O 없이 동일 observations, grants, asOf를 사용한다.
+5. known→unknown, primary precedence 하락, eligible↔ineligible, question 변화와 safe view 차이를 집계하고 모든 hard-state 차이에 판정을 기록한다.
+6. checkpoint: `test: enforce product profile vertical parity`
+
+#### P5B — live traffic shadow
+
+1. 시작 전에 배포 환경, 조작 주체, current deployment/commit, rollback deployment/commit, telemetry dashboard, current mode/percentage, live source allowlist, cohort secret 존재 여부만 영수증에 기록한다. secret 값은 출력하지 않는다. 전체 계획 실행 권한이 없는 세션에서는 production mode를 바꾸지 않는다.
+2. 중앙 dispatcher를 `shadow`, stable HMAC cohort percentage를 10%로 두고 typed candidate만 추가 계산한다. 사용자 response/persistence/state authority는 legacy다.
+3. materialization과 provider 호출은 한 번만 수행하며 legacy/typed가 공유한다.
+4. 최대 24시간 안에 최소 **500 shadow-evaluated receipts**를 모은다. 각 receipt는 같은 request의 legacy comparator를 가지며, 전체 eligible traffic 수를 typed 표본 수로 세지 않는다.
+5. high-volume consumer group인 anonymous teaser와 authenticated matching read는 각각 최소 100 shadow-evaluated receipts를 요구한다. 나머지 등록 consumer는 production traffic 또는 승인된 controlled smoke로 최소 1회 관측한다.
+6. 24시간에 분모가 부족하면 replay로 latency/5xx/call-count 증거를 대체하지 않고 `traffic_evidence_insufficient`로 P6B를 막는다.
+7. route 5xx, p95, provider call count, receipt 누락, hard-state diff를 집계한다. 임계 초과 시 percentage 0 → mode legacy → 신규 live source allowlist 비우기 순서로 즉시 rollback한다.
+8. checkpoint: `web: shadow typed profiles on product traffic`
+
+수용 조건:
+
+- matcher 축/path를 임의로 하나 추가한 mutation test가 adapter/persistence/question/product parity 중 누락을 CI에서 잡는다.
+- 설명되지 않은 known→unknown, authoritative primary 하락, hard eligible↔ineligible 차이 0건이다.
+- shadow 때문에 live provider 호출 수가 늘지 않는다.
+- 5xx 증가 0.2%p 미만, p95 추가 지연은 150ms 또는 10% 중 큰 값 이하를 목표로 하며 초과 시 P6B로 가지 않는다.
+- traffic shadow는 시작 후 24시간에 반드시 종료하고 mode를 `legacy`로 되돌린다. semantic replay는 성능·안정성 증거로 세지 않는다.
+- P5 전체에서 typed product receipt와 typed persistence/state write는 0이다.
+
+### P6 — 외부 truth, production canary, legacy 종료
+
+**목표:** preview/live truth가 맞다는 증거를 먼저 통과시킨 뒤 typed resolver를 10→50→100%로 승격하고 유일한 제품 경로로 만든다.
+
+#### P6A — preview/live truth Gate
+
+사전 조건:
+
+- 사용자가 실행 중인 dev/preview 서버와 포트를 먼저 확인한다. Codex가 장기 실행 dev 서버를 시작하지 않는다.
+- 실제 개인 15·법인 15 표본은 사용 승인, 기대값을 아는 필드, consent 범위를 먼저 기록한다. 승인 표본이 없으면 임의 사업자번호를 수집하지 않고 `external_samples_missing` blocker로 닫는다.
+- live/유료/consent source는 해당 권한과 비용 상한이 있을 때만 호출한다. 검증할 권한이나 ground truth가 없는 source는 production `consumed`가 아니라 `disabled|not_authorized|unavailable`로 닫는다.
+
+필수 시나리오:
+
+- anonymous, owner, other user, consent granted/expired/revoked
+- success, normal empty, cache hit, cache miss, timeout/provider failure
+- web/app teaser, create, dashboard/matches/detail, answer, enrich, refresh, feedback
+- 19축 known/partial/unknown UI와 source/asOf/completeness
+- revenue/employees range, prior award, IP, financial, layoff, investment 질문
+- answer 직후 매칭 변화와 reload round-trip
+- desktop 1440×900, mobile 390×844 기능 smoke
+- 응답·로그·screenshot의 bizNo 원문, 생년월일, 전화, token, raw payload 누출 검사
+
+30표본 측정표에는 source별 `success/normal_empty/not_covered/skipped/failed`, cache hit, typed normalization 성공/실패, verified field 일치/불일치, authoritative/self-declared 충돌과 선택 근거, 기본 match-ready 축 수, 질문 수, 질문별 unknown 감소를 반드시 기록한다. 비어 있거나 검증하지 못한 분모는 `n/a`로 명시하고 성공률로 위장하지 않는다.
+
+P6A blocking 수용 조건:
+
+- non-empty verified response의 normalization 실패 0건, verified field 불일치 0건이다. 하나라도 있으면 해당 source를 고치거나 disabled로 닫기 전 P6B로 가지 않는다.
+- authoritative primary의 silent downgrade, 설명 없는 conflict winner, partial-list miss의 부재 확정이 각각 0건이다.
+- 질문 fixture와 실표본에서 답한 target dimension의 expected unknown 감소가 재현되고, 불완전 근거의 false hard eligible/ineligible이 0건이다.
+- source별 응답/정상 빈값/실패가 정확히 분류되고 provider schema mismatch가 성공으로 집계되지 않는다.
+- 두 번째 동일 조회의 신규 live provider 호출 0, 30/30 deterministic replay 동일이다.
+- cross-tenant/anonymous consent-derived 노출과 민감 로그/응답/screenshot이 0건이다.
+- 동일 context + 동일 materialized observations + 동일 asOf에서 web/app 및 주요 consumer의 profile·match·question 결과가 같다.
+- D9가 닫힌 동안 neutral copy만 노출한다.
+- checkpoint: `test: record verified service-data product truth`
+
+P6A 증거는 P5B traffic 성능 증거를 대체하지 않으며, P5B와 P6A 모두 통과해야 P6B를 시작한다.
+
+#### P6B — production 10→50→100% canary
+
+전환 전에 배포 환경, 조작 주체, current deployment/commit, rollback deployment/commit, telemetry dashboard, live source allowlist, cohort secret의 존재 여부만 영수증에 기록한다. secret 값은 출력하지 않는다. 전체 P0~P6 실행 요청이 없는 별도 세션에서는 production traffic을 바꾸지 않는다.
+
+허용 제어는 다음 세 가지뿐이다.
+
+- `SERVICE_DATA_PROFILE_MODE=legacy|shadow|rollout|typed`와 동등한 중앙 mode
+- `SERVICE_DATA_TYPED_COHORT_PERCENT=0|10|50|100`와 동등한 percentage
+- 신규 live source allowlist
+
+cohort는 `HMAC(secret, context + stable internal subject) % 100`으로 정하고 raw bizNo/user ID를 log에 남기지 않는다. 같은 subject는 단계 안에서 sticky하다. cohort 배정 분모는 dispatcher를 통과한 eligible product requests지만, Gate 표본 수는 실제 `typed_product` 또는 `typed_candidate` receipt만 별도로 센다. `rollout`에서 percentage 밖 요청은 legacy, 안쪽 요청만 typed product authority를 사용한다.
+
+승격 순서:
+
+1. percentage 0에서 N/N-1 read와 rollback dry-run을 확인한다.
+2. 10%를 최소 2시간, 최소 500 `typed_product` receipts와 최소 500 concurrent `legacy_product` comparator receipts까지 관찰한다.
+3. Gate 지표가 유지되면 50%를 같은 분모와 시간 조건으로 관찰한다.
+4. 다시 유지되면 100%로 전환해 최소 2시간과 최소 500 `typed_product` receipts를 관찰하고 P5B/직전 단계 baseline과 비교한다.
+5. 어느 단계든 지표를 넘으면 percentage 0 → mode legacy → 신규 live source allowlist 비우기 순서로 즉시 rollback한다.
+
+각 단계 수용 조건:
+
+- route 5xx 증가는 0.2%p 미만, p95 추가 지연은 150ms 또는 10% 중 큰 값 이하다.
+- 10/50%에서는 typed cohort의 provider call count가 concurrent legacy cohort보다 증가하지 않고, 100%에서는 P5B와 직전 P6B 단계의 동일 source-policy baseline을 넘지 않는다.
+- 설명되지 않은 known→unknown, primary downgrade, hard-state diff, question-loop diff, receipt 누락이 각각 0건이다.
+- typed write는 resolver/source version이 있는 non-destructive observation만 만들고, canary 중 새 답변을 포함한 N-1 legacy reconstruction test를 계속 통과한다.
+- cross-scope exposure, 민감 telemetry, D9 copy 위반이 0건이다.
+- 10/50%에서는 anonymous teaser와 authenticated matching read가 typed/legacy 각각 최소 100 receipts이고, 모든 등록 consumer는 실제 traffic 또는 승인된 controlled smoke receipt가 최소 1개다.
+- 표본/시간이 부족하면 다음 percentage로 가지 않고 external traffic blocker로 남긴다.
+- checkpoint: `web: roll out typed service-data product profiles`
+
+#### P6C — 100% 안정화와 legacy retirement
+
+1. 100% typed에서 24시간과 최소 500 `typed_product` receipts를 관찰한다.
+2. source/route별 `ProductConsumptionReceipt.authority=typed_product` 집계를 기록하고 `product_consumed=pending`이 없음을 CI와 production aggregate 양쪽에서 확인한다.
+3. typed resolver로 company-scoped state를 한 번 재계산한다. user overlay는 company state에 쓰지 않는다.
+4. shadow comparison, central legacy adapter, route-local legacy merge, hardcoded 10축 list, 중복 answer 구현, rollout percentage 분기를 제거한다.
+5. additive observation/schema는 삭제하지 않고 N-1 배포가 읽을 수 있는 상태를 한 release 유지한다. emergency rollback은 이전 검증 deployment로 수행하며 코드에 두 번째 resolver를 되살리지 않는다.
+
+P6 최종 수용 조건:
+
+- 운영 19축의 source 상태가 `consumed | disabled | not_authorized | unavailable` 중 하나이며 `product_consumed=pending`이 없다.
+- 모든 product consumer가 동일 context/observations/asOf에서 같은 typed profile·match·question 의미를 쓴다.
+- root CI, P6A truth, P5B/P6B operational gates, browser 기능 smoke가 green이다.
+- 독립 reviewer BLOCKER/MAJOR가 0이고 rollout/shadow/legacy code가 제거됐다.
+- final checkpoints: `web: make typed service data the product match input`, `chore: retire legacy profile resolution`
+
+## 22. 검증 매트릭스
+
+| 층 | 필수 증거 |
+|---|---|
+| pure assembly | evidence precedence, supplemental 보존, update order contract, explicit asOf, G1~G7 fixture 회귀 |
+| contract | 19축 TypeScript/OpenAPI parity, safe DTO allowlist, source kind/consent semantics, consumer registry와 `ProductConsumptionReceipt` |
+| persistence | full/sparse profile round-trip, permutation independence와 conflict/unknown, user/shared scope, versioned non-destructive observation, N-1 reconstruction, revoke 후 재해석 |
+| matcher | direct·normalized product path parity, unknown 보존, 4상태, next-question 영향 |
+| commands | web/app create·enrich·answer의 동일 profile/save/refresh receipt |
+| routes | teaser/dashboard/detail/background/feedback가 resolver를 우회하지 않는 정적·통합 test |
+| privacy | anonymous/owner/other-user/consent matrix, raw/masked payload 검사, GET no-write |
+| UI | 19축 key/order, known/partial/unknown, source/asOf/completeness, 네 문제 질문 회귀, immediate refresh |
+| live truth | 30표본 source status, normalization/verified-field accuracy, conflict decision, match-ready 축, 질문별 unknown 감소, privacy/browser 증거 |
+| operations | cache/live call count, deadline/single-flight, 24h shadow, sticky HMAC cohort, 5xx/p95, 10/50/100 rollout·rollback 영수증 |
+
+최소 로컬 명령 묶음은 새 `pnpm verify:profile-product-parity` 외에 contracts/core/web typecheck, OpenAPI·route-policy·RLS·migration 검증, matching/Q&A/evidence-priority/company-enrichment/service-data/consent focused tests, root `pnpm test`, `git diff --check`를 포함한다. 실제 명령명은 repo에 이미 있는 script를 재사용하고 같은 검증을 중복 구현하지 않는다.
+
+## 23. rollout·rollback·관측 원칙
+
+rollout 동안만 다음 세 제어를 허용한다.
+
+- `SERVICE_DATA_PROFILE_MODE=legacy|shadow|rollout|typed`와 동등한 단일 mode switch
+- stable HMAC cohort에 쓰는 `SERVICE_DATA_TYPED_COHORT_PERCENT=0|10|50|100`와 동등한 percentage
+- 신규 live source allowlist. 빈 값이면 신규 live acquisition을 모두 중단한다.
+
+rollback 순서는 다음과 같다.
+
+1. cohort percentage를 0으로 내려 신규 typed response/write를 막는다.
+2. mode를 `legacy`로 되돌린다.
+3. 신규 live source allowlist를 비운다.
+4. `LegacyProductProfileAdapter`가 resolver/source version으로 N-1 observations만 읽어 기존 profile을 재구성한다. typed observation은 삭제하거나 거짓 legacy 값으로 projection하지 않는다.
+5. consent/CODEF acquisition을 중단하고 N-1 profile로 영향받은 company-scoped state만 재계산한다. user overlay state는 쓰지 않는다.
+6. cache 삭제, DB enum 역마이그레이션, observation 삭제를 rollback 수단으로 쓰지 않는다.
+7. P6C에서 legacy code를 제거한 뒤에는 이전 검증 deployment/commit으로 rollback한다. additive observation/schema의 N-1 read compatibility 때문에 데이터 복구나 역마이그레이션 없이 동작해야 한다.
+
+관측에는 context, provider, source status, cache hit, latency, cost bucket, known/unknown 변화, hard-state 변화만 남긴다. 회사 식별자는 HMAC 가명키를 사용하고 bizNo·개인식별정보·raw payload·provider token은 남기지 않는다.
+
+optional enrichment source 하나가 실패하면 해당 observation만 제외하고 base profile + 나머지 updates로 계속한다. 이때 fallback은 `unknown`이지 legacy merge 의미가 아니다. request identity/access, required base identity, active grant universe 실패는 §18.2의 fail-closed 계약을 따른다.
+
+## 24. 제품 완료 판정과 다음 단계
+
+P0~P6 최종 완료는 다음 모두가 참일 때만 선언한다.
+
+- G1~G7 typed assembly가 production-safe single authority다.
+- 모든 제품 matcher 진입점이 같은 dispatcher/resolver 계약, context에 맞는 observation set, request당 하나의 grant universe와 explicit asOf를 사용한다.
+- 모든 제품 write가 같은 command service와 persistence 의미를 사용한다.
+- 운영 19축이 실제 사용자 페이지에 상태·근거·해소 행동과 함께 노출된다.
+- 모든 질문 형식이 동일 context의 web/app consumer에서 같은 profile 의미를 만들고, anonymous/authenticated의 차이는 명시된 privacy·persistence 정책과 정확히 일치한다.
+- owner/anonymous/consent/revoke와 match-state scope가 안전하다.
+- persistence·TypeScript·OpenAPI·UI·matcher parity를 CI가 강제한다.
+- live product 증거와 10/50/100 rollout이 통과했다.
+- source/route별 `product_consumed=pending`이 0이다.
+- legacy resolver·hardcoded 10축·중복 answer 경로·장기 shadow가 제거됐다.
+- D9가 별도 증거로 해제되기 전까지 사용자 문구가 중립 표현을 유지한다.
+- 독립 리뷰 BLOCKER/MAJOR가 0이고 worktree가 clean하다.
+
+이 완료 뒤 matcher/source/question logic 개선은 반드시 이 제품 경로와 `verify:profile-product-parity`를 통해 수행한다. 따라서 logic commit이 실제 `/matches`·dashboard·web/app API의 결과 변화와 같은 PR/commit의 증거로 남는다. 다음 성능 단계에서는 승인 30표본 baseline으로 축별 자동충전율, 질문 해소율, hard-state 정확도를 개선한다. 시각·상호작용 인터페이스 리디자인은 그 다음 별도 단계로 시작한다.
+
+## 25. 관련 문서
 
 - [매칭 트랙 마스터 실행 문서](./2026-07-13-matching-master-execution.md)
 - [매칭 입력 필드 문제인식](../research/2026-07-13-service-data-매칭입력-필드-문제인식.md)
