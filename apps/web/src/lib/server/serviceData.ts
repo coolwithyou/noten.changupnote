@@ -157,6 +157,21 @@ export async function loadServiceGrants({
   return repositories.grants.listActiveGrants({ limit, asOf });
 }
 
+// 활성 공고 유니버스 hydration은 요청당 수천 행을 읽는 가장 비싼 경로라 프로세스 레벨로 짧게 캐시한다.
+// asOf는 마감 컷오프 필터에만 쓰이므로 TTL 내 재사용의 영향은 "방금 마감된 공고가 잠시 더 노출"뿐이고,
+// D-day 등 asOf 민감 값은 스냅샷 빌더가 매 요청의 asOf로 다시 계산한다.
+// promise를 캐시해 동시 요청도 hydration 1회에 합류시키고, 실패 시엔 비워서 다음 요청이 재시도하게 한다.
+const GRANT_UNIVERSE_CACHE_TTL_MS = 2 * 60 * 1000;
+const grantUniverseCache = new Map<number, {
+  asOfMs: number;
+  cachedAtMs: number;
+  task: Promise<Array<NormalizedGrant<ServiceGrantPayload>>>;
+}>();
+
+export function resetGrantUniverseCacheForTests(): void {
+  grantUniverseCache.clear();
+}
+
 export async function loadServiceGrantUniverse(input: {
   asOf: Date;
   scanLimit?: number;
@@ -165,15 +180,44 @@ export async function loadServiceGrantUniverse(input: {
   if (!Number.isInteger(scanLimit) || scanLimit < 1 || scanLimit > 20_000) {
     throw new Error("scanLimit은 1..20000 정수여야 합니다.");
   }
+  // in-memory 어댑터(테스트·목업)는 조회가 싸고, 테스트가 호출 사이에 저장소를 갱신하므로 캐시하지 않는다.
+  if (getRepositoryAdapterName() !== "drizzle") {
+    return loadServiceGrantUniverseUncached({ asOf: input.asOf, scanLimit });
+  }
+  const asOfMs = input.asOf.getTime();
+  const nowMs = Date.now();
+  const cached = grantUniverseCache.get(scanLimit);
+  if (
+    cached &&
+    nowMs - cached.cachedAtMs < GRANT_UNIVERSE_CACHE_TTL_MS &&
+    // 과거·미래 시점 조회(asOf가 캐시 시점과 TTL 이상 어긋남)는 필터 결과가 달라질 수 있어 우회한다.
+    Math.abs(asOfMs - cached.asOfMs) < GRANT_UNIVERSE_CACHE_TTL_MS
+  ) {
+    return cached.task;
+  }
+  const task = loadServiceGrantUniverseUncached({ asOf: input.asOf, scanLimit });
+  grantUniverseCache.set(scanLimit, { asOfMs, cachedAtMs: nowMs, task });
+  task.catch(() => {
+    if (grantUniverseCache.get(scanLimit)?.task === task) {
+      grantUniverseCache.delete(scanLimit);
+    }
+  });
+  return task;
+}
+
+async function loadServiceGrantUniverseUncached(input: {
+  asOf: Date;
+  scanLimit: number;
+}): Promise<Array<NormalizedGrant<ServiceGrantPayload>>> {
   const grants = await repositories.grants.listActiveGrants({
     asOf: input.asOf,
     // 상한을 넘겼는지 검출하기 위한 sentinel 한 건을 추가한다.
-    limit: scanLimit + 1,
+    limit: input.scanLimit + 1,
   });
-  if (grants.length > scanLimit) {
+  if (grants.length > input.scanLimit) {
     throw new ServiceDataError(
       "active_grant_scan_incomplete",
-      `활성 공고가 ${scanLimit.toLocaleString("ko-KR")}건을 초과해 일부 결과만 반환할 수 없습니다. scanLimit을 높여주세요.`,
+      `활성 공고가 ${input.scanLimit.toLocaleString("ko-KR")}건을 초과해 일부 결과만 반환할 수 없습니다. scanLimit을 높여주세요.`,
       503,
     );
   }

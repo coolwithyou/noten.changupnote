@@ -98,7 +98,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
   async listActiveGrants(options: GrantListOptions = {}): Promise<Array<NormalizedGrant<TPayload>>> {
     // limit 은 조인 전 "공고 수" 기준이어야 한다. criteria LEFT JOIN 결과 행에 limit 을 걸면
     // 공고당 조건 수만큼 실제 공고 수가 줄어드는 버그가 있었다(limit 40 요청 시 ~13건).
-    // 그래서 1단계에서 공고 id 만 limit 으로 뽑고, 2단계에서 criteria·raw 를 조인한다.
+    // 그래서 1단계에서 raw 포함 공고 후보를 limit 으로 뽑고, 2단계에서 criteria 만 조인한다.
     const activeWhere = or(
       and(eq(schema.grants.status, "open"), activeGrantApplyEndWhere(options.asOf)),
       and(eq(schema.grants.status, "upcoming"), activeGrantApplyEndWhere(options.asOf)),
@@ -118,10 +118,11 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       .select({
         id: schema.grants.id,
         source: schema.grants.source,
+        sourceId: schema.grants.sourceId,
         status: schema.grants.status,
         title: schema.grants.title,
         applyEnd: schema.grants.applyEnd,
-        rawPayload: schema.grantRaw.payload,
+        raw: schema.grantRaw,
       })
       .from(schema.grants)
       .leftJoin(
@@ -134,6 +135,12 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       .where(and(activeWhere, confirmedMemberFilter))
       .orderBy(desc(schema.grants.updatedAt))
       .limit(requestedLimit + 500);
+    // payload(평균 ~1.8KB)를 2단계 criteria 조인에서 다시 받으면 공고당 조건 수만큼
+    // 중복 전송된다(실측 ~33MB/요청). 1단계에서 이미 받은 raw 행을 재사용한다.
+    const rawBySourceKey = new Map<string, GrantRawRow | null>();
+    for (const row of candidateRows) {
+      rawBySourceKey.set(`${row.source}:${row.sourceId}`, row.raw);
+    }
     const idRows = candidateRows
       .filter((row) =>
         !isClearlyStaleUndatedGrant({
@@ -142,7 +149,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
           title: row.title,
           apply_end: row.applyEnd?.toISOString() ?? null,
         }, options.asOf) &&
-        !isKStartupRecruitmentClosedPayload(row.source, row.rawPayload)
+        !isKStartupRecruitmentClosedPayload(row.source, row.raw?.payload ?? null)
       )
       .slice(0, requestedLimit);
     if (idRows.length === 0) return [];
@@ -161,21 +168,36 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       .select({
         grant: schema.grants,
         criterion: schema.grantCriteria,
-        raw: schema.grantRaw,
       })
       .from(schema.grants)
       .leftJoin(schema.grantCriteria, eq(schema.grantCriteria.grantId, schema.grants.id))
-      .leftJoin(
-        schema.grantRaw,
-        and(
-          eq(schema.grantRaw.source, schema.grants.source),
-          eq(schema.grantRaw.sourceId, schema.grants.sourceId),
-        ),
-      )
       .where(inArray(schema.grants.id, hydrationIds))
       .orderBy(desc(schema.grants.updatedAt));
 
-    const grants = hydrateGrants<TPayload>(rows);
+    // dedup 확장(reachableDedupIds)으로 1단계 후보에 없던 공고가 섞이면 그 raw만 추가로 1회 조회한다.
+    const missingRawPairs = new Map<string, { source: GrantRow["source"]; sourceId: string }>();
+    for (const row of rows) {
+      const key = `${row.grant.source}:${row.grant.sourceId}`;
+      if (!rawBySourceKey.has(key)) {
+        missingRawPairs.set(key, { source: row.grant.source, sourceId: row.grant.sourceId });
+      }
+    }
+    if (missingRawPairs.size > 0) {
+      const missingRawRows = await this.db.client
+        .select()
+        .from(schema.grantRaw)
+        .where(or(...[...missingRawPairs.values()].map((pair) =>
+          and(eq(schema.grantRaw.source, pair.source), eq(schema.grantRaw.sourceId, pair.sourceId)),
+        )));
+      for (const raw of missingRawRows) {
+        rawBySourceKey.set(`${raw.source}:${raw.sourceId}`, raw);
+      }
+    }
+
+    const grants = hydrateGrants<TPayload>(rows.map((row) => ({
+      ...row,
+      raw: rawBySourceKey.get(`${row.grant.source}:${row.grant.sourceId}`) ?? null,
+    })));
     const [archives, surfaces] = await Promise.all([
       this.loadAttachmentArchives(grants),
       this.loadApplicationSurfaces(grants),

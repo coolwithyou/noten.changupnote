@@ -56,9 +56,14 @@ export interface PopbillBalances {
   partnerPoint: number;
 }
 
+// 팝빌 SDK는 콜백 기반이라 AbortSignal을 받을 수 없다. 응답이 아예 안 오는 행(hang)이
+// 요청·커넥션 풀을 무한 점유하지 않도록 promise 레벨 타임아웃으로 대신한다.
+const DEFAULT_CHECK_BIZ_INFO_TIMEOUT_MS = 10_000;
+
 export async function checkPopbillBizInfo(options: {
   credentials: PopbillCredentials;
   checkCorpNum: string;
+  timeoutMs?: number;
 }): Promise<PopbillBizCheckInfo> {
   const popbill = await loadPopbill();
   popbill.config({
@@ -71,13 +76,23 @@ export async function checkPopbillBizInfo(options: {
   });
 
   const service = popbill.BizInfoCheckService();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_CHECK_BIZ_INFO_TIMEOUT_MS;
   const result = await new Promise<unknown>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`팝빌 사업자정보 조회가 ${timeoutMs}ms 안에 응답하지 않았습니다.`));
+    }, timeoutMs);
     service.checkBizInfo(
       options.credentials.corpNum,
       sanitizeCorpNum(options.checkCorpNum),
       options.credentials.userId ?? "",
-      resolve,
-      reject,
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
     );
   });
   return result as PopbillBizCheckInfo;
