@@ -4,6 +4,7 @@ import { GrantOverviewView } from "@/features/grant-overview/GrantOverviewView";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
+import { getRemainingAssistantUses } from "@/lib/server/credits/remainingUses";
 import { getGrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
 import { recordLessonExposures, type LessonExposureInput } from "@/lib/server/knowledge/knowledgeRepo";
@@ -36,12 +37,15 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
     fieldLessonTips,
   });
   const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
+  // 과금 접점 ①: CTA 캡션 옆 "도우미 1회 사용 · 남은 N회" 칩. 환산 불가·조회 실패는 null → 비노출.
+  const remainingUses = await getRemainingAssistantUses();
   return (
     <AppShell user={user}>
       <GrantOverviewView
         sheet={sheet}
         lessonGuide={lessonGuide}
         previewAvailability={previewAvailability}
+        remainingUses={remainingUses}
       />
     </AppShell>
   );

@@ -192,6 +192,11 @@ export function FieldPanel({
     ?? connectedFields.find((field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled")
     ?? connectedFields[0]!;
   const activeIndex = connectedFields.findIndex((field) => field.fieldId === activeField.fieldId);
+  // 남은 확인량 프레이밍(디자인 정본 4a): 분모는 전체가 아니라 "확인이 필요한(미완료) 항목" 수.
+  const reviewFields = connectedFields.filter(
+    (field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled",
+  );
+  const reviewPosition = reviewFields.findIndex((field) => field.fieldId === activeField.fieldId) + 1;
   const key = answerKey(activeField.label);
   const nextField = connectedFields
     .slice(activeIndex + 1)
@@ -203,8 +208,8 @@ export function FieldPanel({
       <FieldCard
         field={activeField}
         answer={answers[key]}
-        position={activeIndex + 1}
-        total={connectedFields.length}
+        reviewPosition={reviewPosition}
+        reviewTotal={reviewFields.length}
         isDuplicate={duplicateLabels.has(activeField.label)}
         isSelected
         isPending={pendingLabels.has(key)}

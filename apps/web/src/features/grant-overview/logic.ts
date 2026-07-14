@@ -100,11 +100,10 @@ export function grantOverviewCta(
   const pendingSurfaceCount = Math.max(0, availability?.pendingSurfaceCount ?? 0);
 
   if (templateCount > 0 || readySurfaceCount > 0) {
-    const count = Math.max(templateCount, readySurfaceCount);
     return {
       mode: "template_fill",
       label: "지원서 작성 시작",
-      caption: `${count.toLocaleString("ko-KR")}개 원본 양식을 확인하며 작성을 시작해요`,
+      caption: "HWP 양식의 80%를 미리 채워드려요",
       variant: "default",
     };
   }

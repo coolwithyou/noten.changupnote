@@ -23,6 +23,7 @@ import type {
   ApplicationPipelineResult,
   ApplicationStage,
 } from "@/lib/server/applications/pipeline";
+import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -640,7 +641,7 @@ function formatDday(value: number | null): string | null {
 }
 
 function isUrgentDday(value: number | null): boolean {
-  return value !== null && value >= 0 && value <= 7;
+  return value !== null && value >= 0 && value <= URGENT_MAX_DDAY;
 }
 
 function formatCalendarDate(value: string): string {

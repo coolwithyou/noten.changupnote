@@ -68,6 +68,7 @@ import {
   revenueUnitLabel,
   matchingPrecision,
   toRevenueUnit,
+  type AnswerImpactSummary,
   type ProfileFieldView,
   type ProfileInputDraft,
   type ProfileSheetValueState,
@@ -109,12 +110,15 @@ export function ProfileSection({
   submitting,
   open,
   onOpenChange,
+  answerImpact = null,
 }: {
   teaser: ProductTeaserResult;
   onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
   submitting: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** 마지막 답변 반영 요약 — 저장 직후 새 확정 건수·정밀도 델타 피드백에 사용. */
+  answerImpact?: AnswerImpactSummary | null;
 }) {
   const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
   const precision = matchingPrecision(teaser);
@@ -132,6 +136,8 @@ export function ProfileSection({
   const [savedFeedback, setSavedFeedback] = useState<SavedFieldFeedback | null>(null);
   const [view, setView] = useState<ProfileSheetView>("profile");
   const savedDelta = savedFeedback ? precision.pct - savedFeedback.beforePct : 0;
+  // 시트 내 저장 완료(savedFeedback) 직후에만 마지막 반영 요약의 새 확정 건수를 노출한다.
+  const savedNewlyOpen = savedFeedback ? answerImpact?.newlyOpen ?? 0 : 0;
 
   useEffect(() => {
     if (!activeFieldKey) return;
@@ -201,9 +207,11 @@ export function ProfileSection({
                   <Alert className="mt-4 border-brand-mint/30 bg-brand-mint-soft text-brand-mint-ink">
                     <Check aria-hidden />
                     <AlertDescription className="font-semibold text-brand-mint-ink">
-                      {savedDelta > 0
-                        ? `매칭 정밀도가 ${savedDelta}%p 올랐어요`
-                        : `${savedFeedback.label} 정보를 매칭 결과에 반영했어요`}
+                      {savedNewlyOpen > 0
+                        ? `공고 ${savedNewlyOpen.toLocaleString("ko-KR")}건이 새로 확정됐어요`
+                        : savedDelta > 0
+                          ? `매칭 정밀도가 ${savedDelta}%p 올랐어요`
+                          : `${savedFeedback.label} 정보를 매칭 결과에 반영했어요`}
                     </AlertDescription>
                   </Alert>
                 ) : null}
@@ -211,6 +219,7 @@ export function ProfileSection({
                 <div className="mt-[18px] rounded-[14px] border border-brand-tint bg-landing-step-blue px-4 py-3.5 shadow-[var(--shadow-landing-step)]">
                   <PrecisionGauge
                     pct={precision.pct}
+                    {...(savedDelta > 0 ? { delta: `+${savedDelta}%p` } : {})}
                     label={`매칭 정밀도 ${precision.pct}%`}
                     caption="빈 항목을 채우면 더 정확해져요"
                     meta=""

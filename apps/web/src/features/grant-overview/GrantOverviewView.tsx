@@ -2,6 +2,7 @@ import type { ApplySheet } from "@cunote/contracts";
 import Link from "next/link";
 import { VerdictBadge } from "@/components/app/verdict-badge";
 import { Accordion } from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
@@ -31,16 +32,24 @@ export function GrantOverviewView({
   sheet,
   lessonGuide = null,
   previewAvailability = null,
+  remainingUses = null,
 }: {
   sheet: ApplySheet;
   lessonGuide?: GrantLessonGuideDto | null;
   previewAvailability?: GrantPreviewAvailability | null;
+  /** 남은 도우미 횟수(서버 환산). null 이면 과금 칩 비노출. */
+  remainingUses?: number | null;
 }) {
   const grantId = sheet.grant.id;
   const workspaceHref = `/grants/${encodeURIComponent(grantId)}/workspace`;
   const verdict = grantOverviewVerdict(sheet);
   const cta = grantOverviewCta(sheet, previewAvailability);
   const showConversionPoll = (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
+  // 과금 접점 ①: 도우미 사용(초안 생성)이 시작되는 모드에서만 시작 고지 칩을 노출한다.
+  const usageChipRemaining =
+    typeof remainingUses === "number" && (cta.mode === "template_fill" || cta.mode === "ai_draft")
+      ? remainingUses
+      : null;
 
   return (
     <div className="mx-auto w-full max-w-[680px] px-5 py-8 sm:px-0 sm:py-14 sm:pb-18">
@@ -81,7 +90,20 @@ export function GrantOverviewView({
         >
           {cta.label}
         </Link>
-        <p className="mt-2.5 text-center text-[13px] leading-5 text-text-tertiary">{cta.caption}</p>
+        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
+          <p className="text-center text-[13px] leading-5 text-text-tertiary">{cta.caption}</p>
+          {usageChipRemaining !== null ? (
+            <Badge
+              className={
+                usageChipRemaining <= 0
+                  ? "rounded-full bg-warning-strong-soft font-extrabold text-warning-strong tabular-nums"
+                  : "rounded-full bg-brand-tint text-brand-hover tabular-nums"
+              }
+            >
+              도우미 1회 사용 · 남은 {usageChipRemaining.toLocaleString("ko-KR")}회
+            </Badge>
+          ) : null}
+        </div>
       </section>
       {showConversionPoll ? <ConversionPollTrigger grantId={grantId} /> : null}
 

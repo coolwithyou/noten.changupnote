@@ -36,10 +36,10 @@ export function fmtBiz(value: string): string {
   return d;
 }
 
-/** 10자리를 000-**-***** 로 마스킹(서버 maskedBizNo와 동일 포맷). */
+/** 10자리를 000-**-00*** 로 마스킹(서버 maskCorpNum과 동일 포맷 — 로딩→확인 상태에서 포맷이 바뀌지 않게). */
 export function maskLandingBizNo(digits: string): string {
   if (digits.length !== 10) return fmtBiz(digits);
-  return `${digits.slice(0, 3)}-**-*****`;
+  return `${digits.slice(0, 3)}-**-${digits.slice(5, 7)}***`;
 }
 
 /** preview 에러 코드별 다이얼로그 제목. 번호 문제는 재확인, 그 외는 재시도 유도. */

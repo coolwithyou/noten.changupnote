@@ -164,7 +164,7 @@ const templateSheet = sheetFixture({
 assert.deepEqual(grantOverviewCta(templateSheet, previewFixture()), {
   mode: "template_fill",
   label: "지원서 작성 시작",
-  caption: "1개 원본 양식을 확인하며 작성을 시작해요",
+  caption: "HWP 양식의 80%를 미리 채워드려요",
   variant: "default",
 });
 

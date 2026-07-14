@@ -76,7 +76,7 @@ function accountLinkIcon(href: string) {
   if (href === "/dashboard") return <LayoutDashboardIcon />;
   if (href === "/applications") return <BriefcaseBusinessIcon />;
   if (href === "/team") return <UsersRoundIcon />;
-  if (href === "/billing") return <CreditCardIcon />;
+  if (href === "/pricing") return <CreditCardIcon />;
   if (href === "/settings") return <SettingsIcon />;
   return <LifeBuoyIcon />;
 }

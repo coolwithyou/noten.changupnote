@@ -46,8 +46,8 @@ const STATUS_META = {
 export function FieldCard({
   field,
   answer,
-  position,
-  total,
+  reviewPosition,
+  reviewTotal,
   isDuplicate,
   isSelected,
   isPending,
@@ -64,8 +64,10 @@ export function FieldCard({
 }: {
   field: ConnectedDocumentField;
   answer: DraftFieldAnswer | undefined;
-  position: number;
-  total: number;
+  /** 확인이 필요한(미완료) 항목 내 순번(1-base). 이 카드가 이미 확인 완료면 0. */
+  reviewPosition: number;
+  /** 확인이 필요한(미완료) 항목 수. */
+  reviewTotal: number;
   isDuplicate: boolean;
   isSelected: boolean;
   isPending: boolean;
@@ -142,7 +144,16 @@ export function FieldCard({
     <Card className="shadow-[var(--shadow-subtle)]">
       <CardHeader>
         <div className="text-xs font-semibold text-muted-foreground">
-          전체 {total.toLocaleString("ko-KR")}개 중 {position.toLocaleString("ko-KR")}번째
+          {reviewPosition > 0 && reviewTotal > 0 ? (
+            <>
+              확인이 필요한 항목 {reviewTotal.toLocaleString("ko-KR")}개 중{" "}
+              <span className="text-primary">{reviewPosition.toLocaleString("ko-KR")}번째</span>
+            </>
+          ) : reviewTotal > 0 ? (
+            <>확인 완료 · 확인이 필요한 항목 {reviewTotal.toLocaleString("ko-KR")}개 남음</>
+          ) : (
+            <>모든 항목을 확인했어요</>
+          )}
         </div>
         <CardTitle className="text-xl">{field.label}</CardTitle>
         <CardDescription>

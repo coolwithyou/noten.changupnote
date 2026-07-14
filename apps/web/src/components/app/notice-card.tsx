@@ -34,7 +34,8 @@ export interface NoticeCardProps {
   className?: string;
 }
 
-const URGENT_MAX_DDAY = 14;
+/** D-day 레드 강조 임계(D-N ≤ 이 값이면 레드). 매칭 펼침 카드·신청 리스트와 공유하는 단일 기준. */
+export const URGENT_MAX_DDAY = 14;
 
 function isUrgent(status: NoticeCardStatus, dday: string): boolean {
   if (status === "upcoming") return false;
