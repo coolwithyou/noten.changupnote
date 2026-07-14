@@ -578,8 +578,8 @@ export interface ProfileUpdateImpactDto {
 }
 
 export interface ProfileQuestionRefreshDto {
-  scope: "company_dimension";
-  status: "no_op" | "succeeded" | "partial" | "failed";
+  scope: "company_dimension" | "user_dimension";
+  status: "no_op" | "succeeded" | "partial" | "failed" | "skipped_user_scope";
   plannedCount: number;
   savedCount: number;
   failedCount: number;

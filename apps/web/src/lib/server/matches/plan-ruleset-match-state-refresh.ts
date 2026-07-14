@@ -1,11 +1,16 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import type { CompanyProfile } from "@cunote/contracts";
 import { matchNormalizedGrant, RULESET_VERSION, SCORING_VERSION } from "@cunote/core";
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createDrizzleRepositories } from "../repositories/drizzle";
+import {
+  ProductProfileResolutionError,
+  resolveSystemProductCompanyProfile,
+} from "../productProfile/resolveProductCompanyProfile";
 import { selectRulesetRefreshTargetCompanyIds, stableSha256 } from "./rulesetMatchStateRefreshSafety";
 
 loadMonorepoEnv();
@@ -24,12 +29,8 @@ try {
   const grantRowIds = grants.map((entry) => entry.grant.id).filter((value): value is string => Boolean(value));
   if (grantRowIds.length !== grants.length) throw new Error("one or more active grants are missing DB row ids");
   const activeGrantIds = new Set(grantRowIds);
-  const [allCompanies, memberships, allStateRows] = await Promise.all([
+  const [allCompanies, allStateRows] = await Promise.all([
     db.select({ companyId: schema.companies.id }).from(schema.companies),
-    db.select({
-      companyId: schema.userCompany.companyId,
-      userId: schema.userCompany.userId,
-    }).from(schema.userCompany),
     db.select({
       companyId: schema.matchState.companyId,
       grantId: schema.matchState.grantId,
@@ -39,10 +40,6 @@ try {
       scoringVer: schema.matchState.scoringVer,
     }).from(schema.matchState),
   ]);
-  const membershipByCompany = new Map<string, string[]>();
-  for (const row of memberships) {
-    membershipByCompany.set(row.companyId, [...(membershipByCompany.get(row.companyId) ?? []), row.userId]);
-  }
   const statesByCompany = new Map<string, typeof allStateRows>();
   for (const row of allStateRows) {
     statesByCompany.set(row.companyId, [...(statesByCompany.get(row.companyId) ?? []), row]);
@@ -54,11 +51,6 @@ try {
     rulesetVer: RULESET_VERSION,
     scoringVer: SCORING_VERSION,
   });
-  const ambiguousCompanyCount = companyIds.filter((companyId) =>
-    (membershipByCompany.get(companyId)?.length ?? 0) !== 1).length;
-  if (ambiguousCompanyCount > 0) {
-    throw new Error(`ruleset refresh target has ${ambiguousCompanyCount} companies without exactly one member`);
-  }
   const targetCompanyIds = new Set(companyIds);
   const existingRows = allStateRows.filter((row) => targetCompanyIds.has(row.companyId));
   const existingByPair = new Map(existingRows.map((row) => [`${row.companyId}:${row.grantId}`, row]));
@@ -86,11 +78,21 @@ try {
   const profileInputFingerprints: Array<{ companyId: string; profile: unknown }> = [];
 
   for (const companyId of companyIds) {
-    const userId = membershipByCompany.get(companyId)![0]!;
-    const profile = await repositories.companies.resolveCompanyProfile({ companyId, userId });
-    if (!profile) {
-      profileMissingCount += 1;
-      continue;
+    let profile: CompanyProfile;
+    try {
+      profile = (await resolveSystemProductCompanyProfile({
+        companyId,
+        asOf: asOf.toISOString(),
+      }, {
+        companies: repositories.companies,
+        enrichmentCache: repositories.enrichmentCache,
+      })).profile;
+    } catch (error) {
+      if (error instanceof ProductProfileResolutionError && error.code === "company_not_found") {
+        profileMissingCount += 1;
+        continue;
+      }
+      throw error;
     }
     profileInputFingerprints.push({ companyId, profile });
     for (const entry of grants) {
@@ -183,11 +185,10 @@ try {
         left.companyId.localeCompare(right.companyId) || left.grantId.localeCompare(right.grantId)),
     }),
     targetCompanyCount: companyIds.length,
-    targetDefinition: "exactly one member, resolvable profile, and incomplete current active ruleset coverage",
+    targetDefinition: "resolvable company-scoped profile and incomplete current active ruleset coverage",
     companyWithoutStoredStateCount: companyIds.filter((companyId) => (statesByCompany.get(companyId)?.length ?? 0) === 0).length,
     staleStoredStateCompanyCount: companyIds.filter((companyId) => (statesByCompany.get(companyId) ?? []).some((row) =>
       row.rulesetVer !== RULESET_VERSION || row.scoringVer !== SCORING_VERSION)).length,
-    ambiguousCompanyCount,
     profileMissingCount,
     activeGrantCount: grants.length,
     existingStoredStateCount: existingRows.length,
@@ -213,7 +214,6 @@ try {
     ],
     ...(includeReviewGrants ? { transitionReviewGrants: serializedReviewGrants } : {}),
     gates: {
-      singleMemberScope: ambiguousCompanyCount === 0,
       profilesResolved: profileMissingCount === 0,
       activeGrantScanComplete: grants.length < scanLimit,
       scopeComplete,

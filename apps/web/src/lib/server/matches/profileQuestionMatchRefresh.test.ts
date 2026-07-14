@@ -15,7 +15,7 @@ const repositories = repositoriesWithSave(async (grantId) => {
 const refresh = await refreshProfileQuestionMatchStates({
   repositories,
   companyId: "company-1",
-  userId: "user-1",
+  stateScope: "company",
   company: after,
   grants,
   impact,
@@ -31,6 +31,25 @@ assert.deepEqual(refresh, {
 });
 assert.deepEqual(savedGrantIds, ["bizinfo:revenue-grant"]);
 
+const userScopedRefresh = await refreshProfileQuestionMatchStates({
+  repositories,
+  companyId: "company-1",
+  stateScope: "user",
+  company: after,
+  grants,
+  impact,
+  asOf: new Date("2026-07-12T00:00:00.000Z"),
+});
+assert.deepEqual(userScopedRefresh, {
+  scope: "user_dimension",
+  status: "skipped_user_scope",
+  plannedCount: 1,
+  savedCount: 0,
+  failedCount: 0,
+  failedGrantIds: [],
+});
+assert.deepEqual(savedGrantIds, ["bizinfo:revenue-grant"], "user overlay must not write shared match_state");
+
 const noChangeImpact = evaluateProfileUpdateImpact({
   grants,
   beforeProfile: after,
@@ -40,7 +59,7 @@ const noChangeImpact = evaluateProfileUpdateImpact({
 const noChangeRefresh = await refreshProfileQuestionMatchStates({
   repositories,
   companyId: "company-1",
-  userId: "user-1",
+  stateScope: "company",
   company: after,
   grants,
   impact: noChangeImpact,
@@ -72,7 +91,7 @@ const partialRefresh = await refreshProfileQuestionMatchStates({
     if (grantId === "bizinfo:second-revenue-grant") throw new Error("fixture write failure");
   }),
   companyId: "company-1",
-  userId: "user-1",
+  stateScope: "company",
   company: bothAfter,
   grants: twoRevenueGrants,
   impact: twoGrantImpact,

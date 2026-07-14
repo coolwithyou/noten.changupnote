@@ -2,7 +2,6 @@
 // 코어 로직·타입은 refreshMatchStatesCore.ts 에 있으며, /api/cron/grant-cycle-post 라우트와 공유한다.
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { mockUserId } from "../auth/mockIdentity";
 import { runRefreshMatchStates } from "./refreshMatchStatesCore";
 
 const DEFAULT_DEMO_COMPANY_ID = "00000000-0000-4000-8000-000000000101";
@@ -11,7 +10,7 @@ loadMonorepoEnv();
 
 if (hasFlag("help")) {
   console.log([
-    "Usage: pnpm match:states:refresh -- --companyId=<uuid> [--userId=<uuid>] [--limit=500] [--asOf=2026-06-27T00:00:00.000Z] [--write]",
+    "Usage: pnpm match:states:refresh -- --companyId=<uuid> [--limit=500] [--asOf=2026-06-27T00:00:00.000Z] [--write]",
     "",
     "Default mode is dry-run. Add --write to persist match_state rows.",
   ].join("\n"));
@@ -19,14 +18,13 @@ if (hasFlag("help")) {
 }
 
 const companyId = readArg("companyId") ?? process.env.CUNOTE_DEMO_COMPANY_ID ?? DEFAULT_DEMO_COMPANY_ID;
-const userId = readArg("userId") ?? process.env.CUNOTE_MOCK_USER_ID ?? mockUserId();
 const limit = boundedInteger(readArg("limit") ?? process.env.CUNOTE_MATCH_STATE_REFRESH_LIMIT, 500, 1, 2_000);
 const asOf = dateArg(readArg("asOf") ?? process.env.CUNOTE_MATCH_STATE_REFRESH_AS_OF) ?? new Date();
 const write = hasFlag("write") || process.env.CUNOTE_MATCH_STATE_REFRESH_WRITE === "true";
 const db = getCunoteDb();
 
 try {
-  const summary = await runRefreshMatchStates({ db, companyId, userId, limit, asOf, write });
+  const summary = await runRefreshMatchStates({ db, companyId, limit, asOf, write });
   console.log(JSON.stringify(summary, null, 2));
 } catch (error) {
   if (isMissingDatabaseSchemaError(error)) {
@@ -36,7 +34,6 @@ try {
       code: "missing_database_schema",
       message: "match_state 갱신은 DB 마이그레이션과 샘플 데이터 발행 이후 실행할 수 있습니다.",
       companyId,
-      userId,
       prerequisites: [
         "pnpm db:migrate",
         "pnpm seed:demo",

@@ -40,6 +40,9 @@ assert.equal(result.profileView.rows.find((row) => row.dimension === "revenue")?
 assert.equal(result.impact.dimension, "revenue");
 assert.ok(result.initialMatch.evaluatedGrantCount > 0);
 assert.equal(result.event.sessionId.length > 0, true);
+assert.equal(result.refresh.scope, "user_dimension");
+assert.equal(result.refresh.status, "no_op");
+assert.equal(result.refresh.savedCount, 0);
 
 const persisted = await getServiceRepositories().companies.resolveCompanyProfile({
   companyId: company.id,

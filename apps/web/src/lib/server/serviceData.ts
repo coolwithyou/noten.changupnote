@@ -251,11 +251,12 @@ export async function loadCompanyProfileFromSourceWithEvidence(
 export async function loadServiceDashboard(options: {
   companyId?: string;
   userId?: string;
-  /** 화면에 반환하고 match_state로 저장할 상위 공고 수. */
+  /** 화면에 반환할 상위 공고 수. */
   limit?: number;
   /** 평가할 활성 공고 전체 상한. limit과 분리해 최신 일부만 매칭하는 오류를 막는다. */
   scanLimit?: number;
   asOf?: Date;
+  /** system/company-scope 호출에서만 명시적으로 true로 둔다. 사용자 read는 state를 쓰지 않는다. */
   writeMatchStates?: boolean;
 } = {}): Promise<ProductDashboardResult> {
   const asOf = options.asOf ?? new Date();
@@ -277,13 +278,19 @@ export async function loadServiceDashboard(options: {
   dashboard.matches = await annotateMatchCardWriteSupport(dashboard.matches);
 
   const stateCompanyId = options.companyId ?? company.id;
-  if (options.writeMatchStates !== false) {
+  if (options.writeMatchStates === true) {
+    if (resolution.stateScope !== "company") {
+      throw new ServiceDataError(
+        "user_scoped_match_state_write_forbidden",
+        "사용자별 프로필 결과는 회사 공용 매칭 상태로 저장할 수 없습니다.",
+        409,
+      );
+    }
     // 전체 공고의 판정은 counts/question에 사용하되, 요청마다 수천 행을 쓰지 않도록
     // 실제 응답에 노출한 상위 공고만 match_state로 갱신한다.
     const visibleGrantIds = new Set(dashboard.matches.map((match) => match.grantId));
     await persistMatchStates({
       ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
-      ...(options.userId ? { userId: options.userId } : {}),
       company,
       grants: grants.filter((grant) => visibleGrantIds.has(grantKey(grant.grant))),
       asOf,
@@ -400,17 +407,6 @@ export async function enrichServiceCompany(input: {
     limit: DEFAULT_INITIAL_MATCH_LIMIT,
   });
   initialMatch.matches = await annotateMatchCardWriteSupport(initialMatch.matches);
-
-  // 자동채움 직후 응답에 포함한 상위 결과만 지속화한다. 전체 universe는 응답 counts와
-  // 다음 질문 산정에 이미 사용됐으며, 수천 건의 동시 upsert는 요청 지연을 만들므로 피한다.
-  const visibleGrantIds = new Set(initialMatch.matches.map((match) => match.grantId));
-  await persistMatchStates({
-    companyId: input.companyId,
-    userId: input.userId,
-    company: materialized.profile,
-    grants: grants.filter((grant) => visibleGrantIds.has(grantKey(grant.grant))),
-    asOf,
-  });
 
   return {
     profile: materialized.profile,
@@ -1226,11 +1222,15 @@ async function resolveDashboardProductProfile(input: {
   companyId?: string;
   userId?: string;
   asOf: Date;
-}): Promise<Pick<ResolvedProductCompanyProfile, "profile" | "view">> {
+}): Promise<Pick<ResolvedProductCompanyProfile, "profile" | "view" | "stateScope">> {
   if (!input.companyId) {
     // Sample/dev verification is the sole compatibility boundary without a persisted company id.
     const profile = await repositories.companies.getDefaultCompanyProfile();
-    return { profile, view: buildMatchingProfileView(profile, input.asOf.toISOString()) };
+    return {
+      profile,
+      view: buildMatchingProfileView(profile, input.asOf.toISOString()),
+      stateScope: "company",
+    };
   }
   return resolveProductCompanyProfile(input.userId
     ? {
@@ -1248,7 +1248,6 @@ async function resolveDashboardProductProfile(input: {
 
 async function persistMatchStates(input: {
   companyId?: string;
-  userId?: string;
   company: CompanyProfile;
   grants: Array<NormalizedGrant<ServiceGrantPayload>>;
   asOf: Date;
@@ -1260,7 +1259,6 @@ async function persistMatchStates(input: {
     grants: input.grants,
     asOf: input.asOf,
     companyId: input.companyId,
-    ...(input.userId ? { userId: input.userId } : {}),
     write: true,
   });
 }

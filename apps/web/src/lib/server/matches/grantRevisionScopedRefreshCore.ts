@@ -8,6 +8,7 @@ import type { NormalizedGrant } from "@cunote/contracts";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "../repositories/drizzle";
+import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 
 export interface RunGrantRevisionScopedRefreshInput {
@@ -64,8 +65,14 @@ export async function runGrantRevisionScopedRefresh(
   if (input.write && truncated) throw new Error("refusing incomplete grant-scope refresh: increase --companyLimit");
   const companies = [];
   for (const row of companyRows.slice(0, input.companyLimit)) {
-    const profile = await repositories.companies.resolveCompanyProfile({ companyId: row.id });
-    if (profile) companies.push({ companyId: row.id, profile });
+    const resolution = await resolveSystemProductCompanyProfile({
+      companyId: row.id,
+      asOf: input.asOf.toISOString(),
+    }, {
+      companies: repositories.companies,
+      enrichmentCache: repositories.enrichmentCache,
+    });
+    companies.push({ companyId: row.id, profile: resolution.profile });
   }
   if (companies.length === 0) {
     return {

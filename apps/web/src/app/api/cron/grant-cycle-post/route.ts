@@ -12,7 +12,6 @@
 import { NextResponse } from "next/server";
 import { authorizeCronRequest } from "@/lib/server/auth/cronAuth";
 import { getCunoteDb } from "@/lib/server/db/client";
-import { mockUserId } from "@/lib/server/auth/mockIdentity";
 import { runDedupPublish } from "@/lib/server/ingestion/publishDedupCore";
 import { runRefreshMatchStates } from "@/lib/server/matches/refreshMatchStatesCore";
 import { runGrantInsights } from "@/lib/server/insights/generateGrantInsightsCore";
@@ -39,14 +38,13 @@ export async function GET(request: Request) {
   const db = getCunoteDb();
   const asOf = new Date();
   const companyId = process.env.CUNOTE_DEMO_COMPANY_ID ?? DEFAULT_DEMO_COMPANY_ID;
-  const userId = process.env.CUNOTE_MOCK_USER_ID ?? mockUserId();
 
   const steps: StepResult[] = [];
   steps.push(await runStep("publish:dedup", () =>
     runDedupPublish({ db, dryRun: false, limit: 500, minScore: undefined, asOf })
   ));
   steps.push(await runStep("match:states:refresh", () =>
-    runRefreshMatchStates({ db, companyId, userId, limit: 500, asOf, write: true })
+    runRefreshMatchStates({ db, companyId, limit: 500, asOf, write: true })
   ));
   steps.push(await runStep("insights:grants", () =>
     runGrantInsights({ db, write: true, asOf, staleCursorHours: 48 })

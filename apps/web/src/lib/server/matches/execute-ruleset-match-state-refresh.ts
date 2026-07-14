@@ -17,6 +17,7 @@ import { closeCunoteDb, getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createDrizzleRepositories } from "../repositories/drizzle";
+import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import {
   assessRulesetRefreshSafety,
   parseRulesetRefreshManifest,
@@ -103,9 +104,8 @@ async function buildCurrentSnapshot(db: CunoteDb, expected: RulesetRefreshManife
   if (grants.length > 5_000) throw new Error("active grant scan exceeded 5,000; completeness is not proven");
   if (grants.some((entry) => !entry.grant.id)) throw new Error("one or more active grants are missing DB row ids");
   const activeGrantIds = new Set(grants.map((entry) => entry.grant.id!));
-  const [allCompanies, memberships, allStateRows] = await Promise.all([
+  const [allCompanies, allStateRows] = await Promise.all([
     db.select({ companyId: schema.companies.id }).from(schema.companies),
-    db.select({ companyId: schema.userCompany.companyId, userId: schema.userCompany.userId }).from(schema.userCompany),
     db.select({
       companyId: schema.matchState.companyId,
       grantId: schema.matchState.grantId,
@@ -115,10 +115,6 @@ async function buildCurrentSnapshot(db: CunoteDb, expected: RulesetRefreshManife
       scoringVer: schema.matchState.scoringVer,
     }).from(schema.matchState),
   ]);
-  const membershipByCompany = new Map<string, string[]>();
-  for (const row of memberships) {
-    membershipByCompany.set(row.companyId, [...(membershipByCompany.get(row.companyId) ?? []), row.userId]);
-  }
   const companyIds = selectRulesetRefreshTargetCompanyIds({
     companyIds: allCompanies.map((row) => row.companyId),
     activeGrantIds,
@@ -126,17 +122,19 @@ async function buildCurrentSnapshot(db: CunoteDb, expected: RulesetRefreshManife
     rulesetVer: RULESET_VERSION,
     scoringVer: SCORING_VERSION,
   });
-  const ambiguous = companyIds.filter((companyId) => (membershipByCompany.get(companyId)?.length ?? 0) !== 1);
-  if (ambiguous.length > 0) throw new Error(`ruleset refresh target has ${ambiguous.length} companies without exactly one member`);
   const targetCompanyIds = new Set(companyIds);
   const existingRows = allStateRows.filter((row) => targetCompanyIds.has(row.companyId));
   const existingByPair = new Map(existingRows.map((row) => [`${row.companyId}:${row.grantId}`, row]));
   const companies: RefreshSnapshot["companies"] = [];
   for (const companyId of companyIds) {
-    const userId = membershipByCompany.get(companyId)![0]!;
-    const profile = await repositories.companies.resolveCompanyProfile({ companyId, userId });
-    if (!profile) throw new Error("one or more ruleset refresh profiles could not be resolved");
-    companies.push({ companyId, profile });
+    const resolution = await resolveSystemProductCompanyProfile({
+      companyId,
+      asOf: new Date(expected.asOf).toISOString(),
+    }, {
+      companies: repositories.companies,
+      enrichmentCache: repositories.enrichmentCache,
+    });
+    companies.push({ companyId, profile: resolution.profile });
   }
 
   const transitions: Record<string, number> = {};

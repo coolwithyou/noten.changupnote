@@ -354,6 +354,23 @@ export async function resolveProductCompanyProfile(
   };
 }
 
+/** Shared match_state is company-scoped, so system jobs must never materialize a user overlay. */
+export function resolveSystemProductCompanyProfile(
+  input: { companyId: string; asOf: string },
+  dependencies: Pick<ProductProfileResolverDependencies, "companies" | "enrichmentCache">,
+): Promise<ResolvedProductCompanyProfile> {
+  return resolveProductCompanyProfile({
+    context: "system_recompute",
+    companyId: input.companyId,
+    asOf: input.asOf,
+  }, {
+    ...dependencies,
+    consents: {
+      listCompanyConsents: async () => [],
+    },
+  });
+}
+
 function buildIdentityBaseProfile(profiles: readonly ProfileInput[]): CompanyProfile {
   const base: CompanyProfile = { confidence: {} };
   for (const item of profiles) {

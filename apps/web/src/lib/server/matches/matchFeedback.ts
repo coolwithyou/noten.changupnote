@@ -90,14 +90,16 @@ export function buildFeedbackResult(receipt: FeedbackReceipt): FeedbackResult {
 export async function attachMatchFeedbackProvenance<TPayload>(
   input: SubmitFeedbackInput,
   repositories: ServiceRepositories<TPayload>,
+  profileResolution: {
+    profile: CompanyProfile;
+    stateScope: "company" | "request" | "user";
+    asOf: string;
+  } | null,
 ): Promise<SubmitFeedbackInput> {
   const grant = await repositories.grants.findGrantById(input.grantId);
   if (!grant) return { ...input, provenance: emptyProvenance("grant_missing") };
-  const company = await repositories.companies.resolveCompanyProfile({
-    companyId: input.companyId,
-    ...(input.userId ? { userId: input.userId } : {}),
-  });
-  if (!company) return { ...input, provenance: grantOnlyProvenance(grant, "company_missing") };
+  if (!profileResolution) return { ...input, provenance: grantOnlyProvenance(grant, "company_missing") };
+  const company = profileResolution.profile;
   const match = await repositories.matches.calculateGrantMatch({ company, grant });
   const criterionRefs = match.rule_trace.map((entry) => ({
     criterionId: entry.criterion_id ?? null,
@@ -121,7 +123,7 @@ export async function attachMatchFeedbackProvenance<TPayload>(
     ...input,
     provenance: {
       captureStatus: "complete",
-      capturedAt: new Date().toISOString(),
+      capturedAt: profileResolution.asOf,
       grantSource: grant.grant.source,
       grantSourceId: grant.grant.source_id,
       grantRevision: resolveGrantExtractionManifest(grant).revision,

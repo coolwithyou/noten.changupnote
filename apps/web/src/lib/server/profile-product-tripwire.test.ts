@@ -23,13 +23,14 @@ assert.deepEqual(
 );
 
 const entrypointCallees = [
+  "applyCompanyProfileAnswer",
+  "enrichServiceCompany",
+  "loadProductCompanyPreview",
+  "loadProductDashboard",
+  "loadProductTeaser",
   "loadServiceDashboard",
   "loadServiceApplySheet",
-  "enrichServiceCompany",
-  "resolveTeaserCompanyProfile",
-  "loadCompanyProfileResolutionForTeaser",
-  "buildInitialCompanyMatch",
-  "updateCompanyProfileField",
+  "resolveProductCompanyProfile",
 ];
 // This is intentionally one fixed text capture for the P3 routing gate. It is
 // not an AST or a reusable source-scanning framework.
@@ -88,5 +89,34 @@ for (const line of directCapture.split(/\r?\n/).filter(Boolean)) {
 const actualDirect = [...directCounts.values()]
   .sort((left, right) => left.file.localeCompare(right.file) || left.callee.localeCompare(right.callee));
 assert.deepEqual(actualDirect, fixture.directCallSites, "direct matcher/legacy merge surface changed; route it in P3");
+
+const companyScopedStateConsumers = [
+  "apps/web/src/lib/server/matches/execute-ruleset-match-state-refresh.ts",
+  "apps/web/src/lib/server/matches/grantRevisionScopedRefreshCore.ts",
+  "apps/web/src/lib/server/matches/plan-ruleset-match-state-refresh.ts",
+  "apps/web/src/lib/server/matches/refreshMatchStatesCore.ts",
+  "apps/web/src/lib/server/matches/report-match-state-coverage.ts",
+  "apps/web/src/lib/server/matches/reviewedFeedbackScopedRefreshCore.ts",
+];
+for (const file of companyScopedStateConsumers) {
+  const source = readFileSync(resolve(root, file), "utf8");
+  assert.match(source, /resolveSystemProductCompanyProfile\s*\(/, `${file} must use company-scoped product resolution`);
+  assert.doesNotMatch(source, /companies\.resolveCompanyProfile\s*\(/, `${file} must not read raw/user profile rows`);
+}
+for (const file of [
+  "apps/web/src/lib/server/matches/execute-ruleset-match-state-refresh.ts",
+  "apps/web/src/lib/server/matches/plan-ruleset-match-state-refresh.ts",
+]) {
+  assert.doesNotMatch(
+    readFileSync(resolve(root, file), "utf8"),
+    /schema\.userCompany/,
+    `${file} must not gate company-scoped refresh on membership count`,
+  );
+}
+assert.doesNotMatch(
+  readFileSync(resolve(root, "apps/web/src/lib/server/matches/matchFeedback.ts"), "utf8"),
+  /companies\.resolveCompanyProfile\s*\(/,
+  "feedback provenance must receive a resolved product profile",
+);
 
 console.log("profile-product-tripwire.test.ts: all assertions passed");

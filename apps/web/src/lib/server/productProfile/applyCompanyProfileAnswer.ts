@@ -106,7 +106,7 @@ export async function applyCompanyProfileAnswer(
     refreshProfileQuestionMatchStates({
       repositories,
       companyId: input.companyId,
-      userId: input.userId,
+      stateScope: before.stateScope,
       company: effectiveProfile,
       grants,
       impact,

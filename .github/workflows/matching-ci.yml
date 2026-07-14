@@ -54,3 +54,4 @@ jobs:
           pnpm test:matching-unit
           pnpm verify:first-mission-recovery
           pnpm verify:matching-eval
+          pnpm verify:profile-product-paths

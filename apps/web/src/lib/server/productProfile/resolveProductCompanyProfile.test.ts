@@ -5,6 +5,7 @@ import {
   PRODUCT_PROFILE_SOURCE_POLICIES,
   ProductProfileResolutionError,
   resolveProductCompanyProfile,
+  resolveSystemProductCompanyProfile,
   type ProductProfileResolverDependencies,
 } from "./resolveProductCompanyProfile";
 
@@ -202,11 +203,13 @@ assert.equal(saves, 1);
 assert.equal(refreshed.persistence, "saved");
 assert.equal(refreshed.profile.profile_evidence?.business_status?.persistenceClass, "versioned_provider_observation");
 
-const companyScoped = await resolveProductCompanyProfile({
-  context: "system_recompute",
+const companyScoped = await resolveSystemProductCompanyProfile({
   companyId,
   asOf,
-}, dependencies);
+}, {
+  companies: dependencies.companies,
+  enrichmentCache: dependencies.enrichmentCache,
+});
 assert.equal(companyScoped.profile.employees_count, undefined, "company state must not absorb a user overlay");
 assert.equal(companyScoped.profile.size, undefined, "company state must not absorb a legacy user overlay");
 assert.equal(companyScoped.stateScope, "company");

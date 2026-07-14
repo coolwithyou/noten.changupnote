@@ -2019,8 +2019,8 @@ export const appV1OpenApi = {
         type: "object",
         required: ["scope", "status", "plannedCount", "savedCount", "failedCount", "failedGrantIds"],
         properties: {
-          scope: { type: "string", enum: ["company_dimension"] },
-          status: { type: "string", enum: ["no_op", "succeeded", "partial", "failed"] },
+          scope: { type: "string", enum: ["company_dimension", "user_dimension"] },
+          status: { type: "string", enum: ["no_op", "succeeded", "partial", "failed", "skipped_user_scope"] },
           plannedCount: { type: "integer", minimum: 0 },
           savedCount: { type: "integer", minimum: 0 },
           failedCount: { type: "integer", minimum: 0 },

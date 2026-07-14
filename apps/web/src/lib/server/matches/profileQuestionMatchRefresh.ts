@@ -9,7 +9,7 @@ import {
 export async function refreshProfileQuestionMatchStates<TPayload>(input: {
   repositories: ServiceRepositories<TPayload>;
   companyId: string;
-  userId?: string;
+  stateScope: "company" | "request" | "user";
   company: CompanyProfile;
   grants: Array<NormalizedGrant<TPayload>>;
   impact: ProfileUpdateImpact;
@@ -18,9 +18,19 @@ export async function refreshProfileQuestionMatchStates<TPayload>(input: {
   const scopedGrants = selectProfileUpdateRefreshGrants(input.grants, input.impact);
   if (scopedGrants.length === 0) {
     return {
-      scope: "company_dimension",
+      scope: input.stateScope === "company" ? "company_dimension" : "user_dimension",
       status: "no_op",
       plannedCount: 0,
+      savedCount: 0,
+      failedCount: 0,
+      failedGrantIds: [],
+    };
+  }
+  if (input.stateScope !== "company") {
+    return {
+      scope: "user_dimension",
+      status: "skipped_user_scope",
+      plannedCount: scopedGrants.length,
       savedCount: 0,
       failedCount: 0,
       failedGrantIds: [],
@@ -40,7 +50,6 @@ export async function refreshProfileQuestionMatchStates<TPayload>(input: {
       match: state.match,
       eligibleFrom: parsePlanDate(state.eligibleFrom),
       eligibleUntil: parsePlanDate(state.eligibleUntil),
-      ...(input.userId ? { userId: input.userId } : {}),
     })));
     const failedGrantIds = results.flatMap((result, index) =>
       result.status === "rejected" ? [plan.states[index]!.grantId] : []);

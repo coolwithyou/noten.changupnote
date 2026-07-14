@@ -4,6 +4,10 @@ import { closeCunoteDb, getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createDrizzleRepositories } from "../repositories/drizzle";
+import {
+  ProductProfileResolutionError,
+  resolveSystemProductCompanyProfile,
+} from "../productProfile/resolveProductCompanyProfile";
 
 loadMonorepoEnv();
 
@@ -63,14 +67,22 @@ try {
     if (currentActiveStates.length === activeGrantIds.size) currentCompleteCoverageCompanyCount += 1;
     increment(coverageHistogram, coverageBucket(activeStates.length, activeGrantIds.size));
 
-    if (members.length !== 1) continue;
-    const profile = await repositories.companies.resolveCompanyProfile({
-      companyId: company.companyId,
-      userId: members[0]!.userId,
-    });
-    if (profile) profileResolvedCompanyCount += 1;
-    else profileMissingCompanyCount += 1;
-    if (profile && currentActiveStates.length !== activeGrantIds.size) {
+    let profileResolved = false;
+    try {
+      await resolveSystemProductCompanyProfile({
+        companyId: company.companyId,
+        asOf: asOf.toISOString(),
+      }, {
+        companies: repositories.companies,
+        enrichmentCache: repositories.enrichmentCache,
+      });
+      profileResolved = true;
+      profileResolvedCompanyCount += 1;
+    } catch (error) {
+      if (!(error instanceof ProductProfileResolutionError) || error.code !== "company_not_found") throw error;
+      profileMissingCompanyCount += 1;
+    }
+    if (profileResolved && currentActiveStates.length !== activeGrantIds.size) {
       operationalRefreshTargetCompanyCount += 1;
       operationalRefreshTargetStateCount += activeGrantIds.size;
       operationalRefreshTargetIds.push(company.companyId);
@@ -109,14 +121,13 @@ try {
       scopeHash: createHash("sha256").update(operationalRefreshTargetIds.sort().join("\n")).digest("hex"),
       targetCompanyCount: operationalRefreshTargetCompanyCount,
       plannedStateCount: operationalRefreshTargetStateCount,
-      targetDefinition: "exactly one member, resolvable profile, and incomplete current active ruleset coverage",
-      excludesNoMemberCompanies: true,
-      excludesMultiMemberCompanies: true,
+      targetDefinition: "resolvable company-scoped profile and incomplete current active ruleset coverage",
+      requiresMembership: false,
       includesCompaniesWithoutStoredState: true,
     },
     gates: {
       activeGrantScanComplete: grants.length < scanLimit,
-      allSingleMemberProfilesResolved: profileMissingCompanyCount === 0,
+      allCompanyProfilesResolved: profileMissingCompanyCount === 0,
       allOperationalCompaniesCurrent: operationalRefreshTargetCompanyCount === 0,
     },
   }, null, 2));

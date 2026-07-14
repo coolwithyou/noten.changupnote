@@ -43,10 +43,10 @@ const repositories = {
     async findGrantById() { return grant; },
   },
   companies: {
-    async resolveCompanyProfile() { return company; },
+    async resolveCompanyProfile() { throw new Error("raw profile read must not be used"); },
   },
   matches: {
-    async calculateGrantMatch() { return matchNormalizedGrant(grant, company); },
+    async calculateGrantMatch(input: { company: CompanyProfile }) { return matchNormalizedGrant(grant, input.company); },
   },
 } as unknown as ServiceRepositories;
 const input = buildSubmitFeedbackInput({
@@ -55,8 +55,13 @@ const input = buildSubmitFeedbackInput({
   userId: "user-1",
   body: { kind: "wrong", reasonCode: "criteria_wrong" },
 });
-const enriched = await attachMatchFeedbackProvenance(input, repositories);
+const enriched = await attachMatchFeedbackProvenance(input, repositories, {
+  profile: company,
+  stateScope: "user",
+  asOf: "2026-07-14T12:00:00.000Z",
+});
 assert.equal(enriched.provenance?.captureStatus, "complete");
+assert.equal(enriched.provenance?.capturedAt, "2026-07-14T12:00:00.000Z");
 assert.equal(enriched.provenance?.grantRevision, "grant-revision-1");
 assert.equal(enriched.provenance?.eligibility, "eligible");
 assert.equal(enriched.provenance?.criterionRefs[0]?.criterionId, "criterion-industry-1");
@@ -70,7 +75,7 @@ assert.equal(serialized.includes("인공지능"), false, "company value is repre
 
 const missingGrant = await attachMatchFeedbackProvenance(input, {
   grants: { async findGrantById() { return null; } },
-} as unknown as ServiceRepositories);
+} as unknown as ServiceRepositories, null);
 assert.equal(missingGrant.provenance?.captureStatus, "grant_missing");
 assert.equal(missingGrant.provenance?.criterionRefs.length, 0);
 console.log("matchFeedbackProvenance.test.ts: all assertions passed");

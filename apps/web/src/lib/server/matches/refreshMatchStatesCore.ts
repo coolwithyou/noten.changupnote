@@ -7,12 +7,12 @@
 import type { CunoteDb } from "../db/client";
 import { planProfileQuestions, resolveGrantExtractionManifest } from "@cunote/core";
 import { createDrizzleRepositories } from "../repositories/drizzle";
+import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import { refreshMatchStates } from "./matchStateRefresh";
 
 export interface RunRefreshMatchStatesInput {
   db: CunoteDb;
   companyId: string;
-  userId: string;
   limit: number;
   asOf: Date;
   write: boolean;
@@ -25,20 +25,21 @@ export async function runRefreshMatchStates(
     dialect: "drizzle",
     client: input.db,
   });
-  const company = await repositories.companies.resolveCompanyProfile({
+  const resolution = await resolveSystemProductCompanyProfile({
     companyId: input.companyId,
-    userId: input.userId,
+    asOf: input.asOf.toISOString(),
+  }, {
+    companies: repositories.companies,
+    enrichmentCache: repositories.enrichmentCache,
   });
-  if (!company) throw new Error(`회사 프로필을 찾지 못했습니다: ${input.companyId}`);
 
   const grants = await repositories.grants.listActiveGrants({ limit: input.limit, asOf: input.asOf });
   const { plan, savedCount } = await refreshMatchStates({
     repositories,
-    company,
+    company: resolution.profile,
     grants,
     asOf: input.asOf,
     companyId: input.companyId,
-    userId: input.userId,
     write: input.write,
   });
   const recommendationTierCounts = histogram(plan.states.map((state) =>
@@ -67,7 +68,7 @@ export async function runRefreshMatchStates(
     dryRun: !input.write,
     savedCount,
     companyId: input.companyId,
-    userId: input.userId,
+    stateScope: resolution.stateScope,
     limit: input.limit,
     asOf: plan.asOf,
     grantCount: plan.grantCount,

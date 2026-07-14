@@ -8,7 +8,7 @@ import {
   readMatchFeedbackRequest,
 } from "@/lib/server/matches/matchFeedback";
 import { recordApplicationManagementFeedback } from "@/lib/server/applications/applicationManagementFeedback";
-import { getServiceRepositories } from "@/lib/server/serviceData";
+import { getServiceRepositories, resolveProductCompanyProfile } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,12 +22,18 @@ export async function POST(request: Request, context: RouteContext) {
     const [{ companyId, grantId }, body] = await Promise.all([context.params, readMatchFeedbackRequest(request)]);
     const access = await requireAppCompanyAccess(request, companyId);
     const repositories = getServiceRepositories();
+    const profileResolution = await resolveProductCompanyProfile({
+      context: "owned_read",
+      companyId,
+      userId: access.userId,
+      asOf: new Date().toISOString(),
+    });
     const input = await attachMatchFeedbackProvenance(buildSubmitFeedbackInput({
       companyId,
       grantId: decodeGrantIdSegment(grantId),
       userId: access.userId,
       body,
-    }), repositories);
+    }), repositories, profileResolution);
     const receipt = await repositories.feedback.submitFeedback(input);
     recordApplicationManagementFeedback(input, receipt.receivedAt);
     return appData(buildFeedbackResult(receipt), { status: 202 });

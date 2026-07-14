@@ -4,6 +4,7 @@ import type { NormalizedGrant } from "@cunote/contracts";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "../repositories/drizzle";
+import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 
 export interface RunReviewedFeedbackScopedRefreshInput {
   db: CunoteDb;
@@ -135,7 +136,7 @@ async function loadScopeCandidates(input: {
   truncated: boolean;
 }> {
   if (input.scope === "company") {
-    const profile = await requiredCompanyProfile(input.repositories, input.companyId);
+    const profile = await requiredCompanyProfile(input.repositories, input.companyId, input.asOf);
     const candidates = await input.repositories.grants.listActiveGrants({ limit: input.limit + 1, asOf: input.asOf });
     return {
       companies: [{ companyId: input.companyId, profile }],
@@ -146,7 +147,7 @@ async function loadScopeCandidates(input: {
   const grant = await input.repositories.grants.findGrantById(input.grantId);
   if (!grant) throw new Error(`grant not found: ${input.grantId}`);
   if (input.scope === "pair") {
-    const profile = await requiredCompanyProfile(input.repositories, input.companyId);
+    const profile = await requiredCompanyProfile(input.repositories, input.companyId, input.asOf);
     return { companies: [{ companyId: input.companyId, profile }], grants: [grant], truncated: false };
   }
   const rows = await input.db.select({ id: schema.companies.id }).from(schema.companies)
@@ -154,7 +155,7 @@ async function loadScopeCandidates(input: {
   const companyRows = rows.slice(0, input.limit);
   const companies = [];
   for (const row of companyRows) {
-    const profile = await requiredCompanyProfile(input.repositories, row.id);
+    const profile = await requiredCompanyProfile(input.repositories, row.id, input.asOf);
     companies.push({ companyId: row.id, profile });
   }
   return { companies, grants: [grant], truncated: rows.length > input.limit };
@@ -163,10 +164,15 @@ async function loadScopeCandidates(input: {
 async function requiredCompanyProfile(
   repositories: ReturnType<typeof createDrizzleRepositories<unknown>>,
   companyId: string,
+  asOf: Date,
 ) {
-  const profile = await repositories.companies.resolveCompanyProfile({ companyId });
-  if (!profile) throw new Error(`company profile not found: ${companyId}`);
-  return profile;
+  return (await resolveSystemProductCompanyProfile({
+    companyId,
+    asOf: asOf.toISOString(),
+  }, {
+    companies: repositories.companies,
+    enrichmentCache: repositories.enrichmentCache,
+  })).profile;
 }
 
 async function loadExistingStates(
