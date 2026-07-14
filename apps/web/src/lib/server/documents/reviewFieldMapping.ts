@@ -88,6 +88,31 @@ const FILL_STRATEGIES: readonly DocumentFillStrategy[] = [
   "manual",
 ];
 
+export interface ReviewFieldFillPlan {
+  mappedCompanyField: string | null;
+  fillStrategy: DocumentFillStrategy;
+}
+
+/**
+ * 검수 표준 key → 결정론적 회사 프로필 매핑. 라벨 정규식은 주민번호(대표자), 팀원 주소 같은
+ * 필드를 회사 대표자/소재지로 오인하므로 사용하지 않는다.
+ */
+const FIELD_KEY_FILL_PLANS: Readonly<Record<string, ReviewFieldFillPlan>> = {
+  company_name: { mappedCompanyField: "name", fillStrategy: "copy" },
+  biz_reg_no: { mappedCompanyField: "biz_no", fillStrategy: "copy" },
+  ceo_name: { mappedCompanyField: "representative_name", fillStrategy: "copy" },
+  address: { mappedCompanyField: "region", fillStrategy: "copy" },
+  industry: { mappedCompanyField: "industries", fillStrategy: "summarize" },
+  biz_field: { mappedCompanyField: "industries", fillStrategy: "summarize" },
+  company_size: { mappedCompanyField: "size", fillStrategy: "copy" },
+  employee_count: { mappedCompanyField: "employees", fillStrategy: "copy" },
+  revenue: { mappedCompanyField: "revenue", fillStrategy: "copy" },
+  certifications: { mappedCompanyField: "certifications", fillStrategy: "summarize" },
+  applicant_type: { mappedCompanyField: "target_types", fillStrategy: "copy" },
+  exec_plan: { mappedCompanyField: null, fillStrategy: "generate" },
+  expected_effect: { mappedCompanyField: null, fillStrategy: "generate" },
+};
+
 /**
  * 라벨 type → DocumentFieldType.
  * 검수 라벨은 signature/stamp 를 쓰지만 grant_document_fields 는 이를 열거하지 않는다(§dto).
@@ -112,6 +137,35 @@ export function coerceFillStrategy(value: string | null | undefined): DocumentFi
 function isSignatureType(type: string | null | undefined): boolean {
   const t = (type ?? "").trim().toLowerCase();
   return t === "signature" || t === "stamp";
+}
+
+function isSensitiveOrConsentFieldKey(fieldKey: string): boolean {
+  return fieldKey === "resident_reg_no"
+    || /^member\d+_reg_no$/.test(fieldKey)
+    || /(^|_)(rrn|jumin)(_|$)/.test(fieldKey)
+    || /(^|_)(signature|stamp|seal)(_|$)/.test(fieldKey)
+    || /(^|_)(consent|privacy)(_|$)/.test(fieldKey);
+}
+
+export function resolveReviewFieldFillPlan(
+  field: ReviewLabelField,
+  normalizedFieldKey = slugFieldKey(str(field.key) ?? str(field.label) ?? "field"),
+): ReviewFieldFillPlan {
+  const fieldType = coerceFieldType(field.type);
+  const manual = field.manual === true
+    || isSignatureType(field.type)
+    || fieldType === "file"
+    || isSensitiveOrConsentFieldKey(normalizedFieldKey);
+  const explicitStrategy = coerceFillStrategy(field.fillStrategy);
+  if (manual || explicitStrategy === "manual") {
+    return { mappedCompanyField: null, fillStrategy: "manual" };
+  }
+
+  const deterministic = FIELD_KEY_FILL_PLANS[normalizedFieldKey];
+  return {
+    mappedCompanyField: deterministic?.mappedCompanyField ?? null,
+    fillStrategy: explicitStrategy ?? deterministic?.fillStrategy ?? "ask_user",
+  };
 }
 
 /** 한글/영숫자만 남긴 스네이크 slug (field-reconciliation.slug 규약과 동일 형태). */
@@ -235,8 +289,8 @@ export interface ReviewToReconciledOptions {
  *     (applyReconciledFields upsert 키가 (surfaceId, fieldKey) 라 중복 키는 서로를 덮어써 인스턴스를
  *      잃는다 — 기준서 규칙2 의 반복 key 도 저장 단계에서는 유일화해 전부 보존한다).
  *   - fieldType: signature/stamp → text 등 도메인 enum 으로 coerce.
- *   - fillStrategy: 라벨에 명시가 있으면 사용, manual=true 면 'manual' 강제, 그 밖에는 'manual' 기본
- *     (사전 fill planner(슬라이스 D) 전까지는 자동채움을 열지 않는 보수적 기본값).
+ *   - fillStrategy/mappedCompanyField: canonical fieldKey 화이트리스트의 결정론적 fill planner를 적용.
+ *     manual·서명·파일·동의·민감 식별자는 항상 manual, 미등록 비수동 필드는 ask_user가 기본이다.
  *   - position: bbox 가 유효하면 { page, bbox }, page 만 있으면 { page, bbox:null }, 둘 다 없으면 null.
  */
 export function reviewFieldsToReconciled(
@@ -252,11 +306,7 @@ export function reviewFieldsToReconciled(
     const fieldKey = uniqueKey(usedKeys, baseKey);
 
     const fieldType = coerceFieldType(field.type);
-    const manual = field.manual === true || isSignatureType(field.type);
-    const explicitStrategy = coerceFillStrategy(field.fillStrategy);
-    const fillStrategy: DocumentFillStrategy = manual
-      ? "manual"
-      : explicitStrategy ?? "manual";
+    const fillPlan = resolveReviewFieldFillPlan(field, baseKey);
 
     const bbox = normalizeBboxTuple(field.bbox);
     const page = intOrNull(field.page);
@@ -269,7 +319,7 @@ export function reviewFieldsToReconciled(
       section: str(field.section),
       fieldType,
       required: field.required === true,
-      fillStrategy,
+      fillStrategy: fillPlan.fillStrategy,
       confidence: 1,
       tier: "high",
       position,
@@ -283,7 +333,7 @@ export function reviewFieldsToReconciled(
         ? { source: "human_review", sourceSpan: str(field.sourceSpan) }
         : null,
       reviewRequired: false,
-      mappedCompanyField: null,
+      mappedCompanyField: fillPlan.mappedCompanyField,
       sourceSpan: str(field.sourceSpan),
       documentName: null,
       documentCategory: null,

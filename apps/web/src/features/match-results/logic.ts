@@ -13,6 +13,8 @@ import type {
   WriteSupportLevel,
 } from "@cunote/contracts";
 import { WRITE_SUPPORT_LABELS } from "@cunote/contracts";
+import { isPreparableMatchCard } from "@cunote/core";
+import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
 import {
   readLocalBusinessLookupSuggestions,
@@ -612,7 +614,7 @@ export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisp
       groups.closed.push(match);
       continue;
     }
-    if (match.bucket === "preparable" || isMultiAnswerMatch(match)) {
+    if (isPreparableMatchCard(match)) {
       groups.preparable.push(match);
       continue;
     }
@@ -789,7 +791,7 @@ export function formatDday(value: number | null): string {
 }
 
 export function isUrgentDday(value: number | null): boolean {
-  return value !== null && value >= 0 && value <= 7;
+  return value !== null && value >= 0 && value <= URGENT_MAX_DDAY;
 }
 
 export function clampPct(value: number): number {

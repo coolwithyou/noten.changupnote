@@ -182,6 +182,50 @@ export async function getGrantDocumentDraft(input: {
   return toDocumentDraft(row);
 }
 
+/**
+ * workspace가 결정론적으로 매칭한 surface를 기존 draft에 멱등 연결한다.
+ * 과거 draft의 안정적인 documentKey는 유지하고, 이후 서버 제안/내보내기가 DB 필드 계획을
+ * draft 소유권 범위 안에서 재대조할 수 있게 연결 메타데이터만 보강한다.
+ */
+export async function linkGrantDocumentDraftSurface(input: {
+  draftId: string;
+  access: CompanyAccess;
+  surfaceId: string;
+  sourceAttachment: string;
+}): Promise<{ linked: boolean }> {
+  assertDraftId(input.draftId);
+  const db = getCunoteDb();
+  const [current] = await withCunoteDbUser(db, input.access.userId, async (tx) => tx
+    .select({
+      surfaceId: schema.grantDocumentDrafts.surfaceId,
+      sourceAttachment: schema.grantDocumentDrafts.sourceAttachment,
+    })
+    .from(schema.grantDocumentDrafts)
+    .where(and(
+      eq(schema.grantDocumentDrafts.id, input.draftId),
+      eq(schema.grantDocumentDrafts.companyId, input.access.companyId),
+    ))
+    .limit(1));
+  if (!current) throw new DocumentDraftError("draft_not_found", "초안을 찾지 못했습니다.", 404, "draftId");
+  if (
+    current.surfaceId === input.surfaceId
+    && current.sourceAttachment === input.sourceAttachment
+  ) return { linked: false };
+
+  const rows = await withCunoteDbUser(db, input.access.userId, async (tx) => tx
+    .update(schema.grantDocumentDrafts)
+    .set({ surfaceId: input.surfaceId, sourceAttachment: input.sourceAttachment })
+    .where(and(
+      eq(schema.grantDocumentDrafts.id, input.draftId),
+      eq(schema.grantDocumentDrafts.companyId, input.access.companyId),
+    ))
+    .returning({ id: schema.grantDocumentDrafts.id }));
+  if (rows.length !== 1) {
+    throw new DocumentDraftError("draft_surface_link_failed", "초안과 원본 양식을 연결하지 못했습니다.", 500);
+  }
+  return { linked: true };
+}
+
 export async function listGrantDocumentDraftsForGrant(input: {
   grantId: string;
   access: CompanyAccess;

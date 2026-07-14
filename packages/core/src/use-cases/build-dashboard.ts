@@ -9,6 +9,7 @@ import { activeUnknownQuestionDimensions } from "../company/question-answer-stat
 import { withMatchRanking } from "../matching/ranking.js";
 import { buildActionQueue } from "./build-action-queue.js";
 import { buildRoadmap } from "./build-roadmap.js";
+import { isPreparableMatchCard } from "./select-match-cards.js";
 import {
   countByEligibility,
   companySummary,
@@ -93,9 +94,7 @@ function dashboardCounts<TPayload>(
       .map((trace) => trace.dimension)).size;
     if (tier === "recommendable" && card.status === "open") openNow += 1;
     if (tier === "needs_profile_input" && answerableUnknownCount === 1) oneAnswer += 1;
-    if (card.bucket === "preparable" || (tier === "needs_profile_input" && answerableUnknownCount > 1)) {
-      preparable += 1;
-    }
+    if (isPreparableMatchCard(card)) preparable += 1;
 
     const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
     if (entry.match.eligibility !== "ineligible" && dDay !== null && dDay >= 0 && dDay <= 7) {

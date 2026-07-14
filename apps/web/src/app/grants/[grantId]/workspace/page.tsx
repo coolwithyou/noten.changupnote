@@ -45,7 +45,6 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <WorkspaceView
-        grantId={grantId}
         data={data}
         greeting={greeting}
         institutionContact={institutionContact}

@@ -12,12 +12,15 @@ export function ResultsHero({
   saving,
   precisionDelta,
   empty = false,
+  questionsExhausted = false,
 }: {
   teaser: ProductTeaserResult;
   onSave: () => void;
   saving: boolean;
   precisionDelta?: number;
   empty?: boolean;
+  /** 물어볼 질문이 소진된 상태(teaser.nextQuestion === null) — 게이지 캡션을 분기한다. */
+  questionsExhausted?: boolean;
 }) {
   const groups = groupMatchesForDisplay(teaser.matches);
   const precision = matchingPrecision(teaser);
@@ -63,7 +66,9 @@ export function ResultsHero({
           pct={precision.pct}
           {...(precisionDelta && precisionDelta > 0 ? { delta: `+${precisionDelta}%p` } : {})}
           label={`매칭 정밀도 ${precision.pct}%`}
-          caption="회사를 더 설명할수록 결과가 정확해져요"
+          caption={
+            questionsExhausted ? "물어볼 질문에 모두 답했어요" : "회사를 더 설명할수록 결과가 정확해져요"
+          }
           meta={`자동으로 확인 ${precision.known} · 직접 채우면 +${precision.remaining}`}
         />
       </div>

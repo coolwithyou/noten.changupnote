@@ -148,6 +148,128 @@ assert.ok(
 assert.equal(sheet.grant.benefits.some((benefit) => benefit.family === "funding"), true);
 assert.equal(dashboard.matches.some((match) => match.benefits.some((benefit) => benefit.family === "funding")), true);
 
+const linkedTemplateFilename = "【붙임 1】참여신청서 및 일체서류.hwpx";
+const attachmentLinkedGrant: NormalizedGrant<Record<string, unknown>> = {
+  ...soonGrant,
+  raw: {
+    ...soonGrant.raw,
+    attachments: [{ filename: linkedTemplateFilename }],
+  },
+  grant: {
+    ...soonGrant.grant,
+    required_documents: [{
+      name: "참여신청서",
+      required: true,
+      source: "portal",
+      category: "application_form",
+      preparation_type: "write",
+      canonical_name: "신청서",
+      template_required: true,
+    }],
+  },
+};
+const attachmentLinkedSheet = buildApplySheet({
+  entry: {
+    item: attachmentLinkedGrant,
+    match: matchGrantCriteria(attachmentLinkedGrant.criteria, company),
+  },
+  company,
+  asOf,
+});
+assert.equal(
+  attachmentLinkedSheet.applicationPrep.draftableDocuments[0]?.sourceAttachment,
+  linkedTemplateFilename,
+  "수집 첨부 파일명은 required document와 런타임에 연결되어야 한다",
+);
+assert.equal(
+  attachmentLinkedSheet.applicationPrep.draftableDocuments[0]?.documentKey,
+  "application_form::신청서::::0",
+  "첨부 메타데이터 보강이 기존 draft documentKey를 바꾸면 안 된다",
+);
+assert.equal(attachmentLinkedSheet.applicationPrep.draftCoverage.withAttachmentContextCount, 1);
+
+const partiallyClassifiedGrant: NormalizedGrant<Record<string, unknown>> = {
+  ...soonGrant,
+  raw: {
+    ...soonGrant.raw,
+    attachments: [{ filename: "신청서.hwpx" }, { filename: "사업계획서.hwpx" }],
+  },
+  grant: {
+    ...soonGrant.grant,
+    required_documents: [
+      { name: "신청서", required: true, source: "portal" },
+      {
+        name: "사업계획서",
+        required: true,
+        source: "portal",
+        category: "business_plan",
+        preparation_type: "write",
+      },
+    ],
+  },
+};
+const partiallyClassifiedSheet = buildApplySheet({
+  entry: {
+    item: partiallyClassifiedGrant,
+    match: matchGrantCriteria(partiallyClassifiedGrant.criteria, company),
+  },
+  company,
+  asOf,
+});
+assert.equal(partiallyClassifiedSheet.applicationPrep.draftableDocuments.length, 2);
+assert.equal(
+  partiallyClassifiedSheet.applicationPrep.draftableDocuments[0]?.sourceAttachment,
+  "신청서.hwpx",
+  "taxonomy가 빠진 기존 신청서도 첨부 근거로 draftable 문서가 되어야 한다",
+);
+assert.equal(
+  partiallyClassifiedSheet.applicationPrep.draftableDocuments[1]?.sourceAttachment,
+  "사업계획서.hwpx",
+  "taxonomy 보강으로 draftable membership이 달라져도 같은 원본 문서의 첨부만 연결해야 한다",
+);
+
+const attachmentOnlyGrant: NormalizedGrant<Record<string, unknown>> = {
+  ...soonGrant,
+  raw: {
+    ...soonGrant.raw,
+    attachments: [
+      { filename: "화성시 참가신청서(예비창업자용).hwpx" },
+      { filename: "화성시 참가신청서(기창업자용).hwpx" },
+      { filename: "화성시 모집공고문.hwp" },
+    ],
+  },
+  grant: {
+    ...soonGrant.grant,
+    required_documents: null,
+  },
+};
+const attachmentOnlySheet = buildApplySheet({
+  entry: {
+    item: attachmentOnlyGrant,
+    match: matchGrantCriteria(attachmentOnlyGrant.criteria, company),
+  },
+  company,
+  asOf,
+});
+assert.deepEqual(
+  attachmentOnlySheet.applicationPrep.draftableDocuments.map((document) => document.sourceAttachment),
+  [
+    "화성시 참가신청서(예비창업자용).hwpx",
+    "화성시 참가신청서(기창업자용).hwpx",
+  ],
+  "명확한 HWPX 신청서 첨부는 작성 서류가 비어 있어도 각각 워크스페이스에 노출되어야 한다",
+);
+assert.equal(
+  new Set(attachmentOnlySheet.applicationPrep.draftableDocuments.map((document) => document.documentKey)).size,
+  2,
+  "대상별 HWPX 양식은 서로 다른 안정적인 documentKey를 가져야 한다",
+);
+assert.equal(
+  attachmentOnlySheet.documents.some((document) => document.name.includes("모집공고")),
+  false,
+  "공고문 HWP를 작성 양식으로 추정하면 안 된다",
+);
+
 const opaqueApplyMethodSheet = buildApplySheet({
   entry: {
     item: {
@@ -228,7 +350,16 @@ const selectableDashboard = buildDashboard({
   asOf,
   limit: 10,
 });
-assert.equal(selectableDashboard.counts.preparable, 1);
+assert.equal(
+  selectableDashboard.counts.preparable,
+  0,
+  "되돌릴 수 없는 hard fail 공고를 '준비하면 열려요'로 세면 안 된다",
+);
+const preparableSelection = selectMatchCards(selectableDashboard.matches, {
+  status: "preparable",
+  limit: 10,
+});
+assert.equal(preparableSelection.total, 0, "preparable API 필터도 hard fail 공고를 제외해야 한다");
 const eligibleSelection = selectMatchCards(selectableDashboard.matches, {
   status: "eligible",
   sort: "amount",

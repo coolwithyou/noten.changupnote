@@ -300,6 +300,7 @@ async function main() {
         fieldKey: schema.grantDocumentFields.fieldKey,
         fieldType: schema.grantDocumentFields.fieldType,
         fillStrategy: schema.grantDocumentFields.fillStrategy,
+        mappedCompanyField: schema.grantDocumentFields.mappedCompanyField,
         confidence: schema.grantDocumentFields.confidence,
         parserVersion: schema.grantDocumentFields.parserVersion,
         reviewRequired: schema.grantDocumentFields.reviewRequired,
@@ -313,7 +314,10 @@ async function main() {
     const sig = fieldRows.find((r) => r.fieldKey === "rep_signature");
     assert(sig?.fieldType === "text", `signature coerce → text 아님: ${sig?.fieldType}`);
     assert(sig?.fillStrategy === "manual", `signature fillStrategy manual 아님: ${sig?.fillStrategy}`);
-    assert(fieldRows.some((r) => r.fieldKey === "company_name"), "company_name 필드 없음");
+    const companyName = fieldRows.find((r) => r.fieldKey === "company_name");
+    assert(companyName, "company_name 필드 없음");
+    assert(companyName.mappedCompanyField === "name", `company_name 프로필 매핑 아님: ${companyName.mappedCompanyField}`);
+    assert(companyName.fillStrategy === "copy", `company_name fillStrategy copy 아님: ${companyName.fillStrategy}`);
 
     const [surfAfterApprove] = await db
       .select({ status: schema.grantApplicationSurfaces.extractionStatus })

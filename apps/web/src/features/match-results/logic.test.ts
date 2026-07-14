@@ -47,8 +47,25 @@ const preparableMatch = {
   eligibility: "conditional",
   bucket: "preparable",
   recommendationTier: "needs_profile_input",
-  ruleTrace: [],
+  ruleTrace: [
+    {
+      dimension: "industry",
+      result: "unknown",
+      action: { type: "progressive", target: "industry", label: "지금 확인" },
+    },
+    {
+      dimension: "revenue",
+      result: "unknown",
+      action: { type: "progressive", target: "revenue", label: "지금 확인" },
+    },
+  ],
 } as unknown as MatchCard;
+const hardFailLegacyPreparableMatch = {
+  ...preparableMatch,
+  grantId: "grant-hard-fail-legacy-preparable",
+  eligibility: "ineligible",
+  recommendationTier: "not_recommended",
+} as MatchCard;
 const multiAnswerMatch = {
   ...answerMatch,
   grantId: "grant-multi-answer",
@@ -79,11 +96,13 @@ const grouped = groupMatchesForDisplay([
   multiAnswerMatch,
   reviewMatch,
   preparableMatch,
+  hardFailLegacyPreparableMatch,
   unknownStatusMatch,
 ]);
 assert.equal(grouped.oneAnswer.length, 1);
 assert.equal(grouped.preparable.length, 2);
 assert.equal(grouped.checkSource.length, 2);
+assert.equal(grouped.closed.length, 1, "hard fail은 legacy preparable bucket이어도 준비 목록에서 제외");
 
 assert.equal(profileSheetValueState({
   value: "벤처기업확인서",

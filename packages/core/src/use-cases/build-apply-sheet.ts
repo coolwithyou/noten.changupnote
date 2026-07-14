@@ -2,6 +2,7 @@ import type {
   ApplicationPrep,
   ApplySheet,
   CompanyProfile,
+  GrantRequiredDocument,
   NormalizedGrant,
   PlanDraftPrompt,
   ProfileCopyField,
@@ -18,7 +19,8 @@ import {
   daysUntil,
 } from "./match-card.js";
 import type { MatchedGrant } from "./match-card.js";
-import { buildDocumentPreparation } from "../documents/preparation.js";
+import { buildDocumentPreparation, isDraftableDocument } from "../documents/preparation.js";
+import { resolveGrantRequiredDocumentsFromAttachments } from "../documents/taxonomy.js";
 
 export interface BuildApplySheetOptions<TPayload = unknown> {
   entry: MatchedGrant<TPayload>;
@@ -45,8 +47,18 @@ export function buildApplySheet<TPayload>({
       return chip.sourceSpan ? { ...document, sourceSpan: chip.sourceSpan } : document;
     });
 
-  const documents = [...normalizeRequiredDocuments(grant), ...textOnlyDocuments];
+  const baseDocuments = [...normalizeRequiredDocuments(grant), ...textOnlyDocuments];
   const sourceAttachments = normalizeSourceAttachments(entry.item.raw.attachments);
+  const resolved = resolveGrantRequiredDocumentsFromAttachments({
+    documents: baseDocuments.map(toGrantRequiredDocument),
+    textSources: sourceAttachments.map((attachment) => ({
+      text: attachment.filename,
+      source: "portal" as const,
+      sourceAttachment: attachment.filename,
+      sourceField: "attachment_filename",
+    })),
+  });
+  const documents = resolved.documents.map(toRequiredDocument);
   const satisfied = chips.filter((chip) => chip.checklistSection === "satisfied");
   const needsCheck = chips.filter((chip) => chip.checklistSection === "needs_check");
   const applicationPrepInput = {
@@ -58,6 +70,32 @@ export function buildApplySheet<TPayload>({
     documents,
     ...(company ? { company } : {}),
   };
+
+  // 이미 노출하던 draft 문서의 key는 첨부 보강 전 값으로 유지한다. 새로 분류·합성된 문서만
+  // 원본 첨부가 들어간 새 key를 사용해 기존 저장 draft와의 정체성을 깨지 않는다.
+  const legacyApplicationPrep = buildApplicationPrep({ ...applicationPrepInput, documents: baseDocuments });
+  const legacyDocumentKeys = new Map<number, string>();
+  let legacyDraftableIndex = 0;
+  for (const [documentIndex, document] of baseDocuments.entries()) {
+    if (!isDraftableDocument(document)) continue;
+    const documentKey = legacyApplicationPrep.draftableDocuments[legacyDraftableIndex]?.documentKey;
+    if (documentKey) legacyDocumentKeys.set(documentIndex, documentKey);
+    legacyDraftableIndex += 1;
+  }
+
+  const applicationPrep = buildApplicationPrep(applicationPrepInput);
+  const draftableExistingIndexes = documents.flatMap((document, index) =>
+    isDraftableDocument(document) ? [resolved.existingDocumentIndexes[index] ?? null] : []
+  );
+  applicationPrep.draftableDocuments = applicationPrep.draftableDocuments.map((document, index) => {
+    const existingIndex = draftableExistingIndexes[index];
+    const legacyDocumentKey = existingIndex === null || existingIndex === undefined
+      ? null
+      : legacyDocumentKeys.get(existingIndex) ?? null;
+    return legacyDocumentKey && legacyDocumentKey !== document.documentKey
+      ? { ...document, documentKey: legacyDocumentKey }
+      : document;
+  });
 
   return {
     grant: {
@@ -74,7 +112,7 @@ export function buildApplySheet<TPayload>({
     needsCheck,
     documents,
     sourceAttachments,
-    applicationPrep: buildApplicationPrep(applicationPrepInput),
+    applicationPrep,
     applyMethod: summarizeApplyMethod(grant.apply_method),
     deepLink: grant.url ?? null,
     schedule: {
@@ -82,6 +120,36 @@ export function buildApplySheet<TPayload>({
       applyEnd: grant.apply_end ?? null,
       dDay: daysUntil(grant.apply_end ?? null, asOf),
     },
+  };
+}
+
+function toGrantRequiredDocument(document: RequiredDocument): GrantRequiredDocument {
+  return {
+    name: document.name,
+    required: document.required,
+    source: document.source,
+    ...(document.category ? { category: document.category } : {}),
+    ...(document.preparationType ? { preparation_type: document.preparationType } : {}),
+    ...(document.canonicalName ? { canonical_name: document.canonicalName } : {}),
+    ...(document.templateRequired !== undefined ? { template_required: document.templateRequired } : {}),
+    ...(document.sourceAttachment ? { source_attachment: document.sourceAttachment } : {}),
+    ...(document.sourceSpan ? { source_span: document.sourceSpan } : {}),
+    ...(document.confidence !== undefined ? { confidence: document.confidence } : {}),
+  };
+}
+
+function toRequiredDocument(document: GrantRequiredDocument): RequiredDocument {
+  return {
+    name: document.name,
+    required: document.required,
+    source: document.source,
+    ...(document.category ? { category: document.category } : {}),
+    ...(document.preparation_type ? { preparationType: document.preparation_type } : {}),
+    ...(document.canonical_name ? { canonicalName: document.canonical_name } : {}),
+    ...(document.template_required !== undefined ? { templateRequired: document.template_required } : {}),
+    ...(document.source_attachment ? { sourceAttachment: document.source_attachment } : {}),
+    ...(document.source_span ? { sourceSpan: document.source_span } : {}),
+    ...(document.confidence !== undefined ? { confidence: document.confidence } : {}),
   };
 }
 

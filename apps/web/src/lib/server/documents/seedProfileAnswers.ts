@@ -41,6 +41,8 @@ export function resolveProfileValueForMappedField(
       return cleanText(profile.region?.label ?? profile.region?.code);
     case "industries":
       return cleanText(profile.industries?.join(", "));
+    case "size":
+      return cleanText(profile.size);
     case "revenue":
       return formatKrw(profile.revenue_krw);
     case "employees":
@@ -49,6 +51,8 @@ export function resolveProfileValueForMappedField(
         : `${profile.employees_count}명`;
     case "certifications":
       return cleanText([...(profile.certs ?? []), ...(profile.ip ?? [])].join(", "));
+    case "target_types":
+      return cleanText(profile.target_types?.join(", "));
     default:
       // representative_name·biz_no 등은 CompanyProfile 에 소스가 없어 결정론 시드 불가.
       return null;

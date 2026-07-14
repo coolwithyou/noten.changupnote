@@ -5,7 +5,8 @@
 //
 // 원칙(계획 8.1):
 //   - fire-and-forget. 변환 실패가 아카이브를 롤백하지 않는다.
-//   - CONVERSION_SERVER_URL/SECRET 미설정이면 job 등록은 no-op (surface 는 여전히 pending 생성).
+//   - storage_key + sha256 이 확보된 첨부만 surface 를 만든다.
+//   - CONVERSION_SERVER_URL/SECRET 미설정이면 job 등록만 no-op (보관 완료 surface 는 pending 유지).
 //   - 캐시 히트(cached:true)면 job 없이 artifact upsert + 상태 전이까지 즉시 수행한다.
 //   - 개별 첨부 실패는 warning 으로 삼키고 다음 첨부로 진행한다.
 
@@ -32,7 +33,7 @@ import {
 /** 아카이브된 첨부 1건 (surface/변환 대상 후보). */
 export interface ArchivedAttachmentRef {
   filename: string;
-  /** R2 아카이브 storage_key. surface.sourceAttachment 로 사용 (없으면 filename). */
+  /** R2 아카이브 storage_key. sha256과 함께 있어야 surface를 등록한다. */
   storageKey: string | null;
   /** R2 아카이브 공개 URL (변환 서버가 다운로드). */
   archiveUrl: string | null;
@@ -96,7 +97,18 @@ export async function registerAttachmentConversions(
       continue;
     }
 
-    const sourceAttachment = attachment.storageKey ?? attachment.filename;
+    // surface는 변환 가능한 아카이브 객체의 표현이다. 원본 URL만 있는 첨부를 먼저
+    // pending surface로 만들면 이후 아카이브가 누락돼도 영구 대기열처럼 보이므로,
+    // 안정적인 객체 정체성(storageKey + sha256)이 확보된 뒤에만 등록한다.
+    if (!attachment.storageKey || !attachment.sha256) {
+      skipped += 1;
+      warnings.push(
+        `surface 등록 건너뜀 (${attachment.filename}): storage_key 또는 sha256 누락`,
+      );
+      continue;
+    }
+
+    const sourceAttachment = attachment.storageKey;
     const sourceUrl = attachment.archiveUrl ?? attachment.sourceUri ?? null;
 
     // 1) surface upsert (pending). 실패해도 다음 첨부로.
@@ -135,9 +147,9 @@ export async function registerAttachmentConversions(
         warnings.push(`presign 실패 (${attachment.filename}): ${errorMessage(error)} — archive_url 폴백`);
       }
     }
-    if (!sourceObjectUrl || !attachment.sha256) {
+    if (!sourceObjectUrl) {
       warnings.push(
-        `변환 job 등록 건너뜀 (${attachment.filename}): archive_url 또는 sha256 누락`,
+        `변환 job 등록 건너뜀 (${attachment.filename}): archive_url 또는 source_uri 누락`,
       );
       continue;
     }

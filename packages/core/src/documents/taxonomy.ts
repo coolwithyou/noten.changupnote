@@ -25,6 +25,18 @@ export interface NormalizeGrantDocumentsResult {
   preparationCounts: Record<GrantDocumentPreparationType, number>;
 }
 
+export interface EnrichGrantDocumentAttachmentsResult {
+  documents: GrantRequiredDocument[];
+  linkedCount: number;
+  ambiguousCount: number;
+}
+
+export interface ResolveGrantDocumentAttachmentsResult extends EnrichGrantDocumentAttachmentsResult {
+  inferredCount: number;
+  /** 결과 documents 각 항목의 원래 existing index. 첨부에서 새로 합성한 항목은 null. */
+  existingDocumentIndexes: Array<number | null>;
+}
+
 interface DocumentRule {
   category: GrantDocumentCategory;
   preparationType: GrantDocumentPreparationType;
@@ -184,7 +196,7 @@ const DOCUMENT_RULES: DocumentRule[] = [
 
 export function normalizeGrantDocuments(input: NormalizeGrantDocumentsInput): NormalizeGrantDocumentsResult {
   const existing = (input.documents ?? []).map(normalizeGrantRequiredDocument);
-  const extracted = extractGrantRequiredDocumentsFromText(input.textSources ?? []);
+  const extracted = extractGrantRequiredDocumentCandidates(input.textSources ?? []);
   const documents = mergeGrantRequiredDocuments(existing, extracted);
 
   return {
@@ -193,6 +205,77 @@ export function normalizeGrantDocuments(input: NormalizeGrantDocumentsInput): No
     normalizedCount: documents.length,
     categoryCounts: countBy(documents, "category"),
     preparationCounts: countBy(documents, "preparation_type"),
+  };
+}
+
+/**
+ * 기존 제출서류의 순서·분류·documentKey 재료는 그대로 두고, 첨부 근거가 하나로 확정되는 항목에만
+ * 원본 파일명을 연결한다. ApplySheet 조립 시 수집 첨부와 required_documents 를 잇는 런타임 브리지다.
+ *
+ * 같은 canonical 문서에 서로 다른 첨부가 둘 이상이면 임의로 고르지 않는다. 원본 파일명은 이후
+ * grant_attachment_archives 에서 R2 storage key 로 해석된다.
+ */
+export function enrichGrantRequiredDocumentAttachments(
+  input: NormalizeGrantDocumentsInput,
+): EnrichGrantDocumentAttachmentsResult {
+  const existing = (input.documents ?? []).map(normalizeGrantRequiredDocument);
+  const extracted = extractGrantRequiredDocumentCandidates(input.textSources ?? []);
+  return enrichMissingSourceAttachments(existing, extracted);
+}
+
+/**
+ * 작성 서류가 비어 있는 공고는 수집·보관된 원본 양식이 있어도 워크스페이스에 진입할 수 없다.
+ * HWP/HWPX 첨부 파일명 자체가 신청서 또는 사업계획서임을 명확히 드러내는 경우에만 런타임
+ * 작성 서류를 합성한다. 공고문·안내문과 PDF/DOCX는 이 경로에서 추정하지 않는다.
+ *
+ * 기존 required_documents가 같은 canonical 문서를 이미 기술하면 해당 문서를 우선하며,
+ * 서로 다른 대상용 양식은 source_attachment 단위로 각각 유지한다.
+ */
+export function resolveGrantRequiredDocumentsFromAttachments(
+  input: NormalizeGrantDocumentsInput,
+): ResolveGrantDocumentAttachmentsResult {
+  const existing = (input.documents ?? []).map(normalizeGrantRequiredDocument);
+  const extracted = extractGrantRequiredDocumentCandidates(input.textSources ?? []);
+  const attachmentFilenameSources = (input.textSources ?? []).filter(isHwpAttachmentFilenameSource);
+  const hwpTemplateCandidates = extractGrantRequiredDocumentCandidates(attachmentFilenameSources);
+  const enriched = enrichMissingSourceAttachments(existing, extracted);
+  const hwpCandidatesByCanonical = groupDraftTemplateCandidates(hwpTemplateCandidates);
+  const documents: GrantRequiredDocument[] = [];
+  const existingDocumentIndexes: Array<number | null> = [];
+
+  for (const [index, document] of enriched.documents.entries()) {
+    const canonicalCandidates = hwpCandidatesByCanonical.get(canonicalDocumentKey(document)) ?? [];
+    // 일반형 "신청서" 하나와 대상별 양식 여러 개가 충돌하면 첨부 없는 일반형을 남기지 않고
+    // 아래에서 각 원본 양식으로 대체한다. 임의로 하나를 골라 연결하는 것보다 안전하다.
+    if (!cleanText(document.source_attachment) && canonicalCandidates.length > 1) continue;
+    documents.push(document);
+    existingDocumentIndexes.push(index);
+  }
+
+  const inferredKeys = new Set<string>();
+  const inferred: GrantRequiredDocument[] = [];
+
+  for (const candidate of hwpTemplateCandidates.map(normalizeGrantRequiredDocument)) {
+    if (!isInferredDraftTemplateCandidate(candidate)) continue;
+
+    const sourceAttachment = cleanText(candidate.source_attachment);
+    if (!sourceAttachment) continue;
+    const alreadyCovered = documents.some((document) =>
+      canonicalDocumentKey(document) === canonicalDocumentKey(candidate)
+      && keyPart(document.source_attachment ?? "") === keyPart(sourceAttachment)
+    );
+    if (alreadyCovered) continue;
+    const inferredKey = `${candidate.category}:${keyPart(sourceAttachment)}`;
+    if (inferredKeys.has(inferredKey)) continue;
+    inferredKeys.add(inferredKey);
+    inferred.push(candidate);
+  }
+
+  return {
+    ...enriched,
+    documents: [...documents, ...inferred],
+    inferredCount: inferred.length,
+    existingDocumentIndexes: [...existingDocumentIndexes, ...inferred.map(() => null)],
   };
 }
 
@@ -227,6 +310,10 @@ export function normalizeGrantRequiredDocument(document: GrantRequiredDocument):
 }
 
 export function extractGrantRequiredDocumentsFromText(textSources: DocumentTextSource[]): GrantRequiredDocument[] {
+  return mergeGrantRequiredDocuments([], extractGrantRequiredDocumentCandidates(textSources));
+}
+
+function extractGrantRequiredDocumentCandidates(textSources: DocumentTextSource[]): GrantRequiredDocument[] {
   const documents: GrantRequiredDocument[] = [];
 
   for (const source of textSources) {
@@ -255,13 +342,14 @@ export function extractGrantRequiredDocumentsFromText(textSources: DocumentTextS
     }
   }
 
-  return mergeGrantRequiredDocuments([], documents);
+  return documents;
 }
 
 function mergeGrantRequiredDocuments(
   existing: GrantRequiredDocument[],
   extracted: GrantRequiredDocument[],
 ): GrantRequiredDocument[] {
+  const enriched = enrichMissingSourceAttachments(existing, extracted).documents;
   const merged: GrantRequiredDocument[] = [];
   const exactKeys = new Set<string>();
   const canonicalKeys = new Set<string>();
@@ -280,9 +368,93 @@ function mergeGrantRequiredDocuments(
     merged.push(normalized);
   };
 
-  for (const document of existing) push(document, "existing");
+  for (const document of enriched) push(document, "existing");
   for (const document of extracted) push(document, "extracted");
   return merged;
+}
+
+function enrichMissingSourceAttachments(
+  existing: GrantRequiredDocument[],
+  extracted: GrantRequiredDocument[],
+): EnrichGrantDocumentAttachmentsResult {
+  const candidates = extracted
+    .map(normalizeGrantRequiredDocument)
+    .filter((document): document is GrantRequiredDocument & { source_attachment: string } =>
+      Boolean(cleanText(document.source_attachment))
+    );
+  let linkedCount = 0;
+  let ambiguousCount = 0;
+
+  const documents = existing.map((document) => {
+    const normalized = normalizeGrantRequiredDocument(document);
+    if (cleanText(normalized.source_attachment)) return normalized;
+
+    const exactCandidates = candidates.filter((candidate) =>
+      keyPart(candidate.name) === keyPart(normalized.name)
+    );
+    const canonicalCandidates = candidates.filter((candidate) =>
+      canonicalDocumentKey(candidate) === canonicalDocumentKey(normalized)
+    );
+    const exactAttachment = uniqueSourceAttachment(exactCandidates);
+    const canonicalAttachment = uniqueSourceAttachment(canonicalCandidates);
+    const sourceAttachment = exactAttachment.value ?? canonicalAttachment.value;
+
+    if (sourceAttachment) {
+      linkedCount += 1;
+      return { ...normalized, source_attachment: sourceAttachment };
+    }
+    if (exactAttachment.ambiguous || canonicalAttachment.ambiguous) ambiguousCount += 1;
+    return normalized;
+  });
+
+  return { documents, linkedCount, ambiguousCount };
+}
+
+function uniqueSourceAttachment(
+  documents: Array<GrantRequiredDocument & { source_attachment: string }>,
+): { value: string | null; ambiguous: boolean } {
+  const values = [...new Set(documents.map((document) => cleanText(document.source_attachment)).filter(Boolean))];
+  return {
+    value: values.length === 1 ? values[0]! : null,
+    ambiguous: values.length > 1,
+  };
+}
+
+function canonicalDocumentKey(document: GrantRequiredDocument): string {
+  return [
+    document.category ?? "other",
+    keyPart(document.canonical_name ?? document.name),
+  ].join(":");
+}
+
+function isHwpAttachmentFilenameSource(source: DocumentTextSource): boolean {
+  if (source.sourceField !== "attachment_filename") return false;
+  const filename = cleanText(source.sourceAttachment) ?? cleanText(source.text);
+  return Boolean(filename && /\.(?:hwp|hwpx)$/iu.test(filename));
+}
+
+function isInferredDraftTemplateCandidate(document: GrantRequiredDocument): boolean {
+  return document.preparation_type === "write"
+    && document.template_required === true
+    && (document.category === "application_form" || document.category === "business_plan");
+}
+
+function groupDraftTemplateCandidates(
+  documents: GrantRequiredDocument[],
+): Map<string, GrantRequiredDocument[]> {
+  const groups = new Map<string, GrantRequiredDocument[]>();
+  const seen = new Set<string>();
+  for (const document of documents.map(normalizeGrantRequiredDocument)) {
+    if (!isInferredDraftTemplateCandidate(document)) continue;
+    const sourceAttachment = cleanText(document.source_attachment);
+    if (!sourceAttachment) continue;
+    const canonicalKey = canonicalDocumentKey(document);
+    const uniqueKey = `${canonicalKey}:${keyPart(sourceAttachment)}`;
+    if (seen.has(uniqueKey)) continue;
+    seen.add(uniqueKey);
+    groups.set(canonicalKey, [...(groups.get(canonicalKey) ?? []), document]);
+  }
+  return groups;
 }
 
 function findDocumentRule(value: string): DocumentRule | undefined {

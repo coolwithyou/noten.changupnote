@@ -17,6 +17,7 @@ import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { hashGrantRawPayload } from "./grantRawHash";
 import { attachmentsFromDetail, fetchKStartupDetailWithRetry } from "./kstartupDetailFetch";
+import { preserveArchivedKStartupAttachmentMetadata } from "./kstartupAttachmentSelection";
 
 export type HealDetailStatus = "updated" | "dry_run" | "no_raw" | "fetch_failed";
 
@@ -57,12 +58,13 @@ export async function healKStartupGrantDetail(
     return { ok: false, status: "no_raw", detail, attachments };
   }
 
-  const nextPayload: Record<string, unknown> = { ...existing, detail };
+  const nextPayload: Record<string, unknown> = { ...existing.payload, detail };
+  const nextAttachments = preserveArchivedKStartupAttachmentMetadata(attachments, existing.attachments);
   await db
     .update(schema.grantRaw)
     .set({
       payload: nextPayload,
-      attachments: attachments as unknown as Array<Record<string, unknown>>,
+      attachments: nextAttachments as unknown as Array<Record<string, unknown>>,
       rawHash: hashGrantRawPayload(nextPayload),
     })
     .where(and(
@@ -81,17 +83,23 @@ export async function healKStartupGrantDetail(
       eq(schema.grants.sourceId, input.sourceId),
     ));
 
-  return { ok: true, status: "updated", detail, attachments };
+  return { ok: true, status: "updated", detail, attachments: nextAttachments };
 }
 
 async function readGrantRawPayload(
   db: CunoteDb,
   sourceId: string,
-): Promise<Record<string, unknown> | null> {
+): Promise<{
+  payload: Record<string, unknown>;
+  attachments: NonNullable<GrantRaw["attachments"]> | null;
+} | null> {
   const [row] = await db
-    .select({ payload: schema.grantRaw.payload })
+    .select({ payload: schema.grantRaw.payload, attachments: schema.grantRaw.attachments })
     .from(schema.grantRaw)
     .where(and(eq(schema.grantRaw.source, "kstartup"), eq(schema.grantRaw.sourceId, sourceId)))
     .limit(1);
-  return row ? row.payload : null;
+  return row ? {
+    payload: row.payload,
+    attachments: row.attachments as NonNullable<GrantRaw["attachments"]> | null,
+  } : null;
 }

@@ -19,7 +19,7 @@
  */
 import { generateObject, type ModelMessage } from "ai";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -28,6 +28,11 @@ import { buildGrantGrounding, type GroundingDocumentBlock } from "../chat/ground
 import { assertChatBudget, normalizeChatUsage, type NormalizedChatUsage } from "../chat/budget";
 import { normalizeWs, quoteExists } from "../knowledge/extraction";
 import { applyLlmFieldSuggestions, getGrantDocumentDraft } from "./grantDocumentDrafts";
+import {
+  loadConnectedDocumentFields,
+  resolveArchiveStorageKey,
+  type ConnectedDocumentField,
+} from "./documentFieldLink";
 import { normalizeAnswerLabel, normalizeAnswerValue } from "./fieldAnswers";
 
 const DEFAULT_DRAFT_MODEL = "claude-sonnet-4-6"; // ADR-7 — env CHAT_DRAFT_MODEL 로 오버라이드.
@@ -69,6 +74,10 @@ const MANUAL_LABEL_KEYWORDS: readonly string[] = [
   "첨부",
   "붙임",
   "별첨",
+  "주민등록",
+  "외국인등록",
+  "여권번호",
+  "운전면허",
 ];
 
 function stripSpaces(label: string): string {
@@ -199,6 +208,70 @@ export function sanitizeSuggestLabels(labels: string[]): {
   return { eligible, droppedManual };
 }
 
+export function selectDatabaseSuggestableLabels(
+  fields: Array<Pick<ConnectedDocumentField, "label" | "mappedCompanyField" | "fillStrategy">>,
+): Set<string> {
+  // 같은 정규화 label이 여러 필드에 쓰이면 모든 필드가 허용될 때만 제안한다. 하나라도 manual이거나
+  // 프로필 매핑 필드면 모호한 요청을 fail-closed한다.
+  const eligibilityByLabel = new Map<string, boolean>();
+  for (const field of fields) {
+    const label = normalizeAnswerLabel(field.label);
+    if (!label) continue;
+    const eligible = field.mappedCompanyField === null
+      && field.fillStrategy !== "manual"
+      && isLlmSuggestableLabel(field.label);
+    eligibilityByLabel.set(label, (eligibilityByLabel.get(label) ?? true) && eligible);
+  }
+  return new Set(
+    [...eligibilityByLabel.entries()]
+      .filter(([, eligible]) => eligible)
+      .map(([label]) => label),
+  );
+}
+
+async function loadDatabaseSuggestableLabels(input: {
+  draftId: string;
+  grantId: string;
+  companyId: string;
+  sourceAttachment: string | null;
+}): Promise<Set<string>> {
+  const db = getCunoteDb();
+  const [[draftContext], [grant]] = await Promise.all([
+    db
+      .select({ surfaceId: schema.grantDocumentDrafts.surfaceId })
+      .from(schema.grantDocumentDrafts)
+      .where(and(
+        eq(schema.grantDocumentDrafts.id, input.draftId),
+        eq(schema.grantDocumentDrafts.companyId, input.companyId),
+      ))
+      .limit(1),
+    db
+      .select({ source: schema.grants.source, sourceId: schema.grants.sourceId })
+      .from(schema.grants)
+      .where(eq(schema.grants.id, input.grantId))
+      .limit(1),
+  ]);
+  if (!draftContext || !grant) return new Set();
+
+  const archive = !draftContext.surfaceId && input.sourceAttachment
+    ? await resolveArchiveStorageKey({
+        source: grant.source,
+        sourceId: grant.sourceId,
+        filename: input.sourceAttachment,
+      })
+    : null;
+  const fields = await loadConnectedDocumentFields({
+    source: grant.source,
+    sourceId: grant.sourceId,
+    ...(draftContext.surfaceId ? { surfaceId: draftContext.surfaceId } : {}),
+    ...(!draftContext.surfaceId && archive?.storageKey
+      ? { sourceAttachment: archive.storageKey }
+      : {}),
+  });
+
+  return selectDatabaseSuggestableLabels(fields);
+}
+
 // ── 예산 합산용 usage 기록(ADR-6) ───────────────────────────────────────
 /**
  * 제안 usage 를 당일 합산 SQL(getCompanyDailyTokenUsage — chat_sessions 4개 usage 컬럼 합)이 잡도록 기록한다.
@@ -276,12 +349,21 @@ export async function generateFieldSuggestions(input: {
     );
   }
 
-  const { eligible } = sanitizeSuggestLabels(input.labels);
+  const { eligible: sanitizedLabels } = sanitizeSuggestLabels(input.labels);
   // manual류만 요청됐거나 유효 label 이 없으면 LLM 호출·예산 소비 없이 빈 결과.
-  if (eligible.length === 0) return { suggestions: {} };
+  if (sanitizedLabels.length === 0) return { suggestions: {} };
 
   // 소유권 404(회사 불일치) + grantId 확보. getGrantDocumentDraft 가 companyId 스코프 검증.
   const draft = await getGrantDocumentDraft({ draftId: input.draftId, access: input.access });
+  const databaseSuggestableLabels = await loadDatabaseSuggestableLabels({
+    draftId: input.draftId,
+    grantId: draft.grantId,
+    companyId: input.access.companyId,
+    sourceAttachment: draft.sourceAttachment,
+  });
+  const eligible = sanitizedLabels.filter((label) => databaseSuggestableLabels.has(label));
+  // 클라이언트 label만 신뢰하지 않고 현재 draft에 실제 연결된 DB 필드 계획과 재대조한다.
+  if (eligible.length === 0) return { suggestions: {} };
 
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!apiKey) {

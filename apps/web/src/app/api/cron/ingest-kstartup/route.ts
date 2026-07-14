@@ -7,6 +7,8 @@ import { authorizeCronRequest } from "@/lib/server/auth/cronAuth";
 import { runConversionPollSweep } from "@/lib/server/conversion/pollSweep";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { archiveKStartup } from "@/lib/server/ingestion/archiveKStartupCore";
+import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
+import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,9 +44,20 @@ export async function GET(request: Request) {
       collectedAt: new Date(),
       details: true,
       maxDetailFetches: maxDetails,
-      // 첨부 본문 다운로드는 별도 측정·예산 확정 전까지 명시적으로 비활성화한다.
+      // 인라인 다운로드는 여전히 끈다. 아래 bounded tail sweep이 신규/변경분 우선으로
+      // 전역 grant/attachment/시간 예산 안에서 기존 backlog까지 함께 복구한다.
       archiveAttachments: false,
     });
+
+    const priorityAttachmentSourceIds = result.pages.flatMap((page) => [
+      ...page.plan.newSourceIds,
+      ...page.plan.changedSourceIds,
+    ]);
+    const attachmentArchiveSweep = await runTailAttachmentArchiveSweep(
+      db,
+      priorityAttachmentSourceIds,
+      startedAt,
+    );
 
     // 잔여 예산 변환 폴링 스윕 (계획 2026-07-08 슬라이스 A3): 이 수집이 등록한 pending surface 를
     // 같은 실행에서 변환한다. Hobby 플랜 cron 2개 제한으로 별도 cron 을 못 늘려 여기 얹는다.
@@ -57,6 +70,7 @@ export async function GET(request: Request) {
       totals: result.totals,
       detailTotals: result.detailTotals,
       attachmentArchiveTotals: result.attachmentArchiveTotals,
+      attachmentArchiveSweep,
       revisionRefresh: result.revisionRefresh,
       stopReason: result.stopReason,
       pageCount: result.pageCount,
@@ -77,6 +91,56 @@ export async function GET(request: Request) {
       },
       { status: 500 },
     );
+  }
+}
+
+/**
+ * 수집 후 활성 K-Startup 첨부를 소량 복구한다. 새/변경 공고를 우선하되 persisted
+ * active pool도 함께 보므로 unchanged backlog가 영구 정체되지 않는다.
+ */
+async function runTailAttachmentArchiveSweep(
+  db: ReturnType<typeof getCunoteDb>,
+  prioritySourceIds: string[],
+  startedAt: number,
+) {
+  const deadlineAtMs = startedAt + 180_000;
+  if (Date.now() >= deadlineAtMs) {
+    return { skippedReason: "budget_exhausted", deadlineAtMs };
+  }
+  const storage = createR2ObjectStorageFromEnv();
+  if (!storage) return { skippedReason: "storage_env_missing" };
+  try {
+    const result = await runKStartupAttachmentArchiveBatch({
+      db,
+      storage,
+      scanLimit: 2_000,
+      asOf: new Date(),
+      write: true,
+      convertHwp: false,
+      allowFailures: true,
+      maxGrants: 4,
+      maxTotalAttachments: 6,
+      maxAttachmentsPerGrant: 2,
+      prioritySourceIds,
+      fetchTimeoutMs: 20_000,
+      maxAttachmentBytes: 50 * 1024 * 1024,
+      deadlineAtMs,
+    });
+    return {
+      skippedReason: null,
+      totalCandidateCount: result.totalCandidateCount,
+      batchCandidateCount: result.batchCandidateCount,
+      selectedAttachmentCount: result.selectedAttachmentCount,
+      succeededCount: result.succeededCount,
+      failedCount: result.failedCount,
+      deadlineReached: result.deadlineReached,
+      sourceIds: result.results.map((item) => String(item.sourceId ?? "")).filter(Boolean),
+    };
+  } catch (error) {
+    return {
+      skippedReason: "archive_sweep_error",
+      message: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 

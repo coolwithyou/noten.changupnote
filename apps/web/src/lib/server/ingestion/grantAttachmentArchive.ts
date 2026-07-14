@@ -129,6 +129,10 @@ export interface GrantAttachmentArchiveOptions {
   allowFailures: boolean;
   storage: R2ObjectStorage | null;
   fetchImpl?: typeof fetch;
+  /** 원본 다운로드 제한. 미지정 시 호출 환경의 fetch 기본값을 사용한다. */
+  fetchTimeoutMs?: number;
+  /** 단일 원본 파일 최대 바이트. 미지정 시 별도 제한 없음. */
+  maxAttachmentBytes?: number;
   imageOcr?: GrantImageOcrAdapter;
   minImageOcrConfidence?: number;
 }
@@ -248,7 +252,7 @@ async function archiveOneAttachment(
     };
   }
 
-  const downloaded = downloadedInput ?? await downloadAttachment(originalUrl, options.fetchImpl ?? fetch);
+  const downloaded = downloadedInput ?? await downloadAttachment(originalUrl, options.fetchImpl ?? fetch, options);
   const contentType = isPlainTextFilename(attachment.filename)
     ? inferContentType(attachment.filename)
     : downloaded.contentType ?? inferContentType(attachment.filename);
@@ -386,7 +390,7 @@ async function archiveContainerAttachment(
   options: GrantAttachmentArchiveOptions,
 ): Promise<ArchivedAttachmentResult[]> {
   if (!attachment.url) return [await archiveOneAttachment(attachment, options)];
-  const downloaded = await downloadAttachment(attachment.url, options.fetchImpl ?? fetch);
+  const downloaded = await downloadAttachment(attachment.url, options.fetchImpl ?? fetch, options);
   const parent = await archiveOneAttachment(attachment, options, downloaded);
   if (extname(attachment.filename).toLowerCase() !== ".zip") return [parent];
   try {
@@ -424,20 +428,44 @@ function nestedArchiveFilename(containerFilename: string, entryFilename: string,
   return `${container}__${String(index + 1).padStart(2, "0")}__${entry}${extension}`;
 }
 
-async function downloadAttachment(url: string, fetchImpl: typeof fetch): Promise<{
+async function downloadAttachment(
+  url: string,
+  fetchImpl: typeof fetch,
+  limits: Pick<GrantAttachmentArchiveOptions, "fetchTimeoutMs" | "maxAttachmentBytes">,
+): Promise<{
   body: Buffer;
   contentType: string | null;
 }> {
-  const response = await fetchImpl(url, { headers: { accept: "*/*" } });
-  if (!response.ok) {
-    throw new Error(`Attachment download failed: ${response.status} ${response.statusText}`);
+  const timeoutMs = limits.fetchTimeoutMs;
+  const controller = timeoutMs !== undefined ? new AbortController() : null;
+  const timer = controller
+    ? setTimeout(() => controller.abort(new Error(`Attachment download timed out after ${timeoutMs}ms`)), timeoutMs)
+    : null;
+  try {
+    const response = await fetchImpl(url, {
+      headers: { accept: "*/*" },
+      ...(controller ? { signal: controller.signal } : {}),
+    });
+    if (!response.ok) {
+      throw new Error(`Attachment download failed: ${response.status} ${response.statusText}`);
+    }
+    const contentLength = Number(response.headers.get("content-length"));
+    if (limits.maxAttachmentBytes !== undefined && Number.isFinite(contentLength) &&
+        contentLength > limits.maxAttachmentBytes) {
+      throw new Error(`Attachment exceeds ${limits.maxAttachmentBytes} byte limit`);
+    }
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.length === 0) throw new Error("Attachment download produced an empty file");
+    if (limits.maxAttachmentBytes !== undefined && body.length > limits.maxAttachmentBytes) {
+      throw new Error(`Attachment exceeds ${limits.maxAttachmentBytes} byte limit`);
+    }
+    return {
+      body,
+      contentType: response.headers.get("content-type")?.split(";")[0]?.trim() || null,
+    };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  const body = Buffer.from(await response.arrayBuffer());
-  if (body.length === 0) throw new Error("Attachment download produced an empty file");
-  return {
-    body,
-    contentType: response.headers.get("content-type")?.split(";")[0]?.trim() || null,
-  };
 }
 
 function toRawAttachment(attachment: SourceAttachment): NonNullable<GrantRaw["attachments"]>[number] {

@@ -205,6 +205,7 @@ export function MatchResultsExperience() {
               saving={continuing}
               {...(answerImpact ? { precisionDelta: answerImpact.precisionDelta } : {})}
               empty={noMatchingGrants}
+              questionsExhausted={teaser.nextQuestion === null}
             />
             {noMatchingGrants ? (
               <NoMatchingGrantsState
@@ -248,6 +249,7 @@ export function MatchResultsExperience() {
               submitting={profileSubmitting}
               open={profileOpen}
               onOpenChange={setProfileOpen}
+              answerImpact={answerImpact}
             />
           </>
         ) : null}

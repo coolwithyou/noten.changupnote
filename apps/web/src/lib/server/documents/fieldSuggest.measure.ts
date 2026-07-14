@@ -27,6 +27,7 @@ import {
   isLlmSuggestableLabel,
   isManualLabel,
   sanitizeSuggestLabels,
+  selectDatabaseSuggestableLabels,
   fieldSuggestModel,
   verifySuggestion,
 } from "@/lib/server/documents/fieldSuggest";
@@ -80,6 +81,8 @@ function unitChecks(): void {
   assertTrue("manual 제외: '대표자 (서명)'", isManualLabel("대표자 (서명)"));
   assertTrue("manual 제외: '개인정보 수집·이용 동의'", isManualLabel("개인정보 수집·이용 동의"));
   assertTrue("manual 제외: '증빙서류 첨부'", isManualLabel("증빙서류 첨부"));
+  assertTrue("민감 식별자 제외: '주민등록번호(대표자)'", isManualLabel("주민등록번호(대표자)"));
+  assertTrue("민감 식별자 제외: '여권번호'", isManualLabel("여권번호"));
   assertTrue("서술형 허용: '사업 개요'", isLlmSuggestableLabel("사업 개요"));
   assertTrue("서술형 허용: '창업 아이템 소개'", isLlmSuggestableLabel("창업 아이템 소개"));
 
@@ -89,6 +92,18 @@ function unitChecks(): void {
     eligible.length === 1 && eligible[0] === "사업 개요" && droppedManual.length === 1,
     `eligible=${JSON.stringify(eligible)} dropped=${JSON.stringify(droppedManual)}`,
   );
+
+  const databaseAllowed = selectDatabaseSuggestableLabels([
+    { label: "사업 개요", mappedCompanyField: null, fillStrategy: "generate" },
+    { label: "주민등록번호(대표자)", mappedCompanyField: null, fillStrategy: "manual" },
+    { label: "회사명", mappedCompanyField: "name", fillStrategy: "copy" },
+    { label: "중복 항목", mappedCompanyField: null, fillStrategy: "generate" },
+    { label: "중복 항목", mappedCompanyField: null, fillStrategy: "manual" },
+  ]);
+  assertTrue("DB 계획 재대조: generate 필드 허용", databaseAllowed.has("사업 개요"));
+  assertTrue("DB 계획 재대조: manual 민감 필드 제외", !databaseAllowed.has("주민등록번호(대표자)"));
+  assertTrue("DB 계획 재대조: 프로필 매핑 필드 제외", !databaseAllowed.has("회사명"));
+  assertTrue("DB 계획 재대조: 중복 label은 하나라도 manual이면 제외", !databaseAllowed.has("중복 항목"));
 
   // basis 실재 검증(v2.4) — 그라운딩 코퍼스 부분 문자열 매칭.
   const corpus = normalizeWs("이 사업의 지원 대상은 예비창업자 및 3년 이내 창업기업입니다. 지원금은 최대 5천만원입니다.");

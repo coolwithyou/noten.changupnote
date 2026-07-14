@@ -40,16 +40,17 @@ const LADDER_BADGE: Record<WorkspaceData["ladder"], { label: string; className: 
 };
 
 export function WorkspaceView({
-  grantId,
   data,
   greeting,
   institutionContact,
 }: {
-  grantId: string;
   data: WorkspaceData;
   greeting: ChatMessageContent;
   institutionContact: InstitutionContact | null;
 }) {
+  // Workspace 내부 API(page image/chat/conversion)는 grants.id UUID 계약이다. 공개 route param을
+  // 다시 전달하면 bizinfo%3A... 같은 source key가 UUID 전용 API로 흘러가므로 서버 로더의 id만 쓴다.
+  const grantId = data.grant.id;
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pendingLabels, setPendingLabels] = useState<Set<string>>(() => new Set());

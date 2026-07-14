@@ -50,9 +50,19 @@ const attachmentPending = buildGrantExtractionManifest(normalized([criterion], [
 assert.equal(attachmentPending.readiness, "partial");
 assert.ok(attachmentPending.warnings.includes("attachment_fetch_incomplete"));
 
+const attachmentUrlOnly = buildGrantExtractionManifest(normalized([criterion], [{
+  filename: "미보관 공고문.hwp",
+  archive_url: "https://origin.example/notice.hwp",
+  sha256: "hash-without-storage-key",
+  conversion: { status: "skipped" },
+}]));
+assert.equal(attachmentUrlOnly.attachmentsFetched, 0);
+assert.ok(attachmentUrlOnly.warnings.includes("attachment_fetch_incomplete"));
+
 const attachmentConverted = buildGrantExtractionManifest(normalized([criterion], [{
   filename: "공고문.hwp",
   archive_url: "https://archive.example/notice.hwp",
+  storage_key: "grant-archive/notice.hwp",
   sha256: "abc",
   conversion: { status: "converted", markdown_storage_key: "notice.md" },
 }]));
@@ -63,6 +73,7 @@ assert.equal(attachmentConverted.attachmentsConverted, 1);
 const attachmentSkipped = buildGrantExtractionManifest(normalized([criterion], [{
   filename: "안내이미지.png",
   archive_url: "https://archive.example/notice.png",
+  storage_key: "grant-archive/notice.png",
   sha256: "skip",
   conversion: { status: "skipped" },
 }]));
@@ -91,6 +102,7 @@ console.log(JSON.stringify({
     "hard_criterion_evidence",
     "text_only_criterion",
     "attachment_fetch_incomplete",
+    "attachment_url_without_storage_key_is_not_fetched",
     "attachment_converted",
     "attachment_skipped_terminal",
     "reviewed_manifest",

@@ -54,6 +54,7 @@ export interface ConnectedDocumentField {
   fieldType: string;
   required: boolean;
   mappedCompanyField: string | null;
+  fillStrategy: string;
   position: Record<string, unknown> | null;
 }
 
@@ -90,6 +91,7 @@ export async function loadConnectedDocumentFields(input: {
       fieldType: schema.grantDocumentFields.fieldType,
       required: schema.grantDocumentFields.required,
       mappedCompanyField: schema.grantDocumentFields.mappedCompanyField,
+      fillStrategy: schema.grantDocumentFields.fillStrategy,
       position: schema.grantDocumentFields.position,
     })
     .from(schema.grantDocumentFields)
@@ -102,6 +104,7 @@ export async function loadConnectedDocumentFields(input: {
     fieldType: row.fieldType,
     required: row.required,
     mappedCompanyField: row.mappedCompanyField,
+    fillStrategy: row.fillStrategy,
     position: row.position,
   }));
 }

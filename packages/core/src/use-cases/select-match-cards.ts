@@ -63,7 +63,27 @@ export function isMatchSortKey(value: string): value is MatchSortKey {
   return (MATCH_SORT_KEYS as readonly string[]).includes(value);
 }
 
+/**
+ * "준비하면 열려요"는 사용자가 둘 이상의 프로필 답변으로 해소할 수 있는 공고만 뜻한다.
+ * 내부 bucket의 legacy `preparable`은 되돌릴 수 없는 hard fail에도 붙으므로 UI/API 필터 근거로
+ * 직접 사용하지 않는다.
+ */
+export function isPreparableMatchCard(match: MatchCard): boolean {
+  const tier = match.recommendationTier ?? (
+    match.eligibility === "eligible"
+      ? "recommendable"
+      : match.eligibility === "ineligible"
+        ? "not_recommended"
+        : "needs_profile_input"
+  );
+  if (tier !== "needs_profile_input") return false;
+  return new Set(match.ruleTrace
+    .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
+    .map((trace) => trace.dimension)).size > 1;
+}
+
 function matchesStatus(match: MatchCard, status: Exclude<MatchStatusFilter, "all">): boolean {
+  if (status === "preparable") return isPreparableMatchCard(match);
   return match.eligibility === status || match.bucket === status;
 }
 

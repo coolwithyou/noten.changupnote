@@ -416,7 +416,7 @@ async function readExistingGrantRawHashes(
   return rows;
 }
 
-interface ExistingBizInfoRawState extends ExistingGrantRawHash {
+export interface ExistingBizInfoRawState extends ExistingGrantRawHash {
   attachments: Array<Record<string, unknown>> | null;
 }
 
@@ -446,7 +446,7 @@ function planRawPrograms(
     if (isKnown && !isUnchanged) changedSourceIds.push(program.pblancId);
     if (isUnchanged) unchangedSourceIds.push(program.pblancId);
     const needsAttachmentRefresh = options.archiveAttachments &&
-      needsAttachmentArchive(program, existingStateBySourceId.get(program.pblancId));
+      needsBizInfoAttachmentArchive(program, existingStateBySourceId.get(program.pblancId));
     if (needsAttachmentRefresh) attachmentRefreshSourceIds.push(program.pblancId);
     // 강제 재발행(Minor-6): forceRepublish 면 unchanged 여부와 무관하게 재추출·재발행 대상.
     if (options.forceRepublish || !options.skipUnchanged || !isUnchanged || needsAttachmentRefresh) {
@@ -467,7 +467,10 @@ function planRawPrograms(
   };
 }
 
-function needsAttachmentArchive(program: BizInfoProgram, existing: ExistingBizInfoRawState | undefined): boolean {
+export function needsBizInfoAttachmentArchive(
+  program: BizInfoProgram,
+  existing: ExistingBizInfoRawState | undefined,
+): boolean {
   const sourceAttachments = buildBizInfoProgramExtractionInput(program).metadata.attachments
     .filter((attachment) => attachment.url);
   if (sourceAttachments.length === 0) return false;
@@ -482,13 +485,13 @@ function needsAttachmentArchive(program: BizInfoProgram, existing: ExistingBizIn
       return cleanText(value.filename as string | undefined) === filename &&
         (
           cleanText(value.source_uri as string | undefined) === url ||
-          cleanText(value.url as string | undefined) === url ||
-          cleanText(value.archive_url as string | undefined) === url
+          cleanText(value.url as string | undefined) === url
         );
     });
     if (!match) return true;
     const value = match as Record<string, unknown>;
-    return !cleanText(value.archive_url as string | undefined) && !cleanText(value.storage_key as string | undefined);
+    return !cleanText(value.storage_key as string | undefined) ||
+      !cleanText(value.sha256 as string | undefined);
   });
 }
 

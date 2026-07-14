@@ -444,18 +444,33 @@ function conversionAttachmentRefs<TPayload>(
   return (entry.raw.attachments ?? []).flatMap((attachment) => {
     const filename = textValue(attachment.filename);
     if (!filename) return [];
+    const archiveIdentity = normalizedAttachmentArchiveIdentity(attachment);
     // 아카이브 시점 매직 바이트 검출 결과가 첨부 JSON 에 실려 있으면 그대로 넘긴다.
     // 없으면(byte-less 경로) detectedFormat 를 생략해 registerAttachmentConversions 가 확장자로 폴백한다.
     const detectedFormat = readDetectedSurfaceFormat(attachment);
     return [{
       filename,
-      storageKey: textValue(attachment.storage_key),
-      archiveUrl: textValue(attachment.archive_url) ?? textValue(attachment.url),
-      sourceUri: textValue(attachment.source_uri) ?? textValue(attachment.url),
-      sha256: textValue(attachment.sha256),
+      ...archiveIdentity,
       ...(detectedFormat !== undefined ? { detectedFormat } : {}),
     }];
   });
+}
+
+/**
+ * 원본 첨부 URL과 실제 아카이브 URL을 분리한다.
+ *
+ * `url`은 아카이브 전에는 원본 제공처 URL일 수 있으므로 archiveUrl의 fallback으로
+ * 사용하면 안 된다. 실제 아카이브 완료 여부는 storageKey/sha256과 함께 판단한다.
+ */
+export function normalizedAttachmentArchiveIdentity(
+  attachment: Record<string, unknown>,
+): Pick<ArchivedAttachmentRef, "storageKey" | "archiveUrl" | "sourceUri" | "sha256"> {
+  return {
+    storageKey: textValue(attachment.storage_key),
+    archiveUrl: textValue(attachment.archive_url),
+    sourceUri: textValue(attachment.source_uri) ?? textValue(attachment.url),
+    sha256: textValue(attachment.sha256),
+  };
 }
 
 function grantInsertValues(grant: Grant, updatedAt: Date): typeof schema.grants.$inferInsert {
@@ -541,18 +556,18 @@ function grantAttachmentArchiveRows<TPayload>(
   return (entry.raw.attachments ?? []).flatMap((attachment) => {
     const filename = textValue(attachment.filename);
     if (!filename) return [];
-    const sourceUri = textValue(attachment.source_uri) ?? textValue(attachment.url) ?? "";
+    const archiveIdentity = normalizedAttachmentArchiveIdentity(attachment);
     const conversion = attachment.conversion;
     const row: typeof schema.grantAttachmentArchives.$inferInsert = {
       source: entry.raw.source,
       sourceId: entry.raw.source_id,
       filename,
-      sourceUri,
-      archiveUrl: textValue(attachment.archive_url) ?? textValue(attachment.url),
-      storageKey: textValue(attachment.storage_key),
+      sourceUri: archiveIdentity.sourceUri ?? "",
+      archiveUrl: archiveIdentity.archiveUrl,
+      storageKey: archiveIdentity.storageKey,
       contentType: textValue(attachment.content_type),
       bytes: numberValue(attachment.bytes),
-      sha256: textValue(attachment.sha256),
+      sha256: archiveIdentity.sha256,
       fetchedAt: dateValue(textValue(attachment.fetched_at)),
       conversionStatus: conversion?.status ?? null,
       markdownUrl: textValue(conversion?.markdown_url),

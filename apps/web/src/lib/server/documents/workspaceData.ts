@@ -22,6 +22,7 @@ import { detectDuplicateNormalizedLabels, type DraftFieldAnswers } from "./field
 import { isLlmSuggestableLabel } from "./fieldSuggest";
 import {
   createGrantDocumentDraft,
+  linkGrantDocumentDraftSurface,
   listGrantDocumentDraftsForGrant,
   seedGrantDocumentDraftProfileAnswers,
 } from "./grantDocumentDrafts";
@@ -191,6 +192,14 @@ export async function loadGrantWorkspaceData(input: {
     activeDraft = created.draft;
   }
   const draftId = activeDraft.id;
+  if (matchedSurface && activeDocument.sourceAttachment) {
+    await linkGrantDocumentDraftSurface({
+      draftId,
+      access,
+      surfaceId: matchedSurface.id,
+      sourceAttachment: activeDocument.sourceAttachment,
+    });
+  }
 
   // 연결 필드: surfaceId 우선, 없으면 sourceAttachment 폴백(documentFieldLink 단일 원천).
   // 폴백 키는 해석된 스토리지 키다 — grant_document_fields.sourceAttachment 는 surface 값(키)의
@@ -214,7 +223,11 @@ export async function loadGrantWorkspaceData(input: {
 
   // '제안 받기' 노출 대상(P4): 서술형(프로필 미매핑) + manual류 아님. 서버 단일 원천(fieldSuggest) 판정.
   const suggestableLabels = connectedFields
-    .filter((field) => !field.mappedCompanyField && isLlmSuggestableLabel(field.label))
+    .filter((field) =>
+      !field.mappedCompanyField
+      && field.fillStrategy !== "manual"
+      && isLlmSuggestableLabel(field.label)
+    )
     .map((field) => field.label);
 
   // ConnectedDocumentField 에는 Gate-1 표준 fieldKey 가 없다(fieldId 는 grant_document_fields.id UUID).

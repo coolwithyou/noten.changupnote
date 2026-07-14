@@ -35,6 +35,7 @@ import { publishKStartupGrants } from "./kstartupPublisher";
 import { archiveGrantAttachments } from "./grantAttachmentArchive";
 import {
   mergeArchivedKStartupAttachments,
+  preserveArchivedKStartupAttachmentMetadata,
   selectKStartupAttachmentsForArchive,
 } from "./kstartupAttachmentSelection";
 
@@ -156,7 +157,7 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
     const existing = input.db ? await readExistingKStartupRawState(input.db, entries) : null;
     // 이미 저장된 상세(detail)를 base payload 에 다시 붙여, 변경되지 않은 공고가
     // detail 유무 차이로 매번 "changed" 로 뒤집혀 재발행되는 것을 막는다(멱등성).
-    if (existing) reattachStoredDetail(entries, existing.detailBySourceId);
+    if (existing) reattachStoredState(entries, existing.detailBySourceId, existing.attachmentsBySourceId);
     const existingHashes = existing?.hashes ?? [];
     const plan = planGrantArchivePublication("kstartup", entries, existingHashes, {
       skipUnchanged: input.skipUnchanged,
@@ -164,7 +165,13 @@ export async function archiveKStartup(input: ArchiveKStartupInput): Promise<Arch
     const publishableEntries = selectPublishableArchiveEntries(entries, plan);
 
     // 신규/변경 공고에 대해서만 상세 페이지를 fetch 해 payload.detail + attachments 를 채운다.
-    await enrichEntriesWithDetail(publishableEntries, input.details, detailTotals, detailBudget);
+    await enrichEntriesWithDetail(
+      publishableEntries,
+      input.details,
+      detailTotals,
+      detailBudget,
+      existing?.attachmentsBySourceId ?? new Map(),
+    );
     await archiveEntryAttachments(publishableEntries, input, attachmentArchiveTotals);
 
     if (input.write && input.db) {
@@ -312,6 +319,7 @@ async function enrichEntriesWithDetail(
   details: boolean,
   totals: DetailTotals,
   budget: { remaining: number } | null,
+  storedAttachmentsBySourceId: Map<string, NonNullable<NormalizedGrant["raw"]["attachments"]>>,
 ): Promise<void> {
   let first = true;
   for (const entry of entries) {
@@ -340,7 +348,10 @@ async function enrichEntriesWithDetail(
     const detail = entry.raw.payload.detail;
     if (detail) {
       const attachments = attachmentsFromDetail(detail);
-      entry.raw.attachments = attachments;
+      entry.raw.attachments = preserveArchivedKStartupAttachmentMetadata(
+        attachments,
+        storedAttachmentsBySourceId.get(entry.raw.source_id),
+      );
       totals.attachments += attachments.length;
       // grant 는 detail 이 붙기 전에 normalize 됐으므로, detail 기반 판정을 여기서 재계산한다.
       // (누락 시 서식 첨부가 있어도 f_authoring_mode 가 unknown 으로 발행되는 버그가 있었다.)
@@ -350,13 +361,19 @@ async function enrichEntriesWithDetail(
 }
 
 /** 저장된 grant_raw.payload.detail 을 fresh base entry 에 다시 붙인다(멱등 change-detection). */
-function reattachStoredDetail(
+function reattachStoredState(
   entries: Array<NormalizedGrant<KStartupAnnouncement>>,
   detailBySourceId: Map<string, KStartupDetailContent>,
+  attachmentsBySourceId: Map<string, NonNullable<NormalizedGrant["raw"]["attachments"]>>,
 ): void {
   for (const entry of entries) {
     const stored = detailBySourceId.get(entry.raw.source_id);
-    if (stored) entry.raw.payload.detail = stored;
+    if (stored) {
+      entry.raw.payload.detail = stored;
+      entry.grant.f_authoring_mode = deriveKStartupAuthoringMode(entry.raw.payload);
+    }
+    const storedAttachments = attachmentsBySourceId.get(entry.raw.source_id);
+    if (storedAttachments) entry.raw.attachments = storedAttachments;
   }
 }
 
@@ -380,6 +397,7 @@ function readSamplePayload(limit: number): KStartupApiResponse {
 interface ExistingKStartupRawState {
   hashes: ExistingGrantRawHash[];
   detailBySourceId: Map<string, KStartupDetailContent>;
+  attachmentsBySourceId: Map<string, NonNullable<NormalizedGrant["raw"]["attachments"]>>;
 }
 
 async function readExistingKStartupRawState(
@@ -387,12 +405,15 @@ async function readExistingKStartupRawState(
   entries: Array<NormalizedGrant<KStartupAnnouncement>>,
 ): Promise<ExistingKStartupRawState> {
   const sourceIds = [...new Set(entries.map((entry) => entry.raw.source_id))];
-  if (sourceIds.length === 0) return { hashes: [], detailBySourceId: new Map() };
+  if (sourceIds.length === 0) {
+    return { hashes: [], detailBySourceId: new Map(), attachmentsBySourceId: new Map() };
+  }
   const rows = await db
     .select({
       sourceId: schema.grantRaw.sourceId,
       rawHash: schema.grantRaw.rawHash,
       payload: schema.grantRaw.payload,
+      attachments: schema.grantRaw.attachments,
     })
     .from(schema.grantRaw)
     .where(and(
@@ -400,13 +421,21 @@ async function readExistingKStartupRawState(
       inArray(schema.grantRaw.sourceId, sourceIds),
     ));
   const detailBySourceId = new Map<string, KStartupDetailContent>();
+  const attachmentsBySourceId = new Map<string, NonNullable<NormalizedGrant["raw"]["attachments"]>>();
   for (const row of rows) {
     const detail = (row.payload as unknown as KStartupAnnouncement).detail;
     if (detail) detailBySourceId.set(row.sourceId, detail);
+    if (row.attachments) {
+      attachmentsBySourceId.set(
+        row.sourceId,
+        row.attachments as NonNullable<NormalizedGrant["raw"]["attachments"]>,
+      );
+    }
   }
   return {
     hashes: rows.map((row) => ({ sourceId: row.sourceId, rawHash: row.rawHash })),
     detailBySourceId,
+    attachmentsBySourceId,
   };
 }
 

@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import {
+  enrichGrantRequiredDocumentAttachments,
   extractGrantRequiredDocumentsFromText,
   normalizeGrantDocuments,
   normalizeGrantRequiredDocument,
+  resolveGrantRequiredDocumentsFromAttachments,
 } from "../src/index.js";
 
 const businessPlan = normalizeGrantRequiredDocument({
@@ -69,6 +71,130 @@ assert.equal(normalized.documents.some((document) => document.category === "busi
 assert.equal(normalized.categoryCounts.business_plan, 1);
 assert.equal(normalized.preparationCounts.write >= 2, true);
 
+const incidentFilename = "【붙임 1】참여신청서 및 일체서류.hwpx";
+const incidentLinked = enrichGrantRequiredDocumentAttachments({
+  documents: [{
+    name: "참여신청서",
+    required: true,
+    source: "self",
+    category: "application_form",
+    preparation_type: "write",
+    canonical_name: "신청서",
+  }],
+  textSources: [{
+    text: incidentFilename,
+    source: "portal",
+    sourceAttachment: incidentFilename,
+    sourceField: "attachment_filename",
+  }],
+});
+assert.equal(incidentLinked.linkedCount, 1);
+assert.equal(incidentLinked.documents[0]?.source_attachment, incidentFilename);
+
+const explicitAttachment = enrichGrantRequiredDocumentAttachments({
+  documents: [{
+    name: "참여신청서",
+    required: true,
+    source: "portal",
+    source_attachment: "검수로 확정한 신청서.hwpx",
+  }],
+  textSources: [{
+    text: incidentFilename,
+    source: "portal",
+    sourceAttachment: incidentFilename,
+    sourceField: "attachment_filename",
+  }],
+});
+assert.equal(explicitAttachment.documents[0]?.source_attachment, "검수로 확정한 신청서.hwpx");
+
+const ambiguousAttachment = enrichGrantRequiredDocumentAttachments({
+  documents: [{ name: "신청서", required: true, source: "portal" }],
+  textSources: ["신청서 A.hwpx", "신청서 B.hwpx"].map((filename) => ({
+    text: filename,
+    source: "portal" as const,
+    sourceAttachment: filename,
+    sourceField: "attachment_filename",
+  })),
+});
+assert.equal(ambiguousAttachment.documents[0]?.source_attachment, undefined);
+assert.equal(ambiguousAttachment.ambiguousCount, 1);
+
+const inferredTemplates = resolveGrantRequiredDocumentsFromAttachments({
+  documents: [],
+  textSources: [
+    "화성시 참가신청서(예비창업자용).hwpx",
+    "화성시 참가신청서(기창업자용).hwpx",
+    "화성시 사업계획서.hwp",
+    "화성시 모집공고문.hwp",
+    "참가신청서.pdf",
+  ].map((filename) => ({
+    text: filename,
+    source: "portal" as const,
+    sourceAttachment: filename,
+    sourceField: "attachment_filename",
+  })),
+});
+assert.equal(inferredTemplates.inferredCount, 3);
+assert.deepEqual(
+  inferredTemplates.documents.map((document) => document.source_attachment),
+  [
+    "화성시 참가신청서(예비창업자용).hwpx",
+    "화성시 참가신청서(기창업자용).hwpx",
+    "화성시 사업계획서.hwp",
+  ],
+);
+assert.equal(inferredTemplates.documents.some((document) => document.name.includes("모집공고")), false);
+assert.equal(inferredTemplates.documents.some((document) => document.source_attachment?.endsWith(".pdf")), false);
+
+const existingTemplateWins = resolveGrantRequiredDocumentsFromAttachments({
+  documents: [{ name: "참가신청서", required: true, source: "portal" }],
+  textSources: [{
+    text: "참가신청서.hwpx",
+    source: "portal",
+    sourceAttachment: "참가신청서.hwpx",
+    sourceField: "attachment_filename",
+  }],
+});
+assert.equal(existingTemplateWins.documents.length, 1);
+assert.equal(existingTemplateWins.inferredCount, 0);
+assert.equal(existingTemplateWins.documents[0]?.source_attachment, "참가신청서.hwpx");
+
+const existingPdfContext = resolveGrantRequiredDocumentsFromAttachments({
+  documents: [{
+    name: "사업계획서",
+    required: true,
+    source: "portal",
+    category: "business_plan",
+    preparation_type: "write",
+  }],
+  textSources: [{
+    text: "사업계획서.pdf",
+    source: "portal",
+    sourceAttachment: "사업계획서.pdf",
+    sourceField: "attachment_filename",
+  }],
+});
+assert.equal(existingPdfContext.documents.length, 1);
+assert.equal(existingPdfContext.inferredCount, 0);
+assert.equal(existingPdfContext.documents[0]?.source_attachment, "사업계획서.pdf");
+
+const ambiguousGenericTemplate = resolveGrantRequiredDocumentsFromAttachments({
+  documents: [{ name: "신청서", required: true, source: "portal" }],
+  textSources: ["신청서(예비창업자용).hwpx", "신청서(기창업자용).hwpx"].map((filename) => ({
+    text: filename,
+    source: "portal" as const,
+    sourceAttachment: filename,
+    sourceField: "attachment_filename",
+  })),
+});
+assert.equal(ambiguousGenericTemplate.documents.length, 2);
+assert.equal(ambiguousGenericTemplate.inferredCount, 2);
+assert.deepEqual(ambiguousGenericTemplate.existingDocumentIndexes, [null, null]);
+assert.deepEqual(
+  ambiguousGenericTemplate.documents.map((document) => document.source_attachment),
+  ["신청서(예비창업자용).hwpx", "신청서(기창업자용).hwpx"],
+);
+
 const markdownExtracted = extractGrantRequiredDocumentsFromText([{
   source: "portal",
   sourceAttachment: "공고문.hwp",
@@ -94,6 +220,12 @@ console.log(JSON.stringify({
     "document_dedup",
     "document_counts",
     "document_section_filter",
+    "unambiguous_attachment_enrichment",
+    "attachment_enrichment_ambiguity_guard",
+    "conservative_hwp_template_inference",
+    "existing_document_precedence",
+    "existing_non_hwp_attachment_enrichment",
+    "ambiguous_generic_template_replaced_by_variants",
   ],
   extractedCount: extracted.length,
   normalizedCount: normalized.normalizedCount,

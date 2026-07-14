@@ -33,6 +33,7 @@ import {
   registerAttachmentConversions,
   type ArchivedAttachmentRef,
 } from "../conversion/registerAttachmentConversions";
+import { normalizedAttachmentArchiveIdentity } from "./normalizedGrantPublisher";
 
 let passed = 0;
 function check(name: string, fn: () => void | Promise<void>): Promise<void> {
@@ -249,6 +250,39 @@ async function main(): Promise<void> {
     assert.equal(result.attachments[0]?.conversion?.status, "failed");
   });
 
+  await check("원본 다운로드 timeout은 개별 실패로 닫히고 R2에 쓰지 않는다", async () => {
+    let uploadCount = 0;
+    const storage = {
+      async putObject(input: { key: string }) {
+        uploadCount += 1;
+        return { key: input.key, url: `https://r2.example/${input.key}` };
+      },
+    } as R2ObjectStorage;
+    const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason ?? new Error("aborted")), { once: true });
+      })) as typeof fetch;
+    const result = await archiveGrantAttachments([{
+      filename: "응답없는서식.hwp",
+      url: "https://origin.example/hung.hwp",
+    }], {
+      source: "kstartup",
+      sourceId: "TIMEOUT",
+      collectedAt: new Date("2026-07-12T00:00:00.000Z"),
+      enabled: true,
+      convertHwp: false,
+      autoInstallPyhwp: false,
+      allowFailures: true,
+      storage,
+      fetchImpl,
+      fetchTimeoutMs: 5,
+    });
+    assert.equal(result.archivedCount, 0);
+    assert.equal(result.failureCount, 1);
+    assert.equal(result.attachments[0]?.conversion?.status, "failed");
+    assert.equal(uploadCount, 0);
+  });
+
   // -------------------------------------------------------------------
   // 2. attach / readDetectedSurfaceFormat 왕복
   await check("attach → read 왕복: 'hwp' 실어두면 'hwp' 로 읽힌다", () => {
@@ -267,6 +301,29 @@ async function main(): Promise<void> {
     assert.equal(readDetectedSurfaceFormat({ filename: "서식.hwpx" }), undefined);
     assert.equal(readDetectedSurfaceFormat(null), undefined);
     assert.equal(readDetectedSurfaceFormat("문자열"), undefined);
+  });
+
+  await check("원본 url만 있는 첨부는 archiveUrl로 승격하지 않는다", () => {
+    assert.deepEqual(normalizedAttachmentArchiveIdentity({
+      url: "https://origin.example/source.hwp",
+    }), {
+      storageKey: null,
+      archiveUrl: null,
+      sourceUri: "https://origin.example/source.hwp",
+      sha256: null,
+    });
+    assert.deepEqual(normalizedAttachmentArchiveIdentity({
+      url: "https://r2.example/archive.hwp",
+      source_uri: "https://origin.example/source.hwp",
+      archive_url: "https://r2.example/archive.hwp",
+      storage_key: "grant-archive/source.hwp",
+      sha256: "abc123",
+    }), {
+      storageKey: "grant-archive/source.hwp",
+      archiveUrl: "https://r2.example/archive.hwp",
+      sourceUri: "https://origin.example/source.hwp",
+      sha256: "abc123",
+    });
   });
 
   // -------------------------------------------------------------------
@@ -325,6 +382,25 @@ async function main(): Promise<void> {
     assert.equal(result.surfacesUpserted, 0);
     assert.equal(result.skipped, 1);
     assert.equal(inserts.length, 0);
+  });
+
+  await check("storageKey 또는 sha256이 없으면 pending surface를 만들지 않는다", async () => {
+    const { db, inserts } = makeFakeDb();
+    const result = await registerAttachmentConversions(db, {
+      grantId: "grant-1",
+      source: SOURCE,
+      sourceId: "src-1",
+      client: null,
+      attachments: [
+        ref({ filename: "미보관.hwp", storageKey: null }),
+        ref({ filename: "해시없음.hwpx", sha256: null }),
+      ],
+    });
+    assert.equal(result.surfacesUpserted, 0);
+    assert.equal(result.skipped, 2);
+    assert.equal(inserts.length, 0);
+    assert.equal(result.warnings.length, 2);
+    assert.match(result.warnings[0] ?? "", /storage_key 또는 sha256 누락/);
   });
 
   await check("filename 기반 legacy surface는 storageKey 정체성으로 승격되고 중복 insert하지 않는다", async () => {

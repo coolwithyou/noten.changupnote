@@ -236,7 +236,7 @@ async function loadOperationalAttachmentStates(
     const matchingArchives = archives.filter((row) => row.source === source && row.sourceId === sourceId);
     const matchingSurfaces = surfaces.filter((row) => row.source === source && row.sourceId === sourceId);
     if (matchingArchives.length === 0 && matchingSurfaces.length === 0) continue;
-    const validArchives = matchingArchives.filter((row) => Boolean(row.sha256 && (row.storageKey || row.archiveUrl)));
+    const validArchives = matchingArchives.filter((row) => Boolean(row.sha256 && row.storageKey));
     const linked = (surface: typeof matchingSurfaces[number]) => validArchives.some((archive) =>
       archive.storageKey === surface.sourceAttachment || archive.filename === surface.title);
     result.set(key, {

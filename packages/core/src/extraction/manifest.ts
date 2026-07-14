@@ -182,11 +182,9 @@ function inferSections(criteria: GrantCriterion[]): string[] {
 }
 
 function isFetchedAttachment(attachment: NonNullable<GrantRaw["attachments"]>[number]): boolean {
-  return Boolean(
-    cleanText(attachment.archive_url) ||
-    cleanText(attachment.storage_key) ||
-    cleanText(attachment.sha256),
-  );
+  // URL 하나만으로는 원본 제공처 URL인지 실제 보관본인지 판별할 수 없다.
+  // 변환/재처리에 필요한 안정적인 객체 정체성(storage_key + sha256)이 모두 있어야 fetched다.
+  return Boolean(cleanText(attachment.storage_key) && cleanText(attachment.sha256));
 }
 
 function cleanText(value: unknown): string | null {

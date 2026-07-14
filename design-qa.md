@@ -102,4 +102,53 @@
 3. 수정 후 비교: 신청 4건, 일관된 데모 계정 헤더, 실제 채팅 응답과 입력 해제를 확인. 코드 P0/P1은 남지 않았다.
 4. s8 재검토: 두 실제 공고 모두 surface/page/field 0건임을 확인해 데이터 게이트로 분리했다.
 
-final result: partial — 코드 구현·정적 검증·접근 가능한 동적 흐름은 통과. s8 ladder a/b의 라이브 시각 검증만 실제 문서 surface/field 백필 전까지 차단됨.
+## 2026-07-15 HWPX 워크스페이스 재검증
+
+- source visual truth path: `/var/folders/90/3_v527vj59d6wv2ql7_k6rzm0000gn/T/orca-paste-1784062940395-717f5b5e-f8fe-4390-b379-d291774b6886.png`
+- implementation route: `http://127.0.0.1:4010/grants/kstartup%3A178390/workspace`
+- implementation screenshot path: unavailable — 이 세션에는 Codex in-app Browser 제어 도구가 노출되지 않았다.
+- viewport: source 2048 × 1170; 동일 viewport 구현 캡처 불가
+- state: 기창업자용 HWPX 원본 양식 프리뷰가 선택된 지원서 작성 워크스페이스
+
+### Full-view comparison evidence
+
+- 시각 비교는 브라우저 구현 캡처가 없어 수행하지 않았다.
+- HTTP 렌더 결과에서는 기존 `작성형 서류가 없습니다`/`원본 양식 채움을 지원하지 않습니다` 상태가 사라졌고, 두 HWPX 신청서가 `hwpxTemplateAvailable: true`인 작성 문서로 노출되며 `page-image` 프리뷰 마커가 존재한다.
+- 이 기능 증거는 시각 일치 판정을 대체하지 않는다.
+
+### Focused region comparison evidence
+
+- 문서 프리뷰, 상단 진행률, 우측 확인 카드의 동일 viewport 캡처가 없어 집중 비교를 수행하지 않았다.
+- primary interactions tested: HTTP route load only; 브라우저의 문서 전환·페이지 이동·필드 확인 상호작용은 확인하지 못했다.
+- console errors checked: unavailable.
+
+### Findings
+
+- [P1] 목표 이미지와 구현의 시각적 동일성 미검증
+  - Location: 지원서 작성 워크스페이스 전체
+  - Evidence: 원본 이미지는 열 수 있지만 동일 상태의 구현 스크린샷을 캡처할 필수 in-app Browser 도구가 없다.
+  - Impact: HWPX 렌더링 데이터 경로는 확인됐지만 60/40 비율, 타이포그래피, 간격, 색상, 페이지 크롭, 우측 인터뷰 카드가 목표와 같은지는 확정할 수 없다.
+  - Fix: Codex in-app Browser가 가능한 세션에서 2048 × 1170로 해당 route를 열고 기창업자용 양식을 선택한 뒤 원본과 결합 비교한다.
+
+### Required fidelity surfaces
+
+- Fonts and typography: blocked — 구현 캡처 없음.
+- Spacing and layout rhythm: blocked — 구현 캡처 없음.
+- Colors and visual tokens: blocked — 구현 캡처 없음.
+- Image quality and asset fidelity: blocked — HWPX page image의 선명도·크롭을 시각 확인하지 못함.
+- Copy and content: HTTP 응답에서 신청서 두 종류와 프리뷰 상태만 확인; 배치·줄바꿈은 blocked.
+
+### Comparison history
+
+1. 기존 비교에서는 실제 ladder a/b 데이터가 없어 지원서 프리뷰 시각 검증이 차단됐다.
+2. 첨부 archive·surface 변환·작성 문서 연결을 복구해 실제 `178390` 응답에서 두 HWPX 양식과 page-image를 확인했다.
+3. 필수 in-app Browser 도구 부재로 동일 viewport 구현 캡처와 원본 결합 비교는 수행하지 못했다.
+
+### Implementation checklist
+
+- 동일 viewport 구현 스크린샷 캡처
+- 원본과 구현을 한 비교 입력에 결합
+- 문서 전환·페이지 이동·필드 확인과 콘솔 오류 점검
+- 발견된 P0/P1/P2 수정 후 재캡처
+
+final result: blocked

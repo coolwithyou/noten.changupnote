@@ -1,14 +1,7 @@
-import { eq } from "drizzle-orm";
-import type { KStartupAnnouncement } from "@cunote/core";
 import { closeCunoteDb, getCunoteDb } from "../db/client";
-import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { createDrizzleRepositories } from "../repositories/drizzle";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
-import { archiveGrantAttachments } from "./grantAttachmentArchive";
-import { mergeArchivedKStartupAttachments, selectKStartupAttachmentsForArchive } from "./kstartupAttachmentSelection";
-import { publishKStartupGrants } from "./kstartupPublisher";
-import { buildGrantArchiveAttachmentReceipts } from "./grantArchiveWriteReceipt";
+import { runKStartupAttachmentArchiveBatch } from "./kstartupAttachmentArchiveBatch";
 
 loadMonorepoEnv();
 
@@ -17,8 +10,13 @@ const confirmation = readArg("confirm");
 const limit = boundedInteger(readArg("limit"), 5, 1, 100);
 const scanLimit = boundedInteger(readArg("scanLimit"), 2_000, limit, 2_000);
 const maxAttachmentsPerGrant = boundedInteger(readArg("maxAttachmentsPerGrant"), 3, 1, 10);
+const maxTotalAttachments = boundedInteger(
+  readArg("maxTotalAttachments"),
+  Math.min(1_000, limit * maxAttachmentsPerGrant),
+  1,
+  1_000,
+);
 const sourceIds = csvArg(readArg("sourceIds"), 100);
-const sourceIdFilter = new Set(sourceIds);
 const asOf = dateArg(readArg("asOf")) ?? new Date();
 const convertHwp = !process.argv.includes("--skip-attachment-conversion");
 if (write && confirmation !== "ARCHIVE_KSTARTUP_ATTACHMENTS") {
@@ -27,106 +25,21 @@ if (write && confirmation !== "ARCHIVE_KSTARTUP_ATTACHMENTS") {
 
 const db = getCunoteDb();
 try {
-  const repositories = createDrizzleRepositories<KStartupAnnouncement>({ dialect: "drizzle", client: db });
-  const loaded = await repositories.grants.listActiveGrants({ limit: scanLimit, asOf });
-  const allCandidates = loaded
-    .filter((entry) => entry.grant.source === "kstartup")
-    .filter((entry) => sourceIdFilter.size === 0 || sourceIdFilter.has(entry.grant.source_id))
-    .map((entry) => ({
-      entry,
-      selected: selectKStartupAttachmentsForArchive(
-        (entry.raw.attachments ?? []).filter((attachment) => !attachment.storage_key || !attachment.sha256),
-        maxAttachmentsPerGrant,
-      ),
-    }))
-    .filter((candidate) => candidate.selected.length > 0)
-    .sort((left, right) => hardTextOnlyCount(right.entry.criteria) - hardTextOnlyCount(left.entry.criteria) ||
-      right.selected.length - left.selected.length ||
-      left.entry.grant.source_id.localeCompare(right.entry.grant.source_id));
-  const candidates = allCandidates.slice(0, limit);
-  const report = {
-    generatedAt: new Date().toISOString(),
-    asOf: asOf.toISOString(),
-    mode: write ? "write" : "dry-run",
-    source: "kstartup" as const,
+  const result = await runKStartupAttachmentArchiveBatch({
+    db,
+    storage: write ? createR2ObjectStorageFromEnv() : null,
     scanLimit,
-    loadedGrantCount: loaded.length,
-    totalCandidateCount: allCandidates.length,
-    batchCandidateCount: candidates.length,
-    selectedAttachmentCount: candidates.reduce((sum, candidate) => sum + candidate.selected.length, 0),
+    asOf,
+    write,
+    convertHwp,
+    maxGrants: limit,
+    maxTotalAttachments,
     maxAttachmentsPerGrant,
     sourceIds,
-    candidates: candidates.map((candidate) => ({
-      sourceId: candidate.entry.grant.source_id,
-      title: candidate.entry.grant.title,
-      selectedFilenames: candidate.selected.map((attachment) => attachment.filename),
-    })),
-  };
-  if (!write) {
-    console.log(JSON.stringify(report, null, 2));
-  } else {
-    const storage = createR2ObjectStorageFromEnv();
-    if (!storage) throw new Error("R2 storage configuration is required for --write");
-    const [cursor] = await db
-      .select({ lastPage: schema.sourceCursor.lastPage })
-      .from(schema.sourceCursor)
-      .where(eq(schema.sourceCursor.source, "kstartup"));
-    const preservedLastPage = cursor?.lastPage ?? 1;
-    const results: Array<Record<string, unknown>> = [];
-    for (const candidate of candidates) {
-      try {
-        const bundle = await archiveGrantAttachments(candidate.selected, {
-          source: "kstartup",
-          sourceId: candidate.entry.grant.source_id,
-          collectedAt: new Date(),
-          enabled: true,
-          convertHwp,
-          autoInstallPyhwp: false,
-          allowFailures: true,
-          storage,
-        });
-        candidate.entry.raw.attachments = mergeArchivedKStartupAttachments(
-          candidate.entry.raw.attachments,
-          bundle.attachments,
-        );
-        const published = await publishKStartupGrants(db, [candidate.entry], {
-          page: preservedLastPage,
-          collectedAt: new Date(),
-        });
-        const attachmentReceipts = buildGrantArchiveAttachmentReceipts({
-          selectedFilenames: candidate.selected.map((attachment) => attachment.filename),
-          bundle,
-        });
-        results.push({
-          sourceId: candidate.entry.grant.source_id,
-          archivedCount: bundle.archivedCount,
-          convertedCount: bundle.convertedCount,
-          failureCount: bundle.failureCount,
-          conversionWarnings: published.conversionWarnings ?? [],
-          ...attachmentReceipts,
-        });
-      } catch (error) {
-        results.push({
-          sourceId: candidate.entry.grant.source_id,
-          error: error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500),
-        });
-      }
-    }
-    console.log(JSON.stringify({
-      ...report,
-      preservedLastPage,
-      succeededCount: results.filter((result) => !("error" in result)).length,
-      failedCount: results.filter((result) => "error" in result).length,
-      results,
-    }, null, 2));
-  }
+  });
+  console.log(JSON.stringify({ ...result, source: "kstartup" }, null, 2));
 } finally {
   await closeCunoteDb();
-}
-
-function hardTextOnlyCount(criteria: Array<{ operator: string; kind: string }>): number {
-  return criteria.filter((criterion) =>
-    criterion.operator === "text_only" && (criterion.kind === "required" || criterion.kind === "exclusion")).length;
 }
 
 function readArg(name: string): string | undefined {
