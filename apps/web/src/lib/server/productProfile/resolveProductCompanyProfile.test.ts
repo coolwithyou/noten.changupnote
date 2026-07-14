@@ -117,14 +117,14 @@ const anonymous = await resolveProductCompanyProfile({
   asOf,
 }, dependencies);
 assert.equal(anonymous.profile.region?.code, "11");
-assert.equal(anonymous.profile.name, undefined);
+assert.equal(anonymous.profile.name, "응답에 노출되면 안 되는 상호", "internal save materialization keeps safe company identity");
 assert.equal(anonymous.profile.other_conditions, undefined);
 assert.equal(anonymous.view.rows.length, 19);
 assert.equal(anonymous.view.rows.find((row) => row.dimension === "region")?.status, "known");
 assert.equal(anonymous.sourceReceipts.find((receipt) => receipt.source === "popbill_cache")?.state, "consumed");
 assert.equal(companyLists, 0, "anonymous cache resolution must not touch owner access paths");
 const anonymousJson = JSON.stringify(anonymous.view);
-for (const forbidden of ["raw-secret-token", "representative_name", "access_token", "홍길동"]) {
+for (const forbidden of ["응답에 노출되면 안 되는 상호", "raw-secret-token", "representative_name", "access_token", "홍길동"]) {
   assert.equal(anonymousJson.includes(forbidden), false, `safe view leaked ${forbidden}`);
 }
 assert.deepEqual(
@@ -142,6 +142,8 @@ const revokedOwner = await resolveProductCompanyProfile({
   asOf,
 }, dependencies);
 assert.equal(revokedOwner.profile.employees_count, 8, "same-user portable answer remains visible");
+assert.equal(revokedOwner.profile.id, companyId);
+assert.equal(revokedOwner.profile.name, "테스트 회사");
 assert.equal(revokedOwner.profile.revenue_krw, undefined, "revoked basic_info observation must be excluded");
 assert.equal(revokedOwner.profile.founder_age, undefined, "unsafe shared CODEF path stays disabled");
 assert.equal(revokedOwner.sourceReceipts.find((receipt) => receipt.source === "popbill_refresh")?.state, "not_authorized");

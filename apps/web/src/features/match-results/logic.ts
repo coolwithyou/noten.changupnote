@@ -1,8 +1,11 @@
 import type {
-  CompanyEvidenceField,
   CompanyProfile,
+  CriterionDimension,
   Eligibility,
   MatchCard,
+  MatchingProfileAnswerRequest,
+  MatchingProfileViewRow,
+  ProductTeaserResult,
   RuleTraceChipResult,
   CriterionKind,
   SupportAmount,
@@ -20,12 +23,22 @@ import {
 /* ───────────────────────── storage keys / constants ───────────────────────── */
 
 export const PENDING_TEASER_STORAGE_KEY = "cunote.pendingTeaserRequest";
-export const MANUAL_PROFILE_STORAGE_KEY = "cunote.matchesManualProfiles.v1";
 export const TEASER_FALLBACK_MESSAGE = "매칭 결과를 불러오지 못했습니다.";
 const KOREA_TIME_ZONE = "Asia/Seoul";
 
 export type Status = "idle" | "loading" | "ready" | "error" | "empty";
-export type ProfileFieldView = { key: string; label: string; value: string; available: boolean };
+export type ProfileFieldView = {
+  key: CriterionDimension;
+  label: string;
+  value: string;
+  available: boolean;
+  status: MatchingProfileViewRow["status"];
+  sourceLabel: string | null;
+  asOf: string | null;
+  completeness: MatchingProfileViewRow["completeness"];
+  editMode: MatchingProfileViewRow["editMode"];
+  action: MatchingProfileViewRow["action"];
+};
 export type RevenueUnit = "won" | "manwon" | "eok";
 
 export interface ProfileInputDraft {
@@ -92,29 +105,45 @@ export async function rememberBusinessLookup(digits: string) {
 
 /* ───────────────────────── profile fields ───────────────────────── */
 
-export function buildProfileFields(teaser: TeaserResult): ProfileFieldView[] {
-  const evidenceFields = teaser.companyEvidence?.fields;
-  if (evidenceFields && evidenceFields.length > 0) {
-    return evidenceFields.map((field: CompanyEvidenceField) => ({
-      key: field.key,
-      label: field.label,
-      value: field.value ?? "",
-      available: field.available && Boolean(field.value),
-    }));
-  }
-
-  const attr = teaser.attributes;
-  const ageLabel =
-    attr.bizAgeMonths === null
-      ? ""
-      : `${Math.floor(attr.bizAgeMonths / 12)}년 ${attr.bizAgeMonths % 12}개월`;
-  return [
-    { key: "region", label: "소재 지역", value: attr.region ?? "", available: Boolean(attr.region) },
-    { key: "size", label: "기업 규모", value: attr.size ?? "", available: Boolean(attr.size) },
-    { key: "industry", label: "업종", value: attr.industry.join(", "), available: attr.industry.length > 0 },
-    { key: "bizAge", label: "업력", value: ageLabel, available: attr.bizAgeMonths !== null },
-  ];
+export function buildProfileFields(teaser: ProductTeaserResult): ProfileFieldView[] {
+  return teaser.profileView.rows.map((row) => ({
+    key: row.dimension,
+    label: PROFILE_DIMENSION_LABELS[row.dimension],
+    value: row.displayValue ?? "",
+    available: row.status !== "unknown",
+    status: row.status,
+    sourceLabel: row.sourceLabel,
+    asOf: row.asOf,
+    completeness: row.completeness,
+    editMode: row.editMode,
+    action: row.action,
+  }));
 }
+
+const PROFILE_DIMENSION_LABELS: Record<CriterionDimension, string> = {
+  region: "소재 지역",
+  biz_age: "업력",
+  industry: "업종",
+  size: "기업 규모",
+  revenue: "연 매출",
+  employees: "상시근로자",
+  founder_age: "대표자 연령",
+  founder_trait: "대표자 특성",
+  certification: "인증·확인서",
+  prior_award: "지원사업 수혜 이력",
+  ip: "지식재산권",
+  target_type: "사업자 유형",
+  business_status: "영업 상태",
+  tax_compliance: "세금 체납·결격",
+  credit_status: "신용 상태",
+  sanction: "제재·참여 제한",
+  financial_health: "재무 건전성",
+  insured_workforce: "고용보험 인력",
+  investment: "투자 유치",
+  premises: "사업장 요건",
+  export_performance: "수출 실적",
+  other: "기타 조건",
+};
 
 export function evidenceCheckedNote(evidence: TeaserResult["companyEvidence"]): string | null {
   if (!evidence || evidence.provider !== "popbill" || !evidence.checkedAt) return null;
@@ -167,6 +196,16 @@ export function profileFieldDisplayLabel(field: ProfileFieldView): string {
   return field.label;
 }
 
+export function profileFieldAsOfLabel(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Intl.DateTimeFormat("ko-KR", {
+    dateStyle: "medium",
+    timeZone: KOREA_TIME_ZONE,
+  }).format(date);
+}
+
 export function profileInputDescription(fieldKey: string): string {
   if (fieldKey === "corp_name") return "사업자등록증 또는 법인등기부에 적힌 상호를 입력합니다.";
   if (fieldKey === "region") return "본점 또는 사업장 소재지를 시도 단위로 선택합니다.";
@@ -177,6 +216,8 @@ export function profileInputDescription(fieldKey: string): string {
   if (fieldKey === "target_type") return "사업자등록증 기준 개인사업자 또는 법인을 선택합니다.";
   if (fieldKey === "founder_age") return "대표자 출생연도 4자리만 입력합니다. 연령은 현재 연도 기준으로 계산해 반영합니다.";
   if (fieldKey === "certification") return "여성기업확인서, 벤처기업확인서처럼 보유한 인증·확인서를 입력합니다.";
+  if (fieldKey === "founder_trait") return "여성·청년·장애인 기업 등 대표자 특성을 쉼표로 구분해 입력합니다.";
+  if (fieldKey === "ip") return "특허·상표·디자인 등 보유 지식재산권을 쉼표로 구분해 입력합니다.";
   if (fieldKey === "employees") return "4대보험 또는 내부 인사 기준의 상시근로자 수를 입력합니다.";
   if (fieldKey === "revenue") return "최근 결산 또는 직전 연도 기준 연 매출 숫자와 단위를 나눠 입력합니다.";
   return "공고 자격 판정에 필요한 값을 입력합니다.";
@@ -191,6 +232,8 @@ export function profileInputPlaceholder(fieldKey: string): string {
   if (fieldKey === "target_type") return "개인사업자";
   if (fieldKey === "founder_age") return "1987";
   if (fieldKey === "certification") return "여성기업확인서, 벤처기업확인서";
+  if (fieldKey === "founder_trait") return "여성기업, 청년창업자";
+  if (fieldKey === "ip") return "특허, 상표";
   if (fieldKey === "employees") return "12";
   if (fieldKey === "revenue") return "12000";
   if (fieldKey === "industry") return "시각 디자인업, 전자상거래 소매업";
@@ -203,6 +246,8 @@ export function profileInputSuggestions(fieldKey: string): string[] {
   if (fieldKey === "business_status") return BUSINESS_STATUS_OPTIONS.map((option) => option.label);
   if (fieldKey === "target_type") return TARGET_TYPE_OPTIONS.map((option) => option.label);
   if (fieldKey === "certification") return ["여성기업확인서", "벤처기업확인서", "이노비즈", "메인비즈"];
+  if (fieldKey === "founder_trait") return ["여성기업", "청년창업자", "장애인기업", "재창업자"];
+  if (fieldKey === "ip") return ["특허", "실용신안", "상표", "디자인"];
   if (fieldKey === "industry") return ["시각 디자인업", "전자상거래 소매업", "소프트웨어 개발업", "정보통신업"];
   return [];
 }
@@ -330,6 +375,18 @@ export function buildProfilePatch(
     return { profile: { certs, confidence: { certification: 0.68 } } };
   }
 
+  if (fieldKey === "founder_trait") {
+    const traits = splitCommaList(rawValue);
+    if (traits.length === 0) return { error: "대표자 특성을 한 개 이상 입력해 주세요." };
+    return { profile: { traits, confidence: { founder_trait: 0.68 } } };
+  }
+
+  if (fieldKey === "ip") {
+    const ip = splitCommaList(rawValue);
+    if (ip.length === 0) return { error: "지식재산권을 한 개 이상 입력해 주세요." };
+    return { profile: { ip, confidence: { ip: 0.68 } } };
+  }
+
   if (fieldKey === "employees") {
     const employees = parseNonNegativeInteger(rawValue);
     if (employees === null) return { error: "상시근로자 수를 숫자로 입력해 주세요." };
@@ -351,118 +408,33 @@ export function buildProfilePatch(
   };
 }
 
-export function mergeCompanyProfileForRequest(current: CompanyProfile, patch: CompanyProfile): CompanyProfile {
-  return {
-    ...current,
-    ...patch,
-    ...(current.list_completeness || patch.list_completeness ? {
-      list_completeness: {
-        ...(current.list_completeness ?? {}),
-        ...(patch.list_completeness ?? {}),
-      },
-    } : {}),
-    ...(current.other_conditions || patch.other_conditions ? {
-      other_conditions: {
-        ...(current.other_conditions ?? {}),
-        ...(patch.other_conditions ?? {}),
-      },
-    } : {}),
-    ...(current.business_status || patch.business_status ? {
-      business_status: {
-        ...(current.business_status ?? {}),
-        ...(patch.business_status ?? {}),
-      },
-    } : {}),
-    ...(current.financial_health || patch.financial_health ? {
-      financial_health: {
-        ...(current.financial_health ?? {}),
-        ...(patch.financial_health ?? {}),
-      },
-    } : {}),
-    ...(current.insured_workforce || patch.insured_workforce ? {
-      insured_workforce: {
-        ...(current.insured_workforce ?? {}),
-        ...(patch.insured_workforce ?? {}),
-      },
-    } : {}),
-    ...(current.investment || patch.investment ? {
-      investment: {
-        ...(current.investment ?? {}),
-        ...(patch.investment ?? {}),
-      },
-    } : {}),
-    confidence: {
-      ...(current.confidence ?? {}),
-      ...(patch.confidence ?? {}),
-    },
-  };
+export function buildProfileAnswer(
+  field: CriterionDimension,
+  draft: ProfileInputDraft,
+): { answer: MatchingProfileAnswerRequest } | { error: string } {
+  const result = buildProfilePatch(field, draft);
+  if ("error" in result) return result;
+  const profile = result.profile;
+  const value = profileValueForAnswer(field, profile);
+  if (value === undefined) return { error: "이 항목은 직접 입력으로 반영할 수 없습니다." };
+  return { answer: { field, value } };
 }
 
-export function hasManualProfile(profile: CompanyProfile): boolean {
-  const entries = Object.entries(profile).filter(([key]) => key !== "confidence");
-  return entries.length > 0 || Boolean(profile.confidence && Object.keys(profile.confidence).length > 0);
-}
-
-export function readManualProfileDraft(bizNo: string): CompanyProfile | null {
-  const drafts = readManualProfileDrafts();
-  return drafts[bizNo]?.profile ?? null;
-}
-
-export function writeManualProfileDraft(bizNo: string, profile: CompanyProfile) {
-  try {
-    const persistedProfile = sanitizeManualProfileForStorage(profile);
-    if (!hasManualProfile(persistedProfile)) return;
-    const drafts = readManualProfileDrafts();
-    drafts[bizNo] = { profile: persistedProfile, updatedAt: new Date().toISOString() };
-    const prunedEntries = Object.entries(drafts)
-      .sort(([, left], [, right]) => right.updatedAt.localeCompare(left.updatedAt))
-      .slice(0, 20);
-    window.localStorage.setItem(MANUAL_PROFILE_STORAGE_KEY, JSON.stringify(Object.fromEntries(prunedEntries)));
-  } catch {
-    // 로컬 초안 저장 실패는 매칭 요청을 막지 않는다.
-  }
-}
-
-/** 결격·상세 재무·고용보험·투자 응답은 브라우저 장기 저장 없이 현재 메모리 요청에만 사용한다. */
-export function sanitizeManualProfileForStorage(profile: CompanyProfile): CompanyProfile {
-  const {
-    tax_compliance: _taxCompliance,
-    credit_status: _creditStatus,
-    sanction: _sanction,
-    financial_health: _financialHealth,
-    insured_workforce: _insuredWorkforce,
-    investment: _investment,
-    profile_evidence: _profileEvidence,
-    ...safe
-  } = profile;
-  const next: CompanyProfile = { ...safe, confidence: { ...(safe.confidence ?? {}) } };
-  for (const dimension of [
-    "tax_compliance",
-    "credit_status",
-    "sanction",
-    "financial_health",
-    "insured_workforce",
-    "investment",
-  ] as const) delete next.confidence?.[dimension];
-  if (Object.keys(next.confidence ?? {}).length === 0) delete next.confidence;
-  return next;
-}
-
-function readManualProfileDrafts(): Record<string, { profile: CompanyProfile; updatedAt: string }> {
-  try {
-    const parsed = JSON.parse(window.localStorage.getItem(MANUAL_PROFILE_STORAGE_KEY) ?? "{}") as unknown;
-    if (!isRecord(parsed)) return {};
-    const drafts: Record<string, { profile: CompanyProfile; updatedAt: string }> = {};
-    for (const [bizNo, value] of Object.entries(parsed)) {
-      if (!/^\d{10}$/.test(bizNo) || !isRecord(value) || !isRecord(value.profile)) continue;
-      drafts[bizNo] = {
-        profile: sanitizeManualProfileForStorage(value.profile as CompanyProfile),
-        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
-      };
-    }
-    return drafts;
-  } catch {
-    return {};
+function profileValueForAnswer(field: CriterionDimension, profile: CompanyProfile): unknown {
+  switch (field) {
+    case "region": return profile.region;
+    case "biz_age": return profile.biz_age_months;
+    case "industry": return profile.industries;
+    case "size": return profile.size;
+    case "revenue": return profile.revenue_krw;
+    case "employees": return profile.employees_count;
+    case "founder_age": return profile.founder_age;
+    case "founder_trait": return profile.traits;
+    case "certification": return profile.certs;
+    case "ip": return profile.ip;
+    case "target_type": return profile.target_types;
+    case "business_status": return profile.business_status;
+    default: return undefined;
   }
 }
 
@@ -522,10 +494,6 @@ function parseRevenueKrw(value: string, unit: RevenueUnit): number | null {
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   const multiplier = REVENUE_UNIT_OPTIONS.find((option) => option.value === unit)?.multiplier ?? 10_000;
   return Math.round(parsed * multiplier);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /* ───────────────────────── match derivations / formatting ───────────────────────── */

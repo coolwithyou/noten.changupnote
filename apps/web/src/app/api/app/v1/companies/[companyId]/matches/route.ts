@@ -2,7 +2,7 @@ import { selectMatchCards } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
 import { requireAppCompanyAccess } from "@/lib/server/auth/appSession";
 import { parseMatchListQuery } from "@/lib/server/matches/matchListQuery";
-import { loadServiceDashboard } from "@/lib/server/serviceData";
+import { loadProductDashboard } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,17 +21,18 @@ export async function GET(request: Request, context: RouteContext) {
 
     const { companyId } = await context.params;
     const access = await requireAppCompanyAccess(request, companyId);
-    const dashboard = await loadServiceDashboard({
+    const dashboard = await loadProductDashboard({
       companyId,
       userId: access.userId,
+      asOf: new Date(),
       limit: 5_000,
-      writeMatchStates: false,
     });
     const selected = selectMatchCards(dashboard.matches, parsedQuery.query);
 
     return appData({
       counts: dashboard.counts,
       matches: selected.matches,
+      profileView: dashboard.profileView,
       total: selected.total,
     }, undefined, {
       rulesetVer: dashboard.rulesetVer,

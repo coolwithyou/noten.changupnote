@@ -1,7 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ActionResult, CompanyProfile, TeaserRequest, TeaserResult } from "@cunote/contracts";
+import type {
+  ActionResult,
+  MatchingProfileAnswerRequest,
+  ProductTeaserResult,
+  TeaserRequest,
+} from "@cunote/contracts";
 import { ProfileSection } from "./ProfileSection";
 import { ProgramsExperience } from "./Programs";
 import { ResultsHero } from "./ResultsHero";
@@ -10,21 +15,17 @@ import {
   PENDING_TEASER_STORAGE_KEY,
   TEASER_FALLBACK_MESSAGE,
   TeaserError,
-  hasManualProfile,
   maskBiz,
-  mergeCompanyProfileForRequest,
-  readManualProfileDraft,
   rememberBusinessLookup,
-  writeManualProfileDraft,
   type Status,
 } from "./logic";
 
 export function MatchResultsExperience() {
   const [status, setStatus] = useState<Status>("loading");
-  const [teaser, setTeaser] = useState<TeaserResult | null>(null);
+  const [teaser, setTeaser] = useState<ProductTeaserResult | null>(null);
   const [bizNo, setBizNo] = useState<string | null>(null);
   const [error, setError] = useState<TeaserError | null>(null);
-  const [manualProfile, setManualProfile] = useState<CompanyProfile>({});
+  const [answers, setAnswers] = useState<MatchingProfileAnswerRequest[]>([]);
   const [profileSubmitting, setProfileSubmitting] = useState(false);
   const [continuing, setContinuing] = useState(false);
 
@@ -37,7 +38,7 @@ export function MatchResultsExperience() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify(request),
       });
-      const payload = (await response.json()) as ActionResult<TeaserResult>;
+      const payload = (await response.json()) as ActionResult<ProductTeaserResult>;
       if (!response.ok || !payload.ok || !payload.data) {
         throw new TeaserError(payload.error?.message ?? TEASER_FALLBACK_MESSAGE, payload.error?.code ?? null);
       }
@@ -54,22 +55,21 @@ export function MatchResultsExperience() {
     }
   }, []);
 
-  const applyManualProfile = useCallback(
-    async (patch: CompanyProfile) => {
-      const nextProfile = mergeCompanyProfileForRequest(manualProfile, patch);
-      setManualProfile(nextProfile);
-      if (bizNo) writeManualProfileDraft(bizNo, nextProfile);
+  const applyAnswer = useCallback(
+    async (answer: MatchingProfileAnswerRequest) => {
+      const nextAnswers = mergeAnswers(answers, answer);
+      setAnswers(nextAnswers);
       setProfileSubmitting(true);
       try {
         await loadTeaser({
           ...(bizNo ? { bizNo } : {}),
-          profile: nextProfile,
+          answers: nextAnswers,
         });
       } finally {
         setProfileSubmitting(false);
       }
     },
-    [bizNo, loadTeaser, manualProfile],
+    [answers, bizNo, loadTeaser],
   );
 
   useEffect(() => {
@@ -80,12 +80,8 @@ export function MatchResultsExperience() {
       return;
     }
     setBizNo(digits);
-    const savedManualProfile = readManualProfileDraft(digits);
-    setManualProfile(savedManualProfile ?? {});
-    void loadTeaser({
-      bizNo: digits,
-      ...(savedManualProfile && hasManualProfile(savedManualProfile) ? { profile: savedManualProfile } : {}),
-    });
+    setAnswers([]);
+    void loadTeaser({ bizNo: digits });
   }, [loadTeaser]);
 
   const maskedBiz = teaser?.companyEvidence?.maskedBizNo ?? (bizNo ? maskBiz(bizNo) : null);
@@ -95,7 +91,7 @@ export function MatchResultsExperience() {
     const request: TeaserRequest | null = bizNo
       ? {
           bizNo,
-          ...(hasManualProfile(manualProfile) ? { profile: manualProfile } : {}),
+          ...(answers.length > 0 ? { answers } : {}),
         }
       : null;
 
@@ -137,7 +133,7 @@ export function MatchResultsExperience() {
             error={error}
             onRetry={
               bizNo
-                ? () => void loadTeaser({ bizNo, ...(hasManualProfile(manualProfile) ? { profile: manualProfile } : {}) })
+                ? () => void loadTeaser({ bizNo, ...(answers.length > 0 ? { answers } : {}) })
                 : undefined
             }
           />
@@ -147,8 +143,7 @@ export function MatchResultsExperience() {
             <ResultsHero teaser={teaser} maskedBiz={maskedBiz} onSave={() => void saveAndContinue()} saving={continuing} />
             <ProfileSection
               teaser={teaser}
-              currentProfile={manualProfile}
-              onProfileSubmit={applyManualProfile}
+              onAnswer={applyAnswer}
               submitting={profileSubmitting}
             />
             <ProgramsExperience teaser={teaser} onPrepare={saveAndContinue} preparing={continuing} />
@@ -157,4 +152,12 @@ export function MatchResultsExperience() {
       </main>
     </div>
   );
+}
+
+function mergeAnswers(
+  current: readonly MatchingProfileAnswerRequest[],
+  answer: MatchingProfileAnswerRequest,
+): MatchingProfileAnswerRequest[] {
+  if (answer.mode === "merge") return [...current, answer];
+  return [...current.filter((entry) => entry.field !== answer.field), answer];
 }

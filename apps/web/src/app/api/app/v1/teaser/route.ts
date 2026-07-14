@@ -1,9 +1,9 @@
-import type { TeaserRequest, TeaserResult } from "@cunote/contracts";
+import type { ProductTeaserResult, TeaserRequest } from "@cunote/contracts";
 import { isValidBizNoChecksum } from "@cunote/contracts";
-import { buildTeaser } from "@cunote/core";
 import { appData, appError, appErrorFromUnknown } from "@/lib/server/appApi/envelope";
-import { loadServiceGrantUniverse, ServiceDataError } from "@/lib/server/serviceData";
-import { resolveTeaserCompanyProfileWithEvidence } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
+import { ProductProfileAnswerError } from "@/lib/server/productProfile/normalizeProductProfileAnswers";
+import { ProductProfileResolutionError } from "@/lib/server/productProfile/resolveProductCompanyProfile";
+import { loadProductTeaser, ServiceDataError } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,19 +20,13 @@ export async function POST(request: Request) {
         "bizNo",
       );
     }
-    const asOf = new Date();
-    const [companyResolution, grants] = await Promise.all([
-      resolveTeaserCompanyProfileWithEvidence(body),
-      loadServiceGrantUniverse({ asOf }),
-    ]);
-    return appData<TeaserResult>(buildTeaser({
-      company: companyResolution.profile,
-      grants,
-      asOf,
-      companyEvidence: companyResolution.evidence,
-    }));
+    return appData<ProductTeaserResult>(await loadProductTeaser(body));
   } catch (error) {
-    if (error instanceof ServiceDataError) {
+    if (
+      error instanceof ServiceDataError ||
+      error instanceof ProductProfileResolutionError ||
+      error instanceof ProductProfileAnswerError
+    ) {
       return appError(error.code, error.message, error.status, error.field);
     }
     if (error instanceof Error && /사업자번호/.test(error.message)) {

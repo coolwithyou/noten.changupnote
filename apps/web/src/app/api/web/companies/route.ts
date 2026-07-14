@@ -5,9 +5,8 @@ import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { writeSelectedCompanyId } from "@/lib/server/auth/companySelection";
 import { AuthRequiredError, getOptionalWebSession, isAuthEnforced } from "@/lib/server/auth/session";
 import { webActionError } from "@/lib/server/auth/webActionError";
-import { getServiceRepositories } from "@/lib/server/serviceData";
+import { getServiceRepositories, resolveAnonymousProductCompanyProfile } from "@/lib/server/serviceData";
 import { mockUserId } from "@/lib/server/auth/mockIdentity";
-import { resolveTeaserCompanyProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,10 +46,10 @@ export async function POST(request: Request) {
       resolveCreateCompanyUserId(),
       readCreateBody(request),
     ]);
-    const profile = await resolveTeaserCompanyProfile(body);
+    const resolution = await resolveAnonymousProductCompanyProfile(body, { asOf: new Date() });
     const company = await getServiceRepositories().companies.createCompany({
       userId,
-      profile,
+      profile: resolution.profile,
     });
 
     const response = NextResponse.json<ActionResult<WebCompanyCreateResult>>({

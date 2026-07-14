@@ -1,11 +1,9 @@
 "use client";
 
 import { useMemo, useState, type FormEvent } from "react";
-import type { CompanyProfile, NextQuestionDto } from "@cunote/contracts";
+import type { MatchingProfileAnswerRequest, NextQuestionDto } from "@cunote/contracts";
 import {
   DISQUALIFICATION_FLAG_LABELS,
-  markProfileQuestionUnknown,
-  updateCompanyProfileField,
   type DisqualificationFlag,
 } from "@cunote/core";
 import { Button } from "@/components/ui/button";
@@ -21,24 +19,22 @@ import {
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
-  SELF_DECLARED_CONFIDENCE,
   buildDisqualificationAnswers,
   buildNumberGroupValue,
   defaultQuestionValue,
   numberGroupSpec,
   parseQuestionValue,
+  selectedQuestionRange,
   shouldMergeQuestionValue,
 } from "@/features/profile-questions/questionAnswer";
 
 export function TeaserQuestionForm({
   question,
-  currentProfile,
-  onProfileSubmit,
+  onAnswer,
   submitting,
 }: {
   question: NextQuestionDto;
-  currentProfile: CompanyProfile;
-  onProfileSubmit: (profile: CompanyProfile) => Promise<void>;
+  onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
   submitting: boolean;
 }) {
   const [scalar, setScalar] = useState(() => defaultQuestionValue(question));
@@ -53,16 +49,11 @@ export function TeaserQuestionForm({
   async function applyValue(value: unknown, mode?: "replace" | "merge") {
     setMessage("");
     try {
-      const next = updateCompanyProfileField(currentProfile, {
+      await onAnswer({
         field: question.dimension,
         value,
-        confidence: SELF_DECLARED_CONFIDENCE,
         ...(mode ? { mode } : {}),
-        sourceKind: "self_declared",
-        provider: "cunote_teaser_manual",
-        asOf: new Date().toISOString(),
       });
-      await onProfileSubmit(next);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "답변을 반영하지 못했습니다.");
     }
@@ -87,6 +78,14 @@ export function TeaserQuestionForm({
       setMessage("값을 입력하거나 선택해 주세요.");
       return;
     }
+    const range = selectedQuestionRange(question, scalar);
+    if (range) {
+      await onAnswer({
+        field: question.dimension,
+        range: { min: range.min, max: range.max, unit: range.unit },
+      });
+      return;
+    }
     await applyValue(
       parseQuestionValue(question, scalar),
       shouldMergeQuestionValue(question, scalar) ? "merge" : undefined,
@@ -96,13 +95,7 @@ export function TeaserQuestionForm({
   async function submitUnknown() {
     setMessage("");
     try {
-      const next = markProfileQuestionUnknown({
-        profile: currentProfile,
-        dimension: question.dimension,
-        answeredAt: new Date(),
-        ttlDays: 30,
-      });
-      await onProfileSubmit(next);
+      await onAnswer({ field: question.dimension, unknown: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "모름 상태를 반영하지 못했습니다.");
     }
@@ -199,8 +192,10 @@ function ScalarInput({
   onChange: (value: string) => void;
   disabled: boolean;
 }) {
-  if (question.inputType === "select" && question.options?.length) {
-    const items = question.options.map((option) => ({ label: option, value: option }));
+  if (question.inputType === "select" && (question.options?.length || question.rangeOptions?.length)) {
+    const items = question.responseStage === "range" && question.rangeOptions?.length
+      ? question.rangeOptions.map((option) => ({ label: option.label, value: option.value }))
+      : (question.options ?? []).map((option) => ({ label: option, value: option }));
     return (
       <Select
         items={items}

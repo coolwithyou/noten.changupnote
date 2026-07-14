@@ -151,7 +151,7 @@ export const appV1OpenApi = {
         responses: {
           "200": {
             description: "Anonymous teaser result.",
-            content: json(ref("TeaserEnvelope")),
+            content: json(ref("ProductTeaserEnvelope")),
           },
           "400": { $ref: "#/components/responses/AppError" },
           default: { $ref: "#/components/responses/AppError" },
@@ -779,7 +779,30 @@ export const appV1OpenApi = {
         type: "object",
         properties: {
           bizNo: { type: "string" },
+          answers: arrayOf(ref("MatchingProfileAnswerRequest")),
           profile: ref("CompanyProfile"),
+        },
+        additionalProperties: false,
+      },
+      MatchingProfileAnswerRequest: {
+        type: "object",
+        required: ["field"],
+        properties: {
+          field: { type: "string", enum: CRITERION_DIMENSION_ENUM },
+          value: {},
+          mode: { type: "string", enum: ["replace", "merge"] },
+          unknown: { type: "boolean" },
+          range: ref("MatchingProfileAnswerRange"),
+        },
+        additionalProperties: false,
+      },
+      MatchingProfileAnswerRange: {
+        type: "object",
+        required: ["min", "max", "unit"],
+        properties: {
+          min: { type: "number", minimum: 0 },
+          max: nullable({ type: "number", minimum: 0 }),
+          unit: { type: "string", enum: ["krw", "people"] },
         },
         additionalProperties: false,
       },
@@ -810,6 +833,66 @@ export const appV1OpenApi = {
         additionalProperties: false,
       },
       TeaserEnvelope: envelope(ref("TeaserResult")),
+      ProductTeaserResult: {
+        allOf: [
+          ref("TeaserResult"),
+          {
+            type: "object",
+            required: ["profileView"],
+            properties: { profileView: ref("MatchingProfileView") },
+          },
+        ],
+      },
+      ProductTeaserEnvelope: envelope(ref("ProductTeaserResult")),
+      MatchingProfileView: {
+        type: "object",
+        required: ["asOf", "knownCount", "partialCount", "unknownCount", "rows"],
+        properties: {
+          asOf: { type: "string", format: "date-time" },
+          knownCount: { type: "integer", minimum: 0 },
+          partialCount: { type: "integer", minimum: 0 },
+          unknownCount: { type: "integer", minimum: 0 },
+          rows: arrayOf(ref("MatchingProfileViewRow")),
+        },
+        additionalProperties: false,
+      },
+      MatchingProfileViewRow: {
+        type: "object",
+        required: [
+          "dimension",
+          "status",
+          "displayValue",
+          "sourceKind",
+          "sourceLabel",
+          "asOf",
+          "completeness",
+          "editMode",
+          "action",
+        ],
+        properties: {
+          dimension: { type: "string", enum: CRITERION_DIMENSION_ENUM },
+          status: { type: "string", enum: ["known", "partial", "unknown"] },
+          displayValue: nullable({ type: "string" }),
+          sourceKind: nullable({
+            type: "string",
+            enum: ["authoritative_api", "public_registry", "auth_supplied", "self_declared", "derived"],
+          }),
+          sourceLabel: nullable({ type: "string" }),
+          asOf: nullable({ type: "string", format: "date-time" }),
+          completeness: nullable({ type: "string", enum: ["complete", "partial", "not_covered"] }),
+          editMode: { type: "string", enum: ["direct", "question_only", "read_only"] },
+          action: {
+            type: "object",
+            required: ["kind", "label"],
+            properties: {
+              kind: { type: "string", enum: ["answer", "connect", "refresh", "none"] },
+              label: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+        },
+        additionalProperties: false,
+      },
       TeaserSearchContext: {
         type: "object",
         required: ["asOf", "evaluatedGrantCount", "lastCollectedAt"],
@@ -1946,10 +2029,11 @@ export const appV1OpenApi = {
       },
       CompanyMatchesResult: {
         type: "object",
-        required: ["counts", "matches", "total"],
+        required: ["counts", "matches", "profileView", "total"],
         properties: {
           counts: ref("EligibilityCounts"),
           matches: arrayOf(ref("MatchCard")),
+          profileView: ref("MatchingProfileView"),
           total: { type: "integer", minimum: 0 },
         },
         additionalProperties: false,

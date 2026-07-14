@@ -2,13 +2,14 @@ import assert from "node:assert/strict";
 import { buildCompanyEvidence, mergeCompanyProfilesForEnrichment } from "@/lib/server/serviceData";
 import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 import {
+  buildProfileAnswer,
   buildProfilePatch,
-  mergeCompanyProfileForRequest,
+  profileFieldAsOfLabel,
   profileInputSuggestions,
-  sanitizeManualProfileForStorage,
 } from "./logic";
 
 assert.deepEqual(profileInputSuggestions("target_type"), ["개인사업자", "법인"]);
+assert.match(profileFieldAsOfLabel("2026-07-14T12:00:00.000Z") ?? "", /2026/);
 
 const patch = buildProfilePatch("target_type", {
   value: "법인",
@@ -45,6 +46,13 @@ const invalid = buildProfilePatch("target_type", {
   unit: "manwon",
 });
 assert.ok("error" in invalid);
+
+const answer = buildProfileAnswer("target_type", {
+  value: "법인",
+  secondaryValue: "",
+  unit: "manwon",
+});
+assert.deepEqual(answer, { answer: { field: "target_type", value: ["법인"] } });
 
 const expanded = normalizeManualProfile({
   region: { code: "26", label: "부산" },
@@ -134,46 +142,5 @@ assert.ok(
   Date.parse(unknownNormalized.question_answer_state?.founder_age?.expiresAt ?? "") <= Date.now() + 30 * 86_400_000 + 1_000,
   "client unknown TTL은 30일을 넘으면 안 됨",
 );
-
-const accumulated = mergeCompanyProfileForRequest({
-  financial_health: { debt_ratio_pct: 120 },
-  insured_workforce: { employment_insurance_active: true },
-  list_completeness: { industry: "partial" },
-}, {
-  financial_health: { interest_coverage_ratio: 1.5 },
-  insured_workforce: { insured_count: 8 },
-  list_completeness: { certification: "partial" },
-});
-assert.equal(accumulated.financial_health?.debt_ratio_pct, 120);
-assert.equal(accumulated.financial_health?.interest_coverage_ratio, 1.5);
-assert.equal(accumulated.insured_workforce?.employment_insurance_active, true);
-assert.equal(accumulated.insured_workforce?.insured_count, 8);
-assert.equal(accumulated.list_completeness?.industry, "partial");
-assert.equal(accumulated.list_completeness?.certification, "partial");
-
-const storageSafe = sanitizeManualProfileForStorage({
-  region: { code: "11", label: "서울" },
-  tax_compliance: { flags: ["national_tax_delinquent"], known_flags: [], exceptions: [] },
-  financial_health: { debt_ratio_pct: 120 },
-  insured_workforce: { insured_count: 8 },
-  investment: { total_raised_krw: 100_000_000 },
-  confidence: { region: 0.6, tax_compliance: 0.6, financial_health: 0.6 },
-  profile_evidence: {
-    region: {
-      sourceKind: "self_declared",
-      provider: "test",
-      asOf: null,
-      axisCompleteness: "complete",
-      confidence: 0.6,
-    },
-  },
-});
-assert.deepEqual(storageSafe.region, { code: "11", label: "서울" });
-assert.equal(storageSafe.tax_compliance, undefined);
-assert.equal(storageSafe.financial_health, undefined);
-assert.equal(storageSafe.insured_workforce, undefined);
-assert.equal(storageSafe.investment, undefined);
-assert.equal(storageSafe.confidence?.tax_compliance, undefined);
-assert.equal(storageSafe.profile_evidence, undefined);
 
 console.log("match-results/logic: ok");

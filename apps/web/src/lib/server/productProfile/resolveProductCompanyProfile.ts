@@ -5,6 +5,8 @@ import type {
   ConsentRecordDto,
   ConsentScope,
   CriterionDimension,
+  MatchingProfileView,
+  MatchingProfileViewRow,
 } from "@cunote/contracts";
 import { isValidBizNoChecksum } from "@cunote/contracts";
 import {
@@ -101,27 +103,7 @@ export interface ProductProfileSourceReceipt {
   reason: string;
 }
 
-export type MatchingProfileStatus = "known" | "partial" | "unknown";
-
-export interface MatchingProfileViewRow {
-  dimension: (typeof OPERATIONAL_PROFILE_DIMENSIONS)[number];
-  status: MatchingProfileStatus;
-  displayValue: string | null;
-  sourceKind: CompanyProfileEvidenceObservation["sourceKind"] | null;
-  sourceLabel: string | null;
-  asOf: string | null;
-  completeness: "complete" | "partial" | "not_covered" | null;
-  editMode: "direct" | "question_only" | "read_only";
-  action: { kind: "answer" | "connect" | "refresh" | "none"; label: string };
-}
-
-export interface MatchingProfileView {
-  asOf: string;
-  knownCount: number;
-  partialCount: number;
-  unknownCount: number;
-  rows: MatchingProfileViewRow[];
-}
+type MatchingProfileStatus = MatchingProfileViewRow["status"];
 
 export interface ProductProfileResolverCompanies {
   listUserCompanies(userId: string): Promise<CompanyRecord[]>;
@@ -268,7 +250,15 @@ export async function resolveProductCompanyProfile(
     }
     await loadActiveConsents(input.companyId, input.userId, activeConsents, dependencies);
     resetReceiptAuthorization(input, activeConsents, receipts);
-    profileInputs.push({ source: "portable_user_answer", profile: company.profile });
+    const ownedName = company.profile.name ?? company.name ?? undefined;
+    profileInputs.push({
+      source: "portable_user_answer",
+      profile: {
+        ...company.profile,
+        id: company.profile.id ?? company.id,
+        ...(ownedName ? { name: ownedName } : {}),
+      },
+    });
 
     if (input.context === "owned_refresh") {
       const refreshPolicy = requirePolicy(input.source);
@@ -336,7 +326,7 @@ export async function resolveProductCompanyProfile(
     );
   }
   const assembled = assembleCompanyProfile({
-    baseProfile: { confidence: {} },
+    baseProfile: buildIdentityBaseProfile(profileInputs),
     updates,
     asOf,
   });
@@ -362,6 +352,20 @@ export async function resolveProductCompanyProfile(
     persistence,
     refreshStatus,
   };
+}
+
+function buildIdentityBaseProfile(profiles: readonly ProfileInput[]): CompanyProfile {
+  const base: CompanyProfile = { confidence: {} };
+  for (const item of profiles) {
+    const id = safeText(item.profile.id);
+    const name = safeText(item.profile.name);
+    if (id) base.id = id;
+    if (name) base.name = name;
+    if (typeof item.profile.is_preliminary === "boolean") {
+      base.is_preliminary = item.profile.is_preliminary;
+    }
+  }
+  return base;
 }
 
 export function buildMatchingProfileView(profile: CompanyProfile, asOf: string): MatchingProfileView {
@@ -769,6 +773,7 @@ function safeSourceLabel(provider: string): string {
     registry: "공개 명단",
     kcomwel: "고용보험 정보",
     cunote_profile_question: "직접 답변",
+    cunote_teaser_answer: "직접 답변",
     cunote_teaser_manual: "직접 입력",
     cunote_profile_question_range: "직접 답변",
     user: "직접 입력",

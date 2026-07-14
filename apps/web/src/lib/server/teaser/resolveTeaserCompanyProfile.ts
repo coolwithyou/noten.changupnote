@@ -40,7 +40,10 @@ export async function resolveTeaserCompanyProfileWithEvidence(body: Partial<Teas
   return loadCompanyProfileResolutionForTeaser(body.bizNo?.trim() || undefined);
 }
 
-export function normalizeManualProfile(input: Record<string, unknown>): CompanyProfile {
+export function normalizeManualProfile(
+  input: Record<string, unknown>,
+  options: { asOf?: string } = {},
+): CompanyProfile {
   const profile: CompanyProfile = {};
   const region = normalizeRegion(input.region);
   const industries = normalizeStringArray(input.industries);
@@ -102,7 +105,7 @@ export function normalizeManualProfile(input: Record<string, unknown>): CompanyP
   if (investment) profile.investment = investment;
   if (questionAnswerState) profile.question_answer_state = questionAnswerState;
   if (Object.keys(confidence).length > 0) profile.confidence = confidence;
-  return withSelfDeclaredEvidence(profile);
+  return withSelfDeclaredEvidence(profile, options.asOf ?? new Date().toISOString());
 }
 
 function buildMergedManualEvidence(baseEvidence: CompanyEvidence | null, profile: CompanyProfile): CompanyEvidence {
@@ -227,7 +230,7 @@ function normalizeQuestionAnswerState(value: unknown): CompanyProfile["question_
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function withSelfDeclaredEvidence(profile: CompanyProfile): CompanyProfile {
+function withSelfDeclaredEvidence(profile: CompanyProfile, asOf: string): CompanyProfile {
   const dimensions: Array<[CriterionDimension, boolean, "partial" | "complete"]> = [
     ["region", Boolean(profile.region), "complete"],
     ["biz_age", typeof profile.biz_age_months === "number", "complete"],
@@ -249,7 +252,6 @@ function withSelfDeclaredEvidence(profile: CompanyProfile): CompanyProfile {
     ["insured_workforce", Boolean(profile.insured_workforce), "partial"],
     ["investment", Boolean(profile.investment), "partial"],
   ];
-  const asOf = new Date().toISOString();
   const suppliedConfidence = profile.confidence ?? {};
   const next: CompanyProfile = {
     ...profile,

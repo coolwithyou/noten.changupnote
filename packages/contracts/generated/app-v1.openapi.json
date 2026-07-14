@@ -114,7 +114,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/TeaserEnvelope"
+                  "$ref": "#/components/schemas/ProductTeaserEnvelope"
                 }
               }
             }
@@ -1634,8 +1634,97 @@
           "bizNo": {
             "type": "string"
           },
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchingProfileAnswerRequest"
+            }
+          },
           "profile": {
             "$ref": "#/components/schemas/CompanyProfile"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchingProfileAnswerRequest": {
+        "type": "object",
+        "required": [
+          "field"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "region",
+              "biz_age",
+              "industry",
+              "size",
+              "revenue",
+              "employees",
+              "founder_age",
+              "founder_trait",
+              "certification",
+              "prior_award",
+              "ip",
+              "target_type",
+              "business_status",
+              "tax_compliance",
+              "credit_status",
+              "sanction",
+              "financial_health",
+              "insured_workforce",
+              "investment",
+              "premises",
+              "export_performance",
+              "other"
+            ]
+          },
+          "value": {},
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "merge"
+            ]
+          },
+          "unknown": {
+            "type": "boolean"
+          },
+          "range": {
+            "$ref": "#/components/schemas/MatchingProfileAnswerRange"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchingProfileAnswerRange": {
+        "type": "object",
+        "required": [
+          "min",
+          "max",
+          "unit"
+        ],
+        "properties": {
+          "min": {
+            "type": "number",
+            "minimum": 0
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "krw",
+              "people"
+            ]
           }
         },
         "additionalProperties": false
@@ -1727,6 +1816,222 @@
           },
           "error": {
             "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProductTeaserResult": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/TeaserResult"
+          },
+          {
+            "type": "object",
+            "required": [
+              "profileView"
+            ],
+            "properties": {
+              "profileView": {
+                "$ref": "#/components/schemas/MatchingProfileView"
+              }
+            }
+          }
+        ]
+      },
+      "ProductTeaserEnvelope": {
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ProductTeaserResult"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ApiMeta"
+          },
+          "error": {
+            "$ref": "#/components/schemas/ApiError"
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchingProfileView": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "knownCount",
+          "partialCount",
+          "unknownCount",
+          "rows"
+        ],
+        "properties": {
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "knownCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "partialCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unknownCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MatchingProfileViewRow"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "MatchingProfileViewRow": {
+        "type": "object",
+        "required": [
+          "dimension",
+          "status",
+          "displayValue",
+          "sourceKind",
+          "sourceLabel",
+          "asOf",
+          "completeness",
+          "editMode",
+          "action"
+        ],
+        "properties": {
+          "dimension": {
+            "type": "string",
+            "enum": [
+              "region",
+              "biz_age",
+              "industry",
+              "size",
+              "revenue",
+              "employees",
+              "founder_age",
+              "founder_trait",
+              "certification",
+              "prior_award",
+              "ip",
+              "target_type",
+              "business_status",
+              "tax_compliance",
+              "credit_status",
+              "sanction",
+              "financial_health",
+              "insured_workforce",
+              "investment",
+              "premises",
+              "export_performance",
+              "other"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "known",
+              "partial",
+              "unknown"
+            ]
+          },
+          "displayValue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sourceKind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "authoritative_api",
+                  "public_registry",
+                  "auth_supplied",
+                  "self_declared",
+                  "derived"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sourceLabel": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "asOf": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "completeness": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "complete",
+                  "partial",
+                  "not_covered"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "editMode": {
+            "type": "string",
+            "enum": [
+              "direct",
+              "question_only",
+              "read_only"
+            ]
+          },
+          "action": {
+            "type": "object",
+            "required": [
+              "kind",
+              "label"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "answer",
+                  "connect",
+                  "refresh",
+                  "none"
+                ]
+              },
+              "label": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -5071,6 +5376,7 @@
         "required": [
           "counts",
           "matches",
+          "profileView",
           "total"
         ],
         "properties": {
@@ -5082,6 +5388,9 @@
             "items": {
               "$ref": "#/components/schemas/MatchCard"
             }
+          },
+          "profileView": {
+            "$ref": "#/components/schemas/MatchingProfileView"
           },
           "total": {
             "type": "integer",

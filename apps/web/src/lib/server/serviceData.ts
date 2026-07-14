@@ -40,6 +40,8 @@ import type {
   CriterionDimension,
   GrantBenefit,
   NormalizedGrant,
+  ProductTeaserResult,
+  TeaserRequest,
 } from "@cunote/contracts";
 import { isValidBizNoChecksum } from "@cunote/contracts";
 import type { DashboardResult } from "@cunote/contracts";
@@ -57,6 +59,12 @@ import {
   type ResolveProductCompanyProfileInput,
   type ResolvedProductCompanyProfile,
 } from "./productProfile/resolveProductCompanyProfile";
+import { normalizeProductProfileAnswers } from "./productProfile/normalizeProductProfileAnswers";
+import {
+  buildProductDashboardSnapshot,
+  buildProductTeaserSnapshot,
+  type ProductDashboardResult,
+} from "./productProfile/productMatchSnapshot";
 import { loadCachedTeaserProfileEnrichment } from "./teaser/cachedProfileEnrichment";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
@@ -1161,6 +1169,87 @@ export async function resolveProductCompanyProfile(
       return resolved.profile;
     },
   });
+}
+
+export async function loadProductTeaser(
+  body: Partial<TeaserRequest>,
+  options: { asOf?: Date } = {},
+): Promise<ProductTeaserResult> {
+  const asOf = options.asOf ?? new Date();
+  const [resolution, grants] = await Promise.all([
+    resolveAnonymousProductCompanyProfile(body, { asOf }),
+    loadServiceGrantUniverse({ asOf }),
+  ]);
+  const result = buildProductTeaserSnapshot({ resolution, grants, asOf });
+  result.matches = await annotateMatchCardWriteSupport(result.matches);
+  result.recommendableMatches = result.matches.filter((match) =>
+    recommendationTierForMatch(match) === "recommendable");
+  result.reviewNeededMatches = result.matches.filter((match) => {
+    const tier = recommendationTierForMatch(match);
+    return tier === "needs_core_review" || tier === "needs_profile_input";
+  });
+  return result;
+}
+
+export async function resolveAnonymousProductCompanyProfile(
+  body: Partial<TeaserRequest>,
+  options: { asOf?: Date } = {},
+): Promise<ResolvedProductCompanyProfile> {
+  const asOf = options.asOf ?? new Date();
+  const asOfIso = asOf.toISOString();
+  const normalizedRequestProfile = body.profile !== undefined || body.answers !== undefined
+    ? normalizeProductProfileAnswers({
+      asOf: asOfIso,
+      ...(body.answers !== undefined ? { answers: body.answers } : {}),
+      ...(body.profile !== undefined ? { legacyProfile: body.profile } : {}),
+    })
+    : undefined;
+  const ephemeralProfile = normalizedRequestProfile && Object.keys(normalizedRequestProfile).length > 0
+    ? normalizedRequestProfile
+    : undefined;
+  return resolveProductCompanyProfile({
+    context: "anonymous_teaser",
+    ...(body.bizNo ? { bizNo: body.bizNo } : {}),
+    ...(ephemeralProfile ? { ephemeralProfile } : {}),
+    asOf: asOfIso,
+  });
+}
+
+export async function loadProductDashboard(input: {
+  companyId: string;
+  userId: string;
+  asOf?: Date;
+  limit?: number;
+}): Promise<ProductDashboardResult> {
+  const asOf = input.asOf ?? new Date();
+  const [resolution, grants] = await Promise.all([
+    resolveProductCompanyProfile({
+      context: "owned_read",
+      companyId: input.companyId,
+      userId: input.userId,
+      asOf: asOf.toISOString(),
+    }),
+    loadServiceGrantUniverse({ asOf }),
+  ]);
+  const result = buildProductDashboardSnapshot({
+    resolution,
+    grants,
+    asOf,
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
+  });
+  result.matches = await annotateMatchCardWriteSupport(result.matches);
+  return result;
+}
+
+function recommendationTierForMatch(
+  match: ProductTeaserResult["matches"][number],
+): NonNullable<ProductTeaserResult["matches"][number]["recommendationTier"]> {
+  return match.recommendationTier ??
+    (match.eligibility === "eligible"
+      ? "recommendable"
+      : match.eligibility === "ineligible"
+        ? "not_recommended"
+        : "needs_profile_input");
 }
 
 async function resolveDashboardCompany(companyId?: string, userId?: string): Promise<CompanyProfile> {

@@ -1,6 +1,7 @@
 import type {
   AuthoringMode,
   CompanyProfile,
+  CompanyProfileEvidenceSourceKind,
   CriterionDimension,
   CriterionKind,
   CriterionResult,
@@ -144,7 +145,45 @@ export interface LandingGrantData {
 
 export interface TeaserRequest {
   bizNo?: string;
+  /** Server-normalized request/session answers. The browser never sends evidence metadata. */
+  answers?: MatchingProfileAnswerRequest[];
+  /** @deprecated Compatibility input. Product clients should send answers. */
   profile?: CompanyProfile;
+}
+
+export interface MatchingProfileAnswerRequest {
+  field: CriterionDimension;
+  value?: unknown;
+  mode?: "replace" | "merge";
+  unknown?: boolean;
+  range?: {
+    min: number;
+    max: number | null;
+    unit: "krw" | "people";
+  };
+}
+
+export interface MatchingProfileViewRow {
+  dimension: CriterionDimension;
+  status: "known" | "partial" | "unknown";
+  displayValue: string | null;
+  sourceKind: CompanyProfileEvidenceSourceKind | null;
+  sourceLabel: string | null;
+  asOf: string | null;
+  completeness: "complete" | "partial" | "not_covered" | null;
+  editMode: "direct" | "question_only" | "read_only";
+  action: {
+    kind: "answer" | "connect" | "refresh" | "none";
+    label: string;
+  };
+}
+
+export interface MatchingProfileView {
+  asOf: string;
+  knownCount: number;
+  partialCount: number;
+  unknownCount: number;
+  rows: MatchingProfileViewRow[];
 }
 
 export interface TeaserResult {
@@ -173,6 +212,10 @@ export interface TeaserResult {
   searchContext?: TeaserSearchContext;
   privacyNote: string;
   companyEvidence?: CompanyEvidence | null;
+}
+
+export interface ProductTeaserResult extends TeaserResult {
+  profileView: MatchingProfileView;
 }
 
 export interface TeaserSearchContext {

@@ -4,12 +4,13 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { parseMatchListQuery } from "@/lib/server/matches/matchListQuery";
-import { loadServiceDashboard } from "@/lib/server/serviceData";
+import { loadProductDashboard } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type MatchesPayload = Pick<DashboardResult, "counts" | "matches" | "roadmap" | "rulesetVer" | "scoringVer"> & {
+  profileView: Awaited<ReturnType<typeof loadProductDashboard>>["profileView"];
   cursor: string | null;
   hasMore: boolean;
   total: number;
@@ -29,16 +30,17 @@ export async function GET(request: Request) {
     const access = await requireCompanyAccess();
     // cursor/status/sort는 전체 활성 공고 카드 집합 위에서 적용해야 한다.
     // 40건만 dashboard에 요청하면 두 번째 페이지와 필터 결과가 최신 40건으로 잘린다.
-    const dashboard = await loadServiceDashboard({
+    const dashboard = await loadProductDashboard({
       companyId: access.companyId,
       userId: access.userId,
+      asOf: new Date(),
       limit: 5_000,
-      writeMatchStates: false,
     });
     const selected = selectMatchCards(dashboard.matches, parsedQuery.query);
     const data: MatchesPayload = {
       counts: dashboard.counts,
       matches: selected.matches,
+      profileView: dashboard.profileView,
       roadmap: dashboard.roadmap,
       rulesetVer: dashboard.rulesetVer,
       scoringVer: dashboard.scoringVer,

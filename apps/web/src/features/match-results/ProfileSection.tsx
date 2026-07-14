@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CircleHelp, Pencil, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
-import type { CompanyProfile, TeaserResult } from "@cunote/contracts";
+import type { MatchingProfileAnswerRequest, ProductTeaserResult } from "@cunote/contracts";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,11 +28,12 @@ import {
 import {
   REVENUE_UNIT_OPTIONS,
   buildProfileFields,
-  buildProfilePatch,
+  buildProfileAnswer,
   decimalNumberText,
   digitsOnly,
   evidenceCheckedNote,
   initialProfileInputDraft,
+  profileFieldAsOfLabel,
   profileFieldDisplayLabel,
   profileInputDescription,
   profileInputMode,
@@ -49,20 +50,19 @@ import { TeaserQuestionForm } from "./TeaserQuestionForm";
 
 export function ProfileSection({
   teaser,
-  currentProfile,
-  onProfileSubmit,
+  onAnswer,
   submitting,
 }: {
-  teaser: TeaserResult;
-  currentProfile: CompanyProfile;
-  onProfileSubmit: (patch: CompanyProfile) => Promise<void>;
+  teaser: ProductTeaserResult;
+  onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
   submitting: boolean;
 }) {
-  const fields = buildProfileFields(teaser);
+  const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
   const [activeFieldKey, setActiveFieldKey] = useState<string | null>(null);
-  const known = fields.filter((field) => field.available).length;
+  const known = teaser.profileView.knownCount;
+  const partial = teaser.profileView.partialCount;
   const total = fields.length || 1;
-  const pct = Math.round((known / total) * 100);
+  const pct = Math.round(((known + partial * 0.5) / total) * 100);
   const checkedNote = evidenceCheckedNote(teaser.companyEvidence ?? null);
   const registryNotice = sparseRegistryNotice(teaser.companyEvidence ?? null);
 
@@ -90,7 +90,7 @@ export function ProfileSection({
             <div className="flex items-center justify-between text-sm">
               <span className="font-medium text-muted-foreground">정보 충족도</span>
               <span className="font-semibold text-primary tabular-nums">
-                {known} / {total} 확정
+                {known} / {total} 확정{partial > 0 ? ` · ${partial}개 부분 확인` : ""}
               </span>
             </div>
             <Progress value={pct} aria-label="정보 충족도" />
@@ -124,8 +124,7 @@ export function ProfileSection({
             </div>
             <TeaserQuestionForm
               question={teaser.nextQuestion}
-              currentProfile={currentProfile}
-              onProfileSubmit={onProfileSubmit}
+              onAnswer={onAnswer}
               submitting={submitting}
             />
           </CardContent>
@@ -135,13 +134,14 @@ export function ProfileSection({
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {fields.map((field) => {
           const isActive = activeFieldKey === field.key;
+          const asOfLabel = profileFieldAsOfLabel(field.asOf);
           return (
             <Card
               key={field.key}
               size="sm"
               className={cn(
                 "transition-shadow",
-                !field.available && "bg-muted/30",
+                field.status === "unknown" && "bg-muted/30",
                 isActive && "ring-primary/40",
               )}
             >
@@ -158,23 +158,28 @@ export function ProfileSection({
                   >
                     {field.available ? field.value : "미입력"}
                   </span>
-                  {field.available ? null : (
-                    <Badge variant="outline" className="text-muted-foreground">
-                      선택 입력
-                    </Badge>
-                  )}
+                  <Badge variant="outline" className="text-muted-foreground">
+                    {field.status === "known" ? "확정" : field.status === "partial" ? "부분 확인" : "미확인"}
+                  </Badge>
                 </div>
+                {field.sourceLabel || asOfLabel ? (
+                  <p className="text-xs text-muted-foreground">
+                    {[field.sourceLabel, asOfLabel ? `기준 ${asOfLabel}` : null, field.completeness === "partial" ? "일부 항목" : null]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                ) : null}
                 {isActive ? (
                   <ProfileInputPanel
                     field={field}
                     submitting={submitting}
                     onCancel={() => setActiveFieldKey(null)}
-                    onSubmit={async (patch) => {
+                    onSubmit={async (answer) => {
                       setActiveFieldKey(null);
-                      await onProfileSubmit(patch);
+                      await onAnswer(answer);
                     }}
                   />
-                ) : (
+                ) : field.editMode === "direct" ? (
                   <Button
                     type="button"
                     size="xs"
@@ -189,6 +194,8 @@ export function ProfileSection({
                     )}
                     {field.available ? "수정" : "입력하기"}
                   </Button>
+                ) : field.status === "known" ? null : (
+                  <span className="text-xs font-medium text-muted-foreground">{field.action.label}</span>
                 )}
               </CardContent>
             </Card>
@@ -208,14 +215,13 @@ function ProfileInputPanel({
   field: ProfileFieldView;
   submitting: boolean;
   onCancel: () => void;
-  onSubmit: (patch: CompanyProfile) => Promise<void>;
+  onSubmit: (answer: MatchingProfileAnswerRequest) => Promise<void>;
 }) {
   const [draft, setDraft] = useState<ProfileInputDraft>(() => initialProfileInputDraft(field.key, field.value));
   const [error, setError] = useState<string | null>(null);
   const suggestions = profileInputSuggestions(field.key);
   const usesStructuredNumericInput =
     field.key === "biz_age" ||
-    field.key === "bizAge" ||
     field.key === "founder_age" ||
     field.key === "employees" ||
     field.key === "revenue";
@@ -227,13 +233,13 @@ function ProfileInputPanel({
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = buildProfilePatch(field.key, draft);
+    const result = buildProfileAnswer(field.key, draft);
     if ("error" in result) {
       setError(result.error);
       return;
     }
     setError(null);
-    await onSubmit(result.profile);
+    await onSubmit(result.answer);
   }
 
   return (
