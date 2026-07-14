@@ -6,6 +6,7 @@ import * as schema from "@/lib/server/db/schema";
 import { loadServiceApplySheet, loadServiceDashboard } from "@/lib/server/serviceData";
 import { sanitizeDownloadFilename } from "@/lib/server/documents/downloadHeaders";
 import {
+  applicationManagementFromPayload,
   listRuntimeApplicationManagementFeedback,
   type ApplicationManagement,
 } from "./applicationManagementFeedback";
@@ -201,7 +202,7 @@ async function loadFeedbackCalendarSnapshot(input: {
     let management: ApplicationManagement | null = initialSnapshot.management;
     for (const row of rows) {
       if (!kind) kind = feedbackKind(row.value?.kind);
-      if (!management) management = managementFromPayload(row.value?.payload);
+      if (!management) management = applicationManagementFromPayload(row.value?.payload);
       if (kind && management) break;
     }
     return { kind, management };
@@ -285,17 +286,6 @@ function buildPipelineDescription(item: ApplicationPipelineItem): string {
   ].filter((value): value is string => Boolean(value)).join("\n");
 }
 
-function managementFromPayload(value: unknown): ApplicationManagement | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const payload = value as Record<string, unknown>;
-  if (payload.source !== "application_pipeline") return null;
-  const assigneeName = optionalString(payload.assigneeName, 80);
-  const reminderAt = dateString(payload.reminderAt);
-  const outcomeNote = optionalString(payload.outcomeNote, 1000);
-  if (!assigneeName && !reminderAt && !outcomeNote) return null;
-  return { assigneeName, reminderAt, outcomeNote };
-}
-
 function feedbackKind(value: unknown): FeedbackKind | null {
   if (
     value === "saved" ||
@@ -327,10 +317,6 @@ function formatSupportAmount(amount: SupportAmount): string {
   if (amount.label) return amount.label;
   if (amount.max) return `${new Intl.NumberFormat("ko-KR").format(amount.max)}원`;
   return "금액 미확인";
-}
-
-function optionalString(value: unknown, maxLength: number): string | null {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim().slice(0, maxLength) : null;
 }
 
 function dateString(value: unknown): string | null {

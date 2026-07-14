@@ -483,6 +483,15 @@ class DrizzleCompanyRepository implements CompanyRepository {
     }));
   }
 
+  async getCompanyBizNo(input: { companyId: string; userId?: string }): Promise<string | null> {
+    const rows = await this.withOptionalUser(input.userId, async (db) => db
+      .select({ bizNo: schema.companies.bizNo })
+      .from(schema.companies)
+      .where(eq(schema.companies.id, input.companyId))
+      .limit(1));
+    return rows[0]?.bizNo ?? null;
+  }
+
   async verifyCompany(input: VerifyCompanyInput): Promise<CompanyVerificationRecord> {
     const now = new Date();
     const [row] = await withCunoteDbUser(this.db.client, input.userId, async (db) => db

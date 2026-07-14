@@ -1,7 +1,6 @@
 "use client";
 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { SectionIntro } from "./marketing-sections";
 
 const FAQS: Array<{ q: string; a: string }> = [
   {
@@ -14,33 +13,28 @@ const FAQS: Array<{ q: string; a: string }> = [
   },
   {
     q: "어떤 지원사업을 다루나요?",
-    a: "중소벤처기업부·소상공인시장진흥공단·KOTRA·한국콘텐츠진흥원 등 40여 개 기관의 공고를 매주 수집해 한 형식으로 표준화해요.",
-  },
-  {
-    q: "조건 확인도는 어떻게 계산되나요?",
-    a: "업종·업력·지역·매출 같은 회사 정보와 공고의 필수·제외조건을 대조해, 현재 확인이 끝난 조건의 비율을 보여줘요. 선정 가능성을 예측하는 점수는 아니에요.",
+    a: "중소벤처기업부·소상공인시장진흥공단·KOTRA·한국콘텐츠진흥원 등 여러 기관의 공고를 수집해 한 형식으로 표준화해요.",
   },
   {
     q: "비용이 있나요?",
-    a: "지원사업 조회와 매칭은 무료예요. 팀 단위 신청 관리 기능은 도입 문의를 통해 안내해 드려요.",
+    a: "공고를 찾고 확인하는 건 무료예요. 실시간 알림과 신청서 작성 도우미는 이용 전에 별도로 안내해 드려요.",
   },
 ];
 
 export function Faq() {
   return (
-    <section id="faq" className="mx-auto max-w-2xl px-4 py-20 sm:px-6">
-      <SectionIntro eyebrow="자주 묻는 질문" title="궁금한 점이 있으세요?" />
-      <Accordion className="mt-10 gap-3" multiple={false} defaultValue={[0]}>
+    <section id="faq" className="mx-auto max-w-[720px] px-4 pb-14 sm:px-10">
+      <Accordion className="border-y border-border-subtle" multiple={false}>
         {FAQS.map((faq, index) => (
           <AccordionItem
             key={faq.q}
-            value={index}
-            className="rounded-xl border bg-card px-4 shadow-[var(--shadow-subtle)]"
+            value={String(index)}
+            className="border-border-subtle px-1"
           >
-            <AccordionTrigger className="text-base font-semibold text-foreground hover:no-underline">
+            <AccordionTrigger className="py-[19px] text-base font-semibold text-ink hover:no-underline">
               {faq.q}
             </AccordionTrigger>
-            <AccordionContent className="text-[15px] leading-relaxed text-muted-foreground">
+            <AccordionContent className="pr-8 pb-[19px] text-[15px] leading-relaxed text-text-secondary">
               {faq.a}
             </AccordionContent>
           </AccordionItem>

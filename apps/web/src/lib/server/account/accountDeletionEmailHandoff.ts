@@ -45,7 +45,7 @@ export function buildAccountDeletionEmailHandoff(input: {
     "- 처리 예정일과 완료 회신 방법",
     "",
     "서비스 내 접수 경로:",
-    "- /account#account-deletion-request",
+    "- /settings?section=data",
     "",
     "이 메일은 창업노트 계정 화면에서 생성한 개인정보 권리 행사 handoff 문서입니다.",
     "",

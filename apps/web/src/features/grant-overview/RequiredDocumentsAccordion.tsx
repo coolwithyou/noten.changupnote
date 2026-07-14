@@ -22,14 +22,12 @@ export function RequiredDocumentsAccordion({
   const summary = `필수 ${requiredCount.toLocaleString("ko-KR")}건 · 총 ${totalCount.toLocaleString("ko-KR")}건`;
 
   return (
-    <AccordionItem value="documents">
-      <AccordionTrigger>
-        <span className="flex flex-col items-start gap-0.5 text-left">
-          <span>필요 서류 목록</span>
-          <span className="text-xs font-normal text-muted-foreground">{summary}</span>
-        </span>
+    <AccordionItem value="documents" className="border-b border-border-subtle">
+      <AccordionTrigger className="px-1 py-[18px] text-[15.5px] font-semibold hover:no-underline">
+        제출 서류
       </AccordionTrigger>
-      <AccordionContent>
+      <AccordionContent className="px-1 pb-5">
+        <p className="text-xs text-muted-foreground">{summary}</p>
         <div className="grid gap-2">
           {documents.map((document) => (
             <Card key={`${document.name}-${document.sourceSpan ?? document.source}`} size="sm">

@@ -5,7 +5,9 @@ import { getCunoteDb } from "@/lib/server/db/client";
 import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import {
+  applicationManagementFromPayload,
   listRuntimeApplicationManagementFeedback,
+  type ApplicationManagementStage,
 } from "@/lib/server/applications/applicationManagementFeedback";
 import { getRepositoryAdapterName } from "@/lib/server/repositories/factory";
 import { loadServiceGrants } from "@/lib/server/serviceData";
@@ -226,7 +228,10 @@ async function loadApplicationStages(
   for (const row of rows) {
     const grantId = grantIdFromTarget(row.targetId, access.companyId);
     if (!grantId || result.has(grantId)) continue;
-    const stage = applicationStageFromFeedbackKind(row.value.kind);
+    const stage = applicationStageFromFeedbackKind(
+      row.value.kind,
+      applicationManagementFromPayload(row.value.payload)?.applicationStage ?? null,
+    );
     if (stage) result.set(grantId, stage);
   }
   return result;
@@ -243,7 +248,10 @@ function mergeRuntimeStages(
     grantIds,
   });
   for (const [grantId, snapshot] of snapshots) {
-    const stage = applicationStageFromFeedbackKind(snapshot.kind);
+    const stage = applicationStageFromFeedbackKind(
+      snapshot.kind,
+      snapshot.management?.applicationStage ?? null,
+    );
     if (stage) result.set(grantId, stage);
   }
 }
@@ -253,14 +261,21 @@ function grantIdFromTarget(targetId: string, companyId: string): string | null {
   return targetId.startsWith(prefix) ? targetId.slice(prefix.length) : null;
 }
 
-function applicationStageFromFeedbackKind(kind: unknown): GrantArchiveApplicationStage | null {
+function applicationStageFromFeedbackKind(
+  kind: unknown,
+  preservedStage: ApplicationManagementStage | null = null,
+): GrantArchiveApplicationStage | null {
   if (kind === "saved") return "saved";
   if (kind === "applied") return "submitted";
   if (kind === "selected") return "selected";
   if (kind === "rejected") return "rejected";
   if (kind === "blocked") return "blocked";
   if (kind === "dismissed" || kind === "wrong") return "dismissed";
-  if (kind === "note") return "preparing";
+  if (kind === "note") {
+    return preservedStage === "recommended" || preservedStage === "preparing"
+      ? preservedStage
+      : "preparing";
+  }
   return null;
 }
 

@@ -1,115 +1,98 @@
 "use client";
 
-/**
- * 필드 카드 1개 (Apply Experience v2 · §4.3 컨펌 규약 · P2-6).
- *
- * 라벨 · 상태 뱃지(숫자 신뢰도 금지, 라벨만) · 값(제안이면 파선 구분) · 액션(반영/수정/건너뛰기) · undo
- * · "이 항목이 뭐예요?"(Phase 3 채팅 프리필용 — 지금은 비활성) · FieldLessonTips 재사용 · 위치 미확인 뱃지
- * · 동일 항목명 경고 뱃지.
- *
- * 액션은 상위(WorkspaceView)의 patchAnswer 로 위임되며 낙관적 업데이트→PATCH 응답 동기화는 거기서 처리한다.
- */
-import { useEffect, useRef, useState } from "react";
-import { Check, HelpCircle, Loader2, MapPinOff, Pencil, RotateCcw, SkipForward, Sparkles, TriangleAlert } from "lucide-react";
+import { useEffect, useState } from "react";
+import {
+  Check,
+  HelpCircle,
+  Loader2,
+  MapPinOff,
+  MoreHorizontal,
+  Pencil,
+  RotateCcw,
+  SkipForward,
+  Sparkles,
+  TriangleAlert,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import { FieldLessonTips } from "@/features/knowledge/FieldLessonTips";
-import type { FieldLessonTip } from "@/lib/server/knowledge/lessonContext";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { DraftFieldAnswer } from "@/lib/server/documents/fieldAnswers";
+import type { FieldLessonTip } from "@/lib/server/knowledge/lessonContext";
+import { workspaceFieldState } from "./workspacePresentation";
 
-interface StatusBadgeMeta {
-  text: string;
-  className: string;
-}
-
-const SKY = "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400";
-const EMERALD = "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
-const MUTED = "border-border bg-muted/50 text-muted-foreground";
-const AMBER = "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400";
-
-function statusBadge(answer: DraftFieldAnswer | undefined): StatusBadgeMeta {
-  if (!answer) return { text: "미입력", className: MUTED };
-  switch (answer.status) {
-    case "suggested": {
-      if (answer.source === "profile" || answer.basis === "사업자 정보") {
-        return { text: "자동 입력(사업자 정보)", className: SKY };
-      }
-      if (answer.source === "template") return { text: "자동 입력(양식 기본값) — 확인 필요", className: SKY };
-      return { text: "제안 — 확인 필요", className: SKY };
-    }
-    case "accepted":
-      return { text: "확정", className: EMERALD };
-    case "edited":
-      return { text: "확정(수정됨)", className: EMERALD };
-    case "dismissed":
-      return { text: "건너뜀", className: MUTED };
-    default:
-      return { text: "미입력", className: MUTED };
-  }
-}
+const STATUS_META = {
+  filled: { label: "확인 완료", className: "border-success/40 bg-success-soft text-success" },
+  reviewing: { label: "확인 중", className: "border-primary/40 bg-primary/10 text-primary" },
+  empty: { label: "미입력", className: "border-border bg-muted text-muted-foreground" },
+} as const;
 
 export function FieldCard({
   field,
   answer,
+  position,
+  total,
   isDuplicate,
   isSelected,
   isPending,
   isSuggestable,
   isSuggesting,
   tips,
-  onSelect,
   onAccept,
   onSave,
   onDismiss,
   onUndo,
   onAsk,
+  onNext,
   onRequestSuggestion,
 }: {
   field: ConnectedDocumentField;
   answer: DraftFieldAnswer | undefined;
+  position: number;
+  total: number;
   isDuplicate: boolean;
   isSelected: boolean;
   isPending: boolean;
-  /** LLM 제안('제안 받기') 노출 대상인지(서버 판정 — 서술형·manual류 아님, P4). */
   isSuggestable: boolean;
-  /** 이 필드의 제안 생성 요청이 진행 중인지(로딩 스피너). */
   isSuggesting: boolean;
   tips: FieldLessonTip[];
-  onSelect: () => void;
   onAccept: () => void;
   onSave: (value: string) => void;
   onDismiss: () => void;
   onUndo: () => void;
-  /** "이 항목이 뭐예요?" → 채팅 프리필(ADR-9). 미제공 시 버튼 비활성. */
-  onAsk?: () => void;
-  /** "제안 받기"/"다시 제안" → LLM 필드 제안(P4). 미제공 시 버튼 비노출. */
-  onRequestSuggestion?: () => void;
+  onAsk: () => void;
+  onNext: () => void;
+  onRequestSuggestion: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [draftValue, setDraftValue] = useState(answer?.value ?? "");
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  // 선택되면 리스트에서 보이도록 스크롤(오버레이→카드 동기화).
-  useEffect(() => {
-    if (isSelected) {
-      containerRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }
-  }, [isSelected]);
-
-  const status = answer?.status;
   const value = answer?.value ?? "";
   const hasValue = value.trim().length > 0;
-  const canUndo = answer?.suggestedValue !== undefined && status !== "suggested";
-  const badge = statusBadge(answer);
-  const hasPosition = field.position != null;
-  // '제안 받기'/'다시 제안'(P4): 서버가 제안 대상으로 판정한 서술형 필드에서 미확정(미입력·제안) 상태일 때만.
-  // 확정(accepted/edited)·건너뜀(dismissed)에는 노출하지 않는다(컨펌 게이트 — 서버 병합도 그 상태를 보존).
-  const canSuggest =
-    Boolean(onRequestSuggestion) && isSuggestable && (status === undefined || status === "suggested");
+  const state = workspaceFieldState(answer);
+  const status = STATUS_META[state];
+  const [editing, setEditing] = useState(isSelected && !hasValue);
+  const [draftValue, setDraftValue] = useState(value);
+  const canSuggest = isSuggestable && (answer?.status === undefined || answer.status === "suggested");
+  const canUndo = answer?.suggestedValue !== undefined && answer.status !== "suggested";
+
+  useEffect(() => {
+    setDraftValue(value);
+    setEditing(isSelected && !value.trim() && answer?.status !== "dismissed");
+  }, [field.fieldId, isSelected, value, answer?.status]);
 
   function startEditing() {
     setDraftValue(value);
@@ -123,152 +106,140 @@ export function FieldCard({
     setEditing(false);
   }
 
-  return (
-    <div
-      ref={containerRef}
-      className={cn(
-        "grid gap-2 rounded-[var(--radius-lg)] border bg-card p-3 transition-colors",
-        isSelected ? "border-primary ring-1 ring-primary/40" : "border-border",
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          onClick={onSelect}
-          aria-pressed={isSelected}
-          className="h-auto min-w-0 flex-1 flex-col items-start justify-start gap-0 rounded-[var(--radius-md)] px-2 py-1 text-left font-normal"
-        >
-          <span className="block w-full truncate text-sm font-medium">{field.label}</span>
-          {field.section ? (
-            <span className="block w-full truncate text-xs text-muted-foreground">{field.section}</span>
-          ) : null}
+  const primaryAction = (() => {
+    if (editing) {
+      return (
+        <Button type="button" className="w-full" onClick={commitEdit} disabled={isPending || !draftValue.trim()}>
+          {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Check data-icon="inline-start" aria-hidden />}
+          입력 완료
         </Button>
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
-          {field.required ? <Badge variant="default">필수</Badge> : null}
-          <Badge variant="outline" className={badge.className}>
-            {badge.text}
-          </Badge>
+      );
+    }
+    if (answer?.status === "suggested" && hasValue) {
+      return (
+        <Button type="button" className="w-full" onClick={onAccept} disabled={isPending || isSuggesting}>
+          {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Check data-icon="inline-start" aria-hidden />}
+          이 값으로 채우기
+        </Button>
+      );
+    }
+    if (state === "filled") {
+      return (
+        <Button type="button" className="w-full" onClick={onNext}>
+          다음 항목 확인하기
+        </Button>
+      );
+    }
+    return (
+      <Button type="button" className="w-full" onClick={startEditing} disabled={isPending}>
+        <Pencil data-icon="inline-start" aria-hidden />
+        직접 입력하기
+      </Button>
+    );
+  })();
+
+  return (
+    <Card className="shadow-[var(--shadow-subtle)]">
+      <CardHeader>
+        <div className="text-xs font-semibold text-muted-foreground">
+          전체 {total.toLocaleString("ko-KR")}개 중 {position.toLocaleString("ko-KR")}번째
         </div>
-      </div>
+        <CardTitle className="text-xl">{field.label}</CardTitle>
+        <CardDescription>
+          {field.section ? `${field.section}에 들어갈 내용을 확인해 주세요.` : "공고 양식에 들어갈 내용을 확인해 주세요."}
+        </CardDescription>
+        <CardAction className="flex items-center gap-1">
+          {field.required ? <Badge>필수</Badge> : null}
+          <Badge variant="outline" className={status.className}>{status.label}</Badge>
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button type="button" size="icon-sm" variant="ghost" aria-label={`${field.label} 추가 작업`} />}
+            >
+              <MoreHorizontal />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {canSuggest ? (
+                <DropdownMenuItem onClick={onRequestSuggestion} disabled={isPending || isSuggesting}>
+                  {isSuggesting ? <Loader2 className="animate-spin" /> : <Sparkles />}
+                  {hasValue ? "초안 다시 제안받기" : "초안 제안받기"}
+                </DropdownMenuItem>
+              ) : null}
+              {canUndo ? (
+                <DropdownMenuItem onClick={onUndo} disabled={isPending}>
+                  <RotateCcw />
+                  제안 값으로 되돌리기
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </CardAction>
+      </CardHeader>
 
-      <div className="flex flex-wrap items-center gap-1">
-        {!hasPosition ? (
-          <Badge variant="outline" className={cn("gap-1", MUTED)}>
-            <MapPinOff className="size-3" aria-hidden />
-            위치 미확인
-          </Badge>
-        ) : null}
-        {isDuplicate ? (
-          <Badge variant="outline" className={cn("gap-1", AMBER)}>
-            <TriangleAlert className="size-3" aria-hidden />
-            동일 항목명 — 수동 확인 필요
-          </Badge>
-        ) : null}
-      </div>
+      <CardContent className="flex flex-col gap-4">
+        <div className="flex flex-wrap gap-1.5">
+          {!field.position ? (
+            <Badge variant="outline" className="gap-1 text-muted-foreground">
+              <MapPinOff />
+              위치 미확인
+            </Badge>
+          ) : null}
+          {isDuplicate ? (
+            <Badge variant="outline" className="gap-1 border-warning/40 text-warning">
+              <TriangleAlert />
+              동일 항목명 — 수동 확인 필요
+            </Badge>
+          ) : null}
+        </div>
 
-      {editing ? (
-        <div className="grid gap-2">
+        {editing ? (
           <Textarea
             value={draftValue}
             onChange={(event) => setDraftValue(event.currentTarget.value)}
             aria-label={`${field.label} 값`}
-            rows={2}
+            placeholder={`${field.label}을(를) 입력해 주세요.`}
+            rows={4}
             autoFocus
           />
-          <div className="flex flex-wrap gap-1.5">
-            <Button type="button" size="sm" onClick={commitEdit} disabled={isPending || !draftValue.trim()}>
-              <Check className="size-3.5" aria-hidden />
-              저장
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)} disabled={isPending}>
-              취소
-            </Button>
+        ) : (
+          <div className={state === "reviewing" ? "rounded-[var(--radius-lg)] bg-primary/10 p-4" : "rounded-[var(--radius-lg)] bg-muted/50 p-4"}>
+            <p className={hasValue ? "whitespace-pre-wrap break-words text-base font-semibold" : "text-sm text-muted-foreground"}>
+              {hasValue ? value : "아직 입력된 값이 없습니다."}
+            </p>
+            {answer?.basis ? <p className="mt-2 text-xs text-muted-foreground">{answer.basis} 기준</p> : null}
           </div>
-        </div>
-      ) : (
-        <>
-          <p
-            className={cn(
-              "min-h-5 whitespace-pre-wrap break-words rounded-[var(--radius-md)] px-2 py-1.5 text-sm",
-              hasValue
-                ? status === "suggested"
-                  ? "border border-dashed border-sky-500/50 bg-sky-500/[0.04] text-foreground"
-                  : "bg-muted/40 text-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            {hasValue ? value : "미입력"}
-          </p>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {status === "suggested" && hasValue ? (
-              <Button type="button" size="sm" onClick={onAccept} disabled={isPending || isSuggesting}>
-                {isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
-                반영
-              </Button>
-            ) : null}
-            {canSuggest ? (
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant={hasValue ? "outline" : "default"}
-                      onClick={onRequestSuggestion}
-                      disabled={isPending || isSuggesting}
-                    />
-                  }
-                >
-                  {isSuggesting ? (
-                    <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                  ) : (
-                    <Sparkles className="size-3.5" aria-hidden />
-                  )}
-                  {hasValue ? "다시 제안" : "제안 받기"}
-                </TooltipTrigger>
-                <TooltipContent>{hasValue ? "AI 제안을 다시 받기" : "AI가 작성 값을 제안"}</TooltipContent>
-              </Tooltip>
-            ) : null}
-            <Button type="button" size="sm" variant="secondary" onClick={startEditing} disabled={isPending || isSuggesting}>
-              <Pencil className="size-3.5" aria-hidden />
-              {hasValue ? "수정" : "값 입력"}
-            </Button>
-            {status !== "dismissed" ? (
-              <Button type="button" size="sm" variant="outline" onClick={onDismiss} disabled={isPending}>
-                <SkipForward className="size-3.5" aria-hidden />
-                건너뛰기
-              </Button>
-            ) : null}
-            {canUndo ? (
-              <Button type="button" size="sm" variant="ghost" onClick={onUndo} disabled={isPending}>
-                <RotateCcw className="size-3.5" aria-hidden />
-                되돌리기
-              </Button>
-            ) : null}
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={onAsk}
-                    disabled={!onAsk || isPending}
-                    className="text-muted-foreground"
-                  />
-                }
-              >
-                <HelpCircle className="size-3.5" aria-hidden />
-                이 항목이 뭐예요?
-              </TooltipTrigger>
-              <TooltipContent>{onAsk ? "채팅으로 이 항목 설명 받기" : "채팅 준비 중"}</TooltipContent>
-            </Tooltip>
-          </div>
-        </>
-      )}
+        )}
 
-      {tips.length > 0 ? <FieldLessonTips tips={tips} /> : null}
-    </div>
+        {tips.length > 0 ? <FieldLessonTips tips={tips} /> : null}
+        {primaryAction}
+
+        <div className="flex items-center justify-center gap-1">
+          {editing && canSuggest ? (
+            <Button type="button" size="sm" variant="link" onClick={onRequestSuggestion} disabled={isPending || isSuggesting}>
+              {isSuggesting ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Sparkles data-icon="inline-start" aria-hidden />}
+              초안 제안받기
+            </Button>
+          ) : editing ? (
+            <Button type="button" size="sm" variant="link" onClick={() => setEditing(false)} disabled={isPending}>
+              입력 취소
+            </Button>
+          ) : (
+            <Button type="button" size="sm" variant="link" onClick={startEditing} disabled={isPending}>
+              직접 수정
+            </Button>
+          )}
+          <Button type="button" size="sm" variant="link" onClick={onDismiss} disabled={isPending || answer?.status === "dismissed"}>
+            <SkipForward data-icon="inline-start" aria-hidden />
+            건너뛰기
+          </Button>
+        </div>
+      </CardContent>
+
+      <CardFooter className="justify-center bg-card">
+        <Button type="button" size="sm" variant="ghost" onClick={onAsk} className="text-muted-foreground">
+          <HelpCircle data-icon="inline-start" aria-hidden />
+          이 항목이 궁금하면 물어보세요
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }

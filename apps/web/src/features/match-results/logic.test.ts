@@ -1,12 +1,127 @@
 import assert from "node:assert/strict";
+import type { MatchCard, ProductTeaserResult } from "@cunote/contracts";
 import { buildCompanyEvidence, mergeCompanyProfilesForEnrichment } from "@/lib/server/serviceData";
 import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompanyProfile";
 import {
   buildProfileAnswer,
   buildProfilePatch,
+  groupMatchesForDisplay,
+  matchingPrecision,
+  matchVerdictStatus,
   profileFieldAsOfLabel,
   profileInputSuggestions,
+  profileSheetValueState,
+  summarizeAnswerImpact,
 } from "./logic";
+
+const openMatch = {
+  grantId: "grant-open",
+  status: "open",
+  eligibility: "eligible",
+  bucket: "now",
+  recommendationTier: "recommendable",
+} as MatchCard;
+const answerMatch = {
+  grantId: "grant-answer",
+  status: "open",
+  eligibility: "conditional",
+  bucket: "conditional",
+  recommendationTier: "needs_profile_input",
+  ruleTrace: [{
+    dimension: "region",
+    result: "unknown",
+    action: { type: "progressive", target: "region", label: "지금 확인" },
+  }],
+} as MatchCard;
+const reviewMatch = {
+  grantId: "grant-review",
+  status: "open",
+  eligibility: "conditional",
+  bucket: "conditional",
+  recommendationTier: "needs_core_review",
+  ruleTrace: [],
+} as unknown as MatchCard;
+const preparableMatch = {
+  grantId: "grant-prepare",
+  status: "open",
+  eligibility: "conditional",
+  bucket: "preparable",
+  recommendationTier: "needs_profile_input",
+  ruleTrace: [],
+} as unknown as MatchCard;
+const multiAnswerMatch = {
+  ...answerMatch,
+  grantId: "grant-multi-answer",
+  scoreDisplay: "hidden",
+  ruleTrace: [
+    ...answerMatch.ruleTrace,
+    {
+      dimension: "revenue",
+      result: "unknown",
+      action: { type: "progressive", target: "revenue", label: "지금 확인" },
+    },
+  ],
+} as MatchCard;
+const unknownStatusMatch = {
+  ...openMatch,
+  grantId: "grant-status-unknown",
+  status: "unknown",
+} as MatchCard;
+
+assert.equal(matchVerdictStatus(openMatch), "open");
+assert.equal(matchVerdictStatus(answerMatch), "one_answer");
+assert.equal(matchVerdictStatus(multiAnswerMatch), "closed");
+assert.equal(matchVerdictStatus(reviewMatch), "check_source");
+assert.equal(matchVerdictStatus(unknownStatusMatch), "check_source");
+const grouped = groupMatchesForDisplay([
+  openMatch,
+  answerMatch,
+  multiAnswerMatch,
+  reviewMatch,
+  preparableMatch,
+  unknownStatusMatch,
+]);
+assert.equal(grouped.oneAnswer.length, 1);
+assert.equal(grouped.preparable.length, 2);
+assert.equal(grouped.checkSource.length, 2);
+
+assert.equal(profileSheetValueState({
+  value: "벤처기업확인서",
+  available: true,
+  status: "partial",
+  sourceKind: "self_declared",
+} as never), "direct", "partial self-declared 값은 미입력으로 숨기면 안 됨");
+assert.equal(profileSheetValueState({
+  value: "서울",
+  available: true,
+  status: "partial",
+  sourceKind: "authoritative_api",
+} as never), "automatic", "partial authoritative 값은 자동 확인 값으로 보여야 함");
+
+function teaserFixture(matches: MatchCard[], knownCount: number): ProductTeaserResult {
+  return {
+    matches,
+    profileView: {
+      knownCount,
+      partialCount: 0,
+      unknownCount: 2 - knownCount,
+      rows: [{}, {}],
+    },
+  } as ProductTeaserResult;
+}
+
+const beforeImpact = teaserFixture([answerMatch], 0);
+const afterImpact = teaserFixture([{ ...answerMatch, eligibility: "eligible", recommendationTier: "recommendable" }], 1);
+assert.equal(matchingPrecision(beforeImpact).pct, 0);
+assert.deepEqual(summarizeAnswerImpact(beforeImpact, afterImpact), {
+  newlyOpen: 1,
+  newlyOpenGrantIds: ["grant-answer"],
+  newlyClosed: 0,
+  changed: 1,
+  previousPrecision: 0,
+  nextPrecision: 50,
+  precisionDelta: 50,
+});
 
 assert.deepEqual(profileInputSuggestions("target_type"), ["개인사업자", "법인"]);
 assert.match(profileFieldAsOfLabel("2026-07-14T12:00:00.000Z") ?? "", /2026/);

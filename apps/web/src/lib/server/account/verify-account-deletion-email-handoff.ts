@@ -52,7 +52,7 @@ assert(body.includes("회신 이메일: owner@example.com"));
 assert(body.includes(`회사 ID: ${access.companyId}`));
 assert(body.includes(`사용자 ID: ${session.user.id}`));
 assert(body.includes("현재 권한: owner"));
-assert(body.includes("/account#account-deletion-request"));
+assert(body.includes("/settings?section=data"));
 
 console.log(JSON.stringify({
   ok: true,

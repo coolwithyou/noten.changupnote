@@ -874,19 +874,7 @@ checks.push("web_billing_webhook_unsigned_boundary");
 
 const accountHtml = await fetchText("/account");
 expectStatus(accountHtml, 200, "web account html status");
-expect(accountHtml.body.includes("내 계정"), "web account renders heading");
-expect(accountHtml.body.includes("서비스 문서"), "web account renders service docs");
-expect(accountHtml.body.includes("데이터 내보내기"), "web account renders data export action");
-expect(accountHtml.body.includes("표시 이름"), "web account renders profile panel");
-expect(accountHtml.body.includes("보안과 세션"), "web account renders security status panel");
-expect(accountHtml.body.includes("/api/web/account/security-report"), "web account links security report");
-expect(accountHtml.body.includes("/api/web/account/deletion-request/handoff"), "web account links deletion request handoff");
-expect(accountHtml.body.includes("법무 동의"), "web account renders legal acceptance status");
-expect(accountHtml.body.includes("/api/web/notification-feed/report"), "web account links notification report");
-expect(accountHtml.body.includes("비밀번호 변경"), "web account renders password panel");
-expect(accountHtml.body.includes("계정 데이터 삭제 요청"), "web account renders deletion request panel");
-expect(accountHtml.body.includes("최근 삭제 요청"), "web account renders deletion request history");
-expect(accountHtml.body.includes("id=\"account-support-tickets\""), "web account renders support tickets panel");
+expect(accountHtml.body.includes("계정 설정으로 이동 중"), "web account renders integrated settings redirect fallback");
 checks.push("web_account_html");
 
 const accountSecurityReport = await fetchText("/api/web/account/security-report");
@@ -918,7 +906,7 @@ expect(
   accountDeletionHandoff.body.includes("X-Cunote-Handoff: account-deletion-request-email"),
   "web account deletion handoff marker",
 );
-expect(accountDeletionHandoff.body.includes("/account#account-deletion-request"), "web account deletion handoff path");
+expect(accountDeletionHandoff.body.includes("/settings?section=data"), "web account deletion handoff path");
 checks.push("web_account_deletion_email_handoff");
 
 const accountExport = await fetchJson<{
@@ -1046,9 +1034,10 @@ checks.push("web_account_deletion_request");
 
 const settingsHtml = await fetchText("/settings");
 expectStatus(settingsHtml, 200, "web settings html status");
-expect(settingsHtml.body.includes("회사와 신청 준비 데이터를 관리하세요"), "web settings renders heading");
-expect(settingsHtml.body.includes("/api/web/settings/report"), "web settings links settings report");
-expect(settingsHtml.body.includes("id=\"company-settings\""), "web settings renders company settings panel");
+expect(settingsHtml.body.includes("계정 설정"), "web settings renders heading");
+expect(settingsHtml.body.includes("알림 설정"), "web settings renders notification settings action");
+expect(settingsHtml.body.includes("id=\"company-settings-detail\""), "web settings renders company settings panel");
+expect(settingsHtml.body.includes("데이터와 계정 탈퇴"), "web settings renders account data panel");
 checks.push("web_settings_html");
 
 const settingsReport = await fetchText("/api/web/settings/report");
@@ -1068,15 +1057,12 @@ checks.push("web_settings_report");
 
 const onboardingHtml = await fetchText("/onboarding");
 expectStatus(onboardingHtml, 200, "web onboarding html status");
-expect(onboardingHtml.body.includes("온보딩"), "web onboarding renders heading");
-expect(onboardingHtml.body.includes("온보딩 진행 상태"), "web onboarding renders progress status");
-expect(onboardingHtml.body.includes("회사 데이터 연결"), "web onboarding renders setup panel");
+expect(onboardingHtml.body.includes("사업자번호만 넣으면"), "web onboarding redirects to landing company flow");
 checks.push("web_onboarding_html");
 
 const onboardingNextHtml = await fetchText("/onboarding?next=%2Fapplications");
 expectStatus(onboardingNextHtml, 200, "web onboarding next html status");
-expect(onboardingNextHtml.body.includes("이어서 진행"), "web onboarding next renders continuation action");
-expect(onboardingNextHtml.body.includes("href=\"/applications\""), "web onboarding next keeps internal destination");
+expect(onboardingNextHtml.body.includes("사업자번호만 넣으면"), "web onboarding next redirects to landing company flow");
 checks.push("web_onboarding_next_html");
 
 const termsHtml = await fetchText("/terms");
@@ -1100,8 +1086,8 @@ expect(supportHtml.body.includes("고객지원"), "web support renders title");
 expect(supportHtml.body.includes("support-ticket-form"), "web support renders ticket form");
 expect(supportHtml.body.includes("id=\"support-attachment\""), "web support renders attachment input");
 expect(
-  supportHtml.body.includes("href=\"/account#account-support-tickets\"")
-    || supportHtml.body.includes("callbackUrl=%2Faccount%23account-support-tickets"),
+  supportHtml.body.includes("href=\"/settings?section=activity\"")
+    || supportHtml.body.includes("callbackUrl=%2Fsettings%3Fsection%3Dactivity"),
   "web support links account support history",
 );
 checks.push("web_support_html");

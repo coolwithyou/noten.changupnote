@@ -32,6 +32,7 @@ export function WorkspaceFooter({
   draftId,
   hwpxTemplateAvailable,
   progress,
+  answersSaving,
 }: {
   grantId: string;
   documents: WorkspaceDocumentOption[];
@@ -39,40 +40,9 @@ export function WorkspaceFooter({
   draftId: string | null;
   hwpxTemplateAvailable: boolean;
   progress: WorkspaceProgress | null;
+  answersSaving: boolean;
 }) {
   const router = useRouter();
-  const [pending, setPending] = useState(false);
-
-  async function downloadHwpx() {
-    if (!draftId) return;
-    setPending(true);
-    try {
-      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draftId)}/download`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ format: "hwpx" }),
-      });
-      if (!response.ok) {
-        throw new Error(await hwpxErrorMessage(response));
-      }
-      const blob = await response.blob();
-      const filename = hwpxDownloadFilename(response) ?? "지원서-양식.hwpx";
-      triggerBlobDownload(blob, filename);
-      const unfilled = parseUnfilledHeader(response.headers.get("X-Cunote-Hwpx-Unfilled"));
-      if (unfilled.length > 0) {
-        const labels = unfilled.map((entry) => entry.label).filter(Boolean).join(", ");
-        toast.warning(
-          `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
-        );
-      } else {
-        toast.success("원본 HWPX 양식에 확정한 값을 채워 다운로드했습니다.");
-      }
-    } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.");
-    } finally {
-      setPending(false);
-    }
-  }
 
   return (
     <div className="border-t bg-card">
@@ -107,10 +77,7 @@ export function WorkspaceFooter({
         </div>
         <div className="flex items-center gap-2">
           {hwpxTemplateAvailable ? (
-            <Button type="button" onClick={() => void downloadHwpx()} disabled={pending || !draftId}>
-              {pending ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Download className="size-4" aria-hidden />}
-              HWPX 다운로드
-            </Button>
+            <WorkspaceDownloadButton draftId={draftId} saving={answersSaving} />
           ) : (
             <span className="text-xs text-muted-foreground">
               이 서류는 원본 양식 채움을 지원하지 않습니다.
@@ -122,7 +89,7 @@ export function WorkspaceFooter({
   );
 }
 
-function ProgressMeter({ progress }: { progress: WorkspaceProgress }) {
+export function ProgressMeter({ progress }: { progress: WorkspaceProgress }) {
   const pct = progress.total > 0 ? Math.round((progress.confirmed / progress.total) * 100) : 0;
   const label =
     progress.requiredTotal >= 1
@@ -136,6 +103,67 @@ function ProgressMeter({ progress }: { progress: WorkspaceProgress }) {
       </div>
       <span className="text-xs tabular-nums text-muted-foreground">{label}</span>
     </div>
+  );
+}
+
+export function WorkspaceDownloadButton({
+  draftId,
+  label = "HWPX 다운로드",
+  className,
+  saving = false,
+}: {
+  draftId: string | null;
+  label?: string;
+  className?: string;
+  saving?: boolean;
+}) {
+  const [pending, setPending] = useState(false);
+
+  async function downloadHwpx() {
+    if (!draftId || saving) return;
+    setPending(true);
+    try {
+      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draftId)}/download`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ format: "hwpx" }),
+      });
+      if (!response.ok) {
+        throw new Error(await hwpxErrorMessage(response));
+      }
+      const blob = await response.blob();
+      const filename = hwpxDownloadFilename(response) ?? "지원서-양식.hwpx";
+      triggerBlobDownload(blob, filename);
+      const unfilled = parseUnfilledHeader(response.headers.get("X-Cunote-Hwpx-Unfilled"));
+      if (unfilled.length > 0) {
+        const labels = unfilled.map((entry) => entry.label).filter(Boolean).join(", ");
+        toast.warning(
+          `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
+        );
+      } else {
+        toast.success("원본 HWPX 양식에 확정한 값을 채워 다운로드했습니다.");
+      }
+    } catch (caught) {
+      toast.error(caught instanceof Error ? caught.message : "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <Button
+      type="button"
+      onClick={() => void downloadHwpx()}
+      disabled={pending || saving || !draftId}
+      className={className}
+    >
+      {pending || saving ? (
+        <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden />
+      ) : (
+        <Download data-icon="inline-start" aria-hidden />
+      )}
+      {saving ? "값 저장 중…" : label}
+    </Button>
   );
 }
 

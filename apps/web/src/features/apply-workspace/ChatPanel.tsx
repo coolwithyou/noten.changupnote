@@ -17,9 +17,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Loader2, MessageSquare, Quote, Send } from "lucide-react";
+import { ExternalLink, Loader2, Mail, MessageSquare, Phone, Quote, Send, X } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -28,6 +31,13 @@ import {
   type ChatMessageContent,
   type UiMessagePartLike,
 } from "@/lib/chat/messageContent";
+import {
+  GRANT_CHAT_TIMEOUT_MS,
+  grantChatFailureMessage,
+  isGrantChatBusyStatus,
+  type GrantChatFailure,
+} from "./chatRequestState";
+import { contactPhoneHref, type InstitutionContact } from "./workspacePresentation";
 
 export interface ChatFieldPrompt {
   label: string;
@@ -44,11 +54,13 @@ interface UiChatMessageLike {
 export interface GrantChatController {
   messages: UiChatMessageLike[];
   isBusy: boolean;
-  hasError: boolean;
+  errorMessage: string | null;
+  canRetry: boolean;
   input: string;
   setInput: (value: string) => void;
   submit: () => void;
   askField: (field: ChatFieldPrompt) => void;
+  retry: () => void;
 }
 
 function lastMessageText(message: UiChatMessageLike | undefined): string {
@@ -67,7 +79,9 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
   const { grantId, draftId } = input;
   const sessionIdRef = useRef<string | null>(null);
   const pendingFieldContextRef = useRef<ChatFieldPrompt | null>(null);
+  const activeFieldContextRef = useRef<ChatFieldPrompt | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [failure, setFailure] = useState<GrantChatFailure | null>(null);
 
   const transport = useMemo(
     () =>
@@ -85,6 +99,7 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
           const last = messages[messages.length - 1] as UiChatMessageLike | undefined;
           const fieldPromptForTurn = pendingFieldContextRef.current;
           pendingFieldContextRef.current = null; // per-메시지 소비.
+          activeFieldContextRef.current = fieldPromptForTurn;
           const fieldContext = fieldPromptForTurn
             ? {
                 label: fieldPromptForTurn.label,
@@ -104,33 +119,75 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
     [grantId, draftId],
   );
 
-  const { messages, sendMessage, status, error } = useChat({ transport });
-  const isBusy = status === "submitted" || status === "streaming";
+  const { messages, sendMessage, regenerate, stop, status, error } = useChat({
+    transport,
+    onFinish: ({ isAbort, isError }) => {
+      if (!isAbort && !isError) setFailure(null);
+    },
+  });
+  const isBusy = isGrantChatBusyStatus(status);
+
+  useEffect(() => {
+    if (!isBusy) return;
+    const timeoutId = window.setTimeout(() => {
+      // 시간 초과 턴은 기존 서버 세션에서 분리해, 재시도 시 동일 user turn이
+      // 하나의 세션에 중복 적재되지 않게 한다. regenerate는 클라이언트 user 메시지를 추가하지 않는다.
+      sessionIdRef.current = null;
+      setFailure("timeout");
+      void stop();
+    }, GRANT_CHAT_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [isBusy, stop]);
+
+  useEffect(() => {
+    if (error) setFailure("request");
+  }, [error]);
+
+  useEffect(() => () => {
+    void stop();
+  }, [stop]);
 
   const submit = useCallback(() => {
     const text = inputValue.trim();
     if (!text || isBusy) return;
+    setFailure(null);
     setInputValue("");
     void sendMessage({ text });
   }, [inputValue, isBusy, sendMessage]);
 
   const askField = useCallback(
     (field: ChatFieldPrompt) => {
+      if (isBusy) return;
+      setFailure(null);
       pendingFieldContextRef.current = field;
       const question = `'${field.label}' 항목은 어떤 내용을 어떻게 작성해야 하나요? 공고 기준으로 알려주세요.`;
       void sendMessage({ text: question });
     },
-    [sendMessage],
+    [isBusy, sendMessage],
   );
+
+  const retry = useCallback(() => {
+    if (isBusy || messages.length === 0) return;
+    // 이전 세션에는 user turn이 이미 저장됐을 수 있으므로 재시도는 새 세션으로 분리한다.
+    // AI SDK regenerate는 마지막 user 메시지를 재사용해 클라이언트 대화에 중복 turn을 추가하지 않는다.
+    sessionIdRef.current = null;
+    pendingFieldContextRef.current = activeFieldContextRef.current;
+    setFailure(null);
+    void regenerate();
+  }, [isBusy, messages.length, regenerate]);
+
+  const errorMessage = failure ? grantChatFailureMessage(failure) : null;
 
   return {
     messages: messages as unknown as UiChatMessageLike[],
     isBusy,
-    hasError: Boolean(error),
+    errorMessage,
+    canRetry: Boolean(errorMessage) && messages.length > 0 && !isBusy,
     input: inputValue,
     setInput: setInputValue,
     submit,
     askField,
+    retry,
   };
 }
 
@@ -139,12 +196,16 @@ export function ChatPanelView({
   controller,
   greeting,
   variant = "dock",
+  institutionContact,
+  onClose,
 }: {
   controller: GrantChatController;
   greeting: ChatMessageContent;
   variant?: "dock" | "front";
+  institutionContact?: InstitutionContact | null;
+  onClose?: () => void;
 }) {
-  const { messages, isBusy, hasError, input, setInput, submit } = controller;
+  const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, retry } = controller;
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -162,8 +223,13 @@ export function ChatPanelView({
       )}
     >
       <div className="flex items-center gap-2 text-sm font-medium">
-        <MessageSquare className="size-4 text-muted-foreground" aria-hidden />
-        이 사업에 대해 물어보세요
+        <MessageSquare className="text-muted-foreground" aria-hidden />
+        이 공고에 대해 물어보기
+        {onClose ? (
+          <Button type="button" size="icon-sm" variant="ghost" onClick={onClose} aria-label="채팅 닫기" className="ml-auto">
+            <X />
+          </Button>
+        ) : null}
       </div>
 
       <div
@@ -187,13 +253,15 @@ export function ChatPanelView({
             답변을 작성하고 있어요…
           </div>
         ) : null}
-        {hasError ? (
-          <div
-            className="rounded-[var(--radius-md)] border border-destructive/30 bg-destructive/[0.06] px-3 py-2 text-sm text-destructive"
-            role="alert"
-          >
-            답변을 받지 못했어요. 잠시 후 다시 시도해 주세요.
-          </div>
+        {errorMessage ? (
+          <Alert variant="destructive">
+            <AlertDescription className="flex flex-col items-start gap-2">
+              {errorMessage}
+              <Button type="button" size="xs" variant="outline" disabled={!canRetry} onClick={retry}>
+                같은 질문 다시 요청
+              </Button>
+            </AlertDescription>
+          </Alert>
         ) : null}
       </div>
 
@@ -220,10 +288,53 @@ export function ChatPanelView({
           className="min-h-0 flex-1 resize-none"
         />
         <Button type="submit" size="icon" disabled={isBusy || input.trim().length === 0} aria-label="보내기">
-          {isBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Send className="size-4" aria-hidden />}
+          {isBusy ? <Loader2 className="animate-spin" aria-hidden /> : <Send aria-hidden />}
         </Button>
       </form>
+
+      {institutionContact ? (
+        <>
+          <Separator />
+          <InstitutionContactCard contact={institutionContact} />
+        </>
+      ) : null}
     </div>
+  );
+}
+
+function InstitutionContactCard({ contact }: { contact: InstitutionContact }) {
+  return (
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>기관에 직접 물어보기</CardTitle>
+        <CardDescription>{contact.name}의 공고 공개 정보로 연결합니다.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        {contact.phone ? (
+          <a className={buttonVariants({ variant: "outline", size: "sm" })} href={contactPhoneHref(contact.phone)}>
+            <Phone data-icon="inline-start" aria-hidden />
+            {contact.phone}
+          </a>
+        ) : null}
+        {contact.email ? (
+          <a className={buttonVariants({ variant: "outline", size: "sm" })} href={`mailto:${contact.email}`}>
+            <Mail data-icon="inline-start" aria-hidden />
+            메일 보내기
+          </a>
+        ) : null}
+        {contact.sourceUrl ? (
+          <a
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+            href={contact.sourceUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            <ExternalLink data-icon="inline-start" aria-hidden />
+            공고 원문에서 확인
+          </a>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 

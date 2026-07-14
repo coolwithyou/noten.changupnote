@@ -5,6 +5,10 @@ import { markProfileQuestionUnknown } from "../company/question-answer-state.js"
 import { buildInitialCompanyMatch } from "./build-initial-company-match.js";
 import { buildTeaser } from "./build-teaser.js";
 import { evaluateProfileUpdateImpact } from "./evaluate-profile-update-impact.js";
+import { daysUntil } from "./match-card.js";
+
+assert.equal(daysUntil("2026-07-15", new Date("2026-07-14T14:59:59.000Z")), 1);
+assert.equal(daysUntil("2026-07-15", new Date("2026-07-14T15:00:00.000Z")), 0);
 
 const beforeProfile: CompanyProfile = { confidence: {} };
 const grants = Array.from({ length: 60 }, (_, index) => ageGrant(
@@ -36,6 +40,9 @@ assert.equal(teaserBefore.nextQuestion?.dimension, "founder_age");
 assert.equal(teaserBefore.nextQuestion?.affectedGrantCount, 60);
 assert.equal(teaserBefore.recommendableMatches?.length, 0);
 assert.equal(teaserBefore.reviewNeededMatches?.length, 8, "추천 버킷이 비면 검토 필요 카드가 전체 제한을 채워야 한다");
+assert.equal(teaserBefore.counts.needsProfileInput, 60, "프로필 입력 필요 전체 수는 visible quota와 분리되어야 한다");
+assert.equal(teaserBefore.counts.oneAnswer, 60);
+assert.equal(teaserBefore.counts.needsCoreReview, 0);
 
 const mixedBuckets = buildTeaser({
   company: { founder_age: 30, confidence: { founder_age: 1 } },
@@ -49,6 +56,30 @@ const mixedBuckets = buildTeaser({
 assert.equal(mixedBuckets.matches.length, 8);
 assert.equal(mixedBuckets.recommendableMatches?.length, 5, "추천 카드가 검토 필요 버킷을 전부 잠식하면 안 된다");
 assert.equal(mixedBuckets.reviewNeededMatches?.length, 3, "검토 필요 후보가 있으면 기본 3개를 노출해야 한다");
+assert.equal(mixedBuckets.counts.needsProfileInput, 8);
+assert.equal(mixedBuckets.counts.oneAnswer, 8);
+
+const multipleAnswersNeeded = buildTeaser({
+  company: beforeProfile,
+  grants: [multiAnswerGrant("multi-answer")],
+  asOf: new Date("2026-07-12T00:00:00.000Z"),
+});
+assert.equal(multipleAnswersNeeded.counts.needsProfileInput, 1);
+assert.equal(multipleAnswersNeeded.counts.oneAnswer, 0, "두 축이 비었으면 답변 하나로 확정된다고 약속하면 안 됨");
+assert.equal(multipleAnswersNeeded.counts.preparable, 1);
+
+const upcomingGrant = ageGrant("upcoming", 20, 39);
+upcomingGrant.grant.status = "upcoming";
+const upcomingTeaser = buildTeaser({
+  company: { founder_age: 30, confidence: { founder_age: 1 } },
+  grants: [upcomingGrant],
+  asOf: new Date("2026-07-12T00:00:00.000Z"),
+});
+assert.equal(upcomingTeaser.counts.recommendable, 1);
+assert.equal(upcomingTeaser.counts.openNow, 0, "접수 예정 공고는 지금 신청 가능 수치에 포함하면 안 됨");
+assert.equal(upcomingTeaser.recommendableMatches?.length, 1, "접수 예정 추천 공고도 Programs 노출 후보에 포함해야 함");
+assert.equal(upcomingTeaser.matches.length, 1);
+assert.equal(upcomingTeaser.matches[0]?.status, "upcoming");
 
 const unknownProfile = markProfileQuestionUnknown({
   profile: beforeProfile,
@@ -173,5 +204,23 @@ function revenueGrant(sourceId: string): NormalizedGrant<Record<string, never>> 
     confidence: 1,
     source_span: "최근 연 매출 10억원 이하",
   }];
+  return entry;
+}
+
+function multiAnswerGrant(sourceId: string): NormalizedGrant<Record<string, never>> {
+  const entry = ageGrant(sourceId, 20, 39);
+  entry.grant.title = "대표자 연령과 매출 확인 사업";
+  entry.criteria = [
+    ...entry.criteria,
+    {
+      id: `criterion:${sourceId}:revenue`,
+      dimension: "revenue",
+      kind: "required",
+      operator: "lte",
+      value: { max_krw: 1_000_000_000 },
+      confidence: 1,
+      source_span: "최근 연 매출 10억원 이하",
+    },
+  ];
   return entry;
 }

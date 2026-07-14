@@ -52,6 +52,35 @@ export function EmptyState() {
   );
 }
 
+export function NoMatchingGrantsState({
+  onSubscribe,
+  onOpenProfile,
+  saving,
+}: {
+  onSubscribe: () => void;
+  onOpenProfile: () => void;
+  saving: boolean;
+}) {
+  return (
+    <section className="px-4 pt-[72px] text-center sm:px-10">
+      <h2 className="text-[28px] leading-[1.4] font-extrabold tracking-[-0.5px] text-ink-strong">
+        아직 조건에 맞는 사업을 찾지 못했어요
+      </h2>
+      <p className="mx-auto mt-3.5 max-w-[440px] text-[15px] leading-[1.7] text-text-secondary">
+        지금 조건에 맞는 공고가 없을 뿐이에요. 새 공고가 들어오면 놓치지 않도록 알려드릴게요.
+      </p>
+      <div className="mt-[30px] flex flex-col justify-center gap-2.5 sm:flex-row">
+        <Button type="button" onClick={onSubscribe} disabled={saving}>
+          {saving ? "저장 중…" : "새 공고 알림 받기"}
+        </Button>
+        <Button type="button" variant="outline" onClick={onOpenProfile}>
+          내 정보 확인하기
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 export function ErrorState({ error, onRetry }: { error: TeaserError | null; onRetry?: (() => void) | undefined }) {
   const isBizIssue = error?.code === "invalid_biz_no";
   const reason = error?.message ?? TEASER_FALLBACK_MESSAGE;

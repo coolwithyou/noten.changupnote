@@ -18,7 +18,7 @@ export function isClearlyStaleUndatedGrant(
   asOf: Date = new Date(),
 ): boolean {
   if (grant.source !== "kstartup" || grant.status !== "unknown" || grant.apply_end) return false;
-  const currentYear = asOf.getUTCFullYear();
+  const currentYear = koreaDateParts(asOf).year;
   const titleYears = [...grant.title.matchAll(/(?:^|[^0-9])((?:19|20)\d{2})(?=[^0-9]|$)/g)]
     .map((match) => Number(match[1]))
     .filter((year) => year >= 1990 && year <= currentYear + 1);
@@ -38,11 +38,25 @@ export function filterActiveGrants<TPayload>(
 }
 
 export function activeGrantApplyEndCutoff(asOf: Date = new Date()): Date {
-  return new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
+  const { year, month, day } = koreaDateParts(asOf);
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 function asDateOnly(value: Date): string {
-  return value.toISOString().slice(0, 10);
+  const { year, month, day } = koreaDateParts(value);
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+function koreaDateParts(value: Date): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(value);
+  const read = (type: "year" | "month" | "day") =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+  return { year: read("year"), month: read("month"), day: read("day") };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

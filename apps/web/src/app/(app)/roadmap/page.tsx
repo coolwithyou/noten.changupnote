@@ -1,25 +1,5 @@
-import { RoadmapView } from "@/features/roadmap/RoadmapView";
-import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
-import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import { loadServiceDashboard } from "@/lib/server/serviceData";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic";
-
-export default async function RoadmapPage() {
-  const access = await loadRoadmapAccess();
-  const dashboard = await loadServiceDashboard({
-    companyId: access.companyId,
-    userId: access.userId,
-    limit: 40,
-    writeMatchStates: false,
-  });
-  return <RoadmapView dashboard={dashboard} />;
-}
-
-async function loadRoadmapAccess() {
-  try {
-    return await requireCompanyAccess();
-  } catch (error) {
-    redirectOnAuthRequired(error, "/roadmap");
-  }
+export default function RoadmapPage() {
+  redirect("/dashboard");
 }

@@ -84,6 +84,13 @@ export interface CompanyRepository {
   saveCompanyProfile(input: SaveCompanyProfileInput): Promise<CompanyProfile>;
   verifyCompany(input: VerifyCompanyInput): Promise<CompanyVerificationRecord>;
   listUserCompanies(userId: string): Promise<CompanyRecord[]>;
+  /** 회사에 저장된 사업자번호 원문을 반환한다. 없으면 null. */
+  getCompanyBizNo(input: GetCompanyBizNoInput): Promise<string | null>;
+}
+
+export interface GetCompanyBizNoInput {
+  companyId: string;
+  userId?: string;
 }
 
 export interface MatchState<TPayload = unknown> {

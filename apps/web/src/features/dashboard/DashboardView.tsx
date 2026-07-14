@@ -1,119 +1,91 @@
-import type { DashboardResult } from "@cunote/contracts";
-import { ArrowRight, Download } from "lucide-react";
-import { MetricCard } from "@/components/app/metric-card";
-import { StatusBadge } from "@/components/app/status-badge";
+import type { ActionQueueItem, DashboardResult, MatchingProfileView } from "@cunote/contracts";
+import { AlarmClock, CircleCheckBig } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-import type { NotificationCenterResult } from "@/lib/notifications/types";
-import type { OnboardingProgress } from "@/lib/server/onboarding/onboardingProgress";
-import { ActionQueuePanel } from "@/features/action-queue/ActionQueuePanel";
-import { CompanySettingsPanel } from "@/features/dashboard/CompanySettingsPanel";
-import { NotificationFeedPanel } from "@/features/dashboard/NotificationFeedPanel";
-import { ProgressiveQuestionCard } from "@/features/dashboard/ProgressiveQuestionCard";
-import { OpportunityMap } from "@/features/opportunity-map/OpportunityMap";
-import { RoadmapStrip } from "@/features/roadmap/RoadmapStrip";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { DashboardMatchTabs } from "@/features/dashboard/DashboardMatchTabs";
+import { dashboardActionHref } from "@/features/dashboard/dashboardPresentation";
 
-export function DashboardView({
-  dashboard,
-  notificationFeed,
-  onboardingProgress,
-}: {
-  dashboard: DashboardResult;
-  notificationFeed: NotificationCenterResult;
-  onboardingProgress: OnboardingProgress;
-}) {
-  const counts = dashboardTrustCounts(dashboard.counts);
+export function DashboardView({ dashboard }: { dashboard: DashboardResult & { profileView: MatchingProfileView } }) {
+  const primaryAction = selectPrimaryAction(dashboard.actionQueue);
+  const companyName = dashboard.company.name?.trim();
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
-        <section className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.8fr)] lg:items-end">
-          <div className="flex min-w-0 flex-col gap-4">
-            <StatusBadge tone="brand">매칭 대시보드</StatusBadge>
-            <div className="flex flex-col gap-3">
-              <h1 className="text-3xl font-semibold tracking-normal text-foreground sm:text-4xl">
-                {companyTitle(dashboard)}의 기회 맵
-              </h1>
-              <p className="max-w-2xl text-base leading-7 text-muted-foreground">
-                적격과 확인 필요를 분리하고, 지금 할 일을 전역 큐로 정렬했습니다.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <a className={buttonVariants({ variant: "secondary", size: "sm" })} href="/api/web/dashboard/report">
-                <Download data-icon="inline-start" />
-                대시보드 리포트
-              </a>
-            </div>
-          </div>
+    <div className="mx-auto w-full max-w-[760px] px-5 py-6 sm:px-6 sm:py-[52px]">
+      <h1 className="text-[26px] leading-[1.35] font-extrabold tracking-[-0.5px] text-ink">
+        {companyName ? `${companyName}님, ` : ""}
+        {primaryAction ? "오늘 확인할 것 하나예요" : "오늘 바로 확인할 일은 없어요"}
+      </h1>
 
-          <div className="grid grid-cols-2 gap-3">
-            <MetricCard label="지금 적격" value={`${counts.recommendable}건`} />
-            <MetricCard label="확인 필요" value={`${counts.reviewNeeded}건`} />
-            <MetricCard label="부적격" value={`${counts.notRecommended}건`} />
-            <MetricCard label="마감 임박" value={`${dashboard.counts.deadlineSoon}건`} />
-          </div>
-        </section>
+      <PrimaryActionCard action={primaryAction} />
 
-        <DashboardOnboardingPrompt progress={onboardingProgress} />
-
-        <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="flex min-w-0 flex-col gap-6">
-            <ActionQueuePanel actions={dashboard.actionQueue} />
-            <NotificationFeedPanel feed={notificationFeed} />
-          </div>
-          <OpportunityMap matches={dashboard.matches} />
-        </section>
-
-        <CompanySettingsPanel />
-
-        {dashboard.nextQuestion ? <ProgressiveQuestionCard question={dashboard.nextQuestion} /> : null}
-
-        <RoadmapStrip nodes={dashboard.roadmap} />
+      <DashboardMatchTabs
+        counts={dashboard.counts}
+        matches={dashboard.matches}
+        profileView={dashboard.profileView}
+      />
     </div>
   );
 }
 
-function dashboardTrustCounts(counts: DashboardResult["counts"]) {
-  return {
-    recommendable: counts.recommendable ?? counts.eligible,
-    reviewNeeded: counts.reviewNeeded ?? counts.conditional,
-    notRecommended: counts.notRecommended ?? counts.ineligible,
-  };
-}
-
-function DashboardOnboardingPrompt({ progress }: { progress: OnboardingProgress }) {
-  if (!progress.nextStep) return null;
+function PrimaryActionCard({ action }: { action: ActionQueueItem | null }) {
+  if (!action) {
+    return (
+      <Card className="mt-6 gap-0 rounded-[20px] border border-brand-mint-soft bg-surface-soft py-0 ring-0 shadow-[var(--shadow-notice)]">
+        <CardHeader className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 px-6 py-6 sm:px-7">
+          <CircleCheckBig className="mt-0.5 size-6 text-brand-mint-ink" aria-hidden />
+          <div className="min-w-0">
+            <CardTitle className="text-[19px] leading-snug font-extrabold tracking-[-0.3px] text-ink">
+              지금 바로 제안할 행동이 없어요
+            </CardTitle>
+            <CardDescription className="mt-1.5 text-[14.5px] leading-6 text-text-nav">
+              새 매칭이나 마감 변화가 생기면 가장 먼저 볼 일을 여기에 알려드릴게요.
+            </CardDescription>
+          </div>
+        </CardHeader>
+      </Card>
+    );
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{progress.nextStep.title} 보강이 필요합니다</CardTitle>
-        <CardDescription>{progress.summary}</CardDescription>
-        <CardAction>
-          <StatusBadge tone="warning">{progress.completionRatio}%</StatusBadge>
-        </CardAction>
+    <Card className="mt-6 gap-0 rounded-[20px] border border-brand-tint bg-surface-brand py-0 ring-0 shadow-[var(--shadow-landing-step)]">
+      <CardHeader className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 px-6 pt-6 pb-0 sm:px-7">
+        <AlarmClock className="mt-0.5 size-6 text-brand" aria-hidden />
+        <div className="min-w-0">
+          <CardTitle className="text-[19px] leading-snug font-extrabold tracking-[-0.3px] text-ink">
+            {action.title}
+          </CardTitle>
+          <CardDescription className="mt-1.5 text-[14.5px] leading-6 text-text-nav">
+            {action.reason}
+          </CardDescription>
+        </div>
       </CardHeader>
-      <CardContent className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-        <Progress value={progress.completionRatio} aria-label={`설정 완료도 ${progress.completionRatio}%`} />
-        <div className="flex flex-wrap items-center gap-2">
-          <a className={buttonVariants({ size: "sm" })} href={progress.nextStep.actionHref}>
-            {progress.nextStep.actionLabel}
-            <ArrowRight data-icon="inline-end" />
+      <CardContent className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 px-6 pt-4 pb-6 sm:px-7">
+        <div className="col-start-2 flex flex-col items-start gap-2.5">
+          <a className={buttonVariants()} href={dashboardActionHref(action)}>
+            {action.ctaLabel}
           </a>
-          <a className={buttonVariants({ variant: "outline", size: "sm" })} href="/onboarding">
-            전체 보기
-          </a>
+          {action.affectedGrantCount > 0 ? (
+            <p className="text-xs text-text-tertiary">
+              공고 {action.affectedGrantCount.toLocaleString("ko-KR")}건의 판정에 영향을 줘요
+            </p>
+          ) : null}
         </div>
       </CardContent>
     </Card>
   );
 }
 
-function companyTitle(dashboard: DashboardResult): string {
-  const parts = [
-    dashboard.company.region,
-    dashboard.company.size,
-    dashboard.company.bizAgeMonths === null ? null : `업력 ${Math.floor(dashboard.company.bizAgeMonths / 12)}년`,
-  ].filter(Boolean);
-  return parts.length > 0 ? parts.join(" · ") : "샘플 기업";
+/** buildActionQueue가 계산한 점수를 그대로 사용해 표면에 노출할 한 건만 고른다. */
+export function selectPrimaryAction(actions: readonly ActionQueueItem[]): ActionQueueItem | null {
+  let primary: ActionQueueItem | null = null;
+  for (const action of actions) {
+    if (!primary || action.score > primary.score) primary = action;
+  }
+  return primary;
 }

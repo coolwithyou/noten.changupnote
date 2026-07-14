@@ -1,339 +1,366 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Check, ChevronDown, FilePen, HelpCircle, Minus, ShieldQuestion } from "lucide-react";
-import type { MatchCard, RuleTraceChip, RuleTraceChipResult, TeaserResult } from "@cunote/contracts";
-import { cn } from "@/lib/utils";
-import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon, HelpCircleIcon, MoreHorizontalIcon } from "lucide-react";
+import type { MatchCard, ProductTeaserResult } from "@cunote/contracts";
+import { NoticeCard, type NoticeCardStatus } from "@/components/app/notice-card";
+import { VerdictBadge, type VerdictStatus } from "@/components/app/verdict-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
-import { Progress } from "@/components/ui/progress";
-import { Separator } from "@/components/ui/separator";
-import { MatchFeedbackControls } from "@/features/opportunity-map/MatchFeedbackControls";
 import {
-  clampPct,
-  criterionKindLabel,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MatchFeedbackControls } from "@/features/opportunity-map/MatchFeedbackControls";
+import { cn } from "@/lib/utils";
+import {
   criterionResultText,
-  eligibilityLabel,
   formatAmount,
   formatDday,
-  isReviewNeededMatch,
-  isRecommendableMatch,
+  groupMatchesForDisplay,
   isUrgentDday,
-  isWriteSupported,
+  matchVerdictStatus,
   writeSupportCta,
-  writeSupportLabel,
-  writeSupportNote,
 } from "./logic";
+
+const DEFAULT_VISIBLE_OPEN = 5;
 
 export function ProgramsExperience({
   teaser,
   onPrepare,
+  onOpenProfile,
   preparing,
+  newGrantIds = new Set<string>(),
 }: {
-  teaser: TeaserResult;
+  teaser: ProductTeaserResult;
   onPrepare: (grantId?: string) => void;
+  onOpenProfile: () => void;
   preparing: boolean;
+  newGrantIds?: ReadonlySet<string>;
 }) {
-  const recommendableMatches = teaser.recommendableMatches ?? teaser.matches.filter(isRecommendableMatch);
-  const reviewNeededMatches = teaser.reviewNeededMatches ?? teaser.matches.filter(isReviewNeededMatch);
+  const groups = groupMatchesForDisplay(teaser.matches);
+  const [showAllOpen, setShowAllOpen] = useState(false);
+  const visibleOpen = showAllOpen ? groups.open : groups.open.slice(0, DEFAULT_VISIBLE_OPEN);
+  const totalOpen = Math.max(teaser.counts.openNow ?? 0, groups.open.length);
+  const totalOneAnswer = Math.max(teaser.counts.oneAnswer ?? 0, groups.oneAnswer.length);
+  const totalCheckSource = Math.max(teaser.counts.needsCoreReview ?? 0, groups.checkSource.length);
+  const totalPreparable = Math.max(teaser.counts.preparable ?? 0, groups.preparable.length);
 
   return (
-    <>
-      <ProgramsSection
-        heading="지원 가능한 사업"
-        emptyText="현재 정보로 바로 지원 가능하다고 확인된 사업은 아직 없어요."
-        matches={recommendableMatches}
-        onPrepare={onPrepare}
-        preparing={preparing}
-      />
-      <ProgramsSection
-        heading="확인이 필요한 사업"
-        description="업종, 인증, 수행실적처럼 원문 확인이 필요한 조건이 있어요."
-        emptyText="원문 확인이 필요한 후보 사업은 없어요."
-        matches={reviewNeededMatches}
-        onPrepare={onPrepare}
-        preparing={preparing}
-        tone="review"
-      />
-    </>
-  );
-}
-
-function ProgramsSection({
-  heading,
-  description,
-  emptyText,
-  matches,
-  onPrepare,
-  preparing,
-  tone = "default",
-}: {
-  heading: string;
-  description?: string;
-  emptyText: string;
-  matches: MatchCard[];
-  onPrepare: (grantId?: string) => void;
-  preparing: boolean;
-  tone?: "default" | "review";
-}) {
-  if (matches.length === 0) {
-    return (
-      <section className="flex flex-col gap-3">
-        <h2 className="font-heading text-lg font-semibold tracking-tight">{heading}</h2>
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Minus />
-            </EmptyMedia>
-            <EmptyDescription>{emptyText}</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      </section>
-    );
-  }
-
-  const writeSupportedCount = matches.filter((match) => isWriteSupported(match.writeSupport)).length;
-
-  return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <h2 className="font-heading text-lg font-semibold tracking-tight">{heading}</h2>
-            <Badge variant={tone === "review" ? "secondary" : "default"}>{matches.length}건</Badge>
+    <div>
+      <section className="mt-10">
+        <h2 className="mb-3 text-[15px] font-extrabold text-ink">
+          지금 신청 가능 <span className="text-brand-mint-ink">{totalOpen}</span>
+        </h2>
+        {visibleOpen.length > 0 || groups.upcoming.length > 0 ? (
+          <div className="flex flex-col gap-2.5">
+            {visibleOpen.map((match) => (
+              <ExpandableProgramCard
+                key={match.grantId}
+                match={match}
+                status="open"
+                isNew={newGrantIds.has(match.grantId)}
+                onOpenProfile={onOpenProfile}
+                onPrepare={onPrepare}
+                preparing={preparing}
+              />
+            ))}
+            {groups.upcoming.slice(0, 1).map((match) => (
+              <ExpandableProgramCard
+                key={match.grantId}
+                match={match}
+                status="upcoming"
+                className="opacity-55"
+                onOpenProfile={onOpenProfile}
+                onPrepare={onPrepare}
+                preparing={preparing}
+              />
+            ))}
           </div>
-          {description ? (
-            <p className="text-sm text-muted-foreground">{description}</p>
-          ) : writeSupportedCount > 0 ? (
-            <p className="text-sm text-muted-foreground">
-              표시된 {matches.length}건 중 <span className="font-semibold text-primary">{writeSupportedCount}건</span>은
-              지원서·사업계획서 작성을 도와드릴 수 있어요.
-            </p>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        {matches.map((match, index) => (
-          <ProgramCard
-            key={match.grantId}
-            match={match}
-            defaultOpen={index === 0}
-            onPrepare={onPrepare}
-            preparing={preparing}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ProgramCard({
-  match,
-  defaultOpen,
-  onPrepare,
-  preparing,
-}: {
-  match: MatchCard;
-  defaultOpen: boolean;
-  onPrepare: (grantId?: string) => void;
-  preparing: boolean;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const criteria = match.ruleTrace;
-  const passCount = criteria.filter((chip) => chip.result === "pass").length;
-  const reviewCount = criteria.filter((chip) => chip.result === "unknown" || chip.result === "text_only").length;
-  const scoreHidden = match.criteriaExtracted === false || match.scoreDisplay === "hidden";
-  const primaryReviewReason = match.reviewReasons?.[0];
-  const disqualificationReason = match.reviewReasons?.some(
-    (reason) => reason.code === "disqualification_unconfirmed",
-  );
-  const writeLabel = writeSupportLabel(match.writeSupport);
-  const relevanceLabel = match.ranking?.relevanceScore == null || match.ranking.relevanceScore < 40
-    ? null
-    : match.ranking.relevanceScore >= 70
-      ? "관련성 높음"
-      : "관련성 보통";
-  const urgent = isUrgentDday(match.dDay);
-
-  return (
-    <Card className="overflow-hidden p-0">
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger className="flex w-full cursor-pointer flex-col gap-4 px-5 py-5 text-left">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="flex min-w-[220px] flex-1 flex-col gap-2">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <Badge
-                  variant={
-                    match.eligibility === "eligible"
-                      ? "default"
-                      : match.eligibility === "conditional"
-                        ? "secondary"
-                        : "outline"
-                  }
-                >
-                  {eligibilityLabel(match.eligibility)}
-                </Badge>
-                <Badge variant={urgent ? "destructive" : "outline"}>{formatDday(match.dDay)}</Badge>
-                {writeLabel ? (
-                  <Badge variant="secondary">
-                    {isWriteSupported(match.writeSupport) ? <FilePen data-icon="inline-start" /> : null}
-                    {writeLabel}
-                  </Badge>
-                ) : null}
-                {relevanceLabel ? <Badge variant="outline">{relevanceLabel}</Badge> : null}
-              </div>
-              <div className="font-heading text-base font-semibold leading-snug">{match.title}</div>
-              <div className="text-sm text-muted-foreground">
-                {match.agency ?? "운영기관 확인"} · <span className="font-medium text-foreground">{formatAmount(match.supportAmount)}</span>
-              </div>
-            </div>
-            <div className="flex min-w-[136px] flex-none flex-col items-end gap-2">
-              <div className="text-xs text-muted-foreground">조건 확인도</div>
-              {scoreHidden ? (
-                <>
-                  <div className="font-heading text-base font-semibold leading-none text-muted-foreground">확인 필요</div>
-                  {primaryReviewReason ? (
-                    <div className="max-w-[180px] text-right text-xs leading-5 text-muted-foreground">
-                      {primaryReviewReason.label}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <div className="font-heading text-2xl font-semibold leading-none text-primary tabular-nums">
-                    {match.fitScore}%
-                  </div>
-                  <Progress value={clampPct(match.fitScore)} className="w-28" aria-label="조건 확인도" />
-                </>
-              )}
-            </div>
-          </div>
-          <Separator />
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              조건 {criteria.length} · 충족 {passCount}
-              {reviewCount > 0 ? ` · 확인 ${reviewCount}` : ""}
-            </span>
-            <span className="flex items-center gap-1 text-xs font-medium text-primary">
-              {open ? "접기" : "조건 자세히 보기"}
-              <ChevronDown className={cn("size-4 transition-transform", open && "rotate-180")} aria-hidden />
-            </span>
-          </div>
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="flex flex-col gap-5 border-t bg-muted/30 px-5 pb-5 pt-4">
-            <div className="flex flex-col gap-2">
-              <div className="text-xs font-semibold text-muted-foreground">세부 조건</div>
-              {criteria.length > 0 ? (
-                <div className="flex flex-col gap-2">
-                  {criteria.map((chip, index) => (
-                    <CriterionRow key={`${chip.dimension}-${index}`} chip={chip} />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">표시할 세부 조건이 없어요.</p>
-              )}
-            </div>
-
-            {disqualificationReason ? (
-              <Alert>
-                <ShieldQuestion />
-                <AlertTitle>결격 여부만 확인하면 추천이 확정됩니다</AlertTitle>
-                <AlertDescription>
-                  체납·신용·제재 등 결격 사유를 1분 만에 확인하면 이 사업의 적격 여부가 바로 판정됩니다. 자가신고 기준입니다.
-                </AlertDescription>
-                <AlertAction>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    onClick={() => scrollToDisqualificationCheck()}
-                  >
-                    1분 결격 확인
-                    <ArrowRight data-icon="inline-end" />
-                  </Button>
-                </AlertAction>
-              </Alert>
-            ) : null}
-
-            {match.ranking && match.ranking.reasons.length > 0 ? (
-              <div className="rounded-md border bg-background px-3 py-2.5">
-                <div className="text-xs font-semibold text-muted-foreground">추천 순서 근거</div>
-                <ul className="mt-1.5 space-y-1 text-xs leading-5 text-muted-foreground">
-                  {match.ranking.reasons.slice(0, 3).map((reason) => (
-                    <li key={reason}>· {reason}</li>
-                  ))}
-                </ul>
-                <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-                  관련성과 준비 우선순위는 선정 가능성을 뜻하지 않아요.
-                </p>
-              </div>
-            ) : null}
-
-            <p className="text-xs leading-5 text-muted-foreground">{writeSupportNote(match.writeSupport)}</p>
-
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                <span className="text-xs font-semibold text-muted-foreground">이 결과에 대한 피드백</span>
-                <MatchFeedbackControls grantId={match.grantId} title={match.title} />
-              </div>
-              <Button type="button" onClick={() => onPrepare(match.grantId)} disabled={preparing} className="shrink-0">
-                {preparing ? "준비 중…" : writeSupportCta(match.writeSupport)}
-                <ArrowRight data-icon="inline-end" />
-              </Button>
-            </div>
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    </Card>
-  );
-}
-
-function scrollToDisqualificationCheck() {
-  // 결격 빠른 확인 카드(#next-question)가 있으면 그쪽으로, 없으면 결격 정정 섹션(설정)으로.
-  const target =
-    document.getElementById("next-question") ?? document.getElementById("company-settings");
-  target?.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function CriterionRow({ chip }: { chip: RuleTraceChip }) {
-  return (
-    <div className="flex items-start gap-3 rounded-[var(--radius-md)] border bg-card px-4 py-3">
-      <span
-        className={cn(
-          "mt-0.5 flex size-6 flex-none items-center justify-center rounded-full",
-          chip.result === "pass" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+        ) : (
+          <p className="rounded-2xl bg-surface-soft px-5 py-6 text-sm leading-6 text-text-secondary">
+            현재 정보로 바로 신청할 수 있다고 확인된 공고는 아직 없어요.
+          </p>
         )}
-        aria-hidden
-      >
-        <CriterionResultIcon result={chip.result} />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Badge
-            variant={chip.kind === "preferred" ? "secondary" : chip.kind === "exclusion" ? "destructive" : "outline"}
-          >
-            {criterionKindLabel(chip.kind)}
-          </Badge>
-          <span className="text-sm font-medium text-foreground">{chip.label}</span>
-        </div>
-        {chip.companyValue ? <div className="text-xs text-muted-foreground">{chip.companyValue}</div> : null}
-        {chip.sourceSpan ? <div className="text-xs leading-5 text-muted-foreground">{chip.sourceSpan}</div> : null}
+        {!showAllOpen && groups.open.length > DEFAULT_VISIBLE_OPEN ? (
+          <Button type="button" variant="ghost" onClick={() => setShowAllOpen(true)} className="mt-2 w-full text-brand">
+            {groups.open.length - DEFAULT_VISIBLE_OPEN}건 더 보기
+          </Button>
+        ) : null}
+        {totalOpen > groups.open.length ? (
+          <Button type="button" variant="link" onClick={() => onPrepare()} disabled={preparing} className="mt-2 w-full">
+            {totalOpen.toLocaleString("ko-KR")}건 전체 결과 저장하고 보기
+          </Button>
+        ) : null}
+      </section>
+
+      <div className="mt-8 border-t border-border-subtle">
+        <ResultBucket
+          label="답하면 확정"
+          count={totalOneAnswer}
+          countClassName="text-brand"
+          matches={groups.oneAnswer}
+          status="one_answer"
+          emptyCopy="답변으로 바로 확정할 수 있는 공고는 현재 목록에 없어요."
+          onOpenProfile={onOpenProfile}
+          onPrepare={onPrepare}
+          preparing={preparing}
+        />
+        <ResultBucket
+          label="준비하면 열려요"
+          count={totalPreparable}
+          matches={groups.preparable}
+          status="closed"
+          emptyCopy="결과를 저장하면 필요한 준비 조건을 이어서 확인할 수 있어요."
+          onOpenProfile={onOpenProfile}
+          onPrepare={onPrepare}
+          preparing={preparing}
+        />
+        <ResultBucket
+          label="원문 확인 필요"
+          count={totalCheckSource}
+          matches={groups.checkSource}
+          status="check_source"
+          emptyCopy="원문 확인이 필요한 공고는 현재 목록에 없어요."
+          onOpenProfile={onOpenProfile}
+          onPrepare={onPrepare}
+          preparing={preparing}
+        />
       </div>
-      <span className="flex-none self-center text-xs font-medium text-muted-foreground">
-        {criterionResultText(chip.result)}
-      </span>
     </div>
   );
 }
 
-function CriterionResultIcon({ result }: { result: RuleTraceChipResult }) {
-  if (result === "pass") return <Check className="size-3" strokeWidth={3} />;
-  if (result === "text_only" || result === "unknown") return <HelpCircle className="size-3.5" />;
-  return <Minus className="size-3" strokeWidth={3} />;
+function ResultBucket({
+  label,
+  count,
+  countClassName,
+  matches,
+  status,
+  emptyCopy,
+  onOpenProfile,
+  onPrepare,
+  preparing,
+}: {
+  label: string;
+  count: number;
+  countClassName?: string;
+  matches: MatchCard[];
+  status: VerdictStatus;
+  emptyCopy: string;
+  onOpenProfile: () => void;
+  onPrepare: (grantId?: string) => void;
+  preparing: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen} className="border-b border-border-subtle">
+      <CollapsibleTrigger className="flex w-full cursor-pointer items-center justify-between px-1 py-[17px] text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/20">
+        <span className="text-[15px] font-bold text-ink">
+          {label} <span className={cn("text-text-secondary tabular-nums", countClassName)}>{count}건</span>
+        </span>
+        <ChevronDownIcon className={cn("size-4 text-text-quaternary transition-transform", open && "rotate-180")} />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="flex flex-col gap-2.5 pb-4">
+          {matches.length > 0 ? (
+            matches.map((match) => (
+              <ExpandableProgramCard
+                key={match.grantId}
+                match={match}
+                status={status}
+                {...(status === "closed" ? { note: preparableNote(match) } : {})}
+                onOpenProfile={onOpenProfile}
+                onPrepare={onPrepare}
+                preparing={preparing}
+              />
+            ))
+          ) : (
+            <p className="rounded-xl bg-surface-soft px-4 py-3 text-sm leading-6 text-text-secondary">{emptyCopy}</p>
+          )}
+          {count > matches.length ? (
+            <div className="flex flex-col items-center gap-1">
+              {matches.length > 0 ? (
+                <p className="px-1 text-xs text-text-tertiary">
+                  우선순위가 높은 {matches.length}건을 먼저 보여드려요.
+                </p>
+              ) : null}
+              <Button type="button" variant="link" onClick={() => onPrepare()} disabled={preparing}>
+                {count.toLocaleString("ko-KR")}건 전체 결과 저장하고 보기
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function ExpandableProgramCard({
+  match,
+  status,
+  isNew,
+  note,
+  className,
+  onOpenProfile,
+  onPrepare,
+  preparing,
+}: {
+  match: MatchCard;
+  status: NoticeCardStatus;
+  isNew?: boolean;
+  note?: string;
+  className?: string;
+  onOpenProfile: () => void;
+  onPrepare: (grantId?: string) => void;
+  preparing: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
+  if (!open) {
+    return (
+      <NoticeCard
+        title={match.title}
+        dday={status === "upcoming" && match.dDay === null ? "접수 예정" : formatDday(match.dDay)}
+        amount={formatAmount(match.supportAmount)}
+        status={status === "closed" ? "closed" : cardStatus}
+        {...(isNew === undefined ? {} : { isNew })}
+        {...(note === undefined ? {} : { note })}
+        onClick={() => setOpen(true)}
+        {...(className === undefined ? {} : { className })}
+      />
+    );
+  }
+
+  return (
+    <ExpandedProgramCard
+      match={match}
+      status={status}
+      onClose={() => setOpen(false)}
+      onOpenProfile={onOpenProfile}
+      onPrepare={onPrepare}
+      preparing={preparing}
+      {...(className === undefined ? {} : { className })}
+    />
+  );
+}
+
+function ExpandedProgramCard({
+  match,
+  status,
+  onClose,
+  onOpenProfile,
+  onPrepare,
+  preparing,
+  className,
+}: {
+  match: MatchCard;
+  status: NoticeCardStatus;
+  onClose: () => void;
+  onOpenProfile: () => void;
+  onPrepare: (grantId?: string) => void;
+  preparing: boolean;
+  className?: string;
+}) {
+  const passed = match.ruleTrace.filter((criterion) => criterion.result === "pass");
+  const needsCheck = match.ruleTrace.filter(
+    (criterion) => criterion.result === "unknown" || criterion.result === "text_only",
+  );
+  const primaryCheck = needsCheck[0];
+  const detailHref = match.detailUrl ?? `/grants/${encodeURIComponent(match.grantId)}`;
+
+  return (
+    <Card className={cn("gap-0 rounded-2xl border-border-card px-[22px] py-5 shadow-[var(--shadow-notice-hover)] ring-0", className)}>
+      <div className="flex items-start gap-2">
+        <h3 className="min-w-0 flex-1 text-[17px] leading-snug font-bold tracking-[-0.2px] text-ink">{match.title}</h3>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`${match.title} 메뉴`} />}
+          >
+            <MoreHorizontalIcon />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-64 p-3">
+            <DropdownMenuLabel>이 공고 정리</DropdownMenuLabel>
+            <MatchFeedbackControls grantId={match.grantId} title={match.title} />
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      <div className="mt-2.5 flex items-center gap-2.5">
+        {status === "upcoming" ? (
+          <Badge variant="outline" className="border-brand-mint-soft bg-brand-mint-soft text-brand-mint-ink">
+            접수 예정
+          </Badge>
+        ) : (
+          <VerdictBadge status={status} />
+        )}
+        <span
+          className={cn(
+            "text-[13.5px] font-extrabold tabular-nums",
+            isUrgentDday(match.dDay) ? "text-danger" : "text-text-secondary",
+          )}
+        >
+          {formatDday(match.dDay)}
+        </span>
+        <span className="ml-auto text-[15px] font-bold text-ink tabular-nums">{formatAmount(match.supportAmount)}</span>
+        <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="카드 접기">
+          <ChevronUpIcon />
+        </Button>
+      </div>
+
+      <div className="mt-4 border-t border-border-subtle pt-4 text-[15px] text-ink">
+        충족 <strong>{passed.length}건</strong> <CheckIcon className="inline size-4 text-brand-mint-ink" strokeWidth={3} />
+        <span className="mx-2 text-text-quaternary">·</span>
+        확인 필요 <strong className="text-brand">{needsCheck.length}건</strong>
+      </div>
+
+      {primaryCheck ? (
+        <div className="mt-3 flex items-start gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
+          <HelpCircleIcon className="mt-1 size-4 shrink-0 text-brand" />
+          <span className="min-w-0 flex-1">
+            {primaryCheck.label} — {criterionResultText(primaryCheck.result)}
+          </span>
+          <Button type="button" variant="link" onClick={onOpenProfile} className="h-auto shrink-0 px-0 text-[13px]">
+            내 정보에서 채우기
+          </Button>
+        </div>
+      ) : null}
+
+      {match.ranking?.reasons.length ? (
+        <div className="mt-2.5 rounded-xl bg-surface-brand px-4 py-3.5 text-sm leading-[1.65] text-text-nav">
+          {match.ranking.reasons.slice(0, 2).join(" · ")}
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+        <a href={`/grants/${encodeURIComponent(match.grantId)}`} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
+          조건 전체 보기
+        </a>
+        {match.detailUrl ? (
+          <a href={detailHref} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
+            공고 상세
+          </a>
+        ) : null}
+        <Button
+          type="button"
+          onClick={() => onPrepare(match.grantId)}
+          disabled={preparing}
+          className="sm:ml-auto"
+        >
+          {preparing ? "준비 중…" : writeSupportCta(match.writeSupport)}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
+function preparableNote(match: MatchCard): string {
+  const condition = match.ruleTrace.find(
+    (criterion) => criterion.result === "fail" || criterion.result === "unknown",
+  );
+  return condition ? `${condition.label}을 확인·준비하면 다시 판정해요` : "필요한 조건을 준비하면 다시 판정해요";
 }

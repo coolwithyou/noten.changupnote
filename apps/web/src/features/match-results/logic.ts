@@ -13,6 +13,7 @@ import type {
   WriteSupportLevel,
 } from "@cunote/contracts";
 import { WRITE_SUPPORT_LABELS } from "@cunote/contracts";
+import type { VerdictStatus } from "@/components/app/verdict-badge";
 import {
   readLocalBusinessLookupSuggestions,
   recordBusinessLookupSuggestion,
@@ -33,6 +34,7 @@ export type ProfileFieldView = {
   value: string;
   available: boolean;
   status: MatchingProfileViewRow["status"];
+  sourceKind: MatchingProfileViewRow["sourceKind"];
   sourceLabel: string | null;
   asOf: string | null;
   completeness: MatchingProfileViewRow["completeness"];
@@ -45,6 +47,34 @@ export interface ProfileInputDraft {
   value: string;
   secondaryValue: string;
   unit: RevenueUnit;
+}
+
+export type ProfileSheetValueState = "automatic" | "direct" | "missing";
+
+export function profileSheetValueState(field: ProfileFieldView): ProfileSheetValueState {
+  const hasValue = field.available && field.value.trim().length > 0;
+  if (!hasValue) return "missing";
+  return field.sourceKind === "self_declared" ? "direct" : "automatic";
+}
+
+/** 결격 판정을 이루는 3축(자가신고). 3축 모두 known이어야 결격 확인 완료로 본다. */
+export const DISQUALIFICATION_AXES = [
+  "tax_compliance",
+  "credit_status",
+  "sanction",
+] as const satisfies readonly CriterionDimension[];
+
+/** teaser.profileView.rows에서 특정 차원 행의 확인 상태를 읽는다. 행이 없으면 null. */
+export function profileRowStatus(
+  teaser: ProductTeaserResult,
+  dimension: CriterionDimension,
+): MatchingProfileViewRow["status"] | null {
+  return teaser.profileView.rows.find((row) => row.dimension === dimension)?.status ?? null;
+}
+
+/** 결격 3축이 모두 known(자가신고 확인 완료)인지. */
+export function disqualificationAllKnown(teaser: ProductTeaserResult): boolean {
+  return DISQUALIFICATION_AXES.every((axis) => profileRowStatus(teaser, axis) === "known");
 }
 
 export const REGION_OPTIONS = [
@@ -112,6 +142,7 @@ export function buildProfileFields(teaser: ProductTeaserResult): ProfileFieldVie
     value: row.displayValue ?? "",
     available: row.status !== "unknown",
     status: row.status,
+    sourceKind: row.sourceKind,
     sourceLabel: row.sourceLabel,
     asOf: row.asOf,
     completeness: row.completeness,
@@ -513,6 +544,173 @@ export function isReviewNeededMatch(match: MatchCard): boolean {
   return tier === "needs_core_review" || tier === "needs_profile_input";
 }
 
+export interface MatchDisplayGroups {
+  open: MatchCard[];
+  oneAnswer: MatchCard[];
+  preparable: MatchCard[];
+  checkSource: MatchCard[];
+  closed: MatchCard[];
+  upcoming: MatchCard[];
+}
+
+/** 사용자 입력으로 해소할 미확인 축이 정확히 하나일 때만 "답하면 확정"으로 약속한다. */
+export function isOneAnswerMatch(match: MatchCard): boolean {
+  if (recommendationTierForMatch(match) !== "needs_profile_input") return false;
+  return answerableUnknownDimensions(match).size === 1;
+}
+
+export function isMultiAnswerMatch(match: MatchCard): boolean {
+  if (recommendationTierForMatch(match) !== "needs_profile_input") return false;
+  return answerableUnknownDimensions(match).size > 1;
+}
+
+function answerableUnknownDimensions(match: MatchCard): Set<CriterionDimension> {
+  return new Set(match.ruleTrace
+    .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
+    .map((trace) => trace.dimension));
+}
+
+/** 서버 판정·추천 tier를 화면의 고정 4상태 어휘로만 투영한다. */
+export function matchVerdictStatus(match: MatchCard): VerdictStatus {
+  if (match.status === "unknown") return "check_source";
+  if (match.status === "closed") return "closed";
+  const tier = recommendationTierForMatch(match);
+  if (match.status === "open" && match.eligibility === "eligible" && tier === "recommendable") return "open";
+  if (isOneAnswerMatch(match)) return "one_answer";
+  if (
+    tier === "needs_core_review" ||
+    match.criteriaExtracted === false ||
+    (tier === "needs_profile_input" && answerableUnknownDimensions(match).size === 0) ||
+    (tier !== "needs_profile_input" && match.scoreDisplay === "hidden")
+  ) {
+    return "check_source";
+  }
+  return "closed";
+}
+
+/** 접수 예정·준비 필요는 판정 어휘를 늘리지 않고 별도 목록 문맥으로만 분리한다. */
+export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisplayGroups {
+  const groups: MatchDisplayGroups = {
+    open: [],
+    oneAnswer: [],
+    preparable: [],
+    checkSource: [],
+    closed: [],
+    upcoming: [],
+  };
+
+  for (const match of matches) {
+    if (match.status === "upcoming") {
+      groups.upcoming.push(match);
+      continue;
+    }
+    if (match.status === "unknown") {
+      groups.checkSource.push(match);
+      continue;
+    }
+    if (match.status === "closed") {
+      groups.closed.push(match);
+      continue;
+    }
+    if (match.bucket === "preparable" || isMultiAnswerMatch(match)) {
+      groups.preparable.push(match);
+      continue;
+    }
+    const status = matchVerdictStatus(match);
+    if (status === "open") groups.open.push(match);
+    else if (status === "one_answer") groups.oneAnswer.push(match);
+    else if (status === "check_source") groups.checkSource.push(match);
+    else groups.closed.push(match);
+  }
+
+  return groups;
+}
+
+export interface MatchingPrecisionSummary {
+  pct: number;
+  known: number;
+  partial: number;
+  remaining: number;
+  total: number;
+}
+
+/** 백엔드 전용 점수 대신 확인 필드 비율로 정밀도를 보수적으로 근사한다. */
+export function matchingPrecision(teaser: ProductTeaserResult): MatchingPrecisionSummary {
+  const { knownCount: known, partialCount: partial, unknownCount } = teaser.profileView;
+  const total = Math.max(1, teaser.profileView.rows.length);
+  return {
+    pct: clampPct(Math.round((known / total) * 100)),
+    known,
+    partial,
+    remaining: Math.max(0, unknownCount + partial),
+    total,
+  };
+}
+
+export interface AnswerImpactSummary {
+  newlyOpen: number;
+  newlyOpenGrantIds: string[];
+  newlyClosed: number;
+  changed: number;
+  previousPrecision: number;
+  nextPrecision: number;
+  precisionDelta: number;
+}
+
+/** 동일 공고 id의 전후 판정만 비교한다. 선정 가능성이나 확률로 해석하지 않는다. */
+export function summarizeAnswerImpact(
+  before: ProductTeaserResult,
+  after: ProductTeaserResult,
+): AnswerImpactSummary {
+  const previous = new Map(before.matches.map((match) => [match.grantId, matchVerdictStatus(match)]));
+  let newlyOpen = 0;
+  const newlyOpenGrantIds: string[] = [];
+  let newlyClosed = 0;
+  let changed = 0;
+
+  for (const match of after.matches) {
+    const prior = previous.get(match.grantId);
+    const next = matchVerdictStatus(match);
+    if (!prior || prior === next) continue;
+    changed += 1;
+    if (next === "open") {
+      newlyOpen += 1;
+      newlyOpenGrantIds.push(match.grantId);
+    }
+    if (next === "closed") newlyClosed += 1;
+  }
+
+  const previousPrecision = matchingPrecision(before).pct;
+  const nextPrecision = matchingPrecision(after).pct;
+  return {
+    newlyOpen,
+    newlyOpenGrantIds,
+    newlyClosed,
+    changed,
+    previousPrecision,
+    nextPrecision,
+    precisionDelta: nextPrecision - previousPrecision,
+  };
+}
+
+export function teaserComparisonLabel(teaser: TeaserResult): string | null {
+  const context = teaser.searchContext;
+  if (!context) return null;
+  const asOf = new Date(context.asOf);
+  const dateLabel = Number.isNaN(asOf.getTime())
+    ? null
+    : new Intl.DateTimeFormat("ko-KR", {
+        month: "long",
+        day: "numeric",
+        timeZone: KOREA_TIME_ZONE,
+      }).format(asOf);
+  const count = Math.max(0, context.evaluatedGrantCount);
+  if (!dateLabel) return count > 0 ? `공고 ${count.toLocaleString("ko-KR")}건과 대조했어요` : null;
+  return count > 0
+    ? `${dateLabel} 기준, 공고 ${count.toLocaleString("ko-KR")}건과 대조했어요`
+    : `${dateLabel} 기준 결과예요`;
+}
+
 function recommendationTierForMatch(match: MatchCard): NonNullable<MatchCard["recommendationTier"]> {
   return (
     match.recommendationTier ??
@@ -574,8 +772,12 @@ export function formatAmount(amount: SupportAmount): string {
 }
 
 export function formatKrwAmount(value: number): string {
-  if (value >= 100_000_000) return `${Math.round(value / 100_000_000).toLocaleString("ko-KR")}억원`;
-  if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만원`;
+  if (value >= 100_000_000) {
+    const eok = value / 100_000_000;
+    const label = Number.isInteger(eok) ? eok.toLocaleString("ko-KR") : eok.toFixed(1);
+    return `${label}억 원`;
+  }
+  if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만 원`;
   return `${Math.max(0, Math.round(value)).toLocaleString("ko-KR")}원`;
 }
 

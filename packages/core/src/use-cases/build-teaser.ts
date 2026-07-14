@@ -45,13 +45,25 @@ export function buildTeaser<TPayload>({
     excludeDimensions: activeUnknownQuestionDimensions(company, asOf),
   })[0]?.question ?? null;
   const cards = sorted.map((entry) => toMatchCard(entry, { asOf }));
-  const recommendableCards = cards.filter(isRecommendableCard);
+  const allRecommendableCards = cards.filter(isRecommendableCard);
+  const openRecommendableCards = allRecommendableCards.filter((card) => card.status === "open");
+  const visibleRecommendableCards = allRecommendableCards.filter(
+    (card) => card.status === "open" || card.status === "upcoming",
+  );
   const reviewNeededCards = cards.filter(isReviewNeededCard);
+  const balancedReviewNeededCards = balanceReviewNeededCards(reviewNeededCards);
+  const needsProfileInputCount = cards.filter(
+    (card) => recommendationTierForCard(card) === "needs_profile_input",
+  ).length;
+  const oneAnswerCount = cards.filter(isOneAnswerCard).length;
+  const needsCoreReviewCount = cards.filter(
+    (card) => recommendationTierForCard(card) === "needs_core_review",
+  ).length;
   const notRecommendedCards = cards.filter(isNotRecommendedCard);
   const {
     recommendable: recommendableMatches,
     reviewNeeded: reviewNeededMatches,
-  } = selectVisibleTeaserBuckets(recommendableCards, reviewNeededCards, {
+  } = selectVisibleTeaserBuckets(visibleRecommendableCards, balancedReviewNeededCards, {
     limit,
     ...(recommendableLimit === undefined ? {} : { recommendableLimit }),
     ...(reviewNeededLimit === undefined ? {} : { reviewNeededLimit }),
@@ -70,8 +82,13 @@ export function buildTeaser<TPayload>({
     counts: {
       ...counts,
       deadlineSoon,
-      recommendable: recommendableCards.length,
+      recommendable: allRecommendableCards.length,
+      openNow: openRecommendableCards.length,
       reviewNeeded: reviewNeededCards.length,
+      needsProfileInput: needsProfileInputCount,
+      oneAnswer: oneAnswerCount,
+      needsCoreReview: needsCoreReviewCount,
+      preparable: cards.filter(isDisplayPreparableCard).length,
       notRecommended: notRecommendedCards.length,
     },
     matches: visibleMatches,
@@ -127,6 +144,29 @@ function selectVisibleTeaserBuckets(
   return { recommendable, reviewNeeded };
 }
 
+/** 각 검토 사유의 대표 카드가 제한된 익명 결과에 최소 한 번씩 나타나게 섞는다. */
+function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
+  const buckets = [
+    cards.filter(isOneAnswerCard),
+    cards.filter((card) => recommendationTierForCard(card) === "needs_core_review"),
+    cards.filter((card) =>
+      recommendationTierForCard(card) === "needs_profile_input" && !isOneAnswerCard(card)
+    ),
+  ];
+  const result: MatchCard[] = [];
+  for (let index = 0; result.length < cards.length; index += 1) {
+    let appended = false;
+    for (const bucket of buckets) {
+      const card = bucket[index];
+      if (!card) continue;
+      result.push(card);
+      appended = true;
+    }
+    if (!appended) break;
+  }
+  return result;
+}
+
 function nonNegativeInteger(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.floor(value));
@@ -143,6 +183,23 @@ function isReviewNeededCard(card: MatchCard): boolean {
 
 function isNotRecommendedCard(card: MatchCard): boolean {
   return recommendationTierForCard(card) === "not_recommended";
+}
+
+function isOneAnswerCard(card: MatchCard): boolean {
+  if (recommendationTierForCard(card) !== "needs_profile_input") return false;
+  return answerableUnknownDimensions(card).size === 1;
+}
+
+function isDisplayPreparableCard(card: MatchCard): boolean {
+  if (card.bucket === "preparable") return true;
+  return recommendationTierForCard(card) === "needs_profile_input" &&
+    answerableUnknownDimensions(card).size > 1;
+}
+
+function answerableUnknownDimensions(card: MatchCard): Set<string> {
+  return new Set(card.ruleTrace
+    .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
+    .map((trace) => trace.dimension));
 }
 
 function recommendationTierForCard(card: MatchCard): NonNullable<MatchCard["recommendationTier"]> {

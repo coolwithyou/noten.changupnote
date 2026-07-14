@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { requireActiveConsent } from "@/lib/server/consents/consentStore";
-import { enrichServiceCompany } from "@/lib/server/serviceData";
+import { enrichServiceCompany, getServiceRepositories } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,7 +11,13 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const [access, body] = await Promise.all([requireCompanyAccess({ permission: "write" }), readBody(request)]);
-    if (!body.bizNo?.trim()) {
+    // bizNo 미제공 시 현재 회사에 저장된 사업자번호로 대체한다.
+    const bizNo = body.bizNo?.trim()
+      || (await getServiceRepositories().companies.getCompanyBizNo({
+        companyId: access.companyId,
+        userId: access.userId,
+      }))?.trim();
+    if (!bizNo) {
       return NextResponse.json<ActionResult<CompanyEnrichmentResult>>({
         ok: false,
         error: {
@@ -31,7 +37,7 @@ export async function POST(request: Request) {
     const data = await enrichServiceCompany({
       companyId: access.companyId,
       userId: access.userId,
-      bizNo: body.bizNo,
+      bizNo,
     });
     return NextResponse.json<ActionResult<CompanyEnrichmentResult>>({ ok: true, data });
   } catch (error) {

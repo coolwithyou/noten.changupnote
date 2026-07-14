@@ -3,7 +3,7 @@
 /**
  * 작성 도우미 workspace 오케스트레이터 (Apply Experience v2 · §4.3/§4.4 · P2-5).
  *
- * 데스크톱 3영역(좌 프리뷰 ≈60% / 우상 필드 패널 / 우하 채팅) · 모바일 3탭(문서/필드/채팅).
+ * 데스크톱 2영역(좌 프리뷰 60% / 우 인터뷰 또는 채팅 40%) · 모바일 프리뷰+필드 스택.
  * `selectedFieldId` 를 보유해 오버레이↔카드 양방향 동기화를 이룬다. 필드 값 변경은 전부
  * PATCH /field-answers 로만(낙관적 업데이트→서버 응답 동기화, 실패 시 롤백).
  *
@@ -18,7 +18,7 @@ import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
@@ -29,8 +29,9 @@ import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-vie
 import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
 import { ChatPanelView, useGrantChat } from "./ChatPanel";
 import { DraftFallbackEditor } from "./DraftFallbackEditor";
-import { FieldPanel } from "./FieldPanel";
-import { WorkspaceFooter, type WorkspaceProgress } from "./WorkspaceFooter";
+import { FieldPanel, type WorkspacePanelMode } from "./FieldPanel";
+import { ProgressMeter, WorkspaceFooter, type WorkspaceProgress } from "./WorkspaceFooter";
+import { workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
 
 const LADDER_BADGE: Record<WorkspaceData["ladder"], { label: string; className: string }> = {
   a: { label: "원본 양식 채움", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" },
@@ -42,16 +43,19 @@ export function WorkspaceView({
   grantId,
   data,
   greeting,
+  institutionContact,
 }: {
   grantId: string;
   data: WorkspaceData;
   greeting: ChatMessageContent;
+  institutionContact: InstitutionContact | null;
 }) {
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pendingLabels, setPendingLabels] = useState<Set<string>>(() => new Set());
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
-  const [mobileTab, setMobileTab] = useState("doc");
+  const [panelMode, setPanelMode] = useState<WorkspacePanelMode>("single");
+  const [showChat, setShowChat] = useState(false);
   const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
   useEffect(() => {
@@ -60,6 +64,14 @@ export function WorkspaceView({
 
   const duplicateSet = useMemo(() => new Set(data.duplicateLabels), [data.duplicateLabels]);
   const suggestableSet = useMemo(() => new Set(data.suggestableLabels), [data.suggestableLabels]);
+
+  useEffect(() => {
+    if (selectedFieldId || data.connectedFields.length === 0) return;
+    const first = data.connectedFields.find((field) =>
+      workspaceFieldState(answers[answerKey(field.label)]) !== "filled",
+    );
+    if (first) setSelectedFieldId(first.fieldId);
+  }, [selectedFieldId, data.connectedFields, answers]);
 
   const overlayFields = useMemo<PreviewOverlayField[]>(
     () =>
@@ -79,8 +91,10 @@ export function WorkspaceView({
     let requiredTotal = 0;
     let requiredConfirmed = 0;
     for (const field of data.connectedFields) {
-      const answer = answers[answerKey(field.label)];
-      const isConfirmed = answer?.status === "accepted" || answer?.status === "edited";
+      const key = answerKey(field.label);
+      const answer = answers[key];
+      const isConfirmed =
+        !pendingLabels.has(key) && (answer?.status === "accepted" || answer?.status === "edited");
       if (isConfirmed) confirmed += 1;
       if (field.required) {
         requiredTotal += 1;
@@ -88,7 +102,7 @@ export function WorkspaceView({
       }
     }
     return { total: data.connectedFields.length, confirmed, requiredTotal, requiredConfirmed };
-  }, [data.ladder, data.connectedFields, answers]);
+  }, [data.ladder, data.connectedFields, answers, pendingLabels]);
 
   async function patchAnswer(label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) {
     if (!data.draftId) return;
@@ -126,6 +140,17 @@ export function WorkspaceView({
         else next[key] = serverEntry;
         return next;
       });
+      if (entry.status === "accepted" || entry.status === "edited" || entry.status === "dismissed") {
+        const currentIndex = data.connectedFields.findIndex((field) => answerKey(field.label) === key);
+        const optimistic = optimisticApply(prev, key, entry);
+        const ordered = data.connectedFields
+          .slice(currentIndex + 1)
+          .concat(data.connectedFields.slice(0, Math.max(0, currentIndex)));
+        const next = ordered.find((field) =>
+          workspaceFieldState(optimistic[answerKey(field.label)]) !== "filled",
+        );
+        setSelectedFieldId(next?.fieldId ?? null);
+      }
     } catch (caught) {
       // 실패한 이 필드(key)만 패치 이전 값으로 되돌린다 — 전체 맵 롤백은 그 사이 완료된
       // 다른 필드의 성공 결과까지 되돌려버리는 교차-필드 클로버 버그였다.
@@ -207,7 +232,13 @@ export function WorkspaceView({
 
   function handleAskField(field: ConnectedDocumentField) {
     chat.askField({ label: field.label, section: field.section, fieldId: field.fieldId });
-    setMobileTab("chat"); // 모바일에서 답변이 보이도록 채팅 탭으로 전환.
+    setShowChat(true);
+  }
+
+  function handleSelectField(fieldId: string) {
+    setSelectedFieldId(fieldId);
+    setPanelMode("single");
+    setShowChat(false);
   }
 
   const badge = LADDER_BADGE[data.ladder];
@@ -219,7 +250,7 @@ export function WorkspaceView({
       pages={data.pages}
       overlayFields={overlayFields}
       selectedFieldId={selectedFieldId}
-      onSelectField={setSelectedFieldId}
+      onSelectField={handleSelectField}
       fill
     />
   );
@@ -238,16 +269,19 @@ export function WorkspaceView({
       selectedFieldId={selectedFieldId}
       pendingLabels={pendingLabels}
       suggestingLabels={suggestingLabels}
-      onSelectField={setSelectedFieldId}
+      onSelectField={handleSelectField}
       patchAnswer={patchAnswer}
       onAskField={handleAskField}
       onRequestSuggestion={requestSuggestion}
+      mode={panelMode}
+      draftId={data.draftId}
+      hwpxTemplateAvailable={data.hwpxTemplateAvailable}
     />
   );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
         <div className="min-w-0">
           <Link
             href={`/grants/${encodeURIComponent(grantId)}`}
@@ -258,9 +292,29 @@ export function WorkspaceView({
           </Link>
           <h1 className="truncate text-base font-semibold sm:text-lg">{data.grant.title}</h1>
         </div>
-        <Badge variant="outline" className={badge.className}>
-          {badge.label}
-        </Badge>
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {progress ? <ProgressMeter progress={progress} /> : null}
+          {data.ladder !== "c" ? (
+            <ToggleGroup
+              value={[panelMode]}
+              onValueChange={(value) => {
+                const next = value.at(-1);
+                if (next === "single" || next === "list") {
+                  setPanelMode(next);
+                  setShowChat(false);
+                }
+              }}
+              size="sm"
+              variant="outline"
+              spacing={0}
+              aria-label="작성 항목 보기 방식"
+            >
+              <ToggleGroupItem value="single">하나씩</ToggleGroupItem>
+              <ToggleGroupItem value="list">전체 목록</ToggleGroupItem>
+            </ToggleGroup>
+          ) : null}
+          <Badge variant="outline" className={badge.className}>{badge.label}</Badge>
+        </div>
       </div>
 
       {data.ladder === "c" ? (
@@ -271,7 +325,12 @@ export function WorkspaceView({
                 {data.honestNotice}
               </div>
             ) : null}
-            <ChatPanelView controller={chat} greeting={greeting} variant="front" />
+            <ChatPanelView
+              controller={chat}
+              greeting={greeting}
+              variant="front"
+              institutionContact={institutionContact}
+            />
             <DraftFallbackEditor
               grantId={grantId}
               prep={data.prep}
@@ -282,35 +341,44 @@ export function WorkspaceView({
         </div>
       ) : (
         <>
-          {/* 데스크톱 3영역 */}
-          <div className="hidden min-h-0 flex-1 gap-4 p-4 lg:grid lg:grid-cols-[minmax(0,1.55fr)_minmax(380px,1fr)]">
+          {/* 데스크톱: 문서 60% + 인터뷰/채팅 40% */}
+          <div className="hidden min-h-0 flex-1 gap-4 p-4 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(380px,2fr)]">
             {previewCanvas}
-            <div className="flex min-h-0 flex-col gap-4">
-              <div className="min-h-0 flex-1 overflow-auto rounded-[var(--radius-xl)] border bg-card">
-                {fieldPanel}
-              </div>
-              <ChatPanelView controller={chat} greeting={greeting} />
+            <div className="min-h-0 overflow-auto rounded-[var(--radius-xl)] border bg-card">
+              {showChat ? (
+                <ChatPanelView
+                  controller={chat}
+                  greeting={greeting}
+                  variant="front"
+                  institutionContact={institutionContact}
+                  onClose={() => setShowChat(false)}
+                />
+              ) : fieldPanel}
             </div>
           </div>
 
-          {/* 모바일 3탭 */}
-          <div className="min-h-0 flex-1 overflow-hidden p-3 lg:hidden">
-            <Tabs value={mobileTab} onValueChange={(value) => setMobileTab(String(value))} className="h-full">
-              <TabsList className="w-full">
-                <TabsTrigger value="doc">문서</TabsTrigger>
-                <TabsTrigger value="fields">필드</TabsTrigger>
-                <TabsTrigger value="chat">채팅</TabsTrigger>
-              </TabsList>
-              <TabsContent value="doc" className="min-h-0 overflow-auto">
-                {previewCanvas}
-              </TabsContent>
-              <TabsContent value="fields" className="min-h-0 overflow-auto rounded-[var(--radius-xl)] border bg-card">
-                {fieldPanel}
-              </TabsContent>
-              <TabsContent value="chat" className="min-h-0 overflow-auto">
-                <ChatPanelView controller={chat} greeting={greeting} variant="front" />
-              </TabsContent>
-            </Tabs>
+          {/* 모바일: 첫 화면은 프리뷰 요약 + 필드, 채팅은 질문했을 때만 대체 화면으로 연다. */}
+          <div className="min-h-0 flex-1 overflow-auto p-3 lg:hidden">
+            {showChat ? (
+              <div className="min-h-full overflow-hidden rounded-[var(--radius-xl)] border bg-card">
+                <ChatPanelView
+                  controller={chat}
+                  greeting={greeting}
+                  variant="front"
+                  institutionContact={institutionContact}
+                  onClose={() => setShowChat(false)}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="h-52 overflow-hidden rounded-[var(--radius-xl)]">
+                  {previewCanvas}
+                </div>
+                <div className="overflow-hidden rounded-[var(--radius-xl)] border bg-card">
+                  {fieldPanel}
+                </div>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -321,7 +389,8 @@ export function WorkspaceView({
         activeDocumentKey={data.activeDocumentKey}
         draftId={data.draftId}
         hwpxTemplateAvailable={data.hwpxTemplateAvailable}
-        progress={progress}
+        progress={null}
+        answersSaving={pendingLabels.size > 0}
       />
 
       {data.pollConversion ? <ConversionPollTrigger grantId={grantId} /> : null}

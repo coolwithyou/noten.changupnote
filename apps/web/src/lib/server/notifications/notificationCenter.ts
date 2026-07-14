@@ -225,7 +225,7 @@ function supportSlaNotification(
     title: supportSlaTitle(ticket.subject, dDay),
     body: `고객지원 문의가 ${ticketStatusLabel(ticket.status)} 상태입니다. ${ticketPriorityLabel(ticket.priority)} 우선순위로 운영팀 응답 기준일을 확인하세요.`,
     priority: dDay <= 0 ? "high" : dDay <= 2 ? "medium" : "low",
-    target: "/account#account-support-tickets",
+    target: "/settings?section=activity",
     dDay,
     etaDate: slaDueAt,
     rulesetVer: "support-sla-v1",
@@ -303,7 +303,7 @@ function supportReplyNotification(
     title: `운영팀 답변 도착: ${ticket.subject}`,
     body: `고객지원 문의에 공개 답변이 도착했습니다. ${preview(message.body)}`,
     priority: ticket.priority === "urgent" || ticket.priority === "high" ? "high" : "medium",
-    target: "/account#account-support-tickets",
+    target: "/settings?section=activity",
     etaDate: message.createdAt.toISOString().slice(0, 10),
     rulesetVer: "support-reply-v1",
   }];

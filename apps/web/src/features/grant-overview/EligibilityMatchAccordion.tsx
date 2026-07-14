@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { StatusBadge } from "@/components/app/status-badge";
 import { buttonVariants } from "@/components/ui/button";
+import { grantOverviewTraceAction } from "./logic";
 
 /**
  * 아코디언 ① 자격 요건과 내 회사 매칭 (계획 §4.2, §8 P1-2).
@@ -14,31 +15,33 @@ import { buttonVariants } from "@/components/ui/button";
 export function EligibilityMatchAccordion({
   satisfied,
   needsCheck,
+  sourceUrl,
 }: {
   satisfied: RuleTraceChip[];
   needsCheck: RuleTraceChip[];
+  sourceUrl: string | null;
 }) {
   const summary = `충족 ${satisfied.length.toLocaleString("ko-KR")}건 · 확인 필요 ${needsCheck.length.toLocaleString("ko-KR")}건`;
 
   return (
-    <AccordionItem value="eligibility">
-      <AccordionTrigger>
-        <span className="flex flex-col items-start gap-0.5 text-left">
-          <span>자격 요건과 내 회사 매칭</span>
-          <span className="text-xs font-normal text-muted-foreground">{summary}</span>
-        </span>
+    <AccordionItem value="eligibility" className="border-b border-border-subtle">
+      <AccordionTrigger className="px-1 py-[18px] text-[15.5px] font-semibold hover:no-underline">
+        자격 요건
       </AccordionTrigger>
-      <AccordionContent>
+      <AccordionContent className="px-1 pb-5">
+        <p className="text-xs text-muted-foreground">{summary}</p>
         <div className="grid gap-4 sm:grid-cols-2">
           <TraceGroup
             title="이미 충족"
             items={satisfied}
             emptyText="자동 충족으로 확인된 조건이 없습니다."
+            sourceUrl={sourceUrl}
           />
           <TraceGroup
             title="확인 필요"
             items={needsCheck}
             emptyText="추가 입력이 필요한 조건이 없습니다."
+            sourceUrl={sourceUrl}
           />
         </div>
       </AccordionContent>
@@ -50,16 +53,22 @@ function TraceGroup({
   title,
   items,
   emptyText,
+  sourceUrl,
 }: {
   title: string;
   items: RuleTraceChip[];
   emptyText: string;
+  sourceUrl: string | null;
 }) {
   return (
     <section className="grid gap-2">
       <h4 className="text-sm font-semibold text-foreground">{title}</h4>
       {items.map((item) => (
-        <TraceItem key={`${item.dimension}-${item.kind}-${item.label}`} item={item} />
+        <TraceItem
+          key={`${item.dimension}-${item.kind}-${item.label}`}
+          item={item}
+          sourceUrl={sourceUrl}
+        />
       ))}
       {items.length === 0 ? (
         <Empty className="panel-empty">
@@ -70,7 +79,7 @@ function TraceGroup({
   );
 }
 
-function TraceItem({ item }: { item: RuleTraceChip }) {
+function TraceItem({ item, sourceUrl }: { item: RuleTraceChip; sourceUrl: string | null }) {
   return (
     <Card size="sm">
       <CardContent className="grid gap-2">
@@ -89,24 +98,27 @@ function TraceItem({ item }: { item: RuleTraceChip }) {
             {item.unlock.etaDate ? ` · ${formatEtaDate(item.unlock.etaDate)}` : ""}
           </p>
         ) : null}
-        {item.action ? <TraceActionLink action={item.action} /> : null}
+        {item.action ? <TraceActionLink action={item.action} sourceUrl={sourceUrl} /> : null}
       </CardContent>
     </Card>
   );
 }
 
-function TraceActionLink({ action }: { action: NonNullable<RuleTraceChip["action"]> }) {
-  const isHttp = /^https?:\/\//.test(action.target);
-  const href =
-    action.target.startsWith("#") || action.target.startsWith("/") || isHttp
-      ? action.target
-      : "/dashboard#next-question";
-  const external = isHttp && action.type === "external_link";
+function TraceActionLink({
+  action,
+  sourceUrl,
+}: {
+  action: NonNullable<RuleTraceChip["action"]>;
+  sourceUrl: string | null;
+}) {
+  const resolved = grantOverviewTraceAction(action, sourceUrl);
+  if (!resolved) return null;
+
   return (
     <a
       className={buttonVariants({ variant: "outline", size: "sm", className: "justify-self-start" })}
-      href={href}
-      {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
+      href={resolved.href}
+      {...(resolved.external ? { target: "_blank", rel: "noreferrer" } : {})}
     >
       {action.label}
     </a>

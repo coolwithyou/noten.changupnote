@@ -1339,7 +1339,7 @@ export async function loadProductTeaser(
   const result = buildProductTeaserSnapshot({ resolution, grants, asOf });
   result.matches = await annotateMatchCardWriteSupport(result.matches);
   result.recommendableMatches = result.matches.filter((match) =>
-    recommendationTierForMatch(match) === "recommendable");
+    recommendationTierForMatch(match) === "recommendable" && match.status === "open");
   result.reviewNeededMatches = result.matches.filter((match) => {
     const tier = recommendationTierForMatch(match);
     return tier === "needs_core_review" || tier === "needs_profile_input";

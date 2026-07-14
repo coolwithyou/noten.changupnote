@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { daysUntil, normalizeSupportAmount } from "@cunote/core";
 import type { FeedbackKind, MatchCard, SupportAmount } from "@cunote/contracts";
 import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
@@ -9,17 +9,10 @@ import {
   listRuntimeApplicationManagementFeedback,
   type ApplicationManagement,
   type ApplicationManagementFeedbackSnapshot,
+  type ApplicationManagementStage,
 } from "./applicationManagementFeedback";
 
-export type ApplicationStage =
-  | "recommended"
-  | "saved"
-  | "preparing"
-  | "submitted"
-  | "selected"
-  | "rejected"
-  | "blocked"
-  | "dismissed";
+export type ApplicationStage = ApplicationManagementStage;
 
 export interface ApplicationPipelineItem {
   grantId: string;
@@ -78,19 +71,14 @@ export async function buildApplicationPipeline(input: {
   // 초안은 회사 전체를 로드한다 — 매칭 여부와 무관하게 "직접 준비" 공고를 발견하기 위한 원천.
   const drafts = await loadDraftSnapshots(input.access);
 
-  // 피드백은 (현재 매칭 ∪ 초안이 있는 공고) 전체를 스코프로 로드해, 편입된 공고의 단계·후속 관리도 반영한다.
-  const feedbackGrantIds = uniqueStrings([
-    ...input.matches.map((match) => match.grantId),
-    ...drafts.keys(),
-  ]);
-  const feedback = await loadFeedbackSnapshots(input.access, feedbackGrantIds);
+  // 현재 매칭에서 빠진 뒤에도 저장·제출·선정 이력은 신청 관리에 남아야 하므로
+  // 회사의 match 피드백 전체를 로드한다.
+  const feedback = await loadFeedbackSnapshots(input.access);
 
-  // 매칭 아이템: 부적격이어도 초안·피드백 등 사용자 행동이 있으면 유지한다.
+  // 신청 관리는 추천 목록의 복제본이 아니라 사용자가 실제로 추적하기 시작한 공고만 다룬다.
+  // 적격 여부와 무관하게 초안·저장·메모·제출 같은 행동이 있으면 유지한다.
   const matchItems = input.matches
-    .filter((match) =>
-      match.eligibility !== "ineligible" ||
-      drafts.has(match.grantId) ||
-      feedback.has(match.grantId))
+    .filter((match) => drafts.has(match.grantId) || feedback.has(match.grantId))
     .slice(0, 80)
     .map((match) => assemblePipelineItem({
       grantId: match.grantId,
@@ -107,9 +95,8 @@ export async function buildApplicationPipeline(input: {
 
   // 초안은 있으나 매칭 목록(위 유지분)에 없는 공고를 DB 메타로 보강한다 — "매칭 밖이어도 지원" 시나리오의 핵심.
   const coveredGrantIds = new Set(matchItems.map((item) => item.grantId));
-  const outsideGrantIds = [...drafts.keys()]
-    .filter((grantId) => !coveredGrantIds.has(grantId))
-    .slice(0, 40);
+  const outsideGrantIds = uniqueStrings([...drafts.keys(), ...feedback.keys()])
+    .filter((grantId) => !coveredGrantIds.has(grantId));
   const outsideMeta = await loadOutsideGrantMeta(input.access, outsideGrantIds);
   const outsideItems = outsideGrantIds
     .map((grantId) => {
@@ -185,14 +172,12 @@ function assemblePipelineItem(input: {
 
 async function loadFeedbackSnapshots(
   access: CompanyAccess,
-  grantIds: string[],
 ): Promise<Map<string, FeedbackSnapshot>> {
   const result = new Map<string, FeedbackSnapshot>();
-  mergeRuntimeFeedbackSnapshots(result, access, grantIds);
-  if (grantIds.length === 0 || !hasDatabaseUrl()) return result;
+  mergeRuntimeFeedbackSnapshots(result, access);
+  if (!hasDatabaseUrl()) return result;
   try {
     const db = getCunoteDb();
-    const targetIds = grantIds.map((grantId) => `${access.companyId}:${grantId}`);
     const rows = await withCunoteDbUser(db, access.userId, async (tx) => tx
       .select({
         targetId: schema.feedback.targetId,
@@ -202,7 +187,7 @@ async function loadFeedbackSnapshots(
       .from(schema.feedback)
       .where(and(
         eq(schema.feedback.targetType, "match"),
-        inArray(schema.feedback.targetId, targetIds),
+        like(schema.feedback.targetId, `${access.companyId}:%`),
       ))
       .orderBy(desc(schema.feedback.ts)));
 
@@ -295,7 +280,11 @@ function resolveStage(input: {
   if (input.feedback?.kind === "blocked") return "blocked";
   if (input.feedback?.kind === "dismissed" || input.feedback?.kind === "wrong") return "dismissed";
   if (input.feedback?.kind === "applied") return "submitted";
-  if (input.draft.count > 0 || input.feedback?.kind === "note") return "preparing";
+  if (input.draft.count > 0) return "preparing";
+  if (input.feedback?.kind === "note") {
+    const stage = input.feedback.management?.applicationStage;
+    return stage === "recommended" || stage === "preparing" ? stage : "preparing";
+  }
   if (input.feedback?.kind === "saved") return "saved";
   return "recommended";
 }
@@ -400,12 +389,10 @@ function hasDatabaseUrl(): boolean {
 function mergeRuntimeFeedbackSnapshots(
   result: Map<string, FeedbackSnapshot>,
   access: CompanyAccess,
-  grantIds: string[],
 ): void {
   const snapshots = listRuntimeApplicationManagementFeedback({
     companyId: access.companyId,
     userId: access.userId,
-    grantIds,
   });
   for (const [grantId, snapshot] of snapshots) {
     mergeFeedbackSnapshot(result, grantId, snapshot);

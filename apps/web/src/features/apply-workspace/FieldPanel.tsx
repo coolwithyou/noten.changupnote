@@ -10,10 +10,11 @@
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Sparkles } from "lucide-react";
+import { Check, Circle, CircleDot, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult, DraftGenerationResult, MissingFieldQuestion } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,6 +25,10 @@ import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 import type { WorkspaceLadder } from "@/lib/server/documents/workspaceData";
 import { answerKey } from "./fieldAnswerState";
 import { FieldCard } from "./FieldCard";
+import { WorkspaceDownloadButton } from "./WorkspaceFooter";
+import { workspaceFieldState } from "./workspacePresentation";
+
+export type WorkspacePanelMode = "single" | "list";
 
 export function FieldPanel({
   ladder,
@@ -42,6 +47,9 @@ export function FieldPanel({
   patchAnswer,
   onAskField,
   onRequestSuggestion,
+  mode,
+  draftId,
+  hwpxTemplateAvailable,
 }: {
   ladder: WorkspaceLadder;
   grantId: string;
@@ -63,6 +71,9 @@ export function FieldPanel({
   onAskField: (field: ConnectedDocumentField) => void;
   /** "제안 받기"/"다시 제안" → LLM 필드 제안(P4). */
   onRequestSuggestion: (field: ConnectedDocumentField) => void;
+  mode: WorkspacePanelMode;
+  draftId: string | null;
+  hwpxTemplateAvailable: boolean;
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
@@ -95,45 +106,132 @@ export function FieldPanel({
     );
   }
 
+  const duplicateFieldCount = connectedFields.filter((field) => duplicateLabels.has(field.label)).length;
+  const hasDuplicateConflicts = duplicateFieldCount > 0;
+  const isComplete =
+    pendingLabels.size === 0 &&
+    connectedFields.every((field) => workspaceFieldState(answers[answerKey(field.label)]) === "filled");
+
+  if (mode === "list") {
+    return (
+      <div className="flex flex-col gap-3 p-4">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold">전체 항목 {connectedFields.length.toLocaleString("ko-KR")}</h2>
+          <span className="text-xs text-muted-foreground">항목을 선택하면 하나씩 확인할 수 있어요.</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          {connectedFields.map((field) => {
+            const answer = answers[answerKey(field.label)];
+            const state = workspaceFieldState(answer);
+            return (
+              <Button
+                key={field.fieldId}
+                type="button"
+                variant="ghost"
+                className="h-auto min-w-0 justify-start gap-3 px-3 py-3 text-left"
+                onClick={() => onSelectField(field.fieldId)}
+              >
+                <FieldStateIcon state={state} />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold">{field.label}</span>
+                  <span className="block truncate text-xs font-normal text-muted-foreground">
+                    {state === "empty" ? "비어 있음" : answer?.value?.trim() || "비어 있음"}
+                  </span>
+                </span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {state === "filled" ? "확인 완료" : state === "reviewing" ? "확인 중" : "미입력"}
+                </span>
+              </Button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (isComplete) {
+    return (
+      <div className="p-4">
+        <Card className="text-center shadow-[var(--shadow-subtle)]">
+          <CardHeader>
+            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-success-soft text-success">
+              <Check aria-hidden />
+            </div>
+            <CardTitle className="text-xl">
+              {hasDuplicateConflicts ? "확인 가능한 항목 검토 끝" : "모든 항목 확인 끝!"}
+            </CardTitle>
+            <CardDescription>
+              {hasDuplicateConflicts
+                ? `이름이 겹치는 ${duplicateFieldCount.toLocaleString("ko-KR")}개 항목은 자동 채움에서 제외됩니다. 내려받은 원본 파일에서 직접 확인하고 입력해 주세요.`
+                : "확정한 값으로 원본 신청서를 채웠어요. 내려받아 제출 전에 마지막으로 확인해 주세요."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {hwpxTemplateAvailable ? (
+              <WorkspaceDownloadButton
+                draftId={draftId}
+                label={hasDuplicateConflicts
+                  ? "직접 확인할 신청서 내려받기 (HWPX)"
+                  : "함께 완성한 신청서 내려받기 (HWPX)"}
+                className="w-full"
+                saving={pendingLabels.size > 0}
+              />
+            ) : (
+              <p className="text-sm text-muted-foreground">이 서류는 원본 양식 채움을 지원하지 않습니다.</p>
+            )}
+          </CardContent>
+          <CardFooter className="justify-center bg-card text-xs text-muted-foreground">
+            전체 목록에서 각 항목을 다시 확인할 수 있어요.
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  const activeField = connectedFields.find((field) => field.fieldId === selectedFieldId)
+    ?? connectedFields.find((field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled")
+    ?? connectedFields[0]!;
+  const activeIndex = connectedFields.findIndex((field) => field.fieldId === activeField.fieldId);
+  const key = answerKey(activeField.label);
+  const nextField = connectedFields
+    .slice(activeIndex + 1)
+    .concat(connectedFields.slice(0, activeIndex))
+    .find((field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled");
+
   return (
-    <div className="grid gap-3 p-3">
-      <div className="flex items-center justify-between px-1">
-        <h2 className="text-sm font-semibold">작성 항목 {connectedFields.length.toLocaleString("ko-KR")}</h2>
-        <span className="text-xs text-muted-foreground">항목을 확인하고 반영/수정/건너뛰기</span>
-      </div>
-      <div className="grid gap-2">
-        {connectedFields.map((field) => {
-          const key = answerKey(field.label);
-          const answer = answers[key];
-          return (
-            <FieldCard
-              key={field.fieldId}
-              field={field}
-              answer={answer}
-              isDuplicate={duplicateLabels.has(field.label)}
-              isSelected={selectedFieldId === field.fieldId}
-              isPending={pendingLabels.has(key)}
-              isSuggestable={suggestableLabels.has(field.label)}
-              isSuggesting={suggestingLabels.has(key)}
-              tips={tipsByLabel[field.label] ?? []}
-              onSelect={() => onSelectField(field.fieldId)}
-              onAccept={() => patchAnswer(key, { status: "accepted" })}
-              onSave={(value) => patchAnswer(key, { value, status: "edited" })}
-              onDismiss={() => patchAnswer(key, { status: "dismissed" })}
-              onUndo={() => {
-                const suggestedValue = answers[key]?.suggestedValue;
-                if (suggestedValue !== undefined) {
-                  patchAnswer(key, { value: suggestedValue, status: "suggested" });
-                }
-              }}
-              onAsk={() => onAskField(field)}
-              onRequestSuggestion={() => onRequestSuggestion(field)}
-            />
-          );
-        })}
-      </div>
+    <div className="p-4">
+      <FieldCard
+        field={activeField}
+        answer={answers[key]}
+        position={activeIndex + 1}
+        total={connectedFields.length}
+        isDuplicate={duplicateLabels.has(activeField.label)}
+        isSelected
+        isPending={pendingLabels.has(key)}
+        isSuggestable={suggestableLabels.has(activeField.label)}
+        isSuggesting={suggestingLabels.has(key)}
+        tips={tipsByLabel[activeField.label] ?? []}
+        onAccept={() => patchAnswer(key, { status: "accepted" })}
+        onSave={(value) => patchAnswer(key, { value, status: "edited" })}
+        onDismiss={() => patchAnswer(key, { status: "dismissed" })}
+        onUndo={() => {
+          const suggestedValue = answers[key]?.suggestedValue;
+          if (suggestedValue !== undefined) patchAnswer(key, { value: suggestedValue, status: "suggested" });
+        }}
+        onAsk={() => onAskField(activeField)}
+        onNext={() => {
+          if (nextField) onSelectField(nextField.fieldId);
+        }}
+        onRequestSuggestion={() => onRequestSuggestion(activeField)}
+      />
     </div>
   );
+}
+
+function FieldStateIcon({ state }: { state: ReturnType<typeof workspaceFieldState> }) {
+  if (state === "filled") return <Check className="shrink-0 text-success" aria-label="확인 완료" />;
+  if (state === "reviewing") return <CircleDot className="shrink-0 text-primary" aria-label="확인 중" />;
+  return <Circle className="shrink-0 text-muted-foreground" aria-label="미입력" />;
 }
 
 function FieldAnalyzingNotice() {

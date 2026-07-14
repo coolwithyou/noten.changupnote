@@ -29,7 +29,7 @@ export function buildNotificationFeed({
       id: `deadline:${match.grantId}`,
       kind: "deadline",
       title: deadlineTitle(match),
-      body: "지원 가능성이 높은 공고입니다. 신청 준비 시트와 제출 서류를 확인하세요.",
+      body: "지금 신청 가능한 공고입니다. 신청 준비 시트와 제출 서류를 확인하세요.",
       priority: match.dDay <= 3 ? "high" : "medium",
       target: `grant:${match.grantId}`,
       grantId: match.grantId,

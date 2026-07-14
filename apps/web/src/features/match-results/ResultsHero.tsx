@@ -1,101 +1,72 @@
 "use client";
 
-import { CalendarClock, PartyPopper, Save, Sparkles, Wallet } from "lucide-react";
-import type { TeaserResult } from "@cunote/contracts";
-import { Badge } from "@/components/ui/badge";
+import type { ProductTeaserResult } from "@cunote/contracts";
+import { PrecisionGauge } from "@/components/app/precision-gauge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { bestFitScore, formatKrwAmount, readyHeadlineCount, searchContextNote } from "./logic";
+import { cn } from "@/lib/utils";
+import { groupMatchesForDisplay, matchingPrecision, teaserComparisonLabel } from "./logic";
 
 export function ResultsHero({
   teaser,
-  maskedBiz,
   onSave,
   saving,
+  precisionDelta,
+  empty = false,
 }: {
-  teaser: TeaserResult;
-  maskedBiz: string | null;
+  teaser: ProductTeaserResult;
   onSave: () => void;
   saving: boolean;
+  precisionDelta?: number;
+  empty?: boolean;
 }) {
-  const headline = readyHeadlineCount(teaser);
-  const best = bestFitScore(teaser);
-  const contextNote = searchContextNote(teaser.searchContext);
-  const amountLabel = teaser.estimatedMaxAmount > 0 ? formatKrwAmount(teaser.estimatedMaxAmount) : "확인 중";
+  const groups = groupMatchesForDisplay(teaser.matches);
+  const precision = matchingPrecision(teaser);
+  const comparisonLabel = teaserComparisonLabel(teaser);
+  const openCount = teaser.counts.openNow ?? groups.open.length;
+  const oneAnswerCount = teaser.counts.oneAnswer ?? groups.oneAnswer.length;
+  const hasActionableMatches = openCount + oneAnswerCount > 0;
 
   return (
-    <section
-      data-zone="brand"
-      className="texture-grain relative isolate overflow-hidden rounded-[var(--radius-xl)] bg-brand-band shadow-[var(--shadow-elevated)]"
-    >
-      <span className="glow-brand pointer-events-none absolute -right-24 -top-24 size-72 opacity-70" aria-hidden />
-      <div className="relative flex flex-col gap-7 px-6 py-8 sm:px-8 sm:py-10">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <Badge variant="secondary">
-            <Sparkles data-icon="inline-start" />
-            {maskedBiz ? `${maskedBiz} 조회 완료` : "조회 완료"}
-          </Badge>
-          <Button type="button" variant="secondary" onClick={onSave} disabled={saving}>
-            <Save data-icon="inline-start" />
+    <section>
+      {empty ? null : (
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-[32px] leading-[1.28] font-extrabold tracking-[-0.9px] text-ink-strong sm:text-[38px] sm:tracking-[-1px]">
+              {hasActionableMatches ? (
+                <>
+                  지금 신청 가능 <span className="text-brand-mint-ink">{openCount}건</span>
+                  <span className="hidden sm:inline"> · </span>
+                  <span className="block sm:inline">
+                    답하면 확정 <span className="text-brand">{oneAnswerCount}건</span>
+                  </span>
+                </>
+              ) : (
+                <>지금 정보로 확정된 공고가 없어요</>
+              )}
+            </h1>
+            {comparisonLabel ? <p className="mt-2.5 text-sm text-text-tertiary">{comparisonLabel}</p> : null}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onSave}
+            disabled={saving}
+            className="mt-1.5 hidden w-fit shrink-0 border-surface-muted-hover bg-card text-text-nav sm:inline-flex"
+          >
             {saving ? "저장 중…" : "결과 저장하기"}
           </Button>
         </div>
+      )}
 
-        <div className="flex flex-col gap-3">
-          {headline.tone === "recommendable" ? (
-            <span className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-primary-foreground/80">
-              <PartyPopper className="size-4" aria-hidden />
-              축하해요, 지원 가능한 사업을 찾았어요
-            </span>
-          ) : null}
-          <h1 className="max-w-3xl font-heading text-2xl font-bold leading-tight tracking-tight text-primary-foreground sm:text-3xl">
-            {headline.tone === "recommendable" ? (
-              <>
-                지원 가능한 사업 <span className="text-brand-mint">{headline.count.toLocaleString("ko-KR")}건</span>을 찾았어요
-              </>
-            ) : headline.tone === "review" ? (
-              <>
-                조건을 확인하면 열리는 사업 <span className="text-brand-mint">{headline.count.toLocaleString("ko-KR")}건</span>을 찾았어요
-              </>
-            ) : (
-              <>아직 조건에 맞는 사업을 찾지 못했어요</>
-            )}
-          </h1>
-          <p className="max-w-2xl text-sm leading-6 text-primary-foreground/75">
-            내 사업자 정보를 표준 조건과 대조한 결과예요. 아래에서 조건별 충족 여부를 함께 확인할 수 있어요.
-          </p>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StatTile icon={<Wallet className="size-4" aria-hidden />} label="총 지원 가능액" value={amountLabel} />
-          <StatTile
-            icon={<CalendarClock className="size-4" aria-hidden />}
-            label="마감 임박"
-            value={`${teaser.counts.deadlineSoon.toLocaleString("ko-KR")}건`}
-          />
-          <StatTile
-            icon={<Sparkles className="size-4" aria-hidden />}
-            label="최고 조건 확인도"
-            value={best === null ? "확인 필요" : `${best}%`}
-          />
-        </div>
-
-        {contextNote ? <p className="text-xs leading-5 text-primary-foreground/60">{contextNote}</p> : null}
+      <div className={cn("rounded-2xl border border-brand-tint bg-landing-step-blue px-5 py-[18px] shadow-[var(--shadow-landing-step)]", !empty && "mt-8")}>
+        <PrecisionGauge
+          pct={precision.pct}
+          {...(precisionDelta && precisionDelta > 0 ? { delta: `+${precisionDelta}%p` } : {})}
+          label={`매칭 정밀도 ${precision.pct}%`}
+          caption="회사를 더 설명할수록 결과가 정확해져요"
+          meta={`자동으로 확인 ${precision.known} · 직접 채우면 +${precision.remaining}`}
+        />
       </div>
     </section>
-  );
-}
-
-function StatTile({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <Card size="sm" className="ring-0">
-      <CardContent className="flex flex-col gap-2">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          {icon}
-          {label}
-        </div>
-        <div className="font-heading text-xl font-bold leading-none text-foreground tabular-nums">{value}</div>
-      </CardContent>
-    </Card>
   );
 }

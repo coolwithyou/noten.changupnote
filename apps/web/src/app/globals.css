@@ -8,8 +8,8 @@
  * cunote 디자인 토큰 파이프라인
  *   design-tokens.json (정본)  →  :root 브랜드 확장  →  @theme inline  →  Tailwind 유틸
  *
- * - 베이스: shadcn neutral(oklch) 표준. 라이트 온리(.dark 미배선).
- * - 브랜드 확장: --brand(#3182f6) / --brand-pressed(#2272eb) / --brand-mint(#2bd4a8) /
+ * - 베이스: changupnote 디자인 정본 hex 팔레트(구 shadcn neutral oklch 폐기). 라이트 온리(.dark 미배선).
+ * - 브랜드 확장: --brand(#3182f6) / --brand-hover(#1b64da) / --brand-mint(#2bd4a8) /
  *   --success · --warning · --danger, 텍스처(mesh · grain · brand-band).
  * - .dark 팔레트와 레거시 TDS 토큰 체계는 폐기됨. 새 값은 design-tokens.json → :root 순으로 반영.
  * - @custom-variant dark 선언은 유지(삭제 시 dark: 유틸이 prefers-color-scheme으로 폴백해
@@ -19,19 +19,19 @@
 :root {
   color-scheme: light;
 
-  /* ── shadcn neutral 표준 (라이트) ─────────────────────────────── */
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  /* ── 베이스 팔레트 (changupnote 디자인 정본 hex — 구 shadcn neutral oklch 폐기) ── */
+  --background: #ffffff;
+  --foreground: #222222;
+  --card: #ffffff;
+  --card-foreground: #222222;
+  --popover: #ffffff;
+  --popover-foreground: #222222;
+  --secondary: #f2f4f6;
+  --secondary-foreground: #4b5563;
+  --muted: #f2f4f6;
+  --muted-foreground: #6b7280;
+  --border: #f1f3f5;
+  --input: #e5e8eb;
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
   --chart-3: oklch(0.439 0 0);
@@ -51,14 +51,13 @@
   --primary-foreground: #ffffff;
   --ring: #3182f6;
   --accent: #e8f3ff;
-  --accent-foreground: #2272eb;
+  --accent-foreground: #1b64da;
   --destructive: #f04452;
 
   --radius: 1rem; /* 현행 16px 룩 보존. shadcn 기본(10px)으로 바꾸지 말 것 */
 
   /* ── 브랜드 확장 네임스페이스 ─────────────────────────────────── */
   --brand: #3182f6;
-  --brand-pressed: #2272eb;
   --brand-hover: #1b64da;
   --brand-mint: #2bd4a8;
   --brand-mint-soft: #e6fbf1;
@@ -86,7 +85,7 @@
     radial-gradient(50% 55% at 90% 20%, var(--brand-mint) 0%, transparent 56%),
     radial-gradient(80% 70% at 50% 116%, var(--brand) 0%, transparent 62%),
     linear-gradient(160deg, #1f4fc4 0%, #11307e 100%);
-  --grad-cta: linear-gradient(180deg, #4790ff, #3182f6);        /* 구 GRAD_BTN */
+  --grad-cta: linear-gradient(180deg, #4a94f8, #3182f6);        /* CTA 버튼·질문 칩 (디자인 정본 180deg) */
   --grad-text-brand: linear-gradient(120deg, #3182f6, #2bd4a8); /* 구 GRAD_TEXT */
   --grad-bar-brand: linear-gradient(90deg, #2bd4a8, #3182f6);   /* 구 GRAD_BAR */
   --glow-brand: radial-gradient(closest-side, rgba(49, 130, 246, 0.22), transparent 75%);
@@ -94,6 +93,85 @@
   --grain-tile: 180px;
   --grain-opacity-brand: 0.05;
   --grain-opacity-work: 0.02;
+
+  /* ── 신규 디자인 시스템(2026-07 changupnote) 확장 ───────────────────
+   * changupnote 프레임 원본(docs/design/2026-07-14-*)의 팔레트를 토큰화.
+   * 기존 브랜드 토큰(--brand·--brand-tint·--brand-mint-soft·--danger)은 재사용하고
+   * 여기서 잉크(텍스트 계조)·서피스·보더 계조·판정 시맨틱만 보강한다. */
+  /* 잉크 — 본문 텍스트 */
+  --ink: #222222;
+  --ink-strong: #191f28;
+  /* 텍스트 계조(진→흐림) */
+  --text-nav: #4b5563;
+  --text-secondary: #6b7280;
+  --text-tertiary: #8b95a1;
+  --text-quaternary: #b0b8c1;
+  --text-source: #a8b5c1; /* 출처 미세 캡션(국세청·중기부 등) */
+  /* 민트 잉크 — 민트 배경 위 텍스트/뱃지 텍스트 */
+  --brand-mint-ink: #0ba678;
+  /* 서피스 — 소프트 배경 */
+  --surface-soft: #f8fafb;
+  --surface-muted: #f2f4f6;
+  --surface-muted-hover: #e5e8eb;
+  --surface-hard: #f7f8fa;
+  --surface-brand: #f5faff;
+  --surface-mint: #f4fdf9;
+  /* 보더 계조 */
+  --border-subtle: #f1f3f5;
+  --border-muted: #edf0f3;
+  --border-card: #eef2f6;
+  --border-card-hover: #c9def8;
+  --border-brand-soft: #dbeafb;
+  --border-mint-soft: #c9f2e2;
+  --border-demo: #edf3f9;
+  --ink-document: #3a4656;
+  --ink-document-text: #1a1a1a; /* HWP 문서 렌더 본문 텍스트 */
+  --surface-document-empty: #fafafa; /* HWP 문서 렌더 빈 셀 배경 */
+  /* 남은 횟수 소진 경고(AppHeader 0회 pill) */
+  --warning-strong: #f97316;
+  --warning-strong-soft: #fff3e8;
+  /* 다이얼로그 오버레이 스크림 */
+  --overlay-scrim: rgba(15, 23, 42, 0.42);
+
+  /* 판정 4상태 뱃지 시맨틱 세트 (open / one_answer / check_source / closed) */
+  --verdict-open-bg: var(--brand-mint-soft);
+  --verdict-open-fg: var(--brand-mint-ink);
+  --verdict-answer-bg: var(--brand-tint);
+  --verdict-answer-fg: var(--brand);
+  --verdict-check-bg: var(--surface-muted);
+  --verdict-check-fg: var(--text-secondary);
+  --verdict-closed-bg: var(--surface-hard);
+  --verdict-closed-fg: var(--text-quaternary);
+
+  /* 그라디언트 — 로고(135deg)/CTA(180deg, 위 --grad-cta), 게이지 채움(민트) */
+  --grad-logo: linear-gradient(135deg, #4a94f8, #2e7df0);
+  --grad-gauge: linear-gradient(90deg, #2bd4a8, #3be3b8);
+  --grad-landing-hero: linear-gradient(180deg, #f5faff 0%, #ffffff 82%);
+  --grad-landing-orb-blue: radial-gradient(circle, rgba(49, 130, 246, 0.1), transparent 65%);
+  --grad-landing-orb-mint: radial-gradient(circle, rgba(43, 212, 168, 0.1), transparent 65%);
+  --grad-landing-text: linear-gradient(90deg, #3182f6, #2bd4a8);
+  --grad-landing-step-blue: linear-gradient(180deg, #f5faff, #ffffff);
+  --grad-landing-step-mint: linear-gradient(180deg, #f4fdf9, #ffffff);
+  --grad-landing-final: linear-gradient(135deg, #eaf4ff, #e9fbf4);
+  --grad-landing-question: linear-gradient(135deg, #eaf4ff, #f3fbff);
+
+  /* 그림자 — 공고 카드(기본/hover), 로고, CTA 버튼, 질문 칩 */
+  --shadow-notice: 0 2px 12px rgba(49, 130, 246, 0.05);
+  --shadow-notice-hover: 0 12px 30px rgba(49, 130, 246, 0.11);
+  --shadow-logo: 0 4px 10px rgba(49, 130, 246, 0.25);
+  --shadow-cta: 0 8px 20px rgba(49, 130, 246, 0.22);
+  --shadow-cta-hero: 0 8px 20px rgba(49, 130, 246, 0.28);
+  --shadow-cta-final: 0 8px 20px rgba(49, 130, 246, 0.24);
+  --shadow-chip-brand: 0 4px 12px rgba(49, 130, 246, 0.25);
+  --shadow-landing-pill: 0 4px 14px rgba(49, 130, 246, 0.07);
+  --shadow-landing-form: 0 24px 60px rgba(49, 130, 246, 0.14), 0 2px 8px rgba(49, 130, 246, 0.06);
+  --shadow-landing-final-form: 0 20px 48px rgba(49, 130, 246, 0.14);
+  --shadow-landing-demo: 0 32px 72px rgba(49, 130, 246, 0.12), 0 4px 16px rgba(15, 23, 42, 0.04);
+  --shadow-landing-step: 0 8px 24px rgba(49, 130, 246, 0.05);
+  --shadow-landing-step-mint: 0 8px 24px rgba(43, 212, 168, 0.06);
+  --shadow-mint-check: 0 10px 24px rgba(43, 212, 168, 0.3);
+  --shadow-landing-coach: 0 8px 24px rgba(49, 130, 246, 0.1);
+  --shadow-landing-question: 0 16px 44px rgba(49, 130, 246, 0.13);
 }
 
 @theme inline {
@@ -134,9 +212,8 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
-  /* 브랜드 확장 매핑 → bg-brand, text-success, hover:bg-brand-pressed 등 자동 생성 */
+  /* 브랜드 확장 매핑 → bg-brand, text-success, hover:bg-brand-hover 등 자동 생성 */
   --color-brand: var(--brand);
-  --color-brand-pressed: var(--brand-pressed);
   --color-brand-hover: var(--brand-hover);
   --color-brand-mint: var(--brand-mint);
   --color-brand-mint-soft: var(--brand-mint-soft);
@@ -147,6 +224,42 @@
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+
+  /* 신규 디자인 시스템 색 매핑 → text-ink, bg-surface-muted, border-border-card 등 자동 생성 */
+  --color-ink: var(--ink);
+  --color-ink-strong: var(--ink-strong);
+  --color-text-nav: var(--text-nav);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-text-quaternary: var(--text-quaternary);
+  --color-text-source: var(--text-source);
+  --color-warning-strong: var(--warning-strong);
+  --color-warning-strong-soft: var(--warning-strong-soft);
+  --color-brand-mint-ink: var(--brand-mint-ink);
+  --color-surface-soft: var(--surface-soft);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-muted-hover: var(--surface-muted-hover);
+  --color-surface-hard: var(--surface-hard);
+  --color-surface-brand: var(--surface-brand);
+  --color-surface-mint: var(--surface-mint);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-muted: var(--border-muted);
+  --color-border-card: var(--border-card);
+  --color-border-card-hover: var(--border-card-hover);
+  --color-border-brand-soft: var(--border-brand-soft);
+  --color-border-mint-soft: var(--border-mint-soft);
+  --color-border-demo: var(--border-demo);
+  --color-ink-document: var(--ink-document);
+  --color-ink-document-text: var(--ink-document-text);
+  --color-surface-document-empty: var(--surface-document-empty);
+  --color-verdict-open-bg: var(--verdict-open-bg);
+  --color-verdict-open-fg: var(--verdict-open-fg);
+  --color-verdict-answer-bg: var(--verdict-answer-bg);
+  --color-verdict-answer-fg: var(--verdict-answer-fg);
+  --color-verdict-check-bg: var(--verdict-check-bg);
+  --color-verdict-check-fg: var(--verdict-check-fg);
+  --color-verdict-closed-bg: var(--verdict-closed-bg);
+  --color-verdict-closed-fg: var(--verdict-closed-fg);
 
   /* 그림자 유틸 (shadow-subtle / shadow-standard / shadow-elevated) */
   --shadow-subtle: var(--shadow-subtle);
@@ -254,6 +367,185 @@
 
 @utility glow-brand {
   background: var(--glow-brand);
+}
+
+/* 로고/CTA 블루 그라디언트 · 게이지 민트 그라디언트 (콤마 포함 → 유틸로 우회) */
+@utility bg-grad-logo {
+  background: var(--grad-logo);
+}
+
+/* CTA 그라디언트 — background-image만 칠해 hover:bg-none + hover:bg-brand-hover 조합을 허용 */
+@utility bg-grad-cta {
+  background-image: var(--grad-cta);
+}
+
+@utility bg-grad-gauge {
+  background: var(--grad-gauge);
+}
+
+@utility bg-landing-hero {
+  background: var(--grad-landing-hero);
+}
+
+@utility bg-landing-orb-blue {
+  background: var(--grad-landing-orb-blue);
+}
+
+@utility bg-landing-orb-mint {
+  background: var(--grad-landing-orb-mint);
+}
+
+@utility bg-landing-text {
+  background-image: var(--grad-landing-text);
+}
+
+@utility bg-landing-step-blue {
+  background: var(--grad-landing-step-blue);
+}
+
+@utility bg-landing-step-mint {
+  background: var(--grad-landing-step-mint);
+}
+
+@utility bg-landing-final {
+  background: var(--grad-landing-final);
+}
+
+@utility bg-landing-question {
+  background: var(--grad-landing-question);
+}
+
+@utility font-document {
+  font-family: "Batang", "Nanum Myeongjo", serif;
+}
+
+/* 랜딩 v3 — 16초 매칭→지원서 데모와 실공고 마퀴. */
+@keyframes landing-demo-caret {
+  0%, 45% { opacity: 1; }
+  50%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-k1 {
+  0%, 1% { opacity: 0; transform: translateY(8px); }
+  5%, 44% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-k2 {
+  0%, 6% { opacity: 0; transform: translateY(8px); }
+  10%, 44% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-k3 {
+  0%, 9% { opacity: 0; transform: translateY(8px); }
+  13%, 44% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-k4 {
+  0%, 12% { opacity: 0; transform: translateY(8px); }
+  16%, 44% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-k5 {
+  0%, 20% { opacity: 0; transform: translateY(10px); }
+  24%, 44% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-k6 {
+  0%, 26% { opacity: 0; transform: translateY(10px); }
+  30%, 44% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-k7 {
+  0%, 34% { opacity: 0; transform: scale(0.95); }
+  38%, 44% { opacity: 1; transform: none; }
+  48%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-gauge {
+  0%, 16% { width: 7%; }
+  24%, 34% { width: 52%; }
+  40%, 44% { width: 73%; }
+  48%, 100% { width: 7%; }
+}
+
+@keyframes landing-demo-n1 {
+  0%, 52% { opacity: 0; transform: translateY(8px); }
+  56%, 94% { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-n2 {
+  0%, 61% { opacity: 0; transform: translateY(8px); }
+  65%, 94% { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-n3 {
+  0%, 73% { opacity: 0; transform: translateY(8px); }
+  77%, 94% { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; }
+}
+
+@keyframes landing-demo-n4 {
+  0%, 84% { opacity: 0; transform: scale(0.95); }
+  88%, 94% { opacity: 1; transform: none; }
+  98%, 100% { opacity: 0; }
+}
+
+@keyframes landing-marquee {
+  to { transform: translateX(-50%); }
+}
+
+.landing-demo-caret { animation: landing-demo-caret 1s infinite; }
+.landing-demo-k1 { animation: landing-demo-k1 16s infinite; }
+.landing-demo-k2 { animation: landing-demo-k2 16s infinite; }
+.landing-demo-k3 { animation: landing-demo-k3 16s infinite; }
+.landing-demo-k4 { animation: landing-demo-k4 16s infinite; }
+.landing-demo-k5 { animation: landing-demo-k5 16s infinite; }
+.landing-demo-k6 { animation: landing-demo-k6 16s infinite; }
+.landing-demo-k7 { animation: landing-demo-k7 16s infinite; }
+.landing-demo-gauge { animation: landing-demo-gauge 16s infinite; }
+.landing-demo-n1 { animation: landing-demo-n1 16s infinite; }
+.landing-demo-n2 { animation: landing-demo-n2 16s infinite; }
+.landing-demo-n3 { animation: landing-demo-n3 16s infinite; }
+.landing-demo-n4 { animation: landing-demo-n4 16s infinite; }
+.landing-marquee-track { animation: landing-marquee 36s linear infinite; }
+
+.landing-marquee-track:hover,
+.landing-marquee-track:focus-within {
+  animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-demo-caret,
+  .landing-demo-k1,
+  .landing-demo-k2,
+  .landing-demo-k3,
+  .landing-demo-k4,
+  .landing-demo-k5,
+  .landing-demo-k6,
+  .landing-demo-k7,
+  .landing-demo-gauge,
+  .landing-marquee-track {
+    animation: none !important;
+    opacity: 1;
+    transform: none;
+  }
+
+  .landing-demo-caret,
+  .landing-demo-application-layer {
+    display: none;
+  }
+
+  .landing-demo-gauge {
+    width: 73%;
+  }
 }
 
 /* texture-grain — 존(zone)별 grain 오버레이. Work zone 기본, data-zone="brand"로 강도 상향 */

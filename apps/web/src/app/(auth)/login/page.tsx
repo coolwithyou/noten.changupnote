@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { LoginPanel } from "@/features/auth/LoginPanel";
 import { getWebAuthProviderSummaries } from "@/lib/server/auth/options";
 import { getOptionalWebSession } from "@/lib/server/auth/session";
+import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,5 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
 function normalizeCallbackUrl(value: string | string[] | undefined): string {
   const candidate = Array.isArray(value) ? value[0] : value;
-  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) return "/dashboard";
-  return candidate;
+  return safeInternalPath(candidate) ?? "/dashboard";
 }

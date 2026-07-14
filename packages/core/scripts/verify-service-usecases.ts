@@ -228,6 +228,7 @@ const selectableDashboard = buildDashboard({
   asOf,
   limit: 10,
 });
+assert.equal(selectableDashboard.counts.preparable, 1);
 const eligibleSelection = selectMatchCards(selectableDashboard.matches, {
   status: "eligible",
   sort: "amount",
@@ -349,12 +350,41 @@ const industryQuestionDashboard = buildDashboard({
   asOf,
   limit: 10,
 });
+assert.equal(industryQuestionDashboard.counts.needsProfileInput, 0);
+assert.equal(industryQuestionDashboard.counts.needsCoreReview, 1);
 assert.equal(industryQuestionDashboard.nextQuestion?.dimension, "industry");
 assert.equal(industryQuestionDashboard.nextQuestion?.inputType, "select");
 assert.equal(industryQuestionDashboard.nextQuestion?.options?.includes("바이오"), true);
 const enrichAction = industryQuestionDashboard.actionQueue.find((action) => action.kind === "enrich");
 assert.ok(enrichAction, "enrich action should be generated for enrichable unknown fields");
 assert.equal(enrichAction.target, "#company-settings");
+
+const balancedReviewTeaser = buildTeaser({
+  company: { ...company, industries: [] },
+  grants: [
+    ...[1, 2, 3].map((index) => normalizedGrant(
+      `balanced-revenue-${index}`,
+      `매출 확인 지원사업 ${index}`,
+      [{
+        dimension: "revenue",
+        operator: "lte",
+        kind: "required",
+        value: { max_krw: 1_000_000_000 },
+        confidence: 0.9,
+        source_span: "최근 연 매출 10억원 이하",
+      }],
+    )),
+    industryQuestionGrant,
+  ],
+  asOf,
+  limit: 3,
+});
+assert.equal(balancedReviewTeaser.matches.length, 3);
+assert.equal(
+  balancedReviewTeaser.matches.some((match) => match.recommendationTier === "needs_core_review"),
+  true,
+  "제한된 검토 카드에서도 원문 확인 필요 대표 공고를 보존해야 함",
+);
 
 const deadlineGrant = normalizedGrant("deadline-soon", "마감임박 지원사업", [
   {

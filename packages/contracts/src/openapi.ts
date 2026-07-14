@@ -944,7 +944,12 @@ export const appV1OpenApi = {
           ineligible: { type: "integer", minimum: 0 },
           deadlineSoon: { type: "integer", minimum: 0 },
           recommendable: { type: "integer", minimum: 0 },
+          openNow: { type: "integer", minimum: 0 },
           reviewNeeded: { type: "integer", minimum: 0 },
+          needsProfileInput: { type: "integer", minimum: 0 },
+          oneAnswer: { type: "integer", minimum: 0 },
+          needsCoreReview: { type: "integer", minimum: 0 },
+          preparable: { type: "integer", minimum: 0 },
           notRecommended: { type: "integer", minimum: 0 },
         },
         additionalProperties: false,
@@ -1717,7 +1722,6 @@ export const appV1OpenApi = {
       },
       CompanyEnrichmentRequest: {
         type: "object",
-        required: ["bizNo"],
         properties: {
           bizNo: { type: "string", minLength: 10 },
         },
@@ -1753,7 +1757,6 @@ export const appV1OpenApi = {
       },
       CompanyVerificationRequest: {
         type: "object",
-        required: ["bizNo"],
         properties: {
           bizNo: { type: "string", minLength: 10 },
           ownerName: { type: "string" },

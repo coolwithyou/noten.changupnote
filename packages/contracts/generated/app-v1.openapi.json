@@ -2184,7 +2184,27 @@
             "type": "integer",
             "minimum": 0
           },
+          "openNow": {
+            "type": "integer",
+            "minimum": 0
+          },
           "reviewNeeded": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "needsProfileInput": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "oneAnswer": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "needsCoreReview": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "preparable": {
             "type": "integer",
             "minimum": 0
           },
@@ -4505,9 +4525,6 @@
       },
       "CompanyEnrichmentRequest": {
         "type": "object",
-        "required": [
-          "bizNo"
-        ],
         "properties": {
           "bizNo": {
             "type": "string",
@@ -4575,9 +4592,6 @@
       },
       "CompanyVerificationRequest": {
         "type": "object",
-        "required": [
-          "bizNo"
-        ],
         "properties": {
           "bizNo": {
             "type": "string",

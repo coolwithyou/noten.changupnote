@@ -3,7 +3,7 @@
 import { signIn } from "next-auth/react";
 import { useId, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { Eye, EyeOff, Loader2, MessageCircle } from "lucide-react";
+import { Eye, EyeOff, Globe2, Loader2, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,8 +18,8 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
-import { cn } from "@/lib/utils";
 import type { WebAuthProviderSummary } from "@/lib/server/auth/options";
+import { selectVisibleLoginMethods } from "./loginPresentation";
 
 interface LoginPanelProps {
   callbackUrl: string;
@@ -29,11 +29,10 @@ interface LoginPanelProps {
 type Mode = "login" | "register";
 
 export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
-  const hasPassword = providers.some((provider) => provider.id === "password");
-  const oauthProviders = providers.filter((provider) => provider.kind === "oauth");
-  const demoProvider = providers.find((provider) => provider.id === "demo");
+  const { hasPassword, oauthProviders } = selectVisibleLoginMethods(providers);
 
   const [mode, setMode] = useState<Mode>("login");
+  const [emailOpen, setEmailOpen] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -103,19 +102,6 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
     }
   }
 
-  async function startDemo() {
-    setPending("demo");
-    setError(null);
-    try {
-      const result = await signIn("demo", { email: "demo@changupnote.com", redirect: false, callbackUrl });
-      if (!result?.ok) throw new Error(result?.error ?? "로그인하지 못했습니다.");
-      window.location.assign(result.url ?? callbackUrl);
-    } catch (caught) {
-      setPending(null);
-      setError(caught instanceof Error ? caught.message : "로그인하지 못했습니다.");
-    }
-  }
-
   return (
     <>
       <Link
@@ -130,18 +116,16 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
       <Card className="[--card-spacing:--spacing(6)] border shadow-subtle ring-0 sm:[--card-spacing:--spacing(8)]">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-semibold tracking-normal text-foreground">
-            {mode === "register" ? "창업노트 시작하기" : "다시 오신 걸 환영해요"}
+            3초 만에 시작해요
           </CardTitle>
           <CardDescription className="mt-2 text-sm leading-6">
-            {mode === "register"
-              ? "사업자번호로 찾은 지원사업을 저장하고 신청까지 이어가세요"
-              : "사업자번호로 찾은 지원사업을 이어서 관리하세요"}
+            매칭 결과를 저장하고, 마감 알림을 받아보세요
           </CardDescription>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="flex flex-col gap-5">
           {oauthProviders.length > 0 ? (
-            <Field className="mb-[22px] gap-2.5">
+            <Field className="gap-2.5">
               {oauthProviders.map((provider) => {
                 const brand = providerBrand(provider.id);
                 const isPending = pending === provider.id;
@@ -149,26 +133,68 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                   <Button
                     key={provider.id}
                     type="button"
-                    variant="outline"
+                    variant="secondary"
                     disabled={busy}
                     onClick={() => startOAuth(provider)}
-                    className={cn("h-12 w-full justify-center gap-2", brand?.className)}
+                    className="h-12 w-full justify-center gap-2"
                   >
                     {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" /> : brand?.icon}
-                    {isPending ? "연결 중" : (brand?.label ?? `${provider.name}로 계속`)}
+                    {isPending ? "연결 중" : (brand?.label ?? `${provider.name}로 계속하기`)}
                   </Button>
                 );
               })}
             </Field>
           ) : null}
 
-          {hasPassword && oauthProviders.length > 0 ? (
-            <FieldSeparator className="mb-[22px] *:data-[slot=field-separator-content]:bg-card">
-              또는 이메일로
-            </FieldSeparator>
+          {hasPassword && !emailOpen ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={busy}
+              onClick={() => setEmailOpen(true)}
+              className="w-full"
+            >
+              이메일로 계속하기
+            </Button>
           ) : null}
 
-          {hasPassword ? (
+          {mode === "register" ? (
+            <Field className="rounded-lg border bg-muted/35 p-3" orientation="horizontal">
+              <Checkbox
+                id={legalAgreementId}
+                checked={legalAccepted}
+                disabled={busy}
+                aria-describedby={`${legalAgreementId}-description`}
+                onCheckedChange={(checked) => setLegalAccepted(checked === true)}
+              />
+              <FieldContent>
+                <FieldLabel
+                  htmlFor={legalAgreementId}
+                  className="text-[13px] font-semibold leading-[1.45] text-foreground"
+                >
+                  이용약관과 개인정보처리방침에 동의합니다.
+                </FieldLabel>
+                <FieldDescription id={`${legalAgreementId}-description`} className="text-[12px] leading-[1.55]">
+                  <Link href="/terms" className="font-semibold underline underline-offset-4">
+                    이용약관
+                  </Link>
+                  과{" "}
+                  <Link href="/privacy" className="font-semibold underline underline-offset-4">
+                    개인정보처리방침
+                  </Link>
+                  을 확인했습니다.
+                </FieldDescription>
+              </FieldContent>
+            </Field>
+          ) : null}
+
+          {hasPassword && emailOpen ? (
+            <>
+              {oauthProviders.length > 0 ? (
+                <FieldSeparator className="*:data-[slot=field-separator-content]:bg-card">
+                  이메일 계정
+                </FieldSeparator>
+              ) : null}
             <form onSubmit={onSubmit}>
               <FieldGroup className="gap-3">
                 {mode === "register" ? (
@@ -239,63 +265,16 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
                   </InputGroup>
                 </Field>
 
-                {mode === "register" ? (
-                  <div className="rounded-lg border bg-muted/35 p-3">
-                    <Field orientation="horizontal">
-                      <Checkbox
-                        id={legalAgreementId}
-                        checked={legalAccepted}
-                        disabled={busy}
-                        aria-describedby={`${legalAgreementId}-description`}
-                        onCheckedChange={(checked) => setLegalAccepted(checked === true)}
-                      />
-                      <FieldContent>
-                        <FieldLabel
-                          htmlFor={legalAgreementId}
-                          className="text-[13px] font-semibold leading-[1.45] text-foreground"
-                        >
-                          이용약관과 개인정보처리방침에 동의합니다.
-                        </FieldLabel>
-                        <FieldDescription
-                          id={`${legalAgreementId}-description`}
-                          className="text-[12px] leading-[1.55]"
-                        >
-                          <Link href="/terms" className="font-semibold underline underline-offset-4">
-                            이용약관
-                          </Link>
-                          과{" "}
-                          <Link href="/privacy" className="font-semibold underline underline-offset-4">
-                            개인정보처리방침
-                          </Link>
-                          을 확인했습니다.
-                        </FieldDescription>
-                      </FieldContent>
-                    </Field>
-                  </div>
-                ) : null}
-
                 <Button type="submit" size="lg" disabled={busy} className="mt-2 w-full">
                   {pending === "password" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
                   {pending === "password" ? "처리 중" : mode === "register" ? "가입하고 시작" : "로그인"}
                 </Button>
               </FieldGroup>
             </form>
+            </>
           ) : null}
 
-          {demoProvider ? (
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={busy}
-              onClick={startDemo}
-              className="mt-2.5 h-11 w-full"
-            >
-              {pending === "demo" ? <Loader2 className="animate-spin" data-icon="inline-start" /> : null}
-              {pending === "demo" ? "연결 중" : "데모로 둘러보기"}
-            </Button>
-          ) : null}
-
-          {!hasPassword && oauthProviders.length === 0 && !demoProvider ? (
+          {!hasPassword && oauthProviders.length === 0 ? (
             <p className="text-center text-sm text-muted-foreground">활성화된 로그인 수단이 없습니다.</p>
           ) : null}
 
@@ -305,7 +284,7 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
             </Alert>
           ) : null}
 
-          <div className="mt-6 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
+          <div className="flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
             {mode === "register" ? "이미 계정이 있으세요?" : "아직 계정이 없으세요?"}
             <Button
               type="button"
@@ -341,43 +320,20 @@ export function LoginPanel({ callbackUrl, providers }: LoginPanelProps) {
 
 function providerBrand(
   id: string,
-): { label: string; icon: ReactNode; className?: string } | null {
+): { label: string; icon: ReactNode } | null {
   if (id.includes("kakao")) {
     return {
-      label: "카카오로 3초 만에 시작",
-      // 카카오 로그인 버튼 브랜드 가이드 고정 색상 — 테마 토큰 대상 아님(예외)
+      label: "카카오로 계속하기",
       icon: <MessageCircle data-icon="inline-start" fill="currentColor" strokeWidth={0} />,
-      className: "border-transparent bg-[#FEE500] text-[#191600] hover:bg-[#FEE500]/90",
     };
   }
+  if (id.includes("naver")) {
+    return { label: "네이버로 계속하기", icon: <span aria-hidden>N</span> };
+  }
   if (id.includes("google")) {
-    return { label: "Google로 계속하기", icon: <GoogleMark /> };
+    return { label: "Google로 계속하기", icon: <Globe2 data-icon="inline-start" /> };
   }
   return null;
-}
-
-function GoogleMark() {
-  return (
-    // Google 브랜드 가이드의 4색 "G" 로고 고정 색상 — 테마 토큰 대상 아님(예외)
-    <svg data-icon="inline-start" viewBox="0 0 48 48" aria-hidden role="presentation">
-      <path
-        fill="#4285F4"
-        d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"
-      />
-      <path
-        fill="#34A853"
-        d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"
-      />
-      <path
-        fill="#FBBC05"
-        d="M11.69 28.18c-.44-1.32-.69-2.73-.69-4.18s.25-2.86.69-4.18v-5.7H4.34A21.98 21.98 0 0 0 2 24c0 3.55.85 6.91 2.34 9.88l7.35-5.7z"
-      />
-      <path
-        fill="#EA4335"
-        d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"
-      />
-    </svg>
-  );
 }
 
 export function AuthBrandMark({ className }: { className?: string }) {

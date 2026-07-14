@@ -69,6 +69,11 @@ function dashboardCounts<TPayload>(
     notRecommended: 0,
   };
   let deadlineSoon = 0;
+  let openNow = 0;
+  let needsProfileInput = 0;
+  let oneAnswer = 0;
+  let needsCoreReview = 0;
+  let preparable = 0;
   for (const entry of matched) {
     const tier = entry.match.review_gate?.tier ??
       (entry.match.eligibility === "eligible"
@@ -79,6 +84,18 @@ function dashboardCounts<TPayload>(
     if (tier === "recommendable") recommendation.recommendable += 1;
     else if (tier === "not_recommended") recommendation.notRecommended += 1;
     else recommendation.reviewNeeded += 1;
+    if (tier === "needs_profile_input") needsProfileInput += 1;
+    if (tier === "needs_core_review") needsCoreReview += 1;
+
+    const card = toMatchCard(entry, { asOf });
+    const answerableUnknownCount = new Set(card.ruleTrace
+      .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
+      .map((trace) => trace.dimension)).size;
+    if (tier === "recommendable" && card.status === "open") openNow += 1;
+    if (tier === "needs_profile_input" && answerableUnknownCount === 1) oneAnswer += 1;
+    if (card.bucket === "preparable" || (tier === "needs_profile_input" && answerableUnknownCount > 1)) {
+      preparable += 1;
+    }
 
     const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
     if (entry.match.eligibility !== "ineligible" && dDay !== null && dDay >= 0 && dDay <= 7) {
@@ -89,5 +106,10 @@ function dashboardCounts<TPayload>(
     ...eligibility,
     deadlineSoon,
     ...recommendation,
+    openNow,
+    needsProfileInput,
+    oneAnswer,
+    needsCoreReview,
+    preparable,
   };
 }

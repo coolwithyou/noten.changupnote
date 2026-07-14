@@ -22,7 +22,7 @@ const SUPPORT_ITEMS = [
     description: "평일 10:00-18:00 기준으로 확인하며, 긴급 보안 이슈는 우선 대응합니다.",
   },
 ];
-const ACCOUNT_SUPPORT_CALLBACK = "/account#account-support-tickets";
+const ACCOUNT_SUPPORT_CALLBACK = "/settings?section=activity";
 const ACCOUNT_SUPPORT_LOGIN_HREF = `/login?${new URLSearchParams({ callbackUrl: ACCOUNT_SUPPORT_CALLBACK }).toString()}`;
 
 export const dynamic = "force-dynamic";

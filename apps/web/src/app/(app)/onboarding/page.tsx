@@ -1,39 +1,15 @@
-import { OnboardingPageView } from "@/features/onboarding/OnboardingPageView";
-import { CompanyAccessForbiddenError } from "@/lib/server/auth/companyAccessPolicy";
-import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
-import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
-import { loadOnboardingProgress } from "@/lib/server/onboarding/onboardingProgress";
+import { redirect } from "next/navigation";
+import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
 
-export const dynamic = "force-dynamic";
-
-interface OnboardingPageProps {
-  searchParams: Promise<{
-    next?: string | string[];
-  }>;
-}
-
-export default async function OnboardingPage({ searchParams }: OnboardingPageProps) {
-  const params = await searchParams;
-  const nextHref = normalizeNextHref(params.next);
-  const access = await loadOnboardingAccess();
-  const progress = access ? await loadOnboardingProgress({ access }) : null;
-  return <OnboardingPageView progress={progress} nextHref={nextHref} />;
-}
-
-async function loadOnboardingAccess(): Promise<CompanyAccess | null> {
-  try {
-    return await requireCompanyAccess();
-  } catch (error) {
-    if (error instanceof CompanyAccessForbiddenError && error.code === "company_access_required") {
-      return null;
-    }
-    redirectOnAuthRequired(error, "/onboarding");
-  }
-}
-
-function normalizeNextHref(value: string | string[] | undefined): string {
-  const candidate = Array.isArray(value) ? value[0] : value;
-  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) return "/dashboard";
-  return candidate;
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const query = await searchParams;
+  const rawNext = Array.isArray(query.next) ? query.next[0] : query.next;
+  const next = safeInternalPath(rawNext);
+  const params = new URLSearchParams({ companyRequired: "1" });
+  if (next) params.set("next", next);
+  redirect(`/?${params.toString()}`);
 }

@@ -444,9 +444,7 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("CompanyEnrichmentRequest schema is missing properties.");
     return;
   }
-  if (!Array.isArray(enrichmentRequest.required) || !enrichmentRequest.required.includes("bizNo")) {
-    errors.push("CompanyEnrichmentRequest must require bizNo.");
-  }
+  // bizNo는 선택값이다(서버가 저장된 사업자번호로 대체). 속성 타입만 검증한다.
   if (propertyType(enrichmentRequest.properties.bizNo) !== "string") {
     errors.push("CompanyEnrichmentRequest.bizNo must be string.");
   }
@@ -474,9 +472,7 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("CompanyVerificationRequest schema is missing properties.");
     return;
   }
-  if (!Array.isArray(verificationRequest.required) || !verificationRequest.required.includes("bizNo")) {
-    errors.push("CompanyVerificationRequest must require bizNo.");
-  }
+  // bizNo는 선택값이다(서버가 저장된 사업자번호로 대체). 속성 타입만 검증한다.
   if (propertyType(verificationRequest.properties.bizNo) !== "string") {
     errors.push("CompanyVerificationRequest.bizNo must be string.");
   }

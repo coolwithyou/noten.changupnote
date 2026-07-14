@@ -9,6 +9,7 @@ import {
   readLocalBusinessLookupSuggestions,
 } from "@/lib/client/businessLookupSuggestions";
 import { recordLandingEvent } from "@/lib/client/landingEvents";
+import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
 import {
   clearResumeFlag,
   filterLandingLookupSuggestions,
@@ -16,6 +17,7 @@ import {
   onlyDigits,
   readPendingTeaserRequest,
   redirectToLoginForDashboard,
+  messageForPreviewError,
   titleForPreviewError,
   type BizLookupModalState,
 } from "./biz-lookup-utils";
@@ -68,9 +70,10 @@ export function useBizLookup(): BizLookupController {
     const params = new URLSearchParams(window.location.search);
     if (params.get("resumeCompany") !== "1") return;
     const resumeGrant = params.get("resumeGrant");
+    const resumeNext = safeInternalPath(params.get("resumeNext"));
     clearResumeFlag(params);
     const pending = readPendingTeaserRequest();
-    if (pending?.bizNo) void createCompanyAndOpenDashboard(pending, resumeGrant);
+    if (pending?.bizNo) void createCompanyAndOpenDashboard(pending, resumeGrant, resumeNext);
   }, []);
 
   // 최근 조회 제안 — 로컬 먼저, 서버(로그인 시) 갱신.
@@ -166,7 +169,7 @@ export function useBizLookup(): BizLookupController {
           phase: "error",
           bizNo: digits,
           title: titleForPreviewError(payload.error?.code),
-          message: payload.error?.message ?? "회사 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.",
+          message: messageForPreviewError(payload.error?.code, payload.error?.message),
         });
         return;
       }
@@ -196,7 +199,10 @@ export function useBizLookup(): BizLookupController {
   function confirmLookup() {
     if (lookup?.phase !== "confirm") return;
     recordLandingEvent({ event: "company_confirmed" });
-    window.location.assign(`/matches?biz=${lookup.bizNo}`);
+    const params = new URLSearchParams({ biz: lookup.bizNo });
+    const returnTarget = safeInternalPath(new URLSearchParams(window.location.search).get("next"));
+    if (returnTarget) params.set("next", returnTarget);
+    window.location.assign(`/matches?${params.toString()}`);
   }
 
   function dismiss(reason: "rejected" | "closed") {
@@ -208,7 +214,11 @@ export function useBizLookup(): BizLookupController {
     focusActiveInput();
   }
 
-  async function createCompanyAndOpenDashboard(requestBody: TeaserRequest, resumeGrant?: string | null) {
+  async function createCompanyAndOpenDashboard(
+    requestBody: TeaserRequest,
+    resumeGrant?: string | null,
+    resumeNext?: string | null,
+  ) {
     try {
       const response = await fetch("/api/web/companies", {
         method: "POST",
@@ -221,11 +231,13 @@ export function useBizLookup(): BizLookupController {
         error?: { code?: string };
       };
       if (response.status === 401 && payload.error?.code === "auth_required") {
-        redirectToLoginForDashboard();
+        redirectToLoginForDashboard(resumeNext);
         return;
       }
       if (response.ok && payload.ok && payload.data?.currentCompanyId) {
-        window.location.assign(resumeGrant ? `/grants/${encodeURIComponent(resumeGrant)}` : "/dashboard");
+        window.location.assign(
+          resumeGrant ? `/grants/${encodeURIComponent(resumeGrant)}` : resumeNext ?? "/dashboard",
+        );
       }
     } catch {
       /* noop — 사용자는 입력으로 재시도 */

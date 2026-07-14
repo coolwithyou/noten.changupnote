@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { CircleHelp, Pencil, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
-import type { MatchingProfileAnswerRequest, ProductTeaserResult } from "@cunote/contracts";
-import { cn } from "@/lib/utils";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Check, ChevronRight, CircleDashed, CircleDot, Plus, X } from "lucide-react";
+import type {
+  CriterionDimension,
+  MatchingProfileAnswerRequest,
+  ProductTeaserResult,
+} from "@cunote/contracts";
+import { PrecisionGauge } from "@/components/app/precision-gauge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Combobox,
   ComboboxContent,
@@ -15,8 +19,14 @@ import {
   ComboboxItem,
   ComboboxList,
 } from "@/components/ui/combobox";
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+} from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -25,185 +35,565 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import {
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { cn } from "@/lib/utils";
+import { DisqualificationSheet } from "./DisqualificationSheet";
+import { PriorAwardSheet } from "./PriorAwardSheet";
+import {
+  DISQUALIFICATION_AXES,
   REVENUE_UNIT_OPTIONS,
   buildProfileFields,
   buildProfileAnswer,
   decimalNumberText,
   digitsOnly,
-  evidenceCheckedNote,
+  disqualificationAllKnown,
   initialProfileInputDraft,
-  profileFieldAsOfLabel,
   profileFieldDisplayLabel,
+  profileRowStatus,
+  profileSheetValueState,
   profileInputDescription,
   profileInputMode,
   profileInputPlaceholder,
   profileInputSuggestions,
   profileInputText,
   revenueUnitLabel,
-  sparseRegistryNotice,
+  matchingPrecision,
   toRevenueUnit,
   type ProfileFieldView,
   type ProfileInputDraft,
+  type ProfileSheetValueState,
 } from "./logic";
-import { TeaserQuestionForm } from "./TeaserQuestionForm";
+
+type ProfileSheetView = "profile" | "disqualification" | "prior_award";
+
+const PROFILE_SHEET_DIMENSIONS = [
+  { key: "region", label: "소재지" },
+  { key: "industry", label: "업종" },
+  { key: "biz_age", label: "업력" },
+  { key: "business_status", label: "영업상태" },
+  { key: "target_type", label: "사업자 유형" },
+  { key: "size", label: "기업규모" },
+  { key: "revenue", label: "연 매출" },
+  { key: "employees", label: "상시근로자" },
+  { key: "founder_age", label: "대표자 연령" },
+  { key: "certification", label: "보유 인증" },
+] as const satisfies ReadonlyArray<{ key: CriterionDimension; label: string }>;
+
+interface ProfileSheetRow {
+  key: CriterionDimension | "corp_name";
+  label: string;
+  value: string;
+  sourceLabel: string | null;
+  state: ProfileSheetValueState;
+  field: ProfileFieldView | null;
+}
+
+interface SavedFieldFeedback {
+  key: CriterionDimension;
+  label: string;
+  beforePct: number;
+}
 
 export function ProfileSection({
   teaser,
   onAnswer,
   submitting,
+  open,
+  onOpenChange,
 }: {
   teaser: ProductTeaserResult;
   onAnswer: (answer: MatchingProfileAnswerRequest) => Promise<void>;
   submitting: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
   const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
-  const [activeFieldKey, setActiveFieldKey] = useState<string | null>(null);
-  const known = teaser.profileView.knownCount;
-  const partial = teaser.profileView.partialCount;
-  const total = fields.length || 1;
-  const pct = Math.round(((known + partial * 0.5) / total) * 100);
-  const checkedNote = evidenceCheckedNote(teaser.companyEvidence ?? null);
-  const registryNotice = sparseRegistryNotice(teaser.companyEvidence ?? null);
+  const precision = matchingPrecision(teaser);
+  const rows = useMemo(() => buildProfileSheetRows(teaser, fields), [fields, teaser]);
+  const groupedRows = useMemo(() => {
+    const automatic: ProfileSheetRow[] = [];
+    const direct: ProfileSheetRow[] = [];
+    for (const row of rows) {
+      if (row.state === "automatic") automatic.push(row);
+      else direct.push(row);
+    }
+    return { automatic, direct };
+  }, [rows]);
+  const [activeFieldKey, setActiveFieldKey] = useState<CriterionDimension | null>(null);
+  const [savedFeedback, setSavedFeedback] = useState<SavedFieldFeedback | null>(null);
+  const [view, setView] = useState<ProfileSheetView>("profile");
+  const savedDelta = savedFeedback ? precision.pct - savedFeedback.beforePct : 0;
 
   useEffect(() => {
     if (!activeFieldKey) return;
-    const next = fields.find((field) => field.key === activeFieldKey);
+    const next = rows.find((row) => row.field?.key === activeFieldKey);
     if (!next) setActiveFieldKey(null);
-  }, [activeFieldKey, fields]);
+  }, [activeFieldKey, rows]);
+
+  useEffect(() => {
+    if (open) return;
+    setActiveFieldKey(null);
+    setSavedFeedback(null);
+    setView("profile");
+  }, [open]);
+
+  async function submitProfileField(
+    row: ProfileSheetRow,
+    answer: MatchingProfileAnswerRequest,
+  ) {
+    if (!row.field) return;
+    const beforePct = precision.pct;
+    await onAnswer(answer);
+    setSavedFeedback({ key: row.field.key, label: row.label, beforePct });
+    setActiveFieldKey(null);
+  }
 
   return (
-    <section className="flex flex-col gap-5">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex items-center gap-2">
-            <ShieldCheck data-icon="inline-start" className="text-success" aria-hidden />
-            <h2 className="font-heading text-lg font-semibold tracking-tight">내 사업자 분석</h2>
-          </div>
-          <p className="text-sm text-muted-foreground">
-            사업자번호로 불러온 정보를 시스템 표준 조건으로 정규화했어요. 빈 항목을 채우면 매칭이 더 정확해져요.
-          </p>
-          {checkedNote ? <p className="text-xs text-muted-foreground/80">{checkedNote}</p> : null}
-        </div>
-        <Card size="sm" className="w-full shrink-0 md:w-72">
-          <CardContent className="flex flex-col gap-2">
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-medium text-muted-foreground">정보 충족도</span>
-              <span className="font-semibold text-primary tabular-nums">
-                {known} / {total} 확정{partial > 0 ? ` · ${partial}개 부분 확인` : ""}
-              </span>
-            </div>
-            <Progress value={pct} aria-label="정보 충족도" />
-          </CardContent>
-        </Card>
-      </div>
-
-      {registryNotice ? (
-        <Card size="sm" className="ring-primary/20">
-          <CardContent className="flex gap-3">
-            <TriangleAlert className="mt-0.5 size-4 flex-none text-primary" aria-hidden />
-            <div className="flex flex-col gap-1">
-              <div className="font-medium text-foreground">{registryNotice.title}</div>
-              <p className="text-sm leading-6 text-muted-foreground">{registryNotice.body}</p>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {teaser.nextQuestion ? (
-        <Card size="sm" className="ring-primary/25">
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex gap-3">
-              <CircleHelp className="mt-0.5 size-4 flex-none text-primary" aria-hidden />
-              <div className="flex flex-col gap-1">
-                <div className="font-medium text-foreground">{teaser.nextQuestion.prompt}</div>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  이 답변은 확인이 필요한 공고 {teaser.nextQuestion.affectedGrantCount.toLocaleString("ko-KR")}건의 판정을 개선합니다.
-                </p>
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        className="w-full max-w-[420px] gap-0 p-0 data-[side=right]:w-full data-[side=right]:sm:max-w-[420px]"
+      >
+        {view === "disqualification" ? (
+          <DisqualificationSheet
+            teaser={teaser}
+            onAnswer={onAnswer}
+            submitting={submitting}
+            onBack={() => setView("profile")}
+            onClose={() => onOpenChange(false)}
+          />
+        ) : view === "prior_award" ? (
+          <PriorAwardSheet
+            teaser={teaser}
+            onAnswer={onAnswer}
+            submitting={submitting}
+            onBack={() => setView("profile")}
+          />
+        ) : (
+          <>
+            <SheetHeader className="flex-row items-center justify-between px-6 pt-6 pb-0">
+              <div>
+                <SheetTitle className="text-lg font-extrabold">내 사업자 정보</SheetTitle>
+                <SheetDescription className="sr-only">
+                  매칭에 사용하는 사업자 정보를 확인하고 빈 항목을 채웁니다.
+                </SheetDescription>
               </div>
-            </div>
-            <TeaserQuestionForm
-              question={teaser.nextQuestion}
-              onAnswer={onAnswer}
-              submitting={submitting}
-            />
-          </CardContent>
-        </Card>
-      ) : null}
+              <SheetClose
+                render={<Button type="button" variant="ghost" size="icon-sm" aria-label="내 사업자 정보 닫기" />}
+              >
+                <X aria-hidden />
+              </SheetClose>
+            </SheetHeader>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {fields.map((field) => {
-          const isActive = activeFieldKey === field.key;
-          const asOfLabel = profileFieldAsOfLabel(field.asOf);
-          return (
-            <Card
-              key={field.key}
-              size="sm"
-              className={cn(
-                "transition-shadow",
-                field.status === "unknown" && "bg-muted/30",
-                isActive && "ring-primary/40",
-              )}
-            >
-              <CardContent className="flex flex-col gap-2">
-                <div className="text-xs font-medium tracking-wide text-muted-foreground">
-                  {profileFieldDisplayLabel(field)}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span
-                    className={cn(
-                      "font-heading text-base font-semibold leading-snug",
-                      !field.available && "text-muted-foreground",
-                    )}
-                  >
-                    {field.available ? field.value : "미입력"}
-                  </span>
-                  <Badge variant="outline" className="text-muted-foreground">
-                    {field.status === "known" ? "확정" : field.status === "partial" ? "부분 확인" : "미확인"}
-                  </Badge>
-                </div>
-                {field.sourceLabel || asOfLabel ? (
-                  <p className="text-xs text-muted-foreground">
-                    {[field.sourceLabel, asOfLabel ? `기준 ${asOfLabel}` : null, field.completeness === "partial" ? "일부 항목" : null]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="px-6 pb-6">
+                {savedFeedback ? (
+                  <Alert className="mt-4 border-brand-mint/30 bg-brand-mint-soft text-brand-mint-ink">
+                    <Check aria-hidden />
+                    <AlertDescription className="font-semibold text-brand-mint-ink">
+                      {savedDelta > 0
+                        ? `매칭 정밀도가 ${savedDelta}%p 올랐어요`
+                        : `${savedFeedback.label} 정보를 매칭 결과에 반영했어요`}
+                    </AlertDescription>
+                  </Alert>
                 ) : null}
-                {isActive ? (
-                  <ProfileInputPanel
-                    field={field}
-                    submitting={submitting}
-                    onCancel={() => setActiveFieldKey(null)}
-                    onSubmit={async (answer) => {
-                      setActiveFieldKey(null);
-                      await onAnswer(answer);
-                    }}
+
+                <div className="mt-[18px] rounded-[14px] border border-brand-tint bg-landing-step-blue px-4 py-3.5 shadow-[var(--shadow-landing-step)]">
+                  <PrecisionGauge
+                    pct={precision.pct}
+                    label={`매칭 정밀도 ${precision.pct}%`}
+                    caption="빈 항목을 채우면 더 정확해져요"
+                    meta=""
                   />
-                ) : field.editMode === "direct" ? (
-                  <Button
-                    type="button"
-                    size="xs"
-                    variant="ghost"
-                    onClick={() => setActiveFieldKey(field.key)}
-                    className="w-fit px-0 hover:bg-transparent"
-                  >
-                    {field.available ? (
-                      <Pencil data-icon="inline-start" strokeWidth={2.25} />
-                    ) : (
-                      <Plus data-icon="inline-start" strokeWidth={3} />
-                    )}
-                    {field.available ? "수정" : "입력하기"}
-                  </Button>
-                ) : field.status === "known" ? null : (
-                  <span className="text-xs font-medium text-muted-foreground">{field.action.label}</span>
-                )}
-              </CardContent>
-            </Card>
-          );
-        })}
+                </div>
+
+                <ProfileSheetGroup
+                  title={`자동으로 확인했어요 (${groupedRows.automatic.length})`}
+                  tone="automatic"
+                  rows={groupedRows.automatic}
+                  activeFieldKey={activeFieldKey}
+                  recentlySavedKey={savedFeedback?.key ?? null}
+                  submitting={submitting}
+                  teaser={teaser}
+                  onEdit={setActiveFieldKey}
+                  onCancel={() => setActiveFieldKey(null)}
+                  onSubmit={submitProfileField}
+                />
+
+                <ProfileSheetGroup
+                  title={`직접 채우면 더 정확해져요 (${groupedRows.direct.length})`}
+                  tone="direct"
+                  rows={groupedRows.direct}
+                  activeFieldKey={activeFieldKey}
+                  recentlySavedKey={savedFeedback?.key ?? null}
+                  submitting={submitting}
+                  teaser={teaser}
+                  onEdit={setActiveFieldKey}
+                  onCancel={() => setActiveFieldKey(null)}
+                  onSubmit={submitProfileField}
+                />
+
+                <ProfileVerificationGroup
+                  teaser={teaser}
+                  onOpenDisqualification={() => setView("disqualification")}
+                  onOpenPriorAward={() => setView("prior_award")}
+                />
+              </div>
+            </ScrollArea>
+
+            <SheetFooter className="border-t border-border-subtle px-6 py-3.5">
+              <SheetClose render={<Button type="button" variant="secondary" className="w-full" />}>
+                닫기
+              </SheetClose>
+            </SheetFooter>
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function ProfileSheetGroup({
+  title,
+  tone,
+  rows,
+  activeFieldKey,
+  recentlySavedKey,
+  submitting,
+  teaser,
+  onEdit,
+  onCancel,
+  onSubmit,
+}: {
+  title: string;
+  tone: "automatic" | "direct";
+  rows: ProfileSheetRow[];
+  activeFieldKey: CriterionDimension | null;
+  recentlySavedKey: CriterionDimension | null;
+  submitting: boolean;
+  teaser: ProductTeaserResult;
+  onEdit: (key: CriterionDimension) => void;
+  onCancel: () => void;
+  onSubmit: (row: ProfileSheetRow, answer: MatchingProfileAnswerRequest) => Promise<void>;
+}) {
+  return (
+    <section className="mt-6">
+      <h3
+        className={cn(
+          "text-[13.5px] font-extrabold",
+          tone === "automatic" ? "text-brand-mint-ink" : "text-brand",
+        )}
+      >
+        {title}
+      </h3>
+      <div
+        className={cn(
+          "mt-2.5 rounded-2xl px-4 py-1",
+          tone === "automatic" ? "bg-brand-mint-soft/45" : "border border-border-subtle",
+        )}
+      >
+        {rows.length > 0 ? (
+          rows.map((row, index) => (
+            <Fragment key={row.key}>
+              <ProfileSheetRowView
+                row={row}
+                active={row.field?.key === activeFieldKey}
+                recentlySaved={row.field?.key === recentlySavedKey}
+                submitting={submitting}
+                teaser={teaser}
+                onEdit={onEdit}
+                onCancel={onCancel}
+                onSubmit={(answer) => onSubmit(row, answer)}
+              />
+              {index < rows.length - 1 ? (
+                <Separator className={tone === "automatic" ? "bg-brand-mint/15" : "bg-border-subtle"} />
+              ) : null}
+            </Fragment>
+          ))
+        ) : (
+          <p className="py-3 text-sm text-muted-foreground">
+            {tone === "automatic" ? "자동으로 확인된 정보가 아직 없어요." : "직접 채울 정보가 없어요."}
+          </p>
+        )}
       </div>
     </section>
   );
+}
+
+function ProfileSheetRowView({
+  row,
+  active,
+  recentlySaved,
+  submitting,
+  teaser,
+  onEdit,
+  onCancel,
+  onSubmit,
+}: {
+  row: ProfileSheetRow;
+  active: boolean;
+  recentlySaved: boolean;
+  submitting: boolean;
+  teaser: ProductTeaserResult;
+  onEdit: (key: CriterionDimension) => void;
+  onCancel: () => void;
+  onSubmit: (answer: MatchingProfileAnswerRequest) => Promise<void>;
+}) {
+  const field = row.field;
+
+  if (row.state === "automatic") {
+    return (
+      <div className="flex min-h-11 items-center gap-2.5 py-2.5">
+        <Check className="size-3.5 shrink-0 text-brand-mint" strokeWidth={3} aria-hidden />
+        <span className="w-[82px] shrink-0 text-[13px] text-text-secondary">{row.label}</span>
+        <span className="min-w-0 flex-1 text-sm font-semibold text-ink break-words">{row.value}</span>
+        {row.sourceLabel || row.field?.status === "partial" ? (
+          <span className="max-w-20 shrink-0 truncate text-[11px] text-text-tertiary">
+            {row.field?.status === "partial" ? `${row.sourceLabel ?? "저장된 정보"} · 일부 확인` : row.sourceLabel}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={cn(
+        "py-3",
+        active && "-mx-4 bg-brand-tint/35 px-4",
+        recentlySaved && !active && "-mx-4 bg-brand-mint-soft px-4",
+      )}
+    >
+      <div className="flex items-center gap-2.5">
+        {row.state === "direct" ? (
+          <CircleDot className="size-3 shrink-0 text-brand" aria-label="직접 입력됨" />
+        ) : (
+          <CircleDashed className="size-3 shrink-0 text-text-tertiary" aria-label="미입력" />
+        )}
+        <span className="w-[82px] shrink-0 text-[13px] text-text-secondary">{row.label}</span>
+
+        {row.state === "direct" ? (
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-ink break-words">{row.value}</div>
+            <div className={cn("text-[11px]", recentlySaved ? "font-bold text-brand-mint-ink" : "text-text-tertiary")}>
+              {recentlySaved ? "방금 반영됨" : row.sourceLabel ?? "직접 입력"}
+            </div>
+          </div>
+        ) : field?.editMode === "direct" ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="link"
+            className="h-auto px-0"
+            disabled={submitting}
+            onClick={() => onEdit(field.key)}
+          >
+            <Plus data-icon="inline-start" strokeWidth={3} />
+            채우기
+          </Button>
+        ) : (
+          <span className="text-xs font-medium text-muted-foreground">{field?.action.label ?? "확인 필요"}</span>
+        )}
+
+        {row.state === "direct" && field?.editMode === "direct" && !active ? (
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            disabled={submitting}
+            onClick={() => onEdit(field.key)}
+          >
+            수정
+          </Button>
+        ) : null}
+      </div>
+
+      {active && field ? (
+        <div className="mt-2 pl-[22px]">
+          <ProfileInputPanel
+            field={field}
+            submitting={submitting}
+            onCancel={onCancel}
+            onSubmit={onSubmit}
+          />
+        </div>
+      ) : row.state === "missing" ? (
+        <p className="mt-1 pl-[22px] text-xs leading-5 text-text-tertiary">
+          {profileFieldImpactCopy(row, teaser)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function ProfileVerificationGroup({
+  teaser,
+  onOpenDisqualification,
+  onOpenPriorAward,
+}: {
+  teaser: ProductTeaserResult;
+  onOpenDisqualification: () => void;
+  onOpenPriorAward: () => void;
+}) {
+  const disqConfirmed = disqualificationAllKnown(teaser);
+  const priorConfirmed = profileRowStatus(teaser, "prior_award") === "known";
+  const unverified = (disqConfirmed ? 0 : 1) + (priorConfirmed ? 0 : 1);
+
+  return (
+    <section className="mt-6">
+      <h3 className="text-[13.5px] font-extrabold text-text-nav">직접 확인해주세요 ({unverified})</h3>
+      <div className="mt-2.5 flex flex-col gap-2">
+        <VerificationRow
+          label="결격 여부"
+          confirmed={disqConfirmed}
+          confirmedLabel="해당 없음 확인 ✓"
+          subtitle={disqualificationImpactCopy(teaser)}
+          onClick={onOpenDisqualification}
+        />
+        <VerificationRow
+          label="지원사업 수혜 이력"
+          confirmed={priorConfirmed}
+          confirmedLabel="확인됨 ✓"
+          subtitle="과거 수혜 여부로 판정이 갈리는 공고가 있어요"
+          onClick={onOpenPriorAward}
+        />
+      </div>
+    </section>
+  );
+}
+
+function VerificationRow({
+  label,
+  confirmed,
+  confirmedLabel,
+  subtitle,
+  onClick,
+}: {
+  label: string;
+  confirmed: boolean;
+  confirmedLabel: string;
+  subtitle: string;
+  onClick: () => void;
+}) {
+  if (confirmed) {
+    return (
+      <Button
+        type="button"
+        variant="ghost"
+        onClick={onClick}
+        className="flex h-auto w-full items-center gap-2.5 rounded-[14px] bg-brand-mint-soft px-4 py-3 hover:bg-brand-mint-soft"
+      >
+        <Check className="size-3.5 shrink-0 text-brand-mint" strokeWidth={3} aria-hidden />
+        <span className="flex-1 text-left text-[13.5px] font-bold text-ink">{label}</span>
+        <span className="text-[12.5px] font-bold text-brand-mint-ink">{confirmedLabel}</span>
+      </Button>
+    );
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      onClick={onClick}
+      className="flex h-auto w-full flex-col items-stretch gap-1 rounded-[14px] border border-border-card bg-card px-4 py-3 whitespace-normal hover:bg-surface-soft"
+    >
+      <div className="flex items-center gap-2.5">
+        <span className="flex-1 text-left text-sm font-semibold text-ink">{label}</span>
+        <Badge className="bg-surface-muted text-[11.5px] font-bold text-text-secondary">확인 전</Badge>
+        <ChevronRight className="size-4 shrink-0 text-text-quaternary" aria-hidden />
+      </div>
+      <span className="text-left text-[12px] leading-5 text-text-tertiary">{subtitle}</span>
+    </Button>
+  );
+}
+
+/** 결격 행 부제 — nextQuestion이 결격 축이고 실데이터가 있으면 확정 건수를, 아니면 일반 문구. */
+function disqualificationImpactCopy(teaser: ProductTeaserResult): string {
+  const question = teaser.nextQuestion;
+  if (
+    question &&
+    (DISQUALIFICATION_AXES as readonly string[]).includes(question.dimension) &&
+    question.affectedGrantCount > 0
+  ) {
+    return `해당 없음을 확인하면 공고 ${question.affectedGrantCount.toLocaleString("ko-KR")}건이 확정돼요`;
+  }
+  return "체납·신용·제재 여부로 판정이 갈리는 공고가 있어요";
+}
+
+function buildProfileSheetRows(
+  teaser: ProductTeaserResult,
+  fields: ProfileFieldView[],
+): ProfileSheetRow[] {
+  const fieldMap = new Map(fields.map((field) => [field.key, field]));
+  const rows: ProfileSheetRow[] = [];
+  const companyName = teaser.companyEvidence?.fields.find(
+    (field) => field.key === "corp_name" && field.available && Boolean(field.value?.trim()),
+  );
+
+  if (companyName?.value) {
+    const sourceLabel = companyEvidenceSourceLabel(teaser);
+    rows.push({
+      key: "corp_name",
+      label: "상호",
+      value: companyName.value,
+      sourceLabel,
+      state: sourceLabel?.includes("직접") ? "direct" : "automatic",
+      field: null,
+    });
+  }
+
+  for (const spec of PROFILE_SHEET_DIMENSIONS) {
+    const field = fieldMap.get(spec.key);
+    if (!field) continue;
+    rows.push({
+      key: field.key,
+      label: spec.label,
+      value: field.value,
+      sourceLabel: field.sourceLabel,
+      state: profileSheetValueState(field),
+      field,
+    });
+  }
+
+  return rows;
+}
+
+function companyEvidenceSourceLabel(teaser: ProductTeaserResult): string | null {
+  const evidence = teaser.companyEvidence;
+  if (!evidence) return null;
+  if (evidence.provider === "popbill") return "사업자 기본정보";
+  if (evidence.provider === "apick") return "기업 기본정보";
+  if (evidence.provider === "manual") return "직접 입력";
+  if (evidence.provider === "sample") return "예시 정보";
+  return "저장된 정보";
+}
+
+function profileFieldImpactCopy(row: ProfileSheetRow, teaser: ProductTeaserResult): string {
+  if (
+    row.field &&
+    teaser.nextQuestion?.dimension === row.field.key &&
+    teaser.nextQuestion.affectedGrantCount > 0
+  ) {
+    return `공고 ${teaser.nextQuestion.affectedGrantCount.toLocaleString("ko-KR")}건 판정에 영향`;
+  }
+  if (row.key === "revenue") return "매출 기준 공고 판정에 반영돼요";
+  if (row.key === "employees") return "고용 인원 기준 공고 판정에 반영돼요";
+  if (row.key === "founder_age") return "청년 대상 공고 판정에 반영돼요";
+  if (row.key === "certification") return "준비하면 열리는 공고를 확인할 수 있어요";
+  if (row.key === "region") return "지역 조건이 있는 공고 판정에 반영돼요";
+  if (row.key === "industry") return "업종 조건이 있는 공고 판정에 반영돼요";
+  if (row.key === "biz_age") return "업력 조건이 있는 공고 판정에 반영돼요";
+  return "공고 자격 판정에 반영돼요";
 }
 
 function ProfileInputPanel({
@@ -243,59 +633,66 @@ function ProfileInputPanel({
   }
 
   return (
-    <form className="flex flex-col gap-2 pt-1" onSubmit={submit}>
-      {usesStructuredNumericInput ? (
-        <StructuredNumericProfileInput
-          fieldKey={field.key}
-          draft={draft}
-          error={Boolean(error)}
-          onChange={setDraft}
-        />
-      ) : (
-        <Combobox
-          items={suggestions}
-          value={draft.value}
-          onValueChange={(value) => {
-            if (typeof value === "string") {
-              setDraft((current) => ({ ...current, value }));
-            }
-          }}
-        >
-          <ComboboxInput
-            aria-invalid={Boolean(error)}
-            autoFocus
-            className="w-full"
-            inputMode={profileInputMode(field.key)}
-            placeholder={profileInputPlaceholder(field.key)}
-            showClear
-            value={draft.value}
-            onChange={(event) => {
-              const next = profileInputText(field.key, event.currentTarget.value);
-              setDraft((current) => ({ ...current, value: next }));
-            }}
-          />
-          <ComboboxContent>
-            <ComboboxEmpty>직접 입력 후 반영</ComboboxEmpty>
-            <ComboboxList>
-              {(item) => (
-                <ComboboxItem key={item} value={item}>
-                  {item}
-                </ComboboxItem>
-              )}
-            </ComboboxList>
-          </ComboboxContent>
-        </Combobox>
-      )}
-      {error ? <p className="text-xs font-medium text-destructive">{error}</p> : null}
-      <p className="text-xs leading-5 text-muted-foreground">{profileInputDescription(field.key)}</p>
-      <div className="flex items-center justify-end gap-1">
-        <Button type="button" size="xs" variant="ghost" onClick={onCancel} disabled={submitting}>
-          닫기
-        </Button>
-        <Button type="submit" size="xs" disabled={submitting}>
-          {submitting ? "반영 중" : "반영"}
-        </Button>
-      </div>
+    <form onSubmit={submit}>
+      <FieldGroup className="gap-2 pt-1">
+        <Field data-invalid={Boolean(error)}>
+          {usesStructuredNumericInput ? (
+            <StructuredNumericProfileInput
+              fieldKey={field.key}
+              draft={draft}
+              error={Boolean(error)}
+              onChange={setDraft}
+            />
+          ) : (
+            <Combobox
+              items={suggestions}
+              value={draft.value}
+              onValueChange={(value) => {
+                if (typeof value === "string") {
+                  setDraft((current) => ({ ...current, value }));
+                }
+              }}
+            >
+              <ComboboxInput
+                aria-label={profileFieldDisplayLabel(field)}
+                aria-invalid={Boolean(error)}
+                autoFocus
+                className="w-full"
+                inputMode={profileInputMode(field.key)}
+                placeholder={profileInputPlaceholder(field.key)}
+                showClear
+                value={draft.value}
+                onChange={(event) => {
+                  const next = profileInputText(field.key, event.currentTarget.value);
+                  setDraft((current) => ({ ...current, value: next }));
+                }}
+              />
+              <ComboboxContent>
+                <ComboboxEmpty>직접 입력 후 매칭 결과에 반영</ComboboxEmpty>
+                <ComboboxList>
+                  {(item) => (
+                    <ComboboxItem key={item} value={item}>
+                      {item}
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+          )}
+          <FieldError>{error}</FieldError>
+          <FieldDescription className="text-xs leading-5">
+            {profileInputDescription(field.key)}
+          </FieldDescription>
+        </Field>
+        <div className="flex items-center justify-end gap-1">
+          <Button type="button" size="xs" variant="ghost" onClick={onCancel} disabled={submitting}>
+            취소
+          </Button>
+          <Button type="submit" size="sm" disabled={submitting}>
+            {submitting ? "반영 중" : "이 결과에 반영"}
+          </Button>
+        </div>
+      </FieldGroup>
     </form>
   );
 }

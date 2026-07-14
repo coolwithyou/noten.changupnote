@@ -3,6 +3,7 @@ import {
   normalizeBusinessLookupBizNo,
   type BusinessLookupSuggestion,
 } from "@/lib/businessLookupSuggestions";
+import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
 
 /**
  * 로그인 후 재개(resume) 플로우가 읽는 sessionStorage 키.
@@ -43,10 +44,19 @@ export function maskLandingBizNo(digits: string): string {
 
 /** preview 에러 코드별 다이얼로그 제목. 번호 문제는 재확인, 그 외는 재시도 유도. */
 export function titleForPreviewError(code: string | undefined): string {
-  if (code === "invalid_biz_no" || code === "biz_no_not_registered" || code === "biz_no_closed") {
+  if (code === "biz_no_not_registered") return "등록된 사업자를 찾지 못했어요";
+  if (code === "invalid_biz_no" || code === "biz_no_closed") {
     return "사업자번호를 다시 확인해 주세요";
   }
   return "잠시 후 다시 시도해 주세요";
+}
+
+/** 디자인 정본의 미등록 안내는 공급자 원문 대신 사용자가 다음 행동을 알 수 있게 고정한다. */
+export function messageForPreviewError(code: string | undefined, fallback?: string): string {
+  if (code === "biz_no_not_registered") {
+    return "번호를 다시 확인해 주세요. 방금 낸 사업자라면 등록까지 1~2일 걸릴 수 있어요.";
+  }
+  return fallback ?? "회사 정보를 확인하지 못했습니다. 잠시 후 다시 시도해주세요.";
 }
 
 /** 입력값과 겹치는 최근 조회 제안을 걸러 최대 4개 노출. */
@@ -82,8 +92,11 @@ export function readPendingTeaserRequest(): TeaserRequest | null {
 }
 
 /** 재개 로그인이 필요한 경우 랜딩으로 돌아오도록 callbackUrl을 심어 이동. */
-export function redirectToLoginForDashboard() {
-  const params = new URLSearchParams({ callbackUrl: "/?resumeCompany=1" });
+export function redirectToLoginForDashboard(resumeNext?: string | null) {
+  const resumeParams = new URLSearchParams({ resumeCompany: "1" });
+  const safeNext = safeInternalPath(resumeNext);
+  if (safeNext) resumeParams.set("resumeNext", safeNext);
+  const params = new URLSearchParams({ callbackUrl: `/?${resumeParams.toString()}` });
   window.location.assign(`/login?${params.toString()}`);
 }
 
@@ -91,6 +104,7 @@ export function redirectToLoginForDashboard() {
 export function clearResumeFlag(params: URLSearchParams) {
   params.delete("resumeCompany");
   params.delete("resumeGrant");
+  params.delete("resumeNext");
   const query = params.toString();
   window.history.replaceState(
     null,
@@ -105,10 +119,10 @@ export function formatSupportAmount(amount: number): string | null {
   if (amount >= 100_000_000) {
     const eok = amount / 100_000_000;
     const rounded = Number.isInteger(eok) ? eok.toString() : eok.toFixed(1);
-    return `최대 ${rounded}억원`;
+    return `최대 ${rounded}억 원`;
   }
   if (amount >= 10_000) {
-    return `최대 ${Math.round(amount / 10_000).toLocaleString("ko-KR")}만원`;
+    return `최대 ${Math.round(amount / 10_000).toLocaleString("ko-KR")}만 원`;
   }
   return `최대 ${amount.toLocaleString("ko-KR")}원`;
 }

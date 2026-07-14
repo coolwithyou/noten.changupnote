@@ -181,10 +181,34 @@ export function deriveGrantBenefits(grant: Grant): BenefitBadge[] {
 
 export function daysUntil(value: string | null, asOf = new Date()): number | null {
   if (!value) return null;
-  const target = parseDate(value);
-  if (!target) return null;
-  const today = new Date(Date.UTC(asOf.getUTCFullYear(), asOf.getUTCMonth(), asOf.getUTCDate()));
-  return Math.ceil((target.getTime() - today.getTime()) / 86_400_000);
+  const target = calendarDateUtc(value);
+  const today = calendarDateUtc(asOf);
+  if (!target || !today) return null;
+  return Math.round((target.getTime() - today.getTime()) / 86_400_000);
+}
+
+const KOREA_TIME_ZONE = "Asia/Seoul";
+
+function calendarDateUtc(value: string | Date): Date | null {
+  if (typeof value === "string") {
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+    if (dateOnly) {
+      const date = new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])));
+      return date.toISOString().slice(0, 10) === value.trim() ? date : null;
+    }
+  }
+
+  const date = typeof value === "string" ? new Date(value) : value;
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: KOREA_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  }).formatToParts(date);
+  const read = (type: "year" | "month" | "day") =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+  return new Date(Date.UTC(read("year"), read("month") - 1, read("day")));
 }
 
 export interface MatchTransitionWindow {

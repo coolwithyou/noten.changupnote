@@ -201,7 +201,17 @@ export interface TeaserResult {
     ineligible: number;
     deadlineSoon: number;
     recommendable?: number;
+    /** 접수 상태가 open이고 현재 프로필로 추천 가능한 공고 수. */
+    openNow?: number;
     reviewNeeded?: number;
+    /** 프로필 답변으로 해소 가능한 검토 필요 공고 수. */
+    needsProfileInput?: number;
+    /** 사용자가 답할 수 있는 미확인 축이 정확히 하나인 공고 수. */
+    oneAnswer?: number;
+    /** 원문·구조화 확인이 먼저 필요한 공고 수. */
+    needsCoreReview?: number;
+    /** 취득·준비 조건을 갖추면 다시 판정할 수 있는 공고 수. */
+    preparable?: number;
     notRecommended?: number;
   };
   matches: MatchCard[];
@@ -717,7 +727,8 @@ export interface ConsentRevokeResult {
 }
 
 export interface CompanyEnrichmentRequest {
-  bizNo: string;
+  /** 생략하면 서버가 현재 회사에 저장된 사업자번호로 대체한다. */
+  bizNo?: string;
 }
 
 /** 랜딩 상호명 확인 게이트 요청. 명시적 요청에서만 공개 기본정보 cache miss를 보강한다. */
@@ -762,7 +773,8 @@ export interface CompanyResult {
 }
 
 export interface CompanyVerificationRequest {
-  bizNo: string;
+  /** 생략하면 서버가 현재 회사에 저장된 사업자번호로 대체한다. */
+  bizNo?: string;
   ownerName?: string;
   openedOn?: string;
 }

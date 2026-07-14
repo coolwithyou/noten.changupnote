@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { Grant } from "@cunote/contracts";
 import {
   filterActiveGrants,
+  activeGrantApplyEndCutoff,
   isClearlyStaleUndatedGrant,
   isGrantActiveAt,
   isKStartupRecruitmentClosedPayload,
@@ -20,6 +21,14 @@ assert.equal(isKStartupRecruitmentClosedPayload("kstartup", { rcrt_prgs_yn: "N" 
 assert.equal(isKStartupRecruitmentClosedPayload("kstartup", { rcrt_prgs_yn: " n " }), true);
 assert.equal(isKStartupRecruitmentClosedPayload("kstartup", { rcrt_prgs_yn: "Y" }), false);
 assert.equal(isKStartupRecruitmentClosedPayload("bizinfo", { rcrt_prgs_yn: "N" }), false);
+
+const koreaMidnight = new Date("2026-07-14T15:00:00.000Z");
+assert.equal(
+  isGrantActiveAt({ ...grant("마감 공고", "bizinfo"), status: "open", apply_end: "2026-07-14" }, koreaMidnight),
+  false,
+  "한국 자정 이후 전날 마감 공고를 활성으로 남기면 안 됨",
+);
+assert.equal(activeGrantApplyEndCutoff(koreaMidnight).toISOString(), "2026-07-15T00:00:00.000Z");
 
 const activeEntries = filterActiveGrants([
   normalized("recruiting", "Y"),

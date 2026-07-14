@@ -24,7 +24,13 @@ export async function POST(request: Request) {
       requireCompanyAccess({ permission: "write" }),
       readBody(request),
     ]);
-    if (!body.bizNo?.trim()) {
+    // bizNo 미제공 시 현재 회사에 저장된 사업자번호로 대체한다.
+    const rawBizNo = body.bizNo?.trim()
+      || (await getServiceRepositories().companies.getCompanyBizNo({
+        companyId: access.companyId,
+        userId: access.userId,
+      }))?.trim();
+    if (!rawBizNo) {
       return NextResponse.json<ActionResult<CompanyVerificationResult>>({
         ok: false,
         error: {
@@ -37,7 +43,7 @@ export async function POST(request: Request) {
 
     let bizNo: string;
     try {
-      bizNo = sanitizeCorpNum(body.bizNo);
+      bizNo = sanitizeCorpNum(rawBizNo);
     } catch (error) {
       return NextResponse.json<ActionResult<CompanyVerificationResult>>({
         ok: false,

@@ -170,6 +170,10 @@ class RuntimeCompanyRepository implements CompanyRepository {
     }];
   }
 
+  async getCompanyBizNo(input: { companyId: string; userId?: string }): Promise<string | null> {
+    return this.getVerification(input.companyId, input.userId)?.bizNo ?? null;
+  }
+
   async verifyCompany(input: VerifyCompanyInput): Promise<CompanyVerificationRecord> {
     if (input.companyId !== demoCompanyId()) {
       throw new Error("회사를 찾지 못했습니다.");

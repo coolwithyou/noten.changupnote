@@ -6,6 +6,10 @@ export const PUBLIC_WEB_ROUTES = [
   "GET /privacy",
   "GET /pricing",
   "GET /support",
+  "GET /account",
+  "GET /archive",
+  "GET /onboarding",
+  "GET /roadmap",
   "GET /team/invite/[token]",
   "GET /api/web/team/invitations/handoff/[token]",
   "POST /api/web/auth/register",
@@ -28,14 +32,10 @@ export const PUBLIC_WEB_ROUTES = [
 ] as const;
 
 export const SESSION_WEB_ROUTES = [
-  "GET /account",
   "GET /applications",
-  "GET /archive",
   "GET /billing",
   "GET /dashboard",
   "GET /grants/[grantId]",
-  "GET /onboarding",
-  "GET /roadmap",
   "GET /settings",
   "GET /team",
   "GET /api/web/applications/calendar",

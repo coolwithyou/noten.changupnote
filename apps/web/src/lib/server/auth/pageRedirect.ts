@@ -8,8 +8,8 @@ export function redirectOnAuthRequired(error: unknown, callbackUrl: string): nev
     redirect(`/login?${params.toString()}`);
   }
   if (error instanceof CompanyAccessForbiddenError && error.code === "company_access_required") {
-    const params = new URLSearchParams({ next: callbackUrl });
-    redirect(`/onboarding?${params.toString()}`);
+    const params = new URLSearchParams({ companyRequired: "1", next: callbackUrl });
+    redirect(`/?${params.toString()}`);
   }
   throw error;
 }
