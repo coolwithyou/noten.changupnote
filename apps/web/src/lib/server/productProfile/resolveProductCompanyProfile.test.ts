@@ -62,6 +62,7 @@ let companyLists = 0;
 let companyResolutions = 0;
 let refreshCalls = 0;
 let saves = 0;
+let exposePublicCache = true;
 
 const dependencies: ProductProfileResolverDependencies = {
   companies: {
@@ -81,7 +82,7 @@ const dependencies: ProductProfileResolverDependencies = {
   enrichmentCache: {
     async getFresh(input) {
       cacheReads += 1;
-      if (input.provider !== "popbill" || input.scope !== "checkBizInfo") return null;
+      if (!exposePublicCache || input.provider !== "popbill" || input.scope !== "checkBizInfo") return null;
       return cacheEntry(publicCacheProfile);
     },
   },
@@ -134,6 +135,14 @@ assert.deepEqual(
   anonymous,
   "the same cache materialization and asOf must replay deterministically",
 );
+exposePublicCache = false;
+await assert.rejects(
+  () => resolveProductCompanyProfile({ context: "anonymous_teaser", bizNo: "7465400870", asOf }, dependencies),
+  (error: unknown) => error instanceof ProductProfileResolutionError &&
+    error.code === "product_profile_unavailable" && error.status === 503,
+  "passive anonymous teaser must remain cache-only on a real cache miss",
+);
+exposePublicCache = true;
 assert.equal(refreshCalls, 0, "anonymous cache miss/hit must never invoke live refresh");
 
 activeConsents = [];

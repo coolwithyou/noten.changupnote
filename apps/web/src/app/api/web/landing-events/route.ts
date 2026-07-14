@@ -7,6 +7,11 @@ export const dynamic = "force-dynamic";
 type LandingFunnelEvent =
   | "biz_no_input_started"
   | "biz_no_validation_failed"
+  | "company_preview_requested"
+  | "company_preview_succeeded"
+  | "company_preview_failed"
+  | "company_confirmed"
+  | "company_rejected"
   | "teaser_submitted"
   | "teaser_succeeded"
   | "teaser_failed"
@@ -24,6 +29,11 @@ interface LandingEventReceipt {
 const LANDING_EVENTS: LandingFunnelEvent[] = [
   "biz_no_input_started",
   "biz_no_validation_failed",
+  "company_preview_requested",
+  "company_preview_succeeded",
+  "company_preview_failed",
+  "company_confirmed",
+  "company_rejected",
   "teaser_submitted",
   "teaser_succeeded",
   "teaser_failed",

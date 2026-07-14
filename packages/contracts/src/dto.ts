@@ -720,7 +720,7 @@ export interface CompanyEnrichmentRequest {
   bizNo: string;
 }
 
-/** 랜딩 상호명 확인 게이트 요청. 익명 product resolver의 공개 cache 범위만 사용한다. */
+/** 랜딩 상호명 확인 게이트 요청. 명시적 요청에서만 공개 기본정보 cache miss를 보강한다. */
 export interface CompanyPreviewRequest {
   bizNo: string;
 }

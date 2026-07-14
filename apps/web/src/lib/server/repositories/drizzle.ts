@@ -33,6 +33,7 @@ import {
 import type {
   CompanyRecord,
   CompanyRepository,
+  ClaimEnrichmentCacheInput,
   CreateCompanyInput,
   DeleteEnrichmentCacheInput,
   EnrichmentCacheEntry,
@@ -770,6 +771,37 @@ class DrizzleEnrichmentCacheRepository implements EnrichmentCacheRepository {
       .returning();
     if (!row) throw new Error("기업정보 보강 캐시 저장 결과가 없습니다.");
     return toEnrichmentCacheEntry(row);
+  }
+
+  async claim(input: ClaimEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null> {
+    const values = {
+      provider: input.provider,
+      bizNo: input.bizNo,
+      scope: input.scope,
+      rawPayload: input.rawPayload ?? null,
+      canonicalPayload: input.canonicalPayload ?? null,
+      providerResultCode: input.providerResultCode ?? null,
+      providerResultMessage: input.providerResultMessage ?? null,
+      checkedAt: input.checkedAt ?? null,
+      fetchedAt: input.fetchedAt ?? new Date(),
+      expiresAt: input.expiresAt,
+      payloadHash: input.payloadHash ?? null,
+      lastError: input.lastError ?? null,
+    };
+    const [row] = await this.db.client
+      .insert(schema.companyEnrichmentCache)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [
+          schema.companyEnrichmentCache.provider,
+          schema.companyEnrichmentCache.bizNo,
+          schema.companyEnrichmentCache.scope,
+        ],
+        set: values,
+        setWhere: lte(schema.companyEnrichmentCache.expiresAt, input.now),
+      })
+      .returning();
+    return row ? toEnrichmentCacheEntry(row) : null;
   }
 
   async listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]> {

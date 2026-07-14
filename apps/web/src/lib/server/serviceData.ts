@@ -55,7 +55,13 @@ import { notifyPopbillFailure } from "./adminNotifications";
 import { getConsentStore } from "./consents/consentStore";
 import { resolveDataGoKrServiceKey } from "./dataGoKrServiceKey";
 import {
+  PublicLookupProtectionError,
+  assertPublicLookupClientRate,
+  reservePublicLookupBudget,
+} from "./publicLookupProtection";
+import {
   buildMatchingProfileView,
+  ProductProfileResolutionError,
   resolveProductCompanyProfile as resolveProductCompanyProfileWithDependencies,
   type ResolveProductCompanyProfileInput,
   type ResolvedProductCompanyProfile,
@@ -70,6 +76,8 @@ import {
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
 const ENRICHMENT_CACHE_SCOPE = "checkBizInfo";
+const POPBILL_LOOKUP_GUARD_PROVIDER = "popbill_guard";
+const POPBILL_LOOKUP_GUARD_SCOPE = "checkBizInfo-live-attempt";
 const ENRICHMENT_CACHE_TTL_HOURS_ENV = "CUNOTE_POPBILL_CACHE_TTL_HOURS";
 // 국세청(NTS) 상태조회는 무료라 팝빌 캐시 히트 경로에서 하루 1회(KST 달력일) 재확인한다.
 // 인증키는 공용 CUNOTE_DATA_GO_KR_SERVICE_KEY 우선, 없으면 이 소스별 변수로 폴백(resolveDataGoKrServiceKey).
@@ -102,11 +110,35 @@ interface CompanyProfileResolution {
   evidence: CompanyEvidence | null;
 }
 
+interface ProductCompanyPreviewDependencies {
+  resolveAnonymous: (
+    body: Partial<TeaserRequest>,
+    options: { asOf?: Date },
+  ) => Promise<ResolvedProductCompanyProfile>;
+  acquirePublicBase: (
+    bizNo: string,
+    options: { asOf?: Date; publicRequestKey?: string },
+  ) => Promise<CompanyProfileResolution>;
+}
+
 interface PopbillCompanyResolution {
   profile: CompanyProfile;
   facts: CompanyEnrichmentFacts;
   evidence: CompanyEvidence;
 }
+
+interface PopbillLookupInput {
+  bizNo: string;
+  credentials: PopbillCredentials;
+  asOf: Date;
+  now: Date;
+  publicRequestKey?: string;
+}
+
+type NtsPreGateResult = {
+  classification: NtsBusinessStatusClassification;
+  statusData: NtsBusinessStatusData;
+} | null;
 
 const repositories = createServiceRepositories<ServiceGrantPayload>({
   loadGrants: loadServiceGrantsFromSource,
@@ -198,7 +230,7 @@ async function loadCompanyProfileFromSource(bizNo?: string): Promise<CompanyProf
 
 export async function loadCompanyProfileFromSourceWithEvidence(
   bizNo?: string,
-  options: { asOf?: Date } = {},
+  options: { asOf?: Date; publicRequestKey?: string } = {},
 ): Promise<CompanyProfileResolution> {
   await loadEnvInDevelopment();
 
@@ -212,6 +244,7 @@ export async function loadCompanyProfileFromSourceWithEvidence(
       credentials: popbill.credentials,
       asOf,
       now: new Date(),
+      ...(options.publicRequestKey ? { publicRequestKey: options.publicRequestKey } : {}),
     });
     return {
       profile: result.profile,
@@ -417,12 +450,7 @@ export async function enrichServiceCompany(input: {
   };
 }
 
-function loadPopbillCompanyProfile(input: {
-  bizNo: string;
-  credentials: PopbillCredentials;
-  asOf: Date;
-  now: Date;
-}): Promise<PopbillCompanyResolution> {
+function loadPopbillCompanyProfile(input: PopbillLookupInput): Promise<PopbillCompanyResolution> {
   // 동일 사업자번호 동시 요청은 진행 중인 조회 하나에 합류시켜 팝빌 중복 호출(중복 과금)을 방지한다.
   const key = `${ENRICHMENT_CACHE_PROVIDER}:${ENRICHMENT_CACHE_SCOPE}:${input.bizNo}`;
   const existing = inflightPopbillLookups.get(key);
@@ -435,24 +463,14 @@ function loadPopbillCompanyProfile(input: {
   return task;
 }
 
-async function fetchPopbillCompanyProfile(input: {
-  bizNo: string;
-  credentials: PopbillCredentials;
-  asOf: Date;
-  now: Date;
-}): Promise<PopbillCompanyResolution> {
+async function fetchPopbillCompanyProfile(input: PopbillLookupInput): Promise<PopbillCompanyResolution> {
   // 팝빌 해석(캐시 히트·라이브 어느 경로든)을 마친 뒤, 공통 후처리로 SMPP 확인서 보강을 겹친다.
   // SMPP 정보는 팝빌에 아예 없으므로 NTS(캐시 히트 한정)와 달리 두 경로 모두 적용한다.
   const base = await resolvePopbillCompanyResolution(input);
   return applySmppCertificates({ bizNo: input.bizNo, now: input.now, resolution: base });
 }
 
-async function resolvePopbillCompanyResolution(input: {
-  bizNo: string;
-  credentials: PopbillCredentials;
-  asOf: Date;
-  now: Date;
-}): Promise<PopbillCompanyResolution> {
+async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promise<PopbillCompanyResolution> {
   // 가드 1: 캐시가 영속 저장되는 DB(drizzle) 어댑터가 아니면(=in-memory) 매 조회가 과금되므로 팝빌 호출을 차단한다.
   if (getRepositoryAdapterName() !== "drizzle") {
     throw new ServiceDataError(
@@ -464,6 +482,88 @@ async function resolvePopbillCompanyResolution(input: {
   }
 
   // 가드 2: 캐시 조회(DB read)가 실패하면 캐시 저장도 불가하므로, 과금을 막기 위해 팝빌 호출을 차단한다.
+  const cached = await readCachedPopbillResolution(input);
+  if (cached) return cached;
+
+  // 신뢰 경계가 아닌 IP 헤더는 로컬 보조 제한에만 쓰지만, 무과금 NTS를 포함한
+  // cache-miss 남용이 무제한으로 늘지 않도록 외부 호출 전에 프로세스 로컬 상한을 적용한다.
+  if (input.publicRequestKey) {
+    try {
+      assertPublicLookupClientRate({ clientKey: input.publicRequestKey, now: input.now });
+      // 신뢰할 수 없는 IP를 우회하더라도 무과금 NTS와 캐시 DB를 포함한 공개 miss 전체를
+      // 신뢰 할당이 불필요한 영속 일일 hard cap으로 먼저 예약한다.
+      await reservePublicLookupBudget({
+        cache: repositories.enrichmentCache,
+        clientKey: input.publicRequestKey,
+        reservationKey: input.bizNo,
+        now: input.now,
+      });
+    } catch (error) {
+      if (error instanceof PublicLookupProtectionError) {
+        throw new ServiceDataError(error.code, error.message, error.status, "bizNo");
+      }
+      throw error;
+    }
+  }
+
+  // 무과금 NTS 판정은 영속 Popbill guard 획득 전에 한다. 미등록/폐업으로 provider를
+  // 호출하지 않는 요청이 명시적 해제 없는 guard를 남기지 않도록 한다.
+  const ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
+
+  // Supabase transaction pooler에서도 안전하도록 session lock 대신 PK upsert 조건을 쓴다.
+  // 행이 없거나 만료된 경우에만 단일 SQL로 lease를 획득하므로 여러 Node 인스턴스가
+  // 동시에 miss를 보더라도 유료 호출은 하나만 시작한다.
+  const claimed = await claimPopbillLiveLookup(input);
+  if (!claimed) {
+    // 다른 인스턴스가 첫 cache read 직후 저장을 끝낸 경합이면 그 결과를 즉시 재사용한다.
+    const raced = await readCachedPopbillResolution(input);
+    if (raced) {
+      await settlePopbillLiveLookupGuard({
+        bizNo: input.bizNo,
+        now: input.now,
+        expiresAt: parseProviderCheckedAt(raced.evidence.cachedUntil),
+        state: "cache_race_resolved",
+      }).catch((error) => {
+        console.warn(`Popbill 조회 guard 정산 실패(종료 경합): ${errorMessage(error)}`);
+      });
+      return raced;
+    }
+    throw new ServiceDataError(
+      "popbill_lookup_busy",
+      "같은 사업자정보 조회가 진행 중입니다. 잠시 후 다시 확인해주세요.",
+      503,
+      "bizNo",
+    );
+  }
+
+  // lease 획득 직전에 다른 요청이 실제 캐시를 저장했을 수 있으므로 과금 직전 한 번 더 확인한다.
+  let rechecked: PopbillCompanyResolution | null;
+  try {
+    rechecked = await readCachedPopbillResolution(input);
+  } catch (error) {
+    // provider 호출 전 캐시 재확인에서 끝난 요청이므로 이 요청의 guard는 해제할 수 있다.
+    await releasePopbillLiveLookupGuard(input.bizNo).catch((releaseError) => {
+      console.warn(`Popbill 조회 guard 해제 실패(캐시 재확인): ${errorMessage(releaseError)}`);
+    });
+    throw error;
+  }
+  if (rechecked) {
+    await settlePopbillLiveLookupGuard({
+      bizNo: input.bizNo,
+      now: input.now,
+      expiresAt: parseProviderCheckedAt(rechecked.evidence.cachedUntil),
+      state: "cache_race_resolved",
+    }).catch((error) => {
+      console.warn(`Popbill 조회 guard 정산 실패(캐시 경합): ${errorMessage(error)}`);
+    });
+    return rechecked;
+  }
+  return runLivePopbillLookup(input, ntsPreGate);
+}
+
+async function readCachedPopbillResolution(
+  input: PopbillLookupInput,
+): Promise<PopbillCompanyResolution | null> {
   let cached: Awaited<ReturnType<typeof repositories.enrichmentCache.getFresh>>;
   try {
     cached = await repositories.enrichmentCache.getFresh({
@@ -482,46 +582,80 @@ async function resolvePopbillCompanyResolution(input: {
     );
   }
   const cachedCanonical = parseCachedCompanyEnrichment(cached?.canonicalPayload);
-  if (cachedCanonical) {
-    const checkedAt = cached?.checkedAt ?? parseProviderCheckedAt(cachedCanonical.facts.checkedAt);
-    const cachedUntil = cached?.expiresAt ?? null;
-    const cachedProfile = backfillCachedPopbillTargetType(
-      cachedCanonical.profile,
-      cached?.rawPayload,
-      checkedAt,
-    );
-    const rebuildEvidence = (profile: CompanyProfile, summary: string): CompanyEvidence =>
-      buildCompanyEvidence({
-        provider: "popbill",
-        source: "popbill_cache",
-        cacheStatus: "hit",
-        profile,
-        facts: cachedCanonical.facts,
-        checkedAt,
-        cachedUntil,
-        summary,
-      });
-    const baseResolution: PopbillCompanyResolution = {
-      profile: cachedProfile,
+  if (!cachedCanonical) return null;
+
+  const checkedAt = cached?.checkedAt ?? parseProviderCheckedAt(cachedCanonical.facts.checkedAt);
+  const cachedUntil = cached?.expiresAt ?? null;
+  const cachedProfile = backfillCachedPopbillTargetType(
+    cachedCanonical.profile,
+    cached?.rawPayload,
+    checkedAt,
+  );
+  const rebuildEvidence = (profile: CompanyProfile, summary: string): CompanyEvidence =>
+    buildCompanyEvidence({
+      provider: "popbill",
+      source: "popbill_cache",
+      cacheStatus: "hit",
+      profile,
       facts: cachedCanonical.facts,
-      evidence: rebuildEvidence(
-        cachedProfile,
-        "저장된 팝빌 조회 결과를 재사용해 회사 정보를 바로 확인했습니다.",
-      ),
-    };
-    // 팝빌 캐시 히트 경로에서만 국세청 상태조회로 휴·폐업 전환을 재확인한다(popbill_live 직후는 중복이라 생략).
-    return applyNtsBusinessStatusOnCacheHit({
-      bizNo: input.bizNo,
-      now: input.now,
-      resolution: baseResolution,
-      rebuildEvidence,
+      checkedAt,
+      cachedUntil,
+      summary,
     });
+  const baseResolution: PopbillCompanyResolution = {
+    profile: cachedProfile,
+    facts: cachedCanonical.facts,
+    evidence: rebuildEvidence(
+      cachedProfile,
+      "저장된 팝빌 조회 결과를 재사용해 회사 정보를 바로 확인했습니다.",
+    ),
+  };
+  // 팝빌 캐시 히트 경로에서만 국세청 상태조회로 휴·폐업 전환을 재확인한다(popbill_live 직후는 중복이라 생략).
+  return applyNtsBusinessStatusOnCacheHit({
+    bizNo: input.bizNo,
+    now: input.now,
+    resolution: baseResolution,
+    rebuildEvidence,
+  });
+}
+
+async function claimPopbillLiveLookup(input: PopbillLookupInput): Promise<boolean> {
+  try {
+    const canonicalPayload = {
+      state: "attempt_reserved",
+      reservedAt: input.now.toISOString(),
+    };
+    const claimed = await repositories.enrichmentCache.claim({
+      provider: POPBILL_LOOKUP_GUARD_PROVIDER,
+      bizNo: input.bizNo,
+      scope: POPBILL_LOOKUP_GUARD_SCOPE,
+      rawPayload: null,
+      canonicalPayload,
+      providerResultCode: "reserved",
+      providerResultMessage: "Popbill live lookup reservation",
+      checkedAt: input.now,
+      fetchedAt: input.now,
+      now: input.now,
+      // SDK hang/서버 종료 시에도 다른 인스턴스가 재과금하지 않도록 명시적 정산 전까지 영속 guard로 둔다.
+      expiresAt: null,
+      payloadHash: hashCanonicalPayload(canonicalPayload),
+    });
+    return claimed !== null;
+  } catch (error) {
+    console.warn(`Popbill 조회 차단: 라이브 조회 예약 실패 - ${errorMessage(error)}`);
+    throw new ServiceDataError(
+      "popbill_cache_unavailable",
+      "사업자 정보 중복조회 방지 상태를 저장하지 못해 조회를 진행할 수 없습니다. 잠시 후 다시 시도해주세요.",
+      503,
+      "bizNo",
+    );
   }
+}
 
-  // 팝빌 라이브 조회(과금) 직전 국세청(NTS) 무료 사전 게이트: 미등록/폐업이면 팝빌 미호출로 차단(과금 0),
-  // 휴업이면 통과하되 상태를 라이브 프로필에 병합해 확인 카드에 경고를 노출한다.
-  const ntsPreGate = await applyNtsPreGateBeforePopbill({ bizNo: input.bizNo, now: input.now });
-
+async function runLivePopbillLookup(
+  input: PopbillLookupInput,
+  ntsPreGate: NtsPreGateResult,
+): Promise<PopbillCompanyResolution> {
   const info = await checkPopbillBizInfo({
     credentials: input.credentials,
     checkCorpNum: input.bizNo,
@@ -549,6 +683,7 @@ async function resolvePopbillCompanyResolution(input: {
   const expiresAt = resolvePopbillCacheExpiresAt(input.now);
   let cacheStatus: CompanyEvidence["cacheStatus"] = "stored";
   let cachedUntil: Date | null = expiresAt;
+  let cacheStored = false;
 
   try {
     await repositories.enrichmentCache.put({
@@ -565,10 +700,23 @@ async function resolvePopbillCompanyResolution(input: {
       expiresAt,
       payloadHash: hashCanonicalPayload(canonicalPayload),
     });
+    cacheStored = true;
   } catch (error) {
     cacheStatus = "none";
     cachedUntil = null;
     console.warn(`Company enrichment cache write failed: ${errorMessage(error)}`);
+  }
+
+  if (cacheStored) {
+    await settlePopbillLiveLookupGuard({
+      bizNo: input.bizNo,
+      now: input.now,
+      expiresAt,
+      state: "cache_stored",
+    }).catch((error) => {
+      // 실제 캐시가 이미 영속 저장됐으므로 결과를 버리지 않는다. 영속 guard는 후속 재조회를 보수적으로 차단한다.
+      console.warn(`Popbill 조회 guard 정산 실패(캐시 저장 후): ${errorMessage(error)}`);
+    });
   }
 
   // 6.5 팝빌 조회 미터링(무과금): 실호출(popbill_live)일 때만 usage_events 에 원가 추적 이벤트를 남긴다.
@@ -595,6 +743,35 @@ async function resolvePopbillCompanyResolution(input: {
         : "팝빌에서 사업자 정보를 확인했습니다.",
     }),
   };
+}
+
+async function settlePopbillLiveLookupGuard(input: {
+  bizNo: string;
+  now: Date;
+  expiresAt: Date | null;
+  state: "cache_stored" | "cache_race_resolved";
+}): Promise<void> {
+  const canonicalPayload = { state: input.state, settledAt: input.now.toISOString() };
+  await repositories.enrichmentCache.put({
+    provider: POPBILL_LOOKUP_GUARD_PROVIDER,
+    bizNo: input.bizNo,
+    scope: POPBILL_LOOKUP_GUARD_SCOPE,
+    canonicalPayload,
+    providerResultCode: "settled",
+    providerResultMessage: "Popbill live lookup guard settled against durable cache",
+    checkedAt: input.now,
+    fetchedAt: input.now,
+    expiresAt: input.expiresAt,
+    payloadHash: hashCanonicalPayload(canonicalPayload),
+  });
+}
+
+async function releasePopbillLiveLookupGuard(bizNo: string): Promise<void> {
+  await repositories.enrichmentCache.deleteByBizNo({
+    bizNo,
+    provider: POPBILL_LOOKUP_GUARD_PROVIDER,
+    scope: POPBILL_LOOKUP_GUARD_SCOPE,
+  });
 }
 
 /**
@@ -719,7 +896,7 @@ async function resolveNtsBusinessStatus(input: {
 async function applyNtsPreGateBeforePopbill(input: {
   bizNo: string;
   now: Date;
-}): Promise<{ classification: NtsBusinessStatusClassification; statusData: NtsBusinessStatusData } | null> {
+}): Promise<NtsPreGateResult> {
   const serviceKey = resolveDataGoKrServiceKey(NTS_SERVICE_KEY_ENV);
   if (!serviceKey) return null;
 
@@ -1152,7 +1329,11 @@ export async function resolveAnonymousProductCompanyProfile(
 
 export async function loadProductCompanyPreview(
   bizNoInput: string,
-  options: { asOf?: Date } = {},
+  options: {
+    asOf?: Date;
+    publicRequestKey?: string;
+    dependencies?: ProductCompanyPreviewDependencies;
+  } = {},
 ): Promise<CompanyPreviewResult> {
   const bizNo = bizNoInput.trim();
   if (!bizNo || !isValidBizNoChecksum(bizNo)) {
@@ -1164,8 +1345,62 @@ export async function loadProductCompanyPreview(
     );
   }
 
-  const resolution = await resolveAnonymousProductCompanyProfile({ bizNo }, options);
+  const asOf = options.asOf ?? new Date();
+  const dependencies = options.dependencies ?? {
+    resolveAnonymous: resolveAnonymousProductCompanyProfile,
+    acquirePublicBase: loadCompanyProfileFromSourceWithEvidence,
+  };
+  let acquisitionEvidence: CompanyEvidence | null = null;
+  let resolution: ResolvedProductCompanyProfile;
+  try {
+    resolution = await dependencies.resolveAnonymous({ bizNo }, { asOf });
+  } catch (error) {
+    if (!(error instanceof ProductProfileResolutionError) || error.code !== "product_profile_unavailable") {
+      throw error;
+    }
+
+    // company-preview POST는 사용자가 명시적으로 요청한 공개 기본조회 command다.
+    // passive teaser는 계속 cache-only이고, 이 경로만 기존 DB guard/NTS pre-gate/single-flight를 거쳐
+    // cache miss 시 Popbill을 최대 한 번 호출한 뒤 resolver가 방금 저장된 public cache를 다시 읽는다.
+    const acquired = await dependencies.acquirePublicBase(bizNo, {
+      asOf,
+      ...(options.publicRequestKey ? { publicRequestKey: options.publicRequestKey } : {}),
+    });
+    acquisitionEvidence = acquired.evidence;
+    if (acquisitionEvidence?.cacheStatus === "none") {
+      // 이미 과금된 성공 결과를 버리면 사용자 재시도를 유발한다. 현재 preview는
+      // 획득한 공개 최소 필드로 성공 반환하고, 영속 guard가 후속 동일 번호 재과금을 차단한다.
+      return buildCompanyPreviewResult({
+        bizNo,
+        profile: acquired.profile,
+        checkedAt: acquisitionEvidence.checkedAt,
+        cacheStatus: "none",
+      });
+    }
+    resolution = await dependencies.resolveAnonymous({ bizNo }, { asOf });
+  }
   const profile = resolution.profile;
+  const checkedAt = resolution.view.rows
+    .flatMap((row) => row.asOf ? [row.asOf] : [])
+    .sort()
+    .at(-1);
+  return buildCompanyPreviewResult({
+    bizNo,
+    profile,
+    ...(checkedAt ? { checkedAt } : {}),
+    ...(resolution.sourceReceipts.some((receipt) => receipt.state === "consumed")
+      ? { cacheStatus: acquisitionEvidence?.cacheStatus ?? "hit" }
+      : {}),
+  });
+}
+
+function buildCompanyPreviewResult(input: {
+  bizNo: string;
+  profile: CompanyProfile;
+  checkedAt?: string | null;
+  cacheStatus?: string;
+}): CompanyPreviewResult {
+  const profile = input.profile;
   const businessStatus: NonNullable<CompanyPreviewResult["businessStatus"]> = {};
   if (typeof profile.business_status?.active === "boolean") {
     businessStatus.active = profile.business_status.active;
@@ -1176,19 +1411,13 @@ export async function loadProductCompanyPreview(
 
   const result: CompanyPreviewResult = {
     name: profile.name ?? null,
-    maskedBizNo: maskCorpNum(bizNo),
+    maskedBizNo: maskCorpNum(input.bizNo),
   };
   if (Object.keys(businessStatus).length > 0) result.businessStatus = businessStatus;
   const regionLabel = profile.region?.label ?? profile.region?.code;
   if (regionLabel) result.regionLabel = regionLabel;
-  const checkedAt = resolution.view.rows
-    .flatMap((row) => row.asOf ? [row.asOf] : [])
-    .sort()
-    .at(-1);
-  if (checkedAt) result.checkedAt = checkedAt;
-  if (resolution.sourceReceipts.some((receipt) => receipt.state === "consumed")) {
-    result.cacheStatus = "hit";
-  }
+  if (input.checkedAt) result.checkedAt = input.checkedAt;
+  if (input.cacheStatus) result.cacheStatus = input.cacheStatus;
   return result;
 }
 

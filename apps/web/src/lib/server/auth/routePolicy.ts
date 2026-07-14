@@ -131,6 +131,7 @@ export const PUBLIC_APP_ROUTES = [
   "GET /api/app/v1/openapi.json",
   "GET /api/app/v1/stats",
   "POST /api/app/v1/teaser",
+  "POST /api/app/v1/companies/preview",
 ] as const;
 
 // 시스템/크론 라우트: 세션·회사 접근 정책이 아니라 CRON_SECRET Bearer 로 보호된다(authorizeCronRequest).

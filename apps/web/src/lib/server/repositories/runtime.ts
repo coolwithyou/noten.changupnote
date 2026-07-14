@@ -22,6 +22,7 @@ import type {
 import type {
   ApplyLedgerEntryInput,
   CaptureHoldResult,
+  ClaimEnrichmentCacheInput,
   CompanyRecord,
   CompanyRepository,
   CreateCompanyInput,
@@ -287,6 +288,15 @@ class RuntimeEnrichmentCacheRepository implements EnrichmentCacheRepository {
     if (input.lastError !== undefined) entry.lastError = cloneRecord(input.lastError);
     this.entries.set(enrichmentCacheKey(input), entry);
     return cloneCacheEntry(entry);
+  }
+
+  async claim(input: ClaimEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null> {
+    const key = enrichmentCacheKey(input);
+    const existing = this.entries.get(key);
+    if (existing && (!existing.expiresAt || existing.expiresAt.getTime() > input.now.getTime())) {
+      return null;
+    }
+    return this.put(input);
   }
 
   async listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]> {

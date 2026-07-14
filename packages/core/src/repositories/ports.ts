@@ -202,6 +202,13 @@ export interface WriteEnrichmentCacheInput {
   lastError?: Record<string, unknown> | null;
 }
 
+export interface ClaimEnrichmentCacheInput extends WriteEnrichmentCacheInput {
+  /** 기존 행의 만료 여부를 판정할 기준 시각. */
+  now: Date;
+  /** null은 명시적 해제/정산 전까지 다시 획득할 수 없는 fail-closed guard다. */
+  expiresAt: Date | null;
+}
+
 export interface DeleteEnrichmentCacheInput {
   bizNo: string;
   provider?: string;
@@ -211,6 +218,8 @@ export interface DeleteEnrichmentCacheInput {
 export interface EnrichmentCacheRepository {
   getFresh(input: ReadEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null>;
   put(input: WriteEnrichmentCacheInput): Promise<EnrichmentCacheEntry>;
+  /** 행이 없거나 이미 만료된 경우에만 단일 원자 연산으로 lease를 획득한다. */
+  claim(input: ClaimEnrichmentCacheInput): Promise<EnrichmentCacheEntry | null>;
   /** 만료 여부와 무관하게 사업자번호에 걸린 모든 캐시 행을 반환한다(개발 진단용). */
   listByBizNo(bizNo: string): Promise<EnrichmentCacheEntry[]>;
   /** 사업자번호(옵션: provider/scope)로 캐시 행을 삭제하고 삭제된 행 수를 반환한다. */

@@ -252,6 +252,53 @@ assert.equal(permanentCache?.providerResultCode, "100");
 assert.equal(permanentCache?.expiresAt, null);
 assert.deepEqual(permanentCache?.canonicalPayload?.profile, { name: "영구 캐시 기업" });
 
+const leaseStart = new Date("2026-06-26T01:00:00.000Z");
+const leaseExpiresAt = new Date("2026-06-26T01:05:00.000Z");
+const leaseInput = {
+  provider: "popbill_guard",
+  bizNo: "1234567890",
+  scope: "checkBizInfo-live-attempt",
+  canonicalPayload: { state: "attempt_reserved" },
+  fetchedAt: leaseStart,
+  expiresAt: leaseExpiresAt,
+  now: leaseStart,
+};
+const simultaneousClaims = await Promise.all([
+  repositories.enrichmentCache.claim(leaseInput),
+  repositories.enrichmentCache.claim(leaseInput),
+]);
+assert.equal(
+  simultaneousClaims.filter((entry) => entry !== null).length,
+  1,
+  "only one concurrent cache lease claim may succeed",
+);
+const activeLeaseClaim = await repositories.enrichmentCache.claim({
+  ...leaseInput,
+  now: new Date("2026-06-26T01:04:59.999Z"),
+});
+assert.equal(activeLeaseClaim, null, "an active lease must not be replaced");
+const expiredLeaseClaim = await repositories.enrichmentCache.claim({
+  ...leaseInput,
+  fetchedAt: leaseExpiresAt,
+  expiresAt: new Date("2026-06-26T01:10:00.000Z"),
+  now: leaseExpiresAt,
+});
+assert.equal(expiredLeaseClaim?.fetchedAt.toISOString(), leaseExpiresAt.toISOString());
+const permanentGuard = await repositories.enrichmentCache.claim({
+  ...leaseInput,
+  provider: "popbill_permanent_guard",
+  expiresAt: null,
+});
+assert.ok(permanentGuard, "a permanent fail-closed guard should be claimable once");
+const permanentGuardRetry = await repositories.enrichmentCache.claim({
+  ...leaseInput,
+  provider: "popbill_permanent_guard",
+  fetchedAt: new Date("2036-06-26T01:00:00.000Z"),
+  expiresAt: null,
+  now: new Date("2036-06-26T01:00:00.000Z"),
+});
+assert.equal(permanentGuardRetry, null, "a permanent guard must require explicit settlement or deletion");
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -263,6 +310,7 @@ console.log(JSON.stringify({
     "runtime_profile_user_scope",
     "runtime_list_user_companies",
     "runtime_company_verify",
+    "runtime_enrichment_cache_atomic_lease",
     "runtime_company_guard",
     "runtime_active_grant_filter",
     "runtime_profile_question_event_nonpersistent",

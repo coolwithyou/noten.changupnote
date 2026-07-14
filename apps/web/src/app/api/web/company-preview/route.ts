@@ -1,19 +1,31 @@
 import type { ActionResult, CompanyPreviewRequest, CompanyPreviewResult } from "@cunote/contracts";
 import { NextResponse } from "next/server";
 import { ProductProfileResolutionError } from "@/lib/server/productProfile/resolveProductCompanyProfile";
+import {
+  PublicLookupProtectionError,
+  publicLookupRequestKey,
+} from "@/lib/server/publicLookupProtection";
 import { loadProductCompanyPreview, ServiceDataError } from "@/lib/server/serviceData";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** 랜딩 상호명 확인 게이트. 익명 경로는 product resolver의 공개 fresh cache만 사용한다. */
+/** 랜딩 상호명 확인 게이트. 명시적 preview 요청에서만 공개 기본정보 cache miss를 보강한다. */
 export async function POST(request: Request) {
   try {
+    const publicRequestKey = publicLookupRequestKey(request, { requireSameOrigin: true });
     const body = await readBody(request);
-    const result = await loadProductCompanyPreview(body.bizNo ?? "", { asOf: new Date() });
+    const result = await loadProductCompanyPreview(body.bizNo ?? "", {
+      asOf: new Date(),
+      publicRequestKey,
+    });
     return NextResponse.json<ActionResult<CompanyPreviewResult>>({ ok: true, data: result });
   } catch (error) {
-    if (error instanceof ServiceDataError || error instanceof ProductProfileResolutionError) {
+    if (
+      error instanceof ServiceDataError ||
+      error instanceof ProductProfileResolutionError ||
+      error instanceof PublicLookupProtectionError
+    ) {
       const responseError: NonNullable<ActionResult<CompanyPreviewResult>["error"]> = {
         code: error.code,
         message: error.message,
