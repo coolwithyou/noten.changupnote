@@ -8,11 +8,11 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  formatAmount,
   formatDday,
   groupMatchesForDisplay,
   matchVerdictStatus,
 } from "@/features/match-results/logic";
+import { buildSupportSummary } from "@/features/match-results/support-summary";
 import { dashboardPrecision } from "@/features/dashboard/dashboardPresentation";
 
 type DashboardTab = "open" | "one-answer" | "all";
@@ -133,7 +133,7 @@ function DashboardTabContent({
               key={match.grantId}
               title={match.title}
               dday={match.status === "upcoming" && match.dDay === null ? "접수 예정" : formatDday(match.dDay)}
-              amount={formatAmount(match.supportAmount)}
+              supportSummary={buildSupportSummary(match)}
               status={noticeStatus(match)}
               href={`/grants/${encodeURIComponent(match.grantId)}`}
             />

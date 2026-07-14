@@ -16,6 +16,7 @@ import { WRITE_SUPPORT_LABELS } from "@cunote/contracts";
 import { isPreparableMatchCard } from "@cunote/core";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
+import { buildSupportSummary, formatKrwAmount } from "./support-summary";
 import {
   readLocalBusinessLookupSuggestions,
   recordBusinessLookupSuggestion,
@@ -767,21 +768,10 @@ export function criterionKindLabel(kind: CriterionKind): string {
 }
 
 export function formatAmount(amount: SupportAmount): string {
-  if (amount.label) return amount.label;
-  const max = amount.max ?? 0;
-  if (max <= 0) return "금액 확인";
-  return formatKrwAmount(max);
+  return buildSupportSummary({ supportAmount: amount, benefits: [] }).text;
 }
 
-export function formatKrwAmount(value: number): string {
-  if (value >= 100_000_000) {
-    const eok = value / 100_000_000;
-    const label = Number.isInteger(eok) ? eok.toLocaleString("ko-KR") : eok.toFixed(1);
-    return `${label}억 원`;
-  }
-  if (value >= 10_000) return `${Math.round(value / 10_000).toLocaleString("ko-KR")}만 원`;
-  return `${Math.max(0, Math.round(value)).toLocaleString("ko-KR")}원`;
-}
+export { formatKrwAmount };
 
 export function formatDday(value: number | null): string {
   if (value === null) return "상시";

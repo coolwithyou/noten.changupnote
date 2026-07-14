@@ -19,13 +19,13 @@ import { MatchFeedbackControls } from "@/features/opportunity-map/MatchFeedbackC
 import { cn } from "@/lib/utils";
 import {
   criterionResultText,
-  formatAmount,
   formatDday,
   groupMatchesForDisplay,
   isUrgentDday,
   matchVerdictStatus,
   writeSupportCta,
 } from "./logic";
+import { buildSupportSummary, type SupportSummary } from "./support-summary";
 
 const DEFAULT_VISIBLE_OPEN = 5;
 
@@ -221,16 +221,18 @@ function ExpandableProgramCard({
 }) {
   const [open, setOpen] = useState(false);
   const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
+  const supportSummary = buildSupportSummary(match);
   if (!open) {
     return (
       <NoticeCard
         title={match.title}
         dday={status === "upcoming" && match.dDay === null ? "접수 예정" : formatDday(match.dDay)}
-        amount={formatAmount(match.supportAmount)}
+        supportSummary={supportSummary}
         status={status === "closed" ? "closed" : cardStatus}
         {...(isNew === undefined ? {} : { isNew })}
         {...(note === undefined ? {} : { note })}
         onClick={() => setOpen(true)}
+        expanded={false}
         {...(className === undefined ? {} : { className })}
       />
     );
@@ -240,6 +242,7 @@ function ExpandableProgramCard({
     <ExpandedProgramCard
       match={match}
       status={status}
+      supportSummary={supportSummary}
       onClose={() => setOpen(false)}
       onOpenProfile={onOpenProfile}
       onPrepare={onPrepare}
@@ -252,6 +255,7 @@ function ExpandableProgramCard({
 function ExpandedProgramCard({
   match,
   status,
+  supportSummary,
   onClose,
   onOpenProfile,
   onPrepare,
@@ -260,6 +264,7 @@ function ExpandedProgramCard({
 }: {
   match: MatchCard;
   status: NoticeCardStatus;
+  supportSummary: SupportSummary;
   onClose: () => void;
   onOpenProfile: () => void;
   onPrepare: (grantId?: string) => void;
@@ -276,7 +281,7 @@ function ExpandedProgramCard({
   return (
     <Card className={cn("gap-0 rounded-2xl border-border-card px-[22px] py-5 shadow-[var(--shadow-notice-hover)] ring-0", className)}>
       <div className="flex items-start gap-2">
-        <h3 className="min-w-0 flex-1 text-[17px] leading-snug font-bold tracking-[-0.2px] text-ink">{match.title}</h3>
+        <h3 className="min-w-0 flex-1 break-words text-[17px] leading-snug font-bold tracking-[-0.2px] text-ink">{match.title}</h3>
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`${match.title} 메뉴`} />}
@@ -290,7 +295,7 @@ function ExpandedProgramCard({
         </DropdownMenu>
       </div>
 
-      <div className="mt-2.5 flex items-center gap-2.5">
+      <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2">
         {status === "upcoming" ? (
           <Badge variant="outline" className="border-brand-mint-soft bg-brand-mint-soft text-brand-mint-ink">
             접수 예정
@@ -306,8 +311,20 @@ function ExpandedProgramCard({
         >
           {formatDday(match.dDay)}
         </span>
-        <span className="ml-auto text-[15px] font-bold text-ink tabular-nums">{formatAmount(match.supportAmount)}</span>
-        <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="카드 접기">
+        <span
+          aria-label={supportSummary.accessibleText}
+          className="ml-auto max-w-full break-words text-right text-[15px] font-bold text-ink tabular-nums"
+        >
+          {supportSummary.text}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          onClick={onClose}
+          aria-label="카드 접기"
+          aria-expanded={true}
+        >
           <ChevronUpIcon />
         </Button>
       </div>

@@ -1,10 +1,20 @@
 import { CheckIcon } from "lucide-react";
-import { NoticeCard } from "@/components/app/notice-card";
+import { NoticeCard, type NoticeCardSupportSummary } from "@/components/app/notice-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const INITIAL_PACKAGE_SUMMARY = {
+  text: "최대 1억 원",
+  accessibleText: "지원 금액: 최대 1억 원",
+} satisfies NoticeCardSupportSummary;
+
+const SCALE_UP_SUMMARY = {
+  text: "최대 5,000만 원",
+  accessibleText: "지원 금액: 최대 5,000만 원",
+} satisfies NoticeCardSupportSummary;
 
 /** 랜딩 히어로의 16초 제품 예시. 전역 공고 비교 수만 실제 랜딩 집계를 사용한다. */
 export function LandingDemo({ comparisonCount }: { comparisonCount: number }) {
@@ -61,13 +71,13 @@ export function LandingDemo({ comparisonCount }: { comparisonCount: number }) {
 
         <div className="mt-4 flex flex-col gap-2">
           <div className="landing-demo-k5">
-            <NoticeCard title="초기창업패키지" dday="D-12" amount="최대 1억 원" status="open" />
+            <NoticeCard title="초기창업패키지" dday="D-12" supportSummary={INITIAL_PACKAGE_SUMMARY} status="open" />
           </div>
           <div className="landing-demo-k6">
             <NoticeCard
               title="부산 청년기업 스케일업"
               dday="D-9"
-              amount="최대 5,000만 원"
+              supportSummary={SCALE_UP_SUMMARY}
               status="open"
             />
           </div>
