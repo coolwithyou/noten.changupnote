@@ -4,6 +4,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /** 랜딩 히어로의 16초 제품 예시. 전역 공고 비교 수만 실제 랜딩 집계를 사용한다. */
 export function LandingDemo({ comparisonCount }: { comparisonCount: number }) {
@@ -24,6 +25,22 @@ export function LandingDemo({ comparisonCount }: { comparisonCount: number }) {
         <div className="landing-demo-k1 flex items-center gap-2.5 rounded-[12px] border border-border-brand-soft bg-surface-brand px-4 py-[13px]">
           <span className="text-base font-bold tracking-[0.5px] text-ink-strong tabular-nums">123-45-***90</span>
           <span className="landing-demo-caret h-[18px] w-0.5 bg-brand" />
+        </div>
+
+        <div
+          className="landing-demo-skeleton pointer-events-none absolute inset-x-[22px] top-[88px] space-y-3"
+          aria-hidden
+        >
+          <div className="space-y-2.5">
+            <Skeleton className="h-3.5 w-[82%] bg-border-subtle/80" />
+            <Skeleton className="h-3.5 w-[68%] bg-border-subtle/70" />
+            <Skeleton className="h-3.5 w-[74%] bg-border-subtle/60" />
+          </div>
+          <Skeleton className="h-[7px] w-full rounded-full bg-border-subtle/70" />
+          <div className="space-y-2">
+            <Skeleton className="h-[54px] w-full rounded-[12px] bg-surface-muted" />
+            <Skeleton className="h-[54px] w-full rounded-[12px] bg-surface-muted/80" />
+          </div>
         </div>
 
         <div className="mt-3.5 flex flex-col gap-[7px]">
