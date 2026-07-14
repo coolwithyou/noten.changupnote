@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div style="display:flex;align-items:center;justify-content:space-between;height:64px;padding:0 40px;border-bottom:1px solid #F1F3F5;background:#FFFFFF">
+  <div style="display:flex;align-items:center;gap:9px">
+    <div style="width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#4A94F8,#2E7DF0);box-shadow:0 4px 10px rgba(49,130,246,0.25);color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px">C</div>
+    <span style="font-size:17px;font-weight:800;color:#222222;letter-spacing:-0.3px">창업노트</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:22px">
+    <sc-if value="{{ showLinks }}" hint-placeholder-val="{{ false }}">
+      <a href="#s6" style="font-size:14px;color:#4B5563;font-weight:600;text-decoration:none">내 신청 현황</a>
+      <a href="#s4" style="font-size:14px;color:#4B5563;font-weight:600;text-decoration:none">내 정보</a>
+    </sc-if>
+    <sc-if value="{{ remOk }}" hint-placeholder-val="{{ false }}">
+      <span style="display:inline-flex;align-items:center;gap:6px;background:#E8F3FF;color:#1B64DA;font-size:13px;font-weight:700;border-radius:99px;padding:6px 13px;font-variant-numeric:tabular-nums;white-space:nowrap">✍ 남은 {{ remaining }}회</span>
+    </sc-if>
+    <sc-if value="{{ remWarn }}" hint-placeholder-val="{{ false }}">
+      <span style="display:inline-flex;align-items:center;gap:6px;background:#FFF3E8;color:#F97316;font-size:13px;font-weight:800;border-radius:99px;padding:6px 13px;font-variant-numeric:tabular-nums;white-space:nowrap">✍ 0회</span>
+    </sc-if>
+    <sc-if value="{{ logged }}" hint-placeholder-val="{{ false }}">
+      <div style="width:34px;height:34px;border-radius:50%;background:#E8F3FF;color:#1B64DA;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center">바</div>
+    </sc-if>
+    <sc-if value="{{ notLogged }}" hint-placeholder-val="{{ true }}">
+      <button style="background:#F2F4F6;color:#4B5563;border:none;border-radius:10px;padding:9px 16px;font-size:14px;font-weight:700;font-family:inherit;cursor:pointer" style-hover="background:#E5E8EB">로그인</button>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:64},&quot;logged&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;showLinks&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;remaining&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const l = !!this.props.logged;
+    const rem = this.props.remaining;
+    const hasRem = rem !== undefined && rem !== null && rem !== '';
+    const warn = hasRem && String(rem) === '0';
+    return { logged: l, notLogged: !l, showLinks: !!this.props.showLinks, remaining: rem, remOk: hasRem && !warn, remWarn: warn };
+  }
+}
+</script>
+</body>
+</html>

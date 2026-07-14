@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <span style="font-size:15px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums;color:#222222">{{ label }}</span>
+    <div style="flex:1;height:8px;background:#F1F3F5;border-radius:99px;overflow:hidden">
+      <div style="height:100%;background:linear-gradient(90deg,#2BD4A8,#3BE3B8);border-radius:99px;width:{{ fillW }}"></div>
+    </div>
+    <sc-if value="{{ hasDelta }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:12.5px;font-weight:800;color:#0BA678;background:#E6FBF1;border-radius:8px;padding:3px 8px;font-variant-numeric:tabular-nums">{{ delta }}</span>
+    </sc-if>
+  </div>
+  <div style="display:flex;justify-content:space-between;gap:16px;margin-top:8px;font-size:12.5px;color:#8B95A1">
+    <span>{{ caption }}</span>
+    <span style="white-space:nowrap;font-variant-numeric:tabular-nums">{{ meta }}</span>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:720,&quot;height&quot;:52},&quot;pct&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:64,&quot;min&quot;:0,&quot;max&quot;:100,&quot;step&quot;:1,&quot;unit&quot;:&quot;%&quot;,&quot;tsType&quot;:&quot;number&quot;},&quot;label&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;매칭 정밀도 64%&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;caption&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;회사를 더 설명할수록 결과가 정확해져요&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;meta&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;자동으로 확인 7 · 직접 채우면 +4&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;delta&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const p = +(this.props.pct ?? 64);
+    return { fillW: p + '%', hasDelta: !!this.props.delta };
+  }
+}
+</script>
+</body>
+</html>

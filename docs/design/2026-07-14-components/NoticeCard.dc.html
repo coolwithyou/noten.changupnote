@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<a href="{{ href }}" style="display:block;background:#FFFFFF;border:1px solid #EEF2F6;border-radius:16px;padding:18px 20px;text-decoration:none;color:#222222;box-shadow:0 2px 12px rgba(49,130,246,0.05)" style-hover="border-color:#C9DEF8;box-shadow:0 12px 30px rgba(49,130,246,0.11)">
+  <div style="display:flex;align-items:center;gap:8px">
+    <sc-if value="{{ showNew }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:11px;font-weight:800;color:#0BA678;background:#E6FBF1;border-radius:6px;padding:2px 6px">NEW</span>
+    </sc-if>
+    <span style="font-size:16px;font-weight:700;flex:1;letter-spacing:-0.2px">{{ title }}</span>
+    <span style="color:#B0B8C1;font-size:15px">⌄</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;margin-top:11px">
+    <sc-if value="{{ isOpen }}" hint-placeholder-val="{{ true }}">
+      <span style="font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:8px;background:#E6FBF1;color:#0BA678">지금 신청 가능</span>
+    </sc-if>
+    <sc-if value="{{ isConfirm }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:8px;background:#E8F3FF;color:#3182F6">답하면 확정</span>
+    </sc-if>
+    <sc-if value="{{ isCheck }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:8px;background:#F2F4F6;color:#6B7280">원문 확인 필요</span>
+    </sc-if>
+    <sc-if value="{{ isHard }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:12.5px;font-weight:700;padding:4px 10px;border-radius:8px;background:#F7F8FA;color:#B0B8C1">이번엔 어려움</span>
+    </sc-if>
+    <sc-if value="{{ urgent }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:13.5px;font-weight:800;color:#F04452;font-variant-numeric:tabular-nums">{{ dday }}</span>
+    </sc-if>
+    <sc-if value="{{ notUrgent }}" hint-placeholder-val="{{ true }}">
+      <span style="font-size:13.5px;font-weight:600;color:#6B7280;font-variant-numeric:tabular-nums">{{ dday }}</span>
+    </sc-if>
+    <span style="margin-left:auto;font-size:15px;font-weight:700;font-variant-numeric:tabular-nums">{{ amount }}</span>
+    <sc-if value="{{ isUpcoming }}" hint-placeholder-val="{{ false }}">
+      <span style="font-size:13px;font-weight:700;color:#3182F6;cursor:pointer;white-space:nowrap">알림 받기</span>
+    </sc-if>
+  </div>
+  <sc-if value="{{ hasNote }}" hint-placeholder-val="{{ false }}">
+    <div style="margin-top:10px;font-size:13.5px;color:#4B5563;background:#F8FAFB;border-radius:10px;padding:9px 12px">{{ note }}</div>
+  </sc-if>
+</a>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:720,&quot;height&quot;:96},&quot;title&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;초기창업패키지&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;dday&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;D-12&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;amount&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;최대 1억 원&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;status&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;open&quot;,&quot;options&quot;:[&quot;open&quot;,&quot;confirm&quot;,&quot;check&quot;,&quot;hard&quot;,&quot;upcoming&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;isNew&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;note&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;href&quot;:{&quot;editor&quot;:null,&quot;default&quot;:&quot;#s5&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const s = this.props.status ?? 'open';
+    const d = this.props.dday ?? '';
+    const m = /^D-(\d+)/.exec(d);
+    const urgent = !!m && +m[1] <= 14;
+    return {
+      isOpen: s === 'open', isConfirm: s === 'confirm', isCheck: s === 'check',
+      isHard: s === 'hard', isUpcoming: s === 'upcoming',
+      urgent, notUrgent: !urgent,
+      showNew: !!this.props.isNew, hasNote: !!this.props.note,
+      href: this.props.href ?? '#s5'
+    };
+  }
+}
+</script>
+</body>
+</html>
