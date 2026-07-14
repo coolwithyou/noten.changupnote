@@ -539,7 +539,8 @@ function verifyServiceDtoSchemas(errors: string[]) {
     errors.push("CreateCompanyRequest schema is missing properties.");
     return;
   }
-  if (Array.isArray(createCompanyRequest.required) && createCompanyRequest.required.includes("profile")) {
+  const createCompanyRequestRecord: Record<string, unknown> = createCompanyRequest;
+  if (Array.isArray(createCompanyRequestRecord.required) && createCompanyRequestRecord.required.includes("profile")) {
     errors.push("CreateCompanyRequest must not require the legacy profile input.");
   }
   if (propertyType(createCompanyRequest.properties.bizNo) !== "string") {
