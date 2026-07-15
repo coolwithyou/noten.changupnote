@@ -13,6 +13,7 @@ import {
   Download,
   ExternalLink,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import type { GrantSource } from "@cunote/contracts";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -24,6 +25,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -41,12 +51,15 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
   WEEKDAYS,
@@ -509,7 +522,7 @@ function CalendarDayCell({
               <EventChip event={event} key={event.id} />
             ))}
             {events.length > 2 ? (
-              <DayOverflowPopover events={events} extra={events.length - 2} />
+              <DayEventsDialog events={events} extra={events.length - 2} />
             ) : null}
           </div>
           {events.length > 0 ? (
@@ -552,16 +565,33 @@ function EventChip({ event }: { event: PublicCalendarEvent }) {
   );
 }
 
-function DayOverflowPopover({
+/**
+ * "+N개" → 그날 전체 일정 모달. 하루 100건이 넘는 날이 실재해(7/1 156건)
+ * 팝오버 리스트로는 감당이 안 된다 — 고정 높이 모달 + 검색으로 살펴본다.
+ * 스크롤은 min-h-0 flex 자식의 overflow-y-auto로 확정한다
+ * (base-ui ScrollArea는 루트 max-h만으로는 viewport 높이가 잡히지 않음).
+ */
+function DayEventsDialog({
   events,
   extra,
 }: {
   events: PublicCalendarEvent[];
   extra: number;
 }) {
+  const [query, setQuery] = useState("");
+  const date = events[0]?.date;
+  const normalized = query.trim().toLowerCase();
+  const visibleEvents = normalized
+    ? events.filter((event) => eventSearchText(event).includes(normalized))
+    : events;
+
   return (
-    <Popover>
-      <PopoverTrigger
+    <Dialog
+      onOpenChange={(open) => {
+        if (open) setQuery("");
+      }}
+    >
+      <DialogTrigger
         render={
           <Button
             className="w-full justify-start text-muted-foreground"
@@ -571,21 +601,116 @@ function DayOverflowPopover({
         }
       >
         +{extra}개
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-80 p-0">
-        <ScrollArea className="max-h-[min(60vh,24rem)]">
-          <div className="flex flex-col gap-3 p-4">
-            {events.map((event, index) => (
-              <div className="flex flex-col gap-3" key={event.id}>
-                {index > 0 ? <Separator /> : null}
-                <EventDetailBody event={event} />
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
-      </PopoverContent>
-    </Popover>
+      </DialogTrigger>
+      <DialogContent className="flex max-h-[min(80vh,42rem)] w-[calc(100%-2rem)] flex-col gap-0 p-0 sm:max-w-xl">
+        <DialogHeader className="border-b border-border px-5 py-4">
+          <DialogTitle className="text-base font-extrabold tracking-[-0.01em]">
+            {date ? formatFullDate(date) : ""} 일정 {events.length.toLocaleString("ko-KR")}건
+          </DialogTitle>
+          <DialogDescription>
+            제목·기관·분야·지역으로 검색해 살펴보세요.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-1 px-5 pt-3 pb-2">
+          <InputGroup>
+            <InputGroupAddon>
+              <Search />
+            </InputGroupAddon>
+            <InputGroupInput
+              aria-label="일정 검색"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="공고 제목, 기관, 분야, 지역 검색"
+              value={query}
+            />
+          </InputGroup>
+          {normalized ? (
+            <p className="px-1 text-xs text-muted-foreground tabular-nums">
+              {visibleEvents.length.toLocaleString("ko-KR")}건 일치
+            </p>
+          ) : null}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+          {visibleEvents.length > 0 ? (
+            <ul className="flex flex-col">
+              {visibleEvents.map((event) => (
+                <DayEventRow event={event} key={event.id} />
+              ))}
+            </ul>
+          ) : (
+            <Empty className="min-h-32">
+              <EmptyHeader>
+                <EmptyTitle>검색 결과가 없어요.</EmptyTitle>
+                <EmptyDescription>다른 검색어로 시도해 보세요.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </div>
+        <DialogFooter className="border-t border-border px-5 py-3 sm:justify-between sm:gap-3">
+          <p className="hidden self-center text-xs text-muted-foreground sm:block">
+            사업자번호를 입력하면 맞는 공고만 골라 드려요.
+          </p>
+          <a className={cn(buttonVariants({ size: "sm" }))} href="/">
+            내 조건으로 확인
+          </a>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
+}
+
+/** 모달 리스트 행 — 색점 + 제목 + 일정·기관·분야 한 줄 + 원문 링크. */
+function DayEventRow({ event }: { event: PublicCalendarEvent }) {
+  const closed = event.status === "closed";
+  const meta = [eventScheduleLabel(event), event.agency, event.categoryL1]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <li
+      className={cn(
+        "flex items-center gap-3 border-b border-border-subtle py-2.5 last:border-b-0",
+        closed && "opacity-60",
+      )}
+    >
+      <Circle
+        aria-hidden
+        className={cn(
+          "size-2 shrink-0 fill-current",
+          closed
+            ? "text-muted-foreground"
+            : event.kind === "deadline"
+              ? "text-destructive"
+              : "text-success",
+        )}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-bold text-foreground">{event.title}</p>
+        <p className="truncate text-xs text-muted-foreground">{meta}</p>
+      </div>
+      {event.url ? (
+        <a
+          className={cn(buttonVariants({ variant: "link", size: "sm" }), "shrink-0")}
+          href={event.url}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          원문
+          <ExternalLink data-icon="inline-end" />
+        </a>
+      ) : null}
+    </li>
+  );
+}
+
+function eventSearchText(event: PublicCalendarEvent): string {
+  return [
+    event.title,
+    event.agency ?? "",
+    event.categoryL1 ?? "",
+    event.regionLabels.join(" "),
+    event.sourceLabel,
+  ]
+    .join(" ")
+    .toLowerCase();
 }
 
 function EventDetailBody({ event }: { event: PublicCalendarEvent }) {
