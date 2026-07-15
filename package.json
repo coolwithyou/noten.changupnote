@@ -176,6 +176,7 @@
     "verify:grant-document-draft-metrics": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/verify-grant-document-draft-metrics.ts",
     "verify:review-surface-bridge": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/verify-review-surface-bridge.ts",
     "verify:application-calendar-subscription": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/applications/verify-application-calendar-subscription.ts",
+    "verify:public-calendar": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/calendar/dates.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/calendar/ics.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/publicCalendar/query.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/publicCalendar/publicCalendarCore.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/features/public-calendar/publicCalendarLinks.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/features/applications/ApplicationCalendarView.test.ts",
     "verify:application-reminder-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/applications/verify-application-reminder-email-handoff.ts",
     "verify:billing-invoice-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/billing/verify-billing-invoice-email-handoff.ts",
     "verify:billing-plan-request-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/billing/verify-billing-plan-request-email-handoff.ts",
