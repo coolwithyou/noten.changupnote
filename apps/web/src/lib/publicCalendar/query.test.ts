@@ -46,14 +46,14 @@ assert.deepEqual(
 assert.equal(parsePublicCalendarSearchParams({}, CURRENT).month, CURRENT, "부재 → 현재 월");
 assert.equal(parsePublicCalendarSearchParams({ month: "not-month" }, CURRENT).month, CURRENT);
 assert.equal(parsePublicCalendarSearchParams({ month: "2026-13" }, CURRENT).month, CURRENT, "월 범위 밖");
-assert.equal(parsePublicCalendarSearchParams({ month: "2023-12" }, CURRENT).month, CURRENT, "MIN 미만");
+assert.equal(parsePublicCalendarSearchParams({ month: "2012-12" }, CURRENT).month, CURRENT, "MIN 미만");
 assert.equal(parsePublicCalendarSearchParams({ month: "2027-08" }, CURRENT).month, CURRENT, "현재+12 초과");
 // 경계는 허용
 assert.equal(parsePublicCalendarSearchParams({ month: CALENDAR_MIN_MONTH }, CURRENT).month, CALENDAR_MIN_MONTH);
 assert.equal(parsePublicCalendarSearchParams({ month: "2027-07" }, CURRENT).month, "2027-07", "현재+12 경계 허용");
 
 // ── clamp 경계 ─────────────────────────────────────────────────
-assert.equal(clampCalendarMonth("2023-05", CURRENT), CALENDAR_MIN_MONTH, "하한 clamp");
+assert.equal(clampCalendarMonth("2012-05", CURRENT), CALENDAR_MIN_MONTH, "하한 clamp");
 assert.equal(clampCalendarMonth("2030-01", CURRENT), "2027-07", "상한(현재+12) clamp");
 assert.equal(clampCalendarMonth("2026-09", CURRENT), "2026-09", "범위 내 유지");
 assert.equal(clampCalendarMonth(CALENDAR_MIN_MONTH, CURRENT), CALENDAR_MIN_MONTH, "하한 경계");

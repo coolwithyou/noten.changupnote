@@ -22,8 +22,8 @@ export interface PublicCalendarFilters {
 }
 
 // 하한 월. 아카이브 롱테일 SEO를 위해 과거 월도 허용한다.
-// TODO(5단계): grants.apply_end DB min 실측으로 조정한다.
-export const CALENDAR_MIN_MONTH = "2024-01";
+// 2026-07-15 DB 실측: apply_end 최솟값 2012-12이나 2012년은 2건뿐이라 유의미 밀도가 시작되는 2013-01로 고정.
+export const CALENDAR_MIN_MONTH = "2013-01";
 // 현재 월 기준 미래 허용 폭(개월). 이 범위 밖 month는 폴백/clamp된다.
 export const CALENDAR_MAX_FUTURE_MONTHS = 12;
 

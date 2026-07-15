@@ -1,12 +1,13 @@
 # 공개 전체-공고 마감 캘린더 (`/calendar`) 실행 계획
 
-> **🟡 진행 상황 (2026-07-15)**
-> - ✅ 1단계 완료: 순수 자산 추출 — `lib/calendar/dates.ts` + `lib/server/calendar/ics.ts` 신설, 개인 캘린더 리팩터(기능 변화 0), 게이트 5종 통과
-> - ⬜ 2단계: 서버 데이터 계층 (core export + publicCalendar query/Core/Data)
-> - ⬜ 3단계: `/calendar` 페이지 + PublicCalendarView + GNB/푸터
-> - ⬜ 4단계: 공개 ICS 피드 + 연동 드롭다운
-> - ⬜ 5단계: verify 체인 wiring + 최종 검증
-> - 수동 검증(dev 서버·모바일·Apple 캘린더 import)은 사용자 동반 필요. Google/Outlook 구독 확인은 프로덕션 배포 후.
+> **🟢 구현 완료 (2026-07-15)** — 1~5단계 전부 커밋됨
+> - ✅ 1단계 (5caef0e): 순수 자산 추출 — `lib/calendar/dates.ts` + `lib/server/calendar/ics.ts`, 개인 캘린더 리팩터(기능 변화 0)
+> - ✅ 2단계 (69ecc32): 서버 데이터 계층 — core 지역 export, publicCalendar query/Core/Data(월 캐시)
+> - ✅ 3단계 (23ab000): `/calendar` 페이지 + PublicCalendarView + 비로그인 GNB/푸터 링크
+> - ✅ 4단계 (1ce8f2c): 공개 ICS 피드 + 연동 드롭다운(Google/Apple/Outlook/webcal/.ics)
+> - ✅ 5단계: `verify:public-calendar` 체인, `CALENDAR_MIN_MONTH=2013-01`(DB 실측: 2012년은 2건뿐, 2013년부터 90건~). 게이트 전부 통과(typecheck·route-policy·드리프트 0·리그레션)
+> - **잔여(사용자 동반)**: dev 서버 수동 검증 — 시크릿 창 `/calendar` 렌더·월 이동·필터 URL 왕복·팝오버(원문 새 탭, 내 조건 확인→`/`)·모바일 뷰포트·`curl /api/web/public-calendar` ICS 확인·.ics Apple 캘린더 import. Google/Outlook 구독 확인은 프로덕션 배포 후.
+> - **후속 과제**: grants 10만 건 도달 시 `grants_apply_start_idx` 추가 검토 · 기존 드리프트 부채 4파일(archive 뷰 등, 이번 범위 밖) · sitemap.ts(선택)
 
 ## 1. 배경과 목적
 
