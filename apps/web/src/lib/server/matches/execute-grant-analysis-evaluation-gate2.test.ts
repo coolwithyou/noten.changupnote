@@ -99,7 +99,7 @@ assert.equal(firstInterrupted.status, "incomplete");
 assert.equal(firstInterrupted.externalCallsMade, 11, "post-fetch failure remains counted in its invocation");
 const interruptedCheckpoint = JSON.parse(await readFile(interrupted.checkpointPath, "utf8"));
 assert.equal(interruptedCheckpoint.grants["bizinfo:attachment"].stages.extract_c.lastError,
-  "provider_call_failed", "unrecognized provider errors remain redacted");
+  "provider_runtime_validation:output_shape", "normalizer failures retain only a safe diagnostic code");
 const beforeResume = interruptedCalls.length;
 const successfulBeforeResume = new Set(interruptedCalls
   .filter((call) => !(call.stage === "extract_c" && call.attempt === 1))
@@ -253,7 +253,12 @@ function fakeProvider(
       });
       assert.equal(await context.verifyPersistedReservation(request.reservation), true);
       context.markFetchStarted();
-      if (options.fail?.(request)) throw new Error("synthetic interruption");
+      if (options.fail?.(request)) {
+        assert.equal(request.validateOutput({}), false);
+        throw new Error(
+          `Anthropic evaluation ${request.stage} failed runtime schema validation (status=200 requestId=req_synthetic).`,
+        );
+      }
       if (request.stage === "judge_3") {
         const axes = (((request.outputSchema.properties as Record<string, unknown>).axes as Record<string, unknown>)
           .items as Record<string, unknown>).properties as Record<string, unknown>;

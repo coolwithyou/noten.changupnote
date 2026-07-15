@@ -40,7 +40,6 @@ import {
   normalizeGrantAnalysisEvaluationGate2StageOutput,
   serializeGrantAnalysisEvaluationExtractorPacketForProvider,
   serializeGrantAnalysisEvaluationJudgePacketForProvider,
-  validateGrantAnalysisEvaluationGate2StageOutput,
   type GrantAnalysisEvaluationExtractorPacket,
   type GrantAnalysisEvaluationGate2FrozenInput,
 } from "../ingestion/grantAnalysisEvaluationGate2";
@@ -318,6 +317,7 @@ async function executeGrantAnalysisEvaluationGate2Internal(
           : context.stage === "extract_c" ? input.rawC
           : input.rawOnlyJudge;
         const systemPrompt = promptForStage(context.stage);
+        let runtimeValidationFailure: string | null = null;
         let providerResult: GrantAnalysisEvaluationAnthropicResult;
         try {
           providerResult = await provider.call({
@@ -328,17 +328,29 @@ async function executeGrantAnalysisEvaluationGate2Internal(
             maxTokens: plan.receipt.fingerprintInput.stages[context.stage].maxOutputTokens,
             outputSchema,
             reservation: context.reservation,
-            validateOutput: (value) => validateGrantAnalysisEvaluationGate2StageOutput({
-              stage: context.stage,
-              value,
-              grantKey: context.grant.grantKey,
-              sourceRevision: context.grant.sourceRevision,
-              packet,
-              ...(context.stage === "judge_3" ? { judge3EligibleAxes: context.eligibleAxes } : {}),
-            }),
+            validateOutput: (value) => {
+              try {
+                normalizeGrantAnalysisEvaluationGate2StageOutput({
+                  stage: context.stage,
+                  value,
+                  grantKey: context.grant.grantKey,
+                  sourceRevision: context.grant.sourceRevision,
+                  packet,
+                  ...(context.stage === "judge_3" ? { judge3EligibleAxes: context.eligibleAxes } : {}),
+                });
+                runtimeValidationFailure = null;
+                return true;
+              } catch (error) {
+                runtimeValidationFailure = safeNormalizationFailureCode(error);
+                return false;
+              }
+            },
           });
         } catch (error) {
-          throw new Error(safeProviderFailureCode(error));
+          const providerFailure = safeProviderFailureCode(error);
+          throw new Error(providerFailure === "provider_runtime_validation" && runtimeValidationFailure
+            ? `${providerFailure}:${runtimeValidationFailure}`
+            : providerFailure);
         }
         const providerOutputSha256 = requireSha256(providerResult.receipt.outputSha256, "provider output");
         if (providerResult.stage !== context.stage ||
@@ -785,6 +797,28 @@ function safeProviderFailureCode(error: unknown): string {
   if (message.includes("request failed before response")) return "provider_transport_failure";
   const status = message.match(/failed \(status=(\d{3})/);
   return status ? `provider_http_${status[1]}` : "provider_call_failed";
+}
+
+function safeNormalizationFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("Truncated or schema-recovered")) return "truncated_or_recovered";
+  if (message.includes("explicit_no_condition is forbidden")) return "explicit_no_condition_unread_input";
+  if (message.includes("confirmed states require grounded evidence")) return "grounding_required";
+  if (message.includes("not grounded in its claimed packet block")) return "grounding_mismatch";
+  if (message.includes("canonical bytewise order") || message.includes("canonical axis order") ||
+      message.includes("eligible axis") || message.includes("eligible axes") ||
+      message.includes("Duplicate axis") || message.includes("every eligible axis")) {
+    return "axis_set_or_order";
+  }
+  if (message.includes("normalizedCondition") || message.includes("criteria[")) return "normalized_condition";
+  if (message.includes("requiredDocuments") || message.includes("required document")) return "required_documents";
+  if (message.includes("identity") || message.includes("revision drifted")) return "identity";
+  if (message.includes("missing or extra keys") || message.includes("must be an object") ||
+      message.includes("must be an array")) return "output_shape";
+  if (message.includes("confidence") || message.includes("exceptions") ||
+      message.includes("logicalRelation") || message.includes("applicablePeriod") ||
+      message.includes("note must be") || message.includes("state is invalid")) return "axis_fields";
+  return "normalization_unknown";
 }
 
 function requireSha256(value: string, label: string): string {
