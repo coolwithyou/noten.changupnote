@@ -8,6 +8,8 @@ import {
   type GrantRequiredDocument,
 } from "@cunote/contracts";
 import {
+  DISQUALIFICATION_EXCEPTIONS,
+  DISQUALIFICATION_FLAGS,
   GRANT_ANALYSIS_EVALUATION_AXES,
   GRANT_ANALYSIS_EVALUATION_STATES,
   assertGrantCriteriaContract,
@@ -56,6 +58,19 @@ export const GRANT_ANALYSIS_EVALUATION_GROUNDING_VERSION =
 export const GRANT_ANALYSIS_EVALUATION_JUDGE3_SCHEMA_FACTORY_VERSION =
   "grant-analysis-evaluation-judge3-schema-factory-v2";
 
+export const GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE = [
+  `Canonical axis order: ${GRANT_ANALYSIS_EVALUATION_AXES.join(", ")}.`,
+  "normalizedCondition must be null unless state is condition_present.",
+  "For condition_present, normalizedCondition must be {json:string}; that string must encode exactly {\"criteria\":[{\"operator\":...,\"kind\":...,\"value\":{...}}]} with a non-empty criteria array and non-empty value objects.",
+  `Allowed operators: ${CRITERION_OPERATORS.join(", ")}. Allowed kinds: ${CRITERION_KINDS.join(", ")}.`,
+  "Canonical structured values: region uses {regions:[string],nationwide?:boolean}; biz_age uses {min_months?:number|null,max_months?:number|null,include_preliminary?:boolean}; founder_age uses {ranges:[{min?:number|null,max?:number|null}]}; industry/size/founder_trait/certification/ip/target_type use respectively {tags:[string]}/{sizes:[string]}/{traits:[string]}/{certs:[string]}/{types:[string]}/{targets:[string]}; revenue uses {min_krw?:number,max_krw?:number}; employees uses {min?:number,max?:number}.",
+  `Disqualification values use {flags:[canonical flag],exceptions?:[canonical exception]}. Axis flags: tax_compliance=${DISQUALIFICATION_FLAGS.tax_compliance.join("|")}; credit_status=${DISQUALIFICATION_FLAGS.credit_status.join("|")}; sanction=${DISQUALIFICATION_FLAGS.sanction.join("|")}. Exceptions: ${DISQUALIFICATION_EXCEPTIONS.join("|")}.`,
+  "prior_award uses scope self|program|program_type, optional labels, states participating|completed|graduated, optional within {value:positive number,unit:year|month}; self requires self_kind current_similar|same_project|same_business_prior|same_year_other_support or channel incubation_tenancy, while program/program_type require non-empty programs. Exclusion prior_award always requires scope.",
+  "financial_health uses optional debt_ratio_pct_threshold {value:number,inclusive:boolean}, impairment_excluded [partial|full], min_interest_coverage number; insured_workforce uses optional employment_insurance_required boolean, min_insured/max_insured/no_layoff_within_months numbers; investment uses optional min_total_krw number, rounds [string], tips_operator_required boolean.",
+  "Use numeric JSON values for numbers, never formatted number strings. Lists required by in/not_in must be non-empty.",
+  "For any condition that does not fit a canonical structured value exactly, do not invent keys or enum values: use operator text_only with value {\"note\":\"short literal condition grounded in the cited evidence\"}.",
+].join("\n");
+
 export const GRANT_ANALYSIS_EVALUATION_ROLE_PROMPTS = {
   extractor: [
     "You extract grant eligibility conditions from the supplied raw grant input only.",
@@ -65,6 +80,7 @@ export const GRANT_ANALYSIS_EVALUATION_ROLE_PROMPTS = {
     "Every confirmed condition must retain a short verbatim evidence span from the supplied input.",
     "When evidence or expected attachments are incomplete, prefer unknown over explicit absence.",
     "For condition_present only, normalizedCondition.json must encode exactly {criteria:[{operator,kind,value}]} as compact JSON; every other state must use null.",
+    GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE,
   ].join("\n"),
   judge1: [
     "You are the first independent raw-only grant eligibility judge.",
@@ -73,6 +89,7 @@ export const GRANT_ANALYSIS_EVALUATION_ROLE_PROMPTS = {
     "Inspect all 22 axes literally and exhaustively, preserving exceptions, logical relations, periods, and verbatim evidence.",
     "Missing, unread, or truncated expected input forbids an explicit-no-condition conclusion.",
     "For condition_present, encode the canonical value inside normalizedCondition as {json: compact JSON string}; otherwise use null.",
+    GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE,
   ].join("\n"),
   judge2: [
     "You are the second independent raw-only grant eligibility judge.",
@@ -81,6 +98,7 @@ export const GRANT_ANALYSIS_EVALUATION_ROLE_PROMPTS = {
     "Do not assume another judge's answer and do not use candidate labels, scores, match outcomes, or reviewed labels.",
     "Missing, unread, or truncated expected input forbids an explicit-no-condition conclusion.",
     "For condition_present, encode the canonical value inside normalizedCondition as {json: compact JSON string}; otherwise use null.",
+    GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE,
   ].join("\n"),
   judge3: [
     "You independently adjudicate only the supplied disagreement axes using the raw packet and the two isolated judgments.",
@@ -88,6 +106,7 @@ export const GRANT_ANALYSIS_EVALUATION_ROLE_PROMPTS = {
     "Do not revisit agreed axes and do not force a decision when the raw evidence remains ambiguous.",
     "Return unresolved when neither judgment is adequately grounded.",
     "For condition_present, encode the canonical value inside normalizedCondition as {json: compact JSON string}; otherwise use null.",
+    GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE,
   ].join("\n"),
 } as const;
 

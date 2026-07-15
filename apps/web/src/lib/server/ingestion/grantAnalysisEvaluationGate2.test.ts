@@ -8,6 +8,8 @@ import type { GrantAnalysisEvaluationJudgeLedger, GrantAnalysisEvaluationJudgePa
 import type { GrantAnalysisPilotInputs } from "./grantAnalysisPilotInputs";
 import { GRANT_ANALYSIS_PILOT_INPUT_TRANSFORM_VERSION } from "./grantAnalysisPilotInputs";
 import {
+  GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE,
+  GRANT_ANALYSIS_EVALUATION_ROLE_PROMPTS,
   buildGrantAnalysisEvaluationJudge3OutputSchema,
   buildGrantAnalysisEvaluationGate2Receipt,
   evaluationSchemas,
@@ -135,6 +137,86 @@ const ledger = {
 assert.equal(validateGrantAnalysisEvaluationGate2StageOutput({
   stage: "judge_1", value: ledger, grantKey, sourceRevision, packet: judgePacket,
 }), true);
+
+for (const prompt of Object.values(GRANT_ANALYSIS_EVALUATION_ROLE_PROMPTS)) {
+  assert.equal(prompt.includes(GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE), true);
+  for (const dimension of GRANT_ANALYSIS_EVALUATION_AXES) assert.equal(prompt.includes(dimension), true);
+}
+for (const contractToken of [
+  "national_tax_delinquent", "loan_default", "participation_restricted",
+  "payment_deferral_approved", "scope self|program|program_type", "same_project",
+  "debt_ratio_pct_threshold", "employment_insurance_required", "min_total_krw",
+]) {
+  assert.equal(GRANT_ANALYSIS_EVALUATION_CONDITION_GUIDANCE.includes(contractToken), true);
+}
+
+const textOnlyOutput = structuredClone(extractorOutput);
+const textOnlyIndustry = textOnlyOutput.axisAssessments.find((axis) => axis.dimension === "industry")!;
+textOnlyIndustry.normalizedCondition = {
+  json: JSON.stringify({
+    criteria: [{ operator: "text_only", kind: "required", value: { note: "인공지능 산업" } }],
+  }),
+};
+const textOnlyNormalized = normalizeGrantAnalysisEvaluationGate2StageOutput({
+  stage: "extract_b",
+  value: textOnlyOutput,
+  grantKey,
+  sourceRevision,
+  packet: extractorPacket,
+});
+assert.equal(textOnlyNormalized.recordType, "grant_analysis_evaluation_normalized_extraction");
+if (textOnlyNormalized.recordType !== "grant_analysis_evaluation_normalized_extraction") throw new Error("wrong output");
+assert.equal(textOnlyNormalized.criteria[0]?.operator, "text_only");
+assert.deepEqual(textOnlyNormalized.criteria[0]?.value, { note: "인공지능 산업" });
+
+const complexCanonicalValues = [
+  ["tax_compliance", "not_in", "exclusion", {
+    flags: ["national_tax_delinquent"], exceptions: ["payment_deferral_approved"],
+  }],
+  ["credit_status", "not_in", "exclusion", { flags: ["loan_default"] }],
+  ["sanction", "not_in", "exclusion", { flags: ["participation_restricted"] }],
+  ["prior_award", "not_in", "exclusion", { scope: "self", self_kind: "same_project" }],
+  ["financial_health", "lte", "required", {
+    debt_ratio_pct_threshold: { value: 100, inclusive: true },
+    impairment_excluded: ["partial"],
+    min_interest_coverage: 1,
+  }],
+  ["insured_workforce", "gte", "required", {
+    employment_insurance_required: true, min_insured: 1,
+  }],
+  ["investment", "gte", "required", {
+    min_total_krw: 100_000_000, rounds: ["seed"], tips_operator_required: false,
+  }],
+] as const;
+
+for (const [dimension, operator, kind, value] of complexCanonicalValues) {
+  const output = {
+    ...extractorOutput,
+    axisAssessments: extractorOutput.axisAssessments.map((axis) => axis.dimension === "industry" ? {
+      ...axis,
+      state: "unknown",
+      normalizedCondition: null,
+      evidence: [],
+    } : axis.dimension === dimension ? {
+      ...axis,
+      state: "condition_present",
+      normalizedCondition: { json: JSON.stringify({ criteria: [{ operator, kind, value }] }) },
+      evidence: [{
+        artifactId: rawBlock.artifactId,
+        locatorKind: rawBlock.locatorKind,
+        locator: rawBlock.locator,
+        quote: "인공지능 산업",
+      }],
+    } : structuredClone(axis)),
+  };
+  const result = normalizeGrantAnalysisEvaluationGate2StageOutput({
+    stage: "extract_b", value: output, grantKey, sourceRevision, packet: extractorPacket,
+  });
+  assert.equal(result.recordType, "grant_analysis_evaluation_normalized_extraction");
+  if (result.recordType !== "grant_analysis_evaluation_normalized_extraction") throw new Error("wrong output");
+  assert.equal(result.criteria[0]?.dimension, dimension);
+  assert.deepEqual(result.criteria[0]?.value, value);
+}
 
 for (const mutation of [
   { ...extractorOutput, unexpected: true },
