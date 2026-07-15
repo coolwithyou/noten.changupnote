@@ -62,6 +62,7 @@ export * from "./evaluation/business-number-first-results.js";
 export * from "./evaluation/autofill-cohort-measurement.js";
 export * from "./evaluation/extraction-improvement-priority.js";
 export * from "./evaluation/grant-analysis-pilot.js";
+export * from "./evaluation/grant-analysis-evaluation.js";
 export * from "./evaluation/kstartup-drafts.js";
 export * from "./evaluation/review-packet.js";
 export * from "./evaluation/reviewed-publication.js";
