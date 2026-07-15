@@ -10,8 +10,8 @@
  * /grants/[grantId]/preview 의 DocumentPreviewView 도 이 컴포넌트를 쓴다 — 그때는 모든 필드에 `plain`
  * 상태를 주어 기존 단색(primary) 오버레이가 시각적으로 회귀하지 않게 한다.
  */
-import { useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -29,33 +29,38 @@ export interface PreviewOverlayField {
   page: number | null;
   box: NormalizedBox | null;
   state: PreviewOverlayState;
+  /** 확정(confirmed)된 값 — 오버레이 안에 실제 기입처럼 렌더한다(재정의 R2). */
+  value?: string | null;
 }
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
 const ZOOM_STEP = 0.25;
 
-// 상태별 오버레이 색: 회색(미입력)/파랑 점선(제안 대기)/초록(확정)/노랑(확인 필요). plain=primary.
+// 상태별 오버레이 톤(전부 시맨틱 토큰 — 재정의 R2):
+//   empty = hairline outline만(bbox 미스핏이 덜 도드라지게, hover 시만 옅은 틴트)
+//   suggested = 옅은 점선 primary / confirmed = success(민트) / warning = warning-strong
+//   active(현재 확인 중 셀) = 블루 하이라이트(bg-primary/10). plain 은 /preview 기존 시각 유지.
 const OVERLAY_STATE_CLASS: Record<PreviewOverlayState, { base: string; active: string }> = {
   plain: {
     base: "border-primary/60 bg-primary/10 hover:bg-primary/20",
     active: "border-2 border-primary bg-primary/25",
   },
   empty: {
-    base: "border-muted-foreground/40 bg-muted-foreground/10 hover:bg-muted-foreground/20",
-    active: "border-2 border-muted-foreground bg-muted-foreground/25",
+    base: "border border-border bg-transparent hover:bg-primary/5",
+    active: "border-2 border-primary bg-primary/10",
   },
   suggested: {
-    base: "border border-dashed border-sky-500/70 bg-sky-500/10 hover:bg-sky-500/20",
-    active: "border-2 border-dashed border-sky-500 bg-sky-500/25",
+    base: "border border-dashed border-primary/50 bg-primary/5 hover:bg-primary/10",
+    active: "border-2 border-dashed border-primary bg-primary/10",
   },
   confirmed: {
-    base: "border-emerald-500/70 bg-emerald-500/15 hover:bg-emerald-500/25",
-    active: "border-2 border-emerald-500 bg-emerald-500/30",
+    base: "border border-success/50 bg-success/5 hover:bg-success/10",
+    active: "border-2 border-success bg-success/10",
   },
   warning: {
-    base: "border-amber-500/70 bg-amber-500/15 hover:bg-amber-500/25",
-    active: "border-2 border-amber-500 bg-amber-500/30",
+    base: "border border-warning-strong/60 bg-warning/10 hover:bg-warning/15",
+    active: "border-2 border-warning-strong bg-warning/15",
   },
 };
 
@@ -86,8 +91,32 @@ export function PreviewCanvas({
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const scrollViewportRef = useRef<HTMLDivElement>(null);
+  const selectedOverlayRef = useRef<HTMLButtonElement>(null);
   const totalPages = pages.length;
   const currentPage = pages[pageIndex] ?? null;
+
+  const centerSelectedOverlay = useCallback(() => {
+    const viewport = scrollViewportRef.current;
+    const overlay = selectedOverlayRef.current;
+    if (!viewport || !overlay) return;
+
+    const viewportRect = viewport.getBoundingClientRect();
+    const overlayRect = overlay.getBoundingClientRect();
+    viewport.scrollTo({
+      left:
+        viewport.scrollLeft
+        + overlayRect.left
+        - viewportRect.left
+        - (viewport.clientWidth - overlayRect.width) / 2,
+      top:
+        viewport.scrollTop
+        + overlayRect.top
+        - viewportRect.top
+        - (viewport.clientHeight - overlayRect.height) / 2,
+      behavior: "auto",
+    });
+  }, []);
 
   // 선택 필드가 바뀌면 그 필드의 페이지로 이동(카드→캔버스 동기화). 좌표 없는 필드는 no-op.
   useEffect(() => {
@@ -103,6 +132,14 @@ export function PreviewCanvas({
     if (pageIndex > totalPages - 1) setPageIndex(Math.max(0, totalPages - 1));
   }, [totalPages, pageIndex]);
 
+  // 카드 선택/페이지/줌이 바뀌면 현재 셀을 프리뷰 중앙으로 맞춘다. 이미지가 처음 로드되는
+  // 순간에도 onLoad 에서 한 번 더 맞춰 모바일의 고정 높이 프리뷰가 빈 상단만 자르지 않게 한다.
+  useEffect(() => {
+    if (!selectedFieldId) return;
+    const frame = requestAnimationFrame(centerSelectedOverlay);
+    return () => cancelAnimationFrame(frame);
+  }, [centerSelectedOverlay, currentPage?.page, selectedFieldId, zoom]);
+
   const overlaysForPage = useMemo(
     () => (currentPage ? overlayFields.filter((field) => field.box && field.page === currentPage.page) : []),
     [overlayFields, currentPage],
@@ -112,10 +149,73 @@ export function PreviewCanvas({
     <div
       className={cn(
         "flex flex-col gap-3 rounded-[var(--radius-xl)] border bg-card p-4",
-        fill ? "min-h-0" : "self-start",
+        fill ? "h-full min-h-0" : "self-start",
         className,
       )}
     >
+      <div
+        ref={scrollViewportRef}
+        className={cn(
+          "overflow-auto rounded-[var(--radius-lg)] bg-secondary",
+          fill ? "min-h-0 flex-1" : "max-h-[80vh]",
+        )}
+      >
+        {currentPage ? (
+          // mx-auto: 축소 시 페이지를 가운데로. 확대(>100%)면 margin 0 이 되어 좌측부터 스크롤.
+          <div className="relative mx-auto my-4 shadow-[var(--shadow-standard)]" style={{ width: `${zoom * 100}%` }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={pageImageUrl(grantId, currentPage.storageKey)}
+              alt={`${grantTitle} ${currentPage.page}페이지`}
+              className="pointer-events-none block w-full select-none"
+              draggable={false}
+              onLoad={centerSelectedOverlay}
+            />
+            {overlaysForPage.map((field) => {
+              if (!field.box) return null;
+              const active = field.fieldId === selectedFieldId;
+              const tone = OVERLAY_STATE_CLASS[field.state];
+              const confirmedValue =
+                field.state === "confirmed" && field.value?.trim() ? field.value.trim() : null;
+              return (
+                <Button
+                  key={field.fieldId}
+                  ref={active ? selectedOverlayRef : undefined}
+                  variant="ghost"
+                  onClick={() => onSelectField(field.fieldId)}
+                  title={field.label}
+                  aria-label={field.label}
+                  className={cn(
+                    // 상태색(미입력/제안/확정/확인 필요)이 오버레이의 본질이라 tone 색을 className 으로 덮어쓴다.
+                    // p-0 으로 버튼 기본 패딩만 제거하고, 위치·크기는 아래 동적 좌표 style 이 결정한다.
+                    "absolute items-start justify-start overflow-hidden rounded-[3px] p-0 text-left whitespace-normal transition-colors",
+                    active ? tone.active : tone.base,
+                  )}
+                  // 동적 좌표: 필드 bbox(정규화 %)를 오버레이 위치/크기로 매핑한 계산값이라 인라인 style 유지.
+                  style={boxToPercentStyle(field.box)}
+                >
+                  {confirmedValue ? (
+                    // 확정 값은 문서 위 실제 기입처럼(foreground) — 박스보다 길면 클리핑.
+                    <span className="flex min-w-0 items-start gap-0.5 overflow-hidden p-0.5 text-[11px] leading-tight font-medium text-foreground">
+                      <Check className="size-3 shrink-0 text-success" aria-hidden />
+                      <span className="min-w-0 break-words whitespace-pre-wrap">{confirmedValue}</span>
+                    </span>
+                  ) : null}
+                </Button>
+              );
+            })}
+          </div>
+        ) : (
+          <Empty className="min-h-80 border-0">
+            <EmptyHeader>
+              <EmptyTitle>이 문서의 페이지 이미지가 없습니다.</EmptyTitle>
+              <EmptyDescription>변환이 끝나면 페이지 이미지가 여기에 표시됩니다.</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )}
+      </div>
+
+      {/* 하단 툴바(재정의 R2·스펙 §3): 페이지 네비 ‹ n/N › + 우측 줌 컨트롤만. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1">
           <Button
@@ -163,54 +263,6 @@ export function PreviewCanvas({
             <Plus />
           </Button>
         </div>
-      </div>
-
-      <div
-        className={cn(
-          "overflow-auto rounded-[var(--radius-lg)] border bg-muted/30",
-          fill ? "min-h-0 flex-1" : "max-h-[80vh]",
-        )}
-      >
-        {currentPage ? (
-          <div className="relative inline-block" style={{ width: `${zoom * 100}%` }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={pageImageUrl(grantId, currentPage.storageKey)}
-              alt={`${grantTitle} ${currentPage.page}페이지`}
-              className="pointer-events-none block w-full select-none"
-              draggable={false}
-            />
-            {overlaysForPage.map((field) => {
-              if (!field.box) return null;
-              const active = field.fieldId === selectedFieldId;
-              const tone = OVERLAY_STATE_CLASS[field.state];
-              return (
-                <Button
-                  key={field.fieldId}
-                  variant="ghost"
-                  onClick={() => onSelectField(field.fieldId)}
-                  title={field.label}
-                  aria-label={field.label}
-                  className={cn(
-                    // 상태색(미입력/제안/확정/확인 필요)이 오버레이의 본질이라 tone 색을 className 으로 덮어쓴다.
-                    // p-0 으로 버튼 기본 패딩만 제거하고, 위치·크기는 아래 동적 좌표 style 이 결정한다.
-                    "absolute rounded-[3px] p-0 transition-colors",
-                    active ? tone.active : tone.base,
-                  )}
-                  // 동적 좌표: 필드 bbox(정규화 %)를 오버레이 위치/크기로 매핑한 계산값이라 인라인 style 유지.
-                  style={boxToPercentStyle(field.box)}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <Empty className="min-h-80 border-0">
-            <EmptyHeader>
-              <EmptyTitle>이 문서의 페이지 이미지가 없습니다.</EmptyTitle>
-              <EmptyDescription>변환이 끝나면 페이지 이미지가 여기에 표시됩니다.</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        )}
       </div>
     </div>
   );

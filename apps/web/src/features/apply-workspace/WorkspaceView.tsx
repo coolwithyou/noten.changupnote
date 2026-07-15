@@ -1,23 +1,30 @@
 "use client";
 
 /**
- * 작성 도우미 workspace 오케스트레이터 (Apply Experience v2 · §4.3/§4.4 · P2-5).
+ * 작성 도우미 workspace 오케스트레이터 (Apply Experience v2 · 재정의 2026-07-15).
  *
- * 데스크톱 2영역(좌 프리뷰 60% / 우 인터뷰 또는 채팅 40%) · 모바일 프리뷰+필드 스택.
- * `selectedFieldId` 를 보유해 오버레이↔카드 양방향 동기화를 이룬다. 필드 값 변경은 전부
- * PATCH /field-answers 로만(낙관적 업데이트→서버 응답 동기화, 실패 시 롤백).
+ * 이 화면이 답하는 질문은 단 하나 — "이 칸에 이 값을 넣어도 되나요?". 조종석에 보이는 것은
+ * 미리보기 + 확인 카드 1장 + 진행 표시 3가지뿐이다(재정의 §0). 사다리·ladder·draft 등 내부
+ * 어휘는 화면에 노출하지 않는다.
  *
- * 사다리:
- *  (a) 프리뷰+오버레이+필드 카드 + HWPX 다운로드
- *  (b) 프리뷰 + "필드 분석 중" + missingFields 질문 카드(진행률 숨김)
- *  (c) 채팅 전면 + DraftFallbackEditor(초안 편집기) 폴백 + 정직 고지
+ * 상단 바(재정의 §2-①): ← 공고 요약 / 공고명 / M/N 확인 완료(단일 축) / 하나씩·전체 목록 토글 /
+ *   문서 Select(2개 이상일 때만). 채팅은 패널 대체가 아니라 Sheet 오버레이(§2-④) — 닫으면 루프가
+ *   그 자리에 그대로 있다. 하단 상시 바는 제거(§2-⑤).
+ *
+ * 사다리(서버 개념, 화면 비노출):
+ *  (a) 프리뷰+오버레이+확인 카드
+ *  (b) 프리뷰 + "작성 항목 분석 중" + missingFields 질문 카드
+ *  (c) 정직 고지 + 채팅 전면(기관 연락처 포함) — 확인 루프 불성립(§2-⑥, DraftFallbackEditor 미렌더)
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
-import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
@@ -28,16 +35,8 @@ import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrig
 import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-viewer/PreviewCanvas";
 import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
 import { ChatPanelView, useGrantChat } from "./ChatPanel";
-import { DraftFallbackEditor } from "./DraftFallbackEditor";
 import { FieldPanel, type WorkspacePanelMode } from "./FieldPanel";
-import { ProgressMeter, WorkspaceFooter, type WorkspaceProgress } from "./WorkspaceFooter";
-import { workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
-
-const LADDER_BADGE: Record<WorkspaceData["ladder"], { label: string; className: string }> = {
-  a: { label: "원본 양식 채움", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" },
-  b: { label: "필드 분석 중", className: "border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400" },
-  c: { label: "채팅으로 안내", className: "border-border bg-muted/50 text-muted-foreground" },
-};
+import { computeWorkspaceProgress, workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
 
 export function WorkspaceView({
   data,
@@ -51,6 +50,7 @@ export function WorkspaceView({
   // Workspace 내부 API(page image/chat/conversion)는 grants.id UUID 계약이다. 공개 route param을
   // 다시 전달하면 bizinfo%3A... 같은 source key가 UUID 전용 API로 흘러가므로 서버 로더의 id만 쓴다.
   const grantId = data.grant.id;
+  const router = useRouter();
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
   const [pendingLabels, setPendingLabels] = useState<Set<string>>(() => new Set());
@@ -76,33 +76,25 @@ export function WorkspaceView({
 
   const overlayFields = useMemo<PreviewOverlayField[]>(
     () =>
-      data.connectedFields.map((field) => ({
-        fieldId: field.fieldId,
-        label: field.label,
-        page: parsePositionPage(field.position),
-        box: parsePositionBbox(field.position),
-        state: fieldVisualState(field.label, answers, duplicateSet),
-      })),
+      data.connectedFields.map((field) => {
+        const answer = answers[answerKey(field.label)];
+        return {
+          fieldId: field.fieldId,
+          label: field.label,
+          page: parsePositionPage(field.position),
+          box: parsePositionBbox(field.position),
+          state: fieldVisualState(field.label, answers, duplicateSet),
+          // 확정(accepted/edited)된 값만 오버레이 안에 실제 기입처럼 렌더한다(R2).
+          value: workspaceFieldState(answer) === "filled" ? answer?.value ?? null : null,
+        };
+      }),
     [data.connectedFields, answers, duplicateSet],
   );
 
-  const progress = useMemo<WorkspaceProgress | null>(() => {
+  // 진행 표시는 단일 축(confirmed/total). 필수/전체 이중 표기는 폐기(재정의 §2-①).
+  const progress = useMemo(() => {
     if (data.ladder !== "a" || data.connectedFields.length === 0) return null;
-    let confirmed = 0;
-    let requiredTotal = 0;
-    let requiredConfirmed = 0;
-    for (const field of data.connectedFields) {
-      const key = answerKey(field.label);
-      const answer = answers[key];
-      const isConfirmed =
-        !pendingLabels.has(key) && (answer?.status === "accepted" || answer?.status === "edited");
-      if (isConfirmed) confirmed += 1;
-      if (field.required) {
-        requiredTotal += 1;
-        if (isConfirmed) requiredConfirmed += 1;
-      }
-    }
-    return { total: data.connectedFields.length, confirmed, requiredTotal, requiredConfirmed };
+    return computeWorkspaceProgress(data.connectedFields, answers, pendingLabels);
   }, [data.ladder, data.connectedFields, answers, pendingLabels]);
 
   async function patchAnswer(label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) {
@@ -239,10 +231,7 @@ export function WorkspaceView({
   function handleSelectField(fieldId: string) {
     setSelectedFieldId(fieldId);
     setPanelMode("single");
-    setShowChat(false);
   }
-
-  const badge = LADDER_BADGE[data.ladder];
 
   const previewCanvas = (
     <PreviewCanvas
@@ -289,21 +278,29 @@ export function WorkspaceView({
             className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
           >
             <ChevronLeft className="size-3.5" aria-hidden />
-            공고 요약으로
+            공고 요약
           </Link>
           <h1 className="truncate text-base font-semibold sm:text-lg">{data.grant.title}</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
-          {progress ? <ProgressMeter progress={progress} /> : null}
-          {data.ladder !== "c" ? (
+          {progress ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {progress.confirmed.toLocaleString("ko-KR")}/{progress.total.toLocaleString("ko-KR")} 확인 완료
+              </span>
+              <Progress
+                value={progress.total > 0 ? Math.round((progress.confirmed / progress.total) * 100) : 0}
+                className="w-24"
+                aria-label="확인 완료 진행률"
+              />
+            </div>
+          ) : null}
+          {data.ladder === "a" ? (
             <ToggleGroup
               value={[panelMode]}
               onValueChange={(value) => {
                 const next = value.at(-1);
-                if (next === "single" || next === "list") {
-                  setPanelMode(next);
-                  setShowChat(false);
-                }
+                if (next === "single" || next === "list") setPanelMode(next);
               }}
               size="sm"
               variant="outline"
@@ -314,7 +311,32 @@ export function WorkspaceView({
               <ToggleGroupItem value="list">전체 목록</ToggleGroupItem>
             </ToggleGroup>
           ) : null}
-          <Badge variant="outline" className={badge.className}>{badge.label}</Badge>
+          {data.documents.length > 1 && data.activeDocumentKey ? (
+            <Select
+              value={data.activeDocumentKey}
+              disabled={pendingLabels.size > 0 || suggestingLabels.size > 0}
+              // Base UI Select 는 items 를 줘야 SelectValue 가 raw value(documentKey) 대신 label 을 렌더한다.
+              items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
+              onValueChange={(next) => {
+                if (next && next !== data.activeDocumentKey) {
+                  router.push(`/grants/${encodeURIComponent(grantId)}/workspace?document=${encodeURIComponent(next)}`);
+                }
+              }}
+            >
+              <SelectTrigger aria-label="작성할 서류 선택" className="min-w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {data.documents.map((document) => (
+                    <SelectItem key={document.documentKey} value={document.documentKey}>
+                      {document.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          ) : null}
         </div>
       </div>
 
@@ -332,67 +354,46 @@ export function WorkspaceView({
               variant="front"
               institutionContact={institutionContact}
             />
-            <DraftFallbackEditor
-              grantId={grantId}
-              prep={data.prep}
-              initialDrafts={data.initialDrafts}
-              fieldLessonTips={data.fieldLessonTips}
-            />
           </div>
         </div>
       ) : (
         <>
-          {/* 데스크톱: 문서 60% + 인터뷰/채팅 40% */}
+          {/* 데스크톱: 문서 60% + 확인 카드 40%. 채팅은 패널을 갈아끼우지 않고 Sheet 로 얹힌다.
+              우측 wrapper 는 스크롤만 담당 — 표면(테두리)은 카드/패널이 직접 진다(이중 프레임 방지, R4). */}
           <div className="hidden min-h-0 flex-1 gap-4 p-4 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(380px,2fr)]">
             {previewCanvas}
-            <div className="min-h-0 overflow-auto rounded-[var(--radius-xl)] border bg-card">
-              {showChat ? (
-                <ChatPanelView
-                  controller={chat}
-                  greeting={greeting}
-                  variant="front"
-                  institutionContact={institutionContact}
-                  onClose={() => setShowChat(false)}
-                />
-              ) : fieldPanel}
-            </div>
+            <div className="min-h-0 overflow-auto">{fieldPanel}</div>
           </div>
 
-          {/* 모바일: 첫 화면은 프리뷰 요약 + 필드, 채팅은 질문했을 때만 대체 화면으로 연다. */}
+          {/* 모바일: 프리뷰 상단 크롭 + 확인 카드가 주인공. 채팅은 데스크톱과 동일하게 Sheet. */}
           <div className="min-h-0 flex-1 overflow-auto p-3 lg:hidden">
-            {showChat ? (
-              <div className="min-h-full overflow-hidden rounded-[var(--radius-xl)] border bg-card">
-                <ChatPanelView
-                  controller={chat}
-                  greeting={greeting}
-                  variant="front"
-                  institutionContact={institutionContact}
-                  onClose={() => setShowChat(false)}
-                />
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <div className="h-52 overflow-hidden rounded-[var(--radius-xl)]">
-                  {previewCanvas}
-                </div>
-                <div className="overflow-hidden rounded-[var(--radius-xl)] border bg-card">
-                  {fieldPanel}
-                </div>
-              </div>
-            )}
+            <div className="flex flex-col gap-3">
+              <div className="h-52 overflow-hidden rounded-[var(--radius-xl)]">{previewCanvas}</div>
+              <div>{fieldPanel}</div>
+            </div>
           </div>
         </>
       )}
 
-      <WorkspaceFooter
-        grantId={grantId}
-        documents={data.documents}
-        activeDocumentKey={data.activeDocumentKey}
-        draftId={data.draftId}
-        hwpxTemplateAvailable={data.hwpxTemplateAvailable}
-        progress={null}
-        answersSaving={pendingLabels.size > 0}
-      />
+      {/* 채팅 Sheet 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. 진입점(💬)은 (a) 확인 카드뿐. */}
+      {data.ladder === "a" ? (
+        <Sheet open={showChat} onOpenChange={setShowChat}>
+          <SheetContent className="flex w-full flex-col gap-0 p-3 sm:max-w-md">
+            <SheetTitle className="sr-only">이 공고에 대해 물어보기</SheetTitle>
+            <SheetDescription className="sr-only">
+              공고 내용·자격·마감·작성 요령을 채팅으로 물어볼 수 있어요.
+            </SheetDescription>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden pt-6">
+              <ChatPanelView
+                controller={chat}
+                greeting={greeting}
+                variant="front"
+                institutionContact={institutionContact}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      ) : null}
 
       {data.pollConversion ? <ConversionPollTrigger grantId={grantId} /> : null}
     </div>

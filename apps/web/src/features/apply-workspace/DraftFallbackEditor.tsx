@@ -3,16 +3,20 @@
 /**
  * (c) 폴백 초안 편집기 (Apply Experience v2 · §4.4(c)/§4.3 · P2-9).
  *
- * 구 `apply-sheet/DocumentDraftWorkspace` 를 workspace 로 이식한 것. 사다리 (c)(변환 전/실패/.doc·웹폼 —
- * 연결 필드 0건)에서 채팅 전면과 함께 렌더된다. 이식 규범(설계 §4.3): 초안 markdown 편집 · DOCX/MD/HTML
- * 내보내기 · 섹션 재생성 · 품질 피드백 · 추가 입력(생성 반영) · 문항별 자동채움 편집.
+ * 2026-07-15 워크스페이스 재정의(docs/research/2026-07-15-작성도우미-워크스페이스-재정의.md §2-⑥)로
+ * 렌더 트리에서 제외됐다 — (c) 화면은 정직 고지 + 채팅 전면 + 기관 연락처만 남긴다. 이 파일은
+ * 삭제하지 않고 보존한다((c) 공고에서 실사용 근거가 생기면 무통증 복귀 대비). 코드는 미변경.
+ *
+ * 구 `apply-sheet/DocumentDraftWorkspace` 를 workspace 로 이식한 것. 재정의 전에는 사다리 (c)(변환
+ * 전/실패/.doc·웹폼 — 연결 필드 0건)에서 채팅 전면과 함께 렌더됐다. 보존 기능: 초안 markdown 편집 ·
+ * DOCX/MD/HTML 내보내기 · 섹션 재생성 · 품질 피드백 · 추가 입력(생성 반영) · 문항별 자동채움 편집.
  *
  * ADR-5 클라이언트 규약 전환(P2-9 몫):
  *  - 구 PATCH 의 `filledFields` 동봉을 제거한다. 초안 저장은 `{draftMarkdown, status}` 만 보낸다.
  *  - 필드 값 변경은 신 `field-answers` PATCH(edited/dismissed)로만 영속화한다(컨펌 게이트 서버 집행).
  *  - 섹션 재생성 body 에서도 `filledFields` 를 제거한다 — 서버가 저장된 fieldAnswers 로 확정값을 보존한다.
- *  - HWPX 채움 다운로드(구 answers 동봉)는 이 편집기에서 제거했다. HWPX 는 하단 바(WorkspaceFooter)가
- *    `{format:"hwpx"}` 만 보내 담당한다(설계 §4.3 하단 바).
+ *  - HWPX 채움 다운로드(구 answers 동봉)는 이 편집기에서 제거했다. 현재는 완료 카드와 전체 목록의
+ *    `WorkspaceDownloadButton`이 `{format:"hwpx"}` 만 보내 담당한다.
  */
 import { useMemo, useState } from "react";
 import { Check, Download, FileText, Loader2, MessageSquare, Printer, RefreshCw, Save } from "lucide-react";

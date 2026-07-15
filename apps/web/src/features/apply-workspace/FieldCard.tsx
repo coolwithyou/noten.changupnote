@@ -1,47 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import {
-  Check,
-  HelpCircle,
-  Loader2,
-  MapPinOff,
-  MoreHorizontal,
-  Pencil,
-  RotateCcw,
-  SkipForward,
-  Sparkles,
-  TriangleAlert,
-} from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+/**
+ * 필드 확인 카드 (Apply Experience v2 · 재정의 §2-② 7슬롯 구조).
+ *
+ * 위→아래 고정 슬롯: ⑴ 상단 라벨(확인이 필요한 항목 N개 중 M번째) ⑵ 필드명 + 위치 캡션
+ * ⑶ 설명 한 줄 ⑷ 값 박스(A 자동값 확인) 또는 변형 B(직접 입력 + 힌트 + 초안 제안 받기 링크)
+ * ⑸ 주 CTA 1개 ⑹ 보조 링크 2개(직접 수정·건너뛰기 / 편집 중엔 되돌리기·입력 취소)
+ * ⑺ 하단 💬 이 항목이 궁금하면 물어보세요.
+ *
+ * 뱃지(필수·상태·위치 미확인·팁 tier)와 ⋯ 드롭다운은 재정의로 제거됐다. 상태는 값 박스와
+ * 상단 진행 표시가 말한다. 중복 label 만 카드 본문 경고 한 줄(Alert)로 유지한다.
+ */
+import { useEffect, useRef, useState } from "react";
+import { Check, HelpCircle, Loader2, Pencil, SkipForward, Sparkles, TriangleAlert } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
-import { FieldLessonTips } from "@/features/knowledge/FieldLessonTips";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { DraftFieldAnswer } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTip } from "@/lib/server/knowledge/lessonContext";
-import { workspaceFieldState } from "./workspacePresentation";
-
-const STATUS_META = {
-  filled: { label: "확인 완료", className: "border-success/40 bg-success-soft text-success" },
-  reviewing: { label: "확인 중", className: "border-primary/40 bg-primary/10 text-primary" },
-  empty: { label: "미입력", className: "border-border bg-muted text-muted-foreground" },
-} as const;
+import { fieldDescriptionLine, fieldPositionCaption, workspaceFieldState } from "./workspacePresentation";
 
 export function FieldCard({
   field,
@@ -85,11 +71,14 @@ export function FieldCard({
   const value = answer?.value ?? "";
   const hasValue = value.trim().length > 0;
   const state = workspaceFieldState(answer);
-  const status = STATUS_META[state];
   const [editing, setEditing] = useState(isSelected && !hasValue);
   const [draftValue, setDraftValue] = useState(value);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const canSuggest = isSuggestable && (answer?.status === undefined || answer.status === "suggested");
   const canUndo = answer?.suggestedValue !== undefined && answer.status !== "suggested";
+
+  const positionCaption = fieldPositionCaption(field.position, field.section);
+  const descriptionLine = fieldDescriptionLine(field, tips);
 
   useEffect(() => {
     setDraftValue(value);
@@ -99,6 +88,7 @@ export function FieldCard({
   function startEditing() {
     setDraftValue(value);
     setEditing(true);
+    requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   function commitEdit() {
@@ -108,6 +98,7 @@ export function FieldCard({
     setEditing(false);
   }
 
+  // ⑸ 주 CTA 1개 — 상태별 하나.
   const primaryAction = (() => {
     if (editing) {
       return (
@@ -143,6 +134,7 @@ export function FieldCard({
   return (
     <Card className="shadow-[var(--shadow-subtle)]">
       <CardHeader>
+        {/* ⑴ 상단 라벨 */}
         <div className="text-xs font-semibold text-muted-foreground">
           {reviewPosition > 0 && reviewTotal > 0 ? (
             <>
@@ -155,62 +147,49 @@ export function FieldCard({
             <>모든 항목을 확인했어요</>
           )}
         </div>
+        {/* ⑵ 필드명 + 위치 캡션 */}
         <CardTitle className="text-xl">{field.label}</CardTitle>
-        <CardDescription>
-          {field.section ? `${field.section}에 들어갈 내용을 확인해 주세요.` : "공고 양식에 들어갈 내용을 확인해 주세요."}
-        </CardDescription>
-        <CardAction className="flex items-center gap-1">
-          {field.required ? <Badge>필수</Badge> : null}
-          <Badge variant="outline" className={status.className}>{status.label}</Badge>
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={<Button type="button" size="icon-sm" variant="ghost" aria-label={`${field.label} 추가 작업`} />}
-            >
-              <MoreHorizontal />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {canSuggest ? (
-                <DropdownMenuItem onClick={onRequestSuggestion} disabled={isPending || isSuggesting}>
-                  {isSuggesting ? <Loader2 className="animate-spin" /> : <Sparkles />}
-                  {hasValue ? "초안 다시 제안받기" : "초안 제안받기"}
-                </DropdownMenuItem>
-              ) : null}
-              {canUndo ? (
-                <DropdownMenuItem onClick={onUndo} disabled={isPending}>
-                  <RotateCcw />
-                  제안 값으로 되돌리기
-                </DropdownMenuItem>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </CardAction>
+        {positionCaption ? (
+          <p className="text-xs text-muted-foreground">{positionCaption}</p>
+        ) : null}
+        {/* ⑶ 설명 한 줄 */}
+        {descriptionLine ? <CardDescription>{descriptionLine}</CardDescription> : null}
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-wrap gap-1.5">
-          {!field.position ? (
-            <Badge variant="outline" className="gap-1 text-muted-foreground">
-              <MapPinOff />
-              위치 미확인
-            </Badge>
-          ) : null}
-          {isDuplicate ? (
-            <Badge variant="outline" className="gap-1 border-warning/40 text-warning">
-              <TriangleAlert />
-              동일 항목명 — 수동 확인 필요
-            </Badge>
-          ) : null}
-        </div>
+        {isDuplicate ? (
+          <Alert className="border-warning-strong/40 text-warning-strong *:data-[slot=alert-description]:text-warning-strong">
+            <TriangleAlert />
+            <AlertDescription>동일 항목명이 여러 칸에 있어 자동 채움에서 제외돼요. 직접 확인해 주세요.</AlertDescription>
+          </Alert>
+        ) : null}
 
+        {/* ⑷ 값 박스(A) 또는 변형 B(직접 입력) */}
         {editing ? (
-          <Textarea
-            value={draftValue}
-            onChange={(event) => setDraftValue(event.currentTarget.value)}
-            aria-label={`${field.label} 값`}
-            placeholder={`${field.label}을(를) 입력해 주세요.`}
-            rows={4}
-            autoFocus
-          />
+          <div className="flex flex-col gap-2">
+            <Textarea
+              ref={textareaRef}
+              value={draftValue}
+              onChange={(event) => setDraftValue(event.currentTarget.value)}
+              aria-label={`${field.label} 값`}
+              placeholder={`${field.label}을(를) 입력해 주세요.`}
+              rows={4}
+            />
+            <p className="text-xs text-muted-foreground">공고 기준에 맞게 자유롭게 입력하세요. 저장 전까지 반영되지 않아요.</p>
+            {canSuggest ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="link"
+                className="self-start px-0"
+                onClick={onRequestSuggestion}
+                disabled={isPending || isSuggesting}
+              >
+                {isSuggesting ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Sparkles data-icon="inline-start" aria-hidden />}
+                초안 제안 받기
+              </Button>
+            ) : null}
+          </div>
         ) : (
           <div className={state === "reviewing" ? "rounded-[var(--radius-lg)] bg-primary/10 p-4" : "rounded-[var(--radius-lg)] bg-muted/50 p-4"}>
             <p className={hasValue ? "whitespace-pre-wrap break-words text-base font-semibold" : "text-sm text-muted-foreground"}>
@@ -220,31 +199,36 @@ export function FieldCard({
           </div>
         )}
 
-        {tips.length > 0 ? <FieldLessonTips tips={tips} /> : null}
         {primaryAction}
 
+        {/* ⑹ 보조 링크 2개 */}
         <div className="flex items-center justify-center gap-1">
-          {editing && canSuggest ? (
-            <Button type="button" size="sm" variant="link" onClick={onRequestSuggestion} disabled={isPending || isSuggesting}>
-              {isSuggesting ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Sparkles data-icon="inline-start" aria-hidden />}
-              초안 제안받기
-            </Button>
-          ) : editing ? (
-            <Button type="button" size="sm" variant="link" onClick={() => setEditing(false)} disabled={isPending}>
-              입력 취소
-            </Button>
+          {editing ? (
+            <>
+              {canUndo ? (
+                <Button type="button" size="sm" variant="link" onClick={onUndo} disabled={isPending}>
+                  제안 값으로 되돌리기
+                </Button>
+              ) : null}
+              <Button type="button" size="sm" variant="link" onClick={() => setEditing(false)} disabled={isPending}>
+                입력 취소
+              </Button>
+            </>
           ) : (
-            <Button type="button" size="sm" variant="link" onClick={startEditing} disabled={isPending}>
-              직접 수정
-            </Button>
+            <>
+              <Button type="button" size="sm" variant="link" onClick={startEditing} disabled={isPending}>
+                직접 수정
+              </Button>
+              <Button type="button" size="sm" variant="link" onClick={onDismiss} disabled={isPending || answer?.status === "dismissed"}>
+                <SkipForward data-icon="inline-start" aria-hidden />
+                건너뛰기
+              </Button>
+            </>
           )}
-          <Button type="button" size="sm" variant="link" onClick={onDismiss} disabled={isPending || answer?.status === "dismissed"}>
-            <SkipForward data-icon="inline-start" aria-hidden />
-            건너뛰기
-          </Button>
         </div>
       </CardContent>
 
+      {/* ⑺ 하단 채팅 진입 */}
       <CardFooter className="justify-center bg-card">
         <Button type="button" size="sm" variant="ghost" onClick={onAsk} className="text-muted-foreground">
           <HelpCircle data-icon="inline-start" aria-hidden />

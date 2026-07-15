@@ -3,10 +3,10 @@
 /**
  * 필드 패널 (Apply Experience v2 · §4.3 · P2-6).
  *
- * (a) 완전 경험: 연결 필드 카드 리스트(상태 뱃지·컨펌 규약·undo·FieldLessonTips·오버레이 동기화).
+ * (a) 완전 경험: 확인 카드 1장(FieldCard) + 확인 완료 축약 리스트 / 전체 목록 뷰 + 중도 다운로드 보조 버튼.
  * (b) 프리뷰만: "필드 분석 중" 안내 + draft.missingFields 기반 질문 카드(입력→초안 재생성 트리거).
  *
- * 진행률은 이 패널이 아니라 WorkspaceFooter 에 있다(§4.3).
+ * 진행 표시(confirmed/total 단일 축)는 이 패널이 아니라 WorkspaceView 상단 바에 있다(재정의 §2-①).
  */
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -26,7 +26,7 @@ import type { WorkspaceLadder } from "@/lib/server/documents/workspaceData";
 import { answerKey } from "./fieldAnswerState";
 import { FieldCard } from "./FieldCard";
 import { WorkspaceDownloadButton } from "./WorkspaceFooter";
-import { workspaceFieldState } from "./workspacePresentation";
+import { confirmedFieldLabels, workspaceFieldState } from "./workspacePresentation";
 
 export type WorkspacePanelMode = "single" | "list";
 
@@ -77,9 +77,11 @@ export function FieldPanel({
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
+  // wrapper(WorkspaceView)는 스크롤만 담당한다(R4 이중 프레임 방지) — 표면(테두리·bg)은
+  // 각 모드가 직접 진다: single 은 FieldCard(Card)가, 나머지 모드는 아래 자체 컨테이너가.
   if (ladder === "b") {
     return (
-      <div className="grid gap-3 p-3">
+      <div className="grid gap-3 rounded-[var(--radius-xl)] border bg-card p-4">
         <FieldAnalyzingNotice />
         {activeDocumentKey ? (
           <MissingFieldQuestions
@@ -95,7 +97,7 @@ export function FieldPanel({
 
   if (connectedFields.length === 0) {
     return (
-      <div className="p-3">
+      <div className="rounded-[var(--radius-xl)] border bg-card p-3">
         <Empty className="min-h-40 border-0">
           <EmptyHeader>
             <EmptyTitle>표시할 작성 항목이 없습니다.</EmptyTitle>
@@ -114,7 +116,7 @@ export function FieldPanel({
 
   if (mode === "list") {
     return (
-      <div className="flex flex-col gap-3 p-4">
+      <div className="flex flex-col gap-3 rounded-[var(--radius-xl)] border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold">전체 항목 {connectedFields.length.toLocaleString("ko-KR")}</h2>
           <span className="text-xs text-muted-foreground">항목을 선택하면 하나씩 확인할 수 있어요.</span>
@@ -145,13 +147,23 @@ export function FieldPanel({
             );
           })}
         </div>
+        {/* 중도 다운로드(재정의 §2-⑤) — 완전 제거하지 않고 전체 목록 하단 보조 버튼 1개로만 표면화. */}
+        {hwpxTemplateAvailable && draftId ? (
+          <WorkspaceDownloadButton
+            draftId={draftId}
+            variant="outline"
+            label="지금까지 확정한 값으로 내려받기"
+            className="w-full"
+            saving={pendingLabels.size > 0}
+          />
+        ) : null}
       </div>
     );
   }
 
   if (isComplete) {
     return (
-      <div className="p-4">
+      <div>
         <Card className="text-center shadow-[var(--shadow-subtle)]">
           <CardHeader>
             <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-success-soft text-success">
@@ -202,9 +214,10 @@ export function FieldPanel({
     .slice(activeIndex + 1)
     .concat(connectedFields.slice(0, activeIndex))
     .find((field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled");
+  const confirmedLabels = confirmedFieldLabels(connectedFields, answers);
 
   return (
-    <div className="p-4">
+    <div className="flex flex-col gap-3">
       <FieldCard
         field={activeField}
         answer={answers[key]}
@@ -229,6 +242,12 @@ export function FieldPanel({
         }}
         onRequestSuggestion={() => onRequestSuggestion(activeField)}
       />
+      {/* 확인 완료 축약 리스트(재정의 §2-③) — 클릭 요소 아님. 다시 보려면 전체 목록 토글. */}
+      {confirmedLabels.length > 0 ? (
+        <p className="truncate px-1 text-xs text-muted-foreground" title={confirmedLabels.join(" · ")}>
+          {confirmedLabels.map((label) => `✓ ${label}`).join(" · ")}
+        </p>
+      ) : null}
     </div>
   );
 }

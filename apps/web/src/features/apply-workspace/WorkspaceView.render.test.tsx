@@ -102,4 +102,46 @@ assert.equal(
   "인코딩된 공개 공고 ID를 다시 인코딩하면 안 됩니다.",
 );
 
+// 재정의(2026-07-15): 내부 사다리 어휘 뱃지(LADDER_BADGE)는 화면에 노출하지 않는다.
+for (const ladderWord of ["원본 양식 채움", "필드 분석 중", "채팅으로 안내"]) {
+  assert.equal(html.includes(ladderWord), false, `사다리 어휘 "${ladderWord}"가 화면에 노출되면 안 됩니다.`);
+}
+// 상시 하단 바(WorkspaceFooter)는 제거됐다 — 기본 다운로드 버튼 라벨이 화면에 있으면 안 된다.
+assert.equal(html.includes("HWPX 다운로드"), false, "상시 하단 다운로드 바가 제거돼야 합니다.");
+// 상단 바 back 링크는 "공고 요약"으로 노출된다.
+assert.ok(html.includes("공고 요약"), "상단 바에 '공고 요약' 링크가 있어야 합니다.");
+
+// 승인된 값은 프리뷰 오버레이 안에 실제 기입처럼 렌더돼야 한다.
+const confirmedValue = "주식회사 창업노트";
+const confirmedHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        connectedFields: [{
+          fieldId: "field-name",
+          label: "상호명",
+          section: "기업 현황",
+          fieldType: "text",
+          required: true,
+          mappedCompanyField: "name",
+          fillStrategy: "copy",
+          position: { page: 1, bbox: [0.1, 0.1, 0.4, 0.15] },
+        }],
+        fieldAnswers: {
+          상호명: {
+            value: confirmedValue,
+            status: "accepted",
+            source: "profile",
+            updatedAt: "2026-07-15T00:00:00.000Z",
+          },
+        },
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.ok(confirmedHtml.includes(confirmedValue), "승인된 값이 프리뷰 셀 오버레이에 보여야 합니다.");
+
 console.log("WorkspaceView grant UUID render regression passed");

@@ -1,120 +1,33 @@
 "use client";
 
 /**
- * workspace 하단 바 (Apply Experience v2 · §4.3 · P2-8).
+ * HWPX 다운로드 버튼 + 다운로드 클라이언트 헬퍼 (Apply Experience v2 · §4.3 · P2-8).
  *
- * 문서 선택 드롭다운(여러 documentKey 일 때 — ?document= 갱신으로 재로드) · 진행률(§4.3 정의)
- * · HWPX 다운로드(hwpxTemplateAvailable=false 면 버튼 대신 사유 고지).
+ * 2026-07-15 워크스페이스 재정의(docs/research/2026-07-15-작성도우미-워크스페이스-재정의.md §2-⑤)로
+ * 상시 하단 바(WorkspaceFooter)와 이중 진행 표시(ProgressMeter)는 해체됐다. 문서 Select 는 상단 바로,
+ * 진행 표시는 단일 축(confirmed/total)으로 WorkspaceView 상단 바에 편입됐다. 이 파일에는
+ * 다운로드 버튼과 그 HWPX 헬퍼만 남는다(완료 카드 주 CTA + 전체 목록 하단 보조 버튼이 재사용).
  *
  * 다운로드는 body `{format:"hwpx"}` 만 보낸다(P2a 가 answers 동봉을 폐기 — 서버 저장 파생 filledFields 사용).
  * 미채움 잔여(label 충돌 제외분 포함)는 X-Cunote-Hwpx-Unfilled 헤더로 받아 그대로 표시만 한다.
  */
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import type { WorkspaceDocumentOption } from "@/lib/server/documents/workspaceData";
-
-export interface WorkspaceProgress {
-  total: number;
-  confirmed: number;
-  requiredTotal: number;
-  requiredConfirmed: number;
-}
-
-export function WorkspaceFooter({
-  grantId,
-  documents,
-  activeDocumentKey,
-  draftId,
-  hwpxTemplateAvailable,
-  progress,
-  answersSaving,
-}: {
-  grantId: string;
-  documents: WorkspaceDocumentOption[];
-  activeDocumentKey: string | null;
-  draftId: string | null;
-  hwpxTemplateAvailable: boolean;
-  progress: WorkspaceProgress | null;
-  answersSaving: boolean;
-}) {
-  const router = useRouter();
-
-  return (
-    <div className="border-t bg-card">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div className="flex flex-wrap items-center gap-3">
-          {documents.length > 1 && activeDocumentKey ? (
-            <Select
-              value={activeDocumentKey}
-              onValueChange={(next) => {
-                if (next && next !== activeDocumentKey) {
-                  router.push(`/grants/${encodeURIComponent(grantId)}/workspace?document=${encodeURIComponent(next)}`);
-                }
-              }}
-            >
-              <SelectTrigger aria-label="작성할 서류 선택" className="min-w-52">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {documents.map((document) => (
-                    <SelectItem key={document.documentKey} value={document.documentKey}>
-                      {document.label}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          ) : documents.length === 1 ? (
-            <span className="text-sm font-medium">{documents[0]!.label}</span>
-          ) : null}
-          {progress ? <ProgressMeter progress={progress} /> : null}
-        </div>
-        <div className="flex items-center gap-2">
-          {hwpxTemplateAvailable ? (
-            <WorkspaceDownloadButton draftId={draftId} saving={answersSaving} />
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              이 서류는 원본 양식 채움을 지원하지 않습니다.
-            </span>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export function ProgressMeter({ progress }: { progress: WorkspaceProgress }) {
-  const pct = progress.total > 0 ? Math.round((progress.confirmed / progress.total) * 100) : 0;
-  const label =
-    progress.requiredTotal >= 1
-      ? `필수 ${progress.requiredConfirmed}/${progress.requiredTotal} · 전체 ${progress.confirmed}/${progress.total}`
-      : `${progress.confirmed}/${progress.total}`;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-1.5 w-28 overflow-hidden rounded-full bg-muted">
-        {/* 동적 계산값(진행률 %) — Tailwind 유틸로 표현 불가, 인라인 style 예외 유지 */}
-        <div className="h-full bg-primary transition-all" style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-xs tabular-nums text-muted-foreground">{label}</span>
-    </div>
-  );
-}
 
 export function WorkspaceDownloadButton({
   draftId,
   label = "HWPX 다운로드",
   className,
+  variant = "default",
   saving = false,
 }: {
   draftId: string | null;
   label?: string;
   className?: string;
+  variant?: "default" | "outline";
   saving?: boolean;
 }) {
   const [pending, setPending] = useState(false);
@@ -153,6 +66,7 @@ export function WorkspaceDownloadButton({
   return (
     <Button
       type="button"
+      variant={variant}
       onClick={() => void downloadHwpx()}
       disabled={pending || saving || !draftId}
       className={className}

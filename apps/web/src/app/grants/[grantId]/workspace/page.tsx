@@ -43,8 +43,10 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
   });
 
   return (
-    <div className="flex min-h-screen flex-col bg-background text-foreground">
+    // 앱형 고정 뷰포트 화면 — 페이지 스크롤 금지. 스크롤은 좌측 프리뷰·우측 패널 내부에서만.
+    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <WorkspaceView
+        key={`${data.activeDocumentKey ?? "no-document"}:${data.draftId ?? "no-draft"}`}
         data={data}
         greeting={greeting}
         institutionContact={institutionContact}
