@@ -6,7 +6,8 @@
 > - ✅ 3단계 (23ab000): `/calendar` 페이지 + PublicCalendarView + 비로그인 GNB/푸터 링크
 > - ✅ 4단계 (1ce8f2c): 공개 ICS 피드 + 연동 드롭다운(Google/Apple/Outlook/webcal/.ics)
 > - ✅ 5단계: `verify:public-calendar` 체인, `CALENDAR_MIN_MONTH=2013-01`(DB 실측: 2012년은 2건뿐, 2013년부터 90건~). 게이트 전부 통과(typecheck·route-policy·드리프트 0·리그레션)
-> - **잔여(사용자 동반)**: dev 서버 수동 검증 — 시크릿 창 `/calendar` 렌더·월 이동·필터 URL 왕복·팝오버(원문 새 탭, 내 조건 확인→`/`)·모바일 뷰포트·`curl /api/web/public-calendar` ICS 확인·.ics Apple 캘린더 import. Google/Outlook 구독 확인은 프로덕션 배포 후.
+> - ✅ dev 수동 검증 완료(2026-07-15, 127.0.0.1:4010): 비로그인 렌더·GNB/푸터 링크·불량 month 폴백·과거 월(2015-03, 흐린 마감됨 스타일) 확인. 브라우저 실측: 필터 facet+count→URL(`?region=41`)→그리드 재계산·필터 초기화, 월 이동 필터 보존(`?month=2026-08&region=41`), 이벤트 팝오버(D-Day·기관/분야/지역·원문/내 조건 버튼), 연동 드롭다운 4종+캡션. ICS 피드: 헤더(public 캐시)·X-WR-CALNAME·300 상한·필터 적용(무필터 300, upcoming 26)·download=1 RFC 5987 확인. 이번 달 1,551건 — 필터 필수 판단 실증
+> - **잔여(사용자 동반)**: 모바일 뷰포트 시각 확인(자동화 환경에서 창 리사이즈 미적용 — devtools 에뮬레이션으로), .ics Apple 캘린더 import, "원문 보기" 새 탭 실클릭. Google/Outlook 구독 확인은 프로덕션 배포 후.
 > - **후속 과제**: grants 10만 건 도달 시 `grants_apply_start_idx` 추가 검토 · 기존 드리프트 부채 4파일(archive 뷰 등, 이번 범위 밖) · sitemap.ts(선택)
 
 ## 1. 배경과 목적
