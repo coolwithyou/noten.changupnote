@@ -1,11 +1,15 @@
+import { createHash } from "node:crypto";
 import type { GrantRaw } from "@cunote/contracts";
 import type { KStartupAttachmentMarkdown } from "@cunote/core";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
 
 type Attachment = NonNullable<GrantRaw["attachments"]>[number];
 
+export const GRANT_ATTACHMENT_MARKDOWN_LOADER_TRANSFORM_VERSION =
+  "grant-attachment-markdown-loader-v2-byte-commitment";
+
 export interface KStartupAttachmentMarkdownLoadResult {
-  markdowns: KStartupAttachmentMarkdown[];
+  markdowns: LoadedKStartupAttachmentMarkdown[];
   candidateCount: number;
   loadedCount: number;
   truncatedCount: number;
@@ -13,9 +17,16 @@ export interface KStartupAttachmentMarkdownLoadResult {
   failures: Array<{ filename: string; message: string }>;
 }
 
+export interface LoadedKStartupAttachmentMarkdown extends KStartupAttachmentMarkdown {
+  declaredMarkdownSha256: string | null;
+  sourceMarkdownSha256: string;
+  sourceMarkdownBytes: number;
+  loadedMarkdownSha256: string;
+}
+
 export async function loadKStartupAttachmentMarkdowns(options: {
   attachments: GrantRaw["attachments"] | null | undefined;
-  storage: Pick<R2ObjectStorage, "getObjectText"> | null;
+  storage: Pick<R2ObjectStorage, "getObjectBytes"> | null;
   maxAttachments?: number;
   maxCharsPerAttachment?: number;
   maxTotalChars?: number;
@@ -54,13 +65,32 @@ export async function loadKStartupAttachmentMarkdowns(options: {
     }
     try {
       const key = attachment.conversion!.markdown_storage_key!;
-      const raw = await options.storage.getObjectText(key);
+      const { body } = await options.storage.getObjectBytes(key);
+      const sourceMarkdownSha256 = sha256(body);
+      const declaredMarkdownSha256 = validSha256(attachment.conversion?.markdown_sha256)
+        ? attachment.conversion.markdown_sha256.toLowerCase()
+        : null;
+      if (declaredMarkdownSha256 && declaredMarkdownSha256 !== sourceMarkdownSha256) {
+        throw new Error("Stored markdown does not match its declared SHA-256 commitment.");
+      }
+      const declaredBytes = attachment.conversion?.markdown_bytes;
+      if (typeof declaredBytes === "number" && declaredBytes !== body.length) {
+        throw new Error("Stored markdown byte length does not match its declared commitment.");
+      }
+      const raw = new TextDecoder("utf-8", { fatal: true }).decode(body);
       const safe = sanitizeMarkdown(raw);
       const cap = Math.min(maxCharsPerAttachment, remaining);
       const markdown = safe.slice(0, cap);
       if (!markdown.trim()) continue;
       if (safe.length > markdown.length) result.truncatedCount += 1;
-      result.markdowns.push({ filename: attachment.filename, markdown });
+      result.markdowns.push({
+        filename: attachment.filename,
+        markdown,
+        declaredMarkdownSha256,
+        sourceMarkdownSha256,
+        sourceMarkdownBytes: body.length,
+        loadedMarkdownSha256: sha256(markdown),
+      });
       result.loadedCount += 1;
       remaining -= markdown.length;
     } catch (error) {
@@ -80,6 +110,14 @@ function hasConvertedMarkdown(attachment: Attachment): boolean {
 
 function validStorageKey(value: string | null | undefined): value is string {
   return typeof value === "string" && value.length > 0 && !value.startsWith("/") && !value.split("/").includes("..");
+}
+
+function validSha256(value: string | null | undefined): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
+}
+
+function sha256(value: string | Uint8Array): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 function compareAttachmentPriority(left: Attachment, right: Attachment): number {

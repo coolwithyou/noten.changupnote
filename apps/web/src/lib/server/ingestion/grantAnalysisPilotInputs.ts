@@ -12,6 +12,9 @@ import {
 } from "@cunote/core";
 import { loadKStartupAttachmentMarkdowns } from "./kstartupAttachmentMarkdown";
 
+export const GRANT_ANALYSIS_PILOT_INPUT_TRANSFORM_VERSION =
+  "grant-analysis-pilot-input-transform-v2-byte-source-sanitize-core-clean";
+
 type Attachment = NonNullable<GrantRaw["attachments"]>[number];
 
 export type GrantAnalysisPilotExtractionInput =
@@ -48,6 +51,7 @@ export interface GrantAnalysisPilotAttachmentFailure {
 }
 
 export interface GrantAnalysisPilotAttachmentAudit {
+  transformVersion: typeof GRANT_ANALYSIS_PILOT_INPUT_TRANSFORM_VERSION;
   limits: GrantAnalysisPilotAttachmentLimits;
   counts: {
     sourceDeclaredExpected: number;
@@ -76,7 +80,16 @@ export interface GrantAnalysisPilotAttachmentAudit {
     excludedByAttachmentLimitCount: number;
     selectedButNotLoadedCount: number;
   };
-  includedAttachments: Array<{ filename: string; characterCount: number }>;
+  includedAttachments: Array<{
+    filename: string;
+    characterCount: number;
+    declaredMarkdownSha256: string | null;
+    sourceMarkdownSha256: string;
+    sourceMarkdownBytes: number;
+    loadedMarkdownSha256: string;
+    inputBlockSha256: string;
+    inputBlockBytes: number;
+  }>;
   failures: GrantAnalysisPilotAttachmentFailure[];
 }
 
@@ -116,12 +129,31 @@ export async function buildGrantAnalysisPilotInputs(options: {
     ...limits,
   });
   const apiPlusAttachmentsInput = buildSourceInput(options.entry, attachmentLoad.markdowns);
+  const loadedByFilename = new Map<string, typeof attachmentLoad.markdowns>();
+  for (const markdown of attachmentLoad.markdowns) {
+    const queue = loadedByFilename.get(markdown.filename) ?? [];
+    queue.push(markdown);
+    loadedByFilename.set(markdown.filename, queue);
+  }
   const includedAttachments = apiPlusAttachmentsInput.blocks
     .filter((block) => block.source === "attachment_markdown")
-    .map((block) => ({
-      filename: block.filename ?? "unknown",
-      characterCount: block.text.length,
-    }));
+    .map((block) => {
+      const filename = block.filename ?? "unknown";
+      const loaded = loadedByFilename.get(filename)?.shift();
+      if (!loaded) {
+        throw new Error(`Included attachment block has no loaded markdown audit: ${filename}.`);
+      }
+      return {
+        filename,
+        characterCount: block.text.length,
+        declaredMarkdownSha256: loaded.declaredMarkdownSha256,
+        sourceMarkdownSha256: loaded.sourceMarkdownSha256,
+        sourceMarkdownBytes: loaded.sourceMarkdownBytes,
+        loadedMarkdownSha256: loaded.loadedMarkdownSha256,
+        inputBlockSha256: sha256(block.text),
+        inputBlockBytes: Buffer.byteLength(block.text, "utf8"),
+      };
+    });
 
   const sourceDeclaredExpected = sourceDeclaredAttachmentCount(options.entry, apiOnlyInput);
   const presentCount = attachments.length;
@@ -158,6 +190,7 @@ export async function buildGrantAnalysisPilotInputs(options: {
     apiOnly,
     apiPlusAttachments,
     attachments: {
+      transformVersion: GRANT_ANALYSIS_PILOT_INPUT_TRANSFORM_VERSION,
       limits,
       counts: {
         sourceDeclaredExpected,
@@ -218,6 +251,10 @@ function variant(
     includedAttachmentCharacterCount: includedAttachments
       .reduce((total, attachment) => total + attachment.characterCount, 0),
   };
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
 function buildSourceInput(

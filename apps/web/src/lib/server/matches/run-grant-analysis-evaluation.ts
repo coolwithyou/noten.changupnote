@@ -20,9 +20,11 @@ export type GrantAnalysisEvaluationStage =
 export interface GrantAnalysisEvaluationRunGrant {
   grantKey: string;
   sourceRevision: string;
-  inputOrder: readonly string[];
+  inputOrderByStage: Readonly<Record<GrantAnalysisEvaluationStage, readonly string[]>>;
+  packetSha256: Readonly<Record<GrantAnalysisEvaluationStage, string>>;
   apiInputSha256: string;
   attachmentInputSha256: string;
+  judgeInputSha256: string;
   estimatedInputTokens: Readonly<Record<GrantAnalysisEvaluationStage, number>>;
 }
 
@@ -31,12 +33,26 @@ export interface GrantAnalysisEvaluationRunFingerprintInput {
   manifestSha256: string;
   inputLimitsSha256: string;
   converter: { version: string; policySha256: string };
-  extractor: { model: string; promptSha256: string; schemaSha256: string };
-  judges: {
-    judge1: { model: string; promptSha256: string; schemaSha256: string };
-    judge2: { model: string; promptSha256: string; schemaSha256: string };
-    judge3: { model: string; promptSha256: string; schemaSha256: string };
+  provider: {
+    boundaryVersion: string;
+    apiVersion: string;
+    endpoint: string;
+    effort: "high";
+    thinkingPolicy: string;
+    stopPolicy: string;
   };
+  responseNormalizerVersion: string;
+  groundingVersion: string;
+  stages: Readonly<Record<GrantAnalysisEvaluationStage, {
+    model: string;
+    maxOutputTokens: number;
+    promptSha256: string;
+    schemaSha256: string;
+  }>>;
+  judge3SchemaFactorySha256: string;
+  modelAccessReceiptSha256: string;
+  modelAccess: Readonly<Record<string, boolean>>;
+  retry: { maxAttemptsPerStage: 2; maxCalls: number; globalAbsoluteCap: number };
 }
 
 export interface GrantAnalysisEvaluationStageCheckpoint {
@@ -46,6 +62,9 @@ export interface GrantAnalysisEvaluationStageCheckpoint {
   lastError?: string;
   eligibleAxes?: readonly CriterionDimension[];
   reusedFrom?: GrantAnalysisEvaluationStage;
+  reservationId?: string;
+  packetSha256?: string;
+  outputSchemaSha256?: string;
 }
 
 export interface GrantAnalysisEvaluationGrantCheckpoint {
@@ -77,6 +96,27 @@ export interface GrantAnalysisEvaluationStageContext {
   priorStages: Readonly<
     Partial<Record<GrantAnalysisEvaluationStage, GrantAnalysisEvaluationStageCheckpoint>>
   >;
+  reservation: GrantAnalysisEvaluationAttemptReservation;
+}
+
+export interface GrantAnalysisEvaluationAttemptReservation {
+  recordType: "grant_analysis_evaluation_attempt_reservation";
+  schemaVersion: 1;
+  reservationId: string;
+  configSha256: string;
+  grantKey: string;
+  sourceRevision: string;
+  stage: GrantAnalysisEvaluationStage;
+  attempt: number;
+  plannedModel: string;
+  maxTokens: number;
+  packetSha256: string;
+  outputSchemaSha256: string;
+  persistedStatus: "running";
+  successfulStageExists: false;
+  persistedAttempts: number;
+  maxCalls: number;
+  globalAbsoluteCap: number;
 }
 
 export interface GrantAnalysisEvaluationRunnerDependencies {
@@ -87,6 +127,18 @@ export interface GrantAnalysisEvaluationRunnerDependencies {
     judge1Result: unknown;
     judge2Result: unknown;
   }): readonly CriterionDimension[];
+  stagePacketSha256(options: {
+    grant: GrantAnalysisEvaluationRunGrant;
+    stage: GrantAnalysisEvaluationStage;
+    eligibleAxes: readonly CriterionDimension[];
+    priorStages: Readonly<Partial<Record<GrantAnalysisEvaluationStage, GrantAnalysisEvaluationStageCheckpoint>>>;
+  }): string;
+  stageOutputSchemaSha256(options: {
+    grant: GrantAnalysisEvaluationRunGrant;
+    stage: GrantAnalysisEvaluationStage;
+    eligibleAxes: readonly CriterionDimension[];
+    priorStages: Readonly<Partial<Record<GrantAnalysisEvaluationStage, GrantAnalysisEvaluationStageCheckpoint>>>;
+  }): string;
 }
 
 export interface GrantAnalysisEvaluationCostRate {
@@ -126,9 +178,11 @@ export function grantAnalysisEvaluationRunFingerprint(options: {
   const grantsFingerprint = sha256(stableStringify(options.grants.map((grant) => ({
     grantKey: grant.grantKey,
     sourceRevision: grant.sourceRevision,
-    inputOrder: [...grant.inputOrder],
+    inputOrderByStage: grant.inputOrderByStage,
+    packetSha256: grant.packetSha256,
     apiInputSha256: grant.apiInputSha256,
     attachmentInputSha256: grant.attachmentInputSha256,
+    judgeInputSha256: grant.judgeInputSha256,
     estimatedInputTokens: grant.estimatedInputTokens,
   }))));
   return {
@@ -201,6 +255,9 @@ export async function runGrantAnalysisEvaluation(options: {
   if (!Number.isInteger(options.maxCalls) || options.maxCalls < 0 ||
       options.maxCalls > GRANT_ANALYSIS_EVALUATION_ABSOLUTE_MAX_CALLS) {
     throw new Error(`maxCalls must be an integer between 0 and ${GRANT_ANALYSIS_EVALUATION_ABSOLUTE_MAX_CALLS}.`);
+  }
+  if (options.maxCalls !== options.fingerprintInput.retry.maxCalls) {
+    throw new Error("maxCalls must exactly match the frozen execution config.");
   }
 
   const ids = grantAnalysisEvaluationRunFingerprint(options);
@@ -277,9 +334,47 @@ export async function runGrantAnalysisEvaluation(options: {
         throw new Error(`maxCalls=${options.maxCalls} reached; refusing the next external call.`);
       }
       const attempt = (existing?.attempts ?? 0) + 1;
+      const persistedAttempts = countAttempts(checkpoint) + 1;
+      const stagePolicy = options.fingerprintInput.stages[stage];
+      const packetSha256 = options.dependencies.stagePacketSha256({
+        grant,
+        stage,
+        eligibleAxes,
+        priorStages: grantCheckpoint.stages,
+      });
+      if (!/^[a-f0-9]{64}$/i.test(packetSha256)) {
+        throw new Error(`${grant.grantKey}:${stage}: exact serialized user-content SHA-256 is required.`);
+      }
+      if (stage !== "judge_3" && packetSha256 !== grant.packetSha256[stage]) {
+        throw new Error(`${grant.grantKey}:${stage}: stage packet drifted from the frozen config.`);
+      }
+      const outputSchemaSha256 = options.dependencies.stageOutputSchemaSha256({
+        grant,
+        stage,
+        eligibleAxes,
+        priorStages: grantCheckpoint.stages,
+      });
+      if (!isSha256(outputSchemaSha256)) {
+        throw new Error(`${grant.grantKey}:${stage}: exact output schema SHA-256 is required.`);
+      }
+      if (stage !== "judge_3" && outputSchemaSha256 !== stagePolicy.schemaSha256) {
+        throw new Error(`${grant.grantKey}:${stage}: output schema drifted from the frozen config.`);
+      }
+      const reservationId = sha256(stableStringify({
+        configSha256: ids.fingerprint,
+        grantKey: grant.grantKey,
+        sourceRevision: grant.sourceRevision,
+        stage,
+        attempt,
+        packetSha256,
+        outputSchemaSha256,
+      }));
       grantCheckpoint.stages[stage] = {
         status: "running",
         attempts: attempt,
+        reservationId,
+        packetSha256,
+        outputSchemaSha256,
         ...(eligibleAxes.length > 0 ? { eligibleAxes } : {}),
       };
       // Persist before the call so interruption still consumes the attempt budget.
@@ -291,11 +386,33 @@ export async function runGrantAnalysisEvaluation(options: {
           attempt,
           eligibleAxes,
           priorStages: grantCheckpoint.stages,
+          reservation: {
+            recordType: "grant_analysis_evaluation_attempt_reservation",
+            schemaVersion: 1,
+            reservationId,
+            configSha256: ids.fingerprint,
+            grantKey: grant.grantKey,
+            sourceRevision: grant.sourceRevision,
+            stage,
+            attempt,
+            plannedModel: stagePolicy.model,
+            maxTokens: stagePolicy.maxOutputTokens,
+            packetSha256,
+            outputSchemaSha256,
+            persistedStatus: "running",
+            successfulStageExists: false,
+            persistedAttempts,
+            maxCalls: options.maxCalls,
+            globalAbsoluteCap: GRANT_ANALYSIS_EVALUATION_ABSOLUTE_MAX_CALLS,
+          },
         });
         grantCheckpoint.stages[stage] = {
           status: "success",
           attempts: attempt,
           result,
+          reservationId,
+          packetSha256,
+          outputSchemaSha256,
           ...(eligibleAxes.length > 0 ? { eligibleAxes } : {}),
         };
       } catch (error) {
@@ -303,6 +420,9 @@ export async function runGrantAnalysisEvaluation(options: {
           status: "failed",
           attempts: attempt,
           lastError: error instanceof Error ? error.message.slice(0, 2_000) : String(error).slice(0, 2_000),
+          reservationId,
+          packetSha256,
+          outputSchemaSha256,
           ...(eligibleAxes.length > 0 ? { eligibleAxes } : {}),
         };
       }
@@ -352,6 +472,11 @@ function assertReusableCheckpoint(
       if (!stage || !Number.isInteger(stage.attempts) || stage.attempts < 0 || stage.attempts > 2) {
         throw new Error(`${grant.grantKey}: invalid checkpoint stage attempt ledger.`);
       }
+      if (stage.status !== "skipped" &&
+          (!isSha256(stage.reservationId) || !isSha256(stage.packetSha256) ||
+            !isSha256(stage.outputSchemaSha256))) {
+        throw new Error(`${grant.grantKey}: checkpoint attempt reservation is malformed.`);
+      }
     }
   }
 }
@@ -364,43 +489,76 @@ function validateRunInputs(
     throw new Error(`runVersion must be ${GRANT_ANALYSIS_EVALUATION_RUN_VERSION}.`);
   }
   for (const [label, value] of Object.entries({
-    manifestSha256: input.manifestSha256,
-    inputLimitsSha256: input.inputLimitsSha256,
     converterVersion: input.converter.version,
-    converterPolicy: input.converter.policySha256,
-    extractorModel: input.extractor.model,
-    extractorPrompt: input.extractor.promptSha256,
-    extractorSchema: input.extractor.schemaSha256,
-    judge1Model: input.judges.judge1.model,
-    judge1Prompt: input.judges.judge1.promptSha256,
-    judge1Schema: input.judges.judge1.schemaSha256,
-    judge2Model: input.judges.judge2.model,
-    judge2Prompt: input.judges.judge2.promptSha256,
-    judge2Schema: input.judges.judge2.schemaSha256,
-    judge3Model: input.judges.judge3.model,
-    judge3Prompt: input.judges.judge3.promptSha256,
-    judge3Schema: input.judges.judge3.schemaSha256,
+    providerBoundary: input.provider.boundaryVersion,
+    providerApiVersion: input.provider.apiVersion,
+    providerEndpoint: input.provider.endpoint,
+    thinkingPolicy: input.provider.thinkingPolicy,
+    stopPolicy: input.provider.stopPolicy,
+    responseNormalizerVersion: input.responseNormalizerVersion,
+    groundingVersion: input.groundingVersion,
   })) {
     if (!value.trim()) throw new Error(`${label} must be non-empty.`);
+  }
+  for (const [label, value] of Object.entries({
+    manifestSha256: input.manifestSha256,
+    inputLimitsSha256: input.inputLimitsSha256,
+    converterPolicySha256: input.converter.policySha256,
+    judge3SchemaFactorySha256: input.judge3SchemaFactorySha256,
+    modelAccessReceiptSha256: input.modelAccessReceiptSha256,
+  })) {
+    if (!isSha256(value)) throw new Error(`${label} must be a SHA-256 value.`);
+  }
+  if (input.provider.effort !== "high") throw new Error("Provider effort must be high.");
+  if (input.retry.maxAttemptsPerStage !== 2 ||
+      !Number.isInteger(input.retry.maxCalls) || input.retry.maxCalls < 0 ||
+      input.retry.globalAbsoluteCap !== GRANT_ANALYSIS_EVALUATION_ABSOLUTE_MAX_CALLS ||
+      input.retry.maxCalls > input.retry.globalAbsoluteCap) {
+    throw new Error("Frozen retry/call policy is invalid.");
+  }
+  for (const stage of GRANT_ANALYSIS_EVALUATION_STAGES) {
+    const policy = input.stages[stage];
+    if (!policy || !policy.model.trim() || !isSha256(policy.promptSha256) || !isSha256(policy.schemaSha256) ||
+        !Number.isInteger(policy.maxOutputTokens) || policy.maxOutputTokens <= 0) {
+      throw new Error(`${stage}: frozen stage policy is invalid.`);
+    }
+    if (input.modelAccess[policy.model] !== true) {
+      throw new Error(`${stage}: assigned model is not available in the frozen access receipt.`);
+    }
   }
   if (grants.length > 40) throw new Error("Evaluation runner accepts at most 40 grants.");
   const keys = new Set<string>();
   for (const grant of grants) {
-    if (!grant.grantKey.trim() || !grant.sourceRevision.trim()) {
+    if (!grant.grantKey.trim() || !isSha256(grant.sourceRevision)) {
       throw new Error("Every evaluation grant requires grantKey and sourceRevision.");
     }
     if (keys.has(grant.grantKey)) throw new Error(`Duplicate evaluation grant: ${grant.grantKey}.`);
     keys.add(grant.grantKey);
-    if (new Set(grant.inputOrder).size !== grant.inputOrder.length) {
-      throw new Error(`${grant.grantKey}: inputOrder must not contain duplicates.`);
-    }
     for (const stage of GRANT_ANALYSIS_EVALUATION_STAGES) {
+      const inputOrder = grant.inputOrderByStage[stage];
+      if (!Array.isArray(inputOrder) || new Set(inputOrder).size !== inputOrder.length) {
+        throw new Error(`${grant.grantKey}:${stage}: input order must not contain duplicates.`);
+      }
+      if (!isSha256(grant.packetSha256[stage])) {
+        throw new Error(`${grant.grantKey}:${stage}: packet hash is required.`);
+      }
       const tokens = grant.estimatedInputTokens[stage];
       if (!Number.isInteger(tokens) || tokens < 0) {
         throw new Error(`${grant.grantKey}:${stage}: estimatedInputTokens must be non-negative integers.`);
       }
     }
+    for (const [label, hash] of Object.entries({
+      apiInputSha256: grant.apiInputSha256,
+      attachmentInputSha256: grant.attachmentInputSha256,
+      judgeInputSha256: grant.judgeInputSha256,
+    })) {
+      if (!isSha256(hash)) throw new Error(`${grant.grantKey}:${label} must be a SHA-256 value.`);
+    }
   }
+}
+
+function isSha256(value: string | undefined): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
 }
 
 function countAttempts(checkpoint: GrantAnalysisEvaluationRunCheckpoint): number {
@@ -424,7 +582,7 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
       .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
       .join(",")}}`;
   }

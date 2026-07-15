@@ -8,6 +8,7 @@ import {
   buildGrantAnalysisSourceRevision,
   selectGrantAnalysisEvaluationCohort,
   verifyGrantAnalysisEvaluationManifestPair,
+  verifyGrantAnalysisEvaluationPublicManifest,
   type GrantAnalysisEvaluationExpectedReceipt,
   type GrantAnalysisEvaluationPublicManifest,
   type GrantAnalysisEvaluationSecretManifest,
@@ -44,6 +45,54 @@ verifyGrantAnalysisEvaluationManifestPair(
   first.publicManifest,
   first.secretManifest,
   EXPECTED_RECEIPT,
+);
+assert.equal(
+  verifyGrantAnalysisEvaluationPublicManifest(first.publicManifest, first.publicManifest.manifestSha256),
+  first.publicManifest,
+);
+const forgedPublic = structuredClone(first.publicManifest);
+forgedPublic.validation[0]!.split = "sealed" as never;
+rehashManifest(forgedPublic);
+assert.throws(
+  () => verifyGrantAnalysisEvaluationPublicManifest(forgedPublic, forgedPublic.manifestSha256),
+  /validation entry .* malformed/,
+);
+const duplicatePublic = structuredClone(first.publicManifest);
+duplicatePublic.validation[1] = structuredClone(duplicatePublic.validation[0]!);
+rehashManifest(duplicatePublic);
+assert.throws(
+  () => verifyGrantAnalysisEvaluationPublicManifest(duplicatePublic, duplicatePublic.manifestSha256),
+  /duplicate identity/,
+);
+const badCommitment = structuredClone(first.publicManifest);
+assert.throws(
+  () => verifyGrantAnalysisEvaluationPublicManifest(badCommitment, "0".repeat(64)),
+  /committed Gate 0 hash/,
+);
+const repeatedArtifactPublic = structuredClone(first.publicManifest);
+const repeatedArtifactEntry = repeatedArtifactPublic.validation.find((entry) =>
+  entry.source === "kstartup" && entry.stratum === "sparse_attachment_loadable");
+assert.ok(repeatedArtifactEntry, "fixture must include a K-Startup loadable validation entry");
+const repeatedArtifact = loadableAttachment("repeated-public-artifact");
+repeatedArtifactEntry.attachmentSummary = buildGrantAnalysisAttachmentSummary({
+  source: "kstartup",
+  payload: {
+    pbanc_sn: repeatedArtifactEntry.sourceId,
+    detail: kstartupDetailAttachments(2),
+  },
+  attachments: [repeatedArtifact, structuredClone(repeatedArtifact)],
+});
+repeatedArtifactEntry.sourceRevision = buildGrantAnalysisSourceRevision({
+  source: repeatedArtifactEntry.source,
+  sourceId: repeatedArtifactEntry.sourceId,
+  rawPayloadSha256: repeatedArtifactEntry.rawPayloadSha256,
+  attachmentSummarySha256: repeatedArtifactEntry.attachmentSummary.attachmentSummarySha256,
+});
+rehashManifest(repeatedArtifactPublic);
+assert.equal(
+  verifyGrantAnalysisEvaluationPublicManifest(repeatedArtifactPublic, repeatedArtifactPublic.manifestSha256),
+  repeatedArtifactPublic,
+  "source-faithful repeated attachment rows remain valid when the manifest and summary commitments match",
 );
 
 for (const source of ["kstartup", "bizinfo"] as const) {

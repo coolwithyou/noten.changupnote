@@ -3,6 +3,9 @@ import type { Grant, NormalizedGrant } from "@cunote/contracts";
 import type { BizInfoProgram, KStartupAnnouncement } from "@cunote/core";
 import { buildGrantAnalysisPilotInputs } from "./grantAnalysisPilotInputs";
 
+const KSTARTUP_NOTICE_MARKDOWN = "지원대상: 서울 소재 창업기업이며 업력 7년 이내";
+const BIZINFO_NOTICE_MARKDOWN = "업력 3년 이내 중소기업";
+
 const kstartupEntry: NormalizedGrant<KStartupAnnouncement> = {
   raw: {
     source: "kstartup",
@@ -32,7 +35,7 @@ const kstartupEntry: NormalizedGrant<KStartupAnnouncement> = {
       conversion: {
         status: "converted",
         markdown_storage_key: "markdown/notice.md",
-        markdown_bytes: 100,
+        markdown_bytes: Buffer.byteLength(KSTARTUP_NOTICE_MARKDOWN, "utf8"),
       },
     }, {
       filename: "신청서.hwp",
@@ -61,10 +64,10 @@ const reads: string[] = [];
 const kstartup = await buildGrantAnalysisPilotInputs({
   entry: kstartupEntry,
   storage: {
-    async getObjectText(key) {
+    async getObjectBytes(key) {
       reads.push(key);
       if (key === "markdown/form.md") throw new Error("R2 read failed");
-      return "지원대상: 서울 소재 창업기업이며 업력 7년 이내";
+      return { body: Buffer.from(KSTARTUP_NOTICE_MARKDOWN, "utf8"), contentType: "text/markdown" };
     },
   },
   limits: {
@@ -86,6 +89,8 @@ assert.equal(kstartup.attachments.counts.loadableConverted, 2);
 assert.equal(kstartup.attachments.counts.selectedForLoad, 2);
 assert.equal(kstartup.attachments.counts.loaded, 1);
 assert.equal(kstartup.attachments.counts.included, 1);
+assert.match(kstartup.attachments.includedAttachments[0]?.sourceMarkdownSha256 ?? "", /^[a-f0-9]{64}$/);
+assert.match(kstartup.attachments.includedAttachments[0]?.inputBlockSha256 ?? "", /^[a-f0-9]{64}$/);
 assert.equal(kstartup.attachments.characters.loadedAttachmentMarkdown, 12);
 assert.equal(kstartup.attachments.characters.includedAttachmentMarkdown, 11);
 assert.equal(kstartup.attachments.truncation.truncatedAttachmentCount, 1);
@@ -130,7 +135,7 @@ const bizinfoEntry: NormalizedGrant<BizInfoProgram> = {
       conversion: {
         status: "converted",
         markdown_storage_key: "markdown/bizinfo.md",
-        markdown_bytes: 100,
+        markdown_bytes: Buffer.byteLength(BIZINFO_NOTICE_MARKDOWN, "utf8"),
       },
     }],
   },
@@ -140,7 +145,11 @@ const bizinfoEntry: NormalizedGrant<BizInfoProgram> = {
 
 const bizinfo = await buildGrantAnalysisPilotInputs({
   entry: bizinfoEntry,
-  storage: { async getObjectText() { return "업력 3년 이내 중소기업"; } },
+  storage: {
+    async getObjectBytes() {
+      return { body: Buffer.from(BIZINFO_NOTICE_MARKDOWN, "utf8"), contentType: "text/markdown" };
+    },
+  },
 });
 assert.equal(bizinfo.source, "bizinfo");
 assert.equal(bizinfo.sourceRevision, "bizinfo-revision-1");

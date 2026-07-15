@@ -103,7 +103,7 @@ assert.throws(
     judge2,
     judge3: partialJudge3([judgment("industry", "explicit_no_condition", { tags: ["AI"] })]),
   }),
-  /explicit_no_condition cannot carry normalizedCondition/,
+  /non-condition state cannot carry normalizedCondition/,
 );
 assert.throws(
   () => buildGrantAnalysisEvaluationConsensus({

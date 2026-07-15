@@ -15,6 +15,8 @@ export const GRANT_ANALYSIS_ATTACHMENT_SUMMARY_VERSION =
   "grant-analysis-attachment-summary-v1";
 export const GRANT_ANALYSIS_SOURCE_REVISION_VERSION =
   "grant-analysis-source-revision-v1";
+export const GRANT_ANALYSIS_EVALUATION_GATE0_PUBLIC_MANIFEST_SHA256 =
+  "ea25d5180880418de239f18001baf021ae585c4b146cc6142a090ecb31b80f95";
 
 export const GRANT_ANALYSIS_EVALUATION_STRATA = [
   "sparse_attachment_unavailable",
@@ -518,6 +520,109 @@ export function verifyGrantAnalysisEvaluationManifestPair(
   }
 }
 
+/**
+ * Authenticates the public Gate 0 artifact without reading the sealed mapping.
+ * This is intentionally stricter than a TypeScript cast: every public field,
+ * entry, commitment, order, and side-effect declaration is checked before a
+ * validation entry may be selected for a paid-call plan.
+ */
+export function verifyGrantAnalysisEvaluationPublicManifest(
+  value: unknown,
+  expectedManifestSha256 = GRANT_ANALYSIS_EVALUATION_GATE0_PUBLIC_MANIFEST_SHA256,
+): GrantAnalysisEvaluationPublicManifest {
+  if (!isRecord(value)) throw new Error("Evaluation public manifest must be an object.");
+  assertExactKeys(value, [
+    "recordType", "schemaVersion", "selectorVersion", "asOf", "population",
+    "exclusions", "quotas", "quotaSha256", "availability", "availabilitySha256",
+    "validationCount", "sealedCount", "validation", "sealed",
+    "selectionCommitmentSha256", "externalLlmCalls", "databaseWriteMode",
+    "manifestSha256",
+  ], "public manifest");
+  const manifest = value as unknown as GrantAnalysisEvaluationPublicManifest;
+  if (manifest.recordType !== "grant_analysis_evaluation_cohort_public" ||
+      manifest.schemaVersion !== 1 ||
+      manifest.selectorVersion !== GRANT_ANALYSIS_EVALUATION_SELECTOR_VERSION ||
+      manifest.asOf !== GRANT_ANALYSIS_EVALUATION_AS_OF) {
+    throw new Error("Evaluation public manifest envelope does not match the frozen contract.");
+  }
+  if (manifest.externalLlmCalls !== 0 || manifest.databaseWriteMode !== false) {
+    throw new Error("Evaluation public manifest side-effect contract verification failed.");
+  }
+  if (!isSha256(expectedManifestSha256) || manifest.manifestSha256 !== expectedManifestSha256) {
+    throw new Error("Evaluation public manifest does not match the committed Gate 0 hash.");
+  }
+  const computed = sha256Canonical(manifestHashPayload(manifest));
+  if (manifest.manifestSha256 !== computed) {
+    throw new Error("Evaluation public manifest hash verification failed.");
+  }
+  assertPublicAuditShape(manifest);
+  assertCanonicalEqual("frozen quotas", manifest.quotas, GRANT_ANALYSIS_EVALUATION_SOURCE_QUOTAS);
+  if (manifest.quotaSha256 !== sha256Canonical({
+    selectorVersion: GRANT_ANALYSIS_EVALUATION_SELECTOR_VERSION,
+    quotas: GRANT_ANALYSIS_EVALUATION_SOURCE_QUOTAS,
+  })) throw new Error("Evaluation quota commitment verification failed.");
+  if (manifest.availabilitySha256 !== sha256Canonical({
+    selectorVersion: GRANT_ANALYSIS_EVALUATION_SELECTOR_VERSION,
+    availability: manifest.availability,
+  })) throw new Error("Evaluation availability commitment verification failed.");
+
+  if (manifest.validationCount !== 24 || !Array.isArray(manifest.validation) ||
+      manifest.validation.length !== 24) {
+    throw new Error("Evaluation public validation count must be exactly 24.");
+  }
+  const validationKeys = new Set<string>();
+  for (const [index, entry] of manifest.validation.entries()) {
+    assertPublicValidationEntry(entry, index);
+    const key = candidateKey(entry);
+    if (validationKeys.has(key)) {
+      throw new Error(`Evaluation public validation contains duplicate identity ${key}.`);
+    }
+    validationKeys.add(key);
+  }
+  assertCanonicalEqual(
+    "public validation order",
+    manifest.validation,
+    [...manifest.validation].sort(comparePublicValidationEntries),
+  );
+
+  if (manifest.sealedCount !== 16 || !Array.isArray(manifest.sealed) || manifest.sealed.length !== 16) {
+    throw new Error("Evaluation public sealed count must be exactly 16.");
+  }
+  const sealedCommitments = new Set<string>();
+  for (const [index, entry] of manifest.sealed.entries()) {
+    if (!isRecord(entry)) throw new Error(`Evaluation sealed entry ${index} must be an object.`);
+    assertExactKeys(entry, ["split", "source", "stratum", "opaqueCommitmentSha256"], `sealed[${index}]`);
+    if (entry.split !== "sealed" || !isSource(entry.source) || !isStratum(entry.stratum) ||
+        !isSha256(typeof entry.opaqueCommitmentSha256 === "string" ? entry.opaqueCommitmentSha256 : null)) {
+      throw new Error(`Evaluation sealed entry ${index} is malformed.`);
+    }
+    if (sealedCommitments.has(entry.opaqueCommitmentSha256)) {
+      throw new Error("Evaluation public sealed commitments must be unique.");
+    }
+    sealedCommitments.add(entry.opaqueCommitmentSha256);
+  }
+  assertCanonicalEqual(
+    "public sealed order",
+    manifest.sealed,
+    [...manifest.sealed].sort(comparePublicSealedEntries),
+  );
+  if (!isSha256(manifest.selectionCommitmentSha256)) {
+    throw new Error("Evaluation selection commitment must be a SHA-256 value.");
+  }
+  for (const source of ["kstartup", "bizinfo"] as const) {
+    for (const stratum of GRANT_ANALYSIS_EVALUATION_STRATA) {
+      const quota = GRANT_ANALYSIS_EVALUATION_QUOTAS[stratum];
+      if (manifest.validation.filter((entry) => entry.source === source && entry.stratum === stratum).length !==
+          quota.validation ||
+          manifest.sealed.filter((entry) => entry.source === source && entry.stratum === stratum).length !==
+          quota.sealed) {
+        throw new Error(`Evaluation public quota mismatch for ${source}/${stratum}.`);
+      }
+    }
+  }
+  return manifest;
+}
+
 function preparePopulation(
   entries: readonly NormalizedGrant<unknown>[],
   seed: string,
@@ -843,6 +948,175 @@ function assertManifestEnvelope(
       throw new Error("Evaluation manifest contains an invalid SHA-256 commitment.");
     }
   }
+}
+
+function assertPublicAuditShape(manifest: GrantAnalysisEvaluationPublicManifest): void {
+  if (!isRecord(manifest.population)) throw new Error("Evaluation public population audit is malformed.");
+  assertExactKeys(manifest.population, [
+    "canonicalCount", "duplicateInclusiveCount", "canonicalSha256", "duplicateInclusiveSha256",
+  ], "population");
+  if (!Number.isSafeInteger(manifest.population.canonicalCount) || manifest.population.canonicalCount < 0 ||
+      !Number.isSafeInteger(manifest.population.duplicateInclusiveCount) ||
+      manifest.population.duplicateInclusiveCount < manifest.population.canonicalCount ||
+      !isSha256(manifest.population.canonicalSha256) ||
+      !isSha256(manifest.population.duplicateInclusiveSha256)) {
+    throw new Error("Evaluation public population audit is malformed.");
+  }
+  if (!isRecord(manifest.exclusions)) throw new Error("Evaluation public exclusion audit is malformed.");
+  assertExactKeys(manifest.exclusions, [
+    "configuredLegacyKeyCount", "excludedCanonicalCount", "exclusionSha256",
+  ], "exclusions");
+  if (!Number.isSafeInteger(manifest.exclusions.configuredLegacyKeyCount) ||
+      manifest.exclusions.configuredLegacyKeyCount < 0 ||
+      !Number.isSafeInteger(manifest.exclusions.excludedCanonicalCount) ||
+      manifest.exclusions.excludedCanonicalCount < 0 || !isSha256(manifest.exclusions.exclusionSha256)) {
+    throw new Error("Evaluation public exclusion audit is malformed.");
+  }
+  if (!isRecord(manifest.availability)) throw new Error("Evaluation availability audit is malformed.");
+  assertExactKeys(manifest.availability, ["kstartup", "bizinfo"], "availability");
+  for (const source of ["kstartup", "bizinfo"] as const) {
+    const counts = manifest.availability[source];
+    if (!isRecord(counts)) throw new Error(`Evaluation availability ${source} is malformed.`);
+    assertExactKeys(counts, [...GRANT_ANALYSIS_EVALUATION_STRATA], `availability.${source}`);
+    for (const stratum of GRANT_ANALYSIS_EVALUATION_STRATA) {
+      if (!Number.isSafeInteger(counts[stratum]) || counts[stratum] < 0) {
+        throw new Error(`Evaluation availability ${source}/${stratum} is malformed.`);
+      }
+    }
+  }
+  for (const hash of [manifest.quotaSha256, manifest.availabilitySha256]) {
+    if (!isSha256(hash)) throw new Error("Evaluation public audit commitment is malformed.");
+  }
+}
+
+function assertPublicValidationEntry(entry: unknown, index: number): asserts entry is GrantAnalysisEvaluationPublicValidationEntry {
+  if (!isRecord(entry)) throw new Error(`Evaluation validation entry ${index} must be an object.`);
+  assertExactKeys(entry, [
+    "source", "sourceId", "canonicalId", "title", "status", "applyStart", "applyEnd",
+    "rawPayloadSha256", "attachmentSummary", "sourceRevision", "baselineCriteriaCount",
+    "stratum", "split",
+  ], `validation[${index}]`);
+  if (!isSource(entry.source) || typeof entry.sourceId !== "string" || !entry.sourceId.trim() ||
+      typeof entry.canonicalId !== "string" || !entry.canonicalId.trim() ||
+      typeof entry.title !== "string" || !entry.title.trim() || entry.split !== "validation" ||
+      !isStratum(entry.stratum) ||
+      !["upcoming", "open", "closed", "unknown"].includes(String(entry.status)) ||
+      (entry.applyStart !== null && typeof entry.applyStart !== "string") ||
+      (entry.applyEnd !== null && typeof entry.applyEnd !== "string") ||
+      !isSha256(typeof entry.rawPayloadSha256 === "string" ? entry.rawPayloadSha256 : null) ||
+      !isSha256(typeof entry.sourceRevision === "string" ? entry.sourceRevision : null) ||
+      !Number.isSafeInteger(entry.baselineCriteriaCount) || Number(entry.baselineCriteriaCount) < 0) {
+    throw new Error(`Evaluation validation entry ${index} is malformed.`);
+  }
+  assertAttachmentSummary(entry.attachmentSummary, `validation[${index}].attachmentSummary`);
+  const typedEntry = entry as unknown as GrantAnalysisEvaluationPublicValidationEntry;
+  const expectedRevision = buildGrantAnalysisSourceRevision({
+    source: typedEntry.source,
+    sourceId: typedEntry.sourceId,
+    rawPayloadSha256: typedEntry.rawPayloadSha256,
+    attachmentSummarySha256: typedEntry.attachmentSummary.attachmentSummarySha256,
+  });
+  if (typedEntry.sourceRevision !== expectedRevision ||
+      typedEntry.stratum !== resolveStratum(typedEntry.baselineCriteriaCount, typedEntry.attachmentSummary)) {
+    throw new Error(`Evaluation validation entry ${index} has an invalid revision or stratum.`);
+  }
+}
+
+function assertAttachmentSummary(value: unknown, label: string): asserts value is GrantAnalysisAttachmentSummary {
+  if (!isRecord(value)) throw new Error(`Evaluation ${label} is malformed.`);
+  assertExactKeys(value, [
+    "schemaVersion", "declaredKnown", "declaredCount", "presentCount", "expectedCount",
+    "inventoryIncomplete", "stableArchiveCount", "convertedCount", "contentBoundLoadableCount",
+    "skippedCount", "failedCount", "artifacts", "attachmentSummarySha256",
+  ], label);
+  if (value.schemaVersion !== GRANT_ANALYSIS_ATTACHMENT_SUMMARY_VERSION ||
+      typeof value.declaredKnown !== "boolean" || typeof value.inventoryIncomplete !== "boolean" ||
+      !isSha256(typeof value.attachmentSummarySha256 === "string" ? value.attachmentSummarySha256 : null) ||
+      !Array.isArray(value.artifacts)) throw new Error(`Evaluation ${label} is malformed.`);
+  for (const field of [
+    "declaredCount", "presentCount", "expectedCount", "stableArchiveCount", "convertedCount",
+    "contentBoundLoadableCount", "skippedCount", "failedCount",
+  ] as const) {
+    if (!Number.isSafeInteger(value[field]) || Number(value[field]) < 0) {
+      throw new Error(`Evaluation ${label}.${field} is malformed.`);
+    }
+  }
+  if (value.artifacts.length !== Number(value.presentCount) ||
+      Number(value.expectedCount) < Number(value.presentCount)) {
+    throw new Error(`Evaluation ${label} attachment counts are inconsistent.`);
+  }
+  const typedArtifacts = value.artifacts as GrantAnalysisAttachmentArtifactCommitment[];
+  const derivedCounts = {
+    stableArchiveCount: typedArtifacts.filter((artifact) =>
+      artifact.archiveLocatorValid && isSha256(artifact.archiveSha256)).length,
+    convertedCount: typedArtifacts.filter((artifact) => artifact.conversionStatus === "converted").length,
+    contentBoundLoadableCount: typedArtifacts.filter((artifact) => artifact.contentBoundLoadable).length,
+    skippedCount: typedArtifacts.filter((artifact) => artifact.conversionStatus === "skipped").length,
+    failedCount: typedArtifacts.filter((artifact) => artifact.conversionStatus === "failed").length,
+  };
+  for (const [field, count] of Object.entries(derivedCounts)) {
+    if (value[field] !== count) throw new Error(`Evaluation ${label}.${field} is inconsistent.`);
+  }
+  for (const [index, artifact] of value.artifacts.entries()) {
+    assertAttachmentArtifact(artifact, `${label}.artifacts[${index}]`);
+  }
+  const { attachmentSummarySha256: _hash, ...payload } = value as unknown as GrantAnalysisAttachmentSummary;
+  if (value.attachmentSummarySha256 !== sha256Canonical({
+    ...payload,
+    artifacts: payload.artifacts.map(artifactHashPayload),
+  })) throw new Error(`Evaluation ${label} hash verification failed.`);
+}
+
+function assertAttachmentArtifact(value: unknown, label: string): asserts value is GrantAnalysisAttachmentArtifactCommitment {
+  if (!isRecord(value)) throw new Error(`Evaluation ${label} is malformed.`);
+  assertExactKeys(value, [
+    "artifactCommitmentSha256", "filename", "contentType", "bytes", "sourceLocatorPresent",
+    "archiveUrlPresent", "archiveLocatorPresent", "archiveLocatorValid", "archiveSha256",
+    "conversionStatus", "markdownUrlPresent", "markdownLocatorPresent", "markdownLocatorValid",
+    "markdownSha256", "markdownBytes", "converter", "ocrProvider", "ocrConfidence",
+    "contentBoundLoadable",
+  ], label);
+  if (!isSha256(typeof value.artifactCommitmentSha256 === "string" ? value.artifactCommitmentSha256 : null) ||
+      typeof value.filename !== "string" || !value.filename.trim() ||
+      (value.contentType !== null && typeof value.contentType !== "string") ||
+      (value.bytes !== null && (!Number.isSafeInteger(value.bytes) || Number(value.bytes) < 0)) ||
+      !["sourceLocatorPresent", "archiveUrlPresent", "archiveLocatorPresent", "archiveLocatorValid",
+        "markdownUrlPresent", "markdownLocatorPresent", "markdownLocatorValid", "contentBoundLoadable"]
+        .every((field) => typeof value[field] === "boolean") ||
+      (value.archiveSha256 !== null && !isSha256(typeof value.archiveSha256 === "string" ? value.archiveSha256 : null)) ||
+      ![null, "converted", "skipped", "failed"].includes(value.conversionStatus as never) ||
+      (value.markdownSha256 !== null && !isSha256(typeof value.markdownSha256 === "string" ? value.markdownSha256 : null)) ||
+      (value.markdownBytes !== null && (!Number.isSafeInteger(value.markdownBytes) || Number(value.markdownBytes) < 0)) ||
+      (value.converter !== null && typeof value.converter !== "string") ||
+      (value.ocrProvider !== null && typeof value.ocrProvider !== "string") ||
+      (value.ocrConfidence !== null && (typeof value.ocrConfidence !== "number" || !Number.isFinite(value.ocrConfidence)))) {
+    throw new Error(`Evaluation ${label} is malformed.`);
+  }
+  if (value.artifactCommitmentSha256 !== sha256Canonical(artifactHashPayload(value as unknown as GrantAnalysisAttachmentArtifactCommitment))) {
+    throw new Error(`Evaluation ${label} commitment verification failed.`);
+  }
+}
+
+function assertExactKeys(value: Record<string, unknown>, expected: readonly string[], label: string): void {
+  const actual = Object.keys(value).sort(compareText);
+  const required = [...expected].sort(compareText);
+  if (actual.length !== required.length || actual.some((key, index) => key !== required[index])) {
+    throw new Error(`Evaluation ${label} keys do not match the frozen contract.`);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSource(value: unknown): value is GrantAnalysisEvaluationSource {
+  return value === "kstartup" || value === "bizinfo";
+}
+
+function isStratum(value: unknown): value is GrantAnalysisEvaluationStratum {
+  return typeof value === "string" && GRANT_ANALYSIS_EVALUATION_STRATA.includes(
+    value as GrantAnalysisEvaluationStratum,
+  );
 }
 
 function assertSeed(seed: string): void {

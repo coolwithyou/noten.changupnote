@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import type { CriterionDimension } from "@cunote/contracts";
 import {
   FROZEN_GRANT_ANALYSIS_PILOT_COHORT,
@@ -115,31 +116,94 @@ assert.equal(second.checkpoint.grants[grantKeys.attachmentComplete]?.stages.extr
 assert.equal(second.checkpoint.grants[grantKeys.attachmentComplete]?.stages.extract_c?.attempts, 2);
 assert.equal(second.checkpoint.grants[grantKeys.attachmentComplete]?.stages.extract_b?.attempts, 1);
 
+const dynamicJudge3SchemaSha256 = createHash("sha256").update("judge3-industry-subset-schema").digest("hex");
+const dynamicStore = memoryStore();
+const dynamicCalls: GrantAnalysisEvaluationStageContext[] = [];
+const dynamicDependencies = dependencies(dynamicStore, dynamicCalls);
+const dynamicReceipt = await runGrantAnalysisEvaluation({
+  mode: "paid",
+  confirmation: GRANT_ANALYSIS_EVALUATION_PAID_CONFIRMATION,
+  maxCalls: 20,
+  fingerprintInput,
+  grants,
+  dependencies: {
+    ...dynamicDependencies,
+    stageOutputSchemaSha256({ stage }) {
+      return stage === "judge_3"
+        ? dynamicJudge3SchemaSha256
+        : fingerprintInput.stages[stage].schemaSha256;
+    },
+  },
+});
+assert.equal(dynamicReceipt.mode, "paid");
+if (dynamicReceipt.mode !== "paid") throw new Error("expected paid receipt");
+assert.equal(
+  dynamicReceipt.checkpoint.grants[grantKeys.structuredControl]?.stages.judge_3?.outputSchemaSha256,
+  dynamicJudge3SchemaSha256,
+);
+assert.equal(
+  dynamicCalls.find((call) => call.stage === "judge_3")?.reservation.outputSchemaSha256,
+  dynamicJudge3SchemaSha256,
+  "exact dynamic Judge 3 subset schema hash is persisted before executeStage",
+);
+
 const beforeMismatch = calls.length;
-await assert.rejects(
-  () => runGrantAnalysisEvaluation({
+for (const changedConfig of [
+  {
+    ...fingerprintInput,
+    converter: { ...fingerprintInput.converter, version: "converter-drift" },
+  },
+  {
+    ...fingerprintInput,
+    provider: { ...fingerprintInput.provider, apiVersion: "provider-api-drift" },
+  },
+  {
+    ...fingerprintInput,
+    responseNormalizerVersion: "normalizer-drift",
+  },
+  {
+    ...fingerprintInput,
+    stages: {
+      ...fingerprintInput.stages,
+      judge_1: { ...fingerprintInput.stages.judge_1, maxOutputTokens: 101 },
+    },
+  },
+]) {
+  await assert.rejects(() => runGrantAnalysisEvaluation({
     mode: "paid",
     confirmation: GRANT_ANALYSIS_EVALUATION_PAID_CONFIRMATION,
     maxCalls: 20,
-    fingerprintInput: {
-      ...fingerprintInput,
-      converter: { ...fingerprintInput.converter, version: "converter-drift" },
-    },
+    fingerprintInput: changedConfig,
     grants,
     dependencies: injected,
-  }),
-  /Checkpoint fingerprint mismatch/,
-);
+  }), /Checkpoint fingerprint mismatch/);
+}
+const changedGrants = grants.map((entry, index) => index === 0 ? {
+  ...entry,
+  packetSha256: {
+    ...entry.packetSha256,
+    extract_b: createHash("sha256").update("packet-drift").digest("hex"),
+  },
+} : entry);
+await assert.rejects(() => runGrantAnalysisEvaluation({
+  mode: "paid",
+  confirmation: GRANT_ANALYSIS_EVALUATION_PAID_CONFIRMATION,
+  maxCalls: 20,
+  fingerprintInput,
+  grants: changedGrants,
+  dependencies: injected,
+}), /Checkpoint fingerprint mismatch/);
 assert.equal(calls.length, beforeMismatch);
 
 const cappedStore = memoryStore();
 const cappedCalls: GrantAnalysisEvaluationStageContext[] = [];
+const cappedConfig = { ...fingerprintInput, retry: { ...fingerprintInput.retry, maxCalls: 0 } };
 await assert.rejects(
   () => runGrantAnalysisEvaluation({
     mode: "paid",
     confirmation: GRANT_ANALYSIS_EVALUATION_PAID_CONFIRMATION,
     maxCalls: 0,
-    fingerprintInput,
+    fingerprintInput: cappedConfig,
     grants,
     dependencies: dependencies(cappedStore, cappedCalls),
   }),
@@ -152,6 +216,9 @@ const interrupted = initialCheckpoint(fingerprintInput, grants);
 interrupted.grants[grantKeys.attachmentFailure]!.stages.extract_b = {
   status: "running",
   attempts: 2,
+  reservationId: createHash("sha256").update("interrupted-reservation").digest("hex"),
+  packetSha256: grants[0]!.packetSha256.extract_b,
+  outputSchemaSha256: fingerprintInput.stages.extract_b.schemaSha256,
 };
 await runningStore.write(interrupted);
 const interruptedCalls: GrantAnalysisEvaluationStageContext[] = [];
@@ -184,12 +251,24 @@ function grant(
   apiInputSha256: string,
   attachmentInputSha256: string,
 ): GrantAnalysisEvaluationRunGrant {
+  const apiHash = createHash("sha256").update(apiInputSha256).digest("hex");
+  const attachmentHash = createHash("sha256").update(attachmentInputSha256).digest("hex");
   return {
     grantKey: frozenGrantAnalysisPilotKey(entry),
     sourceRevision: entry.sourceRevision,
-    inputOrder: ["api#paragraph:p1", ...(apiInputSha256 === attachmentInputSha256 ? [] : ["attachment#page:1"])],
-    apiInputSha256,
-    attachmentInputSha256,
+    inputOrderByStage: {
+      extract_b: ["api#paragraph:p1"],
+      extract_c: ["api#paragraph:p1", ...(apiHash === attachmentHash ? [] : ["attachment#page:1"])],
+      judge_1: ["api#paragraph:p1"],
+      judge_2: ["api#paragraph:p1"],
+      judge_3: ["api#paragraph:p1"],
+    },
+    packetSha256: Object.fromEntries([
+      "extract_b", "extract_c", "judge_1", "judge_2", "judge_3",
+    ].map((stage) => [stage, createHash("sha256").update(`${entry.sourceId}:${stage}`).digest("hex")])) as GrantAnalysisEvaluationRunGrant["packetSha256"],
+    apiInputSha256: apiHash,
+    attachmentInputSha256: attachmentHash,
+    judgeInputSha256: createHash("sha256").update("judge-input").digest("hex"),
     estimatedInputTokens: {
       extract_b: 100,
       extract_c: 150,
@@ -201,17 +280,35 @@ function grant(
 }
 
 function config(): GrantAnalysisEvaluationRunFingerprintInput {
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const stages = Object.fromEntries([
+    "extract_b", "extract_c", "judge_1", "judge_2", "judge_3",
+  ].map((stage) => [stage, {
+    model: "assigned-model",
+    maxOutputTokens: 100,
+    promptSha256: hash(`${stage}-prompt`),
+    schemaSha256: hash(`${stage}-schema`),
+  }])) as GrantAnalysisEvaluationRunFingerprintInput["stages"];
   return {
     runVersion: GRANT_ANALYSIS_EVALUATION_RUN_VERSION,
-    manifestSha256: "manifest-sha",
-    inputLimitsSha256: "limits-sha",
-    converter: { version: "converter-v1", policySha256: "converter-policy-sha" },
-    extractor: { model: "extractor-model", promptSha256: "extractor-prompt", schemaSha256: "extractor-schema" },
-    judges: {
-      judge1: { model: "judge-model-1", promptSha256: "judge-prompt-1", schemaSha256: "judge-schema-1" },
-      judge2: { model: "judge-model-2", promptSha256: "judge-prompt-2", schemaSha256: "judge-schema-2" },
-      judge3: { model: "judge-model-3", promptSha256: "judge-prompt-3", schemaSha256: "judge-schema-3" },
+    manifestSha256: hash("manifest-sha"),
+    inputLimitsSha256: hash("limits-sha"),
+    converter: { version: "converter-v1", policySha256: hash("converter-policy-sha") },
+    provider: {
+      boundaryVersion: "boundary-v1",
+      apiVersion: "2023-06-01",
+      endpoint: "https://api.anthropic.com/v1/messages",
+      effort: "high",
+      thinkingPolicy: "adaptive",
+      stopPolicy: "end-turn-only",
     },
+    responseNormalizerVersion: "normalizer-v1",
+    groundingVersion: "grounding-v1",
+    stages,
+    judge3SchemaFactorySha256: hash("judge3-factory-sha"),
+    modelAccessReceiptSha256: hash("model-access-sha"),
+    modelAccess: { "assigned-model": true },
+    retry: { maxAttemptsPerStage: 2, maxCalls: 20, globalAbsoluteCap: 200 },
   };
 }
 
@@ -228,6 +325,12 @@ function dependencies(
     },
     judge3EligibleAxes({ grant }: { grant: GrantAnalysisEvaluationRunGrant }): readonly CriterionDimension[] {
       return grant.grantKey === grantKeys.structuredControl ? ["industry"] : [];
+    },
+    stagePacketSha256({ grant, stage }: { grant: GrantAnalysisEvaluationRunGrant; stage: keyof GrantAnalysisEvaluationRunGrant["packetSha256"] }) {
+      return grant.packetSha256[stage];
+    },
+    stageOutputSchemaSha256({ stage }: { stage: keyof GrantAnalysisEvaluationRunFingerprintInput["stages"] }) {
+      return fingerprintInput.stages[stage].schemaSha256;
     },
   };
 }

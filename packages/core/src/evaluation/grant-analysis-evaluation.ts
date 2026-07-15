@@ -134,8 +134,8 @@ export function validateGrantAnalysisEvaluationJudgeLedger(
     if (axis.state === "condition_present" && axis.normalizedCondition === null) {
       throw new Error(`${axis.dimension}: condition_present requires normalizedCondition.`);
     }
-    if (axis.state === "explicit_no_condition" && axis.normalizedCondition !== null) {
-      throw new Error(`${axis.dimension}: explicit_no_condition cannot carry normalizedCondition.`);
+    if (axis.state !== "condition_present" && axis.normalizedCondition !== null) {
+      throw new Error(`${axis.dimension}: non-condition state cannot carry normalizedCondition.`);
     }
     byDimension.set(axis.dimension, canonicalAxis(axis));
   }
@@ -262,8 +262,8 @@ function validatePartialJudge3(
     if (axis.state === "condition_present" && axis.normalizedCondition === null) {
       throw new Error(`${axis.dimension}: condition_present requires normalizedCondition.`);
     }
-    if (axis.state === "explicit_no_condition" && axis.normalizedCondition !== null) {
-      throw new Error(`${axis.dimension}: explicit_no_condition cannot carry normalizedCondition.`);
+    if (axis.state !== "condition_present" && axis.normalizedCondition !== null) {
+      throw new Error(`${axis.dimension}: non-condition state cannot carry normalizedCondition.`);
     }
     return canonicalAxis(axis);
   });
@@ -294,6 +294,9 @@ function canonicalAxis(
 ): GrantAnalysisEvaluationAxisJudgment {
   return {
     ...axis,
+    normalizedCondition: axis.normalizedCondition === null
+      ? null
+      : canonicalJsonValue(axis.normalizedCondition),
     exceptions: [...axis.exceptions].map((value) => value.trim()).filter(Boolean),
     applicablePeriod: axis.applicablePeriod?.trim() || null,
     note: axis.note.trim(),
@@ -306,6 +309,16 @@ function canonicalAxis(
   };
 }
 
+function canonicalJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalJsonValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => compareText(left, right))
+      .map(([key, item]) => [key, canonicalJsonValue(item)]));
+  }
+  return value;
+}
+
 function normalizeText(value: string): string {
   return value.normalize("NFKC").replace(/\s+/g, " ").trim();
 }
@@ -314,11 +327,15 @@ function stableStringify(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value && typeof value === "object") {
     return `{${Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => left.localeCompare(right))
+      .sort(([left], [right]) => compareText(left, right))
       .map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item)}`)
       .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function assertNonEmpty(value: string, label: string): void {
