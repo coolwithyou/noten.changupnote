@@ -145,6 +145,9 @@ export function LandingFooter() {
             className="opacity-90"
           />
           <nav className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-semibold text-text-nav">
+            <Link href="/calendar" className="no-underline transition-colors hover:text-ink">
+              마감 캘린더
+            </Link>
             <Link href="/terms" className="no-underline transition-colors hover:text-ink">
               이용약관
             </Link>

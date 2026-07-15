@@ -37,7 +37,7 @@ export interface AppHeaderProps {
 /**
  * 64px 단일 헤더. 사이드바 없는 셸의 유일한 상단바.
  * 좌측 로고(28px 블루 그라디언트 라운드 사각형 "C" + "창업노트") /
- * 우측: 비로그인 → 로그인 버튼 1개, 로그인 → 내비 링크(≤3) + 아바타 드롭다운(AccountMenu 재사용).
+ * 우측: 비로그인 → "마감 캘린더" 링크(전 브레이크포인트) + 로그인 버튼, 로그인 → 내비 링크(≤3) + 아바타 드롭다운(AccountMenu 재사용).
  * 시각 스펙은 docs/design/2026-07-14-components/AppHeader.dc.html을 토큰으로 재현.
  */
 export function AppHeader({
@@ -77,15 +77,23 @@ export function AppHeader({
             <AccountMenu user={user} variant="avatar" />
           </>
         ) : (
-          <a
-            href={loginHref(loginCallbackUrl)}
-            className={cn(
-              buttonVariants({ variant: "secondary", size: "sm" }),
-              "h-auto px-4 py-[9px] text-sm",
-            )}
-          >
-            로그인
-          </a>
+          <>
+            <a
+              href="/calendar"
+              className="text-sm font-semibold text-text-nav no-underline transition-colors hover:text-ink"
+            >
+              마감 캘린더
+            </a>
+            <a
+              href={loginHref(loginCallbackUrl)}
+              className={cn(
+                buttonVariants({ variant: "secondary", size: "sm" }),
+                "h-auto px-4 py-[9px] text-sm",
+              )}
+            >
+              로그인
+            </a>
+          </>
         )}
       </div>
     </header>
