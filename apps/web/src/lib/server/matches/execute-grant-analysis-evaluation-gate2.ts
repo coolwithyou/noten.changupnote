@@ -337,8 +337,8 @@ async function executeGrantAnalysisEvaluationGate2Internal(
               ...(context.stage === "judge_3" ? { judge3EligibleAxes: context.eligibleAxes } : {}),
             }),
           });
-        } catch {
-          throw new Error("provider_call_failed");
+        } catch (error) {
+          throw new Error(safeProviderFailureCode(error));
         }
         const providerOutputSha256 = requireSha256(providerResult.receipt.outputSha256, "provider output");
         if (providerResult.stage !== context.stage ||
@@ -767,6 +767,24 @@ function safeUsage(value: Record<string, unknown> | null): Record<string, number
 
 function safeProviderId(value: string | null): string | null {
   return value && /^[a-zA-Z0-9._:-]{1,200}$/.test(value) ? value : null;
+}
+
+function safeProviderFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("reached max_tokens")) return "provider_max_tokens";
+  if (message.includes("refused the request")) return "provider_refusal";
+  if (message.includes("returned a non-terminal stop reason")) return "provider_nonterminal";
+  if (message.includes("returned an unpinned model")) return "provider_model_mismatch";
+  if (message.includes("returned invalid envelope JSON")) return "provider_invalid_envelope";
+  if (message.includes("returned invalid structured JSON")) return "provider_invalid_structured_json";
+  if (message.includes("failed runtime schema validation")) return "provider_runtime_validation";
+  if (message.includes("returned non-text structured output") ||
+      message.includes("did not return exactly one text output")) {
+    return "provider_output_shape";
+  }
+  if (message.includes("request failed before response")) return "provider_transport_failure";
+  const status = message.match(/failed \(status=(\d{3})/);
+  return status ? `provider_http_${status[1]}` : "provider_call_failed";
 }
 
 function requireSha256(value: string, label: string): string {

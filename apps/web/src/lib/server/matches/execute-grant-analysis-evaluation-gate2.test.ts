@@ -97,6 +97,9 @@ const firstInterrupted = await executeGrantAnalysisEvaluationGate2({
 });
 assert.equal(firstInterrupted.status, "incomplete");
 assert.equal(firstInterrupted.externalCallsMade, 11, "post-fetch failure remains counted in its invocation");
+const interruptedCheckpoint = JSON.parse(await readFile(interrupted.checkpointPath, "utf8"));
+assert.equal(interruptedCheckpoint.grants["bizinfo:attachment"].stages.extract_c.lastError,
+  "provider_call_failed", "unrecognized provider errors remain redacted");
 const beforeResume = interruptedCalls.length;
 const successfulBeforeResume = new Set(interruptedCalls
   .filter((call) => !(call.stage === "extract_c" && call.attempt === 1))
