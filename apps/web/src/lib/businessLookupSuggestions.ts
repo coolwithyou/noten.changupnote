@@ -1,6 +1,10 @@
 export type BusinessLookupSuggestionSource = "account" | "local";
 
-export type BusinessLookupSuggestionCacheSource = "popbill_cache" | "saved_profile" | "client_storage";
+export type BusinessLookupSuggestionCacheSource =
+  | "popbill_cache"
+  | "product_profile_cache"
+  | "saved_profile"
+  | "client_storage";
 
 export interface BusinessLookupSuggestion {
   id: string;

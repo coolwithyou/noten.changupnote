@@ -14,6 +14,11 @@ import { getOptionalWebSession } from "@/lib/server/auth/session";
 import { getCunoteDb, withCunoteDbUser, type CunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { getRepositoryAdapterName } from "@/lib/server/repositories/factory";
+import { resolveAnonymousProductCompanyProfile } from "@/lib/server/serviceData";
+import {
+  mergeBusinessLookupSuggestionDisplay,
+  type ResolvedBusinessLookupDisplay,
+} from "./businessLookupSuggestionDisplay";
 
 const POPBILL_CACHE_PROVIDER = "popbill";
 const POPBILL_CACHE_SCOPE = "checkBizInfo";
@@ -250,13 +255,48 @@ async function buildBusinessLookupSuggestion(
 ): Promise<BusinessLookupSuggestion | null> {
   const cached = await getCachedBusinessLookup(db, input.bizNo);
   if (cached) {
-    return suggestionFromCacheRow(cached, input);
+    return enrichSuggestionFromProductProfileIfNeeded(
+      suggestionFromCacheRow(cached, input),
+      input.bizNo,
+    );
   }
   const saved = await getSavedCompanyBusinessLookup(db, input.bizNo);
   if (saved) {
-    return suggestionFromSavedCompany(saved, input);
+    return enrichSuggestionFromProductProfileIfNeeded(
+      suggestionFromSavedCompany(saved, input),
+      input.bizNo,
+    );
   }
-  return null;
+  const resolved = await resolveBusinessLookupDisplay(input.bizNo);
+  return resolved ? suggestionFromResolvedProfile(resolved, input) : null;
+}
+
+async function enrichSuggestionFromProductProfileIfNeeded(
+  suggestion: BusinessLookupSuggestion,
+  bizNo: string,
+): Promise<BusinessLookupSuggestion> {
+  if (suggestion.companyName && suggestion.industry) return suggestion;
+  const resolved = await resolveBusinessLookupDisplay(bizNo);
+  return resolved ? mergeBusinessLookupSuggestionDisplay(suggestion, resolved) : suggestion;
+}
+
+async function resolveBusinessLookupDisplay(bizNo: string): Promise<ResolvedBusinessLookupDisplay | null> {
+  try {
+    const resolution = await resolveAnonymousProductCompanyProfile({ bizNo }, { asOf: new Date() });
+    const profile = resolution.profile;
+    const checkedAt = resolution.view.rows
+      .flatMap((row) => row.asOf ? [row.asOf] : [])
+      .sort()
+      .at(-1) ?? null;
+    return {
+      companyName: firstString(profile.name),
+      industry: resolveIndustryLabel(null, stringArray(profile.industries), stringArray(profile.industry_codes)),
+      checkedAt,
+    };
+  } catch {
+    // 최근 조회 목록은 보조 UI이므로 합성 프로필을 읽지 못해도 기존 팝빌/저장 회사 표시를 유지한다.
+    return null;
+  }
 }
 
 async function getCachedBusinessLookup(db: CunoteDb, bizNo: string): Promise<CacheRow | null> {
@@ -351,6 +391,29 @@ function suggestionFromSavedCompany(
     lastLookupAt: input.lastLookupAt,
     source: input.source,
     cacheSource: "saved_profile",
+  };
+}
+
+function suggestionFromResolvedProfile(
+  resolved: ResolvedBusinessLookupDisplay,
+  input: {
+    bizNo: string;
+    source: BusinessLookupSuggestionSource;
+    lastLookupAt: string | null;
+  },
+): BusinessLookupSuggestion {
+  return {
+    id: `${input.source}:${input.bizNo}`,
+    bizNo: input.bizNo,
+    bizNoFormatted: formatBusinessLookupBizNo(input.bizNo),
+    bizNoMasked: maskBizNoSafely(input.bizNo),
+    companyName: resolved.companyName,
+    industry: resolved.industry,
+    businessType: null,
+    checkedAt: resolved.checkedAt,
+    lastLookupAt: input.lastLookupAt,
+    source: input.source,
+    cacheSource: "product_profile_cache",
   };
 }
 
