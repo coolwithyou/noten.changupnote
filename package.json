@@ -52,6 +52,7 @@
     "verify:codef": "tsx --tsconfig apps/web/tsconfig.json scripts/verify-codef.ts",
     "admin:user:create": "pnpm --filter @cunote/admin admin:user:create --",
     "smoke:db": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/smoke-drizzle-service.ts",
+    "lab:smoke": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/smoke.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && pnpm verify:package-runtime-freshness && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck && pnpm --filter @cunote/admin typecheck",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
