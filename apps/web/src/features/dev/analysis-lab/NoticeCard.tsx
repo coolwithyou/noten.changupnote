@@ -116,7 +116,7 @@ export function NoticeCard({
           <Select
             items={notice.runs.map((run) => ({
               value: run.runId,
-              label: `${formatDateTime(run.startedAt)}${run.ok ? "" : " · 실패"}`,
+              label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}`,
             }))}
             value={selectedRunId}
             onValueChange={(value) => {
@@ -130,7 +130,7 @@ export function NoticeCard({
               <SelectGroup>
                 {notice.runs.map((run) => (
                   <SelectItem key={run.runId} value={run.runId}>
-                    {formatDateTime(run.startedAt)}
+                    {formatDateTime(run.startedAt)} · {run.promptVersion}
                     {run.ok ? "" : " · 실패"}
                   </SelectItem>
                 ))}

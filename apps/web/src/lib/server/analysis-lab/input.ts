@@ -55,27 +55,66 @@ export async function assembleLabInput(input: {
   payload: Record<string, unknown> | null;
   archives: LabInputArchive[];
 }): Promise<LabAssembledInput> {
-  const drafts: DraftBlock[] = [
-    { label: "공고 구조화 필드", body: renderStructuredFields(input.grant, input.payload) },
-    ...(await loadAttachmentBlocks(input.archives)),
-  ];
+  const cap = labInputCharCap();
+  const structured: DraftBlock = {
+    label: "공고 구조화 필드",
+    body: renderStructuredFields(input.grant, input.payload),
+  };
+  // 첨부는 남은 캡 예산만큼만 R2 에서 읽는다 — 어차피 버릴 대용량 첨부를 전부 메모리에
+  // 올리지 않기 위함(Codex 리뷰 M2). 못 읽은 첨부는 unavailable 로 돌려받아 아래에서 고지한다.
+  const attachment = await loadAttachmentBlocks(
+    input.archives,
+    Math.max(0, cap - structured.body.length),
+  );
+  const drafts: DraftBlock[] = [structured, ...attachment.blocks];
 
   // 총량 캡: 블록 본문 기준으로 앞에서부터 예산을 소진한다(pilot capBlocks 와 동형).
-  const cap = labInputCharCap();
   let remaining = cap;
   const blocks: LabInputBlock[] = [];
   const renderedBlocks: string[] = [];
+  const cappedLabels: string[] = [];
   for (const draft of drafts) {
     if (remaining <= 0) {
       blocks.push({ label: draft.label, chars: 0, truncated: true });
+      cappedLabels.push(`${draft.label}(전체 제외)`);
       continue;
     }
     const body = draft.body.slice(0, remaining);
     const truncated = body.length < draft.body.length;
     remaining -= body.length;
     blocks.push({ label: draft.label, chars: body.length, truncated });
+    if (truncated) cappedLabels.push(`${draft.label}(뒷부분 잘림)`);
     if (body.trim()) renderedBlocks.push(`[블록: ${draft.label}]\n${body}`);
   }
+
+  // 로드 실패·캡 초과로 입력에 못 들어간 첨부도 블록 메타에 남긴다(실행 메타 탭에서 보이도록).
+  for (const item of attachment.unavailable) {
+    blocks.push({
+      label: `첨부 미투입(${UNAVAILABLE_REASON_LABELS[item.reason]}): ${item.filename}`,
+      chars: 0,
+      truncated: true,
+    });
+  }
+
+  // 잘림·제외·로드 실패를 모델에게 고지한다 — 고지가 없으면 모델이 "검사했으나 조건 없음"과
+  // "입력에 없어 검사 불가(input_missing)"를 구분할 수 없어 축 검사 판정이 왜곡된다(Codex 리뷰 M1).
+  const noticeParts: string[] = [];
+  if (cappedLabels.length > 0) {
+    noticeParts.push(
+      `길이 제한(${cap.toLocaleString()}자)으로 다음 블록이 잘리거나 제외되었다: ${cappedLabels.join(", ")}`,
+    );
+  }
+  if (attachment.unavailable.length > 0) {
+    noticeParts.push(
+      `다음 첨부는 입력에 포함되지 못했다: ${attachment.unavailable
+        .map((item) => `${item.filename}(${UNAVAILABLE_REASON_LABELS[item.reason]})`)
+        .join(", ")}`,
+    );
+  }
+  const capNotice =
+    noticeParts.length > 0
+      ? `\n\n[입력 한계 고지] ${noticeParts.join(" / ")}. 이로 인해 검사할 수 없는 축은 input_missing 으로 보고하라.`
+      : "";
 
   const text = [
     "[공모 딥분석 실험실 입력]",
@@ -83,7 +122,7 @@ export async function assembleLabInput(input: {
     `source_id: ${input.grant.sourceId}`,
     `title: ${input.grant.title}`,
     "",
-    renderedBlocks.join("\n\n"),
+    renderedBlocks.join("\n\n") + capNotice,
   ].join("\n");
 
   return {
@@ -203,7 +242,24 @@ export function announcementScore(filename: string): number {
 /** 코호트 선정 기준: 이 크기 이상인 본문성 markdown 이 있어야 "딥분석하기 좋은 공고"로 본다. */
 export const BODY_MARKDOWN_MIN_BYTES = 2_000;
 
-async function loadAttachmentBlocks(archives: LabInputArchive[]): Promise<DraftBlock[]> {
+type UnavailableReason = "r2_unconfigured" | "load_failed" | "cap_exceeded";
+
+const UNAVAILABLE_REASON_LABELS: Record<UnavailableReason, string> = {
+  r2_unconfigured: "R2 미설정",
+  load_failed: "로드 실패",
+  cap_exceeded: "캡 초과 미로드",
+};
+
+interface AttachmentLoadResult {
+  blocks: DraftBlock[];
+  /** 입력에 포함되지 못한 markdown 첨부 — 조용히 버리지 않고 호출자에게 돌려 고지한다(M1). */
+  unavailable: Array<{ filename: string; reason: UnavailableReason }>;
+}
+
+async function loadAttachmentBlocks(
+  archives: LabInputArchive[],
+  budget: number,
+): Promise<AttachmentLoadResult> {
   const withMarkdown = archives
     .filter((archive): archive is LabInputArchive & { markdownStorageKey: string } =>
       Boolean(archive.markdownStorageKey))
@@ -212,22 +268,41 @@ async function loadAttachmentBlocks(archives: LabInputArchive[]): Promise<DraftB
       if (scoreDelta !== 0) return scoreDelta;
       return (b.markdownBytes ?? 0) - (a.markdownBytes ?? 0);
     });
-  if (withMarkdown.length === 0) return [];
+  if (withMarkdown.length === 0) return { blocks: [], unavailable: [] };
 
   const storage = createR2ObjectStorageFromEnv();
-  if (!storage) return []; // R2 env 미설정 — 구조화 필드만으로 진행(grounding.ts 와 동형의 best-effort).
+  if (!storage) {
+    // R2 env 미설정 — 구조화 필드만으로 진행하되, 어떤 첨부가 빠졌는지는 고지한다.
+    return {
+      blocks: [],
+      unavailable: withMarkdown.map((archive) => ({
+        filename: archive.filename,
+        reason: "r2_unconfigured" as const,
+      })),
+    };
+  }
 
   const blocks: DraftBlock[] = [];
+  const unavailable: AttachmentLoadResult["unavailable"] = [];
+  let loadedChars = 0;
   for (const archive of withMarkdown) {
+    // 캡 예산을 이미 소진했으면 더 읽지 않는다(M2) — 본문성 우선 정렬이라 뒤쪽은 서식류.
+    if (loadedChars >= budget) {
+      unavailable.push({ filename: archive.filename, reason: "cap_exceeded" });
+      continue;
+    }
     try {
       const raw = await storage.getObjectText(archive.markdownStorageKey);
       const body = stripYamlFrontmatter(raw).trim();
-      if (body) blocks.push({ label: `첨부 공고문: ${archive.filename}`, body });
+      if (body) {
+        blocks.push({ label: `첨부 공고문: ${archive.filename}`, body });
+        loadedChars += body.length;
+      }
     } catch {
-      // 개별 첨부 로드 실패는 건너뛴다(입력 전체를 죽이지 않음).
+      unavailable.push({ filename: archive.filename, reason: "load_failed" });
     }
   }
-  return blocks;
+  return { blocks, unavailable };
 }
 
 // ── 렌더 유틸 ─────────────────────────────────────────────────────

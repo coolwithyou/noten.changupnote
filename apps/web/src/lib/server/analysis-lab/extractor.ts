@@ -77,8 +77,13 @@ interface AnthropicToolUseBlock {
 
 interface AnthropicMessageResponse {
   content?: Array<AnthropicToolUseBlock | { type: string; text?: string }>;
+  stop_reason?: string;
   usage?: Record<string, unknown>;
 }
+
+// 일시 오류(레이트리밋·과부하·서버 오류)는 1회 재시도한다(원시 fetch 라 SDK 자동 재시도가 없음).
+const RETRYABLE_STATUSES = new Set([429, 500, 529]);
+const RETRY_DELAY_MS = 5_000;
 
 export async function runDeepGrantAnalysis(options: {
   apiKey: string;
@@ -87,44 +92,54 @@ export async function runDeepGrantAnalysis(options: {
   fetchImpl?: typeof fetch;
 }): Promise<DeepAnalysisResult> {
   const model = resolveLabModel();
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), resolveTimeoutMs());
-  let response: Response;
-  try {
-    response = await (options.fetchImpl ?? fetch)("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": options.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      signal: controller.signal,
-      // Opus 4.8: temperature/top_p/top_k/thinking 절대 미포함(400 방지 — 상단 주석).
-      body: JSON.stringify({
-        model,
-        max_tokens: resolveMaxTokens(),
-        system: DEEP_ANALYSIS_SYSTEM_PROMPT,
-        messages: [{
-          role: "user",
-          content: [
-            "아래 공고 입력(구조화 필드 + 첨부 공고문 전문)만 근거로 공고를 깊게 분석해라.",
-            "22축 전부를 검사하고, 모든 조건·평가에 원문 인용(source_span)을 남겨라.",
-            "공고 밖의 상식이나 사업명만으로 조건을 추정하지 마라.",
-            "",
-            options.inputText,
-          ].join("\n"),
-        }],
-        tools: [buildDeepAnalysisToolSchema()],
-        tool_choice: { type: "tool", name: ANALYSIS_LAB_TOOL_NAME },
-      }),
-    });
-  } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new Error(`Anthropic 딥분석 호출이 타임아웃됐습니다(${resolveTimeoutMs()}ms).`);
+  const maxTokens = resolveMaxTokens();
+  const requestBody = JSON.stringify({
+    model,
+    max_tokens: maxTokens,
+    system: DEEP_ANALYSIS_SYSTEM_PROMPT,
+    messages: [{
+      role: "user",
+      content: [
+        "아래 공고 입력(구조화 필드 + 첨부 공고문 전문)만 근거로 공고를 깊게 분석해라.",
+        "22축 전부를 검사하고, 모든 조건·평가에 원문 인용(source_span)을 남겨라.",
+        "공고 밖의 상식이나 사업명만으로 조건을 추정하지 마라.",
+        "",
+        options.inputText,
+      ].join("\n"),
+    }],
+    tools: [buildDeepAnalysisToolSchema()],
+    tool_choice: { type: "tool", name: ANALYSIS_LAB_TOOL_NAME },
+  });
+
+  const attempt = async (): Promise<Response> => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), resolveTimeoutMs());
+    try {
+      return await (options.fetchImpl ?? fetch)("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-api-key": options.apiKey,
+          "anthropic-version": "2023-06-01",
+        },
+        signal: controller.signal,
+        // Opus 4.8: temperature/top_p/top_k/thinking 절대 미포함(400 방지 — 상단 주석).
+        body: requestBody,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Anthropic 딥분석 호출이 타임아웃됐습니다(${resolveTimeoutMs()}ms).`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
     }
-    throw error;
-  } finally {
-    clearTimeout(timeout);
+  };
+
+  let response = await attempt();
+  if (RETRYABLE_STATUSES.has(response.status)) {
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, RETRY_DELAY_MS));
+    response = await attempt();
   }
 
   const body = await response.text();
@@ -139,7 +154,19 @@ export async function runDeepGrantAnalysis(options: {
       block.type === "tool_use" && "name" in block && block.name === ANALYSIS_LAB_TOOL_NAME,
   );
   if (!toolUse) {
-    throw new Error(`Anthropic response did not contain ${ANALYSIS_LAB_TOOL_NAME} tool_use`);
+    // stop_reason 으로 실패 원인을 구분한다 — "tool_use 없음"만으로는 원인을 오해하기 쉽다.
+    if (payload.stop_reason === "max_tokens") {
+      throw new Error(
+        `출력 토큰 한도(max_tokens=${maxTokens})에 도달해 도구 응답이 잘렸습니다. ` +
+          "env ANALYSIS_LAB_MAX_TOKENS 를 높여 재시도해주세요.",
+      );
+    }
+    if (payload.stop_reason === "refusal") {
+      throw new Error("모델이 이 입력에 대한 응답을 거부했습니다(stop_reason=refusal).");
+    }
+    throw new Error(
+      `Anthropic 응답에 ${ANALYSIS_LAB_TOOL_NAME} tool_use 가 없습니다(stop_reason=${payload.stop_reason ?? "unknown"}).`,
+    );
   }
 
   const input = isRecord(toolUse.input) ? toolUse.input : {};
@@ -246,6 +273,10 @@ export function buildDeepAnalysisToolSchema() {
 function normalizeCriteria(rows: unknown, inputText: string): LabCriterion[] {
   if (!Array.isArray(rows)) return [];
   const normalizedInput = normalizeEvidence(inputText);
+  const normalizedLines = inputText
+    .split("\n")
+    .map((line) => normalizeEvidence(line))
+    .filter((line) => line.length > 0);
   const criteria: LabCriterion[] = [];
   for (const row of rows) {
     if (!isRecord(row)) continue;
@@ -264,7 +295,7 @@ function normalizeCriteria(rows: unknown, inputText: string): LabCriterion[] {
       value: isRecord(row.value) ? row.value : {},
       confidence: boundedConfidence(row.confidence),
       sourceSpan,
-      spanVerified: verifySpan(sourceSpan, normalizedInput),
+      spanVerified: verifySpan(sourceSpan, normalizedInput, normalizedLines),
       note: cleanString(row.note),
     });
   }
@@ -272,19 +303,24 @@ function normalizeCriteria(rows: unknown, inputText: string): LabCriterion[] {
 }
 
 /** source_span 이 최종 입력 텍스트(공백 정규화)에 부분문자열로 실재하는지 검사. */
-function verifySpan(span: string | null, normalizedInput: string): boolean {
+function verifySpan(
+  span: string | null,
+  normalizedInput: string,
+  normalizedLines: string[],
+): boolean {
   if (!span) return false;
   const needle = normalizeEvidence(span);
   if (needle.length < 2) return false;
   if (normalizedInput.includes(needle)) return true;
-  // 폴백(v2): "라벨: 값" 형식 인용은 라벨과 값이 각각 입력에 실재하면 인정한다.
-  // 구조화 필드를 인용할 때 모델이 렌더 형식과 무관하게 이 표기를 쓰는 관행에 대응.
+  // 폴백(v2): "라벨: 값" 형식 인용은 라벨과 값이 "같은 줄"에 함께 실재할 때만 인정한다.
+  // 전체 텍스트 기준 개별 포함으로 하면 서로 다른 문맥의 라벨·값 조합("지원지역: 서울"류)이
+  // 거짓 검증될 수 있다(Codex 리뷰 M4) — 같은 줄 공존을 요구해 차단한다.
   const colon = needle.indexOf(":");
   if (colon > 0) {
     const label = needle.slice(0, colon).trim();
     const value = needle.slice(colon + 1).trim();
     if (label.length >= 2 && value.length >= 2) {
-      return normalizedInput.includes(label) && normalizedInput.includes(value);
+      return normalizedLines.some((line) => line.includes(label) && line.includes(value));
     }
   }
   return false;

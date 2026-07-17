@@ -79,12 +79,14 @@ function computeVerdict(
 }
 
 /**
- * 주석성 키(note/labels/basis)와 의미 없는 기본값(null·""·[]·{}·false)을 걷어낸
+ * 주석성 키(note/labels/basis)와 의미 없는 기본값(null·""·[]·{})을 걷어낸
  * "실질 값"으로 비교 키를 만든다(v2 보정). 예: region 의 {regions:["41"],labels:["경기"],nationwide:false}
  * 와 {regions:["41"],note:"…"} 는 실질 동일 → same.
- * 주의: false 를 떨어뜨리는 것은 "부재 = false" 시맨틱 가정 — 표시용 diff 에 한해 허용.
+ * false 는 원칙적으로 보존한다 — include_preliminary:false(예비창업자 제외 명시)처럼 부재와
+ * 의미가 다른 키가 있기 때문. "부재 = false" 가 합의된 키만 예외로 떨어뜨린다(Codex 리뷰 M3).
  */
 const ANNOTATION_KEYS = new Set(["note", "labels", "basis"]);
+const DEFAULT_FALSE_KEYS = new Set(["nationwide"]);
 
 function essenceKey(criterion: { kind: string; operator: string; value: unknown }): string {
   return stableStringify({
@@ -101,7 +103,8 @@ function essenceValue(value: unknown): unknown {
   for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
     if (ANNOTATION_KEYS.has(key)) continue;
     const entry = essenceValue(raw);
-    if (entry === null || entry === undefined || entry === "" || entry === false) continue;
+    if (entry === null || entry === undefined || entry === "") continue;
+    if (entry === false && DEFAULT_FALSE_KEYS.has(key)) continue;
     if (Array.isArray(entry) && entry.length === 0) continue;
     if (typeof entry === "object" && !Array.isArray(entry) && Object.keys(entry).length === 0) {
       continue;

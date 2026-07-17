@@ -1,6 +1,7 @@
 // 공모 딥분석 실험실 — 런 파일 저장소 (dev 전용, DB 미사용).
 // 런 결과는 <모노레포 루트>/spike-out/analysis-lab/<source>__<sourceId>/<runId>.json 에
 // **불변**으로 저장한다: 덮어쓰기·삭제 금지(flag "wx" — 이미 있으면 실패).
+import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -23,13 +24,16 @@ export function analysisLabDir(): string {
   return join(findMonorepoRoot(), "spike-out", "analysis-lab");
 }
 
-/** runId = run-<ISO타임스탬프 콜론 제거> (예: run-2026-07-17T051234.567Z). */
+/**
+ * runId = run-<ISO타임스탬프 콜론 제거>-<랜덤 6hex> (예: run-2026-07-17T051234.567Z-a1b2c3).
+ * 랜덤 접미로 같은 millisecond 동시 실행의 "wx" EEXIST 충돌을 막는다(Codex 리뷰 L1).
+ */
 export function buildLabRunId(startedAt: Date): string {
-  return `run-${startedAt.toISOString().replace(/:/g, "")}`;
+  return `run-${startedAt.toISOString().replace(/:/g, "")}-${randomBytes(3).toString("hex")}`;
 }
 
-// 경로 조작 방지: runId 는 buildLabRunId 산출 형태만 허용한다.
-const RUN_ID_PATTERN = /^run-[0-9TZ.\-]{10,40}$/;
+// 경로 조작 방지: runId 는 buildLabRunId 산출 형태만 허용한다(접미 없는 구버전 형식 호환).
+const RUN_ID_PATTERN = /^run-[0-9TZ.\-]{10,40}(?:-[a-f0-9]{4,8})?$/;
 
 /** 파일시스템 안전화: source/sourceId 디렉토리 조각에서 허용 외 문자를 _ 로 치환. */
 function sanitizeSegment(value: string): string {
