@@ -1,5 +1,6 @@
 "use client";
 
+import { ClipboardCheck } from "lucide-react";
 import type { LabNoticeSummary } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -23,17 +25,19 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { formatBytes, formatDate, formatDateTime, sourceLabel } from "./labels";
 
-// 코호트 공고 1건 카드 — 첨부 확보 상태·현재 criteria 수·런 목록을 보여주고
-// Opus 딥분석 실행과 런 선택의 진입점이 된다.
+// 코호트 공고 1건 카드 — 첨부 확보 상태·현재 criteria 수·런 목록·검수 상태를 보여주고
+// Opus 딥분석 실행·런 선택·원클릭 검수의 진입점이 된다.
 export function NoticeCard({
   notice,
   analyzing,
   elapsedSec,
   analyzeDisabled,
   analyzeError,
+  analyzeNotice,
   selectedRunId,
   onAnalyze,
   onSelectRun,
+  onReview,
 }: {
   notice: LabNoticeSummary;
   /** 이 공고의 분석이 실행 중인지. */
@@ -43,10 +47,20 @@ export function NoticeCard({
   /** 다른 공고 분석 중 등으로 실행 버튼을 잠글지. */
   analyzeDisabled: boolean;
   analyzeError: string | null;
+  /** 분석 완료 시 화면 전환을 보류했을 때의 안내 (미저장 검수 초안 보호). */
+  analyzeNotice: string | null;
   selectedRunId: string | null;
   onAnalyze: () => void;
   onSelectRun: (runId: string) => void;
+  /** 검수 탭을 바로 연다(검수된 성공 런 우선) — 성공 런이 없으면 카드가 버튼을 숨긴다. */
+  onReview: () => void;
 }) {
+  // 런 목록은 startedAt desc — 첫 성공 런이 곧 최신 성공 런이다.
+  const latestOkRun = notice.runs.find((run) => run.ok);
+  // 검수 완료 판정·버튼 라벨은 성공 런 기준 — openReview 가 여는 대상과 일치시킨다.
+  const reviewedOkRun = notice.runs.find((run) => run.ok && run.reviewedAt !== null);
+  const reviewed = Boolean(reviewedOkRun);
+
   return (
     <Card className="flex flex-col">
       <CardHeader>
@@ -54,6 +68,9 @@ export function NoticeCard({
           <Badge variant="secondary">{sourceLabel(notice.source)}</Badge>
           <Badge variant="outline">{notice.status}</Badge>
           <span className="font-mono text-[11px] text-muted-foreground">{notice.sourceId}</span>
+          <Badge variant={reviewed ? "default" : "outline"} className="ms-auto">
+            {reviewed ? "검수됨" : "검수 대기"}
+          </Badge>
         </div>
         <CardTitle className="text-base leading-snug break-words">
           {notice.url ? (
@@ -111,33 +128,45 @@ export function NoticeCard({
           <Badge variant="outline" className="tabular-nums">런 {notice.runs.length}개</Badge>
         </div>
 
-        {/* 런 선택 — 선택 시 상세 패널 로드 */}
+        {/* 런 선택 — 선택 시 하단에 상세·검수 패널이 열린다 */}
         {notice.runs.length > 0 ? (
-          <Select
-            items={notice.runs.map((run) => ({
-              value: run.runId,
-              label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}${run.reviewedAt ? " · 검수됨" : ""}`,
-            }))}
-            value={selectedRunId}
-            onValueChange={(value) => {
-              if (typeof value === "string") onSelectRun(value);
-            }}
-          >
-            <SelectTrigger size="sm" className="w-full text-sm">
-              <SelectValue placeholder="런 선택" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {notice.runs.map((run) => (
-                  <SelectItem key={run.runId} value={run.runId}>
-                    {formatDateTime(run.startedAt)} · {run.promptVersion}
-                    {run.ok ? "" : " · 실패"}
-                    {run.reviewedAt ? " · 검수됨" : ""}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+          <Field>
+            <FieldLabel htmlFor={`analysis-lab-run-select-${notice.grantId}`}>
+              저장된 런
+            </FieldLabel>
+            <Select
+              items={notice.runs.map((run) => ({
+                value: run.runId,
+                label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}${run.reviewedAt ? " · 검수됨" : ""}`,
+              }))}
+              value={selectedRunId}
+              onValueChange={(value) => {
+                if (typeof value === "string") onSelectRun(value);
+              }}
+            >
+              <SelectTrigger
+                id={`analysis-lab-run-select-${notice.grantId}`}
+                size="sm"
+                className="w-full text-sm"
+              >
+                <SelectValue placeholder="런 선택" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {notice.runs.map((run) => (
+                    <SelectItem key={run.runId} value={run.runId}>
+                      {formatDateTime(run.startedAt)} · {run.promptVersion}
+                      {run.ok ? "" : " · 실패"}
+                      {run.reviewedAt ? " · 검수됨" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <FieldDescription>
+              런을 선택하면 페이지 하단에 상세·검수 패널이 열립니다.
+            </FieldDescription>
+          </Field>
         ) : null}
 
         {analyzeError ? (
@@ -146,18 +175,42 @@ export function NoticeCard({
             <AlertDescription className="break-words">{analyzeError}</AlertDescription>
           </Alert>
         ) : null}
+
+        {analyzeNotice ? (
+          <Alert>
+            <AlertTitle>분석 완료</AlertTitle>
+            <AlertDescription className="break-words">{analyzeNotice}</AlertDescription>
+          </Alert>
+        ) : null}
       </CardContent>
-      <CardFooter>
-        <Button className="w-full" onClick={onAnalyze} disabled={analyzeDisabled || analyzing}>
+      <CardFooter className="flex-col items-stretch gap-2">
+        {latestOkRun ? (
+          <Button onClick={onReview} disabled={analyzing}>
+            <ClipboardCheck data-icon="inline-start" />
+            {reviewed ? "검수 이어서 하기" : "최신 런 검수하기"}
+          </Button>
+        ) : null}
+        <Button
+          variant={latestOkRun ? "outline" : "default"}
+          onClick={onAnalyze}
+          disabled={analyzeDisabled || analyzing}
+        >
           {analyzing ? (
             <>
               <Spinner data-icon="inline-start" />
               분석 중… {elapsedSec}초
             </>
+          ) : latestOkRun ? (
+            "딥분석 다시 실행"
           ) : (
             "Opus 딥분석 실행"
           )}
         </Button>
+        {analyzing ? (
+          <span className="text-center text-[11px] text-muted-foreground">
+            동기 분석 — 1~5분 걸립니다. 창을 닫지 마세요.
+          </span>
+        ) : null}
       </CardFooter>
     </Card>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { ExternalLink } from "lucide-react";
 import type { LabProgramIntent, LabRun, LabTaxonomyProposal } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -20,22 +21,47 @@ import { ReviewSheet } from "./ReviewSheet";
 import { formatDateTime, formatDuration, formatUsd, sourceLabel } from "./labels";
 
 // 선택된 런의 상세 패널 — ① 분석 문서(마크다운) ② 필드 채움(22축 diff) ③ 검수 ④ 실행 메타.
+// 탭은 부모(AnalysisLab)가 제어한다 — 공고 카드의 "검수하기"가 검수 탭을 바로 열 수 있도록.
 export function RunDetail({
   run,
+  tab,
+  onTabChange,
+  noticeUrl,
   onReviewSaved,
+  onReviewDirtyChange,
 }: {
   run: LabRun;
+  /** 현재 열린 탭 값 — document/fields/review/meta. */
+  tab: string;
+  onTabChange: (tab: string) => void;
+  /** 공고 원문 URL — 검수 시 원문 대조용 링크. */
+  noticeUrl: string | null;
   /** 검수 시트 저장 성공 시 호출 — 런 목록의 검수됨 표시 갱신용. */
   onReviewSaved?: () => void;
+  /** 검수 시트 미저장 판정 여부 통지 — 부모가 분석 완료 시 화면 탈취를 보류하는 데 쓴다. */
+  onReviewDirtyChange?: (dirty: boolean) => void;
 }) {
   return (
-    <Card>
+    // overflow-visible: 검수 시트의 고정 저장 바(position: sticky)가 카드의
+    // 기본 overflow-hidden 에 막히지 않도록 한다 (이 카드에는 클리핑할 이미지가 없다).
+    <Card className="overflow-visible">
       <CardHeader>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant="secondary">{sourceLabel(run.source)}</Badge>
           <Badge variant="outline">{run.model}</Badge>
           <Badge variant="outline">{run.promptVersion}</Badge>
           <span className="font-mono text-[11px] text-muted-foreground">{run.runId}</span>
+          {noticeUrl ? (
+            <a
+              href={noticeUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="ms-auto inline-flex items-center gap-1 text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+            >
+              공고 원문
+              <ExternalLink className="size-3" />
+            </a>
+          ) : null}
         </div>
         <CardTitle className="text-base leading-snug break-words">{run.title}</CardTitle>
         <CardDescription>
@@ -51,7 +77,7 @@ export function RunDetail({
           </Alert>
         ) : null}
 
-        <Tabs defaultValue="fields">
+        <Tabs value={tab} onValueChange={(value) => onTabChange(String(value))}>
           <TabsList>
             <TabsTrigger value="document">분석 문서</TabsTrigger>
             <TabsTrigger value="fields">필드 채움</TabsTrigger>
@@ -89,8 +115,9 @@ export function RunDetail({
             ) : null}
           </TabsContent>
 
-          <TabsContent value="review" className="pt-4">
-            <ReviewSheet run={run} onSaved={onReviewSaved} />
+          {/* keepMounted: 다른 탭으로 잠깐 이동해도(원문 대조 등) 미저장 판정이 유실되지 않게. */}
+          <TabsContent value="review" className="pt-4" keepMounted>
+            <ReviewSheet run={run} onSaved={onReviewSaved} onDirtyChange={onReviewDirtyChange} />
           </TabsContent>
 
           <TabsContent value="meta" className="pt-4">

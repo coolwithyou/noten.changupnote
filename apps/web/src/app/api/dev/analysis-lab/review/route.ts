@@ -85,6 +85,10 @@ export async function PUT(request: Request) {
       { status: 404 },
     );
   }
+  // 실패한 런의 검수는 골든 신호가 아니다 — 집계·검수 완료 판정 오염을 서버에서 차단.
+  if (run.error) {
+    return badRequest("실패한 런은 검수 대상이 아닙니다 — 성공한 런을 검수해주세요.");
+  }
 
   const reviewerCheck = validateReviewerEmail(
     typeof body.reviewerEmail === "string" ? body.reviewerEmail : "",

@@ -1,24 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type {
-  LabCriterion,
-  LabCriterionVerdict,
-  LabDimensionDiff,
-  LabEmptyAxisVerdict,
-  LabReviewResponse,
-  LabReviewUpsertRequest,
-  LabRun,
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, CircleHelp } from "lucide-react";
+import {
+  ANALYSIS_LAB_GATES,
+  type LabCriterion,
+  type LabCriterionVerdict,
+  type LabDimensionDiff,
+  type LabEmptyAxisVerdict,
+  type LabReviewResponse,
+  type LabReviewUpsertRequest,
+  type LabRun,
 } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 import {
   AXIS_STATUS_META,
   criterionValueEntries,
@@ -37,20 +46,73 @@ import {
 const REVIEW_URL = "/api/dev/analysis-lab/review";
 const REVIEWER_EMAIL_STORAGE_KEY = "analysis-lab.reviewerEmail";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// 서버(review route)의 캡과 동일 — 초과 입력을 maxLength 로 선차단해 저장 시점 400 을 막는다.
+const NOTE_MAX_CHARS = 2_000;
+const OVERALL_NOTE_MAX_CHARS = 4_000;
 
-/** 제안 criterion 판정 라벨 — contract 의 LabCriterionVerdict 순서와 일치. */
-const CRITERION_VERDICT_OPTIONS: Array<{ value: LabCriterionVerdict; label: string }> = [
-  { value: "correct", label: "정확" },
-  { value: "needs_edit", label: "수정 필요" },
-  { value: "wrong", label: "오류" },
-  { value: "unsure", label: "판단 불가" },
+type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "ghost";
+
+/** 제안 criterion 판정 메타 — 라벨·배지·판정 기준 힌트의 단일 원천. */
+const CRITERION_VERDICT_META: Record<
+  LabCriterionVerdict,
+  { label: string; badge: BadgeVariant; hint: string }
+> = {
+  correct: {
+    label: "정확",
+    badge: "default",
+    hint: "축·종류(필수/우대/결격)·연산자·값·근거 인용까지 원문과 모두 일치 — 이대로 DB에 넣어도 되는 수준입니다.",
+  },
+  needs_edit: {
+    label: "수정 필요",
+    badge: "secondary",
+    hint: "요건 자체는 원문에 실재하지만 값·연산자·종류 일부가 부정확합니다 — 어떻게 고쳐야 하는지 사유에 적어주세요.",
+  },
+  wrong: {
+    label: "오류",
+    badge: "destructive",
+    hint: "원문에 없는 요건을 만들었거나 다른 조건을 잘못 읽었습니다 — 치명 신호로 집계됩니다(기준 ≤ 10%).",
+  },
+  unsure: {
+    label: "판단 불가",
+    badge: "outline",
+    hint: "원문·첨부만으로는 확정할 수 없습니다 — 정밀도 분모에 포함되니 꼭 필요할 때만 쓰세요.",
+  },
+};
+
+/** 제안 없는 축 확인 메타. */
+const AXIS_VERDICT_META: Record<
+  LabEmptyAxisVerdict,
+  { label: string; badge: BadgeVariant; hint: string }
+> = {
+  confirmed_absent: {
+    label: "없음 확인",
+    badge: "outline",
+    hint: "공고 원문·첨부를 훑어도 이 축에 해당하는 요건이 정말 없습니다.",
+  },
+  missed_condition: {
+    label: "누락 있음",
+    badge: "destructive",
+    hint: "원문에 요건이 있는데 딥분석이 놓쳤습니다 — 누락된 요건 서술이 필수입니다(비워두면 저장되지 않습니다).",
+  },
+};
+
+const CRITERION_VERDICT_ORDER: readonly LabCriterionVerdict[] = [
+  "correct",
+  "needs_edit",
+  "wrong",
+  "unsure",
+];
+const AXIS_VERDICT_ORDER: readonly LabEmptyAxisVerdict[] = [
+  "confirmed_absent",
+  "missed_condition",
 ];
 
-/** 제안 없는 축 확인 라벨. */
-const AXIS_VERDICT_OPTIONS: Array<{ value: LabEmptyAxisVerdict; label: string }> = [
-  { value: "confirmed_absent", label: "없음 확인" },
-  { value: "missed_condition", label: "누락 있음" },
-];
+/** 판정별 사유 textarea 플레이스홀더 — 무엇을 적어야 하는지 그 자리에서 안내한다. */
+const CRITERION_NOTE_PLACEHOLDER: Record<Exclude<LabCriterionVerdict, "correct">, string> = {
+  needs_edit: "무엇이 부정확한지 + 올바른 값·연산자·종류 (원문 기준)",
+  wrong: "원문 기준으로 무엇이 왜 틀렸는지",
+  unsure: "무엇이 불확실한지 · 확정하려면 무엇이 더 필요한지",
+};
 
 interface CriterionDraft {
   verdict: LabCriterionVerdict | null;
@@ -74,10 +136,13 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
 export function ReviewSheet({
   run,
   onSaved,
+  onDirtyChange,
 }: {
   run: LabRun;
   /** 저장 성공 시 호출(선택) — 상위에서 런 목록의 검수됨 표시를 갱신한다. */
   onSaved?: (() => void) | undefined;
+  /** 미저장 판정 여부 통지(선택) — 상위가 분석 완료 시 화면 탈취를 보류하는 데 쓴다. */
+  onDirtyChange?: ((dirty: boolean) => void) | undefined;
 }) {
   const [reviewerEmail, setReviewerEmail] = useState("");
   const [criterionDrafts, setCriterionDrafts] = useState<Record<number, CriterionDraft>>({});
@@ -90,6 +155,11 @@ export function ReviewSheet({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
+  // 검수 안내 — 이 런에 저장된 검수가 없으면 펼쳐서 시작한다(로드 후 결정).
+  const [guideOpen, setGuideOpen] = useState(false);
+
+  // "다음 미판정" 점프용 — 항목 키(c-<index> / a-<dimension>) → DOM 엘리먼트.
+  const itemRefs = useRef(new Map<string, HTMLElement>());
 
   // 축 → 라벨 매핑 — DIMENSION_LABELS 는 서버(diff.ts) 소유라 dimensionDiffs 의 label 을 쓴다.
   const labelByDimension = useMemo(
@@ -135,7 +205,9 @@ export function ReviewSheet({
           return;
         }
         const data = (await response.json()) as LabReviewResponse;
-        if (cancelled || !data.review) return;
+        if (cancelled) return;
+        setGuideOpen(!data.review);
+        if (!data.review) return;
         const review = data.review;
         setReviewerEmail(review.reviewerEmail);
         setLastSavedAt(review.updatedAt);
@@ -168,19 +240,73 @@ export function ReviewSheet({
     };
   }, [run.grantId, run.runId]);
 
+  // 미저장 판정이 있는 채로 페이지를 닫으면 유실 — 브라우저 이탈 경고를 건다.
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+
+  // dirty 를 부모에 통지 — 인앱 자동 전환(분석 완료 등)으로부터 초안을 보호하는 신호.
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
+
   const emailValid = EMAIL_PATTERN.test(reviewerEmail.trim());
 
   // 진행도 — 전체 = 제안 criteria 수 + 제안 없는 축 수.
+  const decidedA = run.criteria.reduce(
+    (count, _, index) => (criterionDrafts[index]?.verdict ? count + 1 : count),
+    0,
+  );
+  const decidedB = emptyAxes.reduce(
+    (count, diff) => (axisDrafts[diff.dimension]?.verdict ? count + 1 : count),
+    0,
+  );
+  const decided = decidedA + decidedB;
   const total = run.criteria.length + emptyAxes.length;
-  const decided =
-    run.criteria.reduce(
-      (count, _, index) => (criterionDrafts[index]?.verdict ? count + 1 : count),
-      0,
-    ) +
-    emptyAxes.reduce(
-      (count, diff) => (axisDrafts[diff.dimension]?.verdict ? count + 1 : count),
-      0,
-    );
+
+  // 서버가 400 으로 거부하는 조합을 미리 잡는다 — "누락 있음"은 사유 필수.
+  const missingAxisNotes = emptyAxes.filter((diff) => {
+    const draft = axisDrafts[diff.dimension];
+    return draft?.verdict === "missed_condition" && draft.note.trim().length === 0;
+  }).length;
+
+  const saveBlockedReason = !emailValid
+    ? "검수자 이메일을 입력해야 저장할 수 있습니다."
+    : decided === 0
+      ? "아직 판정한 항목이 없습니다 — 최소 1건 판정 후 저장하세요."
+      : missingAxisNotes > 0
+        ? `"누락 있음" 판정 ${missingAxisNotes}건에 누락 요건 서술이 필요합니다.`
+        : null;
+
+  const registerItem = useCallback(
+    (key: string) => (element: HTMLElement | null) => {
+      if (element) itemRefs.current.set(key, element);
+      else itemRefs.current.delete(key);
+    },
+    [],
+  );
+
+  const jumpToNextUndecided = () => {
+    const order = [
+      ...run.criteria.map((_, index) => ({
+        key: `c-${index}`,
+        done: Boolean(criterionDrafts[index]?.verdict),
+      })),
+      ...emptyAxes.map((diff) => ({
+        key: `a-${diff.dimension}`,
+        done: Boolean(axisDrafts[diff.dimension]?.verdict),
+      })),
+    ];
+    const next = order.find((item) => !item.done);
+    if (!next) return;
+    itemRefs.current.get(next.key)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const setCriterionDraft = (index: number, patch: Partial<CriterionDraft>) => {
     setCriterionDrafts((previous) => ({
@@ -199,7 +325,7 @@ export function ReviewSheet({
   };
 
   const save = async () => {
-    if (!emailValid || saving) return;
+    if (saveBlockedReason || saving) return;
     setSaving(true);
     setSaveError(null);
 
@@ -251,6 +377,19 @@ export function ReviewSheet({
     }
   };
 
+  // 실패한 런은 판정 대상이 아니다 — 검수를 저장해도 서버가 400 으로 거부한다.
+  if (run.error) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>실패한 런은 검수할 수 없습니다</AlertTitle>
+        <AlertDescription>
+          이 런은 오류로 끝나 판정 대상이 아닙니다 — 공고 카드의 &ldquo;저장된 런&rdquo;에서 성공
+          런을 선택하거나 딥분석을 다시 실행해 주세요.
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-2 rounded-lg border border-border p-10 text-sm text-muted-foreground">
@@ -262,13 +401,7 @@ export function ReviewSheet({
 
   return (
     <div className="flex flex-col gap-5">
-      <Alert>
-        <AlertTitle>사람 검수만 허용</AlertTitle>
-        <AlertDescription>
-          이 검수가 공고 criterion 골든셋의 1차 원천이 됩니다. AI 라벨러 식별자는 서버가
-          거부합니다.
-        </AlertDescription>
-      </Alert>
+      <ReviewGuide open={guideOpen} onOpenChange={setGuideOpen} />
 
       {loadError ? (
         <Alert variant="destructive">
@@ -279,34 +412,38 @@ export function ReviewSheet({
         </Alert>
       ) : null}
 
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <Field className="max-w-sm">
-          <FieldLabel htmlFor="analysis-lab-reviewer-email">검수자 이메일</FieldLabel>
-          <Input
-            id="analysis-lab-reviewer-email"
-            type="email"
-            placeholder="you@example.com"
-            value={reviewerEmail}
-            aria-invalid={reviewerEmail.length > 0 && !emailValid}
-            onChange={(event) => {
-              setReviewerEmail(event.currentTarget.value);
-              setDirty(true);
-            }}
-          />
-          <FieldDescription>사람 검수자 본인의 이메일을 입력합니다.</FieldDescription>
-        </Field>
-        <Badge variant={decided === total && total > 0 ? "default" : "secondary"} className="tabular-nums">
-          판정 {decided} / 전체 {total}
-        </Badge>
-      </div>
+      <Field className="max-w-sm">
+        <FieldLabel htmlFor="analysis-lab-reviewer-email">검수자 이메일</FieldLabel>
+        <Input
+          id="analysis-lab-reviewer-email"
+          type="email"
+          placeholder="you@example.com"
+          value={reviewerEmail}
+          aria-invalid={reviewerEmail.length > 0 && !emailValid}
+          onChange={(event) => {
+            setReviewerEmail(event.currentTarget.value);
+            setDirty(true);
+          }}
+        />
+        <FieldDescription>
+          사람 검수자 본인의 이메일 — 이 검수가 골든셋의 1차 원천이 되므로 AI 라벨러
+          식별자(prelabel·opus·claude 등)는 서버가 거부합니다.
+        </FieldDescription>
+      </Field>
 
       {/* 섹션 A — 제안 criterion 검수 */}
       <div className="flex flex-col gap-2.5">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-medium">제안 criterion 검수 ({run.criteria.length}건)</span>
-          <span className="text-xs text-muted-foreground">
-            딥분석이 제안한 criterion 을 하나씩 판정합니다 — 정밀도(오추출) 골든 신호입니다.
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">① 제안 criterion 검수</span>
+            <span className="text-xs text-muted-foreground">
+              딥분석이 제안한 요건이 공고 원문에 실재하고 정확한지 하나씩 판정합니다 —
+              정밀도·오류율 신호.
+            </span>
+          </div>
+          <Badge variant={decidedA === run.criteria.length && run.criteria.length > 0 ? "default" : "secondary"} className="tabular-nums">
+            {decidedA} / {run.criteria.length}
+          </Badge>
         </div>
         {run.criteria.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
@@ -321,6 +458,7 @@ export function ReviewSheet({
               label={labelByDimension.get(criterion.dimension) ?? criterion.dimension}
               draft={criterionDrafts[index] ?? { verdict: null, note: "" }}
               disabled={saving}
+              containerRef={registerItem(`c-${index}`)}
               onChange={(patch) => setCriterionDraft(index, patch)}
             />
           ))
@@ -329,12 +467,16 @@ export function ReviewSheet({
 
       {/* 섹션 B — 제안 없는 축 확인 */}
       <div className="flex flex-col gap-2.5">
-        <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-medium">제안 없는 축 확인 ({emptyAxes.length}건)</span>
-          <span className="text-xs text-muted-foreground">
-            딥분석 제안이 없는 축에 실제로 요건이 없는지 확인합니다 — 재현율(누락) 골든
-            신호입니다.
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-col gap-0.5">
+            <span className="text-sm font-medium">② 제안 없는 축 확인</span>
+            <span className="text-xs text-muted-foreground">
+              딥분석 제안이 없는 축에 실제로도 요건이 없는지 확인합니다 — 재현율(누락) 신호.
+            </span>
+          </div>
+          <Badge variant={decidedB === emptyAxes.length && emptyAxes.length > 0 ? "default" : "secondary"} className="tabular-nums">
+            {decidedB} / {emptyAxes.length}
+          </Badge>
         </div>
         {emptyAxes.length === 0 ? (
           <p className="rounded-lg border border-dashed border-border p-4 text-center text-sm text-muted-foreground">
@@ -347,6 +489,7 @@ export function ReviewSheet({
               diff={diff}
               draft={axisDrafts[diff.dimension] ?? { verdict: null, note: "" }}
               disabled={saving}
+              containerRef={registerItem(`a-${diff.dimension}`)}
               onChange={(patch) => setAxisDraft(diff.dimension, patch)}
             />
           ))
@@ -362,6 +505,7 @@ export function ReviewSheet({
           className="min-h-24"
           placeholder="런 전반에 대한 총평·특이사항 (선택)"
           value={overallNote}
+          maxLength={OVERALL_NOTE_MAX_CHARS}
           disabled={saving}
           onChange={(event) => {
             setOverallNote(event.currentTarget.value);
@@ -377,23 +521,160 @@ export function ReviewSheet({
         </Alert>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => void save()} disabled={!emailValid || saving}>
-          {saving ? (
-            <>
-              <Spinner data-icon="inline-start" />
-              저장 중…
-            </>
+      {/* 고정 저장 바 — 긴 시트를 스크롤해도 진행률·저장이 항상 보인다. */}
+      <div className="sticky bottom-4 z-10 flex flex-col gap-2.5 rounded-xl border border-border bg-background/95 p-3 shadow-md backdrop-blur">
+        <div className="flex items-center gap-3">
+          <Progress value={total > 0 ? (decided / total) * 100 : 0} className="flex-1" />
+          <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+            판정 {decided} / {total}
+          </span>
+          {decided < total ? (
+            <Button variant="ghost" size="sm" onClick={jumpToNextUndecided}>
+              다음 미판정 ↓
+            </Button>
+          ) : total > 0 ? (
+            <Badge>전 항목 판정 완료</Badge>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <Button onClick={() => void save()} disabled={saveBlockedReason !== null || saving}>
+            {saving ? (
+              <>
+                <Spinner data-icon="inline-start" />
+                저장 중…
+              </>
+            ) : (
+              "검수 저장"
+            )}
+          </Button>
+          {saveBlockedReason ? (
+            <span className="text-xs text-destructive">{saveBlockedReason}</span>
           ) : (
-            "검수 저장"
+            <span className="text-xs text-muted-foreground">
+              부분 저장 가능 — 저장하면 이 런의 기존 검수를 덮어씁니다.
+            </span>
           )}
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          {lastSavedAt ? `마지막 저장 ${formatDateTime(lastSavedAt)}` : "저장된 검수 없음"}
-        </span>
-        {dirty ? <Badge variant="secondary">미저장 변경</Badge> : null}
+          <span className="ms-auto flex items-center gap-2 text-xs text-muted-foreground">
+            {dirty ? <Badge variant="secondary">미저장 변경</Badge> : null}
+            {lastSavedAt ? `마지막 저장 ${formatDateTime(lastSavedAt)}` : "저장된 검수 없음"}
+          </span>
+        </div>
       </div>
     </div>
+  );
+}
+
+/** 검수 안내 — 무엇을·어떤 기준으로 판정하고, 그 결과가 어떤 통과 기준을 결정하는지. */
+function ReviewGuide({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const gates = ANALYSIS_LAB_GATES;
+  return (
+    <Collapsible
+      open={open}
+      onOpenChange={onOpenChange}
+      className="rounded-xl border border-border bg-muted/20"
+    >
+      <CollapsibleTrigger
+        render={<Button variant="ghost" className="w-full justify-between px-4 py-3" />}
+      >
+        <span className="flex items-center gap-2 text-sm font-medium">
+          <CircleHelp data-icon="inline-start" />
+          검수 안내 — 무엇을, 어떤 기준으로 판정하나요?
+        </span>
+        <ChevronDown data-icon="inline-end" className={cn("transition-transform", open && "rotate-180")} />
+      </CollapsibleTrigger>
+      <CollapsibleContent className="flex flex-col gap-4 border-t border-border px-4 py-4">
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          <div className="flex flex-col gap-1 rounded-lg border border-border bg-background p-3">
+            <span className="text-xs font-semibold">① 제안 criterion 검수 (정밀도)</span>
+            <p className="text-xs text-muted-foreground">
+              딥분석이 제안한 요건 하나하나가 공고 원문에 실재하고 정확한지 판정합니다. 각
+              항목의 <em className="not-italic font-medium">근거 인용</em>을 원문·첨부와
+              대조하세요.
+            </p>
+          </div>
+          <div className="flex flex-col gap-1 rounded-lg border border-border bg-background p-3">
+            <span className="text-xs font-semibold">② 제안 없는 축 확인 (재현율)</span>
+            <p className="text-xs text-muted-foreground">
+              딥분석이 아무 요건도 제안하지 않은 축에 정말 요건이 없는지 확인합니다. 원문에
+              있는데 놓쳤다면 &ldquo;누락 있음&rdquo;으로 잡아주세요.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold">판정 기준</span>
+          {CRITERION_VERDICT_ORDER.map((verdict) => (
+            <div key={verdict} className="flex items-start gap-2">
+              <Badge variant={CRITERION_VERDICT_META[verdict].badge} className="mt-px shrink-0">
+                {CRITERION_VERDICT_META[verdict].label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {CRITERION_VERDICT_META[verdict].hint}
+              </span>
+            </div>
+          ))}
+          {AXIS_VERDICT_ORDER.map((verdict) => (
+            <div key={verdict} className="flex items-start gap-2">
+              <Badge variant={AXIS_VERDICT_META[verdict].badge} className="mt-px shrink-0">
+                {AXIS_VERDICT_META[verdict].label}
+              </Badge>
+              <span className="text-xs text-muted-foreground">{AXIS_VERDICT_META[verdict].hint}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-semibold">검수 요령</span>
+          <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+            <p>
+              · 판단 근거는 항상 <span className="font-medium text-foreground">공고 원문·첨부</span>입니다 —
+              상단의 &ldquo;공고 원문&rdquo; 링크와 &ldquo;분석 문서&rdquo;·&ldquo;필드 채움&rdquo; 탭을 옆에 두고 대조하세요.
+            </p>
+            <p>
+              · <Badge variant="destructive" className="align-middle">근거 미확인</Badge> 배지가 붙은 항목은
+              인용문이 입력 원문에서 검증되지 않은 것 — 특히 의심해서 보세요.
+            </p>
+            <p>
+              · 부분 저장이 가능하니 중간중간 저장하세요. 저장 전에 다른 런을 선택하거나 페이지를
+              떠나면 판정이 사라집니다.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-1.5 rounded-lg border border-primary/25 bg-primary/5 p-3">
+          <span className="text-xs font-semibold">이 검수가 결정하는 것 — 실험 통과 기준 5종</span>
+          <div className="flex flex-wrap gap-1.5">
+            <Badge variant="outline" className="tabular-nums">
+              정확 비율 ≥ {Math.round(gates.strictPrecisionMin * 100)}%
+            </Badge>
+            <Badge variant="outline" className="tabular-nums">
+              오류 비율 ≤ {Math.round(gates.wrongRateMax * 100)}%
+            </Badge>
+            <Badge variant="outline" className="tabular-nums">
+              공고당 누락 ≤ {gates.missedPerNoticeMax}건
+            </Badge>
+            <Badge variant="outline" className="tabular-nums">
+              커버리지(정확 B ÷ 현행 A) ≥ {gates.coverageRatioMin}배
+            </Badge>
+            <Badge variant="outline" className="tabular-nums">
+              공고당 비용 ≤ ${gates.costPerNoticeMaxUsd}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            &ldquo;수정 필요&rdquo;·&ldquo;판단 불가&rdquo;도 정확 비율의 분모에 들어갑니다. 코호트 3건을 모두
+            검수·저장한 뒤 터미널에서{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
+            를 실행하면 🟢/🟡/🔴 종합 판정이 나옵니다.
+          </p>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -404,6 +685,7 @@ function CriterionReviewBlock({
   label,
   draft,
   disabled,
+  containerRef,
   onChange,
 }: {
   index: number;
@@ -411,10 +693,14 @@ function CriterionReviewBlock({
   label: string;
   draft: CriterionDraft;
   disabled: boolean;
+  containerRef: (element: HTMLElement | null) => void;
   onChange: (patch: Partial<CriterionDraft>) => void;
 }) {
   return (
-    <section className="min-w-0 overflow-hidden rounded-lg border border-border">
+    <section
+      ref={containerRef}
+      className="min-w-0 scroll-mt-24 overflow-hidden rounded-lg border border-border"
+    >
       <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 border-b border-border bg-muted/40 px-3 py-2">
         <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <span className="text-sm font-semibold">
@@ -431,6 +717,13 @@ function CriterionReviewBlock({
             신뢰도 {Math.round(criterion.confidence * 100)}%
           </span>
           {criterion.spanVerified ? null : <Badge variant="destructive">근거 미확인</Badge>}
+          {draft.verdict ? (
+            <Badge variant={CRITERION_VERDICT_META[draft.verdict].badge}>
+              {CRITERION_VERDICT_META[draft.verdict].label}
+            </Badge>
+          ) : (
+            <Badge variant="ghost">미판정</Badge>
+          )}
         </div>
       </header>
       <div className="flex min-w-0 flex-col gap-2.5 p-3">
@@ -457,17 +750,23 @@ function CriterionReviewBlock({
           disabled={disabled}
           aria-label="criterion 판정"
         >
-          {CRITERION_VERDICT_OPTIONS.map((option) => (
-            <ToggleGroupItem key={option.value} value={option.value}>
-              {option.label}
+          {CRITERION_VERDICT_ORDER.map((verdict) => (
+            <ToggleGroupItem key={verdict} value={verdict}>
+              {CRITERION_VERDICT_META[verdict].label}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+        <p className="text-[11px] text-muted-foreground">
+          {draft.verdict
+            ? CRITERION_VERDICT_META[draft.verdict].hint
+            : "이 요건이 공고 원문과 일치하는지 위 근거를 대조해 판정하세요."}
+        </p>
         {draft.verdict && draft.verdict !== "correct" ? (
           <Textarea
             className="min-h-20"
-            placeholder="무엇이 틀렸고 어떻게 고쳐야 하는지"
+            placeholder={CRITERION_NOTE_PLACEHOLDER[draft.verdict]}
             value={draft.note}
+            maxLength={NOTE_MAX_CHARS}
             disabled={disabled}
             onChange={(event) => onChange({ note: event.currentTarget.value })}
           />
@@ -482,15 +781,21 @@ function EmptyAxisReviewBlock({
   diff,
   draft,
   disabled,
+  containerRef,
   onChange,
 }: {
   diff: LabDimensionDiff;
   draft: AxisDraft;
   disabled: boolean;
+  containerRef: (element: HTMLElement | null) => void;
   onChange: (patch: Partial<AxisDraft>) => void;
 }) {
+  const noteMissing = draft.verdict === "missed_condition" && draft.note.trim().length === 0;
   return (
-    <section className="flex min-w-0 flex-col gap-2 rounded-lg border border-border p-3">
+    <section
+      ref={containerRef}
+      className="flex min-w-0 scroll-mt-24 flex-col gap-2 rounded-lg border border-border p-3"
+    >
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <span className="text-sm font-medium">{diff.label}</span>
@@ -501,6 +806,13 @@ function EmptyAxisReviewBlock({
             </Badge>
           ) : (
             <Badge variant="ghost">검사 없음</Badge>
+          )}
+          {draft.verdict ? (
+            <Badge variant={AXIS_VERDICT_META[draft.verdict].badge}>
+              {AXIS_VERDICT_META[draft.verdict].label}
+            </Badge>
+          ) : (
+            <Badge variant="ghost">미판정</Badge>
           )}
         </div>
         <ToggleGroup
@@ -515,18 +827,23 @@ function EmptyAxisReviewBlock({
           disabled={disabled}
           aria-label={`${diff.label} 축 확인`}
         >
-          {AXIS_VERDICT_OPTIONS.map((option) => (
-            <ToggleGroupItem key={option.value} value={option.value}>
-              {option.label}
+          {AXIS_VERDICT_ORDER.map((verdict) => (
+            <ToggleGroupItem key={verdict} value={verdict}>
+              {AXIS_VERDICT_META[verdict].label}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
       </div>
+      {draft.verdict ? (
+        <p className="text-[11px] text-muted-foreground">{AXIS_VERDICT_META[draft.verdict].hint}</p>
+      ) : null}
       {draft.verdict === "missed_condition" ? (
         <Textarea
           className="min-h-20"
-          placeholder="원문 기준으로 누락된 요건 서술"
+          placeholder="원문 기준으로 누락된 요건 서술 (필수)"
           value={draft.note}
+          maxLength={NOTE_MAX_CHARS}
+          aria-invalid={noteMissing}
           disabled={disabled}
           onChange={(event) => onChange({ note: event.currentTarget.value })}
         />

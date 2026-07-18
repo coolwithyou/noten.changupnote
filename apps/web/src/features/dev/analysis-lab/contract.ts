@@ -7,6 +7,21 @@ import type { CriterionDimension } from "@cunote/contracts";
 export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v2";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
+/**
+ * 스파이크 통과 기준 — 2026-07-17 실험 설계에서 제안한 수치의 확정본.
+ * 집계 CLI(aggregate.ts)의 판정과 검수 UI(ReviewSheet)의 안내가 이 상수를 공유한다.
+ * 근거: 정밀도는 사람 검수 기준으로 오추출이 드물어야 하고(wrong 은 특히 치명),
+ * 재현율은 "공고당 놓친 hard 요건" 수준이 검수 비용을 좌우하며,
+ * 커버리지는 현행 파이프라인 대비 개선 배수(1.5x)가 딥분석 도입의 최소 명분이다.
+ */
+export const ANALYSIS_LAB_GATES = {
+  strictPrecisionMin: 0.8, // correct / 판정된 criterion
+  wrongRateMax: 0.1, // wrong / 판정된 criterion
+  missedPerNoticeMax: 1.0, // 공고당 평균 누락(missed_condition) 건수
+  coverageRatioMin: 1.5, // 사람 확정(correct) B criteria / 현행 A criteria
+  costPerNoticeMaxUsd: 1.0,
+} as const;
+
 export interface LabAttachment {
   filename: string;
   markdownAvailable: boolean;

@@ -5,22 +5,12 @@
 // 실행: pnpm lab:aggregate
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
+import {
+  ANALYSIS_LAB_GATES as GATES,
+  type LabReview,
+  type LabRun,
+} from "@/features/dev/analysis-lab/contract";
 import { analysisLabDir } from "./run-store";
-
-/**
- * 스파이크 통과 기준 — 2026-07-17 실험 설계에서 제안한 수치의 확정본.
- * 근거: 정밀도는 사람 검수 기준으로 오추출이 드물어야 하고(wrong 은 특히 치명),
- * 재현율은 "공고당 놓친 hard 요건" 수준이 검수 비용을 좌우하며,
- * 커버리지는 현행 파이프라인 대비 개선 배수(1.5x)가 딥분석 도입의 최소 명분이다.
- */
-const GATES = {
-  strictPrecisionMin: 0.8, // correct / 판정된 criterion
-  wrongRateMax: 0.1, // wrong / 판정된 criterion
-  missedPerNoticeMax: 1.0, // 공고당 평균 누락(missed_condition) 건수
-  coverageRatioMin: 1.5, // 사람 확정(correct) B criteria / 현행 A criteria
-  costPerNoticeMaxUsd: 1.0,
-} as const;
 
 interface ReviewedRun {
   run: LabRun;
@@ -70,15 +60,48 @@ function gateLine(name: string, actual: string, target: string, pass: boolean): 
   return `  ${pass ? "✅ 통과" : "❌ 미달"} | ${name}: ${actual} (기준 ${target})`;
 }
 
+/**
+ * 집계 대상 정제 — 실패 런의 검수는 제외하고, 같은 공고(grantId)에 검수가 여러 개면
+ * 최신(updatedAt) 1건만 남긴다. "공고당" 지표(누락·커버리지)의 분모를 공고 수와
+ * 일치시키기 위함이며, 제외분은 침묵하지 않고 경고로 드러낸다.
+ */
+function dedupe(all: ReviewedRun[]): ReviewedRun[] {
+  const byGrant = new Map<string, ReviewedRun>();
+  for (const item of all) {
+    if (item.run.error !== null) {
+      console.warn(
+        `[경고] 실패 런의 검수는 집계에서 제외: ${item.run.source}/${item.run.sourceId} ${item.run.runId}`,
+      );
+      continue;
+    }
+    const previous = byGrant.get(item.run.grantId);
+    if (!previous) {
+      byGrant.set(item.run.grantId, item);
+      continue;
+    }
+    const [kept, droppedItem] =
+      previous.review.updatedAt >= item.review.updatedAt ? [previous, item] : [item, previous];
+    byGrant.set(kept.run.grantId, kept);
+    console.warn(
+      `[경고] 같은 공고의 검수 ${droppedItem.run.runId} 제외 — 공고당 최신 검수 1건(${kept.run.runId})만 집계`,
+    );
+  }
+  return [...byGrant.values()];
+}
+
 async function main() {
-  const reviewed = await collect();
+  const all = await collect();
+  const reviewed = dedupe(all);
   if (reviewed.length === 0) {
     console.log("검수된 런이 없습니다 — 검수 탭에서 판정 후 '검수 저장'을 눌러주세요.");
     process.exitCode = 1;
     return;
   }
 
-  console.log(`===== 검수 집계 (검수된 런 ${reviewed.length}건) =====\n`);
+  const excluded = all.length - reviewed.length;
+  console.log(
+    `===== 검수 집계 (공고 ${reviewed.length}건${excluded > 0 ? ` · 검수 ${excluded}건 제외` : ""}) =====\n`,
+  );
 
   let correct = 0;
   let needsEdit = 0;
