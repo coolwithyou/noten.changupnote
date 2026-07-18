@@ -252,7 +252,7 @@ export function AnalysisLab() {
           <AlertDescription className="break-words">{runError}</AlertDescription>
         </Alert>
       ) : run ? (
-        <RunDetail run={run} />
+        <RunDetail run={run} onReviewSaved={() => void loadCohort({ silent: true })} />
       ) : !cohortLoading && cohort ? (
         <Empty className="border">
           <EmptyHeader>

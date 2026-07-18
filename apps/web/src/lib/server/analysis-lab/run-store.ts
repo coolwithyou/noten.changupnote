@@ -69,8 +69,12 @@ export async function listLabRunSummaries(source: string, sourceId: string): Pro
   const summaries: LabRunSummary[] = [];
   for (const file of files) {
     if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
+    // 검수 시트(<runId>.review.json)는 런 파일이 아니다 — 런 목록에서 제외.
+    if (file.endsWith(".review.json")) continue;
     const run = await readRunFile(join(dir, file));
-    if (run) summaries.push(toRunSummary(run));
+    if (!run) continue;
+    const reviewedAt = await readReviewedAt(join(dir, `${run.runId}.review.json`));
+    summaries.push(toRunSummary(run, reviewedAt));
   }
   return summaries.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
@@ -97,7 +101,7 @@ export async function readLabRun(grantId: string, runId: string): Promise<LabRun
   return null;
 }
 
-function toRunSummary(run: LabRun): LabRunSummary {
+function toRunSummary(run: LabRun, reviewedAt: string | null): LabRunSummary {
   return {
     runId: run.runId,
     startedAt: run.startedAt,
@@ -107,7 +111,22 @@ function toRunSummary(run: LabRun): LabRunSummary {
     costUsd: run.costUsd,
     ok: run.error === null,
     error: run.error,
+    reviewedAt,
   };
+}
+
+/**
+ * 런 요약용 reviewedAt — 같은 디렉토리의 <runId>.review.json 에서 updatedAt(문자열)만
+ * 관대하게 읽는다. 검수 파일 형식의 소유자는 review-store.ts 다(여기서는 표시용 필드만
+ * 조회하고 검증하지 않는다). 파일이 없거나 파싱에 실패하면 null.
+ */
+async function readReviewedAt(path: string): Promise<string | null> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as { updatedAt?: unknown };
+    return typeof parsed.updatedAt === "string" ? parsed.updatedAt : null;
+  } catch {
+    return null;
+  }
 }
 
 async function readRunFile(path: string): Promise<LabRun | null> {

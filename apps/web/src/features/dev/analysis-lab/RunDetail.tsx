@@ -16,10 +16,18 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DimensionDiffTable } from "./DimensionDiffTable";
 import { MarkdownView } from "./MarkdownView";
+import { ReviewSheet } from "./ReviewSheet";
 import { formatDateTime, formatDuration, formatUsd, sourceLabel } from "./labels";
 
-// 선택된 런의 상세 패널 — ① 분석 문서(마크다운) ② 필드 채움(22축 diff) ③ 실행 메타.
-export function RunDetail({ run }: { run: LabRun }) {
+// 선택된 런의 상세 패널 — ① 분석 문서(마크다운) ② 필드 채움(22축 diff) ③ 검수 ④ 실행 메타.
+export function RunDetail({
+  run,
+  onReviewSaved,
+}: {
+  run: LabRun;
+  /** 검수 시트 저장 성공 시 호출 — 런 목록의 검수됨 표시 갱신용. */
+  onReviewSaved?: () => void;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -47,6 +55,7 @@ export function RunDetail({ run }: { run: LabRun }) {
           <TabsList>
             <TabsTrigger value="document">분석 문서</TabsTrigger>
             <TabsTrigger value="fields">필드 채움</TabsTrigger>
+            <TabsTrigger value="review">검수</TabsTrigger>
             <TabsTrigger value="meta">실행 메타</TabsTrigger>
           </TabsList>
 
@@ -78,6 +87,10 @@ export function RunDetail({ run }: { run: LabRun }) {
                 <TaxonomyProposals proposals={run.taxonomyProposals} />
               </>
             ) : null}
+          </TabsContent>
+
+          <TabsContent value="review" className="pt-4">
+            <ReviewSheet run={run} onSaved={onReviewSaved} />
           </TabsContent>
 
           <TabsContent value="meta" className="pt-4">
