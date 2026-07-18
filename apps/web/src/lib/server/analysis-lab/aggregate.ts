@@ -2,6 +2,9 @@
 // spike-out/analysis-lab/ 의 <runId>.review.json 을 전수 스캔해 런과 짝짓고,
 // 정밀도(criterion 판정)·재현율(빈 축 누락)·커버리지(확정 B vs 현행 A)·비용을 집계한 뒤
 // 스파이크 통과 기준(GATES)에 대해 자동 판정한다.
+// 보조 지표(게이트 아님): 기계판정 가능성 — 정확 확정 B 중 구조화(operator≠text_only) 비율과
+// 공고당 기계판정 가능 criteria 수 A vs B. 피벗의 근거 진단(기계판정 가능률 ~40% 병목)을
+// 직접 측정한다. 게이트 승격 여부는 첫 집계 수치를 보고 결정.
 // 실행: pnpm lab:aggregate
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -112,6 +115,9 @@ async function main() {
   let currentTotal = 0;
   let costTotal = 0;
   let costCount = 0;
+  // 기계판정 가능(구조화, operator≠text_only) — A 는 현행 DB 전체, B 는 "정확" 확정분만.
+  let machineA = 0;
+  let machineB = 0;
 
   for (const { run, review } of reviewed) {
     const verdicts = { correct: 0, needs_edit: 0, wrong: 0, unsure: 0 };
@@ -119,6 +125,16 @@ async function main() {
     const axis = { confirmed_absent: 0, missed_condition: 0 };
     for (const item of review.axisReviews) axis[item.verdict] += 1;
     const current = run.dimensionDiffs.reduce((sum, diff) => sum + diff.current.length, 0);
+    const currentMachine = run.dimensionDiffs.reduce(
+      (sum, diff) => sum + diff.current.filter((item) => item.operator !== "text_only").length,
+      0,
+    );
+    let correctStructured = 0;
+    for (const item of review.criterionReviews) {
+      if (item.verdict !== "correct") continue;
+      const criterion = run.criteria[item.criterionIndex];
+      if (criterion && criterion.operator !== "text_only") correctStructured += 1;
+    }
 
     correct += verdicts.correct;
     needsEdit += verdicts.needs_edit;
@@ -127,6 +143,8 @@ async function main() {
     confirmedAbsent += axis.confirmed_absent;
     missed += axis.missed_condition;
     currentTotal += current;
+    machineA += currentMachine;
+    machineB += correctStructured;
     if (run.costUsd !== null) {
       costTotal += run.costUsd;
       costCount += 1;
@@ -138,6 +156,9 @@ async function main() {
       `  criterion ${decidedC}/${run.criteria.length} 판정 — 정확 ${verdicts.correct} · 수정 ${verdicts.needs_edit} · 오류 ${verdicts.wrong} · 판단불가 ${verdicts.unsure}` +
         ` | 빈 축 ${review.axisReviews.length} 확인 — 없음 ${axis.confirmed_absent} · 누락 ${axis.missed_condition}` +
         ` | 현행 A ${current}건 · 검수자 ${review.reviewerEmail}`,
+    );
+    console.log(
+      `  기계판정 가능 — 현행 A ${currentMachine}건 → 정확·구조화 B ${correctStructured}건`,
     );
     for (const item of review.criterionReviews) {
       if (item.verdict === "correct") continue;
@@ -170,6 +191,13 @@ async function main() {
   );
   console.log(
     `커버리지 — 사람 확정(correct) B ${correct}건 vs 현행 A ${currentTotal}건 = ${currentTotal > 0 ? `${coverageRatio.toFixed(2)}x` : "A 0건(비교 불가·무한대)"}`,
+  );
+  console.log(
+    `기계판정 가능(보조·게이트 아님) — 정확 확정 중 구조화 ${machineB}/${correct}건` +
+      `(${correct > 0 ? pct(machineB / correct) : "—"})` +
+      ` · 현행 A ${machineA}건 → B ${machineB}건` +
+      `${machineA > 0 ? ` = ${(machineB / machineA).toFixed(2)}x` : " (A 0건·비교 불가)"}` +
+      ` — 병목이던 기계판정 가능률의 해소분`,
   );
   console.log(`비용 — 공고당 평균 $${costPerNotice.toFixed(3)}\n`);
 
