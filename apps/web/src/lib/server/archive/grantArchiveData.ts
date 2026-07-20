@@ -279,7 +279,8 @@ function applicationStageFromFeedbackKind(
   return null;
 }
 
-function toGrant(row: GrantRow): Grant {
+// 분석 실험실(cohort) 등 다른 서버 모듈도 재사용하는 행→도메인 매퍼라 export 한다.
+export function toGrant(row: GrantRow): Grant {
   const grant: Grant = {
     id: row.id,
     source: row.source,

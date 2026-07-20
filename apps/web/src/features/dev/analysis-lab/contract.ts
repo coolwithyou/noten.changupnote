@@ -1,7 +1,7 @@
 // 공모 딥분석 실험실(dev 전용) — 서버(lib/server/analysis-lab)와 UI(features/dev/analysis-lab)가
 // 공유하는 단일 계약. 프로덕션 코드와 격리된 스파이크 트랙이며, DB에는 어떤 쓰기도 하지 않는다.
 // 런 결과는 spike-out/analysis-lab/ 에 불변 JSON으로 저장된다.
-import type { CriterionDimension } from "@cunote/contracts";
+import type { CriterionDimension, GrantBenefitFamily } from "@cunote/contracts";
 
 // v2: 구조화 필드 렌더를 인용 친화("라벨: 값")로 변경 + 인용 지침 강화 — v1 런과 입력 형식이 다르다.
 export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v2";
@@ -42,6 +42,15 @@ export interface LabRunSummary {
   reviewedAt: string | null;
 }
 
+/**
+ * 공고 혜택 배지 — 제품 공용 taxonomy(deriveGrantBenefits, 7 family)를 그대로 소비한다.
+ * label 은 서버가 확정한 한국어 라벨(archive 와 동일 어휘).
+ */
+export interface LabBenefitBadge {
+  family: GrantBenefitFamily;
+  label: string;
+}
+
 export interface LabNoticeSummary {
   grantId: string;
   source: string;
@@ -52,6 +61,8 @@ export interface LabNoticeSummary {
   applyEnd: string | null;
   status: string;
   url: string | null;
+  /** 이 공고에서 받을 수 있는 혜택 — 카드에서 공고 성격을 한눈에 파악하는 용도. */
+  benefits: LabBenefitBadge[];
   attachments: LabAttachment[];
   currentCriteriaCount: number;
   runs: LabRunSummary[];

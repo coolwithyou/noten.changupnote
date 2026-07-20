@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
-import type { LabProgramIntent, LabRun, LabTaxonomyProposal } from "./contract";
+import type { LabBenefitBadge, LabProgramIntent, LabRun, LabTaxonomyProposal } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +27,7 @@ export function RunDetail({
   tab,
   onTabChange,
   noticeUrl,
+  benefits,
   onReviewSaved,
   onReviewDirtyChange,
 }: {
@@ -36,6 +37,8 @@ export function RunDetail({
   onTabChange: (tab: string) => void;
   /** 공고 원문 URL — 검수 시 원문 대조용 링크. */
   noticeUrl: string | null;
+  /** 공고 혜택 배지 — 코호트(DB) 산출값. */
+  benefits: LabBenefitBadge[];
   /** 검수 시트 저장 성공 시 호출 — 런 목록의 검수됨 표시 갱신용. */
   onReviewSaved?: () => void;
   /** 검수 시트 미저장 판정 여부 통지 — 부모가 분석 완료 시 화면 탈취를 보류하는 데 쓴다. */
@@ -68,6 +71,14 @@ export function RunDetail({
           {formatDateTime(run.startedAt)} 시작 · {formatDuration(run.durationMs)} ·{" "}
           {formatUsd(run.costUsd)}
         </CardDescription>
+        {benefits.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs font-medium text-muted-foreground">혜택</span>
+            {benefits.map((benefit) => (
+              <Badge key={benefit.family}>{benefit.label}</Badge>
+            ))}
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {run.error ? (

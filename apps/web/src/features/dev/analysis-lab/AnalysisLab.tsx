@@ -350,6 +350,7 @@ export function AnalysisLab() {
             tab={detailTab}
             onTabChange={setDetailTab}
             noticeUrl={selectedNotice?.url ?? null}
+            benefits={selectedNotice?.benefits ?? []}
             onReviewSaved={() => void loadCohort({ silent: true })}
             onReviewDirtyChange={(dirty) => {
               reviewDirtyRef.current = dirty;

@@ -5,8 +5,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { and, count, desc, eq, exists, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
+import { deriveGrantBenefits } from "@cunote/core";
 import { getCunoteDb, type CunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { toGrant } from "@/lib/server/archive/grantArchiveData";
+import { benefitFamilyLabel } from "@/lib/server/archive/grantArchiveSearch";
 import {
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabAttachment,
@@ -200,19 +203,10 @@ async function rankByBodyMarkdown(
 // ── 요약 조립 ─────────────────────────────────────────────────────
 
 async function buildNoticeSummary(db: CunoteDb, grantId: string): Promise<LabNoticeSummary | null> {
+  // 혜택 배지 산출(deriveGrantBenefits)이 benefits·support_amount·category·apply_method 등을
+  // 두루 읽으므로 전체 행을 가져와 제품 공용 매퍼(toGrant)로 변환한다.
   const grantRows = await db
-    .select({
-      id: schema.grants.id,
-      source: schema.grants.source,
-      sourceId: schema.grants.sourceId,
-      title: schema.grants.title,
-      url: schema.grants.url,
-      agencyOperator: schema.grants.agencyOperator,
-      agencyJurisdiction: schema.grants.agencyJurisdiction,
-      applyStart: schema.grants.applyStart,
-      applyEnd: schema.grants.applyEnd,
-      status: schema.grants.status,
-    })
+    .select()
     .from(schema.grants)
     .where(eq(schema.grants.id, grantId))
     .limit(1);
@@ -245,6 +239,12 @@ async function buildNoticeSummary(db: CunoteDb, grantId: string): Promise<LabNot
     .from(schema.grantCriteria)
     .where(eq(schema.grantCriteria.grantId, grantId));
 
+  // 혜택 배지 — 제품과 동일한 파생 로직·한국어 라벨(archive 어휘)을 그대로 쓴다.
+  const benefits = deriveGrantBenefits(toGrant(grant)).map((benefit) => ({
+    family: benefit.family,
+    label: benefitFamilyLabel(benefit.family),
+  }));
+
   return {
     grantId: grant.id,
     source: grant.source,
@@ -255,6 +255,7 @@ async function buildNoticeSummary(db: CunoteDb, grantId: string): Promise<LabNot
     applyEnd: grant.applyEnd ? grant.applyEnd.toISOString() : null,
     status: grant.status,
     url: grant.url ?? null,
+    benefits,
     attachments,
     currentCriteriaCount: criteriaCountRows[0]?.value ?? 0,
     runs: await listLabRunSummaries(grant.source, grant.sourceId),

@@ -92,6 +92,18 @@ export function NoticeCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-1 flex-col gap-3">
+        {/* 혜택 배지 — 이 공고에서 받을 수 있는 것(제품 공용 7 family). 미분류도 드러낸다(dev 신호). */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs font-medium text-muted-foreground">혜택</span>
+          {notice.benefits.length > 0 ? (
+            notice.benefits.map((benefit) => (
+              <Badge key={benefit.family}>{benefit.label}</Badge>
+            ))
+          ) : (
+            <Badge variant="ghost">미분류</Badge>
+          )}
+        </div>
+
         {/* 첨부 상태 — markdown 확보 여부와 크기 */}
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-muted-foreground">
