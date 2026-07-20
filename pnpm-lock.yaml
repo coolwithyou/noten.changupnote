@@ -135,6 +135,12 @@ importers:
       '@cunote/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@rhwp/core':
+        specifier: ^0.7.19
+        version: 0.7.19
+      '@rhwp/editor':
+        specifier: ^0.7.19
+        version: 0.7.19
       ai:
         specifier: 7.0.19
         version: 7.0.19(zod@4.4.3)
@@ -1426,6 +1432,12 @@ packages:
         optional: true
       react-redux:
         optional: true
+
+  '@rhwp/core@0.7.19':
+    resolution: {integrity: sha512-rc0sRpYQowavYgteFXkqCkuiXTZJa2C8fl5toq01y20SVtiIRFKGVcATk6+jHOuCjK0l81fGLSZaEIBTwKXkAQ==}
+
+  '@rhwp/editor@0.7.19':
+    resolution: {integrity: sha512-/b3nPHwt26pdxpbHVaaW7ob/RefrOF+ltOj8T6OLjaCLxP2hCNhMc+gt9jQ/Uj1V9Ck+P/h/oIUrhOXTRSFG8A==}
 
   '@sec-ant/readable-stream@0.4.1':
     resolution: {integrity: sha512-831qok9r2t8AlxLko40y2ebgSDhenenCatLVeW/uBtnHPyhHOvG0C7TvfgecV+wHzIm5KUICgzmVpWS+IMEAeg==}
@@ -4815,6 +4827,10 @@ snapshots:
     optionalDependencies:
       react: 19.2.7
       react-redux: 9.3.0(@types/react@19.2.17)(react@19.2.7)(redux@5.0.1)
+
+  '@rhwp/core@0.7.19': {}
+
+  '@rhwp/editor@0.7.19': {}
 
   '@sec-ant/readable-stream@0.4.1': {}
 

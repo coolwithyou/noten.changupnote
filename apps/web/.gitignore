@@ -1,1 +1,3 @@
 .vercel
+# @rhwp/core WASM — scripts/copy-rhwp-wasm.mjs가 dev/build 때 복사
+public/rhwp_bg.wasm
