@@ -479,6 +479,13 @@ async function runAuditListMode(model: string): Promise<number> {
         console.warn(`[audit] AI 검수 파일 파싱 실패 — 건너뜀: ${entry}/${file}`);
         continue;
       }
+      // 사람 전수 검수(review.json)가 있는 런은 감사 대상이 아니다 — 캘리브레이션용
+      // 파일럿 AI 검수 파일이 확대 배치 감사 목록에 혼입되는 것을 막는다(§9 감사 설계는
+      // "사람 검수 없는 공고의 AI 검수"에 대한 표본 확인이다).
+      if (files.includes(`${parsed.runId}.review.json`)) {
+        console.log(`[audit] 사람 검수 보유 런 제외: ${entry}/${parsed.runId}`);
+        continue;
+      }
       // 제목은 짝 런 파일에서 관대하게 읽는다(표시용).
       let title = parsed.runId;
       try {
