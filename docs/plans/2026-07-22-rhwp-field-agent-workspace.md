@@ -1,6 +1,6 @@
 # rhwp 필드 에이전트 워크스페이스 상세 구현 계획
 
-> **상태: Phase A~G 구현 완료 · 빠른 작성↔rhwp Studio 전환 설계 완료·구현 대기 (2026-07-23)**
+> **상태: Phase A~I 최소 통합·L1 구현 완료 · 서버 리비전/프로토콜 고도화(J/K)·실문서 회귀(L2) 후속 (2026-07-23)**
 >
 > 이 문서는 `/grants/[grantId]/workspace`를 **원본 HWP/HWPX 프리뷰 → 필드 선택 → 근거 기반 안내/대화 → 사용자 확인 → 원본 형식 내보내기**의 한 흐름으로 연결하는 실행 정본이다. 구현·검증·잔여 제한도 이 문서에 함께 갱신한다.
 
@@ -36,7 +36,7 @@
 - HWPX XML 기반 서버 내보내기
 - rhwp 0.7.19 기반 개발 랩의 HWP/HWPX 파싱, 페이지 SVG, 셀 삽입, HWP 자기 검증, HWP/HWPX 내보내기
 
-현재 결손:
+계획 작성 당시 결손(Phase A~G에서 해소):
 
 - 실제 작업공간은 rhwp가 아니라 변환 서버의 페이지 이미지만 사용한다.
 - 채팅의 `fieldContext`가 첫 턴 뒤 사라지고, 구조화된 제안/추가 질문을 UI에서 실행할 수 없다.
@@ -375,8 +375,29 @@ NEXT_DIST_DIR=.next-build pnpm --filter @cunote/web build
   메타데이터와 CSS 컨테이너 단위를 연결해 일반 텍스트 값은 문서와 함께 확대·축소하고 안내문만 가린다.
 - 자동 확인 완료: `build:packages`, web `typecheck`, `test:rhwp-field-agent`, `test:field-answers`,
   `test:chat-grounding`, `test:apply-workspace`, `verify:route-policy`, 격리 dist의 web production build.
-- 잔여 수동 확인: 사용자가 실제 값을 확정해 내려받은 HWP/HWPX를 한컴오피스에서 열어 체크 표시,
-  안내문 교체, 단위 보존과 무결성 경고 부재를 최종 확인한다.
+- 추가 수동 회귀: HWP/HWPX 각 3개 이상 corpus로 체크 표시, 안내문 교체, 단위 보존과 무결성
+  경고 부재를 반복 확인한다.
+- 2026-07-23: `DocumentAuthoringTask` 분류기를 추가해 단일 텍스트·객관식·보조 장문은 빠른 작성,
+  반복표·병합표·첨부/서명/도장 영역은 문서 편집 과제로 분리했다. 복합 과제에는 textarea를
+  렌더하지 않고 `문서에서 편집`, `해당 없음`, `나중에`, `편집 내용 확인 완료` 흐름을 제공한다.
+- 2026-07-23: 프리뷰에 빠른 작성(파란 실선), 문서 편집(보라 점선), 확인 완료(초록 실선)의
+  색상·선·텍스트 단서를 함께 적용하고 전체 목록과 상단 진행률을 `빠른 작성 / 문서 편집`으로
+  분리했다.
+- 2026-07-23: 같은 draft 원본을 자가 호스팅 rhwp Studio에 로드하고, 명시적 저장 시 HWP/HWPX를
+  재개방해 페이지 수와 바이트를 검증한 뒤 빠른 작성으로 복귀하는 최소 통합을 구현했다. Studio의
+  HWPX/글꼴 확인창을 부모 로딩 오버레이가 가로막지 않도록 안내를 비차단 방식으로 바꿨다.
+- 2026-07-23: 최종 다운로드는 Studio 스냅샷을 기준으로 최신 빠른 작성 delta만 안전하게 합성한다.
+  이전 값과 정확히 일치할 때만 교체하고 Studio에서 직접 고친 셀은 덮어쓰지 않으며, Studio
+  스냅샷이 있으면 이를 버리는 서버 폴백도 사용하지 않는다.
+- 2026-07-23: 4020 실문서 브라우저에서 `빠른 작성 3/40 · 문서 편집 0/11`, 첫 페이지 빠른 작성
+  오버레이 14개와 문서 편집 오버레이 2개를 확인했다. Studio 8쪽 로드, 저장 검증, 복귀,
+  `편집됨 · 확인 필요` 및 `문서 편집 1/11` 전환을 확인했다. 다운로드한 HWPX는 rhwp 재개방 시
+  62,286 bytes·8쪽이며 확정한 전화번호와 주민등록번호가 각각 1회 남았다.
+- 2026-07-23: 같은 다운로드 HWPX를 macOS 한컴오피스 한글 Viewer로 열어 손상/변조 경고 없이
+  1/8쪽이 표시되고 주민등록번호와 연락전화번호가 각각 의도한 셀에 정상 배치된 것을 확인했다.
+- 현재 최소 통합의 Studio 스냅샷은 브라우저 탭 메모리에만 유지된다. 새로고침/재접속 영속화,
+  다중 탭 optimistic conflict, 선택 과제의 정확한 Studio 포커스, dirty 이벤트·자동 저장은
+  Phase J/K에서 서버 리비전 계약과 함께 구현한다.
 
 ## 9. 빠른 작성 ↔ 문서 직접 편집 UX 정본
 
@@ -626,15 +647,16 @@ editor.subscribe("documentChanged" | "selectionChanged" | "saveStateChanged", li
 
 ### 9.9 구현 순서와 티켓
 
-1. **H1 — 분류기와 계약**: `DocumentAuthoringTask` 타입, 구조 규칙, fixture 단위 테스트.
-2. **H2 — 시각 상태**: Preview overlay 토큰, 범례, 전체 목록 quick/studio 구분, 접근성 테스트.
-3. **I1 — StudioTaskCard**: 복합 영역 textarea 제거, 전환/해당 없음/나중에 상태.
-4. **I2 — Studio 최소 임베드**: 개발 랩 초기화 코드를 공용 래퍼로 이동, 같은 draft 원본 로드,
+1. **H1 — 분류기와 계약 (완료)**: `DocumentAuthoringTask` 타입, 구조 규칙, fixture 단위 테스트.
+2. **H2 — 시각 상태 (완료)**: Preview overlay 토큰, 범례, 전체 목록 quick/studio 구분, 접근성 단서.
+3. **I1 — StudioTaskCard (완료)**: 복합 영역 textarea 제거, 전환/해당 없음/나중에 상태.
+4. **I2 — Studio 최소 임베드 (완료)**: 개발 랩 초기화 코드를 공용 래퍼로 이동, 같은 draft 원본 로드,
    수동 저장/복귀.
 5. **J1 — rhwp 프로토콜**: 자가 호스팅 Studio와 `@rhwp/editor`의 capability, target focus, event API.
 6. **K1 — revision 저장소**: Drizzle migration, R2 artifact, optimistic head 교체, route policy.
 7. **K2 — 자동 저장·재조정**: debounce snapshot, mode leave flush, atomic field 재추출과 conflict UI.
-8. **L1 — 통합 검토·내보내기**: 이중 진행, 최신 revision materialize, HWP/HWPX 검증과 폴백.
+8. **L1 — 통합 검토·내보내기 (최소 통합 완료)**: 이중 진행, 탭 내 최신 snapshot materialize,
+   HWP/HWPX 재개방 검증과 안전한 폴백 경계.
 9. **L2 — 실제 문서 회귀 묶음**: 철원군 신청서 포함 HWP/HWPX fixture, 브라우저·한컴 수동 체크리스트.
 
 의존성은 `H1 → H2/I1 → I2 → J1/K1 → K2 → L1 → L2`다. H2와 I1은 병렬 가능하지만,

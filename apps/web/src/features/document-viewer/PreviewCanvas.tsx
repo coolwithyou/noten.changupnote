@@ -11,7 +11,7 @@
  * 상태를 주어 기존 단색(primary) 오버레이가 시각적으로 회귀하지 않게 한다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FilePenLine, Minus, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -39,6 +39,8 @@ export interface PreviewOverlayField {
   rhwpAppearance?: RhwpFieldAnchor["appearance"];
   /** 기존 좌표의 생성 근거. rhwp 모드에서는 신뢰 가능한 구조 좌표만 폴백 표시한다. */
   visualEvidence?: Record<string, unknown> | null;
+  /** 작성 작업공간에서만 사용하는 입력 방식. /preview에서는 생략한다. */
+  authoringMode?: "quick" | "studio";
 }
 
 type RhwpPreviewState =
@@ -74,6 +76,11 @@ const OVERLAY_STATE_CLASS: Record<PreviewOverlayState, { base: string; active: s
     base: "border border-warning-strong/60 bg-warning/10 hover:bg-warning/15",
     active: "border-2 border-warning-strong bg-warning/15",
   },
+};
+
+const STUDIO_OVERLAY_CLASS = {
+  base: "border border-dashed border-studio/65 bg-studio-soft/55 hover:bg-studio-soft",
+  active: "border-2 border-dashed border-studio bg-studio-soft",
 };
 
 function pageImageUrl(grantId: string, key: string): string {
@@ -260,7 +267,9 @@ export function PreviewCanvas({
             {overlaysForPage.map((field) => {
               if (!field.box) return null;
               const active = field.fieldId === selectedFieldId;
-              const tone = OVERLAY_STATE_CLASS[field.state];
+              const tone = field.authoringMode === "studio" && field.state !== "confirmed"
+                ? STUDIO_OVERLAY_CLASS
+                : OVERLAY_STATE_CLASS[field.state];
               const confirmedValue =
                 field.state === "confirmed" && field.value?.trim() ? field.value.trim() : null;
               const documentValue = Boolean(
@@ -273,8 +282,8 @@ export function PreviewCanvas({
                   ref={active ? selectedOverlayRef : undefined}
                   variant="ghost"
                   onClick={() => onSelectField(field.fieldId)}
-                  title={field.label}
-                  aria-label={field.label}
+                  title={`${field.label}${field.authoringMode ? ` · ${field.authoringMode === "studio" ? "문서에서 편집" : "빠른 작성"}` : ""}`}
+                  aria-label={`${field.label}${field.authoringMode ? ` · ${field.authoringMode === "studio" ? "문서에서 편집" : "빠른 작성"}` : ""}`}
                   className={cn(
                     // 상태색(미입력/제안/확정/확인 필요)이 오버레이의 본질이라 tone 색을 className 으로 덮어쓴다.
                     // p-0 으로 버튼 기본 패딩만 제거하고, 위치·크기는 아래 동적 좌표 style 이 결정한다.
@@ -308,6 +317,14 @@ export function PreviewCanvas({
                     <span className="flex min-w-0 items-start gap-0.5 overflow-hidden p-0.5 text-[11px] leading-tight font-medium text-foreground">
                       <Check className="size-3 shrink-0 text-success" aria-hidden />
                       <span className="min-w-0 break-words whitespace-pre-wrap">{confirmedValue}</span>
+                    </span>
+                  ) : field.state === "confirmed" ? (
+                    <span className="flex size-full items-start justify-end p-0.5 text-success">
+                      <Check className="size-3.5 rounded-sm bg-card/90 p-0.5 shadow-sm" aria-hidden />
+                    </span>
+                  ) : field.authoringMode === "studio" ? (
+                    <span className="flex size-full items-start justify-end p-0.5 text-studio">
+                      <FilePenLine className="size-3.5 rounded-sm bg-card/90 p-0.5 shadow-sm" aria-hidden />
                     </span>
                   ) : null}
                 </Button>
@@ -349,6 +366,13 @@ export function PreviewCanvas({
             <ChevronRight />
           </Button>
         </div>
+        {overlayFields.some((field) => field.authoringMode) ? (
+          <div className="flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm border border-primary bg-primary/10" />빠른 작성</span>
+            <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm border border-dashed border-studio bg-studio-soft" />문서에서 편집</span>
+            <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm border border-success bg-success-soft" />확인 완료</span>
+          </div>
+        ) : null}
         <div className="flex items-center gap-1">
           <Button
             variant="outline"

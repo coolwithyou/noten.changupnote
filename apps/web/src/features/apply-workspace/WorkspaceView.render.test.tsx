@@ -150,4 +150,34 @@ const confirmedHtml = renderToStaticMarkup(
 );
 assert.ok(confirmedHtml.includes(confirmedValue), "승인된 값이 프리뷰 셀 오버레이에 보여야 합니다.");
 
+// 반복 표는 textarea로 축약하지 않고 Studio 과제로 분류하며, 두 작성 모드를 명시한다.
+const studioHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        connectedFields: [{
+          fieldId: "field-career",
+          fieldKey: "applicant.career_rows",
+          label: "경력사항",
+          section: "신청자",
+          fieldType: "table",
+          required: false,
+          sourceSpan: "입사연월 | 퇴사연월 | 근무처 | 업무분야",
+          mappedCompanyField: null,
+          fillStrategy: "ask_user",
+          position: { page: 1, bbox: [0.1, 0.3, 0.8, 0.5] },
+          visualEvidence: null,
+        }],
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.ok(studioHtml.includes("문서에서 편집"), "반복 표에는 Studio 편집 CTA가 보여야 합니다.");
+assert.ok(studioHtml.includes("빠른 작성"), "빠른 작성 모드 전환이 보여야 합니다.");
+assert.ok(studioHtml.includes("문서 직접 편집"), "문서 직접 편집 모드 전환이 보여야 합니다.");
+assert.equal(studioHtml.includes("<textarea"), false, "반복 표를 textarea로 축약하면 안 됩니다.");
+
 console.log("WorkspaceView grant UUID render regression passed");

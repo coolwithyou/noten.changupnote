@@ -19,13 +19,8 @@ import { Button } from "@/components/ui/button";
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
-import { applyRhwpEditFields, buildRhwpEditFields } from "@/lib/rhwp/editPlan";
-import {
-  downloadBytes,
-  exportVerifiedRhwpDocument,
-  loadRhwp,
-  type RhwpDocumentFormat,
-} from "@/lib/rhwp/client";
+import { downloadBytes, type RhwpDocumentFormat } from "@/lib/rhwp/client";
+import { prepareRhwpWorkingDocument, type RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
 
 export function WorkspaceDownloadButton({
   draftId,
@@ -38,6 +33,7 @@ export function WorkspaceDownloadButton({
   manualAnchors,
   duplicateLabels,
   hwpxFallbackAvailable = false,
+  workingDocument = null,
 }: {
   draftId: string | null;
   label?: string;
@@ -49,6 +45,8 @@ export function WorkspaceDownloadButton({
   manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels?: ReadonlySet<string>;
   hwpxFallbackAvailable?: boolean;
+  /** Studio 편집본이 있으면 원본 대신 이 검증 스냅샷에 최신 빠른 작성 delta를 합친다. */
+  workingDocument?: RhwpWorkingDocument | null;
 }) {
   const [pending, setPending] = useState(false);
 
@@ -62,6 +60,7 @@ export function WorkspaceDownloadButton({
         connectedFields,
         manualAnchors,
         ...(duplicateLabels ? { duplicateLabels } : {}),
+        workingDocument,
       });
       if (result.skipped.length > 0) {
         const labels = result.skipped.map((entry) => entry.label).filter(Boolean).join(", ");
@@ -72,7 +71,9 @@ export function WorkspaceDownloadButton({
         toast.success(`원본 ${result.format.toUpperCase()} 양식에 확정한 값을 채우고 다시 열어 검증했습니다.`);
       }
     } catch (caught) {
-      if (hwpxFallbackAvailable) {
+      // Studio 편집본이 있는 상태에서 서버 원본 폴백을 내려받으면 사용자의 직접 편집이 조용히
+      // 사라진다. 이 경우에는 검증 실패를 그대로 알리고, 원본 폴백은 Studio 미사용 때만 허용한다.
+      if (hwpxFallbackAvailable && !workingDocument) {
         try {
           await downloadHwpxFallback(draftId);
           toast.warning("rhwp 검증을 통과하지 못해 기존 HWPX 안전 내보내기로 다운로드했습니다.");
@@ -112,39 +113,19 @@ async function downloadWithRhwp(input: {
   connectedFields: readonly ConnectedDocumentField[];
   manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels?: ReadonlySet<string>;
+  workingDocument?: RhwpWorkingDocument | null;
 }): Promise<{ format: RhwpDocumentFormat; skipped: Array<{ label: string; reason: string }> }> {
-  const response = await fetch(
-    `/api/web/document-drafts/${encodeURIComponent(input.draftId)}/source-file`,
-    { cache: "no-store" },
-  );
-  if (!response.ok) throw new Error(await sourceFileErrorMessage(response));
-  const formatHeader = response.headers.get("x-cunote-document-format");
-  if (formatHeader !== "hwp" && formatHeader !== "hwpx") {
-    throw new Error("원본 문서 형식을 확인하지 못했습니다.");
-  }
-  const encodedFilename = response.headers.get("x-cunote-document-filename");
-  const originalFilename = encodedFilename ? decodeHeaderValue(encodedFilename) : `지원서-양식.${formatHeader}`;
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const rhwp = await loadRhwp();
-  const document = new rhwp.HwpDocument(bytes);
-  try {
-    const plan = buildRhwpEditFields({
-      answers: input.answers,
-      connectedFields: input.connectedFields,
-      ...(input.duplicateLabels ? { duplicateLabels: input.duplicateLabels } : {}),
-    });
-    const applied = applyRhwpEditFields(document, plan.fields, input.manualAnchors);
-    const verification = exportVerifiedRhwpDocument({ rhwp, document, format: formatHeader });
-    const extensionPattern = /\.(hwp|hwpx)$/i;
-    const base = originalFilename.replace(extensionPattern, "");
-    downloadBytes(verification.bytes, `${base}-창업노트-작성본.${formatHeader}`);
-    return {
-      format: formatHeader,
-      skipped: [...plan.skipped, ...applied.skipped].map(({ label, reason }) => ({ label, reason })),
-    };
-  } finally {
-    document.free();
-  }
+  const document = await prepareRhwpWorkingDocument({
+    draftId: input.draftId,
+    answers: input.answers,
+    connectedFields: input.connectedFields,
+    manualAnchors: input.manualAnchors,
+    ...(input.duplicateLabels ? { duplicateLabels: input.duplicateLabels } : {}),
+    ...(input.workingDocument !== undefined ? { base: input.workingDocument } : {}),
+  });
+  const base = document.filename.replace(/\.(hwp|hwpx)$/i, "");
+  downloadBytes(document.bytes, `${base}-창업노트-작성본.${document.format}`);
+  return { format: document.format, skipped: document.skipped };
 }
 
 async function downloadHwpxFallback(draftId: string): Promise<void> {
@@ -164,24 +145,6 @@ async function downloadHwpxFallback(draftId: string): Promise<void> {
       `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
     );
   }
-}
-
-function decodeHeaderValue(value: string): string {
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
-}
-
-async function sourceFileErrorMessage(response: Response): Promise<string> {
-  try {
-    const payload = (await response.json()) as ActionResult<null>;
-    if (payload?.error?.message) return payload.error.message;
-  } catch {
-    // 비 JSON 응답은 기본 문구.
-  }
-  return "원본 HWP/HWPX 양식을 불러오지 못했습니다.";
 }
 
 // ── 기존 HWPX 서버 폴백 헬퍼(answers 동봉 없이 서버 저장 확정값만 사용) ──

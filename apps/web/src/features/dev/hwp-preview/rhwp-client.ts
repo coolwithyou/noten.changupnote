@@ -1,12 +1,9 @@
 import type * as Rhwp from "@rhwp/core";
 import type { HwpVerifyResult, RhwpEditor } from "@rhwp/editor";
 export { downloadBytes, loadRhwp } from "@/lib/rhwp/client";
+export { RHWP_STUDIO_URL } from "@/lib/rhwp/editorClient";
 
 export type RhwpModule = typeof Rhwp;
-
-/** 자가 호스팅 rhwp-studio (noten 팀 Vercel 정적 프로젝트) */
-export const RHWP_STUDIO_URL =
-  process.env.NEXT_PUBLIC_RHWP_STUDIO_URL ?? "https://changupnote-rhwp-studio.vercel.app/";
 
 export async function exportVerifiedHwp(
   editor: RhwpEditor,
