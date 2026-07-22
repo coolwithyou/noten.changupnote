@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
-import { ArrowLeft, CheckCircle2, FilePenLine, RefreshCw } from "lucide-react";
+import { ArrowLeft, CheckCircle2, FilePenLine, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -23,8 +23,10 @@ export interface RhwpStudioSurfaceHandle {
 type StudioState =
   | { status: "loading"; message: string; allowEditorInteraction?: boolean }
   | { status: "ready"; pageCount: number; skipped: RhwpWorkingDocument["skipped"] }
-  | { status: "saving"; pageCount: number }
+  | { status: "saving"; pageCount: number; intent: StudioSaveIntent }
   | { status: "error"; message: string };
+
+type StudioSaveIntent = "stay" | "return";
 
 export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   draftId: string;
@@ -34,7 +36,11 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   duplicateLabels: ReadonlySet<string>;
   workingDocument: RhwpWorkingDocument | null;
   activeTask: DocumentAuthoringTask | null;
-  onSavedAndReturn: (document: RhwpWorkingDocument, taskFieldId: string | null) => void;
+  onSaved: (
+    document: RhwpWorkingDocument,
+    taskFieldId: string | null,
+    returnToQuick: boolean,
+  ) => void;
 }>(({
   draftId,
   answers,
@@ -43,13 +49,18 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   duplicateLabels,
   workingDocument,
   activeTask,
-  onSavedAndReturn,
+  onSaved,
 }, ref) => {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<StudioState>({ status: "loading", message: "작업 문서를 준비하고 있어요." });
+  const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<RhwpEditorInstance | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
+  // 임시 저장으로 부모 workingDocument가 갱신돼도 편집기를 다시 열지 않는다. 이 ref는 현재
+  // Studio 세션의 최신 검증 스냅샷이며, 모드를 나갔다 돌아오면 새 컴포넌트가 부모 값을 받는다.
+  const sessionDocumentRef = useRef<RhwpWorkingDocument | null>(workingDocument);
+  const saveInFlightRef = useRef(false);
   const requestSeq = useRef(0);
 
   useEffect(() => {
@@ -63,7 +74,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         connectedFields: quickFields,
         manualAnchors,
         duplicateLabels,
-        base: workingDocument,
+        base: sessionDocumentRef.current,
       });
       if (disposed || requestSeq.current !== seq) return;
       preparedRef.current = prepared;
@@ -101,25 +112,47 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       editorRef.current = null;
       preparedRef.current = null;
     };
-  }, [answers, attempt, draftId, duplicateLabels, manualAnchors, quickFields, workingDocument]);
+  }, [answers, attempt, draftId, duplicateLabels, manualAnchors, quickFields]);
 
-  const saveAndReturn = useCallback(async () => {
+  const save = useCallback(async (intent: StudioSaveIntent) => {
     const editor = editorRef.current;
     const prepared = preparedRef.current;
-    if (!editor || !prepared || state.status === "loading" || state.status === "error") return;
-    const pageCount = await editor.pageCount();
-    setState({ status: "saving", pageCount });
+    if (
+      !editor
+      || !prepared
+      || saveInFlightRef.current
+      || state.status === "loading"
+      || state.status === "error"
+    ) return;
+    saveInFlightRef.current = true;
     try {
+      const pageCount = await editor.pageCount();
+      setState({ status: "saving", pageCount, intent });
       const bytes = await exportVerifiedEditorDocument(editor, prepared.format);
       const saved: RhwpWorkingDocument = { ...prepared, bytes };
-      toast.success("Studio 편집본을 검증해 이 브라우저 탭에 저장했습니다.");
-      onSavedAndReturn(saved, activeTask?.fieldId ?? null);
+      preparedRef.current = saved;
+      sessionDocumentRef.current = saved;
+      const savedAt = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+      setLastSavedLabel(savedAt);
+      onSaved(saved, activeTask?.fieldId ?? null, intent === "return");
+      if (intent === "stay") {
+        setState({ status: "ready", pageCount, skipped: saved.skipped });
+        toast.success("임시 저장했습니다. Studio에서 계속 편집할 수 있어요.");
+      } else {
+        toast.success("Studio 편집본을 검증해 저장하고 빠른 작성으로 돌아갑니다.");
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Studio 편집본을 저장하지 못했습니다.";
       setState({ status: "error", message });
       toast.error(message);
+    } finally {
+      saveInFlightRef.current = false;
     }
-  }, [activeTask?.fieldId, onSavedAndReturn, state.status]);
+  }, [activeTask?.fieldId, onSaved, state.status]);
+
+  const saveAndReturn = useCallback(async () => {
+    await save("return");
+  }, [save]);
 
   useImperativeHandle(ref, () => ({ saveAndReturn }), [saveAndReturn]);
 
@@ -137,15 +170,37 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <p className="mt-1 text-xs text-muted-foreground">
             전체 문서를 직접 편집할 수 있어요. 저장본은 현재 브라우저 탭에서 최종 다운로드에 사용됩니다.
           </p>
+          {lastSavedLabel ? (
+            <p className="mt-1 text-xs text-success" role="status" aria-live="polite">
+              마지막 임시 저장 {lastSavedLabel} · 이후 수정 사항은 다시 저장해 주세요.
+            </p>
+          ) : null}
         </div>
-        <Button
-          type="button"
-          onClick={() => void saveAndReturn()}
-          disabled={state.status !== "ready"}
-        >
-          {state.status === "saving" ? <Spinner data-icon="inline-start" /> : <ArrowLeft data-icon="inline-start" aria-hidden />}
-          {state.status === "saving" ? "검증해 저장 중…" : "저장하고 빠른 작성으로"}
-        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void save("stay")}
+            disabled={state.status !== "ready"}
+          >
+            {state.status === "saving" && state.intent === "stay"
+              ? <Spinner data-icon="inline-start" />
+              : <Save data-icon="inline-start" aria-hidden />}
+            {state.status === "saving" && state.intent === "stay" ? "임시 저장 중…" : "임시 저장"}
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void saveAndReturn()}
+            disabled={state.status !== "ready"}
+          >
+            {state.status === "saving" && state.intent === "return"
+              ? <Spinner data-icon="inline-start" />
+              : <ArrowLeft data-icon="inline-start" aria-hidden />}
+            {state.status === "saving" && state.intent === "return"
+              ? "검증해 저장 중…"
+              : "저장하고 빠른 작성으로"}
+          </Button>
+        </div>
       </div>
 
       {state.status === "error" ? (
@@ -179,7 +234,11 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div className="flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-sm shadow-[var(--shadow-subtle)]">
               <Spinner className="text-primary" />
-              {state.status === "loading" ? state.message : "편집본을 다시 열어 검증하고 있어요."}
+              {state.status === "loading"
+                ? state.message
+                : state.intent === "stay"
+                  ? "작업 스냅샷을 다시 열어 검증하고 있어요."
+                  : "편집본을 다시 열어 검증하고 있어요."}
             </div>
           </div>
         ) : state.status === "ready" ? (

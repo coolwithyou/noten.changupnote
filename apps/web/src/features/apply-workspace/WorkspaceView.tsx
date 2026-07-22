@@ -317,10 +317,14 @@ export function WorkspaceView({
     if (next) setSelectedFieldId(next.fieldId);
   }
 
-  function handleStudioSaved(document: RhwpWorkingDocument, fieldId: string | null) {
+  function handleStudioSaved(
+    document: RhwpWorkingDocument,
+    fieldId: string | null,
+    returnToQuick: boolean,
+  ) {
     setWorkingDocument(document);
     if (fieldId) setStudioTaskStates((current) => ({ ...current, [fieldId]: "edited" }));
-    setAuthoringMode("quick");
+    if (returnToQuick) setAuthoringMode("quick");
   }
 
   const handleRhwpAnchorsChange = useCallback((_fieldIds: ReadonlySet<string>) => {
@@ -496,7 +500,7 @@ export function WorkspaceView({
           duplicateLabels={duplicateSet}
           workingDocument={workingDocument}
           activeTask={studioTasks.find((task) => task.fieldId === selectedFieldId) ?? null}
-          onSavedAndReturn={handleStudioSaved}
+          onSaved={handleStudioSaved}
         />
       ) : data.ladder === "c" ? (
         <div className="min-h-0 flex-1 overflow-auto">
