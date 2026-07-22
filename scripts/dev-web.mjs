@@ -3,7 +3,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { homedir } from "node:os";
 
-const localUrl = "http://127.0.0.1:4010";
+const webPort = resolveWebPort(process.env.CUNOTE_WEB_PORT);
+const localUrl = `http://127.0.0.1:${webPort}`;
 const tunnelUrl = "https://dev.changupnote.com";
 const tunnelName = "changupnote-dev";
 const tunnelConfig = resolve(homedir(), ".cloudflared", "changupnote-dev.yml");
@@ -37,9 +38,19 @@ console.log(
 
 let shuttingDown = false;
 
-const pnpmArgs = ["--filter", "@cunote/web", "dev"];
+const pnpmArgs = [
+  "--filter",
+  "@cunote/web",
+  "exec",
+  "next",
+  "dev",
+  "--hostname",
+  "127.0.0.1",
+  "--port",
+  String(webPort),
+];
 if (forwardedArgs.length > 0) {
-  pnpmArgs.push("--", ...forwardedArgs);
+  pnpmArgs.push(...forwardedArgs);
 }
 
 const webChild = spawn("pnpm", pnpmArgs, {
@@ -201,6 +212,15 @@ function hasDatabaseUrl() {
     process.env.SUPABASE_DB_URL?.trim() ||
     process.env.DIRECT_URL?.trim(),
   );
+}
+
+function resolveWebPort(raw) {
+  if (!raw?.trim()) return 4010;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    throw new Error(`CUNOTE_WEB_PORT가 올바른 포트가 아닙니다: ${raw}`);
+  }
+  return parsed;
 }
 
 function buildWorkspacePackages() {

@@ -6,6 +6,7 @@
   "packageManager": "pnpm@10.30.1",
   "scripts": {
     "dev:web": "node scripts/dev-web.mjs",
+    "dev:web:roundtrip": "CUNOTE_WEB_PORT=4020 CUNOTE_DEV_TUNNEL=0 NEXTAUTH_URL=http://127.0.0.1:4020 node scripts/dev-web.mjs",
     "dev:ops": "node scripts/dev-ops.mjs",
     "build:packages": "pnpm --filter @cunote/contracts build && pnpm --filter @cunote/core build",
     "build:web": "pnpm build:packages && pnpm --filter @cunote/web build",
@@ -53,6 +54,8 @@
     "admin:user:create": "pnpm --filter @cunote/admin admin:user:create --",
     "smoke:db": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/db/smoke-drizzle-service.ts",
     "lab:smoke": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/smoke.ts",
+    "lab:roundtrip:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/core.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/editable-regions.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/hwp-form-controls.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/hwp-integrity.test.ts",
+    "lab:roundtrip:smoke": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/smoke.ts",
     "lab:aggregate": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/aggregate.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && pnpm verify:package-runtime-freshness && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck && pnpm --filter @cunote/admin typecheck",
