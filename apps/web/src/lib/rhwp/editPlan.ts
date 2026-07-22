@@ -6,6 +6,11 @@ import {
   type RhwpAnchorDocument,
   type RhwpFieldAnchor,
 } from "./fieldAnchors";
+import {
+  isReplaceableRhwpGuide,
+  parseRhwpCellCharProperties,
+  type RhwpCellCharProperties,
+} from "./guideText";
 
 export interface RhwpEditField {
   fieldId?: string;
@@ -113,16 +118,6 @@ interface NamedFieldInfo {
   guide?: string;
 }
 
-interface CellCharProperties {
-  fontFamily?: string;
-  fontSize?: number;
-  bold?: boolean;
-  italic?: boolean;
-  underline?: boolean;
-  strikethrough?: boolean;
-  textColor?: string;
-}
-
 export function buildRhwpEditFields(input: {
   answers: DraftFieldAnswers;
   connectedFields?: readonly ConnectedDocumentField[];
@@ -182,45 +177,15 @@ function isUnitOnly(value: string): boolean {
   return /^\s*[([]?\s*(?:천원|백만원|억원|만원|원|명|개|건|년|개월|일|%|㎡|m²|km²)\s*[)\]]?\s*$/iu.test(value);
 }
 
-const GUIDE_TEXT_PATTERN = /(?:기재\s*(?:시|란|요령|바랍니다|하세요)?|작성\s*(?:예시|요령|내용|란)?|입력\s*(?:예시|란|하세요)?|서술\s*(?:예시|하세요)?|제시|선택\s*기입|해당\s*시|예시|sample)|^[※*]/iu;
-const STRONG_GUIDE_PATTERN = /(?:기재\s*시|선택\s*기입|작성\s*예시|입력\s*예시|^[※*])/iu;
-
-function parseCellCharProperties(value: string | null | undefined): CellCharProperties | null {
-  if (!value) return null;
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" ? parsed as CellCharProperties : null;
-  } catch {
-    return null;
-  }
-}
-
-function isGuideStyle(properties: CellCharProperties | null): boolean {
-  if (!properties) return false;
-  const color = properties.textColor?.toLocaleLowerCase("en-US");
-  return properties.italic === true || Boolean(color && color !== "#000000" && color !== "#111111");
-}
-
-function isReplaceableGuide(
-  value: string,
-  sourceSpan: string | null | undefined,
-  properties: CellCharProperties | null,
-): boolean {
-  const normalized = normalizedText(value);
-  if (!normalized || !GUIDE_TEXT_PATTERN.test(value)) return false;
-  const sourceConfirmed = Boolean(sourceSpan && normalizedText(sourceSpan).includes(normalized));
-  return sourceConfirmed || isGuideStyle(properties) || STRONG_GUIDE_PATTERN.test(value);
-}
-
 function readCellCharProperties(
   document: RhwpEditableDocument,
   anchor: RhwpFieldAnchor,
   cellIndex: number,
   charOffset: number,
-): CellCharProperties | null {
+): RhwpCellCharProperties | null {
   if (!document.getCellCharPropertiesAt) return null;
   try {
-    return parseCellCharProperties(document.getCellCharPropertiesAt(
+    return parseRhwpCellCharProperties(document.getCellCharPropertiesAt(
       anchor.target.section,
       anchor.target.parentPara,
       anchor.target.controlIndex,
@@ -245,8 +210,8 @@ function insertedTextFormat(
   document: RhwpEditableDocument,
   field: RhwpEditField,
   anchor: RhwpFieldAnchor,
-  currentProperties: CellCharProperties | null,
-): CellCharProperties {
+  currentProperties: RhwpCellCharProperties | null,
+): RhwpCellCharProperties {
   const labelProperties = typeof anchor.target.labelCellIndex === "number"
     ? readCellCharProperties(document, anchor, anchor.target.labelCellIndex, 0)
     : null;
@@ -295,7 +260,7 @@ function insertAndFormatCellText(
   field: RhwpEditField,
   anchor: RhwpFieldAnchor,
   offset: number,
-  currentProperties: CellCharProperties | null,
+  currentProperties: RhwpCellCharProperties | null,
 ): string | null {
   const target = anchor.target;
   if (!parsedOk(document.insertTextInCell(
@@ -366,7 +331,7 @@ function applyCellText(
   if (isUnitOnly(current)) {
     return insertAndFormatCellText(document, field, anchor, 0, currentProperties);
   }
-  if (!isReplaceableGuide(current, field.sourceSpan, currentProperties)) {
+  if (!isReplaceableRhwpGuide(current, field.sourceSpan, currentProperties)) {
     return "입력 셀에 기존 내용이 있어 덮어쓰지 않았습니다.";
   }
   if (!document.deleteTextInCell) return "서식 안내문을 안전하게 교체할 수 없습니다.";

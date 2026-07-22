@@ -1,4 +1,5 @@
 import { parsePositionBbox, parsePositionPage, type NormalizedBox } from "@/lib/documents/bbox";
+import { isReplaceableRhwpGuide, parseRhwpCellCharProperties } from "./guideText";
 
 export interface RhwpFieldDescriptor {
   fieldId: string;
@@ -29,6 +30,11 @@ export interface RhwpChoiceAnchor {
   length: number;
 }
 
+export interface RhwpFieldAppearance {
+  fillColor?: string;
+  maskTemplateText: boolean;
+}
+
 export interface RhwpFieldAnchor {
   fieldId: string;
   label: string;
@@ -38,6 +44,7 @@ export interface RhwpFieldAnchor {
   confidence: "exact";
   target: RhwpCellTarget;
   choices: RhwpChoiceAnchor[];
+  appearance?: RhwpFieldAppearance;
 }
 
 interface SearchHit {
@@ -100,6 +107,36 @@ export interface RhwpAnchorDocument {
     startCharOffset: number,
     endCellParagraph: number,
     endCharOffset: number,
+  ): string;
+  getCellParagraphLength?(
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
+  ): number;
+  getTextInCell?(
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
+    charOffset: number,
+    count: number,
+  ): string;
+  getCellCharPropertiesAt?(
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
+    charOffset: number,
+  ): string;
+  getCellOwnProperties?(
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
   ): string;
 }
 
@@ -165,6 +202,81 @@ function parsePageInfo(value: string): PageInfo | null {
 
 function normalizedText(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function textFromCellResult(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (parsed && typeof parsed === "object" && typeof (parsed as { text?: unknown }).text === "string") {
+      return (parsed as { text: string }).text;
+    }
+  } catch {
+    // rhwp는 일반 문자열을 직접 반환하는 버전도 있다.
+  }
+  return value;
+}
+
+function cellAppearance(
+  document: RhwpAnchorDocument,
+  field: RhwpFieldDescriptor,
+  target: RhwpCellTarget,
+): RhwpFieldAppearance {
+  let fillColor: string | undefined;
+  if (document.getCellOwnProperties) {
+    try {
+      const own = JSON.parse(document.getCellOwnProperties(
+        target.section,
+        target.parentPara,
+        target.controlIndex,
+        target.cellIndex,
+      )) as { fillColor?: unknown };
+      if (typeof own.fillColor === "string" && /^#[0-9a-f]{6}$/iu.test(own.fillColor)) {
+        fillColor = own.fillColor;
+      }
+    } catch {
+      // 셀 배경을 읽지 못하면 프리뷰의 기본 종이색을 사용한다.
+    }
+  }
+  let maskTemplateText = false;
+  if (document.getCellParagraphLength && document.getTextInCell && document.getCellCharPropertiesAt) {
+    try {
+      const length = document.getCellParagraphLength(
+        target.section,
+        target.parentPara,
+        target.controlIndex,
+        target.cellIndex,
+        target.cellParagraph,
+      );
+      if (length > 0) {
+        const raw = textFromCellResult(document.getTextInCell(
+          target.section,
+          target.parentPara,
+          target.controlIndex,
+          target.cellIndex,
+          target.cellParagraph,
+          0,
+          length,
+        ));
+        const visibleOffset = Math.max(0, raw.search(/\S/u));
+        const properties = parseRhwpCellCharProperties(document.getCellCharPropertiesAt(
+          target.section,
+          target.parentPara,
+          target.controlIndex,
+          target.cellIndex,
+          target.cellParagraph,
+          visibleOffset,
+        ));
+        maskTemplateText = isReplaceableRhwpGuide(raw.trim(), field.sourceSpan, properties);
+      }
+    } catch {
+      // 안내문 여부가 불확실하면 원본을 가리지 않는다.
+    }
+  }
+  return {
+    ...(fillColor ? { fillColor } : {}),
+    maskTemplateText,
+  };
 }
 
 function labelVariants(label: string): string[] {
@@ -417,7 +529,11 @@ export function resolveRhwpFieldAnchors(
     if (ranked.length === 0) continue;
     // 위치 힌트도 없고 동률에 가까운 후보가 둘이면 잘못 고르지 않는다.
     if (!hintPage && ranked[1] && Math.abs(ranked[0]!.score - ranked[1].score) < 1) continue;
-    resolved.push(ranked[0]!.anchor);
+    const selected = ranked[0]!.anchor;
+    resolved.push({
+      ...selected,
+      appearance: cellAppearance(document, field, selected.target),
+    });
   }
   return resolved;
 }

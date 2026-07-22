@@ -123,6 +123,34 @@ assert.equal(spacedLabelAnchor?.target.cellIndex, 2);
 assert.equal(spacedLabelAnchor?.target.labelCellIndex, 1);
 assert.deepEqual(spacedLabelAnchor?.box, { x: 0.22, y: 0.38, width: 0.2, height: 0.028 });
 
+// 실제 입력 셀의 파란 이탤릭 안내문과 셀 배경을 프리뷰 마스킹 정보로 전달한다.
+const guideAppearanceDocument: RhwpAnchorDocument = {
+  ...document,
+  searchAllText: (query) => query === "연락전화번호" ? JSON.stringify([{
+    sec: 0,
+    length: query.length,
+    cellContext: { parentPara: 3, ctrlIdx: 0, cellIdx: 7, cellPara: 0 },
+  }]) : "[]",
+  getTableCellBboxes: () => JSON.stringify([
+    { cellIdx: 7, row: 1, col: 5, pageIndex: 0, x: 410, y: 408, w: 99, h: 27.4 },
+    { cellIdx: 8, row: 1, col: 6, pageIndex: 0, x: 509, y: 408, w: 196, h: 27.4 },
+  ]),
+  getCellParagraphLength: () => 15,
+  getTextInCell: () => " 핸드폰번호 기재시 선택기입",
+  getCellCharPropertiesAt: () => JSON.stringify({ fontSize: 900, italic: true, textColor: "#0000ff" }),
+  getCellOwnProperties: () => JSON.stringify({ fillColor: "#ffffff" }),
+};
+const [guideAppearanceAnchor] = resolveRhwpFieldAnchors(guideAppearanceDocument, [{
+  fieldId: "phone",
+  label: "연락전화번호",
+  fieldType: "text",
+  position: { page: 1 },
+}]);
+assert.deepEqual(guideAppearanceAnchor?.appearance, {
+  fillColor: "#ffffff",
+  maskTemplateText: true,
+});
+
 const picked = resolveRhwpCellAtPoint({
   document: {
     getPageInfo: () => JSON.stringify({ width: 1_000, height: 1_000 }),

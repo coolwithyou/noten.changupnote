@@ -33,6 +33,10 @@ export interface PreviewOverlayField {
   state: PreviewOverlayState;
   /** 확정(confirmed)된 값 — 오버레이 안에 실제 기입처럼 렌더한다(재정의 R2). */
   value?: string | null;
+  /** 체크박스/라디오처럼 원문 선택지를 보존해야 하는 필드. */
+  isChoiceField?: boolean;
+  /** rhwp가 실제 입력 셀에서 읽은 배경과 안내문 마스킹 정보. */
+  rhwpAppearance?: RhwpFieldAnchor["appearance"];
   /** 기존 좌표의 생성 근거. rhwp 모드에서는 신뢰 가능한 구조 좌표만 폴백 표시한다. */
   visualEvidence?: Record<string, unknown> | null;
 }
@@ -148,7 +152,12 @@ export function PreviewCanvas({
       for (const anchor of manualAnchors) anchors.set(anchor.fieldId, anchor);
       return overlayFields.map((field) => {
         const anchor = anchors.get(field.fieldId);
-        return { ...field, page: anchor?.page ?? null, box: anchor?.box ?? null };
+        return {
+          ...field,
+          page: anchor?.page ?? null,
+          box: anchor?.box ?? null,
+          rhwpAppearance: anchor?.appearance,
+        };
       });
     }
     // rhwp 로딩/실패 때 human_review 근사 박스를 원본 위에 그리지 않는다.
@@ -254,6 +263,10 @@ export function PreviewCanvas({
               const tone = OVERLAY_STATE_CLASS[field.state];
               const confirmedValue =
                 field.state === "confirmed" && field.value?.trim() ? field.value.trim() : null;
+              const documentValue = Boolean(
+                confirmedValue && rhwpPreview.status === "ready" && !field.isChoiceField,
+              );
+              const maskTemplateText = documentValue && field.rhwpAppearance?.maskTemplateText;
               return (
                 <Button
                   key={field.fieldId}
@@ -267,12 +280,30 @@ export function PreviewCanvas({
                     // p-0 으로 버튼 기본 패딩만 제거하고, 위치·크기는 아래 동적 좌표 style 이 결정한다.
                     "absolute items-start justify-start overflow-hidden rounded-[3px] p-0 text-left whitespace-normal transition-colors",
                     locatingFieldId && "pointer-events-none",
-                    active ? tone.active : tone.base,
+                    documentValue
+                      ? active
+                        ? "border-2 border-primary bg-transparent hover:bg-transparent"
+                        : "border border-success/50 bg-transparent hover:bg-transparent"
+                      : active ? tone.active : tone.base,
                   )}
                   // 동적 좌표: 필드 bbox(정규화 %)를 오버레이 위치/크기로 매핑한 계산값이라 인라인 style 유지.
-                  style={boxToPercentStyle(field.box)}
+                  style={{
+                    ...boxToPercentStyle(field.box),
+                    ...(documentValue ? { containerType: "size" } : {}),
+                    ...(maskTemplateText
+                      ? { backgroundColor: field.rhwpAppearance?.fillColor ?? "#ffffff" }
+                      : {}),
+                  }}
                 >
-                  {confirmedValue ? (
+                  {documentValue && confirmedValue ? (
+                    // 컨테이너 높이에 비례해 실제 문서 글자처럼 확대/축소한다. 안내문 셀은 원래 셀색으로 가린다.
+                    <span
+                      className="flex size-full min-w-0 items-center overflow-hidden px-[2cqw] leading-[1.15] font-normal text-foreground"
+                      style={{ fontSize: "clamp(10px, 52cqh, 32px)" }}
+                    >
+                      <span className="min-w-0 break-words whitespace-pre-wrap">{confirmedValue}</span>
+                    </span>
+                  ) : confirmedValue ? (
                     // 확정 값은 문서 위 실제 기입처럼(foreground) — 박스보다 길면 클리핑.
                     <span className="flex min-w-0 items-start gap-0.5 overflow-hidden p-0.5 text-[11px] leading-tight font-medium text-foreground">
                       <Check className="size-3 shrink-0 text-success" aria-hidden />

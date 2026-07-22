@@ -83,6 +83,7 @@ export function WorkspaceView({
     () =>
       data.connectedFields.map((field) => {
         const answer = answers[answerKey(field.label)];
+        const options = extractFieldOptions(field.fieldType, field.sourceSpan);
         return {
           fieldId: field.fieldId,
           label: field.label,
@@ -91,6 +92,7 @@ export function WorkspaceView({
           state: fieldVisualState(field.label, answers, duplicateSet),
           // 확정(accepted/edited)된 값만 오버레이 안에 실제 기입처럼 렌더한다(R2).
           value: workspaceFieldState(answer) === "filled" ? answer?.value ?? null : null,
+          isChoiceField: options.length > 0,
           visualEvidence: field.visualEvidence,
         };
       }),
