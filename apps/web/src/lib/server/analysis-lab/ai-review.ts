@@ -43,7 +43,16 @@ import { assembleLabInput, type LabAssembledInput, type LabInputArchive } from "
 import { findMonorepoRoot, labRunFilePath } from "./run-store";
 
 export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v1";
+/**
+ * ai-review-v2 (2026-07-23): §9 가 허용하는 "판정 프롬프트 1회 개정" 적용분.
+ * v1 캘리브레이션 불일치가 수렴한 3가지 규칙 공백을 일반 규칙으로만 추가했다
+ * (특정 파일럿 공고의 정답을 암시하는 문구 금지 — 캘리브레이션 오염 방지):
+ *   ① §0 리트머스 우위 — §2 경계 규칙 패턴 매칭만으로 needs_edit 금지
+ *   ② 통합공고류의 빈 축은 공고 자체 차원 요건으로만 판정
+ *   ③ 다른 축 criterion 으로 이미 포착된 조건은 빈 축 missed_condition 아님
+ * v1 산출물은 <파일명>.v1 로 rename 보존. 재개정은 §9 상 불가(1회 한정 소진).
+ */
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v2";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -208,6 +217,18 @@ function buildSystemPrompt(rubric: string): string {
     "- unsure 남발 금지 — 기준서 §2-G 그대로: 붙임이 입력에 없거나(변환 실패) 원문이 실제로",
     "  모호할 때만. \"귀찮음\"의 도피처가 아니다 — unsure 비율 자체가 품질 지표다.",
     "- 검수는 \"추출이 원문에 맞는가\"다. 축약된 표현이라도 매칭 판정 결과가 같으면 정확이다(§0).",
+    "- [§0 리트머스 우위] §2 경계 규칙은 §0 리트머스의 보조 장치다. 제안 criterion 이",
+    "  §2-A(절차 조항)·§2-C(값 축약)·§2-D(다운그레이드) 유형에 패턴 매칭되더라도, 그 criterion 이",
+    "  이미 적절한 형태로 제안되어 있어(예: 절차·제재 조항이 이미 other/text_only·exclusion 으로",
+    "  강등·표기됨, 축약이 판정 결과를 바꾸지 않음) 이대로 DB에 넣었을 때 원문과 다른 판정",
+    "  결론이 나오는 기업이 존재하지 않으면 정확(correct)이다. needs_edit 는 \"무엇을 어떻게",
+    "  고칠지\"가 구체적으로 실재할 때만 — 고칠 것이 없으면 correct 다.",
+    "- [통합공고류] 여러 개별 하위 사업을 목록화·안내하는 통합공고류에서, 하위 사업 각각의",
+    "  자격요건은 그 공고 자체의 축 요건이 아니다(하위 사업은 별도 개별 공고로 분해될 대상).",
+    "  빈 축 확인은 공고 자체 차원의 요건 실재 여부로만 판정한다.",
+    "- [빈 축 중복 배제] 원문에 그 축과 관련된 문구가 실재해도, 그 조건이 이미 다른 축의 제안",
+    "  criterion 으로 포착되어 있으면 그 축의 missed_condition 이 아니다. 축 재배정이 더",
+    "  적절하다는 의견은 해당 criterion 의 검수 note 에서 다룬다(빈 축 판정이 아니라).",
     "- 모든 criterion 인덱스와 모든 빈 축을 빠짐없이 정확히 한 번씩 판정하라.",
   ].join("\n");
 }
