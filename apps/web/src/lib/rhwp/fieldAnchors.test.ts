@@ -73,6 +73,7 @@ assert.deepEqual(anchor.target, {
   controlIndex: 0,
   cellIndex: 13,
   cellParagraph: 0,
+  labelCellIndex: 12,
 });
 assert.deepEqual(anchor.choices.map((choice) => choice.value), options);
 assert.equal(anchor.choices[0]?.box.x, 0.326);
@@ -89,6 +90,38 @@ const ambiguous: RhwpAnchorDocument = {
   ]),
 };
 assert.equal(resolveRhwpFieldAnchors(ambiguous, [{ fieldId: "address", label: "주소", fieldType: "text" }]).length, 0);
+
+// 원문 셀의 시각적 자간 공백은 무시하고, 위치 힌트가 가리키는 페이지의 같은 라벨을 찾는다.
+const spacedLabelDocument: RhwpAnchorDocument = {
+  ...document,
+  searchAllText: (query) => query === "성명(대표자)" ? JSON.stringify([{
+    sec: 0,
+    length: query.length,
+    cellContext: { parentPara: 38, ctrlIdx: 0, cellIdx: 13, cellPara: 0 },
+  }]) : "[]",
+  getPageTextLayout: () => JSON.stringify({ runs: [{
+    text: "성 명(대표자)",
+    secIdx: 0,
+    parentParaIdx: 3,
+    controlIdx: 0,
+    cellIdx: 1,
+    cellParaIdx: 0,
+    charStart: 0,
+  }] }),
+  getTableCellBboxes: (_sec, para) => para === 3 ? JSON.stringify([
+    { cellIdx: 1, row: 0, col: 1, colSpan: 2, pageIndex: 0, x: 100, y: 380, w: 120, h: 28 },
+    { cellIdx: 2, row: 0, col: 3, colSpan: 2, pageIndex: 0, x: 220, y: 380, w: 200, h: 28 },
+  ]) : "[]",
+};
+const [spacedLabelAnchor] = resolveRhwpFieldAnchors(spacedLabelDocument, [{
+  fieldId: "representative-name",
+  label: "성명(대표자)",
+  fieldType: "text",
+  position: { page: 1, bbox: [0.22, 0.38, 0.2, 0.028] },
+}]);
+assert.equal(spacedLabelAnchor?.target.cellIndex, 2);
+assert.equal(spacedLabelAnchor?.target.labelCellIndex, 1);
+assert.deepEqual(spacedLabelAnchor?.box, { x: 0.22, y: 0.38, width: 0.2, height: 0.028 });
 
 const picked = resolveRhwpCellAtPoint({
   document: {

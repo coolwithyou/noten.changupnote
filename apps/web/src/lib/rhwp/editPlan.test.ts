@@ -132,6 +132,89 @@ assert.deepEqual(guideOperations, [
   { kind: "insert", offset: 0, value: "강원특별자치도 철원군" },
 ]);
 
+// sourceSpan에 안내문이 없더라도 파란/이탤릭 기재 가이드는 셀 전체 길이로 제거하고,
+// 입력 셀 크기와 왼쪽 라벨 서식에 맞춘 검정 본문으로 교체한다.
+const coloredGuide = " 핸드폰번호 기재시 선택기입";
+const coloredGuideOperations: Array<{ kind: string; value: number | string | object }> = [];
+const coloredGuideDocument: RhwpEditableDocument = {
+  ...unitDocument,
+  searchAllText: (query) => query === "연락전화번호" ? JSON.stringify([{
+    sec: 0,
+    length: query.length,
+    cellContext: { parentPara: 3, ctrlIdx: 0, cellIdx: 7, cellPara: 0 },
+  }]) : "[]",
+  getTableCellBboxes: () => JSON.stringify([
+    { cellIdx: 7, row: 1, col: 5, pageIndex: 0, x: 410, y: 408, w: 99, h: 27.4 },
+    { cellIdx: 8, row: 1, col: 6, pageIndex: 0, x: 509, y: 408, w: 196, h: 27.4 },
+  ]),
+  getCellParagraphLength: () => coloredGuide.length,
+  getTextInCell: () => coloredGuide,
+  getCellCharPropertiesAt: (_sec, _para, _ctrl, cell) => JSON.stringify(cell === 7
+    ? { fontFamily: "맑은 고딕", fontSize: 1_000, textColor: "#000000", italic: false }
+    : { fontFamily: "맑은 고딕", fontSize: 900, textColor: "#0000ff", italic: true }),
+  deleteTextInCell: (_sec, _para, _ctrl, _cell, _cellPara, _offset, count) => {
+    coloredGuideOperations.push({ kind: "delete", value: count });
+    return JSON.stringify({ ok: true });
+  },
+  insertTextInCell: (_sec, _para, _ctrl, _cell, _cellPara, _offset, value) => {
+    coloredGuideOperations.push({ kind: "insert", value });
+    return JSON.stringify({ ok: true });
+  },
+  applyCharFormatInCell: (_sec, _para, _ctrl, _cell, _cellPara, _start, _end, properties) => {
+    coloredGuideOperations.push({ kind: "format", value: JSON.parse(properties) as object });
+    return JSON.stringify({ ok: true });
+  },
+};
+const coloredGuideResult = applyRhwpEditFields(coloredGuideDocument, [{
+  fieldId: "phone",
+  label: "연락전화번호",
+  value: "010-1234-5678",
+  fieldType: "text",
+  position: { page: 1 },
+}]);
+assert.equal(coloredGuideResult.filled.length, 1);
+assert.deepEqual(coloredGuideOperations.slice(0, 2), [
+  { kind: "delete", value: coloredGuide.length },
+  { kind: "insert", value: "010-1234-5678" },
+]);
+assert.deepEqual(coloredGuideOperations[2], {
+  kind: "format",
+  value: {
+    fontFamily: "맑은 고딕",
+    fontSize: 1_100,
+    bold: false,
+    italic: false,
+    underline: false,
+    strikethrough: false,
+    textColor: "#000000",
+  },
+});
+
+// 한글 빈 셀에 남아 있는 placeholder 공백도 실제 값으로 안전하게 교체한다.
+const whitespaceOperations: string[] = [];
+const whitespaceDocument: RhwpEditableDocument = {
+  ...unitDocument,
+  getCellParagraphLength: () => 1,
+  getTextInCell: () => " ",
+  deleteTextInCell: () => {
+    whitespaceOperations.push("delete");
+    return JSON.stringify({ ok: true });
+  },
+  insertTextInCell: () => {
+    whitespaceOperations.push("insert");
+    return JSON.stringify({ ok: true });
+  },
+};
+const whitespaceResult = applyRhwpEditFields(whitespaceDocument, [{
+  fieldId: "revenue",
+  label: "매출액",
+  value: "320000",
+  fieldType: "text",
+  position: { page: 1 },
+}]);
+assert.equal(whitespaceResult.filled.length, 1);
+assert.deepEqual(whitespaceOperations, ["delete", "insert"]);
+
 // 체크박스는 선택지 텍스트 앞의 glyph만 바꾸고 일반 텍스트로 값을 삽입하지 않는다.
 let checkboxText = "□ 예비창업자 □ 폐업 후 재창업자";
 const checkboxDocument: RhwpEditableDocument = {

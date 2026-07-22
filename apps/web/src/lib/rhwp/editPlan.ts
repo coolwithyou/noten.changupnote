@@ -60,6 +60,24 @@ export interface RhwpEditableDocument {
     cellIndex: number,
     cellParagraph: number,
   ): number;
+  getCellCharPropertiesAt?: (
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
+    charOffset: number,
+  ) => string;
+  applyCharFormatInCell?: (
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
+    startOffset: number,
+    endOffset: number,
+    properties: string,
+  ) => string;
   getTextInCell?: (
     section: number,
     parentPara: number,
@@ -93,6 +111,16 @@ interface NamedFieldInfo {
   name: string;
   value?: string;
   guide?: string;
+}
+
+interface CellCharProperties {
+  fontFamily?: string;
+  fontSize?: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  textColor?: string;
 }
 
 export function buildRhwpEditFields(input: {
@@ -154,10 +182,142 @@ function isUnitOnly(value: string): boolean {
   return /^\s*[([]?\s*(?:천원|백만원|억원|만원|원|명|개|건|년|개월|일|%|㎡|m²|km²)\s*[)\]]?\s*$/iu.test(value);
 }
 
-function isReplaceableGuide(value: string, sourceSpan: string | null | undefined): boolean {
+const GUIDE_TEXT_PATTERN = /(?:기재\s*(?:시|란|요령|바랍니다|하세요)?|작성\s*(?:예시|요령|내용|란)?|입력\s*(?:예시|란|하세요)?|서술\s*(?:예시|하세요)?|제시|선택\s*기입|해당\s*시|예시|sample)|^[※*]/iu;
+const STRONG_GUIDE_PATTERN = /(?:기재\s*시|선택\s*기입|작성\s*예시|입력\s*예시|^[※*])/iu;
+
+function parseCellCharProperties(value: string | null | undefined): CellCharProperties | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as CellCharProperties : null;
+  } catch {
+    return null;
+  }
+}
+
+function isGuideStyle(properties: CellCharProperties | null): boolean {
+  if (!properties) return false;
+  const color = properties.textColor?.toLocaleLowerCase("en-US");
+  return properties.italic === true || Boolean(color && color !== "#000000" && color !== "#111111");
+}
+
+function isReplaceableGuide(
+  value: string,
+  sourceSpan: string | null | undefined,
+  properties: CellCharProperties | null,
+): boolean {
   const normalized = normalizedText(value);
-  if (!normalized || !sourceSpan || !normalizedText(sourceSpan).includes(normalized)) return false;
-  return /(?:기재|작성|입력|서술|제시|선택|해당\s*시|예시|sample)|^[※*]/iu.test(value);
+  if (!normalized || !GUIDE_TEXT_PATTERN.test(value)) return false;
+  const sourceConfirmed = Boolean(sourceSpan && normalizedText(sourceSpan).includes(normalized));
+  return sourceConfirmed || isGuideStyle(properties) || STRONG_GUIDE_PATTERN.test(value);
+}
+
+function readCellCharProperties(
+  document: RhwpEditableDocument,
+  anchor: RhwpFieldAnchor,
+  cellIndex: number,
+  charOffset: number,
+): CellCharProperties | null {
+  if (!document.getCellCharPropertiesAt) return null;
+  try {
+    return parseCellCharProperties(document.getCellCharPropertiesAt(
+      anchor.target.section,
+      anchor.target.parentPara,
+      anchor.target.controlIndex,
+      cellIndex,
+      anchor.target.cellParagraph,
+      Math.max(0, charOffset),
+    ));
+  } catch {
+    return null;
+  }
+}
+
+function estimatedTextUnits(value: string): number {
+  return [...value].reduce((sum, character) => {
+    if (/\s/u.test(character)) return sum + 0.35;
+    if (/[\x00-\x7F]/u.test(character)) return sum + 0.62;
+    return sum + 1;
+  }, 0);
+}
+
+function insertedTextFormat(
+  document: RhwpEditableDocument,
+  field: RhwpEditField,
+  anchor: RhwpFieldAnchor,
+  currentProperties: CellCharProperties | null,
+): CellCharProperties {
+  const labelProperties = typeof anchor.target.labelCellIndex === "number"
+    ? readCellCharProperties(document, anchor, anchor.target.labelCellIndex, 0)
+    : null;
+  let cellWidth = 0;
+  let cellHeight = 0;
+  if (document.getPageInfo) {
+    try {
+      const page = JSON.parse(document.getPageInfo(anchor.page - 1)) as { width?: unknown; height?: unknown };
+      if (typeof page.width === "number" && typeof page.height === "number") {
+        cellWidth = anchor.box.width * page.width;
+        cellHeight = anchor.box.height * page.height;
+      }
+    } catch {
+      // 좌표가 없으면 원본 문자 속성만 사용한다.
+    }
+  }
+  const originalFontSize = Math.max(
+    typeof currentProperties?.fontSize === "number" ? currentProperties.fontSize : 0,
+    typeof labelProperties?.fontSize === "number" ? labelProperties.fontSize : 0,
+  );
+  const proportionalFontSize = cellHeight > 0 && cellHeight <= 36
+    ? Math.round(Math.min(1_200, Math.max(800, cellHeight * 40)) / 50) * 50
+    : 0;
+  let fontSize = Math.max(originalFontSize, proportionalFontSize, 900);
+  if (cellWidth > 12 && cellHeight > 0 && cellHeight <= 36) {
+    const units = estimatedTextUnits(field.value);
+    if (units > 0) {
+      const fitFontSize = Math.floor(((cellWidth - 8) * 75 / units) / 50) * 50;
+      fontSize = Math.min(fontSize, Math.max(700, fitFontSize));
+    }
+  }
+  const fontFamily = currentProperties?.fontFamily ?? labelProperties?.fontFamily;
+  return {
+    ...(fontFamily ? { fontFamily } : {}),
+    fontSize,
+    bold: false,
+    italic: false,
+    underline: false,
+    strikethrough: false,
+    textColor: labelProperties?.textColor ?? "#000000",
+  };
+}
+
+function insertAndFormatCellText(
+  document: RhwpEditableDocument,
+  field: RhwpEditField,
+  anchor: RhwpFieldAnchor,
+  offset: number,
+  currentProperties: CellCharProperties | null,
+): string | null {
+  const target = anchor.target;
+  if (!parsedOk(document.insertTextInCell(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+    offset,
+    field.value,
+  ))) return "rhwp가 대상 셀 입력을 완료하지 못했습니다.";
+  if (!document.applyCharFormatInCell) return null;
+  return parsedOk(document.applyCharFormatInCell(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+    offset,
+    offset + field.value.length,
+    JSON.stringify(insertedTextFormat(document, field, anchor, currentProperties)),
+  )) ? null : "입력값의 글자 서식을 문서에 맞추지 못했습니다.";
 }
 
 function applyCellText(
@@ -173,39 +333,40 @@ function applyCellText(
     target.cellIndex,
     target.cellParagraph,
   );
+  const currentRaw = length > 0 && document.getTextInCell
+    ? textFromCellResult(document.getTextInCell(
+        target.section,
+        target.parentPara,
+        target.controlIndex,
+        target.cellIndex,
+        target.cellParagraph,
+        0,
+        length,
+      ))
+    : "";
+  const firstVisibleOffset = Math.max(0, currentRaw.search(/\S/u));
+  const currentProperties = readCellCharProperties(document, anchor, target.cellIndex, firstVisibleOffset);
   if (length <= 0) {
-    return parsedOk(document.insertTextInCell(
-      target.section,
-      target.parentPara,
-      target.controlIndex,
-      target.cellIndex,
-      target.cellParagraph,
-      0,
-      field.value,
-    )) ? null : "rhwp가 대상 셀 입력을 완료하지 못했습니다.";
+    return insertAndFormatCellText(document, field, anchor, 0, currentProperties);
   }
   if (!document.getTextInCell) return "입력 셀에 기존 내용이 있어 덮어쓰지 않았습니다.";
-  const current = textFromCellResult(document.getTextInCell(
-    target.section,
-    target.parentPara,
-    target.controlIndex,
-    target.cellIndex,
-    target.cellParagraph,
-    0,
-    length,
-  )).trim();
-  if (isUnitOnly(current)) {
-    return parsedOk(document.insertTextInCell(
+  const current = currentRaw.trim();
+  if (!current) {
+    if (document.deleteTextInCell && !parsedOk(document.deleteTextInCell(
       target.section,
       target.parentPara,
       target.controlIndex,
       target.cellIndex,
       target.cellParagraph,
       0,
-      field.value,
-    )) ? null : "단위 앞에 값을 입력하지 못했습니다.";
+      length,
+    ))) return "입력 셀의 공백을 정리하지 못했습니다.";
+    return insertAndFormatCellText(document, field, anchor, 0, currentProperties);
   }
-  if (!isReplaceableGuide(current, field.sourceSpan)) {
+  if (isUnitOnly(current)) {
+    return insertAndFormatCellText(document, field, anchor, 0, currentProperties);
+  }
+  if (!isReplaceableGuide(current, field.sourceSpan, currentProperties)) {
     return "입력 셀에 기존 내용이 있어 덮어쓰지 않았습니다.";
   }
   if (!document.deleteTextInCell) return "서식 안내문을 안전하게 교체할 수 없습니다.";
@@ -216,17 +377,9 @@ function applyCellText(
     target.cellIndex,
     target.cellParagraph,
     0,
-    current.length,
+    length,
   ))) return "서식 안내문을 지우지 못했습니다.";
-  return parsedOk(document.insertTextInCell(
-    target.section,
-    target.parentPara,
-    target.controlIndex,
-    target.cellIndex,
-    target.cellParagraph,
-    0,
-    field.value,
-  )) ? null : "서식 안내문 자리에 값을 입력하지 못했습니다.";
+  return insertAndFormatCellText(document, field, anchor, 0, currentProperties);
 }
 
 function applyCheckboxChoice(

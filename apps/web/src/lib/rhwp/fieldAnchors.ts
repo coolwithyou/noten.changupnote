@@ -17,6 +17,8 @@ export interface RhwpCellTarget {
   controlIndex: number;
   cellIndex: number;
   cellParagraph: number;
+  /** 입력 셀의 서식을 추정할 때 참고하는 왼쪽 라벨 셀. 직접 지정 앵커에는 없을 수 있다. */
+  labelCellIndex?: number;
 }
 
 export interface RhwpChoiceAnchor {
@@ -81,6 +83,7 @@ interface SelectionRect {
 export interface RhwpAnchorDocument {
   pageCount(): number;
   getPageInfo(page: number): string;
+  getPageTextLayout?(page: number): string;
   searchAllText(query: string, caseSensitive: boolean, includeCells: boolean): string;
   getTableCellBboxes(
     section: number,
@@ -98,6 +101,20 @@ export interface RhwpAnchorDocument {
     endCellParagraph: number,
     endCharOffset: number,
   ): string;
+}
+
+interface PageTextRun {
+  text: string;
+  secIdx: number;
+  parentParaIdx?: number;
+  controlIdx?: number;
+  cellIdx?: number;
+  cellParaIdx?: number;
+  charStart?: number;
+}
+
+interface PageTextLayout {
+  runs?: PageTextRun[];
 }
 
 interface PageControlCell {
@@ -159,6 +176,68 @@ function labelVariants(label: string): string[] {
     trimmed.replace(/\s*표(?:\([^)]*\))?\s*$/u, "").trim(),
   ];
   return [...new Set(variants.filter((value) => normalizedText(value).length >= 2))];
+}
+
+/**
+ * 한글 양식은 `성 명`, `성  명`처럼 글자 사이 공백으로 자간을 표현하는 경우가 많다.
+ * searchAllText는 이를 문자 그대로 비교하므로, 페이지 레이아웃의 셀별 run을 합쳐
+ * 공백·기호를 제거한 라벨이 같은 셀을 구조 검색의 보조 hit로 사용한다.
+ */
+function normalizedLayoutHits(
+  document: RhwpAnchorDocument,
+  query: string,
+  hintPage: number | null,
+  cellRunCache: Map<number, PageTextRun[][]>,
+): SearchHit[] {
+  if (!document.getPageTextLayout) return [];
+  const queryText = normalizedText(query);
+  if (queryText.length < 2) return [];
+  const pageIndexes = hintPage
+    ? [hintPage - 1]
+    : Array.from({ length: document.pageCount() }, (_, index) => index);
+  const hits: SearchHit[] = [];
+  for (const pageIndex of pageIndexes) {
+    if (!cellRunCache.has(pageIndex)) {
+      let layout: PageTextLayout;
+      try {
+        layout = JSON.parse(document.getPageTextLayout(pageIndex)) as PageTextLayout;
+      } catch {
+        cellRunCache.set(pageIndex, []);
+        continue;
+      }
+      const groupedRuns = new Map<string, PageTextRun[]>();
+      for (const run of layout.runs ?? []) {
+        if (!run.text || typeof run.secIdx !== "number"
+          || typeof run.parentParaIdx !== "number"
+          || typeof run.controlIdx !== "number"
+          || typeof run.cellIdx !== "number") continue;
+        const key = `${run.secIdx}:${run.parentParaIdx}:${run.controlIdx}:${run.cellIdx}:${run.cellParaIdx ?? 0}`;
+        const runs = groupedRuns.get(key) ?? [];
+        runs.push(run);
+        groupedRuns.set(key, runs);
+      }
+      cellRunCache.set(pageIndex, [...groupedRuns.values()].map((runs) => (
+        runs.sort((a, b) => (a.charStart ?? 0) - (b.charStart ?? 0))
+      )));
+    }
+    for (const runs of cellRunCache.get(pageIndex) ?? []) {
+      const cellText = runs.map((run) => run.text).join("");
+      if (normalizedText(cellText) !== queryText) continue;
+      const first = runs[0]!;
+      hits.push({
+        sec: first.secIdx,
+        length: cellText.length,
+        charOffset: first.charStart ?? 0,
+        cellContext: {
+          parentPara: first.parentParaIdx!,
+          ctrlIdx: first.controlIdx!,
+          cellIdx: first.cellIdx!,
+          cellPara: first.cellParaIdx ?? 0,
+        },
+      });
+    }
+  }
+  return hits;
 }
 
 function normalizeBox(box: { x: number; y: number; width: number; height: number }, page: PageInfo): NormalizedBox | null {
@@ -265,6 +344,7 @@ export function resolveRhwpFieldAnchors(
 ): RhwpFieldAnchor[] {
   const pageInfoCache = new Map<number, PageInfo | null>();
   const tableCache = new Map<string, CellBox[]>();
+  const cellRunCache = new Map<number, PageTextRun[][]>();
   const pageInfoAt = (pageIndex: number): PageInfo | null => {
     if (!pageInfoCache.has(pageIndex)) {
       pageInfoCache.set(pageIndex, parsePageInfo(document.getPageInfo(pageIndex)));
@@ -278,7 +358,10 @@ export function resolveRhwpFieldAnchors(
     const hintBox = parsePositionBbox(field.position);
     const candidates = new Map<string, Candidate>();
     for (const [variantIndex, variant] of labelVariants(field.label).entries()) {
-      const hits = parseArray<SearchHit>(document.searchAllText(variant, false, true));
+      const hits = [
+        ...parseArray<SearchHit>(document.searchAllText(variant, false, true)),
+        ...normalizedLayoutHits(document, variant, hintPage, cellRunCache),
+      ];
       for (const hit of hits) {
         const context = hit.cellContext;
         if (!context || normalizedText(variant).length === 0 || hit.length < variant.length) continue;
@@ -310,6 +393,7 @@ export function resolveRhwpFieldAnchors(
           controlIndex: context.ctrlIdx,
           cellIndex: targetCell.cellIdx,
           cellParagraph: 0,
+          labelCellIndex: labelCell.cellIdx,
         };
         const anchor: RhwpFieldAnchor = {
           fieldId: field.fieldId,
