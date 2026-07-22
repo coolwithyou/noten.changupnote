@@ -284,13 +284,17 @@ export function ReviewSheet({
     return draft?.verdict === "missed_condition" && draft.note.trim().length === 0;
   }).length;
 
-  const saveBlockedReason = !emailValid
-    ? "검수자 이메일을 입력해야 저장할 수 있습니다."
-    : decided === 0
-      ? "아직 판정한 항목이 없습니다 — 최소 1건 판정 후 저장하세요."
-      : missingAxisNotes > 0
-        ? `"누락 있음" 판정 ${missingAxisNotes}건에 누락 요건 서술이 필요합니다.`
-        : null;
+  // 기존 검수 로드 실패 상태의 저장은 차단한다 — 빈 초안 위에 저장하면 기존 검수가
+  // 조용히 덮인다(2026-07-22 실사고: 파일럿 needs_edit 판정 소실). 새로고침으로 재시도.
+  const saveBlockedReason = loadError
+    ? "기존 검수를 불러오지 못한 상태라 저장이 차단됐습니다 — 저장하면 기존 검수를 덮어씁니다. 새로고침 후 다시 시도하세요."
+    : !emailValid
+      ? "검수자 이메일을 입력해야 저장할 수 있습니다."
+      : decided === 0
+        ? "아직 판정한 항목이 없습니다 — 최소 1건 판정 후 저장하세요."
+        : missingAxisNotes > 0
+          ? `"누락 있음" 판정 ${missingAxisNotes}건에 누락 요건 서술이 필요합니다.`
+          : null;
 
   const registerItem = useCallback(
     (key: string) => (element: HTMLElement | null) => {
