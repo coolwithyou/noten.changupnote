@@ -9,6 +9,7 @@
 // 코호트 층(stratum)별 분해 표는 진단용 — 게이트 판정은 전역 집계로만 한다.
 // 정밀도·구조화 비율에는 Wilson 95% CI 를 병기한다(판정 자체는 점추정 유지 —
 // 신뢰한계 판정 도입 여부는 확대 실험 판정 문서의 몫).
+// 위치 진단(제안 근거 위치 분포 — lost-in-the-middle 관찰)은 종합 아래 병기한다(게이트 아님).
 // 기본 출력은 공고당 1줄 요약(30~100건 스케일 대비), 상세 블록은 --verbose.
 // 실행: pnpm lab:aggregate [--all] [--verbose]
 import { readdir, readFile } from "node:fs/promises";
@@ -185,6 +186,66 @@ function computeNoticeStats({ run, review }: ReviewedRun, stratum: string): Noti
     currentMachine,
     correctStructured,
   };
+}
+
+// ── 위치 진단(선행 구현 #7 — 진단 전용·게이트 아님) ─────────────────
+// 제안 criterion 의 근거 위치(spanOffsetRatio — extractor 가 span 검증 시점에 기록)를
+// 전/중/후 3분위로 분해해 단일 패스의 장문 recall 저하(lost-in-the-middle)를 관찰한다:
+// 후반부 제안 밀도 급감 = recall 저하 신호. 누락(missed_condition)의 원문 내 위치는
+// 런에 입력 원문이 저장되지 않아(inputSha256·inputTotalChars 만) 사후 계산이 원리적으로
+// 불가 — 건수만 "위치 미상"으로 병기한다. 구 런(파일럿)은 필드가 없어 전량 미계측.
+
+/** lost-in-the-middle 진단의 핵심 구간 — 이 길이 이상 입력 공고를 별도 줄로 분해한다. */
+const LONG_INPUT_MIN_CHARS = 30_000;
+
+/** spanOffsetRatio(0~1)의 전(0~⅓)/중(⅓~⅔)/후(⅔~1) 버킷 인덱스. */
+function positionBucket(ratio: number): 0 | 1 | 2 {
+  if (ratio < 1 / 3) return 0;
+  if (ratio < 2 / 3) return 1;
+  return 2;
+}
+
+/** 그룹의 버킷별 "제안 수(검수 정확 수)" 1줄 — 미계측(필드 없음/null)은 건수 병기. */
+function positionLine(label: string, group: NoticeStats[]): string {
+  const proposed: [number, number, number] = [0, 0, 0];
+  const correctByBucket: [number, number, number] = [0, 0, 0];
+  let unmeasured = 0;
+  for (const item of group) {
+    const correctIndexes = new Set(
+      item.review.criterionReviews
+        .filter((review) => review.verdict === "correct")
+        .map((review) => review.criterionIndex),
+    );
+    for (const [index, criterion] of item.run.criteria.entries()) {
+      const ratio = criterion.spanOffsetRatio;
+      if (typeof ratio !== "number") {
+        unmeasured += 1; // 구 런(파일럿) 또는 미검증 span — 위치 정보 없음.
+        continue;
+      }
+      const bucket = positionBucket(ratio);
+      proposed[bucket] += 1;
+      if (correctIndexes.has(index)) correctByBucket[bucket] += 1;
+    }
+  }
+  const cells = ["전(0~⅓)", "중(⅓~⅔)", "후(⅔~1)"]
+    .map((name, i) => `${name} ${proposed[i] ?? 0}건(정확 ${correctByBucket[i] ?? 0})`)
+    .join(" · ");
+  return `  ${label}: ${cells} · 미계측 ${unmeasured}건`;
+}
+
+function printPositionDiagnostics(stats: NoticeStats[], missed: number): void {
+  console.log("===== 위치 진단 (진단 전용 — 게이트 아님) =====");
+  console.log(positionLine(`제안 근거 위치 — 전체 공고 ${stats.length}건`, stats));
+  const longInput = stats.filter((item) => item.run.inputTotalChars >= LONG_INPUT_MIN_CHARS);
+  if (longInput.length > 0) {
+    console.log(positionLine(`입력 ${LONG_INPUT_MIN_CHARS.toLocaleString("en-US")}자 이상 ${longInput.length}건`, longInput));
+  } else {
+    console.log(
+      `  입력 ${LONG_INPUT_MIN_CHARS.toLocaleString("en-US")}자 이상 공고 없음 — lost-in-the-middle 핵심 구간 미표집`,
+    );
+  }
+  console.log(`  누락(missed_condition) ${missed}건 — 위치 미상(런에 원문 비저장·사후 계산 불가)`);
+  console.log("");
 }
 
 /**
@@ -369,6 +430,8 @@ async function main() {
       `${machineA > 0 ? ` = ${(machineB / machineA).toFixed(2)}x` : " (A 0건·비교 불가)"}`,
   );
   console.log(`비용 — 공고당 평균 $${costPerNotice.toFixed(3)}\n`);
+
+  printPositionDiagnostics(stats, missed);
 
   if (cohort) printStratumTable(stats, cohort);
 

@@ -273,10 +273,7 @@ export function buildDeepAnalysisToolSchema() {
 function normalizeCriteria(rows: unknown, inputText: string): LabCriterion[] {
   if (!Array.isArray(rows)) return [];
   const normalizedInput = normalizeEvidence(inputText);
-  const normalizedLines = inputText
-    .split("\n")
-    .map((line) => normalizeEvidence(line))
-    .filter((line) => line.length > 0);
+  const inputLines = buildNormalizedInputLines(inputText);
   const criteria: LabCriterion[] = [];
   for (const row of rows) {
     if (!isRecord(row)) continue;
@@ -288,6 +285,7 @@ function normalizeCriteria(rows: unknown, inputText: string): LabCriterion[] {
       ? row.operator
       : "text_only";
     const sourceSpan = cleanString(row.source_span);
+    const spanCheck = verifySpan(sourceSpan, normalizedInput, inputLines, inputText.length);
     criteria.push({
       dimension,
       kind,
@@ -295,23 +293,71 @@ function normalizeCriteria(rows: unknown, inputText: string): LabCriterion[] {
       value: isRecord(row.value) ? row.value : {},
       confidence: boundedConfidence(row.confidence),
       sourceSpan,
-      spanVerified: verifySpan(sourceSpan, normalizedInput, normalizedLines),
+      spanVerified: spanCheck.verified,
+      spanOffsetRatio: spanCheck.offsetRatio,
       note: cleanString(row.note),
     });
   }
   return criteria;
 }
 
-/** source_span 이 최종 입력 텍스트(공백 정규화)에 부분문자열로 실재하는지 검사. */
-function verifySpan(
+/**
+ * 원본 라인 ↔ 정규화 라인의 대응 — 라인 폴백 검증이 히트한 줄을 원본 inputText 기준
+ * 문자 오프셋으로 환산하기 위해 유지한다(정규화 후 빈 줄을 필터링하면 원 인덱스가 어긋난다).
+ */
+interface NormalizedInputLine {
+  /** 공백 정규화된 라인 텍스트(빈 라인은 목록에서 제외). */
+  normalized: string;
+  /** 원본 inputText 기준 이 라인의 시작 문자 오프셋 — 위치 진단(offsetRatio) 계산용. */
+  startOffset: number;
+}
+
+/** 위치 진단용 라인 인덱스. export 는 검증 스크립트용(런타임 사용처는 normalizeCriteria 뿐). */
+export function buildNormalizedInputLines(inputText: string): NormalizedInputLine[] {
+  const lines: NormalizedInputLine[] = [];
+  let offset = 0;
+  for (const raw of inputText.split("\n")) {
+    const normalized = normalizeEvidence(raw);
+    if (normalized.length > 0) lines.push({ normalized, startOffset: offset });
+    offset += raw.length + 1; // 개행 문자 1자 포함.
+  }
+  return lines;
+}
+
+/** verifySpan 결과 — 검증 여부 + 검증된 히트 위치의 입력 내 비율(0~1, 미검증이면 null). */
+export interface SpanVerification {
+  verified: boolean;
+  offsetRatio: number | null;
+}
+
+/**
+ * source_span 이 최종 입력 텍스트(공백 정규화)에 부분문자열로 실재하는지 검사하고,
+ * 검증된 경우 히트 위치의 입력 내 비율(offsetRatio, 0~1)을 부수 기록한다 —
+ * 장문 recall 저하(lost-in-the-middle) 위치 진단 전용(선행 구현 #7, aggregate.ts 가 소비).
+ * [프롬프트 동결 원칙] 이 확장은 저장 메타데이터 추가일 뿐이다 — 요청 본문·시스템
+ * 프롬프트·tool 스키마는 무변경(promptVersion lab-deep-v2 불변). Opus 4.8 파라미터
+ * 불변식(temperature/top_p/top_k/thinking 미전송)도 그대로다.
+ * offsetRatio 분모: 직접 히트는 정규화 입력 길이, 라인 폴백 히트는 원본 입력 길이 —
+ * 전/중/후 3분위 진단 목적상 두 분모가 섞이는 미세 오차는 허용한다(정밀 좌표 아님).
+ * export 는 검증 스크립트용.
+ */
+export function verifySpan(
   span: string | null,
   normalizedInput: string,
-  normalizedLines: string[],
-): boolean {
-  if (!span) return false;
+  inputLines: NormalizedInputLine[],
+  /** 원본 inputText 길이 — 라인 폴백 히트의 offsetRatio 분모. */
+  inputTotalChars: number,
+): SpanVerification {
+  if (!span) return { verified: false, offsetRatio: null };
   const needle = normalizeEvidence(span);
-  if (needle.length < 2) return false;
-  if (normalizedInput.includes(needle)) return true;
+  if (needle.length < 2) return { verified: false, offsetRatio: null };
+  const directIndex = normalizedInput.indexOf(needle);
+  if (directIndex >= 0) {
+    return {
+      verified: true,
+      offsetRatio: normalizedInput.length > 0 ? directIndex / normalizedInput.length : null,
+    };
+  }
   // 폴백(v2): "라벨: 값" 형식 인용은 라벨과 값이 "같은 줄"에 함께 실재할 때만 인정한다.
   // 전체 텍스트 기준 개별 포함으로 하면 서로 다른 문맥의 라벨·값 조합("지원지역: 서울"류)이
   // 거짓 검증될 수 있다(Codex 리뷰 M4) — 같은 줄 공존을 요구해 차단한다.
@@ -320,10 +366,18 @@ function verifySpan(
     const label = needle.slice(0, colon).trim();
     const value = needle.slice(colon + 1).trim();
     if (label.length >= 2 && value.length >= 2) {
-      return normalizedLines.some((line) => line.includes(label) && line.includes(value));
+      const hitLine = inputLines.find(
+        (line) => line.normalized.includes(label) && line.normalized.includes(value),
+      );
+      if (hitLine) {
+        return {
+          verified: true,
+          offsetRatio: inputTotalChars > 0 ? hitLine.startOffset / inputTotalChars : null,
+        };
+      }
     }
   }
-  return false;
+  return { verified: false, offsetRatio: null };
 }
 
 const AXIS_STATUSES: readonly LabAxisStatus[] = [

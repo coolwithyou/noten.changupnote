@@ -89,6 +89,13 @@ export interface LabCriterion {
   confidence: number;
   sourceSpan: string | null;
   spanVerified: boolean;
+  /**
+   * 근거 인용이 검증된 위치의 입력 내 비율(0~1) — 서버 span 검증 시점에 부수 기록한다.
+   * 장문 recall 저하(lost-in-the-middle) 위치 진단 전용(aggregate.ts 위치 진단 블록)이며
+   * 게이트 판정에는 쓰지 않는다. 미검증(spanVerified=false)이면 null.
+   * 구 런(파일럿)에는 필드 자체가 없다(미계측 — 하위 호환 optional).
+   */
+  spanOffsetRatio?: number | null;
   note: string | null;
 }
 
