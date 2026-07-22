@@ -58,6 +58,8 @@
     "lab:roundtrip:smoke": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/smoke.ts",
     "lab:aggregate": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/aggregate.ts",
     "lab:batch": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/batch.ts",
+    "lab:shadow": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/shadow.ts",
+    "lab:shadow:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/shadow-convert.test.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && pnpm verify:package-runtime-freshness && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck && pnpm --filter @cunote/admin typecheck",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",

@@ -243,6 +243,32 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     return hydrated[0] ?? null;
   }
 
+  /**
+   * 공고 id(grants.id) 목록 조회 — status·활성 필터·dedup 없이 있는 그대로(read-only).
+   * 코호트 공고가 실험 중 마감(closed)돼도 listActiveGrants 처럼 누락되지 않아야 하는
+   * 섀도 측정(analysis-lab/shadow.ts)·golden 승격 트랙 용도.
+   */
+  async listGrantsByIds(ids: string[]): Promise<Array<NormalizedGrant<TPayload>>> {
+    if (ids.length === 0) return [];
+    const rows = await this.db.client
+      .select({
+        grant: schema.grants,
+        criterion: schema.grantCriteria,
+        raw: schema.grantRaw,
+      })
+      .from(schema.grants)
+      .leftJoin(schema.grantCriteria, eq(schema.grantCriteria.grantId, schema.grants.id))
+      .leftJoin(
+        schema.grantRaw,
+        and(
+          eq(schema.grantRaw.source, schema.grants.source),
+          eq(schema.grantRaw.sourceId, schema.grants.sourceId),
+        ),
+      )
+      .where(inArray(schema.grants.id, ids));
+    return hydrateGrants<TPayload>(rows);
+  }
+
   private async hydrateReviewedExtractionManifests(
     grants: Array<NormalizedGrant<TPayload>>,
   ): Promise<Array<NormalizedGrant<TPayload>>> {

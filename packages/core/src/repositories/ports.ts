@@ -28,6 +28,11 @@ export interface GrantListOptions {
 export interface GrantRepository<TPayload = unknown> {
   listActiveGrants(options?: GrantListOptions): Promise<Array<NormalizedGrant<TPayload>>>;
   findGrantById(grantId: string, options?: GrantListOptions): Promise<NormalizedGrant<TPayload> | null>;
+  /**
+   * 공고 id 목록으로 있는 그대로 로딩한다 — status·활성 필터·dedup 없음(read-only).
+   * 코호트 공고가 실험 중 마감(closed)돼도 누락되면 안 되는 섀도 측정·승격 트랙 용도.
+   */
+  listGrantsByIds(ids: string[]): Promise<Array<NormalizedGrant<TPayload>>>;
 }
 
 export type CompanyRole = "owner" | "admin" | "member" | "viewer";

@@ -115,6 +115,15 @@ class RuntimeGrantRepository<TPayload> implements GrantRepository<TPayload> {
     const grants = await this.loaders.loadGrants(options);
     return grants.find((entry) => grantKey(entry.grant) === grantId || entry.grant.source_id === grantId) ?? null;
   }
+
+  /** id 목록 조회 — 활성 필터 없이 로더 결과에서 id/grantKey 일치분만 반환한다(read-only). */
+  async listGrantsByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    const wanted = new Set(ids);
+    const grants = await this.loaders.loadGrants();
+    return grants.filter((entry) =>
+      (entry.grant.id !== undefined && wanted.has(entry.grant.id)) || wanted.has(grantKey(entry.grant)));
+  }
 }
 
 class RuntimeCompanyRepository implements CompanyRepository {

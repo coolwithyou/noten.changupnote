@@ -11,59 +11,18 @@
 // 신뢰한계 판정 도입 여부는 확대 실험 판정 문서의 몫).
 // 위치 진단(제안 근거 위치 분포 — lost-in-the-middle 관찰)은 종합 아래 병기한다(게이트 아님).
 // 기본 출력은 공고당 1줄 요약(30~100건 스케일 대비), 상세 블록은 --verbose.
+// 검수 런 수집·코호트 필터·dedupe 는 reviewed-runs.ts 공유 모듈(섀도 측정과 공용)을 쓴다.
 // 실행: pnpm lab:aggregate [--all] [--verbose]
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import {
   ANALYSIS_LAB_GATES as GATES,
   type LabReview,
   type LabRun,
 } from "@/features/dev/analysis-lab/contract";
-import { type CohortFileV2, readCohortFileV2 } from "./cohort-file";
-import { analysisLabDir } from "./run-store";
-
-interface ReviewedRun {
-  run: LabRun;
-  review: LabReview;
-}
+import type { CohortFileV2 } from "./cohort-file";
+import { type ReviewedRun, selectReviewedRuns } from "./reviewed-runs";
 
 /** --all 전수 스캔에서 코호트에 없는 공고의 층 표기. */
 const OUTSIDE_STRATUM = "(코호트 외)";
-
-async function collect(): Promise<ReviewedRun[]> {
-  const root = analysisLabDir();
-  const reviewed: ReviewedRun[] = [];
-  let entries: string[] = [];
-  try {
-    entries = await readdir(root);
-  } catch {
-    return [];
-  }
-  for (const entry of entries) {
-    if (!entry.includes("__")) continue;
-    let files: string[] = [];
-    try {
-      files = await readdir(join(root, entry));
-    } catch {
-      continue;
-    }
-    for (const file of files) {
-      if (!file.endsWith(".review.json")) continue;
-      try {
-        const review = JSON.parse(
-          await readFile(join(root, entry, file), "utf8"),
-        ) as LabReview;
-        const run = JSON.parse(
-          await readFile(join(root, entry, file.replace(/\.review\.json$/, ".json")), "utf8"),
-        ) as LabRun;
-        reviewed.push({ run, review });
-      } catch {
-        console.warn(`[경고] 검수/런 파일 파싱 실패 — 건너뜀: ${entry}/${file}`);
-      }
-    }
-  }
-  return reviewed;
-}
 
 function pct(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -106,35 +65,6 @@ function displayWidth(text: string): number {
 
 function padCell(text: string, width: number): string {
   return text + " ".repeat(Math.max(0, width - displayWidth(text)));
-}
-
-/**
- * 집계 대상 정제 — 실패 런의 검수는 제외하고, 같은 공고(grantId)에 검수가 여러 개면
- * 최신(updatedAt) 1건만 남긴다. "공고당" 지표(누락·커버리지)의 분모를 공고 수와
- * 일치시키기 위함이며, 제외분은 침묵하지 않고 경고로 드러낸다.
- */
-function dedupe(all: ReviewedRun[]): ReviewedRun[] {
-  const byGrant = new Map<string, ReviewedRun>();
-  for (const item of all) {
-    if (item.run.error !== null) {
-      console.warn(
-        `[경고] 실패 런의 검수는 집계에서 제외: ${item.run.source}/${item.run.sourceId} ${item.run.runId}`,
-      );
-      continue;
-    }
-    const previous = byGrant.get(item.run.grantId);
-    if (!previous) {
-      byGrant.set(item.run.grantId, item);
-      continue;
-    }
-    const [kept, droppedItem] =
-      previous.review.updatedAt >= item.review.updatedAt ? [previous, item] : [item, previous];
-    byGrant.set(kept.run.grantId, kept);
-    console.warn(
-      `[경고] 같은 공고의 검수 ${droppedItem.run.runId} 제외 — 공고당 최신 검수 1건(${kept.run.runId})만 집계`,
-    );
-  }
-  return [...byGrant.values()];
 }
 
 /** 공고(런) 1건의 검수 집계 조각 — 전역 합산과 층별 분해 표가 같은 값을 공유한다. */
@@ -309,31 +239,8 @@ async function main() {
   const verbose = args.has("--verbose");
 
   // 코호트 필터(기본) — cohort.json 의 공고만 집계해 다른 실험(파일럿 3건 등)의 혼입을 막는다.
-  const cohort = await readCohortFileV2();
-  const stratumByGrant = new Map<string, string>();
-  if (cohort) {
-    for (const entry of cohort.entries) {
-      if (!stratumByGrant.has(entry.grantId)) stratumByGrant.set(entry.grantId, entry.stratum);
-    }
-  }
-
-  const all = await collect();
-  let pool = all;
-  if (!scanAll) {
-    if (cohort === null) {
-      console.log("[안내] cohort.json 이 없습니다 — 전수 스캔으로 집계합니다(--all 과 동일 동작).");
-    } else {
-      pool = all.filter((item) => stratumByGrant.has(item.run.grantId));
-      const filteredOut = all.length - pool.length;
-      if (filteredOut > 0) {
-        console.warn(
-          `[경고] 코호트 밖 검수 ${filteredOut}건 제외 — 다른 실험(파일럿 등) 검수의 혼입 차단. 포함하려면 --all.`,
-        );
-      }
-    }
-  }
-
-  const reviewed = dedupe(pool);
+  // 수집·필터·dedupe 는 reviewed-runs.ts 공유 모듈(섀도 측정과 공용, 출력 문구 동일 계약).
+  const { cohort, stratumByGrant, pool, reviewed } = await selectReviewedRuns({ scanAll });
   if (reviewed.length === 0) {
     console.log("검수된 런이 없습니다 — 검수 탭에서 판정 후 '검수 저장'을 눌러주세요.");
     process.exitCode = 1;
