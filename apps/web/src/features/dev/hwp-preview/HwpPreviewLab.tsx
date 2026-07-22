@@ -25,6 +25,12 @@ import { Spinner } from "@/components/ui/spinner";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { DEMO_FIELDS, prefillHwpFields, type AutofillResult } from "./autofill";
+import {
+  downloadBytes,
+  exportVerifiedHwp,
+  loadRhwp,
+  RHWP_STUDIO_URL,
+} from "./rhwp-client";
 
 export interface LabNotice {
   grantId: string;
@@ -64,45 +70,13 @@ type AutofillState =
 
 type LabMode = "viewer" | "editor";
 
-type RhwpModule = typeof import("@rhwp/core");
 type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
-
-/** 자가 호스팅 rhwp-studio (noten 팀 Vercel 정적 프로젝트, v0.7.19 태그 빌드) */
-const STUDIO_URL =
-  process.env.NEXT_PUBLIC_RHWP_STUDIO_URL ?? "https://changupnote-rhwp-studio.vercel.app/";
-
-let rhwpModulePromise: Promise<RhwpModule> | null = null;
-
-function loadRhwp(): Promise<RhwpModule> {
-  if (!rhwpModulePromise) {
-    rhwpModulePromise = (async () => {
-      const mod = await import("@rhwp/core");
-      await mod.default({ module_or_path: "/rhwp_bg.wasm" });
-      mod.init_panic_hook();
-      return mod;
-    })();
-    rhwpModulePromise.catch(() => {
-      rhwpModulePromise = null;
-    });
-  }
-  return rhwpModulePromise;
-}
 
 function formatBytes(bytes: number | null): string {
   if (bytes == null) return "-";
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
-}
-
-function downloadBytes(bytes: Uint8Array, filename: string) {
-  const blob = new Blob([bytes as BlobPart], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }
 
 export function HwpPreviewLab({
@@ -199,7 +173,7 @@ export function HwpPreviewLab({
     if (!editorContainerRef.current) throw new Error("에디터 컨테이너가 없습니다");
     const editor = await createEditor(editorContainerRef.current, {
       requestTimeoutMs: 180_000,
-      studioUrl: STUDIO_URL,
+      studioUrl: RHWP_STUDIO_URL,
     });
     if (requestSeq.current !== seq) {
       editor.destroy();
@@ -317,7 +291,9 @@ export function HwpPreviewLab({
       if (!editor || editorState.status !== "ready") return;
       setExporting(format);
       try {
-        const bytes = format === "hwp" ? await editor.exportHwp() : await editor.exportHwpx();
+        const bytes = format === "hwp"
+          ? (await exportVerifiedHwp(editor)).bytes
+          : await editor.exportHwpx();
         const base = editorState.filename.replace(/\.(hwpx?|hml)$/i, "");
         downloadBytes(bytes, `${base}-편집본.${format}`);
       } catch (error) {

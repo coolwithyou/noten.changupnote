@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
-  Download,
   FileInput,
   FileSearch,
   RefreshCw,
@@ -22,7 +21,7 @@ import type {
 } from "./application-roundtrip-contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -55,6 +54,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { RhwpFieldReviewPanel } from "./RhwpFieldReviewPanel";
 
 const COHORT_URL = "/api/dev/analysis-lab/application-roundtrip/cohort";
 const ANALYZE_URL = "/api/dev/analysis-lab/application-roundtrip/analyze";
@@ -213,7 +213,7 @@ export function ApplicationRoundtripLab() {
         </div>
         <p className="text-sm text-muted-foreground">
           공고의 HWP/HWPX 원본을 파싱하고 LLM으로 빈 셀·단위·예시·작성 안내문까지 판정한 뒤,
-          샘플 값을 원본 위치에 저장하고 다시 파싱해 검증합니다. DB와 R2에는 쓰지 않습니다.
+          rhwp 원본 미리보기와 교차 검색으로 필드 위치를 검토합니다. 샘플 저장본은 진단 산출물이며 DB와 R2에는 쓰지 않습니다.
         </p>
       </header>
 
@@ -290,7 +290,7 @@ export function ApplicationRoundtripLab() {
         <section className="flex flex-col gap-3">
           <div>
             <h2 className="font-medium">3. 입력 대상 문서·필드 확인</h2>
-            <p className="text-xs text-muted-foreground">Kordoc 구조 후보와 LLM 맥락 판정을 결합해 서술형·단위형·객관식 입력을 생성합니다.</p>
+            <p className="text-xs text-muted-foreground">Kordoc 구조 후보와 LLM 맥락 판정을 결합하고, 같은 원본을 rhwp로 다시 열어 텍스트 검색과 실제 배치를 교차 검토합니다.</p>
           </div>
           <FieldGroup>
             <Field>
@@ -316,6 +316,17 @@ export function ApplicationRoundtripLab() {
               <FieldDescription>{run.recommendationReason}</FieldDescription>
             </Field>
           </FieldGroup>
+
+          {selectedDocument ? (
+            <RhwpFieldReviewPanel
+              key={`original:${selectedDocument.attachmentId}`}
+              sourceUrl={`/api/dev/hwp-preview/file?id=${encodeURIComponent(selectedDocument.attachmentId)}`}
+              filename={selectedDocument.filename}
+              sourceLabel="원본"
+              fields={inputFields}
+              choiceGroups={choiceGroups}
+            />
+          ) : null}
 
           {selectedDocument ? (
             inputFields.length > 0 || choiceGroups.length > 0 ? (
@@ -412,7 +423,22 @@ export function ApplicationRoundtripLab() {
         </section>
       ) : null}
 
-      {fillResult ? <FillResultCard result={fillResult} /> : null}
+      {fillResult ? (
+        <>
+          <FillResultCard result={fillResult} />
+          {selectedDocument ? (
+            <RhwpFieldReviewPanel
+              key={`filled:${fillResult.fillId}`}
+              sourceUrl={fillResult.downloadUrl}
+              filename={fillResult.outputFilename}
+              sourceLabel="Kordoc 채움본"
+              fields={inputFields}
+              choiceGroups={choiceGroups}
+              diagnosticSource
+            />
+          ) : null}
+        </>
+      ) : null}
     </main>
   );
 }
@@ -682,12 +708,8 @@ function FillResultCard({ result }: { result: RoundtripFillResult }) {
             </div>
           ) : null}
         </CardContent>
-        <CardFooter className="justify-between gap-3">
-          <span className="text-xs text-muted-foreground">산출물은 이 워크트리의 spike-out에 불변 저장됐습니다.</span>
-          <a className={buttonVariants()} href={result.downloadUrl}>
-            <Download data-icon="inline-start" />
-            채운 파일 다운로드
-          </a>
+        <CardFooter>
+          <span className="text-xs text-muted-foreground">원시 Kordoc 산출물은 아래 rhwp 진단 입력으로만 사용합니다. 에디터의 자기 재로드 검증을 통과하기 전에는 직접 다운로드할 수 없습니다.</span>
         </CardFooter>
       </Card>
     </section>
