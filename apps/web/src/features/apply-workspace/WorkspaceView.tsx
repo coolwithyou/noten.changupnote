@@ -242,6 +242,7 @@ export function WorkspaceView({
       selectedFieldId={selectedFieldId}
       onSelectField={handleSelectField}
       fill
+      rhwpSourceUrl={data.draftId ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file` : null}
     />
   );
 
@@ -389,6 +390,9 @@ export function WorkspaceView({
                 greeting={greeting}
                 variant="front"
                 institutionContact={institutionContact}
+                onApplyFieldProposal={({ label, value }) => {
+                  void patchAnswer(label, { value, status: "accepted" });
+                }}
               />
             </div>
           </SheetContent>

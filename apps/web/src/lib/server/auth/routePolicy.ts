@@ -110,6 +110,7 @@ export const SESSION_WEB_ROUTES = [
   "POST /api/web/grants/[grantId]/drafts",
   "POST /api/web/grants/[grantId]/conversions/poll",
   "GET /api/web/document-drafts/[draftId]",
+  "GET /api/web/document-drafts/[draftId]/source-file",
   "GET /api/web/document-drafts/[draftId]/download",
   "POST /api/web/document-drafts/[draftId]/download",
   "PATCH /api/web/document-drafts/[draftId]",

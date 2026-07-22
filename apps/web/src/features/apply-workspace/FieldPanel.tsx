@@ -148,11 +148,14 @@ export function FieldPanel({
           })}
         </div>
         {/* 중도 다운로드(재정의 §2-⑤) — 완전 제거하지 않고 전체 목록 하단 보조 버튼 1개로만 표면화. */}
-        {hwpxTemplateAvailable && draftId ? (
+        {draftId ? (
           <WorkspaceDownloadButton
             draftId={draftId}
+            answers={answers}
+            duplicateLabels={duplicateLabels}
+            hwpxFallbackAvailable={hwpxTemplateAvailable}
             variant="outline"
-            label="지금까지 확정한 값으로 내려받기"
+            label="지금까지 확정한 값으로 원본 내려받기"
             className="w-full"
             saving={pendingLabels.size > 0}
           />
@@ -179,12 +182,15 @@ export function FieldPanel({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {hwpxTemplateAvailable ? (
+            {draftId ? (
               <WorkspaceDownloadButton
                 draftId={draftId}
+                answers={answers}
+                duplicateLabels={duplicateLabels}
+                hwpxFallbackAvailable={hwpxTemplateAvailable}
                 label={hasDuplicateConflicts
-                  ? "직접 확인할 신청서 내려받기 (HWPX)"
-                  : "함께 완성한 신청서 내려받기 (HWPX)"}
+                  ? "직접 확인할 원본 신청서 내려받기"
+                  : "함께 완성한 원본 신청서 내려받기"}
                 className="w-full"
                 saving={pendingLabels.size > 0}
               />

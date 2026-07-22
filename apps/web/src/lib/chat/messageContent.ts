@@ -18,12 +18,40 @@ export interface ChatCitation {
   endChar?: number;
 }
 
+export type FieldAssistOutcome =
+  | {
+      status: "guidance";
+      fieldId: string;
+      label: string;
+      guidance: string;
+    }
+  | {
+      status: "needs_input";
+      fieldId: string;
+      label: string;
+      guidance: string;
+      questions: string[];
+    }
+  | {
+      status: "proposal";
+      fieldId: string;
+      label: string;
+      guidance: string;
+      proposal: {
+        value: string;
+        basis: string;
+        basisKind: "announcement" | "profile" | "user";
+      };
+    };
+
 /** §7.2 클라이언트-서버 공용 메시지 콘텐츠. 전송 계층과 무관하게 고정. */
 export interface ChatMessageContent {
   text: string;
   citations?: ChatCitation[];
   /** 인용이 하나도 없는 일반 안내 메시지 여부 (원칙 P4 시각 구분). */
   generalNotice?: boolean;
+  /** 필드 문맥 턴의 실행 가능한 안내. 기존 JSONB 행에는 없을 수 있는 additive 계약. */
+  fieldAssist?: FieldAssistOutcome;
 }
 
 /**
@@ -57,6 +85,44 @@ function toFiniteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+export function parseFieldAssistOutcome(value: unknown): FieldAssistOutcome | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const status = record.status;
+  const fieldId = typeof record.fieldId === "string" ? record.fieldId.trim() : "";
+  const label = typeof record.label === "string" ? record.label.trim() : "";
+  const guidance = typeof record.guidance === "string" ? record.guidance.trim() : "";
+  if (!fieldId || !label || !guidance) return null;
+  if (status === "guidance") return { status, fieldId, label, guidance };
+  if (status === "needs_input") {
+    if (!Array.isArray(record.questions)) return null;
+    const questions = record.questions
+      .filter((question): question is string => typeof question === "string")
+      .map((question) => question.trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    if (questions.length === 0) return null;
+    return { status, fieldId, label, guidance, questions };
+  }
+  if (status !== "proposal" || !record.proposal || typeof record.proposal !== "object") return null;
+  const proposal = record.proposal as Record<string, unknown>;
+  const proposalValue = typeof proposal.value === "string" ? proposal.value.trim() : "";
+  const basis = typeof proposal.basis === "string" ? proposal.basis.trim() : "";
+  const basisKind = proposal.basisKind;
+  if (
+    !proposalValue
+    || !basis
+    || (basisKind !== "announcement" && basisKind !== "profile" && basisKind !== "user")
+  ) return null;
+  return {
+    status,
+    fieldId,
+    label,
+    guidance,
+    proposal: { value: proposalValue, basis, basisKind },
+  };
+}
+
 /** `source-document` 파트 1건 → ChatCitation(citedText 없으면 null). */
 export function sourceDocumentToCitation(part: UiMessageSourceDocumentPart): ChatCitation | null {
   const meta = part.providerMetadata?.anthropic;
@@ -82,16 +148,21 @@ export function sourceDocumentToCitation(part: UiMessageSourceDocumentPart): Cha
 export function uiMessagePartsToContent(parts: readonly UiMessagePartLike[]): ChatMessageContent {
   let text = "";
   const citations: ChatCitation[] = [];
+  let contentFieldAssist: FieldAssistOutcome | null = null;
   for (const part of parts) {
     if (part.type === "text" && typeof (part as UiMessageTextPart).text === "string") {
       text += (part as UiMessageTextPart).text;
     } else if (part.type === "source-document") {
       const citation = sourceDocumentToCitation(part as UiMessageSourceDocumentPart);
       if (citation) citations.push(citation);
+    } else if (part.type === "data-fieldAssist") {
+      const parsed = parseFieldAssistOutcome((part as { data?: unknown }).data);
+      if (parsed) contentFieldAssist = parsed;
     }
   }
   const content: ChatMessageContent = { text };
   if (citations.length > 0) content.citations = citations;
   else content.generalNotice = true;
+  if (contentFieldAssist) content.fieldAssist = contentFieldAssist;
   return content;
 }

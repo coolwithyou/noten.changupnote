@@ -10,16 +10,24 @@
  * - 어보트 시에도 consumeStream 으로 업스트림 완주 → onEnd 에서 usage 기록(ADR-6).
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { streamText } from "ai";
+import {
+  consumeStream,
+  createUIMessageStream,
+  createUIMessageStreamResponse,
+  streamText,
+  type UIMessage,
+} from "ai";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { webActionError } from "@/lib/server/auth/webActionError";
 import { getCunoteDb } from "@/lib/server/db/client";
 import {
   uiMessagePartsToContent,
+  type FieldAssistOutcome,
   type UiMessagePartLike,
 } from "@/lib/chat/messageContent";
 import { assertChatBudget, normalizeChatUsage } from "@/lib/server/chat/budget";
 import { buildGrantGrounding } from "@/lib/server/chat/grounding";
+import { buildFieldAssistOutcome } from "@/lib/server/chat/fieldAssist";
 import {
   buildGrantModelMessages,
   ChatSessionError,
@@ -54,6 +62,8 @@ interface ParsedChatBody {
   text: string;
   fieldContext?: ChatFieldContext;
 }
+
+type GrantChatUIMessage = UIMessage<unknown, { fieldAssist: FieldAssistOutcome }>;
 
 export async function POST(request: Request) {
   try {
@@ -116,21 +126,71 @@ export async function POST(request: Request) {
       // 클라이언트 abortSignal 을 전파하지 않는다(ADR-6): 어보트해도 업스트림은 완주해 usage 를 기록한다.
     });
 
+    const persist = async (responseMessage: { parts?: readonly unknown[] }) => {
+      try {
+        const content = uiMessagePartsToContent(
+          (responseMessage.parts ?? []) as UiMessagePartLike[],
+        );
+        const usage = normalizeChatUsage(await result.usage, await result.providerMetadata);
+        await persistAssistantTurn({ db, sessionId, content, usage });
+      } catch (error) {
+        console.error("[chat] assistant 영속화 실패", error);
+      }
+    };
+
+    if (body.fieldContext && body.draftId) {
+      const assistPromise = buildFieldAssistOutcome({
+        access,
+        grantId: body.grantId,
+        draftId: body.draftId,
+        field: body.fieldContext,
+        userMessage: body.text,
+      }).catch((error): FieldAssistOutcome => {
+        console.error("[chat] field assist 생성 실패", error);
+        return {
+          status: "guidance",
+          fieldId: body.fieldContext?.fieldId ?? `label:${body.fieldContext?.label ?? "field"}`,
+          label: body.fieldContext?.label ?? "작성 항목",
+          guidance: "지금은 추천 값을 안전하게 만들지 못했습니다. 아래 답변을 참고해 직접 입력해 주세요.",
+        };
+      });
+      const stream = createUIMessageStream<GrantChatUIMessage>({
+        execute: async ({ writer }) => {
+          writer.merge(result.toUIMessageStream<GrantChatUIMessage>({
+            sendSources: true,
+            sendFinish: false,
+            onError: () => "답변을 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+          }));
+          await result.text;
+          const outcome = await assistPromise;
+          writer.write({
+            type: "data-fieldAssist",
+            id: `field-assist-${outcome.fieldId}`,
+            data: outcome,
+          });
+          writer.write({ type: "finish", finishReason: "stop" });
+        },
+        onEnd: async ({ responseMessage }) => {
+          await persist(responseMessage);
+        },
+        onError: () => "답변을 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+      });
+      return createUIMessageStreamResponse({
+        stream,
+        headers: { "X-Cunote-Chat-Session": sessionId },
+        consumeSseStream: ({ stream: responseStream }) => {
+          void consumeStream({ stream: responseStream });
+        },
+      });
+    }
+
     // 백프레셔 제거 → 클라이언트 어보트 시에도 스트림 완주 & onEnd 발화 보장(ADR-6).
     void result.consumeStream();
 
     return result.toUIMessageStreamResponse({
       sendSources: true, // P0-1 필수: citations 를 source-document 파트로 표면화.
       onEnd: async ({ responseMessage }) => {
-        try {
-          const content = uiMessagePartsToContent(
-            (responseMessage.parts ?? []) as UiMessagePartLike[],
-          );
-          const usage = normalizeChatUsage(await result.usage, await result.providerMetadata);
-          await persistAssistantTurn({ db, sessionId, content, usage });
-        } catch (error) {
-          console.error("[chat] assistant 영속화 실패", error);
-        }
+        await persist(responseMessage);
       },
       onError: () => "답변을 생성하는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.",
       headers: { "X-Cunote-Chat-Session": sessionId },

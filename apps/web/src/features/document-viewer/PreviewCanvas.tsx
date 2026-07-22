@@ -3,7 +3,7 @@
 /**
  * 재사용 가능한 문서 프리뷰 캔버스 (Apply Experience v2 · §4.3 — DocumentPreviewView 를 분해해 추출).
  *
- * 페이지 이미지 + 필드 오버레이 + 줌/페이지 내비를 담당한다. 오버레이는 필드별 상태색(4종 + plain)을
+ * rhwp 원본 SVG(실패 시 페이지 이미지) + 필드 오버레이 + 줌/페이지 내비를 담당한다. 오버레이는 필드별 상태색(4종 + plain)을
  * 파라미터로 받는다. `selectedFieldId` 가 바뀌면 그 필드의 페이지로 이동해 카드↔오버레이 양방향 동기화를
  * 이룬다. `box` 가 null 인 필드는 오버레이를 그리지 않는다(카드 전용).
  *
@@ -18,6 +18,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/u
 import { cn } from "@/lib/utils";
 import { boxToPercentStyle, type NormalizedBox } from "@/lib/documents/bbox";
 import type { PreviewPage } from "@/lib/server/documents/documentPreview";
+import { RhwpPageSurface } from "./RhwpPageSurface";
 
 /** 오버레이 시각 상태. plain 은 /preview 의 기존 단색 오버레이 재현용. */
 export type PreviewOverlayState = "plain" | "empty" | "suggested" | "confirmed" | "warning";
@@ -78,6 +79,7 @@ export function PreviewCanvas({
   onSelectField,
   fill = false,
   className,
+  rhwpSourceUrl,
 }: {
   grantId: string;
   grantTitle: string;
@@ -88,6 +90,8 @@ export function PreviewCanvas({
   /** true 면 이미지 영역이 부모 높이를 채운다(workspace). false 면 max-h-[80vh](/preview). */
   fill?: boolean;
   className?: string;
+  /** 있으면 rhwp 원본 SVG를 우선 렌더하고, 실패 시 기존 페이지 이미지로 폴백한다. */
+  rhwpSourceUrl?: string | null;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -163,14 +167,25 @@ export function PreviewCanvas({
         {currentPage ? (
           // mx-auto: 축소 시 페이지를 가운데로. 확대(>100%)면 margin 0 이 되어 좌측부터 스크롤.
           <div className="relative mx-auto my-4 shadow-[var(--shadow-standard)]" style={{ width: `${zoom * 100}%` }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={pageImageUrl(grantId, currentPage.storageKey)}
-              alt={`${grantTitle} ${currentPage.page}페이지`}
-              className="pointer-events-none block w-full select-none"
-              draggable={false}
-              onLoad={centerSelectedOverlay}
-            />
+            {rhwpSourceUrl ? (
+              <RhwpPageSurface
+                sourceUrl={rhwpSourceUrl}
+                pageIndex={pageIndex}
+                expectedPageCount={totalPages}
+                fallbackSrc={pageImageUrl(grantId, currentPage.storageKey)}
+                alt={`${grantTitle} ${currentPage.page}페이지`}
+                onLoad={centerSelectedOverlay}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={pageImageUrl(grantId, currentPage.storageKey)}
+                alt={`${grantTitle} ${currentPage.page}페이지`}
+                className="pointer-events-none block w-full select-none"
+                draggable={false}
+                onLoad={centerSelectedOverlay}
+              />
+            )}
             {overlaysForPage.map((field) => {
               if (!field.box) return null;
               const active = field.fieldId === selectedFieldId;

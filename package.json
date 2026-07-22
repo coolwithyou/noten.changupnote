@@ -250,6 +250,7 @@
     "test:field-answers": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/fieldAnswers.test.ts",
     "test:seed-profile-answers": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/seedProfileAnswers.test.ts",
     "test:chat-grounding": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/chat/grounding.test.ts",
+    "test:rhwp-field-agent": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/chat/messageContent.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/rhwp/editPlan.test.ts",
     "test:apply-workspace": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/features/apply-workspace/chatRequestState.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/features/apply-workspace/workspacePresentation.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/features/apply-workspace/WorkspaceView.render.test.tsx",
     "measure:chat-phase3": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/chat/measure-phase3.ts",
     "measure:field-suggest": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/documents/fieldSuggest.measure.ts",

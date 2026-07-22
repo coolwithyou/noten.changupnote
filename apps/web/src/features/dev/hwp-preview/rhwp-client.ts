@@ -1,28 +1,12 @@
 import type * as Rhwp from "@rhwp/core";
 import type { HwpVerifyResult, RhwpEditor } from "@rhwp/editor";
+export { downloadBytes, loadRhwp } from "@/lib/rhwp/client";
 
 export type RhwpModule = typeof Rhwp;
 
 /** 자가 호스팅 rhwp-studio (noten 팀 Vercel 정적 프로젝트) */
 export const RHWP_STUDIO_URL =
   process.env.NEXT_PUBLIC_RHWP_STUDIO_URL ?? "https://changupnote-rhwp-studio.vercel.app/";
-
-let rhwpModulePromise: Promise<RhwpModule> | null = null;
-
-export function loadRhwp(): Promise<RhwpModule> {
-  if (!rhwpModulePromise) {
-    rhwpModulePromise = (async () => {
-      const mod = await import("@rhwp/core");
-      await mod.default({ module_or_path: "/rhwp_bg.wasm" });
-      mod.init_panic_hook();
-      return mod;
-    })();
-    rhwpModulePromise.catch(() => {
-      rhwpModulePromise = null;
-    });
-  }
-  return rhwpModulePromise;
-}
 
 export async function exportVerifiedHwp(
   editor: RhwpEditor,
@@ -43,14 +27,4 @@ export async function exportVerifiedHwp(
     );
   }
   return { bytes, verification };
-}
-
-export function downloadBytes(bytes: Uint8Array, filename: string) {
-  const blob = new Blob([bytes as BlobPart], { type: "application/octet-stream" });
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = filename;
-  anchor.click();
-  URL.revokeObjectURL(url);
 }
