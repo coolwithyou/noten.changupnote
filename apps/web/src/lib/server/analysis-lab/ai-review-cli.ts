@@ -25,19 +25,19 @@ import {
   aiReviewFilePath,
   computeAiReviewCostUsd,
   modelSlug,
-  readAiReviewFile,
   resolveAiReviewModel,
   runAiReview,
-  type AiReviewFile,
 } from "./ai-review";
 import {
+  AUDIT_SAMPLE_RATIO,
+  AUDIT_SEED,
   CRITERION_VERDICT_ORDER,
   compareCalibration,
   judgeAdoption,
   selectAuditTargets,
-  type AiReviewForAudit,
   type RunComparisonInput,
 } from "./ai-review-compare";
+import { collectAiReviewsForAudit, toAiReviewForAudit } from "./audit-store";
 import { readCohortFileV2, cohortFilePath } from "./cohort-file";
 import { DIMENSION_LABELS } from "./diff";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
@@ -49,8 +49,8 @@ loadMonorepoEnv();
 const DEFAULT_LIMIT = 10;
 const CONCURRENCY = 2;
 const DEFAULT_MAX_COST_USD = 5;
-const AUDIT_SEED = 42;
-const AUDIT_SAMPLE_RATIO = 0.2;
+// 감사 표본 시드·비율은 ai-review-compare 의 AUDIT_SEED/AUDIT_SAMPLE_RATIO 가 단일 원천 —
+// 감사 파일 생성(audit-store)과 같은 값을 써야 --audit-list 와 같은 대상이 나온다.
 
 // ---- argv 파싱 (batch.ts 관행) ----------------------------------------------------
 
@@ -454,55 +454,10 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
 
 async function runAuditListMode(model: string): Promise<number> {
   const slug = modelSlug(model);
-  const suffix = `.ai-review.${slug}.json`;
   const root = analysisLabDir();
-  const reviews: AiReviewForAudit[] = [];
-  let entries: string[] = [];
-  try {
-    entries = await readdir(root);
-  } catch {
-    console.error(`[audit] 산출물 디렉토리가 없습니다: ${root}`);
-    return 1;
-  }
-  for (const entry of entries) {
-    if (!entry.includes("__")) continue;
-    let files: string[] = [];
-    try {
-      files = await readdir(join(root, entry));
-    } catch {
-      continue;
-    }
-    for (const file of files) {
-      if (!file.endsWith(suffix)) continue;
-      const parsed: AiReviewFile | null = await readAiReviewFile(join(root, entry, file));
-      if (!parsed) {
-        console.warn(`[audit] AI 검수 파일 파싱 실패 — 건너뜀: ${entry}/${file}`);
-        continue;
-      }
-      // 사람 전수 검수(review.json)가 있는 런은 감사 대상이 아니다 — 캘리브레이션용
-      // 파일럿 AI 검수 파일이 확대 배치 감사 목록에 혼입되는 것을 막는다(§9 감사 설계는
-      // "사람 검수 없는 공고의 AI 검수"에 대한 표본 확인이다).
-      if (files.includes(`${parsed.runId}.review.json`)) {
-        console.log(`[audit] 사람 검수 보유 런 제외: ${entry}/${parsed.runId}`);
-        continue;
-      }
-      // 제목은 짝 런 파일에서 관대하게 읽는다(표시용).
-      let title = parsed.runId;
-      try {
-        const run = JSON.parse(await readFile(join(root, entry, `${parsed.runId}.json`), "utf8")) as LabRun;
-        if (typeof run.title === "string") title = run.title;
-      } catch {
-        // 런 파일이 없어도 감사 목록은 만들 수 있다.
-      }
-      reviews.push({
-        grantId: parsed.grantId,
-        runId: parsed.runId,
-        title,
-        criterionReviews: parsed.criterionReviews,
-        axisReviews: parsed.axisReviews,
-      });
-    }
-  }
+  // 수집(사람 검수 보유 공고 제외 포함)은 감사 파일 생성(audit-store)과 같은 함수를 쓴다 —
+  // 풀이 같아야 correct 20% 표본(풀 단위 셔플)이 감사 시트의 대상과 정확히 일치한다(§9 결정론).
+  const reviews = (await collectAiReviewsForAudit(model)).map(toAiReviewForAudit);
   if (reviews.length === 0) {
     console.error(`[audit] 모델 ${model} 의 AI 검수 파일이 없습니다(*.ai-review.${slug}.json).`);
     return 1;

@@ -15,10 +15,15 @@
 // 검수 런 수집·코호트 필터·dedupe 는 reviewed-runs.ts 공유 모듈(섀도 측정과 공용)을 쓴다.
 // 실행: pnpm lab:aggregate [--all] [--verbose]
 import {
+  AI_REVIEW_ADOPTED,
   ANALYSIS_LAB_GATES as GATES,
   type LabReview,
   type LabRun,
 } from "@/features/dev/analysis-lab/contract";
+import {
+  loadAuditedConfirmedReviews,
+  type AuditedReviewProvenance,
+} from "./audited-reviews";
 import type { CohortFileV2 } from "./cohort-file";
 import { type ReviewedRun, selectReviewedRuns } from "./reviewed-runs";
 
@@ -73,6 +78,8 @@ interface NoticeStats {
   run: LabRun;
   review: LabReview;
   stratum: string;
+  /** 검수 주체(§9) — 사람 전수 검수면 null, 감사 확정 AI 검수면 provenance. */
+  auditProvenance: AuditedReviewProvenance | null;
   correct: number;
   needsEdit: number;
   wrong: number;
@@ -87,7 +94,11 @@ interface NoticeStats {
   correctStructured: number;
 }
 
-function computeNoticeStats({ run, review }: ReviewedRun, stratum: string): NoticeStats {
+function computeNoticeStats(
+  { run, review }: ReviewedRun,
+  stratum: string,
+  auditProvenance: AuditedReviewProvenance | null,
+): NoticeStats {
   const verdicts = { correct: 0, needs_edit: 0, wrong: 0, unsure: 0 };
   for (const item of review.criterionReviews) verdicts[item.verdict] += 1;
   const axis = { confirmed_absent: 0, missed_condition: 0 };
@@ -107,6 +118,7 @@ function computeNoticeStats({ run, review }: ReviewedRun, stratum: string): Noti
     run,
     review,
     stratum,
+    auditProvenance,
     correct: verdicts.correct,
     needsEdit: verdicts.needs_edit,
     wrong: verdicts.wrong,
@@ -246,7 +258,35 @@ async function main() {
     scanAll,
     excludePilotStratum: true,
   });
-  if (reviewed.length === 0) {
+
+  // §9: 사람 review.json 없는 공고의 "AI 검수 + 완료된 사람 감사" 확정분을 게이트 표본에
+  // 편입한다. 같은 공고에 사람 검수가 있으면 사람 검수 우선(감사 확정분 제외 + 경고).
+  const audited = await loadAuditedConfirmedReviews({
+    model: AI_REVIEW_ADOPTED.model,
+    scanAll,
+    excludePilotStratum: true,
+  });
+  const humanGrantIds = new Set(reviewed.map((item) => item.run.grantId));
+  const auditedConfirmed = audited.confirmed.filter((item) => {
+    if (!humanGrantIds.has(item.run.grantId)) return true;
+    console.warn(
+      `[경고] 사람 검수 보유 공고의 감사 확정분 제외(사람 검수 우선): ${item.run.source}/${item.run.sourceId}`,
+    );
+    return false;
+  });
+
+  // 방법론 병기(§9 게이트 해석 조항) — 검수 주체와 캘리브레이션 측정오차를 항상 드러낸다.
+  const methodologyLine =
+    `검수 방법론: 사람 전수 ${reviewed.length}건 + AI(${AI_REVIEW_ADOPTED.model}·${AI_REVIEW_ADOPTED.promptVersion})+사람 감사 ${auditedConfirmed.length}건(§9)` +
+    ` · 캘리브레이션 일치 criterion ${AI_REVIEW_ADOPTED.calibration.criterionAgreement}·빈 축 ${AI_REVIEW_ADOPTED.calibration.emptyAxisAgreement}`;
+  const pendingLine =
+    audited.pending.length > 0
+      ? `[안내] 감사 대기 ${audited.pending.length}건 — 게이트 표본 제외(감사 완료 시 편입). 감사 시트: /dev/analysis-lab 런 상세 "감사" 탭.`
+      : null;
+
+  if (reviewed.length + auditedConfirmed.length === 0) {
+    console.log(methodologyLine);
+    if (pendingLine) console.log(pendingLine);
     console.log("검수된 런이 없습니다 — 검수 탭에서 판정 후 '검수 저장'을 눌러주세요.");
     process.exitCode = 1;
     return;
@@ -259,21 +299,37 @@ async function main() {
       ? `코호트 ${cohort.experimentLabel ?? "(라벨 없음)"} ${cohort.entries.length}건 중`
       : "전수(cohort.json 없음)";
   console.log(
-    `===== 검수 집계 — ${scopeLabel} 공고 ${reviewed.length}건${excluded > 0 ? ` · 검수 ${excluded}건 제외` : ""} =====\n`,
+    `===== 검수 집계 — ${scopeLabel} 공고 ${reviewed.length + auditedConfirmed.length}건${excluded > 0 ? ` · 검수 ${excluded}건 제외` : ""} =====`,
   );
+  console.log(methodologyLine);
+  if (pendingLine) console.log(pendingLine);
+  console.log("");
 
-  const stats = reviewed.map((item) =>
-    computeNoticeStats(item, stratumByGrant.get(item.run.grantId) ?? OUTSIDE_STRATUM),
-  );
+  const stats = [
+    ...reviewed.map((item) =>
+      computeNoticeStats(item, stratumByGrant.get(item.run.grantId) ?? OUTSIDE_STRATUM, null),
+    ),
+    ...auditedConfirmed.map((item) =>
+      computeNoticeStats(
+        { run: item.run, review: item.review },
+        stratumByGrant.get(item.run.grantId) ?? OUTSIDE_STRATUM,
+        item.provenance,
+      ),
+    ),
+  ];
 
   for (const item of stats) {
     const { run, review } = item;
     const decidedC = review.criterionReviews.length;
     // 기본은 공고당 1줄 요약(30~100건 스케일 대비) — criterion 사유·누락·메모는 --verbose.
+    // 감사 확정 AI 검수는 검수 주체 마커를 병기한다(§9 — 방법론 은폐 금지).
+    const auditTag = item.auditProvenance
+      ? ` [AI+감사(뒤집힘 ${item.auditProvenance.overturnedCount})]`
+      : "";
     console.log(
       `[${run.source}/${run.sourceId}] ${run.title.slice(0, 46)} — criterion ${decidedC}/${run.criteria.length}` +
         ` · 정확 ${item.correct} · 수정 ${item.needsEdit} · 오류 ${item.wrong} · 판단불가 ${item.unsure}` +
-        ` · 누락 ${item.missed} · B구조화 ${item.correctStructured}/${item.correct}`,
+        ` · 누락 ${item.missed} · B구조화 ${item.correctStructured}/${item.correct}${auditTag}`,
     );
     if (!verbose) continue;
     console.log(
@@ -318,7 +374,8 @@ async function main() {
   const strictPrecision = decided > 0 ? correct / decided : 0;
   const tolerantPrecision = decided > 0 ? (correct + needsEdit) / decided : 0;
   const wrongRate = decided > 0 ? wrong / decided : 0;
-  const missedPerNotice = missed / reviewed.length;
+  // 분모는 게이트 표본 전체(사람 전수 + 감사 확정 AI 검수) 공고 수.
+  const missedPerNotice = missed / stats.length;
   const coverageRatio = currentTotal > 0 ? correct / currentTotal : Number.POSITIVE_INFINITY;
   const costPerNotice = costs.length > 0 ? costTotal / costs.length : 0;
   // 구조화 비율 게이트 — 정확 확정 B 중 구조화. 승격 근거는 contract.ts GATES 주석 참조.

@@ -15,7 +15,12 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { CompanyProfile, GrantCriterion, MatchResult, NormalizedGrant } from "@cunote/contracts";
 import { isProfileResolvableCriterion, maskCorpNum, planProfileQuestions } from "@cunote/core";
-import type { LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
+import {
+  AI_REVIEW_ADOPTED,
+  type LabReview,
+  type LabRun,
+} from "@/features/dev/analysis-lab/contract";
+import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { buildGrantAnalysisShadowMatch } from "../ingestion/grantAnalysisPilotVariants";
@@ -204,10 +209,28 @@ async function main(): Promise<number> {
   // 1) 검수 런 수집 — reviewed-runs 공유 모듈. 게이트 집계(aggregate)와 달리 파일럿 층을
   //    제외하지 않는다: 섀도 측정은 "30건 검수 확정분"(확대 계획 §4)이고 확대 코호트 30건에
   //    보존된 파일럿 3건이 포함되기 때문이다(excludePilotStratum 은 게이트 표본 전용).
-  const { reviewed } = await selectReviewedRuns({
+  const { reviewed: humanReviewed } = await selectReviewedRuns({
     scanAll: options.scanAll,
     excludePilotStratum: false,
   });
+  // §9: "검수 확정분"에는 감사 완료된 AI 검수도 포함된다(30건 검수 확정분 정의 — 확대 계획
+  // §4). 병합 결과가 LabReview 호환이므로 변환기(shadow-convert, correct 만 변환)는 무변경.
+  // 같은 공고에 사람 검수가 있으면 사람 검수 우선. 감사 미완(대기)은 측정에서 제외한다.
+  const audited = await loadAuditedConfirmedReviews({
+    model: AI_REVIEW_ADOPTED.model,
+    scanAll: options.scanAll,
+  });
+  const humanGrantIds = new Set(humanReviewed.map((item) => item.run.grantId));
+  const auditedConfirmed = audited.confirmed.filter((item) => !humanGrantIds.has(item.run.grantId));
+  if (auditedConfirmed.length > 0 || audited.pending.length > 0) {
+    console.log(
+      `[shadow] 감사 확정 AI 검수 ${auditedConfirmed.length}건 포함(§9, ${AI_REVIEW_ADOPTED.model}) · 감사 대기 ${audited.pending.length}건 제외`,
+    );
+  }
+  const reviewed = [
+    ...humanReviewed,
+    ...auditedConfirmed.map(({ run, review }) => ({ run, review })),
+  ];
   if (reviewed.length === 0) {
     console.error("[shadow] 검수된 런이 없습니다 — 검수 탭에서 판정 후 '검수 저장'을 눌러주세요.");
     if (!options.scanAll) console.error("[shadow] 코호트 밖 검수(파일럿 등)까지 포함하려면 --all 을 지정하세요.");
@@ -321,6 +344,9 @@ async function main(): Promise<number> {
     scanAll: options.scanAll,
     databaseWriteMode: false,
     externalCalls: 0,
+    /** §9 — 검수 확정분 중 감사 확정 AI 검수로 편입된 공고 수와 감사 대기(제외) 수. */
+    auditedConfirmedGrantCount: auditedConfirmed.length,
+    auditPendingGrantCount: audited.pending.length,
     grantCount: records.length,
     missingGrantIds,
     companies: companyProfiles.map((company) => ({ label: company.label, identity: company.identity })),

@@ -1,7 +1,7 @@
 "use client";
 
 import { ClipboardCheck } from "lucide-react";
-import type { LabNoticeSummary } from "./contract";
+import type { LabNoticeSummary, LabRunSummary } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { formatBytes, formatDate, formatDateTime, sourceLabel } from "./labels";
+import {
+  auditBadgeMeta,
+  formatBytes,
+  formatDate,
+  formatDateTime,
+  noticeAuditStatus,
+  sourceLabel,
+} from "./labels";
 
 // 코호트 공고 1건 카드 — 첨부 확보 상태·현재 criteria 수·런 목록·검수 상태를 보여주고
 // Opus 딥분석 실행·런 선택·원클릭 검수의 진입점이 된다.
+
+/** 런 셀렉트 라벨의 감사 상태 접미(§9) — 감사 대상 런에만 붙는다. */
+function runAuditSuffix(run: LabRunSummary): string {
+  return run.auditStatus ? ` · ${auditBadgeMeta(run.auditStatus).label}` : "";
+}
 export function NoticeCard({
   notice,
   analyzing,
@@ -60,6 +72,9 @@ export function NoticeCard({
   // 검수 완료 판정·버튼 라벨은 성공 런 기준 — openReview 가 여는 대상과 일치시킨다.
   const reviewedOkRun = notice.runs.find((run) => run.ok && run.reviewedAt !== null);
   const reviewed = Boolean(reviewedOkRun);
+  // 감사 상태(§9) — 사람 검수 없는 공고에서 AI 검수 감사의 진행을 최소 표시한다.
+  const auditStatus = reviewed ? null : noticeAuditStatus(notice);
+  const auditBadge = auditStatus ? auditBadgeMeta(auditStatus) : null;
 
   return (
     <Card className="flex flex-col">
@@ -68,9 +83,16 @@ export function NoticeCard({
           <Badge variant="secondary">{sourceLabel(notice.source)}</Badge>
           <Badge variant="outline">{notice.status}</Badge>
           <span className="font-mono text-[11px] text-muted-foreground">{notice.sourceId}</span>
-          <Badge variant={reviewed ? "default" : "outline"} className="ms-auto">
-            {reviewed ? "검수됨" : "검수 대기"}
-          </Badge>
+          <span className="ms-auto flex items-center gap-1.5">
+            {auditBadge ? (
+              <Badge variant={auditBadge.variant} className="tabular-nums">
+                {auditBadge.label}
+              </Badge>
+            ) : null}
+            <Badge variant={reviewed ? "default" : "outline"}>
+              {reviewed ? "검수됨" : "검수 대기"}
+            </Badge>
+          </span>
         </div>
         <CardTitle className="text-base leading-snug break-words">
           {notice.url ? (
@@ -149,7 +171,7 @@ export function NoticeCard({
             <Select
               items={notice.runs.map((run) => ({
                 value: run.runId,
-                label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}${run.reviewedAt ? " · 검수됨" : ""}`,
+                label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}${run.reviewedAt ? " · 검수됨" : ""}${runAuditSuffix(run)}`,
               }))}
               value={selectedRunId}
               onValueChange={(value) => {
@@ -170,6 +192,7 @@ export function NoticeCard({
                       {formatDateTime(run.startedAt)} · {run.promptVersion}
                       {run.ok ? "" : " · 실패"}
                       {run.reviewedAt ? " · 검수됨" : ""}
+                      {runAuditSuffix(run)}
                     </SelectItem>
                   ))}
                 </SelectGroup>

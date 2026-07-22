@@ -8,6 +8,7 @@
 // ③ correct 중 시드 고정 결정론 무작위 20%.
 import type { CriterionDimension } from "@cunote/contracts";
 import type {
+  LabAuditReason,
   LabCriterionVerdict,
   LabEmptyAxisVerdict,
 } from "@/features/dev/analysis-lab/contract";
@@ -258,7 +259,15 @@ export function judgeAdoption(report: {
 
 // ---- 감사 표본 추출 (§9 감사 설계) ----------------------------------------------
 
-export type AuditTargetKind = "ai_non_correct" | "missed_condition_flag" | "correct_sample";
+/**
+ * 감사 표본의 시드·비율 — §9 감사 설계("correct 시드 42 결정론 20%")의 단일 원천.
+ * CLI(--audit-list)와 감사 파일 생성(audit-store)이 같은 값을 써야 같은 대상이 나온다.
+ */
+export const AUDIT_SEED = 42;
+export const AUDIT_SAMPLE_RATIO = 0.2;
+
+/** 감사 대상 종류 — 감사 기록 계약(contract 의 LabAuditReason)과 동일 어휘의 별칭. */
+export type AuditTargetKind = LabAuditReason;
 
 export interface AuditTarget {
   kind: AuditTargetKind;

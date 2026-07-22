@@ -29,6 +29,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
+import { auditBadgeMeta, noticeAuditStatus } from "./labels";
 import { NoticeCard } from "./NoticeCard";
 import { RunDetail } from "./RunDetail";
 
@@ -279,6 +280,9 @@ export function AnalysisLab() {
 
   const selectedNotice =
     cohort?.notices.find((notice) => notice.grantId === selected?.grantId) ?? null;
+  // 선택 런의 요약(감사 상태 포함) — RunDetail 이 감사 탭 노출 여부를 결정하는 데 쓴다.
+  const selectedRunSummary =
+    selectedNotice?.runs.find((item) => item.runId === selected?.runId) ?? null;
 
   // 필터 적용된 카드 목록 — 켜면 검수 대기(성공 런 검수 없음) 공고만 남는다.
   const visibleNotices = cohort
@@ -405,6 +409,7 @@ export function AnalysisLab() {
             onTabChange={setDetailTab}
             noticeUrl={selectedNotice?.url ?? null}
             benefits={selectedNotice?.benefits ?? []}
+            auditStatus={selectedRunSummary?.auditStatus ?? null}
             onReviewSaved={() => void loadCohort({ silent: true })}
             onReviewDirtyChange={(dirty) => {
               reviewDirtyRef.current = dirty;
@@ -544,6 +549,9 @@ function ReviewProgressBoard({
       <div className="flex flex-col gap-1">
         {notices.map((notice) => {
           const reviewed = hasReviewedOkRun(notice);
+          // 감사 상태(§9) — 사람 검수 없는 공고의 AI 검수 감사 진행을 최소 표시한다.
+          const auditStatus = reviewed ? null : noticeAuditStatus(notice);
+          const auditBadge = auditStatus ? auditBadgeMeta(auditStatus) : null;
           // 미검수 항목만 클릭 가능 — 누르면 해당 공고 카드로 스크롤한다.
           return reviewed ? (
             <div key={notice.grantId} className="flex min-w-0 items-center gap-1.5 px-1 text-xs">
@@ -561,6 +569,11 @@ function ReviewProgressBoard({
             >
               <Circle className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="truncate text-muted-foreground">{notice.title}</span>
+              {auditBadge ? (
+                <Badge variant={auditBadge.variant} className="ms-auto shrink-0 tabular-nums">
+                  {auditBadge.label}
+                </Badge>
+              ) : null}
             </Button>
           );
         })}

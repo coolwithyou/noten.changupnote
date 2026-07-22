@@ -1,7 +1,14 @@
 "use client";
 
+import { useCallback, useRef } from "react";
 import { ExternalLink } from "lucide-react";
-import type { LabBenefitBadge, LabProgramIntent, LabRun, LabTaxonomyProposal } from "./contract";
+import type {
+  LabBenefitBadge,
+  LabProgramIntent,
+  LabRun,
+  LabRunAuditSummary,
+  LabTaxonomyProposal,
+} from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,12 +22,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AuditSheet } from "./AuditSheet";
 import { DimensionDiffTable } from "./DimensionDiffTable";
 import { MarkdownView } from "./MarkdownView";
 import { ReviewSheet } from "./ReviewSheet";
 import { formatDateTime, formatDuration, formatUsd, sourceLabel } from "./labels";
 
-// 선택된 런의 상세 패널 — ① 분석 문서(마크다운) ② 필드 채움(22축 diff) ③ 검수 ④ 실행 메타.
+// 선택된 런의 상세 패널 — ① 분석 문서(마크다운) ② 필드 채움(22축 diff) ③ 검수 ④ 실행 메타
+// (+ AI 검수가 있고 사람 검수가 없는 런이면 ⑤ 감사 — §9 표본 감사).
 // 탭은 부모(AnalysisLab)가 제어한다 — 공고 카드의 "검수하기"가 검수 탭을 바로 열 수 있도록.
 export function RunDetail({
   run,
@@ -28,22 +37,48 @@ export function RunDetail({
   onTabChange,
   noticeUrl,
   benefits,
+  auditStatus,
   onReviewSaved,
   onReviewDirtyChange,
 }: {
   run: LabRun;
-  /** 현재 열린 탭 값 — document/fields/review/meta. */
+  /** 현재 열린 탭 값 — document/fields/review/audit/meta. */
   tab: string;
   onTabChange: (tab: string) => void;
   /** 공고 원문 URL — 검수 시 원문 대조용 링크. */
   noticeUrl: string | null;
   /** 공고 혜택 배지 — 코호트(DB) 산출값. */
   benefits: LabBenefitBadge[];
-  /** 검수 시트 저장 성공 시 호출 — 런 목록의 검수됨 표시 갱신용. */
+  /** 이 런의 감사 상태(§9) — 채택 모델 AI 검수가 있고 사람 검수가 없을 때만 non-null → 감사 탭 노출. */
+  auditStatus?: LabRunAuditSummary | null;
+  /** 검수·감사 시트 저장 성공 시 호출 — 런 목록의 검수됨·감사 배지 갱신용. */
   onReviewSaved?: () => void;
-  /** 검수 시트 미저장 판정 여부 통지 — 부모가 분석 완료 시 화면 탈취를 보류하는 데 쓴다. */
+  /** 검수·감사 시트 미저장 판정 여부 통지 — 부모가 분석 완료 시 화면 탈취를 보류하는 데 쓴다. */
   onReviewDirtyChange?: (dirty: boolean) => void;
 }) {
+  const showAuditTab = Boolean(auditStatus) && !run.error;
+
+  // 검수·감사 시트가 각자 dirty 를 통지하므로 OR 로 합쳐 부모에 전달한다 — 한쪽 저장이
+  // 다른 쪽의 미저장 초안 보호(분석 완료 시 화면 탈취 보류)를 풀지 않도록.
+  const reviewDirtyRef = useRef(false);
+  const auditDirtyRef = useRef(false);
+  const notifyDirty = useCallback(() => {
+    onReviewDirtyChange?.(reviewDirtyRef.current || auditDirtyRef.current);
+  }, [onReviewDirtyChange]);
+  const handleReviewDirty = useCallback(
+    (dirty: boolean) => {
+      reviewDirtyRef.current = dirty;
+      notifyDirty();
+    },
+    [notifyDirty],
+  );
+  const handleAuditDirty = useCallback(
+    (dirty: boolean) => {
+      auditDirtyRef.current = dirty;
+      notifyDirty();
+    },
+    [notifyDirty],
+  );
   return (
     // overflow-visible: 검수 시트의 고정 저장 바(position: sticky)가 카드의
     // 기본 overflow-hidden 에 막히지 않도록 한다 (이 카드에는 클리핑할 이미지가 없다).
@@ -88,11 +123,16 @@ export function RunDetail({
           </Alert>
         ) : null}
 
-        <Tabs value={tab} onValueChange={(value) => onTabChange(String(value))}>
+        {/* 감사 탭이 없는 런으로 전환됐는데 tab 이 audit 이면 필드 탭으로 폴백(빈 화면 방지). */}
+        <Tabs
+          value={tab === "audit" && !showAuditTab ? "fields" : tab}
+          onValueChange={(value) => onTabChange(String(value))}
+        >
           <TabsList>
             <TabsTrigger value="document">분석 문서</TabsTrigger>
             <TabsTrigger value="fields">필드 채움</TabsTrigger>
             <TabsTrigger value="review">검수</TabsTrigger>
+            {showAuditTab ? <TabsTrigger value="audit">감사</TabsTrigger> : null}
             <TabsTrigger value="meta">실행 메타</TabsTrigger>
           </TabsList>
 
@@ -128,8 +168,19 @@ export function RunDetail({
 
           {/* keepMounted: 다른 탭으로 잠깐 이동해도(원문 대조 등) 미저장 판정이 유실되지 않게. */}
           <TabsContent value="review" className="pt-4" keepMounted>
-            <ReviewSheet run={run} onSaved={onReviewSaved} onDirtyChange={onReviewDirtyChange} />
+            <ReviewSheet run={run} onSaved={onReviewSaved} onDirtyChange={handleReviewDirty} />
           </TabsContent>
+
+          {showAuditTab && auditStatus ? (
+            <TabsContent value="audit" className="pt-4" keepMounted>
+              <AuditSheet
+                run={run}
+                model={auditStatus.model}
+                onSaved={onReviewSaved}
+                onDirtyChange={handleAuditDirty}
+              />
+            </TabsContent>
+          ) : null}
 
           <TabsContent value="meta" className="pt-4">
             <RunMeta run={run} />

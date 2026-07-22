@@ -4,9 +4,27 @@ import type {
   LabAxisStatus,
   LabCriterionKind,
   LabDimensionVerdict,
+  LabNoticeSummary,
+  LabRunAuditSummary,
 } from "./contract";
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "ghost";
+
+/** 공고의 감사 상태(§9) — 감사 대상(auditStatus 보유) 성공 런 중 첫 런의 상태. 없으면 null. */
+export function noticeAuditStatus(notice: LabNoticeSummary): LabRunAuditSummary | null {
+  return notice.runs.find((run) => run.ok && run.auditStatus)?.auditStatus ?? null;
+}
+
+/** 감사 상태 배지 — 대기(파일 미생성) / 진행 n/M / 완료. 카드·진행 보드가 공유한다. */
+export function auditBadgeMeta(status: LabRunAuditSummary): { label: string; variant: BadgeVariant } {
+  if (status.decidedItems === null || status.totalItems === null) {
+    return { label: "감사 대기", variant: "outline" };
+  }
+  if (status.decidedItems >= status.totalItems) {
+    return { label: "감사 완료", variant: "default" };
+  }
+  return { label: `감사 ${status.decidedItems}/${status.totalItems}`, variant: "secondary" };
+}
 
 /** 공고 소스 코드 → 표시 라벨. */
 export function sourceLabel(source: string): string {

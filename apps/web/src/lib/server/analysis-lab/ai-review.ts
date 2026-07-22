@@ -40,7 +40,10 @@ import type {
 import type { AiAxisReview, AiCriterionReview } from "./ai-review-compare";
 import { DIMENSION_LABELS } from "./diff";
 import { assembleLabInput, type LabAssembledInput, type LabInputArchive } from "./input";
-import { findMonorepoRoot, labRunFilePath } from "./run-store";
+import { findMonorepoRoot, labRunFilePath, modelSlug } from "./run-store";
+
+// 파일명 슬러그의 소유자는 run-store 로 이동(감사 파일과 공용) — 기존 호출부 호환 재수출.
+export { modelSlug } from "./run-store";
 
 export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
 /**
@@ -77,11 +80,6 @@ const MODEL_PRICES_PER_MTOK: Record<string, { input: number; output: number }> =
 /** 판정 모델 해석 — 우선순위: CLI --model= > env ANALYSIS_LAB_REVIEW_MODEL > 기본. */
 export function resolveAiReviewModel(cliModel?: string | undefined): string {
   return cliModel?.trim() || process.env.ANALYSIS_LAB_REVIEW_MODEL?.trim() || AI_REVIEW_DEFAULT_MODEL;
-}
-
-/** 모델 ID 의 파일명 안전 변환(허용 외 문자 → _). */
-export function modelSlug(model: string): string {
-  return model.replace(/[^A-Za-z0-9._\-]/g, "_");
 }
 
 /** AI 검수 파일 경로 — 런 파일 옆 <runId>.ai-review.<modelSlug>.json. */

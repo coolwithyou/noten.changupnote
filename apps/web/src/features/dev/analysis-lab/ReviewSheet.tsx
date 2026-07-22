@@ -46,7 +46,8 @@ import {
 const REVIEW_URL = "/api/dev/analysis-lab/review";
 /** 통과 기준(게이트) 수 — contract 의 ANALYSIS_LAB_GATES 가 단일 원천. */
 const GATE_COUNT = Object.keys(ANALYSIS_LAB_GATES).length;
-const REVIEWER_EMAIL_STORAGE_KEY = "analysis-lab.reviewerEmail";
+/** 검수자 이메일 프리필 저장 키 — 감사 시트(AuditSheet)와 공유(같은 사람이 검수·감사한다). */
+export const REVIEWER_EMAIL_STORAGE_KEY = "analysis-lab.reviewerEmail";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // 서버(review route)의 캡과 동일 — 초과 입력을 maxLength 로 선차단해 저장 시점 400 을 막는다.
 const NOTE_MAX_CHARS = 2_000;
@@ -54,8 +55,8 @@ const OVERALL_NOTE_MAX_CHARS = 4_000;
 
 type BadgeVariant = "default" | "secondary" | "destructive" | "outline" | "ghost";
 
-/** 제안 criterion 판정 메타 — 라벨·배지·판정 기준 힌트의 단일 원천. */
-const CRITERION_VERDICT_META: Record<
+/** 제안 criterion 판정 메타 — 라벨·배지·판정 기준 힌트의 단일 원천(감사 시트도 공유). */
+export const CRITERION_VERDICT_META: Record<
   LabCriterionVerdict,
   { label: string; badge: BadgeVariant; hint: string }
 > = {
@@ -81,8 +82,8 @@ const CRITERION_VERDICT_META: Record<
   },
 };
 
-/** 제안 없는 축 확인 메타. */
-const AXIS_VERDICT_META: Record<
+/** 제안 없는 축 확인 메타(감사 시트도 공유). */
+export const AXIS_VERDICT_META: Record<
   LabEmptyAxisVerdict,
   { label: string; badge: BadgeVariant; hint: string }
 > = {
@@ -98,13 +99,13 @@ const AXIS_VERDICT_META: Record<
   },
 };
 
-const CRITERION_VERDICT_ORDER: readonly LabCriterionVerdict[] = [
+export const CRITERION_VERDICT_ORDER: readonly LabCriterionVerdict[] = [
   "correct",
   "needs_edit",
   "wrong",
   "unsure",
 ];
-const AXIS_VERDICT_ORDER: readonly LabEmptyAxisVerdict[] = [
+export const AXIS_VERDICT_ORDER: readonly LabEmptyAxisVerdict[] = [
   "confirmed_absent",
   "missed_condition",
 ];

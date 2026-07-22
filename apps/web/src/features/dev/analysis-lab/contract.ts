@@ -44,6 +44,11 @@ export interface LabRunSummary {
   error: string | null;
   /** 검수 시트(<runId>.review.json)가 있으면 마지막 저장 시각, 없으면 null. */
   reviewedAt: string | null;
+  /**
+   * AI 검수 감사 상태(§9) — 채택 모델(AI_REVIEW_ADOPTED.model)의 ai-review 파일이 있고
+   * 사람 review.json 이 없는 런만 non-null. 감사 파일 미생성이면 decided/total null(감사 대기).
+   */
+  auditStatus: LabRunAuditSummary | null;
 }
 
 /**
@@ -241,12 +246,111 @@ export interface LabReviewResponse {
   review: LabReview | null;
 }
 
+// ---- AI 검수 감사(audit) — §9 "AI 전수 + 사람 표본 감사"의 사람 감사 기록 ----
+// 확대 실험 계획(2026-07-21) §9 프로토콜 개정: 검수 주체를 "사람 전수"에서 "AI 전수 +
+// 사람 표본 감사"로 바꿨다. 감사 파일은 런 파일 옆 <runId>.audit.<modelSlug>.json
+// (audit-store 소관). 대상 목록은 최초 생성 시 selectAuditTargets(시드·비율은
+// ai-review-compare 의 AUDIT_SEED/AUDIT_SAMPLE_RATIO — CLI --audit-list 와 동일)로
+// **동결**되고, 이후 저장은 humanVerdict/note 만 갱신한다. 완료된 감사는 AI 검수와
+// 병합돼(audited-reviews) 게이트 표본의 새 원천이 된다. 사람 review.json 보유 공고에는
+// 감사 파일을 만들지 않는다(사람 전수 검수가 항상 우선 — 순환성 가드 §9 유지 조항).
+
+/**
+ * §9 검수 자동화 채택 기록 — 계획 문서 "§9 캘리브레이션 결과 기록"(2026-07-23)의 단일 정의.
+ * 판정 모델 claude-fable-5 · 판정 프롬프트 ai-review-v2 가 사전 등록 채택 기준 3종을 충족:
+ * criterion 일치 24/28 · correct→wrong 오검출 0 · 빈 축 일치 45/46 (개정 카드 1회 소진).
+ * 집계 방법론 표기(aggregate)·감사 로더(audited-reviews)·감사 UI 가 이 상수를 공유한다 —
+ * 수치·모델을 다른 곳에 하드코딩하지 말 것.
+ * promptVersion 은 생성기 상수(ai-review.ts AI_REVIEW_PROMPT_VERSION)와 같아야 한다 —
+ * §9 상 재개정 불가이므로 다르면 프로토콜 위반 신호다(로더가 불일치 시 경고 출력).
+ */
+export const AI_REVIEW_ADOPTED = {
+  model: "claude-fable-5",
+  promptVersion: "ai-review-v2",
+  calibration: {
+    criterionAgreement: "24/28",
+    correctToWrong: 0,
+    emptyAxisAgreement: "45/46",
+  },
+} as const;
+
+/** 감사 대상 선정 사유 — selectAuditTargets(§9 감사 설계)의 세 갈래와 1:1. */
+export type LabAuditReason = "ai_non_correct" | "missed_condition_flag" | "correct_sample";
+
+/** 감사 대상 1건 — AI 판정 스냅샷 + 사람 감사 판정. */
+export interface LabAuditItem {
+  /** 대상 종류 — 제안 criterion 판정 감사 또는 빈 축 판정 감사. */
+  kind: "criterion" | "axis";
+  /** kind=criterion 이면 LabRun.criteria 배열 인덱스(런 불변 — 안정 키). */
+  criterionIndex?: number;
+  /** kind=axis 이면 축. */
+  dimension?: CriterionDimension;
+  reason: LabAuditReason;
+  /** AI 판정 스냅샷 — criterion 이면 LabCriterionVerdict, 축이면 LabEmptyAxisVerdict 어휘. */
+  aiVerdict: string;
+  aiNote: string | null;
+  /** 사람 감사 판정 — null 이면 미판정. 동의면 aiVerdict 와 같은 값이 저장된다. */
+  humanVerdict: LabCriterionVerdict | LabEmptyAxisVerdict | null;
+  /** 감사 사유 — AI 판정 뒤집기(humanVerdict ≠ aiVerdict) 시 필수(서버 검증). */
+  note: string | null;
+}
+
+export interface LabAudit {
+  schema: "lab-audit-v1";
+  grantId: string;
+  runId: string;
+  /** 감사 대상 AI 검수의 판정 모델(provenance) — 파일 키의 일부. */
+  model: string;
+  aiPromptVersion: string;
+  /** 사람 감사자 이메일 — 최초 생성 직후(판정 저장 전)는 null. 저장 시 사람 이메일 강제(validateReviewerEmail). */
+  auditorEmail: string | null;
+  createdAt: string;
+  updatedAt: string;
+  /** 감사 대상 항목 — 생성 시 동결. 이후 저장은 humanVerdict/note 만 갱신한다. */
+  items: LabAuditItem[];
+  overallNote: string | null;
+}
+
+/** PUT 본문의 항목 판정 — 판정한 항목만 보낸다(부분 저장). 서버는 저장본 대상 목록에 병합만 한다. */
+export interface LabAuditItemJudgment {
+  kind: "criterion" | "axis";
+  criterionIndex?: number;
+  dimension?: CriterionDimension;
+  humanVerdict: LabCriterionVerdict | LabEmptyAxisVerdict;
+  note: string | null;
+}
+
+export interface LabAuditUpsertRequest {
+  grantId: string;
+  runId: string;
+  /** AI 검수 모델 — 감사 파일 키(<runId>.audit.<modelSlug>.json)의 일부. */
+  model: string;
+  auditorEmail: string;
+  items: LabAuditItemJudgment[];
+  overallNote: string | null;
+}
+
+export interface LabAuditResponse {
+  audit: LabAudit;
+  /** 표시용 조인 — items 와 같은 순서. criterion 항목이면 런의 제안 원본, 축 항목이면 null. */
+  itemCriteria: Array<LabCriterion | null>;
+}
+
+/** 런 요약의 감사 상태 — 감사 파일이 아직 없으면 decided/total 이 null("감사 대기"). */
+export interface LabRunAuditSummary {
+  model: string;
+  decidedItems: number | null;
+  totalItems: number | null;
+}
+
 // ---- API 계약 (모든 라우트는 dev 전용: production 이면 404) ----
 // GET  /api/dev/analysis-lab/cohort           → LabCohortResponse (?refresh=1 로 코호트 재선정)
 // POST /api/dev/analysis-lab/analyze          → LabAnalyzeResponse (본문: LabAnalyzeRequest, 동기 수 분 소요)
 // GET  /api/dev/analysis-lab/run?grantId=&runId= → LabRunResponse
 // GET  /api/dev/analysis-lab/review?grantId=&runId= → LabReviewResponse (없으면 review:null)
 // PUT  /api/dev/analysis-lab/review           → 본문 LabReviewUpsertRequest → LabReviewResponse
+// GET  /api/dev/analysis-lab/audit?grantId=&runId=&model= → LabAuditResponse (감사 파일 없으면 생성 — §9)
+// PUT  /api/dev/analysis-lab/audit            → 본문 LabAuditUpsertRequest → LabAuditResponse
 
 export interface LabCohortResponse {
   model: string;

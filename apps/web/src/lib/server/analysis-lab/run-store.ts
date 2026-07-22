@@ -5,7 +5,12 @@ import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import type { LabRun, LabRunSummary } from "@/features/dev/analysis-lab/contract";
+import {
+  AI_REVIEW_ADOPTED,
+  type LabRun,
+  type LabRunAuditSummary,
+  type LabRunSummary,
+} from "@/features/dev/analysis-lab/contract";
 
 /** process.cwd() 에서 위로 pnpm-workspace.yaml 을 탐색해 모노레포 루트를 찾는다. */
 export function findMonorepoRoot(): string {
@@ -38,6 +43,15 @@ const RUN_ID_PATTERN = /^run-[0-9TZ.\-]{10,40}(?:-[a-f0-9]{4,8})?$/;
 /** 파일시스템 안전화: source/sourceId 디렉토리 조각에서 허용 외 문자를 _ 로 치환. */
 function sanitizeSegment(value: string): string {
   return value.replace(/[^A-Za-z0-9._\-]/g, "_");
+}
+
+/**
+ * 모델 ID 의 파일명 안전 변환(허용 외 문자 → _) — AI 검수(<runId>.ai-review.<slug>.json)와
+ * 감사(<runId>.audit.<slug>.json) 파일명이 공유한다. 파일 명명은 run-store 소관이라 여기에
+ * 두고 ai-review.ts 가 재수출한다(ai-review → run-store 단방향 유지).
+ */
+export function modelSlug(model: string): string {
+  return model.replace(/[^A-Za-z0-9._\-]/g, "_");
 }
 
 function runDirFor(source: string, sourceId: string): string {
@@ -77,7 +91,8 @@ export async function listLabRunSummaries(source: string, sourceId: string): Pro
     const run = await readRunFile(join(dir, file));
     if (!run) continue;
     const reviewedAt = await readReviewedAt(join(dir, `${run.runId}.review.json`));
-    summaries.push(toRunSummary(run, reviewedAt));
+    const auditStatus = await readAuditStatus(dir, files, run.runId);
+    summaries.push(toRunSummary(run, reviewedAt, auditStatus));
   }
   return summaries.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
 }
@@ -104,7 +119,11 @@ export async function readLabRun(grantId: string, runId: string): Promise<LabRun
   return null;
 }
 
-function toRunSummary(run: LabRun, reviewedAt: string | null): LabRunSummary {
+function toRunSummary(
+  run: LabRun,
+  reviewedAt: string | null,
+  auditStatus: LabRunAuditSummary | null,
+): LabRunSummary {
   return {
     runId: run.runId,
     startedAt: run.startedAt,
@@ -115,6 +134,7 @@ function toRunSummary(run: LabRun, reviewedAt: string | null): LabRunSummary {
     ok: run.error === null,
     error: run.error,
     reviewedAt,
+    auditStatus,
   };
 }
 
@@ -129,6 +149,42 @@ async function readReviewedAt(path: string): Promise<string | null> {
     return typeof parsed.updatedAt === "string" ? parsed.updatedAt : null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * 런 요약용 감사 상태(§9) — 채택 모델(AI_REVIEW_ADOPTED.model)의 ai-review 파일이 있고
+ * 사람 review.json 이 **없는** 런만 non-null(사람 검수 보유 런은 감사 대상이 아니다).
+ * 감사 파일은 표시용 필드(items 의 humanVerdict)만 관대하게 읽는다 — 형식 소유자는
+ * audit-store.ts 다. 감사 파일이 없거나 파싱 실패면 "감사 대기"(decided/total null).
+ */
+async function readAuditStatus(
+  dir: string,
+  files: string[],
+  runId: string,
+): Promise<LabRunAuditSummary | null> {
+  if (files.includes(`${runId}.review.json`)) return null;
+  const slug = modelSlug(AI_REVIEW_ADOPTED.model);
+  if (!files.includes(`${runId}.ai-review.${slug}.json`)) return null;
+  const pending: LabRunAuditSummary = {
+    model: AI_REVIEW_ADOPTED.model,
+    decidedItems: null,
+    totalItems: null,
+  };
+  try {
+    const parsed = JSON.parse(
+      await readFile(join(dir, `${runId}.audit.${slug}.json`), "utf8"),
+    ) as { items?: unknown };
+    if (!Array.isArray(parsed.items)) return pending;
+    const decided = parsed.items.filter(
+      (item) =>
+        typeof item === "object" &&
+        item !== null &&
+        (item as { humanVerdict?: unknown }).humanVerdict != null,
+    ).length;
+    return { model: AI_REVIEW_ADOPTED.model, decidedItems: decided, totalItems: parsed.items.length };
+  } catch {
+    return pending;
   }
 }
 
