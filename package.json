@@ -57,6 +57,7 @@
     "lab:roundtrip:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/core.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/editable-regions.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/hwp-form-controls.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/hwp-integrity.test.ts",
     "lab:roundtrip:smoke": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/smoke.ts",
     "lab:aggregate": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/aggregate.ts",
+    "lab:batch": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/batch.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && pnpm verify:package-runtime-freshness && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck && pnpm --filter @cunote/admin typecheck",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",

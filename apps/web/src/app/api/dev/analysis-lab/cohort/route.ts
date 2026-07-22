@@ -1,8 +1,12 @@
 // 공모 딥분석 실험실 — 코호트 조회 (dev 전용: production 이면 404).
-// GET /api/dev/analysis-lab/cohort?refresh=1 → LabCohortResponse
+// GET /api/dev/analysis-lab/cohort → LabCohortResponse(+cohortMeta)
+//   ?refresh=1        저장 코호트를 버리고 재선정(검수 보유 공고는 보존)
+//   ?size=30          코호트 크기(기본 3, 재선정 시에만 의미)
+//   ?stratified=1     소스×두께 6층 층화 선정(확대 실험 계획 §3)
+//   ?seed=123         층 내 샘플링 시드(미지정 시 생성 후 파일 기록)
+//   ?label=expansion-s1  실험 라벨(파일 기록)
 import { NextResponse } from "next/server";
-import { loadLabCohort } from "@/lib/server/analysis-lab/cohort";
-import type { LabCohortResponse } from "@/features/dev/analysis-lab/contract";
+import { loadLabCohort, type LabCohortResult } from "@/lib/server/analysis-lab/cohort";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,11 +18,27 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
+function parseBoolean(value: string | null): boolean {
+  return value === "1" || value === "true";
+}
+
+function parseInteger(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 export async function GET(request: Request) {
   if (isProduction()) return notFound();
 
-  const refreshParam = new URL(request.url).searchParams.get("refresh");
-  const refresh = refreshParam === "1" || refreshParam === "true";
-  const cohort: LabCohortResponse = await loadLabCohort({ refresh });
+  const params = new URL(request.url).searchParams;
+  const label = params.get("label")?.trim();
+  const cohort: LabCohortResult = await loadLabCohort({
+    refresh: parseBoolean(params.get("refresh")),
+    size: parseInteger(params.get("size")),
+    stratified: parseBoolean(params.get("stratified")),
+    seed: parseInteger(params.get("seed")),
+    experimentLabel: label && label.length > 0 ? label : undefined,
+  });
   return NextResponse.json(cohort);
 }

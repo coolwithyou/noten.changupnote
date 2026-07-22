@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, CircleCheck, Circle, CircleHelp } from "lucide-react";
-import type {
-  LabAnalyzeResponse,
-  LabCohortResponse,
-  LabNoticeSummary,
-  LabRun,
-  LabRunResponse,
+import {
+  ANALYSIS_LAB_GATES,
+  type LabAnalyzeResponse,
+  type LabCohortResponse,
+  type LabNoticeSummary,
+  type LabRun,
+  type LabRunResponse,
 } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -26,17 +27,22 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
 import { NoticeCard } from "./NoticeCard";
 import { RunDetail } from "./RunDetail";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 공모 딥분석 실험실 (dev 전용) — 코호트 3건의 공고를 Opus 로 딥분석하고,
+// 공모 딥분석 실험실 (dev 전용) — 코호트 공고들을 Opus 로 딥분석하고,
 // 실제 DB(grant_criteria 22축)가 어떻게 채워지는지 A/B diff 로 확인하는 스파이크 UI.
 // DB에는 어떤 쓰기도 하지 않으며 런 결과는 서버가 파일로 불변 저장한다.
+// 코호트 크기는 서버 소관 — UI 는 notices.length 를 그대로 따른다(건수 문구 하드코딩 금지).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const COHORT_URL = "/api/dev/analysis-lab/cohort";
+
+/** 통과 기준(게이트) 수 — contract 의 ANALYSIS_LAB_GATES 가 단일 원천. */
+const GATE_COUNT = Object.keys(ANALYSIS_LAB_GATES).length;
 const ANALYZE_URL = "/api/dev/analysis-lab/analyze";
 const RUN_URL = "/api/dev/analysis-lab/run";
 
@@ -70,6 +76,10 @@ export function AnalysisLab() {
   // 사용 순서 가이드 — 검수된 공고가 하나도 없으면 펼쳐서 시작(첫 코호트 로드 시 결정).
   const [guideOpen, setGuideOpen] = useState(false);
   const guideInitializedRef = useRef(false);
+  // 카드 목록 필터 — 코호트가 커지면(30건+) 검수 대기 공고만 추려 보는 최소 내비게이션.
+  const [showPendingOnly, setShowPendingOnly] = useState(false);
+  // 진행 보드의 미검수 항목 클릭 → 해당 공고 카드로 스크롤하기 위한 카드 엘리먼트 맵.
+  const cardRefs = useRef(new Map<string, HTMLDivElement>());
 
   // React disabled 반영 전의 연속 클릭도 즉시 차단한다.
   const analyzeInFlightRef = useRef(false);
@@ -254,8 +264,28 @@ export function AnalysisLab() {
     [loadCohort],
   );
 
+  const registerCard = useCallback(
+    (grantId: string) => (element: HTMLDivElement | null) => {
+      if (element) cardRefs.current.set(grantId, element);
+      else cardRefs.current.delete(grantId);
+    },
+    [],
+  );
+
+  // 진행 보드 → 공고 카드 점프 (ReviewSheet 의 "다음 미판정" 점프와 동형 패턴).
+  const jumpToNotice = useCallback((grantId: string) => {
+    cardRefs.current.get(grantId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   const selectedNotice =
     cohort?.notices.find((notice) => notice.grantId === selected?.grantId) ?? null;
+
+  // 필터 적용된 카드 목록 — 켜면 검수 대기(성공 런 검수 없음) 공고만 남는다.
+  const visibleNotices = cohort
+    ? showPendingOnly
+      ? cohort.notices.filter((notice) => !hasReviewedOkRun(notice))
+      : cohort.notices
+    : [];
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
@@ -286,7 +316,11 @@ export function AnalysisLab() {
         </div>
       </header>
 
-      <UsageGuide open={guideOpen} onOpenChange={setGuideOpen} />
+      <UsageGuide
+        open={guideOpen}
+        onOpenChange={setGuideOpen}
+        noticeCount={cohort?.notices.length ?? 0}
+      />
 
       {cohortError ? (
         <Alert variant="destructive">
@@ -295,7 +329,14 @@ export function AnalysisLab() {
         </Alert>
       ) : null}
 
-      {cohort && cohort.notices.length > 0 ? <ReviewProgressBoard notices={cohort.notices} /> : null}
+      {cohort && cohort.notices.length > 0 ? (
+        <ReviewProgressBoard
+          notices={cohort.notices}
+          showPendingOnly={showPendingOnly}
+          onShowPendingOnlyChange={setShowPendingOnly}
+          onJumpToNotice={jumpToNotice}
+        />
+      ) : null}
 
       {cohortLoading ? (
         <section className="grid gap-4 lg:grid-cols-3">
@@ -304,23 +345,36 @@ export function AnalysisLab() {
           <Skeleton className="h-64 w-full" />
         </section>
       ) : cohort && cohort.notices.length > 0 ? (
-        <section className="grid items-start gap-4 lg:grid-cols-3">
-          {cohort.notices.map((notice) => (
-            <NoticeCard
-              key={notice.grantId}
-              notice={notice}
-              analyzing={analyzingGrantId === notice.grantId}
-              elapsedSec={elapsedSec}
-              analyzeDisabled={analyzingGrantId !== null}
-              analyzeError={analyzeErrors[notice.grantId] ?? null}
-              analyzeNotice={analyzeNotices[notice.grantId] ?? null}
-              selectedRunId={selected?.grantId === notice.grantId ? selected.runId : null}
-              onAnalyze={() => void analyze(notice.grantId)}
-              onSelectRun={(runId) => void selectRun(notice.grantId, runId)}
-              onReview={() => openReview(notice)}
-            />
-          ))}
-        </section>
+        visibleNotices.length > 0 ? (
+          <section className="grid items-start gap-4 lg:grid-cols-3">
+            {visibleNotices.map((notice) => (
+              <div key={notice.grantId} ref={registerCard(notice.grantId)} className="scroll-mt-6">
+                <NoticeCard
+                  notice={notice}
+                  analyzing={analyzingGrantId === notice.grantId}
+                  elapsedSec={elapsedSec}
+                  analyzeDisabled={analyzingGrantId !== null}
+                  analyzeError={analyzeErrors[notice.grantId] ?? null}
+                  analyzeNotice={analyzeNotices[notice.grantId] ?? null}
+                  selectedRunId={selected?.grantId === notice.grantId ? selected.runId : null}
+                  onAnalyze={() => void analyze(notice.grantId)}
+                  onSelectRun={(runId) => void selectRun(notice.grantId, runId)}
+                  onReview={() => openReview(notice)}
+                />
+              </div>
+            ))}
+          </section>
+        ) : (
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyTitle>검수 대기 공고가 없습니다</EmptyTitle>
+              <EmptyDescription>
+                모든 공고가 검수됨 상태입니다 — &ldquo;검수 대기만 보기&rdquo;를 끄면 전체
+                카드가 다시 보입니다.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        )
       ) : cohort ? (
         <Empty className="border">
           <EmptyHeader>
@@ -376,9 +430,12 @@ export function AnalysisLab() {
 function UsageGuide({
   open,
   onOpenChange,
+  noticeCount,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** 코호트 공고 수 — 로드 전이면 0(문구는 "전 공고"로 폴백). */
+  noticeCount: number;
 }) {
   return (
     <Collapsible
@@ -414,9 +471,10 @@ function UsageGuide({
             데려다줍니다.
           </GuideStep>
           <GuideStep step={4}>
-            코호트 3건이 모두 <span className="font-medium">검수됨</span>이 되면 터미널에서{" "}
+            코호트 {noticeCount > 0 ? `${noticeCount}건이` : "전 공고가"} 모두{" "}
+            <span className="font-medium">검수됨</span>이 되면 터미널에서{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
-            를 실행합니다 — 통과 기준 5종을 자동 판정합니다.
+            를 실행합니다 — 통과 기준 {GATE_COUNT}종을 자동 판정합니다.
           </GuideStep>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -444,8 +502,22 @@ function hasReviewedOkRun(notice: LabNoticeSummary): boolean {
   return notice.runs.some((run) => run.ok && run.reviewedAt !== null);
 }
 
-/** 검수 진행 보드 — 코호트 전체의 검수 완료 상태와 다음 단계를 보여준다. */
-function ReviewProgressBoard({ notices }: { notices: LabNoticeSummary[] }) {
+/**
+ * 검수 진행 보드 — 코호트 전체의 검수 완료 상태와 다음 단계를 보여준다.
+ * 미검수 항목은 클릭 시 해당 공고 카드로 스크롤(30건 스케일 내비게이션),
+ * "검수 대기만 보기" 토글로 카드 목록 필터를 제어한다.
+ */
+function ReviewProgressBoard({
+  notices,
+  showPendingOnly,
+  onShowPendingOnlyChange,
+  onJumpToNotice,
+}: {
+  notices: LabNoticeSummary[];
+  showPendingOnly: boolean;
+  onShowPendingOnlyChange: (pressed: boolean) => void;
+  onJumpToNotice: (grantId: string) => void;
+}) {
   const reviewedCount = notices.filter(hasReviewedOkRun).length;
   const allDone = reviewedCount === notices.length && notices.length > 0;
 
@@ -453,25 +525,43 @@ function ReviewProgressBoard({ notices }: { notices: LabNoticeSummary[] }) {
     <section className="flex flex-col gap-2.5 rounded-xl border border-border p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-sm font-medium">검수 진행</span>
-        <Badge variant={allDone ? "default" : "secondary"} className="tabular-nums">
-          {reviewedCount} / {notices.length} 공고
-        </Badge>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Toggle
+            variant="outline"
+            size="sm"
+            pressed={showPendingOnly}
+            onPressedChange={onShowPendingOnlyChange}
+            aria-label="검수 대기 공고만 보기"
+          >
+            검수 대기만 보기
+          </Toggle>
+          <Badge variant={allDone ? "default" : "secondary"} className="tabular-nums">
+            {reviewedCount} / {notices.length} 공고
+          </Badge>
+        </div>
       </div>
       <Progress value={notices.length > 0 ? (reviewedCount / notices.length) * 100 : 0} />
       <div className="flex flex-col gap-1">
         {notices.map((notice) => {
           const reviewed = hasReviewedOkRun(notice);
-          return (
-            <div key={notice.grantId} className="flex min-w-0 items-center gap-1.5 text-xs">
-              {reviewed ? (
-                <CircleCheck className="size-3.5 shrink-0 text-primary" />
-              ) : (
-                <Circle className="size-3.5 shrink-0 text-muted-foreground" />
-              )}
-              <span className={cn("truncate", reviewed ? "" : "text-muted-foreground")}>
-                {notice.title}
-              </span>
+          // 미검수 항목만 클릭 가능 — 누르면 해당 공고 카드로 스크롤한다.
+          return reviewed ? (
+            <div key={notice.grantId} className="flex min-w-0 items-center gap-1.5 px-1 text-xs">
+              <CircleCheck className="size-3.5 shrink-0 text-primary" />
+              <span className="truncate">{notice.title}</span>
             </div>
+          ) : (
+            <Button
+              key={notice.grantId}
+              variant="ghost"
+              size="sm"
+              className="h-auto w-full min-w-0 justify-start gap-1.5 px-1 py-0.5 text-xs font-normal"
+              title="공고 카드로 이동"
+              onClick={() => onJumpToNotice(notice.grantId)}
+            >
+              <Circle className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate text-muted-foreground">{notice.title}</span>
+            </Button>
           );
         })}
       </div>
@@ -483,13 +573,14 @@ function ReviewProgressBoard({ notices }: { notices: LabNoticeSummary[] }) {
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
               pnpm lab:aggregate
             </code>
-            를 실행하면 정밀도·재현율·커버리지·비용을 집계하고 통과 기준 5종을 자동
-            판정합니다.
+            를 실행하면 정밀도·재현율·커버리지·비용·구조화 비율을 집계하고 통과 기준{" "}
+            {GATE_COUNT}종을 자동 판정합니다.
           </AlertDescription>
         </Alert>
       ) : (
         <p className="text-xs text-muted-foreground">
-          공고마다 런 1개 이상을 검수하면 완료로 표시됩니다 — 3건 모두 검수 후{" "}
+          공고마다 런 1개 이상을 검수하면 완료로 표시됩니다. 미검수 공고를 클릭하면 해당
+          카드로 이동합니다 — {notices.length}건 모두 검수 후{" "}
           <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
           로 판정합니다.
         </p>

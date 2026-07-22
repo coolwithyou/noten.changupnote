@@ -8,11 +8,14 @@ export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v2";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
- * 스파이크 통과 기준 — 2026-07-17 실험 설계에서 제안한 수치의 확정본.
+ * 통과 기준 6종 — 2026-07-17 실험 설계 수치의 확정본 + 파일럿 집계 후 승격된 구조화 게이트.
  * 집계 CLI(aggregate.ts)의 판정과 검수 UI(ReviewSheet)의 안내가 이 상수를 공유한다.
  * 근거: 정밀도는 사람 검수 기준으로 오추출이 드물어야 하고(wrong 은 특히 치명),
  * 재현율은 "공고당 놓친 hard 요건" 수준이 검수 비용을 좌우하며,
  * 커버리지는 현행 파이프라인 대비 개선 배수(1.5x)가 딥분석 도입의 최소 명분이다.
+ * 구조화 비율은 실험의 존재 이유(기계판정 가능률 병목 해소)를 직접 재는 게이트 —
+ * 승격 결정·기준치 근거는 docs/research/2026-07-21-공모딥분석-검수집계-판정.md §6
+ * (파일럿 실측 63.0%, 소표본·얇은 공고 유입을 감안한 보수 기준 50%).
  */
 export const ANALYSIS_LAB_GATES = {
   strictPrecisionMin: 0.8, // correct / 판정된 criterion
@@ -20,6 +23,7 @@ export const ANALYSIS_LAB_GATES = {
   missedPerNoticeMax: 1.0, // 공고당 평균 누락(missed_condition) 건수
   coverageRatioMin: 1.5, // 사람 확정(correct) B criteria / 현행 A criteria
   costPerNoticeMaxUsd: 1.0,
+  structuredRatioMin: 0.5, // 정확 확정 B 중 구조화(operator≠text_only) 비율 — 확대 실험부터
 } as const;
 
 export interface LabAttachment {
@@ -205,6 +209,11 @@ export interface LabReview {
   reviewerEmail: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * 검수 시트를 처음 연 시각 — 공고당 실검수 시간 측정용(확대 실험 운영 지표).
+   * 파일럿 검수 파일에는 없다(하위 호환 optional). 최초 저장의 값을 보존한다.
+   */
+  startedAt?: string | null;
   criterionReviews: LabCriterionReview[];
   axisReviews: LabAxisReview[];
   overallNote: string | null;
@@ -214,6 +223,8 @@ export interface LabReviewUpsertRequest {
   grantId: string;
   runId: string;
   reviewerEmail: string;
+  /** 검수 시트 최초 오픈 시각(ISO) — 클라이언트가 계측해 보낸다. 없으면 미계측. */
+  startedAt?: string | null;
   criterionReviews: LabCriterionReview[];
   axisReviews: LabAxisReview[];
   overallNote: string | null;

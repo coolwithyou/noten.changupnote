@@ -1,6 +1,7 @@
 // 공모 딥분석 실험실 — 검수 시트 저장소 (dev 전용, DB 미사용).
 // 검수 시트는 런 파일과 같은 디렉토리의 <runId>.review.json 에 저장한다.
-// 런과 달리 사람 산출물이므로 **덮어쓰기 허용**(기본 flag) — 단 createdAt 은 최초 저장 시각을 보존한다.
+// 런과 달리 사람 산출물이므로 **덮어쓰기 허용**(기본 flag) — 단 createdAt 은 최초 저장 시각을,
+// startedAt(검수 시트 최초 오픈 시각)은 최초 계측 값을 보존한다.
 // 이 검수가 공고 criterion 골든셋의 1차 원천이다: Gate 1 순환성 가드와 동일 원칙으로
 // AI 라벨러 식별자는 검수자로 거부하고 사람 이메일만 허용한다.
 // import 방향: review-store → run-store 단방향만 (역방향 금지 — run-store 는 검수 파일을
@@ -71,7 +72,9 @@ export async function readLabReview(grantId: string, runId: string): Promise<Lab
 
 /**
  * 검수 시트 저장(덮어쓰기 허용). 기존 파일이 있으면 createdAt 을 보존하고 updatedAt 만
- * 요청 값으로 갱신한다. 실제 저장된 LabReview 를 반환한다.
+ * 요청 값으로 갱신한다. startedAt(검수 시작 시각)도 최초 값 보존 — 기존 파일에 있으면
+ * 유지하고, 없으면 이번 요청 값을 쓰며, 요청에도 없으면 null(미계측 — 파일럿 등 구 파일
+ * 하위 호환). 실제 저장된 LabReview 를 반환한다.
  */
 export async function saveLabReview(review: LabReview): Promise<LabReview> {
   const run = await readLabRun(review.grantId, review.runId);
@@ -84,6 +87,7 @@ export async function saveLabReview(review: LabReview): Promise<LabReview> {
   const saved: LabReview = {
     ...review,
     createdAt: existing?.createdAt ?? review.createdAt,
+    startedAt: existing?.startedAt ?? review.startedAt ?? null,
   };
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(saved, null, 2)}\n`, "utf8");

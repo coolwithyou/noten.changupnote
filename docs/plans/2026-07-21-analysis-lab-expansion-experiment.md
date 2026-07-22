@@ -204,7 +204,10 @@ CLAUDE.md "관문 착수 전 외부 대조 의무"에 따라 `docs/research/CALI
 
 - [x] 층별 재고 카운트 쿼리 실행·셀 구성 확정 (2026-07-22 실측 — §3 표. kstartup 층은
   2단계로 이연, applyEnd 필터 폐기)
-- [ ] grants 행 삭제 정책 확인(재수집 파이프라인이 마감 공고를 지우는지)
+- [x] grants 행 삭제 정책 확인 (2026-07-22 코드 전수 조사 — **안전**: 인제스트는
+  `onConflictDoUpdate` upsert만, 마감은 status UPDATE(open→closed)이며 grants DELETE는
+  dev 시드·verify 스크립트 3곳뿐. cohort 생존 판정은 status 무관(id만)이라 마감돼도 검수
+  유지. 유일 리스크는 프로덕션 DB에서 dev 시드/verify 스크립트 수동 실행 — 실험 중 금지)
 - [ ] 선행 구현 1~5 완료(6은 선택), typecheck·드리프트 스캔 0건
 - [ ] CALIBRATION 대조 문서 커밋
 - [ ] 가이드 §5 사례집 갱신·동결, 프롬프트 v2 동결 선언

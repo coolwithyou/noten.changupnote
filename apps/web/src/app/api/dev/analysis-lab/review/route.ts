@@ -106,6 +106,9 @@ export async function PUT(request: Request) {
   const overallResult = parseOverallNote(body.overallNote);
   if ("message" in overallResult) return badRequest(overallResult.message);
 
+  const startedAtResult = parseStartedAt(body.startedAt);
+  if ("message" in startedAtResult) return badRequest(startedAtResult.message);
+
   const now = new Date().toISOString();
   const review: LabReview = {
     grantId,
@@ -113,6 +116,7 @@ export async function PUT(request: Request) {
     reviewerEmail: reviewerCheck.email,
     createdAt: now, // 기존 파일이 있으면 review-store 가 createdAt 을 보존한다.
     updatedAt: now,
+    startedAt: startedAtResult.value, // 최초 계측 값 보존은 review-store 소관.
     criterionReviews: criterionResult.value,
     axisReviews: axisResult.value,
     overallNote: overallResult.value,
@@ -255,4 +259,13 @@ function parseAxisReviews(
 /** overallNote: trim, 4,000자 캡, 빈 문자열 → null. */
 function parseOverallNote(raw: unknown): { value: string | null } | { message: string } {
   return normalizeNote(raw, OVERALL_NOTE_MAX_CHARS, "총평은 4,000자 이내로 입력해주세요.");
+}
+
+/** startedAt(검수 시작 시각): 없으면 null(미계측 허용), 있으면 파싱 가능한 ISO 문자열만. */
+function parseStartedAt(raw: unknown): { value: string | null } | { message: string } {
+  if (raw === null || raw === undefined) return { value: null };
+  if (typeof raw !== "string" || Number.isNaN(Date.parse(raw))) {
+    return { message: "startedAt 은 ISO 8601 시각 문자열이어야 합니다." };
+  }
+  return { value: raw };
 }

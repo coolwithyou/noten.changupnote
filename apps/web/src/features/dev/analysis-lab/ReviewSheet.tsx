@@ -44,6 +44,8 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const REVIEW_URL = "/api/dev/analysis-lab/review";
+/** 통과 기준(게이트) 수 — contract 의 ANALYSIS_LAB_GATES 가 단일 원천. */
+const GATE_COUNT = Object.keys(ANALYSIS_LAB_GATES).length;
 const REVIEWER_EMAIL_STORAGE_KEY = "analysis-lab.reviewerEmail";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // 서버(review route)의 캡과 동일 — 초과 입력을 maxLength 로 선차단해 저장 시점 400 을 막는다.
@@ -161,6 +163,10 @@ export function ReviewSheet({
   // "다음 미판정" 점프용 — 항목 키(c-<index> / a-<dimension>) → DOM 엘리먼트.
   const itemRefs = useRef(new Map<string, HTMLElement>());
 
+  // 검수 시작 시각 계측 — 이 런의 검수 시트가 (이 세션에서) 처음 열린 시각.
+  // 저장 시 startedAt 으로 보내며, 서버(review-store)가 최초 저장 값을 보존한다.
+  const startedAtRef = useRef<string | null>(null);
+
   // 축 → 라벨 매핑 — DIMENSION_LABELS 는 서버(diff.ts) 소유라 dimensionDiffs 의 label 을 쓴다.
   const labelByDimension = useMemo(
     () => new Map(run.dimensionDiffs.map((diff) => [diff.dimension, diff.label])),
@@ -186,6 +192,8 @@ export function ReviewSheet({
   // 마운트·런 변경 시 기존 검수 로드 — 없으면 빈 시트.
   useEffect(() => {
     let cancelled = false;
+    // 런이 바뀌면 검수 시작 시각도 새로 계측한다 (같은 런 재방문 시각은 서버가 최초값으로 무시).
+    startedAtRef.current = new Date().toISOString();
     setLoading(true);
     setLoadError(null);
     setSaveError(null);
@@ -334,6 +342,8 @@ export function ReviewSheet({
       grantId: run.grantId,
       runId: run.runId,
       reviewerEmail: email,
+      // 검수 시작 시각 — 공고당 실검수 시간 지표. 최초 저장 값이 보존된다(서버 소관).
+      startedAt: startedAtRef.current,
       // 판정된 항목만 보낸다 — 부분 검수 저장 허용. note 는 빈 문자열이면 null.
       criterionReviews: run.criteria.flatMap((_, index) => {
         const draft = criterionDrafts[index];
@@ -648,7 +658,9 @@ function ReviewGuide({
         </div>
 
         <div className="flex flex-col gap-1.5 rounded-lg border border-primary/25 bg-primary/5 p-3">
-          <span className="text-xs font-semibold">이 검수가 결정하는 것 — 실험 통과 기준 5종</span>
+          <span className="text-xs font-semibold">
+            이 검수가 결정하는 것 — 실험 통과 기준 {GATE_COUNT}종
+          </span>
           <div className="flex flex-wrap gap-1.5">
             <Badge variant="outline" className="tabular-nums">
               정확 비율 ≥ {Math.round(gates.strictPrecisionMin * 100)}%
@@ -665,9 +677,12 @@ function ReviewGuide({
             <Badge variant="outline" className="tabular-nums">
               공고당 비용 ≤ ${gates.costPerNoticeMaxUsd}
             </Badge>
+            <Badge variant="outline" className="tabular-nums">
+              구조화 비율(정확 확정 중 기계판정 가능) ≥ {Math.round(gates.structuredRatioMin * 100)}%
+            </Badge>
           </div>
           <p className="text-xs text-muted-foreground">
-            &ldquo;수정 필요&rdquo;·&ldquo;판단 불가&rdquo;도 정확 비율의 분모에 들어갑니다. 코호트 3건을 모두
+            &ldquo;수정 필요&rdquo;·&ldquo;판단 불가&rdquo;도 정확 비율의 분모에 들어갑니다. 코호트 전 공고를
             검수·저장한 뒤 터미널에서{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
             를 실행하면 🟢/🟡/🔴 종합 판정이 나옵니다.
