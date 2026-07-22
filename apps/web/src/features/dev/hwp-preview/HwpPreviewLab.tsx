@@ -67,6 +67,10 @@ type LabMode = "viewer" | "editor";
 type RhwpModule = typeof import("@rhwp/core");
 type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
 
+/** 자가 호스팅 rhwp-studio (noten 팀 Vercel 정적 프로젝트, v0.7.19 태그 빌드) */
+const STUDIO_URL =
+  process.env.NEXT_PUBLIC_RHWP_STUDIO_URL ?? "https://changupnote-rhwp-studio.vercel.app/";
+
 let rhwpModulePromise: Promise<RhwpModule> | null = null;
 
 function loadRhwp(): Promise<RhwpModule> {
@@ -189,12 +193,13 @@ export function HwpPreviewLab({
     if (editorRef.current) return editorRef.current;
     setEditorState({
       status: "loading",
-      step: "rhwp-studio 에디터 로딩 중 (외부 origin, 최초 1회)",
+      step: "rhwp-studio 에디터 로딩 중 (자가 호스팅, 최초 1회)",
     });
     const { createEditor } = await import("@rhwp/editor");
     if (!editorContainerRef.current) throw new Error("에디터 컨테이너가 없습니다");
     const editor = await createEditor(editorContainerRef.current, {
       requestTimeoutMs: 180_000,
+      studioUrl: STUDIO_URL,
     });
     if (requestSeq.current !== seq) {
       editor.destroy();
@@ -481,7 +486,7 @@ export function HwpPreviewLab({
               <CardDescription>
                 {editorState.status === "ready"
                   ? `rhwp-studio 임베드 · ${editorState.pageCount}쪽 · 편집 후 다운로드 버튼으로 저장`
-                  : "rhwp-studio(외부 origin) iframe 임베드 — 실험용. 문서 안을 클릭해 바로 타이핑할 수 있습니다."}
+                  : "자가 호스팅 rhwp-studio iframe 임베드. 문서 안을 클릭해 바로 타이핑할 수 있습니다."}
               </CardDescription>
             ) : null}
             {mode === "viewer" && preview.status === "idle" ? (
