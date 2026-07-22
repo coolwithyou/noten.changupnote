@@ -118,15 +118,21 @@ const confirmedHtml = renderToStaticMarkup(
     <WorkspaceView
       data={{
         ...data,
+        // rhwp 모드는 클라이언트가 구조 앵커를 계산한 뒤 값을 얹는다. SSR에서 오버레이 값 계약을
+        // 검증하는 이 케이스는 서버 이미지 폴백 경로를 사용한다.
+        draftId: null,
         connectedFields: [{
           fieldId: "field-name",
+          fieldKey: "company_name",
           label: "상호명",
           section: "기업 현황",
           fieldType: "text",
           required: true,
+          sourceSpan: null,
           mappedCompanyField: "name",
           fillStrategy: "copy",
           position: { page: 1, bbox: [0.1, 0.1, 0.4, 0.15] },
+          visualEvidence: null,
         }],
         fieldAnswers: {
           상호명: {

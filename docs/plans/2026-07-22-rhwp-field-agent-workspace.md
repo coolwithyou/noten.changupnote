@@ -1,6 +1,6 @@
 # rhwp 필드 에이전트 워크스페이스 상세 구현 계획
 
-> **상태: 구현 완료 · 실문서 브라우저 확인 대기 (2026-07-22)**
+> **상태: 구조 앵커 v2 구현 완료 · 한컴 수동 개방 검증 대기 (2026-07-22)**
 >
 > 이 문서는 `/grants/[grantId]/workspace`를 **원본 HWP/HWPX 프리뷰 → 필드 선택 → 근거 기반 안내/대화 → 사용자 확인 → 원본 형식 내보내기**의 한 흐름으로 연결하는 실행 정본이다. 구현·검증·잔여 제한도 이 문서에 함께 갱신한다.
 
@@ -50,7 +50,7 @@
 ```text
 작업공간 진입
   ├─ 원본 HWP/HWPX 인증 조회 성공
-  │    └─ rhwp 파싱 → 현재 페이지 SVG + 기존 bbox 오버레이
+  │    └─ rhwp 파싱 → 현재 페이지 SVG + 같은 문서 구조에서 계산한 필드 앵커
   └─ 실패/미지원
        └─ 기존 서버 페이지 이미지 + 기존 필드 오버레이
 
@@ -87,7 +87,17 @@
 - dev 전용 `rhwp-client.ts`의 WASM 단일 초기화와 안전 내보내기를 공용 `lib/rhwp`로 이동한다.
 - 작업공간 전용 프리뷰는 `draftId`가 있고 사다리 (a)/(b)인 경우에만 동적 import한다.
 - 문서는 한 번 파싱하고 현재 페이지만 `renderPageSvg()`로 렌더링한다. 전체 페이지 선렌더링은 하지 않는다.
-- 기존 `PreviewOverlayField`와 bbox `%` 변환을 그대로 재사용해 좌표 계약을 바꾸지 않는다.
+- DB의 기존 bbox는 반복 라벨을 구분하는 탐색 힌트로만 사용한다. rhwp 프리뷰 위에는 rhwp가 같은
+  문서 인스턴스에서 계산한 표 셀·텍스트 선택 영역만 표시한다.
+- `human_review` 등 근사 bbox는 rhwp 렌더링 위에 표시하지 않는다. 구조 앵커를 확정하지 못한 필드는
+  카드에서는 유지하되 문서 오버레이는 숨겨 잘못된 위치를 확신 있게 보여주지 않는다.
+- 프리뷰 페이지 수와 좌표계는 rhwp 문서가 소유한다. 변환 이미지의 페이지 수가 다르다는 이유만으로
+  rhwp를 버리지 않으며, rhwp 자체 렌더링과 앵커가 항상 같은 좌표계를 사용하게 한다.
+- 체크박스 필드는 셀 단위 앵커와 옵션 텍스트 선택 영역을 함께 계산한다. LLM은 의미 매핑만 도울 수
+  있고 좌표를 생성하거나 보정하지 않는다.
+- 자동 앵커가 맞지 않으면 사용자가 `문서에서 입력 위치 다시 지정`을 누르고 rhwp 표 셀을 직접
+  선택할 수 있다. 이 보정은 현재 작업공간 세션에만 적용되며 프리뷰와 같은 회차의 원본 다운로드가
+  동일한 구조 셀을 사용한다. 공용 필드 DB를 일반 사용자 입력으로 덮어쓰지 않는다.
 - SVG 파싱/렌더 오류, 지원하지 않는 원본, 메모리 해제 실패는 UI를 깨뜨리지 않고 `PreviewCanvas`로 폴백한다.
 - 컴포넌트 unmount와 문서 교체 때 `HwpDocument.free()`를 호출한다.
 
@@ -182,23 +192,43 @@ type FieldAssistOutcome =
 - 실제 서버는 사용자가 해당 워크트리에서 실행한 뒤 브라우저 E2E를 최종 확인
 - 이 문서 상태와 `docs/README.md` 링크 갱신
 
+### Phase F — 구조 앵커 v2와 객관식 입력
+
+- `lib/rhwp/fieldAnchors.ts`: 라벨 검색 → 표 구조 → 오른쪽 입력 셀/옵션 선택 영역을 하나의
+  결정적 리졸버로 통합한다.
+- `RhwpPageSurface.tsx`와 `PreviewCanvas.tsx`: rhwp 페이지 수·SVG·구조 앵커를 같은 문서
+  인스턴스에서 공급하고 근사 bbox 출력은 중단한다.
+- `editPlan.ts`: 프리뷰와 동일한 구조 앵커를 재사용해 텍스트·안내문·단위 셀·체크박스를 편집한다.
+- `FieldCard.tsx`: 체크박스의 추출 옵션을 객관식 선택 UI로 제공한다.
+
+수용 기준:
+
+- 라벨 셀이 아니라 실제 입력 셀에 박스가 맞는다.
+- 변환 이미지와 rhwp의 페이지 수가 달라도 rhwp 프리뷰와 앵커는 함께 정상 동작한다.
+- `창업자 유형` 같은 체크박스는 사용자가 옵션을 고르고, 내려받은 문서에는 선택한 옵션만 표시된다.
+- `(천원)` 같은 단위 텍스트는 보존하고 값은 그 앞에 입력한다.
+- 파란 안내문처럼 source span으로 확인 가능한 템플릿 안내문만 교체하며, 기존 실제 값은 덮어쓰지 않는다.
+- 구조 위치를 확정하지 못하면 근사 박스를 대신 표시하거나 그 위치에 저장하지 않는다.
+
 ## 6. 검증 명령
 
 ```bash
 pnpm build:packages
 pnpm --filter web typecheck
+pnpm test:rhwp-field-agent
 pnpm test:chat-grounding
 pnpm test:field-answers
 pnpm test:apply-workspace
 pnpm verify:route-policy
-pnpm --filter web build
+NEXT_DIST_DIR=.next-build pnpm --filter @cunote/web build
 ```
 
 관련 스크립트가 패키지에 없으면 동일 범위의 Vitest 파일을 직접 실행하고, 최종 문서에 실제 명령을 기록한다.
 
 ## 7. 범위 밖과 후속 과제
 
-- 좌표만으로 추정한 체크박스/라디오 자동 선택: 옵션 ID/컨트롤 앵커 계약이 생기기 전에는 안내만 제공한다.
+- 양식 개체가 아닌 임의 도형 체크박스, 이미지 체크박스: 구조 텍스트/폼 컨트롤로 확인되지 않으면
+  자동 선택하지 않는다.
 - 자유 편집기 전체 통합: rhwp Studio는 별도 고급 편집 진입점으로 유지하며 이번 흐름은 필드 확인 중심이다.
 - 서버에서 rhwp WASM을 실행하는 내보내기: 이번 슬라이스는 브라우저 자기 검증이며, 실제 문서 corpus가 쌓인 뒤 서버 이중 검증을 검토한다.
 - PDF/PPTX 원본 편집: 파싱·가이드에는 합류할 수 있으나 원본 양식 편집은 별도 엔진이 필요하다.
@@ -208,9 +238,26 @@ pnpm --filter web build
 - 2026-07-22: 메인 작업트리 `7b26092`가 clean 상태임을 확인했다. 커밋할 미반영 변경은 없었다.
 - 2026-07-22: Orca worktree `rhwp-field-agent-workspace`, branch `coolwithyou/rhwp-field-agent-workspace`를 생성하고 `.env`, `.env.local`, `.env.vercel.local`을 복사했다.
 - 2026-07-22: draft 소유권 기반 원본 파일 API와 route policy를 추가했다. R2 key는 클라이언트에 노출하지 않으며 매직바이트가 HWP/HWPX가 아니면 차단한다.
-- 2026-07-22: 작업공간 프리뷰에 rhwp 현재 페이지 SVG를 연결했다. SVG는 DOM 주입 대신 object URL 이미지로 격리하고, 페이지 수 불일치·파싱 실패는 기존 서버 이미지로 폴백한다.
+- 2026-07-22: 작업공간 프리뷰에 rhwp 현재 페이지 SVG를 연결했다. SVG는 DOM 주입 대신 object URL 이미지로 격리한다. 초기 버전은 페이지 수 불일치도 이미지 폴백으로 취급했으나 구조 앵커 v2에서 이 조건을 제거했다.
 - 2026-07-22: 필드 채팅의 문맥을 멀티턴으로 유지하고 `data-fieldAssist` 결과를 추가했다. 공고/프로필/사용자 직접 제공 정보의 근거 검증을 통과한 제안만 CTA로 표시하며 클릭 전에는 내보내기에 포함되지 않는다.
 - 2026-07-22: rhwp EditPlan은 이름 있는 누름틀(안내문 포함)과 유일한 라벨 오른쪽 빈 셀을 지원한다. 기존 값·중복 위치·중복 라벨은 덮어쓰지 않고 미채움으로 보고한다.
 - 2026-07-22: 원본 형식 HWP/HWPX 내보내기와 실제 산출물 재로드/페이지 수 검증을 연결했다. HWP는 `exportHwpVerify`도 함께 통과해야 하며 HWPX는 기존 서버 내보내기를 폴백으로 유지한다.
-- 자동 확인 완료: `build:packages`, web `typecheck`, `test:rhwp-field-agent`, `test:field-answers`, `test:chat-grounding`, `test:apply-workspace`, `verify:route-policy`, web production build.
-- 브라우저 확인 보류 이유: 현재 4010 서버는 메인 작업트리(`/Users/ffgg/noten.works/cunote/apps/web`)에서 실행 중이며, 프로젝트 지침상 Codex가 별도 장기 실행 dev server를 시작하지 않는다. 사용자가 본 worktree에서 서버를 실행한 뒤 실제 HWP/HWPX 각 1건의 프리뷰·대화·다운로드·한컴 열기를 확인한다.
+- 2026-07-22: 실문서 검증에서 기존 `human_review` bbox가 표의 입력 셀이 아니라 행 전체/인접 라벨을
+  감싸고, 변환 프리뷰(11쪽)와 rhwp 레이아웃(환경에 따라 8쪽)의 페이지 수 차이 때문에 rhwp가 항상
+  이미지로 폴백하는 근본 원인을 확인했다. Phase F는 이 두 좌표계를 혼합하지 않는 구조 앵커 v2다.
+- 2026-07-22: 구조 앵커 v2를 구현했다. `searchAllText`의 셀 문맥과 `getTableCellBboxes`를 조합해
+  라벨 오른쪽의 실제 입력 셀을 찾고, 기존 bbox는 반복 라벨의 페이지/거리 힌트로만 사용한다.
+- 2026-07-22: 객관식 원문(`□`, `☐`, `동의( )`)을 선택 UI로 변환하고 정적 체크 glyph는 선택한
+  항목만 `■`로 편집한다. 단위 전용 텍스트는 보존하고 값은 앞에 삽입하며, source span으로 검증된
+  안내문만 삭제 후 교체한다.
+- 2026-07-22: 프리뷰가 데스크톱/모바일 DOM에 이중 mount되어 문서와 WASM 메모리가 두 벌 생기던
+  구조를 단일 반응형 노드로 합쳤다.
+- 2026-07-22: 4020 실문서 브라우저에서 rhwp blob 이미지 1개, rhwp 페이지 `1 / 8`, 첫 페이지
+  구조 오버레이 14개를 확인했다. `창업자 유형` 입력 셀은 `left 21.9856% / top 30.4855% /
+  width 67.0908% / height 2.30735%`로 표의 실제 오른쪽 셀과 일치했고, 객관식 선택 및 사용자의
+  직접 셀 보정 토스트까지 확인했다. DB 저장/파일 다운로드는 사용자 데이터 변경을 피하려 브라우저
+  자동화에서 실행하지 않았다.
+- 자동 확인 완료: `build:packages`, web `typecheck`, `test:rhwp-field-agent`, `test:field-answers`,
+  `test:chat-grounding`, `test:apply-workspace`, `verify:route-policy`, 격리 dist의 web production build.
+- 잔여 수동 확인: 사용자가 실제 값을 확정해 내려받은 HWP/HWPX를 한컴오피스에서 열어 체크 표시,
+  안내문 교체, 단위 보존과 무결성 경고 부재를 최종 확인한다.

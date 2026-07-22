@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { boxToPercentStyle, type NormalizedBox } from "@/lib/documents/bbox";
+import type { RhwpFieldAnchor, RhwpFieldDescriptor } from "@/lib/rhwp/fieldAnchors";
 import type { PreviewPage } from "@/lib/server/documents/documentPreview";
 import { RhwpPageSurface } from "./RhwpPageSurface";
 
@@ -32,7 +33,13 @@ export interface PreviewOverlayField {
   state: PreviewOverlayState;
   /** 확정(confirmed)된 값 — 오버레이 안에 실제 기입처럼 렌더한다(재정의 R2). */
   value?: string | null;
+  /** 기존 좌표의 생성 근거. rhwp 모드에서는 신뢰 가능한 구조 좌표만 폴백 표시한다. */
+  visualEvidence?: Record<string, unknown> | null;
 }
+
+type RhwpPreviewState =
+  | { status: "inactive" | "loading" | "fallback" }
+  | { status: "ready"; pageCount: number; anchors: RhwpFieldAnchor[] };
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
@@ -80,6 +87,11 @@ export function PreviewCanvas({
   fill = false,
   className,
   rhwpSourceUrl,
+  rhwpFields = [],
+  manualAnchors = [],
+  locatingFieldId = null,
+  onLocateField,
+  onRhwpAnchorsChange,
 }: {
   grantId: string;
   grantTitle: string;
@@ -92,13 +104,60 @@ export function PreviewCanvas({
   className?: string;
   /** 있으면 rhwp 원본 SVG를 우선 렌더하고, 실패 시 기존 페이지 이미지로 폴백한다. */
   rhwpSourceUrl?: string | null;
+  /** rhwp 구조 앵커를 계산할 의미 필드. DB bbox는 위치 힌트로만 포함한다. */
+  rhwpFields?: readonly RhwpFieldDescriptor[];
+  /** 현재 draft 세션에서 사용자가 직접 지정한 구조 셀. */
+  manualAnchors?: readonly RhwpFieldAnchor[];
+  locatingFieldId?: string | null;
+  onLocateField?: (anchor: RhwpFieldAnchor) => void;
+  onRhwpAnchorsChange?: (fieldIds: ReadonlySet<string>) => void;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const selectedOverlayRef = useRef<HTMLButtonElement>(null);
-  const totalPages = pages.length;
-  const currentPage = pages[pageIndex] ?? null;
+  const [rhwpPreview, setRhwpPreview] = useState<RhwpPreviewState>(
+    rhwpSourceUrl ? { status: "loading" } : { status: "inactive" },
+  );
+  const totalPages = rhwpPreview.status === "ready" ? rhwpPreview.pageCount : pages.length;
+  const currentPage = pages.find((page) => page.page === pageIndex + 1) ?? null;
+
+  useEffect(() => {
+    setRhwpPreview(rhwpSourceUrl ? { status: "loading" } : { status: "inactive" });
+    setPageIndex(0);
+  }, [rhwpSourceUrl]);
+
+  const handleRhwpReady = useCallback((result: { pageCount: number; anchors: RhwpFieldAnchor[] }) => {
+    setRhwpPreview({ status: "ready", pageCount: result.pageCount, anchors: result.anchors });
+    onRhwpAnchorsChange?.(new Set(result.anchors.map((anchor) => anchor.fieldId)));
+  }, [onRhwpAnchorsChange]);
+
+  const handleRhwpFallback = useCallback(() => {
+    setRhwpPreview({ status: "fallback" });
+  }, []);
+
+  const locatingField = useMemo(
+    () => rhwpFields.find((field) => field.fieldId === locatingFieldId) ?? null,
+    [rhwpFields, locatingFieldId],
+  );
+
+  const effectiveOverlayFields = useMemo<PreviewOverlayField[]>(() => {
+    if (!rhwpSourceUrl) return overlayFields;
+    if (rhwpPreview.status === "ready") {
+      const anchors = new Map(rhwpPreview.anchors.map((anchor) => [anchor.fieldId, anchor]));
+      for (const anchor of manualAnchors) anchors.set(anchor.fieldId, anchor);
+      return overlayFields.map((field) => {
+        const anchor = anchors.get(field.fieldId);
+        return { ...field, page: anchor?.page ?? null, box: anchor?.box ?? null };
+      });
+    }
+    // rhwp 로딩/실패 때 human_review 근사 박스를 원본 위에 그리지 않는다.
+    return overlayFields.map((field) => {
+      const source = typeof field.visualEvidence?.source === "string" ? field.visualEvidence.source : "";
+      const trusted = source.startsWith("rhwp") || source === "layout_json" || source === "ocr_exact";
+      return trusted ? field : { ...field, page: null, box: null };
+    });
+  }, [manualAnchors, overlayFields, rhwpPreview, rhwpSourceUrl]);
 
   const centerSelectedOverlay = useCallback(() => {
     const viewport = scrollViewportRef.current;
@@ -125,11 +184,10 @@ export function PreviewCanvas({
   // 선택 필드가 바뀌면 그 필드의 페이지로 이동(카드→캔버스 동기화). 좌표 없는 필드는 no-op.
   useEffect(() => {
     if (!selectedFieldId) return;
-    const field = overlayFields.find((entry) => entry.fieldId === selectedFieldId);
+    const field = effectiveOverlayFields.find((entry) => entry.fieldId === selectedFieldId);
     if (!field || !field.box || !field.page) return;
-    const targetIndex = pages.findIndex((page) => page.page === field.page);
-    if (targetIndex >= 0) setPageIndex(targetIndex);
-  }, [selectedFieldId, overlayFields, pages]);
+    if (field.page >= 1 && field.page <= totalPages) setPageIndex(field.page - 1);
+  }, [selectedFieldId, effectiveOverlayFields, totalPages]);
 
   // 문서 전환 등으로 페이지 수가 줄면 인덱스 보정.
   useEffect(() => {
@@ -145,8 +203,8 @@ export function PreviewCanvas({
   }, [centerSelectedOverlay, currentPage?.page, selectedFieldId, zoom]);
 
   const overlaysForPage = useMemo(
-    () => (currentPage ? overlayFields.filter((field) => field.box && field.page === currentPage.page) : []),
-    [overlayFields, currentPage],
+    () => effectiveOverlayFields.filter((field) => field.box && field.page === pageIndex + 1),
+    [effectiveOverlayFields, pageIndex],
   );
 
   return (
@@ -164,23 +222,27 @@ export function PreviewCanvas({
           fill ? "min-h-0 flex-1" : "max-h-[80vh]",
         )}
       >
-        {currentPage ? (
+        {totalPages > 0 && (currentPage || rhwpPreview.status === "ready") ? (
           // mx-auto: 축소 시 페이지를 가운데로. 확대(>100%)면 margin 0 이 되어 좌측부터 스크롤.
           <div className="relative mx-auto my-4 shadow-[var(--shadow-standard)]" style={{ width: `${zoom * 100}%` }}>
             {rhwpSourceUrl ? (
               <RhwpPageSurface
                 sourceUrl={rhwpSourceUrl}
                 pageIndex={pageIndex}
-                expectedPageCount={totalPages}
-                fallbackSrc={pageImageUrl(grantId, currentPage.storageKey)}
-                alt={`${grantTitle} ${currentPage.page}페이지`}
+                fields={rhwpFields}
+                fallbackSrc={currentPage ? pageImageUrl(grantId, currentPage.storageKey) : null}
+                alt={`${grantTitle} ${pageIndex + 1}페이지`}
                 onLoad={centerSelectedOverlay}
+                onReady={handleRhwpReady}
+                onFallback={handleRhwpFallback}
+                locatingField={locatingField}
+                {...(onLocateField ? { onLocate: onLocateField } : {})}
               />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={pageImageUrl(grantId, currentPage.storageKey)}
-                alt={`${grantTitle} ${currentPage.page}페이지`}
+                src={pageImageUrl(grantId, currentPage!.storageKey)}
+                alt={`${grantTitle} ${currentPage!.page}페이지`}
                 className="pointer-events-none block w-full select-none"
                 draggable={false}
                 onLoad={centerSelectedOverlay}
@@ -204,6 +266,7 @@ export function PreviewCanvas({
                     // 상태색(미입력/제안/확정/확인 필요)이 오버레이의 본질이라 tone 색을 className 으로 덮어쓴다.
                     // p-0 으로 버튼 기본 패딩만 제거하고, 위치·크기는 아래 동적 좌표 style 이 결정한다.
                     "absolute items-start justify-start overflow-hidden rounded-[3px] p-0 text-left whitespace-normal transition-colors",
+                    locatingFieldId && "pointer-events-none",
                     active ? tone.active : tone.base,
                   )}
                   // 동적 좌표: 필드 bbox(정규화 %)를 오버레이 위치/크기로 매핑한 계산값이라 인라인 style 유지.

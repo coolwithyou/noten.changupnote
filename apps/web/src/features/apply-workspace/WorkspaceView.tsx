@@ -16,7 +16,7 @@
  *  (b) 프리뷰 + "작성 항목 분석 중" + missingFields 질문 카드
  *  (c) 정직 고지 + 채팅 전면(기관 연락처 포함) — 확인 루프 불성립(§2-⑥, DraftFallbackEditor 미렌더)
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
@@ -27,6 +27,8 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
+import { extractFieldOptions } from "@/lib/documents/fieldOptions";
+import type { RhwpFieldAnchor, RhwpFieldDescriptor } from "@/lib/rhwp/fieldAnchors";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
@@ -57,6 +59,9 @@ export function WorkspaceView({
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
   const [panelMode, setPanelMode] = useState<WorkspacePanelMode>("single");
   const [showChat, setShowChat] = useState(false);
+  const [rhwpAnchorsReady, setRhwpAnchorsReady] = useState(false);
+  const [locatingFieldId, setLocatingFieldId] = useState<string | null>(null);
+  const [manualAnchors, setManualAnchors] = useState<RhwpFieldAnchor[]>([]);
   const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
   useEffect(() => {
@@ -86,9 +91,23 @@ export function WorkspaceView({
           state: fieldVisualState(field.label, answers, duplicateSet),
           // 확정(accepted/edited)된 값만 오버레이 안에 실제 기입처럼 렌더한다(R2).
           value: workspaceFieldState(answer) === "filled" ? answer?.value ?? null : null,
+          visualEvidence: field.visualEvidence,
         };
       }),
     [data.connectedFields, answers, duplicateSet],
+  );
+
+  const rhwpFields = useMemo<RhwpFieldDescriptor[]>(
+    () => data.connectedFields.map((field) => ({
+      fieldId: field.fieldId,
+      fieldKey: field.fieldKey,
+      label: field.label,
+      fieldType: field.fieldType,
+      sourceSpan: field.sourceSpan,
+      position: field.position,
+      options: extractFieldOptions(field.fieldType, field.sourceSpan),
+    })),
+    [data.connectedFields],
   );
 
   // 진행 표시는 단일 축(confirmed/total). 필수/전체 이중 표기는 폐기(재정의 §2-①).
@@ -230,8 +249,19 @@ export function WorkspaceView({
 
   function handleSelectField(fieldId: string) {
     setSelectedFieldId(fieldId);
+    setLocatingFieldId(null);
     setPanelMode("single");
   }
+
+  const handleRhwpAnchorsChange = useCallback((_fieldIds: ReadonlySet<string>) => {
+    setRhwpAnchorsReady(true);
+  }, []);
+
+  const handleLocateField = useCallback((anchor: RhwpFieldAnchor) => {
+    setManualAnchors((current) => [...current.filter((entry) => entry.fieldId !== anchor.fieldId), anchor]);
+    setLocatingFieldId(null);
+    toast.success(`'${anchor.label}' 입력 위치를 현재 문서 셀로 지정했습니다.`);
+  }, []);
 
   const previewCanvas = (
     <PreviewCanvas
@@ -243,6 +273,11 @@ export function WorkspaceView({
       onSelectField={handleSelectField}
       fill
       rhwpSourceUrl={data.draftId ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file` : null}
+      rhwpFields={rhwpFields}
+      manualAnchors={manualAnchors}
+      locatingFieldId={locatingFieldId}
+      onLocateField={handleLocateField}
+      onRhwpAnchorsChange={handleRhwpAnchorsChange}
     />
   );
 
@@ -267,6 +302,13 @@ export function WorkspaceView({
       mode={panelMode}
       draftId={data.draftId}
       hwpxTemplateAvailable={data.hwpxTemplateAvailable}
+      rhwpAnchorsReady={rhwpAnchorsReady}
+      locatingFieldId={locatingFieldId}
+      manualAnchors={manualAnchors}
+      onStartLocateField={(fieldId) => {
+        setSelectedFieldId(fieldId);
+        setLocatingFieldId(fieldId);
+      }}
     />
   );
 
@@ -358,22 +400,14 @@ export function WorkspaceView({
           </div>
         </div>
       ) : (
-        <>
-          {/* 데스크톱: 문서 60% + 확인 카드 40%. 채팅은 패널을 갈아끼우지 않고 Sheet 로 얹힌다.
-              우측 wrapper 는 스크롤만 담당 — 표면(테두리)은 카드/패널이 직접 진다(이중 프레임 방지, R4). */}
-          <div className="hidden min-h-0 flex-1 gap-4 p-4 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(380px,2fr)]">
+        // 프리뷰를 데스크톱/모바일용으로 두 번 mount하면 원본 파싱·WASM 메모리도 두 배가 된다.
+        // 동일 노드 하나를 반응형 레이아웃만 바꿔 사용한다.
+        <div className="min-h-0 flex-1 overflow-auto p-3 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(380px,2fr)] lg:gap-4 lg:overflow-hidden lg:p-4">
+          <div className="h-52 overflow-hidden rounded-[var(--radius-xl)] lg:h-auto lg:min-h-0 lg:overflow-visible lg:rounded-none">
             {previewCanvas}
-            <div className="min-h-0 overflow-auto">{fieldPanel}</div>
           </div>
-
-          {/* 모바일: 프리뷰 상단 크롭 + 확인 카드가 주인공. 채팅은 데스크톱과 동일하게 Sheet. */}
-          <div className="min-h-0 flex-1 overflow-auto p-3 lg:hidden">
-            <div className="flex flex-col gap-3">
-              <div className="h-52 overflow-hidden rounded-[var(--radius-xl)]">{previewCanvas}</div>
-              <div>{fieldPanel}</div>
-            </div>
-          </div>
-        </>
+          <div className="mt-3 lg:min-h-0 lg:mt-0 lg:overflow-auto">{fieldPanel}</div>
+        </div>
       )}
 
       {/* 채팅 Sheet 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. 진입점(💬)은 (a) 확인 카드뿐. */}

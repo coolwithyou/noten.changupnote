@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
+import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
+import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
 import { applyRhwpEditFields, buildRhwpEditFields } from "@/lib/rhwp/editPlan";
 import {
   downloadBytes,
@@ -32,6 +34,8 @@ export function WorkspaceDownloadButton({
   variant = "default",
   saving = false,
   answers,
+  connectedFields,
+  manualAnchors,
   duplicateLabels,
   hwpxFallbackAvailable = false,
 }: {
@@ -41,6 +45,8 @@ export function WorkspaceDownloadButton({
   variant?: "default" | "outline";
   saving?: boolean;
   answers: DraftFieldAnswers;
+  connectedFields: readonly ConnectedDocumentField[];
+  manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels?: ReadonlySet<string>;
   hwpxFallbackAvailable?: boolean;
 }) {
@@ -53,6 +59,8 @@ export function WorkspaceDownloadButton({
       const result = await downloadWithRhwp({
         draftId,
         answers,
+        connectedFields,
+        manualAnchors,
         ...(duplicateLabels ? { duplicateLabels } : {}),
       });
       if (result.skipped.length > 0) {
@@ -101,6 +109,8 @@ export function WorkspaceDownloadButton({
 async function downloadWithRhwp(input: {
   draftId: string;
   answers: DraftFieldAnswers;
+  connectedFields: readonly ConnectedDocumentField[];
+  manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels?: ReadonlySet<string>;
 }): Promise<{ format: RhwpDocumentFormat; skipped: Array<{ label: string; reason: string }> }> {
   const response = await fetch(
@@ -120,9 +130,10 @@ async function downloadWithRhwp(input: {
   try {
     const plan = buildRhwpEditFields({
       answers: input.answers,
+      connectedFields: input.connectedFields,
       ...(input.duplicateLabels ? { duplicateLabels: input.duplicateLabels } : {}),
     });
-    const applied = applyRhwpEditFields(document, plan.fields);
+    const applied = applyRhwpEditFields(document, plan.fields, input.manualAnchors);
     const verification = exportVerifiedRhwpDocument({ rhwp, document, format: formatHeader });
     const extensionPattern = /\.(hwp|hwpx)$/i;
     const base = originalFilename.replace(extensionPattern, "");

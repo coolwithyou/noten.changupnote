@@ -49,13 +49,16 @@ export async function resolveArchiveStorageKey(input: {
 /** 연결된 필드의 표준 형태(패널·시드·진행률·충돌 감지 공용 부분집합). */
 export interface ConnectedDocumentField {
   fieldId: string;
+  fieldKey: string;
   label: string;
   section: string | null;
   fieldType: string;
   required: boolean;
+  sourceSpan: string | null;
   mappedCompanyField: string | null;
   fillStrategy: string;
   position: Record<string, unknown> | null;
+  visualEvidence: Record<string, unknown> | null;
 }
 
 /**
@@ -86,25 +89,31 @@ export async function loadConnectedDocumentFields(input: {
   const rows = await db
     .select({
       fieldId: schema.grantDocumentFields.id,
+      fieldKey: schema.grantDocumentFields.fieldKey,
       label: schema.grantDocumentFields.label,
       section: schema.grantDocumentFields.section,
       fieldType: schema.grantDocumentFields.fieldType,
       required: schema.grantDocumentFields.required,
+      sourceSpan: schema.grantDocumentFields.sourceSpan,
       mappedCompanyField: schema.grantDocumentFields.mappedCompanyField,
       fillStrategy: schema.grantDocumentFields.fillStrategy,
       position: schema.grantDocumentFields.position,
+      visualEvidence: schema.grantDocumentFields.visualEvidence,
     })
     .from(schema.grantDocumentFields)
     .where(where);
 
   return rows.map((row) => ({
     fieldId: row.fieldId,
+    fieldKey: row.fieldKey,
     label: row.label,
     section: row.section,
     fieldType: row.fieldType,
     required: row.required,
+    sourceSpan: row.sourceSpan,
     mappedCompanyField: row.mappedCompanyField,
     fillStrategy: row.fillStrategy,
     position: row.position,
+    visualEvidence: row.visualEvidence,
   }));
 }

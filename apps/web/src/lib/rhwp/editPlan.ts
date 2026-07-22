@@ -1,9 +1,21 @@
 import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
+import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
+import { extractFieldOptions } from "@/lib/documents/fieldOptions";
+import {
+  resolveRhwpFieldAnchors,
+  type RhwpAnchorDocument,
+  type RhwpFieldAnchor,
+} from "./fieldAnchors";
 
 export interface RhwpEditField {
   fieldId?: string;
+  fieldKey?: string;
   label: string;
   value: string;
+  fieldType?: string;
+  sourceSpan?: string | null;
+  position?: Record<string, unknown> | null;
+  options?: string[];
 }
 
 export interface RhwpEditResult {
@@ -14,10 +26,12 @@ export interface RhwpEditResult {
 interface SearchHit {
   sec: number;
   length: number;
+  charOffset?: number;
   cellContext?: {
     parentPara: number;
     ctrlIdx: number;
     cellIdx: number;
+    cellPara?: number;
   };
 }
 
@@ -26,6 +40,15 @@ interface CellInfo {
 }
 
 export interface RhwpEditableDocument {
+  pageCount?: () => number;
+  getPageInfo?: (page: number) => string;
+  getTableCellBboxes?: (
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    pageHint?: number | null,
+  ) => string;
+  getSelectionRectsInCell?: RhwpAnchorDocument["getSelectionRectsInCell"];
   getFieldList?: () => string;
   setFieldValueByName?: (name: string, value: string) => string;
   searchAllText(query: string, caseSensitive: boolean, includeCells: boolean): string;
@@ -37,6 +60,24 @@ export interface RhwpEditableDocument {
     cellIndex: number,
     cellParagraph: number,
   ): number;
+  getTextInCell?: (
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
+    charOffset: number,
+    count: number,
+  ) => string;
+  deleteTextInCell?: (
+    section: number,
+    parentPara: number,
+    controlIndex: number,
+    cellIndex: number,
+    cellParagraph: number,
+    charOffset: number,
+    count: number,
+  ) => string;
   insertTextInCell(
     section: number,
     parentPara: number,
@@ -56,14 +97,18 @@ interface NamedFieldInfo {
 
 export function buildRhwpEditFields(input: {
   answers: DraftFieldAnswers;
+  connectedFields?: readonly ConnectedDocumentField[];
   duplicateLabels?: ReadonlySet<string>;
 }): { fields: RhwpEditField[]; skipped: RhwpEditResult["skipped"] } {
   const fields: RhwpEditField[] = [];
   const skipped: RhwpEditResult["skipped"] = [];
-  for (const [rawLabel, answer] of Object.entries(input.answers)) {
+  const entries: Array<[string, DraftFieldAnswers[string] | undefined, ConnectedDocumentField | undefined]> = input.connectedFields
+    ? input.connectedFields.map((field) => [field.label, input.answers[field.label.trim().slice(0, 160)], field])
+    : Object.entries(input.answers).map(([label, answer]) => [label, answer, undefined]);
+  for (const [rawLabel, answer, connectedField] of entries) {
     const label = rawLabel.trim().slice(0, 160);
     const value = answer?.value?.trim().slice(0, 4_000) ?? "";
-    if (!label || !value || (answer.status !== "accepted" && answer.status !== "edited")) continue;
+    if (!answer || !label || !value || (answer.status !== "accepted" && answer.status !== "edited")) continue;
     if (input.duplicateLabels?.has(rawLabel)) {
       skipped.push({ label, value, reason: "동일한 항목명이 여러 곳에 있어 자동 입력하지 않았습니다." });
       continue;
@@ -71,10 +116,185 @@ export function buildRhwpEditFields(input: {
     fields.push({
       label,
       value,
-      ...(answer.fieldId ? { fieldId: answer.fieldId } : {}),
+      ...(connectedField?.fieldId || answer.fieldId ? { fieldId: connectedField?.fieldId ?? answer.fieldId } : {}),
+      ...(connectedField ? {
+        fieldKey: connectedField.fieldKey,
+        fieldType: connectedField.fieldType,
+        sourceSpan: connectedField.sourceSpan,
+        position: connectedField.position,
+        options: extractFieldOptions(connectedField.fieldType, connectedField.sourceSpan),
+      } : {}),
     });
   }
   return { fields, skipped };
+}
+
+function canResolveStructuralAnchors(document: RhwpEditableDocument): document is RhwpEditableDocument & RhwpAnchorDocument {
+  return Boolean(document.pageCount && document.getPageInfo && document.getTableCellBboxes);
+}
+
+function textFromCellResult(value: string): string {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (typeof parsed === "string") return parsed;
+    if (parsed && typeof parsed === "object" && typeof (parsed as { text?: unknown }).text === "string") {
+      return (parsed as { text: string }).text;
+    }
+  } catch {
+    // rhwp는 일반 문자열을 직접 반환하는 버전도 있다.
+  }
+  return value;
+}
+
+function normalizedText(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase("ko-KR").replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function isUnitOnly(value: string): boolean {
+  return /^\s*[([]?\s*(?:천원|백만원|억원|만원|원|명|개|건|년|개월|일|%|㎡|m²|km²)\s*[)\]]?\s*$/iu.test(value);
+}
+
+function isReplaceableGuide(value: string, sourceSpan: string | null | undefined): boolean {
+  const normalized = normalizedText(value);
+  if (!normalized || !sourceSpan || !normalizedText(sourceSpan).includes(normalized)) return false;
+  return /(?:기재|작성|입력|서술|제시|선택|해당\s*시|예시|sample)|^[※*]/iu.test(value);
+}
+
+function applyCellText(
+  document: RhwpEditableDocument,
+  field: RhwpEditField,
+  anchor: RhwpFieldAnchor,
+): string | null {
+  const target = anchor.target;
+  const length = document.getCellParagraphLength(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+  );
+  if (length <= 0) {
+    return parsedOk(document.insertTextInCell(
+      target.section,
+      target.parentPara,
+      target.controlIndex,
+      target.cellIndex,
+      target.cellParagraph,
+      0,
+      field.value,
+    )) ? null : "rhwp가 대상 셀 입력을 완료하지 못했습니다.";
+  }
+  if (!document.getTextInCell) return "입력 셀에 기존 내용이 있어 덮어쓰지 않았습니다.";
+  const current = textFromCellResult(document.getTextInCell(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+    0,
+    length,
+  )).trim();
+  if (isUnitOnly(current)) {
+    return parsedOk(document.insertTextInCell(
+      target.section,
+      target.parentPara,
+      target.controlIndex,
+      target.cellIndex,
+      target.cellParagraph,
+      0,
+      field.value,
+    )) ? null : "단위 앞에 값을 입력하지 못했습니다.";
+  }
+  if (!isReplaceableGuide(current, field.sourceSpan)) {
+    return "입력 셀에 기존 내용이 있어 덮어쓰지 않았습니다.";
+  }
+  if (!document.deleteTextInCell) return "서식 안내문을 안전하게 교체할 수 없습니다.";
+  if (!parsedOk(document.deleteTextInCell(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+    0,
+    current.length,
+  ))) return "서식 안내문을 지우지 못했습니다.";
+  return parsedOk(document.insertTextInCell(
+    target.section,
+    target.parentPara,
+    target.controlIndex,
+    target.cellIndex,
+    target.cellParagraph,
+    0,
+    field.value,
+  )) ? null : "서식 안내문 자리에 값을 입력하지 못했습니다.";
+}
+
+function applyCheckboxChoice(
+  document: RhwpEditableDocument,
+  field: RhwpEditField,
+  anchor: RhwpFieldAnchor,
+): string | null {
+  const selected = field.options?.find((option) => normalizedText(option) === normalizedText(field.value));
+  if (!selected) return "원본 양식의 선택지와 일치하는 값을 찾지 못했습니다.";
+  if (!document.getTextInCell || !document.deleteTextInCell) {
+    return "체크박스 문자를 안전하게 편집할 수 없습니다.";
+  }
+  const edits: Array<{ paragraph: number; offset: number; glyph: "□" | "■" }> = [];
+  for (const option of field.options ?? []) {
+    const hits = parseJsonArray(document.searchAllText(option, false, true)).filter((hit) => {
+      const context = hit.cellContext;
+      return context
+        && hit.sec === anchor.target.section
+        && context.parentPara === anchor.target.parentPara
+        && context.ctrlIdx === anchor.target.controlIndex
+        && context.cellIdx === anchor.target.cellIndex;
+    });
+    if (hits.length !== 1) return `선택지 '${option}'의 위치가 모호합니다.`;
+    const hit = hits[0]!;
+    const paragraph = hit.cellContext?.cellPara ?? 0;
+    const optionOffset = hit.charOffset ?? 0;
+    const paragraphLength = document.getCellParagraphLength(
+      anchor.target.section,
+      anchor.target.parentPara,
+      anchor.target.controlIndex,
+      anchor.target.cellIndex,
+      paragraph,
+    );
+    const text = textFromCellResult(document.getTextInCell(
+      anchor.target.section,
+      anchor.target.parentPara,
+      anchor.target.controlIndex,
+      anchor.target.cellIndex,
+      paragraph,
+      0,
+      paragraphLength,
+    ));
+    const prefix = text.slice(0, optionOffset);
+    const offset = Math.max(prefix.lastIndexOf("□"), prefix.lastIndexOf("☐"), prefix.lastIndexOf("☑"), prefix.lastIndexOf("■"));
+    if (offset < 0) return `선택지 '${option}' 앞의 체크박스를 찾지 못했습니다.`;
+    edits.push({ paragraph, offset, glyph: option === selected ? "■" : "□" });
+  }
+  edits.sort((a, b) => b.paragraph - a.paragraph || b.offset - a.offset);
+  for (const edit of edits) {
+    if (!parsedOk(document.deleteTextInCell(
+      anchor.target.section,
+      anchor.target.parentPara,
+      anchor.target.controlIndex,
+      anchor.target.cellIndex,
+      edit.paragraph,
+      edit.offset,
+      1,
+    )) || !parsedOk(document.insertTextInCell(
+      anchor.target.section,
+      anchor.target.parentPara,
+      anchor.target.controlIndex,
+      anchor.target.cellIndex,
+      edit.paragraph,
+      edit.offset,
+      edit.glyph,
+    ))) return "체크박스 선택을 문서에 반영하지 못했습니다.";
+  }
+  return null;
 }
 
 function parseJsonArray(value: string): SearchHit[] {
@@ -126,10 +346,24 @@ function parseNamedFields(document: RhwpEditableDocument): NamedFieldInfo[] {
 export function applyRhwpEditFields(
   document: RhwpEditableDocument,
   fields: readonly RhwpEditField[],
+  manualAnchors: readonly RhwpFieldAnchor[] = [],
 ): RhwpEditResult {
   const filled: RhwpEditResult["filled"] = [];
   const skipped: RhwpEditResult["skipped"] = [];
   const namedFields = parseNamedFields(document);
+  const structuralAnchors = canResolveStructuralAnchors(document)
+    ? resolveRhwpFieldAnchors(document, fields.map((field) => ({
+        fieldId: field.fieldId ?? field.label,
+        label: field.label,
+        fieldType: field.fieldType ?? "text",
+        ...(field.fieldKey !== undefined ? { fieldKey: field.fieldKey } : {}),
+        ...(field.sourceSpan !== undefined ? { sourceSpan: field.sourceSpan } : {}),
+        ...(field.position !== undefined ? { position: field.position } : {}),
+        ...(field.options !== undefined ? { options: field.options } : {}),
+      })))
+    : [];
+  const anchorsById = new Map(structuralAnchors.map((anchor) => [anchor.fieldId, anchor]));
+  for (const anchor of manualAnchors) anchorsById.set(anchor.fieldId, anchor);
 
   for (const field of fields) {
     try {
@@ -151,6 +385,15 @@ export function applyRhwpEditFields(
           continue;
         }
         skipped.push({ label: field.label, value: field.value, reason: "rhwp가 누름틀 입력을 완료하지 못했습니다." });
+        continue;
+      }
+      const structuralAnchor = anchorsById.get(field.fieldId ?? field.label);
+      if (structuralAnchor) {
+        const reason = field.options?.length
+          ? applyCheckboxChoice(document, field, structuralAnchor)
+          : applyCellText(document, field, structuralAnchor);
+        if (reason) skipped.push({ label: field.label, value: field.value, reason });
+        else filled.push({ label: field.label, value: field.value });
         continue;
       }
       const hits = parseJsonArray(document.searchAllText(field.label, false, true))

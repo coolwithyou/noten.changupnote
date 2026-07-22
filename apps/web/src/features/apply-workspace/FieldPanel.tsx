@@ -23,6 +23,7 @@ import type { ConnectedDocumentField } from "@/lib/server/documents/documentFiel
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 import type { WorkspaceLadder } from "@/lib/server/documents/workspaceData";
+import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
 import { answerKey } from "./fieldAnswerState";
 import { FieldCard } from "./FieldCard";
 import { WorkspaceDownloadButton } from "./WorkspaceFooter";
@@ -50,6 +51,10 @@ export function FieldPanel({
   mode,
   draftId,
   hwpxTemplateAvailable,
+  rhwpAnchorsReady,
+  locatingFieldId,
+  manualAnchors,
+  onStartLocateField,
 }: {
   ladder: WorkspaceLadder;
   grantId: string;
@@ -74,6 +79,10 @@ export function FieldPanel({
   mode: WorkspacePanelMode;
   draftId: string | null;
   hwpxTemplateAvailable: boolean;
+  rhwpAnchorsReady: boolean;
+  locatingFieldId: string | null;
+  manualAnchors: readonly RhwpFieldAnchor[];
+  onStartLocateField: (fieldId: string) => void;
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
@@ -152,6 +161,8 @@ export function FieldPanel({
           <WorkspaceDownloadButton
             draftId={draftId}
             answers={answers}
+            connectedFields={connectedFields}
+            manualAnchors={manualAnchors}
             duplicateLabels={duplicateLabels}
             hwpxFallbackAvailable={hwpxTemplateAvailable}
             variant="outline"
@@ -186,6 +197,8 @@ export function FieldPanel({
               <WorkspaceDownloadButton
                 draftId={draftId}
                 answers={answers}
+                connectedFields={connectedFields}
+                manualAnchors={manualAnchors}
                 duplicateLabels={duplicateLabels}
                 hwpxFallbackAvailable={hwpxTemplateAvailable}
                 label={hasDuplicateConflicts
@@ -247,6 +260,9 @@ export function FieldPanel({
           if (nextField) onSelectField(nextField.fieldId);
         }}
         onRequestSuggestion={() => onRequestSuggestion(activeField)}
+        canLocateInDocument={rhwpAnchorsReady}
+        isLocatingInDocument={locatingFieldId === activeField.fieldId}
+        onStartLocate={() => onStartLocateField(activeField.fieldId)}
       />
       {/* 확인 완료 축약 리스트(재정의 §2-③) — 클릭 요소 아님. 다시 보려면 전체 목록 토글. */}
       {confirmedLabels.length > 0 ? (

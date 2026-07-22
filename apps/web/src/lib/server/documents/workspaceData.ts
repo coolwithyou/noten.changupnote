@@ -230,14 +230,12 @@ export async function loadGrantWorkspaceData(input: {
     )
     .map((field) => field.label);
 
-  // ConnectedDocumentField 에는 Gate-1 표준 fieldKey 가 없다(fieldId 는 grant_document_fields.id UUID).
-  // fieldKey 동등성 오탐을 피하려 label 만 전달한다(fieldPattern 문자열 폴백 매칭 — grant page 의
-  // missingProfileFields 전달 관례와 동일).
+  // Gate-1 표준 fieldKey와 label을 함께 전달해 동의어 필드도 같은 lesson에 연결한다.
   const fieldLessonTips = connectedFields.length > 0
     ? await loadFieldLessonTipsSafe({
         title: sheet.grant.title,
         agency: sheet.grant.agency,
-        fields: connectedFields.map((field) => ({ label: field.label })),
+        fields: connectedFields.map((field) => ({ label: field.label, fieldKey: field.fieldKey })),
       })
     : null;
 
