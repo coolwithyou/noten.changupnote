@@ -1,6 +1,6 @@
 # rhwp 필드 에이전트 워크스페이스 상세 구현 계획
 
-> **상태: 구조 앵커 v3·문자 서식 계승 구현 완료 · 한컴 수동 개방 검증 대기 (2026-07-22)**
+> **상태: Phase A~G 구현 완료 · 빠른 작성↔rhwp Studio 전환 설계 완료·구현 대기 (2026-07-23)**
 >
 > 이 문서는 `/grants/[grantId]/workspace`를 **원본 HWP/HWPX 프리뷰 → 필드 선택 → 근거 기반 안내/대화 → 사용자 확인 → 원본 형식 내보내기**의 한 흐름으로 연결하는 실행 정본이다. 구현·검증·잔여 제한도 이 문서에 함께 갱신한다.
 
@@ -232,6 +232,87 @@ type FieldAssistOutcome =
 - 웹 프리뷰에서도 전화번호 안내문은 셀 배경으로 가려지고, 확정값이 셀 크기에 비례해 표시된다.
 - HWPX 내보내기 후 새 `HwpDocument`로 재개방해도 값·글자 크기·페이지 수가 유지된다.
 
+### Phase H — 작성 과제 분류와 시각 구분
+
+- `connectedFields`를 그대로 모두 텍스트 입력으로 취급하지 않고 `quick | studio | readonly` 작성
+  과제로 분류한다. 문서 구조 판정이 1차, LLM 의미 판정은 2차 보조다.
+- `PreviewCanvas.tsx`는 입력 가능한 빠른 작성 필드를 파란 실선/옅은 파랑 배경, Studio에서 작성할
+  복합 영역을 보라 점선/옅은 보라 배경, 확인 완료를 초록, 읽기 전용을 무오버레이로 표시한다.
+- 색만으로 상태를 구분하지 않도록 아이콘·라벨·`aria-label`을 함께 제공한다.
+- `FieldPanel.tsx` 전체 목록은 `빠르게 작성`과 `문서에서 작성`을 구분해 보여주고, 전체 진행률도 두
+  종류의 완료 수를 분리해 계산한다.
+
+수용 기준:
+
+- 사용자가 프리뷰만 보고도 클릭 가능한 칸과 직접 편집이 필요한 영역을 구분할 수 있다.
+- `경력사항`, `기술/자격증/입상실적` 같은 반복 표는 일반 `Textarea`를 표시하지 않는다.
+- 읽기 전용 라벨·설명 문구는 작성 항목 수와 미완료 수에 포함되지 않는다.
+
+### Phase I — 작업공간 모드 전환과 Studio 최소 연결
+
+- 상단 바에 `빠른 작성 | 문서 직접 편집` 모드 전환을 추가한다. 기본값은 빠른 작성이다.
+- 복합 영역 카드의 주 CTA는 `문서에서 편집`이며, `해당 없음`, `나중에`를 보조 액션으로 둔다.
+- `RhwpStudioSurface.tsx`는 개발 랩의 `@rhwp/editor` 초기화·정리 패턴을 제품 컴포넌트로 옮기고,
+  인증된 작업 문서 바이트를 동일한 `draftId` 문맥에서 연다.
+- 이 단계는 현재 0.7.19 공개 API 범위에서 문서 로드·전체 편집·검증 내보내기·수동 복귀를 먼저
+  제공한다. 정확한 영역 포커스와 자동 저장은 다음 단계의 프로토콜 확장 뒤 활성화한다.
+
+수용 기준:
+
+- 복합 영역 CTA 한 번으로 Studio가 열리고, 원본 파일을 다시 고를 필요가 없다.
+- Studio를 닫거나 빠른 작성으로 돌아가도 선택 필드·스크롤·채팅 상태가 유지된다.
+- 에디터 생성 실패 시 현재 rhwp 프리뷰와 원본 다운로드 폴백은 그대로 사용할 수 있다.
+
+### Phase J — rhwp Studio 탐색·변경 감지 프로토콜
+
+- 자가 호스팅 Studio와 `@rhwp/editor`에 `target-navigation-v1`,
+  `document-change-events-v1`, `snapshot-export-v1` capability를 추가한다.
+- `focusTarget`, `getDirtyState`, `exportSnapshot`, `subscribe`를 공개 API로 제공하고, iframe은
+  `MessageChannel` 세션·origin 검증을 계속 사용한다.
+- 구조 앵커는 픽셀 좌표가 아니라 `pageIndex + sectionIndex + parentParagraphIndex + controlIndex +
+  cellIndex`를 전달한다. 렌더링 뒤 해당 셀을 선택하고 화면 중앙에 오도록 이동한다.
+
+수용 기준:
+
+- `문서에서 편집` 진입 후 선택한 표 영역이 보이고 포커스된다.
+- 문서 변경·저장 상태 이벤트가 부모 작업공간에 전달되며 다른 origin 메시지는 무시된다.
+- 프로토콜 capability가 없는 Studio 버전에서는 전체 문서 편집으로 안전하게 폴백한다.
+
+### Phase K — 작업 리비전·자동 저장·충돌 방지
+
+- 원본, 빠른 작성 반영본, Studio 스냅샷을 `grant_document_revisions`로 관리하고 draft마다 하나의
+  head revision을 둔다.
+- Studio 자동 저장은 메모리의 dirty 상태를 1.5초 debounce하고, 서버 스냅샷은 10초 간격 또는
+  모드 이탈 시 수행한다. 매 키 입력마다 HWP 전체 파일을 업로드하지 않는다.
+- 스냅샷 저장은 `baseRevisionId`를 비교해 head가 바뀌었으면 `409 revision_conflict`로 실패시킨다.
+- 빠른 작성 답변은 기존 필드 단위 PATCH를 유지한다. Studio 진입·최종 내보내기 직전에 head 문서에
+  미반영된 확정 답변만 materialize하고 `fieldAnswersHash`를 리비전 메타데이터에 기록한다.
+- Studio 종료 스냅샷에서 알려진 단일 필드 값을 다시 읽어 quick answer와 다르면 `studio` source의
+  `edited` 또는 `review_required`로 조정한다. 앵커가 사라진 경우 자동 덮어쓰지 않는다.
+
+수용 기준:
+
+- 두 탭이 같은 draft를 편집해도 마지막 저장이 조용히 앞선 변경을 덮어쓰지 않는다.
+- 브라우저 새로고침 뒤 최신 검증 스냅샷과 미완료 과제가 복원된다.
+- Studio에서 수정한 단일 값에 이전 빠른 작성 값이 재적용되지 않는다.
+
+### Phase L — 통합 검토와 최신 리비전 내보내기
+
+- 최종 검토는 `빠른 작성 N/M`, `문서 직접 편집 N/M`, `충돌·검토 필요 N`을 따로 보여준다.
+- 다운로드는 항상 최신 head revision에 남은 quick delta를 반영한 새 후보를 만들고,
+  `exportHwpVerify`/재개방/페이지 수 검증을 통과한 결과만 제공한다.
+- `해당 없음`은 완료로 계산하되 문서를 변경하지 않는다. `나중에`와 `review_required`는 최종
+  검토에서 계속 남긴다.
+- 기존 HWPX 서버 폴백은 유지하고, Studio capability 또는 스냅샷 저장이 실패해도 원본 파일을 잃지
+  않는다.
+
+수용 기준:
+
+- 사용자가 어느 모드에서 마지막으로 편집했는지와 무관하게 다운로드는 최신 변경을 포함한다.
+- 한컴오피스 재개방 경고, 페이지 수 변화, 빈 바이트가 있으면 다운로드를 차단하고 복구 경로를
+  안내한다.
+- 최종 화면에서 빠른 작성 완료와 Studio 작성 완료를 혼동하지 않는다.
+
 ## 6. 검증 명령
 
 ```bash
@@ -251,7 +332,8 @@ NEXT_DIST_DIR=.next-build pnpm --filter @cunote/web build
 
 - 양식 개체가 아닌 임의 도형 체크박스, 이미지 체크박스: 구조 텍스트/폼 컨트롤로 확인되지 않으면
   자동 선택하지 않는다.
-- 자유 편집기 전체 통합: rhwp Studio는 별도 고급 편집 진입점으로 유지하며 이번 흐름은 필드 확인 중심이다.
+- 임의 도형·텍스트박스까지 의미 단위로 자동 분해하는 범용 문서 편집: rhwp Studio 자체 편집은
+  Phase I~L에 포함하지만, 구조를 해석할 수 없는 임의 개체는 자동 과제로 만들지 않는다.
 - 서버에서 rhwp WASM을 실행하는 내보내기: 이번 슬라이스는 브라우저 자기 검증이며, 실제 문서 corpus가 쌓인 뒤 서버 이중 검증을 검토한다.
 - PDF/PPTX 원본 편집: 파싱·가이드에는 합류할 수 있으나 원본 양식 편집은 별도 엔진이 필요하다.
 
@@ -295,3 +377,303 @@ NEXT_DIST_DIR=.next-build pnpm --filter @cunote/web build
   `test:chat-grounding`, `test:apply-workspace`, `verify:route-policy`, 격리 dist의 web production build.
 - 잔여 수동 확인: 사용자가 실제 값을 확정해 내려받은 HWP/HWPX를 한컴오피스에서 열어 체크 표시,
   안내문 교체, 단위 보존과 무결성 경고 부재를 최종 확인한다.
+
+## 9. 빠른 작성 ↔ 문서 직접 편집 UX 정본
+
+Figma/FigJam 흐름도: [창업노트 · 빠른 작성–문서 편집 전환 플로우](https://www.figma.com/board/JlJbMWpqG9Gpj5XCIbwN0F/)
+
+### 9.1 핵심 원칙
+
+1. 사용자는 먼저 **빠른 작성**에서 답할 수 있는 작은 질문을 처리한다.
+2. 표 구조·반복 행·자유 배치가 중요한 영역만 **문서 직접 편집**으로 보낸다.
+3. 두 화면은 별도 파일을 만들지 않고 같은 draft의 작업 리비전을 공유한다.
+4. LLM은 “무엇을 써야 하는가”와 초안을 돕고, rhwp는 “어디에 어떻게 보존할 것인가”를 책임진다.
+5. 복합 영역을 억지로 한 개의 textarea로 축약하지 않는다. 원본 표 위에서 편집하는 것이 정보 손실이
+   더 적다.
+
+```mermaid
+flowchart LR
+  A[신청서 분석] --> B{단일 값 또는\n명확한 선택지인가?}
+  B -->|예| C[빠른 작성\n추천·질문·입력]
+  B -->|아니오| D[문서 편집 과제\n경력·자격·반복표]
+  D --> E[문서에서 편집]
+  C --> F[확정 답변 delta]
+  F --> G[동일 작업 리비전에 반영]
+  E --> G
+  G --> H[rhwp Studio\n대상 영역 포커스]
+  H --> I[자동 저장 스냅샷]
+  I --> J{앵커와 값이\n정합한가?}
+  J -->|예| K[편집됨·검토 필요]
+  J -->|아니오| L[충돌 해결]
+  K --> M[통합 최종 검토]
+  L --> M
+  M --> N[검증된 HWP/HWPX 내보내기]
+```
+
+### 9.2 화면 구조
+
+#### 빠른 작성 모드
+
+- 상단: 뒤로가기, 공고명, 통합 진행, `빠른 작성 | 문서 직접 편집` 모드 전환, 문서 선택.
+- 왼쪽: 현재 rhwp 프리뷰를 유지한다. 빠른 작성 필드는 파란 실선, Studio 과제는 보라 점선,
+  완료 필드는 초록 체크로 표시한다.
+- 오른쪽: 단일 필드는 기존 `FieldCard`를 유지한다. 복합 영역은 값 입력 대신 다음 카드를 표시한다.
+
+```text
+문서에서 직접 작성하는 항목 2개 중 1번째
+경력사항
+입사연월·퇴사연월·근무처·업무분야가 반복되는 표예요.
+
+[ 문서에서 편집 ]
+  해당 없음    나중에
+```
+
+#### 문서 직접 편집 모드
+
+- 데스크톱은 Studio 75% + 과제 레일 25%를 기본으로 한다. 1280px 미만은 Studio 전면과 접히는
+  과제 Sheet로 바꾼다.
+- 과제 레일은 `현재 과제`, 작성 가이드, `빠른 작성으로 돌아가기`, 저장 상태만 제공한다. Studio의
+  자체 편집 도구와 중복되는 입력 컨트롤을 만들지 않는다.
+- 진입 시 선택 과제의 페이지·표 셀로 이동한다. 포커스 실패 시 페이지까지만 이동하고
+  `위치를 정확히 찾지 못했어요`를 정직하게 표시한다.
+- Studio에서 돌아오면 과제 상태를 곧바로 완료 처리하지 않고 `편집됨 · 검토 필요`로 둔다. 사용자가
+  프리뷰 또는 Studio에서 확인한 뒤 `확인 완료`로 바꾼다.
+
+### 9.3 필드/과제 분류 계약
+
+```ts
+type DocumentAuthoringMode = "quick" | "studio" | "none";
+
+type DocumentTaskKind =
+  | "atomic_text"
+  | "choice"
+  | "assisted_longform"
+  | "repeating_table"
+  | "free_layout_region"
+  | "attachment_or_stamp"
+  | "readonly";
+
+interface DocumentAuthoringTask {
+  taskKey: string;
+  fieldId: string | null;
+  label: string;
+  mode: DocumentAuthoringMode;
+  kind: DocumentTaskKind;
+  required: boolean;
+  reason: string;
+  anchor: RhwpFieldAnchor | RhwpRegionAnchor | null;
+  confidence: number;
+  source: "structure" | "rule" | "llm";
+}
+```
+
+결정 순서:
+
+1. 이름 있는 폼 컨트롤, 단일 표 셀, 명확한 체크 옵션은 `quick`이다.
+2. 셀 하나에 들어가는 서술형이라도 문단 구조가 단순하면 `assisted_longform`으로 quick에 남긴다.
+3. 반복 행, 병합 셀 2개 이상, 열 머리글과 빈 행의 조합, 표 안의 이미지/도장은 `studio`다.
+4. 라벨·안내·단위만 있고 입력 위치가 없는 텍스트는 `none/readonly`다.
+5. 구조 판정이 불확실할 때만 LLM이 문맥상 입력 필요 여부와 task label을 보조한다. LLM은 좌표나
+   셀 인덱스를 만들 수 없다.
+6. 자동 분류 confidence가 기준 미만이면 `review_required`로 보내고 quick textarea를 임의로 만들지
+   않는다.
+
+### 9.4 상태 모델과 진행률
+
+```ts
+type DocumentTaskStatus =
+  | "unstarted"
+  | "editing"
+  | "edited"
+  | "review_required"
+  | "confirmed"
+  | "not_applicable";
+
+interface WorkingDocumentRevision {
+  revisionId: string;
+  draftId: string;
+  parentRevisionId: string | null;
+  origin: "source" | "quick_materialization" | "studio_snapshot" | "final_export";
+  format: "hwp" | "hwpx";
+  sha256: string;
+  pageCount: number;
+  fieldAnswersHash: string;
+  verified: boolean;
+  createdAt: string;
+}
+```
+
+- `confirmed`와 `not_applicable`만 완료로 계산한다.
+- `edited`는 사용자가 문서에서 내용을 넣었지만 아직 검토하지 않은 상태다.
+- 상단 통합 진행은 `완료한 과제 / 실제 작성 과제`를 유지하되, 상세에는 quick/studio 하위 수치를
+  함께 보여준다.
+- 기존 `dismissed`는 quick 필드에서만 `나중에` 의미로 유지한다. Studio 과제는 별도 상태를 써서
+  `해당 없음`과 `나중에`를 구분한다.
+
+### 9.5 저장 구조
+
+초기 UI 분류는 DB 마이그레이션 없이 서버 projection으로 시작한다. 실제 Studio 저장을 붙일 때 아래
+두 테이블을 추가한다.
+
+```text
+grant_document_revisions
+  id, draft_id, parent_revision_id, origin, format
+  artifact_storage_key, sha256, byte_size, page_count
+  field_answers_hash, verification_json, created_by, created_at
+
+grant_document_task_states
+  draft_id, task_key, kind, mode, status
+  anchor_json, anchor_fingerprint, revision_id
+  updated_by, updated_at
+  UNIQUE(draft_id, task_key)
+```
+
+- 원본 바이트는 source revision 1개로 등록한다.
+- 빠른 작성 PATCH는 지금처럼 `fieldAnswers`에 저장하고 문서 바이트를 매번 재직렬화하지 않는다.
+- Studio 진입 또는 최종 내보내기 시 `fieldAnswersHash`가 head와 다를 때만 미반영 확정값을 적용한
+  `quick_materialization` revision을 만든다.
+- Studio 자동 저장은 전체 바이너리 snapshot이므로 R2에 저장하고 DB에는 메타데이터만 둔다.
+- revision artifact는 draft/company 소유권 검증 뒤에만 읽고, 임의 storage key를 API 입력으로 받지
+  않는다.
+
+### 9.6 API 계약
+
+```text
+POST /api/web/document-drafts/:draftId/studio-sessions
+  body: { taskKey, baseRevisionId? }
+  -> { sessionId, headRevisionId, sourceFileUrl, task, capabilities }
+
+POST /api/web/document-drafts/:draftId/studio-snapshots
+  multipart: file, sessionId, taskKey, baseRevisionId, format, verification
+  -> 201 { revisionId, sha256, pageCount, taskState }
+  -> 409 { code: "revision_conflict", currentRevisionId }
+
+PATCH /api/web/document-drafts/:draftId/task-states/:taskKey
+  body: { status, revisionId? }
+  -> { taskState, progress }
+
+GET /api/web/document-drafts/:draftId/source-file?revision=head
+  -> 최신 검증 revision bytes. revision 미지정 시 기존 원본 동작과 호환.
+```
+
+서버 불변식:
+
+- 모든 API는 현재 `requireCompanyAccess`와 draft 소유권 검증을 재사용한다.
+- snapshot의 `baseRevisionId`가 현재 head와 다르면 저장하지 않는다.
+- 클라이언트 verification은 UI 피드백에 쓰되 서버는 magic byte, 크기, sha256, format 일치를 다시
+  확인한다. 서버 rhwp 이중 검증은 후속 hardening으로 둔다.
+- `taskKey`는 서버가 만든 task 목록에 있어야 하며, 클라이언트가 보낸 임의 앵커를 영구 저장하지
+  않는다. 수동 보정은 별도 검토 상태를 거친다.
+
+### 9.7 rhwp Studio 호스트 계약
+
+현재 `@rhwp/editor@0.7.19` 공개 API는 `loadFile`, `pageCount`, `getPageSvg`,
+`getRendererDiagnostics`, `exportHwp`, `exportHwpx`, `exportHml`, `getHmlSaveState`,
+`exportHwpVerify`, `destroy`까지다. 제품 흐름에는 다음 확장이 필요하다.
+
+```ts
+interface RhwpEditorTarget {
+  pageIndex: number;
+  sectionIndex?: number;
+  parentParagraphIndex?: number;
+  controlIndex?: number;
+  cellIndex?: number;
+}
+
+interface RhwpSnapshotResult {
+  format: "hwp" | "hwpx";
+  bytes: Uint8Array;
+  pageCount: number;
+  dirty: boolean;
+  verification: HwpVerifyResult | null;
+}
+
+editor.focusTarget(target: RhwpEditorTarget): Promise<{ focused: boolean }>;
+editor.getDirtyState(): Promise<{ dirty: boolean; changeSeq: number }>;
+editor.exportSnapshot(): Promise<RhwpSnapshotResult>;
+editor.subscribe("documentChanged" | "selectionChanged" | "saveStateChanged", listener): () => void;
+```
+
+프로토콜 규칙:
+
+- `target-navigation-v1`, `document-change-events-v1`, `snapshot-export-v1` capability를 handshake에서
+  협상한다.
+- 이벤트 envelope에도 기존 `version + sessionId`를 넣고, 연결된 `MessagePort`에서만 수신한다.
+- `loadFile`이 바뀔 때마다 `documentEpoch`를 증가시켜 이전 문서 이벤트를 무시한다.
+- `exportSnapshot` 도중 문서가 바뀌면 같은 `changeSeq`인지 확인하고, 다르면 한 번 재시도한다.
+- 기존 0.7.19 호스트는 capability 미지원으로 판단해 `loadFile + exportHwp/exportHwpx` 최소 흐름으로
+  폴백한다.
+
+### 9.8 컴포넌트 변경표
+
+| 파일 | 책임 |
+|---|---|
+| `features/apply-workspace/WorkspaceView.tsx` | `quick/studio` 모드, 선택 task, head revision, dirty/conflict 상태의 단일 오케스트레이터 |
+| `features/apply-workspace/WorkspaceModeToggle.tsx` | 상단 모드 전환과 저장 중 이탈 가드 |
+| `features/apply-workspace/FieldPanel.tsx` | quick/studio 과제 분리, 전체 목록과 완료 화면의 이중 진행 |
+| `features/apply-workspace/FieldCard.tsx` | atomic/choice/assisted_longform 전용. studio task에는 textarea를 렌더하지 않음 |
+| `features/apply-workspace/StudioTaskCard.tsx` | `문서에서 편집`, `해당 없음`, `나중에`, 검토 완료 액션 |
+| `features/apply-workspace/RhwpStudioSurface.tsx` | editor 생명주기, 파일 로드, focus, dirty event, snapshot export |
+| `features/document-viewer/PreviewCanvas.tsx` | quick/studio/confirmed 상태 토큰과 범례, 색상 외 아이콘 단서 |
+| `lib/server/documents/documentAuthoringTasks.ts` | 구조 우선 task 분류와 LLM 보조 결과 병합 |
+| `lib/server/documents/documentRevisions.ts` | head 조회, optimistic snapshot 저장, 검증 메타데이터 |
+| `lib/rhwp/editorClient.ts` | Studio URL/config, capability 협상, 0.7.19 폴백 래퍼 |
+| `WorkspaceFooter.tsx` | 최신 head + quick delta로 최종 검증 내보내기 |
+
+`WorkspaceView`가 계속 오케스트레이션을 소유하고, `FieldPanel`, `ChatPanel`, `PreviewCanvas`, 다운로드
+경로의 현재 저장 계약을 재사용한다. Studio를 별도 라우트로 만들지 않아 선택 필드와 채팅 세션이
+끊기지 않게 한다.
+
+### 9.9 구현 순서와 티켓
+
+1. **H1 — 분류기와 계약**: `DocumentAuthoringTask` 타입, 구조 규칙, fixture 단위 테스트.
+2. **H2 — 시각 상태**: Preview overlay 토큰, 범례, 전체 목록 quick/studio 구분, 접근성 테스트.
+3. **I1 — StudioTaskCard**: 복합 영역 textarea 제거, 전환/해당 없음/나중에 상태.
+4. **I2 — Studio 최소 임베드**: 개발 랩 초기화 코드를 공용 래퍼로 이동, 같은 draft 원본 로드,
+   수동 저장/복귀.
+5. **J1 — rhwp 프로토콜**: 자가 호스팅 Studio와 `@rhwp/editor`의 capability, target focus, event API.
+6. **K1 — revision 저장소**: Drizzle migration, R2 artifact, optimistic head 교체, route policy.
+7. **K2 — 자동 저장·재조정**: debounce snapshot, mode leave flush, atomic field 재추출과 conflict UI.
+8. **L1 — 통합 검토·내보내기**: 이중 진행, 최신 revision materialize, HWP/HWPX 검증과 폴백.
+9. **L2 — 실제 문서 회귀 묶음**: 철원군 신청서 포함 HWP/HWPX fixture, 브라우저·한컴 수동 체크리스트.
+
+의존성은 `H1 → H2/I1 → I2 → J1/K1 → K2 → L1 → L2`다. H2와 I1은 병렬 가능하지만,
+`WorkspaceView.tsx` 충돌을 피하려 최종 조립은 한 작업자가 맡는다.
+
+### 9.10 테스트 전략
+
+- **분류 단위 테스트**: 단일 셀, 체크박스, 단순 장문, 반복 행, 병합 셀, 이미지/도장, 읽기 전용.
+- **컴포넌트 테스트**: 색상뿐 아니라 아이콘/텍스트가 있고, studio task에 textarea가 없으며 CTA와
+  키보드 포커스 순서가 올바른지 확인한다.
+- **프로토콜 테스트**: capability 협상, 잘못된 origin/session 거부, 늦은 이벤트 무시, export 중 변경
+  재시도, legacy 폴백.
+- **리비전 경쟁 테스트**: 동일 base에서 두 snapshot을 저장해 하나만 성공하고 다른 하나가 409인지
+  실제 PostgreSQL transaction으로 확인한다.
+- **문서 회귀 테스트**: quick 값을 materialize → Studio에서 반복표 편집 → snapshot 재로드 → quick
+  복귀 → 최종 export 순서로 값·페이지 수·안내문 제거·체크 표시를 확인한다.
+- **브라우저 테스트**: 1440px 2열, 1024px 축소, 390px Sheet, 키보드만으로 모드 전환·과제 선택·복귀.
+- **한컴 수동 테스트**: HWP/HWPX 각 3개 이상을 열어 손상 경고, 글꼴/자간, 병합 셀, 반복 행,
+  체크박스, 이미지 위치를 확인한다.
+
+### 9.11 관측성과 롤아웃
+
+- feature flag: `NEXT_PUBLIC_RHWP_STUDIO_WORKSPACE`와 서버측 `RHWP_STUDIO_SNAPSHOT_ENABLED`를
+  분리한다. UI 노출과 snapshot write를 독립적으로 끌 수 있어야 한다.
+- 기록 이벤트: `studio_task_opened`, `studio_focus_succeeded`, `studio_focus_failed`,
+  `studio_snapshot_saved`, `studio_revision_conflict`, `studio_task_confirmed`, `final_export_verified`.
+- 문서 원문·입력값은 telemetry에 보내지 않는다. draft/task/revision의 비식별 ID와 timing, bytes,
+  pageCount, capability만 기록한다.
+- 1단계는 내부 dev 계정, 2단계는 HWP/HWPX 양식이 있고 구조 앵커 confidence가 높은 공고,
+  3단계는 전체 지원 문서로 확장한다.
+- capability 미지원, snapshot write 비활성화, 저장 실패 시 사용자는 기존 빠른 작성·검증 다운로드를
+  계속 쓸 수 있다.
+
+### 9.12 완료 정의
+
+- 프리뷰에서 quick/studio/완료 상태가 시각·텍스트로 명확히 구분된다.
+- 복합 표는 textarea가 아니라 `문서에서 편집`으로 진입한다.
+- Studio가 동일 draft의 최신 작업 리비전을 열고 선택 영역으로 이동한다.
+- 자동 저장과 모드 복귀가 데이터 손실 없이 동작하고 revision 충돌은 사용자에게 드러난다.
+- Studio 수정 뒤 quick 필드와 복합 과제가 정합하게 재검토된다.
+- 최종 HWP/HWPX는 최신 head와 quick delta를 모두 포함하며 rhwp 재개방 검증을 통과한다.
+- 한컴오피스 수동 개방 corpus에서 손상 경고가 없고 표·문자 서식이 유지된다.

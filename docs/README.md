@@ -25,7 +25,7 @@
 
 ## 현재 구현 핸드오프
 
-- [rhwp 필드 에이전트 워크스페이스 상세 구현 계획](./plans/2026-07-22-rhwp-field-agent-workspace.md) — 원본 HWP/HWPX 프리뷰, 필드 대화, 사용자 확인, 자기 검증 내보내기를 연결하는 현재 실행 정본
+- [rhwp 필드 에이전트 워크스페이스 상세 구현 계획](./plans/2026-07-22-rhwp-field-agent-workspace.md) — 원본 HWP/HWPX 프리뷰, 빠른 작성↔rhwp Studio 전환, 필드 대화, 작업 리비전, 자기 검증 내보내기를 연결하는 현재 실행 정본
 - [매칭·자동채움 제품 연결 구현 핸드오프](./implementation/2026-07-14-매칭-자동채움-제품연결-구현-핸드오프.md) — 보존된 `08e7ba4` 기반에서 검증 반복을 줄이고 실제 `/matches`·web/app·answer/background 연결을 완성하는 새 세션 실행 정본
 
 ## 문서 작성 규칙
