@@ -1,8 +1,9 @@
 // 공모 딥분석 실험실 — 검수 집계·통과 기준 판정 CLI (dev 전용, DB·네트워크 미사용).
 // spike-out/analysis-lab/ 의 <runId>.review.json 을 런과 짝짓고, 기본은 cohort.json
-// (cohort-file.ts, v1 은 stratum "pilot" 로 정규화)의 코호트 공고만 집계한다 —
-// 확대 집계에 파일럿 등 다른 실험의 검수가 섞이는 것을 막기 위함. --all 이면 전수 스캔,
-// cohort.json 이 없으면 전수 스캔으로 폴백한다.
+// (cohort-file.ts, v1 은 stratum "pilot" 로 정규화)의 코호트 공고만 집계하되, 검수 보존
+// 가드로 코호트 안에 남은 파일럿 층(stratum=pilot)은 게이트 판정 표본에서 추가 제외한다
+// (확대 계획 §3 사전 등록 — 구조화 게이트 수치를 유도한 데이터의 재진입 순환 차단).
+// --all 이면 전수 스캔(파일럿 포함치 — 민감도 참고), cohort.json 이 없으면 전수 폴백한다.
 // 정밀도(criterion 판정)·재현율(빈 축 누락)·커버리지(확정 B vs 현행 A)·비용·구조화 비율을
 // 집계해 통과 기준(GATES 6종)에 대해 자동 판정한다. 구조화 비율(정확 확정 B 중
 // operator≠text_only)은 파일럿 후 게이트로 승격됐고, A→B 배수는 관찰 지표로 유지(게이트 아님).
@@ -238,9 +239,13 @@ async function main() {
   const scanAll = args.has("--all");
   const verbose = args.has("--verbose");
 
-  // 코호트 필터(기본) — cohort.json 의 공고만 집계해 다른 실험(파일럿 3건 등)의 혼입을 막는다.
-  // 수집·필터·dedupe 는 reviewed-runs.ts 공유 모듈(섀도 측정과 공용, 출력 문구 동일 계약).
-  const { cohort, stratumByGrant, pool, reviewed } = await selectReviewedRuns({ scanAll });
+  // 코호트 필터(기본) — cohort.json 의 공고만 집계해 다른 실험 검수의 혼입을 막고,
+  // 검수 보존 가드로 코호트 안에 남은 파일럿 층은 게이트 판정 표본에서 제외한다(파일
+  // 상단 주석 — 확대 계획 §3 사전 등록). 수집·필터·dedupe 는 reviewed-runs.ts 공유 모듈.
+  const { cohort, stratumByGrant, pool, reviewed } = await selectReviewedRuns({
+    scanAll,
+    excludePilotStratum: true,
+  });
   if (reviewed.length === 0) {
     console.log("검수된 런이 없습니다 — 검수 탭에서 판정 후 '검수 저장'을 눌러주세요.");
     process.exitCode = 1;

@@ -201,8 +201,13 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  // 1) 검수 런 수집 — aggregate 와 동일 규칙(reviewed-runs 공유 모듈).
-  const { reviewed } = await selectReviewedRuns({ scanAll: options.scanAll });
+  // 1) 검수 런 수집 — reviewed-runs 공유 모듈. 게이트 집계(aggregate)와 달리 파일럿 층을
+  //    제외하지 않는다: 섀도 측정은 "30건 검수 확정분"(확대 계획 §4)이고 확대 코호트 30건에
+  //    보존된 파일럿 3건이 포함되기 때문이다(excludePilotStratum 은 게이트 표본 전용).
+  const { reviewed } = await selectReviewedRuns({
+    scanAll: options.scanAll,
+    excludePilotStratum: false,
+  });
   if (reviewed.length === 0) {
     console.error("[shadow] 검수된 런이 없습니다 — 검수 탭에서 판정 후 '검수 저장'을 눌러주세요.");
     if (!options.scanAll) console.error("[shadow] 코호트 밖 검수(파일럿 등)까지 포함하려면 --all 을 지정하세요.");

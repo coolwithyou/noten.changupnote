@@ -4,12 +4,16 @@
 //   ① spike-out/analysis-lab/ 의 <runId>.review.json 을 런 파일과 짝짓고
 //   ② 기본은 cohort.json(cohort-file.ts, v1 은 stratum "pilot" 정규화)의 코호트 공고만
 //      남긴다(다른 실험 검수의 혼입 차단). --all 이면 전수, cohort.json 이 없으면 전수 폴백.
+//   ②′ excludePilotStratum(집계 전용): 검수 보존 가드가 파일럿을 확대 코호트 안에 남기므로,
+//      게이트 판정 표본에서 파일럿 층을 추가로 제외한다(확대 계획 §3 사전 등록 — 구조화
+//      게이트 수치를 유도한 데이터의 재진입 순환 차단). 섀도 측정은 "30건 검수 확정분"이라
+//      파일럿을 포함한다(계획 §4) — 그래서 기본값이 아니라 옵션이다.
 //   ③ 실패 런 검수 제외 + 같은 공고(grantId)는 최신(updatedAt) 검수 1건만 남긴다.
 // 안내·경고 문구는 aggregate 의 기존 출력과 동일해야 한다(리팩토링 무변경 계약).
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
-import { type CohortFileV2, readCohortFileV2 } from "./cohort-file";
+import { PILOT_STRATUM, type CohortFileV2, readCohortFileV2 } from "./cohort-file";
 import { analysisLabDir } from "./run-store";
 
 export interface ReviewedRun {
@@ -98,7 +102,11 @@ export function dedupeReviewedRuns(all: ReviewedRun[]): ReviewedRun[] {
  * 수집 → 코호트 필터(기본) → dedupe 를 한 번에 수행한다. 콘솔 출력 순서는
  * aggregate 의 기존 흐름(파싱 경고 → 필터 안내/경고 → dedupe 경고)과 동일하다.
  */
-export async function selectReviewedRuns(options: { scanAll: boolean }): Promise<ReviewedRunSelection> {
+export async function selectReviewedRuns(options: {
+  scanAll: boolean;
+  /** true 면 코호트 필터 뒤 stratum=pilot 검수도 제외한다(게이트 판정 표본 전용 — 모듈 주석 ②′). */
+  excludePilotStratum?: boolean;
+}): Promise<ReviewedRunSelection> {
   const cohort = await readCohortFileV2();
   const stratumByGrant = new Map<string, string>();
   if (cohort) {
@@ -119,6 +127,18 @@ export async function selectReviewedRuns(options: { scanAll: boolean }): Promise
         console.warn(
           `[경고] 코호트 밖 검수 ${filteredOut}건 제외 — 다른 실험(파일럿 등) 검수의 혼입 차단. 포함하려면 --all.`,
         );
+      }
+      if (options.excludePilotStratum === true) {
+        const withoutPilot = pool.filter(
+          (item) => stratumByGrant.get(item.run.grantId) !== PILOT_STRATUM,
+        );
+        const pilotExcluded = pool.length - withoutPilot.length;
+        if (pilotExcluded > 0) {
+          console.log(
+            `[안내] 파일럿(stratum=pilot) 검수 ${pilotExcluded}건 제외 — 게이트 판정 표본 사전 등록(확대 계획 §3, 순환 차단). 포함치(민감도 참고)는 --all.`,
+          );
+        }
+        pool = withoutPilot;
       }
     }
   }
