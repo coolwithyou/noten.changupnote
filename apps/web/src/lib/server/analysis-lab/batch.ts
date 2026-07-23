@@ -1,6 +1,8 @@
 // 공모 딥분석 실험실 — 층화 확대 배치 러너 CLI (tsx 단독 실행, dev 서버 불필요).
 // cohort.json(v2)의 entries 를 대상으로 runLabAnalysis 를 동시성 제한 워커 풀로 실행한다.
 // 현행 ANALYSIS_LAB_PROMPT_VERSION 의 ok 런이 이미 있는 공고는 스킵(재개 멱등성).
+// 모집기간 정책(2026-07-23): 실행 시 각 공고의 현재 applyStart/applyEnd 를 확인해
+// 마감·시작 전·기간 미상(applyEnd null)이면 사유 로그와 함께 스킵한다(비파괴).
 // 실패는 analyze 가 error 런으로 저장하므로 배치는 기록만 하고 계속한다(런당 추가
 // 재시도 없음 — extractor 내부에 이미 1회 재시도가 있다).
 // 실행: pnpm lab:batch -- --dry-run                     (대상·예상 비용만, API 호출 0)
@@ -10,6 +12,10 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
+import {
+  classifyNoticePeriod,
+  type NoticePeriodStatus,
+} from "@/features/dev/analysis-lab/notice-period";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { cohortFilePath, readCohortFileV2, type CohortEntry } from "./cohort-file";
 import { analysisLabDir } from "./run-store";
@@ -125,6 +131,64 @@ async function scanExistingRuns(): Promise<RunScan> {
   return { states, okCostSamples };
 }
 
+// ---- 모집기간 가드(2026-07-23 정책) ---------------------------------------------
+// 배치 실행 시 각 공고의 "현재" applyStart/applyEnd 를 DB에서 읽어 기간 정책 위반이면
+// 스킵한다(비파괴 — 동결 코호트 파일·기존 런은 건드리지 않는다). dry-run 은 DB 모듈을
+// 로드하지 않는 기존 불변식을 지키기 위해 이 가드를 수행하지 않는다(실행 시점에만 확인).
+
+const PERIOD_SKIP_LABELS: Record<Exclude<NoticePeriodStatus, "eligible">, string> = {
+  closed: "마감(applyEnd 과거)",
+  not_started: "접수 시작 전(applyStart 미래)",
+  unknown: "기간 미상(applyEnd null) — 감사로 기간 특정 필요",
+};
+
+interface PeriodSplit {
+  runnable: CohortEntry[];
+  skipped: Array<{ entry: CohortEntry; status: Exclude<NoticePeriodStatus, "eligible"> }>;
+}
+
+// cohort.ts 와 같은 이유의 가드 — uuid 형식이 아닌 id 를 inArray 에 넣으면 쿼리 전체가 죽는다.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function splitByPeriodPolicy(entries: CohortEntry[]): Promise<PeriodSplit> {
+  const split: PeriodSplit = { runnable: [], skipped: [] };
+  if (entries.length === 0) return split;
+
+  // 실행 경로에서만 DB 를 로드한다(dry-run 경로의 "DB 미로드" 불변식 유지 — runTargets 와 동형).
+  const [{ getCunoteDb }, schema, { inArray }] = await Promise.all([
+    import("../db/client"),
+    import("../db/schema"),
+    import("drizzle-orm"),
+  ]);
+  const validIds = entries.map((entry) => entry.grantId).filter((id) => UUID_PATTERN.test(id));
+  const rows = validIds.length
+    ? await getCunoteDb()
+        .select({
+          id: schema.grants.id,
+          applyStart: schema.grants.applyStart,
+          applyEnd: schema.grants.applyEnd,
+        })
+        .from(schema.grants)
+        .where(inArray(schema.grants.id, validIds))
+    : [];
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  const now = new Date();
+  for (const entry of entries) {
+    const grant = byId.get(entry.grantId);
+    if (!grant) {
+      // 공고 미존재는 기간 정책 위반이 아니다 — 기존 경로(runLabAnalysis 의
+      // LabGrantNotFoundError → 런 미저장 실패 기록)를 그대로 태운다.
+      split.runnable.push(entry);
+      continue;
+    }
+    const status = classifyNoticePeriod(grant.applyStart, grant.applyEnd, now);
+    if (status === "eligible") split.runnable.push(entry);
+    else split.skipped.push({ entry, status });
+  }
+  return split;
+}
+
 // ---- 실행(동시성 제한 워커 풀) -------------------------------------------------
 
 interface BatchOutcome {
@@ -224,19 +288,37 @@ async function main(): Promise<number> {
     else if (state?.errorCurrent && !options.retryErrors) heldError.push(entry);
     else pending.push(entry);
   }
-  const targets = pending.slice(0, options.limit);
+  // 모집기간 가드 — 실행 시에만 DB로 확인해 위반(마감·시작 전·기간 미상)을 스킵한다(비파괴).
+  let periodSkipped: PeriodSplit["skipped"] = [];
+  let runnablePending = pending;
+  if (!options.dryRun) {
+    const split = await splitByPeriodPolicy(pending);
+    runnablePending = split.runnable;
+    periodSkipped = split.skipped;
+    for (const { entry, status } of periodSkipped) {
+      console.log(
+        `[batch] 기간 정책 스킵: [${entry.stratum}] ${entry.grantId} · ${PERIOD_SKIP_LABELS[status]}`,
+      );
+    }
+  }
+  const targets = runnablePending.slice(0, options.limit);
 
   console.log(
     `[batch] promptVersion=${ANALYSIS_LAB_PROMPT_VERSION} · 코호트 ${cohort.entries.length}건` +
       (cohort.experimentLabel ? ` (${cohort.experimentLabel})` : ""),
   );
   console.log(
-    `[batch] 스킵(ok 런 보유) ${skippedOk.length} · 보류(error 런만, --retry-errors 미지정) ${heldError.length} · 잔여 ${pending.length} → 이번 실행 대상 ${targets.length}건 (limit=${options.limit})`,
+    `[batch] 스킵(ok 런 보유) ${skippedOk.length} · 보류(error 런만, --retry-errors 미지정) ${heldError.length} · 기간 스킵 ${periodSkipped.length} · 잔여 ${runnablePending.length} → 이번 실행 대상 ${targets.length}건 (limit=${options.limit})`,
   );
 
   if (targets.length === 0) {
-    console.error("[batch] 실행 대상이 0건입니다 — 이미 전부 분석되었거나 보류 상태입니다.");
+    console.error("[batch] 실행 대상이 0건입니다 — 이미 전부 분석되었거나 보류·기간 스킵 상태입니다.");
     if (heldError.length > 0) console.error("[batch] error 런만 있는 공고를 재시도하려면 --retry-errors 를 지정하세요.");
+    if (periodSkipped.length > 0) {
+      console.error(
+        "[batch] 기간 미상 공고는 실험실 UI 카드에서 기간을 특정(저장)하면 대상에 편입됩니다.",
+      );
+    }
     return 1;
   }
 
@@ -250,6 +332,9 @@ async function main(): Promise<number> {
 
   if (options.dryRun) {
     console.log("[batch] --dry-run — 대상 목록만 출력하고 종료합니다(API 호출 0).");
+    console.log(
+      "[batch] 주의: 모집기간 가드(마감·시작 전·기간 미상 스킵)는 DB 미로드 원칙상 dry-run 에 반영되지 않습니다 — 실제 실행 시 대상이 줄어들 수 있습니다.",
+    );
     for (const target of targets) console.log(`  - [${target.stratum}] ${target.grantId}`);
     return 0;
   }
@@ -263,7 +348,19 @@ async function main(): Promise<number> {
   console.log(
     `성공 ${outcome.okCount} · 실패(error 런) ${outcome.errorRunCount} · 실패(런 미저장) ${outcome.thrownCount} · 미착수(비용 상한) ${notStarted}`,
   );
-  console.log(`스킵(ok) ${skippedOk.length} · 보류(error) ${heldError.length}`);
+  const periodSkipCounts = periodSkipped.reduce(
+    (acc, { status }) => {
+      acc[status] += 1;
+      return acc;
+    },
+    { closed: 0, not_started: 0, unknown: 0 } as Record<Exclude<NoticePeriodStatus, "eligible">, number>,
+  );
+  console.log(
+    `스킵(ok) ${skippedOk.length} · 보류(error) ${heldError.length} · 기간 스킵 ${periodSkipped.length}` +
+      (periodSkipped.length > 0
+        ? ` (마감 ${periodSkipCounts.closed} · 시작 전 ${periodSkipCounts.not_started} · 기간 미상 ${periodSkipCounts.unknown})`
+        : ""),
+  );
   console.log(
     `총비용 $${outcome.totalCostUsd.toFixed(4)} · 소요 ${((Date.now() - startedMs) / 1000).toFixed(1)}s` +
       (outcome.costCapped ? " · 비용 상한 도달" : ""),

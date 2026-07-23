@@ -364,6 +364,7 @@ export function AnalysisLab() {
                   onAnalyze={() => void analyze(notice.grantId)}
                   onSelectRun={(runId) => void selectRun(notice.grantId, runId)}
                   onReview={() => openReview(notice)}
+                  onPeriodSaved={() => void loadCohort({ silent: true })}
                 />
               </div>
             ))}

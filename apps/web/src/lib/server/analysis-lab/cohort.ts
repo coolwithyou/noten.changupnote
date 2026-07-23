@@ -4,10 +4,27 @@
 // 계획 §3): 소스×본문 두께 6층 배분 + 시드 랜덤 샘플링 + soft 쿼터(통합공고·A≥3) 보정.
 // 재현성을 위해 코호트는 spike-out/analysis-lab/cohort.json(v2 — cohort-file.ts 단일 원천)에
 // 저장해 재사용한다. refresh=true 로 재선정하되, 검수(review.json) 보유 공고는 보존한다.
+// 모집기간 정책(2026-07-23): 신규 후보 선정은 "오늘(KST)이 모집기간에 포함"된 공고만 —
+// applyEnd null 은 기간 미상 예외 큐(listPeriodUnknownGrants), 마감·시작 전은 조용한 제외.
+// 저장 코호트(entries) 로드·재사용에는 이 필터를 적용하지 않는다(동결 표본 보존).
 // 저장된 grantId 가 DB에서 사라지면 그 자리만 재선정한다(층화 자리는 같은 층 → 인접 두께 폴백).
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { and, count, desc, eq, exists, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  exists,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { deriveGrantBenefits } from "@cunote/core";
 import { getCunoteDb, type CunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
@@ -19,6 +36,7 @@ import {
   type LabCohortResponse,
   type LabNoticeSummary,
 } from "@/features/dev/analysis-lab/contract";
+import { kstDayStartUtc } from "@/features/dev/analysis-lab/notice-period";
 import {
   PILOT_STRATUM,
   readCohortFileV2,
@@ -76,6 +94,11 @@ export interface LabCohortMeta {
   quotas: { unified: LabCohortQuotaStatus; richCriteria: LabCohortQuotaStatus } | null;
   /** refresh 시 review.json 보유로 보존된 공고 수. */
   preservedReviewedCount: number;
+  /**
+   * 기간 미상 예외 큐(2026-07-23 모집기간 정책) — applyEnd IS NULL 인 open 공고 수.
+   * 선정에서 제외되며, 사용자가 감사로 기간을 특정(notice-period API)하면 편입 가능해진다.
+   */
+  periodUnknownCount: number;
   warnings: string[];
 }
 
@@ -112,6 +135,15 @@ export async function loadLabCohort(options: LoadLabCohortOptions = {}): Promise
     await writeCohortFileV2(file);
   }
 
+  // 기간 미상 예외 큐(applyEnd null) — 선정과 무관하게 항상 집계해 로그·메타로 알린다.
+  // 주의: 동결 코호트(entries) 로드 경로에는 어떤 기간 필터도 걸지 않는다(이미 분석 완료된 표본).
+  const periodUnknown = await listPeriodUnknownGrants(db);
+  if (periodUnknown.length > 0) {
+    warnings.push(
+      `기간 미상(applyEnd null) open 공고 ${periodUnknown.length}건 — 선정 제외, 감사로 기간 특정 필요`,
+    );
+  }
+
   for (const warning of warnings) console.warn(`[analysis-lab cohort] ${warning}`);
 
   const notices: LabNoticeSummary[] = [];
@@ -137,6 +169,7 @@ export async function loadLabCohort(options: LoadLabCohortOptions = {}): Promise
       strataCounts,
       quotas,
       preservedReviewedCount,
+      periodUnknownCount: periodUnknown.length,
       warnings,
     },
   };
@@ -358,6 +391,57 @@ async function reviewedGrantIdsOnDisk(): Promise<Set<string>> {
   return reviewed;
 }
 
+// ── 모집기간 정책 (2026-07-23) ────────────────────────────────────
+
+/**
+ * "모집기간에 오늘(KST)이 포함" DB 조건 — 신규 후보 선정(비층화·층화 공통)에만 적용한다.
+ * applyEnd >= 오늘시작 AND (applyStart IS NULL OR applyStart < 내일시작).
+ * 날짜 규약(notice-period.ts 헤더): 저장값은 캘린더 날짜의 UTC 자정이므로 KST 캘린더 일 단위로
+ * 비교한다(grants_apply_end_idx 인덱스 활용, applyEnd null 은 gte 에서 자연 제외 = 예외 큐행).
+ * 주의: 동결 코호트(cohort.json entries) 로드·재사용 경로에는 적용하지 않는다.
+ */
+function withinApplyPeriod(now: Date) {
+  const dayStart = kstDayStartUtc(now);
+  const nextDayStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+  return and(
+    gte(schema.grants.applyEnd, dayStart),
+    or(isNull(schema.grants.applyStart), lt(schema.grants.applyStart, nextDayStart)),
+  );
+}
+
+export interface PeriodUnknownGrant {
+  grantId: string;
+  source: string;
+  sourceId: string;
+  title: string;
+}
+
+/**
+ * 기간 미상 예외 큐 — applyEnd IS NULL 인 open 공고(LAB_SOURCES 한정) 목록.
+ * 분석 대상에서 제외되는 공고들로, 사용자가 감사해 기간을 특정(PATCH
+ * /api/dev/analysis-lab/notice-period)하면 grants.applyStart/applyEnd 가 갱신되어
+ * 이후 선정에 편입될 수 있다. 마감(applyEnd 과거)은 예외 큐가 아니라 조용한 제외다.
+ */
+export async function listPeriodUnknownGrants(db: CunoteDb): Promise<PeriodUnknownGrant[]> {
+  const rows = await db
+    .select({
+      grantId: schema.grants.id,
+      source: schema.grants.source,
+      sourceId: schema.grants.sourceId,
+      title: schema.grants.title,
+    })
+    .from(schema.grants)
+    .where(
+      and(
+        eq(schema.grants.status, "open"),
+        inArray(schema.grants.source, [...LAB_SOURCES]),
+        isNull(schema.grants.applyEnd),
+      ),
+    )
+    .orderBy(desc(schema.grants.updatedAt));
+  return rows;
+}
+
 // ── 층화 후보 재고 조회 (read-only, 전 재고) ──────────────────────
 
 /**
@@ -381,6 +465,7 @@ async function loadStratumCandidates(
       and(
         eq(schema.grants.status, "open"),
         inArray(schema.grants.source, [...LAB_SOURCES]),
+        withinApplyPeriod(new Date()),
         excludeIds.length > 0 ? notInArray(schema.grants.id, excludeIds) : undefined,
       ),
     );
@@ -476,6 +561,7 @@ async function selectCohortGrantIds(
         and(
           eq(schema.grants.status, "open"),
           eq(schema.grants.source, source),
+          withinApplyPeriod(new Date()),
           markdownArchiveExists(db),
           excludeIds.length > 0 ? notInArray(schema.grants.id, excludeIds) : undefined,
         ),
@@ -510,6 +596,7 @@ async function selectCohortGrantIds(
         and(
           eq(schema.grants.status, "open"),
           inArray(schema.grants.source, [...LAB_SOURCES]),
+          withinApplyPeriod(new Date()),
           exclude.length > 0 ? notInArray(schema.grants.id, exclude) : undefined,
         ),
       )
