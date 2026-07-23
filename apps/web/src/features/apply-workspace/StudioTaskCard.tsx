@@ -9,6 +9,7 @@ import type { DocumentAuthoringTask, StudioTaskStatus } from "./documentAuthorin
 export function StudioTaskCard({
   task,
   status,
+  serverSaved,
   reviewPosition,
   reviewTotal,
   onOpenStudio,
@@ -18,6 +19,7 @@ export function StudioTaskCard({
 }: {
   task: DocumentAuthoringTask;
   status: StudioTaskStatus;
+  serverSaved: boolean;
   reviewPosition: number;
   reviewTotal: number;
   onOpenStudio: () => void;
@@ -46,7 +48,11 @@ export function StudioTaskCard({
       <CardContent className="grid gap-3">
         {edited ? (
           <div className="rounded-[var(--radius-lg)] border border-success/25 bg-success-soft px-3 py-2.5 text-sm">
-            <p className="font-medium text-success">Studio 편집본이 이 브라우저 탭에 저장됐어요.</p>
+            <p className="font-medium text-success">
+              {serverSaved
+                ? "Studio 편집본이 서버에 저장됐어요."
+                : "Studio 편집본이 이 브라우저 탭에 임시 저장됐어요."}
+            </p>
             <p className="mt-0.5 text-muted-foreground">내용을 검토했다면 확인 완료로 바꿔 주세요.</p>
           </div>
         ) : (

@@ -70,6 +70,8 @@ export function FieldPanel({
   onOpenStudio,
   onSetStudioTaskStatus,
   workingDocument,
+  studioServerSaved,
+  persistedMaterializedAnswers,
 }: {
   ladder: WorkspaceLadder;
   grantId: string;
@@ -103,6 +105,8 @@ export function FieldPanel({
   onOpenStudio: (fieldId: string) => void;
   onSetStudioTaskStatus: (fieldId: string, status: StudioTaskStatus) => void;
   workingDocument: RhwpWorkingDocument | null;
+  studioServerSaved: boolean;
+  persistedMaterializedAnswers: Record<string, string>;
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
@@ -204,6 +208,8 @@ export function FieldPanel({
             className="w-full"
             saving={pendingLabels.size > 0}
             workingDocument={workingDocument}
+            persistedMaterializedAnswers={persistedMaterializedAnswers}
+            serverRevisionAvailable={studioServerSaved}
           />
         ) : null}
       </div>
@@ -242,6 +248,8 @@ export function FieldPanel({
                 className="w-full"
                 saving={pendingLabels.size > 0}
                 workingDocument={workingDocument}
+                persistedMaterializedAnswers={persistedMaterializedAnswers}
+                serverRevisionAvailable={studioServerSaved}
               />
             ) : (
               <p className="text-sm text-muted-foreground">이 서류는 원본 양식 채움을 지원하지 않습니다.</p>
@@ -285,6 +293,7 @@ export function FieldPanel({
         <StudioTaskCard
           task={activeTask}
           status={studioTaskStates[activeTask.fieldId] ?? "unstarted"}
+          serverSaved={studioServerSaved}
           reviewPosition={Math.max(1, studioReviewPosition)}
           reviewTotal={studioReviewTasks.length || 1}
           onOpenStudio={() => onOpenStudio(activeTask.fieldId)}

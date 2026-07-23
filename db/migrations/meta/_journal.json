@@ -330,6 +330,27 @@
       "when": 1784064653440,
       "tag": "0046_numerous_norman_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1784776522216,
+      "tag": "0047_wonderful_switch",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1784777391342,
+      "tag": "0048_cool_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1784777679178,
+      "tag": "0049_neat_machine_man",
+      "breakpoints": true
     }
   ]
 }

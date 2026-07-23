@@ -34,6 +34,8 @@ export function WorkspaceDownloadButton({
   duplicateLabels,
   hwpxFallbackAvailable = false,
   workingDocument = null,
+  persistedMaterializedAnswers = {},
+  serverRevisionAvailable = false,
 }: {
   draftId: string | null;
   label?: string;
@@ -47,6 +49,10 @@ export function WorkspaceDownloadButton({
   hwpxFallbackAvailable?: boolean;
   /** Studio 편집본이 있으면 원본 대신 이 검증 스냅샷에 최신 빠른 작성 delta를 합친다. */
   workingDocument?: RhwpWorkingDocument | null;
+  /** 서버 head revision에 이미 반영된 빠른 작성 값. 새로고침 뒤 중복 materialize를 막는다. */
+  persistedMaterializedAnswers?: Record<string, string>;
+  /** 서버 head에 Studio 작업본이 있으면 원본 HWPX 폴백으로 조용히 되돌아가지 않는다. */
+  serverRevisionAvailable?: boolean;
 }) {
   const [pending, setPending] = useState(false);
 
@@ -61,6 +67,7 @@ export function WorkspaceDownloadButton({
         manualAnchors,
         ...(duplicateLabels ? { duplicateLabels } : {}),
         workingDocument,
+        persistedMaterializedAnswers,
       });
       if (result.skipped.length > 0) {
         const labels = result.skipped.map((entry) => entry.label).filter(Boolean).join(", ");
@@ -73,7 +80,7 @@ export function WorkspaceDownloadButton({
     } catch (caught) {
       // Studio 편집본이 있는 상태에서 서버 원본 폴백을 내려받으면 사용자의 직접 편집이 조용히
       // 사라진다. 이 경우에는 검증 실패를 그대로 알리고, 원본 폴백은 Studio 미사용 때만 허용한다.
-      if (hwpxFallbackAvailable && !workingDocument) {
+      if (hwpxFallbackAvailable && !workingDocument && !serverRevisionAvailable) {
         try {
           await downloadHwpxFallback(draftId);
           toast.warning("rhwp 검증을 통과하지 못해 기존 HWPX 안전 내보내기로 다운로드했습니다.");
@@ -114,6 +121,7 @@ async function downloadWithRhwp(input: {
   manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels?: ReadonlySet<string>;
   workingDocument?: RhwpWorkingDocument | null;
+  persistedMaterializedAnswers?: Record<string, string>;
 }): Promise<{ format: RhwpDocumentFormat; skipped: Array<{ label: string; reason: string }> }> {
   const document = await prepareRhwpWorkingDocument({
     draftId: input.draftId,
@@ -122,6 +130,9 @@ async function downloadWithRhwp(input: {
     manualAnchors: input.manualAnchors,
     ...(input.duplicateLabels ? { duplicateLabels: input.duplicateLabels } : {}),
     ...(input.workingDocument !== undefined ? { base: input.workingDocument } : {}),
+    ...(input.persistedMaterializedAnswers
+      ? { baseMaterializedAnswers: input.persistedMaterializedAnswers }
+      : {}),
   });
   const base = document.filename.replace(/\.(hwp|hwpx)$/i, "");
   downloadBytes(document.bytes, `${base}-창업노트-작성본.${document.format}`);

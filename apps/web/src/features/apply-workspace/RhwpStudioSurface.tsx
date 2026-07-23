@@ -1,6 +1,6 @@
 "use client";
 
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useReducer, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, FilePenLine, RefreshCw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -11,8 +11,16 @@ import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
 import { exportVerifiedEditorDocument, RHWP_STUDIO_URL } from "@/lib/rhwp/editorClient";
+import {
+  initialStudioSaveState,
+  isStudioSaveInFlight,
+  reduceStudioSaveState,
+} from "@/lib/rhwp/studioSaveState";
+import { resolveRhwpStudioSaveProtocol, type RhwpStudioSaveProtocol } from "@/lib/rhwp/studioSaveProtocol";
+import { persistStudioSnapshot } from "@/lib/rhwp/studioSnapshots";
 import { prepareRhwpWorkingDocument, type RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
 import type { DocumentAuthoringTask } from "./documentAuthoring";
+import { StudioSaveIndicator } from "./StudioSaveIndicator";
 
 type RhwpEditorInstance = import("@rhwp/editor").RhwpEditor;
 
@@ -23,10 +31,9 @@ export interface RhwpStudioSurfaceHandle {
 type StudioState =
   | { status: "loading"; message: string; allowEditorInteraction?: boolean }
   | { status: "ready"; pageCount: number; skipped: RhwpWorkingDocument["skipped"] }
-  | { status: "saving"; pageCount: number; intent: StudioSaveIntent }
   | { status: "error"; message: string };
 
-type StudioSaveIntent = "stay" | "return";
+type StudioSaveIntent = "auto" | "stay" | "return";
 
 export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   draftId: string;
@@ -35,6 +42,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels: ReadonlySet<string>;
   workingDocument: RhwpWorkingDocument | null;
+  headMaterializedAnswers: Record<string, string>;
   activeTask: DocumentAuthoringTask | null;
   onSaved: (
     document: RhwpWorkingDocument,
@@ -48,25 +56,53 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   manualAnchors,
   duplicateLabels,
   workingDocument,
+  headMaterializedAnswers,
   activeTask,
   onSaved,
 }, ref) => {
   const [attempt, setAttempt] = useState(0);
   const [state, setState] = useState<StudioState>({ status: "loading", message: "작업 문서를 준비하고 있어요." });
-  const [lastSavedLabel, setLastSavedLabel] = useState<string | null>(null);
+  const [saveState, dispatchSave] = useReducer(reduceStudioSaveState, initialStudioSaveState);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<RhwpEditorInstance | null>(null);
+  const saveProtocolRef = useRef<RhwpStudioSaveProtocol | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
+  const onSavedRef = useRef(onSaved);
+  const activeTaskFieldIdRef = useRef(activeTask?.fieldId ?? null);
   // 임시 저장으로 부모 workingDocument가 갱신돼도 편집기를 다시 열지 않는다. 이 ref는 빠른
   // 작성으로 전환해 화면을 숨긴 동안에도 유지되는 현재 Studio 세션의 최신 검증 스냅샷이다.
   const sessionDocumentRef = useRef<RhwpWorkingDocument | null>(workingDocument);
-  const initializationInputRef = useRef({ answers, quickFields, manualAnchors, duplicateLabels });
+  const initializationInputRef = useRef({
+    answers,
+    quickFields,
+    manualAnchors,
+    duplicateLabels,
+    headMaterializedAnswers,
+  });
   const saveInFlightRef = useRef(false);
+  const autosaveIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autosaveMaxTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleAutosaveRef = useRef<(changeSeq: number) => void>(() => undefined);
+  const flushAutosaveRef = useRef<() => void>(() => undefined);
+  const documentEpochRef = useRef(0);
+  const latestChangeSeqRef = useRef<number | null>(null);
+  const legacySaveSeqRef = useRef(0);
+  const studioSessionIdRef = useRef<string | null>(null);
+  if (!studioSessionIdRef.current) studioSessionIdRef.current = crypto.randomUUID();
   const requestSeq = useRef(0);
+
+  useEffect(() => {
+    onSavedRef.current = onSaved;
+  }, [onSaved]);
+
+  useEffect(() => {
+    activeTaskFieldIdRef.current = activeTask?.fieldId ?? null;
+  }, [activeTask?.fieldId]);
 
   useEffect(() => {
     const seq = ++requestSeq.current;
     let disposed = false;
+    let unsubscribeDocumentChanged: (() => void) | null = null;
     const initialize = async () => {
       const initializationInput = initializationInputRef.current;
       setState({ status: "loading", message: "확정한 빠른 작성 값을 원본 문서에 반영하고 있어요." });
@@ -77,6 +113,7 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         manualAnchors: initializationInput.manualAnchors,
         duplicateLabels: initializationInput.duplicateLabels,
         base: sessionDocumentRef.current,
+        baseMaterializedAnswers: initializationInput.headMaterializedAnswers,
       });
       if (disposed || requestSeq.current !== seq) return;
       preparedRef.current = prepared;
@@ -101,6 +138,26 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       });
       const result = await editor.loadFile(prepared.bytes.slice(), prepared.filename);
       if (disposed || requestSeq.current !== seq) return;
+      const saveProtocol = resolveRhwpStudioSaveProtocol(editor);
+      saveProtocolRef.current = saveProtocol;
+      const dirtyState = saveProtocol.getDirtyState ? await saveProtocol.getDirtyState() : null;
+      if (disposed || requestSeq.current !== seq) return;
+      documentEpochRef.current = dirtyState?.documentEpoch ?? 0;
+      latestChangeSeqRef.current = dirtyState?.changeSeq ?? null;
+      dispatchSave({
+        type: "loaded",
+        supportsChangeEvents: saveProtocol.supportsChangeEvents,
+        revisionId: prepared.revisionId,
+        savedAt: prepared.serverSavedAt,
+        ...(dirtyState ? { changeSeq: dirtyState.changeSeq } : {}),
+      });
+      unsubscribeDocumentChanged = saveProtocol.subscribeDocumentChanged((change) => {
+        if (disposed || requestSeq.current !== seq || !change.dirty) return;
+        documentEpochRef.current = change.documentEpoch;
+        latestChangeSeqRef.current = change.changeSeq;
+        dispatchSave({ type: "changed", changeSeq: change.changeSeq });
+        scheduleAutosaveRef.current(change.changeSeq);
+      });
       setState({ status: "ready", pageCount: result.pageCount, skipped: prepared.skipped });
     };
     void initialize().catch((caught) => {
@@ -110,8 +167,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     return () => {
       disposed = true;
       requestSeq.current += 1;
+      unsubscribeDocumentChanged?.();
       editorRef.current?.destroy();
       editorRef.current = null;
+      saveProtocolRef.current = null;
       preparedRef.current = null;
     };
     // Studio는 현재 draft에서 한 번만 생성한다. 빠른 작성 값이 바뀌었다고 iframe을 파괴해
@@ -129,36 +188,159 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       || state.status === "error"
     ) return;
     saveInFlightRef.current = true;
+    if (autosaveIdleTimerRef.current) clearTimeout(autosaveIdleTimerRef.current);
+    if (autosaveMaxTimerRef.current) clearTimeout(autosaveMaxTimerRef.current);
+    autosaveIdleTimerRef.current = null;
+    autosaveMaxTimerRef.current = null;
+    let tabSnapshot: RhwpWorkingDocument | null = null;
+    const supportsChangeEvents = saveProtocolRef.current?.supportsChangeEvents ?? false;
+    // Legacy host는 dirty/changeSeq 이벤트가 없으므로 성공 ACK 전에는 같은 순번을 재사용한다.
+    // 서버가 저장했지만 응답만 유실된 경우 같은 bytes+순번 재시도가 기존 revision을 복구한다.
+    const savedSeq = latestChangeSeqRef.current ?? legacySaveSeqRef.current + 1;
+    dispatchSave({ type: "save-started", changeSeq: savedSeq, phase: "exporting" });
     try {
       const pageCount = await editor.pageCount();
-      setState({ status: "saving", pageCount, intent });
       const bytes = await exportVerifiedEditorDocument(editor, prepared.format);
-      const saved: RhwpWorkingDocument = { ...prepared, bytes };
-      preparedRef.current = saved;
-      sessionDocumentRef.current = saved;
-      const savedAt = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-      setLastSavedLabel(savedAt);
-      onSaved(saved, activeTask?.fieldId ?? null, intent === "return");
-      setState({ status: "ready", pageCount, skipped: saved.skipped });
+      tabSnapshot = {
+        ...prepared,
+        bytes,
+        revisionId: prepared.revisionId,
+        serverSavedAt: null,
+      };
+      preparedRef.current = tabSnapshot;
+      sessionDocumentRef.current = tabSnapshot;
+      dispatchSave({ type: "save-phase", phase: "uploading" });
+      const persisted = await persistStudioSnapshot({
+        draftId,
+        bytes,
+        filename: prepared.filename,
+        format: prepared.format,
+        pageCount,
+        sessionId: studioSessionIdRef.current!,
+        baseRevisionId: prepared.revisionId,
+        documentEpoch: documentEpochRef.current,
+        changeSeq: savedSeq,
+        origin: intent === "auto" ? "studio_autosave" : "studio_manual",
+        materializedAnswers: tabSnapshot.materializedAnswers,
+        verification: {
+          client: "rhwp-core-reopen",
+          verified: true,
+          supportsChangeEvents,
+        },
+      });
+      const serverSnapshot: RhwpWorkingDocument = {
+        ...tabSnapshot,
+        revisionId: persisted.revisionId,
+        serverSavedAt: persisted.savedAt,
+      };
+      preparedRef.current = serverSnapshot;
+      sessionDocumentRef.current = serverSnapshot;
+      if (!supportsChangeEvents) legacySaveSeqRef.current = savedSeq;
+      onSavedRef.current(serverSnapshot, activeTaskFieldIdRef.current, intent === "return");
+      dispatchSave({
+        type: "save-succeeded",
+        revisionId: persisted.revisionId,
+        savedAt: persisted.savedAt,
+        savedSeq,
+        currentSeq: latestChangeSeqRef.current,
+        supportsChangeEvents,
+      });
       if (intent === "stay") {
-        toast.success("임시 저장했습니다. Studio에서 계속 편집할 수 있어요.");
-      } else {
-        toast.success("Studio 편집본을 검증해 저장하고 빠른 작성으로 돌아갑니다.");
+        toast.success("Studio 작업본을 서버에 저장했습니다.");
+      } else if (intent === "return") {
+        toast.success("Studio 작업본을 서버에 저장하고 빠른 작성으로 돌아갑니다.");
+      }
+      const currentSeq = latestChangeSeqRef.current;
+      if (supportsChangeEvents && currentSeq !== null && currentSeq > savedSeq) {
+        scheduleAutosaveRef.current(currentSeq);
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Studio 편집본을 저장하지 못했습니다.";
-      setState({ status: "error", message });
+      if (tabSnapshot) {
+        preparedRef.current = tabSnapshot;
+        sessionDocumentRef.current = tabSnapshot;
+        onSavedRef.current(tabSnapshot, activeTaskFieldIdRef.current, false);
+      }
+      dispatchSave({
+        type: "save-failed",
+        changeSeq: savedSeq,
+        message,
+        hasTabSnapshot: Boolean(tabSnapshot),
+      });
       toast.error(message);
     } finally {
       saveInFlightRef.current = false;
     }
-  }, [activeTask?.fieldId, onSaved, state.status]);
+  }, [draftId, state.status]);
+
+  useEffect(() => {
+    function clearAutosaveTimers() {
+      if (autosaveIdleTimerRef.current) clearTimeout(autosaveIdleTimerRef.current);
+      if (autosaveMaxTimerRef.current) clearTimeout(autosaveMaxTimerRef.current);
+      autosaveIdleTimerRef.current = null;
+      autosaveMaxTimerRef.current = null;
+    }
+
+    flushAutosaveRef.current = () => {
+      clearAutosaveTimers();
+      void save("auto");
+    };
+    scheduleAutosaveRef.current = (changeSeq) => {
+      if (!saveProtocolRef.current?.supportsChangeEvents) return;
+      if (autosaveIdleTimerRef.current) clearTimeout(autosaveIdleTimerRef.current);
+      const dueAt = Date.now() + 10_000;
+      dispatchSave({ type: "scheduled", changeSeq, dueAt });
+      autosaveIdleTimerRef.current = setTimeout(() => {
+        flushAutosaveRef.current();
+      }, 10_000);
+      if (!autosaveMaxTimerRef.current) {
+        autosaveMaxTimerRef.current = setTimeout(() => {
+          flushAutosaveRef.current();
+        }, 60_000);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === "hidden"
+        && (autosaveIdleTimerRef.current || autosaveMaxTimerRef.current)
+      ) {
+        flushAutosaveRef.current();
+      }
+    };
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (
+        saveState.kind !== "dirty"
+        && saveState.kind !== "scheduled"
+        && saveState.kind !== "saving"
+        && saveState.kind !== "tab-only"
+        && saveState.kind !== "error"
+        && !autosaveIdleTimerRef.current
+        && !autosaveMaxTimerRef.current
+        && !saveInFlightRef.current
+      ) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      clearAutosaveTimers();
+      scheduleAutosaveRef.current = () => undefined;
+      flushAutosaveRef.current = () => undefined;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [draftId, save, saveState.kind]);
 
   const saveAndReturn = useCallback(async () => {
     await save("return");
   }, [save]);
 
   useImperativeHandle(ref, () => ({ saveAndReturn }), [saveAndReturn]);
+
+  const saving = isStudioSaveInFlight(saveState);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 p-3 lg:p-4">
@@ -172,36 +354,32 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
             {activeTask ? <strong className="truncate text-sm">현재 과제: {activeTask.label}</strong> : null}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            전체 문서를 직접 편집할 수 있어요. 저장본은 현재 브라우저 탭에서 최종 다운로드에 사용됩니다.
+            전체 문서를 직접 편집할 수 있어요. 지금 저장하면 검증된 작업본을 서버에 보관합니다.
           </p>
-          {lastSavedLabel ? (
-            <p className="mt-1 text-xs text-success" role="status" aria-live="polite">
-              마지막 임시 저장 {lastSavedLabel} · 이후 수정 사항은 다시 저장해 주세요.
-            </p>
-          ) : null}
+          <StudioSaveIndicator state={saveState} className="mt-1" />
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             type="button"
             variant="outline"
             onClick={() => void save("stay")}
-            disabled={state.status !== "ready"}
+            disabled={state.status !== "ready" || saving}
           >
-            {state.status === "saving" && state.intent === "stay"
+            {saving
               ? <Spinner data-icon="inline-start" />
               : <Save data-icon="inline-start" aria-hidden />}
-            {state.status === "saving" && state.intent === "stay" ? "임시 저장 중…" : "임시 저장"}
+            {saving ? "저장 중…" : saveState.kind === "error" ? "서버 저장 재시도" : "지금 저장"}
           </Button>
           <Button
             type="button"
             onClick={() => void saveAndReturn()}
-            disabled={state.status !== "ready"}
+            disabled={state.status !== "ready" || saving}
           >
-            {state.status === "saving" && state.intent === "return"
+            {saving
               ? <Spinner data-icon="inline-start" />
               : <ArrowLeft data-icon="inline-start" aria-hidden />}
-            {state.status === "saving" && state.intent === "return"
-              ? "검증해 저장 중…"
+            {saving
+              ? "서버에 저장 중…"
               : "저장하고 빠른 작성으로"}
           </Button>
         </div>
@@ -215,6 +393,30 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
             <Button type="button" variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>
               <RefreshCw data-icon="inline-start" aria-hidden />
               다시 시도
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
+
+      {saveState.kind === "error" ? (
+        <Alert variant="destructive">
+          <AlertTitle>Studio 작업본을 서버에 저장하지 못했습니다.</AlertTitle>
+          <AlertDescription>
+            {saveState.message}
+            {saveState.hasTabSnapshot
+              ? " 검증한 작업본은 현재 브라우저 탭에 남아 있지만 새로고침하면 사라질 수 있습니다."
+              : ""}
+          </AlertDescription>
+          <div className="mt-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void save("stay")}
+              disabled={saving || state.status !== "ready"}
+            >
+              <RefreshCw data-icon="inline-start" aria-hidden />
+              서버 저장 다시 시도
             </Button>
           </div>
         </Alert>
@@ -234,15 +436,13 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
           <div className="pointer-events-none absolute top-3 left-1/2 z-10 w-[min(92%,42rem)] -translate-x-1/2 rounded-[var(--radius-lg)] border border-warning-strong/30 bg-card/95 px-3 py-2 text-center text-xs text-muted-foreground shadow-[var(--shadow-subtle)] backdrop-blur-sm">
             {state.message}
           </div>
-        ) : state.status === "loading" || state.status === "saving" ? (
+        ) : state.status === "loading" || saving ? (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
             <div className="flex items-center gap-2 rounded-full border bg-card px-4 py-2 text-sm shadow-[var(--shadow-subtle)]">
               <Spinner className="text-primary" />
               {state.status === "loading"
                 ? state.message
-                : state.intent === "stay"
-                  ? "작업 스냅샷을 다시 열어 검증하고 있어요."
-                  : "편집본을 다시 열어 검증하고 있어요."}
+                : "작업본을 검증해 서버에 저장하고 있어요."}
             </div>
           </div>
         ) : state.status === "ready" ? (

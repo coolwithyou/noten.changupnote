@@ -6,6 +6,7 @@ const adminRoleMigrationPath = "db/migrations/0004_company_role_admin.sql";
 const profileScopeMigrationPath = "db/migrations/0034_sturdy_boom_boom.sql";
 const creditMigrationPath = "db/migrations/0038_yielding_leader.sql";
 const profileQuestionMigrationPath = "db/migrations/0045_mushy_daimon_hellstrom.sql";
+const documentRevisionMigrationPath = "db/migrations/0048_cool_nick_fury.sql";
 const journalPath = "db/migrations/meta/_journal.json";
 const schemaPath = "apps/web/src/lib/server/db/schema.ts";
 
@@ -14,6 +15,7 @@ const adminRoleMigration = readFileSync(resolve(process.cwd(), adminRoleMigratio
 const profileScopeMigration = readFileSync(resolve(process.cwd(), profileScopeMigrationPath), "utf8");
 const creditMigration = readFileSync(resolve(process.cwd(), creditMigrationPath), "utf8");
 const profileQuestionMigration = readFileSync(resolve(process.cwd(), profileQuestionMigrationPath), "utf8");
+const documentRevisionMigration = readFileSync(resolve(process.cwd(), documentRevisionMigrationPath), "utf8");
 const journal = readFileSync(resolve(process.cwd(), journalPath), "utf8");
 const schema = readFileSync(resolve(process.cwd(), schemaPath), "utf8");
 
@@ -120,6 +122,24 @@ for (const pattern of [
 }
 if (!journal.includes('"tag": "0045_mushy_daimon_hellstrom"')) {
   errors.push(`${journalPath} is missing 0045_mushy_daimon_hellstrom`);
+}
+for (const pattern of [
+  `ALTER TABLE "grant_document_revisions" ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE "grant_document_revisions" FORCE ROW LEVEL SECURITY`,
+  `ALTER TABLE "grant_document_revision_heads" ENABLE ROW LEVEL SECURITY`,
+  `ALTER TABLE "grant_document_revision_heads" FORCE ROW LEVEL SECURITY`,
+  `CREATE POLICY "grant_document_revisions_member_select"`,
+  `CREATE POLICY "grant_document_revisions_writer_insert"`,
+  `CREATE POLICY "grant_document_revision_heads_member_select"`,
+  `CREATE POLICY "grant_document_revision_heads_writer_insert"`,
+  `CREATE POLICY "grant_document_revision_heads_writer_update"`,
+]) {
+  if (!documentRevisionMigration.includes(pattern)) {
+    errors.push(`${documentRevisionMigrationPath} is missing ${pattern}`);
+  }
+}
+if (!journal.includes('"tag": "0048_cool_nick_fury"')) {
+  errors.push(`${journalPath} is missing 0048_cool_nick_fury`);
 }
 
 if (!journal.includes('"tag": "0003_rls_company_scope"')) {

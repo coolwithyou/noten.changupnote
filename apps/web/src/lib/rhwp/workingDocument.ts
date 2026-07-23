@@ -9,6 +9,10 @@ export interface RhwpWorkingDocument {
   bytes: Uint8Array;
   format: RhwpDocumentFormat;
   filename: string;
+  /** 서버에 영속 저장된 최신 revision. 원본 또는 탭 전용 스냅샷이면 null이다. */
+  revisionId: string | null;
+  /** revision API가 확정한 저장 시각. 탭 전용 스냅샷이면 null이다. */
+  serverSavedAt: string | null;
   /** Studio 스냅샷에 이미 반영된 빠른 작성 값. fieldId를 키로 쓴다. */
   materializedAnswers: Record<string, string>;
   skipped: Array<{ label: string; reason: string }>;
@@ -18,6 +22,8 @@ interface SourceDocument {
   bytes: Uint8Array;
   format: RhwpDocumentFormat;
   filename: string;
+  revisionId: string | null;
+  serverSavedAt: string | null;
 }
 
 export interface RhwpStudioCompatibilityDocument {
@@ -27,7 +33,7 @@ export interface RhwpStudioCompatibilityDocument {
 
 export async function fetchRhwpSourceDocument(draftId: string): Promise<SourceDocument> {
   const response = await fetch(
-    `/api/web/document-drafts/${encodeURIComponent(draftId)}/source-file`,
+    `/api/web/document-drafts/${encodeURIComponent(draftId)}/source-file?revision=head`,
     { cache: "no-store" },
   );
   if (!response.ok) throw new Error(await sourceFileErrorMessage(response));
@@ -38,6 +44,8 @@ export async function fetchRhwpSourceDocument(draftId: string): Promise<SourceDo
     bytes: new Uint8Array(await response.arrayBuffer()),
     format,
     filename: encodedFilename ? decodeHeaderValue(encodedFilename) : `지원서-양식.${format}`,
+    revisionId: response.headers.get("x-cunote-document-revision"),
+    serverSavedAt: response.headers.get("x-cunote-document-saved-at"),
   };
 }
 
@@ -48,6 +56,8 @@ export async function prepareRhwpWorkingDocument(input: {
   manualAnchors: readonly RhwpFieldAnchor[];
   duplicateLabels?: ReadonlySet<string>;
   base?: RhwpWorkingDocument | null;
+  /** base bytes를 head API에서 가져오는 경우 서버 revision에 이미 반영된 fieldId→값. */
+  baseMaterializedAnswers?: Record<string, string>;
 }): Promise<RhwpWorkingDocument> {
   const source = input.base?.draftId === input.draftId
     ? input.base
@@ -60,7 +70,9 @@ export async function prepareRhwpWorkingDocument(input: {
       connectedFields: input.connectedFields,
       ...(input.duplicateLabels ? { duplicateLabels: input.duplicateLabels } : {}),
     });
-    const materialized = { ...(input.base?.materializedAnswers ?? {}) };
+    const materialized = {
+      ...(input.base?.materializedAnswers ?? input.baseMaterializedAnswers ?? {}),
+    };
     const conflicts: Array<{ label: string; value: string; reason: string }> = [];
     const pendingFields = prepareRhwpDeltaFields({
       document,
@@ -83,6 +95,8 @@ export async function prepareRhwpWorkingDocument(input: {
       bytes: verification.bytes,
       format: source.format,
       filename: source.filename,
+      revisionId: source.revisionId,
+      serverSavedAt: source.serverSavedAt,
       materializedAnswers: materialized,
       skipped: [...plan.skipped, ...conflicts, ...applied.skipped]
         .map(({ label, reason }) => ({ label, reason })),

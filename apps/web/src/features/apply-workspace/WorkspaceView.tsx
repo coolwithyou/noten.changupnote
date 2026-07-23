@@ -51,6 +51,8 @@ import { FieldPanel, type WorkspacePanelMode } from "./FieldPanel";
 import { RhwpStudioSurface, type RhwpStudioSurfaceHandle } from "./RhwpStudioSurface";
 import { workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
 
+const EMPTY_MATERIALIZED_ANSWERS: Record<string, string> = {};
+
 export function WorkspaceView({
   data,
   greeting,
@@ -127,6 +129,9 @@ export function WorkspaceView({
     if (first) setSelectedFieldId(first.fieldId);
   }, [selectedFieldId, authoringTasks, answers, studioTaskStates]);
 
+  const materializedAnswers =
+    workingDocument?.materializedAnswers ?? data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS;
+
   const overlayFields = useMemo<PreviewOverlayField[]>(
     () =>
       data.connectedFields.map((field) => {
@@ -145,14 +150,21 @@ export function WorkspaceView({
           value: workspaceFieldState(answer) === "filled" ? answer?.value ?? null : null,
           valueAlreadyInDocument: Boolean(
             answer?.value
-            && workingDocument?.materializedAnswers[field.fieldId] === answer.value,
+            && materializedAnswers[field.fieldId] === answer.value,
           ),
           isChoiceField: options.length > 0,
           visualEvidence: field.visualEvidence,
           authoringMode: task?.mode === "studio" ? "studio" : "quick",
         };
       }),
-    [data.connectedFields, answers, duplicateSet, studioTaskStates, taskByFieldId, workingDocument],
+    [
+      data.connectedFields,
+      answers,
+      duplicateSet,
+      materializedAnswers,
+      studioTaskStates,
+      taskByFieldId,
+    ],
   );
 
   const rhwpFields = useMemo<RhwpFieldDescriptor[]>(
@@ -368,7 +380,7 @@ export function WorkspaceView({
       onSelectField={handleSelectField}
       fill
       rhwpSourceUrl={(workingDocument?.draftId === data.draftId ? workingPreviewUrl : null) ?? (data.draftId
-        ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file`
+        ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file?revision=head`
         : null)}
       rhwpFields={rhwpFields}
       manualAnchors={manualAnchors}
@@ -411,6 +423,12 @@ export function WorkspaceView({
       onOpenStudio={openStudio}
       onSetStudioTaskStatus={setStudioTaskStatus}
       workingDocument={workingDocument}
+      studioServerSaved={Boolean(
+        workingDocument
+          ? workingDocument.serverSavedAt
+          : data.headRevision?.savedAt,
+      )}
+      persistedMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
     />
   );
 
@@ -524,6 +542,7 @@ export function WorkspaceView({
             manualAnchors={manualAnchors}
             duplicateLabels={duplicateSet}
             workingDocument={workingDocument}
+            headMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
             activeTask={studioTasks.find((task) => task.fieldId === selectedFieldId) ?? null}
             onSaved={handleStudioSaved}
           />

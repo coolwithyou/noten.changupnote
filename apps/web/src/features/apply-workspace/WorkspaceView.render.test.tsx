@@ -35,6 +35,7 @@ const data: WorkspaceData = {
     hwpxTemplateAvailable: true,
   }],
   draftId: DRAFT_ID,
+  headRevision: null,
   hwpxTemplateAvailable: true,
   connectedFields: [],
   fieldAnswers: {},
@@ -121,6 +122,7 @@ const confirmedHtml = renderToStaticMarkup(
         // rhwp 모드는 클라이언트가 구조 앵커를 계산한 뒤 값을 얹는다. SSR에서 오버레이 값 계약을
         // 검증하는 이 케이스는 서버 이미지 폴백 경로를 사용한다.
         draftId: null,
+        headRevision: null,
         connectedFields: [{
           fieldId: "field-name",
           fieldKey: "company_name",
