@@ -325,3 +325,12 @@ pnpm verify:ops-admin
   - 공고 원문 링크와 HWPX 첨부 170KB가 reviewer 권한으로 열림.
   - HWPX 비표준 자동 보정 후 로컬 글꼴 권한을 요청하지 않고 대체 글꼴을 선택해 28페이지 RHWP 미리보기 완료. 상단 완료 문구와 Studio 상태줄의 `1 / 28 쪽`을 확인했다.
 - 공용 멤버 가이드와 `kim`, `young` 개인 전달본을 새 화면·RHWP 안내 흐름으로 갱신했으며 개인본 mode `0600`을 유지했다.
+
+#### 2026-07-24 완료 화면 후속 피드백
+
+- 왼쪽 `판정 근거`는 `AI 분석 문서`를 기본 탭으로 열고, 저장된 분석 Markdown을 제목·목록·강조 구조로 바로 확인할 수 있게 했다. 필요할 때 `저장된 공고 원문`으로 전환하는 기존 동작은 유지했다.
+- 전체 필드가 모두 저장된 공고는 오른쪽 `전체 필드` 하단에 완료 안내와 outline `공고 목록으로 돌아가기` 버튼을 노출한다. 저장된 판정을 다시 선택해 수정하는 흐름은 유지했다.
+- 공용 멤버 가이드와 `kim`, `young` 개인 전달본을 새 기본 탭·완료 복귀 흐름으로 갱신했으며 개인본 mode `0600`을 유지했다.
+- 구현 커밋: `6676f49` (`fix: 검수 완료 복귀 흐름과 기본 분석 탭 개선`)
+- production deployment: Vercel deployment `dpl_ByLDbeEcp3dfiW9CgSV7FwwK8Gkr`, `READY`, alias `https://ops.changupnote.com`.
+- 실제 `kim@noten.im` reviewer 세션에서 `AI 분석 문서` 탭의 선택 상태와 Markdown heading/list/strong 렌더링, 1/1 완료 상태의 `공고 목록으로 돌아가기` 링크(`/review`)를 확인했다. 화면 콘솔 warning/error는 0건이었다.
