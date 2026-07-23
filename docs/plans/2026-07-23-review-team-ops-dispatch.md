@@ -311,4 +311,17 @@ pnpm verify:ops-admin
 - 배정 공고의 HWP/HWPX 첨부 목록을 연결하고 기존 `@rhwp/editor` 기반 RHWP Studio 미리보기 페이지를 ops에 추가했다. 미리보기는 새 탭으로 열려 현재 판정 입력을 보존하며, 파일은 서버에서 공고 출처별 허용 호스트만 프록시한다. reviewer의 notice assignment를 첨부 메타·파일 API에도 동일하게 강제하고 30MB 상한, redirect 후 호스트 재검증, `no-store`를 적용했다.
 - 화면 내 가이드와 `docs/guides/review-team-member-guide.md`를 새 흐름에 맞춰 갱신했다. 개인 전달본은 같은 가이드 원문으로 다시 생성한다.
 
-후속 검증은 한글 질문 변환·blind 질문·첨부 URL allowlist 단위 테스트, admin typecheck/build, admin route 역할 검증을 포함한다. 배포 커밋·deployment id와 운영 확인 결과는 후속 적용 직후 이 절에 추가한다.
+후속 검증은 한글 질문 변환·blind 질문·첨부 URL allowlist 단위 테스트, admin typecheck/build, admin route 역할 검증을 포함했다.
+
+- 구현 커밋: `99c6585` (`feat: 검수 워크스페이스 판정 흐름 개선`)
+- RHWP 운영 검증 보정:
+  - `79e0d8e` — HWPX 복구/비표준 안내가 뜰 때 바깥 로딩 오버레이가 Studio 조작을 막지 않도록 수정.
+  - `270fbb6` — `@rhwp/editor` iframe에 `width: 100%`, `height: max(32rem, calc(100vh - 18rem))`을 지정해 기본 150px 높이로 안내 버튼이 잘리는 문제를 수정.
+- 최종 production deployment: `dpl_8rjkmEPZ4Uts8K5iw9TLCDdxCG4L`, `READY`, alias `https://ops.changupnote.com`.
+- 실제 `kim@noten.im` reviewer 세션에서 판정 저장은 건드리지 않고 다음을 확인했다.
+  - 큐의 `검수 시작` CTA가 outline 스타일로 표시됨.
+  - 상세에서 `#1 기업 규모`와 보조 영문 `size`, `소상공인, 소기업` 추출 값, 필수 조건 질문, 원문 인용이 표시됨.
+  - 오른쪽 전체 필드에 `0/1`, `미판정`과 진행률이 표시됨.
+  - 공고 원문 링크와 HWPX 첨부 170KB가 reviewer 권한으로 열림.
+  - HWPX 비표준 자동 보정 후 로컬 글꼴 권한을 요청하지 않고 대체 글꼴을 선택해 28페이지 RHWP 미리보기 완료. 상단 완료 문구와 Studio 상태줄의 `1 / 28 쪽`을 확인했다.
+- 공용 멤버 가이드와 `kim`, `young` 개인 전달본을 새 화면·RHWP 안내 흐름으로 갱신했으며 개인본 mode `0600`을 유지했다.
