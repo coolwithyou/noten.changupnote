@@ -16,10 +16,10 @@
  *  (b) 프리뷰 + "작성 항목 분석 중" + missingFields 질문 카드
  *  (c) 정직 고지 + 채팅 전면(기관 연락처 포함) — 확인 루프 불성립(§2-⑥, DraftFallbackEditor 미렌더)
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, FilePenLine, WandSparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Progress } from "@/components/ui/progress";
@@ -27,6 +27,9 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectVa
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
+import { extractFieldOptions } from "@/lib/documents/fieldOptions";
+import type { RhwpFieldAnchor, RhwpFieldDescriptor } from "@/lib/rhwp/fieldAnchors";
+import type { RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
@@ -35,8 +38,20 @@ import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrig
 import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-viewer/PreviewCanvas";
 import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
 import { ChatPanelView, useGrantChat } from "./ChatPanel";
+import {
+  buildDocumentAuthoringTasks,
+  computeAuthoringProgress,
+  isAuthoringTaskComplete,
+  nextIncompleteTask,
+  type DocumentAuthoringMode,
+  type StudioTaskStates,
+  type StudioTaskStatus,
+} from "./documentAuthoring";
 import { FieldPanel, type WorkspacePanelMode } from "./FieldPanel";
-import { computeWorkspaceProgress, workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
+import { RhwpStudioSurface, type RhwpStudioSurfaceHandle } from "./RhwpStudioSurface";
+import { workspaceFieldState, type InstitutionContact } from "./workspacePresentation";
+
+const EMPTY_MATERIALIZED_ANSWERS: Record<string, string> = {};
 
 export function WorkspaceView({
   data,
@@ -57,6 +72,15 @@ export function WorkspaceView({
   const [suggestingLabels, setSuggestingLabels] = useState<Set<string>>(() => new Set());
   const [panelMode, setPanelMode] = useState<WorkspacePanelMode>("single");
   const [showChat, setShowChat] = useState(false);
+  const [rhwpAnchorsReady, setRhwpAnchorsReady] = useState(false);
+  const [locatingFieldId, setLocatingFieldId] = useState<string | null>(null);
+  const [manualAnchors, setManualAnchors] = useState<RhwpFieldAnchor[]>([]);
+  const [authoringMode, setAuthoringMode] = useState<Extract<DocumentAuthoringMode, "quick" | "studio">>("quick");
+  const [studioDraftId, setStudioDraftId] = useState<string | null>(null);
+  const [studioTaskStates, setStudioTaskStates] = useState<StudioTaskStates>({});
+  const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
+  const [workingPreviewUrl, setWorkingPreviewUrl] = useState<string | null>(null);
+  const studioSurfaceRef = useRef<RhwpStudioSurfaceHandle | null>(null);
   const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
   useEffect(() => {
@@ -65,37 +89,102 @@ export function WorkspaceView({
 
   const duplicateSet = useMemo(() => new Set(data.duplicateLabels), [data.duplicateLabels]);
   const suggestableSet = useMemo(() => new Set(data.suggestableLabels), [data.suggestableLabels]);
+  const authoringTasks = useMemo(() => buildDocumentAuthoringTasks(data.connectedFields), [data.connectedFields]);
+  const taskByFieldId = useMemo(
+    () => new Map(authoringTasks.map((task) => [task.fieldId, task])),
+    [authoringTasks],
+  );
+  const quickFields = useMemo(
+    () => authoringTasks.filter((task) => task.mode === "quick").map((task) => task.field),
+    [authoringTasks],
+  );
+  const studioTasks = useMemo(
+    () => authoringTasks.filter((task) => task.mode === "studio"),
+    [authoringTasks],
+  );
+
+  useEffect(() => {
+    setAuthoringMode("quick");
+    setStudioDraftId(null);
+    setStudioTaskStates({});
+    setWorkingDocument(null);
+  }, [data.draftId]);
+
+  useEffect(() => {
+    if (!workingDocument) {
+      setWorkingPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob(
+      [workingDocument.bytes as BlobPart],
+      { type: "application/octet-stream" },
+    ));
+    setWorkingPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [workingDocument]);
 
   useEffect(() => {
     if (selectedFieldId || data.connectedFields.length === 0) return;
-    const first = data.connectedFields.find((field) =>
-      workspaceFieldState(answers[answerKey(field.label)]) !== "filled",
-    );
+    const first = nextIncompleteTask({ tasks: authoringTasks, answers, studioTaskStates });
     if (first) setSelectedFieldId(first.fieldId);
-  }, [selectedFieldId, data.connectedFields, answers]);
+  }, [selectedFieldId, authoringTasks, answers, studioTaskStates]);
+
+  const materializedAnswers =
+    workingDocument?.materializedAnswers ?? data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS;
 
   const overlayFields = useMemo<PreviewOverlayField[]>(
     () =>
       data.connectedFields.map((field) => {
         const answer = answers[answerKey(field.label)];
+        const options = extractFieldOptions(field.fieldType, field.sourceSpan);
+        const task = taskByFieldId.get(field.fieldId);
+        const studioComplete = task?.mode === "studio"
+          && isAuthoringTaskComplete({ task, answers, studioTaskStates });
         return {
           fieldId: field.fieldId,
           label: field.label,
           page: parsePositionPage(field.position),
           box: parsePositionBbox(field.position),
-          state: fieldVisualState(field.label, answers, duplicateSet),
+          state: studioComplete ? "confirmed" : fieldVisualState(field.label, answers, duplicateSet),
           // 확정(accepted/edited)된 값만 오버레이 안에 실제 기입처럼 렌더한다(R2).
           value: workspaceFieldState(answer) === "filled" ? answer?.value ?? null : null,
+          valueAlreadyInDocument: Boolean(
+            answer?.value
+            && materializedAnswers[field.fieldId] === answer.value,
+          ),
+          isChoiceField: options.length > 0,
+          visualEvidence: field.visualEvidence,
+          authoringMode: task?.mode === "studio" ? "studio" : "quick",
         };
       }),
-    [data.connectedFields, answers, duplicateSet],
+    [
+      data.connectedFields,
+      answers,
+      duplicateSet,
+      materializedAnswers,
+      studioTaskStates,
+      taskByFieldId,
+    ],
+  );
+
+  const rhwpFields = useMemo<RhwpFieldDescriptor[]>(
+    () => data.connectedFields.map((field) => ({
+      fieldId: field.fieldId,
+      fieldKey: field.fieldKey,
+      label: field.label,
+      fieldType: field.fieldType,
+      sourceSpan: field.sourceSpan,
+      position: field.position,
+      options: extractFieldOptions(field.fieldType, field.sourceSpan),
+    })),
+    [data.connectedFields],
   );
 
   // 진행 표시는 단일 축(confirmed/total). 필수/전체 이중 표기는 폐기(재정의 §2-①).
   const progress = useMemo(() => {
     if (data.ladder !== "a" || data.connectedFields.length === 0) return null;
-    return computeWorkspaceProgress(data.connectedFields, answers, pendingLabels);
-  }, [data.ladder, data.connectedFields, answers, pendingLabels]);
+    return computeAuthoringProgress({ tasks: authoringTasks, answers, studioTaskStates, pendingLabels });
+  }, [data.ladder, data.connectedFields.length, authoringTasks, answers, studioTaskStates, pendingLabels]);
 
   async function patchAnswer(label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) {
     if (!data.draftId) return;
@@ -134,14 +223,14 @@ export function WorkspaceView({
         return next;
       });
       if (entry.status === "accepted" || entry.status === "edited" || entry.status === "dismissed") {
-        const currentIndex = data.connectedFields.findIndex((field) => answerKey(field.label) === key);
         const optimistic = optimisticApply(prev, key, entry);
-        const ordered = data.connectedFields
-          .slice(currentIndex + 1)
-          .concat(data.connectedFields.slice(0, Math.max(0, currentIndex)));
-        const next = ordered.find((field) =>
-          workspaceFieldState(optimistic[answerKey(field.label)]) !== "filled",
-        );
+        const currentTask = authoringTasks.find((task) => answerKey(task.label) === key);
+        const next = nextIncompleteTask({
+          tasks: authoringTasks,
+          ...(currentTask ? { afterFieldId: currentTask.fieldId } : {}),
+          answers: optimistic,
+          studioTaskStates,
+        });
         setSelectedFieldId(next?.fieldId ?? null);
       }
     } catch (caught) {
@@ -230,8 +319,56 @@ export function WorkspaceView({
 
   function handleSelectField(fieldId: string) {
     setSelectedFieldId(fieldId);
+    setLocatingFieldId(null);
     setPanelMode("single");
   }
+
+  function openStudio(fieldId?: string) {
+    if (!data.draftId) {
+      toast.error("원본 문서가 준비된 뒤 직접 편집할 수 있습니다.");
+      return;
+    }
+    const target = (fieldId ? taskByFieldId.get(fieldId) : null)
+      ?? studioTasks.find((task) => task.fieldId === selectedFieldId)
+      ?? studioTasks.find((task) => !isAuthoringTaskComplete({ task, answers, studioTaskStates }))
+      ?? studioTasks[0];
+    if (!target) return;
+    setSelectedFieldId(target.fieldId);
+    setStudioDraftId(data.draftId);
+    setAuthoringMode("studio");
+  }
+
+  function setStudioTaskStatus(fieldId: string, status: StudioTaskStatus) {
+    const nextStates = { ...studioTaskStates, [fieldId]: status };
+    setStudioTaskStates(nextStates);
+    const next = nextIncompleteTask({
+      tasks: authoringTasks,
+      afterFieldId: fieldId,
+      answers,
+      studioTaskStates: nextStates,
+    });
+    if (next) setSelectedFieldId(next.fieldId);
+  }
+
+  function handleStudioSaved(
+    document: RhwpWorkingDocument,
+    fieldId: string | null,
+    returnToQuick: boolean,
+  ) {
+    setWorkingDocument(document);
+    if (fieldId) setStudioTaskStates((current) => ({ ...current, [fieldId]: "edited" }));
+    if (returnToQuick) setAuthoringMode("quick");
+  }
+
+  const handleRhwpAnchorsChange = useCallback((_fieldIds: ReadonlySet<string>) => {
+    setRhwpAnchorsReady(true);
+  }, []);
+
+  const handleLocateField = useCallback((anchor: RhwpFieldAnchor) => {
+    setManualAnchors((current) => [...current.filter((entry) => entry.fieldId !== anchor.fieldId), anchor]);
+    setLocatingFieldId(null);
+    toast.success(`'${anchor.label}' 입력 위치를 현재 문서 셀로 지정했습니다.`);
+  }, []);
 
   const previewCanvas = (
     <PreviewCanvas
@@ -242,6 +379,14 @@ export function WorkspaceView({
       selectedFieldId={selectedFieldId}
       onSelectField={handleSelectField}
       fill
+      rhwpSourceUrl={(workingDocument?.draftId === data.draftId ? workingPreviewUrl : null) ?? (data.draftId
+        ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file?revision=head`
+        : null)}
+      rhwpFields={rhwpFields}
+      manualAnchors={manualAnchors}
+      locatingFieldId={locatingFieldId}
+      onLocateField={handleLocateField}
+      onRhwpAnchorsChange={handleRhwpAnchorsChange}
     />
   );
 
@@ -266,6 +411,24 @@ export function WorkspaceView({
       mode={panelMode}
       draftId={data.draftId}
       hwpxTemplateAvailable={data.hwpxTemplateAvailable}
+      rhwpAnchorsReady={rhwpAnchorsReady}
+      locatingFieldId={locatingFieldId}
+      manualAnchors={manualAnchors}
+      onStartLocateField={(fieldId) => {
+        setSelectedFieldId(fieldId);
+        setLocatingFieldId(fieldId);
+      }}
+      authoringTasks={authoringTasks}
+      studioTaskStates={studioTaskStates}
+      onOpenStudio={openStudio}
+      onSetStudioTaskStatus={setStudioTaskStatus}
+      workingDocument={workingDocument}
+      studioServerSaved={Boolean(
+        workingDocument
+          ? workingDocument.serverSavedAt
+          : data.headRevision?.savedAt,
+      )}
+      persistedMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
     />
   );
 
@@ -293,9 +456,37 @@ export function WorkspaceView({
                 className="w-24"
                 aria-label="확인 완료 진행률"
               />
+              {progress.studio.total > 0 ? (
+                <span className="hidden text-[11px] text-muted-foreground xl:inline">
+                  빠른 작성 {progress.quick.confirmed}/{progress.quick.total} · 문서 편집 {progress.studio.confirmed}/{progress.studio.total}
+                </span>
+              ) : null}
             </div>
           ) : null}
-          {data.ladder === "a" ? (
+          {data.ladder === "a" && studioTasks.length > 0 ? (
+            <ToggleGroup
+              value={[authoringMode]}
+              onValueChange={(value) => {
+                const next = value.at(-1);
+                if (next === "studio") openStudio();
+                if (next === "quick" && authoringMode === "studio") void studioSurfaceRef.current?.saveAndReturn();
+              }}
+              size="sm"
+              variant="outline"
+              spacing={0}
+              aria-label="문서 작성 방식"
+            >
+              <ToggleGroupItem value="quick">
+                <WandSparkles data-icon="inline-start" aria-hidden />
+                빠른 작성
+              </ToggleGroupItem>
+              <ToggleGroupItem value="studio">
+                <FilePenLine data-icon="inline-start" aria-hidden />
+                문서 직접 편집
+              </ToggleGroupItem>
+            </ToggleGroup>
+          ) : null}
+          {data.ladder === "a" && authoringMode === "quick" ? (
             <ToggleGroup
               value={[panelMode]}
               onValueChange={(value) => {
@@ -314,7 +505,7 @@ export function WorkspaceView({
           {data.documents.length > 1 && data.activeDocumentKey ? (
             <Select
               value={data.activeDocumentKey}
-              disabled={pendingLabels.size > 0 || suggestingLabels.size > 0}
+              disabled={pendingLabels.size > 0 || suggestingLabels.size > 0 || authoringMode === "studio"}
               // Base UI Select 는 items 를 줘야 SelectValue 가 raw value(documentKey) 대신 label 을 렌더한다.
               items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
               onValueChange={(next) => {
@@ -340,7 +531,25 @@ export function WorkspaceView({
         </div>
       </div>
 
-      {data.ladder === "c" ? (
+      {studioDraftId === data.draftId && data.draftId ? (
+        <div className={authoringMode === "studio" ? "flex min-h-0 flex-1" : "hidden"}>
+          <RhwpStudioSurface
+            key={data.draftId}
+            ref={studioSurfaceRef}
+            draftId={data.draftId}
+            answers={answers}
+            quickFields={quickFields}
+            manualAnchors={manualAnchors}
+            duplicateLabels={duplicateSet}
+            workingDocument={workingDocument}
+            headMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
+            activeTask={studioTasks.find((task) => task.fieldId === selectedFieldId) ?? null}
+            onSaved={handleStudioSaved}
+          />
+        </div>
+      ) : null}
+
+      {authoringMode === "studio" ? null : data.ladder === "c" ? (
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
             {data.honestNotice ? (
@@ -357,22 +566,14 @@ export function WorkspaceView({
           </div>
         </div>
       ) : (
-        <>
-          {/* 데스크톱: 문서 60% + 확인 카드 40%. 채팅은 패널을 갈아끼우지 않고 Sheet 로 얹힌다.
-              우측 wrapper 는 스크롤만 담당 — 표면(테두리)은 카드/패널이 직접 진다(이중 프레임 방지, R4). */}
-          <div className="hidden min-h-0 flex-1 gap-4 p-4 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(380px,2fr)]">
+        // 프리뷰를 데스크톱/모바일용으로 두 번 mount하면 원본 파싱·WASM 메모리도 두 배가 된다.
+        // 동일 노드 하나를 반응형 레이아웃만 바꿔 사용한다.
+        <div className="min-h-0 flex-1 overflow-auto p-3 lg:grid lg:grid-cols-[minmax(0,3fr)_minmax(380px,2fr)] lg:gap-4 lg:overflow-hidden lg:p-4">
+          <div className="h-52 overflow-hidden rounded-[var(--radius-xl)] lg:h-auto lg:min-h-0 lg:overflow-visible lg:rounded-none">
             {previewCanvas}
-            <div className="min-h-0 overflow-auto">{fieldPanel}</div>
           </div>
-
-          {/* 모바일: 프리뷰 상단 크롭 + 확인 카드가 주인공. 채팅은 데스크톱과 동일하게 Sheet. */}
-          <div className="min-h-0 flex-1 overflow-auto p-3 lg:hidden">
-            <div className="flex flex-col gap-3">
-              <div className="h-52 overflow-hidden rounded-[var(--radius-xl)]">{previewCanvas}</div>
-              <div>{fieldPanel}</div>
-            </div>
-          </div>
-        </>
+          <div className="mt-3 lg:min-h-0 lg:mt-0 lg:overflow-auto">{fieldPanel}</div>
+        </div>
       )}
 
       {/* 채팅 Sheet 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. 진입점(💬)은 (a) 확인 카드뿐. */}
@@ -389,6 +590,9 @@ export function WorkspaceView({
                 greeting={greeting}
                 variant="front"
                 institutionContact={institutionContact}
+                onApplyFieldProposal={({ label, value }) => {
+                  void patchAnswer(label, { value, status: "accepted" });
+                }}
               />
             </div>
           </SheetContent>

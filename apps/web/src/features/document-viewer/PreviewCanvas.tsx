@@ -3,7 +3,7 @@
 /**
  * 재사용 가능한 문서 프리뷰 캔버스 (Apply Experience v2 · §4.3 — DocumentPreviewView 를 분해해 추출).
  *
- * 페이지 이미지 + 필드 오버레이 + 줌/페이지 내비를 담당한다. 오버레이는 필드별 상태색(4종 + plain)을
+ * rhwp 원본 SVG(실패 시 페이지 이미지) + 필드 오버레이 + 줌/페이지 내비를 담당한다. 오버레이는 필드별 상태색(4종 + plain)을
  * 파라미터로 받는다. `selectedFieldId` 가 바뀌면 그 필드의 페이지로 이동해 카드↔오버레이 양방향 동기화를
  * 이룬다. `box` 가 null 인 필드는 오버레이를 그리지 않는다(카드 전용).
  *
@@ -11,13 +11,15 @@
  * 상태를 주어 기존 단색(primary) 오버레이가 시각적으로 회귀하지 않게 한다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronLeft, ChevronRight, Minus, Plus } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, FilePenLine, Minus, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
 import { boxToPercentStyle, type NormalizedBox } from "@/lib/documents/bbox";
+import type { RhwpFieldAnchor, RhwpFieldDescriptor } from "@/lib/rhwp/fieldAnchors";
 import type { PreviewPage } from "@/lib/server/documents/documentPreview";
+import { RhwpPageSurface } from "./RhwpPageSurface";
 
 /** 오버레이 시각 상태. plain 은 /preview 의 기존 단색 오버레이 재현용. */
 export type PreviewOverlayState = "plain" | "empty" | "suggested" | "confirmed" | "warning";
@@ -31,7 +33,21 @@ export interface PreviewOverlayField {
   state: PreviewOverlayState;
   /** 확정(confirmed)된 값 — 오버레이 안에 실제 기입처럼 렌더한다(재정의 R2). */
   value?: string | null;
+  /** 현재 rhwp 스냅샷 바이트에 이미 반영된 값. 중복 텍스트 오버레이는 그리지 않는다. */
+  valueAlreadyInDocument?: boolean;
+  /** 체크박스/라디오처럼 원문 선택지를 보존해야 하는 필드. */
+  isChoiceField?: boolean;
+  /** rhwp가 실제 입력 셀에서 읽은 배경과 안내문 마스킹 정보. */
+  rhwpAppearance?: RhwpFieldAnchor["appearance"];
+  /** 기존 좌표의 생성 근거. rhwp 모드에서는 신뢰 가능한 구조 좌표만 폴백 표시한다. */
+  visualEvidence?: Record<string, unknown> | null;
+  /** 작성 작업공간에서만 사용하는 입력 방식. /preview에서는 생략한다. */
+  authoringMode?: "quick" | "studio";
 }
+
+type RhwpPreviewState =
+  | { status: "inactive" | "loading" | "fallback" }
+  | { status: "ready"; pageCount: number; anchors: RhwpFieldAnchor[] };
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 3;
@@ -64,6 +80,11 @@ const OVERLAY_STATE_CLASS: Record<PreviewOverlayState, { base: string; active: s
   },
 };
 
+const STUDIO_OVERLAY_CLASS = {
+  base: "border border-dashed border-studio/65 bg-studio-soft/55 hover:bg-studio-soft",
+  active: "border-2 border-dashed border-studio bg-studio-soft",
+};
+
 function pageImageUrl(grantId: string, key: string): string {
   const encoded = key.split("/").map((part) => encodeURIComponent(part)).join("/");
   return `/api/web/grants/${encodeURIComponent(grantId)}/page-image/${encoded}`;
@@ -78,6 +99,12 @@ export function PreviewCanvas({
   onSelectField,
   fill = false,
   className,
+  rhwpSourceUrl,
+  rhwpFields = [],
+  manualAnchors = [],
+  locatingFieldId = null,
+  onLocateField,
+  onRhwpAnchorsChange,
 }: {
   grantId: string;
   grantTitle: string;
@@ -88,13 +115,67 @@ export function PreviewCanvas({
   /** true 면 이미지 영역이 부모 높이를 채운다(workspace). false 면 max-h-[80vh](/preview). */
   fill?: boolean;
   className?: string;
+  /** 있으면 rhwp 원본 SVG를 우선 렌더하고, 실패 시 기존 페이지 이미지로 폴백한다. */
+  rhwpSourceUrl?: string | null;
+  /** rhwp 구조 앵커를 계산할 의미 필드. DB bbox는 위치 힌트로만 포함한다. */
+  rhwpFields?: readonly RhwpFieldDescriptor[];
+  /** 현재 draft 세션에서 사용자가 직접 지정한 구조 셀. */
+  manualAnchors?: readonly RhwpFieldAnchor[];
+  locatingFieldId?: string | null;
+  onLocateField?: (anchor: RhwpFieldAnchor) => void;
+  onRhwpAnchorsChange?: (fieldIds: ReadonlySet<string>) => void;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
   const scrollViewportRef = useRef<HTMLDivElement>(null);
   const selectedOverlayRef = useRef<HTMLButtonElement>(null);
-  const totalPages = pages.length;
-  const currentPage = pages[pageIndex] ?? null;
+  const [rhwpPreview, setRhwpPreview] = useState<RhwpPreviewState>(
+    rhwpSourceUrl ? { status: "loading" } : { status: "inactive" },
+  );
+  const totalPages = rhwpPreview.status === "ready" ? rhwpPreview.pageCount : pages.length;
+  const currentPage = pages.find((page) => page.page === pageIndex + 1) ?? null;
+
+  useEffect(() => {
+    setRhwpPreview(rhwpSourceUrl ? { status: "loading" } : { status: "inactive" });
+    setPageIndex(0);
+  }, [rhwpSourceUrl]);
+
+  const handleRhwpReady = useCallback((result: { pageCount: number; anchors: RhwpFieldAnchor[] }) => {
+    setRhwpPreview({ status: "ready", pageCount: result.pageCount, anchors: result.anchors });
+    onRhwpAnchorsChange?.(new Set(result.anchors.map((anchor) => anchor.fieldId)));
+  }, [onRhwpAnchorsChange]);
+
+  const handleRhwpFallback = useCallback(() => {
+    setRhwpPreview({ status: "fallback" });
+  }, []);
+
+  const locatingField = useMemo(
+    () => rhwpFields.find((field) => field.fieldId === locatingFieldId) ?? null,
+    [rhwpFields, locatingFieldId],
+  );
+
+  const effectiveOverlayFields = useMemo<PreviewOverlayField[]>(() => {
+    if (!rhwpSourceUrl) return overlayFields;
+    if (rhwpPreview.status === "ready") {
+      const anchors = new Map(rhwpPreview.anchors.map((anchor) => [anchor.fieldId, anchor]));
+      for (const anchor of manualAnchors) anchors.set(anchor.fieldId, anchor);
+      return overlayFields.map((field) => {
+        const anchor = anchors.get(field.fieldId);
+        return {
+          ...field,
+          page: anchor?.page ?? null,
+          box: anchor?.box ?? null,
+          rhwpAppearance: anchor?.appearance,
+        };
+      });
+    }
+    // rhwp 로딩/실패 때 human_review 근사 박스를 원본 위에 그리지 않는다.
+    return overlayFields.map((field) => {
+      const source = typeof field.visualEvidence?.source === "string" ? field.visualEvidence.source : "";
+      const trusted = source.startsWith("rhwp") || source === "layout_json" || source === "ocr_exact";
+      return trusted ? field : { ...field, page: null, box: null };
+    });
+  }, [manualAnchors, overlayFields, rhwpPreview, rhwpSourceUrl]);
 
   const centerSelectedOverlay = useCallback(() => {
     const viewport = scrollViewportRef.current;
@@ -121,11 +202,10 @@ export function PreviewCanvas({
   // 선택 필드가 바뀌면 그 필드의 페이지로 이동(카드→캔버스 동기화). 좌표 없는 필드는 no-op.
   useEffect(() => {
     if (!selectedFieldId) return;
-    const field = overlayFields.find((entry) => entry.fieldId === selectedFieldId);
+    const field = effectiveOverlayFields.find((entry) => entry.fieldId === selectedFieldId);
     if (!field || !field.box || !field.page) return;
-    const targetIndex = pages.findIndex((page) => page.page === field.page);
-    if (targetIndex >= 0) setPageIndex(targetIndex);
-  }, [selectedFieldId, overlayFields, pages]);
+    if (field.page >= 1 && field.page <= totalPages) setPageIndex(field.page - 1);
+  }, [selectedFieldId, effectiveOverlayFields, totalPages]);
 
   // 문서 전환 등으로 페이지 수가 줄면 인덱스 보정.
   useEffect(() => {
@@ -141,8 +221,8 @@ export function PreviewCanvas({
   }, [centerSelectedOverlay, currentPage?.page, selectedFieldId, zoom]);
 
   const overlaysForPage = useMemo(
-    () => (currentPage ? overlayFields.filter((field) => field.box && field.page === currentPage.page) : []),
-    [overlayFields, currentPage],
+    () => effectiveOverlayFields.filter((field) => field.box && field.page === pageIndex + 1),
+    [effectiveOverlayFields, pageIndex],
   );
 
   return (
@@ -160,45 +240,94 @@ export function PreviewCanvas({
           fill ? "min-h-0 flex-1" : "max-h-[80vh]",
         )}
       >
-        {currentPage ? (
+        {totalPages > 0 && (currentPage || rhwpPreview.status === "ready") ? (
           // mx-auto: 축소 시 페이지를 가운데로. 확대(>100%)면 margin 0 이 되어 좌측부터 스크롤.
           <div className="relative mx-auto my-4 shadow-[var(--shadow-standard)]" style={{ width: `${zoom * 100}%` }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={pageImageUrl(grantId, currentPage.storageKey)}
-              alt={`${grantTitle} ${currentPage.page}페이지`}
-              className="pointer-events-none block w-full select-none"
-              draggable={false}
-              onLoad={centerSelectedOverlay}
-            />
+            {rhwpSourceUrl ? (
+              <RhwpPageSurface
+                sourceUrl={rhwpSourceUrl}
+                pageIndex={pageIndex}
+                fields={rhwpFields}
+                fallbackSrc={currentPage ? pageImageUrl(grantId, currentPage.storageKey) : null}
+                alt={`${grantTitle} ${pageIndex + 1}페이지`}
+                onLoad={centerSelectedOverlay}
+                onReady={handleRhwpReady}
+                onFallback={handleRhwpFallback}
+                locatingField={locatingField}
+                {...(onLocateField ? { onLocate: onLocateField } : {})}
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={pageImageUrl(grantId, currentPage!.storageKey)}
+                alt={`${grantTitle} ${currentPage!.page}페이지`}
+                className="pointer-events-none block w-full select-none"
+                draggable={false}
+                onLoad={centerSelectedOverlay}
+              />
+            )}
             {overlaysForPage.map((field) => {
               if (!field.box) return null;
               const active = field.fieldId === selectedFieldId;
-              const tone = OVERLAY_STATE_CLASS[field.state];
+              const tone = field.authoringMode === "studio" && field.state !== "confirmed"
+                ? STUDIO_OVERLAY_CLASS
+                : OVERLAY_STATE_CLASS[field.state];
               const confirmedValue =
                 field.state === "confirmed" && field.value?.trim() ? field.value.trim() : null;
+              const overlayValue = field.valueAlreadyInDocument ? null : confirmedValue;
+              const documentValue = Boolean(
+                overlayValue && rhwpPreview.status === "ready" && !field.isChoiceField,
+              );
+              const maskTemplateText = documentValue && field.rhwpAppearance?.maskTemplateText;
               return (
                 <Button
                   key={field.fieldId}
                   ref={active ? selectedOverlayRef : undefined}
                   variant="ghost"
                   onClick={() => onSelectField(field.fieldId)}
-                  title={field.label}
-                  aria-label={field.label}
+                  title={`${field.label}${field.authoringMode ? ` · ${field.authoringMode === "studio" ? "문서에서 편집" : "빠른 작성"}` : ""}`}
+                  aria-label={`${field.label}${field.authoringMode ? ` · ${field.authoringMode === "studio" ? "문서에서 편집" : "빠른 작성"}` : ""}`}
                   className={cn(
                     // 상태색(미입력/제안/확정/확인 필요)이 오버레이의 본질이라 tone 색을 className 으로 덮어쓴다.
                     // p-0 으로 버튼 기본 패딩만 제거하고, 위치·크기는 아래 동적 좌표 style 이 결정한다.
                     "absolute items-start justify-start overflow-hidden rounded-[3px] p-0 text-left whitespace-normal transition-colors",
-                    active ? tone.active : tone.base,
+                    locatingFieldId && "pointer-events-none",
+                    documentValue
+                      ? active
+                        ? "border-2 border-primary bg-transparent hover:bg-transparent"
+                        : "border border-success/50 bg-transparent hover:bg-transparent"
+                      : active ? tone.active : tone.base,
                   )}
                   // 동적 좌표: 필드 bbox(정규화 %)를 오버레이 위치/크기로 매핑한 계산값이라 인라인 style 유지.
-                  style={boxToPercentStyle(field.box)}
+                  style={{
+                    ...boxToPercentStyle(field.box),
+                    ...(documentValue ? { containerType: "size" } : {}),
+                    ...(maskTemplateText
+                      ? { backgroundColor: field.rhwpAppearance?.fillColor ?? "#ffffff" }
+                      : {}),
+                  }}
                 >
-                  {confirmedValue ? (
+                  {documentValue && overlayValue ? (
+                    // 컨테이너 높이에 비례해 실제 문서 글자처럼 확대/축소한다. 안내문 셀은 원래 셀색으로 가린다.
+                    <span
+                      className="flex size-full min-w-0 items-center overflow-hidden px-[2cqw] leading-[1.15] font-normal text-foreground"
+                      style={{ fontSize: "clamp(10px, 52cqh, 32px)" }}
+                    >
+                      <span className="min-w-0 break-words whitespace-pre-wrap">{overlayValue}</span>
+                    </span>
+                  ) : overlayValue ? (
                     // 확정 값은 문서 위 실제 기입처럼(foreground) — 박스보다 길면 클리핑.
                     <span className="flex min-w-0 items-start gap-0.5 overflow-hidden p-0.5 text-[11px] leading-tight font-medium text-foreground">
                       <Check className="size-3 shrink-0 text-success" aria-hidden />
-                      <span className="min-w-0 break-words whitespace-pre-wrap">{confirmedValue}</span>
+                      <span className="min-w-0 break-words whitespace-pre-wrap">{overlayValue}</span>
+                    </span>
+                  ) : field.state === "confirmed" ? (
+                    <span className="flex size-full items-start justify-end p-0.5 text-success">
+                      <Check className="size-3.5 rounded-sm bg-card/90 p-0.5 shadow-sm" aria-hidden />
+                    </span>
+                  ) : field.authoringMode === "studio" ? (
+                    <span className="flex size-full items-start justify-end p-0.5 text-studio">
+                      <FilePenLine className="size-3.5 rounded-sm bg-card/90 p-0.5 shadow-sm" aria-hidden />
                     </span>
                   ) : null}
                 </Button>
@@ -240,6 +369,13 @@ export function PreviewCanvas({
             <ChevronRight />
           </Button>
         </div>
+        {overlayFields.some((field) => field.authoringMode) ? (
+          <div className="flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm border border-primary bg-primary/10" />빠른 작성</span>
+            <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm border border-dashed border-studio bg-studio-soft" />문서에서 편집</span>
+            <span className="inline-flex items-center gap-1"><span className="size-2 rounded-sm border border-success bg-success-soft" />확인 완료</span>
+          </div>
+        ) : null}
         <div className="flex items-center gap-1">
           <Button
             variant="outline"

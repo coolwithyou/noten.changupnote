@@ -12,7 +12,7 @@
  * 상단 진행 표시가 말한다. 중복 label 만 카드 본문 경고 한 줄(Alert)로 유지한다.
  */
 import { useEffect, useRef, useState } from "react";
-import { Check, HelpCircle, Loader2, Pencil, SkipForward, Sparkles, TriangleAlert } from "lucide-react";
+import { Check, Crosshair, HelpCircle, Loader2, Pencil, SkipForward, Sparkles, TriangleAlert } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,6 +24,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
+import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { DraftFieldAnswer } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTip } from "@/lib/server/knowledge/lessonContext";
@@ -47,6 +48,9 @@ export function FieldCard({
   onAsk,
   onNext,
   onRequestSuggestion,
+  canLocateInDocument,
+  isLocatingInDocument,
+  onStartLocate,
 }: {
   field: ConnectedDocumentField;
   answer: DraftFieldAnswer | undefined;
@@ -67,6 +71,9 @@ export function FieldCard({
   onAsk: () => void;
   onNext: () => void;
   onRequestSuggestion: () => void;
+  canLocateInDocument: boolean;
+  isLocatingInDocument: boolean;
+  onStartLocate: () => void;
 }) {
   const value = answer?.value ?? "";
   const hasValue = value.trim().length > 0;
@@ -76,6 +83,8 @@ export function FieldCard({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const canSuggest = isSuggestable && (answer?.status === undefined || answer.status === "suggested");
   const canUndo = answer?.suggestedValue !== undefined && answer.status !== "suggested";
+  const options = extractFieldOptions(field.fieldType, field.sourceSpan);
+  const isChoiceField = options.length > 0;
 
   const positionCaption = fieldPositionCaption(field.position, field.section);
   const descriptionLine = fieldDescriptionLine(field, tips);
@@ -88,7 +97,7 @@ export function FieldCard({
   function startEditing() {
     setDraftValue(value);
     setEditing(true);
-    requestAnimationFrame(() => textareaRef.current?.focus());
+    if (!isChoiceField) requestAnimationFrame(() => textareaRef.current?.focus());
   }
 
   function commitEdit() {
@@ -126,7 +135,7 @@ export function FieldCard({
     return (
       <Button type="button" className="w-full" onClick={startEditing} disabled={isPending}>
         <Pencil data-icon="inline-start" aria-hidden />
-        직접 입력하기
+        {isChoiceField ? "선택하기" : "직접 입력하기"}
       </Button>
     );
   })();
@@ -167,16 +176,43 @@ export function FieldCard({
         {/* ⑷ 값 박스(A) 또는 변형 B(직접 입력) */}
         {editing ? (
           <div className="flex flex-col gap-2">
-            <Textarea
-              ref={textareaRef}
-              value={draftValue}
-              onChange={(event) => setDraftValue(event.currentTarget.value)}
-              aria-label={`${field.label} 값`}
-              placeholder={`${field.label}을(를) 입력해 주세요.`}
-              rows={4}
-            />
-            <p className="text-xs text-muted-foreground">공고 기준에 맞게 자유롭게 입력하세요. 저장 전까지 반영되지 않아요.</p>
-            {canSuggest ? (
+            {isChoiceField ? (
+              <div className="grid gap-2" role="radiogroup" aria-label={`${field.label} 선택`}>
+                {options.map((option) => {
+                  const selected = draftValue.trim() === option;
+                  return (
+                    <Button
+                      key={option}
+                      type="button"
+                      variant={selected ? "default" : "outline"}
+                      className="h-auto min-h-11 justify-start whitespace-normal text-left"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => setDraftValue(option)}
+                      disabled={isPending}
+                    >
+                      {selected ? <Check data-icon="inline-start" aria-hidden /> : null}
+                      {option}
+                    </Button>
+                  );
+                })}
+              </div>
+            ) : (
+              <Textarea
+                ref={textareaRef}
+                value={draftValue}
+                onChange={(event) => setDraftValue(event.currentTarget.value)}
+                aria-label={`${field.label} 값`}
+                placeholder={`${field.label}을(를) 입력해 주세요.`}
+                rows={4}
+              />
+            )}
+            <p className="text-xs text-muted-foreground">
+              {isChoiceField
+                ? "원본 양식의 선택지 중 하나를 골라 주세요. 입력 완료 전까지 저장되지 않아요."
+                : "공고 기준에 맞게 자유롭게 입력하세요. 저장 전까지 반영되지 않아요."}
+            </p>
+            {canSuggest && !isChoiceField ? (
               <Button
                 type="button"
                 size="sm"
@@ -217,7 +253,7 @@ export function FieldCard({
           ) : (
             <>
               <Button type="button" size="sm" variant="link" onClick={startEditing} disabled={isPending}>
-                직접 수정
+                {isChoiceField ? "선택 수정" : "직접 수정"}
               </Button>
               <Button type="button" size="sm" variant="link" onClick={onDismiss} disabled={isPending || answer?.status === "dismissed"}>
                 <SkipForward data-icon="inline-start" aria-hidden />
@@ -226,6 +262,19 @@ export function FieldCard({
             </>
           )}
         </div>
+
+        {canLocateInDocument ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={onStartLocate}
+            disabled={isPending || isLocatingInDocument}
+          >
+            <Crosshair data-icon="inline-start" aria-hidden />
+            {isLocatingInDocument ? "프리뷰에서 입력 칸을 눌러 주세요" : "문서에서 입력 위치 다시 지정"}
+          </Button>
+        ) : null}
       </CardContent>
 
       {/* ⑺ 하단 채팅 진입 */}

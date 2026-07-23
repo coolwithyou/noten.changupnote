@@ -23,13 +23,16 @@ assert.equal(workspaceFieldState({ value: "수정", status: "edited", source: "u
 function connectedField(overrides: Partial<ConnectedDocumentField> & { label: string }): ConnectedDocumentField {
   return {
     fieldId: overrides.label,
+    fieldKey: overrides.fieldKey ?? overrides.label,
     label: overrides.label,
     section: overrides.section ?? null,
     fieldType: overrides.fieldType ?? "text",
     required: overrides.required ?? false,
+    sourceSpan: overrides.sourceSpan ?? null,
     mappedCompanyField: overrides.mappedCompanyField ?? null,
     fillStrategy: overrides.fillStrategy ?? "copy",
     position: overrides.position ?? null,
+    visualEvidence: overrides.visualEvidence ?? null,
   };
 }
 

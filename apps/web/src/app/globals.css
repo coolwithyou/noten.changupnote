@@ -65,9 +65,11 @@
   --success: #03b26c;
   --warning: #ffc342;
   --danger: #f04452;
+  --studio: #7256d8;
   --success-soft: color-mix(in srgb, var(--success) 12%, white);
   --warning-soft: color-mix(in srgb, var(--warning) 14%, white);
   --danger-soft: color-mix(in srgb, var(--danger) 12%, white);
+  --studio-soft: color-mix(in srgb, var(--studio) 10%, white);
 
   /* ── 그림자 (TSX 19곳이 --shadow-subtle 참조 → 이름 유지) ─────── */
   --shadow-subtle: 0 1px 3px #001b371a;
@@ -231,6 +233,8 @@
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
+  --color-studio: var(--studio);
+  --color-studio-soft: var(--studio-soft);
 
   /* 신규 디자인 시스템 색 매핑 → text-ink, bg-surface-muted, border-border-card 등 자동 생성 */
   --color-ink: var(--ink);

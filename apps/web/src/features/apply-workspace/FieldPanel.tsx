@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { Check, Circle, CircleDot, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult, DraftGenerationResult, MissingFieldQuestion } from "@cunote/contracts";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
@@ -23,8 +24,18 @@ import type { ConnectedDocumentField } from "@/lib/server/documents/documentFiel
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 import type { WorkspaceLadder } from "@/lib/server/documents/workspaceData";
+import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
+import type { RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
 import { answerKey } from "./fieldAnswerState";
+import {
+  isAuthoringTaskComplete,
+  isStudioTaskComplete,
+  type DocumentAuthoringTask,
+  type StudioTaskStates,
+  type StudioTaskStatus,
+} from "./documentAuthoring";
 import { FieldCard } from "./FieldCard";
+import { StudioTaskCard } from "./StudioTaskCard";
 import { WorkspaceDownloadButton } from "./WorkspaceFooter";
 import { confirmedFieldLabels, workspaceFieldState } from "./workspacePresentation";
 
@@ -50,6 +61,17 @@ export function FieldPanel({
   mode,
   draftId,
   hwpxTemplateAvailable,
+  rhwpAnchorsReady,
+  locatingFieldId,
+  manualAnchors,
+  onStartLocateField,
+  authoringTasks,
+  studioTaskStates,
+  onOpenStudio,
+  onSetStudioTaskStatus,
+  workingDocument,
+  studioServerSaved,
+  persistedMaterializedAnswers,
 }: {
   ladder: WorkspaceLadder;
   grantId: string;
@@ -74,6 +96,17 @@ export function FieldPanel({
   mode: WorkspacePanelMode;
   draftId: string | null;
   hwpxTemplateAvailable: boolean;
+  rhwpAnchorsReady: boolean;
+  locatingFieldId: string | null;
+  manualAnchors: readonly RhwpFieldAnchor[];
+  onStartLocateField: (fieldId: string) => void;
+  authoringTasks: readonly DocumentAuthoringTask[];
+  studioTaskStates: StudioTaskStates;
+  onOpenStudio: (fieldId: string) => void;
+  onSetStudioTaskStatus: (fieldId: string, status: StudioTaskStatus) => void;
+  workingDocument: RhwpWorkingDocument | null;
+  studioServerSaved: boolean;
+  persistedMaterializedAnswers: Record<string, string>;
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
@@ -108,23 +141,29 @@ export function FieldPanel({
     );
   }
 
-  const duplicateFieldCount = connectedFields.filter((field) => duplicateLabels.has(field.label)).length;
+  const visibleTasks = authoringTasks.filter((task) => task.mode !== "none");
+  const quickFields = visibleTasks.filter((task) => task.mode === "quick").map((task) => task.field);
+  const duplicateFieldCount = quickFields.filter((field) => duplicateLabels.has(field.label)).length;
   const hasDuplicateConflicts = duplicateFieldCount > 0;
   const isComplete =
     pendingLabels.size === 0 &&
-    connectedFields.every((field) => workspaceFieldState(answers[answerKey(field.label)]) === "filled");
+    visibleTasks.every((task) => isAuthoringTaskComplete({ task, answers, studioTaskStates }));
 
   if (mode === "list") {
     return (
       <div className="flex flex-col gap-3 rounded-[var(--radius-xl)] border bg-card p-4">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold">전체 항목 {connectedFields.length.toLocaleString("ko-KR")}</h2>
+          <h2 className="text-sm font-semibold">전체 항목 {visibleTasks.length.toLocaleString("ko-KR")}</h2>
           <span className="text-xs text-muted-foreground">항목을 선택하면 하나씩 확인할 수 있어요.</span>
         </div>
         <div className="flex flex-col gap-1">
-          {connectedFields.map((field) => {
+          {visibleTasks.map((task) => {
+            const field = task.field;
             const answer = answers[answerKey(field.label)];
-            const state = workspaceFieldState(answer);
+            const studioStatus = studioTaskStates[field.fieldId] ?? "unstarted";
+            const state = task.mode === "studio"
+              ? isStudioTaskComplete(studioStatus) ? "filled" : studioStatus === "edited" ? "reviewing" : "empty"
+              : workspaceFieldState(answer);
             return (
               <Button
                 key={field.fieldId}
@@ -137,9 +176,17 @@ export function FieldPanel({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{field.label}</span>
                   <span className="block truncate text-xs font-normal text-muted-foreground">
-                    {state === "empty" ? "비어 있음" : answer?.value?.trim() || "비어 있음"}
+                    {task.mode === "studio"
+                      ? studioTaskDescription(studioStatus)
+                      : state === "empty" ? "비어 있음" : answer?.value?.trim() || "비어 있음"}
                   </span>
                 </span>
+                <Badge
+                  variant="outline"
+                  className={task.mode === "studio" ? "border-studio/35 bg-studio-soft text-studio" : "text-primary"}
+                >
+                  {task.mode === "studio" ? "문서 편집" : "빠른 작성"}
+                </Badge>
                 <span className="text-xs font-normal text-muted-foreground">
                   {state === "filled" ? "확인 완료" : state === "reviewing" ? "확인 중" : "미입력"}
                 </span>
@@ -148,13 +195,21 @@ export function FieldPanel({
           })}
         </div>
         {/* 중도 다운로드(재정의 §2-⑤) — 완전 제거하지 않고 전체 목록 하단 보조 버튼 1개로만 표면화. */}
-        {hwpxTemplateAvailable && draftId ? (
+        {draftId ? (
           <WorkspaceDownloadButton
             draftId={draftId}
+            answers={answers}
+            connectedFields={quickFields}
+            manualAnchors={manualAnchors}
+            duplicateLabels={duplicateLabels}
+            hwpxFallbackAvailable={hwpxTemplateAvailable}
             variant="outline"
-            label="지금까지 확정한 값으로 내려받기"
+            label="지금까지 확정한 값으로 원본 내려받기"
             className="w-full"
             saving={pendingLabels.size > 0}
+            workingDocument={workingDocument}
+            persistedMaterializedAnswers={persistedMaterializedAnswers}
+            serverRevisionAvailable={studioServerSaved}
           />
         ) : null}
       </div>
@@ -179,14 +234,22 @@ export function FieldPanel({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {hwpxTemplateAvailable ? (
+            {draftId ? (
               <WorkspaceDownloadButton
                 draftId={draftId}
+                answers={answers}
+                connectedFields={quickFields}
+                manualAnchors={manualAnchors}
+                duplicateLabels={duplicateLabels}
+                hwpxFallbackAvailable={hwpxTemplateAvailable}
                 label={hasDuplicateConflicts
-                  ? "직접 확인할 신청서 내려받기 (HWPX)"
-                  : "함께 완성한 신청서 내려받기 (HWPX)"}
+                  ? "직접 확인할 원본 신청서 내려받기"
+                  : "함께 완성한 원본 신청서 내려받기"}
                 className="w-full"
                 saving={pendingLabels.size > 0}
+                workingDocument={workingDocument}
+                persistedMaterializedAnswers={persistedMaterializedAnswers}
+                serverRevisionAvailable={studioServerSaved}
               />
             ) : (
               <p className="text-sm text-muted-foreground">이 서류는 원본 양식 채움을 지원하지 않습니다.</p>
@@ -200,29 +263,50 @@ export function FieldPanel({
     );
   }
 
-  const activeField = connectedFields.find((field) => field.fieldId === selectedFieldId)
-    ?? connectedFields.find((field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled")
-    ?? connectedFields[0]!;
-  const activeIndex = connectedFields.findIndex((field) => field.fieldId === activeField.fieldId);
+  const activeTask = visibleTasks.find((task) => task.fieldId === selectedFieldId)
+    ?? visibleTasks.find((task) => !isAuthoringTaskComplete({ task, answers, studioTaskStates }))
+    ?? visibleTasks[0]!;
+  const activeField = activeTask.field;
+  const activeIndex = visibleTasks.findIndex((task) => task.fieldId === activeTask.fieldId);
   // 남은 확인량 프레이밍(디자인 정본 4a): 분모는 전체가 아니라 "확인이 필요한(미완료) 항목" 수.
-  const reviewFields = connectedFields.filter(
-    (field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled",
+  const reviewTasks = visibleTasks.filter(
+    (task) => !isAuthoringTaskComplete({ task, answers, studioTaskStates }),
   );
-  const reviewPosition = reviewFields.findIndex((field) => field.fieldId === activeField.fieldId) + 1;
+  const reviewPosition = reviewTasks.findIndex((task) => task.fieldId === activeField.fieldId) + 1;
+  const studioReviewTasks = reviewTasks.filter((task) => task.mode === "studio");
+  const studioReviewPosition = studioReviewTasks.findIndex((task) => task.fieldId === activeField.fieldId) + 1;
   const key = answerKey(activeField.label);
-  const nextField = connectedFields
+  const nextTask = visibleTasks
     .slice(activeIndex + 1)
-    .concat(connectedFields.slice(0, activeIndex))
-    .find((field) => workspaceFieldState(answers[answerKey(field.label)]) !== "filled");
-  const confirmedLabels = confirmedFieldLabels(connectedFields, answers);
+    .concat(visibleTasks.slice(0, activeIndex))
+    .find((task) => !isAuthoringTaskComplete({ task, answers, studioTaskStates }));
+  const confirmedLabels = [
+    ...confirmedFieldLabels(quickFields, answers),
+    ...visibleTasks
+      .filter((task) => task.mode === "studio" && isStudioTaskComplete(studioTaskStates[task.fieldId]))
+      .map((task) => task.label),
+  ];
 
   return (
     <div className="flex flex-col gap-3">
+      {activeTask.mode === "studio" ? (
+        <StudioTaskCard
+          task={activeTask}
+          status={studioTaskStates[activeTask.fieldId] ?? "unstarted"}
+          serverSaved={studioServerSaved}
+          reviewPosition={Math.max(1, studioReviewPosition)}
+          reviewTotal={studioReviewTasks.length || 1}
+          onOpenStudio={() => onOpenStudio(activeTask.fieldId)}
+          onConfirm={() => onSetStudioTaskStatus(activeTask.fieldId, "confirmed")}
+          onNotApplicable={() => onSetStudioTaskStatus(activeTask.fieldId, "not_applicable")}
+          onLater={() => onSetStudioTaskStatus(activeTask.fieldId, "later")}
+        />
+      ) : (
       <FieldCard
         field={activeField}
         answer={answers[key]}
         reviewPosition={reviewPosition}
-        reviewTotal={reviewFields.length}
+        reviewTotal={reviewTasks.length}
         isDuplicate={duplicateLabels.has(activeField.label)}
         isSelected
         isPending={pendingLabels.has(key)}
@@ -238,10 +322,14 @@ export function FieldPanel({
         }}
         onAsk={() => onAskField(activeField)}
         onNext={() => {
-          if (nextField) onSelectField(nextField.fieldId);
+          if (nextTask) onSelectField(nextTask.fieldId);
         }}
         onRequestSuggestion={() => onRequestSuggestion(activeField)}
+        canLocateInDocument={rhwpAnchorsReady}
+        isLocatingInDocument={locatingFieldId === activeField.fieldId}
+        onStartLocate={() => onStartLocateField(activeField.fieldId)}
       />
+      )}
       {/* 확인 완료 축약 리스트(재정의 §2-③) — 클릭 요소 아님. 다시 보려면 전체 목록 토글. */}
       {confirmedLabels.length > 0 ? (
         <p className="truncate px-1 text-xs text-muted-foreground" title={confirmedLabels.join(" · ")}>
@@ -250,6 +338,14 @@ export function FieldPanel({
       ) : null}
     </div>
   );
+}
+
+function studioTaskDescription(status: StudioTaskStatus): string {
+  if (status === "confirmed") return "확인 완료";
+  if (status === "not_applicable") return "해당 없음";
+  if (status === "edited") return "편집됨 · 확인 필요";
+  if (status === "later") return "나중에 작성";
+  return "문서에서 작성 필요";
 }
 
 function FieldStateIcon({ state }: { state: ReturnType<typeof workspaceFieldState> }) {

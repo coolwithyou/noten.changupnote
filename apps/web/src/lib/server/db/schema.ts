@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -844,6 +845,60 @@ export const grantDocumentDraftEvents = pgTable("grant_document_draft_events", {
 }, (table) => ({
   draftIdx: index("grant_document_draft_events_draft_idx").on(table.draftId),
   actorIdx: index("grant_document_draft_events_actor_idx").on(table.actorUserId),
+}));
+
+/**
+ * Studio에서 검증 내보낸 HWP/HWPX 작업본의 불변 revision.
+ *
+ * 바이너리는 R2에 두고 이 테이블에는 소유권·검증·동시성 메타데이터만 보관한다.
+ * 빠른 작성 fieldAnswers는 기존 grant_document_drafts에 계속 저장하며, Studio 진입/내보내기
+ * 경계에서만 전체 문서 revision을 만든다.
+ */
+export const grantDocumentRevisions = pgTable("grant_document_revisions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  draftId: uuid("draft_id").notNull().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  parentRevisionId: uuid("parent_revision_id").references(
+    (): AnyPgColumn => grantDocumentRevisions.id,
+    { onDelete: "set null" },
+  ),
+  origin: text("origin").notNull(),
+  format: text("format").notNull(),
+  artifactStorageKey: text("artifact_storage_key").notNull(),
+  sha256: text("sha256").notNull(),
+  byteSize: integer("byte_size").notNull(),
+  pageCount: integer("page_count").notNull(),
+  fieldAnswersHash: text("field_answers_hash").notNull(),
+  materializedAnswers: jsonb("materialized_answers").$type<Record<string, string>>().notNull(),
+  verification: jsonb("verification").$type<Record<string, unknown>>().notNull(),
+  studioSessionId: text("studio_session_id").notNull(),
+  documentEpoch: integer("document_epoch").notNull(),
+  changeSeq: integer("change_seq").notNull(),
+  createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  draftCreatedIdx: index("grant_document_revisions_draft_created_idx").on(table.draftId, table.createdAt),
+  artifactKeyUnique: uniqueIndex("grant_document_revisions_artifact_key_unique").on(table.artifactStorageKey),
+  snapshotIdempotencyUnique: uniqueIndex("grant_document_revisions_snapshot_idempotency_unique").on(
+    table.draftId,
+    table.studioSessionId,
+    table.documentEpoch,
+    table.changeSeq,
+    table.sha256,
+  ),
+}));
+
+/**
+ * draft별 최신 작업 revision 포인터.
+ *
+ * draft와 revision의 순환 FK를 피하면서도 draft row lock 아래에서 원자적으로 교체할 수 있도록
+ * 별도 1:1 테이블로 둔다.
+ */
+export const grantDocumentRevisionHeads = pgTable("grant_document_revision_heads", {
+  draftId: uuid("draft_id").primaryKey().references(() => grantDocumentDrafts.id, { onDelete: "cascade" }),
+  revisionId: uuid("revision_id").notNull().references(() => grantDocumentRevisions.id, { onDelete: "cascade" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  revisionUnique: uniqueIndex("grant_document_revision_heads_revision_unique").on(table.revisionId),
 }));
 
 export const dedupLinks = pgTable("dedup_links", {

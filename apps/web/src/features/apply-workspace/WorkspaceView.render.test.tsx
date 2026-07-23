@@ -35,6 +35,7 @@ const data: WorkspaceData = {
     hwpxTemplateAvailable: true,
   }],
   draftId: DRAFT_ID,
+  headRevision: null,
   hwpxTemplateAvailable: true,
   connectedFields: [],
   fieldAnswers: {},
@@ -118,15 +119,22 @@ const confirmedHtml = renderToStaticMarkup(
     <WorkspaceView
       data={{
         ...data,
+        // rhwp 모드는 클라이언트가 구조 앵커를 계산한 뒤 값을 얹는다. SSR에서 오버레이 값 계약을
+        // 검증하는 이 케이스는 서버 이미지 폴백 경로를 사용한다.
+        draftId: null,
+        headRevision: null,
         connectedFields: [{
           fieldId: "field-name",
+          fieldKey: "company_name",
           label: "상호명",
           section: "기업 현황",
           fieldType: "text",
           required: true,
+          sourceSpan: null,
           mappedCompanyField: "name",
           fillStrategy: "copy",
           position: { page: 1, bbox: [0.1, 0.1, 0.4, 0.15] },
+          visualEvidence: null,
         }],
         fieldAnswers: {
           상호명: {
@@ -143,5 +151,35 @@ const confirmedHtml = renderToStaticMarkup(
   </AppRouterContext.Provider>,
 );
 assert.ok(confirmedHtml.includes(confirmedValue), "승인된 값이 프리뷰 셀 오버레이에 보여야 합니다.");
+
+// 반복 표는 textarea로 축약하지 않고 Studio 과제로 분류하며, 두 작성 모드를 명시한다.
+const studioHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        connectedFields: [{
+          fieldId: "field-career",
+          fieldKey: "applicant.career_rows",
+          label: "경력사항",
+          section: "신청자",
+          fieldType: "table",
+          required: false,
+          sourceSpan: "입사연월 | 퇴사연월 | 근무처 | 업무분야",
+          mappedCompanyField: null,
+          fillStrategy: "ask_user",
+          position: { page: 1, bbox: [0.1, 0.3, 0.8, 0.5] },
+          visualEvidence: null,
+        }],
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.ok(studioHtml.includes("문서에서 편집"), "반복 표에는 Studio 편집 CTA가 보여야 합니다.");
+assert.ok(studioHtml.includes("빠른 작성"), "빠른 작성 모드 전환이 보여야 합니다.");
+assert.ok(studioHtml.includes("문서 직접 편집"), "문서 직접 편집 모드 전환이 보여야 합니다.");
+assert.equal(studioHtml.includes("<textarea"), false, "반복 표를 textarea로 축약하면 안 됩니다.");
 
 console.log("WorkspaceView grant UUID render regression passed");

@@ -24,6 +24,7 @@ export function webActionError<T>(
       message: error.message,
     };
     if (error.field) actionError.field = error.field;
+    if (error.meta) actionError.meta = error.meta;
     return NextResponse.json<ActionResult<T>>({
       ok: false,
       error: actionError,
@@ -44,12 +45,19 @@ function isStatusError(error: unknown): error is {
   message: string;
   status: number;
   field?: string;
+  meta?: Record<string, unknown>;
 } {
   if (!(error instanceof Error)) return false;
   const candidate = error as Error & {
     code?: unknown;
     status?: unknown;
     field?: unknown;
+    meta?: unknown;
   };
-  return typeof candidate.code === "string" && typeof candidate.status === "number";
+  return typeof candidate.code === "string"
+    && typeof candidate.status === "number"
+    && (
+      candidate.meta === undefined
+      || (typeof candidate.meta === "object" && candidate.meta !== null && !Array.isArray(candidate.meta))
+    );
 }

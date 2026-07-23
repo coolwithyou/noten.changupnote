@@ -1,21 +1,26 @@
 "use client";
 
 /**
- * HWPX 다운로드 버튼 + 다운로드 클라이언트 헬퍼 (Apply Experience v2 · §4.3 · P2-8).
+ * HWP/HWPX 원본 다운로드 버튼 + rhwp 검증 클라이언트 헬퍼 (Apply Experience v2 · §4.3 · P2-8).
  *
  * 2026-07-15 워크스페이스 재정의(docs/research/2026-07-15-작성도우미-워크스페이스-재정의.md §2-⑤)로
  * 상시 하단 바(WorkspaceFooter)와 이중 진행 표시(ProgressMeter)는 해체됐다. 문서 Select 는 상단 바로,
  * 진행 표시는 단일 축(confirmed/total)으로 WorkspaceView 상단 바에 편입됐다. 이 파일에는
  * 다운로드 버튼과 그 HWPX 헬퍼만 남는다(완료 카드 주 CTA + 전체 목록 하단 보조 버튼이 재사용).
  *
- * 다운로드는 body `{format:"hwpx"}` 만 보낸다(P2a 가 answers 동봉을 폐기 — 서버 저장 파생 filledFields 사용).
- * 미채움 잔여(label 충돌 제외분 포함)는 X-Cunote-Hwpx-Unfilled 헤더로 받아 그대로 표시만 한다.
+ * 기본 경로는 인증된 원본 bytes에 accepted|edited만 rhwp로 적용하고 실제 산출물을 재로드 검증한다.
+ * rhwp 실패 + HWPX 템플릿 가능 문서만 기존 서버 `{format:"hwpx"}` 내보내기로 폴백한다.
  */
 import { useState } from "react";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
+import type { DraftFieldAnswers } from "@/lib/server/documents/fieldAnswers";
+import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
+import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
+import { downloadBytes, type RhwpDocumentFormat } from "@/lib/rhwp/client";
+import { prepareRhwpWorkingDocument, type RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
 
 export function WorkspaceDownloadButton({
   draftId,
@@ -23,41 +28,69 @@ export function WorkspaceDownloadButton({
   className,
   variant = "default",
   saving = false,
+  answers,
+  connectedFields,
+  manualAnchors,
+  duplicateLabels,
+  hwpxFallbackAvailable = false,
+  workingDocument = null,
+  persistedMaterializedAnswers = {},
+  serverRevisionAvailable = false,
 }: {
   draftId: string | null;
   label?: string;
   className?: string;
   variant?: "default" | "outline";
   saving?: boolean;
+  answers: DraftFieldAnswers;
+  connectedFields: readonly ConnectedDocumentField[];
+  manualAnchors: readonly RhwpFieldAnchor[];
+  duplicateLabels?: ReadonlySet<string>;
+  hwpxFallbackAvailable?: boolean;
+  /** Studio 편집본이 있으면 원본 대신 이 검증 스냅샷에 최신 빠른 작성 delta를 합친다. */
+  workingDocument?: RhwpWorkingDocument | null;
+  /** 서버 head revision에 이미 반영된 빠른 작성 값. 새로고침 뒤 중복 materialize를 막는다. */
+  persistedMaterializedAnswers?: Record<string, string>;
+  /** 서버 head에 Studio 작업본이 있으면 원본 HWPX 폴백으로 조용히 되돌아가지 않는다. */
+  serverRevisionAvailable?: boolean;
 }) {
   const [pending, setPending] = useState(false);
 
-  async function downloadHwpx() {
+  async function downloadDocument() {
     if (!draftId || saving) return;
     setPending(true);
     try {
-      const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draftId)}/download`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ format: "hwpx" }),
+      const result = await downloadWithRhwp({
+        draftId,
+        answers,
+        connectedFields,
+        manualAnchors,
+        ...(duplicateLabels ? { duplicateLabels } : {}),
+        workingDocument,
+        persistedMaterializedAnswers,
       });
-      if (!response.ok) {
-        throw new Error(await hwpxErrorMessage(response));
-      }
-      const blob = await response.blob();
-      const filename = hwpxDownloadFilename(response) ?? "지원서-양식.hwpx";
-      triggerBlobDownload(blob, filename);
-      const unfilled = parseUnfilledHeader(response.headers.get("X-Cunote-Hwpx-Unfilled"));
-      if (unfilled.length > 0) {
-        const labels = unfilled.map((entry) => entry.label).filter(Boolean).join(", ");
+      if (result.skipped.length > 0) {
+        const labels = result.skipped.map((entry) => entry.label).filter(Boolean).join(", ");
         toast.warning(
-          `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
+          `${result.skipped.length.toLocaleString("ko-KR")}개 항목은 안전한 위치를 확정하지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
         );
       } else {
-        toast.success("원본 HWPX 양식에 확정한 값을 채워 다운로드했습니다.");
+        toast.success(`원본 ${result.format.toUpperCase()} 양식에 확정한 값을 채우고 다시 열어 검증했습니다.`);
       }
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "원본 HWPX 양식에 값을 채워 다운로드하지 못했습니다.");
+      // Studio 편집본이 있는 상태에서 서버 원본 폴백을 내려받으면 사용자의 직접 편집이 조용히
+      // 사라진다. 이 경우에는 검증 실패를 그대로 알리고, 원본 폴백은 Studio 미사용 때만 허용한다.
+      if (hwpxFallbackAvailable && !workingDocument && !serverRevisionAvailable) {
+        try {
+          await downloadHwpxFallback(draftId);
+          toast.warning("rhwp 검증을 통과하지 못해 기존 HWPX 안전 내보내기로 다운로드했습니다.");
+          return;
+        } catch (fallbackError) {
+          toast.error(fallbackError instanceof Error ? fallbackError.message : "원본 양식에 값을 채우지 못했습니다.");
+          return;
+        }
+      }
+      toast.error(caught instanceof Error ? caught.message : "원본 양식에 값을 채워 다운로드하지 못했습니다.");
     } finally {
       setPending(false);
     }
@@ -67,7 +100,7 @@ export function WorkspaceDownloadButton({
     <Button
       type="button"
       variant={variant}
-      onClick={() => void downloadHwpx()}
+      onClick={() => void downloadDocument()}
       disabled={pending || saving || !draftId}
       className={className}
     >
@@ -81,7 +114,51 @@ export function WorkspaceDownloadButton({
   );
 }
 
-// ── HWPX 다운로드 클라이언트 헬퍼(구 초안 편집기 헬퍼와 동형 · answers 동봉 없이 format 만) ──
+async function downloadWithRhwp(input: {
+  draftId: string;
+  answers: DraftFieldAnswers;
+  connectedFields: readonly ConnectedDocumentField[];
+  manualAnchors: readonly RhwpFieldAnchor[];
+  duplicateLabels?: ReadonlySet<string>;
+  workingDocument?: RhwpWorkingDocument | null;
+  persistedMaterializedAnswers?: Record<string, string>;
+}): Promise<{ format: RhwpDocumentFormat; skipped: Array<{ label: string; reason: string }> }> {
+  const document = await prepareRhwpWorkingDocument({
+    draftId: input.draftId,
+    answers: input.answers,
+    connectedFields: input.connectedFields,
+    manualAnchors: input.manualAnchors,
+    ...(input.duplicateLabels ? { duplicateLabels: input.duplicateLabels } : {}),
+    ...(input.workingDocument !== undefined ? { base: input.workingDocument } : {}),
+    ...(input.persistedMaterializedAnswers
+      ? { baseMaterializedAnswers: input.persistedMaterializedAnswers }
+      : {}),
+  });
+  const base = document.filename.replace(/\.(hwp|hwpx)$/i, "");
+  downloadBytes(document.bytes, `${base}-창업노트-작성본.${document.format}`);
+  return { format: document.format, skipped: document.skipped };
+}
+
+async function downloadHwpxFallback(draftId: string): Promise<void> {
+  const response = await fetch(`/api/web/document-drafts/${encodeURIComponent(draftId)}/download`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ format: "hwpx" }),
+  });
+  if (!response.ok) throw new Error(await hwpxErrorMessage(response));
+  const blob = await response.blob();
+  const filename = hwpxDownloadFilename(response) ?? "지원서-양식.hwpx";
+  triggerBlobDownload(blob, filename);
+  const unfilled = parseUnfilledHeader(response.headers.get("X-Cunote-Hwpx-Unfilled"));
+  if (unfilled.length > 0) {
+    const labels = unfilled.map((entry) => entry.label).filter(Boolean).join(", ");
+    toast.warning(
+      `${unfilled.length.toLocaleString("ko-KR")}개 항목은 자동으로 채우지 못했습니다: ${labels} — 다운로드한 파일에서 직접 입력하세요.`,
+    );
+  }
+}
+
+// ── 기존 HWPX 서버 폴백 헬퍼(answers 동봉 없이 서버 저장 확정값만 사용) ──
 
 function triggerBlobDownload(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);

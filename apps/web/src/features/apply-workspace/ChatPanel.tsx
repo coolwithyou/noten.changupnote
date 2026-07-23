@@ -17,7 +17,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { ExternalLink, Loader2, Mail, MessageSquare, Phone, Quote, Send, X } from "lucide-react";
+import { CheckCircle2, ExternalLink, Loader2, Mail, MessageSquare, Phone, Quote, Send, Sparkles, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 import {
   uiMessagePartsToContent,
   type ChatMessageContent,
+  type FieldAssistOutcome,
   type UiMessagePartLike,
 } from "@/lib/chat/messageContent";
 import {
@@ -59,7 +60,9 @@ export interface GrantChatController {
   input: string;
   setInput: (value: string) => void;
   submit: () => void;
+  sendText: (text: string) => void;
   askField: (field: ChatFieldPrompt) => void;
+  activeField: ChatFieldPrompt | null;
   retry: () => void;
 }
 
@@ -81,6 +84,7 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
   const pendingFieldContextRef = useRef<ChatFieldPrompt | null>(null);
   const activeFieldContextRef = useRef<ChatFieldPrompt | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [activeField, setActiveField] = useState<ChatFieldPrompt | null>(null);
   const [failure, setFailure] = useState<GrantChatFailure | null>(null);
 
   const transport = useMemo(
@@ -97,9 +101,9 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
         // §7.2 바디: 단일 message + sessionId + context(서버가 히스토리를 보유).
         prepareSendMessagesRequest: ({ messages }) => {
           const last = messages[messages.length - 1] as UiChatMessageLike | undefined;
-          const fieldPromptForTurn = pendingFieldContextRef.current;
+          const fieldPromptForTurn = pendingFieldContextRef.current ?? activeFieldContextRef.current;
           pendingFieldContextRef.current = null; // per-메시지 소비.
-          activeFieldContextRef.current = fieldPromptForTurn;
+          if (fieldPromptForTurn) activeFieldContextRef.current = fieldPromptForTurn;
           const fieldContext = fieldPromptForTurn
             ? {
                 label: fieldPromptForTurn.label,
@@ -155,11 +159,21 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
     void sendMessage({ text });
   }, [inputValue, isBusy, sendMessage]);
 
+  const sendText = useCallback((text: string) => {
+    const normalized = text.trim();
+    if (!normalized || isBusy) return;
+    setFailure(null);
+    setInputValue("");
+    void sendMessage({ text: normalized });
+  }, [isBusy, sendMessage]);
+
   const askField = useCallback(
     (field: ChatFieldPrompt) => {
       if (isBusy) return;
       setFailure(null);
       pendingFieldContextRef.current = field;
+      activeFieldContextRef.current = field;
+      setActiveField(field);
       const question = `'${field.label}' 항목은 어떤 내용을 어떻게 작성해야 하나요? 공고 기준으로 알려주세요.`;
       void sendMessage({ text: question });
     },
@@ -186,7 +200,9 @@ export function useGrantChat(input: { grantId: string; draftId?: string | null }
     input: inputValue,
     setInput: setInputValue,
     submit,
+    sendText,
     askField,
+    activeField,
     retry,
   };
 }
@@ -198,14 +214,16 @@ export function ChatPanelView({
   variant = "dock",
   institutionContact,
   onClose,
+  onApplyFieldProposal,
 }: {
   controller: GrantChatController;
   greeting: ChatMessageContent;
   variant?: "dock" | "front";
   institutionContact?: InstitutionContact | null;
   onClose?: () => void;
+  onApplyFieldProposal?: (input: { label: string; value: string }) => void;
 }) {
-  const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, retry } = controller;
+  const { messages, isBusy, errorMessage, canRetry, input, setInput, submit, sendText, retry } = controller;
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -245,7 +263,14 @@ export function ChatPanelView({
           if (message.role === "user") {
             return <UserBubble key={message.id} text={content.text} />;
           }
-          return <AssistantBubble key={message.id} content={content} />;
+            return (
+              <AssistantBubble
+                key={message.id}
+                content={content}
+                {...(onApplyFieldProposal ? { onApplyFieldProposal } : {})}
+                onAskQuestion={sendText}
+              />
+            );
         })}
         {showTypingIndicator ? (
           <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
@@ -349,7 +374,15 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function AssistantBubble({ content }: { content: ChatMessageContent }) {
+function AssistantBubble({
+  content,
+  onApplyFieldProposal,
+  onAskQuestion,
+}: {
+  content: ChatMessageContent;
+  onApplyFieldProposal?: (input: { label: string; value: string }) => void;
+  onAskQuestion?: (question: string) => void;
+}) {
   const hasCitations = (content.citations?.length ?? 0) > 0;
   const isGeneralNotice = content.generalNotice === true && !hasCitations;
   return (
@@ -387,6 +420,71 @@ function AssistantBubble({ content }: { content: ChatMessageContent }) {
           ))}
         </div>
       ) : null}
+      {content.fieldAssist ? (
+        <FieldAssistCard
+          outcome={content.fieldAssist}
+          {...(onApplyFieldProposal ? { onApply: onApplyFieldProposal } : {})}
+          {...(onAskQuestion ? { onAskQuestion } : {})}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function FieldAssistCard({
+  outcome,
+  onApply,
+  onAskQuestion,
+}: {
+  outcome: FieldAssistOutcome;
+  onApply?: (input: { label: string; value: string }) => void;
+  onAskQuestion?: (question: string) => void;
+}) {
+  return (
+    <Card size="sm" className="max-w-[92%] border-primary/20 bg-primary/[0.04]">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-sm">
+          <Sparkles className="size-4 text-primary" aria-hidden />
+          {outcome.label} 작성 도우미
+        </CardTitle>
+        <CardDescription>{outcome.guidance}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {outcome.status === "proposal" ? (
+          <>
+            <div className="rounded-[var(--radius-lg)] border bg-background px-3 py-2 text-sm whitespace-pre-wrap">
+              {outcome.proposal.value}
+            </div>
+            <p className="text-xs text-muted-foreground">근거: {outcome.proposal.basis}</p>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => onApply?.({ label: outcome.label, value: outcome.proposal.value })}
+              disabled={!onApply}
+            >
+              <CheckCircle2 data-icon="inline-start" aria-hidden />
+              이 값으로 채우기
+            </Button>
+          </>
+        ) : null}
+        {outcome.status === "needs_input" ? (
+          <div className="flex flex-col gap-2">
+            {outcome.questions.map((question) => (
+              <Button
+                key={question}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-auto justify-start whitespace-normal text-left"
+                onClick={() => onAskQuestion?.(question)}
+                disabled={!onAskQuestion}
+              >
+                {question}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

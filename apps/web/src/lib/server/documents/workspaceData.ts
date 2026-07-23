@@ -26,6 +26,7 @@ import {
   listGrantDocumentDraftsForGrant,
   seedGrantDocumentDraftProfileAnswers,
 } from "./grantDocumentDrafts";
+import { getDraftRevisionHead } from "./documentRevisions";
 import type { SeedFieldInput } from "./seedProfileAnswers";
 
 /** 성능 저하 사다리(§4.4): (a) 완전 경험 · (b) 프리뷰+필드 분석 중 · (c) 채팅 전면 폴백. */
@@ -52,6 +53,12 @@ export interface WorkspaceData {
   documents: WorkspaceDocumentOption[];
   /** 선택 문서의 ensure 된 draft id. 비-draftable(활성 문서 없음)이면 null. */
   draftId: string | null;
+  /** Studio가 서버에 저장한 최신 작업 revision과 빠른 작성 materialize 상태. */
+  headRevision: {
+    revisionId: string;
+    savedAt: string;
+    materializedAnswers: Record<string, string>;
+  } | null;
   hwpxTemplateAvailable: boolean;
   connectedFields: ConnectedDocumentField[];
   /** 초기 필드 답변(프로필 시드 반영 후). 키는 정규화 label. */
@@ -111,6 +118,7 @@ export async function loadGrantWorkspaceData(input: {
       activeDocumentKey: null,
       documents,
       draftId: null,
+      headRevision: null,
       hwpxTemplateAvailable: false,
       connectedFields: [],
       fieldAnswers: {},
@@ -230,15 +238,23 @@ export async function loadGrantWorkspaceData(input: {
     )
     .map((field) => field.label);
 
-  // ConnectedDocumentField 에는 Gate-1 표준 fieldKey 가 없다(fieldId 는 grant_document_fields.id UUID).
-  // fieldKey 동등성 오탐을 피하려 label 만 전달한다(fieldPattern 문자열 폴백 매칭 — grant page 의
-  // missingProfileFields 전달 관례와 동일).
-  const fieldLessonTips = connectedFields.length > 0
-    ? await loadFieldLessonTipsSafe({
-        title: sheet.grant.title,
-        agency: sheet.grant.agency,
-        fields: connectedFields.map((field) => ({ label: field.label })),
-      })
+  // Gate-1 표준 fieldKey와 label을 함께 전달해 동의어 필드도 같은 lesson에 연결한다.
+  const [fieldLessonTips, headRevisionRow] = await Promise.all([
+    connectedFields.length > 0
+      ? loadFieldLessonTipsSafe({
+          title: sheet.grant.title,
+          agency: sheet.grant.agency,
+          fields: connectedFields.map((field) => ({ label: field.label, fieldKey: field.fieldKey })),
+        })
+      : Promise.resolve(null),
+    getDraftRevisionHead(draftId),
+  ]);
+  const headRevision = headRevisionRow
+    ? {
+        revisionId: headRevisionRow.revisionId,
+        savedAt: headRevisionRow.savedAt.toISOString(),
+        materializedAnswers: headRevisionRow.materializedAnswers,
+      }
     : null;
 
   const pages = matchedSurface
@@ -256,6 +272,7 @@ export async function loadGrantWorkspaceData(input: {
     activeDocumentKey: activeDocument.documentKey,
     documents,
     draftId,
+    headRevision,
     hwpxTemplateAvailable: activeDocument.hwpxTemplateAvailable,
     connectedFields,
     fieldAnswers: seedResult.fieldAnswers,
