@@ -69,6 +69,8 @@ export function ReviewAttachmentPreview({
         if (!container) throw new Error("미리보기 영역을 찾지 못했습니다.")
         const { createEditor } = await import("@rhwp/editor")
         const editor = await createEditor(container, {
+          width: "100%",
+          height: "max(32rem, calc(100vh - 18rem))",
           requestTimeoutMs: 180_000,
           studioUrl: RHWP_STUDIO_URL,
         })
