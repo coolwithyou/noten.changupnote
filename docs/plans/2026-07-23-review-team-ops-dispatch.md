@@ -1,6 +1,6 @@
 # 검수팀 ops 워크스페이스 + 주간 배분 체계 — 상세 구현 계획
 
-> **🟡 상태(2026-07-23): 코드 구현 완료·운영 적용 대기.** 초안 → Codex(gpt-5.5) 리뷰 **NO-GO(발견 14건)** → 전건 반영 개정 → 구현. DB migration·reviewer 계정 생성·ops 배포·첫 배치는 아직 실행하지 않았다. 반영 기록은 §8, 운영 인계는 §9.
+> **🟢 상태(2026-07-23): 구현·운영 적용 완료.** 초안 → Codex(gpt-5.5) 리뷰 **NO-GO(발견 14건)** → 전건 반영 개정 → 구현·검증·운영 DB migration·reviewer 2계정·첫 배치·ops production 배포까지 완료했다. 반영 기록은 §8, 운영 인계와 적용 증적은 §9.
 > 새 세션이 이 문서를 진입점으로 구현한다. 전사: 확인 루프 Phase A+B(`docs/plans/2026-07-23-confirmation-loop-phase-b.md` 🟢, ~d073a54).
 > 관련: §10 프로토콜(`docs/plans/2026-07-21-analysis-lab-expansion-experiment.md`), 검수 판정 가이드(`docs/research/2026-07-18-공모딥분석-검수판정-가이드.md`)
 
@@ -205,7 +205,7 @@ audit_dispatch_items     -- 판정 이력 불변 보존 (삭제 금지 — FK re
 - W4: `/review`, `/review/[noticeId]`, `/review/guide`, `/review/adjudicate`; 본인 assignment SQL 강제, 타인 notice 403, blind payload 서버 제거, sanitize된 Markdown, revision 409, conflict 3심.
 - 공유 판정 어휘는 `@cunote/contracts`가 단일 원천이다. axis에는 `confirmed_absent|missed_condition`만 허용하며 criterion에만 `unsure`를 허용한다.
 
-개발 서버는 실행하지 않았다. migration·계정 생성·DB 배분·파일 수거·배포도 실행하지 않았으므로 현재 운영 데이터와 계정에는 변화가 없다.
+개발 서버는 실행하지 않았다. 운영 migration·계정 생성·첫 배치·production 배포는 §9.6의 적용 증적대로 완료했다. 파일 수거는 사람 판정 완료 뒤 금요일 주간 사이클에서 시작한다.
 
 ### 9.2 최초 운영 적용 순서
 
@@ -276,3 +276,24 @@ pnpm verify:review-workspace
 pnpm verify:admin-routes
 pnpm verify:ops-admin
 ```
+
+### 9.6 운영 적용 증적 (2026-07-23)
+
+- 구현 커밋: `381ea8b` (`feat: 검수팀 ops 워크스페이스와 주간 배분 구현`)
+- 운영 dry-run에서 주차 해시 seed가 PostgreSQL `integer` 범위를 넘는 결함을 발견했다. 최초 write는 transaction 시작 시 거부돼 dispatch row가 0건인 것을 확인했고, 31-bit 정규화와 경계 회귀 테스트를 `47a8eb2`로 보정했다.
+- 운영 DB migration 적용 완료: Drizzle migration id `52`, hash `7f2d10af3756406ba4ecc574120e93a200ca349c028ff8a30e53ff749ea4f125`. `reviewer` enum, dispatch 3테이블, FK/CHECK/UNIQUE/index, criteria/question 안정 키 컬럼을 재조회해 확인했다.
+- Vercel production `ADMIN_ALLOWED_EMAILS`는 기존 활성 운영자 3명을 보존하면서 `kim@noten.im`, `young@noten.im`을 추가해 encrypted 값으로 설정했다.
+- 두 계정은 운영 DB에서 `active/reviewer`와 password hash 보유 상태를 확인했다. 비밀번호는 stdout/argv에 출력하지 않았고 아래 비커밋 파일을 mode `0600`으로 생성했다.
+  - `spike-out/ops/review-team-guide-kim-noten.im.md`
+  - `spike-out/ops/review-team-guide-young-noten.im.md`
+  - 운영자 통합본: `spike-out/ops/review-team-credentials.md`
+- 첫 배치: `2026-W30`, batch id `453c8904-9a8c-4b69-b2bd-e54770438310`, seed `236500258`, 공고 21건, 논리 항목 54개, 배정 row 66개, blind 24 row/12쌍. `kim` 27항목, `young` 39항목이며 전부 pending이다. 재실행 멱등 종료, 각 blind 그룹 2인 배정, assignee FK 누락 0건을 확인했다.
+- production deployment: Vercel deployment `dpl_EdYgpZq14FzXZj8goRhgJCPC9on3`, `READY`, alias `https://ops.changupnote.com`.
+- 실제 reviewer password 세션 검증:
+  - `kim`: 큐 10공고/27항목, `young`: 큐 14공고/39항목.
+  - 양 계정 `/review`·`/review/guide` 200.
+  - `/credits`와 `/review/adjudicate`는 `/review`로 307, flywheel·registry API는 403.
+  - `kim` 세션의 타인 전용 notice GET 403, 본인 blind notice GET 200, blind item payload 금지 키 0건.
+- Cloudflare allowlist WAF는 적용 전후 모두 활성 상태를 유지했다. 규칙이나 허용 IP는 변경하지 않았다.
+
+남은 것은 시스템 구현이 아니라 사람 검수 사이클이다. 운영 담당자는 개인 전달 문서를 각 본인에게 1:1로 보낸 뒤 공용 파일을 폐기하고, 첫 공고를 창업자 판정과 대조해 온보딩한 다음 금요일 `lab:collect`·`lab:reconcile` 순서로 진행한다.
