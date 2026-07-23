@@ -35,4 +35,3 @@ export function extractFieldOptions(fieldType: string, sourceSpan: string | null
     });
   return unique(matches);
 }
-
