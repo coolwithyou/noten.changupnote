@@ -11,7 +11,6 @@ import {
 /** 셸 상단바의 현재 위치 표시. 단일 세그먼트 라벨(계층 확장은 후속 Phase). */
 const EXACT_LABELS: Record<string, string> = {
   "/dashboard": "기회 맵",
-  "/archive": "아카이브",
   "/applications": "신청 관리",
   "/roadmap": "로드맵",
   "/team": "팀",

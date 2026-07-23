@@ -2,7 +2,6 @@
 
 import { usePathname } from "next/navigation";
 import {
-  Archive,
   ClipboardList,
   Coins,
   Compass,
@@ -38,7 +37,7 @@ interface NavItem {
 
 const NAV_MAIN: NavItem[] = [
   { href: "/dashboard", label: "기회 맵", icon: Compass },
-  { href: "/archive", label: "아카이브", icon: Archive },
+  // 아카이브는 일시 숨김(2026-07-23) — 과거 공고는 서비스 대상이 아님. 복원 시 이 항목만 되살리면 됨.
   { href: "/applications", label: "신청 관리", icon: ClipboardList },
   { href: "/roadmap", label: "로드맵", icon: Route },
 ];

@@ -9,7 +9,11 @@ import type { GrantArchiveResult } from "@/lib/server/archive/grantArchiveSearch
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// 아카이브 기능 일시 숨김(2026-07-23) — 복원 시 이 플래그만 제거.
+const ARCHIVE_HIDDEN: boolean = true;
+
 export async function GET(request: Request) {
+  if (ARCHIVE_HIDDEN) return new NextResponse(null, { status: 404 });
   try {
     const parsedQuery = parseGrantArchiveQuery(request);
     if (!parsedQuery.ok) {
