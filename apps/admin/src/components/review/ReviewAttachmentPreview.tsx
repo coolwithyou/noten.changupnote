@@ -24,7 +24,7 @@ const RHWP_STUDIO_URL =
   ?? "https://changupnote-rhwp-studio.vercel.app/"
 
 type PreviewState =
-  | { status: "loading"; message: string }
+  | { status: "loading"; message: string; blocking: boolean }
   | { status: "ready"; pageCount: number }
   | { status: "error"; message: string }
 
@@ -44,6 +44,7 @@ export function ReviewAttachmentPreview({
   const [state, setState] = useState<PreviewState>({
     status: "loading",
     message: "첨부 파일을 불러오는 중",
+    blocking: true,
   })
   const fileUrl = `/api/admin/review/notices/${noticeId}/attachments/${attachmentId}`
 
@@ -52,7 +53,7 @@ export function ReviewAttachmentPreview({
 
     async function load() {
       try {
-        setState({ status: "loading", message: "첨부 파일을 불러오는 중" })
+        setState({ status: "loading", message: "첨부 파일을 불러오는 중", blocking: true })
         const response = await fetch(fileUrl, { cache: "no-store" })
         if (!response.ok) {
           const payload = await response.json().catch(() => null) as {
@@ -63,7 +64,7 @@ export function ReviewAttachmentPreview({
         const bytes = await response.arrayBuffer()
         if (disposed) return
 
-        setState({ status: "loading", message: "RHWP Studio를 준비하는 중" })
+        setState({ status: "loading", message: "RHWP Studio를 준비하는 중", blocking: true })
         const container = containerRef.current
         if (!container) throw new Error("미리보기 영역을 찾지 못했습니다.")
         const { createEditor } = await import("@rhwp/editor")
@@ -77,7 +78,11 @@ export function ReviewAttachmentPreview({
         }
         editorRef.current = editor
 
-        setState({ status: "loading", message: "문서를 렌더링하는 중" })
+        setState({
+          status: "loading",
+          message: "문서를 렌더링하는 중 · Studio 안에 문서 복구 안내가 뜨면 확인해주세요.",
+          blocking: false,
+        })
         const result = await editor.loadFile(bytes, filename)
         if (!disposed) setState({ status: "ready", pageCount: result.pageCount })
       } catch (error) {
@@ -146,7 +151,7 @@ export function ReviewAttachmentPreview({
           </CardDescription>
         </CardHeader>
         <CardContent className="relative min-h-[calc(100vh-18rem)] p-0">
-          {state.status === "loading" ? (
+          {state.status === "loading" && state.blocking ? (
             <div className="absolute inset-0 z-10 flex items-center justify-center gap-2 bg-background/80">
               <Spinner />
               <span className="text-sm text-muted-foreground">{state.message}</span>
