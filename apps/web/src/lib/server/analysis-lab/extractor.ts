@@ -192,6 +192,38 @@ export async function runDeepGrantAnalysis(options: {
 
 // ── tool 스키마(손으로 쓴 JSON Schema — pilot/llm-criteria 스타일) ─────
 
+/**
+ * v3 confirmation tool 스키마 조각 — buildDeepAnalysisToolSchema 의 criteria[].confirmation
+ * 정의이자, 경량 보강 CLI(confirmations.ts, promptVersion confirmations-v1)가 재사용하는
+ * 단일 원천이다(이중 관리 금지). 구조를 바꾸면 양쪽 promptVersion 을 함께 재고할 것.
+ */
+export const CONFIRMATION_TOOL_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    prompt: { type: "string" },
+    options: {
+      type: "array",
+      minItems: 2,
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          value: { type: "string" },
+          label: { type: "string" },
+          disqualifies: { type: "boolean" },
+        },
+        required: ["value", "label", "disqualifies"],
+      },
+    },
+    answer_type: { type: "string", enum: ["single", "multi"] },
+    reusable: { type: "string", enum: ["company_fact", "per_notice"] },
+    condition_key: { type: "string" },
+  },
+  required: ["prompt", "options", "answer_type", "reusable"],
+};
+
 export function buildDeepAnalysisToolSchema() {
   return {
     name: ANALYSIS_LAB_TOOL_NAME,
@@ -230,32 +262,7 @@ export function buildDeepAnalysisToolSchema() {
               source_span: { type: "string" },
               note: { type: "string" },
               // v3: 자가신고 확인 질문 — 판정 불가 결격(exclusion)에만 생성하므로 required 에 넣지 않는다.
-              confirmation: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  prompt: { type: "string" },
-                  options: {
-                    type: "array",
-                    minItems: 2,
-                    maxItems: 4,
-                    items: {
-                      type: "object",
-                      additionalProperties: false,
-                      properties: {
-                        value: { type: "string" },
-                        label: { type: "string" },
-                        disqualifies: { type: "boolean" },
-                      },
-                      required: ["value", "label", "disqualifies"],
-                    },
-                  },
-                  answer_type: { type: "string", enum: ["single", "multi"] },
-                  reusable: { type: "string", enum: ["company_fact", "per_notice"] },
-                  condition_key: { type: "string" },
-                },
-                required: ["prompt", "options", "answer_type", "reusable"],
-              },
+              confirmation: CONFIRMATION_TOOL_SCHEMA,
             },
             required: ["dimension", "operator", "kind", "value", "confidence", "source_span"],
           },
@@ -524,6 +531,22 @@ function normalizeUsage(usage: Record<string, unknown> | undefined): LabUsage | 
 // ── 시스템 프롬프트 ────────────────────────────────────────────────
 // llm-criteria.ts 의 22축 분해·결격 canonical 매핑 지침 기반 + 딥분석 강화(첨부 전문 근거·전수 검사·인용 의무).
 
+/**
+ * v3 confirmation 생성 규칙 원문 — DEEP_ANALYSIS_SYSTEM_PROMPT 본문의 일부(스프레드 삽입,
+ * 조인 결과 불변)이자, 경량 보강 CLI(confirmations.ts, promptVersion confirmations-v1)가
+ * 그대로 공유하는 단일 원천이다(이중 관리 금지). 문구 수정은 곧 프롬프트 개정이다 —
+ * 양쪽 promptVersion 을 함께 재고할 것.
+ */
+export const CONFIRMATION_PROMPT_RULES = [
+  "[confirmation — 자가신고 확인 질문(결격 전용)]",
+  "kind=exclusion 인 criterion 중 소싱 가능한 기업 데이터로 충족 여부를 판정할 수 없고 기업의 자가신고로만 해소되는 항목에는 confirmation 객체를 함께 생성한다.",
+  "대상 예: prior_award 의 수혜·참여 이력 조건, other/text_only 의 절차·자격 조건. tax_compliance/credit_status/sanction 의 표준 플래그 결격에는 만들지 않는다(공용 확인 절차가 따로 있다). 표준 플래그로 담기지 않는 특수 조건이면 예외로 생성한다.",
+  "prompt 는 source_span 원문의 특정성을 그대로 유지한 존댓말 객관식 질문 문장으로 쓴다. canonical 값 기준으로 일반화하지 마라. 예: 원문이 '타 정부지원사업에서 체계적합성시험비를 기 지원받은 경우'라면 '다른 정부지원사업에서 체계적합성시험비를 지원받은 적이 있나요?' 로 묻는다 — '올해 다른 지원사업 수혜를 받은 적이 있나요?' 같은 일반화 금지.",
+  "options 는 2~4개. value 는 영문 snake_case, label 은 한국어. 결격에 해당하는 선택지는 disqualifies=true 로 표시하고, disqualifies true/false 선택지가 각각 최소 1개씩 있어야 한다. '잘 모르겠어요' 선택지는 만들지 마라(확인 UI가 공통 제공한다).",
+  "reusable: 답이 이 공고와 무관하게 성립하는 기업의 사실(특정 항목 수혜 이력, 사업 참여 이력 등)이면 company_fact, 이 공고에서만 유효한 선언(서류 허위 없음, 주관기업으로 참여 등)이면 per_notice.",
+  "company_fact 이면 condition_key 에 그 사실을 식별하는 안정적인 영문 snake_case 키를 쓴다(예: prior_award_system_conformity_test_fee). per_notice 면 condition_key 를 생략한다.",
+];
+
 const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
   "첨부 공고문 전문을 근거로 최대한 깊게, 모든 축을 검사하고 반드시 원문 인용(source_span)을 남겨라.",
@@ -565,13 +588,7 @@ const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "- 특정 지원사업 참여·수혜·수료 이력은 operator=in, value={\"scope\":\"program\"|\"program_type\",\"programs\":[\"사업명\"],\"states\":[\"participating\"|\"completed\"|\"graduated\"]}. 최근 N년·개월 조건은 within={\"value\":N,\"unit\":\"year\"|\"month\"}.",
   "- 범위나 사업명을 특정할 수 없으면 other/text_only exclusion 으로 남긴다.",
   "",
-  "[confirmation — 자가신고 확인 질문(결격 전용)]",
-  "kind=exclusion 인 criterion 중 소싱 가능한 기업 데이터로 충족 여부를 판정할 수 없고 기업의 자가신고로만 해소되는 항목에는 confirmation 객체를 함께 생성한다.",
-  "대상 예: prior_award 의 수혜·참여 이력 조건, other/text_only 의 절차·자격 조건. tax_compliance/credit_status/sanction 의 표준 플래그 결격에는 만들지 않는다(공용 확인 절차가 따로 있다). 표준 플래그로 담기지 않는 특수 조건이면 예외로 생성한다.",
-  "prompt 는 source_span 원문의 특정성을 그대로 유지한 존댓말 객관식 질문 문장으로 쓴다. canonical 값 기준으로 일반화하지 마라. 예: 원문이 '타 정부지원사업에서 체계적합성시험비를 기 지원받은 경우'라면 '다른 정부지원사업에서 체계적합성시험비를 지원받은 적이 있나요?' 로 묻는다 — '올해 다른 지원사업 수혜를 받은 적이 있나요?' 같은 일반화 금지.",
-  "options 는 2~4개. value 는 영문 snake_case, label 은 한국어. 결격에 해당하는 선택지는 disqualifies=true 로 표시하고, disqualifies true/false 선택지가 각각 최소 1개씩 있어야 한다. '잘 모르겠어요' 선택지는 만들지 마라(확인 UI가 공통 제공한다).",
-  "reusable: 답이 이 공고와 무관하게 성립하는 기업의 사실(특정 항목 수혜 이력, 사업 참여 이력 등)이면 company_fact, 이 공고에서만 유효한 선언(서류 허위 없음, 주관기업으로 참여 등)이면 per_notice.",
-  "company_fact 이면 condition_key 에 그 사실을 식별하는 안정적인 영문 snake_case 키를 쓴다(예: prior_award_system_conformity_test_fee). per_notice 면 condition_key 를 생략한다.",
+  ...CONFIRMATION_PROMPT_RULES,
   "",
   "[value canonical 규칙]",
   "region={regions:[시도코드],nationwide?}, biz_age={min_months?,max_months?,include_preliminary?}, industry={tags:[문자열]}, size={sizes:[정규 규모]}, revenue={min_krw?,max_krw?}, employees={min?,max?}, founder_age={ranges:[{min?,max?,label}]}, founder_trait={traits:[문자열]}, certification={certs:[문자열]}, ip={types:[문자열]}, target_type={targets:[문자열]}.",

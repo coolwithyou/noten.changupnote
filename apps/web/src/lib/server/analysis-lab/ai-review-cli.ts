@@ -138,7 +138,15 @@ async function scanRunDirs(): Promise<Map<string, GrantRunScan>> {
     );
     for (const file of files) {
       if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
-      if (file.endsWith(".review.json") || file.includes(".ai-review.") || file.includes(".audit.")) continue;
+      // 질문 보강 사이드카(.confirmations., Phase B-0)도 런이 아니다 — 오인 편입 방어.
+      if (
+        file.endsWith(".review.json") ||
+        file.includes(".ai-review.") ||
+        file.includes(".audit.") ||
+        file.includes(".confirmations.")
+      ) {
+        continue;
+      }
       let run: LabRun;
       try {
         run = JSON.parse(await readFile(join(root, entry, file), "utf8")) as LabRun;

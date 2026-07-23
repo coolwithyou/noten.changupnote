@@ -66,6 +66,8 @@
     "lab:ai-audit": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/ai-audit-cli.ts",
     "lab:ai-audit:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/ai-audit.test.ts",
     "lab:confirmation:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/extractor-confirmation.test.ts",
+    "lab:confirmations": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/confirmations-cli.ts",
+    "lab:confirmations:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/confirmations.test.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && pnpm verify:package-runtime-freshness && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck && pnpm --filter @cunote/admin typecheck",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",

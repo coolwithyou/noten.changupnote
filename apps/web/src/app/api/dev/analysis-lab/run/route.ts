@@ -1,7 +1,7 @@
 // 공모 딥분석 실험실 — 저장된 런 단건 조회 (dev 전용: production 이면 404).
 // GET /api/dev/analysis-lab/run?grantId=&runId= → LabRunResponse
 import { NextResponse } from "next/server";
-import { readLabRun } from "@/lib/server/analysis-lab/run-store";
+import { readLabRunWithConfirmations } from "@/lib/server/analysis-lab/confirmations";
 import type { LabRunResponse } from "@/features/dev/analysis-lab/contract";
 
 export const runtime = "nodejs";
@@ -27,7 +27,11 @@ export async function GET(request: Request) {
     );
   }
 
-  const run = await readLabRun(grantId, runId);
+  // 보강 사이드카(<runId>.confirmations.json, Phase B-0) 병합 로더 — v2 런은 confirmation 이
+  // 없어 경량 보강 CLI(lab:confirmations)가 질문을 사이드카로 생성한다. 런 파일은 불변이므로
+  // 조회 시점에 병합해 내려줘야 실험실 UI(ConfirmationPreview)가 v3 인라인과 동일하게 렌더한다
+  // (인라인 confirmation 보유 criterion 은 인라인 우선).
+  const run = await readLabRunWithConfirmations(grantId, runId);
   if (!run) {
     return NextResponse.json(
       { error: "run_not_found", message: "저장된 런을 찾지 못했습니다." },

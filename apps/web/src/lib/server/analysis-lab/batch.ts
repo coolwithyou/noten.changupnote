@@ -1,6 +1,8 @@
 // 공모 딥분석 실험실 — 층화 확대 배치 러너 CLI (tsx 단독 실행, dev 서버 불필요).
 // cohort.json(v2)의 entries 를 대상으로 runLabAnalysis 를 동시성 제한 워커 풀로 실행한다.
-// 현행 ANALYSIS_LAB_PROMPT_VERSION 의 ok 런이 이미 있는 공고는 스킵(재개 멱등성).
+// **버전 무관** ok 런이 이미 있는 공고는 스킵(재개 멱등성 + 우발 재분석 가드 — Phase B-0,
+// batch-plan.ts 상단 주석: v3 승격 여파로 v2 ok 런 30건이 통째로 재분석되는 ~$12 함정 차단).
+// 구버전 ok 런 보유 공고의 현행 버전 재분석은 --reanalyze-outdated 로만 허용한다.
 // 모집기간 정책(2026-07-23): 실행 시 각 공고의 현재 applyStart/applyEnd 를 확인해
 // 마감·시작 전·기간 미상(applyEnd null)이면 사유 로그와 함께 스킵한다(비파괴).
 // 실패는 analyze 가 error 런으로 저장하므로 배치는 기록만 하고 계속한다(런당 추가
@@ -8,6 +10,7 @@
 // 실행: pnpm lab:batch -- --dry-run                     (대상·예상 비용만, API 호출 0)
 //       pnpm lab:batch -- --limit=10 --concurrency=2 --max-cost-usd=5
 //       pnpm lab:batch -- --retry-errors                (현행 버전 error 런만 있는 공고도 대상 포함)
+//       pnpm lab:batch -- --reanalyze-outdated          (구버전 ok 런만 있는 공고도 대상 포함)
 // 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. DB에는 어떤 쓰기도 하지 않는다.
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -17,6 +20,7 @@ import {
   type NoticePeriodStatus,
 } from "@/features/dev/analysis-lab/notice-period";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import { cohortFilePath, readCohortFileV2, type CohortEntry } from "./cohort-file";
 import { analysisLabDir } from "./run-store";
 
@@ -54,6 +58,8 @@ interface BatchOptions {
   maxCostUsd: number;
   dryRun: boolean;
   retryErrors: boolean;
+  /** 구버전 ok 런"만" 보유한 공고를 대상에 편입한다 — 우발 재분석 가드의 명시적 탈출구. */
+  reanalyzeOutdated: boolean;
 }
 
 /** 옵션 검증 — 오류면 사유 문자열 반환(호출부에서 안내 후 exit 1). */
@@ -70,19 +76,20 @@ function parseOptions(): BatchOptions | string {
   if (maxCostUsd === null || maxCostUsd <= 0) {
     return "--max-cost-usd 는 0보다 큰 숫자여야 합니다.";
   }
-  return { limit, concurrency, maxCostUsd, dryRun: hasFlag("dry-run"), retryErrors: hasFlag("retry-errors") };
+  return {
+    limit,
+    concurrency,
+    maxCostUsd,
+    dryRun: hasFlag("dry-run"),
+    retryErrors: hasFlag("retry-errors"),
+    reanalyzeOutdated: hasFlag("reanalyze-outdated"),
+  };
 }
 
 // ---- 기존 런 스캔(스킵 판정) ---------------------------------------------------
 // grantId→경로 매핑이 없으므로 spike-out/analysis-lab/<source>__<sourceId>/ 를 전수
 // 스캔한다(run-store.readLabRun 과 같은 접근 — dev 실험실 규모라 비용 무시 가능).
-
-interface GrantRunState {
-  /** 현행 promptVersion 의 ok 런 존재 → 스킵. */
-  okCurrent: boolean;
-  /** 현행 promptVersion 의 error 런 존재 → --retry-errors 없으면 보류. */
-  errorCurrent: boolean;
-}
+// GrantRunState 는 batch-plan.ts 소유(분할 순수 로직과 공유).
 
 interface RunScan {
   states: Map<string, GrantRunState>;
@@ -109,20 +116,47 @@ async function scanExistingRuns(): Promise<RunScan> {
       continue;
     }
     for (const file of files) {
-      if (!file.startsWith("run-") || !file.endsWith(".json") || file.endsWith(".review.json")) continue;
-      let parsed: { grantId?: unknown; promptVersion?: unknown; error?: unknown; costUsd?: unknown };
+      if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
+      // 부속 파일(검수·AI 검수·감사·질문 사이드카)은 런이 아니다 — 버전 무관 스킵 판정에서
+      // 런으로 오인되면 안 된다(파일명 + 아래 startedAt 이중 방어, e4556df 오인 편입 전례).
+      if (
+        file.endsWith(".review.json") ||
+        file.includes(".ai-review.") ||
+        file.includes(".audit.") ||
+        file.includes(".confirmations.")
+      ) {
+        continue;
+      }
+      let parsed: {
+        grantId?: unknown;
+        promptVersion?: unknown;
+        startedAt?: unknown;
+        error?: unknown;
+        costUsd?: unknown;
+      };
       try {
         parsed = JSON.parse(await readFile(join(root, entry, file), "utf8")) as typeof parsed;
       } catch {
         continue; // 깨진 파일은 판정에서 제외(불변 저장소라 원본은 건드리지 않는다)
       }
-      if (typeof parsed.grantId !== "string" || parsed.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION) continue;
+      if (
+        typeof parsed.grantId !== "string" ||
+        typeof parsed.promptVersion !== "string" ||
+        typeof parsed.startedAt !== "string" // 런 파일 표식 — run-store readRunFile 관행
+      ) {
+        continue;
+      }
+      const current = parsed.promptVersion === ANALYSIS_LAB_PROMPT_VERSION;
       const ok = parsed.error === null;
-      const state = states.get(parsed.grantId) ?? { okCurrent: false, errorCurrent: false };
-      if (ok) {
+      const state =
+        states.get(parsed.grantId) ?? { okCurrent: false, okOutdated: false, errorCurrent: false };
+      if (ok && current) {
         state.okCurrent = true;
         if (typeof parsed.costUsd === "number") okCostSamples.push(parsed.costUsd);
-      } else {
+      } else if (ok) {
+        state.okOutdated = true;
+      } else if (current) {
+        // 구버전 error 런은 종전대로 판정에 쓰지 않는다(보류 사유는 현행 버전 실패만).
         state.errorCurrent = true;
       }
       states.set(parsed.grantId, state);
@@ -279,15 +313,12 @@ async function main(): Promise<number> {
   }
 
   const { states, okCostSamples } = await scanExistingRuns();
-  const skippedOk: CohortEntry[] = [];
-  const heldError: CohortEntry[] = [];
-  const pending: CohortEntry[] = [];
-  for (const entry of cohort.entries) {
-    const state = states.get(entry.grantId);
-    if (state?.okCurrent) skippedOk.push(entry);
-    else if (state?.errorCurrent && !options.retryErrors) heldError.push(entry);
-    else pending.push(entry);
-  }
+  // 분할 규칙은 batch-plan.ts(순수 — 테스트 대상) 소유: 버전 무관 ok 스킵 + 탈출구 2종.
+  const { skippedOk, skippedOkOutdatedOnly, heldError, pending } = partitionCohortEntries(
+    cohort.entries,
+    states,
+    { retryErrors: options.retryErrors, reanalyzeOutdated: options.reanalyzeOutdated },
+  );
   // 모집기간 가드 — 실행 시에만 DB로 확인해 위반(마감·시작 전·기간 미상)을 스킵한다(비파괴).
   let periodSkipped: PeriodSplit["skipped"] = [];
   let runnablePending = pending;
@@ -308,12 +339,21 @@ async function main(): Promise<number> {
       (cohort.experimentLabel ? ` (${cohort.experimentLabel})` : ""),
   );
   console.log(
-    `[batch] 스킵(ok 런 보유) ${skippedOk.length} · 보류(error 런만, --retry-errors 미지정) ${heldError.length} · 기간 스킵 ${periodSkipped.length} · 잔여 ${runnablePending.length} → 이번 실행 대상 ${targets.length}건 (limit=${options.limit})`,
+    `[batch] 스킵(ok 런 보유·버전 무관) ${skippedOk.length}` +
+      (skippedOkOutdatedOnly.length > 0
+        ? ` (현행 ${skippedOk.length - skippedOkOutdatedOnly.length} · 구버전만 ${skippedOkOutdatedOnly.length})`
+        : "") +
+      ` · 보류(error 런만, --retry-errors 미지정) ${heldError.length} · 기간 스킵 ${periodSkipped.length} · 잔여 ${runnablePending.length} → 이번 실행 대상 ${targets.length}건 (limit=${options.limit}${options.reanalyzeOutdated ? " · --reanalyze-outdated" : ""})`,
   );
 
   if (targets.length === 0) {
     console.error("[batch] 실행 대상이 0건입니다 — 이미 전부 분석되었거나 보류·기간 스킵 상태입니다.");
     if (heldError.length > 0) console.error("[batch] error 런만 있는 공고를 재시도하려면 --retry-errors 를 지정하세요.");
+    if (skippedOkOutdatedOnly.length > 0 && !options.reanalyzeOutdated) {
+      console.error(
+        `[batch] 구버전 ok 런만 보유한 공고 ${skippedOkOutdatedOnly.length}건은 우발 재분석 가드로 스킵됐습니다 — 현행 버전(${ANALYSIS_LAB_PROMPT_VERSION}) 재분석은 --reanalyze-outdated 를 지정하세요.`,
+      );
+    }
     if (periodSkipped.length > 0) {
       console.error(
         "[batch] 기간 미상 공고는 실험실 UI 카드에서 기간을 특정(저장)하면 대상에 편입됩니다.",
@@ -356,7 +396,9 @@ async function main(): Promise<number> {
     { closed: 0, not_started: 0, unknown: 0 } as Record<Exclude<NoticePeriodStatus, "eligible">, number>,
   );
   console.log(
-    `스킵(ok) ${skippedOk.length} · 보류(error) ${heldError.length} · 기간 스킵 ${periodSkipped.length}` +
+    `스킵(ok·버전 무관) ${skippedOk.length}` +
+      (skippedOkOutdatedOnly.length > 0 ? ` (구버전만 ${skippedOkOutdatedOnly.length})` : "") +
+      ` · 보류(error) ${heldError.length} · 기간 스킵 ${periodSkipped.length}` +
       (periodSkipped.length > 0
         ? ` (마감 ${periodSkipCounts.closed} · 시작 전 ${periodSkipCounts.not_started} · 기간 미상 ${periodSkipCounts.unknown})`
         : ""),
