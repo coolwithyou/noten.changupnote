@@ -732,6 +732,54 @@ export const grantCriteria = pgTable("grant_criteria", {
   reviewIdx: index("grant_criteria_review_idx").on(table.needsReview),
 }));
 
+/**
+ * 딥분석이 사전 생성한 자가신고 확인 질문(확인 루프 Phase B).
+ * 감사 확정 exclusion criterion에 앵커된 질문만 발행하며, 쓰기는 B-4 승격 파이프라인부터다.
+ */
+export const grantConfirmationQuestions = pgTable("grant_confirmation_questions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
+  // 재발행 내성: criterion 재발행으로 연결이 끊길 수 있어 nullable. 끊긴 질문의 답변은 매칭에 쓰지 않는다.
+  grantCriteriaId: uuid("grant_criteria_id").references(() => grantCriteria.id, { onDelete: "set null" }),
+  // { dimension, kind, sourceSpanHash } — criterion 재연결용 보조 참조
+  criterionRef: jsonb("criterion_ref").$type<Record<string, unknown>>(),
+  prompt: text("prompt").notNull(),
+  // [{ value, label, disqualifies }]
+  options: jsonb("options").$type<Array<Record<string, unknown>>>().notNull(),
+  // single | multi
+  answerType: text("answer_type").notNull(),
+  // company_fact | per_notice
+  reusable: text("reusable").notNull(),
+  conditionKey: text("condition_key"),
+  // lab-deep-v3 | confirmations-v1(보강 패스)
+  promptVer: text("prompt_ver").notNull(),
+  // { runId, auditState } — 발행 출처·감사 상태 필수 기록
+  provenance: jsonb("provenance").$type<Record<string, unknown>>().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  grantIdx: index("grant_confirmation_questions_grant_id_idx").on(table.grantId),
+}));
+
+/**
+ * (company, grant) 스코프 자가신고 확인 답변. disqualified는 판정 시점 옵션 극성 스냅샷으로,
+ * 질문 옵션 개정 후에도 저장 당시 판정을 다시 해석하지 않는다(옵션 개정 내성).
+ * company_fact 답변도 Phase B에서는 공고 스코프에만 저장한다(기업 메타 승격은 Phase C).
+ */
+export const companyGrantConfirmations = pgTable("company_grant_confirmations", {
+  companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
+  questionId: uuid("question_id").notNull().references(() => grantConfirmationQuestions.id, { onDelete: "cascade" }),
+  // { values: [...] }
+  answer: jsonb("answer").$type<Record<string, unknown>>().notNull(),
+  disqualified: boolean("disqualified").notNull(),
+  // 답변자 삭제 시에도 회사 스코프 답변은 보존한다(무단 롤백 방지) — companies.createdBy와 동일 정책.
+  answeredBy: uuid("answered_by").references(() => users.id, { onDelete: "set null" }),
+  answeredAt: timestamp("answered_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.companyId, table.questionId] }),
+  companyGrantIdx: index("company_grant_confirmations_company_grant_idx").on(table.companyId, table.grantId),
+}));
+
 export const grantAttachmentArchives = pgTable("grant_attachment_archives", {
   id: uuid("id").defaultRandom().primaryKey(),
   source: grantSourceEnum("source").notNull(),

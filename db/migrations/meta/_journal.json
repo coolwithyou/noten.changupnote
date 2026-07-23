@@ -351,6 +351,13 @@
       "when": 1784777679178,
       "tag": "0049_neat_machine_man",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1784787177306,
+      "tag": "0050_overconfident_the_stranger",
+      "breakpoints": true
     }
   ]
 }

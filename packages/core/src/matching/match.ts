@@ -1,6 +1,7 @@
 import type {
   BizAgeCriterionValue,
   CompanyProfile,
+  CriterionConfirmation,
   CriterionDimension,
   CriterionResult,
   DisqualificationCriterionValue,
@@ -61,7 +62,12 @@ const HIGH_RISK_DOMAIN_PATTERN =
 export function matchGrantCriteria(
   criteria: GrantCriterion[],
   company: CompanyProfile,
-  options: { extractionManifest?: GrantExtractionManifest; asOf?: Date } = {},
+  options: {
+    extractionManifest?: GrantExtractionManifest;
+    asOf?: Date;
+    /** (company, grant) 자가신고 확인 답변(확인 루프 Phase B). 미제공/빈 배열이면 기존 동작과 완전 동일하다. */
+    confirmations?: CriterionConfirmation[];
+  } = {},
 ): MatchResult {
   // 공고에서 구조화된 조건을 아직 추출하지 못한 경우(criteria 0건)는 적격으로 오인하지 않도록
   // 조건부(conditional)로 강등하고 조건 확인도를 미산정(0)으로 둔다.
@@ -71,8 +77,13 @@ export function matchGrantCriteria(
 
   const canonicalCriteria = canonicalizeGrantCriteria(criteria);
   const asOf = options.asOf ?? new Date();
+  const confirmationById = buildConfirmationIndex(options.confirmations);
   const ruleTrace = canonicalCriteria.map((criterion) =>
-    deferUnreviewedHardFail(criterion, evaluateCriterion(criterion, company, asOf)));
+    applyUserConfirmation(
+      criterion,
+      deferUnreviewedHardFail(criterion, evaluateCriterion(criterion, company, asOf)),
+      confirmationById,
+    ));
   const hardFail = ruleTrace.some(
     (entry) => entry.result === "fail" && (entry.kind === "required" || entry.kind === "exclusion"),
   );
@@ -112,9 +123,11 @@ export function matchGrantCriteria(
 export function matchNormalizedGrant<TPayload>(
   entry: NormalizedGrant<TPayload>,
   company: CompanyProfile,
+  options: { confirmations?: CriterionConfirmation[] } = {},
 ): MatchResult {
   return matchGrantCriteria(entry.criteria, company, {
     extractionManifest: resolveGrantExtractionManifest(entry),
+    ...(options.confirmations ? { confirmations: options.confirmations } : {}),
   });
 }
 
@@ -240,6 +253,55 @@ function deferUnreviewedHardFail(
     ...entry,
     result: "unknown",
     message: `${labelFor(criterion.dimension)} 자동 추출 조건은 검수 후 판정을 확정해요.`,
+  };
+}
+
+function buildConfirmationIndex(
+  confirmations: CriterionConfirmation[] | undefined,
+): Map<string, boolean> | null {
+  if (!confirmations || confirmations.length === 0) return null;
+  const index = new Map<string, boolean>();
+  for (const confirmation of confirmations) {
+    // 같은 criterion에 답변이 중복되면 결격(true)을 우선한다 — 자가신고 결격을 무성 소거하지 않는다.
+    index.set(
+      confirmation.criterion_id,
+      (index.get(confirmation.criterion_id) ?? false) || confirmation.disqualified,
+    );
+  }
+  return index;
+}
+
+/**
+ * (company, grant) 자가신고 확인 답변으로 exclusion criterion 판정을 해소한다(확인 루프 Phase B).
+ *
+ *   disqualified=false → unknown 판정만 pass로 소거한다(실데이터 fail은 자가신고로 뒤집지 않는다).
+ *   disqualified=true  → 판정과 무관하게 fail로 확정한다(hardFail → ineligible).
+ *   exclusion이 아닌 criterion에 대한 답변은 방어적으로 무시한다.
+ *
+ * confirmations 미제공/빈 배열이면 이 함수는 entry를 그대로 반환한다(섀도 하네스 회귀 불변식).
+ */
+function applyUserConfirmation(
+  criterion: GrantCriterion,
+  entry: RuleTraceEntry,
+  confirmationById: Map<string, boolean> | null,
+): RuleTraceEntry {
+  if (!confirmationById || criterion.kind !== "exclusion" || !criterion.id) return entry;
+  const disqualified = confirmationById.get(criterion.id);
+  if (disqualified === undefined) return entry;
+  if (disqualified) {
+    return {
+      ...entry,
+      result: "fail",
+      resolution: "confirmed_by_user",
+      message: `${labelFor(criterion.dimension)} 결격 해당 - 본인 확인 답변 기준`,
+    };
+  }
+  if (entry.result !== "unknown") return entry;
+  return {
+    ...entry,
+    result: "pass",
+    resolution: "confirmed_by_user",
+    message: `${labelFor(criterion.dimension)} 결격 없음 - 본인 확인 완료`,
   };
 }
 
@@ -1447,6 +1509,9 @@ function isHardFailTrace(entry: RuleTraceEntry): boolean {
 }
 
 function isHardUnknownTrace(entry: RuleTraceEntry): boolean {
+  // 사용자 확인으로 해소된 entry는 더 이상 unknown 취급하지 않는다(text_only operator 포함).
+  // confirmations 미제공 시 resolution이 실리지 않으므로 기본 경로 동작은 불변이다.
+  if (entry.resolution === "confirmed_by_user") return false;
   return (
     (entry.result === "unknown" || entry.operator === "text_only") &&
     (entry.kind === "required" || entry.kind === "exclusion")

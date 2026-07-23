@@ -1,5 +1,6 @@
 import type {
   CompanyProfile,
+  CriterionConfirmation,
   FeedbackKind,
   MatchFeedbackCorrection,
   MatchFeedbackProvenance,
@@ -127,6 +128,14 @@ export interface MatchRepository<TPayload = unknown> {
   }): Promise<MatchTransitionCandidate[]>;
   saveMatchEvent(input: SaveMatchEventInput): Promise<MatchEventReceipt>;
   saveProfileQuestionEvent(input: SaveProfileQuestionEventInput): Promise<ProfileQuestionEventReceipt>;
+  /**
+   * (company, grants) 자가신고 확인 답변을 criterion 연결(grant_criteria.id)로 읽는다(확인 루프 Phase B).
+   * 반환 Map 키는 grants.id. optional — 미구현 리포지토리는 확인 답변 없음으로 동작한다.
+   */
+  listCriterionConfirmations?(input: {
+    companyId: string;
+    grantIds: string[];
+  }): Promise<ReadonlyMap<string, CriterionConfirmation[]>>;
 }
 
 export interface SaveMatchEventInput {

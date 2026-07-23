@@ -1,5 +1,6 @@
 import type {
   CompanyProfile,
+  CriterionConfirmation,
   GrantSource,
   MatchResult,
   NormalizedGrant,
@@ -12,6 +13,8 @@ export interface PlanMatchStateRefreshOptions<TPayload = unknown> {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf?: Date;
   companyId?: string;
+  /** grantKey(=grants.id) → 자가신고 확인 답변(확인 루프 Phase B). 미제공 시 기존 동작과 동일. */
+  confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
 }
 
 export interface MatchStateRefreshItem {
@@ -50,9 +53,11 @@ export function planMatchStateRefresh<TPayload>({
   grants,
   asOf = new Date(),
   companyId,
+  confirmationsByGrantId,
 }: PlanMatchStateRefreshOptions<TPayload>): MatchStateRefreshPlan {
   const states = grants.map<MatchStateRefreshItem>((item) => {
-    const match = matchNormalizedGrant(item, company);
+    const confirmations = confirmationsByGrantId?.get(grantKey(item.grant));
+    const match = matchNormalizedGrant(item, company, confirmations ? { confirmations } : {});
     const transitionWindow = calculateMatchTransitionWindow(match, { asOf });
     return {
       ...(companyId ? { companyId } : {}),

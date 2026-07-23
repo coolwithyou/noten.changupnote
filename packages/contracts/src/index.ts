@@ -550,6 +550,19 @@ export interface RuleTraceEntry {
   source_span?: string;
   company_value?: unknown;
   message: string;
+  /** 사용자 자가신고 확인으로 판정이 해소·확정된 entry 표시("본인 확인 기반" 뱃지 근거). */
+  resolution?: "confirmed_by_user";
+}
+
+/**
+ * (company, grant) 스코프 자가신고 확인 답변 1건이 해소하는 exclusion criterion 연결(확인 루프 Phase B).
+ * criterion 연결은 grant_criteria.id 단일 기준 — 재발행으로 연결이 끊긴 질문의 답변은 전달하지 않는다(미답변과 동일).
+ */
+export interface CriterionConfirmation {
+  /** grant_criteria.id — 질문 발행 시 앵커된 criterion. */
+  criterion_id: string;
+  /** 판정 시점 옵션 극성 스냅샷: true = 결격 해당(자가신고). */
+  disqualified: boolean;
 }
 
 export interface MatchReviewReason {

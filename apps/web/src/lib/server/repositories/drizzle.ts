@@ -10,6 +10,7 @@ import {
 import type {
   ApplyMethodChannel,
   AuthoringMode,
+  CriterionConfirmation,
   Grant,
   GrantCriterion,
   GrantRaw,
@@ -583,6 +584,41 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
       grant,
       match: matchNormalizedGrant(grant, input.company),
     }));
+  }
+
+  /**
+   * (company, grants) 자가신고 확인 답변을 두 테이블 조인으로 배치 로드한다(확인 루프 Phase B).
+   * 반환 Map 키는 grants.id. 재발행으로 criterion 연결이 끊긴(grant_criteria_id null) 답변은
+   * 매칭에 쓰지 않는다 — 미답변과 동일하게 제외한다.
+   */
+  async listCriterionConfirmations(input: {
+    companyId: string;
+    grantIds: string[];
+  }): Promise<ReadonlyMap<string, CriterionConfirmation[]>> {
+    const byGrant = new Map<string, CriterionConfirmation[]>();
+    if (input.grantIds.length === 0) return byGrant;
+    const rows = await this.db.client
+      .select({
+        grantId: schema.companyGrantConfirmations.grantId,
+        criterionId: schema.grantConfirmationQuestions.grantCriteriaId,
+        disqualified: schema.companyGrantConfirmations.disqualified,
+      })
+      .from(schema.companyGrantConfirmations)
+      .innerJoin(
+        schema.grantConfirmationQuestions,
+        eq(schema.companyGrantConfirmations.questionId, schema.grantConfirmationQuestions.id),
+      )
+      .where(and(
+        eq(schema.companyGrantConfirmations.companyId, input.companyId),
+        inArray(schema.companyGrantConfirmations.grantId, input.grantIds),
+      ));
+    for (const row of rows) {
+      if (!row.criterionId) continue;
+      const list = byGrant.get(row.grantId) ?? [];
+      list.push({ criterion_id: row.criterionId, disqualified: row.disqualified });
+      byGrant.set(row.grantId, list);
+    }
+    return byGrant;
   }
 
   async saveMatchState(input: {
