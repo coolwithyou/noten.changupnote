@@ -1,7 +1,7 @@
 # 창업노트 검수팀 시작 가이드
 
-> 대상: 공고 분석 검수팀  
-> 검수 화면: https://ops.changupnote.com/review  
+> 대상: 공고 분석 검수팀
+> 검수 화면: https://ops.changupnote.com/review
 > 이 문서에는 비밀번호가 없다. 개인별 로그인 정보는 운영 담당자가 별도 문서로 전달한다.
 
 ## 1. 로그인

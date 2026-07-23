@@ -6,6 +6,7 @@ import {
   computeAgreementMetrics,
   excludePreviouslyDispatched,
   limitQuestionSpotchecks,
+  normalizeDispatchSeed,
   type DispatchNoticeCandidate,
 } from "./dispatch-core";
 
@@ -94,6 +95,13 @@ const first = assignDispatchCandidates(notices, { seed: 42, reviewerCount: 2, ov
 const second = assignDispatchCandidates(notices, { seed: 42, reviewerCount: 2, overlapRatio: 0.15 });
 assert.deepEqual(first, second, "같은 seed의 배분은 결정론적이어야 한다");
 assert.equal(first.filter((item) => item.blind).length, 4, "10공고의 15% 반올림=2공고가 양측 blind로 배분된다");
+assert.equal(
+  normalizeDispatchSeed(2_383_983_906),
+  236_500_258,
+  "주차 해시가 PostgreSQL integer 상한을 넘어도 31-bit seed로 정규화해야 한다",
+);
+assert.equal(normalizeDispatchSeed(-1), 2_147_483_647, "음수 사용자 seed도 동일 범위로 정규화해야 한다");
+assert.throws(() => normalizeDispatchSeed(Number.MAX_SAFE_INTEGER + 1), /안전한 정수/);
 
 const questionNotices: DispatchNoticeCandidate[] = notices.map((notice, index) => ({
   ...notice,

@@ -34,6 +34,13 @@ export interface DispatchAssignment {
   overlapGroup: string | null;
 }
 
+/** PostgreSQL integer 컬럼과 결정론 해시 양쪽에서 안전한 31-bit seed로 정규화한다. */
+export function normalizeDispatchSeed(seed: number): number {
+  if (!Number.isSafeInteger(seed)) throw new Error("dispatch seed는 안전한 정수여야 합니다.");
+  const modulus = 2_147_483_648;
+  return ((seed % modulus) + modulus) % modulus;
+}
+
 export function excludePreviouslyDispatched(
   runId: string,
   items: DispatchCandidateItem[],

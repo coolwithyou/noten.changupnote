@@ -13,6 +13,7 @@ import {
   buildDispatchCandidateItems,
   excludePreviouslyDispatched,
   limitQuestionSpotchecks,
+  normalizeDispatchSeed,
   sha256,
   type DispatchNoticeCandidate,
 } from "./dispatch-core";
@@ -32,7 +33,7 @@ async function main(): Promise<number> {
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
   if (reviewerEmails.length < 2) throw new Error("독립 중복 표본을 위해 reviewer 2명 이상이 필요합니다.");
-  const seed = integerArg("seed") ?? weekSeed(week);
+  const seed = normalizeDispatchSeed(integerArg("seed") ?? weekSeed(week));
   const questionLimit = integerArg("question-limit") ?? 15;
   if (questionLimit < 0) throw new Error("--question-limit은 0 이상의 정수여야 합니다.");
   const dryRun = process.argv.includes("--dry-run");
