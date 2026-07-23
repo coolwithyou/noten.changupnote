@@ -186,13 +186,18 @@ const aiReviewFixture: AuditedAiReviewInput = {
   assert.equal(merged.review.reviewerEmail, "human@example.com");
   assert.equal(merged.review.updatedAt, "2026-07-23T01:00:00.000Z");
   assert.equal(merged.review.overallNote, "감사 총평");
-  // provenance — 감사 4건 중 뒤집힘 3건(공고당 >1건 → §9 신뢰 재평가 신호).
+  // provenance — 감사 4건 중 뒤집힘 3건(공고당 >1건 → §9 신뢰 재평가 신호). AI 블라인드
+  // 감사 미실행 파일이므로 aiAudit* 카운트는 전부 0/null(하위 호환).
   assert.deepEqual(merged.provenance, {
     source: "ai_plus_audit",
     model: "claude-fable-5",
     aiPromptVersion: "ai-review-v2",
     auditedCount: 4,
     overturnedCount: 3,
+    aiAuditedCount: 0,
+    aiConcurCount: 0,
+    aiDisagreeCount: 0,
+    aiAuditModel: null,
   });
   console.log("✅ mergeAuditedReview — 동의/뒤집기/비감사·note 규칙·provenance");
 }
@@ -250,6 +255,10 @@ const aiReviewFixture: AuditedAiReviewInput = {
       aiPromptVersion: "ai-review-v2",
       auditedCount: 1,
       overturnedCount: 1,
+      aiAuditedCount: 0,
+      aiConcurCount: 0,
+      aiDisagreeCount: 0,
+      aiAuditModel: null,
     },
     "미판정 항목은 audited/overturned 집계에서 제외",
   );
@@ -260,6 +269,63 @@ const aiReviewFixture: AuditedAiReviewInput = {
     /감사 병합 대상 불일치/,
   );
   console.log("✅ isLabAuditComplete·부분 병합 — 완료 판정·미판정 AI 유지·대상 정합 가드");
+}
+
+// ── ⑤ AI 블라인드 감사(§9 완화 개정) — concur 자동 완료·병합 불변·provenance ─────────
+{
+  const aiAudited = auditFixture([
+    {
+      kind: "criterion",
+      criterionIndex: 1,
+      reason: "ai_non_correct",
+      aiVerdict: "needs_edit",
+      aiNote: "AI 지적",
+      humanVerdict: null,
+      note: null,
+      aiAuditVerdict: "needs_edit", // 정확 일치 — 자동 확정
+      aiAuditNote: "독립 재판정도 동일 지적",
+    },
+    {
+      kind: "criterion",
+      criterionIndex: 3,
+      reason: "correct_sample",
+      aiVerdict: "correct",
+      aiNote: null,
+      humanVerdict: "wrong", // 불일치 후 사람이 판정
+      note: "원문에 없는 요건",
+      aiAuditVerdict: "wrong",
+      aiAuditNote: "원문 근거 없음",
+    },
+  ]);
+  aiAudited.aiAuditModel = "claude-sonnet-5";
+  aiAudited.aiAuditPromptVersion = "ai-audit-v1";
+  aiAudited.aiAuditedAt = "2026-07-23T10:00:00.000Z";
+  aiAudited.auditorEmail = "human@example.com";
+
+  assert.equal(isLabAuditComplete(aiAudited), true, "concur + 사람 판정 조합 → 완료");
+
+  const merged = mergeAuditedReview(aiReviewFixture, aiAudited);
+  const byIndex = new Map(merged.review.criterionReviews.map((item) => [item.criterionIndex, item]));
+  // concur 항목은 humanVerdict 가 없으므로 병합 결과는 기존 AI 검수 판정 그대로(불변).
+  assert.deepEqual(byIndex.get(1), { criterionIndex: 1, verdict: "needs_edit", note: "AI 지적" });
+  // 사람 판정 항목은 사람이 우선.
+  assert.deepEqual(byIndex.get(3), { criterionIndex: 3, verdict: "wrong", note: "원문에 없는 요건" });
+  assert.deepEqual(
+    merged.provenance,
+    {
+      source: "ai_plus_audit",
+      model: "claude-fable-5",
+      aiPromptVersion: "ai-review-v2",
+      auditedCount: 1,
+      overturnedCount: 1,
+      aiAuditedCount: 2,
+      aiConcurCount: 1, // #1 — 사람 판정 없는 정확 일치만 자동 확정으로 센다
+      aiDisagreeCount: 1, // #3 — 불일치(사람 판정이 뒤따랐어도 불일치 기록은 유지)
+      aiAuditModel: "claude-sonnet-5",
+    },
+    "provenance — 사람/AI 감사 갈래 분리 집계",
+  );
+  console.log("✅ AI 블라인드 감사 — concur 자동 완료·병합 결과 불변·provenance 집계");
 }
 
 console.log("\naudited-reviews 테스트 전부 통과");

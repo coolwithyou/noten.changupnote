@@ -8,6 +8,8 @@
 //   ② 이후 로드는 저장본 재사용(대상 목록 동결) — 풀이 늘어나도(배치 2 등) 기존 감사
 //      대상은 변하지 않는다. 저장은 humanVerdict/note/auditorEmail/overallNote 만 병합한다
 //      (사람 산출물이라 덮어쓰기 허용, createdAt·대상 목록·AI 판정 스냅샷은 보존).
+//      ②' AI 블라인드 감사(lab:ai-audit, §9 완화 개정)는 aiAuditVerdict/aiAuditNote 와
+//      최상위 aiAudit* 메타만 별도 병합한다 — 사람 판정 필드는 불가침(applyAiAuditJudgments).
 // 사람 review.json 보유 공고에는 감사 파일을 만들지 않는다(§9 — 사람 전수 검수가 항상
 // 우선이며, AI 검수 감사는 "사람 검수 없는 공고"의 표본 확인이다).
 // import 방향: audit-store → run-store/ai-review-compare 단방향. ai-review.ts 는 import
@@ -16,12 +18,13 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { CriterionDimension } from "@cunote/contracts";
-import type {
-  LabAudit,
-  LabAuditItem,
-  LabCriterionVerdict,
-  LabEmptyAxisVerdict,
-  LabRun,
+import {
+  isAiAuditConcur,
+  type LabAudit,
+  type LabAuditItem,
+  type LabCriterionVerdict,
+  type LabEmptyAxisVerdict,
+  type LabRun,
 } from "@/features/dev/analysis-lab/contract";
 import {
   AUDIT_SAMPLE_RATIO,
@@ -42,11 +45,14 @@ export function labAuditFilePath(source: string, sourceId: string, runId: string
 }
 
 /**
- * 감사 완료 판정 — 전 항목 humanVerdict ≠ null. 대상 0건(비-correct·플래그·표본 모두 없음)은
- * 확인할 것이 없으므로 공허하게 완료로 본다(그 공고의 AI 검수는 감사 없이 확정 편입).
+ * 감사 완료 판정 — 항목이 (a) 사람 판정(humanVerdict ≠ null)이 있거나 (b) AI 블라인드 감사가
+ * 기존 AI 검수 판정과 일치(isAiAuditConcur — unsure 제외 정확 일치)하면 완료다(§9 완화 개정,
+ * 2026-07-23 사용자 승인). 불일치·unsure 항목은 humanVerdict 가 채워져야 완료.
+ * 대상 0건(비-correct·플래그·표본 모두 없음)은 확인할 것이 없으므로 공허하게 완료로 본다
+ * (그 공고의 AI 검수는 감사 없이 확정 편입).
  */
 export function isLabAuditComplete(audit: LabAudit): boolean {
-  return audit.items.every((item) => item.humanVerdict !== null);
+  return audit.items.every((item) => item.humanVerdict !== null || isAiAuditConcur(item));
 }
 
 // ---- AI 검수 파일 수집 (CLI --audit-list 와 감사 생성이 공유하는 풀) ---------------
@@ -387,4 +393,136 @@ export async function saveLabAuditJudgments(options: {
   };
   await writeFile(path, `${JSON.stringify(saved, null, 2)}\n`, "utf8");
   return { status: "ok", audit: saved };
+}
+
+// ---- AI 블라인드 감사 판정 병합 (§9 완화 개정 — lab:ai-audit 러너 전용) --------------
+
+/** AI 블라인드 감사 판정 1건 — 키는 사람 판정 저장(LabAuditItemUpdate)과 동일 규칙. */
+export interface LabAuditAiJudgment {
+  kind: "criterion" | "axis";
+  criterionIndex?: number | undefined;
+  dimension?: CriterionDimension | undefined;
+  aiAuditVerdict: LabCriterionVerdict | LabEmptyAxisVerdict;
+  aiAuditNote: string | null;
+}
+
+export type ApplyAiAuditOutcome =
+  | { status: "ok"; audit: LabAudit; applied: number; skippedHuman: number }
+  | { status: "invalid"; message: string };
+
+/**
+ * AI 블라인드 감사 판정을 저장본에 병합하는 순수 함수(테스트 대상) — aiAuditVerdict/aiAuditNote
+ * 와 최상위 aiAudit* 메타만 갱신한다. **humanVerdict/note/auditorEmail/overallNote/createdAt/
+ * 대상 목록은 절대 건드리지 않는다.** humanVerdict 가 이미 있는 항목은 스킵한다(사람 판정
+ * 우선 — skippedHuman 으로 집계). 감사 모델 === 검수 모델(stored.model)이면 거부한다
+ * (자기 확인 순환 차단 — 러너의 하드 가드와 이중).
+ */
+export function applyAiAuditJudgments(
+  stored: LabAudit,
+  options: {
+    aiAuditModel: string;
+    aiAuditPromptVersion: string;
+    judgments: LabAuditAiJudgment[];
+    /** 테스트 결정론용 — 생략 시 현재 시각. */
+    now?: string;
+  },
+): ApplyAiAuditOutcome {
+  if (options.aiAuditModel === stored.model) {
+    return {
+      status: "invalid",
+      message: `AI 감사 모델(${options.aiAuditModel})이 AI 검수 모델(${stored.model})과 같습니다 — 자기 확인 순환 금지(§9).`,
+    };
+  }
+
+  const items = stored.items.map((item) => ({ ...item }));
+  const byKey = new Map(items.map((item) => [itemKeyOf(item), item]));
+  const seen = new Set<string>();
+  let applied = 0;
+  let skippedHuman = 0;
+  for (const judgment of options.judgments) {
+    const key = itemKeyOf(judgment);
+    if (seen.has(key)) return { status: "invalid", message: `AI 감사 판정이 중복되었습니다: ${key}` };
+    seen.add(key);
+    const target = byKey.get(key);
+    if (!target) {
+      return { status: "invalid", message: `감사 대상 목록에 없는 항목입니다: ${key} — 대상 목록은 생성 시 동결됩니다.` };
+    }
+    const vocabulary: readonly string[] = target.kind === "criterion" ? CRITERION_VERDICTS : AXIS_VERDICTS;
+    if (!vocabulary.includes(judgment.aiAuditVerdict)) {
+      return {
+        status: "invalid",
+        message: `${key}: ${target.kind === "criterion" ? "criterion" : "빈 축"} 판정 어휘가 아닙니다(${judgment.aiAuditVerdict}).`,
+      };
+    }
+    if (target.humanVerdict !== null) {
+      skippedHuman += 1;
+      continue;
+    }
+    target.aiAuditVerdict = judgment.aiAuditVerdict;
+    target.aiAuditNote =
+      judgment.aiAuditNote !== null && judgment.aiAuditNote.trim().length > 0
+        ? judgment.aiAuditNote.trim()
+        : null;
+    applied += 1;
+  }
+
+  const now = options.now ?? new Date().toISOString();
+  return {
+    status: "ok",
+    applied,
+    skippedHuman,
+    audit: {
+      ...stored,
+      items,
+      aiAuditModel: options.aiAuditModel,
+      aiAuditPromptVersion: options.aiAuditPromptVersion,
+      aiAuditedAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
+export type LabAuditAiSaveOutcome =
+  | { status: "ok"; audit: LabAudit; applied: number; skippedHuman: number; path: string }
+  | { status: "run_not_found" }
+  /** 감사 파일이 없다 — AI 감사도 로드(생성) 없이 저장 금지(사람 판정 저장과 동일 가드). */
+  | { status: "audit_not_found" }
+  | { status: "audit_parse_failed"; path: string }
+  | { status: "invalid"; message: string };
+
+/**
+ * AI 블라인드 감사 판정 저장 — read-merge-write. 병합 규칙은 applyAiAuditJudgments(순수)가
+ * 소유하고 여기는 IO 만 담당한다. 쓰기는 기존 감사 저장 관행(saveLabAuditJudgments)과 동일.
+ */
+export async function saveLabAuditAiJudgments(options: {
+  grantId: string;
+  runId: string;
+  /** AI 검수(감사 파일 키)의 모델 — 파일 경로 산출용. */
+  model: string;
+  aiAuditModel: string;
+  aiAuditPromptVersion: string;
+  judgments: LabAuditAiJudgment[];
+}): Promise<LabAuditAiSaveOutcome> {
+  const run = await readLabRun(options.grantId, options.runId);
+  if (!run) return { status: "run_not_found" };
+
+  const path = labAuditFilePath(run.source, run.sourceId, run.runId, options.model);
+  let stored: LabAudit | null;
+  try {
+    stored = await readAuditFile(path);
+  } catch (caught) {
+    if ((caught as NodeJS.ErrnoException).code === "ENOENT") return { status: "audit_not_found" };
+    return { status: "audit_parse_failed", path };
+  }
+  if (!stored) return { status: "audit_parse_failed", path };
+
+  const merged = applyAiAuditJudgments(stored, {
+    aiAuditModel: options.aiAuditModel,
+    aiAuditPromptVersion: options.aiAuditPromptVersion,
+    judgments: options.judgments,
+  });
+  if (merged.status === "invalid") return merged;
+
+  await writeFile(path, `${JSON.stringify(merged.audit, null, 2)}\n`, "utf8");
+  return { status: "ok", audit: merged.audit, applied: merged.applied, skippedHuman: merged.skippedHuman, path };
 }

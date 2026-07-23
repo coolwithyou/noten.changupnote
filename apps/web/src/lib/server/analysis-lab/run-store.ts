@@ -7,6 +7,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import {
   AI_REVIEW_ADOPTED,
+  isAiAuditConcur,
   type LabRun,
   type LabRunAuditSummary,
   type LabRunSummary,
@@ -176,12 +177,18 @@ async function readAuditStatus(
       await readFile(join(dir, `${runId}.audit.${slug}.json`), "utf8"),
     ) as { items?: unknown };
     if (!Array.isArray(parsed.items)) return pending;
-    const decided = parsed.items.filter(
-      (item) =>
-        typeof item === "object" &&
-        item !== null &&
-        (item as { humanVerdict?: unknown }).humanVerdict != null,
-    ).length;
+    // 완료 규칙은 audit-store isLabAuditComplete 와 동일 — 사람 판정 또는 AI 블라인드 감사
+    // 일치(isAiAuditConcur)면 확정된 항목으로 센다(§9 완화 개정).
+    const decided = parsed.items.filter((item) => {
+      if (typeof item !== "object" || item === null) return false;
+      const record = item as { humanVerdict?: unknown; aiVerdict?: unknown; aiAuditVerdict?: unknown };
+      if (record.humanVerdict != null) return true;
+      return (
+        typeof record.aiVerdict === "string" &&
+        typeof record.aiAuditVerdict === "string" &&
+        isAiAuditConcur({ aiVerdict: record.aiVerdict, aiAuditVerdict: record.aiAuditVerdict })
+      );
+    }).length;
     return { model: AI_REVIEW_ADOPTED.model, decidedItems: decided, totalItems: parsed.items.length };
   } catch {
     return pending;

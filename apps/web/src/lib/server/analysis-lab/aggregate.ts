@@ -276,9 +276,15 @@ async function main() {
   });
 
   // 방법론 병기(§9 게이트 해석 조항) — 검수 주체와 캘리브레이션 측정오차를 항상 드러낸다.
+  // §9 완화 개정: 감사 항목의 확정 주체(사람 vs AI 블라인드 일치 자동확정)도 병기한다.
+  const humanAuditedItems = auditedConfirmed.reduce((sum, item) => sum + item.provenance.auditedCount, 0);
+  const aiConcurItems = auditedConfirmed.reduce((sum, item) => sum + item.provenance.aiConcurCount, 0);
+  const auditBreakdown =
+    aiConcurItems > 0 ? ` · 감사 항목: 사람 ${humanAuditedItems} + AI 블라인드 일치 자동확정 ${aiConcurItems}` : "";
   const methodologyLine =
-    `검수 방법론: 사람 전수 ${reviewed.length}건 + AI(${AI_REVIEW_ADOPTED.model}·${AI_REVIEW_ADOPTED.promptVersion})+사람 감사 ${auditedConfirmed.length}건(§9)` +
-    ` · 캘리브레이션 일치 criterion ${AI_REVIEW_ADOPTED.calibration.criterionAgreement}·빈 축 ${AI_REVIEW_ADOPTED.calibration.emptyAxisAgreement}`;
+    `검수 방법론: 사람 전수 ${reviewed.length}건 + AI(${AI_REVIEW_ADOPTED.model}·${AI_REVIEW_ADOPTED.promptVersion})+감사 ${auditedConfirmed.length}건(§9)` +
+    ` · 캘리브레이션 일치 criterion ${AI_REVIEW_ADOPTED.calibration.criterionAgreement}·빈 축 ${AI_REVIEW_ADOPTED.calibration.emptyAxisAgreement}` +
+    auditBreakdown;
   const pendingLine =
     audited.pending.length > 0
       ? `[안내] 감사 대기 ${audited.pending.length}건 — 게이트 표본 제외(감사 완료 시 편입). 감사 시트: /dev/analysis-lab 런 상세 "감사" 탭.`
@@ -324,7 +330,9 @@ async function main() {
     // 기본은 공고당 1줄 요약(30~100건 스케일 대비) — criterion 사유·누락·메모는 --verbose.
     // 감사 확정 AI 검수는 검수 주체 마커를 병기한다(§9 — 방법론 은폐 금지).
     const auditTag = item.auditProvenance
-      ? ` [AI+감사(뒤집힘 ${item.auditProvenance.overturnedCount})]`
+      ? ` [AI+감사(뒤집힘 ${item.auditProvenance.overturnedCount}${
+          item.auditProvenance.aiConcurCount > 0 ? `·AI일치 ${item.auditProvenance.aiConcurCount}` : ""
+        })]`
       : "";
     console.log(
       `[${run.source}/${run.sourceId}] ${run.title.slice(0, 46)} — criterion ${decidedC}/${run.criteria.length}` +

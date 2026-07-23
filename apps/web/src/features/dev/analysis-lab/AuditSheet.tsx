@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isAiAuditConcur } from "./contract";
 import type {
   LabAudit,
   LabAuditItem,
@@ -213,6 +214,18 @@ export function AuditSheet({
   const emailValid = EMAIL_PATTERN.test(auditorEmail.trim());
   const items = audit?.items ?? [];
 
+  // AI 블라인드 감사(§9 완화 개정) 요약 — 일치는 사람 판정 없이 자동 확정, 비일치는 사람 몫.
+  const aiConcurCount = items.filter(
+    (item) => item.humanVerdict === null && isAiAuditConcur(item),
+  ).length;
+  const aiPendingCount = items.filter(
+    (item) =>
+      item.humanVerdict === null &&
+      item.aiAuditVerdict !== undefined &&
+      item.aiAuditVerdict !== null &&
+      !isAiAuditConcur(item),
+  ).length;
+
   // 진행도 — 판정 확정(동의 또는 수정 판정 선택) 항목 수.
   const decided = items.reduce((count, item) => {
     const draft = drafts[itemKeyOf(item)];
@@ -379,6 +392,13 @@ export function AuditSheet({
               항목별로 공고 원문 대비 AI 판정·사유가 맞는지 확인해 동의하거나 수정(사유 필수)
               합니다.
             </span>
+            {audit?.aiAuditModel ? (
+              <span className="text-xs text-muted-foreground">
+                AI 블라인드 감사({audit.aiAuditModel}) 실행됨 — 일치 자동 확정 {aiConcurCount}건
+                {aiPendingCount > 0 ? ` · 불일치·unsure ${aiPendingCount}건 사람 판정 필요` : ""}.
+                사람 판정은 언제든 자동 확정을 덮어쓸 수 있습니다.
+              </span>
+            ) : null}
           </div>
           <Badge variant={decided === total && total > 0 ? "default" : "secondary"} className="tabular-nums">
             {decided} / {total}
@@ -523,6 +543,13 @@ function AuditItemBlock({
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={reason.variant}>{reason.label}</Badge>
+          {item.aiAuditVerdict !== undefined && item.aiAuditVerdict !== null ? (
+            isAiAuditConcur(item) ? (
+              <Badge variant="secondary">AI 감사 일치 — 자동 확정</Badge>
+            ) : (
+              <Badge variant="destructive">AI 감사 불일치 — 사람 판정 필요</Badge>
+            )
+          ) : null}
           {criterion ? (
             <>
               <Badge variant={kindBadgeVariant(criterion.kind)}>{kindLabel(criterion.kind)}</Badge>
@@ -576,6 +603,34 @@ function AuditItemBlock({
             <p className="text-[11px] text-muted-foreground">AI 사유 없음</p>
           )}
         </div>
+
+        {/* AI 블라인드 감사(2차 독립 판정) 스냅샷 — 일치면 자동 확정, 비일치면 사람 판정 근거. */}
+        {item.aiAuditVerdict !== undefined && item.aiAuditVerdict !== null ? (
+          <div className="flex min-w-0 flex-col gap-1 rounded-md border border-border bg-muted/20 px-2.5 py-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] font-medium text-muted-foreground">
+                AI 블라인드 감사(2차 판정)
+              </span>
+              <Badge variant={isAiAuditConcur(item) ? "secondary" : "destructive"}>
+                {verdictLabel(item.aiAuditVerdict)}
+              </Badge>
+              {isAiAuditConcur(item) ? (
+                <span className="text-[11px] text-muted-foreground">
+                  1차 AI 판정과 일치 — 사람 판정 없이 확정(덮어쓰기 가능)
+                </span>
+              ) : (
+                <span className="text-[11px] text-destructive">
+                  1차 AI 판정과 불일치 — 아래에서 동의/수정을 판정해 주세요
+                </span>
+              )}
+            </div>
+            {item.aiAuditNote ? (
+              <p className="text-[11px] text-muted-foreground whitespace-pre-wrap break-words">
+                감사 사유: {item.aiAuditNote}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
 
         <ToggleGroup
           variant="outline"

@@ -293,6 +293,35 @@ export interface LabAuditItem {
   humanVerdict: LabCriterionVerdict | LabEmptyAxisVerdict | null;
   /** 감사 사유 — AI 판정 뒤집기(humanVerdict ≠ aiVerdict) 시 필수(서버 검증). */
   note: string | null;
+  /**
+   * AI 블라인드 감사(2차 독립 판정) — lab:ai-audit 러너가 기록한다(§9 완화 개정, 2026-07-23
+   * 사용자 승인). 기존 AI 검수의 aiVerdict/aiNote 를 프롬프트에 노출하지 않고 같은 입력
+   * (공고 원문+추출 criteria+가이드 rubric)으로 재판정한 결과. aiVerdict 와 정확 일치하면
+   * (unsure 제외 — isAiAuditConcur) 사람 판정 없이 완료로 간주된다(isLabAuditComplete).
+   * 기존 27개 감사 파일에는 없다(하위 호환 optional — 미기록과 null 은 동치).
+   */
+  aiAuditVerdict?: LabCriterionVerdict | LabEmptyAxisVerdict | null;
+  /** AI 블라인드 감사 판정 사유 — 비-correct/missed_condition 판정이면 기록된다. */
+  aiAuditNote?: string | null;
+}
+
+/**
+ * AI 블라인드 감사 일치(concur) 판정 — 단일 원천. 감사 판정이 기록돼 있고 기존 AI 검수
+ * 판정과 **정확히 같으며 unsure 가 아닐 때만** 일치다. unsure 는 두 모델 모두 판단 불가라는
+ * 뜻이라 자동 확정하지 않고 사람 큐에 남긴다(순환성 가드의 보수 조항 — §9 완화 개정에서도
+ * 유지). 일치 항목은 사람 판정 없이 감사 완료로 간주된다(audit-store isLabAuditComplete ·
+ * run-store 감사 배지 · AuditSheet 배지가 이 함수를 공유한다).
+ */
+export function isAiAuditConcur(item: {
+  aiVerdict: string;
+  aiAuditVerdict?: string | null | undefined;
+}): boolean {
+  return (
+    item.aiAuditVerdict !== null &&
+    item.aiAuditVerdict !== undefined &&
+    item.aiAuditVerdict === item.aiVerdict &&
+    item.aiAuditVerdict !== "unsure"
+  );
 }
 
 export interface LabAudit {
@@ -309,6 +338,13 @@ export interface LabAudit {
   /** 감사 대상 항목 — 생성 시 동결. 이후 저장은 humanVerdict/note 만 갱신한다. */
   items: LabAuditItem[];
   overallNote: string | null;
+  /**
+   * AI 블라인드 감사 메타 — lab:ai-audit 러너가 마지막 실행 시 기록한다(provenance).
+   * 구 감사 파일에는 없다(하위 호환 optional). 스키마 id 는 additive 변경이라 lab-audit-v1 유지.
+   */
+  aiAuditModel?: string | null;
+  aiAuditPromptVersion?: string | null;
+  aiAuditedAt?: string | null;
 }
 
 /** PUT 본문의 항목 판정 — 판정한 항목만 보낸다(부분 저장). 서버는 저장본 대상 목록에 병합만 한다. */

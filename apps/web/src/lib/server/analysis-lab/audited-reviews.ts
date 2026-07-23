@@ -4,6 +4,9 @@
 //   - 감사된 항목은 humanVerdict(동의면 AI 판정과 동일 값이 저장돼 있음)
 //   - 감사 안 된 항목은 AI 판정 그대로(§9 표본 감사 설계 — 비-correct 전수 + 플래그 전수 +
 //     correct 20% 표본만 사람이 확인하고, 나머지 correct 는 AI 판정을 신뢰한다)
+//   - AI 블라인드 감사 일치(concur, §9 완화 개정) 항목은 humanVerdict 없이 완료로 간주되며
+//     (isLabAuditComplete) 병합 결과는 AI 검수 판정 그대로다 — 코드 경로상 "감사 안 된 항목"
+//     과 동일하게 흐르고, provenance(aiConcurCount 등)로만 구분된다.
 // 병합 결과는 LabReview 와 구조가 같아 aggregate(게이트 집계)·shadow(섀도 측정)·
 // shadow-convert(correct 만 변환)가 무변경으로 소비한다. 검수 주체는 provenance 로
 // 구분해 집계 출력에 병기한다(§9 게이트 해석 조항 — 방법론 은폐 금지).
@@ -11,6 +14,7 @@
 import { join } from "node:path";
 import {
   AI_REVIEW_ADOPTED,
+  isAiAuditConcur,
   type LabAudit,
   type LabAuditItem,
   type LabCriterionReview,
@@ -36,10 +40,18 @@ export interface AuditedReviewProvenance {
   source: "ai_plus_audit";
   model: string;
   aiPromptVersion: string;
-  /** 사람이 판정한 감사 항목 수(완료 감사면 = 대상 수). */
+  /** 사람이 판정한 감사 항목 수. */
   auditedCount: number;
   /** 감사에서 AI 판정이 뒤집힌 항목 수 — 공고당 >1건 누적 시 자동 검수 신뢰 재평가(§9). */
   overturnedCount: number;
+  /** AI 블라인드 감사가 기록된 항목 수(§9 완화 개정 — 사람 판정 보유 항목 포함). */
+  aiAuditedCount: number;
+  /** AI 블라인드 감사 일치로 사람 판정 없이 자동 확정된 항목 수(isAiAuditConcur). */
+  aiConcurCount: number;
+  /** AI 감사 기록 중 비일치(불일치·unsure) 항목 수 — 사람 판정이 필요한(했던) 갈래. */
+  aiDisagreeCount: number;
+  /** AI 블라인드 감사 모델 — 미실행 감사 파일이면 null. */
+  aiAuditModel: string | null;
 }
 
 export interface MergedAuditedReview {
@@ -70,6 +82,9 @@ export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAud
   const axisAudits = new Map<string, LabAuditItem>();
   let auditedCount = 0;
   let overturnedCount = 0;
+  let aiAuditedCount = 0;
+  let aiConcurCount = 0;
+  let aiDisagreeCount = 0;
   for (const item of audit.items) {
     if (item.kind === "criterion" && item.criterionIndex !== undefined) {
       criterionAudits.set(item.criterionIndex, item);
@@ -79,6 +94,13 @@ export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAud
     if (item.humanVerdict !== null) {
       auditedCount += 1;
       if (item.humanVerdict !== item.aiVerdict) overturnedCount += 1;
+    }
+    // AI 블라인드 감사 집계(§9 완화 개정) — 일치(concur)는 사람 판정 없는 항목의 자동 확정만
+    // 센다(사람 판정이 있으면 사람이 확정 주체 — auditedCount 쪽). 비일치는 기록 전건.
+    if (item.aiAuditVerdict !== undefined && item.aiAuditVerdict !== null) {
+      aiAuditedCount += 1;
+      if (item.humanVerdict === null && isAiAuditConcur(item)) aiConcurCount += 1;
+      else if (!isAiAuditConcur(item)) aiDisagreeCount += 1;
     }
   }
 
@@ -109,7 +131,9 @@ export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAud
     review: {
       grantId: audit.grantId,
       runId: audit.runId,
-      reviewerEmail: audit.auditorEmail ?? "(감사 대상 0건 — 자동 편입)",
+      reviewerEmail:
+        audit.auditorEmail ??
+        (audit.items.length === 0 ? "(감사 대상 0건 — 자동 편입)" : "(AI 블라인드 감사 — 사람 판정 없음)"),
       createdAt: audit.createdAt,
       updatedAt: audit.updatedAt,
       criterionReviews,
@@ -122,6 +146,10 @@ export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAud
       aiPromptVersion: aiReview.promptVersion,
       auditedCount,
       overturnedCount,
+      aiAuditedCount,
+      aiConcurCount,
+      aiDisagreeCount,
+      aiAuditModel: audit.aiAuditModel ?? null,
     },
   };
 }

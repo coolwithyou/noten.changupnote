@@ -193,7 +193,8 @@ export function deriveEmptyAxes(run: LabRun): CriterionDimension[] {
 
 // ---- 프롬프트 ---------------------------------------------------------------------
 
-function buildSystemPrompt(rubric: string): string {
+/** 검수 판정 시스템 프롬프트 — AI 감사 러너(ai-audit.ts)가 같은 rubric 프레이밍을 공유한다. */
+export function buildSystemPrompt(rubric: string): string {
   return [
     "너는 정부지원사업 공고 딥분석 결과를 검수하는 독립 검수자다.",
     "다른 모델이 공고 원문에서 추출한 자격조건(criteria)과, 조건 없음으로 남긴 축(빈 축)을",
@@ -231,7 +232,8 @@ function buildSystemPrompt(rubric: string): string {
   ].join("\n");
 }
 
-function renderCriterionForPrompt(index: number, criterion: LabRun["criteria"][number]): string {
+/** criterion 프롬프트 렌더 — AI 감사 러너가 동일 형식(블라인드 필드 제외)을 공유한다. */
+export function renderCriterionForPrompt(index: number, criterion: LabRun["criteria"][number]): string {
   // 블라인드 원칙: confidence/spanVerified/spanOffsetRatio 는 넣지 않는다(상단 금지 목록).
   return [
     `### criterion_index ${index}`,
@@ -473,25 +475,36 @@ interface AnthropicMessageResponse {
   usage?: Record<string, unknown>;
 }
 
-type ReviewCallResult =
+export type AnthropicToolCallResult =
   | { kind: "ok"; input: Record<string, unknown>; usage: LabUsage | null }
   | { kind: "refusal"; usage: LabUsage | null };
 
-async function callReviewModel(options: {
+/** tool 강제 스키마의 최소 형태 — 검수(buildAiReviewToolSchema)·감사(ai-audit) 공용. */
+export interface AnthropicToolSchema {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+/**
+ * Anthropic tool 강제 단발 호출 — 검수·감사 러너 공용(재시도·refusal·모델 접근 오류 처리 포함).
+ * temperature/top_p/top_k/thinking 은 절대 보내지 않는다(파일 상단 모델별 규칙).
+ */
+export async function callAnthropicToolModel(options: {
   apiKey: string;
   model: string;
   system: string;
   userText: string;
-  toolSchema: ReturnType<typeof buildAiReviewToolSchema>;
+  toolSchema: AnthropicToolSchema;
   fetchImpl?: typeof fetch;
-}): Promise<ReviewCallResult> {
+}): Promise<AnthropicToolCallResult> {
   const requestBody = JSON.stringify({
     model: options.model,
     max_tokens: MAX_TOKENS,
     system: options.system,
     messages: [{ role: "user", content: options.userText }],
     tools: [options.toolSchema],
-    tool_choice: { type: "tool", name: AI_REVIEW_TOOL_NAME },
+    tool_choice: { type: "tool", name: options.toolSchema.name },
     // temperature/top_p/top_k/thinking 절대 미포함 — 상단 주석의 모델별 규칙.
   });
 
@@ -511,7 +524,7 @@ async function callReviewModel(options: {
       });
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`AI 검수 호출이 타임아웃됐습니다(${TIMEOUT_MS}ms).`);
+        throw new Error(`Anthropic 호출이 타임아웃됐습니다(${TIMEOUT_MS}ms).`);
       }
       throw error;
     } finally {
@@ -540,7 +553,7 @@ async function callReviewModel(options: {
       );
     }
     throw new Error(
-      `AI 검수 호출 실패(${options.model}): ${response.status} ${response.statusText}\n${body.slice(0, 800)}`,
+      `Anthropic 호출 실패(${options.model}): ${response.status} ${response.statusText}\n${body.slice(0, 800)}`,
     );
   }
 
@@ -551,13 +564,15 @@ async function callReviewModel(options: {
   }
   const toolUse = payload.content?.find(
     (block): block is AnthropicToolUseBlock =>
-      block.type === "tool_use" && "name" in block && block.name === AI_REVIEW_TOOL_NAME,
+      block.type === "tool_use" && "name" in block && block.name === options.toolSchema.name,
   );
   if (!toolUse) {
     if (payload.stop_reason === "max_tokens") {
       throw new Error(`출력 토큰 한도(max_tokens=${MAX_TOKENS}) 도달 — 도구 응답이 잘렸습니다.`);
     }
-    throw new Error(`응답에 ${AI_REVIEW_TOOL_NAME} tool_use 없음(stop_reason=${payload.stop_reason ?? "unknown"}).`);
+    throw new Error(
+      `응답에 ${options.toolSchema.name} tool_use 없음(stop_reason=${payload.stop_reason ?? "unknown"}).`,
+    );
   }
   return { kind: "ok", input: isRecord(toolUse.input) ? toolUse.input : {}, usage };
 }
@@ -619,7 +634,7 @@ export async function runAiReview(options: {
   // 검증 실패 시 1회 재시도(extractor 의 재시도 선례 — 여기서는 커버리지 검증 실패도 재시도 사유).
   let checked: AiReviewPayloadCheck | null = null;
   for (let attemptNo = 1; attemptNo <= 2; attemptNo += 1) {
-    const result = await callReviewModel({
+    const result = await callAnthropicToolModel({
       apiKey: options.apiKey,
       model,
       system,
