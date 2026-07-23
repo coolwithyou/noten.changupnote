@@ -47,17 +47,32 @@ export default async function ReviewGuidePage() {
         </section>
         <Card>
           <CardHeader>
-            <CardTitle>항목당 30초 루틴</CardTitle>
+            <CardTitle>필드별 검수 루틴</CardTitle>
             <CardDescription>원문이 기준이며 기존 DB 값은 참고일 뿐입니다.</CardDescription>
           </CardHeader>
           <CardContent>
             <ol className="ml-5 flex list-decimal flex-col gap-2 text-sm">
-              <li>근거 인용이 원문에 실제로 있는지 확인합니다.</li>
-              <li>value의 수치·목록·플래그와 operator를 대조합니다.</li>
-              <li>필수·우대·결격 kind가 원문 취지와 맞는지 봅니다.</li>
-              <li>other 남용이나 잘못된 dimension 배정을 확인합니다.</li>
-              <li>정확이 아니면 원문 근거와 올바른 수정 방향을 적습니다.</li>
+              <li>가운데 질문에서 AI가 판단한 한글 필드·추출 값·조건 종류를 읽습니다.</li>
+              <li>왼쪽 저장 원문에서 근거 인용이 실제로 있는지 확인합니다.</li>
+              <li>필요하면 공고 원문 페이지나 HWP/HWPX 미리보기를 새 탭으로 엽니다.</li>
+              <li>수치·목록·이상/이하 방향과 필수·우대·결격 구분을 대조합니다.</li>
+              <li>판정과 사유를 입력하고 “저장하고 다음 미판정 항목”을 누릅니다.</li>
+              <li>오른쪽 전체 필드에서 저장 완료와 남은 미판정을 확인합니다.</li>
             </ol>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>저장과 문서 참고</CardTitle>
+            <CardDescription>필드 하나를 저장할 때마다 다음 미판정 필드로 이동합니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="ml-5 flex list-disc flex-col gap-2 text-sm">
+              <li>체크 아이콘과 판정명이 보이는 필드는 저장 완료 상태이므로 다시 판단할 필요가 없습니다.</li>
+              <li>저장한 판정을 수정해야 할 때만 오른쪽 목록에서 해당 필드를 다시 엽니다.</li>
+              <li>HWP/HWPX는 RHWP Studio 미리보기로 새 탭에서 열리며, 미리보기 중 변경은 저장되지 않습니다.</li>
+              <li>원본 JSON은 기본 검수 대상이 아닙니다. 기술 확인이 필요할 때만 “기술 정보 보기”를 펼칩니다.</li>
+            </ul>
           </CardContent>
         </Card>
         <Card>

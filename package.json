@@ -218,7 +218,7 @@
     "verify:route-policy": "tsx packages/contracts/scripts/verify-route-policy.ts",
     "verify:admin-routes": "tsx packages/contracts/scripts/verify-admin-routes.ts",
     "verify:ops-admin": "tsx packages/contracts/scripts/verify-ops-admin.ts",
-    "verify:review-workspace": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/auth/routeAccess.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/review/dispatchReview.test.ts",
+    "verify:review-workspace": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/auth/routeAccess.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/review/itemPresentation.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/review/reviewAttachmentFetch.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/review/dispatchReview.test.ts",
     "verify:ops-admin-live": "tsx packages/contracts/scripts/verify-ops-admin-live.ts",
     "verify:admin-support-report": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/admin/verify-support-ticket-report.ts",
     "verify:admin-support-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/admin/verify-support-ticket-email-handoff.ts",

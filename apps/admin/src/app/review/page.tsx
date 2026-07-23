@@ -1,5 +1,6 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
+import { ArrowRightIcon } from "lucide-react"
 
 import { OpsDashboardShell } from "@/components/OpsDashboardShell"
 import { Badge } from "@/components/ui/badge"
@@ -105,7 +106,13 @@ export default async function ReviewQueuePage({
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Link className={cn(buttonVariants({ size: "sm" }))} href={`/review/${item.noticeId}`}>검수하기</Link>
+                      <Link
+                        className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                        href={`/review/${item.noticeId}`}
+                      >
+                        검수 시작
+                        <ArrowRightIcon data-icon="inline-end" />
+                      </Link>
                     </TableCell>
                   </TableRow>
                 ))}

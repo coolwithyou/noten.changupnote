@@ -106,9 +106,18 @@ interface NoticeRow {
   title: string;
   source: string;
   source_id: string;
+  source_url: string | null;
   run_id: string;
   input_text: string | null;
   analysis_markdown: string | null;
+}
+
+interface AttachmentRow {
+  id: string;
+  filename: string;
+  source_uri: string;
+  content_type: string | null;
+  bytes: number | null;
 }
 
 interface ItemRow {
@@ -155,10 +164,25 @@ export interface ReviewNoticeDetail {
   title: string;
   source: string;
   sourceId: string;
+  sourceUrl: string | null;
   runId: string;
   inputText: string;
   analysisMarkdown: string;
+  attachments: ReviewNoticeAttachment[];
   items: ReviewNoticeItem[];
+}
+
+export interface ReviewNoticeAttachment {
+  id: string;
+  filename: string;
+  format: "hwp" | "hwpx";
+  bytes: number | null;
+}
+
+export interface ReviewAttachmentSource extends ReviewNoticeAttachment {
+  source: string;
+  sourceUri: string;
+  contentType: string | null;
 }
 
 const MAX_DOCUMENT_CHARS = 240_000;
@@ -174,49 +198,46 @@ export async function getReviewNotice(
   const rows = await sql<NoticeRow[]>`
     SELECT
       n.id, b.week, n.title, n.source, n.source_id, n.run_id,
-      n.input_text, n.analysis_markdown
+      n.input_text, n.analysis_markdown, g.url AS source_url
     FROM audit_dispatch_notices n
     JOIN audit_dispatch_batches b ON b.id = n.batch_id
+    LEFT JOIN grants g ON g.id = n.grant_id
     WHERE n.id = ${noticeId}::uuid
     LIMIT 1
   `;
   const notice = rows[0];
   if (!notice) throw new DispatchReviewError("review_notice_not_found", "검수 공고를 찾을 수 없습니다.", 404);
-  if (session.user.role === "reviewer") {
-    const assignments = await sql<{ allowed: boolean }[]>`
-      SELECT EXISTS (
-        SELECT 1
-        FROM audit_dispatch_items
-        WHERE notice_id = ${noticeId}::uuid
-          AND assignee_id = ${session.user.id}::uuid
-      ) AS allowed
-    `;
-    if (!assignments[0]?.allowed) {
-      throw new DispatchReviewError(
-        "review_notice_forbidden",
-        "본인에게 배정된 검수 공고만 열 수 있습니다.",
-        403,
-      );
-    }
-  }
+  await assertNoticeAccess(sql, session, noticeId);
 
   const itemFilter = session.user.role === "reviewer"
     ? sql`AND assignee_id = ${session.user.id}::uuid`
     : sql``;
-  const itemRows = await sql<ItemRow[]>`
-    SELECT
-      id, source_item_key, collect_target, item_kind, criterion_index, dimension,
-      payload, assignee_id, assignee_email, blind, status, human_verdict, note,
-      final_verdict, revision, updated_at::text
-    FROM audit_dispatch_items
-    WHERE notice_id = ${noticeId}::uuid
-      ${itemFilter}
-    ORDER BY
-      CASE status WHEN 'pending' THEN 0 WHEN 'conflict' THEN 1 ELSE 2 END,
-      criterion_index NULLS LAST,
-      dimension NULLS LAST,
-      id
-  `;
+  const [itemRows, attachmentRows] = await Promise.all([
+    sql<ItemRow[]>`
+      SELECT
+        id, source_item_key, collect_target, item_kind, criterion_index, dimension,
+        payload, assignee_id, assignee_email, blind, status, human_verdict, note,
+        final_verdict, revision, updated_at::text
+      FROM audit_dispatch_items
+      WHERE notice_id = ${noticeId}::uuid
+        ${itemFilter}
+      ORDER BY
+        CASE status WHEN 'pending' THEN 0 WHEN 'conflict' THEN 1 ELSE 2 END,
+        criterion_index NULLS LAST,
+        dimension NULLS LAST,
+        id
+    `,
+    sql<AttachmentRow[]>`
+      SELECT id, filename, source_uri, content_type, bytes
+      FROM grant_attachment_archives
+      WHERE source::text = ${notice.source}
+        AND source_id = ${notice.source_id}
+        AND filename ~* '\\.hwpx?$'
+        AND nullif(source_uri, '') IS NOT NULL
+      ORDER BY filename, id
+      LIMIT 20
+    `,
+  ]);
 
   let remainingPayloadChars = MAX_TOTAL_PAYLOAD_CHARS;
   return {
@@ -225,9 +246,16 @@ export async function getReviewNotice(
     title: notice.title,
     source: notice.source,
     sourceId: notice.source_id,
+    sourceUrl: notice.source_url,
     runId: notice.run_id,
     inputText: (notice.input_text ?? "").slice(0, MAX_DOCUMENT_CHARS),
     analysisMarkdown: (notice.analysis_markdown ?? "").slice(0, MAX_DOCUMENT_CHARS),
+    attachments: attachmentRows.map((row) => ({
+      id: row.id,
+      filename: row.filename,
+      format: attachmentFormat(row.filename),
+      bytes: row.bytes,
+    })),
     items: itemRows.map((row) => {
       let payload = sanitizeReviewPayload(row.payload, row.blind);
       const payloadChars = JSON.stringify(payload).length;
@@ -258,6 +286,46 @@ export async function getReviewNotice(
         updatedAt: row.updated_at,
       };
     }),
+  };
+}
+
+export async function getReviewAttachmentSource(
+  session: AdminSession,
+  noticeId: string,
+  attachmentId: string,
+): Promise<ReviewAttachmentSource> {
+  assertUuid(noticeId, "noticeId");
+  assertUuid(attachmentId, "attachmentId");
+  const sql = getAdminSql();
+  await assertNoticeAccess(sql, session, noticeId);
+  const rows = await sql<Array<AttachmentRow & { source: string }>>`
+    SELECT a.id, a.source::text AS source, a.filename, a.source_uri, a.content_type, a.bytes
+    FROM grant_attachment_archives a
+    JOIN audit_dispatch_notices n
+      ON n.source = a.source::text
+      AND n.source_id = a.source_id
+    WHERE n.id = ${noticeId}::uuid
+      AND a.id = ${attachmentId}::uuid
+      AND a.filename ~* '\\.hwpx?$'
+      AND nullif(a.source_uri, '') IS NOT NULL
+    LIMIT 1
+  `;
+  const attachment = rows[0];
+  if (!attachment) {
+    throw new DispatchReviewError(
+      "review_attachment_not_found",
+      "검수할 HWP/HWPX 첨부를 찾을 수 없습니다.",
+      404,
+    );
+  }
+  return {
+    id: attachment.id,
+    source: attachment.source,
+    filename: attachment.filename,
+    format: attachmentFormat(attachment.filename),
+    sourceUri: attachment.source_uri,
+    contentType: attachment.content_type,
+    bytes: attachment.bytes,
   };
 }
 
@@ -522,6 +590,43 @@ function normalizeNote(value: string | null | undefined): string | null {
 
 function stringValue(value: unknown): string | null {
   return typeof value === "string" ? value : null;
+}
+
+async function assertNoticeAccess(
+  sql: ReturnType<typeof getAdminSql>,
+  session: AdminSession,
+  noticeId: string,
+): Promise<void> {
+  const notices = await sql<{ exists: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM audit_dispatch_notices
+      WHERE id = ${noticeId}::uuid
+    ) AS exists
+  `;
+  if (!notices[0]?.exists) {
+    throw new DispatchReviewError("review_notice_not_found", "검수 공고를 찾을 수 없습니다.", 404);
+  }
+  if (session.user.role !== "reviewer") return;
+  const assignments = await sql<{ allowed: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM audit_dispatch_items
+      WHERE notice_id = ${noticeId}::uuid
+        AND assignee_id = ${session.user.id}::uuid
+    ) AS allowed
+  `;
+  if (!assignments[0]?.allowed) {
+    throw new DispatchReviewError(
+      "review_notice_forbidden",
+      "본인에게 배정된 검수 공고만 열 수 있습니다.",
+      403,
+    );
+  }
+}
+
+function attachmentFormat(filename: string): "hwp" | "hwpx" {
+  return filename.toLowerCase().endsWith(".hwpx") ? "hwpx" : "hwp";
 }
 
 function assertUuid(value: string, field: string): void {
