@@ -1,7 +1,43 @@
 import assert from "node:assert/strict";
 import type { RhwpEditableDocument, RhwpEditField } from "./editPlan";
 import type { RhwpFieldAnchor } from "./fieldAnchors";
-import { prepareRhwpDeltaFields } from "./workingDocument";
+import { normalizeRhwpStudioCompatibility, prepareRhwpDeltaFields } from "./workingDocument";
+
+let reflowCalls = 0;
+const warningDocument = {
+  getValidationWarnings: () => JSON.stringify({ count: 21, summary: {}, warnings: [] }),
+  reflowLinesegs: () => {
+    reflowCalls += 1;
+    return 21;
+  },
+};
+assert.equal(normalizeRhwpStudioCompatibility(warningDocument, "hwpx"), 21);
+assert.equal(reflowCalls, 1, "경고가 있는 HWPX는 Studio 진입 전에 한 번 자동 보정해야 합니다.");
+
+assert.equal(normalizeRhwpStudioCompatibility(warningDocument, "hwp"), 0);
+assert.equal(reflowCalls, 1, "HWP에는 HWPX lineseg 보정을 적용하면 안 됩니다.");
+
+assert.equal(normalizeRhwpStudioCompatibility({
+  getValidationWarnings: () => JSON.stringify({ count: 0, summary: {}, warnings: [] }),
+  reflowLinesegs: () => {
+    reflowCalls += 1;
+    return 0;
+  },
+}, "hwpx"), 0);
+assert.equal(reflowCalls, 1, "경고가 없는 HWPX를 다시 쓰면 안 됩니다.");
+
+assert.equal(normalizeRhwpStudioCompatibility({
+  getValidationWarnings: () => JSON.stringify({ count: 21, summary: {}, warnings: [] }),
+  // LinesegTextRunReflow처럼 페이지 수 보존을 위해 core가 보정하지 않는 경고가 있다.
+  reflowLinesegs: () => 0,
+}, "hwpx"), 0);
+
+assert.doesNotThrow(() => normalizeRhwpStudioCompatibility({
+  getValidationWarnings: () => "invalid-json",
+  reflowLinesegs: () => {
+    throw new Error("호출되면 안 됨");
+  },
+}, "hwpx"));
 
 const anchor: RhwpFieldAnchor = {
   fieldId: "revenue",

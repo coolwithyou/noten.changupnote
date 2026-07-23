@@ -33,6 +33,8 @@ export interface PreviewOverlayField {
   state: PreviewOverlayState;
   /** 확정(confirmed)된 값 — 오버레이 안에 실제 기입처럼 렌더한다(재정의 R2). */
   value?: string | null;
+  /** 현재 rhwp 스냅샷 바이트에 이미 반영된 값. 중복 텍스트 오버레이는 그리지 않는다. */
+  valueAlreadyInDocument?: boolean;
   /** 체크박스/라디오처럼 원문 선택지를 보존해야 하는 필드. */
   isChoiceField?: boolean;
   /** rhwp가 실제 입력 셀에서 읽은 배경과 안내문 마스킹 정보. */
@@ -272,8 +274,9 @@ export function PreviewCanvas({
                 : OVERLAY_STATE_CLASS[field.state];
               const confirmedValue =
                 field.state === "confirmed" && field.value?.trim() ? field.value.trim() : null;
+              const overlayValue = field.valueAlreadyInDocument ? null : confirmedValue;
               const documentValue = Boolean(
-                confirmedValue && rhwpPreview.status === "ready" && !field.isChoiceField,
+                overlayValue && rhwpPreview.status === "ready" && !field.isChoiceField,
               );
               const maskTemplateText = documentValue && field.rhwpAppearance?.maskTemplateText;
               return (
@@ -304,19 +307,19 @@ export function PreviewCanvas({
                       : {}),
                   }}
                 >
-                  {documentValue && confirmedValue ? (
+                  {documentValue && overlayValue ? (
                     // 컨테이너 높이에 비례해 실제 문서 글자처럼 확대/축소한다. 안내문 셀은 원래 셀색으로 가린다.
                     <span
                       className="flex size-full min-w-0 items-center overflow-hidden px-[2cqw] leading-[1.15] font-normal text-foreground"
                       style={{ fontSize: "clamp(10px, 52cqh, 32px)" }}
                     >
-                      <span className="min-w-0 break-words whitespace-pre-wrap">{confirmedValue}</span>
+                      <span className="min-w-0 break-words whitespace-pre-wrap">{overlayValue}</span>
                     </span>
-                  ) : confirmedValue ? (
+                  ) : overlayValue ? (
                     // 확정 값은 문서 위 실제 기입처럼(foreground) — 박스보다 길면 클리핑.
                     <span className="flex min-w-0 items-start gap-0.5 overflow-hidden p-0.5 text-[11px] leading-tight font-medium text-foreground">
                       <Check className="size-3 shrink-0 text-success" aria-hidden />
-                      <span className="min-w-0 break-words whitespace-pre-wrap">{confirmedValue}</span>
+                      <span className="min-w-0 break-words whitespace-pre-wrap">{overlayValue}</span>
                     </span>
                   ) : field.state === "confirmed" ? (
                     <span className="flex size-full items-start justify-end p-0.5 text-success">

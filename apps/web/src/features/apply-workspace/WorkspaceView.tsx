@@ -74,8 +74,10 @@ export function WorkspaceView({
   const [locatingFieldId, setLocatingFieldId] = useState<string | null>(null);
   const [manualAnchors, setManualAnchors] = useState<RhwpFieldAnchor[]>([]);
   const [authoringMode, setAuthoringMode] = useState<Extract<DocumentAuthoringMode, "quick" | "studio">>("quick");
+  const [studioDraftId, setStudioDraftId] = useState<string | null>(null);
   const [studioTaskStates, setStudioTaskStates] = useState<StudioTaskStates>({});
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
+  const [workingPreviewUrl, setWorkingPreviewUrl] = useState<string | null>(null);
   const studioSurfaceRef = useRef<RhwpStudioSurfaceHandle | null>(null);
   const chat = useGrantChat({ grantId, draftId: data.draftId });
   const answersRef = useRef(answers);
@@ -101,9 +103,23 @@ export function WorkspaceView({
 
   useEffect(() => {
     setAuthoringMode("quick");
+    setStudioDraftId(null);
     setStudioTaskStates({});
     setWorkingDocument(null);
   }, [data.draftId]);
+
+  useEffect(() => {
+    if (!workingDocument) {
+      setWorkingPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(new Blob(
+      [workingDocument.bytes as BlobPart],
+      { type: "application/octet-stream" },
+    ));
+    setWorkingPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [workingDocument]);
 
   useEffect(() => {
     if (selectedFieldId || data.connectedFields.length === 0) return;
@@ -127,12 +143,16 @@ export function WorkspaceView({
           state: studioComplete ? "confirmed" : fieldVisualState(field.label, answers, duplicateSet),
           // 확정(accepted/edited)된 값만 오버레이 안에 실제 기입처럼 렌더한다(R2).
           value: workspaceFieldState(answer) === "filled" ? answer?.value ?? null : null,
+          valueAlreadyInDocument: Boolean(
+            answer?.value
+            && workingDocument?.materializedAnswers[field.fieldId] === answer.value,
+          ),
           isChoiceField: options.length > 0,
           visualEvidence: field.visualEvidence,
           authoringMode: task?.mode === "studio" ? "studio" : "quick",
         };
       }),
-    [data.connectedFields, answers, duplicateSet, studioTaskStates, taskByFieldId],
+    [data.connectedFields, answers, duplicateSet, studioTaskStates, taskByFieldId, workingDocument],
   );
 
   const rhwpFields = useMemo<RhwpFieldDescriptor[]>(
@@ -302,6 +322,7 @@ export function WorkspaceView({
       ?? studioTasks[0];
     if (!target) return;
     setSelectedFieldId(target.fieldId);
+    setStudioDraftId(data.draftId);
     setAuthoringMode("studio");
   }
 
@@ -346,7 +367,9 @@ export function WorkspaceView({
       selectedFieldId={selectedFieldId}
       onSelectField={handleSelectField}
       fill
-      rhwpSourceUrl={data.draftId ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file` : null}
+      rhwpSourceUrl={(workingDocument?.draftId === data.draftId ? workingPreviewUrl : null) ?? (data.draftId
+        ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file`
+        : null)}
       rhwpFields={rhwpFields}
       manualAnchors={manualAnchors}
       locatingFieldId={locatingFieldId}
@@ -490,19 +513,24 @@ export function WorkspaceView({
         </div>
       </div>
 
-      {authoringMode === "studio" && data.draftId ? (
-        <RhwpStudioSurface
-          ref={studioSurfaceRef}
-          draftId={data.draftId}
-          answers={answers}
-          quickFields={quickFields}
-          manualAnchors={manualAnchors}
-          duplicateLabels={duplicateSet}
-          workingDocument={workingDocument}
-          activeTask={studioTasks.find((task) => task.fieldId === selectedFieldId) ?? null}
-          onSaved={handleStudioSaved}
-        />
-      ) : data.ladder === "c" ? (
+      {studioDraftId === data.draftId && data.draftId ? (
+        <div className={authoringMode === "studio" ? "flex min-h-0 flex-1" : "hidden"}>
+          <RhwpStudioSurface
+            key={data.draftId}
+            ref={studioSurfaceRef}
+            draftId={data.draftId}
+            answers={answers}
+            quickFields={quickFields}
+            manualAnchors={manualAnchors}
+            duplicateLabels={duplicateSet}
+            workingDocument={workingDocument}
+            activeTask={studioTasks.find((task) => task.fieldId === selectedFieldId) ?? null}
+            onSaved={handleStudioSaved}
+          />
+        </div>
+      ) : null}
+
+      {authoringMode === "studio" ? null : data.ladder === "c" ? (
         <div className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-4 sm:p-6">
             {data.honestNotice ? (

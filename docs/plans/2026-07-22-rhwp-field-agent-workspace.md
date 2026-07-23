@@ -704,3 +704,36 @@ editor.subscribe("documentChanged" | "selectionChanged" | "saveStateChanged", li
 - Studio 수정 뒤 quick 필드와 복합 과제가 정합하게 재검토된다.
 - 최종 HWP/HWPX는 최신 head와 quick delta를 모두 포함하며 rhwp 재개방 검증을 통과한다.
 - 한컴오피스 수동 개방 corpus에서 손상 경고가 없고 표·문자 서식이 유지된다.
+
+### 9.13 Studio 반복 진입과 빠른 작성 프리뷰 동기화 (2026-07-23 구현)
+
+Studio 최소 통합의 실제 문서 점검에서 다음 두 회귀를 확인하고 수정했다.
+
+1. 원본 HWPX의 비표준 `lineseg` 경고를 Studio가 진입할 때마다 다시 표시했다.
+2. Studio 임시 저장본은 최종 다운로드에는 사용됐지만 빠른 작성 프리뷰는 계속 원본 source API를
+   렌더해, 직접 편집 결과가 화면에서 사라진 것처럼 보였다.
+
+현재 탭 단위 동작은 다음 계약을 따른다.
+
+- `prepareRhwpWorkingDocument`가 모든 자동 입력을 마친 최종 HWPX의 validation warning을 확인하고,
+  안전하게 보정 가능한 경고는 Studio의 `자동 보정 (권장)`과 같은 `reflowLinesegs()` 경로로 정규화한
+  뒤 검증 내보내기를 수행한다.
+- Studio iframe은 같은 draft에서 첫 진입 후 빠른 작성으로 돌아가도 unmount하지 않고 숨겨 둔다.
+  따라서 HWPX·로컬 글꼴 확인은 최초 필요 시 한 번만 거치고 반복 진입에서는 다시 뜨지 않는다.
+- Studio 저장본은 `workingDocument`의 검증 바이트를 object URL로 만들어 `PreviewCanvas`의 실제 rhwp
+  source로 사용한다. 원본 좌표 이미지를 덮는 가짜 프리뷰가 아니라 저장본을 다시 파싱·렌더한다.
+- 저장본에 이미 materialize된 빠른 작성 값은 텍스트 오버레이를 중복 렌더하지 않고 상태 테두리만
+  유지한다.
+- 빠른 작성에서 Studio 최초 진입 뒤 변경한 atomic 값은 iframe을 자동 파괴·재로드하지 않는다.
+  최종 내보내기에서 기존 `workingDocument + quick delta` 충돌 방지 경로로 합친다. Studio 내부까지
+  즉시 양방향 동기화하는 기능은 J1/K2 프로토콜 확장 범위다.
+
+철원군 문서의 21건은 `LinesegTextRunReflow`로, rhwp core가 페이지 수 변경 위험 때문에 의도적으로
+자동 보정하지 않는 경고다. 따라서 브라우저 탭을 새로 열면 HWPX 비표준 확인과 로컬 글꼴 확인이 각각
+최초 한 번 필요할 수 있다. 현재 구현은 iframe 세션 유지로 반복 표시를 제거한다. 최초 확인까지 없애는
+완전한 무대화 정책은 자가 호스팅 Studio의 handshake에 `loadPolicy` capability를 추가하는 J1에서
+해결한다.
+
+브라우저 실문서 회귀(2026-07-23): 최초 확인창을 닫은 뒤 Studio 저장·빠른 작성 복귀·Studio 재진입을
+수행했고, 재진입 시 HWPX/글꼴 모달이 모두 0건임을 확인했다. Studio에서 `네이티브`를 `네이티브X`로
+수정해 저장한 뒤 빠른 작성 rhwp 프리뷰에도 `네이티브X`가 렌더되는 것을 확인했다.

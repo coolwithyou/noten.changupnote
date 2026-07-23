@@ -57,9 +57,10 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<RhwpEditorInstance | null>(null);
   const preparedRef = useRef<RhwpWorkingDocument | null>(null);
-  // 임시 저장으로 부모 workingDocument가 갱신돼도 편집기를 다시 열지 않는다. 이 ref는 현재
-  // Studio 세션의 최신 검증 스냅샷이며, 모드를 나갔다 돌아오면 새 컴포넌트가 부모 값을 받는다.
+  // 임시 저장으로 부모 workingDocument가 갱신돼도 편집기를 다시 열지 않는다. 이 ref는 빠른
+  // 작성으로 전환해 화면을 숨긴 동안에도 유지되는 현재 Studio 세션의 최신 검증 스냅샷이다.
   const sessionDocumentRef = useRef<RhwpWorkingDocument | null>(workingDocument);
+  const initializationInputRef = useRef({ answers, quickFields, manualAnchors, duplicateLabels });
   const saveInFlightRef = useRef(false);
   const requestSeq = useRef(0);
 
@@ -67,13 +68,14 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
     const seq = ++requestSeq.current;
     let disposed = false;
     const initialize = async () => {
+      const initializationInput = initializationInputRef.current;
       setState({ status: "loading", message: "확정한 빠른 작성 값을 원본 문서에 반영하고 있어요." });
       const prepared = await prepareRhwpWorkingDocument({
         draftId,
-        answers,
-        connectedFields: quickFields,
-        manualAnchors,
-        duplicateLabels,
+        answers: initializationInput.answers,
+        connectedFields: initializationInput.quickFields,
+        manualAnchors: initializationInput.manualAnchors,
+        duplicateLabels: initializationInput.duplicateLabels,
         base: sessionDocumentRef.current,
       });
       if (disposed || requestSeq.current !== seq) return;
@@ -90,11 +92,11 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
         return;
       }
       editorRef.current = editor;
-      // loadFile 도중 Studio가 원본 형식 경고/글꼴 확인을 띄울 수 있다. 이 단계에서는 부모
-      // 오버레이가 iframe 클릭을 가로막으면 Promise가 끝나지 않으므로 편집기를 노출한다.
+      // 첫 로드에서 브라우저 로컬 글꼴 확인이 필요할 수 있다. 이 단계에서는 부모 오버레이가
+      // iframe 클릭을 가로막으면 Promise가 끝나지 않으므로 편집기를 노출한다.
       setState({
         status: "loading",
-        message: "문서 안에 확인창이 나오면 원본을 보존하려면 ‘그대로 보기’를 선택해 주세요.",
+        message: "처음 한 번 문서 확인창은 ‘그대로 보기’, 글꼴 확인창은 ‘로컬 글꼴 감지 (권장)’를 선택해 주세요.",
         allowEditorInteraction: true,
       });
       const result = await editor.loadFile(prepared.bytes.slice(), prepared.filename);
@@ -112,7 +114,9 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       editorRef.current = null;
       preparedRef.current = null;
     };
-  }, [answers, attempt, draftId, duplicateLabels, manualAnchors, quickFields]);
+    // Studio는 현재 draft에서 한 번만 생성한다. 빠른 작성 값이 바뀌었다고 iframe을 파괴해
+    // 재로드하면 글꼴 권한 확인이 매번 반복된다. 최신 빠른 작성 값은 최종 저장에서 delta로 합친다.
+  }, [attempt, draftId]);
 
   const save = useCallback(async (intent: StudioSaveIntent) => {
     const editor = editorRef.current;
@@ -135,8 +139,8 @@ export const RhwpStudioSurface = forwardRef<RhwpStudioSurfaceHandle, {
       const savedAt = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
       setLastSavedLabel(savedAt);
       onSaved(saved, activeTask?.fieldId ?? null, intent === "return");
+      setState({ status: "ready", pageCount, skipped: saved.skipped });
       if (intent === "stay") {
-        setState({ status: "ready", pageCount, skipped: saved.skipped });
         toast.success("임시 저장했습니다. Studio에서 계속 편집할 수 있어요.");
       } else {
         toast.success("Studio 편집본을 검증해 저장하고 빠른 작성으로 돌아갑니다.");

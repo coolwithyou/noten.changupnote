@@ -5,6 +5,7 @@ import { resolveRhwpFieldAnchors, type RhwpAnchorDocument, type RhwpFieldAnchor 
 import { exportVerifiedRhwpDocument, loadRhwp, type RhwpDocumentFormat } from "./client";
 
 export interface RhwpWorkingDocument {
+  draftId: string;
   bytes: Uint8Array;
   format: RhwpDocumentFormat;
   filename: string;
@@ -17,6 +18,11 @@ interface SourceDocument {
   bytes: Uint8Array;
   format: RhwpDocumentFormat;
   filename: string;
+}
+
+export interface RhwpStudioCompatibilityDocument {
+  getValidationWarnings(): string;
+  reflowLinesegs(): number;
 }
 
 export async function fetchRhwpSourceDocument(draftId: string): Promise<SourceDocument> {
@@ -43,7 +49,9 @@ export async function prepareRhwpWorkingDocument(input: {
   duplicateLabels?: ReadonlySet<string>;
   base?: RhwpWorkingDocument | null;
 }): Promise<RhwpWorkingDocument> {
-  const source = input.base ?? await fetchRhwpSourceDocument(input.draftId);
+  const source = input.base?.draftId === input.draftId
+    ? input.base
+    : await fetchRhwpSourceDocument(input.draftId);
   const rhwp = await loadRhwp();
   const document = new rhwp.HwpDocument(source.bytes);
   try {
@@ -66,8 +74,12 @@ export async function prepareRhwpWorkingDocument(input: {
       const field = pendingFields.find((candidate) => candidate.label === entry.label);
       if (field?.fieldId) materialized[field.fieldId] = entry.value;
     }
+    // 셀 텍스트 삽입이 기존 lineseg를 다시 무효화할 수 있으므로 모든 자동 입력이 끝난 최종
+    // 문서에서 검사한다. Studio의 "자동 보정 (권장)"과 같은 core API로 정규화한 바이트만 넘긴다.
+    normalizeRhwpStudioCompatibility(document, source.format);
     const verification = exportVerifiedRhwpDocument({ rhwp, document, format: source.format });
     return {
+      draftId: input.draftId,
       bytes: verification.bytes,
       format: source.format,
       filename: source.filename,
@@ -77,6 +89,25 @@ export async function prepareRhwpWorkingDocument(input: {
     };
   } finally {
     document.free();
+  }
+}
+
+/**
+ * Studio에서 편집하기 전에 HWPX의 비표준 lineseg를 rhwp 권장 경로로 정규화한다.
+ * HWP에는 적용하지 않으며, 구버전/비정상 경고 응답은 원본을 손상시키지 않도록 건너뛴다.
+ */
+export function normalizeRhwpStudioCompatibility(
+  document: RhwpStudioCompatibilityDocument,
+  format: RhwpDocumentFormat,
+): number {
+  if (format !== "hwpx") return 0;
+  try {
+    const report = JSON.parse(document.getValidationWarnings()) as { count?: unknown };
+    if (typeof report.count !== "number" || !Number.isFinite(report.count) || report.count <= 0) return 0;
+    const reflowed = document.reflowLinesegs();
+    return Number.isFinite(reflowed) && reflowed > 0 ? reflowed : 0;
+  } catch {
+    return 0;
   }
 }
 
