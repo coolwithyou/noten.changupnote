@@ -517,7 +517,8 @@ function grantUpdateValues(
   };
 }
 
-function criterionInsertValues(
+// export: analysis-lab 승격 CLI(promote-cli)가 동일 매핑을 재사용한다 — 발행 경로 이중 구현 금지.
+export function criterionInsertValues(
   grantId: string,
   criterion: GrantCriterion,
 ): typeof schema.grantCriteria.$inferInsert {

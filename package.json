@@ -68,6 +68,8 @@
     "lab:confirmation:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/extractor-confirmation.test.ts",
     "lab:confirmations": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/confirmations-cli.ts",
     "lab:confirmations:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/confirmations.test.ts",
+    "lab:promote": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/promote-cli.ts",
+    "lab:promote:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/promote.test.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && pnpm verify:package-runtime-freshness && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck && pnpm --filter @cunote/admin typecheck",
     "fetch:bizinfo": "tsx packages/core/scripts/fetch-bizinfo-live.ts",
