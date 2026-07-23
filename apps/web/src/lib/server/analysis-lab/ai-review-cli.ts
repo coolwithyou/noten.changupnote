@@ -138,7 +138,7 @@ async function scanRunDirs(): Promise<Map<string, GrantRunScan>> {
     );
     for (const file of files) {
       if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
-      if (file.endsWith(".review.json") || file.includes(".ai-review.")) continue;
+      if (file.endsWith(".review.json") || file.includes(".ai-review.") || file.includes(".audit.")) continue;
       let run: LabRun;
       try {
         run = JSON.parse(await readFile(join(root, entry, file), "utf8")) as LabRun;

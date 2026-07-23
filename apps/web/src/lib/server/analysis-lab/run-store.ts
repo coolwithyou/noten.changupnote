@@ -86,9 +86,10 @@ export async function listLabRunSummaries(source: string, sourceId: string): Pro
     if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
     // 검수 시트(<runId>.review.json)는 런 파일이 아니다 — 런 목록에서 제외.
     if (file.endsWith(".review.json")) continue;
-    // AI 검수 파일(<runId>.ai-review.<modelSlug>.json)도 런 파일이 아니다 — runId/grantId 를
-    // 갖고 있어 readRunFile 관대 파싱을 통과해 버리므로 파일명으로 먼저 제외한다.
-    if (file.includes(".ai-review.")) continue;
+    // AI 검수(<runId>.ai-review.<slug>.json)·감사(<runId>.audit.<slug>.json) 파일도 런이
+    // 아니다 — runId/grantId 를 갖고 있어 readRunFile 관대 파싱을 통과해 버리므로(감사
+    // 파일은 startedAt 이 없어 정렬에서 크래시) 파일명으로 먼저 제외한다.
+    if (file.includes(".ai-review.") || file.includes(".audit.")) continue;
     const run = await readRunFile(join(dir, file));
     if (!run) continue;
     const reviewedAt = await readReviewedAt(join(dir, `${run.runId}.review.json`));
@@ -199,7 +200,12 @@ async function readRunFile(path: string): Promise<LabRun | null> {
   try {
     const body = await readFile(path, "utf8");
     const parsed = JSON.parse(body) as LabRun;
-    return typeof parsed.runId === "string" && typeof parsed.grantId === "string" ? parsed : null;
+    // startedAt 검사는 부속 파일(검수·AI 검수·감사) 오인 방어 — 실제 런 파일은 전부 보유.
+    return typeof parsed.runId === "string" &&
+      typeof parsed.grantId === "string" &&
+      typeof parsed.startedAt === "string"
+      ? parsed
+      : null;
   } catch {
     return null;
   }
