@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 import {
+  ArrowLeftIcon,
   ArrowRightIcon,
   CheckCircle2Icon,
   CircleIcon,
@@ -251,7 +252,7 @@ function SourceReference({ notice }: { notice: ReviewNoticeDetail }) {
           ) : null}
         </CardHeader>
         <CardContent>
-          <Tabs defaultValue="source">
+          <Tabs defaultValue="analysis">
             <TabsList>
               <TabsTrigger value="source">저장된 공고 원문</TabsTrigger>
               <TabsTrigger value="analysis">AI 분석 문서</TabsTrigger>
@@ -483,6 +484,8 @@ function FieldNavigator({
   disabled: boolean
   onSelect: (itemId: string) => void
 }) {
+  const reviewComplete = items.length > 0 && completedCount === items.length
+
   return (
     <aside className="min-w-0 xl:sticky xl:top-6">
       <Card size="sm">
@@ -534,6 +537,18 @@ function FieldNavigator({
             })}
           </nav>
         </CardContent>
+        {reviewComplete ? (
+          <CardFooter className="flex-col items-stretch gap-3 border-t">
+            <p className="text-sm font-medium">이 공고의 전체 검수가 완료되었습니다.</p>
+            <Link
+              className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full")}
+              href="/review"
+            >
+              <ArrowLeftIcon data-icon="inline-start" />
+              공고 목록으로 돌아가기
+            </Link>
+          </CardFooter>
+        ) : null}
       </Card>
     </aside>
   )
