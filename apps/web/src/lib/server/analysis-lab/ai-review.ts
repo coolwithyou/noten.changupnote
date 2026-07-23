@@ -235,6 +235,9 @@ export function buildSystemPrompt(rubric: string): string {
 /** criterion 프롬프트 렌더 — AI 감사 러너가 동일 형식(블라인드 필드 제외)을 공유한다. */
 export function renderCriterionForPrompt(index: number, criterion: LabRun["criteria"][number]): string {
   // 블라인드 원칙: confidence/spanVerified/spanOffsetRatio 는 넣지 않는다(상단 금지 목록).
+  // confirmation(v3 자가신고 질문)도 넣지 않는다 — §9 채택 캘리브레이션(ai-review-v2, 재개정
+  // 불가)이 criterion 판정 태스크로 보정돼 있어 판정 대상 외 필드를 노출하면 안 된다.
+  // 아래는 화이트리스트 방식의 필드별 렌더라 새 optional 필드는 자동으로 차단된다.
   return [
     `### criterion_index ${index}`,
     `- dimension: ${criterion.dimension} (${DIMENSION_LABELS[criterion.dimension]})`,

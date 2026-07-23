@@ -4,7 +4,8 @@
 import type { CriterionDimension, GrantBenefitFamily } from "@cunote/contracts";
 
 // v2: 구조화 필드 렌더를 인용 친화("라벨: 값")로 변경 + 인용 지침 강화 — v1 런과 입력 형식이 다르다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v2";
+// v3: 자가신고 확인 질문(confirmation) 생성 추가 — 판정 불가 결격에 sourceSpan 앵커 객관식 질문을 사전 생성한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v3";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
@@ -85,6 +86,28 @@ export interface LabInputBlock {
 
 export type LabCriterionKind = "required" | "preferred" | "exclusion";
 
+export type LabConfirmationReusable = "company_fact" | "per_notice";
+
+export interface LabConfirmationOption {
+  value: string; // 영문 snake_case 슬러그
+  label: string; // 한국어 표시 문구
+  disqualifies: boolean; // 이 선택지가 결격에 해당하는가
+}
+
+/**
+ * 자가신고 확인 질문 — kind=exclusion 중 소싱 데이터로 판정 불가한 항목에 한해
+ * 딥분석이 사전 생성한다(v3). 확인 시점 재생성 없이 이 캐시를 쓴다.
+ * 근거: docs/research/2026-07-23-미판정-결격-사용자확인-루프-검토.md §4.1.
+ */
+export interface LabCriterionConfirmation {
+  prompt: string;
+  options: LabConfirmationOption[]; // 2~4개, disqualifies true/false 각 1개 이상
+  answerType: "single" | "multi";
+  reusable: LabConfirmationReusable;
+  /** reusable=company_fact 일 때만 — 공고 간 동일 항목 식별 키. LLM 판단(사전 거버넌스 없음 — 2026-07-23 결정). */
+  conditionKey: string | null;
+}
+
 /** 딥분석(B)이 제안한 criterion. spanVerified 는 근거 인용이 입력 원문에 실재하는지의 서버 검증 결과. */
 export interface LabCriterion {
   dimension: CriterionDimension;
@@ -102,6 +125,8 @@ export interface LabCriterion {
    */
   spanOffsetRatio?: number | null;
   note: string | null;
+  /** 자가신고 확인 질문(결격 전용, v3) — v2 이하 런에는 필드 없음(하위 호환 optional). */
+  confirmation?: LabCriterionConfirmation | null;
 }
 
 /** 현재 프로덕션 DB(grant_criteria)에 있는 criterion 스냅샷(A). */

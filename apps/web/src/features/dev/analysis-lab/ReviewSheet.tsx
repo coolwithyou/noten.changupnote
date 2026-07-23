@@ -28,6 +28,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { ConfirmationPreview } from "./ConfirmationPreview";
 import {
   AXIS_STATUS_META,
   criterionValueEntries,
@@ -755,6 +756,10 @@ function CriterionReviewBlock({
         ) : (
           <p className="text-[11px] text-muted-foreground">근거 인용 없음</p>
         )}
+        {/* 자가신고 확인 질문(v3) — 질문도 검수·감사 범위다. v2 이하 런에는 필드가 없다. */}
+        {criterion.confirmation ? (
+          <ConfirmationPreview confirmation={criterion.confirmation} />
+        ) : null}
         {criterion.note ? (
           <p className="text-[11px] text-muted-foreground">비고: {criterion.note}</p>
         ) : null}

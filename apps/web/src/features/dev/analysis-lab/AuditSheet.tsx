@@ -24,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ConfirmationPreview } from "./ConfirmationPreview";
 import {
   AXIS_VERDICT_META,
   AXIS_VERDICT_ORDER,
@@ -580,6 +581,10 @@ function AuditItemBlock({
             ) : (
               <p className="text-[11px] text-muted-foreground">근거 인용 없음</p>
             )}
+            {/* 자가신고 확인 질문(v3) — 질문도 감사 범위다. v2 이하 런에는 필드가 없다. */}
+            {criterion.confirmation ? (
+              <ConfirmationPreview confirmation={criterion.confirmation} />
+            ) : null}
           </>
         ) : null}
 
