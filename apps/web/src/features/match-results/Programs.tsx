@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, HelpCircleIcon, MoreHorizontalIcon } from "lucide-react";
-import type { MatchCard, ProductTeaserResult } from "@cunote/contracts";
+import type { GrantConfirmationSubmitResult, MatchCard, ProductTeaserResult } from "@cunote/contracts";
 import { NoticeCard, type NoticeCardStatus } from "@/components/app/notice-card";
 import { VerdictBadge, type VerdictStatus } from "@/components/app/verdict-badge";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MatchFeedbackControls } from "@/features/opportunity-map/MatchFeedbackControls";
 import { cn } from "@/lib/utils";
+import { ConfirmationSheet } from "./ConfirmationSheet";
 import {
   criterionResultText,
   formatDday,
@@ -35,15 +36,26 @@ export function ProgramsExperience({
   onOpenProfile,
   preparing,
   newGrantIds = new Set<string>(),
+  onConfirmationSaved,
 }: {
   teaser: ProductTeaserResult;
   onPrepare: (grantId?: string) => void;
   onOpenProfile: () => void;
   preparing: boolean;
   newGrantIds?: ReadonlySet<string>;
+  /** 확인 질문 저장 성공 시 재계산 카드를 상위 teaser 상태에 반영한다(4상태 버킷 이동). */
+  onConfirmationSaved?: (result: GrantConfirmationSubmitResult) => void;
 }) {
   const groups = groupMatchesForDisplay(teaser.matches);
   const [showAllOpen, setShowAllOpen] = useState(false);
+  // 시트 내용은 닫힘 애니메이션 동안 유지해야 하므로 대상과 열림 상태를 분리한다.
+  const [confirmTarget, setConfirmTarget] = useState<MatchCard | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  function openConfirmation(match: MatchCard) {
+    setConfirmTarget(match);
+    setConfirmOpen(true);
+  }
   const visibleOpen = showAllOpen ? groups.open : groups.open.slice(0, DEFAULT_VISIBLE_OPEN);
   const totalOpen = Math.max(teaser.counts.openNow ?? 0, groups.open.length);
   const totalOneAnswer = Math.max(teaser.counts.oneAnswer ?? 0, groups.oneAnswer.length);
@@ -67,6 +79,7 @@ export function ProgramsExperience({
                 onOpenProfile={onOpenProfile}
                 onPrepare={onPrepare}
                 preparing={preparing}
+                onOpenConfirmation={openConfirmation}
               />
             ))}
             {groups.upcoming.slice(0, 1).map((match) => (
@@ -78,6 +91,7 @@ export function ProgramsExperience({
                 onOpenProfile={onOpenProfile}
                 onPrepare={onPrepare}
                 preparing={preparing}
+                onOpenConfirmation={openConfirmation}
               />
             ))}
           </div>
@@ -109,6 +123,7 @@ export function ProgramsExperience({
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}
+          onOpenConfirmation={openConfirmation}
         />
         <ResultBucket
           label="준비하면 열려요"
@@ -119,6 +134,7 @@ export function ProgramsExperience({
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}
+          onOpenConfirmation={openConfirmation}
         />
         <ResultBucket
           label="원문 확인 필요"
@@ -129,8 +145,19 @@ export function ProgramsExperience({
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}
+          onOpenConfirmation={openConfirmation}
         />
       </div>
+
+      {confirmTarget ? (
+        <ConfirmationSheet
+          grantId={confirmTarget.grantId}
+          grantTitle={confirmTarget.title}
+          open={confirmOpen}
+          onOpenChange={setConfirmOpen}
+          {...(onConfirmationSaved ? { onSaved: onConfirmationSaved } : {})}
+        />
+      ) : null}
     </div>
   );
 }
@@ -145,6 +172,7 @@ function ResultBucket({
   onOpenProfile,
   onPrepare,
   preparing,
+  onOpenConfirmation,
 }: {
   label: string;
   count: number;
@@ -155,6 +183,7 @@ function ResultBucket({
   onOpenProfile: () => void;
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
+  onOpenConfirmation: (match: MatchCard) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -177,6 +206,7 @@ function ResultBucket({
                 onOpenProfile={onOpenProfile}
                 onPrepare={onPrepare}
                 preparing={preparing}
+                onOpenConfirmation={onOpenConfirmation}
               />
             ))
           ) : (
@@ -209,6 +239,7 @@ function ExpandableProgramCard({
   onOpenProfile,
   onPrepare,
   preparing,
+  onOpenConfirmation,
 }: {
   match: MatchCard;
   status: NoticeCardStatus;
@@ -218,6 +249,7 @@ function ExpandableProgramCard({
   onOpenProfile: () => void;
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
+  onOpenConfirmation: (match: MatchCard) => void;
 }) {
   const [open, setOpen] = useState(false);
   const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
@@ -247,6 +279,7 @@ function ExpandableProgramCard({
       onOpenProfile={onOpenProfile}
       onPrepare={onPrepare}
       preparing={preparing}
+      onOpenConfirmation={onOpenConfirmation}
       {...(className === undefined ? {} : { className })}
     />
   );
@@ -260,6 +293,7 @@ function ExpandedProgramCard({
   onOpenProfile,
   onPrepare,
   preparing,
+  onOpenConfirmation,
   className,
 }: {
   match: MatchCard;
@@ -269,6 +303,7 @@ function ExpandedProgramCard({
   onOpenProfile: () => void;
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
+  onOpenConfirmation: (match: MatchCard) => void;
   className?: string;
 }) {
   const passed = match.ruleTrace.filter((criterion) => criterion.result === "pass");
@@ -277,6 +312,12 @@ function ExpandedProgramCard({
   );
   const primaryCheck = needsCheck[0];
   const detailHref = match.detailUrl ?? `/grants/${encodeURIComponent(match.grantId)}`;
+  // 확인하기 CTA — one_answer/check_source 판정이고 발행된 확인 질문이 있을 때만(현재 테이블이
+  // 비어 있어 미노출, B-4 승격 파이프라인 이후 활성). 어휘는 4상태 그대로, 결과 예고 문구 금지(D9).
+  const verdict = matchVerdictStatus(match);
+  const confirmationCount = match.confirmationQuestionCount ?? 0;
+  const showConfirmation =
+    (verdict === "one_answer" || verdict === "check_source") && confirmationCount > 0;
 
   return (
     <Card className={cn("gap-0 rounded-2xl border-border-card px-[22px] py-5 shadow-[var(--shadow-notice-hover)] ring-0", className)}>
@@ -343,6 +384,23 @@ function ExpandedProgramCard({
           </span>
           <Button type="button" variant="link" onClick={onOpenProfile} className="h-auto shrink-0 px-0 text-[13px]">
             내 정보에서 채우기
+          </Button>
+        </div>
+      ) : null}
+
+      {showConfirmation ? (
+        <div className="mt-3 flex items-center gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
+          <span className="min-w-0 flex-1">
+            이 공고의 확인 질문 {confirmationCount}개 — 답한 내용은 판정에 바로 반영돼요
+          </span>
+          <Button
+            type="button"
+            variant="brand-soft"
+            size="sm"
+            className="shrink-0"
+            onClick={() => onOpenConfirmation(match)}
+          >
+            확인하기
           </Button>
         </div>
       ) : null}

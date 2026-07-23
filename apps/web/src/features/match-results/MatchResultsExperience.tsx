@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import type {
   ActionResult,
+  GrantConfirmationSubmitResult,
   MatchingProfileAnswerRequest,
   ProductTeaserResult,
   TeaserRequest,
@@ -97,6 +98,23 @@ export function MatchResultsExperience() {
     },
     [answers, bizNo, loadTeaser, teaser],
   );
+
+  // 확인 질문 저장 응답의 재계산 카드로 목록을 치환한다. 티저 재조회는 confirmations 를
+  // 반영하지 않는 경로라(buildTeaser 미배선) 응답 카드 치환이 이 화면의 유일한 정합 반영 수단이다.
+  const applyConfirmationResult = useCallback((result: GrantConfirmationSubmitResult) => {
+    const updated = result.match;
+    if (!updated) return;
+    setTeaser((current) =>
+      current
+        ? {
+            ...current,
+            matches: current.matches.map((match) =>
+              match.grantId === updated.grantId ? updated : match,
+            ),
+          }
+        : current,
+    );
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -229,6 +247,7 @@ export function MatchResultsExperience() {
                   onOpenProfile={() => setProfileOpen(true)}
                   preparing={continuing}
                   newGrantIds={new Set(answerImpact?.newlyOpenGrantIds ?? [])}
+                  onConfirmationSaved={applyConfirmationResult}
                 />
                 {precision ? (
                   <Button

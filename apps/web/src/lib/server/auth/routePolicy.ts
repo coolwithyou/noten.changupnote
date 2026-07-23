@@ -99,6 +99,8 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/roadmap",
   "POST /api/web/matches/[grantId]/feedback",
   "POST /api/web/matches/[grantId]/events",
+  "GET /api/web/matches/[grantId]/confirmations",
+  "PUT /api/web/matches/[grantId]/confirmations",
   "GET /api/web/action-queue",
   "GET /api/web/next-question",
   "GET /api/web/applications/[grantId]/calendar",

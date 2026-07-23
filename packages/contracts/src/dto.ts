@@ -281,6 +281,12 @@ export interface MatchCard {
    */
   writeSupport: WriteSupportLevel;
   detailUrl?: string | null;
+  /**
+   * 공고별 자가신고 확인 질문 수(확인 루프 Phase B). apps/web 서버가 grant_confirmation_questions 를
+   * 배치 조회해 주석하며(core 는 질문 저장소를 모름), 0이거나 미조회면 필드 자체를 싣지 않는다.
+   * UI 는 이 값이 있을 때만 "확인하기" CTA 를 노출한다.
+   */
+  confirmationQuestionCount?: number;
 }
 
 export interface RuleTraceChip {
@@ -702,6 +708,59 @@ export interface FeedbackReceipt {
 
 export interface FeedbackResult {
   receipt: FeedbackReceipt;
+}
+
+/**
+ * 공고별 자가신고 확인 질문 선택지(확인 루프 Phase B).
+ * 결격 극성(disqualifies)은 서버 내부 판정 스냅샷에만 쓰고 DTO 로는 내리지 않는다 — 중립 제시(유도 방지).
+ */
+export interface GrantConfirmationOptionDto {
+  value: string;
+  label: string;
+}
+
+export interface GrantConfirmationQuestionDto {
+  id: string;
+  prompt: string;
+  answerType: "single" | "multi";
+  options: GrantConfirmationOptionDto[];
+}
+
+/** (company, question) 저장된 자가신고 답변. disqualified 는 저장 시점 옵션 극성 스냅샷. */
+export interface GrantConfirmationAnswerDto {
+  questionId: string;
+  values: string[];
+  disqualified: boolean;
+  answeredAt: string;
+}
+
+/** GET /api/web/matches/[grantId]/confirmations — 질문이 없으면 빈 목록(404 아님). */
+export interface GrantConfirmationsResult {
+  grantId: string;
+  questions: GrantConfirmationQuestionDto[];
+  answers: GrantConfirmationAnswerDto[];
+}
+
+/** PUT /api/web/matches/[grantId]/confirmations 요청 본문. 답한 질문만 보낸다(미답변=미해소 유지). */
+export interface GrantConfirmationSubmitRequest {
+  answers: Array<{
+    questionId: string;
+    values: string[];
+  }>;
+}
+
+/**
+ * PUT 응답 — 저장 답변과 (company, grant) 스코프 재계산 결과 카드.
+ * UI 는 match 로 목록 카드를 치환해 4상태 버킷 이동을 즉시 반영한다(결격 답변의 closed 이동 포함).
+ */
+export interface GrantConfirmationSubmitResult {
+  grantId: string;
+  saved: GrantConfirmationAnswerDto[];
+  match: MatchCard | null;
+  refresh: {
+    plannedCount: number;
+    savedCount: number;
+  };
 }
 
 export interface ConsentRecordDto {

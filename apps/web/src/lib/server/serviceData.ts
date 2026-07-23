@@ -49,6 +49,7 @@ import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusi
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
+import { annotateMatchCardConfirmationQuestions } from "./matches/annotateConfirmationQuestions";
 import { annotateMatchCardWriteSupport } from "./matches/annotateWriteSupport";
 import { refreshMatchStates } from "./matches/matchStateRefresh";
 import { notifyPopbillFailure } from "./adminNotifications";
@@ -353,6 +354,8 @@ export async function loadServiceDashboard(options: {
   const dashboard = buildProductDashboardSnapshot({ resolution, grants, asOf, limit: resultLimit });
   // HWPX 보관본이 확보된 공고는 "서식 채움 지원"으로 승격 — /dashboard 와 /api/web/matches 가 함께 탄다.
   dashboard.matches = await annotateMatchCardWriteSupport(dashboard.matches);
+  // 자가신고 확인 질문이 발행된 공고에 질문 수를 주석 — "확인하기" CTA 게이트(확인 루프 Phase B).
+  dashboard.matches = await annotateMatchCardConfirmationQuestions(dashboard.matches);
 
   const stateCompanyId = options.companyId ?? company.id;
   if (options.writeMatchStates === true) {
@@ -1338,6 +1341,8 @@ export async function loadProductTeaser(
   ]);
   const result = buildProductTeaserSnapshot({ resolution, grants, asOf });
   result.matches = await annotateMatchCardWriteSupport(result.matches);
+  // 자가신고 확인 질문이 발행된 공고에 질문 수를 주석 — "확인하기" CTA 게이트(확인 루프 Phase B).
+  result.matches = await annotateMatchCardConfirmationQuestions(result.matches);
   result.recommendableMatches = result.matches.filter((match) =>
     recommendationTierForMatch(match) === "recommendable" && match.status === "open");
   result.reviewNeededMatches = result.matches.filter((match) => {
