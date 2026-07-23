@@ -318,6 +318,11 @@ function ExpandedProgramCard({
   const confirmationCount = match.confirmationQuestionCount ?? 0;
   const showConfirmation =
     (verdict === "one_answer" || verdict === "check_source") && confirmationCount > 0;
+  // 자가신고 확인이 판정에 반영된 카드(결정 3) — open 승격이든 결격 확정이든 동일하게 정직 표기.
+  const userConfirmedCount = match.userConfirmedCount ?? 0;
+  // 재확인(답변 수정) 진입점 — verdict 로는 가리지 않는다. 확인하기 CTA 가 이미 보이는 카드는
+  // 같은 시트를 여는 중복 진입점이 되므로 그때만 생략(시트가 GET 으로 기존 답변을 복원).
+  const showReconfirm = userConfirmedCount > 0 && confirmationCount > 0 && !showConfirmation;
 
   return (
     <Card className={cn("gap-0 rounded-2xl border-border-card px-[22px] py-5 shadow-[var(--shadow-notice-hover)] ring-0", className)}>
@@ -344,6 +349,11 @@ function ExpandedProgramCard({
         ) : (
           <VerdictBadge status={status} />
         )}
+        {userConfirmedCount > 0 ? (
+          <Badge variant="outline" className="border-border-subtle text-text-secondary">
+            본인 확인 기반
+          </Badge>
+        ) : null}
         <span
           className={cn(
             "text-[13.5px] font-extrabold tabular-nums",
@@ -419,6 +429,16 @@ function ExpandedProgramCard({
           <a href={detailHref} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
             공고 상세
           </a>
+        ) : null}
+        {showReconfirm ? (
+          <Button
+            type="button"
+            variant="link"
+            onClick={() => onOpenConfirmation(match)}
+            className="h-auto w-fit px-0 text-sm font-semibold"
+          >
+            확인 내용 수정
+          </Button>
         ) : null}
         <Button
           type="button"

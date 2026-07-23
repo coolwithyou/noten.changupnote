@@ -287,6 +287,12 @@ export interface MatchCard {
    * UI 는 이 값이 있을 때만 "확인하기" CTA 를 노출한다.
    */
   confirmationQuestionCount?: number;
+  /**
+   * 사용자 자가신고 확인으로 판정이 해소·확정된 rule_trace entry 수(확인 루프 Phase B 결정 3).
+   * core toMatchCard 가 resolution === "confirmed_by_user" 를 세어 싣고, 0이면 필드 자체를 싣지 않는다.
+   * UI 는 이 값이 있을 때 "본인 확인 기반" 보조 뱃지를 노출한다 — 4상태 verdict 어휘는 불변(헌법 8조).
+   */
+  userConfirmedCount?: number;
 }
 
 export interface RuleTraceChip {

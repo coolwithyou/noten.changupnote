@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import type { Grant } from "@cunote/contracts";
-import { deriveGrantBenefits, normalizeSupportAmount } from "./match-card.js";
+import type { Grant, MatchResult, NormalizedGrant, RuleTraceEntry } from "@cunote/contracts";
+import { deriveGrantBenefits, normalizeSupportAmount, toMatchCard } from "./match-card.js";
 
 assert.deepEqual(
   normalizeSupportAmount({
@@ -113,7 +113,56 @@ const contextOnly = deriveGrantBenefits(grant({
 assert.ok(contextOnly.length > 0);
 assert.ok(contextOnly.every((item) => item.source === "category" && item.confidence === 0.64));
 
+// ── userConfirmedCount — 자가신고 확인 해소 entry 계상(확인 루프 Phase B 결정 3) ──────────
+const plainPass = traceEntry({ result: "pass" });
+const confirmedPass = traceEntry({ result: "pass", resolution: "confirmed_by_user" });
+const confirmedFail = traceEntry({ result: "fail", resolution: "confirmed_by_user" });
+
+// 확인 해소가 없으면 필드 자체를 싣지 않는다(confirmationQuestionCount 관례).
+assert.ok(!("userConfirmedCount" in toMatchCard(matchedGrant([plainPass]))));
+assert.ok(!("userConfirmedCount" in toMatchCard(matchedGrant([]))));
+// pass 승격·fail 확정 모두 동일하게 계상한다(정직 표시 — open 승격이든 결격 확정이든).
+assert.equal(toMatchCard(matchedGrant([confirmedPass, plainPass])).userConfirmedCount, 1);
+assert.equal(toMatchCard(matchedGrant([confirmedPass, confirmedFail, plainPass])).userConfirmedCount, 2);
+assert.equal(toMatchCard(matchedGrant([confirmedFail])).userConfirmedCount, 1);
+
 console.log("match-card.test.ts: all assertions passed");
+
+function traceEntry(overrides: Partial<RuleTraceEntry> = {}): RuleTraceEntry {
+  return {
+    dimension: "sanction",
+    kind: "exclusion",
+    operator: "exists",
+    result: "unknown",
+    message: "제재 여부 확인 필요",
+    ...overrides,
+  };
+}
+
+function matchedGrant(ruleTrace: RuleTraceEntry[]): { item: NormalizedGrant; match: MatchResult } {
+  return {
+    item: {
+      raw: { source: "bizinfo", source_id: "confirm-test", payload: {}, status: "normalized" },
+      grant: grant({ source_id: "confirm-test" }),
+      criteria: [],
+    },
+    match: {
+      eligibility: "conditional",
+      fit_score: 50,
+      rule_trace: ruleTrace,
+      unknown_fields: [],
+      ruleset_ver: "test",
+      scoring_ver: "test",
+      criteria_extracted: true,
+      quality: {
+        eligibilityConfidence: "medium",
+        verificationCompleteness: 50,
+        evidenceCoverage: 50,
+        extractionReadiness: "structured_unreviewed",
+      },
+    },
+  };
+}
 
 function grant(overrides: Partial<Grant> = {}): Grant {
   return {

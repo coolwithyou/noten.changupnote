@@ -31,6 +31,12 @@ export function toMatchCard<TPayload>(
   const grantId = grantKey(grant);
   const detailUrl = `/grants/${encodeURIComponent(grantId)}`;
   const reviewGate = entry.match.review_gate;
+  // 자가신고 확인으로 해소·확정된 entry 수("본인 확인 기반" 보조 뱃지 근거). RuleTraceChip 은
+  // 표시 요약이라 resolution 을 싣지 않으므로 원본 rule_trace 에서 센다. 0이면 필드를 싣지 않는다
+  // (confirmationQuestionCount 관례와 동일).
+  const userConfirmedCount = entry.match.rule_trace.filter(
+    (trace) => trace.resolution === "confirmed_by_user",
+  ).length;
 
   return {
     grantId,
@@ -49,6 +55,7 @@ export function toMatchCard<TPayload>(
     applyEnd: grant.apply_end ?? null,
     dDay: daysUntil(grant.apply_end ?? null, options.asOf),
     ruleTrace: entry.match.rule_trace.map((trace) => toRuleTraceChip(trace, options)),
+    ...(userConfirmedCount > 0 ? { userConfirmedCount } : {}),
     matchConfidence: estimateMatchConfidence(entry.match),
     rulesetVer: entry.match.ruleset_ver,
     scoringVer: entry.match.scoring_ver,
