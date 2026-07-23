@@ -1,7 +1,7 @@
 import { getAdminSql } from "@/lib/server/db/client";
 import { normalizeEmail, verifyPassword } from "./password";
 
-export type AdminRole = "owner" | "admin" | "support" | "viewer";
+export type AdminRole = "owner" | "admin" | "support" | "viewer" | "reviewer";
 export type AdminStatus = "active" | "disabled";
 
 export interface AdminUser {

@@ -13,6 +13,20 @@ export const CRITERION_OPERATORS = [
 ] as const;
 
 export const CRITERION_KINDS = ["required", "preferred", "exclusion"] as const;
+export const HUMAN_REVIEW_CRITERION_VERDICTS = [
+  "correct",
+  "needs_edit",
+  "wrong",
+  "unsure",
+] as const;
+export const HUMAN_REVIEW_AXIS_VERDICTS = [
+  "confirmed_absent",
+  "missed_condition",
+] as const;
+export const HUMAN_REVIEW_VERDICTS = [
+  ...HUMAN_REVIEW_CRITERION_VERDICTS,
+  ...HUMAN_REVIEW_AXIS_VERDICTS,
+] as const;
 export const ELIGIBILITIES = ["eligible", "conditional", "ineligible"] as const;
 export const MATCH_RECOMMENDATION_TIERS = [
   "recommendable",
@@ -74,6 +88,22 @@ export const WRITE_SUPPORT_LEVELS = ["template_fill", "ai_draft", "web_form_guid
 export type CriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 export type CriterionOperator = (typeof CRITERION_OPERATORS)[number];
 export type CriterionKind = (typeof CRITERION_KINDS)[number];
+export type HumanReviewCriterionVerdict = (typeof HUMAN_REVIEW_CRITERION_VERDICTS)[number];
+export type HumanReviewAxisVerdict = (typeof HUMAN_REVIEW_AXIS_VERDICTS)[number];
+export type HumanReviewVerdict = (typeof HUMAN_REVIEW_VERDICTS)[number];
+
+export function isHumanReviewVerdictForItemKind(
+  itemKind: "criterion" | "axis" | "question_check",
+  verdict: string,
+): verdict is HumanReviewVerdict {
+  const vocabulary =
+    itemKind === "axis" ? HUMAN_REVIEW_AXIS_VERDICTS : HUMAN_REVIEW_CRITERION_VERDICTS;
+  return (vocabulary as readonly string[]).includes(verdict);
+}
+
+export function humanReviewVerdictRequiresNote(verdict: HumanReviewVerdict): boolean {
+  return verdict !== "correct" && verdict !== "confirmed_absent";
+}
 export type Eligibility = (typeof ELIGIBILITIES)[number];
 export type MatchRecommendationTier = (typeof MATCH_RECOMMENDATION_TIERS)[number];
 export type MatchScoreDisplay = "numeric" | "hidden";

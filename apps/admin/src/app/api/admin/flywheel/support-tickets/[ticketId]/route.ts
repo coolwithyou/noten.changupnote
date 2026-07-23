@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { updateAdminSupportTicket, AdminSupportTicketError } from "@/lib/server/admin/supportTickets";
 import { AdminRequiredError, requireAdminSession } from "@/lib/server/auth/adminSession";
+import { handleRoleError, requireAdminRole } from "@/lib/server/auth/adminRole";
 import { adminData, adminError, readJson } from "@/lib/server/http/envelope";
 
 export const runtime = "nodejs";
@@ -13,6 +14,7 @@ interface RouteContext {
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
     const admin = await requireAdminSession();
+    requireAdminRole(admin, "support");
     const [params, body] = await Promise.all([context.params, readJson(request)]);
     const ticketId = readParam(params, "ticketId");
     const result = await updateAdminSupportTicket({
@@ -27,6 +29,8 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return adminData(result);
   } catch (error) {
     if (error instanceof AdminRequiredError) return adminError(error.code, error.message, error.status);
+    const roleError = handleRoleError(error);
+    if (roleError) return roleError;
     if (error instanceof AdminSupportTicketError) {
       return adminError(error.code, error.message, error.status, error.field);
     }

@@ -22,33 +22,47 @@
 import { createHash } from "node:crypto";
 import type { GrantCriterion } from "@cunote/contracts";
 import type {
+  LabAudit,
   LabConfirmationOption,
   LabConfirmationReusable,
   LabReview,
   LabRun,
 } from "@/features/dev/analysis-lab/contract";
+import type { AiCriterionReviewSnapshot } from "./criterion-resolution";
+import type { HumanReviewOverlay } from "./human-review-overlay";
 import {
   CONFIRMATIONS_PROMPT_VERSION,
   mergeConfirmationsIntoRun,
   type LabConfirmationsFile,
 } from "./confirmations";
-import { convertReviewedLabRun, type ShadowConversionReport } from "./shadow-convert";
+import {
+  criterionNeedsReview,
+  publishesConfirmationQuestion,
+  publishesCriterion,
+  resolveCriterionStates,
+  type CriterionResolution,
+  type CriterionResolutionState,
+} from "./criterion-resolution";
+import { convertSelectedLabCriteria, type ShadowConversionReport } from "./shadow-convert";
 
 // ---- 대상 선정 (사람 우선 dedupe — confirmations-cli 규칙의 순수화) -------------------
 
 /** 검수 확정의 출처 — 사람 전수 검수(human) / AI 검수 + 감사 완료 병합(audited). */
-export type PromotionOrigin = "human" | "audited";
+export type PromotionOrigin = "human" | "audited" | "pending";
 
 /**
  * 질문 provenance 의 감사 상태 — 스키마 계약(B-4 계획 §2).
  * 감사 병합 런은 개별 항목의 확정 주체(사람 감사 vs AI 블라인드 일치)가 병합 후 구분되지
  * 않으므로 런 단위 출처로 기록한다(항목 단위 세분화는 후속 — provenance 무결성 우선).
  */
-export type PromotionAuditState = "human_reviewed" | "ai_audit_concur";
+export type PromotionAuditState = "human_reviewed" | "ai_audit_concur" | "mixed_resolution";
 
 export interface PromotionSource {
   run: LabRun;
-  review: LabReview;
+  review?: LabReview;
+  aiReview?: AiCriterionReviewSnapshot;
+  audit?: LabAudit | null;
+  overlay?: HumanReviewOverlay | null;
   origin: PromotionOrigin;
 }
 
@@ -88,6 +102,90 @@ export function sourceSpanHash(span: string | null | undefined): string | null {
   return createHash("sha256").update(normalized).digest("hex");
 }
 
+/**
+ * criterion 내용 안정 키 — 객체 key 순서와 유니코드/공백 표현 차이를 제거한 뒤
+ * dimension + kind + operator + value + sourceSpanHash를 해시한다.
+ */
+export function criterionStableKey(
+  criterion: Pick<GrantCriterion, "dimension" | "kind" | "operator" | "value"> & {
+    source_span?: string | null;
+  },
+): string {
+  const material = [
+    criterion.dimension,
+    criterion.kind,
+    criterion.operator,
+    stableJson(criterion.value),
+    sourceSpanHash(criterion.source_span ?? null) ?? "",
+  ].join("\u001f");
+  return createHash("sha256").update(material).digest("hex");
+}
+
+function stableJson(value: unknown): string {
+  if (typeof value === "string") {
+    return JSON.stringify(value.normalize("NFC").replace(/\s+/g, " ").trim());
+  }
+  if (Array.isArray(value)) return `[${value.map(stableJson).sort().join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${stableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+export interface ExistingPromotionCriterion {
+  id: string;
+  stableKey: string | null;
+  dimension: GrantCriterion["dimension"];
+  operator: GrantCriterion["operator"];
+  value: GrantCriterion["value"];
+  kind: GrantCriterion["kind"];
+  sourceSpan: string | null;
+}
+
+export interface ExistingPromotionQuestion {
+  id: string;
+  grantCriteriaId: string | null;
+  criterionStableKey: string | null;
+}
+
+/**
+ * stable_key 도입 전 행도 내용으로 키를 복원해 같은 criterion ID를 재사용한다.
+ * 같은 키의 중복 legacy 행은 첫 행을 택하고, DB unique index가 이후 중복 생성을 막는다.
+ */
+export function indexExistingCriteriaByStableKey<T extends ExistingPromotionCriterion>(
+  rows: T[],
+): Map<string, T> {
+  const indexed = new Map<string, T>();
+  for (const row of rows) {
+    const stableKey = row.stableKey ?? criterionStableKey({
+      dimension: row.dimension,
+      operator: row.operator,
+      value: row.value,
+      kind: row.kind,
+      source_span: row.sourceSpan,
+    });
+    if (!indexed.has(stableKey)) indexed.set(stableKey, row);
+  }
+  return indexed;
+}
+
+/**
+ * 질문은 stable key를 우선하고, 마이그레이션 전 질문은 보존된 criterion ID로 재연결한다.
+ * 반환된 행을 UPDATE해야 질문 ID와 그 아래 답변 FK가 그대로 유지된다.
+ */
+export function findExistingQuestionForStableKey<T extends ExistingPromotionQuestion>(
+  rows: T[],
+  stableKey: string,
+  grantCriteriaId: string,
+): T | null {
+  return rows.find((row) => row.criterionStableKey === stableKey)
+    ?? rows.find((row) => row.grantCriteriaId === grantCriteriaId)
+    ?? null;
+}
+
 export interface PromotionQuestionPlan {
   /** 발행 criteria 배열에서의 위치 — 쓰기 경로가 새 grant_criteria 행 id 를 연결하는 키. */
   criteriaPosition: number;
@@ -104,6 +202,9 @@ export interface PromotionQuestionPlan {
   inline: boolean;
   provenance: { runId: string; auditState: PromotionAuditState; criterionIndex: number };
   criterionRef: { dimension: string; kind: string; sourceSpanHash: string | null };
+  /** 질문 upsert와 ID/답변 보존의 기준. */
+  criterionStableKey: string;
+  resolutionState: CriterionResolutionState;
 }
 
 export interface GrantPromotionPlan {
@@ -120,6 +221,9 @@ export interface GrantPromotionPlan {
    * 역산 실패는 -1 — 정상 경로에서는 나올 수 없다(테스트로 봉인).
    */
   criterionIndexByPosition: number[];
+  /** criteriaPosition과 1:1인 DB upsert 키. */
+  criterionStableKeys: string[];
+  resolutions: CriterionResolution[];
   /** 변환 보고 — 손실(강등·탈락·계약 실패) 무은폐. */
   conversion: ShadowConversionReport;
   questions: PromotionQuestionPlan[];
@@ -128,17 +232,6 @@ export interface GrantPromotionPlan {
    * 질문이 되지 못한 수(변환 탈락 등) — 무은폐 원칙.
    */
   droppedQuestionCandidates: number;
-}
-
-/** convertReviewedLabRun 의 변환 입력 row 구성 순서를 그대로 재현한다(동일 순회·동일 필터). */
-function correctRowCriterionIndexes(run: LabRun, review: LabReview): number[] {
-  const indexes: number[] = [];
-  for (const item of review.criterionReviews) {
-    if (item.verdict !== "correct") continue;
-    if (!run.criteria[item.criterionIndex]) continue; // 범위 밖 방어 — 변환기와 동일.
-    indexes.push(item.criterionIndex);
-  }
-  return indexes;
 }
 
 /** 산출 criterion id(…:llm-<n>)에서 변환 입력 row 순번을 역산한다 — llm-criteria 의 id 계약. */
@@ -150,31 +243,65 @@ function rowIndexFromCriterionId(id: string | undefined): number {
 /**
  * 검수 확정 런 1건의 승격 계획 수립 — criteria 발행분(correct 전부, kind 무관)과
  * 질문 발행분(발행 criteria 중 exclusion + 병합 confirmation 보유)을 함께 계산한다.
- * DB 를 모르는 순수 함수: 답변 가드·현재 A 수는 호출부(CLI)가 읽어 applyPublishGuards 로 합친다.
+ * DB 를 모르는 순수 함수: 현재 A 수와 upsert 대상은 호출부(CLI)가 읽는다.
  */
 export function planGrantPromotion(input: {
   run: LabRun;
-  review: LabReview;
+  review?: LabReview | null | undefined;
+  aiReview?: AiCriterionReviewSnapshot | null | undefined;
+  audit?: LabAudit | null | undefined;
+  overlay?: HumanReviewOverlay | null | undefined;
   origin: PromotionOrigin;
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
 }): GrantPromotionPlan {
   // 질문 소스: v3 인라인 + 사이드카 병합(인라인 우선·범위 밖 드롭 — 기존 병합 규칙 재사용).
   const mergedRun = mergeConfirmationsIntoRun(input.run, input.sidecar);
-  const conversion = convertReviewedLabRun(mergedRun, input.review);
+  const resolutions = resolveCriterionStates({
+    run: mergedRun,
+    humanReview: input.review,
+    aiReview: input.aiReview,
+    audit: input.audit,
+    overlay: input.overlay,
+  });
+  const selected = resolutions.filter((item) => publishesCriterion(item.state));
+  const conversion = convertSelectedLabCriteria(mergedRun, {
+    selections: selected.map((item) => ({
+      criterionIndex: item.criterionIndex,
+      needsReview: criterionNeedsReview(item.state),
+    })),
+    verdicts: {
+      correct: resolutions.filter((item) =>
+        item.state === "confirmed_correct" || item.state === "unaudited_correct").length,
+      needs_edit: resolutions.filter((item) => item.state === "confirmed_edited").length,
+      wrong: resolutions.filter((item) => item.state === "confirmed_wrong").length,
+      unsure: resolutions.filter((item) => item.state === "pending").length,
+    },
+    missedConditions: (input.review?.axisReviews ?? input.aiReview?.axisReviews ?? [])
+      .filter((axis) => axis.verdict === "missed_condition").length,
+  });
 
-  const rowCriterionIndexes = correctRowCriterionIndexes(mergedRun, input.review);
+  const rowCriterionIndexes = selected.map((item) => item.criterionIndex);
   const criterionIndexByPosition = conversion.criteria.map((criterion) => {
     const rowIndex = rowIndexFromCriterionId(criterion.id);
     return rowCriterionIndexes[rowIndex] ?? -1;
   });
 
-  const auditState: PromotionAuditState = input.origin === "human" ? "human_reviewed" : "ai_audit_concur";
+  const auditState: PromotionAuditState =
+    input.origin === "human"
+      ? "human_reviewed"
+      : input.origin === "audited"
+        ? "ai_audit_concur"
+        : "mixed_resolution";
+  const criterionStableKeys = conversion.criteria.map(criterionStableKey);
+  const resolutionByIndex = new Map(resolutions.map((item) => [item.criterionIndex, item]));
 
   const questions: PromotionQuestionPlan[] = [];
   conversion.criteria.forEach((criterion, position) => {
     if (criterion.kind !== "exclusion") return; // 질문은 발행 exclusion 에만 앵커된다.
     const criterionIndex = criterionIndexByPosition[position] ?? -1;
+    const resolution = resolutionByIndex.get(criterionIndex);
+    if (!resolution || !publishesConfirmationQuestion(resolution.state)) return;
     const confirmation = criterionIndex >= 0 ? mergedRun.criteria[criterionIndex]?.confirmation : null;
     if (!confirmation) return;
     const inline = Boolean(input.run.criteria[criterionIndex]?.confirmation);
@@ -189,20 +316,28 @@ export function planGrantPromotion(input: {
       // 인라인은 런 세대(lab-deep-v3), 보강 사이드카는 자체 promptVersion(confirmations-v1).
       promptVer: inline ? input.run.promptVersion : (input.sidecar?.promptVersion ?? CONFIRMATIONS_PROMPT_VERSION),
       inline,
-      provenance: { runId: input.run.runId, auditState, criterionIndex },
+      provenance: {
+        runId: input.run.runId,
+        auditState: questionAuditState(input, resolution),
+        criterionIndex,
+      },
       // 재연결 보조 참조는 **발행 criterion** 기준 — 강등 시 dimension/kind 가 런과 다를 수 있다.
       criterionRef: {
         dimension: criterion.dimension,
         kind: criterion.kind,
         sourceSpanHash: sourceSpanHash(criterion.source_span ?? null),
       },
+      criterionStableKey: criterionStableKeys[position]!,
+      resolutionState: resolution.state,
     });
   });
 
   // 무은폐: 질문 후보(병합 confirmation 보유 correct exclusion)였는데 발행에 앵커되지 못한 수.
   const publishedQuestionIndexes = new Set(questions.map((question) => question.criterionIndex));
   let droppedQuestionCandidates = 0;
-  for (const criterionIndex of new Set(rowCriterionIndexes)) {
+  for (const resolution of resolutions) {
+    if (!publishesConfirmationQuestion(resolution.state)) continue;
+    const criterionIndex = resolution.criterionIndex;
     const labCriterion = mergedRun.criteria[criterionIndex];
     if (!labCriterion?.confirmation || labCriterion.kind !== "exclusion") continue;
     if (!publishedQuestionIndexes.has(criterionIndex)) droppedQuestionCandidates += 1;
@@ -216,19 +351,40 @@ export function planGrantPromotion(input: {
     auditState,
     criteria: conversion.criteria,
     criterionIndexByPosition,
+    criterionStableKeys,
+    resolutions,
     conversion: conversion.report,
     questions,
     droppedQuestionCandidates,
   };
 }
 
+function questionAuditState(
+  input: {
+    origin: PromotionOrigin;
+    audit?: LabAudit | null | undefined;
+    overlay?: HumanReviewOverlay | null | undefined;
+  },
+  resolution: CriterionResolution,
+): PromotionAuditState {
+  if (input.origin === "human") return "human_reviewed";
+  if (input.origin === "audited") return "ai_audit_concur";
+  const overlayDecision = input.overlay?.items.some((item) =>
+    item.itemKind === "criterion"
+    && item.criterionIndex === resolution.criterionIndex
+    && item.humanVerdict === "correct");
+  const auditItem = input.audit?.items.find((item) =>
+    item.kind === "criterion" && item.criterionIndex === resolution.criterionIndex);
+  if (overlayDecision || auditItem?.humanVerdict === "correct") return "human_reviewed";
+  if (auditItem && auditItem.aiAuditVerdict === "correct") return "ai_audit_concur";
+  return "mixed_resolution";
+}
+
 // ---- 발행 가드 (순수 — 테스트 대상) --------------------------------------------------
 
 export type PromotionRefusalReason =
-  /** 답변 보존 가드: 질문 교체(delete)가 cascade 로 답변을 지운다 — 답변 이관은 후속 과제. */
-  | "answers_exist"
   /** 변환 계약 실패(공고 단위 격리) — 빈 criteria 로 A 를 지우는 사고 방지. */
-  | "conversion_error"
+  "conversion_error"
   /** 발행 criteria 0건 — 교체형 발행이 삭제만 남기는 것을 막는다. */
   | "empty_criteria";
 
@@ -244,27 +400,15 @@ export interface PromotionGuardResult {
 }
 
 /**
- * 발행 가능 판정 — 답변 보존 가드가 핵심이다: 해당 grant 의 질문에
- * company_grant_confirmations 답변이 하나라도 있으면 발행 거부(질문 delete 가 cascade 로
- * 답변을 지운다). 재발행 시 답변 이관은 후속 과제로 남긴다(Phase B-4 범위 밖).
- * 멱등의 상한: 교체형 발행이라 재실행은 자연 멱등이고, 이 가드가 그 상한이다.
+ * 발행 가능 판정. 답변 보존은 질문 삭제가 아닌 안정 키 upsert·soft-invalidate로
+ * 쓰기 포트가 보장하므로, 답변 존재 자체는 더 이상 공고 전체 거부 사유가 아니다.
  */
 export function applyPublishGuards(
   plans: GrantPromotionPlan[],
-  answerCountByGrant: ReadonlyMap<string, number>,
 ): PromotionGuardResult {
   const publishable: GrantPromotionPlan[] = [];
   const refused: RefusedPromotion[] = [];
   for (const plan of plans) {
-    const answerCount = answerCountByGrant.get(plan.grantId) ?? 0;
-    if (answerCount > 0) {
-      refused.push({
-        plan,
-        reason: "answers_exist",
-        detail: `기존 질문에 답변 ${answerCount}건 — 질문 삭제가 cascade 로 답변을 지우므로 발행 거부(답변 이관은 후속 과제)`,
-      });
-      continue;
-    }
     if (plan.conversion.error !== null) {
       refused.push({ plan, reason: "conversion_error", detail: `변환 계약 실패: ${plan.conversion.error}` });
       continue;
@@ -308,8 +452,10 @@ export function resolvePromotionMode(flags: { write: boolean; confirmGo: boolean
 export interface PromotionGrantWriteResult {
   criteriaDeleted: number;
   criteriaInserted: number;
-  questionsDeleted: number;
+  criteriaUpdated: number;
   questionsInserted: number;
+  questionsUpdated: number;
+  questionsInvalidated: number;
   matchStatesDeleted: number;
 }
 

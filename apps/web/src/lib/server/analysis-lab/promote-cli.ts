@@ -12,18 +12,27 @@
 //   --confirm-go    프로토콜 게이트 통과 확인 — --write 없이는 경고 + dry-run 강등
 //
 // 쓰기 경로(--write --confirm-go, per-grant 트랜잭션):
-//   기존 질문 삭제 → 기존 grant_criteria 삭제 → 확정 B criteria 삽입(교체 — 커버리지 13.5x가
-//   B 도입의 명분) → 질문 삽입(criteriaPosition 으로 새 criteria 행 id 연결) → 해당 grantId
-//   의 match_state 삭제(normalizedGrantPublisher 패턴 — confirmed dedup 컴포넌트 확장 포함,
-//   다음 로드에서 재계산). 답변 보존 가드: 답변이 참조된 grant 는 발행 거부(cascade 방지).
+//   안정 키 기준 grant_criteria upsert → 질문 upsert(ID/FK 보존) → 소멸 질문 soft-invalidate
+//   → 소멸 criterion만 삭제 → 해당 grantId의 match_state 삭제.
+import { join } from "node:path";
 import { AI_REVIEW_ADOPTED } from "@/features/dev/analysis-lab/contract";
 import { eq, inArray } from "drizzle-orm";
 import { loadAuditedConfirmedReviews } from "./audited-reviews";
+import {
+  collectAiReviewsForAudit,
+  readLabAuditFileAt,
+} from "./audit-store";
 import { labConfirmationsFilePath, readLabConfirmationsFile } from "./confirmations";
+import {
+  humanReviewOverlayFilePath,
+  readHumanReviewOverlayFile,
+} from "./human-review-overlay";
 import {
   applyPublishGuards,
   dedupePromotionSources,
   executePromotionWrites,
+  findExistingQuestionForStableKey,
+  indexExistingCriteriaByStableKey,
   planGrantPromotion,
   resolvePromotionMode,
   PROMOTION_PROTOCOL_NOTICE,
@@ -31,6 +40,7 @@ import {
   type PromotionWritePort,
 } from "./promote";
 import { selectReviewedRuns } from "./reviewed-runs";
+import { modelSlug } from "./run-store";
 import { getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
@@ -73,51 +83,73 @@ function createDrizzlePromotionPort(
   return {
     async publishGrant(plan: GrantPromotionPlan) {
       return db.transaction(async (tx) => {
-        // 답변 보존 재확인 — 계획 수립과 실행 사이의 답변 유입 방어(가드와 같은 사유).
-        const [existingAnswer] = await tx
-          .select({ questionId: schema.companyGrantConfirmations.questionId })
-          .from(schema.companyGrantConfirmations)
-          .where(eq(schema.companyGrantConfirmations.grantId, plan.grantId))
-          .limit(1);
-        if (existingAnswer) {
-          throw new Error("답변 보존 가드(트랜잭션 재확인): 발행 사이 답변 유입 — 발행 중단");
+        const existingCriteria = await tx
+          .select({
+            id: schema.grantCriteria.id,
+            stableKey: schema.grantCriteria.stableKey,
+            dimension: schema.grantCriteria.dimension,
+            operator: schema.grantCriteria.operator,
+            value: schema.grantCriteria.value,
+            kind: schema.grantCriteria.kind,
+            sourceSpan: schema.grantCriteria.sourceSpan,
+          })
+          .from(schema.grantCriteria)
+          .where(eq(schema.grantCriteria.grantId, plan.grantId));
+        const existingQuestions = await tx
+          .select({
+            id: schema.grantConfirmationQuestions.id,
+            grantCriteriaId: schema.grantConfirmationQuestions.grantCriteriaId,
+            criterionStableKey: schema.grantConfirmationQuestions.criterionStableKey,
+          })
+          .from(schema.grantConfirmationQuestions)
+          .where(eq(schema.grantConfirmationQuestions.grantId, plan.grantId));
+
+        const criteriaByKey = indexExistingCriteriaByStableKey(existingCriteria);
+
+        const criterionIds: string[] = [];
+        let criteriaInserted = 0;
+        let criteriaUpdated = 0;
+        for (const [position, criterion] of plan.criteria.entries()) {
+          const stableKey = plan.criterionStableKeys[position];
+          if (!stableKey) throw new Error(`criterion 안정 키 누락: position ${position}`);
+          const values = { ...criterionInsertValues(plan.grantId, criterion), stableKey };
+          const existing = criteriaByKey.get(stableKey);
+          if (existing) {
+            const [row] = await tx
+              .update(schema.grantCriteria)
+              .set(values)
+              .where(eq(schema.grantCriteria.id, existing.id))
+              .returning({ id: schema.grantCriteria.id });
+            if (!row) throw new Error(`criteria update 실패: ${existing.id}`);
+            criterionIds.push(row.id);
+            criteriaUpdated += 1;
+          } else {
+            const [row] = await tx
+              .insert(schema.grantCriteria)
+              .values(values)
+              .onConflictDoUpdate({
+                target: [schema.grantCriteria.grantId, schema.grantCriteria.stableKey],
+                set: values,
+              })
+              .returning({ id: schema.grantCriteria.id });
+            if (!row) throw new Error(`criteria upsert 실패: ${plan.grantId}`);
+            criterionIds.push(row.id);
+            criteriaInserted += 1;
+          }
         }
 
-        // 교체형 발행: 질문 → criteria 순으로 지운다(질문의 grant_criteria_id 는 SET NULL 이라
-        // 순서 무관하지만, 끊긴 질문을 남기지 않는 것이 멱등 계약이다).
-        const questionsDeleted = (
-          await tx
-            .delete(schema.grantConfirmationQuestions)
-            .where(eq(schema.grantConfirmationQuestions.grantId, plan.grantId))
-            .returning({ id: schema.grantConfirmationQuestions.id })
-        ).length;
-        const criteriaDeleted = (
-          await tx
-            .delete(schema.grantCriteria)
-            .where(eq(schema.grantCriteria.grantId, plan.grantId))
-            .returning({ id: schema.grantCriteria.id })
-        ).length;
-
-        // criteriaPosition ↔ 새 행 id 매핑을 위해 행 단위 insert(발행 규모가 작아 비용 무시).
-        const insertedIds: string[] = [];
-        for (const criterion of plan.criteria) {
-          const [row] = await tx
-            .insert(schema.grantCriteria)
-            .values(criterionInsertValues(plan.grantId, criterion))
-            .returning({ id: schema.grantCriteria.id });
-          if (!row) throw new Error(`criteria insert 실패: ${plan.grantId}`);
-          insertedIds.push(row.id);
-        }
-
+        const activeQuestionIds = new Set<string>();
         let questionsInserted = 0;
+        let questionsUpdated = 0;
         for (const question of plan.questions) {
-          const grantCriteriaId = insertedIds[question.criteriaPosition];
+          const grantCriteriaId = criterionIds[question.criteriaPosition];
           if (!grantCriteriaId) {
             throw new Error(`질문 앵커 누락: position ${question.criteriaPosition} (${plan.grantId})`);
           }
-          await tx.insert(schema.grantConfirmationQuestions).values({
+          const values = {
             grantId: plan.grantId,
             grantCriteriaId,
+            criterionStableKey: question.criterionStableKey,
             criterionRef: question.criterionRef as unknown as Record<string, unknown>,
             prompt: question.prompt,
             options: question.options as unknown as Array<Record<string, unknown>>,
@@ -126,9 +158,69 @@ function createDrizzlePromotionPort(
             conditionKey: question.conditionKey,
             promptVer: question.promptVer,
             provenance: question.provenance as unknown as Record<string, unknown>,
-          });
-          questionsInserted += 1;
+            invalidatedAt: null,
+            invalidationReason: null,
+          };
+          const existing = findExistingQuestionForStableKey(
+            existingQuestions,
+            question.criterionStableKey,
+            grantCriteriaId,
+          );
+          if (existing) {
+            const [row] = await tx
+              .update(schema.grantConfirmationQuestions)
+              .set(values)
+              .where(eq(schema.grantConfirmationQuestions.id, existing.id))
+              .returning({ id: schema.grantConfirmationQuestions.id });
+            if (!row) throw new Error(`question update 실패: ${existing.id}`);
+            activeQuestionIds.add(row.id);
+            questionsUpdated += 1;
+          } else {
+            const [row] = await tx
+              .insert(schema.grantConfirmationQuestions)
+              .values(values)
+              .onConflictDoUpdate({
+                target: [
+                  schema.grantConfirmationQuestions.grantId,
+                  schema.grantConfirmationQuestions.criterionStableKey,
+                ],
+                set: values,
+              })
+              .returning({ id: schema.grantConfirmationQuestions.id });
+            if (!row) throw new Error(`question upsert 실패: ${question.criterionStableKey}`);
+            activeQuestionIds.add(row.id);
+            questionsInserted += 1;
+          }
         }
+
+        const staleQuestionIds = existingQuestions
+          .map((row) => row.id)
+          .filter((id) => !activeQuestionIds.has(id));
+        const questionsInvalidated = staleQuestionIds.length === 0
+          ? 0
+          : (
+              await tx
+                .update(schema.grantConfirmationQuestions)
+                .set({
+                  grantCriteriaId: null,
+                  invalidatedAt: new Date(),
+                  invalidationReason: "anchor_criterion_removed_or_changed",
+                })
+                .where(inArray(schema.grantConfirmationQuestions.id, staleQuestionIds))
+                .returning({ id: schema.grantConfirmationQuestions.id })
+            ).length;
+
+        const staleCriterionIds = existingCriteria
+          .map((row) => row.id)
+          .filter((id) => !criterionIds.includes(id));
+        const criteriaDeleted = staleCriterionIds.length === 0
+          ? 0
+          : (
+              await tx
+                .delete(schema.grantCriteria)
+                .where(inArray(schema.grantCriteria.id, staleCriterionIds))
+                .returning({ id: schema.grantCriteria.id })
+            ).length;
 
         // publisher 패턴: confirmed dedup 컴포넌트로 확장해 match_state 삭제 — 다음 로드에서 재계산.
         const affectedGrantIds = expandConfirmedGrantComponentIds([plan.grantId], confirmedLinks);
@@ -141,9 +233,11 @@ function createDrizzlePromotionPort(
 
         return {
           criteriaDeleted,
-          criteriaInserted: insertedIds.length,
-          questionsDeleted,
+          criteriaInserted,
+          criteriaUpdated,
           questionsInserted,
+          questionsUpdated,
+          questionsInvalidated,
           matchStatesDeleted,
         };
       });
@@ -175,18 +269,52 @@ async function main(): Promise<number> {
   );
   if (mode.warning) console.warn(`[promote] ${mode.warning}`);
 
-  // 1) 대상 수집 — confirmations-cli 와 동일 규칙: 사람 review 보유 런 + 감사 완료 병합 런,
-  //    grantId 중복 시 사람 우선(dedupePromotionSources).
+  // 1) 대상 수집 — 사람 review > 감사 완료 병합 > 미완 감사/overlay resolver 순서.
+  //    미완 런도 criterion 단위로 pending(needs_review=true)과 확정분을 함께 발행 후보로 삼는다.
   const reviewedSelection = await selectReviewedRuns({ scanAll: false });
   const audited = await loadAuditedConfirmedReviews({ model: AI_REVIEW_ADOPTED.model, scanAll: false });
   let sources = dedupePromotionSources(reviewedSelection.reviewed, audited.confirmed);
+  const sourceGrantIds = new Set(sources.map((source) => source.run.grantId));
+  const pendingRunIds = new Set(audited.pending.map((item) => item.runId));
+  const pendingByGrant = new Map<string, Awaited<ReturnType<typeof collectAiReviewsForAudit>>[number]>();
+  for (const candidate of await collectAiReviewsForAudit(AI_REVIEW_ADOPTED.model, { quiet: true })) {
+    if (
+      !candidate.run
+      || candidate.run.error !== null
+      || !pendingRunIds.has(candidate.run.runId)
+      || sourceGrantIds.has(candidate.run.grantId)
+    ) continue;
+    const previous = pendingByGrant.get(candidate.run.grantId);
+    if (!previous || (candidate.run.startedAt ?? "") > (previous.run?.startedAt ?? "")) {
+      pendingByGrant.set(candidate.run.grantId, candidate);
+    }
+  }
+  for (const candidate of pendingByGrant.values()) {
+    const run = candidate.run!;
+    const audit = await readLabAuditFileAt(
+      join(candidate.dir, `${run.runId}.audit.${modelSlug(AI_REVIEW_ADOPTED.model)}.json`),
+    );
+    const overlay = await readHumanReviewOverlayFile(
+      humanReviewOverlayFilePath(run.source, run.sourceId, run.runId),
+    );
+    sources.push({
+      run,
+      aiReview: candidate.review,
+      audit,
+      overlay,
+      origin: "pending",
+    });
+  }
+  sources.sort((left, right) => left.run.grantId.localeCompare(right.run.grantId));
   if (grantFilter) sources = sources.filter((source) => source.run.grantId === grantFilter);
   if (limit !== null) sources = sources.slice(0, limit);
   // 필터·limit 적용 후 집계 — 표기 수치와 실제 대상이 일치해야 한다.
   const humanCount = sources.filter((source) => source.origin === "human").length;
+  const auditedCount = sources.filter((source) => source.origin === "audited").length;
+  const pendingCount = sources.filter((source) => source.origin === "pending").length;
   console.log(
-    `[promote] 검수 확정 런 ${sources.length}건(사람 ${humanCount} · 감사 병합 ${sources.length - humanCount}` +
-      `${audited.pending.length > 0 ? ` · 감사 미완 제외 ${audited.pending.length}` : ""}` +
+    `[promote] 항목별 승격 후보 ${sources.length}건(사람 ${humanCount} · 감사 병합 ${auditedCount}` +
+      ` · resolver 미완 ${pendingCount}` +
       `${grantFilter ? " · --grantId 필터" : ""}${limit !== null ? ` · limit=${limit}` : ""})`,
   );
   if (sources.length === 0) {
@@ -202,7 +330,15 @@ async function main(): Promise<number> {
     const sidecar = await readLabConfirmationsFile(
       labConfirmationsFilePath(source.run.source, source.run.sourceId, source.run.runId),
     );
-    plans.push(planGrantPromotion({ run: source.run, review: source.review, origin: source.origin, sidecar }));
+    plans.push(planGrantPromotion({
+      run: source.run,
+      review: source.review,
+      aiReview: source.aiReview,
+      audit: source.audit,
+      overlay: source.overlay,
+      origin: source.origin,
+      sidecar,
+    }));
   }
 
   // 3) DB read — 현재 A criteria 수·기존 질문 수·답변 수·공고 존재 확인(dry-run 도 여기까지).
@@ -225,13 +361,6 @@ async function main(): Promise<number> {
       .from(schema.grantConfirmationQuestions)
       .where(inArray(schema.grantConfirmationQuestions.grantId, grantIds)),
   );
-  const answerCounts = countByGrant(
-    await db
-      .select({ grantId: schema.companyGrantConfirmations.grantId })
-      .from(schema.companyGrantConfirmations)
-      .where(inArray(schema.companyGrantConfirmations.grantId, grantIds)),
-  );
-
   // 공고가 DB 에 없으면 발행 불가(FK) — 계획에서 제외하고 무은폐로 경고(shadow 전례).
   const missing = plans.filter((plan) => !knownGrantIds.has(plan.grantId));
   for (const plan of missing) {
@@ -239,8 +368,8 @@ async function main(): Promise<number> {
   }
   const present = plans.filter((plan) => knownGrantIds.has(plan.grantId));
 
-  // 4) 발행 가드 — 답변 보존(핵심) + 변환 계약 실패 + 발행 0건.
-  const guarded = applyPublishGuards(present, answerCounts);
+  // 4) 발행 가드 — 변환 계약 실패 + 발행 0건. 답변은 안정 키 upsert로 보존한다.
+  const guarded = applyPublishGuards(present);
   const refusedByGrant = new Map(guarded.refused.map((item) => [item.plan.grantId, item]));
 
   // 5) 발행 계획 출력 — grant별 현재 A → 발행 B·질문·변환 드롭, 가드 사유.
@@ -250,7 +379,8 @@ async function main(): Promise<number> {
     const inlineCount = plan.questions.filter((question) => question.inline).length;
     const existingQuestions = existingQuestionCounts.get(plan.grantId) ?? 0;
     console.log(
-      `  - ${plan.grantId} · ${shortTitle(plan.title)} · [${plan.origin === "human" ? "사람 검수" : "감사 병합"}] ` +
+      `  - ${plan.grantId} · ${shortTitle(plan.title)} · [` +
+        `${plan.origin === "human" ? "사람 검수" : plan.origin === "audited" ? "감사 병합" : "항목 resolver"}] ` +
         `A ${currentCriteriaCounts.get(plan.grantId) ?? 0}건 → B ${plan.criteria.length}건` +
         `(강등 ${plan.conversion.downgraded} · 드롭 ${plan.conversion.dropped}${plan.conversion.error ? " · 계약실패" : ""}) · ` +
         `질문 ${plan.questions.length}건(인라인 ${inlineCount} · 보강 ${plan.questions.length - inlineCount}` +
@@ -297,7 +427,9 @@ async function main(): Promise<number> {
       okCount += 1;
       console.log(
         `[promote] 발행 완료: ${outcome.plan.grantId} · criteria ${outcome.result.criteriaDeleted}→${outcome.result.criteriaInserted} · ` +
-          `질문 ${outcome.result.questionsDeleted}→${outcome.result.questionsInserted} · match_state 무효화 ${outcome.result.matchStatesDeleted}`,
+          `criteria 갱신 ${outcome.result.criteriaUpdated} · 질문 추가 ${outcome.result.questionsInserted}` +
+          `/갱신 ${outcome.result.questionsUpdated}/무효화 ${outcome.result.questionsInvalidated} · ` +
+          `match_state 무효화 ${outcome.result.matchStatesDeleted}`,
       );
     }
     console.log(`[promote] 실발행 요약: 성공 ${okCount} · 실패 ${outcomes.length - okCount}`);

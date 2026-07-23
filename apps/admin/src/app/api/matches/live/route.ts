@@ -5,6 +5,7 @@ import {
   sanitizeCorpNum,
 } from "@cunote/core/popbill/check-biz-info";
 import { AdminRequiredError, requireAdminSession } from "@/lib/server/auth/adminSession";
+import { handleRoleError, requireAdminRole } from "@/lib/server/auth/adminRole";
 import { adminError } from "@/lib/server/http/envelope";
 
 export const runtime = "nodejs";
@@ -19,7 +20,8 @@ interface LiveMatchRequest {
 
 export async function POST(request: Request) {
   try {
-    await requireAdminSession();
+    const admin = await requireAdminSession();
+    requireAdminRole(admin, "viewer");
     const body = await request.json() as LiveMatchRequest;
     const popbill = readPopbillEnvConfig();
     const checkCorpNum = body.bizNo ? sanitizeCorpNum(body.bizNo) : popbill.checkCorpNum;
@@ -42,6 +44,8 @@ export async function POST(request: Request) {
     return Response.json(report);
   } catch (error) {
     if (error instanceof AdminRequiredError) return adminError(error.code, error.message, error.status);
+    const roleError = handleRoleError(error);
+    if (roleError) return roleError;
     return adminError(
       "live_match_failed",
       error instanceof Error ? error.message : "실시간 매칭 요청에 실패했습니다.",

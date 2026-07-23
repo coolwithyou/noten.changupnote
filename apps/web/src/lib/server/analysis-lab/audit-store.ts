@@ -317,6 +317,7 @@ export interface LabAuditItemUpdate {
   dimension?: CriterionDimension | undefined;
   humanVerdict: LabCriterionVerdict | LabEmptyAxisVerdict;
   note: string | null;
+  decidedBy?: string | null | undefined;
 }
 
 export type LabAuditSaveOutcome =
@@ -329,6 +330,57 @@ export type LabAuditSaveOutcome =
 
 function itemKeyOf(item: { kind: string; criterionIndex?: number | undefined; dimension?: string | undefined }): string {
   return item.kind === "criterion" ? `c:${item.criterionIndex ?? "?"}` : `a:${item.dimension ?? "?"}`;
+}
+
+export type ApplyLabAuditJudgmentsOutcome =
+  | { status: "ok"; audit: LabAudit }
+  | { status: "invalid"; message: string };
+
+/** 동결 대상 목록은 그대로 두고 사람 판정 필드만 복사본에 병합하는 순수 함수. */
+export function applyLabAuditJudgments(
+  stored: LabAudit,
+  options: {
+    auditorEmail: string;
+    items: LabAuditItemUpdate[];
+    overallNote: string | null;
+    updatedAt: string;
+  },
+): ApplyLabAuditJudgmentsOutcome {
+  const saved: LabAudit = {
+    ...stored,
+    items: stored.items.map((item) => ({ ...item })),
+    auditorEmail: options.auditorEmail,
+    updatedAt: options.updatedAt,
+    overallNote: options.overallNote,
+  };
+  const byKey = new Map(saved.items.map((item) => [itemKeyOf(item), item]));
+  const seen = new Set<string>();
+  for (const update of options.items) {
+    const key = itemKeyOf(update);
+    if (seen.has(key)) return { status: "invalid", message: `감사 항목 판정이 중복되었습니다: ${key}` };
+    seen.add(key);
+    const target = byKey.get(key);
+    if (!target) {
+      return { status: "invalid", message: `감사 대상 목록에 없는 항목입니다: ${key} — 대상 목록은 생성 시 동결됩니다.` };
+    }
+    const vocabulary: readonly string[] = target.kind === "criterion" ? CRITERION_VERDICTS : AXIS_VERDICTS;
+    if (!vocabulary.includes(update.humanVerdict)) {
+      return {
+        status: "invalid",
+        message: `${key}: ${target.kind === "criterion" ? "criterion" : "빈 축"} 판정 어휘가 아닙니다(${update.humanVerdict}).`,
+      };
+    }
+    if (update.humanVerdict !== target.aiVerdict && (update.note === null || update.note.trim().length === 0)) {
+      return {
+        status: "invalid",
+        message: `${key}: AI 판정을 뒤집으려면(AI ${target.aiVerdict} → ${update.humanVerdict}) 사유(note)가 필수입니다.`,
+      };
+    }
+    target.humanVerdict = update.humanVerdict;
+    target.note = update.note !== null && update.note.trim().length > 0 ? update.note.trim() : null;
+    target.decidedBy = update.decidedBy?.trim() || options.auditorEmail;
+  }
+  return { status: "ok", audit: saved };
 }
 
 /**
@@ -358,41 +410,15 @@ export async function saveLabAuditJudgments(options: {
   }
   if (!stored) return { status: "audit_parse_failed", path };
 
-  const byKey = new Map(stored.items.map((item) => [itemKeyOf(item), item]));
-  const seen = new Set<string>();
-  for (const update of options.items) {
-    const key = itemKeyOf(update);
-    if (seen.has(key)) return { status: "invalid", message: `감사 항목 판정이 중복되었습니다: ${key}` };
-    seen.add(key);
-    const target = byKey.get(key);
-    if (!target) {
-      return { status: "invalid", message: `감사 대상 목록에 없는 항목입니다: ${key} — 대상 목록은 생성 시 동결됩니다.` };
-    }
-    const vocabulary: readonly string[] = target.kind === "criterion" ? CRITERION_VERDICTS : AXIS_VERDICTS;
-    if (!vocabulary.includes(update.humanVerdict)) {
-      return {
-        status: "invalid",
-        message: `${key}: ${target.kind === "criterion" ? "criterion" : "빈 축"} 판정 어휘가 아닙니다(${update.humanVerdict}).`,
-      };
-    }
-    if (update.humanVerdict !== target.aiVerdict && (update.note === null || update.note.trim().length === 0)) {
-      return {
-        status: "invalid",
-        message: `${key}: AI 판정을 뒤집으려면(AI ${target.aiVerdict} → ${update.humanVerdict}) 사유(note)가 필수입니다.`,
-      };
-    }
-    target.humanVerdict = update.humanVerdict;
-    target.note = update.note !== null && update.note.trim().length > 0 ? update.note.trim() : null;
-  }
-
-  const saved: LabAudit = {
-    ...stored,
+  const applied = applyLabAuditJudgments(stored, {
     auditorEmail: options.auditorEmail,
-    updatedAt: new Date().toISOString(),
+    items: options.items,
     overallNote: options.overallNote,
-  };
-  await writeFile(path, `${JSON.stringify(saved, null, 2)}\n`, "utf8");
-  return { status: "ok", audit: saved };
+    updatedAt: new Date().toISOString(),
+  });
+  if (applied.status === "invalid") return applied;
+  await writeFile(path, `${JSON.stringify(applied.audit, null, 2)}\n`, "utf8");
+  return { status: "ok", audit: applied.audit };
 }
 
 // ---- AI 블라인드 감사 판정 병합 (§9 완화 개정 — lab:ai-audit 러너 전용) --------------

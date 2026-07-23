@@ -1,4 +1,4 @@
-import { count, inArray } from "drizzle-orm";
+import { and, count, inArray, isNull } from "drizzle-orm";
 import type { MatchCard } from "@cunote/contracts";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -53,7 +53,10 @@ async function loadConfirmationQuestionCounts(grantIds: string[]): Promise<Map<s
       questionCount: count(schema.grantConfirmationQuestions.id),
     })
     .from(schema.grantConfirmationQuestions)
-    .where(inArray(schema.grantConfirmationQuestions.grantId, grantIds))
+    .where(and(
+      inArray(schema.grantConfirmationQuestions.grantId, grantIds),
+      isNull(schema.grantConfirmationQuestions.invalidatedAt),
+    ))
     .groupBy(schema.grantConfirmationQuestions.grantId);
   return new Map(rows.map((row) => [row.grantId, row.questionCount]));
 }

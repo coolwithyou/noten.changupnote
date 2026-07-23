@@ -43,6 +43,9 @@ export const REQUIRED_TABLES = [
   "golden_set",
   "eval_runs",
   "grant_insight_snapshots",
+  "audit_dispatch_batches",
+  "audit_dispatch_notices",
+  "audit_dispatch_items",
 ] as const;
 
 export const RLS_TABLES = [

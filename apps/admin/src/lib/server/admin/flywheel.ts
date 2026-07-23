@@ -31,6 +31,9 @@ const SURFACES = [
   ["billing_invoices", "billing_invoices", "청구서"],
   ["billing_payment_methods", "billing_payment_methods", "결제수단"],
   ["billing_webhook_events", "billing_webhook_events", "결제 웹훅"],
+  ["audit_dispatch_batches", "audit_dispatch_batches", "검수 배치"],
+  ["audit_dispatch_notices", "audit_dispatch_notices", "검수 공고"],
+  ["audit_dispatch_items", "audit_dispatch_items", "검수 판정"],
 ] as const;
 
 export async function getOpsFlywheelSnapshot(): Promise<OpsFlywheelSnapshot> {

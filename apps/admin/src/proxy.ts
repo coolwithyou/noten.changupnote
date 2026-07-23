@@ -1,5 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
+import {
+  canAccessAdminPath,
+  defaultAdminPath,
+} from "@/lib/auth/routeAccess";
+import type { AdminRole } from "@/lib/server/auth/adminUsers";
 
 const PUBLIC_PREFIXES = [
   "/login",
@@ -23,7 +28,21 @@ export async function proxy(request: NextRequest) {
     })
     : null;
 
-  if (token?.sub && token.role) return NextResponse.next();
+  if (token?.sub && token.role) {
+    const role = token.role as AdminRole;
+    // 보조 방어다. 모든 API는 requireAdminRole/requireAnyAdminRole을 별도로 호출한다.
+    if (canAccessAdminPath(role, pathname)) return NextResponse.next();
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: { code: "insufficient_role", message: "이 경로에 접근할 권한이 없습니다." } },
+        { status: 403 },
+      );
+    }
+    const fallback = request.nextUrl.clone();
+    fallback.pathname = defaultAdminPath(role);
+    fallback.search = "";
+    return NextResponse.redirect(fallback);
+  }
 
   if (pathname.startsWith("/api/")) {
     return NextResponse.json(

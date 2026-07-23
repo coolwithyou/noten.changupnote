@@ -32,6 +32,7 @@ export const CRITERION_DIMENSIONS = [
 ] as const;
 
 export const MATCH_REVIEW_REASON_CODES = [
+  "unreviewed_criteria",
   "core_dimension_unknown",
   "criteria_under_extracted",
   "extraction_incomplete",

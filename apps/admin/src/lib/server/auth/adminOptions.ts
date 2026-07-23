@@ -16,6 +16,7 @@ const adminCookieSecure =
   process.env.NODE_ENV === "production"
   || isHttpsUrl(process.env.NEXTAUTH_URL)
   || isHttpsUrl(process.env.ADMIN_AUTH_URL);
+const ROLE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 type AdminUserShape = User & {
   role?: AdminRole;
@@ -90,13 +91,18 @@ export const adminAuthOptions: NextAuthOptions = {
       if (adminUser?.id) {
         token.sub = adminUser.id;
         if (adminUser.role) token.role = adminUser.role;
+        token.roleCheckedAt = Date.now();
       }
-      if (!token.role && token.sub) {
+      const roleStale =
+        typeof token.roleCheckedAt !== "number"
+        || Date.now() - token.roleCheckedAt >= ROLE_REFRESH_INTERVAL_MS;
+      if (token.sub && (!token.role || roleStale)) {
         const current = await findAdminUserById(token.sub);
         if (!current || current.status !== "active") return {};
         token.role = current.role;
         token.email = current.email;
         token.name = current.name;
+        token.roleCheckedAt = Date.now();
       }
       return token;
     },

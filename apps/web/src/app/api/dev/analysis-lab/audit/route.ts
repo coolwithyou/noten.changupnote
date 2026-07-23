@@ -6,7 +6,12 @@
 //   (로드 없이 저장 금지: 2026-07-22 검수 시트 사고 교훈의 서버측 가드. 클라이언트도
 //   로드 실패 시 저장을 차단한다 — review 라우트 선례).
 import { NextResponse } from "next/server";
-import { CRITERION_DIMENSIONS, type CriterionDimension } from "@cunote/contracts";
+import {
+  CRITERION_DIMENSIONS,
+  HUMAN_REVIEW_AXIS_VERDICTS,
+  HUMAN_REVIEW_CRITERION_VERDICTS,
+  type CriterionDimension,
+} from "@cunote/contracts";
 import {
   loadOrCreateLabAudit,
   saveLabAuditJudgments,
@@ -35,17 +40,6 @@ function isProduction(): boolean {
 
 const badRequest = (message: string) =>
   NextResponse.json({ error: "invalid_audit", message }, { status: 400 });
-
-const CRITERION_VERDICTS: readonly LabCriterionVerdict[] = [
-  "correct",
-  "needs_edit",
-  "wrong",
-  "unsure",
-];
-const EMPTY_AXIS_VERDICTS: readonly LabEmptyAxisVerdict[] = [
-  "confirmed_absent",
-  "missed_condition",
-];
 
 // review 라우트와 동일 캡 — 초과 입력은 클라이언트 maxLength 로도 선차단된다.
 const NOTE_MAX_CHARS = 2_000;
@@ -221,7 +215,7 @@ function parseItemJudgments(raw: unknown): { value: LabAuditItemUpdate[] } | { m
 
     const verdict = entry.humanVerdict;
     const vocabulary: readonly string[] =
-      kind === "criterion" ? CRITERION_VERDICTS : EMPTY_AXIS_VERDICTS;
+      kind === "criterion" ? HUMAN_REVIEW_CRITERION_VERDICTS : HUMAN_REVIEW_AXIS_VERDICTS;
     if (typeof verdict !== "string" || !vocabulary.includes(verdict)) {
       return {
         message:

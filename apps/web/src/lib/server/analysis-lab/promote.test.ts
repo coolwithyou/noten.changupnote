@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import type { CriterionDimension } from "@cunote/contracts";
 import type {
+  LabAudit,
   LabCriterion,
   LabCriterionConfirmation,
   LabReview,
@@ -16,8 +17,11 @@ import type {
 import { LAB_CONFIRMATIONS_SCHEMA, type LabConfirmationsFile } from "./confirmations";
 import {
   applyPublishGuards,
+  criterionStableKey,
   dedupePromotionSources,
   executePromotionWrites,
+  findExistingQuestionForStableKey,
+  indexExistingCriteriaByStableKey,
   planGrantPromotion,
   resolvePromotionMode,
   sourceSpanHash,
@@ -245,6 +249,72 @@ const baseSidecar = fixtureSidecar([
   assert.equal(auditedPlan.questions[0]?.provenance.auditState, "ai_audit_concur");
 }
 
+// ---- 항목 resolver 승격 — 감사 미완도 pending 발행, 미확정 질문은 금지 ------------------
+
+{
+  const pendingRun = fixtureRun(baseRun.criteria.slice(0, 3));
+  const aiReview = {
+    criterionReviews: [
+      { criterionIndex: 0, verdict: "correct" as const, note: null },
+      { criterionIndex: 1, verdict: "wrong" as const, note: "사람 확인 대기" },
+      { criterionIndex: 2, verdict: "correct" as const, note: null },
+    ],
+    axisReviews: [],
+  };
+  const pendingPlan = planGrantPromotion({
+    run: pendingRun,
+    aiReview,
+    audit: null,
+    overlay: null,
+    origin: "pending",
+    sidecar: baseSidecar,
+  });
+  assert.equal(pendingPlan.conversion.error, null, pendingPlan.conversion.error ?? "변환 오류");
+  assert.equal(pendingPlan.criteria.length, 3, "pending criterion도 누락하지 않고 발행해야 한다");
+  assert.deepEqual(
+    pendingPlan.resolutions.map((item) => item.state),
+    ["unaudited_correct", "pending", "unaudited_correct"],
+  );
+  assert.deepEqual(
+    pendingPlan.criteria.map((item) => item.needs_review),
+    [false, true, false],
+  );
+  assert.equal(pendingPlan.questions.length, 0, "pending·unaudited exclusion 질문은 발행하면 안 된다");
+
+  const audit: LabAudit = {
+    schema: "lab-audit-v1",
+    grantId: pendingRun.grantId,
+    runId: pendingRun.runId,
+    model: "review-model",
+    aiPromptVersion: "ai-review-v1",
+    auditorEmail: "auditor@noten.im",
+    createdAt: "2026-07-23T01:00:00.000Z",
+    updatedAt: "2026-07-23T01:00:00.000Z",
+    items: [{
+      kind: "criterion",
+      criterionIndex: 1,
+      dimension: "prior_award",
+      reason: "ai_non_correct",
+      aiVerdict: "wrong",
+      aiNote: null,
+      humanVerdict: "correct",
+      note: "사람이 정확으로 확정",
+    }],
+    overallNote: null,
+  };
+  const partiallyConfirmed = planGrantPromotion({
+    run: pendingRun,
+    aiReview,
+    audit,
+    origin: "pending",
+    sidecar: baseSidecar,
+  });
+  assert.equal(partiallyConfirmed.resolutions[1]?.state, "confirmed_correct");
+  assert.equal(partiallyConfirmed.questions.length, 1, "사람이 확정한 exclusion 질문만 발행해야 한다");
+  assert.equal(partiallyConfirmed.questions[0]?.criterionIndex, 1);
+  assert.equal(partiallyConfirmed.questions[0]?.provenance.auditState, "human_reviewed");
+}
+
 // ---- ② 변환 드롭 무은폐 + 매핑의 위치 이동 안전 ---------------------------------------
 // #0 은 비정상 dimension 으로 normalize 가 탈락시킨다(질문 후보였으므로 앵커 상실도 집계).
 
@@ -294,9 +364,26 @@ const baseSidecar = fixtureSidecar([
   assert.notEqual(sourceSpanHash("다른 인용"), hash);
   assert.equal(sourceSpanHash(null), null);
   assert.equal(sourceSpanHash("   "), null, "공백뿐인 span 은 해시를 위장하지 않는다");
+  assert.equal(
+    criterionStableKey({
+      dimension: "region",
+      kind: "required",
+      operator: "in",
+      value: { regions: ["서울", "경기"], labels: [" 수도권 "] },
+      source_span: "서울 또는 경기",
+    }),
+    criterionStableKey({
+      dimension: "region",
+      kind: "required",
+      operator: "in",
+      value: { labels: ["수도권"], regions: ["경기", "서울"] },
+      source_span: "서울  또는\n경기",
+    }),
+    "value 객체 키·배열 순서·문자열 공백 차이는 같은 안정 키여야 한다",
+  );
 }
 
-// ---- ⑤ 발행 가드 — 답변 보존(우선)·계약 실패·빈 발행 ----------------------------------
+// ---- ⑤ 발행 가드 — 답변 보존 upsert 경로·계약 실패·빈 발행 ------------------------------
 
 {
   const okPlan = planGrantPromotion({ run: baseRun, review: baseReview, origin: "human", sidecar: baseSidecar });
@@ -313,27 +400,58 @@ const baseSidecar = fixtureSidecar([
     criteria: [],
     conversion: { ...okPlan.conversion, converted: 0 },
   };
-  const guarded = applyPublishGuards(
-    [okPlan, answeredPlan, errorPlan, emptyPlan],
-    new Map([["g-answered", 3]]),
+  const guarded = applyPublishGuards([okPlan, answeredPlan, errorPlan, emptyPlan]);
+  assert.deepEqual(
+    guarded.publishable.map((plan) => plan.grantId),
+    [okPlan.grantId, "g-answered"],
+    "답변이 있어도 안정 키 upsert 경로로 재승격할 수 있어야 한다",
   );
-  assert.deepEqual(guarded.publishable.map((plan) => plan.grantId), [okPlan.grantId]);
   assert.deepEqual(
     guarded.refused.map((item) => [item.plan.grantId, item.reason]),
     [
-      ["g-answered", "answers_exist"],
       ["g-error", "conversion_error"],
       ["g-empty", "empty_criteria"],
     ],
   );
-  assert.match(guarded.refused[0]!.detail, /답변 3건/);
-
-  // 답변 가드는 다른 결함보다 우선한다(cascade 사고가 최우선 방어 대상).
-  const both = applyPublishGuards([errorPlan], new Map([["g-error", 1]]));
-  assert.equal(both.refused[0]?.reason, "answers_exist");
+  assert.match(guarded.refused[0]!.detail, /계약 실패/);
 }
 
-// ---- ⑥ 실행 모드 게이트 — 두 플래그 동시 요구 -----------------------------------------
+// ---- ⑥ 안정 키 재연결 — legacy row도 criterion/question/answer ID 보존 ----------------
+
+{
+  const plan = planGrantPromotion({ run: baseRun, review: baseReview, origin: "human", sidecar: baseSidecar });
+  const publishedCriterion = plan.criteria[1]!;
+  const stableKey = plan.criterionStableKeys[1]!;
+  const criteria = indexExistingCriteriaByStableKey([{
+    id: "criterion-existing",
+    stableKey: null,
+    dimension: publishedCriterion.dimension,
+    operator: publishedCriterion.operator,
+    value: publishedCriterion.value,
+    kind: publishedCriterion.kind,
+    sourceSpan: publishedCriterion.source_span ?? null,
+  }]);
+  assert.equal(
+    criteria.get(stableKey)?.id,
+    "criterion-existing",
+    "stable_key 마이그레이션 전 criterion도 내용 키로 찾아 UPDATE해야 한다",
+  );
+
+  const existingQuestion = findExistingQuestionForStableKey(
+    [{
+      id: "question-existing",
+      grantCriteriaId: "criterion-existing",
+      criterionStableKey: null,
+    }],
+    stableKey,
+    "criterion-existing",
+  );
+  assert.equal(existingQuestion?.id, "question-existing", "질문 ID를 재사용해야 답변 FK가 유지된다");
+  const existingAnswers = [{ id: "answer-existing", questionId: existingQuestion?.id }];
+  assert.deepEqual(existingAnswers, [{ id: "answer-existing", questionId: "question-existing" }]);
+}
+
+// ---- ⑦ 실행 모드 게이트 — 두 플래그 동시 요구 -----------------------------------------
 
 {
   assert.deepEqual(resolvePromotionMode({ write: false, confirmGo: false }), { write: false, warning: null });
@@ -347,7 +465,7 @@ const baseSidecar = fixtureSidecar([
   assert.deepEqual(resolvePromotionMode({ write: true, confirmGo: true }), { write: true, warning: null });
 }
 
-// ---- ⑦ 쓰기 오케스트레이션 — 페이크 포트, per-grant 격리 ------------------------------
+// ---- ⑧ 쓰기 오케스트레이션 — 페이크 포트, per-grant 격리 ------------------------------
 
 {
   const okPlan = planGrantPromotion({ run: baseRun, review: baseReview, origin: "human", sidecar: baseSidecar });
@@ -358,8 +476,10 @@ const baseSidecar = fixtureSidecar([
   const fakeResult: PromotionGrantWriteResult = {
     criteriaDeleted: 2,
     criteriaInserted: 3,
-    questionsDeleted: 0,
+    criteriaUpdated: 0,
     questionsInserted: 2,
+    questionsUpdated: 0,
+    questionsInvalidated: 0,
     matchStatesDeleted: 5,
   };
   const outcomes = await executePromotionWrites([planA, planB, planC], {

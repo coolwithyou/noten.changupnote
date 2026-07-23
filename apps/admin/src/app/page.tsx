@@ -25,6 +25,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { canAccessAdminPath, defaultAdminPath } from "@/lib/auth/routeAccess"
 import {
   Table,
   TableBody,
@@ -41,6 +42,7 @@ export const dynamic = "force-dynamic"
 export default async function OpsHomePage() {
   const session = await getOptionalAdminSession()
   if (!session) redirect("/login")
+  if (!canAccessAdminPath(session.user.role, "/")) redirect(defaultAdminPath(session.user.role))
   const snapshot = await loadFlywheelSnapshot()
   const surfaces = snapshot?.surfaces ?? []
   const available = surfaces.filter((surface) => surface.available)

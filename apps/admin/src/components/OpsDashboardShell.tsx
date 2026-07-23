@@ -5,6 +5,7 @@ import type { ReactNode } from "react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import type { AdminRole } from "@/lib/server/auth/adminUsers"
 
 interface OpsDashboardShellProps {
   children: ReactNode
@@ -12,7 +13,7 @@ interface OpsDashboardShellProps {
   user: {
     email: string
     name: string | null
-    role: string
+    role: AdminRole
   }
 }
 

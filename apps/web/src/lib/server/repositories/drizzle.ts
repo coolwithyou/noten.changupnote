@@ -611,6 +611,7 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
       .where(and(
         eq(schema.companyGrantConfirmations.companyId, input.companyId),
         inArray(schema.companyGrantConfirmations.grantId, input.grantIds),
+        isNull(schema.grantConfirmationQuestions.invalidatedAt),
       ));
     for (const row of rows) {
       if (!row.criterionId) continue;

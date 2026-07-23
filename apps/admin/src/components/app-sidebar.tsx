@@ -22,6 +22,8 @@ import {
 } from "lucide-react"
 
 import { NavUser } from "@/components/nav-user"
+import { defaultAdminPath } from "@/lib/auth/routeAccess"
+import type { AdminRole } from "@/lib/server/auth/adminUsers"
 import {
   Sidebar,
   SidebarContent,
@@ -38,7 +40,15 @@ import {
 
 const NAV_GROUPS = [
   {
+    label: "검수",
+    roles: ["reviewer", "admin", "owner"],
+    items: [
+      { title: "주간 검수", href: "/review", icon: BookOpenCheckIcon },
+    ],
+  },
+  {
     label: "운영",
+    roles: ["viewer", "support", "admin", "owner"],
     items: [
       { title: "운영 개요", href: "/", icon: LayoutDashboardIcon },
       { title: "공개명단 업데이트", href: "/registry-imports", icon: DatabaseZapIcon },
@@ -47,6 +57,7 @@ const NAV_GROUPS = [
   },
   {
     label: "크레딧",
+    roles: ["viewer", "support", "admin", "owner"],
     items: [
       { title: "크레딧 개요", href: "/credits", icon: CoinsIcon },
       { title: "회원 관리", href: "/credits/members", icon: UsersIcon },
@@ -58,13 +69,21 @@ const NAV_GROUPS = [
       { title: "설정", href: "/credits/settings", icon: Settings2Icon },
     ],
   },
-] as const
+] as const satisfies ReadonlyArray<{
+  label: string
+  roles: readonly AdminRole[]
+  items: ReadonlyArray<{
+    title: string
+    href: string
+    icon: React.ComponentType
+  }>
+}>
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
   user: {
     email: string
     name: string | null
-    role: string
+    role: AdminRole
   }
 }
 
@@ -79,7 +98,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
             <SidebarMenuButton
               size="lg"
               tooltip="Cunote Ops"
-              render={<Link href="/" />}
+              render={<Link href={defaultAdminPath(user.role)} />}
             >
               <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <LandmarkIcon />
@@ -94,7 +113,7 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
       </SidebarHeader>
 
       <SidebarContent>
-        {NAV_GROUPS.map((group) => (
+        {NAV_GROUPS.filter((group) => group.roles.some((role) => role === user.role)).map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>

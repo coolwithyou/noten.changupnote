@@ -51,7 +51,7 @@ export interface ShadowConversionResult {
  * LabCriterion(camelCase) → normalizeGrantLlmCriteria 가 기대하는 LLM row(snake_case).
  * needs_review 를 싣지 않는 것이 계약이다(위 모듈 주석) — Boolean(undefined)=false.
  */
-function toLlmRow(criterion: LabCriterion): Record<string, unknown> {
+function toLlmRow(criterion: LabCriterion, needsReview = false): Record<string, unknown> {
   return {
     dimension: criterion.dimension,
     kind: criterion.kind,
@@ -60,7 +60,13 @@ function toLlmRow(criterion: LabCriterion): Record<string, unknown> {
     confidence: criterion.confidence,
     ...(criterion.sourceSpan ? { source_span: criterion.sourceSpan } : {}),
     source_field: ANALYSIS_LAB_SHADOW_SOURCE_FIELD,
+    needs_review: needsReview,
   };
+}
+
+export interface LabCriterionSelection {
+  criterionIndex: number;
+  needsReview: boolean;
 }
 
 /**
@@ -79,9 +85,28 @@ export function convertReviewedLabRun(run: LabRun, review: LabReview): ShadowCon
     .filter((axis) => axis.verdict === "missed_condition").length;
 
   // 런은 불변이라 criterionIndex 가 안정 키다 — 범위 밖 인덱스는 방어적으로 건너뛴다.
-  const rows = correctIndexes.flatMap((index) => {
-    const criterion = run.criteria[index];
-    return criterion ? [toLlmRow(criterion)] : [];
+  return convertSelectedLabCriteria(run, {
+    selections: correctIndexes.map((criterionIndex) => ({ criterionIndex, needsReview: false })),
+    verdicts,
+    missedConditions,
+  });
+}
+
+/**
+ * criterion 해소 상태가 섞인 승격용 변환기. 확정/비감사 correct는 needs_review=false,
+ * pending은 true로 같은 normalize 호출에 함께 넣어 순서와 llm-N id 매핑을 보존한다.
+ */
+export function convertSelectedLabCriteria(
+  run: LabRun,
+  input: {
+    selections: LabCriterionSelection[];
+    verdicts?: ShadowConversionReport["verdicts"];
+    missedConditions?: number;
+  },
+): ShadowConversionResult {
+  const rows = input.selections.flatMap(({ criterionIndex, needsReview }) => {
+    const criterion = run.criteria[criterionIndex];
+    return criterion ? [toLlmRow(criterion, needsReview)] : [];
   });
 
   let criteria: GrantCriterion[] = [];
@@ -107,8 +132,13 @@ export function convertReviewedLabRun(run: LabRun, review: LabReview): ShadowCon
     report: {
       grantId: run.grantId,
       runId: run.runId,
-      verdicts,
-      missedConditions,
+      verdicts: input.verdicts ?? {
+        correct: input.selections.filter((item) => !item.needsReview).length,
+        needs_edit: 0,
+        wrong: 0,
+        unsure: input.selections.filter((item) => item.needsReview).length,
+      },
+      missedConditions: input.missedConditions ?? 0,
       inputRows: rows.length,
       converted: criteria.length,
       downgraded,

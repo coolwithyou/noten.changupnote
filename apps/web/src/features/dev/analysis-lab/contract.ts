@@ -316,6 +316,8 @@ export interface LabAuditItem {
   aiNote: string | null;
   /** 사람 감사 판정 — null 이면 미판정. 동의면 aiVerdict 와 같은 값이 저장된다. */
   humanVerdict: LabCriterionVerdict | LabEmptyAxisVerdict | null;
+  /** 사람 판정의 최종 작성자. 구 파일에는 없는 additive provenance. */
+  decidedBy?: string | null;
   /** 감사 사유 — AI 판정 뒤집기(humanVerdict ≠ aiVerdict) 시 필수(서버 검증). */
   note: string | null;
   /**

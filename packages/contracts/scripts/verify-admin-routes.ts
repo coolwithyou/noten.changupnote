@@ -3,6 +3,9 @@ import { join, relative, resolve, sep } from "node:path";
 
 const workspaceRoot = process.cwd();
 const adminRouteRoot = resolve(workspaceRoot, "apps/admin/src/app/api/admin");
+const additionalProtectedRoutes = [
+  resolve(workspaceRoot, "apps/admin/src/app/api/matches/live/route.ts"),
+] as const;
 const adminStatusRoute = resolve(adminRouteRoot, "status/route.ts");
 const removedWebAdminPaths = [
   "apps/web/src/app/(admin)/admin/page.tsx",
@@ -31,6 +34,9 @@ const expectedAdminSurfaces = [
   "saas_release_checklist",
   "support_ticket_report",
   "live_match",
+  "audit_dispatch_batches",
+  "audit_dispatch_notices",
+  "audit_dispatch_items",
 ];
 const errors: string[] = [];
 
@@ -40,10 +46,13 @@ for (const path of removedWebAdminPaths) {
 }
 
 if (existsSync(adminRouteRoot)) {
-  for (const routeFile of walkRouteFiles(adminRouteRoot)) {
+  for (const routeFile of [...walkRouteFiles(adminRouteRoot), ...additionalProtectedRoutes]) {
     const source = readFileSync(routeFile, "utf8");
     if (!source.includes("requireAdminSession(")) {
       errors.push(`${routePath(routeFile)} does not call requireAdminSession`);
+    }
+    if (!source.includes("requireAdminRole(") && !source.includes("requireAnyAdminRole(")) {
+      errors.push(`${routePath(routeFile)} is session-only and has no explicit role classification`);
     }
   }
 } else {

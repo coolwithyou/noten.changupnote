@@ -5,6 +5,7 @@ import {
   supportTicketEmailHandoffDownloadResponse,
 } from "@/lib/server/admin/supportTicketEmailHandoff";
 import { AdminRequiredError, requireAdminSession } from "@/lib/server/auth/adminSession";
+import { handleRoleError, requireAdminRole } from "@/lib/server/auth/adminRole";
 import { adminError } from "@/lib/server/http/envelope";
 
 export const runtime = "nodejs";
@@ -17,12 +18,15 @@ interface RouteContext {
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
     const admin = await requireAdminSession();
+    requireAdminRole(admin, "support");
     const params = await context.params;
     const ticketId = readParam(params, "ticketId");
     const handoff = await buildSupportTicketEmailHandoff({ ticketId, admin });
     return supportTicketEmailHandoffDownloadResponse(handoff);
   } catch (error) {
     if (error instanceof AdminRequiredError) return adminError(error.code, error.message, error.status);
+    const roleError = handleRoleError(error);
+    if (roleError) return roleError;
     if (error instanceof SupportTicketEmailHandoffError) {
       return adminError(error.code, error.message, error.status, error.field);
     }

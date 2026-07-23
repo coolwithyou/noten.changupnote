@@ -1,6 +1,6 @@
 # 검수팀 ops 워크스페이스 + 주간 배분 체계 — 상세 구현 계획
 
-> **🟢 상태(2026-07-23): 확정.** 초안 → Codex(gpt-5.5) 리뷰 **NO-GO(발견 14건)** → 전건 반영 개정 → 확정. 반영 기록은 §8.
+> **🟡 상태(2026-07-23): 코드 구현 완료·운영 적용 대기.** 초안 → Codex(gpt-5.5) 리뷰 **NO-GO(발견 14건)** → 전건 반영 개정 → 구현. DB migration·reviewer 계정 생성·ops 배포·첫 배치는 아직 실행하지 않았다. 반영 기록은 §8, 운영 인계는 §9.
 > 새 세션이 이 문서를 진입점으로 구현한다. 전사: 확인 루프 Phase A+B(`docs/plans/2026-07-23-confirmation-loop-phase-b.md` 🟢, ~d073a54).
 > 관련: §10 프로토콜(`docs/plans/2026-07-21-analysis-lab-expansion-experiment.md`), 검수 판정 가이드(`docs/research/2026-07-18-공모딥분석-검수판정-가이드.md`)
 
@@ -194,3 +194,85 @@ audit_dispatch_items     -- 판정 이력 불변 보존 (삭제 금지 — FK re
 | 12 | 중대 | 평문 크레덴셜 md·argv 노출·Google 전제 조건부 | **부분 반영** — stdin 프롬프트·Google 주 경로·allowlist 확인·폐기/회전 문구. md 저장 자체는 사용자 확정 결정이라 유지(완화 조치 부가) |
 | 13 | 경미 | 검증 계획이 격리를 증명 못함 | **반영** — 정적 라우트-역할 매트릭스·실 403·crash point 테스트 |
 | 14 | 제안 | 원문 렌더 XSS·보존 정책 | **반영** — sanitize 강제·크기 상한·2분기 보존 정책 |
+
+## 9. 구현 결과와 운영 인계 (2026-07-23)
+
+### 9.1 구현된 경계
+
+- W1: criterion resolver, `needs_review` 강제 review gate, pending 포함 항목 단위 승격, 안정 키 criteria/question upsert, 질문 soft-invalidate와 답변 FK 보존.
+- W2: dispatch 3테이블 migration(`0051_next_alex_power.sql`), 결정론 배분·15% blind 중복·질문 15건 표본·기배분 제외, audit/overlay 이원 수거, CAS·원자 교체·receipt 복구·reconcile, item_kind별 κ 리포트.
+- W3: `reviewer` 역할, 모든 admin API의 명시 역할 검사, 공유 경로 매트릭스와 서버 페이지 가드, 5분 JWT role 재조회, reviewer 전용 사이드바, 숨김 입력/Google-only/안전한 임시 비밀번호 생성 계정 CLI.
+- W4: `/review`, `/review/[noticeId]`, `/review/guide`, `/review/adjudicate`; 본인 assignment SQL 강제, 타인 notice 403, blind payload 서버 제거, sanitize된 Markdown, revision 409, conflict 3심.
+- 공유 판정 어휘는 `@cunote/contracts`가 단일 원천이다. axis에는 `confirmed_absent|missed_condition`만 허용하며 criterion에만 `unsure`를 허용한다.
+
+개발 서버는 실행하지 않았다. migration·계정 생성·DB 배분·파일 수거·배포도 실행하지 않았으므로 현재 운영 데이터와 계정에는 변화가 없다.
+
+### 9.2 최초 운영 적용 순서
+
+1. 운영 DB 백업/대상 환경을 확인한 뒤 `pnpm db:migrate`로 `0051_next_alex_power.sql`을 적용한다.
+2. 기존 `ADMIN_ALLOWED_EMAILS` 값을 보존하면서 `kim@noten.im,young@noten.im`을 추가한다. 빈 allowlist는 활성 `admin_users` 전체를 허용하므로 운영에서는 사용하지 않는다.
+3. Google 로그인을 주 경로로 쓸 때:
+
+   ```bash
+   pnpm --filter @cunote/admin admin:user:create -- --email kim@noten.im --role reviewer --google-only
+   pnpm --filter @cunote/admin admin:user:create -- --email young@noten.im --role reviewer --google-only
+   ```
+
+4. 사용자 확정안대로 임시 비밀번호도 발급할 때는 `--generate-password`를 사용한다. 비밀번호는 stdout/argv에 나오지 않고 gitignore된 `spike-out/ops/review-team-credentials.md`에 mode `0600`으로 추가된다. 동시에 각 계정에 바로 전달할 수 있는 `spike-out/ops/review-team-guide-<email>.md`가 생성되며, 공용 가이드 원본은 `docs/guides/review-team-member-guide.md`다.
+
+   ```bash
+   pnpm --filter @cunote/admin admin:user:create -- --email kim@noten.im --role reviewer --generate-password
+   pnpm --filter @cunote/admin admin:user:create -- --email young@noten.im --role reviewer --generate-password
+   ```
+
+   전달 후 파일을 폐기하고 최초 로그인 뒤 비밀번호를 회전한다. 계정 생성 전에 allowlist와 DB migration 적용을 먼저 확인한다.
+5. 사용자가 `pnpm dev:ops`를 기동한 환경에서 reviewer 계정으로 `/review`만 열리고 `/credits`, `/registry-imports`, `/internal/live-match`가 redirect/403 되는지 확인한다. admin·owner로 `/review/adjudicate`를 확인한 뒤 별도 승인 하에 ops를 배포한다.
+
+### 9.3 주간 runbook
+
+월요일 배분은 먼저 dry-run으로 대상·부하·blind 수를 확인한다.
+
+```bash
+pnpm lab:dispatch -- --week=2026-W30 --reviewers=kim@noten.im,young@noten.im --dry-run
+pnpm lab:dispatch -- --week=2026-W30 --reviewers=kim@noten.im,young@noten.im
+```
+
+금요일에는 판정 완료분만 수거한다. `stale_audit_file`이 하나라도 있으면 해당 공고 파일은 덮어쓰지 말고 병행 편집자를 확인한다. 3심 후 같은 collect를 다시 실행한다.
+
+```bash
+pnpm lab:collect -- --week=2026-W30
+pnpm lab:reconcile -- --week=2026-W30
+```
+
+측정 파일은 `spike-out/ops/review-metrics-<week>.json`이다. item_kind별 κ·일치율·쌍 수·범주 분포를 따로 읽고, κ가 정의되지 않는 단일 범주 완전 일치는 `N/A`로 유지한다. κ < 0.7이면 가이드 보정·사례집 등재·재교육을 먼저 수행한다.
+
+### 9.4 2분기 보존 정책
+
+분기 운영 점검 때 배치 생성 후 6개월이 지난 원문·분석 스냅샷만 null 처리한다. `audit_dispatch_items`와 판정·3심·receipt 이력은 삭제하지 않는다.
+
+```sql
+UPDATE audit_dispatch_notices AS notice
+SET input_text = NULL,
+    analysis_markdown = NULL
+FROM audit_dispatch_batches AS batch
+WHERE notice.batch_id = batch.id
+  AND batch.created_at < now() - interval '6 months'
+  AND (notice.input_text IS NOT NULL OR notice.analysis_markdown IS NOT NULL);
+```
+
+### 9.5 코드 검증 명령
+
+```bash
+pnpm --filter @cunote/contracts build
+pnpm --filter @cunote/web typecheck
+pnpm --filter @cunote/admin typecheck
+pnpm lab:resolution:test
+pnpm lab:promote:test
+pnpm lab:dispatch:test
+pnpm lab:collect:test
+pnpm lab:audit:test
+pnpm lab:ai-audit:test
+pnpm verify:review-workspace
+pnpm verify:admin-routes
+pnpm verify:ops-admin
+```

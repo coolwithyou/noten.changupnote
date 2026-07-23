@@ -90,7 +90,12 @@ export async function listLabRunSummaries(source: string, sourceId: string): Pro
     // 사이드카(<runId>.confirmations.json, Phase B-0) 파일도 런이 아니다 — runId/grantId 를
     // 갖고 있어 readRunFile 관대 파싱을 통과해 버리므로(감사 파일은 startedAt 이 없어
     // 정렬에서 크래시) 파일명으로 먼저 제외한다.
-    if (file.includes(".ai-review.") || file.includes(".audit.") || file.includes(".confirmations.")) continue;
+    if (
+      file.includes(".ai-review.")
+      || file.includes(".audit.")
+      || file.includes(".confirmations.")
+      || file.endsWith(".human-overlay.json")
+    ) continue;
     const run = await readRunFile(join(dir, file));
     if (!run) continue;
     const reviewedAt = await readReviewedAt(join(dir, `${run.runId}.review.json`));

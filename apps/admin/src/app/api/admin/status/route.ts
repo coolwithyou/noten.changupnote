@@ -1,4 +1,5 @@
 import { requireAdminSession, AdminRequiredError } from "@/lib/server/auth/adminSession";
+import { handleRoleError, requireAdminRole } from "@/lib/server/auth/adminRole";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const session = await requireAdminSession();
+    requireAdminRole(session, "viewer");
     return Response.json({
       data: {
         ok: true,
@@ -44,6 +46,9 @@ export async function GET() {
           "saas_release_checklist",
           "support_ticket_report",
           "live_match",
+          "audit_dispatch_batches",
+          "audit_dispatch_notices",
+          "audit_dispatch_items",
         ],
         runtime: {
           authRequired: true,
@@ -57,6 +62,8 @@ export async function GET() {
     if (error instanceof AdminRequiredError) {
       return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
     }
+    const roleError = handleRoleError(error);
+    if (roleError) return roleError;
     return Response.json({
       error: {
         code: "admin_status_failed",

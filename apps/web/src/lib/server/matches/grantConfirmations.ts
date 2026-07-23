@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import type {
   GrantConfirmationAnswerDto,
   GrantConfirmationSubmitResult,
@@ -196,7 +196,10 @@ async function loadQuestionRows(grantId: string): Promise<QuestionRow[]> {
       createdAt: schema.grantConfirmationQuestions.createdAt,
     })
     .from(schema.grantConfirmationQuestions)
-    .where(eq(schema.grantConfirmationQuestions.grantId, grantId))
+    .where(and(
+      eq(schema.grantConfirmationQuestions.grantId, grantId),
+      isNull(schema.grantConfirmationQuestions.invalidatedAt),
+    ))
     .orderBy(
       asc(schema.grantConfirmationQuestions.createdAt),
       asc(schema.grantConfirmationQuestions.id),

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { OpsDashboardShell } from "@/components/OpsDashboardShell";
+import { canAccessAdminPath, defaultAdminPath } from "@/lib/auth/routeAccess";
 import { listRegistryImportRuns, registrySourceOptions } from "@/lib/server/admin/registryImports";
 import { getOptionalAdminSession } from "@/lib/server/auth/adminSession";
 import RegistryImportPanel from "./RegistryImportPanel";
@@ -9,6 +10,9 @@ export const dynamic = "force-dynamic";
 export default async function RegistryImportsPage() {
   const session = await getOptionalAdminSession();
   if (!session) redirect("/login");
+  if (!canAccessAdminPath(session.user.role, "/registry-imports")) {
+    redirect(defaultAdminPath(session.user.role));
+  }
   if (session.user.role !== "owner" && session.user.role !== "admin") redirect("/");
   const runs = await listRegistryImportRuns();
 

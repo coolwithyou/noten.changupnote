@@ -1382,6 +1382,28 @@ function buildReviewGate(input: {
     };
   }
 
+  // 사람 검수 전 required/exclusion criterion은 현재 회사 값으로 pass/fail/unknown 중
+  // 무엇이 나오더라도 추천 가능 상태로 노출하지 않는다. deferUnreviewedHardFail은
+  // fail만 unknown으로 바꾸므로, pass하는 비핵심 축이 recommendable로 새는 경로를
+  // 이 독립 게이트가 봉인한다.
+  const unreviewedCriteria = input.criteria
+    .map((criterion, index) => ({ criterion, entry: input.traceEntries[index] }))
+    .filter(({ criterion }) =>
+      criterion.needs_review === true
+      && (criterion.kind === "required" || criterion.kind === "exclusion"));
+  if (unreviewedCriteria.length > 0) {
+    return {
+      tier: "needs_core_review",
+      scoreDisplay: "hidden",
+      reasons: uniqueReasons(unreviewedCriteria.map(({ criterion, entry }) => ({
+        code: "unreviewed_criteria" as const,
+        dimension: criterion.dimension,
+        label: `${labelFor(criterion.dimension)} 자동 추출 조건은 사람 검수 후 판정을 확정해요.`,
+        ...(entry?.source_span ? { sourceSpan: entry.source_span } : {}),
+      }))),
+    };
+  }
+
   const hardFails = input.traceEntries.filter(isHardFailTrace);
   if (hardFails.length > 0) {
     return {

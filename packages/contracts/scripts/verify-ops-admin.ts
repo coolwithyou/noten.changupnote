@@ -8,6 +8,8 @@ const files = {
   authOptions: resolve(adminRoot, "src/lib/server/auth/adminOptions.ts"),
   adminSession: resolve(adminRoot, "src/lib/server/auth/adminSession.ts"),
   adminUsers: resolve(adminRoot, "src/lib/server/auth/adminUsers.ts"),
+  adminRole: resolve(adminRoot, "src/lib/server/auth/adminRole.ts"),
+  routeAccess: resolve(adminRoot, "src/lib/auth/routeAccess.ts"),
   proxy: resolve(adminRoot, "src/proxy.ts"),
   statusRoute: resolve(adminRoot, "src/app/api/admin/status/route.ts"),
   legalReadinessRoute: resolve(adminRoot, "src/app/api/admin/status/legal-readiness/route.ts"),
@@ -33,6 +35,17 @@ const files = {
   liveMatchRoute: resolve(adminRoot, "src/app/api/matches/live/route.ts"),
   liveMatchConsole: resolve(adminRoot, "src/components/LiveMatchConsole.tsx"),
   loginPage: resolve(adminRoot, "src/app/login/page.tsx"),
+  reviewQueueApi: resolve(adminRoot, "src/app/api/admin/review/queue/route.ts"),
+  reviewNoticeApi: resolve(adminRoot, "src/app/api/admin/review/notices/[id]/route.ts"),
+  reviewVerdictsApi: resolve(adminRoot, "src/app/api/admin/review/notices/[id]/verdicts/route.ts"),
+  reviewAdjudicateApi: resolve(adminRoot, "src/app/api/admin/review/adjudicate/[itemId]/route.ts"),
+  reviewStore: resolve(adminRoot, "src/lib/server/review/dispatchReview.ts"),
+  reviewPage: resolve(adminRoot, "src/app/review/page.tsx"),
+  reviewNoticePage: resolve(adminRoot, "src/app/review/[noticeId]/page.tsx"),
+  reviewAdjudicatePage: resolve(adminRoot, "src/app/review/adjudicate/page.tsx"),
+  reviewGuidePage: resolve(adminRoot, "src/app/review/guide/page.tsx"),
+  safeMarkdown: resolve(adminRoot, "src/components/review/SafeMarkdown.tsx"),
+  createAdminUser: resolve(adminRoot, "src/scripts/create-admin-user.ts"),
   webProxy: resolve(workspaceRoot, "apps/web/src/proxy.ts"),
   webAuthOptions: resolve(workspaceRoot, "apps/web/src/lib/server/auth/options.ts"),
 };
@@ -46,6 +59,8 @@ for (const [label, file] of Object.entries(files)) {
 const authOptions = readIfExists(files.authOptions);
 const adminSession = readIfExists(files.adminSession);
 const adminUsers = readIfExists(files.adminUsers);
+const adminRole = readIfExists(files.adminRole);
+const routeAccess = readIfExists(files.routeAccess);
 const proxy = readIfExists(files.proxy);
 const statusRoute = readIfExists(files.statusRoute);
 const legalReadinessRoute = readIfExists(files.legalReadinessRoute);
@@ -71,6 +86,17 @@ const liveMatchPage = readIfExists(files.liveMatchPage);
 const liveMatchRoute = readIfExists(files.liveMatchRoute);
 const liveMatchConsole = readIfExists(files.liveMatchConsole);
 const loginPage = readIfExists(files.loginPage);
+const reviewQueueApi = readIfExists(files.reviewQueueApi);
+const reviewNoticeApi = readIfExists(files.reviewNoticeApi);
+const reviewVerdictsApi = readIfExists(files.reviewVerdictsApi);
+const reviewAdjudicateApi = readIfExists(files.reviewAdjudicateApi);
+const reviewStore = readIfExists(files.reviewStore);
+const reviewPage = readIfExists(files.reviewPage);
+const reviewNoticePage = readIfExists(files.reviewNoticePage);
+const reviewAdjudicatePage = readIfExists(files.reviewAdjudicatePage);
+const reviewGuidePage = readIfExists(files.reviewGuidePage);
+const safeMarkdown = readIfExists(files.safeMarkdown);
+const createAdminUser = readIfExists(files.createAdminUser);
 const packageJson = readIfExists(files.packageJson);
 const webProxy = readIfExists(files.webProxy);
 
@@ -99,12 +125,21 @@ expect(!adminSession.includes("CUNOTE_AUTH_MODE"), "admin session must not suppo
 expect(adminUsers.includes("from admin_users"), "admin user lookup must read the admin_users table");
 expect(adminUsers.includes("status !== \"active\""), "admin user lookup must reject disabled admin users");
 expect(adminUsers.includes("password_hash"), "admin password login must use admin_users.password_hash");
+expect(adminUsers.includes('"reviewer"'), "admin roles must include the reviewer role");
+expect(
+  adminRole.includes('["reviewer", "viewer", "support", "admin", "owner"]'),
+  "reviewer must remain the lowest ordered admin role",
+);
+expect(adminRole.includes("requireAnyAdminRole"), "review APIs must have an explicit role-set guard");
 expect(!adminUsers.includes("from users"), "admin auth must not read the public users table");
 expect(!adminUsers.includes("insert into users"), "admin auth must not auto-create public users");
 expect(proxy.includes("getToken"), "admin proxy must validate an admin auth token");
 expect(proxy.includes("__Secure-cunote-admin.session-token"), "admin proxy must read the admin session cookie");
 expect(proxy.includes("/api/auth"), "admin proxy must allow NextAuth routes");
 expect(proxy.includes("admin_auth_required"), "admin proxy must block unauthenticated admin API requests");
+expect(proxy.includes("canAccessAdminPath"), "admin proxy must share the role-to-path matrix");
+expect(routeAccess.includes('role !== "reviewer"'), "reviewer must be denied outside /review");
+expect(routeAccess.includes("REVIEW_ADJUDICATION_ROLES"), "adjudication must have a narrower admin/owner role set");
 expect(statusRoute.includes("requireAdminSession("), "admin status route must require admin session");
 expect(statusRoute.includes("sharedWithWeb: false"), "admin status route must expose non-shared session boundary");
 expect(statusRoute.includes("grant_document_draft_quality_events"), "admin status route must expose migrated ops surfaces");
@@ -142,6 +177,32 @@ expect(liveMatchRoute.includes("requireAdminSession("), "admin live match API mu
 expect(liveMatchRoute.includes("runLiveCompanyMatch"), "admin live match API must call the live matching core use case");
 expect(liveMatchConsole.includes("/api/matches/live"), "admin live match console must call the admin live match API");
 expect(loginPage.includes("GOOGLE_CLIENT_ID") && loginPage.includes("GOOGLE_CLIENT_SECRET"), "admin login page must gate the Google button on the shared GOOGLE_CLIENT_ID/SECRET");
+for (const [label, source] of [
+  ["review queue API", reviewQueueApi],
+  ["review notice API", reviewNoticeApi],
+  ["review verdict API", reviewVerdictsApi],
+  ["review adjudication API", reviewAdjudicateApi],
+] as const) {
+  expect(source.includes("requireAdminSession("), `${label} must require an admin session`);
+  expect(source.includes("requireAnyAdminRole("), `${label} must use an explicit role set`);
+}
+expect(reviewStore.includes("assignee_id = ${session.user.id}::uuid"), "reviewer queue/detail/writes must enforce assignee ownership in SQL");
+expect(reviewStore.includes("review_revision_conflict") && reviewStore.includes("409"), "review verdict writes must use optimistic revision conflicts");
+expect(reviewStore.includes("sanitizeReviewPayload"), "review notice payloads must pass through blind redaction");
+expect(reviewStore.includes("status = 'conflict'"), "overlap disagreement must become a first-class conflict");
+expect(reviewPage.includes("REVIEW_WORKSPACE_ROLES"), "review queue page must have a server role guard");
+expect(reviewNoticePage.includes("REVIEW_WORKSPACE_ROLES"), "review detail page must have a server role guard");
+expect(reviewAdjudicatePage.includes("REVIEW_ADJUDICATION_ROLES"), "adjudication page must be admin/owner only");
+expect(reviewGuidePage.includes("REVIEW_WORKSPACE_ROLES"), "review guide page must have a server role guard");
+expect(safeMarkdown.includes("rehype-sanitize"), "review markdown must sanitize untrusted analysis content");
+expect(
+  safeMarkdown.includes('rel="noopener noreferrer"'),
+  "review markdown external links must prevent opener access",
+);
+expect(createAdminUser.includes("--generate-password"), "admin account CLI must support safe generated passwords");
+expect(createAdminUser.includes('startsWith("--password=")'), "admin account CLI must reject argv passwords");
+expect(createAdminUser.includes("isAllowedAdminEmail"), "admin account CLI must verify the configured allowlist");
+expect(createAdminUser.includes("chmod(path, 0o600)"), "credential handoff file must be owner-readable only");
 expect(packageJson.includes('"name": "@cunote/admin"'), "admin package must be a separate workspace app");
 expect(webProxy.includes("CUNOTE_OPS_ADMIN_ORIGIN"), "web proxy must know the ops admin origin");
 expect(webProxy.includes("/api/admin") && webProxy.includes("/api/matches/live"), "web proxy must close web admin APIs");

@@ -22,7 +22,8 @@ import type { ChatMessageContent } from "../../chat/messageContent";
 
 export const companyKindEnum = pgEnum("company_kind", ["active", "preliminary"]);
 export const companyRoleEnum = pgEnum("company_role", ["owner", "admin", "member", "viewer"]);
-export const adminRoleEnum = pgEnum("admin_role", ["owner", "admin", "support", "viewer"]);
+// 기존 PostgreSQL enum 순서를 보존하고 reviewer만 append한다. 권한 서열은 adminRole.ts가 소유한다.
+export const adminRoleEnum = pgEnum("admin_role", ["owner", "admin", "support", "viewer", "reviewer"]);
 export const adminStatusEnum = pgEnum("admin_status", ["active", "disabled"]);
 export const teamInvitationStatusEnum = pgEnum("team_invitation_status", [
   "pending",
@@ -723,6 +724,8 @@ export const grantCriteria = pgTable("grant_criteria", {
   sourceSpan: text("source_span"),
   rawText: text("raw_text"),
   sourceField: text("source_field"),
+  /** 재승격 시 행 id와 질문/답변 FK를 보존하는 내용 기반 안정 키. */
+  stableKey: text("stable_key"),
   needsReview: boolean("needs_review").default(false).notNull(),
   parserVersion: text("parser_version"),
 }, (table) => ({
@@ -730,6 +733,7 @@ export const grantCriteria = pgTable("grant_criteria", {
   dimensionGrantIdx: index("grant_criteria_dimension_grant_idx").on(table.dimension, table.grantId),
   operatorGrantIdx: index("grant_criteria_operator_grant_idx").on(table.operator, table.grantId),
   reviewIdx: index("grant_criteria_review_idx").on(table.needsReview),
+  stableKeyIdx: uniqueIndex("grant_criteria_grant_stable_key_idx").on(table.grantId, table.stableKey),
 }));
 
 /**
@@ -741,6 +745,8 @@ export const grantConfirmationQuestions = pgTable("grant_confirmation_questions"
   grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "cascade" }),
   // 재발행 내성: criterion 재발행으로 연결이 끊길 수 있어 nullable. 끊긴 질문의 답변은 매칭에 쓰지 않는다.
   grantCriteriaId: uuid("grant_criteria_id").references(() => grantCriteria.id, { onDelete: "set null" }),
+  /** criterion 행이 교체돼도 같은 질문 id를 upsert하기 위한 안정 키. */
+  criterionStableKey: text("criterion_stable_key"),
   // { dimension, kind, sourceSpanHash } — criterion 재연결용 보조 참조
   criterionRef: jsonb("criterion_ref").$type<Record<string, unknown>>(),
   prompt: text("prompt").notNull(),
@@ -755,9 +761,14 @@ export const grantConfirmationQuestions = pgTable("grant_confirmation_questions"
   promptVer: text("prompt_ver").notNull(),
   // { runId, auditState } — 발행 출처·감사 상태 필수 기록
   provenance: jsonb("provenance").$type<Record<string, unknown>>().notNull(),
+  /** 앵커 criterion이 소멸·변질된 질문은 삭제하지 않고 이력으로 보존한다. */
+  invalidatedAt: timestamp("invalidated_at", { withTimezone: true }),
+  invalidationReason: text("invalidation_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   grantIdx: index("grant_confirmation_questions_grant_id_idx").on(table.grantId),
+  stableKeyIdx: uniqueIndex("grant_confirmation_questions_grant_stable_key_idx")
+    .on(table.grantId, table.criterionStableKey),
 }));
 
 /**
@@ -778,6 +789,106 @@ export const companyGrantConfirmations = pgTable("company_grant_confirmations", 
 }, (table) => ({
   pk: primaryKey({ columns: [table.companyId, table.questionId] }),
   companyGrantIdx: index("company_grant_confirmations_company_grant_idx").on(table.companyId, table.grantId),
+}));
+
+/**
+ * 사람 검수 주간 배치 — 파일 기반 감사 프로토콜과 ops 검수 워크스페이스 사이의
+ * 재현 가능한 배분 원장. 판정 이력 테이블은 어떤 운영 경로에서도 삭제하지 않는다.
+ */
+export const auditDispatchBatches = pgTable("audit_dispatch_batches", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  week: text("week").notNull(),
+  seed: integer("seed").notNull(),
+  reviewerIds: uuid("reviewer_ids").array().notNull(),
+  overlapRatio: real("overlap_ratio").notNull(),
+  guideSha256: text("guide_sha256").notNull(),
+  dispatchedBy: text("dispatched_by").notNull(),
+  itemCount: integer("item_count").notNull(),
+  noticeCount: integer("notice_count").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  weekIdx: uniqueIndex("audit_dispatch_batches_week_idx").on(table.week),
+  overlapRatioRange: check("audit_dispatch_batches_overlap_ratio_range", sql`
+    ${table.overlapRatio} >= 0 AND ${table.overlapRatio} <= 1
+  `),
+  nonnegativeCounts: check("audit_dispatch_batches_nonnegative_counts", sql`
+    ${table.itemCount} >= 0 AND ${table.noticeCount} >= 0
+  `),
+}));
+
+export const auditDispatchNotices = pgTable("audit_dispatch_notices", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  batchId: uuid("batch_id").notNull().references(() => auditDispatchBatches.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  runId: text("run_id").notNull(),
+  source: text("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  title: text("title").notNull(),
+  inputText: text("input_text"),
+  inputSha256: text("input_sha256").notNull(),
+  analysisMarkdown: text("analysis_markdown"),
+  reviewModel: text("review_model"),
+  auditSchema: text("audit_schema").notNull(),
+  auditFileSha256: text("audit_file_sha256").notNull(),
+  aiReviewModel: text("ai_review_model"),
+  aiReviewPromptVer: text("ai_review_prompt_ver"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  batchRunIdx: uniqueIndex("audit_dispatch_notices_batch_run_idx").on(table.batchId, table.runId),
+  batchIdx: index("audit_dispatch_notices_batch_id_idx").on(table.batchId),
+  grantIdx: index("audit_dispatch_notices_grant_id_idx").on(table.grantId),
+}));
+
+export const auditDispatchItems = pgTable("audit_dispatch_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  noticeId: uuid("notice_id").notNull().references(() => auditDispatchNotices.id, { onDelete: "restrict" }),
+  sourceItemKey: text("source_item_key").notNull(),
+  collectTarget: text("collect_target").notNull(),
+  itemKind: text("item_kind").notNull(),
+  criterionIndex: integer("criterion_index"),
+  dimension: text("dimension"),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+  payloadSha256: text("payload_sha256").notNull(),
+  assigneeId: uuid("assignee_id").notNull().references(() => adminUsers.id, { onDelete: "restrict" }),
+  assigneeEmail: text("assignee_email").notNull(),
+  overlapGroup: uuid("overlap_group"),
+  blind: boolean("blind").default(false).notNull(),
+  status: text("status").default("pending").notNull(),
+  humanVerdict: text("human_verdict"),
+  note: text("note"),
+  decidedAt: timestamp("decided_at", { withTimezone: true }),
+  finalVerdict: text("final_verdict"),
+  finalizedBy: uuid("finalized_by").references(() => adminUsers.id, { onDelete: "restrict" }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  revision: integer("revision").default(0).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  collectedAt: timestamp("collected_at", { withTimezone: true }),
+  collectReceipt: jsonb("collect_receipt").$type<Record<string, unknown>>(),
+}, (table) => ({
+  assignmentIdx: uniqueIndex("audit_dispatch_items_assignment_idx")
+    .on(table.noticeId, table.sourceItemKey, table.assigneeId),
+  assigneeStatusIdx: index("audit_dispatch_items_assignee_status_idx").on(table.assigneeId, table.status),
+  noticeIdx: index("audit_dispatch_items_notice_id_idx").on(table.noticeId),
+  finalizedByIdx: index("audit_dispatch_items_finalized_by_idx").on(table.finalizedBy),
+  overlapIdx: index("audit_dispatch_items_overlap_group_idx").on(table.overlapGroup),
+  collectTargetCheck: check("audit_dispatch_items_collect_target_check", sql`
+    ${table.collectTarget} IN ('audit_file', 'overlay')
+  `),
+  itemKindCheck: check("audit_dispatch_items_item_kind_check", sql`
+    ${table.itemKind} IN ('criterion', 'axis', 'question_check')
+  `),
+  statusCheck: check("audit_dispatch_items_status_check", sql`
+    ${table.status} IN ('pending', 'decided', 'conflict', 'resolved', 'collected')
+  `),
+  decidedVerdictCheck: check("audit_dispatch_items_decided_verdict_check", sql`
+    ${table.status} <> 'decided' OR ${table.humanVerdict} IS NOT NULL
+  `),
+  resolvedVerdictCheck: check("audit_dispatch_items_resolved_verdict_check", sql`
+    ${table.status} <> 'resolved' OR ${table.finalVerdict} IS NOT NULL
+  `),
+  nonnegativeRevision: check("audit_dispatch_items_nonnegative_revision", sql`
+    ${table.revision} >= 0
+  `),
 }));
 
 export const grantAttachmentArchives = pgTable("grant_attachment_archives", {
