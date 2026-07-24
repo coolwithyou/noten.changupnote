@@ -5,7 +5,9 @@
 //         → 사람 review.json 보유 런(파일럿 3건)에 AI 검수를 돌리고 사람 vs AI 비교 리포트
 //           (confusion matrix·§9 채택 기준 자동 판정·불일치 상세)를 출력한다.
 //       pnpm lab:ai-review -- [--limit=10] [--dry-run] [--max-cost-usd=5] [--model=...]
+//         [--grant-ids=<uuid,uuid,...>]
 //         → 기본 모드: cohort.json 코호트 중 "사람 검수 없는" ok 런(확대 배치)에 AI 검수 실행.
+//           --grant-ids 는 복구 재분석처럼 지정 공고만 안전하게 좁힌다.
 //           --dry-run 은 대상·예상 비용만 출력(API 호출 0).
 //       pnpm lab:ai-review -- --audit-list --model=claude-sonnet-5
 //         → AI 검수 파일에서 사람 감사 대상(비-correct 전수 + missed_condition 플래그 전수 +
@@ -327,6 +329,7 @@ interface DefaultModeOptions {
   dryRun: boolean;
   maxCostUsd: number;
   force: boolean;
+  grantIds: ReadonlySet<string> | null;
 }
 
 async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
@@ -341,7 +344,16 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
   const skippedDone: string[] = [];
   const heldNoRun: string[] = [];
   const pending: LabRun[] = [];
-  for (const entry of cohort.entries) {
+  const scopedEntries = options.grantIds
+    ? cohort.entries.filter((entry) => options.grantIds?.has(entry.grantId))
+    : cohort.entries;
+  if (options.grantIds && scopedEntries.length !== options.grantIds.size) {
+    const found = new Set(scopedEntries.map((entry) => entry.grantId));
+    const missing = [...options.grantIds].filter((grantId) => !found.has(grantId));
+    console.error(`[ai-review] --grant-ids 중 코호트에 없는 공고: ${missing.join(", ")}`);
+    return 1;
+  }
+  for (const entry of scopedEntries) {
     const state = scan.get(entry.grantId);
     if (state?.hasHumanReview) {
       skippedHuman.push(entry.grantId);
@@ -362,7 +374,8 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
 
   console.log(
     `[ai-review] 기본 모드 · 판정 모델 ${options.model} · 코호트 ${cohort.entries.length}건` +
-      (cohort.experimentLabel ? ` (${cohort.experimentLabel})` : ""),
+      (cohort.experimentLabel ? ` (${cohort.experimentLabel})` : "") +
+      (options.grantIds ? ` · 지정 대상 ${options.grantIds.size}건` : ""),
   );
   console.log(
     `[ai-review] 제외(사람 검수 보유) ${skippedHuman.length} · 스킵(AI 검수 완료) ${skippedDone.length} · ` +
@@ -529,6 +542,7 @@ async function runAuditListMode(model: string): Promise<number> {
 async function main(): Promise<number> {
   const model = resolveAiReviewModel(readArg("model"));
   const force = hasFlag("force");
+  const grantIds = readCsvArg("grant-ids");
 
   if (hasFlag("audit-list")) {
     return runAuditListMode(model);
@@ -547,7 +561,15 @@ async function main(): Promise<number> {
     console.error("[ai-review] 설정 오류: --max-cost-usd 는 0보다 큰 숫자여야 합니다.");
     return 1;
   }
-  return runDefaultMode({ model, limit, dryRun: hasFlag("dry-run"), maxCostUsd, force });
+  return runDefaultMode({ model, limit, dryRun: hasFlag("dry-run"), maxCostUsd, force, grantIds });
+}
+
+function readCsvArg(name: string): ReadonlySet<string> | null {
+  const raw = readArg(name);
+  if (raw === undefined) return null;
+  const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) throw new Error(`--${name}에는 값이 하나 이상 필요합니다.`);
+  return new Set(values);
 }
 
 /** DB 커넥션이 로드된 경우에만 닫는다(dry-run·audit 은 no-op) — batch.ts 관행. */

@@ -2,9 +2,12 @@
 // §9 완화 개정(2026-07-23 사용자 승인): 사람 UI 감사를 AI 2차 판정으로 자동화한다.
 //
 // 실행: pnpm lab:ai-audit -- [--dry-run] [--limit=50] [--max-cost-usd=5] [--model=...] [--force]
+//   [--grant-ids=<uuid,uuid,...>] [--create-missing]
 //   대상: 감사 파일(<runId>.audit.<채택모델슬러그>.json)이 이미 존재하고 미판정 항목
 //   (humanVerdict null · aiAudit 미기록)이 있는 전 공고. 감사 파일 미생성 공고는 대상이
 //   아니다(생성은 감사 시트 GET/audit-store 소관 — 대상 목록 동결 원칙).
+//   단, 복구 재분석처럼 정확한 --grant-ids 를 함께 준 --create-missing 은 지정 런의 감사
+//   파일을 먼저 동결한 뒤 같은 실행에서 판정한다.
 //   --dry-run 은 대상·예상 비용만 출력(API 호출 0). --force 는 aiAudit 기록 항목 재판정
 //   (humanVerdict 보유 항목은 어떤 경우에도 불변).
 // 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. 사람 review.json 과
@@ -14,7 +17,12 @@ import { join } from "node:path";
 import { AI_REVIEW_ADOPTED, isAiAuditConcur, type LabAudit, type LabRun } from "@/features/dev/analysis-lab/contract";
 import { AI_AUDIT_PROMPT_VERSION, resolveAiAuditModel, runAiAudit, selectPendingAuditItems } from "./ai-audit";
 import { computeAiReviewCostUsd, modelSlug } from "./ai-review";
-import { collectAiReviewsForAudit, isLabAuditComplete, readLabAuditFileAt } from "./audit-store";
+import {
+  collectAiReviewsForAudit,
+  isLabAuditComplete,
+  loadOrCreateLabAudit,
+  readLabAuditFileAt,
+} from "./audit-store";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 
 loadMonorepoEnv();
@@ -81,6 +89,8 @@ async function main(): Promise<number> {
   const reviewModel = AI_REVIEW_ADOPTED.model;
   const force = hasFlag("force");
   const dryRun = hasFlag("dry-run");
+  const grantIds = readCsvArg("grant-ids");
+  const createMissing = hasFlag("create-missing");
   const limit = readNumberArg("limit", DEFAULT_LIMIT);
   const maxCostUsd = readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
@@ -89,6 +99,10 @@ async function main(): Promise<number> {
   }
   if (maxCostUsd === null || maxCostUsd <= 0) {
     console.error("[ai-audit] 설정 오류: --max-cost-usd 는 0보다 큰 숫자여야 합니다.");
+    return 1;
+  }
+  if (createMissing && !grantIds) {
+    console.error("[ai-audit] --create-missing 은 정확한 --grant-ids 와 함께 사용해야 합니다.");
     return 1;
   }
   // 클로저(worker) 안에서도 non-null 로 좁혀지도록 별도 상수에 고정한다.
@@ -108,7 +122,35 @@ async function main(): Promise<number> {
 
   // 대상 수집 — 채택 모델 AI 검수 풀(사람 review.json 보유 공고 제외)에서 감사 파일이
   // 이미 존재하는 런만. 감사 파일 미생성 공고는 안내만 하고 건너뛴다.
-  const collected = await collectAiReviewsForAudit(reviewModel, { quiet: true });
+  const allCollected = await collectAiReviewsForAudit(reviewModel, { quiet: true });
+  const collected = grantIds
+    ? allCollected.filter((item) => grantIds.has(item.review.grantId))
+    : allCollected;
+  if (grantIds) {
+    const found = new Set(collected.map((item) => item.review.grantId));
+    const missing = [...grantIds].filter((grantId) => !found.has(grantId));
+    if (missing.length > 0) {
+      console.error(`[ai-audit] --grant-ids 중 채택 모델 AI 검수가 없는 공고: ${missing.join(", ")}`);
+      return 1;
+    }
+  }
+  if (createMissing) {
+    for (const item of collected) {
+      if (!item.run || item.run.error !== null) continue;
+      const outcome = await loadOrCreateLabAudit({
+        grantId: item.run.grantId,
+        runId: item.run.runId,
+        model: reviewModel,
+      });
+      if (outcome.status !== "ok") {
+        console.error(`[ai-audit] 감사 파일 생성 실패: ${item.run.runId} (${outcome.status})`);
+        return 1;
+      }
+      console.log(
+        `[ai-audit] 감사 파일 ${outcome.created ? "생성" : "재사용"}: ${item.run.runId} · ${outcome.audit.items.length}항목`,
+      );
+    }
+  }
   const slug = modelSlug(reviewModel);
   const targets: AuditTargetEntry[] = [];
   let noAuditFile = 0;
@@ -252,6 +294,14 @@ async function main(): Promise<number> {
     `완료 상태(전 항목 확정 — 게이트 편입 가능)가 된 감사 ${completedAudits}건 · 총비용 $${totalCostUsd.toFixed(4)}${costCapped ? " · 비용 상한 도달" : ""}`,
   );
   return 0;
+}
+
+function readCsvArg(name: string): ReadonlySet<string> | null {
+  const raw = readArg(name);
+  if (raw === undefined) return null;
+  const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) throw new Error(`--${name}에는 값이 하나 이상 필요합니다.`);
+  return new Set(values);
 }
 
 /** DB 커넥션이 로드된 경우에만 닫는다(dry-run 은 no-op) — ai-review-cli 관행. */

@@ -1,4 +1,5 @@
 // 주간 사람 검수 배분 CLI. 기본은 DB 쓰기, --dry-run은 계획만 출력한다.
+// 복구 재분석은 --grant-ids 와 --batch-key 를 함께 써 기존 주간 배치와 분리할 수 있다.
 import { readFile } from "node:fs/promises";
 import { eq, inArray } from "drizzle-orm";
 import { AI_REVIEW_ADOPTED } from "@/features/dev/analysis-lab/contract";
@@ -29,11 +30,19 @@ const DEFAULT_OVERLAP_RATIO = 0.15;
 async function main(): Promise<number> {
   const week = readArg("week")?.trim() || isoWeek(new Date());
   if (!/^\d{4}-W\d{2}$/.test(week)) throw new Error("--week는 YYYY-Www 형식이어야 합니다.");
+  const grantIds = readCsvArg("grant-ids");
+  const batchKey = readArg("batch-key")?.trim() || week;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(batchKey)) {
+    throw new Error("--batch-key는 영문/숫자로 시작하는 100자 이하 영문·숫자·점·밑줄·하이픈이어야 합니다.");
+  }
+  if (batchKey !== week && !grantIds) {
+    throw new Error("사용자 지정 --batch-key는 정확한 --grant-ids 와 함께 사용해야 합니다.");
+  }
   const reviewerEmails = (readArg("reviewers")?.split(",") ?? DEFAULT_REVIEWERS)
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean);
   if (reviewerEmails.length < 2) throw new Error("독립 중복 표본을 위해 reviewer 2명 이상이 필요합니다.");
-  const seed = normalizeDispatchSeed(integerArg("seed") ?? weekSeed(week));
+  const seed = normalizeDispatchSeed(integerArg("seed") ?? weekSeed(batchKey));
   const questionLimit = integerArg("question-limit") ?? 15;
   if (questionLimit < 0) throw new Error("--question-limit은 0 이상의 정수여야 합니다.");
   const dryRun = process.argv.includes("--dry-run");
@@ -43,10 +52,10 @@ async function main(): Promise<number> {
   const existingBatches = await db
     .select({ id: schema.auditDispatchBatches.id })
     .from(schema.auditDispatchBatches)
-    .where(eq(schema.auditDispatchBatches.week, week))
+    .where(eq(schema.auditDispatchBatches.week, batchKey))
     .limit(1);
   if (existingBatches[0]) {
-    console.log(`[dispatch] ${week} 배치가 이미 존재합니다(${existingBatches[0].id}) — 멱등 종료.`);
+    console.log(`[dispatch] ${batchKey} 배치가 이미 존재합니다(${existingBatches[0].id}) — 멱등 종료.`);
     return 0;
   }
 
@@ -80,7 +89,17 @@ async function main(): Promise<number> {
     );
   const distributed = new Set(distributedRows.map((row) => `${row.runId}:${row.sourceItemKey}`));
 
-  const collected = await collectAiReviewsForAudit(AI_REVIEW_ADOPTED.model, { quiet: true });
+  const allCollected = await collectAiReviewsForAudit(AI_REVIEW_ADOPTED.model, { quiet: true });
+  const collected = grantIds
+    ? allCollected.filter((entry) => grantIds.has(entry.review.grantId))
+    : allCollected;
+  if (grantIds) {
+    const found = new Set(collected.map((entry) => entry.review.grantId));
+    const missing = [...grantIds].filter((grantId) => !found.has(grantId));
+    if (missing.length > 0) {
+      throw new Error(`--grant-ids 중 채택 모델 AI 검수가 없는 공고: ${missing.join(", ")}`);
+    }
+  }
   const notices: DispatchNoticeCandidate[] = [];
   const auditFileByRun = new Map<string, { path: string; sha256: string }>();
   for (const entry of collected) {
@@ -118,7 +137,7 @@ async function main(): Promise<number> {
   const logicalItemCount = limitedNotices.reduce((sum, notice) => sum + notice.items.length, 0);
   const blindAssignmentCount = assignments.filter((assignment) => assignment.blind).length;
   console.log(
-    `[dispatch] ${week} · seed ${seed} · 공고 ${limitedNotices.length} · 항목 ${logicalItemCount} · ` +
+    `[dispatch] ${batchKey} · seed ${seed} · 공고 ${limitedNotices.length} · 항목 ${logicalItemCount} · ` +
     `배정 row ${assignments.length} · blind row ${blindAssignmentCount}`,
   );
   for (const [index, reviewer] of reviewers.entries()) {
@@ -145,7 +164,7 @@ async function main(): Promise<number> {
     const [batch] = await tx
       .insert(schema.auditDispatchBatches)
       .values({
-        week,
+        week: batchKey,
         seed,
         reviewerIds: reviewers.map((reviewer) => reviewer.id),
         overlapRatio: DEFAULT_OVERLAP_RATIO,
@@ -221,6 +240,14 @@ function integerArg(name: string): number | null {
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) throw new Error(`--${name}은 정수여야 합니다.`);
   return parsed;
+}
+
+function readCsvArg(name: string): ReadonlySet<string> | null {
+  const raw = readArg(name);
+  if (raw === undefined) return null;
+  const values = raw.split(",").map((value) => value.trim()).filter(Boolean);
+  if (values.length === 0) throw new Error(`--${name}에는 값이 하나 이상 필요합니다.`);
+  return new Set(values);
 }
 
 function weekSeed(week: string): number {
