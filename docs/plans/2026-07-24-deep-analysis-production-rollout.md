@@ -1738,6 +1738,28 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - `criteria 보유`가 deep complete로 계산되는 경로 0
 - 기준선 conservation equation 성립
 
+구현 체크포인트 A (2026-07-25):
+
+- [x] `deep-analysis-active-kst-v1` 정책으로 KST 활성 eligibility를 공용 contract와
+  Drizzle SQL에 고정했다.
+- [x] S0~S14 stage, stage status, 22축 status, attachment disposition을
+  `@cunote/contracts`에 고정했다.
+- [x] 22축 exact set과 `analysis_complete`/`publication_complete`/
+  `serving_complete`/`fresh`를 서로 다른 플래그로 계산한다.
+- [x] 기존 criteria 보유 여부를 완료로 추정하지 않는 read-only verifier를 추가했다.
+- [x] 실데이터 기준선은 활성 624, HWP/HWPX 보유 395, 첨부 656, archive 211,
+  converted 14, failed 6, criteria 보유 623, deep provenance 0이다.
+- [x] 원장이 아직 없으므로 624건 전부를
+  `deep_analysis_instrumentation_missing` blocker로 분류했고,
+  `624 = 0 + 0 + 0 + 624 + 0` 보존식이 성립한다.
+- [x] 불변 기준선은
+  `spike-out/deep-analysis/baselines/active-2026-07-24T23-44-41-076Z.json`에
+  기록했다. 이 경로는 gitignored 운영 증적이며 소스에는 포함하지 않는다.
+- [x] `pnpm verify:deep-analysis-contract`,
+  `pnpm --filter @cunote/contracts typecheck`,
+  `pnpm --filter @cunote/web typecheck`,
+  `pnpm verify:active-deep-analysis -- --stdout-only`가 통과했다.
+
 #### Phase B. 운영 run·stage 원장
 
 작업:
