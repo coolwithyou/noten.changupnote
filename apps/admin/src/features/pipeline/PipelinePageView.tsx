@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState, useTransition } from "react"
+import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   AlertTriangleIcon,
@@ -8,8 +8,21 @@ import {
   Clock3Icon,
   RefreshCwIcon,
   SearchIcon,
+  ShieldCheckIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -34,9 +47,11 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@/components/ui/toggle-group"
+import { PipelineCanvas } from "./PipelineCanvas"
 import { PipelineNoticeSheet } from "./PipelineNoticeSheet"
 import { PipelineQueue } from "./PipelineQueue"
 import {
+  PIPELINE_ACTION_LABELS,
   PIPELINE_LENSES,
   PIPELINE_LENS_LABELS,
   PIPELINE_SOURCES,
@@ -45,6 +60,9 @@ import {
   isPipelineLens,
   isPipelineSource,
   type PipelineBucket,
+  type PipelineAction,
+  type PipelineActionResponse,
+  type PipelineActionTarget,
   type PipelineLens,
   type PipelineNoticeItem,
   type PipelineNoticesResult,
@@ -57,12 +75,21 @@ interface PipelinePageViewProps {
   initialSummary: PipelineSummary
   initialNotices: PipelineNoticesResult
   query: PipelineQueryState
+  canMutate: boolean
+  canReconvert: boolean
+}
+
+interface PendingAction {
+  action: PipelineAction
+  targets: PipelineActionTarget[]
 }
 
 export function PipelinePageView({
   initialSummary,
   initialNotices,
   query,
+  canMutate,
+  canReconvert,
 }: PipelinePageViewProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -70,10 +97,24 @@ export function PipelinePageView({
   const [summary, setSummary] = useState(initialSummary)
   const [selectedNotice, setSelectedNotice] = useState<PipelineNoticeItem | null>(null)
   const [searchText, setSearchText] = useState(query.q)
+  const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
+  const [isActionPending, setIsActionPending] = useState(false)
+  const [actionRefreshToken, setActionRefreshToken] = useState(0)
+  const lastJumpQuery = useRef<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => setSummary(initialSummary), [initialSummary])
   useEffect(() => setSearchText(query.q), [query.q])
+  useEffect(() => {
+    if (
+      query.q
+      && initialNotices.items.length === 1
+      && lastJumpQuery.current !== query.q
+    ) {
+      lastJumpQuery.current = query.q
+      setSelectedNotice(initialNotices.items[0] ?? null)
+    }
+  }, [initialNotices.items, query.q])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -125,6 +166,58 @@ export function PipelinePageView({
   const changeSort = useCallback((sort: PipelineSort) => {
     pushQuery({ sort })
   }, [pushQuery])
+  const requestAction = useCallback((
+    action: PipelineAction,
+    targets: PipelineActionTarget[],
+  ) => {
+    if (!canMutate) {
+      toast.error("이 작업은 admin 이상의 권한이 필요합니다.")
+      return
+    }
+    if (action === "reconvert" && !canReconvert) {
+      toast.error("변환 서버 연결이 설정되지 않아 재변환을 요청할 수 없습니다.")
+      return
+    }
+    setPendingAction({ action, targets })
+  }, [canMutate, canReconvert])
+  const executeAction = useCallback(async () => {
+    if (!pendingAction || isActionPending) return
+    setIsActionPending(true)
+    try {
+      const response = await fetch("/api/admin/pipeline/actions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          requestId: crypto.randomUUID(),
+          action: pendingAction.action,
+          targets: pendingAction.targets,
+        }),
+      })
+      const body = await response.json() as {
+        data?: PipelineActionResponse
+        error?: { message?: string }
+      }
+      if (!response.ok || !body.data) {
+        throw new Error(body.error?.message ?? "공고 관제 액션을 처리하지 못했습니다.")
+      }
+      const { totals } = body.data
+      const message = pendingAction.action === "mark_reviewed"
+        ? `${totals.succeeded}건 검수 완료 · criteria ${totals.affected}건 갱신`
+        : `${totals.succeeded}건 성공 · 변환 job ${totals.affected}건 요청`
+      if (totals.failed > 0 || totals.partial > 0) {
+        toast.warning(`${message} · 부분/실패 ${totals.partial + totals.failed}건`)
+      } else {
+        toast.success(message)
+      }
+      setPendingAction(null)
+      setActionRefreshToken((value) => value + 1)
+      startTransition(() => router.refresh())
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "공고 관제 액션을 처리하지 못했습니다.")
+    } finally {
+      setIsActionPending(false)
+    }
+  }, [isActionPending, pendingAction, router])
 
   return (
     <main className="flex flex-col gap-6 p-4 md:p-6">
@@ -138,6 +231,11 @@ export function PipelinePageView({
             <Badge variant="outline">
               <Spinner data-icon="inline-start" />
               갱신 중
+            </Badge>
+          ) : null}
+          {!canReconvert ? (
+            <Badge title="CONVERSION_SERVER_URL과 CONVERSION_SHARED_SECRET이 필요합니다." variant="outline">
+              재변환 서버 미연결
             </Badge>
           ) : null}
         </div>
@@ -239,6 +337,14 @@ export function PipelinePageView({
         </CardContent>
       </Card>
 
+      <PipelineCanvas
+        summary={summary}
+        activeBucket={query.bucket}
+        activeSource={query.source}
+        onBucketChange={changeBucket}
+        onSourceChange={changeSource}
+      />
+
       <Card>
         <CardHeader>
           <CardTitle>트리아지 큐</CardTitle>
@@ -308,7 +414,13 @@ export function PipelinePageView({
           <PipelineQueue
             items={initialNotices.items}
             sort={query.sort}
+            canMutate={canMutate}
+            canReconvert={canReconvert}
+            resetSelectionToken={actionRefreshToken}
+            openNoticeId={selectedNotice?.grantId ?? null}
+            onClose={() => setSelectedNotice(null)}
             onOpen={setSelectedNotice}
+            onRequestAction={requestAction}
             onSortChange={changeSort}
           />
 
@@ -339,8 +451,46 @@ export function PipelinePageView({
 
       <PipelineNoticeSheet
         notice={selectedNotice}
+        canMutate={canMutate}
+        canReconvert={canReconvert}
+        refreshToken={actionRefreshToken}
         onClose={() => setSelectedNotice(null)}
+        onRequestAction={requestAction}
       />
+
+      <AlertDialog
+        open={Boolean(pendingAction)}
+        onOpenChange={(open) => {
+          if (!open && !isActionPending) setPendingAction(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogMedia>
+              <ShieldCheckIcon />
+            </AlertDialogMedia>
+            <AlertDialogTitle>
+              {pendingAction ? PIPELINE_ACTION_LABELS[pendingAction.action] : "공고 관제 액션"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              선택한 {pendingAction?.targets.length.toLocaleString("ko-KR") ?? 0}건에
+              {pendingAction?.action === "mark_reviewed"
+                ? " 검수 완료 상태를 기록하고 추출 이력을 남깁니다."
+                : " 변환 서버 재처리를 요청합니다. 완료 결과는 변환 폴링에서 반영됩니다."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isActionPending}>취소</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isActionPending}
+              onClick={() => void executeAction()}
+            >
+              {isActionPending ? <Spinner data-icon="inline-start" /> : null}
+              실행
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </main>
   )
 }

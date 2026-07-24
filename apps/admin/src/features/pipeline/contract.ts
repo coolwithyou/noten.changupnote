@@ -102,6 +102,15 @@ export type PipelineBucket =
   | PipelineStatus
   | DeadlineBucket
 
+export const PIPELINE_ACTIONS = ["mark_reviewed", "reconvert"] as const
+
+export type PipelineAction = (typeof PIPELINE_ACTIONS)[number]
+
+export const PIPELINE_ACTION_LABELS: Record<PipelineAction, string> = {
+  mark_reviewed: "검수 완료",
+  reconvert: "재변환 요청",
+}
+
 export const CRITERION_DIMENSION_LABELS: Record<CriterionDimension, string> = {
   region: "지역",
   biz_age: "업력",
@@ -239,18 +248,72 @@ export interface PipelineHistoryDetail {
   at: string
 }
 
+export interface PipelineAdminActionDetail {
+  id: string
+  requestId: string
+  action: PipelineAction
+  status: "queued" | "succeeded" | "partial" | "failed"
+  actorEmail: string
+  result: Record<string, unknown>
+  error: string | null
+  createdAt: string
+  completedAt: string | null
+}
+
+export interface PipelineGoldenSetDetail {
+  id: string
+  ref: string
+  goldenVer: string
+}
+
 export interface PipelineNoticeDetail {
   notice: PipelineNoticeItem & {
     url: string | null
     parserVersion: string | null
     modelVer: string | null
     promptVer: string | null
+    collectedAt: string | null
     demoHref: string
   }
   criteria: PipelineCriterionDetail[]
   attachments: PipelineAttachmentDetail[]
   surfaces: PipelineSurfaceDetail[]
   history: PipelineHistoryDetail[]
+  adminActions: PipelineAdminActionDetail[]
+  goldenSet: PipelineGoldenSetDetail[]
+}
+
+export interface PipelineActionTarget {
+  source: PipelineSource
+  sourceId: string
+  attachmentIds?: string[]
+}
+
+export interface PipelineActionRequest {
+  requestId: string
+  action: PipelineAction
+  targets: PipelineActionTarget[]
+}
+
+export interface PipelineActionTargetResult extends PipelineActionTarget {
+  grantId: string
+  title: string
+  status: "succeeded" | "partial" | "failed"
+  affectedCount: number
+  message: string
+}
+
+export interface PipelineActionResponse {
+  requestId: string
+  action: PipelineAction
+  totals: {
+    requested: number
+    succeeded: number
+    partial: number
+    failed: number
+    affected: number
+  }
+  results: PipelineActionTargetResult[]
 }
 
 export interface PipelineQueryState {
@@ -312,6 +375,10 @@ export function isPipelineLens(value: string | null): value is PipelineLens {
 
 export function isPipelineSort(value: string | null): value is PipelineSort {
   return PIPELINE_SORTS.includes(value as PipelineSort)
+}
+
+export function isPipelineAction(value: string | null): value is PipelineAction {
+  return PIPELINE_ACTIONS.includes(value as PipelineAction)
 }
 
 export function labelForPipelineBucket(

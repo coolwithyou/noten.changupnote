@@ -1,15 +1,18 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   createColumnHelper,
   flexRender,
   getCoreRowModel,
+  type RowSelectionState,
   useReactTable,
 } from "@tanstack/react-table"
 import {
   ArrowUpDownIcon,
+  CheckCheckIcon,
   ExternalLinkIcon,
+  RotateCcwIcon,
   XIcon,
 } from "lucide-react"
 
@@ -31,6 +34,8 @@ import {
   PIPELINE_SOURCE_LABELS,
   PIPELINE_STATUS_LABELS,
   type ManagementState,
+  type PipelineAction,
+  type PipelineActionTarget,
   type PipelineNoticeItem,
   type PipelineSort,
 } from "./contract"
@@ -40,17 +45,30 @@ const columnHelper = createColumnHelper<PipelineNoticeItem>()
 interface PipelineQueueProps {
   items: PipelineNoticeItem[]
   sort: PipelineSort
+  canMutate: boolean
+  canReconvert: boolean
+  resetSelectionToken: number
+  openNoticeId: string | null
   onOpen: (notice: PipelineNoticeItem) => void
+  onClose: () => void
+  onRequestAction: (action: PipelineAction, targets: PipelineActionTarget[]) => void
   onSortChange: (sort: PipelineSort) => void
 }
 
 export function PipelineQueue({
   items,
   sort,
+  canMutate,
+  canReconvert,
+  resetSelectionToken,
+  openNoticeId,
   onOpen,
+  onClose,
+  onRequestAction,
   onSortChange,
 }: PipelineQueueProps) {
-  const [rowSelection, setRowSelection] = useState({})
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
+  const [activeIndex, setActiveIndex] = useState(0)
   const columns = useMemo(() => [
     columnHelper.display({
       id: "select",
@@ -163,10 +181,106 @@ export function PipelineQueue({
     onRowSelectionChange: setRowSelection,
     getCoreRowModel: getCoreRowModel(),
   })
-  const selectedCount = table.getSelectedRowModel().rows.length
+  const selectedRows = table.getSelectedRowModel().rows.map((row) => row.original)
+  const selectedCount = selectedRows.length
+  const activeNotice = items[activeIndex] ?? null
+  const actionNotices = selectedRows.length > 0
+    ? selectedRows
+    : activeNotice
+      ? [activeNotice]
+      : []
+  const reviewActionNotices = actionNotices.filter(isReviewActionCandidate)
+  const reconvertActionNotices = actionNotices.filter((notice) => notice.attachmentCount > 0)
+  const selectedReviewNotices = selectedRows.filter(isReviewActionCandidate)
+  const selectedReconvertNotices = selectedRows.filter((notice) => notice.attachmentCount > 0)
+
+  useEffect(() => {
+    setRowSelection({})
+  }, [resetSelectionToken])
+  useEffect(() => {
+    setActiveIndex((index) => Math.min(index, Math.max(0, items.length - 1)))
+  }, [items.length])
+
+  const requestForNotices = useCallback((
+    action: PipelineAction,
+    notices: PipelineNoticeItem[],
+  ) => {
+    if (notices.length === 0) return
+    onRequestAction(action, notices.map(toActionTarget))
+  }, [onRequestAction])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return
+      if (document.querySelector("[data-slot='alert-dialog-content']")) return
+      const key = event.key.toLowerCase()
+      if (!["j", "k", "enter", "x", "a", "r"].includes(key)) return
+      if (items.length === 0) return
+
+      if (key === "j" || key === "k") {
+        event.preventDefault()
+        const direction = key === "j" ? 1 : -1
+        const nextIndex = Math.min(items.length - 1, Math.max(0, activeIndex + direction))
+        setActiveIndex(nextIndex)
+        if (openNoticeId) {
+          const nextNotice = items[nextIndex]
+          if (nextNotice) onOpen(nextNotice)
+        }
+        return
+      }
+
+      const active = items[activeIndex]
+      if (!active) return
+      if (key === "enter") {
+        event.preventDefault()
+        if (openNoticeId === active.grantId) onClose()
+        else onOpen(active)
+        return
+      }
+      if (key === "x") {
+        event.preventDefault()
+        setRowSelection((current) => ({
+          ...current,
+          [active.grantId]: !current[active.grantId],
+        }))
+        return
+      }
+      if (!canMutate || event.repeat) return
+      if (key === "a") {
+        event.preventDefault()
+        if (reviewActionNotices.length > 0) {
+          requestForNotices("mark_reviewed", reviewActionNotices)
+        } else if (canReconvert) {
+          requestForNotices("reconvert", reconvertActionNotices)
+        }
+      }
+      if (key === "r") {
+        event.preventDefault()
+        requestForNotices("reconvert", reconvertActionNotices)
+      }
+    }
+    window.addEventListener("keydown", onKeyDown)
+    return () => window.removeEventListener("keydown", onKeyDown)
+  }, [
+    activeIndex,
+    canMutate,
+    canReconvert,
+    items,
+    onClose,
+    onOpen,
+    openNoticeId,
+    reconvertActionNotices,
+    requestForNotices,
+    reviewActionNotices,
+  ])
 
   return (
     <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+        <span>키보드: j/k 이동 · Enter 상세 · x 선택 · a 검수 완료 · r 재변환</span>
+        {activeNotice ? <span>현재 행 {activeIndex + 1}/{items.length}</span> : null}
+      </div>
+
       <div className="overflow-hidden rounded-xl border bg-background">
         <Table>
           <TableHeader>
@@ -184,11 +298,16 @@ export function PipelineQueue({
           </TableHeader>
           <TableBody>
             {table.getRowModel().rows.length > 0 ? (
-              table.getRowModel().rows.map((row) => (
+              table.getRowModel().rows.map((row, index) => (
                 <TableRow
                   key={row.id}
+                  aria-current={index === activeIndex ? "true" : undefined}
                   data-state={row.getIsSelected() ? "selected" : undefined}
-                  className="[content-visibility:auto] [contain-intrinsic-size:auto_3rem]"
+                  className={cn(
+                    "[content-visibility:auto] [contain-intrinsic-size:auto_3rem]",
+                    index === activeIndex && "outline-2 -outline-offset-2 outline-ring",
+                  )}
+                  onMouseEnter={() => setActiveIndex(index)}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -209,18 +328,38 @@ export function PipelineQueue({
       </div>
 
       {selectedCount > 0 ? (
-        <div className="flex items-center justify-between gap-3 rounded-xl border bg-muted/50 p-3">
+        <div className="sticky bottom-4 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-background/95 p-3 shadow-lg backdrop-blur">
           <span className="text-sm">
-            선택 {selectedCount.toLocaleString("ko-KR")}건 · 현재 단계는 읽기 전용입니다.
+            선택 {selectedCount.toLocaleString("ko-KR")}건
           </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => setRowSelection({})}
-          >
-            <XIcon data-icon="inline-start" />
-            선택 해제
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              disabled={!canMutate || selectedReviewNotices.length === 0}
+              size="sm"
+              onClick={() => requestForNotices("mark_reviewed", selectedReviewNotices)}
+            >
+              <CheckCheckIcon data-icon="inline-start" />
+              검수 완료
+            </Button>
+            <Button
+              disabled={!canMutate || !canReconvert || selectedReconvertNotices.length === 0}
+              size="sm"
+              title={!canReconvert ? "변환 서버 연결 환경변수가 필요합니다." : undefined}
+              variant="outline"
+              onClick={() => requestForNotices("reconvert", selectedReconvertNotices)}
+            >
+              <RotateCcwIcon data-icon="inline-start" />
+              재변환
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setRowSelection({})}
+            >
+              <XIcon data-icon="inline-start" />
+              선택 해제
+            </Button>
+          </div>
         </div>
       ) : null}
     </div>
@@ -267,5 +406,23 @@ function Deadline({ value }: { value: number | null }) {
     <span className={cn("tabular-nums", value <= 3 ? "font-semibold text-destructive" : null)}>
       {label}
     </span>
+  )
+}
+
+function toActionTarget(notice: PipelineNoticeItem): PipelineActionTarget {
+  return { source: notice.source, sourceId: notice.sourceId }
+}
+
+function isReviewActionCandidate(notice: PipelineNoticeItem): boolean {
+  return notice.needsReviewCount > 0 || notice.managementState === "needs_admin"
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return (
+    target instanceof HTMLInputElement
+    || target instanceof HTMLTextAreaElement
+    || target instanceof HTMLSelectElement
+    || target.isContentEditable
   )
 }

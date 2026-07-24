@@ -2,10 +2,15 @@
 
 import { useEffect, useState } from "react"
 import {
+  CheckCheckIcon,
+  CheckIcon,
+  CopyIcon,
   ExternalLinkIcon,
   FileTextIcon,
   LoaderCircleIcon,
+  RotateCcwIcon,
 } from "lucide-react"
+import { toast } from "sonner"
 
 import {
   Alert,
@@ -16,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -46,9 +52,12 @@ import {
 import {
   CRITERION_DIMENSION_LABELS,
   MANAGEMENT_STATE_LABELS,
+  PIPELINE_ACTION_LABELS,
   PIPELINE_CRITERION_DIMENSIONS,
   PIPELINE_SOURCE_LABELS,
   PIPELINE_STATUS_LABELS,
+  type PipelineAction,
+  type PipelineActionTarget,
   type PipelineCriterionDetail,
   type PipelineNoticeDetail,
   type PipelineNoticeItem,
@@ -56,15 +65,24 @@ import {
 
 interface PipelineNoticeSheetProps {
   notice: PipelineNoticeItem | null
+  canMutate: boolean
+  canReconvert: boolean
+  refreshToken: number
   onClose: () => void
+  onRequestAction: (action: PipelineAction, targets: PipelineActionTarget[]) => void
 }
 
 export function PipelineNoticeSheet({
   notice,
+  canMutate,
+  canReconvert,
+  refreshToken,
   onClose,
+  onRequestAction,
 }: PipelineNoticeSheetProps) {
   const [detail, setDetail] = useState<PipelineNoticeDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     if (!notice) {
@@ -76,6 +94,7 @@ export function PipelineNoticeSheet({
     const controller = new AbortController()
     setDetail(null)
     setError(null)
+    setCopied(false)
     void fetch(
       `/api/admin/pipeline/notices/${encodeURIComponent(notice.source)}/${encodeURIComponent(notice.sourceId)}`,
       { signal: controller.signal },
@@ -96,7 +115,11 @@ export function PipelineNoticeSheet({
       })
 
     return () => controller.abort()
-  }, [notice])
+  }, [notice, refreshToken])
+
+  const target = notice
+    ? { source: notice.source, sourceId: notice.sourceId }
+    : null
 
   return (
     <Sheet open={Boolean(notice)} onOpenChange={(open) => {
@@ -113,9 +136,29 @@ export function PipelineNoticeSheet({
           </div>
           <SheetTitle>{notice?.title ?? "공고 상세"}</SheetTitle>
           <SheetDescription>
-            {notice
-              ? `${notice.agency ?? "기관 미상"} · ${formatDeadline(notice.dDay)} · ${notice.sourceId}`
-              : "공고의 criteria, 첨부와 처리 이력을 확인합니다."}
+            {notice ? (
+              <span className="flex flex-wrap items-center gap-2">
+                <span>{notice.agency ?? "기관 미상"} · {formatDeadline(notice.dDay)}</span>
+                <Button
+                  aria-label="sourceId 복사"
+                  className="h-6 px-1.5"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(notice.sourceId)
+                      .then(() => {
+                        setCopied(true)
+                        toast.success("sourceId를 복사했습니다.")
+                        window.setTimeout(() => setCopied(false), 1500)
+                      })
+                      .catch(() => toast.error("sourceId를 복사하지 못했습니다."))
+                  }}
+                >
+                  {copied ? <CheckIcon /> : <CopyIcon />}
+                  {notice.sourceId}
+                </Button>
+              </span>
+            ) : "공고의 criteria, 첨부와 처리 이력을 확인합니다."}
           </SheetDescription>
         </SheetHeader>
 
@@ -126,17 +169,60 @@ export function PipelineNoticeSheet({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           ) : detail ? (
-            <NoticeDetailTabs detail={detail} />
+            <NoticeDetailTabs
+              detail={detail}
+              canMutate={canMutate}
+              canReconvert={canReconvert}
+              onRequestAction={onRequestAction}
+            />
           ) : (
             <DetailSkeleton />
           )}
         </div>
+
+        {notice && target ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background/95 p-4 backdrop-blur">
+            <span className="text-xs text-muted-foreground">
+              j/k 다음 공고 · Enter 닫기 · a 검수 완료 · r 재변환
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {notice.needsReviewCount > 0 || notice.managementState === "needs_admin" ? (
+                <Button
+                  disabled={!canMutate}
+                  onClick={() => onRequestAction("mark_reviewed", [target])}
+                >
+                  <CheckCheckIcon data-icon="inline-start" />
+                  검수 완료
+                </Button>
+              ) : (
+                <Button
+                  disabled={!canMutate || !canReconvert || notice.attachmentCount === 0}
+                  title={!canReconvert ? "변환 서버 연결 환경변수가 필요합니다." : undefined}
+                  onClick={() => onRequestAction("reconvert", [target])}
+                >
+                  <RotateCcwIcon data-icon="inline-start" />
+                  재변환 요청
+                </Button>
+              )}
+            </div>
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   )
 }
 
-function NoticeDetailTabs({ detail }: { detail: PipelineNoticeDetail }) {
+function NoticeDetailTabs({
+  detail,
+  canMutate,
+  canReconvert,
+  onRequestAction,
+}: {
+  detail: PipelineNoticeDetail
+  canMutate: boolean
+  canReconvert: boolean
+  onRequestAction: (action: PipelineAction, targets: PipelineActionTarget[]) => void
+}) {
   return (
     <Tabs defaultValue="criteria">
       <TabsList variant="line" className="w-full justify-start overflow-x-auto">
@@ -146,10 +232,19 @@ function NoticeDetailTabs({ detail }: { detail: PipelineNoticeDetail }) {
         <TabsTrigger value="history">이력</TabsTrigger>
       </TabsList>
       <TabsContent value="criteria" className="pt-4">
-        <CriteriaTable detail={detail} />
+        <CriteriaTable
+          detail={detail}
+          canMutate={canMutate}
+          onRequestAction={onRequestAction}
+        />
       </TabsContent>
       <TabsContent value="attachments" className="pt-4">
-        <AttachmentPanel detail={detail} />
+        <AttachmentPanel
+          detail={detail}
+          canMutate={canMutate}
+          canReconvert={canReconvert}
+          onRequestAction={onRequestAction}
+        />
       </TabsContent>
       <TabsContent value="demo" className="pt-4">
         <DemoPanel detail={detail} />
@@ -161,7 +256,15 @@ function NoticeDetailTabs({ detail }: { detail: PipelineNoticeDetail }) {
   )
 }
 
-function CriteriaTable({ detail }: { detail: PipelineNoticeDetail }) {
+function CriteriaTable({
+  detail,
+  canMutate,
+  onRequestAction,
+}: {
+  detail: PipelineNoticeDetail
+  canMutate: boolean
+  onRequestAction: (action: PipelineAction, targets: PipelineActionTarget[]) => void
+}) {
   const byDimension = new Map<
     PipelineCriterionDetail["dimension"],
     PipelineCriterionDetail[]
@@ -218,7 +321,18 @@ function CriteriaTable({ detail }: { detail: PipelineNoticeDetail }) {
                 </TableCell>
                 <TableCell>
                   {needsReview ? (
-                    <Badge variant="destructive">필요</Badge>
+                    <Button
+                      disabled={!canMutate}
+                      size="sm"
+                      variant="outline"
+                      onClick={() => onRequestAction("mark_reviewed", [{
+                        source: detail.notice.source,
+                        sourceId: detail.notice.sourceId,
+                      }])}
+                    >
+                      <CheckCheckIcon data-icon="inline-start" />
+                      검수 완료
+                    </Button>
                   ) : criteria.length > 0 ? (
                     <Badge variant="secondary">없음</Badge>
                   ) : (
@@ -234,7 +348,17 @@ function CriteriaTable({ detail }: { detail: PipelineNoticeDetail }) {
   )
 }
 
-function AttachmentPanel({ detail }: { detail: PipelineNoticeDetail }) {
+function AttachmentPanel({
+  detail,
+  canMutate,
+  canReconvert,
+  onRequestAction,
+}: {
+  detail: PipelineNoticeDetail
+  canMutate: boolean
+  canReconvert: boolean
+  onRequestAction: (action: PipelineAction, targets: PipelineActionTarget[]) => void
+}) {
   return (
     <div className="flex flex-col gap-4">
       <Card>
@@ -243,6 +367,22 @@ function AttachmentPanel({ detail }: { detail: PipelineNoticeDetail }) {
           <CardDescription>
             {detail.attachments.length.toLocaleString("ko-KR")}개 파일의 변환 상태입니다.
           </CardDescription>
+          <CardAction>
+            <Button
+              disabled={!canMutate || !canReconvert || detail.attachments.length === 0}
+              size="sm"
+              title={!canReconvert ? "변환 서버 연결 환경변수가 필요합니다." : undefined}
+              variant="outline"
+              onClick={() => onRequestAction("reconvert", [{
+                source: detail.notice.source,
+                sourceId: detail.notice.sourceId,
+                attachmentIds: detail.attachments.map((attachment) => attachment.id),
+              }])}
+            >
+              <RotateCcwIcon data-icon="inline-start" />
+              전체 재변환
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent>
           <div className="overflow-hidden rounded-xl border">
@@ -254,6 +394,7 @@ function AttachmentPanel({ detail }: { detail: PipelineNoticeDetail }) {
                   <TableHead>크기</TableHead>
                   <TableHead>변환</TableHead>
                   <TableHead>Markdown</TableHead>
+                  <TableHead>액션</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -295,10 +436,27 @@ function AttachmentPanel({ detail }: { detail: PipelineNoticeDetail }) {
                         <span className="text-muted-foreground">없음</span>
                       )}
                     </TableCell>
+                    <TableCell>
+                      <Button
+                        aria-label={`${attachment.filename} 재변환`}
+                        disabled={!canMutate || !canReconvert}
+                        size="sm"
+                        title={!canReconvert ? "변환 서버 연결 환경변수가 필요합니다." : undefined}
+                        variant="ghost"
+                        onClick={() => onRequestAction("reconvert", [{
+                          source: detail.notice.source,
+                          sourceId: detail.notice.sourceId,
+                          attachmentIds: [attachment.id],
+                        }])}
+                      >
+                        <RotateCcwIcon data-icon="inline-start" />
+                        재변환
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={5} className="h-24 text-center">
+                    <TableCell colSpan={6} className="h-24 text-center">
                       보관된 첨부가 없습니다.
                     </TableCell>
                   </TableRow>
@@ -384,43 +542,110 @@ function HistoryPanel({ detail }: { detail: PipelineNoticeDetail }) {
           <CardTitle>현재 버전</CardTitle>
           <CardDescription>공고 정본에 기록된 parser/model/prompt 버전입니다.</CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
+        <CardContent className="grid gap-3 sm:grid-cols-2">
+          <VersionField label="수집 시각" value={formatOptionalDateTime(detail.notice.collectedAt)} />
           <VersionField label="Parser" value={detail.notice.parserVersion} />
           <VersionField label="Model" value={detail.notice.modelVer} />
           <VersionField label="Prompt" value={detail.notice.promptVer} />
         </CardContent>
       </Card>
 
-      <div className="overflow-hidden rounded-xl border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>시각</TableHead>
-              <TableHead>상태</TableHead>
-              <TableHead>확신도</TableHead>
-              <TableHead>Model</TableHead>
-              <TableHead>Prompt</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {detail.history.length > 0 ? detail.history.map((entry) => (
-              <TableRow key={entry.id}>
-                <TableCell>{formatDateTime(entry.at)}</TableCell>
-                <TableCell><Badge variant="outline">{entry.status}</Badge></TableCell>
-                <TableCell className="tabular-nums">{Math.round(entry.confidence * 100)}%</TableCell>
-                <TableCell>{entry.modelVer}</TableCell>
-                <TableCell>{entry.promptVer}</TableCell>
-              </TableRow>
+      <Card>
+        <CardHeader>
+          <CardTitle>변환·골든셋</CardTitle>
+          <CardDescription>첨부 변환 시각과 extraction golden 승격 여부입니다.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <div className="flex flex-wrap gap-2">
+            {detail.attachments
+              .filter((attachment) => attachment.convertedAt)
+              .map((attachment) => (
+                <Badge key={attachment.id} variant="outline">
+                  {attachment.filename} · {formatOptionalDateTime(attachment.convertedAt)}
+                </Badge>
+              ))}
+            {detail.attachments.every((attachment) => !attachment.convertedAt) ? (
+              <span className="text-sm text-muted-foreground">기록된 변환 완료 시각이 없습니다.</span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {detail.goldenSet.length > 0 ? detail.goldenSet.map((golden) => (
+              <Badge key={golden.id} variant="secondary">
+                golden_set · {golden.goldenVer}
+              </Badge>
             )) : (
-              <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center">
-                  추출 이력이 없습니다.
-                </TableCell>
-              </TableRow>
+              <Badge variant="outline">golden_set 미승격</Badge>
             )}
-          </TableBody>
-        </Table>
-      </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>관리자 액션</CardTitle>
+          <CardDescription>admin_users 주체로 남긴 검수·재변환 감사 이력입니다.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2">
+          {detail.adminActions.length > 0 ? detail.adminActions.map((action) => (
+            <div
+              key={action.id}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+            >
+              <div>
+                <p className="font-medium">{PIPELINE_ACTION_LABELS[action.action]}</p>
+                <p className="text-xs text-muted-foreground">
+                  {action.actorEmail} · {formatDateTime(action.createdAt)}
+                </p>
+                {action.error ? <p className="mt-1 text-xs text-destructive">{action.error}</p> : null}
+              </div>
+              <Badge variant={action.status === "failed" ? "destructive" : "outline"}>
+                {action.status}
+              </Badge>
+            </div>
+          )) : (
+            <span className="text-sm text-muted-foreground">관리자 액션 이력이 없습니다.</span>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>추출 이력</CardTitle>
+          <CardDescription>최신 50건의 extraction_log입니다.</CardDescription>
+        </CardHeader>
+        <CardContent className="p-0">
+          <div className="overflow-hidden rounded-xl border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>시각</TableHead>
+                  <TableHead>상태</TableHead>
+                  <TableHead>확신도</TableHead>
+                  <TableHead>Model</TableHead>
+                  <TableHead>Prompt</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {detail.history.length > 0 ? detail.history.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell>{formatDateTime(entry.at)}</TableCell>
+                    <TableCell><Badge variant="outline">{entry.status}</Badge></TableCell>
+                    <TableCell className="tabular-nums">{Math.round(entry.confidence * 100)}%</TableCell>
+                    <TableCell>{entry.modelVer}</TableCell>
+                    <TableCell>{entry.promptVer}</TableCell>
+                  </TableRow>
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-24 text-center">
+                      추출 이력이 없습니다.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
@@ -467,6 +692,10 @@ function formatDateTime(value: string): string {
     timeStyle: "short",
     timeZone: "Asia/Seoul",
   }).format(new Date(value))
+}
+
+function formatOptionalDateTime(value: string | null): string {
+  return value ? formatDateTime(value) : "없음"
 }
 
 function uniqueLabels(values: Array<string | null>): string {

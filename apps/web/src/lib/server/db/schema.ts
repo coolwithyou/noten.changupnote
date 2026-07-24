@@ -729,6 +729,9 @@ export const grantCriteria = pgTable("grant_criteria", {
   dimensionGrantIdx: index("grant_criteria_dimension_grant_idx").on(table.dimension, table.grantId),
   operatorGrantIdx: index("grant_criteria_operator_grant_idx").on(table.operator, table.grantId),
   reviewIdx: index("grant_criteria_review_idx").on(table.needsReview),
+  needsReviewGrantIdx: index("grant_criteria_needs_review_grant_idx")
+    .on(table.grantId)
+    .where(sql`${table.needsReview} = true`),
 }));
 
 export const grantAttachmentArchives = pgTable("grant_attachment_archives", {
@@ -757,6 +760,47 @@ export const grantAttachmentArchives = pgTable("grant_attachment_archives", {
     .on(table.source, table.sourceId, table.filename, table.sourceUri),
   sourceIdIdx: index("grant_attachment_archives_source_id_idx").on(table.source, table.sourceId),
   shaIdx: index("grant_attachment_archives_sha_idx").on(table.sha256),
+}));
+
+/**
+ * 공고 관제에서 실행한 관리자 쓰기 액션의 감사 이력.
+ *
+ * extraction_log.reviewer는 공개 users FK이므로 admin_users.id를 넣지 않는다.
+ * 대신 이 테이블이 관리자 주체와 멱등 request id, 대상별 결과를 보존하고
+ * extraction_log.output은 이 레코드 id만 참조한다.
+ */
+export const adminPipelineActions = pgTable("admin_pipeline_actions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  requestId: uuid("request_id").notNull(),
+  adminUserId: uuid("admin_user_id").notNull().references(() => adminUsers.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").references(() => grants.id, { onDelete: "set null" }),
+  source: grantSourceEnum("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  grantTitle: text("grant_title").notNull(),
+  action: text("action").notNull(),
+  status: text("status").default("queued").notNull(),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  result: jsonb("result").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+}, (table) => ({
+  requestTargetIdx: uniqueIndex("admin_pipeline_actions_request_target_idx")
+    .on(table.requestId, table.grantId, table.action),
+  grantCreatedIdx: index("admin_pipeline_actions_grant_created_idx")
+    .on(table.grantId, table.createdAt),
+  adminCreatedIdx: index("admin_pipeline_actions_admin_created_idx")
+    .on(table.adminUserId, table.createdAt),
+  statusCreatedIdx: index("admin_pipeline_actions_status_created_idx")
+    .on(table.status, table.createdAt),
+  actionCheck: check(
+    "admin_pipeline_actions_action_check",
+    sql`${table.action} in ('mark_reviewed', 'reconvert')`,
+  ),
+  statusCheck: check(
+    "admin_pipeline_actions_status_check",
+    sql`${table.status} in ('queued', 'succeeded', 'partial', 'failed')`,
+  ),
 }));
 
 export const grantDocumentFields = pgTable("grant_document_fields", {
@@ -1016,6 +1060,7 @@ export const extractionLog = pgTable("extraction_log", {
   ts: timestamp("ts", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   statusIdx: index("extraction_log_status_idx").on(table.status),
+  grantTsIdx: index("extraction_log_grant_ts_idx").on(table.grantId, table.ts),
 }));
 
 export const goldenSet = pgTable("golden_set", {

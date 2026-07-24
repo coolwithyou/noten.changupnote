@@ -10,6 +10,7 @@ import {
   PIPELINE_STATUSES,
   type DeadlineBucket,
   type ManagementState,
+  type PipelineAdminActionDetail,
   type PipelineAttachmentDetail,
   type PipelineBucket,
   type PipelineBucketSummary,
@@ -18,6 +19,7 @@ import {
   type PipelineHistoryDetail,
   type PipelineLens,
   type PipelineMeasurement,
+  type PipelineGoldenSetDetail,
   type PipelineNoticeDetail,
   type PipelineNoticeItem,
   type PipelineNoticesResult,
@@ -267,6 +269,24 @@ interface HistoryDetailRow {
   ts: Date
 }
 
+interface AdminActionDetailRow {
+  id: string
+  request_id: string
+  action: string
+  status: string
+  actor_email: string
+  result: Record<string, unknown>
+  error: string | null
+  created_at: Date
+  completed_at: Date | null
+}
+
+interface GoldenSetDetailRow {
+  id: string
+  ref: string
+  golden_ver: string
+}
+
 interface CursorPayload {
   version: 1
   sort: PipelineSort
@@ -465,7 +485,14 @@ export async function getPipelineNoticeDetail(input: {
     throw new PipelineGraphError("pipeline_notice_not_found", "공고를 찾지 못했습니다.", 404)
   }
 
-  const [criteriaRows, attachmentRows, surfaceRows, historyRows] = await Promise.all([
+  const [
+    criteriaRows,
+    attachmentRows,
+    surfaceRows,
+    historyRows,
+    adminActionRows,
+    goldenSetRows,
+  ] = await Promise.all([
     sql<CriterionDetailRow[]>`
       select
         id,
@@ -528,6 +555,34 @@ export async function getPipelineNoticeDetail(input: {
       order by ts desc, id desc
       limit 50
     `,
+    sql<AdminActionDetailRow[]>`
+      select
+        action_log.id,
+        action_log.request_id,
+        action_log.action,
+        action_log.status,
+        admin_user.email as actor_email,
+        action_log.result,
+        action_log.error,
+        action_log.created_at,
+        action_log.completed_at
+      from admin_pipeline_actions action_log
+      join admin_users admin_user on admin_user.id = action_log.admin_user_id
+      where action_log.grant_id = ${base.grant_id}
+      order by action_log.created_at desc, action_log.id desc
+      limit 50
+    `,
+    sql<GoldenSetDetailRow[]>`
+      select id, ref, golden_ver
+      from golden_set
+      where kind = 'extraction'
+        and ref in (
+          ${base.grant_id},
+          ${`grant:${base.grant_id}`},
+          ${`${base.source}:${base.source_id}`}
+        )
+      order by golden_ver desc, id
+    `,
   ])
 
   const notice = toNoticeItem(base)
@@ -538,12 +593,15 @@ export async function getPipelineNoticeDetail(input: {
       parserVersion: base.parser_version,
       modelVer: base.model_ver,
       promptVer: base.prompt_ver,
+      collectedAt: dateString(base.collected_at),
       demoHref: `${webOrigin()}/grants/${encodeURIComponent(base.grant_id)}`,
     },
     criteria: criteriaRows.map(toCriterionDetail),
     attachments: attachmentRows.map(toAttachmentDetail),
     surfaces: surfaceRows.map(toSurfaceDetail),
     history: historyRows.map(toHistoryDetail),
+    adminActions: adminActionRows.map(toAdminActionDetail),
+    goldenSet: goldenSetRows.map(toGoldenSetDetail),
   }
 }
 
@@ -831,6 +889,39 @@ function toHistoryDetail(row: HistoryDetailRow): PipelineHistoryDetail {
     promptVer: row.prompt_ver,
     reviewer: row.reviewer,
     at: row.ts.toISOString(),
+  }
+}
+
+function toAdminActionDetail(row: AdminActionDetailRow): PipelineAdminActionDetail {
+  if (row.action !== "mark_reviewed" && row.action !== "reconvert") {
+    throw new PipelineGraphError("invalid_pipeline_action", "DB 관리자 액션이 계약과 다릅니다.", 500)
+  }
+  if (
+    row.status !== "queued"
+    && row.status !== "succeeded"
+    && row.status !== "partial"
+    && row.status !== "failed"
+  ) {
+    throw new PipelineGraphError("invalid_pipeline_action_status", "DB 관리자 액션 상태가 계약과 다릅니다.", 500)
+  }
+  return {
+    id: row.id,
+    requestId: row.request_id,
+    action: row.action,
+    status: row.status,
+    actorEmail: row.actor_email,
+    result: row.result,
+    error: row.error,
+    createdAt: row.created_at.toISOString(),
+    completedAt: dateString(row.completed_at),
+  }
+}
+
+function toGoldenSetDetail(row: GoldenSetDetailRow): PipelineGoldenSetDetail {
+  return {
+    id: row.id,
+    ref: row.ref,
+    goldenVer: row.golden_ver,
   }
 }
 

@@ -209,7 +209,7 @@
     "verify:admin-routes": "tsx packages/contracts/scripts/verify-admin-routes.ts",
     "verify:ops-admin": "tsx packages/contracts/scripts/verify-ops-admin.ts",
     "verify:ops-admin-live": "tsx packages/contracts/scripts/verify-ops-admin-live.ts",
-    "verify:admin-pipeline": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/admin/pipelineGraph.test.ts",
+    "verify:admin-pipeline": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/admin/pipelineGraph.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/admin/pipelineActions.test.ts",
     "verify:admin-support-report": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/admin/verify-support-ticket-report.ts",
     "verify:admin-support-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/admin/verify-support-ticket-email-handoff.ts",
     "verify:support-ticket-intake-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/support/verify-support-ticket-intake-email-handoff.ts",

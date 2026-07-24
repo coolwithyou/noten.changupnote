@@ -39,6 +39,11 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
       }}
     >
       <PipelinePageView
+        canMutate={session.user.role === "admin" || session.user.role === "owner"}
+        canReconvert={Boolean(
+          process.env.CONVERSION_SERVER_URL?.trim()
+          && process.env.CONVERSION_SHARED_SECRET?.trim(),
+        )}
         initialNotices={notices}
         initialSummary={summary}
         query={query}
