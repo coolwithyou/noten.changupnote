@@ -8,6 +8,7 @@ import { runConversionPollSweep } from "@/lib/server/conversion/pollSweep";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { archiveKStartup } from "@/lib/server/ingestion/archiveKStartupCore";
 import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
+import { createRemoteHwpMarkdownFromEnv } from "@/lib/server/ingestion/remoteHwpMarkdown";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 
 export const runtime = "nodejs";
@@ -116,7 +117,9 @@ async function runTailAttachmentArchiveSweep(
       scanLimit: 2_000,
       asOf: new Date(),
       write: true,
-      convertHwp: false,
+      // Vercel에는 로컬 pyhwp가 없으므로 변환 서버 env가 확인된 경우에만 원격 HWP
+      // markdown 폴백을 켠다. env가 빠진 배포는 기존처럼 원본 아카이브만 수행한다.
+      convertHwp: Boolean(createRemoteHwpMarkdownFromEnv()),
       allowFailures: true,
       maxGrants: 4,
       maxTotalAttachments: 6,

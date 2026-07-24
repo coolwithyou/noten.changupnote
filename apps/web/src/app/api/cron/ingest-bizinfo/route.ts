@@ -1,9 +1,9 @@
 // Vercel Cron: 기업마당(BizInfo) 증분 수집(래퍼). 로컬 CLI(archive:bizinfo)와 동일한 코어(archiveBizInfo)를
 // live·write·compareDb·skipUnchanged 로 호출한다. env 는 Vercel 이 이미 주입하므로 loadMonorepoEnv 불필요.
 //
-// Vercel 제약: HWP→markdown 변환은 pyhwp(python 서브프로세스)라 Vercel 런타임에서 불가능하다. 그래서
-// convertAttachments=false, autoInstallPyhwp=false 로 고정하고, 첨부는 다운로드·R2 아카이브만 수행한다.
-// markdown 변환은 별도 변환 큐/서버 트랙(registerAttachmentConversions → 변환 서버)이 나중에 담당한다.
+// Vercel 제약: 로컬 pyhwp는 사용할 수 없다. CONVERSION_SERVER_URL/SHARED_SECRET이 모두
+// 있는 배포에서는 R2 원본을 Cloud Run /v1/hwp-markdown으로 보내 동기 변환하고, env가
+// 빠진 배포에서는 원본 다운로드·R2 아카이브만 수행한다.
 //
 // LLM: bizinfo criteria 추출은 Anthropic API 호출이다(키는 프로덕션 env 의 ANTHROPIC_API_KEY). extractionMode="auto"
 // 라 키가 있으면 Anthropic, 없으면 allowTextOnlyFallback=true 로 text-only 폴백(needs_review)으로 그레이스풀하게 진행한다.
@@ -11,6 +11,7 @@ import { NextResponse } from "next/server";
 import { authorizeCronRequest } from "@/lib/server/auth/cronAuth";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { archiveBizInfo } from "@/lib/server/ingestion/archiveBizInfoCore";
+import { createRemoteHwpMarkdownFromEnv } from "@/lib/server/ingestion/remoteHwpMarkdown";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 
 export const runtime = "nodejs";
@@ -48,8 +49,9 @@ export async function GET(request: Request) {
       allowTextOnlyFallback: true,
       extractionMode: "auto",
       archiveAttachments: true,
-      // Vercel 제약: pyhwp 불가 → 변환 없이 다운로드·R2 아카이브만. markdown 은 변환 큐 트랙이 담당.
-      convertAttachments: false,
+      // 로컬 pyhwp 대신 배포된 Cloud Run 변환 서버가 준비된 경우에만 markdown까지 만든다.
+      // archiveBizInfoCore는 생성된 attachmentMarkdowns를 같은 Anthropic 추출 입력에 포함한다.
+      convertAttachments: Boolean(createRemoteHwpMarkdownFromEnv()),
       autoInstallPyhwp: false,
       // 첨부 1건 다운로드 실패가 공고 전체 발행을 떨어뜨리지 않도록 그레이스풀 처리(실패는 응답에 집계).
       allowAttachmentFailures: true,
