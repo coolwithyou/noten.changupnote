@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Table,
   TableBody,
@@ -18,7 +19,10 @@ import {
 import { REVIEW_WORKSPACE_ROLES, defaultAdminPath } from "@/lib/auth/routeAccess"
 import { cn } from "@/lib/utils"
 import { getOptionalAdminSession } from "@/lib/server/auth/adminSession"
-import { listReviewQueue } from "@/lib/server/review/dispatchReview"
+import {
+  listReviewQueue,
+  type ReviewQueueItem,
+} from "@/lib/server/review/dispatchReview"
 
 export const dynamic = "force-dynamic"
 
@@ -35,6 +39,8 @@ export default async function ReviewQueuePage({
   const total = queue.items.reduce((sum, item) => sum + item.itemCount, 0)
   const decided = queue.items.reduce((sum, item) => sum + item.decidedCount, 0)
   const progress = total === 0 ? 0 : Math.round((decided / total) * 100)
+  const inProgressItems = queue.items.filter((item) => !isReviewComplete(item))
+  const completedItems = queue.items.filter(isReviewComplete)
 
   return (
     <OpsDashboardShell
@@ -77,50 +83,93 @@ export default async function ReviewQueuePage({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>공고</TableHead>
-                  <TableHead>출처</TableHead>
-                  <TableHead>진행</TableHead>
-                  <TableHead>상태</TableHead>
-                  <TableHead className="text-right">열기</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {queue.items.length === 0 ? (
-                  <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground">배정된 검수 항목이 없습니다.</TableCell></TableRow>
-                ) : queue.items.map((item) => (
-                  <TableRow key={item.noticeId}>
-                    <TableCell>
-                      <div className="flex max-w-xl flex-col gap-1">
-                        <span className="font-medium">{item.title}</span>
-                        <span className="text-xs text-muted-foreground">{item.sourceId}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{item.source}</TableCell>
-                    <TableCell>{item.decidedCount}/{item.itemCount} · {item.progress}%</TableCell>
-                    <TableCell>
-                      <Badge variant={item.conflictCount > 0 ? "destructive" : "secondary"}>
-                        {item.conflictCount > 0 ? `충돌 ${item.conflictCount}` : item.progress === 100 ? "완료" : "진행 중"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Link
-                        className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                        href={`/review/${item.noticeId}`}
-                      >
-                        검수 시작
-                        <ArrowRightIcon data-icon="inline-end" />
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <Tabs defaultValue={inProgressItems.length > 0 ? "in-progress" : "completed"}>
+              <TabsList>
+                <TabsTrigger value="in-progress">진행 중 {inProgressItems.length}</TabsTrigger>
+                <TabsTrigger value="completed">완료 {completedItems.length}</TabsTrigger>
+              </TabsList>
+              <TabsContent value="in-progress">
+                <ReviewQueueTable
+                  items={inProgressItems}
+                  emptyMessage="진행 중인 검수 공고가 없습니다."
+                />
+              </TabsContent>
+              <TabsContent value="completed">
+                <p className="pb-3 text-sm text-muted-foreground">
+                  완료한 공고도 결과를 다시 열어 저장된 판정을 확인하거나 필요한 항목만 수정할 수 있습니다.
+                </p>
+                <ReviewQueueTable
+                  items={completedItems}
+                  emptyMessage="완료한 검수 공고가 없습니다."
+                />
+              </TabsContent>
+            </Tabs>
           </CardContent>
         </Card>
       </main>
     </OpsDashboardShell>
   )
+}
+
+function ReviewQueueTable({
+  items,
+  emptyMessage,
+}: {
+  items: ReviewQueueItem[]
+  emptyMessage: string
+}) {
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>공고</TableHead>
+          <TableHead>출처</TableHead>
+          <TableHead>진행</TableHead>
+          <TableHead>상태</TableHead>
+          <TableHead className="text-right">열기</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {items.length === 0 ? (
+          <TableRow>
+            <TableCell colSpan={5} className="text-center text-muted-foreground">
+              {emptyMessage}
+            </TableCell>
+          </TableRow>
+        ) : items.map((item) => {
+          const complete = isReviewComplete(item)
+          return (
+            <TableRow key={item.noticeId}>
+              <TableCell>
+                <div className="flex max-w-xl flex-col gap-1">
+                  <span className="font-medium">{item.title}</span>
+                  <span className="text-xs text-muted-foreground">{item.sourceId}</span>
+                </div>
+              </TableCell>
+              <TableCell>{item.source}</TableCell>
+              <TableCell>{item.decidedCount}/{item.itemCount} · {item.progress}%</TableCell>
+              <TableCell>
+                <Badge variant={item.conflictCount > 0 ? "destructive" : "secondary"}>
+                  {item.conflictCount > 0 ? `충돌 ${item.conflictCount}` : complete ? "완료" : "진행 중"}
+                </Badge>
+              </TableCell>
+              <TableCell className="text-right">
+                <Link
+                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                  href={`/review/${item.noticeId}`}
+                >
+                  {complete ? "결과 보기·수정" : item.decidedCount > 0 ? "이어서 검수" : "검수 시작"}
+                  <ArrowRightIcon data-icon="inline-end" />
+                </Link>
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  )
+}
+
+function isReviewComplete(item: ReviewQueueItem): boolean {
+  return item.itemCount > 0 && item.decidedCount === item.itemCount
 }
