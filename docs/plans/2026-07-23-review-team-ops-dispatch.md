@@ -334,3 +334,12 @@ pnpm verify:ops-admin
 - 구현 커밋: `6676f49` (`fix: 검수 완료 복귀 흐름과 기본 분석 탭 개선`)
 - production deployment: Vercel deployment `dpl_ByLDbeEcp3dfiW9CgSV7FwwK8Gkr`, `READY`, alias `https://ops.changupnote.com`.
 - 실제 `kim@noten.im` reviewer 세션에서 `AI 분석 문서` 탭의 선택 상태와 Markdown heading/list/strong 렌더링, 1/1 완료 상태의 `공고 목록으로 돌아가기` 링크(`/review`)를 확인했다. 화면 콘솔 warning/error는 0건이었다.
+
+#### 2026-07-24 완료 검수 목록 후속 피드백
+
+- 배정 큐의 공고를 `진행 중`과 `완료` 탭으로 분리하고 각 공고 수를 탭에 표시한다. 진행 중 항목의 CTA는 진행률에 따라 `검수 시작` 또는 `이어서 검수`로 구분한다.
+- 완료 탭에는 100% 저장된 공고만 표시하고 CTA를 `결과 보기·수정`으로 명시했다. 완료 상세에서는 저장된 판정과 사유를 그대로 보여주며, 실제 값을 변경한 필드만 기존 revision 충돌 검사 후 다시 저장할 수 있다.
+- 공용 멤버 가이드와 `kim`, `young` 개인 전달본을 완료 목록·수정 진입 흐름으로 갱신했으며 개인본 mode `0600`을 유지했다.
+- 구현 커밋: `0c44c9e` (`feat: 완료 검수 목록과 수정 진입 제공`)
+- production deployment: Vercel deployment `dpl_HQk4gP5WBywJ5SafSLJ2sC826UGN`, `READY`, alias `https://ops.changupnote.com`.
+- 실제 `kim@noten.im` reviewer 세션에서 `진행 중 9`, `완료 1`, 완료 공고 1/1·100%, `결과 보기·수정`을 확인했다. 완료 상세의 저장된 판정 선택지와 사유 입력이 활성 상태이며, 값을 바꾸기 전 저장 버튼은 비활성인 것도 확인했다. 데이터 변경 없이 확인했고 화면 콘솔 warning/error는 0건이었다.
