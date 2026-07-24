@@ -20,6 +20,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:hwp-markdown": "node scripts/hwp-markdown-endpoint-test.mjs",
     "test:quality": "node scripts/quality-test.mjs",
     "test:hwpx": "node scripts/hwpx-convert-test.mjs",
     "test:failure": "node scripts/failure-path-test.mjs",

@@ -50,11 +50,14 @@ interface DraftBlock {
   body: string;
 }
 
-export async function assembleLabInput(input: {
-  grant: LabInputGrant;
-  payload: Record<string, unknown> | null;
-  archives: LabInputArchive[];
-}): Promise<LabAssembledInput> {
+export async function assembleLabInput(
+  input: {
+    grant: LabInputGrant;
+    payload: Record<string, unknown> | null;
+    archives: LabInputArchive[];
+  },
+  deps: { storage?: LabAttachmentTextStorage | null } = {},
+): Promise<LabAssembledInput> {
   const cap = labInputCharCap();
   const structured: DraftBlock = {
     label: "공고 구조화 필드",
@@ -65,6 +68,7 @@ export async function assembleLabInput(input: {
   const attachment = await loadAttachmentBlocks(
     input.archives,
     Math.max(0, cap - structured.body.length),
+    deps.storage,
   );
   const drafts: DraftBlock[] = [structured, ...attachment.blocks];
 
@@ -242,13 +246,19 @@ export function announcementScore(filename: string): number {
 /** 코호트 선정 기준: 이 크기 이상인 본문성 markdown 이 있어야 "딥분석하기 좋은 공고"로 본다. */
 export const BODY_MARKDOWN_MIN_BYTES = 2_000;
 
-type UnavailableReason = "r2_unconfigured" | "load_failed" | "cap_exceeded";
+type UnavailableReason = "markdown_missing" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
 
 const UNAVAILABLE_REASON_LABELS: Record<UnavailableReason, string> = {
+  markdown_missing: "변환 안 됨",
   r2_unconfigured: "R2 미설정",
   load_failed: "로드 실패",
   cap_exceeded: "캡 초과 미로드",
 };
+
+/** 첨부 markdown 텍스트 로더 — 테스트에서 R2 없이 주입하기 위한 최소 인터페이스. */
+export interface LabAttachmentTextStorage {
+  getObjectText(key: string): Promise<string>;
+}
 
 interface AttachmentLoadResult {
   blocks: DraftBlock[];
@@ -259,7 +269,13 @@ interface AttachmentLoadResult {
 async function loadAttachmentBlocks(
   archives: LabInputArchive[],
   budget: number,
+  injectedStorage?: LabAttachmentTextStorage | null,
 ): Promise<AttachmentLoadResult> {
+  // markdown 미생성 첨부(변환 실패·미시도)도 조용히 버리지 않고 고지한다 — 고지가 없으면
+  // 모델이 그 첨부의 존재를 모른 채 inspected_no_condition 으로 오판한다(178352 실사례).
+  const markdownMissing: AttachmentLoadResult["unavailable"] = archives
+    .filter((archive) => !archive.markdownStorageKey)
+    .map((archive) => ({ filename: archive.filename, reason: "markdown_missing" as const }));
   const withMarkdown = archives
     .filter((archive): archive is LabInputArchive & { markdownStorageKey: string } =>
       Boolean(archive.markdownStorageKey))
@@ -268,22 +284,25 @@ async function loadAttachmentBlocks(
       if (scoreDelta !== 0) return scoreDelta;
       return (b.markdownBytes ?? 0) - (a.markdownBytes ?? 0);
     });
-  if (withMarkdown.length === 0) return { blocks: [], unavailable: [] };
+  if (withMarkdown.length === 0) return { blocks: [], unavailable: markdownMissing };
 
-  const storage = createR2ObjectStorageFromEnv();
+  const storage = injectedStorage === undefined ? createR2ObjectStorageFromEnv() : injectedStorage;
   if (!storage) {
     // R2 env 미설정 — 구조화 필드만으로 진행하되, 어떤 첨부가 빠졌는지는 고지한다.
     return {
       blocks: [],
-      unavailable: withMarkdown.map((archive) => ({
-        filename: archive.filename,
-        reason: "r2_unconfigured" as const,
-      })),
+      unavailable: [
+        ...markdownMissing,
+        ...withMarkdown.map((archive) => ({
+          filename: archive.filename,
+          reason: "r2_unconfigured" as const,
+        })),
+      ],
     };
   }
 
   const blocks: DraftBlock[] = [];
-  const unavailable: AttachmentLoadResult["unavailable"] = [];
+  const unavailable: AttachmentLoadResult["unavailable"] = [...markdownMissing];
   let loadedChars = 0;
   for (const archive of withMarkdown) {
     // 캡 예산을 이미 소진했으면 더 읽지 않는다(M2) — 본문성 우선 정렬이라 뒤쪽은 서식류.

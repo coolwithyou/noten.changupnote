@@ -8,10 +8,15 @@ import {
 } from "@cunote/core";
 import {
   convertHwpBufferToMarkdown,
+  detectHwpMarkdownConverter,
   isHwpFilename,
 } from "@cunote/core/bizinfo/hwp-markdown";
 import { detectHwpFormat } from "@cunote/core/documents/hwpx-fill";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
+import {
+  createRemoteHwpMarkdownFromEnv,
+  type RemoteHwpMarkdownClient,
+} from "./remoteHwpMarkdown";
 import {
   extractOfficeContainerMarkdown,
   extractSupportedArchiveEntries,
@@ -135,6 +140,12 @@ export interface GrantAttachmentArchiveOptions {
   maxAttachmentBytes?: number;
   imageOcr?: GrantImageOcrAdapter;
   minImageOcrConfidence?: number;
+  /**
+   * HWP→markdown 원격 폴백(변환 서버 /v1/hwp-markdown). 미지정(undefined)이면 env 에서
+   * 자동 해석해 모든 인제스트 호출부에 무변경 배선된다 — env 미설정 환경은 null 이 되어
+   * 기존 동작(로컬만) 그대로. 테스트·강제 비활성은 null 을 명시한다.
+   */
+  remoteHwpMarkdown?: RemoteHwpMarkdownClient | null;
 }
 
 export type GrantImageOcrAdapter = (input: {
@@ -230,6 +241,63 @@ export async function archiveGrantAttachments(
   };
 }
 
+// 로컬 hwp5html 가용성 캐시 — detect 는 프로세스 spawn 이라 첨부마다 반복하지 않는다.
+let cachedLocalHwpConverterAvailable: boolean | null = null;
+
+/** 테스트 전용 — 모듈 레벨 가용성 캐시를 강제 설정/초기화한다(테스트 간 격리, 프로덕션 코드에서 호출 금지). */
+export function setCachedLocalHwpConverterAvailableForTest(value: boolean | null): void {
+  cachedLocalHwpConverterAvailable = value;
+}
+
+/**
+ * HWP→markdown 로컬 우선 + 원격 폴백.
+ * 로컬(hwp5html)이 가용하면 로컬 시도, 불가·실패 시 원격(remoteHwpMarkdown)이 주입돼 있으면
+ * 방금 업로드한 R2 객체의 presigned GET 으로 변환 서버에 위임한다. 둘 다 실패하면 사유를
+ * 결합해 던진다(호출부의 기존 failed 경로 유지).
+ */
+async function convertHwpMarkdownWithFallback(args: {
+  filename: string;
+  body: Buffer;
+  sha256: string;
+  storageKey: string;
+  options: GrantAttachmentArchiveOptions;
+}): Promise<{ markdown: string; converter: string }> {
+  const { filename, body, sha256, storageKey, options } = args;
+  if (cachedLocalHwpConverterAvailable === null) {
+    cachedLocalHwpConverterAvailable = detectHwpMarkdownConverter({
+      autoInstallPyhwp: options.autoInstallPyhwp,
+    }).available;
+  }
+  let localError: string;
+  if (cachedLocalHwpConverterAvailable) {
+    try {
+      const result = convertHwpBufferToMarkdown({
+        filename,
+        body,
+        autoInstallPyhwp: options.autoInstallPyhwp,
+      });
+      return { markdown: result.markdown, converter: result.converter };
+    } catch (error) {
+      localError = error instanceof Error ? error.message : String(error);
+    }
+  } else {
+    localError = "hwp5html not found. Install pyhwp or enable autoInstallPyhwp.";
+  }
+
+  const remote =
+    options.remoteHwpMarkdown === undefined
+      ? createRemoteHwpMarkdownFromEnv()
+      : options.remoteHwpMarkdown;
+  if (!remote || !options.storage) throw new Error(localError);
+  try {
+    const sourceObjectUrl = await options.storage.presignGetUrl(storageKey);
+    return await remote.convert({ filename, sourceObjectUrl, sha256 });
+  } catch (remoteError) {
+    const remoteMessage = remoteError instanceof Error ? remoteError.message : String(remoteError);
+    throw new Error(`${localError} / ${remoteMessage}`);
+  }
+}
+
 async function archiveOneAttachment(
   attachment: SourceAttachment,
   options: GrantAttachmentArchiveOptions,
@@ -317,10 +385,12 @@ async function archiveOneAttachment(
       if (!markdown) throw new Error("Office attachment did not contain extractable text");
       converted = { markdown, converter: "office-openxml-v1" };
     } else if (options.convertHwp && isHwpFilename(attachment.filename)) {
-      converted = convertHwpBufferToMarkdown({
+      converted = await convertHwpMarkdownWithFallback({
         filename: attachment.filename,
         body: downloaded.body,
-        autoInstallPyhwp: options.autoInstallPyhwp,
+        sha256,
+        storageKey: uploaded.key,
+        options,
       });
     } else {
       rawAttachment.conversion = { status: "skipped" };
@@ -476,7 +546,8 @@ function toRawAttachment(attachment: SourceAttachment): NonNullable<GrantRaw["at
   };
 }
 
-function objectKey(input: {
+/** R2 객체 키 규약 — 백필 CLI 등 외부 재사용을 위해 export (규약 복제 금지). */
+export function objectKey(input: {
   source: GrantSource;
   sourceId: string;
   filename: string;
@@ -492,7 +563,8 @@ function objectKey(input: {
   ].join("/");
 }
 
-function renderArchivedMarkdown(input: {
+/** 아카이브 markdown 프론트매터 규약 — 백필 CLI 등 외부 재사용을 위해 export. */
+export function renderArchivedMarkdown(input: {
   source: GrantSource;
   sourceId: string;
   filename: string;
@@ -549,7 +621,7 @@ function sanitizeKeyPart(value: string): string {
     .slice(0, 180) || "item";
 }
 
-function stripExtension(filename: string): string {
+export function stripExtension(filename: string): string {
   const ext = extname(filename);
   return ext ? filename.slice(0, -ext.length) : filename;
 }

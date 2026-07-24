@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import type { NormalizedGrant } from "@cunote/contracts";
+import { and, eq, inArray } from "drizzle-orm";
+import type { GrantRaw, NormalizedGrant } from "@cunote/contracts";
 import type { KStartupAnnouncement } from "@cunote/core";
 import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -18,6 +18,52 @@ export type KStartupAttachmentArchiveEntry = NormalizedGrant<KStartupAnnouncemen
 export interface KStartupAttachmentArchiveCandidate {
   entry: KStartupAttachmentArchiveEntry;
   selected: Array<{ filename: string; url: string | null }>;
+}
+
+export interface KStartupAttachmentArchiveRecoveryRow {
+  sourceId: string;
+  filename: string;
+  sourceUri: string;
+  archiveUrl: string | null;
+  storageKey: string | null;
+  contentType: string | null;
+  bytes: number | null;
+  sha256: string | null;
+  fetchedAt: Date | null;
+  conversionStatus: string | null;
+  markdownUrl: string | null;
+  markdownStorageKey: string | null;
+  markdownSha256: string | null;
+  markdownBytes: number | null;
+  converter: string | null;
+  convertedAt: Date | null;
+  conversionError: string | null;
+}
+
+/**
+ * grant_raw.attachments가 후속 수집에서 빈 배열로 덮였더라도, 명시 복구 대상은
+ * grant_attachment_archives의 원본 URL/보관 상태를 되살려 다시 아카이브할 수 있게 한다.
+ * 일반 활성 배치에서는 호출하지 않아 현재 detail에서 사라진 과거 첨부를 임의로 복원하지 않는다.
+ */
+export function mergeKStartupAttachmentArchiveRecoveryRows(
+  entries: readonly KStartupAttachmentArchiveEntry[],
+  archiveRows: readonly KStartupAttachmentArchiveRecoveryRow[],
+): KStartupAttachmentArchiveEntry[] {
+  const rowsBySourceId = new Map<string, KStartupAttachmentArchiveRecoveryRow[]>();
+  for (const row of archiveRows) {
+    rowsBySourceId.set(row.sourceId, [...(rowsBySourceId.get(row.sourceId) ?? []), row]);
+  }
+  return entries.map((entry) => {
+    const recovered = (rowsBySourceId.get(entry.grant.source_id) ?? []).map(toRawAttachment);
+    if (recovered.length === 0) return entry;
+    return {
+      ...entry,
+      raw: {
+        ...entry.raw,
+        attachments: mergeArchivedKStartupAttachments(entry.raw.attachments, recovered),
+      },
+    };
+  });
 }
 
 export interface PlanKStartupAttachmentArchiveBatchOptions {
@@ -118,7 +164,44 @@ export async function runKStartupAttachmentArchiveBatch(
 ): Promise<KStartupAttachmentArchiveBatchResult> {
   if (input.write && !input.storage) throw new Error("R2 storage configuration is required for attachment archive write");
   const repositories = createDrizzleRepositories<KStartupAnnouncement>({ dialect: "drizzle", client: input.db });
-  const loaded = await repositories.grants.listActiveGrants({ limit: input.scanLimit, asOf: input.asOf });
+  // 명시 sourceIds는 감사·복구 대상의 정확한 선택자다. 마감된 공고도 복구할 수 있어야 하므로
+  // 활성 목록을 먼저 자른 뒤 필터링하지 않고, source key로 직접 조회한다.
+  // sourceIds가 없는 일반 배치/cron은 기존 활성 공고 경계를 그대로 유지한다.
+  const explicitlyLoaded = input.sourceIds && input.sourceIds.length > 0
+    ? (await Promise.all(
+      input.sourceIds.map((sourceId) => repositories.grants.findGrantById(`kstartup:${sourceId}`)),
+    )).filter((entry): entry is KStartupAttachmentArchiveEntry => entry !== null)
+    : await repositories.grants.listActiveGrants({ limit: input.scanLimit, asOf: input.asOf });
+  const loaded = input.sourceIds && input.sourceIds.length > 0
+    ? mergeKStartupAttachmentArchiveRecoveryRows(
+      explicitlyLoaded,
+      await input.db
+        .select({
+          sourceId: schema.grantAttachmentArchives.sourceId,
+          filename: schema.grantAttachmentArchives.filename,
+          sourceUri: schema.grantAttachmentArchives.sourceUri,
+          archiveUrl: schema.grantAttachmentArchives.archiveUrl,
+          storageKey: schema.grantAttachmentArchives.storageKey,
+          contentType: schema.grantAttachmentArchives.contentType,
+          bytes: schema.grantAttachmentArchives.bytes,
+          sha256: schema.grantAttachmentArchives.sha256,
+          fetchedAt: schema.grantAttachmentArchives.fetchedAt,
+          conversionStatus: schema.grantAttachmentArchives.conversionStatus,
+          markdownUrl: schema.grantAttachmentArchives.markdownUrl,
+          markdownStorageKey: schema.grantAttachmentArchives.markdownStorageKey,
+          markdownSha256: schema.grantAttachmentArchives.markdownSha256,
+          markdownBytes: schema.grantAttachmentArchives.markdownBytes,
+          converter: schema.grantAttachmentArchives.converter,
+          convertedAt: schema.grantAttachmentArchives.convertedAt,
+          conversionError: schema.grantAttachmentArchives.conversionError,
+        })
+        .from(schema.grantAttachmentArchives)
+        .where(and(
+          eq(schema.grantAttachmentArchives.source, "kstartup"),
+          inArray(schema.grantAttachmentArchives.sourceId, input.sourceIds),
+        )),
+    )
+    : explicitlyLoaded;
   const plan = planKStartupAttachmentArchiveBatch(loaded, input);
   const [cursor] = input.write
     ? await input.db
@@ -222,4 +305,37 @@ export async function runKStartupAttachmentArchiveBatch(
 function hardTextOnlyCount(criteria: Array<{ operator: string; kind: string }>): number {
   return criteria.filter((criterion) =>
     criterion.operator === "text_only" && (criterion.kind === "required" || criterion.kind === "exclusion")).length;
+}
+
+function toRawAttachment(
+  row: KStartupAttachmentArchiveRecoveryRow,
+): NonNullable<GrantRaw["attachments"]>[number] {
+  const conversionStatus = row.conversionStatus === "converted" ||
+    row.conversionStatus === "skipped" ||
+    row.conversionStatus === "failed"
+    ? row.conversionStatus
+    : null;
+  return {
+    filename: row.filename,
+    url: row.archiveUrl ?? row.sourceUri,
+    source_uri: row.sourceUri || null,
+    archive_url: row.archiveUrl,
+    storage_key: row.storageKey,
+    content_type: row.contentType,
+    bytes: row.bytes,
+    sha256: row.sha256,
+    fetched_at: row.fetchedAt?.toISOString() ?? null,
+    ...(conversionStatus ? {
+      conversion: {
+        status: conversionStatus,
+        markdown_url: row.markdownUrl,
+        markdown_storage_key: row.markdownStorageKey,
+        markdown_sha256: row.markdownSha256,
+        markdown_bytes: row.markdownBytes,
+        converter: row.converter,
+        converted_at: row.convertedAt?.toISOString() ?? null,
+        error: row.conversionError,
+      },
+    } : {}),
+  };
 }

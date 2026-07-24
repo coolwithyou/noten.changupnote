@@ -2,14 +2,16 @@
 //   POST /v1/conversion-jobs            job 등록 (비동기). 캐시 히트면 즉시 succeeded.
 //   GET  /v1/conversion-jobs/:jobId     상태 폴링.
 //   GET  /v1/conversion-jobs/:jobId/artifacts   artifact 목록.
+//   POST /v1/hwp-markdown               HWP→markdown 동기 변환 (인제스트 위임용, 큐 미경유).
 // 인증: shared secret 헤더 (x-shared-secret 또는 Authorization: Bearer). env CONVERSION_SHARED_SECRET.
 //
 // 웹앱이 서버-투-서버로만 호출한다 (공개 노출 안 함).
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { ConversionQueue, type ConversionJobRequest } from "./queue.js";
+import { ConversionQueue, type ConversionJobRequest, type FetchSourceFn } from "./queue.js";
 import { createR2ObjectStorageFromEnv, type R2ObjectStorage } from "./storage.js";
 import type { HwpToMarkdownFn, HwpxConvertFn } from "./convert-document.js";
+import { sha256Hex } from "./integrity.js";
 
 export interface ServerConfig {
   queue: ConversionQueue;
@@ -17,9 +19,17 @@ export interface ServerConfig {
   sharedSecret?: string;
   /** 요청 본문 최대 바이트 (기본 256KB — 메타데이터만 받으므로 작다). */
   maxBodyBytes?: number;
+  /** HWP→markdown 변환 함수 주입 (동기 엔드포인트용. 미주입 시 503). */
+  hwpToMarkdown?: HwpToMarkdownFn;
+  /** 원본 다운로드 함수 (기본: global fetch. 테스트에서 대체 가능). */
+  fetchSource?: FetchSourceFn;
+  /** 동기 변환 원본 파일 최대 바이트 (기본 30MB). */
+  hwpMarkdownMaxSourceBytes?: number;
 }
 
 const DEFAULT_MAX_BODY = 256 * 1024;
+/** 동기 변환은 작은 파일 텍스트 추출 용도 — 원본 30MB 가드. */
+const DEFAULT_MAX_SOURCE_BYTES = 30 * 1024 * 1024;
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -110,6 +120,34 @@ function validateJobRequest(v: unknown): { ok: true; value: ConversionJobRequest
   return { ok: true, value: request };
 }
 
+/** POST /v1/hwp-markdown 요청 검증. 계약: filename(.hwp/.hwpx) + sourceObjectUrl(presigned GET) + sha256?. */
+function validateHwpMarkdownRequest(
+  v: unknown,
+): { ok: true; value: { filename: string; sourceObjectUrl: string; sha256?: string } } | { ok: false; reason: string } {
+  if (typeof v !== "object" || v === null) return { ok: false, reason: "body must be an object" };
+  const o = v as Record<string, unknown>;
+  if (typeof o.filename !== "string" || o.filename.length === 0) {
+    return { ok: false, reason: "missing or invalid field: filename" };
+  }
+  if (!/\.(?:hwp|hwpx)$/i.test(o.filename)) {
+    return { ok: false, reason: "filename must end with .hwp or .hwpx" };
+  }
+  if (typeof o.sourceObjectUrl !== "string" || o.sourceObjectUrl.length === 0) {
+    return { ok: false, reason: "missing or invalid field: sourceObjectUrl" };
+  }
+  if (o.sha256 !== undefined && (typeof o.sha256 !== "string" || o.sha256.length === 0)) {
+    return { ok: false, reason: "invalid field: sha256" };
+  }
+  return {
+    ok: true,
+    value: {
+      filename: o.filename,
+      sourceObjectUrl: o.sourceObjectUrl,
+      ...(typeof o.sha256 === "string" ? { sha256: o.sha256 } : {}),
+    },
+  };
+}
+
 /** GET /:jobId 응답 shape (계획 4.2). */
 function jobStatusResponse(queue: ConversionQueue, jobId: string): unknown | null {
   const rec = queue.get(jobId);
@@ -164,6 +202,15 @@ export function createConversionServer(config: ServerConfig): Server {
   const queue = config.queue;
   const secret = config.sharedSecret ?? process.env.CONVERSION_SHARED_SECRET ?? "";
   const maxBody = config.maxBodyBytes ?? DEFAULT_MAX_BODY;
+  const hwpToMarkdown = config.hwpToMarkdown;
+  const fetchSource: FetchSourceFn =
+    config.fetchSource ??
+    (async (sourceUrl: string) => {
+      const r = await fetch(sourceUrl);
+      if (!r.ok) throw new Error(`source download failed: HTTP ${r.status} ${r.statusText}`);
+      return Buffer.from(await r.arrayBuffer());
+    });
+  const maxSourceBytes = config.hwpMarkdownMaxSourceBytes ?? DEFAULT_MAX_SOURCE_BYTES;
 
   return createServer((req, res) => {
     void handle(req, res).catch((err) => {
@@ -234,6 +281,65 @@ export function createConversionServer(config: ServerConfig): Server {
       return;
     }
 
+    // POST /v1/hwp-markdown — 동기 HWP→markdown (인제스트 위임용, 큐 미경유).
+    // 변환은 어댑터 1회 호출(spawnSync)이라 짧게 이벤트 루프를 점유한다 — 작은 파일 텍스트 추출 용도.
+    if (req.method === "POST" && path === "/v1/hwp-markdown") {
+      if (!hwpToMarkdown) {
+        sendJson(res, 503, { error: "hwp markdown converter not configured", code: "converter_unavailable" });
+        return;
+      }
+      let raw: Buffer;
+      try {
+        raw = await readBody(req, maxBody);
+      } catch (err) {
+        sendJson(res, 413, { error: err instanceof Error ? err.message : "body read failed" });
+        return;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(raw.toString("utf8") || "{}");
+      } catch {
+        sendJson(res, 400, { error: "invalid JSON" });
+        return;
+      }
+      const validated = validateHwpMarkdownRequest(parsed);
+      if (!validated.ok) {
+        sendJson(res, 400, { error: validated.reason });
+        return;
+      }
+      let body: Buffer;
+      try {
+        body = await fetchSource(validated.value.sourceObjectUrl);
+      } catch (err) {
+        sendJson(res, 502, {
+          error: err instanceof Error ? err.message : "source download failed",
+          code: "source_fetch_failed",
+        });
+        return;
+      }
+      if (body.length > maxSourceBytes) {
+        sendJson(res, 413, {
+          error: `source too large: ${body.length} bytes (max ${maxSourceBytes})`,
+          code: "source_too_large",
+        });
+        return;
+      }
+      if (validated.value.sha256 && sha256Hex(body) !== validated.value.sha256) {
+        sendJson(res, 409, { error: "source sha256 mismatch", code: "sha256_mismatch" });
+        return;
+      }
+      try {
+        const result = hwpToMarkdown({ filename: validated.value.filename, body });
+        sendJson(res, 200, { markdown: result.markdown, converter: result.converter });
+      } catch (err) {
+        sendJson(res, 422, {
+          error: err instanceof Error ? err.message : "conversion failed",
+          code: "conversion_failed",
+        });
+      }
+      return;
+    }
+
     // GET /v1/conversion-jobs/:jobId(/artifacts)
     const jobMatch = path.match(/^\/v1\/conversion-jobs\/([^/]+)(\/artifacts)?$/);
     if (req.method === "GET" && jobMatch) {
@@ -273,5 +379,9 @@ export function bootstrapFromEnv(
     ...(deps.hwpxConvert ? { hwpxConvert: deps.hwpxConvert } : {}),
     ...(process.env.CONVERSION_KEY_PREFIX ? { keyPrefix: process.env.CONVERSION_KEY_PREFIX } : {}),
   });
-  return createConversionServer({ queue });
+  // 동기 markdown 엔드포인트도 같은 어댑터를 쓴다 (미주입 시 503).
+  return createConversionServer({
+    queue,
+    ...(deps.hwpToMarkdown ? { hwpToMarkdown: deps.hwpToMarkdown } : {}),
+  });
 }

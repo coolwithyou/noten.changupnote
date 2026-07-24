@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  mergeKStartupAttachmentArchiveRecoveryRows,
   planKStartupAttachmentArchiveBatch,
   type KStartupAttachmentArchiveEntry,
 } from "./kstartupAttachmentArchiveBatch";
@@ -38,6 +39,35 @@ const empty = planKStartupAttachmentArchiveBatch([priority], {
 });
 assert.equal(empty.candidates.length, 0);
 assert.equal(empty.selectedAttachmentCount, 0);
+
+const recovered = mergeKStartupAttachmentArchiveRecoveryRows([entry("closed", [])], [{
+  sourceId: "closed",
+  filename: "마감 공고문.hwp",
+  sourceUri: "https://origin.example/closed-notice",
+  archiveUrl: null,
+  storageKey: null,
+  contentType: null,
+  bytes: null,
+  sha256: null,
+  fetchedAt: null,
+  conversionStatus: null,
+  markdownUrl: null,
+  markdownStorageKey: null,
+  markdownSha256: null,
+  markdownBytes: null,
+  converter: null,
+  convertedAt: null,
+  conversionError: null,
+}]);
+const recoveredPlan = planKStartupAttachmentArchiveBatch(recovered, {
+  sourceIds: ["closed"],
+  maxGrants: 1,
+  maxTotalAttachments: 1,
+  maxAttachmentsPerGrant: 1,
+});
+assert.equal(recoveredPlan.totalCandidateCount, 1, "명시 복구 대상은 archive row의 원본 URL을 되살린다");
+assert.equal(recoveredPlan.candidates[0]?.selected[0]?.filename, "마감 공고문.hwp");
+assert.equal(recoveredPlan.candidates[0]?.selected[0]?.url, "https://origin.example/closed-notice");
 
 console.log("kstartupAttachmentArchiveBatch.test.ts: all assertions passed");
 
