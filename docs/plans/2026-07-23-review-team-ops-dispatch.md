@@ -360,3 +360,13 @@ pnpm verify:ops-admin
   - 동일 공고 상세의 `현재 검수 질문` 표시까지 2.82초에서 1.49초로 단축됨(같은 Chrome 세션의 배포 전·후 1회 측정, 약 47% 개선).
   - CTA의 `상세 불러오는 중` 상태, 강조된 `검수자 입력` 패널, `정확` 선택 시 검정 배경·흰색 글자와 pressed 상태가 표시됨.
   - 화면 콘솔 warning/error 0건.
+
+#### 2026-07-24 운영자 큐 담당 검수자 표시
+
+- admin·owner가 보는 주간 검수 큐에 `검수자` 열을 추가해 공고별 담당자의 이름과 이메일을 바로 확인할 수 있게 했다.
+- 같은 공고의 필드가 여러 검수자에게 나뉘어 배정된 경우 담당자를 모두 표시한다. reviewer 화면은 타 검수자 배정 정보를 노출하지 않고 기존 열 구성을 유지한다.
+- 구현 커밋: `b6a6583` (`feat: 운영자 검수 큐에 담당자 표시`)
+- 검증: admin typecheck, `pnpm verify:review-workspace`, `pnpm build:admin`, `git diff --check` 통과.
+- 운영 DB 읽기 전용 검증에서 `2026-W30` 21개 공고와 담당자 표시 항목 24개가 조회됐으며 누락되거나 형식이 깨진 항목은 0개였다.
+- production deployment: Vercel deployment `dpl_AtsXwV19WWffNW5QQ7eE11MbyfQc`, `READY`, alias `https://ops.changupnote.com`.
+- 실제 admin 세션에서 `검수자` 열, `kim@noten.im`·`young@noten.im`의 단일 배정, 두 담당자가 함께 표시되는 복수 배정 공고를 확인했다. 데이터 변경 없이 확인했다.
