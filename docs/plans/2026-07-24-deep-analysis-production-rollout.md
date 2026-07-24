@@ -98,6 +98,20 @@
 | owned dashboard 답변 반영 | 구현 완료 | 저장 confirmation을 배치 로드해 dashboard matcher에 반영 |
 | 익명 확인 CTA continuation | 구현 완료·데이터 대기 | 회사 저장·로그인 후 같은 공고 질문 자동 재개 |
 
+### 2.4 2026-07-25 구현·배포 증적
+
+- 구현 커밋: `62f4b3b` (`feat: gate deep analysis promotion to landing matching`)
+- GitHub `main` push 완료
+- DB migration: `0052_illegal_ricochet.sql` 적용, migration count `53 → 54`
+- `pnpm db:doctor`: 필수 테이블·RLS 이상 없음
+- Vercel production deployment: `dpl_2zQRoLerWq4f5g8qckCfrL9JauyF`, `READY`
+- aliases: `https://changupnote.com`, `https://www.changupnote.com`,
+  `https://changupnote.vercel.app`
+- smoke: `/` 200, `/matches?biz=…` 200, 빈 teaser POST는 `biz_no_required` 400
+- 배포 후 운영 DB: promotion release 0, deep criterion 0, confirmation question 0
+- clean tree의 release prepare 실측: W30 미수거 66/66을 감지하고
+  `pending 12 / decided 42 / conflict 12`로 쓰기 전 차단
+
 ## 3. 제품 적용 구조
 
 ```text
@@ -896,7 +910,7 @@ Critical path는 “검수 종료”만이 아니다. 검수가 끝나기 전에
 ### 구현
 
 - [x] IMP-01 manifest
-- [x] IMP-02 release DB 원장과 migration 생성
+- [x] IMP-02 release DB 원장과 migration 생성·운영 적용
 - [x] IMP-03 manifest-bound promote
 - [x] IMP-04 rollback
 - [x] IMP-04-a 질문 semantic versioning
@@ -929,7 +943,7 @@ Critical path는 “검수 종료”만이 아니다. 검수가 끝나기 전에
 - [ ] 운영 DB hash 100% 일치
 - [ ] 익명 랜딩 카드·근거·CTA E2E PASS
 - [ ] owned-company 질문·답변·재로그인 E2E PASS
-- [ ] 문서와 운영 증적 커밋
+- [x] 구현·migration·배포 증적 문서화
 
 ## 13. 별도 에이전트 리뷰
 

@@ -1,7 +1,7 @@
 # 딥 공고 분석 운영 승격 Runbook
 
-> 적용일: 2026-07-25  
-> 상태: 코드·마이그레이션 준비 완료, W30 검수 수거 대기  
+> 적용일: 2026-07-25
+> 상태: 코드 배포·migration 적용 완료, W30 검수 수거 대기
 > 상세 설계: `docs/plans/2026-07-24-deep-analysis-production-rollout.md`
 
 ## 1. 원칙
@@ -124,5 +124,5 @@ pnpm lab:rollback -- \
 ## 8. 현재 중단 조건
 
 2026-07-25 확인 기준 W30은 `decided 42`, `pending 12`, `conflict 12`, `collected 0`입니다.
-따라서 지금 허용되는 작업은 코드 배포와 additive migration까지이며, release 준비·승인·카나리
-및 전체 criteria 승격은 검수 수거 완료 전까지 실행하지 않습니다.
+코드 배포와 additive migration은 완료됐습니다. release 준비·승인·카나리 및 전체 criteria
+승격은 검수 수거 완료 전까지 실행하지 않습니다.
