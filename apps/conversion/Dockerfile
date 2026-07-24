@@ -55,7 +55,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y nodejs && rm -rf /var/lib/apt/lists/*
 
 # pyhwp (hwp5html markdown 보조 경로 — HWP 텍스트 추출용)
-RUN pip3 install --break-system-packages pyhwp
+# pyhwp 0.1b15는 런타임에서 six를 import하지만 패키지 의존성으로 선언하지 않아
+# 깨끗한 이미지에서는 ModuleNotFoundError가 난다. Cloud Run 실파일 스모크로 확인했다.
+RUN pip3 install --break-system-packages pyhwp six
 
 # H2Orestart 는 Java 기반 UNO 확장이라 등록(unopkg)·실행(soffice 필터)에 JVM 이 필요하다.
 # LibreOffice jvmfwk 가 JRE 를 자동 탐지하지 못해 unopkg 가 실패하는 사례가 있어
