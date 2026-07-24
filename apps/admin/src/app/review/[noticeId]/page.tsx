@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation"
 
 import { OpsDashboardShell } from "@/components/OpsDashboardShell"
+import { ReviewNoticeSourceReference } from "@/components/review/ReviewNoticeSourceReference"
 import { ReviewNoticeWorkspace } from "@/components/review/ReviewNoticeWorkspace"
 import { REVIEW_WORKSPACE_ROLES, defaultAdminPath } from "@/lib/auth/routeAccess"
 import { getOptionalAdminSession } from "@/lib/server/auth/adminSession"
@@ -16,10 +17,12 @@ export default async function ReviewNoticePage({
 }: {
   params: Promise<{ noticeId: string }>
 }) {
-  const session = await getOptionalAdminSession()
+  const [session, { noticeId }] = await Promise.all([
+    getOptionalAdminSession(),
+    params,
+  ])
   if (!session) redirect("/login")
   if (!REVIEW_WORKSPACE_ROLES.includes(session.user.role)) redirect(defaultAdminPath(session.user.role))
-  const { noticeId } = await params
   let notice
   try {
     notice = await getReviewNotice(session, noticeId)
@@ -34,7 +37,11 @@ export default async function ReviewNoticePage({
       title={notice.title}
       user={{ email: session.user.email, name: session.user.name, role: session.user.role }}
     >
-      <ReviewNoticeWorkspace notice={notice} />
+      <ReviewNoticeWorkspace
+        noticeId={notice.id}
+        items={notice.items}
+        sourceReference={<ReviewNoticeSourceReference notice={notice} />}
+      />
     </OpsDashboardShell>
   )
 }

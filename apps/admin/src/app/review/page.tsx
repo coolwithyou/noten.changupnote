@@ -1,8 +1,8 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
-import { ArrowRightIcon } from "lucide-react"
 
 import { OpsDashboardShell } from "@/components/OpsDashboardShell"
+import { ReviewQueueOpenLink } from "@/components/review/ReviewQueueOpenLink"
 import { Badge } from "@/components/ui/badge"
 import { buttonVariants } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -70,8 +70,12 @@ export default async function ReviewQueuePage({
             <CardDescription>{decided}/{total} 항목 판정 완료</CardDescription>
           </CardHeader>
           <CardContent className="flex items-center gap-4">
-            <Progress value={progress} />
-            <span className="text-sm font-medium">{progress}%</span>
+            <Progress
+              value={progress}
+              className="min-w-0 flex-1"
+              aria-label="이번 주 검수 진행률"
+            />
+            <span className="shrink-0 text-sm font-medium tabular-nums">{progress}%</span>
           </CardContent>
         </Card>
 
@@ -154,13 +158,10 @@ function ReviewQueueTable({
                 </Badge>
               </TableCell>
               <TableCell className="text-right">
-                <Link
-                  className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+                <ReviewQueueOpenLink
                   href={`/review/${item.noticeId}`}
-                >
-                  {complete ? "결과 보기·수정" : item.decidedCount > 0 ? "이어서 검수" : "검수 시작"}
-                  <ArrowRightIcon data-icon="inline-end" />
-                </Link>
+                  label={complete ? "결과 보기·수정" : item.decidedCount > 0 ? "이어서 검수" : "검수 시작"}
+                />
               </TableCell>
             </TableRow>
           )

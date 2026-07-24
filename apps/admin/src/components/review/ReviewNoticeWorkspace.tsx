@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import type { ReactNode } from "react"
 import { useMemo, useState, useTransition } from "react"
 import { toast } from "sonner"
 import {
@@ -8,9 +9,9 @@ import {
   ArrowRightIcon,
   CheckCircle2Icon,
   CircleIcon,
-  ExternalLinkIcon,
   EyeOffIcon,
   FileTextIcon,
+  PencilLineIcon,
   SaveIcon,
 } from "lucide-react"
 import {
@@ -42,19 +43,14 @@ import {
 } from "@/components/ui/field"
 import { Progress } from "@/components/ui/progress"
 import { Spinner } from "@/components/ui/spinner"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import {
   buildReviewItemPresentation,
   reviewDimensionLabel,
 } from "@/lib/review/itemPresentation"
-import type {
-  ReviewNoticeDetail,
-  ReviewNoticeItem,
-} from "@/lib/server/review/dispatchReview"
+import type { ReviewNoticeItem } from "@/lib/server/review/dispatchReview"
 import { cn } from "@/lib/utils"
-import { SafeMarkdown } from "./SafeMarkdown"
 
 type ReviewVerdict = HumanReviewVerdict
 
@@ -84,9 +80,17 @@ interface Draft {
   saved: boolean
 }
 
-export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }) {
+export function ReviewNoticeWorkspace({
+  noticeId,
+  items,
+  sourceReference,
+}: {
+  noticeId: string
+  items: ReviewNoticeItem[]
+  sourceReference: ReactNode
+}) {
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
-    Object.fromEntries(notice.items.map((item) => [
+    Object.fromEntries(items.map((item) => [
       item.id,
       {
         verdict: isReviewVerdict(item.humanVerdict) ? item.humanVerdict : null,
@@ -97,18 +101,18 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
       },
     ])))
   const [activeItemId, setActiveItemId] = useState(
-    () => notice.items.find((item) => !isReviewVerdict(item.humanVerdict))?.id ?? notice.items[0]?.id ?? "",
+    () => items.find((item) => !isReviewVerdict(item.humanVerdict))?.id ?? items[0]?.id ?? "",
   )
   const [pending, startTransition] = useTransition()
-  const activeIndex = Math.max(0, notice.items.findIndex((item) => item.id === activeItemId))
-  const activeItem = notice.items[activeIndex]
+  const activeIndex = Math.max(0, items.findIndex((item) => item.id === activeItemId))
+  const activeItem = items[activeIndex]
   const completedCount = useMemo(
-    () => notice.items.filter((item) => drafts[item.id]?.saved).length,
-    [drafts, notice.items],
+    () => items.filter((item) => drafts[item.id]?.saved).length,
+    [drafts, items],
   )
-  const progress = notice.items.length === 0
+  const progress = items.length === 0
     ? 0
-    : Math.round((completedCount / notice.items.length) * 100)
+    : Math.round((completedCount / items.length) * 100)
 
   function updateDraft(itemId: string, patch: Partial<Draft>) {
     setDrafts((current) => ({
@@ -135,7 +139,7 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
       return
     }
     startTransition(async () => {
-      const response = await fetch(`/api/admin/review/notices/${notice.id}/verdicts`, {
+      const response = await fetch(`/api/admin/review/notices/${noticeId}/verdicts`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -167,7 +171,7 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
         },
       }
       setDrafts(nextDrafts)
-      const nextItemId = nextUnfinishedItemId(notice.items, nextDrafts, activeIndex)
+      const nextItemId = nextUnfinishedItemId(items, nextDrafts, activeIndex)
       if (nextItemId) {
         setActiveItemId(nextItemId)
         toast.success("판정을 저장하고 다음 미판정 항목으로 이동했습니다.")
@@ -179,7 +183,7 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
 
   return (
     <main className="grid items-start gap-5 p-4 xl:grid-cols-[minmax(20rem,0.9fr)_minmax(30rem,1.25fr)_18rem] xl:p-6">
-      <SourceReference notice={notice} />
+      {sourceReference}
 
       <section className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -190,7 +194,7 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
             </p>
           </div>
           <Badge variant="outline">
-            {Math.min(activeIndex + 1, notice.items.length)} / {notice.items.length}
+            {Math.min(activeIndex + 1, items.length)} / {items.length}
           </Badge>
         </div>
 
@@ -201,7 +205,7 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
             draft={drafts[activeItem.id]!}
             disabled={pending}
             isLastUnfinished={
-              notice.items.filter((item) => !drafts[item.id]?.saved && item.id !== activeItem.id).length === 0
+              items.filter((item) => !drafts[item.id]?.saved && item.id !== activeItem.id).length === 0
             }
             onChange={(patch) => updateDraft(activeItem.id, patch)}
             onSave={saveActive}
@@ -216,7 +220,7 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
       </section>
 
       <FieldNavigator
-        items={notice.items}
+        items={items}
         drafts={drafts}
         activeItemId={activeItemId}
         completedCount={completedCount}
@@ -225,88 +229,6 @@ export function ReviewNoticeWorkspace({ notice }: { notice: ReviewNoticeDetail }
         onSelect={setActiveItemId}
       />
     </main>
-  )
-}
-
-function SourceReference({ notice }: { notice: ReviewNoticeDetail }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>판정 근거</CardTitle>
-          <CardDescription>
-            저장된 원문과 분석 문서를 확인하고 실제 공고의 요구 조건과 같은지 판단하세요.
-          </CardDescription>
-          {notice.sourceUrl ? (
-            <CardAction>
-              <a
-                className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
-                href={notice.sourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                공고 원문 페이지
-                <ExternalLinkIcon data-icon="inline-end" />
-              </a>
-            </CardAction>
-          ) : null}
-        </CardHeader>
-        <CardContent>
-          <Tabs defaultValue="analysis">
-            <TabsList>
-              <TabsTrigger value="source">저장된 공고 원문</TabsTrigger>
-              <TabsTrigger value="analysis">AI 분석 문서</TabsTrigger>
-            </TabsList>
-            <TabsContent value="source">
-              <pre className="max-h-[58vh] overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-4 text-xs leading-6">
-                {notice.inputText || "저장된 원문이 없습니다. 공고 원문 페이지나 첨부 문서를 확인해주세요."}
-              </pre>
-            </TabsContent>
-            <TabsContent value="analysis">
-              <div className="max-h-[58vh] overflow-auto rounded-lg bg-muted p-4">
-                <SafeMarkdown>{notice.analysisMarkdown || "저장된 분석 문서가 없습니다."}</SafeMarkdown>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </CardContent>
-      </Card>
-
-      <Card size="sm">
-        <CardHeader>
-          <CardTitle>공고 첨부 문서</CardTitle>
-          <CardDescription>
-            HWP/HWPX를 RHWP Studio 미리보기로 열어 원문 근거를 바로 확인할 수 있습니다.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-2">
-          {notice.attachments.length ? notice.attachments.map((attachment) => (
-            <Link
-              key={attachment.id}
-              className={cn(
-                buttonVariants({ variant: "outline", size: "sm" }),
-                "h-auto min-w-0 justify-between py-2",
-              )}
-              href={`/review/${notice.id}/attachments/${attachment.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <FileTextIcon className="shrink-0" />
-                <span className="truncate">{attachment.filename}</span>
-              </span>
-              <span className="shrink-0 text-xs text-muted-foreground">
-                {attachment.format.toUpperCase()}
-                {attachment.bytes != null ? ` · ${formatBytes(attachment.bytes)}` : ""}
-              </span>
-            </Link>
-          )) : (
-            <p className="text-sm text-muted-foreground">
-              바로 미리볼 수 있는 HWP/HWPX 첨부가 없습니다.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-    </div>
   )
 }
 
@@ -397,9 +319,20 @@ function ReviewItemCard({
           </dl>
         ) : null}
 
-        <FieldGroup>
+        <FieldGroup className="rounded-xl border-2 border-primary/25 bg-primary/5 p-4 shadow-sm transition-colors focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/15">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-primary p-2 text-primary-foreground">
+              <PencilLineIcon className="size-4" />
+            </div>
+            <div className="flex flex-col gap-1">
+              <p className="font-semibold">검수자 입력</p>
+              <p className="text-sm text-muted-foreground">
+                원문을 기준으로 판정을 선택하고, 필요한 경우 수정 근거를 적어주세요.
+              </p>
+            </div>
+          </div>
           <Field data-invalid={invalid || undefined}>
-            <FieldLabel>원문 기준 판정</FieldLabel>
+            <FieldLabel className="text-base">1. 원문 기준 판정</FieldLabel>
             <ToggleGroup
               variant="outline"
               size="sm"
@@ -426,8 +359,8 @@ function ReviewItemCard({
             </FieldDescription>
           </Field>
           <Field data-invalid={invalid || undefined}>
-            <FieldLabel htmlFor={`note-${item.id}`}>
-              판정 사유 {draft.verdict && requiresNote(draft.verdict) ? "(필수)" : "(선택)"}
+            <FieldLabel className="text-base" htmlFor={`note-${item.id}`}>
+              2. 판정 사유 {draft.verdict && requiresNote(draft.verdict) ? "(필수)" : "(선택)"}
             </FieldLabel>
             <Textarea
               id={`note-${item.id}`}
@@ -435,6 +368,7 @@ function ReviewItemCard({
               onChange={(event) => onChange({ note: event.target.value })}
               placeholder="예: 원문은 ‘소상공인’만 요구하며 모든 소기업을 포함하지 않습니다. 올바른 값은 소상공인입니다."
               maxLength={4_000}
+              className="min-h-28 bg-background"
               disabled={disabled}
               aria-invalid={invalid}
             />
@@ -497,8 +431,12 @@ function FieldNavigator({
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <div className="flex items-center gap-3">
-            <Progress value={progress} />
-            <span className="shrink-0 text-sm font-medium">{progress}%</span>
+            <Progress
+              value={progress}
+              className="min-w-0 flex-1"
+              aria-label="공고 검수 진행률"
+            />
+            <span className="shrink-0 text-sm font-medium tabular-nums">{progress}%</span>
           </div>
           <nav className="flex max-h-[calc(100vh-14rem)] flex-col gap-1 overflow-auto" aria-label="검수 필드 목록">
             {items.map((item, index) => {
@@ -564,12 +502,6 @@ function nextUnfinishedItemId(
     if (item && !drafts[item.id]?.saved) return item.id
   }
   return null
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)}MB`
 }
 
 function requiresNote(verdict: ReviewVerdict): boolean {

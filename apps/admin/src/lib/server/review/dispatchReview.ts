@@ -102,6 +102,7 @@ export async function listReviewQueue(
 
 interface NoticeRow {
   id: string;
+  allowed: boolean;
   week: string;
   title: string;
   source: string;
@@ -195,24 +196,28 @@ export async function getReviewNotice(
 ): Promise<ReviewNoticeDetail> {
   assertUuid(noticeId, "noticeId");
   const sql = getAdminSql();
-  const rows = await sql<NoticeRow[]>`
-    SELECT
-      n.id, b.week, n.title, n.source, n.source_id, n.run_id,
-      n.input_text, n.analysis_markdown, g.url AS source_url
-    FROM audit_dispatch_notices n
-    JOIN audit_dispatch_batches b ON b.id = n.batch_id
-    LEFT JOIN grants g ON g.id = n.grant_id
-    WHERE n.id = ${noticeId}::uuid
-    LIMIT 1
-  `;
-  const notice = rows[0];
-  if (!notice) throw new DispatchReviewError("review_notice_not_found", "검수 공고를 찾을 수 없습니다.", 404);
-  await assertNoticeAccess(sql, session, noticeId);
-
   const itemFilter = session.user.role === "reviewer"
     ? sql`AND assignee_id = ${session.user.id}::uuid`
     : sql``;
-  const [itemRows, attachmentRows] = await Promise.all([
+  const accessProjection = session.user.role === "reviewer"
+    ? sql`EXISTS (
+        SELECT 1
+        FROM audit_dispatch_items access_item
+        WHERE access_item.notice_id = n.id
+          AND access_item.assignee_id = ${session.user.id}::uuid
+      ) AS allowed`
+    : sql`true AS allowed`;
+  const [rows, itemRows, attachmentRows] = await Promise.all([
+    sql<NoticeRow[]>`
+      SELECT
+        n.id, ${accessProjection}, b.week, n.title, n.source, n.source_id, n.run_id,
+        n.input_text, n.analysis_markdown, g.url AS source_url
+      FROM audit_dispatch_notices n
+      JOIN audit_dispatch_batches b ON b.id = n.batch_id
+      LEFT JOIN grants g ON g.id = n.grant_id
+      WHERE n.id = ${noticeId}::uuid
+      LIMIT 1
+    `,
     sql<ItemRow[]>`
       SELECT
         id, source_item_key, collect_target, item_kind, criterion_index, dimension,
@@ -228,16 +233,27 @@ export async function getReviewNotice(
         id
     `,
     sql<AttachmentRow[]>`
-      SELECT id, filename, source_uri, content_type, bytes
-      FROM grant_attachment_archives
-      WHERE source::text = ${notice.source}
-        AND source_id = ${notice.source_id}
-        AND filename ~* '\\.hwpx?$'
-        AND nullif(source_uri, '') IS NOT NULL
-      ORDER BY filename, id
+      SELECT a.id, a.filename, a.source_uri, a.content_type, a.bytes
+      FROM grant_attachment_archives a
+      JOIN audit_dispatch_notices n
+        ON n.source = a.source::text
+        AND n.source_id = a.source_id
+      WHERE n.id = ${noticeId}::uuid
+        AND a.filename ~* '\\.hwpx?$'
+        AND nullif(a.source_uri, '') IS NOT NULL
+      ORDER BY a.filename, a.id
       LIMIT 20
     `,
   ]);
+  const notice = rows[0];
+  if (!notice) throw new DispatchReviewError("review_notice_not_found", "검수 공고를 찾을 수 없습니다.", 404);
+  if (!notice.allowed) {
+    throw new DispatchReviewError(
+      "review_notice_forbidden",
+      "본인에게 배정된 검수 공고만 열 수 있습니다.",
+      403,
+    );
+  }
 
   let remainingPayloadChars = MAX_TOTAL_PAYLOAD_CHARS;
   return {
