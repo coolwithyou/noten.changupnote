@@ -29,10 +29,17 @@ interface QueueRow {
   title: string;
   source: string;
   source_id: string;
+  assignees: ReviewQueueAssignee[];
   item_count: number;
   decided_count: number;
   conflict_count: number;
   updated_at: string | null;
+}
+
+export interface ReviewQueueAssignee {
+  id: string;
+  email: string;
+  name: string | null;
 }
 
 export interface ReviewQueueItem {
@@ -41,6 +48,7 @@ export interface ReviewQueueItem {
   title: string;
   source: string;
   sourceId: string;
+  assignees: ReviewQueueAssignee[];
   itemCount: number;
   decidedCount: number;
   conflictCount: number;
@@ -66,6 +74,13 @@ export async function listReviewQueue(
       n.title,
       n.source,
       n.source_id,
+      jsonb_agg(
+        DISTINCT jsonb_build_object(
+          'id', i.assignee_id,
+          'email', i.assignee_email,
+          'name', assignee.name
+        )
+      ) AS assignees,
       count(i.id)::int AS item_count,
       count(i.id) FILTER (WHERE i.status IN ('decided', 'resolved', 'collected'))::int AS decided_count,
       count(i.id) FILTER (WHERE i.status = 'conflict')::int AS conflict_count,
@@ -73,6 +88,7 @@ export async function listReviewQueue(
     FROM audit_dispatch_notices n
     JOIN audit_dispatch_batches b ON b.id = n.batch_id
     JOIN audit_dispatch_items i ON i.notice_id = n.id
+    LEFT JOIN admin_users assignee ON assignee.id = i.assignee_id
     WHERE true
       ${assignmentFilter}
       ${weekFilter}
@@ -91,6 +107,9 @@ export async function listReviewQueue(
       title: row.title,
       source: row.source,
       sourceId: row.source_id,
+      assignees: [...row.assignees].sort((left, right) =>
+        (left.name ?? left.email).localeCompare(right.name ?? right.email, "ko-KR"),
+      ),
       itemCount: row.item_count,
       decidedCount: row.decided_count,
       conflictCount: row.conflict_count,

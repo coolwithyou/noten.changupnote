@@ -41,6 +41,7 @@ export default async function ReviewQueuePage({
   const progress = total === 0 ? 0 : Math.round((decided / total) * 100)
   const inProgressItems = queue.items.filter((item) => !isReviewComplete(item))
   const completedItems = queue.items.filter(isReviewComplete)
+  const showAssignees = session.user.role === "admin" || session.user.role === "owner"
 
   return (
     <OpsDashboardShell
@@ -96,6 +97,7 @@ export default async function ReviewQueuePage({
                 <ReviewQueueTable
                   items={inProgressItems}
                   emptyMessage="진행 중인 검수 공고가 없습니다."
+                  showAssignees={showAssignees}
                 />
               </TabsContent>
               <TabsContent value="completed">
@@ -105,6 +107,7 @@ export default async function ReviewQueuePage({
                 <ReviewQueueTable
                   items={completedItems}
                   emptyMessage="완료한 검수 공고가 없습니다."
+                  showAssignees={showAssignees}
                 />
               </TabsContent>
             </Tabs>
@@ -118,9 +121,11 @@ export default async function ReviewQueuePage({
 function ReviewQueueTable({
   items,
   emptyMessage,
+  showAssignees,
 }: {
   items: ReviewQueueItem[]
   emptyMessage: string
+  showAssignees: boolean
 }) {
   return (
     <Table>
@@ -128,6 +133,7 @@ function ReviewQueueTable({
         <TableRow>
           <TableHead>공고</TableHead>
           <TableHead>출처</TableHead>
+          {showAssignees ? <TableHead>검수자</TableHead> : null}
           <TableHead>진행</TableHead>
           <TableHead>상태</TableHead>
           <TableHead className="text-right">열기</TableHead>
@@ -136,7 +142,7 @@ function ReviewQueueTable({
       <TableBody>
         {items.length === 0 ? (
           <TableRow>
-            <TableCell colSpan={5} className="text-center text-muted-foreground">
+            <TableCell colSpan={showAssignees ? 6 : 5} className="text-center text-muted-foreground">
               {emptyMessage}
             </TableCell>
           </TableRow>
@@ -151,6 +157,20 @@ function ReviewQueueTable({
                 </div>
               </TableCell>
               <TableCell>{item.source}</TableCell>
+              {showAssignees ? (
+                <TableCell>
+                  <div className="flex min-w-32 flex-col gap-2">
+                    {item.assignees.map((assignee) => (
+                      <div key={assignee.id} className="flex flex-col">
+                        <span className="text-sm font-medium">
+                          {assignee.name ?? assignee.email.split("@")[0]}
+                        </span>
+                        <span className="text-xs text-muted-foreground">{assignee.email}</span>
+                      </div>
+                    ))}
+                  </div>
+                </TableCell>
+              ) : null}
               <TableCell>{item.decidedCount}/{item.itemCount} · {item.progress}%</TableCell>
               <TableCell>
                 <Badge variant={item.conflictCount > 0 ? "destructive" : "secondary"}>
