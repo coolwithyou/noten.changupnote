@@ -1797,7 +1797,19 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   append-only trigger, 5개 테이블, stale projection을 검증한 뒤 DB를 삭제했다.
 - [x] Drizzle schema drift 0, web typecheck, migration static verifier,
   deep analysis ledger unit test가 통과했다.
-- [ ] 운영 DB migration 적용과 실제 R2 private bucket 왕복은 B2에서 별도 검증한다.
+- [x] 운영 DB migration 적용과 실제 R2 private bucket 왕복은 B2에서 별도 검증한다.
+
+구현 체크포인트 B2 (2026-07-25):
+
+- [x] `db:doctor`로 대상이 Supabase `changupnote` DB이고 기존 필수 테이블·RLS가
+  정상임을 확인한 후 `pnpm db:migrate`로 `0053`을 적용했다.
+- [x] 운영 catalog에서 원장 table 5, RLS 5, append-only trigger 3,
+  run identity trigger 1, promotion FK 1을 재검증했다.
+- [x] private R2에 202바이트 verifier artifact를 content-addressed key로 기록한 뒤
+  다시 읽어 SHA-256 `c367d15df900e06d3381818ceaa0b5e5d2f2d28ff4ca750b13ebed6945d387be`
+  일치를 확인했다.
+- [x] 재검증 명령은 `pnpm verify:deep-analysis-ledger`이며,
+  실제 R2 왕복은 명시적인 `--write-r2`에서만 수행한다.
 
 #### Phase C. 입력 전수성 보증
 
