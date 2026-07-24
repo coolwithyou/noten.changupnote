@@ -361,6 +361,53 @@ a {
   color: var(--text);
 }
 
+.ops-google-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 22px;
+  border: 1px solid #747775;
+  border-radius: 4px;
+  background: #fff;
+  color: #1f1f1f;
+  padding: 0 44px;
+  font-family: "Google Sans", Roboto, Arial, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.ops-google-button:hover:not(:disabled) {
+  background: #f7f8f8;
+  box-shadow: 0 1px 2px rgb(60 64 67 / 0.16);
+}
+
+.ops-google-button:focus-visible {
+  outline: 2px solid #0b57d0;
+  outline-offset: 2px;
+}
+
+.ops-google-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.ops-google-logo {
+  position: absolute;
+  left: 12px;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
 .ops-button:disabled {
   cursor: not-allowed;
   opacity: 0.62;
