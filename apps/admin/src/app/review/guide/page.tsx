@@ -53,11 +53,12 @@ export default async function ReviewGuidePage() {
           <CardContent>
             <ol className="ml-5 flex list-decimal flex-col gap-2 text-sm">
               <li>가운데 질문에서 AI가 판단한 한글 필드·추출 값·조건 종류를 읽습니다.</li>
-              <li>왼쪽 저장 원문에서 근거 인용이 실제로 있는지 확인합니다.</li>
+              <li>왼쪽에 기본으로 열린 AI 분석 문서에서 전체 맥락을 확인합니다.</li>
+              <li>저장된 공고 원문으로 전환해 근거 인용이 실제로 있는지 확인합니다.</li>
               <li>필요하면 공고 원문 페이지나 HWP/HWPX 미리보기를 새 탭으로 엽니다.</li>
               <li>수치·목록·이상/이하 방향과 필수·우대·결격 구분을 대조합니다.</li>
               <li>판정과 사유를 입력하고 “저장하고 다음 미판정 항목”을 누릅니다.</li>
-              <li>오른쪽 전체 필드에서 저장 완료와 남은 미판정을 확인합니다.</li>
+              <li>오른쪽 전체 필드에서 저장 완료와 남은 미판정을 확인하고, 마지막 저장 뒤 공고 목록으로 돌아갑니다.</li>
             </ol>
           </CardContent>
         </Card>
@@ -73,6 +74,26 @@ export default async function ReviewGuidePage() {
               <li>HWP/HWPX는 RHWP Studio 미리보기로 새 탭에서 열리며, 미리보기 중 변경은 저장되지 않습니다.</li>
               <li>원본 JSON은 기본 검수 대상이 아닙니다. 기술 확인이 필요할 때만 “기술 정보 보기”를 펼칩니다.</li>
             </ul>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle>완료한 공고 다시 보기·수정</CardTitle>
+            <CardDescription>
+              완료 공고를 열어도 전체 필드를 다시 판단할 필요는 없습니다.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <ol className="ml-5 flex list-decimal flex-col gap-2 text-sm">
+              <li>배정 큐의 “완료” 탭에서 다시 확인할 공고를 찾습니다.</li>
+              <li>“결과 보기·수정”을 눌러 저장된 판정과 사유를 확인합니다.</li>
+              <li>잘못된 필드만 열어 판정 또는 사유를 변경합니다.</li>
+              <li>“저장 전 변경” 상태가 된 필드만 다시 저장합니다.</li>
+              <li>저장 충돌 알림이 나오면 덮어쓰지 말고 새로고침해 최신 판정을 확인합니다.</li>
+            </ol>
+            <p className="text-sm text-muted-foreground">
+              값을 바꾸지 않으면 저장 버튼은 비활성화됩니다. 수정한 필드만 새 revision으로 저장되고 공고의 완료 상태는 유지됩니다.
+            </p>
           </CardContent>
         </Card>
         <Card>
