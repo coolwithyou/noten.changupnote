@@ -4,6 +4,27 @@ const nextConfig = {
   // 예: NEXT_DIST_DIR=.next-build pnpm --filter @cunote/web build
   ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   transpilePackages: ["@cunote/core", "@cunote/contracts"],
+  // Dev-only analysis routes use dynamic filesystem paths under the monorepo root. NFT can
+  // conservatively trace the whole repository into every server function, including large
+  // samples and design artifacts. None of these paths are runtime inputs for production routes.
+  outputFileTracingExcludes: {
+    "/*": [
+      "../../_ir_review_tmp/**/*",
+      "../../backups/**/*",
+      "../../db/**/*",
+      "../../docs/**/*",
+      "../../output/**/*",
+      "../../spike-out*/**/*",
+      "../../spike-samples*/**/*",
+      "../../spike-labels/**/*",
+      "../../temp/**/*",
+      "../../tmp/**/*",
+      "public/**/*",
+      "src/**/*.test.*",
+      "src/lib/server/ingestion/.renorm-analysis/**/*",
+      "src/lib/server/layout-eval/eval-cache/**/*",
+    ],
+  },
   // Cloudflare 터널(dev.changupnote.com) 경유 시 브라우저 Origin이
   // localhost가 아니라서 Next dev의 cross-origin 보호가 HMR/_next 자산 요청을
   // 차단(cloudflared에는 "Unauthorized" malformed 응답으로 보임)하는 것을 허용.

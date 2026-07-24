@@ -1,0 +1,17 @@
+.git/
+.vercel/
+.env*
+**/node_modules/
+**/.next*/
+backups/
+coverage/
+docs/
+output/
+spike-out*/
+spike-samples*/
+spike-labels/
+temp/
+tmp/
+_ir_review_tmp/
+apps/web/src/lib/server/ingestion/.renorm-analysis/
+apps/web/src/lib/server/layout-eval/eval-cache/
