@@ -1,8 +1,10 @@
 # 딥 공고 분석 결과 운영 매칭 적용 로드맵 및 구현 계획
 
 > 작성일: 2026-07-24  
-> 상태: **제어면 구현 완료 — W30 검수 수거·운영 카나리 전**  
+> 상태: **승격 제어면 구현 완료 / 활성 공고 딥분석 실행·영속·관제는 미구현**
 > 적용 대상: `analysis-lab`에서 생성하고 AI 검수·감사·검수팀 판정을 거친 공고별 조건과 확인 질문  
+> 2026-07-25 확장: 활성 공고의 원문·HWP 딥분석을 사람 전수 검수 없이 운영하고,
+> 단계별 증적으로 보증하는 계획은 이 문서 §14를 정본으로 사용한다.
 > 선행 문서:
 > - `docs/plans/2026-07-21-analysis-lab-expansion-experiment.md`
 > - `docs/plans/2026-07-22-analysis-lab-shadow-harness.md`
@@ -16,6 +18,11 @@
 랜딩과 매칭 엔진은 이미 `grant_criteria`와 `grant_confirmation_questions`를 소비하므로,
 남은 핵심은 새 매칭 기능 개발이 아니라 **초기 품질 게이트 종료, 변환 오류 해소, 재현 가능한
 릴리스 증적, 카나리, 롤백, 운영 관측**이다.
+
+2026-07-25 개정: 위 순서는 초기 품질 기준선을 만들기 위한 기존 릴리스 절차다. 상시 운영에서는
+사람 전수 검수를 절대 선행조건으로 두지 않는다. 최상급 모델의 원문·첨부 전수 분석, 기계적
+22축·근거 검증, 독립 모델의 블라인드 감사까지 모두 통과한 건은 자동 승격하고, 사람은
+입력 누락·모델 불일치·계약 오류 같은 예외만 처리한다. 자세한 전환 계획은 §14를 따른다.
 
 ## 1. 목표와 완료 정의
 
@@ -879,11 +886,14 @@ pnpm lab:rollback -- --release=<id> --write --actor=<롤백담당자> --confirm=
 | 운영 rollback이 더 큰 손실 유발 | 카나리 전 실제 DB와 동형 fixture에서 복구 리허설 |
 | 검수 완료를 기다리다 신규 공고 노출 지연 | 초기 품질 게이트 후 항목 단위 비차단 승격 |
 
-## 10. 이번 릴리스의 비범위
+## 10. 2026-07-24 초기 릴리스의 비범위
+
+> 아래는 W30 초기 승격 릴리스의 비범위다. 2026-07-25에 활성 공고 전수 운영이 새 목표로
+> 확장됐으며, 해당 구현 범위와 순서는 §14가 이 목록을 대체한다.
 
 - 랜딩 요청마다 딥 분석 LLM 실행
-- 모든 활성 공고 약 1,500건의 일괄 분석
-- 검수 없이 AI 산출을 곧바로 `needs_review=false`로 발행
+- 초기 W30 릴리스 안에서 모든 활성 공고를 일괄 분석
+- 결정론 검증·독립 감사 없이 AI 산출을 곧바로 `needs_review=false`로 발행
 - Phase C의 company_fact 답변을 `company_profiles`로 승격
 - 반복 근거 없는 신규 taxonomy 축 확대
 - 통합공고의 하위 사업 자동 분해
@@ -996,3 +1006,1033 @@ Critical path는 “검수 종료”만이 아니다. 검수가 끝나기 전에
 `PromotionPlan[]` 공유, DB baseline drift 차단, 질문 semantic versioning, 익명/owned-company
 경로 분리, 구조화 gate artifact, unaudited 안전 정책, immutable revision, 카나리 scope,
 rollback 공유 lock·트랜잭션이 모두 계획에 반영됐음을 현재 코드와 대조해 확인했다.
+
+## 14. 2026-07-25 개정 — 활성 공고 딥분석 보증 체계
+
+### 14.0 결론
+
+리뷰어 운영에서 확인한 방향은 타당하다. 공고 웹 본문과 HWP/HWPX 등 첨부 전문을 최상급
+모델에 함께 제공하고, 22개 축의 맥락과 원문 근거를 강제하면 사람의 공고별 수작업 분석은
+상시 운영의 필수 단계가 아니어도 된다.
+
+다만 “리뷰어도 GPT/Claude를 사용했고 결과에 동의했다”는 사실은 다음 두 가지로 나누어
+해석해야 한다.
+
+1. **강한 제품 증거**: 최상급 모델을 실제 검수 도구로 사용했을 때 사람이 납득할 수준의
+   22축 분류와 근거 설명이 가능했다. 따라서 모델을 초안 생성기가 아니라 주 분석기로
+   올릴 근거가 생겼다.
+2. **아직 부족한 품질 증거**: 리뷰어 판단 역시 LLM의 도움을 받았으므로 모델과 완전히
+   독립된 골든 라벨은 아니다. 같은 모델 계열의 공통 오류와 자동화 편향까지 제거됐다고
+   볼 수는 없다.
+
+그러므로 목표 운영 모델은 `human-in-the-loop` 전수 검수가 아니라 다음이다.
+
+```text
+최상급 모델 1차 분석
+→ 입력·스키마·22축·원문 근거의 결정론 검증
+→ 독립 모델 블라인드 감사
+→ 일치 건 자동 발행
+→ 불일치·입력 누락·계약 오류만 예외 큐
+```
+
+현재 상태에서 “프로덕션 딥분석이 해결됐다”고 판정하면 안 된다. 이번 수정으로 HWP 원격
+변환과 누락 고지는 해결됐지만, 최상급 모델 딥분석의 프로덕션 실행기, 영속 원장, 활성 공고
+전수 스케줄러, 단계별 관제는 아직 없다. 따라서 이 계획의 현재 실행 판정은 다음과 같다.
+
+- HWP 변환 결함 복구: **GO**
+- 복구 4공고의 HWP 포함 재분석: **GO**
+- 활성 공고 전수의 프로덕션 딥분석 자동화: **NO-GO — 미구현**
+- 사람 전수 검수 없는 자동 승격: **NO-GO — 기계 게이트와 독립 감사의 운영 영속화 선행**
+- 관제시스템을 통한 단계별 보증: **NO-GO — 기존 미병합 대시보드는 딥분석을 관측하지 않음**
+
+### 14.1 용어와 완료 의미
+
+#### 14.1.1 “22개 분류를 채운다”
+
+22개 축마다 criterion 한 행을 억지로 만드는 것이 아니다. 공고에 지역 조건이 없으면
+`region` criterion을 생성하지 않는 것이 맞다. 대신 모든 축에 정확히 한 개의 검사 상태가
+있어야 한다.
+
+| 축 상태 | 의미 | 운영 처리 |
+|---|---|---|
+| `condition_found` | 해당 축 조건이 원문에 있음 | 근거가 검증된 criterion 1개 이상 필요 |
+| `inspected_no_condition` | 입력을 전부 읽었고 해당 축 조건이 없음 | criterion 0개가 정상 |
+| `ambiguous` | 문구는 있으나 구조화·판정이 불명확 | 자동 확정 금지, 질문 또는 예외 큐 |
+| `input_missing` | 필요한 원문·첨부를 읽지 못함 | 딥분석 완료 금지 |
+| `unassessed` | 모델 응답에 축 자체가 없음 | 런 실패 |
+
+따라서 `criteria.length`나 `distinct dimension 수`는 딥분석 완전성 지표가 아니다.
+**22축 상태가 정확히 22개이고, 중복·누락이 없으며, `condition_found`와 criterion이
+상호 일치하는지**가 완전성 지표다.
+
+현재 추출기는 `premises`, `export_performance` 두 예약 축을 `axis_assessments`에서는
+검사하지만 criterion 생성 enum에서는 제외한다. 운영 전환 전에 다음 중 하나를 명시적으로
+결정해야 한다.
+
+- 실제 matcher/evaluator와 기업 데이터가 준비되면 두 축의 criterion 생성을 허용한다.
+- 준비 전까지는 두 축을 `inspected_no_condition | ambiguous | input_missing`으로만
+  관측하고, 조건이 발견되면 `other/text_only + needs_review=true`로 보존한다.
+
+조건이 실제로 있는데 예약 축이라는 이유로 조용히 버리는 것은 금지한다.
+
+#### 14.1.2 세 가지 완료 상태
+
+| 완료 상태 | 필요한 마지막 단계 | 의미 |
+|---|---|---|
+| `analysis_complete` | 입력·22축·근거·독립 감사 통과 | 분석 산출 자체가 신뢰 가능 |
+| `publication_complete` | manifest-bound 승격과 DB after hash 검증 | `grant_criteria` 정본에 반영 |
+| `serving_complete` | 실제 matcher가 같은 criterion을 소비함을 검증 | 사용자 판정에 반영 |
+
+화면과 API에서 이 세 상태를 하나의 `완료=true`로 합치지 않는다.
+
+### 14.2 현재 구현을 다시 본 결과
+
+#### 14.2.1 이번에 해결된 직접 결함
+
+- Vercel에 `hwp5html`이 없어 HWP markdown 변환이 실패하던 문제를 Cloud Run 원격
+  변환 경로로 복구했다.
+- `analysis-lab/input.ts`가 markdown 없는 첨부를 조용히 제거하던 문제를 고쳐
+  `첨부 미투입(...)` 블록과 `[입력 한계 고지]`를 남긴다.
+- 복구 대상 4공고는 HWP 6개를 변환하고 `claude-opus-4-8`로 다시 분석했다.
+- 신규 BizInfo 수집은 변환된 첨부 markdown을 같은 Anthropic 추출 입력에 포함한다.
+- 신규 K-Startup 수집은 bounded tail sweep에서 HWP를 원격 변환·보관할 수 있다.
+
+#### 14.2.2 아직 남은 구조적 원인
+
+| 문제 | 현재 코드 사실 | 결과 |
+|---|---|---|
+| 딥분석 실행기가 dev 전용 | `/api/dev/analysis-lab/analyze`는 production에서 404 | 프로덕션 웹 배포가 Opus 딥분석을 실행하지 않음 |
+| 런 저장소가 로컬 파일 | `spike-out/analysis-lab/.../<runId>.json`, DB 미사용 | Vercel/Cloud Run에서 durable 운영 원장으로 쓸 수 없음 |
+| 실행이 수동 배치 | `pnpm lab:batch`가 로컬 cohort 파일을 읽음 | 신규 활성 공고가 자동 분석되지 않음 |
+| K-Startup 운영 수집은 딥분석 미연결 | 크론은 수집 후 최대 4공고·6첨부 tail 변환만 수행 | HWP 저장 성공과 22축 딥분석은 별개 |
+| BizInfo 운영 추출 모델이 기본 Haiku | 기본 `claude-haiku-4-5-20251001` | 첨부를 읽더라도 최상급 모델 `lab-deep-v3`와 다른 경로 |
+| BizInfo 실패가 얕은 fallback으로 진행 가능 | `allowTextOnlyFallback=true`, attachment failure 허용 | 공고 발행 성공이 딥분석 성공을 뜻하지 않음 |
+| 입력 누락이 있어도 LLM 호출 가능 | 누락 고지는 생겼지만 호출 자체를 막지 않음 | `error=null`인 degraded run 가능 |
+| 22축 응답 후검증이 fail-closed가 아님 | 정규화가 잘못된/중복 축을 드롭한 뒤 배열을 반환 | 22개 미만이어도 provider 호출 성공으로 남을 수 있음 |
+| “모델 호출 성공”과 “분석 유효”가 분리되지 않음 | `run.error === null`이 주 성공 신호 | 불완전 응답을 완료로 오인 가능 |
+| 기존 관제 구현이 main에 없음 | 독립 worktree의 `/pipeline` 브랜치만 존재 | `ops.changupnote.com`에서 현재 사용할 수 없음 |
+| 기존 관제 상태가 얕은 파이프라인 기준 | `grant_raw.status`, 첨부 상태, `grant_criteria`, `extraction_log` 합성 | 딥분석 run/input/audit/promotion을 증명하지 못함 |
+| 수동 `mark_reviewed`가 분석 증거를 만들지 않음 | needs_review를 false로 바꾸고 labeled 로그 기록 | 딥분석 완료 플래그로 사용하면 거짓 양성 |
+
+핵심 원인은 단순히 HWP 변환 서버가 없었던 것이 아니다. 프로덕션 수집 파이프라인과
+최상급 모델 `analysis-lab`가 서로 다른 트랙이었고, 둘을 잇는 durable job·run·receipt가
+없었다. 이번 HWP 수정은 **입력 재료를 준비하는 단계**를 고친 것이며, 전수 딥분석 운영
+자체를 완성한 것은 아니다.
+
+#### 14.2.3 2026-07-25 운영 읽기 기준선
+
+아래 수치는 운영 DB를 읽기 전용으로 조회한 스냅샷이다. 활성은
+`grants.status='open'`, KST 오늘 기준 접수 시작·마감 범위 안인 공고로 계산했다.
+
+| 항목 | 전체 | BizInfo | K-Startup |
+|---|---:|---:|---:|
+| 활성 공고 | 624 | 350 | 274 |
+| HWP/HWPX 보유 공고 | 395 | 269 | 126 |
+| HWP/HWPX archive inventory 행 | 656 | 430 | 226 |
+| 원본 R2 보관 완료 | 211 | 174 | 37 |
+| markdown 변환 완료 | 14 | 3 | 11 |
+| 변환 실패 | 6 | 0 | 6 |
+
+추가 기준선:
+
+- 활성 624공고 중 현재 criterion 보유는 623공고지만, 평균 distinct dimension은 3.22다.
+- `analysis-lab` 승격 parser provenance를 가진 활성 공고는 0건이다.
+- `analysis_lab_promotion_releases` 운영 행은 0건이다.
+- 활성 공고의 운영 parser/model은 K-Startup field parser 또는 BizInfo Haiku 추출이다.
+- 로컬 `spike-out`에는 `lab-deep-v3` 성공 런이 5공고 있지만 운영 DB가 이를 current
+  analysis truth로 조회할 방법은 없다.
+
+이 기준선은 `criterion이 있다`와 `딥분석됐다`가 완전히 다른 상태임을 보여준다.
+
+### 14.3 목표 아키텍처
+
+```text
+[수집: grant_raw + 원문 revision]
+              │
+              ▼
+[첨부 inventory] ─→ [원본 R2 archive] ─→ [HWP/HWPX/PDF/OCR text]
+              │                   각 단계 hash·receipt
+              └──────────────────────────┐
+                                         ▼
+                              [sealed input manifest]
+                              raw hash + attachment set hash
+                              included/waived/blocked 전건 disposition
+                                         │
+                                         ▼
+                              [top-tier deep analyzer]
+                                         │
+                      schema/22-axis/evidence validators
+                                         │
+                                         ▼
+                              [blind independent audit]
+                                 │                 │
+                              concur            disagree
+                                 │                 │
+                                 ▼                 ▼
+                         auto resolution      exception queue
+                                 │
+                                 ▼
+                         promotion release control
+                                 │
+                                 ▼
+                 grant_criteria + confirmation questions
+                                 │
+                                 ▼
+                        matcher serving verification
+
+모든 화살표 = append-only stage receipt
+ops 화면 = receipt의 projection, 수동 체크박스가 아님
+```
+
+원칙:
+
+1. 랜딩 요청 중 LLM 호출은 하지 않는다.
+2. 수집 크론은 deep analysis를 동기 실행하지 않고 durable job만 enqueue한다.
+3. source revision이 같으면 같은 분석을 멱등 재사용한다.
+4. source raw hash나 attachment manifest hash가 바뀌면 기존 런은 즉시 `stale`이다.
+5. 첨부 하나라도 disposition이 없으면 input을 seal하지 않는다.
+6. 길이 제한을 넘는 문서는 조용히 자르지 않고 chunk 전수 처리하거나 `blocked`로 남긴다.
+7. provider HTTP 200은 `model_call_passed`일 뿐 `analysis_complete`가 아니다.
+8. stage flag는 receipt에서 계산하며 운영자가 직접 true로 바꿀 수 없다.
+9. 사람은 예외를 해소할 수 있지만, 분석하지 않은 공고를 완료로 표시할 수 없다.
+10. 최종 matcher는 생성형 모델이 아니라 검증·발행된 `grant_criteria`만 소비한다.
+
+### 14.4 단계별 보증 상태
+
+공통 stage status enum:
+
+```text
+pending | running | passed | failed | blocked | stale | not_applicable
+```
+
+- `passed`: 검증 함수와 증적 hash가 모두 있음
+- `failed`: 실행했으나 계약/인프라 오류
+- `blocked`: 선행 입력이 없어 실행하면 안 됨
+- `stale`: 통과 당시 source revision과 현재 revision이 다름
+- `not_applicable`: 명시된 규칙과 근거로 해당 단계가 불필요
+- `pending`, `running`: 미완료
+
+`passed`는 UI나 액션에서 직접 입력하지 않는다. 각 stage verifier가 evidence를 만들고
+트랜잭션 안에서 receipt를 기록할 때만 생긴다.
+
+| 단계 | flag | `passed`의 기계적 조건 | 대표 차단 사유 | 필수 증적 |
+|---|---|---|---|---|
+| S0 | `source_fresh` | 현재 raw/content revision hash 확정 | raw 없음, source fetch 실패 | raw hash, collectedAt, source URL |
+| S1 | `attachment_inventory_complete` | 원문에 선언된 첨부 전건이 inventory에 있음 | detail 미수집, 링크 파싱 실패 | attachment ID·URL·filename·content hash 목록 |
+| S2 | `attachment_archive_complete` | 모든 분석 대상 원본이 R2에 있고 sha256 일치 | download 실패, size 초과 | R2 key, bytes, sha256 |
+| S3 | `attachment_text_complete` | 모든 분석 대상 문서가 text/markdown/OCR로 읽힘 | converter 실패, 암호화, 손상 | converter/version, markdown key/hash |
+| S4 | `input_coverage_verified` | 첨부 전건이 included/duplicate/waived/blocked 중 하나이며 blocked 0 | 조용한 제외, cap 초과 | input manifest, disposition reason |
+| S5 | `input_sealed` | raw hash+attachment set+rendered chunks의 canonical hash 고정 | hash drift | input artifact R2 key, inputSha256 |
+| S6 | `model_call_passed` | allowlisted 최상급 모델의 tool response 수신 | timeout, refusal, rate limit | model ID, prompt version, usage, raw response hash |
+| S7 | `response_contract_valid` | JSON/tool schema·enum·canonical criterion 계약 100% 통과 | invalid operator/value, parse drop | validation report |
+| S8 | `axis_coverage_complete` | 22축 정확히 1개씩, 중복·누락 0 | 21축, duplicate axis | 22 axis rows, dimension set hash |
+| S9 | `evidence_grounded` | hard criterion 전건 source span exact match, found↔criteria 일치 | 근거 없음/오인용 | span offsets, block/attachment refs |
+| S10 | `independent_audit_passed` | 블라인드 감사 모델이 자동 발행 대상 전건에 concur | disagreement, unsure | audit model/prompt, item verdict hash |
+| S11 | `analysis_complete` | S0~S10 passed, ambiguous/input_missing/unassessed 0 | 선행 단계 하나라도 미통과 | aggregate verification receipt |
+| S12 | `publication_complete` | 승인된 manifest item과 DB after hash 일치 | baseline drift, partial failure | release/item ID, after hash |
+| S13 | `serving_complete` | matcher가 현재 published criterion IDs/hash를 실제 소비 | cache stale, orphan question | fixed-profile trace hash |
+| S14 | `analysis_fresh` | current source revision = run source revision | 공고/첨부 변경 | freshness check receipt |
+
+#### 14.4.1 attachment disposition
+
+모든 첨부는 input manifest에 다음 중 하나로 반드시 남는다.
+
+```text
+included
+duplicate_of:<attachmentId>
+waived_non_text_with_reason
+waived_non_material_with_reason
+blocked_conversion
+blocked_fetch
+blocked_cap
+```
+
+HWP/HWPX 신청서·사업계획서 양식에도 자격 확인문, 서약, 결격 조건이 있을 수 있으므로
+파일명에 `양식`·`신청서`가 있다는 이유만으로 자동 waiver하지 않는다. HWP/HWPX는 기본
+분석 대상이며, waiver는 동일 본문 hash 중복처럼 기계적으로 증명 가능한 경우만 허용한다.
+
+PDF·이미지는 이 계획의 HWP 보증을 약화시키지 않도록 같은 manifest에 포함한다. 이미지형
+공고나 스캔 PDF가 유일한 원문이면 OCR 실패를 `blocked`로 둔다.
+
+#### 14.4.2 상태 보존식
+
+매 관제 집계에서 다음 식이 정확히 성립해야 한다.
+
+```text
+active_total
+= serving_complete_fresh
++ analysis_complete_not_published
++ in_progress
++ blocked_or_failed
++ stale
+```
+
+어느 버킷에도 속하지 않는 활성 공고가 1건이라도 있으면 dashboard 자체를 `degraded`로
+표시한다. 퍼센트만 보여주고 분모에서 실패 공고를 제외하는 방식은 금지한다.
+
+### 14.5 영속 데이터 계약
+
+현재 `spike-out` 런 형식을 바로 삭제하지 않는다. 추출기·검수 자산을 재사용하되 운영
+정본을 DB+R2로 옮긴다.
+
+#### 14.5.1 신규 테이블
+
+```text
+grant_deep_analysis_jobs
+  id uuid PK
+  grant_id FK
+  source_revision_sha256 text
+  model_policy_version text
+  priority integer
+  status text
+  attempt_count integer
+  available_at / leased_at / lease_expires_at
+  worker_id text null
+  last_error_code / last_error_message
+  created_at / updated_at
+  UNIQUE(grant_id, source_revision_sha256, model_policy_version)
+
+grant_deep_analysis_runs
+  id uuid PK
+  run_id text UNIQUE
+  job_id FK
+  grant_id FK
+  source_revision_sha256 text
+  attachment_manifest_sha256 text
+  input_sha256 text
+  input_artifact_key text
+  output_artifact_key text null
+  raw_response_artifact_key text null
+  model text
+  prompt_version text
+  model_policy_version text
+  status text
+  input_chars / input_tokens / output_tokens
+  cost_usd numeric
+  started_at / completed_at
+  supersedes_run_id uuid null
+  error_code / error_message
+
+grant_deep_analysis_stage_receipts
+  id uuid PK
+  run_id FK
+  stage text
+  status text
+  verifier_version text
+  evidence jsonb
+  evidence_sha256 text
+  artifact_key text null
+  attempt integer
+  created_at
+  UNIQUE(run_id, stage, attempt)
+
+grant_deep_analysis_axis_results
+  run_id FK
+  dimension criterion_dimension
+  status text
+  confidence real
+  comment text
+  evidence_refs jsonb
+  criterion_semantic_hashes text[]
+  PRIMARY KEY(run_id, dimension)
+
+grant_deep_analysis_audits
+  id uuid PK
+  run_id FK
+  model text
+  prompt_version text
+  input_sha256 text
+  verdict text
+  item_results jsonb
+  artifact_key text
+  artifact_sha256 text
+  started_at / completed_at
+```
+
+기존 `analysis_lab_promotion_items.run_id`는 새 run ID를 참조하도록 계약을 강화한다.
+마이그레이션 시 기존 5개 `lab-deep-v3` 런은 해시를 재계산해 import할 수 있지만, 원본
+artifact가 검증되지 않으면 `legacy_imported` 상태로만 남기고 자동 발행에는 쓰지 않는다.
+
+#### 14.5.2 current 상태 projection
+
+`grant_deep_analysis_current` SQL view 또는 서버 query를 둔다.
+
+- 현재 source revision에 맞는 최신 run만 선택
+- stage receipt의 최고 attempt를 사용
+- `analysis_complete`, `publication_complete`, `serving_complete`, `fresh`를 파생
+- 첫 blocking stage와 error code를 계산
+- 임의 저장 boolean을 진실 원천으로 사용하지 않음
+- ops 목록 성능을 위해 materialized summary를 둘 수 있으나 원본 receipt와 정기 대조
+
+#### 14.5.3 불변·보안
+
+- 입력 전문과 모델 원응답은 private R2에 저장하고 DB에는 key와 hash만 둔다.
+- overwrite 금지. 같은 logical run의 재시도도 attempt 또는 새 run으로 남긴다.
+- raw/input/output/audit/promotion hash chain을 끊을 수 없다.
+- 문서 안의 지시문은 비신뢰 데이터다. 모델에 브라우징·코드 실행·외부 tool 권한을 주지 않는다.
+- 로그에는 presigned URL, API key, 사업자등록번호, 첨부 전문을 남기지 않는다.
+
+### 14.6 프로덕션 실행기
+
+#### 14.6.1 배치 구조
+
+Vercel 수집 크론에서 Opus 분석을 동기 호출하지 않는다. 현재 한 공고가 수 분 걸리고
+Cloudflare custom domain은 장기 요청에서 524가 발생한 전례가 있어, 수집과 분석 수명을
+분리해야 한다.
+
+권장 구조:
+
+1. 수집 publisher가 새/변경 source revision을 커밋한다.
+2. 같은 트랜잭션 또는 outbox consumer가 `grant_deep_analysis_jobs`를 멱등 enqueue한다.
+3. `changupnote-com` 프로젝트의 별도 Cloud Run worker가
+   `FOR UPDATE SKIP LOCKED`로 job을 lease한다.
+4. worker가 archive/convert 선행 상태를 확인한다.
+5. 선행 단계가 부족하면 변환 job을 만들고 `blocked`가 아니라 재시도 가능한 `pending`
+   상태로 돌린다. 영구 실패만 `blocked`.
+6. input seal → top-tier call → validators → independent audit까지 실행한다.
+7. 통과하면 promotion candidate를 만들고 정책에 따라 자동 release 또는 카나리에 넣는다.
+8. heartbeat와 dead-letter를 ops에 노출한다.
+
+새 worker는 HWP 변환 서비스와 분리한다. `apps/conversion`은 비신뢰 문서 변환에 집중하고,
+LLM 분석 worker는 DB/R2/Anthropic 권한과 비용 정책을 별도로 가진다.
+
+#### 14.6.2 멱등성과 재시도
+
+job identity:
+
+```text
+grantId
++ sourceRevisionSha256
++ modelPolicyVersion
+```
+
+- 같은 identity의 `passed` run이 있으면 재호출하지 않는다.
+- 429/5xx/timeout은 지수 backoff와 jitter로 재시도한다.
+- schema/22축/evidence 오류는 같은 원응답을 고치지 않고 1회 repair call 후 새 attempt로 남긴다.
+- 변환 불가·암호화·손상은 무한 재시도하지 않고 예외 큐로 보낸다.
+- lease 만료 job은 다른 worker가 회수할 수 있다.
+- max attempt 초과는 dead-letter이며 활성 공고 분모에서 계속 보인다.
+
+#### 14.6.3 비용·동시성 가드
+
+- `DEEP_ANALYSIS_PRIMARY_MODEL`은 allowlist로 고정하고 임의 env 문자열로 저가 모델에
+  내려가지 못하게 한다.
+- `model_policy_version`에 primary/audit 모델과 prompt version을 함께 기록한다.
+- 일별 USD 상한, 동시성, source별 rate limit, 공고당 token 상한을 둔다.
+- 비용 상한 도달은 공고를 성공 처리하지 않고 `pending_budget`으로 관제한다.
+- 2026-07-25 활성 624공고의 초기 비용은 기존 실측을 기준으로 primary만 약
+  `$125~250` 범위일 수 있다. 첫 20건 실측 후 실제 token 분포로 전체 cap을 확정한다.
+
+### 14.7 분석·감사·자동발행 정책
+
+#### 14.7.1 주 분석기
+
+현재 `lab-deep-v3`의 장점은 유지한다.
+
+- 구조화 공고 필드 + 첨부 전문
+- 22축 전수 assessment
+- criterion별 source span
+- program intent와 확인 질문
+- tool schema 강제
+
+다만 dev UI 소유 계약에서 공용 운영 계약으로 분리한다.
+
+- `apps/web/src/features/dev/analysis-lab/contract.ts`에만 두지 않음
+- 공용 contract/validator를 `packages/contracts` 또는 서버 공용 모듈로 이동
+- dev analysis-lab은 새 운영 분석 코어의 read-only adapter가 됨
+- 입력 캡 초과는 잘린 단일 prompt가 아니라 chunk manifest + synthesis로 처리
+
+#### 14.7.2 결정론 validator
+
+자동 발행 전 다음을 100% 통과해야 한다.
+
+1. 22개 dimension set exact equality
+2. axis 중복 0
+3. `condition_found` 축마다 criterion 1개 이상
+4. criterion이 있는 축은 `condition_found`
+5. `input_missing`, `unassessed` 0
+6. `ambiguous` criterion은 자동 확정 대상에서 제외
+7. required/exclusion source span exact input match 100%
+8. source span이 어느 raw/attachment block에서 왔는지 역참조 가능
+9. canonical value 계약 통과
+10. 예약 축 조건의 silent drop 0
+11. 동일 semantic criterion 중복 0
+12. input manifest의 unresolved attachment 0
+
+정규화 과정에서 잘못된 행을 드롭해 성공시키지 않는다. raw response의 예상 행 수와
+정규화 결과가 다르면 validation failure다.
+
+#### 14.7.3 독립 모델 감사
+
+사람 전수 검수를 없애는 대신 모델 자기확신만으로 자동 발행하지 않는다.
+
+- primary 결과와 기존 criteria를 숨긴 상태로 source input과 검증 대상 항목만 제공
+- 가능하면 다른 모델 계열/제공자의 최상급 모델을 사용
+- 각 criterion의 존재·dimension·kind·operator·value·근거를 판정
+- 빈 축은 `inspected_no_condition`이 맞는지 표본이 아니라 전축 검사
+- `concur`만 자동 확정
+- `disagree`, `unsure`, audit timeout은 자동 발행 금지
+
+초기 운영은 전건 독립 감사를 한다. 품질 기준이 충분한 기간 유지된 뒤에만 저위험
+`inspected_no_condition` 일부를 deterministic sampling으로 줄일 수 있다. required와
+exclusion criterion은 계속 전건 감사한다.
+
+#### 14.7.4 사람 예외 큐
+
+사람이 필요한 경우:
+
+- 원문 또는 첨부가 손상·암호화·미수집
+- primary와 audit 불일치
+- `ambiguous`
+- canonical 계약으로 표현 불가
+- 예약 축에서 조건 발견
+- 하나의 통합공고에 서로 다른 하위사업 조건이 섞임
+- 모델이 prompt injection성 문구를 분석 지시로 해석한 의심
+- 카나리 matcher 결과가 허용 전이를 위반
+
+사람의 역할은 원문을 처음부터 다시 분석하는 것이 아니라, **명시된 blocker를 해소하고
+근거 있는 최종 결정을 기록하는 것**이다. 이 결정도 append-only event와 actor·reason·hash를
+가져야 한다.
+
+### 14.8 ops 관제시스템 재점검과 통합
+
+#### 14.8.1 기존 구현의 위치와 한계
+
+기존 관제는 독립 worktree에 구현돼 있다.
+
+- worktree: `/Users/ffgg/orca/workspaces/cunote/ops-notice-pipeline-dashboard`
+- branch: `coolwithyou/ops-notice-pipeline-dashboard`
+- 구현 커밋: `7e696e2`(P0/P1), `3a06cba`(P2~P4)
+- 화면/API: `/pipeline`, summary/notices/detail/actions
+- 기능: 소스→상태 캔버스, 트리아지 큐, 22축 dot grid, 첨부 상태, mark reviewed,
+  reconvert, 관리자 action audit
+
+현재 branch는 main보다 49커밋 뒤이고 2커밋만 앞이다. branch의 migration
+`0047_outgoing_layla_miller.sql`은 현재 main의 migration 계보와 번호가 충돌한다.
+따라서 두 커밋을 통째로 cherry-pick하지 않는다.
+
+통합 방법:
+
+1. 최신 main에서 pipeline UI/contract/read query를 파일 단위로 port
+2. 현재 `grant_criteria`, question versioning, promotion release 스키마에 맞게 SQL 재작성
+3. 필요한 `admin_pipeline_actions`는 현재 다음 migration 번호로 새로 생성
+4. deep analysis receipt를 L6~L14 계층으로 추가
+5. 기존 `mark_reviewed`는 딥분석 완료 액션에서 제거
+6. 기존 HTTP·구조 검증 뒤 실제 ops production에 배포
+
+#### 14.8.2 대시보드 정보 구조
+
+상단 KPI:
+
+- 활성 공고 전체
+- source/attachment 준비 완료
+- 분석 대기·실행 중
+- `analysis_complete`
+- `publication_complete`
+- `serving_complete + fresh`
+- blocked/failed
+- stale
+- 분석 SLO 초과
+
+상단 funnel:
+
+```text
+활성
+→ 원문 확보
+→ 첨부 inventory
+→ 원본 archive
+→ text 변환
+→ input sealed
+→ top-tier analyzed
+→ 22축 valid
+→ evidence grounded
+→ independent audit
+→ published
+→ serving verified
+```
+
+각 노드는 다음을 표시한다.
+
+- 현재 공고 수
+- 이전 단계에서 넘어오지 못한 수
+- 가장 오래 막힌 시간
+- source별 분해
+- 최근 1시간 유입/완료량
+- 클릭 시 해당 blocker 큐
+
+트리아지 큐 열:
+
+| 열 | 내용 |
+|---|---|
+| 공고 | 제목, sourceId, 기관 |
+| 활성/마감 | D-day, source freshness |
+| 첨부 | 전체/HWP/HWPX, archive·converted·blocked 수 |
+| 입력 | sealed 여부, chars/chunks, manifest hash short |
+| 모델 | primary model, prompt, attempt, cost |
+| 22축 | found/no-condition/ambiguous/input-missing/unassessed 색 분리 |
+| 감사 | concur/disagree/unsure 수 |
+| 발행 | release/item 상태, parser provenance |
+| serving | matcher hash 일치 여부 |
+| blocker | 첫 실패 stage와 재시도 가능 여부 |
+
+22축 dot 의미:
+
+- 진한 초록: `condition_found` + criterion/evidence/audit pass
+- 연한 초록/회색 체크: `inspected_no_condition` + audit pass
+- 주황: `ambiguous` 또는 audit disagreement
+- 빨강: `input_missing`
+- 빈칸: `unassessed`
+- 보라/파랑 테두리: published/serving 여부는 별도 표현
+
+기존 dot grid처럼 criterion이 없는 축을 단순 빈칸으로 표시하지 않는다. “검사했으나 없음”과
+“검사 안 됨”을 시각적으로 구분해야 한다.
+
+#### 14.8.3 공고 상세 Sheet
+
+탭:
+
+1. `단계 증적`: S0~S14 receipt, verifier version, timestamp, hash, error
+2. `원문·첨부`: inventory 전건, disposition, R2/archive/markdown hash
+3. `분석 입력`: block/chunk 목록, included/waived/blocked, input hash
+4. `22축 결과`: axis 상태, criteria, source span, 원문 위치
+5. `독립 감사`: primary를 숨긴 blind audit 결과와 disagreement
+6. `승격·서빙`: release manifest, DB before/after, matcher trace
+7. `이력`: source change, stale 전환, retry, rollback
+
+민감한 원문 전문은 권한이 있는 상세 요청에서만 읽고 목록 API에는 포함하지 않는다.
+
+#### 14.8.4 ops 액션
+
+허용:
+
+- archive 재시도
+- conversion 재시도
+- deep analysis 재시도
+- 독립 감사 재시도
+- exception adjudication 저장
+- release 카나리 준비
+
+금지:
+
+- stage를 수동으로 `passed`로 변경
+- 분석 없이 `mark_reviewed`로 `needs_review=false`
+- 다른 source revision의 run을 current로 지정
+- model/prompt provenance 없는 criterion 발행
+
+비용이 드는 액션은 대상 수, 예상 input tokens, 예상 비용, model policy를 확인 다이얼로그에
+표시하고 idempotency key를 요구한다.
+
+#### 14.8.5 알림
+
+최소 alert:
+
+- 활성 공고인데 2시간 안에 input seal 안 됨
+- input seal 후 2시간 안에 analysis complete 안 됨
+- HWP/HWPX conversion failed
+- worker heartbeat 10분 이상 없음
+- source 수집 heartbeat 지연
+- axis coverage 22 미만
+- hard criterion evidence verification 실패
+- audit disagreement 비율 급증
+- publish after hash 또는 matcher serving hash 불일치
+- fresh serving coverage가 목표 이하
+
+alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. 상세 링크에서 대상 목록을
+조회한다.
+
+### 14.9 품질 검증 계획
+
+#### 14.9.1 새 골든 코호트
+
+기존 검수 결과는 폐기하지 않지만 `LLM-assisted reviewer consensus`로 라벨링한다.
+자동 발행 정책 확정에는 별도의 동결 코호트를 사용한다.
+
+최소 80공고, 중복 stratification 허용:
+
+- K-Startup 40 / BizInfo 40
+- HWP 포함 30 이상
+- HWPX 포함 15 이상
+- 다중 첨부 20 이상
+- 장문·표·병합셀 15 이상
+- 웹 본문은 얕고 첨부에만 hard 조건이 있는 공고 15 이상
+- 결격 조건 포함 20 이상
+- 조건이 거의 없는 공고 10 이상
+- 손상·암호화·변환 실패 fixture 전부
+- 통합공고/하위사업 혼합 사례
+
+기존 복구 4공고는 HWP 누락 회귀 fixture로 반드시 포함한다.
+
+#### 14.9.2 비교군
+
+각 공고에서 다음을 byte-level로 동결해 비교한다.
+
+1. 현재 운영 parser/Haiku 결과
+2. HWP 없이 top-tier 분석
+3. HWP 포함 top-tier 분석
+4. 독립 top-tier blind audit
+5. 사람 예외 판정이 있는 경우 최종 resolution
+
+특히 `HWP 포함 - HWP 제외` 차이로 **첨부에서만 발견된 criterion**을 별도 집계한다.
+
+#### 14.9.3 통과 기준
+
+기계 보증은 예외 없이 100%여야 한다.
+
+- active target 누락 0
+- attachment disposition 누락 0
+- sealed input hash 불일치 0
+- 22축 exact coverage 100%
+- axis duplicate 0
+- `condition_found`↔criterion 불일치 0
+- hard criterion exact source evidence 100%
+- unresolved attachment가 있는 `analysis_complete` 0
+- audit disagreement가 있는 자동 발행 0
+- source revision이 다른 stale run 발행 0
+- publication/matcher after hash 불일치 0
+
+모델 품질 기준:
+
+- 자동 발행 criterion precision ≥ 99%
+- hard required/exclusion recall ≥ 98%
+- HWP-only hard condition sentinel recall = 100%
+- wrong hard criterion rate ≤ 0.5%
+- source-groundedness = 100%
+- notice-level catastrophic error(가능↔불가 반전) = 0
+
+표본이 작으면 비율만 보지 않고 Wilson confidence interval과 오류 절대 건수를 함께 기록한다.
+기준 미달 시 모델 prompt를 즉시 운영에 덮어쓰지 않고 새 `model_policy_version`과 새
+평가 run을 만든다.
+
+#### 14.9.4 실패 주입
+
+- HWP 원본 download 500/timeout
+- 변환 서버 401/422/503/timeout
+- R2 markdown key 없음/해시 불일치
+- 첨부가 input cap을 초과
+- 모델 429/529/refusal/max_tokens
+- 21축 응답
+- 같은 축 2번 응답
+- invalid criterion enum/value
+- source span hallucination
+- analysis 중 source revision 변경
+- promotion 직전 baseline drift
+- matcher cache가 구 criterion을 소비
+
+각 실패는 `passed`가 아니라 예상 stage의 `failed|blocked|stale`로 끝나야 한다.
+
+### 14.10 구현 단계
+
+#### Phase A. 정의와 기준선 동결
+
+작업:
+
+- 활성 공고 eligibility SQL을 단일 함수/contract로 고정
+- S0~S14 enum·완료 정의 확정
+- attachment disposition 규칙 확정
+- 모델 policy와 자동 발행/예외 조건 확정
+- 현재 624공고 기준선 report를 JSON artifact로 저장하는 read-only verifier 작성
+
+완료 조건:
+
+- web worker, ops API, CLI가 같은 active predicate를 공유
+- `criteria 보유`가 deep complete로 계산되는 경로 0
+- 기준선 conservation equation 성립
+
+#### Phase B. 운영 run·stage 원장
+
+작업:
+
+- 신규 DB tables/check/FK/index/migration
+- R2 immutable artifact naming
+- append-only receipt writer
+- current projection query
+- source revision/attachment manifest hash
+- 기존 promotion item과 run provenance 연결
+
+완료 조건:
+
+- 같은 job identity 중복 enqueue 0
+- stage 수동 pass API 없음
+- DB receipt ↔ R2 artifact round-trip/hash 검증 통과
+- source 변경 즉시 stale 파생
+
+#### Phase C. 입력 전수성 보증
+
+작업:
+
+- source detail과 attachment inventory 대조
+- HWP/HWPX 원본 archive backlog
+- HWP/HWPX markdown conversion backlog
+- PDF/image/OCR disposition
+- input manifest/seal
+- chunked long-document input
+
+완료 조건:
+
+- 분석 대상 첨부의 silent drop 0
+- HWP/HWPX archive/markdown coverage 100% 또는 명시 blocker
+- cap 초과가 truncation 성공으로 남는 사례 0
+- 복구 4공고의 input manifest 회귀 통과
+
+#### Phase D. 프로덕션 deep analysis worker
+
+작업:
+
+- 공용 extractor/contract/validator 분리
+- Postgres job lease worker
+- Cloud Run 배포 구성
+- top-tier model allowlist
+- retry/repair/dead-letter/cost cap
+- heartbeat
+
+완료 조건:
+
+- production에서 dev route를 열지 않고 worker로 실행
+- 동일 revision 재실행 시 paid call 0
+- 실패 재시도와 dead-letter 증적 보존
+- worker 중단을 ops에서 10분 안에 감지
+
+#### Phase E. 결정론 검증과 독립 감사
+
+작업:
+
+- 22축 exact validator
+- found↔criteria consistency
+- exact evidence locator
+- independent blind audit adapter
+- criterion-level resolution
+- exception event model
+
+완료 조건:
+
+- S7~S11 validator test 전부 통과
+- disagreement 자동 발행 0
+- 사람 판정 없이 concur 건의 `analysis_complete` 가능
+- 사람 판정은 blocker 해소 event로만 작동
+
+#### Phase F. 기존 ops 관제 최신 main 통합
+
+작업:
+
+- `pipeline` branch UI/read path port
+- 현재 migration 번호로 admin action audit 재생성
+- deep stage funnel/current query/API
+- 상세 receipt/axis/audit/promotion 탭
+- 역할별 capability
+- 수동 `mark_reviewed`를 deep complete 경로에서 제거
+
+완료 조건:
+
+- owner/admin은 전체와 액션, reviewer는 exception 배정만 접근
+- 624 활성 공고가 정확히 한 최종 버킷에 속함
+- 목록 수치와 verifier JSON 일치
+- blocker 클릭 → 해당 공고 목록 → 증적 확인 왕복 가능
+
+#### Phase G. shadow와 카나리
+
+순서:
+
+1. 동결 80공고 offline 평가
+2. 20공고 production shadow run
+3. source별·첨부별 10공고 카나리 analysis complete
+4. 그중 고정 기업 profile로 promotion/matcher shadow
+5. 2공고 실제 promotion canary
+6. 24시간 serving/hash/SLO 관측
+7. 20공고 확대
+8. 오류 0이면 active backlog
+
+중단 조건:
+
+- HWP-only hard condition 누락 1건 이상
+- catastrophic match flip 1건 이상
+- unresolved attachment인데 complete 1건 이상
+- publication/serving hash drift 1건 이상
+- 자동 발행 항목의 audit disagreement 1건 이상
+
+#### Phase H. 활성 624공고 백필
+
+우선순위:
+
+1. D-day 7일 이내
+2. HWP/HWPX 보유
+3. 현재 text-only/needs_review/낮은 dimension coverage
+4. 사용자 match 노출 빈도 높은 공고
+5. 나머지 활성 공고
+
+배치:
+
+- 첫 20공고로 cost/latency/오류율 재산정
+- 일별 cost cap 안에서 source 균형 유지
+- 분석 중 마감된 공고는 신규 paid call 착수 전 제외
+- source revision 변경 공고를 오래된 backlog보다 우선
+- 성공 수가 아니라 `serving_complete + fresh` 수로 진척 측정
+
+완료 조건:
+
+- 활성 target의 `serving_complete + fresh` 100% 또는 명시 blocker
+- blocker 공고는 원인·재시도/사람 action·SLA가 모두 있음
+- deep provenance 없는 기존 criteria를 current deep으로 오인하는 공고 0
+
+#### Phase I. 상시 운영
+
+목표 SLO:
+
+- 새/변경 활성 공고 95%: 2시간 안에 `analysis_complete`
+- 새/변경 활성 공고 99%: 6시간 안에 `serving_complete`
+- HWP/HWPX 영구 blocker: 발생 30분 안에 ops 노출
+- worker/source heartbeat 지연: 10분 안에 경고
+- stale serving 공고: 0을 목표, 30분 초과 0
+
+주간 품질 보고:
+
+- active/fresh serving coverage
+- source별 stage conversion
+- HWP-only criterion 수
+- primary↔audit disagreement
+- exception 원인 분포
+- wrong/missed/catastrophic error
+- 평균·p95 분석 시간과 공고당 비용
+- retry/dead-letter/rollback
+- model policy별 품질 변화
+
+### 14.11 예상 파일 경계
+
+공용 계약:
+
+- `packages/contracts/src/deep-analysis.ts`
+- `packages/contracts/src/index.ts`
+
+DB·운영 코어:
+
+- `apps/web/src/lib/server/db/schema.ts`
+- `db/migrations/<next>_*.sql`
+- `apps/web/src/lib/server/deep-analysis/eligibility.ts`
+- `apps/web/src/lib/server/deep-analysis/source-revision.ts`
+- `apps/web/src/lib/server/deep-analysis/input-manifest.ts`
+- `apps/web/src/lib/server/deep-analysis/validator.ts`
+- `apps/web/src/lib/server/deep-analysis/receipts.ts`
+- `apps/web/src/lib/server/deep-analysis/current.ts`
+- `apps/web/src/lib/server/deep-analysis/jobs.ts`
+
+추출 코어 이관:
+
+- `apps/web/src/lib/server/analysis-lab/extractor.ts`
+- `apps/web/src/lib/server/analysis-lab/input.ts`
+- `apps/web/src/lib/server/analysis-lab/analyze.ts`
+- `apps/web/src/features/dev/analysis-lab/contract.ts`
+
+worker:
+
+- `apps/deep-analysis-worker/`
+- 또는 공용 패키지 + Cloud Run entrypoint
+- Cloud Build/Run 배포 설정
+
+ops:
+
+- `apps/admin/src/app/pipeline/page.tsx`
+- `apps/admin/src/app/api/admin/pipeline/**`
+- `apps/admin/src/features/pipeline/**`
+- `apps/admin/src/lib/server/admin/pipelineGraph.ts`
+- `apps/admin/src/lib/server/admin/deepAnalysisPipeline.ts`
+- `apps/admin/src/lib/server/admin/pipelineActions.ts`
+
+검증:
+
+- `tools/verify-active-deep-analysis.mjs` 또는 typed CLI
+- `pnpm verify:deep-analysis-contract`
+- `pnpm verify:deep-analysis-pipeline`
+- `pnpm verify:active-deep-analysis`
+- `pnpm verify:admin-pipeline`
+
+파일명은 구현 중 현재 모듈 경계를 보고 조정할 수 있지만, dev UI와 운영 worker가 서로 다른
+extractor 구현을 가지는 것은 금지한다.
+
+### 14.12 테스트 매트릭스
+
+#### 순수 로직
+
+- active eligibility KST 경계
+- source revision canonical hash
+- attachment manifest 정렬·hash 결정성
+- disposition 전수성
+- 22축 exact set
+- found↔criteria consistency
+- evidence exact locator
+- reserved dimension 보존
+- job identity/idempotency
+- stage state transition
+- conservation equation
+- source revision stale 전환
+
+#### DB 통합
+
+- publisher+outbox/job enqueue 원자성
+- `SKIP LOCKED` concurrent lease 중복 0
+- lease expiry recovery
+- append-only receipt
+- current projection latest attempt
+- source drift 후 old run non-current
+- promotion item run provenance FK/검증
+- R2 artifact hash mismatch fail
+
+#### worker 통합
+
+- primary success
+- retryable provider error
+- non-retryable contract error
+- repair success/failure
+- cost cap
+- dead-letter
+- heartbeat
+- graceful shutdown lease 반환
+
+#### 제품 E2E
+
+1. 새 활성 공고 수집
+2. HWP inventory/archive/convert
+3. input seal
+4. primary analysis
+5. 22축·evidence pass
+6. blind audit concur
+7. ops funnel 이동
+8. manifest promotion
+9. matcher serving trace 일치
+10. source attachment 변경
+11. 기존 run stale
+12. 재분석·재발행 후 fresh 복구
+
+#### 회귀 fixture
+
+- kstartup 178320
+- kstartup 178329
+- kstartup 178352
+- bizinfo PBLN_000000000121478
+- HWP table/merged-cell fixture
+- HWPX XML fixture
+- 손상·암호화·초대용량 fixture
+
+### 14.13 구현 완료 정의
+
+다음을 모두 만족해야 이 요청을 “프로덕션 딥분석 해결”로 닫는다.
+
+- [ ] 활성 공고 predicate가 코드 한 곳에서 공유됨
+- [ ] S0~S14 receipt가 DB+R2에 영속됨
+- [ ] production deep analysis worker가 자동 실행됨
+- [ ] HWP/HWPX 첨부 전건이 included 또는 명시 blocker
+- [ ] 22축 exact validator가 fail-closed
+- [ ] hard criterion source evidence 100%
+- [ ] 독립 audit disagreement 자동 발행 0
+- [ ] 사람 전수 검수 없이 concur 건 자동 analysis complete
+- [ ] promotion manifest가 run/source revision에 묶임
+- [ ] matcher serving hash 검증
+- [ ] source 변경 시 stale 자동 전환·재분석
+- [ ] `/pipeline`이 최신 main과 ops production에 통합됨
+- [ ] active conservation equation 성립
+- [ ] blocker·SLO·worker heartbeat alert 작동
+- [ ] 동결 80공고 품질 기준 통과
+- [ ] 2→20→전체 카나리 중단 조건 위반 0
+- [ ] 활성 target `serving_complete + fresh` 100% 또는 명시 blocker
+
+이 체크리스트가 끝나기 전에는 “HWP 변환이 된다”, “criterion이 몇 개 있다”,
+“extraction_log가 labeled다”, “모델 API가 200이다” 중 어느 것도 딥분석 완료의
+대체 증거로 사용하지 않는다.
