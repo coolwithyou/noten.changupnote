@@ -1,4 +1,5 @@
 import type {
+  CriterionConfirmation,
   DashboardResult,
   MatchingProfileView,
   NormalizedGrant,
@@ -31,11 +32,15 @@ export function buildProductDashboardSnapshot<TPayload>(input: {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf: Date;
   limit?: number;
+  confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
 }): ProductDashboardResult {
   const dashboard = buildDashboard({
     company: input.resolution.profile,
     grants: input.grants,
     asOf: input.asOf,
+    ...(input.confirmationsByGrantId
+      ? { confirmationsByGrantId: input.confirmationsByGrantId }
+      : {}),
     ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   return { ...dashboard, profileView: input.resolution.view };

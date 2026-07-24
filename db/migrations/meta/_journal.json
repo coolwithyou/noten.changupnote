@@ -365,6 +365,13 @@
       "when": 1784808641690,
       "tag": "0051_next_alex_power",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1784911148097,
+      "tag": "0052_illegal_ricochet",
+      "breakpoints": true
     }
   ]
 }

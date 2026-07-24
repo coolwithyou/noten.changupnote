@@ -110,7 +110,9 @@ export function publishesCriterion(state: CriterionResolutionState): boolean {
 }
 
 export function criterionNeedsReview(state: CriterionResolutionState): boolean {
-  return state === "pending";
+  // 운영 승격 안전 정책(2026-07-24): 사람 판정 또는 독립 감사 일치가 없는 AI correct도
+  // 서비스는 비차단으로 노출하되 추천·탈락을 확정하지 못하도록 needs_review=true로 발행한다.
+  return state === "pending" || state === "unaudited_correct";
 }
 
 export function publishesConfirmationQuestion(state: CriterionResolutionState): boolean {

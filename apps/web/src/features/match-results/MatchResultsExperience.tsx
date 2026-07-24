@@ -20,6 +20,7 @@ import {
   PENDING_TEASER_STORAGE_KEY,
   TEASER_FALLBACK_MESSAGE,
   TeaserError,
+  confirmationResumePath,
   groupMatchesForDisplay,
   matchingPrecision,
   rememberBusinessLookup,
@@ -38,6 +39,7 @@ export function MatchResultsExperience() {
   const [continuing, setContinuing] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [answerImpact, setAnswerImpact] = useState<AnswerImpactSummary | null>(null);
+  const [resumeConfirmationGrantId, setResumeConfirmationGrantId] = useState<string | null>(null);
   const requestSeqRef = useRef(0);
 
   const loadTeaser = useCallback(async (
@@ -119,6 +121,7 @@ export function MatchResultsExperience() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const digits = (params.get("biz") ?? "").replace(/\D/g, "").slice(0, 10);
+    setResumeConfirmationGrantId(params.get("confirm"));
     if (digits.length !== 10) {
       setStatus("empty");
       return;
@@ -136,9 +139,11 @@ export function MatchResultsExperience() {
     return () => window.removeEventListener("hashchange", openFromHash);
   }, []);
 
-  async function saveAndContinue(grantId?: string) {
+  async function saveAndContinue(grantId?: string, nextOverride?: string) {
     if (continuing) return;
-    const returnTarget = safeInternalPath(new URLSearchParams(window.location.search).get("next"));
+    const returnTarget =
+      safeInternalPath(nextOverride)
+      ?? safeInternalPath(new URLSearchParams(window.location.search).get("next"));
     const request: TeaserRequest | null = bizNo
       ? {
           bizNo,
@@ -160,7 +165,8 @@ export function MatchResultsExperience() {
         const payload = (await response.json()) as ActionResult<{ currentCompanyId: string }>;
         if (response.ok && payload.ok && payload.data?.currentCompanyId) {
           window.location.assign(
-            grantId ? `/grants/${encodeURIComponent(grantId)}` : returnTarget ?? "/dashboard",
+            returnTarget
+              ?? (grantId ? `/grants/${encodeURIComponent(grantId)}` : "/dashboard"),
           );
           return;
         }
@@ -180,8 +186,8 @@ export function MatchResultsExperience() {
       }
     }
     const resumeParams = new URLSearchParams({ resumeCompany: "1" });
-    if (grantId) resumeParams.set("resumeGrant", grantId);
-    else if (returnTarget) resumeParams.set("resumeNext", returnTarget);
+    if (returnTarget) resumeParams.set("resumeNext", returnTarget);
+    else if (grantId) resumeParams.set("resumeGrant", grantId);
     const resumeTarget = `/?${resumeParams.toString()}`;
     const params = new URLSearchParams({ callbackUrl: resumeTarget });
     window.location.assign(`/login?${params.toString()}`);
@@ -248,6 +254,16 @@ export function MatchResultsExperience() {
                   preparing={continuing}
                   newGrantIds={new Set(answerImpact?.newlyOpenGrantIds ?? [])}
                   onConfirmationSaved={applyConfirmationResult}
+                  autoOpenConfirmationGrantId={resumeConfirmationGrantId}
+                  {...(!resumeConfirmationGrantId && bizNo
+                    ? {
+                        onRequestConfirmation: (match: { grantId: string }) =>
+                          void saveAndContinue(
+                            undefined,
+                            confirmationResumePath(bizNo, match.grantId),
+                          ),
+                      }
+                    : {})}
                 />
                 {precision ? (
                   <Button

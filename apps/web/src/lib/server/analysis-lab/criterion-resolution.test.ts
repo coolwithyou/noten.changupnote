@@ -120,7 +120,11 @@ assert.equal(publishesCriterion("pending"), true, "pending도 needs_review=true�
 assert.equal(publishesCriterion("confirmed_edited"), false);
 assert.equal(publishesCriterion("confirmed_wrong"), false);
 assert.equal(criterionNeedsReview("pending"), true);
-assert.equal(criterionNeedsReview("unaudited_correct"), false);
+assert.equal(
+  criterionNeedsReview("unaudited_correct"),
+  true,
+  "독립 감사·사람 판정 없는 AI correct는 비차단 노출하되 추천·탈락을 확정하면 안 된다",
+);
 assert.equal(publishesConfirmationQuestion("confirmed_correct"), true);
 assert.equal(publishesConfirmationQuestion("pending"), false, "pending exclusion 질문은 발행하면 안 된다");
 assert.equal(publishesConfirmationQuestion("unaudited_correct"), false, "질문은 사람/감사 확정 exclusion만 허용한다");

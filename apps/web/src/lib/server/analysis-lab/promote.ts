@@ -5,9 +5,8 @@
 // <runId>.confirmations.json 사이드카)을 grant_confirmation_questions 로 발행한다
 // (확인 루프 Phase B-4 — docs/plans/2026-07-23-confirmation-loop-phase-b.md §1).
 //
-// **기본은 dry-run(발행 계획 출력만)이다.** 실쓰기는 프로토콜 게이트(잔여 48항목 사람 감사 →
-// aggregate GO → lab:shadow 긍정) 통과 후 --write --confirm-go 두 플래그를 모두 지정해야만
-// 열린다 — 하나라도 없으면 경고와 함께 dry-run 으로 강등된다(resolvePromotionMode).
+// **기본은 dry-run(발행 계획 출력만)이다.** 실쓰기는 immutable release manifest와
+// aggregate/shadow/dry-run 승인 원장에 묶인 promote-cli 경로에서만 열린다.
 //
 // 재사용 계약(재구현 금지):
 //   - 변환: shadow-convert 의 convertReviewedLabRun — 검수 correct criterion 만
@@ -149,6 +148,14 @@ export interface ExistingPromotionQuestion {
   id: string;
   grantCriteriaId: string | null;
   criterionStableKey: string | null;
+  definitionSha256: string;
+  version: number;
+  invalidatedAt: Date | null;
+  prompt: string;
+  options: LabConfirmationOption[];
+  answerType: "single" | "multi";
+  reusable: LabConfirmationReusable;
+  conditionKey: string | null;
 }
 
 /**
@@ -173,17 +180,78 @@ export function indexExistingCriteriaByStableKey<T extends ExistingPromotionCrit
 }
 
 /**
- * 질문은 stable key를 우선하고, 마이그레이션 전 질문은 보존된 criterion ID로 재연결한다.
- * 반환된 행을 UPDATE해야 질문 ID와 그 아래 답변 FK가 그대로 유지된다.
+ * 질문 의미가 완전히 같은 version만 기존 ID를 재사용한다. stable key가 같아도 semantic
+ * definition이 달라지면 새 ID를 만들어 기존 답변이 옛 질문 의미에 영구 귀속되게 한다.
  */
-export function findExistingQuestionForStableKey<T extends ExistingPromotionQuestion>(
+export function findExistingQuestionForDefinition<T extends ExistingPromotionQuestion>(
   rows: T[],
   stableKey: string,
-  grantCriteriaId: string,
+  definitionSha256: string,
+  legacyGrantCriteriaId?: string,
 ): T | null {
-  return rows.find((row) => row.criterionStableKey === stableKey)
-    ?? rows.find((row) => row.grantCriteriaId === grantCriteriaId)
-    ?? null;
+  return rows.find((row) =>
+    (
+      row.criterionStableKey === stableKey
+      || (row.criterionStableKey === null && row.grantCriteriaId === legacyGrantCriteriaId)
+    )
+    && effectiveQuestionDefinitionSha256(row) === definitionSha256) ?? null;
+}
+
+export function nextQuestionVersion(
+  rows: ExistingPromotionQuestion[],
+  stableKey: string,
+  legacyGrantCriteriaId?: string,
+): number {
+  return Math.max(
+    0,
+    ...rows
+      .filter((row) =>
+        row.criterionStableKey === stableKey
+        || (row.criterionStableKey === null && row.grantCriteriaId === legacyGrantCriteriaId))
+      .map((row) => row.version),
+  ) + 1;
+}
+
+function effectiveQuestionDefinitionSha256(
+  row: ExistingPromotionQuestion,
+): string {
+  if (row.definitionSha256 !== "legacy-v0") return row.definitionSha256;
+  return questionDefinitionSha256({
+    prompt: row.prompt,
+    options: row.options,
+    answerType: row.answerType,
+    reusable: row.reusable,
+    conditionKey: row.conditionKey,
+  });
+}
+
+export function questionDefinitionSha256(input: {
+  prompt: string;
+  options: LabConfirmationOption[];
+  answerType: "single" | "multi";
+  reusable: LabConfirmationReusable;
+  conditionKey: string | null;
+}): string {
+  const material = semanticStableJson({
+    prompt: input.prompt.normalize("NFC").replace(/\s+/g, " ").trim(),
+    options: input.options,
+    answerType: input.answerType,
+    reusable: input.reusable,
+    conditionKey: input.conditionKey,
+  });
+  return createHash("sha256").update(material).digest("hex");
+}
+
+function semanticStableJson(value: unknown): string {
+  if (typeof value === "string") return JSON.stringify(value.normalize("NFC"));
+  if (Array.isArray(value)) return `[${value.map(semanticStableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => `${JSON.stringify(key)}:${semanticStableJson(entry)}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 export interface PromotionQuestionPlan {
@@ -204,6 +272,8 @@ export interface PromotionQuestionPlan {
   criterionRef: { dimension: string; kind: string; sourceSpanHash: string | null };
   /** 질문 upsert와 ID/답변 보존의 기준. */
   criterionStableKey: string;
+  /** 질문 의미가 같을 때만 기존 ID를 재사용하는 semantic definition hash. */
+  definitionSha256: string;
   resolutionState: CriterionResolutionState;
 }
 
@@ -305,7 +375,7 @@ export function planGrantPromotion(input: {
     const confirmation = criterionIndex >= 0 ? mergedRun.criteria[criterionIndex]?.confirmation : null;
     if (!confirmation) return;
     const inline = Boolean(input.run.criteria[criterionIndex]?.confirmation);
-    questions.push({
+    const question = {
       criteriaPosition: position,
       criterionIndex,
       prompt: confirmation.prompt,
@@ -329,6 +399,10 @@ export function planGrantPromotion(input: {
       },
       criterionStableKey: criterionStableKeys[position]!,
       resolutionState: resolution.state,
+    };
+    questions.push({
+      ...question,
+      definitionSha256: questionDefinitionSha256(question),
     });
   });
 
@@ -425,8 +499,8 @@ export function applyPublishGuards(
 // ---- 실행 모드 게이트 (순수 — 테스트 대상) -------------------------------------------
 
 export const PROMOTION_PROTOCOL_NOTICE =
-  "실발행은 잔여 48항목 사람 감사 → aggregate GO → lab:shadow 긍정 후에만 허용됩니다. " +
-  "실행하려면 --write --confirm-go 두 플래그를 모두 지정하세요.";
+  "legacy --write/--confirm-go 실발행은 폐기됐습니다. 검수 수거 → immutable release → " +
+  "aggregate GO → shadow PASS → dry-run PASS → 분리 승인 후 --release와 manifest hash로 실행하세요.";
 
 export interface PromotionMode {
   write: boolean;
@@ -434,14 +508,12 @@ export interface PromotionMode {
   warning: string | null;
 }
 
-/** --write 와 --confirm-go 가 **모두** 있어야만 실쓰기 — 하나라도 없으면 경고 + dry-run. */
+/** 하위 호환 진단 플래그 파서. legacy 플래그 조합은 어떤 경우에도 실쓰기를 열지 않는다. */
 export function resolvePromotionMode(flags: { write: boolean; confirmGo: boolean }): PromotionMode {
-  if (flags.write && flags.confirmGo) return { write: true, warning: null };
   if (flags.write || flags.confirmGo) {
-    const missing = flags.write ? "--confirm-go" : "--write";
     return {
       write: false,
-      warning: `프로토콜 게이트: ${missing} 가 없어 dry-run 으로 강등합니다. ${PROMOTION_PROTOCOL_NOTICE}`,
+      warning: PROMOTION_PROTOCOL_NOTICE,
     };
   }
   return { write: false, warning: null };

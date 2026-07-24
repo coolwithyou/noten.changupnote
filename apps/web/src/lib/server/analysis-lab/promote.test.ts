@@ -3,7 +3,7 @@
 // 검증: ① 대상 dedupe(사람 우선·grantId 정렬) ② correct 만 편입 + 변환 드롭 무은폐 +
 // criterionIndex 매핑(드롭 후 위치 이동 안전) ③ 질문 연결(인라인 우선·사이드카 보강·범위 밖
 // 드롭·앵커 상실 집계) ④ provenance/auditState 판별 + sourceSpanHash 정규화
-// ⑤ 발행 가드(답변 보존·계약 실패·빈 발행) ⑥ 실행 모드 게이트(--write --confirm-go 동시 요구)
+// ⑤ 발행 가드(답변 보존·계약 실패·빈 발행) ⑥ legacy 실행 플래그 영구 폐쇄
 // ⑦ 쓰기 오케스트레이션(페이크 포트 — per-grant 격리).
 import assert from "node:assert/strict";
 import type { CriterionDimension } from "@cunote/contracts";
@@ -20,9 +20,11 @@ import {
   criterionStableKey,
   dedupePromotionSources,
   executePromotionWrites,
-  findExistingQuestionForStableKey,
+  findExistingQuestionForDefinition,
   indexExistingCriteriaByStableKey,
+  nextQuestionVersion,
   planGrantPromotion,
+  questionDefinitionSha256,
   resolvePromotionMode,
   sourceSpanHash,
   type GrantPromotionPlan,
@@ -277,7 +279,8 @@ const baseSidecar = fixtureSidecar([
   );
   assert.deepEqual(
     pendingPlan.criteria.map((item) => item.needs_review),
-    [false, true, false],
+    [true, true, true],
+    "감사 전 AI correct도 랜딩에서 확정 사실처럼 노출하지 않아야 한다",
   );
   assert.equal(pendingPlan.questions.length, 0, "pending·unaudited exclusion 질문은 발행하면 안 된다");
 
@@ -437,32 +440,73 @@ const baseSidecar = fixtureSidecar([
     "stable_key 마이그레이션 전 criterion도 내용 키로 찾아 UPDATE해야 한다",
   );
 
-  const existingQuestion = findExistingQuestionForStableKey(
-    [{
-      id: "question-existing",
-      grantCriteriaId: "criterion-existing",
-      criterionStableKey: null,
-    }],
+  const plannedQuestion = plan.questions[0]!;
+  const existingQuestions = [{
+    id: "question-existing",
+    grantCriteriaId: "criterion-existing",
+    criterionStableKey: null,
+    definitionSha256: "legacy-v0",
+    version: 1,
+    invalidatedAt: null,
+    prompt: plannedQuestion.prompt,
+    options: plannedQuestion.options,
+    answerType: plannedQuestion.answerType,
+    reusable: plannedQuestion.reusable,
+    conditionKey: plannedQuestion.conditionKey,
+  }];
+  const existingQuestion = findExistingQuestionForDefinition(
+    existingQuestions,
     stableKey,
+    plannedQuestion.definitionSha256,
     "criterion-existing",
   );
-  assert.equal(existingQuestion?.id, "question-existing", "질문 ID를 재사용해야 답변 FK가 유지된다");
+  assert.equal(
+    existingQuestion?.id,
+    "question-existing",
+    "legacy 질문도 의미가 같을 때만 ID를 재사용해 답변 FK를 유지해야 한다",
+  );
   const existingAnswers = [{ id: "answer-existing", questionId: existingQuestion?.id }];
   assert.deepEqual(existingAnswers, [{ id: "answer-existing", questionId: "question-existing" }]);
+
+  const changedDefinition = questionDefinitionSha256({
+    prompt: `${plannedQuestion.prompt} (변경)`,
+    options: plannedQuestion.options,
+    answerType: plannedQuestion.answerType,
+    reusable: plannedQuestion.reusable,
+    conditionKey: plannedQuestion.conditionKey,
+  });
+  assert.notEqual(changedDefinition, plannedQuestion.definitionSha256);
+  assert.equal(
+    findExistingQuestionForDefinition(
+      existingQuestions,
+      stableKey,
+      changedDefinition,
+      "criterion-existing",
+    ),
+    null,
+    "질문의 의미가 달라지면 기존 ID/답변에 덮어쓰면 안 된다",
+  );
+  assert.equal(
+    nextQuestionVersion(existingQuestions, stableKey, "criterion-existing"),
+    2,
+    "legacy 질문 다음 의미 버전은 2부터 시작해야 한다",
+  );
 }
 
-// ---- ⑦ 실행 모드 게이트 — 두 플래그 동시 요구 -----------------------------------------
+// ---- ⑦ legacy 실행 모드 게이트 — 어떤 조합도 실쓰기를 열지 않음 -----------------------
 
 {
   assert.deepEqual(resolvePromotionMode({ write: false, confirmGo: false }), { write: false, warning: null });
   const writeOnly = resolvePromotionMode({ write: true, confirmGo: false });
   assert.equal(writeOnly.write, false, "--write 단독은 실쓰기가 열리면 안 된다");
-  assert.match(writeOnly.warning ?? "", /--confirm-go/);
-  assert.match(writeOnly.warning ?? "", /aggregate GO/);
+  assert.match(writeOnly.warning ?? "", /폐기/);
+  assert.match(writeOnly.warning ?? "", /immutable release/);
   const confirmOnly = resolvePromotionMode({ write: false, confirmGo: true });
   assert.equal(confirmOnly.write, false, "--confirm-go 단독도 실쓰기가 열리면 안 된다");
-  assert.match(confirmOnly.warning ?? "", /--write/);
-  assert.deepEqual(resolvePromotionMode({ write: true, confirmGo: true }), { write: true, warning: null });
+  assert.match(confirmOnly.warning ?? "", /manifest/);
+  const both = resolvePromotionMode({ write: true, confirmGo: true });
+  assert.equal(both.write, false, "legacy 두 플래그를 함께 줘도 실쓰기를 열면 안 된다");
+  assert.match(both.warning ?? "", /승인/);
 }
 
 // ---- ⑧ 쓰기 오케스트레이션 — 페이크 포트, per-grant 격리 ------------------------------

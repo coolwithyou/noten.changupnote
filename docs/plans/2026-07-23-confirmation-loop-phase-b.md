@@ -2,8 +2,11 @@
 
 > **🟢 전 항목 구현 완료(2026-07-23)** — B-0(a8fbbb0)·B-1+B-2(b803b02)·B-3(c73552d)·B-4(d073a54)·B-5(f05aaa9). Phase A는 0ba5229.
 > B-0 실행 실측: 검수 확정 11런 중 대상 6공고 → 질문 15건 생성(비해당 7건 생략), $0.42. batch 가드로 30건 전체 스킵 확인.
-> B-4는 코드·dry-run까지만(실측: 11공고 발행 가능, A 29→B 69·질문 15·드롭 0) — **실발행(`lab:promote --write --confirm-go`)은 게이트 후에만**: 잔여 48항목 사람 감사 → aggregate STOP/ITERATE/GO → lab:shadow 긍정. B-5 뱃지·B-3 CTA는 dormant(데이터 없음 = 노출 0이 정상).
-> 게이트 후 절차: ① 사람 감사 완주 ② `lab:confirmations` 재실행(감사 미완이던 19공고 질문 보강) ③ aggregate → GO 문서 ④ `lab:shadow` ⑤ 긍정 시 `lab:promote --write --confirm-go` ⑥ dev 서버 시각 검증(CTA·모달·뱃지).
+> B-4는 코드·dry-run까지만이며 실제 데이터는 아직 발행하지 않았다. **2026-07-25부터
+> `lab:promote --write --confirm-go`는 폐기**됐고, 실발행은
+> `docs/runbooks/deep-analysis-promotion.md`의 immutable release 절차만 허용한다.
+> W30 수거 완료 → release manifest → aggregate GO → shadow PASS → dry-run PASS → 분리 승인
+> → 카나리 → 전체 적용 순서다. B-5 뱃지·B-3 CTA는 데이터가 없으면 미노출이 정상이다.
 > 알려진 별건: `verify:service-data`가 HEAD에서 이미 실패(BizInfo 샘플 apply sheet 문서 목록 드리프트 — 이 트랙 무관, 별도 수정 필요).
 > condition_key 표기 흔들림 첫 실증: 같은 조건(비영리·법인격 없는 조합)이 스마트공방 2건에서 서로 다른 키로 생성 — Phase C 설계 입력.
 > 설계 정본: `docs/research/2026-07-23-미판정-결격-사용자확인-루프-검토.md` (발견·3단계 실행안·결정 이력)

@@ -203,6 +203,46 @@ check("[정규화] industry labels/industries alias를 projection canonical tags
   assert.deepEqual(criteria[0]?.value, { tags: ["소프트웨어", "SW"], codes: ["J62"] });
 });
 
+check("[fail-safe] 결격 flags를 exceptions에 잘못 넣은 row만 text_only로 강등", () => {
+  const criteria = normalizeBizInfoLlmCriteria({ criteria: [{
+    dimension: "credit_status",
+    operator: "in",
+    kind: "exclusion",
+    value: {
+      flags: ["loan_default"],
+      exceptions: ["rehabilitation_in_progress", "bankruptcy_filed"],
+    },
+    confidence: 0.9,
+    source_span: "회생 또는 파산 절차 중인 기업은 원문 예외를 확인한다.",
+  }, {
+    dimension: "size",
+    operator: "in",
+    kind: "required",
+    value: { sizes: ["중소기업"] },
+    confidence: 0.9,
+  }] }, "row-fail-safe");
+  assert.equal(criteria.length, 2, "잘못된 한 row 때문에 공고 전체가 탈락하면 안 된다");
+  assert.equal(criteria[0]?.dimension, "other");
+  assert.equal(criteria[0]?.operator, "text_only");
+  assert.equal(criteria[0]?.needs_review, true);
+  assert.equal((criteria[0]?.value as { downgrade_reason?: string }).downgrade_reason, "contract_validation_failed");
+  assert.equal(criteria[1]?.dimension, "size");
+});
+
+check("[fail-safe] self scope 식별자가 불완전한 prior_award는 의미 추정 없이 강등", () => {
+  const criterion = normalizeOne({
+    dimension: "prior_award",
+    operator: "exists",
+    kind: "exclusion",
+    value: { scope: "self", channel: "general" },
+    confidence: 0.9,
+    source_span: "기존 지원사업 참여 여부를 확인한다.",
+  });
+  assert.equal(criterion.dimension, "other");
+  assert.equal(criterion.operator, "text_only");
+  assert.equal(criterion.needs_review, true);
+});
+
 check("[계약] 강등 결과 + 정상 결과가 섞여도 계약 검증 통과", () => {
   const criteria = normalizeBizInfoLlmCriteria(
     {

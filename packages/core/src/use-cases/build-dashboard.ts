@@ -1,5 +1,6 @@
 import type {
   CompanyProfile,
+  CriterionConfirmation,
   DashboardResult,
   NormalizedGrant,
 } from "@cunote/contracts";
@@ -24,6 +25,7 @@ export interface BuildDashboardOptions<TPayload = unknown> {
   grants: Array<NormalizedGrant<TPayload>>;
   asOf?: Date;
   limit?: number;
+  confirmationsByGrantId?: ReadonlyMap<string, CriterionConfirmation[]>;
 }
 
 export function buildDashboard<TPayload>({
@@ -31,10 +33,22 @@ export function buildDashboard<TPayload>({
   grants,
   asOf = new Date(),
   limit = 24,
+  confirmationsByGrantId,
 }: BuildDashboardOptions<TPayload>): DashboardResult {
   const matched = grants.map<MatchedGrant<TPayload>>((item) => ({
     item,
-    match: withMatchRanking(item, company, matchNormalizedGrant(item, company), { asOf }),
+    match: withMatchRanking(
+      item,
+      company,
+      matchNormalizedGrant(
+        item,
+        company,
+        confirmationsByGrantId
+          ? { confirmations: confirmationsByGrantId.get(item.grant.id ?? item.grant.source_id) ?? [] }
+          : undefined,
+      ),
+      { asOf },
+    ),
   }));
   const rankedMatched = sortMatchedGrants(matched);
   const sortedMatched = rankedMatched.slice(0, limit);

@@ -747,6 +747,13 @@ export const grantConfirmationQuestions = pgTable("grant_confirmation_questions"
   grantCriteriaId: uuid("grant_criteria_id").references(() => grantCriteria.id, { onDelete: "set null" }),
   /** criterion 행이 교체돼도 같은 질문 id를 upsert하기 위한 안정 키. */
   criterionStableKey: text("criterion_stable_key"),
+  /** prompt/options/answerType/reusable/conditionKey 의미 계약의 canonical SHA-256. */
+  definitionSha256: text("definition_sha256").default("legacy-v0").notNull(),
+  /** 같은 criterion에서 질문 의미가 바뀔 때 증가하는 불변 버전. */
+  version: integer("version").default(1).notNull(),
+  /** 의미가 바뀌어 새 ID를 만든 경우 직전 질문 버전. */
+  supersedesQuestionId: uuid("supersedes_question_id")
+    .references((): AnyPgColumn => grantConfirmationQuestions.id, { onDelete: "set null" }),
   // { dimension, kind, sourceSpanHash } — criterion 재연결용 보조 참조
   criterionRef: jsonb("criterion_ref").$type<Record<string, unknown>>(),
   prompt: text("prompt").notNull(),
@@ -767,8 +774,13 @@ export const grantConfirmationQuestions = pgTable("grant_confirmation_questions"
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
   grantIdx: index("grant_confirmation_questions_grant_id_idx").on(table.grantId),
-  stableKeyIdx: uniqueIndex("grant_confirmation_questions_grant_stable_key_idx")
-    .on(table.grantId, table.criterionStableKey),
+  definitionIdx: uniqueIndex("grant_confirmation_questions_grant_definition_idx")
+    .on(table.grantId, table.criterionStableKey, table.definitionSha256),
+  activeStableKeyIdx: uniqueIndex("grant_confirmation_questions_active_stable_key_idx")
+    .on(table.grantId, table.criterionStableKey)
+    .where(sql`${table.invalidatedAt} IS NULL`),
+  supersedesIdx: index("grant_confirmation_questions_supersedes_idx").on(table.supersedesQuestionId),
+  positiveVersion: check("grant_confirmation_questions_positive_version", sql`${table.version} > 0`),
 }));
 
 /**
@@ -789,6 +801,70 @@ export const companyGrantConfirmations = pgTable("company_grant_confirmations", 
 }, (table) => ({
   pk: primaryKey({ columns: [table.companyId, table.questionId] }),
   companyGrantIdx: index("company_grant_confirmations_company_grant_idx").on(table.companyId, table.grantId),
+}));
+
+/**
+ * 딥분석 운영 승격 릴리스 원장. manifest와 승인·실행 actor, gate 결과를 운영 DB에 남겨
+ * 로컬 artifact 유실이나 부분 성공을 전체 성공으로 오인하지 않게 한다.
+ */
+export const analysisLabPromotionReleases = pgTable("analysis_lab_promotion_releases", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  releaseId: text("release_id").notNull(),
+  revision: integer("revision").default(1).notNull(),
+  manifestSha256: text("manifest_sha256").notNull(),
+  releasePlanSha256: text("release_plan_sha256").notNull(),
+  manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull(),
+  gitCommit: text("git_commit").notNull(),
+  buildDigest: text("build_digest").notNull(),
+  status: text("status").default("prepared").notNull(),
+  gateSummary: jsonb("gate_summary").$type<Record<string, unknown>>(),
+  createdBy: text("created_by").notNull(),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  approvalArtifactSha256: text("approval_artifact_sha256"),
+  executedBy: text("executed_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  rolledBackAt: timestamp("rolled_back_at", { withTimezone: true }),
+}, (table) => ({
+  releaseIdIdx: uniqueIndex("analysis_lab_promotion_releases_release_id_idx")
+    .on(table.releaseId),
+  statusIdx: index("analysis_lab_promotion_releases_status_idx").on(table.status),
+  positiveRevision: check("analysis_lab_promotion_releases_positive_revision", sql`${table.revision} > 0`),
+  statusCheck: check("analysis_lab_promotion_releases_status_check", sql`
+    ${table.status} IN (
+      'prepared', 'approved', 'canary_running', 'canary_passed', 'applying', 'active',
+      'partial_failed', 'rolling_back', 'rolled_back'
+    )
+  `),
+}));
+
+export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  releaseDbId: uuid("release_db_id").notNull()
+    .references(() => analysisLabPromotionReleases.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  runId: text("run_id").notNull(),
+  planSha256: text("plan_sha256").notNull(),
+  beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
+  beforeSha256: text("before_sha256").notNull(),
+  afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
+  afterSha256: text("after_sha256"),
+  status: text("status").default("prepared").notNull(),
+  error: text("error"),
+  appliedAt: timestamp("applied_at", { withTimezone: true }),
+  rolledBackAt: timestamp("rolled_back_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  releaseGrantIdx: uniqueIndex("analysis_lab_promotion_items_release_grant_idx")
+    .on(table.releaseDbId, table.grantId),
+  releaseStatusIdx: index("analysis_lab_promotion_items_release_status_idx")
+    .on(table.releaseDbId, table.status),
+  grantIdx: index("analysis_lab_promotion_items_grant_idx").on(table.grantId),
+  statusCheck: check("analysis_lab_promotion_items_status_check", sql`
+    ${table.status} IN ('prepared', 'applying', 'applied', 'failed', 'rolling_back', 'rolled_back')
+  `),
 }));
 
 /**

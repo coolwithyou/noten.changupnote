@@ -13,7 +13,11 @@ import {
 } from "@cunote/contracts";
 import { normalizeGrantRequiredDocument } from "../documents/taxonomy.js";
 import { BIZINFO_NORMALIZER_VERSION } from "./normalize.js";
-import { assertGrantCriteriaContract } from "./criteria-contract.js";
+import {
+  assertGrantCriteriaContract,
+  validateGrantCriteriaContract,
+  type GrantCriteriaContractIssue,
+} from "./criteria-contract.js";
 import { canonicalizeGrantCriteria, canonicalizeGrantCriterion } from "../criteria/canonicalize.js";
 import { buildBizInfoDeterministicCriteria, mergeBizInfoDeterministicCriteria } from "./deterministic-criteria.js";
 import type { BizInfoProgramExtractionInput } from "./types.js";
@@ -161,10 +165,47 @@ export function normalizeGrantLlmCriteria(
 
   const criteria = rows.flatMap((row, index) => {
     const criterion = normalizeCriterionRow(row, sourceId, index, options);
-    return criterion ? [criterion] : [];
+    if (!criterion) return [];
+    const issues = validateGrantCriteriaContract([criterion]);
+    return issues.length === 0
+      ? [criterion]
+      : [downgradeContractInvalidCriterion(criterion, issues)];
   });
   assertGrantCriteriaContract(criteria, options.contractLabel ?? `${options.sourcePrefix}:${sourceId}`);
   return criteria;
+}
+
+/**
+ * 한 row의 enum/value 계약 오류가 공고 전체 criteria를 0건으로 만들지 않게 하는 fail-safe.
+ * 의미를 임의 보정하지 않고 원문 확인용 text_only로만 내리며, 원래 kind와 근거를 보존한다.
+ */
+function downgradeContractInvalidCriterion(
+  criterion: GrantCriterion,
+  issues: GrantCriteriaContractIssue[],
+): GrantCriterion {
+  const issueSummary = issues
+    .map((issue) => `${issue.path}: ${issue.message}`)
+    .join(" | ")
+    .slice(0, 800);
+  const sourceSpan = criterion.source_span ?? criterion.raw_text ?? null;
+  return {
+    ...(criterion.id ? { id: criterion.id } : {}),
+    ...(criterion.grant_id ? { grant_id: criterion.grant_id } : {}),
+    dimension: "other",
+    operator: "text_only",
+    kind: criterion.kind,
+    value: {
+      note: sourceSpan ?? `${criterion.dimension} 조건 원문 확인 필요`,
+      downgrade_reason: "contract_validation_failed",
+      original_dimension: criterion.dimension,
+      contract_issues: issueSummary,
+    },
+    confidence: criterion.confidence,
+    needs_review: true,
+    ...(criterion.parser_version ? { parser_version: criterion.parser_version } : {}),
+    ...(sourceSpan ? { source_span: sourceSpan, raw_text: sourceSpan } : {}),
+    ...(criterion.source_field ? { source_field: criterion.source_field } : {}),
+  };
 }
 
 export function normalizeBizInfoLlmRequiredDocuments(payload: unknown): GrantRequiredDocument[] {

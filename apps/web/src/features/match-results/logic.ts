@@ -122,6 +122,16 @@ export class TeaserError extends Error {
   }
 }
 
+/** 익명 결과의 확인 CTA가 회사 저장·로그인 뒤 같은 공고 질문으로 돌아올 내부 경로. */
+export function confirmationResumePath(bizNo: string, grantId: string): string {
+  const digits = bizNo.replace(/\D/g, "").slice(0, 10);
+  const params = new URLSearchParams({
+    biz: digits,
+    confirm: grantId,
+  });
+  return `/matches?${params.toString()}`;
+}
+
 /* ───────────────────────── business lookup memory ───────────────────────── */
 
 export async function rememberBusinessLookup(digits: string) {

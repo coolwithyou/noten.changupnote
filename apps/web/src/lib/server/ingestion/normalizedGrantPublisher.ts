@@ -17,6 +17,7 @@ import {
 } from "../conversion/registerAttachmentConversions";
 import { readDetectedSurfaceFormat } from "./grantAttachmentArchive";
 import { hashGrantRawPayload } from "./grantRawHash";
+import { acquireGrantPublicationLock } from "./grantPublicationLock";
 import {
   classifyPublishedGrantRevision,
   expandConfirmedGrantComponentIds,
@@ -109,26 +110,35 @@ export async function publishNormalizedGrants<TPayload>(
 
     for (const entry of entries) {
       const nextRawHash = hashGrantRawPayload(entry.raw.payload);
-      const [previous] = await tx
-        .select({
-          grant: schema.grants,
-          grantId: schema.grants.id,
-          rawHash: schema.grantRaw.rawHash,
-          attachments: schema.grantRaw.attachments,
-          parserVersion: schema.grants.parserVersion,
-          modelVer: schema.grants.modelVer,
-          promptVer: schema.grants.promptVer,
-        })
-        .from(schema.grants)
-        .leftJoin(schema.grantRaw, and(
-          eq(schema.grantRaw.source, schema.grants.source),
-          eq(schema.grantRaw.sourceId, schema.grants.sourceId),
-        ))
-        .where(and(
-          eq(schema.grants.source, entry.grant.source),
-          eq(schema.grants.sourceId, entry.grant.source_id),
-        ))
-        .limit(1);
+      const loadPrevious = async () => {
+        const [row] = await tx
+          .select({
+            grant: schema.grants,
+            grantId: schema.grants.id,
+            rawHash: schema.grantRaw.rawHash,
+            attachments: schema.grantRaw.attachments,
+            parserVersion: schema.grants.parserVersion,
+            modelVer: schema.grants.modelVer,
+            promptVer: schema.grants.promptVer,
+          })
+          .from(schema.grants)
+          .leftJoin(schema.grantRaw, and(
+            eq(schema.grantRaw.source, schema.grants.source),
+            eq(schema.grantRaw.sourceId, schema.grants.sourceId),
+          ))
+          .where(and(
+            eq(schema.grants.source, entry.grant.source),
+            eq(schema.grants.sourceId, entry.grant.source_id),
+          ))
+          .limit(1);
+        return row;
+      };
+      let previous = await loadPrevious();
+      if (previous?.grantId) {
+        await acquireGrantPublicationLock(tx, previous.grantId);
+        // lock 대기 중 다른 publisher가 완료됐을 수 있으므로 revision baseline을 다시 읽는다.
+        previous = await loadPrevious();
+      }
       const previousCriteria = previous
         ? await tx.select().from(schema.grantCriteria)
           .where(eq(schema.grantCriteria.grantId, previous.grantId))

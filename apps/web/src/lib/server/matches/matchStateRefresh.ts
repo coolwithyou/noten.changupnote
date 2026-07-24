@@ -53,7 +53,7 @@ export async function refreshMatchStates<TPayload>({
   return { plan, savedCount: plan.states.length };
 }
 
-async function loadCriterionConfirmations<TPayload>(input: {
+export async function loadCriterionConfirmations<TPayload>(input: {
   repositories: ServiceRepositories<TPayload>;
   companyId: string;
   grants: Array<NormalizedGrant<TPayload>>;

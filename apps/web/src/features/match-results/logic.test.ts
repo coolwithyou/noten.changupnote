@@ -5,6 +5,7 @@ import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompany
 import {
   buildProfileAnswer,
   buildProfilePatch,
+  confirmationResumePath,
   groupMatchesForDisplay,
   matchingPrecision,
   matchVerdictStatus,
@@ -116,6 +117,10 @@ assert.equal(profileSheetValueState({
   status: "partial",
   sourceKind: "authoritative_api",
 } as never), "automatic", "partial authoritative 값은 자동 확인 값으로 보여야 함");
+assert.equal(
+  confirmationResumePath("123-45-67890", "grant/confirmation"),
+  "/matches?biz=1234567890&confirm=grant%2Fconfirmation",
+);
 
 function teaserFixture(matches: MatchCard[], knownCount: number): ProductTeaserResult {
   return {

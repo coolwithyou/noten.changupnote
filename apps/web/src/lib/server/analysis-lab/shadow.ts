@@ -13,6 +13,7 @@
 //   --all 은 cohort.json 밖 검수(파일럿 3건 등)까지 포함한다(스모크 용도).
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
 import type { CompanyProfile, GrantCriterion, MatchResult, NormalizedGrant } from "@cunote/contracts";
 import { isProfileResolvableCriterion, maskCorpNum, planProfileQuestions } from "@cunote/core";
 import {
@@ -29,6 +30,18 @@ import { resolveSystemProductCompanyProfile } from "../productProfile/resolvePro
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
+import { verifyPromotionSourceArtifact } from "./promotion-candidates";
+import {
+  promotionReleaseArtifactPath,
+  pseudonymizePromotionCompanyKey,
+  readPromotionReleaseManifest,
+  sha256Canonical,
+  writeImmutablePromotionArtifact,
+} from "./promotion-release";
+import {
+  loadPromotionGrantSnapshot,
+  snapshotMatchesReleaseBaseline,
+} from "./promotion-snapshot";
 import {
   convertReviewedLabRun,
   type ShadowConversionReport,
@@ -199,12 +212,206 @@ interface GrantShadowRecord {
   }>;
 }
 
+function questionPolarityIsValid(
+  question: { options: Array<{ value: string; disqualifies: boolean }> },
+): boolean {
+  const values = new Set(question.options.map((option) => option.value));
+  const polarities = new Set(question.options.map((option) => option.disqualifies));
+  return values.size === question.options.length
+    && question.options.length >= 2
+    && polarities.has(true)
+    && polarities.has(false);
+}
+
+async function mainReleaseShadow(options: ShadowOptions, releaseId: string): Promise<number> {
+  const manifest = await readPromotionReleaseManifest(releaseId);
+  const secret = process.env.ANALYSIS_LAB_ARTIFACT_HMAC_KEY?.trim();
+  if (!secret || secret.length < 32) {
+    throw new Error("release shadow에는 32자 이상의 ANALYSIS_LAB_ARTIFACT_HMAC_KEY가 필요합니다.");
+  }
+  if (options.bizNos.length > 0 && options.bizNos.some((bizNo) => bizNo.length < 10)) {
+    throw new Error("--bizNo 형식이 올바르지 않습니다.");
+  }
+  // release 비교 시각은 manifest 준비 시점으로 고정해 재실행의 시간 변동을 없앤다.
+  const asOf = readArg("asOf") ? options.asOf : new Date(manifest.createdAt);
+  const releaseOptions: ShadowOptions = { ...options, asOf };
+  const db = getCunoteDb();
+  const repositories = createDrizzleRepositories<unknown>({ dialect: "drizzle", client: db });
+  const grants = await repositories.grants.listGrantsByIds(
+    manifest.plans.map((item) => item.grantId),
+  );
+  const grantById = new Map(
+    grants.flatMap((entry) => entry.grant.id ? [[entry.grant.id, entry] as const] : []),
+  );
+  const companyProfiles = await resolveCompanyProfiles(releaseOptions, db, repositories);
+  if (typeof companyProfiles === "string") throw new Error(companyProfiles);
+  const releaseCompanies = companyProfiles.map((company) => {
+    const key = pseudonymizePromotionCompanyKey(secret, releaseId, company.key);
+    return { ...company, key, label: key };
+  });
+  const profileCorpusSha256 = sha256Canonical(
+    releaseCompanies
+      .map((company) => ({ key: company.key, profile: company.profile }))
+      .sort((left, right) => left.key.localeCompare(right.key)),
+  );
+  const confirmedLinks = await db
+    .select({
+      canonicalGrantId: schema.dedupLinks.canonicalGrantId,
+      memberGrantId: schema.dedupLinks.memberGrantId,
+    })
+    .from(schema.dedupLinks)
+    .where(eq(schema.dedupLinks.confirmed, true));
+
+  const sourceDrift: string[] = [];
+  for (const source of manifest.sourceArtifacts) {
+    const verified = await verifyPromotionSourceArtifact(source);
+    for (const changed of verified.changed) sourceDrift.push(`${source.grantId}:${changed}`);
+  }
+  const baselineDrift: string[] = [];
+  const guardIssues: string[] = [];
+  const records: GrantShadowRecord[] = [];
+  interface PlannerCell {
+    beforeItem: NormalizedGrant<unknown>;
+    afterItem: NormalizedGrant<unknown>;
+    beforeMatch: MatchResult;
+    afterMatch: MatchResult;
+    record: GrantShadowRecord;
+  }
+  const cellsByCompany = new Map<string, PlannerCell[]>();
+
+  for (const planItem of manifest.plans) {
+    const entry = grantById.get(planItem.grantId);
+    if (!entry) {
+      guardIssues.push(`${planItem.grantId}:grant_missing`);
+      continue;
+    }
+    const snapshot = await loadPromotionGrantSnapshot(db, planItem.grantId, confirmedLinks);
+    if (!snapshotMatchesReleaseBaseline(snapshot, planItem)) {
+      baselineDrift.push(planItem.grantId);
+    }
+    const plan = planItem.promotionPlan;
+    if (
+      plan.conversion.error
+      || plan.conversion.dropped > 0
+      || plan.droppedQuestionCandidates > 0
+      || plan.criteria.some((criterion) => criterion.needs_review === true)
+    ) {
+      guardIssues.push(`${plan.grantId}:unsafe_plan`);
+    }
+    for (const question of plan.questions) {
+      if (!questionPolarityIsValid(question)) {
+        guardIssues.push(`${plan.grantId}:question_polarity:${question.criterionStableKey}`);
+      }
+    }
+    const afterEntry = proposedEntryFor(entry, plan.criteria);
+    const record: GrantShadowRecord = {
+      grantKey: `${entry.grant.source}:${entry.grant.source_id}`,
+      grantId: plan.grantId,
+      title: entry.grant.title,
+      status: entry.grant.status,
+      run: { runId: plan.runId, promptVersion: "manifest-bound" },
+      criteriaCountBefore: entry.criteria.length,
+      criteriaCountAfter: plan.criteria.length,
+      structuredBefore: entry.criteria.filter((criterion) => criterion.operator !== "text_only").length,
+      structuredAfter: plan.criteria.filter((criterion) => criterion.operator !== "text_only").length,
+      conversion: plan.conversion,
+      perCompany: [],
+    };
+    for (const company of releaseCompanies) {
+      const beforeMatch = buildGrantAnalysisShadowMatch({
+        entry,
+        criteria: entry.criteria,
+        company: company.profile,
+        asOf,
+      });
+      const afterMatch = buildGrantAnalysisShadowMatch({
+        entry,
+        criteria: plan.criteria,
+        company: company.profile,
+        asOf,
+      });
+      const before = compactShadowMatch(beforeMatch, entry.criteria);
+      const after = compactShadowMatch(afterMatch, plan.criteria);
+      if (
+        (before.eligibility !== after.eligibility || before.tier !== after.tier)
+        && after.decided === 0
+      ) {
+        guardIssues.push(`${plan.grantId}:${company.key}:unexplained_transition`);
+      }
+      if (
+        before.eligibility !== "ineligible"
+        && after.eligibility === "ineligible"
+        && after.failHardDimensions.length === 0
+      ) {
+        guardIssues.push(`${plan.grantId}:${company.key}:ineligible_without_hard_trace`);
+      }
+      record.perCompany.push({
+        companyKey: company.key,
+        companyLabel: company.label,
+        before,
+        after,
+      });
+      const cells = cellsByCompany.get(company.key) ?? [];
+      cells.push({ beforeItem: entry, afterItem: afterEntry, beforeMatch, afterMatch, record });
+      cellsByCompany.set(company.key, cells);
+    }
+    records.push(record);
+  }
+
+  const perCompany = releaseCompanies.map((company) =>
+    computeCompanyMetrics(company, cellsByCompany.get(company.key) ?? [], asOf));
+  const conversionTotals = sumConversionReports(records.map((record) => record.conversion));
+  const aggregate = aggregateCompanyMetrics(perCompany);
+  if (records.length !== manifest.plans.length) {
+    guardIssues.push(`record_count:${records.length}/${manifest.plans.length}`);
+  }
+  const pass = sourceDrift.length === 0
+    && baselineDrift.length === 0
+    && guardIssues.length === 0;
+  const artifact = {
+    schema: "analysis-lab-promotion-shadow-v1",
+    releaseId,
+    releasePlanSha256: manifest.releasePlanSha256,
+    manifestSha256: manifest.manifestSha256,
+    createdAt: new Date().toISOString(),
+    asOf: asOf.toISOString(),
+    profileCorpusSha256,
+    companyCount: releaseCompanies.length,
+    grantCount: records.length,
+    sourceDrift,
+    baselineDrift,
+    guardIssues,
+    allowedTransitionPolicy: {
+      targetOnly: true,
+      reviewedTraceRequired: true,
+      pendingHardTransitionAllowed: false,
+      controlGrantChanges: 0,
+    },
+    conversionTotals,
+    grants: records,
+    perCompany,
+    aggregate,
+    verdict: pass ? "PASS" : "FAIL",
+  };
+  await writeImmutablePromotionArtifact(
+    promotionReleaseArtifactPath(releaseId, "shadow.json"),
+    artifact,
+  );
+  console.log(
+    `[shadow] release ${artifact.verdict}: ${releaseId} · 공고 ${records.length}` +
+    ` × 회사 ${releaseCompanies.length} · issues ${sourceDrift.length + baselineDrift.length + guardIssues.length}`,
+  );
+  return pass ? 0 : 2;
+}
+
 async function main(): Promise<number> {
   const options = parseOptions();
   if (typeof options === "string") {
     console.error(`[shadow] 설정 오류: ${options}`);
     return 1;
   }
+  const releaseId = readArg("release")?.trim();
+  if (releaseId) return mainReleaseShadow(options, releaseId);
 
   // 1) 검수 런 수집 — reviewed-runs 공유 모듈. 게이트 집계(aggregate)와 달리 파일럿 층을
   //    제외하지 않는다: 섀도 측정은 "30건 검수 확정분"(확대 계획 §4)이고 확대 코호트 30건에

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon, HelpCircleIcon, MoreHorizontalIcon } from "lucide-react";
 import type { GrantConfirmationSubmitResult, MatchCard, ProductTeaserResult } from "@cunote/contracts";
 import { NoticeCard, type NoticeCardStatus } from "@/components/app/notice-card";
@@ -37,6 +37,8 @@ export function ProgramsExperience({
   preparing,
   newGrantIds = new Set<string>(),
   onConfirmationSaved,
+  onRequestConfirmation,
+  autoOpenConfirmationGrantId,
 }: {
   teaser: ProductTeaserResult;
   onPrepare: (grantId?: string) => void;
@@ -45,17 +47,37 @@ export function ProgramsExperience({
   newGrantIds?: ReadonlySet<string>;
   /** 확인 질문 저장 성공 시 재계산 카드를 상위 teaser 상태에 반영한다(4상태 버킷 이동). */
   onConfirmationSaved?: (result: GrantConfirmationSubmitResult) => void;
+  /** 익명 결과에서는 회사 저장·로그인 후 같은 질문으로 복귀시키는 경계. */
+  onRequestConfirmation?: (match: MatchCard) => void;
+  /** 저장·로그인 복귀 후 자동으로 열 확인 질문 대상. */
+  autoOpenConfirmationGrantId?: string | null;
 }) {
   const groups = groupMatchesForDisplay(teaser.matches);
   const [showAllOpen, setShowAllOpen] = useState(false);
   // 시트 내용은 닫힘 애니메이션 동안 유지해야 하므로 대상과 열림 상태를 분리한다.
   const [confirmTarget, setConfirmTarget] = useState<MatchCard | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const autoOpenedGrantIdRef = useRef<string | null>(null);
 
   function openConfirmation(match: MatchCard) {
+    if (onRequestConfirmation) {
+      onRequestConfirmation(match);
+      return;
+    }
     setConfirmTarget(match);
     setConfirmOpen(true);
   }
+  useEffect(() => {
+    if (
+      !autoOpenConfirmationGrantId
+      || autoOpenedGrantIdRef.current === autoOpenConfirmationGrantId
+    ) return;
+    const match = teaser.matches.find((item) => item.grantId === autoOpenConfirmationGrantId);
+    if (!match) return;
+    autoOpenedGrantIdRef.current = autoOpenConfirmationGrantId;
+    setConfirmTarget(match);
+    setConfirmOpen(true);
+  }, [autoOpenConfirmationGrantId, teaser.matches]);
   const visibleOpen = showAllOpen ? groups.open : groups.open.slice(0, DEFAULT_VISIBLE_OPEN);
   const totalOpen = Math.max(teaser.counts.openNow ?? 0, groups.open.length);
   const totalOneAnswer = Math.max(teaser.counts.oneAnswer ?? 0, groups.oneAnswer.length);

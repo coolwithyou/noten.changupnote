@@ -25,6 +25,12 @@ import {
   type AuditedReviewProvenance,
 } from "./audited-reviews";
 import type { CohortFileV2 } from "./cohort-file";
+import { verifyPromotionSourceArtifact } from "./promotion-candidates";
+import {
+  promotionReleaseArtifactPath,
+  readPromotionReleaseManifest,
+  writeImmutablePromotionArtifact,
+} from "./promotion-release";
 import { type ReviewedRun, selectReviewedRuns } from "./reviewed-runs";
 
 /** --all 전수 스캔에서 코호트에 없는 공고의 층 표기. */
@@ -57,6 +63,109 @@ function ciText(successes: number, trials: number): string {
 
 function gateLine(name: string, actual: string, target: string, pass: boolean): string {
   return `  ${pass ? "✅ 통과" : "❌ 미달"} | ${name}: ${actual} (기준 ${target})`;
+}
+
+function readArg(name: string): string | undefined {
+  const prefix = `--${name}=`;
+  return process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
+}
+
+async function aggregateRelease(releaseId: string): Promise<void> {
+  const manifest = await readPromotionReleaseManifest(releaseId);
+  const plans = manifest.plans;
+  if (plans.length === 0) throw new Error("release manifest plan이 0건입니다.");
+  const correct = plans.reduce((sum, item) => sum + item.promotionPlan.conversion.verdicts.correct, 0);
+  const needsEdit = plans.reduce(
+    (sum, item) => sum + item.promotionPlan.conversion.verdicts.needs_edit,
+    0,
+  );
+  const wrong = plans.reduce((sum, item) => sum + item.promotionPlan.conversion.verdicts.wrong, 0);
+  const unsure = plans.reduce((sum, item) => sum + item.promotionPlan.conversion.verdicts.unsure, 0);
+  const missed = plans.reduce(
+    (sum, item) => sum + item.promotionPlan.conversion.missedConditions,
+    0,
+  );
+  const currentTotal = plans.reduce((sum, item) => sum + item.criteriaCountBefore, 0);
+  const structured = plans.reduce(
+    (sum, item) => sum + item.promotionPlan.criteria
+      .filter((criterion) => criterion.operator !== "text_only").length,
+    0,
+  );
+  const costs = plans.map((item) => item.costUsd).filter((cost): cost is number => cost !== null);
+  const decided = correct + needsEdit + wrong + unsure;
+  const strictPrecision = decided > 0 ? correct / decided : 0;
+  const wrongRate = decided > 0 ? wrong / decided : 0;
+  const missedPerNotice = missed / plans.length;
+  const coverageRatio = currentTotal > 0 ? correct / currentTotal : Number.POSITIVE_INFINITY;
+  const costPerNotice = costs.length > 0
+    ? costs.reduce((sum, cost) => sum + cost, 0) / costs.length
+    : 0;
+  const structuredRatio = correct > 0 ? structured / correct : 0;
+  const gates = [
+    {
+      id: "strict_precision",
+      threshold: { operator: "gte", value: GATES.strictPrecisionMin },
+      actual: strictPrecision,
+      pass: strictPrecision >= GATES.strictPrecisionMin,
+    },
+    {
+      id: "wrong_rate",
+      threshold: { operator: "lte", value: GATES.wrongRateMax },
+      actual: wrongRate,
+      pass: wrongRate <= GATES.wrongRateMax,
+    },
+    {
+      id: "missed_per_notice",
+      threshold: { operator: "lte", value: GATES.missedPerNoticeMax },
+      actual: missedPerNotice,
+      pass: missedPerNotice <= GATES.missedPerNoticeMax,
+    },
+    {
+      id: "coverage_ratio",
+      threshold: { operator: "gte", value: GATES.coverageRatioMin },
+      actual: Number.isFinite(coverageRatio) ? coverageRatio : null,
+      pass: coverageRatio >= GATES.coverageRatioMin,
+    },
+    {
+      id: "cost_per_notice_usd",
+      threshold: { operator: "lte", value: GATES.costPerNoticeMaxUsd },
+      actual: costPerNotice,
+      pass: costPerNotice <= GATES.costPerNoticeMaxUsd,
+    },
+    {
+      id: "structured_ratio",
+      threshold: { operator: "gte", value: GATES.structuredRatioMin },
+      actual: structuredRatio,
+      pass: structuredRatio >= GATES.structuredRatioMin,
+    },
+  ];
+  const sourceDrift: string[] = [];
+  for (const source of manifest.sourceArtifacts) {
+    const verified = await verifyPromotionSourceArtifact(source);
+    for (const changed of verified.changed) sourceDrift.push(`${source.grantId}:${changed}`);
+  }
+  const go = gates.every((gate) => gate.pass) && sourceDrift.length === 0;
+  const artifact = {
+    schema: "analysis-lab-promotion-aggregate-v1",
+    releaseId,
+    releasePlanSha256: manifest.releasePlanSha256,
+    manifestSha256: manifest.manifestSha256,
+    createdAt: new Date().toISOString(),
+    noticeCount: plans.length,
+    totals: { correct, needsEdit, wrong, unsure, missed, currentTotal, structured },
+    gates,
+    sourceDrift,
+    verdict: go ? "GO" : gates.filter((gate) => gate.pass).length >= 5 ? "ITERATE" : "STOP",
+  };
+  await writeImmutablePromotionArtifact(
+    promotionReleaseArtifactPath(releaseId, "aggregate.json"),
+    artifact,
+  );
+  console.log(
+    `[aggregate] release ${artifact.verdict}: ${releaseId} · ` +
+    `gate ${gates.filter((gate) => gate.pass).length}/${gates.length} · source drift ${sourceDrift.length}`,
+  );
+  if (!go) process.exitCode = 2;
 }
 
 // 콘솔 표 정렬용 전각(2칸) 문자 범위 — 한글 자모·CJK 통합/호환·한글 음절·전각 기호.
@@ -247,6 +356,11 @@ function printStratumTable(stats: NoticeStats[], cohort: CohortFileV2): void {
 }
 
 async function main() {
+  const releaseId = readArg("release")?.trim();
+  if (releaseId) {
+    await aggregateRelease(releaseId);
+    return;
+  }
   const args = new Set(process.argv.slice(2));
   const scanAll = args.has("--all");
   const verbose = args.has("--verbose");
