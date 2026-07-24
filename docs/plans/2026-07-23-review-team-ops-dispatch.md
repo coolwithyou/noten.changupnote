@@ -343,3 +343,20 @@ pnpm verify:ops-admin
 - 구현 커밋: `0c44c9e` (`feat: 완료 검수 목록과 수정 진입 제공`)
 - production deployment: Vercel deployment `dpl_HQk4gP5WBywJ5SafSLJ2sC826UGN`, `READY`, alias `https://ops.changupnote.com`.
 - 실제 `kim@noten.im` reviewer 세션에서 `진행 중 9`, `완료 1`, 완료 공고 1/1·100%, `결과 보기·수정`을 확인했다. 완료 상세의 저장된 판정 선택지와 사유 입력이 활성 상태이며, 값을 바꾸기 전 저장 버튼은 비활성인 것도 확인했다. 데이터 변경 없이 확인했고 화면 콘솔 warning/error는 0건이었다.
+
+#### 2026-07-24 진행률·상세 전환·입력 강조 후속 피드백
+
+- 큐와 상세 사이드바의 `Progress`가 flex 안에서 폭 0으로 접히던 문제를 수정했다. 트랙은 전체 가용 폭과 8px 높이를 사용하고 숫자 백분율을 함께 표시하며, 스크린리더용 진행률 이름도 추가했다.
+- 큐의 공고 CTA는 클릭 즉시 `상세 불러오는 중`과 spinner를 표시해 서버 응답 중 중복 클릭과 무반응 오해를 막는다.
+- 상세 조회는 공고·권한, 배정 항목, 첨부 조회를 직렬 DB 왕복 대신 병렬로 실행한다. reviewer 접근 가능 여부는 공고 조회의 `EXISTS` projection에서 함께 확인하되 기존 403 경계는 유지했다.
+- 최대 24만 자 원문과 분석 Markdown을 전체 client component에 전달하던 구조를 분리했다. 판정 상태와 항목만 client workspace가 담당하고 원문·분석·첨부 근거는 server component에서 렌더해 브라우저 hydration 부담을 줄였다.
+- 판정 선택과 사유 입력을 `검수자 입력` 패널로 묶고 1·2단계로 번호를 붙였다. 선택된 판정은 `aria-pressed=true`와 진한 primary 배경·흰색 텍스트를 함께 사용하고, 입력 중 패널의 테두리와 ring이 강화된다.
+- 공용 `docs/guides/review-team-member-guide.md`에 상세 로딩 표시, 강조 입력 패널, 선택 상태와 저장 후 진행률 갱신 기준을 반영했다.
+- 구현 커밋: `33f522c` (`perf: 검수 상세 전환과 판정 UI 개선`)
+- 검증: admin typecheck, `pnpm verify:review-workspace`, `pnpm build:admin`, `git diff --check` 통과.
+- production deployment: Vercel deployment `dpl_ENJmrcWiKzu6ogR5vDeTFTU8w2ZX`, `READY`, alias `https://ops.changupnote.com`.
+- 실제 `kim@noten.im` reviewer 세션에서 데이터 저장 없이 다음을 확인했다.
+  - 큐 진행률 트랙 1440×8px, 4% indicator 58×8px가 표시됨.
+  - 동일 공고 상세의 `현재 검수 질문` 표시까지 2.82초에서 1.49초로 단축됨(같은 Chrome 세션의 배포 전·후 1회 측정, 약 47% 개선).
+  - CTA의 `상세 불러오는 중` 상태, 강조된 `검수자 입력` 패널, `정확` 선택 시 검정 배경·흰색 글자와 pressed 상태가 표시됨.
+  - 화면 콘솔 warning/error 0건.
