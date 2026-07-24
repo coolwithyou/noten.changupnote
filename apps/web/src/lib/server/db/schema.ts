@@ -7,6 +7,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -804,6 +805,219 @@ export const companyGrantConfirmations = pgTable("company_grant_confirmations", 
 }));
 
 /**
+ * 활성 공고 딥분석 작업 큐. grant/source revision/model policy 조합을 단일 멱등 키로
+ * 사용하며 worker는 짧은 SKIP LOCKED 트랜잭션으로 lease한다.
+ */
+export const grantDeepAnalysisJobs = pgTable("grant_deep_analysis_jobs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  sourceRevisionSha256: text("source_revision_sha256").notNull(),
+  modelPolicyVersion: text("model_policy_version").notNull(),
+  priority: integer("priority").default(0).notNull(),
+  status: text("status").default("pending").notNull(),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(5).notNull(),
+  availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+  leasedAt: timestamp("leased_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  workerId: text("worker_id"),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  identityIdx: uniqueIndex("grant_deep_analysis_jobs_identity_idx")
+    .on(table.grantId, table.sourceRevisionSha256, table.modelPolicyVersion),
+  grantCreatedIdx: index("grant_deep_analysis_jobs_grant_created_idx")
+    .on(table.grantId, table.createdAt),
+  claimableIdx: index("grant_deep_analysis_jobs_claimable_idx")
+    .on(table.status, table.availableAt, table.priority)
+    .where(sql`${table.status} IN ('pending', 'retry_wait')`),
+  leaseExpiryIdx: index("grant_deep_analysis_jobs_lease_expiry_idx")
+    .on(table.leaseExpiresAt)
+    .where(sql`${table.status} = 'leased'`),
+  statusCheck: check("grant_deep_analysis_jobs_status_check", sql`
+    ${table.status} IN (
+      'pending', 'leased', 'retry_wait', 'succeeded', 'blocked', 'dead_letter', 'canceled'
+    )
+  `),
+  sourceHashCheck: check("grant_deep_analysis_jobs_source_hash_check", sql`
+    ${table.sourceRevisionSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  attemptsCheck: check("grant_deep_analysis_jobs_attempts_check", sql`
+    ${table.attemptCount} >= 0
+    AND ${table.maxAttempts} > 0
+    AND ${table.attemptCount} <= ${table.maxAttempts}
+  `),
+  leaseCheck: check("grant_deep_analysis_jobs_lease_check", sql`
+    (${table.status} = 'leased'
+      AND ${table.leasedAt} IS NOT NULL
+      AND ${table.leaseExpiresAt} IS NOT NULL
+      AND ${table.workerId} IS NOT NULL)
+    OR (${table.status} <> 'leased')
+  `),
+}));
+
+/**
+ * 한 번 봉인된 입력에 대한 모델 실행. stage receipt와 axis/audit 결과는 이 run을
+ * 참조하고, source revision이 바뀌면 current projection에서 stale로 파생한다.
+ */
+export const grantDeepAnalysisRuns = pgTable("grant_deep_analysis_runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: text("run_id").notNull(),
+  jobId: uuid("job_id").notNull()
+    .references(() => grantDeepAnalysisJobs.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  sourceRevisionSha256: text("source_revision_sha256").notNull(),
+  attachmentManifestSha256: text("attachment_manifest_sha256").notNull(),
+  inputSha256: text("input_sha256").notNull(),
+  inputArtifactKey: text("input_artifact_key").notNull(),
+  outputArtifactKey: text("output_artifact_key"),
+  rawResponseArtifactKey: text("raw_response_artifact_key"),
+  model: text("model").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  modelPolicyVersion: text("model_policy_version").notNull(),
+  status: text("status").default("running").notNull(),
+  inputChars: integer("input_chars").notNull(),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  supersedesRunId: uuid("supersedes_run_id")
+    .references((): AnyPgColumn => grantDeepAnalysisRuns.id, { onDelete: "set null" }),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+}, (table) => ({
+  runIdIdx: uniqueIndex("grant_deep_analysis_runs_run_id_idx").on(table.runId),
+  jobStartedIdx: index("grant_deep_analysis_runs_job_started_idx")
+    .on(table.jobId, table.startedAt),
+  grantStartedIdx: index("grant_deep_analysis_runs_grant_started_idx")
+    .on(table.grantId, table.startedAt),
+  statusIdx: index("grant_deep_analysis_runs_status_idx").on(table.status),
+  supersedesIdx: index("grant_deep_analysis_runs_supersedes_idx").on(table.supersedesRunId),
+  statusCheck: check("grant_deep_analysis_runs_status_check", sql`
+    ${table.status} IN ('running', 'passed', 'failed', 'blocked', 'stale', 'legacy_imported')
+  `),
+  hashCheck: check("grant_deep_analysis_runs_hash_check", sql`
+    ${table.sourceRevisionSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.attachmentManifestSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.inputSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  nonnegativeUsage: check("grant_deep_analysis_runs_nonnegative_usage", sql`
+    ${table.inputChars} >= 0
+    AND (${table.inputTokens} IS NULL OR ${table.inputTokens} >= 0)
+    AND (${table.outputTokens} IS NULL OR ${table.outputTokens} >= 0)
+    AND (${table.costUsd} IS NULL OR ${table.costUsd} >= 0)
+  `),
+  completionCheck: check("grant_deep_analysis_runs_completion_check", sql`
+    (${table.status} = 'running' AND ${table.completedAt} IS NULL)
+    OR (${table.status} <> 'running' AND ${table.completedAt} IS NOT NULL)
+  `),
+}));
+
+/** append-only S0~S14 검증 영수증. */
+export const grantDeepAnalysisStageReceipts = pgTable("grant_deep_analysis_stage_receipts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull()
+    .references(() => grantDeepAnalysisRuns.id, { onDelete: "restrict" }),
+  stage: text("stage").notNull(),
+  status: text("status").notNull(),
+  verifierVersion: text("verifier_version").notNull(),
+  evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
+  evidenceSha256: text("evidence_sha256").notNull(),
+  artifactKey: text("artifact_key"),
+  attempt: integer("attempt").default(1).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  runStageAttemptIdx: uniqueIndex("grant_deep_analysis_stage_receipts_run_stage_attempt_idx")
+    .on(table.runId, table.stage, table.attempt),
+  runStageCreatedIdx: index("grant_deep_analysis_stage_receipts_run_stage_created_idx")
+    .on(table.runId, table.stage, table.createdAt),
+  stageStatusCreatedIdx: index("grant_deep_analysis_stage_receipts_stage_status_created_idx")
+    .on(table.stage, table.status, table.createdAt),
+  stageCheck: check("grant_deep_analysis_stage_receipts_stage_check", sql`
+    ${table.stage} IN (
+      'source_fresh', 'attachment_inventory_complete', 'attachment_archive_complete',
+      'attachment_text_complete', 'input_coverage_verified', 'input_sealed',
+      'model_call_passed', 'response_contract_valid', 'axis_coverage_complete',
+      'evidence_grounded', 'independent_audit_passed', 'analysis_complete',
+      'publication_complete', 'serving_complete', 'analysis_fresh'
+    )
+  `),
+  statusCheck: check("grant_deep_analysis_stage_receipts_status_check", sql`
+    ${table.status} IN (
+      'pending', 'running', 'passed', 'failed', 'blocked', 'stale', 'not_applicable'
+    )
+  `),
+  attemptCheck: check("grant_deep_analysis_stage_receipts_attempt_check", sql`
+    ${table.attempt} > 0
+  `),
+  evidenceHashCheck: check("grant_deep_analysis_stage_receipts_evidence_hash_check", sql`
+    ${table.evidenceSha256} ~ '^[0-9a-f]{64}$'
+  `),
+}));
+
+/** run당 22축 정확히 한 행을 갖는 모델 판정 원장. */
+export const grantDeepAnalysisAxisResults = pgTable("grant_deep_analysis_axis_results", {
+  runId: uuid("run_id").notNull()
+    .references(() => grantDeepAnalysisRuns.id, { onDelete: "restrict" }),
+  dimension: criterionDimensionEnum("dimension").notNull(),
+  status: text("status").notNull(),
+  confidence: real("confidence").notNull(),
+  comment: text("comment"),
+  evidenceRefs: jsonb("evidence_refs").$type<Array<Record<string, unknown>>>().notNull(),
+  criterionSemanticHashes: text("criterion_semantic_hashes").array().notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.runId, table.dimension] }),
+  statusIdx: index("grant_deep_analysis_axis_results_status_idx").on(table.status),
+  statusCheck: check("grant_deep_analysis_axis_results_status_check", sql`
+    ${table.status} IN (
+      'condition_found', 'inspected_no_condition', 'ambiguous', 'input_missing', 'unassessed'
+    )
+  `),
+  confidenceCheck: check("grant_deep_analysis_axis_results_confidence_check", sql`
+    ${table.confidence} >= 0 AND ${table.confidence} <= 1
+  `),
+}));
+
+/** primary 결과를 숨긴 독립 모델 감사 결과. 감사 재시도는 attempt를 늘려 새 행으로 남긴다. */
+export const grantDeepAnalysisAudits = pgTable("grant_deep_analysis_audits", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull()
+    .references(() => grantDeepAnalysisRuns.id, { onDelete: "restrict" }),
+  attempt: integer("attempt").default(1).notNull(),
+  model: text("model").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  inputSha256: text("input_sha256").notNull(),
+  verdict: text("verdict").notNull(),
+  itemResults: jsonb("item_results").$type<Array<Record<string, unknown>>>().notNull(),
+  artifactKey: text("artifact_key").notNull(),
+  artifactSha256: text("artifact_sha256").notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }).notNull(),
+}, (table) => ({
+  runAttemptIdx: uniqueIndex("grant_deep_analysis_audits_run_attempt_idx")
+    .on(table.runId, table.attempt),
+  verdictCompletedIdx: index("grant_deep_analysis_audits_verdict_completed_idx")
+    .on(table.verdict, table.completedAt),
+  verdictCheck: check("grant_deep_analysis_audits_verdict_check", sql`
+    ${table.verdict} IN ('concur', 'disagree', 'unsure', 'failed')
+  `),
+  attemptCheck: check("grant_deep_analysis_audits_attempt_check", sql`
+    ${table.attempt} > 0
+  `),
+  hashCheck: check("grant_deep_analysis_audits_hash_check", sql`
+    ${table.inputSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.artifactSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  timingCheck: check("grant_deep_analysis_audits_timing_check", sql`
+    ${table.completedAt} >= ${table.startedAt}
+  `),
+}));
+
+/**
  * 딥분석 운영 승격 릴리스 원장. manifest와 승인·실행 actor, gate 결과를 운영 DB에 남겨
  * 로컬 artifact 유실이나 부분 성공을 전체 성공으로 오인하지 않게 한다.
  */
@@ -846,6 +1060,8 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
     .references(() => analysisLabPromotionReleases.id, { onDelete: "restrict" }),
   grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
   runId: text("run_id").notNull(),
+  deepAnalysisRunId: uuid("deep_analysis_run_id")
+    .references(() => grantDeepAnalysisRuns.id, { onDelete: "restrict" }),
   planSha256: text("plan_sha256").notNull(),
   beforeSnapshot: jsonb("before_snapshot").$type<Record<string, unknown>>().notNull(),
   beforeSha256: text("before_sha256").notNull(),
@@ -862,6 +1078,8 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
   releaseStatusIdx: index("analysis_lab_promotion_items_release_status_idx")
     .on(table.releaseDbId, table.status),
   grantIdx: index("analysis_lab_promotion_items_grant_idx").on(table.grantId),
+  deepAnalysisRunIdx: index("analysis_lab_promotion_items_deep_analysis_run_idx")
+    .on(table.deepAnalysisRunId),
   statusCheck: check("analysis_lab_promotion_items_status_check", sql`
     ${table.status} IN ('prepared', 'applying', 'applied', 'failed', 'rolling_back', 'rolled_back')
   `),

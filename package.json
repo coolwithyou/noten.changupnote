@@ -82,7 +82,7 @@
     "lab:collect:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/collect-core.test.ts",
     "lab:collect": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/collect-cli.ts",
     "lab:reconcile": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/collect-cli.ts --reconcile",
-    "verify:deep-analysis-contract": "tsx packages/contracts/src/deep-analysis.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/deep-analysis/baseline.test.ts",
+    "verify:deep-analysis-contract": "tsx packages/contracts/src/deep-analysis.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/deep-analysis/baseline.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/deep-analysis/ledger.test.ts",
     "verify:active-deep-analysis": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/deep-analysis/verify-active-baseline.ts",
     "db:studio": "drizzle-kit studio",
     "typecheck": "pnpm build:packages && pnpm verify:package-runtime-freshness && tsc -p tsconfig.json --noEmit && pnpm --filter @cunote/web typecheck && pnpm --filter @cunote/admin typecheck",

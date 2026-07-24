@@ -1778,6 +1778,27 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - DB receipt ↔ R2 artifact round-trip/hash 검증 통과
 - source 변경 즉시 stale 파생
 
+구현 체크포인트 B1 (2026-07-25):
+
+- [x] migration `0053_deep_analysis_ledger`에 job/run/stage receipt/axis/audit 5개
+  테이블과 promotion run FK를 추가했다.
+- [x] `(grant_id, source_revision_sha256, model_policy_version)` unique identity와
+  `ON CONFLICT DO NOTHING` enqueue를 구현했다.
+- [x] queue claim은 짧은 `FOR UPDATE SKIP LOCKED` 문장으로 구현했고, 외부 R2/LLM
+  호출은 lease 트랜잭션 밖에 남겼다.
+- [x] receipt/axis/audit update·delete를 DB trigger로 차단하고, run identity가 job의
+  grant/revision/model policy와 일치하는지 DB trigger로 검사한다.
+- [x] 신규 운영 원장 5개 테이블에 RLS를 활성화하고 client 수동 pass route는 만들지 않았다.
+- [x] R2 artifact key에 grant/revision/run/kind/content SHA-256을 포함하고,
+  upload 뒤 read-back SHA-256이 일치할 때만 verified key를 반환한다.
+- [x] 최신 job revision과 과거 run revision이 다르면 `fresh=false`, `stale=true`,
+  첫 blocker `analysis_fresh`로 파생하는 current query를 구현했다.
+- [x] 로컬 disposable PostgreSQL에서 migration 적용, 중복 identity 거부,
+  append-only trigger, 5개 테이블, stale projection을 검증한 뒤 DB를 삭제했다.
+- [x] Drizzle schema drift 0, web typecheck, migration static verifier,
+  deep analysis ledger unit test가 통과했다.
+- [ ] 운영 DB migration 적용과 실제 R2 private bucket 왕복은 B2에서 별도 검증한다.
+
 #### Phase C. 입력 전수성 보증
 
 작업:
