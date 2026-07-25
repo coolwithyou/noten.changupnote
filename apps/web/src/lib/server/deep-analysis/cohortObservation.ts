@@ -121,11 +121,29 @@ export function evaluateDeepAnalysisCohortObservation(input: {
   for (const item of input.items) {
     const label = item.grantId;
     const source = item.source ?? "missing";
-    const analysisComplete = item.stageStatuses.analysis_complete === "passed";
+    const stageAnalysisComplete = (
+      item.stageStatuses.analysis_complete === "passed"
+    );
+    const runStartedAtMs = item.runStartedAt?.getTime() ?? null;
+    const runBeforeActivation = (
+      runStartedAtMs !== null
+      && runStartedAtMs < input.activatedAt.getTime()
+    );
+    const analysisComplete = (
+      stageAnalysisComplete
+      && runStartedAtMs !== null
+      && !runBeforeActivation
+    );
     sourceCounts[source] = (sourceCounts[source] ?? 0) + 1;
     totalCostUsd += item.costUsdSinceActivation;
     maxPerGrantCostUsd = Math.max(maxPerGrantCostUsd, item.costUsdSinceActivation);
 
+    if (runBeforeActivation) {
+      failures.push(`run_before_activation:${label}`);
+    }
+    if (stageAnalysisComplete && runStartedAtMs === null) {
+      failures.push(`analysis_complete_without_run_started_at:${label}`);
+    }
     if (!item.active) failures.push(`inactive_grant:${label}`);
     if (!item.jobId) failures.push(`current_job_missing:${label}`);
     if (
@@ -275,7 +293,11 @@ export function evaluateDeepAnalysisCohortObservation(input: {
       jobStatus: item.jobStatus,
       runId: item.runId,
       runStatus: item.runStatus,
-      analysisComplete: item.stageStatuses.analysis_complete === "passed",
+      analysisComplete: (
+        item.stageStatuses.analysis_complete === "passed"
+        && item.runStartedAt !== null
+        && item.runStartedAt.getTime() >= input.activatedAt.getTime()
+      ),
       axisCount: item.axisCount,
       auditVerdict: item.auditVerdict,
       currentInputSealed: item.currentInputSealed,

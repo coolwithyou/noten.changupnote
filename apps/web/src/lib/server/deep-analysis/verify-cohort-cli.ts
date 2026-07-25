@@ -144,6 +144,7 @@ async function main(): Promise<number> {
           SELECT candidate.*
           FROM grant_deep_analysis_runs candidate
           WHERE candidate.job_id = latest_job.id
+            AND candidate.started_at >= ${activatedAt.toISOString()}::timestamptz
           ORDER BY candidate.started_at DESC, candidate.id DESC
           LIMIT 1
         ) latest_run ON true

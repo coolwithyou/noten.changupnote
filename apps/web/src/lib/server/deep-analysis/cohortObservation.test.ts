@@ -96,6 +96,28 @@ assert.equal(passed.verdict, "PASS");
 assert.equal(passed.analysisCompleteCount, 1);
 assert.equal(passed.analysisLatencySeconds.p95, 45);
 
+const passedBeforeActivation = evaluateDeepAnalysisCohortObservation({
+  ...common,
+  items: [item({
+    jobStatus: "succeeded",
+    runId: "33333333-3333-4333-8333-333333333333",
+    runStatus: "passed",
+    runSourceRevisionSha256: revision,
+    runInputSha256: inputSha256,
+    runStartedAt: new Date("2026-07-26T03:04:59.000Z"),
+    runCompletedAt: new Date("2026-07-26T03:05:44.000Z"),
+    stageStatuses: passedStatuses,
+    axisCount: 22,
+    auditVerdict: "concur",
+    costUsdSinceActivation: 0,
+  })],
+});
+assert.equal(passedBeforeActivation.verdict, "FAIL");
+assert.equal(passedBeforeActivation.analysisCompleteCount, 0);
+assert(passedBeforeActivation.failures.includes(
+  "run_before_activation:11111111-1111-4111-8111-111111111111",
+));
+
 const failed = evaluateDeepAnalysisCohortObservation({
   ...common,
   outOfCohortRunCount: 1,
@@ -105,6 +127,8 @@ const failed = evaluateDeepAnalysisCohortObservation({
     runStatus: "failed",
     runSourceRevisionSha256: "d".repeat(64),
     runInputSha256: "e".repeat(64),
+    runStartedAt: new Date("2026-07-26T03:05:00.000Z"),
+    runCompletedAt: new Date("2026-07-26T03:05:30.000Z"),
     stageStatuses: { analysis_complete: "passed" },
     axisCount: 21,
     auditVerdict: "disagree",

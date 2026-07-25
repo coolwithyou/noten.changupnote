@@ -2642,10 +2642,10 @@ extractor 구현을 가지는 것은 금지한다.
 
 완료 조건:
 
-- [ ] 활성화 이전 passed run 회귀 테스트가 실패를 검증
-- [ ] 활성화 시각과 같거나 이후인 passed run은 기존처럼 PASS
-- [ ] `verify:deep-analysis-contract` 통과
-- [ ] 체크포인트 커밋 후 worktree clean
+- [x] 활성화 이전 passed run 회귀 테스트가 실패를 검증
+- [x] 활성화 시각과 같거나 이후인 passed run은 기존처럼 PASS
+- [x] `verify:deep-analysis-contract` 통과
+- [x] 체크포인트 커밋 후 worktree clean
 
 #### 축소 Step 2 — source 변경은 반드시 새 분석으로 복구
 
