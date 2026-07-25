@@ -93,7 +93,7 @@ assert.deepEqual(parsePipelineQuery(new URLSearchParams()), {
   bucket: "needs_admin",
   q: "",
   sort: "deadline",
-  cursor: null,
+  page: 1,
   includeClosed: false,
 })
 
@@ -104,7 +104,7 @@ assert.deepEqual(
     bucket: "normalized",
     q: "  수출바우처  ",
     sort: "review",
-    cursor: "opaque",
+    page: "3",
     closed: "include",
   })),
   {
@@ -113,7 +113,7 @@ assert.deepEqual(
     bucket: "normalized",
     q: "수출바우처",
     sort: "review",
-    cursor: "opaque",
+    page: 3,
     includeClosed: true,
   },
 )
@@ -127,4 +127,15 @@ assert.equal(
   "a bucket from another lens is ignored",
 )
 
-console.log("admin pipeline graph: 14 cases passed")
+assert.equal(
+  parsePipelineQuery(new URLSearchParams({ page: "0" })).page,
+  1,
+  "page numbers start at one",
+)
+assert.equal(
+  parsePipelineQuery(new URLSearchParams({ page: "not-a-number" })).page,
+  1,
+  "invalid page numbers fall back to the first page",
+)
+
+console.log("admin pipeline graph: 16 cases passed")

@@ -193,8 +193,11 @@ export interface PipelineNoticeItem {
 export interface PipelineNoticesResult {
   generatedAt: string
   total: number
-  cursor: string | null
-  hasMore: boolean
+  page: number
+  pageSize: number
+  pageCount: number
+  hasPrevious: boolean
+  hasNext: boolean
   items: PipelineNoticeItem[]
 }
 
@@ -322,7 +325,7 @@ export interface PipelineQueryState {
   bucket: PipelineBucket | null
   q: string
   sort: PipelineSort
-  cursor: string | null
+  page: number
   includeClosed: boolean
 }
 

@@ -23,11 +23,18 @@ export default async function PipelinePage({ searchParams }: PipelinePageProps) 
   ])
   if (!session) redirect("/login")
 
-  const query = parsePipelineQuery(toUrlSearchParams(rawSearchParams))
+  const urlSearchParams = toUrlSearchParams(rawSearchParams)
+  const query = parsePipelineQuery(urlSearchParams)
   const [summary, notices] = await Promise.all([
     getPipelineSummary(query),
     getPipelineNotices(query),
   ])
+  if (query.page > notices.pageCount) {
+    if (notices.pageCount === 1) urlSearchParams.delete("page")
+    else urlSearchParams.set("page", String(notices.pageCount))
+    const normalizedQuery = urlSearchParams.toString()
+    redirect(normalizedQuery ? `/pipeline?${normalizedQuery}` : "/pipeline")
+  }
 
   return (
     <OpsDashboardShell

@@ -28,12 +28,14 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -63,7 +65,7 @@ import {
   type PipelineNoticeItem,
 } from "./contract"
 
-interface PipelineNoticeSheetProps {
+interface PipelineNoticeDialogProps {
   notice: PipelineNoticeItem | null
   canMutate: boolean
   canReconvert: boolean
@@ -72,14 +74,14 @@ interface PipelineNoticeSheetProps {
   onRequestAction: (action: PipelineAction, targets: PipelineActionTarget[]) => void
 }
 
-export function PipelineNoticeSheet({
+export function PipelineNoticeDialog({
   notice,
   canMutate,
   canReconvert,
   refreshToken,
   onClose,
   onRequestAction,
-}: PipelineNoticeSheetProps) {
+}: PipelineNoticeDialogProps) {
   const [detail, setDetail] = useState<PipelineNoticeDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
@@ -122,20 +124,25 @@ export function PipelineNoticeSheet({
     : null
 
   return (
-    <Sheet open={Boolean(notice)} onOpenChange={(open) => {
+    <Dialog open={Boolean(notice)} onOpenChange={(open) => {
       if (!open) onClose()
     }}>
-      <SheetContent className="w-full gap-0 sm:max-w-3xl">
-        <SheetHeader className="border-b">
-          <div className="flex flex-wrap items-center gap-2 pr-8">
+      <DialogContent
+        data-testid="pipeline-notice-dialog"
+        className="flex h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-7xl flex-col gap-0 overflow-hidden p-0 sm:h-[min(92dvh,960px)] sm:max-w-7xl"
+      >
+        <DialogHeader className="shrink-0 gap-3 px-5 py-4 pr-14 sm:px-6 sm:py-5 sm:pr-16">
+          <div className="flex flex-wrap items-center gap-2">
             {notice ? <Badge variant="outline">{PIPELINE_SOURCE_LABELS[notice.source]}</Badge> : null}
             {notice ? <Badge variant="secondary">{MANAGEMENT_STATE_LABELS[notice.managementState]}</Badge> : null}
             {notice?.pipelineStatus ? (
               <Badge variant="outline">{PIPELINE_STATUS_LABELS[notice.pipelineStatus]}</Badge>
             ) : null}
           </div>
-          <SheetTitle>{notice?.title ?? "공고 상세"}</SheetTitle>
-          <SheetDescription>
+          <DialogTitle className="text-lg leading-snug sm:text-xl">
+            {notice?.title ?? "공고 상세"}
+          </DialogTitle>
+          <DialogDescription>
             {notice ? (
               <span className="flex flex-wrap items-center gap-2">
                 <span>{notice.agency ?? "기관 미상"} · {formatDeadline(notice.dDay)}</span>
@@ -159,10 +166,11 @@ export function PipelineNoticeSheet({
                 </Button>
               </span>
             ) : "공고의 criteria, 첨부와 처리 이력을 확인합니다."}
-          </SheetDescription>
-        </SheetHeader>
+          </DialogDescription>
+        </DialogHeader>
+        <Separator />
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
           {error ? (
             <Alert variant="destructive">
               <AlertTitle>상세 로드 실패</AlertTitle>
@@ -181,34 +189,37 @@ export function PipelineNoticeSheet({
         </div>
 
         {notice && target ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t bg-background/95 p-4 backdrop-blur">
-            <span className="text-xs text-muted-foreground">
-              j/k 다음 공고 · Enter 닫기 · a 검수 완료 · r 재변환
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {notice.needsReviewCount > 0 || notice.managementState === "needs_admin" ? (
-                <Button
-                  disabled={!canMutate}
-                  onClick={() => onRequestAction("mark_reviewed", [target])}
-                >
-                  <CheckCheckIcon data-icon="inline-start" />
-                  검수 완료
-                </Button>
-              ) : (
-                <Button
-                  disabled={!canMutate || !canReconvert || notice.attachmentCount === 0}
-                  title={!canReconvert ? "변환 서버 연결 환경변수가 필요합니다." : undefined}
-                  onClick={() => onRequestAction("reconvert", [target])}
-                >
-                  <RotateCcwIcon data-icon="inline-start" />
-                  재변환 요청
-                </Button>
-              )}
-            </div>
-          </div>
+          <>
+            <Separator />
+            <DialogFooter className="mx-0 mb-0 shrink-0 flex-row flex-wrap items-center justify-between rounded-none border-0 bg-background/95 px-5 py-4 backdrop-blur sm:px-6 sm:justify-between">
+              <span className="text-xs text-muted-foreground">
+                j/k 다음 공고 · Enter 닫기 · a 검수 완료 · r 재변환
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {notice.needsReviewCount > 0 || notice.managementState === "needs_admin" ? (
+                  <Button
+                    disabled={!canMutate}
+                    onClick={() => onRequestAction("mark_reviewed", [target])}
+                  >
+                    <CheckCheckIcon data-icon="inline-start" />
+                    검수 완료
+                  </Button>
+                ) : (
+                  <Button
+                    disabled={!canMutate || !canReconvert || notice.attachmentCount === 0}
+                    title={!canReconvert ? "변환 서버 연결 환경변수가 필요합니다." : undefined}
+                    onClick={() => onRequestAction("reconvert", [target])}
+                  >
+                    <RotateCcwIcon data-icon="inline-start" />
+                    재변환 요청
+                  </Button>
+                )}
+              </div>
+            </DialogFooter>
+          </>
         ) : null}
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -276,8 +287,8 @@ function CriteriaTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border">
-      <Table>
+    <div className="overflow-x-auto rounded-xl border">
+      <Table className="min-w-[1060px]">
         <TableHeader>
           <TableRow>
             <TableHead>축</TableHead>
@@ -385,8 +396,8 @@ function AttachmentPanel({
           </CardAction>
         </CardHeader>
         <CardContent>
-          <div className="overflow-hidden rounded-xl border">
-            <Table>
+          <div className="overflow-x-auto rounded-xl border">
+            <Table className="min-w-[920px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>파일명</TableHead>
@@ -614,8 +625,8 @@ function HistoryPanel({ detail }: { detail: PipelineNoticeDetail }) {
           <CardDescription>최신 50건의 extraction_log입니다.</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <div className="overflow-hidden rounded-xl border">
-            <Table>
+          <div className="overflow-x-auto rounded-xl border">
+            <Table className="min-w-[760px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>시각</TableHead>

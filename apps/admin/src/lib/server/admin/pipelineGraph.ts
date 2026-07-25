@@ -44,7 +44,7 @@ import { getAdminSql } from "@/lib/server/db/client"
 const PAGE_SIZE = 50
 const REFRESH_AFTER_SECONDS = 60
 const MAX_SEARCH_LENGTH = 100
-const MAX_CURSOR_LENGTH = 512
+const MAX_PAGE = 10_000
 
 const PIPELINE_BASE_CTE = `
 with criteria_stats as (
@@ -287,14 +287,6 @@ interface GoldenSetDetailRow {
   golden_ver: string
 }
 
-interface CursorPayload {
-  version: 1
-  sort: PipelineSort
-  id: string
-  deadline: string | null
-  count: number
-}
-
 export interface ManagementStateInput {
   grantStatus: string
   pipelineStatus: string | null
@@ -357,10 +349,10 @@ export function parsePipelineQuery(params: URLSearchParams): PipelineQueryState 
     ? validBucketForLens(lens, rawBucket) ? rawBucket : null
     : lens === "review" ? "needs_admin" : null
   const q = (params.get("q") ?? "").trim().slice(0, MAX_SEARCH_LENGTH)
-  const cursorValue = params.get("cursor")
-  const cursor = cursorValue && cursorValue.length <= MAX_CURSOR_LENGTH
-    ? cursorValue
-    : null
+  const pageValue = Number(params.get("page") ?? "1")
+  const page = Number.isSafeInteger(pageValue) && pageValue >= 1 && pageValue <= MAX_PAGE
+    ? pageValue
+    : 1
 
   return {
     lens,
@@ -368,7 +360,7 @@ export function parsePipelineQuery(params: URLSearchParams): PipelineQueryState 
     bucket,
     q,
     sort,
-    cursor,
+    page,
     includeClosed: params.get("closed") === "include",
   }
 }
@@ -411,9 +403,8 @@ export async function getPipelineNotices(
         or coalesce(agency, '') ilike ${likePattern(input.q)} escape E'\\\\'
       )`
     : sql``
-  const cursor = decodeCursor(input.cursor, input.sort)
-  const cursorCondition = cursorConditionFor(sql, input.sort, cursor)
   const orderBy = orderByFor(sql, input.sort)
+  const offset = (input.page - 1) * PAGE_SIZE
 
   const [countRows, pageRows] = await Promise.all([
     sql<CountRow[]>`
@@ -439,23 +430,24 @@ export async function getPipelineNotices(
         ${sourceCondition}
         ${bucketCondition}
         ${searchCondition}
-        ${cursorCondition}
       order by ${orderBy}
-      limit ${PAGE_SIZE + 1}
+      limit ${PAGE_SIZE}
+      offset ${offset}
     `,
   ])
 
-  const hasMore = pageRows.length > PAGE_SIZE
-  const visibleRows = pageRows.slice(0, PAGE_SIZE)
-  const items = visibleRows.map(toNoticeItem)
-  const lastRow = hasMore ? visibleRows.at(-1) : null
+  const total = countRows[0]?.value ?? 0
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return {
     generatedAt: new Date().toISOString(),
-    total: countRows[0]?.value ?? 0,
-    cursor: lastRow ? encodeCursor(lastRow, input.sort) : null,
-    hasMore,
-    items,
+    total,
+    page: input.page,
+    pageSize: PAGE_SIZE,
+    pageCount,
+    hasPrevious: input.page > 1,
+    hasNext: input.page < pageCount,
+    items: pageRows.map(toNoticeItem),
   }
 }
 
@@ -977,123 +969,6 @@ function orderByFor(sql: postgres.Sql, sort: PipelineSort) {
     return sql`attachment_problem_count desc, apply_end asc nulls last, grant_id asc`
   }
   return sql`apply_end asc nulls last, grant_id asc`
-}
-
-function cursorConditionFor(
-  sql: postgres.Sql,
-  sort: PipelineSort,
-  cursor: CursorPayload | null,
-) {
-  if (!cursor) return sql``
-  if (sort === "review") {
-    if (cursor.deadline === null) {
-      return sql`and (
-        needs_review_count < ${cursor.count}
-        or (
-          needs_review_count = ${cursor.count}
-          and apply_end is null
-          and grant_id > ${cursor.id}::uuid
-        )
-      )`
-    }
-    return sql`and (
-      needs_review_count < ${cursor.count}
-      or (
-        needs_review_count = ${cursor.count}
-        and (
-          apply_end > ${cursor.deadline}::timestamptz
-          or apply_end is null
-        )
-      )
-      or (
-        needs_review_count = ${cursor.count}
-        and apply_end = ${cursor.deadline}::timestamptz
-        and grant_id > ${cursor.id}::uuid
-      )
-    )`
-  }
-  if (sort === "attachments") {
-    if (cursor.deadline === null) {
-      return sql`and (
-        attachment_problem_count < ${cursor.count}
-        or (
-          attachment_problem_count = ${cursor.count}
-          and apply_end is null
-          and grant_id > ${cursor.id}::uuid
-        )
-      )`
-    }
-    return sql`and (
-      attachment_problem_count < ${cursor.count}
-      or (
-        attachment_problem_count = ${cursor.count}
-        and (
-          apply_end > ${cursor.deadline}::timestamptz
-          or apply_end is null
-        )
-      )
-      or (
-        attachment_problem_count = ${cursor.count}
-        and apply_end = ${cursor.deadline}::timestamptz
-        and grant_id > ${cursor.id}::uuid
-      )
-    )`
-  }
-  if (cursor.deadline === null) {
-    return sql`and (
-      apply_end is null
-      and grant_id > ${cursor.id}::uuid
-    )`
-  }
-  return sql`and (
-    apply_end > ${cursor.deadline}::timestamptz
-    or apply_end is null
-    or (
-      apply_end = ${cursor.deadline}::timestamptz
-      and grant_id > ${cursor.id}::uuid
-    )
-  )`
-}
-
-function encodeCursor(row: PipelineBaseRow, sort: PipelineSort): string {
-  const count = sort === "review"
-    ? row.needs_review_count
-    : sort === "attachments"
-      ? row.attachment_problem_count
-      : 0
-  const payload: CursorPayload = {
-    version: 1,
-    sort,
-    id: row.grant_id,
-    deadline: row.apply_end?.toISOString() ?? null,
-    count,
-  }
-  return Buffer.from(JSON.stringify(payload)).toString("base64url")
-}
-
-function decodeCursor(value: string | null, sort: PipelineSort): CursorPayload | null {
-  if (!value) return null
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Partial<CursorPayload>
-    if (
-      parsed.version !== 1
-      || parsed.sort !== sort
-      || typeof parsed.id !== "string"
-      || (
-        parsed.deadline !== null
-        && (
-          typeof parsed.deadline !== "string"
-          || !Number.isFinite(Date.parse(parsed.deadline))
-        )
-      )
-      || typeof parsed.count !== "number"
-    ) {
-      throw new Error("invalid cursor")
-    }
-    return parsed as CursorPayload
-  } catch {
-    throw new PipelineGraphError("invalid_pipeline_cursor", "페이지 커서가 올바르지 않습니다.", 400)
-  }
 }
 
 function likePattern(value: string): string {

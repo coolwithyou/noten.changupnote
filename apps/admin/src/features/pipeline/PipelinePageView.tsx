@@ -9,6 +9,7 @@ import {
   RefreshCwIcon,
   SearchIcon,
   ShieldCheckIcon,
+  XIcon,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -41,19 +42,43 @@ import {
   FieldLabel,
   FieldTitle,
 } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+} from "@/components/ui/input-group"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@/components/ui/toggle-group"
 import { PipelineCanvas } from "./PipelineCanvas"
-import { PipelineNoticeSheet } from "./PipelineNoticeSheet"
+import { PipelineNoticeDialog } from "./PipelineNoticeDialog"
 import { PipelineQueue } from "./PipelineQueue"
 import {
   PIPELINE_ACTION_LABELS,
   PIPELINE_LENSES,
   PIPELINE_LENS_LABELS,
+  PIPELINE_SORT_LABELS,
+  PIPELINE_SORTS,
   PIPELINE_SOURCES,
   PIPELINE_SOURCE_LABELS,
   isPipelineBucket,
@@ -142,17 +167,27 @@ export function PipelinePageView({
     }
   }, [initialSummary.refreshAfterSeconds, query.includeClosed, query.lens])
 
-  const pushQuery = useCallback((patch: Record<string, string | null>, resetCursor = true) => {
+  const pushQuery = useCallback((patch: Record<string, string | null>, resetPage = true) => {
     const params = new URLSearchParams(searchParams.toString())
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === "") params.delete(key)
       else params.set(key, value)
     }
-    if (resetCursor) params.delete("cursor")
+    params.delete("cursor")
+    if (resetPage) params.delete("page")
     startTransition(() => {
-      router.push(`${pathname}?${params.toString()}`)
+      const queryString = params.toString()
+      router.push(queryString ? `${pathname}?${queryString}` : pathname)
     })
   }, [pathname, router, searchParams])
+  const pageHref = useCallback((page: number) => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete("cursor")
+    if (page <= 1) params.delete("page")
+    else params.set("page", String(page))
+    const queryString = params.toString()
+    return `${queryString ? `${pathname}?${queryString}` : pathname}#pipeline-queue`
+  }, [pathname, searchParams])
 
   const changeLens = useCallback((lens: PipelineLens) => {
     pushQuery({ lens, bucket: null })
@@ -218,6 +253,23 @@ export function PipelinePageView({
       setIsActionPending(false)
     }
   }, [isActionPending, pendingAction, router])
+  const activeQueueFilterCount = [
+    Boolean(query.q),
+    Boolean(query.source),
+    query.sort !== "deadline",
+    query.includeClosed,
+  ].filter(Boolean).length
+  const firstVisibleItem = initialNotices.total === 0
+    ? 0
+    : (initialNotices.page - 1) * initialNotices.pageSize + 1
+  const lastVisibleItem = Math.min(
+    initialNotices.page * initialNotices.pageSize,
+    initialNotices.total,
+  )
+  const paginationItems = buildPaginationItems(
+    initialNotices.page,
+    initialNotices.pageCount,
+  )
 
   return (
     <main className="flex flex-col gap-6 p-4 md:p-6">
@@ -345,71 +397,149 @@ export function PipelinePageView({
         onSourceChange={changeSource}
       />
 
-      <Card>
+      <Card id="pipeline-queue" className="scroll-mt-4">
         <CardHeader>
-          <CardTitle>트리아지 큐</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>트리아지 큐</CardTitle>
+            {activeQueueFilterCount > 0 ? (
+              <Badge variant="secondary">
+                필터 {activeQueueFilterCount}
+              </Badge>
+            ) : null}
+          </div>
           <CardDescription>
-            {initialNotices.total.toLocaleString("ko-KR")}건 · 50건 단위 · D-day 기준
+            {initialNotices.total.toLocaleString("ko-KR")}건 중{" "}
+            {`${firstVisibleItem.toLocaleString("ko-KR")}–${lastVisibleItem.toLocaleString("ko-KR")}건 표시`}
           </CardDescription>
+          <CardAction>
+            <Badge variant="outline">
+              {initialNotices.page.toLocaleString("ko-KR")} /{" "}
+              {initialNotices.pageCount.toLocaleString("ko-KR")} 페이지
+            </Badge>
+          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
           <form
+            className="rounded-xl border bg-muted/20 p-4"
             onSubmit={(event) => {
               event.preventDefault()
               pushQuery({ q: searchText.trim() })
             }}
           >
-            <FieldGroup>
-              <Field orientation="responsive">
-                <FieldLabel className="sr-only" htmlFor="pipeline-search">
-                  공고 검색
-                </FieldLabel>
-                <Input
-                  id="pipeline-search"
-                  value={searchText}
-                  onChange={(event) => setSearchText(event.target.value)}
-                  placeholder="공고명, 기관, sourceId 검색"
-                />
-                <Button type="submit">
-                  <SearchIcon data-icon="inline-start" />
-                  검색
-                </Button>
+            <FieldGroup className="grid gap-3 lg:grid-cols-[minmax(20rem,1fr)_minmax(10rem,0.32fr)_minmax(12rem,0.38fr)]">
+              <Field>
+                <FieldLabel htmlFor="pipeline-search">공고 검색</FieldLabel>
+                <InputGroup>
+                  <InputGroupInput
+                    id="pipeline-search"
+                    value={searchText}
+                    onChange={(event) => setSearchText(event.target.value)}
+                    placeholder="공고명, 기관, sourceId"
+                  />
+                  <InputGroupAddon align="inline-end">
+                    {searchText ? (
+                      <InputGroupButton
+                        aria-label="검색어 지우기"
+                        size="icon-xs"
+                        onClick={() => {
+                          setSearchText("")
+                          if (query.q) pushQuery({ q: null })
+                        }}
+                      >
+                        <XIcon data-icon="inline-start" />
+                      </InputGroupButton>
+                    ) : null}
+                    <InputGroupButton type="submit" variant="secondary">
+                      <SearchIcon data-icon="inline-start" />
+                      검색
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                </InputGroup>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="pipeline-source">소스</FieldLabel>
+                <Select
+                  value={query.source ?? "all"}
+                  onValueChange={(value) => {
+                    if (!value) return
+                    changeSource(isPipelineSource(value) ? value : null)
+                  }}
+                >
+                  <SelectTrigger id="pipeline-source" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value="all">전체 소스</SelectItem>
+                      {PIPELINE_SOURCES.map((source) => (
+                        <SelectItem key={source} value={source}>
+                          {PIPELINE_SOURCE_LABELS[source]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="pipeline-sort">정렬</FieldLabel>
+                <Select
+                  value={query.sort}
+                  onValueChange={(value) => {
+                    if (value && PIPELINE_SORTS.includes(value as PipelineSort)) {
+                      changeSort(value as PipelineSort)
+                    }
+                  }}
+                >
+                  <SelectTrigger id="pipeline-sort" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {PIPELINE_SORTS.map((sort) => (
+                        <SelectItem key={sort} value={sort}>
+                          {PIPELINE_SORT_LABELS[sort]}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
               </Field>
             </FieldGroup>
-          </form>
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <Field orientation="horizontal" className="w-auto">
-              <FieldTitle>소스</FieldTitle>
-              <ToggleGroup
-                value={[query.source ?? "all"]}
-                variant="outline"
-                onValueChange={(values) => {
-                  const value = values[0]
-                  if (!value) return
-                  changeSource(isPipelineSource(value) ? value : null)
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t pt-3">
+              <Field orientation="horizontal" className="w-auto">
+                <Checkbox
+                  id="pipeline-closed"
+                  checked={query.includeClosed}
+                  onCheckedChange={(value) => {
+                    pushQuery({ closed: value ? "include" : null })
+                  }}
+                />
+                <FieldLabel htmlFor="pipeline-closed">마감 공고 포함</FieldLabel>
+              </Field>
+
+              <Button
+                disabled={activeQueueFilterCount === 0}
+                size="sm"
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setSearchText("")
+                  pushQuery({
+                    q: null,
+                    source: null,
+                    sort: null,
+                    closed: null,
+                  })
                 }}
               >
-                <ToggleGroupItem value="all">전체</ToggleGroupItem>
-                {PIPELINE_SOURCES.map((source) => (
-                  <ToggleGroupItem key={source} value={source}>
-                    {PIPELINE_SOURCE_LABELS[source]}
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            </Field>
-
-            <Field orientation="horizontal" className="w-auto">
-              <Checkbox
-                id="pipeline-closed"
-                checked={query.includeClosed}
-                onCheckedChange={(value) => {
-                  pushQuery({ closed: value ? "include" : null })
-                }}
-              />
-              <FieldLabel htmlFor="pipeline-closed">마감 공고 포함</FieldLabel>
-            </Field>
-          </div>
+                <XIcon data-icon="inline-start" />
+                큐 필터 초기화
+              </Button>
+            </div>
+          </form>
 
           <PipelineQueue
             items={initialNotices.items}
@@ -424,32 +554,57 @@ export function PipelinePageView({
             onSortChange={changeSort}
           />
 
-          <div className="flex items-center justify-between gap-3">
-            <Button
-              disabled={!query.cursor}
-              variant="outline"
-              onClick={() => pushQuery({ cursor: null }, false)}
-            >
-              첫 페이지
-            </Button>
+          <div className="flex flex-col gap-3 border-t pt-4 lg:flex-row lg:items-center lg:justify-between">
             <span className="text-xs text-muted-foreground">
+              페이지당 {initialNotices.pageSize.toLocaleString("ko-KR")}건 ·{" "}
               {formatDateTime(initialNotices.generatedAt)} 기준
             </span>
-            <Button
-              disabled={!initialNotices.hasMore || !initialNotices.cursor}
-              onClick={() => {
-                if (initialNotices.cursor) {
-                  pushQuery({ cursor: initialNotices.cursor }, false)
-                }
-              }}
-            >
-              다음 50건
-            </Button>
+            <Pagination className="mx-0 w-auto justify-start lg:justify-end">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    aria-disabled={!initialNotices.hasPrevious}
+                    className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                    href={pageHref(Math.max(1, initialNotices.page - 1))}
+                    tabIndex={initialNotices.hasPrevious ? undefined : -1}
+                    text="이전"
+                  />
+                </PaginationItem>
+                {paginationItems.map((item) => (
+                  typeof item === "number" ? (
+                    <PaginationItem key={item}>
+                      <PaginationLink
+                        aria-label={`${item}페이지로 이동`}
+                        href={pageHref(item)}
+                        isActive={item === initialNotices.page}
+                      >
+                        {item}
+                      </PaginationLink>
+                    </PaginationItem>
+                  ) : (
+                    <PaginationItem key={item}>
+                      <PaginationEllipsis />
+                    </PaginationItem>
+                  )
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    aria-disabled={!initialNotices.hasNext}
+                    className="aria-disabled:pointer-events-none aria-disabled:opacity-50"
+                    href={pageHref(
+                      Math.min(initialNotices.pageCount, initialNotices.page + 1),
+                    )}
+                    tabIndex={initialNotices.hasNext ? undefined : -1}
+                    text="다음"
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </div>
         </CardContent>
       </Card>
 
-      <PipelineNoticeSheet
+      <PipelineNoticeDialog
         notice={selectedNotice}
         canMutate={canMutate}
         canReconvert={canReconvert}
@@ -502,4 +657,28 @@ function formatDateTime(value: string | null): string {
     timeStyle: "short",
     timeZone: "Asia/Seoul",
   }).format(new Date(value))
+}
+
+type PaginationItemValue = number | "start-ellipsis" | "end-ellipsis"
+
+function buildPaginationItems(
+  currentPage: number,
+  pageCount: number,
+): PaginationItemValue[] {
+  if (pageCount <= 7) {
+    return Array.from({ length: pageCount }, (_, index) => index + 1)
+  }
+
+  const items: PaginationItemValue[] = [1]
+  const windowStart = Math.max(2, currentPage - 1)
+  const windowEnd = Math.min(pageCount - 1, currentPage + 1)
+
+  if (windowStart > 2) items.push("start-ellipsis")
+  for (let page = windowStart; page <= windowEnd; page += 1) {
+    items.push(page)
+  }
+  if (windowEnd < pageCount - 1) items.push("end-ellipsis")
+  items.push(pageCount)
+
+  return items
 }

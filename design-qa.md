@@ -152,3 +152,36 @@
 - 발견된 P0/P1/P2 수정 후 재캡처
 
 final result: blocked
+
+## 2026-07-25 공고 상세 모달 재검증
+
+- source visual truth path: `/var/folders/90/3_v527vj59d6wv2ql7_k6rzm0000gn/T/orca-paste-1784941417456-1e854f9b-a6eb-48bb-9e5a-494032738a88.png`
+- source image: 3660 × 2234px, 공고를 열기 전 큐 상태
+- implementation route: `http://127.0.0.1:4011/pipeline?source=kstartup`
+- implementation screenshot path: unavailable — 실행 중인 사용자 Chrome 탭과 제어 연결을 확보하지 못했다.
+- state: 공고 행 선택 후 중앙 상세 모달이 열린 상태
+
+### Implementation review
+
+- 기존 관제 화면의 타이포그래피, 색상, 배지, 테이블과 shadcn 구성 체계를 유지했다.
+- 상세 표면은 `max-w-7xl` 중앙 모달이며, 작은 화면에서는 뷰포트에서 8px 여백을 남긴다.
+- 헤더와 작업 푸터는 고정하고 본문만 세로 스크롤하도록 분리했다.
+- 22축 기대값, 첨부·변환, 데모, 이력 탭을 기존 데이터와 액션 계약 그대로 보존했다.
+- 너비가 큰 표는 모달을 잘라내지 않고 표 영역에서 가로 스크롤한다.
+- 닫기 버튼과 다이얼로그 제목·설명을 연결해 기본 접근성 구조를 유지했다.
+
+### Automated verification
+
+- `pnpm --filter @cunote/admin typecheck`: 통과
+- `pnpm verify:admin-pipeline`: 14 + 6 cases 통과
+- `pnpm verify:admin-routes`: 통과
+- `pnpm verify:ops-admin`: 통과
+- `pnpm --filter @cunote/admin build`: 통과
+
+### Visual comparison
+
+- 참조 이미지는 공고를 열기 전 큐 상태이며, 구현 목표인 모달 열린 상태의 기준 이미지는 없다.
+- 동일 뷰포트의 구현 스크린샷, 합성 비교 이미지, 실제 스크롤·탭·닫기 검증을 남기지 못했다.
+- 코드와 빌드 검증은 완료됐지만 브라우저 렌더링 증거는 미확보 상태다.
+
+final result: blocked
