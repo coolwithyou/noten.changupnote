@@ -2400,9 +2400,20 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   bounded activation에 사용한다.
 - [ ] claim fence commit을 main worker의 `observe_only` 상태로 배포하고 수동·정시
   execution의 `claimScope=unconfigured`, claim/enqueue/비용 0을 확인한다. 동결된
-  serving monitor image와 Scheduler는 변경하지 않는다.
-- [ ] 같은 commit의 ops claim 필드를 기존 `team-coolwithyou/changupnote-ops`에
-  배포하고 라이브 인증 경계와 production verifier를 다시 통과시킨다.
+  serving monitor image와 Scheduler는 변경하지 않는다. 배포 preflight에서 활성 설정은
+  `sw@noten.im`·`changupnote-com`으로 정확했지만 저장 credential의 비대화형 refresh가
+  재인증을 요구해 image build 전 중단했다. 별도 ADC는 세 Job의 `run.jobs.get` 권한도
+  없어 사용하지 않았으며 Cloud resource 변경과 비용 발생은 0이다. 같은 계정의 gcloud
+  credential이 갱신된 뒤에만 이어간다.
+- [x] 같은 commit의 ops claim 필드는 exact clean archive로 기존
+  `team-coolwithyou/changupnote-ops` deployment
+  `dpl_2JUPFx4257ehjEVXGQZ45BPjmj4h`에 배포했다. 상태 Ready와 기존
+  `ops.changupnote.com` alias, 비로그인 `/pipeline` 307→login,
+  summary/action API 401을 확인했다. production verifier는 active 636 보존식,
+  main `observe_only`·active worker/lease 0/0, input preparation healthy,
+  serving monitor `checked=2/2`·fresh 2/2·failure/stale 0으로 PASS했다.
+  아직 이전 worker heartbeat라 claim scope는 `null`이지만 observe mode에서는
+  건강하며, 새 worker image 배포 뒤 `unconfigured` 명시값으로 다시 검증한다.
 
 우선순위:
 
