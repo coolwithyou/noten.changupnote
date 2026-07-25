@@ -2065,8 +2065,29 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `deep-analysis:verify-serving` 명령을 추가했다.
 - [x] deep promotion adapter 테스트를 전체 deep-analysis contract suite에 포함했고,
   web typecheck와 기존 release/promote/verify/shadow 회귀 테스트가 통과했다.
-- [ ] production canary release의 aggregate → shadow → dry-run → approve → write →
+- [x] production canary release의 aggregate → shadow → dry-run → approve → write →
   promotion verify → S12/S13/S14 증적은 G2에서 clean commit을 기준으로 실행한다.
+
+운영 체크포인트 G2 — 첫 production serving canary (2026-07-25):
+
+- [x] `e238ba6` clean commit에서 Bizinfo
+  `PBLN_000000000121478`의 passed run을
+  `deep-production-r1-20260725T020110Z-e238ba64` immutable release에 결합했다.
+  이 공고는 본문+첨부 1건을 포함하고 22축·criterion 5개·독립 감사 concur를
+  통과한 run이다.
+- [x] aggregate 6/6 GO, source drift 0, production shadow
+  `1 notice × 125 pseudonymized companies` issue 0, release dry-run baseline 1/1,
+  canary write 1/1, canary verification issue 0을 순서대로 통과했다.
+- [x] 같은 1-item release를 active로 완료한 뒤 after snapshot hash와 repository
+  criteria hash 일치, 고정 비식별 profile 3종의 matcher trace criterion ID 전수 소비,
+  current source/input hash 일치를 재검증했다. S12/S13/S14 최신 receipt가 모두
+  `passed`이며 관제의 `serving_complete_fresh`가 0→1로 전환됐다.
+- [x] 두 번째 K-Startup S11 통과 공고는 별도 immutable release
+  `deep-production-r1-20260725T020427Z-e238ba64`로 준비했지만 aggregate coverage
+  ratio가 `4/3 = 1.333`으로 1.5 gate에 미달해 ITERATE로 중단했다. 다른 5개 gate와
+  source drift는 통과했으나 shadow·승인·write는 실행하지 않았다.
+- [ ] 중단 조건을 통과하는 두 번째 실제 canary와 24시간 serving/hash/SLO 관측은
+  아직 완료되지 않았다. gate를 낮추지 않고 다음 S11 통과 공고로 이어간다.
 
 #### Phase H. 활성 624공고 백필
 
