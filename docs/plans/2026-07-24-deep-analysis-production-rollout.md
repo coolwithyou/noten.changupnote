@@ -2719,6 +2719,30 @@ extractor 구현을 가지는 것은 금지한다.
 3. 2건 카나리 24시간 48/48 slot 증거를 확정한다.
 4. 위 세 증거가 모두 PASS일 때만 20건 확대 여부를 판단한다.
 
+Step 4-1 증거 점검 체크포인트 — `STOP` (2026-07-25):
+
+- 기존 동결 manifest pair는 무결성 검증을 통과했지만
+  `validationCount=24 + sealedCount=16 = 40`이며, 이 문서가 요구하는 80공고가 아니다.
+  기존 manifest hash는
+  `ea25d5180880418de239f18001baf021ae585c4b146cc6142a090ecb31b80f95`다.
+- 별도 `grant-analysis-llm-evaluation` worktree의 최신 증거도 3공고 Gate 2 smoke다.
+  `gate2-byte-verified` checkpoint는 stage `failed=2, running=2`,
+  후속 `gate2-condition-guidance-v2`는
+  `success=4, skipped=1, failed=3, running=1`로 완결된 품질 평가가 아니다.
+- 저장소와 현재 worktree artifact에서 80공고 manifest, 80공고 결과, 14.9.3의 기계 보증
+  및 모델 품질 지표를 계산한 최종 report를 찾지 못했다. 따라서 precision, hard
+  required/exclusion recall, HWP-only sentinel recall, wrong-hard rate,
+  source-groundedness, catastrophic error를 통과로 판정할 수 없다.
+- 판정은 `BLOCKED`다. H2 revision/cohort 확인, 24시간 카나리 증거 확인, 20건 확대는
+  시작하지 않는다.
+
+재개에 필요한 최소 증거:
+
+1. 14.9.1 층화를 만족하는 immutable 80공고 public/secret manifest pair
+2. 공고별 B/C 분석, 독립 audit/Judge, 최종 resolution과 입력·출력 hash
+3. 14.9.3의 기계 보증 10개와 모델 품질 지표 6개를 오류 절대 건수와 함께 계산한 report
+4. 외부 호출 수·실패·재시도·비용을 포함한 실행 receipt
+
 중단 조건:
 
 - 동결 80 품질 미달
