@@ -2311,6 +2311,33 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `ops.changupnote.com` alias를 유지한다. 라이브 `/pipeline` 307→login,
   summary/action API 401 경계도 다시 통과했다.
 
+입력 준비 체크포인트 H1 — legacy 변환 등록·검증된 container 봉인 (2026-07-25):
+
+- [x] 원본 `storage_key`·SHA는 있지만 conversion surface/markdown artifact가 없는
+  과거 첨부를 현재 `input_not_sealed` target 범위에서 찾고, 기존 멱등
+  `registerAttachmentConversions` 경로로 surface·job·cache hit를 복구한 뒤 같은 실행의
+  poll sweep으로 넘긴다. LLM 호출·promotion·matcher write는 이 경로에 없다.
+- [x] ZIP parent는 이름이나 child 존재만으로 면제하지 않는다. R2 parent 실제 바이트
+  SHA를 재검증하고, 비어 있지 않은 내부 entry 전부가 지원 문서이며 현재 inventory의
+  검증된 child 전문과 일대일 대응할 때만 content-addressed proof로
+  `waived_non_material` 처리한다. 숨은 이미지·지원하지 않는 material entry·cap 초과·
+  child 누락은 계속 fail-closed다.
+- [x] 같은 stem의 HWP/HWPX가 있다는 이유만으로 이미지를 면제하던 후보 로직은 제거했다.
+  검증된 OCR TXT sidecar가 없는 이미지는 계속 명시 blocker다. production read-only
+  재봉인에서 K-Startup `178106`, `178232`의 HWP/HWPX 전문은 included였지만 JPG는
+  `blocked_fetch`로 유지되어 게이트가 낮아지지 않았다.
+- [x] Bizinfo `PBLN_000000000124461`은 R2 ZIP 실제 바이트의 material entry 6건과
+  변환된 HWP child 6건이 정확히 대응해 sealed로 전환됐다. 반면
+  `PBLN_000000000123631`의 PDF는 여전히 `blocked_conversion`이며, 새 legacy 등록
+  경로가 배포·실행된 뒤에만 전진한다.
+- [x] input-preparation heartbeat·ops 계약·UI에 변환 후보/surface/job/cache/skip/warning
+  수를 노출하고 registration warning이 있으면 건강도를 fail-closed로 내린다.
+  deep-analysis contract 전수, archive inspection, web/admin typecheck, admin pipeline
+  contract test와 `git diff --check`가 통과했다.
+- [ ] 검증된 commit image를 input-preparation Job에만 배포하고 수동·정시 execution에서
+  PDF 등록·변환과 heartbeat metadata를 교차 확인한다. 24시간 serving monitor의
+  동결 digest·Scheduler·관측 구간은 변경하지 않는다.
+
 우선순위:
 
 1. D-day 7일 이내

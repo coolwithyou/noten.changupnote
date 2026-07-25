@@ -124,6 +124,12 @@ export interface DeepPipelineSummary {
     archiveFailedCount: number
     conversionFailedCount: number
     conversionStillPending: number
+    conversionCandidateAttachmentCount: number
+    conversionSurfacesUpserted: number
+    conversionJobsEnqueued: number
+    conversionCacheHits: number
+    conversionRegistrationSkipped: number
+    conversionRegistrationWarnings: number
     budgetExhausted: boolean
     healthy: boolean
   }

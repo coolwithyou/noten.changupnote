@@ -148,7 +148,9 @@ export function DeepPipelinePageView({
               {initialSummary.inputPreparation.executionId} · sealed{" "}
               {initialSummary.inputPreparation.sealedCount}/
               {initialSummary.inputPreparation.targetCount} · 미해소{" "}
-              {initialSummary.inputPreparation.unresolvedCount} ·{" "}
+              {initialSummary.inputPreparation.unresolvedCount} · 변환 등록{" "}
+              {initialSummary.inputPreparation.conversionJobsEnqueued} · 캐시{" "}
+              {initialSummary.inputPreparation.conversionCacheHits} ·{" "}
               {formatDuration(initialSummary.inputPreparation.staleSeconds)} 전
             </AlertDescription>
           </Alert>
@@ -158,7 +160,7 @@ export function DeepPipelinePageView({
             <AlertTitle>입력 준비 worker 경고</AlertTitle>
             <AlertDescription>
               {initialSummary.inputPreparation.heartbeatAt
-                ? `${formatDate(initialSummary.inputPreparation.heartbeatAt)} · status ${initialSummary.inputPreparation.status} · archive 실패 ${initialSummary.inputPreparation.archiveFailedCount} · conversion 실패 ${initialSummary.inputPreparation.conversionFailedCount}`
+                ? `${formatDate(initialSummary.inputPreparation.heartbeatAt)} · status ${initialSummary.inputPreparation.status} · archive 실패 ${initialSummary.inputPreparation.archiveFailedCount} · conversion 실패 ${initialSummary.inputPreparation.conversionFailedCount} · 등록 경고 ${initialSummary.inputPreparation.conversionRegistrationWarnings}`
                 : "Cloud Run input-preparation heartbeat가 없습니다."}
             </AlertDescription>
           </Alert>

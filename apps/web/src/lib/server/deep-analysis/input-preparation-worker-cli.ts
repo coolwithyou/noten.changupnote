@@ -73,6 +73,14 @@ try {
       archiveFailedCount,
       conversionFailedCount: result.conversion.failed,
       conversionStillPending: result.conversion.stillPending,
+      conversionCandidateAttachmentCount:
+        result.conversionRegistration.candidateAttachmentCount,
+      conversionSurfacesUpserted:
+        result.conversionRegistration.surfacesUpserted,
+      conversionJobsEnqueued: result.conversionRegistration.jobsEnqueued,
+      conversionCacheHits: result.conversionRegistration.cacheHits,
+      conversionRegistrationSkipped: result.conversionRegistration.skipped,
+      conversionRegistrationWarnings: result.conversionRegistration.warnings.length,
       budgetExhausted: result.conversion.budgetExhausted,
       elapsedMs: result.elapsedMs,
     },

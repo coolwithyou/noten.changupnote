@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { listVerifiedArchiveMaterialEntries } from "@/lib/server/ingestion/archiveContainerInspection";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import {
   buildDeepAnalysisSourceRevision,
@@ -48,7 +49,7 @@ export async function prepareDeepAnalysisInput(input: {
     mergeAttachmentInventory(raw?.attachments ?? [], archives),
     convertedArtifacts,
   );
-  applyOcrSidecarWaivers(inventory);
+  await applyVerifiedAttachmentWaivers(inventory, input.storage);
   const hydrated = await Promise.all(inventory.map(async (attachment) => {
     if (!attachment.markdownStorageKey) return attachment;
     try {
@@ -193,10 +194,17 @@ function applyVerifiedConversionArtifacts(
 }
 
 /**
- * 이미지 자체를 조용히 버리지 않는다. 동일 source URI나 같은 파일 stem의 검증된 OCR
- * sidecar가 실제 included 후보일 때만 그 sidecar SHA를 waiver proof로 연결한다.
+ * 비텍스트 첨부를 이름만 보고 버리지 않는다.
+ *
+ * - 이미지에는 동일 source URI 또는 같은 stem의 기존 검증된 OCR TXT sidecar가 있을
+ *   때만 그 SHA를 proof로 연결한다. 별도 HWP/HWPX가 이름만 비슷한 경우는 면제하지 않는다.
+ * - ZIP에는 보관된 parent 실제 바이트의 모든 material entry가 지원 문서이고, 그 전부가
+ *   현재 inventory child와 일대일 대응하며 원본+전문 검증을 통과했을 때만 면제한다.
  */
-function applyOcrSidecarWaivers(inventory: DeepAnalysisInputAttachment[]): void {
+export async function applyVerifiedAttachmentWaivers(
+  inventory: DeepAnalysisInputAttachment[],
+  storage: R2ObjectStorage,
+): Promise<void> {
   const textSidecars = inventory.filter((attachment) => (
     /\.txt$/i.test(attachment.filename)
     && attachment.storageKey
@@ -219,6 +227,69 @@ function applyOcrSidecarWaivers(inventory: DeepAnalysisInputAttachment[]): void 
       reason: `검증된 OCR sidecar ${sidecar.id}가 included 입력으로 연결됨`,
       proofSha256: sidecar.markdownSha256,
     };
+  }
+
+  for (const attachment of inventory) {
+    if (
+      !/\.zip$/i.test(attachment.filename)
+      || !attachment.sourceUri
+      || !attachment.storageKey
+      || !attachment.sha256
+    ) {
+      continue;
+    }
+    const childPrefix = `zip:${attachment.sourceUri}#`;
+    const inventoryChildren = inventory
+      .filter((candidate) => candidate.sourceUri.startsWith(childPrefix))
+      .sort((left, right) => left.id.localeCompare(right.id));
+    if (inventoryChildren.length === 0) continue;
+    try {
+      const parent = await storage.getObjectBytes(attachment.storageKey);
+      if (sha256Hex(parent.body) !== attachment.sha256) continue;
+      const materialEntries = listVerifiedArchiveMaterialEntries(
+        attachment.filename,
+        parent.body,
+      );
+      const children = materialEntries.map((entry) => {
+        const expectedSourceUri = `${childPrefix}${encodeURIComponent(entry.filename)}`;
+        return {
+          entry,
+          child: inventoryChildren.find((candidate) =>
+            candidate.sourceUri === expectedSourceUri),
+        };
+      });
+      if (
+        children.length !== inventoryChildren.length
+        || children.some(({ child }) => (
+          !child
+          || !child.storageKey
+          || !child.sha256
+          || child.conversionStatus !== "converted"
+          || !child.markdownStorageKey
+          || !child.markdownSha256
+        ))
+      ) {
+        continue;
+      }
+      attachment.waiver = {
+        disposition: "waived_non_material",
+        reason: `ZIP 실제 바이트의 material entry ${children.length}건 전부가 검증된 child 입력으로 연결됨`,
+        proofSha256: sha256Hex(stableJson({
+          parentSha256: attachment.sha256,
+          entries: children.map(({ entry, child }) => ({
+            filename: entry.filename,
+            originalSize: entry.originalSize,
+            id: child?.id,
+            sourceUri: child?.sourceUri,
+            sha256: child?.sha256,
+            markdownSha256: child?.markdownSha256,
+          })),
+        })),
+      };
+    } catch {
+      // byte inspection 또는 entry 완전성 증명이 실패하면 waiver를 만들지 않고 seal이 막는다.
+      continue;
+    }
   }
 }
 

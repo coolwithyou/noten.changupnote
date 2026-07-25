@@ -462,6 +462,21 @@ export function buildInputPreparationSummary(
   const archiveFailedCount = numberMetadata(metadata, "archiveFailedCount")
   const conversionFailedCount = numberMetadata(metadata, "conversionFailedCount")
   const conversionStillPending = numberMetadata(metadata, "conversionStillPending")
+  const conversionCandidateAttachmentCount = numberMetadata(
+    metadata,
+    "conversionCandidateAttachmentCount",
+  )
+  const conversionSurfacesUpserted = numberMetadata(metadata, "conversionSurfacesUpserted")
+  const conversionJobsEnqueued = numberMetadata(metadata, "conversionJobsEnqueued")
+  const conversionCacheHits = numberMetadata(metadata, "conversionCacheHits")
+  const conversionRegistrationSkipped = numberMetadata(
+    metadata,
+    "conversionRegistrationSkipped",
+  )
+  const conversionRegistrationWarnings = numberMetadata(
+    metadata,
+    "conversionRegistrationWarnings",
+  )
   const budgetExhausted = metadata.budgetExhausted === true
   const stale = staleSeconds === null
     || staleSeconds > DEEP_ANALYSIS_INPUT_PREPARATION_STALE_SECONDS
@@ -479,12 +494,19 @@ export function buildInputPreparationSummary(
     archiveFailedCount,
     conversionFailedCount,
     conversionStillPending,
+    conversionCandidateAttachmentCount,
+    conversionSurfacesUpserted,
+    conversionJobsEnqueued,
+    conversionCacheHits,
+    conversionRegistrationSkipped,
+    conversionRegistrationWarnings,
     budgetExhausted,
     healthy: !stale
       && statusHealthy
       && input?.last_error_code === null
       && archiveFailedCount === 0
       && conversionFailedCount === 0
+      && conversionRegistrationWarnings === 0
       && !budgetExhausted,
   }
 }

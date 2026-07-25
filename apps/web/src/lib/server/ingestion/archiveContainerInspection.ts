@@ -24,6 +24,11 @@ export interface ExtractedArchiveEntry {
   originalSize: number;
 }
 
+export interface VerifiedArchiveMaterialEntry {
+  filename: string;
+  originalSize: number;
+}
+
 export async function inspectArchiveContainer(
   filename: string,
   body: Buffer,
@@ -90,6 +95,67 @@ export function extractSupportedArchiveEntries(
     const value = extracted[entry.name];
     return value ? [{ filename: entry.name, body: Buffer.from(value), originalSize: entry.originalSize }] : [];
   });
+}
+
+/**
+ * ZIP parent를 non-material container로 면제하기 전에, 실제 바이트의 모든 비어 있지 않은
+ * entry가 지원 문서인지 증명한다. 일부 entry만 선택하는 추출 함수와 달리 cap을 넘거나
+ * 이미지/기타 파일이 하나라도 섞이면 throw해 상위 input seal을 계속 blocked로 둔다.
+ */
+export function listVerifiedArchiveMaterialEntries(
+  filename: string,
+  body: Buffer,
+  options: {
+    maxEntries?: number;
+    maxEntryBytes?: number;
+    maxTotalBytes?: number;
+  } = {},
+): VerifiedArchiveMaterialEntry[] {
+  if (containerFormat(filename) !== "zip") {
+    throw new Error("Verified archive material listing supports ZIP only");
+  }
+  const maxEntries = boundedInteger(options.maxEntries ?? 100, 1, 500, "maxEntries");
+  const maxEntryBytes = boundedInteger(
+    options.maxEntryBytes ?? 20 * 1024 * 1024,
+    1_024,
+    100 * 1024 * 1024,
+    "maxEntryBytes",
+  );
+  const maxTotalBytes = boundedInteger(
+    options.maxTotalBytes ?? 100 * 1024 * 1024,
+    1_024,
+    500 * 1024 * 1024,
+    "maxTotalBytes",
+  );
+  const infos = readEntryInfo(body);
+  if (infos.length > 500) throw new Error("Archive contains more than 500 entries");
+  if (infos.some((entry) => isSuspiciousArchivePath(entry.name))) {
+    throw new Error("Archive contains a suspicious path");
+  }
+  const material = infos.filter((entry) => entry.originalSize > 0);
+  if (material.length === 0) throw new Error("Archive contains no material entries");
+  if (material.length > maxEntries) {
+    throw new Error(`Archive contains more than ${maxEntries} material entries`);
+  }
+  const unsupported = material.filter((entry) => !SUPPORTED_DOCUMENT.test(entry.name));
+  if (unsupported.length > 0) {
+    throw new Error(
+      `Archive contains unsupported material entries: ${unsupported
+        .slice(0, 5)
+        .map((entry) => entry.name)
+        .join(", ")}`,
+    );
+  }
+  if (material.some((entry) => entry.originalSize > maxEntryBytes)) {
+    throw new Error(`Archive entry exceeds ${maxEntryBytes} bytes`);
+  }
+  const total = material.reduce((sum, entry) => sum + entry.originalSize, 0);
+  if (total > maxTotalBytes) {
+    throw new Error(`Archive material entries exceed ${maxTotalBytes} bytes`);
+  }
+  return material
+    .map((entry) => ({ filename: entry.name, originalSize: entry.originalSize }))
+    .sort((left, right) => left.filename.localeCompare(right.filename));
 }
 
 export function extractOfficeContainerMarkdown(filename: string, body: Buffer): string | null {

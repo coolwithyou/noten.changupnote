@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
-import type { CunoteDb } from "@/lib/server/db/client";
+import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import { runConversionPollSweep } from "@/lib/server/conversion/pollSweep";
+import { registerAttachmentConversions } from "@/lib/server/conversion/registerAttachmentConversions";
 import { runBizInfoAttachmentArchiveBatch } from "@/lib/server/ingestion/bizinfoAttachmentArchiveBatch";
 import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
@@ -48,6 +49,7 @@ export interface DeepAnalysisInputPreparationResult {
     kstartup: Awaited<ReturnType<typeof runKStartupAttachmentArchiveBatch>> | null;
     bizinfo: Awaited<ReturnType<typeof runBizInfoAttachmentArchiveBatch>> | null;
   };
+  conversionRegistration: DeepAnalysisConversionRegistrationSummary;
   conversion: Awaited<ReturnType<typeof runConversionPollSweep>>;
   after: Array<{
     grantId: string;
@@ -65,6 +67,15 @@ export interface DeepAnalysisInputPreparationResult {
   sealedCount: number;
   unresolvedCount: number;
   elapsedMs: number;
+}
+
+export interface DeepAnalysisConversionRegistrationSummary {
+  candidateAttachmentCount: number;
+  surfacesUpserted: number;
+  jobsEnqueued: number;
+  cacheHits: number;
+  skipped: number;
+  warnings: string[];
 }
 
 /**
@@ -173,6 +184,7 @@ export async function runDeepAnalysisInputPreparation(input: {
   listTargets?: typeof listDeepAnalysisInputPreparationTargets;
   runKStartupArchive?: typeof runKStartupAttachmentArchiveBatch;
   runBizInfoArchive?: typeof runBizInfoAttachmentArchiveBatch;
+  registerMissingConversions?: typeof registerMissingDeepAnalysisConversions;
   runConversionSweep?: typeof runConversionPollSweep;
   prepareInput?: typeof prepareDeepAnalysisInput;
   ensurePreparedJob?: typeof ensurePreparedDeepAnalysisJob;
@@ -225,6 +237,12 @@ export async function runDeepAnalysisInputPreparation(input: {
     })
     : null;
 
+  const conversionRegistration = await (
+    input.registerMissingConversions ?? registerMissingDeepAnalysisConversions
+  )({
+    db: input.db,
+    targets,
+  });
   const remainingBudgetMs = Math.max(1_000, deadlineAtMs - Date.now());
   const conversion = targets.length > 0
     ? await (input.runConversionSweep ?? runConversionPollSweep)(input.db, {
@@ -312,12 +330,143 @@ export async function runDeepAnalysisInputPreparation(input: {
       sourceId,
     })),
     archive: { kstartup, bizinfo },
+    conversionRegistration,
     conversion,
     after,
     sealedCount: after.filter((item) => item.sealed).length,
     unresolvedCount: after.filter((item) => !item.sealed).length,
     elapsedMs: Date.now() - startedAt,
   };
+}
+
+/**
+ * 과거에 원본만 보관되고 conversion surface가 없던 첨부를 현재 target 범위에서 복구한다.
+ * 이미 markdown artifact가 있는 storage identity는 제외하고, 기존 변환 등록 후크를
+ * 재사용해 surface/job/cache hit를 멱등 처리한 뒤 poll sweep으로 넘긴다.
+ */
+export async function registerMissingDeepAnalysisConversions(input: {
+  db: CunoteDb;
+  targets: readonly DeepAnalysisInputPreparationTarget[];
+}): Promise<DeepAnalysisConversionRegistrationSummary> {
+  const empty: DeepAnalysisConversionRegistrationSummary = {
+    candidateAttachmentCount: 0,
+    surfacesUpserted: 0,
+    jobsEnqueued: 0,
+    cacheHits: 0,
+    skipped: 0,
+    warnings: [],
+  };
+  if (input.targets.length === 0) return empty;
+
+  const kstartupSourceIds = input.targets
+    .filter((target) => target.source === "kstartup")
+    .map((target) => target.sourceId);
+  const bizinfoSourceIds = input.targets
+    .filter((target) => target.source === "bizinfo")
+    .map((target) => target.sourceId);
+  const sourceFilter = or(
+    ...(kstartupSourceIds.length > 0
+      ? [and(
+        eq(schema.grantAttachmentArchives.source, "kstartup"),
+        inArray(schema.grantAttachmentArchives.sourceId, kstartupSourceIds),
+      )]
+      : []),
+    ...(bizinfoSourceIds.length > 0
+      ? [and(
+        eq(schema.grantAttachmentArchives.source, "bizinfo"),
+        inArray(schema.grantAttachmentArchives.sourceId, bizinfoSourceIds),
+      )]
+      : []),
+  );
+  if (!sourceFilter) return empty;
+
+  const [archives, artifacts] = await Promise.all([
+    input.db
+      .select({
+        source: schema.grantAttachmentArchives.source,
+        sourceId: schema.grantAttachmentArchives.sourceId,
+        filename: schema.grantAttachmentArchives.filename,
+        storageKey: schema.grantAttachmentArchives.storageKey,
+        archiveUrl: schema.grantAttachmentArchives.archiveUrl,
+        sourceUri: schema.grantAttachmentArchives.sourceUri,
+        sha256: schema.grantAttachmentArchives.sha256,
+      })
+      .from(schema.grantAttachmentArchives)
+      .where(and(
+        sourceFilter,
+        isNotNull(schema.grantAttachmentArchives.storageKey),
+        isNotNull(schema.grantAttachmentArchives.sha256),
+      )),
+    input.db
+      .select({
+        sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
+      })
+      .from(schema.grantApplicationSurfaces)
+      .innerJoin(
+        schema.documentArtifacts,
+        and(
+          eq(schema.documentArtifacts.surfaceId, schema.grantApplicationSurfaces.id),
+          eq(schema.documentArtifacts.kind, "markdown"),
+        ),
+      )
+      .where(inArray(
+        schema.grantApplicationSurfaces.grantId,
+        input.targets.map((target) => target.grantId),
+      )),
+  ]);
+  const completedStorageKeys = new Set(
+    artifacts.map((artifact) => artifact.sourceAttachment).filter(
+      (value): value is string => Boolean(value),
+    ),
+  );
+  const candidates = archives.filter((archive) => (
+    archive.storageKey
+    && archive.sha256
+    && !completedStorageKeys.has(archive.storageKey)
+  ));
+  const targetBySource = new Map<string, DeepAnalysisInputPreparationTarget>(
+    input.targets.map((target) => [`${target.source}:${target.sourceId}`, target]),
+  );
+  const grouped = new Map<string, typeof candidates>();
+  for (const candidate of candidates) {
+    const key = `${candidate.source}:${candidate.sourceId}`;
+    grouped.set(key, [...(grouped.get(key) ?? []), candidate]);
+  }
+
+  const summary: DeepAnalysisConversionRegistrationSummary = {
+    ...empty,
+    candidateAttachmentCount: candidates.length,
+  };
+  for (const [key, attachments] of grouped) {
+    const target = targetBySource.get(key);
+    if (!target) continue;
+    try {
+      const registered = await input.db.transaction((transaction) =>
+        registerAttachmentConversions(transaction as unknown as CunoteDbSession, {
+          grantId: target.grantId,
+          source: target.source,
+          sourceId: target.sourceId,
+          attachments: attachments.map((attachment) => ({
+            filename: attachment.filename,
+            storageKey: attachment.storageKey,
+            archiveUrl: attachment.archiveUrl,
+            sourceUri: attachment.sourceUri,
+            sha256: attachment.sha256,
+          })),
+        }),
+      );
+      summary.surfacesUpserted += registered.surfacesUpserted;
+      summary.jobsEnqueued += registered.jobsEnqueued;
+      summary.cacheHits += registered.cacheHits;
+      summary.skipped += registered.skipped;
+      summary.warnings.push(...registered.warnings);
+    } catch (error) {
+      summary.warnings.push(
+        `${key}: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      );
+    }
+  }
+  return summary;
 }
 
 export function resolveDeepAnalysisInputPreparationPolicy(

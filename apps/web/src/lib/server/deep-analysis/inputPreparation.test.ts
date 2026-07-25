@@ -75,6 +75,17 @@ const result = await runDeepAnalysisInputPreparation({
       NonNullable<Parameters<typeof runDeepAnalysisInputPreparation>[0]["runBizInfoArchive"]>
     >>;
   },
+  registerMissingConversions: async ({ targets }) => {
+    calls.push(`r:${targets.map((target) => target.sourceId).join(",")}`);
+    return {
+      candidateAttachmentCount: 2,
+      surfacesUpserted: 2,
+      jobsEnqueued: 2,
+      cacheHits: 0,
+      skipped: 0,
+      warnings: [],
+    };
+  },
   runConversionSweep: async (_db, options) => {
     calls.push(`c:${options?.sourceIds?.join(",")}:${options?.limit}`);
     return {
@@ -118,6 +129,7 @@ const result = await runDeepAnalysisInputPreparation({
 assert.deepEqual(calls, [
   "k:178001:6",
   "b:PBLN_1:6",
+  "r:178001,PBLN_1",
   "c:178001,PBLN_1:5",
 ]);
 assert.equal(result.targetCount, 2);
@@ -126,5 +138,6 @@ assert.equal(result.unresolvedCount, 1);
 assert.equal(result.after[0]?.queuePriority, 100);
 assert.equal(result.after[1]?.queuePriority, null);
 assert.deepEqual(result.after[1]?.blockerCodes, ["blocked_conversion"]);
+assert.equal(result.conversionRegistration.jobsEnqueued, 2);
 
 console.log("deep-analysis input preparation tests passed");
