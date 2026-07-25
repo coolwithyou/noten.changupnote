@@ -33,6 +33,7 @@ export async function runDeepAnalysisWorkerInvocation(input: {
   serviceRevision: string;
   policy: DeepAnalysisWorkerPolicy;
   processJob: (job: DeepAnalysisJob) => Promise<void>;
+  invocationMetadata?: Record<string, unknown>;
   now?: () => Date;
 }): Promise<DeepAnalysisWorkerInvocationResult> {
   const now = input.now ?? (() => new Date());
@@ -48,6 +49,7 @@ export async function runDeepAnalysisWorkerInvocation(input: {
     serviceRevision: input.serviceRevision,
     modelPolicyVersion: input.policy.modelPolicyVersion,
     status: "idle",
+    ...(input.invocationMetadata ? { metadata: input.invocationMetadata } : {}),
     now: now(),
   });
 
@@ -70,7 +72,10 @@ export async function runDeepAnalysisWorkerInvocation(input: {
       modelPolicyVersion: input.policy.modelPolicyVersion,
       status: "running",
       currentJobId: job.id,
-      metadata: { attemptCount: job.attemptCount },
+      metadata: {
+        ...input.invocationMetadata,
+        attemptCount: job.attemptCount,
+      },
       now: now(),
     });
     try {
@@ -95,7 +100,10 @@ export async function runDeepAnalysisWorkerInvocation(input: {
         status: "degraded",
         currentJobId: job.id,
         lastErrorCode: error instanceof Error ? error.name : "DeepAnalysisWorkerError",
-        metadata: { jobStatus: status },
+        metadata: {
+          ...input.invocationMetadata,
+          jobStatus: status,
+        },
         now: now(),
       });
     }
@@ -106,7 +114,10 @@ export async function runDeepAnalysisWorkerInvocation(input: {
     serviceRevision: input.serviceRevision,
     modelPolicyVersion: input.policy.modelPolicyVersion,
     status: "idle",
-    metadata: { ...result },
+    metadata: {
+      ...input.invocationMetadata,
+      ...result,
+    },
     now: now(),
   });
   return result;

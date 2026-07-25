@@ -1,6 +1,7 @@
 import { loadMonorepoEnv } from "@/lib/server/loadMonorepoEnv";
 import { closeCunoteDb, getCunoteDb } from "@/lib/server/db/client";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
+import { enqueueActiveDeepAnalysisJobs } from "./enqueueActive";
 import { processDeepAnalysisJob } from "./processor";
 import { runDeepAnalysisWorkerInvocation } from "./workerLoop";
 import { resolveDeepAnalysisWorkerPolicy } from "./workerPolicy";
@@ -31,11 +32,17 @@ const serviceRevision = (
 ).slice(0, 200);
 
 try {
+  const enqueueResult = await enqueueActiveDeepAnalysisJobs({
+    db,
+    storage,
+    policy,
+  });
   const result = await runDeepAnalysisWorkerInvocation({
     db,
     workerId,
     serviceRevision,
     policy,
+    invocationMetadata: { enqueue: enqueueResult },
     processJob: async (job) => {
       await processDeepAnalysisJob({
         db,
@@ -52,6 +59,7 @@ try {
     workerId,
     serviceRevision,
     modelPolicyVersion: policy.modelPolicyVersion,
+    enqueue: enqueueResult,
     ...result,
   }));
 } finally {

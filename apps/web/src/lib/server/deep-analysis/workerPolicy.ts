@@ -14,6 +14,7 @@ export interface DeepAnalysisWorkerPolicy {
   auditModel: DeepAnalysisAuditModel;
   leaseSeconds: number;
   maxJobsPerInvocation: number;
+  maxEnqueuePerInvocation: number;
   dailyCostCapUsd: number;
   perNoticeCostCapUsd: number;
   maxTotalInputChars: number;
@@ -44,6 +45,13 @@ export function resolveDeepAnalysisWorkerPolicy(
       1,
       100,
       "DEEP_ANALYSIS_MAX_JOBS",
+    ),
+    maxEnqueuePerInvocation: integerEnv(
+      env.DEEP_ANALYSIS_MAX_ENQUEUE_JOBS,
+      DEEP_ANALYSIS_DEFAULT_LIMITS.maxEnqueuePerInvocation,
+      1,
+      100,
+      "DEEP_ANALYSIS_MAX_ENQUEUE_JOBS",
     ),
     dailyCostCapUsd: numberEnv(
       env.DEEP_ANALYSIS_DAILY_COST_CAP_USD,

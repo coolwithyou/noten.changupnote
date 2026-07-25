@@ -19,6 +19,7 @@ assert.equal(policy.modelPolicyVersion, DEEP_ANALYSIS_MODEL_POLICY_VERSION);
 assert.equal(policy.primaryModel, "claude-opus-4-8");
 assert.equal(policy.auditModel, "claude-sonnet-5");
 assert.equal(policy.dailyCostCapUsd, DEEP_ANALYSIS_DEFAULT_LIMITS.dailyCostCapUsd);
+assert.equal(policy.maxEnqueuePerInvocation, DEEP_ANALYSIS_DEFAULT_LIMITS.maxEnqueuePerInvocation);
 
 assert.throws(
   () => resolveDeepAnalysisWorkerPolicy({ DEEP_ANALYSIS_PRIMARY_MODEL: "unreviewed-model" }),
@@ -26,6 +27,10 @@ assert.throws(
 );
 assert.throws(
   () => resolveDeepAnalysisWorkerPolicy({ DEEP_ANALYSIS_MAX_JOBS: "0" }),
+  /between 1 and 100/,
+);
+assert.throws(
+  () => resolveDeepAnalysisWorkerPolicy({ DEEP_ANALYSIS_MAX_ENQUEUE_JOBS: "101" }),
   /between 1 and 100/,
 );
 

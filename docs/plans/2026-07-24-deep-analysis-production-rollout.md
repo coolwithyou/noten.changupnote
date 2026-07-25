@@ -1906,8 +1906,29 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   업로드 대상이 아님을 확인했다.
 - [x] 로컬 linux/amd64 호환 이미지 `cunote-deep-analysis-worker:checkpoint-d2` 빌드가
   성공했고, 시크릿 없는 실행은 `ANTHROPIC_API_KEY is required`로 fail-closed 종료했다.
-- [ ] 동일 commit image를 Artifact Registry에 push하고 Cloud Run Job·Scheduler를
-  `sw@noten.im` / `changupnote-com`에 배포한 뒤 실제 execution heartbeat를 확인한다.
+- [x] commit `b27b792` image를 Artifact Registry digest
+  `sha256:16b4f31a044a…`로 push하고 Cloud Run Job `cunote-deep-analysis`에 고정했다.
+  execution `tjlrj`와 Scheduler 수동 호출 `hkcp5`, 정시 호출 `xhpbd`가 모두 task 1/1
+  성공했으며 DB heartbeat의 revision·model policy·0-error 집계가 Cloud Logging과 일치했다.
+- [x] Cloud Scheduler `cunote-deep-analysis-scheduler`는 5분 주기, OAuth service account,
+  retry 0으로 활성화했다. 전파 중 잠긴 임시 paused scheduler는 삭제해 운영 job을 하나만
+  남겼다.
+
+구현 체크포인트 D3 — 활성 공고 autonomous feeder (2026-07-25):
+
+- [x] 배포 검증 중 worker가 기존 queue만 소비하고 새 활성 공고 enqueue는 수동 CLI에
+  남아 있음을 발견했다. 이를 완료로 오판하지 않고 공유
+  `activeDeepAnalysisGrantPredicate` 기반 feeder를 worker invocation 앞에 결합했다.
+- [x] 현재 model policy job이 없거나, 마지막 job 이후 grant/raw/attachment가 바뀐
+  공고만 KST 활성 분모에서 최대 5건씩 선택한다. seal에서 계산한
+  `grantId+sourceRevisionSha256+modelPolicyVersion` unique identity가 동시 실행과 재실행의
+  중복 paid call을 차단한다.
+- [x] 한 공고의 R2 seal 실패는 같은 batch의 다른 enqueue를 막지 않으며,
+  examined/ensured/failed와 공고별 실패를 execution heartbeat metadata에 남긴다.
+- [x] production read-only query에서 첫 feeder 후보 5건을 확인했고, unit test·web
+  typecheck·전체 deep-analysis contract test가 통과했다.
+- [ ] feeder 포함 commit image로 Job을 갱신하고 실제 scheduled execution에서
+  enqueue와 queue claim이 함께 일어나는 것을 확인한다.
 
 #### Phase E. 결정론 검증과 독립 감사
 
