@@ -1,8 +1,8 @@
 # 딥 공고 분석 결과 운영 매칭 적용 로드맵 및 구현 계획
 
 > 작성일: 2026-07-24  
-> 상태: **프로덕션 worker·영속 원장 구현·운영 중 / 딥분석 관제 구현 완료·배포 대기 /
-> 자동 승격·serving 검증 미완**
+> 상태: **프로덕션 worker·영속 원장·딥분석 관제 운영 중 / 2공고 serving canary 통과 /
+> 24시간 관측 후 20공고 확대 대기**
 > 적용 대상: `analysis-lab`에서 생성하고 AI 검수·감사·검수팀 판정을 거친 공고별 조건과 확인 질문  
 > 2026-07-25 확장: 활성 공고의 원문·HWP 딥분석을 사람 전수 검수 없이 운영하고,
 > 단계별 증적으로 보증하는 계획은 이 문서 §14를 정본으로 사용한다.
@@ -2116,9 +2116,23 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `eba1597` receipt만 있는 production에서 의도적으로
   `execution=null`, `checked=0/2`, `fresh=0`, exit 2를 확인했다.
 - [x] contracts/core build, web/admin typecheck, deep-analysis contract suite,
-  monitor summary 단위 테스트와 admin production build가 통과했다. 새 monitor
-  image 실행으로 production heartbeat를 만든 뒤 동일 ops verifier를 PASS로
-  전환하는 배포 검증은 다음 체크포인트에서 닫는다.
+  monitor summary 단위 테스트와 admin production build가 통과했다.
+- [x] clean commit `48b92c4`를 `sw@noten.im`·`changupnote-com`에서 build한
+  immutable image digest `sha256:ee073d72440f…`로 worker와 serving monitor Job을
+  함께 갱신했다. 두 Job의 service account와 기존 env/secret 경계, monitor 인자,
+  30분 Scheduler는 유지했다. 다음 5분 주기의 worker execution
+  `cunote-deep-analysis-sjqfd`도 task 1/1로 성공했고 ops heartbeat의
+  `serviceRevision=48b92c44…`, stale=false를 확인했다.
+- [x] 새 image의 monitor execution
+  `cunote-deep-analysis-serving-monitor-8whjx`가 task 1/1,
+  `checkedReleases=2`, `checkedItems=2`, PASS로 끝났다. 이후 같은 production
+  ops verifier가 `execution=…-8whjx`, `checked=2/2`, `fresh=2/2`,
+  실패 0, stale 0, `healthy=true`로 PASS해 배포 전 의도적 실패를 해소했다.
+- [x] ops UI는 기존 `team-coolwithyou/changupnote-ops`에 deployment
+  `dpl_EKEXVNindWKomMw657dTRM8Ri4ns`로 배포해 Ready와
+  `ops.changupnote.com` alias를 확인했다. 라이브 `/pipeline`은 비로그인
+  307→login, summary/action API는 401로 닫혀 있다. 새 project/domain은 만들지
+  않았다.
 - [ ] 24시간 serving/hash/SLO 관측은 2026-07-25 11:35 KST에 시작했으며
   2026-07-26 11:35 KST 이후 연속 실행 결과로 닫는다. 20공고 확대는 이 관측 gate 뒤에만
   진행한다.
