@@ -106,15 +106,41 @@ export async function appendDeepAnalysisExceptionEvent(
  */
 export async function claimDeepAnalysisJob(
   db: CunoteDbSession,
-  input: { workerId: string; leaseSeconds: number; now?: Date },
+  input: {
+    workerId: string;
+    leaseSeconds: number;
+    modelPolicyVersion: string;
+    maxConcurrentJobs: number;
+    now?: Date;
+  },
 ): Promise<typeof schema.grantDeepAnalysisJobs.$inferSelect | null> {
   if (!input.workerId.trim()) throw new Error("workerId is required");
+  if (!input.modelPolicyVersion.trim()) throw new Error("modelPolicyVersion is required");
   if (!Number.isInteger(input.leaseSeconds) || input.leaseSeconds < 30 || input.leaseSeconds > 3600) {
     throw new Error("leaseSeconds must be an integer between 30 and 3600");
+  }
+  if (
+    !Number.isInteger(input.maxConcurrentJobs)
+    || input.maxConcurrentJobs < 1
+    || input.maxConcurrentJobs > 10
+  ) {
+    throw new Error("maxConcurrentJobs must be an integer between 1 and 10");
   }
   const now = input.now ?? new Date();
   const leaseExpiresAt = new Date(now.getTime() + input.leaseSeconds * 1000);
   const claimed = await db.execute<{ id: string }>(sql`
+    WITH claim_lock AS (
+      SELECT pg_advisory_xact_lock(
+        hashtext('cunote:deep-analysis-claim:' || ${input.modelPolicyVersion})
+      )
+    ),
+    capacity AS (
+      SELECT count(*)::int AS active_count
+      FROM grant_deep_analysis_jobs, claim_lock
+      WHERE model_policy_version = ${input.modelPolicyVersion}
+        AND status = 'leased'
+        AND lease_expires_at > ${now.toISOString()}::timestamptz
+    )
     UPDATE grant_deep_analysis_jobs
     SET
       status = 'leased',
@@ -124,20 +150,27 @@ export async function claimDeepAnalysisJob(
       attempt_count = attempt_count + 1,
       updated_at = ${now.toISOString()}::timestamptz
     WHERE id = (
-      SELECT id
-      FROM grant_deep_analysis_jobs
-      WHERE (
-        status IN ('pending', 'retry_wait')
-        AND available_at <= ${now.toISOString()}::timestamptz
-        AND attempt_count < max_attempts
-      ) OR (
-        status = 'leased'
-        AND lease_expires_at <= ${now.toISOString()}::timestamptz
-        AND attempt_count < max_attempts
-      )
-      ORDER BY priority DESC, available_at ASC, created_at ASC
+      SELECT candidate.id
+      FROM grant_deep_analysis_jobs AS candidate, capacity
+      WHERE capacity.active_count < ${input.maxConcurrentJobs}
+        AND candidate.model_policy_version = ${input.modelPolicyVersion}
+        AND (
+          (
+            candidate.status IN ('pending', 'retry_wait')
+            AND candidate.available_at <= ${now.toISOString()}::timestamptz
+            AND candidate.attempt_count < candidate.max_attempts
+          ) OR (
+            candidate.status = 'leased'
+            AND candidate.lease_expires_at <= ${now.toISOString()}::timestamptz
+            AND candidate.attempt_count < candidate.max_attempts
+          )
+        )
+      ORDER BY
+        candidate.priority DESC,
+        candidate.available_at ASC,
+        candidate.created_at ASC
       LIMIT 1
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF candidate SKIP LOCKED
     )
     RETURNING id::text AS id
   `);

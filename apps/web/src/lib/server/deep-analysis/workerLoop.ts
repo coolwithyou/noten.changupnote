@@ -66,6 +66,8 @@ export async function runDeepAnalysisWorkerInvocation(input: {
     const job = await claimDeepAnalysisJob(input.db, {
       workerId: input.workerId,
       leaseSeconds: input.policy.leaseSeconds,
+      modelPolicyVersion: input.policy.modelPolicyVersion,
+      maxConcurrentJobs: input.policy.maxConcurrentJobs,
       now: now(),
     });
     if (!job) break;

@@ -21,6 +21,7 @@ export const DEEP_ANALYSIS_AUDIT_MODELS = ["claude-sonnet-5", "claude-fable-5"] 
 export const DEEP_ANALYSIS_DEFAULT_LIMITS = {
   leaseSeconds: 900,
   maxJobsPerInvocation: 5,
+  maxConcurrentJobs: 1,
   maxEnqueuePerInvocation: 5,
   dailyCostCapUsd: 50,
   perNoticeCostCapUsd: 2,

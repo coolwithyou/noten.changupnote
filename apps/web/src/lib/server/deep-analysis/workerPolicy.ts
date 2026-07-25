@@ -14,6 +14,7 @@ export interface DeepAnalysisWorkerPolicy {
   auditModel: DeepAnalysisAuditModel;
   leaseSeconds: number;
   maxJobsPerInvocation: number;
+  maxConcurrentJobs: number;
   maxEnqueuePerInvocation: number;
   dailyCostCapUsd: number;
   perNoticeCostCapUsd: number;
@@ -45,6 +46,13 @@ export function resolveDeepAnalysisWorkerPolicy(
       1,
       100,
       "DEEP_ANALYSIS_MAX_JOBS",
+    ),
+    maxConcurrentJobs: integerEnv(
+      env.DEEP_ANALYSIS_MAX_CONCURRENT_JOBS,
+      DEEP_ANALYSIS_DEFAULT_LIMITS.maxConcurrentJobs,
+      1,
+      10,
+      "DEEP_ANALYSIS_MAX_CONCURRENT_JOBS",
     ),
     maxEnqueuePerInvocation: integerEnv(
       env.DEEP_ANALYSIS_MAX_ENQUEUE_JOBS,

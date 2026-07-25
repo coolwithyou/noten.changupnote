@@ -155,6 +155,8 @@ const claimDb = {
 const claimed = await claimDeepAnalysisJob(claimDb, {
   workerId: "worker",
   leaseSeconds: 60,
+  modelPolicyVersion: "policy",
+  maxConcurrentJobs: 1,
 });
 assert.equal(claimed?.grantId, claimedJob.grantId, "raw claim id를 Drizzle 행으로 다시 읽는다");
 
