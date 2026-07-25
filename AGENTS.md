@@ -16,6 +16,8 @@
 - 토큰 값은 출력·커밋·명령 인자(`--token`)에 직접 넣지 않는다. 셸 환경변수로만 전달한다.
 - 배포 전 `.vercel/project.json` 또는 해당 앱의 `.vercel/project.json`을 확인하고, 토큰을 적용한 `vercel whoami`와 `vercel project inspect`로 프로젝트/팀을 검증한다.
 - `changupnote` 웹 프로젝트는 모노레포 루트에서 배포한다. Vercel 프로젝트의 Root Directory가 `apps/web`이므로 `apps/web`에서 배포해 `apps/web/apps/web` 경로를 만들지 않는다.
+- `changupnote-ops`는 예외적으로 `team-coolwithyou` 소유이며 `noten` 토큰으로 접근할 수 없다. `apps/admin/.vercel/project.json`을 확인한 뒤 토큰을 unset하고, 현재 비대화형 로그인 `vercel whoami = coolwithyou`와 `vercel project inspect = team-coolwithyou/changupnote-ops`를 둘 다 확인해야 한다.
+- ops 프로젝트도 Root Directory가 `apps/admin`이므로 `apps/admin`에서 직접 배포하면 `apps/admin/apps/admin` 이중 경로가 된다. clean commit의 모노레포를 `.git`, `.env*`, `.vercel`, `node_modules`, build 산출물 없이 임시 디렉터리에 복사하고 `apps/admin/.vercel/project.json`만 임시 루트 `.vercel/project.json`으로 둔 뒤, 임시 루트에서 `--scope team-coolwithyou`로 배포한다.
 - 프로덕션 배포는 관련 검증과 커밋·push가 끝난 정확한 소스 상태로 수행하고, 배포 URL·프로덕션 alias·라이브 스모크를 확인한다.
 
 ## Cloudflare access control memory

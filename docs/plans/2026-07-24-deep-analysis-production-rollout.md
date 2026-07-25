@@ -2024,8 +2024,9 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - [x] `pnpm verify:deep-analysis-ops`, admin typecheck, deep-analysis contract test,
   migration verifier, `db:doctor`, production admin build가 통과했다. 현재 사용자 실행
   서버에서는 `/pipeline` 비로그인 307→login, 관제 API 비로그인 401을 확인했다.
-- [ ] `ops.changupnote.com` production 배포와 인증 세션 시각 왕복은 Phase H에서
-  최종 commit을 배포한 뒤 검증한다.
+- [x] `ops.changupnote.com` production 배포와 로그인 전 경계 검증은 배포 체크포인트
+  H0에서 완료했다. 인증 세션 시각 왕복은 사용 가능한 로그인 browser session이 없어
+  남아 있다.
 
 #### Phase G. shadow와 카나리
 
@@ -2089,7 +2090,30 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - [ ] 중단 조건을 통과하는 두 번째 실제 canary와 24시간 serving/hash/SLO 관측은
   아직 완료되지 않았다. gate를 낮추지 않고 다음 S11 통과 공고로 이어간다.
 
-#### Phase H. 활성 624공고 백필
+#### Phase H. 활성 공고 백필 (2026-07-25 실측 분모 636)
+
+배포 체크포인트 H0 — 관제·worker production 반영 (2026-07-25):
+
+- [x] 검증·커밋된 `f3c2973`을 `origin/main`에 push하고
+  `NOTEN/changupnote` production deployment
+  `dpl_3Y3uY5HWKgjxmwhosnJH8mLjBp1z`로 배포했다. 배포 상태 Ready,
+  `changupnote.com`과 `www.changupnote.com` 라이브 응답은 모두 200이다.
+- [x] ops의 실제 소유권이 토큰 scope `noten`이 아니라
+  `team-coolwithyou/changupnote-ops`임을 read-only inspect로 확인했다. clean commit의
+  `.git`·env 제외 임시 패키지를 기존 project link로 배포한
+  `dpl_GSJbJG6YsBqfQqmJo65crP58dPaR`가 Ready이며 기존
+  `ops.changupnote.com` alias를 유지한다.
+- [x] 라이브 `/pipeline`은 비로그인 307→`/login?callbackUrl=/pipeline`,
+  overview API와 action POST는 모두 401로 닫혀 있다. 배포 과정에서 새 Vercel
+  project나 domain을 만들지 않았다.
+- [x] `sw@noten.im`·`changupnote-com`에서 `f3c2973` worker 이미지를 build해
+  Artifact Registry digest `sha256:101ba48003a4…`로 Cloud Run Job을 갱신했다.
+  기존 service account, Secret Manager 연결, 비용/입력/lease/env 상한은 유지했다.
+- [x] 새 이미지 수동 execution `cunote-deep-analysis-6bfnl` task 1/1이 성공했고,
+  DB heartbeat `serviceRevision=f3c2973…`, stale=false로 교차 확인했다. 해당 실행의
+  입력 blocker는 paid model call 없이 fail-closed 분류됐다.
+- [x] `.env.vercel.local` NOTEN token을 웹 배포 정본으로 쓰되, ops 소유권 예외와
+  모노레포 Root Directory 이중 경로 방지 절차를 `AGENTS.md`에 추가했다.
 
 우선순위:
 
