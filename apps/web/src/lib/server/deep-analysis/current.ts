@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
+import { postgresUuidArray } from "./sqlArray";
 
 export interface DeepAnalysisCurrentRow extends Record<string, unknown> {
   grant_id: string;
@@ -33,7 +34,7 @@ export async function loadDeepAnalysisCurrent(
       SELECT DISTINCT ON (job.grant_id)
         job.*
       FROM grant_deep_analysis_jobs job
-      ${ids ? sql`WHERE job.grant_id = ANY(${ids}::uuid[])` : sql``}
+      ${ids ? sql`WHERE job.grant_id = ANY(${postgresUuidArray(ids)})` : sql``}
       ORDER BY job.grant_id, job.created_at DESC, job.id DESC
     ),
     latest_run AS (

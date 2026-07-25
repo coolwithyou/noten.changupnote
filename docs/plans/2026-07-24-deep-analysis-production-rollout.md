@@ -2398,6 +2398,24 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   이 리허설 목록은 활성화에 재사용하지 않는다. 48/48 PASS 직후 같은 계획기를 다시
   실행해 active/source/job/input freshness를 재검증하고 그때 생성된 exact ID/hash만
   bounded activation에 사용한다.
+- [x] `deep-analysis:verify-cohort` read-only 종료 검증기를 추가했다. activation
+  timestamp와 exact ID/hash를 필수로 받고, 20공고 active/current job, 현재 R2 입력
+  재봉인, current job/run/input revision, S0~S11 전 단계, 정확히 22축, audit concur,
+  공고별 `$2`·cohort `$40` 상한, activation 이후 cohort 밖 model-policy run 0을
+  자동 교차 검증한다. 위반은 즉시 `FAIL`, 위반 없이 20건 미완료면 `IN_PROGRESS`,
+  20/20 `analysis_complete`일 때만 `PASS`다.
+- [x] 첫 production read-only 실행에서 Drizzle raw SQL에 JS 배열을 직접 넣으면
+  `ARRAY[$1,…]`가 아니라 `($1,…)::text[]`로 렌더링되는 결함을 발견했다. verifier뿐
+  아니라 아직 미배포 bounded claim과 기존 ID-filter current query도 같은 문제였으므로
+  parameterized `ARRAY[...]::uuid[]` 공용 빌더로 수정했다. SQL renderer와 실제 claim
+  문장 회귀 테스트가 tuple cast를 거부한다. main은 계속 `observe_only`여서 이 결함으로
+  production claim이나 유료 호출이 실패한 적은 없다.
+- [x] 수정 뒤 첫 연속 리허설은 후보 선정 직후 input preparation이 한 공고의 revision을
+  바꾼 race를 `job_source_revision_stale`로 포착해 `FAIL`했다. 새 cohort를 즉시 다시
+  산출한 두 번째 실행은 active/sealed 20/20, Bizinfo 8·K-Startup 12,
+  HWP/HWPX 14, cohort 밖 run 0, 비용 0, terminal 0, pending 20,
+  failure 0으로 정확히 `IN_PROGRESS`를 반환했다. activation 직전 재검증을 생략하거나
+  stale 한 건을 허용하지 않는다.
 - [ ] claim fence commit을 main worker의 `observe_only` 상태로 배포하고 수동·정시
   execution의 `claimScope=unconfigured`, claim/enqueue/비용 0을 확인한다. 동결된
   serving monitor image와 Scheduler는 변경하지 않는다. 배포 preflight에서 활성 설정은

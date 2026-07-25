@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
   deepAnalysisArtifactKey,
   putImmutableDeepAnalysisArtifact,
@@ -148,8 +150,12 @@ const selectChain = {
   where: () => selectChain,
   limit: async () => [claimedJob],
 };
+let renderedClaimSql = "";
 const claimDb = {
-  execute: async () => [{ id: claimedJob.id }],
+  execute: async (query: SQL) => {
+    renderedClaimSql = new PgDialect().sqlToQuery(query).sql;
+    return [{ id: claimedJob.id }];
+  },
   select: () => selectChain,
 } as unknown as CunoteDbSession;
 const claimed = await claimDeepAnalysisJob(claimDb, {
@@ -160,6 +166,12 @@ const claimed = await claimDeepAnalysisJob(claimDb, {
   claimGrantIds: [claimedJob.grantId],
 });
 assert.equal(claimed?.grantId, claimedJob.grantId, "raw claim id를 Drizzle 행으로 다시 읽는다");
+assert.match(
+  renderedClaimSql,
+  /candidate\.grant_id = ANY\(ARRAY\[\$\d+\]::uuid\[\]\)/,
+  "bounded claim ID는 PostgreSQL ARRAY로 렌더링한다",
+);
+assert.doesNotMatch(renderedClaimSql, /\(\$\d+(?:, \$\d+)+\)::uuid\[\]/);
 await assert.rejects(
   claimDeepAnalysisJob(claimDb, {
     workerId: "worker",

@@ -5,6 +5,7 @@ import type {
 } from "@cunote/contracts";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { postgresUuidArray } from "./sqlArray";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
 export interface EnqueueDeepAnalysisJobInput {
@@ -133,7 +134,7 @@ export async function claimDeepAnalysisJob(
   const now = input.now ?? new Date();
   const leaseExpiresAt = new Date(now.getTime() + input.leaseSeconds * 1000);
   const cohortFilter = input.claimGrantIds
-    ? sql`AND candidate.grant_id::text = ANY(${input.claimGrantIds}::text[])`
+    ? sql`AND candidate.grant_id = ANY(${postgresUuidArray(input.claimGrantIds)})`
     : sql``;
   const claimed = await db.execute<{ id: string }>(sql`
     WITH claim_lock AS (
