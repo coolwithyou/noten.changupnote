@@ -2738,10 +2738,35 @@ Step 4-1 증거 점검 체크포인트 — `STOP` (2026-07-25):
 
 재개에 필요한 최소 증거:
 
-1. 14.9.1 층화를 만족하는 immutable 80공고 public/secret manifest pair
-2. 공고별 B/C 분석, 독립 audit/Judge, 최종 resolution과 입력·출력 hash
-3. 14.9.3의 기계 보증 10개와 모델 품질 지표 6개를 오류 절대 건수와 함께 계산한 report
-4. 외부 호출 수·실패·재시도·비용을 포함한 실행 receipt
+1. [x] 14.9.1 층화를 만족하는 immutable 80공고 public/secret manifest pair
+2. [ ] 공고별 B/C 분석, 독립 audit/Judge, 최종 resolution과 입력·출력 hash
+3. [ ] 14.9.3의 기계 보증 10개와 모델 품질 지표 6개를 오류 절대 건수와 함께 계산한 report
+4. [ ] 외부 호출 수·실패·재시도·비용을 포함한 실행 receipt
+
+Step 4-1A 80공고 동결 체크포인트 — `PASS` (2026-07-25):
+
+- 기준 시각 `2026-07-25T00:00:00+09:00`, active canonical/duplicate-inclusive
+  모집단 `1,519/1,519`를 read-only로 고정했다.
+- K-Startup 40건 / BizInfo 40건, validation 48건 / sealed 32건이며 기존 복구 4공고를
+  전부 포함한다. 이전 평가 12공고 중 현재 active인 6건은 제외했다.
+- public manifest hash는
+  `045b5738ed5c8205be6d21ad30179554808e3757f8f39d7347d6a8579a96c0c3`,
+  selection commitment는
+  `702143958f58209872d76aad7d4ee9f927640db27359232b1f6c66c9beaa04c1`다.
+- 선택 결과는 HWP 44, HWPX 20, 다중 첨부 40, 복잡 문서 후보 29,
+  첨부-only hard-condition sentinel 후보 15, exclusion 후보 20,
+  sparse-condition 후보 19, 통합/하위사업 후보 8이다.
+- 복잡 문서와 hard-condition/exclusion은 결과 label이 아니라 사전 선택용 구조 후보다.
+  실제 14.9.1/14.9.3 충족 여부는 raw+첨부를 읽은 독립 audit/Judge 결과에서 다시
+  확정해야 하며, 이 숫자만으로 품질 PASS를 선언하지 않는다.
+- artifact는
+  `tmp/deep-analysis-quality/2026-07-25/frozen-80/{public,secret}-manifest.json`에
+  immutable write됐고 secret mode는 `0600`이다. 외부 LLM 호출 0, DB write 0이다.
+- 집중 테스트, web typecheck, 전체 deep-analysis contract test, disk readback
+  manifest pair 검증을 통과했다.
+
+현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. 위 최소 증거 2~4를 순서대로 닫기 전에는
+H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
 
 중단 조건:
 
