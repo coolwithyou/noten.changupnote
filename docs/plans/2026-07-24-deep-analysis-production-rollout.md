@@ -2095,8 +2095,12 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   1×125 issue 0, dry-run baseline 1/1, canary/all promotion verify issue 0,
   S12/S13/S14를 모두 통과했다. 관제는 `serving_complete_fresh=2`,
   `publication_complete=2`, `serving_complete=2`, `analysis_fresh=2`로 확인됐다.
-- [ ] 24시간 serving/hash/SLO 관측과 20공고 확대는 아직 완료되지 않았다. worker는
-  비용 상한 아래서 backlog를 계속 처리하고, 새 S11 run은 같은 gate로만 승격한다.
+- [x] `deep-analysis:verify-serving -- --active`가 active deep release를 DB에서
+  자동 발견하고, DB embedded manifest의 manifest/release-plan hash를 다시 검증한 뒤
+  로컬 `spike-out` 파일 없이 S12/S13/S14를 재검증하도록 확장했다. 두 active release,
+  두 공고에 대한 첫 monitor 실행은 PASS였다.
+- [ ] active monitor를 별도 Cloud Run Job과 30분 Scheduler로 배포해 24시간
+  serving/hash/SLO 관측을 시작한다. 20공고 확대는 이 관측 gate 뒤에만 진행한다.
 
 #### Phase H. 활성 공고 백필 (2026-07-25 실측 분모 636)
 

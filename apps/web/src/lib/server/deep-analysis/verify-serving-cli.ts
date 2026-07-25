@@ -3,14 +3,14 @@ import {
   type CompanyProfile,
   type GrantCriterion,
 } from "@cunote/contracts";
-import { and, eq, max } from "drizzle-orm";
+import { and, eq, isNotNull, max } from "drizzle-orm";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import {
-  readPromotionReleaseManifest,
   sha256Canonical,
+  validatePromotionReleaseManifest,
 } from "../analysis-lab/promotion-release";
 import {
   loadPromotionGrantSnapshot,
@@ -37,20 +37,85 @@ function readArg(name: string): string | undefined {
 async function main(): Promise<number> {
   const releaseId = readArg("release")?.trim();
   const scope = readArg("scope")?.trim();
-  if (!releaseId) throw new Error("--release가 필요합니다.");
-  if (scope !== "canary" && scope !== "all") {
-    throw new Error("--scope는 canary 또는 all이어야 합니다.");
+  const active = process.argv.includes("--active");
+  if (active === Boolean(releaseId)) {
+    throw new Error("--active 또는 --release 중 하나만 필요합니다.");
   }
-  const manifest = await readPromotionReleaseManifest(releaseId);
   const db = getCunoteDb();
   const storage = createR2ObjectStorageFromEnv();
   if (!storage) throw new Error("R2 환경변수가 필요합니다.");
+
+  if (active) {
+    if (scope) throw new Error("--active는 --scope를 받지 않고 active release 전체를 검증합니다.");
+    const releaseRows = await db
+      .selectDistinct({ releaseId: schema.analysisLabPromotionReleases.releaseId })
+      .from(schema.analysisLabPromotionReleases)
+      .innerJoin(
+        schema.analysisLabPromotionItems,
+        eq(
+          schema.analysisLabPromotionItems.releaseDbId,
+          schema.analysisLabPromotionReleases.id,
+        ),
+      )
+      .where(and(
+        eq(schema.analysisLabPromotionReleases.status, "active"),
+        isNotNull(schema.analysisLabPromotionItems.deepAnalysisRunId),
+      ));
+    const results = [];
+    for (const release of releaseRows.sort((left, right) =>
+      left.releaseId.localeCompare(right.releaseId))) {
+      results.push(await verifyRelease({
+        db,
+        storage,
+        releaseId: release.releaseId,
+        scope: "all",
+      }));
+    }
+    const failures = results.flatMap((result) => result.failures);
+    console.log(JSON.stringify({
+      schema: "deep-analysis-active-serving-monitor-v1",
+      verdict: failures.length === 0 ? "PASS" : "FAIL",
+      checkedReleases: results.length,
+      checkedItems: results.reduce((sum, result) => sum + result.checked, 0),
+      results,
+    }, null, 2));
+    return failures.length === 0 ? 0 : 2;
+  }
+
+  if (scope !== "canary" && scope !== "all") {
+    throw new Error("--scope는 canary 또는 all이어야 합니다.");
+  }
+  const result = await verifyRelease({
+    db,
+    storage,
+    releaseId: releaseId!,
+    scope,
+  });
+  console.log(JSON.stringify(result, null, 2));
+  return result.failures.length === 0 ? 0 : 2;
+}
+
+async function verifyRelease(input: {
+  db: ReturnType<typeof getCunoteDb>;
+  storage: NonNullable<ReturnType<typeof createR2ObjectStorageFromEnv>>;
+  releaseId: string;
+  scope: "canary" | "all";
+}) {
+  const { db, storage, releaseId, scope } = input;
   const [release] = await db
     .select()
     .from(schema.analysisLabPromotionReleases)
     .where(eq(schema.analysisLabPromotionReleases.releaseId, releaseId))
     .limit(1);
   if (!release) throw new Error("promotion release 원장이 없습니다.");
+  const manifest = validatePromotionReleaseManifest(release.manifest);
+  if (
+    manifest.releaseId !== releaseId
+    || manifest.manifestSha256 !== release.manifestSha256
+    || manifest.releasePlanSha256 !== release.releasePlanSha256
+  ) {
+    throw new Error("DB release 원장과 embedded manifest hash가 일치하지 않습니다.");
+  }
   const expectedReleaseStatus = scope === "canary" ? "canary_passed" : "active";
   if (release.status !== expectedReleaseStatus) {
     throw new Error(`release 상태가 ${expectedReleaseStatus}가 아닙니다: ${release.status}`);
@@ -260,7 +325,7 @@ async function main(): Promise<number> {
     });
   }
 
-  console.log(JSON.stringify({
+  return {
     schema: "deep-analysis-serving-verification-v1",
     verdict: failures.length === 0 ? "PASS" : "FAIL",
     releaseId,
@@ -268,8 +333,7 @@ async function main(): Promise<number> {
     checked: targets.length,
     passed,
     failures,
-  }, null, 2));
-  return failures.length === 0 ? 0 : 2;
+  };
 }
 
 async function appendNextReceipt(input: {
