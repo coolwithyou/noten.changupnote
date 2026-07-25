@@ -2,10 +2,20 @@ import assert from "node:assert/strict";
 import {
   CRITERION_DIMENSIONS,
   DEEP_ANALYSIS_STAGE_KEYS,
+  assertDeepAnalysisModelPair,
   deriveDeepAnalysisCompletion,
   hasExactDeepAnalysisAxisCoverage,
   isGrantActiveForDeepAnalysis,
 } from "./index.js";
+
+assert.doesNotThrow(() => assertDeepAnalysisModelPair({
+  primaryModel: "claude-opus-4-8",
+  auditModel: "claude-sonnet-5",
+}));
+assert.throws(() => assertDeepAnalysisModelPair({
+  primaryModel: "unreviewed-model",
+  auditModel: "claude-sonnet-5",
+}), /not allowlisted/);
 
 const asOf = new Date("2026-07-25T03:00:00.000Z");
 

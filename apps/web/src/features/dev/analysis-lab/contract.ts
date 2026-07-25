@@ -1,11 +1,24 @@
 // 공모 딥분석 실험실(dev 전용) — 서버(lib/server/analysis-lab)와 UI(features/dev/analysis-lab)가
 // 공유하는 단일 계약. 프로덕션 코드와 격리된 스파이크 트랙이며, DB에는 어떤 쓰기도 하지 않는다.
 // 런 결과는 spike-out/analysis-lab/ 에 불변 JSON으로 저장된다.
-import type { CriterionDimension, GrantBenefitFamily } from "@cunote/contracts";
+import type {
+  CriterionDimension,
+  DeepAnalysisAssessmentStatus,
+  DeepAnalysisAxisAssessment,
+  DeepAnalysisConfirmationOption,
+  DeepAnalysisConfirmationReusable,
+  DeepAnalysisCriterion,
+  DeepAnalysisCriterionConfirmation,
+  DeepAnalysisCriterionKind,
+  DeepAnalysisProgramIntent,
+  DeepAnalysisTaxonomyProposal,
+  DeepAnalysisUsage,
+  GrantBenefitFamily,
+} from "@cunote/contracts";
 
 // v2: 구조화 필드 렌더를 인용 친화("라벨: 값")로 변경 + 인용 지침 강화 — v1 런과 입력 형식이 다르다.
-// v3: 자가신고 확인 질문(confirmation) 생성 추가 — 판정 불가 결격에 sourceSpan 앵커 객관식 질문을 사전 생성한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v3";
+// v4: 운영 계약과 동일하게 premises/export_performance까지 22축 criterion을 허용한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v4";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
@@ -84,50 +97,21 @@ export interface LabInputBlock {
   truncated: boolean;
 }
 
-export type LabCriterionKind = "required" | "preferred" | "exclusion";
+export type LabCriterionKind = DeepAnalysisCriterionKind;
 
-export type LabConfirmationReusable = "company_fact" | "per_notice";
+export type LabConfirmationReusable = DeepAnalysisConfirmationReusable;
 
-export interface LabConfirmationOption {
-  value: string; // 영문 snake_case 슬러그
-  label: string; // 한국어 표시 문구
-  disqualifies: boolean; // 이 선택지가 결격에 해당하는가
-}
+export type LabConfirmationOption = DeepAnalysisConfirmationOption;
 
 /**
  * 자가신고 확인 질문 — kind=exclusion 중 소싱 데이터로 판정 불가한 항목에 한해
  * 딥분석이 사전 생성한다(v3). 확인 시점 재생성 없이 이 캐시를 쓴다.
  * 근거: docs/research/2026-07-23-미판정-결격-사용자확인-루프-검토.md §4.1.
  */
-export interface LabCriterionConfirmation {
-  prompt: string;
-  options: LabConfirmationOption[]; // 2~4개, disqualifies true/false 각 1개 이상
-  answerType: "single" | "multi";
-  reusable: LabConfirmationReusable;
-  /** reusable=company_fact 일 때만 — 공고 간 동일 항목 식별 키. LLM 판단(사전 거버넌스 없음 — 2026-07-23 결정). */
-  conditionKey: string | null;
-}
+export type LabCriterionConfirmation = DeepAnalysisCriterionConfirmation;
 
 /** 딥분석(B)이 제안한 criterion. spanVerified 는 근거 인용이 입력 원문에 실재하는지의 서버 검증 결과. */
-export interface LabCriterion {
-  dimension: CriterionDimension;
-  kind: LabCriterionKind;
-  operator: string;
-  value: unknown;
-  confidence: number;
-  sourceSpan: string | null;
-  spanVerified: boolean;
-  /**
-   * 근거 인용이 검증된 위치의 입력 내 비율(0~1) — 서버 span 검증 시점에 부수 기록한다.
-   * 장문 recall 저하(lost-in-the-middle) 위치 진단 전용(aggregate.ts 위치 진단 블록)이며
-   * 게이트 판정에는 쓰지 않는다. 미검증(spanVerified=false)이면 null.
-   * 구 런(파일럿)에는 필드 자체가 없다(미계측 — 하위 호환 optional).
-   */
-  spanOffsetRatio?: number | null;
-  note: string | null;
-  /** 자가신고 확인 질문(결격 전용, v3) — v2 이하 런에는 필드 없음(하위 호환 optional). */
-  confirmation?: LabCriterionConfirmation | null;
-}
+export type LabCriterion = DeepAnalysisCriterion;
 
 /** 현재 프로덕션 DB(grant_criteria)에 있는 criterion 스냅샷(A). */
 export interface LabCurrentCriterion {
@@ -140,35 +124,16 @@ export interface LabCurrentCriterion {
   sourceSpan: string | null;
 }
 
-export type LabAxisStatus =
-  | "condition_found"
-  | "inspected_no_condition"
-  | "ambiguous"
-  | "input_missing";
+export type LabAxisStatus = DeepAnalysisAssessmentStatus;
 
 /** 축별 검사 완전성 보고 — 22축 전수. */
-export interface LabAxisAssessment {
-  dimension: CriterionDimension;
-  status: LabAxisStatus;
-  confidence: number;
-  comment: string | null;
-}
+export type LabAxisAssessment = DeepAnalysisAxisAssessment;
 
 /** 공모의 정성적 방향성 — hard 판정이 아니라 랭킹·조언 계층의 자산. */
-export interface LabProgramIntent {
-  oneLiner: string;
-  targetProfile: string;
-  evaluationFocus: string[];
-  benefitSummary: string;
-  cautionNotes: string[];
-}
+export type LabProgramIntent = DeepAnalysisProgramIntent;
 
 /** 22축에 담기지 않는 반복 요건의 신규 축 제안(수집만; 승격은 반복 실측 후). */
-export interface LabTaxonomyProposal {
-  proposedDimension: string;
-  rationale: string;
-  exampleSpan: string;
-}
+export type LabTaxonomyProposal = DeepAnalysisTaxonomyProposal;
 
 export type LabDimensionVerdict = "new" | "changed" | "same" | "only_current" | "none";
 
@@ -182,11 +147,7 @@ export interface LabDimensionDiff {
   verdict: LabDimensionVerdict;
 }
 
-export interface LabUsage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens: number | null;
-}
+export type LabUsage = DeepAnalysisUsage;
 
 export interface LabRun {
   runId: string;

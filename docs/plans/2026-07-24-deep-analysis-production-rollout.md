@@ -1873,6 +1873,27 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - 실패 재시도와 dead-letter 증적 보존
 - worker 중단을 ops에서 10분 안에 감지
 
+구현 체크포인트 D1 — 실행 기반 (2026-07-25):
+
+- [x] 운영 prompt/model policy를 공용 contract로 옮기고 primary/audit 모델을 명시
+  allowlist로 닫았다. dev analysis-lab은 운영 extractor를 재사용하는 adapter가 되었다.
+- [x] `premises`와 `export_performance`도 축과 criterion에서 보존하되, matcher canonical
+  데이터가 열리기 전에는 해당 dimension의 `text_only`로 기록해 분석 누락과 자동 판정
+  활성화를 분리했다.
+- [x] 입력이 단일 prompt 상한을 넘으면 60,000자 무손실 chunk별 map 분석 후 전체
+  synthesis를 수행한다. 모든 pass의 raw 결과·usage·비용을 보존할 수 있는 실행 결과 계약과
+  single/map-reduce 회귀 테스트를 추가했다.
+- [x] allowlist·일별/공고별 비용 상한·최대 입력·lease·batch 크기를 fail-closed env
+  policy로 고정하고, 429/5xx/timeout exponential retry와 dead-letter 분류를 구현했다.
+- [x] Cloud Run 호출 단위 queue loop는 짧은 `SKIP LOCKED` lease 뒤 외부 처리를 수행하며,
+  budget 대기·재시도·blocker 결과를 job 상태로 보존한다.
+- [x] migration `0054_deep_analysis_worker`에 `pending_budget` 상태와 worker heartbeat
+  원장을 추가했다. heartbeat stale 기준은 기본 600초이며 RLS를 활성화했다.
+- [x] `verify:db-migrations`, contracts/web typecheck,
+  `verify:deep-analysis-contract`가 통과했다.
+- [ ] 실제 job processor는 Phase E의 validator·독립 감사와 결합한 뒤에만
+  `analysis_complete`를 기록한다. 이 결합 전에는 Cloud Run에 배포하지 않는다.
+
 #### Phase E. 결정론 검증과 독립 감사
 
 작업:

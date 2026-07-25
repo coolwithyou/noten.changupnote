@@ -379,6 +379,13 @@
       "when": 1784936877781,
       "tag": "0053_deep_analysis_ledger",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1784938088194,
+      "tag": "0054_deep_analysis_worker",
+      "breakpoints": true
     }
   ]
 }

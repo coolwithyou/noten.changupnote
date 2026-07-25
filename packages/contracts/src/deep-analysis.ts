@@ -1,7 +1,27 @@
 import { CRITERION_DIMENSIONS } from "./enums.js";
 
+type DeepAnalysisCriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
+
 export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v1" as const;
 export const DEEP_ANALYSIS_ACTIVE_TIME_ZONE = "Asia/Seoul" as const;
+export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v1" as const;
+export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v1" as const;
+
+/**
+ * 운영 모델은 명시 allowlist만 허용한다. 환경변수로 임의 모델을 주입해 이미 검증한
+ * prompt/tool 계약을 우회하지 못하게 한다.
+ */
+export const DEEP_ANALYSIS_PRIMARY_MODELS = ["claude-opus-4-8"] as const;
+export const DEEP_ANALYSIS_AUDIT_MODELS = ["claude-sonnet-5", "claude-fable-5"] as const;
+
+export const DEEP_ANALYSIS_DEFAULT_LIMITS = {
+  leaseSeconds: 900,
+  maxJobsPerInvocation: 5,
+  dailyCostCapUsd: 50,
+  perNoticeCostCapUsd: 2,
+  maxTotalInputChars: 800_000,
+  heartbeatStaleSeconds: 600,
+} as const;
 
 export const DEEP_ANALYSIS_STAGE_KEYS = [
   "source_fresh",
@@ -54,6 +74,8 @@ export type DeepAnalysisStageStatus = (typeof DEEP_ANALYSIS_STAGE_STATUSES)[numb
 export type DeepAnalysisAxisStatus = (typeof DEEP_ANALYSIS_AXIS_STATUSES)[number];
 export type DeepAnalysisAttachmentDisposition =
   (typeof DEEP_ANALYSIS_ATTACHMENT_DISPOSITIONS)[number];
+export type DeepAnalysisPrimaryModel = (typeof DEEP_ANALYSIS_PRIMARY_MODELS)[number];
+export type DeepAnalysisAuditModel = (typeof DEEP_ANALYSIS_AUDIT_MODELS)[number];
 
 export interface DeepAnalysisActiveGrantInput {
   status: string;
@@ -72,6 +94,113 @@ export interface DeepAnalysisCompletionFlags {
 export interface DeepAnalysisStageSnapshot {
   stage: DeepAnalysisStageKey;
   status: DeepAnalysisStageStatus;
+}
+
+export type DeepAnalysisCriterionKind = "required" | "preferred" | "exclusion";
+export type DeepAnalysisConfirmationReusable = "company_fact" | "per_notice";
+
+export interface DeepAnalysisConfirmationOption {
+  value: string;
+  label: string;
+  disqualifies: boolean;
+}
+
+export interface DeepAnalysisCriterionConfirmation {
+  prompt: string;
+  options: DeepAnalysisConfirmationOption[];
+  answerType: "single" | "multi";
+  reusable: DeepAnalysisConfirmationReusable;
+  conditionKey: string | null;
+}
+
+export interface DeepAnalysisCriterion {
+  dimension: DeepAnalysisCriterionDimension;
+  kind: DeepAnalysisCriterionKind;
+  operator: string;
+  value: unknown;
+  confidence: number;
+  sourceSpan: string | null;
+  spanVerified: boolean;
+  spanOffsetRatio?: number | null;
+  note: string | null;
+  confirmation?: DeepAnalysisCriterionConfirmation | null;
+}
+
+export type DeepAnalysisAssessmentStatus =
+  | "condition_found"
+  | "inspected_no_condition"
+  | "ambiguous"
+  | "input_missing";
+
+export interface DeepAnalysisAxisAssessment {
+  dimension: DeepAnalysisCriterionDimension;
+  status: DeepAnalysisAssessmentStatus;
+  confidence: number;
+  comment: string | null;
+}
+
+export interface DeepAnalysisProgramIntent {
+  oneLiner: string;
+  targetProfile: string;
+  evaluationFocus: string[];
+  benefitSummary: string;
+  cautionNotes: string[];
+}
+
+export interface DeepAnalysisTaxonomyProposal {
+  proposedDimension: string;
+  rationale: string;
+  exampleSpan: string;
+}
+
+export interface DeepAnalysisUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number | null;
+}
+
+export interface DeepAnalysisModelResult {
+  model: string;
+  analysisMarkdown: string;
+  programIntent: DeepAnalysisProgramIntent | null;
+  criteria: DeepAnalysisCriterion[];
+  axisAssessments: DeepAnalysisAxisAssessment[];
+  taxonomyProposals: DeepAnalysisTaxonomyProposal[];
+  usage: DeepAnalysisUsage | null;
+  costUsd: number | null;
+  rawToolInput: Record<string, unknown>;
+  rawResponseText: string;
+  stopReason: string | null;
+}
+
+export function isAllowedDeepAnalysisPrimaryModel(
+  value: string,
+): value is DeepAnalysisPrimaryModel {
+  return (DEEP_ANALYSIS_PRIMARY_MODELS as readonly string[]).includes(value);
+}
+
+export function isAllowedDeepAnalysisAuditModel(
+  value: string,
+): value is DeepAnalysisAuditModel {
+  return (DEEP_ANALYSIS_AUDIT_MODELS as readonly string[]).includes(value);
+}
+
+export function assertDeepAnalysisModelPair(input: {
+  primaryModel: string;
+  auditModel: string;
+}): asserts input is {
+  primaryModel: DeepAnalysisPrimaryModel;
+  auditModel: DeepAnalysisAuditModel;
+} {
+  if (input.primaryModel === input.auditModel) {
+    throw new Error("Deep analysis primary and audit models must be different");
+  }
+  if (!isAllowedDeepAnalysisPrimaryModel(input.primaryModel)) {
+    throw new Error(`Deep analysis primary model is not allowlisted: ${input.primaryModel}`);
+  }
+  if (!isAllowedDeepAnalysisAuditModel(input.auditModel)) {
+    throw new Error(`Deep analysis audit model is not allowlisted: ${input.auditModel}`);
+  }
 }
 
 /**

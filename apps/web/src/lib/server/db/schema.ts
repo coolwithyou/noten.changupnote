@@ -838,7 +838,8 @@ export const grantDeepAnalysisJobs = pgTable("grant_deep_analysis_jobs", {
     .where(sql`${table.status} = 'leased'`),
   statusCheck: check("grant_deep_analysis_jobs_status_check", sql`
     ${table.status} IN (
-      'pending', 'leased', 'retry_wait', 'succeeded', 'blocked', 'dead_letter', 'canceled'
+      'pending', 'leased', 'retry_wait', 'pending_budget', 'succeeded', 'blocked',
+      'dead_letter', 'canceled'
     )
   `),
   sourceHashCheck: check("grant_deep_analysis_jobs_source_hash_check", sql`
@@ -855,6 +856,31 @@ export const grantDeepAnalysisJobs = pgTable("grant_deep_analysis_jobs", {
       AND ${table.leaseExpiresAt} IS NOT NULL
       AND ${table.workerId} IS NOT NULL)
     OR (${table.status} <> 'leased')
+  `),
+}));
+
+/**
+ * Cloud Run worker의 마지막 생존·진행 상태. job lease만으로는 "큐가 비어서 idle"과
+ * "scheduler/container가 멈춤"을 구분할 수 없으므로 별도 heartbeat를 upsert한다.
+ */
+export const grantDeepAnalysisWorkerHeartbeats = pgTable("grant_deep_analysis_worker_heartbeats", {
+  workerId: text("worker_id").primaryKey(),
+  serviceRevision: text("service_revision").notNull(),
+  modelPolicyVersion: text("model_policy_version").notNull(),
+  status: text("status").notNull(),
+  currentJobId: uuid("current_job_id")
+    .references(() => grantDeepAnalysisJobs.id, { onDelete: "set null" }),
+  lastErrorCode: text("last_error_code"),
+  metadata: jsonb("metadata").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  heartbeatIdx: index("grant_deep_analysis_worker_heartbeats_heartbeat_idx")
+    .on(table.heartbeatAt),
+  statusHeartbeatIdx: index("grant_deep_analysis_worker_heartbeats_status_heartbeat_idx")
+    .on(table.status, table.heartbeatAt),
+  statusCheck: check("grant_deep_analysis_worker_heartbeats_status_check", sql`
+    ${table.status} IN ('idle', 'running', 'degraded', 'stopped')
   `),
 }));
 
