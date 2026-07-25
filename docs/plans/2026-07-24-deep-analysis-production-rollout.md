@@ -2697,13 +2697,18 @@ extractor 구현을 가지는 것은 금지한다.
 - 코호트 manifest의 모든 grant가 S12~S14와 현재 serving hash를 만족해야 한다.
 - publish되지 않은 grant도 누락되지 않고 명시 실패로 집계한다.
 - 분석 완료 수와 serving 완료 수를 하나의 코호트 결과에 함께 기록한다.
+- current run과 연결된 `active` release의 `applied` promotion item만 인정한다.
+- 최신 S12~S14 receipt는 같은 release/item에 묶이고 serving verifier version·DB evidence
+  hash·R2 artifact key를 가지며 45분 이내여야 한다.
+- S12 after hash, S13 repository/trace hash, S14 source/input hash를 각각 fail-closed로
+  검증한다.
 
 완료 조건:
 
-- [ ] 20개 중 1개가 publish되지 않은 fixture가 FAIL
-- [ ] 20개 모두 `serving_complete + fresh`인 fixture만 PASS
-- [ ] 기존 2건 serving 검증 회귀 통과
-- [ ] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+- [x] 20개 중 1개가 publish되지 않은 fixture가 FAIL
+- [x] 20개 모두 `serving_complete + fresh`인 fixture만 PASS
+- [x] 기존 2건 serving 검증 회귀 통과
+- [x] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
 
 #### 축소 Step 4 — 품질·운영 증거를 순서대로 닫기
 

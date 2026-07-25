@@ -8,8 +8,11 @@ import { closeCunoteDb, getCunoteDb } from "@/lib/server/db/client";
 import { loadMonorepoEnv } from "@/lib/server/loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 import {
+  DEEP_ANALYSIS_COHORT_SERVING_STAGES,
   evaluateDeepAnalysisCohortObservation,
   type DeepAnalysisCohortObservationItem,
+  type DeepAnalysisCohortServingReceipt,
+  type DeepAnalysisCohortServingStage,
 } from "./cohortObservation";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 import { postgresUuidArray } from "./sqlArray";
@@ -35,6 +38,12 @@ interface CohortRow extends Record<string, unknown> {
   stage_statuses: unknown;
   axis_count: number | string;
   audit_verdict: string | null;
+  promotion_item_id: string | null;
+  promotion_item_status: string | null;
+  promotion_release_id: string | null;
+  promotion_release_status: string | null;
+  promotion_after_sha256: string | null;
+  serving_receipts: unknown;
   cost_usd_since_activation: number | string;
 }
 
@@ -122,6 +131,46 @@ async function main(): Promise<number> {
             WHERE axis.run_id = latest_run.id
           ), 0)::int AS axis_count,
           latest_audit.verdict AS audit_verdict,
+          latest_promotion.item_id AS promotion_item_id,
+          latest_promotion.item_status AS promotion_item_status,
+          latest_promotion.release_id AS promotion_release_id,
+          latest_promotion.release_status AS promotion_release_status,
+          latest_promotion.after_sha256 AS promotion_after_sha256,
+          COALESCE((
+            SELECT jsonb_object_agg(
+              latest.stage,
+              jsonb_build_object(
+                'status', latest.status,
+                'verifierVersion', latest.verifier_version,
+                'evidence', latest.evidence,
+                'evidenceSha256', latest.evidence_sha256,
+                'artifactKey', latest.artifact_key,
+                'createdAt', latest.created_at
+              )
+            )
+            FROM (
+              SELECT DISTINCT ON (receipt.stage)
+                receipt.stage,
+                receipt.status,
+                receipt.verifier_version,
+                receipt.evidence,
+                receipt.evidence_sha256,
+                receipt.artifact_key,
+                receipt.created_at
+              FROM grant_deep_analysis_stage_receipts receipt
+              WHERE receipt.run_id = latest_run.id
+                AND receipt.stage IN (
+                  'publication_complete',
+                  'serving_complete',
+                  'analysis_fresh'
+                )
+              ORDER BY
+                receipt.stage,
+                receipt.attempt DESC,
+                receipt.created_at DESC,
+                receipt.id DESC
+            ) latest
+          ), '{}'::jsonb) AS serving_receipts,
           COALESCE((
             SELECT sum(run_cost.cost_usd)
             FROM grant_deep_analysis_runs run_cost
@@ -155,6 +204,24 @@ async function main(): Promise<number> {
           ORDER BY candidate.attempt DESC, candidate.completed_at DESC, candidate.id DESC
           LIMIT 1
         ) latest_audit ON true
+        LEFT JOIN LATERAL (
+          SELECT
+            promotion_item.id::text AS item_id,
+            promotion_item.status AS item_status,
+            promotion_item.after_sha256,
+            promotion_release.release_id,
+            promotion_release.status AS release_status
+          FROM analysis_lab_promotion_items promotion_item
+          INNER JOIN analysis_lab_promotion_releases promotion_release
+            ON promotion_release.id = promotion_item.release_db_id
+          WHERE promotion_item.grant_id = cohort.grant_id
+            AND promotion_item.deep_analysis_run_id = latest_run.id
+          ORDER BY
+            CASE WHEN promotion_release.status = 'active' THEN 0 ELSE 1 END,
+            promotion_item.applied_at DESC NULLS LAST,
+            promotion_item.id DESC
+          LIMIT 1
+        ) latest_promotion ON true
         ORDER BY cohort.grant_id
       `),
       db.execute<CountRow>(sql`
@@ -214,6 +281,18 @@ async function main(): Promise<number> {
         currentInputSha256,
         currentInputBlockerCodes,
         currentInputVerificationError,
+        promotion: (
+          row.promotion_item_id && row.promotion_release_id
+            ? {
+                itemId: row.promotion_item_id,
+                itemStatus: row.promotion_item_status ?? "",
+                releaseId: row.promotion_release_id,
+                releaseStatus: row.promotion_release_status ?? "",
+                afterSha256: row.promotion_after_sha256,
+              }
+            : null
+        ),
+        servingReceipts: servingReceipts(row.serving_receipts),
         costUsdSinceActivation: Number(row.cost_usd_since_activation),
       });
     }
@@ -292,6 +371,47 @@ function stageStatuses(
     Object.entries(value as Record<string, unknown>)
       .filter((entry): entry is [string, string] => typeof entry[1] === "string"),
   ) as Partial<Record<DeepAnalysisStageKey, string>>;
+}
+
+function servingReceipts(
+  value: unknown,
+): Partial<Record<DeepAnalysisCohortServingStage, DeepAnalysisCohortServingReceipt>> {
+  const record = objectRecord(value);
+  if (!record) return {};
+  const receipts: Partial<
+    Record<DeepAnalysisCohortServingStage, DeepAnalysisCohortServingReceipt>
+  > = {};
+  for (const stage of DEEP_ANALYSIS_COHORT_SERVING_STAGES) {
+    const receipt = objectRecord(record[stage]);
+    if (!receipt) continue;
+    receipts[stage] = {
+      status: nullableString(receipt.status),
+      verifierVersion: nullableString(receipt.verifierVersion),
+      evidence: objectRecord(receipt.evidence) ?? {},
+      evidenceSha256: nullableString(receipt.evidenceSha256),
+      artifactKey: nullableString(receipt.artifactKey),
+      createdAt: nullableUnknownDate(receipt.createdAt, `${stage}.createdAt`),
+    };
+  }
+  return receipts;
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function nullableUnknownDate(value: unknown, label: string): Date | null {
+  if (value === null || value === undefined) return null;
+  if (value instanceof Date || typeof value === "string") {
+    return nullableDate(value, label);
+  }
+  throw new Error(`${label} is invalid`);
 }
 
 main()
