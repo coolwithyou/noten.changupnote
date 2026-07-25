@@ -2087,8 +2087,16 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `deep-production-r1-20260725T020427Z-e238ba64`로 준비했지만 aggregate coverage
   ratio가 `4/3 = 1.333`으로 1.5 gate에 미달해 ITERATE로 중단했다. 다른 5개 gate와
   source drift는 통과했으나 shadow·승인·write는 실행하지 않았다.
-- [ ] 중단 조건을 통과하는 두 번째 실제 canary와 24시간 serving/hash/SLO 관측은
-  아직 완료되지 않았다. gate를 낮추지 않고 다음 S11 통과 공고로 이어간다.
+- [x] gate를 낮추지 않고 새 worker가 통과시킨 K-Startup `178466` run으로
+  `deep-production-r1-20260725T022203Z-5fcb677b` release를 준비했다. 본문+첨부 2건
+  중 텍스트 1건을 포함하고 non-text 1건은 검증된 waiver이며, 22축·criterion 5개·
+  독립 감사 concur를 통과했다.
+- [x] 두 번째 실제 canary도 aggregate 6/6 GO, source drift 0, production shadow
+  1×125 issue 0, dry-run baseline 1/1, canary/all promotion verify issue 0,
+  S12/S13/S14를 모두 통과했다. 관제는 `serving_complete_fresh=2`,
+  `publication_complete=2`, `serving_complete=2`, `analysis_fresh=2`로 확인됐다.
+- [ ] 24시간 serving/hash/SLO 관측과 20공고 확대는 아직 완료되지 않았다. worker는
+  비용 상한 아래서 backlog를 계속 처리하고, 새 S11 run은 같은 gate로만 승격한다.
 
 #### Phase H. 활성 공고 백필 (2026-07-25 실측 분모 636)
 
