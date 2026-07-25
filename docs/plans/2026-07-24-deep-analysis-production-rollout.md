@@ -2618,3 +2618,79 @@ extractor 구현을 가지는 것은 금지한다.
 이 체크리스트가 끝나기 전에는 “HWP 변환이 된다”, “criterion이 몇 개 있다”,
 “extraction_log가 labeled다”, “모델 API가 200이다” 중 어느 것도 딥분석 완료의
 대체 증거로 사용하지 않는다.
+
+### 14.14 검수 후 축소 실행 계획
+
+2026-07-25 검수에서 한 번에 분석·서빙·관제·운영 자동화를 함께 확장한 것이
+완료 조건을 흐린 원인으로 확인됐다. 이후 작업은 아래 규칙을 따른다.
+
+- 한 단계는 하나의 불변식만 변경한다.
+- 각 단계는 집중 테스트, 문서 체크, 단일 체크포인트 커밋으로 끝낸다.
+- 앞 단계가 통과하고 작업 트리가 clean인 경우에만 다음 단계를 시작한다.
+- 예상 범위가 DB migration, 새 worker, 새 UI까지 커지면 구현을 멈추고 이 문서의
+  범위를 먼저 다시 검토한다.
+- Phase I SLO 확장, 관제 UI 추가, retry jitter는 핵심 E2E가 닫힐 때까지 보류한다.
+- production deploy, DB write, cohort 확대는 아래 로컬 게이트의 대체 증거가 아니다.
+
+#### 축소 Step 1 — 활성화 이후 실행만 코호트 성과로 인정
+
+범위:
+
+- `runStartedAt < activatedAt`인 실행은 `analysis_complete` 성과로 인정하지 않는다.
+- 활성화 이전 실행만 존재하는 공고는 PASS가 아니라 IN_PROGRESS 또는 FAIL이다.
+- SQL 조회와 순수 evaluator가 같은 시간 경계를 사용한다.
+
+완료 조건:
+
+- [ ] 활성화 이전 passed run 회귀 테스트가 실패를 검증
+- [ ] 활성화 시각과 같거나 이후인 passed run은 기존처럼 PASS
+- [ ] `verify:deep-analysis-contract` 통과
+- [ ] 체크포인트 커밋 후 worktree clean
+
+#### 축소 Step 2 — source 변경은 반드시 새 분석으로 복구
+
+범위:
+
+- job 운영 시각과 source revision 관측 시각을 분리한다.
+- 실행 시작 이후 source가 변경되면 S11 완료를 거부한다.
+- 변경된 revision이 feeder에서 새 작업으로 다시 enqueue됨을 검증한다.
+
+완료 조건:
+
+- [ ] 분석 도중 source 변경 fixture가 기존 run을 stale 처리
+- [ ] 같은 fixture가 새 revision job을 enqueue
+- [ ] promotion 이전에 stale 결과가 차단됨
+- [ ] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+
+#### 축소 Step 3 — 정확한 코호트가 S14까지 닫혀야 확장 가능
+
+범위:
+
+- 코호트 manifest의 모든 grant가 S12~S14와 현재 serving hash를 만족해야 한다.
+- publish되지 않은 grant도 누락되지 않고 명시 실패로 집계한다.
+- 분석 완료 수와 serving 완료 수를 하나의 코호트 결과에 함께 기록한다.
+
+완료 조건:
+
+- [ ] 20개 중 1개가 publish되지 않은 fixture가 FAIL
+- [ ] 20개 모두 `serving_complete + fresh`인 fixture만 PASS
+- [ ] 기존 2건 serving 검증 회귀 통과
+- [ ] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+
+#### 축소 Step 4 — 품질·운영 증거를 순서대로 닫기
+
+이 단계는 새 기능 개발 단계가 아니다.
+
+1. 동결 80공고 평가 artifact와 품질 기준 통과를 먼저 확정한다.
+2. H2 claim fence의 production revision과 exact cohort scope를 확인한다.
+3. 2건 카나리 24시간 48/48 slot 증거를 확정한다.
+4. 위 세 증거가 모두 PASS일 때만 20건 확대 여부를 판단한다.
+
+중단 조건:
+
+- 동결 80 품질 미달
+- worker revision 또는 cohort hash 불일치
+- 24시간 slot 누락
+- blocker 없는 active grant가 S14에 도달하지 못함
+
+위 조건 중 하나라도 발생하면 cohort를 확대하지 않고 해당 단계만 수정한다.
