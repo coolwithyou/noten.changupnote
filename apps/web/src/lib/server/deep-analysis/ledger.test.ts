@@ -3,12 +3,14 @@ import {
   deepAnalysisArtifactKey,
   putImmutableDeepAnalysisArtifact,
 } from "./artifacts";
+import { claimDeepAnalysisJob } from "./ledger";
 import {
   buildDeepAnalysisSourceRevision,
   sha256Hex,
   stableJson,
 } from "./sourceRevision";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
+import type { CunoteDbSession } from "@/lib/server/db/client";
 
 const first = buildDeepAnalysisSourceRevision({
   grant: { title: "공고", status: "open", nested: { b: 2, a: 1 } },
@@ -122,5 +124,38 @@ assert.equal(written.reused, false);
 assert.equal(reused.reused, true);
 assert.equal(written.key, reused.key);
 assert.equal(sha256Hex(objects.get(written.key)!), written.sha256);
+
+const claimedJob = {
+  id: "11111111-1111-4111-8111-111111111111",
+  grantId: "22222222-2222-4222-8222-222222222222",
+  sourceRevisionSha256: "e".repeat(64),
+  modelPolicyVersion: "policy",
+  priority: 0,
+  status: "leased",
+  attemptCount: 1,
+  maxAttempts: 5,
+  availableAt: new Date(),
+  leasedAt: new Date(),
+  leaseExpiresAt: new Date(),
+  workerId: "worker",
+  lastErrorCode: null,
+  lastErrorMessage: null,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+const selectChain = {
+  from: () => selectChain,
+  where: () => selectChain,
+  limit: async () => [claimedJob],
+};
+const claimDb = {
+  execute: async () => [{ id: claimedJob.id }],
+  select: () => selectChain,
+} as unknown as CunoteDbSession;
+const claimed = await claimDeepAnalysisJob(claimDb, {
+  workerId: "worker",
+  leaseSeconds: 60,
+});
+assert.equal(claimed?.grantId, claimedJob.grantId, "raw claim id를 Drizzle 행으로 다시 읽는다");
 
 console.log("deep analysis ledger tests passed");

@@ -73,6 +73,33 @@ export async function appendDeepAnalysisStageReceipt(
   return receipt;
 }
 
+export async function appendDeepAnalysisExceptionEvent(
+  db: CunoteDbSession,
+  input: {
+    runId: string;
+    exceptionKey: string;
+    eventType: "opened" | "resolved" | "reopened";
+    reasonCode: string;
+    actorType: "system" | "human";
+    actor: string;
+    detail: Record<string, unknown>;
+  },
+): Promise<typeof schema.grantDeepAnalysisExceptionEvents.$inferSelect> {
+  const evidenceSha256 = sha256Hex(stableJson(input.detail));
+  const [event] = await db.insert(schema.grantDeepAnalysisExceptionEvents).values({
+    runId: input.runId,
+    exceptionKey: input.exceptionKey,
+    eventType: input.eventType,
+    reasonCode: input.reasonCode,
+    actorType: input.actorType,
+    actor: input.actor,
+    detail: input.detail,
+    evidenceSha256,
+  }).returning();
+  if (!event) throw new Error("Failed to append deep analysis exception event");
+  return event;
+}
+
 /**
  * 여러 worker가 서로 기다리지 않도록 claim과 lease 갱신만 단일 짧은 문장으로 수행한다.
  * 외부 R2/LLM 호출은 이 함수가 반환된 뒤 트랜잭션 밖에서 실행한다.
@@ -87,7 +114,7 @@ export async function claimDeepAnalysisJob(
   }
   const now = input.now ?? new Date();
   const leaseExpiresAt = new Date(now.getTime() + input.leaseSeconds * 1000);
-  const rows = await db.execute<typeof schema.grantDeepAnalysisJobs.$inferSelect & Record<string, unknown>>(sql`
+  const claimed = await db.execute<{ id: string }>(sql`
     UPDATE grant_deep_analysis_jobs
     SET
       status = 'leased',
@@ -112,9 +139,14 @@ export async function claimDeepAnalysisJob(
       LIMIT 1
       FOR UPDATE SKIP LOCKED
     )
-    RETURNING *
+    RETURNING id::text AS id
   `);
-  return rows[0] ?? null;
+  const claimedId = claimed[0]?.id;
+  if (!claimedId) return null;
+  const [job] = await db.select().from(schema.grantDeepAnalysisJobs)
+    .where(eq(schema.grantDeepAnalysisJobs.id, claimedId)).limit(1);
+  if (!job) throw new Error(`Claimed deep analysis job disappeared: ${claimedId}`);
+  return job;
 }
 
 export async function findLatestDeepAnalysisRunForJob(

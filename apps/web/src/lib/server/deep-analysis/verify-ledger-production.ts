@@ -45,7 +45,8 @@ try {
           AND tgname IN (
             'grant_deep_analysis_stage_receipts_append_only',
             'grant_deep_analysis_axis_results_append_only',
-            'grant_deep_analysis_audits_append_only'
+            'grant_deep_analysis_audits_append_only',
+            'grant_deep_analysis_exception_events_append_only'
           )
       ) AS append_only_trigger_count,
       (
@@ -72,9 +73,9 @@ try {
     promotionFkCount: Number(catalog.promotion_fk_count),
   };
   if (
-    normalized.tableCount !== 5
-    || normalized.rlsCount !== 5
-    || normalized.appendOnlyTriggerCount !== 3
+    normalized.tableCount !== 7
+    || normalized.rlsCount !== 7
+    || normalized.appendOnlyTriggerCount !== 4
     || normalized.identityTriggerCount !== 1
     || normalized.promotionFkCount !== 1
   ) {

@@ -324,7 +324,10 @@ export function normalizeCriteria(rows: unknown, inputText: string): DeepAnalysi
       (CRITERION_OPERATORS as readonly string[]).includes(row.operator)
       ? row.operator
       : "text_only";
-    const sourceSpan = cleanString(row.source_span);
+    const requestedSourceSpan = cleanString(row.source_span);
+    const sourceSpan = requestedSourceSpan
+      ? resolveExactEvidenceSpan(requestedSourceSpan, inputText) ?? requestedSourceSpan
+      : null;
     const spanCheck = verifySpan(sourceSpan, normalizedInput, inputLines, inputText.length);
     const confirmation = normalizeConfirmation(row.confirmation);
     criteria.push({
@@ -415,6 +418,27 @@ export function buildNormalizedInputLines(inputText: string): NormalizedInputLin
 export interface SpanVerification {
   verified: boolean;
   offsetRatio: number | null;
+}
+
+/**
+ * HWP markdown의 줄바꿈/연속 공백만 모델이 단일 공백으로 인용한 경우, 정규화 문자열이
+ * 원문 전체에서 유일하게 한 곳에 대응할 때만 실제 raw substring으로 되돌린다.
+ * 중복 후보는 임의 선택하지 않아 validator가 계속 차단하게 한다.
+ */
+export function resolveExactEvidenceSpan(
+  requestedSpan: string,
+  inputText: string,
+): string | null {
+  if (inputText.includes(requestedSpan)) return requestedSpan;
+  const needle = normalizeEvidence(requestedSpan);
+  if (needle.length < 2) return null;
+  const mapped = normalizeEvidenceWithOffsets(inputText);
+  const first = mapped.text.indexOf(needle);
+  if (first < 0 || mapped.text.indexOf(needle, first + 1) >= 0) return null;
+  const start = mapped.starts[first];
+  const end = mapped.ends[first + needle.length - 1];
+  if (start === undefined || end === undefined || end <= start) return null;
+  return inputText.slice(start, end);
 }
 
 /**
@@ -582,7 +606,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "- 제재·참여제한: dimension=sanction, operator=in, kind=exclusion, value.flags=[참여제한=participation_restricted, 부정수급·환수=subsidy_fraud, 보조금법위반·특수관계=subsidy_law_violation, 의무불이행=obligation_breach, 임금체불명단=wage_arrears_listed, 중대재해명단=serious_accident_listed, 협약·계약위반=agreement_breach] 중 해당.",
   "- 재무건전성: dimension=financial_health, kind=exclusion, value.debt_ratio_pct_threshold={\"value\":숫자,\"inclusive\":이상=true/초과=false}, value.impairment_excluded=[\"partial\"|\"full\"](자본잠식만 언급 시 [\"partial\",\"full\"]), value.min_interest_coverage=숫자.",
   "- 고용보험·피보험자: dimension=insured_workforce, value.employment_insurance_required=true / min_insured·max_insured 숫자 / no_layoff_within_months 숫자.",
-  "- 투자유치: dimension=investment, value.min_total_krw(원 단위 정수) / rounds / tips_operator_required.",
+  "- 투자유치 하한(이상): dimension=investment, operator=gte, value.min_total_krw(원 단위 정수). rounds / tips_operator_required도 지원한다. 'N원 미만·이하' 같은 투자유치 상한은 현재 matcher canonical에 없으므로 dimension=investment를 유지하되 operator=text_only, value={\"note\":\"근거문장\"}로 둔다. lte와 min_total_krw를 결합하지 마라.",
   "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박 등): dimension=industry, operator=not_in, kind=exclusion, value.tags=[업종명].",
   "",
   "[수혜·참여 이력 — prior_award]",
@@ -639,6 +663,34 @@ function finiteNumber(value: unknown): number | null {
 
 function normalizeEvidence(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function normalizeEvidenceWithOffsets(value: string): {
+  text: string;
+  starts: number[];
+  ends: number[];
+} {
+  const characters: string[] = [];
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let index = 0;
+  while (index < value.length) {
+    if (/\s/.test(value[index]!)) {
+      const whitespaceStart = index;
+      while (index < value.length && /\s/.test(value[index]!)) index += 1;
+      if (characters.length > 0 && index < value.length) {
+        characters.push(" ");
+        starts.push(whitespaceStart);
+        ends.push(index);
+      }
+      continue;
+    }
+    characters.push(value[index]!);
+    starts.push(index);
+    ends.push(index + 1);
+    index += 1;
+  }
+  return { text: characters.join(""), starts, ends };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -4,8 +4,8 @@ type DeepAnalysisCriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 
 export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v1" as const;
 export const DEEP_ANALYSIS_ACTIVE_TIME_ZONE = "Asia/Seoul" as const;
-export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v1" as const;
-export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v1" as const;
+export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v2" as const;
+export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v3" as const;
 
 /**
  * 운영 모델은 명시 allowlist만 허용한다. 환경변수로 임의 모델을 주입해 이미 검증한

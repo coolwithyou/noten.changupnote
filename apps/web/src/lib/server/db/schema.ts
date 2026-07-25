@@ -1044,6 +1044,38 @@ export const grantDeepAnalysisAudits = pgTable("grant_deep_analysis_audits", {
 }));
 
 /**
+ * validator/audit blocker와 사람의 해소 결정을 모두 append-only event로 보존한다.
+ * resolved는 기존 event 수정이 아니라 같은 exception_key의 새 event다.
+ */
+export const grantDeepAnalysisExceptionEvents = pgTable("grant_deep_analysis_exception_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  runId: uuid("run_id").notNull()
+    .references(() => grantDeepAnalysisRuns.id, { onDelete: "restrict" }),
+  exceptionKey: text("exception_key").notNull(),
+  eventType: text("event_type").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  actorType: text("actor_type").notNull(),
+  actor: text("actor").notNull(),
+  detail: jsonb("detail").$type<Record<string, unknown>>().notNull(),
+  evidenceSha256: text("evidence_sha256").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  runCreatedIdx: index("grant_deep_analysis_exception_events_run_created_idx")
+    .on(table.runId, table.createdAt),
+  keyCreatedIdx: index("grant_deep_analysis_exception_events_key_created_idx")
+    .on(table.exceptionKey, table.createdAt),
+  eventCheck: check("grant_deep_analysis_exception_events_event_check", sql`
+    ${table.eventType} IN ('opened', 'resolved', 'reopened')
+  `),
+  actorCheck: check("grant_deep_analysis_exception_events_actor_check", sql`
+    ${table.actorType} IN ('system', 'human')
+  `),
+  hashCheck: check("grant_deep_analysis_exception_events_hash_check", sql`
+    ${table.evidenceSha256} ~ '^[0-9a-f]{64}$'
+  `),
+}));
+
+/**
  * 딥분석 운영 승격 릴리스 원장. manifest와 승인·실행 actor, gate 결과를 운영 DB에 남겨
  * 로컬 artifact 유실이나 부분 성공을 전체 성공으로 오인하지 않게 한다.
  */

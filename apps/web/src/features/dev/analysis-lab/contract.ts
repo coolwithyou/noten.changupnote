@@ -17,8 +17,8 @@ import type {
 } from "@cunote/contracts";
 
 // v2: 구조화 필드 렌더를 인용 친화("라벨: 값")로 변경 + 인용 지침 강화 — v1 런과 입력 형식이 다르다.
-// v4: 운영 계약과 동일하게 premises/export_performance까지 22축 criterion을 허용한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v4";
+// v5: 운영 v2와 동일하게 investment 상한을 안전한 text_only로 제한한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v5";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

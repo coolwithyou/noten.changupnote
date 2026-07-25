@@ -8,7 +8,7 @@ import { runDeepGrantAnalysis } from "./extractor";
 export const DEEP_ANALYSIS_SINGLE_PROMPT_CHARS = 140_000;
 
 export interface DeepAnalysisModelPass {
-  kind: "single" | "map" | "synthesis";
+  kind: "single" | "map" | "synthesis" | "repair";
   chunkId: string | null;
   inputChars: number;
   result: DeepAnalysisModelResult;

@@ -1891,8 +1891,9 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   원장을 추가했다. heartbeat stale 기준은 기본 600초이며 RLS를 활성화했다.
 - [x] `verify:db-migrations`, contracts/web typecheck,
   `verify:deep-analysis-contract`가 통과했다.
-- [ ] 실제 job processor는 Phase E의 validator·독립 감사와 결합한 뒤에만
-  `analysis_complete`를 기록한다. 이 결합 전에는 Cloud Run에 배포하지 않는다.
+- [x] 실제 job processor는 Phase E의 validator·독립 감사를 모두 통과한 경우에만
+  `analysis_complete`를 기록한다. processor 중간의 예상하지 못한 R2/DB 오류도 run을
+  `running`에 방치하지 않고 append-only 예외와 terminal failure로 닫는다.
 
 #### Phase E. 결정론 검증과 독립 감사
 
@@ -1911,6 +1912,31 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - disagreement 자동 발행 0
 - 사람 판정 없이 concur 건의 `analysis_complete` 가능
 - 사람 판정은 blocker 해소 event로만 작동
+
+구현 체크포인트 E1 — fail-closed 분석·감사 게이트 (2026-07-25):
+
+- [x] raw response와 정규화 결과를 함께 검사하는 validator가 22축 exact set,
+  found↔criteria 상호 일치, canonical value, semantic duplicate, 예약 축 보존,
+  sealed source의 exact span 및 chunk 역참조를 모두 fail-closed로 검증한다.
+- [x] schema/축/근거 오류는 원응답을 조용히 보정하지 않고 동일 모델의 별도 repair pass로
+  최대 2회 재생성한다. 각 pass의 raw tool input·usage·비용은 immutable R2 artifact에
+  남는다.
+- [x] primary를 숨긴 `claude-sonnet-5` 블라인드 전축 분석 후 semantic set을 비교하고,
+  차이가 있을 때만 source+양쪽 결과를 보는 criterion/axis 단위 adjudication을 실행한다.
+  감사 호출도 timeout 및 429/5xx 1회 재시도 뒤 fail-closed로 종료한다.
+- [x] migration `0055_deep_analysis_exceptions`로 사람/시스템 blocker를 append-only
+  event로 만들었다. production catalog는 deep-analysis table 7, RLS 7, append-only
+  trigger 4, run identity trigger 1, promotion FK 1을 검증했다.
+- [x] `kstartup/178329` canary는 투자유치 상한을 잘못 canonicalize한 primary 오류와
+  제재 문구 ambiguity를 S10에서 포착했고, `kstartup/178352` canary는 가산점 누락을
+  S10에서 포착했다. 두 경우 모두 S11을 쓰지 않고 exception+dead-letter로 보존했다.
+- [x] 활성 `bizinfo/PBLN_000000000121478`은 sealed input 2,861자와 첨부 1건을 읽고,
+  job `4d362b29-73b3-40af-b290-e420e0e2c883` / run
+  `da-20260725T010027650Z-0a0b4bdc-e747-4a02-a856-aba032d7cefb`에서
+  22축·5 criteria·원문 근거·독립 감사 `concur`를 통과해 사람 판정 없이 S11
+  `analysis_complete=passed`가 기록됐다. 총 모델 비용은 `$0.598330`이다.
+- [x] contracts/core build, web typecheck, validator/audit/repair/adjudication 회귀 테스트,
+  migration verifier, production ledger verifier가 모두 통과했다.
 
 #### Phase F. 기존 ops 관제 최신 main 통합
 
@@ -2121,10 +2147,10 @@ extractor 구현을 가지는 것은 금지한다.
 - [ ] S0~S14 receipt가 DB+R2에 영속됨
 - [ ] production deep analysis worker가 자동 실행됨
 - [ ] HWP/HWPX 첨부 전건이 included 또는 명시 blocker
-- [ ] 22축 exact validator가 fail-closed
-- [ ] hard criterion source evidence 100%
-- [ ] 독립 audit disagreement 자동 발행 0
-- [ ] 사람 전수 검수 없이 concur 건 자동 analysis complete
+- [x] 22축 exact validator가 fail-closed
+- [x] hard criterion source evidence 100%
+- [x] 독립 audit disagreement 자동 발행 0
+- [x] 사람 전수 검수 없이 concur 건 자동 analysis complete
 - [ ] promotion manifest가 run/source revision에 묶임
 - [ ] matcher serving hash 검증
 - [ ] source 변경 시 stale 자동 전환·재분석

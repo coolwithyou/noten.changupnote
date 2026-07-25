@@ -2,7 +2,20 @@ import assert from "node:assert/strict";
 import type { DeepAnalysisModelResult } from "@cunote/contracts";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import { sealDeepAnalysisInput } from "./inputManifest";
-import type { runDeepGrantAnalysis } from "./extractor";
+import {
+  resolveExactEvidenceSpan,
+  type runDeepGrantAnalysis,
+} from "./extractor";
+
+assert.equal(
+  resolveExactEvidenceSpan("서울 소재 기업만 신청", "앞문장\n서울   소재\n기업만 신청\n뒷문장"),
+  "서울   소재\n기업만 신청",
+);
+assert.equal(
+  resolveExactEvidenceSpan("동일 문구", "동일  문구\n동일\t문구"),
+  null,
+  "정규화 후보가 여러 곳이면 임의로 원문 span을 선택하지 않는다",
+);
 
 function modelResult(model: string): DeepAnalysisModelResult {
   return {
