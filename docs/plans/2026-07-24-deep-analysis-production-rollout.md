@@ -1508,9 +1508,9 @@ exclusion criterion은 계속 전건 감사한다.
 - 기능: 소스→상태 캔버스, 트리아지 큐, 22축 dot grid, 첨부 상태, mark reviewed,
   reconvert, 관리자 action audit
 
-현재 branch는 main보다 49커밋 뒤이고 2커밋만 앞이다. branch의 migration
-`0047_outgoing_layla_miller.sql`은 현재 main의 migration 계보와 번호가 충돌한다.
-따라서 두 커밋을 통째로 cherry-pick하지 않는다.
+원본 구현 branch는 이후 상세 모달·페이지네이션·필터 개선 커밋까지 포함한다. 원본의
+`/pipeline`과 migration `0047_outgoing_layla_miller.sql`은 최신 main의 딥분석 관제 및
+migration 계보와 충돌하므로 그대로 cherry-pick하지 않는다.
 
 통합 방법:
 
@@ -1520,6 +1520,13 @@ exclusion criterion은 계속 전건 감사한다.
 4. deep analysis receipt를 L6~L14 계층으로 추가
 5. 기존 `mark_reviewed`는 딥분석 완료 액션에서 제거
 6. 기존 HTTP·구조 검증 뒤 실제 ops production에 배포
+
+2026-07-25 병합 준비 브랜치에서는 최신 main을 첫 부모로 원본 구현 branch를 병합하고,
+공고 관제를 `/notice-pipeline`, `/api/admin/notice-pipeline/**`로 분리했다. 기존
+`/pipeline` 딥분석 관제는 유지하며 `admin_pipeline_actions`는 최신 계보의
+`0057_violet_lorna_dane.sql`로 재생성한다. 공유 개발 DB에 옛 0047이 이미 적용된
+경우에도 중복 실패하지 않도록 테이블·제약·인덱스를 조건부 생성하며, 실제 DB에서
+트랜잭션 롤백 검증을 마쳤다.
 
 #### 14.8.2 대시보드 정보 구조
 

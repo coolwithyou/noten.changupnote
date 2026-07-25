@@ -16,6 +16,7 @@ import {
   LandmarkIcon,
   LayoutDashboardIcon,
   ListChecksIcon,
+  NetworkIcon,
   ReceiptTextIcon,
   Settings2Icon,
   ShieldCheckIcon,
@@ -53,6 +54,7 @@ const NAV_GROUPS = [
     roles: ["viewer", "support", "admin", "owner"],
     items: [
       { title: "운영 개요", href: "/", icon: LayoutDashboardIcon },
+      { title: "공고 관제", href: "/notice-pipeline", icon: NetworkIcon },
       { title: "공개명단 업데이트", href: "/registry-imports", icon: DatabaseZapIcon },
       { title: "라이브 매칭", href: "/internal/live-match", icon: ActivityIcon },
     ],

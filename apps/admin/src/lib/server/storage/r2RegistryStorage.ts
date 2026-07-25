@@ -3,6 +3,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 interface RegistryStorage {
   getBytes(key: string): Promise<{ body: Buffer; contentType: string | null }>;
+  presignGet(key: string, expiresIn?: number): Promise<string>;
   presignPut(input: { key: string; contentType: string; expiresIn?: number }): Promise<string>;
 }
 
@@ -29,6 +30,13 @@ export function createRegistryStorageFromEnv(env: NodeJS.ProcessEnv = process.en
         body: Buffer.from(await result.Body.transformToByteArray()),
         contentType: result.ContentType ?? null,
       };
+    },
+    async presignGet(key, expiresIn = 7200) {
+      return getSignedUrl(
+        client as unknown as Parameters<typeof getSignedUrl>[0],
+        new GetObjectCommand({ Bucket: bucket, Key: key }),
+        { expiresIn },
+      );
     },
     async presignPut(input) {
       return getSignedUrl(
