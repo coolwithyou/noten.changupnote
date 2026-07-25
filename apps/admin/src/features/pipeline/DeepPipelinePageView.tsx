@@ -130,7 +130,11 @@ export function DeepPipelinePageView({
             <AlertDescription>
               {initialSummary.worker.serviceRevision} · mode{" "}
               {initialSummary.worker.executionMode ?? "unknown"} ·{" "}
-              {initialSummary.worker.status} · active{" "}
+              claim {initialSummary.worker.claimScope ?? "unknown"}
+              {initialSummary.worker.claimScope === "bounded"
+                ? ` ${initialSummary.worker.claimCohortCount}건/${initialSummary.worker.claimCohortSha256?.slice(0, 12) ?? "no-hash"}`
+                : ""}
+              {" "}· {initialSummary.worker.status} · active{" "}
               {initialSummary.worker.activeWorkerCount}/{initialSummary.worker.activeLeaseCount}
               {initialSummary.worker.currentJobId
                 ? ` · job ${initialSummary.worker.currentJobId.slice(0, 8)}`

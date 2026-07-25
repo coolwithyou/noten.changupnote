@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   DEEP_ANALYSIS_AUDIT_MODELS,
   DEEP_ANALYSIS_DEFAULT_LIMITS,
@@ -11,6 +12,9 @@ import {
 export interface DeepAnalysisWorkerPolicy {
   modelPolicyVersion: typeof DEEP_ANALYSIS_MODEL_POLICY_VERSION;
   executionMode: "active" | "observe_only";
+  claimScope: "unconfigured" | "bounded" | "all";
+  claimGrantIds: string[];
+  claimCohortSha256: string | null;
   primaryModel: DeepAnalysisPrimaryModel;
   auditModel: DeepAnalysisAuditModel;
   leaseSeconds: number;
@@ -31,9 +35,11 @@ export function resolveDeepAnalysisWorkerPolicy(
     auditModel: env.DEEP_ANALYSIS_AUDIT_MODEL?.trim() || DEEP_ANALYSIS_AUDIT_MODELS[0],
   };
   assertDeepAnalysisModelPair(pair);
+  const claimPolicy = resolveDeepAnalysisClaimPolicy(env);
   return {
     modelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
     executionMode: workerExecutionMode(env.DEEP_ANALYSIS_WORKER_MODE),
+    ...claimPolicy,
     ...pair,
     leaseSeconds: integerEnv(
       env.DEEP_ANALYSIS_LEASE_SECONDS,
@@ -91,6 +97,91 @@ export function resolveDeepAnalysisWorkerPolicy(
       3_600,
       "DEEP_ANALYSIS_HEARTBEAT_STALE_SECONDS",
     ),
+  };
+}
+
+export function assertDeepAnalysisClaimScopeConfigured(
+  policy: Pick<DeepAnalysisWorkerPolicy, "executionMode" | "claimScope">,
+): void {
+  if (policy.executionMode === "active" && policy.claimScope === "unconfigured") {
+    throw new Error(
+      "Active deep analysis requires DEEP_ANALYSIS_CLAIM_SCOPE=bounded or all",
+    );
+  }
+}
+
+export function deepAnalysisClaimCohortSha256(grantIds: readonly string[]): string {
+  const canonical = JSON.stringify({
+    schema: "deep-analysis-claim-cohort-v1",
+    grantIds: [...new Set(grantIds)].sort(),
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+function resolveDeepAnalysisClaimPolicy(
+  env: Readonly<Record<string, string | undefined>>,
+): Pick<
+  DeepAnalysisWorkerPolicy,
+  "claimScope" | "claimGrantIds" | "claimCohortSha256"
+> {
+  const rawScope = env.DEEP_ANALYSIS_CLAIM_SCOPE?.trim();
+  if (!rawScope) {
+    return {
+      claimScope: "unconfigured",
+      claimGrantIds: [],
+      claimCohortSha256: null,
+    };
+  }
+  if (rawScope === "all") {
+    if (
+      env.DEEP_ANALYSIS_CLAIM_GRANT_IDS?.trim()
+      || env.DEEP_ANALYSIS_CLAIM_COHORT_SHA256?.trim()
+    ) {
+      throw new Error(
+        "DEEP_ANALYSIS_CLAIM_SCOPE=all cannot include bounded cohort IDs or hash",
+      );
+    }
+    return {
+      claimScope: "all",
+      claimGrantIds: [],
+      claimCohortSha256: null,
+    };
+  }
+  if (rawScope !== "bounded") {
+    throw new Error("DEEP_ANALYSIS_CLAIM_SCOPE must be bounded or all");
+  }
+  const grantIds = [...new Set(
+    (env.DEEP_ANALYSIS_CLAIM_GRANT_IDS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  )].sort();
+  if (grantIds.length < 1 || grantIds.length > 100) {
+    throw new Error(
+      "DEEP_ANALYSIS_CLAIM_GRANT_IDS must contain between 1 and 100 unique UUIDs",
+    );
+  }
+  const invalidGrantId = grantIds.find((value) =>
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value));
+  if (invalidGrantId) {
+    throw new Error(`DEEP_ANALYSIS_CLAIM_GRANT_IDS contains an invalid UUID: ${invalidGrantId}`);
+  }
+  const actualSha256 = deepAnalysisClaimCohortSha256(grantIds);
+  const expectedSha256 = env.DEEP_ANALYSIS_CLAIM_COHORT_SHA256?.trim().toLowerCase();
+  if (!expectedSha256 || !/^[0-9a-f]{64}$/.test(expectedSha256)) {
+    throw new Error(
+      "DEEP_ANALYSIS_CLAIM_COHORT_SHA256 must be a lowercase SHA-256 for bounded scope",
+    );
+  }
+  if (expectedSha256 !== actualSha256) {
+    throw new Error(
+      `DEEP_ANALYSIS_CLAIM_COHORT_SHA256 mismatch: expected ${actualSha256}`,
+    );
+  }
+  return {
+    claimScope: "bounded",
+    claimGrantIds: grantIds,
+    claimCohortSha256: actualSha256,
   };
 }
 

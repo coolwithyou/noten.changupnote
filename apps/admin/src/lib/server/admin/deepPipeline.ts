@@ -526,11 +526,33 @@ export function buildWorkerSummary(
   const executionMode = input
     ? input.metadata.executionMode === "observe_only" ? "observe_only" : "active"
     : null
+  const claimScope = input
+    && (
+      input.metadata.claimScope === "unconfigured"
+      || input.metadata.claimScope === "bounded"
+      || input.metadata.claimScope === "all"
+    )
+    ? input.metadata.claimScope
+    : null
+  const claimCohortCount = numberMetadata(input?.metadata ?? {}, "claimCohortCount")
+  const claimCohortSha256 = typeof input?.metadata.claimCohortSha256 === "string"
+    ? input.metadata.claimCohortSha256
+    : null
+  const claimScopeHealthy = executionMode !== "active"
+    || claimScope === "all"
+    || (
+      claimScope === "bounded"
+      && claimCohortCount > 0
+      && Boolean(claimCohortSha256?.match(/^[0-9a-f]{64}$/))
+    )
   return {
     workerId: input?.worker_id ?? null,
     currentJobId: input?.current_job_id ?? null,
     status: input?.status ?? null,
     executionMode,
+    claimScope,
+    claimCohortCount,
+    claimCohortSha256,
     serviceRevision: input?.service_revision ?? null,
     heartbeatAt: input?.heartbeat_at?.toISOString() ?? null,
     stale,
@@ -542,7 +564,8 @@ export function buildWorkerSummary(
       && statusHealthy
       && activeWorkerCount === activeLeaseCount
       && activeWorkerCount <= DEEP_ANALYSIS_DEFAULT_LIMITS.maxConcurrentJobs
-      && staleActiveWorkerCount === 0,
+      && staleActiveWorkerCount === 0
+      && claimScopeHealthy,
   }
 }
 

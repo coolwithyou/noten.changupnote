@@ -4,7 +4,9 @@ import {
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
 } from "@cunote/contracts";
 import {
+  assertDeepAnalysisClaimScopeConfigured,
   classifyDeepAnalysisFailure,
+  deepAnalysisClaimCohortSha256,
   resolveDeepAnalysisOperationalErrorCode,
   resolveDeepAnalysisWorkerPolicy,
   retryAvailableAt,
@@ -25,6 +27,11 @@ assert.equal(policy.auditModel, "claude-sonnet-5");
 assert.equal(policy.dailyCostCapUsd, DEEP_ANALYSIS_DEFAULT_LIMITS.dailyCostCapUsd);
 assert.equal(policy.maxConcurrentJobs, 1);
 assert.equal(policy.maxEnqueuePerInvocation, DEEP_ANALYSIS_DEFAULT_LIMITS.maxEnqueuePerInvocation);
+assert.equal(policy.claimScope, "unconfigured");
+assert.throws(
+  () => assertDeepAnalysisClaimScopeConfigured(policy),
+  /requires DEEP_ANALYSIS_CLAIM_SCOPE/,
+);
 
 assert.throws(
   () => resolveDeepAnalysisWorkerPolicy({ DEEP_ANALYSIS_PRIMARY_MODEL: "unreviewed-model" }),
@@ -46,9 +53,40 @@ assert.equal(
   resolveDeepAnalysisWorkerPolicy({ DEEP_ANALYSIS_WORKER_MODE: "observe_only" }).executionMode,
   "observe_only",
 );
+assert.doesNotThrow(() => assertDeepAnalysisClaimScopeConfigured(
+  resolveDeepAnalysisWorkerPolicy({ DEEP_ANALYSIS_WORKER_MODE: "observe_only" }),
+));
 assert.throws(
   () => resolveDeepAnalysisWorkerPolicy({ DEEP_ANALYSIS_WORKER_MODE: "paused" }),
   /active or observe_only/,
+);
+const boundedGrantIds = [
+  "22222222-2222-4222-8222-222222222222",
+  "11111111-1111-4111-8111-111111111111",
+];
+const boundedPolicy = resolveDeepAnalysisWorkerPolicy({
+  DEEP_ANALYSIS_CLAIM_SCOPE: "bounded",
+  DEEP_ANALYSIS_CLAIM_GRANT_IDS: boundedGrantIds.join(","),
+  DEEP_ANALYSIS_CLAIM_COHORT_SHA256: deepAnalysisClaimCohortSha256(boundedGrantIds),
+});
+assert.equal(boundedPolicy.claimScope, "bounded");
+assert.deepEqual(boundedPolicy.claimGrantIds, [...boundedGrantIds].sort());
+assert.equal(boundedPolicy.claimCohortSha256, deepAnalysisClaimCohortSha256(boundedGrantIds));
+assert.doesNotThrow(() => assertDeepAnalysisClaimScopeConfigured(boundedPolicy));
+assert.throws(
+  () => resolveDeepAnalysisWorkerPolicy({
+    DEEP_ANALYSIS_CLAIM_SCOPE: "bounded",
+    DEEP_ANALYSIS_CLAIM_GRANT_IDS: boundedGrantIds.join(","),
+    DEEP_ANALYSIS_CLAIM_COHORT_SHA256: "0".repeat(64),
+  }),
+  /SHA256 mismatch/,
+);
+assert.throws(
+  () => resolveDeepAnalysisWorkerPolicy({
+    DEEP_ANALYSIS_CLAIM_SCOPE: "all",
+    DEEP_ANALYSIS_CLAIM_GRANT_IDS: boundedGrantIds[0],
+  }),
+  /cannot include bounded cohort/,
 );
 
 assert.equal(classifyDeepAnalysisFailure(new Error("Anthropic 529 overloaded")), "retryable");

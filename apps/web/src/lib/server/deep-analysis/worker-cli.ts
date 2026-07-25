@@ -4,7 +4,10 @@ import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStora
 import { enqueueActiveDeepAnalysisJobs } from "./enqueueActive";
 import { processDeepAnalysisJob } from "./processor";
 import { runDeepAnalysisWorkerInvocation } from "./workerLoop";
-import { resolveDeepAnalysisWorkerPolicy } from "./workerPolicy";
+import {
+  assertDeepAnalysisClaimScopeConfigured,
+  resolveDeepAnalysisWorkerPolicy,
+} from "./workerPolicy";
 import {
   repairGenericDeepAnalysisJobErrorCodes,
   writeDeepAnalysisWorkerHeartbeat,
@@ -29,6 +32,11 @@ const serviceRevision = (
   || process.env.GIT_COMMIT_SHA
   || "local-unversioned"
 ).slice(0, 200);
+const claimMetadata = {
+  claimScope: policy.claimScope,
+  claimCohortCount: policy.claimGrantIds.length,
+  claimCohortSha256: policy.claimCohortSha256,
+};
 
 try {
   if (policy.executionMode === "observe_only") {
@@ -45,6 +53,7 @@ try {
       enqueueSkipped: true,
       analysisSkipped: true,
       budgetMutationSkipped: true,
+      ...claimMetadata,
       ...result,
     };
     await writeDeepAnalysisWorkerHeartbeat(db, {
@@ -64,6 +73,7 @@ try {
     }));
     process.exitCode = 0;
   } else {
+    assertDeepAnalysisClaimScopeConfigured(policy);
     const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
     if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
     const storage = createR2ObjectStorageFromEnv();
@@ -81,6 +91,7 @@ try {
       policy,
       invocationMetadata: {
         executionMode: policy.executionMode,
+        ...claimMetadata,
         enqueue: enqueueResult,
         repairedErrorCodes,
       },
@@ -101,6 +112,7 @@ try {
       serviceRevision,
       modelPolicyVersion: policy.modelPolicyVersion,
       executionMode: policy.executionMode,
+      ...claimMetadata,
       enqueue: enqueueResult,
       repairedErrorCodes,
       ...result,

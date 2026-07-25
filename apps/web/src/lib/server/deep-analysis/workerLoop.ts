@@ -12,6 +12,7 @@ import {
   writeDeepAnalysisWorkerHeartbeat,
 } from "./workerState";
 import {
+  assertDeepAnalysisClaimScopeConfigured,
   classifyDeepAnalysisFailure,
   resolveDeepAnalysisOperationalErrorCode,
   type DeepAnalysisFailureClass,
@@ -61,6 +62,7 @@ export async function runDeepAnalysisWorkerInvocation(input: {
   invocationMetadata?: Record<string, unknown>;
   now?: () => Date;
 }): Promise<DeepAnalysisWorkerInvocationResult> {
+  assertDeepAnalysisClaimScopeConfigured(input.policy);
   const now = input.now ?? (() => new Date());
   const result: DeepAnalysisWorkerInvocationResult = {
     claimed: 0,
@@ -90,6 +92,9 @@ export async function runDeepAnalysisWorkerInvocation(input: {
       leaseSeconds: input.policy.leaseSeconds,
       modelPolicyVersion: input.policy.modelPolicyVersion,
       maxConcurrentJobs: input.policy.maxConcurrentJobs,
+      ...(input.policy.claimScope === "bounded"
+        ? { claimGrantIds: input.policy.claimGrantIds }
+        : {}),
       now: now(),
     });
     if (!job) break;

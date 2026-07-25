@@ -1,11 +1,14 @@
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
 import { enqueueDeepAnalysisJob } from "./ledger";
 import { prepareDeepAnalysisInput } from "./prepareInput";
-import type { DeepAnalysisWorkerPolicy } from "./workerPolicy";
+import {
+  assertDeepAnalysisClaimScopeConfigured,
+  type DeepAnalysisWorkerPolicy,
+} from "./workerPolicy";
 
 export interface ActiveDeepAnalysisEnqueueCandidate {
   grantId: string;
@@ -34,8 +37,10 @@ export async function listActiveDeepAnalysisEnqueueCandidates(input: {
   db: CunoteDbSession;
   modelPolicyVersion: string;
   limit: number;
+  grantIds?: readonly string[];
   now?: Date;
 }): Promise<ActiveDeepAnalysisEnqueueCandidate[]> {
+  if (input.grantIds && input.grantIds.length === 0) return [];
   const now = input.now ?? new Date();
   const latestJobUpdatedAt = sql`
     (
@@ -81,6 +86,7 @@ export async function listActiveDeepAnalysisEnqueueCandidates(input: {
     sourceId: schema.grants.sourceId,
   }).from(schema.grants).where(and(
     activeDeepAnalysisGrantPredicate(now),
+    ...(input.grantIds ? [inArray(schema.grants.id, input.grantIds)] : []),
     sourceChangedSinceLatestJob,
   )).orderBy(
     asc(schema.grants.applyEnd),
@@ -103,6 +109,7 @@ export async function enqueueActiveDeepAnalysisJobs(input: {
   prepareInput?: typeof prepareDeepAnalysisInput;
   enqueueJob?: typeof enqueueDeepAnalysisJob;
 }): Promise<ActiveDeepAnalysisEnqueueResult> {
+  assertDeepAnalysisClaimScopeConfigured(input.policy);
   const now = input.now ?? new Date();
   const candidates = await (
     input.listCandidates ?? listActiveDeepAnalysisEnqueueCandidates
@@ -110,6 +117,9 @@ export async function enqueueActiveDeepAnalysisJobs(input: {
     db: input.db,
     modelPolicyVersion: input.policy.modelPolicyVersion,
     limit: input.policy.maxEnqueuePerInvocation,
+    ...(input.policy.claimScope === "bounded"
+      ? { grantIds: input.policy.claimGrantIds }
+      : {}),
     now,
   });
   const result: ActiveDeepAnalysisEnqueueResult = {

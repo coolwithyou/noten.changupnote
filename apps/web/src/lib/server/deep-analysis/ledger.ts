@@ -111,6 +111,7 @@ export async function claimDeepAnalysisJob(
     leaseSeconds: number;
     modelPolicyVersion: string;
     maxConcurrentJobs: number;
+    claimGrantIds?: readonly string[];
     now?: Date;
   },
 ): Promise<typeof schema.grantDeepAnalysisJobs.$inferSelect | null> {
@@ -126,8 +127,14 @@ export async function claimDeepAnalysisJob(
   ) {
     throw new Error("maxConcurrentJobs must be an integer between 1 and 10");
   }
+  if (input.claimGrantIds && input.claimGrantIds.length === 0) {
+    throw new Error("claimGrantIds must be omitted or contain at least one grant ID");
+  }
   const now = input.now ?? new Date();
   const leaseExpiresAt = new Date(now.getTime() + input.leaseSeconds * 1000);
+  const cohortFilter = input.claimGrantIds
+    ? sql`AND candidate.grant_id::text = ANY(${input.claimGrantIds}::text[])`
+    : sql``;
   const claimed = await db.execute<{ id: string }>(sql`
     WITH claim_lock AS (
       SELECT pg_advisory_xact_lock(
@@ -154,6 +161,7 @@ export async function claimDeepAnalysisJob(
       FROM grant_deep_analysis_jobs AS candidate, capacity
       WHERE capacity.active_count < ${input.maxConcurrentJobs}
         AND candidate.model_policy_version = ${input.modelPolicyVersion}
+        ${cohortFilter}
         AND (
           (
             candidate.status IN ('pending', 'retry_wait')

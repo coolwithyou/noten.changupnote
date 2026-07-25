@@ -2368,6 +2368,42 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   success 6/6, receipt execution match 6/6도 PASS이며 전체 실패는 종료 전이므로
   `window_incomplete` 하나뿐이다.
 
+확대 경계 체크포인트 H2 — exact 20공고 claim fence (2026-07-25):
+
+- [x] 관제의 현재 `in_progress=599`는 main worker를 단순히 `observe_only→active`로
+  바꾸면 계획한 첫 20공고가 아니라 기존 활성 backlog까지 claim할 수 있음을 뜻한다.
+  따라서 48/48 gate 뒤에도 실행 범위를 별도 계약 없이 열지 않는다.
+- [x] worker 정책에 `unconfigured | bounded | all` claim scope를 추가했다. active는
+  `bounded` 또는 `all`이 아니면 Anthropic key 확인·enqueue·lease·budget 변경 전에
+  fail-closed다. `bounded`는 1~100개의 유효한 UUID와 canonical 정렬 목록의 exact
+  SHA-256이 모두 일치해야 하며, `all`은 cohort ID/hash가 섞이면 거부한다.
+- [x] 이 경계는 표시용 env가 아니다. autonomous feeder의 enqueue 후보와 ledger의
+  `FOR UPDATE SKIP LOCKED` claim SQL 양쪽을 같은 grant ID 집합으로 제한한다. 따라서
+  과거 pending/retry_wait job과 새 source revision enqueue 모두 cohort 밖에서는
+  유료 모델 실행으로 넘어갈 수 없다.
+- [x] heartbeat에 claim scope/count/hash를 영속하고 ops 계약·건강도·UI에 노출했다.
+  active heartbeat가 scope 미설정이거나 bounded count/hash가 불완전하면 worker
+  건강도는 fail-closed다. `observe_only + unconfigured`는 현재 gate 대기 상태로
+  허용한다.
+- [x] `deep-analysis:plan-cohort` read-only 계획기를 추가했다. 공용 active predicate,
+  current model policy의 최신 claimable job, 계획 우선순위, source round-robin을 적용한
+  뒤 각 후보의 R2 실제 입력을 다시 봉인하고 current job source revision과 일치하는
+  공고만 선택한다. DB/R2 write, LLM call, promotion, matcher write는 수행하지 않는다.
+- [x] production read-only 리허설은 200후보를 검사해 sealed+current 20공고를
+  만들었다. Bizinfo 9·K-Startup 11, HWP/HWPX 보유 15건이며, 미봉인 106건과
+  source revision drift 1건은 제외됐다. cohort hash는
+  `b539520370fd62e69c8e59ff1f0de78299fc9f5402b0fb84b06bd30b17138806`,
+  rehearsal manifest hash는
+  `7fc6ebeaca14d172ddb6bc873e92e30be7ee6f85933d6632a2c6c9fb896ae01d`다.
+  이 리허설 목록은 활성화에 재사용하지 않는다. 48/48 PASS 직후 같은 계획기를 다시
+  실행해 active/source/job/input freshness를 재검증하고 그때 생성된 exact ID/hash만
+  bounded activation에 사용한다.
+- [ ] claim fence commit을 main worker의 `observe_only` 상태로 배포하고 수동·정시
+  execution의 `claimScope=unconfigured`, claim/enqueue/비용 0을 확인한다. 동결된
+  serving monitor image와 Scheduler는 변경하지 않는다.
+- [ ] 같은 commit의 ops claim 필드를 기존 `team-coolwithyou/changupnote-ops`에
+  배포하고 라이브 인증 경계와 production verifier를 다시 통과시킨다.
+
 우선순위:
 
 1. D-day 7일 이내

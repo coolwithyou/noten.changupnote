@@ -157,7 +157,18 @@ const claimed = await claimDeepAnalysisJob(claimDb, {
   leaseSeconds: 60,
   modelPolicyVersion: "policy",
   maxConcurrentJobs: 1,
+  claimGrantIds: [claimedJob.grantId],
 });
 assert.equal(claimed?.grantId, claimedJob.grantId, "raw claim id를 Drizzle 행으로 다시 읽는다");
+await assert.rejects(
+  claimDeepAnalysisJob(claimDb, {
+    workerId: "worker",
+    leaseSeconds: 60,
+    modelPolicyVersion: "policy",
+    maxConcurrentJobs: 1,
+    claimGrantIds: [],
+  }),
+  /claimGrantIds must be omitted/,
+);
 
 console.log("deep analysis ledger tests passed");

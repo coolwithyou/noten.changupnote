@@ -102,6 +102,9 @@ export interface DeepPipelineSummary {
     currentJobId: string | null
     status: string | null
     executionMode: "active" | "observe_only" | null
+    claimScope: "unconfigured" | "bounded" | "all" | null
+    claimCohortCount: number
+    claimCohortSha256: string | null
     serviceRevision: string | null
     heartbeatAt: string | null
     stale: boolean
