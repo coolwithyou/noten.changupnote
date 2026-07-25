@@ -341,8 +341,9 @@ export async function runDeepAnalysisInputPreparation(input: {
 
 /**
  * 과거에 원본만 보관되고 conversion surface가 없던 첨부를 현재 target 범위에서 복구한다.
- * 이미 markdown artifact가 있는 storage identity는 제외하고, 기존 변환 등록 후크를
- * 재사용해 surface/job/cache hit를 멱등 처리한 뒤 poll sweep으로 넘긴다.
+ * 같은 storage identity의 surface가 이미 있으면 상태를 임의로 되돌리거나 중복 변환하지
+ * 않는다. surface가 실제로 없는 원본만 기존 변환 등록 후크로 멱등 처리한 뒤 poll sweep으로
+ * 넘긴다.
  */
 export async function registerMissingDeepAnalysisConversions(input: {
   db: CunoteDb;
@@ -380,7 +381,7 @@ export async function registerMissingDeepAnalysisConversions(input: {
   );
   if (!sourceFilter) return empty;
 
-  const [archives, artifacts] = await Promise.all([
+  const [archives, surfaces] = await Promise.all([
     input.db
       .select({
         source: schema.grantAttachmentArchives.source,
@@ -402,28 +403,12 @@ export async function registerMissingDeepAnalysisConversions(input: {
         sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
       })
       .from(schema.grantApplicationSurfaces)
-      .innerJoin(
-        schema.documentArtifacts,
-        and(
-          eq(schema.documentArtifacts.surfaceId, schema.grantApplicationSurfaces.id),
-          eq(schema.documentArtifacts.kind, "markdown"),
-        ),
-      )
       .where(inArray(
         schema.grantApplicationSurfaces.grantId,
         input.targets.map((target) => target.grantId),
       )),
   ]);
-  const completedStorageKeys = new Set(
-    artifacts.map((artifact) => artifact.sourceAttachment).filter(
-      (value): value is string => Boolean(value),
-    ),
-  );
-  const candidates = archives.filter((archive) => (
-    archive.storageKey
-    && archive.sha256
-    && !completedStorageKeys.has(archive.storageKey)
-  ));
+  const candidates = selectArchivesMissingConversionSurface(archives, surfaces);
   const targetBySource = new Map<string, DeepAnalysisInputPreparationTarget>(
     input.targets.map((target) => [`${target.source}:${target.sourceId}`, target]),
   );
@@ -467,6 +452,24 @@ export async function registerMissingDeepAnalysisConversions(input: {
     }
   }
   return summary;
+}
+
+export function selectArchivesMissingConversionSurface<
+  T extends { storageKey: string | null; sha256: string | null },
+>(
+  archives: readonly T[],
+  surfaces: readonly { sourceAttachment: string | null }[],
+): T[] {
+  const registeredStorageKeys = new Set(
+    surfaces.map((surface) => surface.sourceAttachment).filter(
+      (value): value is string => Boolean(value),
+    ),
+  );
+  return archives.filter((archive) => (
+    archive.storageKey
+    && archive.sha256
+    && !registeredStorageKeys.has(archive.storageKey)
+  ));
 }
 
 export function resolveDeepAnalysisInputPreparationPolicy(

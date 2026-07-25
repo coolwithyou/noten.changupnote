@@ -2328,15 +2328,26 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `blocked_fetch`로 유지되어 게이트가 낮아지지 않았다.
 - [x] Bizinfo `PBLN_000000000124461`은 R2 ZIP 실제 바이트의 material entry 6건과
   변환된 HWP child 6건이 정확히 대응해 sealed로 전환됐다. 반면
-  `PBLN_000000000123631`의 PDF는 여전히 `blocked_conversion`이며, 새 legacy 등록
-  경로가 배포·실행된 뒤에만 전진한다.
+  `PBLN_000000000123631`의 이미지형 PDF는 기존 surface가 있지만 markdown artifact가
+  없어 `blocked_conversion`을 유지한다. OCR 근거 없이 complete나 waiver로 바꾸지 않는다.
 - [x] input-preparation heartbeat·ops 계약·UI에 변환 후보/surface/job/cache/skip/warning
   수를 노출하고 registration warning이 있으면 건강도를 fail-closed로 내린다.
   deep-analysis contract 전수, archive inspection, web/admin typecheck, admin pipeline
   contract test와 `git diff --check`가 통과했다.
+- [x] commit `05992b5`를 Cloud Build
+  `d5becbda-9ac3-4a62-8648-9372784b64a0`에서 immutable digest
+  `sha256:2a0681c31c96…`로 만들고 input-preparation Job에만 배포했다. main worker
+  `sha256:559ec3f02394…`·`observe_only`와 serving monitor 동결 digest
+  `sha256:ee073d72440f…`는 변경하지 않았다.
+- [x] 첫 수동 execution `9r2lr`에서 후보 2, surface 1, conversion job 1, skip 1,
+  warning 0을 확인했지만 PDF가 같은 실행의 poll 대상이 되지 않아 완료로 판정하지 않았다.
+  production read-only 조회 결과 이 PDF surface는 2026-07-11부터 `preview_ready`였지만
+  markdown이 없는 partial 변환이었다. 이를 “surface 누락”으로 오인해 중복 job을 만들지
+  않도록, 같은 storage identity의 surface가 하나라도 있으면 legacy 등록 후보에서 제외하고
+  명시 OCR blocker로 보존하는 회귀 보정을 추가했다.
 - [ ] 검증된 commit image를 input-preparation Job에만 배포하고 수동·정시 execution에서
-  PDF 등록·변환과 heartbeat metadata를 교차 확인한다. 24시간 serving monitor의
-  동결 digest·Scheduler·관측 구간은 변경하지 않는다.
+  기존 partial PDF의 중복 변환 job 0, 실제 surface 누락분만 등록, heartbeat metadata를
+  교차 확인한다. 24시간 serving monitor의 동결 digest·Scheduler·관측 구간은 변경하지 않는다.
 
 우선순위:
 

@@ -4,6 +4,7 @@ import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import {
   resolveDeepAnalysisInputPreparationPolicy,
   runDeepAnalysisInputPreparation,
+  selectArchivesMissingConversionSurface,
   selectRotatingTargetWindow,
 } from "./inputPreparation";
 
@@ -29,6 +30,17 @@ assert.deepEqual(
 assert.deepEqual(
   selectRotatingTargetWindow(["urgent", "a", "b", "c"], 2, new Date(600_000)),
   ["urgent", "b"],
+);
+assert.deepEqual(
+  selectArchivesMissingConversionSurface([
+    { id: "missing", storageKey: "archive/missing.pdf", sha256: "a".repeat(64) },
+    { id: "registered", storageKey: "archive/registered.pdf", sha256: "b".repeat(64) },
+    { id: "unarchived", storageKey: null, sha256: null },
+  ], [
+    { sourceAttachment: "archive/registered.pdf" },
+  ]).map((archive) => archive.id),
+  ["missing"],
+  "markdown이 없더라도 이미 surface가 있는 storage identity는 중복 등록하지 않는다",
 );
 
 const calls: string[] = [];
