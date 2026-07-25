@@ -105,6 +105,18 @@ export interface DeepPipelineSummary {
     stale: boolean
     staleSeconds: number | null
   }
+  servingMonitor: {
+    executionId: string | null
+    verifiedAt: string | null
+    stale: boolean
+    staleSeconds: number | null
+    expectedItems: number
+    checkedItems: number
+    freshItems: number
+    failedReceipts: number
+    staleReceipts: number
+    healthy: boolean
+  }
 }
 
 export interface DeepPipelineAxis {

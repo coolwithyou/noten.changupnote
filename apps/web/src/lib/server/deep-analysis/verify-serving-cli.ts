@@ -1,5 +1,6 @@
 import {
   DEEP_ANALYSIS_DEFAULT_LIMITS,
+  DEEP_ANALYSIS_SERVING_VERIFIER_VERSION,
   type CompanyProfile,
   type GrantCriterion,
 } from "@cunote/contracts";
@@ -26,9 +27,6 @@ import { prepareDeepAnalysisInput } from "./prepareInput";
 
 loadMonorepoEnv();
 
-export const DEEP_ANALYSIS_SERVING_VERIFIER_VERSION =
-  "deep-analysis-serving-verifier-v1" as const;
-
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
@@ -47,6 +45,9 @@ async function main(): Promise<number> {
 
   if (active) {
     if (scope) throw new Error("--active는 --scope를 받지 않고 active release 전체를 검증합니다.");
+    const cloudRunExecution = process.env.CLOUD_RUN_EXECUTION?.trim() || null;
+    const monitorExecutionId = cloudRunExecution
+      || `local-${new Date().toISOString()}-${process.pid}`;
     const releaseRows = await db
       .selectDistinct({ releaseId: schema.analysisLabPromotionReleases.releaseId })
       .from(schema.analysisLabPromotionReleases)
@@ -69,6 +70,9 @@ async function main(): Promise<number> {
         storage,
         releaseId: release.releaseId,
         scope: "all",
+        observationMode: "active_monitor",
+        monitorExecutionId,
+        monitorRuntime: cloudRunExecution ? "cloud_run" : "local",
       }));
     }
     const failures = results.flatMap((result) => result.failures);
@@ -90,6 +94,9 @@ async function main(): Promise<number> {
     storage,
     releaseId: releaseId!,
     scope,
+    observationMode: "release_verification",
+    monitorExecutionId: null,
+    monitorRuntime: "local",
   });
   console.log(JSON.stringify(result, null, 2));
   return result.failures.length === 0 ? 0 : 2;
@@ -100,8 +107,19 @@ async function verifyRelease(input: {
   storage: NonNullable<ReturnType<typeof createR2ObjectStorageFromEnv>>;
   releaseId: string;
   scope: "canary" | "all";
+  observationMode: "release_verification" | "active_monitor";
+  monitorExecutionId: string | null;
+  monitorRuntime: "cloud_run" | "local";
 }) {
-  const { db, storage, releaseId, scope } = input;
+  const {
+    db,
+    storage,
+    releaseId,
+    scope,
+    observationMode,
+    monitorExecutionId,
+    monitorRuntime,
+  } = input;
   const [release] = await db
     .select()
     .from(schema.analysisLabPromotionReleases)
@@ -184,6 +202,9 @@ async function verifyRelease(input: {
     }).map((issue) => `${issue.code}:${issue.detail}`);
     const publicationEvidence = {
       releaseId,
+      observationMode,
+      monitorExecutionId,
+      monitorRuntime,
       releaseDbId: release.id,
       promotionItemId: item.id,
       planSha256: item.planSha256,
@@ -256,6 +277,9 @@ async function verifyRelease(input: {
       status: traceIssues.length === 0 ? "passed" : "failed",
       evidence: {
         releaseId,
+        observationMode,
+        monitorExecutionId,
+        monitorRuntime,
         promotionItemId: item.id,
         repository: "drizzle-production-grant-repository",
         matcher: "buildGrantAnalysisShadowMatch/matchNormalizedGrant",
@@ -298,6 +322,9 @@ async function verifyRelease(input: {
       status: freshnessIssues.length === 0 ? "passed" : "stale",
       evidence: {
         releaseId,
+        observationMode,
+        monitorExecutionId,
+        monitorRuntime,
         promotionItemId: item.id,
         runSourceRevisionSha256: run.sourceRevisionSha256,
         currentSourceRevisionSha256: currentInput.sourceRevisionSha256,

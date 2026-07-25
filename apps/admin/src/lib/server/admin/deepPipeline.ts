@@ -1,6 +1,8 @@
 import {
   DEEP_ANALYSIS_DEFAULT_LIMITS,
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+  DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS,
+  DEEP_ANALYSIS_SERVING_VERIFIER_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
   type CriterionDimension,
   type DeepAnalysisAxisStatus,
@@ -334,6 +336,17 @@ interface WorkerRow {
   stale_seconds: number
 }
 
+interface ServingMonitorRow {
+  execution_id: string | null
+  verified_at: Date | null
+  stale_seconds: number | null
+  expected_items: number
+  checked_items: number
+  fresh_items: number
+  failed_receipts: number
+  stale_receipts: number
+}
+
 export interface DeepPipelineQuery {
   bucket: DeepPipelineBucket | null
   stage: DeepAnalysisStageKey | null
@@ -381,11 +394,52 @@ export async function getDeepPipelinePageData(
   })
 }
 
+export function buildServingMonitorSummary(input?: {
+  execution_id: string | null
+  verified_at: Date | null
+  stale_seconds: number | null
+  expected_items: number
+  checked_items: number
+  fresh_items: number
+  failed_receipts: number
+  stale_receipts: number
+}): DeepPipelineSummary["servingMonitor"] {
+  const staleSeconds = input?.stale_seconds === null
+    || input?.stale_seconds === undefined
+    ? null
+    : Number(input.stale_seconds)
+  const expectedItems = Number(input?.expected_items ?? 0)
+  const checkedItems = Number(input?.checked_items ?? 0)
+  const freshItems = Number(input?.fresh_items ?? 0)
+  const failedReceipts = Number(input?.failed_receipts ?? 0)
+  const staleReceipts = Number(input?.stale_receipts ?? 0)
+  const stale = staleSeconds === null
+    || staleSeconds > DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS
+
+  return {
+    executionId: input?.execution_id ?? null,
+    verifiedAt: input?.verified_at?.toISOString() ?? null,
+    stale,
+    staleSeconds,
+    expectedItems,
+    checkedItems,
+    freshItems,
+    failedReceipts,
+    staleReceipts,
+    healthy: !stale
+      && expectedItems > 0
+      && checkedItems === expectedItems
+      && freshItems === expectedItems
+      && failedReceipts === 0
+      && staleReceipts === 0,
+  }
+}
+
 export async function getDeepPipelineSummary(
   _query: DeepPipelineQuery = { bucket: null, stage: null, q: "", limit: PAGE_SIZE },
   sql: PipelineSql = getAdminSql(),
 ): Promise<DeepPipelineSummary> {
-  const [bucketRows, stageRows, activeRows, workerRows] = await Promise.all([
+  const [bucketRows, stageRows, activeRows, workerRows, servingMonitorRows] = await Promise.all([
     sql.unsafe<BucketCountRow[]>(
       `${DEEP_PIPELINE_BASE_CTE}
        select bucket, count(*)::int as count
@@ -418,6 +472,62 @@ export async function getDeepPipelineSummary(
        order by heartbeat_at desc
        limit 1`,
       [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
+    ),
+    sql.unsafe<ServingMonitorRow[]>(
+      `with expected as (
+         select count(*)::int as expected_items
+         from analysis_lab_promotion_items item
+         join analysis_lab_promotion_releases release
+           on release.id = item.release_db_id
+         where release.status = 'active'
+           and item.status = 'applied'
+           and item.deep_analysis_run_id is not null
+       ),
+       latest_monitor as (
+         select
+           receipt.evidence->>'monitorExecutionId' as execution_id,
+           max(receipt.created_at) as verified_at
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.stage = 'publication_complete'
+           and receipt.verifier_version = $1
+           and receipt.evidence->>'observationMode' = 'active_monitor'
+           and receipt.evidence->>'monitorRuntime' = 'cloud_run'
+           and coalesce(receipt.evidence->>'monitorExecutionId', '') <> ''
+         group by receipt.evidence->>'monitorExecutionId'
+         order by verified_at desc
+         limit 1
+       ),
+       observed as (
+         select
+           count(distinct receipt.evidence->>'promotionItemId')::int as checked_items,
+           count(distinct receipt.evidence->>'promotionItemId') filter (
+             where receipt.stage = 'analysis_fresh' and receipt.status = 'passed'
+           )::int as fresh_items,
+           count(*) filter (where receipt.status = 'failed')::int as failed_receipts,
+           count(*) filter (where receipt.status = 'stale')::int as stale_receipts
+         from latest_monitor monitor
+         join grant_deep_analysis_stage_receipts receipt
+           on receipt.evidence->>'monitorExecutionId' = monitor.execution_id
+          and receipt.verifier_version = $1
+          and receipt.evidence->>'observationMode' = 'active_monitor'
+          and receipt.evidence->>'monitorRuntime' = 'cloud_run'
+          and receipt.stage in (
+            'publication_complete', 'serving_complete', 'analysis_fresh'
+          )
+       )
+       select
+         monitor.execution_id,
+         monitor.verified_at,
+         extract(epoch from (now() - monitor.verified_at))::int as stale_seconds,
+         expected.expected_items,
+         coalesce(observed.checked_items, 0)::int as checked_items,
+         coalesce(observed.fresh_items, 0)::int as fresh_items,
+         coalesce(observed.failed_receipts, 0)::int as failed_receipts,
+         coalesce(observed.stale_receipts, 0)::int as stale_receipts
+       from expected
+       left join latest_monitor monitor on true
+       left join observed on true`,
+      [DEEP_ANALYSIS_SERVING_VERIFIER_VERSION],
     ),
   ])
 
@@ -470,6 +580,7 @@ export async function getDeepPipelineSummary(
         || staleSeconds > DEEP_ANALYSIS_DEFAULT_LIMITS.heartbeatStaleSeconds,
       staleSeconds,
     },
+    servingMonitor: buildServingMonitorSummary(servingMonitorRows[0]),
   }
 }
 

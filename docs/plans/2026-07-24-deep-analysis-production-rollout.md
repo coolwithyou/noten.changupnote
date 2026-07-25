@@ -2106,6 +2106,19 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `47cwc`가 모두 task 1/1, `checkedReleases=2`, `checkedItems=2`, PASS로 완료됐다.
   Scheduler `cunote-deep-analysis-serving-monitor-scheduler`는 매시 `:05/:35`,
   OAuth service account, retry 0으로 활성화됐다.
+- [x] 관제 실행이 중단됐는데 마지막 S14가 계속 신선해 보이는 사각지대를 없앴다.
+  active monitor가 쓰는 S12/S13/S14 receipt에 Cloud Run execution ID·runtime·
+  observation mode를 기록하고, ops는 최신 cloud-run monitor 실행의 전수 확인 수,
+  fresh S14 수, 실패·stale receipt 수, 마지막 확인 시각을 별도 건강도로 집계한다.
+- [x] monitor heartbeat가 없거나 45분을 넘기고, 활성·applied 대상 전수와
+  checked/fresh 수가 다르거나 실패·stale receipt가 하나라도 있으면
+  `pnpm verify:deep-analysis-ops`가 fail-closed로 종료하도록 했다. 배포 전 기존
+  `eba1597` receipt만 있는 production에서 의도적으로
+  `execution=null`, `checked=0/2`, `fresh=0`, exit 2를 확인했다.
+- [x] contracts/core build, web/admin typecheck, deep-analysis contract suite,
+  monitor summary 단위 테스트와 admin production build가 통과했다. 새 monitor
+  image 실행으로 production heartbeat를 만든 뒤 동일 ops verifier를 PASS로
+  전환하는 배포 검증은 다음 체크포인트에서 닫는다.
 - [ ] 24시간 serving/hash/SLO 관측은 2026-07-25 11:35 KST에 시작했으며
   2026-07-26 11:35 KST 이후 연속 실행 결과로 닫는다. 20공고 확대는 이 관측 gate 뒤에만
   진행한다.

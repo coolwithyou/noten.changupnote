@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 
 import {
+  buildServingMonitorSummary,
   parseDeepPipelineQuery,
 } from "./deepPipeline"
 import {
@@ -41,6 +42,39 @@ const action = parseDeepPipelineActionRequest({
 })
 assert.equal(action.action, "claim_exception")
 assert.equal(action.exceptionKey, "audit:investment")
+
+assert.deepEqual(buildServingMonitorSummary({
+  execution_id: "cunote-deep-analysis-serving-monitor-test",
+  verified_at: new Date("2026-07-25T02:35:19.000Z"),
+  stale_seconds: 30,
+  expected_items: 2,
+  checked_items: 2,
+  fresh_items: 2,
+  failed_receipts: 0,
+  stale_receipts: 0,
+}), {
+  executionId: "cunote-deep-analysis-serving-monitor-test",
+  verifiedAt: "2026-07-25T02:35:19.000Z",
+  stale: false,
+  staleSeconds: 30,
+  expectedItems: 2,
+  checkedItems: 2,
+  freshItems: 2,
+  failedReceipts: 0,
+  staleReceipts: 0,
+  healthy: true,
+})
+assert.equal(buildServingMonitorSummary().healthy, false)
+assert.equal(buildServingMonitorSummary({
+  execution_id: "failed-monitor",
+  verified_at: new Date(),
+  stale_seconds: 30,
+  expected_items: 2,
+  checked_items: 2,
+  fresh_items: 1,
+  failed_receipts: 1,
+  stale_receipts: 0,
+}).healthy, false)
 
 assert.throws(
   () => parseDeepPipelineActionRequest({

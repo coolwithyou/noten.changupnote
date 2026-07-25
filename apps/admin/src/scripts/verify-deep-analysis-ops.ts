@@ -74,6 +74,14 @@ async function main() {
   if (!catalog.action_table_exists) failures.push("admin action audit table is missing")
   if (!catalog.action_table_rls) failures.push("admin action audit RLS is disabled")
   if (!catalog.action_append_only_trigger) failures.push("admin action append-only trigger is missing")
+  if (report.summary.servingMonitor.stale) {
+    failures.push("serving monitor heartbeat is stale or missing")
+  }
+  if (!report.summary.servingMonitor.healthy) {
+    failures.push(
+      `serving monitor is unhealthy: checked=${report.summary.servingMonitor.checkedItems}/${report.summary.servingMonitor.expectedItems}, fresh=${report.summary.servingMonitor.freshItems}, failed=${report.summary.servingMonitor.failedReceipts}, stale=${report.summary.servingMonitor.staleReceipts}`,
+    )
+  }
 
   const output = {
     schema: "deep-analysis-ops-verification-v1",
@@ -83,6 +91,7 @@ async function main() {
     classifiedTotal: report.summary.classifiedTotal,
     buckets: report.bucketCounts,
     worker: report.summary.worker,
+    servingMonitor: report.summary.servingMonitor,
     stagePassed: Object.fromEntries(
       report.summary.stages.map((stage) => [stage.stage, stage.passed]),
     ),

@@ -8,6 +8,7 @@ import {
   ChevronRightIcon,
   SearchIcon,
   ServerIcon,
+  ShieldCheckIcon,
 } from "lucide-react"
 
 import {
@@ -107,26 +108,50 @@ export function DeepPipelinePageView({
         </form>
       </section>
 
-      {initialSummary.worker.stale ? (
-        <Alert variant="destructive">
-          <AlertTriangleIcon />
-          <AlertTitle>worker heartbeat 경고</AlertTitle>
-          <AlertDescription>
-            {initialSummary.worker.heartbeatAt
-              ? `마지막 heartbeat가 ${formatDate(initialSummary.worker.heartbeatAt)}이며 ${formatDuration(initialSummary.worker.staleSeconds)} 경과했습니다.`
-              : "현재 model policy의 worker heartbeat가 없습니다."}
-          </AlertDescription>
-        </Alert>
-      ) : (
-        <Alert>
-          <ServerIcon />
-          <AlertTitle>worker 정상</AlertTitle>
-          <AlertDescription>
-            {initialSummary.worker.serviceRevision} · {initialSummary.worker.status} · 마지막 heartbeat{" "}
-            {formatDuration(initialSummary.worker.staleSeconds)} 전
-          </AlertDescription>
-        </Alert>
-      )}
+      <section className="grid gap-3 lg:grid-cols-2">
+        {initialSummary.worker.stale ? (
+          <Alert variant="destructive">
+            <AlertTriangleIcon />
+            <AlertTitle>worker heartbeat 경고</AlertTitle>
+            <AlertDescription>
+              {initialSummary.worker.heartbeatAt
+                ? `마지막 heartbeat가 ${formatDate(initialSummary.worker.heartbeatAt)}이며 ${formatDuration(initialSummary.worker.staleSeconds)} 경과했습니다.`
+                : "현재 model policy의 worker heartbeat가 없습니다."}
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert>
+            <ServerIcon />
+            <AlertTitle>worker 정상</AlertTitle>
+            <AlertDescription>
+              {initialSummary.worker.serviceRevision} · {initialSummary.worker.status} · 마지막 heartbeat{" "}
+              {formatDuration(initialSummary.worker.staleSeconds)} 전
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {initialSummary.servingMonitor.healthy ? (
+          <Alert>
+            <ShieldCheckIcon />
+            <AlertTitle>serving monitor 정상</AlertTitle>
+            <AlertDescription>
+              {initialSummary.servingMonitor.executionId} · fresh{" "}
+              {initialSummary.servingMonitor.freshItems}/{initialSummary.servingMonitor.expectedItems} ·{" "}
+              {formatDuration(initialSummary.servingMonitor.staleSeconds)} 전
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert variant="destructive">
+            <AlertTriangleIcon />
+            <AlertTitle>serving monitor 경고</AlertTitle>
+            <AlertDescription>
+              {initialSummary.servingMonitor.verifiedAt
+                ? `${formatDate(initialSummary.servingMonitor.verifiedAt)} 검증: 확인 ${initialSummary.servingMonitor.checkedItems}/${initialSummary.servingMonitor.expectedItems}, failed ${initialSummary.servingMonitor.failedReceipts}, stale ${initialSummary.servingMonitor.staleReceipts}`
+                : "Cloud Run serving monitor의 검증 receipt가 없습니다."}
+            </AlertDescription>
+          </Alert>
+        )}
+      </section>
 
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {initialSummary.buckets.map((bucket) => (
