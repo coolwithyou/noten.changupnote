@@ -6,6 +6,7 @@ import {
   CheckCircle2Icon,
   ExternalLinkIcon,
   RefreshCwIcon,
+  ScissorsIcon,
   UserRoundCheckIcon,
   UserRoundXIcon,
 } from "lucide-react"
@@ -48,15 +49,20 @@ export function DeepNoticeSheet({
 
   const runAction = (
     action: DeepPipelineAction,
-    target: { exceptionKey?: string },
+    target: { exceptionKey?: string; aggregateSplitCaseId?: string },
   ) => {
     if (!detail) return
     const notice = detail.notice
     const costLine = action === "requeue_job"
       ? `대상 1공고 · 입력 ${formatNumber(notice.inputChars)}자 · 직전 비용 ${formatCost(notice.costUsd)} · 모델 ${notice.model ?? "policy allowlist"}`
-      : `대상 1개 예외 · ${target.exceptionKey ?? ""}`
+      : action === "approve_aggregate_split"
+        ? `대상 1개 통합공고 · 입력 ${formatNumber(detail.aggregateSplitCase?.inputChars ?? null)}자 · 상한 ${formatNumber(detail.aggregateSplitCase?.inputCapChars ?? null)}자 · ${formatNumber(detail.aggregateSplitCase?.chunkCount ?? null)}개 입력 조각`
+        : `대상 1개 예외 · ${target.exceptionKey ?? ""}`
+    const consequence = action === "approve_aggregate_split"
+      ? "승인하면 원문 전체를 보존한 별도 분리 작업 대기열로 이동합니다. 이 승인만으로 하위 공고가 발행되거나 매칭에 노출되지는 않습니다."
+      : "단계 상태는 검증 receipt만 변경할 수 있으며 이 액션으로 passed 처리되지 않습니다."
     const confirmed = window.confirm(
-      `${actionLabel(action)}\n\n${costLine}\n\n단계 상태는 검증 receipt만 변경할 수 있으며 이 액션으로 passed 처리되지 않습니다.`,
+      `${actionLabel(action)}\n\n${costLine}\n\n${consequence}`,
     )
     if (!confirmed) return
     setMessage(null)
@@ -70,8 +76,11 @@ export function DeepNoticeSheet({
             action,
             grantId: notice.grantId,
             jobId: action === "requeue_job" ? notice.jobId : undefined,
-            runId: action === "requeue_job" ? undefined : notice.runId,
+            runId: action === "claim_exception" || action === "release_exception"
+              ? notice.runId
+              : undefined,
             exceptionKey: target.exceptionKey,
+            aggregateSplitCaseId: target.aggregateSplitCaseId,
           }),
         })
         const payload = await response.json() as {
@@ -135,8 +144,63 @@ export function DeepNoticeSheet({
                   >
                     <RefreshCwIcon /> 딥분석 재처리
                   </Button>
-                ) : null}
+              ) : null}
             </div>
+
+            {detail.aggregateSplitCase ? (
+              <section className="my-3 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <AlertTriangleIcon className="text-amber-700" />
+                      <strong>통합공고 분리 필요</strong>
+                      <Badge
+                        variant={detail.aggregateSplitCase.status === "failed"
+                          ? "destructive"
+                          : "outline"}
+                      >
+                        {aggregateSplitStatusLabel(detail.aggregateSplitCase.status)}
+                      </Badge>
+                    </div>
+                    <p className="mt-2 text-sm leading-6">
+                      여러 하위사업이 섞인 대용량 통합공고입니다. 입력{" "}
+                      {formatNumber(detail.aggregateSplitCase.inputChars)}자가 정책 상한{" "}
+                      {formatNumber(detail.aggregateSplitCase.inputCapChars)}자를 넘어 일반
+                      딥분석을 계속하지 않았습니다. 사람의 승인 뒤 하위 공고 분리 작업으로
+                      넘겨야 합니다.
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      입력 조각 {formatNumber(detail.aggregateSplitCase.chunkCount)}개 · 첨부{" "}
+                      {formatNumber(detail.aggregateSplitCase.attachmentCount)}개 · 원문은 이
+                      단계에서 변경되지 않음
+                    </p>
+                  </div>
+                  {(role === "admin" || role === "owner")
+                    && detail.aggregateSplitCase.status === "pending_review" ? (
+                      <Button
+                        disabled={isPending}
+                        onClick={() => runAction("approve_aggregate_split", {
+                          aggregateSplitCaseId: detail.aggregateSplitCase!.id,
+                        })}
+                      >
+                        <ScissorsIcon /> 분리 처리 수락
+                      </Button>
+                    ) : null}
+                </div>
+                {detail.aggregateSplitCase.approvedAt ? (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {detail.aggregateSplitCase.approvedByEmail ?? "관리자"} 승인 ·{" "}
+                    {formatDate(detail.aggregateSplitCase.approvedAt)}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.lastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.lastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.lastErrorMessage}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
 
             {message ? (
               <p className="my-3 rounded-lg border bg-muted p-3 text-sm">{message}</p>
@@ -391,5 +455,16 @@ function formatCost(value: number | null): string {
 function actionLabel(action: DeepPipelineAction): string {
   if (action === "requeue_job") return "딥분석 재처리"
   if (action === "claim_exception") return "예외 배정"
-  return "예외 배정 해제"
+  if (action === "release_exception") return "예외 배정 해제"
+  return "통합공고 분리 승인"
+}
+
+function aggregateSplitStatusLabel(
+  status: NonNullable<DeepPipelineNoticeDetail["aggregateSplitCase"]>["status"],
+): string {
+  if (status === "pending_review") return "사람 검토 대기"
+  if (status === "approved") return "분리 작업 대기"
+  if (status === "processing") return "분리 처리 중"
+  if (status === "completed") return "분리 완료"
+  return "분리 실패"
 }

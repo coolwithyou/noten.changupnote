@@ -805,6 +805,76 @@ export const companyGrantConfirmations = pgTable("company_grant_confirmations", 
 }));
 
 /**
+ * 입력 상한을 넘는 통합공고를 일반 공고처럼 잘라 분석하지 않고, Ops 사람 승인 뒤
+ * 별도 분리 worker가 가져갈 수 있도록 보존하는 상태 원장이다. 원문 revision마다
+ * 하나의 케이스만 만들며 승인 요청은 admin action 원장과 request_id로 연결한다.
+ */
+export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  sourceRevisionSha256: text("source_revision_sha256").notNull(),
+  status: text("status").default("pending_review").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  inputChars: integer("input_chars").notNull(),
+  inputCapChars: integer("input_cap_chars").notNull(),
+  chunkCount: integer("chunk_count").notNull(),
+  attachmentCount: integer("attachment_count").notNull(),
+  evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
+  evidenceSha256: text("evidence_sha256").notNull(),
+  approvalRequestId: uuid("approval_request_id"),
+  approvedByAdminUserId: uuid("approved_by_admin_user_id")
+    .references(() => adminUsers.id, { onDelete: "restrict" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  identityIdx: uniqueIndex("grant_aggregate_split_cases_identity_idx")
+    .on(table.grantId, table.sourceRevisionSha256),
+  approvalRequestIdx: uniqueIndex("grant_aggregate_split_cases_approval_request_idx")
+    .on(table.approvalRequestId),
+  approvedByIdx: index("grant_aggregate_split_cases_approved_by_idx")
+    .on(table.approvedByAdminUserId),
+  statusCreatedIdx: index("grant_aggregate_split_cases_status_created_idx")
+    .on(table.status, table.createdAt),
+  statusCheck: check("grant_aggregate_split_cases_status_check", sql`
+    ${table.status} IN (
+      'pending_review', 'approved', 'processing', 'completed', 'failed'
+    )
+  `),
+  reasonCheck: check("grant_aggregate_split_cases_reason_check", sql`
+    ${table.reasonCode} IN ('oversized_aggregate_notice')
+  `),
+  hashCheck: check("grant_aggregate_split_cases_hash_check", sql`
+    ${table.sourceRevisionSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.evidenceSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  countsCheck: check("grant_aggregate_split_cases_counts_check", sql`
+    ${table.inputChars} > ${table.inputCapChars}
+    AND ${table.inputCapChars} > 0
+    AND ${table.chunkCount} > 0
+    AND ${table.attachmentCount} >= 0
+  `),
+  approvalCheck: check("grant_aggregate_split_cases_approval_check", sql`
+    (
+      ${table.status} = 'pending_review'
+      AND ${table.approvalRequestId} IS NULL
+      AND ${table.approvedByAdminUserId} IS NULL
+      AND ${table.approvedAt} IS NULL
+    )
+    OR (
+      ${table.status} <> 'pending_review'
+      AND ${table.approvalRequestId} IS NOT NULL
+      AND ${table.approvedByAdminUserId} IS NOT NULL
+      AND ${table.approvedAt} IS NOT NULL
+    )
+  `),
+}));
+
+/**
  * 활성 공고 딥분석 작업 큐. grant/source revision/model policy 조합을 단일 멱등 키로
  * 사용하며 worker는 짧은 SKIP LOCKED 트랜잭션으로 lease한다.
  */
@@ -1101,7 +1171,9 @@ export const adminDeepAnalysisActions = pgTable("admin_deep_analysis_actions", {
   adminCreatedIdx: index("admin_deep_analysis_actions_admin_created_idx")
     .on(table.adminUserId, table.createdAt),
   actionCheck: check("admin_deep_analysis_actions_action_check", sql`
-    ${table.action} IN ('requeue_job', 'claim_exception', 'release_exception')
+    ${table.action} IN (
+      'requeue_job', 'claim_exception', 'release_exception', 'approve_aggregate_split'
+    )
   `),
   outcomeCheck: check("admin_deep_analysis_actions_outcome_check", sql`
     ${table.outcome} IN ('succeeded', 'failed')

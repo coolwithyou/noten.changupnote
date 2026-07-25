@@ -277,6 +277,26 @@ export interface DeepPipelineAdminAction {
   createdAt: string
 }
 
+export interface DeepPipelineAggregateSplitCase {
+  id: string
+  status: "pending_review" | "approved" | "processing" | "completed" | "failed"
+  reasonCode: "oversized_aggregate_notice"
+  sourceRevisionSha256: string
+  inputChars: number
+  inputCapChars: number
+  chunkCount: number
+  attachmentCount: number
+  evidenceSha256: string
+  approvedByEmail: string | null
+  approvedAt: string | null
+  processingStartedAt: string | null
+  completedAt: string | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface DeepPipelineNoticeDetail {
   notice: DeepPipelineNoticeItem
   sourceRevisionSha256: string | null
@@ -294,12 +314,14 @@ export interface DeepPipelineNoticeDetail {
   attachments: DeepPipelineAttachment[]
   promotions: DeepPipelinePromotion[]
   adminActions: DeepPipelineAdminAction[]
+  aggregateSplitCase: DeepPipelineAggregateSplitCase | null
 }
 
 export const DEEP_PIPELINE_ACTIONS = [
   "requeue_job",
   "claim_exception",
   "release_exception",
+  "approve_aggregate_split",
 ] as const
 
 export type DeepPipelineAction = (typeof DEEP_PIPELINE_ACTIONS)[number]
@@ -311,6 +333,7 @@ export interface DeepPipelineActionRequest {
   jobId?: string
   runId?: string
   exceptionKey?: string
+  aggregateSplitCaseId?: string
 }
 
 export interface DeepPipelineActionResult {
@@ -321,6 +344,7 @@ export interface DeepPipelineActionResult {
   jobId: string | null
   runId: string | null
   exceptionKey: string | null
+  aggregateSplitCaseId: string | null
 }
 
 export function isDeepPipelineBucket(value: unknown): value is DeepPipelineBucket {

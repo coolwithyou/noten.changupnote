@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
+import { ensureAggregateSplitCaseForSeal } from "./aggregateSplitCase";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
 import { enqueueDeepAnalysisJob } from "./ledger";
 import { prepareDeepAnalysisInput } from "./prepareInput";
@@ -151,6 +152,12 @@ export async function enqueueActiveDeepAnalysisJobs(input: {
         storage: input.storage,
         grantId: candidate.grantId,
         maxTotalChars: input.policy.maxTotalInputChars,
+      });
+      await ensureAggregateSplitCaseForSeal({
+        db: input.db,
+        grantId: candidate.grantId,
+        seal,
+        inputCapChars: input.policy.maxTotalInputChars,
       });
       await (input.enqueueJob ?? enqueueDeepAnalysisJob)(input.db, {
         grantId: candidate.grantId,

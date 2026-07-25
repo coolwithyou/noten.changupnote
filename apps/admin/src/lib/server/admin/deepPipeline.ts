@@ -17,6 +17,7 @@ import {
   DEEP_PIPELINE_BUCKET_LABELS,
   DEEP_PIPELINE_BUCKETS,
   DEEP_STAGE_LABELS,
+  type DeepPipelineAggregateSplitCase,
   type DeepPipelineAdminAction,
   type DeepPipelineAttachment,
   type DeepPipelineAudit,
@@ -887,6 +888,7 @@ export async function getDeepPipelineNoticeDetail(
     attachmentRows,
     promotionRows,
     actionRows,
+    aggregateSplitRows,
   ] = await Promise.all([
     sql.unsafe<RunDetailRow[]>(
       `select *
@@ -964,6 +966,16 @@ export async function getDeepPipelineNoticeDetail(
        order by action.created_at desc, action.id desc`,
       [grantId],
     ),
+    sql.unsafe<AggregateSplitCaseRow[]>(
+      `select split_case.*, approver.email as approved_by_email
+       from grant_aggregate_split_cases split_case
+       left join admin_users approver
+         on approver.id = split_case.approved_by_admin_user_id
+       where split_case.grant_id = $1::uuid
+       order by split_case.created_at desc, split_case.id desc
+       limit 1`,
+      [grantId],
+    ),
   ])
 
   const run = runRows[0]
@@ -984,6 +996,9 @@ export async function getDeepPipelineNoticeDetail(
     attachments: attachmentRows.map(mapAttachment),
     promotions: promotionRows.map(mapPromotion),
     adminActions: actionRows.map(mapAdminAction),
+    aggregateSplitCase: aggregateSplitRows[0]
+      ? mapAggregateSplitCase(aggregateSplitRows[0])
+      : null,
   }
 }
 
@@ -1083,6 +1098,26 @@ interface ActionRow {
   detail: Record<string, unknown>
   error: string | null
   created_at: Date
+}
+
+interface AggregateSplitCaseRow {
+  id: string
+  status: DeepPipelineAggregateSplitCase["status"]
+  reason_code: DeepPipelineAggregateSplitCase["reasonCode"]
+  source_revision_sha256: string
+  input_chars: number
+  input_cap_chars: number
+  chunk_count: number
+  attachment_count: number
+  evidence_sha256: string
+  approved_by_email: string | null
+  approved_at: Date | null
+  processing_started_at: Date | null
+  completed_at: Date | null
+  last_error_code: string | null
+  last_error_message: string | null
+  created_at: Date
+  updated_at: Date
 }
 
 function mapNotice(row: PipelineRow): DeepPipelineNoticeItem {
@@ -1239,6 +1274,30 @@ function mapAdminAction(row: ActionRow): DeepPipelineAdminAction {
     detail: row.detail,
     error: row.error,
     createdAt: row.created_at.toISOString(),
+  }
+}
+
+function mapAggregateSplitCase(
+  row: AggregateSplitCaseRow,
+): DeepPipelineAggregateSplitCase {
+  return {
+    id: row.id,
+    status: row.status,
+    reasonCode: row.reason_code,
+    sourceRevisionSha256: row.source_revision_sha256,
+    inputChars: Number(row.input_chars),
+    inputCapChars: Number(row.input_cap_chars),
+    chunkCount: Number(row.chunk_count),
+    attachmentCount: Number(row.attachment_count),
+    evidenceSha256: row.evidence_sha256,
+    approvedByEmail: row.approved_by_email,
+    approvedAt: row.approved_at?.toISOString() ?? null,
+    processingStartedAt: row.processing_started_at?.toISOString() ?? null,
+    completedAt: row.completed_at?.toISOString() ?? null,
+    lastErrorCode: row.last_error_code,
+    lastErrorMessage: row.last_error_message,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
   }
 }
 

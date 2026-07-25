@@ -2892,6 +2892,40 @@ Step 4-1D 잔여 구조·PDF 입력 복구 체크포인트 — `BLOCKED`, 79/80 
   `80/80`을 만들어야 한다. 그 전에는 primary deep analysis와 AI 자동 검수를 실행하지
   않는다.
 
+Step 4-1E-1 통합공고 사람 승인 경계 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
+
+- `blocked_cap`이라고 해서 모든 장문 공고를 분리하지 않는다. 다른 입력 blocker 없이
+  상한만 초과했고 제목이 통합공고임을 명시한 경우에만
+  `oversized_aggregate_notice` 케이스를 만든다. 장문 단일사업 공고와 원문 복구가 덜 된
+  공고는 이 경로에 들어오지 않는다.
+- 알려진 exact 사례
+  `2026년 중앙부처 및 지자체 창업지원사업 통합공고`
+  (`1,136,482/800,000`자, 입력 chunk 22개)를 회귀 fixture로 추가했다.
+- `grant_aggregate_split_cases`는 `(grant_id, source_revision_sha256)`당 한 행만 만들고,
+  입력 크기·상한·chunk/첨부 수·감지 evidence hash를 보존한다. detector 재실행은 이미
+  승인된 상태를 검토 대기로 되돌리지 않는다.
+- production feeder와 processor는 각각 enqueue/모델 호출 전에 이 케이스를 멱등
+  등록한다. 일반 공고의 처리 경로와 80만 자 상한은 바꾸지 않았다.
+- Ops 공고 상세에는 `통합공고 분리 필요` 경고와 입력/상한/chunk 증거를 표시한다.
+  `admin/owner`만 `분리 처리 수락`을 실행할 수 있고, 같은 request ID는 멱등 처리된다.
+  승인 시 case가 `pending_review -> approved`로 이동하고 actor·시각·원문 revision·
+  입력 크기는 기존 append-only `admin_deep_analysis_actions` 감사 원장에 남는다.
+  최신 job의 원문 revision과 다른 오래된 케이스 승인은 fail-closed로 거부한다.
+- 이 체크포인트의 `approved`는 **별도 분리 worker 대기**를 뜻한다. 아직 하위 공고를
+  만들거나 parent 공고를 매칭에서 제외하거나 딥분석 job을 enqueue하지 않는다. 따라서
+  이 단계만으로 80번째 공고가 ready가 된 것으로 계산하지 않는다.
+- schema migration은 코드로 생성했지만 이 체크포인트에서는 production DB 적용, 앱
+  배포, 외부 LLM 호출, 하위 공고 생성, 딥분석 job enqueue를 하지 않는다.
+
+다음 체크포인트 Step 4-1E-2의 범위:
+
+1. 승인된 case 하나를 짧은 DB 트랜잭션으로 claim하는 별도 분리 worker 계약
+2. 원문 전체를 유지한 하위사업 manifest 생성과 독립 검증
+3. manifest가 검증된 경우에만 파생 공고를 멱등 생성하고 각각의 딥분석 입력을 봉인
+4. 모든 파생 공고가 준비된 뒤에만 parent를 일반 매칭/딥분석 분모에서 제외
+5. 일부 성공을 전체 성공으로 오인하지 않는 Ops 진행 상태와 실패 복구
+
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. 위 최소 증거 2~4를 순서대로 닫기 전에는
 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
 

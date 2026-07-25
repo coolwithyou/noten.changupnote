@@ -1,0 +1,1 @@
+CREATE INDEX "grant_aggregate_split_cases_approved_by_idx" ON "grant_aggregate_split_cases" USING btree ("approved_by_admin_user_id");

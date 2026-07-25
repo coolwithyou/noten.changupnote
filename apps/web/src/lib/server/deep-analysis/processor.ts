@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
+import { ensureAggregateSplitCaseForSeal } from "./aggregateSplitCase";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import {
   DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
@@ -106,6 +107,13 @@ export async function processDeepAnalysisJob(input: {
       `Deep analysis input is not sealed: source revision changed from ${input.job.sourceRevisionSha256.slice(0, 12)} to ${seal.sourceRevisionSha256.slice(0, 12)}`,
     );
   }
+
+  await ensureAggregateSplitCaseForSeal({
+    db: input.db,
+    grantId: input.job.grantId,
+    seal,
+    inputCapChars: input.policy.maxTotalInputChars,
+  });
 
   const publicRunId = buildDeepAnalysisRunId();
   const inputArtifact = await putImmutableDeepAnalysisArtifact({
