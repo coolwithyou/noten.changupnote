@@ -19,6 +19,8 @@ export interface ConversionPollSweepOptions {
   staleMs?: number;
   /** 특정 source 로 제한. */
   source?: GrantSource;
+  /** 특정 공고 source_id 집합으로 제한. */
+  sourceIds?: string[];
   /** 특정 grant 의 surface 로 제한 (on-demand). */
   grantId?: string;
   /** job 폴링 최대 시도 (기본 60). */
@@ -78,6 +80,7 @@ export async function runConversionPollSweep(
     limit: options.limit ?? 10,
     staleMs: options.staleMs ?? 0,
     ...(options.source ? { source: options.source } : {}),
+    ...(options.sourceIds?.length ? { sourceIds: options.sourceIds } : {}),
     ...(options.grantId ? { grantId: options.grantId } : {}),
   });
   base.pendingCount = jobs.length;
