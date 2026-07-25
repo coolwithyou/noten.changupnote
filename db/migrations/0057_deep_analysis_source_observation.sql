@@ -1,0 +1,1 @@
+ALTER TABLE "grant_deep_analysis_jobs" ADD COLUMN "source_observed_at" timestamp with time zone;

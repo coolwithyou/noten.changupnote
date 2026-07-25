@@ -823,6 +823,7 @@ export const grantDeepAnalysisJobs = pgTable("grant_deep_analysis_jobs", {
   workerId: text("worker_id"),
   lastErrorCode: text("last_error_code"),
   lastErrorMessage: text("last_error_message"),
+  sourceObservedAt: timestamp("source_observed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({

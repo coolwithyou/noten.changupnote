@@ -2671,12 +2671,24 @@ extractor 구현을 가지는 것은 금지한다.
 - 별도 관측 상태나 migration이 필요하면 먼저 이 문서에서 schema와 rollback을 검토하고,
   Step 2A 커밋에 섞지 않는다.
 
+고정 schema와 rollout:
+
+- `grant_deep_analysis_jobs.source_observed_at timestamptz NULL` 한 컬럼만 추가한다.
+- 값은 feeder가 실제로 조회한 grant/raw/archive/surface source 변경 시각의 최댓값이다.
+- 같은 job identity가 이미 있으면 status·`updated_at`은 건드리지 않고
+  `source_observed_at`만 단조 증가시킨다.
+- 기존 NULL 행은 feeder의 기존 batch 제한 안에서 한 번씩 관측한 뒤 채운다.
+- migration을 먼저 적용한 뒤 worker를 배포한다. 구버전 worker는 새 nullable 컬럼을
+  사용하지 않으므로 migration 선적용과 호환된다.
+- rollback은 새 worker를 먼저 되돌린 뒤
+  `ALTER TABLE grant_deep_analysis_jobs DROP COLUMN source_observed_at`을 실행한다.
+
 완료 조건:
 
-- [ ] claim 또는 complete 도중 source가 바뀐 fixture가 새 revision 후보로 남음
-- [ ] 내용이 같은 source 재수집은 무한 enqueue 후보가 되지 않음
-- [ ] 새 revision은 새 job identity로 enqueue
-- [ ] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+- [x] claim 또는 complete 도중 source가 바뀐 fixture가 새 revision 후보로 남음
+- [x] 내용이 같은 source 재수집은 무한 enqueue 후보가 되지 않음
+- [x] 새 revision은 새 job identity로 enqueue
+- [x] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
 
 #### 축소 Step 3 — 정확한 코호트가 S14까지 닫혀야 확장 가능
 
