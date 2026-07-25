@@ -2152,6 +2152,11 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   누락으로 오인하지 않으며 24시간이 실제 경과하기 전 PASS할 수 없음을 확인했다.
   같은 실행의 cloud evidence도 Scheduler start/finish 1/1, Run success 1/1,
   receipt execution match 1/1, failure 0으로 별도 PASS했다.
+- [x] 두 번째 정시 execution `cunote-deep-analysis-serving-monitor-tckmn`도 task 1/1로
+  성공했다. 같은 종료 검증은 도래한 2슬롯, execution 2건, receipt 12건,
+  R2 byte mismatch 0을 확인했고 cloud evidence도 Scheduler start/finish 2/2,
+  Run success 2/2, receipt execution match 2/2, failure 0으로 PASS했다. 전체 판정은
+  gate를 낮추지 않아 아직 `window_incomplete` 하나로 exit 2다.
 - [ ] serving canary 관측은 2026-07-25 11:35 KST부터 유지되고 있다. 다만 execution
   metadata/R2 전수 종료 검증은 새 image의 첫 정시 슬롯인 2026-07-25 12:05 KST부터
   2026-07-26 12:05 KST까지 더 엄격하게 다시 센다. 종료 뒤 DB/R2 48슬롯 판정과
@@ -2187,6 +2192,30 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `48b92c4`, image digest `sha256:ee073d72440f…`와 기존 secret/env 경계를 유지한다.
   배포 직후 `pnpm verify:deep-analysis-ops`는 분모 636의 상태 보존식, worker
   freshness, monitor `checked=2/2`, receipt failure/stale 0을 모두 확인해 PASS했다.
+- [x] 최신 v3 `input_not_sealed` 27공고를 exception receipt의 실제 blocker로 분해했다.
+  K-Startup은 원본 미보관 14공고/53첨부, Bizinfo는 원본 미보관 8공고/15첨부,
+  원본 보관 후 변환 미완료 6공고/11첨부다. 공고 집합은 일부 중첩하며 모든 blocker는
+  paid model call 전에 발생했다.
+- [x] 변환 artifact가 생겨도 autonomous feeder가 `grant/raw/archive` timestamp만 보고
+  `document_artifacts` 갱신을 놓쳐 자동 재분석하지 못하는 단절을 수정했다. commit
+  `fd3036d`부터 검증된 markdown artifact/surface 갱신도 새 source revision 후보를
+  만들며, 기존 unique identity가 중복 paid call을 계속 차단한다.
+- [x] commit `a42f05a`에 LLM worker와 분리된 input-preparation 실행기를 추가했다.
+  최신 `input_not_sealed` 활성 job만 source별 bounded batch로 고르고, 원본 archive →
+  conversion reconciliation → R2 재봉인 검증을 수행한다. LLM 호출·promotion·matcher
+  write는 포함하지 않는다. 가장 가까운 마감 1건은 항상 우선하고 나머지는 10분 epoch로
+  순환해 영구 blocker가 용량을 독점하지 않으며, 더 최신 job이 있는 과거 blocker는
+  대상에서 제외한다.
+- [x] Bizinfo 수동 백필과 상시 실행이 같은 bounded batch 코어를 사용하도록 분리했고,
+  conversion sweep을 선택한 source ID로 제한했다. production read-only target
+  selection은 기본 정책 `source별 2공고 / 공고당 10첨부 / source별 20첨부 /
+  conversion 10 / deadline 480초`에서 K-Startup 2·Bizinfo 2를 선택했다.
+  web typecheck, 전체 deep-analysis contract suite, fail-closed 실행 검증과 두 source의
+  targeted dry-run이 통과했다.
+- [ ] input-preparation 전용 Cloud Run Job을 `sw@noten.im`·`changupnote-com`에 별도
+  배포하고, 24시간 serving monitor image는 그대로 둔 채 bounded production canary로
+  archive→conversion→재봉인→새 revision 자동 enqueue를 검증한다. Scheduler는 canary
+  증적과 관제 계약을 확인한 뒤에만 활성화한다.
 
 배포 체크포인트 H0 — 관제·worker production 반영 (2026-07-25):
 
