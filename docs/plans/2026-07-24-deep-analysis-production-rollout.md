@@ -1,8 +1,8 @@
 # 딥 공고 분석 결과 운영 매칭 적용 로드맵 및 구현 계획
 
 > 작성일: 2026-07-24  
-> 상태: **프로덕션 worker·영속 원장·딥분석 관제 운영 중 / 2공고 serving canary 통과 /
-> 24시간 관측 후 20공고 확대 대기**
+> 상태: **프로덕션 worker·영속 원장·딥분석 관제 운영 중 / 실제 HWP 포함 22축 분석 완주 /
+> 2공고 serving canary 통과 / 24시간 관측 후 20공고 확대 대기**
 > 적용 대상: `analysis-lab`에서 생성하고 AI 검수·감사·검수팀 판정을 거친 공고별 조건과 확인 질문  
 > 2026-07-25 확장: 활성 공고의 원문·HWP 딥분석을 사람 전수 검수 없이 운영하고,
 > 단계별 증적으로 보증하는 계획은 이 문서 §14를 정본으로 사용한다.
@@ -2157,6 +2157,11 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   R2 byte mismatch 0을 확인했고 cloud evidence도 Scheduler start/finish 2/2,
   Run success 2/2, receipt execution match 2/2, failure 0으로 PASS했다. 전체 판정은
   gate를 낮추지 않아 아직 `window_incomplete` 하나로 exit 2다.
+- [x] 2026-07-25 13:45 KST 재검증은 `lq752`, `tckmn`, `h74jb`, `q5d2t` 네 정시
+  execution과 도래한 4/48 슬롯을 인식했다. DB receipt 24건과 content-addressed R2
+  artifact 전수 비교의 불일치는 0이고, Cloud Scheduler start/finish 4/4, Cloud Run
+  success 4/4, receipt execution match 4/4도 모두 PASS다. 종료 판정은 여전히
+  `window_incomplete` 하나뿐이며 조기 통과시키지 않았다.
 - [ ] serving canary 관측은 2026-07-25 11:35 KST부터 유지되고 있다. 다만 execution
   metadata/R2 전수 종료 검증은 새 image의 첫 정시 슬롯인 2026-07-25 12:05 KST부터
   2026-07-26 12:05 KST까지 더 엄격하게 다시 센다. 종료 뒤 DB/R2 48슬롯 판정과
@@ -2212,10 +2217,37 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   conversion 10 / deadline 480초`에서 K-Startup 2·Bizinfo 2를 선택했다.
   web typecheck, 전체 deep-analysis contract suite, fail-closed 실행 검증과 두 source의
   targeted dry-run이 통과했다.
-- [ ] input-preparation 전용 Cloud Run Job을 `sw@noten.im`·`changupnote-com`에 별도
+- [x] input-preparation 전용 Cloud Run Job을 `sw@noten.im`·`changupnote-com`에 별도
   배포하고, 24시간 serving monitor image는 그대로 둔 채 bounded production canary로
   archive→conversion→재봉인→새 revision 자동 enqueue를 검증한다. Scheduler는 canary
-  증적과 관제 계약을 확인한 뒤에만 활성화한다.
+  증적과 관제 계약을 확인한 뒤에만 활성화한다. 첫 canary execution `x7d45`는
+  K-Startup `178185`의 HWP+TXT와 `178613`의 HWP, Bizinfo `123716`의 HWPX+PDF를
+  원본 보관했고 변환 실패 0, conversion still-pending 0을 기록했다. 이 중 K-Startup
+  2공고는 즉시 재봉인·새 revision enqueue까지 완료했고, 해소되지 않은 2공고는
+  `blocked_conversion`을 유지해 LLM 호출로 넘어가지 않았다.
+- [x] input-preparation Scheduler
+  `cunote-deep-analysis-input-preparation-scheduler`를 KST 매 10분 `:02/:12/…/:52`,
+  OAuth service account, retry 0으로 활성화했다. 첫 자동 execution `xzjhd`는
+  task 1/1, sealed 3/4, archive/conversion failure 0으로 성공했고, 새 image의
+  `tt5gw`도 task 1/1, HWP/HWPX 5건을 포함한 archive/convert를 수행한 뒤
+  `serviceRevision=b7e44e6…` heartbeat를 남겼다. 준비 Job에는 Anthropic secret이
+  없고 archive/convert/reseal/enqueue만 수행한다.
+- [x] 실제 HWP 분석 경로는 K-Startup `178185`로 종단 검증했다. input preparation이
+  `교통환경챌린지 8기 창업기업 모집.hwp`를 `hwp5html`로 변환하고 HWP·TXT를 포함한
+  source revision을 봉인했다. worker execution `68sxs`는 4분 14초, task 1/1로
+  종료했고 Opus primary가 정확히 22축과 criterion 10개를 생성했다. response contract,
+  axis coverage, 원문 evidence grounding이 모두 issue 0이며 Sonnet 독립 감사도
+  disagreement 0/concur로 `analysis_complete`를 통과했다. 비용은 `$0.916720`이고
+  이 결과는 관측 gate 중이므로 아직 promotion/matcher write를 하지 않았다.
+- [x] 같은 실운영 검증에서 audit의 역할도 fail-closed로 확인했다. K-Startup
+  `177978`은 실제 공고에 없는 업력 제한을 넓은 시스템 태그에서 추론한 2항목,
+  Bizinfo `124039`는 특정 전환기업 대상 조건을 충분히 구조화하지 못한 1항목 때문에
+  각각 독립 감사 불일치로 격리됐다. primary contract·22축·근거 통과만으로 자동
+  발행하지 않았고, concurrence를 얻은 `178185`만 `analysis_complete`가 됐다.
+- [x] 24시간 gate 전에 계획된 20공고 분석·승격을 앞당기지 않도록, 위 종단 검증을
+  마친 2026-07-25 13:43 KST에 유료 main Scheduler를 `PAUSED`로 되돌렸다.
+  input-preparation Scheduler와 24시간 serving monitor만 유지하며, main Scheduler는
+  48/48 종료 검증 PASS 뒤 첫 20공고 배치를 시작할 때 다시 연다.
 
 배포 체크포인트 H0 — 관제·worker production 반영 (2026-07-25):
 
@@ -2239,6 +2271,30 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   입력 blocker는 paid model call 없이 fail-closed 분류됐다.
 - [x] `.env.vercel.local` NOTEN token을 웹 배포 정본으로 쓰되, ops 소유권 예외와
   모노레포 Root Directory 이중 경로 방지 절차를 `AGENTS.md`에 추가했다.
+- [x] commit `bda5438`에서 worker 전체 동시성을 DB advisory lock과 active lease
+  count로 1개에 고정하고 lease를 획득하지 못한 호출은 model call 없이 끝내도록 했다.
+  장시간 실행 중 겹친 수동 execution `bw2qf`와 정시 execution `87fl6`가 모두
+  `claimed=0`, 비용 0으로 끝나 중복 유료 분석이 없음을 확인했다.
+- [x] commit `fa66a9f`에서 모델이 JSON 직렬화된 HWP 줄바꿈을 표현한 evidence span을
+  봉인 입력의 정확한 raw substring으로 결정론적으로 복원하도록 수정했다. 이미 실패한
+  production raw response를 새 모델 호출 없이 재검증한 결과 response contract,
+  22축, evidence grounding이 전부 통과했다. 일반적인 모호한 공백 변형은 계속
+  fail-closed다.
+- [x] commit `b7e44e6`에서 Cloud Run 30분 timeout보다 짧았던 lease를 35분으로 늘리고,
+  running worker보다 뒤에 끝난 no-op heartbeat가 관제에서 실행 중인 job을 가리던 집계를
+  수정했다. ops는 이제 current job, active worker/lease, stale active worker와
+  `healthy`를 함께 표시한다. execution `68sxs` 중 관제 실측은 active worker 1,
+  active lease 1, stale 0, 정확한 current job·service revision이었고 종료 후 모두
+  0/idle로 회수됐다.
+- [x] Cloud Build `e87d161f-ecea-449b-951c-785177f4aaa5`가 commit
+  `b7e44e65476cd513d42a033963f5dc36511ebd99`를 immutable digest
+  `sha256:140f9641f5d9…`로 만들었고 main worker와 input-preparation Job 모두 같은
+  digest·정확한 commit SHA를 사용한다. main은 max concurrent 1, lease 2100초,
+  invocation당 1건, 일 `$50`/공고당 `$2` 상한을 유지한다.
+- [x] 새 worker 건강도 UI는 기존 `team-coolwithyou/changupnote-ops` production
+  deployment `dpl_H9YSwL76QwPS1VTFeuEkthRDDQvX`로 배포해 Ready와 기존
+  `ops.changupnote.com` alias를 확인했다. 비로그인 `/pipeline`은 307→login,
+  overview/action API는 401이며 새 project/domain은 만들지 않았다.
 
 우선순위:
 
