@@ -2657,10 +2657,10 @@ extractor 구현을 가지는 것은 금지한다.
 
 완료 조건:
 
-- [ ] 분석 도중 source 변경 fixture가 S11 통과를 거부
-- [ ] 같은 fixture가 기존 run을 stale 처리하고 새 revision job을 enqueue
-- [ ] promotion 이전에 stale 결과가 차단됨
-- [ ] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+- [x] 분석 도중 source 변경 fixture가 S11 통과를 거부
+- [x] 같은 fixture가 기존 run을 stale 처리하고 새 revision job을 enqueue
+- [x] promotion 이전에 stale 결과가 차단됨
+- [x] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
 
 #### 축소 Step 2B — feeder source 관측과 job 운영 시각 분리
 
