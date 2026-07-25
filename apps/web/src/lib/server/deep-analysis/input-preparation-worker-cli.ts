@@ -5,6 +5,7 @@ import {
   resolveDeepAnalysisInputPreparationPolicy,
   runDeepAnalysisInputPreparation,
 } from "./inputPreparation";
+import { writeDeepAnalysisWorkerHeartbeat } from "./workerState";
 
 loadMonorepoEnv();
 
@@ -28,25 +29,76 @@ if (!process.env.CONVERSION_SHARED_SECRET?.trim()) {
 }
 
 const db = getCunoteDb();
+const policy = resolveDeepAnalysisInputPreparationPolicy();
+const workerId = (
+  process.env.CLOUD_RUN_EXECUTION
+  || process.env.HOSTNAME
+  || `local-${process.pid}`
+).slice(0, 200);
+const serviceRevision = (
+  process.env.K_REVISION
+  || process.env.GIT_COMMIT_SHA
+  || "local-unversioned"
+).slice(0, 200);
 try {
+  await writeDeepAnalysisWorkerHeartbeat(db, {
+    workerId,
+    serviceRevision,
+    modelPolicyVersion: policy.modelPolicyVersion,
+    status: "running",
+    metadata: {
+      role: "input_preparation",
+      phase: "running",
+    },
+  });
   const result = await runDeepAnalysisInputPreparation({
     db,
     storage,
-    policy: resolveDeepAnalysisInputPreparationPolicy(),
+    policy,
+  });
+  const archiveFailedCount =
+    (result.archive.kstartup?.failedCount ?? 0)
+    + (result.archive.bizinfo?.failedCount ?? 0);
+  await writeDeepAnalysisWorkerHeartbeat(db, {
+    workerId,
+    serviceRevision,
+    modelPolicyVersion: policy.modelPolicyVersion,
+    status: "idle",
+    metadata: {
+      role: "input_preparation",
+      phase: "complete",
+      targetCount: result.targetCount,
+      sealedCount: result.sealedCount,
+      unresolvedCount: result.unresolvedCount,
+      archiveFailedCount,
+      conversionFailedCount: result.conversion.failed,
+      conversionStillPending: result.conversion.stillPending,
+      budgetExhausted: result.conversion.budgetExhausted,
+      elapsedMs: result.elapsedMs,
+    },
   });
   console.log(JSON.stringify({
     ok: result.conversion.ok,
-    executionId:
-      process.env.CLOUD_RUN_EXECUTION
-      || process.env.HOSTNAME
-      || `local-${process.pid}`,
-    serviceRevision:
-      process.env.K_REVISION
-      || process.env.GIT_COMMIT_SHA
-      || "local-unversioned",
+    executionId: workerId,
+    serviceRevision,
     ...result,
   }));
   if (!result.conversion.ok) process.exitCode = 2;
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  await writeDeepAnalysisWorkerHeartbeat(db, {
+    workerId,
+    serviceRevision,
+    modelPolicyVersion: policy.modelPolicyVersion,
+    status: "degraded",
+    lastErrorCode: "input_preparation_failed",
+    metadata: {
+      role: "input_preparation",
+      phase: "failed",
+      error: message.slice(0, 500),
+    },
+  });
+  throw error;
 } finally {
   await closeCunoteDb();
 }

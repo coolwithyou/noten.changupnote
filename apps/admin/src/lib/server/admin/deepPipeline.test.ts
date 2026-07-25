@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 
 import {
+  buildInputPreparationSummary,
   buildServingMonitorSummary,
   parseDeepPipelineQuery,
 } from "./deepPipeline"
@@ -74,6 +75,52 @@ assert.equal(buildServingMonitorSummary({
   fresh_items: 1,
   failed_receipts: 1,
   stale_receipts: 0,
+}).healthy, false)
+assert.deepEqual(buildInputPreparationSummary({
+  worker_id: "cunote-deep-analysis-input-preparation-test",
+  status: "idle",
+  service_revision: "revision",
+  last_error_code: null,
+  metadata: {
+    targetCount: 4,
+    sealedCount: 3,
+    unresolvedCount: 1,
+    archiveFailedCount: 0,
+    conversionFailedCount: 0,
+    conversionStillPending: 1,
+    budgetExhausted: false,
+  },
+  heartbeat_at: new Date("2026-07-25T03:00:00.000Z"),
+  stale_seconds: 30,
+}), {
+  executionId: "cunote-deep-analysis-input-preparation-test",
+  status: "idle",
+  serviceRevision: "revision",
+  heartbeatAt: "2026-07-25T03:00:00.000Z",
+  stale: false,
+  staleSeconds: 30,
+  targetCount: 4,
+  sealedCount: 3,
+  unresolvedCount: 1,
+  archiveFailedCount: 0,
+  conversionFailedCount: 0,
+  conversionStillPending: 1,
+  budgetExhausted: false,
+  healthy: true,
+})
+assert.equal(buildInputPreparationSummary().healthy, false)
+assert.equal(buildInputPreparationSummary({
+  worker_id: "failed",
+  status: "degraded",
+  service_revision: "revision",
+  last_error_code: "input_preparation_failed",
+  metadata: {
+    archiveFailedCount: 1,
+    conversionFailedCount: 0,
+    budgetExhausted: false,
+  },
+  heartbeat_at: new Date(),
+  stale_seconds: 30,
 }).healthy, false)
 
 assert.throws(

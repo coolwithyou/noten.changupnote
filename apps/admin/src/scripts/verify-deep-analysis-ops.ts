@@ -82,6 +82,14 @@ async function main() {
       `serving monitor is unhealthy: checked=${report.summary.servingMonitor.checkedItems}/${report.summary.servingMonitor.expectedItems}, fresh=${report.summary.servingMonitor.freshItems}, failed=${report.summary.servingMonitor.failedReceipts}, stale=${report.summary.servingMonitor.staleReceipts}`,
     )
   }
+  if (report.summary.inputPreparation.stale) {
+    failures.push("input preparation heartbeat is stale or missing")
+  }
+  if (!report.summary.inputPreparation.healthy) {
+    failures.push(
+      `input preparation is unhealthy: status=${report.summary.inputPreparation.status}, archivedFailed=${report.summary.inputPreparation.archiveFailedCount}, conversionFailed=${report.summary.inputPreparation.conversionFailedCount}, budgetExhausted=${report.summary.inputPreparation.budgetExhausted}`,
+    )
+  }
 
   const output = {
     schema: "deep-analysis-ops-verification-v1",
@@ -91,6 +99,7 @@ async function main() {
     classifiedTotal: report.summary.classifiedTotal,
     buckets: report.bucketCounts,
     worker: report.summary.worker,
+    inputPreparation: report.summary.inputPreparation,
     servingMonitor: report.summary.servingMonitor,
     stagePassed: Object.fromEntries(
       report.summary.stages.map((stage) => [stage.stage, stage.passed]),

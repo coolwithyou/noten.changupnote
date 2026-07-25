@@ -108,7 +108,7 @@ export function DeepPipelinePageView({
         </form>
       </section>
 
-      <section className="grid gap-3 lg:grid-cols-2">
+      <section className="grid gap-3 lg:grid-cols-3">
         {initialSummary.worker.stale ? (
           <Alert variant="destructive">
             <AlertTriangleIcon />
@@ -126,6 +126,30 @@ export function DeepPipelinePageView({
             <AlertDescription>
               {initialSummary.worker.serviceRevision} · {initialSummary.worker.status} · 마지막 heartbeat{" "}
               {formatDuration(initialSummary.worker.staleSeconds)} 전
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {initialSummary.inputPreparation.healthy ? (
+          <Alert>
+            <ServerIcon />
+            <AlertTitle>입력 준비 worker 정상</AlertTitle>
+            <AlertDescription>
+              {initialSummary.inputPreparation.executionId} · sealed{" "}
+              {initialSummary.inputPreparation.sealedCount}/
+              {initialSummary.inputPreparation.targetCount} · 미해소{" "}
+              {initialSummary.inputPreparation.unresolvedCount} ·{" "}
+              {formatDuration(initialSummary.inputPreparation.staleSeconds)} 전
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <Alert variant="destructive">
+            <AlertTriangleIcon />
+            <AlertTitle>입력 준비 worker 경고</AlertTitle>
+            <AlertDescription>
+              {initialSummary.inputPreparation.heartbeatAt
+                ? `${formatDate(initialSummary.inputPreparation.heartbeatAt)} · status ${initialSummary.inputPreparation.status} · archive 실패 ${initialSummary.inputPreparation.archiveFailedCount} · conversion 실패 ${initialSummary.inputPreparation.conversionFailedCount}`
+                : "Cloud Run input-preparation heartbeat가 없습니다."}
             </AlertDescription>
           </Alert>
         )}

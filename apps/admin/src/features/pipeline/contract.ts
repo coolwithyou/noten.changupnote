@@ -105,6 +105,22 @@ export interface DeepPipelineSummary {
     stale: boolean
     staleSeconds: number | null
   }
+  inputPreparation: {
+    executionId: string | null
+    status: string | null
+    serviceRevision: string | null
+    heartbeatAt: string | null
+    stale: boolean
+    staleSeconds: number | null
+    targetCount: number
+    sealedCount: number
+    unresolvedCount: number
+    archiveFailedCount: number
+    conversionFailedCount: number
+    conversionStillPending: number
+    budgetExhausted: boolean
+    healthy: boolean
+  }
   servingMonitor: {
     executionId: string | null
     verifiedAt: string | null

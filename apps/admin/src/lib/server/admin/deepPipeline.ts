@@ -1,5 +1,6 @@
 import {
   DEEP_ANALYSIS_DEFAULT_LIMITS,
+  DEEP_ANALYSIS_INPUT_PREPARATION_STALE_SECONDS,
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS,
   DEEP_ANALYSIS_SERVING_VERIFIER_VERSION,
@@ -336,6 +337,11 @@ interface WorkerRow {
   stale_seconds: number
 }
 
+interface InputPreparationRow extends WorkerRow {
+  last_error_code: string | null
+  metadata: Record<string, unknown>
+}
+
 interface ServingMonitorRow {
   execution_id: string | null
   verified_at: Date | null
@@ -435,11 +441,56 @@ export function buildServingMonitorSummary(input?: {
   }
 }
 
+export function buildInputPreparationSummary(
+  input?: InputPreparationRow,
+): DeepPipelineSummary["inputPreparation"] {
+  const staleSeconds = input ? Number(input.stale_seconds) : null
+  const metadata = input?.metadata ?? {}
+  const targetCount = numberMetadata(metadata, "targetCount")
+  const sealedCount = numberMetadata(metadata, "sealedCount")
+  const unresolvedCount = numberMetadata(metadata, "unresolvedCount")
+  const archiveFailedCount = numberMetadata(metadata, "archiveFailedCount")
+  const conversionFailedCount = numberMetadata(metadata, "conversionFailedCount")
+  const conversionStillPending = numberMetadata(metadata, "conversionStillPending")
+  const budgetExhausted = metadata.budgetExhausted === true
+  const stale = staleSeconds === null
+    || staleSeconds > DEEP_ANALYSIS_INPUT_PREPARATION_STALE_SECONDS
+  const statusHealthy = input?.status === "idle" || input?.status === "running"
+  return {
+    executionId: input?.worker_id ?? null,
+    status: input?.status ?? null,
+    serviceRevision: input?.service_revision ?? null,
+    heartbeatAt: input?.heartbeat_at?.toISOString() ?? null,
+    stale,
+    staleSeconds,
+    targetCount,
+    sealedCount,
+    unresolvedCount,
+    archiveFailedCount,
+    conversionFailedCount,
+    conversionStillPending,
+    budgetExhausted,
+    healthy: !stale
+      && statusHealthy
+      && input?.last_error_code === null
+      && archiveFailedCount === 0
+      && conversionFailedCount === 0
+      && !budgetExhausted,
+  }
+}
+
 export async function getDeepPipelineSummary(
   _query: DeepPipelineQuery = { bucket: null, stage: null, q: "", limit: PAGE_SIZE },
   sql: PipelineSql = getAdminSql(),
 ): Promise<DeepPipelineSummary> {
-  const [bucketRows, stageRows, activeRows, workerRows, servingMonitorRows] = await Promise.all([
+  const [
+    bucketRows,
+    stageRows,
+    activeRows,
+    workerRows,
+    inputPreparationRows,
+    servingMonitorRows,
+  ] = await Promise.all([
     sql.unsafe<BucketCountRow[]>(
       `${DEEP_PIPELINE_BASE_CTE}
        select bucket, count(*)::int as count
@@ -469,6 +520,23 @@ export async function getDeepPipelineSummary(
          extract(epoch from (now() - heartbeat_at))::int as stale_seconds
        from grant_deep_analysis_worker_heartbeats
        where model_policy_version = $1
+         and worker_id not like 'cunote-deep-analysis-input-preparation-%'
+       order by heartbeat_at desc
+       limit 1`,
+      [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
+    ),
+    sql.unsafe<InputPreparationRow[]>(
+      `select
+         worker_id,
+         status,
+         service_revision,
+         last_error_code,
+         metadata,
+         heartbeat_at,
+         extract(epoch from (now() - heartbeat_at))::int as stale_seconds
+       from grant_deep_analysis_worker_heartbeats
+       where model_policy_version = $1
+         and worker_id like 'cunote-deep-analysis-input-preparation-%'
        order by heartbeat_at desc
        limit 1`,
       [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
@@ -580,8 +648,14 @@ export async function getDeepPipelineSummary(
         || staleSeconds > DEEP_ANALYSIS_DEFAULT_LIMITS.heartbeatStaleSeconds,
       staleSeconds,
     },
+    inputPreparation: buildInputPreparationSummary(inputPreparationRows[0]),
     servingMonitor: buildServingMonitorSummary(servingMonitorRows[0]),
   }
+}
+
+function numberMetadata(metadata: Record<string, unknown>, key: string): number {
+  const value = metadata[key]
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
 }
 
 export async function getDeepPipelineNotices(
