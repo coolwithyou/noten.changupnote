@@ -78,7 +78,7 @@ export async function appendDeepAnalysisExceptionEvent(
   input: {
     runId: string;
     exceptionKey: string;
-    eventType: "opened" | "resolved" | "reopened";
+    eventType: "opened" | "resolved" | "reopened" | "assigned" | "released";
     reasonCode: string;
     actorType: "system" | "human";
     actor: string;

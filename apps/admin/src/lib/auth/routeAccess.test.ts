@@ -12,10 +12,14 @@ assert.equal(canAccessAdminPath("reviewer", "/registry-imports"), false);
 assert.equal(canAccessAdminPath("reviewer", "/api/admin/flywheel"), false);
 assert.equal(canAccessAdminPath("reviewer", "/api/admin/review/queue"), true);
 assert.equal(canAccessAdminPath("reviewer", "/api/admin/review/adjudicate/item-id"), false);
+assert.equal(canAccessAdminPath("reviewer", "/pipeline"), true);
+assert.equal(canAccessAdminPath("reviewer", "/api/admin/pipeline/notices/grant-id"), true);
 assert.equal(canAccessAdminPath("admin", "/review/adjudicate"), true);
 assert.equal(canAccessAdminPath("owner", "/api/admin/review/adjudicate/item-id"), true);
 assert.equal(canAccessAdminPath("viewer", "/review"), false);
 assert.equal(canAccessAdminPath("support", "/review"), false);
+assert.equal(canAccessAdminPath("viewer", "/pipeline"), false);
+assert.equal(canAccessAdminPath("support", "/api/admin/pipeline/summary"), false);
 assert.equal(defaultAdminPath("reviewer"), "/review");
 assert.equal(defaultAdminPath("admin"), "/");
 

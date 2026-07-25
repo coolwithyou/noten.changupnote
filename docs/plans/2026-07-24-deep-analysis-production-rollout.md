@@ -1,7 +1,8 @@
 # 딥 공고 분석 결과 운영 매칭 적용 로드맵 및 구현 계획
 
 > 작성일: 2026-07-24  
-> 상태: **승격 제어면 구현 완료 / 활성 공고 딥분석 실행·영속·관제는 미구현**
+> 상태: **프로덕션 worker·영속 원장 구현·운영 중 / 딥분석 관제 구현 완료·배포 대기 /
+> 자동 승격·serving 검증 미완**
 > 적용 대상: `analysis-lab`에서 생성하고 AI 검수·감사·검수팀 판정을 거친 공고별 조건과 확인 질문  
 > 2026-07-25 확장: 활성 공고의 원문·HWP 딥분석을 사람 전수 검수 없이 운영하고,
 > 단계별 증적으로 보증하는 계획은 이 문서 §14를 정본으로 사용한다.
@@ -1992,9 +1993,39 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 완료 조건:
 
 - owner/admin은 전체와 액션, reviewer는 exception 배정만 접근
-- 624 활성 공고가 정확히 한 최종 버킷에 속함
+- 현재 활성 공고가 정확히 한 최종 버킷에 속함
 - 목록 수치와 verifier JSON 일치
 - blocker 클릭 → 해당 공고 목록 → 증적 확인 왕복 가능
+
+구현 체크포인트 F1 — receipt 기반 관제와 역할별 액션 (2026-07-25):
+
+- [x] 오래된 `pipeline` branch의 migration/얕은 query는 cherry-pick하지 않고, 최신 main의
+  shadcn/base-ui shell에 `/pipeline` UI와 summary/notices/detail/actions API를 파일 단위로
+  새로 구현했다.
+- [x] 활성 모집단은 DB 함수 `cunote_active_deep_analysis_grants(timestamptz)`를 단일
+  SQL 경계로 사용하며 web worker predicate도 같은 함수를 호출한다.
+- [x] 최신 model policy job/run과 stage별 최신 receipt만 projection에 반영한다.
+  job 이후 grant/raw/attachment가 갱신되거나 run/job revision이 다르면 과거 성공보다
+  `stale`이 우선한다.
+- [x] 최종 버킷은 `serving_complete_fresh | analysis_complete_not_published |
+  in_progress | blocked_or_failed | stale` 다섯 개로 배타적으로 계산한다. 운영 실측은
+  활성 636건 = `0 + 1 + 630 + 5 + 0`이며 verifier와 목록 count가 모두 일치했다.
+- [x] S0~S14 funnel 노드와 첫 blocker 필터를 연결해
+  blocker 클릭 → 해당 공고 목록 → 상세 Sheet의 receipt/evidence hash/첨부 R2 hash/
+  22축/독립 감사/승격 이력 왕복을 구현했다.
+- [x] migration `0056_deep_analysis_ops`로 예외 `assigned|released` event와
+  `admin_deep_analysis_actions` append-only 감사 원장, RLS, mutation 방지 trigger를
+  운영 DB에 적용했다.
+- [x] owner/admin만 failed job 재처리를 실행하고 reviewer는 예외 self claim/release만
+  실행한다. 모든 액션은 UUID idempotency key를 요구하며 성공/실패를 최종 감사 원장에
+  남긴다.
+- [x] 딥분석 stage를 직접 `passed`로 바꾸거나 `mark_reviewed`로 완료시키는 API는 없으며
+  회귀 테스트가 `mark_reviewed` 요청을 거부한다.
+- [x] `pnpm verify:deep-analysis-ops`, admin typecheck, deep-analysis contract test,
+  migration verifier, `db:doctor`, production admin build가 통과했다. 현재 사용자 실행
+  서버에서는 `/pipeline` 비로그인 307→login, 관제 API 비로그인 401을 확인했다.
+- [ ] `ops.changupnote.com` production 배포와 인증 세션 시각 왕복은 Phase H에서
+  최종 commit을 배포한 뒤 검증한다.
 
 #### Phase G. shadow와 카나리
 
@@ -2195,7 +2226,7 @@ extractor 구현을 가지는 것은 금지한다.
 - [ ] matcher serving hash 검증
 - [ ] source 변경 시 stale 자동 전환·재분석
 - [ ] `/pipeline`이 최신 main과 ops production에 통합됨
-- [ ] active conservation equation 성립
+- [x] active conservation equation 성립
 - [ ] blocker·SLO·worker heartbeat alert 작동
 - [ ] 동결 80공고 품질 기준 통과
 - [ ] 2→20→전체 카나리 중단 조건 위반 0

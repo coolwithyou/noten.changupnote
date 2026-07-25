@@ -17,14 +17,11 @@ export {
 export function activeDeepAnalysisGrantPredicate(asOf: Date = new Date()): SQL {
   const asOfIso = asOf.toISOString();
   return sql`
-    ${schema.grants.status} = 'open'
-    AND ${schema.grants.applyEnd} IS NOT NULL
-    AND timezone(${DEEP_ANALYSIS_ACTIVE_TIME_ZONE}, ${schema.grants.applyEnd})::date
-      >= timezone(${DEEP_ANALYSIS_ACTIVE_TIME_ZONE}, ${asOfIso}::timestamptz)::date
-    AND (
-      ${schema.grants.applyStart} IS NULL
-      OR timezone(${DEEP_ANALYSIS_ACTIVE_TIME_ZONE}, ${schema.grants.applyStart})::date
-        <= timezone(${DEEP_ANALYSIS_ACTIVE_TIME_ZONE}, ${asOfIso}::timestamptz)::date
+    ${schema.grants.id} IN (
+      SELECT active_grant.grant_id
+      FROM cunote_active_deep_analysis_grants(
+        ${asOfIso}::timestamptz
+      ) AS active_grant
     )
   `;
 }

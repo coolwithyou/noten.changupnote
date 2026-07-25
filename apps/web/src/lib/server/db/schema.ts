@@ -1065,13 +1065,45 @@ export const grantDeepAnalysisExceptionEvents = pgTable("grant_deep_analysis_exc
   keyCreatedIdx: index("grant_deep_analysis_exception_events_key_created_idx")
     .on(table.exceptionKey, table.createdAt),
   eventCheck: check("grant_deep_analysis_exception_events_event_check", sql`
-    ${table.eventType} IN ('opened', 'resolved', 'reopened')
+    ${table.eventType} IN ('opened', 'resolved', 'reopened', 'assigned', 'released')
   `),
   actorCheck: check("grant_deep_analysis_exception_events_actor_check", sql`
     ${table.actorType} IN ('system', 'human')
   `),
   hashCheck: check("grant_deep_analysis_exception_events_hash_check", sql`
     ${table.evidenceSha256} ~ '^[0-9a-f]{64}$'
+  `),
+}));
+
+/**
+ * ops에서 실행한 딥분석 재시도·예외 배정의 append-only 최종 감사 이벤트.
+ * 작업 상태와 별개로 누가 어떤 요청을 했고 결과가 무엇이었는지 보존한다.
+ */
+export const adminDeepAnalysisActions = pgTable("admin_deep_analysis_actions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  requestId: uuid("request_id").notNull(),
+  adminUserId: uuid("admin_user_id").notNull()
+    .references(() => adminUsers.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  runId: uuid("run_id").references(() => grantDeepAnalysisRuns.id, { onDelete: "restrict" }),
+  jobId: uuid("job_id").references(() => grantDeepAnalysisJobs.id, { onDelete: "restrict" }),
+  exceptionKey: text("exception_key"),
+  action: text("action").notNull(),
+  outcome: text("outcome").notNull(),
+  detail: jsonb("detail").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  requestIdx: uniqueIndex("admin_deep_analysis_actions_request_idx").on(table.requestId),
+  grantCreatedIdx: index("admin_deep_analysis_actions_grant_created_idx")
+    .on(table.grantId, table.createdAt),
+  adminCreatedIdx: index("admin_deep_analysis_actions_admin_created_idx")
+    .on(table.adminUserId, table.createdAt),
+  actionCheck: check("admin_deep_analysis_actions_action_check", sql`
+    ${table.action} IN ('requeue_job', 'claim_exception', 'release_exception')
+  `),
+  outcomeCheck: check("admin_deep_analysis_actions_outcome_check", sql`
+    ${table.outcome} IN ('succeeded', 'failed')
   `),
 }));
 

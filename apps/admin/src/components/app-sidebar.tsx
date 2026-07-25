@@ -11,6 +11,7 @@ import {
   ClipboardListIcon,
   CoinsIcon,
   DatabaseZapIcon,
+  FileSearchIcon,
   FileClockIcon,
   LandmarkIcon,
   LayoutDashboardIcon,
@@ -44,6 +45,7 @@ const NAV_GROUPS = [
     roles: ["reviewer", "admin", "owner"],
     items: [
       { title: "주간 검수", href: "/review", icon: BookOpenCheckIcon },
+      { title: "딥분석 관제", href: "/pipeline", icon: FileSearchIcon },
     ],
   },
   {

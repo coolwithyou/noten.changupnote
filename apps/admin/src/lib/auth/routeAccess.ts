@@ -2,6 +2,7 @@ import type { AdminRole } from "@/lib/server/auth/adminUsers";
 
 export const REVIEW_WORKSPACE_ROLES: readonly AdminRole[] = ["reviewer", "admin", "owner"];
 export const REVIEW_ADJUDICATION_ROLES: readonly AdminRole[] = ["admin", "owner"];
+export const DEEP_PIPELINE_ROLES: readonly AdminRole[] = ["reviewer", "admin", "owner"];
 
 export function isReviewWorkspacePath(pathname: string): boolean {
   return pathname === "/review" || pathname.startsWith("/review/");
@@ -9,6 +10,14 @@ export function isReviewWorkspacePath(pathname: string): boolean {
 
 export function isReviewApiPath(pathname: string): boolean {
   return pathname === "/api/admin/review" || pathname.startsWith("/api/admin/review/");
+}
+
+export function isDeepPipelinePath(pathname: string): boolean {
+  return pathname === "/pipeline" || pathname.startsWith("/pipeline/");
+}
+
+export function isDeepPipelineApiPath(pathname: string): boolean {
+  return pathname === "/api/admin/pipeline" || pathname.startsWith("/api/admin/pipeline/");
 }
 
 /**
@@ -25,6 +34,10 @@ export function canAccessAdminPath(role: AdminRole, pathname: string): boolean {
       || pathname === "/api/admin/review/adjudicate"
       || pathname.startsWith("/api/admin/review/adjudicate/");
     return (adjudication ? REVIEW_ADJUDICATION_ROLES : REVIEW_WORKSPACE_ROLES).includes(role);
+  }
+
+  if (isDeepPipelinePath(pathname) || isDeepPipelineApiPath(pathname)) {
+    return DEEP_PIPELINE_ROLES.includes(role);
   }
 
   // 검수 전용 역할은 /review/** 밖의 기존 운영·크레딧·지원 데이터에 접근하지 못한다.
