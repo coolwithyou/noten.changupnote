@@ -8,7 +8,11 @@ import {
   resolveDeepAnalysisWorkerPolicy,
   retryAvailableAt,
 } from "./workerPolicy";
-import { isDeepAnalysisHeartbeatStale } from "./workerState";
+import type { CunoteDbSession } from "@/lib/server/db/client";
+import {
+  deferDeepAnalysisJobsForBudget,
+  isDeepAnalysisHeartbeatStale,
+} from "./workerState";
 
 const policy = resolveDeepAnalysisWorkerPolicy({});
 assert.equal(policy.modelPolicyVersion, DEEP_ANALYSIS_MODEL_POLICY_VERSION);
@@ -51,5 +55,18 @@ assert.equal(
   ),
   false,
 );
+
+let budgetSqlCalls = 0;
+const budgetDb = {
+  execute: async () => {
+    budgetSqlCalls += 1;
+    return [{ id: "job-1" }, { id: "job-2" }];
+  },
+} as unknown as CunoteDbSession;
+assert.equal(
+  await deferDeepAnalysisJobsForBudget(budgetDb, new Date("2026-07-25T00:00:00.000Z")),
+  2,
+);
+assert.equal(budgetSqlCalls, 1);
 
 console.log("deep-analysis worker policy tests passed");

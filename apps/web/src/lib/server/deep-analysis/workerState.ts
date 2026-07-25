@@ -83,6 +83,30 @@ export async function releaseDeepAnalysisBudgetJobs(
   return rows.length;
 }
 
+/**
+ * 일별 비용 상한에 도달하면 아직 claim되지 않은 대상을 명시적인 budget 대기 상태로
+ * 옮긴다. leased job은 건드리지 않아 동시 worker의 실행권을 침범하지 않는다.
+ */
+export async function deferDeepAnalysisJobsForBudget(
+  db: CunoteDbSession,
+  now: Date = new Date(),
+): Promise<number> {
+  const rows = await db.execute<{ id: string }>(sql`
+    UPDATE grant_deep_analysis_jobs
+    SET status = 'pending_budget',
+        available_at = ${now.toISOString()}::timestamptz,
+        lease_expires_at = NULL,
+        worker_id = NULL,
+        last_error_code = 'daily_cost_cap',
+        last_error_message = 'Daily deep analysis cost cap reached',
+        updated_at = ${now.toISOString()}::timestamptz
+    WHERE status IN ('pending', 'retry_wait')
+      AND available_at <= ${now.toISOString()}::timestamptz
+    RETURNING id
+  `);
+  return rows.length;
+}
+
 export async function completeDeepAnalysisJob(
   db: CunoteDbSession,
   jobId: string,

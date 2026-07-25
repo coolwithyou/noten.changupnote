@@ -2,6 +2,7 @@ import type { CunoteDbSession } from "@/lib/server/db/client";
 import type * as schema from "@/lib/server/db/schema";
 import { claimDeepAnalysisJob } from "./ledger";
 import {
+  deferDeepAnalysisJobsForBudget,
   deepAnalysisDailySpendUsd,
   failDeepAnalysisJob,
   releaseDeepAnalysisBudgetJobs,
@@ -52,7 +53,10 @@ export async function runDeepAnalysisWorkerInvocation(input: {
 
   for (let index = 0; index < input.policy.maxJobsPerInvocation; index += 1) {
     const spentUsd = await deepAnalysisDailySpendUsd(input.db, now());
-    if (spentUsd >= input.policy.dailyCostCapUsd) break;
+    if (spentUsd >= input.policy.dailyCostCapUsd) {
+      result.budgetDeferred += await deferDeepAnalysisJobsForBudget(input.db, now());
+      break;
+    }
     const job = await claimDeepAnalysisJob(input.db, {
       workerId: input.workerId,
       leaseSeconds: input.policy.leaseSeconds,

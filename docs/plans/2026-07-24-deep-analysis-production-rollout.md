@@ -1895,6 +1895,20 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `analysis_complete`를 기록한다. processor 중간의 예상하지 못한 R2/DB 오류도 run을
   `running`에 방치하지 않고 append-only 예외와 terminal failure로 닫는다.
 
+구현 체크포인트 D2 — 배포 가능한 worker 이미지 (2026-07-25):
+
+- [x] 일별 비용 상한에 도달하면 claim 가능한 pending/retry job을 성공처럼 남기지 않고
+  `pending_budget`으로 일괄 전환하며, 다음 KST 날짜에만 다시 연다.
+- [x] 모노레포 루트 전용 `Dockerfile.deep-analysis-worker`와 Cloud Build 구성을 만들고,
+  contracts/core를 이미지 안에서 빌드한 뒤 dev route가 아닌 worker CLI를 직접 실행한다.
+- [x] `.dockerignore`로 `.env*`, `.git`, Vercel 상태, node_modules, 로컬 spike 산출물을
+  build context에서 제외했다. `gcloud meta list-files-for-upload`에서도 로컬 secret env가
+  업로드 대상이 아님을 확인했다.
+- [x] 로컬 linux/amd64 호환 이미지 `cunote-deep-analysis-worker:checkpoint-d2` 빌드가
+  성공했고, 시크릿 없는 실행은 `ANTHROPIC_API_KEY is required`로 fail-closed 종료했다.
+- [ ] 동일 commit image를 Artifact Registry에 push하고 Cloud Run Job·Scheduler를
+  `sw@noten.im` / `changupnote-com`에 배포한 뒤 실제 execution heartbeat를 확인한다.
+
 #### Phase E. 결정론 검증과 독립 감사
 
 작업:
