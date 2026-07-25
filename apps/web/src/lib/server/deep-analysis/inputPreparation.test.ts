@@ -48,6 +48,7 @@ const result = await runDeepAnalysisInputPreparation({
   db: {} as CunoteDb,
   storage: {} as R2ObjectStorage,
   policy,
+  archiveFetchTimeoutMs: 1_234,
   now: new Date("2026-07-25T00:00:00.000Z"),
   listTargets: async () => [
     {
@@ -70,7 +71,9 @@ const result = await runDeepAnalysisInputPreparation({
     },
   ],
   runKStartupArchive: async (input) => {
-    calls.push(`k:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}`);
+    calls.push(
+      `k:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}:${input.fetchTimeoutMs}`,
+    );
     return {
       succeededCount: 1,
       failedCount: 0,
@@ -79,7 +82,9 @@ const result = await runDeepAnalysisInputPreparation({
     >>;
   },
   runBizInfoArchive: async (input) => {
-    calls.push(`b:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}`);
+    calls.push(
+      `b:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}:${input.fetchTimeoutMs}`,
+    );
     return {
       succeededCount: 1,
       failedCount: 0,
@@ -139,8 +144,8 @@ const result = await runDeepAnalysisInputPreparation({
 });
 
 assert.deepEqual(calls, [
-  "k:178001:6",
-  "b:PBLN_1:6",
+  "k:178001:6:1234",
+  "b:PBLN_1:6:1234",
   "r:178001,PBLN_1",
   "c:178001,PBLN_1:5",
 ]);
@@ -151,5 +156,67 @@ assert.equal(result.after[0]?.queuePriority, 100);
 assert.equal(result.after[1]?.queuePriority, null);
 assert.deepEqual(result.after[1]?.blockerCodes, ["blocked_conversion"]);
 assert.equal(result.conversionRegistration.jobsEnqueued, 2);
+
+let enqueueAttempted = false;
+const noEnqueueResult = await runDeepAnalysisInputPreparation({
+  db: {} as CunoteDb,
+  storage: {} as R2ObjectStorage,
+  policy,
+  enqueuePreparedJobs: false,
+  listTargets: async () => [{
+    grantId: "quality-grant",
+    source: "kstartup",
+    sourceId: "quality-source",
+    title: "Quality",
+    applyEnd: null,
+    jobUpdatedAt: new Date(0),
+    jobStatus: "quality_recovery",
+  }],
+  runKStartupArchive: async () => ({
+    succeededCount: 1,
+    failedCount: 0,
+  }) as Awaited<ReturnType<
+    NonNullable<Parameters<typeof runDeepAnalysisInputPreparation>[0]["runKStartupArchive"]>
+  >>,
+  registerMissingConversions: async () => ({
+    candidateAttachmentCount: 0,
+    surfacesUpserted: 0,
+    jobsEnqueued: 0,
+    cacheHits: 0,
+    skipped: 0,
+    warnings: [],
+  }),
+  runConversionSweep: async () => ({
+    ok: true,
+    pendingCount: 0,
+    previewReady: 0,
+    failed: 0,
+    stillPending: 0,
+    skipped: 0,
+    budgetExhausted: false,
+    elapsedMs: 0,
+    results: [],
+  }),
+  prepareInput: async () => ({
+    schema: "deep-analysis-input-v1",
+    grantId: "quality-grant",
+    sourceRevisionSha256: "a".repeat(64),
+    attachmentManifestSha256: "b".repeat(64),
+    inputSha256: "c".repeat(64),
+    sealed: true,
+    attachments: [],
+    chunks: [],
+    blockers: [],
+    totalChars: 1,
+    inputArtifactBody: "{}\n",
+  }),
+  ensurePreparedJob: async () => {
+    enqueueAttempted = true;
+    throw new Error("quality input recovery must not enqueue analysis jobs");
+  },
+});
+assert.equal(noEnqueueResult.sealedCount, 1);
+assert.equal(noEnqueueResult.after[0]?.jobId, null);
+assert.equal(enqueueAttempted, false);
 
 console.log("deep-analysis input preparation tests passed");

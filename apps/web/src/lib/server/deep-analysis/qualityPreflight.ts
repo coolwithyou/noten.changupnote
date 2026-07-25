@@ -18,17 +18,20 @@ import { sha256Hex, stableJson } from "./sourceRevision";
 import { DEEP_ANALYSIS_VALIDATOR_VERSION } from "./validator";
 
 export const DEEP_ANALYSIS_QUALITY_PREFLIGHT_VERSION =
-  "deep-analysis-quality-preflight-v1" as const;
+  "deep-analysis-quality-preflight-v2" as const;
 
 export type DeepAnalysisQualityPreflightBlockerCode =
   | "frozen_grant_missing"
   | "frozen_identity_mismatch"
   | "frozen_canonical_id_mismatch"
   | "frozen_raw_payload_changed"
-  | "frozen_attachment_summary_changed"
-  | "frozen_selector_revision_changed"
+  | "frozen_source_content_changed"
   | "production_input_not_sealed"
   | "preflight_error";
+
+export type DeepAnalysisQualityPreflightSnapshotDriftCode =
+  | "frozen_attachment_summary_changed"
+  | "frozen_selector_revision_changed";
 
 export interface DeepAnalysisQualityPreflightObservation {
   source: DeepAnalysisQualityCohortEntry["source"];
@@ -37,6 +40,9 @@ export interface DeepAnalysisQualityPreflightObservation {
   opaqueCommitmentSha256: string;
   split: DeepAnalysisQualityCohortEntry["split"];
   frozenSnapshotMatched: boolean;
+  sourceContentMatched: boolean;
+  frozenSourceContentSha256: string;
+  observedSourceContentSha256: string | null;
   observedSelectorRevisionSha256: string | null;
   productionSourceRevisionSha256: string | null;
   attachmentManifestSha256: string | null;
@@ -48,6 +54,7 @@ export interface DeepAnalysisQualityPreflightObservation {
   includedAttachmentCount: number;
   chunkCount: number;
   dispositionCounts: Record<string, number>;
+  snapshotDriftCodes: DeepAnalysisQualityPreflightSnapshotDriftCode[];
   blockerCodes: DeepAnalysisQualityPreflightBlockerCode[];
   productionBlockerCodes: string[];
 }
@@ -122,8 +129,9 @@ export function buildDeepAnalysisQualityPreflightReceipt(input: {
       throw new Error("Deep analysis quality preflight frozen identity mismatch.");
     }
     const blockerCodes = unique(observation.blockerCodes);
+    const snapshotDriftCodes = unique(observation.snapshotDriftCodes);
     const productionBlockerCodes = unique(observation.productionBlockerCodes);
-    const readyForExecution = observation.frozenSnapshotMatched
+    const readyForExecution = observation.sourceContentMatched
       && observation.currentInputSealed
       && blockerCodes.length === 0
       && productionBlockerCodes.length === 0
@@ -135,8 +143,10 @@ export function buildDeepAnalysisQualityPreflightReceipt(input: {
       split: observation.split,
       opaqueCommitmentSha256: observation.opaqueCommitmentSha256,
       frozenSnapshotMatched: observation.frozenSnapshotMatched,
+      sourceContentMatched: observation.sourceContentMatched,
       currentInputSealed: observation.currentInputSealed,
       readyForExecution,
+      snapshotDriftCodes,
       blockerCodes,
       productionBlockerCodes,
       totalChars: observation.totalChars,
@@ -147,6 +157,8 @@ export function buildDeepAnalysisQualityPreflightReceipt(input: {
       productionBindingSha256: sha256Canonical({
         schema: "deep-analysis-quality-production-binding-v1",
         opaqueCommitmentSha256: observation.opaqueCommitmentSha256,
+        frozenSourceContentSha256: observation.frozenSourceContentSha256,
+        observedSourceContentSha256: observation.observedSourceContentSha256,
         frozenSelectorRevisionSha256: frozen.sourceRevisionSha256,
         observedSelectorRevisionSha256: observation.observedSelectorRevisionSha256,
         productionSourceRevisionSha256: observation.productionSourceRevisionSha256,
@@ -166,7 +178,7 @@ export function buildDeepAnalysisQualityPreflightReceipt(input: {
     ?? DEEP_ANALYSIS_DEFAULT_LIMITS.perNoticeCostCapUsd;
   const payload = {
     recordType: "deep_analysis_quality_preflight" as const,
-    schemaVersion: 1 as const,
+    schemaVersion: 2 as const,
     preflightVersion: DEEP_ANALYSIS_QUALITY_PREFLIGHT_VERSION,
     generatedAt: input.generatedAt,
     frozenPublicManifestSha256: input.frozenPublicManifest.manifestSha256,
@@ -215,7 +227,7 @@ export function verifyDeepAnalysisQualityPreflightReceipt(input: {
   const { manifestSha256: _hash, ...payload } = receipt;
   if (
     receipt.recordType !== "deep_analysis_quality_preflight"
-    || receipt.schemaVersion !== 1
+    || receipt.schemaVersion !== 2
     || receipt.preflightVersion !== DEEP_ANALYSIS_QUALITY_PREFLIGHT_VERSION
     || receipt.manifestSha256 !== sha256Canonical(payload)
   ) {
@@ -290,10 +302,14 @@ function summarize(
     validationCount: 48 as const,
     sealedCount: 32 as const,
     frozenSnapshotMatchCount: items.filter((item) => item.frozenSnapshotMatched).length,
+    sourceContentMatchCount: items.filter((item) => item.sourceContentMatched).length,
     currentInputSealedCount: items.filter((item) => item.currentInputSealed).length,
     readyForExecutionCount,
     blockedCount: 80 - readyForExecutionCount,
     blockerCounts: countValues(items.flatMap((item) => item.blockerCodes)),
+    snapshotDriftCounts: countValues(
+      items.flatMap((item) => item.snapshotDriftCodes),
+    ),
     productionBlockerCounts: countValues(
       items.flatMap((item) => item.productionBlockerCodes),
     ),
@@ -316,8 +332,10 @@ function planItemArray() {
   return [] as Array<{
     split: DeepAnalysisQualityCohortEntry["split"];
     frozenSnapshotMatched: boolean;
+    sourceContentMatched: boolean;
     currentInputSealed: boolean;
     readyForExecution: boolean;
+    snapshotDriftCodes: DeepAnalysisQualityPreflightSnapshotDriftCode[];
     blockerCodes: DeepAnalysisQualityPreflightBlockerCode[];
     productionBlockerCodes: string[];
     totalChars: number;

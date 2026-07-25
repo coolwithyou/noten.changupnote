@@ -22,6 +22,7 @@ import { renderDeepAnalysisChunks } from "./analyzer";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 import {
   FROZEN_DEEP_ANALYSIS_QUALITY_EXPECTED_RECEIPT,
+  buildDeepAnalysisQualitySourceContentSha256,
   verifyDeepAnalysisQualityManifestPair,
   type DeepAnalysisQualityCohortEntry,
   type DeepAnalysisQualityPublicManifest,
@@ -33,6 +34,7 @@ import {
   type DeepAnalysisQualityPreflightBlockerCode,
   type DeepAnalysisQualityPreflightObservation,
   type DeepAnalysisQualityPreflightReceipt,
+  type DeepAnalysisQualityPreflightSnapshotDriftCode,
 } from "./qualityPreflight";
 import { resolveDeepAnalysisWorkerPolicy } from "./workerPolicy";
 
@@ -147,6 +149,7 @@ async function inspectFrozenItem(input: {
     );
     if (!current) return { ...base, blockerCodes: ["frozen_grant_missing"] };
     const blockerCodes: DeepAnalysisQualityPreflightBlockerCode[] = [];
+    const snapshotDriftCodes: DeepAnalysisQualityPreflightSnapshotDriftCode[] = [];
     if (
       current.grant.source !== input.frozen.source
       || current.grant.source_id !== input.frozen.sourceId
@@ -161,11 +164,24 @@ async function inspectFrozenItem(input: {
       blockerCodes.push("frozen_raw_payload_changed");
     }
     const attachmentSummary = buildGrantAnalysisAttachmentSummary(current.raw);
+    const frozenSourceContentSha256 = buildDeepAnalysisQualitySourceContentSha256({
+      rawPayloadSha256: input.frozen.rawPayloadSha256,
+      attachmentSummary: input.frozen.attachmentSummary,
+    });
+    const observedSourceContentSha256 = buildDeepAnalysisQualitySourceContentSha256({
+      rawPayloadSha256,
+      attachmentSummary,
+    });
+    const sourceContentMatched =
+      observedSourceContentSha256 === frozenSourceContentSha256;
+    if (!sourceContentMatched) {
+      blockerCodes.push("frozen_source_content_changed");
+    }
     if (
       attachmentSummary.attachmentSummarySha256
       !== input.frozen.attachmentSummary.attachmentSummarySha256
     ) {
-      blockerCodes.push("frozen_attachment_summary_changed");
+      snapshotDriftCodes.push("frozen_attachment_summary_changed");
     }
     const selectorRevisionSha256 = buildGrantAnalysisSourceRevision({
       source: input.frozen.source,
@@ -174,12 +190,15 @@ async function inspectFrozenItem(input: {
       attachmentSummarySha256: attachmentSummary.attachmentSummarySha256,
     });
     if (selectorRevisionSha256 !== input.frozen.sourceRevisionSha256) {
-      blockerCodes.push("frozen_selector_revision_changed");
+      snapshotDriftCodes.push("frozen_selector_revision_changed");
     }
     if (!current.grant.id) {
       return {
         ...base,
+        sourceContentMatched,
+        observedSourceContentSha256,
         observedSelectorRevisionSha256: selectorRevisionSha256,
+        snapshotDriftCodes: unique(snapshotDriftCodes),
         blockerCodes: unique(blockerCodes.concat("frozen_canonical_id_mismatch")),
       };
     }
@@ -192,7 +211,10 @@ async function inspectFrozenItem(input: {
     if (!seal.sealed) blockerCodes.push("production_input_not_sealed");
     return {
       ...base,
-      frozenSnapshotMatched: !blockerCodes.some((code) => code.startsWith("frozen_")),
+      frozenSnapshotMatched:
+        sourceContentMatched && snapshotDriftCodes.length === 0,
+      sourceContentMatched,
+      observedSourceContentSha256,
       observedSelectorRevisionSha256: selectorRevisionSha256,
       productionSourceRevisionSha256: seal.sourceRevisionSha256,
       attachmentManifestSha256: seal.attachmentManifestSha256,
@@ -208,6 +230,7 @@ async function inspectFrozenItem(input: {
       dispositionCounts: countValues(
         seal.attachments.map((attachment) => attachment.disposition),
       ),
+      snapshotDriftCodes: unique(snapshotDriftCodes),
       blockerCodes: unique(blockerCodes),
       productionBlockerCodes: unique(seal.blockers.map((blocker) => blocker.code)),
     };
@@ -226,6 +249,12 @@ function emptyObservation(
     opaqueCommitmentSha256: frozen.opaqueCommitmentSha256,
     split: frozen.split,
     frozenSnapshotMatched: false,
+    sourceContentMatched: false,
+    frozenSourceContentSha256: buildDeepAnalysisQualitySourceContentSha256({
+      rawPayloadSha256: frozen.rawPayloadSha256,
+      attachmentSummary: frozen.attachmentSummary,
+    }),
+    observedSourceContentSha256: null,
     observedSelectorRevisionSha256: null,
     productionSourceRevisionSha256: null,
     attachmentManifestSha256: null,
@@ -237,6 +266,7 @@ function emptyObservation(
     includedAttachmentCount: 0,
     chunkCount: 0,
     dispositionCounts: {},
+    snapshotDriftCodes: [],
     blockerCodes: [],
     productionBlockerCodes: [],
   };

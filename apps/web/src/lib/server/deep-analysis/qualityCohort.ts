@@ -12,6 +12,8 @@ import { hashGrantRawPayload, stableJsonStringify } from "../ingestion/grantRawH
 export const DEEP_ANALYSIS_QUALITY_COHORT_AS_OF = "2026-07-25T00:00:00+09:00";
 export const DEEP_ANALYSIS_QUALITY_COHORT_SELECTOR_VERSION =
   "deep-analysis-quality-cohort-v1";
+export const DEEP_ANALYSIS_QUALITY_SOURCE_CONTENT_VERSION =
+  "deep-analysis-quality-source-content-v1";
 
 export const DEEP_ANALYSIS_QUALITY_COVERAGE_TAGS = [
   "hwp_attachment",
@@ -186,6 +188,37 @@ export interface DeepAnalysisQualitySecretManifest {
 export interface DeepAnalysisQualityCohortSelection {
   publicManifest: DeepAnalysisQualityPublicManifest;
   secretManifest: DeepAnalysisQualitySecretManifest;
+}
+
+/**
+ * 동결 뒤 archive/conversion 상태가 전진해도 원 공고 payload와 첨부 inventory가 같은지
+ * 판별한다. archive URL, 변환 상태, markdown hash처럼 입력 준비 과정이 채우는 값은
+ * 의도적으로 제외하고 원문 payload, 첨부 수, 파일명, source locator 존재 여부만 묶는다.
+ */
+export function buildDeepAnalysisQualitySourceContentSha256(input: {
+  rawPayloadSha256: string;
+  attachmentSummary: GrantAnalysisAttachmentSummary;
+}): string {
+  return sha256Canonical({
+    schema: DEEP_ANALYSIS_QUALITY_SOURCE_CONTENT_VERSION,
+    rawPayloadSha256: input.rawPayloadSha256,
+    attachmentInventory: {
+      schemaVersion: input.attachmentSummary.schemaVersion,
+      declaredKnown: input.attachmentSummary.declaredKnown,
+      declaredCount: input.attachmentSummary.declaredCount,
+      presentCount: input.attachmentSummary.presentCount,
+      expectedCount: input.attachmentSummary.expectedCount,
+      inventoryIncomplete: input.attachmentSummary.inventoryIncomplete,
+      artifacts: input.attachmentSummary.artifacts
+        .map((artifact) => ({
+          filename: artifact.filename,
+          sourceLocatorPresent: artifact.sourceLocatorPresent,
+        }))
+        .sort((left, right) =>
+          compareText(left.filename, right.filename)
+          || Number(left.sourceLocatorPresent) - Number(right.sourceLocatorPresent)),
+    },
+  });
 }
 
 export function selectDeepAnalysisQualityCohort(input: {

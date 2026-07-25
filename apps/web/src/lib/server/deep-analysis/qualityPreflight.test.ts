@@ -5,6 +5,7 @@ import type {
   DeepAnalysisQualityPublicManifest,
   DeepAnalysisQualitySecretManifest,
 } from "./qualityCohort";
+import { buildDeepAnalysisQualitySourceContentSha256 } from "./qualityCohort";
 import {
   buildDeepAnalysisQualityPreflightReceipt,
   planDeepAnalysisQualityLogicalCalls,
@@ -22,6 +23,34 @@ const frozenSecretManifest = {
   selected: frozenEntries,
 } as DeepAnalysisQualitySecretManifest;
 const observations = frozenEntries.map(observation);
+const frozenSourceContentSha256 = buildDeepAnalysisQualitySourceContentSha256({
+  rawPayloadSha256: frozenEntries[0]!.rawPayloadSha256,
+  attachmentSummary: frozenEntries[0]!.attachmentSummary,
+});
+assert.equal(
+  buildDeepAnalysisQualitySourceContentSha256({
+    rawPayloadSha256: frozenEntries[0]!.rawPayloadSha256,
+    attachmentSummary: {
+      ...frozenEntries[0]!.attachmentSummary,
+      stableArchiveCount: 0,
+      convertedCount: 0,
+      contentBoundLoadableCount: 0,
+    },
+  }),
+  frozenSourceContentSha256,
+  "archive/conversion preparation enrichment must not change source content identity",
+);
+assert.notEqual(
+  buildDeepAnalysisQualitySourceContentSha256({
+    rawPayloadSha256: frozenEntries[0]!.rawPayloadSha256,
+    attachmentSummary: {
+      ...frozenEntries[0]!.attachmentSummary,
+      declaredCount: 2,
+    },
+  }),
+  frozenSourceContentSha256,
+  "attachment inventory changes must change source content identity",
+);
 
 assert.deepEqual(
   planDeepAnalysisQualityLogicalCalls({
@@ -48,6 +77,7 @@ const ready = buildDeepAnalysisQualityPreflightReceipt({
 assert.equal(ready.inputReadinessVerdict, "PASS");
 assert.equal(ready.qualityVerdict, "NOT_RUN");
 assert.equal(ready.summary.readyForExecutionCount, 80);
+assert.equal(ready.summary.sourceContentMatchCount, 80);
 assert.equal(ready.summary.mandatoryLogicalModelCalls, 160);
 assert.equal(ready.summary.maxLogicalModelCalls, 560);
 assert.equal(ready.policy.cohortPerNoticeCapUpperBoundUsd, 160);
@@ -59,6 +89,35 @@ verifyDeepAnalysisQualityPreflightReceipt({
   frozenSecretManifest,
   receipt: ready,
 });
+
+const preparationEnriched = buildDeepAnalysisQualityPreflightReceipt({
+  generatedAt: "2026-07-25T03:00:30.000Z",
+  frozenPublicManifest,
+  frozenSecretManifest,
+  primaryModel: "claude-opus-4-8",
+  auditModel: "claude-sonnet-5",
+  observations: observations.map((item, index) => index === 0
+    ? {
+      ...item,
+      frozenSnapshotMatched: false,
+      observedSelectorRevisionSha256: hash("prepared-selector"),
+      snapshotDriftCodes: [
+        "frozen_attachment_summary_changed",
+        "frozen_selector_revision_changed",
+      ],
+    }
+    : item),
+});
+assert.equal(preparationEnriched.inputReadinessVerdict, "PASS");
+assert.equal(preparationEnriched.summary.readyForExecutionCount, 80);
+assert.equal(
+  preparationEnriched.summary.snapshotDriftCounts.frozen_attachment_summary_changed,
+  1,
+);
+assert.equal(
+  preparationEnriched.summary.snapshotDriftCounts.frozen_selector_revision_changed,
+  1,
+);
 
 const json = JSON.stringify(ready);
 for (const entry of frozenEntries.filter((item) => item.split === "sealed")) {
@@ -92,6 +151,27 @@ assert.equal(
   )!.callPlan.maxLogicalModelCalls,
   0,
 );
+
+const sourceChanged = buildDeepAnalysisQualityPreflightReceipt({
+  generatedAt: "2026-07-25T03:02:00.000Z",
+  frozenPublicManifest,
+  frozenSecretManifest,
+  primaryModel: "claude-opus-4-8",
+  auditModel: "claude-sonnet-5",
+  observations: observations.map((item, index) => index === 0
+    ? {
+      ...item,
+      frozenSnapshotMatched: false,
+      sourceContentMatched: false,
+      observedSourceContentSha256: hash("changed-source-content"),
+      blockerCodes: ["frozen_source_content_changed"],
+    }
+    : item),
+});
+assert.equal(sourceChanged.inputReadinessVerdict, "BLOCKED");
+assert.equal(sourceChanged.summary.readyForExecutionCount, 79);
+assert.equal(sourceChanged.summary.sourceContentMatchCount, 79);
+assert.equal(sourceChanged.summary.blockerCounts.frozen_source_content_changed, 1);
 
 const tampered = structuredClone(ready);
 tampered.items[0]!.readyForExecution = false;
@@ -154,6 +234,15 @@ function observation(
     opaqueCommitmentSha256: entry.opaqueCommitmentSha256,
     split: entry.split,
     frozenSnapshotMatched: true,
+    sourceContentMatched: true,
+    frozenSourceContentSha256: buildDeepAnalysisQualitySourceContentSha256({
+      rawPayloadSha256: entry.rawPayloadSha256,
+      attachmentSummary: entry.attachmentSummary,
+    }),
+    observedSourceContentSha256: buildDeepAnalysisQualitySourceContentSha256({
+      rawPayloadSha256: entry.rawPayloadSha256,
+      attachmentSummary: entry.attachmentSummary,
+    }),
     observedSelectorRevisionSha256: entry.sourceRevisionSha256,
     productionSourceRevisionSha256: hash(`production-${entry.sourceId}`),
     attachmentManifestSha256: hash(`manifest-${entry.sourceId}`),
@@ -165,6 +254,7 @@ function observation(
     includedAttachmentCount: 1,
     chunkCount: 1,
     dispositionCounts: { included: 1 },
+    snapshotDriftCodes: [],
     blockerCodes: [],
     productionBlockerCodes: [],
   };

@@ -2803,6 +2803,47 @@ Step 4-1B 현행 입력·AI 검수 preflight 체크포인트 — `BLOCKED` (2026
   명시적으로 재동결한다. 이후 새 output directory에서 80건 preflight를 다시 통과하기
   전에는 유료 깊은 분석·AI 자동 검수를 실행하지 않는다.
 
+Step 4-1C frozen 입력 복구 체크포인트 — `BLOCKED`, 67/80 (2026-07-26):
+
+- Step 4-1B의 exact attachment summary drift 판정은 archive URL·변환 상태까지 동결
+  identity에 포함해, 정상적인 입력 준비가 전진할수록 cohort를 무효화하는 결함이 있었다.
+  preflight v2는 이를 다음 두 상태로 분리한다.
+  - `sourceContentMatched`: raw payload hash와 첨부 inventory의 선언 수·실재 수·파일명·
+    source locator 존재 여부가 동결 시점과 같은지 검증하는 hard gate
+  - `snapshotDriftCodes`: archive·conversion enrichment로 달라진 attachment summary와
+    selector revision을 기록하되 source content가 같으면 실행을 차단하지 않는 관측값
+- v2 복구 전 read-only preflight에서 source content는 `80/80`, 현행 input sealed와
+  실행 준비는 `24/80`이었다. exact snapshot match `78/80`과 별개로 hard source drift는
+  0건임을 확인했다. receipt hash는
+  `e31f147329579510c7bd10828424a50c39cf98e3b76dc484044928ba9b58769e`다.
+- frozen receipt에서 `production_input_not_sealed`인 정확한 항목만 선택하는 fail-closed
+  복구 명령을 추가했다. 기본은 preview이며
+  `--execute --confirm=RECOVER_DEEP_ANALYSIS_QUALITY_INPUTS`가 모두 있어야 DB/R2 쓰기를
+  연다. 이 경로는 sealed input이 생겨도 analysis job을 enqueue하지 않는다.
+- 최초 복구 시도에서 batch deadline이 진행 중인 무제한 원본 fetch를 취소하지 못하는
+  경계를 발견했다. 15분을 넘긴 단일 실행을 중단했고 최종 receipt는 생성되지 않았다.
+  성공한 archive/DB 쓰기는 멱등 보존했으며, 이후 모든 quality recovery 원본 요청에
+  30초 timeout을 전달하도록 수정하고 회귀 테스트를 추가했다.
+- 중단 직후 새 preflight는 sealed `41/80`, blocker `39/80`이었다. timeout을 적용한
+  bounded 3-round 재실행은 이 39건 중 26건을 추가 봉인하고 13건을 명시적으로 남겼다.
+  recovery receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-input-recovery/receipt.json`,
+  hash는 `ba2a364fad0acdb922fd40a242ae4ebbd1cc221c7eb3e0b40c6d078287edbe01`다.
+- 최종 80건 read-only preflight 결과:
+  - source content match `80/80`
+  - current input sealed / ready for execution `67/80`
+  - grant blocker `13/80`: `blocked_conversion=11`, `blocked_fetch=2`
+  - attachment disposition blocker: conversion 전문 미확보 13개, 원본 미확보 2개
+  - 포함 가능한 전문 145개, total evidence chars 1,623,249
+  - exact snapshot match `29/80`, preparation enrichment drift `51/80`
+  - external LLM call 0, analysis job enqueue 0
+- 최종 preflight receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-recovery/receipt.json`,
+  hash는 `585a19568996fb88156106ccfa45aaf7db7b6301748153f73f3fb155743f899c`다.
+- 결론은 여전히 `BLOCKED`다. 다음 checkpoint는 위 13건의 변환 11건과 fetch 2건만
+  다룬다. 새 preflight가 source content `80/80`과 ready `80/80`을 동시에 통과하기
+  전에는 primary deep analysis·blind AI audit·conditional adjudication을 실행하지 않는다.
+
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. 위 최소 증거 2~4를 순서대로 닫기 전에는
 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
 

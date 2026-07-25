@@ -73,11 +73,16 @@ export async function runBizInfoAttachmentArchiveBatch(
     dialect: "drizzle",
     client: input.db,
   });
-  const loaded = await repositories.grants.listActiveGrants({
-    limit: input.scanLimit,
-    asOf: input.asOf,
-  });
-  const sourceIdFilter = new Set(input.sourceIds ?? []);
+  const requestedSourceIds = [...new Set(input.sourceIds ?? [])];
+  const loaded = requestedSourceIds.length > 0
+    ? (await Promise.all(requestedSourceIds.map((sourceId) =>
+      repositories.grants.findGrantById(`bizinfo:${sourceId}`))))
+      .flatMap((entry) => entry ? [entry] : [])
+    : await repositories.grants.listActiveGrants({
+      limit: input.scanLimit,
+      asOf: input.asOf,
+    });
+  const sourceIdFilter = new Set(requestedSourceIds);
   const allCandidates = loaded
     .filter((entry) => entry.grant.source === "bizinfo")
     .filter((entry) => sourceIdFilter.size === 0 || sourceIdFilter.has(entry.grant.source_id))

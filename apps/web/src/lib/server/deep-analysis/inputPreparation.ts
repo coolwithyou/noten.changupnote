@@ -188,6 +188,8 @@ export async function runDeepAnalysisInputPreparation(input: {
   runConversionSweep?: typeof runConversionPollSweep;
   prepareInput?: typeof prepareDeepAnalysisInput;
   ensurePreparedJob?: typeof ensurePreparedDeepAnalysisJob;
+  enqueuePreparedJobs?: boolean;
+  archiveFetchTimeoutMs?: number;
 }): Promise<DeepAnalysisInputPreparationResult> {
   const startedAt = Date.now();
   const now = input.now ?? new Date();
@@ -216,6 +218,9 @@ export async function runDeepAnalysisInputPreparation(input: {
       maxTotalAttachments: input.policy.maxTotalAttachmentsPerSource,
       maxAttachmentsPerGrant: input.policy.maxAttachmentsPerGrant,
       sourceIds: kstartupTargets.map((target) => target.sourceId),
+      ...(input.archiveFetchTimeoutMs !== undefined
+        ? { fetchTimeoutMs: input.archiveFetchTimeoutMs }
+        : {}),
       deadlineAtMs,
     })
     : null;
@@ -233,6 +238,9 @@ export async function runDeepAnalysisInputPreparation(input: {
       maxTotalAttachments: input.policy.maxTotalAttachmentsPerSource,
       maxAttachmentsPerGrant: input.policy.maxAttachmentsPerGrant,
       sourceIds: bizinfoTargets.map((target) => target.sourceId),
+      ...(input.archiveFetchTimeoutMs !== undefined
+        ? { fetchTimeoutMs: input.archiveFetchTimeoutMs }
+        : {}),
       deadlineAtMs,
     })
     : null;
@@ -273,7 +281,7 @@ export async function runDeepAnalysisInputPreparation(input: {
         storage: input.storage,
         grantId: target.grantId,
       });
-      const preparedJob = seal.sealed
+      const preparedJob = seal.sealed && input.enqueuePreparedJobs !== false
         ? await (
           input.ensurePreparedJob ?? ensurePreparedDeepAnalysisJob
         )(input.db, {
