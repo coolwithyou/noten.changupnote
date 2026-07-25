@@ -63,6 +63,16 @@ export async function listActiveDeepAnalysisEnqueueCandidates(input: {
           AND deep_attachment.source_id = ${schema.grants.sourceId}
           AND deep_attachment.updated_at > ${latestJobUpdatedAt}
       )
+      OR EXISTS (
+        SELECT 1
+        FROM grant_application_surfaces AS deep_surface
+        JOIN document_artifacts AS deep_artifact
+          ON deep_artifact.surface_id = deep_surface.id
+          AND deep_artifact.kind = 'markdown'
+        WHERE deep_surface.grant_id = ${schema.grants.id}
+          AND GREATEST(deep_surface.updated_at, deep_artifact.created_at)
+              > ${latestJobUpdatedAt}
+      )
     )
   `;
   const rows = await input.db.select({
@@ -132,4 +142,3 @@ export async function enqueueActiveDeepAnalysisJobs(input: {
   }
   return result;
 }
-
