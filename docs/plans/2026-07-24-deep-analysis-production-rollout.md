@@ -1927,8 +1927,13 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   examined/ensured/failed와 공고별 실패를 execution heartbeat metadata에 남긴다.
 - [x] production read-only query에서 첫 feeder 후보 5건을 확인했고, unit test·web
   typecheck·전체 deep-analysis contract test가 통과했다.
-- [ ] feeder 포함 commit image로 Job을 갱신하고 실제 scheduled execution에서
-  enqueue와 queue claim이 함께 일어나는 것을 확인한다.
+- [x] feeder 포함 commit `144cdec` image를 digest
+  `sha256:7df25adaee3e…`로 Job에 갱신했다. Scheduler execution `vgdck`는 active 후보
+  `examined=5`, `ensured=5`, feeder failure 0을 heartbeat와 Cloud Logging에 동일하게
+  기록하고 그중 1건을 즉시 claim했다.
+- [x] 첫 claim `kstartup/178382`는 첨부 4건의 `blocked_fetch` 때문에 paid model call
+  전에 job `blocked`로 닫혔고, 나머지 4건은 `pending`으로 보존됐다. 즉 자동 feeder도
+  입력 누락을 성공이나 분석 완료로 바꾸지 않는다.
 
 #### Phase E. 결정론 검증과 독립 감사
 
@@ -2180,7 +2185,7 @@ extractor 구현을 가지는 것은 금지한다.
 
 - [ ] 활성 공고 predicate가 코드 한 곳에서 공유됨
 - [ ] S0~S14 receipt가 DB+R2에 영속됨
-- [ ] production deep analysis worker가 자동 실행됨
+- [x] production deep analysis worker가 자동 실행됨
 - [ ] HWP/HWPX 첨부 전건이 included 또는 명시 blocker
 - [x] 22축 exact validator가 fail-closed
 - [x] hard criterion source evidence 100%
