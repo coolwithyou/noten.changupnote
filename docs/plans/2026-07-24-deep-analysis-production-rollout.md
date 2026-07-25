@@ -2133,9 +2133,23 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   `ops.changupnote.com` alias를 확인했다. 라이브 `/pipeline`은 비로그인
   307→login, summary/action API는 401로 닫혀 있다. 새 project/domain은 만들지
   않았다.
-- [ ] 24시간 serving/hash/SLO 관측은 2026-07-25 11:35 KST에 시작했으며
-  2026-07-26 11:35 KST 이후 연속 실행 결과로 닫는다. 20공고 확대는 이 관측 gate 뒤에만
-  진행한다.
+- [x] 24시간 종료를 현재 heartbeat 한 점이나 수동 로그 검토로 통과시키지 않도록
+  `deep-analysis:verify-serving-window`를 추가했다. 명시한 24시간 구간의 30분 슬롯
+  48개가 각각 5분 안에 첫 receipt를 쓰고 10분 안에 전수 receipt를 끝내며, 동결된
+  active/applied item 전부의 S12/S13/S14가 정확히 하나씩 passed인지 검증한다.
+  각 receipt의 canonical evidence hash와 content-addressed R2 artifact 실제 바이트도
+  최대 8개 병렬 read로 재검증한다. 미래 종료시각, 누락·중복 실행, item/run 불일치,
+  실패·stale, R2 불일치는 모두 exit 2다.
+- [x] 첫 정시 execution `cunote-deep-analysis-serving-monitor-lq752`가 task 1/1로
+  성공한 직후 production read-only 종료 검증을 실행했다. 전체 48슬롯 중 현재 도래한
+  1슬롯과 item 2개, receipt 6개를 정확히 인식하고 R2 6건 byte mismatch 0을 확인했지만,
+  종료시각이 미래이므로 `window_incomplete` 하나로 exit 2했다. 미래 슬롯을 조기 성공이나
+  누락으로 오인하지 않으며 24시간이 실제 경과하기 전 PASS할 수 없음을 확인했다.
+- [ ] serving canary 관측은 2026-07-25 11:35 KST부터 유지되고 있다. 다만 execution
+  metadata/R2 전수 종료 검증은 새 image의 첫 정시 슬롯인 2026-07-25 12:05 KST부터
+  2026-07-26 12:05 KST까지 더 엄격하게 다시 센다. 종료 뒤 DB/R2 48슬롯 판정과
+  Cloud Scheduler/Run execution 48건을 교차 확인해 닫는다. 20공고 확대는 이 관측
+  gate 뒤에만 진행한다.
 
 #### Phase H. 활성 공고 백필 (2026-07-25 실측 분모 636)
 
