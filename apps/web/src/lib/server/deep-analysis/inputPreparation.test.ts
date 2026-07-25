@@ -49,6 +49,15 @@ const result = await runDeepAnalysisInputPreparation({
   storage: {} as R2ObjectStorage,
   policy,
   archiveFetchTimeoutMs: 1_234,
+  reprocessMissingMarkdown: true,
+  archiveMaxEntries: 20,
+  imageOcr: async () => ({
+    markdown: "지원대상: 창업기업",
+    confidence: 0.9,
+    provider: "test",
+    converter: "test",
+  }),
+  imageOcrName: "test",
   now: new Date("2026-07-25T00:00:00.000Z"),
   listTargets: async () => [
     {
@@ -72,7 +81,9 @@ const result = await runDeepAnalysisInputPreparation({
   ],
   runKStartupArchive: async (input) => {
     calls.push(
-      `k:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}:${input.fetchTimeoutMs}`,
+      `k:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}:`
+      + `${input.fetchTimeoutMs}:${input.reprocessMissingMarkdown}:`
+      + `${input.archiveMaxEntries}:${Boolean(input.imageOcr)}`,
     );
     return {
       succeededCount: 1,
@@ -83,7 +94,9 @@ const result = await runDeepAnalysisInputPreparation({
   },
   runBizInfoArchive: async (input) => {
     calls.push(
-      `b:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}:${input.fetchTimeoutMs}`,
+      `b:${input.sourceIds?.join(",")}:${input.maxTotalAttachments}:`
+      + `${input.fetchTimeoutMs}:${input.reprocessMissingMarkdown}:`
+      + `${input.archiveMaxEntries}:${input.imageOcrName}`,
     );
     return {
       succeededCount: 1,
@@ -144,8 +157,8 @@ const result = await runDeepAnalysisInputPreparation({
 });
 
 assert.deepEqual(calls, [
-  "k:178001:6:1234",
-  "b:PBLN_1:6:1234",
+  "k:178001:6:1234:true:20:true",
+  "b:PBLN_1:6:1234:true:20:test",
   "r:178001,PBLN_1",
   "c:178001,PBLN_1:5",
 ]);

@@ -51,6 +51,59 @@ assert.notEqual(
   frozenSourceContentSha256,
   "attachment inventory changes must change source content identity",
 );
+const archivedContainerSummary = {
+  ...frozenEntries[0]!.attachmentSummary,
+  declaredCount: 1,
+  presentCount: 1,
+  expectedCount: 1,
+  artifacts: [{
+    filename: "신청서식.zip",
+    sourceLocatorPresent: true,
+  } as DeepAnalysisQualityCohortEntry["attachmentSummary"]["artifacts"][number]],
+} as DeepAnalysisQualityCohortEntry["attachmentSummary"];
+const archivedContainerSourceContentSha256 =
+  buildDeepAnalysisQualitySourceContentSha256({
+    rawPayloadSha256: frozenEntries[0]!.rawPayloadSha256,
+    attachmentSummary: archivedContainerSummary,
+  });
+assert.equal(
+  buildDeepAnalysisQualitySourceContentSha256({
+    rawPayloadSha256: frozenEntries[0]!.rawPayloadSha256,
+    attachmentSummary: {
+      ...archivedContainerSummary,
+      presentCount: 2,
+      expectedCount: 2,
+      artifacts: [
+        ...archivedContainerSummary.artifacts,
+        {
+          filename: "신청서식__01__사업계획서.hwpx",
+          sourceLocatorPresent: true,
+        } as DeepAnalysisQualityCohortEntry["attachmentSummary"]["artifacts"][number],
+      ],
+    },
+  }),
+  archivedContainerSourceContentSha256,
+  "derived ZIP entries must not change source content identity",
+);
+assert.notEqual(
+  buildDeepAnalysisQualitySourceContentSha256({
+    rawPayloadSha256: frozenEntries[0]!.rawPayloadSha256,
+    attachmentSummary: {
+      ...archivedContainerSummary,
+      presentCount: 2,
+      expectedCount: 2,
+      artifacts: [
+        ...archivedContainerSummary.artifacts,
+        {
+          filename: "추가공고문.pdf",
+          sourceLocatorPresent: true,
+        } as DeepAnalysisQualityCohortEntry["attachmentSummary"]["artifacts"][number],
+      ],
+    },
+  }),
+  archivedContainerSourceContentSha256,
+  "new source-declared attachments must change source content identity",
+);
 
 assert.deepEqual(
   planDeepAnalysisQualityLogicalCalls({

@@ -5,6 +5,7 @@ import {
   extractSupportedArchiveEntries,
   inspectArchiveContainer,
   isArchiveContainerFilename,
+  listVerifiedArchiveMaterialEntries,
 } from "./archiveContainerInspection";
 
 assert.equal(isArchiveContainerFilename("첨부파일.zip"), true);
@@ -22,6 +23,16 @@ assert.deepEqual(extractSupportedArchiveEntries("첨부파일.zip", writeHwpx([
   { name: "notice.pdf", data: Buffer.from("pdf"), method: 0 },
   { name: "notes/readme.txt", data: Buffer.from("지원대상"), method: 0 },
 ])).map((entry) => entry.filename), ["notes/readme.txt", "notice.pdf"]);
+const nestedOffice = writeHwpx([
+  { name: "notice.hwpx", data: Buffer.from("hwpx"), method: 0 },
+  { name: "eligibility.xlsx", data: Buffer.from("xlsx"), method: 0 },
+]);
+assert.deepEqual(
+  extractSupportedArchiveEntries("첨부파일.zip", nestedOffice)
+    .map((entry) => entry.filename),
+  ["eligibility.xlsx", "notice.hwpx"],
+);
+assert.equal(listVerifiedArchiveMaterialEntries("첨부파일.zip", nestedOffice).length, 2);
 
 const traversal = await inspectArchiveContainer("첨부파일.zip", writeHwpx([
   { name: "../outside.txt", data: Buffer.from("unsafe"), method: 0 },

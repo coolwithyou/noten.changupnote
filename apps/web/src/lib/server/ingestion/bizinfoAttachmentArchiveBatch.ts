@@ -25,6 +25,8 @@ export interface RunBizInfoAttachmentArchiveBatchInput {
   maxGrants: number;
   maxTotalAttachments: number;
   maxAttachmentsPerGrant: number;
+  reprocessMissingMarkdown?: boolean;
+  archiveMaxEntries?: number;
   sourceIds?: readonly string[];
   imageOcr?: GrantImageOcrAdapter | null;
   imageOcrName?: string;
@@ -89,11 +91,14 @@ export async function runBizInfoAttachmentArchiveBatch(
     .map((entry) => ({
       entry,
       selected: selectKStartupAttachmentsForArchive(
-        (entry.raw.attachments ?? []).filter(
-          (attachment) => !attachment.storage_key || !attachment.sha256,
-        ),
+        entry.raw.attachments ?? [],
         input.maxAttachmentsPerGrant,
-        { includeImages: Boolean(input.imageOcr) },
+        {
+          includeImages: Boolean(input.imageOcr),
+          ...(input.reprocessMissingMarkdown !== undefined
+            ? { reprocessMissingMarkdown: input.reprocessMissingMarkdown }
+            : {}),
+        },
       ),
     }))
     .filter((candidate) => candidate.selected.length > 0)
@@ -145,6 +150,9 @@ export async function runBizInfoAttachmentArchiveBatch(
             : {}),
           ...(input.maxAttachmentBytes !== undefined
             ? { maxAttachmentBytes: input.maxAttachmentBytes }
+            : {}),
+          ...(input.archiveMaxEntries !== undefined
+            ? { archiveMaxEntries: input.archiveMaxEntries }
             : {}),
         });
         candidate.entry.raw.attachments = mergeArchivedKStartupAttachments(

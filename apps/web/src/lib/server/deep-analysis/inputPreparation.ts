@@ -5,6 +5,7 @@ import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import { runConversionPollSweep } from "@/lib/server/conversion/pollSweep";
 import { registerAttachmentConversions } from "@/lib/server/conversion/registerAttachmentConversions";
 import { runBizInfoAttachmentArchiveBatch } from "@/lib/server/ingestion/bizinfoAttachmentArchiveBatch";
+import type { GrantImageOcrAdapter } from "@/lib/server/ingestion/grantAttachmentArchive";
 import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
 import { enqueueDeepAnalysisJob } from "./ledger";
@@ -190,6 +191,10 @@ export async function runDeepAnalysisInputPreparation(input: {
   ensurePreparedJob?: typeof ensurePreparedDeepAnalysisJob;
   enqueuePreparedJobs?: boolean;
   archiveFetchTimeoutMs?: number;
+  reprocessMissingMarkdown?: boolean;
+  archiveMaxEntries?: number;
+  imageOcr?: GrantImageOcrAdapter | null;
+  imageOcrName?: string;
 }): Promise<DeepAnalysisInputPreparationResult> {
   const startedAt = Date.now();
   const now = input.now ?? new Date();
@@ -221,6 +226,13 @@ export async function runDeepAnalysisInputPreparation(input: {
       ...(input.archiveFetchTimeoutMs !== undefined
         ? { fetchTimeoutMs: input.archiveFetchTimeoutMs }
         : {}),
+      ...(input.reprocessMissingMarkdown !== undefined
+        ? { reprocessMissingMarkdown: input.reprocessMissingMarkdown }
+        : {}),
+      ...(input.archiveMaxEntries !== undefined
+        ? { archiveMaxEntries: input.archiveMaxEntries }
+        : {}),
+      ...(input.imageOcr ? { imageOcr: input.imageOcr } : {}),
       deadlineAtMs,
     })
     : null;
@@ -240,6 +252,16 @@ export async function runDeepAnalysisInputPreparation(input: {
       sourceIds: bizinfoTargets.map((target) => target.sourceId),
       ...(input.archiveFetchTimeoutMs !== undefined
         ? { fetchTimeoutMs: input.archiveFetchTimeoutMs }
+        : {}),
+      ...(input.reprocessMissingMarkdown !== undefined
+        ? { reprocessMissingMarkdown: input.reprocessMissingMarkdown }
+        : {}),
+      ...(input.archiveMaxEntries !== undefined
+        ? { archiveMaxEntries: input.archiveMaxEntries }
+        : {}),
+      ...(input.imageOcr ? { imageOcr: input.imageOcr } : {}),
+      ...(input.imageOcrName !== undefined
+        ? { imageOcrName: input.imageOcrName }
         : {}),
       deadlineAtMs,
     })

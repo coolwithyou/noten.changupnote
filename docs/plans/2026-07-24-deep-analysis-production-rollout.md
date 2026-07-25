@@ -2844,6 +2844,54 @@ Step 4-1C frozen 입력 복구 체크포인트 — `BLOCKED`, 67/80 (2026-07-26)
   다룬다. 새 preflight가 source content `80/80`과 ready `80/80`을 동시에 통과하기
   전에는 primary deep analysis·blind AI audit·conditional adjudication을 실행하지 않는다.
 
+Step 4-1D 잔여 구조·PDF 입력 복구 체크포인트 — `BLOCKED`, 79/80 (2026-07-26):
+
+- Step 4-1C의 정확한 13건을 새 read-only preflight로 다시 고정했다. source content는
+  `80/80`, ready는 `67/80`, blocker는 변환 11건·fetch 2건이었고 receipt hash는
+  `16c0c80f07368acde0593c2e0baf5a6d5bc35b7324bdeec78b1f5c304521a115`다.
+  이 시점에도 외부 LLM 호출·analysis job enqueue·DB/R2 write는 모두 0이었다.
+- pending surface 6개를 기존 변환 cache와 bounded poll로 재조정한 뒤 ready는 `70/80`으로
+  전진했다. 새 blocker는 구조 문서·이미지·PDF 10건이며 receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-long-conversion-poll/receipt.json`,
+  hash는 `fc4cb96e57e0e3486764d21db34cd5a1597b211d395606052241dc3a82a71736`다.
+- 일반 운영 기본값을 넓히지 않고 frozen recovery의 명시적 옵션에서만 이미 archive된
+  HWP/HWPX/TXT/ZIP/XLSX/PPTX와 이미지를 전문 부재 시 재처리하도록 했다. ZIP child
+  지원 포맷에 XLSX/PPTX를 추가하고, quality recovery의 entry 상한만 20으로 올려
+  실제 18-entry ZIP도 전부 검증한다. 이 실행은 정확한 10건 중 5건을 추가 봉인했고
+  5건의 PDF를 남긴 `PARTIAL`이다. receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-input-recovery-remaining-10/receipt.json`,
+  hash는 `bb3410f2776e786e366180f89934f5f0175a51739413c24cf36d6e6048091790`다.
+- ZIP 복구 뒤 생성된 `부모명__NN__자식명`이 source inventory 증가로 오인되어 2건의
+  false drift를 만들었다. source-content v2는 동일 inventory 안의 실제 ZIP parent와
+  생성 규칙이 일치하는 child만 source identity에서 제외한다. 원 raw payload와 새
+  최상위 첨부는 계속 hard gate다. 회귀 테스트 뒤 source content `80/80`, ready
+  `75/80`, PDF blocker `5/80`을 확인했다. receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-container-identity-fix/receipt.json`,
+  hash는 `fd2ea5b89a439b7fa1479ec2ece59d2d5014ffa3de1c25d4ae98cbf287a735b0`다.
+- PDF 5개는 frozen preflight가 지목한 5개 surface만 받는 별도 fail-closed 경로로
+  복구했다. PDF/page-image SHA readback, 페이지 완전성, OCR 페이지별 최소 신뢰도
+  `0.6`, 최소 텍스트 길이를 모두 통과한 뒤에만 content-addressed markdown artifact를
+  기록한다. 1개 556쪽 문서는 `pdftotext -layout`으로 676,253자를 직접 추출했고,
+  나머지 4개 이미지 PDF(총 6쪽)는 macOS Vision OCR로 복구했다. OCR 평균 신뢰도는
+  약 0.70~0.84다. 결과는 `5/5 COMPLETE`, 실패 0이며 receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-pdf-text-ocr-recovery/receipt.json`,
+  hash는 `e78fb15459c74ddb29c51333c5983a9d5defba7393e2d81de72898dbef67b1ec`다.
+  macOS Vision은 이 frozen quality input 복구에만 사용한 로컬 provider이며,
+  지속 가능한 production OCR provider가 배포됐다는 뜻은 아니다.
+- 최종 read-only preflight는 첨부 fetch/conversion blocker를 0으로 만들었지만 ready
+  `79/80`에서 fail-closed 됐다. 남은 한 건은 556쪽 전문까지 포함한 총 입력
+  `1,136,482`자가 현행 운영 상한 `800,000`자를 넘는 `blocked_cap`이다. 전체 결과는
+  source content `80/80`, current sealed/ready `79/80`, attachment included 169,
+  external LLM call 0, analysis job enqueue 0이다. receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-pdf-text-ocr-recovery/receipt.json`,
+  hash는 `a78d2ad9342e7abe17c08954e8268aeeacfe4fc12224b80ce32dd61eaee58cdd`다.
+- 다음 checkpoint의 범위는 이 exact 1건의 장문 정책뿐이다. 현재 analyzer는 22개
+  chunk map+synthesis로 전문을 처리할 수 있지만, 입력 상한만 올리면 primary+blind
+  audit 호출 수와 공고별 `$2` 비용 상한이 불일치한다. 문서를 임의 절단·면제하거나
+  상한만 올리지 말고, 장문 실행 계약과 사전 비용 gate를 함께 결정한 뒤 새 preflight
+  `80/80`을 만들어야 한다. 그 전에는 primary deep analysis와 AI 자동 검수를 실행하지
+  않는다.
+
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. 위 최소 증거 2~4를 순서대로 닫기 전에는
 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
 

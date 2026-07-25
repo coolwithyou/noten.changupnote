@@ -5,7 +5,10 @@ import type { CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import type { R2ObjectStorage } from "../storage/r2ObjectStorage";
-import { archiveGrantAttachments } from "./grantAttachmentArchive";
+import {
+  archiveGrantAttachments,
+  type GrantImageOcrAdapter,
+} from "./grantAttachmentArchive";
 import { buildGrantArchiveAttachmentReceipts } from "./grantArchiveWriteReceipt";
 import {
   mergeArchivedKStartupAttachments,
@@ -72,6 +75,8 @@ export interface PlanKStartupAttachmentArchiveBatchOptions {
   maxGrants: number;
   maxTotalAttachments: number;
   maxAttachmentsPerGrant: number;
+  reprocessMissingMarkdown?: boolean;
+  imageOcr?: GrantImageOcrAdapter | null;
 }
 
 /** 전역 grant/attachment 예산을 모두 지키는 결정적 K-Startup 첨부 복구 계획. */
@@ -91,8 +96,14 @@ export function planKStartupAttachmentArchiveBatch(
     .map((entry) => ({
       entry,
       selected: selectKStartupAttachmentsForArchive(
-        (entry.raw.attachments ?? []).filter((attachment) => !attachment.storage_key || !attachment.sha256),
+        entry.raw.attachments ?? [],
         options.maxAttachmentsPerGrant,
+        {
+          includeImages: Boolean(options.imageOcr),
+          ...(options.reprocessMissingMarkdown !== undefined
+            ? { reprocessMissingMarkdown: options.reprocessMissingMarkdown }
+            : {}),
+        },
       ),
     }))
     .filter((candidate) => candidate.selected.length > 0)
@@ -132,6 +143,7 @@ export interface RunKStartupAttachmentArchiveBatchInput extends PlanKStartupAtta
   allowFailures?: boolean;
   fetchTimeoutMs?: number;
   maxAttachmentBytes?: number;
+  archiveMaxEntries?: number;
   /** 이 시각 이후에는 새 grant 처리를 시작하지 않는다. */
   deadlineAtMs?: number;
 }
@@ -232,6 +244,10 @@ export async function runKStartupAttachmentArchiveBatch(
           storage: input.storage,
           ...(input.fetchTimeoutMs !== undefined ? { fetchTimeoutMs: input.fetchTimeoutMs } : {}),
           ...(input.maxAttachmentBytes !== undefined ? { maxAttachmentBytes: input.maxAttachmentBytes } : {}),
+          ...(input.archiveMaxEntries !== undefined
+            ? { archiveMaxEntries: input.archiveMaxEntries }
+            : {}),
+          ...(input.imageOcr ? { imageOcr: input.imageOcr } : {}),
         });
         const archivedCount = bundle.attachments.filter((attachment) =>
           Boolean(attachment.storage_key && attachment.sha256)).length;

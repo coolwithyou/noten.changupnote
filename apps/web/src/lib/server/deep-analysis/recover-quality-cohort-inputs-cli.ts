@@ -10,6 +10,10 @@ import {
 } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { closeCunoteDb, getCunoteDb } from "@/lib/server/db/client";
+import {
+  parseGrantImageOcrProvider,
+  resolveGrantImageOcrAdapter,
+} from "@/lib/server/ingestion/grantImageOcrProviders";
 import { loadMonorepoEnv } from "@/lib/server/loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 import {
@@ -56,6 +60,8 @@ async function main(): Promise<void> {
   const execute = process.argv.includes("--execute");
   const confirmation = readArg("confirm");
   const rounds = numberArg("rounds", 3, 1, 3);
+  const imageOcrProvider = parseGrantImageOcrProvider(readArg("image-ocr"));
+  const imageOcr = resolveGrantImageOcrAdapter(imageOcrProvider);
   if (
     execute
     && confirmation !== DEEP_ANALYSIS_QUALITY_INPUT_RECOVERY_CONFIRMATION
@@ -124,6 +130,7 @@ async function main(): Promise<void> {
     ),
     rounds,
     maxPerSourcePerRound: 20,
+    imageOcrProvider,
     externalLlmCalls: 0,
     analysisJobsEnqueued: 0,
     databaseWriteMode: execute,
@@ -168,6 +175,10 @@ async function main(): Promise<void> {
         policy,
         enqueuePreparedJobs: false,
         archiveFetchTimeoutMs: 30_000,
+        reprocessMissingMarkdown: true,
+        archiveMaxEntries: 20,
+        imageOcr,
+        imageOcrName: imageOcrProvider,
         listTargets: async () => selected,
       });
       const sealedKeys = new Set(
@@ -321,6 +332,7 @@ function assertSupportedArguments(arguments_: string[]): void {
       || argument.startsWith("--preflight=")
       || argument.startsWith("--output-dir=")
       || argument.startsWith("--rounds=")
+      || argument.startsWith("--image-ocr=")
     ) continue;
     throw new Error("Unsupported deep analysis quality input recovery argument.");
   }

@@ -13,7 +13,7 @@ export const DEEP_ANALYSIS_QUALITY_COHORT_AS_OF = "2026-07-25T00:00:00+09:00";
 export const DEEP_ANALYSIS_QUALITY_COHORT_SELECTOR_VERSION =
   "deep-analysis-quality-cohort-v1";
 export const DEEP_ANALYSIS_QUALITY_SOURCE_CONTENT_VERSION =
-  "deep-analysis-quality-source-content-v1";
+  "deep-analysis-quality-source-content-v2";
 
 export const DEEP_ANALYSIS_QUALITY_COVERAGE_TAGS = [
   "hwp_attachment",
@@ -199,6 +199,13 @@ export function buildDeepAnalysisQualitySourceContentSha256(input: {
   rawPayloadSha256: string;
   attachmentSummary: GrantAnalysisAttachmentSummary;
 }): string {
+  const sourceArtifacts = input.attachmentSummary.artifacts.filter(
+    (artifact) => !isGeneratedArchiveChild(
+      artifact.filename,
+      input.attachmentSummary.artifacts.map((candidate) => candidate.filename),
+    ),
+  );
+  const presentCount = sourceArtifacts.length;
   return sha256Canonical({
     schema: DEEP_ANALYSIS_QUALITY_SOURCE_CONTENT_VERSION,
     rawPayloadSha256: input.rawPayloadSha256,
@@ -206,10 +213,10 @@ export function buildDeepAnalysisQualitySourceContentSha256(input: {
       schemaVersion: input.attachmentSummary.schemaVersion,
       declaredKnown: input.attachmentSummary.declaredKnown,
       declaredCount: input.attachmentSummary.declaredCount,
-      presentCount: input.attachmentSummary.presentCount,
-      expectedCount: input.attachmentSummary.expectedCount,
-      inventoryIncomplete: input.attachmentSummary.inventoryIncomplete,
-      artifacts: input.attachmentSummary.artifacts
+      presentCount,
+      expectedCount: Math.max(input.attachmentSummary.declaredCount, presentCount),
+      inventoryIncomplete: input.attachmentSummary.declaredCount > presentCount,
+      artifacts: sourceArtifacts
         .map((artifact) => ({
           filename: artifact.filename,
           sourceLocatorPresent: artifact.sourceLocatorPresent,
@@ -218,6 +225,20 @@ export function buildDeepAnalysisQualitySourceContentSha256(input: {
           compareText(left.filename, right.filename)
           || Number(left.sourceLocatorPresent) - Number(right.sourceLocatorPresent)),
     },
+  });
+}
+
+function isGeneratedArchiveChild(
+  filename: string,
+  inventoryFilenames: readonly string[],
+): boolean {
+  const basename = filename.split(/[\\/]/).at(-1) ?? filename;
+  const childMarker = basename.match(/^(.*)__\d{2}__/);
+  if (!childMarker?.[1]) return false;
+  return inventoryFilenames.some((candidate) => {
+    const parentBasename = candidate.split(/[\\/]/).at(-1) ?? candidate;
+    if (!parentBasename.toLowerCase().endsWith(".zip")) return false;
+    return parentBasename.slice(0, -4).slice(0, 80) === childMarker[1];
   });
 }
 
