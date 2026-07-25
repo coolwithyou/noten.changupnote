@@ -101,6 +101,7 @@ export interface DeepPipelineSummary {
     workerId: string | null
     currentJobId: string | null
     status: string | null
+    executionMode: "active" | "observe_only" | null
     serviceRevision: string | null
     heartbeatAt: string | null
     stale: boolean

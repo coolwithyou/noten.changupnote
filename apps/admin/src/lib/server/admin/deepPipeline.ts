@@ -334,6 +334,7 @@ interface WorkerRow {
   current_job_id: string | null
   status: string | null
   service_revision: string | null
+  metadata: Record<string, unknown>
   heartbeat_at: Date | null
   stale_seconds: number | null
   active_worker_count: number
@@ -500,10 +501,14 @@ export function buildWorkerSummary(
   const stale = staleSeconds === null
     || staleSeconds > DEEP_ANALYSIS_DEFAULT_LIMITS.heartbeatStaleSeconds
   const statusHealthy = input?.status === "idle" || input?.status === "running"
+  const executionMode = input
+    ? input.metadata.executionMode === "observe_only" ? "observe_only" : "active"
+    : null
   return {
     workerId: input?.worker_id ?? null,
     currentJobId: input?.current_job_id ?? null,
     status: input?.status ?? null,
+    executionMode,
     serviceRevision: input?.service_revision ?? null,
     heartbeatAt: input?.heartbeat_at?.toISOString() ?? null,
     stale,
@@ -558,6 +563,7 @@ export async function getDeepPipelineSummary(
            heartbeat.current_job_id,
            heartbeat.status,
            heartbeat.service_revision,
+           heartbeat.metadata,
            heartbeat.heartbeat_at,
            extract(epoch from (now() - heartbeat.heartbeat_at))::int as stale_seconds
          from grant_deep_analysis_worker_heartbeats heartbeat
@@ -606,6 +612,7 @@ export async function getDeepPipelineSummary(
          selected.current_job_id,
          selected.status,
          selected.service_revision,
+         selected.metadata,
          selected.heartbeat_at,
          selected.stale_seconds,
          counts.active_worker_count,

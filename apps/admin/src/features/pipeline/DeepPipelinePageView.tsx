@@ -122,9 +122,15 @@ export function DeepPipelinePageView({
         ) : (
           <Alert>
             <ServerIcon />
-            <AlertTitle>worker 정상</AlertTitle>
+            <AlertTitle>
+              {initialSummary.worker.executionMode === "observe_only"
+                ? "worker 정상 · 관측 대기"
+                : "worker 정상"}
+            </AlertTitle>
             <AlertDescription>
-              {initialSummary.worker.serviceRevision} · {initialSummary.worker.status} · active{" "}
+              {initialSummary.worker.serviceRevision} · mode{" "}
+              {initialSummary.worker.executionMode ?? "unknown"} ·{" "}
+              {initialSummary.worker.status} · active{" "}
               {initialSummary.worker.activeWorkerCount}/{initialSummary.worker.activeLeaseCount}
               {initialSummary.worker.currentJobId
                 ? ` · job ${initialSummary.worker.currentJobId.slice(0, 8)}`

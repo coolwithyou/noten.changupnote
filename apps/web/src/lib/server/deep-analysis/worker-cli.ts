@@ -79,7 +79,11 @@ try {
       workerId,
       serviceRevision,
       policy,
-      invocationMetadata: { enqueue: enqueueResult, repairedErrorCodes },
+      invocationMetadata: {
+        executionMode: policy.executionMode,
+        enqueue: enqueueResult,
+        repairedErrorCodes,
+      },
       processJob: async (job) => {
         await processDeepAnalysisJob({
           db,
@@ -96,6 +100,7 @@ try {
       workerId,
       serviceRevision,
       modelPolicyVersion: policy.modelPolicyVersion,
+      executionMode: policy.executionMode,
       enqueue: enqueueResult,
       repairedErrorCodes,
       ...result,
