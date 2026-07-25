@@ -99,11 +99,16 @@ export interface DeepPipelineSummary {
   stages: DeepPipelineStageSummary[]
   worker: {
     workerId: string | null
+    currentJobId: string | null
     status: string | null
     serviceRevision: string | null
     heartbeatAt: string | null
     stale: boolean
     staleSeconds: number | null
+    activeWorkerCount: number
+    activeLeaseCount: number
+    staleActiveWorkerCount: number
+    healthy: boolean
   }
   inputPreparation: {
     executionId: string | null

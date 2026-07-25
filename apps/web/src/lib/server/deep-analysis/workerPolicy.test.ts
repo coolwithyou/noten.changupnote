@@ -9,6 +9,7 @@ import {
   resolveDeepAnalysisWorkerPolicy,
   retryAvailableAt,
 } from "./workerPolicy";
+import { resolveFinalDeepAnalysisWorkerHeartbeat } from "./workerLoop";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import {
   deferDeepAnalysisJobsForBudget,
@@ -62,6 +63,33 @@ assert.equal(resolveDeepAnalysisOperationalErrorCode({
   error: new Error("source revision changed"),
   failureClass: "input_blocked",
 }), "source_revision_changed");
+assert.deepEqual(resolveFinalDeepAnalysisWorkerHeartbeat({
+  claimed: 1,
+  succeeded: 0,
+  failed: 1,
+  budgetDeferred: 0,
+  releasedBudgetJobs: 0,
+  lastFailure: {
+    jobId: "job-failed",
+    errorCode: "independent_audit_disagreement",
+    jobStatus: "dead_letter",
+    failureClass: "non_retryable",
+  },
+}), {
+  status: "degraded",
+  lastErrorCode: "independent_audit_disagreement",
+});
+assert.deepEqual(resolveFinalDeepAnalysisWorkerHeartbeat({
+  claimed: 0,
+  succeeded: 0,
+  failed: 0,
+  budgetDeferred: 0,
+  releasedBudgetJobs: 0,
+  lastFailure: null,
+}), {
+  status: "idle",
+  lastErrorCode: null,
+});
 
 const base = new Date("2026-07-25T00:00:00.000Z");
 assert.equal(retryAvailableAt(1, base).toISOString(), "2026-07-25T00:00:30.000Z");

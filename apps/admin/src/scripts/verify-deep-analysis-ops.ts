@@ -74,6 +74,11 @@ async function main() {
   if (!catalog.action_table_exists) failures.push("admin action audit table is missing")
   if (!catalog.action_table_rls) failures.push("admin action audit RLS is disabled")
   if (!catalog.action_append_only_trigger) failures.push("admin action append-only trigger is missing")
+  if (!report.summary.worker.healthy) {
+    failures.push(
+      `analysis worker is unhealthy: status=${report.summary.worker.status}, stale=${report.summary.worker.stale}, activeWorkers=${report.summary.worker.activeWorkerCount}, activeLeases=${report.summary.worker.activeLeaseCount}, staleActive=${report.summary.worker.staleActiveWorkerCount}`,
+    )
+  }
   if (report.summary.servingMonitor.stale) {
     failures.push("serving monitor heartbeat is stale or missing")
   }

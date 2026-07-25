@@ -109,13 +109,13 @@ export function DeepPipelinePageView({
       </section>
 
       <section className="grid gap-3 lg:grid-cols-3">
-        {initialSummary.worker.stale ? (
+        {!initialSummary.worker.healthy ? (
           <Alert variant="destructive">
             <AlertTriangleIcon />
-            <AlertTitle>worker heartbeat 경고</AlertTitle>
+            <AlertTitle>분석 worker 경고</AlertTitle>
             <AlertDescription>
               {initialSummary.worker.heartbeatAt
-                ? `마지막 heartbeat가 ${formatDate(initialSummary.worker.heartbeatAt)}이며 ${formatDuration(initialSummary.worker.staleSeconds)} 경과했습니다.`
+                ? `${formatDate(initialSummary.worker.heartbeatAt)} · status ${initialSummary.worker.status} · active worker/lease ${initialSummary.worker.activeWorkerCount}/${initialSummary.worker.activeLeaseCount} · stale active ${initialSummary.worker.staleActiveWorkerCount}`
                 : "현재 model policy의 worker heartbeat가 없습니다."}
             </AlertDescription>
           </Alert>
@@ -124,8 +124,12 @@ export function DeepPipelinePageView({
             <ServerIcon />
             <AlertTitle>worker 정상</AlertTitle>
             <AlertDescription>
-              {initialSummary.worker.serviceRevision} · {initialSummary.worker.status} · 마지막 heartbeat{" "}
-              {formatDuration(initialSummary.worker.staleSeconds)} 전
+              {initialSummary.worker.serviceRevision} · {initialSummary.worker.status} · active{" "}
+              {initialSummary.worker.activeWorkerCount}/{initialSummary.worker.activeLeaseCount}
+              {initialSummary.worker.currentJobId
+                ? ` · job ${initialSummary.worker.currentJobId.slice(0, 8)}`
+                : ""}
+              {" "}· {formatDuration(initialSummary.worker.staleSeconds)} 전
             </AlertDescription>
           </Alert>
         )}

@@ -3,6 +3,7 @@ import assert from "node:assert/strict"
 import {
   buildInputPreparationSummary,
   buildServingMonitorSummary,
+  buildWorkerSummary,
   parseDeepPipelineQuery,
 } from "./deepPipeline"
 import {
@@ -122,6 +123,64 @@ assert.equal(buildInputPreparationSummary({
   heartbeat_at: new Date(),
   stale_seconds: 30,
 }).healthy, false)
+
+assert.deepEqual(buildWorkerSummary({
+  worker_id: "cunote-deep-analysis-test",
+  current_job_id: null,
+  status: "idle",
+  service_revision: "revision",
+  heartbeat_at: new Date("2026-07-25T03:00:00.000Z"),
+  stale_seconds: 30,
+  active_worker_count: 0,
+  active_lease_count: 0,
+  stale_active_worker_count: 0,
+}), {
+  workerId: "cunote-deep-analysis-test",
+  currentJobId: null,
+  status: "idle",
+  serviceRevision: "revision",
+  heartbeatAt: "2026-07-25T03:00:00.000Z",
+  stale: false,
+  staleSeconds: 30,
+  activeWorkerCount: 0,
+  activeLeaseCount: 0,
+  staleActiveWorkerCount: 0,
+  healthy: true,
+})
+assert.equal(buildWorkerSummary({
+  worker_id: "running",
+  current_job_id: "11111111-1111-4111-8111-111111111111",
+  status: "running",
+  service_revision: "revision",
+  heartbeat_at: new Date(),
+  stale_seconds: 30,
+  active_worker_count: 1,
+  active_lease_count: 1,
+  stale_active_worker_count: 0,
+}).healthy, true)
+assert.equal(buildWorkerSummary({
+  worker_id: "hidden-lease",
+  current_job_id: null,
+  status: "idle",
+  service_revision: "revision",
+  heartbeat_at: new Date(),
+  stale_seconds: 30,
+  active_worker_count: 0,
+  active_lease_count: 1,
+  stale_active_worker_count: 0,
+}).healthy, false)
+assert.equal(buildWorkerSummary({
+  worker_id: "over-concurrent",
+  current_job_id: "11111111-1111-4111-8111-111111111111",
+  status: "running",
+  service_revision: "revision",
+  heartbeat_at: new Date(),
+  stale_seconds: 30,
+  active_worker_count: 2,
+  active_lease_count: 2,
+  stale_active_worker_count: 0,
+}).healthy, false)
+assert.equal(buildWorkerSummary().healthy, false)
 
 assert.throws(
   () => parseDeepPipelineActionRequest({

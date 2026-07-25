@@ -330,14 +330,23 @@ interface ActiveCountRow {
 }
 
 interface WorkerRow {
+  worker_id: string | null
+  current_job_id: string | null
+  status: string | null
+  service_revision: string | null
+  heartbeat_at: Date | null
+  stale_seconds: number | null
+  active_worker_count: number
+  active_lease_count: number
+  stale_active_worker_count: number
+}
+
+interface InputPreparationRow {
   worker_id: string
   status: string
   service_revision: string
   heartbeat_at: Date
   stale_seconds: number
-}
-
-interface InputPreparationRow extends WorkerRow {
   last_error_code: string | null
   metadata: Record<string, unknown>
 }
@@ -479,6 +488,37 @@ export function buildInputPreparationSummary(
   }
 }
 
+export function buildWorkerSummary(
+  input?: WorkerRow,
+): DeepPipelineSummary["worker"] {
+  const staleSeconds = input?.stale_seconds === null || input?.stale_seconds === undefined
+    ? null
+    : Number(input.stale_seconds)
+  const activeWorkerCount = Number(input?.active_worker_count ?? 0)
+  const activeLeaseCount = Number(input?.active_lease_count ?? 0)
+  const staleActiveWorkerCount = Number(input?.stale_active_worker_count ?? 0)
+  const stale = staleSeconds === null
+    || staleSeconds > DEEP_ANALYSIS_DEFAULT_LIMITS.heartbeatStaleSeconds
+  const statusHealthy = input?.status === "idle" || input?.status === "running"
+  return {
+    workerId: input?.worker_id ?? null,
+    currentJobId: input?.current_job_id ?? null,
+    status: input?.status ?? null,
+    serviceRevision: input?.service_revision ?? null,
+    heartbeatAt: input?.heartbeat_at?.toISOString() ?? null,
+    stale,
+    staleSeconds,
+    activeWorkerCount,
+    activeLeaseCount,
+    staleActiveWorkerCount,
+    healthy: !stale
+      && statusHealthy
+      && activeWorkerCount === activeLeaseCount
+      && activeWorkerCount <= DEEP_ANALYSIS_DEFAULT_LIMITS.maxConcurrentJobs
+      && staleActiveWorkerCount === 0,
+  }
+}
+
 export async function getDeepPipelineSummary(
   _query: DeepPipelineQuery = { bucket: null, stage: null, q: "", limit: PAGE_SIZE },
   sql: PipelineSql = getAdminSql(),
@@ -512,18 +552,71 @@ export async function getDeepPipelineSummary(
       [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
     ),
     sql.unsafe<WorkerRow[]>(
-      `select
-         worker_id,
-         status,
-         service_revision,
-         heartbeat_at,
-         extract(epoch from (now() - heartbeat_at))::int as stale_seconds
-       from grant_deep_analysis_worker_heartbeats
-       where model_policy_version = $1
-         and worker_id not like 'cunote-deep-analysis-input-preparation-%'
-       order by heartbeat_at desc
-       limit 1`,
-      [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
+      `with workers as (
+         select
+           heartbeat.worker_id,
+           heartbeat.current_job_id,
+           heartbeat.status,
+           heartbeat.service_revision,
+           heartbeat.heartbeat_at,
+           extract(epoch from (now() - heartbeat.heartbeat_at))::int as stale_seconds
+         from grant_deep_analysis_worker_heartbeats heartbeat
+         where heartbeat.model_policy_version = $1
+           and heartbeat.worker_id not like 'cunote-deep-analysis-input-preparation-%'
+       ),
+       active_leases as (
+         select job.id, job.worker_id
+         from grant_deep_analysis_jobs job
+         where job.model_policy_version = $1
+           and job.status = 'leased'
+           and job.lease_expires_at > now()
+       ),
+       active_workers as (
+         select worker.*
+         from active_leases lease
+         join workers worker
+           on worker.current_job_id = lease.id
+          and worker.worker_id = lease.worker_id
+          and worker.status = 'running'
+       ),
+       selected as (
+         select ranked.*
+         from (
+           select worker.*, 0 as selection_priority
+           from active_workers worker
+           union all
+           select worker.*, 1 as selection_priority
+           from workers worker
+         ) ranked
+         order by ranked.selection_priority, ranked.heartbeat_at desc
+         limit 1
+       ),
+       counts as (
+         select
+           (select count(*)::int from active_workers) as active_worker_count,
+           (select count(*)::int from active_leases) as active_lease_count,
+           (
+             select count(*)::int
+             from active_workers
+             where stale_seconds > $2
+           ) as stale_active_worker_count
+       )
+       select
+         selected.worker_id,
+         selected.current_job_id,
+         selected.status,
+         selected.service_revision,
+         selected.heartbeat_at,
+         selected.stale_seconds,
+         counts.active_worker_count,
+         counts.active_lease_count,
+         counts.stale_active_worker_count
+       from counts
+       left join selected on true`,
+      [
+        DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+        DEEP_ANALYSIS_DEFAULT_LIMITS.heartbeatStaleSeconds,
+      ],
     ),
     sql.unsafe<InputPreparationRow[]>(
       `select
@@ -612,9 +705,6 @@ export async function getDeepPipelineSummary(
   const stageCounts = new Map(
     stageRows.map((row) => [`${row.stage}:${row.status}`, Number(row.count)]),
   )
-  const worker = workerRows[0]
-  const staleSeconds = worker ? Number(worker.stale_seconds) : null
-
   return {
     generatedAt: new Date().toISOString(),
     activeTotal,
@@ -639,15 +729,7 @@ export async function getDeepPipelineSummary(
         missing: Math.max(0, activeTotal - observed),
       }
     }),
-    worker: {
-      workerId: worker?.worker_id ?? null,
-      status: worker?.status ?? null,
-      serviceRevision: worker?.service_revision ?? null,
-      heartbeatAt: worker?.heartbeat_at?.toISOString() ?? null,
-      stale: staleSeconds === null
-        || staleSeconds > DEEP_ANALYSIS_DEFAULT_LIMITS.heartbeatStaleSeconds,
-      staleSeconds,
-    },
+    worker: buildWorkerSummary(workerRows[0]),
     inputPreparation: buildInputPreparationSummary(inputPreparationRows[0]),
     servingMonitor: buildServingMonitorSummary(servingMonitorRows[0]),
   }

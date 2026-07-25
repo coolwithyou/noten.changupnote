@@ -19,7 +19,8 @@ export const DEEP_ANALYSIS_PRIMARY_MODELS = ["claude-opus-4-8"] as const;
 export const DEEP_ANALYSIS_AUDIT_MODELS = ["claude-sonnet-5", "claude-fable-5"] as const;
 
 export const DEEP_ANALYSIS_DEFAULT_LIMITS = {
-  leaseSeconds: 900,
+  // Cloud Run Job timeout(30분)보다 길게 유지해 장기 모델 호출 중 lease 재획득을 막는다.
+  leaseSeconds: 2_100,
   maxJobsPerInvocation: 5,
   maxConcurrentJobs: 1,
   maxEnqueuePerInvocation: 5,

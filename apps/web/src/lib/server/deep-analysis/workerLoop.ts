@@ -14,6 +14,7 @@ import {
 import {
   classifyDeepAnalysisFailure,
   resolveDeepAnalysisOperationalErrorCode,
+  type DeepAnalysisFailureClass,
   type DeepAnalysisWorkerPolicy,
 } from "./workerPolicy";
 
@@ -25,6 +26,26 @@ export interface DeepAnalysisWorkerInvocationResult {
   failed: number;
   budgetDeferred: number;
   releasedBudgetJobs: number;
+  lastFailure: {
+    jobId: string;
+    errorCode: string;
+    jobStatus: "retry_wait" | "pending_budget" | "blocked" | "dead_letter";
+    failureClass: DeepAnalysisFailureClass;
+  } | null;
+}
+
+export function resolveFinalDeepAnalysisWorkerHeartbeat(
+  result: DeepAnalysisWorkerInvocationResult,
+): {
+  status: "idle" | "degraded";
+  lastErrorCode: string | null;
+} {
+  return result.failed > 0
+    ? {
+      status: "degraded",
+      lastErrorCode: result.lastFailure?.errorCode ?? "worker_job_failed",
+    }
+    : { status: "idle", lastErrorCode: null };
 }
 
 /**
@@ -47,6 +68,7 @@ export async function runDeepAnalysisWorkerInvocation(input: {
     failed: 0,
     budgetDeferred: 0,
     releasedBudgetJobs: await releaseDeepAnalysisBudgetJobs(input.db, now()),
+    lastFailure: null,
   };
   await writeDeepAnalysisWorkerHeartbeat(input.db, {
     workerId: input.workerId,
@@ -104,6 +126,12 @@ export async function runDeepAnalysisWorkerInvocation(input: {
         now: now(),
       });
       result.failed += 1;
+      result.lastFailure = {
+        jobId: job.id,
+        errorCode,
+        jobStatus: status,
+        failureClass,
+      };
       if (status === "pending_budget") result.budgetDeferred += 1;
       await writeDeepAnalysisWorkerHeartbeat(input.db, {
         workerId: input.workerId,
@@ -123,11 +151,12 @@ export async function runDeepAnalysisWorkerInvocation(input: {
     }
   }
 
+  const finalHeartbeat = resolveFinalDeepAnalysisWorkerHeartbeat(result);
   await writeDeepAnalysisWorkerHeartbeat(input.db, {
     workerId: input.workerId,
     serviceRevision: input.serviceRevision,
     modelPolicyVersion: input.policy.modelPolicyVersion,
-    status: "idle",
+    ...finalHeartbeat,
     metadata: {
       ...input.invocationMetadata,
       ...result,
