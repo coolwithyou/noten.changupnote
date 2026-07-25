@@ -2345,9 +2345,28 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   markdown이 없는 partial 변환이었다. 이를 “surface 누락”으로 오인해 중복 job을 만들지
   않도록, 같은 storage identity의 surface가 하나라도 있으면 legacy 등록 후보에서 제외하고
   명시 OCR blocker로 보존하는 회귀 보정을 추가했다.
-- [ ] 검증된 commit image를 input-preparation Job에만 배포하고 수동·정시 execution에서
-  기존 partial PDF의 중복 변환 job 0, 실제 surface 누락분만 등록, heartbeat metadata를
-  교차 확인한다. 24시간 serving monitor의 동결 digest·Scheduler·관측 구간은 변경하지 않는다.
+- [x] 보정 commit `b46b6af`를 Cloud Build
+  `1d03ac56-2947-45e9-b487-cee8b78abad7`에서 digest
+  `sha256:c34189348a63…`로 만들고 input-preparation Job만 갱신했다. exact
+  `GIT_COMMIT_SHA=b46b6af507d8…`, 기존 service account·timeout·env/secret 경계를
+  확인했고 main/serving monitor digest는 그대로다.
+- [x] 수동 execution `hw279`는 K-Startup `178343`의 새 HWP 2건을 R2 보관하고
+  `hwp5html` 전문 변환, conversion surface poll 2건 성공, sealed·priority 100 job
+  생성까지 완료했다. 같은 실행에서 기존 partial PDF는 registration 후보에서 제외되어
+  중복 job 0, 후보 1은 non-convertible container라 skip 1, warning 0이었다.
+- [x] 바로 다음 정시 execution `fhnhr`도 task 1/1, exact revision `b46b6af507d8…`,
+  sealed 2/4, 기존 명시 blocker 2, conversion candidate 1·surface/job/cache 0·skip 1,
+  archive/conversion/registration warning 0으로 끝났다. `pnpm verify:deep-analysis-ops`는
+  active 636 보존식, input-preparation healthy, main `observe_only`, active worker/lease
+  0/0, serving monitor fresh 2/2로 PASS했다.
+- [x] 새 관제 필드는 기존 `team-coolwithyou/changupnote-ops` production deployment
+  `dpl_5YzKA7jub2ZYttU4FRCa3hpduXFa`로 배포해 Ready와 기존
+  `ops.changupnote.com` alias를 확인했다. 라이브 `/pipeline`은 비로그인 307→login,
+  summary/action API는 401이며 새 project/domain을 만들지 않았다.
+- [x] 같은 시각 24시간 종료 검증은 도래한 6/48 슬롯, execution 6, receipt 36,
+  R2 byte mismatch 0을 확인했다. Cloud Scheduler start/finish 6/6, Cloud Run
+  success 6/6, receipt execution match 6/6도 PASS이며 전체 실패는 종료 전이므로
+  `window_incomplete` 하나뿐이다.
 
 우선순위:
 
