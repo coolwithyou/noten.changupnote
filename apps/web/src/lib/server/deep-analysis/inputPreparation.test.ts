@@ -45,6 +45,7 @@ const result = await runDeepAnalysisInputPreparation({
       title: "K",
       applyEnd: null,
       jobUpdatedAt: new Date("2026-07-25T00:00:00.000Z"),
+      jobStatus: "blocked",
     },
     {
       grantId: "grant-b",
@@ -53,6 +54,7 @@ const result = await runDeepAnalysisInputPreparation({
       title: "B",
       applyEnd: null,
       jobUpdatedAt: new Date("2026-07-25T00:00:00.000Z"),
+      jobStatus: "pending",
     },
   ],
   runKStartupArchive: async (input) => {
@@ -106,6 +108,11 @@ const result = await runDeepAnalysisInputPreparation({
     totalChars: 1,
     inputArtifactBody: "{}\n",
   }),
+  ensurePreparedJob: async (_db, input) => ({
+    id: `job-${input.grantId}`,
+    status: "pending",
+    priority: input.priority,
+  }),
 });
 
 assert.deepEqual(calls, [
@@ -116,6 +123,8 @@ assert.deepEqual(calls, [
 assert.equal(result.targetCount, 2);
 assert.equal(result.sealedCount, 1);
 assert.equal(result.unresolvedCount, 1);
+assert.equal(result.after[0]?.queuePriority, 100);
+assert.equal(result.after[1]?.queuePriority, null);
 assert.deepEqual(result.after[1]?.blockerCodes, ["blocked_conversion"]);
 
 console.log("deep-analysis input preparation tests passed");

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { CunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
@@ -6,6 +6,7 @@ import { runConversionPollSweep } from "@/lib/server/conversion/pollSweep";
 import { runBizInfoAttachmentArchiveBatch } from "@/lib/server/ingestion/bizinfoAttachmentArchiveBatch";
 import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
+import { enqueueDeepAnalysisJob } from "./ledger";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 
 export const DEEP_ANALYSIS_INPUT_PREPARATION_SCHEMA =
@@ -19,6 +20,7 @@ export interface DeepAnalysisInputPreparationPolicy {
   scanLimit: number;
   conversionLimit: number;
   deadlineSeconds: number;
+  preparedJobPriority: number;
 }
 
 export interface DeepAnalysisInputPreparationTarget {
@@ -28,6 +30,7 @@ export interface DeepAnalysisInputPreparationTarget {
   title: string;
   applyEnd: Date | null;
   jobUpdatedAt: Date;
+  jobStatus: string;
 }
 
 export interface DeepAnalysisInputPreparationResult {
@@ -54,6 +57,9 @@ export interface DeepAnalysisInputPreparationResult {
     blockerCodes: string[];
     blockerCount: number;
     sourceRevisionSha256: string | null;
+    jobId: string | null;
+    jobStatus: string | null;
+    queuePriority: number | null;
     error: string | null;
   }>;
   sealedCount: number;
@@ -79,6 +85,7 @@ export async function listDeepAnalysisInputPreparationTargets(input: {
       title: schema.grants.title,
       applyEnd: schema.grants.applyEnd,
       jobUpdatedAt: schema.grantDeepAnalysisJobs.updatedAt,
+      jobStatus: schema.grantDeepAnalysisJobs.status,
     })
     .from(schema.grantDeepAnalysisJobs)
     .innerJoin(
@@ -90,8 +97,16 @@ export async function listDeepAnalysisInputPreparationTargets(input: {
         schema.grantDeepAnalysisJobs.modelPolicyVersion,
         input.policy.modelPolicyVersion,
       ),
-      eq(schema.grantDeepAnalysisJobs.status, "blocked"),
-      eq(schema.grantDeepAnalysisJobs.lastErrorCode, "input_not_sealed"),
+      or(
+        and(
+          eq(schema.grantDeepAnalysisJobs.status, "blocked"),
+          eq(schema.grantDeepAnalysisJobs.lastErrorCode, "input_not_sealed"),
+        ),
+        inArray(
+          schema.grantDeepAnalysisJobs.status,
+          ["pending", "retry_wait"],
+        ),
+      ),
       activeDeepAnalysisGrantPredicate(now),
       sql`NOT EXISTS (
         SELECT 1
@@ -135,6 +150,7 @@ export async function listDeepAnalysisInputPreparationTargets(input: {
       title: row.title,
       applyEnd: row.applyEnd,
       jobUpdatedAt: row.jobUpdatedAt,
+      jobStatus: row.jobStatus,
     });
   }
   return (["kstartup", "bizinfo"] as const).flatMap((source) =>
@@ -159,6 +175,7 @@ export async function runDeepAnalysisInputPreparation(input: {
   runBizInfoArchive?: typeof runBizInfoAttachmentArchiveBatch;
   runConversionSweep?: typeof runConversionPollSweep;
   prepareInput?: typeof prepareDeepAnalysisInput;
+  ensurePreparedJob?: typeof ensurePreparedDeepAnalysisJob;
 }): Promise<DeepAnalysisInputPreparationResult> {
   const startedAt = Date.now();
   const now = input.now ?? new Date();
@@ -238,6 +255,16 @@ export async function runDeepAnalysisInputPreparation(input: {
         storage: input.storage,
         grantId: target.grantId,
       });
+      const preparedJob = seal.sealed
+        ? await (
+          input.ensurePreparedJob ?? ensurePreparedDeepAnalysisJob
+        )(input.db, {
+          grantId: target.grantId,
+          sourceRevisionSha256: seal.sourceRevisionSha256,
+          modelPolicyVersion: input.policy.modelPolicyVersion,
+          priority: input.policy.preparedJobPriority,
+        })
+        : null;
       after.push({
         grantId: target.grantId,
         source: target.source,
@@ -246,6 +273,9 @@ export async function runDeepAnalysisInputPreparation(input: {
         blockerCodes: [...new Set(seal.blockers.map((blocker) => blocker.code))],
         blockerCount: seal.blockers.length,
         sourceRevisionSha256: seal.sourceRevisionSha256,
+        jobId: preparedJob?.id ?? null,
+        jobStatus: preparedJob?.status ?? null,
+        queuePriority: preparedJob?.priority ?? null,
         error: null,
       });
     } catch (error) {
@@ -257,6 +287,9 @@ export async function runDeepAnalysisInputPreparation(input: {
         blockerCodes: ["preparation_verification_failed"],
         blockerCount: 1,
         sourceRevisionSha256: null,
+        jobId: null,
+        jobStatus: null,
+        queuePriority: null,
         error: error instanceof Error
           ? error.message.slice(0, 500)
           : String(error).slice(0, 500),
@@ -336,6 +369,13 @@ export function resolveDeepAnalysisInputPreparationPolicy(
       900,
       "DEEP_ANALYSIS_PREPARE_DEADLINE_SECONDS",
     ),
+    preparedJobPriority: boundedEnvInt(
+      env.DEEP_ANALYSIS_PREPARED_JOB_PRIORITY,
+      100,
+      1,
+      1_000,
+      "DEEP_ANALYSIS_PREPARED_JOB_PRIORITY",
+    ),
   };
 }
 
@@ -373,4 +413,43 @@ export function selectRotatingTargetWindow<T>(
     selected.push(rest[(offset + index) % rest.length]!);
   }
   return selected;
+}
+
+/**
+ * 재봉인 검증을 통과한 identity만 queue에 보장하고 아직 claim되지 않은 행의 priority를
+ * 단조 증가시킨다. blocked/leased/succeeded 행은 상태나 우선순위를 바꾸지 않는다.
+ */
+export async function ensurePreparedDeepAnalysisJob(
+  db: CunoteDb,
+  input: {
+    grantId: string;
+    sourceRevisionSha256: string;
+    modelPolicyVersion: string;
+    priority: number;
+  },
+): Promise<{
+  id: string;
+  status: string;
+  priority: number;
+}> {
+  const job = await enqueueDeepAnalysisJob(db, input);
+  if (
+    job.priority >= input.priority
+    || (job.status !== "pending" && job.status !== "retry_wait")
+  ) {
+    return { id: job.id, status: job.status, priority: job.priority };
+  }
+  const [updated] = await db
+    .update(schema.grantDeepAnalysisJobs)
+    .set({ priority: input.priority })
+    .where(and(
+      eq(schema.grantDeepAnalysisJobs.id, job.id),
+      inArray(schema.grantDeepAnalysisJobs.status, ["pending", "retry_wait"]),
+    ))
+    .returning({
+      id: schema.grantDeepAnalysisJobs.id,
+      status: schema.grantDeepAnalysisJobs.status,
+      priority: schema.grantDeepAnalysisJobs.priority,
+    });
+  return updated ?? { id: job.id, status: job.status, priority: job.priority };
 }
