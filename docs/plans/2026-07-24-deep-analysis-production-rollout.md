@@ -2140,16 +2140,23 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   각 receipt의 canonical evidence hash와 content-addressed R2 artifact 실제 바이트도
   최대 8개 병렬 read로 재검증한다. 미래 종료시각, 누락·중복 실행, item/run 불일치,
   실패·stale, R2 불일치는 모두 exit 2다.
+- [x] 같은 종료 검증기에 gcloud cloud evidence를 결합했다. active account/project가
+  `sw@noten.im`·`changupnote-com`인지, Scheduler가 enabled·`:05/:35`·KST·retry 0·
+  지정 OAuth service account/Run URI인지 먼저 고정한다. 각 슬롯의 Scheduler
+  AttemptStarted/AttemptFinished HTTP 200, Cloud Run task 1/1·10분 이내 완료,
+  DB receipt execution ID 일치를 자동 교차 검증하며 하나라도 다르면 exit 2다.
 - [x] 첫 정시 execution `cunote-deep-analysis-serving-monitor-lq752`가 task 1/1로
   성공한 직후 production read-only 종료 검증을 실행했다. 전체 48슬롯 중 현재 도래한
   1슬롯과 item 2개, receipt 6개를 정확히 인식하고 R2 6건 byte mismatch 0을 확인했지만,
   종료시각이 미래이므로 `window_incomplete` 하나로 exit 2했다. 미래 슬롯을 조기 성공이나
   누락으로 오인하지 않으며 24시간이 실제 경과하기 전 PASS할 수 없음을 확인했다.
+  같은 실행의 cloud evidence도 Scheduler start/finish 1/1, Run success 1/1,
+  receipt execution match 1/1, failure 0으로 별도 PASS했다.
 - [ ] serving canary 관측은 2026-07-25 11:35 KST부터 유지되고 있다. 다만 execution
   metadata/R2 전수 종료 검증은 새 image의 첫 정시 슬롯인 2026-07-25 12:05 KST부터
   2026-07-26 12:05 KST까지 더 엄격하게 다시 센다. 종료 뒤 DB/R2 48슬롯 판정과
-  Cloud Scheduler/Run execution 48건을 교차 확인해 닫는다. 20공고 확대는 이 관측
-  gate 뒤에만 진행한다.
+  Cloud Scheduler/Run execution 48건을 같은 명령으로 교차 확인해 닫는다.
+  20공고 확대는 이 관측 gate 뒤에만 진행한다.
 
 #### Phase H. 활성 공고 백필 (2026-07-25 실측 분모 636)
 

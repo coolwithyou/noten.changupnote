@@ -9,6 +9,9 @@ import {
   createR2ObjectStorageFromEnv,
 } from "@/lib/server/storage/r2ObjectStorage";
 import {
+  readAndEvaluateDeepAnalysisServingCloudObservation,
+} from "./gcloudServingObservation";
+import {
   DEEP_ANALYSIS_SERVING_OBSERVATION_STAGES,
   evaluateDeepAnalysisServingObservation,
   verifyDeepAnalysisServingObservationArtifacts,
@@ -106,19 +109,28 @@ async function main(): Promise<number> {
     receipts,
     scheduledExecutionIds: evaluation.scheduledExecutionIds,
   });
+  const cloudEvaluation = await readAndEvaluateDeepAnalysisServingCloudObservation({
+    start,
+    end,
+    now,
+    receiptExecutionIds: evaluation.scheduledExecutionIds,
+  });
   const failures = [...evaluation.failures, ...artifactFailures];
   const output = {
     ...evaluation,
-    verdict: failures.length === 0 ? "PASS" : "FAIL",
+    verdict: failures.length === 0 && cloudEvaluation.verdict === "PASS"
+      ? "PASS"
+      : "FAIL",
     artifactVerification: {
       checkedReceipts: receipts.filter((receipt) =>
         evaluation.scheduledExecutionIds.includes(receipt.executionId)).length,
       failures: artifactFailures.length,
     },
+    cloudEvidence: cloudEvaluation,
     failures,
   };
   console.log(JSON.stringify(output, null, 2));
-  return failures.length === 0 ? 0 : 2;
+  return failures.length === 0 && cloudEvaluation.verdict === "PASS" ? 0 : 2;
 }
 
 function readDateArg(name: string): Date {
