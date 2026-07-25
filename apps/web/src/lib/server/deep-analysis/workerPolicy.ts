@@ -10,6 +10,7 @@ import {
 
 export interface DeepAnalysisWorkerPolicy {
   modelPolicyVersion: typeof DEEP_ANALYSIS_MODEL_POLICY_VERSION;
+  executionMode: "active" | "observe_only";
   primaryModel: DeepAnalysisPrimaryModel;
   auditModel: DeepAnalysisAuditModel;
   leaseSeconds: number;
@@ -32,6 +33,7 @@ export function resolveDeepAnalysisWorkerPolicy(
   assertDeepAnalysisModelPair(pair);
   return {
     modelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+    executionMode: workerExecutionMode(env.DEEP_ANALYSIS_WORKER_MODE),
     ...pair,
     leaseSeconds: integerEnv(
       env.DEEP_ANALYSIS_LEASE_SECONDS,
@@ -90,6 +92,14 @@ export function resolveDeepAnalysisWorkerPolicy(
       "DEEP_ANALYSIS_HEARTBEAT_STALE_SECONDS",
     ),
   };
+}
+
+function workerExecutionMode(raw: string | undefined): "active" | "observe_only" {
+  const value = raw?.trim() || "active";
+  if (value !== "active" && value !== "observe_only") {
+    throw new Error("DEEP_ANALYSIS_WORKER_MODE must be active or observe_only");
+  }
+  return value;
 }
 
 export type DeepAnalysisFailureClass =

@@ -7,6 +7,7 @@ import { runDeepAnalysisWorkerInvocation } from "./workerLoop";
 import { resolveDeepAnalysisWorkerPolicy } from "./workerPolicy";
 import {
   repairGenericDeepAnalysisJobErrorCodes,
+  writeDeepAnalysisWorkerHeartbeat,
 } from "./workerState";
 
 loadMonorepoEnv();
@@ -16,11 +17,6 @@ if (process.env.DEEP_ANALYSIS_EXECUTE !== "1" && !process.argv.includes("--execu
     "Deep analysis worker is fail-closed. Set DEEP_ANALYSIS_EXECUTE=1 or pass --execute.",
   );
 }
-const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
-const storage = createR2ObjectStorageFromEnv();
-if (!storage) throw new Error("R2 storage environment is incomplete");
-
 const db = getCunoteDb();
 const policy = resolveDeepAnalysisWorkerPolicy();
 const workerId = (
@@ -35,38 +31,76 @@ const serviceRevision = (
 ).slice(0, 200);
 
 try {
-  const repairedErrorCodes = await repairGenericDeepAnalysisJobErrorCodes(db);
-  const enqueueResult = await enqueueActiveDeepAnalysisJobs({
-    db,
-    storage,
-    policy,
-  });
-  const result = await runDeepAnalysisWorkerInvocation({
-    db,
-    workerId,
-    serviceRevision,
-    policy,
-    invocationMetadata: { enqueue: enqueueResult, repairedErrorCodes },
-    processJob: async (job) => {
-      await processDeepAnalysisJob({
-        db,
-        storage,
-        apiKey,
-        job,
-        policy,
-        actor: workerId,
-      });
-    },
-  });
-  console.log(JSON.stringify({
-    ok: true,
-    workerId,
-    serviceRevision,
-    modelPolicyVersion: policy.modelPolicyVersion,
-    enqueue: enqueueResult,
-    repairedErrorCodes,
-    ...result,
-  }));
+  if (policy.executionMode === "observe_only") {
+    const result = {
+      claimed: 0,
+      succeeded: 0,
+      failed: 0,
+      budgetDeferred: 0,
+      releasedBudgetJobs: 0,
+      lastFailure: null,
+    };
+    const metadata = {
+      executionMode: policy.executionMode,
+      enqueueSkipped: true,
+      analysisSkipped: true,
+      budgetMutationSkipped: true,
+      ...result,
+    };
+    await writeDeepAnalysisWorkerHeartbeat(db, {
+      workerId,
+      serviceRevision,
+      modelPolicyVersion: policy.modelPolicyVersion,
+      status: "idle",
+      metadata,
+      now: new Date(),
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      workerId,
+      serviceRevision,
+      modelPolicyVersion: policy.modelPolicyVersion,
+      ...metadata,
+    }));
+    process.exitCode = 0;
+  } else {
+    const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+    if (!apiKey) throw new Error("ANTHROPIC_API_KEY is required");
+    const storage = createR2ObjectStorageFromEnv();
+    if (!storage) throw new Error("R2 storage environment is incomplete");
+    const repairedErrorCodes = await repairGenericDeepAnalysisJobErrorCodes(db);
+    const enqueueResult = await enqueueActiveDeepAnalysisJobs({
+      db,
+      storage,
+      policy,
+    });
+    const result = await runDeepAnalysisWorkerInvocation({
+      db,
+      workerId,
+      serviceRevision,
+      policy,
+      invocationMetadata: { enqueue: enqueueResult, repairedErrorCodes },
+      processJob: async (job) => {
+        await processDeepAnalysisJob({
+          db,
+          storage,
+          apiKey,
+          job,
+          policy,
+          actor: workerId,
+        });
+      },
+    });
+    console.log(JSON.stringify({
+      ok: true,
+      workerId,
+      serviceRevision,
+      modelPolicyVersion: policy.modelPolicyVersion,
+      enqueue: enqueueResult,
+      repairedErrorCodes,
+      ...result,
+    }));
+  }
 } finally {
   await closeCunoteDb();
 }
