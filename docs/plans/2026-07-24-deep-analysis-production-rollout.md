@@ -2174,9 +2174,19 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   attempt의 run error code를 우선 기록하고, 기존 generic code는 최신 terminal run에서
   mutable queue projection만 보정하도록 수정했다. append-only receipt/exception/run은
   변경하지 않는다.
-- [ ] 수정 worker를 별도 image로 배포해 기존 26건의 job code 보정과 신규 실패의
-  구체 code 보존을 production에서 확인한다. 24시간 관측 중인 serving monitor image는
-  바꾸지 않는다.
+- [x] 수정 commit `9b6653c`를 Cloud Build
+  `fffd2398-3870-4104-ab51-bd90eb810617`에서 별도 image digest
+  `sha256:7fa3cf452c25…`로 build하고 worker Job만 갱신했다. 첫 정시 execution
+  `cunote-deep-analysis-87hsd`는 task 1/1, 14.5초로 성공했으며 heartbeat metadata가
+  `repairedErrorCodes=30`, `serviceRevision=9b6653c…`를 기록했다. 보정 후 전체
+  blocked/dead-letter queue projection은 terminal run과 정확히 일치한다:
+  model policy v3 `input_not_sealed` 27건, v1/v2/v3
+  `independent_audit_disagreement` 4건이며 generic `Error`는 0건이다. 같은 실행에서
+  새로 차단된 공고도 `input_not_sealed`로 보존됐다.
+- [x] 이 배포는 worker에만 적용했다. 24시간 관측 중인 serving monitor는 시작 commit
+  `48b92c4`, image digest `sha256:ee073d72440f…`와 기존 secret/env 경계를 유지한다.
+  배포 직후 `pnpm verify:deep-analysis-ops`는 분모 636의 상태 보존식, worker
+  freshness, monitor `checked=2/2`, receipt failure/stale 0을 모두 확인해 PASS했다.
 
 배포 체크포인트 H0 — 관제·worker production 반영 (2026-07-25):
 
