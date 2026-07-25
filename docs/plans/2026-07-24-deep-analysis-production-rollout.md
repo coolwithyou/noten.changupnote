@@ -2099,8 +2099,16 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   자동 발견하고, DB embedded manifest의 manifest/release-plan hash를 다시 검증한 뒤
   로컬 `spike-out` 파일 없이 S12/S13/S14를 재검증하도록 확장했다. 두 active release,
   두 공고에 대한 첫 monitor 실행은 PASS였다.
-- [ ] active monitor를 별도 Cloud Run Job과 30분 Scheduler로 배포해 24시간
-  serving/hash/SLO 관측을 시작한다. 20공고 확대는 이 관측 gate 뒤에만 진행한다.
+- [x] commit `eba1597` image digest `sha256:e9a1b5b8fd6b…`로 검증 전용 Cloud Run Job
+  `cunote-deep-analysis-serving-monitor`를 배포했다. 이 Job에는 Anthropic key를
+  연결하지 않았고 DB·R2와 receipt 기록에 필요한 secret만 연결했다.
+- [x] 검증 Job 수동 execution `jpxt8`과 30분 Scheduler의 첫 자동 execution
+  `47cwc`가 모두 task 1/1, `checkedReleases=2`, `checkedItems=2`, PASS로 완료됐다.
+  Scheduler `cunote-deep-analysis-serving-monitor-scheduler`는 매시 `:05/:35`,
+  OAuth service account, retry 0으로 활성화됐다.
+- [ ] 24시간 serving/hash/SLO 관측은 2026-07-25 11:35 KST에 시작했으며
+  2026-07-26 11:35 KST 이후 연속 실행 결과로 닫는다. 20공고 확대는 이 관측 gate 뒤에만
+  진행한다.
 
 #### Phase H. 활성 공고 백필 (2026-07-25 실측 분모 636)
 
