@@ -2647,19 +2647,35 @@ extractor 구현을 가지는 것은 금지한다.
 - [x] `verify:deep-analysis-contract` 통과
 - [x] 체크포인트 커밋 후 worktree clean
 
-#### 축소 Step 2 — source 변경은 반드시 새 분석으로 복구
+#### 축소 Step 2A — S11 직전 source를 다시 검증
 
 범위:
 
-- job 운영 시각과 source revision 관측 시각을 분리한다.
-- 실행 시작 이후 source가 변경되면 S11 완료를 거부한다.
-- 변경된 revision이 feeder에서 새 작업으로 다시 enqueue됨을 검증한다.
+- 실행 시작 이후 source 또는 input이 변경되면 S11 완료를 거부한다.
+- 현재 run을 stale로 끝내고 변경된 revision의 새 job을 enqueue한다.
+- feeder 조회 조건이나 DB schema는 이 단계에서 변경하지 않는다.
 
 완료 조건:
 
-- [ ] 분석 도중 source 변경 fixture가 기존 run을 stale 처리
-- [ ] 같은 fixture가 새 revision job을 enqueue
+- [ ] 분석 도중 source 변경 fixture가 S11 통과를 거부
+- [ ] 같은 fixture가 기존 run을 stale 처리하고 새 revision job을 enqueue
 - [ ] promotion 이전에 stale 결과가 차단됨
+- [ ] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+
+#### 축소 Step 2B — feeder source 관측과 job 운영 시각 분리
+
+범위:
+
+- claim/retry/complete가 바꾸는 `job.updated_at`을 source 변경 watermark로 사용하지 않는다.
+- 동일 source revision의 반복 enqueue와 새 revision 누락을 모두 막는다.
+- 별도 관측 상태나 migration이 필요하면 먼저 이 문서에서 schema와 rollback을 검토하고,
+  Step 2A 커밋에 섞지 않는다.
+
+완료 조건:
+
+- [ ] claim 또는 complete 도중 source가 바뀐 fixture가 새 revision 후보로 남음
+- [ ] 내용이 같은 source 재수집은 무한 enqueue 후보가 되지 않음
+- [ ] 새 revision은 새 job identity로 enqueue
 - [ ] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
 
 #### 축소 Step 3 — 정확한 코호트가 S14까지 닫혀야 확장 가능
