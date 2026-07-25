@@ -2157,11 +2157,11 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   R2 byte mismatch 0을 확인했고 cloud evidence도 Scheduler start/finish 2/2,
   Run success 2/2, receipt execution match 2/2, failure 0으로 PASS했다. 전체 판정은
   gate를 낮추지 않아 아직 `window_incomplete` 하나로 exit 2다.
-- [x] 2026-07-25 13:45 KST 재검증은 `lq752`, `tckmn`, `h74jb`, `q5d2t` 네 정시
-  execution과 도래한 4/48 슬롯을 인식했다. DB receipt 24건과 content-addressed R2
-  artifact 전수 비교의 불일치는 0이고, Cloud Scheduler start/finish 4/4, Cloud Run
-  success 4/4, receipt execution match 4/4도 모두 PASS다. 종료 판정은 여전히
-  `window_incomplete` 하나뿐이며 조기 통과시키지 않았다.
+- [x] 2026-07-25 14:05 KST 재검증은 `lq752`, `tckmn`, `h74jb`, `q5d2t`, `hmdx5`
+  다섯 정시 execution과 도래한 5/48 슬롯을 인식했다. DB receipt 30건과
+  content-addressed R2 artifact 전수 비교의 불일치는 0이고, Cloud Scheduler
+  start/finish 5/5, Cloud Run success 5/5, receipt execution match 5/5도 모두 PASS다.
+  종료 판정은 여전히 `window_incomplete` 하나뿐이며 조기 통과시키지 않았다.
 - [ ] serving canary 관측은 2026-07-25 11:35 KST부터 유지되고 있다. 다만 execution
   metadata/R2 전수 종료 검증은 새 image의 첫 정시 슬롯인 2026-07-25 12:05 KST부터
   2026-07-26 12:05 KST까지 더 엄격하게 다시 센다. 종료 뒤 DB/R2 48슬롯 판정과
@@ -2245,9 +2245,17 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   각각 독립 감사 불일치로 격리됐다. primary contract·22축·근거 통과만으로 자동
   발행하지 않았고, concurrence를 얻은 `178185`만 `analysis_complete`가 됐다.
 - [x] 24시간 gate 전에 계획된 20공고 분석·승격을 앞당기지 않도록, 위 종단 검증을
-  마친 2026-07-25 13:43 KST에 유료 main Scheduler를 `PAUSED`로 되돌렸다.
-  input-preparation Scheduler와 24시간 serving monitor만 유지하며, main Scheduler는
-  48/48 종료 검증 PASS 뒤 첫 20공고 배치를 시작할 때 다시 연다.
+  마친 2026-07-25 13:43 KST에 main Scheduler를 일시 `PAUSED`로 돌렸다. 이 상태가
+  10분 worker heartbeat SLO와 충돌하므로 commit `befbf3b`에
+  `DEEP_ANALYSIS_WORKER_MODE=observe_only`를 추가했다. 이 모드는 heartbeat만 쓰고
+  enqueue, lease/claim, budget 상태 변경, LLM 호출을 모두 건너뛴다.
+- [x] build `1474549a-70f0-4a90-a0a1-2070b6a6b54c`의 digest
+  `sha256:559ec3f02394…`를 main worker에만 반영하고 정확한 commit
+  `befbf3b5d56c5879e6ebb73e47486a721ead591e`와 `observe_only` env를 확인했다.
+  수동 execution `k8twq`와 첫 정시 execution `cn4z6`는 각각 task 1/1,
+  `enqueueSkipped=true`, `analysisSkipped=true`, `budgetMutationSkipped=true`,
+  `claimed=0`으로 끝났다. Scheduler는 2026-07-25 13:59 KST 다시 `ENABLED`했으며
+  48/48 PASS 뒤 같은 mode를 `active`로 바꿔 첫 20공고 배치를 시작한다.
 
 배포 체크포인트 H0 — 관제·worker production 반영 (2026-07-25):
 
@@ -2295,6 +2303,13 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
   deployment `dpl_H9YSwL76QwPS1VTFeuEkthRDDQvX`로 배포해 Ready와 기존
   `ops.changupnote.com` alias를 확인했다. 비로그인 `/pipeline`은 307→login,
   overview/action API는 401이며 새 project/domain은 만들지 않았다.
+- [x] commit `541ec2a`부터 worker heartbeat metadata의 `executionMode`를 관제
+  계약·verifier·UI에 노출한다. production ops verifier는 정시 execution `2hpgw`를
+  `observe_only`, active worker/lease 0/0, stale active 0, healthy로 확인했다.
+  기존 `team-coolwithyou/changupnote-ops` deployment
+  `dpl_4SwVaXu3iYRihd9FXQvopCiHvvLX`는 Ready이며 기존
+  `ops.changupnote.com` alias를 유지한다. 라이브 `/pipeline` 307→login,
+  summary/action API 401 경계도 다시 통과했다.
 
 우선순위:
 
