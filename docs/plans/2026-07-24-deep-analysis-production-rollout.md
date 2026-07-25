@@ -2048,6 +2048,26 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - publication/serving hash drift 1건 이상
 - 자동 발행 항목의 audit disagreement 1건 이상
 
+구현 체크포인트 G1 — deep run과 기존 promotion release 결합 (2026-07-25):
+
+- [x] production deep run을 기존 immutable promotion manifest와
+  `analysis_lab_promotion_items.deep_analysis_run_id`에 결합하는 전용 prepare 명령을
+  추가했다. prepare 시점에 current job/source revision, S11, 독립 감사 concur,
+  sealed input hash, R2 output/audit 실제 바이트 hash를 다시 검증한다.
+- [x] validated normalized output을 기존 `planGrantPromotion` 계약으로 변환하되
+  criterion 변환 drop, `needs_review`, 미확정 resolution, 질문 anchor drop 중 하나라도
+  있으면 release 생성 전에 fail-closed 차단한다.
+- [x] promotion source verifier가 deep source일 때 로컬 실험 파일을 신뢰하지 않고
+  production DB run/job/receipt/audit와 private R2 artifact 및 현재 입력을 재검증한다.
+- [x] 실제 적용 뒤 기존 after snapshot 검증, Drizzle production repository 재조회,
+  고정 비식별 기업 profile 3종에 대한 matcher `rule_trace` criterion ID 전수 소비,
+  current source/input freshness를 검증하고 S12/S13/S14 receipt를 append-only로 남기는
+  `deep-analysis:verify-serving` 명령을 추가했다.
+- [x] deep promotion adapter 테스트를 전체 deep-analysis contract suite에 포함했고,
+  web typecheck와 기존 release/promote/verify/shadow 회귀 테스트가 통과했다.
+- [ ] production canary release의 aggregate → shadow → dry-run → approve → write →
+  promotion verify → S12/S13/S14 증적은 G2에서 clean commit을 기준으로 실행한다.
+
 #### Phase H. 활성 624공고 백필
 
 우선순위:

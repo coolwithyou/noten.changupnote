@@ -18,6 +18,15 @@ export interface PromotionSourceArtifact {
   auditSha256?: string | null;
   overlaySha256: string | null;
   confirmationsSha256: string | null;
+  /**
+   * 프로덕션 deep-analysis 원장에서 온 source. 이 필드가 있으면 source verifier는
+   * 로컬 spike 파일 대신 DB run/job/S11/audit와 private R2 artifact를 검증한다.
+   */
+  deepAnalysisRunId?: string;
+  sourceRevisionSha256?: string;
+  inputSha256?: string;
+  outputArtifactKey?: string;
+  auditArtifactKey?: string;
 }
 
 export interface PromotionReleasePlanItem {
