@@ -5,6 +5,7 @@ import {
 } from "@cunote/contracts";
 import {
   classifyDeepAnalysisFailure,
+  resolveDeepAnalysisOperationalErrorCode,
   resolveDeepAnalysisWorkerPolicy,
   retryAvailableAt,
 } from "./workerPolicy";
@@ -12,6 +13,7 @@ import type { CunoteDbSession } from "@/lib/server/db/client";
 import {
   deferDeepAnalysisJobsForBudget,
   isDeepAnalysisHeartbeatStale,
+  repairGenericDeepAnalysisJobErrorCodes,
 } from "./workerState";
 
 const policy = resolveDeepAnalysisWorkerPolicy({});
@@ -38,6 +40,23 @@ assert.equal(classifyDeepAnalysisFailure(new Error("Anthropic 529 overloaded")),
 assert.equal(classifyDeepAnalysisFailure(new Error("daily cost cap reached")), "budget");
 assert.equal(classifyDeepAnalysisFailure(new Error("blocked_conversion: hwp")), "input_blocked");
 assert.equal(classifyDeepAnalysisFailure(new Error("response contract invalid")), "non_retryable");
+assert.equal(resolveDeepAnalysisOperationalErrorCode({
+  error: new Error("generic wrapper"),
+  failureClass: "non_retryable",
+  runErrorCode: "independent_audit_disagreement",
+}), "independent_audit_disagreement");
+assert.equal(resolveDeepAnalysisOperationalErrorCode({
+  error: new Error("Deep analysis input is not sealed: blocked_conversion"),
+  failureClass: "input_blocked",
+}), "input_not_sealed");
+assert.equal(resolveDeepAnalysisOperationalErrorCode({
+  error: new Error("Anthropic 529 overloaded"),
+  failureClass: "retryable",
+}), "provider_retryable");
+assert.equal(resolveDeepAnalysisOperationalErrorCode({
+  error: new Error("source revision changed"),
+  failureClass: "input_blocked",
+}), "source_revision_changed");
 
 const base = new Date("2026-07-25T00:00:00.000Z");
 assert.equal(retryAvailableAt(1, base).toISOString(), "2026-07-25T00:00:30.000Z");
@@ -73,5 +92,15 @@ assert.equal(
   2,
 );
 assert.equal(budgetSqlCalls, 1);
+
+let repairSqlCalls = 0;
+const repairDb = {
+  execute: async () => {
+    repairSqlCalls += 1;
+    return [{ id: "job-1" }];
+  },
+} as unknown as CunoteDbSession;
+assert.equal(await repairGenericDeepAnalysisJobErrorCodes(repairDb), 1);
+assert.equal(repairSqlCalls, 1);
 
 console.log("deep-analysis worker policy tests passed");

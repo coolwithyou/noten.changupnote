@@ -84,6 +84,35 @@ export async function releaseDeepAnalysisBudgetJobs(
 }
 
 /**
+ * 구버전 worker가 Error.name만 저장한 job을 최신 terminal run의 운영 error code로
+ * 좁힌다. receipt/exception/run 원장은 건드리지 않고 mutable queue projection만 보정한다.
+ */
+export async function repairGenericDeepAnalysisJobErrorCodes(
+  db: CunoteDbSession,
+): Promise<number> {
+  const rows = await db.execute<{ id: string }>(sql`
+    WITH latest_terminal AS (
+      SELECT DISTINCT ON (run.job_id)
+        run.job_id,
+        run.error_code
+      FROM grant_deep_analysis_runs run
+      WHERE run.error_code IS NOT NULL
+        AND run.status IN ('failed', 'blocked')
+      ORDER BY run.job_id, run.started_at DESC, run.id DESC
+    )
+    UPDATE grant_deep_analysis_jobs job
+    SET last_error_code = latest.error_code
+    FROM latest_terminal latest
+    WHERE latest.job_id = job.id
+      AND job.status IN ('retry_wait', 'pending_budget', 'blocked', 'dead_letter')
+      AND job.last_error_code IN ('Error', 'DeepAnalysisWorkerError')
+      AND latest.error_code IS NOT NULL
+    RETURNING job.id
+  `);
+  return rows.length;
+}
+
+/**
  * 일별 비용 상한에 도달하면 아직 claim되지 않은 대상을 명시적인 budget 대기 상태로
  * 옮긴다. leased job은 건드리지 않아 동시 worker의 실행권을 침범하지 않는다.
  */

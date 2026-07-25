@@ -2160,6 +2160,24 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 
 #### Phase H. 활성 공고 백필 (2026-07-25 실측 분모 636)
 
+준비 체크포인트 H-pre — 20공고 후보와 blocker 분류 보존 (2026-07-25):
+
+- [x] 관측 gate 중에는 release/승격을 실행하지 않고 current S11+audit concur 후보를
+  read-only로 집계했다. 현재 3건 중 Bizinfo 1·K-Startup 1은 이미 serving이고 신규
+  후보는 K-Startup 1건뿐이므로 20공고 확대 조건은 아직 충족되지 않는다.
+- [x] worker는 invocation당 처리 1, enqueue 5, 일 비용 `$50`, 공고당 `$2`,
+  primary `claude-opus-4-8`, audit `claude-sonnet-5` 상한을 유지한다. 당일 실측은
+  model run 28건, 비용 `$2.526885`여서 후보 부족 원인은 비용 cap이 아니다.
+- [x] blocked/dead-letter job의 `last_error_code` 26건이 모두 JS `Error.name`으로
+  축약된 반면 같은 job의 terminal run에는 `input_not_sealed` 25건,
+  `independent_audit_disagreement` 1건이 보존된 것을 확인했다. worker가 current
+  attempt의 run error code를 우선 기록하고, 기존 generic code는 최신 terminal run에서
+  mutable queue projection만 보정하도록 수정했다. append-only receipt/exception/run은
+  변경하지 않는다.
+- [ ] 수정 worker를 별도 image로 배포해 기존 26건의 job code 보정과 신규 실패의
+  구체 code 보존을 production에서 확인한다. 24시간 관측 중인 serving monitor image는
+  바꾸지 않는다.
+
 배포 체크포인트 H0 — 관제·worker production 반영 (2026-07-25):
 
 - [x] 검증·커밋된 `f3c2973`을 `origin/main`에 push하고

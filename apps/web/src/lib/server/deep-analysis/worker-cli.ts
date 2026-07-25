@@ -5,6 +5,9 @@ import { enqueueActiveDeepAnalysisJobs } from "./enqueueActive";
 import { processDeepAnalysisJob } from "./processor";
 import { runDeepAnalysisWorkerInvocation } from "./workerLoop";
 import { resolveDeepAnalysisWorkerPolicy } from "./workerPolicy";
+import {
+  repairGenericDeepAnalysisJobErrorCodes,
+} from "./workerState";
 
 loadMonorepoEnv();
 
@@ -32,6 +35,7 @@ const serviceRevision = (
 ).slice(0, 200);
 
 try {
+  const repairedErrorCodes = await repairGenericDeepAnalysisJobErrorCodes(db);
   const enqueueResult = await enqueueActiveDeepAnalysisJobs({
     db,
     storage,
@@ -42,7 +46,7 @@ try {
     workerId,
     serviceRevision,
     policy,
-    invocationMetadata: { enqueue: enqueueResult },
+    invocationMetadata: { enqueue: enqueueResult, repairedErrorCodes },
     processJob: async (job) => {
       await processDeepAnalysisJob({
         db,
@@ -60,6 +64,7 @@ try {
     serviceRevision,
     modelPolicyVersion: policy.modelPolicyVersion,
     enqueue: enqueueResult,
+    repairedErrorCodes,
     ...result,
   }));
 } finally {

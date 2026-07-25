@@ -102,6 +102,25 @@ export function classifyDeepAnalysisFailure(error: unknown): DeepAnalysisFailure
   return "non_retryable";
 }
 
+export function resolveDeepAnalysisOperationalErrorCode(input: {
+  error: unknown;
+  failureClass: DeepAnalysisFailureClass;
+  runErrorCode?: string | null;
+}): string {
+  const runErrorCode = input.runErrorCode?.trim();
+  if (runErrorCode) return runErrorCode.slice(0, 120);
+  const message = input.error instanceof Error
+    ? input.error.message
+    : String(input.error);
+  if (/source revision changed/i.test(message)) return "source_revision_changed";
+  if (/input (?:is )?not sealed|blocked_(?:fetch|conversion|cap)|unresolved attachment/i.test(message)) {
+    return "input_not_sealed";
+  }
+  if (input.failureClass === "budget") return "pending_budget";
+  if (input.failureClass === "retryable") return "provider_retryable";
+  return "worker_unhandled_failure";
+}
+
 export function retryAvailableAt(attemptCount: number, now: Date = new Date()): Date {
   const boundedAttempt = Math.min(Math.max(attemptCount, 1), 10);
   const delaySeconds = Math.min(3_600, 30 * 2 ** (boundedAttempt - 1));

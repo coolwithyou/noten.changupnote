@@ -1,6 +1,9 @@
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import type * as schema from "@/lib/server/db/schema";
-import { claimDeepAnalysisJob } from "./ledger";
+import {
+  claimDeepAnalysisJob,
+  findLatestDeepAnalysisRunForJob,
+} from "./ledger";
 import {
   deferDeepAnalysisJobsForBudget,
   deepAnalysisDailySpendUsd,
@@ -10,6 +13,7 @@ import {
 } from "./workerState";
 import {
   classifyDeepAnalysisFailure,
+  resolveDeepAnalysisOperationalErrorCode,
   type DeepAnalysisWorkerPolicy,
 } from "./workerPolicy";
 
@@ -84,10 +88,16 @@ export async function runDeepAnalysisWorkerInvocation(input: {
     } catch (error) {
       const failureClass = classifyDeepAnalysisFailure(error);
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const runErrorCode = await findCurrentAttemptRunErrorCode(input.db, job);
+      const errorCode = resolveDeepAnalysisOperationalErrorCode({
+        error,
+        failureClass,
+        runErrorCode,
+      });
       const status = await failDeepAnalysisJob(input.db, {
         job,
         failureClass,
-        errorCode: error instanceof Error ? error.name : "DeepAnalysisWorkerError",
+        errorCode,
         errorMessage,
         now: now(),
       });
@@ -99,10 +109,12 @@ export async function runDeepAnalysisWorkerInvocation(input: {
         modelPolicyVersion: input.policy.modelPolicyVersion,
         status: "degraded",
         currentJobId: job.id,
-        lastErrorCode: error instanceof Error ? error.name : "DeepAnalysisWorkerError",
+        lastErrorCode: errorCode,
         metadata: {
           ...input.invocationMetadata,
           jobStatus: status,
+          runErrorCode,
+          failureClass,
         },
         now: now(),
       });
@@ -121,4 +133,25 @@ export async function runDeepAnalysisWorkerInvocation(input: {
     now: now(),
   });
   return result;
+}
+
+async function findCurrentAttemptRunErrorCode(
+  db: CunoteDbSession,
+  job: DeepAnalysisJob,
+): Promise<string | null> {
+  try {
+    const run = await findLatestDeepAnalysisRunForJob(db, job.id);
+    if (
+      !run
+      || !run.errorCode
+      || !job.leasedAt
+      || run.startedAt.getTime() < job.leasedAt.getTime()
+    ) {
+      return null;
+    }
+    return run.errorCode;
+  } catch {
+    // 원래 job 실패 처리와 lease 해제를 우선한다. run 조회 실패는 fallback code로 남긴다.
+    return null;
+  }
 }
