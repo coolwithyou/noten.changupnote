@@ -14,7 +14,39 @@ assert.equal(
 assert.equal(
   resolveExactEvidenceSpan("동일 문구", "동일  문구\n동일\t문구"),
   null,
-  "정규화 후보가 여러 곳이면 임의로 원문 span을 선택하지 않는다",
+  "서로 다른 정규화 후보가 여러 곳이면 임의로 원문 span을 선택하지 않는다",
+);
+assert.equal(
+  resolveExactEvidenceSpan("동일 문구", "동일  문구\n동일  문구"),
+  "동일  문구",
+  "여러 위치가 같은 raw substring이면 위치 선택 없이 정확한 span을 보존한다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
+    "1. 일반 중소기업\n2. 0-to-1 스타트업\n3. 학생",
+    "{\"target\":\"1. 일반 중소기업  \\r\\n2. 0-to-1 스타트업  \\r\\n3. 학생\"}",
+  ),
+  "1. 일반 중소기업  \\r\\n2. 0-to-1 스타트업  \\r\\n3. 학생",
+  "JSON string escape를 모델이 실제 줄바꿈으로 인용해도 sealed raw span으로 되돌린다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
+    "1. 일반 중소기업\n2. 0-to-1 스타트업\n3. 학생",
+    "{\"target\":\"1. 일반 중소기업  \\\\r\\\\n2. 0-to-1 스타트업  \\\\r\\\\n3. 학생\"}",
+  ),
+  "1. 일반 중소기업  \\\\r\\\\n2. 0-to-1 스타트업  \\\\r\\\\n3. 학생",
+  "수집 원문 자체에 escape가 남아 이중 직렬화돼도 sealed raw span으로 되돌린다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
+    "1. 일반 중소기업\n2. 학생",
+    [
+      "{\"first\":\"1. 일반 중소기업  \\\\r\\\\n2. 학생\",",
+      "\"second\":\"1. 일반 중소기업  \\n2. 학생\"}",
+    ].join(""),
+  ),
+  "1. 일반 중소기업  \\\\r\\\\n2. 학생",
+  "동일 문구의 JSON escape 후보가 여럿이면 sealed source 순서상 첫 exact span을 쓴다",
 );
 
 function modelResult(model: string): DeepAnalysisModelResult {

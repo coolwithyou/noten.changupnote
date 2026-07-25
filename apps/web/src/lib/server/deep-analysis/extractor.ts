@@ -421,24 +421,67 @@ export interface SpanVerification {
 }
 
 /**
- * HWP markdown의 줄바꿈/연속 공백만 모델이 단일 공백으로 인용한 경우, 정규화 문자열이
- * 원문 전체에서 유일하게 한 곳에 대응할 때만 실제 raw substring으로 되돌린다.
- * 중복 후보는 임의 선택하지 않아 validator가 계속 차단하게 한다.
+ * HWP markdown의 줄바꿈/연속 공백 또는 structured JSON 문자열의 escape를 모델이
+ * 사람이 읽는 형태로 인용한 경우 실제 sealed raw substring으로 되돌린다.
+ * 여러 위치가 같은 raw substring을 가리키는 것은 위치를 선택하지 않아도 되므로
+ * 허용한다. JSON 문자열의 escape 표기만 다른 후보는 모두 같은 requestedSpan으로
+ * 정규화됨이 확인된 경우라서 sealed source 순서상 첫 exact raw span을 사용한다.
+ * 일반 원문의 서로 다른 공백 후보는 임의 선택하지 않고 validator가 계속 차단한다.
  */
 export function resolveExactEvidenceSpan(
   requestedSpan: string,
   inputText: string,
 ): string | null {
   if (inputText.includes(requestedSpan)) return requestedSpan;
+  const direct = resolveNormalizedEvidenceCandidate(requestedSpan, inputText);
+  if (direct) return direct;
+
+  const escapedCandidates = new Set<string>();
+  for (const match of inputText.matchAll(JSON_STRING_LITERAL_PATTERN)) {
+    const token = match[0];
+    let decoded: unknown;
+    try {
+      decoded = JSON.parse(token);
+    } catch {
+      continue;
+    }
+    if (typeof decoded !== "string") continue;
+    const decodedCandidate =
+      resolveNormalizedEvidenceCandidate(requestedSpan, decoded)
+      ?? resolveNormalizedEvidenceCandidate(requestedSpan, decoded, true);
+    if (!decodedCandidate) continue;
+    const encodedCandidate = JSON.stringify(decodedCandidate).slice(1, -1);
+    if (token.slice(1, -1).includes(encodedCandidate)) {
+      escapedCandidates.add(encodedCandidate);
+    }
+  }
+  return escapedCandidates.values().next().value ?? null;
+}
+
+const JSON_STRING_LITERAL_PATTERN =
+  /"(?:\\(?:["\\/bfnrt]|u[0-9a-fA-F]{4})|[^"\\])*"/g;
+
+function resolveNormalizedEvidenceCandidate(
+  requestedSpan: string,
+  inputText: string,
+  decodeEscapedWhitespace = false,
+): string | null {
   const needle = normalizeEvidence(requestedSpan);
   if (needle.length < 2) return null;
-  const mapped = normalizeEvidenceWithOffsets(inputText);
-  const first = mapped.text.indexOf(needle);
-  if (first < 0 || mapped.text.indexOf(needle, first + 1) >= 0) return null;
-  const start = mapped.starts[first];
-  const end = mapped.ends[first + needle.length - 1];
-  if (start === undefined || end === undefined || end <= start) return null;
-  return inputText.slice(start, end);
+  const mapped = normalizeEvidenceWithOffsets(inputText, decodeEscapedWhitespace);
+  const candidates = new Set<string>();
+  for (
+    let offset = mapped.text.indexOf(needle);
+    offset >= 0;
+    offset = mapped.text.indexOf(needle, offset + 1)
+  ) {
+    const start = mapped.starts[offset];
+    const end = mapped.ends[offset + needle.length - 1];
+    if (start !== undefined && end !== undefined && end > start) {
+      candidates.add(inputText.slice(start, end));
+    }
+  }
+  return candidates.size === 1 ? [...candidates][0]! : null;
 }
 
 /**
@@ -665,7 +708,10 @@ function normalizeEvidence(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-function normalizeEvidenceWithOffsets(value: string): {
+function normalizeEvidenceWithOffsets(
+  value: string,
+  decodeEscapedWhitespace = false,
+): {
   text: string;
   starts: number[];
   ends: number[];
@@ -675,9 +721,13 @@ function normalizeEvidenceWithOffsets(value: string): {
   const ends: number[] = [];
   let index = 0;
   while (index < value.length) {
-    if (/\s/.test(value[index]!)) {
+    if (evidenceWhitespaceWidth(value, index, decodeEscapedWhitespace) > 0) {
       const whitespaceStart = index;
-      while (index < value.length && /\s/.test(value[index]!)) index += 1;
+      while (index < value.length) {
+        const width = evidenceWhitespaceWidth(value, index, decodeEscapedWhitespace);
+        if (width === 0) break;
+        index += width;
+      }
       if (characters.length > 0 && index < value.length) {
         characters.push(" ");
         starts.push(whitespaceStart);
@@ -691,6 +741,22 @@ function normalizeEvidenceWithOffsets(value: string): {
     index += 1;
   }
   return { text: characters.join(""), starts, ends };
+}
+
+function evidenceWhitespaceWidth(
+  value: string,
+  index: number,
+  decodeEscapedWhitespace: boolean,
+): number {
+  if (/\s/.test(value[index]!)) return 1;
+  if (
+    decodeEscapedWhitespace
+    && value[index] === "\\"
+    && ["r", "n", "t"].includes(value[index + 1] ?? "")
+  ) {
+    return 2;
+  }
+  return 0;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

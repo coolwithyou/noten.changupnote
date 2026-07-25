@@ -3,6 +3,7 @@ import { loadMonorepoEnv } from "@/lib/server/loadMonorepoEnv";
 import { closeCunoteDb, getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
+import { resolveExactEvidenceSpan } from "./extractor";
 
 loadMonorepoEnv();
 const jobId = process.argv.find((arg) => arg.startsWith("--job-id="))?.slice("--job-id=".length);
@@ -24,6 +25,8 @@ try {
     errorCode: schema.grantDeepAnalysisRuns.errorCode,
     errorMessage: schema.grantDeepAnalysisRuns.errorMessage,
     costUsd: schema.grantDeepAnalysisRuns.costUsd,
+    inputArtifactKey: schema.grantDeepAnalysisRuns.inputArtifactKey,
+    outputArtifactKey: schema.grantDeepAnalysisRuns.outputArtifactKey,
   }).from(schema.grantDeepAnalysisRuns)
     .where(eq(schema.grantDeepAnalysisRuns.jobId, jobId))
     .orderBy(desc(schema.grantDeepAnalysisRuns.startedAt));
@@ -54,13 +57,59 @@ try {
       .where(eq(schema.grantDeepAnalysisAudits.runId, runs[0].id))
     : [];
   let auditValidationIssues: unknown = null;
-  if (process.argv.includes("--with-artifacts") && audits[0]) {
+  let primaryValidationIssues: unknown = null;
+  let evidenceDiagnostics: unknown = null;
+  if (process.argv.includes("--with-artifacts") && runs[0]) {
     const storage = createR2ObjectStorageFromEnv();
     if (!storage) throw new Error("R2 storage environment is incomplete");
-    const artifact = JSON.parse(await storage.getObjectText(audits[0].artifactKey)) as {
-      validation?: { issues?: unknown };
-    };
-    auditValidationIssues = artifact.validation?.issues ?? null;
+    if (runs[0].outputArtifactKey) {
+      const artifact = JSON.parse(await storage.getObjectText(runs[0].outputArtifactKey)) as {
+        result?: {
+          criteria?: Array<{
+            dimension?: unknown;
+            sourceSpan?: unknown;
+            spanVerified?: unknown;
+          }>;
+        };
+        validation?: { issues?: unknown };
+      };
+      primaryValidationIssues = artifact.validation?.issues ?? null;
+      const inputArtifact = JSON.parse(
+        await storage.getObjectText(runs[0].inputArtifactKey),
+      ) as {
+        chunks?: Array<{ id?: unknown; text?: unknown }>;
+      };
+      const chunks = Array.isArray(inputArtifact.chunks)
+        ? inputArtifact.chunks.filter(
+          (chunk): chunk is { id: string; text: string } =>
+            typeof chunk.id === "string" && typeof chunk.text === "string",
+        )
+        : [];
+      evidenceDiagnostics = (artifact.result?.criteria ?? []).map((criterion, index) => {
+        const sourceSpan = typeof criterion.sourceSpan === "string" ? criterion.sourceSpan : null;
+        const exactChunkIds = sourceSpan
+          ? chunks.filter((chunk) => chunk.text.includes(sourceSpan)).map((chunk) => chunk.id)
+          : [];
+        const whitespaceResolvableChunkIds = sourceSpan
+          ? chunks.filter((chunk) => resolveExactEvidenceSpan(sourceSpan, chunk.text) !== null)
+            .map((chunk) => chunk.id)
+          : [];
+        return {
+          index,
+          dimension: criterion.dimension ?? null,
+          spanVerified: criterion.spanVerified ?? null,
+          sourceSpanChars: sourceSpan?.length ?? 0,
+          exactChunkIds,
+          whitespaceResolvableChunkIds,
+        };
+      });
+    }
+    if (audits[0]) {
+      const artifact = JSON.parse(await storage.getObjectText(audits[0].artifactKey)) as {
+        validation?: { issues?: unknown };
+      };
+      auditValidationIssues = artifact.validation?.issues ?? null;
+    }
   }
   console.log(JSON.stringify({
     job,
@@ -72,6 +121,8 @@ try {
       artifactKey: audit.artifactKey,
       itemCount: audit.itemResults.length,
     })),
+    primaryValidationIssues,
+    evidenceDiagnostics,
     auditValidationIssues,
     exceptions,
   }, null, 2));
