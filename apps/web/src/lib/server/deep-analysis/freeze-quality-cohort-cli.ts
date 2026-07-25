@@ -15,9 +15,9 @@ import { createDrizzleRepositories } from "@/lib/server/repositories/drizzle";
 import {
   DEEP_ANALYSIS_QUALITY_COHORT_AS_OF,
   DEEP_ANALYSIS_QUALITY_REQUIRED_RECOVERY_KEYS,
+  FROZEN_DEEP_ANALYSIS_QUALITY_EXPECTED_RECEIPT,
   selectDeepAnalysisQualityCohort,
   verifyDeepAnalysisQualityManifestPair,
-  type DeepAnalysisQualityExpectedReceipt,
   type DeepAnalysisQualityPublicManifest,
   type DeepAnalysisQualitySecretManifest,
 } from "./qualityCohort";
@@ -27,14 +27,6 @@ const DEFAULT_OUTPUT_DIR =
   "tmp/deep-analysis-quality/2026-07-25/frozen-80";
 const PUBLIC_FILENAME = "public-manifest.json";
 const SECRET_FILENAME = "secret-manifest.json";
-const FROZEN_EXPECTED_RECEIPT = {
-  activeCanonicalCount: 1_519,
-  activeDuplicateInclusiveCount: 1_519,
-  configuredPreviousEvaluationKeyCount: 12,
-  excludedActivePreviousEvaluationCount: 6,
-  requiredRecoveryCount: 4,
-  historicalRecoveryCount: 3,
-} as const satisfies DeepAnalysisQualityExpectedReceipt;
 
 loadMonorepoEnv();
 
@@ -93,13 +85,13 @@ async function main(): Promise<void> {
       requiredRecoveryEntries: requiredRecoveryEntries.filter(
         (entry): entry is NonNullable<typeof entry> => entry !== null,
       ),
-      expectedReceipt: FROZEN_EXPECTED_RECEIPT,
+      expectedReceipt: FROZEN_DEEP_ANALYSIS_QUALITY_EXPECTED_RECEIPT,
       seed,
     });
     verifyDeepAnalysisQualityManifestPair(
       selection.publicManifest,
       selection.secretManifest,
-      FROZEN_EXPECTED_RECEIPT,
+      FROZEN_DEEP_ANALYSIS_QUALITY_EXPECTED_RECEIPT,
     );
 
     await mkdir(outputDir, { recursive: true });
@@ -112,7 +104,7 @@ async function main(): Promise<void> {
     verifyDeepAnalysisQualityManifestPair(
       writtenPublic,
       writtenSecret,
-      FROZEN_EXPECTED_RECEIPT,
+      FROZEN_DEEP_ANALYSIS_QUALITY_EXPECTED_RECEIPT,
     );
     console.log(JSON.stringify({
       status: "PASS",

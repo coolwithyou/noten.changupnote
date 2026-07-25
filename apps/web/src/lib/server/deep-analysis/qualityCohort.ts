@@ -77,6 +77,15 @@ export interface DeepAnalysisQualityExpectedReceipt {
   historicalRecoveryCount: number;
 }
 
+export const FROZEN_DEEP_ANALYSIS_QUALITY_EXPECTED_RECEIPT = {
+  activeCanonicalCount: 1_519,
+  activeDuplicateInclusiveCount: 1_519,
+  configuredPreviousEvaluationKeyCount: 12,
+  excludedActivePreviousEvaluationCount: 6,
+  requiredRecoveryCount: 4,
+  historicalRecoveryCount: 3,
+} as const satisfies DeepAnalysisQualityExpectedReceipt;
+
 export interface DeepAnalysisQualityPopulationAudit {
   activeCanonicalCount: number;
   activeDuplicateInclusiveCount: number;

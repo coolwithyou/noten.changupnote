@@ -2739,9 +2739,16 @@ Step 4-1 증거 점검 체크포인트 — `STOP` (2026-07-25):
 재개에 필요한 최소 증거:
 
 1. [x] 14.9.1 층화를 만족하는 immutable 80공고 public/secret manifest pair
-2. [ ] 공고별 B/C 분석, 독립 audit/Judge, 최종 resolution과 입력·출력 hash
+2. [ ] 공고별 sealed 공고+첨부 전문으로 현행 primary deep analysis를 실행하고,
+   별도 allowlist 모델의 blind AI audit와 필요한 adjudication을 거쳐 최종 22축
+   resolution 및 입력·출력 hash를 고정한 결과
 3. [ ] 14.9.3의 기계 보증 10개와 모델 품질 지표 6개를 오류 절대 건수와 함께 계산한 report
 4. [ ] 외부 호출 수·실패·재시도·비용을 포함한 실행 receipt
+
+14.9.2의 HWP 포함/제외 및 기존 parser 비교는 첨부 효과를 측정하는 진단용 ablation이다.
+과거 별도 worktree의 B/C/Judge 실험 경로를 운영 품질 실행의 주 파이프라인으로 재사용하지
+않는다. 이 단계의 정본은 현행 `deep-analysis-model-policy-v3`의
+`primary deep analysis -> blind AI audit -> conditional adjudication`이다.
 
 Step 4-1A 80공고 동결 체크포인트 — `PASS` (2026-07-25):
 
@@ -2764,6 +2771,37 @@ Step 4-1A 80공고 동결 체크포인트 — `PASS` (2026-07-25):
   immutable write됐고 secret mode는 `0600`이다. 외부 LLM 호출 0, DB write 0이다.
 - 집중 테스트, web typecheck, 전체 deep-analysis contract test, disk readback
   manifest pair 검증을 통과했다.
+
+Step 4-1B 현행 입력·AI 검수 preflight 체크포인트 — `BLOCKED` (2026-07-25):
+
+- 동결 80건을 과거 B/C 실험이 아니라 현행 운영 계약에 연결했다. 고정된 실행 계약은
+  primary `claude-opus-4-8` / `deep-analysis-v2`, blind audit
+  `claude-sonnet-5` / `deep-analysis-blind-audit-v1`, model policy
+  `deep-analysis-model-policy-v3`다.
+- 동결 시점 선택용 revision과 운영 deep-analysis source revision은 서로 다른
+  알고리즘이므로 동일 hash로 간주하지 않는다. raw payload hash와 첨부 summary hash를
+  다시 검증한 뒤 운영 `sourceRevisionSha256`, `attachmentManifestSha256`,
+  `inputSha256`을 별도 production binding으로 연결한다.
+- 운영 DB/R2 read-only preflight 결과 동결 스냅샷 일치 `79/80`, 현행 input sealed
+  `23/80`, 실행 준비 완료 `22/80`, blocker `58/80`이다.
+- 실행 불가 원인은 공고 기준 `blocked_fetch=48`, `blocked_conversion=9`,
+  동결 후 attachment summary/selector revision 변경 `1`이다. 첨부 disposition
+  기준으로는 원본 미확보 96개, 변환 전문 미확보 14개이며, 포함 가능한 전문은 52개다.
+- 현재 실행 가능한 22건의 현행 경로는 mandatory logical model call 44회
+  (primary 22 + independent audit 22), repair/adjudication까지 포함한 최대 logical
+  call 154회다. 이는 실행 계획일 뿐 이번 checkpoint에서는 외부 LLM 호출 0,
+  DB write 0, R2 write 0이며 `qualityVerdict=NOT_RUN`,
+  `executionAuthorized=false`다.
+- immutable redacted receipt는
+  `tmp/deep-analysis-quality/2026-07-25/frozen-80-preflight/receipt.json`에 기록했다.
+  sealed identity는 새 파일에 복제하지 않고 기존 0600 cohort secret의 opaque commitment로
+  연결하며, receipt semantic hash는
+  `1b29901c129cc5ab6e0e3824bf252cc96a70a82bd5bad9a6edd6466cf5837540`이다.
+- 다음 checkpoint는 범위를 입력 복구로만 제한한다. `blocked_fetch` 48건의 원본
+  archive와 `blocked_conversion` 9건의 검증된 전문을 복구하고, drift 1건은 동결
+  manifest를 덮어쓰지 않은 채 exact historical bytes 사용 또는 새 commitment로
+  명시적으로 재동결한다. 이후 새 output directory에서 80건 preflight를 다시 통과하기
+  전에는 유료 깊은 분석·AI 자동 검수를 실행하지 않는다.
 
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. 위 최소 증거 2~4를 순서대로 닫기 전에는
 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
