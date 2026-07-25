@@ -1829,6 +1829,32 @@ alert도 고카디널리티 grantId를 metric label로 사용하지 않는다. �
 - cap 초과가 truncation 성공으로 남는 사례 0
 - 복구 4공고의 input manifest 회귀 통과
 
+구현 체크포인트 C (2026-07-25):
+
+- [x] 공고 구조화 원문·raw payload·attachment inventory를 source revision SHA-256으로
+  봉인하는 운영 입력 조립기를 추가했다.
+- [x] 모든 첨부를 `included|duplicate|waived_*|blocked_*` 중 정확히 하나로 분류하고,
+  HWP/HWPX의 waiver는 동일 본문 중복 외에는 거부한다.
+- [x] 60,000자 단위 chunk manifest와 전구간 round-trip 검증을 추가했다. 정책 총량을
+  넘으면 `blocked_cap`이며 단일 prompt 뒷부분을 잘라 성공시키지 않는다.
+- [x] 기존 HWP archive markdown뿐 아니라 conversion service의 검증된
+  `document_artifacts(kind=markdown)`도 동일 R2 SHA-256 검증 뒤 입력에 연결한다.
+- [x] 이미지 waiver는 같은 공고의 included OCR sidecar가 source URI/정규화 stem으로
+  연결되고 sidecar SHA-256이 proof일 때만 허용한다.
+- [x] S0~S5 receipt 초안을 input seal에서 결정론적으로 생성하며 archive/text/coverage
+  blocker를 `passed`로 올리지 않는다.
+- [x] 복구 fixture `178320`, `178329`, `178352`,
+  `PBLN_000000000121478` 모두 sealed 되었다. HWP 6개 전문과 PDF 1개 전문,
+  OCR sidecar 3개가 포함되며 이미지 3개는 proof-bound waiver다.
+- [x] `178320` PDF/HWP pending surface 2건을 운영 conversion service로 변환해
+  둘 다 `preview_ready`로 영속했다.
+- [x] 활성 HWP/HWPX 656개는 ready 14, `blocked_fetch` 445,
+  `blocked_conversion` 197로 보존식이 성립하며, 미준비 642개를 첨부 단위 blocker로
+  열거한다.
+- [x] `pnpm verify:deep-analysis-input -- --require-sealed`,
+  `pnpm verify:deep-analysis-input-readiness`, input manifest/stage unit tests,
+  web typecheck가 통과했다.
+
 #### Phase D. 프로덕션 deep analysis worker
 
 작업:
