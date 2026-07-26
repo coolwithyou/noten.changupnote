@@ -3314,6 +3314,43 @@ EXCEPTION 1`, 확대는 `BLOCKED` (2026-07-27):
   예외이므로 20건 확대 조건은 충족하지 않았다. promotion/release/S12,
   `grant_criteria`·질문·matcher write, Vercel/GCP 배포는 수행하지 않았다.
 
+Step 4-1P-5 v5 web/Ops production 정합 배포·GCP blocker 체크포인트 —
+`PARTIAL`, worker는 `BLOCKED` (2026-07-27):
+
+- 위 P-4 코드와 문서를 포함한 exact clean commit `247f132`를 main에 push했다. 다른
+  세션의 미커밋 notice-calendar/schema/migration 변경은 배포 source와 commit에
+  포함하지 않았다.
+- Ops는 저장소 지침의 예외 인증 경로를 따라 비대화형
+  `coolwithyou`와 `team-coolwithyou/changupnote-ops`, Root Directory
+  `apps/admin`을 확인했다. clean git archive의 `apps/admin/.vercel/project.json`만
+  임시 root link로 사용해 deployment
+  `dpl_4RxeS4QYj21cL8F5TXE5R5FMpJ4u`를 production에 배포했다. 상태는 READY,
+  `ops.changupnote.com` alias이며 `/pipeline`의 login redirect 307, `/login` 200,
+  비인증 `/api/admin/pipeline/summary` 401을 확인했다.
+- web은 저장소 `.env.vercel.local`의 `VERCEL_CLI_TOKEN_FULL`을 shell의
+  `VERCEL_TOKEN`으로만 매핑했다. 토큰 값은 출력·명령 인자·commit에 넣지 않았고,
+  `noten-dev` / `noten/changupnote`, Root Directory `apps/web`을 확인한 뒤 exact
+  clean commit으로 deployment `dpl_5n1dRaKAtp1NXRktKywqcb9QiBCW`를 production에
+  배포했다. 상태는 READY이고 `changupnote.com`, `www.changupnote.com` 모두 200이다.
+- v5 코드 기준 `verify:deep-analysis-ledger`는 production catalog/RLS/append-only
+  계약을 PASS했다. `verify:deep-analysis-ops`는 활성 626을
+  `analysis_complete_not_published=1`, `in_progress=625`로 정확히 보았고, P-4의
+  local bounded worker heartbeat와 S0~S11 각 1건을 확인했다. 반면 v5
+  input-preparation heartbeat가 없고 old-policy serving 2건은 current v5 completion으로
+  세지 않으므로 전체 verdict는 의도대로 FAIL이다. local heartbeat는 지속 worker
+  증거가 아니며 stale SLO가 지나면 worker도 blocker로 전환된다.
+- gcloud의 active account/project/region 설정은 계속
+  `sw@noten.im` / `changupnote-com` / `asia-northeast3`다.
+  `gcloud auth print-access-token`은 `Reauthentication failed: cannot prompt during
+  non-interactive execution`으로 실패했다. 다른 계정이나 service credential로
+  우회하지 않았고 Cloud Build, Cloud Run Job, Scheduler, Secret, billing mutation은
+  수행하지 않았다. 따라서 current v5 worker/input-preparation/verifier image와
+  scheduler revision은 아직 production에 반영되지 않았다.
+- 다음 mutation은 `sw@noten.im`의 대화형 gcloud 재인증 뒤 current worker 계열만
+  exact commit으로 배포하고, worker는 우선 `observe_only`, input-preparation은
+  LLM secret 없는 기존 최소 권한을 유지한 채 heartbeat/readback을 닫는 것이다.
+  그 전에는 20건 확대, claim scope `all`, promotion/S12, matcher write를 금지한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
