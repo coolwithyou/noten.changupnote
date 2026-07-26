@@ -979,10 +979,68 @@ export async function getDeepPipelineNoticeDetail(
       [grantId],
     ),
     sql.unsafe<AggregateSplitChildRow[]>(
-      `select child.*
+      `select
+         child.*,
+         child_grant.serving_state,
+         child_job.status as deep_analysis_job_status,
+         latest_run.id as deep_analysis_run_id,
+         latest_run.status as deep_analysis_run_status,
+         coalesce(stage_summary.passed_stage_count, 0)::int as passed_stage_count,
+         latest_receipt.stage as latest_stage,
+         latest_receipt.status as latest_stage_status,
+         analysis_receipt.status as analysis_complete_status,
+         latest_audit.verdict as ai_audit_verdict
        from grant_aggregate_split_children child
        join grant_aggregate_split_cases split_case
          on split_case.id = child.split_case_id
+       left join grants child_grant
+         on child_grant.id = child.id
+       left join grant_deep_analysis_jobs child_job
+         on child_job.id = child.deep_analysis_job_id
+       left join lateral (
+         select run.id, run.status
+         from grant_deep_analysis_runs run
+         where run.job_id = child_job.id
+         order by run.started_at desc, run.id desc
+         limit 1
+       ) latest_run on true
+       left join lateral (
+         select count(*) filter (where receipt.status = 'passed') as passed_stage_count
+         from (
+           select distinct on (candidate.stage)
+             candidate.stage,
+             candidate.status
+           from grant_deep_analysis_stage_receipts candidate
+           where candidate.run_id = latest_run.id
+           order by
+             candidate.stage,
+             candidate.attempt desc,
+             candidate.created_at desc,
+             candidate.id desc
+         ) receipt
+       ) stage_summary on true
+       left join lateral (
+         select receipt.stage, receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+         order by receipt.created_at desc, receipt.id desc
+         limit 1
+       ) latest_receipt on true
+       left join lateral (
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'analysis_complete'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) analysis_receipt on true
+       left join lateral (
+         select audit.verdict
+         from grant_deep_analysis_audits audit
+         where audit.run_id = latest_run.id
+         order by audit.attempt desc, audit.completed_at desc, audit.id desc
+         limit 1
+       ) latest_audit on true
        where split_case.grant_id = $1::uuid
        order by child.ordinal, child.id`,
       [grantId],
@@ -1162,6 +1220,14 @@ interface AggregateSplitCaseRow {
   children_prepared_at: Date | null
   materialization_last_error_code: string | null
   materialization_last_error_message: string | null
+  promotion_status: DeepPipelineAggregateSplitCase["promotionStatus"]
+  staged_child_count: number
+  enqueued_child_count: number
+  children_staged_at: Date | null
+  children_enqueued_at: Date | null
+  active_feeder_bypass_reason: string | null
+  promotion_last_error_code: string | null
+  promotion_last_error_message: string | null
   created_at: Date
   updated_at: Date
 }
@@ -1184,6 +1250,21 @@ interface AggregateSplitChildRow {
   input_sha256: string | null
   input_chars: number | null
   prepared_at: Date | null
+  staged_grant_at: Date | null
+  serving_state: DeepPipelineAggregateSplitChild["servingState"]
+  deep_analysis_job_id: string | null
+  deep_analysis_job_status: string | null
+  deep_analysis_enqueued_at: Date | null
+  active_feeder_bypass_reason: string | null
+  deep_analysis_run_id: string | null
+  deep_analysis_run_status: string | null
+  passed_stage_count: number
+  latest_stage: DeepAnalysisStageKey | null
+  latest_stage_status: DeepAnalysisStageStatus | null
+  analysis_complete_status: DeepAnalysisStageStatus | null
+  ai_audit_verdict: DeepPipelineAggregateSplitChild["aiAuditVerdict"]
+  promotion_last_error_code: string | null
+  promotion_last_error_message: string | null
   last_error_code: string | null
   last_error_message: string | null
   created_at: Date
@@ -1402,6 +1483,14 @@ function mapAggregateSplitCase(
     childrenPreparedAt: row.children_prepared_at?.toISOString() ?? null,
     materializationLastErrorCode: row.materialization_last_error_code,
     materializationLastErrorMessage: row.materialization_last_error_message,
+    promotionStatus: row.promotion_status,
+    stagedChildCount: Number(row.staged_child_count),
+    enqueuedChildCount: Number(row.enqueued_child_count),
+    childrenStagedAt: row.children_staged_at?.toISOString() ?? null,
+    childrenEnqueuedAt: row.children_enqueued_at?.toISOString() ?? null,
+    activeFeederBypassReason: row.active_feeder_bypass_reason,
+    promotionLastErrorCode: row.promotion_last_error_code,
+    promotionLastErrorMessage: row.promotion_last_error_message,
     children,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -1429,6 +1518,21 @@ function mapAggregateSplitChild(
     inputSha256: row.input_sha256,
     inputChars: row.input_chars === null ? null : Number(row.input_chars),
     preparedAt: row.prepared_at?.toISOString() ?? null,
+    stagedGrantAt: row.staged_grant_at?.toISOString() ?? null,
+    servingState: row.serving_state,
+    deepAnalysisJobId: row.deep_analysis_job_id,
+    deepAnalysisJobStatus: row.deep_analysis_job_status,
+    deepAnalysisEnqueuedAt: row.deep_analysis_enqueued_at?.toISOString() ?? null,
+    activeFeederBypassReason: row.active_feeder_bypass_reason,
+    deepAnalysisRunId: row.deep_analysis_run_id,
+    deepAnalysisRunStatus: row.deep_analysis_run_status,
+    passedStageCount: Number(row.passed_stage_count),
+    latestStage: row.latest_stage,
+    latestStageStatus: row.latest_stage_status,
+    analysisCompleteStatus: row.analysis_complete_status,
+    aiAuditVerdict: row.ai_audit_verdict,
+    promotionLastErrorCode: row.promotion_last_error_code,
+    promotionLastErrorMessage: row.promotion_last_error_message,
     lastErrorCode: row.last_error_code,
     lastErrorMessage: row.last_error_message,
     createdAt: row.created_at.toISOString(),

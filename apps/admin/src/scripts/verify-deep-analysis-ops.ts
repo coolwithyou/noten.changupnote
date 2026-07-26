@@ -30,6 +30,9 @@ async function main() {
       action_table_rls: boolean
       action_append_only_trigger: boolean
       action_table_exists: boolean
+      aggregate_split_promotion_columns: boolean
+      aggregate_split_child_job_fk: boolean
+      aggregate_split_child_rls: boolean
     }[]>`
       select
         to_regprocedure('cunote_active_deep_analysis_grants(timestamptz)') is not null
@@ -46,7 +49,36 @@ async function main() {
             and tgname = 'admin_deep_analysis_actions_append_only'
             and not tgisinternal
         ) as action_append_only_trigger,
-        to_regclass('admin_deep_analysis_actions') is not null as action_table_exists
+        to_regclass('admin_deep_analysis_actions') is not null as action_table_exists,
+        (
+          select count(*) = 8
+          from pg_attribute
+          where attrelid = to_regclass('grant_aggregate_split_cases')
+            and attname in (
+              'promotion_status',
+              'staged_child_count',
+              'enqueued_child_count',
+              'children_staged_at',
+              'children_enqueued_at',
+              'active_feeder_bypass_reason',
+              'promotion_last_error_code',
+              'promotion_last_error_message'
+            )
+            and not attisdropped
+        ) as aggregate_split_promotion_columns,
+        exists (
+          select 1
+          from pg_constraint
+          where conrelid = to_regclass('grant_aggregate_split_children')
+            and conname =
+              'grant_aggregate_split_children_deep_analysis_job_id_grant_deep_analysis_jobs_id_fk'
+            and contype = 'f'
+        ) as aggregate_split_child_job_fk,
+        coalesce((
+          select relrowsecurity
+          from pg_class
+          where oid = to_regclass('grant_aggregate_split_children')
+        ), false) as aggregate_split_child_rls
     `
     return { summary, bucketCounts, catalog }
   })
@@ -57,6 +89,9 @@ async function main() {
     action_table_rls: false,
     action_append_only_trigger: false,
     action_table_exists: false,
+    aggregate_split_promotion_columns: false,
+    aggregate_split_child_job_fk: false,
+    aggregate_split_child_rls: false,
   }
   if (report.summary.activeTotal !== report.summary.classifiedTotal) {
     failures.push(
@@ -74,6 +109,15 @@ async function main() {
   if (!catalog.action_table_exists) failures.push("admin action audit table is missing")
   if (!catalog.action_table_rls) failures.push("admin action audit RLS is disabled")
   if (!catalog.action_append_only_trigger) failures.push("admin action append-only trigger is missing")
+  if (!catalog.aggregate_split_promotion_columns) {
+    failures.push("aggregate split staged promotion columns are missing")
+  }
+  if (!catalog.aggregate_split_child_job_fk) {
+    failures.push("aggregate split child deep-analysis job FK is missing")
+  }
+  if (!catalog.aggregate_split_child_rls) {
+    failures.push("aggregate split child RLS is disabled")
+  }
   if (!report.summary.worker.healthy) {
     failures.push(
       `analysis worker is unhealthy: status=${report.summary.worker.status}, stale=${report.summary.worker.stale}, activeWorkers=${report.summary.worker.activeWorkerCount}, activeLeases=${report.summary.worker.activeLeaseCount}, staleActive=${report.summary.worker.staleActiveWorkerCount}`,

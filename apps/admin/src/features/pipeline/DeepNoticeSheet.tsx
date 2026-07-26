@@ -13,6 +13,7 @@ import {
 
 import {
   DEEP_PIPELINE_BUCKET_LABELS,
+  DEEP_STAGE_LABELS,
   type DeepPipelineAction,
   type DeepPipelineNoticeDetail,
 } from "@/features/pipeline/contract"
@@ -162,6 +163,17 @@ export function DeepNoticeSheet({
                       >
                         {aggregateSplitStatusLabel(detail.aggregateSplitCase.status)}
                       </Badge>
+                      {detail.aggregateSplitCase.status === "completed" ? (
+                        <Badge
+                          variant={detail.aggregateSplitCase.promotionStatus === "failed"
+                            ? "destructive"
+                            : "outline"}
+                        >
+                          {aggregateSplitPromotionStatusLabel(
+                            detail.aggregateSplitCase.promotionStatus,
+                          )}
+                        </Badge>
+                      ) : null}
                     </div>
                     <p className="mt-2 text-sm leading-6">
                       여러 하위사업이 섞인 대용량 통합공고입니다. 입력{" "}
@@ -193,8 +205,7 @@ export function DeepNoticeSheet({
                       <p className="mt-2 text-sm">
                         하위사업 manifest {formatNumber(detail.aggregateSplitCase.programCount)}개를
                         검증했습니다. 파생 공고 후보{" "}
-                        {formatNumber(detail.aggregateSplitCase.preparedChildCount)}개가 봉인됐으며,
-                        아직 실제 공고 생성·딥분석 enqueue·매칭 노출은 하지 않았습니다.
+                        {formatNumber(detail.aggregateSplitCase.preparedChildCount)}개가 봉인됐습니다.
                       </p>
                     ) : null}
                     {detail.aggregateSplitCase.materializationStatus === "pending" ? (
@@ -215,8 +226,36 @@ export function DeepNoticeSheet({
                     ) : null}
                     {detail.aggregateSplitCase.materializationStatus === "prepared" ? (
                       <p className="mt-2 text-sm">
-                        파생 공고 후보 전체가 봉인됐습니다. E-3B 승격 전까지 메인 공고와
-                        매칭 분모에는 포함되지 않습니다.
+                        파생 공고 후보 전체가 봉인됐습니다. parent는 계속 노출되고 child는
+                        최종 전환 전까지 매칭 분모에 포함되지 않습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "pending" ? (
+                      <p className="mt-2 text-sm">
+                        봉인된 child를 다시 검증해 staged 공고로 원자 생성할 작업을
+                        기다리고 있습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "staged" ? (
+                      <p className="mt-2 text-sm">
+                        staged 공고 {formatNumber(detail.aggregateSplitCase.stagedChildCount)}개
+                        생성 · 깊은 분석 enqueue{" "}
+                        {formatNumber(detail.aggregateSplitCase.enqueuedChildCount)}/
+                        {formatNumber(detail.aggregateSplitCase.stagedChildCount)}개. parent는
+                        visible, child는 staged 상태입니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "enqueued" ? (
+                      <p className="mt-2 text-sm">
+                        staged child {formatNumber(detail.aggregateSplitCase.stagedChildCount)}개
+                        전체를 기존 깊은 분석 → 독립 validator → AI 자동검수 경로에 직접
+                        enqueue했습니다. 아직 사용자 매칭에는 노출되지 않습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "failed" ? (
+                      <p className="mt-2 text-sm text-destructive">
+                        child input/projection 재검증 또는 원자적 staged 생성이 실패해
+                        아무 child도 노출하지 않았습니다.
                       </p>
                     ) : null}
                   </div>
@@ -294,13 +333,27 @@ export function DeepNoticeSheet({
                               {child.agencyPrimary ?? "기관 미상"} · {child.sourceId}
                             </p>
                           </div>
-                          <Badge variant={child.status === "failed" ? "destructive" : "outline"}>
-                            {aggregateSplitChildStatusLabel(child.status)}
+                          <Badge
+                            variant={aggregateSplitChildHasFailure(child)
+                              ? "destructive"
+                              : "outline"}
+                          >
+                            {aggregateSplitChildPipelineLabel(child)}
                           </Badge>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">
                           입력 {formatNumber(child.inputChars)}자 · 준비{" "}
-                          {child.preparedAt ? formatDate(child.preparedAt) : "미완료"}
+                          {child.preparedAt ? formatDate(child.preparedAt) : "미완료"} · staged{" "}
+                          {child.stagedGrantAt ? formatDate(child.stagedGrantAt) : "미생성"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          공고 {child.servingState ?? "미생성"} · job{" "}
+                          {child.deepAnalysisJobStatus ?? "미등록"} · S0~S14{" "}
+                          {child.passedStageCount}/15 · 최근{" "}
+                          {child.latestStage
+                            ? `${DEEP_STAGE_LABELS[child.latestStage]} ${child.latestStageStatus ?? ""}`
+                            : "receipt 없음"} · AI 자동검수{" "}
+                          {aggregateSplitAuditLabel(child.aiAuditVerdict)}
                         </p>
                         <HashLine label="child input" value={child.inputSha256} />
                         <HashLine label="child input R2" value={child.inputArtifactKey} />
@@ -308,6 +361,18 @@ export function DeepNoticeSheet({
                           label="child source revision"
                           value={child.sourceRevisionSha256}
                         />
+                        <HashLine label="deep analysis job" value={child.deepAnalysisJobId} />
+                        <HashLine label="deep analysis run" value={child.deepAnalysisRunId} />
+                        {child.activeFeederBypassReason ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            active feeder 우회: {child.activeFeederBypassReason}
+                          </p>
+                        ) : null}
+                        {child.promotionLastErrorMessage ? (
+                          <p className="mt-2 text-sm text-destructive">
+                            {child.promotionLastErrorCode}: {child.promotionLastErrorMessage}
+                          </p>
+                        ) : null}
                         {child.lastErrorMessage ? (
                           <p className="mt-2 text-sm text-destructive">
                             {child.lastErrorCode}: {child.lastErrorMessage}
@@ -327,6 +392,12 @@ export function DeepNoticeSheet({
                   <p className="mt-3 text-sm text-destructive">
                     {detail.aggregateSplitCase.materializationLastErrorCode}:{" "}
                     {detail.aggregateSplitCase.materializationLastErrorMessage}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.promotionLastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.promotionLastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.promotionLastErrorMessage}
                   </p>
                 ) : null}
               </section>
@@ -607,4 +678,58 @@ function aggregateSplitChildStatusLabel(
   if (status === "pending") return "입력 준비 대기"
   if (status === "prepared") return "입력 봉인 완료"
   return "입력 준비 실패"
+}
+
+function aggregateSplitPromotionStatusLabel(
+  status: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["promotionStatus"],
+): string {
+  if (status === "not_ready") return "승격 준비 전"
+  if (status === "pending") return "staged 생성 대기"
+  if (status === "staged") return "staged·분석 연결 중"
+  if (status === "enqueued") return "깊은 분석 연결 완료"
+  return "staged 승격 실패"
+}
+
+function aggregateSplitChildPipelineLabel(
+  child: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number],
+): string {
+  if (child.status !== "prepared") return aggregateSplitChildStatusLabel(child.status)
+  if (!child.stagedGrantAt) return "staged 생성 대기"
+  if (!child.deepAnalysisJobId) return "분석 enqueue 대기"
+  if (child.aiAuditVerdict === "concur" && child.analysisCompleteStatus === "passed") {
+    return "분석·AI 검수 완료"
+  }
+  if (child.deepAnalysisRunId) return "깊은 분석 진행"
+  return "깊은 분석 대기"
+}
+
+function aggregateSplitChildHasFailure(
+  child: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number],
+): boolean {
+  return child.status === "failed"
+    || Boolean(child.promotionLastErrorCode)
+    || child.deepAnalysisJobStatus === "blocked"
+    || child.deepAnalysisJobStatus === "dead_letter"
+    || (
+      child.aiAuditVerdict !== null
+      && child.aiAuditVerdict !== "concur"
+    )
+}
+
+function aggregateSplitAuditLabel(
+  verdict: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number]["aiAuditVerdict"],
+): string {
+  if (verdict === "concur") return "동의"
+  if (verdict === "disagree") return "불일치"
+  if (verdict === "unsure") return "불확실"
+  if (verdict === "failed") return "실패"
+  return "대기"
 }

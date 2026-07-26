@@ -390,6 +390,9 @@ async function prepareAggregateSplitChildren(input: {
       childrenPreparedAt: completedAt,
       materializationLastErrorCode: null,
       materializationLastErrorMessage: null,
+      promotionStatus: "pending",
+      promotionLastErrorCode: null,
+      promotionLastErrorMessage: null,
       updatedAt: completedAt,
     })
     .where(and(

@@ -3025,22 +3025,64 @@ Step 4-1E-3B-1 staged serving visibility 체크포인트 — `PASS`, 전체는 `
   않는다. 이 체크포인트에서는 DB migration 적용, 실제 serving state 변경, 파생
   `grants/grant_raw` 생성, 딥분석 enqueue, R2/외부 LLM 호출, 앱 배포를 하지 않았다.
 
-다음 체크포인트 Step 4-1E-3B-2의 범위:
+Step 4-1E-3B-2 staged child 승격·깊은 분석 연결 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-26):
 
-1. E-3A prepared child의 projection과 input artifact를 다시 읽어 grant/raw/source
-   revision/input SHA를 재검증하는 승격 seam
-2. case의 모든 prepared child를 같은 transaction에서 동일 UUID의
-   `grants(serving_state=staged)`와 `grant_raw`로 멱등 생성하고 exact count/identity
-   불일치 시 전체 rollback
-3. transaction 밖에서 staged child 각각을 기존 깊은 분석 pipeline에 직접 enqueue하되
-   active feeder 우회 이유·sealed revision·job identity를 case/child evidence로 보존
-4. Ops에 staged grant 생성·job enqueue·S0~S14·AI 자동 검수 진행 상태를 child별 표시
-5. 이 단계에서도 parent는 `visible`, child는 `staged`로 유지하고 실제 노출 전환은
-   모든 child의 최신 S14/AI 자동 검수/serving readback을 확인하는 후속 체크포인트로 분리
+- E-3B 전용으로 E-2/E-3A 문서를 다시 해석하는 별도 파서를 만들지 않았다. 기존
+  `loadValidatedAggregateSplitBundle`로 parent input/manifest를 다시 검증하고,
+  `buildAggregateSplitChildDrafts`와 `sealAggregateSplitChildInput`으로 child의
+  projection/raw/source revision/input artifact를 재생성한다. DB child projection과 R2
+  readback은 이 재생성 결과와 hash·byte 단위로 같아야만 승격할 수 있다.
+- 모든 prepared child는 case row와 parent를 lock한 하나의 짧은 transaction에서 동일
+  UUID의 `grants(serving_state=staged)`와 `grant_raw(status=published)`로 멱등
+  insert한다. R2 read는 transaction 전에 끝내며, child count·ordinal·sealed identity,
+  parent `visible`, grants/grant_raw exact readback 중 하나라도 다르면 transaction 전체가
+  rollback된다.
+- commit 뒤 각 child는 `deep-analysis-model-policy-v3`의 기존 queue identity
+  `(grant, sealed source revision, model policy)`로 직접 enqueue된다. 일반 active feeder가
+  staged를 제외하는 것은 유지하며, 우회 이유
+  `aggregate_split_staged_direct_enqueue`, job ID, enqueue 시각을 case/child 원장에
+  보존한다. 따라서 이후 실행은 새 분석 경로가 아니라 기존 최상급 모델 → validator →
+  독립 AI 자동검수/repair → publication pipeline을 그대로 탄다.
+- case에는 `pending/staged/enqueued/failed`, staged/enqueued exact count와 완료 시각,
+  마지막 오류를 기록한다. child에는 staged grant 생성 시각, job identity, enqueue 시각,
+  우회 이유와 승격 오류를 기록한다. DB CHECK는 materialization readiness, count,
+  staged/enqueued 시각, 우회 이유와 job FK의 일관성을 강제한다.
+- Ops 공고 상세은 child별 `serving_state`, job/run 상태, 최신 S0~S14 receipt,
+  passed stage 수, S11 분석 완료 상태, 독립 AI audit verdict와 승격/enqueue 오류를
+  표시한다. parent는 계속 `visible`, child는 `staged`이며 이 화면의 enqueue 증거를
+  실제 모델 처리 완료 증거로 오인하지 않는다.
+- active worker가 `DEEP_ANALYSIS_CLAIM_SCOPE=bounded`이면 새 child UUID가 해당 cohort에
+  포함되기 전에는 job이 pending일 수 있다. E-3B-2는 안전장치를 우회해 claim scope를
+  넓히지 않았고, Ops의 기존 worker claim scope와 child job/receipt를 함께 보게 했다.
+- 회귀 검증은 `verify:aggregate-split`, `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness를 통과했다.
+- migration `0063_little_krista_starr.sql`은 생성했지만 적용하지 않았다. 이
+  체크포인트에서는 production DB migration, R2/외부 LLM 호출, staged child 실제 생성,
+  job enqueue, worker 실행, parent/child 노출 전환, 앱 배포를 하지 않았다.
+
+다음 체크포인트 Step 4-1E-3B-3A의 범위:
+
+1. 모든 child의 job identity가 sealed revision과 같고 latest run의 S0~S11이 전부
+   `passed`, 독립 AI audit가 `concur`, job이 `succeeded`, 현재 grant가 `staged`임을
+   재검증하는 staged publication gate
+2. 검증된 child만 기존 deep-analysis promotion release 경로로 발행하고 S12
+   `publication_complete`까지 확인하되 parent `visible`, child `staged`를 유지
+3. 일부 child의 분석·감사·발행이 실패하거나 stale이면 case 전체를 차단하고 성공
+   child를 노출하지 않으며, Ops에 child별 첫 blocker를 표시
+4. 코드 체크포인트 뒤 production migration/deploy/실제 worker 실행·관측은 별도 운영
+   체크포인트로 분리
+
+그 다음 Step 4-1E-3B-3B에서만 parent `suppressed`와 전체 child `visible`을 한
+transaction으로 전환한다. S13 `serving_complete`와 S14 `analysis_fresh`는 staged
+상태에서 참일 수 없으므로 노출 전 gate로 요구하지 않는다. 전환 직후 전 child serving
+readback으로 S13/S14를 기록하고, 하나라도 실패하면 parent `visible`·child `staged`로
+즉시 원복한 뒤 실패 receipt를 남긴다.
 
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. staged child의 실제 깊은 분석·AI 자동
-검수와 parent/child 원자적 노출 전환까지 닫기 전에는 H2 revision/cohort 확인과 24시간
-카나리 단계로 넘어가지 않는다.
+검수·S12 발행과 parent/child 원자적 노출 전환 및 S13/S14 readback까지 닫기 전에는 H2
+revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
 
 중단 조건:
 

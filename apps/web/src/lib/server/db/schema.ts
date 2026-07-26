@@ -880,6 +880,14 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   childrenPreparedAt: timestamp("children_prepared_at", { withTimezone: true }),
   materializationLastErrorCode: text("materialization_last_error_code"),
   materializationLastErrorMessage: text("materialization_last_error_message"),
+  promotionStatus: text("promotion_status").default("not_ready").notNull(),
+  stagedChildCount: integer("staged_child_count").default(0).notNull(),
+  enqueuedChildCount: integer("enqueued_child_count").default(0).notNull(),
+  childrenStagedAt: timestamp("children_staged_at", { withTimezone: true }),
+  childrenEnqueuedAt: timestamp("children_enqueued_at", { withTimezone: true }),
+  activeFeederBypassReason: text("active_feeder_bypass_reason"),
+  promotionLastErrorCode: text("promotion_last_error_code"),
+  promotionLastErrorMessage: text("promotion_last_error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -908,6 +916,14 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   )
     .on(table.materializationLeaseExpiresAt)
     .where(sql`${table.materializationStatus} = 'processing'`),
+  promotionClaimableIdx: index(
+    "grant_aggregate_split_cases_promotion_claimable_idx",
+  )
+    .on(table.promotionStatus, table.updatedAt)
+    .where(sql`
+      ${table.materializationStatus} = 'prepared'
+      AND ${table.promotionStatus} IN ('pending', 'staged')
+    `),
   statusCreatedIdx: index("grant_aggregate_split_cases_status_created_idx")
     .on(table.status, table.createdAt),
   statusCheck: check("grant_aggregate_split_cases_status_check", sql`
@@ -1057,6 +1073,83 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
       )
     `,
   ),
+  promotionStatusCheck: check(
+    "grant_aggregate_split_cases_promotion_status_check",
+    sql`
+      ${table.promotionStatus} IN (
+        'not_ready', 'pending', 'staged', 'enqueued', 'failed'
+      )
+    `,
+  ),
+  promotionReadinessCheck: check(
+    "grant_aggregate_split_cases_promotion_readiness_check",
+    sql`
+      (
+        ${table.materializationStatus} = 'prepared'
+        AND ${table.promotionStatus} <> 'not_ready'
+      )
+      OR (
+        ${table.materializationStatus} <> 'prepared'
+        AND ${table.promotionStatus} = 'not_ready'
+      )
+    `,
+  ),
+  promotionCountsCheck: check(
+    "grant_aggregate_split_cases_promotion_counts_check",
+    sql`
+      ${table.stagedChildCount} >= 0
+      AND ${table.enqueuedChildCount} >= 0
+      AND ${table.enqueuedChildCount} <= ${table.stagedChildCount}
+      AND ${table.stagedChildCount} <= ${table.preparedChildCount}
+    `,
+  ),
+  promotionStagedCheck: check(
+    "grant_aggregate_split_cases_promotion_staged_check",
+    sql`
+      (
+        ${table.promotionStatus} IN ('staged', 'enqueued')
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.stagedChildCount} = ${table.programCount}
+        AND ${table.childrenStagedAt} IS NOT NULL
+      )
+      OR (
+        ${table.promotionStatus} NOT IN ('staged', 'enqueued')
+        AND ${table.stagedChildCount} = 0
+        AND ${table.enqueuedChildCount} = 0
+        AND ${table.childrenStagedAt} IS NULL
+        AND ${table.childrenEnqueuedAt} IS NULL
+      )
+    `,
+  ),
+  promotionEnqueuedCheck: check(
+    "grant_aggregate_split_cases_promotion_enqueued_check",
+    sql`
+      (
+        ${table.promotionStatus} = 'enqueued'
+        AND ${table.enqueuedChildCount} = ${table.stagedChildCount}
+        AND ${table.enqueuedChildCount} > 1
+        AND ${table.childrenEnqueuedAt} IS NOT NULL
+      )
+      OR (
+        ${table.promotionStatus} <> 'enqueued'
+        AND ${table.childrenEnqueuedAt} IS NULL
+      )
+    `,
+  ),
+  promotionBypassEvidenceCheck: check(
+    "grant_aggregate_split_cases_promotion_bypass_evidence_check",
+    sql`
+      (
+        ${table.enqueuedChildCount} > 0
+        AND ${table.activeFeederBypassReason} =
+          'aggregate_split_staged_direct_enqueue'
+      )
+      OR (
+        ${table.enqueuedChildCount} = 0
+        AND ${table.activeFeederBypassReason} IS NULL
+      )
+    `,
+  ),
 }));
 
 /**
@@ -1086,6 +1179,13 @@ export const grantAggregateSplitChildren = pgTable("grant_aggregate_split_childr
   inputSha256: text("input_sha256"),
   inputChars: integer("input_chars"),
   preparedAt: timestamp("prepared_at", { withTimezone: true }),
+  stagedGrantAt: timestamp("staged_grant_at", { withTimezone: true }),
+  deepAnalysisJobId: uuid("deep_analysis_job_id")
+    .references(() => grantDeepAnalysisJobs.id, { onDelete: "restrict" }),
+  deepAnalysisEnqueuedAt: timestamp("deep_analysis_enqueued_at", { withTimezone: true }),
+  activeFeederBypassReason: text("active_feeder_bypass_reason"),
+  promotionLastErrorCode: text("promotion_last_error_code"),
+  promotionLastErrorMessage: text("promotion_last_error_message"),
   lastErrorCode: text("last_error_code"),
   lastErrorMessage: text("last_error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -1099,6 +1199,8 @@ export const grantAggregateSplitChildren = pgTable("grant_aggregate_split_childr
     .on(table.source, table.sourceId),
   parentIdx: index("grant_aggregate_split_children_parent_idx")
     .on(table.parentGrantId),
+  deepAnalysisJobIdx: index("grant_aggregate_split_children_deep_analysis_job_idx")
+    .on(table.deepAnalysisJobId),
   caseStatusIdx: index("grant_aggregate_split_children_case_status_idx")
     .on(table.splitCaseId, table.status, table.ordinal),
   statusCheck: check("grant_aggregate_split_children_status_check", sql`
@@ -1130,6 +1232,27 @@ export const grantAggregateSplitChildren = pgTable("grant_aggregate_split_childr
       AND ${table.preparedAt} IS NULL
     )
   `),
+  stagedGrantCheck: check("grant_aggregate_split_children_staged_grant_check", sql`
+    ${table.stagedGrantAt} IS NULL
+    OR ${table.status} = 'prepared'
+  `),
+  deepAnalysisEnqueueCheck: check(
+    "grant_aggregate_split_children_deep_analysis_enqueue_check",
+    sql`
+      (
+        ${table.deepAnalysisJobId} IS NOT NULL
+        AND ${table.stagedGrantAt} IS NOT NULL
+        AND ${table.deepAnalysisEnqueuedAt} IS NOT NULL
+        AND ${table.activeFeederBypassReason} =
+          'aggregate_split_staged_direct_enqueue'
+      )
+      OR (
+        ${table.deepAnalysisJobId} IS NULL
+        AND ${table.deepAnalysisEnqueuedAt} IS NULL
+        AND ${table.activeFeederBypassReason} IS NULL
+      )
+    `,
+  ),
 }));
 
 /**

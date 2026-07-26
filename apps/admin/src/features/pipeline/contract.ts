@@ -325,6 +325,14 @@ export interface DeepPipelineAggregateSplitCase {
   childrenPreparedAt: string | null
   materializationLastErrorCode: string | null
   materializationLastErrorMessage: string | null
+  promotionStatus: "not_ready" | "pending" | "staged" | "enqueued" | "failed"
+  stagedChildCount: number
+  enqueuedChildCount: number
+  childrenStagedAt: string | null
+  childrenEnqueuedAt: string | null
+  activeFeederBypassReason: string | null
+  promotionLastErrorCode: string | null
+  promotionLastErrorMessage: string | null
   children: DeepPipelineAggregateSplitChild[]
   createdAt: string
   updatedAt: string
@@ -348,6 +356,21 @@ export interface DeepPipelineAggregateSplitChild {
   inputSha256: string | null
   inputChars: number | null
   preparedAt: string | null
+  stagedGrantAt: string | null
+  servingState: "visible" | "staged" | "suppressed" | null
+  deepAnalysisJobId: string | null
+  deepAnalysisJobStatus: string | null
+  deepAnalysisEnqueuedAt: string | null
+  activeFeederBypassReason: string | null
+  deepAnalysisRunId: string | null
+  deepAnalysisRunStatus: string | null
+  passedStageCount: number
+  latestStage: DeepAnalysisStageKey | null
+  latestStageStatus: DeepAnalysisStageStatus | null
+  analysisCompleteStatus: DeepAnalysisStageStatus | null
+  aiAuditVerdict: "concur" | "disagree" | "unsure" | "failed" | null
+  promotionLastErrorCode: string | null
+  promotionLastErrorMessage: string | null
   lastErrorCode: string | null
   lastErrorMessage: string | null
   createdAt: string
