@@ -333,6 +333,15 @@ export interface DeepPipelineAggregateSplitCase {
   activeFeederBypassReason: string | null
   promotionLastErrorCode: string | null
   promotionLastErrorMessage: string | null
+  exposureStatus: "not_ready" | "verifying" | "visible" | "rolled_back"
+  exposureReleaseId: string | null
+  exposedChildCount: number
+  childrenVisibleAt: string | null
+  servingVerifiedAt: string | null
+  visibilityRolledBackAt: string | null
+  exposureActor: string | null
+  exposureLastErrorCode: string | null
+  exposureLastErrorMessage: string | null
   children: DeepPipelineAggregateSplitChild[]
   createdAt: string
   updatedAt: string
@@ -373,7 +382,14 @@ export interface DeepPipelineAggregateSplitChild {
   promotionReleaseStatus: string | null
   promotionItemStatus: string | null
   publicationCompleteStatus: DeepAnalysisStageStatus | null
+  servingCompleteStatus: DeepAnalysisStageStatus | null
+  analysisFreshStatus: DeepAnalysisStageStatus | null
   publicationFirstBlocker: {
+    code: string
+    stage: DeepAnalysisStageKey | null
+    message: string
+  } | null
+  exposureFirstBlocker: {
     code: string
     stage: DeepAnalysisStageKey | null
     message: string

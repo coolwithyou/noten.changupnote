@@ -31,6 +31,7 @@ async function main() {
       action_append_only_trigger: boolean
       action_table_exists: boolean
       aggregate_split_promotion_columns: boolean
+      aggregate_split_exposure_columns: boolean
       aggregate_split_child_job_fk: boolean
       aggregate_split_child_rls: boolean
     }[]>`
@@ -66,6 +67,23 @@ async function main() {
             )
             and not attisdropped
         ) as aggregate_split_promotion_columns,
+        (
+          select count(*) = 9
+          from pg_attribute
+          where attrelid = to_regclass('grant_aggregate_split_cases')
+            and attname in (
+              'exposure_status',
+              'exposure_release_id',
+              'exposed_child_count',
+              'children_visible_at',
+              'serving_verified_at',
+              'visibility_rolled_back_at',
+              'exposure_actor',
+              'exposure_last_error_code',
+              'exposure_last_error_message'
+            )
+            and not attisdropped
+        ) as aggregate_split_exposure_columns,
         exists (
           select 1
           from pg_constraint
@@ -90,6 +108,7 @@ async function main() {
     action_append_only_trigger: false,
     action_table_exists: false,
     aggregate_split_promotion_columns: false,
+    aggregate_split_exposure_columns: false,
     aggregate_split_child_job_fk: false,
     aggregate_split_child_rls: false,
   }
@@ -111,6 +130,9 @@ async function main() {
   if (!catalog.action_append_only_trigger) failures.push("admin action append-only trigger is missing")
   if (!catalog.aggregate_split_promotion_columns) {
     failures.push("aggregate split staged promotion columns are missing")
+  }
+  if (!catalog.aggregate_split_exposure_columns) {
+    failures.push("aggregate split exposure evidence columns are missing")
   }
   if (!catalog.aggregate_split_child_job_fk) {
     failures.push("aggregate split child deep-analysis job FK is missing")

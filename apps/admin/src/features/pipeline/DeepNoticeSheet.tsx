@@ -174,6 +174,17 @@ export function DeepNoticeSheet({
                           )}
                         </Badge>
                       ) : null}
+                      {detail.aggregateSplitCase.exposureStatus !== "not_ready" ? (
+                        <Badge
+                          variant={detail.aggregateSplitCase.exposureStatus === "rolled_back"
+                            ? "destructive"
+                            : "outline"}
+                        >
+                          {aggregateSplitExposureStatusLabel(
+                            detail.aggregateSplitCase.exposureStatus,
+                          )}
+                        </Badge>
+                      ) : null}
                     </div>
                     <p className="mt-2 text-sm leading-6">
                       여러 하위사업이 섞인 대용량 통합공고입니다. 입력{" "}
@@ -226,8 +237,8 @@ export function DeepNoticeSheet({
                     ) : null}
                     {detail.aggregateSplitCase.materializationStatus === "prepared" ? (
                       <p className="mt-2 text-sm">
-                        파생 공고 후보 전체가 봉인됐습니다. parent는 계속 노출되고 child는
-                        최종 전환 전까지 매칭 분모에 포함되지 않습니다.
+                        파생 공고 후보 전체가 봉인됐습니다. 실제 노출 상태는 별도의 원자
+                        전환과 S13/S14 readback 결과로 관리됩니다.
                       </p>
                     ) : null}
                     {detail.aggregateSplitCase.promotionStatus === "pending" ? (
@@ -249,7 +260,25 @@ export function DeepNoticeSheet({
                       <p className="mt-2 text-sm">
                         staged child {formatNumber(detail.aggregateSplitCase.stagedChildCount)}개
                         전체를 기존 깊은 분석 → 독립 validator → AI 자동검수 경로에 직접
-                        enqueue했습니다. 아직 사용자 매칭에는 노출되지 않습니다.
+                        enqueue했습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.exposureStatus === "verifying" ? (
+                      <p className="mt-2 text-sm">
+                        parent를 숨기고 child 전체를 노출한 뒤 S13 서빙과 S14 최신성을
+                        검증하고 있습니다. 실패하면 즉시 이전 노출 상태로 원복합니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.exposureStatus === "visible" ? (
+                      <p className="mt-2 text-sm text-primary">
+                        전체 child의 S13/S14 readback을 확인했습니다. parent는 suppressed,
+                        child {formatNumber(detail.aggregateSplitCase.exposedChildCount)}개는
+                        visible 상태입니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.exposureStatus === "rolled_back" ? (
+                      <p className="mt-2 text-sm text-destructive">
+                        S13/S14 검증 실패로 parent visible·child staged 상태로 원복했습니다.
                       </p>
                     ) : null}
                     {detail.aggregateSplitCase.promotionStatus === "enqueued" ? (
@@ -258,8 +287,8 @@ export function DeepNoticeSheet({
                         {detail.aggregateSplitCase.children.filter(
                           (child) => child.publicationFirstBlocker === null,
                         ).length}
-                        /{detail.aggregateSplitCase.children.length} · 한 child라도 blocker가
-                        남으면 case 전체 노출 전환을 진행하지 않습니다.
+                        /{detail.aggregateSplitCase.children.length} · case 노출 전환은 전체
+                        child의 S12가 PASS일 때만 허용됩니다.
                       </p>
                     ) : null}
                     {detail.aggregateSplitCase.promotionStatus === "failed" ? (
@@ -364,7 +393,9 @@ export function DeepNoticeSheet({
                             ? `${DEEP_STAGE_LABELS[child.latestStage]} ${child.latestStageStatus ?? ""}`
                             : "receipt 없음"} · AI 자동검수{" "}
                           {aggregateSplitAuditLabel(child.aiAuditVerdict)} · S12{" "}
-                          {child.publicationCompleteStatus ?? "대기"}
+                          {child.publicationCompleteStatus ?? "대기"} · S13{" "}
+                          {child.servingCompleteStatus ?? "대기"} · S14{" "}
+                          {child.analysisFreshStatus ?? "대기"}
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           promotion {child.promotionReleaseId ?? "미생성"} ·{" "}
@@ -394,17 +425,17 @@ export function DeepNoticeSheet({
                             {child.lastErrorCode}: {child.lastErrorMessage}
                           </p>
                         ) : null}
-                        {child.publicationFirstBlocker ? (
+                        {child.exposureFirstBlocker ? (
                           <p className="mt-2 text-sm text-destructive">
                             첫 blocker{" "}
-                            {child.publicationFirstBlocker.stage
-                              ? DEEP_STAGE_LABELS[child.publicationFirstBlocker.stage]
-                              : child.publicationFirstBlocker.code}
-                            : {child.publicationFirstBlocker.message}
+                            {child.exposureFirstBlocker.stage
+                              ? DEEP_STAGE_LABELS[child.exposureFirstBlocker.stage]
+                              : child.exposureFirstBlocker.code}
+                            : {child.exposureFirstBlocker.message}
                           </p>
                         ) : (
                           <p className="mt-2 text-sm text-primary">
-                            S0~S12와 독립 AI 자동검수 증적이 모두 확인됐습니다.
+                            S0~S14와 독립 AI 자동검수 증적이 모두 확인됐습니다.
                           </p>
                         )}
                       </article>
@@ -427,6 +458,12 @@ export function DeepNoticeSheet({
                   <p className="mt-3 text-sm text-destructive">
                     {detail.aggregateSplitCase.promotionLastErrorCode}:{" "}
                     {detail.aggregateSplitCase.promotionLastErrorMessage}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.exposureLastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.exposureLastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.exposureLastErrorMessage}
                   </p>
                 ) : null}
               </section>
@@ -721,6 +758,17 @@ function aggregateSplitPromotionStatusLabel(
   return "staged 승격 실패"
 }
 
+function aggregateSplitExposureStatusLabel(
+  status: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["exposureStatus"],
+): string {
+  if (status === "not_ready") return "노출 전환 전"
+  if (status === "verifying") return "노출 readback 중"
+  if (status === "visible") return "노출 전환 완료"
+  return "노출 원복"
+}
+
 function aggregateSplitChildPipelineLabel(
   child: NonNullable<
     DeepPipelineNoticeDetail["aggregateSplitCase"]
@@ -729,9 +777,9 @@ function aggregateSplitChildPipelineLabel(
   if (child.status !== "prepared") return aggregateSplitChildStatusLabel(child.status)
   if (!child.stagedGrantAt) return "staged 생성 대기"
   if (!child.deepAnalysisJobId) return "분석 enqueue 대기"
-  if (child.publicationFirstBlocker === null) return "S12 발행 완료"
-  if (child.publicationFirstBlocker.stage) {
-    return `첫 blocker ${DEEP_STAGE_LABELS[child.publicationFirstBlocker.stage]}`
+  if (child.exposureFirstBlocker === null) return "S14 서빙 완료"
+  if (child.exposureFirstBlocker.stage) {
+    return `첫 blocker ${DEEP_STAGE_LABELS[child.exposureFirstBlocker.stage]}`
   }
   if (child.aiAuditVerdict === "concur" && child.analysisCompleteStatus === "passed") {
     return "promotion 대기"
@@ -746,7 +794,7 @@ function aggregateSplitChildHasFailure(
   >["children"][number],
 ): boolean {
   return child.status === "failed"
-    || child.publicationFirstBlocker !== null
+    || child.exposureFirstBlocker !== null
     || Boolean(child.promotionLastErrorCode)
     || child.deepAnalysisJobStatus === "blocked"
     || child.deepAnalysisJobStatus === "dead_letter"

@@ -69,7 +69,7 @@ async function main(): Promise<number> {
     const results = [];
     for (const release of releaseRows.sort((left, right) =>
       left.releaseId.localeCompare(right.releaseId))) {
-      results.push(await verifyRelease({
+      results.push(await verifyDeepAnalysisReleaseServing({
         db,
         storage,
         releaseId: release.releaseId,
@@ -103,7 +103,7 @@ async function main(): Promise<number> {
   if (scope !== "canary" && scope !== "all") {
     throw new Error("--scope는 canary 또는 all이어야 합니다.");
   }
-  const result = await verifyRelease({
+  const result = await verifyDeepAnalysisReleaseServing({
     db,
     storage,
     releaseId: releaseId!,
@@ -117,7 +117,7 @@ async function main(): Promise<number> {
   return result.failures.length === 0 ? 0 : 2;
 }
 
-async function verifyRelease(input: {
+export async function verifyDeepAnalysisReleaseServing(input: {
   db: ReturnType<typeof getCunoteDb>;
   storage: NonNullable<ReturnType<typeof createR2ObjectStorageFromEnv>>;
   releaseId: string;
@@ -587,22 +587,24 @@ const FIXED_SERVING_PROFILES: Array<{ id: string; profile: CompanyProfile }> = [
   },
 ];
 
-main()
-  .then(async (code) => {
-    const { closeCunoteDb } = await import("../db/client");
-    await closeCunoteDb();
-    process.exit(code);
-  })
-  .catch(async (error) => {
-    console.error(
-      "[deep-serving] 실패:",
-      error instanceof Error ? error.message : error,
-    );
-    try {
+if (process.argv[1]?.endsWith("verify-serving-cli.ts")) {
+  main()
+    .then(async (code) => {
       const { closeCunoteDb } = await import("../db/client");
       await closeCunoteDb();
-    } catch {
-      // 원래 오류를 보존한다.
-    }
-    process.exit(1);
-  });
+      process.exit(code);
+    })
+    .catch(async (error) => {
+      console.error(
+        "[deep-serving] 실패:",
+        error instanceof Error ? error.message : error,
+      );
+      try {
+        const { closeCunoteDb } = await import("../db/client");
+        await closeCunoteDb();
+      } catch {
+        // 원래 오류를 보존한다.
+      }
+      process.exit(1);
+    });
+}

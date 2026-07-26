@@ -5,6 +5,7 @@ import {
   DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS,
   DEEP_ANALYSIS_SERVING_VERIFIER_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
+  deriveAggregateSplitExposureBlocker,
   deriveAggregateSplitPublicationBlocker,
   type CriterionDimension,
   type DeepAnalysisAxisStatus,
@@ -975,6 +976,12 @@ export async function getDeepPipelineNoticeDetail(
        left join admin_users approver
          on approver.id = split_case.approved_by_admin_user_id
        where split_case.grant_id = $1::uuid
+          or exists (
+            select 1
+            from grant_aggregate_split_children selected_child
+            where selected_child.split_case_id = split_case.id
+              and selected_child.id = $1::uuid
+          )
        order by split_case.created_at desc, split_case.id desc
        limit 1`,
       [grantId],
@@ -1000,6 +1007,8 @@ export async function getDeepPipelineNoticeDetail(
          latest_receipt.status as latest_stage_status,
          analysis_receipt.status as analysis_complete_status,
          publication_receipt.status as publication_complete_status,
+         serving_receipt.status as serving_complete_status,
+         freshness_receipt.status as analysis_fresh_status,
          latest_audit.verdict as ai_audit_verdict,
          latest_audit.input_sha256 as ai_audit_input_sha256,
          latest_promotion.release_id as promotion_release_id,
@@ -1067,6 +1076,22 @@ export async function getDeepPipelineNoticeDetail(
          limit 1
        ) publication_receipt on true
        left join lateral (
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'serving_complete'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) serving_receipt on true
+       left join lateral (
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'analysis_fresh'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) freshness_receipt on true
+       left join lateral (
          select audit.verdict, audit.input_sha256
          from grant_deep_analysis_audits audit
          where audit.run_id = latest_run.id
@@ -1087,6 +1112,12 @@ export async function getDeepPipelineNoticeDetail(
          limit 1
        ) latest_promotion on true
        where split_case.grant_id = $1::uuid
+          or exists (
+            select 1
+            from grant_aggregate_split_children selected_child
+            where selected_child.split_case_id = split_case.id
+              and selected_child.id = $1::uuid
+          )
        order by child.ordinal, child.id`,
       [grantId],
     ),
@@ -1273,6 +1304,15 @@ interface AggregateSplitCaseRow {
   active_feeder_bypass_reason: string | null
   promotion_last_error_code: string | null
   promotion_last_error_message: string | null
+  exposure_status: DeepPipelineAggregateSplitCase["exposureStatus"]
+  exposure_release_id: string | null
+  exposed_child_count: number
+  children_visible_at: Date | null
+  serving_verified_at: Date | null
+  visibility_rolled_back_at: Date | null
+  exposure_actor: string | null
+  exposure_last_error_code: string | null
+  exposure_last_error_message: string | null
   created_at: Date
   updated_at: Date
 }
@@ -1317,6 +1357,8 @@ interface AggregateSplitChildRow {
   latest_stage_status: DeepAnalysisStageStatus | null
   analysis_complete_status: DeepAnalysisStageStatus | null
   publication_complete_status: DeepAnalysisStageStatus | null
+  serving_complete_status: DeepAnalysisStageStatus | null
+  analysis_fresh_status: DeepAnalysisStageStatus | null
   ai_audit_verdict: DeepPipelineAggregateSplitChild["aiAuditVerdict"]
   ai_audit_input_sha256: string | null
   promotion_release_id: string | null
@@ -1550,6 +1592,15 @@ function mapAggregateSplitCase(
     activeFeederBypassReason: row.active_feeder_bypass_reason,
     promotionLastErrorCode: row.promotion_last_error_code,
     promotionLastErrorMessage: row.promotion_last_error_message,
+    exposureStatus: row.exposure_status,
+    exposureReleaseId: row.exposure_release_id,
+    exposedChildCount: Number(row.exposed_child_count),
+    childrenVisibleAt: row.children_visible_at?.toISOString() ?? null,
+    servingVerifiedAt: row.serving_verified_at?.toISOString() ?? null,
+    visibilityRolledBackAt: row.visibility_rolled_back_at?.toISOString() ?? null,
+    exposureActor: row.exposure_actor,
+    exposureLastErrorCode: row.exposure_last_error_code,
+    exposureLastErrorMessage: row.exposure_last_error_message,
     children,
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
@@ -1559,7 +1610,7 @@ function mapAggregateSplitCase(
 function mapAggregateSplitChild(
   row: AggregateSplitChildRow,
 ): DeepPipelineAggregateSplitChild {
-  const publicationFirstBlocker = deriveAggregateSplitPublicationBlocker({
+  const gateObservation = {
     childId: row.id,
     childStatus: row.status,
     sourceRevisionSha256: row.source_revision_sha256,
@@ -1606,7 +1657,13 @@ function mapAggregateSplitChild(
       : null,
     promotionItemStatus: row.promotion_item_status,
     publicationReceiptStatus: row.publication_complete_status,
-  })
+    servingReceiptStatus: row.serving_complete_status,
+    freshnessReceiptStatus: row.analysis_fresh_status,
+  }
+  const publicationFirstBlocker =
+    deriveAggregateSplitPublicationBlocker(gateObservation)
+  const exposureFirstBlocker =
+    deriveAggregateSplitExposureBlocker(gateObservation)
   return {
     id: row.id,
     stableKey: row.stable_key,
@@ -1642,7 +1699,10 @@ function mapAggregateSplitChild(
     promotionReleaseStatus: row.promotion_release_status,
     promotionItemStatus: row.promotion_item_status,
     publicationCompleteStatus: row.publication_complete_status,
+    servingCompleteStatus: row.serving_complete_status,
+    analysisFreshStatus: row.analysis_fresh_status,
     publicationFirstBlocker,
+    exposureFirstBlocker,
     promotionLastErrorCode: row.promotion_last_error_code,
     promotionLastErrorMessage: row.promotion_last_error_message,
     lastErrorCode: row.last_error_code,

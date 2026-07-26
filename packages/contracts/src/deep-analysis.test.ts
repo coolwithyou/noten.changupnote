@@ -4,6 +4,7 @@ import {
   DEEP_ANALYSIS_ACTIVE_POLICY_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
   assertDeepAnalysisModelPair,
+  deriveAggregateSplitExposureBlocker,
   deriveAggregateSplitPublicationBlocker,
   deriveDeepAnalysisCompletion,
   evaluateAggregateSplitReleaseGate,
@@ -215,6 +216,27 @@ assert.equal(
     publicationReceiptStatus: null,
   })?.code,
   "aggregate_split_child_promotion_not_applied",
+);
+assert.equal(
+  deriveAggregateSplitExposureBlocker({
+    ...splitChildren[0]!,
+    promotionItemStatus: "applied",
+    publicationReceiptStatus: "passed",
+    servingReceiptStatus: null,
+    freshnessReceiptStatus: null,
+  })?.code,
+  "aggregate_split_child_not_visible",
+);
+assert.equal(
+  deriveAggregateSplitExposureBlocker({
+    ...splitChildren[0]!,
+    servingState: "visible",
+    promotionItemStatus: "applied",
+    publicationReceiptStatus: "passed",
+    servingReceiptStatus: "passed",
+    freshnessReceiptStatus: "passed",
+  }),
+  null,
 );
 
 console.log("deep analysis contract tests passed");

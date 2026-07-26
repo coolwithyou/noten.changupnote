@@ -7,6 +7,7 @@ import {
   assertManifestConfirmation,
   createPromotionReleaseManifest,
   hashFile,
+  mergePromotionApprovalGateEvidence,
   planSha256,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
@@ -333,11 +334,11 @@ async function approve(): Promise<number> {
     .update(schema.analysisLabPromotionReleases)
     .set({
       status: "approved",
-      gateSummary: {
+      gateSummary: mergePromotionApprovalGateEvidence(release.gateSummary, {
         aggregateSha256: aggregate.sha256,
         shadowSha256: shadow.sha256,
         dryRunSha256: dryRun.sha256,
-      },
+      }),
       approvedBy: actor,
       approvedAt: new Date(approval.approvedAt),
       approvalArtifactSha256: approvalSha256,

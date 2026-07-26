@@ -888,6 +888,15 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   activeFeederBypassReason: text("active_feeder_bypass_reason"),
   promotionLastErrorCode: text("promotion_last_error_code"),
   promotionLastErrorMessage: text("promotion_last_error_message"),
+  exposureStatus: text("exposure_status").default("not_ready").notNull(),
+  exposureReleaseId: text("exposure_release_id"),
+  exposedChildCount: integer("exposed_child_count").default(0).notNull(),
+  childrenVisibleAt: timestamp("children_visible_at", { withTimezone: true }),
+  servingVerifiedAt: timestamp("serving_verified_at", { withTimezone: true }),
+  visibilityRolledBackAt: timestamp("visibility_rolled_back_at", { withTimezone: true }),
+  exposureActor: text("exposure_actor"),
+  exposureLastErrorCode: text("exposure_last_error_code"),
+  exposureLastErrorMessage: text("exposure_last_error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -1147,6 +1156,66 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
       OR (
         ${table.enqueuedChildCount} = 0
         AND ${table.activeFeederBypassReason} IS NULL
+      )
+    `,
+  ),
+  exposureStatusCheck: check(
+    "grant_aggregate_split_cases_exposure_status_check",
+    sql`
+      ${table.exposureStatus} IN ('not_ready', 'verifying', 'visible', 'rolled_back')
+    `,
+  ),
+  exposureStateCheck: check(
+    "grant_aggregate_split_cases_exposure_state_check",
+    sql`
+      (
+        ${table.exposureStatus} = 'not_ready'
+        AND ${table.exposureReleaseId} IS NULL
+        AND ${table.exposedChildCount} = 0
+        AND ${table.childrenVisibleAt} IS NULL
+        AND ${table.servingVerifiedAt} IS NULL
+        AND ${table.visibilityRolledBackAt} IS NULL
+        AND ${table.exposureActor} IS NULL
+        AND ${table.exposureLastErrorCode} IS NULL
+        AND ${table.exposureLastErrorMessage} IS NULL
+      )
+      OR (
+        ${table.exposureStatus} = 'verifying'
+        AND ${table.promotionStatus} = 'enqueued'
+        AND ${table.exposureReleaseId} IS NOT NULL
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.exposedChildCount} = ${table.programCount}
+        AND ${table.childrenVisibleAt} IS NOT NULL
+        AND ${table.servingVerifiedAt} IS NULL
+        AND ${table.visibilityRolledBackAt} IS NULL
+        AND ${table.exposureActor} IS NOT NULL
+        AND ${table.exposureLastErrorCode} IS NULL
+        AND ${table.exposureLastErrorMessage} IS NULL
+      )
+      OR (
+        ${table.exposureStatus} = 'visible'
+        AND ${table.promotionStatus} = 'enqueued'
+        AND ${table.exposureReleaseId} IS NOT NULL
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.exposedChildCount} = ${table.programCount}
+        AND ${table.childrenVisibleAt} IS NOT NULL
+        AND ${table.servingVerifiedAt} IS NOT NULL
+        AND ${table.visibilityRolledBackAt} IS NULL
+        AND ${table.exposureActor} IS NOT NULL
+        AND ${table.exposureLastErrorCode} IS NULL
+        AND ${table.exposureLastErrorMessage} IS NULL
+      )
+      OR (
+        ${table.exposureStatus} = 'rolled_back'
+        AND ${table.promotionStatus} = 'enqueued'
+        AND ${table.exposureReleaseId} IS NOT NULL
+        AND ${table.exposedChildCount} = 0
+        AND ${table.childrenVisibleAt} IS NOT NULL
+        AND ${table.servingVerifiedAt} IS NULL
+        AND ${table.visibilityRolledBackAt} IS NOT NULL
+        AND ${table.exposureActor} IS NOT NULL
+        AND ${table.exposureLastErrorCode} IS NOT NULL
+        AND ${table.exposureLastErrorMessage} IS NOT NULL
       )
     `,
   ),

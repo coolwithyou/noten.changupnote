@@ -150,6 +150,8 @@ export interface AggregateSplitReleaseChildObservation {
   } | null;
   promotionItemStatus?: string | null;
   publicationReceiptStatus?: string | null;
+  servingReceiptStatus?: string | null;
+  freshnessReceiptStatus?: string | null;
 }
 
 export interface AggregateSplitReleaseCaseObservation {
@@ -552,6 +554,40 @@ export function deriveAggregateSplitPublicationBlocker(
       "publication_complete",
       `S12 publication receipt가 passed가 아닙니다: ${
         child.publicationReceiptStatus ?? "missing"
+      }`,
+    );
+  }
+  return null;
+}
+
+/** S12 다음 원자 노출 전환과 S13/S14까지 Ops에서 같은 순서로 표시한다. */
+export function deriveAggregateSplitExposureBlocker(
+  child: AggregateSplitReleaseChildObservation,
+): AggregateSplitPublicationBlocker | null {
+  const publicationBlocker = deriveAggregateSplitPublicationBlocker(child);
+  if (publicationBlocker) return publicationBlocker;
+  if (child.servingState !== "visible") {
+    return blocker(
+      "aggregate_split_child_not_visible",
+      "serving_complete",
+      `노출 전환 전이거나 원복된 child입니다: ${child.servingState ?? "missing"}`,
+    );
+  }
+  if (child.servingReceiptStatus !== "passed") {
+    return blocker(
+      "aggregate_split_child_serving_not_passed",
+      "serving_complete",
+      `S13 serving receipt가 passed가 아닙니다: ${
+        child.servingReceiptStatus ?? "missing"
+      }`,
+    );
+  }
+  if (child.freshnessReceiptStatus !== "passed") {
+    return blocker(
+      "aggregate_split_child_freshness_not_passed",
+      "analysis_fresh",
+      `S14 freshness receipt가 passed가 아닙니다: ${
+        child.freshnessReceiptStatus ?? "missing"
       }`,
     );
   }

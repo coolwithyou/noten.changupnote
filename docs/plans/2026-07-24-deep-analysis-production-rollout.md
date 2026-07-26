@@ -3100,15 +3100,53 @@ Step 4-1E-3B-3A staged publication gate·S12 체크포인트 — `PASS`, 전체�
   실제 staged child 생성·worker/외부 LLM 실행, release 준비·승인·적용, R2 receipt 쓰기,
   parent/child 노출 전환은 실행하지 않았다.
 
-다음 Step 4-1E-3B-3B에서만 parent `suppressed`와 전체 child `visible`을 한
-transaction으로 전환한다. S13 `serving_complete`와 S14 `analysis_fresh`는 staged
-상태에서 참일 수 없으므로 노출 전 gate로 요구하지 않는다. 전환 직후 전 child serving
-readback으로 S13/S14를 기록하고, 하나라도 실패하면 parent `visible`·child `staged`로
-즉시 원복한 뒤 실패 receipt를 남긴다.
+Step 4-1E-3B-3B 원자적 노출 전환·S13/S14 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-26):
+
+- `deep-analysis:aggregate-split-expose`는 case UUID와 actor를 명시하고
+  `AGGREGATE_SPLIT_EXPOSURE_EXECUTE=1` 또는 `--execute`까지 준 경우에만 실행된다.
+  completed/prepared/enqueued exact count, active release, E-3B-3A case gate summary,
+  immutable manifest의 전체 child 집합, applied item과 sealed run identity, 같은
+  release/item의 최신 S12를 전부 다시 확인한다.
+- E-3B-3A 검수 중 확인한 연결 결함도 함께 닫았다. 일반 release 승인기가 준비 단계의
+  `gate_summary`를 승인 artifact hash 세 개로 덮어쓰고 있었으므로, 이제 기존 case/child
+  PASS 증적을 보존한 채 승인 hash를 병합한다. 이 보존이 없으면 정상적으로 승인·적용된
+  통합공고 release도 최종 노출 gate에서 거부된다.
+- case와 parent/전체 child grant를 잠근 짧은 transaction에서 parent
+  `visible → suppressed`, 모든 child `staged → visible`, case
+  `not_ready|rolled_back → verifying`을 CAS로 한꺼번에 바꾼다. lock/statement timeout을
+  제한하고 R2 read와 서빙 검증은 DB lock 밖에서 실행한다. commit 뒤 중단된
+  `verifying` case는 같은 release identity와 visibility가 유지되는 경우 재실행해
+  검증을 이어갈 수 있다.
+- 새 서빙 판정기를 만들지 않았다. 기존 full serving verifier를 import 가능한 seam으로
+  열어 전체 release에 S13 `serving_complete`와 S14 `analysis_fresh` readback을 수행한다.
+  모든 child의 최신 receipt가 같은 release/item에 묶인 `passed`일 때만 두 번째 짧은
+  transaction이 case를 `visible`로 확정하고 `serving_verified_at`을 기록한다.
+- 검증 실패뿐 아니라 최종 확정 실패도 parent `visible`·전체 child `staged`로 한
+  transaction에서 즉시 원복한다. case는 `rolled_back`, exposed count 0, rollback 시각과
+  오류를 기록하고, 모든 child에 최신 attempt의 S13 `failed`와 S14 `blocked` receipt를
+  append해 먼저 성공한 일부 child도 사용자 노출 완료로 오인되지 않게 한다.
+- migration `0064_polite_monster_badoon.sql`은 exposure
+  `not_ready/verifying/visible/rolled_back`, release/actor/count, visible·verified·rollback
+  시각과 오류 필드를 추가한다. DB CHECK는 각 상태에서 허용되는 증적 조합을 강제한다.
+- Ops 상세은 parent뿐 아니라 visible child로 열어도 같은 case와 전체 sibling을
+  조회한다. case exposure 상태·시각·오류와 child별 S12/S13/S14, 첫 blocker를 표시하며,
+  전환 완료 뒤에도 “미노출”로 보이던 이전 단계 문구는 제거했다. catalog verifier는 새
+  9개 컬럼의 실제 존재도 확인한다.
+- 회귀 검증은 `verify:aggregate-split`, `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, promotion release gate 보존
+  테스트, web/admin typecheck와 package runtime freshness를 통과했다.
+- migration `0064_polite_monster_badoon.sql`은 생성했지만 적용하지 않았다. 이
+  체크포인트에서는 production DB migration/deploy, 실제 staged child 생성,
+  worker/외부 LLM 실행, release 준비·승인·적용, R2 receipt 쓰기, parent/child 실제
+  노출 전환을 실행하지 않았다.
 
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. staged child의 실제 깊은 분석·AI 자동
-검수·S12 발행과 parent/child 원자적 노출 전환 및 S13/S14 readback까지 닫기 전에는 H2
-revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
+검수·S12 발행과 parent/child 원자적 노출 전환 및 S13/S14 production readback 증거를
+실제로 닫기 전에는 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
+다음 체크포인트는 새 기능 추가가 아니라 0058~0064 migration·현재 revision을 순서대로
+배포한 뒤, 승인된 단일 통합공고 case를 E-2 → E-3A → E-3B-2 → E-3B-3A → E-3B-3B로
+실행해 Ops와 receipt/R2 증거를 확인하는 제한된 production 운영 검증이다.
 
 중단 조건:
 
