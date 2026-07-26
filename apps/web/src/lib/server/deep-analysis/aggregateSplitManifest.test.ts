@@ -66,8 +66,8 @@ const adapterResult = await runAggregateSplitModel({
         assignments: [{
           segment_id: "seg-adapter",
           disposition: "shared",
-          provisional_program_key: "",
-          program_title: "",
+          provisional_program_key: "__shared_integrated_notice__",
+          program_title: "통합공고 공통 안내",
           agency: "",
           confidence: 1,
           reason: "fixture",
@@ -83,6 +83,25 @@ const adapterResult = await runAggregateSplitModel({
 assert.equal(adapterResult.phase, "map");
 assert.equal(adapterResult.pass.externalCallsMade, 1);
 assert.equal(adapterResult.pass.usage?.inputTokens, 100);
+if (adapterResult.phase === "map") {
+  assert.equal(
+    adapterResult.assignments[0]?.provisionalProgramKey,
+    "",
+    "shared/navigation의 설명용 key는 ownership key로 사용하지 않는다",
+  );
+  assert.equal(adapterResult.assignments[0]?.programTitle, "");
+  assert.equal(
+    adapterResult.pass.rawToolInput.assignments
+      && Array.isArray(adapterResult.pass.rawToolInput.assignments)
+      && adapterResult.pass.rawToolInput.assignments[0]
+      && typeof adapterResult.pass.rawToolInput.assignments[0] === "object"
+      && "provisional_program_key" in adapterResult.pass.rawToolInput.assignments[0]
+      ? adapterResult.pass.rawToolInput.assignments[0].provisional_program_key
+      : null,
+    "__shared_integrated_notice__",
+    "원래 모델 출력은 raw evidence에 보존한다",
+  );
+}
 
 await assert.rejects(
   buildAggregateSplitManifest({

@@ -13,7 +13,7 @@ import { sha256Hex, stableJson } from "./sourceRevision";
 export const AGGREGATE_SPLIT_MANIFEST_SCHEMA =
   "aggregate-split-manifest-v1" as const;
 export const AGGREGATE_SPLIT_MAP_PROMPT_VERSION =
-  "aggregate-split-map-v1" as const;
+  "aggregate-split-map-v2" as const;
 export const AGGREGATE_SPLIT_SYNTHESIS_PROMPT_VERSION =
   "aggregate-split-synthesis-v1" as const;
 export const DEFAULT_AGGREGATE_SPLIT_SEGMENT_CHARS = 6_000;
@@ -813,11 +813,17 @@ function normalizeMapAssignments(value: unknown): MapAssignment[] {
       ["program", "shared", "navigation"] as const,
       `assignments[${index}].disposition`,
     );
+    // The tool schema keeps these string fields required so every assignment has
+    // one stable shape. Models may still add descriptive labels such as "__toc__"
+    // to navigation rows. Disposition is the ownership decision; canonicalize
+    // non-program metadata away at the model adapter boundary while preserving
+    // the untouched tool input in the raw evidence artifact.
+    const isProgram = disposition === "program";
     return {
       segmentId: requiredString(row.segment_id, `assignments[${index}].segment_id`),
       disposition,
-      provisionalProgramKey: stringOrEmpty(row.provisional_program_key),
-      programTitle: stringOrEmpty(row.program_title),
+      provisionalProgramKey: isProgram ? stringOrEmpty(row.provisional_program_key) : "",
+      programTitle: isProgram ? stringOrEmpty(row.program_title) : "",
       agency: stringOrEmpty(row.agency),
       confidence: boundedNumber(row.confidence, `assignments[${index}].confidence`),
       reason: requiredString(row.reason, `assignments[${index}].reason`),
@@ -985,6 +991,7 @@ const MAP_SYSTEM_PROMPT = [
   "실제 신청 대상·조건·지원 내용이 있는 하위사업 본문은 program, 여러 사업에 공통 적용되는 안내는 shared, 목차·색인·단순 탐색 안내는 navigation이다.",
   "segment를 자르거나 합성하지 말고 제공된 segment_id만 반환하라.",
   "같은 하위사업 segment에는 이 pass 안에서 같은 provisional_program_key를 사용하라.",
+  "shared와 navigation이면 provisional_program_key와 program_title은 빈 문자열로 반환하라.",
   "불확실하다는 이유로 program 본문을 shared나 navigation으로 숨기지 마라.",
 ].join(" ");
 
@@ -1010,8 +1017,14 @@ const MAP_TOOL_SCHEMA = {
           properties: {
             segment_id: { type: "string" },
             disposition: { type: "string", enum: ["program", "shared", "navigation"] },
-            provisional_program_key: { type: "string" },
-            program_title: { type: "string" },
+            provisional_program_key: {
+              type: "string",
+              description: "program이면 pass 내부 안정 key, shared/navigation이면 빈 문자열",
+            },
+            program_title: {
+              type: "string",
+              description: "program이면 하위사업 제목, shared/navigation이면 빈 문자열",
+            },
             agency: { type: "string" },
             confidence: { type: "number", minimum: 0, maximum: 1 },
             reason: { type: "string" },
