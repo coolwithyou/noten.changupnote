@@ -3141,12 +3141,61 @@ Step 4-1E-3B-3B 원자적 노출 전환·S13/S14 체크포인트 — `PASS`, 전
   worker/외부 LLM 실행, release 준비·승인·적용, R2 receipt 쓰기, parent/child 실제
   노출 전환을 실행하지 않았다.
 
+Step 4-1P-1 제한 production 진입 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
+
+- production DB의 실제 선행 상태를 읽기 전용으로 확인한 결과 최신 migration은
+  `0056_deep_analysis_ops`였고, `0057_deep_analysis_source_observation`이
+  `0058~0064`보다 먼저 필요한 정확한 첫 blocker였다. `pnpm db:migrate`로
+  `0057~0064`를 순서대로 적용했고, 적용 뒤 migration catalog, aggregate split
+  case/child와 `grants.serving_state`, case exposure 컬럼, FK/RLS를 다시 확인했다.
+  `verify:deep-analysis-ledger`와 `verify:deep-analysis-ops`도 production DB에 대해
+  통과했다.
+- web production은 feeder SQL hotfix를 포함한 clean/pushed `c5a8ecd`를
+  `noten/changupnote`에 배포했다. deployment
+  `dpl_HZnhScgJ4Nv7HvVquy3hJjZWKXTs`는 READY이며 `changupnote.com`과
+  `www.changupnote.com`이 모두 200을 반환했다. 배포 인증은 저장소
+  `.env.vercel.local`의 token을 shell에만 주입했고 project/domain/env를 새로 만들거나
+  바꾸지 않았다.
+- Ops production은 aggregate split 승인·관제·노출 증적 구현을 포함한 clean/pushed
+  `de52eec`를 기존 `team-coolwithyou/changupnote-ops`에 배포했다. deployment
+  `dpl_323jM5vUrCHcwqmJNYMA5QMNNY1Z`는 READY이며 `ops.changupnote.com/pipeline`의
+  login redirect, login 200, 비인증 summary/action API 401을 확인했다.
+- 승인 대상은 `kstartup/175783`, parent grant
+  `1e7f6fd6-7c58-4a53-bbf9-25c87b3eb676`,
+  `2026년 중앙부처 및 지자체 창업지원사업 통합공고` 한 건으로 고정했다. enqueue job
+  `9b52f594-98a6-4d82-a46e-e755b8f9dc7e`를 UUID 하나짜리 bounded cohort로 실행했다.
+- 첫 실행은 모델 호출 전에 active feeder candidate projection의 바깥
+  `grants.id/source/source_id/updated_at`가 qualify되지 않아 PostgreSQL
+  `column reference "id" is ambiguous`로 중단됐다. 이 범위만
+  `c5a8ecd`에서 qualify하고 pending/source-change SQL 회귀 테스트, 전체
+  `verify:deep-analysis-contract`, web typecheck를 통과시킨 뒤 위 web revision을 다시
+  배포했다.
+- 재실행은 외부 모델을 호출하지 않고 의도한 oversized aggregate gate에서 닫혔다.
+  case `daa12917-6c8b-4f3a-ae5f-6d4c7fe5c163`은 `pending_review`,
+  `oversized_aggregate_notice`, 입력 1,136,482자/상한 800,000자, chunk 22개,
+  attachment 3개다. parent job은 `blocked/input_not_sealed`, case의
+  `external_calls_made`, token, 비용, 승인 request/시각은 모두 null이고 비용 증거가
+  있는 run은 0건이다. materialization/promotion/exposure도 모두 `not_ready`다.
+- 이 상태는 556쪽 통합공고를 일반 22축 단일 공고로 억지 분석하지 않고, 사람 승인
+  전에는 비용·파생 공고·노출을 발생시키지 않는 설계와 일치한다. 다음 mutation은
+  Ops의 `admin/owner`가 실제 `분리 처리 수락` 액션을 수행해 append-only
+  `admin_deep_analysis_actions`와 승인자 identity를 남기는 것이다. 현재 연결된 인증
+  세션이 없어 DB 직접 수정이나 임의 관리자 identity로 이 관문을 우회하지 않았다.
+- GCP CLI의 active account/project 기본값은 `sw@noten.im` /
+  `changupnote-com`, region은 `asia-northeast3`로 확인했다. `sw@ba-ton.kr`는
+  비활성 저장 credential일 뿐 이 실행에서 사용하지 않았다. 다만 현재 access token
+  refresh가 비대화형 재인증을 요구해 Cloud Run의 live revision·billing과 최신 verifier
+  배포는 확인/실행하지 못했다. 따라서 사람 승인이 끝나더라도 최신 staged-skip/full
+  visibility verifier를 배포하기 전에는 release 활성화와 E-3B-3B 노출 전환을 금지한다.
+
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. staged child의 실제 깊은 분석·AI 자동
 검수·S12 발행과 parent/child 원자적 노출 전환 및 S13/S14 production readback 증거를
 실제로 닫기 전에는 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
-다음 체크포인트는 새 기능 추가가 아니라 0058~0064 migration·현재 revision을 순서대로
-배포한 뒤, 승인된 단일 통합공고 case를 E-2 → E-3A → E-3B-2 → E-3B-3A → E-3B-3B로
-실행해 Ops와 receipt/R2 증거를 확인하는 제한된 production 운영 검증이다.
+다음 체크포인트는 새 기능 추가가 아니라 위 단일 case를 Ops에서 사람 승인한 뒤
+E-2 → E-3A → E-3B-2 → child 깊은 분석·AI 자동 검수 → E-3B-3A까지 실행하는
+제한 production 운영 검증이다. 그동안 GCP 재인증과 최신 verifier 배포를 독립적으로
+닫고, 두 의존성이 모두 통과한 뒤에만 E-3B-3B와 S13/S14 production readback을 실행한다.
 
 중단 조건:
 
