@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import type * as schema from "@/lib/server/db/schema";
 import { hashGrantRawPayload } from "@/lib/server/ingestion/grantRawHash";
@@ -114,6 +115,26 @@ await assert.rejects(
   }),
   /모든 E-3A child/,
 );
+
+const deepReleaseSource = readFileSync(
+  new URL("./promotion-release-cli.ts", import.meta.url),
+  "utf8",
+);
+assert.match(deepReleaseSource, /--aggregate-split-case/);
+assert.match(deepReleaseSource, /evaluateAggregateSplitReleaseGate/);
+assert.match(
+  deepReleaseSource,
+  /통합공고 child는 --run으로 개별 release할 수 없습니다/,
+);
+
+const servingVerifierSource = readFileSync(
+  new URL("./verify-serving-cli.ts", import.meta.url),
+  "utf8",
+);
+assert.match(servingVerifierSource, /--publication-only/);
+assert.match(servingVerifierSource, /verificationMode === "publication_only"/);
+assert.match(servingVerifierSource, /servingState !== "visible"/);
+assert.match(servingVerifierSource, /SKIPPED_NOT_VISIBLE/);
 
 console.log("aggregate split staged promotion tests passed");
 

@@ -369,6 +369,15 @@ export interface DeepPipelineAggregateSplitChild {
   latestStageStatus: DeepAnalysisStageStatus | null
   analysisCompleteStatus: DeepAnalysisStageStatus | null
   aiAuditVerdict: "concur" | "disagree" | "unsure" | "failed" | null
+  promotionReleaseId: string | null
+  promotionReleaseStatus: string | null
+  promotionItemStatus: string | null
+  publicationCompleteStatus: DeepAnalysisStageStatus | null
+  publicationFirstBlocker: {
+    code: string
+    stage: DeepAnalysisStageKey | null
+    message: string
+  } | null
   promotionLastErrorCode: string | null
   promotionLastErrorMessage: string | null
   lastErrorCode: string | null

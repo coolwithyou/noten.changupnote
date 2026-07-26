@@ -5,6 +5,7 @@ import {
   DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS,
   DEEP_ANALYSIS_SERVING_VERIFIER_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
+  deriveAggregateSplitPublicationBlocker,
   type CriterionDimension,
   type DeepAnalysisAxisStatus,
   type DeepAnalysisStageKey,
@@ -982,14 +983,28 @@ export async function getDeepPipelineNoticeDetail(
       `select
          child.*,
          child_grant.serving_state,
+         child_job.grant_id as deep_analysis_job_grant_id,
+         child_job.source_revision_sha256 as deep_analysis_job_source_revision_sha256,
+         child_job.model_policy_version as deep_analysis_job_model_policy_version,
          child_job.status as deep_analysis_job_status,
          latest_run.id as deep_analysis_run_id,
+         latest_run.job_id as deep_analysis_run_job_id,
+         latest_run.grant_id as deep_analysis_run_grant_id,
+         latest_run.source_revision_sha256 as deep_analysis_run_source_revision_sha256,
+         latest_run.input_sha256 as deep_analysis_run_input_sha256,
+         latest_run.model_policy_version as deep_analysis_run_model_policy_version,
          latest_run.status as deep_analysis_run_status,
          coalesce(stage_summary.passed_stage_count, 0)::int as passed_stage_count,
+         coalesce(stage_summary.stage_statuses, '{}'::jsonb) as stage_statuses,
          latest_receipt.stage as latest_stage,
          latest_receipt.status as latest_stage_status,
          analysis_receipt.status as analysis_complete_status,
-         latest_audit.verdict as ai_audit_verdict
+         publication_receipt.status as publication_complete_status,
+         latest_audit.verdict as ai_audit_verdict,
+         latest_audit.input_sha256 as ai_audit_input_sha256,
+         latest_promotion.release_id as promotion_release_id,
+         latest_promotion.release_status as promotion_release_status,
+         latest_promotion.item_status as promotion_item_status
        from grant_aggregate_split_children child
        join grant_aggregate_split_cases split_case
          on split_case.id = child.split_case_id
@@ -998,14 +1013,23 @@ export async function getDeepPipelineNoticeDetail(
        left join grant_deep_analysis_jobs child_job
          on child_job.id = child.deep_analysis_job_id
        left join lateral (
-         select run.id, run.status
+         select
+           run.id,
+           run.job_id,
+           run.grant_id,
+           run.source_revision_sha256,
+           run.input_sha256,
+           run.model_policy_version,
+           run.status
          from grant_deep_analysis_runs run
          where run.job_id = child_job.id
          order by run.started_at desc, run.id desc
          limit 1
        ) latest_run on true
        left join lateral (
-         select count(*) filter (where receipt.status = 'passed') as passed_stage_count
+         select
+           count(*) filter (where receipt.status = 'passed') as passed_stage_count,
+           jsonb_object_agg(receipt.stage, receipt.status) as stage_statuses
          from (
            select distinct on (candidate.stage)
              candidate.stage,
@@ -1035,12 +1059,33 @@ export async function getDeepPipelineNoticeDetail(
          limit 1
        ) analysis_receipt on true
        left join lateral (
-         select audit.verdict
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'publication_complete'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) publication_receipt on true
+       left join lateral (
+         select audit.verdict, audit.input_sha256
          from grant_deep_analysis_audits audit
          where audit.run_id = latest_run.id
          order by audit.attempt desc, audit.completed_at desc, audit.id desc
          limit 1
        ) latest_audit on true
+       left join lateral (
+         select
+           release.release_id,
+           release.status as release_status,
+           item.status as item_status
+         from analysis_lab_promotion_items item
+         join analysis_lab_promotion_releases release
+           on release.id = item.release_db_id
+         where item.grant_id = child.id
+           and item.deep_analysis_run_id = latest_run.id
+         order by item.updated_at desc, item.id desc
+         limit 1
+       ) latest_promotion on true
        where split_case.grant_id = $1::uuid
        order by child.ordinal, child.id`,
       [grantId],
@@ -1253,16 +1298,30 @@ interface AggregateSplitChildRow {
   staged_grant_at: Date | null
   serving_state: DeepPipelineAggregateSplitChild["servingState"]
   deep_analysis_job_id: string | null
+  deep_analysis_job_grant_id: string | null
+  deep_analysis_job_source_revision_sha256: string | null
+  deep_analysis_job_model_policy_version: string | null
   deep_analysis_job_status: string | null
   deep_analysis_enqueued_at: Date | null
   active_feeder_bypass_reason: string | null
   deep_analysis_run_id: string | null
+  deep_analysis_run_job_id: string | null
+  deep_analysis_run_grant_id: string | null
+  deep_analysis_run_source_revision_sha256: string | null
+  deep_analysis_run_input_sha256: string | null
+  deep_analysis_run_model_policy_version: string | null
   deep_analysis_run_status: string | null
   passed_stage_count: number
+  stage_statuses: Partial<Record<DeepAnalysisStageKey, string>>
   latest_stage: DeepAnalysisStageKey | null
   latest_stage_status: DeepAnalysisStageStatus | null
   analysis_complete_status: DeepAnalysisStageStatus | null
+  publication_complete_status: DeepAnalysisStageStatus | null
   ai_audit_verdict: DeepPipelineAggregateSplitChild["aiAuditVerdict"]
+  ai_audit_input_sha256: string | null
+  promotion_release_id: string | null
+  promotion_release_status: string | null
+  promotion_item_status: string | null
   promotion_last_error_code: string | null
   promotion_last_error_message: string | null
   last_error_code: string | null
@@ -1500,6 +1559,54 @@ function mapAggregateSplitCase(
 function mapAggregateSplitChild(
   row: AggregateSplitChildRow,
 ): DeepPipelineAggregateSplitChild {
+  const publicationFirstBlocker = deriveAggregateSplitPublicationBlocker({
+    childId: row.id,
+    childStatus: row.status,
+    sourceRevisionSha256: row.source_revision_sha256,
+    inputSha256: row.input_sha256,
+    stagedGrantAt: row.staged_grant_at,
+    servingState: row.serving_state,
+    expectedJobId: row.deep_analysis_job_id,
+    job: row.deep_analysis_job_id
+      && row.deep_analysis_job_grant_id
+      && row.deep_analysis_job_source_revision_sha256
+      && row.deep_analysis_job_model_policy_version
+      && row.deep_analysis_job_status
+      ? {
+        id: row.deep_analysis_job_id,
+        grantId: row.deep_analysis_job_grant_id,
+        sourceRevisionSha256: row.deep_analysis_job_source_revision_sha256,
+        modelPolicyVersion: row.deep_analysis_job_model_policy_version,
+        status: row.deep_analysis_job_status,
+      }
+      : null,
+    latestRun: row.deep_analysis_run_id
+      && row.deep_analysis_run_job_id
+      && row.deep_analysis_run_grant_id
+      && row.deep_analysis_run_source_revision_sha256
+      && row.deep_analysis_run_input_sha256
+      && row.deep_analysis_run_model_policy_version
+      && row.deep_analysis_run_status
+      ? {
+        id: row.deep_analysis_run_id,
+        jobId: row.deep_analysis_run_job_id,
+        grantId: row.deep_analysis_run_grant_id,
+        sourceRevisionSha256: row.deep_analysis_run_source_revision_sha256,
+        inputSha256: row.deep_analysis_run_input_sha256,
+        modelPolicyVersion: row.deep_analysis_run_model_policy_version,
+        status: row.deep_analysis_run_status,
+      }
+      : null,
+    stageStatuses: row.stage_statuses,
+    latestAudit: row.ai_audit_verdict && row.ai_audit_input_sha256
+      ? {
+        verdict: row.ai_audit_verdict,
+        inputSha256: row.ai_audit_input_sha256,
+      }
+      : null,
+    promotionItemStatus: row.promotion_item_status,
+    publicationReceiptStatus: row.publication_complete_status,
+  })
   return {
     id: row.id,
     stableKey: row.stable_key,
@@ -1531,6 +1638,11 @@ function mapAggregateSplitChild(
     latestStageStatus: row.latest_stage_status,
     analysisCompleteStatus: row.analysis_complete_status,
     aiAuditVerdict: row.ai_audit_verdict,
+    promotionReleaseId: row.promotion_release_id,
+    promotionReleaseStatus: row.promotion_release_status,
+    promotionItemStatus: row.promotion_item_status,
+    publicationCompleteStatus: row.publication_complete_status,
+    publicationFirstBlocker,
     promotionLastErrorCode: row.promotion_last_error_code,
     promotionLastErrorMessage: row.promotion_last_error_message,
     lastErrorCode: row.last_error_code,

@@ -252,6 +252,16 @@ export function DeepNoticeSheet({
                         enqueue했습니다. 아직 사용자 매칭에는 노출되지 않습니다.
                       </p>
                     ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "enqueued" ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        S12 발행 완료{" "}
+                        {detail.aggregateSplitCase.children.filter(
+                          (child) => child.publicationFirstBlocker === null,
+                        ).length}
+                        /{detail.aggregateSplitCase.children.length} · 한 child라도 blocker가
+                        남으면 case 전체 노출 전환을 진행하지 않습니다.
+                      </p>
+                    ) : null}
                     {detail.aggregateSplitCase.promotionStatus === "failed" ? (
                       <p className="mt-2 text-sm text-destructive">
                         child input/projection 재검증 또는 원자적 staged 생성이 실패해
@@ -353,7 +363,13 @@ export function DeepNoticeSheet({
                           {child.latestStage
                             ? `${DEEP_STAGE_LABELS[child.latestStage]} ${child.latestStageStatus ?? ""}`
                             : "receipt 없음"} · AI 자동검수{" "}
-                          {aggregateSplitAuditLabel(child.aiAuditVerdict)}
+                          {aggregateSplitAuditLabel(child.aiAuditVerdict)} · S12{" "}
+                          {child.publicationCompleteStatus ?? "대기"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          promotion {child.promotionReleaseId ?? "미생성"} ·{" "}
+                          {child.promotionReleaseStatus ?? "대기"}/
+                          {child.promotionItemStatus ?? "대기"}
                         </p>
                         <HashLine label="child input" value={child.inputSha256} />
                         <HashLine label="child input R2" value={child.inputArtifactKey} />
@@ -378,6 +394,19 @@ export function DeepNoticeSheet({
                             {child.lastErrorCode}: {child.lastErrorMessage}
                           </p>
                         ) : null}
+                        {child.publicationFirstBlocker ? (
+                          <p className="mt-2 text-sm text-destructive">
+                            첫 blocker{" "}
+                            {child.publicationFirstBlocker.stage
+                              ? DEEP_STAGE_LABELS[child.publicationFirstBlocker.stage]
+                              : child.publicationFirstBlocker.code}
+                            : {child.publicationFirstBlocker.message}
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-sm text-primary">
+                            S0~S12와 독립 AI 자동검수 증적이 모두 확인됐습니다.
+                          </p>
+                        )}
                       </article>
                     ))}
                   </div>
@@ -700,8 +729,12 @@ function aggregateSplitChildPipelineLabel(
   if (child.status !== "prepared") return aggregateSplitChildStatusLabel(child.status)
   if (!child.stagedGrantAt) return "staged 생성 대기"
   if (!child.deepAnalysisJobId) return "분석 enqueue 대기"
+  if (child.publicationFirstBlocker === null) return "S12 발행 완료"
+  if (child.publicationFirstBlocker.stage) {
+    return `첫 blocker ${DEEP_STAGE_LABELS[child.publicationFirstBlocker.stage]}`
+  }
   if (child.aiAuditVerdict === "concur" && child.analysisCompleteStatus === "passed") {
-    return "분석·AI 검수 완료"
+    return "promotion 대기"
   }
   if (child.deepAnalysisRunId) return "깊은 분석 진행"
   return "깊은 분석 대기"
@@ -713,6 +746,7 @@ function aggregateSplitChildHasFailure(
   >["children"][number],
 ): boolean {
   return child.status === "failed"
+    || child.publicationFirstBlocker !== null
     || Boolean(child.promotionLastErrorCode)
     || child.deepAnalysisJobStatus === "blocked"
     || child.deepAnalysisJobStatus === "dead_letter"

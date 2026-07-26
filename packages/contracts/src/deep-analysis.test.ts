@@ -4,9 +4,12 @@ import {
   DEEP_ANALYSIS_ACTIVE_POLICY_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
   assertDeepAnalysisModelPair,
+  deriveAggregateSplitPublicationBlocker,
   deriveDeepAnalysisCompletion,
+  evaluateAggregateSplitReleaseGate,
   hasExactDeepAnalysisAxisCoverage,
   isGrantActiveForDeepAnalysis,
+  type AggregateSplitReleaseChildObservation,
 } from "./index.js";
 
 assert.equal(DEEP_ANALYSIS_ACTIVE_POLICY_VERSION, "deep-analysis-active-kst-v2");
@@ -103,5 +106,115 @@ const blocked = deriveDeepAnalysisCompletion([
 ]);
 assert.equal(blocked.firstBlockingStage, "attachment_inventory_complete");
 assert.equal(blocked.analysisComplete, false);
+
+const readySplitChild = (
+  childId: string,
+  jobId: string,
+  runId: string,
+): AggregateSplitReleaseChildObservation => ({
+  childId,
+  childStatus: "prepared",
+  sourceRevisionSha256: "a".repeat(64),
+  inputSha256: "b".repeat(64),
+  stagedGrantAt: "2026-07-26T01:00:00.000Z",
+  servingState: "staged",
+  expectedJobId: jobId,
+  job: {
+    id: jobId,
+    grantId: childId,
+    sourceRevisionSha256: "a".repeat(64),
+    modelPolicyVersion: "deep-analysis-model-policy-v3",
+    status: "succeeded",
+  },
+  latestRun: {
+    id: runId,
+    jobId,
+    grantId: childId,
+    sourceRevisionSha256: "a".repeat(64),
+    inputSha256: "b".repeat(64),
+    modelPolicyVersion: "deep-analysis-model-policy-v3",
+    status: "passed",
+  },
+  stageStatuses: Object.fromEntries(
+    DEEP_ANALYSIS_STAGE_KEYS.slice(0, 12).map((stage) => [stage, "passed"]),
+  ),
+  latestAudit: {
+    inputSha256: "b".repeat(64),
+    verdict: "concur",
+  },
+});
+const splitChildren = [
+  readySplitChild(
+    "11111111-1111-4111-8111-111111111111",
+    "21111111-1111-4111-8111-111111111111",
+    "31111111-1111-4111-8111-111111111111",
+  ),
+  readySplitChild(
+    "12222222-2222-4222-8222-222222222222",
+    "22222222-2222-4222-8222-222222222222",
+    "32222222-2222-4222-8222-222222222222",
+  ),
+];
+const readySplitGate = evaluateAggregateSplitReleaseGate({
+  status: "completed",
+  materializationStatus: "prepared",
+  promotionStatus: "enqueued",
+  parentServingState: "visible",
+  programCount: 2,
+  preparedChildCount: 2,
+  stagedChildCount: 2,
+  enqueuedChildCount: 2,
+  children: splitChildren,
+});
+assert.equal(readySplitGate.ready, true);
+assert.deepEqual(
+  readySplitGate.children.map((child) => child.runId),
+  [
+    "31111111-1111-4111-8111-111111111111",
+    "32222222-2222-4222-8222-222222222222",
+  ],
+);
+
+const stageBlockedGate = evaluateAggregateSplitReleaseGate({
+  status: "completed",
+  materializationStatus: "prepared",
+  promotionStatus: "enqueued",
+  parentServingState: "visible",
+  programCount: 2,
+  preparedChildCount: 2,
+  stagedChildCount: 2,
+  enqueuedChildCount: 2,
+  children: [
+    splitChildren[0]!,
+    {
+      ...splitChildren[1]!,
+      stageStatuses: {
+        ...splitChildren[1]!.stageStatuses,
+        evidence_grounded: "failed",
+      },
+    },
+  ],
+});
+assert.equal(stageBlockedGate.ready, false);
+assert.equal(stageBlockedGate.firstBlocker?.stage, "evidence_grounded");
+assert.equal(stageBlockedGate.children[0]?.ready, true);
+assert.equal(stageBlockedGate.children[1]?.ready, false);
+
+assert.equal(
+  deriveAggregateSplitPublicationBlocker({
+    ...splitChildren[0]!,
+    promotionItemStatus: "applied",
+    publicationReceiptStatus: "passed",
+  }),
+  null,
+);
+assert.equal(
+  deriveAggregateSplitPublicationBlocker({
+    ...splitChildren[0]!,
+    promotionItemStatus: "prepared",
+    publicationReceiptStatus: null,
+  })?.code,
+  "aggregate_split_child_promotion_not_applied",
+);
 
 console.log("deep analysis contract tests passed");

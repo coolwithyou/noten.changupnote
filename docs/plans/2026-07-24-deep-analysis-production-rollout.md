@@ -3062,19 +3062,45 @@ Step 4-1E-3B-2 staged child 승격·깊은 분석 연결 체크포인트 — `PA
   체크포인트에서는 production DB migration, R2/외부 LLM 호출, staged child 실제 생성,
   job enqueue, worker 실행, parent/child 노출 전환, 앱 배포를 하지 않았다.
 
-다음 체크포인트 Step 4-1E-3B-3A의 범위:
+Step 4-1E-3B-3A staged publication gate·S12 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-26):
 
-1. 모든 child의 job identity가 sealed revision과 같고 latest run의 S0~S11이 전부
-   `passed`, 독립 AI audit가 `concur`, job이 `succeeded`, 현재 grant가 `staged`임을
-   재검증하는 staged publication gate
-2. 검증된 child만 기존 deep-analysis promotion release 경로로 발행하고 S12
-   `publication_complete`까지 확인하되 parent `visible`, child `staged`를 유지
-3. 일부 child의 분석·감사·발행이 실패하거나 stale이면 case 전체를 차단하고 성공
-   child를 노출하지 않으며, Ops에 child별 첫 blocker를 표시
-4. 코드 체크포인트 뒤 production migration/deploy/실제 worker 실행·관측은 별도 운영
-   체크포인트로 분리
+- 통합공고 release 준비는 `--aggregate-split-case=<case UUID>`로만 연다. case의 전체
+  child를 DB 원장에서 다시 수집해 completed/prepared/enqueued exact count와 parent
+  `visible`을 먼저 확인한다. 통합공고 child UUID를 일반 `--run` CSV에 넣어 일부만
+  release하는 우회는 명시적으로 거부한다.
+- 각 child는 prepared/staged 상태, child 원장 job ID와 실제 job/grant/source revision,
+  `deep-analysis-model-policy-v3`, job `succeeded`, 그 job의 latest run identity와
+  sealed input/source hash, run `passed`를 순서대로 확인한다. latest receipt의 S0~S11
+  12단계가 전부 `passed`이고 latest AI audit가 같은 input hash에 `concur`여야 한다.
+  하나라도 다르면 case release manifest와 원장을 만들지 않는다.
+- gate를 통과해도 새 발행 구현을 만들지 않는다. 기존 deep-analysis release 준비가
+  current source/input을 `prepareDeepAnalysisInput`으로 다시 봉인하고, normalized output,
+  audit/R2 source artifact, 현재 promotion baseline을 검증한 뒤 기존 immutable manifest와
+  `analysis_lab_promotion_releases/items`를 만든다. release `gate_summary`에는 case,
+  parent, 전체 child/run/source/input identity를 남긴다.
+- 실제 criteria/question 쓰기는 기존 승인·카나리·manifest hash·baseline drift·per-grant
+  transaction 경로만 사용한다. 일부 item 적용 실패가 있어도 child는 계속 `staged`라
+  사용자에게 노출되지 않으며, case 전체 S12가 닫히기 전 노출 전환 조건을 만족하지
+  않는다.
+- serving verifier에 `--publication-only`를 추가했다. 이 모드는 applied promotion
+  snapshot을 다시 읽어 S12 `publication_complete`만 append하고 의도적으로 S13/S14를
+  만들지 않는다. full verifier는 이제 grant `serving_state=visible`을 명시 검증하므로
+  staged child를 내부 ID로 읽었다는 이유만으로 S13을 잘못 `passed` 처리할 수 없다.
+  정기 active monitor도 아직 visible이 아닌 release는 receipt를 만들지 않고 skip해,
+  의도된 staged 대기 구간을 S13 실패로 오염시키지 않는다.
+- Ops 통합공고 child 행은 exact job/run/source/input/model policy, 최신 S0~S11 상태,
+  AI audit input/verdict, 같은 run의 promotion item과 S12 receipt를 같은 공유 gate
+  계약으로 평가한다. child별 첫 blocker와 release/item/S12 상태, case S12 완료 수를
+  표시하며 하나라도 blocker가 있으면 전체 노출 전환 금지를 안내한다.
+- 회귀 검증은 `verify:aggregate-split`, `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness를 통과했다.
+- 이 체크포인트는 새 DB 컬럼·migration을 만들지 않았다. production migration/deploy,
+  실제 staged child 생성·worker/외부 LLM 실행, release 준비·승인·적용, R2 receipt 쓰기,
+  parent/child 노출 전환은 실행하지 않았다.
 
-그 다음 Step 4-1E-3B-3B에서만 parent `suppressed`와 전체 child `visible`을 한
+다음 Step 4-1E-3B-3B에서만 parent `suppressed`와 전체 child `visible`을 한
 transaction으로 전환한다. S13 `serving_complete`와 S14 `analysis_fresh`는 staged
 상태에서 참일 수 없으므로 노출 전 gate로 요구하지 않는다. 전환 직후 전 child serving
 readback으로 S13/S14를 기록하고, 하나라도 실패하면 parent `visible`·child `staged`로
