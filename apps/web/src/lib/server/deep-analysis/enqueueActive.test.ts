@@ -94,6 +94,7 @@ assert.deepEqual(result.failures, [{
 const observationSql = deepAnalysisSourceObservationSql("policy-v1");
 const dialect = new PgDialect();
 const pendingSql = dialect.sqlToQuery(observationSql.pending).sql;
+const sourceChangedAtSql = dialect.sqlToQuery(observationSql.sourceChangedAt).sql;
 const sourceChangedAtDecoder = Reflect.get(
   observationSql.sourceChangedAt,
   "decoder",
@@ -108,5 +109,11 @@ assert.match(pendingSql, /deep_raw\.collected_at/);
 assert.match(pendingSql, /deep_attachment\.updated_at/);
 assert.match(pendingSql, /deep_artifact\.created_at/);
 assert.doesNotMatch(pendingSql, /deep_job\.updated_at/);
+for (const renderedSql of [pendingSql, sourceChangedAtSql]) {
+  assert.match(renderedSql, /"grants"\."id"/);
+  assert.match(renderedSql, /"grants"\."source"/);
+  assert.match(renderedSql, /"grants"\."source_id"/);
+  assert.match(renderedSql, /"grants"\."updated_at"/);
+}
 
 console.log("deep-analysis active enqueue tests passed");

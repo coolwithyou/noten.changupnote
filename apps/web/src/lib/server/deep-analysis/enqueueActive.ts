@@ -69,37 +69,44 @@ export function deepAnalysisSourceObservationSql(
   sourceChangedAt: SQL<Date>;
   pending: SQL<boolean>;
 } {
+  // 이 expression은 SELECT projection과 WHERE 양쪽에서 재사용된다. Drizzle은 projection
+  // 안의 같은-table column을 축약할 수 있으므로 correlated subquery의 바깥 column은
+  // 명시적으로 grants에 한정해 join 대상의 id/source와 모호해지지 않게 한다.
+  const grantId = sql.raw(`"grants"."id"`);
+  const grantSource = sql.raw(`"grants"."source"`);
+  const grantSourceId = sql.raw(`"grants"."source_id"`);
+  const grantUpdatedAt = sql.raw(`"grants"."updated_at"`);
   const latestSourceObservedAt = sql<Date | null>`
     (
       SELECT MAX(deep_job.source_observed_at)
       FROM grant_deep_analysis_jobs AS deep_job
-      WHERE deep_job.grant_id = ${schema.grants.id}
+      WHERE deep_job.grant_id = ${grantId}
         AND deep_job.model_policy_version = ${modelPolicyVersion}
     )
   `;
   const sourceChangedAt = sql<Date>`
     GREATEST(
-      ${schema.grants.updatedAt},
+      ${grantUpdatedAt},
       COALESCE((
         SELECT MAX(deep_raw.collected_at)
         FROM grant_raw AS deep_raw
-        WHERE deep_raw.source = ${schema.grants.source}
-          AND deep_raw.source_id = ${schema.grants.sourceId}
-      ), ${schema.grants.updatedAt}),
+        WHERE deep_raw.source = ${grantSource}
+          AND deep_raw.source_id = ${grantSourceId}
+      ), ${grantUpdatedAt}),
       COALESCE((
         SELECT MAX(deep_attachment.updated_at)
         FROM grant_attachment_archives AS deep_attachment
-        WHERE deep_attachment.source = ${schema.grants.source}
-          AND deep_attachment.source_id = ${schema.grants.sourceId}
-      ), ${schema.grants.updatedAt}),
+        WHERE deep_attachment.source = ${grantSource}
+          AND deep_attachment.source_id = ${grantSourceId}
+      ), ${grantUpdatedAt}),
       COALESCE((
         SELECT MAX(GREATEST(deep_surface.updated_at, deep_artifact.created_at))
         FROM grant_application_surfaces AS deep_surface
         JOIN document_artifacts AS deep_artifact
           ON deep_artifact.surface_id = deep_surface.id
           AND deep_artifact.kind = 'markdown'
-        WHERE deep_surface.grant_id = ${schema.grants.id}
-      ), ${schema.grants.updatedAt})
+        WHERE deep_surface.grant_id = ${grantId}
+      ), ${grantUpdatedAt})
     )
   `.mapWith(schema.grants.updatedAt);
   return {
