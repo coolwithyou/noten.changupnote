@@ -3180,8 +3180,13 @@ Step 4-1P-1 제한 production 진입 체크포인트 — `PASS`, 전체는 `BLOC
 - 이 상태는 556쪽 통합공고를 일반 22축 단일 공고로 억지 분석하지 않고, 사람 승인
   전에는 비용·파생 공고·노출을 발생시키지 않는 설계와 일치한다. 다음 mutation은
   Ops의 `admin/owner`가 실제 `분리 처리 수락` 액션을 수행해 append-only
-  `admin_deep_analysis_actions`와 승인자 identity를 남기는 것이다. 현재 연결된 인증
-  세션이 없어 DB 직접 수정이나 임의 관리자 identity로 이 관문을 우회하지 않았다.
+  `admin_deep_analysis_actions`와 승인자 identity를 남기는 것이다. 이후 실제
+  `sw@noten.im` Ops 관리자 세션에서 확인 모달의 대상·입력 크기·비용 상한과
+  “승인만으로 발행·노출되지 않는다”는 결과를 확인하고 수락했다. case는
+  `approved`, approval request
+  `ebbe7c31-2552-4eb5-ad52-7101bc96ec05`가 됐고 같은 request/actor의
+  `approve_aggregate_split/succeeded` append-only action을 DB에서 교차 확인했다.
+  DB 직접 수정이나 임의 관리자 identity로 이 관문을 우회하지 않았다.
 - GCP CLI의 active account/project 기본값은 `sw@noten.im` /
   `changupnote-com`, region은 `asia-northeast3`로 확인했다. `sw@ba-ton.kr`는
   비활성 저장 credential일 뿐 이 실행에서 사용하지 않았다. 다만 현재 access token
@@ -3192,10 +3197,50 @@ Step 4-1P-1 제한 production 진입 체크포인트 — `PASS`, 전체는 `BLOC
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. staged child의 실제 깊은 분석·AI 자동
 검수·S12 발행과 parent/child 원자적 노출 전환 및 S13/S14 production readback 증거를
 실제로 닫기 전에는 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
-다음 체크포인트는 새 기능 추가가 아니라 위 단일 case를 Ops에서 사람 승인한 뒤
+Step 4-1P-1 시점의 다음 체크포인트는 새 기능 추가가 아니라 위 단일 case를 Ops에서
+사람 승인한 뒤
 E-2 → E-3A → E-3B-2 → child 깊은 분석·AI 자동 검수 → E-3B-3A까지 실행하는
 제한 production 운영 검증이다. 그동안 GCP 재인증과 최신 verifier 배포를 독립적으로
 닫고, 두 의존성이 모두 통과한 뒤에만 E-3B-3B와 S13/S14 production readback을 실행한다.
+
+Step 4-1P-2 통합공고 실분리 preflight 체크포인트 — `BLOCKED`
+(2026-07-26):
+
+- 위 승인 case에 E-2 worker를 두 번만 실행했다. 첫 attempt는 Opus 외부 호출 1회,
+  input/output token `41,240/1,916`, 실비 `$0.254100`을 원장과 실패 raw artifact에
+  남긴 뒤 `aggregate_split_map_non_program_invalid`로 fail-closed했다. 모델은
+  `shared/navigation` disposition을 올바르게 선택했지만 required string 필드에
+  `__toc__`와 설명용 제목도 채웠다. 원본 tool input은 raw evidence에 그대로 보존하고,
+  ownership에 사용하지 않는 비사업 key/title만 adapter 경계에서 비우며 prompt를
+  명확히 한 `4dab1f8`을 커밋했다.
+- 두 번째 attempt는 map 1~3을 통과하고 map 4에서
+  `aggregate_split_map_coverage_invalid`로 닫혔다. 누적 외부 호출 5회,
+  input/output token `206,572/13,486`, 누적 실비 `$1.370010`이며 승인 상한 `$12`에
+  포함된다. 실패 raw를 읽어보니 5,913자 segment 하나가 `## Page 158~162`의 서로 다른
+  사업 여러 개를 포함했고, 모델은 실제 내용을 숨기지 않기 위해 같은 segment ID를
+  6개 사업에 귀속했다. 모델의 맥락 판단보다 server의 6,000자 일반 경계가 잘못된
+  것이므로 HWP/PDF에 보존된 `## Page N`을 최우선 무손실 경계로 쓰는 `532819c`을
+  커밋했다.
+- production 입력에 새 segmenter를 read-only 적용하면 전체 1,136,482자를 손실 없이
+  666개 segment로 재구성하고, segment당 page heading 최대 1개, 복수 page heading
+  segment 0개가 된다. 다만 현재 72,000자 map batch 기준 보수 비용 추정이
+  `$12.162410`으로, 이미 사용한 `$1.370010`을 제외한 남은 승인 상한
+  `$10.629990`보다 크므로 현재 worker는 세 번째 attempt의 외부 호출 전에 다시
+  fail-closed해야 한다.
+- 더 중요한 규모 gate도 확인했다. 봉인 입력에는 page marker 556개와 숫자형
+  사업 페이지 후보 527개가 있지만 현재 E-2 검증 계약은 최종 program `2~300`개다.
+  이 제한을 단순히 600으로 올리면 E-2 synthesis 출력뿐 아니라 이후 수백 개 child의
+  최상급 primary 분석·독립 AI 자동검수 비용을 한 승인으로 열게 된다. Ops가 보여준
+  `$12`는 분리 worker 상한일 뿐 child 전체 비용 승인이 아니다.
+- 따라서 마지막 attempt를 소모하거나 program 상한·비용 상한을 임의로 올리지 않았다.
+  현재 case는 `approved`, attempt `2/3`, child 0, materialization/promotion/exposure
+  모두 `not_ready`, parent `visible`이다. staged grant, child job, criteria/question,
+  사용자 노출 변경은 0건이다.
+- 다음 순차 의존성은 “한 통합공고를 최대 300개 이하의 사람이 확인 가능한 partition으로
+  나누는 계약”과 “partition별 E-2 및 전체 child 딥분석·AI 자동검수 누적 비용 상한”을
+  Ops 승인 화면과 원장에 먼저 추가하는 것이다. 이 두 승인 증거 없이 세 번째 E-2,
+  E-3A, E-3B-2로 진행하지 않는다. GCP의 `sw@noten.im` access token refresh와 최신
+  verifier 배포도 여전히 E-3B-3B 이전 독립 blocker다.
 
 중단 조건:
 
