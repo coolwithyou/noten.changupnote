@@ -3,11 +3,18 @@ import {
   CRITERION_DIMENSIONS,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
-import { adjudicateDeepAnalysisAudit } from "./auditAdjudication";
+import {
+  adjudicateDeepAnalysisAudit,
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+} from "./auditAdjudication";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
 const span = "서울 소재 기업만 신청 가능";
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /이미 primary에 반영됐거나 중복.*accept_primary.*change_required를 반환하지 마라/,
+);
 const seal = sealDeepAnalysisInput({
   grantId: "audit-adjudication",
   sourceRevisionSha256: "1".repeat(64),
