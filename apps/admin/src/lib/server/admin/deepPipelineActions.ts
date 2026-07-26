@@ -42,6 +42,7 @@ interface AggregateSplitCaseRow {
   source_revision_sha256: string
   input_chars: number
   input_cap_chars: number
+  cost_cap_usd: number
   approval_request_id: string | null
   latest_job_source_revision_sha256: string | null
 }
@@ -251,6 +252,7 @@ async function approveAggregateSplit(
       split_case.source_revision_sha256,
       split_case.input_chars,
       split_case.input_cap_chars,
+      split_case.cost_cap_usd,
       split_case.approval_request_id,
       (
         select job.source_revision_sha256
@@ -303,6 +305,7 @@ async function approveAggregateSplit(
     sourceRevisionSha256: splitCase.source_revision_sha256,
     inputChars: Number(splitCase.input_chars),
     inputCapChars: Number(splitCase.input_cap_chars),
+    costCapUsd: Number(splitCase.cost_cap_usd),
   }
   await transaction`
     update grant_aggregate_split_cases

@@ -10,6 +10,7 @@ export const DEEP_ANALYSIS_SERVING_VERIFIER_VERSION =
   "deep-analysis-serving-verifier-v1" as const;
 export const DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS = 45 * 60;
 export const DEEP_ANALYSIS_INPUT_PREPARATION_STALE_SECONDS = 15 * 60;
+export const DEEP_ANALYSIS_AGGREGATE_SPLIT_DEFAULT_MAX_COST_USD = 12;
 
 /**
  * 운영 모델은 명시 allowlist만 허용한다. 환경변수로 임의 모델을 주입해 이미 검증한

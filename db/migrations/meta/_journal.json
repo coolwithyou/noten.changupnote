@@ -421,6 +421,13 @@
       "when": 1785022807168,
       "tag": "0059_mysterious_norrin_radd",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1785024604622,
+      "tag": "0060_wild_vector",
+      "breakpoints": true
     }
   ]
 }

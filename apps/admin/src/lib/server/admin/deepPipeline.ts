@@ -1107,13 +1107,34 @@ interface AggregateSplitCaseRow {
   source_revision_sha256: string
   input_chars: number
   input_cap_chars: number
+  cost_cap_usd: number
   chunk_count: number
   attachment_count: number
   evidence_sha256: string
   approved_by_email: string | null
   approved_at: Date | null
+  attempt_count: number
+  max_attempts: number
+  available_at: Date
+  leased_at: Date | null
+  lease_expires_at: Date | null
+  worker_id: string | null
   processing_started_at: Date | null
   completed_at: Date | null
+  model: string | null
+  prompt_version: string | null
+  input_artifact_key: string | null
+  input_sha256: string | null
+  manifest_artifact_key: string | null
+  manifest_sha256: string | null
+  raw_response_artifact_key: string | null
+  raw_response_sha256: string | null
+  segment_count: number | null
+  program_count: number | null
+  external_calls_made: number | null
+  input_tokens: number | null
+  output_tokens: number | null
+  cost_usd: number | null
   last_error_code: string | null
   last_error_message: string | null
   created_at: Date
@@ -1287,13 +1308,36 @@ function mapAggregateSplitCase(
     sourceRevisionSha256: row.source_revision_sha256,
     inputChars: Number(row.input_chars),
     inputCapChars: Number(row.input_cap_chars),
+    costCapUsd: Number(row.cost_cap_usd),
     chunkCount: Number(row.chunk_count),
     attachmentCount: Number(row.attachment_count),
     evidenceSha256: row.evidence_sha256,
     approvedByEmail: row.approved_by_email,
     approvedAt: row.approved_at?.toISOString() ?? null,
+    attemptCount: Number(row.attempt_count),
+    maxAttempts: Number(row.max_attempts),
+    availableAt: row.available_at.toISOString(),
+    leasedAt: row.leased_at?.toISOString() ?? null,
+    leaseExpiresAt: row.lease_expires_at?.toISOString() ?? null,
+    workerId: row.worker_id,
     processingStartedAt: row.processing_started_at?.toISOString() ?? null,
     completedAt: row.completed_at?.toISOString() ?? null,
+    model: row.model,
+    promptVersion: row.prompt_version,
+    inputArtifactKey: row.input_artifact_key,
+    inputSha256: row.input_sha256,
+    manifestArtifactKey: row.manifest_artifact_key,
+    manifestSha256: row.manifest_sha256,
+    rawResponseArtifactKey: row.raw_response_artifact_key,
+    rawResponseSha256: row.raw_response_sha256,
+    segmentCount: row.segment_count === null ? null : Number(row.segment_count),
+    programCount: row.program_count === null ? null : Number(row.program_count),
+    externalCallsMade: row.external_calls_made === null
+      ? null
+      : Number(row.external_calls_made),
+    inputTokens: row.input_tokens === null ? null : Number(row.input_tokens),
+    outputTokens: row.output_tokens === null ? null : Number(row.output_tokens),
+    costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
     lastErrorCode: row.last_error_code,
     lastErrorMessage: row.last_error_message,
     createdAt: row.created_at.toISOString(),

@@ -11,6 +11,7 @@ export const DEEP_ANALYSIS_ARTIFACT_KINDS = [
 ] as const;
 
 export type DeepAnalysisArtifactKind = (typeof DEEP_ANALYSIS_ARTIFACT_KINDS)[number];
+export type AggregateSplitArtifactKind = "input" | "manifest" | "raw-response";
 
 export interface DeepAnalysisArtifactIdentity {
   grantId: string;
@@ -64,6 +65,61 @@ export async function putImmutableDeepAnalysisArtifact(input: {
   const storedSha256 = sha256Hex(stored.body);
   if (storedSha256 !== sha256) {
     throw new Error(`Immutable artifact hash mismatch for ${key}`);
+  }
+  return { key, sha256, bytes: bytes.length, reused: existed };
+}
+
+export function aggregateSplitArtifactKey(input: {
+  grantId: string;
+  sourceRevisionSha256: string;
+  caseId: string;
+  kind: AggregateSplitArtifactKind;
+  contentSha256: string;
+}): string {
+  assertSafePathSegment(input.grantId, "grantId");
+  assertSha256(input.sourceRevisionSha256, "sourceRevisionSha256");
+  assertSafePathSegment(input.caseId, "caseId");
+  assertSha256(input.contentSha256, "contentSha256");
+  return [
+    "deep-analysis",
+    "v1",
+    "grants",
+    input.grantId,
+    "revisions",
+    input.sourceRevisionSha256,
+    "aggregate-splits",
+    input.caseId,
+    `${input.kind}-${input.contentSha256}.json`,
+  ].join("/");
+}
+
+export async function putImmutableAggregateSplitArtifact(input: {
+  storage: R2ObjectStorage;
+  identity: {
+    grantId: string;
+    sourceRevisionSha256: string;
+    caseId: string;
+    kind: AggregateSplitArtifactKind;
+  };
+  body: Buffer | string;
+}): Promise<{ key: string; sha256: string; bytes: number; reused: boolean }> {
+  const bytes = Buffer.isBuffer(input.body) ? input.body : Buffer.from(input.body, "utf8");
+  const sha256 = sha256Hex(bytes);
+  const key = aggregateSplitArtifactKey({
+    ...input.identity,
+    contentSha256: sha256,
+  });
+  const existed = await input.storage.objectExists(key);
+  if (!existed) {
+    await input.storage.putObject({
+      key,
+      body: bytes,
+      contentType: "application/json",
+    });
+  }
+  const stored = await input.storage.getObjectBytes(key);
+  if (sha256Hex(stored.body) !== sha256) {
+    throw new Error(`Immutable aggregate split artifact hash mismatch for ${key}`);
   }
   return { key, sha256, bytes: bytes.length, reused: existed };
 }

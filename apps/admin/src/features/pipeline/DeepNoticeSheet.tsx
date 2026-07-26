@@ -56,7 +56,7 @@ export function DeepNoticeSheet({
     const costLine = action === "requeue_job"
       ? `대상 1공고 · 입력 ${formatNumber(notice.inputChars)}자 · 직전 비용 ${formatCost(notice.costUsd)} · 모델 ${notice.model ?? "policy allowlist"}`
       : action === "approve_aggregate_split"
-        ? `대상 1개 통합공고 · 입력 ${formatNumber(detail.aggregateSplitCase?.inputChars ?? null)}자 · 상한 ${formatNumber(detail.aggregateSplitCase?.inputCapChars ?? null)}자 · ${formatNumber(detail.aggregateSplitCase?.chunkCount ?? null)}개 입력 조각`
+        ? `대상 1개 통합공고 · 입력 ${formatNumber(detail.aggregateSplitCase?.inputChars ?? null)}자 · 상한 ${formatNumber(detail.aggregateSplitCase?.inputCapChars ?? null)}자 · ${formatNumber(detail.aggregateSplitCase?.chunkCount ?? null)}개 입력 조각 · 누적 비용 상한 ${formatCost(detail.aggregateSplitCase?.costCapUsd ?? null)}`
         : `대상 1개 예외 · ${target.exceptionKey ?? ""}`
     const consequence = action === "approve_aggregate_split"
       ? "승인하면 원문 전체를 보존한 별도 분리 작업 대기열로 이동합니다. 이 승인만으로 하위 공고가 발행되거나 매칭에 노출되지는 않습니다."
@@ -172,8 +172,28 @@ export function DeepNoticeSheet({
                     <p className="mt-1 text-xs text-muted-foreground">
                       입력 조각 {formatNumber(detail.aggregateSplitCase.chunkCount)}개 · 첨부{" "}
                       {formatNumber(detail.aggregateSplitCase.attachmentCount)}개 · 원문은 이
-                      단계에서 변경되지 않음
+                      단계에서 변경되지 않음 · 분리 누적 비용 상한{" "}
+                      {formatCost(detail.aggregateSplitCase.costCapUsd)}
                     </p>
+                    {detail.aggregateSplitCase.status === "approved" ? (
+                      <p className="mt-2 text-sm">
+                        사람 승인이 완료되어 분리 worker 실행을 기다리고 있습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.status === "processing" ? (
+                      <p className="mt-2 text-sm">
+                        분리 worker가 원문 segment를 하위사업별로 분류하고 있습니다. lease{" "}
+                        {detail.aggregateSplitCase.leaseExpiresAt
+                          ? formatDate(detail.aggregateSplitCase.leaseExpiresAt)
+                          : "미상"}까지
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.status === "completed" ? (
+                      <p className="mt-2 text-sm">
+                        하위사업 manifest {formatNumber(detail.aggregateSplitCase.programCount)}개를
+                        검증했습니다. 아직 파생 공고 생성이나 매칭 노출은 하지 않았습니다.
+                      </p>
+                    ) : null}
                   </div>
                   {(role === "admin" || role === "owner")
                     && detail.aggregateSplitCase.status === "pending_review" ? (
@@ -190,8 +210,49 @@ export function DeepNoticeSheet({
                 {detail.aggregateSplitCase.approvedAt ? (
                   <p className="mt-3 text-xs text-muted-foreground">
                     {detail.aggregateSplitCase.approvedByEmail ?? "관리자"} 승인 ·{" "}
-                    {formatDate(detail.aggregateSplitCase.approvedAt)}
+                    {formatDate(detail.aggregateSplitCase.approvedAt)} · 시도{" "}
+                    {detail.aggregateSplitCase.attemptCount}/
+                    {detail.aggregateSplitCase.maxAttempts}
                   </p>
+                ) : null}
+                {detail.aggregateSplitCase.inputSha256
+                  || detail.aggregateSplitCase.manifestSha256
+                  || detail.aggregateSplitCase.rawResponseSha256 ? (
+                  <div className="mt-3 rounded-lg border bg-background/70 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {detail.aggregateSplitCase.model} ·{" "}
+                      {detail.aggregateSplitCase.promptVersion} · segment{" "}
+                      {formatNumber(detail.aggregateSplitCase.segmentCount)}개 · 외부 호출{" "}
+                      {formatNumber(detail.aggregateSplitCase.externalCallsMade)}회 · token{" "}
+                      {formatNumber(detail.aggregateSplitCase.inputTokens)}/
+                      {formatNumber(detail.aggregateSplitCase.outputTokens)} · 비용{" "}
+                      {formatCost(detail.aggregateSplitCase.costUsd)}
+                    </p>
+                    <HashLine
+                      label="분리 input"
+                      value={detail.aggregateSplitCase.inputSha256}
+                    />
+                    <HashLine
+                      label="input R2"
+                      value={detail.aggregateSplitCase.inputArtifactKey}
+                    />
+                    <HashLine
+                      label="분리 manifest"
+                      value={detail.aggregateSplitCase.manifestSha256}
+                    />
+                    <HashLine
+                      label="manifest R2"
+                      value={detail.aggregateSplitCase.manifestArtifactKey}
+                    />
+                    <HashLine
+                      label="raw response"
+                      value={detail.aggregateSplitCase.rawResponseSha256}
+                    />
+                    <HashLine
+                      label="raw R2"
+                      value={detail.aggregateSplitCase.rawResponseArtifactKey}
+                    />
+                  </div>
                 ) : null}
                 {detail.aggregateSplitCase.lastErrorMessage ? (
                   <p className="mt-3 text-sm text-destructive">

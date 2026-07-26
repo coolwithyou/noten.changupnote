@@ -284,13 +284,34 @@ export interface DeepPipelineAggregateSplitCase {
   sourceRevisionSha256: string
   inputChars: number
   inputCapChars: number
+  costCapUsd: number
   chunkCount: number
   attachmentCount: number
   evidenceSha256: string
   approvedByEmail: string | null
   approvedAt: string | null
+  attemptCount: number
+  maxAttempts: number
+  availableAt: string
+  leasedAt: string | null
+  leaseExpiresAt: string | null
+  workerId: string | null
   processingStartedAt: string | null
   completedAt: string | null
+  model: string | null
+  promptVersion: string | null
+  inputArtifactKey: string | null
+  inputSha256: string | null
+  manifestArtifactKey: string | null
+  manifestSha256: string | null
+  rawResponseArtifactKey: string | null
+  rawResponseSha256: string | null
+  segmentCount: number | null
+  programCount: number | null
+  externalCallsMade: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  costUsd: number | null
   lastErrorCode: string | null
   lastErrorMessage: string | null
   createdAt: string

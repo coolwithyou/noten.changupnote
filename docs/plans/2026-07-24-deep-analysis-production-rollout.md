@@ -2918,13 +2918,46 @@ Step 4-1E-1 통합공고 사람 승인 경계 체크포인트 — `PASS`, 전체
 - schema migration은 코드로 생성했지만 이 체크포인트에서는 production DB 적용, 앱
   배포, 외부 LLM 호출, 하위 공고 생성, 딥분석 job enqueue를 하지 않는다.
 
-다음 체크포인트 Step 4-1E-2의 범위:
+Step 4-1E-2 승인 케이스 분리 manifest 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
 
-1. 승인된 case 하나를 짧은 DB 트랜잭션으로 claim하는 별도 분리 worker 계약
-2. 원문 전체를 유지한 하위사업 manifest 생성과 독립 검증
-3. manifest가 검증된 경우에만 파생 공고를 멱등 생성하고 각각의 딥분석 입력을 봉인
-4. 모든 파생 공고가 준비된 뒤에만 parent를 일반 매칭/딥분석 분모에서 제외
-5. 일부 성공을 전체 성공으로 오인하지 않는 Ops 진행 상태와 실패 복구
+- 별도 worker는 `approved` 또는 lease가 만료된 `processing` case 하나만
+  `FOR UPDATE SKIP LOCKED`로 claim한다. DB claim/lease 갱신은 짧게 끝내고 R2·LLM
+  호출을 트랜잭션 안에서 수행하지 않는다. 기본 실행 수는 invocation당 1건, 최대
+  attempt는 3회이며 retry는 `approved + available_at`으로 되돌린다.
+- server가 봉인된 전체 입력을 source별로 다시 조립하고 chunk offset·text SHA를 검증한
+  뒤, 최대 6,000자의 content-addressed segment로 무손실 분할한다. 모델은 offset이나
+  원문을 새로 만들지 않고 제공된 segment ID만 `program/shared/navigation`으로 분류한다.
+- allowlist의 최상급 primary model `claude-opus-4-8`이 segment map과 pass 간 하위사업
+  synthesis를 수행한다. 독립 server validator는 모든 segment와 provisional program이
+  정확히 한 번 귀속됐는지, 하위사업이 2~300개인지, 중복 사업 identity가 없는지,
+  shared를 포함한 각 파생 입력이 기존 800,000자 상한 이하인지 검증한다.
+- 승인 case에는 누적 비용 상한 `$12`를 고정한다. worker 환경 상한은 사람 승인 상한을
+  높일 수 없고, 보수적인 최대 비용 추정이 남은 상한보다 크면 외부 호출 전에
+  fail-closed한다. 모델·prompt version·외부 호출 수·token·실비·attempt·lease·오류를
+  case 원장에 누적한다.
+- 원문 입력, 모델 raw pass, 검증 완료 manifest는 각각 내용 SHA가 들어간 R2 key로 쓰고
+  즉시 readback hash를 검증한다. DB의 `completed`는 input/raw/manifest key와 SHA,
+  program/segment 수, 실제 외부 호출 증거가 모두 있을 때만 허용된다. 중간 pass 뒤
+  실패한 경우도 성공한 pass와 오류를 별도 불변 raw artifact로 남긴 뒤 retry/failed로
+  전환한다.
+- Ops 공고 상세에는 대기/처리/완료/실패, attempt, worker lease, 승인 비용 상한,
+  input/manifest/raw hash와 key, model/prompt, segment/program, 호출/token/비용을
+  단계별로 표시한다. `completed`는 아직 **검증된 분리안 생성 완료**만 뜻하며 파생
+  공고 생성 또는 매칭 노출 완료로 표시하지 않는다.
+- 회귀 검증은 `verify:aggregate-split`, 기존 `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness까지 통과했다.
+- 이 체크포인트에서는 production DB migration 적용, worker 실행, 외부 LLM 호출,
+  R2 쓰기, 앱 배포, 파생 공고 생성, 딥분석 job enqueue, parent 매칭 제외를 하지 않았다.
+
+다음 체크포인트 Step 4-1E-3의 범위:
+
+1. 검증 완료 manifest와 input artifact hash를 다시 읽어 검증하는 소비 경계
+2. manifest의 하위사업을 파생 공고로 멱등 생성하고 각 파생 입력을 독립 봉인
+3. 모든 파생 공고가 준비된 경우에만 각각의 딥분석 job을 enqueue
+4. 전 파생 공고 준비가 증명된 경우에만 parent를 일반 매칭/딥분석 분모에서 제외
+5. 파생 공고별 진행·부분 실패·재시도와 parent 전환 여부를 Ops에 표시
 
 현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. 위 최소 증거 2~4를 순서대로 닫기 전에는
 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.

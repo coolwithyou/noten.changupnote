@@ -1,4 +1,5 @@
 import { eq } from "drizzle-orm";
+import { DEEP_ANALYSIS_AGGREGATE_SPLIT_DEFAULT_MAX_COST_USD } from "@cunote/contracts";
 
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
@@ -108,6 +109,7 @@ export async function ensureAggregateSplitCaseForSeal(input: {
       reasonCode: requirement.reasonCode,
       inputChars: requirement.inputChars,
       inputCapChars: requirement.inputCapChars,
+      costCapUsd: DEEP_ANALYSIS_AGGREGATE_SPLIT_DEFAULT_MAX_COST_USD.toFixed(6),
       chunkCount: requirement.chunkCount,
       attachmentCount: requirement.attachmentCount,
       evidence: requirement.evidence,
@@ -121,6 +123,7 @@ export async function ensureAggregateSplitCaseForSeal(input: {
       set: {
         inputChars: requirement.inputChars,
         inputCapChars: requirement.inputCapChars,
+        costCapUsd: DEEP_ANALYSIS_AGGREGATE_SPLIT_DEFAULT_MAX_COST_USD.toFixed(6),
         chunkCount: requirement.chunkCount,
         attachmentCount: requirement.attachmentCount,
         evidence: requirement.evidence,

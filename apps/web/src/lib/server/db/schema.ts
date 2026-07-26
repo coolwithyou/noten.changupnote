@@ -817,6 +817,9 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   reasonCode: text("reason_code").notNull(),
   inputChars: integer("input_chars").notNull(),
   inputCapChars: integer("input_cap_chars").notNull(),
+  costCapUsd: numeric("cost_cap_usd", { precision: 12, scale: 6 })
+    .default("12.000000")
+    .notNull(),
   chunkCount: integer("chunk_count").notNull(),
   attachmentCount: integer("attachment_count").notNull(),
   evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
@@ -825,8 +828,28 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   approvedByAdminUserId: uuid("approved_by_admin_user_id")
     .references(() => adminUsers.id, { onDelete: "restrict" }),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(3).notNull(),
+  availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+  leasedAt: timestamp("leased_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  workerId: text("worker_id"),
   processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  model: text("model"),
+  promptVersion: text("prompt_version"),
+  inputArtifactKey: text("input_artifact_key"),
+  inputSha256: text("input_sha256"),
+  manifestArtifactKey: text("manifest_artifact_key"),
+  manifestSha256: text("manifest_sha256"),
+  rawResponseArtifactKey: text("raw_response_artifact_key"),
+  rawResponseSha256: text("raw_response_sha256"),
+  segmentCount: integer("segment_count"),
+  programCount: integer("program_count"),
+  externalCallsMade: integer("external_calls_made"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
   lastErrorCode: text("last_error_code"),
   lastErrorMessage: text("last_error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -838,6 +861,12 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
     .on(table.approvalRequestId),
   approvedByIdx: index("grant_aggregate_split_cases_approved_by_idx")
     .on(table.approvedByAdminUserId),
+  claimableIdx: index("grant_aggregate_split_cases_claimable_idx")
+    .on(table.availableAt, table.createdAt)
+    .where(sql`${table.status} = 'approved'`),
+  leaseExpiryIdx: index("grant_aggregate_split_cases_lease_expiry_idx")
+    .on(table.leaseExpiresAt)
+    .where(sql`${table.status} = 'processing'`),
   statusCreatedIdx: index("grant_aggregate_split_cases_status_created_idx")
     .on(table.status, table.createdAt),
   statusCheck: check("grant_aggregate_split_cases_status_check", sql`
@@ -855,8 +884,14 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   countsCheck: check("grant_aggregate_split_cases_counts_check", sql`
     ${table.inputChars} > ${table.inputCapChars}
     AND ${table.inputCapChars} > 0
+    AND ${table.costCapUsd} > 0
     AND ${table.chunkCount} > 0
     AND ${table.attachmentCount} >= 0
+  `),
+  attemptsCheck: check("grant_aggregate_split_cases_attempts_check", sql`
+    ${table.attemptCount} >= 0
+    AND ${table.maxAttempts} > 0
+    AND ${table.attemptCount} <= ${table.maxAttempts}
   `),
   approvalCheck: check("grant_aggregate_split_cases_approval_check", sql`
     (
@@ -871,6 +906,49 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
       AND ${table.approvedByAdminUserId} IS NOT NULL
       AND ${table.approvedAt} IS NOT NULL
     )
+  `),
+  leaseCheck: check("grant_aggregate_split_cases_lease_check", sql`
+    (
+      ${table.status} = 'processing'
+      AND ${table.leasedAt} IS NOT NULL
+      AND ${table.leaseExpiresAt} IS NOT NULL
+      AND ${table.workerId} IS NOT NULL
+    )
+    OR (
+      ${table.status} <> 'processing'
+      AND ${table.leasedAt} IS NULL
+      AND ${table.leaseExpiresAt} IS NULL
+      AND ${table.workerId} IS NULL
+    )
+  `),
+  completionCheck: check("grant_aggregate_split_cases_completion_check", sql`
+    (
+      ${table.status} = 'completed'
+      AND ${table.completedAt} IS NOT NULL
+      AND ${table.model} IS NOT NULL
+      AND ${table.promptVersion} IS NOT NULL
+      AND ${table.inputArtifactKey} IS NOT NULL
+      AND ${table.inputSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.manifestArtifactKey} IS NOT NULL
+      AND ${table.manifestSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.rawResponseArtifactKey} IS NOT NULL
+      AND ${table.rawResponseSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.segmentCount} > 0
+      AND ${table.programCount} > 1
+      AND ${table.externalCallsMade} > 0
+    )
+    OR (
+      ${table.status} <> 'completed'
+      AND ${table.completedAt} IS NULL
+    )
+  `),
+  usageCheck: check("grant_aggregate_split_cases_usage_check", sql`
+    (${table.segmentCount} IS NULL OR ${table.segmentCount} > 0)
+    AND (${table.programCount} IS NULL OR ${table.programCount} > 1)
+    AND (${table.externalCallsMade} IS NULL OR ${table.externalCallsMade} > 0)
+    AND (${table.inputTokens} IS NULL OR ${table.inputTokens} >= 0)
+    AND (${table.outputTokens} IS NULL OR ${table.outputTokens} >= 0)
+    AND (${table.costUsd} IS NULL OR ${table.costUsd} >= 0)
   `),
 }));
 
