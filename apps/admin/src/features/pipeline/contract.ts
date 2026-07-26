@@ -314,6 +314,42 @@ export interface DeepPipelineAggregateSplitCase {
   costUsd: number | null
   lastErrorCode: string | null
   lastErrorMessage: string | null
+  materializationStatus: "not_ready" | "pending" | "processing" | "prepared" | "failed"
+  materializationAttemptCount: number
+  materializationMaxAttempts: number
+  materializationAvailableAt: string
+  materializationLeasedAt: string | null
+  materializationLeaseExpiresAt: string | null
+  materializationWorkerId: string | null
+  preparedChildCount: number
+  childrenPreparedAt: string | null
+  materializationLastErrorCode: string | null
+  materializationLastErrorMessage: string | null
+  children: DeepPipelineAggregateSplitChild[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DeepPipelineAggregateSplitChild {
+  id: string
+  stableKey: string
+  ordinal: number
+  status: "pending" | "prepared" | "failed"
+  source: string
+  sourceId: string
+  title: string
+  agencyPrimary: string | null
+  grantProjectionSha256: string
+  manifestSha256: string
+  sourceRevisionSha256: string
+  rawPayloadSha256: string
+  attachmentManifestSha256: string | null
+  inputArtifactKey: string | null
+  inputSha256: string | null
+  inputChars: number | null
+  preparedAt: string | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
   createdAt: string
   updatedAt: string
 }

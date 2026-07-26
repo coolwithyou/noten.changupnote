@@ -2951,16 +2951,62 @@ Step 4-1E-2 승인 케이스 분리 manifest 체크포인트 — `PASS`, 전체�
 - 이 체크포인트에서는 production DB migration 적용, worker 실행, 외부 LLM 호출,
   R2 쓰기, 앱 배포, 파생 공고 생성, 딥분석 job enqueue, parent 매칭 제외를 하지 않았다.
 
-다음 체크포인트 Step 4-1E-3의 범위:
+Step 4-1E-3A 파생 공고 입력 준비 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
 
-1. 검증 완료 manifest와 input artifact hash를 다시 읽어 검증하는 소비 경계
-2. manifest의 하위사업을 파생 공고로 멱등 생성하고 각 파생 입력을 독립 봉인
-3. 모든 파생 공고가 준비된 경우에만 각각의 딥분석 job을 enqueue
-4. 전 파생 공고 준비가 증명된 경우에만 parent를 일반 매칭/딥분석 분모에서 제외
-5. 파생 공고별 진행·부분 실패·재시도와 parent 전환 여부를 Ops에 표시
+- E-2 `completed` case만 받는 별도 materialization queue를 만들었다. pending 또는
+  만료 lease 한 건을 짧은 `FOR UPDATE SKIP LOCKED` 문장으로 claim하고, R2 read/write는
+  DB transaction 밖에서 수행한다. 기본 invocation은 1건, 최대 attempt는 3회다.
+- 소비 시점에 E-2 input/manifest를 R2에서 다시 읽고 DB SHA와 readback SHA를 대조한다.
+  input chunk의 ID·offset·text SHA·전체 문자 수·attachment manifest SHA와 manifest의
+  segment ID·offset·text SHA·전문 coverage·program/shared/navigation 정확히 한 번
+  귀속·stable program key·하위사업 수·입력 상한을 server가 다시 계산한다.
+- 파생 후보의 source와 공고 메타데이터는 현재 `grants` 행이 아니라 E-2 input 안에
+  봉인된 `deep-analysis-structured-source-v1` 스냅샷에서만 가져온다. 따라서 E-2와
+  E-3A 사이에 parent가 갱신돼도 옛 원문과 새 메타데이터가 섞이지 않는다.
+- 아직 실제 `grants` 행을 만들지 않고 별도 `grant_aggregate_split_children` 원장에
+  미노출 후보를 기록한다. `(case, stable key)`, `(case, ordinal)`, `(source, sourceId)`
+  identity는 유일하며 후보 UUID는 다음 승격에서 실제 `grants.id`로 재사용한다.
+  sourceId는 parent sourceId·승인 revision·stable program key로 결정한다.
+- 각 후보는 program 소유 segment와 shared segment만 포함하고 navigation segment는
+  제외한다. 후보 raw payload, grant projection, source revision, attachment manifest,
+  전체 input artifact를 내용 hash로 봉인하고 R2 write 뒤 readback을 검증한다.
+  미래 E-3B가 projection/raw를 그대로 승격하면 기존 `prepareDeepAnalysisInput`이 같은
+  source revision과 input SHA를 재생성할 수 있는 계약이다.
+- 후보별 `pending/prepared/failed`, input SHA/key/문자 수/source revision/error를
+  독립 보존한다. 일부만 성공하면 성공 후보를 되돌리지 않고 case의 준비 수와 실패
+  evidence를 남겨 재시도한다. identity·개수 불일치는 재시도로 덮지 않고 fail-closed한다.
+  마지막 허용 attempt의 worker lease가 만료된 case는 `processing`에 고착시키지 않고
+  별도 오류 evidence와 함께 `failed`로 회수한다. case는 검증된 모든 program 후보가
+  `prepared`일 때만 `prepared`가 된다.
+- DB CHECK는 완료 case와 materialization 상태·lease·attempt·준비 수의 일관성을
+  강제한다. 기존 E-2 완료 CHECK의 SHA 조건도 명시적 `IS NOT NULL`을 추가해 PostgreSQL
+  `NULL` 통과 가능성을 닫았다. 기존 완료 case는 migration에서 `pending`으로 backfill한다.
+- Ops 공고 상세에는 materialization 대기/처리/준비/실패, lease, attempt, 준비 수와
+  후보별 제목·기관·sourceId·input SHA/R2 key/source revision/error를 표시한다.
+  화면은 이 상태가 아직 실제 공고 생성·딥분석 enqueue·매칭 노출이 아님을 명시한다.
+- 회귀 검증은 `verify:aggregate-split`, 기존 `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness를 대상으로 한다.
+- 이 체크포인트에서는 production DB migration 적용, materialization worker 실행,
+  R2 쓰기, 외부 LLM 호출, 앱 배포, 실제 파생 `grants/grant_raw` 생성, 딥분석 job
+  enqueue, parent 매칭 제외를 하지 않았다.
 
-현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. 위 최소 증거 2~4를 순서대로 닫기 전에는
-H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
+다음 체크포인트 Step 4-1E-3B의 범위:
+
+1. 파생 후보를 `grants/grant_raw`에 넣어도 일반 matcher와 active 딥분석 분모에는
+   보이지 않는 명시적 staging/visibility 경계를 먼저 추가하고 회귀 테스트로 증명
+2. 준비된 모든 후보의 projection/raw/input hash를 다시 검증한 뒤 한 transaction에서
+   동일 UUID로 staged grant를 멱등 승격
+3. staged 자식 각각을 기존 깊은 분석 → 독립 validator → AI 자동 검수/필요 시 repair →
+   승격/serving evidence 체인에 enqueue하고 후보별 S0~S14를 Ops에 표시
+4. 모든 자식이 최신 revision의 S14와 AI 자동 검수 통과 및 serving readback을 증명한
+   경우에만 parent를 일반 매칭/딥분석 분모에서 제외하고 자식을 동시에 노출
+5. 부분 실패·stale revision에서는 parent 노출을 유지하고 자식은 계속 숨긴 채 재시도/
+   사람 조치 evidence를 남기는 전환·복구 계약 추가
+
+현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. E-3B의 실제 딥분석·AI 자동 검수·원자적
+노출 전환까지 닫기 전에는 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
 
 중단 조건:
 

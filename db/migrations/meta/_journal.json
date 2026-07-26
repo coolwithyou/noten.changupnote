@@ -428,6 +428,13 @@
       "when": 1785024604622,
       "tag": "0060_wild_vector",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1785029085869,
+      "tag": "0061_wakeful_cerise",
+      "breakpoints": true
     }
   ]
 }

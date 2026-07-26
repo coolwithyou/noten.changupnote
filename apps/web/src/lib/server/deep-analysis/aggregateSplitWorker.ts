@@ -366,6 +366,10 @@ async function processAggregateSplitCase(input: {
       ).toFixed(6),
       lastErrorCode: null,
       lastErrorMessage: null,
+      materializationStatus: "pending",
+      materializationAvailableAt: completedAt,
+      materializationLastErrorCode: null,
+      materializationLastErrorMessage: null,
       updatedAt: completedAt,
     })
     .where(and(

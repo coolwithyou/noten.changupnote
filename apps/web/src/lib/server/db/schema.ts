@@ -852,6 +852,22 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
   lastErrorCode: text("last_error_code"),
   lastErrorMessage: text("last_error_message"),
+  materializationStatus: text("materialization_status").default("not_ready").notNull(),
+  materializationAttemptCount: integer("materialization_attempt_count").default(0).notNull(),
+  materializationMaxAttempts: integer("materialization_max_attempts").default(3).notNull(),
+  materializationAvailableAt: timestamp("materialization_available_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  materializationLeasedAt: timestamp("materialization_leased_at", { withTimezone: true }),
+  materializationLeaseExpiresAt: timestamp(
+    "materialization_lease_expires_at",
+    { withTimezone: true },
+  ),
+  materializationWorkerId: text("materialization_worker_id"),
+  preparedChildCount: integer("prepared_child_count").default(0).notNull(),
+  childrenPreparedAt: timestamp("children_prepared_at", { withTimezone: true }),
+  materializationLastErrorCode: text("materialization_last_error_code"),
+  materializationLastErrorMessage: text("materialization_last_error_message"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -867,6 +883,19 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
   leaseExpiryIdx: index("grant_aggregate_split_cases_lease_expiry_idx")
     .on(table.leaseExpiresAt)
     .where(sql`${table.status} = 'processing'`),
+  materializationClaimableIdx: index(
+    "grant_aggregate_split_cases_materialization_claimable_idx",
+  )
+    .on(table.materializationAvailableAt, table.createdAt)
+    .where(sql`
+      ${table.status} = 'completed'
+      AND ${table.materializationStatus} = 'pending'
+    `),
+  materializationLeaseExpiryIdx: index(
+    "grant_aggregate_split_cases_materialization_lease_expiry_idx",
+  )
+    .on(table.materializationLeaseExpiresAt)
+    .where(sql`${table.materializationStatus} = 'processing'`),
   statusCreatedIdx: index("grant_aggregate_split_cases_status_created_idx")
     .on(table.status, table.createdAt),
   statusCheck: check("grant_aggregate_split_cases_status_check", sql`
@@ -928,10 +957,13 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
       AND ${table.model} IS NOT NULL
       AND ${table.promptVersion} IS NOT NULL
       AND ${table.inputArtifactKey} IS NOT NULL
+      AND ${table.inputSha256} IS NOT NULL
       AND ${table.inputSha256} ~ '^[0-9a-f]{64}$'
       AND ${table.manifestArtifactKey} IS NOT NULL
+      AND ${table.manifestSha256} IS NOT NULL
       AND ${table.manifestSha256} ~ '^[0-9a-f]{64}$'
       AND ${table.rawResponseArtifactKey} IS NOT NULL
+      AND ${table.rawResponseSha256} IS NOT NULL
       AND ${table.rawResponseSha256} ~ '^[0-9a-f]{64}$'
       AND ${table.segmentCount} > 0
       AND ${table.programCount} > 1
@@ -949,6 +981,142 @@ export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
     AND (${table.inputTokens} IS NULL OR ${table.inputTokens} >= 0)
     AND (${table.outputTokens} IS NULL OR ${table.outputTokens} >= 0)
     AND (${table.costUsd} IS NULL OR ${table.costUsd} >= 0)
+  `),
+  materializationStatusCheck: check(
+    "grant_aggregate_split_cases_materialization_status_check",
+    sql`
+      ${table.materializationStatus} IN (
+        'not_ready', 'pending', 'processing', 'prepared', 'failed'
+      )
+    `,
+  ),
+  materializationAttemptsCheck: check(
+    "grant_aggregate_split_cases_materialization_attempts_check",
+    sql`
+      ${table.materializationAttemptCount} >= 0
+      AND ${table.materializationMaxAttempts} > 0
+      AND ${table.materializationAttemptCount} <= ${table.materializationMaxAttempts}
+      AND ${table.preparedChildCount} >= 0
+    `,
+  ),
+  materializationReadinessCheck: check(
+    "grant_aggregate_split_cases_materialization_readiness_check",
+    sql`
+      (
+        ${table.status} = 'completed'
+        AND ${table.materializationStatus} <> 'not_ready'
+      )
+      OR (
+        ${table.status} <> 'completed'
+        AND ${table.materializationStatus} = 'not_ready'
+      )
+    `,
+  ),
+  materializationLeaseCheck: check(
+    "grant_aggregate_split_cases_materialization_lease_check",
+    sql`
+      (
+        ${table.materializationStatus} = 'processing'
+        AND ${table.materializationLeasedAt} IS NOT NULL
+        AND ${table.materializationLeaseExpiresAt} IS NOT NULL
+        AND ${table.materializationWorkerId} IS NOT NULL
+      )
+      OR (
+        ${table.materializationStatus} <> 'processing'
+        AND ${table.materializationLeasedAt} IS NULL
+        AND ${table.materializationLeaseExpiresAt} IS NULL
+        AND ${table.materializationWorkerId} IS NULL
+      )
+    `,
+  ),
+  materializationPreparedCheck: check(
+    "grant_aggregate_split_cases_materialization_prepared_check",
+    sql`
+      (
+        ${table.materializationStatus} = 'prepared'
+        AND ${table.childrenPreparedAt} IS NOT NULL
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.preparedChildCount} = ${table.programCount}
+        AND ${table.preparedChildCount} > 1
+      )
+      OR (
+        ${table.materializationStatus} <> 'prepared'
+        AND ${table.childrenPreparedAt} IS NULL
+      )
+    `,
+  ),
+}));
+
+/**
+ * 검증된 통합공고 manifest에서 만든 미노출 파생 공고 후보. 이 행의 UUID는 E-3B에서
+ * 실제 grants.id로 사용하며, prepared 전에는 grants/grant_raw/딥분석 큐에 쓰지 않는다.
+ */
+export const grantAggregateSplitChildren = pgTable("grant_aggregate_split_children", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  splitCaseId: uuid("split_case_id").notNull()
+    .references(() => grantAggregateSplitCases.id, { onDelete: "restrict" }),
+  parentGrantId: uuid("parent_grant_id").notNull()
+    .references(() => grants.id, { onDelete: "restrict" }),
+  stableKey: text("stable_key").notNull(),
+  ordinal: integer("ordinal").notNull(),
+  status: text("status").default("pending").notNull(),
+  source: grantSourceEnum("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  title: text("title").notNull(),
+  agencyPrimary: text("agency_primary"),
+  grantProjection: jsonb("grant_projection").$type<Record<string, unknown>>().notNull(),
+  grantProjectionSha256: text("grant_projection_sha256").notNull(),
+  manifestSha256: text("manifest_sha256").notNull(),
+  sourceRevisionSha256: text("source_revision_sha256").notNull(),
+  rawPayloadSha256: text("raw_payload_sha256").notNull(),
+  attachmentManifestSha256: text("attachment_manifest_sha256"),
+  inputArtifactKey: text("input_artifact_key"),
+  inputSha256: text("input_sha256"),
+  inputChars: integer("input_chars"),
+  preparedAt: timestamp("prepared_at", { withTimezone: true }),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  identityIdx: uniqueIndex("grant_aggregate_split_children_identity_idx")
+    .on(table.splitCaseId, table.stableKey),
+  ordinalIdx: uniqueIndex("grant_aggregate_split_children_ordinal_idx")
+    .on(table.splitCaseId, table.ordinal),
+  sourceIdIdx: uniqueIndex("grant_aggregate_split_children_source_id_idx")
+    .on(table.source, table.sourceId),
+  parentIdx: index("grant_aggregate_split_children_parent_idx")
+    .on(table.parentGrantId),
+  caseStatusIdx: index("grant_aggregate_split_children_case_status_idx")
+    .on(table.splitCaseId, table.status, table.ordinal),
+  statusCheck: check("grant_aggregate_split_children_status_check", sql`
+    ${table.status} IN ('pending', 'prepared', 'failed')
+  `),
+  ordinalCheck: check("grant_aggregate_split_children_ordinal_check", sql`
+    ${table.ordinal} >= 0
+  `),
+  identityHashCheck: check("grant_aggregate_split_children_identity_hash_check", sql`
+    ${table.grantProjectionSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.manifestSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.sourceRevisionSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.rawPayloadSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  preparedCheck: check("grant_aggregate_split_children_prepared_check", sql`
+    (
+      ${table.status} = 'prepared'
+      AND ${table.preparedAt} IS NOT NULL
+      AND ${table.attachmentManifestSha256} IS NOT NULL
+      AND ${table.attachmentManifestSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.inputArtifactKey} IS NOT NULL
+      AND ${table.inputSha256} IS NOT NULL
+      AND ${table.inputSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.inputChars} IS NOT NULL
+      AND ${table.inputChars} > 0
+    )
+    OR (
+      ${table.status} <> 'prepared'
+      AND ${table.preparedAt} IS NULL
+    )
   `),
 }));
 

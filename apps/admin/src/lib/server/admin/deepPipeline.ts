@@ -17,6 +17,7 @@ import {
   DEEP_PIPELINE_BUCKET_LABELS,
   DEEP_PIPELINE_BUCKETS,
   DEEP_STAGE_LABELS,
+  type DeepPipelineAggregateSplitChild,
   type DeepPipelineAggregateSplitCase,
   type DeepPipelineAdminAction,
   type DeepPipelineAttachment,
@@ -889,6 +890,7 @@ export async function getDeepPipelineNoticeDetail(
     promotionRows,
     actionRows,
     aggregateSplitRows,
+    aggregateSplitChildRows,
   ] = await Promise.all([
     sql.unsafe<RunDetailRow[]>(
       `select *
@@ -976,6 +978,15 @@ export async function getDeepPipelineNoticeDetail(
        limit 1`,
       [grantId],
     ),
+    sql.unsafe<AggregateSplitChildRow[]>(
+      `select child.*
+       from grant_aggregate_split_children child
+       join grant_aggregate_split_cases split_case
+         on split_case.id = child.split_case_id
+       where split_case.grant_id = $1::uuid
+       order by child.ordinal, child.id`,
+      [grantId],
+    ),
   ])
 
   const run = runRows[0]
@@ -997,7 +1008,10 @@ export async function getDeepPipelineNoticeDetail(
     promotions: promotionRows.map(mapPromotion),
     adminActions: actionRows.map(mapAdminAction),
     aggregateSplitCase: aggregateSplitRows[0]
-      ? mapAggregateSplitCase(aggregateSplitRows[0])
+      ? mapAggregateSplitCase(
+        aggregateSplitRows[0],
+        aggregateSplitChildRows.map(mapAggregateSplitChild),
+      )
       : null,
   }
 }
@@ -1135,6 +1149,41 @@ interface AggregateSplitCaseRow {
   input_tokens: number | null
   output_tokens: number | null
   cost_usd: number | null
+  last_error_code: string | null
+  last_error_message: string | null
+  materialization_status: DeepPipelineAggregateSplitCase["materializationStatus"]
+  materialization_attempt_count: number
+  materialization_max_attempts: number
+  materialization_available_at: Date
+  materialization_leased_at: Date | null
+  materialization_lease_expires_at: Date | null
+  materialization_worker_id: string | null
+  prepared_child_count: number
+  children_prepared_at: Date | null
+  materialization_last_error_code: string | null
+  materialization_last_error_message: string | null
+  created_at: Date
+  updated_at: Date
+}
+
+interface AggregateSplitChildRow {
+  id: string
+  stable_key: string
+  ordinal: number
+  status: DeepPipelineAggregateSplitChild["status"]
+  source: string
+  source_id: string
+  title: string
+  agency_primary: string | null
+  grant_projection_sha256: string
+  manifest_sha256: string
+  source_revision_sha256: string
+  raw_payload_sha256: string
+  attachment_manifest_sha256: string | null
+  input_artifact_key: string | null
+  input_sha256: string | null
+  input_chars: number | null
+  prepared_at: Date | null
   last_error_code: string | null
   last_error_message: string | null
   created_at: Date
@@ -1300,6 +1349,7 @@ function mapAdminAction(row: ActionRow): DeepPipelineAdminAction {
 
 function mapAggregateSplitCase(
   row: AggregateSplitCaseRow,
+  children: DeepPipelineAggregateSplitChild[],
 ): DeepPipelineAggregateSplitCase {
   return {
     id: row.id,
@@ -1338,6 +1388,47 @@ function mapAggregateSplitCase(
     inputTokens: row.input_tokens === null ? null : Number(row.input_tokens),
     outputTokens: row.output_tokens === null ? null : Number(row.output_tokens),
     costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
+    lastErrorCode: row.last_error_code,
+    lastErrorMessage: row.last_error_message,
+    materializationStatus: row.materialization_status,
+    materializationAttemptCount: Number(row.materialization_attempt_count),
+    materializationMaxAttempts: Number(row.materialization_max_attempts),
+    materializationAvailableAt: row.materialization_available_at.toISOString(),
+    materializationLeasedAt: row.materialization_leased_at?.toISOString() ?? null,
+    materializationLeaseExpiresAt:
+      row.materialization_lease_expires_at?.toISOString() ?? null,
+    materializationWorkerId: row.materialization_worker_id,
+    preparedChildCount: Number(row.prepared_child_count),
+    childrenPreparedAt: row.children_prepared_at?.toISOString() ?? null,
+    materializationLastErrorCode: row.materialization_last_error_code,
+    materializationLastErrorMessage: row.materialization_last_error_message,
+    children,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  }
+}
+
+function mapAggregateSplitChild(
+  row: AggregateSplitChildRow,
+): DeepPipelineAggregateSplitChild {
+  return {
+    id: row.id,
+    stableKey: row.stable_key,
+    ordinal: Number(row.ordinal),
+    status: row.status,
+    source: row.source,
+    sourceId: row.source_id,
+    title: row.title,
+    agencyPrimary: row.agency_primary,
+    grantProjectionSha256: row.grant_projection_sha256,
+    manifestSha256: row.manifest_sha256,
+    sourceRevisionSha256: row.source_revision_sha256,
+    rawPayloadSha256: row.raw_payload_sha256,
+    attachmentManifestSha256: row.attachment_manifest_sha256,
+    inputArtifactKey: row.input_artifact_key,
+    inputSha256: row.input_sha256,
+    inputChars: row.input_chars === null ? null : Number(row.input_chars),
+    preparedAt: row.prepared_at?.toISOString() ?? null,
     lastErrorCode: row.last_error_code,
     lastErrorMessage: row.last_error_message,
     createdAt: row.created_at.toISOString(),

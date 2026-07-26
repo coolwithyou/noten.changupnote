@@ -156,6 +156,7 @@ export function DeepNoticeSheet({
                       <strong>통합공고 분리 필요</strong>
                       <Badge
                         variant={detail.aggregateSplitCase.status === "failed"
+                          || detail.aggregateSplitCase.materializationStatus === "failed"
                           ? "destructive"
                           : "outline"}
                       >
@@ -191,7 +192,31 @@ export function DeepNoticeSheet({
                     {detail.aggregateSplitCase.status === "completed" ? (
                       <p className="mt-2 text-sm">
                         하위사업 manifest {formatNumber(detail.aggregateSplitCase.programCount)}개를
-                        검증했습니다. 아직 파생 공고 생성이나 매칭 노출은 하지 않았습니다.
+                        검증했습니다. 파생 공고 후보{" "}
+                        {formatNumber(detail.aggregateSplitCase.preparedChildCount)}개가 봉인됐으며,
+                        아직 실제 공고 생성·딥분석 enqueue·매칭 노출은 하지 않았습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.materializationStatus === "pending" ? (
+                      <p className="mt-2 text-sm">
+                        검증된 manifest를 다시 읽어 파생 공고 입력을 봉인할 worker를
+                        기다리고 있습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.materializationStatus === "processing" ? (
+                      <p className="mt-2 text-sm">
+                        파생 공고 후보를 봉인하고 있습니다. lease{" "}
+                        {detail.aggregateSplitCase.materializationLeaseExpiresAt
+                          ? formatDate(
+                            detail.aggregateSplitCase.materializationLeaseExpiresAt,
+                          )
+                          : "미상"}까지
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.materializationStatus === "prepared" ? (
+                      <p className="mt-2 text-sm">
+                        파생 공고 후보 전체가 봉인됐습니다. E-3B 승격 전까지 메인 공고와
+                        매칭 분모에는 포함되지 않습니다.
                       </p>
                     ) : null}
                   </div>
@@ -212,7 +237,9 @@ export function DeepNoticeSheet({
                     {detail.aggregateSplitCase.approvedByEmail ?? "관리자"} 승인 ·{" "}
                     {formatDate(detail.aggregateSplitCase.approvedAt)} · 시도{" "}
                     {detail.aggregateSplitCase.attemptCount}/
-                    {detail.aggregateSplitCase.maxAttempts}
+                    {detail.aggregateSplitCase.maxAttempts} · 파생 준비 시도{" "}
+                    {detail.aggregateSplitCase.materializationAttemptCount}/
+                    {detail.aggregateSplitCase.materializationMaxAttempts}
                   </p>
                 ) : null}
                 {detail.aggregateSplitCase.inputSha256
@@ -254,10 +281,52 @@ export function DeepNoticeSheet({
                     />
                   </div>
                 ) : null}
+                {detail.aggregateSplitCase.children.length > 0 ? (
+                  <div className="mt-3 grid gap-2">
+                    {detail.aggregateSplitCase.children.map((child) => (
+                      <article key={child.id} className="rounded-lg border bg-background/70 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <strong className="text-sm">
+                              {child.ordinal + 1}. {child.title}
+                            </strong>
+                            <p className="text-xs text-muted-foreground">
+                              {child.agencyPrimary ?? "기관 미상"} · {child.sourceId}
+                            </p>
+                          </div>
+                          <Badge variant={child.status === "failed" ? "destructive" : "outline"}>
+                            {aggregateSplitChildStatusLabel(child.status)}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          입력 {formatNumber(child.inputChars)}자 · 준비{" "}
+                          {child.preparedAt ? formatDate(child.preparedAt) : "미완료"}
+                        </p>
+                        <HashLine label="child input" value={child.inputSha256} />
+                        <HashLine label="child input R2" value={child.inputArtifactKey} />
+                        <HashLine
+                          label="child source revision"
+                          value={child.sourceRevisionSha256}
+                        />
+                        {child.lastErrorMessage ? (
+                          <p className="mt-2 text-sm text-destructive">
+                            {child.lastErrorCode}: {child.lastErrorMessage}
+                          </p>
+                        ) : null}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
                 {detail.aggregateSplitCase.lastErrorMessage ? (
                   <p className="mt-3 text-sm text-destructive">
                     {detail.aggregateSplitCase.lastErrorCode}:{" "}
                     {detail.aggregateSplitCase.lastErrorMessage}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.materializationLastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.materializationLastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.materializationLastErrorMessage}
                   </p>
                 ) : null}
               </section>
@@ -528,4 +597,14 @@ function aggregateSplitStatusLabel(
   if (status === "processing") return "분리 처리 중"
   if (status === "completed") return "분리 완료"
   return "분리 실패"
+}
+
+function aggregateSplitChildStatusLabel(
+  status: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number]["status"],
+): string {
+  if (status === "pending") return "입력 준비 대기"
+  if (status === "prepared") return "입력 봉인 완료"
+  return "입력 준비 실패"
 }
