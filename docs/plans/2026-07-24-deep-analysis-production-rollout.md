@@ -3272,6 +3272,48 @@ Step 4-1P-3 통합 연간 안내책자 사람 예외 확정 체크포인트 — 
   작은 분석 cohort를 기존 primary → 22축 validator → 독립 AI 자동검수 경로로
   닫는 것이다.
 
+Step 4-1P-4 실제 개별 HWP 2건 소규모 분석 체크포인트 — `PASS 1 / HUMAN
+EXCEPTION 1`, 확대는 `BLOCKED` (2026-07-27):
+
+- production의 current claimable job에서 HWP가 있는 실제 활성 개별 공고 2건만
+  봉인했다. `bizinfo/PBLN_000000000124603`은
+  `호주 그린ㆍ에너지 시장개척단 참가기업 추가모집 공고`, input 7,049자/첨부 4건이고,
+  `kstartup/178574`는 `ESG × AI 챌린지 해커톤 참가자 모집`, input
+  11,833자/첨부 2건이다. 556쪽 통합 안내책자는 terminal human exception이라 이
+  bounded cohort에 포함되지 않았다.
+- 첫 BizInfo 실행은 primary의 exact 22축·response contract·원문 evidence가 모두
+  issue 0이었지만, 신청서의 `수출실적 유무` 정보기재란을 우대조건으로 해석해 독립
+  audit가 차단했다. `d130be6`은 신청서 빈칸·체크박스·기업정보 기재란만으로
+  required/exclusion/preferred를 만들지 않고, 필수·제외·우대·배점 효과가 명시된
+  경우만 조건으로 보도록 primary/audit 공용 prompt를 `deep-analysis-v3`, blind
+  audit를 `v2`, model policy를 `v4`로 올렸다. 새 schema·worker·queue·UI는 만들지
+  않았다.
+- 같은 BizInfo 입력의 v4 재실행에서는 잘못된 수출실적 criterion이 사라졌다. 대신
+  독립 audit가 `호주 그린·에너지 산업 진출 희망 기업`의 `target_type` 누락과
+  구조화 필드 `중소기업`을 강행조건으로 볼 수 있는지의 불확실성을 잡아
+  `independent_audit_disagreement`로 fail-closed했다. v3/v4 실행 비용은 각각
+  `$1.025835`/`$0.822875`다. 이 공고는 자동 승격하지 않고 사람 예외로 남겼으며,
+  불일치를 프롬프트 반복 수정으로 억지 합의시키지 않았다.
+- 첫 K-Startup v4 실행도 primary 22축·evidence는 issue 0이었지만 adjudicator가
+  “미성년자 보호자동의서 조건은 primary에 이미 반영된 중복이므로
+  `accept_primary`가 맞다”고 설명하면서 구조화 verdict만 `change_required`로
+  반환해 차단됐다. `13ffe13`은 “이미 반영/중복”이라는 reason과 verdict가
+  반대가 되지 않도록 기존 adjudication prompt 한 곳만 보강하고 version을
+  `deep-analysis-audit-adjudication-v2`, model policy를 `v5`로 올렸다. reason
+  문자열을 서버가 임의 해석해 통과시키는 우회는 추가하지 않았다.
+- K-Startup v5 재실행 job `e1bea519-a308-41eb-9e53-5c977d1f006d`, run
+  `da-20260726T232300814Z-fc0bede2-f268-4816-a56a-06955dd38e11`은 `$0.973465`에
+  `succeeded/passed`로 끝났다. source/input hash는 계획 시 봉인값과 같고,
+  primary `claude-opus-4-8`이 정확히 22축과 criterion 6개를 생성했다.
+  response contract, axis coverage, evidence grounding은 모두 issue 0이며,
+  `claude-sonnet-5` 독립 audit는 disagreement 0/`concur`로
+  `independent_audit_passed`와 S11 `analysis_complete`가 모두 `passed`다.
+- 이 체크포인트는 실제 HWP를 읽는 깊은 분석과 AI 자동 검수가 production DB/R2
+  경로에서 성공할 수 있음을 한 건으로 증명했고, 의미상 충돌하는 공고는 사람
+  예외로 남기는 fail-closed도 한 건으로 증명했다. 그러나 2건 중 1건이 사람
+  예외이므로 20건 확대 조건은 충족하지 않았다. promotion/release/S12,
+  `grant_criteria`·질문·matcher write, Vercel/GCP 배포는 수행하지 않았다.
+
 중단 조건:
 
 - 동결 80 품질 미달
