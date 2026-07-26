@@ -20,6 +20,7 @@ export const DEFAULT_AGGREGATE_SPLIT_SEGMENT_CHARS = 6_000;
 export const DEFAULT_AGGREGATE_SPLIT_MAP_INPUT_CHARS = 72_000;
 export const DEFAULT_AGGREGATE_SPLIT_MAX_COST_USD =
   DEEP_ANALYSIS_AGGREGATE_SPLIT_DEFAULT_MAX_COST_USD;
+export const MAX_AUTOMATED_AGGREGATE_PAGE_HEADINGS = 300;
 
 const MAP_MAX_TOKENS = 6_000;
 const SYNTHESIS_MAX_TOKENS = 12_000;
@@ -160,6 +161,15 @@ export async function buildAggregateSplitManifest(input: {
   runModel?: AggregateSplitModelRunner;
 }): Promise<BuildAggregateSplitManifestResult> {
   assertSplittableSeal(input.seal);
+  const pageHeadingCount = countAggregatePageHeadings(input.seal);
+  if (pageHeadingCount > MAX_AUTOMATED_AGGREGATE_PAGE_HEADINGS) {
+    throw new AggregateSplitManifestError(
+      "aggregate_split_manual_review_required",
+      `페이지 경계 ${pageHeadingCount}개가 자동 분리 상한 `
+        + `${MAX_AUTOMATED_AGGREGATE_PAGE_HEADINGS}개를 초과해 사람 예외로 남깁니다.`,
+      false,
+    );
+  }
   const model = input.model ?? DEEP_ANALYSIS_PRIMARY_MODELS[0];
   const maxCostUsd = input.maxCostUsd ?? DEFAULT_AGGREGATE_SPLIT_MAX_COST_USD;
   const segments = buildAggregateSplitSegments(
@@ -876,6 +886,13 @@ function assertSplittableSeal(seal: DeepAnalysisInputSeal): void {
       false,
     );
   }
+}
+
+function countAggregatePageHeadings(seal: DeepAnalysisInputSeal): number {
+  return groupAndVerifyChunks(seal.chunks).reduce(
+    (count, source) => count + (source.text.match(/^## Page \d+\s*$/gm)?.length ?? 0),
+    0,
+  );
 }
 
 function normalizeUsage(value: unknown): DeepAnalysisUsage | null {

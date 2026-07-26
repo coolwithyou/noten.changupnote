@@ -156,6 +156,45 @@ await assert.rejects(
   /누락·중복·위조/,
 );
 
+const oversizedBookletText = Array.from(
+  { length: 301 },
+  (_, index) => `## Page ${index + 1}\n${String(index + 1).padStart(3, "0")} 사업\n`,
+).join("");
+const oversizedBookletSeal = sealDeepAnalysisInput({
+  grantId: "22222222-2222-4222-8222-222222222224",
+  sourceRevisionSha256: "c".repeat(64),
+  structuredText: oversizedBookletText,
+  attachments: [],
+  chunkChars: 1_000,
+  maxTotalChars: 100,
+});
+let oversizedBookletModelCalls = 0;
+await assert.rejects(
+  buildAggregateSplitManifest({
+    caseId: "33333333-3333-4333-8333-333333333334",
+    seal: oversizedBookletSeal,
+    apiKey: "test",
+    model: "test-model",
+    maxChildInputChars: 3_000,
+    runModel: async (request) => {
+      oversizedBookletModelCalls += 1;
+      return buildRunner()(request);
+    },
+  }),
+  (error: unknown) => (
+    error instanceof Error
+    && "code" in error
+    && error.code === "aggregate_split_manual_review_required"
+    && "retryable" in error
+    && error.retryable === false
+  ),
+);
+assert.equal(
+  oversizedBookletModelCalls,
+  0,
+  "300페이지 초과 통합 안내책자는 외부 모델 호출 전에 사람 예외로 남긴다",
+);
+
 console.log("aggregate split manifest tests passed");
 
 function buildRunner(options: {
