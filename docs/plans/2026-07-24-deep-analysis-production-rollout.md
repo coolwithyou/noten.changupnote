@@ -3242,6 +3242,36 @@ Step 4-1P-2 통합공고 실분리 preflight 체크포인트 — `BLOCKED`
   E-3A, E-3B-2로 진행하지 않는다. GCP의 `sw@noten.im` access token refresh와 최신
   verifier 배포도 여전히 E-3B-3B 이전 독립 blocker다.
 
+Step 4-1P-3 통합 연간 안내책자 사람 예외 확정 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-27):
+
+- full partition 원장·worker·Ops 승인 제품은 구현하지 않는다. aggregate 전용 runtime/SQL
+  경로가 이미 큰 상태에서 단일 연간 안내책자 때문에 partition lifecycle을 추가하면
+  §14.14의 “DB migration + 새 worker + 새 UI가 함께 필요하면 중단” 규칙을 다시
+  위반하고, 실제 활성 공고의 22축 깊은 분석·독립 AI 자동검수라는 목표를 흐린다.
+- `6d7130e`는 봉인 입력의 `## Page N` 경계를 원문 source별로 결정론 재조립해 300개를
+  초과하면 `aggregate_split_manual_review_required`를 non-retryable로 반환한다.
+  이 gate는 model/budget 계산보다 먼저 실행되며, 301페이지 fixture에서 외부 모델 호출
+  0회를 확인했다. 새 schema, migration, queue, API, Ops UI는 추가하지 않았다.
+- production의 승인 case `daa12917-6c8b-4f3a-ae5f-6d4c7fe5c163` 한 건만 worker
+  경로로 다시 claim했다. page marker 556개가 자동 상한 300개를 초과해 attempt `3/3`,
+  status `failed`, stable error `aggregate_split_manual_review_required`로 닫혔다.
+  외부 호출은 누적 5회, token `206,572/13,486`, 비용 `$1.370010`, raw response SHA는
+  이전 값과 같아 이 차단 실행의 추가 외부 호출·token·비용·R2 raw write는 0이다.
+- child 0, materialization/promotion/exposure `not_ready`, parent `visible/open`을
+  readback했다. 기존 Ops case error seam이 stable code와 한국어 message를 그대로
+  표시하므로 별도 화면 변경 없이 사람 전용 예외가 관제된다. 이 공고를 완료로 세거나
+  조용히 분모에서 삭제하지 않는다.
+- 같은 시각 production Ops 정본 집계는 활성 626 =
+  serving complete/fresh 2 + in progress 587 + blocked/failed 6 + stale 31이다.
+  이 사람 예외 1건을 빼면 실제 자동 분석 대상은 625이고 blocked/failed만 5로 줄며,
+  완료 2·진행 587·stale 31은 변하지 않는다. 22축 exact는 4, 같은 input SHA의 독립
+  audit `concur`와 S11을 함께 통과한 건은 2, S12~S14까지 모두 통과한 건도 2다.
+- 다음 checkpoint는 partition 개발이 아니다. frozen 80 receipt에서 이 1건을
+  `human exception / not evaluated`로 명시 보존하고, 나머지 실제 79건의 입력 gate와
+  작은 분석 cohort를 기존 primary → 22축 validator → 독립 AI 자동검수 경로로
+  닫는 것이다.
+
 중단 조건:
 
 - 동결 80 품질 미달
