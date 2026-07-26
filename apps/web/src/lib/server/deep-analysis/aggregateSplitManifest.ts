@@ -13,7 +13,7 @@ import { sha256Hex, stableJson } from "./sourceRevision";
 export const AGGREGATE_SPLIT_MANIFEST_SCHEMA =
   "aggregate-split-manifest-v1" as const;
 export const AGGREGATE_SPLIT_MAP_PROMPT_VERSION =
-  "aggregate-split-map-v2" as const;
+  "aggregate-split-map-v3" as const;
 export const AGGREGATE_SPLIT_SYNTHESIS_PROMPT_VERSION =
   "aggregate-split-synthesis-v1" as const;
 export const DEFAULT_AGGREGATE_SPLIT_SEGMENT_CHARS = 6_000;
@@ -795,6 +795,14 @@ function groupAndVerifyChunks(chunks: DeepAnalysisInputChunk[]): Array<{
 
 function findSegmentEnd(text: string, start: number, maxChars: number): number {
   const hardEnd = Math.min(text.length, start + maxChars);
+  // Converted HWP/PDF booklets preserve page headings. A single page normally
+  // represents one support program, while the old generic 6k boundary could
+  // pack several pages/programs into one indivisible segment. Keep the marker
+  // with the next segment and let synthesis merge a program that spans pages.
+  const nextPageHeading = text.indexOf("\n## Page ", start + 1);
+  if (nextPageHeading >= start && nextPageHeading < hardEnd) {
+    return nextPageHeading + 1;
+  }
   if (hardEnd === text.length) return hardEnd;
   const minPreferred = start + Math.floor(maxChars * 0.5);
   for (const delimiter of ["\f", "\n\n", "\n"]) {

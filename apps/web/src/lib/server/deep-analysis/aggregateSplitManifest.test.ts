@@ -30,6 +30,31 @@ assert.equal(
   "segment는 원문을 무손실로 왕복해야 한다",
 );
 
+const pagedSourceText = [
+  "## Page 1\n첫 번째 사업\n".padEnd(1_500, "가"),
+  "\n## Page 2\n두 번째 사업\n".padEnd(1_500, "나"),
+  "\n## Page 3\n세 번째 사업\n".padEnd(1_500, "다"),
+].join("");
+const pagedSeal = sealDeepAnalysisInput({
+  grantId: "22222222-2222-4222-8222-222222222223",
+  sourceRevisionSha256: "b".repeat(64),
+  structuredText: pagedSourceText,
+  attachments: [],
+  chunkChars: 10_000,
+  maxTotalChars: 100,
+});
+const pageSegments = buildAggregateSplitSegments(pagedSeal, 6_000);
+assert.equal(pageSegments.length, 3, "page heading마다 별도 segment를 만든다");
+assert.deepEqual(
+  pageSegments.map((segment) => segment.text.match(/## Page \d+/)?.[0]),
+  ["## Page 1", "## Page 2", "## Page 3"],
+);
+assert.equal(
+  pageSegments.map((segment) => segment.text).join(""),
+  pagedSourceText,
+  "page 경계 분할도 원문을 무손실로 왕복해야 한다",
+);
+
 const validRunner = buildRunner();
 const built = await buildAggregateSplitManifest({
   caseId: "33333333-3333-4333-8333-333333333333",
