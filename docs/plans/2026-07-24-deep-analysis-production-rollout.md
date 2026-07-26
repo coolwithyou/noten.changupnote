@@ -2992,21 +2992,55 @@ Step 4-1E-3A 파생 공고 입력 준비 체크포인트 — `PASS`, 전체는 `
   R2 쓰기, 외부 LLM 호출, 앱 배포, 실제 파생 `grants/grant_raw` 생성, 딥분석 job
   enqueue, parent 매칭 제외를 하지 않았다.
 
-다음 체크포인트 Step 4-1E-3B의 범위:
+Step 4-1E-3B-1 staged serving visibility 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
 
-1. 파생 후보를 `grants/grant_raw`에 넣어도 일반 matcher와 active 딥분석 분모에는
-   보이지 않는 명시적 staging/visibility 경계를 먼저 추가하고 회귀 테스트로 증명
-2. 준비된 모든 후보의 projection/raw/input hash를 다시 검증한 뒤 한 transaction에서
-   동일 UUID로 staged grant를 멱등 승격
-3. staged 자식 각각을 기존 깊은 분석 → 독립 validator → AI 자동 검수/필요 시 repair →
-   승격/serving evidence 체인에 enqueue하고 후보별 S0~S14를 Ops에 표시
-4. 모든 자식이 최신 revision의 S14와 AI 자동 검수 통과 및 serving readback을 증명한
-   경우에만 parent를 일반 매칭/딥분석 분모에서 제외하고 자식을 동시에 노출
-5. 부분 실패·stale revision에서는 parent 노출을 유지하고 자식은 계속 숨긴 채 재시도/
-   사람 조치 evidence를 남기는 전환·복구 계약 추가
+- `grants.status`는 source revision에 포함되므로 pipeline 상태를 숨기는 용도로 바꾸지
+  않는다. 별도 enum `grant_serving_state = visible | staged | suppressed`를 추가했고
+  기존·일반 수집 공고는 migration default `visible`을 유지한다. 따라서 staged 분석과
+  최종 노출 전환은 공고 원문 revision을 불필요하게 stale로 만들지 않는다.
+- 일반 사용자가 소비하는 DB 경로는 하나의 `grantServingVisiblePredicate()`를 사용한다.
+  main matcher의 active candidate와 dedup hydration, 일반 공고 상세 조회, 랜딩 전체/source
+  집계와 active banner, 공개 캘린더, 공고 아카이브 결과와 기관 자동완성에서
+  `serving_state = visible`만 허용한다. 기존 `match_state`의 due transition 조회도
+  grants와 join해 staged/suppressed parent의 stale 행이 전환 이벤트를 만들지 못하게 한다.
+- active 딥분석 모집단 함수 `cunote_active_deep_analysis_grants`도 같은 visible 조건으로
+  교체한다. TypeScript 제품 계약 `isGrantActiveForDeepAnalysis` 역시 serving state를
+  필수 입력으로 받고 staged/suppressed를 날짜·공고 status와 무관하게 제외한다. 이전
+  날짜-only evidence와 혼동하지 않도록 active policy version을
+  `deep-analysis-active-kst-v2`로 올렸다.
+- 명시적 내부 `listGrantsByIds`와 `prepareDeepAnalysisInput`에는 visible predicate를
+  넣지 않는다. 다음 단계가 staged child를 ID로 검증·분석할 수 있어야 하며, 일반
+  matcher/serving caller는 이 우회 인터페이스를 사용하지 않는다.
+- `(serving_state, status, apply_end)` index를 추가해 visible+활성 status+마감일 조회가
+  새 상태 필터 때문에 전체 scan으로 후퇴하지 않게 했다. grants의 기존 RLS는 유지한다.
+- 회귀 guard는 shared predicate의 SQL parameter, matcher candidate+dedup hydration+
+  상세 조회, 랜딩·캘린더·아카이브 적용, active DB 함수, 내부 ID/입력 준비 우회를
+  구분하고 stale `match_state` transition 차단도 검증한다. `verify:aggregate-split`,
+  기존 깊은 분석·AI 자동 검수 계약,
+  migration, web/admin typecheck, package runtime freshness와 관련 화면 로직 검증을
+  통과했다.
+- 현재 로컬 DB에는 0062 migration을 적용하지 않았다. 랜딩 검증의 DB query는 새 컬럼
+  부재로 실패한 뒤 development fallback fixture로 통과했으므로 live DB 증거로 세지
+  않는다. 이 체크포인트에서는 DB migration 적용, 실제 serving state 변경, 파생
+  `grants/grant_raw` 생성, 딥분석 enqueue, R2/외부 LLM 호출, 앱 배포를 하지 않았다.
 
-현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. E-3B의 실제 딥분석·AI 자동 검수·원자적
-노출 전환까지 닫기 전에는 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
+다음 체크포인트 Step 4-1E-3B-2의 범위:
+
+1. E-3A prepared child의 projection과 input artifact를 다시 읽어 grant/raw/source
+   revision/input SHA를 재검증하는 승격 seam
+2. case의 모든 prepared child를 같은 transaction에서 동일 UUID의
+   `grants(serving_state=staged)`와 `grant_raw`로 멱등 생성하고 exact count/identity
+   불일치 시 전체 rollback
+3. transaction 밖에서 staged child 각각을 기존 깊은 분석 pipeline에 직접 enqueue하되
+   active feeder 우회 이유·sealed revision·job identity를 case/child evidence로 보존
+4. Ops에 staged grant 생성·job enqueue·S0~S14·AI 자동 검수 진행 상태를 child별 표시
+5. 이 단계에서도 parent는 `visible`, child는 `staged`로 유지하고 실제 노출 전환은
+   모든 child의 최신 S14/AI 자동 검수/serving readback을 확인하는 후속 체크포인트로 분리
+
+현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. staged child의 실제 깊은 분석·AI 자동
+검수와 parent/child 원자적 노출 전환까지 닫기 전에는 H2 revision/cohort 확인과 24시간
+카나리 단계로 넘어가지 않는다.
 
 중단 조건:
 

@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import {
   CRITERION_DIMENSIONS,
+  DEEP_ANALYSIS_ACTIVE_POLICY_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
   assertDeepAnalysisModelPair,
   deriveDeepAnalysisCompletion,
   hasExactDeepAnalysisAxisCoverage,
   isGrantActiveForDeepAnalysis,
 } from "./index.js";
+
+assert.equal(DEEP_ANALYSIS_ACTIVE_POLICY_VERSION, "deep-analysis-active-kst-v2");
 
 assert.doesNotThrow(() => assertDeepAnalysisModelPair({
   primaryModel: "claude-opus-4-8",
@@ -21,27 +24,45 @@ const asOf = new Date("2026-07-25T03:00:00.000Z");
 
 assert.equal(isGrantActiveForDeepAnalysis({
   status: "open",
+  servingState: "visible",
   applyStart: "2026-07-24T00:00:00.000Z",
   applyEnd: "2026-07-25T00:00:00.000Z",
 }, asOf), true, "KST 오늘 마감은 활성이다");
 
 assert.equal(isGrantActiveForDeepAnalysis({
   status: "open",
+  servingState: "visible",
   applyStart: "2026-07-26T00:00:00.000Z",
   applyEnd: "2026-07-30T00:00:00.000Z",
 }, asOf), false, "KST 시작 전 공고는 활성 딥분석 분모에서 제외한다");
 
 assert.equal(isGrantActiveForDeepAnalysis({
   status: "open",
+  servingState: "visible",
   applyStart: null,
   applyEnd: null,
 }, asOf), false, "마감 미상 공고는 예외 큐다");
 
 assert.equal(isGrantActiveForDeepAnalysis({
   status: "closed",
+  servingState: "visible",
   applyStart: null,
   applyEnd: "2026-07-30T00:00:00.000Z",
 }, asOf), false, "closed 상태는 날짜와 무관하게 제외한다");
+
+assert.equal(isGrantActiveForDeepAnalysis({
+  status: "open",
+  servingState: "staged",
+  applyStart: "2026-07-24T00:00:00.000Z",
+  applyEnd: "2026-07-30T00:00:00.000Z",
+}, asOf), false, "staged 파생 공고는 활성 딥분석 자동 분모에서 제외한다");
+
+assert.equal(isGrantActiveForDeepAnalysis({
+  status: "open",
+  servingState: "suppressed",
+  applyStart: "2026-07-24T00:00:00.000Z",
+  applyEnd: "2026-07-30T00:00:00.000Z",
+}, asOf), false, "전환 완료 parent는 활성 딥분석 자동 분모에서 제외한다");
 
 assert.equal(
   hasExactDeepAnalysisAxisCoverage(

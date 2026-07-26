@@ -2,7 +2,7 @@ import { CRITERION_DIMENSIONS } from "./enums.js";
 
 type DeepAnalysisCriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 
-export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v1" as const;
+export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v2" as const;
 export const DEEP_ANALYSIS_ACTIVE_TIME_ZONE = "Asia/Seoul" as const;
 export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v2" as const;
 export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v3" as const;
@@ -11,6 +11,7 @@ export const DEEP_ANALYSIS_SERVING_VERIFIER_VERSION =
 export const DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS = 45 * 60;
 export const DEEP_ANALYSIS_INPUT_PREPARATION_STALE_SECONDS = 15 * 60;
 export const DEEP_ANALYSIS_AGGREGATE_SPLIT_DEFAULT_MAX_COST_USD = 12;
+export const GRANT_SERVING_STATES = ["visible", "staged", "suppressed"] as const;
 
 /**
  * 운영 모델은 명시 allowlist만 허용한다. 환경변수로 임의 모델을 주입해 이미 검증한
@@ -84,9 +85,11 @@ export type DeepAnalysisAttachmentDisposition =
   (typeof DEEP_ANALYSIS_ATTACHMENT_DISPOSITIONS)[number];
 export type DeepAnalysisPrimaryModel = (typeof DEEP_ANALYSIS_PRIMARY_MODELS)[number];
 export type DeepAnalysisAuditModel = (typeof DEEP_ANALYSIS_AUDIT_MODELS)[number];
+export type GrantServingState = (typeof GRANT_SERVING_STATES)[number];
 
 export interface DeepAnalysisActiveGrantInput {
   status: string;
+  servingState: GrantServingState;
   applyStart: Date | string | null;
   applyEnd: Date | string | null;
 }
@@ -221,6 +224,7 @@ export function isGrantActiveForDeepAnalysis(
   grant: DeepAnalysisActiveGrantInput,
   asOf: Date = new Date(),
 ): boolean {
+  if (grant.servingState !== "visible") return false;
   if (grant.status !== "open") return false;
   const start = dateKey(grant.applyStart);
   const end = dateKey(grant.applyEnd);

@@ -3,6 +3,7 @@ import type { Grant, LandingGrantBanner, LandingGrantData, LandingGrantStats, No
 import { daysUntil, deriveGrantBenefits, supportAmountMax } from "@cunote/core";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibility";
 import { loadServiceGrants, type LoadServiceGrantsOptions } from "@/lib/server/serviceData";
 import { activeGrantApplyEndCutoff } from "@/lib/server/repositories/activeGrantFilter";
 import { getRepositoryAdapterName } from "@/lib/server/repositories/factory";
@@ -34,10 +35,14 @@ async function loadLandingGrantDataFromDb(asOf: Date): Promise<LandingGrantData>
   const db = getCunoteDb();
   const activeWhere = activeGrantWhere(asOf);
 
-  const [totalRow] = await db.select({ value: count() }).from(schema.grants);
+  const [totalRow] = await db
+    .select({ value: count() })
+    .from(schema.grants)
+    .where(grantServingVisiblePredicate());
   const sourceRows = await db
     .select({ source: schema.grants.source, value: count() })
     .from(schema.grants)
+    .where(grantServingVisiblePredicate())
     .groupBy(schema.grants.source);
   const [attachmentRow] = await db
     .select({
@@ -197,10 +202,13 @@ function activeGrantWhere(asOf: Date) {
     gte(schema.grants.applyEnd, activeGrantApplyEndCutoff(asOf)),
   );
 
-  return or(
-    and(eq(schema.grants.status, "open"), applyEndWhere),
-    and(eq(schema.grants.status, "upcoming"), applyEndWhere),
-    and(eq(schema.grants.status, "unknown"), applyEndWhere),
+  return and(
+    grantServingVisiblePredicate(),
+    or(
+      and(eq(schema.grants.status, "open"), applyEndWhere),
+      and(eq(schema.grants.status, "upcoming"), applyEndWhere),
+      and(eq(schema.grants.status, "unknown"), applyEndWhere),
+    ),
   );
 }
 

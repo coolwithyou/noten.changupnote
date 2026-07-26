@@ -69,6 +69,11 @@ export const grantRawStatusEnum = pgEnum("grant_raw_status", [
   "failed",
 ]);
 export const grantStatusEnum = pgEnum("grant_status", ["upcoming", "open", "closed", "unknown"]);
+export const grantServingStateEnum = pgEnum("grant_serving_state", [
+  "visible",
+  "staged",
+  "suppressed",
+]);
 export const criterionDimensionEnum = pgEnum("criterion_dimension", [
   "region",
   "biz_age",
@@ -685,6 +690,11 @@ export const grants = pgTable("grants", {
   benefits: jsonb("benefits").$type<Array<Record<string, unknown>>>(),
   requiredDocuments: jsonb("required_documents").$type<Array<Record<string, unknown>>>(),
   status: grantStatusEnum("status").notNull(),
+  /**
+   * source status/revision과 독립적인 제품 노출 상태. staged는 분석 중인 파생 공고,
+   * suppressed는 전환 완료 뒤 숨긴 parent이며 둘 다 일반 serving query에서 제외한다.
+   */
+  servingState: grantServingStateEnum("serving_state").default("visible").notNull(),
   fRegions: text("f_regions").array().notNull().default(sql`ARRAY[]::text[]`),
   fIndustries: text("f_industries").array().notNull().default(sql`ARRAY[]::text[]`),
   fBizAgeMinMonths: integer("f_biz_age_min_months"),
@@ -704,6 +714,8 @@ export const grants = pgTable("grants", {
   sourceIdIdx: uniqueIndex("grants_source_id_idx").on(table.source, table.sourceId),
   statusIdx: index("grants_status_idx").on(table.status),
   sourceStatusIdx: index("grants_source_status_idx").on(table.source, table.status),
+  servingStatusApplyEndIdx: index("grants_serving_status_apply_end_idx")
+    .on(table.servingState, table.status, table.applyEnd),
   applyEndIdx: index("grants_apply_end_idx").on(table.applyEnd),
   updatedAtIdx: index("grants_updated_at_idx").on(table.updatedAt),
   benefitsIdx: index("grants_benefits_idx").using("gin", table.benefits),

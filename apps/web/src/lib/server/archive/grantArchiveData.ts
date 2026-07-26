@@ -4,6 +4,7 @@ import type { CompanyAccess } from "@/lib/server/auth/companyGuard";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibility";
 import {
   applicationManagementFromPayload,
   listRuntimeApplicationManagementFeedback,
@@ -92,7 +93,10 @@ export async function searchGrantAgencies(input: {
   if (getRepositoryAdapterName() === "drizzle") {
     try {
       const db = getCunoteDb();
-      const conditions: SQL[] = [sql`${schema.grants.agencyPrimary} is not null`];
+      const conditions: SQL[] = [
+        grantServingVisiblePredicate(),
+        sql`${schema.grants.agencyPrimary} is not null`,
+      ];
       if (q) conditions.push(ilike(schema.grants.agencyPrimary, likePattern(q)));
       const rows = await db
         .select({
@@ -365,8 +369,8 @@ function errorMessage(error: unknown): string {
 }
 
 function buildGrantArchiveWhere(query: GrantArchiveQuery | undefined, asOf: Date): SQL | undefined {
-  const conditions: SQL[] = [];
-  if (!query) return undefined;
+  const conditions: SQL[] = [grantServingVisiblePredicate()];
+  if (!query) return and(...conditions);
 
   if (query.sources?.length) conditions.push(inArray(schema.grants.source, query.sources));
   if (query.statuses?.length) conditions.push(inArray(schema.grants.status, query.statuses));
