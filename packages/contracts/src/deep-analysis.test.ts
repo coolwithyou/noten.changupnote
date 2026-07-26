@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   CRITERION_DIMENSIONS,
   DEEP_ANALYSIS_ACTIVE_POLICY_VERSION,
+  DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
   assertDeepAnalysisModelPair,
   deriveAggregateSplitExposureBlocker,
@@ -124,7 +125,7 @@ const readySplitChild = (
     id: jobId,
     grantId: childId,
     sourceRevisionSha256: "a".repeat(64),
-    modelPolicyVersion: "deep-analysis-model-policy-v3",
+    modelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
     status: "succeeded",
   },
   latestRun: {
@@ -133,7 +134,7 @@ const readySplitChild = (
     grantId: childId,
     sourceRevisionSha256: "a".repeat(64),
     inputSha256: "b".repeat(64),
-    modelPolicyVersion: "deep-analysis-model-policy-v3",
+    modelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
     status: "passed",
   },
   stageStatuses: Object.fromEntries(

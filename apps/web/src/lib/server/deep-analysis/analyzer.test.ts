@@ -3,9 +3,19 @@ import type { DeepAnalysisModelResult } from "@cunote/contracts";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
   resolveExactEvidenceSpan,
   type runDeepGrantAnalysis,
 } from "./extractor";
+
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /신청서·서식의 빈칸, 체크박스, 기업정보 기재란.*수출실적 유무.*조건을 만들지 마라/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition/,
+);
 
 assert.equal(
   resolveExactEvidenceSpan("서울 소재 기업만 신청", "앞문장\n서울   소재\n기업만 신청\n뒷문장"),
