@@ -610,6 +610,8 @@ export const CONFIRMATION_PROMPT_RULES = [
 
 export const DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE =
   "business_status는 active/closed 같은 사업자등록상 운영 상태만 뜻한다. 지급불능·부도·파산·회생·법정관리·청산은 credit_status 플래그로만 표현하고, 동일 사실을 business_status criterion이나 condition_found로 중복 표현하지 마라. 예: 원문이 '부도 또는 파산기업(예정 포함)'이면 credit_status의 bond_default/bankruptcy_filed만 추출하고, 다른 휴업·폐업 근거가 없는 한 business_status는 inspected_no_condition이다.";
+export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
+  "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라.";
 
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
@@ -638,6 +640,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "단순 정보수집 항목만 있고 규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition 으로 둔다. 다만 서식 안에서도 신청자격·결격·서약·우대·배점이 문장으로 명시되면 그 문장을 근거로 조건을 추출한다.",
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
+  DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   "업종은 dimension=industry 의 value.tags 배열에 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 로 남긴다.",
   "휴폐업 제외는 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"closed\"],\"labels\":[\"휴폐업\"]} 로 추출한다.",
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,

@@ -101,21 +101,15 @@ export function validateDeepAnalysisResult(input: {
     });
   }
 
-  const validatedCriteria = input.result.criteria.map((criterion, index) => (
+  const allValidatedCriteria = input.result.criteria.map((criterion, index) => (
     validateCriterion(input.seal, criterion, index, issues)
   ));
-  const semanticIndexes = new Map<string, number>();
-  for (const validated of validatedCriteria) {
-    const prior = semanticIndexes.get(validated.semanticSha256);
-    if (prior !== undefined) {
-      issues.push({
-        code: "semantic_duplicate",
-        path: `$.criteria[${validated.index}]`,
-        message: `Semantic duplicate of criterion ${prior}.`,
-      });
-    } else {
-      semanticIndexes.set(validated.semanticSha256, validated.index);
-    }
+  const validatedCriteria: DeepAnalysisValidatedCriterion[] = [];
+  const semanticHashes = new Set<string>();
+  for (const validated of allValidatedCriteria) {
+    if (semanticHashes.has(validated.semanticSha256)) continue;
+    semanticHashes.add(validated.semanticSha256);
+    validatedCriteria.push(validated);
   }
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
@@ -349,7 +343,7 @@ function validateCriterion(
     dimension: canonicalCriterion.dimension,
     operator: canonicalCriterion.operator,
     kind: canonicalCriterion.kind,
-    value: canonicalCriterion.value,
+    value: canonicalizeSemanticValue(canonicalCriterion.value),
   }));
   return {
     index,
@@ -358,6 +352,22 @@ function validateCriterion(
     semanticSha256,
     evidenceRefs,
   };
+}
+
+function canonicalizeSemanticValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    if (value.every((item) => typeof item === "string")) {
+      return [...new Set(value)].sort();
+    }
+    return value.map(canonicalizeSemanticValue);
+  }
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [
+      key,
+      canonicalizeSemanticValue(item),
+    ]),
+  );
 }
 
 function locateEvidence(

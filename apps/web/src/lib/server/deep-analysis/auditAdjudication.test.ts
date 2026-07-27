@@ -8,7 +8,10 @@ import {
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
 } from "./auditAdjudication";
 import { priceDeepAnalysisUsage } from "./costPolicy";
-import { DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE } from "./extractor";
+import {
+  DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+} from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
@@ -26,6 +29,12 @@ assert.equal(
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
   /'부도 또는 파산기업\(예정 포함\)'.*credit_status의 bond_default\/bankruptcy_filed만.*business_status는 inspected_no_condition/,
+);
+assert.equal(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
+    DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  ),
+  true,
 );
 const seal = sealDeepAnalysisInput({
   grantId: "audit-adjudication",

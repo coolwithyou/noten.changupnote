@@ -137,7 +137,44 @@ const duplicate = validateDeepAnalysisResult({
   seal,
   result: result([criterion(), criterion()], axes(["region"])),
 });
-assert.equal(duplicate.issues.some((issue) => issue.code === "semantic_duplicate"), true);
+assert.equal(duplicate.valid, true);
+assert.equal(duplicate.criteria.length, 1);
+assert.equal(duplicate.axisCriterionSemanticHashes.region.length, 1);
+
+const creditSourceSpan = "파산 또는 회생절차 개시 신청 기업은 제외한다.";
+const creditSeal = sealDeepAnalysisInput({
+  grantId: "grant-credit-order",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: creditSourceSpan,
+  attachments: [],
+});
+const creditCriteria = [
+  criterion({
+    dimension: "credit_status",
+    kind: "exclusion",
+    value: {
+      flags: ["rehabilitation_in_progress", "bankruptcy_filed"],
+      exceptions: ["repayment_plan_in_good_standing"],
+    },
+    sourceSpan: creditSourceSpan,
+  }),
+  criterion({
+    dimension: "credit_status",
+    kind: "exclusion",
+    value: {
+      flags: ["bankruptcy_filed", "rehabilitation_in_progress"],
+      exceptions: ["repayment_plan_in_good_standing"],
+    },
+    sourceSpan: creditSourceSpan,
+  }),
+];
+const creditOrder = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result(creditCriteria, axes(["credit_status"])),
+});
+assert.equal(creditOrder.valid, true);
+assert.equal(creditOrder.criteria.length, 1);
+assert.equal(creditOrder.axisCriterionSemanticHashes.credit_status.length, 1);
 
 const droppedRaw = result([criterion()], axes(["region"]));
 (droppedRaw.rawToolInput.criteria as unknown[]).push({

@@ -3510,6 +3510,40 @@ Step 4-1P-9 v6 실제 재실행·HTML 공백 인용 비용 증폭 교정 체크�
   `git diff --check`도 PASS했다. 다음 mutation은 이 작은 v7 commit을 observe-only로
   배포한 뒤 같은 exact 두 건만 다시 실행하는 것이다.
 
+Step 4-1P-10 v7 실제 AI 감사·semantic duplicate 교정 체크포인트 —
+`LOCAL PASS`, production v8 재실행은 아직 `PENDING` (2026-07-27):
+
+- v7 commit `ddf402dd7a52ab4b18325e2d551855e0e2bcd86d`를 Cloud Build
+  `9f27ef1f-e3f1-4caa-8498-651700750427`, digest
+  `sha256:2637f1c111a09ff97380207c5427038aafe8c07e12f4bf8740f200d6b1eb3f7d`로
+  main/input-preparation/serving-monitor generation `21/13/6`에 배포했다.
+  observe-only `2brt9`, input `8nc7t`, monitor `6hvch` smoke는 v7/current revision,
+  mutation 0, 기존 active release 2건 PASS를 확인했다.
+- activation `2026-07-27T04:18:32Z`에 같은 exact 두 UUID·cohort hash만 generation
+  22로 열었다. 첫 run
+  `da-20260727T041918686Z-1a0b0e24-8603-4f5c-87e0-b76f835c7d06`은 22축을 만들고
+  실제 primary+audit+adjudication 비용 `$1.999572`로 `$2` 안에서 독립 AI 감사까지
+  완료했지만 최종 `independent_audit_disagreement`였다. 두 번째 공고는 호출하지
+  않았고 main은 generation 23 `observe_only`, claim fence 제거 상태로 복귀했다.
+- disagreement 원문을 읽기 전용으로 대조한 결과 실제 자격조건 누락이 아니라 두 종류의
+  semantic duplicate였다. `credit_status`의 같은 flags가 배열 순서만 달라 hash가
+  갈렸고, adjudicator는 reason에서 “primary에 이미 반영된 중복”이라고 확인하면서
+  구조화 verdict만 `change_required`로 반대로 냈다. 또 `중견기업` 규모 조건을 primary가
+  `size`에 반영했는데 audit가 동일 문구를 `target_type`에도 중복 요구했다.
+- exact semantic hash가 같은 criterion은 모델 전체 응답을 재생성하지 않고 validation
+  projection에서 한 건으로 접는다. criterion value 안의 문자열 배열은 집합 의미 비교
+  때 중복 제거·정렬해 flags 순서 차이를 같은 hash로 본다. 원문 근거·축·operator·kind·
+  value가 실제로 다르면 계속 별개 후보로 남는다.
+- `중소기업·중견기업·대기업` 같은 규모는 `size`로만, `target_type`은 개인/법인·
+  협동조합·비영리처럼 신청 주체의 법적 형태·역할 유형으로만 쓰는 공유 규칙을 primary,
+  blind audit, adjudication에 동일하게 넣었다. prompt v5, blind audit v4,
+  adjudication v4, model policy v8로 올렸다.
+- 실제 v7 첫 primary raw response를 네트워크 호출 없이 새 validator로 재생한 결과
+  `$0.525735` 첫 pass가 raw criterion 12개를 semantic 11개로 안전하게 접어 22축·
+  validation issue 0으로 통과했다. focused validator/analyzer/adjudication 테스트,
+  package build, 전체 deep-analysis contract, web typecheck, diff check도 PASS했다.
+  상한·모델·cohort·발행 gate는 변경하지 않았다.
+
 중단 조건:
 
 - 동결 80 품질 미달

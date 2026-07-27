@@ -4,6 +4,7 @@ import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   resolveExactEvidenceSpan,
   type runDeepGrantAnalysis,
@@ -24,6 +25,14 @@ assert.equal(
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /'부도 또는 파산기업\(예정 포함\)'.*credit_status의 bond_default\/bankruptcy_filed만.*business_status는 inspected_no_condition/,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /중소기업·중견기업·대기업.*size로만.*target_type은 개인사업자·법인사업자/,
 );
 
 assert.equal(
