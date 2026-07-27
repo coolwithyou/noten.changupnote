@@ -4095,6 +4095,67 @@ Step 4-1P-23 exact 2건 재실행·중단 판단 체크포인트 —
   `inspected_no_condition`이라는 규칙을 primary와 blind audit/adjudication이 같은
   상수로 소비하게 한다. 그 뒤 model policy를 올려 **같은 exact 2건만** 재실행한다.
 
+Step 4-1P-24 실패 계약 교정·동일 2건 v17 재실행 체크포인트 —
+`S11 0/2`, 확대·승격 `STOP` (2026-07-28):
+
+- commit `285a12a187f5604e3fd359d1aa1fd45fedf3e571`에서
+  `repayment_plan_in_good_standing`이 `loan_default`를 실제 면제하도록 canonical
+  coverage와 matcher ruleset을 올렸다. 제출서류 목록·납세증명서·사업자등록증·보험서류
+  자체는 명시적 자격·결격·우대·배점 문장이 없으면 criterion이나 ambiguous 후보가
+  아니라는 공통 규칙을 primary와 audit adjudication이 같은 상수로 소비하게 했다.
+  prompt/model policy/audit/adjudication은 각각 v10/v17/v11/v12로 올렸다.
+  전체 deep-analysis contract, canonical·matching 회귀, contracts/core/web typecheck가
+  통과했다.
+- Cloud Build `167a948c-4c19-4625-a6ee-c773c07573a2`가 exact commit을 성공으로
+  빌드했고 immutable digest
+  `sha256:4f793d08da8dd2e82616cbc689575eaffc42854a548fcaf2edd6e58bd4d5f498`를
+  세 job에 배포했다. 최초 Ready generation은 main/input/monitor `59/24/17`이며
+  account/project/region은 `sw@noten.im` → `changupnote-com` →
+  `cunote-codex-dev@changupnote-com.iam.gserviceaccount.com`,
+  메인 worker는 claim env가 없는 observe-only를 유지했다. smoke
+  `cunote-deep-analysis-zgslw`는 v17/current revision, claim/enqueue/analysis/budget
+  mutation 0이었고 monitor `bznvl`은 기존 serving 2/2를 PASS했다.
+- 동일 cohort UUID 2개와 SHA-256
+  `50ccca29d6be1990692d5e4eeec3d976234f881edfd55b568ed84d1c422eb6a2`만
+  generation 60/62 실행 snapshot에 넣고, 각 실행 생성 직후 job definition을
+  generation 61/63 observe-only로 복귀시켰다. production run은 아래 exact 2건뿐이며
+  out-of-cohort run은 0이다.
+  - `kstartup/178647` run
+    `da-20260727T231125619Z-4fe848a3-513d-4935-abfd-692b50fcd208`은 기존
+    repayment canonical 오류가 사라져 primary contract·22축·evidence를 통과했다.
+    그러나 독립 검수는 원문의 “법원의 회생계획인가 또는 변제계획인가를 받거나
+    파산절차에서 면책결정이 확정된 자” 중 파산 면책 예외가 primary structured
+    exceptions에 보존되지 않았다고 판정했다. 현재 canonical 예외 목록에는
+    debt repaid/discharged를 표현할 값이 없어 특정 사업자를 오배제할 수 있는 실질
+    모델 경계다. verdict `disagree`, 비용 `$0.691217`이다.
+  - `bizinfo/PBLN_000000000123200` run
+    `da-20260727T231751155Z-8590e039-3b0e-480d-b866-5b8419a1f33d`은 기존
+    “지방세 납세증명서 제출만으로 tax 조건을 열었다”는 불일치가 사라졌고 primary
+    contract·22축·evidence를 통과했다. 그러나 독립 검수는 선정평가표의 “본사 및
+    공장 소재지” 차등 배점을 region 필수요건과 별도의 premises 우대 criterion으로
+    보존하지 않은 실질 누락을 찾았다. verdict `disagree`, 비용 `$0.868705`이다.
+- cohort 비용은 `$1.559922`다. 두 v17 job은 dead-letter terminal, promotion item은
+  0건이고 기존 `grant_criteria` 수 `9/4`도 변하지 않았다. S12~S14, shadow, Vercel,
+  랜딩 E2E는 실행하지 않았다. 종료 smoke `cunote-deep-analysis-v6nhl`은 generation
+  63 observe-only, claim 0을 증명했고 monitor `fw6td`는 serving 2/2를 PASS했다.
+  최종 `verify:deep-analysis-ops`는 policy v17 일치, active 600 보존식, active
+  worker/lease 0, warning/failure 0으로 PASS했다.
+- 실패 경험은 run, stage receipt, audit, exception event, immutable R2 artifact에
+  재현 가능하게 누적된다. 그러나 이 원장은 다음 분석의 prompt나 canonical 사전을
+  자동 변경하지 않는다. 기존 `review_lessons` 소비 경로도 지원서 작성·채팅 팁용이며
+  deep-analysis analyzer/auditor에는 연결되어 있지 않다. 따라서 이번처럼 사람이
+  실패를 분류해 공유 규칙·canonical·회귀 테스트·policy version으로 승격한 경험만
+  다음 실행에 재사용된다. 실제로 v16의 두 실패는 v17에서 반복되지 않았지만, 더
+  깊은 두 실질 누락이 새로 드러났다.
+- **판단:** 이 구조는 같은 확인된 실패를 반복하지 않는 통제된 학습에는 성공했지만,
+  자동 온라인 학습은 아니다. 현재 우선순위는 gate를 느슨하게 하거나 자동 lesson
+  주입 계층을 새로 만드는 것이 아니다. 다음 작은 체크포인트에서
+  (1) debt repaid/discharged를 회사 profile까지 판정 가능한 canonical 예외로
+  도입할지, 원문 보존만 하고 사람 확인으로 둘지 결정하고,
+  (2) 평가표의 본사·공장 소재지 배점을 premises preferred로 추출하는 회귀 하나를
+  고정한 뒤 동일 2건 중 필요한 표본만 다시 검증한다. 그 전에는 cohort를 확대하지
+  않는다.
+
 중단 조건:
 
 - 동결 80 품질 미달
