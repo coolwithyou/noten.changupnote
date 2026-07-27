@@ -113,7 +113,7 @@ export const PIPELINE_STATUS_LABELS: Record<PipelineStatus, string> = {
   converted: "변환",
   extracted: "추출",
   normalized: "정규화",
-  published: "발행",
+  published: "기본 데이터 발행",
   failed: "실패",
 }
 
@@ -147,7 +147,7 @@ export const PIPELINE_ACTIONS = ["mark_reviewed", "reconvert"] as const
 export type PipelineAction = (typeof PIPELINE_ACTIONS)[number]
 
 export const PIPELINE_ACTION_LABELS: Record<PipelineAction, string> = {
-  mark_reviewed: "검수 완료",
+  mark_reviewed: "기본 추출 검수 완료",
   reconvert: "재변환 요청",
 }
 
@@ -202,8 +202,13 @@ export interface DeepPipelineStageSummary {
 
 export interface DeepPipelineSummary {
   generatedAt: string
+  modelPolicyVersion: string
+  contractModelPolicyVersion: string
+  policyMatchesContract: boolean
   activeTotal: number
   classifiedTotal: number
+  activeReleaseCount: number
+  reanalysisRequiredCount: number
   degraded: boolean
   buckets: DeepPipelineBucketSummary[]
   stages: DeepPipelineStageSummary[]
@@ -211,6 +216,9 @@ export interface DeepPipelineSummary {
     workerId: string | null
     currentJobId: string | null
     status: string | null
+    modelPolicyVersion: string | null
+    expectedModelPolicyVersion: string
+    policyMatches: boolean
     executionMode: "active" | "observe_only" | null
     claimScope: "unconfigured" | "bounded" | "all" | null
     claimCohortCount: number
@@ -227,6 +235,9 @@ export interface DeepPipelineSummary {
   inputPreparation: {
     executionId: string | null
     status: string | null
+    modelPolicyVersion: string | null
+    expectedModelPolicyVersion: string
+    policyMatches: boolean
     serviceRevision: string | null
     heartbeatAt: string | null
     stale: boolean
@@ -282,6 +293,12 @@ export interface DeepPipelineNoticeItem {
   bucket: DeepPipelineBucket
   jobId: string | null
   jobStatus: string | null
+  modelPolicyVersion: string | null
+  currentPolicyVersion: string
+  currentPolicyJobStatus: string | null
+  activeReleaseId: string | null
+  activeReleaseRevision: number | null
+  requiresCurrentPolicyReanalysis: boolean
   runId: string | null
   runPublicId: string | null
   runStatus: string | null

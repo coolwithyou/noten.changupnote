@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useCallback, useEffect, useRef, useState, useTransition } from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
@@ -13,6 +14,11 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -102,6 +108,7 @@ interface PipelinePageViewProps {
   query: PipelineQueryState
   canMutate: boolean
   canReconvert: boolean
+  canViewDeepAnalysis: boolean
 }
 
 interface PendingAction {
@@ -115,6 +122,7 @@ export function PipelinePageView({
   query,
   canMutate,
   canReconvert,
+  canViewDeepAnalysis,
 }: PipelinePageViewProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -233,11 +241,11 @@ export function PipelinePageView({
         error?: { message?: string }
       }
       if (!response.ok || !body.data) {
-        throw new Error(body.error?.message ?? "공고 관제 액션을 처리하지 못했습니다.")
+        throw new Error(body.error?.message ?? "수집·가공 관제 액션을 처리하지 못했습니다.")
       }
       const { totals } = body.data
       const message = pendingAction.action === "mark_reviewed"
-        ? `${totals.succeeded}건 검수 완료 · criteria ${totals.affected}건 갱신`
+        ? `${totals.succeeded}건 기본 추출 검수 완료 · criteria ${totals.affected}건 갱신`
         : `${totals.succeeded}건 성공 · 변환 job ${totals.affected}건 요청`
       if (totals.failed > 0 || totals.partial > 0) {
         toast.warning(`${message} · 부분/실패 ${totals.partial + totals.failed}건`)
@@ -248,7 +256,7 @@ export function PipelinePageView({
       setActionRefreshToken((value) => value + 1)
       startTransition(() => router.refresh())
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "공고 관제 액션을 처리하지 못했습니다.")
+      toast.error(error instanceof Error ? error.message : "수집·가공 관제 액션을 처리하지 못했습니다.")
     } finally {
       setIsActionPending(false)
     }
@@ -273,28 +281,48 @@ export function PipelinePageView({
 
   return (
     <main className="flex flex-col gap-6 p-4 md:p-6">
-      <section className="flex flex-col gap-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="font-heading text-2xl font-semibold tracking-tight">공고 관제</h2>
-          <Badge variant="secondary">
-            조회 {summary.total.toLocaleString("ko-KR")}건
-          </Badge>
-          {isPending ? (
-            <Badge variant="outline">
-              <Spinner data-icon="inline-start" />
-              갱신 중
+      <section className="flex flex-wrap items-end justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="font-heading text-2xl font-semibold tracking-tight">수집·가공 관제</h2>
+            <Badge variant="secondary">
+              조회 {summary.total.toLocaleString("ko-KR")}건
             </Badge>
-          ) : null}
-          {!canReconvert ? (
-            <Badge title="CONVERSION_SERVER_URL과 CONVERSION_SHARED_SECRET이 필요합니다." variant="outline">
-              재변환 서버 미연결
-            </Badge>
-          ) : null}
+            {isPending ? (
+              <Badge variant="outline">
+                <Spinner data-icon="inline-start" />
+                갱신 중
+              </Badge>
+            ) : null}
+            {!canReconvert ? (
+              <Badge title="CONVERSION_SERVER_URL과 CONVERSION_SHARED_SECRET이 필요합니다." variant="outline">
+                재변환 서버 미연결
+              </Badge>
+            ) : null}
+          </div>
+          <p className="text-sm text-muted-foreground">
+            공고 수집·첨부 변환·기본 추출 상태를 관리합니다.
+          </p>
         </div>
-        <p className="text-sm text-muted-foreground">
-          파이프라인 건강 상태를 집계로 보고, 확인할 공고는 50건 단위 큐에서 연속 검수합니다.
-        </p>
+        {canViewDeepAnalysis ? (
+          <Button
+            nativeButton={false}
+            render={<Link href="/pipeline" />}
+            variant="outline"
+          >
+            딥분석 관제
+          </Button>
+        ) : null}
       </section>
+
+      <Alert>
+        <ShieldCheckIcon />
+        <AlertTitle>기본 추출 완료와 딥분석 완료는 다릅니다</AlertTitle>
+        <AlertDescription>
+          이 화면의 발행·검수 완료는 수집 데이터와 기본 추출에만 적용됩니다.
+          22축 근거 검증과 AI 자동 검수, 실제 매칭 서빙 여부는 딥분석 관제에서 확인합니다.
+        </AlertDescription>
+      </Alert>
 
       <section className="grid gap-4 md:grid-cols-3">
         {summary.sources.map((source) => (
@@ -605,6 +633,7 @@ export function PipelinePageView({
       </Card>
 
       <PipelineNoticeDialog
+        canViewDeepAnalysis={canViewDeepAnalysis}
         notice={selectedNotice}
         canMutate={canMutate}
         canReconvert={canReconvert}
@@ -625,12 +654,12 @@ export function PipelinePageView({
               <ShieldCheckIcon />
             </AlertDialogMedia>
             <AlertDialogTitle>
-              {pendingAction ? PIPELINE_ACTION_LABELS[pendingAction.action] : "공고 관제 액션"}
+              {pendingAction ? PIPELINE_ACTION_LABELS[pendingAction.action] : "수집·가공 관제 액션"}
             </AlertDialogTitle>
             <AlertDialogDescription>
               선택한 {pendingAction?.targets.length.toLocaleString("ko-KR") ?? 0}건에
               {pendingAction?.action === "mark_reviewed"
-                ? " 검수 완료 상태를 기록하고 추출 이력을 남깁니다."
+                ? " 기본 추출 검수 완료 상태를 기록하고 추출 이력을 남깁니다. 딥분석 완료 상태는 변경하지 않습니다."
                 : " 변환 서버 재처리를 요청합니다. 완료 결과는 변환 폴링에서 반영됩니다."}
             </AlertDialogDescription>
           </AlertDialogHeader>

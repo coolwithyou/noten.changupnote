@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
 
+import { DEEP_ANALYSIS_MODEL_POLICY_VERSION } from "@cunote/contracts"
+
 import {
   buildInputPreparationSummary,
   buildServingMonitorSummary,
@@ -92,6 +94,7 @@ assert.equal(buildServingMonitorSummary({
 assert.deepEqual(buildInputPreparationSummary({
   worker_id: "cunote-deep-analysis-input-preparation-test",
   status: "idle",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   last_error_code: null,
   metadata: {
@@ -114,6 +117,9 @@ assert.deepEqual(buildInputPreparationSummary({
 }), {
   executionId: "cunote-deep-analysis-input-preparation-test",
   status: "idle",
+  modelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+  expectedModelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+  policyMatches: true,
   serviceRevision: "revision",
   heartbeatAt: "2026-07-25T03:00:00.000Z",
   stale: false,
@@ -137,6 +143,7 @@ assert.equal(buildInputPreparationSummary().healthy, false)
 assert.equal(buildInputPreparationSummary({
   worker_id: "failed",
   status: "degraded",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   last_error_code: "input_preparation_failed",
   metadata: {
@@ -150,6 +157,7 @@ assert.equal(buildInputPreparationSummary({
 assert.equal(buildInputPreparationSummary({
   worker_id: "registration-warning",
   status: "idle",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   last_error_code: null,
   metadata: {
@@ -161,11 +169,22 @@ assert.equal(buildInputPreparationSummary({
   heartbeat_at: new Date(),
   stale_seconds: 30,
 }).healthy, false)
+assert.equal(buildInputPreparationSummary({
+  worker_id: "different-policy",
+  status: "idle",
+  model_policy_version: "deep-analysis-model-policy-v999",
+  service_revision: "revision",
+  last_error_code: null,
+  metadata: {},
+  heartbeat_at: new Date(),
+  stale_seconds: 30,
+}).policyMatches, false)
 
 assert.deepEqual(buildWorkerSummary({
   worker_id: "cunote-deep-analysis-test",
   current_job_id: null,
   status: "idle",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   metadata: {
     executionMode: "observe_only",
@@ -182,6 +201,9 @@ assert.deepEqual(buildWorkerSummary({
   workerId: "cunote-deep-analysis-test",
   currentJobId: null,
   status: "idle",
+  modelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+  expectedModelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+  policyMatches: true,
   executionMode: "observe_only",
   claimScope: "unconfigured",
   claimCohortCount: 0,
@@ -199,6 +221,7 @@ assert.equal(buildWorkerSummary({
   worker_id: "running",
   current_job_id: "11111111-1111-4111-8111-111111111111",
   status: "running",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   metadata: {
     executionMode: "active",
@@ -216,6 +239,7 @@ assert.equal(buildWorkerSummary({
   worker_id: "unsafe-active",
   current_job_id: null,
   status: "idle",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   metadata: { executionMode: "active", claimScope: "unconfigured" },
   heartbeat_at: new Date(),
@@ -228,6 +252,7 @@ assert.equal(buildWorkerSummary({
   worker_id: "hidden-lease",
   current_job_id: null,
   status: "idle",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   metadata: {},
   heartbeat_at: new Date(),
@@ -240,6 +265,7 @@ assert.equal(buildWorkerSummary({
   worker_id: "over-concurrent",
   current_job_id: "11111111-1111-4111-8111-111111111111",
   status: "running",
+  model_policy_version: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   service_revision: "revision",
   metadata: { executionMode: "active" },
   heartbeat_at: new Date(),
@@ -248,6 +274,19 @@ assert.equal(buildWorkerSummary({
   active_lease_count: 2,
   stale_active_worker_count: 0,
 }).healthy, false)
+assert.equal(buildWorkerSummary({
+  worker_id: "different-policy",
+  current_job_id: null,
+  status: "idle",
+  model_policy_version: "deep-analysis-model-policy-v999",
+  service_revision: "revision",
+  metadata: { executionMode: "observe_only", claimScope: "unconfigured" },
+  heartbeat_at: new Date(),
+  stale_seconds: 30,
+  active_worker_count: 0,
+  active_lease_count: 0,
+  stale_active_worker_count: 0,
+}).policyMatches, false)
 assert.equal(buildWorkerSummary().healthy, false)
 
 assert.throws(

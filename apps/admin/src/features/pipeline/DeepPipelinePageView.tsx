@@ -88,33 +88,71 @@ export function DeepPipelinePageView({
             <Badge variant={initialSummary.degraded ? "destructive" : "secondary"}>
               {initialSummary.degraded ? "집계 degraded" : "버킷 보존식 정상"}
             </Badge>
+            <Badge variant="outline">
+              활성 대상 내 유효 release{" "}
+              {initialSummary.activeReleaseCount.toLocaleString("ko-KR")}
+            </Badge>
+            {initialSummary.reanalysisRequiredCount > 0 ? (
+              <Badge variant="outline">
+                현재 정책 갱신 필요{" "}
+                {initialSummary.reanalysisRequiredCount.toLocaleString("ko-KR")}
+              </Badge>
+            ) : null}
+            {!initialSummary.policyMatchesContract ? (
+              <Badge variant="destructive">
+                관제 코드 정책 불일치
+              </Badge>
+            ) : null}
           </div>
           <p className="text-sm text-muted-foreground">
-            수동 완료 체크가 아니라 최신 job/run의 S0~S14 검증 receipt와 원문 최신성으로 계산합니다.
+            활성 release의 유효한 run을 우선 보증하고, 현재 정책{" "}
+            {initialSummary.modelPolicyVersion}의 재분석 상태는 별도로 표시합니다.
+            {!initialSummary.policyMatchesContract
+              ? ` 관제 코드 기준은 ${initialSummary.contractModelPolicyVersion}입니다.`
+              : ""}
           </p>
         </div>
-        <form className="flex w-full max-w-sm gap-2" action="/pipeline">
-          {query.bucket ? <input type="hidden" name="bucket" value={query.bucket} /> : null}
-          {query.stage ? <input type="hidden" name="stage" value={query.stage} /> : null}
-          <Input
-            aria-label="공고 검색"
-            defaultValue={query.q}
-            name="q"
-            placeholder="제목, 기관, sourceId"
-          />
-          <Button type="submit" variant="outline">
-            <SearchIcon /> 검색
-          </Button>
-        </form>
+        <div className="flex w-full max-w-xl flex-wrap justify-end gap-2">
+          {role === "admin" || role === "owner" ? (
+            <Button
+              nativeButton={false}
+              render={<Link href="/notice-pipeline" />}
+              variant="outline"
+            >
+              수집·가공 관제
+            </Button>
+          ) : null}
+          <form className="flex min-w-64 flex-1 gap-2" action="/pipeline">
+            {query.bucket ? <input type="hidden" name="bucket" value={query.bucket} /> : null}
+            {query.stage ? <input type="hidden" name="stage" value={query.stage} /> : null}
+            <Input
+              aria-label="공고 검색"
+              defaultValue={query.q}
+              name="q"
+              placeholder="제목, 기관, sourceId"
+            />
+            <Button type="submit" variant="outline">
+              <SearchIcon /> 검색
+            </Button>
+          </form>
+        </div>
       </section>
 
       <section className="grid gap-3 lg:grid-cols-3">
         {!initialSummary.worker.healthy ? (
           <Alert variant="destructive">
             <AlertTriangleIcon />
-            <AlertTitle>분석 worker 경고</AlertTitle>
+            <AlertTitle>
+              {initialSummary.worker.modelPolicyVersion
+                && !initialSummary.worker.policyMatches
+                ? "분석 worker 정책 불일치"
+                : "분석 worker 경고"}
+            </AlertTitle>
             <AlertDescription>
-              {initialSummary.worker.heartbeatAt
+              {!initialSummary.worker.policyMatches
+                && initialSummary.worker.modelPolicyVersion
+                ? `worker ${initialSummary.worker.modelPolicyVersion} · 관제 ${initialSummary.worker.expectedModelPolicyVersion}`
+                : initialSummary.worker.heartbeatAt
                 ? `${formatDate(initialSummary.worker.heartbeatAt)} · status ${initialSummary.worker.status} · active worker/lease ${initialSummary.worker.activeWorkerCount}/${initialSummary.worker.activeLeaseCount} · stale active ${initialSummary.worker.staleActiveWorkerCount}`
                 : "현재 model policy의 worker heartbeat가 없습니다."}
             </AlertDescription>
@@ -161,9 +199,17 @@ export function DeepPipelinePageView({
         ) : (
           <Alert variant="destructive">
             <AlertTriangleIcon />
-            <AlertTitle>입력 준비 worker 경고</AlertTitle>
+            <AlertTitle>
+              {initialSummary.inputPreparation.modelPolicyVersion
+                && !initialSummary.inputPreparation.policyMatches
+                ? "입력 준비 worker 정책 불일치"
+                : "입력 준비 worker 경고"}
+            </AlertTitle>
             <AlertDescription>
-              {initialSummary.inputPreparation.heartbeatAt
+              {!initialSummary.inputPreparation.policyMatches
+                && initialSummary.inputPreparation.modelPolicyVersion
+                ? `worker ${initialSummary.inputPreparation.modelPolicyVersion} · 관제 ${initialSummary.inputPreparation.expectedModelPolicyVersion}`
+                : initialSummary.inputPreparation.heartbeatAt
                 ? `${formatDate(initialSummary.inputPreparation.heartbeatAt)} · status ${initialSummary.inputPreparation.status} · archive 실패 ${initialSummary.inputPreparation.archiveFailedCount} · conversion 실패 ${initialSummary.inputPreparation.conversionFailedCount} · 등록 경고 ${initialSummary.inputPreparation.conversionRegistrationWarnings}`
                 : "Cloud Run input-preparation heartbeat가 없습니다."}
             </AlertDescription>
@@ -305,7 +351,15 @@ export function DeepPipelinePageView({
                     <div className="flex max-w-sm flex-col gap-1 whitespace-normal">
                       <strong>{notice.title}</strong>
                       <span className="text-xs text-muted-foreground">
-                        {notice.source}/{notice.sourceId} · {notice.agency ?? "기관 미상"}
+                        {role === "admin" || role === "owner" ? (
+                          <Link
+                            className="underline-offset-4 hover:underline"
+                            href={`/notice-pipeline?q=${encodeURIComponent(notice.sourceId)}`}
+                          >
+                            {notice.source}/{notice.sourceId}
+                          </Link>
+                        ) : `${notice.source}/${notice.sourceId}`}
+                        {" · "}{notice.agency ?? "기관 미상"}
                         {notice.dDay === null ? "" : ` · D${notice.dDay >= 0 ? "-" : "+"}${Math.abs(notice.dDay)}`}
                       </span>
                     </div>
@@ -317,6 +371,20 @@ export function DeepPipelinePageView({
                     <p className="mt-1 text-xs text-muted-foreground">
                       {notice.jobStatus ?? "job 없음"} / {notice.runStatus ?? "run 없음"}
                     </p>
+                    {notice.activeReleaseId ? (
+                      <p className="text-xs text-muted-foreground">
+                        release {notice.activeReleaseId}
+                        {notice.activeReleaseRevision === null
+                          ? ""
+                          : ` r${notice.activeReleaseRevision}`}
+                      </p>
+                    ) : null}
+                    {notice.requiresCurrentPolicyReanalysis ? (
+                      <p className="text-xs text-amber-700 dark:text-amber-400">
+                        현재 정책 갱신 필요 · job{" "}
+                        {notice.currentPolicyJobStatus ?? "미생성"}
+                      </p>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <span className="tabular-nums">

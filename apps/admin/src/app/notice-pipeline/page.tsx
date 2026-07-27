@@ -49,7 +49,7 @@ export default async function NoticePipelinePage({
 
   return (
     <OpsDashboardShell
-      title="공고 관제"
+      title="수집·가공 관제"
       user={{
         email: session.user.email,
         name: session.user.name ?? null,
@@ -58,6 +58,7 @@ export default async function NoticePipelinePage({
     >
       <PipelinePageView
         canMutate={session.user.role === "admin" || session.user.role === "owner"}
+        canViewDeepAnalysis={session.user.role === "admin" || session.user.role === "owner"}
         canReconvert={Boolean(
           process.env.CONVERSION_SERVER_URL?.trim()
           && process.env.CONVERSION_SHARED_SECRET?.trim(),

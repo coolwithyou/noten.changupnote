@@ -16,7 +16,7 @@ export function CriteriaDotGrid({
   return (
     <div
       className="grid w-fit grid-cols-11 gap-1"
-      aria-label={`22축 중 ${criteria.filter((item) => item.filled).length}축 추출`}
+      aria-label={`22축 기본 추출 중 ${criteria.filter((item) => item.filled).length}축에 값 있음`}
     >
       {criteria.map((criterion) => (
         <Tooltip key={criterion.dimension}>

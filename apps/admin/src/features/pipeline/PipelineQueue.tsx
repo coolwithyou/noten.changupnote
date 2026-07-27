@@ -144,7 +144,7 @@ export function PipelineQueue({
       ),
     }),
     columnHelper.accessor("criteriaDots", {
-      header: "22축",
+      header: "22축 기본 추출",
       cell: ({ getValue }) => <CriteriaDotGrid criteria={getValue()} />,
     }),
     columnHelper.accessor("needsReviewCount", {
@@ -277,7 +277,7 @@ export function PipelineQueue({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>키보드: j/k 이동 · Enter 상세 · x 선택 · a 검수 완료 · r 재변환</span>
+        <span>키보드: j/k 이동 · Enter 상세 · x 선택 · a 기본 추출 검수 완료 · r 재변환</span>
         {activeNotice ? <span>현재 행 {activeIndex + 1}/{items.length}</span> : null}
       </div>
 
@@ -339,7 +339,7 @@ export function PipelineQueue({
               onClick={() => requestForNotices("mark_reviewed", selectedReviewNotices)}
             >
               <CheckCheckIcon data-icon="inline-start" />
-              검수 완료
+              기본 추출 검수 완료
             </Button>
             <Button
               disabled={!canMutate || !canReconvert || selectedReconvertNotices.length === 0}

@@ -42,7 +42,16 @@ const MAX_SEARCH_LENGTH = 100
 type PipelineSql = postgres.Sql | postgres.TransactionSql
 
 const DEEP_PIPELINE_BASE_CTE = `
-with active_grants as (
+with operational_policy as (
+  select coalesce((
+    select heartbeat.model_policy_version
+    from grant_deep_analysis_worker_heartbeats heartbeat
+    where heartbeat.worker_id not like 'cunote-deep-analysis-input-preparation-%'
+    order by heartbeat.heartbeat_at desc
+    limit 1
+  ), $1::text) as model_policy_version
+),
+active_grants as not materialized (
   select
     g.*,
     coalesce(g.agency_primary, g.agency_operator, g.agency_jurisdiction) as agency,
@@ -53,27 +62,30 @@ with active_grants as (
   from cunote_active_deep_analysis_grants(now()) active
   join grants g on g.id = active.grant_id
 ),
-latest_job as (
+current_policy_job as (
   select
     active.id as grant_id,
     job.id,
     job.status,
     job.attempt_count,
     job.source_revision_sha256,
+    job.model_policy_version,
     job.updated_at
   from active_grants active
   left join lateral (
     select candidate.*
     from grant_deep_analysis_jobs candidate
     where candidate.grant_id = active.id
-      and candidate.model_policy_version = $1
+      and candidate.model_policy_version = (
+        select model_policy_version from operational_policy
+      )
     order by candidate.created_at desc, candidate.id desc
     limit 1
   ) job on true
 ),
-latest_run as (
+current_policy_run as (
   select job.grant_id as current_grant_id, run.*
-  from latest_job job
+  from current_policy_job job
   left join lateral (
     select candidate.*
     from grant_deep_analysis_runs candidate
@@ -81,6 +93,127 @@ latest_run as (
     order by candidate.started_at desc, candidate.id desc
     limit 1
   ) run on true
+),
+active_release_analysis as (
+  select distinct on (active.id)
+    active.id as grant_id,
+    release.release_id,
+    release.revision as release_revision,
+    item.status as publication_status,
+    job.id as job_id,
+    job.status as job_status,
+    job.attempt_count as job_attempt_count,
+    job.source_revision_sha256 as job_source_revision_sha256,
+    job.model_policy_version as job_model_policy_version,
+    job.updated_at as job_updated_at,
+    run.id as run_id,
+    run.run_id as run_public_id,
+    run.status as run_status,
+    run.source_revision_sha256 as run_source_revision_sha256,
+    run.attachment_manifest_sha256,
+    run.input_sha256,
+    run.input_artifact_key,
+    run.output_artifact_key,
+    run.raw_response_artifact_key,
+    run.model,
+    run.prompt_version,
+    run.model_policy_version as run_model_policy_version,
+    run.input_chars,
+    run.cost_usd,
+    run.error_code,
+    run.error_message
+  from active_grants active
+  join analysis_lab_promotion_items item
+    on item.grant_id = active.id
+   and item.status = 'applied'
+  join analysis_lab_promotion_releases release
+    on release.id = item.release_db_id
+   and release.status = 'active'
+  join grant_deep_analysis_runs run
+    on run.id = item.deep_analysis_run_id
+  join grant_deep_analysis_jobs job
+    on job.id = run.job_id
+  order by
+    active.id,
+    release.revision desc,
+    coalesce(release.completed_at, release.created_at) desc,
+    item.updated_at desc,
+    item.id desc
+),
+latest_job as (
+  select
+    policy.grant_id,
+    coalesce(released.job_id, policy.id) as id,
+    coalesce(released.job_status, policy.status) as status,
+    coalesce(released.job_attempt_count, policy.attempt_count) as attempt_count,
+    coalesce(
+      released.job_source_revision_sha256,
+      policy.source_revision_sha256
+    ) as source_revision_sha256,
+    coalesce(released.job_model_policy_version, policy.model_policy_version)
+      as model_policy_version,
+    coalesce(released.job_updated_at, policy.updated_at) as updated_at,
+    policy.id as current_policy_job_id,
+    policy.status as current_policy_job_status,
+    released.release_id as active_release_id,
+    released.release_revision as active_release_revision,
+    released.publication_status,
+    (select model_policy_version from operational_policy) as current_model_policy_version,
+    (
+      released.run_id is not null
+      and released.run_model_policy_version <> (
+        select model_policy_version from operational_policy
+      )
+    ) as requires_current_policy_reanalysis
+  from current_policy_job policy
+  left join active_release_analysis released on released.grant_id = policy.grant_id
+),
+latest_run as (
+  select
+    policy.current_grant_id,
+    coalesce(released.run_id, policy.id) as id,
+    coalesce(released.run_public_id, policy.run_id) as run_id,
+    coalesce(released.run_status, policy.status) as status,
+    coalesce(
+      released.run_source_revision_sha256,
+      policy.source_revision_sha256
+    ) as source_revision_sha256,
+    coalesce(
+      released.attachment_manifest_sha256,
+      policy.attachment_manifest_sha256
+    ) as attachment_manifest_sha256,
+    coalesce(released.input_sha256, policy.input_sha256) as input_sha256,
+    coalesce(released.input_artifact_key, policy.input_artifact_key) as input_artifact_key,
+    case
+      when released.run_id is not null then released.output_artifact_key
+      else policy.output_artifact_key
+    end as output_artifact_key,
+    case
+      when released.run_id is not null then released.raw_response_artifact_key
+      else policy.raw_response_artifact_key
+    end as raw_response_artifact_key,
+    coalesce(released.model, policy.model) as model,
+    coalesce(released.prompt_version, policy.prompt_version) as prompt_version,
+    coalesce(
+      released.run_model_policy_version,
+      policy.model_policy_version
+    ) as model_policy_version,
+    coalesce(released.input_chars, policy.input_chars) as input_chars,
+    case
+      when released.run_id is not null then released.cost_usd
+      else policy.cost_usd
+    end as cost_usd,
+    case
+      when released.run_id is not null then released.error_code
+      else policy.error_code
+    end as error_code,
+    case
+      when released.run_id is not null then released.error_message
+      else policy.error_message
+    end as error_message
+  from current_policy_run policy
+  left join active_release_analysis released
+    on released.grant_id = policy.current_grant_id
 ),
 latest_receipt as (
   select distinct on (receipt.run_id, receipt.stage)
@@ -177,11 +310,19 @@ current_projection as (
     job.status as job_status,
     job.attempt_count,
     job.source_revision_sha256 as job_source_revision_sha256,
+    job.model_policy_version as job_model_policy_version,
     job.updated_at as job_updated_at,
+    job.current_policy_job_id,
+    job.current_policy_job_status,
+    job.active_release_id,
+    job.active_release_revision,
+    job.current_model_policy_version,
+    job.requires_current_policy_reanalysis,
     run.id as run_id,
     run.run_id as run_public_id,
     run.status as run_status,
     run.source_revision_sha256 as run_source_revision_sha256,
+    run.model_policy_version as run_model_policy_version,
     run.attachment_manifest_sha256,
     run.input_sha256,
     run.input_artifact_key,
@@ -209,7 +350,7 @@ current_projection as (
     coalesce(axes.input_missing_count, 0)::int as input_missing_count,
     coalesce(axes.unassessed_count, 0)::int as unassessed_count,
     audit.verdict as audit_verdict,
-    promotion.publication_status,
+    coalesce(job.publication_status, promotion.publication_status) as publication_status,
     coalesce((
       job.id is not null
       and (
@@ -293,6 +434,12 @@ interface PipelineRow {
   bucket: string
   job_id: string | null
   job_status: string | null
+  job_model_policy_version: string | null
+  current_model_policy_version: string
+  current_policy_job_status: string | null
+  active_release_id: string | null
+  active_release_revision: number | null
+  requires_current_policy_reanalysis: boolean
   attempt_count: number | null
   run_id: string | null
   run_public_id: string | null
@@ -316,27 +463,24 @@ interface PipelineRow {
   publication_status: string | null
   job_updated_at: Date | null
   grant_updated_at: Date
+  total_count: number
 }
 
-interface BucketCountRow {
-  bucket: string
+interface SummaryMetricRow {
+  kind: "bucket" | "stage" | "active"
+  key: string
+  status: string | null
   count: number
-}
-
-interface StageCountRow {
-  stage: string
-  status: string
-  count: number
-}
-
-interface ActiveCountRow {
-  count: number
+  active_release_count: number
+  reanalysis_required_count: number
+  model_policy_version: string | null
 }
 
 interface WorkerRow {
   worker_id: string | null
   current_job_id: string | null
   status: string | null
+  model_policy_version: string | null
   service_revision: string | null
   metadata: Record<string, unknown>
   heartbeat_at: Date | null
@@ -349,6 +493,7 @@ interface WorkerRow {
 interface InputPreparationRow {
   worker_id: string
   status: string
+  model_policy_version: string
   service_revision: string
   heartbeat_at: Date
   stale_seconds: number
@@ -457,6 +602,7 @@ export function buildServingMonitorSummary(input?: {
 
 export function buildInputPreparationSummary(
   input?: InputPreparationRow,
+  expectedModelPolicyVersion: string = DEEP_ANALYSIS_MODEL_POLICY_VERSION,
 ): DeepPipelineSummary["inputPreparation"] {
   const staleSeconds = input ? Number(input.stale_seconds) : null
   const metadata = input?.metadata ?? {}
@@ -485,9 +631,13 @@ export function buildInputPreparationSummary(
   const stale = staleSeconds === null
     || staleSeconds > DEEP_ANALYSIS_INPUT_PREPARATION_STALE_SECONDS
   const statusHealthy = input?.status === "idle" || input?.status === "running"
+  const policyMatches = input?.model_policy_version === expectedModelPolicyVersion
   return {
     executionId: input?.worker_id ?? null,
     status: input?.status ?? null,
+    modelPolicyVersion: input?.model_policy_version ?? null,
+    expectedModelPolicyVersion,
+    policyMatches,
     serviceRevision: input?.service_revision ?? null,
     heartbeatAt: input?.heartbeat_at?.toISOString() ?? null,
     stale,
@@ -505,7 +655,8 @@ export function buildInputPreparationSummary(
     conversionRegistrationSkipped,
     conversionRegistrationWarnings,
     budgetExhausted,
-    healthy: !stale
+    healthy: policyMatches
+      && !stale
       && statusHealthy
       && input?.last_error_code === null
       && archiveFailedCount === 0
@@ -517,6 +668,7 @@ export function buildInputPreparationSummary(
 
 export function buildWorkerSummary(
   input?: WorkerRow,
+  expectedModelPolicyVersion: string = DEEP_ANALYSIS_MODEL_POLICY_VERSION,
 ): DeepPipelineSummary["worker"] {
   const staleSeconds = input?.stale_seconds === null || input?.stale_seconds === undefined
     ? null
@@ -549,10 +701,14 @@ export function buildWorkerSummary(
       && claimCohortCount > 0
       && Boolean(claimCohortSha256?.match(/^[0-9a-f]{64}$/))
     )
+  const policyMatches = input?.model_policy_version === expectedModelPolicyVersion
   return {
     workerId: input?.worker_id ?? null,
     currentJobId: input?.current_job_id ?? null,
     status: input?.status ?? null,
+    modelPolicyVersion: input?.model_policy_version ?? null,
+    expectedModelPolicyVersion,
+    policyMatches,
     executionMode,
     claimScope,
     claimCohortCount,
@@ -564,7 +720,8 @@ export function buildWorkerSummary(
     activeWorkerCount,
     activeLeaseCount,
     staleActiveWorkerCount,
-    healthy: !stale
+    healthy: policyMatches
+      && !stale
       && statusHealthy
       && activeWorkerCount === activeLeaseCount
       && activeWorkerCount <= DEEP_ANALYSIS_DEFAULT_LIMITS.maxConcurrentJobs
@@ -578,31 +735,47 @@ export async function getDeepPipelineSummary(
   sql: PipelineSql = getAdminSql(),
 ): Promise<DeepPipelineSummary> {
   const [
-    bucketRows,
-    stageRows,
-    activeRows,
+    metricRows,
     workerRows,
     inputPreparationRows,
     servingMonitorRows,
   ] = await Promise.all([
-    sql.unsafe<BucketCountRow[]>(
+    sql.unsafe<SummaryMetricRow[]>(
       `${DEEP_PIPELINE_BASE_CTE}
-       select bucket, count(*)::int as count
+       select
+         'bucket'::text as kind,
+         bucket as key,
+         null::text as status,
+         count(*)::int as count,
+         0::int as active_release_count,
+         0::int as reanalysis_required_count,
+         null::text as model_policy_version
        from pipeline_base
-       group by bucket`,
-      [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
-    ),
-    sql.unsafe<StageCountRow[]>(
-      `${DEEP_PIPELINE_BASE_CTE}
-       select receipt.stage, receipt.status, count(*)::int as count
+       group by bucket
+       union all
+       select
+         'stage'::text as kind,
+         receipt.stage as key,
+         receipt.status,
+         count(*)::int as count,
+         0::int as active_release_count,
+         0::int as reanalysis_required_count,
+         null::text as model_policy_version
        from pipeline_base base
        join latest_receipt receipt on receipt.run_id = base.run_id
-       group by receipt.stage, receipt.status`,
-      [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
-    ),
-    sql.unsafe<ActiveCountRow[]>(
-      `${DEEP_PIPELINE_BASE_CTE}
-       select count(*)::int as count from pipeline_base`,
+       group by receipt.stage, receipt.status
+       union all
+       select
+         'active'::text as kind,
+         'active'::text as key,
+         null::text as status,
+         count(*)::int as count,
+         count(*) filter (where active_release_id is not null)::int
+           as active_release_count,
+         count(*) filter (where requires_current_policy_reanalysis)::int
+           as reanalysis_required_count,
+         max(current_model_policy_version) as model_policy_version
+       from pipeline_base`,
       [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
     ),
     sql.unsafe<WorkerRow[]>(
@@ -611,19 +784,18 @@ export async function getDeepPipelineSummary(
            heartbeat.worker_id,
            heartbeat.current_job_id,
            heartbeat.status,
+           heartbeat.model_policy_version,
            heartbeat.service_revision,
            heartbeat.metadata,
            heartbeat.heartbeat_at,
            extract(epoch from (now() - heartbeat.heartbeat_at))::int as stale_seconds
          from grant_deep_analysis_worker_heartbeats heartbeat
-         where heartbeat.model_policy_version = $1
-           and heartbeat.worker_id not like 'cunote-deep-analysis-input-preparation-%'
+         where heartbeat.worker_id not like 'cunote-deep-analysis-input-preparation-%'
        ),
        active_leases as (
          select job.id, job.worker_id
          from grant_deep_analysis_jobs job
-         where job.model_policy_version = $1
-           and job.status = 'leased'
+         where job.status = 'leased'
            and job.lease_expires_at > now()
        ),
        active_workers as (
@@ -653,13 +825,14 @@ export async function getDeepPipelineSummary(
            (
              select count(*)::int
              from active_workers
-             where stale_seconds > $2
+             where stale_seconds > $1
            ) as stale_active_worker_count
        )
        select
          selected.worker_id,
          selected.current_job_id,
          selected.status,
+         selected.model_policy_version,
          selected.service_revision,
          selected.metadata,
          selected.heartbeat_at,
@@ -670,7 +843,6 @@ export async function getDeepPipelineSummary(
        from counts
        left join selected on true`,
       [
-        DEEP_ANALYSIS_MODEL_POLICY_VERSION,
         DEEP_ANALYSIS_DEFAULT_LIMITS.heartbeatStaleSeconds,
       ],
     ),
@@ -678,17 +850,17 @@ export async function getDeepPipelineSummary(
       `select
          worker_id,
          status,
+         model_policy_version,
          service_revision,
          last_error_code,
          metadata,
          heartbeat_at,
          extract(epoch from (now() - heartbeat_at))::int as stale_seconds
        from grant_deep_analysis_worker_heartbeats
-       where model_policy_version = $1
-         and worker_id like 'cunote-deep-analysis-input-preparation-%'
+       where worker_id like 'cunote-deep-analysis-input-preparation-%'
        order by heartbeat_at desc
        limit 1`,
-      [DEEP_ANALYSIS_MODEL_POLICY_VERSION],
+      [],
     ),
     sql.unsafe<ServingMonitorRow[]>(
       `with expected as (
@@ -748,9 +920,14 @@ export async function getDeepPipelineSummary(
     ),
   ])
 
-  const activeTotal = Number(activeRows[0]?.count ?? 0)
+  const activeRow = metricRows.find((row) => row.kind === "active")
+  const bucketRows = metricRows.filter((row) => row.kind === "bucket")
+  const stageRows = metricRows.filter((row) => row.kind === "stage")
+  const activeTotal = Number(activeRow?.count ?? 0)
+  const modelPolicyVersion = activeRow?.model_policy_version
+    ?? DEEP_ANALYSIS_MODEL_POLICY_VERSION
   const bucketCounts = new Map(
-    bucketRows.map((row) => [row.bucket, Number(row.count)]),
+    bucketRows.map((row) => [row.key, Number(row.count)]),
   )
   const buckets = DEEP_PIPELINE_BUCKETS.map((key) => ({
     key,
@@ -759,12 +936,17 @@ export async function getDeepPipelineSummary(
   }))
   const classifiedTotal = buckets.reduce((sum, bucket) => sum + bucket.count, 0)
   const stageCounts = new Map(
-    stageRows.map((row) => [`${row.stage}:${row.status}`, Number(row.count)]),
+    stageRows.map((row) => [`${row.key}:${row.status}`, Number(row.count)]),
   )
   return {
     generatedAt: new Date().toISOString(),
+    modelPolicyVersion,
+    contractModelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+    policyMatchesContract: modelPolicyVersion === DEEP_ANALYSIS_MODEL_POLICY_VERSION,
     activeTotal,
     classifiedTotal,
+    activeReleaseCount: Number(activeRow?.active_release_count ?? 0),
+    reanalysisRequiredCount: Number(activeRow?.reanalysis_required_count ?? 0),
     degraded: activeTotal !== classifiedTotal,
     buckets,
     stages: DEEP_ANALYSIS_STAGE_KEYS.map((stage) => {
@@ -785,8 +967,8 @@ export async function getDeepPipelineSummary(
         missing: Math.max(0, activeTotal - observed),
       }
     }),
-    worker: buildWorkerSummary(workerRows[0]),
-    inputPreparation: buildInputPreparationSummary(inputPreparationRows[0]),
+    worker: buildWorkerSummary(workerRows[0], modelPolicyVersion),
+    inputPreparation: buildInputPreparationSummary(inputPreparationRows[0], modelPolicyVersion),
     servingMonitor: buildServingMonitorSummary(servingMonitorRows[0]),
   }
 }
@@ -802,17 +984,21 @@ export async function getDeepPipelineNotices(
 ): Promise<DeepPipelineNoticesResult> {
   const rows = await sql.unsafe<PipelineRow[]>(
     `${DEEP_PIPELINE_BASE_CTE}
-     select *
-     from pipeline_base
-     where ($2::text is null or bucket = $2)
-       and (
-         $3::text = ''
-         or title ilike '%' || $3 || '%'
-         or source_id ilike '%' || $3 || '%'
-         or coalesce(agency, '') ilike '%' || $3 || '%'
-       )
-       and ($4::uuid is null or grant_id = $4)
-       and ($5::text is null or first_blocking_stage = $5)
+     , filtered_pipeline as (
+       select *
+       from pipeline_base
+       where ($2::text is null or bucket = $2)
+         and (
+           $3::text = ''
+           or title ilike '%' || $3 || '%'
+           or source_id ilike '%' || $3 || '%'
+           or coalesce(agency, '') ilike '%' || $3 || '%'
+         )
+         and ($4::uuid is null or grant_id = $4)
+         and ($5::text is null or first_blocking_stage = $5)
+     )
+     select *, count(*) over()::int as total_count
+     from filtered_pipeline
      order by
        case bucket
          when 'blocked_or_failed' then 0
@@ -833,30 +1019,9 @@ export async function getDeepPipelineNotices(
       query.limit,
     ],
   )
-  const countRows = await sql.unsafe<ActiveCountRow[]>(
-    `${DEEP_PIPELINE_BASE_CTE}
-     select count(*)::int as count
-     from pipeline_base
-     where ($2::text is null or bucket = $2)
-       and (
-         $3::text = ''
-         or title ilike '%' || $3 || '%'
-         or source_id ilike '%' || $3 || '%'
-         or coalesce(agency, '') ilike '%' || $3 || '%'
-       )
-       and ($4::uuid is null or grant_id = $4)
-       and ($5::text is null or first_blocking_stage = $5)`,
-    [
-      DEEP_ANALYSIS_MODEL_POLICY_VERSION,
-      query.bucket,
-      query.q,
-      query.grantId ?? null,
-      query.stage,
-    ],
-  )
   return {
     generatedAt: new Date().toISOString(),
-    total: Number(countRows[0]?.count ?? 0),
+    total: Number(rows[0]?.total_count ?? 0),
     items: rows.map(mapNotice),
   }
 }
@@ -1392,6 +1557,12 @@ function mapNotice(row: PipelineRow): DeepPipelineNoticeItem {
     bucket: row.bucket,
     jobId: row.job_id,
     jobStatus: row.job_status,
+    modelPolicyVersion: row.job_model_policy_version,
+    currentPolicyVersion: row.current_model_policy_version,
+    currentPolicyJobStatus: row.current_policy_job_status,
+    activeReleaseId: row.active_release_id,
+    activeReleaseRevision: row.active_release_revision,
+    requiresCurrentPolicyReanalysis: row.requires_current_policy_reanalysis,
     runId: row.run_id,
     runPublicId: row.run_public_id,
     runStatus: row.run_status,

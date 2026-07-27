@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useEffect, useState } from "react"
 import {
   CheckCheckIcon,
@@ -69,6 +70,7 @@ interface PipelineNoticeDialogProps {
   notice: PipelineNoticeItem | null
   canMutate: boolean
   canReconvert: boolean
+  canViewDeepAnalysis: boolean
   refreshToken: number
   onClose: () => void
   onRequestAction: (action: PipelineAction, targets: PipelineActionTarget[]) => void
@@ -78,6 +80,7 @@ export function PipelineNoticeDialog({
   notice,
   canMutate,
   canReconvert,
+  canViewDeepAnalysis,
   refreshToken,
   onClose,
   onRequestAction,
@@ -193,16 +196,28 @@ export function PipelineNoticeDialog({
             <Separator />
             <DialogFooter className="mx-0 mb-0 shrink-0 flex-row flex-wrap items-center justify-between rounded-none border-0 bg-background/95 px-5 py-4 backdrop-blur sm:px-6 sm:justify-between">
               <span className="text-xs text-muted-foreground">
-                j/k 다음 공고 · Enter 닫기 · a 검수 완료 · r 재변환
+                j/k 다음 공고 · Enter 닫기 · a 기본 추출 검수 완료 · r 재변환
               </span>
               <div className="flex flex-wrap gap-2">
+                {canViewDeepAnalysis ? (
+                  <Button
+                    nativeButton={false}
+                    render={(
+                      <Link href={`/pipeline?q=${encodeURIComponent(notice.sourceId)}`} />
+                    )}
+                    variant="outline"
+                  >
+                    딥분석 상태 확인
+                    <ExternalLinkIcon data-icon="inline-end" />
+                  </Button>
+                ) : null}
                 {notice.needsReviewCount > 0 || notice.managementState === "needs_admin" ? (
                   <Button
                     disabled={!canMutate}
                     onClick={() => onRequestAction("mark_reviewed", [target])}
                   >
                     <CheckCheckIcon data-icon="inline-start" />
-                    검수 완료
+                    기본 추출 검수 완료
                   </Button>
                 ) : (
                   <Button
@@ -237,7 +252,7 @@ function NoticeDetailTabs({
   return (
     <Tabs defaultValue="criteria">
       <TabsList variant="line" className="w-full justify-start overflow-x-auto">
-        <TabsTrigger value="criteria">22축 기대값</TabsTrigger>
+        <TabsTrigger value="criteria">22축 기본 추출</TabsTrigger>
         <TabsTrigger value="attachments">첨부·변환</TabsTrigger>
         <TabsTrigger value="demo">데모</TabsTrigger>
         <TabsTrigger value="history">이력</TabsTrigger>
@@ -342,7 +357,7 @@ function CriteriaTable({
                       }])}
                     >
                       <CheckCheckIcon data-icon="inline-start" />
-                      검수 완료
+                      기본 추출 검수 완료
                     </Button>
                   ) : criteria.length > 0 ? (
                     <Badge variant="secondary">없음</Badge>
