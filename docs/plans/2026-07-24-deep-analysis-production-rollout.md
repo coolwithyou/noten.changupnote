@@ -3397,6 +3397,62 @@ Step 4-1P-6 v5 worker·입력 준비·관제 production 정합 체크포인트 �
   재검증하는 것이다. 그 증거 전에는 `all` scope, 20건 확대, S12/promotion 및
   matcher write를 금지한다.
 
+Step 4-1P-7 current v5 exact 2건 bounded 자동 실행 체크포인트 —
+`FAIL 0/2`, 확대는 `BLOCKED` (2026-07-27):
+
+- `observe_only` 상태의 current v5 claimable job은 0건이었다. backlog 전체를 feeder로
+  열지 않고 공용 active enqueue predicate의 후보를 읽기 전용으로 다시 봉인해, 실제
+  HWP가 있고 blocker가 없는 BizInfo 2건만 선택했다. 556쪽 통합공고는 포함하지
+  않았다. cohort는
+  `97bf2f16-36e6-4ad7-a50d-f26789f3964d`와
+  `c66793bb-8d50-444f-a86c-fba2f4fea398`, exact hash는
+  `751c70103c8121dc5e944cd42f340720a576485278d3de11680d63ec3ae4cf01`,
+  activation은 `2026-07-27T02:18:47Z`다.
+- main generation 16에 위 두 UUID와 hash만 `bounded`로 넣고
+  invocation당 최대 1건·동시 lease 1건·공고당 `$2` 상한을 유지했다. worker
+  `cunote-deep-analysis-jkw2m`은 exact 두 건만 enqueue하고 첫 job
+  `b005ab92-a12d-4d86-bfc0-f06eeb2c5432`를 claim했다. 동시에 들어온 11:20 KST
+  Scheduler `cunote-deep-analysis-q8dzx`는 active lease를 확인해 추가 claim 없이
+  종료했다.
+- 첫 공고 `2026년 중견기업-공공연 개방형 혁신 지원 사업 신규과제 모집 공고`는
+  57,624자·첨부 22건이며 20건 included, container 2건 waived_non_material로
+  완전 봉인됐다. primary `claude-opus-4-8`은 exact 22축, response contract,
+  axis coverage, evidence grounding을 issue 0으로 통과했고 `$1.123690`이
+  발생했다. audit 예상비용 `$1.123690`을 더하면 `$2` 상한을 넘으므로 audit 호출
+  전에 run
+  `da-20260727T021945502Z-a639bda5-05c8-48d5-86d5-351b3e014274`가
+  `pending_budget`으로 차단됐다. 비용이 0인 pre-call 차단으로 잘못 해석하지 않는다.
+- 두 번째 worker `cunote-deep-analysis-nrf5m`은 남은 job
+  `10b6d5b5-b7c5-40cc-a0f4-1189a91db91b`만 claim했다. 11:25 KST Scheduler
+  `cunote-deep-analysis-nt4xj`도 lease 상한 때문에 중복 실행하지 않았다. 대상
+  `2026년 2차 산업 공정부산물의 탄소중립 전환 재자원화 기술 실증지원센터 구축사업
+  지원계획 공고`는 23,368자·HWP 포함 첨부 3건 전부 included다.
+- 두 번째 run
+  `da-20260727T022501449Z-d56d9c8a-4977-478f-861e-2f192c1e5c1a`도 primary
+  exact 22축·response contract·evidence는 issue 0으로 통과했다. 그러나 독립
+  `claude-sonnet-5` audit는 “부도 또는 파산기업(예정 포함)” 배제조건을
+  `credit_status`에만 두고 `business_status` 축에는 조건 없음으로 둔 것을
+  실질 누락으로 판정했다. criterion/axis disagreement 2건이므로 worker는 이를
+  우회하지 않고 `independent_audit_disagreement` dead letter로 보존했다. 비용은
+  `$1.293335`다.
+- exact 종료 verifier는 active/HWP/current input 2/2, out-of-cohort v5 run 0,
+  axis 22/22를 확인했지만 analysis complete 0, terminal 2, 총비용
+  `$2.417025`로 정확히 `FAIL`했다. 20건 확대 조건은 충족하지 않았다.
+- 종료 직후 main을 generation 17 `observe_only`로 복귀시키고 claim scope/ID/hash를
+  제거했다. `cunote-deep-analysis-9fflq` readback은 policy v5, exact revision,
+  claim/enqueue/analysis/budget mutation 0이다. 11:35 KST 정시 main
+  `cunote-deep-analysis-txnrl`도 같은 `observe_only` 설정으로 성공했고, 정시
+  serving monitor `cunote-deep-analysis-serving-monitor-mv7z7`는 활성 release
+  2건·item 2건을 full mode로 다시 `PASS`했다. production Ops verifier는 활성
+  626 = analysis complete 미발행 1 + in progress 623 + blocked/failed 2,
+  worker/input-preparation/serving-monitor healthy, stale 0으로 `PASS`했다.
+- 이 체크포인트에서는 비용 상한을 올리거나 prompt/taxonomy를 바꾸지 않는다. 다음
+  단계는 두 실패를 섞지 않고 (1) primary 완료 후 audit 예약을 포함하는 비용정책,
+  (2) 파산 조건의 `credit_status`/`business_status` 중복 표현 계약을 각각
+  코드·기존 receipt 기준으로 검수하는 것이다. 그 검수와 별도 체크포인트 전에는
+  재queue, 추가 유료 호출, 20건/`all` 확대, S12/promotion 및 matcher write를
+  금지한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
