@@ -168,6 +168,63 @@ assert.equal(adjudicated.costUsd, priceDeepAnalysisUsage({
   usage: { inputTokens: 100, outputTokens: 50 },
 }));
 
+const contradictoryAcceptResponse = JSON.parse(successResponseBody) as {
+  content: Array<{
+    input: {
+      criterion_verdicts: Array<{
+        key: string;
+        verdict: string;
+        reason: string;
+      }>;
+    };
+  }>;
+};
+const contradictoryAcceptRow =
+  contradictoryAcceptResponse.content[0]!.input.criterion_verdicts
+    .find((row) => row.key === auditKey)!;
+contradictoryAcceptRow.verdict = "change_required";
+contradictoryAcceptRow.reason =
+  "primary에 이미 반영된 중복이므로 accept_primary로 재조정.";
+const coherentlyAccepted = await adjudicateDeepAnalysisAudit({
+  apiKey: "test",
+  model: "claude-sonnet-5",
+  evidenceText: span,
+  primaryResult,
+  primaryValidation,
+  auditResult,
+  auditValidation,
+  fetchImpl: async () => new Response(
+    JSON.stringify(contradictoryAcceptResponse),
+    { status: 200 },
+  ),
+});
+assert.equal(coherentlyAccepted.verdict, "concur");
+assert.equal(
+  coherentlyAccepted.itemResults.find((item) => item.key === auditKey)?.verdict,
+  "concur",
+);
+
+const explicitChangeResponse = structuredClone(contradictoryAcceptResponse);
+const explicitChangeRow =
+  explicitChangeResponse.content[0]!.input.criterion_verdicts
+    .find((row) => row.key === auditKey)!;
+explicitChangeRow.reason =
+  "accept_primary가 아니라 원문의 실질 누락이므로 change_required.";
+const explicitChange = await adjudicateDeepAnalysisAudit({
+  apiKey: "test",
+  model: "claude-sonnet-5",
+  evidenceText: span,
+  primaryResult,
+  primaryValidation,
+  auditResult,
+  auditValidation,
+  fetchImpl: async () => new Response(
+    JSON.stringify(explicitChangeResponse),
+    { status: 200 },
+  ),
+});
+assert.equal(explicitChange.verdict, "disagree");
+
 let retryCalls = 0;
 const retried = await adjudicateDeepAnalysisAudit({
   apiKey: "test",

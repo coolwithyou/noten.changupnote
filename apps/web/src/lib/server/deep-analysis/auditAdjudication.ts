@@ -19,7 +19,7 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v6" as const;
+  "deep-analysis-audit-adjudication-v7" as const;
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고의 독립 감사자다.",
   "너는 이미 primary를 보지 않고 원문을 독립 분석했다. 이제 원문, primary 결과, 네 독립 결과를 대조해 primary를 항목별로 감사한다.",
@@ -44,6 +44,19 @@ interface Candidate {
   key: string;
   primary: Record<string, unknown> | null;
   audit: Record<string, unknown> | null;
+}
+
+function normalizedAdjudicationVerdict(row: RawAdjudicationItem | RawAxisAdjudication | undefined):
+  "accept_primary" | "change_required" | undefined {
+  const verdict = row?.verdict;
+  const reason = row?.reason;
+  if (verdict !== "accept_primary" && verdict !== "change_required") return undefined;
+  if (verdict !== "change_required" || typeof reason !== "string") return verdict;
+  if (!reason.includes("accept_primary")) return verdict;
+  const rejectsAcceptPrimary =
+    /accept_primary.{0,24}(?:아니|불가|부적절|거부)|(?:not|never).{0,24}accept_primary/i
+      .test(reason);
+  return rejectsAcceptPrimary ? verdict : "accept_primary";
 }
 
 interface RawAdjudicationItem {
@@ -256,7 +269,7 @@ function normalizeAdjudication(input: {
     }
     seenCriteria.add(`${candidate.candidateKind}:${candidate.key}`);
     const row = rows[0];
-    const verdict = row?.verdict;
+    const verdict = normalizedAdjudicationVerdict(row);
     const accepted = verdict === "accept_primary";
     const unsure = verdict !== "accept_primary" && verdict !== "change_required";
     if (unsure) contractInvalid = true;
@@ -276,7 +289,7 @@ function normalizeAdjudication(input: {
     if (rows.length !== 1 || seenAxes.has(dimension)) contractInvalid = true;
     seenAxes.add(dimension);
     const row = rows[0];
-    const verdict = row?.verdict;
+    const verdict = normalizedAdjudicationVerdict(row);
     const accepted = verdict === "accept_primary";
     const unsure = verdict !== "accept_primary" && verdict !== "change_required";
     if (unsure) contractInvalid = true;

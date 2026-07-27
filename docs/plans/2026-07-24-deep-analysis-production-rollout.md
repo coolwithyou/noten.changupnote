@@ -3620,7 +3620,7 @@ Step 4-1P-12 v9 exact 2건 마지막 재실행 체크포인트 —
   제품 검증으로 진행하지 않는다.
 
 Step 4-1P-13 v9 감사 후보 제품 판단·신청 단계 매칭 계약 체크포인트 —
-`LOCAL PASS`, production v10 exact 2건 재실행은 아직 `PENDING` (2026-07-27):
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
 
 - P12 실패 원문과 현재 matcher를 서로 독립적인 읽기 전용 검토 2개로 다시 분류했다.
   두 검토 모두 “지원신청서 및 계획서 내용과 수행내용이 상이”와 “협약서 등 관련
@@ -3646,9 +3646,40 @@ Step 4-1P-13 v9 감사 후보 제품 판단·신청 단계 매칭 계약 체크�
   변경하지 않았다.
 - package build, focused analyzer/blind-audit/adjudication 테스트, 전체
   `verify:deep-analysis-contract`, web typecheck, `git diff --check`가 모두 PASS했다.
-  다음 mutation은 이 exact v10 commit을 먼저 observe-only로 배포하고 같은 두
-  UUID만 bounded로 다시 실행하는 것이다. 2/2 S11과 독립 AI 감사가 통과하지 않으면
-  즉시 observe-only로 복귀하고 S12~S14·랜딩 매칭 검증은 계속 차단한다.
+  exact commit `1ed02385d83fa3268ce876b992e9238381f2bc94`은 Cloud Build
+  `4bbf4a7f-9cfc-4c4b-bf5d-23517316e300`, immutable digest
+  `sha256:f19a0b75778faf73458bc5a1dfd719d6e4cfdf00779ba7741d69a557c57f2125`로
+  main/input/monitor generation `30/16/9`에 배포됐다. observe-only `xdx2q`,
+  input `tjth4`, monitor `4wh8g` smoke는 v10/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T06:40:00Z` 이후 exact cohort만 generation 31로 열었다.
+  첫 공고 run
+  `da-20260727T064028965Z-01d67750-b73c-4e2b-b511-ed3d0a326886`은 primary
+  22축·근거 검증을 통과했지만 독립 AI 감사가 `disagree`여서 S11을 통과하지 못했다.
+  비용은 `$1.776442`, out-of-cohort run은 0이다. 중단 규칙에 따라 두 번째 pending
+  공고는 실행하지 않았고, main은 generation 32 `observe_only`, claim fence 제거
+  상태로 즉시 복귀했다. 종료 smoke `7kfb2`도 v10/current revision, mutation 0이다.
+
+Step 4-1P-14 AI adjudication 결론 일관성 체크포인트 —
+`LOCAL PASS`, production v11 exact 2건 재실행은 아직 `PENDING` (2026-07-27):
+
+- v10 감사의 전체 22축과 대부분 criterion은 primary와 `concur`였다. 최종 실패를 만든
+  두 항목은 reason에서 각각 “primary에 이미 반영된 중복이므로
+  `accept_primary`로 재조정”, “별도 criterion으로 추가할 필요가 없어
+  `accept_primary`로 재조정”이라고 명시하면서 구조화 verdict만 반대로
+  `change_required`를 반환했다. 이는 새로운 자격조건 누락이 아니라 같은 AI 응답 내부의
+  reason/verdict 계약 위반이다.
+- prompt를 더 길게 만들거나 matcher·taxonomy·DB를 바꾸지 않았다. 구조화 verdict가
+  `change_required`여도 reason이 literal `accept_primary`를 결론으로 명시하고
+  `accept_primary가 아니라` 같은 부정 표현이 없을 때만 최종 verdict를
+  `accept_primary`로 정규화한다. 실제 누락 reason이나 명시적 부정은 계속
+  `change_required`로 fail-closed한다.
+- exact production 모순과 명시적 반대 결론을 각각 회귀 테스트로 고정했다.
+  adjudication v7, model policy v11로 올렸고 blind audit/primary prompt, 모델,
+  공고당 `$2`, exact cohort, 발행 gate는 변경하지 않았다. package build, 전체
+  `verify:deep-analysis-contract`, web typecheck와 `git diff --check`가 PASS했다.
+  다음 mutation은 이 작은 v11 commit의 observe-only 배포와 같은 exact 2건의 마지막
+  bounded 재실행뿐이다. 2/2 S11 전에는 S12~S14와 랜딩 매칭 검증을 계속 차단한다.
 
 중단 조건:
 
