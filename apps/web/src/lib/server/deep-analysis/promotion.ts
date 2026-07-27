@@ -12,6 +12,7 @@ import {
   planGrantPromotion,
   type GrantPromotionPlan,
 } from "../analysis-lab/promote";
+import { stableJson } from "./sourceRevision";
 
 type NormalizedDeepAnalysisResult = Omit<
   DeepAnalysisModelResult,
@@ -82,6 +83,7 @@ export function buildDeepAnalysisPromotionPlan(input: {
     throw new Error("독립 감사 concur가 아닌 run은 자동 승격 계획을 만들 수 없습니다.");
   }
   const result = input.output.result;
+  assertNoRequiredExclusionConflict(result.criteria);
   const labRun: LabRun = {
     runId: input.run.runId,
     grantId: input.run.grantId,
@@ -161,4 +163,30 @@ export function buildDeepAnalysisPromotionPlan(input: {
     );
   }
   return { labRun, plan };
+}
+
+function assertNoRequiredExclusionConflict(
+  criteria: DeepAnalysisModelResult["criteria"],
+): void {
+  const required = new Set(
+    criteria
+      .filter((criterion) => criterion.kind === "required")
+      .map((criterion) => stableJson({
+        dimension: criterion.dimension,
+        operator: criterion.operator,
+        value: criterion.value,
+      })),
+  );
+  const conflict = criteria.find((criterion) =>
+    criterion.kind === "exclusion" &&
+    required.has(stableJson({
+      dimension: criterion.dimension,
+      operator: criterion.operator,
+      value: criterion.value,
+    })));
+  if (conflict) {
+    throw new Error(
+      `딥분석 자동 승격 계획의 ${conflict.dimension} 조건이 동일한 값으로 required/exclusion에 동시에 존재합니다.`,
+    );
+  }
 }

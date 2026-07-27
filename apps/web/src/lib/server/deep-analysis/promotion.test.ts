@@ -81,6 +81,61 @@ assert.equal(result.plan.auditState, "ai_audit_concur");
 assert.throws(
   () => buildDeepAnalysisPromotionPlan({
     run: {
+      runId: "da-conflict",
+      grantId: "22222222-2222-4222-8222-222222222222",
+      source: "kstartup",
+      sourceId: "178511",
+      title: "상충 조건 공고",
+      model: "claude-opus-4-8",
+      promptVersion: "deep-analysis-v9",
+      startedAt: new Date("2026-07-25T00:00:00Z"),
+      completedAt: new Date("2026-07-25T00:01:00Z"),
+      inputChars: 1000,
+      inputSha256: "b".repeat(64),
+      costUsd: 0.2,
+    },
+    output: {
+      ...output,
+      result: {
+        ...output.result,
+        criteria: [
+          {
+            dimension: "target_type",
+            kind: "required",
+            operator: "in",
+            value: { targets: ["대학생", "대학원생"] },
+            confidence: 0.95,
+            sourceSpan: "전국 대학(원)생",
+            spanVerified: true,
+            note: null,
+          },
+          {
+            dimension: "target_type",
+            kind: "exclusion",
+            operator: "in",
+            value: { targets: ["대학생", "대학원생"] },
+            confidence: 0.95,
+            sourceSpan: "신청대상 제외한 모든 대상",
+            spanVerified: true,
+            note: null,
+          },
+        ],
+      },
+    },
+    currentCriteria: [],
+    audit: {
+      model: "claude-sonnet-5",
+      promptVersion: "deep-analysis-blind-audit-v10",
+      completedAt: new Date("2026-07-25T00:01:00Z"),
+      verdict: "concur",
+    },
+  }),
+  /required\/exclusion/,
+);
+
+assert.throws(
+  () => buildDeepAnalysisPromotionPlan({
+    run: {
       runId: "da-test",
       grantId: "11111111-1111-4111-8111-111111111111",
       source: "bizinfo",

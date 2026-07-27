@@ -135,6 +135,24 @@ check("핵심 unknown 없이 필수 조건을 통과하면 recommendable/numeric
   assert.equal(result.quality.eligibilityConfidence, "medium");
 });
 
+check("신청 주체 유형 unknown은 원문 검수가 아니라 프로필 질문으로 해소한다", () => {
+  const result = matchGrantCriteria([{
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    confidence: 0.95,
+    source_span: "전국 대학(원)생",
+    value: { targets: ["대학생", "대학원생"] },
+  }], {
+    ...company,
+    list_completeness: { target_type: "partial" },
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.rule_trace[0]?.result, "unknown");
+  assert.equal(result.review_gate?.tier, "needs_profile_input");
+  assert.equal(result.review_gate?.reasons[0]?.code, "profile_missing");
+});
+
 check("원문 근거 없는 필수조건은 통과해도 추천 가능으로 올리지 않는다", () => {
   const result = matchGrantCriteria([{
     dimension: "region",
