@@ -25,6 +25,8 @@ export interface RunBizInfoAttachmentArchiveBatchInput {
   maxGrants: number;
   maxTotalAttachments: number;
   maxAttachmentsPerGrant: number;
+  reprocessMissingMarkdown?: boolean;
+  archiveMaxEntries?: number;
   sourceIds?: readonly string[];
   imageOcr?: GrantImageOcrAdapter | null;
   imageOcrName?: string;
@@ -73,22 +75,30 @@ export async function runBizInfoAttachmentArchiveBatch(
     dialect: "drizzle",
     client: input.db,
   });
-  const loaded = await repositories.grants.listActiveGrants({
-    limit: input.scanLimit,
-    asOf: input.asOf,
-  });
-  const sourceIdFilter = new Set(input.sourceIds ?? []);
+  const requestedSourceIds = [...new Set(input.sourceIds ?? [])];
+  const loaded = requestedSourceIds.length > 0
+    ? (await Promise.all(requestedSourceIds.map((sourceId) =>
+      repositories.grants.findGrantById(`bizinfo:${sourceId}`))))
+      .flatMap((entry) => entry ? [entry] : [])
+    : await repositories.grants.listActiveGrants({
+      limit: input.scanLimit,
+      asOf: input.asOf,
+    });
+  const sourceIdFilter = new Set(requestedSourceIds);
   const allCandidates = loaded
     .filter((entry) => entry.grant.source === "bizinfo")
     .filter((entry) => sourceIdFilter.size === 0 || sourceIdFilter.has(entry.grant.source_id))
     .map((entry) => ({
       entry,
       selected: selectKStartupAttachmentsForArchive(
-        (entry.raw.attachments ?? []).filter(
-          (attachment) => !attachment.storage_key || !attachment.sha256,
-        ),
+        entry.raw.attachments ?? [],
         input.maxAttachmentsPerGrant,
-        { includeImages: Boolean(input.imageOcr) },
+        {
+          includeImages: Boolean(input.imageOcr),
+          ...(input.reprocessMissingMarkdown !== undefined
+            ? { reprocessMissingMarkdown: input.reprocessMissingMarkdown }
+            : {}),
+        },
       ),
     }))
     .filter((candidate) => candidate.selected.length > 0)
@@ -140,6 +150,9 @@ export async function runBizInfoAttachmentArchiveBatch(
             : {}),
           ...(input.maxAttachmentBytes !== undefined
             ? { maxAttachmentBytes: input.maxAttachmentBytes }
+            : {}),
+          ...(input.archiveMaxEntries !== undefined
+            ? { archiveMaxEntries: input.archiveMaxEntries }
             : {}),
         });
         candidate.entry.raw.attachments = mergeArchivedKStartupAttachments(

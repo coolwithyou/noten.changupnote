@@ -5,7 +5,10 @@ type Attachment = NonNullable<GrantRaw["attachments"]>[number];
 export function selectKStartupAttachmentsForArchive(
   attachments: GrantRaw["attachments"] | null | undefined,
   maxAttachments: number,
-  options: { includeImages?: boolean } = {},
+  options: {
+    includeImages?: boolean;
+    reprocessMissingMarkdown?: boolean;
+  } = {},
 ): Array<{ filename: string; url: string | null }> {
   const supported = options.includeImages
     ? /\.(?:hwp|hwpx|pdf|docx|txt|zip|xlsx|pptx|png|jpe?g)$/i
@@ -13,6 +16,7 @@ export function selectKStartupAttachmentsForArchive(
   return [...(attachments ?? [])]
     .filter((attachment) => Boolean(attachment.source_uri ?? attachment.url))
     .filter((attachment) => supported.test(attachment.filename))
+    .filter((attachment) => shouldPrepareAttachmentArchive(attachment, options))
     .sort((left, right) => attachmentScore(right.filename) - attachmentScore(left.filename) ||
       left.filename.localeCompare(right.filename, "ko"))
     .slice(0, Math.max(0, maxAttachments))
@@ -20,6 +24,31 @@ export function selectKStartupAttachmentsForArchive(
       filename: attachment.filename,
       url: attachment.source_uri ?? attachment.url ?? null,
     }));
+}
+
+export function shouldPrepareAttachmentArchive(
+  attachment: Attachment,
+  options: {
+    includeImages?: boolean;
+    reprocessMissingMarkdown?: boolean;
+  } = {},
+): boolean {
+  if (!attachment.storage_key || !attachment.sha256) return true;
+  if (
+    !options.reprocessMissingMarkdown
+    || (
+      attachment.conversion?.markdown_storage_key
+      && attachment.conversion.markdown_sha256
+    )
+  ) {
+    return false;
+  }
+  if (/\.(?:png|jpe?g)$/i.test(attachment.filename)) {
+    return Boolean(options.includeImages);
+  }
+  // PDF/DOCX는 surface conversion이 담당한다. archive 경로에서 직접 전문을 만드는
+  // 포맷과 안전하게 내부 문서를 확장하는 ZIP만 명시 recovery 후보로 연다.
+  return /\.(?:hwp|hwpx|txt|zip|xlsx|pptx)$/i.test(attachment.filename);
 }
 
 export function mergeArchivedKStartupAttachments(

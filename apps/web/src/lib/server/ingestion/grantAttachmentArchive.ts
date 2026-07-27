@@ -138,6 +138,8 @@ export interface GrantAttachmentArchiveOptions {
   fetchTimeoutMs?: number;
   /** 단일 원본 파일 최대 바이트. 미지정 시 별도 제한 없음. */
   maxAttachmentBytes?: number;
+  /** ZIP에서 확장할 material entry 상한. 일반 운영 기본 10, 명시 복구만 확대한다. */
+  archiveMaxEntries?: number;
   imageOcr?: GrantImageOcrAdapter;
   minImageOcrConfidence?: number;
   /**
@@ -465,7 +467,7 @@ async function archiveContainerAttachment(
   if (extname(attachment.filename).toLowerCase() !== ".zip") return [parent];
   try {
     const entries = extractSupportedArchiveEntries(attachment.filename, downloaded.body, {
-      maxEntries: 10,
+      maxEntries: options.archiveMaxEntries ?? 10,
       maxEntryBytes: 20 * 1024 * 1024,
       maxTotalBytes: 50 * 1024 * 1024,
     });

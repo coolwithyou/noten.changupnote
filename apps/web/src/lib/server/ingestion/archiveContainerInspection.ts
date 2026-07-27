@@ -1,7 +1,7 @@
 import { extname } from "node:path";
 import { unzipSync, type UnzipFileInfo } from "fflate";
 
-const SUPPORTED_DOCUMENT = /\.(?:hwp|hwpx|pdf|docx|txt)$/i;
+const SUPPORTED_DOCUMENT = /\.(?:hwp|hwpx|pdf|docx|txt|xlsx|pptx)$/i;
 const CONTAINER_EXTENSION = /\.(?:zip|xlsx|pptx)$/i;
 
 export interface ArchiveContainerInspection {

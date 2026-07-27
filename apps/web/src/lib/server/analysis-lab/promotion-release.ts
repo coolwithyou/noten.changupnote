@@ -96,6 +96,26 @@ export interface PromotionApprovalArtifact {
   approvedAt: string;
 }
 
+export interface PromotionApprovalGateEvidence {
+  aggregateSha256: string;
+  shadowSha256: string;
+  dryRunSha256: string;
+}
+
+/**
+ * 승인 단계는 준비 단계가 이미 기록한 cohort 전용 gate를 지우지 않는다.
+ * 통합공고 release의 case/child PASS 증적도 이후 S12~S14가 다시 사용한다.
+ */
+export function mergePromotionApprovalGateEvidence(
+  existing: Record<string, unknown> | null,
+  approval: PromotionApprovalGateEvidence,
+): Record<string, unknown> {
+  return {
+    ...(existing ?? {}),
+    ...approval,
+  };
+}
+
 export function canonicalJson(value: unknown): string {
   if (value instanceof Date) return JSON.stringify(value.toISOString());
   if (typeof value === "string") return JSON.stringify(value.normalize("NFC"));

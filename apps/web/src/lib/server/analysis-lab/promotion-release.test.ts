@@ -4,6 +4,7 @@ import {
   assertManifestConfirmation,
   canonicalJson,
   createPromotionReleaseManifest,
+  mergePromotionApprovalGateEvidence,
   planSha256,
   pseudonymizePromotionCompanyKey,
   validatePromotionReleaseManifest,
@@ -69,6 +70,22 @@ function manifest() {
     }],
     plans: [planItem],
   });
+}
+
+{
+  const merged = mergePromotionApprovalGateEvidence({
+    schema: "aggregate-split-publication-gate-v1",
+    verdict: "PASS",
+    splitCaseId: "case-1",
+  }, {
+    aggregateSha256: "a".repeat(64),
+    shadowSha256: "b".repeat(64),
+    dryRunSha256: "c".repeat(64),
+  });
+  assert.equal(merged.schema, "aggregate-split-publication-gate-v1");
+  assert.equal(merged.verdict, "PASS");
+  assert.equal(merged.splitCaseId, "case-1");
+  assert.equal(merged.aggregateSha256, "a".repeat(64));
 }
 
 {

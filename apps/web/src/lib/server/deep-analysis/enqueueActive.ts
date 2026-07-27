@@ -1,7 +1,8 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
+import { ensureAggregateSplitCaseForSeal } from "./aggregateSplitCase";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
 import { enqueueDeepAnalysisJob } from "./ledger";
 import { prepareDeepAnalysisInput } from "./prepareInput";
@@ -14,6 +15,7 @@ export interface ActiveDeepAnalysisEnqueueCandidate {
   grantId: string;
   source: string;
   sourceId: string;
+  sourceChangedAt: Date;
 }
 
 export interface ActiveDeepAnalysisEnqueueResult {
@@ -29,9 +31,8 @@ export interface ActiveDeepAnalysisEnqueueResult {
 }
 
 /**
- * 새 활성 공고와 source/첨부가 마지막 현재-policy job 이후 바뀐 공고만 feeder 후보로
- * 고른다. 실제 source revision identity는 prepare→enqueue가 다시 계산하므로 race가
- * 있어도 DB unique key가 중복 paid job을 막는다.
+ * 새 활성 공고와 source/첨부가 마지막 feeder 관측 이후 바뀐 공고만 후보로 고른다.
+ * claim/retry/complete가 바꾸는 job.updated_at은 source watermark로 사용하지 않는다.
  */
 export async function listActiveDeepAnalysisEnqueueCandidates(input: {
   db: CunoteDbSession;
@@ -42,58 +43,81 @@ export async function listActiveDeepAnalysisEnqueueCandidates(input: {
 }): Promise<ActiveDeepAnalysisEnqueueCandidate[]> {
   if (input.grantIds && input.grantIds.length === 0) return [];
   const now = input.now ?? new Date();
-  const latestJobUpdatedAt = sql`
-    (
-      SELECT MAX(deep_job.updated_at)
-      FROM grant_deep_analysis_jobs AS deep_job
-      WHERE deep_job.grant_id = ${schema.grants.id}
-        AND deep_job.model_policy_version = ${input.modelPolicyVersion}
-    )
-  `;
-  const sourceChangedSinceLatestJob = sql`
-    (
-      ${latestJobUpdatedAt} IS NULL
-      OR ${schema.grants.updatedAt} > ${latestJobUpdatedAt}
-      OR EXISTS (
-        SELECT 1
-        FROM grant_raw AS deep_raw
-        WHERE deep_raw.source = ${schema.grants.source}
-          AND deep_raw.source_id = ${schema.grants.sourceId}
-          AND deep_raw.collected_at > ${latestJobUpdatedAt}
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM grant_attachment_archives AS deep_attachment
-        WHERE deep_attachment.source = ${schema.grants.source}
-          AND deep_attachment.source_id = ${schema.grants.sourceId}
-          AND deep_attachment.updated_at > ${latestJobUpdatedAt}
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM grant_application_surfaces AS deep_surface
-        JOIN document_artifacts AS deep_artifact
-          ON deep_artifact.surface_id = deep_surface.id
-          AND deep_artifact.kind = 'markdown'
-        WHERE deep_surface.grant_id = ${schema.grants.id}
-          AND GREATEST(deep_surface.updated_at, deep_artifact.created_at)
-              > ${latestJobUpdatedAt}
-      )
-    )
-  `;
+  const observation = deepAnalysisSourceObservationSql(
+    input.modelPolicyVersion,
+  );
   const rows = await input.db.select({
     grantId: schema.grants.id,
     source: schema.grants.source,
     sourceId: schema.grants.sourceId,
+    sourceChangedAt: observation.sourceChangedAt,
   }).from(schema.grants).where(and(
     activeDeepAnalysisGrantPredicate(now),
     ...(input.grantIds ? [inArray(schema.grants.id, input.grantIds)] : []),
-    sourceChangedSinceLatestJob,
+    observation.pending,
   )).orderBy(
     asc(schema.grants.applyEnd),
     asc(schema.grants.source),
     asc(schema.grants.sourceId),
   ).limit(input.limit);
   return rows;
+}
+
+export function deepAnalysisSourceObservationSql(
+  modelPolicyVersion: string,
+): {
+  sourceChangedAt: SQL<Date>;
+  pending: SQL<boolean>;
+} {
+  // 이 expression은 SELECT projection과 WHERE 양쪽에서 재사용된다. Drizzle은 projection
+  // 안의 같은-table column을 축약할 수 있으므로 correlated subquery의 바깥 column은
+  // 명시적으로 grants에 한정해 join 대상의 id/source와 모호해지지 않게 한다.
+  const grantId = sql.raw(`"grants"."id"`);
+  const grantSource = sql.raw(`"grants"."source"`);
+  const grantSourceId = sql.raw(`"grants"."source_id"`);
+  const grantUpdatedAt = sql.raw(`"grants"."updated_at"`);
+  const latestSourceObservedAt = sql<Date | null>`
+    (
+      SELECT MAX(deep_job.source_observed_at)
+      FROM grant_deep_analysis_jobs AS deep_job
+      WHERE deep_job.grant_id = ${grantId}
+        AND deep_job.model_policy_version = ${modelPolicyVersion}
+    )
+  `;
+  const sourceChangedAt = sql<Date>`
+    GREATEST(
+      ${grantUpdatedAt},
+      COALESCE((
+        SELECT MAX(deep_raw.collected_at)
+        FROM grant_raw AS deep_raw
+        WHERE deep_raw.source = ${grantSource}
+          AND deep_raw.source_id = ${grantSourceId}
+      ), ${grantUpdatedAt}),
+      COALESCE((
+        SELECT MAX(deep_attachment.updated_at)
+        FROM grant_attachment_archives AS deep_attachment
+        WHERE deep_attachment.source = ${grantSource}
+          AND deep_attachment.source_id = ${grantSourceId}
+      ), ${grantUpdatedAt}),
+      COALESCE((
+        SELECT MAX(GREATEST(deep_surface.updated_at, deep_artifact.created_at))
+        FROM grant_application_surfaces AS deep_surface
+        JOIN document_artifacts AS deep_artifact
+          ON deep_artifact.surface_id = deep_surface.id
+          AND deep_artifact.kind = 'markdown'
+        WHERE deep_surface.grant_id = ${grantId}
+      ), ${grantUpdatedAt})
+    )
+  `.mapWith(schema.grants.updatedAt);
+  return {
+    sourceChangedAt,
+    pending: sql<boolean>`
+      (
+        ${latestSourceObservedAt} IS NULL
+        OR ${sourceChangedAt} > ${latestSourceObservedAt}
+      )
+    `,
+  };
 }
 
 /**
@@ -136,16 +160,25 @@ export async function enqueueActiveDeepAnalysisJobs(input: {
         grantId: candidate.grantId,
         maxTotalChars: input.policy.maxTotalInputChars,
       });
+      await ensureAggregateSplitCaseForSeal({
+        db: input.db,
+        grantId: candidate.grantId,
+        seal,
+        inputCapChars: input.policy.maxTotalInputChars,
+      });
       await (input.enqueueJob ?? enqueueDeepAnalysisJob)(input.db, {
         grantId: candidate.grantId,
         sourceRevisionSha256: seal.sourceRevisionSha256,
         modelPolicyVersion: input.policy.modelPolicyVersion,
+        sourceObservedAt: candidate.sourceChangedAt,
       });
       result.ensured += 1;
     } catch (error) {
       result.failed += 1;
       result.failures.push({
-        ...candidate,
+        grantId: candidate.grantId,
+        source: candidate.source,
+        sourceId: candidate.sourceId,
         error: (error instanceof Error ? error.message : String(error)).slice(0, 500),
       });
     }

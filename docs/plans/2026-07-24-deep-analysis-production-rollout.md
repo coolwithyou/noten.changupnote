@@ -1524,7 +1524,7 @@ migration 계보와 충돌하므로 그대로 cherry-pick하지 않는다.
 2026-07-25 병합 준비 브랜치에서는 최신 main을 첫 부모로 원본 구현 branch를 병합하고,
 공고 관제를 `/notice-pipeline`, `/api/admin/notice-pipeline/**`로 분리했다. 기존
 `/pipeline` 딥분석 관제는 유지하며 `admin_pipeline_actions`는 최신 계보의
-`0057_violet_lorna_dane.sql`로 재생성한다. 공유 개발 DB에 옛 0047이 이미 적용된
+`0065_motionless_miss_america.sql`로 재생성한다. 공유 개발 DB에 옛 0047이 이미 적용된
 경우에도 중복 실패하지 않도록 테이블·제약·인덱스를 조건부 생성하며, 실제 DB에서
 트랜잭션 롤백 검증을 마쳤다.
 
@@ -2615,7 +2615,7 @@ extractor 구현을 가지는 것은 금지한다.
 - [ ] promotion manifest가 run/source revision에 묶임
 - [ ] matcher serving hash 검증
 - [ ] source 변경 시 stale 자동 전환·재분석
-- [ ] `/pipeline`이 최신 main과 ops production에 통합됨
+- [x] `/pipeline`이 최신 main과 ops production에 통합됨
 - [x] active conservation equation 성립
 - [ ] blocker·SLO·worker heartbeat alert 작동
 - [ ] 동결 80공고 품질 기준 통과
@@ -2625,3 +2625,846 @@ extractor 구현을 가지는 것은 금지한다.
 이 체크리스트가 끝나기 전에는 “HWP 변환이 된다”, “criterion이 몇 개 있다”,
 “extraction_log가 labeled다”, “모델 API가 200이다” 중 어느 것도 딥분석 완료의
 대체 증거로 사용하지 않는다.
+
+### 14.14 검수 후 축소 실행 계획
+
+2026-07-25 검수에서 한 번에 분석·서빙·관제·운영 자동화를 함께 확장한 것이
+완료 조건을 흐린 원인으로 확인됐다. 이후 작업은 아래 규칙을 따른다.
+
+- 한 단계는 하나의 불변식만 변경한다.
+- 각 단계는 집중 테스트, 문서 체크, 단일 체크포인트 커밋으로 끝낸다.
+- 앞 단계가 통과하고 작업 트리가 clean인 경우에만 다음 단계를 시작한다.
+- 예상 범위가 DB migration, 새 worker, 새 UI까지 커지면 구현을 멈추고 이 문서의
+  범위를 먼저 다시 검토한다.
+- Phase I SLO 확장, 관제 UI 추가, retry jitter는 핵심 E2E가 닫힐 때까지 보류한다.
+- production deploy, DB write, cohort 확대는 아래 로컬 게이트의 대체 증거가 아니다.
+
+#### 축소 Step 1 — 활성화 이후 실행만 코호트 성과로 인정
+
+범위:
+
+- `runStartedAt < activatedAt`인 실행은 `analysis_complete` 성과로 인정하지 않는다.
+- 활성화 이전 실행만 존재하는 공고는 PASS가 아니라 IN_PROGRESS 또는 FAIL이다.
+- SQL 조회와 순수 evaluator가 같은 시간 경계를 사용한다.
+
+완료 조건:
+
+- [x] 활성화 이전 passed run 회귀 테스트가 실패를 검증
+- [x] 활성화 시각과 같거나 이후인 passed run은 기존처럼 PASS
+- [x] `verify:deep-analysis-contract` 통과
+- [x] 체크포인트 커밋 후 worktree clean
+
+#### 축소 Step 2A — S11 직전 source를 다시 검증
+
+범위:
+
+- 실행 시작 이후 source 또는 input이 변경되면 S11 완료를 거부한다.
+- 현재 run을 stale로 끝내고 변경된 revision의 새 job을 enqueue한다.
+- feeder 조회 조건이나 DB schema는 이 단계에서 변경하지 않는다.
+
+완료 조건:
+
+- [x] 분석 도중 source 변경 fixture가 S11 통과를 거부
+- [x] 같은 fixture가 기존 run을 stale 처리하고 새 revision job을 enqueue
+- [x] promotion 이전에 stale 결과가 차단됨
+- [x] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+
+#### 축소 Step 2B — feeder source 관측과 job 운영 시각 분리
+
+범위:
+
+- claim/retry/complete가 바꾸는 `job.updated_at`을 source 변경 watermark로 사용하지 않는다.
+- 동일 source revision의 반복 enqueue와 새 revision 누락을 모두 막는다.
+- 별도 관측 상태나 migration이 필요하면 먼저 이 문서에서 schema와 rollback을 검토하고,
+  Step 2A 커밋에 섞지 않는다.
+
+고정 schema와 rollout:
+
+- `grant_deep_analysis_jobs.source_observed_at timestamptz NULL` 한 컬럼만 추가한다.
+- 값은 feeder가 실제로 조회한 grant/raw/archive/surface source 변경 시각의 최댓값이다.
+- 같은 job identity가 이미 있으면 status·`updated_at`은 건드리지 않고
+  `source_observed_at`만 단조 증가시킨다.
+- 기존 NULL 행은 feeder의 기존 batch 제한 안에서 한 번씩 관측한 뒤 채운다.
+- migration을 먼저 적용한 뒤 worker를 배포한다. 구버전 worker는 새 nullable 컬럼을
+  사용하지 않으므로 migration 선적용과 호환된다.
+- rollback은 새 worker를 먼저 되돌린 뒤
+  `ALTER TABLE grant_deep_analysis_jobs DROP COLUMN source_observed_at`을 실행한다.
+
+완료 조건:
+
+- [x] claim 또는 complete 도중 source가 바뀐 fixture가 새 revision 후보로 남음
+- [x] 내용이 같은 source 재수집은 무한 enqueue 후보가 되지 않음
+- [x] 새 revision은 새 job identity로 enqueue
+- [x] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+
+#### 축소 Step 3 — 정확한 코호트가 S14까지 닫혀야 확장 가능
+
+범위:
+
+- 코호트 manifest의 모든 grant가 S12~S14와 현재 serving hash를 만족해야 한다.
+- publish되지 않은 grant도 누락되지 않고 명시 실패로 집계한다.
+- 분석 완료 수와 serving 완료 수를 하나의 코호트 결과에 함께 기록한다.
+- current run과 연결된 `active` release의 `applied` promotion item만 인정한다.
+- 최신 S12~S14 receipt는 같은 release/item에 묶이고 serving verifier version·DB evidence
+  hash·R2 artifact key를 가지며 45분 이내여야 한다.
+- S12 after hash, S13 repository/trace hash, S14 source/input hash를 각각 fail-closed로
+  검증한다.
+
+완료 조건:
+
+- [x] 20개 중 1개가 publish되지 않은 fixture가 FAIL
+- [x] 20개 모두 `serving_complete + fresh`인 fixture만 PASS
+- [x] 기존 2건 serving 검증 회귀 통과
+- [x] 집중 테스트와 계약 테스트 통과 후 별도 체크포인트 커밋
+
+#### 축소 Step 4 — 품질·운영 증거를 순서대로 닫기
+
+이 단계는 새 기능 개발 단계가 아니다.
+
+1. 동결 80공고 평가 artifact와 품질 기준 통과를 먼저 확정한다.
+2. H2 claim fence의 production revision과 exact cohort scope를 확인한다.
+3. 2건 카나리 24시간 48/48 slot 증거를 확정한다.
+4. 위 세 증거가 모두 PASS일 때만 20건 확대 여부를 판단한다.
+
+Step 4-1 증거 점검 체크포인트 — `STOP` (2026-07-25):
+
+- 기존 동결 manifest pair는 무결성 검증을 통과했지만
+  `validationCount=24 + sealedCount=16 = 40`이며, 이 문서가 요구하는 80공고가 아니다.
+  기존 manifest hash는
+  `ea25d5180880418de239f18001baf021ae585c4b146cc6142a090ecb31b80f95`다.
+- 별도 `grant-analysis-llm-evaluation` worktree의 최신 증거도 3공고 Gate 2 smoke다.
+  `gate2-byte-verified` checkpoint는 stage `failed=2, running=2`,
+  후속 `gate2-condition-guidance-v2`는
+  `success=4, skipped=1, failed=3, running=1`로 완결된 품질 평가가 아니다.
+- 저장소와 현재 worktree artifact에서 80공고 manifest, 80공고 결과, 14.9.3의 기계 보증
+  및 모델 품질 지표를 계산한 최종 report를 찾지 못했다. 따라서 precision, hard
+  required/exclusion recall, HWP-only sentinel recall, wrong-hard rate,
+  source-groundedness, catastrophic error를 통과로 판정할 수 없다.
+- 판정은 `BLOCKED`다. H2 revision/cohort 확인, 24시간 카나리 증거 확인, 20건 확대는
+  시작하지 않는다.
+
+재개에 필요한 최소 증거:
+
+1. [x] 14.9.1 층화를 만족하는 immutable 80공고 public/secret manifest pair
+2. [ ] 공고별 sealed 공고+첨부 전문으로 현행 primary deep analysis를 실행하고,
+   별도 allowlist 모델의 blind AI audit와 필요한 adjudication을 거쳐 최종 22축
+   resolution 및 입력·출력 hash를 고정한 결과
+3. [ ] 14.9.3의 기계 보증 10개와 모델 품질 지표 6개를 오류 절대 건수와 함께 계산한 report
+4. [ ] 외부 호출 수·실패·재시도·비용을 포함한 실행 receipt
+
+14.9.2의 HWP 포함/제외 및 기존 parser 비교는 첨부 효과를 측정하는 진단용 ablation이다.
+과거 별도 worktree의 B/C/Judge 실험 경로를 운영 품질 실행의 주 파이프라인으로 재사용하지
+않는다. 이 단계의 정본은 현행 `deep-analysis-model-policy-v3`의
+`primary deep analysis -> blind AI audit -> conditional adjudication`이다.
+
+Step 4-1A 80공고 동결 체크포인트 — `PASS` (2026-07-25):
+
+- 기준 시각 `2026-07-25T00:00:00+09:00`, active canonical/duplicate-inclusive
+  모집단 `1,519/1,519`를 read-only로 고정했다.
+- K-Startup 40건 / BizInfo 40건, validation 48건 / sealed 32건이며 기존 복구 4공고를
+  전부 포함한다. 이전 평가 12공고 중 현재 active인 6건은 제외했다.
+- public manifest hash는
+  `045b5738ed5c8205be6d21ad30179554808e3757f8f39d7347d6a8579a96c0c3`,
+  selection commitment는
+  `702143958f58209872d76aad7d4ee9f927640db27359232b1f6c66c9beaa04c1`다.
+- 선택 결과는 HWP 44, HWPX 20, 다중 첨부 40, 복잡 문서 후보 29,
+  첨부-only hard-condition sentinel 후보 15, exclusion 후보 20,
+  sparse-condition 후보 19, 통합/하위사업 후보 8이다.
+- 복잡 문서와 hard-condition/exclusion은 결과 label이 아니라 사전 선택용 구조 후보다.
+  실제 14.9.1/14.9.3 충족 여부는 raw+첨부를 읽은 독립 audit/Judge 결과에서 다시
+  확정해야 하며, 이 숫자만으로 품질 PASS를 선언하지 않는다.
+- artifact는
+  `tmp/deep-analysis-quality/2026-07-25/frozen-80/{public,secret}-manifest.json`에
+  immutable write됐고 secret mode는 `0600`이다. 외부 LLM 호출 0, DB write 0이다.
+- 집중 테스트, web typecheck, 전체 deep-analysis contract test, disk readback
+  manifest pair 검증을 통과했다.
+
+Step 4-1B 현행 입력·AI 검수 preflight 체크포인트 — `BLOCKED` (2026-07-25):
+
+- 동결 80건을 과거 B/C 실험이 아니라 현행 운영 계약에 연결했다. 고정된 실행 계약은
+  primary `claude-opus-4-8` / `deep-analysis-v2`, blind audit
+  `claude-sonnet-5` / `deep-analysis-blind-audit-v1`, model policy
+  `deep-analysis-model-policy-v3`다.
+- 동결 시점 선택용 revision과 운영 deep-analysis source revision은 서로 다른
+  알고리즘이므로 동일 hash로 간주하지 않는다. raw payload hash와 첨부 summary hash를
+  다시 검증한 뒤 운영 `sourceRevisionSha256`, `attachmentManifestSha256`,
+  `inputSha256`을 별도 production binding으로 연결한다.
+- 운영 DB/R2 read-only preflight 결과 동결 스냅샷 일치 `79/80`, 현행 input sealed
+  `23/80`, 실행 준비 완료 `22/80`, blocker `58/80`이다.
+- 실행 불가 원인은 공고 기준 `blocked_fetch=48`, `blocked_conversion=9`,
+  동결 후 attachment summary/selector revision 변경 `1`이다. 첨부 disposition
+  기준으로는 원본 미확보 96개, 변환 전문 미확보 14개이며, 포함 가능한 전문은 52개다.
+- 현재 실행 가능한 22건의 현행 경로는 mandatory logical model call 44회
+  (primary 22 + independent audit 22), repair/adjudication까지 포함한 최대 logical
+  call 154회다. 이는 실행 계획일 뿐 이번 checkpoint에서는 외부 LLM 호출 0,
+  DB write 0, R2 write 0이며 `qualityVerdict=NOT_RUN`,
+  `executionAuthorized=false`다.
+- immutable redacted receipt는
+  `tmp/deep-analysis-quality/2026-07-25/frozen-80-preflight/receipt.json`에 기록했다.
+  sealed identity는 새 파일에 복제하지 않고 기존 0600 cohort secret의 opaque commitment로
+  연결하며, receipt semantic hash는
+  `1b29901c129cc5ab6e0e3824bf252cc96a70a82bd5bad9a6edd6466cf5837540`이다.
+- 다음 checkpoint는 범위를 입력 복구로만 제한한다. `blocked_fetch` 48건의 원본
+  archive와 `blocked_conversion` 9건의 검증된 전문을 복구하고, drift 1건은 동결
+  manifest를 덮어쓰지 않은 채 exact historical bytes 사용 또는 새 commitment로
+  명시적으로 재동결한다. 이후 새 output directory에서 80건 preflight를 다시 통과하기
+  전에는 유료 깊은 분석·AI 자동 검수를 실행하지 않는다.
+
+Step 4-1C frozen 입력 복구 체크포인트 — `BLOCKED`, 67/80 (2026-07-26):
+
+- Step 4-1B의 exact attachment summary drift 판정은 archive URL·변환 상태까지 동결
+  identity에 포함해, 정상적인 입력 준비가 전진할수록 cohort를 무효화하는 결함이 있었다.
+  preflight v2는 이를 다음 두 상태로 분리한다.
+  - `sourceContentMatched`: raw payload hash와 첨부 inventory의 선언 수·실재 수·파일명·
+    source locator 존재 여부가 동결 시점과 같은지 검증하는 hard gate
+  - `snapshotDriftCodes`: archive·conversion enrichment로 달라진 attachment summary와
+    selector revision을 기록하되 source content가 같으면 실행을 차단하지 않는 관측값
+- v2 복구 전 read-only preflight에서 source content는 `80/80`, 현행 input sealed와
+  실행 준비는 `24/80`이었다. exact snapshot match `78/80`과 별개로 hard source drift는
+  0건임을 확인했다. receipt hash는
+  `e31f147329579510c7bd10828424a50c39cf98e3b76dc484044928ba9b58769e`다.
+- frozen receipt에서 `production_input_not_sealed`인 정확한 항목만 선택하는 fail-closed
+  복구 명령을 추가했다. 기본은 preview이며
+  `--execute --confirm=RECOVER_DEEP_ANALYSIS_QUALITY_INPUTS`가 모두 있어야 DB/R2 쓰기를
+  연다. 이 경로는 sealed input이 생겨도 analysis job을 enqueue하지 않는다.
+- 최초 복구 시도에서 batch deadline이 진행 중인 무제한 원본 fetch를 취소하지 못하는
+  경계를 발견했다. 15분을 넘긴 단일 실행을 중단했고 최종 receipt는 생성되지 않았다.
+  성공한 archive/DB 쓰기는 멱등 보존했으며, 이후 모든 quality recovery 원본 요청에
+  30초 timeout을 전달하도록 수정하고 회귀 테스트를 추가했다.
+- 중단 직후 새 preflight는 sealed `41/80`, blocker `39/80`이었다. timeout을 적용한
+  bounded 3-round 재실행은 이 39건 중 26건을 추가 봉인하고 13건을 명시적으로 남겼다.
+  recovery receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-input-recovery/receipt.json`,
+  hash는 `ba2a364fad0acdb922fd40a242ae4ebbd1cc221c7eb3e0b40c6d078287edbe01`다.
+- 최종 80건 read-only preflight 결과:
+  - source content match `80/80`
+  - current input sealed / ready for execution `67/80`
+  - grant blocker `13/80`: `blocked_conversion=11`, `blocked_fetch=2`
+  - attachment disposition blocker: conversion 전문 미확보 13개, 원본 미확보 2개
+  - 포함 가능한 전문 145개, total evidence chars 1,623,249
+  - exact snapshot match `29/80`, preparation enrichment drift `51/80`
+  - external LLM call 0, analysis job enqueue 0
+- 최종 preflight receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-recovery/receipt.json`,
+  hash는 `585a19568996fb88156106ccfa45aaf7db7b6301748153f73f3fb155743f899c`다.
+- 결론은 여전히 `BLOCKED`다. 다음 checkpoint는 위 13건의 변환 11건과 fetch 2건만
+  다룬다. 새 preflight가 source content `80/80`과 ready `80/80`을 동시에 통과하기
+  전에는 primary deep analysis·blind AI audit·conditional adjudication을 실행하지 않는다.
+
+Step 4-1D 잔여 구조·PDF 입력 복구 체크포인트 — `BLOCKED`, 79/80 (2026-07-26):
+
+- Step 4-1C의 정확한 13건을 새 read-only preflight로 다시 고정했다. source content는
+  `80/80`, ready는 `67/80`, blocker는 변환 11건·fetch 2건이었고 receipt hash는
+  `16c0c80f07368acde0593c2e0baf5a6d5bc35b7324bdeec78b1f5c304521a115`다.
+  이 시점에도 외부 LLM 호출·analysis job enqueue·DB/R2 write는 모두 0이었다.
+- pending surface 6개를 기존 변환 cache와 bounded poll로 재조정한 뒤 ready는 `70/80`으로
+  전진했다. 새 blocker는 구조 문서·이미지·PDF 10건이며 receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-long-conversion-poll/receipt.json`,
+  hash는 `fc4cb96e57e0e3486764d21db34cd5a1597b211d395606052241dc3a82a71736`다.
+- 일반 운영 기본값을 넓히지 않고 frozen recovery의 명시적 옵션에서만 이미 archive된
+  HWP/HWPX/TXT/ZIP/XLSX/PPTX와 이미지를 전문 부재 시 재처리하도록 했다. ZIP child
+  지원 포맷에 XLSX/PPTX를 추가하고, quality recovery의 entry 상한만 20으로 올려
+  실제 18-entry ZIP도 전부 검증한다. 이 실행은 정확한 10건 중 5건을 추가 봉인했고
+  5건의 PDF를 남긴 `PARTIAL`이다. receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-input-recovery-remaining-10/receipt.json`,
+  hash는 `bb3410f2776e786e366180f89934f5f0175a51739413c24cf36d6e6048091790`다.
+- ZIP 복구 뒤 생성된 `부모명__NN__자식명`이 source inventory 증가로 오인되어 2건의
+  false drift를 만들었다. source-content v2는 동일 inventory 안의 실제 ZIP parent와
+  생성 규칙이 일치하는 child만 source identity에서 제외한다. 원 raw payload와 새
+  최상위 첨부는 계속 hard gate다. 회귀 테스트 뒤 source content `80/80`, ready
+  `75/80`, PDF blocker `5/80`을 확인했다. receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-container-identity-fix/receipt.json`,
+  hash는 `fd2ea5b89a439b7fa1479ec2ece59d2d5014ffa3de1c25d4ae98cbf287a735b0`다.
+- PDF 5개는 frozen preflight가 지목한 5개 surface만 받는 별도 fail-closed 경로로
+  복구했다. PDF/page-image SHA readback, 페이지 완전성, OCR 페이지별 최소 신뢰도
+  `0.6`, 최소 텍스트 길이를 모두 통과한 뒤에만 content-addressed markdown artifact를
+  기록한다. 1개 556쪽 문서는 `pdftotext -layout`으로 676,253자를 직접 추출했고,
+  나머지 4개 이미지 PDF(총 6쪽)는 macOS Vision OCR로 복구했다. OCR 평균 신뢰도는
+  약 0.70~0.84다. 결과는 `5/5 COMPLETE`, 실패 0이며 receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-pdf-text-ocr-recovery/receipt.json`,
+  hash는 `e78fb15459c74ddb29c51333c5983a9d5defba7393e2d81de72898dbef67b1ec`다.
+  macOS Vision은 이 frozen quality input 복구에만 사용한 로컬 provider이며,
+  지속 가능한 production OCR provider가 배포됐다는 뜻은 아니다.
+- 최종 read-only preflight는 첨부 fetch/conversion blocker를 0으로 만들었지만 ready
+  `79/80`에서 fail-closed 됐다. 남은 한 건은 556쪽 전문까지 포함한 총 입력
+  `1,136,482`자가 현행 운영 상한 `800,000`자를 넘는 `blocked_cap`이다. 전체 결과는
+  source content `80/80`, current sealed/ready `79/80`, attachment included 169,
+  external LLM call 0, analysis job enqueue 0이다. receipt는
+  `tmp/deep-analysis-quality/2026-07-26/frozen-80-preflight-after-pdf-text-ocr-recovery/receipt.json`,
+  hash는 `a78d2ad9342e7abe17c08954e8268aeeacfe4fc12224b80ce32dd61eaee58cdd`다.
+- 다음 checkpoint의 범위는 이 exact 1건의 장문 정책뿐이다. 현재 analyzer는 22개
+  chunk map+synthesis로 전문을 처리할 수 있지만, 입력 상한만 올리면 primary+blind
+  audit 호출 수와 공고별 `$2` 비용 상한이 불일치한다. 문서를 임의 절단·면제하거나
+  상한만 올리지 말고, 장문 실행 계약과 사전 비용 gate를 함께 결정한 뒤 새 preflight
+  `80/80`을 만들어야 한다. 그 전에는 primary deep analysis와 AI 자동 검수를 실행하지
+  않는다.
+
+Step 4-1E-1 통합공고 사람 승인 경계 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
+
+- `blocked_cap`이라고 해서 모든 장문 공고를 분리하지 않는다. 다른 입력 blocker 없이
+  상한만 초과했고 제목이 통합공고임을 명시한 경우에만
+  `oversized_aggregate_notice` 케이스를 만든다. 장문 단일사업 공고와 원문 복구가 덜 된
+  공고는 이 경로에 들어오지 않는다.
+- 알려진 exact 사례
+  `2026년 중앙부처 및 지자체 창업지원사업 통합공고`
+  (`1,136,482/800,000`자, 입력 chunk 22개)를 회귀 fixture로 추가했다.
+- `grant_aggregate_split_cases`는 `(grant_id, source_revision_sha256)`당 한 행만 만들고,
+  입력 크기·상한·chunk/첨부 수·감지 evidence hash를 보존한다. detector 재실행은 이미
+  승인된 상태를 검토 대기로 되돌리지 않는다.
+- production feeder와 processor는 각각 enqueue/모델 호출 전에 이 케이스를 멱등
+  등록한다. 일반 공고의 처리 경로와 80만 자 상한은 바꾸지 않았다.
+- Ops 공고 상세에는 `통합공고 분리 필요` 경고와 입력/상한/chunk 증거를 표시한다.
+  `admin/owner`만 `분리 처리 수락`을 실행할 수 있고, 같은 request ID는 멱등 처리된다.
+  승인 시 case가 `pending_review -> approved`로 이동하고 actor·시각·원문 revision·
+  입력 크기는 기존 append-only `admin_deep_analysis_actions` 감사 원장에 남는다.
+  최신 job의 원문 revision과 다른 오래된 케이스 승인은 fail-closed로 거부한다.
+- 이 체크포인트의 `approved`는 **별도 분리 worker 대기**를 뜻한다. 아직 하위 공고를
+  만들거나 parent 공고를 매칭에서 제외하거나 딥분석 job을 enqueue하지 않는다. 따라서
+  이 단계만으로 80번째 공고가 ready가 된 것으로 계산하지 않는다.
+- schema migration은 코드로 생성했지만 이 체크포인트에서는 production DB 적용, 앱
+  배포, 외부 LLM 호출, 하위 공고 생성, 딥분석 job enqueue를 하지 않는다.
+
+Step 4-1E-2 승인 케이스 분리 manifest 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
+
+- 별도 worker는 `approved` 또는 lease가 만료된 `processing` case 하나만
+  `FOR UPDATE SKIP LOCKED`로 claim한다. DB claim/lease 갱신은 짧게 끝내고 R2·LLM
+  호출을 트랜잭션 안에서 수행하지 않는다. 기본 실행 수는 invocation당 1건, 최대
+  attempt는 3회이며 retry는 `approved + available_at`으로 되돌린다.
+- server가 봉인된 전체 입력을 source별로 다시 조립하고 chunk offset·text SHA를 검증한
+  뒤, 최대 6,000자의 content-addressed segment로 무손실 분할한다. 모델은 offset이나
+  원문을 새로 만들지 않고 제공된 segment ID만 `program/shared/navigation`으로 분류한다.
+- allowlist의 최상급 primary model `claude-opus-4-8`이 segment map과 pass 간 하위사업
+  synthesis를 수행한다. 독립 server validator는 모든 segment와 provisional program이
+  정확히 한 번 귀속됐는지, 하위사업이 2~300개인지, 중복 사업 identity가 없는지,
+  shared를 포함한 각 파생 입력이 기존 800,000자 상한 이하인지 검증한다.
+- 승인 case에는 누적 비용 상한 `$12`를 고정한다. worker 환경 상한은 사람 승인 상한을
+  높일 수 없고, 보수적인 최대 비용 추정이 남은 상한보다 크면 외부 호출 전에
+  fail-closed한다. 모델·prompt version·외부 호출 수·token·실비·attempt·lease·오류를
+  case 원장에 누적한다.
+- 원문 입력, 모델 raw pass, 검증 완료 manifest는 각각 내용 SHA가 들어간 R2 key로 쓰고
+  즉시 readback hash를 검증한다. DB의 `completed`는 input/raw/manifest key와 SHA,
+  program/segment 수, 실제 외부 호출 증거가 모두 있을 때만 허용된다. 중간 pass 뒤
+  실패한 경우도 성공한 pass와 오류를 별도 불변 raw artifact로 남긴 뒤 retry/failed로
+  전환한다.
+- Ops 공고 상세에는 대기/처리/완료/실패, attempt, worker lease, 승인 비용 상한,
+  input/manifest/raw hash와 key, model/prompt, segment/program, 호출/token/비용을
+  단계별로 표시한다. `completed`는 아직 **검증된 분리안 생성 완료**만 뜻하며 파생
+  공고 생성 또는 매칭 노출 완료로 표시하지 않는다.
+- 회귀 검증은 `verify:aggregate-split`, 기존 `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness까지 통과했다.
+- 이 체크포인트에서는 production DB migration 적용, worker 실행, 외부 LLM 호출,
+  R2 쓰기, 앱 배포, 파생 공고 생성, 딥분석 job enqueue, parent 매칭 제외를 하지 않았다.
+
+Step 4-1E-3A 파생 공고 입력 준비 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
+
+- E-2 `completed` case만 받는 별도 materialization queue를 만들었다. pending 또는
+  만료 lease 한 건을 짧은 `FOR UPDATE SKIP LOCKED` 문장으로 claim하고, R2 read/write는
+  DB transaction 밖에서 수행한다. 기본 invocation은 1건, 최대 attempt는 3회다.
+- 소비 시점에 E-2 input/manifest를 R2에서 다시 읽고 DB SHA와 readback SHA를 대조한다.
+  input chunk의 ID·offset·text SHA·전체 문자 수·attachment manifest SHA와 manifest의
+  segment ID·offset·text SHA·전문 coverage·program/shared/navigation 정확히 한 번
+  귀속·stable program key·하위사업 수·입력 상한을 server가 다시 계산한다.
+- 파생 후보의 source와 공고 메타데이터는 현재 `grants` 행이 아니라 E-2 input 안에
+  봉인된 `deep-analysis-structured-source-v1` 스냅샷에서만 가져온다. 따라서 E-2와
+  E-3A 사이에 parent가 갱신돼도 옛 원문과 새 메타데이터가 섞이지 않는다.
+- 아직 실제 `grants` 행을 만들지 않고 별도 `grant_aggregate_split_children` 원장에
+  미노출 후보를 기록한다. `(case, stable key)`, `(case, ordinal)`, `(source, sourceId)`
+  identity는 유일하며 후보 UUID는 다음 승격에서 실제 `grants.id`로 재사용한다.
+  sourceId는 parent sourceId·승인 revision·stable program key로 결정한다.
+- 각 후보는 program 소유 segment와 shared segment만 포함하고 navigation segment는
+  제외한다. 후보 raw payload, grant projection, source revision, attachment manifest,
+  전체 input artifact를 내용 hash로 봉인하고 R2 write 뒤 readback을 검증한다.
+  미래 E-3B가 projection/raw를 그대로 승격하면 기존 `prepareDeepAnalysisInput`이 같은
+  source revision과 input SHA를 재생성할 수 있는 계약이다.
+- 후보별 `pending/prepared/failed`, input SHA/key/문자 수/source revision/error를
+  독립 보존한다. 일부만 성공하면 성공 후보를 되돌리지 않고 case의 준비 수와 실패
+  evidence를 남겨 재시도한다. identity·개수 불일치는 재시도로 덮지 않고 fail-closed한다.
+  마지막 허용 attempt의 worker lease가 만료된 case는 `processing`에 고착시키지 않고
+  별도 오류 evidence와 함께 `failed`로 회수한다. case는 검증된 모든 program 후보가
+  `prepared`일 때만 `prepared`가 된다.
+- DB CHECK는 완료 case와 materialization 상태·lease·attempt·준비 수의 일관성을
+  강제한다. 기존 E-2 완료 CHECK의 SHA 조건도 명시적 `IS NOT NULL`을 추가해 PostgreSQL
+  `NULL` 통과 가능성을 닫았다. 기존 완료 case는 migration에서 `pending`으로 backfill한다.
+- Ops 공고 상세에는 materialization 대기/처리/준비/실패, lease, attempt, 준비 수와
+  후보별 제목·기관·sourceId·input SHA/R2 key/source revision/error를 표시한다.
+  화면은 이 상태가 아직 실제 공고 생성·딥분석 enqueue·매칭 노출이 아님을 명시한다.
+- 회귀 검증은 `verify:aggregate-split`, 기존 `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness를 대상으로 한다.
+- 이 체크포인트에서는 production DB migration 적용, materialization worker 실행,
+  R2 쓰기, 외부 LLM 호출, 앱 배포, 실제 파생 `grants/grant_raw` 생성, 딥분석 job
+  enqueue, parent 매칭 제외를 하지 않았다.
+
+Step 4-1E-3B-1 staged serving visibility 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
+
+- `grants.status`는 source revision에 포함되므로 pipeline 상태를 숨기는 용도로 바꾸지
+  않는다. 별도 enum `grant_serving_state = visible | staged | suppressed`를 추가했고
+  기존·일반 수집 공고는 migration default `visible`을 유지한다. 따라서 staged 분석과
+  최종 노출 전환은 공고 원문 revision을 불필요하게 stale로 만들지 않는다.
+- 일반 사용자가 소비하는 DB 경로는 하나의 `grantServingVisiblePredicate()`를 사용한다.
+  main matcher의 active candidate와 dedup hydration, 일반 공고 상세 조회, 랜딩 전체/source
+  집계와 active banner, 공개 캘린더, 공고 아카이브 결과와 기관 자동완성에서
+  `serving_state = visible`만 허용한다. 기존 `match_state`의 due transition 조회도
+  grants와 join해 staged/suppressed parent의 stale 행이 전환 이벤트를 만들지 못하게 한다.
+- active 딥분석 모집단 함수 `cunote_active_deep_analysis_grants`도 같은 visible 조건으로
+  교체한다. TypeScript 제품 계약 `isGrantActiveForDeepAnalysis` 역시 serving state를
+  필수 입력으로 받고 staged/suppressed를 날짜·공고 status와 무관하게 제외한다. 이전
+  날짜-only evidence와 혼동하지 않도록 active policy version을
+  `deep-analysis-active-kst-v2`로 올렸다.
+- 명시적 내부 `listGrantsByIds`와 `prepareDeepAnalysisInput`에는 visible predicate를
+  넣지 않는다. 다음 단계가 staged child를 ID로 검증·분석할 수 있어야 하며, 일반
+  matcher/serving caller는 이 우회 인터페이스를 사용하지 않는다.
+- `(serving_state, status, apply_end)` index를 추가해 visible+활성 status+마감일 조회가
+  새 상태 필터 때문에 전체 scan으로 후퇴하지 않게 했다. grants의 기존 RLS는 유지한다.
+- 회귀 guard는 shared predicate의 SQL parameter, matcher candidate+dedup hydration+
+  상세 조회, 랜딩·캘린더·아카이브 적용, active DB 함수, 내부 ID/입력 준비 우회를
+  구분하고 stale `match_state` transition 차단도 검증한다. `verify:aggregate-split`,
+  기존 깊은 분석·AI 자동 검수 계약,
+  migration, web/admin typecheck, package runtime freshness와 관련 화면 로직 검증을
+  통과했다.
+- 현재 로컬 DB에는 0062 migration을 적용하지 않았다. 랜딩 검증의 DB query는 새 컬럼
+  부재로 실패한 뒤 development fallback fixture로 통과했으므로 live DB 증거로 세지
+  않는다. 이 체크포인트에서는 DB migration 적용, 실제 serving state 변경, 파생
+  `grants/grant_raw` 생성, 딥분석 enqueue, R2/외부 LLM 호출, 앱 배포를 하지 않았다.
+
+Step 4-1E-3B-2 staged child 승격·깊은 분석 연결 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-26):
+
+- E-3B 전용으로 E-2/E-3A 문서를 다시 해석하는 별도 파서를 만들지 않았다. 기존
+  `loadValidatedAggregateSplitBundle`로 parent input/manifest를 다시 검증하고,
+  `buildAggregateSplitChildDrafts`와 `sealAggregateSplitChildInput`으로 child의
+  projection/raw/source revision/input artifact를 재생성한다. DB child projection과 R2
+  readback은 이 재생성 결과와 hash·byte 단위로 같아야만 승격할 수 있다.
+- 모든 prepared child는 case row와 parent를 lock한 하나의 짧은 transaction에서 동일
+  UUID의 `grants(serving_state=staged)`와 `grant_raw(status=published)`로 멱등
+  insert한다. R2 read는 transaction 전에 끝내며, child count·ordinal·sealed identity,
+  parent `visible`, grants/grant_raw exact readback 중 하나라도 다르면 transaction 전체가
+  rollback된다.
+- commit 뒤 각 child는 `deep-analysis-model-policy-v3`의 기존 queue identity
+  `(grant, sealed source revision, model policy)`로 직접 enqueue된다. 일반 active feeder가
+  staged를 제외하는 것은 유지하며, 우회 이유
+  `aggregate_split_staged_direct_enqueue`, job ID, enqueue 시각을 case/child 원장에
+  보존한다. 따라서 이후 실행은 새 분석 경로가 아니라 기존 최상급 모델 → validator →
+  독립 AI 자동검수/repair → publication pipeline을 그대로 탄다.
+- case에는 `pending/staged/enqueued/failed`, staged/enqueued exact count와 완료 시각,
+  마지막 오류를 기록한다. child에는 staged grant 생성 시각, job identity, enqueue 시각,
+  우회 이유와 승격 오류를 기록한다. DB CHECK는 materialization readiness, count,
+  staged/enqueued 시각, 우회 이유와 job FK의 일관성을 강제한다.
+- Ops 공고 상세은 child별 `serving_state`, job/run 상태, 최신 S0~S14 receipt,
+  passed stage 수, S11 분석 완료 상태, 독립 AI audit verdict와 승격/enqueue 오류를
+  표시한다. parent는 계속 `visible`, child는 `staged`이며 이 화면의 enqueue 증거를
+  실제 모델 처리 완료 증거로 오인하지 않는다.
+- active worker가 `DEEP_ANALYSIS_CLAIM_SCOPE=bounded`이면 새 child UUID가 해당 cohort에
+  포함되기 전에는 job이 pending일 수 있다. E-3B-2는 안전장치를 우회해 claim scope를
+  넓히지 않았고, Ops의 기존 worker claim scope와 child job/receipt를 함께 보게 했다.
+- 회귀 검증은 `verify:aggregate-split`, `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness를 통과했다.
+- migration `0063_little_krista_starr.sql`은 생성했지만 적용하지 않았다. 이
+  체크포인트에서는 production DB migration, R2/외부 LLM 호출, staged child 실제 생성,
+  job enqueue, worker 실행, parent/child 노출 전환, 앱 배포를 하지 않았다.
+
+Step 4-1E-3B-3A staged publication gate·S12 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-26):
+
+- 통합공고 release 준비는 `--aggregate-split-case=<case UUID>`로만 연다. case의 전체
+  child를 DB 원장에서 다시 수집해 completed/prepared/enqueued exact count와 parent
+  `visible`을 먼저 확인한다. 통합공고 child UUID를 일반 `--run` CSV에 넣어 일부만
+  release하는 우회는 명시적으로 거부한다.
+- 각 child는 prepared/staged 상태, child 원장 job ID와 실제 job/grant/source revision,
+  `deep-analysis-model-policy-v3`, job `succeeded`, 그 job의 latest run identity와
+  sealed input/source hash, run `passed`를 순서대로 확인한다. latest receipt의 S0~S11
+  12단계가 전부 `passed`이고 latest AI audit가 같은 input hash에 `concur`여야 한다.
+  하나라도 다르면 case release manifest와 원장을 만들지 않는다.
+- gate를 통과해도 새 발행 구현을 만들지 않는다. 기존 deep-analysis release 준비가
+  current source/input을 `prepareDeepAnalysisInput`으로 다시 봉인하고, normalized output,
+  audit/R2 source artifact, 현재 promotion baseline을 검증한 뒤 기존 immutable manifest와
+  `analysis_lab_promotion_releases/items`를 만든다. release `gate_summary`에는 case,
+  parent, 전체 child/run/source/input identity를 남긴다.
+- 실제 criteria/question 쓰기는 기존 승인·카나리·manifest hash·baseline drift·per-grant
+  transaction 경로만 사용한다. 일부 item 적용 실패가 있어도 child는 계속 `staged`라
+  사용자에게 노출되지 않으며, case 전체 S12가 닫히기 전 노출 전환 조건을 만족하지
+  않는다.
+- serving verifier에 `--publication-only`를 추가했다. 이 모드는 applied promotion
+  snapshot을 다시 읽어 S12 `publication_complete`만 append하고 의도적으로 S13/S14를
+  만들지 않는다. full verifier는 이제 grant `serving_state=visible`을 명시 검증하므로
+  staged child를 내부 ID로 읽었다는 이유만으로 S13을 잘못 `passed` 처리할 수 없다.
+  정기 active monitor도 아직 visible이 아닌 release는 receipt를 만들지 않고 skip해,
+  의도된 staged 대기 구간을 S13 실패로 오염시키지 않는다.
+- Ops 통합공고 child 행은 exact job/run/source/input/model policy, 최신 S0~S11 상태,
+  AI audit input/verdict, 같은 run의 promotion item과 S12 receipt를 같은 공유 gate
+  계약으로 평가한다. child별 첫 blocker와 release/item/S12 상태, case S12 완료 수를
+  표시하며 하나라도 blocker가 있으면 전체 노출 전환 금지를 안내한다.
+- 회귀 검증은 `verify:aggregate-split`, `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, web/admin typecheck와 package
+  runtime freshness를 통과했다.
+- 이 체크포인트는 새 DB 컬럼·migration을 만들지 않았다. production migration/deploy,
+  실제 staged child 생성·worker/외부 LLM 실행, release 준비·승인·적용, R2 receipt 쓰기,
+  parent/child 노출 전환은 실행하지 않았다.
+
+Step 4-1E-3B-3B 원자적 노출 전환·S13/S14 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-26):
+
+- `deep-analysis:aggregate-split-expose`는 case UUID와 actor를 명시하고
+  `AGGREGATE_SPLIT_EXPOSURE_EXECUTE=1` 또는 `--execute`까지 준 경우에만 실행된다.
+  completed/prepared/enqueued exact count, active release, E-3B-3A case gate summary,
+  immutable manifest의 전체 child 집합, applied item과 sealed run identity, 같은
+  release/item의 최신 S12를 전부 다시 확인한다.
+- E-3B-3A 검수 중 확인한 연결 결함도 함께 닫았다. 일반 release 승인기가 준비 단계의
+  `gate_summary`를 승인 artifact hash 세 개로 덮어쓰고 있었으므로, 이제 기존 case/child
+  PASS 증적을 보존한 채 승인 hash를 병합한다. 이 보존이 없으면 정상적으로 승인·적용된
+  통합공고 release도 최종 노출 gate에서 거부된다.
+- case와 parent/전체 child grant를 잠근 짧은 transaction에서 parent
+  `visible → suppressed`, 모든 child `staged → visible`, case
+  `not_ready|rolled_back → verifying`을 CAS로 한꺼번에 바꾼다. lock/statement timeout을
+  제한하고 R2 read와 서빙 검증은 DB lock 밖에서 실행한다. commit 뒤 중단된
+  `verifying` case는 같은 release identity와 visibility가 유지되는 경우 재실행해
+  검증을 이어갈 수 있다.
+- 새 서빙 판정기를 만들지 않았다. 기존 full serving verifier를 import 가능한 seam으로
+  열어 전체 release에 S13 `serving_complete`와 S14 `analysis_fresh` readback을 수행한다.
+  모든 child의 최신 receipt가 같은 release/item에 묶인 `passed`일 때만 두 번째 짧은
+  transaction이 case를 `visible`로 확정하고 `serving_verified_at`을 기록한다.
+- 검증 실패뿐 아니라 최종 확정 실패도 parent `visible`·전체 child `staged`로 한
+  transaction에서 즉시 원복한다. case는 `rolled_back`, exposed count 0, rollback 시각과
+  오류를 기록하고, 모든 child에 최신 attempt의 S13 `failed`와 S14 `blocked` receipt를
+  append해 먼저 성공한 일부 child도 사용자 노출 완료로 오인되지 않게 한다.
+- migration `0064_polite_monster_badoon.sql`은 exposure
+  `not_ready/verifying/visible/rolled_back`, release/actor/count, visible·verified·rollback
+  시각과 오류 필드를 추가한다. DB CHECK는 각 상태에서 허용되는 증적 조합을 강제한다.
+- Ops 상세은 parent뿐 아니라 visible child로 열어도 같은 case와 전체 sibling을
+  조회한다. case exposure 상태·시각·오류와 child별 S12/S13/S14, 첫 blocker를 표시하며,
+  전환 완료 뒤에도 “미노출”로 보이던 이전 단계 문구는 제거했다. catalog verifier는 새
+  9개 컬럼의 실제 존재도 확인한다.
+- 회귀 검증은 `verify:aggregate-split`, `verify:deep-analysis-contract`,
+  `verify:db-migrations`, Ops deep pipeline 계약 테스트, promotion release gate 보존
+  테스트, web/admin typecheck와 package runtime freshness를 통과했다.
+- migration `0064_polite_monster_badoon.sql`은 생성했지만 적용하지 않았다. 이
+  체크포인트에서는 production DB migration/deploy, 실제 staged child 생성,
+  worker/외부 LLM 실행, release 준비·승인·적용, R2 receipt 쓰기, parent/child 실제
+  노출 전환을 실행하지 않았다.
+
+Step 4-1P-1 제한 production 진입 체크포인트 — `PASS`, 전체는 `BLOCKED`
+(2026-07-26):
+
+- production DB의 실제 선행 상태를 읽기 전용으로 확인한 결과 최신 migration은
+  `0056_deep_analysis_ops`였고, `0057_deep_analysis_source_observation`이
+  `0058~0064`보다 먼저 필요한 정확한 첫 blocker였다. `pnpm db:migrate`로
+  `0057~0064`를 순서대로 적용했고, 적용 뒤 migration catalog, aggregate split
+  case/child와 `grants.serving_state`, case exposure 컬럼, FK/RLS를 다시 확인했다.
+  `verify:deep-analysis-ledger`와 `verify:deep-analysis-ops`도 production DB에 대해
+  통과했다.
+- web production은 feeder SQL hotfix를 포함한 clean/pushed `c5a8ecd`를
+  `noten/changupnote`에 배포했다. deployment
+  `dpl_HZnhScgJ4Nv7HvVquy3hJjZWKXTs`는 READY이며 `changupnote.com`과
+  `www.changupnote.com`이 모두 200을 반환했다. 배포 인증은 저장소
+  `.env.vercel.local`의 token을 shell에만 주입했고 project/domain/env를 새로 만들거나
+  바꾸지 않았다.
+- Ops production은 aggregate split 승인·관제·노출 증적 구현을 포함한 clean/pushed
+  `de52eec`를 기존 `team-coolwithyou/changupnote-ops`에 배포했다. deployment
+  `dpl_323jM5vUrCHcwqmJNYMA5QMNNY1Z`는 READY이며 `ops.changupnote.com/pipeline`의
+  login redirect, login 200, 비인증 summary/action API 401을 확인했다.
+- 승인 대상은 `kstartup/175783`, parent grant
+  `1e7f6fd6-7c58-4a53-bbf9-25c87b3eb676`,
+  `2026년 중앙부처 및 지자체 창업지원사업 통합공고` 한 건으로 고정했다. enqueue job
+  `9b52f594-98a6-4d82-a46e-e755b8f9dc7e`를 UUID 하나짜리 bounded cohort로 실행했다.
+- 첫 실행은 모델 호출 전에 active feeder candidate projection의 바깥
+  `grants.id/source/source_id/updated_at`가 qualify되지 않아 PostgreSQL
+  `column reference "id" is ambiguous`로 중단됐다. 이 범위만
+  `c5a8ecd`에서 qualify하고 pending/source-change SQL 회귀 테스트, 전체
+  `verify:deep-analysis-contract`, web typecheck를 통과시킨 뒤 위 web revision을 다시
+  배포했다.
+- 재실행은 외부 모델을 호출하지 않고 의도한 oversized aggregate gate에서 닫혔다.
+  case `daa12917-6c8b-4f3a-ae5f-6d4c7fe5c163`은 `pending_review`,
+  `oversized_aggregate_notice`, 입력 1,136,482자/상한 800,000자, chunk 22개,
+  attachment 3개다. parent job은 `blocked/input_not_sealed`, case의
+  `external_calls_made`, token, 비용, 승인 request/시각은 모두 null이고 비용 증거가
+  있는 run은 0건이다. materialization/promotion/exposure도 모두 `not_ready`다.
+- 이 상태는 556쪽 통합공고를 일반 22축 단일 공고로 억지 분석하지 않고, 사람 승인
+  전에는 비용·파생 공고·노출을 발생시키지 않는 설계와 일치한다. 다음 mutation은
+  Ops의 `admin/owner`가 실제 `분리 처리 수락` 액션을 수행해 append-only
+  `admin_deep_analysis_actions`와 승인자 identity를 남기는 것이다. 이후 실제
+  `sw@noten.im` Ops 관리자 세션에서 확인 모달의 대상·입력 크기·비용 상한과
+  “승인만으로 발행·노출되지 않는다”는 결과를 확인하고 수락했다. case는
+  `approved`, approval request
+  `ebbe7c31-2552-4eb5-ad52-7101bc96ec05`가 됐고 같은 request/actor의
+  `approve_aggregate_split/succeeded` append-only action을 DB에서 교차 확인했다.
+  DB 직접 수정이나 임의 관리자 identity로 이 관문을 우회하지 않았다.
+- GCP CLI의 active account/project 기본값은 `sw@noten.im` /
+  `changupnote-com`, region은 `asia-northeast3`로 확인했다. `sw@ba-ton.kr`는
+  비활성 저장 credential일 뿐 이 실행에서 사용하지 않았다. 다만 현재 access token
+  refresh가 비대화형 재인증을 요구해 Cloud Run의 live revision·billing과 최신 verifier
+  배포는 확인/실행하지 못했다. 따라서 사람 승인이 끝나더라도 최신 staged-skip/full
+  visibility verifier를 배포하기 전에는 release 활성화와 E-3B-3B 노출 전환을 금지한다.
+
+현재 Step 4-1 전체 판정은 여전히 `BLOCKED`다. staged child의 실제 깊은 분석·AI 자동
+검수·S12 발행과 parent/child 원자적 노출 전환 및 S13/S14 production readback 증거를
+실제로 닫기 전에는 H2 revision/cohort 확인과 24시간 카나리 단계로 넘어가지 않는다.
+Step 4-1P-1 시점의 다음 체크포인트는 새 기능 추가가 아니라 위 단일 case를 Ops에서
+사람 승인한 뒤
+E-2 → E-3A → E-3B-2 → child 깊은 분석·AI 자동 검수 → E-3B-3A까지 실행하는
+제한 production 운영 검증이다. 그동안 GCP 재인증과 최신 verifier 배포를 독립적으로
+닫고, 두 의존성이 모두 통과한 뒤에만 E-3B-3B와 S13/S14 production readback을 실행한다.
+
+Step 4-1P-2 통합공고 실분리 preflight 체크포인트 — `BLOCKED`
+(2026-07-26):
+
+- 위 승인 case에 E-2 worker를 두 번만 실행했다. 첫 attempt는 Opus 외부 호출 1회,
+  input/output token `41,240/1,916`, 실비 `$0.254100`을 원장과 실패 raw artifact에
+  남긴 뒤 `aggregate_split_map_non_program_invalid`로 fail-closed했다. 모델은
+  `shared/navigation` disposition을 올바르게 선택했지만 required string 필드에
+  `__toc__`와 설명용 제목도 채웠다. 원본 tool input은 raw evidence에 그대로 보존하고,
+  ownership에 사용하지 않는 비사업 key/title만 adapter 경계에서 비우며 prompt를
+  명확히 한 `4dab1f8`을 커밋했다.
+- 두 번째 attempt는 map 1~3을 통과하고 map 4에서
+  `aggregate_split_map_coverage_invalid`로 닫혔다. 누적 외부 호출 5회,
+  input/output token `206,572/13,486`, 누적 실비 `$1.370010`이며 승인 상한 `$12`에
+  포함된다. 실패 raw를 읽어보니 5,913자 segment 하나가 `## Page 158~162`의 서로 다른
+  사업 여러 개를 포함했고, 모델은 실제 내용을 숨기지 않기 위해 같은 segment ID를
+  6개 사업에 귀속했다. 모델의 맥락 판단보다 server의 6,000자 일반 경계가 잘못된
+  것이므로 HWP/PDF에 보존된 `## Page N`을 최우선 무손실 경계로 쓰는 `532819c`을
+  커밋했다.
+- production 입력에 새 segmenter를 read-only 적용하면 전체 1,136,482자를 손실 없이
+  666개 segment로 재구성하고, segment당 page heading 최대 1개, 복수 page heading
+  segment 0개가 된다. 다만 현재 72,000자 map batch 기준 보수 비용 추정이
+  `$12.162410`으로, 이미 사용한 `$1.370010`을 제외한 남은 승인 상한
+  `$10.629990`보다 크므로 현재 worker는 세 번째 attempt의 외부 호출 전에 다시
+  fail-closed해야 한다.
+- 더 중요한 규모 gate도 확인했다. 봉인 입력에는 page marker 556개와 숫자형
+  사업 페이지 후보 527개가 있지만 현재 E-2 검증 계약은 최종 program `2~300`개다.
+  이 제한을 단순히 600으로 올리면 E-2 synthesis 출력뿐 아니라 이후 수백 개 child의
+  최상급 primary 분석·독립 AI 자동검수 비용을 한 승인으로 열게 된다. Ops가 보여준
+  `$12`는 분리 worker 상한일 뿐 child 전체 비용 승인이 아니다.
+- 따라서 마지막 attempt를 소모하거나 program 상한·비용 상한을 임의로 올리지 않았다.
+  현재 case는 `approved`, attempt `2/3`, child 0, materialization/promotion/exposure
+  모두 `not_ready`, parent `visible`이다. staged grant, child job, criteria/question,
+  사용자 노출 변경은 0건이다.
+- 다음 순차 의존성은 “한 통합공고를 최대 300개 이하의 사람이 확인 가능한 partition으로
+  나누는 계약”과 “partition별 E-2 및 전체 child 딥분석·AI 자동검수 누적 비용 상한”을
+  Ops 승인 화면과 원장에 먼저 추가하는 것이다. 이 두 승인 증거 없이 세 번째 E-2,
+  E-3A, E-3B-2로 진행하지 않는다. GCP의 `sw@noten.im` access token refresh와 최신
+  verifier 배포도 여전히 E-3B-3B 이전 독립 blocker다.
+
+Step 4-1P-3 통합 연간 안내책자 사람 예외 확정 체크포인트 — `PASS`, 전체는
+`BLOCKED` (2026-07-27):
+
+- full partition 원장·worker·Ops 승인 제품은 구현하지 않는다. aggregate 전용 runtime/SQL
+  경로가 이미 큰 상태에서 단일 연간 안내책자 때문에 partition lifecycle을 추가하면
+  §14.14의 “DB migration + 새 worker + 새 UI가 함께 필요하면 중단” 규칙을 다시
+  위반하고, 실제 활성 공고의 22축 깊은 분석·독립 AI 자동검수라는 목표를 흐린다.
+- `6d7130e`는 봉인 입력의 `## Page N` 경계를 원문 source별로 결정론 재조립해 300개를
+  초과하면 `aggregate_split_manual_review_required`를 non-retryable로 반환한다.
+  이 gate는 model/budget 계산보다 먼저 실행되며, 301페이지 fixture에서 외부 모델 호출
+  0회를 확인했다. 새 schema, migration, queue, API, Ops UI는 추가하지 않았다.
+- production의 승인 case `daa12917-6c8b-4f3a-ae5f-6d4c7fe5c163` 한 건만 worker
+  경로로 다시 claim했다. page marker 556개가 자동 상한 300개를 초과해 attempt `3/3`,
+  status `failed`, stable error `aggregate_split_manual_review_required`로 닫혔다.
+  외부 호출은 누적 5회, token `206,572/13,486`, 비용 `$1.370010`, raw response SHA는
+  이전 값과 같아 이 차단 실행의 추가 외부 호출·token·비용·R2 raw write는 0이다.
+- child 0, materialization/promotion/exposure `not_ready`, parent `visible/open`을
+  readback했다. 기존 Ops case error seam이 stable code와 한국어 message를 그대로
+  표시하므로 별도 화면 변경 없이 사람 전용 예외가 관제된다. 이 공고를 완료로 세거나
+  조용히 분모에서 삭제하지 않는다.
+- 같은 시각 production Ops 정본 집계는 활성 626 =
+  serving complete/fresh 2 + in progress 587 + blocked/failed 6 + stale 31이다.
+  이 사람 예외 1건을 빼면 실제 자동 분석 대상은 625이고 blocked/failed만 5로 줄며,
+  완료 2·진행 587·stale 31은 변하지 않는다. 22축 exact는 4, 같은 input SHA의 독립
+  audit `concur`와 S11을 함께 통과한 건은 2, S12~S14까지 모두 통과한 건도 2다.
+- 다음 checkpoint는 partition 개발이 아니다. frozen 80 receipt에서 이 1건을
+  `human exception / not evaluated`로 명시 보존하고, 나머지 실제 79건의 입력 gate와
+  작은 분석 cohort를 기존 primary → 22축 validator → 독립 AI 자동검수 경로로
+  닫는 것이다.
+
+Step 4-1P-4 실제 개별 HWP 2건 소규모 분석 체크포인트 — `PASS 1 / HUMAN
+EXCEPTION 1`, 확대는 `BLOCKED` (2026-07-27):
+
+- production의 current claimable job에서 HWP가 있는 실제 활성 개별 공고 2건만
+  봉인했다. `bizinfo/PBLN_000000000124603`은
+  `호주 그린ㆍ에너지 시장개척단 참가기업 추가모집 공고`, input 7,049자/첨부 4건이고,
+  `kstartup/178574`는 `ESG × AI 챌린지 해커톤 참가자 모집`, input
+  11,833자/첨부 2건이다. 556쪽 통합 안내책자는 terminal human exception이라 이
+  bounded cohort에 포함되지 않았다.
+- 첫 BizInfo 실행은 primary의 exact 22축·response contract·원문 evidence가 모두
+  issue 0이었지만, 신청서의 `수출실적 유무` 정보기재란을 우대조건으로 해석해 독립
+  audit가 차단했다. `d130be6`은 신청서 빈칸·체크박스·기업정보 기재란만으로
+  required/exclusion/preferred를 만들지 않고, 필수·제외·우대·배점 효과가 명시된
+  경우만 조건으로 보도록 primary/audit 공용 prompt를 `deep-analysis-v3`, blind
+  audit를 `v2`, model policy를 `v4`로 올렸다. 새 schema·worker·queue·UI는 만들지
+  않았다.
+- 같은 BizInfo 입력의 v4 재실행에서는 잘못된 수출실적 criterion이 사라졌다. 대신
+  독립 audit가 `호주 그린·에너지 산업 진출 희망 기업`의 `target_type` 누락과
+  구조화 필드 `중소기업`을 강행조건으로 볼 수 있는지의 불확실성을 잡아
+  `independent_audit_disagreement`로 fail-closed했다. v3/v4 실행 비용은 각각
+  `$1.025835`/`$0.822875`다. 이 공고는 자동 승격하지 않고 사람 예외로 남겼으며,
+  불일치를 프롬프트 반복 수정으로 억지 합의시키지 않았다.
+- 첫 K-Startup v4 실행도 primary 22축·evidence는 issue 0이었지만 adjudicator가
+  “미성년자 보호자동의서 조건은 primary에 이미 반영된 중복이므로
+  `accept_primary`가 맞다”고 설명하면서 구조화 verdict만 `change_required`로
+  반환해 차단됐다. `13ffe13`은 “이미 반영/중복”이라는 reason과 verdict가
+  반대가 되지 않도록 기존 adjudication prompt 한 곳만 보강하고 version을
+  `deep-analysis-audit-adjudication-v2`, model policy를 `v5`로 올렸다. reason
+  문자열을 서버가 임의 해석해 통과시키는 우회는 추가하지 않았다.
+- K-Startup v5 재실행 job `e1bea519-a308-41eb-9e53-5c977d1f006d`, run
+  `da-20260726T232300814Z-fc0bede2-f268-4816-a56a-06955dd38e11`은 `$0.973465`에
+  `succeeded/passed`로 끝났다. source/input hash는 계획 시 봉인값과 같고,
+  primary `claude-opus-4-8`이 정확히 22축과 criterion 6개를 생성했다.
+  response contract, axis coverage, evidence grounding은 모두 issue 0이며,
+  `claude-sonnet-5` 독립 audit는 disagreement 0/`concur`로
+  `independent_audit_passed`와 S11 `analysis_complete`가 모두 `passed`다.
+- 이 체크포인트는 실제 HWP를 읽는 깊은 분석과 AI 자동 검수가 production DB/R2
+  경로에서 성공할 수 있음을 한 건으로 증명했고, 의미상 충돌하는 공고는 사람
+  예외로 남기는 fail-closed도 한 건으로 증명했다. 그러나 2건 중 1건이 사람
+  예외이므로 20건 확대 조건은 충족하지 않았다. promotion/release/S12,
+  `grant_criteria`·질문·matcher write, Vercel/GCP 배포는 수행하지 않았다.
+
+Step 4-1P-5 v5 web/Ops production 정합 배포·GCP blocker 체크포인트 —
+`PARTIAL`, worker는 `BLOCKED` (2026-07-27):
+
+- 위 P-4 코드와 문서를 포함한 exact clean commit `247f132`를 main에 push했다. 다른
+  세션의 미커밋 notice-calendar/schema/migration 변경은 배포 source와 commit에
+  포함하지 않았다.
+- Ops는 저장소 지침의 예외 인증 경로를 따라 비대화형
+  `coolwithyou`와 `team-coolwithyou/changupnote-ops`, Root Directory
+  `apps/admin`을 확인했다. clean git archive의 `apps/admin/.vercel/project.json`만
+  임시 root link로 사용해 deployment
+  `dpl_4RxeS4QYj21cL8F5TXE5R5FMpJ4u`를 production에 배포했다. 상태는 READY,
+  `ops.changupnote.com` alias이며 `/pipeline`의 login redirect 307, `/login` 200,
+  비인증 `/api/admin/pipeline/summary` 401을 확인했다.
+- web은 저장소 `.env.vercel.local`의 `VERCEL_CLI_TOKEN_FULL`을 shell의
+  `VERCEL_TOKEN`으로만 매핑했다. 토큰 값은 출력·명령 인자·commit에 넣지 않았고,
+  `noten-dev` / `noten/changupnote`, Root Directory `apps/web`을 확인한 뒤 exact
+  clean commit으로 deployment `dpl_5n1dRaKAtp1NXRktKywqcb9QiBCW`를 production에
+  배포했다. 상태는 READY이고 `changupnote.com`, `www.changupnote.com` 모두 200이다.
+- v5 코드 기준 `verify:deep-analysis-ledger`는 production catalog/RLS/append-only
+  계약을 PASS했다. `verify:deep-analysis-ops`는 활성 626을
+  `analysis_complete_not_published=1`, `in_progress=625`로 정확히 보았고, P-4의
+  local bounded worker heartbeat와 S0~S11 각 1건을 확인했다. 반면 v5
+  input-preparation heartbeat가 없고 old-policy serving 2건은 current v5 completion으로
+  세지 않으므로 전체 verdict는 의도대로 FAIL이다. local heartbeat는 지속 worker
+  증거가 아니며 stale SLO가 지나면 worker도 blocker로 전환된다.
+- gcloud의 active account/project/region 설정은 계속
+  `sw@noten.im` / `changupnote-com` / `asia-northeast3`다.
+  `gcloud auth print-access-token`은 `Reauthentication failed: cannot prompt during
+  non-interactive execution`으로 실패했다. 다른 계정이나 service credential로
+  우회하지 않았고 Cloud Build, Cloud Run Job, Scheduler, Secret, billing mutation은
+  수행하지 않았다. 따라서 current v5 worker/input-preparation/verifier image와
+  scheduler revision은 아직 production에 반영되지 않았다.
+- 다음 mutation은 `sw@noten.im`의 대화형 gcloud 재인증 뒤 current worker 계열만
+  exact commit으로 배포하고, worker는 우선 `observe_only`, input-preparation은
+  LLM secret 없는 기존 최소 권한을 유지한 채 heartbeat/readback을 닫는 것이다.
+  그 전에는 20건 확대, claim scope `all`, promotion/S12, matcher write를 금지한다.
+
+Step 4-1P-6 v5 worker·입력 준비·관제 production 정합 체크포인트 —
+`PASS`, 전체는 `BLOCKED` (2026-07-27):
+
+- `sw@noten.im`을 base account로 하고 `changupnote-com`만 대상으로 하는 전용
+  configuration `cunote-codex-dev`를 만들었다. 실제 API 호출 주체는 keyless
+  impersonation 서비스 계정
+  `cunote-codex-dev@changupnote-com.iam.gserviceaccount.com`이다. JSON key는 만들지
+  않았고 `sw@ba-ton.kr` 계정은 사용하지 않았다. IAM은 세 Job의 developer, runtime·
+  build service account user, Cloud Build editor, 로그·Scheduler viewer,
+  Artifact Registry reader와 exact staging bucket object 권한으로 제한했다.
+- old revision을 제한 배포해 확인하던 중 input-preparation heartbeat의 기본
+  `modelPolicyVersion`이 v3으로 하드코딩된 결함을 발견했다. 기본값을 contracts의
+  current `DEEP_ANALYSIS_MODEL_POLICY_VERSION`으로 단일화하고 회귀 테스트를 추가한
+  commit `7accca0e3334122bb8cc249a54374019edb122f3`을 main에 push했다.
+  focused test, 전체 deep-analysis contract와 web typecheck가 통과했다.
+- Cloud Build `5533a94b-82ee-4820-9fe7-66791a9ede07`가 위 exact commit을
+  `SUCCESS`로 빌드했다. 불변 image digest
+  `sha256:46e5e1caac17f42555af5809a57793ca70905301fb30a540e7abc5a3d4d0c8ae`를
+  세 Job에 배포했고 generation은 main/input-preparation/serving-monitor 각각
+  `15/11/4`다. runtime service account와 command/args/secret 참조는 보존됐고,
+  메인만 `ANTHROPIC_API_KEY`를 가진 채 `observe_only`다.
+- 수동 실행 `cunote-deep-analysis-l7m5t`는 policy v5, exact revision,
+  `claimScope=unconfigured`, claim·enqueue·analysis·budget mutation 0으로 성공했다.
+  `cunote-deep-analysis-input-preparation-gnm72`는 policy v5 heartbeat를 남기고
+  target/unresolved/error 0으로 성공했다. `cunote-deep-analysis-serving-monitor-sw4hq`는
+  활성 release 2건·item 2건의 source/analysis/criteria/trace 연결을 full mode로
+  재검증해 `PASS`했다.
+- 정시 Scheduler도 enabled 상태를 유지한다. 11:10 KST main execution
+  `cunote-deep-analysis-9dff7`와 11:12 KST input-preparation execution
+  `cunote-deep-analysis-input-preparation-lv8q5`가 같은 digest·revision으로
+  성공했고, 두 heartbeat 모두 policy v5/current revision이다. serving monitor는
+  `5,35 * * * *` Scheduler를 유지하며 위 current revision 수동 실행으로 먼저
+  검증했다.
+- current code의 production read-only `verify:deep-analysis-ledger`는
+  catalog/RLS/append-only/identity/promotion FK를 `PASS`했다.
+  `verify:deep-analysis-ops`도 활성 626 보존식과 worker/input-preparation/
+  serving-monitor 건강도를 모두 확인해 `PASS`했다. 현재 분포는
+  `analysis_complete_not_published=1`, `in_progress=625`, blocker/stale 0이며,
+  완료된 실제 HWP 분석 1건은 S0~S11과 독립 AI 자동검수까지 각 1건으로 유지된다.
+- 이 체크포인트는 P-5의 GCP 배포 blocker와 “지속 실행 revision이 구버전” 문제를
+  닫는다. 활성 626건의 분석 완료나 20건 확대를 의미하지 않는다. 메인은 계속
+  `observe_only`이므로 다음 단계는 새 기능 추가가 아니라 current v5 sealed 입력 중
+  exact 소수 cohort만 claim fence로 고정해 `2건 이하` 분석·독립 AI 자동검수를
+  재검증하는 것이다. 그 증거 전에는 `all` scope, 20건 확대, S12/promotion 및
+  matcher write를 금지한다.
+
+Step 4-1P-7 current v5 exact 2건 bounded 자동 실행 체크포인트 —
+`FAIL 0/2`, 확대는 `BLOCKED` (2026-07-27):
+
+- `observe_only` 상태의 current v5 claimable job은 0건이었다. backlog 전체를 feeder로
+  열지 않고 공용 active enqueue predicate의 후보를 읽기 전용으로 다시 봉인해, 실제
+  HWP가 있고 blocker가 없는 BizInfo 2건만 선택했다. 556쪽 통합공고는 포함하지
+  않았다. cohort는
+  `97bf2f16-36e6-4ad7-a50d-f26789f3964d`와
+  `c66793bb-8d50-444f-a86c-fba2f4fea398`, exact hash는
+  `751c70103c8121dc5e944cd42f340720a576485278d3de11680d63ec3ae4cf01`,
+  activation은 `2026-07-27T02:18:47Z`다.
+- main generation 16에 위 두 UUID와 hash만 `bounded`로 넣고
+  invocation당 최대 1건·동시 lease 1건·공고당 `$2` 상한을 유지했다. worker
+  `cunote-deep-analysis-jkw2m`은 exact 두 건만 enqueue하고 첫 job
+  `b005ab92-a12d-4d86-bfc0-f06eeb2c5432`를 claim했다. 동시에 들어온 11:20 KST
+  Scheduler `cunote-deep-analysis-q8dzx`는 active lease를 확인해 추가 claim 없이
+  종료했다.
+- 첫 공고 `2026년 중견기업-공공연 개방형 혁신 지원 사업 신규과제 모집 공고`는
+  57,624자·첨부 22건이며 20건 included, container 2건 waived_non_material로
+  완전 봉인됐다. primary `claude-opus-4-8`은 exact 22축, response contract,
+  axis coverage, evidence grounding을 issue 0으로 통과했고 `$1.123690`이
+  발생했다. audit 예상비용 `$1.123690`을 더하면 `$2` 상한을 넘으므로 audit 호출
+  전에 run
+  `da-20260727T021945502Z-a639bda5-05c8-48d5-86d5-351b3e014274`가
+  `pending_budget`으로 차단됐다. 비용이 0인 pre-call 차단으로 잘못 해석하지 않는다.
+- 두 번째 worker `cunote-deep-analysis-nrf5m`은 남은 job
+  `10b6d5b5-b7c5-40cc-a0f4-1189a91db91b`만 claim했다. 11:25 KST Scheduler
+  `cunote-deep-analysis-nt4xj`도 lease 상한 때문에 중복 실행하지 않았다. 대상
+  `2026년 2차 산업 공정부산물의 탄소중립 전환 재자원화 기술 실증지원센터 구축사업
+  지원계획 공고`는 23,368자·HWP 포함 첨부 3건 전부 included다.
+- 두 번째 run
+  `da-20260727T022501449Z-d56d9c8a-4977-478f-861e-2f192c1e5c1a`도 primary
+  exact 22축·response contract·evidence는 issue 0으로 통과했다. 그러나 독립
+  `claude-sonnet-5` audit는 “부도 또는 파산기업(예정 포함)” 배제조건을
+  `credit_status`에만 두고 `business_status` 축에는 조건 없음으로 둔 것을
+  실질 누락으로 판정했다. criterion/axis disagreement 2건이므로 worker는 이를
+  우회하지 않고 `independent_audit_disagreement` dead letter로 보존했다. 비용은
+  `$1.293335`다.
+- exact 종료 verifier는 active/HWP/current input 2/2, out-of-cohort v5 run 0,
+  axis 22/22를 확인했지만 analysis complete 0, terminal 2, 총비용
+  `$2.417025`로 정확히 `FAIL`했다. 20건 확대 조건은 충족하지 않았다.
+- 종료 직후 main을 generation 17 `observe_only`로 복귀시키고 claim scope/ID/hash를
+  제거했다. `cunote-deep-analysis-9fflq` readback은 policy v5, exact revision,
+  claim/enqueue/analysis/budget mutation 0이다. 11:35 KST 정시 main
+  `cunote-deep-analysis-txnrl`도 같은 `observe_only` 설정으로 성공했고, 정시
+  serving monitor `cunote-deep-analysis-serving-monitor-mv7z7`는 활성 release
+  2건·item 2건을 full mode로 다시 `PASS`했다. production Ops verifier는 활성
+  626 = analysis complete 미발행 1 + in progress 623 + blocked/failed 2,
+  worker/input-preparation/serving-monitor healthy, stale 0으로 `PASS`했다.
+- 이 체크포인트에서는 비용 상한을 올리거나 prompt/taxonomy를 바꾸지 않는다. 다음
+  단계는 두 실패를 섞지 않고 (1) primary 완료 후 audit 예약을 포함하는 비용정책,
+  (2) 파산 조건의 `credit_status`/`business_status` 중복 표현 계약을 각각
+  코드·기존 receipt 기준으로 검수하는 것이다. 그 검수와 별도 체크포인트 전에는
+  재queue, 추가 유료 호출, 20건/`all` 확대, S12/promotion 및 matcher write를
+  금지한다.
+
+중단 조건:
+
+- 동결 80 품질 미달
+- worker revision 또는 cohort hash 불일치
+- 24시간 slot 누락
+- blocker 없는 active grant가 S14에 도달하지 못함
+
+위 조건 중 하나라도 발생하면 cohort를 확대하지 않고 해당 단계만 수정한다.

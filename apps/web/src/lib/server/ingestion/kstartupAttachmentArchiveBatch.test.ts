@@ -32,6 +32,18 @@ assert.equal(plan.candidates[0]?.entry.grant.source_id, "new", "신규/변경 so
 assert.equal(plan.candidates[0]?.selected.length, 2);
 assert.equal(plan.candidates[1]?.selected.length, 1);
 
+const reprocess = planKStartupAttachmentArchiveBatch([complete], {
+  maxGrants: 1,
+  maxTotalAttachments: 1,
+  maxAttachmentsPerGrant: 1,
+  reprocessMissingMarkdown: true,
+});
+assert.equal(
+  reprocess.candidates[0]?.selected[0]?.filename,
+  "완료서식.hwp",
+  "명시 recovery만 archive 완료·markdown 미완료 첨부를 다시 선택한다",
+);
+
 const empty = planKStartupAttachmentArchiveBatch([priority], {
   maxGrants: 4,
   maxTotalAttachments: 0,

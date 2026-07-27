@@ -1,10 +1,12 @@
 import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { DEEP_ANALYSIS_MODEL_POLICY_VERSION } from "@cunote/contracts";
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import { runConversionPollSweep } from "@/lib/server/conversion/pollSweep";
 import { registerAttachmentConversions } from "@/lib/server/conversion/registerAttachmentConversions";
 import { runBizInfoAttachmentArchiveBatch } from "@/lib/server/ingestion/bizinfoAttachmentArchiveBatch";
+import type { GrantImageOcrAdapter } from "@/lib/server/ingestion/grantAttachmentArchive";
 import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
 import { enqueueDeepAnalysisJob } from "./ledger";
@@ -188,6 +190,12 @@ export async function runDeepAnalysisInputPreparation(input: {
   runConversionSweep?: typeof runConversionPollSweep;
   prepareInput?: typeof prepareDeepAnalysisInput;
   ensurePreparedJob?: typeof ensurePreparedDeepAnalysisJob;
+  enqueuePreparedJobs?: boolean;
+  archiveFetchTimeoutMs?: number;
+  reprocessMissingMarkdown?: boolean;
+  archiveMaxEntries?: number;
+  imageOcr?: GrantImageOcrAdapter | null;
+  imageOcrName?: string;
 }): Promise<DeepAnalysisInputPreparationResult> {
   const startedAt = Date.now();
   const now = input.now ?? new Date();
@@ -216,6 +224,16 @@ export async function runDeepAnalysisInputPreparation(input: {
       maxTotalAttachments: input.policy.maxTotalAttachmentsPerSource,
       maxAttachmentsPerGrant: input.policy.maxAttachmentsPerGrant,
       sourceIds: kstartupTargets.map((target) => target.sourceId),
+      ...(input.archiveFetchTimeoutMs !== undefined
+        ? { fetchTimeoutMs: input.archiveFetchTimeoutMs }
+        : {}),
+      ...(input.reprocessMissingMarkdown !== undefined
+        ? { reprocessMissingMarkdown: input.reprocessMissingMarkdown }
+        : {}),
+      ...(input.archiveMaxEntries !== undefined
+        ? { archiveMaxEntries: input.archiveMaxEntries }
+        : {}),
+      ...(input.imageOcr ? { imageOcr: input.imageOcr } : {}),
       deadlineAtMs,
     })
     : null;
@@ -233,6 +251,19 @@ export async function runDeepAnalysisInputPreparation(input: {
       maxTotalAttachments: input.policy.maxTotalAttachmentsPerSource,
       maxAttachmentsPerGrant: input.policy.maxAttachmentsPerGrant,
       sourceIds: bizinfoTargets.map((target) => target.sourceId),
+      ...(input.archiveFetchTimeoutMs !== undefined
+        ? { fetchTimeoutMs: input.archiveFetchTimeoutMs }
+        : {}),
+      ...(input.reprocessMissingMarkdown !== undefined
+        ? { reprocessMissingMarkdown: input.reprocessMissingMarkdown }
+        : {}),
+      ...(input.archiveMaxEntries !== undefined
+        ? { archiveMaxEntries: input.archiveMaxEntries }
+        : {}),
+      ...(input.imageOcr ? { imageOcr: input.imageOcr } : {}),
+      ...(input.imageOcrName !== undefined
+        ? { imageOcrName: input.imageOcrName }
+        : {}),
       deadlineAtMs,
     })
     : null;
@@ -273,7 +304,7 @@ export async function runDeepAnalysisInputPreparation(input: {
         storage: input.storage,
         grantId: target.grantId,
       });
-      const preparedJob = seal.sealed
+      const preparedJob = seal.sealed && input.enqueuePreparedJobs !== false
         ? await (
           input.ensurePreparedJob ?? ensurePreparedDeepAnalysisJob
         )(input.db, {
@@ -478,7 +509,7 @@ export function resolveDeepAnalysisInputPreparationPolicy(
   return {
     modelPolicyVersion:
       env.DEEP_ANALYSIS_MODEL_POLICY_VERSION?.trim()
-      || "deep-analysis-model-policy-v3",
+      || DEEP_ANALYSIS_MODEL_POLICY_VERSION,
     maxGrantsPerSource: boundedEnvInt(
       env.DEEP_ANALYSIS_PREPARE_MAX_GRANTS_PER_SOURCE,
       2,

@@ -5,6 +5,8 @@ import {
   DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS,
   DEEP_ANALYSIS_SERVING_VERIFIER_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
+  deriveAggregateSplitExposureBlocker,
+  deriveAggregateSplitPublicationBlocker,
   type CriterionDimension,
   type DeepAnalysisAxisStatus,
   type DeepAnalysisStageKey,
@@ -17,6 +19,8 @@ import {
   DEEP_PIPELINE_BUCKET_LABELS,
   DEEP_PIPELINE_BUCKETS,
   DEEP_STAGE_LABELS,
+  type DeepPipelineAggregateSplitChild,
+  type DeepPipelineAggregateSplitCase,
   type DeepPipelineAdminAction,
   type DeepPipelineAttachment,
   type DeepPipelineAudit,
@@ -887,6 +891,8 @@ export async function getDeepPipelineNoticeDetail(
     attachmentRows,
     promotionRows,
     actionRows,
+    aggregateSplitRows,
+    aggregateSplitChildRows,
   ] = await Promise.all([
     sql.unsafe<RunDetailRow[]>(
       `select *
@@ -964,6 +970,157 @@ export async function getDeepPipelineNoticeDetail(
        order by action.created_at desc, action.id desc`,
       [grantId],
     ),
+    sql.unsafe<AggregateSplitCaseRow[]>(
+      `select split_case.*, approver.email as approved_by_email
+       from grant_aggregate_split_cases split_case
+       left join admin_users approver
+         on approver.id = split_case.approved_by_admin_user_id
+       where split_case.grant_id = $1::uuid
+          or exists (
+            select 1
+            from grant_aggregate_split_children selected_child
+            where selected_child.split_case_id = split_case.id
+              and selected_child.id = $1::uuid
+          )
+       order by split_case.created_at desc, split_case.id desc
+       limit 1`,
+      [grantId],
+    ),
+    sql.unsafe<AggregateSplitChildRow[]>(
+      `select
+         child.*,
+         child_grant.serving_state,
+         child_job.grant_id as deep_analysis_job_grant_id,
+         child_job.source_revision_sha256 as deep_analysis_job_source_revision_sha256,
+         child_job.model_policy_version as deep_analysis_job_model_policy_version,
+         child_job.status as deep_analysis_job_status,
+         latest_run.id as deep_analysis_run_id,
+         latest_run.job_id as deep_analysis_run_job_id,
+         latest_run.grant_id as deep_analysis_run_grant_id,
+         latest_run.source_revision_sha256 as deep_analysis_run_source_revision_sha256,
+         latest_run.input_sha256 as deep_analysis_run_input_sha256,
+         latest_run.model_policy_version as deep_analysis_run_model_policy_version,
+         latest_run.status as deep_analysis_run_status,
+         coalesce(stage_summary.passed_stage_count, 0)::int as passed_stage_count,
+         coalesce(stage_summary.stage_statuses, '{}'::jsonb) as stage_statuses,
+         latest_receipt.stage as latest_stage,
+         latest_receipt.status as latest_stage_status,
+         analysis_receipt.status as analysis_complete_status,
+         publication_receipt.status as publication_complete_status,
+         serving_receipt.status as serving_complete_status,
+         freshness_receipt.status as analysis_fresh_status,
+         latest_audit.verdict as ai_audit_verdict,
+         latest_audit.input_sha256 as ai_audit_input_sha256,
+         latest_promotion.release_id as promotion_release_id,
+         latest_promotion.release_status as promotion_release_status,
+         latest_promotion.item_status as promotion_item_status
+       from grant_aggregate_split_children child
+       join grant_aggregate_split_cases split_case
+         on split_case.id = child.split_case_id
+       left join grants child_grant
+         on child_grant.id = child.id
+       left join grant_deep_analysis_jobs child_job
+         on child_job.id = child.deep_analysis_job_id
+       left join lateral (
+         select
+           run.id,
+           run.job_id,
+           run.grant_id,
+           run.source_revision_sha256,
+           run.input_sha256,
+           run.model_policy_version,
+           run.status
+         from grant_deep_analysis_runs run
+         where run.job_id = child_job.id
+         order by run.started_at desc, run.id desc
+         limit 1
+       ) latest_run on true
+       left join lateral (
+         select
+           count(*) filter (where receipt.status = 'passed') as passed_stage_count,
+           jsonb_object_agg(receipt.stage, receipt.status) as stage_statuses
+         from (
+           select distinct on (candidate.stage)
+             candidate.stage,
+             candidate.status
+           from grant_deep_analysis_stage_receipts candidate
+           where candidate.run_id = latest_run.id
+           order by
+             candidate.stage,
+             candidate.attempt desc,
+             candidate.created_at desc,
+             candidate.id desc
+         ) receipt
+       ) stage_summary on true
+       left join lateral (
+         select receipt.stage, receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+         order by receipt.created_at desc, receipt.id desc
+         limit 1
+       ) latest_receipt on true
+       left join lateral (
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'analysis_complete'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) analysis_receipt on true
+       left join lateral (
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'publication_complete'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) publication_receipt on true
+       left join lateral (
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'serving_complete'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) serving_receipt on true
+       left join lateral (
+         select receipt.status
+         from grant_deep_analysis_stage_receipts receipt
+         where receipt.run_id = latest_run.id
+           and receipt.stage = 'analysis_fresh'
+         order by receipt.attempt desc, receipt.created_at desc, receipt.id desc
+         limit 1
+       ) freshness_receipt on true
+       left join lateral (
+         select audit.verdict, audit.input_sha256
+         from grant_deep_analysis_audits audit
+         where audit.run_id = latest_run.id
+         order by audit.attempt desc, audit.completed_at desc, audit.id desc
+         limit 1
+       ) latest_audit on true
+       left join lateral (
+         select
+           release.release_id,
+           release.status as release_status,
+           item.status as item_status
+         from analysis_lab_promotion_items item
+         join analysis_lab_promotion_releases release
+           on release.id = item.release_db_id
+         where item.grant_id = child.id
+           and item.deep_analysis_run_id = latest_run.id
+         order by item.updated_at desc, item.id desc
+         limit 1
+       ) latest_promotion on true
+       where split_case.grant_id = $1::uuid
+          or exists (
+            select 1
+            from grant_aggregate_split_children selected_child
+            where selected_child.split_case_id = split_case.id
+              and selected_child.id = $1::uuid
+          )
+       order by child.ordinal, child.id`,
+      [grantId],
+    ),
   ])
 
   const run = runRows[0]
@@ -984,6 +1141,12 @@ export async function getDeepPipelineNoticeDetail(
     attachments: attachmentRows.map(mapAttachment),
     promotions: promotionRows.map(mapPromotion),
     adminActions: actionRows.map(mapAdminAction),
+    aggregateSplitCase: aggregateSplitRows[0]
+      ? mapAggregateSplitCase(
+        aggregateSplitRows[0],
+        aggregateSplitChildRows.map(mapAggregateSplitChild),
+      )
+      : null,
   }
 }
 
@@ -1083,6 +1246,130 @@ interface ActionRow {
   detail: Record<string, unknown>
   error: string | null
   created_at: Date
+}
+
+interface AggregateSplitCaseRow {
+  id: string
+  status: DeepPipelineAggregateSplitCase["status"]
+  reason_code: DeepPipelineAggregateSplitCase["reasonCode"]
+  source_revision_sha256: string
+  input_chars: number
+  input_cap_chars: number
+  cost_cap_usd: number
+  chunk_count: number
+  attachment_count: number
+  evidence_sha256: string
+  approved_by_email: string | null
+  approved_at: Date | null
+  attempt_count: number
+  max_attempts: number
+  available_at: Date
+  leased_at: Date | null
+  lease_expires_at: Date | null
+  worker_id: string | null
+  processing_started_at: Date | null
+  completed_at: Date | null
+  model: string | null
+  prompt_version: string | null
+  input_artifact_key: string | null
+  input_sha256: string | null
+  manifest_artifact_key: string | null
+  manifest_sha256: string | null
+  raw_response_artifact_key: string | null
+  raw_response_sha256: string | null
+  segment_count: number | null
+  program_count: number | null
+  external_calls_made: number | null
+  input_tokens: number | null
+  output_tokens: number | null
+  cost_usd: number | null
+  last_error_code: string | null
+  last_error_message: string | null
+  materialization_status: DeepPipelineAggregateSplitCase["materializationStatus"]
+  materialization_attempt_count: number
+  materialization_max_attempts: number
+  materialization_available_at: Date
+  materialization_leased_at: Date | null
+  materialization_lease_expires_at: Date | null
+  materialization_worker_id: string | null
+  prepared_child_count: number
+  children_prepared_at: Date | null
+  materialization_last_error_code: string | null
+  materialization_last_error_message: string | null
+  promotion_status: DeepPipelineAggregateSplitCase["promotionStatus"]
+  staged_child_count: number
+  enqueued_child_count: number
+  children_staged_at: Date | null
+  children_enqueued_at: Date | null
+  active_feeder_bypass_reason: string | null
+  promotion_last_error_code: string | null
+  promotion_last_error_message: string | null
+  exposure_status: DeepPipelineAggregateSplitCase["exposureStatus"]
+  exposure_release_id: string | null
+  exposed_child_count: number
+  children_visible_at: Date | null
+  serving_verified_at: Date | null
+  visibility_rolled_back_at: Date | null
+  exposure_actor: string | null
+  exposure_last_error_code: string | null
+  exposure_last_error_message: string | null
+  created_at: Date
+  updated_at: Date
+}
+
+interface AggregateSplitChildRow {
+  id: string
+  stable_key: string
+  ordinal: number
+  status: DeepPipelineAggregateSplitChild["status"]
+  source: string
+  source_id: string
+  title: string
+  agency_primary: string | null
+  grant_projection_sha256: string
+  manifest_sha256: string
+  source_revision_sha256: string
+  raw_payload_sha256: string
+  attachment_manifest_sha256: string | null
+  input_artifact_key: string | null
+  input_sha256: string | null
+  input_chars: number | null
+  prepared_at: Date | null
+  staged_grant_at: Date | null
+  serving_state: DeepPipelineAggregateSplitChild["servingState"]
+  deep_analysis_job_id: string | null
+  deep_analysis_job_grant_id: string | null
+  deep_analysis_job_source_revision_sha256: string | null
+  deep_analysis_job_model_policy_version: string | null
+  deep_analysis_job_status: string | null
+  deep_analysis_enqueued_at: Date | null
+  active_feeder_bypass_reason: string | null
+  deep_analysis_run_id: string | null
+  deep_analysis_run_job_id: string | null
+  deep_analysis_run_grant_id: string | null
+  deep_analysis_run_source_revision_sha256: string | null
+  deep_analysis_run_input_sha256: string | null
+  deep_analysis_run_model_policy_version: string | null
+  deep_analysis_run_status: string | null
+  passed_stage_count: number
+  stage_statuses: Partial<Record<DeepAnalysisStageKey, string>>
+  latest_stage: DeepAnalysisStageKey | null
+  latest_stage_status: DeepAnalysisStageStatus | null
+  analysis_complete_status: DeepAnalysisStageStatus | null
+  publication_complete_status: DeepAnalysisStageStatus | null
+  serving_complete_status: DeepAnalysisStageStatus | null
+  analysis_fresh_status: DeepAnalysisStageStatus | null
+  ai_audit_verdict: DeepPipelineAggregateSplitChild["aiAuditVerdict"]
+  ai_audit_input_sha256: string | null
+  promotion_release_id: string | null
+  promotion_release_status: string | null
+  promotion_item_status: string | null
+  promotion_last_error_code: string | null
+  promotion_last_error_message: string | null
+  last_error_code: string | null
+  last_error_message: string | null
+  created_at: Date
+  updated_at: Date
 }
 
 function mapNotice(row: PipelineRow): DeepPipelineNoticeItem {
@@ -1239,6 +1526,189 @@ function mapAdminAction(row: ActionRow): DeepPipelineAdminAction {
     detail: row.detail,
     error: row.error,
     createdAt: row.created_at.toISOString(),
+  }
+}
+
+function mapAggregateSplitCase(
+  row: AggregateSplitCaseRow,
+  children: DeepPipelineAggregateSplitChild[],
+): DeepPipelineAggregateSplitCase {
+  return {
+    id: row.id,
+    status: row.status,
+    reasonCode: row.reason_code,
+    sourceRevisionSha256: row.source_revision_sha256,
+    inputChars: Number(row.input_chars),
+    inputCapChars: Number(row.input_cap_chars),
+    costCapUsd: Number(row.cost_cap_usd),
+    chunkCount: Number(row.chunk_count),
+    attachmentCount: Number(row.attachment_count),
+    evidenceSha256: row.evidence_sha256,
+    approvedByEmail: row.approved_by_email,
+    approvedAt: row.approved_at?.toISOString() ?? null,
+    attemptCount: Number(row.attempt_count),
+    maxAttempts: Number(row.max_attempts),
+    availableAt: row.available_at.toISOString(),
+    leasedAt: row.leased_at?.toISOString() ?? null,
+    leaseExpiresAt: row.lease_expires_at?.toISOString() ?? null,
+    workerId: row.worker_id,
+    processingStartedAt: row.processing_started_at?.toISOString() ?? null,
+    completedAt: row.completed_at?.toISOString() ?? null,
+    model: row.model,
+    promptVersion: row.prompt_version,
+    inputArtifactKey: row.input_artifact_key,
+    inputSha256: row.input_sha256,
+    manifestArtifactKey: row.manifest_artifact_key,
+    manifestSha256: row.manifest_sha256,
+    rawResponseArtifactKey: row.raw_response_artifact_key,
+    rawResponseSha256: row.raw_response_sha256,
+    segmentCount: row.segment_count === null ? null : Number(row.segment_count),
+    programCount: row.program_count === null ? null : Number(row.program_count),
+    externalCallsMade: row.external_calls_made === null
+      ? null
+      : Number(row.external_calls_made),
+    inputTokens: row.input_tokens === null ? null : Number(row.input_tokens),
+    outputTokens: row.output_tokens === null ? null : Number(row.output_tokens),
+    costUsd: row.cost_usd === null ? null : Number(row.cost_usd),
+    lastErrorCode: row.last_error_code,
+    lastErrorMessage: row.last_error_message,
+    materializationStatus: row.materialization_status,
+    materializationAttemptCount: Number(row.materialization_attempt_count),
+    materializationMaxAttempts: Number(row.materialization_max_attempts),
+    materializationAvailableAt: row.materialization_available_at.toISOString(),
+    materializationLeasedAt: row.materialization_leased_at?.toISOString() ?? null,
+    materializationLeaseExpiresAt:
+      row.materialization_lease_expires_at?.toISOString() ?? null,
+    materializationWorkerId: row.materialization_worker_id,
+    preparedChildCount: Number(row.prepared_child_count),
+    childrenPreparedAt: row.children_prepared_at?.toISOString() ?? null,
+    materializationLastErrorCode: row.materialization_last_error_code,
+    materializationLastErrorMessage: row.materialization_last_error_message,
+    promotionStatus: row.promotion_status,
+    stagedChildCount: Number(row.staged_child_count),
+    enqueuedChildCount: Number(row.enqueued_child_count),
+    childrenStagedAt: row.children_staged_at?.toISOString() ?? null,
+    childrenEnqueuedAt: row.children_enqueued_at?.toISOString() ?? null,
+    activeFeederBypassReason: row.active_feeder_bypass_reason,
+    promotionLastErrorCode: row.promotion_last_error_code,
+    promotionLastErrorMessage: row.promotion_last_error_message,
+    exposureStatus: row.exposure_status,
+    exposureReleaseId: row.exposure_release_id,
+    exposedChildCount: Number(row.exposed_child_count),
+    childrenVisibleAt: row.children_visible_at?.toISOString() ?? null,
+    servingVerifiedAt: row.serving_verified_at?.toISOString() ?? null,
+    visibilityRolledBackAt: row.visibility_rolled_back_at?.toISOString() ?? null,
+    exposureActor: row.exposure_actor,
+    exposureLastErrorCode: row.exposure_last_error_code,
+    exposureLastErrorMessage: row.exposure_last_error_message,
+    children,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  }
+}
+
+function mapAggregateSplitChild(
+  row: AggregateSplitChildRow,
+): DeepPipelineAggregateSplitChild {
+  const gateObservation = {
+    childId: row.id,
+    childStatus: row.status,
+    sourceRevisionSha256: row.source_revision_sha256,
+    inputSha256: row.input_sha256,
+    stagedGrantAt: row.staged_grant_at,
+    servingState: row.serving_state,
+    expectedJobId: row.deep_analysis_job_id,
+    job: row.deep_analysis_job_id
+      && row.deep_analysis_job_grant_id
+      && row.deep_analysis_job_source_revision_sha256
+      && row.deep_analysis_job_model_policy_version
+      && row.deep_analysis_job_status
+      ? {
+        id: row.deep_analysis_job_id,
+        grantId: row.deep_analysis_job_grant_id,
+        sourceRevisionSha256: row.deep_analysis_job_source_revision_sha256,
+        modelPolicyVersion: row.deep_analysis_job_model_policy_version,
+        status: row.deep_analysis_job_status,
+      }
+      : null,
+    latestRun: row.deep_analysis_run_id
+      && row.deep_analysis_run_job_id
+      && row.deep_analysis_run_grant_id
+      && row.deep_analysis_run_source_revision_sha256
+      && row.deep_analysis_run_input_sha256
+      && row.deep_analysis_run_model_policy_version
+      && row.deep_analysis_run_status
+      ? {
+        id: row.deep_analysis_run_id,
+        jobId: row.deep_analysis_run_job_id,
+        grantId: row.deep_analysis_run_grant_id,
+        sourceRevisionSha256: row.deep_analysis_run_source_revision_sha256,
+        inputSha256: row.deep_analysis_run_input_sha256,
+        modelPolicyVersion: row.deep_analysis_run_model_policy_version,
+        status: row.deep_analysis_run_status,
+      }
+      : null,
+    stageStatuses: row.stage_statuses,
+    latestAudit: row.ai_audit_verdict && row.ai_audit_input_sha256
+      ? {
+        verdict: row.ai_audit_verdict,
+        inputSha256: row.ai_audit_input_sha256,
+      }
+      : null,
+    promotionItemStatus: row.promotion_item_status,
+    publicationReceiptStatus: row.publication_complete_status,
+    servingReceiptStatus: row.serving_complete_status,
+    freshnessReceiptStatus: row.analysis_fresh_status,
+  }
+  const publicationFirstBlocker =
+    deriveAggregateSplitPublicationBlocker(gateObservation)
+  const exposureFirstBlocker =
+    deriveAggregateSplitExposureBlocker(gateObservation)
+  return {
+    id: row.id,
+    stableKey: row.stable_key,
+    ordinal: Number(row.ordinal),
+    status: row.status,
+    source: row.source,
+    sourceId: row.source_id,
+    title: row.title,
+    agencyPrimary: row.agency_primary,
+    grantProjectionSha256: row.grant_projection_sha256,
+    manifestSha256: row.manifest_sha256,
+    sourceRevisionSha256: row.source_revision_sha256,
+    rawPayloadSha256: row.raw_payload_sha256,
+    attachmentManifestSha256: row.attachment_manifest_sha256,
+    inputArtifactKey: row.input_artifact_key,
+    inputSha256: row.input_sha256,
+    inputChars: row.input_chars === null ? null : Number(row.input_chars),
+    preparedAt: row.prepared_at?.toISOString() ?? null,
+    stagedGrantAt: row.staged_grant_at?.toISOString() ?? null,
+    servingState: row.serving_state,
+    deepAnalysisJobId: row.deep_analysis_job_id,
+    deepAnalysisJobStatus: row.deep_analysis_job_status,
+    deepAnalysisEnqueuedAt: row.deep_analysis_enqueued_at?.toISOString() ?? null,
+    activeFeederBypassReason: row.active_feeder_bypass_reason,
+    deepAnalysisRunId: row.deep_analysis_run_id,
+    deepAnalysisRunStatus: row.deep_analysis_run_status,
+    passedStageCount: Number(row.passed_stage_count),
+    latestStage: row.latest_stage,
+    latestStageStatus: row.latest_stage_status,
+    analysisCompleteStatus: row.analysis_complete_status,
+    aiAuditVerdict: row.ai_audit_verdict,
+    promotionReleaseId: row.promotion_release_id,
+    promotionReleaseStatus: row.promotion_release_status,
+    promotionItemStatus: row.promotion_item_status,
+    publicationCompleteStatus: row.publication_complete_status,
+    servingCompleteStatus: row.serving_complete_status,
+    analysisFreshStatus: row.analysis_fresh_status,
+    publicationFirstBlocker,
+    exposureFirstBlocker,
+    promotionLastErrorCode: row.promotion_last_error_code,
+    promotionLastErrorMessage: row.promotion_last_error_message,
+    lastErrorCode: row.last_error_code,
+    lastErrorMessage: row.last_error_message,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
   }
 }
 

@@ -17,6 +17,7 @@ interface ExistingActionRow {
   job_id: string | null
   run_id: string | null
   exception_key: string | null
+  detail: Record<string, unknown>
   error: string | null
 }
 
@@ -32,6 +33,18 @@ interface ExceptionRow {
   exception_key: string
   event_type: string
   detail: Record<string, unknown>
+}
+
+interface AggregateSplitCaseRow {
+  id: string
+  grant_id: string
+  status: string
+  source_revision_sha256: string
+  input_chars: number
+  input_cap_chars: number
+  cost_cap_usd: number
+  approval_request_id: string | null
+  latest_job_source_revision_sha256: string | null
 }
 
 export class DeepPipelineActionError extends Error {
@@ -87,6 +100,9 @@ export function parseDeepPipelineActionRequest(value: unknown): DeepPipelineActi
   if (typeof input.jobId === "string") parsed.jobId = input.jobId
   if (typeof input.runId === "string") parsed.runId = input.runId
   if (typeof input.exceptionKey === "string") parsed.exceptionKey = input.exceptionKey
+  if (typeof input.aggregateSplitCaseId === "string") {
+    parsed.aggregateSplitCaseId = input.aggregateSplitCaseId
+  }
   if (parsed.jobId && !isUuid(parsed.jobId)) {
     throw new DeepPipelineActionError(
       "deep_pipeline_job_id_invalid",
@@ -111,6 +127,14 @@ export function parseDeepPipelineActionRequest(value: unknown): DeepPipelineActi
       "exceptionKey",
     )
   }
+  if (parsed.aggregateSplitCaseId && !isUuid(parsed.aggregateSplitCaseId)) {
+    throw new DeepPipelineActionError(
+      "deep_pipeline_aggregate_split_case_id_invalid",
+      "aggregateSplitCaseId는 UUID여야 합니다.",
+      400,
+      "aggregateSplitCaseId",
+    )
+  }
   return parsed
 }
 
@@ -126,7 +150,7 @@ export async function executeDeepPipelineAction(
   try {
     return await sql.begin(async (transaction) => {
       const transactionExisting = await transaction<ExistingActionRow[]>`
-        select request_id, action, outcome, grant_id, job_id, run_id, exception_key, error
+        select request_id, action, outcome, grant_id, job_id, run_id, exception_key, detail, error
         from admin_deep_analysis_actions
         where request_id = ${request.requestId}::uuid
       `
@@ -180,6 +204,8 @@ export async function executeDeepPipelineAction(
           previousStatus: job.status,
           nextStatus: "pending",
         })
+      } else if (request.action === "approve_aggregate_split") {
+        await approveAggregateSplit(transaction, session, request)
       } else {
         await mutateException(transaction, session, request)
       }
@@ -192,6 +218,7 @@ export async function executeDeepPipelineAction(
         jobId: request.jobId ?? null,
         runId: request.runId ?? null,
         exceptionKey: request.exceptionKey ?? null,
+        aggregateSplitCaseId: request.aggregateSplitCaseId ?? null,
       }
     })
   } catch (error) {
@@ -202,6 +229,95 @@ export async function executeDeepPipelineAction(
     await recordFailedAction(session, request, error)
     throw error
   }
+}
+
+async function approveAggregateSplit(
+  transaction: postgres.TransactionSql,
+  session: AdminSession,
+  request: DeepPipelineActionRequest,
+): Promise<void> {
+  if (!request.aggregateSplitCaseId) {
+    throw new DeepPipelineActionError(
+      "deep_pipeline_aggregate_split_case_required",
+      "승인할 통합공고 분리 케이스가 필요합니다.",
+      400,
+      "aggregateSplitCaseId",
+    )
+  }
+  const rows = await transaction<AggregateSplitCaseRow[]>`
+    select
+      split_case.id,
+      split_case.grant_id,
+      split_case.status,
+      split_case.source_revision_sha256,
+      split_case.input_chars,
+      split_case.input_cap_chars,
+      split_case.cost_cap_usd,
+      split_case.approval_request_id,
+      (
+        select job.source_revision_sha256
+        from grant_deep_analysis_jobs job
+        where job.grant_id = split_case.grant_id
+        order by job.created_at desc, job.id desc
+        limit 1
+      ) as latest_job_source_revision_sha256
+    from grant_aggregate_split_cases split_case
+    where split_case.id = ${request.aggregateSplitCaseId}::uuid
+    for update
+  `
+  const splitCase = rows[0]
+  if (!splitCase || splitCase.grant_id !== request.grantId) {
+    throw new DeepPipelineActionError(
+      "deep_pipeline_aggregate_split_case_not_found",
+      "이 공고의 통합공고 분리 케이스를 찾을 수 없습니다.",
+      404,
+    )
+  }
+  if (splitCase.status !== "pending_review") {
+    if (
+      splitCase.status === "approved"
+      && splitCase.approval_request_id === request.requestId
+    ) {
+      return
+    }
+    throw new DeepPipelineActionError(
+      "deep_pipeline_aggregate_split_case_not_approvable",
+      `현재 ${splitCase.status} 상태의 분리 케이스는 승인할 수 없습니다.`,
+      409,
+    )
+  }
+  if (
+    splitCase.latest_job_source_revision_sha256
+    && splitCase.latest_job_source_revision_sha256 !== splitCase.source_revision_sha256
+  ) {
+    throw new DeepPipelineActionError(
+      "deep_pipeline_aggregate_split_case_stale",
+      "원문이 바뀐 이전 분리 케이스입니다. 최신 입력으로 다시 감지한 뒤 승인해야 합니다.",
+      409,
+    )
+  }
+
+  const approvedAt = new Date()
+  const detail = {
+    aggregateSplitCaseId: splitCase.id,
+    previousStatus: splitCase.status,
+    nextStatus: "approved",
+    sourceRevisionSha256: splitCase.source_revision_sha256,
+    inputChars: Number(splitCase.input_chars),
+    inputCapChars: Number(splitCase.input_cap_chars),
+    costCapUsd: Number(splitCase.cost_cap_usd),
+  }
+  await transaction`
+    update grant_aggregate_split_cases
+    set
+      status = 'approved',
+      approval_request_id = ${request.requestId}::uuid,
+      approved_by_admin_user_id = ${session.user.id}::uuid,
+      approved_at = ${approvedAt},
+      updated_at = ${approvedAt}
+    where id = ${splitCase.id}::uuid
+  `
+  await insertAction(transaction, session, request, detail)
 }
 
 async function mutateException(
@@ -394,7 +510,11 @@ async function recordFailedAction(
         ${request.exceptionKey ?? null},
         ${request.action},
         'failed',
-        ${sql.json({})},
+        ${sql.json({
+          ...(request.aggregateSplitCaseId
+            ? { aggregateSplitCaseId: request.aggregateSplitCaseId }
+            : {}),
+        })},
         ${error instanceof Error ? error.message.slice(0, 1000) : String(error).slice(0, 1000)}
       )
       on conflict (request_id) do nothing
@@ -407,7 +527,7 @@ async function recordFailedAction(
 async function loadExistingAction(requestId: string): Promise<ExistingActionRow | null> {
   const sql = getAdminSql()
   const rows = await sql<ExistingActionRow[]>`
-    select request_id, action, outcome, grant_id, job_id, run_id, exception_key, error
+    select request_id, action, outcome, grant_id, job_id, run_id, exception_key, detail, error
     from admin_deep_analysis_actions
     where request_id = ${requestId}::uuid
   `
@@ -430,6 +550,9 @@ function existingToResult(row: ExistingActionRow): DeepPipelineActionResult {
     jobId: row.job_id,
     runId: row.run_id,
     exceptionKey: row.exception_key,
+    aggregateSplitCaseId: typeof row.detail.aggregateSplitCaseId === "string"
+      ? row.detail.aggregateSplitCaseId
+      : null,
   }
 }
 
@@ -442,6 +565,16 @@ function enforceCapability(
       throw new DeepPipelineActionError(
         "deep_pipeline_action_forbidden",
         "딥분석 재처리는 admin 또는 owner만 실행할 수 있습니다.",
+        403,
+      )
+    }
+    return
+  }
+  if (request.action === "approve_aggregate_split") {
+    if (session.user.role !== "admin" && session.user.role !== "owner") {
+      throw new DeepPipelineActionError(
+        "deep_pipeline_action_forbidden",
+        "통합공고 분리 승인은 admin 또는 owner만 실행할 수 있습니다.",
         403,
       )
     }

@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import type {
   DeepAnalysisStageKey,
   DeepAnalysisStageStatus,
@@ -15,20 +15,55 @@ export interface EnqueueDeepAnalysisJobInput {
   priority?: number;
   maxAttempts?: number;
   availableAt?: Date;
+  sourceObservedAt?: Date;
 }
 
-/** DB unique identity와 ON CONFLICT DO NOTHING을 함께 사용해 동시 enqueue를 멱등화한다. */
+/**
+ * DB unique identity로 동시 enqueue를 멱등화한다. feeder 관측 시각이 있으면 같은
+ * identity의 queue 상태는 건드리지 않고 source observation만 단조 증가시킨다.
+ */
 export async function enqueueDeepAnalysisJob(
   db: CunoteDbSession,
   input: EnqueueDeepAnalysisJobInput,
 ): Promise<typeof schema.grantDeepAnalysisJobs.$inferSelect> {
-  const [inserted] = await db.insert(schema.grantDeepAnalysisJobs).values({
+  if (
+    input.sourceObservedAt
+    && Number.isNaN(input.sourceObservedAt.getTime())
+  ) {
+    throw new Error("sourceObservedAt must be a valid Date");
+  }
+  const values = {
     grantId: input.grantId,
     sourceRevisionSha256: input.sourceRevisionSha256,
     modelPolicyVersion: input.modelPolicyVersion,
     priority: input.priority ?? 0,
     maxAttempts: input.maxAttempts ?? 5,
     availableAt: input.availableAt ?? new Date(),
+    ...(input.sourceObservedAt
+      ? { sourceObservedAt: input.sourceObservedAt }
+      : {}),
+  };
+  if (input.sourceObservedAt) {
+    const [observed] = await db.insert(schema.grantDeepAnalysisJobs).values(values)
+      .onConflictDoUpdate({
+        target: [
+          schema.grantDeepAnalysisJobs.grantId,
+          schema.grantDeepAnalysisJobs.sourceRevisionSha256,
+          schema.grantDeepAnalysisJobs.modelPolicyVersion,
+        ],
+        set: {
+          sourceObservedAt: deepAnalysisSourceObservationAdvanceSql(
+            input.sourceObservedAt,
+          ),
+        },
+      }).returning();
+    if (!observed) {
+      throw new Error("Failed to record deep analysis source observation");
+    }
+    return observed;
+  }
+  const [inserted] = await db.insert(schema.grantDeepAnalysisJobs).values({
+    ...values,
   }).onConflictDoNothing({
     target: [
       schema.grantDeepAnalysisJobs.grantId,
@@ -45,6 +80,20 @@ export async function enqueueDeepAnalysisJob(
   )).limit(1);
   if (!existing) throw new Error("Deep analysis job conflict did not resolve to an existing row");
   return existing;
+}
+
+export function deepAnalysisSourceObservationAdvanceSql(
+  observedAt: Date,
+): SQL<Date> {
+  return sql<Date>`
+    GREATEST(
+      COALESCE(
+        ${schema.grantDeepAnalysisJobs.sourceObservedAt},
+        '-infinity'::timestamptz
+      ),
+      ${observedAt.toISOString()}::timestamptz
+    )
+  `;
 }
 
 export async function appendDeepAnalysisStageReceipt(

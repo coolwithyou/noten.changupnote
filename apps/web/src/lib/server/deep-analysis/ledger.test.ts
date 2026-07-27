@@ -5,7 +5,10 @@ import {
   deepAnalysisArtifactKey,
   putImmutableDeepAnalysisArtifact,
 } from "./artifacts";
-import { claimDeepAnalysisJob } from "./ledger";
+import {
+  deepAnalysisSourceObservationAdvanceSql,
+  claimDeepAnalysisJob,
+} from "./ledger";
 import {
   buildDeepAnalysisSourceRevision,
   sha256Hex,
@@ -62,6 +65,16 @@ assert.notEqual(first.sha256, buildDeepAnalysisSourceRevision({
   attachments: [],
 }).sha256);
 assert.equal(stableJson({ b: 2, a: 1 }), "{\"a\":1,\"b\":2}");
+
+const observationAdvance = new PgDialect().sqlToQuery(
+  deepAnalysisSourceObservationAdvanceSql(
+    new Date("2026-07-25T00:00:05.000Z"),
+  ),
+);
+assert.match(observationAdvance.sql, /GREATEST/);
+assert.match(observationAdvance.sql, /source_observed_at/);
+assert.match(observationAdvance.sql, /'-infinity'::timestamptz/);
+assert.deepEqual(observationAdvance.params, ["2026-07-25T00:00:05.000Z"]);
 
 const sourceRevisionSha256 = sha256Hex("revision");
 const contentSha256 = sha256Hex("content");

@@ -69,6 +69,11 @@ export const grantRawStatusEnum = pgEnum("grant_raw_status", [
   "failed",
 ]);
 export const grantStatusEnum = pgEnum("grant_status", ["upcoming", "open", "closed", "unknown"]);
+export const grantServingStateEnum = pgEnum("grant_serving_state", [
+  "visible",
+  "staged",
+  "suppressed",
+]);
 export const criterionDimensionEnum = pgEnum("criterion_dimension", [
   "region",
   "biz_age",
@@ -685,6 +690,11 @@ export const grants = pgTable("grants", {
   benefits: jsonb("benefits").$type<Array<Record<string, unknown>>>(),
   requiredDocuments: jsonb("required_documents").$type<Array<Record<string, unknown>>>(),
   status: grantStatusEnum("status").notNull(),
+  /**
+   * source status/revision과 독립적인 제품 노출 상태. staged는 분석 중인 파생 공고,
+   * suppressed는 전환 완료 뒤 숨긴 parent이며 둘 다 일반 serving query에서 제외한다.
+   */
+  servingState: grantServingStateEnum("serving_state").default("visible").notNull(),
   fRegions: text("f_regions").array().notNull().default(sql`ARRAY[]::text[]`),
   fIndustries: text("f_industries").array().notNull().default(sql`ARRAY[]::text[]`),
   fBizAgeMinMonths: integer("f_biz_age_min_months"),
@@ -704,6 +714,8 @@ export const grants = pgTable("grants", {
   sourceIdIdx: uniqueIndex("grants_source_id_idx").on(table.source, table.sourceId),
   statusIdx: index("grants_status_idx").on(table.status),
   sourceStatusIdx: index("grants_source_status_idx").on(table.source, table.status),
+  servingStatusApplyEndIdx: index("grants_serving_status_apply_end_idx")
+    .on(table.servingState, table.status, table.applyEnd),
   applyEndIdx: index("grants_apply_end_idx").on(table.applyEnd),
   updatedAtIdx: index("grants_updated_at_idx").on(table.updatedAt),
   benefitsIdx: index("grants_benefits_idx").using("gin", table.benefits),
@@ -808,6 +820,514 @@ export const companyGrantConfirmations = pgTable("company_grant_confirmations", 
 }));
 
 /**
+ * 입력 상한을 넘는 통합공고를 일반 공고처럼 잘라 분석하지 않고, Ops 사람 승인 뒤
+ * 별도 분리 worker가 가져갈 수 있도록 보존하는 상태 원장이다. 원문 revision마다
+ * 하나의 케이스만 만들며 승인 요청은 admin action 원장과 request_id로 연결한다.
+ */
+export const grantAggregateSplitCases = pgTable("grant_aggregate_split_cases", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  sourceRevisionSha256: text("source_revision_sha256").notNull(),
+  status: text("status").default("pending_review").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  inputChars: integer("input_chars").notNull(),
+  inputCapChars: integer("input_cap_chars").notNull(),
+  costCapUsd: numeric("cost_cap_usd", { precision: 12, scale: 6 })
+    .default("12.000000")
+    .notNull(),
+  chunkCount: integer("chunk_count").notNull(),
+  attachmentCount: integer("attachment_count").notNull(),
+  evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull(),
+  evidenceSha256: text("evidence_sha256").notNull(),
+  approvalRequestId: uuid("approval_request_id"),
+  approvedByAdminUserId: uuid("approved_by_admin_user_id")
+    .references(() => adminUsers.id, { onDelete: "restrict" }),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(3).notNull(),
+  availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+  leasedAt: timestamp("leased_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  workerId: text("worker_id"),
+  processingStartedAt: timestamp("processing_started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  model: text("model"),
+  promptVersion: text("prompt_version"),
+  inputArtifactKey: text("input_artifact_key"),
+  inputSha256: text("input_sha256"),
+  manifestArtifactKey: text("manifest_artifact_key"),
+  manifestSha256: text("manifest_sha256"),
+  rawResponseArtifactKey: text("raw_response_artifact_key"),
+  rawResponseSha256: text("raw_response_sha256"),
+  segmentCount: integer("segment_count"),
+  programCount: integer("program_count"),
+  externalCallsMade: integer("external_calls_made"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  materializationStatus: text("materialization_status").default("not_ready").notNull(),
+  materializationAttemptCount: integer("materialization_attempt_count").default(0).notNull(),
+  materializationMaxAttempts: integer("materialization_max_attempts").default(3).notNull(),
+  materializationAvailableAt: timestamp("materialization_available_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  materializationLeasedAt: timestamp("materialization_leased_at", { withTimezone: true }),
+  materializationLeaseExpiresAt: timestamp(
+    "materialization_lease_expires_at",
+    { withTimezone: true },
+  ),
+  materializationWorkerId: text("materialization_worker_id"),
+  preparedChildCount: integer("prepared_child_count").default(0).notNull(),
+  childrenPreparedAt: timestamp("children_prepared_at", { withTimezone: true }),
+  materializationLastErrorCode: text("materialization_last_error_code"),
+  materializationLastErrorMessage: text("materialization_last_error_message"),
+  promotionStatus: text("promotion_status").default("not_ready").notNull(),
+  stagedChildCount: integer("staged_child_count").default(0).notNull(),
+  enqueuedChildCount: integer("enqueued_child_count").default(0).notNull(),
+  childrenStagedAt: timestamp("children_staged_at", { withTimezone: true }),
+  childrenEnqueuedAt: timestamp("children_enqueued_at", { withTimezone: true }),
+  activeFeederBypassReason: text("active_feeder_bypass_reason"),
+  promotionLastErrorCode: text("promotion_last_error_code"),
+  promotionLastErrorMessage: text("promotion_last_error_message"),
+  exposureStatus: text("exposure_status").default("not_ready").notNull(),
+  exposureReleaseId: text("exposure_release_id"),
+  exposedChildCount: integer("exposed_child_count").default(0).notNull(),
+  childrenVisibleAt: timestamp("children_visible_at", { withTimezone: true }),
+  servingVerifiedAt: timestamp("serving_verified_at", { withTimezone: true }),
+  visibilityRolledBackAt: timestamp("visibility_rolled_back_at", { withTimezone: true }),
+  exposureActor: text("exposure_actor"),
+  exposureLastErrorCode: text("exposure_last_error_code"),
+  exposureLastErrorMessage: text("exposure_last_error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  identityIdx: uniqueIndex("grant_aggregate_split_cases_identity_idx")
+    .on(table.grantId, table.sourceRevisionSha256),
+  approvalRequestIdx: uniqueIndex("grant_aggregate_split_cases_approval_request_idx")
+    .on(table.approvalRequestId),
+  approvedByIdx: index("grant_aggregate_split_cases_approved_by_idx")
+    .on(table.approvedByAdminUserId),
+  claimableIdx: index("grant_aggregate_split_cases_claimable_idx")
+    .on(table.availableAt, table.createdAt)
+    .where(sql`${table.status} = 'approved'`),
+  leaseExpiryIdx: index("grant_aggregate_split_cases_lease_expiry_idx")
+    .on(table.leaseExpiresAt)
+    .where(sql`${table.status} = 'processing'`),
+  materializationClaimableIdx: index(
+    "grant_aggregate_split_cases_materialization_claimable_idx",
+  )
+    .on(table.materializationAvailableAt, table.createdAt)
+    .where(sql`
+      ${table.status} = 'completed'
+      AND ${table.materializationStatus} = 'pending'
+    `),
+  materializationLeaseExpiryIdx: index(
+    "grant_aggregate_split_cases_materialization_lease_expiry_idx",
+  )
+    .on(table.materializationLeaseExpiresAt)
+    .where(sql`${table.materializationStatus} = 'processing'`),
+  promotionClaimableIdx: index(
+    "grant_aggregate_split_cases_promotion_claimable_idx",
+  )
+    .on(table.promotionStatus, table.updatedAt)
+    .where(sql`
+      ${table.materializationStatus} = 'prepared'
+      AND ${table.promotionStatus} IN ('pending', 'staged')
+    `),
+  statusCreatedIdx: index("grant_aggregate_split_cases_status_created_idx")
+    .on(table.status, table.createdAt),
+  statusCheck: check("grant_aggregate_split_cases_status_check", sql`
+    ${table.status} IN (
+      'pending_review', 'approved', 'processing', 'completed', 'failed'
+    )
+  `),
+  reasonCheck: check("grant_aggregate_split_cases_reason_check", sql`
+    ${table.reasonCode} IN ('oversized_aggregate_notice')
+  `),
+  hashCheck: check("grant_aggregate_split_cases_hash_check", sql`
+    ${table.sourceRevisionSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.evidenceSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  countsCheck: check("grant_aggregate_split_cases_counts_check", sql`
+    ${table.inputChars} > ${table.inputCapChars}
+    AND ${table.inputCapChars} > 0
+    AND ${table.costCapUsd} > 0
+    AND ${table.chunkCount} > 0
+    AND ${table.attachmentCount} >= 0
+  `),
+  attemptsCheck: check("grant_aggregate_split_cases_attempts_check", sql`
+    ${table.attemptCount} >= 0
+    AND ${table.maxAttempts} > 0
+    AND ${table.attemptCount} <= ${table.maxAttempts}
+  `),
+  approvalCheck: check("grant_aggregate_split_cases_approval_check", sql`
+    (
+      ${table.status} = 'pending_review'
+      AND ${table.approvalRequestId} IS NULL
+      AND ${table.approvedByAdminUserId} IS NULL
+      AND ${table.approvedAt} IS NULL
+    )
+    OR (
+      ${table.status} <> 'pending_review'
+      AND ${table.approvalRequestId} IS NOT NULL
+      AND ${table.approvedByAdminUserId} IS NOT NULL
+      AND ${table.approvedAt} IS NOT NULL
+    )
+  `),
+  leaseCheck: check("grant_aggregate_split_cases_lease_check", sql`
+    (
+      ${table.status} = 'processing'
+      AND ${table.leasedAt} IS NOT NULL
+      AND ${table.leaseExpiresAt} IS NOT NULL
+      AND ${table.workerId} IS NOT NULL
+    )
+    OR (
+      ${table.status} <> 'processing'
+      AND ${table.leasedAt} IS NULL
+      AND ${table.leaseExpiresAt} IS NULL
+      AND ${table.workerId} IS NULL
+    )
+  `),
+  completionCheck: check("grant_aggregate_split_cases_completion_check", sql`
+    (
+      ${table.status} = 'completed'
+      AND ${table.completedAt} IS NOT NULL
+      AND ${table.model} IS NOT NULL
+      AND ${table.promptVersion} IS NOT NULL
+      AND ${table.inputArtifactKey} IS NOT NULL
+      AND ${table.inputSha256} IS NOT NULL
+      AND ${table.inputSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.manifestArtifactKey} IS NOT NULL
+      AND ${table.manifestSha256} IS NOT NULL
+      AND ${table.manifestSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.rawResponseArtifactKey} IS NOT NULL
+      AND ${table.rawResponseSha256} IS NOT NULL
+      AND ${table.rawResponseSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.segmentCount} > 0
+      AND ${table.programCount} > 1
+      AND ${table.externalCallsMade} > 0
+    )
+    OR (
+      ${table.status} <> 'completed'
+      AND ${table.completedAt} IS NULL
+    )
+  `),
+  usageCheck: check("grant_aggregate_split_cases_usage_check", sql`
+    (${table.segmentCount} IS NULL OR ${table.segmentCount} > 0)
+    AND (${table.programCount} IS NULL OR ${table.programCount} > 1)
+    AND (${table.externalCallsMade} IS NULL OR ${table.externalCallsMade} > 0)
+    AND (${table.inputTokens} IS NULL OR ${table.inputTokens} >= 0)
+    AND (${table.outputTokens} IS NULL OR ${table.outputTokens} >= 0)
+    AND (${table.costUsd} IS NULL OR ${table.costUsd} >= 0)
+  `),
+  materializationStatusCheck: check(
+    "grant_aggregate_split_cases_materialization_status_check",
+    sql`
+      ${table.materializationStatus} IN (
+        'not_ready', 'pending', 'processing', 'prepared', 'failed'
+      )
+    `,
+  ),
+  materializationAttemptsCheck: check(
+    "grant_aggregate_split_cases_materialization_attempts_check",
+    sql`
+      ${table.materializationAttemptCount} >= 0
+      AND ${table.materializationMaxAttempts} > 0
+      AND ${table.materializationAttemptCount} <= ${table.materializationMaxAttempts}
+      AND ${table.preparedChildCount} >= 0
+    `,
+  ),
+  materializationReadinessCheck: check(
+    "grant_aggregate_split_cases_materialization_readiness_check",
+    sql`
+      (
+        ${table.status} = 'completed'
+        AND ${table.materializationStatus} <> 'not_ready'
+      )
+      OR (
+        ${table.status} <> 'completed'
+        AND ${table.materializationStatus} = 'not_ready'
+      )
+    `,
+  ),
+  materializationLeaseCheck: check(
+    "grant_aggregate_split_cases_materialization_lease_check",
+    sql`
+      (
+        ${table.materializationStatus} = 'processing'
+        AND ${table.materializationLeasedAt} IS NOT NULL
+        AND ${table.materializationLeaseExpiresAt} IS NOT NULL
+        AND ${table.materializationWorkerId} IS NOT NULL
+      )
+      OR (
+        ${table.materializationStatus} <> 'processing'
+        AND ${table.materializationLeasedAt} IS NULL
+        AND ${table.materializationLeaseExpiresAt} IS NULL
+        AND ${table.materializationWorkerId} IS NULL
+      )
+    `,
+  ),
+  materializationPreparedCheck: check(
+    "grant_aggregate_split_cases_materialization_prepared_check",
+    sql`
+      (
+        ${table.materializationStatus} = 'prepared'
+        AND ${table.childrenPreparedAt} IS NOT NULL
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.preparedChildCount} = ${table.programCount}
+        AND ${table.preparedChildCount} > 1
+      )
+      OR (
+        ${table.materializationStatus} <> 'prepared'
+        AND ${table.childrenPreparedAt} IS NULL
+      )
+    `,
+  ),
+  promotionStatusCheck: check(
+    "grant_aggregate_split_cases_promotion_status_check",
+    sql`
+      ${table.promotionStatus} IN (
+        'not_ready', 'pending', 'staged', 'enqueued', 'failed'
+      )
+    `,
+  ),
+  promotionReadinessCheck: check(
+    "grant_aggregate_split_cases_promotion_readiness_check",
+    sql`
+      (
+        ${table.materializationStatus} = 'prepared'
+        AND ${table.promotionStatus} <> 'not_ready'
+      )
+      OR (
+        ${table.materializationStatus} <> 'prepared'
+        AND ${table.promotionStatus} = 'not_ready'
+      )
+    `,
+  ),
+  promotionCountsCheck: check(
+    "grant_aggregate_split_cases_promotion_counts_check",
+    sql`
+      ${table.stagedChildCount} >= 0
+      AND ${table.enqueuedChildCount} >= 0
+      AND ${table.enqueuedChildCount} <= ${table.stagedChildCount}
+      AND ${table.stagedChildCount} <= ${table.preparedChildCount}
+    `,
+  ),
+  promotionStagedCheck: check(
+    "grant_aggregate_split_cases_promotion_staged_check",
+    sql`
+      (
+        ${table.promotionStatus} IN ('staged', 'enqueued')
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.stagedChildCount} = ${table.programCount}
+        AND ${table.childrenStagedAt} IS NOT NULL
+      )
+      OR (
+        ${table.promotionStatus} NOT IN ('staged', 'enqueued')
+        AND ${table.stagedChildCount} = 0
+        AND ${table.enqueuedChildCount} = 0
+        AND ${table.childrenStagedAt} IS NULL
+        AND ${table.childrenEnqueuedAt} IS NULL
+      )
+    `,
+  ),
+  promotionEnqueuedCheck: check(
+    "grant_aggregate_split_cases_promotion_enqueued_check",
+    sql`
+      (
+        ${table.promotionStatus} = 'enqueued'
+        AND ${table.enqueuedChildCount} = ${table.stagedChildCount}
+        AND ${table.enqueuedChildCount} > 1
+        AND ${table.childrenEnqueuedAt} IS NOT NULL
+      )
+      OR (
+        ${table.promotionStatus} <> 'enqueued'
+        AND ${table.childrenEnqueuedAt} IS NULL
+      )
+    `,
+  ),
+  promotionBypassEvidenceCheck: check(
+    "grant_aggregate_split_cases_promotion_bypass_evidence_check",
+    sql`
+      (
+        ${table.enqueuedChildCount} > 0
+        AND ${table.activeFeederBypassReason} =
+          'aggregate_split_staged_direct_enqueue'
+      )
+      OR (
+        ${table.enqueuedChildCount} = 0
+        AND ${table.activeFeederBypassReason} IS NULL
+      )
+    `,
+  ),
+  exposureStatusCheck: check(
+    "grant_aggregate_split_cases_exposure_status_check",
+    sql`
+      ${table.exposureStatus} IN ('not_ready', 'verifying', 'visible', 'rolled_back')
+    `,
+  ),
+  exposureStateCheck: check(
+    "grant_aggregate_split_cases_exposure_state_check",
+    sql`
+      (
+        ${table.exposureStatus} = 'not_ready'
+        AND ${table.exposureReleaseId} IS NULL
+        AND ${table.exposedChildCount} = 0
+        AND ${table.childrenVisibleAt} IS NULL
+        AND ${table.servingVerifiedAt} IS NULL
+        AND ${table.visibilityRolledBackAt} IS NULL
+        AND ${table.exposureActor} IS NULL
+        AND ${table.exposureLastErrorCode} IS NULL
+        AND ${table.exposureLastErrorMessage} IS NULL
+      )
+      OR (
+        ${table.exposureStatus} = 'verifying'
+        AND ${table.promotionStatus} = 'enqueued'
+        AND ${table.exposureReleaseId} IS NOT NULL
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.exposedChildCount} = ${table.programCount}
+        AND ${table.childrenVisibleAt} IS NOT NULL
+        AND ${table.servingVerifiedAt} IS NULL
+        AND ${table.visibilityRolledBackAt} IS NULL
+        AND ${table.exposureActor} IS NOT NULL
+        AND ${table.exposureLastErrorCode} IS NULL
+        AND ${table.exposureLastErrorMessage} IS NULL
+      )
+      OR (
+        ${table.exposureStatus} = 'visible'
+        AND ${table.promotionStatus} = 'enqueued'
+        AND ${table.exposureReleaseId} IS NOT NULL
+        AND ${table.programCount} IS NOT NULL
+        AND ${table.exposedChildCount} = ${table.programCount}
+        AND ${table.childrenVisibleAt} IS NOT NULL
+        AND ${table.servingVerifiedAt} IS NOT NULL
+        AND ${table.visibilityRolledBackAt} IS NULL
+        AND ${table.exposureActor} IS NOT NULL
+        AND ${table.exposureLastErrorCode} IS NULL
+        AND ${table.exposureLastErrorMessage} IS NULL
+      )
+      OR (
+        ${table.exposureStatus} = 'rolled_back'
+        AND ${table.promotionStatus} = 'enqueued'
+        AND ${table.exposureReleaseId} IS NOT NULL
+        AND ${table.exposedChildCount} = 0
+        AND ${table.childrenVisibleAt} IS NOT NULL
+        AND ${table.servingVerifiedAt} IS NULL
+        AND ${table.visibilityRolledBackAt} IS NOT NULL
+        AND ${table.exposureActor} IS NOT NULL
+        AND ${table.exposureLastErrorCode} IS NOT NULL
+        AND ${table.exposureLastErrorMessage} IS NOT NULL
+      )
+    `,
+  ),
+}));
+
+/**
+ * 검증된 통합공고 manifest에서 만든 미노출 파생 공고 후보. 이 행의 UUID는 E-3B에서
+ * 실제 grants.id로 사용하며, prepared 전에는 grants/grant_raw/딥분석 큐에 쓰지 않는다.
+ */
+export const grantAggregateSplitChildren = pgTable("grant_aggregate_split_children", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  splitCaseId: uuid("split_case_id").notNull()
+    .references(() => grantAggregateSplitCases.id, { onDelete: "restrict" }),
+  parentGrantId: uuid("parent_grant_id").notNull()
+    .references(() => grants.id, { onDelete: "restrict" }),
+  stableKey: text("stable_key").notNull(),
+  ordinal: integer("ordinal").notNull(),
+  status: text("status").default("pending").notNull(),
+  source: grantSourceEnum("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  title: text("title").notNull(),
+  agencyPrimary: text("agency_primary"),
+  grantProjection: jsonb("grant_projection").$type<Record<string, unknown>>().notNull(),
+  grantProjectionSha256: text("grant_projection_sha256").notNull(),
+  manifestSha256: text("manifest_sha256").notNull(),
+  sourceRevisionSha256: text("source_revision_sha256").notNull(),
+  rawPayloadSha256: text("raw_payload_sha256").notNull(),
+  attachmentManifestSha256: text("attachment_manifest_sha256"),
+  inputArtifactKey: text("input_artifact_key"),
+  inputSha256: text("input_sha256"),
+  inputChars: integer("input_chars"),
+  preparedAt: timestamp("prepared_at", { withTimezone: true }),
+  stagedGrantAt: timestamp("staged_grant_at", { withTimezone: true }),
+  deepAnalysisJobId: uuid("deep_analysis_job_id")
+    .references(() => grantDeepAnalysisJobs.id, { onDelete: "restrict" }),
+  deepAnalysisEnqueuedAt: timestamp("deep_analysis_enqueued_at", { withTimezone: true }),
+  activeFeederBypassReason: text("active_feeder_bypass_reason"),
+  promotionLastErrorCode: text("promotion_last_error_code"),
+  promotionLastErrorMessage: text("promotion_last_error_message"),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  identityIdx: uniqueIndex("grant_aggregate_split_children_identity_idx")
+    .on(table.splitCaseId, table.stableKey),
+  ordinalIdx: uniqueIndex("grant_aggregate_split_children_ordinal_idx")
+    .on(table.splitCaseId, table.ordinal),
+  sourceIdIdx: uniqueIndex("grant_aggregate_split_children_source_id_idx")
+    .on(table.source, table.sourceId),
+  parentIdx: index("grant_aggregate_split_children_parent_idx")
+    .on(table.parentGrantId),
+  deepAnalysisJobIdx: index("grant_aggregate_split_children_deep_analysis_job_idx")
+    .on(table.deepAnalysisJobId),
+  caseStatusIdx: index("grant_aggregate_split_children_case_status_idx")
+    .on(table.splitCaseId, table.status, table.ordinal),
+  statusCheck: check("grant_aggregate_split_children_status_check", sql`
+    ${table.status} IN ('pending', 'prepared', 'failed')
+  `),
+  ordinalCheck: check("grant_aggregate_split_children_ordinal_check", sql`
+    ${table.ordinal} >= 0
+  `),
+  identityHashCheck: check("grant_aggregate_split_children_identity_hash_check", sql`
+    ${table.grantProjectionSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.manifestSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.sourceRevisionSha256} ~ '^[0-9a-f]{64}$'
+    AND ${table.rawPayloadSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  preparedCheck: check("grant_aggregate_split_children_prepared_check", sql`
+    (
+      ${table.status} = 'prepared'
+      AND ${table.preparedAt} IS NOT NULL
+      AND ${table.attachmentManifestSha256} IS NOT NULL
+      AND ${table.attachmentManifestSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.inputArtifactKey} IS NOT NULL
+      AND ${table.inputSha256} IS NOT NULL
+      AND ${table.inputSha256} ~ '^[0-9a-f]{64}$'
+      AND ${table.inputChars} IS NOT NULL
+      AND ${table.inputChars} > 0
+    )
+    OR (
+      ${table.status} <> 'prepared'
+      AND ${table.preparedAt} IS NULL
+    )
+  `),
+  stagedGrantCheck: check("grant_aggregate_split_children_staged_grant_check", sql`
+    ${table.stagedGrantAt} IS NULL
+    OR ${table.status} = 'prepared'
+  `),
+  deepAnalysisEnqueueCheck: check(
+    "grant_aggregate_split_children_deep_analysis_enqueue_check",
+    sql`
+      (
+        ${table.deepAnalysisJobId} IS NOT NULL
+        AND ${table.stagedGrantAt} IS NOT NULL
+        AND ${table.deepAnalysisEnqueuedAt} IS NOT NULL
+        AND ${table.activeFeederBypassReason} =
+          'aggregate_split_staged_direct_enqueue'
+      )
+      OR (
+        ${table.deepAnalysisJobId} IS NULL
+        AND ${table.deepAnalysisEnqueuedAt} IS NULL
+        AND ${table.activeFeederBypassReason} IS NULL
+      )
+    `,
+  ),
+}));
+
+/**
  * 활성 공고 딥분석 작업 큐. grant/source revision/model policy 조합을 단일 멱등 키로
  * 사용하며 worker는 짧은 SKIP LOCKED 트랜잭션으로 lease한다.
  */
@@ -826,6 +1346,7 @@ export const grantDeepAnalysisJobs = pgTable("grant_deep_analysis_jobs", {
   workerId: text("worker_id"),
   lastErrorCode: text("last_error_code"),
   lastErrorMessage: text("last_error_message"),
+  sourceObservedAt: timestamp("source_observed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, (table) => ({
@@ -1103,7 +1624,9 @@ export const adminDeepAnalysisActions = pgTable("admin_deep_analysis_actions", {
   adminCreatedIdx: index("admin_deep_analysis_actions_admin_created_idx")
     .on(table.adminUserId, table.createdAt),
   actionCheck: check("admin_deep_analysis_actions_action_check", sql`
-    ${table.action} IN ('requeue_job', 'claim_exception', 'release_exception')
+    ${table.action} IN (
+      'requeue_job', 'claim_exception', 'release_exception', 'approve_aggregate_split'
+    )
   `),
   outcomeCheck: check("admin_deep_analysis_actions_outcome_check", sql`
     ${table.outcome} IN ('succeeded', 'failed')

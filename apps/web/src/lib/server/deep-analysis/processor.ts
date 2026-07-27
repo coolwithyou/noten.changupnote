@@ -7,6 +7,7 @@ import { eq } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
+import { ensureAggregateSplitCaseForSeal } from "./aggregateSplitCase";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import {
   DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
@@ -19,6 +20,10 @@ import {
   enqueueDeepAnalysisJob,
   findLatestDeepAnalysisRunForJob,
 } from "./ledger";
+import {
+  ensureDeepAnalysisCompletionInputFresh,
+  type DeepAnalysisCompletionInputIdentity,
+} from "./completionFreshness";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 import { repairDeepAnalysisExecution } from "./repair";
 import { appendVerifiedDeepAnalysisStageReceipt } from "./receipts";
@@ -43,18 +48,53 @@ export async function processDeepAnalysisJob(input: {
   actor?: string;
 }): Promise<{ runId: string; databaseRunId: string }> {
   const actor = input.actor ?? "deep-analysis-worker";
-  const latest = await findLatestDeepAnalysisRunForJob(input.db, input.job.id);
-  if (latest?.status === "passed") {
-    await completeDeepAnalysisJob(input.db, input.job.id);
-    return { runId: latest.runId, databaseRunId: latest.id };
-  }
-
-  const seal = await prepareDeepAnalysisInput({
+  const loadCurrentInput = async () => prepareDeepAnalysisInput({
     db: input.db,
     storage: input.storage,
     grantId: input.job.grantId,
     maxTotalChars: input.policy.maxTotalInputChars,
   });
+  const enqueueReplacement = async (
+    current: DeepAnalysisCompletionInputIdentity,
+  ) => {
+    await enqueueDeepAnalysisJob(input.db, {
+      grantId: input.job.grantId,
+      sourceRevisionSha256: current.sourceRevisionSha256,
+      modelPolicyVersion: input.policy.modelPolicyVersion,
+      priority: input.job.priority + 1,
+      maxAttempts: input.job.maxAttempts,
+    });
+  };
+  const latest = await findLatestDeepAnalysisRunForJob(input.db, input.job.id);
+  if (latest?.status === "passed") {
+    await ensureDeepAnalysisCompletionInputFresh({
+      baseline: latest,
+      loadCurrent: loadCurrentInput,
+      enqueueReplacement,
+      markCurrentRunStale: async (failure) => {
+        await openException(
+          input.db,
+          latest.id,
+          actor,
+          failure.errorCode,
+          {
+            reasons: failure.reasons,
+            baseline: failure.baseline,
+            current: failure.current,
+          },
+        );
+        await finishRun(input.db, latest.id, {
+          status: "stale",
+          errorCode: failure.errorCode,
+          errorMessage: failure.message,
+        });
+      },
+    });
+    await completeDeepAnalysisJob(input.db, input.job.id);
+    return { runId: latest.runId, databaseRunId: latest.id };
+  }
+
+  const seal = await loadCurrentInput();
   if (seal.sourceRevisionSha256 !== input.job.sourceRevisionSha256) {
     await enqueueDeepAnalysisJob(input.db, {
       grantId: input.job.grantId,
@@ -67,6 +107,13 @@ export async function processDeepAnalysisJob(input: {
       `Deep analysis input is not sealed: source revision changed from ${input.job.sourceRevisionSha256.slice(0, 12)} to ${seal.sourceRevisionSha256.slice(0, 12)}`,
     );
   }
+
+  await ensureAggregateSplitCaseForSeal({
+    db: input.db,
+    grantId: input.job.grantId,
+    seal,
+    inputCapChars: input.policy.maxTotalInputChars,
+  });
 
   const publicRunId = buildDeepAnalysisRunId();
   const inputArtifact = await putImmutableDeepAnalysisArtifact({
@@ -419,6 +466,29 @@ export async function processDeepAnalysisJob(input: {
     throw new Error("per-notice cost cap exceeded; pending_budget");
   }
 
+  await ensureDeepAnalysisCompletionInputFresh({
+    baseline: seal,
+    loadCurrent: loadCurrentInput,
+    enqueueReplacement,
+    markCurrentRunStale: async (failure) => {
+      await openException(
+        input.db,
+        run.id,
+        actor,
+        failure.errorCode,
+        {
+          reasons: failure.reasons,
+          baseline: failure.baseline,
+          current: failure.current,
+        },
+      );
+      await finishCurrentRun({
+        status: "stale",
+        errorCode: failure.errorCode,
+        errorMessage: failure.message,
+      });
+    },
+  });
   await appendVerifiedDeepAnalysisStageReceipt({
     ...receiptContext,
     stage: "analysis_complete",
@@ -525,7 +595,7 @@ async function finishRun(
   db: CunoteDbSession,
   runId: string,
   input: {
-    status: "passed" | "failed" | "blocked";
+    status: "passed" | "failed" | "blocked" | "stale";
     errorCode?: string;
     errorMessage?: string;
   },

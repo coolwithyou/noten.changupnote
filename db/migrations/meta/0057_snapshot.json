@@ -1,5 +1,5 @@
 {
-  "id": "47ffb2de-61a5-444c-b000-2f60741bb8ed",
+  "id": "eec63b4b-73eb-4137-8345-4cc871fe7871",
   "prevId": "58d500cb-ab43-4ec1-afb6-ce9b380c2e64",
   "version": "7",
   "dialect": "postgresql",
@@ -408,236 +408,6 @@
         "admin_deep_analysis_actions_outcome_check": {
           "name": "admin_deep_analysis_actions_outcome_check",
           "value": "\n    \"admin_deep_analysis_actions\".\"outcome\" IN ('succeeded', 'failed')\n  "
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.admin_pipeline_actions": {
-      "name": "admin_pipeline_actions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "request_id": {
-          "name": "request_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "admin_user_id": {
-          "name": "admin_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grant_id": {
-          "name": "grant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source": {
-          "name": "source",
-          "type": "grant_source",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "source_id": {
-          "name": "source_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grant_title": {
-          "name": "grant_title",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "action": {
-          "name": "action",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'queued'"
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "result": {
-          "name": "result",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "error": {
-          "name": "error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "admin_pipeline_actions_request_target_idx": {
-          "name": "admin_pipeline_actions_request_target_idx",
-          "columns": [
-            {
-              "expression": "request_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "grant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "action",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "admin_pipeline_actions_grant_created_idx": {
-          "name": "admin_pipeline_actions_grant_created_idx",
-          "columns": [
-            {
-              "expression": "grant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "admin_pipeline_actions_admin_created_idx": {
-          "name": "admin_pipeline_actions_admin_created_idx",
-          "columns": [
-            {
-              "expression": "admin_user_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "admin_pipeline_actions_status_created_idx": {
-          "name": "admin_pipeline_actions_status_created_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "admin_pipeline_actions_admin_user_id_admin_users_id_fk": {
-          "name": "admin_pipeline_actions_admin_user_id_admin_users_id_fk",
-          "tableFrom": "admin_pipeline_actions",
-          "tableTo": "admin_users",
-          "columnsFrom": [
-            "admin_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "admin_pipeline_actions_grant_id_grants_id_fk": {
-          "name": "admin_pipeline_actions_grant_id_grants_id_fk",
-          "tableFrom": "admin_pipeline_actions",
-          "tableTo": "grants",
-          "columnsFrom": [
-            "grant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "admin_pipeline_actions_action_check": {
-          "name": "admin_pipeline_actions_action_check",
-          "value": "\"admin_pipeline_actions\".\"action\" in ('mark_reviewed', 'reconvert')"
-        },
-        "admin_pipeline_actions_status_check": {
-          "name": "admin_pipeline_actions_status_check",
-          "value": "\"admin_pipeline_actions\".\"status\" in ('queued', 'succeeded', 'partial', 'failed')"
         }
       },
       "isRLSEnabled": false
@@ -6409,27 +6179,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "extraction_log_grant_ts_idx": {
-          "name": "extraction_log_grant_ts_idx",
-          "columns": [
-            {
-              "expression": "grant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "ts",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -7903,22 +7652,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "grant_criteria_needs_review_grant_idx": {
-          "name": "grant_criteria_needs_review_grant_idx",
-          "columns": [
-            {
-              "expression": "grant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"grant_criteria\".\"needs_review\" = true",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -8449,6 +8182,12 @@
         "last_error_message": {
           "name": "last_error_message",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_observed_at": {
+          "name": "source_observed_at",
+          "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
         },

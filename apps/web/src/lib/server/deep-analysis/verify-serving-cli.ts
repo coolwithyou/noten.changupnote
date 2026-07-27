@@ -4,7 +4,7 @@ import {
   type CompanyProfile,
   type GrantCriterion,
 } from "@cunote/contracts";
-import { and, eq, isNotNull, max } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, max } from "drizzle-orm";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
@@ -36,6 +36,7 @@ async function main(): Promise<number> {
   const releaseId = readArg("release")?.trim();
   const scope = readArg("scope")?.trim();
   const active = process.argv.includes("--active");
+  const publicationOnly = process.argv.includes("--publication-only");
   if (active === Boolean(releaseId)) {
     throw new Error("--active 또는 --release 중 하나만 필요합니다.");
   }
@@ -44,6 +45,9 @@ async function main(): Promise<number> {
   if (!storage) throw new Error("R2 환경변수가 필요합니다.");
 
   if (active) {
+    if (publicationOnly) {
+      throw new Error("--publication-only는 특정 --release 검증에만 사용할 수 있습니다.");
+    }
     if (scope) throw new Error("--active는 --scope를 받지 않고 active release 전체를 검증합니다.");
     const cloudRunExecution = process.env.CLOUD_RUN_EXECUTION?.trim() || null;
     const monitorExecutionId = cloudRunExecution
@@ -65,22 +69,32 @@ async function main(): Promise<number> {
     const results = [];
     for (const release of releaseRows.sort((left, right) =>
       left.releaseId.localeCompare(right.releaseId))) {
-      results.push(await verifyRelease({
+      results.push(await verifyDeepAnalysisReleaseServing({
         db,
         storage,
         releaseId: release.releaseId,
         scope: "all",
         observationMode: "active_monitor",
+        verificationMode: "full",
         monitorExecutionId,
         monitorRuntime: cloudRunExecution ? "cloud_run" : "local",
       }));
     }
     const failures = results.flatMap((result) => result.failures);
+    const skippedItems = results.reduce(
+      (sum, result) => sum + ("skipped" in result ? result.skipped : 0),
+      0,
+    );
     console.log(JSON.stringify({
       schema: "deep-analysis-active-serving-monitor-v1",
-      verdict: failures.length === 0 ? "PASS" : "FAIL",
+      verdict: failures.length > 0
+        ? "FAIL"
+        : skippedItems > 0
+          ? "WAITING_FOR_VISIBILITY"
+          : "PASS",
       checkedReleases: results.length,
       checkedItems: results.reduce((sum, result) => sum + result.checked, 0),
+      skippedItems,
       results,
     }, null, 2));
     return failures.length === 0 ? 0 : 2;
@@ -89,12 +103,13 @@ async function main(): Promise<number> {
   if (scope !== "canary" && scope !== "all") {
     throw new Error("--scope는 canary 또는 all이어야 합니다.");
   }
-  const result = await verifyRelease({
+  const result = await verifyDeepAnalysisReleaseServing({
     db,
     storage,
     releaseId: releaseId!,
     scope,
     observationMode: "release_verification",
+    verificationMode: publicationOnly ? "publication_only" : "full",
     monitorExecutionId: null,
     monitorRuntime: "local",
   });
@@ -102,12 +117,13 @@ async function main(): Promise<number> {
   return result.failures.length === 0 ? 0 : 2;
 }
 
-async function verifyRelease(input: {
+export async function verifyDeepAnalysisReleaseServing(input: {
   db: ReturnType<typeof getCunoteDb>;
   storage: NonNullable<ReturnType<typeof createR2ObjectStorageFromEnv>>;
   releaseId: string;
   scope: "canary" | "all";
   observationMode: "release_verification" | "active_monitor";
+  verificationMode: "publication_only" | "full";
   monitorExecutionId: string | null;
   monitorRuntime: "cloud_run" | "local";
 }) {
@@ -117,6 +133,7 @@ async function verifyRelease(input: {
     releaseId,
     scope,
     observationMode,
+    verificationMode,
     monitorExecutionId,
     monitorRuntime,
   } = input;
@@ -150,9 +167,37 @@ async function verifyRelease(input: {
   if (targets.some((item) => item.status !== "applied" || !item.deepAnalysisRunId)) {
     throw new Error("applied deep-analysis promotion item만 serving 검증할 수 있습니다.");
   }
+  const grantStateRows = await db
+    .select({
+      id: schema.grants.id,
+      servingState: schema.grants.servingState,
+    })
+    .from(schema.grants)
+    .where(inArray(schema.grants.id, targetGrantIds));
+  const servingStateByGrantId = new Map(
+    grantStateRows.map((grant) => [grant.id, grant.servingState]),
+  );
+  const invisibleGrantIds = targetGrantIds.filter(
+    (grantId) => servingStateByGrantId.get(grantId) !== "visible",
+  );
+  if (observationMode === "active_monitor" && invisibleGrantIds.length > 0) {
+    return {
+      schema: "deep-analysis-serving-verification-v1",
+      verdict: "SKIPPED_NOT_VISIBLE",
+      releaseId,
+      scope,
+      verificationMode,
+      checked: 0,
+      skipped: invisibleGrantIds.length,
+      passed: [],
+      failures: [],
+    };
+  }
 
   const repositories = createDrizzleRepositories<unknown>({ dialect: "drizzle", client: db });
-  const entries = await repositories.grants.listGrantsByIds(targetGrantIds);
+  const entries = verificationMode === "full"
+    ? await repositories.grants.listGrantsByIds(targetGrantIds)
+    : [];
   const entryByGrant = new Map(
     entries.flatMap((entry) => entry.grant.id ? [[entry.grant.id, entry] as const] : []),
   );
@@ -172,6 +217,7 @@ async function verifyRelease(input: {
     repositoryCriteriaSha256: string;
     traceSha256: string;
     sourceRevisionSha256: string;
+    verificationMode: "publication_only" | "full";
   }> = [];
 
   for (const item of targets) {
@@ -182,11 +228,11 @@ async function verifyRelease(input: {
       .from(schema.grantDeepAnalysisRuns)
       .where(eq(schema.grantDeepAnalysisRuns.id, item.deepAnalysisRunId!))
       .limit(1);
-    if (!planItem || !entry || !run || !item.afterSha256) {
+    if (!planItem || !run || !item.afterSha256) {
       failures.push({
         grantId: item.grantId,
         stage: "publication_complete",
-        issues: ["promotion plan, repository entry, deep run 또는 after hash 누락"],
+        issues: ["promotion plan, deep run 또는 after hash 누락"],
       });
       continue;
     }
@@ -203,6 +249,7 @@ async function verifyRelease(input: {
     const publicationEvidence = {
       releaseId,
       observationMode,
+      verificationMode,
       monitorExecutionId,
       monitorRuntime,
       releaseDbId: release.id,
@@ -226,6 +273,76 @@ async function verifyRelease(input: {
         grantId: item.grantId,
         stage: "publication_complete",
         issues: publicationIssues,
+      });
+      continue;
+    }
+    if (verificationMode === "publication_only") {
+      passed.push({
+        grantId: item.grantId,
+        runId: run.runId,
+        afterSha256: item.afterSha256,
+        repositoryCriteriaSha256: "not_checked",
+        traceSha256: "not_checked",
+        sourceRevisionSha256: run.sourceRevisionSha256,
+        verificationMode,
+      });
+      continue;
+    }
+
+    if (!entry) {
+      const issues = ["production grant repository에서 공고를 읽지 못했습니다."];
+      await appendNextReceipt({
+        db,
+        storage,
+        run,
+        stage: "serving_complete",
+        status: "failed",
+        evidence: {
+          releaseId,
+          observationMode,
+          verificationMode,
+          monitorExecutionId,
+          monitorRuntime,
+          promotionItemId: item.id,
+          issueCount: issues.length,
+          issues,
+        },
+      });
+      failures.push({
+        grantId: item.grantId,
+        stage: "serving_complete",
+        issues,
+      });
+      continue;
+    }
+
+    const servingState = servingStateByGrantId.get(item.grantId) ?? null;
+    if (servingState !== "visible") {
+      const issues = [
+        `grant serving_state가 visible이 아닙니다: ${servingState ?? "missing"}`,
+      ];
+      await appendNextReceipt({
+        db,
+        storage,
+        run,
+        stage: "serving_complete",
+        status: "failed",
+        evidence: {
+          releaseId,
+          observationMode,
+          verificationMode,
+          monitorExecutionId,
+          monitorRuntime,
+          promotionItemId: item.id,
+          servingState,
+          issueCount: issues.length,
+          issues,
+        },
+      });
+      failures.push({
+        grantId: item.grantId,
+        stage: "serving_complete",
+        issues,
       });
       continue;
     }
@@ -278,6 +395,7 @@ async function verifyRelease(input: {
       evidence: {
         releaseId,
         observationMode,
+        verificationMode,
         monitorExecutionId,
         monitorRuntime,
         promotionItemId: item.id,
@@ -323,6 +441,7 @@ async function verifyRelease(input: {
       evidence: {
         releaseId,
         observationMode,
+        verificationMode,
         monitorExecutionId,
         monitorRuntime,
         promotionItemId: item.id,
@@ -349,6 +468,7 @@ async function verifyRelease(input: {
       repositoryCriteriaSha256,
       traceSha256,
       sourceRevisionSha256: run.sourceRevisionSha256,
+      verificationMode,
     });
   }
 
@@ -357,6 +477,7 @@ async function verifyRelease(input: {
     verdict: failures.length === 0 ? "PASS" : "FAIL",
     releaseId,
     scope,
+    verificationMode,
     checked: targets.length,
     passed,
     failures,
@@ -466,22 +587,24 @@ const FIXED_SERVING_PROFILES: Array<{ id: string; profile: CompanyProfile }> = [
   },
 ];
 
-main()
-  .then(async (code) => {
-    const { closeCunoteDb } = await import("../db/client");
-    await closeCunoteDb();
-    process.exit(code);
-  })
-  .catch(async (error) => {
-    console.error(
-      "[deep-serving] 실패:",
-      error instanceof Error ? error.message : error,
-    );
-    try {
+if (process.argv[1]?.endsWith("verify-serving-cli.ts")) {
+  main()
+    .then(async (code) => {
       const { closeCunoteDb } = await import("../db/client");
       await closeCunoteDb();
-    } catch {
-      // 원래 오류를 보존한다.
-    }
-    process.exit(1);
-  });
+      process.exit(code);
+    })
+    .catch(async (error) => {
+      console.error(
+        "[deep-serving] 실패:",
+        error instanceof Error ? error.message : error,
+      );
+      try {
+        const { closeCunoteDb } = await import("../db/client");
+        await closeCunoteDb();
+      } catch {
+        // 원래 오류를 보존한다.
+      }
+      process.exit(1);
+    });
+}

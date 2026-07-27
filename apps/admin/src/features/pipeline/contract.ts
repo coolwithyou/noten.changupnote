@@ -387,6 +387,131 @@ export interface DeepPipelineAdminAction {
   createdAt: string
 }
 
+export interface DeepPipelineAggregateSplitCase {
+  id: string
+  status: "pending_review" | "approved" | "processing" | "completed" | "failed"
+  reasonCode: "oversized_aggregate_notice"
+  sourceRevisionSha256: string
+  inputChars: number
+  inputCapChars: number
+  costCapUsd: number
+  chunkCount: number
+  attachmentCount: number
+  evidenceSha256: string
+  approvedByEmail: string | null
+  approvedAt: string | null
+  attemptCount: number
+  maxAttempts: number
+  availableAt: string
+  leasedAt: string | null
+  leaseExpiresAt: string | null
+  workerId: string | null
+  processingStartedAt: string | null
+  completedAt: string | null
+  model: string | null
+  promptVersion: string | null
+  inputArtifactKey: string | null
+  inputSha256: string | null
+  manifestArtifactKey: string | null
+  manifestSha256: string | null
+  rawResponseArtifactKey: string | null
+  rawResponseSha256: string | null
+  segmentCount: number | null
+  programCount: number | null
+  externalCallsMade: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  costUsd: number | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+  materializationStatus: "not_ready" | "pending" | "processing" | "prepared" | "failed"
+  materializationAttemptCount: number
+  materializationMaxAttempts: number
+  materializationAvailableAt: string
+  materializationLeasedAt: string | null
+  materializationLeaseExpiresAt: string | null
+  materializationWorkerId: string | null
+  preparedChildCount: number
+  childrenPreparedAt: string | null
+  materializationLastErrorCode: string | null
+  materializationLastErrorMessage: string | null
+  promotionStatus: "not_ready" | "pending" | "staged" | "enqueued" | "failed"
+  stagedChildCount: number
+  enqueuedChildCount: number
+  childrenStagedAt: string | null
+  childrenEnqueuedAt: string | null
+  activeFeederBypassReason: string | null
+  promotionLastErrorCode: string | null
+  promotionLastErrorMessage: string | null
+  exposureStatus: "not_ready" | "verifying" | "visible" | "rolled_back"
+  exposureReleaseId: string | null
+  exposedChildCount: number
+  childrenVisibleAt: string | null
+  servingVerifiedAt: string | null
+  visibilityRolledBackAt: string | null
+  exposureActor: string | null
+  exposureLastErrorCode: string | null
+  exposureLastErrorMessage: string | null
+  children: DeepPipelineAggregateSplitChild[]
+  createdAt: string
+  updatedAt: string
+}
+
+export interface DeepPipelineAggregateSplitChild {
+  id: string
+  stableKey: string
+  ordinal: number
+  status: "pending" | "prepared" | "failed"
+  source: string
+  sourceId: string
+  title: string
+  agencyPrimary: string | null
+  grantProjectionSha256: string
+  manifestSha256: string
+  sourceRevisionSha256: string
+  rawPayloadSha256: string
+  attachmentManifestSha256: string | null
+  inputArtifactKey: string | null
+  inputSha256: string | null
+  inputChars: number | null
+  preparedAt: string | null
+  stagedGrantAt: string | null
+  servingState: "visible" | "staged" | "suppressed" | null
+  deepAnalysisJobId: string | null
+  deepAnalysisJobStatus: string | null
+  deepAnalysisEnqueuedAt: string | null
+  activeFeederBypassReason: string | null
+  deepAnalysisRunId: string | null
+  deepAnalysisRunStatus: string | null
+  passedStageCount: number
+  latestStage: DeepAnalysisStageKey | null
+  latestStageStatus: DeepAnalysisStageStatus | null
+  analysisCompleteStatus: DeepAnalysisStageStatus | null
+  aiAuditVerdict: "concur" | "disagree" | "unsure" | "failed" | null
+  promotionReleaseId: string | null
+  promotionReleaseStatus: string | null
+  promotionItemStatus: string | null
+  publicationCompleteStatus: DeepAnalysisStageStatus | null
+  servingCompleteStatus: DeepAnalysisStageStatus | null
+  analysisFreshStatus: DeepAnalysisStageStatus | null
+  publicationFirstBlocker: {
+    code: string
+    stage: DeepAnalysisStageKey | null
+    message: string
+  } | null
+  exposureFirstBlocker: {
+    code: string
+    stage: DeepAnalysisStageKey | null
+    message: string
+  } | null
+  promotionLastErrorCode: string | null
+  promotionLastErrorMessage: string | null
+  lastErrorCode: string | null
+  lastErrorMessage: string | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface DeepPipelineNoticeDetail {
   notice: DeepPipelineNoticeItem
   sourceRevisionSha256: string | null
@@ -404,12 +529,14 @@ export interface DeepPipelineNoticeDetail {
   attachments: DeepPipelineAttachment[]
   promotions: DeepPipelinePromotion[]
   adminActions: DeepPipelineAdminAction[]
+  aggregateSplitCase: DeepPipelineAggregateSplitCase | null
 }
 
 export const DEEP_PIPELINE_ACTIONS = [
   "requeue_job",
   "claim_exception",
   "release_exception",
+  "approve_aggregate_split",
 ] as const
 
 export type DeepPipelineAction = (typeof DEEP_PIPELINE_ACTIONS)[number]
@@ -421,6 +548,7 @@ export interface DeepPipelineActionRequest {
   jobId?: string
   runId?: string
   exceptionKey?: string
+  aggregateSplitCaseId?: string
 }
 
 export interface DeepPipelineActionResult {
@@ -431,6 +559,7 @@ export interface DeepPipelineActionResult {
   jobId: string | null
   runId: string | null
   exceptionKey: string | null
+  aggregateSplitCaseId: string | null
 }
 
 export function isDeepPipelineBucket(value: unknown): value is DeepPipelineBucket {

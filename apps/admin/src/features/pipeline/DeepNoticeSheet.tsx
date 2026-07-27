@@ -6,12 +6,14 @@ import {
   CheckCircle2Icon,
   ExternalLinkIcon,
   RefreshCwIcon,
+  ScissorsIcon,
   UserRoundCheckIcon,
   UserRoundXIcon,
 } from "lucide-react"
 
 import {
   DEEP_PIPELINE_BUCKET_LABELS,
+  DEEP_STAGE_LABELS,
   type DeepPipelineAction,
   type DeepPipelineNoticeDetail,
 } from "@/features/pipeline/contract"
@@ -48,15 +50,20 @@ export function DeepNoticeSheet({
 
   const runAction = (
     action: DeepPipelineAction,
-    target: { exceptionKey?: string },
+    target: { exceptionKey?: string; aggregateSplitCaseId?: string },
   ) => {
     if (!detail) return
     const notice = detail.notice
     const costLine = action === "requeue_job"
       ? `대상 1공고 · 입력 ${formatNumber(notice.inputChars)}자 · 직전 비용 ${formatCost(notice.costUsd)} · 모델 ${notice.model ?? "policy allowlist"}`
-      : `대상 1개 예외 · ${target.exceptionKey ?? ""}`
+      : action === "approve_aggregate_split"
+        ? `대상 1개 통합공고 · 입력 ${formatNumber(detail.aggregateSplitCase?.inputChars ?? null)}자 · 상한 ${formatNumber(detail.aggregateSplitCase?.inputCapChars ?? null)}자 · ${formatNumber(detail.aggregateSplitCase?.chunkCount ?? null)}개 입력 조각 · 누적 비용 상한 ${formatCost(detail.aggregateSplitCase?.costCapUsd ?? null)}`
+        : `대상 1개 예외 · ${target.exceptionKey ?? ""}`
+    const consequence = action === "approve_aggregate_split"
+      ? "승인하면 원문 전체를 보존한 별도 분리 작업 대기열로 이동합니다. 이 승인만으로 하위 공고가 발행되거나 매칭에 노출되지는 않습니다."
+      : "단계 상태는 검증 receipt만 변경할 수 있으며 이 액션으로 passed 처리되지 않습니다."
     const confirmed = window.confirm(
-      `${actionLabel(action)}\n\n${costLine}\n\n단계 상태는 검증 receipt만 변경할 수 있으며 이 액션으로 passed 처리되지 않습니다.`,
+      `${actionLabel(action)}\n\n${costLine}\n\n${consequence}`,
     )
     if (!confirmed) return
     setMessage(null)
@@ -70,8 +77,11 @@ export function DeepNoticeSheet({
             action,
             grantId: notice.grantId,
             jobId: action === "requeue_job" ? notice.jobId : undefined,
-            runId: action === "requeue_job" ? undefined : notice.runId,
+            runId: action === "claim_exception" || action === "release_exception"
+              ? notice.runId
+              : undefined,
             exceptionKey: target.exceptionKey,
+            aggregateSplitCaseId: target.aggregateSplitCaseId,
           }),
         })
         const payload = await response.json() as {
@@ -135,8 +145,329 @@ export function DeepNoticeSheet({
                   >
                     <RefreshCwIcon /> 딥분석 재처리
                   </Button>
-                ) : null}
+              ) : null}
             </div>
+
+            {detail.aggregateSplitCase ? (
+              <section className="my-3 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <AlertTriangleIcon className="text-amber-700" />
+                      <strong>통합공고 분리 필요</strong>
+                      <Badge
+                        variant={detail.aggregateSplitCase.status === "failed"
+                          || detail.aggregateSplitCase.materializationStatus === "failed"
+                          ? "destructive"
+                          : "outline"}
+                      >
+                        {aggregateSplitStatusLabel(detail.aggregateSplitCase.status)}
+                      </Badge>
+                      {detail.aggregateSplitCase.status === "completed" ? (
+                        <Badge
+                          variant={detail.aggregateSplitCase.promotionStatus === "failed"
+                            ? "destructive"
+                            : "outline"}
+                        >
+                          {aggregateSplitPromotionStatusLabel(
+                            detail.aggregateSplitCase.promotionStatus,
+                          )}
+                        </Badge>
+                      ) : null}
+                      {detail.aggregateSplitCase.exposureStatus !== "not_ready" ? (
+                        <Badge
+                          variant={detail.aggregateSplitCase.exposureStatus === "rolled_back"
+                            ? "destructive"
+                            : "outline"}
+                        >
+                          {aggregateSplitExposureStatusLabel(
+                            detail.aggregateSplitCase.exposureStatus,
+                          )}
+                        </Badge>
+                      ) : null}
+                    </div>
+                    <p className="mt-2 text-sm leading-6">
+                      여러 하위사업이 섞인 대용량 통합공고입니다. 입력{" "}
+                      {formatNumber(detail.aggregateSplitCase.inputChars)}자가 정책 상한{" "}
+                      {formatNumber(detail.aggregateSplitCase.inputCapChars)}자를 넘어 일반
+                      딥분석을 계속하지 않았습니다. 사람의 승인 뒤 하위 공고 분리 작업으로
+                      넘겨야 합니다.
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      입력 조각 {formatNumber(detail.aggregateSplitCase.chunkCount)}개 · 첨부{" "}
+                      {formatNumber(detail.aggregateSplitCase.attachmentCount)}개 · 원문은 이
+                      단계에서 변경되지 않음 · 분리 누적 비용 상한{" "}
+                      {formatCost(detail.aggregateSplitCase.costCapUsd)}
+                    </p>
+                    {detail.aggregateSplitCase.status === "approved" ? (
+                      <p className="mt-2 text-sm">
+                        사람 승인이 완료되어 분리 worker 실행을 기다리고 있습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.status === "processing" ? (
+                      <p className="mt-2 text-sm">
+                        분리 worker가 원문 segment를 하위사업별로 분류하고 있습니다. lease{" "}
+                        {detail.aggregateSplitCase.leaseExpiresAt
+                          ? formatDate(detail.aggregateSplitCase.leaseExpiresAt)
+                          : "미상"}까지
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.status === "completed" ? (
+                      <p className="mt-2 text-sm">
+                        하위사업 manifest {formatNumber(detail.aggregateSplitCase.programCount)}개를
+                        검증했습니다. 파생 공고 후보{" "}
+                        {formatNumber(detail.aggregateSplitCase.preparedChildCount)}개가 봉인됐습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.materializationStatus === "pending" ? (
+                      <p className="mt-2 text-sm">
+                        검증된 manifest를 다시 읽어 파생 공고 입력을 봉인할 worker를
+                        기다리고 있습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.materializationStatus === "processing" ? (
+                      <p className="mt-2 text-sm">
+                        파생 공고 후보를 봉인하고 있습니다. lease{" "}
+                        {detail.aggregateSplitCase.materializationLeaseExpiresAt
+                          ? formatDate(
+                            detail.aggregateSplitCase.materializationLeaseExpiresAt,
+                          )
+                          : "미상"}까지
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.materializationStatus === "prepared" ? (
+                      <p className="mt-2 text-sm">
+                        파생 공고 후보 전체가 봉인됐습니다. 실제 노출 상태는 별도의 원자
+                        전환과 S13/S14 readback 결과로 관리됩니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "pending" ? (
+                      <p className="mt-2 text-sm">
+                        봉인된 child를 다시 검증해 staged 공고로 원자 생성할 작업을
+                        기다리고 있습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "staged" ? (
+                      <p className="mt-2 text-sm">
+                        staged 공고 {formatNumber(detail.aggregateSplitCase.stagedChildCount)}개
+                        생성 · 깊은 분석 enqueue{" "}
+                        {formatNumber(detail.aggregateSplitCase.enqueuedChildCount)}/
+                        {formatNumber(detail.aggregateSplitCase.stagedChildCount)}개. parent는
+                        visible, child는 staged 상태입니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "enqueued" ? (
+                      <p className="mt-2 text-sm">
+                        staged child {formatNumber(detail.aggregateSplitCase.stagedChildCount)}개
+                        전체를 기존 깊은 분석 → 독립 validator → AI 자동검수 경로에 직접
+                        enqueue했습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.exposureStatus === "verifying" ? (
+                      <p className="mt-2 text-sm">
+                        parent를 숨기고 child 전체를 노출한 뒤 S13 서빙과 S14 최신성을
+                        검증하고 있습니다. 실패하면 즉시 이전 노출 상태로 원복합니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.exposureStatus === "visible" ? (
+                      <p className="mt-2 text-sm text-primary">
+                        전체 child의 S13/S14 readback을 확인했습니다. parent는 suppressed,
+                        child {formatNumber(detail.aggregateSplitCase.exposedChildCount)}개는
+                        visible 상태입니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.exposureStatus === "rolled_back" ? (
+                      <p className="mt-2 text-sm text-destructive">
+                        S13/S14 검증 실패로 parent visible·child staged 상태로 원복했습니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "enqueued" ? (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        S12 발행 완료{" "}
+                        {detail.aggregateSplitCase.children.filter(
+                          (child) => child.publicationFirstBlocker === null,
+                        ).length}
+                        /{detail.aggregateSplitCase.children.length} · case 노출 전환은 전체
+                        child의 S12가 PASS일 때만 허용됩니다.
+                      </p>
+                    ) : null}
+                    {detail.aggregateSplitCase.promotionStatus === "failed" ? (
+                      <p className="mt-2 text-sm text-destructive">
+                        child input/projection 재검증 또는 원자적 staged 생성이 실패해
+                        아무 child도 노출하지 않았습니다.
+                      </p>
+                    ) : null}
+                  </div>
+                  {(role === "admin" || role === "owner")
+                    && detail.aggregateSplitCase.status === "pending_review" ? (
+                      <Button
+                        disabled={isPending}
+                        onClick={() => runAction("approve_aggregate_split", {
+                          aggregateSplitCaseId: detail.aggregateSplitCase!.id,
+                        })}
+                      >
+                        <ScissorsIcon /> 분리 처리 수락
+                      </Button>
+                    ) : null}
+                </div>
+                {detail.aggregateSplitCase.approvedAt ? (
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    {detail.aggregateSplitCase.approvedByEmail ?? "관리자"} 승인 ·{" "}
+                    {formatDate(detail.aggregateSplitCase.approvedAt)} · 시도{" "}
+                    {detail.aggregateSplitCase.attemptCount}/
+                    {detail.aggregateSplitCase.maxAttempts} · 파생 준비 시도{" "}
+                    {detail.aggregateSplitCase.materializationAttemptCount}/
+                    {detail.aggregateSplitCase.materializationMaxAttempts}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.inputSha256
+                  || detail.aggregateSplitCase.manifestSha256
+                  || detail.aggregateSplitCase.rawResponseSha256 ? (
+                  <div className="mt-3 rounded-lg border bg-background/70 p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {detail.aggregateSplitCase.model} ·{" "}
+                      {detail.aggregateSplitCase.promptVersion} · segment{" "}
+                      {formatNumber(detail.aggregateSplitCase.segmentCount)}개 · 외부 호출{" "}
+                      {formatNumber(detail.aggregateSplitCase.externalCallsMade)}회 · token{" "}
+                      {formatNumber(detail.aggregateSplitCase.inputTokens)}/
+                      {formatNumber(detail.aggregateSplitCase.outputTokens)} · 비용{" "}
+                      {formatCost(detail.aggregateSplitCase.costUsd)}
+                    </p>
+                    <HashLine
+                      label="분리 input"
+                      value={detail.aggregateSplitCase.inputSha256}
+                    />
+                    <HashLine
+                      label="input R2"
+                      value={detail.aggregateSplitCase.inputArtifactKey}
+                    />
+                    <HashLine
+                      label="분리 manifest"
+                      value={detail.aggregateSplitCase.manifestSha256}
+                    />
+                    <HashLine
+                      label="manifest R2"
+                      value={detail.aggregateSplitCase.manifestArtifactKey}
+                    />
+                    <HashLine
+                      label="raw response"
+                      value={detail.aggregateSplitCase.rawResponseSha256}
+                    />
+                    <HashLine
+                      label="raw R2"
+                      value={detail.aggregateSplitCase.rawResponseArtifactKey}
+                    />
+                  </div>
+                ) : null}
+                {detail.aggregateSplitCase.children.length > 0 ? (
+                  <div className="mt-3 grid gap-2">
+                    {detail.aggregateSplitCase.children.map((child) => (
+                      <article key={child.id} className="rounded-lg border bg-background/70 p-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <strong className="text-sm">
+                              {child.ordinal + 1}. {child.title}
+                            </strong>
+                            <p className="text-xs text-muted-foreground">
+                              {child.agencyPrimary ?? "기관 미상"} · {child.sourceId}
+                            </p>
+                          </div>
+                          <Badge
+                            variant={aggregateSplitChildHasFailure(child)
+                              ? "destructive"
+                              : "outline"}
+                          >
+                            {aggregateSplitChildPipelineLabel(child)}
+                          </Badge>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          입력 {formatNumber(child.inputChars)}자 · 준비{" "}
+                          {child.preparedAt ? formatDate(child.preparedAt) : "미완료"} · staged{" "}
+                          {child.stagedGrantAt ? formatDate(child.stagedGrantAt) : "미생성"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          공고 {child.servingState ?? "미생성"} · job{" "}
+                          {child.deepAnalysisJobStatus ?? "미등록"} · S0~S14{" "}
+                          {child.passedStageCount}/15 · 최근{" "}
+                          {child.latestStage
+                            ? `${DEEP_STAGE_LABELS[child.latestStage]} ${child.latestStageStatus ?? ""}`
+                            : "receipt 없음"} · AI 자동검수{" "}
+                          {aggregateSplitAuditLabel(child.aiAuditVerdict)} · S12{" "}
+                          {child.publicationCompleteStatus ?? "대기"} · S13{" "}
+                          {child.servingCompleteStatus ?? "대기"} · S14{" "}
+                          {child.analysisFreshStatus ?? "대기"}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          promotion {child.promotionReleaseId ?? "미생성"} ·{" "}
+                          {child.promotionReleaseStatus ?? "대기"}/
+                          {child.promotionItemStatus ?? "대기"}
+                        </p>
+                        <HashLine label="child input" value={child.inputSha256} />
+                        <HashLine label="child input R2" value={child.inputArtifactKey} />
+                        <HashLine
+                          label="child source revision"
+                          value={child.sourceRevisionSha256}
+                        />
+                        <HashLine label="deep analysis job" value={child.deepAnalysisJobId} />
+                        <HashLine label="deep analysis run" value={child.deepAnalysisRunId} />
+                        {child.activeFeederBypassReason ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            active feeder 우회: {child.activeFeederBypassReason}
+                          </p>
+                        ) : null}
+                        {child.promotionLastErrorMessage ? (
+                          <p className="mt-2 text-sm text-destructive">
+                            {child.promotionLastErrorCode}: {child.promotionLastErrorMessage}
+                          </p>
+                        ) : null}
+                        {child.lastErrorMessage ? (
+                          <p className="mt-2 text-sm text-destructive">
+                            {child.lastErrorCode}: {child.lastErrorMessage}
+                          </p>
+                        ) : null}
+                        {child.exposureFirstBlocker ? (
+                          <p className="mt-2 text-sm text-destructive">
+                            첫 blocker{" "}
+                            {child.exposureFirstBlocker.stage
+                              ? DEEP_STAGE_LABELS[child.exposureFirstBlocker.stage]
+                              : child.exposureFirstBlocker.code}
+                            : {child.exposureFirstBlocker.message}
+                          </p>
+                        ) : (
+                          <p className="mt-2 text-sm text-primary">
+                            S0~S14와 독립 AI 자동검수 증적이 모두 확인됐습니다.
+                          </p>
+                        )}
+                      </article>
+                    ))}
+                  </div>
+                ) : null}
+                {detail.aggregateSplitCase.lastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.lastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.lastErrorMessage}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.materializationLastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.materializationLastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.materializationLastErrorMessage}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.promotionLastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.promotionLastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.promotionLastErrorMessage}
+                  </p>
+                ) : null}
+                {detail.aggregateSplitCase.exposureLastErrorMessage ? (
+                  <p className="mt-3 text-sm text-destructive">
+                    {detail.aggregateSplitCase.exposureLastErrorCode}:{" "}
+                    {detail.aggregateSplitCase.exposureLastErrorMessage}
+                  </p>
+                ) : null}
+              </section>
+            ) : null}
 
             {message ? (
               <p className="my-3 rounded-lg border bg-muted p-3 text-sm">{message}</p>
@@ -391,5 +722,96 @@ function formatCost(value: number | null): string {
 function actionLabel(action: DeepPipelineAction): string {
   if (action === "requeue_job") return "딥분석 재처리"
   if (action === "claim_exception") return "예외 배정"
-  return "예외 배정 해제"
+  if (action === "release_exception") return "예외 배정 해제"
+  return "통합공고 분리 승인"
+}
+
+function aggregateSplitStatusLabel(
+  status: NonNullable<DeepPipelineNoticeDetail["aggregateSplitCase"]>["status"],
+): string {
+  if (status === "pending_review") return "사람 검토 대기"
+  if (status === "approved") return "분리 작업 대기"
+  if (status === "processing") return "분리 처리 중"
+  if (status === "completed") return "분리 완료"
+  return "분리 실패"
+}
+
+function aggregateSplitChildStatusLabel(
+  status: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number]["status"],
+): string {
+  if (status === "pending") return "입력 준비 대기"
+  if (status === "prepared") return "입력 봉인 완료"
+  return "입력 준비 실패"
+}
+
+function aggregateSplitPromotionStatusLabel(
+  status: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["promotionStatus"],
+): string {
+  if (status === "not_ready") return "승격 준비 전"
+  if (status === "pending") return "staged 생성 대기"
+  if (status === "staged") return "staged·분석 연결 중"
+  if (status === "enqueued") return "깊은 분석 연결 완료"
+  return "staged 승격 실패"
+}
+
+function aggregateSplitExposureStatusLabel(
+  status: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["exposureStatus"],
+): string {
+  if (status === "not_ready") return "노출 전환 전"
+  if (status === "verifying") return "노출 readback 중"
+  if (status === "visible") return "노출 전환 완료"
+  return "노출 원복"
+}
+
+function aggregateSplitChildPipelineLabel(
+  child: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number],
+): string {
+  if (child.status !== "prepared") return aggregateSplitChildStatusLabel(child.status)
+  if (!child.stagedGrantAt) return "staged 생성 대기"
+  if (!child.deepAnalysisJobId) return "분석 enqueue 대기"
+  if (child.exposureFirstBlocker === null) return "S14 서빙 완료"
+  if (child.exposureFirstBlocker.stage) {
+    return `첫 blocker ${DEEP_STAGE_LABELS[child.exposureFirstBlocker.stage]}`
+  }
+  if (child.aiAuditVerdict === "concur" && child.analysisCompleteStatus === "passed") {
+    return "promotion 대기"
+  }
+  if (child.deepAnalysisRunId) return "깊은 분석 진행"
+  return "깊은 분석 대기"
+}
+
+function aggregateSplitChildHasFailure(
+  child: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number],
+): boolean {
+  return child.status === "failed"
+    || child.exposureFirstBlocker !== null
+    || Boolean(child.promotionLastErrorCode)
+    || child.deepAnalysisJobStatus === "blocked"
+    || child.deepAnalysisJobStatus === "dead_letter"
+    || (
+      child.aiAuditVerdict !== null
+      && child.aiAuditVerdict !== "concur"
+    )
+}
+
+function aggregateSplitAuditLabel(
+  verdict: NonNullable<
+    DeepPipelineNoticeDetail["aggregateSplitCase"]
+  >["children"][number]["aiAuditVerdict"],
+): string {
+  if (verdict === "concur") return "동의"
+  if (verdict === "disagree") return "불일치"
+  if (verdict === "unsure") return "불확실"
+  if (verdict === "failed") return "실패"
+  return "대기"
 }

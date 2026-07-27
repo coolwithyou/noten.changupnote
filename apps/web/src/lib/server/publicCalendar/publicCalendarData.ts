@@ -12,6 +12,7 @@ import type { GrantSource, GrantStatus } from "@cunote/contracts";
 import { dateKeyToUtcDate, parseMonthKey } from "@/lib/calendar/dates";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibility";
 import { getRepositoryAdapterName } from "@/lib/server/repositories/factory";
 import type { PublicCalendarFilters } from "@/lib/publicCalendar/query";
 import {
@@ -155,9 +156,12 @@ async function loadPublicCalendarMonthUncached(parsed: {
     })
     .from(schema.grants)
     .where(
-      or(
-        and(gte(schema.grants.applyEnd, monthStart), lt(schema.grants.applyEnd, nextMonthStart)),
-        and(gte(schema.grants.applyStart, monthStart), lt(schema.grants.applyStart, nextMonthStart)),
+      and(
+        grantServingVisiblePredicate(),
+        or(
+          and(gte(schema.grants.applyEnd, monthStart), lt(schema.grants.applyEnd, nextMonthStart)),
+          and(gte(schema.grants.applyStart, monthStart), lt(schema.grants.applyStart, nextMonthStart)),
+        ),
       ),
     )
     .limit(PUBLIC_CALENDAR_MONTH_SCAN_LIMIT + 1);

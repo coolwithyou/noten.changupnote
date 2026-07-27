@@ -62,6 +62,7 @@ import type {
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
+import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibility";
 import {
   activeGrantApplyEndCutoff,
   isClearlyStaleUndatedGrant,
@@ -133,7 +134,11 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
           eq(schema.grantRaw.sourceId, schema.grants.sourceId),
         ),
       )
-      .where(and(activeWhere, confirmedMemberFilter))
+      .where(and(
+        grantServingVisiblePredicate(),
+        activeWhere,
+        confirmedMemberFilter,
+      ))
       .orderBy(desc(schema.grants.updatedAt))
       .limit(requestedLimit + 500);
     // payload(평균 ~1.8KB)를 2단계 criteria 조인에서 다시 받으면 공고당 조건 수만큼
@@ -172,7 +177,10 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       })
       .from(schema.grants)
       .leftJoin(schema.grantCriteria, eq(schema.grantCriteria.grantId, schema.grants.id))
-      .where(inArray(schema.grants.id, hydrationIds))
+      .where(and(
+        grantServingVisiblePredicate(),
+        inArray(schema.grants.id, hydrationIds),
+      ))
       .orderBy(desc(schema.grants.updatedAt));
 
     // dedup 확장(reachableDedupIds)으로 1단계 후보에 없던 공고가 섞이면 그 raw만 추가로 1회 조회한다.
@@ -228,9 +236,15 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
           eq(schema.grantRaw.sourceId, schema.grants.sourceId),
         ),
       )
-      .where(parsed
-        ? and(eq(schema.grants.source, parsed.source), eq(schema.grants.sourceId, parsed.sourceId))
-        : or(eq(schema.grants.id, grantId), eq(schema.grants.sourceId, grantId)))
+      .where(and(
+        grantServingVisiblePredicate(),
+        parsed
+          ? and(
+            eq(schema.grants.source, parsed.source),
+            eq(schema.grants.sourceId, parsed.sourceId),
+          )
+          : or(eq(schema.grants.id, grantId), eq(schema.grants.sourceId, grantId)),
+      ))
       .limit(100);
 
     const grants = hydrateGrants<TPayload>(rows);
@@ -687,17 +701,21 @@ class DrizzleMatchRepository<TPayload> implements MatchRepository<TPayload> {
         updatedAt: schema.matchState.updatedAt,
       })
       .from(schema.matchState)
-      .where(or(
-        and(
-          eq(schema.matchState.eligibility, "ineligible"),
-          lte(schema.matchState.eligibleFrom, input.asOf),
-        ),
-        and(
-          or(
-            eq(schema.matchState.eligibility, "eligible"),
-            eq(schema.matchState.eligibility, "conditional"),
+      .innerJoin(schema.grants, eq(schema.grants.id, schema.matchState.grantId))
+      .where(and(
+        grantServingVisiblePredicate(),
+        or(
+          and(
+            eq(schema.matchState.eligibility, "ineligible"),
+            lte(schema.matchState.eligibleFrom, input.asOf),
           ),
-          lte(schema.matchState.eligibleUntil, input.asOf),
+          and(
+            or(
+              eq(schema.matchState.eligibility, "eligible"),
+              eq(schema.matchState.eligibility, "conditional"),
+            ),
+            lte(schema.matchState.eligibleUntil, input.asOf),
+          ),
         ),
       ))
       .orderBy(asc(schema.matchState.eligibleFrom), asc(schema.matchState.eligibleUntil))
