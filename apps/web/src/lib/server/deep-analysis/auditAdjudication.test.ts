@@ -14,6 +14,7 @@ import {
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
 } from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
@@ -54,6 +55,12 @@ assert.equal(
 assert.equal(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
     DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
+  ),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
+    DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   ),
   true,
 );

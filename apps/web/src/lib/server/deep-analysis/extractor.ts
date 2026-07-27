@@ -618,6 +618,8 @@ export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
   "criteria는 신청 시점의 자격·지원 제한·우대·평가점수처럼 신청 가능 판단과 사업자 매칭에 직접 쓰이는 규정만 포함한다. 본 사업 선정 후의 협약 이행, 수행내용 준수, 보고 의무와 그 위반에 따른 지원 취소·중단·환수 사유는 criterion으로 만들지 말고 analysis_markdown과 program_intent.caution_notes에만 기록한다. 동일 사실이 신청자격·지원 제한에도 명시되면 그 신청 단계 문장만 criterion 근거로 쓴다. 예: '지원 취소' 아래의 '협약서 등 관련 문서에서 명시한 사항을 2회 이상 위반'과 '지원신청서 및 계획서 내용과 수행내용이 상이'는 sanction/other criterion이 아니다. '회원가입시 ... 서류 제출 (영리기관만 해당)'처럼 괄호가 제출서류 적용 범위만 한정하고 신청 대상을 명시하지 않으면 target_type 조건이 아니다.";
 export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
   "자격·결격 문장에 붙은 '단', '다만', '예외' 조건은 매칭 결과를 바꾸는 핵심 조건이다. 예외를 생략하거나 바로 앞뒤의 다른 criterion에 옮겨 붙이지 마라. 각 criterion의 value.exceptions에는 그 criterion에 실제 적용되는 canonical 예외만 넣고, source_span은 본문과 해당 예외 문구를 함께 포함해 글자 그대로 인용하라. 같은 flags라도 예외의 종류나 적용 대상이 다르면 의미가 다른 criterion이다.";
+export const DEEP_ANALYSIS_STRUCTURED_TARGET_RULE =
+  "sealed structured source의 rawPayload.trgetNm은 Bizinfo가 제공한 공식 신청대상 필드다. 이 값이 '중소기업'처럼 지원대상을 구체적으로 명시하면 첨부 본문에 같은 문장이 반복되지 않아도 해당 축 criterion의 유효한 근거로 사용하고, 첨부에 없다는 이유만으로 inspected_no_condition이나 unsure로 낮추지 마라. 다만 structured 신청대상과 공고 본문·첨부의 명시 조건이 서로 충돌하면 임의로 선택하지 말고 ambiguous로 남겨라.";
 
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
@@ -644,6 +646,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "criteria 는 신청 가능 여부, 결격, 우대, 평가점수에 실제 영향을 주는 명시적 규정만 만든다.",
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
+  DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   "신청서·서식의 빈칸, 체크박스, 기업정보 기재란이 어떤 사실(예: 수출실적 유무·특허 보유·매출)을 묻는다는 이유만으로 required·exclusion·preferred 조건을 만들지 마라. 주변 문구나 공고 본문에 필수·제외·우대·배점 효과가 명시된 경우에만 condition_found 로 판정한다.",
   "단순 정보수집 항목만 있고 규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition 으로 둔다. 다만 서식 안에서도 신청자격·결격·서약·우대·배점이 문장으로 명시되면 그 문장을 근거로 조건을 추출한다.",
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",

@@ -3694,7 +3694,7 @@ Step 4-1P-14 AI adjudication 결론 일관성 체크포인트 —
   mutation 0으로 성공했다.
 
 Step 4-1P-15 결격 예외 귀속·canonical 보강 체크포인트 —
-`LOCAL PASS`, production v12 exact 2건 재실행은 `PENDING` (2026-07-27):
+`PRODUCTION FAIL 1/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
 
 - v11 실패는 단순한 reason/verdict 표현 모순이 아니었다. 원문은 국세·지방세 체납과
   채무불이행자명부·신용정보 등록 각각에 “재창업자금 지원” 및 “재도전기업주
@@ -3722,8 +3722,45 @@ Step 4-1P-15 결격 예외 귀속·canonical 보강 체크포인트 —
   adjudication/canonical/matcher 테스트, package build, 전체
   `verify:deep-analysis-contract`, web/core typecheck, `git diff --check`가 PASS했다.
 - 모델, 공고당 `$2`, exact 2건 cohort, 동시성 1, 발행 gate는 변경하지 않았다.
-  다음 mutation은 이 v12 checkpoint를 observe-only로 배포하고 같은 exact 두 건만
-  재실행하는 것이다. 2/2 S11 전에는 S12~S14, Vercel, 랜딩 매칭 E2E를 계속 차단한다.
+  exact commit `9f06d8854d26ba2b0827365b16d8bad27293de0f`은 Cloud Build
+  `7e964618-27a4-4c25-89c8-1257ea1f2a6f`, immutable digest
+  `sha256:04468892593080b3cb8a4e5f557be7d95b956d362730eed6baaa820ca08ac54a`로
+  main/input/monitor generation `36/18/11`에 배포됐다. observe-only `mvnjz`,
+  input `lx6wn`, monitor `zvlmx` smoke는 v12/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T07:34:33Z` 이후 exact cohort만 generation 37로 열었다.
+  첫 공고 run
+  `da-20260727T073448515Z-3158bab1-1dcc-42ba-bbd6-e3281871b7cc`은 22축과
+  독립 AI 감사 `concur`로 S11을 통과했고 비용은 `$1.815004`였다.
+- 두 번째 공고 run
+  `da-20260727T074317142Z-8c89c200-73e9-41c1-a7b1-81c119924206`도 22축과
+  exact evidence 검증을 통과했지만, 독립 감사가 `size` 축을 `unsure`로 남겨
+  fail-closed됐다. 비용은 `$0.531570`, 두 건 합계 `$2.346574`, 공고별 최대
+  `$1.815004`, out-of-cohort run은 0이다.
+- 부분 release를 만들지 않았고 S12~S14, Vercel, 랜딩 E2E를 수행하지 않았다.
+  main은 generation 38 `observe_only`, claim fence 제거 상태로 즉시 복귀했다.
+  종료 smoke `wd4jt`는 policy v12/current revision, claim/enqueue/analysis/budget
+  mutation 0으로 성공했다.
+
+Step 4-1P-16 공식 구조화 신청대상 근거 계약 체크포인트 —
+`LOCAL PASS`, production v13 exact 2건 재실행은 `PENDING` (2026-07-27):
+
+- v12 두 번째 감사의 `unsure` 원문을 읽기 전용으로 대조했다. sealed structured
+  source의 Bizinfo `rawPayload.trgetNm`은 `"중소기업"`을 명시하고 primary는 이를
+  `size in ["중소기업"]` criterion으로 정확히 구조화했다. 감사도 이 필드를 읽었지만
+  HWP 본문에 같은 규모 문장이 반복되지 않았다는 이유만으로 criterion과 size 축을
+  `unsure`로 낮췄다.
+- `trgetNm`은 추론이나 신청서 빈칸이 아니라 Bizinfo의 공식 신청대상 메타데이터다.
+  구체적인 대상 값은 첨부에 반복되지 않아도 유효한 criterion 근거로 사용한다.
+  structured 대상과 본문·첨부의 명시 조건이 충돌할 때만 어느 한쪽을 임의 선택하지
+  않고 `ambiguous`로 남기는 출처 계약을 primary, blind audit, adjudication에
+  동일하게 넣었다.
+- 새 source 종류, DB 컬럼, matcher 분기, taxonomy 축은 추가하지 않았다. prompt v9,
+  blind audit v8, adjudication v9, model policy v13으로 올렸다. 모델, 공고당 `$2`,
+  exact cohort, 동시성 1, 발행 gate는 변경하지 않았다.
+- 다음 mutation은 focused/전체 로컬 검증을 통과한 exact v13 commit을 observe-only로
+  배포하고 같은 두 건만 재실행하는 것이다. 2/2 S11 전에는 S12~S14, Vercel,
+  랜딩 매칭 E2E를 계속 차단한다.
 
 중단 조건:
 

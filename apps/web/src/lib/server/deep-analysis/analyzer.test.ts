@@ -8,6 +8,7 @@ import {
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   resolveExactEvidenceSpan,
   type runDeepGrantAnalysis,
@@ -52,6 +53,14 @@ assert.equal(
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE),
   true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_STRUCTURED_TARGET_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /rawPayload\.trgetNm.*공식 신청대상.*첨부 본문에 같은 문장이 반복되지 않아도.*유효한 근거/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
