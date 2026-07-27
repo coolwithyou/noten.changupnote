@@ -11,8 +11,11 @@ import {
   type GrantCriterion,
 } from "@cunote/contracts";
 import {
+  EXCEPTION_FLAG_COVERAGE,
   canonicalizeGrantCriterion,
   validateGrantCriteriaContract,
+  type DisqualificationException,
+  type DisqualificationFlag,
 } from "@cunote/core";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
@@ -286,6 +289,7 @@ function validateCriterion(
     parser_version: DEEP_ANALYSIS_VALIDATOR_VERSION,
   };
   const canonicalCriterion = canonicalizeGrantCriterion(grantCriterion);
+  validateExceptionCoverage(criterion, index, issues);
   if (criterion.dimension === "premises" || criterion.dimension === "export_performance") {
     const note = isRecord(criterion.value) && typeof criterion.value.note === "string"
       ? criterion.value.note.trim()
@@ -352,6 +356,36 @@ function validateCriterion(
     semanticSha256,
     evidenceRefs,
   };
+}
+
+function validateExceptionCoverage(
+  criterion: DeepAnalysisCriterion,
+  index: number,
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  if (
+    criterion.dimension !== "tax_compliance"
+    && criterion.dimension !== "credit_status"
+    && criterion.dimension !== "sanction"
+  ) return;
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  const flags = Array.isArray(value.flags)
+    ? value.flags.filter((flag): flag is DisqualificationFlag => typeof flag === "string")
+    : [];
+  const exceptions = Array.isArray(value.exceptions)
+    ? value.exceptions.filter(
+      (exception): exception is DisqualificationException =>
+        typeof exception === "string" && exception in EXCEPTION_FLAG_COVERAGE,
+    )
+    : [];
+  for (const exception of exceptions) {
+    if (EXCEPTION_FLAG_COVERAGE[exception].some((flag) => flags.includes(flag))) continue;
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${index}].value.exceptions`,
+      message: `Exception ${exception} does not cover any criterion flag.`,
+    });
+  }
 }
 
 function canonicalizeSemanticValue(value: unknown): unknown {

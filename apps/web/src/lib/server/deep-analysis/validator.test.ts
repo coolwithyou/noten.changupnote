@@ -176,6 +176,43 @@ assert.equal(creditOrder.valid, true);
 assert.equal(creditOrder.criteria.length, 1);
 assert.equal(creditOrder.axisCriterionSemanticHashes.credit_status.length, 1);
 
+const wrongExceptionCoverage = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result([
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      value: {
+        flags: ["loan_default"],
+        exceptions: ["repayment_plan_in_good_standing"],
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+  ], axes(["credit_status"])),
+});
+assert.equal(wrongExceptionCoverage.valid, false);
+assert.equal(
+  wrongExceptionCoverage.issues.some((issue) =>
+    issue.message.includes("repayment_plan_in_good_standing does not cover")),
+  true,
+);
+
+const restartExceptionCoverage = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result([
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      value: {
+        flags: ["loan_default"],
+        exceptions: ["restart_funding_recipient", "retry_guarantee_recipient"],
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+  ], axes(["credit_status"])),
+});
+assert.equal(restartExceptionCoverage.valid, true);
+
 const structuredNoteOrder = validateDeepAnalysisResult({
   seal: creditSeal,
   result: result([

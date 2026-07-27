@@ -3661,7 +3661,7 @@ Step 4-1P-13 v9 감사 후보 제품 판단·신청 단계 매칭 계약 체크�
   상태로 즉시 복귀했다. 종료 smoke `7kfb2`도 v10/current revision, mutation 0이다.
 
 Step 4-1P-14 AI adjudication 결론 일관성 체크포인트 —
-`LOCAL PASS`, production v11 exact 2건 재실행은 아직 `PENDING` (2026-07-27):
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
 
 - v10 감사의 전체 22축과 대부분 criterion은 primary와 `concur`였다. 최종 실패를 만든
   두 항목은 reason에서 각각 “primary에 이미 반영된 중복이므로
@@ -3678,8 +3678,52 @@ Step 4-1P-14 AI adjudication 결론 일관성 체크포인트 —
   adjudication v7, model policy v11로 올렸고 blind audit/primary prompt, 모델,
   공고당 `$2`, exact cohort, 발행 gate는 변경하지 않았다. package build, 전체
   `verify:deep-analysis-contract`, web typecheck와 `git diff --check`가 PASS했다.
-  다음 mutation은 이 작은 v11 commit의 observe-only 배포와 같은 exact 2건의 마지막
-  bounded 재실행뿐이다. 2/2 S11 전에는 S12~S14와 랜딩 매칭 검증을 계속 차단한다.
+  exact commit `0daafd8c546abd2b7fe236be1b4bf34e9291ffb4`은 Cloud Build
+  `4b4f4cb2-38f3-4153-863f-1a608bd1e713`, immutable digest
+  `sha256:d1013389264abb9f69d2e507870a91bf6eac74e524e4396dd57c5f90b549eb52`로
+  main/input/monitor generation `33/17/10`에 배포됐다. observe-only `68vxb`,
+  input `5zt5b`, monitor `bsnsd` smoke는 v11/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T07:05:55Z` 이후 exact cohort만 generation 34로 열었다.
+  첫 공고 run
+  `da-20260727T070613102Z-99b2dd10-8776-4046-afaf-2be0d3170e12`은 primary
+  22축·근거 검증을 통과했지만 독립 AI 감사가 `disagree`여서 S11을 통과하지 못했다.
+  비용은 `$1.782607`, out-of-cohort run은 0이다. 두 번째 공고는 pending에서 호출하지
+  않았고 main은 generation 35 `observe_only`, claim fence 제거 상태로 즉시 복귀했다.
+  종료 smoke `p8f7c`는 policy v11/current revision, claim/enqueue/analysis/budget
+  mutation 0으로 성공했다.
+
+Step 4-1P-15 결격 예외 귀속·canonical 보강 체크포인트 —
+`LOCAL PASS`, production v12 exact 2건 재실행은 `PENDING` (2026-07-27):
+
+- v11 실패는 단순한 reason/verdict 표현 모순이 아니었다. 원문은 국세·지방세 체납과
+  채무불이행자명부·신용정보 등록 각각에 “재창업자금 지원” 및 “재도전기업주
+  재기지원보증” 예외를 붙이고, 파산·회생에는 별도로 “인가된 회생계획 또는 변제계획
+  정상 이행” 예외를 붙인다.
+- primary는 채무불이행 `loan_default` criterion에
+  `repayment_plan_in_good_standing`을 잘못 붙였고, 세금 체납 criterion에는 두
+  재도전 예외를 누락했다. blind audit는 원문 예외를 별도 값으로 추출했지만
+  adjudicator reason은 실제 JSON과 달리 primary가 같은 내용을 담았다고 설명했다.
+  따라서 P14의 reason 기반 verdict 보정 범위를 넓히지 않고 그 보정을 제거해 구조화
+  `change_required`를 계속 fail-closed로 취급한다.
+- 기존 22축 결격 계약 안에 `restart_funding_recipient`,
+  `retry_guarantee_recipient` 두 canonical 예외를 추가했다. 두 예외는
+  `national_tax_delinquent`, `local_tax_delinquent`, `loan_default`만 면제한다.
+  matcher와 자가확인 스키마는 기존 예외 사전을 공유하므로 새 분기·축·DB 컬럼 없이
+  동일한 교집합 차감 규칙을 사용한다.
+- primary와 blind audit 공유 prompt는 각 결격 문장의 “단/다만/예외”를 해당
+  criterion에만 귀속하고, 본문과 예외를 함께 exact source span으로 인용하도록
+  강화했다. 서버 validator도 예외 coverage와 criterion flags의 교집합이 없으면
+  결과를 거부한다. 따라서 v11처럼 `loan_default`에 회생계획 예외가 붙으면 audit 전
+  repair/fail-closed된다.
+- adjudication은 flags가 같아도 `value.exceptions`가 누락되거나 다른 항목의 예외가
+  붙으면 중복으로 인정하지 않도록 고정했다. prompt v8, blind audit v7,
+  adjudication v8, model policy v12로 올렸다. focused analyzer/validator/
+  adjudication/canonical/matcher 테스트, package build, 전체
+  `verify:deep-analysis-contract`, web/core typecheck, `git diff --check`가 PASS했다.
+- 모델, 공고당 `$2`, exact 2건 cohort, 동시성 1, 발행 gate는 변경하지 않았다.
+  다음 mutation은 이 v12 checkpoint를 observe-only로 배포하고 같은 exact 두 건만
+  재실행하는 것이다. 2/2 S11 전에는 S12~S14, Vercel, 랜딩 매칭 E2E를 계속 차단한다.
 
 중단 조건:
 

@@ -616,6 +616,8 @@ export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
   "financial_health의 구조화 criterion에 impairment_excluded가 full을 포함하면 자본전액잠식 결격을 이미 반영한 것이다. 같은 자본전액잠식 문구를 별도 text_only criterion으로 중복 만들지 말고, audit에서 그런 audit_only 후보가 나오면 primary 누락이 아니라 중복으로 판단하라.";
 export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
   "criteria는 신청 시점의 자격·지원 제한·우대·평가점수처럼 신청 가능 판단과 사업자 매칭에 직접 쓰이는 규정만 포함한다. 본 사업 선정 후의 협약 이행, 수행내용 준수, 보고 의무와 그 위반에 따른 지원 취소·중단·환수 사유는 criterion으로 만들지 말고 analysis_markdown과 program_intent.caution_notes에만 기록한다. 동일 사실이 신청자격·지원 제한에도 명시되면 그 신청 단계 문장만 criterion 근거로 쓴다. 예: '지원 취소' 아래의 '협약서 등 관련 문서에서 명시한 사항을 2회 이상 위반'과 '지원신청서 및 계획서 내용과 수행내용이 상이'는 sanction/other criterion이 아니다. '회원가입시 ... 서류 제출 (영리기관만 해당)'처럼 괄호가 제출서류 적용 범위만 한정하고 신청 대상을 명시하지 않으면 target_type 조건이 아니다.";
+export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
+  "자격·결격 문장에 붙은 '단', '다만', '예외' 조건은 매칭 결과를 바꾸는 핵심 조건이다. 예외를 생략하거나 바로 앞뒤의 다른 criterion에 옮겨 붙이지 마라. 각 criterion의 value.exceptions에는 그 criterion에 실제 적용되는 canonical 예외만 넣고, source_span은 본문과 해당 예외 문구를 함께 포함해 글자 그대로 인용하라. 같은 flags라도 예외의 종류나 적용 대상이 다르면 의미가 다른 criterion이다.";
 
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
@@ -641,6 +643,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "필수조건은 required, 제외대상은 exclusion, 우대조건은 preferred 로 분리한다.",
   "criteria 는 신청 가능 여부, 결격, 우대, 평가점수에 실제 영향을 주는 명시적 규정만 만든다.",
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   "신청서·서식의 빈칸, 체크박스, 기업정보 기재란이 어떤 사실(예: 수출실적 유무·특허 보유·매출)을 묻는다는 이유만으로 required·exclusion·preferred 조건을 만들지 마라. 주변 문구나 공고 본문에 필수·제외·우대·배점 효과가 명시된 경우에만 condition_found 로 판정한다.",
   "단순 정보수집 항목만 있고 규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition 으로 둔다. 다만 서식 안에서도 신청자격·결격·서약·우대·배점이 문장으로 명시되면 그 문장을 근거로 조건을 추출한다.",
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
@@ -651,8 +654,8 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   "",
   "[결격(배제) 조건 canonical 매핑 — 반드시 아래 축으로 분해한다]",
-  "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외 문구가 있으면 value.exceptions=[\"payment_deferral_approved\"].",
-  "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 변제 정상이행 예외→exceptions=[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"].",
+  "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외→exceptions=[\"payment_deferral_approved\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
+  "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 변제 정상이행 예외→exceptions=[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
   "- 제재·참여제한: dimension=sanction, operator=in, kind=exclusion, value.flags=[참여제한=participation_restricted, 부정수급·환수=subsidy_fraud, 보조금법위반·특수관계=subsidy_law_violation, 의무불이행=obligation_breach, 임금체불명단=wage_arrears_listed, 중대재해명단=serious_accident_listed, 협약·계약위반=agreement_breach] 중 해당.",
   "- 재무건전성: dimension=financial_health, kind=exclusion, value.debt_ratio_pct_threshold={\"value\":숫자,\"inclusive\":이상=true/초과=false}, value.impairment_excluded=[\"partial\"|\"full\"](자본잠식만 언급 시 [\"partial\",\"full\"]), value.min_interest_coverage=숫자.",
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,

@@ -11,6 +11,7 @@ import { priceDeepAnalysisUsage } from "./costPolicy";
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
 } from "./extractor";
@@ -49,6 +50,16 @@ assert.equal(
     DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   ),
   true,
+);
+assert.equal(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
+    DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
+  ),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /value\.exceptions가 누락.*change_required/,
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
@@ -185,7 +196,7 @@ const contradictoryAcceptRow =
 contradictoryAcceptRow.verdict = "change_required";
 contradictoryAcceptRow.reason =
   "primary에 이미 반영된 중복이므로 accept_primary로 재조정.";
-const coherentlyAccepted = await adjudicateDeepAnalysisAudit({
+const contradictoryChange = await adjudicateDeepAnalysisAudit({
   apiKey: "test",
   model: "claude-sonnet-5",
   evidenceText: span,
@@ -198,10 +209,10 @@ const coherentlyAccepted = await adjudicateDeepAnalysisAudit({
     { status: 200 },
   ),
 });
-assert.equal(coherentlyAccepted.verdict, "concur");
+assert.equal(contradictoryChange.verdict, "disagree");
 assert.equal(
-  coherentlyAccepted.itemResults.find((item) => item.key === auditKey)?.verdict,
-  "concur",
+  contradictoryChange.itemResults.find((item) => item.key === auditKey)?.verdict,
+  "disagree",
 );
 
 const explicitChangeResponse = structuredClone(contradictoryAcceptResponse);

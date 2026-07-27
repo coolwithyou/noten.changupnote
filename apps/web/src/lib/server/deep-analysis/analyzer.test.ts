@@ -5,6 +5,7 @@ import { sealDeepAnalysisInput } from "./inputManifest";
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
@@ -47,6 +48,14 @@ assert.equal(
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE),
   true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /재창업자금 지원 예외.*restart_funding_recipient.*재도전기업주 재기지원보증 예외.*retry_guarantee_recipient/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
