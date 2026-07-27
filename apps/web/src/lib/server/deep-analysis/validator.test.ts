@@ -176,6 +176,36 @@ assert.equal(creditOrder.valid, true);
 assert.equal(creditOrder.criteria.length, 1);
 assert.equal(creditOrder.axisCriterionSemanticHashes.credit_status.length, 1);
 
+const structuredNoteOrder = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result([
+    criterion({
+      dimension: "financial_health",
+      kind: "exclusion",
+      operator: "gte",
+      value: {
+        debt_ratio_pct_threshold: { value: 500, inclusive: true },
+        impairment_excluded: ["partial", "full"],
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+    criterion({
+      dimension: "financial_health",
+      kind: "exclusion",
+      operator: "gte",
+      value: {
+        impairment_excluded: ["full", "partial"],
+        debt_ratio_pct_threshold: { inclusive: true, value: 500 },
+        note: "같은 구조화 조건에 대한 설명",
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+  ], axes(["financial_health"])),
+});
+assert.equal(structuredNoteOrder.valid, true);
+assert.equal(structuredNoteOrder.criteria.length, 1);
+assert.equal(structuredNoteOrder.axisCriterionSemanticHashes.financial_health.length, 1);
+
 const droppedRaw = result([criterion()], axes(["region"]));
 (droppedRaw.rawToolInput.criteria as unknown[]).push({
   dimension: "region",

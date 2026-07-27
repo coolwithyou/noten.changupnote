@@ -3544,6 +3544,43 @@ Step 4-1P-10 v7 실제 AI 감사·semantic duplicate 교정 체크포인트 —
   package build, 전체 deep-analysis contract, web typecheck, diff check도 PASS했다.
   상한·모델·cohort·발행 gate는 변경하지 않았다.
 
+Step 4-1P-11 v8 실제 AI 감사·설명/제출양식 거짓 불일치 교정 체크포인트 —
+`LOCAL PASS`, production v9 재실행은 아직 `PENDING` (2026-07-27):
+
+- v8 commit `66638672e7562b42b76c01b8d5c7d1e835e015c0`을 Cloud Build
+  `fe9e2ecb-9465-4530-a16d-d76a3d220880`, digest
+  `sha256:32561fb0f1ac140c89453394af7fa4b03ebe39f28008d93f75d3f514a11c25fd`로
+  main/input-preparation/serving-monitor generation `24/14/7`에 배포했다.
+  observe-only `9rl8f`, input `4bjbm`, monitor `ksv7s` smoke는 v8/current revision,
+  mutation 0, 기존 active release 2건 PASS를 확인했다.
+- activation `2026-07-27T04:41:29Z`에 같은 exact 두 UUID·cohort hash만 generation
+  25로 열었다. 첫 run
+  `da-20260727T044208919Z-a51fef53-3a29-4a6a-af27-3f654f6290f7`은 repair 없이
+  첫 pass에서 22축을 만들었고 primary 비용은 `$0.508585`, 독립 AI 감사와
+  adjudication을 합친 총비용은 `$1.181729`였다. 그러나 최종 verdict가 `unsure`여서
+  두 번째 공고는 호출하지 않았고 main은 generation 26 `observe_only`, claim fence
+  제거 상태로 즉시 복귀했다.
+- 읽기 전용 대조 결과 primary는 부채비율 500%와 완전/부분 자본잠식 배제를 이미 하나의
+  `financial_health` structured criterion으로 반영했다. audit는 같은 구조값에 설명용
+  `note`를 덧붙인 뒤 이를 다른 criterion으로 보았고, 완전자본잠식을 다시 text-only로
+  중복 요구했다. structured value에서 비구조 설명인 `note`만 다른 경우는 같은 의미로
+  비교하되, `note`가 유일한 값인 text-only criterion은 기존처럼 의미값으로 보존한다.
+- audit가 `(법인인감 날인 후, PDF 스캔본 제출)`이라는 제출 절차만으로
+  `target_type=법인사업자`를 추가했다. 법인인감·회사명·대표자명·서식 제출 방식만으로는
+  법인 전용 신청 자격을 추론하지 않고, 명시적인 신청대상 또는 개인사업자 배제 문구가
+  있을 때만 target_type criterion을 만든다는 규칙을 primary, blind audit,
+  adjudication에 공유했다.
+- `impairment_excluded`에 `full`이 있으면 완전자본잠식 배제를 이미 포함하므로 같은
+  source/axis에서 text-only criterion을 추가하지 않는 공유 규칙도 넣었다. 실제 구조값·
+  operator·근거가 다르면 계속 별도 후보로 남아 fail-closed 검토를 받는다.
+- prompt v6, blind audit v5, adjudication v5, model policy v9로 올렸다. focused
+  validator/analyzer/adjudication 테스트, package build, 전체
+  `verify:deep-analysis-contract`, web typecheck, diff check가 PASS했다.
+  상한·모델·cohort·발행 gate는 변경하지 않았다. 다음 mutation은 이 제한된 v9
+  checkpoint를 observe-only로 배포한 뒤 같은 exact 두 건만 마지막으로 재실행하는
+  것이다. 새 의미 disagreement가 다시 발생하면 prompt를 계속 확장하지 않고 Chunk 2를
+  fail-closed로 중단한다.
+
 중단 조건:
 
 - 동결 80 품질 미달

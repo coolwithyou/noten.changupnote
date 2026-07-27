@@ -362,8 +362,12 @@ function canonicalizeSemanticValue(value: unknown): unknown {
     return value.map(canonicalizeSemanticValue);
   }
   if (!isRecord(value)) return value;
+  const entries = Object.entries(value);
+  const semanticEntries = entries.some(([key]) => key !== "note")
+    ? entries.filter(([key]) => key !== "note")
+    : entries;
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
+    semanticEntries.map(([key, item]) => [
       key,
       canonicalizeSemanticValue(item),
     ]),

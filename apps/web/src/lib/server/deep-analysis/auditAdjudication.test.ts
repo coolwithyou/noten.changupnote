@@ -10,6 +10,7 @@ import {
 import { priceDeepAnalysisUsage } from "./costPolicy";
 import {
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
 } from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
@@ -33,6 +34,12 @@ assert.match(
 assert.equal(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
     DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  ),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
+    DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   ),
   true,
 );

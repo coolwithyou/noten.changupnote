@@ -4,6 +4,7 @@ import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   resolveExactEvidenceSpan,
@@ -33,6 +34,14 @@ assert.equal(
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /중소기업·중견기업·대기업.*size로만.*target_type은 개인사업자·법인사업자/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /법인인감 날인.*작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라/,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE),
+  true,
 );
 
 assert.equal(
