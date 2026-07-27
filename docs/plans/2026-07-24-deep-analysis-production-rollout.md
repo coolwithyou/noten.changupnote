@@ -1,8 +1,9 @@
 # 딥 공고 분석 결과 운영 매칭 적용 로드맵 및 구현 계획
 
 > 작성일: 2026-07-24  
-> 상태: **프로덕션 worker·영속 원장·딥분석 관제 운영 중 / 실제 HWP 포함 22축 분석 완주 /
-> 2공고 serving canary 통과 / 24시간 관측 후 20공고 확대 대기**
+> 상태: **프로덕션 worker·영속 원장·딥분석 관제 운영 중 / model policy v16 /
+> 실제 출처 충돌을 S11에서 fail-closed / 랜딩→S14 매칭 연결 PASS /
+> 사업자번호만으로 확정 추천은 PARTIAL / cohort 확대 중단**
 > 적용 대상: `analysis-lab`에서 생성하고 AI 검수·감사·검수팀 판정을 거친 공고별 조건과 확인 질문  
 > 2026-07-25 확장: 활성 공고의 원문·HWP 딥분석을 사람 전수 검수 없이 운영하고,
 > 단계별 증적으로 보증하는 계획은 이 문서 §14를 정본으로 사용한다.
@@ -3959,6 +3960,35 @@ Step 4-1P-20 랜딩 → 딥분석 기반 매칭 최소 제품 체크포인트 �
   연속 호출, S14 DB 원장과 API rule trace 대조까지 완료했다. 다음 제품 단계는
   딥분석을 더 확장하는 작업이 아니라, 동의·소유권이 보장된 회사 정보 보강으로
   위 4개 핵심 회사 축을 채우고 같은 단일 E2E를 다시 통과시키는 일이다.
+
+Step 4-1P-21 legacy grant-analysis 평가 의도 이관 및 main 통합 체크포인트 —
+`CODE MERGE 불필요`, 계약 의도만 유지 (2026-07-28):
+
+- `coolwithyou/grant-analysis-llm-evaluation`은 2026-07-15 기준 40건 동결 cohort와
+  3건 paid smoke를 위한 별도 실험 runner였다. 현재 main보다 187개 commit 뒤에
+  있고, 최신 deep-analysis worker·원장·감사·승격 경로와 실행 책임이 중복된다.
+  따라서 해당 브랜치의 6개 구현 commit과 과거 provider/model/receipt 기본값을
+  production 경로에 merge하거나 cherry-pick하지 않는다.
+- legacy checkpoint에는 8회 attempt reservation과
+  `4 success / 3 failed / 1 running / 1 skipped`가 남아 있어 미실행 계획으로
+  취급할 수 없다. 반면 정본이 요구한 `secret-manifest.json`은 남아 있지 않아
+  public/secret manifest pair와 sealed holdout을 원래 계약대로 재현할 수도 없다.
+  Gate 3~5는 종료하고 paid runner를 재개하지 않는다.
+- public manifest, 네 세대의 Gate 2 plan/input, 두 execution checkpoint는 저장소
+  밖 `0600` archive로 보존했다. source branch는 종료 receipt commit과 함께
+  원격에 보존하고, stale paid-smoke orchestration task는 실패 종료했다.
+- 아래 의도는 특정 legacy 구현을 복사하지 않고 현재 deep-analysis 계약에서
+  계속 보증한다.
+  - 명시적 실행 opt-in과 bounded claim: worker execute gate와 claim scope/hash
+  - 입력·정책 불변성: current job/source revision/model policy 및 sealed evidence
+  - 호출·비용 상한: stage별 model/max token/cost policy와 budget ledger
+  - 재실행 안전성: immutable stage receipt, attempt, terminal status
+  - 운영 반영 fail-closed: S11 passed receipt, 최신 source, 독립 감사 concur를 모두
+    요구하는 S12~S14 promotion gate
+- main 통합에서는 실제 배포 코드 이력인
+  `coolwithyou/deep-analysis-product-checkpoint`만 병합한다. legacy 평가 코드는
+  합치지 않고 이 절을 계약 handoff로 사용한다. 다음 실행 판단은 P19의 출처 충돌
+  해결과 P20의 동의·소유권 기반 회사 정보 보강이 끝난 뒤에만 다시 연다.
 
 중단 조건:
 
