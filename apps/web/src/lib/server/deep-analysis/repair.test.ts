@@ -35,7 +35,7 @@ const repaired = await repairDeepAnalysisExecution({
   model: "claude-opus-4-8",
   failedExecution: execution,
   validation: {
-    validatorVersion: "deep-analysis-validator-v1",
+    validatorVersion: "deep-analysis-validator-v2",
     valid: false,
     responseContractValid: true,
     axisCoverageComplete: false,

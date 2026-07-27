@@ -141,6 +141,30 @@ assert.equal(duplicate.valid, true);
 assert.equal(duplicate.criteria.length, 1);
 assert.equal(duplicate.axisCriterionSemanticHashes.region.length, 1);
 
+const requiredExclusionConflict = validateDeepAnalysisResult({
+  seal,
+  result: result([
+    criterion({
+      dimension: "target_type",
+      operator: "in",
+      kind: "required",
+      value: { target_types: ["대학생", "대학원생"] },
+    }),
+    criterion({
+      dimension: "target_type",
+      operator: "not_in",
+      kind: "exclusion",
+      value: { target_types: ["대학원생", "대학생"] },
+    }),
+  ], axes(["target_type"])),
+});
+assert.equal(requiredExclusionConflict.valid, false);
+assert.equal(requiredExclusionConflict.responseContractValid, false);
+assert.equal(
+  requiredExclusionConflict.issues.some((issue) => issue.code === "logical_conflict"),
+  true,
+);
+
 const creditSourceSpan = "파산 또는 회생절차 개시 신청 기업은 제외한다.";
 const creditSeal = sealDeepAnalysisInput({
   grantId: "grant-credit-order",

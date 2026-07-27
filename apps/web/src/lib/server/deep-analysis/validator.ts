@@ -20,7 +20,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v1" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v2" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -31,6 +31,7 @@ export type DeepAnalysisValidationIssueCode =
   | "evidence_not_grounded"
   | "canonical_contract_invalid"
   | "semantic_duplicate"
+  | "logical_conflict"
   | "input_not_sealed";
 
 export interface DeepAnalysisValidationIssue {
@@ -114,6 +115,7 @@ export function validateDeepAnalysisResult(input: {
     semanticHashes.add(validated.semanticSha256);
     validatedCriteria.push(validated);
   }
+  validateRequiredExclusionConflicts(validatedCriteria, issues);
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
   for (const dimension of CRITERION_DIMENSIONS) criteriaByDimension.set(dimension, []);
@@ -155,6 +157,7 @@ export function validateDeepAnalysisResult(input: {
     "normalization_drop",
     "canonical_contract_invalid",
     "semantic_duplicate",
+    "logical_conflict",
   ]);
   const axisIssueCodes = new Set<DeepAnalysisValidationIssueCode>([
     "axis_coverage_invalid",
@@ -183,6 +186,40 @@ export function validateDeepAnalysisResult(input: {
       ]),
     ) as Record<CriterionDimension, string[]>,
   };
+}
+
+function validateRequiredExclusionConflicts(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const required = new Set(
+    criteria
+      .filter((item) => item.criterion.kind === "required")
+      .map(criterionPolarityKey),
+  );
+  for (const item of criteria) {
+    if (
+      item.criterion.kind !== "exclusion"
+      || !required.has(criterionPolarityKey(item))
+    ) continue;
+    issues.push({
+      code: "logical_conflict",
+      path: `$.criteria[${item.index}]`,
+      message:
+        `${item.criterion.dimension} has the same value in required and exclusion criteria.`,
+    });
+  }
+}
+
+function criterionPolarityKey(item: DeepAnalysisValidatedCriterion): string {
+  return stableJson({
+    dimension: item.canonicalCriterion.dimension,
+    operator: item.canonicalCriterion.operator === "in"
+      || item.canonicalCriterion.operator === "not_in"
+      ? "membership"
+      : item.canonicalCriterion.operator,
+    value: canonicalizeSemanticValue(item.canonicalCriterion.value),
+  });
 }
 
 function validateRawCriteria(
