@@ -9,6 +9,7 @@ import {
 } from "./auditAdjudication";
 import { priceDeepAnalysisUsage } from "./costPolicy";
 import {
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -42,6 +43,16 @@ assert.equal(
     DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   ),
   true,
+);
+assert.equal(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
+    DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  ),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /지원 취소.*협약서 등 관련 문서에서 명시한 사항을 2회 이상 위반.*sanction\/other criterion이 아니다/,
 );
 const seal = sealDeepAnalysisInput({
   grantId: "audit-adjudication",

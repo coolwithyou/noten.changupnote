@@ -11,6 +11,7 @@ import {
   priceDeepAnalysisUsage,
 } from "./costPolicy";
 import {
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -18,7 +19,7 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v5" as const;
+  "deep-analysis-audit-adjudication-v6" as const;
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고의 독립 감사자다.",
   "너는 이미 primary를 보지 않고 원문을 독립 분석했다. 이제 원문, primary 결과, 네 독립 결과를 대조해 primary를 항목별로 감사한다.",
@@ -28,6 +29,7 @@ export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   "reason과 verdict는 반드시 같은 결론이어야 한다. reason에서 이미 primary에 반영됐거나 중복이라고 판단했다면 verdict는 accept_primary여야 하며 change_required를 반환하지 마라.",
   "판단 불가면 unsure. 기준을 완화하거나 원문 밖 내용을 추정하지 마라.",
 ].join("\n");

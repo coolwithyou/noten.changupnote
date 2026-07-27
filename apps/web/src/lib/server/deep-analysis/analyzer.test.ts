@@ -3,6 +3,7 @@ import type { DeepAnalysisModelResult } from "@cunote/contracts";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -42,6 +43,22 @@ assert.match(
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE),
   true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /선정 후의 협약 이행.*지원 취소·중단·환수 사유는 criterion으로 만들지 말고/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /지원신청서 및 계획서 내용과 수행내용이 상이.*sanction\/other criterion이 아니다/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /회원가입시 .*서류 제출 \(영리기관만 해당\).*target_type 조건이 아니다/,
 );
 
 assert.equal(

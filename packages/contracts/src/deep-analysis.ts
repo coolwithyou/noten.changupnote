@@ -4,8 +4,8 @@ type DeepAnalysisCriterionDimension = (typeof CRITERION_DIMENSIONS)[number];
 
 export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v2" as const;
 export const DEEP_ANALYSIS_ACTIVE_TIME_ZONE = "Asia/Seoul" as const;
-export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v6" as const;
-export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v9" as const;
+export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v7" as const;
+export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v10" as const;
 export const DEEP_ANALYSIS_SERVING_VERIFIER_VERSION =
   "deep-analysis-serving-verifier-v1" as const;
 export const DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS = 45 * 60;

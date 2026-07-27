@@ -614,6 +614,8 @@ export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
   "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
 export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
   "financial_health의 구조화 criterion에 impairment_excluded가 full을 포함하면 자본전액잠식 결격을 이미 반영한 것이다. 같은 자본전액잠식 문구를 별도 text_only criterion으로 중복 만들지 말고, audit에서 그런 audit_only 후보가 나오면 primary 누락이 아니라 중복으로 판단하라.";
+export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
+  "criteria는 신청 시점의 자격·지원 제한·우대·평가점수처럼 신청 가능 판단과 사업자 매칭에 직접 쓰이는 규정만 포함한다. 본 사업 선정 후의 협약 이행, 수행내용 준수, 보고 의무와 그 위반에 따른 지원 취소·중단·환수 사유는 criterion으로 만들지 말고 analysis_markdown과 program_intent.caution_notes에만 기록한다. 동일 사실이 신청자격·지원 제한에도 명시되면 그 신청 단계 문장만 criterion 근거로 쓴다. 예: '지원 취소' 아래의 '협약서 등 관련 문서에서 명시한 사항을 2회 이상 위반'과 '지원신청서 및 계획서 내용과 수행내용이 상이'는 sanction/other criterion이 아니다. '회원가입시 ... 서류 제출 (영리기관만 해당)'처럼 괄호가 제출서류 적용 범위만 한정하고 신청 대상을 명시하지 않으면 target_type 조건이 아니다.";
 
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
@@ -638,6 +640,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "[criteria — 22축 자격조건 분해]",
   "필수조건은 required, 제외대상은 exclusion, 우대조건은 preferred 로 분리한다.",
   "criteria 는 신청 가능 여부, 결격, 우대, 평가점수에 실제 영향을 주는 명시적 규정만 만든다.",
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   "신청서·서식의 빈칸, 체크박스, 기업정보 기재란이 어떤 사실(예: 수출실적 유무·특허 보유·매출)을 묻는다는 이유만으로 required·exclusion·preferred 조건을 만들지 마라. 주변 문구나 공고 본문에 필수·제외·우대·배점 효과가 명시된 경우에만 condition_found 로 판정한다.",
   "단순 정보수집 항목만 있고 규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition 으로 둔다. 다만 서식 안에서도 신청자격·결격·서약·우대·배점이 문장으로 명시되면 그 문장을 근거로 조건을 추출한다.",
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",

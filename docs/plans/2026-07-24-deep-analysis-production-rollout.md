@@ -3619,6 +3619,37 @@ Step 4-1P-12 v9 exact 2건 마지막 재실행 체크포인트 —
   테스트로 반영하는 별도 체크포인트여야 한다. 2/2 S11 전에는 S12~S14와 랜딩 매칭
   제품 검증으로 진행하지 않는다.
 
+Step 4-1P-13 v9 감사 후보 제품 판단·신청 단계 매칭 계약 체크포인트 —
+`LOCAL PASS`, production v10 exact 2건 재실행은 아직 `PENDING` (2026-07-27):
+
+- P12 실패 원문과 현재 matcher를 서로 독립적인 읽기 전용 검토 2개로 다시 분류했다.
+  두 검토 모두 “지원신청서 및 계획서 내용과 수행내용이 상이”와 “협약서 등 관련
+  문서에서 명시한 사항을 2회 이상 위반하거나 시정요구에 응하지 않음”은
+  `지원 취소` 절에 있는 선정 후 수행·협약 위반 조건이라고 결론냈다. 신청 시점의
+  자격·결격·우대 기준이 아니므로 matcher가 소비하는 criterion으로 만들지 않는다.
+- “회원가입 시 사업자등록증(또는 법인등기부등본), 최근 3년 재무제표, 4대보험
+  가입자명부 제출 (영리기관만 해당)”의 괄호는 신청 대상을 영리기관으로 제한하는
+  문장이 아니라 회원가입 제출서류의 적용 범위를 한정한다. 이 공고의 구조화된 신청
+  대상은 별도로 명시된 `중소기업`이며, 해당 괄호만으로 비영리 배제
+  `target_type` criterion을 만들지 않는다.
+- 이 구분은 감사 통과만을 위한 예외가 아니다. 랜딩 matcher는 발행된
+  `grant_criteria`의 `exclusion`과 `text_only`를 실제 신청 가능 판단에 사용하므로,
+  선정 후 취소 조건이나 제출서류 범위 문구를 criterion으로 발행하면 정상 사업자도
+  조건부 또는 확인 필요로 낮아진다. 제품 계약은 “신청 단계에서 매칭에 직접 쓰이는
+  자격·제한·우대·평가점수만 criteria, 선정 후 수행·협약·보고·취소·중단·환수 조건은
+  analysis/caution”으로 고정한다. 같은 사실이 신청 제한 절에도 별도로 명시된 경우에는
+  그 신청 단계 문장만 criterion 근거로 사용한다.
+- 새 lifecycle 컬럼, matcher 분기, taxonomy 축 또는 UI를 추가하지 않았다. primary와
+  independent blind audit/adjudication이 동일 규칙을 공유하고 위 세 원문을 회귀
+  예시로 고정했다. prompt v7, blind audit v6, adjudication v6, model policy v10으로
+  올렸으며 공고당 `$2`, Opus primary/Sonnet audit, exact 2건 cohort와 발행 gate는
+  변경하지 않았다.
+- package build, focused analyzer/blind-audit/adjudication 테스트, 전체
+  `verify:deep-analysis-contract`, web typecheck, `git diff --check`가 모두 PASS했다.
+  다음 mutation은 이 exact v10 commit을 먼저 observe-only로 배포하고 같은 두
+  UUID만 bounded로 다시 실행하는 것이다. 2/2 S11과 독립 AI 감사가 통과하지 않으면
+  즉시 observe-only로 복귀하고 S12~S14·랜딩 매칭 검증은 계속 차단한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
