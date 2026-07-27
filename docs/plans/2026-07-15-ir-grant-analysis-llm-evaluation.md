@@ -1,6 +1,6 @@
 # IR 공고 분석 LLM 평가 파일럿 실행 정본
 
-상태: Gate 0 cohort freeze 완료
+상태: Gate 2 부분 실행 증적 보존 완료 / legacy runner 재개 금지 / 최신 deep-analysis 경로로 계약 의도 이관
 
 기준 시각: `2026-07-15T00:00:00+09:00`
 
@@ -25,6 +25,42 @@
 - DB write: 없음
 - 서버 실행: 없음
 - 검증: focused cohort test, web typecheck, manifest pair readback, overwrite refusal, `git diff --check` 통과
+
+## 2026-07-28 종료 및 보존 receipt
+
+이 파일럿은 최신 프로덕션 deep-analysis 파이프라인과 별개로 다시 실행하지 않는다.
+Gate 3~5를 이 브랜치에서 계속 진행하지 않으며, 아래 계약 의도만 현재 파이프라인의
+회귀 검증과 운영 gate에 유지한다.
+
+- paid mode의 exact confirmation
+- model/prompt/schema/input 전체 fingerprint 고정
+- 외부 호출 전에 attempt reservation과 checkpoint 영속
+- 성공 stage 재호출 금지와 실패 stage 1회 재시도
+- 실행별·전체 절대 호출 상한
+- 운영 DB write와 게시 기능 부재
+
+보존 상태:
+
+- 보존 commit: `dbb1922cbf3e08db8fffd72a6f34e1f9b531cb75`
+- 외부 로컬 archive:
+  `grant-analysis-evaluation-2026-07-15-dbb1922-archived-2026-07-28.tar.gz`
+- archive SHA-256:
+  `9d8fcb7de8ab54a036200f620bce298ab056cd3c8a1c4dade4152ba1514b9790`
+- archive 권한: `0600`
+- 보존 파일: public manifest, 네 세대의 Gate 2 plan receipt/input, 두 execution checkpoint
+- `secret-manifest.json`: 현재 worktree와 archive 모두에 없음
+
+따라서 public/secret manifest pair와 sealed holdout identity를 원래 계약대로 재현할 수
+없다. 최신 `gate2-condition-guidance-v2` checkpoint에는 총 8회 attempt reservation과
+4 success, 3 failed, 1 running, 1 skipped stage가 남아 있다. plan receipt의
+`externalMessagesCalls: 0`은 plan 생성 중 Messages 호출이 없었다는 뜻이지 이후 paid
+실행 전체가 0회였다는 뜻이 아니다. 성공 stage가 존재하므로 이 파일럿을 미실행
+상태로 취급해서는 안 된다.
+
+기존 `CUNOTE-GRANT-EVAL-G2-PAID-SMOKE-CORRECTED` orchestration task는 이 receipt와
+함께 실패 종료한다. 기본 executor가 가리키는 이전
+`gate2-byte-verified/plan-receipt.json` 또는 더 최신 receipt 어느 쪽도 새 paid
+실행의 재개점으로 사용하지 않는다.
 
 층별 선택 가능 수는 다음과 같다.
 
