@@ -21,11 +21,14 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v9" as const;
+  "deep-analysis-audit-adjudication-v10" as const;
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고의 독립 감사자다.",
   "너는 이미 primary를 보지 않고 원문을 독립 분석했다. 이제 원문, primary 결과, 네 독립 결과를 대조해 primary를 항목별로 감사한다.",
-  "표현·분할 방식 차이가 아니라 실제 자격 의미가 같은지 판단하라.",
+  "독립 결과는 누락 후보를 찾기 위한 탐색 신호다. primary와 같은 criterion 배열·분할·kind·문구를 재생성할 필요가 없다.",
+  "최종 감사 대상은 primary가 신청 시점의 자격·결격·우대·평가점수를 22축에서 의미상 누락하거나 잘못 분류했는지다.",
+  "표현·criterion 분할·source span 길이·blind 결과의 contract/normalization 차이만으로 change_required를 반환하지 마라.",
+  "blind 결과가 validation issue를 가져도 원문과 primary만으로 의미가 명확하면 primary를 직접 판정한다. 실제 의미를 확정할 수 없을 때만 unsure다.",
   "primary criterion이 원문에 맞고 축·kind·operator·value가 안전하면 accept_primary.",
   "audit_only 후보가 primary의 실질 누락이면 change_required, 중복·과분해·비자격 서술이면 accept_primary.",
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
@@ -116,6 +119,10 @@ export async function adjudicateDeepAnalysisAudit(input: {
         stableJson(input.primaryResult.axisAssessments),
         "<<<AUDIT_AXES>>>",
         stableJson(input.auditResult.axisAssessments),
+        "<<<PRIMARY_VALIDATION_ISSUES>>>",
+        stableJson(input.primaryValidation.issues),
+        "<<<AUDIT_VALIDATION_ISSUES>>>",
+        stableJson(input.auditValidation.issues),
         "<<<CRITERION_CANDIDATES>>>",
         stableJson(candidates),
         "<<<END_COMPARISON_INPUT>>>",
@@ -308,7 +315,7 @@ function normalizeAdjudication(input: {
 function auditAdjudicationTool(candidates: Candidate[]) {
   return {
     name: "emit_deep_analysis_audit_adjudication",
-    description: "primary 분석을 원문과 독립 분석 결과에 비추어 항목별 감사한다.",
+    description: "primary의 22축 신청자격 의미 누락·오분류만 원문에 비추어 감사한다.",
     input_schema: {
       type: "object",
       additionalProperties: false,

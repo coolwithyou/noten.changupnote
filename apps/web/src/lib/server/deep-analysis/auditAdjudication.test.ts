@@ -24,6 +24,18 @@ assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
   /이미 primary에 반영됐거나 중복.*accept_primary.*change_required를 반환하지 마라/,
 );
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /같은 criterion 배열.*재생성할 필요가 없다/,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /신청 시점의 자격·결격·우대·평가점수.*22축.*누락하거나 잘못 분류/,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /contract\/normalization 차이만으로 change_required를 반환하지 마라/,
+);
 assert.equal(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
     DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
@@ -166,7 +178,11 @@ const successResponseBody = JSON.stringify({
     },
   }],
 });
-const fetchImpl = async (): Promise<Response> => new Response(successResponseBody, { status: 200 });
+let capturedRequestBody = "";
+const fetchImpl = async (_url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+  capturedRequestBody = String(init?.body ?? "");
+  return new Response(successResponseBody, { status: 200 });
+};
 
 const adjudicated = await adjudicateDeepAnalysisAudit({
   apiKey: "test",
@@ -180,6 +196,8 @@ const adjudicated = await adjudicateDeepAnalysisAudit({
 });
 assert.equal(adjudicated.verdict, "concur");
 assert.equal(adjudicated.itemResults.length, CRITERION_DIMENSIONS.length + 2);
+assert.match(capturedRequestBody, /<<<PRIMARY_VALIDATION_ISSUES>>>/);
+assert.match(capturedRequestBody, /<<<AUDIT_VALIDATION_ISSUES>>>/);
 assert.deepEqual(adjudicated.usage, { inputTokens: 100, outputTokens: 50 });
 assert.equal(adjudicated.costUsd, priceDeepAnalysisUsage({
   model: "claude-sonnet-5",

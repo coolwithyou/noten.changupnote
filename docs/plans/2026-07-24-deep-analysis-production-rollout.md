@@ -3822,6 +3822,32 @@ Step 4-1P-17 HWP 섹션 불릿 exact 근거 복원 체크포인트 —
   누락·오분류 검출”로 둘지 제품 계약을 먼저 좁혀야 한다. 그 결정 전에는
   S12~S14와 랜딩 매칭 제품 검증으로 진행하지 않는다.
 
+Step 4-1P-18 22축 신청자격 의미 중심 AI 자동 검수 체크포인트 —
+`LOCAL PASS`, production v15 exact 2건 재실행은 `PENDING` (2026-07-27):
+
+- 제품 계약을 “동일한 criterion 배열 재생성”이 아니라 “primary가 신청 시점의
+  자격·결격·우대·평가점수를 22축에서 의미상 누락하거나 잘못 분류했는지 검출”로
+  좁혔다. 독립 모델의 source-only 결과는 누락 후보를 찾는 탐색 신호이며,
+  표현·criterion 분할·source span 길이·`kind` 재현 차이만으로 primary를
+  실패시키지 않는다.
+- blind 결과가 response contract나 normalization issue를 가져도 바로 `unsure`로
+  종료하거나 같은 전체 배열을 최대 2회 다시 만들지 않는다. primary가 유효하면
+  sealed source, primary 22축·criteria, blind 22축·후보와 양쪽 validation issue를
+  semantic adjudication에 전달한다. 원문과 primary만으로 의미가 명확하면
+  `accept_primary`, 실제 신청단계 의미 누락·오분류면 `change_required`, 원문으로
+  확정할 수 없으면 `unsure`로 계속 fail-closed한다.
+- exact 배열 불일치나 blind validation 실패가 semantic adjudication으로 이어지고,
+  adjudication `concur`는 통과하며 adjudication이 없으면 invalid blind 결과는
+  `unsure`로 남는 회귀를 고정했다. adjudication 요청에 primary/audit validation
+  issue가 모두 포함되는 것도 검증했다.
+- blind audit v9, adjudication v10, model policy v15로 올렸다. primary prompt,
+  모델, 공고당 `$2`, exact cohort, 동시성 1, S12~S14 발행 gate와 matcher는
+  변경하지 않았다. package build, 전체 `verify:deep-analysis-contract`,
+  web/admin typecheck, `git diff --check`가 PASS했다.
+- 다음 mutation은 exact v15 commit을 observe-only로 배포한 뒤 같은 두 건만 다시
+  실행하는 것이다. 2/2가 S11을 통과해야만 불변 release와 S12~S14, 딥분석 기반
+  랜딩 매칭 검증으로 진행한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
