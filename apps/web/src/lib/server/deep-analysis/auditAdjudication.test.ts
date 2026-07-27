@@ -8,6 +8,7 @@ import {
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
 } from "./auditAdjudication";
 import { priceDeepAnalysisUsage } from "./costPolicy";
+import { DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE } from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
@@ -15,6 +16,16 @@ const span = "서울 소재 기업만 신청 가능";
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
   /이미 primary에 반영됐거나 중복.*accept_primary.*change_required를 반환하지 마라/,
+);
+assert.equal(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
+    DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  ),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /'부도 또는 파산기업\(예정 포함\)'.*credit_status의 bond_default\/bankruptcy_filed만.*business_status는 inspected_no_condition/,
 );
 const seal = sealDeepAnalysisInput({
   grantId: "audit-adjudication",

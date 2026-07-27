@@ -17,7 +17,7 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v2" as const;
+export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v3" as const;
 
 export type DeepAnalysisAuditVerdict = "concur" | "disagree" | "unsure";
 

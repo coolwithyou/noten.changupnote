@@ -608,6 +608,9 @@ export const CONFIRMATION_PROMPT_RULES = [
   "company_fact 이면 condition_key 에 그 사실을 식별하는 안정적인 영문 snake_case 키를 쓴다(예: prior_award_system_conformity_test_fee). per_notice 면 condition_key 를 생략한다.",
 ];
 
+export const DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE =
+  "business_status는 active/closed 같은 사업자등록상 운영 상태만 뜻한다. 지급불능·부도·파산·회생·법정관리·청산은 credit_status 플래그로만 표현하고, 동일 사실을 business_status criterion이나 condition_found로 중복 표현하지 마라. 예: 원문이 '부도 또는 파산기업(예정 포함)'이면 credit_status의 bond_default/bankruptcy_filed만 추출하고, 다른 휴업·폐업 근거가 없는 한 business_status는 inspected_no_condition이다.";
+
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
   "첨부 공고문 전문을 근거로 최대한 깊게, 모든 축을 검사하고 반드시 원문 인용(source_span)을 남겨라.",
@@ -637,6 +640,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
   "업종은 dimension=industry 의 value.tags 배열에 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 로 남긴다.",
   "휴폐업 제외는 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"closed\"],\"labels\":[\"휴폐업\"]} 로 추출한다.",
+  DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   "",
   "[결격(배제) 조건 canonical 매핑 — 반드시 아래 축으로 분해한다]",
   "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외 문구가 있으면 value.exceptions=[\"payment_deferral_approved\"].",
