@@ -23,7 +23,7 @@ const report = buildExtractionReadinessReport([
 
 assert.equal(report.grantCount, 3);
 assert.deepEqual(report.readinessCounts, { structured_unreviewed: 1, partial: 1, unstructured: 1 });
-assert.equal(report.warningCounts.attachment_conversion_incomplete, 1);
+assert.equal(report.warningCounts.attachment_fetch_incomplete, 1);
 assert.equal(report.warningCounts.criteria_missing, 1);
 assert.equal(report.attachmentStatusCounts.pending, 1);
 assert.equal(report.bySource.kstartup?.grantCount, 1);
