@@ -7,7 +7,7 @@
 //
 // [비용 계산 — 크레딧/metering 래퍼 사용 금지]
 //   운영 원가수집(metering)과 섞이면 실험 비용이 서비스 원가로 오염되므로 여기서 직접 계산만 한다.
-//   Opus 4.8 단가: input $5/1M · output $25/1M · cache_read $0.5/1M.
+//   모델별 가격과 Sonnet 5 가격 전환은 costPolicy 단일 원천을 사용한다.
 //
 // [응답 불신 원칙 — llm-criteria.ts 동형]
 //   dimension/kind enum 밖 값은 드롭, confidence 는 0~1 클램프, source_span 은 최종 입력 텍스트에
@@ -30,16 +30,12 @@ import {
   type DeepAnalysisTaxonomyProposal,
   type DeepAnalysisUsage,
 } from "@cunote/contracts";
+import { priceDeepAnalysisUsage } from "./costPolicy";
 
 export const ANALYSIS_LAB_TOOL_NAME = "emit_deep_grant_analysis";
 
 const DEFAULT_MAX_TOKENS = 12_000;
 const DEFAULT_TIMEOUT_MS = 540_000;
-
-// Opus 4.8 단가(USD / 1M tokens).
-const USD_PER_INPUT_TOKEN = 5 / 1e6;
-const USD_PER_OUTPUT_TOKEN = 25 / 1e6;
-const USD_PER_CACHE_READ_TOKEN = 0.5 / 1e6;
 
 // 운영 deep-analysis-v1부터 22축 전부를 criterion으로 표현한다. premises와
 // export_performance도 axis에서 조건을 찾았으면 근거 있는 criterion이 반드시 존재해야 한다.
@@ -181,11 +177,7 @@ export async function runDeepGrantAnalysis(options: {
     axisAssessments: normalizeAxisAssessments(input.axis_assessments),
     taxonomyProposals: normalizeTaxonomyProposals(input.taxonomy_proposals),
     usage,
-    costUsd: usage
-      ? usage.inputTokens * USD_PER_INPUT_TOKEN +
-        usage.outputTokens * USD_PER_OUTPUT_TOKEN +
-        (usage.cacheReadTokens ?? 0) * USD_PER_CACHE_READ_TOKEN
-      : null,
+    costUsd: usage ? priceDeepAnalysisUsage({ model, usage }) : null,
     rawToolInput: input,
     rawResponseText: body,
     stopReason: payload.stop_reason ?? null,

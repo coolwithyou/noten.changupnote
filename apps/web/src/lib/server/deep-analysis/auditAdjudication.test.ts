@@ -7,6 +7,7 @@ import {
   adjudicateDeepAnalysisAudit,
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
 } from "./auditAdjudication";
+import { priceDeepAnalysisUsage } from "./costPolicy";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
@@ -124,7 +125,10 @@ const adjudicated = await adjudicateDeepAnalysisAudit({
 assert.equal(adjudicated.verdict, "concur");
 assert.equal(adjudicated.itemResults.length, CRITERION_DIMENSIONS.length + 2);
 assert.deepEqual(adjudicated.usage, { inputTokens: 100, outputTokens: 50 });
-assert.ok((adjudicated.costUsd ?? 0) > 0);
+assert.equal(adjudicated.costUsd, priceDeepAnalysisUsage({
+  model: "claude-sonnet-5",
+  usage: { inputTokens: 100, outputTokens: 50 },
+}));
 
 let retryCalls = 0;
 const retried = await adjudicateDeepAnalysisAudit({

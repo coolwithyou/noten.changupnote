@@ -6,6 +6,10 @@ import {
 } from "@cunote/contracts";
 import type { DeepAnalysisValidationResult } from "./validator";
 import type { DeepAnalysisAuditItemResult } from "./audit";
+import {
+  DEEP_ANALYSIS_ADJUDICATION_MAX_OUTPUT_TOKENS,
+  priceDeepAnalysisUsage,
+} from "./costPolicy";
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
@@ -85,7 +89,7 @@ export async function adjudicateDeepAnalysisAudit(input: {
   const candidates = buildCandidates(input.primaryValidation, input.auditValidation);
   const requestBody = JSON.stringify({
     model: input.model,
-    max_tokens: 8_000,
+    max_tokens: DEEP_ANALYSIS_ADJUDICATION_MAX_OUTPUT_TOKENS,
     system: DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
     messages: [{
       role: "user",
@@ -159,9 +163,8 @@ export async function adjudicateDeepAnalysisAudit(input: {
     rawResponseText,
     rawToolInput,
     usage,
-    // 모델별 단가가 바뀌어도 cap을 낮게 계산하지 않도록 primary 상한 단가로 보수 계산한다.
     costUsd: usage
-      ? usage.inputTokens * (5 / 1e6) + usage.outputTokens * (25 / 1e6)
+      ? priceDeepAnalysisUsage({ model: input.model, usage })
       : null,
   };
 }

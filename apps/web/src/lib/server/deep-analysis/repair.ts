@@ -6,6 +6,7 @@ import type {
   DeepAnalysisExecution,
   DeepAnalysisModelPass,
 } from "./analyzer";
+import { sumDeepAnalysisActualCosts } from "./costPolicy";
 import { runDeepGrantAnalysis } from "./extractor";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { stableJson } from "./sourceRevision";
@@ -63,7 +64,7 @@ export async function repairDeepAnalysisExecution(input: {
     result: {
       ...repaired,
       usage: sumUsage(passes.map((pass) => pass.result.usage)),
-      costUsd: sumCosts(passes.map((pass) => pass.result.costUsd)),
+      costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
     },
   };
 }
@@ -84,9 +85,4 @@ function sumUsage(values: Array<DeepAnalysisUsage | null>): DeepAnalysisUsage | 
       ? null
       : cache.reduce<number>((sum, value) => sum + (value ?? 0), 0),
   };
-}
-
-function sumCosts(values: Array<number | null>): number | null {
-  const present = values.filter((value): value is number => value !== null);
-  return present.length === 0 ? null : present.reduce((sum, value) => sum + value, 0);
 }

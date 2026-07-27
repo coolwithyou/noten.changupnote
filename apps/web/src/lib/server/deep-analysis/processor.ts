@@ -24,6 +24,10 @@ import {
   ensureDeepAnalysisCompletionInputFresh,
   type DeepAnalysisCompletionInputIdentity,
 } from "./completionFreshness";
+import {
+  reserveDeepAnalysisPreAuditCost,
+  sumDeepAnalysisActualCosts,
+} from "./costPolicy";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 import { repairDeepAnalysisExecution } from "./repair";
 import { appendVerifiedDeepAnalysisStageReceipt } from "./receipts";
@@ -332,17 +336,44 @@ export async function processDeepAnalysisJob(input: {
     throw new Error("Deep analysis response contract invalid");
   }
 
-  const primaryCost = primary.result.costUsd ?? 0;
-  if (primaryCost * 2 > input.policy.perNoticeCostCapUsd) {
-    await openException(input.db, run.id, actor, "per_notice_cost_cap", {
-      primaryCostUsd: primaryCost,
-      projectedAuditCostUsd: primaryCost,
-      capUsd: input.policy.perNoticeCostCapUsd,
-    });
+  const preAuditCostReservation = reserveDeepAnalysisPreAuditCost({
+    primaryModel: input.policy.primaryModel,
+    auditModel: input.policy.auditModel,
+    primaryUsage: primary.result.usage,
+  });
+  if (
+    preAuditCostReservation === null
+    || primary.result.costUsd === null
+    || preAuditCostReservation.projectedTotalCostUsd > input.policy.perNoticeCostCapUsd
+  ) {
+    await openException(
+      input.db,
+      run.id,
+      actor,
+      preAuditCostReservation === null || primary.result.costUsd === null
+        ? "per_notice_cost_unavailable"
+        : "per_notice_cost_cap",
+      {
+        primaryCostUsd: primary.result.costUsd,
+        pricedPrimaryCostUsd: preAuditCostReservation?.primaryCostUsd ?? null,
+        auditModel: input.policy.auditModel,
+        projectedAuditCostUsd:
+          preAuditCostReservation?.auditExecutionReserveUsd ?? null,
+        adjudicationReserveUsd:
+          preAuditCostReservation?.adjudicationReserveUsd ?? null,
+        projectedTotalCostUsd:
+          preAuditCostReservation?.projectedTotalCostUsd ?? null,
+        costPolicyVersion:
+          preAuditCostReservation?.costPolicyVersion ?? null,
+        capUsd: input.policy.perNoticeCostCapUsd,
+      },
+    );
     await finishCurrentRun({
       status: "blocked",
       errorCode: "pending_budget",
-      errorMessage: "Projected primary + audit cost exceeds per-notice cost cap",
+      errorMessage: preAuditCostReservation === null || primary.result.costUsd === null
+        ? "Primary usage is unavailable for the pre-audit cost reservation"
+        : "Projected primary + audit + adjudication cost exceeds per-notice cost cap",
     });
     throw new Error("per-notice cost cap reached; pending_budget");
   }
@@ -428,9 +459,11 @@ export async function processDeepAnalysisJob(input: {
       disagreementCount: audit.itemResults.filter((item) => item.verdict === "disagree").length,
     },
   });
-  const totalCost = primaryCost
-    + (audit.execution.result.costUsd ?? 0)
-    + (audit.adjudication?.costUsd ?? 0);
+  const totalCost = sumDeepAnalysisActualCosts([
+    primary.result.costUsd,
+    audit.execution.result.costUsd,
+    ...(audit.adjudication ? [audit.adjudication.costUsd] : []),
+  ]);
   await input.db.update(schema.grantDeepAnalysisRuns).set({
     inputTokens: (primary.result.usage?.inputTokens ?? 0)
       + (audit.execution.result.usage?.inputTokens ?? 0)
@@ -453,6 +486,20 @@ export async function processDeepAnalysisJob(input: {
     });
     throw new Error("Deep analysis independent audit did not concur");
   }
+  if (totalCost === null) {
+    await openException(input.db, run.id, actor, "per_notice_cost_unavailable", {
+      primaryCostUsd: primary.result.costUsd,
+      auditCostUsd: audit.execution.result.costUsd,
+      adjudicationCostUsd: audit.adjudication?.costUsd ?? null,
+      capUsd: input.policy.perNoticeCostCapUsd,
+    });
+    await finishCurrentRun({
+      status: "failed",
+      errorCode: "per_notice_cost_unavailable",
+      errorMessage: "Actual primary + audit cost is unavailable",
+    });
+    throw new Error("per-notice actual cost unavailable; pending_budget");
+  }
   if (totalCost > input.policy.perNoticeCostCapUsd) {
     await openException(input.db, run.id, actor, "per_notice_cost_cap_exceeded", {
       totalCostUsd: totalCost,
@@ -465,7 +512,6 @@ export async function processDeepAnalysisJob(input: {
     });
     throw new Error("per-notice cost cap exceeded; pending_budget");
   }
-
   await ensureDeepAnalysisCompletionInputFresh({
     baseline: seal,
     loadCurrent: loadCurrentInput,
