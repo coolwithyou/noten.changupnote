@@ -3868,7 +3868,7 @@ Step 4-1P-18 22축 신청자격 의미 중심 AI 자동 검수 체크포인트 �
   S12~S14, Vercel, 랜딩 E2E는 수행하지 않았다.
 
 Step 4-1P-19 실제 차단 사유만 반환하는 최소 감사 출력 계약 체크포인트 —
-`LOCAL PASS`, production v16 exact 2건 재실행은 `PENDING` (2026-07-27):
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
 
 - 모든 primary/audit criterion 후보와 22축 각각에 `accept_primary` 또는
   `change_required` verdict를 요구하는 계약을 제거했다. 대신
@@ -3887,9 +3887,78 @@ Step 4-1P-19 실제 차단 사유만 반환하는 최소 감사 출력 계약 �
   성공과 429 retry를 회귀 테스트로 고정했다. blind audit v10, adjudication v11,
   model policy v16으로 올렸고 primary prompt, 모델, 비용 상한, exact cohort,
   발행 gate와 matcher는 변경하지 않았다.
-- focused audit/adjudication 테스트와 web typecheck가 PASS했다. 다음 mutation 전에
-  전체 deep-analysis contract, admin typecheck, package build, diff check를 다시
-  통과시키고 exact commit을 만든다.
+- focused audit/adjudication 테스트, 전체 deep-analysis contract, contracts/core
+  build, web/admin typecheck와 `git diff --check`가 PASS했다. exact commit
+  `625f9e0c52d54b2b3c370b7e4c987c8098505835`은 Cloud Build
+  `1c6cc034-c2c3-4443-811f-9a0e41922628`, immutable digest
+  `sha256:8c454ac9d13b1031e64ee485517cdd0f0afa9da4517cb22e86d5f46d890aa5f7`로
+  main/input/monitor generation `48/22/15`에 배포됐다. observe-only `7fplj`,
+  input `vkf2x`, monitor `b9l4m` smoke는 v16/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T10:50:17Z` 이후 generation 49에서 같은 exact cohort만
+  열었다. 첫 공고 run
+  `da-20260727T105052697Z-ba18d0f7-b342-499f-8ed2-b4b7491a0ebf`은 primary
+  22축·response contract·exact evidence를 통과했지만 독립 감사가 `size`
+  uncertainty를 반환해 S11에서 fail-closed됐다. 비용은 `$1.477756`,
+  out-of-cohort run은 0이다. 두 번째 공고는 pending에서 호출하지 않았다.
+- 이번 uncertainty는 출력 계약 잡음이 아니다. Bizinfo 공식 구조화 대상
+  `trgetNm`은 `중소기업`인데 상세 HWP 신청대상은 `중견기업 또는 중견기업
+  후보기업`으로 서로 충돌한다. P16의 출처 계약대로 어느 한쪽을 임의 선택하지
+  않았고, 사람의 원문 확인 없이 S12 발행으로 넘기지 않은 것이 올바른 결과다.
+- 부분 release, matcher write, Vercel 배포는 수행하지 않았다. main은 generation
+  50 `observe_only`로 즉시 복귀했고 claim scope/ID/hash를 제거했다. 종료 smoke
+  `cunote-deep-analysis-fm7gd`는 policy v16/current revision, claim 0,
+  enqueue/analysis/budget mutation 0으로 성공했다. 2026-07-27 재확인에서도
+  generation `50/50`, exact commit과 immutable digest, 공고당 `$2` 상한,
+  `observe_only`, claim 변수 부재를 유지했다.
+
+Step 4-1P-20 랜딩 → 딥분석 기반 매칭 최소 제품 체크포인트 —
+`PIPELINE PASS`, 번호만으로 확정 추천은 `PARTIAL` (2026-07-27):
+
+- 범위를 새 cohort 재분석·추가 prompt·관제 확장이 아니라
+  `사업자번호 입력 → 회사 preview → /matches → teaser → 이미 S14 승격된
+  grant_criteria 매칭` 한 줄로 고정했다. 로컬에서 실행 중인 3000 포트는 다른
+  프로젝트였으므로 개발 서버를 새로 시작하지 않았다. production home과
+  `/matches` HTML이 각각 사업자번호 입력 폼과 매칭 loading surface를 반환하는
+  것을 확인했다.
+- 코드 연결은 `use-biz-lookup.ts`의 `/api/web/company-preview` 성공 후
+  `/matches?biz=...` 이동, `MatchResultsExperience.tsx`의 `/api/web/teaser`
+  호출, `loadProductTeaser`의 anonymous profile resolution +
+  `loadServiceGrantUniverse` + `buildProductTeaserSnapshot`, Drizzle의
+  visible grant/`grant_criteria` hydration, core `matchNormalizedGrant` 순서다.
+  별도 legacy matcher나 deep-analysis 전용 우회 매처는 없다.
+- production DB read-only 대조에서 기존 S14 release
+  `deep-production-r1-20260725T020110Z-e238ba64`와
+  `deep-production-r1-20260725T022203Z-5fcb677b`는 모두 release `active`,
+  item `applied`, deep run `passed`이고 S0~S14 최신 receipt가 전부 `passed`였다.
+  전자는 2026-12-31 마감·`visible/open`이라 현재 랜딩 유니버스에 남고,
+  후자는 2026-07-27 09:00 KST 마감이 지나 활성 유니버스에서 제외된다.
+- fresh Popbill cache가 있는 익명 테스트 회사를 원문 번호를 출력하지 않고 선택해
+  production API를 실제 랜딩 순서로 호출했다. preview는 HTTP 200, `cacheStatus=hit`,
+  상호·정상 영업 상태·지역을 반환했다. 이어진 teaser도 HTTP 200으로 활성 공고
+  1,509건을 평가하고 8개 카드를 반환했다.
+- 현재 노출 중인 S14 딥분석 공고
+  `c418c645-53ae-4cd9-959d-4ae5d5fe4d4f`가 실제 8개 카드 안에 포함됐다.
+  DB의 승격 criterion 5건은 `size/certification/target_type/prior_award/size`이고,
+  API 카드의 rule trace도 같은 순서·kind의 5건이었다. `criteriaExtracted=true`,
+  5건 모두 source span이 있어, 랜딩 응답이 일반 공고 제목 신호가 아니라
+  S14에서 발행한 깊은 분석 기준을 실제 매처 입력으로 소비했음을 확인했다.
+- 다만 테스트 회사 profile view는 `known 2 / partial 2 / unknown 15`였다.
+  해당 공고의 `size`, `certification`, `prior_award`는 unknown,
+  `target_type`은 partial이라 결과는 `conditional/needs_core_review`였고
+  전체 응답도 recommendable 0건이었다. 즉 **딥분석 기반 연결은 작동하지만,
+  번호 하나만으로 확정 지원 가능 공고를 내는 제품 목표는 아직 완성되지 않았다.**
+- 원인은 이번 딥분석 연결이 아니라 회사 입력 보강 경계다. anonymous resolver가
+  소비한 것은 `popbill_cache` 4개 observation뿐이며 `codef_hometax`와
+  `codef_insurance`는 현재 source policy상 모두 `disabled/policy_disabled`다.
+  CODEF cache가 consent owner/version을 안전하게 증명하지 못하는 상태에서 익명
+  요청에 재사용하지 않는 기존 fail-closed 경계다. 이번 좁은 체크포인트에서는
+  이 정책을 우회하거나 CODEF 호출·DB write·Vercel 배포를 하지 않았다.
+- 브라우저 런타임 연결이 제공되지 않아 실제 클릭 화면의 시각 smoke는 완료하지
+  못했다. 대신 production HTML, UI route 연결, 동일 production preview/teaser
+  연속 호출, S14 DB 원장과 API rule trace 대조까지 완료했다. 다음 제품 단계는
+  딥분석을 더 확장하는 작업이 아니라, 동의·소유권이 보장된 회사 정보 보강으로
+  위 4개 핵심 회사 축을 채우고 같은 단일 E2E를 다시 통과시키는 일이다.
 
 중단 조건:
 
