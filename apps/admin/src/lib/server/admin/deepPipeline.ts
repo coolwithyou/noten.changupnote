@@ -734,6 +734,13 @@ export async function getDeepPipelineSummary(
   _query: DeepPipelineQuery = { bucket: null, stage: null, q: "", limit: PAGE_SIZE },
   sql: PipelineSql = getAdminSql(),
 ): Promise<DeepPipelineSummary> {
+  if ("begin" in sql) {
+    return sql.begin(
+      "read only",
+      (transaction) => getDeepPipelineSummary(_query, transaction),
+    )
+  }
+
   const [
     metricRows,
     workerRows,
