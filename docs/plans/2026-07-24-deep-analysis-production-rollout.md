@@ -4039,6 +4039,62 @@ Step 4-1P-22 두 평가 모델의 논리 모순 사각지대 차단 체크포인
   위 2건 bounded cohort만 일시 활성화해 순차 실행한 뒤 즉시 observe-only로
   복귀하는 것이다. 2/2 S11과 shadow GO 전에는 promotion과 랜딩 E2E를 진행하지 않는다.
 
+Step 4-1P-23 exact 2건 재실행·중단 판단 체크포인트 —
+`S11 0/2`, 확대·승격 `STOP` (2026-07-28):
+
+- exact `e3c32754b90b2d9cbca7a30f0e726ccb30fa1809`은 Cloud Build
+  `67745044-5193-4b6f-a2e5-6bba40f3ec96`에서 성공했고, immutable digest
+  `sha256:6c8ceca7f1b5090f19f99801daeaf56feec22bd0c438858b9545d2df9178d3b4`를
+  세 job에 배포했다. 최초 Ready generation은 main/input/monitor `54/23/16`,
+  서비스 계정·명령·인자·secret/env는 이미지와 commit 외 byte-equivalent
+  configuration hash로 보존됐다.
+- observe-only smoke `cunote-deep-analysis-xtppc`는 v16/current revision,
+  claim 0, enqueue/analysis/budget mutation 0으로 성공했다. input preparation
+  `gnblz`는 별도 `kstartup/178439` blocked-fetch 한 건을 재확인했지만 archive,
+  conversion, enqueue가 모두 0이었고, monitor `bf6xz`는 기존 active release
+  2건·item 2건을 PASS했다.
+- Scheduler pause는 전용 서비스 계정에 `cloudscheduler.jobs.pause` 권한이 없어
+  거부됐다. IAM을 넓히지 않고 각 수동 execution을 active bounded generation에서
+  생성한 직후 main job definition을 observe-only로 복귀시켰다. 첫 실행 snapshot
+  `wcxnh`는 generation 55, 두 번째 `xtdvf`는 generation 57에서 exact 2건 cohort
+  SHA를 보존했고, main은 각각 generation 56/58에서 claim env가 없는
+  observe-only로 즉시 복귀했다. 실행 창의 production run은 exact 2건뿐이고
+  out-of-cohort run과 동시 lease는 0이다.
+- `kstartup/178647` run
+  `da-20260727T222649683Z-13a681d4-1933-4443-9a55-bdae6d113ff6`은 S0~S6,
+  22축과 evidence를 통과했지만 S7 `response_contract_valid`에서 실패했다.
+  source는 금융기관 채무불이행 제외와 채무조정·법원 회생/변제계획 인가 예외를
+  한 문단에 명시했고, primary는 `loan_default`에
+  `repayment_plan_in_good_standing`을 연결했다. 그러나 canonical
+  `EXCEPTION_FLAG_COVERAGE`는 이 예외가 `loan_default`를 커버한다고 정의하지 않아
+  validator v2가 `primary_validation_failed`로 차단했다. 이는 원문 근거가 없는
+  모델 환각보다 canonical 예외-flag 사전의 커버리지 누락에 가깝다. 자동 수리 뒤에도
+  해소되지 않았고 audit은 호출하지 않았다. 비용은 `$0.812580`이다.
+- `bizinfo/PBLN_000000000123200` run
+  `da-20260727T223254579Z-82a69b04-c5ff-4f38-ab49-e7497a3b544e`은 primary
+  contract·22축·evidence를 모두 통과했지만 독립 감사가 `tax_compliance`
+  uncertainty를 반환했다. 근거는 지방세 납세증명서가 제출목록에 있지만 체납 결격
+  문장은 없다는 것이었다. primary는 `inspected_no_condition`이었고 audit은
+  `ambiguous`였다. 신청서·서식 정보만으로 criterion을 만들지 않는 primary 규칙은
+  있으나, audit adjudication의 공유 규칙에는 “증명서 제출만으로 자격조건을 열지
+  않는다”가 명시되지 않아 두 평가자 계약이 완전히 같지 않았다. verdict는
+  `unsure`, 비용은 `$0.899087`이다.
+- cohort 비용은 합계 `$1.711667`, 당일 누적은 `$2.441443`이다. 두 job은
+  `dead_letter`로 terminal이고 active lease는 0이다. promotion item은 양쪽 모두
+  0건이며 기존 parser criterion 수 `9/4`도 변경되지 않았다. S12~S14, shadow,
+  Vercel, 랜딩 E2E는 실행하지 않았다.
+- 종료 smoke `cunote-deep-analysis-b8vlp`는 generation 58 observe-only,
+  claim 0·mutation 0을 증명했고 monitor `h7wd4`는 기존 serving 2/2를 다시
+  PASS했다. `pnpm verify:deep-analysis-ops`도 active 600 보존식, v16 policy,
+  worker healthy/active lease 0, serving 2/2, failure 0으로 최종 PASS했다.
+- **판단:** fail-closed 관제와 두 평가자 분리는 실제로 작동했지만 새 공고의 자동
+  분석 품질은 `0/2 S11`이므로 제품 목표를 달성했다고 볼 수 없다. 다음 단계는 cohort
+  확대나 gate 완화가 아니라 위 두 계약 차이만 각각 회귀 테스트로 고치는 작은
+  체크포인트다. 첫째 canonical repayment 예외가 원문상 loan-default 예외일 때의
+  커버리지를 바로잡고, 둘째 제출 증명서만 있고 명시적 결격 문장이 없으면
+  `inspected_no_condition`이라는 규칙을 primary와 blind audit/adjudication이 같은
+  상수로 소비하게 한다. 그 뒤 model policy를 올려 **같은 exact 2건만** 재실행한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
