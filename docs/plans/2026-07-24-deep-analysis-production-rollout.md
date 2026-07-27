@@ -3997,6 +3997,48 @@ Step 4-1P-21 legacy grant-analysis 평가 의도 이관 및 main 통합 체크�
   합치지 않고 이 절을 계약 handoff로 사용한다. 다음 실행 판단은 P19의 출처 충돌
   해결과 P20의 동의·소유권 기반 회사 정보 보강이 끝난 뒤에만 다시 연다.
 
+Step 4-1P-22 두 평가 모델의 논리 모순 사각지대 차단 체크포인트 —
+`CODE PASS`, exact 2건 실행은 `AUTH BLOCKED` (2026-07-28):
+
+- v16 run `da-20260727T172638613Z-91eeb002-d8de-4a3f-ad8d-71f7a27eb5a4`
+  (`kstartup/178511`, `2026년 대학연대 창업 네트워크 캠프`)은 primary와 blind
+  audit가 모두 통과했지만, 동일한 `대학생/대학원생`을 `target_type required/in`과
+  `target_type exclusion/not_in`으로 동시에 발행했다. 두 모델의 분리는 원문 대비
+  의미 누락·오분류를 찾았지만 최종 criterion 집합의 논리 일관성을 별도 불변식으로
+  검증하지 않아 같은 사각지대에 합의할 수 있음을 확인했다.
+- 해당 run의 승격 준비와 shadow는 45건의 `unexplained_transition`으로 실패했다.
+  준비 release 2건은 모두 `prepared`, approval/execution과 `after_sha256`은 없고,
+  production `grant_criteria`는 기존 2건 그대로다. 실패를 통과시키기 위해 shadow
+  기준을 낮추거나 release를 삭제·수정하지 않았다.
+- commit `8a3e7f9`와 `97c2c61`은 동일 dimension/value의 required/exclusion을 S12
+  승격 계획에서 fail-closed 차단하고 `in/not_in` polarity를 같은 membership으로
+  비교한다. commit `f50d4eb`은 같은 검사를 S7 validator로 앞당겨 primary 결과를
+  자동 수리 대상으로 보내며, 수리되지 않으면 독립 감사와 승격 모두에 도달하지
+  못하게 했다. 독립 AI 감사와 promotion guard는 제거하지 않아
+  `primary → deterministic consistency/repair → blind audit → promotion/shadow`
+  네 경계를 유지한다.
+- validator/repair focused test, web typecheck, package build와 `git diff --check`가
+  PASS했다. production 실행 후보는 교육·학생·공모전을 제외하고 서로 다른 source의
+  활성 기업지원 공고 2건으로 고정했다.
+  - `kstartup/178647`, `2026년 부산 창업기업 액셀러레이팅 프로그램 참여기업 모집
+    공고`: sealed, 11,181자, 3 chunk, input SHA-256
+    `c3c7ead5dd10bda35dcc4efa6776c53289e125e8d86636cd190b51fa0c509ab0`
+  - `bizinfo/PBLN_000000000123200`, `[경기] 하남시 2026년 수출물류비 지원사업
+    참여기업 모집 공고`: sealed, 53,425자, 5 chunk, input SHA-256
+    `d1d648874a869e5c59ae8aace50fa49587055cdfe1569b8858f451ac0284dfa2`
+- exact cohort SHA-256은
+  `50ccca29d6be1990692d5e4eeec3d976234f881edfd55b568ed84d1c422eb6a2`,
+  policy는 v16, Opus primary/Sonnet audit, 동시성 1, 공고당 `$2` 상한이다.
+  두 후보는 아직 enqueue·LLM 호출·승격하지 않았다.
+- 전용 gcloud configuration은 base `sw@noten.im`, project `changupnote-com`,
+  region `asia-northeast3`, impersonation
+  `cunote-codex-dev@changupnote-com.iam.gserviceaccount.com`을 정확히 유지하지만
+  비대화형 token refresh가 재인증 요구로 실패했다. 로컬 worker로 production
+  원장·revision·heartbeat 보증을 우회하지 않았다. 다음 mutation은 위 계정 재인증
+  후 exact `f50d4eb` 이미지를 세 job에 observe-only로 배포·검증하고, main job에
+  위 2건 bounded cohort만 일시 활성화해 순차 실행한 뒤 즉시 observe-only로
+  복귀하는 것이다. 2/2 S11과 shadow GO 전에는 promotion과 랜딩 E2E를 진행하지 않는다.
+
 중단 조건:
 
 - 동결 80 품질 미달
