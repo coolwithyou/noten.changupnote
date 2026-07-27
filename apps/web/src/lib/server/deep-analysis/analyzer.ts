@@ -3,6 +3,7 @@ import type {
   DeepAnalysisUsage,
 } from "@cunote/contracts";
 import type { DeepAnalysisInputChunk, DeepAnalysisInputSeal } from "./inputManifest";
+import { sumDeepAnalysisActualCosts } from "./costPolicy";
 import { runDeepGrantAnalysis } from "./extractor";
 
 export const DEEP_ANALYSIS_SINGLE_PROMPT_CHARS = 140_000;
@@ -108,7 +109,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
     result: {
       ...synthesized,
       usage: sumUsage(passes.map((pass) => pass.result.usage)),
-      costUsd: sumNullableNumbers(passes.map((pass) => pass.result.costUsd)),
+      costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
     },
   };
 }
@@ -144,9 +145,4 @@ function sumUsage(values: Array<DeepAnalysisUsage | null>): DeepAnalysisUsage | 
       ? null
       : cacheValues.reduce<number>((sum, value) => sum + (value ?? 0), 0),
   };
-}
-
-function sumNullableNumbers(values: Array<number | null>): number | null {
-  const present = values.filter((value): value is number => value !== null);
-  return present.length === 0 ? null : present.reduce((sum, value) => sum + value, 0);
 }

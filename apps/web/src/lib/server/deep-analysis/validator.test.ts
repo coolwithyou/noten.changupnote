@@ -137,7 +137,111 @@ const duplicate = validateDeepAnalysisResult({
   seal,
   result: result([criterion(), criterion()], axes(["region"])),
 });
-assert.equal(duplicate.issues.some((issue) => issue.code === "semantic_duplicate"), true);
+assert.equal(duplicate.valid, true);
+assert.equal(duplicate.criteria.length, 1);
+assert.equal(duplicate.axisCriterionSemanticHashes.region.length, 1);
+
+const creditSourceSpan = "파산 또는 회생절차 개시 신청 기업은 제외한다.";
+const creditSeal = sealDeepAnalysisInput({
+  grantId: "grant-credit-order",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: creditSourceSpan,
+  attachments: [],
+});
+const creditCriteria = [
+  criterion({
+    dimension: "credit_status",
+    kind: "exclusion",
+    value: {
+      flags: ["rehabilitation_in_progress", "bankruptcy_filed"],
+      exceptions: ["repayment_plan_in_good_standing"],
+    },
+    sourceSpan: creditSourceSpan,
+  }),
+  criterion({
+    dimension: "credit_status",
+    kind: "exclusion",
+    value: {
+      flags: ["bankruptcy_filed", "rehabilitation_in_progress"],
+      exceptions: ["repayment_plan_in_good_standing"],
+    },
+    sourceSpan: creditSourceSpan,
+  }),
+];
+const creditOrder = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result(creditCriteria, axes(["credit_status"])),
+});
+assert.equal(creditOrder.valid, true);
+assert.equal(creditOrder.criteria.length, 1);
+assert.equal(creditOrder.axisCriterionSemanticHashes.credit_status.length, 1);
+
+const wrongExceptionCoverage = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result([
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      value: {
+        flags: ["loan_default"],
+        exceptions: ["repayment_plan_in_good_standing"],
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+  ], axes(["credit_status"])),
+});
+assert.equal(wrongExceptionCoverage.valid, false);
+assert.equal(
+  wrongExceptionCoverage.issues.some((issue) =>
+    issue.message.includes("repayment_plan_in_good_standing does not cover")),
+  true,
+);
+
+const restartExceptionCoverage = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result([
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      value: {
+        flags: ["loan_default"],
+        exceptions: ["restart_funding_recipient", "retry_guarantee_recipient"],
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+  ], axes(["credit_status"])),
+});
+assert.equal(restartExceptionCoverage.valid, true);
+
+const structuredNoteOrder = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result([
+    criterion({
+      dimension: "financial_health",
+      kind: "exclusion",
+      operator: "gte",
+      value: {
+        debt_ratio_pct_threshold: { value: 500, inclusive: true },
+        impairment_excluded: ["partial", "full"],
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+    criterion({
+      dimension: "financial_health",
+      kind: "exclusion",
+      operator: "gte",
+      value: {
+        impairment_excluded: ["full", "partial"],
+        debt_ratio_pct_threshold: { inclusive: true, value: 500 },
+        note: "같은 구조화 조건에 대한 설명",
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+  ], axes(["financial_health"])),
+});
+assert.equal(structuredNoteOrder.valid, true);
+assert.equal(structuredNoteOrder.criteria.length, 1);
+assert.equal(structuredNoteOrder.axisCriterionSemanticHashes.financial_health.length, 1);
 
 const droppedRaw = result([criterion()], axes(["region"]));
 (droppedRaw.rawToolInput.criteria as unknown[]).push({

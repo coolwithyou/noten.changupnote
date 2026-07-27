@@ -5,7 +5,11 @@ import {
   type DeepAnalysisCriterion,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
-import { compareDeepAnalysisValidations } from "./audit";
+import {
+  compareDeepAnalysisValidations,
+  resolveSemanticAuditVerdict,
+  shouldRunSemanticAuditAdjudication,
+} from "./audit";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
@@ -108,5 +112,26 @@ assert.equal(
   missed.itemResults.some((item) => item.kind === "axis" && item.dimension === "region" && item.verdict === "disagree"),
   true,
 );
+
+assert.equal(shouldRunSemanticAuditAdjudication({
+  primaryValid: true,
+  auditValid: false,
+  comparisonVerdict: "disagree",
+}), true);
+assert.equal(shouldRunSemanticAuditAdjudication({
+  primaryValid: true,
+  auditValid: true,
+  comparisonVerdict: "concur",
+}), false);
+assert.equal(resolveSemanticAuditVerdict({
+  auditValid: false,
+  comparisonVerdict: "disagree",
+  adjudicationVerdict: "concur",
+}), "concur");
+assert.equal(resolveSemanticAuditVerdict({
+  auditValid: false,
+  comparisonVerdict: "disagree",
+  adjudicationVerdict: null,
+}), "unsure");
 
 console.log("deep-analysis blind audit tests passed");

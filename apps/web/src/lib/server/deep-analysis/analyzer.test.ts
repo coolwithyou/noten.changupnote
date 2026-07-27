@@ -3,6 +3,12 @@ import type { DeepAnalysisModelResult } from "@cunote/contracts";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
+  DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
+  DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   resolveExactEvidenceSpan,
   type runDeepGrantAnalysis,
@@ -16,6 +22,62 @@ assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition/,
 );
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /'부도 또는 파산기업\(예정 포함\)'.*credit_status의 bond_default\/bankruptcy_filed만.*business_status는 inspected_no_condition/,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /중소기업·중견기업·대기업.*size로만.*target_type은 개인사업자·법인사업자/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /법인인감 날인.*작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라/,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_STRUCTURED_TARGET_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /rawPayload\.trgetNm.*공식 신청대상.*첨부 본문에 같은 문장이 반복되지 않아도.*유효한 근거/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /재창업자금 지원 예외.*restart_funding_recipient.*재도전기업주 재기지원보증 예외.*retry_guarantee_recipient/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /선정 후의 협약 이행.*지원 취소·중단·환수 사유는 criterion으로 만들지 말고/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /지원신청서 및 계획서 내용과 수행내용이 상이.*sanction\/other criterion이 아니다/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /회원가입시 .*서류 제출 \(영리기관만 해당\).*target_type 조건이 아니다/,
+);
 
 assert.equal(
   resolveExactEvidenceSpan("서울 소재 기업만 신청", "앞문장\n서울   소재\n기업만 신청\n뒷문장"),
@@ -27,9 +89,41 @@ assert.equal(
   "서로 다른 정규화 후보가 여러 곳이면 임의로 원문 span을 선택하지 않는다",
 );
 assert.equal(
+  resolveExactEvidenceSpan(
+    "▸ 의무사항 불이행 여부 ▸ 신청 기 업 , 기업 대표자가 접수 마감일 현재 의무사항(정부사업 각종 보고서 제출, 기술료 납부)을 불이행하고 있는 가?",
+    "□ 의무사항 불이행 여부 ▸ 신청 기 업 , 기업 대표자가 접수 마감일 현재 의무사항(정부사업 각종 보고서 제출, 기술료 납부)을 불이행하고 있는 가?",
+  ),
+  "▸ 신청 기 업 , 기업 대표자가 접수 마감일 현재 의무사항(정부사업 각종 보고서 제출, 기술료 납부)을 불이행하고 있는 가?",
+  "짧은 HWP 섹션 제목의 불릿만 틀리면 유일한 실제 조건문 suffix를 exact span으로 사용한다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
+    "▸ 의무사항 불이행 여부 ▸ 신청 기업, 기업 대표자가 접수 마감일 현재 의무사항을 불이행하고 있는가?",
+    "□ 의무사항 불이행 여부 ▸ 신청  기업, 기업 대표자가 접수 마감일 현재 의무사항을 불이행하고 있는가?\n▸ 신청\t기업, 기업 대표자가 접수 마감일 현재 의무사항을 불이행하고 있는가?",
+  ),
+  null,
+  "조건문 suffix의 서로 다른 raw 후보가 둘이면 불릿 폴백도 임의 선택하지 않는다",
+);
+assert.equal(
   resolveExactEvidenceSpan("동일 문구", "동일  문구\n동일  문구"),
   "동일  문구",
   "여러 위치가 같은 raw substring이면 위치 선택 없이 정확한 span을 보존한다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
+    "☞ 중견기업 또는 중견기업 후보기업",
+    "지원대상: ☞&nbsp;중견기업 또는 중견기업 후보기업",
+  ),
+  "☞&nbsp;중견기업 또는 중견기업 후보기업",
+  "HTML 비분리 공백 표기는 유일한 sealed raw span으로 되돌린다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
+    "☞ 중견기업 또는 중견기업 후보기업",
+    "☞&nbsp;중견기업 또는 중견기업 후보기업\n☞&#160;중견기업 또는 중견기업 후보기업",
+  ),
+  null,
+  "HTML 공백 정규화 뒤 서로 다른 raw 후보가 남으면 임의 선택하지 않는다",
 );
 assert.equal(
   resolveExactEvidenceSpan(

@@ -124,6 +124,8 @@ export const DISQUALIFICATION_EXCEPTIONS = [
   "payment_deferral_approved",
   "repayment_plan_in_good_standing",
   "statute_expired",
+  "restart_funding_recipient",
+  "retry_guarantee_recipient",
 ] as const;
 export type DisqualificationException = (typeof DISQUALIFICATION_EXCEPTIONS)[number];
 
@@ -131,6 +133,8 @@ export const DISQUALIFICATION_EXCEPTION_LABELS: Record<DisqualificationException
   payment_deferral_approved: "징수유예·납부기한 연장 승인",
   repayment_plan_in_good_standing: "변제계획 성실 이행 중",
   statute_expired: "시효 완성",
+  restart_funding_recipient: "재창업자금 지원 대상",
+  retry_guarantee_recipient: "재도전기업주 재기지원보증 대상",
 };
 
 /**
@@ -146,6 +150,16 @@ export const EXCEPTION_FLAG_COVERAGE: Record<DisqualificationException, readonly
   ],
   repayment_plan_in_good_standing: ["rehabilitation_in_progress", "court_receivership"],
   statute_expired: ["asset_seizure"],
+  restart_funding_recipient: [
+    "national_tax_delinquent",
+    "local_tax_delinquent",
+    "loan_default",
+  ],
+  retry_guarantee_recipient: [
+    "national_tax_delinquent",
+    "local_tax_delinquent",
+    "loan_default",
+  ],
 };
 
 // ── 온보딩 문항→플래그 커버 매핑 (C1, §3 P3) ──────────────────────────────

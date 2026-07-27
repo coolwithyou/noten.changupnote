@@ -1,8 +1,9 @@
 # 딥 공고 분석 결과 운영 매칭 적용 로드맵 및 구현 계획
 
 > 작성일: 2026-07-24  
-> 상태: **프로덕션 worker·영속 원장·딥분석 관제 운영 중 / 실제 HWP 포함 22축 분석 완주 /
-> 2공고 serving canary 통과 / 24시간 관측 후 20공고 확대 대기**
+> 상태: **프로덕션 worker·영속 원장·딥분석 관제 운영 중 / model policy v16 /
+> 실제 출처 충돌을 S11에서 fail-closed / 랜딩→S14 매칭 연결 PASS /
+> 사업자번호만으로 확정 추천은 PARTIAL / cohort 확대 중단**
 > 적용 대상: `analysis-lab`에서 생성하고 AI 검수·감사·검수팀 판정을 거친 공고별 조건과 확인 질문  
 > 2026-07-25 확장: 활성 공고의 원문·HWP 딥분석을 사람 전수 검수 없이 운영하고,
 > 단계별 증적으로 보증하는 계획은 이 문서 §14를 정본으로 사용한다.
@@ -3452,6 +3453,542 @@ Step 4-1P-7 current v5 exact 2건 bounded 자동 실행 체크포인트 —
   코드·기존 receipt 기준으로 검수하는 것이다. 그 검수와 별도 체크포인트 전에는
   재queue, 추가 유료 호출, 20건/`all` 확대, S12/promotion 및 matcher write를
   금지한다.
+
+Step 4-1P-8 P7 두 blocker 로컬 교정 체크포인트 —
+`PASS`, production 재실행은 아직 `PENDING` (2026-07-27):
+
+- 비용정책은 primary 비용을 audit 비용으로 그대로 복제하던 `primaryCost * 2` 가정을
+  제거했다. 실제 primary usage를 configured audit model의 명시 단가로 다시 계산하고,
+  독립 감사와 최대 50k input/8k output의 adjudication 예약을 합친 projected total이
+  공고당 `$2` 상한 안에 있을 때만 audit을 시작한다. 비용을 알 수 없는 pass는 0으로
+  간주하지 않고 fail-closed하며, 호출 뒤 실제 primary+audit+adjudication 합계도 기존
+  `$2` 상한으로 다시 검증한다. 상한 자체는 올리지 않았다.
+- 파산 cross-axis 계약은 `business_status=active/closed 같은 사업자등록상 운영 상태`,
+  `credit_status=지급불능·부도·파산·회생·법정관리·청산`으로 단일화했다. 동일 사실을
+  두 축에 중복 criterion/`condition_found`로 내지 않으며, P7 원문인
+  “부도 또는 파산기업(예정 포함)”은 `credit_status`의
+  `bond_default`/`bankruptcy_filed`만 사용한다. primary와 blind audit이 공유하는
+  추출 prompt 및 adjudication 계약에 같은 규칙을 넣었다.
+- prompt는 v4, blind audit은 v3, adjudication은 v3, model policy는 v6으로 올렸다.
+  비용정책 구현 커밋은 `0bcf678`, 축 계약 통합 커밋은 `8dc717e`다.
+- 통합 clean worktree에서 package build, 전체 `verify:deep-analysis-contract`,
+  `@cunote/web` typecheck, `git diff --check`가 모두 통과했다.
+- 이 체크포인트는 로컬 계약 교정까지만 닫는다. production deploy/requeue/LLM 호출,
+  S12~S14 발행, matcher write, 20건/`all` 확대는 수행하지 않았다. 다음 단계는 같은
+  exact 2건만 v6 bounded cohort로 재실행해 2/2 S11을 확인하는 것이다.
+
+Step 4-1P-9 v6 실제 재실행·HTML 공백 인용 비용 증폭 교정 체크포인트 —
+`LOCAL PASS`, production v7 재실행은 아직 `PENDING` (2026-07-27):
+
+- exact commit `40c5b76bb615b89218d7ae2475f6edf2b32f4a38`을 Cloud Build
+  `f8b1bcc0-55dd-4395-9197-c7970c11247c`로 빌드했다. 불변 image digest
+  `sha256:05829b68ed549680cd5da7c1abfd996bc4fc940883c5237cadfd32e0106207ad`를
+  main/input-preparation/serving-monitor generation `18/12/5`에 배포했다.
+  main observe-only `v8phs`, input-preparation `2nw4b`, serving monitor `9bsc9`
+  smoke가 모두 성공했고, monitor는 기존 active release 2건·item 2건을 PASS했다.
+- activation `2026-07-27T03:58:04Z`에 P7과 같은 두 UUID·같은 cohort hash만 main
+  generation 19 `bounded`, invocation/동시 lease 1, 공고당 `$2`로 열었다. 첫 worker
+  `cunote-deep-analysis-ql5wb`만 유료 분석을 수행했고, 04:00 정시 worker `h8nks`는
+  active lease를 확인해 claim 0으로 종료했다.
+- 첫 공고 v6 run
+  `da-20260727T035900861Z-d05b6af8-6926-4132-8a7d-b7a785fdaebd`는 57,624자·22축·
+  criterion 12개를 만들었지만 primary 비용이 `$1.590835`까지 증가해 audit 호출 전에
+  `pending_budget`으로 차단됐다. 중단 조건에 따라 두 번째 공고는 호출하지 않았고,
+  main을 즉시 generation 20 `observe_only`로 복귀시켜 claim scope/ID/hash를 제거했다.
+- 비용 증가 원인은 모델이나 공고 분량 자체가 아니라 exact source span repair 2회였다.
+  첫 응답은 `$0.502735`에 의미상 완전했지만 structured source의
+  `☞&nbsp;중견기업…`을 `☞ 중견기업…`으로 인용해 한 criterion만 byte-exact 검증에
+  실패했다. 첫 repair는 다른 criterion에 불필요한 장식 문자를 붙여 다시 실패했고,
+  두 번째 repair에서야 통과했다.
+- 상한을 올리거나 exact grounding을 완화하지 않았다. `&nbsp;`, `&#160;`,
+  `&#xA0;`처럼 화면상 공백인 HTML 표기만 공백으로 비교하고, 정규화 결과가 유일할
+  때 모델 인용을 실제 sealed raw substring으로 되돌린다. 서로 다른 raw 후보가
+  둘 이상이면 기존처럼 미검증으로 남겨 repair/fail-closed한다. 모델 정책은 v7로
+  올려 기존 v6 job/run과 멱등 identity를 섞지 않는다.
+- 같은 production 원시 응답을 네트워크 호출 없이 새 정규화기로 재생한 결과 첫
+  `$0.502735` pass 자체가 criterion 12개·22축·validation issue 0으로 통과했다.
+  package build, 전체 `verify:deep-analysis-contract`, web typecheck,
+  `git diff --check`도 PASS했다. 다음 mutation은 이 작은 v7 commit을 observe-only로
+  배포한 뒤 같은 exact 두 건만 다시 실행하는 것이다.
+
+Step 4-1P-10 v7 실제 AI 감사·semantic duplicate 교정 체크포인트 —
+`LOCAL PASS`, production v8 재실행은 아직 `PENDING` (2026-07-27):
+
+- v7 commit `ddf402dd7a52ab4b18325e2d551855e0e2bcd86d`를 Cloud Build
+  `9f27ef1f-e3f1-4caa-8498-651700750427`, digest
+  `sha256:2637f1c111a09ff97380207c5427038aafe8c07e12f4bf8740f200d6b1eb3f7d`로
+  main/input-preparation/serving-monitor generation `21/13/6`에 배포했다.
+  observe-only `2brt9`, input `8nc7t`, monitor `6hvch` smoke는 v7/current revision,
+  mutation 0, 기존 active release 2건 PASS를 확인했다.
+- activation `2026-07-27T04:18:32Z`에 같은 exact 두 UUID·cohort hash만 generation
+  22로 열었다. 첫 run
+  `da-20260727T041918686Z-1a0b0e24-8603-4f5c-87e0-b76f835c7d06`은 22축을 만들고
+  실제 primary+audit+adjudication 비용 `$1.999572`로 `$2` 안에서 독립 AI 감사까지
+  완료했지만 최종 `independent_audit_disagreement`였다. 두 번째 공고는 호출하지
+  않았고 main은 generation 23 `observe_only`, claim fence 제거 상태로 복귀했다.
+- disagreement 원문을 읽기 전용으로 대조한 결과 실제 자격조건 누락이 아니라 두 종류의
+  semantic duplicate였다. `credit_status`의 같은 flags가 배열 순서만 달라 hash가
+  갈렸고, adjudicator는 reason에서 “primary에 이미 반영된 중복”이라고 확인하면서
+  구조화 verdict만 `change_required`로 반대로 냈다. 또 `중견기업` 규모 조건을 primary가
+  `size`에 반영했는데 audit가 동일 문구를 `target_type`에도 중복 요구했다.
+- exact semantic hash가 같은 criterion은 모델 전체 응답을 재생성하지 않고 validation
+  projection에서 한 건으로 접는다. criterion value 안의 문자열 배열은 집합 의미 비교
+  때 중복 제거·정렬해 flags 순서 차이를 같은 hash로 본다. 원문 근거·축·operator·kind·
+  value가 실제로 다르면 계속 별개 후보로 남는다.
+- `중소기업·중견기업·대기업` 같은 규모는 `size`로만, `target_type`은 개인/법인·
+  협동조합·비영리처럼 신청 주체의 법적 형태·역할 유형으로만 쓰는 공유 규칙을 primary,
+  blind audit, adjudication에 동일하게 넣었다. prompt v5, blind audit v4,
+  adjudication v4, model policy v8로 올렸다.
+- 실제 v7 첫 primary raw response를 네트워크 호출 없이 새 validator로 재생한 결과
+  `$0.525735` 첫 pass가 raw criterion 12개를 semantic 11개로 안전하게 접어 22축·
+  validation issue 0으로 통과했다. focused validator/analyzer/adjudication 테스트,
+  package build, 전체 deep-analysis contract, web typecheck, diff check도 PASS했다.
+  상한·모델·cohort·발행 gate는 변경하지 않았다.
+
+Step 4-1P-11 v8 실제 AI 감사·설명/제출양식 거짓 불일치 교정 체크포인트 —
+`LOCAL PASS`, production v9 재실행은 아직 `PENDING` (2026-07-27):
+
+- v8 commit `66638672e7562b42b76c01b8d5c7d1e835e015c0`을 Cloud Build
+  `fe9e2ecb-9465-4530-a16d-d76a3d220880`, digest
+  `sha256:32561fb0f1ac140c89453394af7fa4b03ebe39f28008d93f75d3f514a11c25fd`로
+  main/input-preparation/serving-monitor generation `24/14/7`에 배포했다.
+  observe-only `9rl8f`, input `4bjbm`, monitor `ksv7s` smoke는 v8/current revision,
+  mutation 0, 기존 active release 2건 PASS를 확인했다.
+- activation `2026-07-27T04:41:29Z`에 같은 exact 두 UUID·cohort hash만 generation
+  25로 열었다. 첫 run
+  `da-20260727T044208919Z-a51fef53-3a29-4a6a-af27-3f654f6290f7`은 repair 없이
+  첫 pass에서 22축을 만들었고 primary 비용은 `$0.508585`, 독립 AI 감사와
+  adjudication을 합친 총비용은 `$1.181729`였다. 그러나 최종 verdict가 `unsure`여서
+  두 번째 공고는 호출하지 않았고 main은 generation 26 `observe_only`, claim fence
+  제거 상태로 즉시 복귀했다.
+- 읽기 전용 대조 결과 primary는 부채비율 500%와 완전/부분 자본잠식 배제를 이미 하나의
+  `financial_health` structured criterion으로 반영했다. audit는 같은 구조값에 설명용
+  `note`를 덧붙인 뒤 이를 다른 criterion으로 보았고, 완전자본잠식을 다시 text-only로
+  중복 요구했다. structured value에서 비구조 설명인 `note`만 다른 경우는 같은 의미로
+  비교하되, `note`가 유일한 값인 text-only criterion은 기존처럼 의미값으로 보존한다.
+- audit가 `(법인인감 날인 후, PDF 스캔본 제출)`이라는 제출 절차만으로
+  `target_type=법인사업자`를 추가했다. 법인인감·회사명·대표자명·서식 제출 방식만으로는
+  법인 전용 신청 자격을 추론하지 않고, 명시적인 신청대상 또는 개인사업자 배제 문구가
+  있을 때만 target_type criterion을 만든다는 규칙을 primary, blind audit,
+  adjudication에 공유했다.
+- `impairment_excluded`에 `full`이 있으면 완전자본잠식 배제를 이미 포함하므로 같은
+  source/axis에서 text-only criterion을 추가하지 않는 공유 규칙도 넣었다. 실제 구조값·
+  operator·근거가 다르면 계속 별도 후보로 남아 fail-closed 검토를 받는다.
+- prompt v6, blind audit v5, adjudication v5, model policy v9로 올렸다. focused
+  validator/analyzer/adjudication 테스트, package build, 전체
+  `verify:deep-analysis-contract`, web typecheck, diff check가 PASS했다.
+  상한·모델·cohort·발행 gate는 변경하지 않았다. 다음 mutation은 이 제한된 v9
+  checkpoint를 observe-only로 배포한 뒤 같은 exact 두 건만 마지막으로 재실행하는
+  것이다. 새 의미 disagreement가 다시 발생하면 prompt를 계속 확장하지 않고 Chunk 2를
+  fail-closed로 중단한다.
+
+Step 4-1P-12 v9 exact 2건 마지막 재실행 체크포인트 —
+`FAIL 1/2`, Chunk 2와 S12~S14는 `BLOCKED` (2026-07-27):
+
+- v9 commit `4c620a357a241d336256ed4ae881937badfc1792`를 Cloud Build
+  `3263bd5d-ae4f-43d2-b405-b79e800c226a`, digest
+  `sha256:3c482f52a3b903c47d06f9685ccc45bb38bbb74dd3fe0960acd0ea24fa7cfa2e`로
+  main/input-preparation/serving-monitor generation `27/15/8`에 배포했다.
+  observe-only `bps2r`, input `drlfg`, monitor `xf9zs` smoke는 policy v9/current
+  revision, mutation 0, 기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T05:01:10Z`에 같은 exact 두 UUID·cohort hash만 generation
+  28 `bounded`, invocation/동시 lease/최대 job 1, 공고당 `$2`로 열었다.
+  out-of-cohort run은 0이었다.
+- 첫 공고 run
+  `da-20260727T050141162Z-a9048137-59ee-4a64-a3a3-5a2f8ac085e1`은 S0~S11,
+  22축, 독립 AI 감사 `concur`를 통과했다. 총비용은 `$1.698438`로 상한 안이다.
+- 두 번째 공고 run
+  `da-20260727T050853100Z-76dfb363-09dd-40f3-a9af-325215f096ac`은 attachment 3건
+  전부 포함, 23,368자 input seal, primary response contract·22축·evidence grounding을
+  통과했다. primary는 repair 1회를 포함했고, 총비용은 `$0.804270`으로 상한 안이다.
+  그러나 독립 AI 감사가 criterion 4건을 실질 누락 가능성으로 보아 verdict `unsure`,
+  run `failed`, job `dead_letter`로 fail-closed됐다.
+- 감사가 지적한 내용은 이전의 단순 표현 중복과 달랐다. 신청서 내용과 실제 수행내용이
+  다를 때의 취소 조건(`other`), 협약서 명시사항 2회 이상 위반·시정요구 불응 시
+  지원취소(`sanction`), 회원가입 시 “영리기관만 해당” 문구의 비영리 신청자 배제
+  (`target_type` criterion·axis)였다. 따라서 이를 자동으로 중복으로 접거나 감사 verdict를
+  강제하지 않았다.
+- 최종 exact verifier는 S11 `1/2`, terminal failure 1, out-of-cohort 0, 두 공고
+  합계 `$2.502708`, 공고별 최대 `$1.698438`로 `FAIL`했다. 첫 공고만 성공한 상태에서
+  부분 release를 만들지 않았고 S12 release, S13 promotion, S14 serving 및 matcher
+  write를 모두 수행하지 않았다.
+- main은 즉시 generation 29 `observe_only`로 복귀했고 claim scope/ID/hash는
+  제거됐다. 종료 smoke `cunote-deep-analysis-gqfrw`는 policy v9/current revision,
+  claim/enqueue/analysis/budget mutation 0으로 성공했다.
+- P11의 중단 조건대로 v10 prompt를 추가하지 않고 Chunk 2를 닫는다. 다음 재개는 위 세
+  누락 후보가 실제 매칭 자격조건인지 제품 판단을 먼저 고정한 뒤, 그 결정만 작은 계약
+  테스트로 반영하는 별도 체크포인트여야 한다. 2/2 S11 전에는 S12~S14와 랜딩 매칭
+  제품 검증으로 진행하지 않는다.
+
+Step 4-1P-13 v9 감사 후보 제품 판단·신청 단계 매칭 계약 체크포인트 —
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
+
+- P12 실패 원문과 현재 matcher를 서로 독립적인 읽기 전용 검토 2개로 다시 분류했다.
+  두 검토 모두 “지원신청서 및 계획서 내용과 수행내용이 상이”와 “협약서 등 관련
+  문서에서 명시한 사항을 2회 이상 위반하거나 시정요구에 응하지 않음”은
+  `지원 취소` 절에 있는 선정 후 수행·협약 위반 조건이라고 결론냈다. 신청 시점의
+  자격·결격·우대 기준이 아니므로 matcher가 소비하는 criterion으로 만들지 않는다.
+- “회원가입 시 사업자등록증(또는 법인등기부등본), 최근 3년 재무제표, 4대보험
+  가입자명부 제출 (영리기관만 해당)”의 괄호는 신청 대상을 영리기관으로 제한하는
+  문장이 아니라 회원가입 제출서류의 적용 범위를 한정한다. 이 공고의 구조화된 신청
+  대상은 별도로 명시된 `중소기업`이며, 해당 괄호만으로 비영리 배제
+  `target_type` criterion을 만들지 않는다.
+- 이 구분은 감사 통과만을 위한 예외가 아니다. 랜딩 matcher는 발행된
+  `grant_criteria`의 `exclusion`과 `text_only`를 실제 신청 가능 판단에 사용하므로,
+  선정 후 취소 조건이나 제출서류 범위 문구를 criterion으로 발행하면 정상 사업자도
+  조건부 또는 확인 필요로 낮아진다. 제품 계약은 “신청 단계에서 매칭에 직접 쓰이는
+  자격·제한·우대·평가점수만 criteria, 선정 후 수행·협약·보고·취소·중단·환수 조건은
+  analysis/caution”으로 고정한다. 같은 사실이 신청 제한 절에도 별도로 명시된 경우에는
+  그 신청 단계 문장만 criterion 근거로 사용한다.
+- 새 lifecycle 컬럼, matcher 분기, taxonomy 축 또는 UI를 추가하지 않았다. primary와
+  independent blind audit/adjudication이 동일 규칙을 공유하고 위 세 원문을 회귀
+  예시로 고정했다. prompt v7, blind audit v6, adjudication v6, model policy v10으로
+  올렸으며 공고당 `$2`, Opus primary/Sonnet audit, exact 2건 cohort와 발행 gate는
+  변경하지 않았다.
+- package build, focused analyzer/blind-audit/adjudication 테스트, 전체
+  `verify:deep-analysis-contract`, web typecheck, `git diff --check`가 모두 PASS했다.
+  exact commit `1ed02385d83fa3268ce876b992e9238381f2bc94`은 Cloud Build
+  `4bbf4a7f-9cfc-4c4b-bf5d-23517316e300`, immutable digest
+  `sha256:f19a0b75778faf73458bc5a1dfd719d6e4cfdf00779ba7741d69a557c57f2125`로
+  main/input/monitor generation `30/16/9`에 배포됐다. observe-only `xdx2q`,
+  input `tjth4`, monitor `4wh8g` smoke는 v10/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T06:40:00Z` 이후 exact cohort만 generation 31로 열었다.
+  첫 공고 run
+  `da-20260727T064028965Z-01d67750-b73c-4e2b-b511-ed3d0a326886`은 primary
+  22축·근거 검증을 통과했지만 독립 AI 감사가 `disagree`여서 S11을 통과하지 못했다.
+  비용은 `$1.776442`, out-of-cohort run은 0이다. 중단 규칙에 따라 두 번째 pending
+  공고는 실행하지 않았고, main은 generation 32 `observe_only`, claim fence 제거
+  상태로 즉시 복귀했다. 종료 smoke `7kfb2`도 v10/current revision, mutation 0이다.
+
+Step 4-1P-14 AI adjudication 결론 일관성 체크포인트 —
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
+
+- v10 감사의 전체 22축과 대부분 criterion은 primary와 `concur`였다. 최종 실패를 만든
+  두 항목은 reason에서 각각 “primary에 이미 반영된 중복이므로
+  `accept_primary`로 재조정”, “별도 criterion으로 추가할 필요가 없어
+  `accept_primary`로 재조정”이라고 명시하면서 구조화 verdict만 반대로
+  `change_required`를 반환했다. 이는 새로운 자격조건 누락이 아니라 같은 AI 응답 내부의
+  reason/verdict 계약 위반이다.
+- prompt를 더 길게 만들거나 matcher·taxonomy·DB를 바꾸지 않았다. 구조화 verdict가
+  `change_required`여도 reason이 literal `accept_primary`를 결론으로 명시하고
+  `accept_primary가 아니라` 같은 부정 표현이 없을 때만 최종 verdict를
+  `accept_primary`로 정규화한다. 실제 누락 reason이나 명시적 부정은 계속
+  `change_required`로 fail-closed한다.
+- exact production 모순과 명시적 반대 결론을 각각 회귀 테스트로 고정했다.
+  adjudication v7, model policy v11로 올렸고 blind audit/primary prompt, 모델,
+  공고당 `$2`, exact cohort, 발행 gate는 변경하지 않았다. package build, 전체
+  `verify:deep-analysis-contract`, web typecheck와 `git diff --check`가 PASS했다.
+  exact commit `0daafd8c546abd2b7fe236be1b4bf34e9291ffb4`은 Cloud Build
+  `4b4f4cb2-38f3-4153-863f-1a608bd1e713`, immutable digest
+  `sha256:d1013389264abb9f69d2e507870a91bf6eac74e524e4396dd57c5f90b549eb52`로
+  main/input/monitor generation `33/17/10`에 배포됐다. observe-only `68vxb`,
+  input `5zt5b`, monitor `bsnsd` smoke는 v11/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T07:05:55Z` 이후 exact cohort만 generation 34로 열었다.
+  첫 공고 run
+  `da-20260727T070613102Z-99b2dd10-8776-4046-afaf-2be0d3170e12`은 primary
+  22축·근거 검증을 통과했지만 독립 AI 감사가 `disagree`여서 S11을 통과하지 못했다.
+  비용은 `$1.782607`, out-of-cohort run은 0이다. 두 번째 공고는 pending에서 호출하지
+  않았고 main은 generation 35 `observe_only`, claim fence 제거 상태로 즉시 복귀했다.
+  종료 smoke `p8f7c`는 policy v11/current revision, claim/enqueue/analysis/budget
+  mutation 0으로 성공했다.
+
+Step 4-1P-15 결격 예외 귀속·canonical 보강 체크포인트 —
+`PRODUCTION FAIL 1/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
+
+- v11 실패는 단순한 reason/verdict 표현 모순이 아니었다. 원문은 국세·지방세 체납과
+  채무불이행자명부·신용정보 등록 각각에 “재창업자금 지원” 및 “재도전기업주
+  재기지원보증” 예외를 붙이고, 파산·회생에는 별도로 “인가된 회생계획 또는 변제계획
+  정상 이행” 예외를 붙인다.
+- primary는 채무불이행 `loan_default` criterion에
+  `repayment_plan_in_good_standing`을 잘못 붙였고, 세금 체납 criterion에는 두
+  재도전 예외를 누락했다. blind audit는 원문 예외를 별도 값으로 추출했지만
+  adjudicator reason은 실제 JSON과 달리 primary가 같은 내용을 담았다고 설명했다.
+  따라서 P14의 reason 기반 verdict 보정 범위를 넓히지 않고 그 보정을 제거해 구조화
+  `change_required`를 계속 fail-closed로 취급한다.
+- 기존 22축 결격 계약 안에 `restart_funding_recipient`,
+  `retry_guarantee_recipient` 두 canonical 예외를 추가했다. 두 예외는
+  `national_tax_delinquent`, `local_tax_delinquent`, `loan_default`만 면제한다.
+  matcher와 자가확인 스키마는 기존 예외 사전을 공유하므로 새 분기·축·DB 컬럼 없이
+  동일한 교집합 차감 규칙을 사용한다.
+- primary와 blind audit 공유 prompt는 각 결격 문장의 “단/다만/예외”를 해당
+  criterion에만 귀속하고, 본문과 예외를 함께 exact source span으로 인용하도록
+  강화했다. 서버 validator도 예외 coverage와 criterion flags의 교집합이 없으면
+  결과를 거부한다. 따라서 v11처럼 `loan_default`에 회생계획 예외가 붙으면 audit 전
+  repair/fail-closed된다.
+- adjudication은 flags가 같아도 `value.exceptions`가 누락되거나 다른 항목의 예외가
+  붙으면 중복으로 인정하지 않도록 고정했다. prompt v8, blind audit v7,
+  adjudication v8, model policy v12로 올렸다. focused analyzer/validator/
+  adjudication/canonical/matcher 테스트, package build, 전체
+  `verify:deep-analysis-contract`, web/core typecheck, `git diff --check`가 PASS했다.
+- 모델, 공고당 `$2`, exact 2건 cohort, 동시성 1, 발행 gate는 변경하지 않았다.
+  exact commit `9f06d8854d26ba2b0827365b16d8bad27293de0f`은 Cloud Build
+  `7e964618-27a4-4c25-89c8-1257ea1f2a6f`, immutable digest
+  `sha256:04468892593080b3cb8a4e5f557be7d95b956d362730eed6baaa820ca08ac54a`로
+  main/input/monitor generation `36/18/11`에 배포됐다. observe-only `mvnjz`,
+  input `lx6wn`, monitor `zvlmx` smoke는 v12/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T07:34:33Z` 이후 exact cohort만 generation 37로 열었다.
+  첫 공고 run
+  `da-20260727T073448515Z-3158bab1-1dcc-42ba-bbd6-e3281871b7cc`은 22축과
+  독립 AI 감사 `concur`로 S11을 통과했고 비용은 `$1.815004`였다.
+- 두 번째 공고 run
+  `da-20260727T074317142Z-8c89c200-73e9-41c1-a7b1-81c119924206`도 22축과
+  exact evidence 검증을 통과했지만, 독립 감사가 `size` 축을 `unsure`로 남겨
+  fail-closed됐다. 비용은 `$0.531570`, 두 건 합계 `$2.346574`, 공고별 최대
+  `$1.815004`, out-of-cohort run은 0이다.
+- 부분 release를 만들지 않았고 S12~S14, Vercel, 랜딩 E2E를 수행하지 않았다.
+  main은 generation 38 `observe_only`, claim fence 제거 상태로 즉시 복귀했다.
+  종료 smoke `wd4jt`는 policy v12/current revision, claim/enqueue/analysis/budget
+  mutation 0으로 성공했다.
+
+Step 4-1P-16 공식 구조화 신청대상 근거 계약 체크포인트 —
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
+
+- v12 두 번째 감사의 `unsure` 원문을 읽기 전용으로 대조했다. sealed structured
+  source의 Bizinfo `rawPayload.trgetNm`은 `"중소기업"`을 명시하고 primary는 이를
+  `size in ["중소기업"]` criterion으로 정확히 구조화했다. 감사도 이 필드를 읽었지만
+  HWP 본문에 같은 규모 문장이 반복되지 않았다는 이유만으로 criterion과 size 축을
+  `unsure`로 낮췄다.
+- `trgetNm`은 추론이나 신청서 빈칸이 아니라 Bizinfo의 공식 신청대상 메타데이터다.
+  구체적인 대상 값은 첨부에 반복되지 않아도 유효한 criterion 근거로 사용한다.
+  structured 대상과 본문·첨부의 명시 조건이 충돌할 때만 어느 한쪽을 임의 선택하지
+  않고 `ambiguous`로 남기는 출처 계약을 primary, blind audit, adjudication에
+  동일하게 넣었다.
+- 새 source 종류, DB 컬럼, matcher 분기, taxonomy 축은 추가하지 않았다. prompt v9,
+  blind audit v8, adjudication v9, model policy v13으로 올렸다. 모델, 공고당 `$2`,
+  exact cohort, 동시성 1, 발행 gate는 변경하지 않았다.
+- exact commit `ce9805870c5f14009cb4d20bed75422b3cc9a395`은 Cloud Build
+  `6d84092d-d144-4f65-bf61-afc1b25f8d46`, immutable digest
+  `sha256:0015c0981db0367742eff446006d569c29beafe3bca4c56608624554679ac9d3`로
+  main/input/monitor generation `39/19/12`에 배포됐다. observe-only `6sl58`,
+  input `cdnkp`, monitor `f5mtv` smoke는 v13/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T07:59:57Z` 이후 exact cohort만 generation 40으로 열었다.
+  첫 공고 run
+  `da-20260727T080015043Z-2b285af4-abd6-45dc-bf97-75c25080bb9c`은 primary
+  22축을 만들었지만 blind audit validation이 `unsure`로 fail-closed됐다. 비용은
+  `$1.882528`, out-of-cohort run은 0이다. 두 번째 공고는 pending에서 호출하지 않았다.
+- main은 generation 41 `observe_only`, claim fence 제거 상태로 즉시 복귀했다.
+  종료 smoke `slhbv`는 policy v13/current revision, claim/enqueue/analysis/budget
+  mutation 0으로 성공했다. S12~S14, Vercel, 랜딩 E2E는 수행하지 않았다.
+
+Step 4-1P-17 HWP 섹션 불릿 exact 근거 복원 체크포인트 —
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
+
+- v13 감사의 raw artifact를 읽기 전용으로 확인했다. 새 의미 disagreement가 아니라
+  audit criterion 한 건의 source span만 byte-exact 검증에 실패했다. 원문에는
+  `□ 의무사항 불이행 여부 ▸ 신청 기업…`이 한 번 존재하지만 모델은 짧은 섹션 제목의
+  `□`만 `▸`로 복사했다. 실제 조건문인 두 번째 `▸ 신청 기업…` 이후는 원문과
+  byte-exact로 일치했다.
+- validator나 evidence gate를 완화하지 않았다. 요청 span에 `▸`가 정확히 두 개이고,
+  첫 부분이 40자 이하의 짧은 제목이며, 두 번째 불릿 이후 조건문이 40자 이상일 때만
+  trailing condition을 후보로 삼는다. 그 조건문이 sealed input에서 exact하거나 공백
+  정규화 후 유일한 raw substring으로 해소될 때만 실제 source span으로 되돌린다.
+  서로 다른 raw 후보가 둘 이상이면 기존처럼 null로 남겨 fail-closed한다.
+- production 실패 span과 다중 후보를 회귀 테스트로 고정했다. prompt/audit/adjudication
+  버전은 그대로 두고 정규화 실행 identity만 model policy v14로 올렸다. 모델,
+  공고당 `$2`, exact cohort, 동시성 1, 발행 gate는 변경하지 않았다.
+- 저장된 v13 production audit raw response를 네트워크 호출 없이 같은 sealed source
+  revision에 v14 정규화·validator로 재생했다. criterion 10건, 22축, validation issue
+  0건으로 통과했고 실패했던 조건문 span도 원문으로 복원·검증됐다. package build,
+  전체 `verify:deep-analysis-contract`, web typecheck, `git diff --check`도 PASS했다.
+- exact commit `1531d2ca5f3c1e24da1c3a84e87a310f424842f0`은 Cloud Build
+  `c1ccbec9-b5a5-490d-9ae1-5efd92d08d79`, immutable digest
+  `sha256:30ca6892d79757cc9c8b339922c5612a1a7b2f310783db4d3c81a43d0bf46ac8`로
+  main/input/monitor generation `42/20/13`에 배포됐다. observe-only `n5jj7`,
+  input `gsvh4`, monitor `dsjhf` smoke는 v14/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T08:22:49Z` 이후 generation 43에서 같은 exact 두
+  UUID·cohort hash만 열었다. 첫 공고 run
+  `da-20260727T082306530Z-e94916a6-4c66-41c0-8ddb-1d361d708c3b`은 22축,
+  response contract, axis coverage, exact evidence를 모두 통과했지만 독립 감사가
+  `unsure`여서 S11에서 fail-closed됐다. 비용은 `$1.829640`, out-of-cohort run은
+  0이다. 두 번째 공고는 pending에서 호출하지 않았다.
+- 이번 실패는 P17의 HWP 불릿 근거 복원 재발이 아니다. primary validation issue는
+  0건이었지만 감사 응답에는 허용되지 않은 `kind=other`, raw criterion 11건 중
+  normalized criterion 10건으로 1건 누락, `biz_age=condition_found`인데 대응
+  criterion이 없는 축-조건 불일치가 남았다. 최종 비교도 `biz_age` 축 1건과
+  `credit_status`·`sanction`·`financial_health`·`other` criterion 11건, 합계
+  12건이 달랐다. 이를 자동 중복 처리하거나 감사 결론을 강제하지 않았다.
+- exact 2건 중 첫 건부터 S11을 통과하지 못했으므로 부분 release를 만들지 않았고
+  S12~S14, matcher write, Vercel, 랜딩 E2E를 수행하지 않았다. main은 generation
+  44 `observe_only`로 즉시 복귀했고 claim scope/ID/hash를 제거했다. 종료 smoke
+  `cunote-deep-analysis-7mpwv`는 policy v14/current revision, claim 0,
+  enqueue/analysis/budget mutation 0으로 성공했다.
+- 이 체크포인트에서 production prompt/normalizer 반복은 중단한다. 재개하려면
+  `kind` contract와 criterion 분할 규칙을 더 늘리는 방식이 아니라, 독립 감사의
+  목적을 “동일한 criterion 배열 재생성”으로 둘지 “22축과 신청단계 자격 의미의
+  누락·오분류 검출”로 둘지 제품 계약을 먼저 좁혀야 한다. 그 결정 전에는
+  S12~S14와 랜딩 매칭 제품 검증으로 진행하지 않는다.
+
+Step 4-1P-18 22축 신청자격 의미 중심 AI 자동 검수 체크포인트 —
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
+
+- 제품 계약을 “동일한 criterion 배열 재생성”이 아니라 “primary가 신청 시점의
+  자격·결격·우대·평가점수를 22축에서 의미상 누락하거나 잘못 분류했는지 검출”로
+  좁혔다. 독립 모델의 source-only 결과는 누락 후보를 찾는 탐색 신호이며,
+  표현·criterion 분할·source span 길이·`kind` 재현 차이만으로 primary를
+  실패시키지 않는다.
+- blind 결과가 response contract나 normalization issue를 가져도 바로 `unsure`로
+  종료하거나 같은 전체 배열을 최대 2회 다시 만들지 않는다. primary가 유효하면
+  sealed source, primary 22축·criteria, blind 22축·후보와 양쪽 validation issue를
+  semantic adjudication에 전달한다. 원문과 primary만으로 의미가 명확하면
+  `accept_primary`, 실제 신청단계 의미 누락·오분류면 `change_required`, 원문으로
+  확정할 수 없으면 `unsure`로 계속 fail-closed한다.
+- exact 배열 불일치나 blind validation 실패가 semantic adjudication으로 이어지고,
+  adjudication `concur`는 통과하며 adjudication이 없으면 invalid blind 결과는
+  `unsure`로 남는 회귀를 고정했다. adjudication 요청에 primary/audit validation
+  issue가 모두 포함되는 것도 검증했다.
+- blind audit v9, adjudication v10, model policy v15로 올렸다. primary prompt,
+  모델, 공고당 `$2`, exact cohort, 동시성 1, S12~S14 발행 gate와 matcher는
+  변경하지 않았다. package build, 전체 `verify:deep-analysis-contract`,
+  web/admin typecheck, `git diff --check`가 PASS했다.
+- exact commit `6a4af32b059d4c977d861c44d9232260709075a0`은 Cloud Build
+  `f0997e04-d9da-428d-9fb9-e71bc25d4c88`, immutable digest
+  `sha256:ef38a993d4e31d1782d9b0bdc1df157f7754fc90481010f4cfca99fc6be977dc`로
+  main/input/monitor generation `45/21/14`에 배포됐다. observe-only `g82v9`,
+  input `8h5km`, monitor `l67pr` smoke는 v15/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T10:31:07Z` 이후 generation 46에서 같은 exact cohort만
+  열었다. 첫 공고 run
+  `da-20260727T103150276Z-92c6a8b4-68d5-4682-8e41-f02447192587`은 primary
+  22축·response contract·exact evidence를 통과했지만 semantic adjudication이
+  `disagree`여서 S11에서 fail-closed됐다. 비용은 `$1.552732`, out-of-cohort
+  run은 0이다. 두 번째 공고는 pending에서 호출하지 않았다.
+- 읽기 전용 원인 대조에서 disagreement는 `credit_status`, `other` 축 두 건이었다.
+  그러나 두 reason 모두 각각 “criterion 분할 차이일 뿐 실질 의미 누락은 없어
+  accept_primary”, “sanction에 이미 존재하므로 추가 조치가 필요 없고
+  accept_primary”라고 최종 결론냈다. 구조화 axis verdict만 반대로
+  `change_required`였으므로 새 자격 의미 누락이 아니라 모든 후보와 22축에 verdict를
+  강제한 출력 계약의 모순이다.
+- main은 generation 47 `observe_only`로 즉시 복귀했고 claim scope/ID/hash를
+  제거했다. 종료 smoke `cunote-deep-analysis-64rx8`는 policy v15/current revision,
+  claim 0, enqueue/analysis/budget mutation 0으로 성공했다. 부분 release,
+  S12~S14, Vercel, 랜딩 E2E는 수행하지 않았다.
+
+Step 4-1P-19 실제 차단 사유만 반환하는 최소 감사 출력 계약 체크포인트 —
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
+
+- 모든 primary/audit criterion 후보와 22축 각각에 `accept_primary` 또는
+  `change_required` verdict를 요구하는 계약을 제거했다. 대신
+  `reviewed_dimensions`에 22축을 정확히 한 번씩 넣어 전수 검토를 증명하고,
+  `blocking_findings`에는 sealed source로 입증되는 실제 신청자격 의미 누락·오분류만,
+  `uncertainties`에는 원문으로 확정할 수 없는 축만 반환한다.
+- blocking finding은 dimension, `missing_eligibility` 또는
+  `misclassified_eligibility`, exact source span, reason을 모두 가져야 한다.
+  서버는 source span이 sealed evidence에서 해소되지 않거나 22축 전수 목록이
+  중복·누락되면 `unsure`로 닫는다. uncertainty가 하나라도 있으면 `unsure`,
+  검증된 blocking finding이 있으면 `disagree`, 둘 다 없을 때만 `concur`다.
+- 표현·분할·중복 후보처럼 비차단인 차이는 아예 finding으로 만들지 않는다. 따라서
+  P18처럼 reason은 “누락 없음”인데 구조화 verdict만 반대인 상태가 표현될 수 없고,
+  실제 blocker가 있으면 원문 span이 있는 finding으로만 차단된다.
+- grounded blocker, uncertainty, 22축 누락, 원문에 없는 blocker span, 빈 blocker
+  성공과 429 retry를 회귀 테스트로 고정했다. blind audit v10, adjudication v11,
+  model policy v16으로 올렸고 primary prompt, 모델, 비용 상한, exact cohort,
+  발행 gate와 matcher는 변경하지 않았다.
+- focused audit/adjudication 테스트, 전체 deep-analysis contract, contracts/core
+  build, web/admin typecheck와 `git diff --check`가 PASS했다. exact commit
+  `625f9e0c52d54b2b3c370b7e4c987c8098505835`은 Cloud Build
+  `1c6cc034-c2c3-4443-811f-9a0e41922628`, immutable digest
+  `sha256:8c454ac9d13b1031e64ee485517cdd0f0afa9da4517cb22e86d5f46d890aa5f7`로
+  main/input/monitor generation `48/22/15`에 배포됐다. observe-only `7fplj`,
+  input `vkf2x`, monitor `b9l4m` smoke는 v16/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T10:50:17Z` 이후 generation 49에서 같은 exact cohort만
+  열었다. 첫 공고 run
+  `da-20260727T105052697Z-ba18d0f7-b342-499f-8ed2-b4b7491a0ebf`은 primary
+  22축·response contract·exact evidence를 통과했지만 독립 감사가 `size`
+  uncertainty를 반환해 S11에서 fail-closed됐다. 비용은 `$1.477756`,
+  out-of-cohort run은 0이다. 두 번째 공고는 pending에서 호출하지 않았다.
+- 이번 uncertainty는 출력 계약 잡음이 아니다. Bizinfo 공식 구조화 대상
+  `trgetNm`은 `중소기업`인데 상세 HWP 신청대상은 `중견기업 또는 중견기업
+  후보기업`으로 서로 충돌한다. P16의 출처 계약대로 어느 한쪽을 임의 선택하지
+  않았고, 사람의 원문 확인 없이 S12 발행으로 넘기지 않은 것이 올바른 결과다.
+- 부분 release, matcher write, Vercel 배포는 수행하지 않았다. main은 generation
+  50 `observe_only`로 즉시 복귀했고 claim scope/ID/hash를 제거했다. 종료 smoke
+  `cunote-deep-analysis-fm7gd`는 policy v16/current revision, claim 0,
+  enqueue/analysis/budget mutation 0으로 성공했다. 2026-07-27 재확인에서도
+  generation `50/50`, exact commit과 immutable digest, 공고당 `$2` 상한,
+  `observe_only`, claim 변수 부재를 유지했다.
+
+Step 4-1P-20 랜딩 → 딥분석 기반 매칭 최소 제품 체크포인트 —
+`PIPELINE PASS`, 번호만으로 확정 추천은 `PARTIAL` (2026-07-27):
+
+- 범위를 새 cohort 재분석·추가 prompt·관제 확장이 아니라
+  `사업자번호 입력 → 회사 preview → /matches → teaser → 이미 S14 승격된
+  grant_criteria 매칭` 한 줄로 고정했다. 로컬에서 실행 중인 3000 포트는 다른
+  프로젝트였으므로 개발 서버를 새로 시작하지 않았다. production home과
+  `/matches` HTML이 각각 사업자번호 입력 폼과 매칭 loading surface를 반환하는
+  것을 확인했다.
+- 코드 연결은 `use-biz-lookup.ts`의 `/api/web/company-preview` 성공 후
+  `/matches?biz=...` 이동, `MatchResultsExperience.tsx`의 `/api/web/teaser`
+  호출, `loadProductTeaser`의 anonymous profile resolution +
+  `loadServiceGrantUniverse` + `buildProductTeaserSnapshot`, Drizzle의
+  visible grant/`grant_criteria` hydration, core `matchNormalizedGrant` 순서다.
+  별도 legacy matcher나 deep-analysis 전용 우회 매처는 없다.
+- production DB read-only 대조에서 기존 S14 release
+  `deep-production-r1-20260725T020110Z-e238ba64`와
+  `deep-production-r1-20260725T022203Z-5fcb677b`는 모두 release `active`,
+  item `applied`, deep run `passed`이고 S0~S14 최신 receipt가 전부 `passed`였다.
+  전자는 2026-12-31 마감·`visible/open`이라 현재 랜딩 유니버스에 남고,
+  후자는 2026-07-27 09:00 KST 마감이 지나 활성 유니버스에서 제외된다.
+- fresh Popbill cache가 있는 익명 테스트 회사를 원문 번호를 출력하지 않고 선택해
+  production API를 실제 랜딩 순서로 호출했다. preview는 HTTP 200, `cacheStatus=hit`,
+  상호·정상 영업 상태·지역을 반환했다. 이어진 teaser도 HTTP 200으로 활성 공고
+  1,509건을 평가하고 8개 카드를 반환했다.
+- 현재 노출 중인 S14 딥분석 공고
+  `c418c645-53ae-4cd9-959d-4ae5d5fe4d4f`가 실제 8개 카드 안에 포함됐다.
+  DB의 승격 criterion 5건은 `size/certification/target_type/prior_award/size`이고,
+  API 카드의 rule trace도 같은 순서·kind의 5건이었다. `criteriaExtracted=true`,
+  5건 모두 source span이 있어, 랜딩 응답이 일반 공고 제목 신호가 아니라
+  S14에서 발행한 깊은 분석 기준을 실제 매처 입력으로 소비했음을 확인했다.
+- 다만 테스트 회사 profile view는 `known 2 / partial 2 / unknown 15`였다.
+  해당 공고의 `size`, `certification`, `prior_award`는 unknown,
+  `target_type`은 partial이라 결과는 `conditional/needs_core_review`였고
+  전체 응답도 recommendable 0건이었다. 즉 **딥분석 기반 연결은 작동하지만,
+  번호 하나만으로 확정 지원 가능 공고를 내는 제품 목표는 아직 완성되지 않았다.**
+- 원인은 이번 딥분석 연결이 아니라 회사 입력 보강 경계다. anonymous resolver가
+  소비한 것은 `popbill_cache` 4개 observation뿐이며 `codef_hometax`와
+  `codef_insurance`는 현재 source policy상 모두 `disabled/policy_disabled`다.
+  CODEF cache가 consent owner/version을 안전하게 증명하지 못하는 상태에서 익명
+  요청에 재사용하지 않는 기존 fail-closed 경계다. 이번 좁은 체크포인트에서는
+  이 정책을 우회하거나 CODEF 호출·DB write·Vercel 배포를 하지 않았다.
+- 브라우저 런타임 연결이 제공되지 않아 실제 클릭 화면의 시각 smoke는 완료하지
+  못했다. 대신 production HTML, UI route 연결, 동일 production preview/teaser
+  연속 호출, S14 DB 원장과 API rule trace 대조까지 완료했다. 다음 제품 단계는
+  딥분석을 더 확장하는 작업이 아니라, 동의·소유권이 보장된 회사 정보 보강으로
+  위 4개 핵심 회사 축을 채우고 같은 단일 E2E를 다시 통과시키는 일이다.
+
+Step 4-1P-21 legacy grant-analysis 평가 의도 이관 및 main 통합 체크포인트 —
+`CODE MERGE 불필요`, 계약 의도만 유지 (2026-07-28):
+
+- `coolwithyou/grant-analysis-llm-evaluation`은 2026-07-15 기준 40건 동결 cohort와
+  3건 paid smoke를 위한 별도 실험 runner였다. 현재 main보다 187개 commit 뒤에
+  있고, 최신 deep-analysis worker·원장·감사·승격 경로와 실행 책임이 중복된다.
+  따라서 해당 브랜치의 6개 구현 commit과 과거 provider/model/receipt 기본값을
+  production 경로에 merge하거나 cherry-pick하지 않는다.
+- legacy checkpoint에는 8회 attempt reservation과
+  `4 success / 3 failed / 1 running / 1 skipped`가 남아 있어 미실행 계획으로
+  취급할 수 없다. 반면 정본이 요구한 `secret-manifest.json`은 남아 있지 않아
+  public/secret manifest pair와 sealed holdout을 원래 계약대로 재현할 수도 없다.
+  Gate 3~5는 종료하고 paid runner를 재개하지 않는다.
+- public manifest, 네 세대의 Gate 2 plan/input, 두 execution checkpoint는 저장소
+  밖 `0600` archive로 보존했다. source branch는 종료 receipt commit과 함께
+  원격에 보존하고, stale paid-smoke orchestration task는 실패 종료했다.
+- 아래 의도는 특정 legacy 구현을 복사하지 않고 현재 deep-analysis 계약에서
+  계속 보증한다.
+  - 명시적 실행 opt-in과 bounded claim: worker execute gate와 claim scope/hash
+  - 입력·정책 불변성: current job/source revision/model policy 및 sealed evidence
+  - 호출·비용 상한: stage별 model/max token/cost policy와 budget ledger
+  - 재실행 안전성: immutable stage receipt, attempt, terminal status
+  - 운영 반영 fail-closed: S11 passed receipt, 최신 source, 독립 감사 concur를 모두
+    요구하는 S12~S14 promotion gate
+- main 통합에서는 실제 배포 코드 이력인
+  `coolwithyou/deep-analysis-product-checkpoint`만 병합한다. legacy 평가 코드는
+  합치지 않고 이 절을 계약 handoff로 사용한다. 다음 실행 판단은 P19의 출처 충돌
+  해결과 P20의 동의·소유권 기반 회사 정보 보강이 끝난 뒤에만 다시 연다.
 
 중단 조건:
 

@@ -11,8 +11,11 @@ import {
   type GrantCriterion,
 } from "@cunote/contracts";
 import {
+  EXCEPTION_FLAG_COVERAGE,
   canonicalizeGrantCriterion,
   validateGrantCriteriaContract,
+  type DisqualificationException,
+  type DisqualificationFlag,
 } from "@cunote/core";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
@@ -101,21 +104,15 @@ export function validateDeepAnalysisResult(input: {
     });
   }
 
-  const validatedCriteria = input.result.criteria.map((criterion, index) => (
+  const allValidatedCriteria = input.result.criteria.map((criterion, index) => (
     validateCriterion(input.seal, criterion, index, issues)
   ));
-  const semanticIndexes = new Map<string, number>();
-  for (const validated of validatedCriteria) {
-    const prior = semanticIndexes.get(validated.semanticSha256);
-    if (prior !== undefined) {
-      issues.push({
-        code: "semantic_duplicate",
-        path: `$.criteria[${validated.index}]`,
-        message: `Semantic duplicate of criterion ${prior}.`,
-      });
-    } else {
-      semanticIndexes.set(validated.semanticSha256, validated.index);
-    }
+  const validatedCriteria: DeepAnalysisValidatedCriterion[] = [];
+  const semanticHashes = new Set<string>();
+  for (const validated of allValidatedCriteria) {
+    if (semanticHashes.has(validated.semanticSha256)) continue;
+    semanticHashes.add(validated.semanticSha256);
+    validatedCriteria.push(validated);
   }
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
@@ -292,6 +289,7 @@ function validateCriterion(
     parser_version: DEEP_ANALYSIS_VALIDATOR_VERSION,
   };
   const canonicalCriterion = canonicalizeGrantCriterion(grantCriterion);
+  validateExceptionCoverage(criterion, index, issues);
   if (criterion.dimension === "premises" || criterion.dimension === "export_performance") {
     const note = isRecord(criterion.value) && typeof criterion.value.note === "string"
       ? criterion.value.note.trim()
@@ -349,7 +347,7 @@ function validateCriterion(
     dimension: canonicalCriterion.dimension,
     operator: canonicalCriterion.operator,
     kind: canonicalCriterion.kind,
-    value: canonicalCriterion.value,
+    value: canonicalizeSemanticValue(canonicalCriterion.value),
   }));
   return {
     index,
@@ -358,6 +356,56 @@ function validateCriterion(
     semanticSha256,
     evidenceRefs,
   };
+}
+
+function validateExceptionCoverage(
+  criterion: DeepAnalysisCriterion,
+  index: number,
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  if (
+    criterion.dimension !== "tax_compliance"
+    && criterion.dimension !== "credit_status"
+    && criterion.dimension !== "sanction"
+  ) return;
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  const flags = Array.isArray(value.flags)
+    ? value.flags.filter((flag): flag is DisqualificationFlag => typeof flag === "string")
+    : [];
+  const exceptions = Array.isArray(value.exceptions)
+    ? value.exceptions.filter(
+      (exception): exception is DisqualificationException =>
+        typeof exception === "string" && exception in EXCEPTION_FLAG_COVERAGE,
+    )
+    : [];
+  for (const exception of exceptions) {
+    if (EXCEPTION_FLAG_COVERAGE[exception].some((flag) => flags.includes(flag))) continue;
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${index}].value.exceptions`,
+      message: `Exception ${exception} does not cover any criterion flag.`,
+    });
+  }
+}
+
+function canonicalizeSemanticValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    if (value.every((item) => typeof item === "string")) {
+      return [...new Set(value)].sort();
+    }
+    return value.map(canonicalizeSemanticValue);
+  }
+  if (!isRecord(value)) return value;
+  const entries = Object.entries(value);
+  const semanticEntries = entries.some(([key]) => key !== "note")
+    ? entries.filter(([key]) => key !== "note")
+    : entries;
+  return Object.fromEntries(
+    semanticEntries.map(([key, item]) => [
+      key,
+      canonicalizeSemanticValue(item),
+    ]),
+  );
 }
 
 function locateEvidence(

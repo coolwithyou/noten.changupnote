@@ -11,13 +11,12 @@ import {
 import { adjudicateDeepAnalysisAudit } from "./auditAdjudication";
 import type { runDeepGrantAnalysis } from "./extractor";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
-import { repairDeepAnalysisExecution } from "./repair";
 import {
   validateDeepAnalysisResult,
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v2" as const;
+export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v10" as const;
 
 export type DeepAnalysisAuditVerdict = "concur" | "disagree" | "unsure";
 
@@ -47,8 +46,9 @@ export interface DeepAnalysisBlindAuditResult {
 }
 
 /**
- * primary 결과를 모델 입력에 전달하지 않는다. source seal만 다른 allowlisted model로 독립
- * 분석한 뒤, 두 결과의 canonical semantic set과 22축 status를 서버가 비교한다.
+ * 첫 pass에는 primary 결과를 전달하지 않는다. source seal만 다른 allowlisted model로
+ * 독립 분석해 누락 후보를 찾고, exact 배열이 다르거나 blind 결과 계약이 불완전하면
+ * 원문을 다시 보는 semantic adjudication이 primary의 실제 의미 누락·오분류만 판정한다.
  */
 export async function runBlindDeepAnalysisAudit(input: {
   seal: DeepAnalysisInputSeal;
@@ -68,27 +68,17 @@ export async function runBlindDeepAnalysisAudit(input: {
     seal: input.seal,
     result: execution.result,
   });
-  for (let repairAttempt = 0; repairAttempt < 2 && !validation.valid; repairAttempt += 1) {
-    execution = await repairDeepAnalysisExecution({
-      seal: input.seal,
-      apiKey: input.apiKey,
-      model: input.auditModel,
-      failedExecution: execution,
-      validation,
-      ...(input.runModel ? { runModel: input.runModel } : {}),
-    });
-    validation = validateDeepAnalysisResult({
-      seal: input.seal,
-      result: execution.result,
-    });
-  }
   const comparison = compareDeepAnalysisValidations({
     primary: input.primaryValidation,
     primaryResult: input.primaryResult,
     audit: validation,
     auditResult: execution.result,
   });
-  const adjudication = validation.valid && comparison.verdict !== "concur"
+  const adjudication = shouldRunSemanticAuditAdjudication({
+    primaryValid: input.primaryValidation.valid,
+    auditValid: validation.valid,
+    comparisonVerdict: comparison.verdict,
+  })
     ? await adjudicateDeepAnalysisAudit({
       apiKey: input.apiKey,
       model: input.auditModel,
@@ -102,9 +92,11 @@ export async function runBlindDeepAnalysisAudit(input: {
   return {
     promptVersion: DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
     model: input.auditModel,
-    verdict: validation.valid
-      ? adjudication?.verdict ?? comparison.verdict
-      : "unsure",
+    verdict: resolveSemanticAuditVerdict({
+      auditValid: validation.valid,
+      comparisonVerdict: comparison.verdict,
+      adjudicationVerdict: adjudication?.verdict ?? null,
+    }),
     itemResults: adjudication?.itemResults ?? comparison.itemResults,
     validation,
     execution,
@@ -117,6 +109,24 @@ export async function runBlindDeepAnalysisAudit(input: {
       }
       : null,
   };
+}
+
+export function shouldRunSemanticAuditAdjudication(input: {
+  primaryValid: boolean;
+  auditValid: boolean;
+  comparisonVerdict: DeepAnalysisAuditVerdict;
+}): boolean {
+  return input.primaryValid
+    && (!input.auditValid || input.comparisonVerdict !== "concur");
+}
+
+export function resolveSemanticAuditVerdict(input: {
+  auditValid: boolean;
+  comparisonVerdict: DeepAnalysisAuditVerdict;
+  adjudicationVerdict: DeepAnalysisAuditVerdict | null;
+}): DeepAnalysisAuditVerdict {
+  if (input.adjudicationVerdict) return input.adjudicationVerdict;
+  return input.auditValid ? input.comparisonVerdict : "unsure";
 }
 
 export function compareDeepAnalysisValidations(input: {

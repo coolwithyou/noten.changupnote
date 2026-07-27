@@ -7,7 +7,7 @@
 //
 // [비용 계산 — 크레딧/metering 래퍼 사용 금지]
 //   운영 원가수집(metering)과 섞이면 실험 비용이 서비스 원가로 오염되므로 여기서 직접 계산만 한다.
-//   Opus 4.8 단가: input $5/1M · output $25/1M · cache_read $0.5/1M.
+//   모델별 가격과 Sonnet 5 가격 전환은 costPolicy 단일 원천을 사용한다.
 //
 // [응답 불신 원칙 — llm-criteria.ts 동형]
 //   dimension/kind enum 밖 값은 드롭, confidence 는 0~1 클램프, source_span 은 최종 입력 텍스트에
@@ -30,16 +30,12 @@ import {
   type DeepAnalysisTaxonomyProposal,
   type DeepAnalysisUsage,
 } from "@cunote/contracts";
+import { priceDeepAnalysisUsage } from "./costPolicy";
 
 export const ANALYSIS_LAB_TOOL_NAME = "emit_deep_grant_analysis";
 
 const DEFAULT_MAX_TOKENS = 12_000;
 const DEFAULT_TIMEOUT_MS = 540_000;
-
-// Opus 4.8 단가(USD / 1M tokens).
-const USD_PER_INPUT_TOKEN = 5 / 1e6;
-const USD_PER_OUTPUT_TOKEN = 25 / 1e6;
-const USD_PER_CACHE_READ_TOKEN = 0.5 / 1e6;
 
 // 운영 deep-analysis-v1부터 22축 전부를 criterion으로 표현한다. premises와
 // export_performance도 axis에서 조건을 찾았으면 근거 있는 criterion이 반드시 존재해야 한다.
@@ -181,11 +177,7 @@ export async function runDeepGrantAnalysis(options: {
     axisAssessments: normalizeAxisAssessments(input.axis_assessments),
     taxonomyProposals: normalizeTaxonomyProposals(input.taxonomy_proposals),
     usage,
-    costUsd: usage
-      ? usage.inputTokens * USD_PER_INPUT_TOKEN +
-        usage.outputTokens * USD_PER_OUTPUT_TOKEN +
-        (usage.cacheReadTokens ?? 0) * USD_PER_CACHE_READ_TOKEN
-      : null,
+    costUsd: usage ? priceDeepAnalysisUsage({ model, usage }) : null,
     rawToolInput: input,
     rawResponseText: body,
     stopReason: payload.stop_reason ?? null,
@@ -435,6 +427,8 @@ export function resolveExactEvidenceSpan(
   if (inputText.includes(requestedSpan)) return requestedSpan;
   const direct = resolveNormalizedEvidenceCandidate(requestedSpan, inputText);
   if (direct) return direct;
+  const trailingBullet = resolveTrailingBulletEvidenceCandidate(requestedSpan, inputText);
+  if (trailingBullet) return trailingBullet;
 
   const escapedCandidates = new Set<string>();
   for (const match of inputText.matchAll(JSON_STRING_LITERAL_PATTERN)) {
@@ -456,6 +450,27 @@ export function resolveExactEvidenceSpan(
     }
   }
   return escapedCandidates.values().next().value ?? null;
+}
+
+/**
+ * HWP 표에서 모델이 짧은 섹션 제목의 불릿(□)을 조건문 불릿(▸)으로 잘못 복사한 경우,
+ * 실제 조건문 자체가 충분히 길고 sealed input에서 유일하게 해소될 때만 제목을 버리고
+ * 두 번째 불릿 이후 exact substring을 근거로 사용한다. 일반 목록이나 여러 문장을
+ * 임의로 축약하지 않도록 ▸가 정확히 2개, 제목 prefix 40자 이하, 조건문 40자 이상을
+ * 모두 요구한다.
+ */
+function resolveTrailingBulletEvidenceCandidate(
+  requestedSpan: string,
+  inputText: string,
+): string | null {
+  const offsets = [...requestedSpan.matchAll(/▸/g)].map((match) => match.index);
+  if (offsets.length !== 2) return null;
+  const second = offsets[1]!;
+  const prefix = normalizeEvidence(requestedSpan.slice(0, second));
+  const condition = requestedSpan.slice(second).trim();
+  if (prefix.length > 40 || normalizeEvidence(condition).length < 40) return null;
+  if (inputText.includes(condition)) return condition;
+  return resolveNormalizedEvidenceCandidate(condition, inputText);
 }
 
 const JSON_STRING_LITERAL_PATTERN =
@@ -616,6 +631,19 @@ export const CONFIRMATION_PROMPT_RULES = [
   "company_fact 이면 condition_key 에 그 사실을 식별하는 안정적인 영문 snake_case 키를 쓴다(예: prior_award_system_conformity_test_fee). per_notice 면 condition_key 를 생략한다.",
 ];
 
+export const DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE =
+  "business_status는 active/closed 같은 사업자등록상 운영 상태만 뜻한다. 지급불능·부도·파산·회생·법정관리·청산은 credit_status 플래그로만 표현하고, 동일 사실을 business_status criterion이나 condition_found로 중복 표현하지 마라. 예: 원문이 '부도 또는 파산기업(예정 포함)'이면 credit_status의 bond_default/bankruptcy_filed만 추출하고, 다른 휴업·폐업 근거가 없는 한 business_status는 inspected_no_condition이다.";
+export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
+  "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
+export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
+  "financial_health의 구조화 criterion에 impairment_excluded가 full을 포함하면 자본전액잠식 결격을 이미 반영한 것이다. 같은 자본전액잠식 문구를 별도 text_only criterion으로 중복 만들지 말고, audit에서 그런 audit_only 후보가 나오면 primary 누락이 아니라 중복으로 판단하라.";
+export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
+  "criteria는 신청 시점의 자격·지원 제한·우대·평가점수처럼 신청 가능 판단과 사업자 매칭에 직접 쓰이는 규정만 포함한다. 본 사업 선정 후의 협약 이행, 수행내용 준수, 보고 의무와 그 위반에 따른 지원 취소·중단·환수 사유는 criterion으로 만들지 말고 analysis_markdown과 program_intent.caution_notes에만 기록한다. 동일 사실이 신청자격·지원 제한에도 명시되면 그 신청 단계 문장만 criterion 근거로 쓴다. 예: '지원 취소' 아래의 '협약서 등 관련 문서에서 명시한 사항을 2회 이상 위반'과 '지원신청서 및 계획서 내용과 수행내용이 상이'는 sanction/other criterion이 아니다. '회원가입시 ... 서류 제출 (영리기관만 해당)'처럼 괄호가 제출서류 적용 범위만 한정하고 신청 대상을 명시하지 않으면 target_type 조건이 아니다.";
+export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
+  "자격·결격 문장에 붙은 '단', '다만', '예외' 조건은 매칭 결과를 바꾸는 핵심 조건이다. 예외를 생략하거나 바로 앞뒤의 다른 criterion에 옮겨 붙이지 마라. 각 criterion의 value.exceptions에는 그 criterion에 실제 적용되는 canonical 예외만 넣고, source_span은 본문과 해당 예외 문구를 함께 포함해 글자 그대로 인용하라. 같은 flags라도 예외의 종류나 적용 대상이 다르면 의미가 다른 criterion이다.";
+export const DEEP_ANALYSIS_STRUCTURED_TARGET_RULE =
+  "sealed structured source의 rawPayload.trgetNm은 Bizinfo가 제공한 공식 신청대상 필드다. 이 값이 '중소기업'처럼 지원대상을 구체적으로 명시하면 첨부 본문에 같은 문장이 반복되지 않아도 해당 축 criterion의 유효한 근거로 사용하고, 첨부에 없다는 이유만으로 inspected_no_condition이나 unsure로 낮추지 마라. 다만 structured 신청대상과 공고 본문·첨부의 명시 조건이 서로 충돌하면 임의로 선택하지 말고 ambiguous로 남겨라.";
+
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
   "첨부 공고문 전문을 근거로 최대한 깊게, 모든 축을 검사하고 반드시 원문 인용(source_span)을 남겨라.",
@@ -639,18 +667,24 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "[criteria — 22축 자격조건 분해]",
   "필수조건은 required, 제외대상은 exclusion, 우대조건은 preferred 로 분리한다.",
   "criteria 는 신청 가능 여부, 결격, 우대, 평가점수에 실제 영향을 주는 명시적 규정만 만든다.",
+  DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
+  DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   "신청서·서식의 빈칸, 체크박스, 기업정보 기재란이 어떤 사실(예: 수출실적 유무·특허 보유·매출)을 묻는다는 이유만으로 required·exclusion·preferred 조건을 만들지 마라. 주변 문구나 공고 본문에 필수·제외·우대·배점 효과가 명시된 경우에만 condition_found 로 판정한다.",
   "단순 정보수집 항목만 있고 규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition 으로 둔다. 다만 서식 안에서도 신청자격·결격·서약·우대·배점이 문장으로 명시되면 그 문장을 근거로 조건을 추출한다.",
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
+  DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   "업종은 dimension=industry 의 value.tags 배열에 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 로 남긴다.",
   "휴폐업 제외는 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"closed\"],\"labels\":[\"휴폐업\"]} 로 추출한다.",
+  DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   "",
   "[결격(배제) 조건 canonical 매핑 — 반드시 아래 축으로 분해한다]",
-  "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외 문구가 있으면 value.exceptions=[\"payment_deferral_approved\"].",
-  "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 변제 정상이행 예외→exceptions=[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"].",
+  "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외→exceptions=[\"payment_deferral_approved\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
+  "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 변제 정상이행 예외→exceptions=[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
   "- 제재·참여제한: dimension=sanction, operator=in, kind=exclusion, value.flags=[참여제한=participation_restricted, 부정수급·환수=subsidy_fraud, 보조금법위반·특수관계=subsidy_law_violation, 의무불이행=obligation_breach, 임금체불명단=wage_arrears_listed, 중대재해명단=serious_accident_listed, 협약·계약위반=agreement_breach] 중 해당.",
   "- 재무건전성: dimension=financial_health, kind=exclusion, value.debt_ratio_pct_threshold={\"value\":숫자,\"inclusive\":이상=true/초과=false}, value.impairment_excluded=[\"partial\"|\"full\"](자본잠식만 언급 시 [\"partial\",\"full\"]), value.min_interest_coverage=숫자.",
+  DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   "- 고용보험·피보험자: dimension=insured_workforce, value.employment_insurance_required=true / min_insured·max_insured 숫자 / no_layoff_within_months 숫자.",
   "- 투자유치 하한(이상): dimension=investment, operator=gte, value.min_total_krw(원 단위 정수). rounds / tips_operator_required도 지원한다. 'N원 미만·이하' 같은 투자유치 상한은 현재 matcher canonical에 없으므로 dimension=investment를 유지하되 operator=text_only, value={\"note\":\"근거문장\"}로 둔다. lte와 min_total_krw를 결합하지 마라.",
   "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박 등): dimension=industry, operator=not_in, kind=exclusion, value.tags=[업종명].",
@@ -708,7 +742,7 @@ function finiteNumber(value: unknown): number | null {
 }
 
 function normalizeEvidence(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return normalizeEvidenceWithOffsets(value).text;
 }
 
 function normalizeEvidenceWithOffsets(
@@ -752,6 +786,10 @@ function evidenceWhitespaceWidth(
   decodeEscapedWhitespace: boolean,
 ): number {
   if (/\s/.test(value[index]!)) return 1;
+  const htmlWhitespace = value.slice(index).match(
+    /^(?:&nbsp;|&#160;|&#x0*a0;)/i,
+  )?.[0];
+  if (htmlWhitespace) return htmlWhitespace.length;
   if (
     decodeEscapedWhitespace
     && value[index] === "\\"
