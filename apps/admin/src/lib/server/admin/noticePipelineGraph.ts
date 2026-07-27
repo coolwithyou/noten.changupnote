@@ -46,6 +46,39 @@ const REFRESH_AFTER_SECONDS = 60
 const MAX_SEARCH_LENGTH = 100
 const MAX_PAGE = 10_000
 
+const PIPELINE_DEADLINE_BUCKET_SQL = `
+case
+  when g.apply_end is null then 'unknown'
+  when timezone('Asia/Seoul', g.apply_end)::date
+    <= timezone('Asia/Seoul', now())::date then 'today'
+  when timezone('Asia/Seoul', g.apply_end)::date
+    <= timezone('Asia/Seoul', now())::date + 3 then 'within_3_days'
+  when timezone('Asia/Seoul', g.apply_end)::date
+    <= timezone('Asia/Seoul', now())::date + 7 then 'within_7_days'
+  when timezone('Asia/Seoul', g.apply_end)::date
+    <= timezone('Asia/Seoul', now())::date + 30 then 'within_30_days'
+  else 'later'
+end
+`
+
+const PIPELINE_MANAGEMENT_STATE_SQL = `
+case
+  when g.status = 'closed' then 'closed'
+  when gr.status = 'failed'
+    or coalesce(ast.attachment_failed_count, 0) > 0
+    or coalesce(ss.surface_failed_count, 0) > 0 then 'failed'
+  when coalesce(cs.needs_review_count, 0) > 0
+    or le.extraction_status = 'review' then 'needs_admin'
+  when gr.status in ('fetched', 'converted', 'extracted', 'normalized')
+    or gr.status is null then 'in_pipeline'
+  when gr.status = 'published'
+    and le.extraction_status = 'labeled'
+    and coalesce(ast.attachment_unresolved_count, 0) = 0 then 'ok'
+  when gr.status = 'published' then 'auto_reviewable'
+  else 'in_pipeline'
+end
+`
+
 const PIPELINE_BASE_CTE = `
 with criteria_stats as (
   select
@@ -129,34 +162,80 @@ pipeline_base as (
         - timezone('Asia/Seoul', now())::date
       )::int
     end as d_day,
-    case
-      when g.apply_end is null then 'unknown'
-      when timezone('Asia/Seoul', g.apply_end)::date
-        <= timezone('Asia/Seoul', now())::date then 'today'
-      when timezone('Asia/Seoul', g.apply_end)::date
-        <= timezone('Asia/Seoul', now())::date + 3 then 'within_3_days'
-      when timezone('Asia/Seoul', g.apply_end)::date
-        <= timezone('Asia/Seoul', now())::date + 7 then 'within_7_days'
-      when timezone('Asia/Seoul', g.apply_end)::date
-        <= timezone('Asia/Seoul', now())::date + 30 then 'within_30_days'
-      else 'later'
-    end as deadline_bucket,
-    case
-      when g.status = 'closed' then 'closed'
-      when gr.status = 'failed'
-        or coalesce(ast.attachment_failed_count, 0) > 0
-        or coalesce(ss.surface_failed_count, 0) > 0 then 'failed'
-      when coalesce(cs.needs_review_count, 0) > 0
-        or le.extraction_status = 'review' then 'needs_admin'
-      when gr.status in ('fetched', 'converted', 'extracted', 'normalized')
-        or gr.status is null then 'in_pipeline'
-      when gr.status = 'published'
-        and le.extraction_status = 'labeled'
-        and coalesce(ast.attachment_unresolved_count, 0) = 0 then 'ok'
-      when gr.status = 'published' then 'auto_reviewable'
-      else 'in_pipeline'
-    end as management_state
+    ${PIPELINE_DEADLINE_BUCKET_SQL} as deadline_bucket,
+    ${PIPELINE_MANAGEMENT_STATE_SQL} as management_state
   from grants g
+  left join grant_raw gr
+    on gr.source = g.source and gr.source_id = g.source_id
+  left join criteria_stats cs on cs.grant_id = g.id
+  left join attachment_stats ast
+    on ast.source = g.source and ast.source_id = g.source_id
+  left join surface_stats ss on ss.grant_id = g.id
+  left join latest_extraction le on le.grant_id = g.id
+)
+`
+
+const PIPELINE_SUMMARY_CTE = `
+with target_grants as materialized (
+  select
+    id,
+    source,
+    source_id,
+    status,
+    apply_end
+  from grants
+  where status in ('open', 'upcoming')
+    or ($1::boolean and status = 'closed')
+),
+criteria_stats as (
+  select
+    criteria.grant_id,
+    count(*) filter (where criteria.needs_review)::int as needs_review_count
+  from grant_criteria criteria
+  join target_grants g on g.id = criteria.grant_id
+  group by criteria.grant_id
+),
+attachment_stats as (
+  select
+    attachment.source,
+    attachment.source_id,
+    count(*) filter (
+      where attachment.conversion_status = 'failed'
+    )::int as attachment_failed_count,
+    count(*) filter (
+      where attachment.conversion_status is null
+        or attachment.conversion_status not in ('converted', 'skipped')
+    )::int as attachment_unresolved_count
+  from grant_attachment_archives attachment
+  join target_grants g
+    on g.source = attachment.source and g.source_id = attachment.source_id
+  group by attachment.source, attachment.source_id
+),
+surface_stats as (
+  select
+    surface.grant_id,
+    count(*) filter (
+      where surface.extraction_status = 'failed'
+    )::int as surface_failed_count
+  from grant_application_surfaces surface
+  join target_grants g on g.id = surface.grant_id
+  group by surface.grant_id
+),
+latest_extraction as (
+  select distinct on (extraction.grant_id)
+    extraction.grant_id,
+    extraction.status::text as extraction_status
+  from extraction_log extraction
+  join target_grants g on g.id = extraction.grant_id
+  order by extraction.grant_id, extraction.ts desc, extraction.id desc
+),
+summary_base as (
+  select
+    g.source::text as source,
+    gr.status::text as pipeline_status,
+    ${PIPELINE_DEADLINE_BUCKET_SQL} as deadline_bucket,
+    ${PIPELINE_MANAGEMENT_STATE_SQL} as management_state
+  from target_grants g
   left join grant_raw gr
     on gr.source = g.source and gr.source_id = g.source_id
   left join criteria_stats cs on cs.grant_id = g.id
@@ -209,6 +288,14 @@ interface SourceHealthRow {
   open_count: number
   today_new_count: number
   last_collected_at: Date | null
+}
+
+interface PipelineSummaryAggregateRow {
+  source: string
+  management_state: string
+  pipeline_status: string | null
+  deadline_bucket: string
+  count: number
 }
 
 interface CountRow {
@@ -369,17 +456,19 @@ export async function getPipelineSummary(
   input: Pick<PipelineQueryState, "lens" | "includeClosed">,
 ): Promise<PipelineSummary> {
   const sql = getAdminSql()
-  const [rows, sourceRows] = await Promise.all([
-    sql.unsafe<PipelineBaseRow[]>(
-      `${PIPELINE_BASE_CTE}
-      select *
-      from pipeline_base
-      where grant_status in ('open', 'upcoming')
-        or ($1::boolean and grant_status = 'closed')`,
-      [input.includeClosed],
-    ),
-    loadSourceHealth(sql),
-  ])
+  const rows = await sql.unsafe<PipelineSummaryAggregateRow[]>(
+    `${PIPELINE_SUMMARY_CTE}
+    select
+      source,
+      management_state,
+      pipeline_status,
+      deadline_bucket,
+      count(*)::int as count
+    from summary_base
+    group by source, management_state, pipeline_status, deadline_bucket`,
+    [input.includeClosed],
+  )
+  const sourceRows = await loadSourceHealth(sql)
 
   return buildPipelineSummary({
     rows,
@@ -677,7 +766,7 @@ export async function getPipelineMeasurement(): Promise<PipelineMeasurement> {
 }
 
 function buildPipelineSummary(input: {
-  rows: PipelineBaseRow[]
+  rows: PipelineSummaryAggregateRow[]
   sourceRows: SourceHealthRow[]
   lens: PipelineLens
 }): PipelineSummary {
@@ -697,8 +786,8 @@ function buildPipelineSummary(input: {
     const bucket = bucketForRow(row, input.lens)
     const summary = bucket ? buckets.get(bucket) : null
     if (!summary || !source) continue
-    summary.count += 1
-    summary.bySource[source] += 1
+    summary.count += row.count
+    summary.bySource[source] += row.count
   }
 
   const sourceByKey = new Map(
@@ -726,7 +815,7 @@ function buildPipelineSummary(input: {
   return {
     generatedAt: new Date().toISOString(),
     lens: input.lens,
-    total: input.rows.length,
+    total: input.rows.reduce((total, row) => total + row.count, 0),
     sources,
     buckets: [...buckets.values()],
     refreshAfterSeconds: REFRESH_AFTER_SECONDS,
@@ -923,7 +1012,13 @@ function bucketKeysForLens(lens: PipelineLens): PipelineBucket[] {
   return [...DEADLINE_BUCKETS]
 }
 
-function bucketForRow(row: PipelineBaseRow, lens: PipelineLens): PipelineBucket | null {
+function bucketForRow(
+  row: Pick<
+    PipelineBaseRow,
+    "management_state" | "pipeline_status" | "deadline_bucket"
+  >,
+  lens: PipelineLens,
+): PipelineBucket | null {
   if (lens === "review") {
     return isManagementState(row.management_state) ? row.management_state : null
   }
