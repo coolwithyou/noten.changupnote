@@ -8,6 +8,7 @@ import {
 export interface RefreshMatchStatesInput<TPayload = unknown> {
   repositories: ServiceRepositories<TPayload>;
   companyId: string;
+  userId?: string;
   company: CompanyProfile;
   grants: Array<NormalizedGrant<TPayload>>;
   asOf: Date;
@@ -22,6 +23,7 @@ export interface RefreshMatchStatesResult {
 export async function refreshMatchStates<TPayload>({
   repositories,
   companyId,
+  userId,
   company,
   grants,
   asOf,
@@ -48,6 +50,7 @@ export async function refreshMatchStates<TPayload>({
     match: state.match,
     eligibleFrom: parsePlanDate(state.eligibleFrom),
     eligibleUntil: parsePlanDate(state.eligibleUntil),
+    ...(userId ? { userId } : {}),
   })));
 
   return { plan, savedCount: plan.states.length };

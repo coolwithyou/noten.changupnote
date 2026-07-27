@@ -169,6 +169,7 @@ async function recalculateGrantMatch(input: {
   const { plan, savedCount } = await refreshMatchStates({
     repositories,
     companyId: input.companyId,
+    userId: input.userId,
     company: resolution.profile,
     grants: [grant],
     asOf: input.asOf,

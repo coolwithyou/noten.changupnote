@@ -387,6 +387,7 @@ export async function loadServiceDashboard(options: {
     const visibleGrantIds = new Set(dashboard.matches.map((match) => match.grantId));
     await persistMatchStates({
       ...(stateCompanyId ? { companyId: stateCompanyId } : {}),
+      ...(options.userId ? { userId: options.userId } : {}),
       company,
       grants: grants.filter((grant) => visibleGrantIds.has(grantKey(grant.grant))),
       asOf,
@@ -1542,6 +1543,7 @@ async function resolveDashboardProductProfile(input: {
 
 async function persistMatchStates(input: {
   companyId?: string;
+  userId?: string;
   company: CompanyProfile;
   grants: Array<NormalizedGrant<ServiceGrantPayload>>;
   asOf: Date;
@@ -1553,6 +1555,7 @@ async function persistMatchStates(input: {
     grants: input.grants,
     asOf: input.asOf,
     companyId: input.companyId,
+    ...(input.userId ? { userId: input.userId } : {}),
     write: true,
   });
 }
