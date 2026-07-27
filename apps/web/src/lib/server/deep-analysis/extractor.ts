@@ -427,6 +427,8 @@ export function resolveExactEvidenceSpan(
   if (inputText.includes(requestedSpan)) return requestedSpan;
   const direct = resolveNormalizedEvidenceCandidate(requestedSpan, inputText);
   if (direct) return direct;
+  const trailingBullet = resolveTrailingBulletEvidenceCandidate(requestedSpan, inputText);
+  if (trailingBullet) return trailingBullet;
 
   const escapedCandidates = new Set<string>();
   for (const match of inputText.matchAll(JSON_STRING_LITERAL_PATTERN)) {
@@ -448,6 +450,27 @@ export function resolveExactEvidenceSpan(
     }
   }
   return escapedCandidates.values().next().value ?? null;
+}
+
+/**
+ * HWP 표에서 모델이 짧은 섹션 제목의 불릿(□)을 조건문 불릿(▸)으로 잘못 복사한 경우,
+ * 실제 조건문 자체가 충분히 길고 sealed input에서 유일하게 해소될 때만 제목을 버리고
+ * 두 번째 불릿 이후 exact substring을 근거로 사용한다. 일반 목록이나 여러 문장을
+ * 임의로 축약하지 않도록 ▸가 정확히 2개, 제목 prefix 40자 이하, 조건문 40자 이상을
+ * 모두 요구한다.
+ */
+function resolveTrailingBulletEvidenceCandidate(
+  requestedSpan: string,
+  inputText: string,
+): string | null {
+  const offsets = [...requestedSpan.matchAll(/▸/g)].map((match) => match.index);
+  if (offsets.length !== 2) return null;
+  const second = offsets[1]!;
+  const prefix = normalizeEvidence(requestedSpan.slice(0, second));
+  const condition = requestedSpan.slice(second).trim();
+  if (prefix.length > 40 || normalizeEvidence(condition).length < 40) return null;
+  if (inputText.includes(condition)) return condition;
+  return resolveNormalizedEvidenceCandidate(condition, inputText);
 }
 
 const JSON_STRING_LITERAL_PATTERN =
