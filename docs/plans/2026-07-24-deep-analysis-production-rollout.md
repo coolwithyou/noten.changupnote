@@ -3581,6 +3581,44 @@ Step 4-1P-11 v8 실제 AI 감사·설명/제출양식 거짓 불일치 교정 �
   것이다. 새 의미 disagreement가 다시 발생하면 prompt를 계속 확장하지 않고 Chunk 2를
   fail-closed로 중단한다.
 
+Step 4-1P-12 v9 exact 2건 마지막 재실행 체크포인트 —
+`FAIL 1/2`, Chunk 2와 S12~S14는 `BLOCKED` (2026-07-27):
+
+- v9 commit `4c620a357a241d336256ed4ae881937badfc1792`를 Cloud Build
+  `3263bd5d-ae4f-43d2-b405-b79e800c226a`, digest
+  `sha256:3c482f52a3b903c47d06f9685ccc45bb38bbb74dd3fe0960acd0ea24fa7cfa2e`로
+  main/input-preparation/serving-monitor generation `27/15/8`에 배포했다.
+  observe-only `bps2r`, input `drlfg`, monitor `xf9zs` smoke는 policy v9/current
+  revision, mutation 0, 기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T05:01:10Z`에 같은 exact 두 UUID·cohort hash만 generation
+  28 `bounded`, invocation/동시 lease/최대 job 1, 공고당 `$2`로 열었다.
+  out-of-cohort run은 0이었다.
+- 첫 공고 run
+  `da-20260727T050141162Z-a9048137-59ee-4a64-a3a3-5a2f8ac085e1`은 S0~S11,
+  22축, 독립 AI 감사 `concur`를 통과했다. 총비용은 `$1.698438`로 상한 안이다.
+- 두 번째 공고 run
+  `da-20260727T050853100Z-76dfb363-09dd-40f3-a9af-325215f096ac`은 attachment 3건
+  전부 포함, 23,368자 input seal, primary response contract·22축·evidence grounding을
+  통과했다. primary는 repair 1회를 포함했고, 총비용은 `$0.804270`으로 상한 안이다.
+  그러나 독립 AI 감사가 criterion 4건을 실질 누락 가능성으로 보아 verdict `unsure`,
+  run `failed`, job `dead_letter`로 fail-closed됐다.
+- 감사가 지적한 내용은 이전의 단순 표현 중복과 달랐다. 신청서 내용과 실제 수행내용이
+  다를 때의 취소 조건(`other`), 협약서 명시사항 2회 이상 위반·시정요구 불응 시
+  지원취소(`sanction`), 회원가입 시 “영리기관만 해당” 문구의 비영리 신청자 배제
+  (`target_type` criterion·axis)였다. 따라서 이를 자동으로 중복으로 접거나 감사 verdict를
+  강제하지 않았다.
+- 최종 exact verifier는 S11 `1/2`, terminal failure 1, out-of-cohort 0, 두 공고
+  합계 `$2.502708`, 공고별 최대 `$1.698438`로 `FAIL`했다. 첫 공고만 성공한 상태에서
+  부분 release를 만들지 않았고 S12 release, S13 promotion, S14 serving 및 matcher
+  write를 모두 수행하지 않았다.
+- main은 즉시 generation 29 `observe_only`로 복귀했고 claim scope/ID/hash는
+  제거됐다. 종료 smoke `cunote-deep-analysis-gqfrw`는 policy v9/current revision,
+  claim/enqueue/analysis/budget mutation 0으로 성공했다.
+- P11의 중단 조건대로 v10 prompt를 추가하지 않고 Chunk 2를 닫는다. 다음 재개는 위 세
+  누락 후보가 실제 매칭 자격조건인지 제품 판단을 먼저 고정한 뒤, 그 결정만 작은 계약
+  테스트로 반영하는 별도 체크포인트여야 한다. 2/2 S11 전에는 S12~S14와 랜딩 매칭
+  제품 검증으로 진행하지 않는다.
+
 중단 조건:
 
 - 동결 80 품질 미달
