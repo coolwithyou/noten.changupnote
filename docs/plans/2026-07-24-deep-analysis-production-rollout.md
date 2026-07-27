@@ -3774,7 +3774,7 @@ Step 4-1P-16 공식 구조화 신청대상 근거 계약 체크포인트 —
   mutation 0으로 성공했다. S12~S14, Vercel, 랜딩 E2E는 수행하지 않았다.
 
 Step 4-1P-17 HWP 섹션 불릿 exact 근거 복원 체크포인트 —
-`LOCAL PASS`, production v14 exact 2건 재실행은 `PENDING` (2026-07-27):
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
 
 - v13 감사의 raw artifact를 읽기 전용으로 확인했다. 새 의미 disagreement가 아니라
   audit criterion 한 건의 source span만 byte-exact 검증에 실패했다. 원문에는
@@ -3789,9 +3789,38 @@ Step 4-1P-17 HWP 섹션 불릿 exact 근거 복원 체크포인트 —
 - production 실패 span과 다중 후보를 회귀 테스트로 고정했다. prompt/audit/adjudication
   버전은 그대로 두고 정규화 실행 identity만 model policy v14로 올렸다. 모델,
   공고당 `$2`, exact cohort, 동시성 1, 발행 gate는 변경하지 않았다.
-- 다음 mutation은 저장된 production audit raw response를 네트워크 호출 없이 v14
-  정규화·validator로 재생해 issue 0을 확인하고 전체 로컬 검증을 통과한 뒤에만,
-  exact v14 commit을 observe-only로 배포해 같은 두 건을 재실행하는 것이다.
+- 저장된 v13 production audit raw response를 네트워크 호출 없이 같은 sealed source
+  revision에 v14 정규화·validator로 재생했다. criterion 10건, 22축, validation issue
+  0건으로 통과했고 실패했던 조건문 span도 원문으로 복원·검증됐다. package build,
+  전체 `verify:deep-analysis-contract`, web typecheck, `git diff --check`도 PASS했다.
+- exact commit `1531d2ca5f3c1e24da1c3a84e87a310f424842f0`은 Cloud Build
+  `c1ccbec9-b5a5-490d-9ae1-5efd92d08d79`, immutable digest
+  `sha256:30ca6892d79757cc9c8b339922c5612a1a7b2f310783db4d3c81a43d0bf46ac8`로
+  main/input/monitor generation `42/20/13`에 배포됐다. observe-only `n5jj7`,
+  input `gsvh4`, monitor `dsjhf` smoke는 v14/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T08:22:49Z` 이후 generation 43에서 같은 exact 두
+  UUID·cohort hash만 열었다. 첫 공고 run
+  `da-20260727T082306530Z-e94916a6-4c66-41c0-8ddb-1d361d708c3b`은 22축,
+  response contract, axis coverage, exact evidence를 모두 통과했지만 독립 감사가
+  `unsure`여서 S11에서 fail-closed됐다. 비용은 `$1.829640`, out-of-cohort run은
+  0이다. 두 번째 공고는 pending에서 호출하지 않았다.
+- 이번 실패는 P17의 HWP 불릿 근거 복원 재발이 아니다. primary validation issue는
+  0건이었지만 감사 응답에는 허용되지 않은 `kind=other`, raw criterion 11건 중
+  normalized criterion 10건으로 1건 누락, `biz_age=condition_found`인데 대응
+  criterion이 없는 축-조건 불일치가 남았다. 최종 비교도 `biz_age` 축 1건과
+  `credit_status`·`sanction`·`financial_health`·`other` criterion 11건, 합계
+  12건이 달랐다. 이를 자동 중복 처리하거나 감사 결론을 강제하지 않았다.
+- exact 2건 중 첫 건부터 S11을 통과하지 못했으므로 부분 release를 만들지 않았고
+  S12~S14, matcher write, Vercel, 랜딩 E2E를 수행하지 않았다. main은 generation
+  44 `observe_only`로 즉시 복귀했고 claim scope/ID/hash를 제거했다. 종료 smoke
+  `cunote-deep-analysis-7mpwv`는 policy v14/current revision, claim 0,
+  enqueue/analysis/budget mutation 0으로 성공했다.
+- 이 체크포인트에서 production prompt/normalizer 반복은 중단한다. 재개하려면
+  `kind` contract와 criterion 분할 규칙을 더 늘리는 방식이 아니라, 독립 감사의
+  목적을 “동일한 criterion 배열 재생성”으로 둘지 “22축과 신청단계 자격 의미의
+  누락·오분류 검출”로 둘지 제품 계약을 먼저 좁혀야 한다. 그 결정 전에는
+  S12~S14와 랜딩 매칭 제품 검증으로 진행하지 않는다.
 
 중단 조건:
 
