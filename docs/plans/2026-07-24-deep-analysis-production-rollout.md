@@ -2608,7 +2608,7 @@ extractor 구현을 가지는 것은 금지한다.
 - [ ] promotion manifest가 run/source revision에 묶임
 - [ ] matcher serving hash 검증
 - [ ] source 변경 시 stale 자동 전환·재분석
-- [ ] `/pipeline`이 최신 main과 ops production에 통합됨
+- [x] `/pipeline`이 최신 main과 ops production에 통합됨
 - [x] active conservation equation 성립
 - [ ] blocker·SLO·worker heartbeat alert 작동
 - [ ] 동결 80공고 품질 기준 통과
@@ -3350,6 +3350,52 @@ Step 4-1P-5 v5 web/Ops production 정합 배포·GCP blocker 체크포인트 —
   exact commit으로 배포하고, worker는 우선 `observe_only`, input-preparation은
   LLM secret 없는 기존 최소 권한을 유지한 채 heartbeat/readback을 닫는 것이다.
   그 전에는 20건 확대, claim scope `all`, promotion/S12, matcher write를 금지한다.
+
+Step 4-1P-6 v5 worker·입력 준비·관제 production 정합 체크포인트 —
+`PASS`, 전체는 `BLOCKED` (2026-07-27):
+
+- `sw@noten.im`을 base account로 하고 `changupnote-com`만 대상으로 하는 전용
+  configuration `cunote-codex-dev`를 만들었다. 실제 API 호출 주체는 keyless
+  impersonation 서비스 계정
+  `cunote-codex-dev@changupnote-com.iam.gserviceaccount.com`이다. JSON key는 만들지
+  않았고 `sw@ba-ton.kr` 계정은 사용하지 않았다. IAM은 세 Job의 developer, runtime·
+  build service account user, Cloud Build editor, 로그·Scheduler viewer,
+  Artifact Registry reader와 exact staging bucket object 권한으로 제한했다.
+- old revision을 제한 배포해 확인하던 중 input-preparation heartbeat의 기본
+  `modelPolicyVersion`이 v3으로 하드코딩된 결함을 발견했다. 기본값을 contracts의
+  current `DEEP_ANALYSIS_MODEL_POLICY_VERSION`으로 단일화하고 회귀 테스트를 추가한
+  commit `7accca0e3334122bb8cc249a54374019edb122f3`을 main에 push했다.
+  focused test, 전체 deep-analysis contract와 web typecheck가 통과했다.
+- Cloud Build `5533a94b-82ee-4820-9fe7-66791a9ede07`가 위 exact commit을
+  `SUCCESS`로 빌드했다. 불변 image digest
+  `sha256:46e5e1caac17f42555af5809a57793ca70905301fb30a540e7abc5a3d4d0c8ae`를
+  세 Job에 배포했고 generation은 main/input-preparation/serving-monitor 각각
+  `15/11/4`다. runtime service account와 command/args/secret 참조는 보존됐고,
+  메인만 `ANTHROPIC_API_KEY`를 가진 채 `observe_only`다.
+- 수동 실행 `cunote-deep-analysis-l7m5t`는 policy v5, exact revision,
+  `claimScope=unconfigured`, claim·enqueue·analysis·budget mutation 0으로 성공했다.
+  `cunote-deep-analysis-input-preparation-gnm72`는 policy v5 heartbeat를 남기고
+  target/unresolved/error 0으로 성공했다. `cunote-deep-analysis-serving-monitor-sw4hq`는
+  활성 release 2건·item 2건의 source/analysis/criteria/trace 연결을 full mode로
+  재검증해 `PASS`했다.
+- 정시 Scheduler도 enabled 상태를 유지한다. 11:10 KST main execution
+  `cunote-deep-analysis-9dff7`와 11:12 KST input-preparation execution
+  `cunote-deep-analysis-input-preparation-lv8q5`가 같은 digest·revision으로
+  성공했고, 두 heartbeat 모두 policy v5/current revision이다. serving monitor는
+  `5,35 * * * *` Scheduler를 유지하며 위 current revision 수동 실행으로 먼저
+  검증했다.
+- current code의 production read-only `verify:deep-analysis-ledger`는
+  catalog/RLS/append-only/identity/promotion FK를 `PASS`했다.
+  `verify:deep-analysis-ops`도 활성 626 보존식과 worker/input-preparation/
+  serving-monitor 건강도를 모두 확인해 `PASS`했다. 현재 분포는
+  `analysis_complete_not_published=1`, `in_progress=625`, blocker/stale 0이며,
+  완료된 실제 HWP 분석 1건은 S0~S11과 독립 AI 자동검수까지 각 1건으로 유지된다.
+- 이 체크포인트는 P-5의 GCP 배포 blocker와 “지속 실행 revision이 구버전” 문제를
+  닫는다. 활성 626건의 분석 완료나 20건 확대를 의미하지 않는다. 메인은 계속
+  `observe_only`이므로 다음 단계는 새 기능 추가가 아니라 current v5 sealed 입력 중
+  exact 소수 cohort만 claim fence로 고정해 `2건 이하` 분석·독립 AI 자동검수를
+  재검증하는 것이다. 그 증거 전에는 `all` scope, 20건 확대, S12/promotion 및
+  matcher write를 금지한다.
 
 중단 조건:
 

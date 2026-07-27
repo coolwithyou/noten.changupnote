@@ -20,6 +20,15 @@
 - ops 프로젝트도 Root Directory가 `apps/admin`이므로 `apps/admin`에서 직접 배포하면 `apps/admin/apps/admin` 이중 경로가 된다. clean commit의 모노레포를 `.git`, `.env*`, `.vercel`, `node_modules`, build 산출물 없이 임시 디렉터리에 복사하고 `apps/admin/.vercel/project.json`만 임시 루트 `.vercel/project.json`으로 둔 뒤, 임시 루트에서 `--scope team-coolwithyou`로 배포한다.
 - 프로덕션 배포는 관련 검증과 커밋·push가 끝난 정확한 소스 상태로 수행하고, 배포 URL·프로덕션 alias·라이브 스모크를 확인한다.
 
+## GCP deep-analysis deployment authentication
+
+- deep-analysis Cloud Build/Cloud Run/Scheduler 확인과 배포에는 전용 gcloud configuration `cunote-codex-dev`를 사용한다.
+- 이 configuration의 base account는 `sw@noten.im`, project는 `changupnote-com`, region은 `asia-northeast3`이며, 실제 API 호출은 keyless impersonation으로 `cunote-codex-dev@changupnote-com.iam.gserviceaccount.com`이 수행한다.
+- 서비스 계정 JSON key를 만들거나 `sw@ba-ton.kr` 계정으로 우회하지 않는다. 실행 전 `gcloud auth print-access-token --configuration=cunote-codex-dev`의 tokeninfo email이 위 전용 서비스 계정인지 확인한다.
+- Cloud Build source staging은 `--gcs-source-staging-dir=gs://changupnote-com_cloudbuild/cunote-codex-dev/source`를 명시한다. 로그 스트리밍만을 위해 project Viewer나 project-wide Storage Viewer를 추가하지 않고, build 상태는 `gcloud builds describe`로 확인한다.
+- 배포 대상은 `cunote-deep-analysis`, `cunote-deep-analysis-input-preparation`, `cunote-deep-analysis-serving-monitor` 세 Cloud Run Job이다. 태그가 아닌 build가 반환한 image digest를 사용하고 `GIT_COMMIT_SHA`를 exact commit으로 맞춘다.
+- 메인 worker는 bounded claim gate가 별도로 통과하기 전 `DEEP_ANALYSIS_WORKER_MODE=observe_only`를 유지한다. 업데이트 후 기존 runtime service account, command/args, env와 secret 참조를 다시 읽어 보존 여부를 확인한다.
+
 ## Cloudflare access control memory
 
 - Production hosts `changupnote.com`, `www.changupnote.com`, `dev.changupnote.com`, `ops.changupnote.com`, and `dev.ops.changupnote.com` are intentionally Cloudflare-proxied.
