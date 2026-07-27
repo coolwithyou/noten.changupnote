@@ -3453,6 +3453,29 @@ Step 4-1P-7 current v5 exact 2건 bounded 자동 실행 체크포인트 —
   재queue, 추가 유료 호출, 20건/`all` 확대, S12/promotion 및 matcher write를
   금지한다.
 
+Step 4-1P-8 P7 두 blocker 로컬 교정 체크포인트 —
+`PASS`, production 재실행은 아직 `PENDING` (2026-07-27):
+
+- 비용정책은 primary 비용을 audit 비용으로 그대로 복제하던 `primaryCost * 2` 가정을
+  제거했다. 실제 primary usage를 configured audit model의 명시 단가로 다시 계산하고,
+  독립 감사와 최대 50k input/8k output의 adjudication 예약을 합친 projected total이
+  공고당 `$2` 상한 안에 있을 때만 audit을 시작한다. 비용을 알 수 없는 pass는 0으로
+  간주하지 않고 fail-closed하며, 호출 뒤 실제 primary+audit+adjudication 합계도 기존
+  `$2` 상한으로 다시 검증한다. 상한 자체는 올리지 않았다.
+- 파산 cross-axis 계약은 `business_status=active/closed 같은 사업자등록상 운영 상태`,
+  `credit_status=지급불능·부도·파산·회생·법정관리·청산`으로 단일화했다. 동일 사실을
+  두 축에 중복 criterion/`condition_found`로 내지 않으며, P7 원문인
+  “부도 또는 파산기업(예정 포함)”은 `credit_status`의
+  `bond_default`/`bankruptcy_filed`만 사용한다. primary와 blind audit이 공유하는
+  추출 prompt 및 adjudication 계약에 같은 규칙을 넣었다.
+- prompt는 v4, blind audit은 v3, adjudication은 v3, model policy는 v6으로 올렸다.
+  비용정책 구현 커밋은 `0bcf678`, 축 계약 통합 커밋은 `8dc717e`다.
+- 통합 clean worktree에서 package build, 전체 `verify:deep-analysis-contract`,
+  `@cunote/web` typecheck, `git diff --check`가 모두 통과했다.
+- 이 체크포인트는 로컬 계약 교정까지만 닫는다. production deploy/requeue/LLM 호출,
+  S12~S14 발행, matcher write, 20건/`all` 확대는 수행하지 않았다. 다음 단계는 같은
+  exact 2건만 v6 bounded cohort로 재실행해 2/2 S11을 확인하는 것이다.
+
 중단 조건:
 
 - 동결 80 품질 미달
