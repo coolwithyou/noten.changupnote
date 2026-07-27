@@ -2501,6 +2501,7 @@
           "code": {
             "type": "string",
             "enum": [
+              "unreviewed_criteria",
               "core_dimension_unknown",
               "criteria_under_extracted",
               "extraction_incomplete",
