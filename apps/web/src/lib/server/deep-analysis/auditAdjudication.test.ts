@@ -22,7 +22,7 @@ import { validateDeepAnalysisResult } from "./validator";
 const span = "서울 소재 기업만 신청 가능";
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
-  /이미 primary에 반영됐거나 중복.*accept_primary.*change_required를 반환하지 마라/,
+  /blocking_findings에는 원문으로 입증된 primary의 실질 누락 또는 오분류만/,
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
@@ -34,7 +34,15 @@ assert.match(
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
-  /contract\/normalization 차이만으로 change_required를 반환하지 마라/,
+  /contract\/normalization 차이만으로 blocking finding을 만들지 마라/,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /reviewed_dimensions에는 22축을 정확히 한 번씩 모두/,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /실제 blocker와 uncertainty가 모두 없으면 두 배열을 비워/,
 );
 assert.equal(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT.includes(
@@ -78,7 +86,7 @@ assert.equal(
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
-  /value\.exceptions가 누락.*change_required/,
+  /value\.exceptions가 누락.*실질 오분류 finding/,
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
@@ -142,8 +150,6 @@ const primaryResult = result("11");
 const auditResult = result("26");
 const primaryValidation = validateDeepAnalysisResult({ seal, result: primaryResult });
 const auditValidation = validateDeepAnalysisResult({ seal, result: auditResult });
-const primaryKey = primaryValidation.criteria[0]!.semanticSha256;
-const auditKey = auditValidation.criteria[0]!.semanticSha256;
 
 const successResponseBody = JSON.stringify({
   stop_reason: "tool_use",
@@ -152,29 +158,9 @@ const successResponseBody = JSON.stringify({
     type: "tool_use",
     name: "emit_deep_analysis_audit_adjudication",
     input: {
-      criterion_verdicts: [
-        {
-          kind: "criterion",
-          dimension: "region",
-          candidate_kind: "primary",
-          key: primaryKey,
-          verdict: "accept_primary",
-          reason: "원문과 일치",
-        },
-        {
-          kind: "criterion",
-          dimension: "region",
-          candidate_kind: "audit_only",
-          key: auditKey,
-          verdict: "accept_primary",
-          reason: "독립 분석의 코드 해석 오류",
-        },
-      ],
-      axis_verdicts: CRITERION_DIMENSIONS.map((dimension) => ({
-        dimension,
-        verdict: "accept_primary",
-        reason: "원문과 일치",
-      })),
+      reviewed_dimensions: [...CRITERION_DIMENSIONS],
+      blocking_findings: [],
+      uncertainties: [],
     },
   }],
 });
@@ -195,7 +181,8 @@ const adjudicated = await adjudicateDeepAnalysisAudit({
   fetchImpl,
 });
 assert.equal(adjudicated.verdict, "concur");
-assert.equal(adjudicated.itemResults.length, CRITERION_DIMENSIONS.length + 2);
+assert.equal(adjudicated.itemResults.length, CRITERION_DIMENSIONS.length);
+assert.equal(adjudicated.itemResults.every((item) => item.verdict === "concur"), true);
 assert.match(capturedRequestBody, /<<<PRIMARY_VALIDATION_ISSUES>>>/);
 assert.match(capturedRequestBody, /<<<AUDIT_VALIDATION_ISSUES>>>/);
 assert.deepEqual(adjudicated.usage, { inputTokens: 100, outputTokens: 50 });
@@ -204,48 +191,26 @@ assert.equal(adjudicated.costUsd, priceDeepAnalysisUsage({
   usage: { inputTokens: 100, outputTokens: 50 },
 }));
 
-const contradictoryAcceptResponse = JSON.parse(successResponseBody) as {
+const blockingResponse = JSON.parse(successResponseBody) as {
   content: Array<{
     input: {
-      criterion_verdicts: Array<{
-        key: string;
-        verdict: string;
+      blocking_findings: Array<{
+        dimension: string;
+        finding_type: string;
+        source_span: string;
         reason: string;
       }>;
+      uncertainties: Array<{ dimension: string; reason: string }>;
+      reviewed_dimensions: string[];
     };
   }>;
 };
-const contradictoryAcceptRow =
-  contradictoryAcceptResponse.content[0]!.input.criterion_verdicts
-    .find((row) => row.key === auditKey)!;
-contradictoryAcceptRow.verdict = "change_required";
-contradictoryAcceptRow.reason =
-  "primary에 이미 반영된 중복이므로 accept_primary로 재조정.";
-const contradictoryChange = await adjudicateDeepAnalysisAudit({
-  apiKey: "test",
-  model: "claude-sonnet-5",
-  evidenceText: span,
-  primaryResult,
-  primaryValidation,
-  auditResult,
-  auditValidation,
-  fetchImpl: async () => new Response(
-    JSON.stringify(contradictoryAcceptResponse),
-    { status: 200 },
-  ),
-});
-assert.equal(contradictoryChange.verdict, "disagree");
-assert.equal(
-  contradictoryChange.itemResults.find((item) => item.key === auditKey)?.verdict,
-  "disagree",
-);
-
-const explicitChangeResponse = structuredClone(contradictoryAcceptResponse);
-const explicitChangeRow =
-  explicitChangeResponse.content[0]!.input.criterion_verdicts
-    .find((row) => row.key === auditKey)!;
-explicitChangeRow.reason =
-  "accept_primary가 아니라 원문의 실질 누락이므로 change_required.";
+blockingResponse.content[0]!.input.blocking_findings = [{
+  dimension: "region",
+  finding_type: "misclassified_eligibility",
+  source_span: span,
+  reason: "서울 조건이 다른 지역 코드로 분류됨",
+}];
 const explicitChange = await adjudicateDeepAnalysisAudit({
   apiKey: "test",
   model: "claude-sonnet-5",
@@ -255,11 +220,73 @@ const explicitChange = await adjudicateDeepAnalysisAudit({
   auditResult,
   auditValidation,
   fetchImpl: async () => new Response(
-    JSON.stringify(explicitChangeResponse),
+    JSON.stringify(blockingResponse),
     { status: 200 },
   ),
 });
 assert.equal(explicitChange.verdict, "disagree");
+assert.equal(
+  explicitChange.itemResults.find((item) => item.dimension === "region")?.verdict,
+  "disagree",
+);
+
+const uncertaintyResponse = structuredClone(blockingResponse);
+uncertaintyResponse.content[0]!.input.blocking_findings = [];
+uncertaintyResponse.content[0]!.input.uncertainties = [{
+  dimension: "region",
+  reason: "원문이 서로 충돌해 지역 자격을 확정할 수 없음",
+}];
+const uncertain = await adjudicateDeepAnalysisAudit({
+  apiKey: "test",
+  model: "claude-sonnet-5",
+  evidenceText: span,
+  primaryResult,
+  primaryValidation,
+  auditResult,
+  auditValidation,
+  fetchImpl: async () => new Response(
+    JSON.stringify(uncertaintyResponse),
+    { status: 200 },
+  ),
+});
+assert.equal(uncertain.verdict, "unsure");
+
+const incompleteReviewResponse = structuredClone(blockingResponse);
+incompleteReviewResponse.content[0]!.input.blocking_findings = [];
+incompleteReviewResponse.content[0]!.input.reviewed_dimensions =
+  incompleteReviewResponse.content[0]!.input.reviewed_dimensions.slice(1);
+const incompleteReview = await adjudicateDeepAnalysisAudit({
+  apiKey: "test",
+  model: "claude-sonnet-5",
+  evidenceText: span,
+  primaryResult,
+  primaryValidation,
+  auditResult,
+  auditValidation,
+  fetchImpl: async () => new Response(
+    JSON.stringify(incompleteReviewResponse),
+    { status: 200 },
+  ),
+});
+assert.equal(incompleteReview.verdict, "unsure");
+
+const ungroundedResponse = structuredClone(blockingResponse);
+ungroundedResponse.content[0]!.input.blocking_findings[0]!.source_span =
+  "원문에 없는 지역 제한";
+const ungrounded = await adjudicateDeepAnalysisAudit({
+  apiKey: "test",
+  model: "claude-sonnet-5",
+  evidenceText: span,
+  primaryResult,
+  primaryValidation,
+  auditResult,
+  auditValidation,
+  fetchImpl: async () => new Response(
+    JSON.stringify(ungroundedResponse),
+    { status: 200 },
+  ),
+});
+assert.equal(ungrounded.verdict, "unsure");
 
 let retryCalls = 0;
 const retried = await adjudicateDeepAnalysisAudit({

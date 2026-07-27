@@ -3823,7 +3823,7 @@ Step 4-1P-17 HWP 섹션 불릿 exact 근거 복원 체크포인트 —
   S12~S14와 랜딩 매칭 제품 검증으로 진행하지 않는다.
 
 Step 4-1P-18 22축 신청자격 의미 중심 AI 자동 검수 체크포인트 —
-`LOCAL PASS`, production v15 exact 2건 재실행은 `PENDING` (2026-07-27):
+`PRODUCTION FAIL 0/2`, S12~S14는 계속 `BLOCKED` (2026-07-27):
 
 - 제품 계약을 “동일한 criterion 배열 재생성”이 아니라 “primary가 신청 시점의
   자격·결격·우대·평가점수를 22축에서 의미상 누락하거나 잘못 분류했는지 검출”로
@@ -3844,9 +3844,52 @@ Step 4-1P-18 22축 신청자격 의미 중심 AI 자동 검수 체크포인트 �
   모델, 공고당 `$2`, exact cohort, 동시성 1, S12~S14 발행 gate와 matcher는
   변경하지 않았다. package build, 전체 `verify:deep-analysis-contract`,
   web/admin typecheck, `git diff --check`가 PASS했다.
-- 다음 mutation은 exact v15 commit을 observe-only로 배포한 뒤 같은 두 건만 다시
-  실행하는 것이다. 2/2가 S11을 통과해야만 불변 release와 S12~S14, 딥분석 기반
-  랜딩 매칭 검증으로 진행한다.
+- exact commit `6a4af32b059d4c977d861c44d9232260709075a0`은 Cloud Build
+  `f0997e04-d9da-428d-9fb9-e71bc25d4c88`, immutable digest
+  `sha256:ef38a993d4e31d1782d9b0bdc1df157f7754fc90481010f4cfca99fc6be977dc`로
+  main/input/monitor generation `45/21/14`에 배포됐다. observe-only `g82v9`,
+  input `8h5km`, monitor `l67pr` smoke는 v15/current revision, mutation 0,
+  기존 active release 2건·item 2건 PASS를 확인했다.
+- activation `2026-07-27T10:31:07Z` 이후 generation 46에서 같은 exact cohort만
+  열었다. 첫 공고 run
+  `da-20260727T103150276Z-92c6a8b4-68d5-4682-8e41-f02447192587`은 primary
+  22축·response contract·exact evidence를 통과했지만 semantic adjudication이
+  `disagree`여서 S11에서 fail-closed됐다. 비용은 `$1.552732`, out-of-cohort
+  run은 0이다. 두 번째 공고는 pending에서 호출하지 않았다.
+- 읽기 전용 원인 대조에서 disagreement는 `credit_status`, `other` 축 두 건이었다.
+  그러나 두 reason 모두 각각 “criterion 분할 차이일 뿐 실질 의미 누락은 없어
+  accept_primary”, “sanction에 이미 존재하므로 추가 조치가 필요 없고
+  accept_primary”라고 최종 결론냈다. 구조화 axis verdict만 반대로
+  `change_required`였으므로 새 자격 의미 누락이 아니라 모든 후보와 22축에 verdict를
+  강제한 출력 계약의 모순이다.
+- main은 generation 47 `observe_only`로 즉시 복귀했고 claim scope/ID/hash를
+  제거했다. 종료 smoke `cunote-deep-analysis-64rx8`는 policy v15/current revision,
+  claim 0, enqueue/analysis/budget mutation 0으로 성공했다. 부분 release,
+  S12~S14, Vercel, 랜딩 E2E는 수행하지 않았다.
+
+Step 4-1P-19 실제 차단 사유만 반환하는 최소 감사 출력 계약 체크포인트 —
+`LOCAL PASS`, production v16 exact 2건 재실행은 `PENDING` (2026-07-27):
+
+- 모든 primary/audit criterion 후보와 22축 각각에 `accept_primary` 또는
+  `change_required` verdict를 요구하는 계약을 제거했다. 대신
+  `reviewed_dimensions`에 22축을 정확히 한 번씩 넣어 전수 검토를 증명하고,
+  `blocking_findings`에는 sealed source로 입증되는 실제 신청자격 의미 누락·오분류만,
+  `uncertainties`에는 원문으로 확정할 수 없는 축만 반환한다.
+- blocking finding은 dimension, `missing_eligibility` 또는
+  `misclassified_eligibility`, exact source span, reason을 모두 가져야 한다.
+  서버는 source span이 sealed evidence에서 해소되지 않거나 22축 전수 목록이
+  중복·누락되면 `unsure`로 닫는다. uncertainty가 하나라도 있으면 `unsure`,
+  검증된 blocking finding이 있으면 `disagree`, 둘 다 없을 때만 `concur`다.
+- 표현·분할·중복 후보처럼 비차단인 차이는 아예 finding으로 만들지 않는다. 따라서
+  P18처럼 reason은 “누락 없음”인데 구조화 verdict만 반대인 상태가 표현될 수 없고,
+  실제 blocker가 있으면 원문 span이 있는 finding으로만 차단된다.
+- grounded blocker, uncertainty, 22축 누락, 원문에 없는 blocker span, 빈 blocker
+  성공과 429 retry를 회귀 테스트로 고정했다. blind audit v10, adjudication v11,
+  model policy v16으로 올렸고 primary prompt, 모델, 비용 상한, exact cohort,
+  발행 gate와 matcher는 변경하지 않았다.
+- focused audit/adjudication 테스트와 web typecheck가 PASS했다. 다음 mutation 전에
+  전체 deep-analysis contract, admin typecheck, package build, diff check를 다시
+  통과시키고 exact commit을 만든다.
 
 중단 조건:
 
