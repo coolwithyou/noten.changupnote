@@ -704,7 +704,7 @@ function finiteNumber(value: unknown): number | null {
 }
 
 function normalizeEvidence(value: string): string {
-  return value.replace(/\s+/g, " ").trim();
+  return normalizeEvidenceWithOffsets(value).text;
 }
 
 function normalizeEvidenceWithOffsets(
@@ -748,6 +748,10 @@ function evidenceWhitespaceWidth(
   decodeEscapedWhitespace: boolean,
 ): number {
   if (/\s/.test(value[index]!)) return 1;
+  const htmlWhitespace = value.slice(index).match(
+    /^(?:&nbsp;|&#160;|&#x0*a0;)/i,
+  )?.[0];
+  if (htmlWhitespace) return htmlWhitespace.length;
   if (
     decodeEscapedWhitespace
     && value[index] === "\\"

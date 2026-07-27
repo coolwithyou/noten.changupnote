@@ -42,6 +42,22 @@ assert.equal(
 );
 assert.equal(
   resolveExactEvidenceSpan(
+    "☞ 중견기업 또는 중견기업 후보기업",
+    "지원대상: ☞&nbsp;중견기업 또는 중견기업 후보기업",
+  ),
+  "☞&nbsp;중견기업 또는 중견기업 후보기업",
+  "HTML 비분리 공백 표기는 유일한 sealed raw span으로 되돌린다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
+    "☞ 중견기업 또는 중견기업 후보기업",
+    "☞&nbsp;중견기업 또는 중견기업 후보기업\n☞&#160;중견기업 또는 중견기업 후보기업",
+  ),
+  null,
+  "HTML 공백 정규화 뒤 서로 다른 raw 후보가 남으면 임의 선택하지 않는다",
+);
+assert.equal(
+  resolveExactEvidenceSpan(
     "1. 일반 중소기업\n2. 0-to-1 스타트업\n3. 학생",
     "{\"target\":\"1. 일반 중소기업  \\r\\n2. 0-to-1 스타트업  \\r\\n3. 학생\"}",
   ),

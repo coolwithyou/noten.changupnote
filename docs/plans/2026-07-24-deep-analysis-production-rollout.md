@@ -3476,6 +3476,40 @@ Step 4-1P-8 P7 두 blocker 로컬 교정 체크포인트 —
   S12~S14 발행, matcher write, 20건/`all` 확대는 수행하지 않았다. 다음 단계는 같은
   exact 2건만 v6 bounded cohort로 재실행해 2/2 S11을 확인하는 것이다.
 
+Step 4-1P-9 v6 실제 재실행·HTML 공백 인용 비용 증폭 교정 체크포인트 —
+`LOCAL PASS`, production v7 재실행은 아직 `PENDING` (2026-07-27):
+
+- exact commit `40c5b76bb615b89218d7ae2475f6edf2b32f4a38`을 Cloud Build
+  `f8b1bcc0-55dd-4395-9197-c7970c11247c`로 빌드했다. 불변 image digest
+  `sha256:05829b68ed549680cd5da7c1abfd996bc4fc940883c5237cadfd32e0106207ad`를
+  main/input-preparation/serving-monitor generation `18/12/5`에 배포했다.
+  main observe-only `v8phs`, input-preparation `2nw4b`, serving monitor `9bsc9`
+  smoke가 모두 성공했고, monitor는 기존 active release 2건·item 2건을 PASS했다.
+- activation `2026-07-27T03:58:04Z`에 P7과 같은 두 UUID·같은 cohort hash만 main
+  generation 19 `bounded`, invocation/동시 lease 1, 공고당 `$2`로 열었다. 첫 worker
+  `cunote-deep-analysis-ql5wb`만 유료 분석을 수행했고, 04:00 정시 worker `h8nks`는
+  active lease를 확인해 claim 0으로 종료했다.
+- 첫 공고 v6 run
+  `da-20260727T035900861Z-d05b6af8-6926-4132-8a7d-b7a785fdaebd`는 57,624자·22축·
+  criterion 12개를 만들었지만 primary 비용이 `$1.590835`까지 증가해 audit 호출 전에
+  `pending_budget`으로 차단됐다. 중단 조건에 따라 두 번째 공고는 호출하지 않았고,
+  main을 즉시 generation 20 `observe_only`로 복귀시켜 claim scope/ID/hash를 제거했다.
+- 비용 증가 원인은 모델이나 공고 분량 자체가 아니라 exact source span repair 2회였다.
+  첫 응답은 `$0.502735`에 의미상 완전했지만 structured source의
+  `☞&nbsp;중견기업…`을 `☞ 중견기업…`으로 인용해 한 criterion만 byte-exact 검증에
+  실패했다. 첫 repair는 다른 criterion에 불필요한 장식 문자를 붙여 다시 실패했고,
+  두 번째 repair에서야 통과했다.
+- 상한을 올리거나 exact grounding을 완화하지 않았다. `&nbsp;`, `&#160;`,
+  `&#xA0;`처럼 화면상 공백인 HTML 표기만 공백으로 비교하고, 정규화 결과가 유일할
+  때 모델 인용을 실제 sealed raw substring으로 되돌린다. 서로 다른 raw 후보가
+  둘 이상이면 기존처럼 미검증으로 남겨 repair/fail-closed한다. 모델 정책은 v7로
+  올려 기존 v6 job/run과 멱등 identity를 섞지 않는다.
+- 같은 production 원시 응답을 네트워크 호출 없이 새 정규화기로 재생한 결과 첫
+  `$0.502735` pass 자체가 criterion 12개·22축·validation issue 0으로 통과했다.
+  package build, 전체 `verify:deep-analysis-contract`, web typecheck,
+  `git diff --check`도 PASS했다. 다음 mutation은 이 작은 v7 commit을 observe-only로
+  배포한 뒤 같은 exact 두 건만 다시 실행하는 것이다.
+
 중단 조건:
 
 - 동결 80 품질 미달
