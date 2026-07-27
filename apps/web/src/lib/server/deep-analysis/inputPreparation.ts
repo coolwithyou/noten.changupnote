@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { DEEP_ANALYSIS_MODEL_POLICY_VERSION } from "@cunote/contracts";
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
@@ -508,7 +509,7 @@ export function resolveDeepAnalysisInputPreparationPolicy(
   return {
     modelPolicyVersion:
       env.DEEP_ANALYSIS_MODEL_POLICY_VERSION?.trim()
-      || "deep-analysis-model-policy-v3",
+      || DEEP_ANALYSIS_MODEL_POLICY_VERSION,
     maxGrantsPerSource: boundedEnvInt(
       env.DEEP_ANALYSIS_PREPARE_MAX_GRANTS_PER_SOURCE,
       2,

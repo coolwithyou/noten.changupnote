@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { DEEP_ANALYSIS_MODEL_POLICY_VERSION } from "@cunote/contracts";
 import type { CunoteDb } from "@/lib/server/db/client";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import {
@@ -17,6 +18,11 @@ const policy = resolveDeepAnalysisInputPreparationPolicy({
 });
 assert.equal(policy.maxGrantsPerSource, 2);
 assert.equal(policy.maxAttachmentsPerGrant, 4);
+assert.equal(
+  policy.modelPolicyVersion,
+  DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+  "input preparation must follow the current worker model policy by default",
+);
 assert.throws(
   () => resolveDeepAnalysisInputPreparationPolicy({
     DEEP_ANALYSIS_PREPARE_MAX_GRANTS_PER_SOURCE: "0",
