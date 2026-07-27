@@ -7,7 +7,7 @@ import {
   defaultAdminPath,
 } from "@/lib/auth/routeAccess"
 import {
-  getDeepPipelinePageData,
+  getDeepPipelineSummary,
   parseDeepPipelineQuery,
 } from "@/lib/server/admin/deepPipeline"
 import { getOptionalAdminSession } from "@/lib/server/auth/adminSession"
@@ -30,7 +30,7 @@ export default async function PipelinePage({
   }
 
   const query = parseDeepPipelineQuery(toUrlSearchParams(rawSearchParams))
-  const { summary, notices } = await getDeepPipelinePageData(query)
+  const summary = await getDeepPipelineSummary(query)
 
   return (
     <OpsDashboardShell
@@ -42,7 +42,6 @@ export default async function PipelinePage({
       }}
     >
       <DeepPipelinePageView
-        initialNotices={notices}
         initialSummary={summary}
         query={query}
         role={session.user.role}

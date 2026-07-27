@@ -102,6 +102,7 @@ async function main() {
   })
 
   const failures: string[] = []
+  const warnings: string[] = []
   const catalog = report.catalog ?? {
     active_function: false,
     action_table_rls: false,
@@ -115,6 +116,11 @@ async function main() {
   if (report.summary.activeTotal !== report.summary.classifiedTotal) {
     failures.push(
       `bucket conservation failed: active=${report.summary.activeTotal}, classified=${report.summary.classifiedTotal}`,
+    )
+  }
+  if (!report.summary.policyMatchesContract) {
+    warnings.push(
+      `model policy mismatch: operational=${report.summary.modelPolicyVersion}, contract=${report.summary.contractModelPolicyVersion}`,
     )
   }
   for (const bucket of report.summary.buckets) {
@@ -168,6 +174,9 @@ async function main() {
     generatedAt: new Date().toISOString(),
     activeTotal: report.summary.activeTotal,
     classifiedTotal: report.summary.classifiedTotal,
+    operationalModelPolicyVersion: report.summary.modelPolicyVersion,
+    contractModelPolicyVersion: report.summary.contractModelPolicyVersion,
+    policyMatchesContract: report.summary.policyMatchesContract,
     buckets: report.bucketCounts,
     worker: report.summary.worker,
     inputPreparation: report.summary.inputPreparation,
@@ -176,6 +185,7 @@ async function main() {
       report.summary.stages.map((stage) => [stage.stage, stage.passed]),
     ),
     catalog,
+    warnings,
     failures,
   }
   console.log(JSON.stringify(output, null, 2))
