@@ -173,7 +173,7 @@ function assertNoRequiredExclusionConflict(
       .filter((criterion) => criterion.kind === "required")
       .map((criterion) => stableJson({
         dimension: criterion.dimension,
-        operator: criterion.operator,
+        operator: polarityNeutralOperator(criterion.operator),
         value: criterion.value,
       })),
   );
@@ -181,7 +181,7 @@ function assertNoRequiredExclusionConflict(
     criterion.kind === "exclusion" &&
     required.has(stableJson({
       dimension: criterion.dimension,
-      operator: criterion.operator,
+      operator: polarityNeutralOperator(criterion.operator),
       value: criterion.value,
     })));
   if (conflict) {
@@ -189,4 +189,8 @@ function assertNoRequiredExclusionConflict(
       `딥분석 자동 승격 계획의 ${conflict.dimension} 조건이 동일한 값으로 required/exclusion에 동시에 존재합니다.`,
     );
   }
+}
+
+function polarityNeutralOperator(operator: string): string {
+  return operator === "in" || operator === "not_in" ? "membership" : operator;
 }

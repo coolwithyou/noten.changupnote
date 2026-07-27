@@ -112,7 +112,7 @@ assert.throws(
           {
             dimension: "target_type",
             kind: "exclusion",
-            operator: "in",
+            operator: "not_in",
             value: { targets: ["대학생", "대학원생"] },
             confidence: 0.95,
             sourceSpan: "신청대상 제외한 모든 대상",
