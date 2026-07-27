@@ -216,6 +216,29 @@ check("[credit] 예외가 교집합 전부 면제 → pass", () => {
   assert.equal(entry.result, "pass");
 });
 
+check("[credit] 변제계획 성실이행 예외로 채무불이행 히트 면제 → pass", () => {
+  const criterion: GrantCriterion = {
+    dimension: "credit_status",
+    operator: "in",
+    kind: "exclusion",
+    confidence: 0.9,
+    value: {
+      flags: ["loan_default"],
+      exceptions: ["repayment_plan_in_good_standing"],
+    },
+  };
+  const company: CompanyProfile = {
+    credit_status: {
+      flags: ["loan_default"],
+      known_flags: ["loan_default"],
+      exceptions: ["repayment_plan_in_good_standing"],
+    },
+    confidence: { ...baseConfidence, credit_status: 0.6 },
+  };
+  const { entry } = evalOne(criterion, company);
+  assert.equal(entry.result, "pass");
+});
+
 check("[credit] 재도전보증 예외로 채무불이행 히트 면제 → pass", () => {
   const criterion: GrantCriterion = {
     dimension: "credit_status",

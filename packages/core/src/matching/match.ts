@@ -38,7 +38,7 @@ import {
 } from "../disqualification/canonical.js";
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v6";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v7";
 export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([

@@ -13,6 +13,7 @@ import {
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -22,7 +23,7 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v11" as const;
+  "deep-analysis-audit-adjudication-v12" as const;
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고의 독립 감사자다.",
   "너는 이미 primary를 보지 않고 원문을 독립 분석했다. 이제 원문, primary 결과, 네 독립 결과를 대조해 primary를 항목별로 감사한다.",
@@ -39,6 +40,7 @@ export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   "primary와 audit의 flags가 같아도 value.exceptions가 누락되거나 다른 결격 항목의 예외가 붙어 있으면 실질 오분류 finding이다. JSON의 실제 value를 확인하고 설명만으로 예외가 반영됐다고 추정하지 마라.",

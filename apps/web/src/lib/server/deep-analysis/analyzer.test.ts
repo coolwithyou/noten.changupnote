@@ -5,6 +5,7 @@ import { sealDeepAnalysisInput } from "./inputManifest";
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -16,11 +17,19 @@ import {
 
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
-  /신청서·서식의 빈칸, 체크박스, 기업정보 기재란.*수출실적 유무.*조건을 만들지 마라/,
+  /신청서·서식의 빈칸·체크박스·기업정보 기재란과 제출서류 목록은 정보수집·증빙 요구/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
-  /규범적 효과가 명시되지 않았다면 해당 축은 inspected_no_condition/,
+  /납세증명서·사업자등록증·보험서류.*제출 요구만으로.*ambiguous 후보를 만들지 마라/,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /필수·제외·우대·배점 효과가 명시되지 않았다면 해당 축은 inspected_no_condition/,
 );
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE),

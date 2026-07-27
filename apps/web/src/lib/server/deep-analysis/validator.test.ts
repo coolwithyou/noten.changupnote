@@ -207,7 +207,7 @@ const wrongExceptionCoverage = validateDeepAnalysisResult({
       dimension: "credit_status",
       kind: "exclusion",
       value: {
-        flags: ["loan_default"],
+        flags: ["asset_seizure"],
         exceptions: ["repayment_plan_in_good_standing"],
       },
       sourceSpan: creditSourceSpan,

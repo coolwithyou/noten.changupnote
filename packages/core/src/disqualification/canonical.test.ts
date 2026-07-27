@@ -118,6 +118,10 @@ check("예외→플래그 커버는 실재 플래그만 참조하고 모든 예�
   }
 });
 
+check("변제계획 성실이행 예외는 채무불이행 배제를 면제한다", () => {
+  assert.ok(EXCEPTION_FLAG_COVERAGE.repayment_plan_in_good_standing.includes("loan_default"));
+});
+
 check("배제업종 KSIC 코드는 KSIC 형식(대분류 문자 또는 숫자)이며 파생 목록이 중복 없이 일치한다", () => {
   const ksicPattern = /^[A-U]?\d{0,5}$/;
   const collected = new Set<string>();

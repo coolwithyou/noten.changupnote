@@ -148,7 +148,11 @@ export const EXCEPTION_FLAG_COVERAGE: Record<DisqualificationException, readonly
     "customs_delinquent",
     "social_insurance_delinquent",
   ],
-  repayment_plan_in_good_standing: ["rehabilitation_in_progress", "court_receivership"],
+  repayment_plan_in_good_standing: [
+    "loan_default",
+    "rehabilitation_in_progress",
+    "court_receivership",
+  ],
   statute_expired: ["asset_seizure"],
   restart_funding_recipient: [
     "national_tax_delinquent",
