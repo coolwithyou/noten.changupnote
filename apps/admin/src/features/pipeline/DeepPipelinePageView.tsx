@@ -209,6 +209,7 @@ export function DeepPipelinePageView({
               <Button
                 variant="ghost"
                 className="w-full justify-between"
+                nativeButton={false}
                 render={<Link href={`/pipeline?bucket=${bucket.key}`} />}
               >
                 공고 보기 <ChevronRightIcon />
@@ -266,7 +267,12 @@ export function DeepPipelinePageView({
           </CardDescription>
           <CardAction>
             {(query.bucket || query.stage || query.q) ? (
-              <Button variant="outline" size="sm" render={<Link href="/pipeline" />}>
+              <Button
+                variant="outline"
+                size="sm"
+                nativeButton={false}
+                render={<Link href="/pipeline" />}
+              >
                 필터 해제
               </Button>
             ) : null}

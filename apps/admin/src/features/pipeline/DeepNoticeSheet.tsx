@@ -129,6 +129,7 @@ export function DeepNoticeSheet({
                 <Button
                   size="sm"
                   variant="outline"
+                  nativeButton={false}
                   render={<a href={detail.notice.url} target="_blank" rel="noreferrer" />}
                 >
                   원문 <ExternalLinkIcon />
