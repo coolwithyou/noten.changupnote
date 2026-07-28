@@ -20,7 +20,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v3" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v4" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -116,6 +116,7 @@ export function validateDeepAnalysisResult(input: {
     validatedCriteria.push(validated);
   }
   validateRequiredExclusionConflicts(validatedCriteria, issues);
+  validateStartupStageTargetDuplicates(validatedCriteria, issues);
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
   for (const dimension of CRITERION_DIMENSIONS) criteriaByDimension.set(dimension, []);
@@ -186,6 +187,119 @@ export function validateDeepAnalysisResult(input: {
       ]),
     ) as Record<CriterionDimension, string[]>,
   };
+}
+
+const STARTUP_STAGE_TARGETS = new Set([
+  "예비창업자",
+  "예비창업기업",
+  "초기창업자",
+  "초기창업기업",
+]);
+
+/**
+ * 특정 창업지원 프로그램 선정 이력을 설명하는 같은 문구에서 예비·초기창업자
+ * 꼬리표를 target_type으로 다시 발행하면 사업자번호 프로필에 불필요한 unknown이
+ * 생긴다. 이 한 조합만 막고, 독립적으로 명시된 창업단계·학생·법적 유형 조건은 둔다.
+ */
+function validateStartupStageTargetDuplicates(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const priorAwardCriteria = criteria.filter((item) => {
+    if (
+      item.criterion.dimension !== "prior_award"
+      || item.criterion.kind !== "required"
+      || item.criterion.operator !== "in"
+    ) return false;
+    const value = isRecord(item.canonicalCriterion.value)
+      ? item.canonicalCriterion.value
+      : {};
+    const programs = stringArray(value.programs);
+    const states = stringArray(value.states);
+    return programs.length > 0
+      && states.some((state) => state === "completed" || state === "participating");
+  });
+  if (priorAwardCriteria.length === 0) return;
+
+  for (const targetType of criteria) {
+    if (
+      targetType.criterion.dimension !== "target_type"
+      || targetType.criterion.kind !== "required"
+      || targetType.criterion.operator !== "in"
+    ) continue;
+    const value = isRecord(targetType.canonicalCriterion.value)
+      ? targetType.canonicalCriterion.value
+      : {};
+    const targets = stringArray(value.targets).map(normalizeStartupStageTarget);
+    if (
+      targets.length === 0
+      || targets.some((target) => !STARTUP_STAGE_TARGETS.has(target))
+    ) continue;
+
+    const duplicate = priorAwardCriteria.find((priorAward) => (
+      evidenceRangesMateriallyOverlap(targetType, priorAward)
+      || evidenceTextsMateriallyOverlap(
+        targetType.criterion.sourceSpan,
+        priorAward.criterion.sourceSpan,
+      )
+    ));
+    if (!duplicate) continue;
+    issues.push({
+      code: "semantic_duplicate",
+      path: `$.criteria[${targetType.index}]`,
+      message:
+        `Startup-stage target_type duplicates prior_award criterion at $.criteria[${duplicate.index}] from the same eligibility phrase. Keep prior_award and remove this target_type.`,
+    });
+  }
+}
+
+function evidenceRangesMateriallyOverlap(
+  left: DeepAnalysisValidatedCriterion,
+  right: DeepAnalysisValidatedCriterion,
+): boolean {
+  return left.evidenceRefs.some((leftRef) => right.evidenceRefs.some((rightRef) => {
+    if (leftRef.chunkId !== rightRef.chunkId) return false;
+    const overlap = Math.max(
+      0,
+      Math.min(leftRef.endChar, rightRef.endChar)
+      - Math.max(leftRef.startChar, rightRef.startChar),
+    );
+    const shorter = Math.min(
+      leftRef.endChar - leftRef.startChar,
+      rightRef.endChar - rightRef.startChar,
+    );
+    return shorter > 0 && overlap / shorter >= 0.6;
+  }));
+}
+
+function evidenceTextsMateriallyOverlap(
+  left: string | null,
+  right: string | null,
+): boolean {
+  const leftText = normalizeComparableEvidence(left);
+  const rightText = normalizeComparableEvidence(right);
+  if (leftText.length < 12 || rightText.length < 12) return false;
+  const shorter = leftText.length <= rightText.length ? leftText : rightText;
+  const longer = shorter === leftText ? rightText : leftText;
+  return longer.includes(shorter) && shorter.length / longer.length >= 0.65;
+}
+
+function normalizeComparableEvidence(value: string | null): string {
+  return (value ?? "")
+    .normalize("NFKC")
+    .replace(/^(?:신청자격|지원자격|지원대상|신청대상|대상기업)+/u, "")
+    .replace(/[^\p{Letter}\p{Number}]/gu, "")
+    .toLowerCase();
+}
+
+function normalizeStartupStageTarget(value: string): string {
+  return value.normalize("NFKC").replace(/[\s·ㆍ_-]/g, "");
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+    : [];
 }
 
 function validateRequiredExclusionConflicts(

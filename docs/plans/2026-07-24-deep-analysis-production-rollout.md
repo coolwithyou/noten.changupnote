@@ -4822,6 +4822,51 @@ AQ2-R1의 audit 오류 8건은 모델이 여러 줄을 한 문장으로 합치�
   중복만 좁게 차단하는 AQ3-B다. 독립적인 `예비창업자만 신청 가능`, 학생 대상,
   법적 사업자 유형은 계속 허용해야 한다.
 
+### AQ3-B 창업단계 target_type/prior_award 중복 차단 — `CODE PASS`, `NO PAID RERUN` (2026-07-29)
+
+AQ2-R1의 K-Startup primary는 특정 창업패키지·창업중심대학에 `선정된`
+예비·초기창업자라는 하나의 자격 의미를 `prior_award`와 `target_type`으로 두 번
+발행했다. 사업자번호 프로필은 법적 사업자 유형만 자동 확정하므로 뒤의
+`target_type`이 불필요한 unknown/conditional을 추가했다. 이번 체크포인트는 이
+한 조합만 validator backstop으로 막았고 matcher와 질문 시스템은 변경하지 않았다.
+
+구현 결과:
+
+1. validator v4는 required/in `target_type`의 값이 예비·초기 창업단계 태그로만
+   구성되고, required/in `prior_award`에 프로그램명과 선정·참여 상태가 있으며,
+   두 criterion의 exact 범위가 실질적으로 겹치거나 정규화 문구가 65% 이상
+   포함관계일 때만 `semantic_duplicate`를 낸다.
+2. 오류는 중복 `target_type`의 정확한 index와 대응 `prior_award` index를
+   가리키며 `prior_award`를 유지하고 해당 `target_type`만 제거하라고 repair에
+   전달한다. validator가 결과를 자동 수정하거나 matcher로 흘려보내지는 않는다.
+3. AQ2-R1의 실제 문구처럼 같은 의미가 공고의 서로 다른 위치에서 반복돼 좌표가
+   직접 겹치지 않아도, label·공백·문장부호를 제외한 exact phrase 포함관계로
+   차단한다. 자유서술 의미 추론이나 전역 `target_type` 금지는 도입하지 않았다.
+4. `예비창업자만 신청 가능`처럼 독립된 신청조건, 같은 공고 안에서도 서로 다른
+   문장의 prior award와 창업단계 조건, 대학생·대학원생 역할 유형은 계속 validator를
+   통과한다. 법적 개인/법인 유형도 이 규칙의 대상이 아니다.
+5. validator는 `deep-analysis-validator-v4`, 정책은
+   `deep-analysis-model-policy-v20`과 `deep-analysis-model-policy-cq2-v4`로
+   올렸다. audit 계약·prompt·artifact는 AQ3-A 버전을 유지한다.
+
+오프라인 검증:
+
+- AQ2-R1 exact duplicate fixture 차단, standalone 예비창업자 보존, 독립 문장
+  보존, 학생 역할 유형 보존을 모두 PASS했다.
+- `pnpm build:packages`, `pnpm verify:package-runtime-freshness`,
+  `pnpm verify:deep-analysis-contract`, `pnpm --filter @cunote/web typecheck`,
+  `git diff --check`가 PASS했다.
+- 외부 Anthropic 호출, DB/R2/promotion, Cloud Run/Scheduler, Vercel 변경은 모두
+  0이다. 요약 evidence는
+  `docs/evidence/deep-analysis/aq3-b-2026-07-29.json`에 고정했다.
+
+게이트 판정:
+
+- AQ3-B 코드는 GO다. AQ3-A와 AQ3-B 두 원인별 코드 체크포인트는 완료됐다.
+- 유료 exact 2건 재실행, CQ3, cohort 확대, 배포와 production policy 전환은 이번
+  범위에 포함하지 않았다. 다음 단계는 두 커밋의 독립 리뷰 후 기존 sealed 2건을
+  한 번만 재검증할지 결정하는 것이다.
+
 중단 조건:
 
 - 동결 80 품질 미달

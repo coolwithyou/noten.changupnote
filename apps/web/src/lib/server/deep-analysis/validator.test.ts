@@ -114,6 +114,121 @@ assert.equal(
   true,
 );
 
+const startupEligibilityPhrase =
+  "부산지역 예비 · 초기 창업패키지 및 창업중심대학에 선정된 예비창업자 및 초기창업자";
+const startupDuplicateSeal = sealDeepAnalysisInput({
+  grantId: "grant-startup-stage-duplicate",
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: [
+    `${startupEligibilityPhrase} 중 17개 팀`,
+    `신청자격 : ${startupEligibilityPhrase}`,
+  ].join("\n"),
+  attachments: [],
+});
+const startupPriorAward = criterion({
+  dimension: "prior_award",
+  operator: "in",
+  kind: "required",
+  value: {
+    scope: "program",
+    programs: ["예비창업패키지", "초기창업패키지", "창업중심대학"],
+    states: ["completed"],
+  },
+  sourceSpan: `${startupEligibilityPhrase} 중 17개 팀`,
+});
+const duplicateStartupTarget = criterion({
+  dimension: "target_type",
+  operator: "in",
+  kind: "required",
+  value: { targets: ["예비창업자", "초기창업자"] },
+  sourceSpan: `신청자격 : ${startupEligibilityPhrase}`,
+});
+const startupDuplicateValidation = validateDeepAnalysisResult({
+  seal: startupDuplicateSeal,
+  result: result(
+    [startupPriorAward, duplicateStartupTarget],
+    axes(["prior_award", "target_type"]),
+  ),
+});
+assert.equal(startupDuplicateValidation.valid, false);
+assert.equal(
+  startupDuplicateValidation.issues.some((issue) => (
+    issue.code === "semantic_duplicate"
+    && issue.path === "$.criteria[1]"
+    && issue.message.includes("Keep prior_award")
+  )),
+  true,
+);
+
+const standaloneStartupTargetSpan = "예비창업자만 신청 가능";
+const standaloneStartupTargetSeal = sealDeepAnalysisInput({
+  grantId: "grant-standalone-startup-stage",
+  sourceRevisionSha256: "f".repeat(64),
+  structuredText: standaloneStartupTargetSpan,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: standaloneStartupTargetSeal,
+  result: result([
+    criterion({
+      dimension: "target_type",
+      operator: "in",
+      kind: "required",
+      value: { targets: ["예비창업자"] },
+      sourceSpan: standaloneStartupTargetSpan,
+    }),
+  ], axes(["target_type"])),
+}).valid, true, "독립적으로 명시된 예비창업자 신청조건은 target_type으로 유지한다");
+
+const independentStageRulesSeal = sealDeepAnalysisInput({
+  grantId: "grant-independent-stage-rules",
+  sourceRevisionSha256: "2".repeat(64),
+  structuredText: [
+    "초기창업패키지 선정기업이어야 한다.",
+    standaloneStartupTargetSpan,
+  ].join("\n"),
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: independentStageRulesSeal,
+  result: result([
+    criterion({
+      ...startupPriorAward,
+      value: {
+        scope: "program",
+        programs: ["초기창업패키지"],
+        states: ["completed"],
+      },
+      sourceSpan: "초기창업패키지 선정기업이어야 한다.",
+    }),
+    criterion({
+      ...duplicateStartupTarget,
+      value: { targets: ["예비창업자"] },
+      sourceSpan: standaloneStartupTargetSpan,
+    }),
+  ], axes(["prior_award", "target_type"])),
+}).valid, true, "한 공고 안에서도 서로 다른 문장의 prior_award와 창업단계 조건은 유지한다");
+
+const studentTargetSpan = "대학생 또는 대학원생만 신청 가능";
+const studentTargetSeal = sealDeepAnalysisInput({
+  grantId: "grant-student-target",
+  sourceRevisionSha256: "1".repeat(64),
+  structuredText: studentTargetSpan,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: studentTargetSeal,
+  result: result([
+    criterion({
+      dimension: "target_type",
+      operator: "in",
+      kind: "required",
+      value: { targets: ["대학생", "대학원생"] },
+      sourceSpan: studentTargetSpan,
+    }),
+  ], axes(["target_type"])),
+}).valid, true, "학생 역할 유형은 창업단계 중복 규칙의 대상이 아니다");
+
 const badReserved = criterion({
   dimension: "export_performance",
   operator: "gte",

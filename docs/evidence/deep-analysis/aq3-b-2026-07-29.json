@@ -1,0 +1,77 @@
+{
+  "schema": "deep-analysis-aq3-b-summary-v1",
+  "generatedAt": "2026-07-28T22:27:38Z",
+  "checkpoint": "AQ3-B",
+  "status": "CODE_PASS_NO_PAID_RERUN",
+  "baseCommit": "5a9990763e69442feee269f3bb9491a5374a8dea",
+  "scope": {
+    "changedVariable": "startup_stage_target_prior_award_semantic_duplicate",
+    "auditChanged": false,
+    "primaryPromptChanged": false,
+    "adjudicationChanged": false,
+    "matcherChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "validator": "deep-analysis-validator-v4",
+    "auditContract": "deep-analysis-audit-candidates-v2",
+    "auditPrompt": "deep-analysis-blind-audit-v14",
+    "auditArtifactSchema": "deep-analysis-blind-audit-v4",
+    "defaultModelPolicy": "deep-analysis-model-policy-v20",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v4"
+  },
+  "deterministicRule": {
+    "targetType": {
+      "kind": "required",
+      "operator": "in",
+      "allowedStartupStageTargetsOnly": [
+        "예비창업자",
+        "예비창업기업",
+        "초기창업자",
+        "초기창업기업"
+      ]
+    },
+    "priorAward": {
+      "kind": "required",
+      "operator": "in",
+      "requiresNamedPrograms": true,
+      "eligibleStates": [
+        "completed",
+        "participating"
+      ]
+    },
+    "evidenceRelation": [
+      "same_chunk_material_range_overlap",
+      "normalized_phrase_containment_at_least_0_65"
+    ],
+    "failureCode": "semantic_duplicate",
+    "repairInstruction": "keep_prior_award_remove_duplicate_target_type"
+  },
+  "offlineRegression": {
+    "aq2R1ExactDuplicateFixture": "BLOCKED",
+    "standalonePreliminaryFounderTarget": "PRESERVED",
+    "independentPriorAwardAndStartupStageSentences": "PRESERVED",
+    "studentApplicantRoleTarget": "PRESERVED"
+  },
+  "verification": {
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "gitDiffCheck": "PASS",
+    "anthropicCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "paidRerun": "NOT_RUN",
+    "cq3Allowed": false,
+    "cohortExpansionAllowed": false,
+    "deploymentAllowed": false,
+    "nextReviewRequired": true
+  }
+}
