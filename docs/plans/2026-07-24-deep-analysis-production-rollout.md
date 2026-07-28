@@ -4867,6 +4867,64 @@ AQ2-R1의 K-Startup primary는 특정 창업패키지·창업중심대학에 `�
   범위에 포함하지 않았다. 다음 단계는 두 커밋의 독립 리뷰 후 기존 sealed 2건을
   한 번만 재검증할지 결정하는 것이다.
 
+### AQ3-R1 exact 2건 단일 재검증 — `PRIMARY/AUDIT CONTRACT/COST PASS`, `FALSE BLOCKER STOP` (2026-07-29)
+
+AQ3-A와 AQ3-B가 반영된 clean detached commit
+`8b0675ae9523c8688bfd5a813b8c923041782c3c`에서 이전과 동일한 sealed input/source
+SHA의 K-Startup `178647`, Bizinfo `PBLN_000000000123200` 두 건을 한 번만
+재실행했다. Sonnet 5 high primary → Haiku 4.5 audit → 필요한 경우 Opus 5 high
+adjudication 구성을 유지했다. preflight 현재가 `$1.380796`, 표준가 `$1.618462`는
+`$2.00` hard cap 안이었고, 실측 현재가는 `$1.200988`이었다. DB/R2/promotion,
+Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다.
+
+통과한 체크포인트:
+
+1. primary validator는 2/2 PASS다. repair는 K-Startup 1회, Bizinfo 0회다.
+   K-Startup은 기존 credit/tax 예외와 `prior_award`를 보존하면서 중복
+   `target_type`을 발행하지 않았다. Bizinfo는 required/preferred premises,
+   외국어 홈페이지·홍보자료의 개별 배점, 인증기업 가점 행을 모두 보존했다.
+2. candidate audit과 보존 baseline sensitivity audit은 각각 2/2 PASS이며 네 출력의
+   validation issue는 0이다. AQ3-A 이전 8건의 `evidence_not_grounded`는 재발하지
+   않았다.
+3. sensitivity audit은 K-Startup의 credit/tax 예외 누락과 Bizinfo의
+   required/scoring premises 누락을 2/2 공고에서 확정했다. 즉 알려진 결함을
+   독립 audit 경로가 다시 찾는 능력은 확인됐다.
+4. 고정 사업자번호형 프로필로 AQ2-R1과 비교한 오프라인 matcher에서 K-Startup의
+   `target_type` unknown trace가 사라졌다. eligibility는 genuine unresolved 축
+   때문에 여전히 conditional이지만, 중복 target_type이 추가 보류를 만드는
+   AQ3-B 이전 회귀는 제거됐고 catastrophic eligibility flip은 없다.
+5. 같은 실제 token을 표준가로 재산정한 전체 비용은 `$1.383051`이다. candidate
+   end-to-end는 현재 `$0.775237`, 표준 `$0.957300`으로 기존 `$1.559922` 대비
+   각각 `50.30%`, `38.63%` 절감되어 비용 게이트는 GO다.
+
+남은 단일 차단:
+
+- Bizinfo candidate audit이 인증기업 가점 행을 `prior_award/preferred/text_only`
+  누락으로 제기했고 adjudication과 finding verifier v1이 이를 blocking finding
+  1건으로 채택했다. 그러나 primary에는 exact 동일 `source_span`과 동일한 가점
+  효과가 이미 `certification/preferred/text_only`로 존재한다. 이는 실제 누락이
+  아니라 축 이름만 다른 허위 차단이다.
+- K-Startup candidate audit의 근거 없는 `biz_age max_months=36` 주장은
+  adjudication에서 accepted finding 0으로 안전하게 닫혔다. 따라서 남은 문제는
+  audit 전체나 모델 재선정이 아니라, 같은 exact evidence와 match effect가 primary에
+  있을 때 cross-dimension audit finding을 결정적으로 거절하지 못하는 verifier
+  정밀도 한 가지다.
+
+게이트 판정:
+
+- primary, audit 출력 계약, sensitivity, 비용, AQ3-B 제품 회귀 제거는 GO다.
+- false blocker 1건 때문에 전체는 `STOP`이다. CQ3, cohort 확대, 배포,
+  production prompt/model policy 전환, promotion과 랜딩 serving 변경은 진행하지
+  않는다. 같은 구성의 추가 유료 재실행도 하지 않는다.
+- 허용 가능한 다음 체크포인트는 새 유료 호출 없이
+  `deterministic_same_evidence_cross_dimension_finding_rejection`만 좁게
+  설계·구현하는 것이다. 같은 exact evidence와 match effect가 primary에 이미
+  보존되어 있으면 audit-only finding을 차단하되, 서로 다른 근거·kind·operator·
+  실제 매칭 효과까지 전역으로 합치지 않아야 한다.
+- raw receipt SHA-256은
+  `bd1bc97b18d5cd2dc232ea79ce62183a0d746613c4e4fd5b7d00d494bb80f18d`,
+  요약 evidence는 `docs/evidence/deep-analysis/aq3-r1-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달

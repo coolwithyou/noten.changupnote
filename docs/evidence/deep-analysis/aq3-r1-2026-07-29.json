@@ -1,0 +1,173 @@
+{
+  "schema": "deep-analysis-aq3-r1-summary-v1",
+  "generatedAt": "2026-07-28T22:38:04Z",
+  "checkpoint": "AQ3-R1",
+  "status": "PRIMARY_AUDIT_CONTRACT_COST_PASS_FALSE_BLOCKER_STOP",
+  "sourceCommit": "8b0675ae9523c8688bfd5a813b8c923041782c3c",
+  "modelPolicyVersion": "deep-analysis-model-policy-cq2-v4",
+  "models": {
+    "primary": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "audit": {
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null,
+      "contractVersion": "deep-analysis-audit-candidates-v2",
+      "promptVersion": "deep-analysis-blind-audit-v14"
+    },
+    "adjudication": {
+      "model": "claude-opus-5",
+      "effort": "high"
+    }
+  },
+  "exactInputs": [
+    {
+      "key": "kstartup/178647",
+      "inputSha256": "c3c7ead5dd10bda35dcc4efa6776c53289e125e8d86636cd190b51fa0c509ab0",
+      "sourceRevisionSha256": "a7c3d618bd821e880f8b650def32ba0f006d896b27e9eb9005ce515666401b38",
+      "expectedKnownFinding": "bankruptcy_discharge_exception"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000123200",
+      "inputSha256": "d1d648874a869e5c59ae8aace50fa49587055cdfe1569b8858f451ac0284dfa2",
+      "sourceRevisionSha256": "337e7358b22161e9332e8069aa81e2b5f4f08aa70a23a68261e67fa4187c3bb7",
+      "expectedKnownFinding": "premises_scoring_preference"
+    }
+  ],
+  "cost": {
+    "hardCapUsd": 2,
+    "preflightCurrentPricingUsd": 1.380796,
+    "preflightStandardPricingUsd": 1.618462,
+    "actualCurrentPricingUsd": 1.200988,
+    "recalculatedStandardPricingUsd": 1.383051,
+    "candidateEndToEndCurrentPricingUsd": 0.775237,
+    "candidateEndToEndStandardPricingUsd": 0.9573,
+    "baselineEndToEndPricingUsd": 1.559922,
+    "candidateSavingsCurrentPercent": 50.302836,
+    "candidateSavingsStandardPercent": 38.631547,
+    "standardRepriceAssumption": "Sonnet 5 token cost multiplied by 1.5 for 2026-09-01 pricing; Haiku 4.5 and Opus 5 pricing unchanged"
+  },
+  "quality": {
+    "candidatePrimaryValidatorPass": {
+      "count": 2,
+      "total": 2
+    },
+    "candidatePrimaryRepairCount": {
+      "kstartup/178647": 1,
+      "bizinfo/PBLN_000000000123200": 0
+    },
+    "knownPrimaryMatchImpactPreserved": {
+      "count": 2,
+      "total": 2,
+      "details": [
+        "K-Startup keeps prior_award plus all known credit and tax exceptions and no longer emits the duplicate target_type criterion",
+        "Bizinfo keeps required and preferred premises, separate foreign website and promotion scores, and the certification preference row"
+      ]
+    },
+    "candidateAuditValidatorPass": {
+      "count": 2,
+      "total": 2
+    },
+    "sensitivityAuditValidatorPass": {
+      "count": 2,
+      "total": 2
+    },
+    "auditValidationIssueCount": 0,
+    "knownFindingSensitivityDefinitive": {
+      "count": 2,
+      "total": 2,
+      "details": [
+        "K-Startup sensitivity audit accepted the known credit and tax exception omissions",
+        "Bizinfo sensitivity audit accepted the known required and scoring premises omission"
+      ]
+    },
+    "candidateAuditVerdicts": {
+      "kstartup/178647": "unsure",
+      "bizinfo/PBLN_000000000123200": "disagree"
+    },
+    "candidateAuditConcurrence": {
+      "count": 0,
+      "total": 2
+    },
+    "candidateAcceptedBlockingFindings": 1,
+    "falseBlockingFindingsAccepted": 1
+  },
+  "productMatch": {
+    "fixedProfile": {
+      "region": {
+        "code": "26",
+        "label": "부산"
+      },
+      "targetTypes": [
+        "법인사업자"
+      ],
+      "targetTypeCompleteness": "partial"
+    },
+    "kstartupBefore": {
+      "eligibility": "conditional",
+      "unknownIncludesTargetType": true,
+      "targetTypeTraceResult": "unknown"
+    },
+    "kstartupAfter": {
+      "eligibility": "conditional",
+      "unknownIncludesTargetType": false,
+      "targetTypeTraceCount": 0
+    },
+    "duplicateTargetTypeRemoved": true,
+    "catastrophicEligibilityFlip": false,
+    "note": "The remaining conditional state comes from genuinely unresolved prior_award, disqualification, industry, or other profile data, not the removed duplicate target_type."
+  },
+  "falseBlocker": {
+    "key": "bizinfo/PBLN_000000000123200",
+    "findingVerifierVersion": "deep-analysis-audit-finding-verifier-v1",
+    "auditDimension": "prior_award",
+    "primaryDimension": "certification",
+    "kind": "preferred",
+    "operator": "text_only",
+    "exactSourceSpanEqual": true,
+    "acceptedCount": 1,
+    "problem": "The primary already preserves the exact certification scoring row and match effect, but the audit relabeled the same evidence as prior_award and adjudication treated it as missing.",
+    "nextNarrowCheckpoint": "deterministic_same_evidence_cross_dimension_finding_rejection"
+  },
+  "safety": {
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "rawReceipt": {
+    "localPath": "/tmp/cunote-aq3-r1-exec-20260729-a/receipt.json",
+    "sha256": "bd1bc97b18d5cd2dc232ea79ce62183a0d746613c4e4fd5b7d00d494bb80f18d"
+  },
+  "rawArtifacts": [
+    {
+      "localPath": "/tmp/cunote-aq3-r1-exec-20260729-a/kstartup-178647.json",
+      "sha256": "57c6640f1ff6f2f5d070b1cc0c0a11a1bb6bc8a889ef8b05ae2ca5199f85344b"
+    },
+    {
+      "localPath": "/tmp/cunote-aq3-r1-exec-20260729-a/bizinfo-PBLN_000000000123200.json",
+      "sha256": "e94e7d22b7f7425a143e7ae93b0f34890d6b49154043a66d659d2b5cab523476"
+    }
+  ],
+  "localEvaluators": {
+    "runnerPath": "/tmp/cunote-cq2-cost-quality-eval.mjs",
+    "runnerSha256": "213a5115c0fbc121856e308d6995a0388be21a275ccbefbd6cf129be54d36183",
+    "offlineEvaluatorPath": "/tmp/cunote-aq3-offline-eval.mjs",
+    "offlineEvaluatorSha256": "12b873f13ca170f58154be1a01ab655b2c9a84b9ee6fdb3d761f7d5da3c6de45"
+  },
+  "gate": {
+    "cost": "GO",
+    "candidatePrimary": "GO",
+    "auditContract": "GO",
+    "auditorSensitivity": "GO",
+    "targetTypeProductRegression": "FIXED",
+    "deterministicFindingPrecision": "STOP",
+    "overall": "STOP",
+    "cq3Allowed": false,
+    "cohortExpansionAllowed": false,
+    "productionPolicyChangeAllowed": false,
+    "sameConfigurationPaidRerunAllowed": false
+  }
+}
