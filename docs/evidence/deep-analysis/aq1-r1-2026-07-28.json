@@ -1,0 +1,124 @@
+{
+  "schema": "deep-analysis-aq1-r1-summary-v1",
+  "generatedAt": "2026-07-28T09:55:06Z",
+  "checkpoint": "AQ1-R1",
+  "status": "PRIMARY_AND_SAFETY_PASS_AUDIT_STOP",
+  "sourceCommit": "ce6f04dc0339a943efb8ae515c40d6d2b10e2090",
+  "runner": {
+    "localPath": "/private/tmp/cunote-cq2-cost-quality-eval.mjs",
+    "sha256": "0b4ce4f47f46308daf51947cdda6d25c60d31856d8fd8f4c2c3deb3d6a10bee8"
+  },
+  "models": {
+    "primary": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "audit": {
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null
+    },
+    "adjudication": {
+      "model": "claude-opus-5",
+      "effort": "high"
+    }
+  },
+  "exactInputs": [
+    {
+      "key": "kstartup/178647",
+      "inputSha256": "c3c7ead5dd10bda35dcc4efa6776c53289e125e8d86636cd190b51fa0c509ab0",
+      "sourceRevisionSha256": "a7c3d618bd821e880f8b650def32ba0f006d896b27e9eb9005ce515666401b38",
+      "expectedKnownFinding": "bankruptcy_discharge_exception"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000123200",
+      "inputSha256": "d1d648874a869e5c59ae8aace50fa49587055cdfe1569b8858f451ac0284dfa2",
+      "sourceRevisionSha256": "337e7358b22161e9332e8069aa81e2b5f4f08aa70a23a68261e67fa4187c3bb7",
+      "expectedKnownFinding": "premises_scoring_preference"
+    }
+  ],
+  "cost": {
+    "hardCapUsd": 2,
+    "actualCurrentPricingUsd": 0.604519,
+    "recalculatedStandardPricingUsd": 0.791023,
+    "candidateEndToEndCurrentPricingUsd": 0.488366,
+    "candidateEndToEndStandardPricingUsd": 0.67487,
+    "candidateSavingsCurrentPercent": 68.692922,
+    "candidateSavingsStandardPercent": 56.736939,
+    "standardRepriceAssumption": "Sonnet 5 token cost multiplied by 1.5 for 2026-09-01 pricing; Haiku 4.5 pricing unchanged"
+  },
+  "quality": {
+    "candidatePrimaryValidatorPass": {
+      "count": 2,
+      "total": 2
+    },
+    "candidatePrimaryRepairCount": {
+      "kstartup/178647": 1,
+      "bizinfo/PBLN_000000000123200": 0
+    },
+    "knownPrimaryMatchImpactPreserved": {
+      "count": 2,
+      "total": 2,
+      "details": [
+        "K-Startup credit criterion contains bankruptcy_discharge_confirmed and tax criterion contains tax_debt_repaid_with_proof",
+        "Bizinfo contains both required and preferred premises criteria"
+      ]
+    },
+    "nonCanonicalHardTargetTypeCount": 0,
+    "candidateAuditValidatorPass": {
+      "count": 0,
+      "total": 2
+    },
+    "sensitivityAuditValidatorPass": {
+      "count": 0,
+      "total": 2
+    },
+    "knownFindingSensitivityDefinitive": {
+      "count": 0,
+      "total": 2,
+      "reason": "invalid audits are not eligible for automated findings"
+    },
+    "auditValidationIssueCounts": {
+      "raw_contract_invalid": 76,
+      "evidence_not_grounded": 16,
+      "axis_criterion_mismatch": 3,
+      "canonical_contract_invalid": 3,
+      "normalization_drop": 3,
+      "unresolved_axis": 3
+    }
+  },
+  "safety": {
+    "invalidAuditCount": 4,
+    "adjudicationCalls": 0,
+    "falseBlockingFindingsAccepted": 0,
+    "allInvalidAuditDispositions": "audit_invalid",
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "rawReceipt": {
+    "localPath": "/tmp/cunote-cq2-aq1-rerun-20260728-exec-a/receipt.json",
+    "sha256": "1715516dbb380180b4289822691ccd73f0cf554df90b7a3db5baa46060fcbd04"
+  },
+  "rawArtifacts": [
+    {
+      "localPath": "/tmp/cunote-cq2-aq1-rerun-20260728-exec-a/kstartup-178647.json",
+      "sha256": "af546b0fc50038dd45fad4ca33ad6530a223ff1cb431d2661e7904fae93b94bc"
+    },
+    {
+      "localPath": "/tmp/cunote-cq2-aq1-rerun-20260728-exec-a/bizinfo-PBLN_000000000123200.json",
+      "sha256": "77e97f475abc13704a8c3987bcc1496ce2d7dac610b09b11e1b11bca18ffbf22"
+    }
+  ],
+  "gate": {
+    "cost": "GO",
+    "primary": "GO",
+    "invalidAuditSafety": "GO",
+    "auditContract": "STOP",
+    "auditorSensitivity": "STOP",
+    "overall": "STOP",
+    "cq3Allowed": false,
+    "sameConfigurationPaidRerunAllowed": false
+  }
+}

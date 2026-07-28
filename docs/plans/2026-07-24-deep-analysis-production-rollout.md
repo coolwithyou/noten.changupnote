@@ -4603,6 +4603,65 @@ AQ1은 코드 체크포인트까지만 완료했다. CQ3는 계속 금지한다.
 audit validator 2/2, false blocking 0, 알려진 match-impact 2/2 보존, 실제 비용을
 확인하고 다시 중단하는 것이다.
 
+### AQ1-R1 exact 2건 재검증 — `PRIMARY/SAFETY PASS`, `AUDIT STOP` (2026-07-28)
+
+AQ1 커밋 `ce6f04dc0339a943efb8ae515c40d6d2b10e2090`의 clean detached tracked
+source에서 CQ2와 동일한 sealed input/source SHA의 두 공고를 계획대로 한 번만
+재실행했다. preflight 예상 비용은 현재가 `$1.380796`, 표준가 `$1.618462`로
+`$2.00` 상한 안이었고, 실행 중 DB/R2/promotion 쓰기는 열지 않았다.
+
+primary 결과:
+
+1. `kstartup/178647`은 validator PASS, repair 1회다. 신용채무 변제 완료,
+   채무조정합의, 법원 회생·변제계획 인가, 파산 면책 확정, 재도전보증,
+   재창업자금 예외와 세금 특수채무 변제 예외를 모두 보존했다.
+2. `bizinfo/PBLN_000000000123200`은 validator PASS, repair 0회다. 하남시
+   본사·공장 required premises와 차등 배점 preferred premises, 외국어
+   홈페이지·홍보자료, 인증 가점 행을 모두 보존했다.
+3. 두 primary 모두 비정형 `target_type/text_only`를 만들지 않았다. K-Startup의
+   공동대표 전원 조건은 `other/text_only`로 보존됐다.
+4. 따라서 candidate primary validator와 계획에 고정한 알려진 match-impact
+   보존은 각각 2/2 PASS다.
+
+AI 자동 검수 결과:
+
+- candidate audit 2건과 보존 baseline sensitivity audit 2건, 총 4/4가 다시
+  validator FAIL했다. 네 결과의 final verdict는 모두 `unsure`,
+  disposition은 모두 `audit_invalid`다.
+- AQ1 경계가 작동해 invalid audit를 Opus에 전달한 횟수는 0이고, 자동
+  blocking finding으로 채택된 false positive도 0이다. 즉 안전성 문제는
+  해결됐지만 audit 품질 문제는 해결되지 않았다.
+- 네 audit에서 `raw_contract_invalid` 76건, `evidence_not_grounded` 16건이
+  반복됐다. Haiku가 `inspected_no_condition`을 criteria row의 kind로 넣거나
+  빈 source span을 만들고, axis와 criterion을 일치시키지 못하는 것이 주된
+  실패다.
+- invalid audit는 finding 후보로 사용할 수 없으므로 알려진 결함 sensitivity의
+  확정 탐지는 0/2다. raw 내용에 관련 표현이 있더라도 기계 계약을 통과하지
+  못했으므로 PASS로 계산하지 않았다.
+
+비용 결과:
+
+- 전체 실험 실측 현재가는 `$0.604519`, 같은 token을 2026-09-01 이후 Sonnet 5
+  표준가로 재산정하면 `$0.791023`이다. Opus adjudication 4회를 모두 건너뛴
+  효과가 포함되며 `$2.00` hard cap 안이다.
+- candidate end-to-end는 현재가 `$0.488366`, 표준가 `$0.674870`이다. 기존
+  `$1.559922` 대비 각각 `68.69%`, `56.74%` 절감으로 비용 GO는 충족한다.
+
+게이트 판정:
+
+- primary 품질, invalid-audit 안전성, 비용은 GO다.
+- audit validator 0/2와 auditor sensitivity 0/2 때문에 전체는 `STOP`이다.
+  CQ3, cohort 확대, production model/prompt 변경, promotion, 랜딩 serving
+  변경은 진행하지 않는다.
+- 같은 Haiku 구성의 추가 유료 재실행은 허용하지 않는다. 다음 코드 체크포인트는
+  이 결과를 리뷰한 뒤 audit contract를 단순화할지, audit 모델을 바꿀지 하나만
+  선택해 별도 승인해야 한다.
+- raw receipt SHA-256은
+  `1715516dbb380180b4289822691ccd73f0cf554df90b7a3db5baa46060fcbd04`,
+  요약 evidence는 `docs/evidence/deep-analysis/aq1-r1-2026-07-28.json`에
+  기록했다. 외부 쓰기는 DB 0, R2 0, promotion 0, Cloud Run/Scheduler 0,
+  Vercel 0이다.
+
 중단 조건:
 
 - 동결 80 품질 미달
