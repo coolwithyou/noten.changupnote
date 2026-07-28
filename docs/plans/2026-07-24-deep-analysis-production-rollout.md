@@ -4396,6 +4396,65 @@ CQ2가 품질 GO일 때만 진행한다. 이 단계에서도 모델 품질과 �
   production promotion과 Vercel 배포는 0이다. 다음 단계는 CQ2 exact 2건이며,
   실행 전에 이 checkpoint를 커밋하고 중단해 리뷰한다.
 
+### CQ2 실행 체크포인트 — `QUALITY/COST STOP`, `PRODUCTION UNCHANGED` (2026-07-28)
+
+CQ1 커밋 `0d8fdb7e5bd3778e236c48252d862f3557f85048`의 clean detached
+worktree에서 exact 2건만 실행했다. 두 입력은 계획에 고정한 input SHA-256과 source
+revision SHA-256에 각각 2/2 일치했다. 실행 조합은
+`Sonnet 5 high primary → Haiku 4.5 blind audit → Opus 5 high adjudication`이며,
+보존된 v17 primary에 대한 auditor sensitivity도 같은 Haiku/Opus 조합으로 분리해
+실행했다.
+
+비용 결과:
+
+- 전체 실험 예상 비용은 한시 가격 `$1.380796`, 표준 가격 `$1.618462`였고,
+  실측 한시 가격은 `$1.526460`, 동일 token을 표준 가격으로 재산정하면
+  `$1.788313`이다. 모두 실험 hard cap `$2.00` 이내다.
+- candidate end-to-end만 분리한 실측은 한시 가격 `$1.056008`로 현재 기준선
+  `$1.559922` 대비 `32.30%` 절감이다.
+- 2026-09-01 이후 표준 가격은 `$1.317861`, 같은 기준선 대비 `15.52%` 절감에
+  그쳐 최소 비용 GO `25%`를 통과하지 못했다.
+
+품질 결과:
+
+1. `kstartup/178647`
+   - validator와 22축 계약은 PASS했고 primary repair 1회가 발생했다.
+   - primary는 파산 면책 확정 예외를 matching criterion으로 보존하지 못했다.
+     `prior_award`의 선정 상태를 `completed`로 표현했고, 세금 변제 완료 예외도
+     누락했다.
+   - candidate audit 최종 verdict는 `unsure`였다. 보존된 v17 결함 출력에 대한
+     sensitivity도 파산 면책 누락을 reason 안에서는 인지했지만 최종 `unsure`라
+     blocking 탐지로 확정하지 못했다.
+2. `bizinfo/PBLN_000000000123200`
+   - validator와 22축 계약은 PASS했고 primary repair 1회가 발생했다.
+   - 계획에 고정한 premises 배점은 `premises/preferred`로 복원했다.
+   - 그러나 선정평가표의 외국어 홈페이지 6점과 외국어 홍보자료 6점, 합계 12점
+     항목을 새로 누락해 candidate audit가 `disagree`했다. 하남시 요건을 경기도
+     코드만으로 표현한 지역 정밀도 문제도 남았다.
+   - 보존된 v17 결함 출력에 대한 sensitivity는 premises 누락을 reason 안에서는
+     인지했지만 다른 분류 불확실성과 함께 최종 `unsure`로 남았다.
+
+게이트 판정:
+
+- validator PASS는 2/2지만 알려진 match-impact의 candidate 보존은 1/2다.
+- auditor sensitivity는 내용 인지 2/2, 확정 blocking 판정 0/2다.
+- 새 match-impacting 누락 1건과 표준 가격 최소 절감 미달이 추가로 확인됐다.
+- 따라서 CQ2는 `STOP`이며 CQ3, cohort 확대, production candidate 변경,
+  promotion, 랜딩 serving 변경을 진행하지 않는다.
+- hard STOP이 이미 확정돼 고정 company profile matcher 비교는 추가 비용·범위를
+  늘리지 않고 실행하지 않았다.
+- 전체 raw receipt SHA-256은
+  `d40066701fd62a6805a17aa167e562a211bd9ad996806263d51ff0f97f981b2f`이며,
+  보존용 요약 receipt는
+  `docs/evidence/deep-analysis/cq2-2026-07-28.json`에 기록했다.
+- 실행 러너는 production DB를 조회하고 R2 artifact를 읽기만 했으며 결과는 권한
+  `0600`의 로컬 `/tmp/cunote-cq2-run-20260728-a`에만 썼다. DB, R2,
+  production promotion, Cloud Run/Scheduler, Vercel 변경은 0이다.
+
+다음 허용 범위는 기존 CQ2 실패 규칙 그대로다. 실패 유형별 공유 semantic rule 또는
+canonical 회귀 교정을 최대 한 번만 수행하고, 같은 exact 2건만 재평가한 뒤 다시
+중단한다. 두 공고 전용 예외 문구를 prompt에 나열하거나 CQ3로 우회하지 않는다.
+
 중단 조건:
 
 - 동결 80 품질 미달

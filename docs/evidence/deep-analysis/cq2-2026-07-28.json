@@ -1,0 +1,116 @@
+{
+  "schema": "deep-analysis-cost-quality-cq2-summary-v1",
+  "generatedAt": "2026-07-28T07:13:31.962Z",
+  "sourceCommit": "0d8fdb7e5bd3778e236c48252d862f3557f85048",
+  "modelPolicyVersion": "deep-analysis-model-policy-cq2-v1",
+  "models": {
+    "primary": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "audit": {
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null
+    },
+    "adjudication": {
+      "model": "claude-opus-5",
+      "effort": "high"
+    }
+  },
+  "scope": {
+    "noticeCount": 2,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "deploymentChanges": 0
+  },
+  "cost": {
+    "hardCapUsd": 2,
+    "projectedCurrentExperimentUsd": 1.380796,
+    "actualCurrentExperimentUsd": 1.52646,
+    "actualStandardExperimentUsd": 1.788313,
+    "baselineTwoNoticeUsd": 1.559922,
+    "candidateEndToEndCurrentUsd": 1.056008,
+    "candidateEndToEndCurrentSavingsPercent": 32.303795,
+    "candidateEndToEndStandardUsd": 1.317861,
+    "candidateEndToEndStandardSavingsPercent": 15.517507,
+    "minimumRequiredStandardSavingsPercent": 25
+  },
+  "quality": {
+    "validatorPassCount": 2,
+    "knownMatchImpactPreservedCount": 1,
+    "knownMatchImpactExpectedCount": 2,
+    "sensitivityContentRecognitionCount": 2,
+    "sensitivityDefinitiveBlockingCount": 0,
+    "sensitivityExpectedCount": 2,
+    "fixedProfileMatcherComparison": "not_run_after_hard_stop",
+    "verdict": "STOP"
+  },
+  "items": [
+    {
+      "key": "kstartup/178647",
+      "grantId": "c0a63ba0-15df-476e-84cf-c8160ed3cfd5",
+      "inputSha256": "c3c7ead5dd10bda35dcc4efa6776c53289e125e8d86636cd190b51fa0c509ab0",
+      "sourceRevisionSha256": "a7c3d618bd821e880f8b650def32ba0f006d896b27e9eb9005ce515666401b38",
+      "candidate": {
+        "validationValid": true,
+        "repairCount": 1,
+        "currentCostUsd": 0.474755,
+        "auditVerdict": "unsure",
+        "knownFinding": "bankruptcy_discharge_exception",
+        "knownFindingPreserved": false,
+        "additionalFindings": [
+          "prior_award selected state was encoded as completed",
+          "tax payment completion exception was omitted",
+          "biz_age source conflict remained uncertain"
+        ]
+      },
+      "sensitivity": {
+        "currentCostUsd": 0.189872,
+        "verdict": "unsure",
+        "knownFindingRecognizedInReason": true,
+        "knownFindingDefinitivelyBlocked": false
+      },
+      "rawArtifactSha256": "d96a6d0a1ae4951302035aa1f59e70666789ac740a09700988a2817c5467683c"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000123200",
+      "grantId": "de1aa55a-f737-4738-bc1f-cb0bfc73ff36",
+      "inputSha256": "d1d648874a869e5c59ae8aace50fa49587055cdfe1569b8858f451ac0284dfa2",
+      "sourceRevisionSha256": "337e7358b22161e9332e8069aa81e2b5f4f08aa70a23a68261e67fa4187c3bb7",
+      "candidate": {
+        "validationValid": true,
+        "repairCount": 1,
+        "currentCostUsd": 0.581253,
+        "auditVerdict": "disagree",
+        "knownFinding": "premises_scoring_preference",
+        "knownFindingPreserved": true,
+        "additionalFindings": [
+          "foreign-language website and promotional-material score was omitted",
+          "region value retained only province-level code for a city-level requirement"
+        ]
+      },
+      "sensitivity": {
+        "currentCostUsd": 0.28058,
+        "verdict": "unsure",
+        "knownFindingRecognizedInReason": true,
+        "knownFindingDefinitivelyBlocked": false
+      },
+      "rawArtifactSha256": "2e038a87e23286b880ea3fadfd2af4c9b6e27a113a2173958c6357f6048a3722"
+    }
+  ],
+  "rawReceipt": {
+    "localPath": "/tmp/cunote-cq2-run-20260728-a/receipt.json",
+    "sha256": "d40066701fd62a6805a17aa167e562a211bd9ad996806263d51ff0f97f981b2f"
+  },
+  "stopReasons": [
+    "The bankruptcy-discharge exception was not preserved in the candidate primary result.",
+    "Both known baseline defects were only recognized inside unsure sensitivity verdicts, not definitively blocked.",
+    "The Bizinfo candidate omitted another match-impacting 12-point selection criterion.",
+    "Standard-price savings were 15.52 percent, below the required 25 percent."
+  ],
+  "nextCheckpoint": {
+    "cq3Allowed": false,
+    "scope": "one shared semantic or canonical correction per failure type, then rerun only the same exact two notices"
+  }
+}
