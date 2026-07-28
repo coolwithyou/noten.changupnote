@@ -4494,6 +4494,66 @@ hash를 기준으로 분기하는 예외 코드는 추가하지 않았다.
   Cloud Run/Scheduler, Vercel 변경을 하지 않았다. 다음 단계는 같은 input/source
   hash의 exact 2건만 CQ2-R1 조합으로 재평가하는 것이다.
 
+### CQ2-R1 exact 2건 재평가 — `PRIMARY IMPROVED`, `AUDIT/COST STOP` (2026-07-28)
+
+코드 체크포인트 `9368fd52c9f231be2535b8bfb389dcc285d9ef4d`의 clean detached
+worktree에서 CQ2와 동일한 input/source SHA의 exact 2건만 다시 실행했다. 모델 조합과
+`$2.00` hard cap은 CQ2와 동일하고 production mutation은 열지 않았다.
+
+primary 결과:
+
+1. `kstartup/178647`은 validator PASS, repair 1회다. 신용채무 변제 완료,
+   채무조정합의, 법원 회생·변제계획 인가, 파산 면책 확정, 재도전보증,
+   재창업자금 예외를 각각 보존했고 세금 특수채무 변제 예외도 보존했다.
+2. `bizinfo/PBLN_000000000123200`은 validator PASS, repair 1회다. 하남시
+   본사·공장 required premises, 본사·공장 차등 배점, 외국어 홈페이지·홍보자료
+   12점 행을 모두 별도 criterion으로 보존했다.
+3. 따라서 CQ2에 고정한 알려진 match-impact 두 건의 primary 보존은 2/2로
+   개선됐다.
+4. 그러나 K-Startup 결과는 공동대표 전원 조건을 법적 신청주체 유형이 아닌데도
+   `target_type/required/text_only`로 만들어 추가 match-impact 위험을 남겼다.
+
+AI 자동 검수 결과:
+
+- compact audit로 바꾼 뒤 Haiku는 더 이상 `max_tokens`로 중단되지 않았고 네 호출
+  모두 `tool_use`로 끝났다. 하지만 candidate audit 2건과 sensitivity audit 2건,
+  총 4/4가 raw contract·exact span·axis/criterion 정합 문제로 validator FAIL했다.
+- sensitivity adjudication은 보존된 기준선의 신용·세금 예외 누락과 premises
+  required·배점 누락을 실제 `blocking_findings`로 2/2 확정했다. 전체 verdict가
+  `unsure`인 이유는 별도의 원문 불확실성도 함께 반환했기 때문이다.
+- candidate adjudication은 확인 가능한 false blocking finding을 4건 만들었다.
+  K-Startup에서 부산 코드 `26`을 서울이라고 하고 부산을 `48`이라고 주장했으며,
+  명시되지 않은 업력 조건과 재량적 other 제외를 hard canonical 누락으로 판정했다.
+  Bizinfo에서는 primary에 별도 certification preferred criterion과 exact span이
+  존재하는데도 해당 인증 가점 행이 없다고 판정했다.
+- 즉, 이번 교정은 sensitivity recall은 높였지만 자동 검수 precision과 기계 계약을
+  보증하지 못했다. validator를 통과하지 않은 blind 결과와 원문·primary에 반하는
+  adjudication을 production gate로 사용할 수 없다.
+
+비용 결과:
+
+- 전체 실험 실측은 한시 가격 `$1.556196`, 동일 token의 표준 가격 재산정
+  `$1.822446`으로 `$2.00` hard cap 안이다.
+- candidate end-to-end는 한시 가격 `$1.028628`, 기준선 대비 `34.06%` 절감이다.
+- 2026-09-01 이후 표준 가격은 `$1.294878`, 기준선 대비 `16.99%` 절감으로
+  최소 비용 GO `25%`를 다시 통과하지 못했다.
+
+게이트 판정:
+
+- CQ2-R1도 `STOP`이다. CQ3, cohort 확대, production model/prompt 변경,
+  promotion과 랜딩 serving 변경을 진행하지 않는다.
+- hard STOP이 이미 확정돼 고정 company profile matcher 비교는 실행하지 않았다.
+- 전체 raw receipt SHA-256은
+  `230934afd09376bae8483ef8fead788ffc19fd34016a697946b18376d346e96d`이며,
+  요약 receipt는 `docs/evidence/deep-analysis/cq2-r1-2026-07-28.json`에 기록했다.
+- 실행 결과는 권한 `0600`의 로컬
+  `/tmp/cunote-cq2-r1-run-20260728-a`에만 썼다. DB/R2/promotion,
+  Cloud Run/Scheduler, Vercel 변경은 0이다.
+- 계획이 허용한 실패 유형별 1회 교정과 동일 2건 재평가를 모두 사용했다. 다음
+  유료 재실행은 자동 검수 구조와 deterministic fact backstop을 별도 리뷰해 새
+  체크포인트로 승인하기 전까지 허용하지 않는다. 같은 두 공고를 겨냥한 추가 prompt
+  문구 튜닝은 하지 않는다.
+
 중단 조건:
 
 - 동결 80 품질 미달

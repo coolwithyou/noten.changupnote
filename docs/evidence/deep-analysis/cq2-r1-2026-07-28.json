@@ -1,0 +1,127 @@
+{
+  "schema": "deep-analysis-cost-quality-cq2-r1-summary-v1",
+  "generatedAt": "2026-07-28T07:49:07.529Z",
+  "sourceCommit": "9368fd52c9f231be2535b8bfb389dcc285d9ef4d",
+  "promptVersions": {
+    "primary": "deep-analysis-v11",
+    "audit": "deep-analysis-blind-audit-v12",
+    "adjudication": "deep-analysis-audit-adjudication-v13"
+  },
+  "models": {
+    "primary": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "audit": {
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null
+    },
+    "adjudication": {
+      "model": "claude-opus-5",
+      "effort": "high"
+    }
+  },
+  "scope": {
+    "noticeCount": 2,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "deploymentChanges": 0
+  },
+  "cost": {
+    "hardCapUsd": 2,
+    "actualCurrentExperimentUsd": 1.556196,
+    "actualStandardExperimentUsd": 1.822446,
+    "baselineTwoNoticeUsd": 1.559922,
+    "candidateEndToEndCurrentUsd": 1.028628,
+    "candidateEndToEndCurrentSavingsPercent": 34.059011,
+    "candidateEndToEndStandardUsd": 1.294878,
+    "candidateEndToEndStandardSavingsPercent": 16.99085,
+    "minimumRequiredStandardSavingsPercent": 25
+  },
+  "quality": {
+    "candidatePrimaryValidatorPassCount": 2,
+    "knownMatchImpactPreservedCount": 2,
+    "knownMatchImpactExpectedCount": 2,
+    "candidateAuditValidatorPassCount": 0,
+    "candidateAuditExpectedCount": 2,
+    "sensitivityAuditValidatorPassCount": 0,
+    "sensitivityAuditExpectedCount": 2,
+    "sensitivityKnownFindingDefinitiveBlockingCount": 2,
+    "sensitivityKnownFindingExpectedCount": 2,
+    "confirmedFalseBlockingFindingCount": 4,
+    "fixedProfileMatcherComparison": "not_run_after_hard_stop",
+    "verdict": "STOP"
+  },
+  "items": [
+    {
+      "key": "kstartup/178647",
+      "grantId": "c0a63ba0-15df-476e-84cf-c8160ed3cfd5",
+      "inputSha256": "c3c7ead5dd10bda35dcc4efa6776c53289e125e8d86636cd190b51fa0c509ab0",
+      "sourceRevisionSha256": "a7c3d618bd821e880f8b650def32ba0f006d896b27e9eb9005ce515666401b38",
+      "candidate": {
+        "validationValid": true,
+        "repairCount": 1,
+        "currentCostUsd": 0.448672,
+        "knownFinding": "bankruptcy_discharge_exception",
+        "knownFindingPreserved": true,
+        "auditValidationValid": false,
+        "auditVerdict": "disagree",
+        "confirmedFalseBlockingFindings": [
+          "The adjudicator claimed that region code 26 was Seoul and that Busan was 48.",
+          "The adjudicator inferred an unstated business-age threshold from the phrase early-stage founder.",
+          "The adjudicator converted a discretionary other exclusion into a canonical sanction flag."
+        ],
+        "additionalPrimaryRisk": "A joint-representative rule was emitted as target_type required text_only although it does not define a legal applicant type."
+      },
+      "sensitivity": {
+        "validationValid": false,
+        "verdict": "unsure",
+        "knownCreditExceptionBlockingFinding": true,
+        "knownTaxExceptionBlockingFinding": true
+      },
+      "rawArtifactSha256": "02808c86daae3772845a39c16c21ef3495d20c98dc3e7088a0cc04d3d6f17d21"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000123200",
+      "grantId": "de1aa55a-f737-4738-bc1f-cb0bfc73ff36",
+      "inputSha256": "d1d648874a869e5c59ae8aace50fa49587055cdfe1569b8858f451ac0284dfa2",
+      "sourceRevisionSha256": "337e7358b22161e9332e8069aa81e2b5f4f08aa70a23a68261e67fa4187c3bb7",
+      "candidate": {
+        "validationValid": true,
+        "repairCount": 1,
+        "currentCostUsd": 0.579956,
+        "knownFinding": "premises_scoring_preference",
+        "knownFindingPreserved": true,
+        "additionalScoringFindingPreserved": true,
+        "auditValidationValid": false,
+        "auditVerdict": "disagree",
+        "confirmedFalseBlockingFindings": [
+          "The adjudicator claimed that the certification bonus row was absent even though the primary contained a separate certification preferred text_only criterion with the exact row."
+        ]
+      },
+      "sensitivity": {
+        "validationValid": false,
+        "verdict": "unsure",
+        "knownPremisesRequiredBlockingFinding": true,
+        "knownPremisesScoringBlockingFinding": true
+      },
+      "rawArtifactSha256": "5cee4a4e2d6e2f534546f998a84e347ab1c4360f0a08eb334e59f99669d1c146"
+    }
+  ],
+  "rawReceipt": {
+    "localPath": "/tmp/cunote-cq2-r1-run-20260728-a/receipt.json",
+    "sha256": "230934afd09376bae8483ef8fead788ffc19fd34016a697946b18376d346e96d"
+  },
+  "stopReasons": [
+    "All four blind audit executions failed the validator even after max-token truncation was removed.",
+    "The adjudicator emitted four manually confirmed false blocking findings.",
+    "The candidate primary still emitted at least one match-impacting axis misclassification.",
+    "Standard-price savings were 16.99 percent, below the required 25 percent."
+  ],
+  "nextCheckpoint": {
+    "cq3Allowed": false,
+    "paidRerunAllowed": false,
+    "scope": "review the audit architecture and deterministic fact backstops before authorizing another model call"
+  }
+}
