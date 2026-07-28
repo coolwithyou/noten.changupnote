@@ -1,0 +1,126 @@
+{
+  "schema": "deep-analysis-aq4-b-summary-v1",
+  "generatedAt": "2026-07-28T23:06:33Z",
+  "checkpoint": "AQ4-B",
+  "status": "CODE_PASS_EXACT_TWO_OFFLINE_CONCUR_2_OF_2_NO_PAID_RERUN",
+  "baseCommit": "42fc935b8e3da5c0c7fef739bc6dc7fe43d99420",
+  "scope": {
+    "changedVariable": "unsupported_single_biz_age_audit_uncertainty",
+    "primaryPromptChanged": false,
+    "auditPromptChanged": false,
+    "auditContractChanged": false,
+    "validatorChanged": false,
+    "matcherChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "auditAdjudication": "deep-analysis-audit-adjudication-v16",
+    "findingVerifier": "deep-analysis-audit-finding-verifier-v2",
+    "uncertaintyVerifier": "deep-analysis-audit-uncertainty-verifier-v1",
+    "auditContract": "deep-analysis-audit-candidates-v2",
+    "auditPrompt": "deep-analysis-blind-audit-v14",
+    "auditArtifactSchema": "deep-analysis-blind-audit-v5",
+    "validator": "deep-analysis-validator-v4",
+    "defaultModelPolicy": "deep-analysis-model-policy-v20",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v4"
+  },
+  "deterministicRule": {
+    "uncertaintyDimension": "biz_age",
+    "auditOnlyCandidateCount": 1,
+    "candidateKinds": [
+      "required",
+      "exclusion"
+    ],
+    "candidateOperators": [
+      "lte",
+      "gte",
+      "between"
+    ],
+    "requiresPrimaryBizAgeCriterionCount": 0,
+    "requiresPositiveNumericMonthBound": true,
+    "requiresExactSealedEvidence": true,
+    "dismissOnlyWhenEvidenceHasNo": [
+      "arabic_or_korean_duration",
+      "year_or_month_unit",
+      "founding_or_registration_date_basis"
+    ],
+    "dismissalCode": "unsupported_biz_age_bound",
+    "multipleCandidatesRemainFailClosed": true,
+    "otherDimensionsRemainFailClosed": true
+  },
+  "matcherImpactProof": {
+    "candidateKey": "dccbba750616c07c786a1d7803698de6e956de254f26f814886fb9d4b291d302",
+    "unsupportedCriterion": {
+      "operator": "between",
+      "kind": "required",
+      "minMonths": 0,
+      "maxMonths": 36
+    },
+    "isolatedResult": {
+      "companyBizAge24Months": "eligible",
+      "companyBizAge48Months": "ineligible"
+    },
+    "sourceHasNumericBizAgeBasis": false
+  },
+  "regression": {
+    "aq3R1ExactKstartupUnsupportedBound": "DISMISSED",
+    "explicitArabicThreeYears": "RETAINED_AS_UNSURE",
+    "explicitKoreanThreeYears": "RETAINED_AS_UNSURE",
+    "explicitFoundingDate": "RETAINED_AS_UNSURE",
+    "multipleBizAgeCandidates": "RETAINED_AS_UNSURE",
+    "existingPrimaryBizAgeCriterion": "RETAINED_AS_UNSURE",
+    "nonBizAgeUncertainty": "RETAINED_AS_UNSURE",
+    "knownTaxExceptionMiss": "STILL_ACCEPTED",
+    "knownBankruptcyExceptionMiss": "STILL_ACCEPTED",
+    "knownPremisesMiss": "STILL_ACCEPTED"
+  },
+  "offlineArtifactReplay": {
+    "sourceReceiptSha256": "bd1bc97b18d5cd2dc232ea79ce62183a0d746613c4e4fd5b7d00d494bb80f18d",
+    "kstartupArtifactSha256": "57c6640f1ff6f2f5d070b1cc0c0a11a1bb6bc8a889ef8b05ae2ca5199f85344b",
+    "bizinfoArtifactSha256": "e94e7d22b7f7425a143e7ae93b0f34890d6b49154043a66d659d2b5cab523476",
+    "candidate": {
+      "kstartup/178647": {
+        "beforeVerdict": "unsure",
+        "afterVerdict": "concur",
+        "dismissedUncertaintyCode": "unsupported_biz_age_bound"
+      },
+      "bizinfo/PBLN_000000000123200": {
+        "beforeVerdict": "disagree",
+        "afterVerdict": "concur",
+        "rejectedFindingCode": "already_represented"
+      },
+      "concurCount": 2,
+      "total": 2
+    },
+    "sensitivity": {
+      "kstartupAcceptedKnownFindings": 2,
+      "bizinfoAcceptedKnownFindings": 1,
+      "knownFindingNoticeCount": 2,
+      "totalNotices": 2
+    }
+  },
+  "verification": {
+    "focusedAuditAdjudicationTest": "PASS",
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "gitDiffCheck": "PASS",
+    "anthropicCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "exactTwoOfflineCandidateConcurrence": "GO",
+    "knownFindingSensitivity": "GO",
+    "paidRerun": "NOT_RUN",
+    "cq3Allowed": false,
+    "cohortExpansionAllowed": false,
+    "deploymentAllowed": false,
+    "nextReviewRequired": true
+  }
+}

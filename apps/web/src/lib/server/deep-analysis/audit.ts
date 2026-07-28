@@ -17,6 +17,7 @@ import {
 import {
   adjudicateDeepAnalysisAudit,
   type DeepAnalysisAuditFindingValidation,
+  type DeepAnalysisAuditUncertaintyValidation,
 } from "./auditAdjudication";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import {
@@ -59,6 +60,7 @@ export interface DeepAnalysisBlindAuditResult {
     rawResponseText: string;
     rawToolInput: Record<string, unknown>;
     findingValidation: DeepAnalysisAuditFindingValidation;
+    uncertaintyValidation: DeepAnalysisAuditUncertaintyValidation;
     usage: { inputTokens: number; outputTokens: number } | null;
     costUsd: number | null;
   } | null;
@@ -150,6 +152,7 @@ export async function runBlindDeepAnalysisAudit(input: {
         rawResponseText: adjudication.rawResponseText,
         rawToolInput: adjudication.rawToolInput,
         findingValidation: adjudication.findingValidation,
+        uncertaintyValidation: adjudication.uncertaintyValidation,
         usage: adjudication.usage,
         costUsd: adjudication.costUsd,
       }

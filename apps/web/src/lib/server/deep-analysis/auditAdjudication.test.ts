@@ -417,6 +417,42 @@ function replayFinding(input: {
   });
 }
 
+function replayUncertainty(input: {
+  source: string;
+  primaryCriteria: DeepAnalysisCriterion[];
+  auditCriteria: DeepAnalysisCriterion[];
+  dimension: DeepAnalysisCriterion["dimension"];
+}) {
+  const replaySeal = sealDeepAnalysisInput({
+    grantId: `audit-uncertainty-${input.dimension}`,
+    sourceRevisionSha256: "7".repeat(64),
+    structuredText: input.source,
+    attachments: [],
+  });
+  const replayPrimary = validateDeepAnalysisResult({
+    seal: replaySeal,
+    result: resultWithCriteria(input.primaryCriteria),
+  });
+  const replayAudit = validateDeepAnalysisResult({
+    seal: replaySeal,
+    result: resultWithCriteria(input.auditCriteria),
+  });
+  assert.equal(replayPrimary.valid, true, JSON.stringify(replayPrimary.issues));
+  assert.equal(replayAudit.valid, true, JSON.stringify(replayAudit.issues));
+  return normalizeDeepAnalysisAuditAdjudication({
+    evidenceText: input.source,
+    primaryCriteria: input.primaryCriteria,
+    primaryValidation: replayPrimary,
+    candidates: buildDeepAnalysisAuditCandidates(replayPrimary, replayAudit),
+    reviewedDimensions: [...CRITERION_DIMENSIONS],
+    findingRows: [],
+    uncertaintyRows: [{
+      dimension: input.dimension,
+      reason: "offline replay uncertainty",
+    }],
+  });
+}
+
 const taxSpan =
   "국세 또는 지방세 체납 중인 기업은 제외하되 특수채무 변제 후 증빙이 가능한 자는 예외로 한다.";
 const taxPrimary: DeepAnalysisCriterion = {
@@ -672,6 +708,132 @@ const overlappingCrossDimensionScoring = replayFinding({
 });
 assert.equal(overlappingCrossDimensionScoring.verdict, "disagree");
 assert.equal(overlappingCrossDimensionScoring.findingValidation.acceptedCount, 1);
+
+const unsupportedBizAgeSpan =
+  "□ 지원대상 : 부산지역 예비 · 초기 창업패키지 및 창업중심대학 선정된 예비창업자 및 초기창업자 중 17개 팀";
+const unsupportedBizAgeUncertainty = replayUncertainty({
+  source: unsupportedBizAgeSpan,
+  primaryCriteria: [],
+  auditCriteria: [{
+    dimension: "biz_age",
+    operator: "between",
+    kind: "required",
+    value: {
+      include_preliminary: true,
+      min_months: 0,
+      max_months: 36,
+    },
+    confidence: 0.92,
+    sourceSpan: unsupportedBizAgeSpan,
+    spanVerified: true,
+    note: "초기창업자는 일반적으로 창업 후 3년 이내",
+  }],
+  dimension: "biz_age",
+});
+assert.equal(unsupportedBizAgeUncertainty.verdict, "concur");
+assert.equal(unsupportedBizAgeUncertainty.uncertaintyValidation.retainedCount, 0);
+assert.equal(unsupportedBizAgeUncertainty.uncertaintyValidation.dismissed.length, 1);
+assert.equal(
+  unsupportedBizAgeUncertainty.uncertaintyValidation.dismissed[0]?.code,
+  "unsupported_biz_age_bound",
+);
+
+for (const explicitBizAgeSpan of [
+  "신청일 기준 창업 3년 이내인 기업",
+  "신청일 기준 창업 삼년 이내인 기업",
+  "2023년 1월 1일 이후 설립된 기업",
+]) {
+  const explicitBizAgeUncertainty = replayUncertainty({
+    source: explicitBizAgeSpan,
+    primaryCriteria: [],
+    auditCriteria: [{
+      dimension: "biz_age",
+      operator: "between",
+      kind: "required",
+      value: {
+        min_months: 0,
+        max_months: 36,
+      },
+      confidence: 0.9,
+      sourceSpan: explicitBizAgeSpan,
+      spanVerified: true,
+      note: null,
+    }],
+    dimension: "biz_age",
+  });
+  assert.equal(explicitBizAgeUncertainty.verdict, "unsure", explicitBizAgeSpan);
+  assert.equal(explicitBizAgeUncertainty.uncertaintyValidation.retainedCount, 1);
+  assert.deepEqual(explicitBizAgeUncertainty.uncertaintyValidation.dismissed, []);
+}
+
+const multipleBizAgeCandidates = replayUncertainty({
+  source: unsupportedBizAgeSpan,
+  primaryCriteria: [],
+  auditCriteria: [
+    {
+      dimension: "biz_age",
+      operator: "lte",
+      kind: "required",
+      value: { max_months: 36 },
+      confidence: 0.8,
+      sourceSpan: unsupportedBizAgeSpan,
+      spanVerified: true,
+      note: null,
+    },
+    {
+      dimension: "biz_age",
+      operator: "lte",
+      kind: "required",
+      value: { max_months: 60 },
+      confidence: 0.8,
+      sourceSpan: unsupportedBizAgeSpan,
+      spanVerified: true,
+      note: null,
+    },
+  ],
+  dimension: "biz_age",
+});
+assert.equal(multipleBizAgeCandidates.verdict, "unsure");
+assert.equal(multipleBizAgeCandidates.uncertaintyValidation.retainedCount, 1);
+assert.deepEqual(multipleBizAgeCandidates.uncertaintyValidation.dismissed, []);
+
+const primaryBizAgeRemainsFailClosed = replayUncertainty({
+  source: `업력 7년 이내 기업\n${unsupportedBizAgeSpan}`,
+  primaryCriteria: [{
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    value: { max_months: 84 },
+    confidence: 0.9,
+    sourceSpan: "업력 7년 이내 기업",
+    spanVerified: true,
+    note: null,
+  }],
+  auditCriteria: [{
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    value: { max_months: 36 },
+    confidence: 0.9,
+    sourceSpan: unsupportedBizAgeSpan,
+    spanVerified: true,
+    note: null,
+  }],
+  dimension: "biz_age",
+});
+assert.equal(primaryBizAgeRemainsFailClosed.verdict, "unsure");
+assert.equal(primaryBizAgeRemainsFailClosed.uncertaintyValidation.retainedCount, 1);
+assert.deepEqual(primaryBizAgeRemainsFailClosed.uncertaintyValidation.dismissed, []);
+
+const nonBizAgeUncertainty = replayUncertainty({
+  source: span,
+  primaryCriteria: [],
+  auditCriteria: result("26").criteria,
+  dimension: "region",
+});
+assert.equal(nonBizAgeUncertainty.verdict, "unsure");
+assert.equal(nonBizAgeUncertainty.uncertaintyValidation.retainedCount, 1);
+assert.deepEqual(nonBizAgeUncertainty.uncertaintyValidation.dismissed, []);
 
 const earlyFounderSpan = "예비창업자 및 초기창업자를 모집한다.";
 const unboundedBizAge = replayFinding({

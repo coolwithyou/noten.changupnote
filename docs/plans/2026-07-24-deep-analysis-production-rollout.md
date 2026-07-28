@@ -4986,6 +4986,61 @@ validator 결과 안에서 교차 축을 비교하려 했으나, 보존 artifact
   먼저 분류해야 한다. 이번 커밋에는 uncertainty 계약 변경을 포함하지 않는다.
 - 요약 evidence는 `docs/evidence/deep-analysis/aq4-a-2026-07-29.json`에 기록했다.
 
+### AQ4-B 근거 없는 단일 biz_age uncertainty 차단 — `CODE PASS`, `EXACT 2 OFFLINE CONCUR` (2026-07-29)
+
+AQ4-A 이후 남은 K-Startup `biz_age` uncertainty 한 종류만 수정했다. 원문과 HWP의
+신청자격에는 업력 `3년` 또는 `36개월` 상한이 없고, structured `biz_enyy`는
+예비·1·2·3·5·7·10년 미만을 모두 열거한 검색 메타데이터다. primary는 실제
+조건인 창업패키지·창업중심대학 선정 이력을 `prior_award`로 보존했지만 blind
+audit은 `초기창업자는 일반적으로 3년 이내`라는 외부 정의를 추가해
+`biz_age between 0..36`을 만들었다. 이 후보만 격리해 matcher에 넣으면 업력
+24개월 회사는 eligible, 48개월 회사는 ineligible이 되어 실제 랜딩 판정을 뒤집는다.
+
+구현 경계:
+
+1. adjudication uncertainty가 `biz_age`이고 primary에 biz_age criterion이 없으며
+   같은 축의 `audit_only` 후보가 정확히 하나일 때만 자동 비차단을 검토한다.
+   후보는 `required|exclusion`,
+   `lte|gte|between`이며 0보다 큰 canonical month bound가 있어야 한다.
+2. 후보의 source span이 sealed evidence의 exact substring인지 다시 확인한다.
+   span에 아라비아 숫자 또는 한글 숫자의 `년/개월` 기간, 영어 year/month 기간,
+   창업·설립·개업·사업자등록과 결합한 날짜 기준이 하나라도 있으면 자동 폐기하지
+   않고 기존 `unsure`를 유지한다.
+3. 위 직접 근거가 전혀 없을 때만 `unsupported_biz_age_bound`로 uncertainty를
+   폐기한다. 후보가 복수이거나 다른 축이거나 preferred/text-only이면 기존처럼
+   fail-closed다. 전역 uncertainty 완화, 자유서술 reason 해석, fuzzy evidence
+   matching은 도입하지 않았다.
+4. uncertainty 검증은
+   `deep-analysis-audit-uncertainty-verifier-v1`의 retained/dismissed 목록으로
+   audit artifact와 stage evidence에 기록한다. adjudication은
+   `deep-analysis-audit-adjudication-v16`, artifact는
+   `deep-analysis-blind-audit-v5`로 올렸다. 모델·prompt·audit tool 계약·
+   validator·matcher·serving은 변경하지 않았다.
+
+검증 결과:
+
+- K-Startup exact fixture는 `unsure → concur`이며 candidate key
+  `dccbba750616c07c786a1d7803698de6e956de254f26f814886fb9d4b291d302`의
+  uncertainty 하나만 `unsupported_biz_age_bound`로 기록된다.
+- `창업 3년 이내`, `창업 삼년 이내`, 설립일 기준 날짜, 복수 biz_age 후보,
+  기존 primary biz_age criterion, region uncertainty는 모두 `unsure`를 유지한다.
+- AQ3-R1 보존 artifact를 새 코드로 오프라인 재생하면 candidate 경로는
+  K-Startup과 Bizinfo 2/2 `concur`다. sensitivity 경로의 진짜 누락은 K-Startup
+  tax/credit 2건과 Bizinfo premises 1건이 그대로 accepted되어 알려진 결함 탐지
+  2/2를 유지한다.
+- `pnpm build:packages`, `pnpm verify:package-runtime-freshness`,
+  `pnpm verify:deep-analysis-contract`, `pnpm --filter @cunote/web typecheck`,
+  `git diff --check`가 PASS했다. 외부 LLM, DB/R2/promotion,
+  Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다.
+
+게이트 판정:
+
+- AQ4-B 코드, exact 2 offline candidate concurrence, 알려진 sensitivity는 GO다.
+- 이번 체크포인트는 보존 모델 출력을 새 deterministic 경계로 재생한 결과이며 새
+  유료 모델 호출은 아니다. CQ3, cohort 확대, 배포와 production policy 전환은
+  계속 열지 않고 이 커밋을 먼저 리뷰한다.
+- 요약 evidence는 `docs/evidence/deep-analysis/aq4-b-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달

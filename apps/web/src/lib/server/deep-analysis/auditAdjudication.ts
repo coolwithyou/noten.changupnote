@@ -31,9 +31,11 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v15" as const;
+  "deep-analysis-audit-adjudication-v16" as const;
 export const DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION =
   "deep-analysis-audit-finding-verifier-v2" as const;
+export const DEEP_ANALYSIS_AUDIT_UNCERTAINTY_VERIFIER_VERSION =
+  "deep-analysis-audit-uncertainty-verifier-v1" as const;
 export const DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE =
   "원문에 신청자격·결격 예외·우대·배점이 명시됐는데 primary에 의미상 같은 criterion이 없거나 잘못된 값으로 있으면 blocking_findings로 확정한다. primary의 canonical 표현이 불완전하거나 profile에서 아직 자동 판정할 수 없다는 이유로 uncertainties로 낮추지 마라. uncertainties는 원문 자체의 의미나 적용 범위를 끝까지 읽어도 확정할 수 없을 때만 사용한다.";
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
@@ -128,6 +130,20 @@ export interface DeepAnalysisAuditFindingValidation {
   rejected: DeepAnalysisAuditFindingValidationIssue[];
 }
 
+export interface DeepAnalysisAuditUncertaintyValidationIssue {
+  index: number;
+  code: "unsupported_biz_age_bound";
+  dimension: "biz_age";
+  candidateKey: string;
+  message: string;
+}
+
+export interface DeepAnalysisAuditUncertaintyValidation {
+  verifierVersion: typeof DEEP_ANALYSIS_AUDIT_UNCERTAINTY_VERIFIER_VERSION;
+  retainedCount: number;
+  dismissed: DeepAnalysisAuditUncertaintyValidationIssue[];
+}
+
 export async function adjudicateDeepAnalysisAudit(input: {
   apiKey: string;
   model: DeepAnalysisAdjudicationModel;
@@ -148,6 +164,7 @@ export async function adjudicateDeepAnalysisAudit(input: {
   rawResponseText: string;
   rawToolInput: Record<string, unknown>;
   findingValidation: DeepAnalysisAuditFindingValidation;
+  uncertaintyValidation: DeepAnalysisAuditUncertaintyValidation;
   usage: {
     inputTokens: number;
     outputTokens: number;
@@ -319,6 +336,7 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
   verdict: "concur" | "disagree" | "unsure";
   itemResults: DeepAnalysisAuditItemResult[];
   findingValidation: DeepAnalysisAuditFindingValidation;
+  uncertaintyValidation: DeepAnalysisAuditUncertaintyValidation;
 } {
   const reviewedDimensions = Array.isArray(input.reviewedDimensions)
     ? input.reviewedDimensions.filter((value): value is string => typeof value === "string")
@@ -342,7 +360,9 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
   const uncertaintiesByDimension = new Map<CriterionDimension, string[]>();
   const candidateByKey = new Map(input.candidates.map((candidate) => [candidate.key, candidate]));
   const rejected: DeepAnalysisAuditFindingValidationIssue[] = [];
+  const dismissedUncertainties: DeepAnalysisAuditUncertaintyValidationIssue[] = [];
   let acceptedCount = 0;
+  let retainedUncertaintyCount = 0;
   for (const [index, row] of findingRows.entries()) {
     const candidateKey = typeof row.candidate_key === "string"
       ? row.candidate_key.trim()
@@ -387,13 +407,25 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
     rows.push(`${findingType} [${candidateKey}]: ${reason}`);
     findingsByDimension.set(dimension, rows);
   }
-  for (const row of uncertaintyRows) {
+  for (const [index, row] of uncertaintyRows.entries()) {
     const dimension = isDimension(row.dimension) ? row.dimension : null;
     const reason = typeof row.reason === "string" ? row.reason.trim() : "";
     if (!dimension || !reason) {
       contractInvalid = true;
       continue;
     }
+    const dismissal = dismissUnsupportedBizAgeUncertainty({
+      index,
+      dimension,
+      evidenceText: input.evidenceText,
+      primaryCriteria: input.primaryCriteria,
+      candidates: input.candidates,
+    });
+    if (dismissal) {
+      dismissedUncertainties.push(dismissal);
+      continue;
+    }
+    retainedUncertaintyCount += 1;
     const rows = uncertaintiesByDimension.get(dimension) ?? [];
     rows.push(reason);
     uncertaintiesByDimension.set(dimension, rows);
@@ -426,7 +458,79 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
       acceptedCount,
       rejected,
     },
+    uncertaintyValidation: {
+      verifierVersion: DEEP_ANALYSIS_AUDIT_UNCERTAINTY_VERIFIER_VERSION,
+      retainedCount: retainedUncertaintyCount,
+      dismissed: dismissedUncertainties,
+    },
   };
+}
+
+function dismissUnsupportedBizAgeUncertainty(input: {
+  index: number;
+  dimension: CriterionDimension;
+  evidenceText: string;
+  primaryCriteria: DeepAnalysisModelResult["criteria"];
+  candidates: DeepAnalysisAuditCriterionCandidate[];
+}): DeepAnalysisAuditUncertaintyValidationIssue | null {
+  if (input.dimension !== "biz_age") return null;
+  if (input.primaryCriteria.some((criterion) => criterion.dimension === "biz_age")) {
+    return null;
+  }
+  const auditOnlyCandidates = input.candidates.filter((candidate) => (
+    candidate.dimension === "biz_age"
+    && candidate.candidateKind === "audit_only"
+    && candidate.audit !== null
+  ));
+  if (auditOnlyCandidates.length !== 1) return null;
+  const candidate = auditOnlyCandidates[0]!;
+  const criterion = candidate.audit!;
+  if (
+    (criterion.kind !== "required" && criterion.kind !== "exclusion")
+    || !hasHardNumericBizAgeBound(criterion)
+  ) {
+    return null;
+  }
+  const sourceSpan = criterion.source_span?.trim() ?? "";
+  if (
+    !sourceSpan
+    || resolveExactEvidenceSpan(sourceSpan, input.evidenceText) === null
+    || hasExplicitBizAgeBoundEvidence(sourceSpan)
+  ) {
+    return null;
+  }
+  return {
+    index: input.index,
+    code: "unsupported_biz_age_bound",
+    dimension: "biz_age",
+    candidateKey: candidate.key,
+    message:
+      "Dismissed the only audit-only hard biz_age candidate because its exact evidence contains no duration or founding-date basis for the numeric month bound.",
+  };
+}
+
+function hasHardNumericBizAgeBound(criterion: GrantCriterion): boolean {
+  if (
+    criterion.operator !== "lte"
+    && criterion.operator !== "gte"
+    && criterion.operator !== "between"
+  ) {
+    return false;
+  }
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  const minMonths = typeof value.min_months === "number" ? value.min_months : null;
+  const maxMonths = typeof value.max_months === "number" ? value.max_months : null;
+  return (minMonths !== null && minMonths > 0)
+    || (maxMonths !== null && maxMonths > 0);
+}
+
+function hasExplicitBizAgeBoundEvidence(sourceSpan: string): boolean {
+  const normalized = sourceSpan.normalize("NFKC").toLowerCase().replace(/\s+/g, "");
+  const duration = /(?:\d+(?:[.,]\d+)?|[일이삼사오육칠팔구십백한두세네다섯여섯일곱여덟아홉열]+)(?:년|개월|years?|months?)/u;
+  if (duration.test(normalized)) return true;
+  const foundingDate = /(?:창업|설립|개업|사업자등록)/u;
+  const date = /(?:19|20)?\d{2}[./-]\d{1,2}(?:[./-]\d{1,2})?/u;
+  return foundingDate.test(normalized) && date.test(normalized);
 }
 
 function verifyBlockingFinding(input: {

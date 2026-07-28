@@ -426,7 +426,7 @@ export async function processDeepAnalysisJob(input: {
       extension: "json",
     },
     body: `${stableJson({
-      schema: "deep-analysis-blind-audit-v4",
+      schema: "deep-analysis-blind-audit-v5",
       model: audit.model,
       promptVersion: audit.promptVersion,
       contractVersion: audit.contractVersion,
@@ -481,6 +481,8 @@ export async function processDeepAnalysisJob(input: {
       adjudicationUsage: audit.adjudication?.usage ?? null,
       adjudicationActualCostUsd: audit.adjudication?.costUsd ?? null,
       adjudicationFindingValidation: audit.adjudication?.findingValidation ?? null,
+      adjudicationUncertaintyValidation:
+        audit.adjudication?.uncertaintyValidation ?? null,
       auditArtifactKey: auditArtifact.key,
       disagreementCount: audit.itemResults.filter((item) => item.verdict === "disagree").length,
     },
