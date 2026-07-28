@@ -1,7 +1,9 @@
 import {
   CRITERION_DIMENSIONS,
+  assertDeepAnalysisModelEffort,
   type CriterionDimension,
-  type DeepAnalysisAuditModel,
+  type DeepAnalysisAdjudicationModel,
+  type DeepAnalysisEffort,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
 import type { DeepAnalysisValidationResult } from "./validator";
@@ -87,7 +89,8 @@ interface AnthropicResponse {
 
 export async function adjudicateDeepAnalysisAudit(input: {
   apiKey: string;
-  model: DeepAnalysisAuditModel;
+  model: DeepAnalysisAdjudicationModel;
+  effort?: DeepAnalysisEffort;
   evidenceText: string;
   primaryResult: DeepAnalysisModelResult;
   primaryValidation: DeepAnalysisValidationResult;
@@ -97,6 +100,8 @@ export async function adjudicateDeepAnalysisAudit(input: {
   timeoutMs?: number;
   retryDelayMs?: number;
 }): Promise<{
+  model: DeepAnalysisAdjudicationModel;
+  effort: DeepAnalysisEffort;
   verdict: "concur" | "disagree" | "unsure";
   itemResults: DeepAnalysisAuditItemResult[];
   rawResponseText: string;
@@ -107,10 +112,13 @@ export async function adjudicateDeepAnalysisAudit(input: {
   } | null;
   costUsd: number | null;
 }> {
+  const effort = input.effort ?? "high";
+  assertDeepAnalysisModelEffort({ model: input.model, effort });
   const candidates = buildCandidates(input.primaryValidation, input.auditValidation);
   const requestBody = JSON.stringify({
     model: input.model,
     max_tokens: DEEP_ANALYSIS_ADJUDICATION_MAX_OUTPUT_TOKENS,
+    output_config: { effort },
     system: DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
     messages: [{
       role: "user",
@@ -185,6 +193,8 @@ export async function adjudicateDeepAnalysisAudit(input: {
   });
   const usage = normalizeUsage(payload.usage);
   return {
+    model: input.model,
+    effort,
     ...normalized,
     rawResponseText,
     rawToolInput,

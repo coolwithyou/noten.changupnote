@@ -1,11 +1,12 @@
 import type {
+  DeepAnalysisAdjudicationModel,
   DeepAnalysisAuditModel,
   DeepAnalysisPrimaryModel,
   DeepAnalysisUsage,
 } from "@cunote/contracts";
 
 export const DEEP_ANALYSIS_COST_POLICY_VERSION =
-  "deep-analysis-cost-policy-v1" as const;
+  "deep-analysis-cost-policy-v2" as const;
 
 // Adjudication은 sealed source와 primary/audit의 최종 구조화 결과만 비교한다. 사전
 // gate에서는 primary 실측 usage를 기준으로 양쪽 결과 입력분을 더하되, 이 보조 호출이
@@ -16,7 +17,10 @@ export const DEEP_ANALYSIS_ADJUDICATION_MAX_OUTPUT_TOKENS = 8_000;
 
 const SONNET_5_STANDARD_PRICING_START_MS = Date.parse("2026-09-01T00:00:00.000Z");
 
-type DeepAnalysisPricedModel = DeepAnalysisPrimaryModel | DeepAnalysisAuditModel;
+type DeepAnalysisPricedModel =
+  | DeepAnalysisPrimaryModel
+  | DeepAnalysisAuditModel
+  | DeepAnalysisAdjudicationModel;
 type FixedPriceModel = Exclude<DeepAnalysisPricedModel, "claude-sonnet-5">;
 
 interface ModelPricePerMillionTokens {
@@ -28,6 +32,8 @@ interface ModelPricePerMillionTokens {
 const FIXED_MODEL_PRICES: Record<FixedPriceModel, ModelPricePerMillionTokens> = {
   "claude-opus-4-8": { input: 5, output: 25, cacheRead: 0.5 },
   "claude-fable-5": { input: 10, output: 50, cacheRead: 1 },
+  "claude-haiku-4-5-20251001": { input: 1, output: 5, cacheRead: 0.1 },
+  "claude-opus-5": { input: 5, output: 25, cacheRead: 0.5 },
 };
 
 const SONNET_5_INTRO_PRICE: ModelPricePerMillionTokens = {
@@ -47,6 +53,7 @@ export interface DeepAnalysisPreAuditCostReservation {
   primaryCostUsd: number;
   auditExecutionReserveUsd: number;
   adjudicationReserveUsd: number;
+  adjudicationModel: DeepAnalysisAdjudicationModel;
   projectedTotalCostUsd: number;
   adjudicationInputReserveTokens: number;
   adjudicationOutputReserveTokens: number;
@@ -78,6 +85,7 @@ export function priceDeepAnalysisUsage(input: {
 export function reserveDeepAnalysisPreAuditCost(input: {
   primaryModel: DeepAnalysisPrimaryModel;
   auditModel: DeepAnalysisAuditModel;
+  adjudicationModel: DeepAnalysisAdjudicationModel;
   primaryUsage: DeepAnalysisUsage | null;
   pricedAt?: Date;
 }): DeepAnalysisPreAuditCostReservation | null {
@@ -105,7 +113,7 @@ export function reserveDeepAnalysisPreAuditCost(input: {
     DEEP_ANALYSIS_ADJUDICATION_INPUT_RESERVE_TOKENS,
   );
   const adjudicationReserveUsd = priceDeepAnalysisUsage({
-    model: input.auditModel,
+    model: input.adjudicationModel,
     usage: {
       inputTokens: adjudicationInputReserveTokens,
       outputTokens: DEEP_ANALYSIS_ADJUDICATION_MAX_OUTPUT_TOKENS,
@@ -126,6 +134,7 @@ export function reserveDeepAnalysisPreAuditCost(input: {
     primaryCostUsd,
     auditExecutionReserveUsd,
     adjudicationReserveUsd,
+    adjudicationModel: input.adjudicationModel,
     projectedTotalCostUsd:
       primaryCostUsd + auditExecutionReserveUsd + adjudicationReserveUsd,
     adjudicationInputReserveTokens,

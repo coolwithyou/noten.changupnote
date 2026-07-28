@@ -6,6 +6,8 @@ export const DEEP_ANALYSIS_ACTIVE_POLICY_VERSION = "deep-analysis-active-kst-v2"
 export const DEEP_ANALYSIS_ACTIVE_TIME_ZONE = "Asia/Seoul" as const;
 export const DEEP_ANALYSIS_PROMPT_VERSION = "deep-analysis-v10" as const;
 export const DEEP_ANALYSIS_MODEL_POLICY_VERSION = "deep-analysis-model-policy-v17" as const;
+export const DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION =
+  "deep-analysis-model-policy-cq2-v1" as const;
 export const DEEP_ANALYSIS_SERVING_VERIFIER_VERSION =
   "deep-analysis-serving-verifier-v1" as const;
 export const DEEP_ANALYSIS_SERVING_MONITOR_STALE_SECONDS = 45 * 60;
@@ -17,8 +19,27 @@ export const GRANT_SERVING_STATES = ["visible", "staged", "suppressed"] as const
  * 운영 모델은 명시 allowlist만 허용한다. 환경변수로 임의 모델을 주입해 이미 검증한
  * prompt/tool 계약을 우회하지 못하게 한다.
  */
-export const DEEP_ANALYSIS_PRIMARY_MODELS = ["claude-opus-4-8"] as const;
-export const DEEP_ANALYSIS_AUDIT_MODELS = ["claude-sonnet-5", "claude-fable-5"] as const;
+export const DEEP_ANALYSIS_PRIMARY_MODELS = [
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+] as const;
+export const DEEP_ANALYSIS_AUDIT_MODELS = [
+  "claude-sonnet-5",
+  "claude-fable-5",
+  "claude-haiku-4-5-20251001",
+] as const;
+export const DEEP_ANALYSIS_ADJUDICATION_MODELS = [
+  "claude-sonnet-5",
+  "claude-fable-5",
+  "claude-opus-5",
+] as const;
+export const DEEP_ANALYSIS_EFFORT_LEVELS = ["medium", "high"] as const;
+export const DEEP_ANALYSIS_EFFORT_MODELS = [
+  "claude-fable-5",
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-sonnet-5",
+] as const;
 
 export const DEEP_ANALYSIS_DEFAULT_LIMITS = {
   // Cloud Run Job timeout(30분)보다 길게 유지해 장기 모델 호출 중 lease 재획득을 막는다.
@@ -91,6 +112,13 @@ export type DeepAnalysisAttachmentDisposition =
   (typeof DEEP_ANALYSIS_ATTACHMENT_DISPOSITIONS)[number];
 export type DeepAnalysisPrimaryModel = (typeof DEEP_ANALYSIS_PRIMARY_MODELS)[number];
 export type DeepAnalysisAuditModel = (typeof DEEP_ANALYSIS_AUDIT_MODELS)[number];
+export type DeepAnalysisAdjudicationModel =
+  (typeof DEEP_ANALYSIS_ADJUDICATION_MODELS)[number];
+export type DeepAnalysisEffort = (typeof DEEP_ANALYSIS_EFFORT_LEVELS)[number];
+export type DeepAnalysisModel =
+  | DeepAnalysisPrimaryModel
+  | DeepAnalysisAuditModel
+  | DeepAnalysisAdjudicationModel;
 export type GrantServingState = (typeof GRANT_SERVING_STATES)[number];
 
 export interface DeepAnalysisActiveGrantInput {
@@ -242,6 +270,7 @@ export interface DeepAnalysisUsage {
 
 export interface DeepAnalysisModelResult {
   model: string;
+  effort?: DeepAnalysisEffort | null;
   analysisMarkdown: string;
   programIntent: DeepAnalysisProgramIntent | null;
   criteria: DeepAnalysisCriterion[];
@@ -266,6 +295,31 @@ export function isAllowedDeepAnalysisAuditModel(
   return (DEEP_ANALYSIS_AUDIT_MODELS as readonly string[]).includes(value);
 }
 
+export function isAllowedDeepAnalysisAdjudicationModel(
+  value: string,
+): value is DeepAnalysisAdjudicationModel {
+  return (DEEP_ANALYSIS_ADJUDICATION_MODELS as readonly string[]).includes(value);
+}
+
+export function isDeepAnalysisEffort(
+  value: string,
+): value is DeepAnalysisEffort {
+  return (DEEP_ANALYSIS_EFFORT_LEVELS as readonly string[]).includes(value);
+}
+
+export function supportsDeepAnalysisEffort(model: string): boolean {
+  return (DEEP_ANALYSIS_EFFORT_MODELS as readonly string[]).includes(model);
+}
+
+export function assertDeepAnalysisModelEffort(input: {
+  model: string;
+  effort: DeepAnalysisEffort | null;
+}): void {
+  if (input.effort !== null && !supportsDeepAnalysisEffort(input.model)) {
+    throw new Error(`Deep analysis model does not support effort: ${input.model}`);
+  }
+}
+
 export function assertDeepAnalysisModelPair(input: {
   primaryModel: string;
   auditModel: string;
@@ -281,6 +335,23 @@ export function assertDeepAnalysisModelPair(input: {
   }
   if (!isAllowedDeepAnalysisAuditModel(input.auditModel)) {
     throw new Error(`Deep analysis audit model is not allowlisted: ${input.auditModel}`);
+  }
+}
+
+export function assertDeepAnalysisModelPolicy(input: {
+  primaryModel: string;
+  auditModel: string;
+  adjudicationModel: string;
+}): asserts input is {
+  primaryModel: DeepAnalysisPrimaryModel;
+  auditModel: DeepAnalysisAuditModel;
+  adjudicationModel: DeepAnalysisAdjudicationModel;
+} {
+  assertDeepAnalysisModelPair(input);
+  if (!isAllowedDeepAnalysisAdjudicationModel(input.adjudicationModel)) {
+    throw new Error(
+      `Deep analysis adjudication model is not allowlisted: ${input.adjudicationModel}`,
+    );
   }
 }
 

@@ -37,6 +37,14 @@ const claimMetadata = {
   claimCohortCount: policy.claimGrantIds.length,
   claimCohortSha256: policy.claimCohortSha256,
 };
+const modelMetadata = {
+  primaryModel: policy.primaryModel,
+  primaryEffort: policy.primaryEffort,
+  auditModel: policy.auditModel,
+  auditEffort: policy.auditEffort,
+  adjudicationModel: policy.adjudicationModel,
+  adjudicationEffort: policy.adjudicationEffort,
+};
 
 try {
   if (policy.executionMode === "observe_only") {
@@ -54,6 +62,7 @@ try {
       analysisSkipped: true,
       budgetMutationSkipped: true,
       ...claimMetadata,
+      ...modelMetadata,
       ...result,
     };
     await writeDeepAnalysisWorkerHeartbeat(db, {
@@ -92,6 +101,7 @@ try {
       invocationMetadata: {
         executionMode: policy.executionMode,
         ...claimMetadata,
+        ...modelMetadata,
         enqueue: enqueueResult,
         repairedErrorCodes,
       },
@@ -113,6 +123,7 @@ try {
       modelPolicyVersion: policy.modelPolicyVersion,
       executionMode: policy.executionMode,
       ...claimMetadata,
+      ...modelMetadata,
       enqueue: enqueueResult,
       repairedErrorCodes,
       ...result,

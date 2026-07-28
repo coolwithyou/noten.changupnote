@@ -17,6 +17,8 @@ import {
   CRITERION_KINDS,
   CRITERION_OPERATORS,
   DEEP_ANALYSIS_PRIMARY_MODELS,
+  assertDeepAnalysisModelEffort,
+  supportsDeepAnalysisEffort,
   type CriterionDimension,
   type DeepAnalysisAssessmentStatus,
   type DeepAnalysisAxisAssessment,
@@ -25,6 +27,7 @@ import {
   type DeepAnalysisCriterion,
   type DeepAnalysisCriterionConfirmation,
   type DeepAnalysisCriterionKind,
+  type DeepAnalysisEffort,
   type DeepAnalysisModelResult,
   type DeepAnalysisProgramIntent,
   type DeepAnalysisTaxonomyProposal,
@@ -83,15 +86,22 @@ export async function runDeepGrantAnalysis(options: {
   evidenceText?: string;
   /** 운영 worker는 allowlist를 통과한 모델을 명시한다. */
   model?: string;
+  /** 지원 모델은 비용·품질 비교를 재현할 수 있도록 request-level effort를 명시한다. */
+  effort?: DeepAnalysisEffort | null;
   /** map-reduce synthesis처럼 기본 분석 지시를 더 좁혀야 할 때만 사용한다. */
   taskInstruction?: string;
   fetchImpl?: typeof fetch;
 }): Promise<DeepAnalysisResult> {
   const model = options.model ?? resolveLabModel();
+  const effort = options.effort === undefined
+    ? supportsDeepAnalysisEffort(model) ? "high" : null
+    : options.effort;
+  assertDeepAnalysisModelEffort({ model, effort });
   const maxTokens = resolveMaxTokens();
   const requestBody = JSON.stringify({
     model,
     max_tokens: maxTokens,
+    ...(effort ? { output_config: { effort } } : {}),
     system: DEEP_ANALYSIS_SYSTEM_PROMPT,
     messages: [{
       role: "user",
@@ -171,6 +181,7 @@ export async function runDeepGrantAnalysis(options: {
   const usage = normalizeUsage(payload.usage);
   return {
     model,
+    effort,
     analysisMarkdown: typeof input.analysis_markdown === "string" ? input.analysis_markdown : "",
     programIntent: normalizeProgramIntent(input.program_intent),
     criteria: normalizeCriteria(input.criteria, evidenceText),

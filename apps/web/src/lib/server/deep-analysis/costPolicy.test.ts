@@ -36,6 +36,16 @@ assert.equal(priceDeepAnalysisUsage({
   pricedAt: introPricingAt,
 }), 2.01);
 assert.equal(priceDeepAnalysisUsage({
+  model: "claude-haiku-4-5-20251001",
+  usage,
+  pricedAt: introPricingAt,
+}), 0.201);
+assert.equal(priceDeepAnalysisUsage({
+  model: "claude-opus-5",
+  usage,
+  pricedAt: introPricingAt,
+}), 1.005);
+assert.equal(priceDeepAnalysisUsage({
   model: "unknown-model",
   usage,
   pricedAt: introPricingAt,
@@ -49,6 +59,7 @@ assert.equal(priceDeepAnalysisUsage({
 const sonnetReservation = reserveDeepAnalysisPreAuditCost({
   primaryModel: "claude-opus-4-8",
   auditModel: "claude-sonnet-5",
+  adjudicationModel: "claude-sonnet-5",
   primaryUsage: usage,
   pricedAt: introPricingAt,
 });
@@ -64,11 +75,13 @@ assert.equal(
   DEEP_ANALYSIS_ADJUDICATION_MAX_OUTPUT_TOKENS,
 );
 assert.equal(sonnetReservation.adjudicationReserveUsd, 0.18);
+assert.equal(sonnetReservation.adjudicationModel, "claude-sonnet-5");
 assert.ok(Math.abs(sonnetReservation.projectedTotalCostUsd - 1.605) < 1e-12);
 
 const fableReservation = reserveDeepAnalysisPreAuditCost({
   primaryModel: "claude-opus-4-8",
   auditModel: "claude-fable-5",
+  adjudicationModel: "claude-fable-5",
   primaryUsage: usage,
   pricedAt: introPricingAt,
 });
@@ -82,6 +95,7 @@ assert.ok(fableReservation.projectedTotalCostUsd > 2);
 const boundedCheckpointReservation = reserveDeepAnalysisPreAuditCost({
   primaryModel: "claude-opus-4-8",
   auditModel: "claude-sonnet-5",
+  adjudicationModel: "claude-sonnet-5",
   primaryUsage: {
     inputTokens: 124_738,
     outputTokens: 20_000,
@@ -97,9 +111,22 @@ assert.ok(boundedCheckpointReservation.projectedTotalCostUsd < 2);
 assert.equal(reserveDeepAnalysisPreAuditCost({
   primaryModel: "claude-opus-4-8",
   auditModel: "claude-sonnet-5",
+  adjudicationModel: "claude-sonnet-5",
   primaryUsage: null,
   pricedAt: introPricingAt,
 }), null);
+const candidateReservation = reserveDeepAnalysisPreAuditCost({
+  primaryModel: "claude-sonnet-5",
+  auditModel: "claude-haiku-4-5-20251001",
+  adjudicationModel: "claude-opus-5",
+  primaryUsage: usage,
+  pricedAt: standardPricingAt,
+});
+assert.ok(candidateReservation);
+assert.equal(candidateReservation.primaryCostUsd, 0.603);
+assert.equal(candidateReservation.auditExecutionReserveUsd, 0.21);
+assert.equal(candidateReservation.adjudicationReserveUsd, 0.45);
+assert.ok(Math.abs(candidateReservation.projectedTotalCostUsd - 1.263) < 1e-12);
 assert.equal(sumDeepAnalysisActualCosts([1.005, 0.402, 0.18]), 1.587);
 assert.equal(sumDeepAnalysisActualCosts([1.005, null]), null);
 assert.equal(sumDeepAnalysisActualCosts([1.005, Number.NaN]), null);

@@ -1,4 +1,5 @@
 import type {
+  DeepAnalysisEffort,
   DeepAnalysisModelResult,
   DeepAnalysisUsage,
 } from "@cunote/contracts";
@@ -22,6 +23,7 @@ export async function repairDeepAnalysisExecution(input: {
   seal: DeepAnalysisInputSeal;
   apiKey: string;
   model: string;
+  effort?: DeepAnalysisEffort | null;
   failedExecution: DeepAnalysisExecution;
   validation: DeepAnalysisValidationResult;
   runModel?: typeof runDeepGrantAnalysis;
@@ -42,6 +44,7 @@ export async function repairDeepAnalysisExecution(input: {
     inputText: repairInput,
     evidenceText: input.failedExecution.evidenceText,
     model: input.model,
+    ...(input.effort === undefined ? {} : { effort: input.effort }),
     taskInstruction: [
       "아래 원문과 직전 결과의 validator 실패 사유를 읽고 전체 22축 결과를 교정해서 다시 반환하라.",
       "validator 지적을 삭제하거나 무시하지 말고 원문 근거로 해결하라.",

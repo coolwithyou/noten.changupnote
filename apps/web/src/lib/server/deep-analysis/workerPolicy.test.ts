@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import {
+  DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
   DEEP_ANALYSIS_DEFAULT_LIMITS,
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
 } from "@cunote/contracts";
 import {
+  DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_CONFIRMATION,
   assertDeepAnalysisClaimScopeConfigured,
   classifyDeepAnalysisFailure,
   deepAnalysisClaimCohortSha256,
@@ -23,7 +25,11 @@ const policy = resolveDeepAnalysisWorkerPolicy({});
 assert.equal(policy.modelPolicyVersion, DEEP_ANALYSIS_MODEL_POLICY_VERSION);
 assert.equal(policy.executionMode, "active");
 assert.equal(policy.primaryModel, "claude-opus-4-8");
+assert.equal(policy.primaryEffort, "high");
 assert.equal(policy.auditModel, "claude-sonnet-5");
+assert.equal(policy.auditEffort, "high");
+assert.equal(policy.adjudicationModel, "claude-sonnet-5");
+assert.equal(policy.adjudicationEffort, "high");
 assert.equal(policy.dailyCostCapUsd, DEEP_ANALYSIS_DEFAULT_LIMITS.dailyCostCapUsd);
 assert.equal(policy.maxConcurrentJobs, 1);
 assert.equal(policy.maxEnqueuePerInvocation, DEEP_ANALYSIS_DEFAULT_LIMITS.maxEnqueuePerInvocation);
@@ -73,6 +79,60 @@ assert.equal(boundedPolicy.claimScope, "bounded");
 assert.deepEqual(boundedPolicy.claimGrantIds, [...boundedGrantIds].sort());
 assert.equal(boundedPolicy.claimCohortSha256, deepAnalysisClaimCohortSha256(boundedGrantIds));
 assert.doesNotThrow(() => assertDeepAnalysisClaimScopeConfigured(boundedPolicy));
+const costQualityExperimentEnv = {
+  DEEP_ANALYSIS_CLAIM_SCOPE: "bounded",
+  DEEP_ANALYSIS_CLAIM_GRANT_IDS: boundedGrantIds.join(","),
+  DEEP_ANALYSIS_CLAIM_COHORT_SHA256: deepAnalysisClaimCohortSha256(boundedGrantIds),
+  DEEP_ANALYSIS_PRIMARY_MODEL: "claude-sonnet-5",
+  DEEP_ANALYSIS_AUDIT_MODEL: "claude-haiku-4-5-20251001",
+  DEEP_ANALYSIS_ADJUDICATION_MODEL: "claude-opus-5",
+  DEEP_ANALYSIS_MODEL_EXPERIMENT_CONFIRM:
+    DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_CONFIRMATION,
+};
+const costQualityPolicy = resolveDeepAnalysisWorkerPolicy(costQualityExperimentEnv);
+assert.equal(
+  costQualityPolicy.modelPolicyVersion,
+  DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
+);
+assert.equal(costQualityPolicy.primaryEffort, "high");
+assert.equal(costQualityPolicy.auditEffort, null);
+assert.equal(costQualityPolicy.adjudicationEffort, "high");
+assert.throws(
+  () => resolveDeepAnalysisWorkerPolicy({
+    ...costQualityExperimentEnv,
+    DEEP_ANALYSIS_MODEL_EXPERIMENT_CONFIRM: undefined,
+  }),
+  /requires DEEP_ANALYSIS_MODEL_EXPERIMENT_CONFIRM/,
+);
+assert.throws(
+  () => resolveDeepAnalysisWorkerPolicy({
+    ...costQualityExperimentEnv,
+    DEEP_ANALYSIS_CLAIM_SCOPE: undefined,
+    DEEP_ANALYSIS_CLAIM_GRANT_IDS: undefined,
+    DEEP_ANALYSIS_CLAIM_COHORT_SHA256: undefined,
+  }),
+  /requires a bounded claim scope/,
+);
+assert.throws(
+  () => resolveDeepAnalysisWorkerPolicy({
+    ...costQualityExperimentEnv,
+    DEEP_ANALYSIS_ADJUDICATION_MODEL: "claude-sonnet-5",
+  }),
+  /model tuple must be/,
+);
+assert.throws(
+  () => resolveDeepAnalysisWorkerPolicy({
+    ...costQualityExperimentEnv,
+    DEEP_ANALYSIS_AUDIT_EFFORT: "high",
+  }),
+  /not supported by claude-haiku/,
+);
+assert.equal(
+  resolveDeepAnalysisWorkerPolicy({
+    DEEP_ANALYSIS_PRIMARY_EFFORT: "medium",
+  }).primaryEffort,
+  "medium",
+);
 assert.throws(
   () => resolveDeepAnalysisWorkerPolicy({
     DEEP_ANALYSIS_CLAIM_SCOPE: "bounded",

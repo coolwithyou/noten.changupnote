@@ -192,10 +192,16 @@ const adjudicated = await adjudicateDeepAnalysisAudit({
   fetchImpl,
 });
 assert.equal(adjudicated.verdict, "concur");
+assert.equal(adjudicated.model, "claude-sonnet-5");
+assert.equal(adjudicated.effort, "high");
 assert.equal(adjudicated.itemResults.length, CRITERION_DIMENSIONS.length);
 assert.equal(adjudicated.itemResults.every((item) => item.verdict === "concur"), true);
 assert.match(capturedRequestBody, /<<<PRIMARY_VALIDATION_ISSUES>>>/);
 assert.match(capturedRequestBody, /<<<AUDIT_VALIDATION_ISSUES>>>/);
+assert.deepEqual(
+  (JSON.parse(capturedRequestBody) as { output_config?: unknown }).output_config,
+  { effort: "high" },
+);
 assert.deepEqual(adjudicated.usage, { inputTokens: 100, outputTokens: 50 });
 assert.equal(adjudicated.costUsd, priceDeepAnalysisUsage({
   model: "claude-sonnet-5",

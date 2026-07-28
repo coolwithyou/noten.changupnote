@@ -1,7 +1,9 @@
 import {
   CRITERION_DIMENSIONS,
   type CriterionDimension,
+  type DeepAnalysisAdjudicationModel,
   type DeepAnalysisAuditModel,
+  type DeepAnalysisEffort,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
 import {
@@ -38,6 +40,8 @@ export interface DeepAnalysisBlindAuditResult {
   validation: DeepAnalysisValidationResult;
   execution: DeepAnalysisExecution;
   adjudication: {
+    model: DeepAnalysisAdjudicationModel;
+    effort: DeepAnalysisEffort;
     rawResponseText: string;
     rawToolInput: Record<string, unknown>;
     usage: { inputTokens: number; outputTokens: number } | null;
@@ -54,6 +58,9 @@ export async function runBlindDeepAnalysisAudit(input: {
   seal: DeepAnalysisInputSeal;
   apiKey: string;
   auditModel: DeepAnalysisAuditModel;
+  auditEffort: DeepAnalysisEffort | null;
+  adjudicationModel: DeepAnalysisAdjudicationModel;
+  adjudicationEffort: DeepAnalysisEffort;
   primaryValidation: DeepAnalysisValidationResult;
   primaryResult: DeepAnalysisModelResult;
   runModel?: typeof runDeepGrantAnalysis;
@@ -62,6 +69,7 @@ export async function runBlindDeepAnalysisAudit(input: {
     seal: input.seal,
     apiKey: input.apiKey,
     model: input.auditModel,
+    effort: input.auditEffort,
     ...(input.runModel ? { runModel: input.runModel } : {}),
   });
   let validation = validateDeepAnalysisResult({
@@ -81,7 +89,8 @@ export async function runBlindDeepAnalysisAudit(input: {
   })
     ? await adjudicateDeepAnalysisAudit({
       apiKey: input.apiKey,
-      model: input.auditModel,
+      model: input.adjudicationModel,
+      effort: input.adjudicationEffort,
       evidenceText: execution.evidenceText,
       primaryResult: input.primaryResult,
       primaryValidation: input.primaryValidation,
@@ -102,6 +111,8 @@ export async function runBlindDeepAnalysisAudit(input: {
     execution,
     adjudication: adjudication
       ? {
+        model: adjudication.model,
+        effort: adjudication.effort,
         rawResponseText: adjudication.rawResponseText,
         rawToolInput: adjudication.rawToolInput,
         usage: adjudication.usage,

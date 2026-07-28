@@ -12,7 +12,7 @@ import {
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   resolveExactEvidenceSpan,
-  type runDeepGrantAnalysis,
+  runDeepGrantAnalysis,
 } from "./extractor";
 
 assert.match(
@@ -196,11 +196,13 @@ const single = await analyzeSealedDeepAnalysisInput({
   seal: shortSeal,
   apiKey: "test",
   model: "claude-opus-4-8",
+  effort: "high",
   runModel: fakeRunner,
 });
 assert.equal(single.passes.length, 1);
 assert.equal(single.passes[0]?.kind, "single");
 assert.equal(calls.length, 1);
+assert.equal(calls[0]?.effort, "high");
 
 calls.length = 0;
 const longSeal = sealDeepAnalysisInput({
@@ -214,16 +216,67 @@ const reduced = await analyzeSealedDeepAnalysisInput({
   seal: longSeal,
   apiKey: "test",
   model: "claude-opus-4-8",
+  effort: "medium",
   singlePromptChars: 1_100,
   runModel: fakeRunner,
 });
 assert.equal(reduced.passes.filter((pass) => pass.kind === "map").length, 3);
 assert.equal(reduced.passes.at(-1)?.kind, "synthesis");
 assert.equal(calls.length, 4);
+assert.equal(calls.every((call) => call.effort === "medium"), true);
 assert.equal(reduced.result.usage?.inputTokens, 40);
 assert.equal(reduced.result.usage?.outputTokens, 20);
 assert.equal(reduced.result.costUsd, 1);
 assert.equal(calls.at(-1)?.evidenceText, reduced.evidenceText);
 assert.match(calls.at(-1)?.taskInstruction ?? "", /최종 22축/);
+
+const responseBody = JSON.stringify({
+  stop_reason: "tool_use",
+  usage: { input_tokens: 10, output_tokens: 5 },
+  content: [{
+    type: "tool_use",
+    name: "emit_deep_grant_analysis",
+    input: {},
+  }],
+});
+let requestBody = "";
+await runDeepGrantAnalysis({
+  apiKey: "test",
+  inputText: "공고",
+  model: "claude-sonnet-5",
+  effort: "medium",
+  fetchImpl: async (_url, init) => {
+    requestBody = String(init?.body ?? "");
+    return new Response(responseBody, { status: 200 });
+  },
+});
+assert.deepEqual(
+  (JSON.parse(requestBody) as { output_config?: unknown }).output_config,
+  { effort: "medium" },
+);
+await runDeepGrantAnalysis({
+  apiKey: "test",
+  inputText: "공고",
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  fetchImpl: async (_url, init) => {
+    requestBody = String(init?.body ?? "");
+    return new Response(responseBody, { status: 200 });
+  },
+});
+assert.equal(
+  Object.hasOwn(JSON.parse(requestBody) as object, "output_config"),
+  false,
+);
+await assert.rejects(
+  () => runDeepGrantAnalysis({
+    apiKey: "test",
+    inputText: "공고",
+    model: "claude-haiku-4-5-20251001",
+    effort: "high",
+    fetchImpl: async () => new Response(responseBody, { status: 200 }),
+  }),
+  /does not support effort/,
+);
 
 console.log("deep-analysis analyzer tests passed");

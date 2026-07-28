@@ -2,19 +2,27 @@ import assert from "node:assert/strict";
 import {
   CRITERION_DIMENSIONS,
   DEEP_ANALYSIS_ACTIVE_POLICY_VERSION,
+  DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   DEEP_ANALYSIS_STAGE_KEYS,
+  assertDeepAnalysisModelEffort,
   assertDeepAnalysisModelPair,
+  assertDeepAnalysisModelPolicy,
   deriveAggregateSplitExposureBlocker,
   deriveAggregateSplitPublicationBlocker,
   deriveDeepAnalysisCompletion,
   evaluateAggregateSplitReleaseGate,
   hasExactDeepAnalysisAxisCoverage,
   isGrantActiveForDeepAnalysis,
+  supportsDeepAnalysisEffort,
   type AggregateSplitReleaseChildObservation,
 } from "./index.js";
 
 assert.equal(DEEP_ANALYSIS_ACTIVE_POLICY_VERSION, "deep-analysis-active-kst-v2");
+assert.equal(
+  DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
+  "deep-analysis-model-policy-cq2-v1",
+);
 
 assert.doesNotThrow(() => assertDeepAnalysisModelPair({
   primaryModel: "claude-opus-4-8",
@@ -24,6 +32,35 @@ assert.throws(() => assertDeepAnalysisModelPair({
   primaryModel: "unreviewed-model",
   auditModel: "claude-sonnet-5",
 }), /not allowlisted/);
+assert.doesNotThrow(() => assertDeepAnalysisModelPolicy({
+  primaryModel: "claude-sonnet-5",
+  auditModel: "claude-haiku-4-5-20251001",
+  adjudicationModel: "claude-opus-5",
+}));
+assert.throws(() => assertDeepAnalysisModelPolicy({
+  primaryModel: "claude-sonnet-5",
+  auditModel: "claude-sonnet-5",
+  adjudicationModel: "claude-opus-5",
+}), /must be different/);
+assert.throws(() => assertDeepAnalysisModelPolicy({
+  primaryModel: "claude-sonnet-5",
+  auditModel: "claude-haiku-4-5-20251001",
+  adjudicationModel: "unreviewed-model",
+}), /adjudication model is not allowlisted/);
+assert.doesNotThrow(() => assertDeepAnalysisModelEffort({
+  model: "claude-sonnet-5",
+  effort: "high",
+}));
+assert.doesNotThrow(() => assertDeepAnalysisModelEffort({
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+}));
+assert.throws(() => assertDeepAnalysisModelEffort({
+  model: "claude-haiku-4-5-20251001",
+  effort: "high",
+}), /does not support effort/);
+assert.equal(supportsDeepAnalysisEffort("claude-opus-5"), true);
+assert.equal(supportsDeepAnalysisEffort("unreviewed-model"), false);
 
 const asOf = new Date("2026-07-25T03:00:00.000Z");
 

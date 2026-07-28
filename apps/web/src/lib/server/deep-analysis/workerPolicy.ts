@@ -1,22 +1,38 @@
 import { createHash } from "node:crypto";
 import {
+  DEEP_ANALYSIS_ADJUDICATION_MODELS,
   DEEP_ANALYSIS_AUDIT_MODELS,
+  DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
   DEEP_ANALYSIS_DEFAULT_LIMITS,
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
   DEEP_ANALYSIS_PRIMARY_MODELS,
-  assertDeepAnalysisModelPair,
+  assertDeepAnalysisModelEffort,
+  assertDeepAnalysisModelPolicy,
+  isDeepAnalysisEffort,
+  supportsDeepAnalysisEffort,
+  type DeepAnalysisAdjudicationModel,
   type DeepAnalysisAuditModel,
+  type DeepAnalysisEffort,
   type DeepAnalysisPrimaryModel,
 } from "@cunote/contracts";
 
+export const DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_CONFIRMATION =
+  "RUN_DEEP_ANALYSIS_CQ2_MODEL_EXPERIMENT" as const;
+
 export interface DeepAnalysisWorkerPolicy {
-  modelPolicyVersion: typeof DEEP_ANALYSIS_MODEL_POLICY_VERSION;
+  modelPolicyVersion:
+    | typeof DEEP_ANALYSIS_MODEL_POLICY_VERSION
+    | typeof DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION;
   executionMode: "active" | "observe_only";
   claimScope: "unconfigured" | "bounded" | "all";
   claimGrantIds: string[];
   claimCohortSha256: string | null;
   primaryModel: DeepAnalysisPrimaryModel;
+  primaryEffort: DeepAnalysisEffort;
   auditModel: DeepAnalysisAuditModel;
+  auditEffort: DeepAnalysisEffort | null;
+  adjudicationModel: DeepAnalysisAdjudicationModel;
+  adjudicationEffort: DeepAnalysisEffort;
   leaseSeconds: number;
   maxJobsPerInvocation: number;
   maxConcurrentJobs: number;
@@ -30,17 +46,59 @@ export interface DeepAnalysisWorkerPolicy {
 export function resolveDeepAnalysisWorkerPolicy(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): DeepAnalysisWorkerPolicy {
-  const pair = {
+  const models = {
     primaryModel: env.DEEP_ANALYSIS_PRIMARY_MODEL?.trim() || DEEP_ANALYSIS_PRIMARY_MODELS[0],
     auditModel: env.DEEP_ANALYSIS_AUDIT_MODEL?.trim() || DEEP_ANALYSIS_AUDIT_MODELS[0],
+    adjudicationModel:
+      env.DEEP_ANALYSIS_ADJUDICATION_MODEL?.trim()
+      || env.DEEP_ANALYSIS_AUDIT_MODEL?.trim()
+      || DEEP_ANALYSIS_ADJUDICATION_MODELS[0],
   };
-  assertDeepAnalysisModelPair(pair);
+  assertDeepAnalysisModelPolicy(models);
   const claimPolicy = resolveDeepAnalysisClaimPolicy(env);
+  const isCostQualityExperiment = usesCostQualityExperimentModels(models);
+  if (isCostQualityExperiment) {
+    assertExactCostQualityExperiment(models);
+    if (
+      env.DEEP_ANALYSIS_MODEL_EXPERIMENT_CONFIRM?.trim()
+      !== DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_CONFIRMATION
+    ) {
+      throw new Error(
+        `Cost-quality model experiment requires DEEP_ANALYSIS_MODEL_EXPERIMENT_CONFIRM=${DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_CONFIRMATION}`,
+      );
+    }
+    if (claimPolicy.claimScope !== "bounded") {
+      throw new Error("Cost-quality model experiment requires a bounded claim scope");
+    }
+  }
+  const primaryEffort = resolveModelEffort({
+    model: models.primaryModel,
+    raw: env.DEEP_ANALYSIS_PRIMARY_EFFORT,
+    label: "DEEP_ANALYSIS_PRIMARY_EFFORT",
+  });
+  const auditEffort = resolveModelEffort({
+    model: models.auditModel,
+    raw: env.DEEP_ANALYSIS_AUDIT_EFFORT,
+    label: "DEEP_ANALYSIS_AUDIT_EFFORT",
+  });
+  const adjudicationEffort = resolveModelEffort({
+    model: models.adjudicationModel,
+    raw: env.DEEP_ANALYSIS_ADJUDICATION_EFFORT,
+    label: "DEEP_ANALYSIS_ADJUDICATION_EFFORT",
+  });
+  if (primaryEffort === null || adjudicationEffort === null) {
+    throw new Error("Primary and adjudication models must support explicit effort");
+  }
   return {
-    modelPolicyVersion: DEEP_ANALYSIS_MODEL_POLICY_VERSION,
+    modelPolicyVersion: isCostQualityExperiment
+      ? DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION
+      : DEEP_ANALYSIS_MODEL_POLICY_VERSION,
     executionMode: workerExecutionMode(env.DEEP_ANALYSIS_WORKER_MODE),
     ...claimPolicy,
-    ...pair,
+    ...models,
+    primaryEffort,
+    auditEffort,
+    adjudicationEffort,
     leaseSeconds: integerEnv(
       env.DEEP_ANALYSIS_LEASE_SECONDS,
       DEEP_ANALYSIS_DEFAULT_LIMITS.leaseSeconds,
@@ -98,6 +156,53 @@ export function resolveDeepAnalysisWorkerPolicy(
       "DEEP_ANALYSIS_HEARTBEAT_STALE_SECONDS",
     ),
   };
+}
+
+function usesCostQualityExperimentModels(models: {
+  primaryModel: string;
+  auditModel: string;
+  adjudicationModel: string;
+}): boolean {
+  return models.primaryModel === "claude-sonnet-5"
+    || models.auditModel === "claude-haiku-4-5-20251001"
+    || models.adjudicationModel === "claude-opus-5";
+}
+
+function assertExactCostQualityExperiment(models: {
+  primaryModel: string;
+  auditModel: string;
+  adjudicationModel: string;
+}): void {
+  if (
+    models.primaryModel !== "claude-sonnet-5"
+    || models.auditModel !== "claude-haiku-4-5-20251001"
+    || models.adjudicationModel !== "claude-opus-5"
+  ) {
+    throw new Error(
+      "Cost-quality experiment model tuple must be Sonnet 5 primary, Haiku 4.5 audit, and Opus 5 adjudication",
+    );
+  }
+}
+
+function resolveModelEffort(input: {
+  model: string;
+  raw: string | undefined;
+  label: string;
+}): DeepAnalysisEffort | null {
+  const raw = input.raw?.trim();
+  if (!supportsDeepAnalysisEffort(input.model)) {
+    if (raw) {
+      throw new Error(`${input.label} is not supported by ${input.model}`);
+    }
+    assertDeepAnalysisModelEffort({ model: input.model, effort: null });
+    return null;
+  }
+  const effort = raw || "high";
+  if (!isDeepAnalysisEffort(effort)) {
+    throw new Error(`${input.label} must be medium or high`);
+  }
+  assertDeepAnalysisModelEffort({ model: input.model, effort });
+  return effort;
 }
 
 export function assertDeepAnalysisClaimScopeConfigured(

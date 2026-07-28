@@ -191,6 +191,7 @@ export async function processDeepAnalysisJob(input: {
         seal,
         apiKey: input.apiKey,
         model: input.policy.primaryModel,
+        effort: input.policy.primaryEffort,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -216,6 +217,7 @@ export async function processDeepAnalysisJob(input: {
           seal,
           apiKey: input.apiKey,
           model: input.policy.primaryModel,
+          effort: input.policy.primaryEffort,
           failedExecution: primary,
           validation,
         });
@@ -260,6 +262,7 @@ export async function processDeepAnalysisJob(input: {
           rawResponseText: pass.result.rawResponseText,
           rawToolInput: pass.result.rawToolInput,
           stopReason: pass.result.stopReason,
+          effort: pass.result.effort ?? null,
           usage: pass.result.usage,
           costUsd: pass.result.costUsd,
         })),
@@ -273,9 +276,12 @@ export async function processDeepAnalysisJob(input: {
       verifierVersion: DEEP_ANALYSIS_PROCESSOR_VERSION,
       evidence: {
         model: input.policy.primaryModel,
+        effort: input.policy.primaryEffort,
         promptVersion: DEEP_ANALYSIS_PROMPT_VERSION,
         passCount: primary.passes.length,
         repairCount: primary.passes.filter((pass) => pass.kind === "repair").length,
+        usage: primary.result.usage,
+        actualCostUsd: primary.result.costUsd,
         rawArtifactKey: rawArtifact.key,
       },
     });
@@ -339,6 +345,7 @@ export async function processDeepAnalysisJob(input: {
   const preAuditCostReservation = reserveDeepAnalysisPreAuditCost({
     primaryModel: input.policy.primaryModel,
     auditModel: input.policy.auditModel,
+    adjudicationModel: input.policy.adjudicationModel,
     primaryUsage: primary.result.usage,
   });
   if (
@@ -357,6 +364,7 @@ export async function processDeepAnalysisJob(input: {
         primaryCostUsd: primary.result.costUsd,
         pricedPrimaryCostUsd: preAuditCostReservation?.primaryCostUsd ?? null,
         auditModel: input.policy.auditModel,
+        adjudicationModel: input.policy.adjudicationModel,
         projectedAuditCostUsd:
           preAuditCostReservation?.auditExecutionReserveUsd ?? null,
         adjudicationReserveUsd:
@@ -385,6 +393,9 @@ export async function processDeepAnalysisJob(input: {
       seal,
       apiKey: input.apiKey,
       auditModel: input.policy.auditModel,
+      auditEffort: input.policy.auditEffort,
+      adjudicationModel: input.policy.adjudicationModel,
+      adjudicationEffort: input.policy.adjudicationEffort,
       primaryValidation: validation,
       primaryResult: primary.result,
     });
@@ -427,6 +438,7 @@ export async function processDeepAnalysisJob(input: {
         inputChars: pass.inputChars,
         rawResponseText: pass.result.rawResponseText,
         rawToolInput: pass.result.rawToolInput,
+        effort: pass.result.effort ?? null,
         usage: pass.result.usage,
         costUsd: pass.result.costUsd,
       })),
@@ -455,6 +467,14 @@ export async function processDeepAnalysisJob(input: {
     evidence: {
       verdict: audit.verdict,
       auditModel: audit.model,
+      auditEffort: input.policy.auditEffort,
+      adjudicationModel: audit.adjudication?.model ?? input.policy.adjudicationModel,
+      adjudicationEffort:
+        audit.adjudication?.effort ?? input.policy.adjudicationEffort,
+      auditUsage: audit.execution.result.usage,
+      auditActualCostUsd: audit.execution.result.costUsd,
+      adjudicationUsage: audit.adjudication?.usage ?? null,
+      adjudicationActualCostUsd: audit.adjudication?.costUsd ?? null,
       auditArtifactKey: auditArtifact.key,
       disagreementCount: audit.itemResults.filter((item) => item.verdict === "disagree").length,
     },

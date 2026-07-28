@@ -1,4 +1,5 @@
 import type {
+  DeepAnalysisEffort,
   DeepAnalysisModelResult,
   DeepAnalysisUsage,
 } from "@cunote/contracts";
@@ -32,6 +33,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
   seal: DeepAnalysisInputSeal;
   apiKey: string;
   model: string;
+  effort?: DeepAnalysisEffort | null;
   singlePromptChars?: number;
   runModel?: ModelRunner;
 }): Promise<DeepAnalysisExecution> {
@@ -50,6 +52,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
       inputText: evidenceText,
       evidenceText,
       model: input.model,
+      ...(input.effort === undefined ? {} : { effort: input.effort }),
     });
     return {
       result,
@@ -66,6 +69,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
       inputText: chunkText,
       evidenceText: chunkText,
       model: input.model,
+      ...(input.effort === undefined ? {} : { effort: input.effort }),
       taskInstruction: [
         "이 입력은 전체 공고를 무손실 분할한 한 chunk다.",
         "이 chunk에서 직접 확인되는 조건만 22축으로 분석하고 다른 chunk 내용을 추정하지 마라.",
@@ -86,6 +90,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
     inputText: synthesisInput,
     evidenceText,
     model: input.model,
+    ...(input.effort === undefined ? {} : { effort: input.effort }),
     taskInstruction: [
       "아래에는 같은 공고의 무손실 chunk별 독립 분석 결과가 있다.",
       "모든 결과를 합쳐 공고 전체의 최종 22축 판정을 한 번만 반환하라.",

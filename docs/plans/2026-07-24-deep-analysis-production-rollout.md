@@ -4156,6 +4156,246 @@ Step 4-1P-24 실패 계약 교정·동일 2건 v17 재실행 체크포인트 —
   고정한 뒤 동일 2건 중 필요한 표본만 다시 검증한다. 그 전에는 cohort를 확대하지
   않는다.
 
+Step 4-1P-25 비용·품질 공동 최적화 계획 —
+`PLAN ONLY`, 구현·유료 호출·배포 없음 (2026-07-28):
+
+### 목적
+
+현재 목표는 가장 싼 모델을 찾는 것이 아니라, 공고와 HWP 전문을 읽어 만든 22축
+결과가 랜딩 매칭에 충분한 품질을 유지하면서 공고당 지속 가능한 비용으로 내려가는
+구성을 선택하는 것이다.
+
+최근 v17 exact 2건은 공고마다
+`primary → primary repair → blind audit → audit adjudication` 4회의 모델 호출을
+사용했다. 총비용은 `$1.559922`, 공고당 평균은 `$0.779961`이며, Opus 4.8
+primary/repair가 `$1.188330`으로 약 76.2%, Sonnet 5 blind audit/adjudication이
+`$0.371592`로 약 23.8%를 차지했다. 따라서 모델 단가와 불필요한 반복 호출을 모두
+보되, 두 변수를 한 체크포인트에서 동시에 바꾸지 않는다.
+
+비용 판단은 2026년 8월 31일까지의 Sonnet 5 한시 가격 `$2/$10 MTok`만 사용하지
+않는다. 2026년 9월 1일부터의 지속 가격 `$3/$15 MTok`도 함께 계산하며, 운영 GO
+기준은 더 보수적인 지속 가격으로 판정한다.
+모델 ID·context와 가격은 Anthropic 공식
+[models overview](https://platform.claude.com/docs/en/about-claude/models/overview),
+[pricing](https://platform.claude.com/docs/en/about-claude/pricing),
+[effort](https://platform.claude.com/docs/en/build-with-claude/effort)를 기준으로
+versioned contract에 고정한다.
+
+### 고정 품질 원칙
+
+모든 출력이 byte 또는 criterion 배열 단위로 같아야 하는 것은 아니다.
+
+- `analysisMarkdown`의 표현 차이, 같은 의미의 criterion 분할·병합, 더 짧거나 긴
+  exact source span, 비매칭 설명 차이는 자동 차단 사유가 아니다.
+- 신청 가능 여부를 뒤집는 required/exclusion, 예외, 대상, 지역, 업력, 업종 등의
+  의미 누락·오분류는 hard 품질 오류다.
+- preferred·평가점수·premises처럼 추천 순위를 바꾸는 누락도 match-impacting
+  오류다. eligibility를 뒤집지는 않아도 조용히 무시하지 않고 AI 판정 또는 사람
+  확인으로 보낸다.
+- 서술 차이가 아니라 최종 matcher의 `eligible/ineligible/conditional` 또는 추천
+  순위를 실제로 바꾸는지를 품질 판단의 마지막 기준으로 사용한다.
+- 기계 보증은 기존 14.9.3 기준대로 100% 유지한다. 모델 품질의 최종 기준도
+  criterion precision ≥ 99%, hard required/exclusion recall ≥ 98%,
+  HWP-only sentinel recall = 100%, wrong-hard ≤ 0.5%, source-groundedness = 100%,
+  catastrophic match flip = 0을 유지한다.
+- 위 최종 수치는 동결 80에서 판정한다. exact 2건 체크포인트에서는 비율을
+  과장하지 않고 알려진 오류의 절대 건수와 match impact로만 GO/STOP한다.
+
+### 비교할 모델 구성
+
+비교 후보는 하나로 고정한다.
+
+| 역할 | 현재 기준선 | 비교 후보 | 선택 이유 |
+|---|---|---|---|
+| primary deep analysis | `claude-opus-4-8` | `claude-sonnet-5`, 처음에는 `high` effort | 주 비용을 낮추되 처음부터 reasoning을 과도하게 낮추지 않음 |
+| independent blind audit | `claude-sonnet-5` | `claude-haiku-4-5-20251001` | primary와 다른 모델을 유지하면서 전수검사 비용을 낮춤 |
+| semantic adjudication | audit와 같은 Sonnet 5 | `claude-opus-5` | 실제 match-impacting 충돌에만 최고급 모델을 사용 |
+
+다음 모델·구성은 이번 비교에서 제외한다.
+
+- Fable 5: `$10/$50 MTok`으로 현재 Opus보다 비싸므로 비용 목표와 맞지 않는다.
+- Haiku 4.5 primary: HWP 전문과 22축 전체 분석 품질을 입증하기 전에 주 분석으로
+  내리지 않는다.
+- Sonnet 5 primary + Sonnet 5 audit: 싸지만 두 평가 모델의 독립성을 잃는다.
+- Opus 5 전체 교체: Opus 4.8과 `$5/$25 MTok`으로 비용 절감이 없다.
+- Batch API: 유효한 50% 할인 후보지만 비동기 실행 계약 변경을 모델 품질 비교와
+  섞지 않고, 모델 구성이 확정된 뒤 별도 운영 최적화로 판단한다.
+- Sonnet 5 `medium`: 공식적인 비용 절감 후보지만, 먼저 `high`에서 품질을
+  입증한 뒤 동일 표본의 별도 실험으로만 내린다.
+
+### Checkpoint CQ1 — 비교 가능한 코드 계약
+
+목표는 운영 기본값을 바꾸지 않고 한 후보를 정확히 계측할 수 있게 만드는 것이다.
+
+구현 범위:
+
+1. primary, blind audit, adjudication의 모델 allowlist와 타입을 역할별로 분리한다.
+   기존 production 기본값은 Opus 4.8/Sonnet 5로 그대로 둔다.
+2. Sonnet 5, Haiku 4.5, Opus 5의 현재·지속 가격을 cost policy에 명시하고,
+   모델·effort·input/output/cache token·실제 비용을 기존 stage receipt에 남긴다.
+3. `effort`는 요청별 명시값으로 전달하고, 누락 시 현재와 같은 `high`로 닫는다.
+4. 비교 후보는 exact cohort와 명시적 실행 확인값이 있을 때만 선택할 수 있게 한다.
+   worker 기본 claim, Scheduler, promotion, 랜딩 serving은 변경하지 않는다.
+5. primary와 blind audit 모델이 같거나 가격을 모르는 경우, adjudication 모델이
+   허용되지 않은 경우, 비용 계산이 불완전한 경우를 focused contract test로
+   fail-closed 고정한다.
+
+하지 않는 일:
+
+- DB schema/migration 추가
+- 새 ops 화면이나 새 관제 단계 추가
+- 자동 lesson 주입 또는 온라인 학습
+- prompt 내용 수정
+- 유료 모델 호출, production 배포, promotion
+
+완료 조건:
+
+- 기존 production 조합의 모든 focused test가 그대로 통과한다.
+- 새 후보 조합의 모델 독립성·가격·effort·비용 상한 테스트가 통과한다.
+- 기본 환경에서 생성되는 worker policy와 실행 계획이 변경 전과 동일하다.
+- 이 범위만 한 checkpoint commit으로 남기고 중단해 리뷰한다.
+
+### Checkpoint CQ2 — exact 2건 품질 우선 비교
+
+CQ1 리뷰가 끝난 뒤에만 진행한다. 현재 Opus 기준선은 v17 immutable artifact와
+receipt를 재사용하고, 같은 baseline을 다시 유료 호출하지 않는다.
+
+실행 표본:
+
+1. `kstartup/178647`: 채무불이행 문장의 회생·변제계획 및 파산 면책 예외
+2. `bizinfo/PBLN_000000000123200`: 선정평가표의 본사·공장 소재지 차등 배점
+
+각 표본에서 두 검증을 분리한다.
+
+1. **candidate end-to-end:** Sonnet 5 high primary → Haiku 4.5 blind audit →
+   필요한 경우 Opus 5 adjudication을 실행한다.
+2. **auditor sensitivity:** 보존된 v17의 결함 있는 primary 결과를 Haiku audit과
+   Opus adjudication에 넣어 이미 사람이 확인한 두 실질 누락을 다시 탐지할 수 있는지
+   확인한다. 새 primary가 우연히 정답을 냈다는 이유만으로 audit 성능을 PASS하지 않는다.
+
+품질 GO:
+
+- sealed input, 22축, source evidence, validator, canonical consistency가 2/2 PASS
+- 파산 면책 예외와 premises 배점의 알려진 match-impact가 최종 결과에서 2/2 보존
+- 결함 있는 기준선에 대한 auditor sensitivity가 2/2
+- 원문에 없는 hard required/exclusion 추가 0
+- 고정 회사 profile matcher 비교에서 catastrophic 가능↔불가 반전 0
+- 표현·분할 차이만 남고 match impact가 같으면 PASS
+
+비용 GO:
+
+- exact 2건 전체 실험비 hard cap `$2.00`
+- 한시 가격과 9월 이후 지속 가격을 모두 receipt에 기록
+- 지속 가격 기준 현재 `$1.559922` 대비 최소 25% 절감
+- 목표는 40% 이상 절감이지만, 품질이 우수하고 최소 25%를 넘으면 다음
+  비용 최적화 체크포인트의 후보로 유지
+
+STOP:
+
+- 알려진 실질 누락을 하나라도 놓침
+- 새 catastrophic match flip 발생
+- 서로 다른 두 모델 조건을 우회함
+- 비용·token·모델 receipt가 하나라도 없음
+- 실험비 `$2.00` 초과 예상
+
+실패 시 cohort를 늘리지 않는다. 실패 유형 하나당 공유 규칙 또는 canonical 회귀
+교정은 최대 한 번만 허용하고, 같은 exact 표본을 다시 평가한 뒤 다시 중단한다.
+반복 prompt 튜닝으로 2건에 과적합하지 않는다.
+
+### Checkpoint CQ3 — 호출비 최적화와 제한 shadow
+
+CQ2가 품질 GO일 때만 진행한다. 이 단계에서도 모델 품질과 무관한 새 기능은 만들지
+않는다.
+
+호출 원칙:
+
+1. deterministic validator 실패에만 primary repair 1회를 허용한다. audit에서 발견한
+   의미 차이를 primary 전체 재분석으로 되돌리지 않는다.
+2. repair는 현재의 완전 결과 재생성 계약을 유지한다. 부분 JSON patch/merge 엔진을
+   새로 만들지 않는다.
+3. 같은 Sonnet primary가 같은 sealed source를 다시 읽는 primary→repair 요청에는
+   prompt caching을 적용하고 cache write/read token을 실제 receipt로 검증한다.
+   Haiku audit과 Opus adjudication은 모델이 다르므로 서로 cache hit가 된다고
+   추정하지 않는다.
+4. Opus 5 adjudication은 canonical semantic comparison 뒤에도 남는
+   match-impacting blocker 또는 uncertainty에만 실행한다. 설명문·표현·동일 의미
+   분할 차이에는 실행하지 않는다.
+5. Sonnet 5 medium은 high 구성이 CQ2를 통과한 뒤 exact 2건에 한해 별도 비교한다.
+   hard 품질이나 auditor sensitivity가 하나라도 낮아지면 high를 유지한다.
+
+제한 shadow:
+
+- 동결 80의 기존 immutable 입력을 새로 만들지 않고 사용한다.
+- 첫 실행은 대표 10건만 선택하고 production promotion·matcher publication은 하지
+  않는다.
+- 10건마다 품질·호출 수·repair율·adjudication율·cache hit·비용을 계산하고 중단한다.
+- match-impacting 오류 1건, HWP-only hard 누락 1건, catastrophic flip 1건이면
+  즉시 STOP한다.
+- 첫 10건이 통과해도 나머지 70건을 한 번에 실행하지 않는다. 동일한 10건 단위
+  checkpoint로 진행하며, 최종 동결 80 report에서 기존 14.9.3 품질 기준을 판정한다.
+
+지속 가능한 비용 기준:
+
+- 9월 이후 Sonnet 5 표준 가격으로 평균 공고당 최소 25% 절감
+- 목표 평균 공고당 `$0.55` 이하 또는 현재 대비 40% 이상 절감
+- 공고당 기존 `$2` hard cap은 완화하지 않음
+- 평균 비용만 낮고 catastrophic/required/exclusion 품질이 악화되면 STOP
+
+### 운영 채택 조건
+
+현재 Opus 4.8/Sonnet 5 기본값은 아래가 모두 끝날 때까지 유지한다.
+
+1. CQ1 코드 계약 PASS
+2. CQ2 exact 2건 품질·비용 GO
+3. CQ3 동결 80의 기존 기계 보증과 모델 품질 기준 PASS
+4. candidate exact commit을 세 worker에 observe-only로 배포하고 mutation 0 확인
+5. bounded 2건 production canary가 S11 PASS
+6. promotion shadow에서 기존 matcher 대비 catastrophic flip 0
+7. 고정 사업자 profile로 랜딩 사업자번호 → 회사 profile → deep-analysis criteria
+   matcher → 결과 카드 read-only E2E PASS
+
+이후에도 active backlog 전체를 바로 열지 않는다. 2건 canary 결과와 공고당 실제 비용을
+다시 리뷰한 뒤 cohort 확대를 별도 승인한다.
+
+### 최종 산출물
+
+- 모델 역할·effort·가격·호출 조건 contract
+- exact 2건 paired quality/cost receipt
+- 알려진 결함 2건 auditor sensitivity report
+- 10건 단위 frozen cohort report와 최종 80건 품질 report
+- stage별 호출 수, repair율, adjudication율, cache hit, 공고당 비용
+- 랜딩 deep-analysis 기반 matcher read-only E2E receipt
+
+### CQ1 구현 체크포인트 — `CODE PASS`, `NOT DEPLOYED` (2026-07-28)
+
+- 활성 production 기본값과 `deep-analysis-model-policy-v17`은 그대로 유지했다.
+  후보 조합에는 별도 `deep-analysis-model-policy-cq2-v1`을 부여했다.
+- 역할별 allowlist를 분리해 current
+  `Opus 4.8 primary → Sonnet 5 audit/adjudication`과 candidate
+  `Sonnet 5 primary → Haiku 4.5 audit → Opus 5 adjudication`을 같은 모델로
+  뭉개지 않고 표현한다.
+- candidate는 exact 세 모델 조합, bounded claim scope와
+  `RUN_DEEP_ANALYSIS_CQ2_MODEL_EXPERIMENT` 확인값이 모두 있어야 policy가 만들어진다.
+  조합 일부만 바꾸거나 all/unconfigured scope로 여는 설정은 fail-closed된다.
+- 지원 모델의 Anthropic request에는 `output_config.effort`를 명시하고 기본값을
+  `high`로 고정했다. Haiku 4.5는 effort를 지원하지 않는 모델로 명시해
+  `output_config`를 보내지 않으며, 잘못된 effort 설정은 호출 전에 거부한다.
+- cost policy v2는 Opus 5 `$5/$25`, Haiku 4.5 `$1/$5`, Sonnet 5의
+  2026-08-31까지 한시 가격과 2026-09-01 이후 표준 가격을 구분한다.
+  pre-audit 예약은 audit와 adjudication을 같은 모델로 가정하지 않고 각각의 실제
+  모델 단가로 계산한다.
+- primary와 audit artifact 및 stage receipt에 모델, effort, input/output/cache-read
+  usage와 실제 비용을 남긴다. worker heartbeat/readback에도 세 역할의 모델과
+  effort를 포함한다. DB schema와 새 ops 화면은 추가하지 않았다.
+- `pnpm --filter @cunote/contracts build`,
+  `node packages/contracts/dist/deep-analysis.test.js`,
+  focused worker-policy/cost/analyzer/audit/adjudication 테스트,
+  `pnpm verify:deep-analysis-contract`,
+  `pnpm --filter @cunote/web typecheck`, `git diff --check`가 PASS했다.
+- 외부 LLM 호출, DB/R2 접근·쓰기, Cloud Build, Cloud Run/Scheduler 변경,
+  production promotion과 Vercel 배포는 0이다. 다음 단계는 CQ2 exact 2건이며,
+  실행 전에 이 checkpoint를 커밋하고 중단해 리뷰한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
