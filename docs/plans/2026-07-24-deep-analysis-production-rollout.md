@@ -4925,6 +4925,67 @@ Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다.
   `bd1bc97b18d5cd2dc232ea79ce62183a0d746613c4e4fd5b7d00d494bb80f18d`,
   요약 evidence는 `docs/evidence/deep-analysis/aq3-r1-2026-07-29.json`에 기록했다.
 
+### AQ4-A 동일 근거 교차 축 false blocker 차단 — `CODE PASS`, `EXACT 2 OVERALL STOP` (2026-07-29)
+
+AQ3-R1에서 채택된 Bizinfo false blocker 한 건만 새 유료 호출 없이 수정했다. 처음에는
+validator 결과 안에서 교차 축을 비교하려 했으나, 보존 artifact를 실제 재생해 그
+접근이 실패하는 것을 확인하고 커밋하지 않았다. 정확한 원인은 primary 결과와 audit
+비교용 semantic index의 차이였다.
+
+확인된 원인:
+
+1. Bizinfo primary의 normalized result에는 `certification/preferred/text_only`가
+   2개 있고, 두 번째 행은 문제의 인증기업 1점/건 가점 원문을 exact span으로
+   보존한다. normalized output과 promotion/matcher는 이 result criteria 전체를
+   사용한다.
+2. validator semantic index는 두 certification text-only 행을 canonical
+   `certs=[]`로 해시해 15개 result criteria 중 14개만 유지했고, certification은
+   2개 중 첫 번째 해외규격인증 행만 남겼다. audit candidate와 adjudication은 이
+   index만 보았기 때문에 primary가 두 번째 행을 잃었다고 잘못 판단했다.
+3. 따라서 validator dedupe나 matcher를 바꾸는 대신, finding verifier가 이미
+   validation을 통과한 primary normalized result criteria도 함께 확인하도록 했다.
+
+구현 경계:
+
+- audit-only 후보와 primary가 서로 다른 축이어도 둘 다
+  `preferred/text_only`이고, 정규화한 source span이 exact 동일할 때만
+  `already_represented`로 거절한다. 현재 matcher에서 두 항목은 eligibility와
+  품질 가중치에 동일하게 비차단이며 primary가 원문을 이미 보존했으므로 이 거절은
+  audit contract 오류가 아닌 안전한 비차단 차이로 처리한다.
+- `required/text_only`는 exact 동일 span이어도 서로 다른 자격 의미일 수 있어
+  계속 blocking finding으로 인정한다. source span이 포함관계일 뿐 exact 동일하지
+  않은 preferred 행도 계속 인정한다. 전역 cross-dimension 병합은 하지 않았다.
+- 다른 `candidate_not_found`, region 값 충돌, bound 없는 biz_age, 임의 sanction
+  거절은 계속 `unsure`로 fail-closed 처리한다.
+- adjudication은 `deep-analysis-audit-adjudication-v15`, finding verifier는
+  `deep-analysis-audit-finding-verifier-v2`로 올렸다. 모델·prompt·audit 계약·
+  validator·matcher·serving은 변경하지 않았다.
+
+오프라인 결과:
+
+- AQ3-R1 Bizinfo 원본 artifact를 그대로 재생하면 candidate audit은
+  `disagree → concur`, accepted blocker는 `1 → 0`이고 해당 행은
+  `already_represented`로 기록된다.
+- K-Startup은 accepted blocker 0을 유지하지만 `biz_age` uncertainty가 남아
+  `unsure`다. uncertainty 행은 candidate key가 없는 별도 계약이므로 이번 finding
+  verifier 체크포인트에 섞지 않았다. exact 2 candidate concurrence는 1/2다.
+- required 교차 축, 부분 중첩 근거, 알려진 tax/credit/premises true positive,
+  region/unknown candidate fail-closed 회귀를 통과했다.
+- `pnpm build:packages`, `pnpm verify:package-runtime-freshness`,
+  `pnpm verify:deep-analysis-contract`, `pnpm --filter @cunote/web typecheck`,
+  `git diff --check`가 PASS했다. 외부 LLM, DB/R2/promotion,
+  Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다.
+
+게이트 판정:
+
+- AQ4-A 코드와 Bizinfo false blocker는 GO다.
+- exact 2 전체는 K-Startup `biz_age` uncertainty 때문에 계속 `STOP`이다. CQ3,
+  cohort 확대, 배포, production policy 전환과 추가 유료 재실행은 진행하지 않는다.
+- 다음 체크포인트를 열기 전에는 K-Startup uncertainty가 원문 자체의 불확실성인지,
+  근거 없는 audit-only 후보를 adjudicator가 반박한 비차단 차이인지 보존 artifact로
+  먼저 분류해야 한다. 이번 커밋에는 uncertainty 계약 변경을 포함하지 않는다.
+- 요약 evidence는 `docs/evidence/deep-analysis/aq4-a-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달

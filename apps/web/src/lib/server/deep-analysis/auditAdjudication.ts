@@ -31,9 +31,9 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v14" as const;
+  "deep-analysis-audit-adjudication-v15" as const;
 export const DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION =
-  "deep-analysis-audit-finding-verifier-v1" as const;
+  "deep-analysis-audit-finding-verifier-v2" as const;
 export const DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE =
   "원문에 신청자격·결격 예외·우대·배점이 명시됐는데 primary에 의미상 같은 criterion이 없거나 잘못된 값으로 있으면 blocking_findings로 확정한다. primary의 canonical 표현이 불완전하거나 profile에서 아직 자동 판정할 수 없다는 이유로 uncertainties로 낮추지 마라. uncertainties는 원문 자체의 의미나 적용 범위를 끝까지 읽어도 확정할 수 없을 때만 사용한다.";
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
@@ -238,6 +238,7 @@ export async function adjudicateDeepAnalysisAudit(input: {
   const rawToolInput = isRecord(tool?.input) ? tool.input : {};
   const normalized = normalizeDeepAnalysisAuditAdjudication({
     evidenceText: input.evidenceText,
+    primaryCriteria: input.primaryResult.criteria,
     primaryValidation: input.primaryValidation,
     candidates,
     reviewedDimensions: rawToolInput.reviewed_dimensions,
@@ -308,6 +309,7 @@ export function buildDeepAnalysisAuditCandidates(
 
 export function normalizeDeepAnalysisAuditAdjudication(input: {
   evidenceText: string;
+  primaryCriteria: DeepAnalysisModelResult["criteria"];
   primaryValidation: DeepAnalysisValidationResult;
   candidates: DeepAnalysisAuditCriterionCandidate[];
   reviewedDimensions: unknown;
@@ -369,11 +371,14 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
       dimension,
       findingType,
       evidenceText: input.evidenceText,
+      primaryCriteria: input.primaryCriteria,
       primaryValidation: input.primaryValidation,
       candidate: candidateByKey.get(candidateKey) ?? null,
     });
     if (rejection) {
-      contractInvalid = true;
+      if (rejection.code !== "already_represented") {
+        contractInvalid = true;
+      }
       rejected.push(rejection);
       continue;
     }
@@ -430,6 +435,7 @@ function verifyBlockingFinding(input: {
   dimension: CriterionDimension;
   findingType: "missing_eligibility" | "misclassified_eligibility";
   evidenceText: string;
+  primaryCriteria: DeepAnalysisModelResult["criteria"];
   primaryValidation: DeepAnalysisValidationResult;
   candidate: DeepAnalysisAuditCriterionCandidate | null;
 }): DeepAnalysisAuditFindingValidationIssue | null {
@@ -471,6 +477,22 @@ function verifyBlockingFinding(input: {
     && item.canonicalCriterion.kind === expected.kind
     && spansRepresentSameEvidence(item.criterion.sourceSpan, sourceSpan)
   ));
+  // Promotion and matching consume the normalized primary result, while validation.criteria
+  // is a semantic-hash index that may collapse distinct text-only scoring rows.
+  const crossDimensionPreferredTextOnly = input.primaryCriteria.find((criterion) => (
+    criterion.dimension !== expected.dimension
+    && criterion.kind === "preferred"
+    && criterion.operator === "text_only"
+    && expected.kind === "preferred"
+    && expected.operator === "text_only"
+    && spansAreExactlySameEvidence(criterion.sourceSpan, sourceSpan)
+  ));
+  if (crossDimensionPreferredTextOnly) {
+    return reject(
+      "already_represented",
+      `Primary already preserves the same preferred text-only evidence under ${crossDimensionPreferredTextOnly.dimension}.`,
+    );
+  }
   if (
     expected.operator === "text_only"
     && primaryOnSameEvidence.some((item) => item.canonicalCriterion.operator === "text_only")
@@ -522,6 +544,16 @@ function spansRepresentSameEvidence(
   if (normalizedLeft.length < 8 || normalizedRight.length < 8) return false;
   return normalizedLeft.includes(normalizedRight)
     || normalizedRight.includes(normalizedLeft);
+}
+
+function spansAreExactlySameEvidence(
+  left: string | null,
+  right: string,
+): boolean {
+  if (!left) return false;
+  const normalizedLeft = normalizeEvidenceText(left);
+  const normalizedRight = normalizeEvidenceText(right);
+  return normalizedLeft.length >= 8 && normalizedLeft === normalizedRight;
 }
 
 function normalizeEvidenceText(value: string): string {

@@ -403,6 +403,7 @@ function replayFinding(input: {
   assert.ok(candidate);
   return normalizeDeepAnalysisAuditAdjudication({
     evidenceText: input.source,
+    primaryCriteria: input.primaryCriteria,
     primaryValidation: replayPrimary,
     candidates,
     reviewedDimensions: [...CRITERION_DIMENSIONS],
@@ -548,6 +549,7 @@ assert.equal(
 );
 const alreadyRepresentedCertification = normalizeDeepAnalysisAuditAdjudication({
   evidenceText: certificationSpan,
+  primaryCriteria: [certificationPrimary],
   primaryValidation: certificationPrimaryValidation,
   candidates: certificationCandidates,
   reviewedDimensions: [...CRITERION_DIMENSIONS],
@@ -564,6 +566,112 @@ assert.equal(
   alreadyRepresentedCertification.findingValidation.rejected[0]?.code,
   "candidate_not_found",
 );
+
+const crossDimensionScoringSpan =
+  "▲ 경기도 유망중소기업, ▲ 하남시 일자리창출 우수기업, ▲ 이노(메인)비즈 인증기업, ▲ 벤처기업, ▲ 경기가족친화 일하기 좋은기업, ▲ 장애인기업, ▲ 여성기업 ▲ 사회적기업 ▲ 경기도일자리우수기업 ( 1 점/건)";
+const crossDimensionScoringFalseBlocker = replayFinding({
+  source: `해외규격인증 보유 (8) 4점/건\n${crossDimensionScoringSpan}`,
+  primaryCriteria: [
+    {
+      dimension: "certification",
+      operator: "text_only",
+      kind: "preferred",
+      value: { note: "해외규격인증 보유 시 건당 4점, 최대 8점" },
+      confidence: 0.85,
+      sourceSpan: "해외규격인증 보유 (8) 4점/건",
+      spanVerified: true,
+      note: null,
+    },
+    {
+      dimension: "certification",
+      operator: "text_only",
+      kind: "preferred",
+      value: {
+        note: "경기도 유망중소기업 등 각종 인증기업 가점 1점/건",
+      },
+      confidence: 0.85,
+      sourceSpan: crossDimensionScoringSpan,
+      spanVerified: true,
+      note: null,
+    },
+  ],
+  auditCriteria: [{
+    dimension: "prior_award",
+    operator: "text_only",
+    kind: "preferred",
+    value: { note: crossDimensionScoringSpan },
+    confidence: 0.85,
+    sourceSpan: crossDimensionScoringSpan,
+    spanVerified: true,
+    note: null,
+  }],
+  dimension: "prior_award",
+  findingType: "missing_eligibility",
+});
+assert.equal(crossDimensionScoringFalseBlocker.verdict, "concur");
+assert.equal(crossDimensionScoringFalseBlocker.findingValidation.acceptedCount, 0);
+assert.equal(
+  crossDimensionScoringFalseBlocker.findingValidation.rejected[0]?.code,
+  "already_represented",
+);
+
+const crossDimensionRequiredText = replayFinding({
+  source: crossDimensionScoringSpan,
+  primaryCriteria: [{
+    dimension: "certification",
+    operator: "text_only",
+    kind: "required",
+    value: { note: "인증 보유 필수" },
+    confidence: 0.85,
+    sourceSpan: crossDimensionScoringSpan,
+    spanVerified: true,
+    note: null,
+  }],
+  auditCriteria: [{
+    dimension: "prior_award",
+    operator: "text_only",
+    kind: "required",
+    value: { note: "선정 이력 필수" },
+    confidence: 0.85,
+    sourceSpan: crossDimensionScoringSpan,
+    spanVerified: true,
+    note: null,
+  }],
+  dimension: "prior_award",
+  findingType: "missing_eligibility",
+});
+assert.equal(crossDimensionRequiredText.verdict, "disagree");
+assert.equal(crossDimensionRequiredText.findingValidation.acceptedCount, 1);
+
+const overlappingScoringSource =
+  "벤처기업 인증 1점/건 가점, 별도 지원사업 선정기업은 추가 1점 가점";
+const overlappingCrossDimensionScoring = replayFinding({
+  source: overlappingScoringSource,
+  primaryCriteria: [{
+    dimension: "certification",
+    operator: "text_only",
+    kind: "preferred",
+    value: { note: "벤처기업 인증 1점/건 가점" },
+    confidence: 0.85,
+    sourceSpan: "벤처기업 인증 1점/건 가점",
+    spanVerified: true,
+    note: null,
+  }],
+  auditCriteria: [{
+    dimension: "prior_award",
+    operator: "text_only",
+    kind: "preferred",
+    value: { note: overlappingScoringSource },
+    confidence: 0.85,
+    sourceSpan: overlappingScoringSource,
+    spanVerified: true,
+    note: null,
+  }],
+  dimension: "prior_award",
+  findingType: "missing_eligibility",
+});
+assert.equal(overlappingCrossDimensionScoring.verdict, "disagree");
+assert.equal(overlappingCrossDimensionScoring.findingValidation.acceptedCount, 1);
 
 const earlyFounderSpan = "예비창업자 및 초기창업자를 모집한다.";
 const unboundedBizAge = replayFinding({

@@ -1,0 +1,100 @@
+{
+  "schema": "deep-analysis-aq4-a-summary-v1",
+  "generatedAt": "2026-07-28T22:49:55Z",
+  "checkpoint": "AQ4-A",
+  "status": "CODE_PASS_BIZINFO_FALSE_BLOCKER_FIXED_KSTARTUP_UNSURE_REMAINS",
+  "baseCommit": "3453406496a34d86b5b66bc77db70f1f58c0e768",
+  "scope": {
+    "changedVariable": "deterministic_same_evidence_cross_dimension_finding_rejection",
+    "primaryPromptChanged": false,
+    "auditPromptChanged": false,
+    "auditContractChanged": false,
+    "validatorChanged": false,
+    "matcherChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "auditAdjudication": "deep-analysis-audit-adjudication-v15",
+    "findingVerifier": "deep-analysis-audit-finding-verifier-v2",
+    "auditContract": "deep-analysis-audit-candidates-v2",
+    "auditPrompt": "deep-analysis-blind-audit-v14",
+    "validator": "deep-analysis-validator-v4",
+    "defaultModelPolicy": "deep-analysis-model-policy-v20",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v4"
+  },
+  "rootCause": {
+    "key": "bizinfo/PBLN_000000000123200",
+    "primaryResultCriterionCount": 15,
+    "primaryValidatedCriterionCount": 14,
+    "primaryCertificationResultCriterionCount": 2,
+    "primaryCertificationValidatedCriterionCount": 1,
+    "explanation": "The normalized primary result retained both certification scoring rows and is the result consumed by promotion and matching. The validator semantic index collapsed the two preferred certification/text_only rows to one canonical empty-certs hash, so audit candidate comparison could not see the second exact scoring row.",
+    "falseBlockerCandidateKey": "f7a08fee9dcbbed6549560c95eeb9197f19c7d0afc43a6b4cc6bbc570ec3d23a"
+  },
+  "deterministicRule": {
+    "primarySource": "validated primary normalized result criteria",
+    "auditCandidateKind": "audit_only",
+    "requiredKind": "preferred",
+    "requiredOperator": "text_only",
+    "evidenceRelation": "normalized exact equality",
+    "dimensionRelation": "different",
+    "rejectionCode": "already_represented",
+    "rejectionDisposition": "benign_non_blocking",
+    "globalCrossDimensionMerge": false
+  },
+  "regression": {
+    "aq3R1ExactBizinfoFixture": "REJECTED_AS_ALREADY_REPRESENTED",
+    "crossDimensionRequiredTextOnly": "PRESERVED_AS_BLOCKING_FINDING",
+    "partiallyOverlappingPreferredTextOnlyEvidence": "PRESERVED_AS_BLOCKING_FINDING",
+    "unknownCandidate": "STILL_UNSURE",
+    "regionValueConflict": "STILL_UNSURE",
+    "knownTaxExceptionMiss": "STILL_DISAGREE",
+    "knownBankruptcyExceptionMiss": "STILL_DISAGREE",
+    "knownPremisesMiss": "STILL_DISAGREE"
+  },
+  "offlineArtifactReplay": {
+    "sourceReceiptSha256": "bd1bc97b18d5cd2dc232ea79ce62183a0d746613c4e4fd5b7d00d494bb80f18d",
+    "bizinfoArtifactSha256": "e94e7d22b7f7425a143e7ae93b0f34890d6b49154043a66d659d2b5cab523476",
+    "bizinfo": {
+      "beforeVerdict": "disagree",
+      "beforeAcceptedBlockingFindings": 1,
+      "afterVerdict": "concur",
+      "afterAcceptedBlockingFindings": 0,
+      "afterRejectedFindingCode": "already_represented"
+    },
+    "kstartup": {
+      "beforeVerdict": "unsure",
+      "afterVerdict": "unsure",
+      "acceptedBlockingFindings": 0,
+      "remainingReason": "biz_age uncertainty row does not identify a candidate and is outside this checkpoint"
+    }
+  },
+  "verification": {
+    "focusedAuditAdjudicationTest": "PASS",
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "gitDiffCheck": "PASS",
+    "anthropicCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "bizinfoFalseBlocker": "FIXED",
+    "exactTwoCandidateConcurrence": {
+      "count": 1,
+      "total": 2
+    },
+    "overall": "STOP",
+    "paidRerun": "NOT_RUN",
+    "cq3Allowed": false,
+    "cohortExpansionAllowed": false,
+    "deploymentAllowed": false,
+    "nextReviewRequired": true
+  }
+}
