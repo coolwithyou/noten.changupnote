@@ -5,7 +5,9 @@ import {
   type DeepAnalysisAdjudicationModel,
   type DeepAnalysisEffort,
   type DeepAnalysisModelResult,
+  type GrantCriterion,
 } from "@cunote/contracts";
+import { REGION_CODES } from "@cunote/core";
 import type { DeepAnalysisValidationResult } from "./validator";
 import type { DeepAnalysisAuditItemResult } from "./audit";
 import {
@@ -29,7 +31,9 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v13" as const;
+  "deep-analysis-audit-adjudication-v14" as const;
+export const DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION =
+  "deep-analysis-audit-finding-verifier-v1" as const;
 export const DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE =
   "원문에 신청자격·결격 예외·우대·배점이 명시됐는데 primary에 의미상 같은 criterion이 없거나 잘못된 값으로 있으면 blocking_findings로 확정한다. primary의 canonical 표현이 불완전하거나 profile에서 아직 자동 판정할 수 없다는 이유로 uncertainties로 낮추지 마라. uncertainties는 원문 자체의 의미나 적용 범위를 끝까지 읽어도 확정할 수 없을 때만 사용한다.";
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
@@ -38,9 +42,10 @@ export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   "독립 결과는 누락 후보를 찾기 위한 탐색 신호다. primary와 같은 criterion 배열·분할·kind·문구를 재생성할 필요가 없다.",
   "최종 감사 대상은 primary가 신청 시점의 자격·결격·우대·평가점수를 22축에서 의미상 누락하거나 잘못 분류했는지다.",
   "표현·criterion 분할·source span 길이·blind 결과의 contract/normalization 차이만으로 blocking finding을 만들지 마라.",
-  "blind 결과가 validation issue를 가져도 원문과 primary만으로 의미가 명확하면 primary를 직접 판정한다. 실제 의미를 확정할 수 없을 때만 unsure다.",
+  "이 단계에 전달되는 blind 결과는 validator를 통과했다. blocking finding은 CRITERION_CANDIDATES의 candidateKind=audit_only인 행 하나를 candidate_key로 정확히 지목해야 한다.",
+  "candidate_key가 없는 자유서술 주장, primary 행을 가리키는 주장, 원문과 값이 충돌하는 주장은 결정론적 검증에서 폐기된다.",
   "reviewed_dimensions에는 22축을 정확히 한 번씩 모두 넣어 전수 검토를 증명한다.",
-  "blocking_findings에는 원문으로 입증된 primary의 실질 누락 또는 오분류만 넣는다. 각 finding의 source_span은 sealed source에서 원문 그대로 인용한다.",
+  "blocking_findings에는 원문으로 입증된 primary의 실질 누락 또는 오분류만 넣는다. source span은 선택한 candidate의 검증된 audit criterion에서 결정론적으로 가져온다.",
   "audit_only 후보가 중복·과분해·비자격 서술이거나 primary가 이미 의미상 반영했다면 blocking_findings에 넣지 않는다.",
   "의미를 확정할 수 없는 축은 빈 결과로 통과시키지 말고 uncertainties에 이유와 함께 넣는다.",
   "실제 blocker와 uncertainty가 모두 없으면 두 배열을 비워 반환한다. 비차단 차이의 설명을 억지로 finding으로 만들지 마라.",
@@ -63,19 +68,19 @@ const AUDIT_ADJUDICATION_TIMEOUT_MS = 540_000;
 const AUDIT_ADJUDICATION_RETRY_DELAY_MS = 5_000;
 const AUDIT_ADJUDICATION_RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504, 529]);
 
-interface Candidate {
+export interface DeepAnalysisAuditCriterionCandidate {
   kind: "criterion";
   dimension: CriterionDimension;
   candidateKind: "primary" | "audit_only";
   key: string;
-  primary: Record<string, unknown> | null;
-  audit: Record<string, unknown> | null;
+  primary: GrantCriterion | null;
+  audit: GrantCriterion | null;
 }
 
 interface RawBlockingFinding {
+  candidate_key?: unknown;
   dimension?: unknown;
   finding_type?: unknown;
-  source_span?: unknown;
   reason?: unknown;
 }
 
@@ -98,6 +103,31 @@ interface AnthropicResponse {
   usage?: Record<string, unknown>;
 }
 
+export type DeepAnalysisAuditFindingValidationIssueCode =
+  | "row_contract_invalid"
+  | "candidate_not_found"
+  | "candidate_not_audit_only"
+  | "candidate_dimension_mismatch"
+  | "finding_type_mismatch"
+  | "candidate_evidence_invalid"
+  | "already_represented"
+  | "region_value_conflict"
+  | "biz_age_bound_missing"
+  | "discretionary_sanction";
+
+export interface DeepAnalysisAuditFindingValidationIssue {
+  index: number;
+  code: DeepAnalysisAuditFindingValidationIssueCode;
+  candidateKey: string | null;
+  message: string;
+}
+
+export interface DeepAnalysisAuditFindingValidation {
+  verifierVersion: typeof DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION;
+  acceptedCount: number;
+  rejected: DeepAnalysisAuditFindingValidationIssue[];
+}
+
 export async function adjudicateDeepAnalysisAudit(input: {
   apiKey: string;
   model: DeepAnalysisAdjudicationModel;
@@ -117,15 +147,25 @@ export async function adjudicateDeepAnalysisAudit(input: {
   itemResults: DeepAnalysisAuditItemResult[];
   rawResponseText: string;
   rawToolInput: Record<string, unknown>;
+  findingValidation: DeepAnalysisAuditFindingValidation;
   usage: {
     inputTokens: number;
     outputTokens: number;
   } | null;
   costUsd: number | null;
 }> {
+  if (!input.primaryValidation.valid) {
+    throw new Error("Deep analysis audit adjudication requires a valid primary result");
+  }
+  if (!input.auditValidation.valid) {
+    throw new Error("Deep analysis audit adjudication refuses an invalid blind audit result");
+  }
   const effort = input.effort ?? "high";
   assertDeepAnalysisModelEffort({ model: input.model, effort });
-  const candidates = buildCandidates(input.primaryValidation, input.auditValidation);
+  const candidates = buildDeepAnalysisAuditCandidates(
+    input.primaryValidation,
+    input.auditValidation,
+  );
   const requestBody = JSON.stringify({
     model: input.model,
     max_tokens: DEEP_ANALYSIS_ADJUDICATION_MAX_OUTPUT_TOKENS,
@@ -196,8 +236,10 @@ export async function adjudicateDeepAnalysisAudit(input: {
     block.type === "tool_use" && block.name === "emit_deep_analysis_audit_adjudication"
   ));
   const rawToolInput = isRecord(tool?.input) ? tool.input : {};
-  const normalized = normalizeAdjudication({
+  const normalized = normalizeDeepAnalysisAuditAdjudication({
     evidenceText: input.evidenceText,
+    primaryValidation: input.primaryValidation,
+    candidates,
     reviewedDimensions: rawToolInput.reviewed_dimensions,
     findingRows: rawToolInput.blocking_findings,
     uncertaintyRows: rawToolInput.uncertainties,
@@ -216,29 +258,31 @@ export async function adjudicateDeepAnalysisAudit(input: {
   };
 }
 
-function buildCandidates(
+export function buildDeepAnalysisAuditCandidates(
   primary: DeepAnalysisValidationResult,
   audit: DeepAnalysisValidationResult,
-): Candidate[] {
+): DeepAnalysisAuditCriterionCandidate[] {
   const primaryByHash = new Map(
     primary.criteria.map((item) => [item.semanticSha256, item]),
   );
   const auditByHash = new Map(
     audit.criteria.map((item) => [item.semanticSha256, item]),
   );
-  const candidates: Candidate[] = primary.criteria.map((item) => ({
+  const candidates: DeepAnalysisAuditCriterionCandidate[] = primary.criteria.map((item) => ({
     kind: "criterion",
     dimension: item.criterion.dimension,
     candidateKind: "primary",
     key: item.semanticSha256,
     primary: {
       ...item.canonicalCriterion,
-      source_span: item.criterion.sourceSpan,
+      ...(item.criterion.sourceSpan ? { source_span: item.criterion.sourceSpan } : {}),
     },
     audit: auditByHash.has(item.semanticSha256)
       ? {
         ...auditByHash.get(item.semanticSha256)!.canonicalCriterion,
-        source_span: auditByHash.get(item.semanticSha256)!.criterion.sourceSpan,
+        ...(auditByHash.get(item.semanticSha256)!.criterion.sourceSpan
+          ? { source_span: auditByHash.get(item.semanticSha256)!.criterion.sourceSpan! }
+          : {}),
       }
       : null,
   }));
@@ -252,7 +296,7 @@ function buildCandidates(
       primary: null,
       audit: {
         ...item.canonicalCriterion,
-        source_span: item.criterion.sourceSpan,
+        ...(item.criterion.sourceSpan ? { source_span: item.criterion.sourceSpan } : {}),
       },
     });
   }
@@ -262,14 +306,17 @@ function buildCandidates(
   ));
 }
 
-function normalizeAdjudication(input: {
+export function normalizeDeepAnalysisAuditAdjudication(input: {
   evidenceText: string;
+  primaryValidation: DeepAnalysisValidationResult;
+  candidates: DeepAnalysisAuditCriterionCandidate[];
   reviewedDimensions: unknown;
   findingRows: unknown;
   uncertaintyRows: unknown;
 }): {
   verdict: "concur" | "disagree" | "unsure";
   itemResults: DeepAnalysisAuditItemResult[];
+  findingValidation: DeepAnalysisAuditFindingValidation;
 } {
   const reviewedDimensions = Array.isArray(input.reviewedDimensions)
     ? input.reviewedDimensions.filter((value): value is string => typeof value === "string")
@@ -291,23 +338,48 @@ function normalizeAdjudication(input: {
     || !Array.isArray(input.uncertaintyRows);
   const findingsByDimension = new Map<CriterionDimension, string[]>();
   const uncertaintiesByDimension = new Map<CriterionDimension, string[]>();
-  for (const row of findingRows) {
+  const candidateByKey = new Map(input.candidates.map((candidate) => [candidate.key, candidate]));
+  const rejected: DeepAnalysisAuditFindingValidationIssue[] = [];
+  let acceptedCount = 0;
+  for (const [index, row] of findingRows.entries()) {
+    const candidateKey = typeof row.candidate_key === "string"
+      ? row.candidate_key.trim()
+      : "";
     const dimension = isDimension(row.dimension) ? row.dimension : null;
     const findingType = row.finding_type;
-    const sourceSpan = typeof row.source_span === "string" ? row.source_span.trim() : "";
     const reason = typeof row.reason === "string" ? row.reason.trim() : "";
     if (
-      !dimension
+      !candidateKey
+      || !dimension
       || (findingType !== "missing_eligibility" && findingType !== "misclassified_eligibility")
-      || !sourceSpan
       || !reason
-      || resolveExactEvidenceSpan(sourceSpan, input.evidenceText) === null
     ) {
       contractInvalid = true;
+      rejected.push({
+        index,
+        code: "row_contract_invalid",
+        candidateKey: candidateKey || null,
+        message: "Finding requires candidate_key, dimension, finding_type, and reason.",
+      });
       continue;
     }
+    const rejection = verifyBlockingFinding({
+      index,
+      candidateKey,
+      dimension,
+      findingType,
+      evidenceText: input.evidenceText,
+      primaryValidation: input.primaryValidation,
+      candidate: candidateByKey.get(candidateKey) ?? null,
+    });
+    if (rejection) {
+      contractInvalid = true;
+      rejected.push(rejection);
+      continue;
+    }
+    acceptedCount += 1;
     const rows = findingsByDimension.get(dimension) ?? [];
-    rows.push(`${findingType}: ${reason}`);
+    rows.push(`${findingType} [${candidateKey}]: ${reason}`);
     findingsByDimension.set(dimension, rows);
   }
   for (const row of uncertaintyRows) {
@@ -344,7 +416,165 @@ function normalizeAdjudication(input: {
           ? "disagree"
           : "concur",
     itemResults,
+    findingValidation: {
+      verifierVersion: DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION,
+      acceptedCount,
+      rejected,
+    },
   };
+}
+
+function verifyBlockingFinding(input: {
+  index: number;
+  candidateKey: string;
+  dimension: CriterionDimension;
+  findingType: "missing_eligibility" | "misclassified_eligibility";
+  evidenceText: string;
+  primaryValidation: DeepAnalysisValidationResult;
+  candidate: DeepAnalysisAuditCriterionCandidate | null;
+}): DeepAnalysisAuditFindingValidationIssue | null {
+  const reject = (
+    code: DeepAnalysisAuditFindingValidationIssueCode,
+    message: string,
+  ): DeepAnalysisAuditFindingValidationIssue => ({
+    index: input.index,
+    code,
+    candidateKey: input.candidateKey,
+    message,
+  });
+  if (!input.candidate) {
+    return reject("candidate_not_found", "candidate_key is not present in CRITERION_CANDIDATES.");
+  }
+  if (input.candidate.candidateKind !== "audit_only" || !input.candidate.audit) {
+    return reject(
+      "candidate_not_audit_only",
+      "A blocking finding must reference a validated audit_only criterion.",
+    );
+  }
+  if (input.candidate.dimension !== input.dimension) {
+    return reject(
+      "candidate_dimension_mismatch",
+      `Finding dimension ${input.dimension} does not match candidate ${input.candidate.dimension}.`,
+    );
+  }
+  const expected = input.candidate.audit;
+  const sourceSpan = expected.source_span?.trim() ?? "";
+  if (!sourceSpan || resolveExactEvidenceSpan(sourceSpan, input.evidenceText) === null) {
+    return reject(
+      "candidate_evidence_invalid",
+      "The selected audit criterion does not have an exact sealed-source span.",
+    );
+  }
+
+  const primaryOnSameEvidence = input.primaryValidation.criteria.filter((item) => (
+    item.canonicalCriterion.dimension === expected.dimension
+    && item.canonicalCriterion.kind === expected.kind
+    && spansRepresentSameEvidence(item.criterion.sourceSpan, sourceSpan)
+  ));
+  if (
+    expected.operator === "text_only"
+    && primaryOnSameEvidence.some((item) => item.canonicalCriterion.operator === "text_only")
+  ) {
+    return reject(
+      "already_represented",
+      "Primary already preserves the same text-only fact on the same evidence span.",
+    );
+  }
+  if (input.findingType === "missing_eligibility" && primaryOnSameEvidence.length > 0) {
+    return reject(
+      "finding_type_mismatch",
+      "The selected evidence already has a primary criterion; use misclassified_eligibility only for a real value mismatch.",
+    );
+  }
+  if (input.findingType === "misclassified_eligibility" && primaryOnSameEvidence.length === 0) {
+    return reject(
+      "finding_type_mismatch",
+      "misclassified_eligibility requires a primary criterion on the same dimension and evidence.",
+    );
+  }
+
+  if (expected.dimension === "region") {
+    const regionConflict = findRegionValueConflict(expected, sourceSpan);
+    if (regionConflict) return reject("region_value_conflict", regionConflict);
+  }
+  if (expected.dimension === "biz_age" && lacksRequiredBizAgeBound(expected)) {
+    return reject(
+      "biz_age_bound_missing",
+      "A hard biz_age upper/lower bound must contain the corresponding canonical month value.",
+    );
+  }
+  if (expected.dimension === "sanction" && isDiscretionaryOrganizerSanction(expected, sourceSpan)) {
+    return reject(
+      "discretionary_sanction",
+      "A discretionary organizer judgment is not a present canonical sanction fact.",
+    );
+  }
+  return null;
+}
+
+function spansRepresentSameEvidence(
+  left: string | null,
+  right: string,
+): boolean {
+  if (!left) return false;
+  const normalizedLeft = normalizeEvidenceText(left);
+  const normalizedRight = normalizeEvidenceText(right);
+  if (normalizedLeft.length < 8 || normalizedRight.length < 8) return false;
+  return normalizedLeft.includes(normalizedRight)
+    || normalizedRight.includes(normalizedLeft);
+}
+
+function normalizeEvidenceText(value: string): string {
+  return value
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s"'“”‘’`·•▲△□■◆◇※*()[\]{}<>,.:;!?~_\-/\\|]+/g, "");
+}
+
+function findRegionValueConflict(
+  criterion: GrantCriterion,
+  sourceSpan: string,
+): string | null {
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  const actualCodes = Array.isArray(value.regions)
+    ? value.regions.filter((item): item is string => typeof item === "string")
+    : [];
+  const expectedCodes = new Set(
+    Object.entries(REGION_CODES)
+      .filter(([label]) => sourceSpan.includes(label))
+      .map(([, code]) => code),
+  );
+  if (expectedCodes.size === 0) return null;
+  const unexpected = actualCodes.filter((code) => !expectedCodes.has(code));
+  return unexpected.length > 0
+    ? `Region code(s) ${unexpected.join(",")} conflict with source label code(s) ${[...expectedCodes].join(",")}.`
+    : null;
+}
+
+function lacksRequiredBizAgeBound(criterion: GrantCriterion): boolean {
+  if (criterion.kind === "preferred" || criterion.operator === "text_only") return false;
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  if (criterion.operator === "lte") return typeof value.max_months !== "number";
+  if (criterion.operator === "gte") return typeof value.min_months !== "number";
+  if (criterion.operator === "between") {
+    return typeof value.min_months !== "number" || typeof value.max_months !== "number";
+  }
+  return false;
+}
+
+function isDiscretionaryOrganizerSanction(
+  criterion: GrantCriterion,
+  sourceSpan: string,
+): boolean {
+  if (criterion.kind !== "exclusion") return false;
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  const flags = Array.isArray(value.flags)
+    ? value.flags.filter((item): item is string => typeof item === "string")
+    : [];
+  return flags.includes("participation_restricted")
+    && /(주최|주관)기관장/.test(sourceSpan)
+    && /정당한\s*사유/.test(sourceSpan)
+    && /인정/.test(sourceSpan);
 }
 
 function auditAdjudicationTool() {
@@ -369,14 +599,17 @@ function auditAdjudicationTool() {
             additionalProperties: false,
             properties: {
               dimension: { type: "string", enum: [...CRITERION_DIMENSIONS] },
+              candidate_key: {
+                type: "string",
+                description: "CRITERION_CANDIDATES에서 candidateKind=audit_only인 행의 key",
+              },
               finding_type: {
                 type: "string",
                 enum: ["missing_eligibility", "misclassified_eligibility"],
               },
-              source_span: { type: "string" },
               reason: { type: "string" },
             },
-            required: ["dimension", "finding_type", "source_span", "reason"],
+            required: ["candidate_key", "dimension", "finding_type", "reason"],
           },
         },
         uncertainties: {

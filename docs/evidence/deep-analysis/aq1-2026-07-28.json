@@ -1,0 +1,61 @@
+{
+  "schema": "deep-analysis-aq1-summary-v1",
+  "generatedAt": "2026-07-28T08:09:03Z",
+  "baseCommit": "5b9a8aa57b0e8ea82fd796dc289ebe5415756b72",
+  "checkpoint": "AQ1",
+  "status": "CODE_PASS_NO_PAID_RERUN",
+  "versions": {
+    "validator": "deep-analysis-validator-v3",
+    "audit": "deep-analysis-blind-audit-v12",
+    "adjudication": "deep-analysis-audit-adjudication-v14",
+    "findingVerifier": "deep-analysis-audit-finding-verifier-v1",
+    "auditArtifact": "deep-analysis-blind-audit-v2"
+  },
+  "architecture": {
+    "invalidAuditDisposition": "audit_invalid",
+    "invalidAuditAdjudicationCalls": 0,
+    "invalidAuditFinalVerdict": "unsure",
+    "validAuditFindingContract": "blocking findings must reference a validated audit_only candidate_key",
+    "rejectedFindingDisposition": "unsure_human_review"
+  },
+  "offlineReplay": {
+    "externalModelCalls": 0,
+    "databaseReads": 0,
+    "databaseWrites": 0,
+    "objectStorageReads": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "falseBlockingFindingsRejected": {
+      "count": 4,
+      "total": 4,
+      "cases": [
+        "Busan source mapped to Gyeongnam region code 48",
+        "early-stage wording converted to a hard biz_age bound without canonical months",
+        "discretionary organizer judgment converted to participation_restricted sanction",
+        "certification scoring fact already represented by primary"
+      ]
+    },
+    "knownMatchImpactFindingsPreserved": {
+      "count": 3,
+      "total": 3,
+      "cases": [
+        "bankruptcy discharge confirmation exception missing from primary",
+        "tax-debt repayment proof exception missing from primary",
+        "Hanam premises requirement missing from primary"
+      ]
+    },
+    "nonCanonicalHardTargetTypeBlocked": true
+  },
+  "verification": [
+    "pnpm build:packages",
+    "pnpm verify:deep-analysis-contract",
+    "pnpm verify:package-runtime-freshness",
+    "pnpm --filter @cunote/web typecheck",
+    "git diff --check"
+  ],
+  "nextCheckpoint": {
+    "cq3Allowed": false,
+    "paidRerunAutomaticallyAllowed": false,
+    "scopeAfterReview": "rerun only the same sealed CQ2 exact two notices once, then stop and review audit validity, false positives, known-finding sensitivity, and cost"
+  }
+}

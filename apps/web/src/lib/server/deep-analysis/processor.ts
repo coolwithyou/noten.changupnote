@@ -426,10 +426,11 @@ export async function processDeepAnalysisJob(input: {
       extension: "json",
     },
     body: `${stableJson({
-      schema: "deep-analysis-blind-audit-v1",
+      schema: "deep-analysis-blind-audit-v2",
       model: audit.model,
       promptVersion: audit.promptVersion,
       verdict: audit.verdict,
+      adjudicationDisposition: audit.adjudicationDisposition,
       itemResults: audit.itemResults,
       validation: audit.validation,
       passes: audit.execution.passes.map((pass) => ({
@@ -468,6 +469,8 @@ export async function processDeepAnalysisJob(input: {
       verdict: audit.verdict,
       auditModel: audit.model,
       auditEffort: input.policy.auditEffort,
+      auditValidationValid: audit.validation.valid,
+      adjudicationDisposition: audit.adjudicationDisposition,
       adjudicationModel: audit.adjudication?.model ?? input.policy.adjudicationModel,
       adjudicationEffort:
         audit.adjudication?.effort ?? input.policy.adjudicationEffort,
@@ -475,6 +478,7 @@ export async function processDeepAnalysisJob(input: {
       auditActualCostUsd: audit.execution.result.costUsd,
       adjudicationUsage: audit.adjudication?.usage ?? null,
       adjudicationActualCostUsd: audit.adjudication?.costUsd ?? null,
+      adjudicationFindingValidation: audit.adjudication?.findingValidation ?? null,
       auditArtifactKey: auditArtifact.key,
       disagreementCount: audit.itemResults.filter((item) => item.verdict === "disagree").length,
     },

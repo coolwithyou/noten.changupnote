@@ -1,12 +1,15 @@
 import assert from "node:assert/strict";
 import {
   CRITERION_DIMENSIONS,
+  type DeepAnalysisCriterion,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
 import {
   adjudicateDeepAnalysisAudit,
+  buildDeepAnalysisAuditCandidates,
   DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE,
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  normalizeDeepAnalysisAuditAdjudication,
 } from "./auditAdjudication";
 import { priceDeepAnalysisUsage } from "./costPolicy";
 import {
@@ -25,7 +28,7 @@ import {
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
-const span = "서울 소재 기업만 신청 가능";
+const span = "부산 소재 기업만 신청 가능";
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
   /blocking_findings에는 원문으로 입증된 primary의 실질 누락 또는 오분류만/,
@@ -45,6 +48,10 @@ assert.match(
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
   /reviewed_dimensions에는 22축을 정확히 한 번씩 모두/,
+);
+assert.match(
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+  /candidateKind=audit_only.*candidate_key/,
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
@@ -128,41 +135,34 @@ const seal = sealDeepAnalysisInput({
   attachments: [],
 });
 
-function result(regionCode: string): DeepAnalysisModelResult {
+function resultWithCriteria(criteria: DeepAnalysisCriterion[]): DeepAnalysisModelResult {
+  const found = new Set(criteria.map((criterion) => criterion.dimension));
   const axes = CRITERION_DIMENSIONS.map((dimension) => ({
     dimension,
-    status: dimension === "region" ? "condition_found" as const : "inspected_no_condition" as const,
+    status: found.has(dimension)
+      ? "condition_found" as const
+      : "inspected_no_condition" as const,
     confidence: 0.9,
     comment: "검사",
   }));
-  const criterion = {
-    dimension: "region" as const,
-    operator: "in",
-    kind: "required" as const,
-    value: { regions: [regionCode] },
-    confidence: 0.9,
-    sourceSpan: span,
-    spanVerified: true,
-    note: null,
-  };
   return {
     model: "test",
     analysisMarkdown: "",
     programIntent: null,
-    criteria: [criterion],
+    criteria,
     axisAssessments: axes,
     taxonomyProposals: [],
     usage: null,
     costUsd: null,
     rawToolInput: {
-      criteria: [{
+      criteria: criteria.map((criterion) => ({
         dimension: criterion.dimension,
         operator: criterion.operator,
         kind: criterion.kind,
         value: criterion.value,
         confidence: criterion.confidence,
         source_span: criterion.sourceSpan,
-      }],
+      })),
       axis_assessments: axes.map((axis) => ({
         dimension: axis.dimension,
         status: axis.status,
@@ -175,10 +175,31 @@ function result(regionCode: string): DeepAnalysisModelResult {
   };
 }
 
+function result(regionCode: string): DeepAnalysisModelResult {
+  const criterion = {
+    dimension: "region" as const,
+    operator: "in",
+    kind: "required" as const,
+    value: { regions: [regionCode] },
+    confidence: 0.9,
+    sourceSpan: span,
+    spanVerified: true,
+    note: null,
+  };
+  return resultWithCriteria([criterion]);
+}
+
 const primaryResult = result("11");
 const auditResult = result("26");
 const primaryValidation = validateDeepAnalysisResult({ seal, result: primaryResult });
 const auditValidation = validateDeepAnalysisResult({ seal, result: auditResult });
+const auditOnlyRegionCandidate = buildDeepAnalysisAuditCandidates(
+  primaryValidation,
+  auditValidation,
+).find((candidate) => (
+  candidate.candidateKind === "audit_only" && candidate.dimension === "region"
+));
+assert.ok(auditOnlyRegionCandidate);
 
 const successResponseBody = JSON.stringify({
   stop_reason: "tool_use",
@@ -230,9 +251,9 @@ const blockingResponse = JSON.parse(successResponseBody) as {
   content: Array<{
     input: {
       blocking_findings: Array<{
+        candidate_key: string;
         dimension: string;
         finding_type: string;
-        source_span: string;
         reason: string;
       }>;
       uncertainties: Array<{ dimension: string; reason: string }>;
@@ -241,10 +262,10 @@ const blockingResponse = JSON.parse(successResponseBody) as {
   }>;
 };
 blockingResponse.content[0]!.input.blocking_findings = [{
+  candidate_key: auditOnlyRegionCandidate.key,
   dimension: "region",
   finding_type: "misclassified_eligibility",
-  source_span: span,
-  reason: "서울 조건이 다른 지역 코드로 분류됨",
+  reason: "부산 조건이 서울 지역 코드로 분류됨",
 }];
 const explicitChange = await adjudicateDeepAnalysisAudit({
   apiKey: "test",
@@ -259,11 +280,17 @@ const explicitChange = await adjudicateDeepAnalysisAudit({
     { status: 200 },
   ),
 });
-assert.equal(explicitChange.verdict, "disagree");
+assert.equal(
+  explicitChange.verdict,
+  "disagree",
+  JSON.stringify(explicitChange.findingValidation),
+);
 assert.equal(
   explicitChange.itemResults.find((item) => item.dimension === "region")?.verdict,
   "disagree",
 );
+assert.equal(explicitChange.findingValidation.acceptedCount, 1);
+assert.deepEqual(explicitChange.findingValidation.rejected, []);
 
 const uncertaintyResponse = structuredClone(blockingResponse);
 uncertaintyResponse.content[0]!.input.blocking_findings = [];
@@ -305,10 +332,10 @@ const incompleteReview = await adjudicateDeepAnalysisAudit({
 });
 assert.equal(incompleteReview.verdict, "unsure");
 
-const ungroundedResponse = structuredClone(blockingResponse);
-ungroundedResponse.content[0]!.input.blocking_findings[0]!.source_span =
-  "원문에 없는 지역 제한";
-const ungrounded = await adjudicateDeepAnalysisAudit({
+const unknownCandidateResponse = structuredClone(blockingResponse);
+unknownCandidateResponse.content[0]!.input.blocking_findings[0]!.candidate_key =
+  "f".repeat(64);
+const unknownCandidate = await adjudicateDeepAnalysisAudit({
   apiKey: "test",
   model: "claude-sonnet-5",
   evidenceText: span,
@@ -317,11 +344,279 @@ const ungrounded = await adjudicateDeepAnalysisAudit({
   auditResult,
   auditValidation,
   fetchImpl: async () => new Response(
-    JSON.stringify(ungroundedResponse),
+    JSON.stringify(unknownCandidateResponse),
     { status: 200 },
   ),
 });
-assert.equal(ungrounded.verdict, "unsure");
+assert.equal(unknownCandidate.verdict, "unsure");
+assert.equal(
+  unknownCandidate.findingValidation.rejected[0]?.code,
+  "candidate_not_found",
+);
+
+let invalidAuditFetchCalls = 0;
+await assert.rejects(
+  () => adjudicateDeepAnalysisAudit({
+    apiKey: "test",
+    model: "claude-sonnet-5",
+    evidenceText: span,
+    primaryResult,
+    primaryValidation,
+    auditResult,
+    auditValidation: { ...auditValidation, valid: false },
+    fetchImpl: async () => {
+      invalidAuditFetchCalls += 1;
+      return new Response(successResponseBody, { status: 200 });
+    },
+  }),
+  /refuses an invalid blind audit result/,
+);
+assert.equal(invalidAuditFetchCalls, 0);
+
+function replayFinding(input: {
+  source: string;
+  primaryCriteria: DeepAnalysisCriterion[];
+  auditCriteria: DeepAnalysisCriterion[];
+  dimension: DeepAnalysisCriterion["dimension"];
+  findingType: "missing_eligibility" | "misclassified_eligibility";
+}) {
+  const replaySeal = sealDeepAnalysisInput({
+    grantId: `audit-replay-${input.dimension}`,
+    sourceRevisionSha256: "9".repeat(64),
+    structuredText: input.source,
+    attachments: [],
+  });
+  const replayPrimary = validateDeepAnalysisResult({
+    seal: replaySeal,
+    result: resultWithCriteria(input.primaryCriteria),
+  });
+  const replayAudit = validateDeepAnalysisResult({
+    seal: replaySeal,
+    result: resultWithCriteria(input.auditCriteria),
+  });
+  assert.equal(replayPrimary.valid, true, JSON.stringify(replayPrimary.issues));
+  assert.equal(replayAudit.valid, true, JSON.stringify(replayAudit.issues));
+  const candidates = buildDeepAnalysisAuditCandidates(replayPrimary, replayAudit);
+  const candidate = candidates.find((row) => (
+    row.candidateKind === "audit_only" && row.dimension === input.dimension
+  ));
+  assert.ok(candidate);
+  return normalizeDeepAnalysisAuditAdjudication({
+    evidenceText: input.source,
+    primaryValidation: replayPrimary,
+    candidates,
+    reviewedDimensions: [...CRITERION_DIMENSIONS],
+    findingRows: [{
+      candidate_key: candidate.key,
+      dimension: input.dimension,
+      finding_type: input.findingType,
+      reason: "offline replay finding",
+    }],
+    uncertaintyRows: [],
+  });
+}
+
+const taxSpan =
+  "국세 또는 지방세 체납 중인 기업은 제외하되 특수채무 변제 후 증빙이 가능한 자는 예외로 한다.";
+const taxPrimary: DeepAnalysisCriterion = {
+  dimension: "tax_compliance",
+  operator: "in",
+  kind: "exclusion",
+  value: {
+    flags: ["national_tax_delinquent", "local_tax_delinquent"],
+    exceptions: ["payment_deferral_approved"],
+  },
+  confidence: 0.95,
+  sourceSpan: taxSpan,
+  spanVerified: true,
+  note: null,
+};
+const knownTaxMiss = replayFinding({
+  source: taxSpan,
+  primaryCriteria: [taxPrimary],
+  auditCriteria: [{
+    ...taxPrimary,
+    value: {
+      flags: ["national_tax_delinquent", "local_tax_delinquent"],
+      exceptions: ["payment_deferral_approved", "tax_debt_repaid_with_proof"],
+    },
+  }],
+  dimension: "tax_compliance",
+  findingType: "misclassified_eligibility",
+});
+assert.equal(knownTaxMiss.verdict, "disagree");
+assert.equal(knownTaxMiss.findingValidation.acceptedCount, 1);
+
+const creditSpan =
+  "채무불이행 규제 중인 기업은 제외하되 파산절차에서 면책결정이 확정된 자는 예외로 한다.";
+const creditPrimary: DeepAnalysisCriterion = {
+  dimension: "credit_status",
+  operator: "in",
+  kind: "exclusion",
+  value: {
+    flags: ["loan_default"],
+    exceptions: ["retry_guarantee_recipient"],
+  },
+  confidence: 0.95,
+  sourceSpan: creditSpan,
+  spanVerified: true,
+  note: null,
+};
+const knownBankruptcyMiss = replayFinding({
+  source: creditSpan,
+  primaryCriteria: [creditPrimary],
+  auditCriteria: [{
+    ...creditPrimary,
+    value: {
+      flags: ["loan_default"],
+      exceptions: ["retry_guarantee_recipient", "bankruptcy_discharge_confirmed"],
+    },
+  }],
+  dimension: "credit_status",
+  findingType: "misclassified_eligibility",
+});
+assert.equal(knownBankruptcyMiss.verdict, "disagree");
+assert.equal(knownBankruptcyMiss.findingValidation.acceptedCount, 1);
+
+const premisesSpan = "하남시 관내에 주된 사무소(본사) 또는 제조시설(공장)을 둔 기업";
+const knownPremisesMiss = replayFinding({
+  source: premisesSpan,
+  primaryCriteria: [],
+  auditCriteria: [{
+    dimension: "premises",
+    operator: "text_only",
+    kind: "required",
+    value: { note: premisesSpan },
+    confidence: 0.95,
+    sourceSpan: premisesSpan,
+    spanVerified: true,
+    note: null,
+  }],
+  dimension: "premises",
+  findingType: "missing_eligibility",
+});
+assert.equal(knownPremisesMiss.verdict, "disagree");
+assert.equal(knownPremisesMiss.findingValidation.acceptedCount, 1);
+
+const falseRegion = replayFinding({
+  source: span,
+  primaryCriteria: result("26").criteria,
+  auditCriteria: result("48").criteria,
+  dimension: "region",
+  findingType: "misclassified_eligibility",
+});
+assert.equal(falseRegion.verdict, "unsure");
+assert.equal(falseRegion.findingValidation.rejected[0]?.code, "region_value_conflict");
+
+const certificationSpan = "경기도 유망중소기업, 벤처기업, 여성기업 인증은 1점/건 가점";
+const certificationPrimary: DeepAnalysisCriterion = {
+  dimension: "certification",
+  operator: "text_only",
+  kind: "preferred",
+  value: { note: "인증별 1점 가점" },
+  confidence: 0.9,
+  sourceSpan: certificationSpan,
+  spanVerified: true,
+  note: null,
+};
+const certificationSeal = sealDeepAnalysisInput({
+  grantId: "audit-replay-certification",
+  sourceRevisionSha256: "8".repeat(64),
+  structuredText: certificationSpan,
+  attachments: [],
+});
+const certificationPrimaryValidation = validateDeepAnalysisResult({
+  seal: certificationSeal,
+  result: resultWithCriteria([certificationPrimary]),
+});
+const certificationAuditValidation = validateDeepAnalysisResult({
+  seal: certificationSeal,
+  result: resultWithCriteria([{
+    ...certificationPrimary,
+    value: { note: "경기도 유망중소기업·벤처기업·여성기업 인증 1점/건" },
+  }]),
+});
+const certificationCandidates = buildDeepAnalysisAuditCandidates(
+  certificationPrimaryValidation,
+  certificationAuditValidation,
+);
+assert.equal(
+  certificationCandidates.some((candidate) => (
+    candidate.candidateKind === "audit_only" && candidate.dimension === "certification"
+  )),
+  false,
+);
+const alreadyRepresentedCertification = normalizeDeepAnalysisAuditAdjudication({
+  evidenceText: certificationSpan,
+  primaryValidation: certificationPrimaryValidation,
+  candidates: certificationCandidates,
+  reviewedDimensions: [...CRITERION_DIMENSIONS],
+  findingRows: [{
+    candidate_key: "e".repeat(64),
+    dimension: "certification",
+    finding_type: "misclassified_eligibility",
+    reason: "이미 보존된 인증 가점이 누락되었다고 주장",
+  }],
+  uncertaintyRows: [],
+});
+assert.equal(alreadyRepresentedCertification.verdict, "unsure");
+assert.equal(
+  alreadyRepresentedCertification.findingValidation.rejected[0]?.code,
+  "candidate_not_found",
+);
+
+const earlyFounderSpan = "예비창업자 및 초기창업자를 모집한다.";
+const unboundedBizAge = replayFinding({
+  source: earlyFounderSpan,
+  primaryCriteria: [],
+  auditCriteria: [{
+    dimension: "biz_age",
+    operator: "lte",
+    kind: "required",
+    value: { include_preliminary: true },
+    confidence: 0.8,
+    sourceSpan: earlyFounderSpan,
+    spanVerified: true,
+    note: null,
+  }],
+  dimension: "biz_age",
+  findingType: "missing_eligibility",
+});
+assert.equal(unboundedBizAge.verdict, "unsure");
+assert.equal(unboundedBizAge.findingValidation.rejected[0]?.code, "biz_age_bound_missing");
+
+const discretionarySpan =
+  "기타 주최·주관기관장이 참여를 제한할 정당한 사유가 있다고 인정하는 자";
+const discretionarySanction = replayFinding({
+  source: discretionarySpan,
+  primaryCriteria: [{
+    dimension: "other",
+    operator: "text_only",
+    kind: "exclusion",
+    value: { note: discretionarySpan },
+    confidence: 0.8,
+    sourceSpan: discretionarySpan,
+    spanVerified: true,
+    note: null,
+  }],
+  auditCriteria: [{
+    dimension: "sanction",
+    operator: "in",
+    kind: "exclusion",
+    value: { flags: ["participation_restricted"] },
+    confidence: 0.8,
+    sourceSpan: discretionarySpan,
+    spanVerified: true,
+    note: null,
+  }],
+  dimension: "sanction",
+  findingType: "missing_eligibility",
+});
+assert.equal(discretionarySanction.verdict, "unsure");
+assert.equal(
+  discretionarySanction.findingValidation.rejected[0]?.code,
+  "discretionary_sanction",
+);
 
 let retryCalls = 0;
 const retried = await adjudicateDeepAnalysisAudit({

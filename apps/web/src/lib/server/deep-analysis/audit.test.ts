@@ -124,7 +124,7 @@ assert.equal(shouldRunSemanticAuditAdjudication({
   primaryValid: true,
   auditValid: false,
   comparisonVerdict: "disagree",
-}), true);
+}), false);
 assert.equal(shouldRunSemanticAuditAdjudication({
   primaryValid: true,
   auditValid: true,
@@ -134,7 +134,7 @@ assert.equal(resolveSemanticAuditVerdict({
   auditValid: false,
   comparisonVerdict: "disagree",
   adjudicationVerdict: "concur",
-}), "concur");
+}), "unsure");
 assert.equal(resolveSemanticAuditVerdict({
   auditValid: false,
   comparisonVerdict: "disagree",

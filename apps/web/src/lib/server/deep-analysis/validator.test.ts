@@ -95,6 +95,25 @@ assert.equal(validateDeepAnalysisResult({
   result: result([reserved], axes(["premises"])),
 }).valid, true, "예약 축도 dimension을 보존한 안전 text_only이면 분석 계약을 통과한다");
 
+const nonCanonicalTargetType = criterion({
+  dimension: "target_type",
+  operator: "text_only",
+  kind: "required",
+  value: { note: "공동대표 전원이 신청자격을 충족해야 한다." },
+});
+const nonCanonicalTargetTypeValidation = validateDeepAnalysisResult({
+  seal,
+  result: result([nonCanonicalTargetType], axes(["target_type"])),
+});
+assert.equal(nonCanonicalTargetTypeValidation.valid, false);
+assert.equal(
+  nonCanonicalTargetTypeValidation.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.message.includes("use other/text_only for non-type rules")
+  )),
+  true,
+);
+
 const badReserved = criterion({
   dimension: "export_performance",
   operator: "gte",

@@ -10,7 +10,10 @@ import {
   analyzeSealedDeepAnalysisInput,
   type DeepAnalysisExecution,
 } from "./analyzer";
-import { adjudicateDeepAnalysisAudit } from "./auditAdjudication";
+import {
+  adjudicateDeepAnalysisAudit,
+  type DeepAnalysisAuditFindingValidation,
+} from "./auditAdjudication";
 import type { runDeepGrantAnalysis } from "./extractor";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import {
@@ -46,11 +49,13 @@ export interface DeepAnalysisBlindAuditResult {
   itemResults: DeepAnalysisAuditItemResult[];
   validation: DeepAnalysisValidationResult;
   execution: DeepAnalysisExecution;
+  adjudicationDisposition: "not_needed" | "audit_invalid" | "completed";
   adjudication: {
     model: DeepAnalysisAdjudicationModel;
     effort: DeepAnalysisEffort;
     rawResponseText: string;
     rawToolInput: Record<string, unknown>;
+    findingValidation: DeepAnalysisAuditFindingValidation;
     usage: { inputTokens: number; outputTokens: number } | null;
     costUsd: number | null;
   } | null;
@@ -58,8 +63,9 @@ export interface DeepAnalysisBlindAuditResult {
 
 /**
  * 첫 pass에는 primary 결과를 전달하지 않는다. source seal만 다른 allowlisted model로
- * 독립 분석해 누락 후보를 찾고, exact 배열이 다르거나 blind 결과 계약이 불완전하면
- * 원문을 다시 보는 semantic adjudication이 primary의 실제 의미 누락·오분류만 판정한다.
+ * 독립 분석해 누락 후보를 찾는다. blind 결과가 validator를 통과한 상태에서 exact 배열이
+ * 다를 때만 원문을 다시 보는 semantic adjudication이 primary의 실제 의미 누락·오분류를
+ * 판정한다. 계약이 불완전한 blind 결과는 자동 해석하지 않고 사람 검토로 닫는다.
  */
 export async function runBlindDeepAnalysisAudit(input: {
   seal: DeepAnalysisInputSeal;
@@ -117,12 +123,18 @@ export async function runBlindDeepAnalysisAudit(input: {
     itemResults: adjudication?.itemResults ?? comparison.itemResults,
     validation,
     execution,
+    adjudicationDisposition: !validation.valid
+      ? "audit_invalid"
+      : adjudication
+        ? "completed"
+        : "not_needed",
     adjudication: adjudication
       ? {
         model: adjudication.model,
         effort: adjudication.effort,
         rawResponseText: adjudication.rawResponseText,
         rawToolInput: adjudication.rawToolInput,
+        findingValidation: adjudication.findingValidation,
         usage: adjudication.usage,
         costUsd: adjudication.costUsd,
       }
@@ -136,7 +148,8 @@ export function shouldRunSemanticAuditAdjudication(input: {
   comparisonVerdict: DeepAnalysisAuditVerdict;
 }): boolean {
   return input.primaryValid
-    && (!input.auditValid || input.comparisonVerdict !== "concur");
+    && input.auditValid
+    && input.comparisonVerdict !== "concur";
 }
 
 export function resolveSemanticAuditVerdict(input: {
@@ -144,8 +157,9 @@ export function resolveSemanticAuditVerdict(input: {
   comparisonVerdict: DeepAnalysisAuditVerdict;
   adjudicationVerdict: DeepAnalysisAuditVerdict | null;
 }): DeepAnalysisAuditVerdict {
+  if (!input.auditValid) return "unsure";
   if (input.adjudicationVerdict) return input.adjudicationVerdict;
-  return input.auditValid ? input.comparisonVerdict : "unsure";
+  return input.comparisonVerdict;
 }
 
 export function compareDeepAnalysisValidations(input: {

@@ -20,7 +20,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v2" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v3" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -327,7 +327,31 @@ function validateCriterion(
   };
   const canonicalCriterion = canonicalizeGrantCriterion(grantCriterion);
   validateExceptionCoverage(criterion, index, issues);
-  if (criterion.dimension === "premises" || criterion.dimension === "export_performance") {
+  if (criterion.dimension === "target_type") {
+    const value = isRecord(canonicalCriterion.value) ? canonicalCriterion.value : {};
+    const targets = Array.isArray(value.targets)
+      ? value.targets.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))
+      : [];
+    if (
+      (criterion.operator !== "in" && criterion.operator !== "not_in")
+      || targets.length === 0
+    ) {
+      issues.push({
+        code: "canonical_contract_invalid",
+        path: `$.criteria[${index}]`,
+        message:
+          "target_type must be a structured in/not_in legal applicant type with non-empty value.targets; use other/text_only for non-type rules.",
+      });
+    } else {
+      for (const issue of validateGrantCriteriaContract([canonicalCriterion])) {
+        issues.push({
+          code: "canonical_contract_invalid",
+          path: `$.criteria[${index}]${issue.path.slice(4)}`,
+          message: issue.message,
+        });
+      }
+    }
+  } else if (criterion.dimension === "premises" || criterion.dimension === "export_performance") {
     const note = isRecord(criterion.value) && typeof criterion.value.note === "string"
       ? criterion.value.note.trim()
       : "";

@@ -4554,6 +4554,55 @@ AI 자동 검수 결과:
   체크포인트로 승인하기 전까지 허용하지 않는다. 같은 두 공고를 겨냥한 추가 prompt
   문구 튜닝은 하지 않는다.
 
+### AQ1 invalid audit 차단·deterministic finding 검증 — `CODE PASS`, `NO PAID RERUN` (2026-07-28)
+
+CQ2-R1에서 나온 네 false blocking finding은 모두 validator를 통과하지 못한 Haiku
+blind audit를 Opus adjudication이 다시 해석하면서 발생했다. 이 실패 경계만 교정했고,
+primary extractor나 모델 조합·비용 정책·production serving은 변경하지 않았다.
+
+- blind audit validation이 실패하면 semantic adjudication을 호출하지 않는다. 최종
+  verdict는 `unsure`, disposition은 `audit_invalid`로 남겨 사람 검토 대상으로
+  닫는다. invalid audit가 primary를 `concur` 또는 `disagree`로 뒤집는 경로도
+  `resolveSemanticAuditVerdict`에서 차단했다.
+- audit artifact schema를 `deep-analysis-blind-audit-v2`로 올리고
+  `auditValidationValid`, `adjudicationDisposition`, finding 검증 결과를 stage
+  evidence에 남긴다. 따라서 invalid audit인지, adjudication이 필요 없었는지,
+  완료됐는지를 artifact와 receipt에서 구분할 수 있다.
+- valid audit의 Opus `blocking_findings`는 자유서술 source span을 받지 않는다.
+  validator를 통과한 `candidateKind=audit_only` criterion의 semantic hash를
+  `candidate_key`로 반드시 지목해야 한다. key·dimension·missing/misclassified
+  관계와 sealed exact span을 코드로 대조하고, 검증 실패 finding은 blocker로
+  사용하지 않은 채 `unsure`로 사람 검토에 보낸다.
+- finding verifier v1은 reason 문장을 파싱하지 않는다. 선택된 structured
+  candidate와 primary validation을 기준으로 이미 존재하는 동일 criterion,
+  동일 span의 text-only 보존, 부산 등 원문 시도명과 코드 충돌, canonical month가
+  없는 hard `biz_age` 상·하한, 주최·주관기관장의 재량 판단을
+  `participation_restricted` sanction으로 바꾸는 경우를 거부한다.
+- deep validator v3는 `target_type/required/text_only` 같은 비정형 hard
+  criterion을 거부한다. `target_type`은 non-empty `value.targets`를 가진
+  structured `in/not_in` 법적 신청주체만 허용하고, 공동대표 전원 자격충족 같은
+  비유형 규칙은 `other/text_only`로 보존해야 한다.
+
+오프라인 회귀 결과:
+
+1. CQ2-R1에서 확인한 false blocker 네 유형인 부산 `26→48` 코드 오판,
+   근거 없는 초기창업 업력 상한, 재량형 제재, 이미 primary에 있던 인증 가점은
+   4/4 blocker로 채택되지 않았다.
+2. 유효한 audit candidate fixture에서는 파산 면책 확정 예외, 세금 특수채무 변제
+   증빙 예외, 하남시 premises 누락이 3/3 `disagree` finding으로 유지됐다.
+3. invalid audit를 직접 adjudication 함수에 전달해도 provider fetch 전 거부되며
+   호출 수는 0이다. 외부 LLM, DB, R2, promotion, Cloud Run/Scheduler, Vercel
+   변경도 모두 0이다.
+4. `pnpm build:packages`, `pnpm verify:deep-analysis-contract`,
+   `pnpm verify:package-runtime-freshness`, `pnpm --filter @cunote/web typecheck`,
+   `git diff --check`가 PASS했다. 요약 evidence는
+   `docs/evidence/deep-analysis/aq1-2026-07-28.json`에 고정했다.
+
+AQ1은 코드 체크포인트까지만 완료했다. CQ3는 계속 금지한다. 이 커밋을 리뷰한 뒤
+허용할 수 있는 다음 유료 단계는 CQ2와 같은 sealed exact 2건을 한 번만 재실행해
+audit validator 2/2, false blocking 0, 알려진 match-impact 2/2 보존, 실제 비용을
+확인하고 다시 중단하는 것이다.
+
 중단 조건:
 
 - 동결 80 품질 미달
