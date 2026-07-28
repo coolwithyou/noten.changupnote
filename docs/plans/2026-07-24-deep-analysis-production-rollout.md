@@ -5041,6 +5041,64 @@ audit은 `초기창업자는 일반적으로 3년 이내`라는 외부 정의를
   계속 열지 않고 이 커밋을 먼저 리뷰한다.
 - 요약 evidence는 `docs/evidence/deep-analysis/aq4-b-2026-07-29.json`에 기록했다.
 
+### AQ4-R1 신규 exact 2건 단발 검증 — `CONTENT OBSERVED`, `CONTRACT GATE STOP 0/2` (2026-07-29)
+
+AQ4-B가 과거 두 artifact에서 통과한 뒤, 같은 공고를 반복하지 않고 새 sealed 공고
+정확히 두 건만 한 번 실행했다. 하나는 HWP 원문에 `사업을 개시한 날로부터 3년이
+경과되지 아니한 여성기업`이 명시된 K-Startup `178488`, 다른 하나는 HWP에 대전
+소재·중소기업·업종·자본잠식·세금·최소 50점·업력별 배점표가 함께 있는 Bizinfo
+`PBLN_000000000117792`다. source commit은
+`d66c7bc80243ba3203f6ab7ad5958f1238b66996`이며 입력, source revision, 첨부
+manifest SHA를 실행 전 고정했다.
+
+실행 경계:
+
+1. Sonnet 5 high primary → Haiku 4.5 blind audit → 유효한 차이가 있을 때만 Opus 5
+   high adjudication 구성을 사용했다. 유효하지 않은 primary를 유료 repair하지 않고
+   실패 결과로 보존했으며, 전체 실행과 재실행은 각각 1회와 0회다.
+2. 보수 preflight는 한글 1자를 입력 1 token으로 보고 primary 최대 12,000 output,
+   audit 재가격화, adjudication 최대 reserve를 합쳐 현재가 `$1.211320`, 표준가
+   `$1.357735`로 `$2.00` 아래였다. 실측 비용은 `$0.347918`이다.
+3. DB, R2, promotion, Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다. raw receipt
+   SHA-256은
+   `cd35a1f7ac3cc3f327f55361eb16e5d41a213db5fed0a09f880c9b5d8d324483`다.
+
+내용 커버리지:
+
+- K-Startup primary는 `biz_age required/lte/max_months=36`,
+  `include_preliminary=true`를 발행했다. 즉 AQ4-B의 근거 없는 업력 폐기 규칙이
+  진짜 `3년` 조건까지 내용상 지우는 회귀는 관찰되지 않았다.
+- Bizinfo primary는 총 49개 criterion을 발행했다. required/exclusion 18개,
+  preferred 31개이며, 대전 코드 30, 중소기업, 지원업종, 자본잠식, 국세·지방세와
+  완납 예외, 평가 50점, 업력별 배점, 인증·IP·고용·수출·입지 가점을 읽었다.
+- 임시 runner의 Bizinfo content 체크는 실제 축 `size`를 존재하지 않는
+  `company_size`와 비교해 false를 기록했다. 보존 결과에는 `size=중소기업`이
+  있으므로 이 보조 체크만 오프라인에서 true로 교정했으며 유료 재실행은 하지 않았다.
+
+계약 차단:
+
+- K-Startup primary는 여성기업 법률 규칙 두 개를 지원되지 않는
+  `target_type/text_only`로 발행했고, HWP 공백을 정규화한 4개 span이 exact
+  evidence에 매핑되지 않았으며, `founder_trait`와 `premises`를
+  condition_found로 두고 criterion을 만들지 않았다. validator issue는 8개다.
+- Bizinfo primary는 49개 중 업력 10년 배점표 span 하나의 표 공백을 정규화해
+  `evidence_not_grounded` 1개로 invalid다.
+- K-Startup audit은 `prior_award` exclusion의 `scope`를 누락했다. Bizinfo audit은
+  자본잠식 값을 배열이 아닌 scalar로 발행하고 `prior_award` scope 두 개를 누락했다.
+  두 audit 모두 invalid이므로 AQ1 경계가 fail-closed `unsure`로 막았고
+  adjudication은 실행되지 않았다.
+
+게이트 판정:
+
+- `공고와 HWP를 실제로 읽고 핵심 자격·배점을 찾는가`는 2/2에서 내용 신호를 확인했다.
+- `validator를 통과한 publishable primary인가`, `서로 다른 두 평가 경로가 최종
+  합의하는가`는 모두 0/2이므로 전체는 STOP이다. AQ4-B의 explicit duration
+  회귀 방지는 내용상 확인됐지만 end-to-end production 통과로 판정하지 않는다.
+- 추가 유료 재실행, 배포, production policy 전환, cohort 확대는 하지 않는다.
+  다음 허용 범위는 primary의 exact-span/축 계약 repair와 audit의
+  `prior_award`·`financial_health` typed 계약 유효성 두 가지뿐이다.
+- 요약 evidence는 `docs/evidence/deep-analysis/aq4-r1-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달

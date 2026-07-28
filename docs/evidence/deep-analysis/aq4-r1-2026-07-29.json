@@ -1,0 +1,172 @@
+{
+  "schema": "deep-analysis-aq4-r1-summary-v1",
+  "generatedAt": "2026-07-28T23:19:07.556Z",
+  "checkpoint": "AQ4-R1",
+  "status": "CONTENT_COVERAGE_OBSERVED_CONTRACT_GATE_STOP_0_OF_2",
+  "sourceCommit": "d66c7bc80243ba3203f6ab7ad5958f1238b66996",
+  "scope": {
+    "noticeCount": 2,
+    "newNoticesOnly": true,
+    "primaryModel": "claude-sonnet-5",
+    "primaryEffort": "high",
+    "auditModel": "claude-haiku-4-5-20251001",
+    "auditEffort": null,
+    "adjudicationModel": "claude-opus-5",
+    "adjudicationEffort": "high",
+    "repairCalls": 0,
+    "reruns": 0,
+    "databaseWriteMode": false,
+    "objectStorageWriteMode": false,
+    "productionPromotionWriteMode": false
+  },
+  "versions": {
+    "modelPolicy": "deep-analysis-model-policy-cq2-v4",
+    "prompt": "deep-analysis-v11",
+    "auditPrompt": "deep-analysis-blind-audit-v14",
+    "auditContract": "deep-analysis-audit-candidates-v2",
+    "auditAdjudication": "deep-analysis-audit-adjudication-v16",
+    "findingVerifier": "deep-analysis-audit-finding-verifier-v2",
+    "uncertaintyVerifier": "deep-analysis-audit-uncertainty-verifier-v1",
+    "validator": "deep-analysis-validator-v4",
+    "costPolicy": "deep-analysis-cost-policy-v2"
+  },
+  "preflight": {
+    "hardCapUsd": 2,
+    "currentPricingEstimateUsd": 1.21132,
+    "standardPricingEstimateUsd": 1.357735,
+    "estimateAssumption": "Each evidence character was reserved as one primary input token, primary output was reserved at 12000 tokens, and audit plus adjudication used conservative policy reserves.",
+    "exactInputCount": 2,
+    "sealedInputCount": 2,
+    "includedAttachmentCounts": [
+      "2/2",
+      "1/1"
+    ]
+  },
+  "execution": {
+    "startedAt": "2026-07-28T23:15:27.973Z",
+    "completedAt": "2026-07-28T23:19:07.556Z",
+    "actualCostUsd": 0.347918,
+    "postPrimaryProjectedUsd": 1.205801,
+    "receiptSha256": "cd35a1f7ac3cc3f327f55361eb16e5d41a213db5fed0a09f880c9b5d8d324483",
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "items": [
+    {
+      "key": "kstartup/178488",
+      "title": "전북센터 2026년 제2차 BI입주기업 신규 모집공고(~7.31까지)",
+      "checkpoint": "explicit_biz_age_36_months",
+      "inputSha256": "1dae572b3f2d41a604458e78d160cebf1d397d4c296dc526ac4c96a958cc79d5",
+      "sourceRevisionSha256": "9b9a16b7c9d07295775c716b355ea6ffedaa800f08785f4fa0973395dd87c09c",
+      "attachmentManifestSha256": "2cfdbde2ee85b38dcec778f092b6dd1109ab780f9ffa8d6be1521835eefadb61",
+      "totalChars": 9356,
+      "evidenceChars": 9944,
+      "normalizedCriterionCount": 10,
+      "contentCoverage": {
+        "explicitBizAgeCriterionObserved": true,
+        "operator": "lte",
+        "maxMonths": 36,
+        "includePreliminary": true,
+        "semanticCheckpoint": "OBSERVED"
+      },
+      "primary": {
+        "validationValid": false,
+        "issueCount": 8,
+        "issueCodes": {
+          "canonical_contract_invalid": 2,
+          "evidence_not_grounded": 4,
+          "axis_criterion_mismatch": 2
+        },
+        "decisiveIssues": [
+          "The two female-enterprise legal rules were emitted as target_type/text_only instead of a supported structured applicant type or other/text_only.",
+          "The explicit 36-month biz_age meaning was preserved, but its source span normalized HWP whitespace and therefore was not an exact sealed substring.",
+          "founder_trait and premises were marked condition_found without a criterion."
+        ]
+      },
+      "audit": {
+        "validationValid": false,
+        "issueCount": 1,
+        "decisiveIssue": "The prior_award exclusion omitted required value.scope.",
+        "verdict": "unsure",
+        "adjudicationDisposition": "audit_invalid"
+      },
+      "actualCostUsd": 0.133066,
+      "artifactSha256": "378fa2d0d67e3fc07d9a9b6d9e8b312b2ab8eab13578ee77aad28eec8a3d8809",
+      "endToEndGate": "STOP"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000117792",
+      "title": "[대전] 2026년 상반기 중소기업 창업 및 경쟁력강화사업자금 지원 공고",
+      "checkpoint": "hwp_complex_eligibility_and_scoring",
+      "inputSha256": "f6ae1ab2f139c5dff6931dfdcfdfde87d92c01db3af7c7adc059aca490302e4d",
+      "sourceRevisionSha256": "f55a8b0e42c6abffd65d6dc10fd40c1d696d72ad6a515f6b98d74b14baf19ef0",
+      "attachmentManifestSha256": "14157d280e01adf670a6bea9d3cac612f20ec061b897be95072ec95b12ba1af5",
+      "totalChars": 16090,
+      "evidenceChars": 16471,
+      "normalizedCriterionCount": 49,
+      "contentCoverage": {
+        "requiredOrExclusionCriterionCount": 18,
+        "preferredCriterionCount": 31,
+        "regionObserved": "30",
+        "sizeObserved": "중소기업",
+        "industryObserved": true,
+        "capitalImpairmentObserved": true,
+        "taxDelinquencyWithRepaymentExceptionObserved": true,
+        "minimumEvaluationScoreObserved": 50,
+        "ageBucketScoringObserved": true,
+        "semanticCheckpoint": "OBSERVED"
+      },
+      "primary": {
+        "validationValid": false,
+        "issueCount": 1,
+        "decisiveIssue": "The preferred biz_age source span '사업영위 기간 10년 이상 5' normalized table whitespace and was not an exact sealed substring."
+      },
+      "audit": {
+        "validationValid": false,
+        "issueCount": 3,
+        "decisiveIssues": [
+          "financial_health.value.impairment_excluded was emitted as a scalar instead of an array.",
+          "Two prior_award exclusions omitted required value.scope."
+        ],
+        "verdict": "unsure",
+        "adjudicationDisposition": "audit_invalid"
+      },
+      "runnerCheckpointCorrection": {
+        "recordedValue": false,
+        "reason": "The temporary runner compared against the nonexistent dimension name company_size.",
+        "actualDimension": "size",
+        "correctedSemanticValue": true,
+        "paidRerunRequired": false
+      },
+      "actualCostUsd": 0.214852,
+      "artifactSha256": "409d7255c859890ff5a1ced0daddfa6e53489aa0ca7ad91aebd609d046b30a45",
+      "endToEndGate": "STOP"
+    }
+  ],
+  "aggregate": {
+    "contentCoverageObservedCount": 2,
+    "primaryValidationPassCount": 0,
+    "auditValidationPassCount": 0,
+    "adjudicationCompletedCount": 0,
+    "endToEndConcurrenceCount": 0,
+    "invalidAuditFailClosedCount": 2
+  },
+  "gate": {
+    "explicitBizAgeWasNotSilentlyDismissed": true,
+    "complexHwpContentWasRead": true,
+    "aq1InvalidAuditFailClosedBehavior": "PASS",
+    "publishablePrimary": "STOP_0_OF_2",
+    "twoAgentAgreement": "STOP_0_OF_2",
+    "productionReadiness": "STOP",
+    "additionalPaidRerunAllowed": false,
+    "deploymentAllowed": false,
+    "productionPolicyChangeAllowed": false,
+    "nextScope": [
+      "Primary exact-span and axis-contract repair behavior",
+      "Audit typed-value contract validity for prior_award and financial_health"
+    ]
+  }
+}
