@@ -122,6 +122,11 @@ export const DISQUALIFICATION_FLAG_LABELS: Record<DisqualificationFlag, string> 
 
 export const DISQUALIFICATION_EXCEPTIONS = [
   "payment_deferral_approved",
+  "tax_debt_repaid_with_proof",
+  "credit_debt_repaid_with_proof",
+  "debt_adjustment_agreement",
+  "court_plan_approved",
+  "bankruptcy_discharge_confirmed",
   "repayment_plan_in_good_standing",
   "statute_expired",
   "restart_funding_recipient",
@@ -131,6 +136,11 @@ export type DisqualificationException = (typeof DISQUALIFICATION_EXCEPTIONS)[num
 
 export const DISQUALIFICATION_EXCEPTION_LABELS: Record<DisqualificationException, string> = {
   payment_deferral_approved: "징수유예·납부기한 연장 승인",
+  tax_debt_repaid_with_proof: "세금·특수채무 변제 완료 후 증빙 가능",
+  credit_debt_repaid_with_proof: "신용채무 변제 완료 후 증빙 가능",
+  debt_adjustment_agreement: "채무조정 합의 체결",
+  court_plan_approved: "법원 회생·변제계획 인가",
+  bankruptcy_discharge_confirmed: "파산 면책결정 확정",
   repayment_plan_in_good_standing: "변제계획 성실 이행 중",
   statute_expired: "시효 완성",
   restart_funding_recipient: "재창업자금 지원 대상",
@@ -148,6 +158,20 @@ export const EXCEPTION_FLAG_COVERAGE: Record<DisqualificationException, readonly
     "customs_delinquent",
     "social_insurance_delinquent",
   ],
+  tax_debt_repaid_with_proof: [
+    "national_tax_delinquent",
+    "local_tax_delinquent",
+    "customs_delinquent",
+    "social_insurance_delinquent",
+  ],
+  credit_debt_repaid_with_proof: ["loan_default"],
+  debt_adjustment_agreement: ["credit_delinquency", "loan_default"],
+  court_plan_approved: [
+    "loan_default",
+    "rehabilitation_in_progress",
+    "court_receivership",
+  ],
+  bankruptcy_discharge_confirmed: ["loan_default", "bankruptcy_filed"],
   repayment_plan_in_good_standing: [
     "loan_default",
     "rehabilitation_in_progress",

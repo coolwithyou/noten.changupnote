@@ -7,6 +7,7 @@ import {
 } from "@cunote/contracts";
 import {
   compareDeepAnalysisValidations,
+  DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION,
   resolveSemanticAuditVerdict,
   shouldRunSemanticAuditAdjudication,
 } from "./audit";
@@ -20,6 +21,12 @@ const seal = sealDeepAnalysisInput({
   structuredText: span,
   attachments: [],
 });
+
+assert.match(
+  DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION,
+  /criteria와 정확히 22개의 axis_assessments를 가장 먼저 완성/,
+);
+assert.match(DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION, /전체 1,200자 이내/);
 
 function makeResult(criteria: DeepAnalysisCriterion[]): DeepAnalysisModelResult {
   const found = new Set(criteria.map((criterion) => criterion.dimension));

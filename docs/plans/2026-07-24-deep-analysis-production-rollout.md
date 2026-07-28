@@ -4455,6 +4455,45 @@ revision SHA-256에 각각 2/2 일치했다. 실행 조합은
 canonical 회귀 교정을 최대 한 번만 수행하고, 같은 exact 2건만 재평가한 뒤 다시
 중단한다. 두 공고 전용 예외 문구를 prompt에 나열하거나 CQ3로 우회하지 않는다.
 
+### CQ2-R1 공유 교정 체크포인트 — `CODE PASS`, `NOT EXECUTED` (2026-07-28)
+
+CQ2에서 실제로 드러난 공통 실패 유형만 한 번 교정했다. 공고 ID·제목·artifact
+hash를 기준으로 분기하는 예외 코드는 추가하지 않았다.
+
+- 결격 예외 canonical에 세금 특수채무 변제 완료, 신용채무 변제 완료,
+  채무조정합의 체결, 법원 회생·변제계획 인가, 파산 면책결정 확정을 서로 다른
+  값으로 추가했다. 각 값은 실제로 면제하는 tax/credit flag에만 연결되며 matcher도
+  공고가 허용한 예외와 회사가 보유한 예외의 교집합만 차감한다.
+- `prior_award.completed`를 새 상태로 확장하지 않고 기존 제품 UI 의미대로
+  “선정·수혜 사실 확정”으로 명시했다. `선정된`을 `completed`로 표현한 결과를
+  수행완료 오분류로 판정하지 않도록 primary와 adjudication이 같은 규칙을 공유한다.
+- 포털 검색 범주인 `biz_enyy`·`biz_trgt_age`가 전체 범주를 열거하면 자격 상한이나
+  uncertainty로 만들지 않고, 실제 신청대상·신청자격 문장을 우선하도록 했다.
+- 선정평가표의 모든 평가항목·하위 배점·가점 행을 독립 preferred criterion으로
+  검사한다. 안전한 canonical이 없으면 `other/text_only`로라도 match-impact를
+  보존한다.
+- 시·군·구 소재지 조건은 시도 `region` 코드만으로 끝내지 않고
+  `premises/required/text_only`를 함께 만들어 좁은 지역 요건을 보존한다.
+- blind audit tool은 criteria와 정확히 22개 axis를 narrative보다 먼저 생성하고,
+  audit용 `analysis_markdown`을 1,200자 이내로 제한한다. CQ2에서 Haiku가
+  `max_tokens=12000`에 도달해 핵심 axis 배열을 잃은 실패를 추가 호출 없이 줄이는
+  교정이다.
+- adjudication은 원문에 명시된 자격·예외·배점 누락을 canonical/profile 자동판정
+  한계 때문에 `unsure`로 낮추지 않고 blocking finding으로 확정한다. 원문 자체가
+  불명확할 때만 uncertainty를 허용한다.
+- prompt는 `deep-analysis-v11`, blind audit는
+  `deep-analysis-blind-audit-v12`, adjudication은
+  `deep-analysis-audit-adjudication-v13`으로 올렸다. 활성 모델 policy와
+  production 모델 기본값은 바꾸지 않았다.
+- 결격 canonical·결정론 parser·matcher 예외 차감, primary/audit/adjudication
+  prompt, tool 핵심 필드 순서, deep validator 회귀를 focused test로 고정했다.
+  `pnpm build:packages`, `pnpm verify:deep-analysis-contract`,
+  `pnpm --filter @cunote/web typecheck`,
+  `pnpm verify:package-runtime-freshness`, `git diff --check`가 PASS했다.
+- 이 체크포인트에서는 외부 LLM 호출, DB/R2 접근·쓰기, production promotion,
+  Cloud Run/Scheduler, Vercel 변경을 하지 않았다. 다음 단계는 같은 input/source
+  hash의 exact 2건만 CQ2-R1 조합으로 재평가하는 것이다.
+
 중단 조건:
 
 - 동결 80 품질 미달

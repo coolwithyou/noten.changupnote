@@ -119,6 +119,29 @@ check("[tax] 예외(징수유예)로 히트 전부 면제 → pass", () => {
   assert.match(entry.message, /예외 인정/);
 });
 
+check("[tax] 특수채무 변제 완료 증빙 예외로 국세 체납 히트 면제 → pass", () => {
+  const criterion: GrantCriterion = {
+    dimension: "tax_compliance",
+    operator: "in",
+    kind: "exclusion",
+    confidence: 0.9,
+    value: {
+      flags: ["national_tax_delinquent"],
+      exceptions: ["tax_debt_repaid_with_proof"],
+    },
+  };
+  const company: CompanyProfile = {
+    tax_compliance: {
+      flags: ["national_tax_delinquent"],
+      known_flags: ["national_tax_delinquent"],
+      exceptions: ["tax_debt_repaid_with_proof"],
+    },
+    confidence: { ...baseConfidence, tax_compliance: 0.6 },
+  };
+  const { entry } = evalOne(criterion, company);
+  assert.equal(entry.result, "pass");
+});
+
 check("[tax] 재창업자금 지원 예외로 국세 체납 히트 면제 → pass", () => {
   const criterion: GrantCriterion = {
     dimension: "tax_compliance",
@@ -232,6 +255,29 @@ check("[credit] 변제계획 성실이행 예외로 채무불이행 히트 면�
       flags: ["loan_default"],
       known_flags: ["loan_default"],
       exceptions: ["repayment_plan_in_good_standing"],
+    },
+    confidence: { ...baseConfidence, credit_status: 0.6 },
+  };
+  const { entry } = evalOne(criterion, company);
+  assert.equal(entry.result, "pass");
+});
+
+check("[credit] 파산 면책 확정 예외로 채무불이행 히트 면제 → pass", () => {
+  const criterion: GrantCriterion = {
+    dimension: "credit_status",
+    operator: "in",
+    kind: "exclusion",
+    confidence: 0.9,
+    value: {
+      flags: ["loan_default"],
+      exceptions: ["bankruptcy_discharge_confirmed"],
+    },
+  };
+  const company: CompanyProfile = {
+    credit_status: {
+      flags: ["loan_default"],
+      known_flags: ["loan_default"],
+      exceptions: ["bankruptcy_discharge_confirmed"],
     },
     confidence: { ...baseConfidence, credit_status: 0.6 },
   };

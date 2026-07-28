@@ -85,6 +85,11 @@ export function splitDisqualificationSentences(text: string): string[] {
 /**
  * 문장 내부의 예외 조항을 canonical 예외로 파싱한다.
  * 예: "납부기한 연장/징수유예 신청하여 결정을 받은 경우" → payment_deferral_approved
+ *     "국세·지방세 등의 특수채무 변제 후 증빙 가능" → tax_debt_repaid_with_proof
+ *     "채무변제 완료 후 증빙 가능" → credit_debt_repaid_with_proof
+ *     "채무조정합의서를 체결" → debt_adjustment_agreement
+ *     "법원의 회생계획인가 또는 변제계획인가" → court_plan_approved
+ *     "파산절차에서 면책결정 확정" → bankruptcy_discharge_confirmed
  *     "변제계획에 따른 변제를 정상적으로 이행" → repayment_plan_in_good_standing
  *     "시효 소멸자는 제외" → statute_expired
  */
@@ -92,6 +97,26 @@ const EXCEPTION_PATTERNS: Array<{ exception: DisqualificationException; pattern:
   {
     exception: "payment_deferral_approved",
     pattern: /납부기한\s*연장|징수유예|납부\s*유예|체납액?\s*분납|분할\s*납부\s*(?:승인|결정)/,
+  },
+  {
+    exception: "tax_debt_repaid_with_proof",
+    pattern: /(?:국세|지방세|관세|4대보험).{0,30}(?:특수)?채무\s*변제\s*(?:완료|후).{0,20}증빙/,
+  },
+  {
+    exception: "credit_debt_repaid_with_proof",
+    pattern: /채무\s*변제\s*완료\s*후.{0,20}증빙/,
+  },
+  {
+    exception: "debt_adjustment_agreement",
+    pattern: /채무\s*조정\s*합의서.{0,20}(?:체결|작성)/,
+  },
+  {
+    exception: "court_plan_approved",
+    pattern: /법원.{0,20}(?:회생계획|변제계획)\s*인가/,
+  },
+  {
+    exception: "bankruptcy_discharge_confirmed",
+    pattern: /파산\s*절차.{0,20}면책\s*결정.{0,20}확정/,
   },
   {
     exception: "repayment_plan_in_good_standing",
@@ -319,7 +344,14 @@ export function extractDisqualificationCriteria(
     const isExceptionMarker = /예외|신청\s*가능|지원\s*가능|제외(?:합니다)?|경우는?\s*(?:신청|지원)?\s*가능/.test(
       sentence,
     );
-    if (!structuredHere && exceptionsHere.length > 0 && isExceptionMarker && lastConditionIndex >= 0) {
+    const explicitlyAttachedException =
+      /^(?:단|다만|조건\s*예외|예외)(?:\s|[,.:：])/.test(sentence);
+    if (
+      exceptionsHere.length > 0
+      && isExceptionMarker
+      && lastConditionIndex >= 0
+      && (!structuredHere || explicitlyAttachedException)
+    ) {
       // 예외-전용 절 → 직전 조건 문장에 귀속.
       exceptionOnlySentences.add(index);
       const set = attachedExceptions.get(lastConditionIndex) ?? new Set<DisqualificationException>();

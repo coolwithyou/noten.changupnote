@@ -18,14 +18,20 @@ import {
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
+  DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   resolveExactEvidenceSpan,
 } from "./extractor";
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v12" as const;
+  "deep-analysis-audit-adjudication-v13" as const;
+export const DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE =
+  "원문에 신청자격·결격 예외·우대·배점이 명시됐는데 primary에 의미상 같은 criterion이 없거나 잘못된 값으로 있으면 blocking_findings로 확정한다. primary의 canonical 표현이 불완전하거나 profile에서 아직 자동 판정할 수 없다는 이유로 uncertainties로 낮추지 마라. uncertainties는 원문 자체의 의미나 적용 범위를 끝까지 읽어도 확정할 수 없을 때만 사용한다.";
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고의 독립 감사자다.",
   "너는 이미 primary를 보지 않고 원문을 독립 분석했다. 이제 원문, primary 결과, 네 독립 결과를 대조해 primary를 항목별로 감사한다.",
@@ -45,6 +51,11 @@ export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
+  DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE,
   "primary와 audit의 flags가 같아도 value.exceptions가 누락되거나 다른 결격 항목의 예외가 붙어 있으면 실질 오분류 finding이다. JSON의 실제 value를 확인하고 설명만으로 예외가 반영됐다고 추정하지 마라.",
   "기준을 완화하거나 원문 밖 내용을 추정하지 마라.",
 ].join("\n");

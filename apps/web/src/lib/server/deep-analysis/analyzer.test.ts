@@ -8,9 +8,14 @@ import {
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
+  DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
+  buildDeepAnalysisToolSchema,
   resolveExactEvidenceSpan,
   runDeepGrantAnalysis,
 } from "./extractor";
@@ -67,6 +72,22 @@ assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_STRUCTURED_TARGET_RULE),
   true,
 );
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_LOCALITY_PREMISES_RULE),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE),
+  true,
+);
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /rawPayload\.trgetNm.*공식 신청대상.*첨부 본문에 같은 문장이 반복되지 않아도.*유효한 근거/,
@@ -74,6 +95,27 @@ assert.match(
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /재창업자금 지원 예외.*restart_funding_recipient.*재도전기업주 재기지원보증 예외.*retry_guarantee_recipient/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /파산 면책결정 확정.*bankruptcy_discharge_confirmed/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /모든 평가항목, 하위 배점 행, 가점 행.*각각 preferred criterion/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /하남시 관내 본사 또는 공장.*premises.*required\/text_only/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /'선정된'.*completed.*수행완료 오분류로 감사하지 마라/,
+);
+assert.deepEqual(
+  Object.keys(buildDeepAnalysisToolSchema().input_schema.properties).slice(0, 2),
+  ["criteria", "axis_assessments"],
+  "max_tokens 직전에도 matching 핵심 구조가 먼저 생성돼야 한다",
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,

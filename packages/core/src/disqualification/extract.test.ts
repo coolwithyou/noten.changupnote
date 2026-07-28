@@ -150,6 +150,27 @@ check("납부기한 연장·징수유예 예외 → payment_deferral_approved (k
   assert.ok(exceptions.includes("payment_deferral_approved"), "납부유예 예외 미파싱");
 });
 
+check("변제 완료·법원 인가·파산 면책·세금 특수채무 변제를 서로 다른 예외로 파싱", () => {
+  const credit = extractDisqualificationCriteria(
+    "금융기관 채무불이행으로 규제 중인 기업. 단, 채무변제 완료 후 증빙이 가능한 자, 채무조정합의서를 체결한 자, 법원의 회생계획인가 또는 변제계획인가를 받은 자, 파산절차에서 면책결정이 확정된 자는 예외",
+    { sourceField: "test", confidence: 0.9 },
+  ).criteria.find((criterion) => criterion.dimension === "credit_status");
+  assert.ok(credit, "credit criterion 없음");
+  const creditExceptions = (credit.value as { exceptions?: string[] }).exceptions ?? [];
+  assert.ok(creditExceptions.includes("credit_debt_repaid_with_proof"));
+  assert.ok(creditExceptions.includes("debt_adjustment_agreement"));
+  assert.ok(creditExceptions.includes("court_plan_approved"));
+  assert.ok(creditExceptions.includes("bankruptcy_discharge_confirmed"));
+
+  const tax = extractDisqualificationCriteria(
+    "국세 또는 지방세 체납 중인 기업. 단, 국세·지방세 등의 특수채무 변제 후 증빙이 가능한 자는 예외",
+    { sourceField: "test", confidence: 0.9 },
+  ).criteria.find((criterion) => criterion.dimension === "tax_compliance");
+  assert.ok(tax, "tax criterion 없음");
+  const taxExceptions = (tax.value as { exceptions?: string[] }).exceptions ?? [];
+  assert.ok(taxExceptions.includes("tax_debt_repaid_with_proof"));
+});
+
 // ── credit_status ──────────────────────────────────────────────────────────
 check("신용정보상 연체·부도·금융질서문란·법정관리·회생·청산 → credit_status 다중 (#2,#3,#15,#23)", () => {
   const credit = flagsOf(extractAll("creditinfo").criteria, "credit_status");

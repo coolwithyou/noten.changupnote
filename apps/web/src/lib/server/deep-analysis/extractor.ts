@@ -237,22 +237,6 @@ export function buildDeepAnalysisToolSchema() {
       type: "object",
       additionalProperties: false,
       properties: {
-        analysis_markdown: {
-          type: "string",
-          description: "사람이 읽는 한국어 분석 문서(마크다운, 시스템 프롬프트의 구조 준수)",
-        },
-        program_intent: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            one_liner: { type: "string" },
-            target_profile: { type: "string" },
-            evaluation_focus: { type: "array", items: { type: "string" } },
-            benefit_summary: { type: "string" },
-            caution_notes: { type: "array", items: { type: "string" } },
-          },
-          required: ["one_liner", "target_profile", "evaluation_focus", "benefit_summary", "caution_notes"],
-        },
         criteria: {
           type: "array",
           items: {
@@ -291,6 +275,22 @@ export function buildDeepAnalysisToolSchema() {
             required: ["dimension", "status", "confidence", "comment"],
           },
         },
+        analysis_markdown: {
+          type: "string",
+          description: "사람이 읽는 한국어 분석 문서(마크다운, 시스템 프롬프트의 구조 준수)",
+        },
+        program_intent: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            one_liner: { type: "string" },
+            target_profile: { type: "string" },
+            evaluation_focus: { type: "array", items: { type: "string" } },
+            benefit_summary: { type: "string" },
+            caution_notes: { type: "array", items: { type: "string" } },
+          },
+          required: ["one_liner", "target_profile", "evaluation_focus", "benefit_summary", "caution_notes"],
+        },
         taxonomy_proposals: {
           type: "array",
           items: {
@@ -305,7 +305,7 @@ export function buildDeepAnalysisToolSchema() {
           },
         },
       },
-      required: ["analysis_markdown", "program_intent", "criteria", "axis_assessments", "taxonomy_proposals"],
+      required: ["criteria", "axis_assessments", "analysis_markdown", "program_intent", "taxonomy_proposals"],
     },
   };
 }
@@ -656,6 +656,14 @@ export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
   "자격·결격 문장에 붙은 '단', '다만', '예외' 조건은 매칭 결과를 바꾸는 핵심 조건이다. 예외를 생략하거나 바로 앞뒤의 다른 criterion에 옮겨 붙이지 마라. 각 criterion의 value.exceptions에는 그 criterion에 실제 적용되는 canonical 예외만 넣고, source_span은 본문과 해당 예외 문구를 함께 포함해 글자 그대로 인용하라. 같은 flags라도 예외의 종류나 적용 대상이 다르면 의미가 다른 criterion이다.";
 export const DEEP_ANALYSIS_STRUCTURED_TARGET_RULE =
   "sealed structured source의 rawPayload.trgetNm은 Bizinfo가 제공한 공식 신청대상 필드다. 이 값이 '중소기업'처럼 지원대상을 구체적으로 명시하면 첨부 본문에 같은 문장이 반복되지 않아도 해당 축 criterion의 유효한 근거로 사용하고, 첨부에 없다는 이유만으로 inspected_no_condition이나 unsure로 낮추지 마라. 다만 structured 신청대상과 공고 본문·첨부의 명시 조건이 서로 충돌하면 임의로 선택하지 말고 ambiguous로 남겨라.";
+export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
+  "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. 신청대상·신청자격 본문에 명시된 구체 조건이 있으면 그 문장을 우선하고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
+export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
+  "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라.";
+export const DEEP_ANALYSIS_LOCALITY_PREMISES_RULE =
+  "시·군·구 단위 소재지 요건은 region의 시도 코드만으로 의미가 완전히 보존되지 않는다. 예를 들어 '하남시 관내 본사 또는 공장'이면 region에 경기 41을 required로 두는 동시에 premises에 시군구와 본사·공장 조건을 그대로 담은 required/text_only criterion을 별도로 만든다. 시도보다 좁은 소재지 요건을 시도 코드 하나로만 끝내지 마라.";
+export const DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE =
+  "prior_award states의 completed는 사업 수행을 끝냈다는 뜻으로만 한정하지 않고 선정·수혜 사실이 확정된 상태를 뜻한다. 원문이 '선정된', '선정 이력', '지원을 받은'이면 completed, 현재 참여·수행 중이면 participating, 교육·프로그램 수료·졸업이면 graduated를 사용한다. 명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라.";
 
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
@@ -684,6 +692,9 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
+  DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
+  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -692,8 +703,8 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   "",
   "[결격(배제) 조건 canonical 매핑 — 반드시 아래 축으로 분해한다]",
-  "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외→exceptions=[\"payment_deferral_approved\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
-  "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 변제 정상이행 예외→exceptions=[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
+  "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외→exceptions=[\"payment_deferral_approved\"], 세금·특수채무 변제 완료 후 증빙 가능→[\"tax_debt_repaid_with_proof\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
+  "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 채무변제 완료 후 증빙 가능→exceptions=[\"credit_debt_repaid_with_proof\"], 채무조정합의 체결→[\"debt_adjustment_agreement\"], 법원 회생·변제계획 인가→[\"court_plan_approved\"], 파산 면책결정 확정→[\"bankruptcy_discharge_confirmed\"], 변제 정상이행 예외→[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
   "- 제재·참여제한: dimension=sanction, operator=in, kind=exclusion, value.flags=[참여제한=participation_restricted, 부정수급·환수=subsidy_fraud, 보조금법위반·특수관계=subsidy_law_violation, 의무불이행=obligation_breach, 임금체불명단=wage_arrears_listed, 중대재해명단=serious_accident_listed, 협약·계약위반=agreement_breach] 중 해당.",
   "- 재무건전성: dimension=financial_health, kind=exclusion, value.debt_ratio_pct_threshold={\"value\":숫자,\"inclusive\":이상=true/초과=false}, value.impairment_excluded=[\"partial\"|\"full\"](자본잠식만 언급 시 [\"partial\",\"full\"]), value.min_interest_coverage=숫자.",
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
@@ -702,6 +713,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박 등): dimension=industry, operator=not_in, kind=exclusion, value.tags=[업종명].",
   "",
   "[수혜·참여 이력 — prior_award]",
+  DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
   "- 동일·유사 지원 수행, 동일 과제 동시참여, 본 사업 과거 선정, 당해연도 타부처 중복은 dimension=prior_award, kind=exclusion, operator=exists, value={\"scope\":\"self\",\"self_kind\":\"current_similar|same_project|same_business_prior|same_year_other_support\",\"channel\":\"general\"}.",
   "- 특정 지원사업 참여·수혜·수료 이력은 operator=in, value={\"scope\":\"program\"|\"program_type\",\"programs\":[\"사업명\"],\"states\":[\"participating\"|\"completed\"|\"graduated\"]}. 최근 N년·개월 조건은 within={\"value\":N,\"unit\":\"year\"|\"month\"}.",
   "- 범위나 사업명을 특정할 수 없으면 other/text_only exclusion 으로 남긴다.",

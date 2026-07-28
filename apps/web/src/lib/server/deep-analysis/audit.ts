@@ -18,7 +18,14 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v11" as const;
+export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v12" as const;
+export const DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION = [
+  "이 실행은 primary를 보지 않는 독립 감사 분석이다.",
+  "tool 결과에서 criteria와 정확히 22개의 axis_assessments를 가장 먼저 완성하라.",
+  "analysis_markdown은 필수 제목을 유지하되 제목별 한 문장, 전체 1,200자 이내로 간결하게 쓴다.",
+  "program_intent 각 필드는 한 문장 또는 짧은 목록으로 쓰고 taxonomy_proposals는 명백한 반복 신규축이 없으면 빈 배열로 둔다.",
+  "설명 분량보다 신청자격·결격·우대·평가점수의 빠짐없는 구조화와 exact source_span을 우선한다.",
+].join(" ");
 
 export type DeepAnalysisAuditVerdict = "concur" | "disagree" | "unsure";
 
@@ -70,6 +77,7 @@ export async function runBlindDeepAnalysisAudit(input: {
     apiKey: input.apiKey,
     model: input.auditModel,
     effort: input.auditEffort,
+    taskInstruction: DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION,
     ...(input.runModel ? { runModel: input.runModel } : {}),
   });
   let validation = validateDeepAnalysisResult({

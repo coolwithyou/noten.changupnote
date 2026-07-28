@@ -35,6 +35,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
   model: string;
   effort?: DeepAnalysisEffort | null;
   singlePromptChars?: number;
+  taskInstruction?: string;
   runModel?: ModelRunner;
 }): Promise<DeepAnalysisExecution> {
   if (!input.seal.sealed) {
@@ -53,6 +54,7 @@ export async function analyzeSealedDeepAnalysisInput(input: {
       evidenceText,
       model: input.model,
       ...(input.effort === undefined ? {} : { effort: input.effort }),
+      ...(input.taskInstruction ? { taskInstruction: input.taskInstruction } : {}),
     });
     return {
       result,
@@ -71,10 +73,11 @@ export async function analyzeSealedDeepAnalysisInput(input: {
       model: input.model,
       ...(input.effort === undefined ? {} : { effort: input.effort }),
       taskInstruction: [
+        input.taskInstruction,
         "이 입력은 전체 공고를 무손실 분할한 한 chunk다.",
         "이 chunk에서 직접 확인되는 조건만 22축으로 분석하고 다른 chunk 내용을 추정하지 마라.",
         "관련 내용이 이 chunk에 없으면 inspected_no_condition으로 두되 최종 전축 판정은 synthesis가 수행한다.",
-      ].join(" "),
+      ].filter((item): item is string => Boolean(item)).join(" "),
     });
     mapPasses.push({
       kind: "map",
@@ -92,12 +95,13 @@ export async function analyzeSealedDeepAnalysisInput(input: {
     model: input.model,
     ...(input.effort === undefined ? {} : { effort: input.effort }),
     taskInstruction: [
+      input.taskInstruction,
       "아래에는 같은 공고의 무손실 chunk별 독립 분석 결과가 있다.",
       "모든 결과를 합쳐 공고 전체의 최종 22축 판정을 한 번만 반환하라.",
       "source_span은 chunk 결과에 제시된 원문 문자열만 글자 그대로 사용하고 새 인용을 만들지 마라.",
       "어느 chunk에서든 condition_found이면 다른 chunk의 inspected_no_condition보다 우선한다.",
       "서로 충돌하거나 안전하게 합칠 수 없으면 ambiguous로 둔다.",
-    ].join(" "),
+    ].filter((item): item is string => Boolean(item)).join(" "),
   });
   const passes: DeepAnalysisModelPass[] = [
     ...mapPasses,

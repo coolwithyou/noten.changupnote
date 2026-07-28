@@ -237,6 +237,27 @@ const restartExceptionCoverage = validateDeepAnalysisResult({
 });
 assert.equal(restartExceptionCoverage.valid, true);
 
+const explicitDischargeExceptionCoverage = validateDeepAnalysisResult({
+  seal: creditSeal,
+  result: result([
+    criterion({
+      dimension: "credit_status",
+      kind: "exclusion",
+      value: {
+        flags: ["loan_default"],
+        exceptions: [
+          "credit_debt_repaid_with_proof",
+          "debt_adjustment_agreement",
+          "court_plan_approved",
+          "bankruptcy_discharge_confirmed",
+        ],
+      },
+      sourceSpan: creditSourceSpan,
+    }),
+  ], axes(["credit_status"])),
+});
+assert.equal(explicitDischargeExceptionCoverage.valid, true);
+
 const structuredNoteOrder = validateDeepAnalysisResult({
   seal: creditSeal,
   result: result([

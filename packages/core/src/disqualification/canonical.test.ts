@@ -122,6 +122,16 @@ check("변제계획 성실이행 예외는 채무불이행 배제를 면제한�
   assert.ok(EXCEPTION_FLAG_COVERAGE.repayment_plan_in_good_standing.includes("loan_default"));
 });
 
+check("명시적 변제·인가·면책 예외는 서로 다른 canonical 의미와 축 커버를 유지한다", () => {
+  assert.deepEqual(
+    EXCEPTION_FLAG_COVERAGE.credit_debt_repaid_with_proof,
+    ["loan_default"],
+  );
+  assert.ok(EXCEPTION_FLAG_COVERAGE.tax_debt_repaid_with_proof.includes("national_tax_delinquent"));
+  assert.ok(EXCEPTION_FLAG_COVERAGE.court_plan_approved.includes("rehabilitation_in_progress"));
+  assert.ok(EXCEPTION_FLAG_COVERAGE.bankruptcy_discharge_confirmed.includes("bankruptcy_filed"));
+});
+
 check("배제업종 KSIC 코드는 KSIC 형식(대분류 문자 또는 숫자)이며 파생 목록이 중복 없이 일치한다", () => {
   const ksicPattern = /^[A-U]?\d{0,5}$/;
   const collected = new Set<string>();
