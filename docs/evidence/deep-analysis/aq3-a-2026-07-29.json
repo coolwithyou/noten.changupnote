@@ -1,0 +1,67 @@
+{
+  "schema": "deep-analysis-aq3-a-summary-v1",
+  "generatedAt": "2026-07-28T22:23:47Z",
+  "checkpoint": "AQ3-A",
+  "status": "CODE_PASS_NO_PAID_RERUN",
+  "baseCommit": "d4cda6b90387ac15c3bc7e58e877a811682f3eb9",
+  "scope": {
+    "changedVariable": "deterministic_audit_source_references",
+    "auditModelChanged": false,
+    "primaryChanged": false,
+    "adjudicationChanged": false,
+    "matcherChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "auditContract": "deep-analysis-audit-candidates-v2",
+    "auditPrompt": "deep-analysis-blind-audit-v14",
+    "auditArtifactSchema": "deep-analysis-blind-audit-v4",
+    "defaultModelPolicy": "deep-analysis-model-policy-v19",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v3"
+  },
+  "contract": {
+    "modelAuthoredEvidenceFields": [
+      "primary_source_ref",
+      "supporting_source_refs"
+    ],
+    "removedModelAuthoredFields": [
+      "source_span"
+    ],
+    "deterministicServerResponsibilities": [
+      "build_stable_evidence_catalog_from_sealed_input",
+      "resolve_source_refs_to_exact_sealed_spans",
+      "derive_text_only_note_from_primary_evidence",
+      "preserve_source_refs_across_map_synthesis",
+      "fail_closed_on_unknown_or_missing_source_refs"
+    ]
+  },
+  "offlineRegression": {
+    "plainTextReferenceResolution": "PASS",
+    "structuredJsonEscapeResolution": "PASS",
+    "textOnlyServerDerivation": "PASS",
+    "unknownPrimaryReferenceFailClosed": "PASS",
+    "unknownSupportingReferenceFailClosed": "PASS",
+    "mapSynthesisReferencePreservation": "PASS"
+  },
+  "verification": {
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "gitDiffCheck": "PASS",
+    "anthropicCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "paidRerun": "NOT_RUN",
+    "cq3Allowed": false,
+    "cohortExpansionAllowed": false,
+    "deploymentAllowed": false,
+    "nextCheckpoint": "AQ3-B"
+  }
+}

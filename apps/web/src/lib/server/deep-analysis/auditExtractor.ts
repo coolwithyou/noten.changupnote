@@ -25,9 +25,10 @@ import {
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   normalizeCriteria,
 } from "./extractor";
+import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
 
 export const DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION =
-  "deep-analysis-audit-candidates-v1" as const;
+  "deep-analysis-audit-candidates-v2" as const;
 export const DEEP_ANALYSIS_AUDIT_TOOL_NAME =
   "emit_deep_analysis_audit_candidates" as const;
 
@@ -58,7 +59,8 @@ export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
   "출력은 원문에서 직접 확인한 신청 자격·결격·우대·평가점수 criterion 후보만 포함한다.",
   "조건이 없는 축을 표현하는 행을 만들지 마라. inspected_no_condition, ambiguous, input_missing은 criterion kind가 아니다.",
   "분석문, 축별 상태표, 공고 요약, 프로그램 의도, taxonomy 제안은 출력하지 마라.",
-  "모든 source_span은 입력에 실제 존재하는 짧은 근거 문장을 글자 그대로 복사한다. 근거를 특정할 수 없으면 후보를 만들지 마라.",
+  "각 후보는 제공된 evidence catalog의 primary_source_ref 하나를 반드시 선택한다. source_span 문자열을 직접 만들지 마라.",
+  "예외처럼 같은 판단을 뒷받침하는 별도 근거가 있을 때만 supporting_source_refs를 사용한다. 서로 다른 매칭 효과는 한 후보로 합치지 말고 나눈다.",
   "필수조건은 required, 제외대상은 exclusion, 우대·평가점수는 preferred다.",
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
@@ -101,7 +103,12 @@ export function buildDeepAnalysisAuditToolSchema() {
               kind: { type: "string", enum: [...CRITERION_KINDS] },
               value: { type: "object" },
               confidence: { type: "number", minimum: 0, maximum: 1 },
-              source_span: { type: "string", minLength: 2 },
+              primary_source_ref: { type: "string", minLength: 19, maxLength: 19 },
+              supporting_source_refs: {
+                type: "array",
+                maxItems: 8,
+                items: { type: "string", minLength: 19, maxLength: 19 },
+              },
               note: { type: "string" },
             },
             required: [
@@ -110,7 +117,7 @@ export function buildDeepAnalysisAuditToolSchema() {
               "kind",
               "value",
               "confidence",
-              "source_span",
+              "primary_source_ref",
             ],
           },
         },
@@ -130,9 +137,12 @@ export function normalizeDeepAnalysisAuditCandidateResult(input: {
   usage: DeepAnalysisUsage | null;
 }): DeepAnalysisModelResult {
   const directToolInput = isRecord(input.rawToolInput) ? input.rawToolInput : {};
-  const rawCriteria = Array.isArray(directToolInput.criteria)
+  const authoredCriteria = Array.isArray(directToolInput.criteria)
     ? directToolInput.criteria
     : [];
+  const evidenceCatalog = createDeepAnalysisAuditEvidenceCatalog(input.evidenceText);
+  const resolved = evidenceCatalog.resolveCriteria(authoredCriteria);
+  const rawCriteria = resolved.criteria;
   const criteria = normalizeCriteria(rawCriteria, input.evidenceText);
   const foundDimensions = new Set<CriterionDimension>(
     criteria.map((criterion) => criterion.dimension),
@@ -171,6 +181,7 @@ export function normalizeDeepAnalysisAuditCandidateResult(input: {
       audit_contract_version: DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
       criteria: rawCriteria,
       axis_assessments: rawAxes,
+      audit_source_reference_errors: resolved.unresolvedReferences,
     },
     rawResponseText: input.rawResponseText,
     stopReason: input.stopReason,
@@ -191,6 +202,12 @@ export async function runDeepGrantAuditAnalysis(options: {
     ? supportsDeepAnalysisEffort(model) ? "high" : null
     : options.effort;
   assertDeepAnalysisModelEffort({ model, effort });
+  const evidenceCatalog = createDeepAnalysisAuditEvidenceCatalog(
+    options.evidenceText ?? options.inputText,
+  );
+  const modelInputText = isAuditSynthesisInput(options.inputText)
+    ? options.inputText
+    : evidenceCatalog.promptText;
   const requestBody = JSON.stringify({
     model,
     max_tokens: AUDIT_MAX_TOKENS,
@@ -202,7 +219,7 @@ export async function runDeepGrantAuditAnalysis(options: {
         options.taskInstruction
           ?? "아래 sealed 공고 입력만 근거로 criterion 후보를 빠짐없이 추출하라.",
         "",
-        options.inputText,
+        modelInputText,
       ].join("\n"),
     }],
     tools: [buildDeepAnalysisAuditToolSchema()],
@@ -270,6 +287,12 @@ export async function runDeepGrantAuditAnalysis(options: {
     stopReason: payload.stop_reason ?? null,
     usage: normalizeUsage(payload.usage),
   });
+}
+
+function isAuditSynthesisInput(inputText: string): boolean {
+  return inputText.includes(
+    `"auditContractVersion":"${DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION}"`,
+  );
 }
 
 function normalizeUsage(usage: Record<string, unknown> | undefined): DeepAnalysisUsage | null {

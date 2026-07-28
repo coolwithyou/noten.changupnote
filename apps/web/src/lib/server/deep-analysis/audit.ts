@@ -24,12 +24,12 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v13" as const;
+export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v14" as const;
 export const DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION = [
   "이 실행은 primary를 보지 않는 독립 감사 분석이다.",
   "신청자격·결격·우대·평가점수에 직접 영향을 주는 criterion 후보만 반환하라.",
   "조건이 없는 축을 나타내는 행과 axis_assessments, 분석문, program_intent, taxonomy_proposals는 출력하지 마라.",
-  "각 후보의 exact source_span과 canonical value를 우선하고 근거를 특정할 수 없으면 후보를 만들지 마라.",
+  "각 후보는 evidence catalog의 primary_source_ref를 하나 선택하고 source_span 문자열을 직접 만들지 마라.",
 ].join(" ");
 
 export type DeepAnalysisAuditVerdict = "concur" | "disagree" | "unsure";
@@ -95,7 +95,7 @@ export async function runBlindDeepAnalysisAudit(input: {
     synthesisTaskInstruction: [
       "아래에는 같은 공고의 chunk별 criterion 후보가 있다.",
       "중복 후보를 합치고 공고 전체의 최종 criterion 후보만 반환하라.",
-      "source_span은 chunk 결과에 제시된 원문 문자열만 글자 그대로 사용하고 새 인용을 만들지 마라.",
+      "각 후보의 primary_source_ref와 supporting_source_refs는 chunk 결과에 있는 ID만 재사용하라.",
       "축 상태나 조건 부재 행은 출력하지 마라.",
     ].join(" "),
     runModel: input.runAuditModel ?? runDeepGrantAuditAnalysis,

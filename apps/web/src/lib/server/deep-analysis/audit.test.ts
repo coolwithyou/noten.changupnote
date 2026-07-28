@@ -18,6 +18,7 @@ import {
   normalizeDeepAnalysisAuditCandidateResult,
   runDeepGrantAuditAnalysis,
 } from "./auditExtractor";
+import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import { validateDeepAnalysisResult } from "./validator";
 
@@ -35,7 +36,8 @@ assert.match(
 );
 assert.match(DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION, /axis_assessments.*출력하지 마라/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /조건이 없는 축을 표현하는 행을 만들지 마라/);
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v1");
+assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /primary_source_ref/);
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v2");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();
 assert.deepEqual(
@@ -50,6 +52,14 @@ assert.equal(
   "analysis_markdown" in auditToolSchema.input_schema.properties,
   false,
 );
+const auditCriterionProperties =
+  auditToolSchema.input_schema.properties.criteria.items.properties;
+assert.equal("source_span" in auditCriterionProperties, false);
+assert.equal("primary_source_ref" in auditCriterionProperties, true);
+
+const auditEvidence = createDeepAnalysisAuditEvidenceCatalog(span);
+const sourceRef = /\[(ev_[0-9a-f]{16})\]/.exec(auditEvidence.promptText)?.[1];
+assert.ok(sourceRef);
 
 const candidateResult = normalizeDeepAnalysisAuditCandidateResult({
   model: "claude-haiku-4-5-20251001",
@@ -62,7 +72,7 @@ const candidateResult = normalizeDeepAnalysisAuditCandidateResult({
       kind: "required",
       value: { regions: ["11"] },
       confidence: 0.9,
-      source_span: span,
+      primary_source_ref: sourceRef,
     }],
   },
   rawResponseText: "{}",
@@ -95,7 +105,7 @@ const invalidAbsenceRow = normalizeDeepAnalysisAuditCandidateResult({
         kind: "required",
         value: { regions: ["11"] },
         confidence: 0.9,
-        source_span: span,
+        primary_source_ref: sourceRef,
       },
       {
         dimension: "revenue",
@@ -103,7 +113,6 @@ const invalidAbsenceRow = normalizeDeepAnalysisAuditCandidateResult({
         kind: "inspected_no_condition",
         value: {},
         confidence: 0,
-        source_span: "",
       },
     ],
   },
@@ -122,6 +131,98 @@ assert.equal(
 );
 assert.equal(
   invalidAbsenceValidation.issues.some((issue) => issue.code === "raw_contract_invalid"),
+  true,
+);
+
+const unresolvedReferenceResult = normalizeDeepAnalysisAuditCandidateResult({
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  evidenceText: span,
+  rawToolInput: {
+    criteria: [{
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      value: { regions: ["11"] },
+      confidence: 0.9,
+      primary_source_ref: "ev_0000000000000000",
+    }],
+  },
+  rawResponseText: "{}",
+  stopReason: "tool_use",
+  usage: null,
+});
+const unresolvedReferenceValidation = validateDeepAnalysisResult({
+  seal,
+  result: unresolvedReferenceResult,
+});
+assert.equal(unresolvedReferenceValidation.valid, false);
+assert.deepEqual(
+  unresolvedReferenceResult.rawToolInput.audit_source_reference_errors,
+  ["ev_0000000000000000"],
+);
+assert.equal(
+  unresolvedReferenceValidation.issues.some((issue) => issue.code === "evidence_not_grounded"),
+  true,
+);
+
+const unresolvedSupportingReferenceResult = normalizeDeepAnalysisAuditCandidateResult({
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  evidenceText: span,
+  rawToolInput: {
+    criteria: [{
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      value: { regions: ["11"] },
+      confidence: 0.9,
+      primary_source_ref: sourceRef,
+      supporting_source_refs: ["ev_0000000000000000"],
+    }],
+  },
+  rawResponseText: "{}",
+  stopReason: "tool_use",
+  usage: null,
+});
+assert.equal(validateDeepAnalysisResult({
+  seal,
+  result: unresolvedSupportingReferenceResult,
+}).valid, false);
+
+const structuredEvidenceText = JSON.stringify({
+  title: "서울 소재 기업 지원",
+  condition: "본사 또는 공장이 하남시에 소재해야 한다.\n공장 소재 시 우대한다.",
+});
+const structuredCatalog = createDeepAnalysisAuditEvidenceCatalog(structuredEvidenceText);
+const structuredRef = structuredCatalog.promptText
+  .split("\n")
+  .find((line) => line.includes("하남시에 소재"))?.match(/\[(ev_[0-9a-f]{16})\]/)?.[1];
+assert.ok(structuredRef);
+const structuredTextOnly = normalizeDeepAnalysisAuditCandidateResult({
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  evidenceText: structuredEvidenceText,
+  rawToolInput: {
+    criteria: [{
+      dimension: "premises",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "모델이 재작성한 문장" },
+      confidence: 0.9,
+      primary_source_ref: structuredRef,
+    }],
+  },
+  rawResponseText: "{}",
+  stopReason: "tool_use",
+  usage: null,
+});
+assert.match(
+  String((structuredTextOnly.criteria[0]?.value as Record<string, unknown>).note),
+  /하남시에 소재/,
+);
+assert.equal(
+  structuredEvidenceText.includes(structuredTextOnly.criteria[0]?.sourceSpan ?? ""),
   true,
 );
 
@@ -144,7 +245,7 @@ const fetchedCandidateResult = await runDeepGrantAuditAnalysis({
             kind: "required",
             value: { regions: ["11"] },
             confidence: 0.9,
-            source_span: span,
+            primary_source_ref: sourceRef,
           }],
         },
       }],
@@ -159,6 +260,11 @@ const requestedTools = capturedAuditRequest.tools as Array<{
 }>;
 assert.equal(requestedTools[0]?.name, "emit_deep_analysis_audit_candidates");
 assert.deepEqual(Object.keys(requestedTools[0]?.input_schema.properties ?? {}), ["criteria"]);
+const capturedMessages = capturedAuditRequest.messages as Array<{
+  content: string;
+}>;
+assert.match(capturedMessages[0]?.content ?? "", new RegExp(`\\[${sourceRef}\\]`));
+assert.doesNotMatch(capturedMessages[0]?.content ?? "", /DEEP_ANALYSIS_SOURCE/);
 assert.equal(fetchedCandidateResult.axisAssessments.length, CRITERION_DIMENSIONS.length);
 assert.equal(
   validateDeepAnalysisResult({ seal, result: fetchedCandidateResult }).valid,

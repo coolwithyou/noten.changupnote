@@ -138,15 +138,31 @@ export function renderDeepAnalysisChunks(chunks: readonly DeepAnalysisInputChunk
 }
 
 function renderSynthesisInput(passes: readonly DeepAnalysisModelPass[]): string {
-  return passes.map((pass, index) => JSON.stringify({
-    chunkIndex: index,
-    chunkId: pass.chunkId,
-    analysisMarkdown: pass.result.analysisMarkdown,
-    programIntent: pass.result.programIntent,
-    criteria: pass.result.criteria,
-    axisAssessments: pass.result.axisAssessments,
-    taxonomyProposals: pass.result.taxonomyProposals,
-  })).join("\n");
+  return passes.map((pass, index) => {
+    const auditContractVersion =
+      typeof pass.result.rawToolInput.audit_contract_version === "string"
+        ? pass.result.rawToolInput.audit_contract_version
+        : null;
+    if (auditContractVersion) {
+      return JSON.stringify({
+        chunkIndex: index,
+        chunkId: pass.chunkId,
+        auditContractVersion,
+        auditCandidates: Array.isArray(pass.result.rawToolInput.criteria)
+          ? pass.result.rawToolInput.criteria
+          : [],
+      });
+    }
+    return JSON.stringify({
+      chunkIndex: index,
+      chunkId: pass.chunkId,
+      analysisMarkdown: pass.result.analysisMarkdown,
+      programIntent: pass.result.programIntent,
+      criteria: pass.result.criteria,
+      axisAssessments: pass.result.axisAssessments,
+      taxonomyProposals: pass.result.taxonomyProposals,
+    });
+  }).join("\n");
 }
 
 function sumUsage(values: Array<DeepAnalysisUsage | null>): DeepAnalysisUsage | null {

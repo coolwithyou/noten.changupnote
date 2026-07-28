@@ -297,6 +297,39 @@ assert.equal(
 assert.match(calls.at(-1)?.taskInstruction ?? "", /audit synthesis candidates only/);
 assert.doesNotMatch(calls.at(-1)?.taskInstruction ?? "", /최종 22축/);
 
+const auditContractCalls: Array<Parameters<typeof runDeepGrantAnalysis>[0]> = [];
+await analyzeSealedDeepAnalysisInput({
+  seal: longSeal,
+  apiKey: "test",
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  singlePromptChars: 1_100,
+  runModel: async (options) => {
+    auditContractCalls.push(options);
+    return {
+      ...modelResult(options.model ?? "unknown"),
+      rawToolInput: {
+        audit_contract_version: "deep-analysis-audit-candidates-v2",
+        criteria: [{
+          dimension: "other",
+          operator: "text_only",
+          kind: "required",
+          value: { note: "근거" },
+          confidence: 0.9,
+          primary_source_ref: "ev_0000000000000000",
+          source_span: "근거",
+        }],
+      },
+    };
+  },
+});
+assert.match(
+  auditContractCalls.at(-1)?.inputText ?? "",
+  /"auditContractVersion":"deep-analysis-audit-candidates-v2"/,
+);
+assert.match(auditContractCalls.at(-1)?.inputText ?? "", /"auditCandidates":/);
+assert.doesNotMatch(auditContractCalls.at(-1)?.inputText ?? "", /"analysisMarkdown":/);
+
 const responseBody = JSON.stringify({
   stop_reason: "tool_use",
   usage: { input_tokens: 10, output_tokens: 5 },

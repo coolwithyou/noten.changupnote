@@ -4774,6 +4774,54 @@ primary와 제품 매칭:
   요약 evidence는 `docs/evidence/deep-analysis/aq2-r1-2026-07-28.json`에 기록했다.
   외부 쓰기는 DB 0, R2 0, promotion 0, Cloud Run/Scheduler 0, Vercel 0이다.
 
+### AQ3-A 결정적 audit source reference — `CODE PASS`, `NO PAID RERUN` (2026-07-29)
+
+AQ2-R1의 audit 오류 8건은 모델이 여러 줄을 한 문장으로 합치거나 `/`를 끼워
+`source_span`을 재작성한 동일 원인이었다. 이번 체크포인트는 audit 근거 계약만
+바꿨으며 primary extractor, semantic adjudication, matcher와 serving은 건드리지
+않았다.
+
+구현 결과:
+
+1. audit tool에서 모델 작성 `source_span`을 제거했다. 모델은 서버가 sealed
+   structured/attachment 입력으로 만든 `primary_source_ref` 하나와, 같은 판단의
+   별도 예외 근거가 필요할 때만 `supporting_source_refs`를 선택한다.
+2. `auditEvidence` 경계가 structured JSON scalar와 attachment line을 안정적인
+   evidence ID로 만든다. 서버가 선택된 ID를 sealed input에 실제 존재하는 exact
+   substring으로 바꾼 뒤 기존 `normalizeCriteria`와 validator에 전달한다.
+3. 알 수 없거나 누락된 primary/supporting ref가 하나라도 있으면 해당 criterion의
+   span을 비워 기존 `raw_contract_invalid`와 `evidence_not_grounded`가 fail-closed
+   처리한다. fuzzy matching, relaxed validator, 추가 모델 retry는 도입하지 않았다.
+4. `text_only`의 `value.note`는 모델 재작성값이 아니라 primary evidence 표시문을
+   서버가 결정적으로 넣는다. 서로 다른 매칭 효과는 한 후보로 합치지 말라는 계약을
+   유지한다.
+5. 장문 map 결과의 raw source ref를 audit 전용 synthesis 입력에 보존한다. ref ID는
+   동일 chunk와 위치에서 전체 evidence catalog를 다시 만들 때도 같으므로 synthesis가
+   새 인용을 만들 필요가 없다.
+6. 계약은 `deep-analysis-audit-candidates-v2`, prompt는
+   `deep-analysis-blind-audit-v14`, artifact는 `deep-analysis-blind-audit-v4`,
+   정책은 `deep-analysis-model-policy-v19`와
+   `deep-analysis-model-policy-cq2-v3`로 올렸다.
+
+오프라인 회귀:
+
+- 일반 원문 exact ref, structured JSON escape ref, `text_only` 서버 파생,
+  unknown primary/supporting ref 차단, map/synthesis ref 보존을 모두 PASS했다.
+- `pnpm build:packages`, `pnpm verify:package-runtime-freshness`,
+  `pnpm verify:deep-analysis-contract`, `pnpm --filter @cunote/web typecheck`,
+  `git diff --check`가 PASS했다.
+- 외부 Anthropic 호출, DB/R2/promotion, Cloud Run/Scheduler, Vercel 변경은 모두
+  0이다. 요약 evidence는
+  `docs/evidence/deep-analysis/aq3-a-2026-07-29.json`에 고정했다.
+
+게이트 판정:
+
+- AQ3-A 코드는 GO다. 아직 유료 품질 재검증이나 CQ3, cohort 확대, 배포,
+  production policy 전환은 허용하지 않는다.
+- 다음 체크포인트는 AQ2-R1에서 확인한 `target_type`과 `prior_award`의 동일 근거
+  중복만 좁게 차단하는 AQ3-B다. 독립적인 `예비창업자만 신청 가능`, 학생 대상,
+  법적 사업자 유형은 계속 허용해야 한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
