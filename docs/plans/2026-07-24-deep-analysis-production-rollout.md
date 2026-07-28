@@ -4716,6 +4716,64 @@ blind audit가 primary와 같은 분석문·program intent·taxonomy·22축 상�
   validator 2/2, 알려진 결함 확정 탐지 2/2, false blocker 0, primary match-impact
   2/2 보존과 `$2.00` hard cap을 모두 확인한 뒤 다시 중단한다.
 
+### AQ2-R1 exact 2건 재검증 — `CONTRACT IMPROVED`, `AUDIT/PRODUCT MATCH STOP` (2026-07-28)
+
+AQ2 커밋 `fc6f2b23e8593620f5ed354e3f9f313023e46a1e`의 clean detached tracked
+source에서 AQ1-R1과 동일한 sealed input/source SHA의 두 공고를 계획대로 한 번만
+재실행했다. preflight 보수 예상은 현재가 `$1.380796`, 표준가 `$1.618462`로
+`$2.00` 상한 안이었다. 실행 중 DB/R2/promotion 쓰기와 배포는 열지 않았다.
+
+계약 단순화 효과:
+
+- AQ1-R1에서 네 audit에 합계 76건 발생한 `raw_contract_invalid`와
+  `normalization_drop`, axis/criterion 불일치, unresolved axis, canonical 오류가
+  이번에는 모두 0이다. 조건 부재 행과 22축 상태표를 모델 출력에서 제거한 효과는
+  확인됐다.
+- 남은 audit validation 오류는 모두 `evidence_not_grounded` 8건이다.
+  K-Startup candidate 3건·sensitivity 4건, Bizinfo sensitivity 1건이 원문의
+  여러 줄을 한 문장으로 합치거나 문장 사이에 `/`를 넣은 재구성 span이라 exact
+  sealed substring이 아니었다.
+- Bizinfo candidate audit은 validator를 통과했고 Opus adjudication 결과도
+  `concur`, accepted blocking finding 0이다. 나머지 3개 audit은 AQ1 경계에서
+  `audit_invalid/unsure`로 닫혀 Opus에 전달되지 않았다. false blocker 채택은 0이다.
+
+primary와 제품 매칭:
+
+1. primary validator는 2/2 PASS, repair는 K-Startup 1회·Bizinfo 0회다.
+   파산 면책 확정 예외·세금 특수채무 변제 예외와 Bizinfo required/preferred
+   premises는 2/2 보존됐다.
+2. 하지만 K-Startup primary가 `예비창업자·초기창업자`를
+   `target_type/in/required`로 새로 발행했다. 이전 AQ1-R1 primary에는 없던
+   criterion이며, 지정 창업패키지 선정이라는 `prior_award`와도 의미가 겹친다.
+3. 사업자번호에서 얻은 `target_types=[법인사업자]`, completeness=partial 프로필로
+   이 criterion만 현재 matcher에 넣은 오프라인 검증은 `unknown → conditional`을
+   반환했다. 즉 알려진 두 핵심 사실은 보존됐어도 랜딩의 사업자번호 기반 자동 매칭에
+   불필요한 추가 질문·보류를 만드는 제품 회귀가 있어 primary 제품 게이트는 STOP이다.
+
+비용:
+
+- 전체 실측 현재가는 `$0.712632`, 같은 token을 2026-09-01 이후 Sonnet 5 표준가로
+  재산정하면 `$0.907893`이다.
+- candidate end-to-end는 현재가 `$0.648762`, 표준가 `$0.844023`이다. 기존
+  `$1.559922` 대비 각각 `58.41%`, `45.89%` 절감으로 비용 게이트는 GO다.
+
+게이트 판정:
+
+- candidate audit validator 1/2, sensitivity audit validator 0/2, 알려진 결함
+  확정 탐지 0/2이므로 audit 게이트는 STOP이다.
+- 계약 복잡성 원인은 제거됐고 invalid audit 안전성·비용도 통과했지만, exact span과
+  K-Startup `target_type` 제품 회귀가 남아 전체는 STOP이다.
+- CQ3, cohort 확대, 배포, production prompt/policy 전환, promotion과 랜딩 serving
+  변경은 진행하지 않는다. 같은 구성의 추가 유료 재실행도 허용하지 않는다.
+- 다음 체크포인트는 새 유료 호출 없이 두 원인만 별도 리뷰해야 한다.
+  audit은 재구성 문자열 대신 sealed source reference로 exact 근거를 선택하게 할지,
+  primary validator는 사업자번호로 자동 해소 가능한 축을 방해하는 중복
+  `target_type`을 어떻게 차단할지 최소 경계를 먼저 결정한다.
+- raw receipt SHA-256은
+  `ee8c1f5fca5f6619e285dab1487d17fde0bc1250fadbea552d34feefdca16479`,
+  요약 evidence는 `docs/evidence/deep-analysis/aq2-r1-2026-07-28.json`에 기록했다.
+  외부 쓰기는 DB 0, R2 0, promotion 0, Cloud Run/Scheduler 0, Vercel 0이다.
+
 중단 조건:
 
 - 동결 80 품질 미달

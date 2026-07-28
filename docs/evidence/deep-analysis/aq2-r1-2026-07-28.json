@@ -1,0 +1,152 @@
+{
+  "schema": "deep-analysis-aq2-r1-summary-v1",
+  "generatedAt": "2026-07-28T13:02:06Z",
+  "checkpoint": "AQ2-R1",
+  "status": "CONTRACT_IMPROVED_AUDIT_AND_PRODUCT_MATCH_STOP",
+  "sourceCommit": "fc6f2b23e8593620f5ed354e3f9f313023e46a1e",
+  "modelPolicyVersion": "deep-analysis-model-policy-cq2-v2",
+  "runner": {
+    "localPath": "/private/tmp/cunote-cq2-cost-quality-eval.mjs",
+    "sha256": "417b30eada5c5f711bf924ca9076d13102ba30e17b450caa2c63fbcff5e4b365"
+  },
+  "models": {
+    "primary": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "audit": {
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null,
+      "contractVersion": "deep-analysis-audit-candidates-v1",
+      "promptVersion": "deep-analysis-blind-audit-v13"
+    },
+    "adjudication": {
+      "model": "claude-opus-5",
+      "effort": "high"
+    }
+  },
+  "exactInputs": [
+    {
+      "key": "kstartup/178647",
+      "inputSha256": "c3c7ead5dd10bda35dcc4efa6776c53289e125e8d86636cd190b51fa0c509ab0",
+      "sourceRevisionSha256": "a7c3d618bd821e880f8b650def32ba0f006d896b27e9eb9005ce515666401b38",
+      "expectedKnownFinding": "bankruptcy_discharge_exception"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000123200",
+      "inputSha256": "d1d648874a869e5c59ae8aace50fa49587055cdfe1569b8858f451ac0284dfa2",
+      "sourceRevisionSha256": "337e7358b22161e9332e8069aa81e2b5f4f08aa70a23a68261e67fa4187c3bb7",
+      "expectedKnownFinding": "premises_scoring_preference"
+    }
+  ],
+  "cost": {
+    "hardCapUsd": 2,
+    "preflightCurrentPricingUsd": 1.380796,
+    "preflightStandardPricingUsd": 1.618462,
+    "actualCurrentPricingUsd": 0.712632,
+    "recalculatedStandardPricingUsd": 0.907893,
+    "candidateEndToEndCurrentPricingUsd": 0.648762,
+    "candidateEndToEndStandardPricingUsd": 0.844023,
+    "candidateSavingsCurrentPercent": 58.410613,
+    "candidateSavingsStandardPercent": 45.893256,
+    "standardRepriceAssumption": "Sonnet 5 token cost multiplied by 1.5 for 2026-09-01 pricing; Haiku 4.5 and Opus 5 pricing unchanged"
+  },
+  "quality": {
+    "candidatePrimaryValidatorPass": {
+      "count": 2,
+      "total": 2
+    },
+    "candidatePrimaryRepairCount": {
+      "kstartup/178647": 1,
+      "bizinfo/PBLN_000000000123200": 0
+    },
+    "knownPrimaryFactsPreserved": {
+      "count": 2,
+      "total": 2,
+      "details": [
+        "K-Startup credit criterion contains bankruptcy_discharge_confirmed and tax criterion contains tax_debt_repaid_with_proof",
+        "Bizinfo contains both required and preferred premises criteria"
+      ]
+    },
+    "candidateAuditValidatorPass": {
+      "count": 1,
+      "total": 2
+    },
+    "sensitivityAuditValidatorPass": {
+      "count": 0,
+      "total": 2
+    },
+    "knownFindingSensitivityDefinitive": {
+      "count": 0,
+      "total": 2,
+      "reason": "both sensitivity audits remained invalid and are ineligible for automated findings"
+    },
+    "auditValidationIssueCounts": {
+      "evidence_not_grounded": 8
+    },
+    "previouslyDominantIssueCountsNow": {
+      "raw_contract_invalid": 0,
+      "normalization_drop": 0,
+      "axis_criterion_mismatch": 0,
+      "canonical_contract_invalid": 0,
+      "unresolved_axis": 0
+    },
+    "adjudicationCalls": 1,
+    "adjudicationAcceptedBlockingFindings": 0,
+    "falseBlockingFindingsAccepted": 0
+  },
+  "productMatchRegression": {
+    "count": 1,
+    "key": "kstartup/178647",
+    "criterion": {
+      "dimension": "target_type",
+      "kind": "required",
+      "operator": "in",
+      "targets": [
+        "예비창업자",
+        "초기창업자"
+      ]
+    },
+    "problem": "The stage meaning was emitted as a hard target_type tag in addition to prior_award and without a biz_age criterion. A business-number profile with target_types=[법인사업자] and partial target_type completeness evaluates this criterion as unknown.",
+    "offlineMatcherResult": {
+      "eligibility": "conditional",
+      "traceResult": "unknown",
+      "message": "신청대상 예비창업자, 초기창업자 추가 해당 여부 확인 필요 - 귀사 법인사업자"
+    }
+  },
+  "safety": {
+    "invalidAuditCount": 3,
+    "allInvalidAuditDispositions": "audit_invalid",
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "rawReceipt": {
+    "localPath": "/tmp/cunote-cq2-aq2-rerun-20260728-exec-a/receipt.json",
+    "sha256": "ee8c1f5fca5f6619e285dab1487d17fde0bc1250fadbea552d34feefdca16479"
+  },
+  "rawArtifacts": [
+    {
+      "localPath": "/tmp/cunote-cq2-aq2-rerun-20260728-exec-a/kstartup-178647.json",
+      "sha256": "c51055d014fe4d0ea791558f18cacee731a2e6d6276e6e9e463bda1d55bb88c7"
+    },
+    {
+      "localPath": "/tmp/cunote-cq2-aq2-rerun-20260728-exec-a/bizinfo-PBLN_000000000123200.json",
+      "sha256": "f0b5ce64dfbffdbf8a4fa2db2e51eb55d4fb75468750cb899faebc6ddcf05b3e"
+    }
+  ],
+  "gate": {
+    "cost": "GO",
+    "auditContractSimplification": "IMPROVED",
+    "invalidAuditSafety": "GO",
+    "knownPrimaryFacts": "GO",
+    "primaryProductMatch": "STOP",
+    "candidateAudit": "STOP",
+    "auditorSensitivity": "STOP",
+    "overall": "STOP",
+    "cq3Allowed": false,
+    "sameConfigurationPaidRerunAllowed": false
+  }
+}
