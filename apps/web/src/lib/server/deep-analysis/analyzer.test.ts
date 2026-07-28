@@ -272,6 +272,31 @@ assert.equal(reduced.result.costUsd, 1);
 assert.equal(calls.at(-1)?.evidenceText, reduced.evidenceText);
 assert.match(calls.at(-1)?.taskInstruction ?? "", /최종 22축/);
 
+calls.length = 0;
+await analyzeSealedDeepAnalysisInput({
+  seal: longSeal,
+  apiKey: "test",
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  singlePromptChars: 1_100,
+  taskInstruction: "audit candidates only",
+  mapTaskInstruction: "audit map candidates only",
+  synthesisTaskInstruction: "audit synthesis candidates only",
+  runModel: fakeRunner,
+});
+assert.equal(
+  calls.slice(0, -1).every((call) =>
+    call.taskInstruction?.includes("audit map candidates only")),
+  true,
+);
+assert.equal(
+  calls.slice(0, -1).some((call) =>
+    call.taskInstruction?.includes("inspected_no_condition")),
+  false,
+);
+assert.match(calls.at(-1)?.taskInstruction ?? "", /audit synthesis candidates only/);
+assert.doesNotMatch(calls.at(-1)?.taskInstruction ?? "", /최종 22축/);
+
 const responseBody = JSON.stringify({
   stop_reason: "tool_use",
   usage: { input_tokens: 10, output_tokens: 5 },

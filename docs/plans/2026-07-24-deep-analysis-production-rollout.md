@@ -4662,6 +4662,60 @@ AI 자동 검수 결과:
   기록했다. 외부 쓰기는 DB 0, R2 0, promotion 0, Cloud Run/Scheduler 0,
   Vercel 0이다.
 
+### AQ2 candidate-only audit 계약 — `CODE PASS`, `NO PAID RERUN` (2026-07-28)
+
+AQ1-R1의 STOP 원인은 Haiku 모델 자체를 비교하기 전에 출력 계약이 과도했던 것이다.
+blind audit가 primary와 같은 분석문·program intent·taxonomy·22축 상태표·criteria를
+한꺼번에 생성하면서 조건이 없는 축까지 `inspected_no_condition` kind의 criterion으로
+반복 출력했다. 이번 체크포인트는 Haiku 모델을 그대로 두고 출력 계약만 한 가지
+변수로 교체했다. primary, adjudication, matcher, serving은 변경하지 않았다.
+
+구현 결과:
+
+1. audit 전용 `deep-analysis-audit-candidates-v1` 계약은 모델에게 `criteria` 배열만
+   요구한다. `axis_assessments`, 분석문, program intent, taxonomy와 조건 부재 행은
+   tool schema에서 제거했다.
+2. 서버가 정규화된 후보 dimension으로 정확히 22개 축 상태를 생성한다. 후보가 있는
+   축은 `condition_found`, 나머지는 `inspected_no_condition`이다. 따라서 모델이
+   condition과 축 상태를 서로 모순되게 만들 수 없다.
+3. 모델이 enum 밖 kind, 빈 span 또는 정규화 중 드롭되는 criterion을 반환하면 기존
+   validator의 `raw_contract_invalid`/`normalization_drop` 경계가 그대로 차단한다.
+   canonical value와 sealed exact span 검증도 완화하지 않았다.
+4. 장문 map/synthesis도 audit 전용 지시를 받는다. chunk에 조건이 없으면 빈 배열을
+   반환하고, synthesis는 후보 병합과 원래 span 보존만 수행한다. primary의 기존
+   map/synthesis 지시는 기본값으로 보존했다.
+5. audit prompt는 `deep-analysis-blind-audit-v13`, artifact는
+   `deep-analysis-blind-audit-v3`로 올리고 artifact와 stage evidence에
+   `contractVersion`을 명시한다. 기본 정책은 `deep-analysis-model-policy-v18`,
+   CQ 비용·품질 정책은 `deep-analysis-model-policy-cq2-v2`로 분리했다.
+
+기존 AQ1-R1 원시 응답의 오프라인 진단:
+
+- 기존 응답에서 새 tool schema가 허용하지 않는 부재 행을 제외해 투영하면 대량
+  `raw_contract_invalid`와 축 불일치는 사라졌다.
+- 남은 오류는 공고/variant별 8, 4, 3, 4건이며 exact span과 일부 canonical value
+  문제다. 이는 새 모델 호출 결과가 아닌 구조 진단이므로 audit validator PASS로
+  계산하지 않는다. 새 prompt는 exact span, biz_age/target_type, 신용·세금 예외,
+  premises/export canonical 규칙을 후보 전용으로 유지한다.
+
+오프라인 검증:
+
+- `pnpm build:packages`
+- `pnpm verify:package-runtime-freshness`
+- `pnpm verify:deep-analysis-contract`
+- `pnpm --filter @cunote/web typecheck`
+- 모두 PASS. 외부 LLM, DB, R2, promotion, Cloud Run/Scheduler, Vercel 변경은 0이다.
+  요약 evidence는 `docs/evidence/deep-analysis/aq2-2026-07-28.json`에 기록했다.
+
+게이트 판정:
+
+- AQ2 코드는 GO지만 유료 품질 검증은 아직 실행하지 않았다. CQ3, cohort 확대, 배포,
+  production policy/prompt 전환은 계속 금지한다.
+- 이 커밋을 리뷰한 뒤 허용 가능한 다음 단계는 AQ1-R1과 같은 sealed exact 2건을
+  딱 한 번 재실행하는 것이다. candidate audit validator 2/2, sensitivity audit
+  validator 2/2, 알려진 결함 확정 탐지 2/2, false blocker 0, primary match-impact
+  2/2 보존과 `$2.00` hard cap을 모두 확인한 뒤 다시 중단한다.
+
 중단 조건:
 
 - 동결 80 품질 미달

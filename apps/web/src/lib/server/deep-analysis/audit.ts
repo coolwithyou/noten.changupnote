@@ -11,23 +11,25 @@ import {
   type DeepAnalysisExecution,
 } from "./analyzer";
 import {
+  DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
+  runDeepGrantAuditAnalysis,
+} from "./auditExtractor";
+import {
   adjudicateDeepAnalysisAudit,
   type DeepAnalysisAuditFindingValidation,
 } from "./auditAdjudication";
-import type { runDeepGrantAnalysis } from "./extractor";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import {
   validateDeepAnalysisResult,
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v12" as const;
+export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v13" as const;
 export const DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION = [
   "이 실행은 primary를 보지 않는 독립 감사 분석이다.",
-  "tool 결과에서 criteria와 정확히 22개의 axis_assessments를 가장 먼저 완성하라.",
-  "analysis_markdown은 필수 제목을 유지하되 제목별 한 문장, 전체 1,200자 이내로 간결하게 쓴다.",
-  "program_intent 각 필드는 한 문장 또는 짧은 목록으로 쓰고 taxonomy_proposals는 명백한 반복 신규축이 없으면 빈 배열로 둔다.",
-  "설명 분량보다 신청자격·결격·우대·평가점수의 빠짐없는 구조화와 exact source_span을 우선한다.",
+  "신청자격·결격·우대·평가점수에 직접 영향을 주는 criterion 후보만 반환하라.",
+  "조건이 없는 축을 나타내는 행과 axis_assessments, 분석문, program_intent, taxonomy_proposals는 출력하지 마라.",
+  "각 후보의 exact source_span과 canonical value를 우선하고 근거를 특정할 수 없으면 후보를 만들지 마라.",
 ].join(" ");
 
 export type DeepAnalysisAuditVerdict = "concur" | "disagree" | "unsure";
@@ -44,6 +46,7 @@ export interface DeepAnalysisAuditItemResult {
 
 export interface DeepAnalysisBlindAuditResult {
   promptVersion: typeof DEEP_ANALYSIS_AUDIT_PROMPT_VERSION;
+  contractVersion: typeof DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION;
   model: DeepAnalysisAuditModel;
   verdict: DeepAnalysisAuditVerdict;
   itemResults: DeepAnalysisAuditItemResult[];
@@ -76,7 +79,7 @@ export async function runBlindDeepAnalysisAudit(input: {
   adjudicationEffort: DeepAnalysisEffort;
   primaryValidation: DeepAnalysisValidationResult;
   primaryResult: DeepAnalysisModelResult;
-  runModel?: typeof runDeepGrantAnalysis;
+  runAuditModel?: typeof runDeepGrantAuditAnalysis;
 }): Promise<DeepAnalysisBlindAuditResult> {
   let execution = await analyzeSealedDeepAnalysisInput({
     seal: input.seal,
@@ -84,7 +87,18 @@ export async function runBlindDeepAnalysisAudit(input: {
     model: input.auditModel,
     effort: input.auditEffort,
     taskInstruction: DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION,
-    ...(input.runModel ? { runModel: input.runModel } : {}),
+    mapTaskInstruction: [
+      "이 입력은 전체 공고를 무손실 분할한 한 chunk다.",
+      "이 chunk에서 직접 확인되는 criterion 후보만 반환하고 다른 chunk 내용을 추정하지 마라.",
+      "조건이 없으면 빈 criteria 배열을 반환하며 부재 상태를 나타내는 행은 만들지 마라.",
+    ].join(" "),
+    synthesisTaskInstruction: [
+      "아래에는 같은 공고의 chunk별 criterion 후보가 있다.",
+      "중복 후보를 합치고 공고 전체의 최종 criterion 후보만 반환하라.",
+      "source_span은 chunk 결과에 제시된 원문 문자열만 글자 그대로 사용하고 새 인용을 만들지 마라.",
+      "축 상태나 조건 부재 행은 출력하지 마라.",
+    ].join(" "),
+    runModel: input.runAuditModel ?? runDeepGrantAuditAnalysis,
   });
   let validation = validateDeepAnalysisResult({
     seal: input.seal,
@@ -114,6 +128,7 @@ export async function runBlindDeepAnalysisAudit(input: {
     : null;
   return {
     promptVersion: DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
+    contractVersion: DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
     model: input.auditModel,
     verdict: resolveSemanticAuditVerdict({
       auditValid: validation.valid,

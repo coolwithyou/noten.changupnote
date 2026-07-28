@@ -1,0 +1,99 @@
+{
+  "schema": "deep-analysis-aq2-summary-v1",
+  "generatedAt": "2026-07-28T10:27:17Z",
+  "checkpoint": "AQ2",
+  "status": "CODE_PASS_NO_PAID_RERUN",
+  "baseCommit": "611fb56733ea87bfd3cc41b063aac913c06a92b3",
+  "scope": {
+    "changedVariable": "audit_output_contract",
+    "auditModelChanged": false,
+    "primaryChanged": false,
+    "adjudicationChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "auditContract": "deep-analysis-audit-candidates-v1",
+    "auditPrompt": "deep-analysis-blind-audit-v13",
+    "auditArtifactSchema": "deep-analysis-blind-audit-v3",
+    "defaultModelPolicy": "deep-analysis-model-policy-v18",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v2"
+  },
+  "contract": {
+    "modelOutputFields": [
+      "criteria"
+    ],
+    "removedModelResponsibilities": [
+      "axis_assessments",
+      "analysis_markdown",
+      "program_intent",
+      "taxonomy_proposals",
+      "absence_rows"
+    ],
+    "deterministicServerResponsibilities": [
+      "derive_exact_22_axis_assessments_from_candidate_dimensions",
+      "mark_candidate_dimensions_condition_found",
+      "mark_other_dimensions_inspected_no_condition",
+      "reject_normalization_drops",
+      "validate_canonical_values",
+      "validate_exact_sealed_source_spans"
+    ]
+  },
+  "offlineLegacyProjection": {
+    "sourceReceiptSha256": "1715516dbb380180b4289822691ccd73f0cf554df90b7a3db5baa46060fcbd04",
+    "note": "Diagnostic only. Existing AQ1-R1 outputs were filtered to rows allowed by the new candidate-only schema; this is not a live model result or a quality gate.",
+    "items": [
+      {
+        "key": "kstartup/178647",
+        "variant": "candidate",
+        "legacyRows": 22,
+        "candidateContractRows": 11,
+        "remainingValidationIssues": 8
+      },
+      {
+        "key": "kstartup/178647",
+        "variant": "sensitivity",
+        "legacyRows": 22,
+        "candidateContractRows": 8,
+        "remainingValidationIssues": 4
+      },
+      {
+        "key": "bizinfo/PBLN_000000000123200",
+        "variant": "candidate",
+        "legacyRows": 27,
+        "candidateContractRows": 14,
+        "remainingValidationIssues": 3
+      },
+      {
+        "key": "bizinfo/PBLN_000000000123200",
+        "variant": "sensitivity",
+        "legacyRows": 22,
+        "candidateContractRows": 22,
+        "remainingValidationIssues": 4
+      }
+    ],
+    "remainingIssueClasses": [
+      "evidence_not_grounded",
+      "canonical_contract_invalid"
+    ]
+  },
+  "verification": {
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "auditHttpCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "paidRerun": "NOT_RUN",
+    "cq3Allowed": false,
+    "cohortExpansionAllowed": false,
+    "deploymentAllowed": false,
+    "nextReviewRequired": true
+  }
+}
