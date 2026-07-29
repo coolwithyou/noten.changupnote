@@ -54,6 +54,7 @@ import {
   assertManifestConfirmation,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
+  releasePlanItemHasUnsafePendingCriteria,
   writeImmutablePromotionArtifact,
   type PromotionDryRunArtifact,
   type PromotionReleaseManifest,
@@ -405,7 +406,7 @@ function releaseDryRunGuard(
   if (item.promotionPlan.criteria.length === 0) return "empty_criteria";
   if (
     item.pendingCount > 0
-    || item.promotionPlan.criteria.some((criterion) => criterion.needs_review === true)
+    || releasePlanItemHasUnsafePendingCriteria(item)
   ) return "pending_criteria";
   return "pass";
 }

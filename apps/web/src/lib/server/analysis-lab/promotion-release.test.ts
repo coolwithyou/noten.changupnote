@@ -4,6 +4,8 @@ import {
   assertManifestConfirmation,
   canonicalJson,
   createPromotionReleaseManifest,
+  isUnexplainedPromotionShadowTransition,
+  releasePlanItemHasUnsafePendingCriteria,
   mergePromotionApprovalGateEvidence,
   planSha256,
   pseudonymizePromotionCompanyKey,
@@ -107,6 +109,81 @@ function manifest() {
   const changed = manifest();
   changed.plans[0]!.promotionPlan.title = "변경된 제목";
   assert.throws(() => validatePromotionReleaseManifest(changed), /plan hash/);
+}
+
+{
+  const pendingItem: PromotionReleasePlanItem = {
+    ...planItem,
+    promotionPlan: {
+      ...plan,
+      criteria: [{
+        id: "conditional-only",
+        grant_id: plan.grantId,
+        dimension: "other",
+        kind: "required",
+        operator: "text_only",
+        value: { text: "선정 후 입주 조건" },
+        confidence: 0.9,
+        needs_review: true,
+        source_field: "deep_analysis",
+        source_span: "선정 후 입주 조건",
+        parser_version: "deep-analysis-v3",
+      }],
+    },
+  };
+  assert.equal(
+    releasePlanItemHasUnsafePendingCriteria(pendingItem),
+    true,
+    "일반 release의 needs_review는 계속 fail-closed여야 한다",
+  );
+  const autoPromotableItem: PromotionReleasePlanItem = {
+    ...pendingItem,
+    deepAnalysisReadiness: {
+      schema: "deep-analysis-promotion-readiness-v1",
+      analysisComplete: "passed",
+      auditComplete: "passed",
+      matcherRepresentable: "passed",
+      autoPromotable: "passed",
+      humanReviewRequired: false,
+      terminalRoute: "auto_promotable",
+      blockers: [],
+    },
+    deepAnalysisConditionalOnlyCriteria: [0],
+  };
+  assert.equal(
+    releasePlanItemHasUnsafePendingCriteria(autoPromotableItem),
+    false,
+    "봉인된 R1~R3 auto-promotable receipt의 conditional_only는 보존 발행해야 한다",
+  );
+}
+
+{
+  const before = {
+    eligibility: "conditional",
+    tier: "needs_profile_input",
+    decided: 0,
+    unknownHard: 2,
+  };
+  assert.equal(
+    isUnexplainedPromotionShadowTransition(before, {
+      eligibility: "conditional",
+      tier: "needs_core_review",
+      decided: 0,
+      unknownHard: 16,
+    }),
+    false,
+    "eligibility를 바꾸지 않고 hard unknown 근거가 늘어난 보수화는 설명 가능하다",
+  );
+  assert.equal(
+    isUnexplainedPromotionShadowTransition(before, {
+      eligibility: "ineligible",
+      tier: "not_recommended",
+      decided: 0,
+      unknownHard: 16,
+    }),
+    true,
+    "판정 근거 없는 eligibility 변화는 계속 차단해야 한다",
+  );
 }
 
 {

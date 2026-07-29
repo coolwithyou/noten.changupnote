@@ -1,6 +1,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import type { DeepAnalysisPromotionReadiness } from "../deep-analysis/promotion";
 import type { GrantPromotionPlan } from "./promote";
 import { analysisLabDir } from "./run-store";
 
@@ -33,6 +34,13 @@ export interface PromotionReleasePlanItem {
   grantId: string;
   planSha256: string;
   promotionPlan: GrantPromotionPlan;
+  /**
+   * 프로덕션 deep-analysis release만 기록한다. 사람이 확정하지 않은
+   * needs_review criterion이 matcher의 안전한 conditional_only인지 R1~R3에서
+   * 재계산한 결과를 manifest hash에 묶는다.
+   */
+  deepAnalysisReadiness?: DeepAnalysisPromotionReadiness;
+  deepAnalysisConditionalOnlyCriteria?: number[];
   beforeCriteriaSha256: string;
   beforeQuestionsSha256: string;
   dedupComponentSha256: string;
@@ -162,8 +170,69 @@ export function releasePlanSha256(items: PromotionReleasePlanItem[]): string {
         grantId: item.grantId,
         planSha256: item.planSha256,
         promotionPlan: item.promotionPlan,
+        deepAnalysisReadiness: item.deepAnalysisReadiness,
+        deepAnalysisConditionalOnlyCriteria: item.deepAnalysisConditionalOnlyCriteria,
       })),
   );
+}
+
+export function isAutoPromotableDeepAnalysisReadiness(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const readiness = value as Partial<DeepAnalysisPromotionReadiness>;
+  return readiness.schema === "deep-analysis-promotion-readiness-v1"
+    && readiness.analysisComplete === "passed"
+    && readiness.auditComplete === "passed"
+    && readiness.matcherRepresentable === "passed"
+    && readiness.autoPromotable === "passed"
+    && readiness.humanReviewRequired === false
+    && readiness.terminalRoute === "auto_promotable"
+    && Array.isArray(readiness.blockers)
+    && readiness.blockers.length === 0;
+}
+
+/**
+ * 일반 Lab release는 기존처럼 needs_review를 fail-closed한다. 프로덕션
+ * deep-analysis release만 R1~R3 auto-promotable receipt가 manifest에 봉인된
+ * 경우 예상된 conditional_only criterion을 보존한 채 통과할 수 있다.
+ */
+export function releasePlanItemHasUnsafePendingCriteria(
+  item: PromotionReleasePlanItem,
+): boolean {
+  const needsReviewPositions = item.promotionPlan.criteria.flatMap(
+    (criterion, position) => criterion.needs_review === true ? [position] : [],
+  );
+  if (needsReviewPositions.length === 0) return false;
+  if (!isAutoPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)) return true;
+  const conditionalOnly = new Set(item.deepAnalysisConditionalOnlyCriteria ?? []);
+  return needsReviewPositions.some((position) => !conditionalOnly.has(position));
+}
+
+interface PromotionShadowState {
+  eligibility: string;
+  tier: string;
+  decided: number;
+  unknownHard: number;
+}
+
+/**
+ * 판정(pass/fail) 없이 결과가 바뀌면 원칙적으로 차단한다. 단, eligibility는
+ * conditional로 유지되고 새 hard unknown 근거가 늘어
+ * needs_profile_input→needs_core_review로 보수화된 경우는 설명 가능한 변화다.
+ */
+export function isUnexplainedPromotionShadowTransition(
+  before: PromotionShadowState,
+  after: PromotionShadowState,
+): boolean {
+  const changed =
+    before.eligibility !== after.eligibility || before.tier !== after.tier;
+  if (!changed || after.decided > 0) return false;
+  const explainedConditionalReview =
+    before.eligibility === "conditional"
+    && after.eligibility === "conditional"
+    && before.tier === "needs_profile_input"
+    && after.tier === "needs_core_review"
+    && after.unknownHard > before.unknownHard;
+  return !explainedConditionalReview;
 }
 
 export function createPromotionReleaseManifest(
@@ -211,6 +280,9 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     throw new Error("manifest hash가 내용과 일치하지 않습니다.");
   }
   const artifactGrantIds = new Set(typed.sourceArtifacts.map((item) => item.grantId));
+  const sourceArtifactByGrantId = new Map(
+    typed.sourceArtifacts.map((item) => [item.grantId, item]),
+  );
   const seenGrantIds = new Set<string>();
   for (const item of typed.plans) {
     if (seenGrantIds.has(item.grantId)) throw new Error(`manifest grant 중복: ${item.grantId}`);
@@ -223,6 +295,31 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     }
     if (!artifactGrantIds.has(item.grantId)) {
       throw new Error(`source artifact 누락: ${item.grantId}`);
+    }
+    if (item.deepAnalysisReadiness !== undefined) {
+      const source = sourceArtifactByGrantId.get(item.grantId);
+      const conditionalOnly = item.deepAnalysisConditionalOnlyCriteria;
+      const needsReviewPositions = item.promotionPlan.criteria.flatMap(
+        (criterion, position) => criterion.needs_review === true ? [position] : [],
+      );
+      if (
+        !source?.deepAnalysisRunId
+        || !isAutoPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)
+        || !Array.isArray(conditionalOnly)
+        || new Set(conditionalOnly).size !== conditionalOnly.length
+        || conditionalOnly.length !== needsReviewPositions.length
+        || needsReviewPositions.some((position) => !conditionalOnly.includes(position))
+        || conditionalOnly.some(
+          (position) =>
+            !Number.isInteger(position)
+            || position < 0
+            || item.promotionPlan.criteria[position]?.needs_review !== true,
+        )
+      ) {
+        throw new Error(`deep-analysis readiness 불일치: ${item.grantId}`);
+      }
+    } else if (item.deepAnalysisConditionalOnlyCriteria !== undefined) {
+      throw new Error(`deep-analysis readiness 없는 conditional 분류: ${item.grantId}`);
     }
   }
   for (const grantId of typed.canaryGrantIds) {

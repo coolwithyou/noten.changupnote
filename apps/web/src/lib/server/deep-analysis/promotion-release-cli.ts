@@ -437,7 +437,7 @@ async function prepare(): Promise<number> {
       needsReview: criterion.needsReview,
       sourceSpan: criterion.sourceSpan,
     }));
-    const { plan } = buildDeepAnalysisPromotionPlan({
+    const { plan, readiness } = buildDeepAnalysisPromotionPlan({
       run: {
         runId: run.runId,
         grantId: run.grantId,
@@ -488,6 +488,17 @@ async function prepare(): Promise<number> {
       grantId: run.grantId,
       planSha256: planSha256(plan),
       promotionPlan: plan,
+      deepAnalysisReadiness: readiness,
+      deepAnalysisConditionalOnlyCriteria: plan.criteria.flatMap(
+        (criterion, position) => {
+          if (criterion.needs_review !== true) return [];
+          const criterionIndex = plan.criterionIndexByPosition[position];
+          return criterionIndex !== undefined
+            && output.matcherRepresentability.items[criterionIndex]?.status === "conditional_only"
+            ? [position]
+            : [];
+        },
+      ),
       beforeCriteriaSha256: hashes.criteriaSha256,
       beforeQuestionsSha256: hashes.questionsSha256,
       dedupComponentSha256: hashes.dedupComponentSha256,

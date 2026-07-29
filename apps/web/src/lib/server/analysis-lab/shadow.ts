@@ -32,9 +32,11 @@ import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
 import { verifyPromotionSourceArtifact } from "./promotion-candidates";
 import {
+  isUnexplainedPromotionShadowTransition,
   promotionReleaseArtifactPath,
   pseudonymizePromotionCompanyKey,
   readPromotionReleaseManifest,
+  releasePlanItemHasUnsafePendingCriteria,
   sha256Canonical,
   writeImmutablePromotionArtifact,
 } from "./promotion-release";
@@ -294,7 +296,7 @@ async function mainReleaseShadow(options: ShadowOptions, releaseId: string): Pro
       plan.conversion.error
       || plan.conversion.dropped > 0
       || plan.droppedQuestionCandidates > 0
-      || plan.criteria.some((criterion) => criterion.needs_review === true)
+      || releasePlanItemHasUnsafePendingCriteria(planItem)
     ) {
       guardIssues.push(`${plan.grantId}:unsafe_plan`);
     }
@@ -332,10 +334,7 @@ async function mainReleaseShadow(options: ShadowOptions, releaseId: string): Pro
       });
       const before = compactShadowMatch(beforeMatch, entry.criteria);
       const after = compactShadowMatch(afterMatch, plan.criteria);
-      if (
-        (before.eligibility !== after.eligibility || before.tier !== after.tier)
-        && after.decided === 0
-      ) {
+      if (isUnexplainedPromotionShadowTransition(before, after)) {
         guardIssues.push(`${plan.grantId}:${company.key}:unexplained_transition`);
       }
       if (
