@@ -1,0 +1,217 @@
+{
+  "schema": "deep-analysis-aq8-exact-two-active-evidence-v1",
+  "checkpoint": "AQ8",
+  "capturedAt": "2026-07-29T12:57:54.000Z",
+  "status": "ANALYSIS_1_OF_2_PASS_PROMOTION_0_OF_2_LANDING_UNCHANGED",
+  "scope": {
+    "sourceCommit": "6548ad14d1bdd29fe3d07a549f01116ef56b1fa6",
+    "activeNoticeCount": 2,
+    "newNoticeCount": 2,
+    "workerMode": "local bounded production database execution",
+    "maxConcurrentJobs": 1,
+    "perNoticeCostCapUsd": 2,
+    "cohortExpansion": false,
+    "productionWorkerDeployment": false,
+    "vercelDeployment": false
+  },
+  "inputPreflight": {
+    "rejectedBeforePaidAnalysis": {
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000123716",
+      "reason": "PDF 전문이 변환되지 않아 sealed input을 만들 수 없음",
+      "paidModelCalls": 0,
+      "action": "대상에서 제외하고 입력 봉인이 완료된 활성 Bizinfo 공고로 교체"
+    },
+    "notices": [
+      {
+        "grantId": "e9f120dd-ec97-447f-999a-bbcdba4dbb17",
+        "source": "kstartup",
+        "sourceId": "178510",
+        "title": "[강동구 청년해냄센터] 스타트업 영 그라운드 MVP 개발 해커톤 참가자 모집",
+        "applyEnd": "2026-07-30",
+        "sealed": true,
+        "totalChars": 7066,
+        "chunkCount": 3,
+        "attachmentCount": 3,
+        "includedAttachmentCount": 2,
+        "inputSha256": "65816852fd4c4bb9fa3b149955b6edcabfb83c62e9aeb2b43901c1e708b19e16",
+        "sourceRevisionSha256": "3b91fd49d750b7215c360380429173fb5d9a76c2742663b601366aaad52da568",
+        "attachmentManifestSha256": "f316ab8fabb79928306b55b72c3ab2c6218b9d15138b00fffabb09d7436d4a07"
+      },
+      {
+        "grantId": "47989069-9d3c-47ef-86e3-3b4a674ebb84",
+        "source": "bizinfo",
+        "sourceId": "PBLN_000000000124819",
+        "title": "2026년 2차 전남 무탄소 전력활용 수소산업육성을 위한 기업지원 사업 공고",
+        "applyEnd": "2026-08-07",
+        "sealed": true,
+        "totalChars": 9827,
+        "chunkCount": 2,
+        "attachmentCount": 1,
+        "includedAttachmentCount": 1,
+        "inputSha256": "e8dade4ae969bd30585e7ee40af90a6942434479bbc7beedfd2f968d5481fa83",
+        "sourceRevisionSha256": "d2c0d5f5004ac833e0355e77c93954bdd42998e25d0be18463f1a1b247617e47",
+        "attachmentManifestSha256": "d9add6b9011f26de711b744a41f4168fd8a910d23176c550396e35988500e982"
+      }
+    ],
+    "exactTwoCohortSha256": "8828ac3f621b717f49eabdaf11febaa01edb815d52fcc130f20ca4ff2c920641"
+  },
+  "costQualityExecution": {
+    "modelPolicyVersion": "deep-analysis-model-policy-cq2-v7",
+    "primary": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "audit": {
+      "model": "claude-haiku-4-5-20251001",
+      "effort": null
+    },
+    "adjudication": {
+      "model": "claude-opus-5",
+      "effort": "high"
+    },
+    "worker": {
+      "examined": 2,
+      "ensured": 2,
+      "claimed": 2,
+      "succeeded": 1,
+      "failed": 1,
+      "budgetDeferred": 0
+    },
+    "results": [
+      {
+        "grantId": "e9f120dd-ec97-447f-999a-bbcdba4dbb17",
+        "jobId": "5a60800b-1f2f-46b2-880a-40b4f3c94d90",
+        "deepAnalysisRunDbId": "148ae20c-3893-41dd-8671-f1703bca5d46",
+        "runId": "da-20260729T124120129Z-1e890da8-d644-410b-b1be-0a0eab41986f",
+        "status": "failed",
+        "jobStatus": "dead_letter",
+        "errorCode": "primary_validation_failed",
+        "errorMessage": "$.axis_assessments.industry: condition_found requires at least one criterion.",
+        "auditCalled": false,
+        "costUsd": 0.271466,
+        "decision": "재튜닝·재실행하지 않고 fail-closed 유지"
+      },
+      {
+        "grantId": "47989069-9d3c-47ef-86e3-3b4a674ebb84",
+        "jobId": "b7f422fb-2f09-4386-9a57-4ab06e088e55",
+        "deepAnalysisRunDbId": "8b96f4ff-b145-49a4-b61c-30ab394dc0b3",
+        "runId": "da-20260729T124403947Z-70ea7164-b965-4b88-8faf-13391656ba7e",
+        "status": "passed",
+        "stagePassCount": 12,
+        "auditVerdict": "concur",
+        "auditItemCount": 22,
+        "primaryValidationIssueCount": 0,
+        "auditValidationIssueCount": 0,
+        "criterionCount": 15,
+        "allEvidenceExact": true,
+        "costUsd": 0.432343,
+        "promotionEligible": false,
+        "promotionBlocker": "CQ2 실험 policy는 운영 v23 release로 승격할 수 없음"
+      }
+    ],
+    "totalCostUsd": 0.703809
+  },
+  "productionPolicyRecheck": {
+    "reason": "CQ2 결과를 운영 gate로 우회하지 않고 동일 봉인 Bizinfo 입력 1건만 v23으로 재확인",
+    "newNoticeCount": 0,
+    "claimGrantIds": [
+      "47989069-9d3c-47ef-86e3-3b4a674ebb84"
+    ],
+    "claimCohortSha256": "8c4bb3b2689a6ee8590e351e4942347b6d5d0f00506751e8a98a495459748ab9",
+    "modelPolicyVersion": "deep-analysis-model-policy-v23",
+    "primary": {
+      "model": "claude-opus-4-8",
+      "effort": "high"
+    },
+    "audit": {
+      "model": "claude-sonnet-5",
+      "effort": "high"
+    },
+    "jobId": "ea1fe268-ae3f-4b6e-af7d-e2900a484032",
+    "deepAnalysisRunDbId": "bb10626d-ed01-4c8d-aa34-11f4598bda23",
+    "runId": "da-20260729T125040741Z-49f31a21-7857-460b-8d0f-fb910c222276",
+    "status": "passed",
+    "stagePassCount": 12,
+    "stageFailCount": 0,
+    "auditVerdict": "concur",
+    "auditItemCount": 22,
+    "primaryValidationIssueCount": 0,
+    "auditValidationIssueCount": 0,
+    "criterionCount": 13,
+    "exactEvidenceVerifiedCount": 13,
+    "exceptionCount": 0,
+    "costUsd": 0.695808
+  },
+  "promotionGate": {
+    "releasePrepared": false,
+    "releaseRowsCreated": 0,
+    "criteriaWrites": 0,
+    "result": "FAIL_CLOSED",
+    "conversion": {
+      "inputRows": 13,
+      "converted": 13,
+      "dropped": 0,
+      "downgraded": 1,
+      "pending": 0,
+      "droppedQuestionCandidates": 0,
+      "confirmedCorrect": 13
+    },
+    "blocker": {
+      "sourceCriterion": {
+        "dimension": "premises",
+        "kind": "required",
+        "operator": "text_only",
+        "sourceSpan": "※ 단, 전남 이외의 지역사업에 참여할 경우 사업기간 종료일까지 영광군 내로 입주를 완료하여야 함 (제출서류 중 이전 확약서 작성 및 제출)"
+      },
+      "convertedCriterion": {
+        "dimension": "other",
+        "kind": "exclusion",
+        "operator": "text_only",
+        "needsReview": true
+      },
+      "semanticRisk": "전남 6개월 영위 또는 영광군 이전 확약이라는 대안 조건을 hard region과 unresolved premises로 분리해 발행하면, 이전 확약으로 신청 가능한 전남 외 기업을 matcher가 부정확하게 탈락시킬 수 있음",
+      "decision": "gate 완화·criterion 삭제·OR 조건 신규 구현 없이 사람 판단 대상으로 보류"
+    }
+  },
+  "costSummary": {
+    "exactTwoExperimentUsd": 0.703809,
+    "productionPolicyRecheckUsd": 0.695808,
+    "totalUsd": 1.399617,
+    "allInvocationsWithinPerNoticeCap": true
+  },
+  "landingVerification": {
+    "request": "POST http://127.0.0.1:4010/api/web/teaser",
+    "businessNumber": "746-**-00***",
+    "httpStatus": 200,
+    "durationSeconds": 0.885093,
+    "evaluatedGrantCount": 1,
+    "returnedMatchCount": 1,
+    "newNoticePromotedCount": 0,
+    "returnedDeepPromotedCount": 1,
+    "returnedGrantId": "c418c645-53ae-4cd9-959d-4ae5d5fe4d4f",
+    "eligibility": "conditional",
+    "recommendationTier": "needs_core_review",
+    "criterionCount": 5,
+    "verdict": "PASS_EXISTING_DEEP_ONLY_PATH_UNCHANGED"
+  },
+  "goalAssessment": {
+    "exactTwoAnalyzed": "PASS_2_OF_2_ATTEMPTED",
+    "deepAnalysisAndIndependentAuditPassed": "PARTIAL_1_OF_2",
+    "safeFailureHandling": "PASS_2_OF_2_FAIL_CLOSED_BOUNDARIES_OBSERVED",
+    "newDeepPromotedActiveNotices": "STOP_0_OF_2",
+    "landingDeepPromotedCoverage": "UNCHANGED_1_NOTICE",
+    "overall": "CHECKPOINT_COMPLETE_COVERAGE_GOAL_NOT_ADVANCED"
+  },
+  "overengineeringAssessment": {
+    "verdict": "STOPPED_BEFORE_OVERENGINEERING",
+    "avoided": [
+      "K-Startup 실패 공고 반복 prompt 튜닝",
+      "CQ2 실험 결과의 운영 policy 우회 승격",
+      "단일 공고를 위한 OR 표현식·premises 프로필 스키마·새 Ops workflow 구현",
+      "위험한 criterion 삭제 또는 promotion gate 완화",
+      "세 번째 공고로 cohort 확대"
+    ],
+    "nextDecision": "이번 2건 결과를 리뷰한 뒤, 사람 분류로 이 공고의 지역 대안 조건을 안전하게 표현할지 또는 다른 활성 공고 2건으로 다음 bounded checkpoint를 열지 결정"
+  }
+}

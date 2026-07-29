@@ -5479,6 +5479,52 @@ promotion provenance가 있는 공고는 0건이었다. 즉 사업자번호 → 
   `docs/evidence/deep-analysis/aq7-landing-deep-only-2026-07-29.json`에
   기록했다.
 
+### AQ8 활성 공고 exact 2건 분석·승격 게이트 — `ANALYSIS 1/2`, `PROMOTION 0/2`, `LANDING 1→1` (2026-07-29)
+
+AQ7에서 허용한 범위 그대로, 현재 활성 공고 두 건만 새로 봉인해 딥분석과 독립
+AI 검수를 실행했다. 입력 전문이 준비되지 않은 Bizinfo
+`PBLN_000000000123716`은 유료 호출 전에 제외했고, 입력 봉인이 완료된 K-Startup
+`178510`과 Bizinfo `PBLN_000000000124819`로 exact cohort를 확정했다. 새
+schema, matcher, Ops UI, worker 배포와 Vercel 배포는 없었다.
+
+실행 결과:
+
+1. CQ2 v7 비용·품질 조합은 두 건을 정확히 한 번씩 claim했다. K-Startup은
+   `industry=condition_found`인데 criterion이 없는 계약 오류를 deterministic
+   validator가 막아 `dead_letter`가 됐고 감사 호출은 하지 않았다. Bizinfo는
+   S0~S11 `12/12`, Haiku 감사 `concur`, primary/audit validation issue 0으로
+   통과했다. 합계 비용은 `$0.703809`다.
+2. CQ2 실험 policy를 운영 승격에 우회 사용하지 않았다. 같은 Bizinfo sealed
+   input 한 건만 운영 v23(Opus 4.8 primary/Sonnet 5 audit)으로 재확인했고
+   S0~S11 `12/12`, 감사 `concur`, exact evidence `13/13`, 비용
+   `$0.695808`로 통과했다.
+3. release 준비는 쓰기 전에 fail-closed됐다. 13개 criterion 중 드롭·미확정·질문
+   손실은 0이지만 `premises/text_only` 한 건이 현행 발행 adapter에서
+   `other/text_only + needs_review`로 강등됐다. release 원장과 criteria write는
+   0건이다.
+
+차단된 문구는 `공고일 현재 전남에서 6개월 이상 사업 영위` 조건과 함께,
+`전남 이외 지역 참여 기업은 사업 종료일까지 영광군 입주 확약`을 허용한다.
+모델 결과를 그대로 발행하면 hard region이 먼저 적용되어 이전 확약으로 신청 가능한
+전남 외 기업을 부정확하게 탈락시킬 수 있다. 독립 감사 `concur`만으로 이 교차 criterion
+의 OR 의미가 matcher에 보존됐다고 볼 수 없으므로 자동 승격하지 않는다.
+
+랜딩과 목표 판정:
+
+- 동일 개발 서버의 실제 사업자번호 요청은 `200 / 0.885093s`, 딥분석 승격 공고
+  1건 평가·1건 반환이다. 위험한 새 criterion이 노출되지 않았고 AQ7의 deep-only
+  경로는 정상이다.
+- 새 활성 공고 분석·감사 성공은 `0→1건`이지만 새 승격은 `0건`, 랜딩 coverage는
+  `1→1건`이다. 따라서 exact 2건 실행 체크포인트는 완료했지만 coverage 목표는
+  전진하지 못했다.
+- K-Startup 반복 튜닝, 실험 policy 우회, promotion gate 완화, criterion 삭제,
+  단일 공고를 위한 OR 조건·premises 프로필·새 Ops workflow 구현과 세 번째 공고
+  확대는 모두 하지 않았다. 현재 시점에서 이를 구현하면 목표 대비 과하다.
+- 이 공고는 지역 대안 조건을 사람이 안전하게 분류할 때까지 보류한다. 다음 bounded
+  공고를 더 분석할지는 이번 2건 결과를 리뷰한 뒤 별도 체크포인트로 결정한다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/aq8-exact-2-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달
