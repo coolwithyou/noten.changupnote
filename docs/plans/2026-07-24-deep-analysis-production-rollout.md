@@ -5099,6 +5099,100 @@ manifest SHA를 실행 전 고정했다.
   `prior_award`·`financial_health` typed 계약 유효성 두 가지뿐이다.
 - 요약 evidence는 `docs/evidence/deep-analysis/aq4-r1-2026-07-29.json`에 기록했다.
 
+### AQ5-A blind audit typed 계약 복원 — `CODE PASS`, `EXACT 2 AUDIT OFFLINE VALID 2/2` (2026-07-29)
+
+AQ4-R1에서 확인한 audit 오류 네 건만 대상으로, validator를 완화하지 않고 sealed
+exact evidence로 의미가 하나로 결정되는 축약 value를 현재 typed criterion 계약으로
+복원했다. primary extractor, matcher, landing과 serving은 변경하지 않았다.
+
+구현 경계:
+
+1. `financial_health.impairment_excluded`의 `partial|full` scalar는 같은 값을 가진
+   단일 원소 배열로만 복원한다. 다른 scalar나 알 수 없는 값은 계속 invalid다.
+2. 센터·보육 입주 이력은 exact span에 해당 의미가 있을 때만
+   `scope=self`, `channel=incubation_tenancy`로 복원한다. 해당·당해·동일연도
+   중복지원 문구는 `scope=self`, `self_kind=same_year_other_support`,
+   `channel=general`로 복원한다.
+3. `최근 5년간 100억 원 이상 지원`처럼 금액 임계가 붙어 현재 `prior_award`
+   matcher 계약으로 무손실 표현할 수 없는 행은 임의 scope를 만들지 않고
+   `other/text_only exclusion`과 exact note로 보존한다. 범위를 결정할 수 없는
+   일반 수혜 이력은 계속 invalid로 fail-closed 처리한다.
+4. 모델이 작성한 resolved 원본은 `audit_authored_criteria`, 적용한 규칙은
+   `audit_contract_repairs`에 함께 보존한다. 실제 validator 입력만 복원된
+   `criteria`를 사용한다.
+5. audit 계약은 `deep-analysis-audit-candidates-v3`, prompt는
+   `deep-analysis-blind-audit-v15`, artifact는 `deep-analysis-blind-audit-v6`,
+   정책은 이 체크포인트에서 `deep-analysis-model-policy-v21`과
+   `deep-analysis-model-policy-cq2-v5`로 올렸다.
+
+보존 artifact 재생:
+
+- K-Startup `178488`은 `prior_award` scope 오류 1건을
+  `prior_award_incubation_tenancy_scope`로 복원해 audit validation
+  `invalid → valid`, 남은 issue 0건이다.
+- Bizinfo `PBLN_000000000117792`는 자본잠식 scalar, 해당연도 중복지원 scope,
+  100억 원 임계 세 행을 각각 배열·self scope·other/text_only로 복원해 audit
+  validation `invalid → valid`, 남은 issue 0건이다.
+- 모호한 일반 과거 수혜 exclusion fixture는 scope를 자동 생성하지 않았고 기존
+  `canonical_contract_invalid`를 유지했다.
+
+검증과 게이트:
+
+- focused audit/analyzer test, package build/runtime freshness,
+  `verify:deep-analysis-contract`, web typecheck, `git diff --check`가 PASS했다.
+- Anthropic 호출, DB/R2/promotion, Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다.
+- audit typed 계약과 exact 2 offline validation은 GO다. primary를 새로 실행하지
+  않았으므로 exact 2 end-to-end는 계속 STOP이며 배포·cohort 확대는 열지 않는다.
+- 코드 체크포인트는 `aff5e536fdeafd7177f995a47ba4b963c48ffde4`, 요약 evidence는
+  `docs/evidence/deep-analysis/aq5-a-2026-07-29.json`이다.
+
+### AQ5-B primary exact-span·axis repair 입력 — `CODE PASS`, `EXACT 2 HINT COVERAGE 5/5`, `NO PAID RERUN` (2026-07-29)
+
+AQ4-R1 primary의 `evidence_not_grounded` 다섯 건과 K-Startup
+`axis_criterion_mismatch` 두 건만 repair 경계에서 다뤘다. normalizer의 unique
+candidate 규칙과 validator는 그대로 유지하며, 서버가 모델 결과를 자동 수정하지
+않는다.
+
+구현 경계:
+
+1. 실패한 `$.criteria[n].source_span`마다 sealed evidence 안의 exact raw substring
+   후보를 만든다. 기존 unique whitespace·bullet·JSON escape 경로에 더해, HWP 표의
+   여러 셀을 모델이 한 줄로 합쳤거나 OCR 어절 공백을 제거한 경우 요청 어절이 한
+   source block 안에서 같은 순서로 모두 존재하는 exact 연속 구간만 후보로 만든다.
+2. 여러 후보가 있으면 자동 선택하지 않는다. 최대 8개를 짧은 exact substring
+   우선으로 repair 입력에 넣고, 모델이 criterion을 충분히 뒷받침하는 가장 짧은
+   후보 하나를 글자 그대로 사용하도록 한다. 후보를 합치거나 다시 쓰는 것은
+   금지한다.
+3. 축 불일치는 실제 조건이 있으면 같은 축 criterion을 만들고
+   `condition_found`를 유지하며, 없으면 criterion 없이
+   `inspected_no_condition`으로 고치도록 명시한다. 전체 22축 tool 결과를 다시
+   반환하고 같은 validator를 처음부터 통과해야 한다.
+4. repair는 `deep-analysis-repair-v2`, 정책은
+   `deep-analysis-model-policy-v22`와 `deep-analysis-model-policy-cq2-v6`로
+   올렸다. primary 초기 prompt, audit, matcher와 serving은 변경하지 않았다.
+
+보존 artifact 재생:
+
+- K-Startup의 evidence issue 4/4에 exact 후보가 생성됐다. criterion index
+  0·1·2는 후보 1개씩, 표를 합친 index 7은 후보 3개이며 가장 짧은 후보가 실제
+  업종 표 구간이다. `founder_trait`, `premises` 축 불일치 두 건도 validator issue와
+  전용 교정 지시가 함께 repair 입력에 남는다.
+- Bizinfo의 `사업영위 기간 10년 이상 5` issue 1/1은 exact
+  `사업영위 기간\n(5점)\n10년 이상\n5` 후보로 해소 가능함을 확인했다.
+- 합계 evidence issue 5/5에 exact 후보를 제공했다. 이는 repair 입력 계약의
+  오프라인 증명이며 실제 모델이 수정 결과를 반환했다는 증명은 아니다.
+
+검증과 게이트:
+
+- focused repair/analyzer test, package build/runtime freshness,
+  `verify:deep-analysis-contract`, web typecheck, `git diff --check`가 PASS했다.
+- Anthropic 호출, DB/R2/promotion, Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다.
+- repair 입력 coverage는 GO다. 실제 publishable primary와 두 agent 합의는 같은
+  exact 2를 새 정책으로 한 번만 재실행하기 전까지 STOP이다. 추가 공고, CQ3,
+  cohort 확대와 배포는 열지 않는다.
+- 코드 체크포인트는 `f957533476c51d783221fa9c8ffe133e7b92b680`, 요약 evidence는
+  `docs/evidence/deep-analysis/aq5-b-2026-07-29.json`이다.
+
 중단 조건:
 
 - 동결 80 품질 미달

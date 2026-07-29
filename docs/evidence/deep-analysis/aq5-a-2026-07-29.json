@@ -1,0 +1,88 @@
+{
+  "schema": "deep-analysis-aq5-a-summary-v1",
+  "generatedAt": "2026-07-29T08:04:34Z",
+  "checkpoint": "AQ5-A",
+  "status": "AUDIT_TYPED_CONTRACT_CODE_PASS_EXACT_TWO_OFFLINE_VALID_2_OF_2",
+  "commit": "aff5e536fdeafd7177f995a47ba4b963c48ffde4",
+  "sourceReceiptSha256": "cd35a1f7ac3cc3f327f55361eb16e5d41a213db5fed0a09f880c9b5d8d324483",
+  "scope": {
+    "changedVariable": "blind_audit_prior_award_and_financial_health_typed_contract",
+    "auditPromptChanged": true,
+    "auditContractChanged": true,
+    "auditArtifactSchemaChanged": true,
+    "primaryExtractorChanged": false,
+    "validatorRelaxed": false,
+    "matcherChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "auditContract": "deep-analysis-audit-candidates-v3",
+    "auditPrompt": "deep-analysis-blind-audit-v15",
+    "auditArtifactSchema": "deep-analysis-blind-audit-v6",
+    "defaultModelPolicyAtCheckpoint": "deep-analysis-model-policy-v21",
+    "costQualityExperimentPolicyAtCheckpoint": "deep-analysis-model-policy-cq2-v5",
+    "validator": "deep-analysis-validator-v4"
+  },
+  "deterministicRepairs": [
+    "financial_health_impairment_scalar_to_array",
+    "prior_award_incubation_tenancy_scope",
+    "prior_award_same_year_other_support_scope",
+    "prior_award_unsupported_monetary_threshold_to_text_only"
+  ],
+  "safetyBoundary": {
+    "requiresResolvedExactEvidence": true,
+    "ambiguousMissingScopeRemainsInvalid": true,
+    "unsupportedMonetaryThresholdPreservedAs": "other/text_only exclusion",
+    "authoredCriteriaPreserved": true,
+    "repairProvenancePreserved": true
+  },
+  "offlineArtifactReplay": {
+    "kstartup/178488": {
+      "artifactSha256": "378fa2d0d67e3fc07d9a9b6d9e8b312b2ab8eab13578ee77aad28eec8a3d8809",
+      "beforeValidationValid": false,
+      "afterValidationValid": true,
+      "repairCount": 1,
+      "repairCodes": [
+        "prior_award_incubation_tenancy_scope"
+      ],
+      "remainingIssueCount": 0
+    },
+    "bizinfo/PBLN_000000000117792": {
+      "artifactSha256": "409d7255c859890ff5a1ced0daddfa6e53489aa0ca7ad91aebd609d046b30a45",
+      "beforeValidationValid": false,
+      "afterValidationValid": true,
+      "repairCount": 3,
+      "repairCodes": [
+        "financial_health_impairment_scalar_to_array",
+        "prior_award_same_year_other_support_scope",
+        "prior_award_unsupported_monetary_threshold_to_text_only"
+      ],
+      "remainingIssueCount": 0
+    },
+    "validCount": 2,
+    "total": 2
+  },
+  "verification": {
+    "focusedAuditTest": "PASS",
+    "analyzerTest": "PASS",
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "gitDiffCheck": "PASS",
+    "anthropicCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "exactTwoAuditOfflineValidation": "GO_2_OF_2",
+    "exactTwoEndToEnd": "STOP_PRIMARY_NOT_RERUN",
+    "paidRerun": "NOT_RUN",
+    "deploymentAllowed": false,
+    "cohortExpansionAllowed": false
+  }
+}

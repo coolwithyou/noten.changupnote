@@ -1,0 +1,92 @@
+{
+  "schema": "deep-analysis-aq5-b-summary-v1",
+  "generatedAt": "2026-07-29T08:04:34Z",
+  "checkpoint": "AQ5-B",
+  "status": "PRIMARY_REPAIR_HINT_CODE_PASS_EXACT_TWO_OFFLINE_HINT_COVERAGE_5_OF_5",
+  "commit": "f957533476c51d783221fa9c8ffe133e7b92b680",
+  "sourceReceiptSha256": "cd35a1f7ac3cc3f327f55361eb16e5d41a213db5fed0a09f880c9b5d8d324483",
+  "scope": {
+    "changedVariable": "primary_exact_span_and_axis_mismatch_repair_input",
+    "primaryInitialPromptChanged": false,
+    "repairPromptChanged": true,
+    "normalizerAutoSelectionRelaxed": false,
+    "validatorRelaxed": false,
+    "auditChanged": false,
+    "matcherChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "repair": "deep-analysis-repair-v2",
+    "defaultModelPolicy": "deep-analysis-model-policy-v22",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v6",
+    "validator": "deep-analysis-validator-v4"
+  },
+  "repairBoundary": {
+    "exactCandidateSources": [
+      "unique_or_multiple_whitespace_normalized_raw_substrings",
+      "existing_trailing_bullet_resolution",
+      "structured_json_escaped_substrings",
+      "ordered_source_tokens_within_one_sealed_source_block"
+    ],
+    "automaticCandidateSelection": false,
+    "candidateLimitPerIssue": 8,
+    "candidateOrder": "shortest_exact_substring_first",
+    "axisMismatchInstruction": "emit a grounded criterion and keep condition_found, or remove the criterion and use inspected_no_condition",
+    "fullToolResultRequired": true
+  },
+  "offlineArtifactReplay": {
+    "kstartup/178488": {
+      "artifactSha256": "378fa2d0d67e3fc07d9a9b6d9e8b312b2ab8eab13578ee77aad28eec8a3d8809",
+      "evidenceNotGroundedIssueCount": 4,
+      "issuesWithExactCandidateHints": 4,
+      "candidateCountsByCriterionIndex": {
+        "0": 1,
+        "1": 1,
+        "2": 1,
+        "7": 3
+      },
+      "axisCriterionMismatchCount": 2,
+      "axisCriterionMismatchDimensions": [
+        "founder_trait",
+        "premises"
+      ]
+    },
+    "bizinfo/PBLN_000000000117792": {
+      "artifactSha256": "409d7255c859890ff5a1ced0daddfa6e53489aa0ca7ad91aebd609d046b30a45",
+      "evidenceNotGroundedIssueCount": 1,
+      "issuesWithExactCandidateHints": 1,
+      "candidateCountsByCriterionIndex": {
+        "28": 1
+      },
+      "axisCriterionMismatchCount": 0
+    },
+    "evidenceIssueCount": 5,
+    "issuesWithExactCandidateHints": 5,
+    "actualModelRepairCalls": 0,
+    "actualPrimaryValidationPassCount": 0
+  },
+  "verification": {
+    "focusedRepairTest": "PASS",
+    "analyzerTest": "PASS",
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "gitDiffCheck": "PASS",
+    "anthropicCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "exactTwoRepairInputCoverage": "GO_5_OF_5_EVIDENCE_ISSUES_AND_2_AXIS_ISSUES",
+    "actualModelRepair": "NOT_RUN",
+    "publishablePrimary": "STOP_UNTIL_EXACT_TWO_SINGLE_RERUN",
+    "twoAgentAgreement": "STOP_UNTIL_PRIMARY_VALID_AND_AUDIT_RERUN",
+    "deploymentAllowed": false,
+    "cohortExpansionAllowed": false
+  }
+}
