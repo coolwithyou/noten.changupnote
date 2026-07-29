@@ -5193,6 +5193,67 @@ candidate 규칙과 validator는 그대로 유지하며, 서버가 모델 결과
 - 코드 체크포인트는 `f957533476c51d783221fa9c8ffe133e7b92b680`, 요약 evidence는
   `docs/evidence/deep-analysis/aq5-b-2026-07-29.json`이다.
 
+### AQ5-R1 exact 2 단발 재검증 — `PRIMARY + MATCHER GO 2/2`, `AUDIT CONTRACT STOP 0/2` (2026-07-29)
+
+AQ5-A/B를 반영한 source commit
+`974a2f60c03e365872d2fd2b369d31fa9bab3374`에서 AQ4-R1과 같은 두 공고만
+정확히 한 번 재실행했다. 공고당 primary repair는 최대 1회만 허용했고 실제 두
+공고 모두 1회를 사용했다. 추가 공고, 재실행, 배포와 production write는 열지 않았다.
+
+입력과 비용 경계:
+
+1. K-Startup `178488`은 재수집으로 `rawPayload.detail.fetched_at`과 내부 raw row
+   `id`만 바뀌어 input/source revision SHA가 갱신됐다. AQ4-R1 evidence와 현재
+   sealed structured source를 필드별로 대조했으며 의미 공고 내용과 첨부 manifest는
+   동일했다. Bizinfo 입력 세 SHA는 AQ4-R1과 모두 동일하다.
+2. 현재가 사전 예약은 primary 최대 출력, 공고당 repair 1회, audit와 adjudication
+   최대치를 합쳐 `$1.824150`으로 `$2.00` 상한 안이었다. 표준가 참고 추정은
+   `$2.276980`이며 실제 실행 비용은 `$0.667869`다.
+3. DB, R2, promotion, Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다. raw receipt
+   SHA-256은
+   `38664deebdfd3d84762244ea3201e40d138ddfaadb4d9434bb923c62d87e6c83`다.
+
+Primary와 매칭 결과:
+
+- K-Startup은 repair 뒤 validator issue 0, 22축, raw criterion 14개와 validated
+  canonical criterion 12개로 valid다. 원문의 창업 3년 조건은
+  `biz_age max_months=36`으로 보존되어 deterministic checkpoint를 통과했다.
+- Bizinfo는 repair 뒤 validator issue 0, 22축, canonical criterion 33개로 valid다.
+  required/exclusion 16개, preferred 17개이며 region과 size를 포함한 복합 HWP
+  checkpoint를 통과했다.
+- 실제 `matchGrantCriteria`에 validator의 canonical criterion을 넣은 smoke에서
+  K-Startup 12/12, Bizinfo 33/33 rule trace가 생성됐다. 즉 이번 primary 결과는
+  형식적으로 publish 가능한 딥분석이며 기존 매처가 소비할 수 있다. 테스트 회사에
+  대한 개별 eligible/ineligible 값은 통합 랜딩 정확도 판정이 아니라 소비 경로
+  smoke 증거로만 본다.
+
+AI 자동 검수 차단:
+
+- 두 fresh Haiku audit 모두 원문 후보를 만들었지만 `prior_award`의
+  `scope=self` 형태에서 typed 계약을 위반해 invalid다. K-Startup은 센터 기입주
+  이력을 `self_kind=same_program`으로 만들었고, Bizinfo는 해당연도 동일분야
+  기수혜에 `self_kind`를 생략했다. AQ1 fail-closed 경계가 둘 다 `unsure /
+  audit_invalid`로 차단했고 Opus adjudication은 실행하지 않았다.
+- AQ5-A의 deterministic repair는 `scope`가 없는 행만 대상으로 한다. 새 출력은
+  둘 다 `scope=self`가 이미 있어 repair 함수의 조기 반환에 걸렸고, exact span이
+  각각 `channel=incubation_tenancy`와
+  `self_kind=same_year_other_support, channel=general`로 하나의 의미를 정해도
+  기존 복원 규칙이 적용되지 않았다.
+- validator 완화나 새 의미 추론은 필요 없다. 다음 범위는 기존 exact-evidence
+  prior_award 복원을 `scope` 누락뿐 아니라 불완전하거나 지원되지 않는
+  `scope=self` 형태에도 적용하고, 이번 두 audit artifact를 오프라인 재생해
+  validation 2/2를 먼저 요구하는 것뿐이다.
+
+게이트 판정:
+
+- primary repair와 딥분석 내용 checkpoint는 GO 2/2다.
+- 딥분석 canonical criterion의 matcher 소비도 GO 2/2다.
+- invalid audit fail-closed는 PASS 2/2지만 서로 다른 두 평가 경로의 최종 합의는
+  STOP 0/2다. 따라서 production 자동 검수 완료나 end-to-end 준비 완료로
+  판정하지 않는다.
+- 추가 유료 재실행, 배포, cohort 확대, production policy 전환은 하지 않는다.
+  요약 evidence는 `docs/evidence/deep-analysis/aq5-r1-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달

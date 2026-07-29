@@ -1,0 +1,225 @@
+{
+  "schema": "deep-analysis-aq5-r1-summary-v1",
+  "generatedAt": "2026-07-29T09:14:12.536Z",
+  "checkpoint": "AQ5-R1",
+  "status": "PRIMARY_AND_MATCHER_PASS_2_OF_2_AUDIT_CONTRACT_STOP_0_OF_2",
+  "sourceCommit": "974a2f60c03e365872d2fd2b369d31fa9bab3374",
+  "scope": {
+    "noticeCount": 2,
+    "singleExecution": true,
+    "reruns": 0,
+    "maximumRepairAttemptsPerNotice": 1,
+    "primaryModel": "claude-sonnet-5",
+    "primaryEffort": "high",
+    "auditModel": "claude-haiku-4-5-20251001",
+    "auditEffort": null,
+    "adjudicationModel": "claude-opus-5",
+    "adjudicationEffort": "high",
+    "databaseWriteMode": false,
+    "objectStorageWriteMode": false,
+    "productionPromotionWriteMode": false
+  },
+  "versions": {
+    "modelPolicy": "deep-analysis-model-policy-cq2-v6",
+    "prompt": "deep-analysis-v11",
+    "auditPrompt": "deep-analysis-blind-audit-v15",
+    "auditContract": "deep-analysis-audit-candidates-v3",
+    "auditAdjudication": "deep-analysis-audit-adjudication-v16",
+    "findingVerifier": "deep-analysis-audit-finding-verifier-v2",
+    "uncertaintyVerifier": "deep-analysis-audit-uncertainty-verifier-v1",
+    "validator": "deep-analysis-validator-v4",
+    "repair": "deep-analysis-repair-v2",
+    "costPolicy": "deep-analysis-cost-policy-v2"
+  },
+  "preflight": {
+    "hardCapUsd": 2,
+    "currentPricingEstimateUsd": 1.82415,
+    "standardPricingEstimateUsd": 2.27698,
+    "exactInputCount": 2,
+    "sealedInputCount": 2,
+    "includedAttachmentCounts": [
+      "2/2",
+      "1/1"
+    ],
+    "repairReservation": "One primary repair per notice was included in the current-price estimate."
+  },
+  "execution": {
+    "startedAt": "2026-07-29T09:07:59.750Z",
+    "completedAt": "2026-07-29T09:14:12.536Z",
+    "actualCostUsd": 0.667869,
+    "postPrimaryProjectedUsd": 1.7853,
+    "receiptSha256": "38664deebdfd3d84762244ea3201e40d138ddfaadb4d9434bb923c62d87e6c83",
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "inputIdentity": {
+    "kstartup/178488": {
+      "inputSha256": "32f6e74f24266cafd22ace0e362356ca98939914da4dcae75731b32c30a70724",
+      "sourceRevisionSha256": "d4bd9ab2677dccd624f6f96ac2e76fea2704f434b7054b1f34398d1a21bed8ee",
+      "attachmentManifestSha256": "2cfdbde2ee85b38dcec778f092b6dd1109ab780f9ffa8d6be1521835eefadb61",
+      "aq4InputSha256": "1dae572b3f2d41a604458e78d160cebf1d397d4c296dc526ac4c96a958cc79d5",
+      "aq4SourceRevisionSha256": "9b9a16b7c9d07295775c716b355ea6ffedaa800f08785f4fa0973395dd87c09c",
+      "drift": [
+        "$.rawPayload.detail.fetched_at",
+        "$.rawPayload.id"
+      ],
+      "semanticSourceContentChanged": false,
+      "attachmentManifestChanged": false
+    },
+    "bizinfo/PBLN_000000000117792": {
+      "inputSha256": "f6ae1ab2f139c5dff6931dfdcfdfde87d92c01db3af7c7adc059aca490302e4d",
+      "sourceRevisionSha256": "f55a8b0e42c6abffd65d6dc10fd40c1d696d72ad6a515f6b98d74b14baf19ef0",
+      "attachmentManifestSha256": "14157d280e01adf670a6bea9d3cac612f20ec061b897be95072ec95b12ba1af5",
+      "aq4InputChanged": false
+    }
+  },
+  "items": [
+    {
+      "key": "kstartup/178488",
+      "title": "전북센터 2026년 제2차 BI입주기업 신규 모집공고(~7.31까지)",
+      "primary": {
+        "repairCount": 1,
+        "validationValid": true,
+        "issueCount": 0,
+        "axisCount": 22,
+        "rawCriterionCount": 14,
+        "validatedCanonicalCriterionCount": 12,
+        "costUsd": 0.240986
+      },
+      "deterministicCheckpoint": {
+        "pass": true,
+        "expected": "A grounded biz_age criterion retaining the explicit 36-month upper bound",
+        "observedBizAgeCriterionCount": 1
+      },
+      "matchingSmoke": {
+        "attempted": true,
+        "criteriaExtracted": true,
+        "criteriaCount": 12,
+        "ruleTraceCount": 12,
+        "allValidatedCriteriaConsumed": true,
+        "eligibility": "ineligible",
+        "reviewTier": "not_recommended"
+      },
+      "audit": {
+        "costUsd": 0.02646,
+        "validationValid": false,
+        "verdict": "unsure",
+        "adjudicationDisposition": "audit_invalid",
+        "issueCount": 2,
+        "issues": [
+          {
+            "path": "$.criteria[8].value.self_kind",
+            "message": "self scope requires a valid self_kind or channel=incubation_tenancy."
+          },
+          {
+            "path": "$.criteria[8].value.self_kind",
+            "message": "contains an unknown prior_award self kind."
+          }
+        ],
+        "authoredValue": {
+          "scope": "self",
+          "self_kind": "same_program",
+          "states": [
+            "completed",
+            "participating"
+          ]
+        },
+        "expectedNarrowRepair": {
+          "scope": "self",
+          "channel": "incubation_tenancy"
+        }
+      },
+      "actualCostUsd": 0.267446,
+      "artifactSha256": "ae520e919d9a187e79f23630bab133dfe526daedd3c49b91a8f48d70272a618e",
+      "endToEndGate": "STOP"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000117792",
+      "title": "[대전] 2026년 상반기 중소기업 창업 및 경쟁력강화사업자금 지원 공고",
+      "primary": {
+        "repairCount": 1,
+        "validationValid": true,
+        "issueCount": 0,
+        "axisCount": 22,
+        "rawCriterionCount": 33,
+        "validatedCanonicalCriterionCount": 33,
+        "costUsd": 0.349214
+      },
+      "deterministicCheckpoint": {
+        "pass": true,
+        "expected": "HWP-derived eligibility plus scoring and preference criteria including region and size",
+        "requiredOrExclusionCriterionCount": 16,
+        "preferredCriterionCount": 17
+      },
+      "matchingSmoke": {
+        "attempted": true,
+        "criteriaExtracted": true,
+        "criteriaCount": 33,
+        "ruleTraceCount": 33,
+        "allValidatedCriteriaConsumed": true,
+        "eligibility": "conditional",
+        "reviewTier": "needs_core_review"
+      },
+      "audit": {
+        "costUsd": 0.051209,
+        "validationValid": false,
+        "verdict": "unsure",
+        "adjudicationDisposition": "audit_invalid",
+        "issueCount": 1,
+        "issues": [
+          {
+            "path": "$.criteria[7].value.self_kind",
+            "message": "self scope requires a valid self_kind or channel=incubation_tenancy."
+          }
+        ],
+        "authoredValue": {
+          "scope": "self",
+          "states": [
+            "completed"
+          ]
+        },
+        "expectedNarrowRepair": {
+          "scope": "self",
+          "self_kind": "same_year_other_support",
+          "channel": "general"
+        }
+      },
+      "actualCostUsd": 0.400423,
+      "artifactSha256": "9336e30fcb0fc50f9fe2f4bf5d8658f6420e785044b37c92556493e2a16cc0a4",
+      "endToEndGate": "STOP"
+    }
+  ],
+  "aggregate": {
+    "primaryValidationPassCount": 2,
+    "deterministicContentCheckpointPassCount": 2,
+    "matchingSmokePassCount": 2,
+    "auditValidationPassCount": 0,
+    "adjudicationCompletedCount": 0,
+    "endToEndConcurrenceCount": 0,
+    "invalidAuditFailClosedCount": 2
+  },
+  "rootCause": {
+    "summary": "The AQ5-A deterministic audit repair only repairs prior_award rows whose value.scope is missing. Both fresh Haiku outputs already supplied scope=self, but one supplied an unsupported self_kind and the other omitted self_kind, so the function returned before applying exact-evidence repairs.",
+    "affectedBoundary": "repairDeepAnalysisAuditCriteriaContract prior_award early-return condition",
+    "validatorRelaxationRequired": false,
+    "additionalModelCapabilityRequired": false
+  },
+  "gate": {
+    "primaryRepair": "GO_2_OF_2",
+    "deepAnalysisContentCheckpoint": "GO_2_OF_2",
+    "matcherConsumption": "GO_2_OF_2",
+    "invalidAuditFailClosedBehavior": "PASS_2_OF_2",
+    "twoAgentAgreement": "STOP_0_OF_2",
+    "productionReadiness": "STOP",
+    "additionalPaidRerunPerformed": false,
+    "deploymentAllowed": false,
+    "productionPolicyChangeAllowed": false,
+    "nextScope": [
+      "Allow the existing exact-evidence audit prior_award repairs to replace incomplete or unsupported scope=self forms, not only missing scope.",
+      "Replay these two newly preserved audit artifacts offline and require audit validation 2/2 before deciding on another paid rerun."
+    ]
+  }
+}
