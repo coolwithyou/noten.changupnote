@@ -436,11 +436,38 @@ export function resolveExactEvidenceSpan(
   inputText: string,
 ): string | null {
   if (inputText.includes(requestedSpan)) return requestedSpan;
-  const direct = resolveNormalizedEvidenceCandidate(requestedSpan, inputText);
-  if (direct) return direct;
+  const directCandidates = findNormalizedEvidenceCandidates(requestedSpan, inputText);
+  if (directCandidates.length === 1) return directCandidates[0]!;
   const trailingBullet = resolveTrailingBulletEvidenceCandidate(requestedSpan, inputText);
   if (trailingBullet) return trailingBullet;
 
+  return findEscapedEvidenceCandidates(requestedSpan, inputText)[0] ?? null;
+}
+
+/**
+ * validator가 차단한 source_span을 repair할 때만 사용하는 exact 후보 목록이다.
+ * 공백 정규화 결과가 같은 raw substring이 여러 개면 자동 선택하지 않고 전부
+ * 반환한다. 일반 normalize 경계는 계속 후보가 하나일 때만 자동 복원한다.
+ */
+export function findExactEvidenceSpanCandidates(
+  requestedSpan: string,
+  inputText: string,
+): string[] {
+  if (inputText.includes(requestedSpan)) return [requestedSpan];
+  const directCandidates = findNormalizedEvidenceCandidates(requestedSpan, inputText);
+  if (directCandidates.length > 0) return directCandidates;
+  const trailingBullet = resolveTrailingBulletEvidenceCandidate(requestedSpan, inputText);
+  if (trailingBullet) return [trailingBullet];
+  const escapedCandidates = findEscapedEvidenceCandidates(requestedSpan, inputText);
+  if (escapedCandidates.length > 0) return escapedCandidates;
+  return findOrderedTokenEvidenceCandidates(requestedSpan, inputText)
+    .sort((left, right) => left.length - right.length || left.localeCompare(right));
+}
+
+function findEscapedEvidenceCandidates(
+  requestedSpan: string,
+  inputText: string,
+): string[] {
   const escapedCandidates = new Set<string>();
   for (const match of inputText.matchAll(JSON_STRING_LITERAL_PATTERN)) {
     const token = match[0];
@@ -460,7 +487,103 @@ export function resolveExactEvidenceSpan(
       escapedCandidates.add(encodedCandidate);
     }
   }
-  return escapedCandidates.values().next().value ?? null;
+  return [...escapedCandidates];
+}
+
+const DEEP_ANALYSIS_SOURCE_BODY_PATTERN =
+  /^<<<DEEP_ANALYSIS_SOURCE id="[^"]+" kind="(?:structured|attachment)" sha256="[0-9a-f]{64}">>>\n([\s\S]*?)\n<<<END_DEEP_ANALYSIS_SOURCE>>>$/gm;
+const MAX_ORDERED_TOKEN_EVIDENCE_CHARS = 8_000;
+const MAX_ORDERED_TOKEN_EVIDENCE_CANDIDATES = 16;
+
+/**
+ * 모델이 표의 여러 셀을 공백 한 줄로 이어 쓰거나 OCR 어절 공백을 제거한 경우의
+ * repair 전용 후보다. 요청 문자열의 의미를 해석하지 않고 2자 이상 어절(숫자 포함
+ * 어절과 문장 끝 어절은 1자 허용)이 원문에서 같은 순서로 모두 나타나는 구간만 exact
+ * substring으로 반환한다. 이 후보도 자동 채택하지 않고 repair 모델 입력에만 제공한다.
+ */
+function findOrderedTokenEvidenceCandidates(
+  requestedSpan: string,
+  inputText: string,
+): string[] {
+  const rawTokens = [...requestedSpan.matchAll(/[\p{Letter}\p{Number}%~]+/gu)]
+    .map((match) => match[0]);
+  const tokens = rawTokens
+    .filter((token) => token.length >= 2 || /\p{Number}/u.test(token));
+  const trailingToken = rawTokens.at(-1);
+  if (
+    trailingToken
+    && !tokens.includes(trailingToken)
+    && trailingToken.length === 1
+  ) {
+    tokens.push(trailingToken);
+  }
+  if (tokens.length < 3) return [];
+
+  const sourceBodies = [...inputText.matchAll(DEEP_ANALYSIS_SOURCE_BODY_PATTERN)]
+    .map((match) => match[1] ?? "")
+    .filter(Boolean);
+  const bodies = sourceBodies.length > 0 ? sourceBodies : [inputText];
+  const candidates = new Set<string>();
+  for (const body of bodies) {
+    const mapped = compactEvidenceWithOffsets(body);
+    const firstToken = tokens[0]!.replace(/\s+/g, "");
+    for (
+      let firstOffset = mapped.text.indexOf(firstToken);
+      firstOffset >= 0;
+      firstOffset = mapped.text.indexOf(firstToken, firstOffset + 1)
+    ) {
+      let cursor = firstOffset + firstToken.length;
+      let lastEnd = cursor;
+      let matched = true;
+      for (const token of tokens.slice(1)) {
+        const compactToken = token.replace(/\s+/g, "");
+        const offset = mapped.text.indexOf(compactToken, cursor);
+        if (offset < 0) {
+          matched = false;
+          break;
+        }
+        lastEnd = offset + compactToken.length;
+        cursor = lastEnd;
+      }
+      if (!matched) continue;
+      const start = mapped.starts[firstOffset];
+      const end = mapped.ends[lastEnd - 1];
+      if (
+        start === undefined
+        || end === undefined
+        || end <= start
+        || end - start > MAX_ORDERED_TOKEN_EVIDENCE_CHARS
+      ) continue;
+      candidates.add(body.slice(start, end));
+      if (candidates.size >= MAX_ORDERED_TOKEN_EVIDENCE_CANDIDATES) {
+        return [...candidates];
+      }
+    }
+  }
+  return [...candidates];
+}
+
+function compactEvidenceWithOffsets(value: string): {
+  text: string;
+  starts: number[];
+  ends: number[];
+} {
+  const characters: string[] = [];
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let index = 0;
+  while (index < value.length) {
+    const whitespaceWidth = evidenceWhitespaceWidth(value, index, false);
+    if (whitespaceWidth > 0) {
+      index += whitespaceWidth;
+      continue;
+    }
+    characters.push(value[index]!);
+    starts.push(index);
+    ends.push(index + 1);
+    index += 1;
+  }
+  return { text: characters.join(""), starts, ends };
 }
 
 /**
@@ -492,8 +615,21 @@ function resolveNormalizedEvidenceCandidate(
   inputText: string,
   decodeEscapedWhitespace = false,
 ): string | null {
+  const candidates = findNormalizedEvidenceCandidates(
+    requestedSpan,
+    inputText,
+    decodeEscapedWhitespace,
+  );
+  return candidates.length === 1 ? candidates[0]! : null;
+}
+
+function findNormalizedEvidenceCandidates(
+  requestedSpan: string,
+  inputText: string,
+  decodeEscapedWhitespace = false,
+): string[] {
   const needle = normalizeEvidence(requestedSpan);
-  if (needle.length < 2) return null;
+  if (needle.length < 2) return [];
   const mapped = normalizeEvidenceWithOffsets(inputText, decodeEscapedWhitespace);
   const candidates = new Set<string>();
   for (
@@ -507,7 +643,7 @@ function resolveNormalizedEvidenceCandidate(
       candidates.add(inputText.slice(start, end));
     }
   }
-  return candidates.size === 1 ? [...candidates][0]! : null;
+  return [...candidates];
 }
 
 /**

@@ -19,10 +19,10 @@ import {
 } from "./index.js";
 
 assert.equal(DEEP_ANALYSIS_ACTIVE_POLICY_VERSION, "deep-analysis-active-kst-v2");
-assert.equal(DEEP_ANALYSIS_MODEL_POLICY_VERSION, "deep-analysis-model-policy-v21");
+assert.equal(DEEP_ANALYSIS_MODEL_POLICY_VERSION, "deep-analysis-model-policy-v22");
 assert.equal(
   DEEP_ANALYSIS_COST_QUALITY_EXPERIMENT_POLICY_VERSION,
-  "deep-analysis-model-policy-cq2-v5",
+  "deep-analysis-model-policy-cq2-v6",
 );
 
 assert.doesNotThrow(() => assertDeepAnalysisModelPair({
