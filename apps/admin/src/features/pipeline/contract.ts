@@ -11,16 +11,19 @@ export const DEEP_PIPELINE_BUCKETS = [
   "serving_complete_fresh",
   "analysis_complete_not_published",
   "in_progress",
+  "human_review_required",
   "blocked_or_failed",
   "stale",
 ] as const
 
 export type DeepPipelineBucket = (typeof DEEP_PIPELINE_BUCKETS)[number]
+export type DeepPipelineTerminalRoute = "human_review_required"
 
 export const DEEP_PIPELINE_BUCKET_LABELS: Record<DeepPipelineBucket, string> = {
   serving_complete_fresh: "서빙 완료·최신",
   analysis_complete_not_published: "분석 완료·미발행",
   in_progress: "대기·진행 중",
+  human_review_required: "사람 검토 필요",
   blocked_or_failed: "차단·실패",
   stale: "원문 변경·stale",
 }
@@ -315,6 +318,7 @@ export interface DeepPipelineNoticeItem {
   costUsd: number | null
   axisCounts: Record<DeepAnalysisAxisStatus, number>
   auditVerdict: string | null
+  terminalRoute: DeepPipelineTerminalRoute | null
   publicationStatus: string | null
   updatedAt: string
 }

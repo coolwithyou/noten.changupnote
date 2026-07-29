@@ -117,7 +117,12 @@ export function DeepNoticeSheet({
         ) : detail ? (
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
             <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 border-b bg-popover py-3">
-              <Badge variant={detail.notice.bucket === "blocked_or_failed" ? "destructive" : "secondary"}>
+              <Badge
+                variant={detail.notice.bucket === "blocked_or_failed" ? "destructive" : "secondary"}
+                className={detail.notice.bucket === "human_review_required"
+                  ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                  : undefined}
+              >
                 {DEEP_PIPELINE_BUCKET_LABELS[detail.notice.bucket]}
               </Badge>
               <Badge variant="outline">job {detail.notice.jobStatus ?? "없음"}</Badge>
@@ -137,6 +142,7 @@ export function DeepNoticeSheet({
               ) : null}
               {(role === "admin" || role === "owner")
                 && detail.notice.jobId
+                && detail.notice.terminalRoute !== "human_review_required"
                 && ["blocked", "dead_letter", "retry_wait", "pending_budget"].includes(detail.notice.jobStatus ?? "") ? (
                   <Button
                     size="sm"
@@ -148,6 +154,22 @@ export function DeepNoticeSheet({
                   </Button>
               ) : null}
             </div>
+
+            {detail.notice.terminalRoute === "human_review_required" ? (
+              <section className="my-3 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">
+                <div className="flex items-start gap-3">
+                  <UserRoundCheckIcon className="mt-0.5 size-5 shrink-0 text-amber-700 dark:text-amber-300" />
+                  <div>
+                    <strong>독립 AI 검수 결과를 사람이 확인해야 합니다</strong>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      1차 분석과 독립 감사의 자격 조건 판단이 일치하지 않아 자동 발행이
+                      차단됐습니다. 비용이 드는 재실행보다 아래 감사 탭에서 누락·충돌
+                      항목과 원문 근거를 먼저 비교하세요.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
             {detail.aggregateSplitCase ? (
               <section className="my-3 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">

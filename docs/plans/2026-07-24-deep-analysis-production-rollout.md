@@ -5698,3 +5698,40 @@ out-of-cohort run은 0, 추가 유료 재시도는 0, 총비용은 `$1.617569`�
   재시도와 Vercel 배포는 하지 않았다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r4-exact-2-2026-07-29.json`이다.
+
+### AQ13 R5 사람 검토 terminal route Ops 노출 — `CODE PASS`, `PAID CALL 0` (2026-07-30)
+
+AQ12에서 남긴 단일 운영 가시성 문제만 처리했다. 독립 감사 non-concur를 일반
+`dead_letter/실패`와 구분해 `/pipeline`의 `human_review_required` 버킷으로
+노출한다.
+
+구현과 경계:
+
+1. 새 schema/migration 없이 기존 append-only
+   `grant_deep_analysis_exception_events`를 DB 정본으로 사용한다. 앞으로 열리는
+   `independent_audit_disagreement`에는
+   `terminalRoute=human_review_required`,
+   `terminalReasonCode=audit_not_concur`를 detail에 봉인한다.
+2. Ops current projection은 최신 run의 audit이 `disagree|unsure`이고 동일 run의
+   사람 검토 예외 최신 이벤트가 `resolved`가 아닐 때만 전용 버킷을 만든다.
+   최초 blocker는 S10 `independent_audit_passed`로 고정한다.
+3. 관리자 첫 작업 카드·목록 badge·상세 안내에서 사람 검토를 기술 실패와 분리했다.
+   이 route에서는 비용만 반복할 수 있는 단순 재실행 버튼을 숨기고 감사 탭의
+   누락·충돌 근거를 먼저 비교하도록 안내한다.
+4. R4 `178435`의 audit `disagree`, 열린 예외 원장, terminal run은 실DB에
+   보존돼 있다. 다만 `apply_end=2026-07-29`가 지나 2026-07-30 현재 활성 공고
+   관제에서는 제외된다. 실DB read-only 검증은 활성 `606`, 버킷 분류 `606`,
+   `human_review_required=0`으로 보존 법칙을 통과했다.
+
+검증:
+
+- admin deep-pipeline 계약 테스트 PASS
+- admin/web typecheck PASS
+- 전체 `verify:deep-analysis-contract` PASS
+- 실DB Ops summary/notices bucket count 일치 PASS
+- 전체 Ops verifier는 기존 active release drift 때문에 serving monitor
+  `checked 3/3`, `fresh 2`, `failed 1`로 FAIL이며 이번 변경에서 숨기거나
+  수정하지 않았다.
+
+유료 LLM 호출, DB/R2 mutation, migration, promotion, Cloud Run/Scheduler,
+Vercel 배포는 0이다.

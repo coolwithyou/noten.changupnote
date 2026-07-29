@@ -350,6 +350,7 @@ current_projection as (
     coalesce(axes.input_missing_count, 0)::int as input_missing_count,
     coalesce(axes.unassessed_count, 0)::int as unassessed_count,
     audit.verdict as audit_verdict,
+    review_route.terminal_route,
     coalesce(job.publication_status, promotion.publication_status) as publication_status,
     coalesce((
       job.id is not null
@@ -376,6 +377,21 @@ current_projection as (
   left join latest_audit audit on audit.grant_id = active.id
   left join latest_promotion promotion on promotion.grant_id = active.id
   left join lateral (
+    select
+      case
+        when event.event_type <> 'resolved'
+          and audit.verdict in ('disagree', 'unsure')
+          then 'human_review_required'
+        else null
+      end as terminal_route
+    from grant_deep_analysis_exception_events event
+    where event.run_id = run.id
+      and event.exception_key =
+        run.id::text || ':independent_audit_disagreement'
+    order by event.created_at desc, event.id desc
+    limit 1
+  ) review_route on true
+  left join lateral (
     select expected.stage
     from unnest(array[
       'source_fresh', 'attachment_inventory_complete', 'attachment_archive_complete',
@@ -400,6 +416,8 @@ pipeline_base as (
         or current.receipt_stale
         or current.run_status = 'stale'
         then 'stale'
+      when current.terminal_route = 'human_review_required'
+        then 'human_review_required'
       when current.serving_complete
         and current.analysis_fresh
         and current.run_source_revision_sha256 = current.job_source_revision_sha256
@@ -415,6 +433,8 @@ pipeline_base as (
     case
       when current.source_changed or current.receipt_stale or current.run_status = 'stale'
         then 'analysis_fresh'
+      when current.terminal_route = 'human_review_required'
+        then 'independent_audit_passed'
       when current.run_id is null then 'source_fresh'
       else current.receipt_blocking_stage
     end as first_blocking_stage
@@ -460,6 +480,7 @@ interface PipelineRow {
   input_missing_count: number
   unassessed_count: number
   audit_verdict: string | null
+  terminal_route: string | null
   publication_status: string | null
   job_updated_at: Date | null
   grant_updated_at: Date
@@ -1008,11 +1029,12 @@ export async function getDeepPipelineNotices(
      from filtered_pipeline
      order by
        case bucket
-         when 'blocked_or_failed' then 0
-         when 'stale' then 1
-         when 'analysis_complete_not_published' then 2
-         when 'in_progress' then 3
-         else 4
+         when 'human_review_required' then 0
+         when 'blocked_or_failed' then 1
+         when 'stale' then 2
+         when 'analysis_complete_not_published' then 3
+         when 'in_progress' then 4
+         else 5
        end,
        d_day asc nulls last,
        grant_id
@@ -1592,6 +1614,9 @@ function mapNotice(row: PipelineRow): DeepPipelineNoticeItem {
       unassessed: Number(row.unassessed_count),
     },
     auditVerdict: row.audit_verdict,
+    terminalRoute: row.terminal_route === "human_review_required"
+      ? "human_review_required"
+      : null,
     publicationStatus: row.publication_status,
     updatedAt: (row.job_updated_at ?? row.grant_updated_at).toISOString(),
   }

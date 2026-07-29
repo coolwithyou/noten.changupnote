@@ -67,12 +67,13 @@ export function DeepPipelinePageView({
   const bucketCounts = new Map(
     initialSummary.buckets.map((bucket) => [bucket.key, bucket.count]),
   )
+  const humanReviewCount = bucketCounts.get("human_review_required") ?? 0
   const blockedCount = bucketCounts.get("blocked_or_failed") ?? 0
   const staleCount = bucketCounts.get("stale") ?? 0
   const unpublishedCount = bucketCounts.get("analysis_complete_not_published") ?? 0
   const inProgressCount = bucketCounts.get("in_progress") ?? 0
   const servingCount = bucketCounts.get("serving_complete_fresh") ?? 0
-  const manualActionCount = blockedCount + staleCount + unpublishedCount
+  const manualActionCount = humanReviewCount + blockedCount + staleCount + unpublishedCount
   const workerObserving = initialSummary.worker.executionMode === "observe_only"
 
   useEffect(() => {
@@ -208,26 +209,33 @@ export function DeepPipelinePageView({
             </Badge>
           </CardAction>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <ActionCard
+            count={humanReviewCount}
+            description="독립 AI 검수가 조건 누락이나 충돌을 발견했습니다. 재실행하지 말고 감사 내용을 사람이 확인합니다."
+            href="/pipeline?bucket=human_review_required"
+            label="1. 사람 검토"
+            tone={humanReviewCount > 0 ? "warning" : "quiet"}
+          />
           <ActionCard
             count={blockedCount}
-            description="재처리하거나 사람 예외 판단이 필요한 공고입니다."
+            description="기술 오류나 입력 문제로 멈춘 공고입니다. 원인을 확인한 뒤 재처리합니다."
             href="/pipeline?bucket=blocked_or_failed"
-            label="1. 차단·실패"
+            label="2. 차단·실패"
             tone={blockedCount > 0 ? "danger" : "quiet"}
           />
           <ActionCard
             count={staleCount}
             description="원문이나 첨부가 바뀌어 다시 분석해야 하는 공고입니다."
             href="/pipeline?bucket=stale"
-            label="2. 원문 변경"
+            label="3. 원문 변경"
             tone={staleCount > 0 ? "warning" : "quiet"}
           />
           <ActionCard
             count={unpublishedCount}
             description="분석은 끝났지만 아직 매칭 결과에 반영되지 않은 공고입니다."
             href="/pipeline?bucket=analysis_complete_not_published"
-            label="3. 발행 대기"
+            label="4. 발행 대기"
             tone={unpublishedCount > 0 ? "warning" : "quiet"}
           />
           <ActionCard
@@ -236,7 +244,7 @@ export function DeepPipelinePageView({
               ? `worker가 관측 모드라 작업을 가져오지 않습니다. 정책 갱신 대기 ${initialSummary.reanalysisRequiredCount.toLocaleString("ko-KR")}건을 포함해 활성화 여부를 결정해야 합니다.`
               : "자동 분석 중이거나 작업 순서를 기다리는 공고입니다."}
             href="/pipeline?bucket=in_progress"
-            label={workerObserving ? "4. 자동 분석 운영 결정" : "4. 자동 분석 진행"}
+            label={workerObserving ? "5. 자동 분석 운영 결정" : "5. 자동 분석 진행"}
             tone={workerObserving ? "warning" : "info"}
           />
         </CardContent>
@@ -422,11 +430,16 @@ export function DeepPipelinePageView({
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge variant={notice.bucket === "blocked_or_failed" ? "destructive" : "secondary"}>
+                    <Badge
+                      variant={notice.bucket === "blocked_or_failed" ? "destructive" : "secondary"}
+                      className={notice.bucket === "human_review_required"
+                        ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                        : undefined}
+                    >
                       {DEEP_PIPELINE_BUCKET_LABELS[notice.bucket]}
                     </Badge>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {analysisProgressLabel(notice.jobStatus, notice.runStatus)}
+                      {analysisProgressLabel(notice.bucket, notice.jobStatus, notice.runStatus)}
                     </p>
                     {notice.activeReleaseId ? (
                       <p className="text-xs text-muted-foreground">
@@ -465,9 +478,16 @@ export function DeepPipelinePageView({
                     </p>
                   </TableCell>
                   <TableCell>
-                    <span>{auditVerdictLabel(notice.auditVerdict)}</span>
+                    <span className={notice.terminalRoute === "human_review_required"
+                      ? "font-medium text-amber-800 dark:text-amber-300"
+                      : undefined}
+                    >
+                      {auditVerdictLabel(notice.auditVerdict)}
+                    </span>
                     <p className="text-xs text-muted-foreground">
-                      {publicationStatusLabel(notice.publicationStatus)}
+                      {notice.terminalRoute === "human_review_required"
+                        ? "자동 발행 차단 · 감사 내용 확인"
+                        : publicationStatusLabel(notice.publicationStatus)}
                     </p>
                   </TableCell>
                   <TableCell>
@@ -679,7 +699,12 @@ function publicationStatusLabel(value: string | null): string {
   }
 }
 
-function analysisProgressLabel(jobStatus: string | null, runStatus: string | null): string {
+function analysisProgressLabel(
+  bucket: string,
+  jobStatus: string | null,
+  runStatus: string | null,
+): string {
+  if (bucket === "human_review_required") return "딥분석 완료 · 사람 검토 대기"
   if (runStatus === "passed") return "딥분석 완료"
   if (runStatus === "running") return "LLM 분석 중"
   if (runStatus === "failed") return "LLM 분석 실패"

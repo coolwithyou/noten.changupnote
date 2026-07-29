@@ -37,6 +37,11 @@ assert.deepEqual(invalidQuery, {
   limit: 1,
 })
 
+const humanReviewQuery = parseDeepPipelineQuery(new URLSearchParams({
+  bucket: "human_review_required",
+}))
+assert.equal(humanReviewQuery.bucket, "human_review_required")
+
 const action = parseDeepPipelineActionRequest({
   requestId: "11111111-1111-4111-8111-111111111111",
   action: "claim_exception",

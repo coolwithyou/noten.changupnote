@@ -528,6 +528,8 @@ export async function processDeepAnalysisJob(input: {
   }).where(eq(schema.grantDeepAnalysisRuns.id, run.id));
   if (audit.verdict !== "concur") {
     await openException(input.db, run.id, actor, "independent_audit_disagreement", {
+      terminalRoute: "human_review_required",
+      terminalReasonCode: "audit_not_concur",
       verdict: audit.verdict,
       disagreements: audit.itemResults.filter((item) => item.verdict === "disagree"),
       auditArtifactKey: auditArtifact.key,
