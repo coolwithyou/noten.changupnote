@@ -1,0 +1,179 @@
+{
+  "schema": "deep-analysis-aq5-r2-summary-v1",
+  "generatedAt": "2026-07-29T09:51:51.353Z",
+  "checkpoint": "AQ5-R2",
+  "status": "ADJUDICATION_ONLY_EXECUTED_UNSURE_2_OF_2",
+  "sourceCommit": "05da76408127b0cefd5e9e6494a4def9002fea99",
+  "baselineReceiptSha256": "38664deebdfd3d84762244ea3201e40d138ddfaadb4d9434bb923c62d87e6c83",
+  "scope": {
+    "noticeCount": 2,
+    "primaryModelCalls": 0,
+    "blindAuditModelCalls": 0,
+    "adjudicationModel": "claude-opus-5",
+    "adjudicationEffort": "high",
+    "adjudicationNetworkCalls": 2,
+    "maximumNetworkCallsPerNotice": 1,
+    "automaticNetworkRetries": 0,
+    "databaseWriteMode": false,
+    "objectStorageWriteMode": false,
+    "productionPromotionWriteMode": false
+  },
+  "versions": {
+    "defaultModelPolicy": "deep-analysis-model-policy-v23",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v7",
+    "auditContract": "deep-analysis-audit-candidates-v4",
+    "adjudication": "deep-analysis-audit-adjudication-v16",
+    "findingVerifier": "deep-analysis-audit-finding-verifier-v2",
+    "uncertaintyVerifier": "deep-analysis-audit-uncertainty-verifier-v1",
+    "validator": "deep-analysis-validator-v4",
+    "costPolicy": "deep-analysis-cost-policy-v2"
+  },
+  "preflight": {
+    "hardCapUsd": 2,
+    "baselineActualCostUsd": 0.667869,
+    "reservePerNoticeUsd": 0.45,
+    "adjudicationReserveUsd": 0.9,
+    "projectedCumulativeCostUsd": 1.567869,
+    "exactArtifactCount": 2,
+    "primaryValidationPassCount": 2,
+    "auditValidationPassCount": 2,
+    "adjudicationNeededCount": 2
+  },
+  "execution": {
+    "startedAt": "2026-07-29T09:51:17.083Z",
+    "completedAt": "2026-07-29T09:51:51.353Z",
+    "adjudicationActualCostUsd": 0.342745,
+    "cumulativeActualCostUsd": 1.010614,
+    "receiptSha256": "6f802ac721a5d2c32141b941df689a3d913a3edb8d797246c203d019e8356516",
+    "preflightSha256": "4fa090fbaabca5e05f1dae0a5973efd00ee44d258924bd7db161a2841a19c2fa",
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "items": [
+    {
+      "key": "kstartup/178488",
+      "sourceArtifactSha256": "ae520e919d9a187e79f23630bab133dfe526daedd3c49b91a8f48d70272a618e",
+      "resultArtifactSha256": "b04bbe99eb5ae5d9577d0ca78ce61d1309b57274d715cb3f5d873225f1c28aae",
+      "primaryCriterionCount": 12,
+      "auditCriterionCount": 10,
+      "comparisonVerdict": "disagree",
+      "adjudicationVerdict": "unsure",
+      "findingValidation": {
+        "acceptedCount": 0,
+        "rejected": [
+          {
+            "dimension": "region",
+            "candidateKey": "687359329e62dbc9ba5f6f45b6ed740f631b86a5964184bbd5db01431820092b",
+            "code": "finding_type_mismatch",
+            "reason": "The primary has a region criterion on the exact same evidence, so the audit-only row cannot be verified as misclassified under the current same-evidence rule."
+          }
+        ]
+      },
+      "uncertaintyValidation": {
+        "retainedCount": 4,
+        "dismissedCount": 0,
+        "dimensions": [
+          {
+            "dimension": "region",
+            "boundary": "application locality requirement versus structured support-region metadata"
+          },
+          {
+            "dimension": "sanction",
+            "boundary": "generic government-support ineligibility wording without a canonical sanction flag"
+          },
+          {
+            "dimension": "business_status",
+            "boundary": "current closed status versus historical closure and restart"
+          },
+          {
+            "dimension": "target_type",
+            "boundary": "female-enterprise ownership trait versus legal applicant type and form-only checkboxes"
+          }
+        ]
+      },
+      "usage": {
+        "inputTokens": 22061,
+        "outputTokens": 1044
+      },
+      "actualCostUsd": 0.136405,
+      "gate": "UNSURE_NO_VERIFIED_BLOCKER"
+    },
+    {
+      "key": "bizinfo/PBLN_000000000117792",
+      "sourceArtifactSha256": "9336e30fcb0fc50f9fe2f4bf5d8658f6420e785044b37c92556493e2a16cc0a4",
+      "resultArtifactSha256": "34888a057d37dfcd8fe9c2581ccee99ba90b14f553e09634a2887c6d1df68388",
+      "primaryCriterionCount": 33,
+      "auditCriterionCount": 25,
+      "comparisonVerdict": "disagree",
+      "adjudicationVerdict": "unsure",
+      "findingValidation": {
+        "acceptedCount": 1,
+        "accepted": [
+          {
+            "dimension": "ip",
+            "candidateKey": "e4b98e885b4065d6c57fd01535b0f201b50f6124608b9be5314be98f3cf113f6",
+            "findingType": "missing_eligibility",
+            "reason": "The HWP scoring table awards points for recent patent, utility-model, new-technology, and related development results, while the primary emitted no IP criterion."
+          }
+        ],
+        "rejected": [
+          {
+            "dimension": "business_status",
+            "candidateKey": "8101e9ee92dde844afcbdc5aed430fb0128d317e8b43e2ff47f45efd4fe3c0f4",
+            "code": "finding_type_mismatch",
+            "reason": "The current verifier did not treat the audit's larger containing source span as the same evidence as the primary's nested closed-status span."
+          }
+        ]
+      },
+      "uncertaintyValidation": {
+        "retainedCount": 1,
+        "dismissedCount": 0,
+        "dimensions": [
+          {
+            "dimension": "biz_age",
+            "boundary": "eligibility or preference criterion versus applicability partition for different evaluation rubrics"
+          }
+        ]
+      },
+      "usage": {
+        "inputTokens": 36818,
+        "outputTokens": 890
+      },
+      "actualCostUsd": 0.20634,
+      "gate": "UNSURE_WITH_ONE_VERIFIED_BLOCKER"
+    }
+  ],
+  "aggregate": {
+    "adjudicationCompletedCount": 2,
+    "concurCount": 0,
+    "disagreeCount": 0,
+    "unsureCount": 2,
+    "verifiedBlockingFindingCount": 1,
+    "rejectedFindingCount": 2,
+    "retainedUncertaintyCount": 5,
+    "dismissedUncertaintyCount": 0
+  },
+  "rootCause": {
+    "summary": "The adjudicator and deterministic verifiers produced useful evidence, but verdict resolution gives contract-invalid sibling findings and retained uncertainties precedence over an independently verified blocker. Therefore Bizinfo remains unsure even though one primary omission is already proven.",
+    "bizinfoDecisiveEvidence": "A verified missing IP scoring criterion is sufficient to block publication of that primary result regardless of unresolved additional differences.",
+    "kstartupBoundary": "There is no verified blocker, so its four retained semantic uncertainties require narrow classification rather than blanket dismissal."
+  },
+  "gate": {
+    "adjudicationExecution": "PASS_2_OF_2",
+    "deterministicFindingVerification": "PASS",
+    "verifiedPrimaryDefectDetection": "PASS_BIZINFO_1",
+    "twoAgentAgreement": "STOP_0_OF_2",
+    "productionReadiness": "STOP",
+    "additionalPaidRerunAllowed": false,
+    "deploymentAllowed": false,
+    "cohortExpansionAllowed": false,
+    "nextScope": [
+      "Make any deterministically accepted blocking finding sufficient for verdict=disagree even when separate uncertainties or rejected sibling rows remain; preserve those rows as diagnostic metadata.",
+      "Replay this exact Bizinfo adjudication offline and require disagree with the same accepted IP finding.",
+      "Classify the four K-Startup uncertainties individually against existing extraction rules without a global uncertainty relaxation."
+    ]
+  }
+}

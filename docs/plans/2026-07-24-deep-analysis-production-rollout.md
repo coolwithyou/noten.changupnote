@@ -5304,6 +5304,54 @@ AQ5-R1 보존 artifact 오프라인 재생:
   deterministic finding/uncertainty 검증을 통과시키는 것이다.
 - 요약 evidence는 `docs/evidence/deep-analysis/aq5-c-2026-07-29.json`에 기록했다.
 
+### AQ5-R2 exact 2 adjudication-only — `EXECUTED 2/2`, `VERIFIED BLOCKER 1`, `UNSURE 2/2` (2026-07-29)
+
+AQ5-C에서 offline valid가 된 두 audit와 AQ5-R1 primary를 그대로 사용해 Opus 5
+high adjudication만 각각 한 번 실행했다. 새 primary와 blind audit는 호출하지
+않았고 각 공고의 adjudication 네트워크 호출도 최대 1회로 제한했다.
+
+실행 경계와 비용:
+
+1. source commit은 `05da76408127b0cefd5e9e6494a4def9002fea99`다. AQ5-R1
+   receipt와 두 source artifact SHA를 실행 전에 다시 고정했고, 현재 validator에서
+   primary 2/2와 audit 2/2 valid 및 comparison `disagree`를 확인한 쌍만 넣었다.
+2. Opus reserve는 건당 `$0.45`, 두 건 `$0.90`이다. AQ5-R1 실측 비용을 포함한
+   누적 사전 예상은 `$1.567869`로 `$2.00` 상한 안이었다. adjudication 실제
+   비용은 `$0.342745`, 누적 실제 비용은 `$1.010614`다.
+3. primary 모델 호출 0, blind audit 모델 호출 0, adjudication 호출 2다. DB, R2,
+   promotion, Cloud Run/Scheduler, Vercel 쓰기는 모두 0이다. raw receipt SHA는
+   `6f802ac721a5d2c32141b941df689a3d913a3edb8d797246c203d019e8356516`다.
+
+판정 결과:
+
+- K-Startup `178488`은 accepted finding 0, rejected finding 1,
+  retained uncertainty 4로 `unsure`다. uncertainty는 지원지역 메타데이터와 실제
+  신청 지역제한의 차이, 일반적인 정부지원사업 부적격 문구의 sanction 매핑,
+  현재 휴폐업 상태와 과거 폐업 후 재개의 차이, 여성기업 특성과 법적 applicant
+  type의 차이다. 확인된 blocker가 없으므로 이 네 건을 전역 완화하지 않는다.
+- Bizinfo `PBLN_000000000117792`는 HWP 평가표의 최근 3년 특허·실용신안·신기술
+  등 IP 배점이 primary에서 누락됐다는 finding 1건을 deterministic verifier가
+  accepted했다. 즉 primary 결함 한 건은 원문과 audit-only candidate로 입증됐다.
+- 같은 Bizinfo에서 휴·폐업 finding 한 건은 audit의 큰 포함 span과 primary의
+  중첩 span을 현재 same-evidence 규칙이 동일 근거로 보지 않아 rejected됐고,
+  업력별 선정기준이 preferred 조건인지 서로 다른 평가표의 적용 구간인지에 대한
+  uncertainty 1건이 남았다.
+
+게이트 해석:
+
+- adjudicator와 finding verifier가 실제 누락을 찾는 경로는 Bizinfo에서 작동했다.
+  이 verified IP blocker만으로 해당 primary는 publish 불가다.
+- 현재 verdict 해석은 accepted blocker보다 별도 rejected row와 uncertainty를 먼저
+  보아 Bizinfo도 `disagree`가 아닌 `unsure`로 닫는다. 이미 검증된 blocker는 다른
+  차이가 남아도 결함 판정에 충분하므로 이 우선순위는 과도하게 보수적이다.
+- 다음 허용 범위는 accepted blocker가 하나라도 있으면 진단 메타데이터는 보존하되
+  최종 verdict를 `disagree`로 결정하고, 이번 Bizinfo artifact를 오프라인 재생해
+  같은 IP finding으로 고정하는 것이다.
+- K-Startup 네 uncertainty는 기존 extraction 규칙에 따라 개별 분류하되 전역
+  uncertainty 완화는 하지 않는다. 추가 유료 재실행, 배포, cohort 확대와
+  production policy 전환은 열지 않는다.
+- 요약 evidence는 `docs/evidence/deep-analysis/aq5-r2-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달
