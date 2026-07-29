@@ -24,6 +24,11 @@ export interface GrantListOptions {
   asOf?: Date;
   /** dedup 품질 보고·재발행에서만 confirmed member occurrence까지 포함한다. 사용자 목록 기본값은 false. */
   includeConfirmedDuplicates?: boolean;
+  /**
+   * 사용자 매칭처럼 검증·승격된 딥분석 criterion만 소비해야 하는 경로에서 사용한다.
+   * production DB adapter는 applied item과 active/canary-passed release provenance를 함께 요구한다.
+   */
+  requireDeepAnalysisPromotion?: boolean;
 }
 
 export interface GrantRepository<TPayload = unknown> {

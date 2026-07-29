@@ -217,6 +217,11 @@ async function loadServiceGrantUniverseUncached(input: {
     asOf: input.asOf,
     // 상한을 넘겼는지 검출하기 위한 sentinel 한 건을 추가한다.
     limit: input.scanLimit + 1,
+    // 실제 사용자 매칭은 운영 승격 원장이 있는 딥분석 criterion만 소비한다.
+    // runtime adapter는 promotion ledger가 없는 테스트·샘플 저장소이므로 기존 fixture 의미를 유지한다.
+    ...(getRepositoryAdapterName() === "drizzle"
+      ? { requireDeepAnalysisPromotion: true }
+      : {}),
   });
   if (grants.length > input.scanLimit) {
     throw new ServiceDataError(

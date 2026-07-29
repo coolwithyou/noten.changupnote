@@ -1,4 +1,18 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte, notExists, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  exists,
+  gte,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   CRITERION_DIMENSIONS,
   type CompanyProfileFieldEvidence,
@@ -107,6 +121,26 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       and(eq(schema.grants.status, "unknown"), activeGrantApplyEndWhere(options.asOf)),
     );
     const requestedLimit = options.limit ?? 100;
+    const deepAnalysisPromotionFilter = options.requireDeepAnalysisPromotion
+      ? exists(
+        this.db.client
+          .select({ one: sql`1` })
+          .from(schema.analysisLabPromotionItems)
+          .innerJoin(
+            schema.analysisLabPromotionReleases,
+            eq(
+              schema.analysisLabPromotionReleases.id,
+              schema.analysisLabPromotionItems.releaseDbId,
+            ),
+          )
+          .where(and(
+            eq(schema.analysisLabPromotionItems.grantId, schema.grants.id),
+            isNotNull(schema.analysisLabPromotionItems.deepAnalysisRunId),
+            eq(schema.analysisLabPromotionItems.status, "applied"),
+            inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
+          )),
+      )
+      : undefined;
     const confirmedMemberFilter = options.includeConfirmedDuplicates
       ? undefined
       : notExists(this.db.client
@@ -136,6 +170,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       )
       .where(and(
         grantServingVisiblePredicate(),
+        deepAnalysisPromotionFilter,
         activeWhere,
         confirmedMemberFilter,
       ))
@@ -179,6 +214,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       .leftJoin(schema.grantCriteria, eq(schema.grantCriteria.grantId, schema.grants.id))
       .where(and(
         grantServingVisiblePredicate(),
+        deepAnalysisPromotionFilter,
         inArray(schema.grants.id, hydrationIds),
       ))
       .orderBy(desc(schema.grants.updatedAt));

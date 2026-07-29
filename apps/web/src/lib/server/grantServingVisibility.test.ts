@@ -31,6 +31,16 @@ assert.ok(
   "active candidate and dedup hydration queries must both exclude non-visible grants",
 );
 assert.match(
+  activeListSource,
+  /options\.requireDeepAnalysisPromotion/,
+  "the active repository must support a deep-analysis-only matching universe",
+);
+assert.match(
+  activeListSource,
+  /analysisLabPromotionItems[\s\S]*deepAnalysisRunId[\s\S]*"applied"[\s\S]*\["active", "canary_passed"\]/,
+  "deep-analysis-only reads must require applied promotion provenance from an active release",
+);
+assert.match(
   between(repositorySource, "async findGrantById(", "async listGrantsByIds("),
   /grantServingVisiblePredicate\(\)/,
   "the general serving detail lookup must exclude non-visible grants",
@@ -86,6 +96,20 @@ assert.doesNotMatch(
   inputPreparation,
   /grantServingVisiblePredicate/,
   "staged child input preparation must remain possible through the internal ID path",
+);
+
+const serviceDataSource = readFileSync(
+  "apps/web/src/lib/server/serviceData.ts",
+  "utf8",
+);
+assert.match(
+  between(
+    serviceDataSource,
+    "async function loadServiceGrantUniverseUncached(",
+    "async function loadServiceGrantsFromSource(",
+  ),
+  /getRepositoryAdapterName\(\) === "drizzle"[\s\S]*requireDeepAnalysisPromotion: true/,
+  "production teaser/dashboard matching must request only promoted deep-analysis grants",
 );
 
 console.log("grant serving visibility tests passed");
