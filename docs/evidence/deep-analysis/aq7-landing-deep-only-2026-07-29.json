@@ -1,0 +1,106 @@
+{
+  "schema": "deep-analysis-aq7-landing-deep-only-evidence-v1",
+  "checkpoint": "AQ7",
+  "capturedAt": "2026-07-29T10:54:20.000Z",
+  "status": "LANDING_MATCHING_DEEP_ONLY_COVERAGE_INSUFFICIENT",
+  "scope": {
+    "surface": "POST /api/web/teaser",
+    "businessNumber": "746-**-00***",
+    "server": "http://127.0.0.1:4010",
+    "databaseMode": "READ_ONLY_VERIFICATION",
+    "externalEnrichment": "PASSIVE_CACHE_ONLY_BY_CODE_PATH_NOT_NETWORK_TRACED"
+  },
+  "before": {
+    "sourceCommit": "bdffac97c04ec777de0ec89178370a5740a69064",
+    "httpStatus": 200,
+    "durationSeconds": 6.236044,
+    "responseBytes": 31258,
+    "evaluatedGrantCount": 1506,
+    "returnedMatchCount": 8,
+    "returnedDeepPromotedCount": 0,
+    "returnedCriteriaRange": {
+      "min": 1,
+      "max": 3
+    },
+    "returnedParserVersions": [
+      "kstartup-field-parser-v2",
+      "kstartup-field-parser-v3"
+    ],
+    "verdict": "FAIL_NOT_DEEP_ANALYSIS_BASED"
+  },
+  "implementation": {
+    "sourceCommit": "c91c340e7bc7a2f52d1143d6d73331e660af6978",
+    "change": "운영 Drizzle 매칭 유니버스에 applied promotion item, non-null deep analysis run, active 또는 canary-passed release provenance를 요구한다.",
+    "affectedSurface": [
+      "anonymous teaser",
+      "saved-company dashboard",
+      "profile-answer match recalculation",
+      "initial company match"
+    ],
+    "notAffected": [
+      "landing active notice badge",
+      "public calendar",
+      "grant archive",
+      "deep-analysis worker input",
+      "runtime fixture adapter"
+    ]
+  },
+  "after": {
+    "httpStatus": 200,
+    "durationSeconds": 0.56752,
+    "responseBytes": 11579,
+    "evaluatedGrantCount": 1,
+    "returnedMatchCount": 1,
+    "returnedDeepPromotedCount": 1,
+    "durationReductionPercent": 90.9,
+    "match": {
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000121478",
+      "title": "2026 디지털커머스 전문기관(소담스퀘어 in 전주) 소상공인 지원 프로그램 지원대상 모집 공고",
+      "criterionCount": 5,
+      "eligibility": "conditional",
+      "recommendationTier": "needs_core_review",
+      "promotionReleaseId": "deep-production-r1-20260725T020110Z-e238ba64",
+      "promotionReleaseStatus": "active",
+      "promotionItemStatus": "applied",
+      "deepRunId": "da-20260725T010027650Z-0a0b4bdc-e747-4a02-a856-aba032d7cefb",
+      "deepRunStatus": "passed"
+    },
+    "verdict": "PASS_DEEP_ANALYSIS_PROVENANCE_ENFORCED"
+  },
+  "productionSnapshot": {
+    "queryCutoffDate": "2026-07-29",
+    "visibleActiveCandidatesBeforeApplicationFilters": 1605,
+    "deepPromotedVisibleActiveCandidates": 1,
+    "withoutDeepPromotion": 1604,
+    "note": "DB candidate 집계는 K-Startup 종료 payload, stale-undated, confirmed dedup 축약 전 수치다. 실제 teaser 평가 수는 1506건이었다."
+  },
+  "verification": {
+    "grantServingVisibilityTest": "PASS",
+    "coreBuild": "PASS",
+    "webTypecheck": "PASS",
+    "runtimeRepositories": "PASS",
+    "profileProductPaths": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "diffCheck": "PASS",
+    "liveTeaserHttp": "PASS"
+  },
+  "goalAssessment": {
+    "businessNumberToTeaser": "PASS",
+    "companyProfileToMatcher": "PASS",
+    "deepAnalysisToMatcher": "PASS_AND_ENFORCED",
+    "deepAnalyzedNoticeCoverage": "STOP_1_NOTICE_ONLY",
+    "immediatelyRecommendableDeepMatch": "STOP_0_NOTICE",
+    "productionGoal": "NOT_YET_USEFUL_AT_CURRENT_COVERAGE"
+  },
+  "overengineeringAssessment": {
+    "verdict": "APPROPRIATE_MINIMAL_CHANGE",
+    "reasons": [
+      "새 schema, worker, model call, UI 또는 배포를 추가하지 않았다.",
+      "기존 promotion ledger를 사용자 매칭 조회의 provenance gate로 재사용했다.",
+      "일반 공고 노출과 캘린더는 유지하고 matching universe만 제한했다."
+    ],
+    "nextAllowed": "새 기능 구현보다 현재 활성 공고 중 검증 완료 딥분석 공고를 소수 승격해 유용한 결과 수를 늘린다.",
+    "nextNotAllowed": "coverage 부족을 legacy criterion fallback으로 숨기거나 새 매칭 알고리즘을 추가한다."
+  }
+}

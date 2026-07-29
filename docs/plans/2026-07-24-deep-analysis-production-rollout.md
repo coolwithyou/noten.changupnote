@@ -5412,6 +5412,67 @@ AQ5-R2에서 deterministic verifier가 확정한 Bizinfo
   `docs/evidence/deep-analysis/aq6-bizinfo-feedback-2026-07-29.json`에
   기록했다.
 
+### AQ7 랜딩 매칭 딥분석 provenance 강제 — `PATH PASS`, `DEEP 0/8→1/1`, `COVERAGE STOP` (2026-07-29)
+
+실제 개발 서버 `POST /api/web/teaser`에 캐시된 개발용 사업자번호를 넣어 랜딩
+이후의 매칭 경로를 검증했다. 변경 전 API 자체는 200으로 응답했지만 상위 8건은
+모두 `kstartup-field-parser-v2/v3`가 만든 1~3개 criterion 공고였고 딥분석
+promotion provenance가 있는 공고는 0건이었다. 즉 사업자번호 → 프로필 → matcher
+경로는 작동했지만 **실제 랜딩 결과는 딥분석 기반이 아니었다.**
+
+구현 경계:
+
+1. `GrantListOptions`에 `requireDeepAnalysisPromotion`을 추가하고 production
+   Drizzle adapter에서만 이를 적용했다.
+2. 매칭 후보는 `analysis_lab_promotion_items.status=applied`,
+   `deep_analysis_run_id IS NOT NULL`, release 상태가 `active` 또는
+   `canary_passed`인 공고만 허용한다. 단순히 parser version 문자열을 믿지 않고
+   기존 불변 promotion ledger를 provenance gate로 재사용한다.
+3. `loadServiceGrantUniverse`를 쓰는 anonymous teaser, 저장 회사 dashboard,
+   프로필 답변 재계산과 초기 회사 매칭에 동일한 gate가 적용된다.
+4. 랜딩 활성 공고 배지, 공개 캘린더, 공고 아카이브, worker 입력과 runtime
+   fixture adapter는 변경하지 않았다. DB schema, worker, 모델 호출, 새 UI,
+   배포도 추가하지 않았다.
+
+전후 실측:
+
+- 변경 전 commit은 `bdffac97c04ec777de0ec89178370a5740a69064`다. API는
+  1,506건을 평가해 8건을 반환했고 딥분석 승격 공고는 `0/8`이었다. 응답 시간은
+  `6.236044s`였다.
+- 코드 checkpoint는 `c91c340e7bc7a2f52d1143d6d73331e660af6978`다. 같은
+  요청은 딥분석 승격 1건만 평가·반환했고 응답 시간은 `0.567520s`로 90.9%
+  줄었다.
+- 반환 공고는 Bizinfo `PBLN_000000000121478`,
+  `2026 디지털커머스 전문기관(소담스퀘어 in 전주) 소상공인 지원 프로그램
+  지원대상 모집 공고`다. active release
+  `deep-production-r1-20260725T020110Z-e238ba64`의 applied item과 passed deep
+  run `da-20260725T010027650Z-0a0b4bdc-e747-4a02-a856-aba032d7cefb`에 연결된
+  5개 criterion이 matcher rule trace 5개로 소비됐다.
+- serving 계약 테스트, core build, web typecheck, runtime repository 검증,
+  사업자번호·프로필 제품 경로 테스트, package runtime freshness와
+  `git diff --check`가 모두 PASS했다.
+
+목표 및 과구현 판정:
+
+- 사업자번호 → 회사 프로필 → 딥분석 criterion → matcher → 결과 반환은 이제
+  실제 랜딩 API에서 **구조적으로 강제된다.** legacy criterion fallback으로
+  정확도가 낮은 공고가 상위 결과를 채우는 문제는 막았다.
+- 그러나 2026-07-29 DB snapshot에서 visible·활성 후보 1,605건 중 해당
+  provenance가 있는 공고는 1건뿐이다. K-Startup 종료 payload, 오래된 무기한
+  공고와 dedup을 적용한 실제 teaser 평가 전 후보는 1,506건이었다.
+- 현재 반환 1건도 `conditional / needs_core_review`이며 즉시 추천 가능 공고는
+  0건이다. 따라서 **연결 목표는 PASS지만 사용자에게 유용한 coverage 목표는
+  STOP**이다.
+- 이번 변경은 기존 원장에 조회 gate 하나만 추가했으므로 과구현이 아니다. 반대로
+  coverage 부족을 해소하려고 새 알고리즘·schema·worker·UI를 만드는 것은
+  과구현이다.
+- 다음 허용 범위는 새 코드가 아니라, 현재 활성 공고 중 이미 품질 게이트를 통과한
+  소수의 딥분석 결과를 같은 promotion 경로로 승격해 실제 추천 가능 공고 수를
+  늘리는 것이다. legacy fallback은 다시 열지 않는다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/aq7-landing-deep-only-2026-07-29.json`에
+  기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달
