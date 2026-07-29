@@ -5352,6 +5352,66 @@ high adjudication만 각각 한 번 실행했다. 새 primary와 blind audit는 
   production policy 전환은 열지 않는다.
 - 요약 evidence는 `docs/evidence/deep-analysis/aq5-r2-2026-07-29.json`에 기록했다.
 
+### AQ6-R1 verified feedback 재분석 1건 — `CORRECTION PASS`, `BLOCKER 1→0`, `HUMAN REVIEW 1` (2026-07-29)
+
+AQ5-R2에서 deterministic verifier가 확정한 Bizinfo
+`PBLN_000000000117792`의 IP 누락 한 건만 기존 primary
+`taskInstruction`에 넣어 같은 sealed input을 한 번 재분석했다. 실패 경험이 다음
+분석에 실제로 반영되는지 확인하는 체크포인트이며 cohort, DB, R2, production
+승격은 건드리지 않았다.
+
+입력과 실행 경계:
+
+1. source commit은 `8eb787f2b54b9296e3e0cdea41fc47b1b959810e`다.
+   input SHA는
+   `f6ae1ab2f139c5dff6931dfdcfdfde87d92c01db3af7c7adc059aca490302e4d`,
+   source revision SHA는
+   `f55a8b0e42c6abffd65d6dc10fd40c1d696d72ad6a515f6b98d74b14baf19ef0`,
+   attachment manifest SHA는
+   `14157d280e01adf670a6bea9d3cac612f20ec061b897be95072ec95b12ba1af5`로
+   이전 실행과 동일하다.
+2. primary는 Sonnet 5 high, blind audit는 Haiku 4.5, adjudication은 Opus 5
+   high를 사용했다. 실제 비용은 primary `$0.340680`, audit `$0.051009`,
+   adjudication `$0.196385`, 합계 `$0.588074`로 `$1.25` hard cap 안이다.
+3. DB, object storage, production promotion write는 모두 0이다. result artifact
+   SHA는
+   `0f340a0230b083e847e26e98b853d39f933e1a96bb542baf0b572cfb2f0e2ef8`,
+   receipt SHA는
+   `d96ebcba02b300abfb304651073555dd2eadddb5ade17f0399b568bf65f1e0ea`다.
+
+개선 결과:
+
+- AQ5-R2의 확정 IP 누락 1건이 정확히 `ip/preferred` criterion으로 복원됐다.
+  특허, 신기술, 신제품, 벤처, 이노비즈, 메인비즈, 실용신안,
+  연구개발기술이 평가 우대값에 포함됐다.
+- primary validation은 issue 0으로 valid다. 총 38개 criterion과 matcher rule
+  trace 38개가 일치해 딥분석 결과가 matcher까지 손실 없이 전달됐다.
+- 새 blind audit와 adjudication에서 accepted blocker는 1건에서 0건으로
+  줄었다. 따라서 **검증된 실패 경험을 다음 primary 재분석에 넣어 실제 결함을
+  교정하는 경로**는 이 실공고에서 PASS다.
+- 남은 uncertainty는 2건이다. `biz_age`는 1년 이하·1~3년·3년 초과별 평가표
+  구분을 자격조건으로 볼지에 대한 것으로 비차단 평가 rubric일 가능성이 높다.
+  `sanction`은 환수 후 일정 기간과 뒷장의 1년·3년 추천제한이 현재 신청 결격에
+  어떻게 적용되는지에 관한 실제 자격 모호성이다.
+
+목표 및 과구현 판정:
+
+- 딥분석 → AI 자동 검수 → 검증된 오류 피드백 → 재분석 → matcher 전달은 실공고
+  1건에서 확인됐다. 이 체크포인트의 verified blocker는 `1→0`, matcher 소비는
+  `38/38`이다.
+- 이 실행의 matcher smoke는 criterion 소비 계약만 확인했으며 랜딩의 실제
+  사업자등록번호 입력부터 결과 노출까지를 다시 실행한 것은 아니다. 따라서 AQ6
+  하나만으로 전체 랜딩 end-to-end 완료라고 과장하지 않는다.
+- automatic promotion은 STOP이다. 남은 sanction 의미를 없애려고 validator,
+  taxonomy, DB schema 또는 새 ops workflow를 추가하는 것은 현재 목표 대비
+  과구현이다.
+- 다음 허용 범위는 기존 ops 예외처리 경로에서 sanction 한 건만 사람이
+  분류하고, 그 판단을 공고별 결과 또는 좁은 제품 규칙 하나로 고정하는 것이다.
+  추가 유료 모델 재실행, cohort 확대와 production 자동 승격은 열지 않는다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/aq6-bizinfo-feedback-2026-07-29.json`에
+  기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달

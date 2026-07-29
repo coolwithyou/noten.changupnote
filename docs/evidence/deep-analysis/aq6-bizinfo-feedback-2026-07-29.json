@@ -1,0 +1,113 @@
+{
+  "schema": "deep-analysis-aq6-bizinfo-feedback-evidence-v1",
+  "checkpoint": "AQ6-R1",
+  "capturedAt": "2026-07-29T10:43:51.803Z",
+  "status": "CORRECTION_WORKED_HUMAN_REVIEW_REMAINS",
+  "notice": {
+    "key": "bizinfo/PBLN_000000000117792",
+    "inputSha256": "f6ae1ab2f139c5dff6931dfdcfdfde87d92c01db3af7c7adc059aca490302e4d",
+    "sourceRevisionSha256": "f55a8b0e42c6abffd65d6dc10fd40c1d696d72ad6a515f6b98d74b14baf19ef0",
+    "attachmentManifestSha256": "14157d280e01adf670a6bea9d3cac612f20ec061b897be95072ec95b12ba1af5"
+  },
+  "execution": {
+    "sourceCommit": "8eb787f2b54b9296e3e0cdea41fc47b1b959810e",
+    "startedAt": "2026-07-29T10:39:52.889Z",
+    "completedAt": "2026-07-29T10:43:51.803Z",
+    "models": {
+      "primary": "claude-sonnet-5",
+      "audit": "claude-haiku-4-5",
+      "adjudication": "claude-opus-5"
+    },
+    "versions": {
+      "prompt": "deep-analysis-v11",
+      "validator": "deep-analysis-validator-v4",
+      "auditPrompt": "deep-analysis-blind-audit-v15",
+      "adjudication": "deep-analysis-audit-adjudication-v18",
+      "findingVerifier": "deep-analysis-audit-finding-verifier-v3",
+      "feedback": "deep-analysis-audit-retry-feedback-v1",
+      "modelPolicy": "deep-analysis-model-policy-cq2-v7",
+      "costPolicy": "deep-analysis-cost-policy-v2"
+    },
+    "costUsd": {
+      "primary": 0.34068,
+      "audit": 0.051009,
+      "adjudication": 0.196385,
+      "actual": 0.588074,
+      "hardCap": 1.25
+    },
+    "writes": {
+      "database": 0,
+      "objectStorage": 0,
+      "productionPromotion": 0
+    }
+  },
+  "feedback": {
+    "sourceCheckpoint": "AQ5-R2",
+    "verifiedFindingCount": 1,
+    "dimension": "ip",
+    "findingType": "missing_eligibility",
+    "sourceSpan": "특허, 신기술ㆍ신제품, 벤처, 이노비즈, 메인비즈"
+  },
+  "result": {
+    "primary": {
+      "valid": true,
+      "issueCount": 0,
+      "repairCount": 1,
+      "criterionCount": 38,
+      "ipCriterionCount": 1,
+      "ipFindingRestored": true
+    },
+    "matcher": {
+      "consumedAllCriteria": true,
+      "criterionCount": 38,
+      "ruleTraceCount": 38,
+      "syntheticEligibility": "conditional"
+    },
+    "audit": {
+      "valid": true,
+      "issueCount": 0,
+      "verdict": "unsure",
+      "acceptedFindingCount": 0,
+      "retainedUncertaintyCount": 2,
+      "uncertainties": [
+        {
+          "dimension": "biz_age",
+          "classification": "LIKELY_NON_BLOCKING_RUBRIC_PARTITION",
+          "reason": "업력별 평가표 구분인지 신청 자격조건인지 서로 다른 분석 경로가 다르게 해석했다."
+        },
+        {
+          "dimension": "sanction",
+          "classification": "HUMAN_REVIEW_REQUIRED",
+          "reason": "환수 후 일정 기간 제한과 뒷장 1년·3년 추천제한의 현재 신청 결격 적용범위를 원문만으로 확정하지 못했다."
+        }
+      ]
+    }
+  },
+  "gate": {
+    "verifiedFeedbackCorrection": "PASS",
+    "deepAnalysisValidation": "PASS",
+    "matcherConsumption": "PASS",
+    "verifiedBlockerCount": 0,
+    "automaticPromotion": "STOP",
+    "landingBusinessNumberEndToEnd": "NOT_TESTED_IN_AQ6",
+    "stopReason": "한 개의 실제 신청자격 제재조건이 사람 판단을 요구한다."
+  },
+  "scopeDecision": {
+    "nextAllowed": [
+      "기존 ops 예외처리 경로에서 sanction 조건 하나만 사람이 분류한다.",
+      "사람 판정 뒤 동일 원문 의미를 한 개의 좁은 제품 규칙 또는 공고별 확인 결과로 고정한다."
+    ],
+    "notAllowedYet": [
+      "불확실성을 없애기 위한 전역 완화",
+      "추가 유료 모델 재실행",
+      "cohort 확대",
+      "production 자동 승격",
+      "새 DB schema 또는 새 ops workflow 구현"
+    ],
+    "overengineeringVerdict": "STOP_EXPANDING_CODE"
+  },
+  "artifacts": {
+    "resultSha256": "0f340a0230b083e847e26e98b853d39f933e1a96bb542baf0b572cfb2f0e2ef8",
+    "receiptSha256": "d96ebcba02b300abfb304651073555dd2eadddb5ade17f0399b568bf65f1e0ea"
+  }
+}
