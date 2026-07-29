@@ -1,0 +1,130 @@
+{
+  "schema": "deep-analysis-aq5-c-summary-v1",
+  "generatedAt": "2026-07-29T09:24:48Z",
+  "checkpoint": "AQ5-C",
+  "status": "AUDIT_SCOPE_SELF_REPAIR_CODE_PASS_EXACT_TWO_OFFLINE_VALID_2_OF_2",
+  "commit": "a0444528b6b327e67faa0230e3ca067b8c805577",
+  "sourceReceiptSha256": "38664deebdfd3d84762244ea3201e40d138ddfaadb4d9434bb923c62d87e6c83",
+  "scope": {
+    "changedVariable": "audit_prior_award_incomplete_self_scope_deterministic_repair",
+    "primaryChanged": false,
+    "auditModelPromptChanged": false,
+    "auditNormalizerChanged": true,
+    "validatorRelaxed": false,
+    "matcherChanged": false,
+    "adjudicatorChanged": false,
+    "productionServingChanged": false
+  },
+  "versions": {
+    "auditPrompt": "deep-analysis-blind-audit-v15",
+    "auditContract": "deep-analysis-audit-candidates-v4",
+    "auditArtifactSchema": "deep-analysis-blind-audit-v7",
+    "validator": "deep-analysis-validator-v4",
+    "defaultModelPolicy": "deep-analysis-model-policy-v23",
+    "costQualityExperimentPolicy": "deep-analysis-model-policy-cq2-v7"
+  },
+  "repairBoundary": {
+    "requiredDimension": "prior_award",
+    "requiredKind": "exclusion",
+    "acceptedExistingScope": [
+      "missing",
+      "self"
+    ],
+    "incubationTenancyEvidence": {
+      "result": {
+        "scope": "self",
+        "channel": "incubation_tenancy"
+      },
+      "removesUnsupportedSelfKind": true
+    },
+    "sameYearOtherSupportEvidence": {
+      "result": {
+        "scope": "self",
+        "self_kind": "same_year_other_support",
+        "channel": "general"
+      }
+    },
+    "unchangedCases": [
+      "already valid incubation_tenancy self scope",
+      "already valid same_year_other_support self scope",
+      "ambiguous general prior-award evidence",
+      "program or program_type scope"
+    ],
+    "unsupportedMonetaryThresholdRuleExpanded": false
+  },
+  "offlineArtifactReplay": {
+    "externalModelCalls": 0,
+    "databaseReads": 0,
+    "databaseWrites": 0,
+    "objectStorageReads": 0,
+    "objectStorageWrites": 0,
+    "items": [
+      {
+        "key": "kstartup/178488",
+        "sourceArtifactSha256": "ae520e919d9a187e79f23630bab133dfe526daedd3c49b91a8f48d70272a618e",
+        "authoredCriterionCount": 10,
+        "replayedCriterionCount": 10,
+        "repairs": [
+          {
+            "index": 8,
+            "code": "prior_award_incubation_tenancy_scope"
+          }
+        ],
+        "validationValid": true,
+        "validationIssueCount": 0,
+        "primaryAuditComparisonVerdict": "disagree",
+        "comparisonItemCount": 42,
+        "disagreementCount": 21
+      },
+      {
+        "key": "bizinfo/PBLN_000000000117792",
+        "sourceArtifactSha256": "9336e30fcb0fc50f9fe2f4bf5d8658f6420e785044b37c92556493e2a16cc0a4",
+        "authoredCriterionCount": 25,
+        "replayedCriterionCount": 25,
+        "repairs": [
+          {
+            "index": 7,
+            "code": "prior_award_same_year_other_support_scope"
+          }
+        ],
+        "validationValid": true,
+        "validationIssueCount": 0,
+        "primaryAuditComparisonVerdict": "disagree",
+        "comparisonItemCount": 74,
+        "disagreementCount": 52
+      }
+    ],
+    "validCount": 2,
+    "invalidCount": 0
+  },
+  "verification": {
+    "focusedAuditTest": "PASS",
+    "packageBuild": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "gitDiffCheck": "PASS",
+    "anthropicCalls": 0,
+    "databaseWrites": 0,
+    "objectStorageWrites": 0,
+    "productionPromotionWrites": 0,
+    "cloudRunSchedulerWrites": 0,
+    "vercelWrites": 0
+  },
+  "gate": {
+    "code": "GO",
+    "exactTwoAuditValidation": "GO_2_OF_2",
+    "validatorStrictnessPreserved": true,
+    "ambiguousPriorAwardFailClosedPreserved": true,
+    "twoAgentAgreement": "PENDING_ADJUDICATION_2_OF_2",
+    "productionReadiness": "STOP",
+    "additionalPrimaryOrAuditRerunRequired": false,
+    "deploymentAllowed": false,
+    "cohortExpansionAllowed": false,
+    "nextScope": [
+      "Reserve cost for adjudication only on the two preserved primary and now-valid audit pairs.",
+      "Run no new primary or blind-audit model calls.",
+      "Require deterministic finding and uncertainty verification before accepting each adjudication result."
+    ]
+  }
+}

@@ -5254,6 +5254,56 @@ AI 자동 검수 차단:
 - 추가 유료 재실행, 배포, cohort 확대, production policy 전환은 하지 않는다.
   요약 evidence는 `docs/evidence/deep-analysis/aq5-r1-2026-07-29.json`에 기록했다.
 
+### AQ5-C 불완전 `scope=self` audit 복원 — `CODE PASS`, `EXACT 2 OFFLINE AUDIT VALID 2/2` (2026-07-29)
+
+AQ5-R1의 fresh Haiku 결과에서 새로 확인한 `prior_award` typed 오류 두 형태만
+수정했다. 모델 prompt, primary, validator, matcher와 adjudicator는 변경하지 않았다.
+
+구현 경계:
+
+1. `dimension=prior_award`, `kind=exclusion`이며 기존 scope가 없거나 정확히
+   `self`인 행만 검토한다. `program`과 `program_type`은 건드리지 않는다.
+2. exact source span이 센터·보육 입주 이력을 명시하면
+   `scope=self, channel=incubation_tenancy`로 복원하며 지원되지 않는
+   `self_kind`는 제거한다.
+3. exact source span이 해당·당해·동일연도 중복지원이나 기수혜를 명시하면
+   `scope=self, self_kind=same_year_other_support, channel=general`로 복원한다.
+4. 이미 유효한 두 형태는 다시 쓰지 않는다. 모호한 일반 수혜 이력도 복원하지 않고
+   기존 validator의 invalid fail-closed를 유지한다. 금액 임계 prior-award 규칙의
+   적용 범위는 확대하지 않았다.
+5. audit 계약은 `deep-analysis-audit-candidates-v4`, 다음 저장 artifact는
+   `deep-analysis-blind-audit-v7`, 정책은 `deep-analysis-model-policy-v23`과
+   `deep-analysis-model-policy-cq2-v7`로 올렸다. audit prompt는 v15,
+   validator는 v4 그대로다.
+
+AQ5-R1 보존 artifact 오프라인 재생:
+
+- K-Startup `178488`은 audit authored criterion 10개를 그대로 재생했고 index 8의
+  `self_kind=same_program` 한 건만 `prior_award_incubation_tenancy_scope`로
+  복원했다. validator는 issue 0, valid다.
+- Bizinfo `PBLN_000000000117792`는 authored criterion 25개를 그대로 재생했고
+  index 7의 누락된 self kind 한 건만
+  `prior_award_same_year_other_support_scope`로 복원했다. validator는 issue 0,
+  valid다.
+- 합계 audit validation은 2/2다. 외부 모델, DB, R2 호출은 모두 0이며 production
+  write와 배포도 없다.
+- valid audit와 primary를 비교하면 두 건 모두 `disagree`다. K-Startup은 비교
+  42개 중 21개, Bizinfo는 74개 중 52개가 차이 후보이므로 자동 검수 최종 합의로
+  간주하지 않는다. 이 차이는 adjudicator가 원문으로 판정해야 할 후보 수이며,
+  실제 primary 오류 수로 해석하지 않는다.
+
+검증과 게이트:
+
+- focused audit test, package build/runtime freshness,
+  `verify:deep-analysis-contract`, web typecheck, `git diff --check`가 PASS했다.
+- 코드 체크포인트는 `a0444528b6b327e67faa0230e3ca067b8c805577`다.
+- audit typed validation은 GO 2/2지만 두 agent 합의는
+  `PENDING_ADJUDICATION 2/2`다. production readiness는 계속 STOP이다.
+- 다음 허용 범위는 보존된 두 primary/audit 쌍에 대한 adjudication 비용을 먼저
+  예약하고, 새 primary나 blind audit 호출 없이 Opus adjudication만 실행한 뒤
+  deterministic finding/uncertainty 검증을 통과시키는 것이다.
+- 요약 evidence는 `docs/evidence/deep-analysis/aq5-c-2026-07-29.json`에 기록했다.
+
 중단 조건:
 
 - 동결 80 품질 미달
