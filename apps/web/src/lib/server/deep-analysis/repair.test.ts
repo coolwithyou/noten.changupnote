@@ -184,6 +184,36 @@ assert.match(retryFeedback.taskInstruction, /관리자가 명시적으로 재처
 assert.match(retryFeedback.taskInstruction, /VERIFIED_AUDIT_FINDINGS/);
 assert.match(retryFeedback.taskInstruction, /특허ㆍ실용신안 보유 시 10점/);
 assert.equal(retryFeedback.taskInstruction.includes("진단용 rejected finding"), false);
+const currentScopeFeedback = buildDeepAnalysisAuditRetryFeedback({
+  previousRunId: "deep-run-v24",
+  auditArtifactKey: "deep-analysis/audit-v8.json",
+  artifactText: JSON.stringify({
+    schema: "deep-analysis-blind-audit-v8",
+    adjudication: {
+      findingValidation: {
+        acceptedCount: 1,
+        accepted: [{
+          candidateKey: "b".repeat(64),
+          dimension: "region",
+          findingType: "missing_eligibility",
+          reason: "신청 지역 필수조건 누락",
+          criterion: {
+            dimension: "region",
+            operator: "in",
+            kind: "required",
+            value: { regions: ["11"] },
+            confidence: 0.95,
+            source_span: "서울 소재 기업만 신청 가능",
+            needs_review: false,
+            parser_version: "deep-analysis-validator-v4",
+          },
+        }],
+        rejected: [],
+      },
+    },
+  }),
+});
+assert.equal(currentScopeFeedback?.findings[0]?.criterion.kind, "required");
 assert.equal(
   buildDeepAnalysisAuditRetryFeedback({
     previousRunId: "deep-run-without-verified-finding",

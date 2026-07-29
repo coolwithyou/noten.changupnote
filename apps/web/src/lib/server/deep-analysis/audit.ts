@@ -1,5 +1,4 @@
 import {
-  CRITERION_DIMENSIONS,
   type CriterionDimension,
   type DeepAnalysisAdjudicationModel,
   type DeepAnalysisAuditModel,
@@ -19,16 +18,22 @@ import {
   type DeepAnalysisAuditFindingValidation,
   type DeepAnalysisAuditUncertaintyValidation,
 } from "./auditAdjudication";
+import {
+  assessDeepAnalysisMatchImpactingAuditScope,
+  DEEP_ANALYSIS_AUDIT_SCOPE_VERSION,
+  isDeepAnalysisMatchImpactingCriterion,
+} from "./auditScope";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import {
   validateDeepAnalysisResult,
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v15" as const;
+export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v16" as const;
 export const DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION = [
   "이 실행은 primary를 보지 않는 독립 감사 분석이다.",
-  "신청자격·결격·우대·평가점수에 직접 영향을 주는 criterion 후보만 반환하라.",
+  "신청 가능 여부를 바꾸는 required·exclusion·결격 예외 criterion 후보만 반환하라.",
+  "우대·가점·평가점수 preferred 후보는 반환하지 마라.",
   "조건이 없는 축을 나타내는 행과 axis_assessments, 분석문, program_intent, taxonomy_proposals는 출력하지 마라.",
   "각 후보는 evidence catalog의 primary_source_ref를 하나 선택하고 source_span 문자열을 직접 만들지 마라.",
 ].join(" ");
@@ -48,6 +53,7 @@ export interface DeepAnalysisAuditItemResult {
 export interface DeepAnalysisBlindAuditResult {
   promptVersion: typeof DEEP_ANALYSIS_AUDIT_PROMPT_VERSION;
   contractVersion: typeof DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION;
+  scopeVersion: typeof DEEP_ANALYSIS_AUDIT_SCOPE_VERSION;
   model: DeepAnalysisAuditModel;
   verdict: DeepAnalysisAuditVerdict;
   itemResults: DeepAnalysisAuditItemResult[];
@@ -83,7 +89,7 @@ export async function runBlindDeepAnalysisAudit(input: {
   primaryResult: DeepAnalysisModelResult;
   runAuditModel?: typeof runDeepGrantAuditAnalysis;
 }): Promise<DeepAnalysisBlindAuditResult> {
-  let execution = await analyzeSealedDeepAnalysisInput({
+  const execution = await analyzeSealedDeepAnalysisInput({
     seal: input.seal,
     apiKey: input.apiKey,
     model: input.auditModel,
@@ -102,15 +108,13 @@ export async function runBlindDeepAnalysisAudit(input: {
     ].join(" "),
     runModel: input.runAuditModel ?? runDeepGrantAuditAnalysis,
   });
-  let validation = validateDeepAnalysisResult({
+  const validation = validateDeepAnalysisAuditResult({
     seal: input.seal,
     result: execution.result,
   });
   const comparison = compareDeepAnalysisValidations({
     primary: input.primaryValidation,
-    primaryResult: input.primaryResult,
     audit: validation,
-    auditResult: execution.result,
   });
   const adjudication = shouldRunSemanticAuditAdjudication({
     primaryValid: input.primaryValidation.valid,
@@ -124,13 +128,13 @@ export async function runBlindDeepAnalysisAudit(input: {
       evidenceText: execution.evidenceText,
       primaryResult: input.primaryResult,
       primaryValidation: input.primaryValidation,
-      auditResult: execution.result,
       auditValidation: validation,
     })
     : null;
   return {
     promptVersion: DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
     contractVersion: DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
+    scopeVersion: DEEP_ANALYSIS_AUDIT_SCOPE_VERSION,
     model: input.auditModel,
     verdict: resolveSemanticAuditVerdict({
       auditValid: validation.valid,
@@ -182,50 +186,41 @@ export function resolveSemanticAuditVerdict(input: {
 
 export function compareDeepAnalysisValidations(input: {
   primary: DeepAnalysisValidationResult;
-  primaryResult: DeepAnalysisModelResult | null;
   audit: DeepAnalysisValidationResult;
-  auditResult: DeepAnalysisModelResult;
 }): {
   verdict: DeepAnalysisAuditVerdict;
   itemResults: DeepAnalysisAuditItemResult[];
 } {
-  const itemResults: DeepAnalysisAuditItemResult[] = [];
-  const primaryAxes = input.primaryResult
-    ? new Map(input.primaryResult.axisAssessments.map((axis) => [axis.dimension, axis.status]))
-    : deriveAxisStatusFromValidation(input.primary);
-  const auditAxes = new Map(
-    input.auditResult.axisAssessments.map((axis) => [axis.dimension, axis.status]),
-  );
-  for (const dimension of CRITERION_DIMENSIONS) {
-    const primary = primaryAxes.get(dimension) ?? null;
-    const audit = auditAxes.get(dimension) ?? null;
-    itemResults.push({
-      kind: "axis",
-      dimension,
-      key: dimension,
-      primary,
-      audit,
-      verdict: primary === audit ? "concur" : "disagree",
-    });
-    const primaryHashes = new Set(input.primary.axisCriterionSemanticHashes[dimension]);
-    const auditHashes = new Set(input.audit.axisCriterionSemanticHashes[dimension]);
-    for (const hash of [...new Set([...primaryHashes, ...auditHashes])].sort()) {
-      const inPrimary = primaryHashes.has(hash);
-      const inAudit = auditHashes.has(hash);
-      itemResults.push({
-        kind: "criterion",
-        dimension,
-        key: hash,
-        primary: inPrimary ? hash : null,
-        audit: inAudit ? hash : null,
-        verdict: inPrimary && inAudit ? "concur" : "disagree",
-      });
-    }
-  }
+  const scope = assessDeepAnalysisMatchImpactingAuditScope({
+    primary: input.primary,
+    audit: input.audit,
+  });
+  const itemResults: DeepAnalysisAuditItemResult[] = [
+    ...scope.claimReviews.map((claim): DeepAnalysisAuditItemResult => ({
+      kind: "criterion",
+      dimension: claim.dimension,
+      key: claim.key,
+      primary: claim.key,
+      audit: claim.verdict === "supported" ? claim.key : null,
+      verdict: claim.verdict === "supported" ? "concur" : "disagree",
+      reason: claim.verdict === "supported"
+        ? null
+        : "독립 audit에서 같은 match-impacting claim을 확인하지 못했습니다.",
+    })),
+    ...scope.missingCandidates.map((candidate): DeepAnalysisAuditItemResult => ({
+      kind: "criterion",
+      dimension: candidate.dimension,
+      key: candidate.key,
+      primary: null,
+      audit: candidate.key,
+      verdict: "disagree",
+      reason: "독립 audit가 primary에 없는 match-impacting 후보를 확인했습니다.",
+    })),
+  ];
   return {
     verdict: input.primary.valid
       && input.audit.valid
-      && itemResults.every((item) => item.verdict === "concur")
+      && !scope.requiresAdjudication
       ? "concur"
       : "disagree",
     itemResults,
@@ -233,16 +228,29 @@ export function compareDeepAnalysisValidations(input: {
 }
 
 /**
- * primary result를 audit 실행 함수에 저장하지 않아도 criteria 보유 여부로 축 상태를 복원할
- * 수 있다. 빈 축은 validation을 통과한 경우 inspected_no_condition이다.
+ * Audit tool schema가 preferred를 허용하지 않더라도 외부 응답을 신뢰하지 않는다.
+ * 범위를 벗어난 후보는 조용히 버리지 않고 audit contract 오류로 닫는다.
  */
-function deriveAxisStatusFromValidation(
-  validation: DeepAnalysisValidationResult,
-): Map<CriterionDimension, string> {
-  return new Map(CRITERION_DIMENSIONS.map((dimension) => [
-    dimension,
-    validation.axisCriterionSemanticHashes[dimension].length > 0
-      ? "condition_found"
-      : "inspected_no_condition",
-  ]));
+export function validateDeepAnalysisAuditResult(input: {
+  seal: DeepAnalysisInputSeal;
+  result: DeepAnalysisModelResult;
+}): DeepAnalysisValidationResult {
+  const validation = validateDeepAnalysisResult(input);
+  const outOfScope = validation.criteria.filter((item) => (
+    !isDeepAnalysisMatchImpactingCriterion(item.canonicalCriterion)
+  ));
+  if (outOfScope.length === 0) return validation;
+  return {
+    ...validation,
+    valid: false,
+    responseContractValid: false,
+    issues: [
+      ...validation.issues,
+      ...outOfScope.map((item) => ({
+        code: "raw_contract_invalid" as const,
+        path: `$.criteria[${item.index}].kind`,
+        message: "Audit criteria must be required or exclusion; preferred is outside the match-impacting audit scope.",
+      })),
+    ],
+  };
 }

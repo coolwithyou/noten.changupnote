@@ -5571,6 +5571,42 @@ R1 구현:
 구조 진단, 상태 계약, 안전 불변조건과 완료 기준은
 `docs/architecture/딥분석_자동승격_처리량_회복.md`를 정본으로 한다.
 
+### AQ10 R2 match-impacting audit 축소 — `CODE PASS`, `PAID CALL 0` (2026-07-29)
+
+AQ9의 다음 체크포인트로 독립 audit의 책임을 자동 매칭 가능 여부를 바꾸는
+`required`, `exclusion`, 결격 예외에 한정했다. 새 schema, DB, Ops UI, worker
+배포와 외부 모델 호출은 추가하지 않았다.
+
+구현:
+
+1. blind audit의 독립성은 유지했다. audit 모델은 primary를 보지 않고 sealed
+   evidence catalog만 읽지만, 우대·가점·평가점수 `preferred`를 더 이상 재추출하지
+   않는다. tool enum은 required/exclusion만 허용하고 범위 밖 응답은 조용히
+   버리지 않고 contract invalid로 닫는다.
+2. 새 순수 seam `assessDeepAnalysisMatchImpactingAuditScope`가 primary의 validated
+   claim·sealed evidence offset과 독립 audit semantic set을 대조해
+   `supported / contradicted`, missing candidate를 만든다. exception 값 차이도
+   같은 방식으로 차단 후보가 된다.
+3. 합의 비교에서 preferred와 조건 없는 22축 상태를 제거했다. preferred만 다른
+   fixture는 `concur`, required 값이 다르거나 누락된 fixture는 기존처럼
+   `disagree`다.
+4. adjudication은 실제 차단 후보가 있을 때만 호출하고, 22축
+   `reviewed_dimensions` 대신 전달된 `reviewed_candidate_keys`의 완전성을
+   fail-closed 검증한다.
+5. audit prompt `v16`, contract `v5`, scope `v1`, adjudication `v19`, artifact
+   `v8`, 운영 policy `v24`, CQ2 policy `v8`로 identity를 올렸다. 과거 v7 audit
+   artifact의 검증된 feedback은 계속 읽을 수 있다.
+
+검증과 판정:
+
+- focused blind audit와 adjudication 회귀, package build, web typecheck,
+  전체 deep-analysis contract, package runtime freshness, diff check를 실행한다.
+- 이 체크포인트는 두 번째 모델의 전체 typed 재생성 실패를 eligibility 검수에서
+  제거한다. primary의 preferred 분석은 유지되지만 preferred의 독립 전수 감사는
+  비목표다.
+- R2 코드 경계가 통과해도 처리량 회복을 과장하지 않는다. 다음은 추가 유료 실행이
+  아니라 보존 artifact로 R3 matcher 표현 가능성 사전판정을 구현·검증하는 단계다.
+
 중단 조건:
 
 - 동결 80 품질 미달

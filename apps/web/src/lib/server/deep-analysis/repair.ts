@@ -59,7 +59,13 @@ export function buildDeepAnalysisAuditRetryFeedback(input: {
   } catch {
     return null;
   }
-  if (!isRecord(parsed) || parsed.schema !== "deep-analysis-blind-audit-v7") return null;
+  if (
+    !isRecord(parsed)
+    || (
+      parsed.schema !== "deep-analysis-blind-audit-v7"
+      && parsed.schema !== "deep-analysis-blind-audit-v8"
+    )
+  ) return null;
   const adjudication = isRecord(parsed.adjudication) ? parsed.adjudication : null;
   const findingValidation = adjudication && isRecord(adjudication.findingValidation)
     ? adjudication.findingValidation

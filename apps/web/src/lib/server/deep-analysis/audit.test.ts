@@ -10,7 +10,12 @@ import {
   DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION,
   resolveSemanticAuditVerdict,
   shouldRunSemanticAuditAdjudication,
+  validateDeepAnalysisAuditResult,
 } from "./audit";
+import {
+  assessDeepAnalysisMatchImpactingAuditScope,
+  DEEP_ANALYSIS_AUDIT_SCOPE_VERSION,
+} from "./auditScope";
 import {
   buildDeepAnalysisAuditToolSchema,
   DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
@@ -33,14 +38,16 @@ const seal = sealDeepAnalysisInput({
 
 assert.match(
   DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION,
-  /criterion 후보만 반환/,
+  /required·exclusion·결격 예외 criterion 후보만 반환/,
 );
+assert.match(DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION, /preferred 후보는 반환하지 마라/);
 assert.match(DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION, /axis_assessments.*출력하지 마라/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /조건이 없는 축을 표현하는 행을 만들지 마라/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /primary_source_ref/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /impairment_excluded는 반드시.*배열/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /prior_award exclusion은 범위를 반드시/);
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v4");
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v5");
+assert.equal(DEEP_ANALYSIS_AUDIT_SCOPE_VERSION, "deep-analysis-match-impacting-scope-v1");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();
 assert.deepEqual(
@@ -59,6 +66,7 @@ const auditCriterionProperties =
   auditToolSchema.input_schema.properties.criteria.items.properties;
 assert.equal("source_span" in auditCriterionProperties, false);
 assert.equal("primary_source_ref" in auditCriterionProperties, true);
+assert.deepEqual(auditCriterionProperties.kind.enum, ["required", "exclusion"]);
 
 const auditEvidence = createDeepAnalysisAuditEvidenceCatalog(span);
 const sourceRef = /\[(ev_[0-9a-f]{16})\]/.exec(auditEvidence.promptText)?.[1];
@@ -591,20 +599,17 @@ const sameResult = makeResult([region()]);
 const same = validateDeepAnalysisResult({ seal, result: sameResult });
 const concurrence = compareDeepAnalysisValidations({
   primary,
-  primaryResult,
   audit: same,
-  auditResult: sameResult,
 });
 assert.equal(concurrence.verdict, "concur");
 assert.equal(concurrence.itemResults.every((item) => item.verdict === "concur"), true);
+assert.equal(concurrence.itemResults.some((item) => item.kind === "axis"), false);
 
 const differentResult = makeResult([region("26")]);
 const different = validateDeepAnalysisResult({ seal, result: differentResult });
 const disagreement = compareDeepAnalysisValidations({
   primary,
-  primaryResult,
   audit: different,
-  auditResult: differentResult,
 });
 assert.equal(disagreement.verdict, "disagree");
 assert.equal(
@@ -616,13 +621,75 @@ const emptyResult = makeResult([]);
 const empty = validateDeepAnalysisResult({ seal, result: emptyResult });
 const missed = compareDeepAnalysisValidations({
   primary,
-  primaryResult,
   audit: empty,
-  auditResult: emptyResult,
 });
 assert.equal(missed.verdict, "disagree");
 assert.equal(
-  missed.itemResults.some((item) => item.kind === "axis" && item.dimension === "region" && item.verdict === "disagree"),
+  missed.itemResults.some((item) => (
+    item.kind === "criterion"
+    && item.dimension === "region"
+    && item.verdict === "disagree"
+  )),
+  true,
+);
+
+const preferredSpan = "벤처기업 인증 보유 시 2점 가점";
+const preferredSeal = sealDeepAnalysisInput({
+  grantId: "audit-preferred-scope",
+  sourceRevisionSha256: "f".repeat(64),
+  structuredText: `${span}\n${preferredSpan}`,
+  attachments: [],
+});
+const preferredCriterion: DeepAnalysisCriterion = {
+  dimension: "certification",
+  operator: "text_only",
+  kind: "preferred",
+  value: { note: preferredSpan },
+  confidence: 0.9,
+  sourceSpan: preferredSpan,
+  spanVerified: true,
+  note: null,
+};
+const primaryWithPreferredResult = makeResult([region(), preferredCriterion]);
+const primaryWithPreferred = validateDeepAnalysisResult({
+  seal: preferredSeal,
+  result: primaryWithPreferredResult,
+});
+const hardOnlyAuditResult = makeResult([region()]);
+const hardOnlyAudit = validateDeepAnalysisResult({
+  seal: preferredSeal,
+  result: hardOnlyAuditResult,
+});
+const preferredIgnored = compareDeepAnalysisValidations({
+  primary: primaryWithPreferred,
+  audit: hardOnlyAudit,
+});
+assert.equal(preferredIgnored.verdict, "concur");
+assert.equal(preferredIgnored.itemResults.length, 1);
+const scopedPreferred = assessDeepAnalysisMatchImpactingAuditScope({
+  primary: primaryWithPreferred,
+  audit: hardOnlyAudit,
+});
+assert.deepEqual(scopedPreferred.ignoredPreferred, {
+  primaryCount: 1,
+  auditCount: 0,
+});
+assert.equal(scopedPreferred.claimReviews[0]?.verdict, "supported");
+assert.equal(scopedPreferred.claimReviews[0]?.evidenceRefs.length, 1);
+assert.deepEqual(scopedPreferred.missingCandidates, []);
+
+const outOfScopeAuditResult = makeResult([preferredCriterion]);
+const outOfScopeAudit = validateDeepAnalysisAuditResult({
+  seal: preferredSeal,
+  result: outOfScopeAuditResult,
+});
+assert.equal(outOfScopeAudit.valid, false);
+assert.equal(outOfScopeAudit.responseContractValid, false);
+assert.equal(
+  outOfScopeAudit.issues.some((issue) => (
+    issue.code === "raw_contract_invalid"
+    && issue.path === "$.criteria[0].kind"
+  )),
   true,
 );
 

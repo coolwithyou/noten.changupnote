@@ -443,11 +443,12 @@ export async function processDeepAnalysisJob(input: {
       extension: "json",
     },
     body: `${stableJson({
-      schema: "deep-analysis-blind-audit-v7",
+      schema: "deep-analysis-blind-audit-v8",
       primaryRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
       model: audit.model,
       promptVersion: audit.promptVersion,
       contractVersion: audit.contractVersion,
+      scopeVersion: audit.scopeVersion,
       verdict: audit.verdict,
       adjudicationDisposition: audit.adjudicationDisposition,
       itemResults: audit.itemResults,
@@ -490,6 +491,7 @@ export async function processDeepAnalysisJob(input: {
       auditEffort: input.policy.auditEffort,
       auditValidationValid: audit.validation.valid,
       auditContractVersion: audit.contractVersion,
+      auditScopeVersion: audit.scopeVersion,
       adjudicationDisposition: audit.adjudicationDisposition,
       adjudicationModel: audit.adjudication?.model ?? input.policy.adjudicationModel,
       adjudicationEffort:

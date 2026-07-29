@@ -1,6 +1,5 @@
 import {
   CRITERION_DIMENSIONS,
-  CRITERION_KINDS,
   CRITERION_OPERATORS,
   assertDeepAnalysisModelEffort,
   supportsDeepAnalysisEffort,
@@ -19,16 +18,19 @@ import {
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
-  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   normalizeCriteria,
 } from "./extractor";
 import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
+import {
+  DEEP_ANALYSIS_AUDIT_SCOPE_VERSION,
+  DEEP_ANALYSIS_MATCH_IMPACTING_CRITERION_KINDS,
+} from "./auditScope";
 
 export const DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION =
-  "deep-analysis-audit-candidates-v4" as const;
+  "deep-analysis-audit-candidates-v5" as const;
 export const DEEP_ANALYSIS_AUDIT_TOOL_NAME =
   "emit_deep_analysis_audit_candidates" as const;
 
@@ -66,23 +68,23 @@ interface AnthropicMessageResponse {
 
 /**
  * Blind audit는 primary 분석 문서 전체를 다시 쓰지 않는다. 원문에서 직접 확인한
- * 신청 자격·결격·우대·배점 criterion 후보만 반환하고, 22축 부재 상태는 서버가
+ * 신청 자격·결격·예외 criterion 후보만 반환하고, 22축 부재 상태는 서버가
  * 후보 집합으로부터 결정적으로 만든다.
  */
 export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고의 독립 자격조건 감사자다. primary 결과는 보지 않는다.",
-  "출력은 원문에서 직접 확인한 신청 자격·결격·우대·평가점수 criterion 후보만 포함한다.",
+  "출력은 원문에서 직접 확인한 신청 필수조건·결격·결격 예외 criterion 후보만 포함한다.",
+  "우대·가점·평가점수 preferred 조건은 primary가 담당하므로 audit 후보로 반환하지 마라.",
   "조건이 없는 축을 표현하는 행을 만들지 마라. inspected_no_condition, ambiguous, input_missing은 criterion kind가 아니다.",
   "분석문, 축별 상태표, 공고 요약, 프로그램 의도, taxonomy 제안은 출력하지 마라.",
   "각 후보는 제공된 evidence catalog의 primary_source_ref 하나를 반드시 선택한다. source_span 문자열을 직접 만들지 마라.",
   "예외처럼 같은 판단을 뒷받침하는 별도 근거가 있을 때만 supporting_source_refs를 사용한다. 서로 다른 매칭 효과는 한 후보로 합치지 말고 나눈다.",
-  "필수조건은 required, 제외대상은 exclusion, 우대·평가점수는 preferred다.",
+  "필수조건은 required, 제외대상과 그 예외는 exclusion이다.",
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
-  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
@@ -104,7 +106,7 @@ export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
 export function buildDeepAnalysisAuditToolSchema() {
   return {
     name: DEEP_ANALYSIS_AUDIT_TOOL_NAME,
-    description: "공고 원문에서 독립적으로 확인한 신청 자격·결격·우대·배점 criterion 후보만 반환한다.",
+    description: "공고 원문에서 독립적으로 확인한 신청 필수조건·결격·결격 예외 criterion 후보만 반환한다.",
     input_schema: {
       type: "object",
       additionalProperties: false,
@@ -117,7 +119,10 @@ export function buildDeepAnalysisAuditToolSchema() {
             properties: {
               dimension: { type: "string", enum: [...CRITERION_DIMENSIONS] },
               operator: { type: "string", enum: [...CRITERION_OPERATORS] },
-              kind: { type: "string", enum: [...CRITERION_KINDS] },
+              kind: {
+                type: "string",
+                enum: [...DEEP_ANALYSIS_MATCH_IMPACTING_CRITERION_KINDS],
+              },
               value: { type: "object" },
               confidence: { type: "number", minimum: 0, maximum: 1 },
               primary_source_ref: { type: "string", minLength: 19, maxLength: 19 },
@@ -197,6 +202,7 @@ export function normalizeDeepAnalysisAuditCandidateResult(input: {
       : null,
     rawToolInput: {
       audit_contract_version: DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
+      audit_scope_version: DEEP_ANALYSIS_AUDIT_SCOPE_VERSION,
       criteria: rawCriteria,
       axis_assessments: rawAxes,
       audit_authored_criteria: resolved.criteria,

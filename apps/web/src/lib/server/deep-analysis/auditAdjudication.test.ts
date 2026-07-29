@@ -20,7 +20,6 @@ import {
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
-  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
@@ -39,15 +38,16 @@ assert.match(
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
-  /신청 시점의 자격·결격·우대·평가점수.*22축.*누락하거나 잘못 분류/,
+  /신청 시점의 필수조건·결격·결격 예외.*누락하거나 잘못 분류/,
 );
+assert.match(DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT, /preferred 조건은 이 감사의 범위가 아니다/);
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
   /contract\/normalization 차이만으로 blocking finding을 만들지 마라/,
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
-  /reviewed_dimensions에는 22축을 정확히 한 번씩 모두/,
+  /reviewed_candidate_keys에는 CRITERION_CANDIDATES의 key를 정확히 한 번씩 모두/,
 );
 assert.match(
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
@@ -109,7 +109,6 @@ assert.equal(
 );
 for (const rule of [
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
-  DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
   DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE,
@@ -200,6 +199,10 @@ const auditOnlyRegionCandidate = buildDeepAnalysisAuditCandidates(
   candidate.candidateKind === "audit_only" && candidate.dimension === "region"
 ));
 assert.ok(auditOnlyRegionCandidate);
+const adjudicationCandidateKeys = buildDeepAnalysisAuditCandidates(
+  primaryValidation,
+  auditValidation,
+).map((candidate) => candidate.key);
 
 const successResponseBody = JSON.stringify({
   stop_reason: "tool_use",
@@ -208,7 +211,7 @@ const successResponseBody = JSON.stringify({
     type: "tool_use",
     name: "emit_deep_analysis_audit_adjudication",
     input: {
-      reviewed_dimensions: [...CRITERION_DIMENSIONS],
+      reviewed_candidate_keys: adjudicationCandidateKeys,
       blocking_findings: [],
       uncertainties: [],
     },
@@ -226,17 +229,19 @@ const adjudicated = await adjudicateDeepAnalysisAudit({
   evidenceText: span,
   primaryResult,
   primaryValidation,
-  auditResult,
   auditValidation,
   fetchImpl,
 });
 assert.equal(adjudicated.verdict, "concur");
 assert.equal(adjudicated.model, "claude-sonnet-5");
 assert.equal(adjudicated.effort, "high");
-assert.equal(adjudicated.itemResults.length, CRITERION_DIMENSIONS.length);
+assert.equal(adjudicated.itemResults.length, adjudicationCandidateKeys.length);
 assert.equal(adjudicated.itemResults.every((item) => item.verdict === "concur"), true);
-assert.match(capturedRequestBody, /<<<PRIMARY_VALIDATION_ISSUES>>>/);
-assert.match(capturedRequestBody, /<<<AUDIT_VALIDATION_ISSUES>>>/);
+assert.doesNotMatch(capturedRequestBody, /<<<PRIMARY_AXES>>>|<<<AUDIT_AXES>>>/);
+assert.doesNotMatch(
+  capturedRequestBody,
+  /<<<PRIMARY_VALIDATION_ISSUES>>>|<<<AUDIT_VALIDATION_ISSUES>>>/,
+);
 assert.deepEqual(
   (JSON.parse(capturedRequestBody) as { output_config?: unknown }).output_config,
   { effort: "high" },
@@ -256,8 +261,12 @@ const blockingResponse = JSON.parse(successResponseBody) as {
         finding_type: string;
         reason: string;
       }>;
-      uncertainties: Array<{ dimension: string; reason: string }>;
-      reviewed_dimensions: string[];
+      uncertainties: Array<{
+        candidate_key: string;
+        dimension: string;
+        reason: string;
+      }>;
+      reviewed_candidate_keys: string[];
     };
   }>;
 };
@@ -273,7 +282,6 @@ const explicitChange = await adjudicateDeepAnalysisAudit({
   evidenceText: span,
   primaryResult,
   primaryValidation,
-  auditResult,
   auditValidation,
   fetchImpl: async () => new Response(
     JSON.stringify(blockingResponse),
@@ -307,7 +315,8 @@ decisiveBlockerResponse.content[0]!.input.blocking_findings.push({
   reason: "별도 진단 행은 후보를 찾지 못함",
 });
 decisiveBlockerResponse.content[0]!.input.uncertainties = [{
-  dimension: "biz_age",
+  candidate_key: auditOnlyRegionCandidate.key,
+  dimension: "region",
   reason: "별도 축의 적용 범위를 확정할 수 없음",
 }];
 const decisiveBlocker = await adjudicateDeepAnalysisAudit({
@@ -316,7 +325,6 @@ const decisiveBlocker = await adjudicateDeepAnalysisAudit({
   evidenceText: span,
   primaryResult,
   primaryValidation,
-  auditResult,
   auditValidation,
   fetchImpl: async () => new Response(
     JSON.stringify(decisiveBlockerResponse),
@@ -335,6 +343,7 @@ assert.equal(decisiveBlocker.uncertaintyValidation.retainedCount, 1);
 const uncertaintyResponse = structuredClone(blockingResponse);
 uncertaintyResponse.content[0]!.input.blocking_findings = [];
 uncertaintyResponse.content[0]!.input.uncertainties = [{
+  candidate_key: auditOnlyRegionCandidate.key,
   dimension: "region",
   reason: "원문이 서로 충돌해 지역 자격을 확정할 수 없음",
 }];
@@ -344,7 +353,6 @@ const uncertain = await adjudicateDeepAnalysisAudit({
   evidenceText: span,
   primaryResult,
   primaryValidation,
-  auditResult,
   auditValidation,
   fetchImpl: async () => new Response(
     JSON.stringify(uncertaintyResponse),
@@ -355,15 +363,14 @@ assert.equal(uncertain.verdict, "unsure");
 
 const incompleteReviewResponse = structuredClone(blockingResponse);
 incompleteReviewResponse.content[0]!.input.blocking_findings = [];
-incompleteReviewResponse.content[0]!.input.reviewed_dimensions =
-  incompleteReviewResponse.content[0]!.input.reviewed_dimensions.slice(1);
+incompleteReviewResponse.content[0]!.input.reviewed_candidate_keys =
+  incompleteReviewResponse.content[0]!.input.reviewed_candidate_keys.slice(1);
 const incompleteReview = await adjudicateDeepAnalysisAudit({
   apiKey: "test",
   model: "claude-sonnet-5",
   evidenceText: span,
   primaryResult,
   primaryValidation,
-  auditResult,
   auditValidation,
   fetchImpl: async () => new Response(
     JSON.stringify(incompleteReviewResponse),
@@ -381,7 +388,6 @@ const unknownCandidate = await adjudicateDeepAnalysisAudit({
   evidenceText: span,
   primaryResult,
   primaryValidation,
-  auditResult,
   auditValidation,
   fetchImpl: async () => new Response(
     JSON.stringify(unknownCandidateResponse),
@@ -402,7 +408,6 @@ await assert.rejects(
     evidenceText: span,
     primaryResult,
     primaryValidation,
-    auditResult,
     auditValidation: { ...auditValidation, valid: false },
     fetchImpl: async () => {
       invalidAuditFetchCalls += 1;
@@ -446,7 +451,7 @@ function replayFinding(input: {
     primaryCriteria: input.primaryCriteria,
     primaryValidation: replayPrimary,
     candidates,
-    reviewedDimensions: [...CRITERION_DIMENSIONS],
+    reviewedCandidateKeys: candidates.map((row) => row.key),
     findingRows: [{
       candidate_key: candidate.key,
       dimension: input.dimension,
@@ -479,14 +484,20 @@ function replayUncertainty(input: {
   });
   assert.equal(replayPrimary.valid, true, JSON.stringify(replayPrimary.issues));
   assert.equal(replayAudit.valid, true, JSON.stringify(replayAudit.issues));
+  const candidates = buildDeepAnalysisAuditCandidates(replayPrimary, replayAudit);
+  const uncertaintyCandidate = candidates.find((candidate) => (
+    candidate.dimension === input.dimension
+  ));
+  assert.ok(uncertaintyCandidate);
   return normalizeDeepAnalysisAuditAdjudication({
     evidenceText: input.source,
     primaryCriteria: input.primaryCriteria,
     primaryValidation: replayPrimary,
-    candidates: buildDeepAnalysisAuditCandidates(replayPrimary, replayAudit),
-    reviewedDimensions: [...CRITERION_DIMENSIONS],
+    candidates,
+    reviewedCandidateKeys: candidates.map((row) => row.key),
     findingRows: [],
     uncertaintyRows: [{
+      candidate_key: uncertaintyCandidate.key,
       dimension: input.dimension,
       reason: "offline replay uncertainty",
     }],
@@ -628,7 +639,7 @@ const alreadyRepresentedCertification = normalizeDeepAnalysisAuditAdjudication({
   primaryCriteria: [certificationPrimary],
   primaryValidation: certificationPrimaryValidation,
   candidates: certificationCandidates,
-  reviewedDimensions: [...CRITERION_DIMENSIONS],
+  reviewedCandidateKeys: [],
   findingRows: [{
     candidate_key: "e".repeat(64),
     dimension: "certification",
@@ -645,33 +656,28 @@ assert.equal(
 
 const crossDimensionScoringSpan =
   "▲ 경기도 유망중소기업, ▲ 하남시 일자리창출 우수기업, ▲ 이노(메인)비즈 인증기업, ▲ 벤처기업, ▲ 경기가족친화 일하기 좋은기업, ▲ 장애인기업, ▲ 여성기업 ▲ 사회적기업 ▲ 경기도일자리우수기업 ( 1 점/건)";
-const crossDimensionScoringFalseBlocker = replayFinding({
-  source: `해외규격인증 보유 (8) 4점/건\n${crossDimensionScoringSpan}`,
-  primaryCriteria: [
-    {
-      dimension: "certification",
-      operator: "text_only",
-      kind: "preferred",
-      value: { note: "해외규격인증 보유 시 건당 4점, 최대 8점" },
-      confidence: 0.85,
-      sourceSpan: "해외규격인증 보유 (8) 4점/건",
-      spanVerified: true,
-      note: null,
-    },
-    {
-      dimension: "certification",
-      operator: "text_only",
-      kind: "preferred",
-      value: {
-        note: "경기도 유망중소기업 등 각종 인증기업 가점 1점/건",
-      },
-      confidence: 0.85,
-      sourceSpan: crossDimensionScoringSpan,
-      spanVerified: true,
-      note: null,
-    },
-  ],
-  auditCriteria: [{
+const preferredOnlySeal = sealDeepAnalysisInput({
+  grantId: "audit-preferred-only",
+  sourceRevisionSha256: "6".repeat(64),
+  structuredText: crossDimensionScoringSpan,
+  attachments: [],
+});
+const preferredOnlyPrimary = validateDeepAnalysisResult({
+  seal: preferredOnlySeal,
+  result: resultWithCriteria([{
+    dimension: "certification",
+    operator: "text_only",
+    kind: "preferred",
+    value: { note: crossDimensionScoringSpan },
+    confidence: 0.85,
+    sourceSpan: crossDimensionScoringSpan,
+    spanVerified: true,
+    note: null,
+  }]),
+});
+const preferredOnlyAudit = validateDeepAnalysisResult({
+  seal: preferredOnlySeal,
+  result: resultWithCriteria([{
     dimension: "prior_award",
     operator: "text_only",
     kind: "preferred",
@@ -680,15 +686,11 @@ const crossDimensionScoringFalseBlocker = replayFinding({
     sourceSpan: crossDimensionScoringSpan,
     spanVerified: true,
     note: null,
-  }],
-  dimension: "prior_award",
-  findingType: "missing_eligibility",
+  }]),
 });
-assert.equal(crossDimensionScoringFalseBlocker.verdict, "concur");
-assert.equal(crossDimensionScoringFalseBlocker.findingValidation.acceptedCount, 0);
-assert.equal(
-  crossDimensionScoringFalseBlocker.findingValidation.rejected[0]?.code,
-  "already_represented",
+assert.deepEqual(
+  buildDeepAnalysisAuditCandidates(preferredOnlyPrimary, preferredOnlyAudit),
+  [],
 );
 
 const crossDimensionRequiredText = replayFinding({
@@ -718,36 +720,6 @@ const crossDimensionRequiredText = replayFinding({
 });
 assert.equal(crossDimensionRequiredText.verdict, "disagree");
 assert.equal(crossDimensionRequiredText.findingValidation.acceptedCount, 1);
-
-const overlappingScoringSource =
-  "벤처기업 인증 1점/건 가점, 별도 지원사업 선정기업은 추가 1점 가점";
-const overlappingCrossDimensionScoring = replayFinding({
-  source: overlappingScoringSource,
-  primaryCriteria: [{
-    dimension: "certification",
-    operator: "text_only",
-    kind: "preferred",
-    value: { note: "벤처기업 인증 1점/건 가점" },
-    confidence: 0.85,
-    sourceSpan: "벤처기업 인증 1점/건 가점",
-    spanVerified: true,
-    note: null,
-  }],
-  auditCriteria: [{
-    dimension: "prior_award",
-    operator: "text_only",
-    kind: "preferred",
-    value: { note: overlappingScoringSource },
-    confidence: 0.85,
-    sourceSpan: overlappingScoringSource,
-    spanVerified: true,
-    note: null,
-  }],
-  dimension: "prior_award",
-  findingType: "missing_eligibility",
-});
-assert.equal(overlappingCrossDimensionScoring.verdict, "disagree");
-assert.equal(overlappingCrossDimensionScoring.findingValidation.acceptedCount, 1);
 
 const unsupportedBizAgeSpan =
   "□ 지원대상 : 부산지역 예비 · 초기 창업패키지 및 창업중심대학 선정된 예비창업자 및 초기창업자 중 17개 팀";
@@ -935,7 +907,6 @@ const retried = await adjudicateDeepAnalysisAudit({
   evidenceText: span,
   primaryResult,
   primaryValidation,
-  auditResult,
   auditValidation,
   retryDelayMs: 0,
   fetchImpl: async () => {
