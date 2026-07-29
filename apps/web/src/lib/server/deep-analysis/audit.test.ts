@@ -37,7 +37,9 @@ assert.match(
 assert.match(DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION, /axis_assessments.*출력하지 마라/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /조건이 없는 축을 표현하는 행을 만들지 마라/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /primary_source_ref/);
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v2");
+assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /impairment_excluded는 반드시.*배열/);
+assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /prior_award exclusion은 범위를 반드시/);
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v3");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();
 assert.deepEqual(
@@ -223,6 +225,165 @@ assert.match(
 );
 assert.equal(
   structuredEvidenceText.includes(structuredTextOnly.criteria[0]?.sourceSpan ?? ""),
+  true,
+);
+
+const typedContractEvidence = [
+  "재무제표 상, 부채비율이 마이너스(자본잠식)인 업체",
+  "전국 지역센터에 기 입주경력이 있는 자 등",
+  "해당연도 중앙부처 및 지자체 동일분야 자금 기 수혜기업",
+  "중앙부처 및 시 정책자금 최근 5년간 100억 원 이상 지원받은 업체",
+].join("\n");
+const typedContractSeal = sealDeepAnalysisInput({
+  grantId: "audit-typed-contract",
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: typedContractEvidence,
+  attachments: [],
+});
+const typedContractCatalog = createDeepAnalysisAuditEvidenceCatalog(typedContractEvidence);
+const typedContractRef = (needle: string) => typedContractCatalog.promptText
+  .split("\n")
+  .find((line) => line.includes(needle))
+  ?.match(/\[(ev_[0-9a-f]{16})\]/)?.[1];
+const impairmentRef = typedContractRef("자본잠식");
+const incubationRef = typedContractRef("입주경력");
+const sameYearRef = typedContractRef("해당연도");
+const monetaryThresholdRef = typedContractRef("100억 원");
+assert.ok(impairmentRef);
+assert.ok(incubationRef);
+assert.ok(sameYearRef);
+assert.ok(monetaryThresholdRef);
+const typedContractResult = normalizeDeepAnalysisAuditCandidateResult({
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  evidenceText: typedContractEvidence,
+  rawToolInput: {
+    criteria: [
+      {
+        dimension: "financial_health",
+        operator: "in",
+        kind: "exclusion",
+        value: { impairment_excluded: "full" },
+        confidence: 0.9,
+        primary_source_ref: impairmentRef,
+      },
+      {
+        dimension: "prior_award",
+        operator: "in",
+        kind: "exclusion",
+        value: {
+          program_names: ["센터입주"],
+          states: ["completed"],
+        },
+        confidence: 0.9,
+        primary_source_ref: incubationRef,
+      },
+      {
+        dimension: "prior_award",
+        operator: "in",
+        kind: "exclusion",
+        value: { states: ["completed"] },
+        confidence: 0.9,
+        primary_source_ref: sameYearRef,
+      },
+      {
+        dimension: "prior_award",
+        operator: "in",
+        kind: "exclusion",
+        value: { states: ["completed"] },
+        confidence: 0.9,
+        primary_source_ref: monetaryThresholdRef,
+      },
+    ],
+  },
+  rawResponseText: "{}",
+  stopReason: "tool_use",
+  usage: null,
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: typedContractSeal,
+  result: typedContractResult,
+}).valid, true);
+assert.deepEqual(
+  typedContractResult.rawToolInput.audit_contract_repairs,
+  [
+    { index: 0, code: "financial_health_impairment_scalar_to_array" },
+    { index: 1, code: "prior_award_incubation_tenancy_scope" },
+    { index: 2, code: "prior_award_same_year_other_support_scope" },
+    { index: 3, code: "prior_award_unsupported_monetary_threshold_to_text_only" },
+  ],
+);
+const repairedTypedCriteria =
+  typedContractResult.rawToolInput.criteria as Array<Record<string, unknown>>;
+assert.deepEqual(repairedTypedCriteria[0]?.value, { impairment_excluded: ["full"] });
+assert.deepEqual(repairedTypedCriteria[1]?.value, {
+  states: ["completed"],
+  scope: "self",
+  channel: "incubation_tenancy",
+});
+assert.deepEqual(repairedTypedCriteria[2]?.value, {
+  states: ["completed"],
+  scope: "self",
+  self_kind: "same_year_other_support",
+  channel: "general",
+});
+assert.equal(repairedTypedCriteria[3]?.dimension, "other");
+assert.equal(repairedTypedCriteria[3]?.operator, "text_only");
+assert.deepEqual(repairedTypedCriteria[3]?.value, {
+  note: typedContractEvidence.split("\n")[3],
+});
+const authoredTypedCriteria =
+  typedContractResult.rawToolInput.audit_authored_criteria as Array<Record<string, unknown>>;
+assert.deepEqual(authoredTypedCriteria[0]?.value, { impairment_excluded: "full" });
+assert.equal(
+  (authoredTypedCriteria[1]?.value as Record<string, unknown>).scope,
+  undefined,
+);
+
+const ambiguousPriorAwardEvidence = "과거 정부지원사업 수혜기업은 신청할 수 없음";
+const ambiguousPriorAwardSeal = sealDeepAnalysisInput({
+  grantId: "audit-ambiguous-prior-award",
+  sourceRevisionSha256: "a".repeat(64),
+  structuredText: ambiguousPriorAwardEvidence,
+  attachments: [],
+});
+const ambiguousPriorAwardCatalog =
+  createDeepAnalysisAuditEvidenceCatalog(ambiguousPriorAwardEvidence);
+const ambiguousPriorAwardRef =
+  /\[(ev_[0-9a-f]{16})\]/.exec(ambiguousPriorAwardCatalog.promptText)?.[1];
+assert.ok(ambiguousPriorAwardRef);
+const ambiguousPriorAwardResult = normalizeDeepAnalysisAuditCandidateResult({
+  model: "claude-haiku-4-5-20251001",
+  effort: null,
+  evidenceText: ambiguousPriorAwardEvidence,
+  rawToolInput: {
+    criteria: [{
+      dimension: "prior_award",
+      operator: "in",
+      kind: "exclusion",
+      value: { states: ["completed"] },
+      confidence: 0.9,
+      primary_source_ref: ambiguousPriorAwardRef,
+    }],
+  },
+  rawResponseText: "{}",
+  stopReason: "tool_use",
+  usage: null,
+});
+const ambiguousPriorAwardValidation = validateDeepAnalysisResult({
+  seal: ambiguousPriorAwardSeal,
+  result: ambiguousPriorAwardResult,
+});
+assert.equal(ambiguousPriorAwardValidation.valid, false);
+assert.deepEqual(
+  ambiguousPriorAwardResult.rawToolInput.audit_contract_repairs,
+  [],
+);
+assert.equal(
+  ambiguousPriorAwardValidation.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.path.includes(".value.scope")
+  )),
   true,
 );
 

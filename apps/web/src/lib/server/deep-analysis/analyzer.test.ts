@@ -309,7 +309,7 @@ await analyzeSealedDeepAnalysisInput({
     return {
       ...modelResult(options.model ?? "unknown"),
       rawToolInput: {
-        audit_contract_version: "deep-analysis-audit-candidates-v2",
+        audit_contract_version: "deep-analysis-audit-candidates-v3",
         criteria: [{
           dimension: "other",
           operator: "text_only",
@@ -325,7 +325,7 @@ await analyzeSealedDeepAnalysisInput({
 });
 assert.match(
   auditContractCalls.at(-1)?.inputText ?? "",
-  /"auditContractVersion":"deep-analysis-audit-candidates-v2"/,
+  /"auditContractVersion":"deep-analysis-audit-candidates-v3"/,
 );
 assert.match(auditContractCalls.at(-1)?.inputText ?? "", /"auditCandidates":/);
 assert.doesNotMatch(auditContractCalls.at(-1)?.inputText ?? "", /"analysisMarkdown":/);

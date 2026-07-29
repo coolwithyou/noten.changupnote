@@ -28,9 +28,24 @@ import {
 import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
 
 export const DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION =
-  "deep-analysis-audit-candidates-v2" as const;
+  "deep-analysis-audit-candidates-v3" as const;
 export const DEEP_ANALYSIS_AUDIT_TOOL_NAME =
   "emit_deep_analysis_audit_candidates" as const;
+
+export const DEEP_ANALYSIS_AUDIT_CONTRACT_REPAIR_CODES = [
+  "financial_health_impairment_scalar_to_array",
+  "prior_award_incubation_tenancy_scope",
+  "prior_award_same_year_other_support_scope",
+  "prior_award_unsupported_monetary_threshold_to_text_only",
+] as const;
+
+export type DeepAnalysisAuditContractRepairCode =
+  (typeof DEEP_ANALYSIS_AUDIT_CONTRACT_REPAIR_CODES)[number];
+
+export interface DeepAnalysisAuditContractRepair {
+  index: number;
+  code: DeepAnalysisAuditContractRepairCode;
+}
 
 const AUDIT_MAX_TOKENS = 8_000;
 const AUDIT_TIMEOUT_MS = 540_000;
@@ -78,7 +93,9 @@ export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
   "세금·공과금 체납은 dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[national_tax_delinquent|local_tax_delinquent|customs_delinquent|social_insurance_delinquent]를 사용한다. 예외는 payment_deferral_approved, tax_debt_repaid_with_proof, restart_funding_recipient, retry_guarantee_recipient 중 원문에 명시된 값만 value.exceptions에 둔다.",
   "신용·금융 상태는 dimension=credit_status, operator=in, kind=exclusion, value.flags=[credit_delinquency|loan_default|bond_default|rehabilitation_in_progress|bankruptcy_filed|court_receivership|financial_misconduct|asset_seizure|guarantee_restricted]를 사용한다. 예외는 credit_debt_repaid_with_proof, debt_adjustment_agreement, court_plan_approved, bankruptcy_discharge_confirmed, repayment_plan_in_good_standing, statute_expired, restart_funding_recipient, retry_guarantee_recipient 중 원문에 명시된 값만 value.exceptions에 둔다.",
   "제재·참여제한은 dimension=sanction, operator=in, kind=exclusion, value.flags=[participation_restricted|subsidy_fraud|subsidy_law_violation|obligation_breach|wage_arrears_listed|serious_accident_listed|agreement_breach]를 사용한다.",
-  "재무건전성은 dimension=financial_health, kind=exclusion, value에 debt_ratio_pct_threshold, impairment_excluded, min_interest_coverage 중 원문에 있는 값만 둔다.",
+  "재무건전성은 dimension=financial_health, kind=exclusion, value에 debt_ratio_pct_threshold, impairment_excluded, min_interest_coverage 중 원문에 있는 값만 둔다. impairment_excluded는 반드시 [\"partial\"|\"full\"] 배열이며, 자본잠식만 언급하면 [\"partial\",\"full\"], 자본전액잠식이면 [\"full\"]을 사용한다.",
+  "prior_award exclusion은 범위를 반드시 value.scope로 명시한다. 동일·유사 지원, 동일 과제, 본 사업 과거 선정, 당해연도 타부처 중복은 scope=self와 self_kind를 쓰고, 창업보육센터·지역센터 입주 이력은 scope=self, channel=incubation_tenancy를 사용한다.",
+  "특정 사업·사업유형 수혜 이력은 scope=program|program_type과 비어 있지 않은 programs를 사용한다. 금액 임계가 붙은 과거 지원 이력처럼 현재 prior_award canonical로 무손실 표현할 수 없거나 범위를 특정할 수 없으면 other/text_only exclusion과 exact evidence note로 보존한다.",
   "고용보험·피보험자 조건은 insured_workforce, 투자유치 하한은 investment/gte와 value.min_total_krw를 사용한다. 투자 상한은 investment/text_only와 value.note로 보존한다.",
   "premises와 export_performance는 해당 dimension의 text_only와 value.note로 보존한다.",
   "canonical value를 안전하게 만들 수 없는 명시적 매칭 규정은 other/text_only와 value.note로 보존한다.",
@@ -142,7 +159,8 @@ export function normalizeDeepAnalysisAuditCandidateResult(input: {
     : [];
   const evidenceCatalog = createDeepAnalysisAuditEvidenceCatalog(input.evidenceText);
   const resolved = evidenceCatalog.resolveCriteria(authoredCriteria);
-  const rawCriteria = resolved.criteria;
+  const repaired = repairDeepAnalysisAuditCriteriaContract(resolved.criteria);
+  const rawCriteria = repaired.criteria;
   const criteria = normalizeCriteria(rawCriteria, input.evidenceText);
   const foundDimensions = new Set<CriterionDimension>(
     criteria.map((criterion) => criterion.dimension),
@@ -181,11 +199,137 @@ export function normalizeDeepAnalysisAuditCandidateResult(input: {
       audit_contract_version: DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
       criteria: rawCriteria,
       axis_assessments: rawAxes,
+      audit_authored_criteria: resolved.criteria,
+      audit_contract_repairs: repaired.repairs,
       audit_source_reference_errors: resolved.unresolvedReferences,
     },
     rawResponseText: input.rawResponseText,
     stopReason: input.stopReason,
   };
+}
+
+/**
+ * Blind audit 모델이 찾은 사실은 유지하되, sealed exact evidence만으로 의미가
+ * 하나로 결정되는 구형/축약 value 형태만 현재 typed criterion 계약으로 복원한다.
+ * 의미가 여러 방식으로 해석될 수 있는 누락은 그대로 두어 validator가 fail-closed
+ * 처리한다.
+ */
+export function repairDeepAnalysisAuditCriteriaContract(rows: unknown[]): {
+  criteria: unknown[];
+  repairs: DeepAnalysisAuditContractRepair[];
+} {
+  const repairs: DeepAnalysisAuditContractRepair[] = [];
+  const criteria = rows.map((row, index) => {
+    if (!isRecord(row) || !isRecord(row.value)) return row;
+
+    if (row.dimension === "financial_health") {
+      const impairment = row.value.impairment_excluded;
+      if (impairment === "partial" || impairment === "full") {
+        repairs.push({
+          index,
+          code: "financial_health_impairment_scalar_to_array",
+        });
+        return {
+          ...row,
+          value: {
+            ...row.value,
+            impairment_excluded: [impairment],
+          },
+        };
+      }
+      return row;
+    }
+
+    if (
+      row.dimension !== "prior_award"
+      || row.kind !== "exclusion"
+      || typeof row.value.scope === "string"
+    ) {
+      return row;
+    }
+
+    const sourceSpan = cleanString(row.source_span);
+    if (!sourceSpan) return row;
+    const normalizedSpan = normalizeAuditContractEvidence(sourceSpan);
+
+    if (isIncubationTenancyEvidence(normalizedSpan)) {
+      repairs.push({
+        index,
+        code: "prior_award_incubation_tenancy_scope",
+      });
+      return {
+        ...row,
+        value: {
+          ...withoutLegacyPriorAwardProgramKeys(row.value),
+          scope: "self",
+          channel: "incubation_tenancy",
+        },
+      };
+    }
+
+    if (isSameYearOtherSupportEvidence(normalizedSpan)) {
+      repairs.push({
+        index,
+        code: "prior_award_same_year_other_support_scope",
+      });
+      return {
+        ...row,
+        value: {
+          ...withoutLegacyPriorAwardProgramKeys(row.value),
+          scope: "self",
+          self_kind: "same_year_other_support",
+          channel: "general",
+        },
+      };
+    }
+
+    if (isUnsupportedPriorAwardMonetaryThreshold(normalizedSpan)) {
+      repairs.push({
+        index,
+        code: "prior_award_unsupported_monetary_threshold_to_text_only",
+      });
+      return {
+        ...row,
+        dimension: "other",
+        operator: "text_only",
+        value: { note: sourceSpan },
+      };
+    }
+
+    return row;
+  });
+  return { criteria, repairs };
+}
+
+function normalizeAuditContractEvidence(value: string): string {
+  return value.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function isIncubationTenancyEvidence(value: string): boolean {
+  return /(?:센터|보육).{0,30}(?:기\s*)?입주(?:\s*경력|\s*이력)?/u.test(value)
+    || /(?:기\s*)?입주(?:\s*경력|\s*이력)?.{0,30}(?:센터|보육)/u.test(value);
+}
+
+function isSameYearOtherSupportEvidence(value: string): boolean {
+  return /(?:당해|해당|동일|같은)\s*연도/u.test(value)
+    && /(?:중복|기\s*수혜|수혜|지원)/u.test(value);
+}
+
+function isUnsupportedPriorAwardMonetaryThreshold(value: string): boolean {
+  return /\d[\d,]*(?:\.\d+)?\s*(?:조|억|천만|백만|만)?\s*원\s*(?:이상|초과|미만|이하)/u
+    .test(value)
+    && /(?:지원|수혜)/u.test(value);
+}
+
+function withoutLegacyPriorAwardProgramKeys(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const {
+    program_names: _programNames,
+    programs: _programs,
+    ...rest
+  } = value;
+  return rest;
 }
 
 export async function runDeepGrantAuditAnalysis(options: {
@@ -309,6 +453,10 @@ function normalizeUsage(usage: Record<string, unknown> | undefined): DeepAnalysi
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function cleanString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

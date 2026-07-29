@@ -426,7 +426,7 @@ export async function processDeepAnalysisJob(input: {
       extension: "json",
     },
     body: `${stableJson({
-      schema: "deep-analysis-blind-audit-v5",
+      schema: "deep-analysis-blind-audit-v6",
       model: audit.model,
       promptVersion: audit.promptVersion,
       contractVersion: audit.contractVersion,
