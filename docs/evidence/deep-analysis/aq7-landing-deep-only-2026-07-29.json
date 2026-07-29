@@ -75,6 +75,29 @@
     "withoutDeepPromotion": 1604,
     "note": "DB candidate 집계는 K-Startup 종료 payload, stale-undated, confirmed dedup 축약 전 수치다. 실제 teaser 평가 수는 1506건이었다."
   },
+  "coverageInventory": {
+    "preparedReleaseCount": 3,
+    "preparedDistinctGrantCount": 2,
+    "preparedActiveGrantCount": 0,
+    "preparedClosedGrants": [
+      {
+        "source": "kstartup",
+        "sourceId": "178511",
+        "title": "2026년 대학연대 창업 네트워크 캠프",
+        "duplicatePreparedReleaseCount": 2
+      },
+      {
+        "source": "kstartup",
+        "sourceId": "178577",
+        "title": "강북창업지원센터 [브랜드 창업 아카데미] 교육 참여자 모집",
+        "duplicatePreparedReleaseCount": 1
+      }
+    ],
+    "activePassedConcurCount": 1,
+    "activePassedConcurAlreadyPromotedCount": 1,
+    "activePassedConcurUnpromotedCount": 0,
+    "verdict": "NO_ZERO_COST_ACTIVE_PROMOTION_CANDIDATE"
+  },
   "verification": {
     "grantServingVisibilityTest": "PASS",
     "coreBuild": "PASS",
@@ -100,7 +123,7 @@
       "기존 promotion ledger를 사용자 매칭 조회의 provenance gate로 재사용했다.",
       "일반 공고 노출과 캘린더는 유지하고 matching universe만 제한했다."
     ],
-    "nextAllowed": "새 기능 구현보다 현재 활성 공고 중 검증 완료 딥분석 공고를 소수 승격해 유용한 결과 수를 늘린다.",
+    "nextAllowed": "현재 활성 공고 2건을 비용 상한 안에서 새로 딥분석·독립 검수하고 concur 결과만 기존 promotion 경로로 승격한다.",
     "nextNotAllowed": "coverage 부족을 legacy criterion fallback으로 숨기거나 새 매칭 알고리즘을 추가한다."
   }
 }

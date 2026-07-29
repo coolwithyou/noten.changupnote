@@ -5463,12 +5463,18 @@ promotion provenance가 있는 공고는 0건이었다. 즉 사업자번호 → 
 - 현재 반환 1건도 `conditional / needs_core_review`이며 즉시 추천 가능 공고는
   0건이다. 따라서 **연결 목표는 PASS지만 사용자에게 유용한 coverage 목표는
   STOP**이다.
+- prepared release 3개를 추가 확인했으나 모두 이미 마감된 2개 공고였고, 그중
+  `K-Startup 178511`은 동일 공고에 prepared release가 2개다. 이들을 승격해도
+  활성 랜딩 coverage는 늘지 않으므로 실행하지 않는다.
+- 현재 활성 공고 중 `deep run passed + 최신 audit concur`를 만족하는 공고는
+  이미 승격된 Bizinfo 1건뿐이다. 미승격 후보는 0건이므로 추가 비용 없이 바로
+  coverage를 늘릴 수 있는 release는 없다.
 - 이번 변경은 기존 원장에 조회 gate 하나만 추가했으므로 과구현이 아니다. 반대로
   coverage 부족을 해소하려고 새 알고리즘·schema·worker·UI를 만드는 것은
   과구현이다.
-- 다음 허용 범위는 새 코드가 아니라, 현재 활성 공고 중 이미 품질 게이트를 통과한
-  소수의 딥분석 결과를 같은 promotion 경로로 승격해 실제 추천 가능 공고 수를
-  늘리는 것이다. legacy fallback은 다시 열지 않는다.
+- 다음 허용 범위는 새 코드가 아니라 현재 활성 공고 2건을 비용 상한 안에서 새로
+  딥분석·독립 검수하고, `concur` 결과만 같은 promotion 경로로 승격해 실제 추천
+  가능 공고 수를 늘리는 것이다. legacy fallback은 다시 열지 않는다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/aq7-landing-deep-only-2026-07-29.json`에
   기록했다.
