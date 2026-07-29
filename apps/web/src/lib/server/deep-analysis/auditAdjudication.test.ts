@@ -292,6 +292,38 @@ assert.equal(
 assert.equal(explicitChange.findingValidation.acceptedCount, 1);
 assert.deepEqual(explicitChange.findingValidation.rejected, []);
 
+const decisiveBlockerResponse = structuredClone(blockingResponse);
+decisiveBlockerResponse.content[0]!.input.blocking_findings.push({
+  candidate_key: "f".repeat(64),
+  dimension: "business_status",
+  finding_type: "missing_eligibility",
+  reason: "별도 진단 행은 후보를 찾지 못함",
+});
+decisiveBlockerResponse.content[0]!.input.uncertainties = [{
+  dimension: "biz_age",
+  reason: "별도 축의 적용 범위를 확정할 수 없음",
+}];
+const decisiveBlocker = await adjudicateDeepAnalysisAudit({
+  apiKey: "test",
+  model: "claude-sonnet-5",
+  evidenceText: span,
+  primaryResult,
+  primaryValidation,
+  auditResult,
+  auditValidation,
+  fetchImpl: async () => new Response(
+    JSON.stringify(decisiveBlockerResponse),
+    { status: 200 },
+  ),
+});
+assert.equal(decisiveBlocker.verdict, "disagree");
+assert.equal(decisiveBlocker.findingValidation.acceptedCount, 1);
+assert.equal(
+  decisiveBlocker.findingValidation.rejected[0]?.code,
+  "candidate_not_found",
+);
+assert.equal(decisiveBlocker.uncertaintyValidation.retainedCount, 1);
+
 const uncertaintyResponse = structuredClone(blockingResponse);
 uncertaintyResponse.content[0]!.input.blocking_findings = [];
 uncertaintyResponse.content[0]!.input.uncertainties = [{

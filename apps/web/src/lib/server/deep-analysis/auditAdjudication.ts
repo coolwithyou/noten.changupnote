@@ -31,7 +31,7 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v16" as const;
+  "deep-analysis-audit-adjudication-v17" as const;
 export const DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION =
   "deep-analysis-audit-finding-verifier-v2" as const;
 export const DEEP_ANALYSIS_AUDIT_UNCERTAINTY_VERIFIER_VERSION =
@@ -445,12 +445,12 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
     };
   });
   return {
-    verdict: contractInvalid
-      ? "unsure"
-      : uncertaintiesByDimension.size > 0
+    verdict: findingsByDimension.size > 0
+      ? "disagree"
+      : contractInvalid
         ? "unsure"
-        : findingsByDimension.size > 0
-          ? "disagree"
+        : uncertaintiesByDimension.size > 0
+          ? "unsure"
           : "concur",
     itemResults,
     findingValidation: {
