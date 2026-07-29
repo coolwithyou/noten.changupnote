@@ -5525,6 +5525,52 @@ schema, matcher, Ops UI, worker 배포와 Vercel 배포는 없었다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/aq8-exact-2-2026-07-29.json`에 기록했다.
 
+### AQ9 구조적 처리량 진단·R1 readiness 분리 — `STRUCTURAL BOTTLENECK`, `R1 CODE PASS` (2026-07-29)
+
+`CQ2`부터 `AQ8`까지의 exact 2건 실행을 다시 분해했다. 계획 문서로 재구성 가능한
+구간만 exact 2건 8회, 실행 슬롯 16건, 고유 공고 6건이다. primary validator는
+약 13/16까지 개선됐지만 fresh 실행에서 명시적 `concur`까지 간 슬롯은 2/16,
+신규 자동승격은 0/16이다.
+
+판정:
+
+1. HWP 내용 이해, primary typed 계약, exact evidence와 검증된 오류 피드백은 실제로
+   개선됐다. 같은 공고쌍에서는 primary/audit 2/2와 blocker 1→0도 확인했다.
+2. 새 공고쌍에서는 primary·audit·cross-axis 의미·matcher 표현 중 새로운 실패가
+   반복됐다. 특히 AQ8은 분석·감사에 성공해도 지역 OR/이전 확약을 현재 criterion
+   배열로 무손실 표현할 수 없었다.
+3. 전체 공고가 primary, audit, adjudication, matcher 변환 중 하나만 실패해도
+   탈락하는 직렬 구조이고, 22축 taxonomy의 `premises/export_performance`는 제품
+   프로필에서 예약축이다. 현재 처리량 병목은 단순 prompt 품질보다 구조적이다.
+4. 같은 형태의 유료 2건 재실행과 공고별 예외 튜닝은 중단한다.
+
+R1 구현:
+
+- `assessDeepAnalysisPromotionReadiness` 순수 seam을 추가해
+  `analysis_complete`, `audit_complete`, `matcher_representable`,
+  `auto_promotable`을 서로 다른 상태로 판정한다.
+- 자동승격 불가 결과는 generic 실패가 아니라 blocker code가 있는
+  `human_review_required` terminal route로 표현한다.
+- audit 불일치, required/exclusion 충돌, conversion error·drop·downgrade,
+  질문 anchor 상실과 미확정 resolution을 구조화한다.
+- 기존 자동승격 fail-closed는 완화하지 않았다. AQ8형 `premises/text_only`
+  fixture는 분석·감사 PASS, matcher 표현 BLOCKED, 사람 검수 route로 고정했다.
+- focused promotion test, package build, 전체 `verify:deep-analysis-contract`,
+  web typecheck, package runtime freshness와 `git diff --check`가 PASS했다.
+  유료 모델 호출, DB/R2 write, production promotion, Cloud Run/Scheduler,
+  Vercel 변경은 0이다.
+
+다음 순서:
+
+1. R1 독립 리뷰와 전체 deep-analysis contract/typecheck
+2. R2 audit를 전체 재추출이 아니라 required·exclusion·예외·관계 오류 검수로 축소
+3. R3 matcher 표현 가능성을 audit 전에 `direct / conditional_only /
+   unsupported_relation`으로 분류
+4. 보존 artifact 회귀 뒤 새로운 활성 공고 exact 2건을 한 번만 실행
+
+구조 진단, 상태 계약, 안전 불변조건과 완료 기준은
+`docs/architecture/딥분석_자동승격_처리량_회복.md`를 정본으로 한다.
+
 중단 조건:
 
 - 동결 80 품질 미달
