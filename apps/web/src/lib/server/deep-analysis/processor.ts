@@ -29,6 +29,7 @@ import {
   reserveDeepAnalysisPreAuditCost,
   sumDeepAnalysisActualCosts,
 } from "./costPolicy";
+import { assessDeepAnalysisMatcherRepresentability } from "./matcherRepresentability";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 import {
   buildDeepAnalysisAuditRetryFeedback,
@@ -44,7 +45,7 @@ import {
 import type { DeepAnalysisWorkerPolicy } from "./workerPolicy";
 import { completeDeepAnalysisJob } from "./workerState";
 
-export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v2" as const;
+export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v3" as const;
 
 type DeepAnalysisJob = typeof schema.grantDeepAnalysisJobs.$inferSelect;
 
@@ -309,6 +310,9 @@ export async function processDeepAnalysisJob(input: {
       costUsd: money(primary.result.costUsd),
     }).where(eq(schema.grantDeepAnalysisRuns.id, run.id));
 
+    const matcherRepresentability = assessDeepAnalysisMatcherRepresentability(
+      primary.result.criteria,
+    );
     const outputArtifact = await putImmutableDeepAnalysisArtifact({
       storage: input.storage,
       identity: {
@@ -319,9 +323,10 @@ export async function processDeepAnalysisJob(input: {
         extension: "json",
       },
       body: `${stableJson({
-        schema: "deep-analysis-normalized-output-v1",
+        schema: "deep-analysis-normalized-output-v2",
         result: stripRawModelResult(primary.result),
         validation,
+        matcherRepresentability,
       })}\n`,
       contentType: "application/json",
     });

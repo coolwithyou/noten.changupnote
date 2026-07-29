@@ -5615,3 +5615,39 @@ AQ9의 다음 체크포인트로 독립 audit의 책임을 자동 매칭 가능 
 - blocker 없는 active grant가 S14에 도달하지 못함
 
 위 조건 중 하나라도 발생하면 cohort를 확대하지 않고 해당 단계만 수정한다.
+
+### AQ11 R3 matcher 표현 가능성 사전판정 — `CODE PASS`, `PAID CALL 0` (2026-07-29)
+
+AQ9 정본의 세 번째 구조 체크포인트를 구현했다. 분석 결과를 현재 matcher가 안전하게
+소비할 수 있는지 blind audit 전에 결정론적으로 분류하며, compound relation
+schema·새 Ops workflow·DB migration은 추가하지 않았다.
+
+구현:
+
+1. `assessDeepAnalysisMatcherRepresentability`가 primary criterion마다
+   `direct`, `conditional_only`, `unsupported_relation`과 stable reason code를
+   기록한다. 직접 판정 능력은 현재 제품의 `isProfileResolvableCriterion`을
+   재사용한다.
+2. normalized output을 v2로 올려 분류 결과를 primary validation과 함께 immutable
+   artifact에 봉인한다. promotion parser는 구조뿐 아니라 현재 결정론 재계산 결과와
+   byte-stable 의미가 같은지도 확인한다.
+3. `conditional_only`의 예상 `needs_review` 강등은 더 이상 공고 전체 promotion
+   blocker가 아니다. criterion은 그대로 발행되고 matcher는 unknown으로 처리하므로
+   false eligible/ineligible 근거가 되지 않는다.
+4. hard `unsupported_relation`은 새 readiness blocker로 남아
+   `human_review_required`로 간다. AQ8의 전남 영위 조건과 타지역 기업의 종료일까지
+   영광 이전 확약은 두 criterion 모두 이 상태로 고정했다.
+5. 선정·협약 이후 취소·환수, 서로 다른 축의 같은 OR 문장, 비구조화 예외도
+   fail-closed다. 반대로 canonical exceptions를 가진 sanction은 기존 matcher
+   지원 범위이므로 direct로 유지한다.
+
+검증과 범위:
+
+- focused promotion 회귀에서 direct 자동승격, 독립 premises conditional 발행,
+  AQ8 사람 검수 route, 사후 취소 조건 차단, canonical exception direct를 확인한다.
+- 이어서 web typecheck, 전체 deep-analysis contract, package runtime freshness와
+  diff check를 통과시킨다.
+- 유료 모델 호출, DB/R2 write, production promotion, Cloud Run/Scheduler,
+  Vercel 변경은 0이다.
+- 다음 단계는 R4다. 서로 다른 새 활성 공고 exact 2건을 한 번만 실행하고,
+  terminal routing 2/2와 실제 auto-promotable 수를 별도로 판정한다.

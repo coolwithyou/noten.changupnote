@@ -12,6 +12,11 @@ import {
   planGrantPromotion,
   type GrantPromotionPlan,
 } from "../analysis-lab/promote";
+import {
+  assessDeepAnalysisMatcherRepresentability,
+  isDeepAnalysisMatcherRepresentabilityAssessment,
+  type DeepAnalysisMatcherRepresentabilityAssessment,
+} from "./matcherRepresentability";
 import { stableJson } from "./sourceRevision";
 
 type NormalizedDeepAnalysisResult = Omit<
@@ -20,7 +25,7 @@ type NormalizedDeepAnalysisResult = Omit<
 >;
 
 export interface DeepAnalysisNormalizedOutput {
-  schema: "deep-analysis-normalized-output-v1";
+  schema: "deep-analysis-normalized-output-v2";
   result: NormalizedDeepAnalysisResult;
   validation: {
     valid: boolean;
@@ -28,6 +33,7 @@ export interface DeepAnalysisNormalizedOutput {
     axisCoverageComplete: boolean;
     evidenceGrounded: boolean;
   };
+  matcherRepresentability: DeepAnalysisMatcherRepresentabilityAssessment;
 }
 
 export interface DeepPromotionRunIdentity {
@@ -52,6 +58,7 @@ export type DeepAnalysisReadinessState = "passed" | "blocked" | "not_assessed";
 
 export type DeepAnalysisPromotionReadinessBlockerCode =
   | "audit_not_concur"
+  | "unsupported_relation"
   | "required_exclusion_conflict"
   | "conversion_error"
   | "empty_criteria"
@@ -100,6 +107,7 @@ export class DeepAnalysisPromotionReadinessError extends Error {
 
 export function assessDeepAnalysisPromotionReadiness(input: {
   auditVerdict: string | null;
+  matcherRepresentability?: DeepAnalysisMatcherRepresentabilityAssessment | null;
   requiredExclusionConflictCount?: number;
   plan?: GrantPromotionPlan | null;
 }): DeepAnalysisPromotionReadiness {
@@ -110,6 +118,17 @@ export function assessDeepAnalysisPromotionReadiness(input: {
       stage: "audit_complete",
       count: 1,
       detail: "독립 감사 concur가 아니므로 자동 승격할 수 없습니다.",
+    });
+  }
+
+  const hardUnsupportedRelationCount =
+    input.matcherRepresentability?.hardUnsupportedRelationCount ?? 0;
+  if (hardUnsupportedRelationCount > 0) {
+    blockers.push({
+      code: "unsupported_relation",
+      stage: "matcher_representable",
+      count: hardUnsupportedRelationCount,
+      detail: `현재 matcher가 표현할 수 없는 hard eligibility 관계 ${hardUnsupportedRelationCount}건`,
     });
   }
 
@@ -149,12 +168,20 @@ export function assessDeepAnalysisPromotionReadiness(input: {
         detail: `발행 변환에서 criterion ${input.plan.conversion.dropped}건이 탈락했습니다.`,
       });
     }
-    if (input.plan.conversion.downgraded > 0) {
+    const unexpectedDowngradeCount = input.matcherRepresentability
+      ? input.plan.criteria.filter((criterion, position) => {
+        if (criterion.needs_review !== true) return false;
+        const criterionIndex = input.plan?.criterionIndexByPosition[position] ?? -1;
+        const status = input.matcherRepresentability?.items[criterionIndex]?.status;
+        return status === undefined || status === "direct";
+      }).length
+      : input.plan.conversion.downgraded;
+    if (unexpectedDowngradeCount > 0) {
       blockers.push({
         code: "conversion_downgraded",
         stage: "matcher_representable",
-        count: input.plan.conversion.downgraded,
-        detail: `matcher가 무손실 소비할 수 없어 criterion ${input.plan.conversion.downgraded}건이 강등됐습니다.`,
+        count: unexpectedDowngradeCount,
+        detail: `사전 분류와 다르게 criterion ${unexpectedDowngradeCount}건이 발행 변환에서 강등됐습니다.`,
       });
     }
     if (input.plan.droppedQuestionCandidates > 0) {
@@ -184,7 +211,7 @@ export function assessDeepAnalysisPromotionReadiness(input: {
     (blocker) => blocker.stage === "matcher_representable",
   );
   const matcherRepresentable: DeepAnalysisReadinessState =
-    input.plan || conflictCount > 0
+    input.plan || conflictCount > 0 || input.matcherRepresentability
       ? matcherBlockers.length === 0 ? "passed" : "blocked"
       : "not_assessed";
   const autoPromotable =
@@ -209,17 +236,25 @@ export function parseDeepAnalysisNormalizedOutput(
   }
   const output = value as Partial<DeepAnalysisNormalizedOutput>;
   if (
-    output.schema !== "deep-analysis-normalized-output-v1"
+    output.schema !== "deep-analysis-normalized-output-v2"
     || !output.result
     || !Array.isArray(output.result.criteria)
     || !Array.isArray(output.result.axisAssessments)
     || !output.validation
+    || !isDeepAnalysisMatcherRepresentabilityAssessment(
+      output.matcherRepresentability,
+      output.result.criteria.length,
+    )
     || output.validation.valid !== true
     || output.validation.responseContractValid !== true
     || output.validation.axisCoverageComplete !== true
     || output.validation.evidenceGrounded !== true
   ) {
     throw new Error("딥분석 normalized output이 S7~S9 통과 계약과 일치하지 않습니다.");
+  }
+  const currentAssessment = assessDeepAnalysisMatcherRepresentability(output.result.criteria);
+  if (stableJson(output.matcherRepresentability) !== stableJson(currentAssessment)) {
+    throw new Error("딥분석 normalized output의 matcher 표현 분류가 현재 결정론 계약과 일치하지 않습니다.");
   }
   return output as DeepAnalysisNormalizedOutput;
 }
@@ -239,10 +274,12 @@ export function buildDeepAnalysisPromotionPlan(input: {
   plan: GrantPromotionPlan;
   readiness: DeepAnalysisPromotionReadiness;
 } {
+  parseDeepAnalysisNormalizedOutput(input.output);
   if (input.audit.verdict !== "concur") {
     throw new DeepAnalysisPromotionReadinessError(
       assessDeepAnalysisPromotionReadiness({
         auditVerdict: input.audit.verdict,
+        matcherRepresentability: input.output.matcherRepresentability,
       }),
     );
   }
@@ -252,6 +289,7 @@ export function buildDeepAnalysisPromotionPlan(input: {
     throw new DeepAnalysisPromotionReadinessError(
       assessDeepAnalysisPromotionReadiness({
         auditVerdict: input.audit.verdict,
+        matcherRepresentability: input.output.matcherRepresentability,
         requiredExclusionConflictCount: requiredExclusionConflicts.length,
       }),
     );
@@ -300,7 +338,7 @@ export function buildDeepAnalysisPromotionPlan(input: {
       criterionIndex,
       reason: "correct_sample",
       aiVerdict: "correct",
-      aiNote: "프로덕션 blind independent audit가 전체 semantic set에 concur",
+      aiNote: "프로덕션 blind independent audit가 match-impacting semantic set에 concur",
       humanVerdict: null,
       note: null,
       aiAuditVerdict: "correct",
@@ -319,6 +357,7 @@ export function buildDeepAnalysisPromotionPlan(input: {
   });
   const readiness = assessDeepAnalysisPromotionReadiness({
     auditVerdict: input.audit.verdict,
+    matcherRepresentability: input.output.matcherRepresentability,
     plan,
   });
   if (readiness.terminalRoute !== "auto_promotable") {

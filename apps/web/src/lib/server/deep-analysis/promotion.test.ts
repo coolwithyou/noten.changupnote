@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import {
+  assessDeepAnalysisMatcherRepresentability,
+} from "./matcherRepresentability";
 import type { DeepAnalysisNormalizedOutput } from "./promotion";
 import {
   DeepAnalysisPromotionReadinessError,
@@ -7,22 +10,24 @@ import {
   parseDeepAnalysisNormalizedOutput,
 } from "./promotion";
 
+const directCriterion: DeepAnalysisNormalizedOutput["result"]["criteria"][number] = {
+  dimension: "region",
+  kind: "required",
+  operator: "in",
+  value: { regions: ["11"] },
+  confidence: 0.95,
+  sourceSpan: "서울 소재 기업",
+  spanVerified: true,
+  note: null,
+};
+
 const output: DeepAnalysisNormalizedOutput = {
-  schema: "deep-analysis-normalized-output-v1",
+  schema: "deep-analysis-normalized-output-v2",
   result: {
     model: "claude-opus-4-8",
     analysisMarkdown: "분석",
     programIntent: null,
-    criteria: [{
-      dimension: "region",
-      kind: "required",
-      operator: "in",
-      value: { regions: ["11"] },
-      confidence: 0.95,
-      sourceSpan: "서울 소재 기업",
-      spanVerified: true,
-      note: null,
-    }],
+    criteria: [directCriterion],
     axisAssessments: [{
       dimension: "region",
       status: "condition_found",
@@ -40,9 +45,27 @@ const output: DeepAnalysisNormalizedOutput = {
     axisCoverageComplete: true,
     evidenceGrounded: true,
   },
+  matcherRepresentability: assessDeepAnalysisMatcherRepresentability([directCriterion]),
 };
 
 assert.equal(parseDeepAnalysisNormalizedOutput(output), output);
+assert.throws(
+  () => parseDeepAnalysisNormalizedOutput({
+    ...output,
+    schema: "deep-analysis-normalized-output-v1",
+  }),
+  /S7~S9/,
+);
+assert.throws(
+  () => parseDeepAnalysisNormalizedOutput({
+    ...output,
+    matcherRepresentability: {
+      ...output.matcherRepresentability,
+      hardUnsupportedRelationCount: 1,
+    },
+  }),
+  /S7~S9/,
+);
 assert.throws(
   () => parseDeepAnalysisNormalizedOutput({
     ...output,
@@ -50,6 +73,16 @@ assert.throws(
   }),
   /S7~S9/,
 );
+
+function outputWithResult(
+  result: DeepAnalysisNormalizedOutput["result"],
+): DeepAnalysisNormalizedOutput {
+  return {
+    ...output,
+    result,
+    matcherRepresentability: assessDeepAnalysisMatcherRepresentability(result.criteria),
+  };
+}
 
 const result = buildDeepAnalysisPromotionPlan({
   run: {
@@ -106,11 +139,9 @@ assert.throws(
       inputSha256: "b".repeat(64),
       costUsd: 0.2,
     },
-    output: {
-      ...output,
-      result: {
-        ...output.result,
-        criteria: [
+    output: outputWithResult({
+      ...output.result,
+      criteria: [
           {
             dimension: "target_type",
             kind: "required",
@@ -131,9 +162,8 @@ assert.throws(
             spanVerified: true,
             note: null,
           },
-        ],
-      },
-    },
+      ],
+    }),
     currentCriteria: [],
     audit: {
       model: "claude-sonnet-5",
@@ -186,7 +216,7 @@ assert.throws(
     assert.ok(error instanceof DeepAnalysisPromotionReadinessError);
     assert.equal(error.readiness.analysisComplete, "passed");
     assert.equal(error.readiness.auditComplete, "blocked");
-    assert.equal(error.readiness.matcherRepresentable, "not_assessed");
+    assert.equal(error.readiness.matcherRepresentable, "passed");
     assert.equal(error.readiness.autoPromotable, "blocked");
     assert.equal(error.readiness.terminalRoute, "human_review_required");
     assert.deepEqual(
@@ -199,8 +229,7 @@ assert.throws(
 );
 
 const premisesOutput: DeepAnalysisNormalizedOutput = {
-  ...output,
-  result: {
+  ...outputWithResult({
     ...output.result,
     criteria: [{
       dimension: "premises",
@@ -218,10 +247,9 @@ const premisesOutput: DeepAnalysisNormalizedOutput = {
       confidence: 0.9,
       comment: null,
     }],
-  },
+  }),
 };
-assert.throws(
-  () => buildDeepAnalysisPromotionPlan({
+const premisesResult = buildDeepAnalysisPromotionPlan({
     run: {
       runId: "da-premises",
       grantId: "33333333-3333-4333-8333-333333333333",
@@ -244,21 +272,131 @@ assert.throws(
       completedAt: new Date("2026-07-29T00:01:00Z"),
       verdict: "concur",
     },
+});
+assert.equal(
+  premisesOutput.matcherRepresentability.items[0]?.status,
+  "conditional_only",
+);
+assert.equal(premisesResult.plan.criteria[0]?.needs_review, true);
+assert.equal(premisesResult.readiness.matcherRepresentable, "passed");
+assert.equal(premisesResult.readiness.terminalRoute, "auto_promotable");
+
+const aq8Output = outputWithResult({
+  ...output.result,
+  criteria: [
+    {
+      dimension: "region",
+      kind: "required",
+      operator: "in",
+      value: { regions: ["46"] },
+      confidence: 0.95,
+      sourceSpan: "공고일 기준 전남지역에서 6개월 이상 사업 영위 중인 기업",
+      spanVerified: true,
+      note: null,
+    },
+    {
+      dimension: "premises",
+      kind: "required",
+      operator: "text_only",
+      value: { note: "사업 종료일까지 영광군 내 입주 확약" },
+      confidence: 0.95,
+      sourceSpan: "전남 이외 지역 참여 기업은 사업 종료일까지 영광군 내 입주 확약",
+      spanVerified: true,
+      note: null,
+    },
+  ],
+  axisAssessments: [
+    {
+      dimension: "region",
+      status: "condition_found",
+      confidence: 0.95,
+      comment: null,
+    },
+    {
+      dimension: "premises",
+      status: "condition_found",
+      confidence: 0.95,
+      comment: null,
+    },
+  ],
+});
+assert.deepEqual(
+  aq8Output.matcherRepresentability.items.map((item) => [item.status, item.reasonCode]),
+  [
+    ["unsupported_relation", "future_premises_alternative"],
+    ["unsupported_relation", "future_premises_alternative"],
+  ],
+);
+assert.throws(
+  () => buildDeepAnalysisPromotionPlan({
+    run: {
+      runId: "da-aq8",
+      grantId: "44444444-4444-4444-8444-444444444444",
+      source: "bizinfo",
+      sourceId: "PBLN_AQ8",
+      title: "지역 또는 이전 확약 공고",
+      model: "claude-opus-4-8",
+      promptVersion: "deep-analysis-v11",
+      startedAt: new Date("2026-07-29T00:00:00Z"),
+      completedAt: new Date("2026-07-29T00:01:00Z"),
+      inputChars: 1000,
+      inputSha256: "d".repeat(64),
+      costUsd: 0.2,
+    },
+    output: aq8Output,
+    currentCriteria: [],
+    audit: {
+      model: "claude-sonnet-5",
+      promptVersion: "deep-analysis-blind-audit-v16",
+      completedAt: new Date("2026-07-29T00:01:00Z"),
+      verdict: "concur",
+    },
   }),
   (error: unknown) => {
     assert.ok(error instanceof DeepAnalysisPromotionReadinessError);
     assert.equal(error.readiness.analysisComplete, "passed");
     assert.equal(error.readiness.auditComplete, "passed");
     assert.equal(error.readiness.matcherRepresentable, "blocked");
-    assert.equal(error.readiness.autoPromotable, "blocked");
-    assert.equal(error.readiness.humanReviewRequired, true);
     assert.equal(error.readiness.terminalRoute, "human_review_required");
     assert.deepEqual(
       error.readiness.blockers.map((blocker) => [blocker.code, blocker.count]),
-      [["conversion_downgraded", 1]],
+      [["unsupported_relation", 2]],
     );
     return true;
   },
+);
+
+const postSelectionAssessment = assessDeepAnalysisMatcherRepresentability([{
+  dimension: "sanction",
+  kind: "exclusion",
+  operator: "in",
+  value: { flags: ["agreement_breach"] },
+  confidence: 0.9,
+  sourceSpan: "협약 체결 이후 명시사항을 2회 위반하면 지원 취소",
+  spanVerified: true,
+  note: null,
+}]);
+assert.deepEqual(
+  postSelectionAssessment.items.map((item) => [item.status, item.reasonCode]),
+  [["unsupported_relation", "post_selection_timing"]],
+);
+
+const canonicalExceptionAssessment = assessDeepAnalysisMatcherRepresentability([{
+  dimension: "sanction",
+  kind: "exclusion",
+  operator: "in",
+  value: {
+    flags: ["agreement_breach"],
+    exceptions: [{ kind: "approved_exception" }],
+  },
+  confidence: 0.9,
+  sourceSpan: "협약 위반 제재 대상. 다만 승인된 예외는 신청 가능",
+  spanVerified: true,
+  note: null,
+}]);
+assert.deepEqual(
+  canonicalExceptionAssessment.items.map((item) => [item.status, item.reasonCode]),
+  [["direct", "profile_resolvable"]],
 );
 
 const auditNotConcur = assessDeepAnalysisPromotionReadiness({
