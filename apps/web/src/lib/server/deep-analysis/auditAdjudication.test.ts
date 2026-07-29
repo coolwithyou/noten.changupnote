@@ -290,6 +290,13 @@ assert.equal(
   "disagree",
 );
 assert.equal(explicitChange.findingValidation.acceptedCount, 1);
+assert.deepEqual(explicitChange.findingValidation.accepted, [{
+  candidateKey: auditOnlyRegionCandidate.key,
+  dimension: "region",
+  findingType: "misclassified_eligibility",
+  reason: "부산 조건이 서울 지역 코드로 분류됨",
+  criterion: auditOnlyRegionCandidate.audit,
+}]);
 assert.deepEqual(explicitChange.findingValidation.rejected, []);
 
 const decisiveBlockerResponse = structuredClone(blockingResponse);
@@ -318,6 +325,7 @@ const decisiveBlocker = await adjudicateDeepAnalysisAudit({
 });
 assert.equal(decisiveBlocker.verdict, "disagree");
 assert.equal(decisiveBlocker.findingValidation.acceptedCount, 1);
+assert.equal(decisiveBlocker.findingValidation.accepted.length, 1);
 assert.equal(
   decisiveBlocker.findingValidation.rejected[0]?.code,
   "candidate_not_found",

@@ -4,7 +4,9 @@ import { renderDeepAnalysisChunks, type DeepAnalysisExecution } from "./analyzer
 import { findExactEvidenceSpanCandidates } from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
+  buildDeepAnalysisAuditRetryFeedback,
   buildDeepAnalysisEvidenceRepairHints,
+  DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION,
   DEEP_ANALYSIS_REPAIR_VERSION,
   repairDeepAnalysisExecution,
 } from "./repair";
@@ -134,6 +136,70 @@ assert.deepEqual(
     evidenceRepairHints: unknown[];
   }).evidenceRepairHints,
   buildDeepAnalysisEvidenceRepairHints({ execution, validation }),
+);
+
+const verifiedIpFinding = {
+  candidateKey: "a".repeat(64),
+  dimension: "ip",
+  findingType: "missing_eligibility",
+  reason: "평가표의 특허 보유 배점이 primary에서 누락됨",
+  criterion: {
+    dimension: "ip",
+    operator: "in",
+    kind: "preferred",
+    value: { types: ["특허", "실용신안"] },
+    confidence: 0.95,
+    source_span: "특허ㆍ실용신안 보유 시 10점",
+    needs_review: false,
+    parser_version: "deep-analysis-validator-v4",
+  },
+};
+const retryFeedback = buildDeepAnalysisAuditRetryFeedback({
+  previousRunId: "deep-run-before-requeue",
+  auditArtifactKey: "deep-analysis/audit.json",
+  artifactText: JSON.stringify({
+    schema: "deep-analysis-blind-audit-v7",
+    adjudication: {
+      findingValidation: {
+        acceptedCount: 1,
+        accepted: [verifiedIpFinding],
+        rejected: [{
+          code: "finding_type_mismatch",
+          message: "진단용 rejected finding",
+        }],
+      },
+      uncertaintyValidation: {
+        retainedCount: 1,
+      },
+    },
+  }),
+});
+assert.ok(retryFeedback);
+assert.equal(
+  retryFeedback.version,
+  DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION,
+);
+assert.deepEqual(retryFeedback.findings, [verifiedIpFinding]);
+assert.match(retryFeedback.taskInstruction, /관리자가 명시적으로 재처리/);
+assert.match(retryFeedback.taskInstruction, /VERIFIED_AUDIT_FINDINGS/);
+assert.match(retryFeedback.taskInstruction, /특허ㆍ실용신안 보유 시 10점/);
+assert.equal(retryFeedback.taskInstruction.includes("진단용 rejected finding"), false);
+assert.equal(
+  buildDeepAnalysisAuditRetryFeedback({
+    previousRunId: "deep-run-without-verified-finding",
+    auditArtifactKey: "deep-analysis/audit-empty.json",
+    artifactText: JSON.stringify({
+      schema: "deep-analysis-blind-audit-v7",
+      adjudication: {
+        findingValidation: {
+          acceptedCount: 0,
+          accepted: [],
+          rejected: [],
+        },
+      },
+    }),
+  }),
+  null,
 );
 
 console.log("deep-analysis repair tests passed");

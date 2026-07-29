@@ -250,3 +250,17 @@ export async function findLatestDeepAnalysisRunForJob(
     .limit(1);
   return run ?? null;
 }
+
+export async function findLatestDeepAnalysisAuditForRun(
+  db: CunoteDbSession,
+  runId: string,
+): Promise<typeof schema.grantDeepAnalysisAudits.$inferSelect | null> {
+  const [audit] = await db.select().from(schema.grantDeepAnalysisAudits)
+    .where(eq(schema.grantDeepAnalysisAudits.runId, runId))
+    .orderBy(
+      desc(schema.grantDeepAnalysisAudits.attempt),
+      desc(schema.grantDeepAnalysisAudits.completedAt),
+    )
+    .limit(1);
+  return audit ?? null;
+}

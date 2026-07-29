@@ -18,6 +18,7 @@ import { buildDeepAnalysisInputStageReceipts } from "./inputStages";
 import {
   appendDeepAnalysisExceptionEvent,
   enqueueDeepAnalysisJob,
+  findLatestDeepAnalysisAuditForRun,
   findLatestDeepAnalysisRunForJob,
 } from "./ledger";
 import {
@@ -29,7 +30,11 @@ import {
   sumDeepAnalysisActualCosts,
 } from "./costPolicy";
 import { prepareDeepAnalysisInput } from "./prepareInput";
-import { repairDeepAnalysisExecution } from "./repair";
+import {
+  buildDeepAnalysisAuditRetryFeedback,
+  repairDeepAnalysisExecution,
+  type DeepAnalysisAuditRetryFeedback,
+} from "./repair";
 import { appendVerifiedDeepAnalysisStageReceipt } from "./receipts";
 import { stableJson } from "./sourceRevision";
 import {
@@ -39,7 +44,7 @@ import {
 import type { DeepAnalysisWorkerPolicy } from "./workerPolicy";
 import { completeDeepAnalysisJob } from "./workerState";
 
-export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v1" as const;
+export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v2" as const;
 
 type DeepAnalysisJob = typeof schema.grantDeepAnalysisJobs.$inferSelect;
 
@@ -111,6 +116,13 @@ export async function processDeepAnalysisJob(input: {
       `Deep analysis input is not sealed: source revision changed from ${input.job.sourceRevisionSha256.slice(0, 12)} to ${seal.sourceRevisionSha256.slice(0, 12)}`,
     );
   }
+  const auditRetryFeedback = await loadAuditRetryFeedback({
+    db: input.db,
+    storage: input.storage,
+    latestRun: latest,
+    sourceRevisionSha256: seal.sourceRevisionSha256,
+    inputSha256: seal.inputSha256,
+  });
 
   await ensureAggregateSplitCaseForSeal({
     db: input.db,
@@ -192,6 +204,9 @@ export async function processDeepAnalysisJob(input: {
         apiKey: input.apiKey,
         model: input.policy.primaryModel,
         effort: input.policy.primaryEffort,
+        ...(auditRetryFeedback
+          ? { taskInstruction: auditRetryFeedback.taskInstruction }
+          : {}),
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -255,6 +270,7 @@ export async function processDeepAnalysisJob(input: {
       },
       body: `${stableJson({
         schema: "deep-analysis-raw-passes-v1",
+        auditRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
         passes: primary.passes.map((pass) => ({
           kind: pass.kind,
           chunkId: pass.chunkId,
@@ -283,6 +299,7 @@ export async function processDeepAnalysisJob(input: {
         usage: primary.result.usage,
         actualCostUsd: primary.result.costUsd,
         rawArtifactKey: rawArtifact.key,
+        auditRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
       },
     });
     await input.db.update(schema.grantDeepAnalysisRuns).set({
@@ -427,6 +444,7 @@ export async function processDeepAnalysisJob(input: {
     },
     body: `${stableJson({
       schema: "deep-analysis-blind-audit-v7",
+      primaryRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
       model: audit.model,
       promptVersion: audit.promptVersion,
       contractVersion: audit.contractVersion,
@@ -680,6 +698,51 @@ async function finishRun(
     errorCode: input.errorCode ?? null,
     errorMessage: input.errorMessage?.slice(0, 2_000) ?? null,
   }).where(eq(schema.grantDeepAnalysisRuns.id, runId));
+}
+
+async function loadAuditRetryFeedback(input: {
+  db: CunoteDbSession;
+  storage: R2ObjectStorage;
+  latestRun: typeof schema.grantDeepAnalysisRuns.$inferSelect | null;
+  sourceRevisionSha256: string;
+  inputSha256: string;
+}): Promise<DeepAnalysisAuditRetryFeedback | null> {
+  const latestRun = input.latestRun;
+  if (
+    !latestRun
+    || latestRun.status !== "failed"
+    || latestRun.errorCode !== "independent_audit_disagreement"
+    || latestRun.sourceRevisionSha256 !== input.sourceRevisionSha256
+    || latestRun.inputSha256 !== input.inputSha256
+  ) {
+    return null;
+  }
+  const audit = await findLatestDeepAnalysisAuditForRun(input.db, latestRun.id);
+  if (
+    !audit
+    || audit.verdict !== "disagree"
+    || audit.inputSha256 !== input.inputSha256
+  ) {
+    return null;
+  }
+  return buildDeepAnalysisAuditRetryFeedback({
+    previousRunId: latestRun.runId,
+    auditArtifactKey: audit.artifactKey,
+    artifactText: await input.storage.getObjectText(audit.artifactKey),
+  });
+}
+
+function auditRetryFeedbackMetadata(
+  feedback: DeepAnalysisAuditRetryFeedback | null,
+): Record<string, unknown> | null {
+  if (!feedback) return null;
+  return {
+    version: feedback.version,
+    previousRunId: feedback.previousRunId,
+    auditArtifactKey: feedback.auditArtifactKey,
+    findingCount: feedback.findings.length,
+    findings: feedback.findings,
+  };
 }
 
 function stripRawModelResult(result: Awaited<ReturnType<typeof analyzeSealedDeepAnalysisInput>>["result"]) {

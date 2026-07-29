@@ -31,9 +31,9 @@ import {
 import { stableJson } from "./sourceRevision";
 
 export const DEEP_ANALYSIS_AUDIT_ADJUDICATION_VERSION =
-  "deep-analysis-audit-adjudication-v17" as const;
+  "deep-analysis-audit-adjudication-v18" as const;
 export const DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION =
-  "deep-analysis-audit-finding-verifier-v2" as const;
+  "deep-analysis-audit-finding-verifier-v3" as const;
 export const DEEP_ANALYSIS_AUDIT_UNCERTAINTY_VERIFIER_VERSION =
   "deep-analysis-audit-uncertainty-verifier-v1" as const;
 export const DEEP_ANALYSIS_AUDIT_DECISIVENESS_RULE =
@@ -124,9 +124,18 @@ export interface DeepAnalysisAuditFindingValidationIssue {
   message: string;
 }
 
+export interface DeepAnalysisAuditAcceptedFinding {
+  candidateKey: string;
+  dimension: CriterionDimension;
+  findingType: "missing_eligibility" | "misclassified_eligibility";
+  reason: string;
+  criterion: GrantCriterion;
+}
+
 export interface DeepAnalysisAuditFindingValidation {
   verifierVersion: typeof DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION;
   acceptedCount: number;
+  accepted: DeepAnalysisAuditAcceptedFinding[];
   rejected: DeepAnalysisAuditFindingValidationIssue[];
 }
 
@@ -360,8 +369,8 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
   const uncertaintiesByDimension = new Map<CriterionDimension, string[]>();
   const candidateByKey = new Map(input.candidates.map((candidate) => [candidate.key, candidate]));
   const rejected: DeepAnalysisAuditFindingValidationIssue[] = [];
+  const accepted: DeepAnalysisAuditAcceptedFinding[] = [];
   const dismissedUncertainties: DeepAnalysisAuditUncertaintyValidationIssue[] = [];
-  let acceptedCount = 0;
   let retainedUncertaintyCount = 0;
   for (const [index, row] of findingRows.entries()) {
     const candidateKey = typeof row.candidate_key === "string"
@@ -385,6 +394,7 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
       });
       continue;
     }
+    const candidate = candidateByKey.get(candidateKey) ?? null;
     const rejection = verifyBlockingFinding({
       index,
       candidateKey,
@@ -393,7 +403,7 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
       evidenceText: input.evidenceText,
       primaryCriteria: input.primaryCriteria,
       primaryValidation: input.primaryValidation,
-      candidate: candidateByKey.get(candidateKey) ?? null,
+      candidate,
     });
     if (rejection) {
       if (rejection.code !== "already_represented") {
@@ -402,7 +412,13 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
       rejected.push(rejection);
       continue;
     }
-    acceptedCount += 1;
+    accepted.push({
+      candidateKey,
+      dimension,
+      findingType,
+      reason,
+      criterion: candidate!.audit!,
+    });
     const rows = findingsByDimension.get(dimension) ?? [];
     rows.push(`${findingType} [${candidateKey}]: ${reason}`);
     findingsByDimension.set(dimension, rows);
@@ -455,7 +471,8 @@ export function normalizeDeepAnalysisAuditAdjudication(input: {
     itemResults,
     findingValidation: {
       verifierVersion: DEEP_ANALYSIS_AUDIT_FINDING_VERIFIER_VERSION,
-      acceptedCount,
+      acceptedCount: accepted.length,
+      accepted,
       rejected,
     },
     uncertaintyValidation: {

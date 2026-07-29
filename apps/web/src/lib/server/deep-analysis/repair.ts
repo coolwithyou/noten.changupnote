@@ -1,8 +1,12 @@
-import type {
-  DeepAnalysisEffort,
-  DeepAnalysisModelResult,
-  DeepAnalysisUsage,
+import {
+  CRITERION_DIMENSIONS,
+  type CriterionDimension,
+  type DeepAnalysisEffort,
+  type DeepAnalysisModelResult,
+  type DeepAnalysisUsage,
+  type GrantCriterion,
 } from "@cunote/contracts";
+import type { DeepAnalysisAuditAcceptedFinding } from "./auditAdjudication";
 import type {
   DeepAnalysisExecution,
   DeepAnalysisModelPass,
@@ -17,6 +21,8 @@ import { stableJson } from "./sourceRevision";
 import type { DeepAnalysisValidationResult } from "./validator";
 
 export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v2" as const;
+export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
+  "deep-analysis-audit-retry-feedback-v1" as const;
 
 export interface DeepAnalysisEvidenceRepairHint {
   issuePath: string;
@@ -27,7 +33,59 @@ export interface DeepAnalysisEvidenceRepairHint {
   truncated: boolean;
 }
 
+export interface DeepAnalysisAuditRetryFeedback {
+  version: typeof DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION;
+  previousRunId: string;
+  auditArtifactKey: string;
+  findings: DeepAnalysisAuditAcceptedFinding[];
+  taskInstruction: string;
+}
+
 const MAX_EVIDENCE_REPAIR_CANDIDATES = 8;
+
+/**
+ * 사람이 dead-letter 작업을 명시적으로 재처리할 때, 직전 독립 감사에서 결정론적으로
+ * 검증된 blocker만 다음 primary의 교정 맥락으로 돌려준다. 자유서술 disagreement나
+ * uncertainty는 포함하지 않아 검수 모델의 추측이 primary에 학습되는 것을 막는다.
+ */
+export function buildDeepAnalysisAuditRetryFeedback(input: {
+  previousRunId: string;
+  auditArtifactKey: string;
+  artifactText: string;
+}): DeepAnalysisAuditRetryFeedback | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(input.artifactText);
+  } catch {
+    return null;
+  }
+  if (!isRecord(parsed) || parsed.schema !== "deep-analysis-blind-audit-v7") return null;
+  const adjudication = isRecord(parsed.adjudication) ? parsed.adjudication : null;
+  const findingValidation = adjudication && isRecord(adjudication.findingValidation)
+    ? adjudication.findingValidation
+    : null;
+  if (!findingValidation || !Array.isArray(findingValidation.accepted)) return null;
+  const findings = findingValidation.accepted
+    .map(parseAcceptedAuditFinding)
+    .filter((finding): finding is DeepAnalysisAuditAcceptedFinding => finding !== null);
+  if (findings.length === 0 || findings.length !== findingValidation.accepted.length) return null;
+  const taskInstruction = [
+    "이 실행은 관리자가 명시적으로 재처리한 동일 봉인 입력이다.",
+    "직전 독립 감사와 결정론적 검증기가 아래 누락·오분류를 blocking finding으로 확정했다.",
+    "각 finding의 source_span을 현재 원문에서 다시 확인하고, 원문이 그대로 뒷받침하면 해당 criterion과 axis 상태를 완전한 22축 결과에 반영하라.",
+    "원문 밖 내용을 추가하거나 uncertainty·rejected finding을 교정 사실로 사용하지 마라.",
+    "<<<VERIFIED_AUDIT_FINDINGS>>>",
+    stableJson(findings),
+    "<<<END_VERIFIED_AUDIT_FINDINGS>>>",
+  ].join("\n");
+  return {
+    version: DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION,
+    previousRunId: input.previousRunId,
+    auditArtifactKey: input.auditArtifactKey,
+    findings,
+    taskInstruction,
+  };
+}
 
 /**
  * validator를 완화하지 않고 실패 사유를 primary model에 1회 되돌려 완전한 결과를 다시 받는다.
@@ -126,6 +184,57 @@ export function buildDeepAnalysisEvidenceRepairHints(input: {
 function stripRaw(result: DeepAnalysisModelResult) {
   const { rawResponseText: _response, rawToolInput: _input, ...value } = result;
   return value;
+}
+
+function parseAcceptedAuditFinding(value: unknown): DeepAnalysisAuditAcceptedFinding | null {
+  if (!isRecord(value)) return null;
+  const candidateKey = typeof value.candidateKey === "string" ? value.candidateKey : "";
+  const dimension = isCriterionDimension(value.dimension) ? value.dimension : null;
+  const findingType = value.findingType;
+  const reason = typeof value.reason === "string" ? value.reason.trim() : "";
+  const criterion = parseGrantCriterion(value.criterion);
+  if (
+    !/^[0-9a-f]{64}$/.test(candidateKey)
+    || !dimension
+    || (findingType !== "missing_eligibility" && findingType !== "misclassified_eligibility")
+    || !reason
+    || !criterion
+    || criterion.dimension !== dimension
+  ) {
+    return null;
+  }
+  return {
+    candidateKey,
+    dimension,
+    findingType,
+    reason,
+    criterion,
+  };
+}
+
+function parseGrantCriterion(value: unknown): GrantCriterion | null {
+  if (
+    !isRecord(value)
+    || !isCriterionDimension(value.dimension)
+    || typeof value.operator !== "string"
+    || typeof value.kind !== "string"
+    || !("value" in value)
+    || typeof value.confidence !== "number"
+    || typeof value.source_span !== "string"
+    || value.source_span.trim().length === 0
+  ) {
+    return null;
+  }
+  return value as unknown as GrantCriterion;
+}
+
+function isCriterionDimension(value: unknown): value is CriterionDimension {
+  return typeof value === "string"
+    && CRITERION_DIMENSIONS.includes(value as CriterionDimension);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function sumUsage(values: Array<DeepAnalysisUsage | null>): DeepAnalysisUsage | null {
