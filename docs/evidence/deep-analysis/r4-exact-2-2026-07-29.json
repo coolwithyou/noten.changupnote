@@ -1,0 +1,198 @@
+{
+  "schema": "deep-analysis-r4-exact-2-evidence-v1",
+  "checkpoint": "R4",
+  "capturedAt": "2026-07-29T14:49:00.000Z",
+  "status": "TERMINAL_CLASSIFIED_2_OF_2_AUTO_PROMOTED_1_OF_2_LANDING_COVERAGE_1_TO_2",
+  "scope": {
+    "activatedAt": "2026-07-29T14:16:21.000Z",
+    "expectedGrantCount": 2,
+    "observedGrantCount": 2,
+    "outOfCohortRunCount": 0,
+    "claimCohortSha256": "c1d4b7bcdd6b23dc801ffd48f2b479d336e3eb333a50047c392875fdf78c28af",
+    "modelPolicyVersion": "deep-analysis-model-policy-v24",
+    "primaryModel": "claude-opus-4-8",
+    "auditModel": "claude-sonnet-5",
+    "perNoticeCostCapUsd": 2,
+    "maxConcurrency": 1,
+    "additionalPaidRetryCount": 0
+  },
+  "metrics": {
+    "sealedInputCount": 2,
+    "primaryContractAndEvidencePassedCount": 2,
+    "analysisCompleteReceiptCount": 1,
+    "independentAuditConcurCount": 1,
+    "terminalClassifiedCount": 2,
+    "humanReviewRequiredCount": 1,
+    "autoPromotableCount": 1,
+    "publicationCompleteCount": 1,
+    "servingCompleteCount": 1,
+    "analysisFreshCount": 1,
+    "landingDeepPromotedCoverageBefore": 1,
+    "landingDeepPromotedCoverageAfter": 2,
+    "totalCostUsd": 1.617569,
+    "maxPerGrantCostUsd": 0.837844
+  },
+  "notices": [
+    {
+      "grantId": "ffb68056-915a-46e9-b5a0-5c1443865809",
+      "source": "kstartup",
+      "sourceId": "178435",
+      "title": "2026년 제주 중장년 기술창업센터 입주기업 모집",
+      "sourceRevisionSha256": "dfc2770589a93988b5485182165f0d4b2c2f1c16940478e8170d7c350c4ccc7d",
+      "inputSha256": "d1be2021595166e269fb7c3433d5b143f9fff918b98e2dc6e48afd0f1c110fcc",
+      "attachmentManifestSha256": "3f70a6f69054f5a52d98159eee0b4e311616ead503db14491fd10ec3a05a8ba4",
+      "inputChars": 19598,
+      "inputChunkCount": 3,
+      "includedAttachmentCount": 2,
+      "databaseRunId": "0b0e634a-46e1-4aa3-93f5-3c417b5e6594",
+      "publicRunId": "da-20260729T141624197Z-747cb281-8f11-49d1-ae82-8390b69068e3",
+      "jobId": "56823f31-f84d-4fd0-a550-2fe7cfbbcbc4",
+      "jobStatus": "dead_letter",
+      "runStatus": "failed",
+      "axisCount": 22,
+      "criterionCount": 17,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "disagree",
+      "terminalRoute": "human_review_required",
+      "routePersistence": "derived_from_immutable_audit_and_terminal_run_not_stored_as_dedicated_db_status",
+      "blocker": {
+        "code": "audit_not_concur",
+        "finding": "타인의 아이디어·기술 모방 또는 도용 기업 배제 문구가 IP exclusion criterion으로 구조화되지 않았다.",
+        "matchImpacting": true
+      },
+      "promotionItemId": null,
+      "costUsd": 0.779725
+    },
+    {
+      "grantId": "ac6a4ea4-5c38-40d6-8bf8-33e681fe9424",
+      "source": "kstartup",
+      "sourceId": "178525",
+      "title": "2026년 G-Space 입주기업 발굴·육성사업 입주기업 추가 모집 공고",
+      "sourceRevisionSha256": "2d823f23f3eb179d8f9cc33ad0060f33a003f74ee24f69b20ec55b63895964bb",
+      "inputSha256": "d99bde9a4e9c5b518e470e680478a4aeca352cd0ef21fe55da3a4a0e4e9aa9aa",
+      "attachmentManifestSha256": "1233239bc62363643caeaabc5c2aeb14bd1c9a8163d1f361e083b2aa21d42c7c",
+      "inputChars": 16349,
+      "inputChunkCount": 4,
+      "includedAttachmentCount": 3,
+      "databaseRunId": "87c54300-cdcd-4f84-916b-f3a0cee2f809",
+      "publicRunId": "da-20260729T142036778Z-371dd9c4-fbf8-4d96-8943-c1d75098681d",
+      "jobId": "935fb99c-ee4f-4e91-87c6-e5e57dd281ff",
+      "jobStatus": "succeeded",
+      "runStatus": "passed",
+      "axisCount": 22,
+      "criterionCount": 20,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "concur",
+      "matcherRepresentability": {
+        "direct": 9,
+        "conditionalOnly": 11,
+        "unsupportedRelation": 0,
+        "hardUnsupportedRelationCount": 0
+      },
+      "terminalRoute": "auto_promotable",
+      "promotionReleaseId": "deep-production-r1-20260729T143537Z-1f0ade00",
+      "promotionItemId": "ea102110-609d-44a3-920c-e7563d36826b",
+      "releaseStatus": "active",
+      "publicationComplete": true,
+      "servingComplete": true,
+      "analysisFresh": true,
+      "costUsd": 0.837844
+    }
+  ],
+  "r3IntegrationCorrection": {
+    "initialReleaseId": "deep-production-r1-20260729T142830Z-13708e85",
+    "initialAggregateVerdict": "GO",
+    "initialShadowVerdict": "FAIL",
+    "initialShadowIssueCount": 46,
+    "initialDryRunVerdict": "FAIL",
+    "cause": "R3 readiness는 conditional_only를 auto-promotable로 판정했지만 기존 shadow와 dry-run이 모든 needs_review를 다시 차단했다. eligibility가 conditional로 유지되고 hard unknown 근거가 증가한 보수적 tier 변화도 unexplained로 오판했다.",
+    "fixCommit": "1f0ade00ad080604a1dc1ab2b96d3f15dc29c39f",
+    "safetyBoundary": [
+      "일반 Lab release의 needs_review fail-closed 유지",
+      "deep-analysis auto-promotable readiness와 정확한 conditional_only 위치를 manifest hash에 봉인",
+      "판정 근거 없는 eligibility 변화 차단 유지",
+      "source drift와 baseline drift 차단 유지"
+    ],
+    "finalAggregate": "GO_6_OF_6",
+    "finalShadow": "PASS_1_NOTICE_X_125_COMPANIES_0_ISSUES",
+    "finalDryRun": "PASS_BASELINE_1_OF_1_SOURCE_DRIFT_0",
+    "promotionVerification": "PASS_CANARY_AND_ALL",
+    "deepServingVerification": "PASS_1_OF_1"
+  },
+  "landingVerification": {
+    "businessNumber": "746-**-00***",
+    "externalEnrichment": "CACHE_ONLY",
+    "local": {
+      "request": "POST http://127.0.0.1:4010/api/web/teaser",
+      "httpStatus": 200,
+      "durationSeconds": 0.580946,
+      "evaluatedGrantCount": 2,
+      "returnedMatchCount": 2,
+      "targetReturned": true
+    },
+    "production": {
+      "request": "POST https://changupnote.com/api/web/teaser",
+      "httpStatus": 200,
+      "durationSeconds": 1.875835,
+      "evaluatedGrantCount": 2,
+      "returnedMatchCount": 2,
+      "targetReturned": true,
+      "targetEligibility": "conditional",
+      "targetConfirmationQuestionCount": 2
+    }
+  },
+  "cloudDeployment": {
+    "buildId": "4a923954-74c6-436c-aca6-93c3944f0e74",
+    "buildStatus": "SUCCESS",
+    "gitCommit": "1f0ade00ad080604a1dc1ab2b96d3f15dc29c39f",
+    "imageDigest": "sha256:77c11918f3e008d4db51412a00ae0eac67ad07edc0d2740db6e233f504688441",
+    "jobs": {
+      "cunote-deep-analysis": "generation_65_ready_65",
+      "cunote-deep-analysis-input-preparation": "generation_26_ready_26",
+      "cunote-deep-analysis-serving-monitor": "generation_19_ready_19"
+    },
+    "workerMode": "observe_only",
+    "workerSmokeExecution": "cunote-deep-analysis-6mxnv",
+    "workerSmokeVerdict": "PASS_CLAIM_0_ALL_MUTATIONS_SKIPPED",
+    "monitorSmokeExecution": "cunote-deep-analysis-serving-monitor-2w4ps",
+    "newReleaseMonitorVerdict": "PASS",
+    "aggregateMonitorVerdict": "FAIL_PREEXISTING_UNRELATED_RELEASE_DRIFT",
+    "preexistingDriftReleaseId": "deep-production-r1-20260725T022203Z-5fcb677b"
+  },
+  "verification": {
+    "focusedPromotionTests": "PASS",
+    "fullDeepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "packageRuntimeFreshness": "PASS",
+    "diffCheck": "PASS",
+    "promotionCanary": "PASS",
+    "promotionAll": "PASS",
+    "deepServingFull": "PASS",
+    "liveLocalTeaser": "PASS",
+    "liveProductionTeaser": "PASS"
+  },
+  "goalAssessment": {
+    "sealedInput": "PASS_2_OF_2",
+    "primaryDocumentUnderstanding": "PASS_2_OF_2",
+    "independentMatchImpactingAudit": "CONCUR_1_OF_2_DISAGREE_1_OF_2",
+    "terminalClassification": "PASS_2_OF_2",
+    "formalTerminalRoutePersistence": "NOT_IMPLEMENTED",
+    "automaticPromotionThroughput": "PASS_1_OF_2",
+    "businessNumberToDeepAnalysisMatching": "PASS_PRODUCTION",
+    "coverageRecovery": "IMPROVED_1_TO_2_NOT_BROAD_COVERAGE"
+  },
+  "overengineeringAssessment": {
+    "verdict": "NARROW_INTEGRATION_FIX_ONLY",
+    "notAdded": [
+      "새 DB schema 또는 migration",
+      "새 Ops workflow",
+      "compound relation matcher",
+      "추가 유료 재시도",
+      "세 번째 공고 확대",
+      "Vercel 배포"
+    ],
+    "remainingNarrowIssue": "audit disagreement를 dedicated human_review_required DB/Ops terminal status로 저장하지 않아 첫 공고의 route는 immutable audit와 terminal run에서 파생한다."
+  }
+}

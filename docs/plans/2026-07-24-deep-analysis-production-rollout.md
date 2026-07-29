@@ -5651,3 +5651,50 @@ schema·새 Ops workflow·DB migration은 추가하지 않았다.
   Vercel 변경은 0이다.
 - 다음 단계는 R4다. 서로 다른 새 활성 공고 exact 2건을 한 번만 실행하고,
   terminal routing 2/2와 실제 auto-promotable 수를 별도로 판정한다.
+
+### AQ12 R4 새 활성 exact 2건 — `TERMINAL 2/2`, `AUTO+S14 1/2`, `LANDING 1→2` (2026-07-29)
+
+AQ11에서 허용한 범위대로 서로 다른 새 활성 K-Startup 공고 `178435`, `178525`를
+exact cohort로 고정해 각각 한 번만 실행했다. 두 공고 모두 본문과 HWP를 포함한
+입력 봉인, primary response contract, 정확히 22축과 exact evidence를 통과했다.
+out-of-cohort run은 0, 추가 유료 재시도는 0, 총비용은 `$1.617569`다.
+
+결과:
+
+1. `178435` 제주 중장년 기술창업센터 공고는 독립 감사가 `타인의 아이디어·기술
+   모방 또는 도용 기업` 배제 문구의 IP exclusion 누락을 찾아 `disagree`로
+   차단했다. 실제 eligibility 누락이므로 우회하지 않고 사람 검토 대상으로 남겼다.
+2. `178525` G-Space 공고는 S11과 audit `concur`를 통과했다. matcher 표현은
+   `direct 9 / conditional_only 11 / unsupported_relation 0`으로
+   `auto_promotable`이다.
+3. 최초 승격 준비에서 R3 readiness와 기존 shadow/dry-run의 `needs_review` gate가
+   연결되지 않은 통합 누락을 발견했다. `1f0ade0`은 일반 release fail-closed와
+   근거 없는 eligibility 변화 차단을 유지하면서, deep-analysis가 봉인한
+   `auto_promotable` receipt의 정확한 `conditional_only` 위치만 허용한다.
+4. 교정 후 aggregate `6/6 GO`, `1공고 × 125회사` shadow issue 0, dry-run
+   baseline `1/1`·source drift 0, canary/all promotion과 S12~S14 full serving을
+   통과했다. release `deep-production-r1-20260729T143537Z-1f0ade00`은
+   `active`다.
+5. 로컬 개발 서버와 실제 `https://changupnote.com/api/web/teaser`에서 캐시된
+   개발용 사업자번호 요청이 모두 HTTP 200을 반환했다. 평가·반환되는 딥분석 승격
+   공고는 `1→2건`으로 늘었고, G-Space 공고는 `conditional`, 확인 질문 2개로
+   실제 응답에 포함됐다.
+6. `1f0ade0` 이미지는 Cloud Build
+   `4a923954-74c6-436c-aca6-93c3944f0e74`로 빌드해 digest
+   `sha256:77c11918f3e008d4db51412a00ae0eac67ad07edc0d2740db6e233f504688441`를
+   세 딥분석 잡에 배포했다. 메인은 `observe_only`, 공고당 `$2` 상한이며 smoke에서
+   claim 0과 모든 mutation skip을 확인했다. 새 release는 Cloud serving monitor
+   에서 PASS했다. 전체 monitor의 FAIL은 이번 범위 밖 기존
+   `deep-production-r1-20260725T022203Z-5fcb677b` stable-key drift 1건 때문이다.
+
+판정:
+
+- `primary 2/2`, `S11·audit concur 1/2`, terminal 분류 `2/2`,
+  `human_review_required 1/2`, 자동승격·S14 `1/2`, 랜딩 coverage `1→2`다.
+- 자동 처리량은 처음으로 0에서 1건으로 회복됐다. 그러나 첫 공고는 실제 누락으로
+  차단됐고 전용 사람검토 상태가 DB/Ops에 저장되지는 않으므로 R4를 2/2 자동 성공으로
+  표현하지 않는다.
+- 새 schema/migration, 새 Ops workflow, compound matcher, 세 번째 공고, 추가 유료
+  재시도와 Vercel 배포는 하지 않았다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r4-exact-2-2026-07-29.json`이다.
