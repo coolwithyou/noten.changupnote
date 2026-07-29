@@ -5735,3 +5735,48 @@ AQ12에서 남긴 단일 운영 가시성 문제만 처리했다. 독립 감사 
 
 유료 LLM 호출, DB/R2 mutation, migration, promotion, Cloud Run/Scheduler,
 Vercel 배포는 0이다.
+
+### AQ14 R5 신규 exact 2건 운영 검증 — `TERMINAL 2/2`, `AUTO 1/2`, `HUMAN 1/2` (2026-07-30)
+
+AQ13의 사람 검토 terminal route가 실제 신규 공고에서도 작동하는지만 좁게
+검증했다. `f1a33fd` exact commit을 세 Cloud Run Job에 배포하고 서로 다른 활성
+공고 2건을 sealed cohort로 고정해 각각 한 번만 분석했다. out-of-cohort run,
+추가 유료 재시도, promotion은 모두 0이다.
+
+결과:
+
+1. K-Startup `178648`은 본문과 HWP 2건을 포함한 입력 9,254자를 봉인했고,
+   primary response contract, 22축, criterion 12건과 exact evidence를
+   통과했다. 독립 감사 출력은 `premises`의 같은 값이 required와 exclusion에
+   동시에 존재하는 `logical_conflict`로 결정론 검증에서 무효였다. 내용을
+   임의로 합의 처리하거나 재실행하지 않고
+   `human_review_required/audit_not_concur`로 종결했으며 Ops 전용 버킷에서
+   확인된다.
+2. BizInfo `PBLN_000000000124754`는 본문과 HWP 2건을 포함한 입력 6,291자를
+   봉인했고 primary 22축·criterion 9건, audit `concur`, adjudication,
+   matcher readiness를 모두 통과했다. 표현 분류는
+   `direct 4 / conditional_only 5 / unsupported_relation 0`이며
+   `auto_promotable`이다. 이번 범위에는 발행이 없으므로 Ops
+   `analysis_complete_not_published`에 보존했다.
+3. terminal 분류는 `2/2`, 자동 경로는 `1/2`, 사람 검토 경로는 `1/2`다.
+   총비용은 `$0.523189`, 공고별 최대 `$0.279923`으로 공고당 `$2` 상한 안이다.
+4. bounded execution 뒤 영구 worker는 generation `68/68`,
+   `observe_only`, max job 1, claim scope 미설정으로 복구했다. 최종 smoke
+   `cunote-deep-analysis-9bv9v`는 claim 0과 모든 mutation skip으로 성공했고
+   활성 worker와 lease는 0이다.
+5. 실DB Ops verifier는 활성/분류 `606/606`,
+   `analysis_complete_not_published=1`, `human_review_required=1`,
+   `blocked_or_failed=0`, `stale=0`으로 새 두 경로를 모두 확인했다. 전체 verdict의
+   유일한 FAIL은 이번 실행 이전부터 남은 serving receipt drift 1건
+   (`checked 3/3`, `fresh 2`, `failed 1`)이며 신규 2건 결과와 섞지 않는다.
+
+판정:
+
+- R5의 목표인 “자동 처리 가능한 공고는 자동 경로로, 불확실한 공고는 근거가 있는
+  사람 검토 종착점으로”는 신규 2건에서 `2/2` 작동했다.
+- 이는 `2/2 자동 성공`이 아니다. 자동 처리량은 `1/2`이며 첫 공고는 유효하지 않은
+  audit 출력 때문에 사람 검토가 필요하다.
+- 세 번째 공고, audit 재교정, 단순 재실행, 자동 발행, 랜딩 확대, 기존 serving
+  drift 수정은 이 체크포인트에 포함하지 않았다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r5-exact-2-2026-07-30.json`이다.

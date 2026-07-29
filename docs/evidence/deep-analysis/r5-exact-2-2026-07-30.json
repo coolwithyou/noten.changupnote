@@ -1,0 +1,177 @@
+{
+  "schema": "deep-analysis-r5-exact-2-evidence-v1",
+  "checkpoint": "R5_LIVE_EXACT_2",
+  "capturedAt": "2026-07-29T15:34:02.806Z",
+  "status": "TERMINAL_2_OF_2_AUTO_PROMOTABLE_1_HUMAN_REVIEW_1_NOT_PROMOTED",
+  "scope": {
+    "expectedGrantCount": 2,
+    "observedGrantCount": 2,
+    "outOfCohortRunCount": 0,
+    "claimCohortSha256": "454f7a482eb25cfc65ed286111baffd4cfb4d20d1ff0389edecc115089632117",
+    "claimManifestSha256": "1de4242ee57d5366887e38683fdca6c33613a634aa9a4599a498a6e08d923f3c",
+    "modelPolicyVersion": "deep-analysis-model-policy-v24",
+    "primaryModel": "claude-opus-4-8",
+    "auditModel": "claude-sonnet-5",
+    "perNoticeCostCapUsd": 2,
+    "aggregateCostCapUsd": 4,
+    "maxConcurrency": 1,
+    "additionalPaidRetryCount": 0,
+    "promotionCount": 0
+  },
+  "metrics": {
+    "sealedInputCount": 2,
+    "primaryContractAndEvidencePassedCount": 2,
+    "validIndependentAuditCount": 1,
+    "independentAuditConcurCount": 1,
+    "terminalClassifiedCount": 2,
+    "humanReviewRequiredCount": 1,
+    "autoPromotableCount": 1,
+    "publicationCompleteCount": 0,
+    "totalCostUsd": 0.523189,
+    "maxPerGrantCostUsd": 0.279923
+  },
+  "notices": [
+    {
+      "grantId": "a843d0f1-9f74-4ac4-8d0d-c480e2d52757",
+      "source": "kstartup",
+      "sourceId": "178648",
+      "title": "성북구 한성대 벤처창업지원센터 하반기 입주기업 모집공고",
+      "sourceRevisionSha256": "162c827ad4d6c3f144b18ec5d54e0772b31ccef668d06dd2e425d69f3e056a85",
+      "inputSha256": "f188e9c1e795cd8c7288f3a41f0c755b084c585fd409ae0f137b97f7b69eea96",
+      "attachmentManifestSha256": "510c047c327ce4fe636becf5e9ac4990ae003b31ea6fea68f80ae7e80f50cc79",
+      "inputChars": 9254,
+      "inputChunkCount": 3,
+      "includedAttachmentCount": 2,
+      "databaseRunId": "c9e3f99d-5a25-475b-8598-20752d9c7326",
+      "publicRunId": "da-20260729T152740796Z-83218fc9-d85c-4103-89fe-d10ccf87b9b7",
+      "jobId": "a7980783-1573-40d9-be16-a5729cbe42c8",
+      "jobStatus": "dead_letter",
+      "axisCount": 22,
+      "criterionCount": 12,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "unsure",
+      "auditValidationValid": false,
+      "auditValidationIssue": {
+        "code": "logical_conflict",
+        "path": "$.criteria[7]",
+        "message": "premises has the same value in required and exclusion criteria"
+      },
+      "terminalRoute": "human_review_required",
+      "terminalReasonCode": "audit_not_concur",
+      "opsBucket": "human_review_required",
+      "firstBlockerStage": "independent_audit_passed",
+      "promotionItemId": null,
+      "costUsd": 0.279923,
+      "interpretation": "primary는 통과했지만 독립 감사 출력 자체가 결정론 검증에서 무효다. 실제 내용 불일치로 단정하거나 재시도하지 않고 사람 검토 종착점으로 보존했다."
+    },
+    {
+      "grantId": "a66f875d-e873-4166-ace6-27348e4c4b10",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124754",
+      "title": "[충남] 2026년 장애인기업 마케팅(홍보물 제작) 지원 공고",
+      "sourceRevisionSha256": "219972339f69275e7b3be648cb3f1f09b37340145e4f33bfe8256e5f9f57df40",
+      "inputSha256": "61c4ecd2bae5ed18bf474fb9206e37c71d36c0f47f908e1aaee7d37091e678aa",
+      "attachmentManifestSha256": "55dbed343b99144ec2c01790442a28306bd8c016bf466a375e9e3b6a7021f8dd",
+      "inputChars": 6291,
+      "inputChunkCount": 3,
+      "includedAttachmentCount": 2,
+      "databaseRunId": "6e79186f-0347-4060-8ba6-66ce4ee3871b",
+      "publicRunId": "da-20260729T152909023Z-905310b9-881d-4b32-a8f7-7f472236a4a1",
+      "jobId": "4eb4a8e3-d0f2-408d-89ed-041f4a918e77",
+      "jobStatus": "succeeded",
+      "axisCount": 22,
+      "criterionCount": 9,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "concur",
+      "auditValidationValid": true,
+      "matcherRepresentability": {
+        "direct": 4,
+        "conditionalOnly": 5,
+        "unsupportedRelation": 0,
+        "hardUnsupportedRelationCount": 0
+      },
+      "terminalRoute": "auto_promotable",
+      "opsBucket": "analysis_complete_not_published",
+      "publicationComplete": false,
+      "promotionItemId": null,
+      "costUsd": 0.243266
+    }
+  ],
+  "cloudDeployment": {
+    "project": "changupnote-com",
+    "region": "asia-northeast3",
+    "authenticatedAccount": "sw@noten.im",
+    "impersonatedServiceAccount": "cunote-codex-dev@changupnote-com.iam.gserviceaccount.com",
+    "buildId": "d84273e1-0d39-4c09-8a6e-7f32a39ba90a",
+    "buildStatus": "SUCCESS",
+    "gitCommit": "f1a33fd9d56ba65dc26ee2eeaccc4e646b1fac4",
+    "imageDigest": "sha256:f88fee6b14ce3ee48ef1016e73189fb842c52d4cf7d0fc32a4148883e1085ab8",
+    "jobs": {
+      "cunote-deep-analysis": "generation_68_ready_68",
+      "cunote-deep-analysis-input-preparation": "generation_27_ready_27",
+      "cunote-deep-analysis-serving-monitor": "generation_20_ready_20"
+    },
+    "boundedExecution": "cunote-deep-analysis-d9zds",
+    "finalWorkerMode": "observe_only",
+    "finalWorkerExecution": "cunote-deep-analysis-9bv9v",
+    "finalWorkerExecutionVerdict": "PASS_CLAIM_0_ALL_MUTATIONS_SKIPPED",
+    "activeWorkerCount": 0,
+    "activeLeaseCount": 0
+  },
+  "opsVerification": {
+    "verdict": "FAIL_PREEXISTING_SERVING_MONITOR_DRIFT_ONLY",
+    "activeTotal": 606,
+    "classifiedTotal": 606,
+    "buckets": {
+      "serving_complete_fresh": 1,
+      "analysis_complete_not_published": 1,
+      "in_progress": 603,
+      "human_review_required": 1,
+      "blocked_or_failed": 0,
+      "stale": 0
+    },
+    "workerHealthy": true,
+    "inputPreparationHealthy": true,
+    "servingMonitor": {
+      "executionId": "cunote-deep-analysis-serving-monitor-f5bl5",
+      "expectedItems": 3,
+      "checkedItems": 3,
+      "freshItems": 2,
+      "failedReceipts": 1,
+      "failureScope": "preexisting active release drift outside this exact-2 execution"
+    }
+  },
+  "safety": {
+    "permanentWorkerRestoredToObserveOnly": true,
+    "claimScopeRemoved": true,
+    "activeLeaseCount": 0,
+    "outOfCohortRunCount": 0,
+    "additionalPaidRetryCount": 0,
+    "promotionCount": 0,
+    "schedulerChanged": false,
+    "vercelDeployed": false,
+    "schemaOrMigrationAdded": false
+  },
+  "goalAssessment": {
+    "sealedInput": "PASS_2_OF_2",
+    "primaryDocumentUnderstanding": "PASS_2_OF_2",
+    "terminalClassification": "PASS_2_OF_2",
+    "automaticPath": "PASS_1_OF_2_NOT_PUBLISHED",
+    "humanReviewPath": "PASS_1_OF_2",
+    "verdict": "R5 구조는 신규 공고 2건을 모두 정상 종착점으로 보냈다. 자동 처리량은 1/2이며 2/2 자동 성공으로 과장하지 않는다."
+  },
+  "overengineeringAssessment": {
+    "verdict": "NO_NEW_PRODUCT_SCOPE",
+    "notDone": [
+      "audit validator 추가 교정",
+      "사람 검토 UI 확장",
+      "세 번째 공고 실행",
+      "추가 유료 재시도",
+      "자동 발행 또는 랜딩 확대",
+      "기존 serving drift 수정"
+    ],
+    "nextNarrowDecision": "사람 검토 1건의 audit logical_conflict 원문을 검토해 audit validator 또는 prompt의 일반 규칙으로 교정할지 별도 체크포인트에서 결정한다."
+  }
+}
