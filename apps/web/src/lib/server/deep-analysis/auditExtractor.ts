@@ -28,7 +28,7 @@ import {
 import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
 
 export const DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION =
-  "deep-analysis-audit-candidates-v3" as const;
+  "deep-analysis-audit-candidates-v4" as const;
 export const DEEP_ANALYSIS_AUDIT_TOOL_NAME =
   "emit_deep_analysis_audit_candidates" as const;
 
@@ -243,7 +243,6 @@ export function repairDeepAnalysisAuditCriteriaContract(rows: unknown[]): {
     if (
       row.dimension !== "prior_award"
       || row.kind !== "exclusion"
-      || typeof row.value.scope === "string"
     ) {
       return row;
     }
@@ -251,8 +250,17 @@ export function repairDeepAnalysisAuditCriteriaContract(rows: unknown[]): {
     const sourceSpan = cleanString(row.source_span);
     if (!sourceSpan) return row;
     const normalizedSpan = normalizeAuditContractEvidence(sourceSpan);
+    const scope = cleanString(row.value.scope);
+    if (scope && scope !== "self") return row;
 
     if (isIncubationTenancyEvidence(normalizedSpan)) {
+      if (
+        scope === "self"
+        && row.value.channel === "incubation_tenancy"
+        && typeof row.value.self_kind !== "string"
+      ) {
+        return row;
+      }
       repairs.push({
         index,
         code: "prior_award_incubation_tenancy_scope",
@@ -260,7 +268,7 @@ export function repairDeepAnalysisAuditCriteriaContract(rows: unknown[]): {
       return {
         ...row,
         value: {
-          ...withoutLegacyPriorAwardProgramKeys(row.value),
+          ...withoutPriorAwardSelfKind(row.value),
           scope: "self",
           channel: "incubation_tenancy",
         },
@@ -268,6 +276,12 @@ export function repairDeepAnalysisAuditCriteriaContract(rows: unknown[]): {
     }
 
     if (isSameYearOtherSupportEvidence(normalizedSpan)) {
+      if (
+        scope === "self"
+        && row.value.self_kind === "same_year_other_support"
+      ) {
+        return row;
+      }
       repairs.push({
         index,
         code: "prior_award_same_year_other_support_scope",
@@ -283,7 +297,7 @@ export function repairDeepAnalysisAuditCriteriaContract(rows: unknown[]): {
       };
     }
 
-    if (isUnsupportedPriorAwardMonetaryThreshold(normalizedSpan)) {
+    if (!scope && isUnsupportedPriorAwardMonetaryThreshold(normalizedSpan)) {
       repairs.push({
         index,
         code: "prior_award_unsupported_monetary_threshold_to_text_only",
@@ -329,6 +343,16 @@ function withoutLegacyPriorAwardProgramKeys(
     programs: _programs,
     ...rest
   } = value;
+  return rest;
+}
+
+function withoutPriorAwardSelfKind(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  const {
+    self_kind: _selfKind,
+    ...rest
+  } = withoutLegacyPriorAwardProgramKeys(value);
   return rest;
 }
 

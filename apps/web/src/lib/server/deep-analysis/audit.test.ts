@@ -16,6 +16,7 @@ import {
   DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION,
   DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT,
   normalizeDeepAnalysisAuditCandidateResult,
+  repairDeepAnalysisAuditCriteriaContract,
   runDeepGrantAuditAnalysis,
 } from "./auditExtractor";
 import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
@@ -39,7 +40,7 @@ assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /조건이 없는 축을 표현�
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /primary_source_ref/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /impairment_excluded는 반드시.*배열/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /prior_award exclusion은 범위를 반드시/);
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v3");
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v4");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();
 assert.deepEqual(
@@ -338,6 +339,107 @@ assert.deepEqual(authoredTypedCriteria[0]?.value, { impairment_excluded: "full" 
 assert.equal(
   (authoredTypedCriteria[1]?.value as Record<string, unknown>).scope,
   undefined,
+);
+
+const freshScopedPriorAwardRepairs = repairDeepAnalysisAuditCriteriaContract([
+  {
+    dimension: "prior_award",
+    operator: "in",
+    kind: "exclusion",
+    source_span: "- 전국 지역센터에 기 입주경력이 있는 자 등",
+    value: {
+      scope: "self",
+      self_kind: "same_program",
+      states: ["completed", "participating"],
+    },
+  },
+  {
+    dimension: "prior_award",
+    operator: "in",
+    kind: "exclusion",
+    source_span:
+      "마. 동일기업 중복지원 제한 : 해당연도 중앙부처 및 지자체 동일분야 자금 기 수혜기업",
+    value: {
+      scope: "self",
+      states: ["completed"],
+    },
+  },
+]);
+assert.deepEqual(freshScopedPriorAwardRepairs.repairs, [
+  { index: 0, code: "prior_award_incubation_tenancy_scope" },
+  { index: 1, code: "prior_award_same_year_other_support_scope" },
+]);
+assert.deepEqual(
+  (freshScopedPriorAwardRepairs.criteria[0] as Record<string, unknown>).value,
+  {
+    scope: "self",
+    states: ["completed", "participating"],
+    channel: "incubation_tenancy",
+  },
+);
+assert.deepEqual(
+  (freshScopedPriorAwardRepairs.criteria[1] as Record<string, unknown>).value,
+  {
+    scope: "self",
+    states: ["completed"],
+    self_kind: "same_year_other_support",
+    channel: "general",
+  },
+);
+
+const alreadyValidAndAmbiguousScopedPriorAwards = [
+  {
+    dimension: "prior_award",
+    operator: "in",
+    kind: "exclusion",
+    source_span: "전국 지역센터에 기 입주경력이 있는 자 등",
+    value: {
+      scope: "self",
+      channel: "incubation_tenancy",
+      states: ["completed"],
+    },
+  },
+  {
+    dimension: "prior_award",
+    operator: "in",
+    kind: "exclusion",
+    source_span: "해당연도 다른 중앙부처 지원과 중복 수혜한 기업",
+    value: {
+      scope: "self",
+      self_kind: "same_year_other_support",
+      channel: "general",
+      states: ["completed"],
+    },
+  },
+  {
+    dimension: "prior_award",
+    operator: "in",
+    kind: "exclusion",
+    source_span: "과거 정부지원사업 수혜기업은 신청할 수 없음",
+    value: {
+      scope: "self",
+      states: ["completed"],
+    },
+  },
+  {
+    dimension: "prior_award",
+    operator: "in",
+    kind: "exclusion",
+    source_span: "전국 지역센터에 기 입주경력이 있는 자 등",
+    value: {
+      scope: "program",
+      programs: ["지역센터"],
+      states: ["completed"],
+    },
+  },
+];
+const untouchedScopedPriorAwards = repairDeepAnalysisAuditCriteriaContract(
+  alreadyValidAndAmbiguousScopedPriorAwards,
+);
+assert.deepEqual(untouchedScopedPriorAwards.repairs, []);
+assert.deepEqual(
+  untouchedScopedPriorAwards.criteria,
+  alreadyValidAndAmbiguousScopedPriorAwards,
 );
 
 const ambiguousPriorAwardEvidence = "과거 정부지원사업 수혜기업은 신청할 수 없음";
