@@ -1,0 +1,223 @@
+{
+  "schema": "deep-analysis-r10-production-one-evidence-v1",
+  "checkpoint": "R10_LATEST_NOTICE_TO_PRODUCTION_MATCHING_EXACT_1",
+  "capturedAt": "2026-07-30T13:23:53Z",
+  "status": "EXACT_1_AUTO_PROMOTABLE_PUBLISHED_SERVING_AND_LANDING_PASS",
+  "scope": {
+    "requestedNoticeCount": 1,
+    "analyzedNoticeCount": 1,
+    "outOfCohortRunCount": 0,
+    "promotedNoticeCount": 1,
+    "secondNoticeRun": false,
+    "promptChanged": false,
+    "modelChanged": false,
+    "schemaOrMigrationAdded": false,
+    "vercelDeployed": false,
+    "pastReleaseDriftRepaired": false
+  },
+  "productionIngestion": {
+    "project": {
+      "user": "noten-dev",
+      "team": "NOTEN",
+      "teamSlug": "noten",
+      "project": "changupnote",
+      "projectId": "prj_KhzpbTNc9r1By4OcC9nsVKJUjnW2",
+      "rootDirectory": "apps/web"
+    },
+    "productionDeployment": {
+      "deploymentId": "dpl_78cZgoTwGmVve9tSLHimTyJFGYZW",
+      "deploymentUrl": "https://changupnote-84js6ozsk-noten.vercel.app",
+      "alias": "https://changupnote.com",
+      "status": "READY"
+    },
+    "cron": {
+      "path": "/api/cron/ingest-kstartup",
+      "schedule": "0 0,6 * * *",
+      "latestSuccessfulInvocationAt": "2026-07-30T06:02:59.469Z",
+      "latestSuccessfulInvocationHttpStatus": 200,
+      "selectedGrantCollectedAt": "2026-07-30T06:03:00.008Z",
+      "evidence": "Vercel production runtime log와 production grant_raw.collected_at",
+      "manualProbe": {
+        "httpStatus": 401,
+        "reason": "로컬 CRON_SECRET이 현재 Vercel encrypted production 값과 달랐다.",
+        "configurationMutation": false,
+        "interpretation": "민감값을 덮어쓰지 않고 같은 날 성공한 정기 수집 결과에서 대상을 선택했다."
+      }
+    }
+  },
+  "notice": {
+    "grantId": "92c44511-a8cb-4945-ad01-8a68669c5544",
+    "source": "kstartup",
+    "sourceId": "178537",
+    "title": "[인천창조경제혁신센터xKT] 『SMART-X LAB 14기』 참여기업 모집",
+    "status": "open",
+    "servingState": "visible",
+    "applyEnd": "2026-08-02T00:00:00.000Z",
+    "selectionReason": "오늘 자동 수집분, 단일 사업, PDF 공고문 1개와 HWP 신청서류 1개, 원본 보관과 HWP 변환 완료"
+  },
+  "sealedInput": {
+    "sealed": true,
+    "blockerCount": 0,
+    "attachmentCount": 2,
+    "includedAttachmentCount": 2,
+    "hwpIncluded": true,
+    "chunkCount": 3,
+    "totalChars": 10606,
+    "sourceRevisionSha256": "70b4724528ca7f2748eae6eef05a627406c2de8eda4deb6b355e7832ea22ac4b",
+    "inputSha256": "623300c5e2f9d21a9505d0cd45b7d1c3360cbb61367938aef971977508302f5c",
+    "attachmentManifestSha256": "568aca451ae3694491ebfe65c060b2e997341de5368338f19d022e71abea5378"
+  },
+  "boundedClaim": {
+    "jobId": "62cf2148-9fd8-4f28-ba27-dff9b5a3fa46",
+    "priority": 100,
+    "modelPolicyVersion": "deep-analysis-model-policy-v24",
+    "selectedCount": 1,
+    "claimCohortSha256": "54dbe0a430ff5583d14348bcb0999f6825670e5962238c8367fddbcd4a995a3c",
+    "manifestSha256": "3aa233936f40729ffa3acda266f4f57ee4cda55a9627455e70855133a1915723",
+    "execution": "cunote-deep-analysis-86dcm",
+    "executionStatus": "succeeded",
+    "executionDuration": "2m58.44s"
+  },
+  "deepAnalysis": {
+    "databaseRunId": "c1fff0d7-9a7e-4816-8467-3294b6407878",
+    "publicRunId": "da-20260730T131120424Z-fed223c0-4a24-4fa7-a421-b92c446341b4",
+    "status": "passed",
+    "attemptCount": 1,
+    "axisCount": 22,
+    "criterionCount": 10,
+    "primaryModel": "claude-opus-4-8",
+    "primaryEffort": "high",
+    "primaryPassCount": 2,
+    "primaryRepairCount": 1,
+    "primaryValidationIssueCount": 0,
+    "evidenceGrounded": true,
+    "allCriterionSpansVerified": true,
+    "auditModel": "claude-sonnet-5",
+    "auditEffort": "high",
+    "auditVerdict": "concur",
+    "auditValidationValid": true,
+    "auditValidationIssueCount": 0,
+    "verifiedDisagreementCount": 0,
+    "deferralCount": 0,
+    "deferredCriterionCount": 0,
+    "automationRoute": "auto_promotable",
+    "costUsd": 0.573309
+  },
+  "promotion": {
+    "releaseId": "deep-production-r1-20260730T131603Z-54305cc7",
+    "releaseStatus": "active",
+    "releaseSourceCommit": "54305cc75a537e13ab9d01c349fa187122f20e2e",
+    "manifestSha256": "50cdf4a5ccadd10c87c936ed433bcb4e98b7d38c0930ecbfe4b14d8ee1e00552",
+    "releasePlanSha256": "6e85670189f8eae95ab53b5c2d3489c36c4bdb96c902c1cc25249c40b9cf90a0",
+    "actors": {
+      "preparedBy": "codex-production-preparer",
+      "approvedBy": "codex-production-approver",
+      "executedBy": "codex-production-executor"
+    },
+    "aggregate": {
+      "verdict": "GO",
+      "blockingGatesPassed": "4/4",
+      "observedMetricsPassed": "6/6",
+      "sourceDriftCount": 0
+    },
+    "shadow": {
+      "verdict": "PASS",
+      "grantCount": 1,
+      "companyCount": 125,
+      "guardIssueCount": 0,
+      "baselineDriftCount": 0,
+      "sourceDriftCount": 0
+    },
+    "dryRun": {
+      "verdict": "PASS",
+      "baselineMatches": "1/1",
+      "sourceDriftCount": 0
+    },
+    "canaryVerification": "PASS",
+    "allVerification": "PASS",
+    "itemStatus": "applied",
+    "afterSha256": "c81ea0ee55ac759c73a8645a4fb29d3002d86c63efb15c518ee36d0e6389ed3a"
+  },
+  "publication": {
+    "criterionCount": 10,
+    "needsReviewCriterionCount": 0,
+    "activeConfirmationQuestionCount": 1,
+    "stageReceipts": {
+      "analysisComplete": "passed",
+      "publicationComplete": "passed",
+      "servingComplete": "passed",
+      "analysisFresh": "passed"
+    },
+    "servingVerification": {
+      "verdict": "PASS",
+      "checked": 1,
+      "failed": 0,
+      "repositoryCriteriaSha256": "89823b65db79bd4b03d0da2bd572e3e51cfec546f5bccb308cdb7ddf77854129",
+      "traceSha256": "63473e13f6a62184ff16a98d26dfe1c3395c1c9b83d85ec817f4cc8dc565b652"
+    }
+  },
+  "productionLanding": {
+    "endpoint": "POST https://changupnote.com/api/web/teaser",
+    "businessNumberSource": "POPBILL_CHECK_CORP_NUM",
+    "rawBusinessNumberLogged": false,
+    "httpStatus": 200,
+    "durationMs": 1485,
+    "ok": true,
+    "returnedMatchCount": 4,
+    "targetGrantFound": true,
+    "targetEligibility": "conditional",
+    "nextQuestionDimension": "size",
+    "interpretation": "사업자번호로 만든 production 회사 프로필이 새 딥분석 공고를 실제 매칭 우주에서 평가했고, 부족한 기업 규모 정보는 eligible로 강제하지 않고 conditional과 다음 질문으로 남겼다."
+  },
+  "servingMonitor": {
+    "newReleaseVerdict": "PASS",
+    "newReleaseCheckedItems": 1,
+    "activeMonitorExecution": "cunote-deep-analysis-serving-monitor-77mmn",
+    "activeMonitorOverallVerdict": "FAIL",
+    "checkedReleases": 6,
+    "checkedItems": 7,
+    "preexistingFailedReleases": [
+      "deep-production-r1-20260725T022203Z-5fcb677b",
+      "deep-production-r1-20260729T143537Z-1f0ade00"
+    ],
+    "preexistingFailureKinds": [
+      "state_hash",
+      "criterion_keys",
+      "question_anchor"
+    ],
+    "interpretation": "전체 관제 실패는 과거 두 release의 기존 drift이며 이번 release의 publication/serving 실패가 아니다. 이번 exact-1 범위에서는 과거 release를 수선하지 않았다."
+  },
+  "finalSafety": {
+    "gcloudBaseAccount": "sw@noten.im",
+    "impersonatedServiceAccount": "cunote-codex-dev@changupnote-com.iam.gserviceaccount.com",
+    "project": "changupnote-com",
+    "region": "asia-northeast3",
+    "workerImageDigest": "sha256:9c7af83a3750b1016aaabe20119755e31f458fd51f1eabb506a1b2ba9578e8a3",
+    "workerCodeCommit": "d53483b63434396d531c8b02caf809b2c27f3215",
+    "workerGeneration": "84/84",
+    "workerReady": true,
+    "workerMode": "observe_only",
+    "claimScope": "unconfigured",
+    "claimEnvironmentVariableCount": 0,
+    "leasedJobCount": 0,
+    "targetPendingJobCount": 0,
+    "perNoticeCostCapUsd": 2,
+    "finalSmokeExecution": "cunote-deep-analysis-x6w7j",
+    "finalSmokeStatus": "idle",
+    "finalSmokeClaimed": 0,
+    "finalSmokeMutationsSkipped": true,
+    "schedulersChanged": false
+  },
+  "goalAssessment": {
+    "scheduledLatestNoticeCollection": "PASS",
+    "noticeAndHwpDeepAnalysis": "PASS_1_OF_1",
+    "independentAiReview": "PASS_CONCUR",
+    "automaticRouting": "PASS_AUTO_PROMOTABLE",
+    "promotionAndServing": "PASS_1_OF_1",
+    "businessNumberToDeepMatching": "PASS_TARGET_FOUND_CONDITIONAL",
+    "oneNoticeProductionChain": "PASS_END_TO_END",
+    "continuousUnattendedAutomation": "PARTIAL",
+    "continuousAutomationBoundary": "수집은 Vercel Cron으로 자동이다. 딥분석 worker는 안전상 observe_only이며 이번에는 bounded claim으로 한 건만 실행했다. 승격은 자동 스케줄러가 아니라 manifest/aggregate/shadow/dry-run/승인/canary 게이트를 수동 오케스트레이션했다.",
+    "verdict": "최신 자동 수집분 한 건이 PDF/HWP 봉인부터 딥분석, 독립 AI 검수, 발행, serving, 사업자번호 랜딩 매칭까지 실제 production에서 완주했다. 전체 backlog를 무인 자동 처리하는 상시 모드는 아직 활성화하지 않았다."
+  }
+}

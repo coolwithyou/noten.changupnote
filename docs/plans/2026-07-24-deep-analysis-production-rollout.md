@@ -6102,3 +6102,50 @@ K-Startup `178355`, “아시아 창업 엑스포(FLY ASIA 2026) FLY ASIA 해외
   반복 빈도를 먼저 누적해 다음 비용 개선 대상을 판단한다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r9-exact-1-2026-07-30.json`이다.
+
+### AQ23 R10 최신 자동 수집분 exact 1건 production 완주 — `AUTO`, `PUBLISHED`, `LANDING PASS` (2026-07-30)
+
+자동 수집된 최신 공고 한 건이 수집 이후의 실제 production 체인을 끝까지 통과하는지
+확인했다. 오늘 15시 K-Startup Vercel Cron은 HTTP 200으로 완료됐고, 같은 실행에서
+수집 시각이 갱신된 공고 중 통합공고가 아니며 PDF 공고문과 HWP 신청서류가 모두
+보관·변환된 `178537`, “SMART-X LAB 14기 참여기업 모집” 한 건만 선택했다.
+
+1. PDF/HWP 2건, 총 10,606자를 3개 chunk로 봉인했다. attachment inventory,
+   archive, text, coverage와 source freshness는 모두 passed이고 blocker는 0이다.
+   v24 job과 단일 grant UUID/hash bounded claim을 만든 뒤 Cloud Run execution
+   `cunote-deep-analysis-86dcm`만 active snapshot으로 실행했다.
+2. Opus primary는 repair 1회 뒤 22축과 criterion 10건을 contract issue 0,
+   exact evidence 10/10으로 확정했다. 독립 Sonnet audit도 valid `concur`,
+   disagreement·deferral·blocker 0으로 `auto_promotable`을 판정했다. attempt는
+   1, 총비용은 `$0.573309`이다.
+3. release `deep-production-r1-20260730T131603Z-54305cc7`는 aggregate
+   `GO(4/4 blocking, 6/6 observed)`, shadow `PASS(1공고 × 125회사, issue 0)`,
+   dry-run `PASS`, 분리된 준비·승인·실행 actor, canary/all promotion 검증을
+   통과해 `active`가 됐다. DB에는 criterion 10건과 active 확인질문 1건이
+   발행됐고 `needs_review` criterion은 0이다.
+4. full serving 검증은 publication, serving, analysis freshness와 repository
+   criterion/trace hash를 모두 통과했다. 실제 production
+   `POST https://changupnote.com/api/web/teaser`도 1.485초·HTTP 200으로 응답했고,
+   저장된 개발 검증용 사업자번호의 결과 4건 중 새 공고가 `conditional`로
+   반환됐다. 부족한 회사 규모 정보는 다음 질문 `size`로 남았다.
+5. 전체 active release 관제는 과거 7월 25일/29일 release 두 건의 기존
+   state hash·criterion key·question anchor drift 때문에 FAIL이다. 이번 새
+   release는 관제에서도 `1/1 PASS`이며 과거 drift 수선은 exact-1 범위를
+   벗어나므로 건드리지 않았다.
+6. 영구 worker는 generation `84/84`, 배포 digest 유지, `observe_only`, claim
+   env 0으로 복구했다. 최종 smoke `cunote-deep-analysis-x6w7j`는 claim 0과
+   enqueue/analysis/budget mutation skip으로 성공했고 active lease는 0이다.
+
+판정:
+
+- “정기 최신 공고 수집 → PDF/HWP 딥분석 → 서로 다른 AI 검수 → 자동 판정 →
+  release 발행 → serving → 사업자번호 랜딩 매칭”은 production 한 건에서
+  end-to-end로 통과했다.
+- 상시 무인 자동화 전체가 완성됐다는 뜻은 아니다. 수집은 Vercel Cron으로
+  자동이지만, 딥분석 worker는 아직 `observe_only`이고 이번에는 bounded claim으로
+  한 건만 실행했다. 승격도 자동 scheduler가 아니라 immutable release gate를
+  오케스트레이션했다. 전체 backlog 활성화는 이 경계를 별도 체크포인트로 다룬다.
+- 프롬프트·모델·스키마·마이그레이션·Vercel 배포, 두 번째 공고 실행, 과거 drift
+  수선은 하지 않았다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r10-production-one-2026-07-30.json`이다.
