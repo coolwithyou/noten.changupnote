@@ -1,13 +1,19 @@
 import assert from "node:assert/strict";
-import type { DeepAnalysisModelResult } from "@cunote/contracts";
+import {
+  CRITERION_DIMENSIONS,
+  type CriterionDimension,
+  type DeepAnalysisModelResult,
+} from "@cunote/contracts";
 import { renderDeepAnalysisChunks, type DeepAnalysisExecution } from "./analyzer";
 import { findExactEvidenceSpanCandidates } from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
+import { validateDeepAnalysisResult } from "./validator";
 import {
   buildDeepAnalysisAuditRetryFeedback,
   buildDeepAnalysisEvidenceRepairHints,
   DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION,
   DEEP_ANALYSIS_REPAIR_VERSION,
+  repairDeepAnalysisEvidenceSpansDeterministically,
   repairDeepAnalysisExecution,
 } from "./repair";
 
@@ -77,7 +83,7 @@ const validation = {
     ].map((dimension) => [dimension, []]),
   ) as never,
 };
-assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v2");
+assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v3");
 assert.equal(
   findExactEvidenceSpanCandidates(requestedSpan, execution.evidenceText).length,
   2,
@@ -99,6 +105,10 @@ assert.deepEqual(
     candidateCount: 2,
     truncated: false,
   }],
+);
+assert.deepEqual(
+  repairDeepAnalysisEvidenceSpansDeterministically({ execution, validation }),
+  { execution, repairs: [] },
 );
 let repairInstruction = "";
 let repairInput = "";
@@ -136,6 +146,218 @@ assert.deepEqual(
     evidenceRepairHints: unknown[];
   }).evidenceRepairHints,
   buildDeepAnalysisEvidenceRepairHints({ execution, validation }),
+);
+
+const scoreTableExactSpan =
+  "2. 참가 계획                                   20\n" +
+  "(70 점)                   기대효과 등";
+const scoreTableRequestedSpan =
+  "2. 참가 계획                                   20\n" +
+  "                         기대효과 등";
+const scoreCandidateDecoys = Array.from({ length: 20 }, (_, index) => (
+  `2 참가 ${"무관한문구 ".repeat(index + 1)}계획 20 ` +
+  `${"다른설명 ".repeat(index + 1)}기대효과 등`
+)).join("\n");
+assert.equal(
+  findExactEvidenceSpanCandidates(
+    scoreTableRequestedSpan,
+    `${scoreCandidateDecoys}\n${scoreTableExactSpan}`,
+  ).includes(scoreTableExactSpan),
+  true,
+  "앞쪽의 장거리 후보가 많아도 가장 짧은 실제 평가표 span을 후보에 유지한다",
+);
+function evidenceCase(
+  exactSpan: string,
+  requestedSpan: string,
+  dimension: CriterionDimension,
+): {
+  seal: ReturnType<typeof sealDeepAnalysisInput>;
+  execution: DeepAnalysisExecution;
+} {
+  const caseSeal = sealDeepAnalysisInput({
+    grantId: `evidence-${dimension}`,
+    sourceRevisionSha256: "e".repeat(64),
+    structuredText: exactSpan,
+    attachments: [],
+  });
+  const caseResult: DeepAnalysisModelResult = {
+    ...result,
+    criteria: [{
+      ...result.criteria[0]!,
+      dimension,
+      sourceSpan: requestedSpan,
+    }],
+  };
+  return {
+    seal: caseSeal,
+    execution: {
+      evidenceText: renderDeepAnalysisChunks(caseSeal.chunks),
+      result: caseResult,
+      passes: [{
+        kind: "single",
+        chunkId: null,
+        inputChars: requestedSpan.length,
+        result: caseResult,
+      }],
+    },
+  };
+}
+
+const scoreTableCase = evidenceCase(
+  scoreTableExactSpan,
+  scoreTableRequestedSpan,
+  "other",
+);
+const evidenceOnlyValidation = {
+  ...validation,
+  issues: [validation.issues[0]!],
+  axisCoverageComplete: true,
+};
+const deterministicScoreRepair = repairDeepAnalysisEvidenceSpansDeterministically({
+  execution: scoreTableCase.execution,
+  validation: evidenceOnlyValidation,
+});
+assert.equal(deterministicScoreRepair.repairs.length, 1);
+assert.equal(
+  deterministicScoreRepair.execution.result.criteria[0]?.sourceSpan,
+  scoreTableExactSpan,
+);
+assert.equal(
+  deterministicScoreRepair.execution.result.criteria[0]?.spanVerified,
+  true,
+);
+assert.equal(
+  deterministicScoreRepair.execution.passes,
+  scoreTableCase.execution.passes,
+);
+assert.deepEqual(
+  deterministicScoreRepair.execution.deterministicEvidenceRepairs,
+  deterministicScoreRepair.repairs,
+);
+
+const scoreTableAxes = CRITERION_DIMENSIONS.map((dimension) => ({
+  dimension,
+  status: dimension === "other"
+    ? "condition_found" as const
+    : "inspected_no_condition" as const,
+  confidence: 0.9,
+  comment: "전문 검사",
+}));
+const validScoreTableResult: DeepAnalysisModelResult = {
+  ...scoreTableCase.execution.result,
+  criteria: [{
+    ...scoreTableCase.execution.result.criteria[0]!,
+    operator: "text_only",
+    value: { note: "참가 계획 평가 20점" },
+  }],
+  axisAssessments: scoreTableAxes,
+  rawToolInput: {
+    criteria: [{
+      dimension: "other",
+      operator: "text_only",
+      kind: "preferred",
+      value: { note: "참가 계획 평가 20점" },
+      confidence: 0.7,
+      source_span: scoreTableRequestedSpan,
+    }],
+    axis_assessments: scoreTableAxes.map((axis) => ({
+      dimension: axis.dimension,
+      status: axis.status,
+      confidence: axis.confidence,
+      comment: axis.comment,
+    })),
+  },
+};
+const validScoreTableExecution: DeepAnalysisExecution = {
+  ...scoreTableCase.execution,
+  result: validScoreTableResult,
+  passes: [{
+    kind: "single",
+    chunkId: null,
+    inputChars: scoreTableRequestedSpan.length,
+    result: validScoreTableResult,
+  }],
+};
+const initialScoreTableValidation = validateDeepAnalysisResult({
+  seal: scoreTableCase.seal,
+  result: validScoreTableResult,
+});
+assert.equal(initialScoreTableValidation.valid, false);
+assert.deepEqual(
+  initialScoreTableValidation.issues.map((issue) => issue.code),
+  ["evidence_not_grounded"],
+);
+let deterministicFallbackModelCalled = false;
+const locallyRepairedScoreTable = await repairDeepAnalysisExecution({
+  seal: scoreTableCase.seal,
+  apiKey: "test",
+  model: "claude-opus-4-8",
+  failedExecution: validScoreTableExecution,
+  validation: initialScoreTableValidation,
+  runModel: async () => {
+    deterministicFallbackModelCalled = true;
+    throw new Error("unique safe source_span must not call the model");
+  },
+});
+assert.equal(deterministicFallbackModelCalled, false);
+assert.equal(locallyRepairedScoreTable.passes.length, 1);
+assert.equal(locallyRepairedScoreTable.result.costUsd, result.costUsd);
+assert.equal(locallyRepairedScoreTable.deterministicEvidenceRepairs?.length, 1);
+assert.equal(validateDeepAnalysisResult({
+  seal: scoreTableCase.seal,
+  result: locallyRepairedScoreTable.result,
+}).valid, true);
+
+const awardScoreExactSpan =
+  "무역의날 수출탑 수상(최근 2 년)               개인표창 제외\n" +
+  "             가점                                      2";
+const awardScoreRequestedSpan =
+  "· 무역의날 수출탑 수상(최근 2 년)               개인표창 제외\n" +
+  "                       2";
+const awardScoreCase = evidenceCase(
+  awardScoreExactSpan,
+  awardScoreRequestedSpan,
+  "prior_award",
+);
+const deterministicAwardScoreRepair =
+  repairDeepAnalysisEvidenceSpansDeterministically({
+    execution: awardScoreCase.execution,
+    validation: evidenceOnlyValidation,
+  });
+assert.equal(deterministicAwardScoreRepair.repairs.length, 1);
+assert.equal(
+  deterministicAwardScoreRepair.execution.result.criteria[0]?.sourceSpan,
+  awardScoreExactSpan,
+);
+
+const semanticInsertionRequestedSpan = "서울 소재 기업 지원 대상";
+const semanticInsertionExactSpan = "서울 소재 기업 지원 불가 대상";
+const semanticInsertionCase = evidenceCase(
+  semanticInsertionExactSpan,
+  semanticInsertionRequestedSpan,
+  "region",
+);
+assert.deepEqual(
+  repairDeepAnalysisEvidenceSpansDeterministically({
+    execution: semanticInsertionCase.execution,
+    validation: evidenceOnlyValidation,
+  }),
+  { execution: semanticInsertionCase.execution, repairs: [] },
+);
+
+const numericInsertionRequestedSpan = "최근 매출 기준 이상";
+const numericInsertionExactSpan = "최근 매출 2025 기준 이상";
+const numericInsertionCase = evidenceCase(
+  numericInsertionExactSpan,
+  numericInsertionRequestedSpan,
+  "revenue",
+);
+assert.deepEqual(
+  repairDeepAnalysisEvidenceSpansDeterministically({
+    execution: numericInsertionCase.execution,
+    validation: evidenceOnlyValidation,
+  }),
+  { execution: numericInsertionCase.execution, repairs: [] },
 );
 
 const verifiedIpFinding = {

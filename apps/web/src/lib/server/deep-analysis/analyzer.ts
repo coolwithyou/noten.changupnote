@@ -16,10 +16,19 @@ export interface DeepAnalysisModelPass {
   result: DeepAnalysisModelResult;
 }
 
+export interface DeepAnalysisDeterministicEvidenceRepair {
+  issuePath: string;
+  criterionIndex: number;
+  requestedSourceSpan: string;
+  repairedSourceSpan: string;
+  strategy: "unique_layout_or_score_candidate";
+}
+
 export interface DeepAnalysisExecution {
   result: DeepAnalysisModelResult;
   passes: DeepAnalysisModelPass[];
   evidenceText: string;
+  deterministicEvidenceRepairs?: DeepAnalysisDeterministicEvidenceRepair[];
 }
 
 type ModelRunner = typeof runDeepGrantAnalysis;

@@ -273,6 +273,7 @@ export async function processDeepAnalysisJob(input: {
       body: `${stableJson({
         schema: "deep-analysis-raw-passes-v1",
         auditRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
+        deterministicEvidenceRepairs: primary.deterministicEvidenceRepairs ?? [],
         passes: primary.passes.map((pass) => ({
           kind: pass.kind,
           chunkId: pass.chunkId,
@@ -298,6 +299,8 @@ export async function processDeepAnalysisJob(input: {
         promptVersion: DEEP_ANALYSIS_PROMPT_VERSION,
         passCount: primary.passes.length,
         repairCount: primary.passes.filter((pass) => pass.kind === "repair").length,
+        deterministicEvidenceRepairCount:
+          primary.deterministicEvidenceRepairs?.length ?? 0,
         usage: primary.result.usage,
         actualCostUsd: primary.result.costUsd,
         rawArtifactKey: rawArtifact.key,

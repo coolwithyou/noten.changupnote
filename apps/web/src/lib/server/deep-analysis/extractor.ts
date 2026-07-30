@@ -494,6 +494,7 @@ const DEEP_ANALYSIS_SOURCE_BODY_PATTERN =
   /^<<<DEEP_ANALYSIS_SOURCE id="[^"]+" kind="(?:structured|attachment)" sha256="[0-9a-f]{64}">>>\n([\s\S]*?)\n<<<END_DEEP_ANALYSIS_SOURCE>>>$/gm;
 const MAX_ORDERED_TOKEN_EVIDENCE_CHARS = 8_000;
 const MAX_ORDERED_TOKEN_EVIDENCE_CANDIDATES = 16;
+const MAX_ORDERED_TOKEN_START_OFFSETS_PER_SOURCE = 4_096;
 
 /**
  * 모델이 표의 여러 셀을 공백 한 줄로 이어 쓰거나 OCR 어절 공백을 제거한 경우의
@@ -527,11 +528,14 @@ function findOrderedTokenEvidenceCandidates(
   for (const body of bodies) {
     const mapped = compactEvidenceWithOffsets(body);
     const firstToken = tokens[0]!.replace(/\s+/g, "");
+    let inspectedStartOffsets = 0;
     for (
       let firstOffset = mapped.text.indexOf(firstToken);
-      firstOffset >= 0;
+      firstOffset >= 0
+        && inspectedStartOffsets < MAX_ORDERED_TOKEN_START_OFFSETS_PER_SOURCE;
       firstOffset = mapped.text.indexOf(firstToken, firstOffset + 1)
     ) {
+      inspectedStartOffsets += 1;
       let cursor = firstOffset + firstToken.length;
       let lastEnd = cursor;
       let matched = true;
@@ -555,12 +559,28 @@ function findOrderedTokenEvidenceCandidates(
         || end - start > MAX_ORDERED_TOKEN_EVIDENCE_CHARS
       ) continue;
       candidates.add(body.slice(start, end));
-      if (candidates.size >= MAX_ORDERED_TOKEN_EVIDENCE_CANDIDATES) {
-        return [...candidates];
+      if (candidates.size > MAX_ORDERED_TOKEN_EVIDENCE_CANDIDATES * 4) {
+        retainShortestEvidenceCandidates(
+          candidates,
+          MAX_ORDERED_TOKEN_EVIDENCE_CANDIDATES * 2,
+        );
       }
     }
   }
-  return [...candidates];
+  return [...candidates]
+    .sort((left, right) => left.length - right.length || left.localeCompare(right))
+    .slice(0, MAX_ORDERED_TOKEN_EVIDENCE_CANDIDATES);
+}
+
+function retainShortestEvidenceCandidates(
+  candidates: Set<string>,
+  limit: number,
+): void {
+  const retained = [...candidates]
+    .sort((left, right) => left.length - right.length || left.localeCompare(right))
+    .slice(0, limit);
+  candidates.clear();
+  for (const candidate of retained) candidates.add(candidate);
 }
 
 function compactEvidenceWithOffsets(value: string): {

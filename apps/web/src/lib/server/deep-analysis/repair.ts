@@ -8,6 +8,7 @@ import {
 } from "@cunote/contracts";
 import type { DeepAnalysisAuditAcceptedFinding } from "./auditAdjudication";
 import type {
+  DeepAnalysisDeterministicEvidenceRepair,
   DeepAnalysisExecution,
   DeepAnalysisModelPass,
 } from "./analyzer";
@@ -18,9 +19,12 @@ import {
 } from "./extractor";
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { stableJson } from "./sourceRevision";
-import type { DeepAnalysisValidationResult } from "./validator";
+import {
+  validateDeepAnalysisResult,
+  type DeepAnalysisValidationResult,
+} from "./validator";
 
-export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v2" as const;
+export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v3" as const;
 export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
   "deep-analysis-audit-retry-feedback-v1" as const;
 
@@ -42,6 +46,16 @@ export interface DeepAnalysisAuditRetryFeedback {
 }
 
 const MAX_EVIDENCE_REPAIR_CANDIDATES = 8;
+const MAX_DETERMINISTIC_REPAIR_EXTRA_CHARS = 128;
+const MAX_DETERMINISTIC_REPAIR_LENGTH_RATIO = 2.5;
+const SAFE_SCORE_LAYOUT_TOKENS = new Set([
+  "점",
+  "가점",
+  "배점",
+  "총점",
+  "만점",
+  "점수",
+]);
 
 /**
  * 사람이 dead-letter 작업을 명시적으로 재처리할 때, 직전 독립 감사에서 결정론적으로
@@ -106,18 +120,33 @@ export async function repairDeepAnalysisExecution(input: {
   validation: DeepAnalysisValidationResult;
   runModel?: typeof runDeepGrantAnalysis;
 }): Promise<DeepAnalysisExecution> {
-  const runModel = input.runModel ?? runDeepGrantAnalysis;
-  const evidenceRepairHints = buildDeepAnalysisEvidenceRepairHints({
+  const deterministic = repairDeepAnalysisEvidenceSpansDeterministically({
     execution: input.failedExecution,
     validation: input.validation,
   });
+  const executionToRepair = deterministic.execution;
+  const validationToRepair = deterministic.repairs.length > 0
+    ? validateDeepAnalysisResult({
+      seal: input.seal,
+      result: executionToRepair.result,
+    })
+    : input.validation;
+  if (deterministic.repairs.length > 0 && validationToRepair.valid) {
+    return executionToRepair;
+  }
+
+  const runModel = input.runModel ?? runDeepGrantAnalysis;
+  const evidenceRepairHints = buildDeepAnalysisEvidenceRepairHints({
+    execution: executionToRepair,
+    validation: validationToRepair,
+  });
   const repairInput = [
-    input.failedExecution.evidenceText,
+    executionToRepair.evidenceText,
     "",
     "<<<FAILED_RESULT_TO_REPAIR>>>",
     stableJson({
-      result: stripRaw(input.failedExecution.result),
-      validatorIssues: input.validation.issues,
+      result: stripRaw(executionToRepair.result),
+      validatorIssues: validationToRepair.issues,
       evidenceRepairHints,
     }),
     "<<<END_FAILED_RESULT_TO_REPAIR>>>",
@@ -125,7 +154,7 @@ export async function repairDeepAnalysisExecution(input: {
   const repaired = await runModel({
     apiKey: input.apiKey,
     inputText: repairInput,
-    evidenceText: input.failedExecution.evidenceText,
+    evidenceText: executionToRepair.evidenceText,
     model: input.model,
     ...(input.effort === undefined ? {} : { effort: input.effort }),
     taskInstruction: [
@@ -145,14 +174,93 @@ export async function repairDeepAnalysisExecution(input: {
     inputChars: repairInput.length,
     result: repaired,
   };
-  const passes = [...input.failedExecution.passes, repairPass];
+  const passes = [...executionToRepair.passes, repairPass];
   return {
-    evidenceText: input.failedExecution.evidenceText,
+    evidenceText: executionToRepair.evidenceText,
     passes,
+    ...(executionToRepair.deterministicEvidenceRepairs
+      ? {
+        deterministicEvidenceRepairs:
+          executionToRepair.deterministicEvidenceRepairs,
+      }
+      : {}),
     result: {
       ...repaired,
       usage: sumUsage(passes.map((pass) => pass.result.usage)),
       costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
+    },
+  };
+}
+
+/**
+ * 의미를 다시 판단하지 않아도 되는 source_span 표기 차이만 모델 호출 전에 교정한다.
+ * 후보가 유일하고, 원문 후보에 추가된 토큰이 점수표 레이아웃 표기뿐일 때만 적용한다.
+ * 의미 토큰이 추가되거나 후보가 여러 개면 아무 것도 바꾸지 않고 기존 LLM repair로
+ * 넘긴다.
+ */
+export function repairDeepAnalysisEvidenceSpansDeterministically(input: {
+  execution: DeepAnalysisExecution;
+  validation: DeepAnalysisValidationResult;
+}): {
+  execution: DeepAnalysisExecution;
+  repairs: DeepAnalysisDeterministicEvidenceRepair[];
+} {
+  const repairs: DeepAnalysisDeterministicEvidenceRepair[] = [];
+  const criteria = [...input.execution.result.criteria];
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "evidence_not_grounded") continue;
+    const match = /^\$\.criteria\[(\d+)\]\.source_span$/.exec(issue.path);
+    if (!match) continue;
+    const criterionIndex = Number.parseInt(match[1]!, 10);
+    const criterion = criteria[criterionIndex];
+    const requestedSourceSpan = criterion?.sourceSpan?.trim() ?? "";
+    if (!criterion || !requestedSourceSpan) continue;
+    const candidates = findExactEvidenceSpanCandidates(
+      requestedSourceSpan,
+      input.execution.evidenceText,
+    );
+    const safeCandidates = candidates.filter((candidate) => (
+      candidate !== requestedSourceSpan
+      && isSafeDeterministicEvidenceCandidate(
+        requestedSourceSpan,
+        candidate,
+      )
+    ));
+    if (safeCandidates.length !== 1) continue;
+    const repairedSourceSpan = safeCandidates[0]!;
+    const offset = input.execution.evidenceText.indexOf(repairedSourceSpan);
+    criteria[criterionIndex] = {
+      ...criterion,
+      sourceSpan: repairedSourceSpan,
+      spanVerified: true,
+      spanOffsetRatio: offset >= 0 && input.execution.evidenceText.length > 0
+        ? offset / input.execution.evidenceText.length
+        : null,
+    };
+    repairs.push({
+      issuePath: issue.path,
+      criterionIndex,
+      requestedSourceSpan,
+      repairedSourceSpan,
+      strategy: "unique_layout_or_score_candidate",
+    });
+  }
+  if (repairs.length === 0) {
+    return { execution: input.execution, repairs };
+  }
+  const cumulativeRepairs = [
+    ...(input.execution.deterministicEvidenceRepairs ?? []),
+    ...repairs,
+  ];
+  return {
+    repairs,
+    execution: {
+      ...input.execution,
+      deterministicEvidenceRepairs: cumulativeRepairs,
+      result: {
+        ...input.execution.result,
+        criteria,
+      },
     },
   };
 }
@@ -185,6 +293,49 @@ export function buildDeepAnalysisEvidenceRepairHints(input: {
     });
   }
   return hints;
+}
+
+function isSafeDeterministicEvidenceCandidate(
+  requestedSourceSpan: string,
+  repairedSourceSpan: string,
+): boolean {
+  const extraChars = repairedSourceSpan.length - requestedSourceSpan.length;
+  if (
+    extraChars < 0
+    || extraChars > MAX_DETERMINISTIC_REPAIR_EXTRA_CHARS
+    || repairedSourceSpan.length
+      > requestedSourceSpan.length * MAX_DETERMINISTIC_REPAIR_LENGTH_RATIO
+  ) return false;
+  const requestedTokens = evidenceTokens(requestedSourceSpan);
+  const repairedTokens = evidenceTokens(repairedSourceSpan);
+  if (requestedTokens.length < 3 || repairedTokens.length < requestedTokens.length) {
+    return false;
+  }
+  let requestedIndex = 0;
+  const extraTokens: string[] = [];
+  for (const token of repairedTokens) {
+    if (token === requestedTokens[requestedIndex]) {
+      requestedIndex += 1;
+    } else {
+      extraTokens.push(token);
+    }
+  }
+  const includesNumericExtra = extraTokens.some((token) => /^\d+$/.test(token));
+  const includesScoreMarker = extraTokens.some((token) => (
+    SAFE_SCORE_LAYOUT_TOKENS.has(token)
+  ));
+  return requestedIndex === requestedTokens.length
+    && extraTokens.every(isSafeScoreLayoutToken)
+    && (!includesNumericExtra || includesScoreMarker);
+}
+
+function evidenceTokens(value: string): string[] {
+  return [...value.matchAll(/[\p{Letter}\p{Number}%~]+/gu)]
+    .map((match) => match[0]);
+}
+
+function isSafeScoreLayoutToken(value: string): boolean {
+  return /^\d+$/.test(value) || SAFE_SCORE_LAYOUT_TOKENS.has(value);
 }
 
 function stripRaw(result: DeepAnalysisModelResult) {
