@@ -196,9 +196,17 @@ async function verifyDeepAnalysisPromotionSourceArtifact(
     .where(eq(schema.grantDeepAnalysisAudits.runId, run.id))
     .orderBy(desc(schema.grantDeepAnalysisAudits.attempt))
     .limit(1);
-  if (!audit || audit.verdict !== "concur") {
+  if (!audit) {
     changed.push("audit_verdict");
   } else {
+    if (artifact.auditVerdict === undefined) {
+      if (audit.verdict !== "concur") changed.push("audit_verdict");
+    } else if (
+      audit.verdict !== artifact.auditVerdict
+      || (audit.verdict !== "concur" && audit.verdict !== "unsure")
+    ) {
+      changed.push("audit_verdict");
+    }
     if (audit.artifactKey !== artifact.auditArtifactKey) changed.push("audit_key");
     if (audit.artifactSha256 !== artifact.auditSha256) changed.push("audit_hash");
     const auditObject = await storage.getObjectBytes(audit.artifactKey);

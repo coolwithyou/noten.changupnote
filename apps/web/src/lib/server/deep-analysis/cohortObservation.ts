@@ -188,6 +188,10 @@ export function evaluateDeepAnalysisCohortObservation(input: {
       && runStartedAtMs !== null
       && !runBeforeActivation
     );
+    const conditionalAuditComplete = (
+      item.auditVerdict === "unsure"
+      && item.stageStatuses.independent_audit_passed === "not_applicable"
+    );
     sourceCounts[source] = (sourceCounts[source] ?? 0) + 1;
     totalCostUsd += item.costUsdSinceActivation;
     maxPerGrantCostUsd = Math.max(maxPerGrantCostUsd, item.costUsdSinceActivation);
@@ -216,7 +220,11 @@ export function evaluateDeepAnalysisCohortObservation(input: {
       terminalFailureGrantIds.add(label);
       failures.push(`terminal_run:${label}:${item.runStatus}`);
     }
-    if (item.auditVerdict && item.auditVerdict !== "concur") {
+    if (
+      item.auditVerdict
+      && item.auditVerdict !== "concur"
+      && !conditionalAuditComplete
+    ) {
       failures.push(`audit_${item.auditVerdict}:${label}`);
     }
     if (item.currentInputVerificationError) {
@@ -259,11 +267,15 @@ export function evaluateDeepAnalysisCohortObservation(input: {
         failures.push(`analysis_complete_run_not_passed:${label}`);
       }
       if (item.axisCount !== 22) failures.push(`axis_count:${label}:${item.axisCount}`);
-      if (item.auditVerdict !== "concur") {
+      if (item.auditVerdict !== "concur" && !conditionalAuditComplete) {
         failures.push(`analysis_complete_without_concur:${label}`);
       }
       for (const stage of DEEP_ANALYSIS_COHORT_REQUIRED_STAGES) {
-        if (item.stageStatuses[stage] !== "passed") {
+        const status = item.stageStatuses[stage];
+        if (
+          status !== "passed"
+          && !(stage === "independent_audit_passed" && conditionalAuditComplete)
+        ) {
           failures.push(`required_stage:${label}:${stage}`);
         }
       }

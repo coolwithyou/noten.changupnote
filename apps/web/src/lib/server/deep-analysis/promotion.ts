@@ -13,6 +13,11 @@ import {
   type GrantPromotionPlan,
 } from "../analysis-lab/promote";
 import {
+  decideDeepAnalysisAutomation,
+  type DeepAnalysisAutomationDeferral,
+  type DeepAnalysisAutomationTerminalRoute,
+} from "./automationDecision";
+import {
   assessDeepAnalysisMatcherRepresentability,
   isDeepAnalysisMatcherRepresentabilityAssessment,
   type DeepAnalysisMatcherRepresentabilityAssessment,
@@ -74,6 +79,8 @@ export interface DeepAnalysisPromotionReadinessBlocker {
   detail: string;
 }
 
+export type DeepAnalysisPromotionReadinessDeferral = DeepAnalysisAutomationDeferral;
+
 /**
  * 분석 완료 이후의 서로 다른 운영 질문을 한 PASS로 뭉치지 않는다.
  *
@@ -88,9 +95,12 @@ export interface DeepAnalysisPromotionReadiness {
   auditComplete: DeepAnalysisReadinessState;
   matcherRepresentable: DeepAnalysisReadinessState;
   autoPromotable: DeepAnalysisReadinessState;
+  conditionalPromotable?: DeepAnalysisReadinessState;
   humanReviewRequired: boolean;
-  terminalRoute: "auto_promotable" | "human_review_required";
+  terminalRoute: DeepAnalysisAutomationTerminalRoute;
+  deferredCriterionIndexes?: number[];
   blockers: DeepAnalysisPromotionReadinessBlocker[];
+  deferrals?: DeepAnalysisPromotionReadinessDeferral[];
 }
 
 export class DeepAnalysisPromotionReadinessError extends Error {
@@ -111,26 +121,15 @@ export function assessDeepAnalysisPromotionReadiness(input: {
   requiredExclusionConflictCount?: number;
   plan?: GrantPromotionPlan | null;
 }): DeepAnalysisPromotionReadiness {
-  const blockers: DeepAnalysisPromotionReadinessBlocker[] = [];
-  if (input.auditVerdict !== "concur") {
-    blockers.push({
-      code: "audit_not_concur",
-      stage: "audit_complete",
-      count: 1,
-      detail: "독립 감사 concur가 아니므로 자동 승격할 수 없습니다.",
-    });
-  }
-
-  const hardUnsupportedRelationCount =
-    input.matcherRepresentability?.hardUnsupportedRelationCount ?? 0;
-  if (hardUnsupportedRelationCount > 0) {
-    blockers.push({
-      code: "unsupported_relation",
-      stage: "matcher_representable",
-      count: hardUnsupportedRelationCount,
-      detail: `현재 matcher가 표현할 수 없는 hard eligibility 관계 ${hardUnsupportedRelationCount}건`,
-    });
-  }
+  const automation = decideDeepAnalysisAutomation({
+    auditVerdict: input.auditVerdict,
+    ...(input.matcherRepresentability !== undefined
+      ? { matcherRepresentability: input.matcherRepresentability }
+      : {}),
+  });
+  const blockers: DeepAnalysisPromotionReadinessBlocker[] = [
+    ...automation.blockers,
+  ];
 
   const conflictCount = input.requiredExclusionConflictCount ?? 0;
   if (conflictCount > 0) {
@@ -173,7 +172,10 @@ export function assessDeepAnalysisPromotionReadiness(input: {
         if (criterion.needs_review !== true) return false;
         const criterionIndex = input.plan?.criterionIndexByPosition[position] ?? -1;
         const status = input.matcherRepresentability?.items[criterionIndex]?.status;
-        return status === undefined || status === "direct";
+        return (
+          (status === undefined || status === "direct")
+          && !automation.deferredCriterionIndexes.includes(criterionIndex)
+        );
       }).length
       : input.plan.conversion.downgraded;
     if (unexpectedDowngradeCount > 0) {
@@ -193,7 +195,9 @@ export function assessDeepAnalysisPromotionReadiness(input: {
       });
     }
     const unconfirmedCount = input.plan.resolutions.filter(
-      (resolution) => resolution.state !== "confirmed_correct",
+      (resolution) =>
+        resolution.state !== "confirmed_correct"
+        && !automation.deferredCriterionIndexes.includes(resolution.criterionIndex),
     ).length;
     if (unconfirmedCount > 0) {
       blockers.push({
@@ -206,25 +210,50 @@ export function assessDeepAnalysisPromotionReadiness(input: {
   }
 
   const auditComplete: DeepAnalysisReadinessState =
-    input.auditVerdict === "concur" ? "passed" : "blocked";
+    input.auditVerdict === "concur"
+      ? "passed"
+      : input.auditVerdict === "unsure"
+        ? "not_assessed"
+        : "blocked";
   const matcherBlockers = blockers.filter(
     (blocker) => blocker.stage === "matcher_representable",
   );
+  const matcherDeferrals = automation.deferrals.filter(
+    (deferral) => deferral.stage === "matcher_representable",
+  );
   const matcherRepresentable: DeepAnalysisReadinessState =
     input.plan || conflictCount > 0 || input.matcherRepresentability
-      ? matcherBlockers.length === 0 ? "passed" : "blocked"
+      ? matcherBlockers.length > 0
+        ? "blocked"
+        : matcherDeferrals.length > 0
+          ? "not_assessed"
+          : "passed"
       : "not_assessed";
   const autoPromotable =
-    auditComplete === "passed" && matcherRepresentable === "passed";
+    blockers.length === 0
+    && automation.deferrals.length === 0
+    && auditComplete === "passed"
+    && matcherRepresentable === "passed";
+  const conditionalPromotable =
+    blockers.length === 0 && automation.deferrals.length > 0;
+  const terminalRoute: DeepAnalysisAutomationTerminalRoute =
+    blockers.length > 0
+      ? "human_review_required"
+      : conditionalPromotable
+        ? "conditional_promotable"
+        : "auto_promotable";
   return {
     schema: DEEP_ANALYSIS_PROMOTION_READINESS_SCHEMA,
     analysisComplete: "passed",
     auditComplete,
     matcherRepresentable,
     autoPromotable: autoPromotable ? "passed" : "blocked",
-    humanReviewRequired: !autoPromotable,
-    terminalRoute: autoPromotable ? "auto_promotable" : "human_review_required",
+    conditionalPromotable: conditionalPromotable ? "passed" : "blocked",
+    humanReviewRequired: terminalRoute === "human_review_required",
+    terminalRoute,
+    deferredCriterionIndexes: automation.deferredCriterionIndexes,
     blockers,
+    deferrals: automation.deferrals,
   };
 }
 
@@ -275,12 +304,13 @@ export function buildDeepAnalysisPromotionPlan(input: {
   readiness: DeepAnalysisPromotionReadiness;
 } {
   parseDeepAnalysisNormalizedOutput(input.output);
-  if (input.audit.verdict !== "concur") {
+  const initialReadiness = assessDeepAnalysisPromotionReadiness({
+    auditVerdict: input.audit.verdict,
+    matcherRepresentability: input.output.matcherRepresentability,
+  });
+  if (initialReadiness.terminalRoute === "human_review_required") {
     throw new DeepAnalysisPromotionReadinessError(
-      assessDeepAnalysisPromotionReadiness({
-        auditVerdict: input.audit.verdict,
-        matcherRepresentability: input.output.matcherRepresentability,
-      }),
+      initialReadiness,
     );
   }
   const result = input.output.result;
@@ -324,6 +354,9 @@ export function buildDeepAnalysisPromotionPlan(input: {
     }),
     error: null,
   };
+  const deferredCriterionIndexes = new Set(
+    initialReadiness.deferredCriterionIndexes ?? [],
+  );
   const audit: LabAudit = {
     schema: "lab-audit-v1",
     grantId: input.run.grantId,
@@ -333,18 +366,23 @@ export function buildDeepAnalysisPromotionPlan(input: {
     auditorEmail: null,
     createdAt: input.audit.completedAt.toISOString(),
     updatedAt: input.audit.completedAt.toISOString(),
-    items: labRun.criteria.map((_, criterionIndex) => ({
-      kind: "criterion",
-      criterionIndex,
-      reason: "correct_sample",
-      aiVerdict: "correct",
-      aiNote: "프로덕션 blind independent audit가 match-impacting semantic set에 concur",
-      humanVerdict: null,
-      note: null,
-      aiAuditVerdict: "correct",
-      aiAuditNote: "프로덕션 deep-analysis audit concur",
-    })),
-    overallNote: "프로덕션 S10 independent_audit_passed receipt에서 파생한 승격 adapter",
+    items: labRun.criteria.flatMap((_, criterionIndex) =>
+      deferredCriterionIndexes.has(criterionIndex)
+        ? []
+        : [{
+          kind: "criterion" as const,
+          criterionIndex,
+          reason: "correct_sample" as const,
+          aiVerdict: "correct" as const,
+          aiNote: "프로덕션 자동 검수에서 확정된 criterion",
+          humanVerdict: null,
+          note: null,
+          aiAuditVerdict: "correct" as const,
+          aiAuditNote: "프로덕션 deep-analysis 자동 검수 확정",
+        }]),
+    overallNote: initialReadiness.terminalRoute === "conditional_promotable"
+      ? "애매한 criterion만 사용자 확인 대상으로 남긴 조건부 승격 adapter"
+      : "프로덕션 S10 independent_audit_passed receipt에서 파생한 승격 adapter",
     aiAuditModel: input.audit.model,
     aiAuditPromptVersion: input.audit.promptVersion,
     aiAuditedAt: input.audit.completedAt.toISOString(),
@@ -352,7 +390,9 @@ export function buildDeepAnalysisPromotionPlan(input: {
   const plan = planGrantPromotion({
     run: labRun,
     audit,
-    origin: "audited",
+    origin: initialReadiness.terminalRoute === "conditional_promotable"
+      ? "pending"
+      : "audited",
     sidecar: null,
   });
   const readiness = assessDeepAnalysisPromotionReadiness({
@@ -360,7 +400,7 @@ export function buildDeepAnalysisPromotionPlan(input: {
     matcherRepresentability: input.output.matcherRepresentability,
     plan,
   });
-  if (readiness.terminalRoute !== "auto_promotable") {
+  if (readiness.terminalRoute === "human_review_required") {
     throw new DeepAnalysisPromotionReadinessError(readiness);
   }
   return { labRun, plan, readiness };

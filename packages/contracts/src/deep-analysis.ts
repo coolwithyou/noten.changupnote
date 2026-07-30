@@ -568,7 +568,12 @@ export function deriveAggregateSplitReleaseChildBlocker(
   }
   for (const stage of AGGREGATE_SPLIT_RELEASE_STAGE_KEYS) {
     const status = child.stageStatuses[stage] ?? null;
-    if (status !== "passed") {
+    const conditionalAuditStage = (
+      stage === "independent_audit_passed"
+      && status === "not_applicable"
+      && child.latestAudit?.verdict === "unsure"
+    );
+    if (status !== "passed" && !conditionalAuditStage) {
       return blocker(
         "aggregate_split_child_stage_not_passed",
         stage,
@@ -590,7 +595,13 @@ export function deriveAggregateSplitReleaseChildBlocker(
       "독립 AI audit input hash가 최신 run input과 다릅니다.",
     );
   }
-  if (child.latestAudit.verdict !== "concur") {
+  if (
+    child.latestAudit.verdict !== "concur"
+    && !(
+      child.latestAudit.verdict === "unsure"
+      && child.stageStatuses.independent_audit_passed === "not_applicable"
+    )
+  ) {
     return blocker(
       "aggregate_split_child_audit_not_concur",
       "independent_audit_passed",

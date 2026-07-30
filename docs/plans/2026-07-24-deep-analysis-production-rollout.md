@@ -5881,3 +5881,50 @@ AQ16 사람 검토를 마친 뒤, 현재 활성·v24 분석 이력 없음·HWP 1
   검토한다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r6-exact-2-2026-07-30.json`이다.
+
+### AQ18 자동 검수·승격 단순화 — `AUTO / CONDITIONAL / HUMAN` (2026-07-30)
+
+AQ17의 `primary 2/2`, `auto 0/2`를 공고별 prompt 문제로 다시 풀지 않고,
+자동 검수와 승격의 공통 결정 경계를 세 route로 단순화했다.
+
+1. `decideDeepAnalysisAutomation`을 단일 정본으로 추가했다.
+   - audit `concur` + 안전한 matcher 투영: `auto_promotable`
+   - audit `unsure` 또는 사용자 확인으로 보존 가능한 복합 관계:
+     `conditional_promotable`
+   - audit `disagree`, 선정 후 의무 오추출, required/exclusion 충돌과 변환 손실:
+     `human_review_required`
+2. `conditional_promotable`은 공고나 criterion을 삭제하지 않는다. 애매한
+   criterion만 `pending / needs_review=true`로 발행 계획에 남기며 matcher는
+   fail을 `unknown`으로 바꿔 `conditional / needs_core_review`로 유지한다.
+3. worker는 audit `unsure`를 더 이상 `failed/dead_letter`로 종료하지 않는다.
+   이 경우 S10은 `not_applicable`, S11은 `passed`로 기록하고 S11 evidence에
+   route와 criterion index를 봉인한다. audit `concur`이나 matcher 확인이 필요한
+   경우 S10은 그대로 `passed`다. 검증된 blocker만 기존 사람 검토 예외를 연다.
+4. promotion release/source verifier/aggregate split/cohort monitor는
+   `concur + S10 passed`와 `unsure + S10 not_applicable`을 구분해서 둘 다
+   정상 처리 완료로 읽는다. immutable manifest는 조건부 `needs_review` 위치와
+   audit verdict를 함께 hash에 묶는다.
+5. Ops `/pipeline`은 S11 receipt의 `automationRoute`를 읽어
+   `conditional_promotable`을 표시한다. matcher blocker가 실제 사람 검토인
+   경우에는 새 `automation_decision_blocked` 예외도 기존 사람 검토 버킷에서
+   읽는다.
+
+AQ17 두 유형을 오프라인 회귀로 고정했다.
+
+- `178613`형 넓은 span의 `cross_dimension_alternative`는 공고 전체 사람
+  차단이 아니라 해당 criterion만 조건부로 보존한다.
+- `PBLN_000000000124138`형 invalid blind audit `unsure`는 primary 22축·근거가
+  유효한 경우 hard criterion을 조건부로 보존한다.
+- audit `disagree`, `post_selection_timing`, required/exclusion 충돌은 계속
+  사람 검토다.
+
+이 체크포인트에서는 production deploy, DB mutation, 유료 모델 호출, 새 공고
+실행을 하지 않는다. exact per-notice 사용자 질문 UI도 만들지 않는다. 현재
+조건부 criterion은 랜딩의 `needs_core_review`와 원문 확인 영역으로 안전하게
+노출하며, 실제 조건부 표본에서 반복되는 질문 형태가 확인된 뒤 별도 계약으로
+추가한다.
+
+검증은 전체 deep-analysis 계약, promotion release 계약, web/admin typecheck와
+production build를 통과했다. 실DB Ops 쿼리는 활성 공고 `650/650`을 분류했고
+worker `observe_only`, 활성 lease `0`을 확인했다. Ops 전체 verifier의 FAIL은
+기존 serving receipt 불일치 `2/4`이며 이번 범위에서 수정하지 않았다.

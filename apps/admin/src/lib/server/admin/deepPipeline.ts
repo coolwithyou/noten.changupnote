@@ -234,7 +234,11 @@ receipt_flags as (
     bool_or(receipt.stage = 'analysis_fresh' and receipt.status = 'passed')
       as analysis_fresh,
     bool_or(receipt.status in ('failed', 'blocked')) as receipt_failed_or_blocked,
-    bool_or(receipt.status = 'stale') as receipt_stale
+    bool_or(receipt.status = 'stale') as receipt_stale,
+    max(receipt.evidence ->> 'automationRoute') filter (
+      where receipt.stage = 'analysis_complete'
+        and receipt.status = 'passed'
+    ) as automation_route
   from latest_run run
   left join latest_receipt receipt on receipt.run_id = run.id
   group by run.id
@@ -350,7 +354,7 @@ current_projection as (
     coalesce(axes.input_missing_count, 0)::int as input_missing_count,
     coalesce(axes.unassessed_count, 0)::int as unassessed_count,
     audit.verdict as audit_verdict,
-    review_route.terminal_route,
+    coalesce(review_route.terminal_route, flags.automation_route) as terminal_route,
     coalesce(job.publication_status, promotion.publication_status) as publication_status,
     coalesce((
       job.id is not null
@@ -380,14 +384,16 @@ current_projection as (
     select
       case
         when event.event_type <> 'resolved'
-          and audit.verdict in ('disagree', 'unsure')
+          and event.detail ->> 'terminalRoute' = 'human_review_required'
           then 'human_review_required'
         else null
       end as terminal_route
     from grant_deep_analysis_exception_events event
     where event.run_id = run.id
-      and event.exception_key =
-        run.id::text || ':independent_audit_disagreement'
+      and event.exception_key in (
+        run.id::text || ':independent_audit_disagreement',
+        run.id::text || ':automation_decision_blocked'
+      )
     order by event.created_at desc, event.id desc
     limit 1
   ) review_route on true
@@ -1614,9 +1620,11 @@ function mapNotice(row: PipelineRow): DeepPipelineNoticeItem {
       unassessed: Number(row.unassessed_count),
     },
     auditVerdict: row.audit_verdict,
-    terminalRoute: row.terminal_route === "human_review_required"
-      ? "human_review_required"
-      : null,
+    terminalRoute:
+      row.terminal_route === "human_review_required"
+      || row.terminal_route === "conditional_promotable"
+        ? row.terminal_route
+        : null,
     publicationStatus: row.publication_status,
     updatedAt: (row.job_updated_at ?? row.grant_updated_at).toISOString(),
   }

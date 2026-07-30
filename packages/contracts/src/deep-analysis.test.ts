@@ -215,6 +215,33 @@ assert.deepEqual(
   ],
 );
 
+const conditionalSplitGate = evaluateAggregateSplitReleaseGate({
+  status: "completed",
+  materializationStatus: "prepared",
+  promotionStatus: "enqueued",
+  parentServingState: "visible",
+  programCount: 2,
+  preparedChildCount: 2,
+  stagedChildCount: 2,
+  enqueuedChildCount: 2,
+  children: splitChildren.map((child) => ({
+    ...child,
+    stageStatuses: {
+      ...child.stageStatuses,
+      independent_audit_passed: "not_applicable",
+    },
+    latestAudit: {
+      ...child.latestAudit!,
+      verdict: "unsure",
+    },
+  })),
+});
+assert.equal(
+  conditionalSplitGate.ready,
+  true,
+  "검증된 반대 finding이 없는 audit unsure는 조건부 승격 gate를 통과해야 한다",
+);
+
 const stageBlockedGate = evaluateAggregateSplitReleaseGate({
   status: "completed",
   materializationStatus: "prepared",

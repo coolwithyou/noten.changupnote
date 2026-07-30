@@ -17,7 +17,9 @@ export const DEEP_PIPELINE_BUCKETS = [
 ] as const
 
 export type DeepPipelineBucket = (typeof DEEP_PIPELINE_BUCKETS)[number]
-export type DeepPipelineTerminalRoute = "human_review_required"
+export type DeepPipelineTerminalRoute =
+  | "conditional_promotable"
+  | "human_review_required"
 
 export const DEEP_PIPELINE_BUCKET_LABELS: Record<DeepPipelineBucket, string> = {
   serving_complete_fresh: "서빙 완료·최신",

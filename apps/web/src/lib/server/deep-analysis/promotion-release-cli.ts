@@ -404,8 +404,11 @@ async function prepare(): Promise<number> {
       .where(eq(schema.grantDeepAnalysisAudits.runId, run.id))
       .orderBy(desc(schema.grantDeepAnalysisAudits.attempt))
       .limit(1);
-    if (!audit || audit.verdict !== "concur") {
-      throw new Error(`독립 감사 concur가 아닙니다: ${run.id}`);
+    if (
+      !audit
+      || (audit.verdict !== "concur" && audit.verdict !== "unsure")
+    ) {
+      throw new Error(`승격 가능한 독립 감사 결과가 아닙니다: ${run.id}`);
     }
     const seal = await prepareDeepAnalysisInput({
       db,
@@ -476,6 +479,7 @@ async function prepare(): Promise<number> {
       inputSha256: run.inputSha256,
       outputArtifactKey: run.outputArtifactKey,
       auditArtifactKey: audit.artifactKey,
+      auditVerdict: audit.verdict,
     };
     const sourceVerification = await verifyPromotionSourceArtifact(sourceArtifact);
     if (!sourceVerification.ok) {
@@ -490,14 +494,7 @@ async function prepare(): Promise<number> {
       promotionPlan: plan,
       deepAnalysisReadiness: readiness,
       deepAnalysisConditionalOnlyCriteria: plan.criteria.flatMap(
-        (criterion, position) => {
-          if (criterion.needs_review !== true) return [];
-          const criterionIndex = plan.criterionIndexByPosition[position];
-          return criterionIndex !== undefined
-            && output.matcherRepresentability.items[criterionIndex]?.status === "conditional_only"
-            ? [position]
-            : [];
-        },
+        (criterion, position) => criterion.needs_review === true ? [position] : [],
       ),
       beforeCriteriaSha256: hashes.criteriaSha256,
       beforeQuestionsSha256: hashes.questionsSha256,
@@ -505,7 +502,9 @@ async function prepare(): Promise<number> {
       criteriaCountBefore: snapshot.criteria.length,
       criteriaCountAfter: plan.criteria.length,
       questionCountAfter: plan.questions.length,
-      pendingCount: 0,
+      pendingCount: plan.resolutions.filter(
+        (resolution) => resolution.state === "pending",
+      ).length,
       downgradedCount: 0,
       costUsd: run.costUsd === null ? null : Number(run.costUsd),
     });

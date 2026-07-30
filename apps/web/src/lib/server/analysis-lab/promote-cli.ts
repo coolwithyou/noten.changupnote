@@ -405,8 +405,7 @@ function releaseDryRunGuard(
   if (item.promotionPlan.conversion.error) return "conversion_error";
   if (item.promotionPlan.criteria.length === 0) return "empty_criteria";
   if (
-    item.pendingCount > 0
-    || releasePlanItemHasUnsafePendingCriteria(item)
+    releasePlanItemHasUnsafePendingCriteria(item)
   ) return "pending_criteria";
   return "pass";
 }

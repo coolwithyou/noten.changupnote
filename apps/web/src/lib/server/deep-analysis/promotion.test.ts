@@ -118,9 +118,12 @@ assert.deepEqual(result.readiness, {
   auditComplete: "passed",
   matcherRepresentable: "passed",
   autoPromotable: "passed",
+  conditionalPromotable: "blocked",
   humanReviewRequired: false,
   terminalRoute: "auto_promotable",
+  deferredCriterionIndexes: [],
   blockers: [],
+  deferrals: [],
 });
 
 assert.throws(
@@ -327,8 +330,7 @@ assert.deepEqual(
     ["unsupported_relation", "future_premises_alternative"],
   ],
 );
-assert.throws(
-  () => buildDeepAnalysisPromotionPlan({
+const aq8Result = buildDeepAnalysisPromotionPlan({
     run: {
       runId: "da-aq8",
       grantId: "44444444-4444-4444-8444-444444444444",
@@ -351,20 +353,124 @@ assert.throws(
       completedAt: new Date("2026-07-29T00:01:00Z"),
       verdict: "concur",
     },
-  }),
-  (error: unknown) => {
-    assert.ok(error instanceof DeepAnalysisPromotionReadinessError);
-    assert.equal(error.readiness.analysisComplete, "passed");
-    assert.equal(error.readiness.auditComplete, "passed");
-    assert.equal(error.readiness.matcherRepresentable, "blocked");
-    assert.equal(error.readiness.terminalRoute, "human_review_required");
-    assert.deepEqual(
-      error.readiness.blockers.map((blocker) => [blocker.code, blocker.count]),
-      [["unsupported_relation", 2]],
-    );
-    return true;
-  },
+});
+assert.equal(aq8Result.readiness.analysisComplete, "passed");
+assert.equal(aq8Result.readiness.auditComplete, "passed");
+assert.equal(aq8Result.readiness.matcherRepresentable, "not_assessed");
+assert.equal(aq8Result.readiness.autoPromotable, "blocked");
+assert.equal(aq8Result.readiness.conditionalPromotable, "passed");
+assert.equal(aq8Result.readiness.terminalRoute, "conditional_promotable");
+assert.deepEqual(aq8Result.readiness.deferredCriterionIndexes, [0, 1]);
+assert.deepEqual(
+  aq8Result.readiness.deferrals?.map((deferral) => [deferral.code, deferral.count]),
+  [["matcher_confirmation_required", 2]],
 );
+assert.deepEqual(
+  aq8Result.plan.criteria.map((criterion) => criterion.needs_review),
+  [true, true],
+);
+assert.deepEqual(
+  aq8Result.plan.resolutions.map((resolution) => resolution.state),
+  ["pending", "pending"],
+);
+
+const r6CrossDimensionOutput = outputWithResult({
+  ...output.result,
+  criteria: [
+    {
+      dimension: "region",
+      kind: "required",
+      operator: "text_only",
+      value: { note: "화성시 관내 기업" },
+      confidence: 0.95,
+      sourceSpan: "화성시 관내 제조업 기업(뿌리기술 또는 관련 사업 분야)",
+      spanVerified: true,
+      note: null,
+    },
+    {
+      dimension: "industry",
+      kind: "required",
+      operator: "text_only",
+      value: { note: "제조업 또는 관련 사업 분야" },
+      confidence: 0.95,
+      sourceSpan: "화성시 관내 제조업 기업(뿌리기술 또는 관련 사업 분야)",
+      spanVerified: true,
+      note: null,
+    },
+  ],
+  axisAssessments: [
+    {
+      dimension: "region",
+      status: "condition_found",
+      confidence: 0.95,
+      comment: null,
+    },
+    {
+      dimension: "industry",
+      status: "condition_found",
+      confidence: 0.95,
+      comment: null,
+    },
+  ],
+});
+const r6CrossDimensionResult = buildDeepAnalysisPromotionPlan({
+  run: {
+    runId: "da-r6-cross-dimension",
+    grantId: "55555555-5555-4555-8555-555555555555",
+    source: "kstartup",
+    sourceId: "178613",
+    title: "[화성] 2026 ESG 기반 산업안전 컨설팅 참여기업 모집 안내",
+    model: "claude-opus-4-8",
+    promptVersion: "deep-analysis-v11",
+    startedAt: new Date("2026-07-30T03:39:42Z"),
+    completedAt: new Date("2026-07-30T03:41:42Z"),
+    inputChars: 4118,
+    inputSha256: "e".repeat(64),
+    costUsd: 0.430175,
+  },
+  output: r6CrossDimensionOutput,
+  currentCriteria: [],
+  audit: {
+    model: "claude-sonnet-5",
+    promptVersion: "deep-analysis-blind-audit-v16",
+    completedAt: new Date("2026-07-30T03:41:42Z"),
+    verdict: "concur",
+  },
+});
+assert.equal(r6CrossDimensionResult.readiness.terminalRoute, "conditional_promotable");
+assert.deepEqual(
+  r6CrossDimensionResult.plan.criteria.map((criterion) => criterion.needs_review),
+  [true, true],
+);
+
+const r6InvalidAuditResult = buildDeepAnalysisPromotionPlan({
+  run: {
+    runId: "da-r6-invalid-audit",
+    grantId: "66666666-6666-4666-8666-666666666666",
+    source: "bizinfo",
+    sourceId: "PBLN_000000000124138",
+    title: "2026년 충북청주 강소특구 X 심텍 AI 제조혁신 오픈이노베이션 지원사업 모집 공고",
+    model: "claude-opus-4-8",
+    promptVersion: "deep-analysis-v11",
+    startedAt: new Date("2026-07-30T03:42:38Z"),
+    completedAt: new Date("2026-07-30T03:46:08Z"),
+    inputChars: 19539,
+    inputSha256: "f".repeat(64),
+    costUsd: 1.020665,
+  },
+  output,
+  currentCriteria: [],
+  audit: {
+    model: "claude-sonnet-5",
+    promptVersion: "deep-analysis-blind-audit-v16",
+    completedAt: new Date("2026-07-30T03:46:08Z"),
+    verdict: "unsure",
+  },
+});
+assert.equal(r6InvalidAuditResult.readiness.terminalRoute, "conditional_promotable");
+assert.deepEqual(r6InvalidAuditResult.readiness.deferredCriterionIndexes, [0]);
+assert.equal(r6InvalidAuditResult.plan.criteria[0]?.needs_review, true);
+assert.equal(r6InvalidAuditResult.plan.resolutions[0]?.state, "pending");
 
 const postSelectionAssessment = assessDeepAnalysisMatcherRepresentability([{
   dimension: "sanction",
@@ -379,6 +485,15 @@ const postSelectionAssessment = assessDeepAnalysisMatcherRepresentability([{
 assert.deepEqual(
   postSelectionAssessment.items.map((item) => [item.status, item.reasonCode]),
   [["unsupported_relation", "post_selection_timing"]],
+);
+const postSelectionReadiness = assessDeepAnalysisPromotionReadiness({
+  auditVerdict: "concur",
+  matcherRepresentability: postSelectionAssessment,
+});
+assert.equal(postSelectionReadiness.terminalRoute, "human_review_required");
+assert.deepEqual(
+  postSelectionReadiness.blockers.map((blocker) => blocker.code),
+  ["unsupported_relation"],
 );
 
 const canonicalExceptionAssessment = assessDeepAnalysisMatcherRepresentability([{
@@ -402,7 +517,14 @@ assert.deepEqual(
 const auditNotConcur = assessDeepAnalysisPromotionReadiness({
   auditVerdict: "unsure",
 });
-assert.equal(auditNotConcur.auditComplete, "blocked");
+assert.equal(auditNotConcur.auditComplete, "not_assessed");
 assert.equal(auditNotConcur.matcherRepresentable, "not_assessed");
+assert.equal(auditNotConcur.terminalRoute, "conditional_promotable");
+assert.equal(auditNotConcur.humanReviewRequired, false);
+assert.equal(auditNotConcur.conditionalPromotable, "passed");
+assert.deepEqual(
+  auditNotConcur.deferrals?.map((deferral) => deferral.code),
+  ["audit_uncertain"],
+);
 
 console.log("deep analysis promotion tests passed");

@@ -478,16 +478,22 @@ export function DeepPipelinePageView({
                     </p>
                   </TableCell>
                   <TableCell>
-                    <span className={notice.terminalRoute === "human_review_required"
-                      ? "font-medium text-amber-800 dark:text-amber-300"
-                      : undefined}
+                    <span className={
+                      notice.terminalRoute === "human_review_required"
+                        ? "font-medium text-amber-800 dark:text-amber-300"
+                        : notice.terminalRoute === "conditional_promotable"
+                          ? "font-medium text-sky-800 dark:text-sky-300"
+                          : undefined
+                    }
                     >
                       {auditVerdictLabel(notice.auditVerdict)}
                     </span>
                     <p className="text-xs text-muted-foreground">
                       {notice.terminalRoute === "human_review_required"
                         ? "자동 발행 차단 · 감사 내용 확인"
-                        : publicationStatusLabel(notice.publicationStatus)}
+                        : notice.terminalRoute === "conditional_promotable"
+                          ? "조건부 승격 · 사용자 확인으로 보존"
+                          : publicationStatusLabel(notice.publicationStatus)}
                     </p>
                   </TableCell>
                   <TableCell>

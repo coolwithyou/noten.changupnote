@@ -190,6 +190,34 @@ assert.equal(passed.analysisFreshCount, 1);
 assert.equal(passed.servingFreshCount, 1);
 assert.equal(passed.analysisLatencySeconds.p95, 45);
 
+const conditionalPromotion = passingPromotion(2);
+const conditionalPassed = evaluateDeepAnalysisCohortObservation({
+  ...common,
+  items: [item({
+    jobStatus: "succeeded",
+    runId: "43333333-3333-4333-8333-333333333333",
+    runStatus: "passed",
+    runSourceRevisionSha256: revision,
+    runInputSha256: inputSha256,
+    runStartedAt: new Date("2026-07-26T03:05:00.000Z"),
+    runCompletedAt: new Date("2026-07-26T03:05:45.000Z"),
+    stageStatuses: {
+      ...passedStatuses,
+      independent_audit_passed: "not_applicable",
+    },
+    axisCount: 22,
+    auditVerdict: "unsure",
+    promotion: conditionalPromotion,
+    servingReceipts: passingServingReceipts(conditionalPromotion),
+    costUsdSinceActivation: 0.75,
+  })],
+});
+assert.equal(
+  conditionalPassed.verdict,
+  "PASS",
+  "검증된 반대 finding이 없는 조건부 승격도 처리 완료로 관측해야 한다",
+);
+
 const passedBeforeActivation = evaluateDeepAnalysisCohortObservation({
   ...common,
   items: [item({

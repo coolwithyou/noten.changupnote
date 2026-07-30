@@ -170,6 +170,20 @@ export function DeepNoticeSheet({
                 </div>
               </section>
             ) : null}
+            {detail.notice.terminalRoute === "conditional_promotable" ? (
+              <section className="my-3 rounded-xl border border-sky-500/50 bg-sky-500/10 p-4">
+                <div className="flex items-start gap-3">
+                  <UserRoundCheckIcon className="mt-0.5 size-5 shrink-0 text-sky-700 dark:text-sky-300" />
+                  <div>
+                    <strong>조건부 매칭으로 발행할 수 있습니다</strong>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      검증된 오류는 없지만 AI가 확정하지 못한 조건이 있습니다. 공고 전체를
+                      사람 검토로 막지 않고 해당 조건만 사용자 확인이 필요한 영역으로 남깁니다.
+                    </p>
+                  </div>
+                </div>
+              </section>
+            ) : null}
 
             {detail.aggregateSplitCase ? (
               <section className="my-3 rounded-xl border border-amber-500/50 bg-amber-500/10 p-4">

@@ -156,6 +156,32 @@ function manifest() {
     false,
     "봉인된 R1~R3 auto-promotable receipt의 conditional_only는 보존 발행해야 한다",
   );
+  const conditionalPromotableItem: PromotionReleasePlanItem = {
+    ...autoPromotableItem,
+    deepAnalysisReadiness: {
+      schema: "deep-analysis-promotion-readiness-v1",
+      analysisComplete: "passed",
+      auditComplete: "not_assessed",
+      matcherRepresentable: "not_assessed",
+      autoPromotable: "blocked",
+      conditionalPromotable: "passed",
+      humanReviewRequired: false,
+      terminalRoute: "conditional_promotable",
+      deferredCriterionIndexes: [0],
+      blockers: [],
+      deferrals: [{
+        code: "audit_uncertain",
+        stage: "audit_complete",
+        count: 1,
+        detail: "사용자 확인 필요",
+      }],
+    },
+  };
+  assert.equal(
+    releasePlanItemHasUnsafePendingCriteria(conditionalPromotableItem),
+    false,
+    "애매한 criterion만 needs_review로 봉인한 조건부 승격은 발행 가능해야 한다",
+  );
   assert.equal(
     isPromotionAggregateGateBlocking([pendingItem], "coverage_ratio"),
     true,
@@ -170,6 +196,11 @@ function manifest() {
     isPromotionAggregateGateBlocking([autoPromotableItem], "structured_ratio"),
     false,
     "봉인된 deep auto-promotable release에서 structured 비율은 관찰 지표여야 한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([conditionalPromotableItem], "coverage_ratio"),
+    false,
+    "조건부 deep release에서도 상대 coverage는 관찰 지표여야 한다",
   );
   assert.equal(
     isPromotionAggregateGateBlocking([autoPromotableItem], "wrong_rate"),

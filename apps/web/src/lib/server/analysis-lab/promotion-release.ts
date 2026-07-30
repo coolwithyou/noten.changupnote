@@ -28,6 +28,8 @@ export interface PromotionSourceArtifact {
   inputSha256?: string;
   outputArtifactKey?: string;
   auditArtifactKey?: string;
+  /** 조건부 승격도 원본 audit 판정과 함께 manifest hash에 봉인한다. */
+  auditVerdict?: "concur" | "unsure";
 }
 
 export interface PromotionReleasePlanItem {
@@ -36,8 +38,8 @@ export interface PromotionReleasePlanItem {
   promotionPlan: GrantPromotionPlan;
   /**
    * 프로덕션 deep-analysis release만 기록한다. 사람이 확정하지 않은
-   * needs_review criterion이 matcher의 안전한 conditional_only인지 R1~R3에서
-   * 재계산한 결과를 manifest hash에 묶는다.
+   * needs_review criterion이 matcher에서 안전하게 conditional로 남는 위치인지
+   * 자동 검수 결정과 함께 manifest hash에 묶는다.
    */
   deepAnalysisReadiness?: DeepAnalysisPromotionReadiness;
   deepAnalysisConditionalOnlyCriteria?: number[];
@@ -190,6 +192,29 @@ export function isAutoPromotableDeepAnalysisReadiness(value: unknown): boolean {
     && readiness.blockers.length === 0;
 }
 
+export function isConditionalPromotableDeepAnalysisReadiness(
+  value: unknown,
+): boolean {
+  if (!value || typeof value !== "object") return false;
+  const readiness = value as Partial<DeepAnalysisPromotionReadiness>;
+  return readiness.schema === "deep-analysis-promotion-readiness-v1"
+    && readiness.analysisComplete === "passed"
+    && readiness.autoPromotable === "blocked"
+    && readiness.conditionalPromotable === "passed"
+    && readiness.humanReviewRequired === false
+    && readiness.terminalRoute === "conditional_promotable"
+    && Array.isArray(readiness.deferredCriterionIndexes)
+    && Array.isArray(readiness.blockers)
+    && readiness.blockers.length === 0
+    && Array.isArray(readiness.deferrals)
+    && readiness.deferrals.length > 0;
+}
+
+export function isPromotableDeepAnalysisReadiness(value: unknown): boolean {
+  return isAutoPromotableDeepAnalysisReadiness(value)
+    || isConditionalPromotableDeepAnalysisReadiness(value);
+}
+
 export type PromotionAggregateGateId =
   | "strict_precision"
   | "wrong_rate"
@@ -208,18 +233,18 @@ export function isPromotionAggregateGateBlocking(
   plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
   gateId: PromotionAggregateGateId,
 ): boolean {
-  const deepAutoPromotableRelease =
+  const deepPromotableRelease =
     plans.length > 0
     && plans.every((item) =>
-      isAutoPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness));
-  if (!deepAutoPromotableRelease) return true;
+      isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness));
+  if (!deepPromotableRelease) return true;
   return gateId !== "coverage_ratio" && gateId !== "structured_ratio";
 }
 
 /**
  * 일반 Lab release는 기존처럼 needs_review를 fail-closed한다. 프로덕션
- * deep-analysis release만 R1~R3 auto-promotable receipt가 manifest에 봉인된
- * 경우 예상된 conditional_only criterion을 보존한 채 통과할 수 있다.
+ * deep-analysis release만 자동 검수 결정이 manifest에 봉인된 경우 예상된
+ * needs_review criterion을 보존한 채 통과할 수 있다.
  */
 export function releasePlanItemHasUnsafePendingCriteria(
   item: PromotionReleasePlanItem,
@@ -228,7 +253,7 @@ export function releasePlanItemHasUnsafePendingCriteria(
     (criterion, position) => criterion.needs_review === true ? [position] : [],
   );
   if (needsReviewPositions.length === 0) return false;
-  if (!isAutoPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)) return true;
+  if (!isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)) return true;
   const conditionalOnly = new Set(item.deepAnalysisConditionalOnlyCriteria ?? []);
   return needsReviewPositions.some((position) => !conditionalOnly.has(position));
 }
@@ -330,7 +355,7 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
       );
       if (
         !source?.deepAnalysisRunId
-        || !isAutoPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)
+        || !isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)
         || !Array.isArray(conditionalOnly)
         || new Set(conditionalOnly).size !== conditionalOnly.length
         || conditionalOnly.length !== needsReviewPositions.length

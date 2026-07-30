@@ -13,6 +13,7 @@ import {
   DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
   runBlindDeepAnalysisAudit,
 } from "./audit";
+import { decideDeepAnalysisAutomation } from "./automationDecision";
 import { putImmutableDeepAnalysisArtifact } from "./artifacts";
 import { buildDeepAnalysisInputStageReceipts } from "./inputStages";
 import {
@@ -45,7 +46,7 @@ import {
 import type { DeepAnalysisWorkerPolicy } from "./workerPolicy";
 import { completeDeepAnalysisJob } from "./workerState";
 
-export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v3" as const;
+export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v4" as const;
 
 type DeepAnalysisJob = typeof schema.grantDeepAnalysisJobs.$inferSelect;
 
@@ -485,10 +486,18 @@ export async function processDeepAnalysisJob(input: {
     startedAt: auditStartedAt,
     completedAt: auditCompletedAt,
   });
+  const automationDecision = decideDeepAnalysisAutomation({
+    auditVerdict: audit.verdict,
+    matcherRepresentability,
+  });
   await appendVerifiedDeepAnalysisStageReceipt({
     ...receiptContext,
     stage: "independent_audit_passed",
-    status: audit.verdict === "concur" ? "passed" : "failed",
+    status: audit.verdict === "concur"
+      ? "passed"
+      : audit.verdict === "unsure"
+        ? "not_applicable"
+        : "failed",
     verifierVersion: DEEP_ANALYSIS_AUDIT_PROMPT_VERSION,
     evidence: {
       verdict: audit.verdict,
@@ -510,6 +519,7 @@ export async function processDeepAnalysisJob(input: {
         audit.adjudication?.uncertaintyValidation ?? null,
       auditArtifactKey: auditArtifact.key,
       disagreementCount: audit.itemResults.filter((item) => item.verdict === "disagree").length,
+      automationDecision,
     },
   });
   const totalCost = sumDeepAnalysisActualCosts([
@@ -526,20 +536,24 @@ export async function processDeepAnalysisJob(input: {
       + (audit.adjudication?.usage?.outputTokens ?? 0),
     costUsd: money(totalCost),
   }).where(eq(schema.grantDeepAnalysisRuns.id, run.id));
-  if (audit.verdict !== "concur") {
-    await openException(input.db, run.id, actor, "independent_audit_disagreement", {
+  if (automationDecision.terminalRoute === "human_review_required") {
+    const exceptionReasonCode = audit.verdict === "disagree"
+      ? "independent_audit_disagreement"
+      : "automation_decision_blocked";
+    await openException(input.db, run.id, actor, exceptionReasonCode, {
       terminalRoute: "human_review_required",
-      terminalReasonCode: "audit_not_concur",
+      terminalReasonCode: automationDecision.blockers[0]?.code ?? "automation_decision_blocked",
       verdict: audit.verdict,
       disagreements: audit.itemResults.filter((item) => item.verdict === "disagree"),
       auditArtifactKey: auditArtifact.key,
+      automationDecision,
     });
     await finishCurrentRun({
       status: "failed",
-      errorCode: "independent_audit_disagreement",
-      errorMessage: "Blind audit did not concur with primary analysis",
+      errorCode: exceptionReasonCode,
+      errorMessage: "Deep analysis automation decision requires human review",
     });
-    throw new Error("Deep analysis independent audit did not concur");
+    throw new Error("Deep analysis automation decision requires human review");
   }
   if (totalCost === null) {
     await openException(input.db, run.id, actor, "per_notice_cost_unavailable", {
@@ -601,6 +615,9 @@ export async function processDeepAnalysisJob(input: {
       auditArtifactKey: auditArtifact.key,
       axisCount: primary.result.axisAssessments.length,
       criterionCount: validation.criteria.length,
+      automationRoute: automationDecision.terminalRoute,
+      deferredCriterionIndexes: automationDecision.deferredCriterionIndexes,
+      deferrals: automationDecision.deferrals,
     },
   });
     await finishCurrentRun({ status: "passed" });
