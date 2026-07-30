@@ -10,10 +10,15 @@ import type { GrantImageOcrAdapter } from "@/lib/server/ingestion/grantAttachmen
 import { runKStartupAttachmentArchiveBatch } from "@/lib/server/ingestion/kstartupAttachmentArchiveBatch";
 import { activeDeepAnalysisGrantPredicate } from "./eligibility";
 import { enqueueDeepAnalysisJob } from "./ledger";
+import {
+  listPdfTextOcrRecoveryCandidates,
+  recoverPdfTextOcrCandidates,
+  type PdfTextOcrRecoveryResult,
+} from "./pdfTextOcrRecovery";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 
 export const DEEP_ANALYSIS_INPUT_PREPARATION_SCHEMA =
-  "deep-analysis-input-preparation-v1" as const;
+  "deep-analysis-input-preparation-v2" as const;
 
 export interface DeepAnalysisInputPreparationPolicy {
   modelPolicyVersion: string;
@@ -34,6 +39,7 @@ export interface DeepAnalysisInputPreparationTarget {
   applyEnd: Date | null;
   jobUpdatedAt: Date;
   jobStatus: string;
+  sourceRevisionSha256: string;
 }
 
 export interface DeepAnalysisInputPreparationResult {
@@ -53,6 +59,7 @@ export interface DeepAnalysisInputPreparationResult {
   };
   conversionRegistration: DeepAnalysisConversionRegistrationSummary;
   conversion: Awaited<ReturnType<typeof runConversionPollSweep>>;
+  pdfRecovery: PdfTextOcrRecoveryResult;
   after: Array<{
     grantId: string;
     source: "kstartup" | "bizinfo";
@@ -99,6 +106,8 @@ export async function listDeepAnalysisInputPreparationTargets(input: {
       applyEnd: schema.grants.applyEnd,
       jobUpdatedAt: schema.grantDeepAnalysisJobs.updatedAt,
       jobStatus: schema.grantDeepAnalysisJobs.status,
+      sourceRevisionSha256:
+        schema.grantDeepAnalysisJobs.sourceRevisionSha256,
     })
     .from(schema.grantDeepAnalysisJobs)
     .innerJoin(
@@ -164,6 +173,7 @@ export async function listDeepAnalysisInputPreparationTargets(input: {
       applyEnd: row.applyEnd,
       jobUpdatedAt: row.jobUpdatedAt,
       jobStatus: row.jobStatus,
+      sourceRevisionSha256: row.sourceRevisionSha256,
     });
   }
   return (["kstartup", "bizinfo"] as const).flatMap((source) =>
@@ -188,6 +198,8 @@ export async function runDeepAnalysisInputPreparation(input: {
   runBizInfoArchive?: typeof runBizInfoAttachmentArchiveBatch;
   registerMissingConversions?: typeof registerMissingDeepAnalysisConversions;
   runConversionSweep?: typeof runConversionPollSweep;
+  listPdfRecoveryCandidates?: typeof listPdfTextOcrRecoveryCandidates;
+  recoverPdfCandidates?: typeof recoverPdfTextOcrCandidates;
   prepareInput?: typeof prepareDeepAnalysisInput;
   ensurePreparedJob?: typeof ensurePreparedDeepAnalysisJob;
   enqueuePreparedJobs?: boolean;
@@ -295,6 +307,30 @@ export async function runDeepAnalysisInputPreparation(input: {
       results: [],
     };
 
+  const pdfCandidates = targets.length > 0
+    ? await (
+      input.listPdfRecoveryCandidates ?? listPdfTextOcrRecoveryCandidates
+    )({
+      db: input.db,
+      targets: targets.map((target) => ({
+        grantId: target.grantId,
+        source: target.source,
+        sourceId: target.sourceId,
+        opaqueCommitmentSha256: target.sourceRevisionSha256,
+      })),
+    })
+    : [];
+  const pdfRecovery = pdfCandidates.length > 0
+    ? await (
+      input.recoverPdfCandidates ?? recoverPdfTextOcrCandidates
+    )({
+      db: input.db,
+      storage: input.storage,
+      candidates: pdfCandidates,
+      ...(input.imageOcr ? { imageOcr: input.imageOcr } : {}),
+    })
+    : emptyPdfRecovery();
+
   const prepare = input.prepareInput ?? prepareDeepAnalysisInput;
   const after = [];
   for (const target of targets) {
@@ -363,10 +399,23 @@ export async function runDeepAnalysisInputPreparation(input: {
     archive: { kstartup, bizinfo },
     conversionRegistration,
     conversion,
+    pdfRecovery,
     after,
     sealedCount: after.filter((item) => item.sealed).length,
     unresolvedCount: after.filter((item) => !item.sealed).length,
     elapsedMs: Date.now() - startedAt,
+  };
+}
+
+function emptyPdfRecovery(): PdfTextOcrRecoveryResult {
+  return {
+    candidateCount: 0,
+    candidatesBySource: { kstartup: 0, bizinfo: 0 },
+    succeededCount: 0,
+    failedCount: 0,
+    recoveredCommitments: [],
+    failures: [],
+    results: [],
   };
 }
 

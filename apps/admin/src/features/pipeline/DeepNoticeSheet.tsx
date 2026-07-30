@@ -516,7 +516,7 @@ export function DeepNoticeSheet({
                 <TabsTrigger value="attachments">원문·첨부</TabsTrigger>
                 <TabsTrigger value="axes">22축 결과</TabsTrigger>
                 <TabsTrigger value="audit">독립 감사</TabsTrigger>
-                <TabsTrigger value="publication">승격·서빙</TabsTrigger>
+                <TabsTrigger value="publication">승격·서빙·랜딩</TabsTrigger>
                 <TabsTrigger value="history">예외·이력</TabsTrigger>
               </TabsList>
 
@@ -598,6 +598,28 @@ export function DeepNoticeSheet({
               </TabsContent>
 
               <TabsContent value="audit" className="pt-3">
+                <div className="mb-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <MetricCard
+                    label="총 모델 비용"
+                    value={formatCost(detail.modelCost.totalUsd)}
+                  />
+                  <MetricCard
+                    label="1차 분석"
+                    value={formatCost(detail.modelCost.primaryUsd)}
+                  />
+                  <MetricCard
+                    label="독립 감사"
+                    value={formatCost(detail.modelCost.auditUsd)}
+                  />
+                  <MetricCard
+                    label="2차 판정"
+                    value={formatCost(detail.modelCost.adjudicationUsd)}
+                  />
+                </div>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  토큰 입력 {formatNumber(detail.modelCost.inputTokens)} · 출력{" "}
+                  {formatNumber(detail.modelCost.outputTokens)}
+                </p>
                 <div className="grid gap-2">
                   {detail.audits.length === 0 ? <Empty>독립 감사 결과가 없습니다.</Empty> : null}
                   {detail.audits.map((audit) => (
@@ -642,6 +664,50 @@ export function DeepNoticeSheet({
                       <HashLine label="after" value={promotion.afterSha256} />
                     </article>
                   ))}
+                </div>
+                <div className="pt-5">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <strong>랜딩 매칭 관측</strong>
+                    <span className="text-xs text-muted-foreground">
+                      최근 90일 · 최대 25건
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    {detail.landingObservations.length === 0 ? (
+                      <Empty>아직 이 공고가 랜딩 결과에 노출된 기록이 없습니다.</Empty>
+                    ) : null}
+                    {detail.landingObservations.map((observation) => (
+                      <article key={observation.id} className="rounded-lg border p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <strong>#{observation.result.rank}</strong>
+                          <Badge variant="outline">
+                            {observation.result.eligibility}
+                          </Badge>
+                          <Badge variant="outline">{observation.result.bucket}</Badge>
+                          {observation.result.recommendationTier ? (
+                            <Badge variant="secondary">
+                              {observation.result.recommendationTier}
+                            </Badge>
+                          ) : null}
+                          <span className="text-xs text-muted-foreground">
+                            {formatDate(observation.observedAt)}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          전체 {formatNumber(observation.evaluatedGrantCount)}건 평가 ·{" "}
+                          {formatNumber(observation.returnedGrantCount)}건 반환 · 완성도{" "}
+                          {formatPercent(observation.result.verificationCompleteness)} ·
+                          근거 {formatPercent(observation.result.evidenceCoverage)} ·
+                          관련성 {formatPercent(observation.result.relevanceScore)} ·
+                          우선순위 {formatPercent(observation.result.priorityScore)}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {observation.result.rulesetVer ?? "ruleset 미상"} ·{" "}
+                          {observation.result.scoringVer ?? "scoring 미상"}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
                 </div>
               </TabsContent>
 
@@ -754,6 +820,19 @@ function formatNumber(value: number | null): string {
 
 function formatCost(value: number | null): string {
   return value === null ? "미상" : `$${value.toFixed(4)}`
+}
+
+function formatPercent(value: number | null): string {
+  return value === null ? "미상" : `${Math.round(value)}%`
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-muted/30 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <strong className="mt-1 block text-lg">{value}</strong>
+    </div>
+  )
 }
 
 function actionLabel(action: DeepPipelineAction): string {

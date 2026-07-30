@@ -3,6 +3,7 @@ import {
   buildPdfPageOcrMarkdown,
   normalizePdfTextLayout,
 } from "./pdfTextOcrRecovery";
+import { parseTesseractTsv } from "@/lib/server/ingestion/tesseractImageOcr";
 
 assert.equal(
   normalizePdfTextLayout("첫 페이지  \n본문\f둘째 페이지\n"),
@@ -27,6 +28,7 @@ const ocr = await buildPdfPageOcrMarkdown({
 assert.match(ocr.markdown, /## Page 1/);
 assert.match(ocr.markdown, /## Page 2/);
 assert(Math.abs(ocr.averageConfidence - 0.85) < Number.EPSILON);
+assert.equal(ocr.converter, "test");
 
 await assert.rejects(
   buildPdfPageOcrMarkdown({
@@ -41,5 +43,15 @@ await assert.rejects(
   }),
   /confidence 0.590 is below 0.600/,
 );
+
+const tesseract = parseTesseractTsv([
+  "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext",
+  "5\t1\t1\t1\t1\t1\t0\t0\t10\t10\t90\t지원",
+  "5\t1\t1\t1\t1\t2\t0\t0\t10\t10\t80\t대상",
+  "5\t1\t1\t1\t2\t1\t0\t0\t10\t10\t70\t창업기업",
+].join("\n"));
+assert.equal(tesseract.markdown, "지원 대상\n창업기업");
+assert.equal(tesseract.lineCount, 2);
+assert(Math.abs(tesseract.confidence - 0.8) < Number.EPSILON);
 
 console.log("deep-analysis PDF text/OCR recovery tests passed");

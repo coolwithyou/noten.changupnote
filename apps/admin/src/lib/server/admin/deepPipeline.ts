@@ -27,6 +27,8 @@ import {
   type DeepPipelineAxis,
   type DeepPipelineBucket,
   type DeepPipelineException,
+  type DeepPipelineLandingObservation,
+  type DeepPipelineModelCost,
   type DeepPipelineNoticeDetail,
   type DeepPipelineNoticeItem,
   type DeepPipelineNoticesResult,
@@ -654,6 +656,18 @@ export function buildInputPreparationSummary(
     metadata,
     "conversionRegistrationWarnings",
   )
+  const pdfRecoveryCandidateCount = numberMetadata(
+    metadata,
+    "pdfRecoveryCandidateCount",
+  )
+  const pdfRecoverySucceededCount = numberMetadata(
+    metadata,
+    "pdfRecoverySucceededCount",
+  )
+  const pdfRecoveryFailedCount = numberMetadata(
+    metadata,
+    "pdfRecoveryFailedCount",
+  )
   const budgetExhausted = metadata.budgetExhausted === true
   const stale = staleSeconds === null
     || staleSeconds > DEEP_ANALYSIS_INPUT_PREPARATION_STALE_SECONDS
@@ -681,6 +695,9 @@ export function buildInputPreparationSummary(
     conversionCacheHits,
     conversionRegistrationSkipped,
     conversionRegistrationWarnings,
+    pdfRecoveryCandidateCount,
+    pdfRecoverySucceededCount,
+    pdfRecoveryFailedCount,
     budgetExhausted,
     healthy: policyMatches
       && !stale
@@ -689,6 +706,7 @@ export function buildInputPreparationSummary(
       && archiveFailedCount === 0
       && conversionFailedCount === 0
       && conversionRegistrationWarnings === 0
+      && pdfRecoveryFailedCount === 0
       && !budgetExhausted,
   }
 }
@@ -1091,6 +1109,7 @@ export async function getDeepPipelineNoticeDetail(
     attachmentRows,
     promotionRows,
     actionRows,
+    landingRows,
     aggregateSplitRows,
     aggregateSplitChildRows,
   ] = await Promise.all([
@@ -1168,6 +1187,27 @@ export async function getDeepPipelineNoticeDetail(
        join admin_users actor on actor.id = action.admin_user_id
        where action.grant_id = $1::uuid
        order by action.created_at desc, action.id desc`,
+      [grantId],
+    ),
+    sql.unsafe<LandingObservationRow[]>(
+      `select usage_event.id, usage_event.request_id, usage_event.created_at,
+              usage_event.context_ref
+       from usage_events usage_event
+       where usage_event.feature_code = 'landing_match_observation'
+         and usage_event.created_at >= now() - interval '90 days'
+         and exists (
+           select 1
+           from jsonb_array_elements(
+             case
+               when jsonb_typeof(usage_event.context_ref->'matches') = 'array'
+                 then usage_event.context_ref->'matches'
+               else '[]'::jsonb
+             end
+           ) match_result
+           where match_result->>'grantId' = $1::text
+         )
+       order by usage_event.created_at desc, usage_event.id desc
+       limit 25`,
       [grantId],
     ),
     sql.unsafe<AggregateSplitCaseRow[]>(
@@ -1340,6 +1380,9 @@ export async function getDeepPipelineNoticeDetail(
     exceptions: exceptionRows.map(mapException),
     attachments: attachmentRows.map(mapAttachment),
     promotions: promotionRows.map(mapPromotion),
+    modelCost: buildModelCost(run, receiptRows),
+    landingObservations: landingRows.flatMap((row) =>
+      mapLandingObservation(row, grantId)),
     adminActions: actionRows.map(mapAdminAction),
     aggregateSplitCase: aggregateSplitRows[0]
       ? mapAggregateSplitCase(
@@ -1359,6 +1402,9 @@ interface RunDetailRow {
   raw_response_artifact_key: string | null
   error_code: string | null
   error_message: string | null
+  input_tokens: number | null
+  output_tokens: number | null
+  cost_usd: string | number | null
 }
 
 interface ReceiptRow {
@@ -1446,6 +1492,13 @@ interface ActionRow {
   detail: Record<string, unknown>
   error: string | null
   created_at: Date
+}
+
+interface LandingObservationRow {
+  id: string
+  request_id: string | null
+  created_at: Date
+  context_ref: Record<string, unknown>
 }
 
 interface AggregateSplitCaseRow {
@@ -1724,6 +1777,80 @@ function mapPromotion(row: PromotionRow): DeepPipelinePromotion {
     appliedAt: row.applied_at?.toISOString() ?? null,
     updatedAt: row.updated_at.toISOString(),
   }
+}
+
+function buildModelCost(
+  run: RunDetailRow | undefined,
+  receipts: ReceiptRow[],
+): DeepPipelineModelCost {
+  const primary = receipts.find((receipt) => receipt.stage === "model_call_passed")
+  const audit = receipts.find(
+    (receipt) => receipt.stage === "independent_audit_passed",
+  )
+  return {
+    totalUsd: nullableNumber(run?.cost_usd),
+    primaryUsd: nullableNumber(primary?.evidence.actualCostUsd),
+    auditUsd: nullableNumber(audit?.evidence.auditActualCostUsd),
+    adjudicationUsd: nullableNumber(
+      audit?.evidence.adjudicationActualCostUsd,
+    ),
+    inputTokens: nullableNumber(run?.input_tokens),
+    outputTokens: nullableNumber(run?.output_tokens),
+  }
+}
+
+function mapLandingObservation(
+  row: LandingObservationRow,
+  grantId: string,
+): DeepPipelineLandingObservation[] {
+  const matches = Array.isArray(row.context_ref.matches)
+    ? row.context_ref.matches
+    : []
+  const result = matches.find((candidate) =>
+    isRecord(candidate) && candidate.grantId === grantId)
+  if (!isRecord(result)) return []
+  return [{
+    id: row.id,
+    requestId: row.request_id,
+    observedAt: stringValue(row.context_ref.observedAt)
+      ?? row.created_at.toISOString(),
+    surface: stringValue(row.context_ref.surface) ?? "anonymous_teaser",
+    evaluatedGrantCount: nullableNumber(
+      row.context_ref.evaluatedGrantCount,
+    ) ?? 0,
+    returnedGrantCount: nullableNumber(
+      row.context_ref.returnedGrantCount,
+    ) ?? matches.length,
+    result: {
+      rank: nullableNumber(result.rank) ?? 0,
+      eligibility: stringValue(result.eligibility) ?? "unknown",
+      bucket: stringValue(result.bucket) ?? "unknown",
+      recommendationTier: stringValue(result.recommendationTier),
+      verificationCompleteness: nullableNumber(
+        result.verificationCompleteness,
+      ),
+      evidenceCoverage: nullableNumber(result.evidenceCoverage),
+      matchConfidence: nullableNumber(result.matchConfidence),
+      relevanceScore: nullableNumber(result.relevanceScore),
+      priorityScore: nullableNumber(result.priorityScore),
+      rulesetVer: stringValue(result.rulesetVer),
+      scoringVer: stringValue(result.scoringVer),
+    },
+  }]
+}
+
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
 
 function mapAdminAction(row: ActionRow): DeepPipelineAdminAction {

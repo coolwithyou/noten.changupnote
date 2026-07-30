@@ -74,6 +74,7 @@ const result = await runDeepAnalysisInputPreparation({
       applyEnd: null,
       jobUpdatedAt: new Date("2026-07-25T00:00:00.000Z"),
       jobStatus: "blocked",
+      sourceRevisionSha256: "a".repeat(64),
     },
     {
       grantId: "grant-b",
@@ -83,6 +84,7 @@ const result = await runDeepAnalysisInputPreparation({
       applyEnd: null,
       jobUpdatedAt: new Date("2026-07-25T00:00:00.000Z"),
       jobStatus: "pending",
+      sourceRevisionSha256: "b".repeat(64),
     },
   ],
   runKStartupArchive: async (input) => {
@@ -136,6 +138,10 @@ const result = await runDeepAnalysisInputPreparation({
       results: [],
     };
   },
+  listPdfRecoveryCandidates: async ({ targets }) => {
+    calls.push(`p:${targets.map((target) => target.sourceId).join(",")}`);
+    return [];
+  },
   prepareInput: async (input) => ({
     schema: "deep-analysis-input-v1",
     grantId: input.grantId,
@@ -167,6 +173,7 @@ assert.deepEqual(calls, [
   "b:PBLN_1:6:1234:true:20:test",
   "r:178001,PBLN_1",
   "c:178001,PBLN_1:5",
+  "p:178001,PBLN_1",
 ]);
 assert.equal(result.targetCount, 2);
 assert.equal(result.sealedCount, 1);
@@ -175,6 +182,7 @@ assert.equal(result.after[0]?.queuePriority, 100);
 assert.equal(result.after[1]?.queuePriority, null);
 assert.deepEqual(result.after[1]?.blockerCodes, ["blocked_conversion"]);
 assert.equal(result.conversionRegistration.jobsEnqueued, 2);
+assert.equal(result.pdfRecovery.candidateCount, 0);
 
 let enqueueAttempted = false;
 const noEnqueueResult = await runDeepAnalysisInputPreparation({
@@ -190,6 +198,7 @@ const noEnqueueResult = await runDeepAnalysisInputPreparation({
     applyEnd: null,
     jobUpdatedAt: new Date(0),
     jobStatus: "quality_recovery",
+    sourceRevisionSha256: "d".repeat(64),
   }],
   runKStartupArchive: async () => ({
     succeededCount: 1,
@@ -216,6 +225,7 @@ const noEnqueueResult = await runDeepAnalysisInputPreparation({
     elapsedMs: 0,
     results: [],
   }),
+  listPdfRecoveryCandidates: async () => [],
   prepareInput: async () => ({
     schema: "deep-analysis-input-v1",
     grantId: "quality-grant",

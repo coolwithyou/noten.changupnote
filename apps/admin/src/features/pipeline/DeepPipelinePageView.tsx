@@ -300,8 +300,8 @@ export function DeepPipelinePageView({
             />
             <SystemStatusItem
               description={initialSummary.inputPreparation.healthy
-                ? `봉인 ${initialSummary.inputPreparation.sealedCount}/${initialSummary.inputPreparation.targetCount} · 미해소 ${initialSummary.inputPreparation.unresolvedCount}`
-                : `보관 실패 ${initialSummary.inputPreparation.archiveFailedCount} · 변환 실패 ${initialSummary.inputPreparation.conversionFailedCount}`}
+                ? `봉인 ${initialSummary.inputPreparation.sealedCount}/${initialSummary.inputPreparation.targetCount} · PDF 복구 ${initialSummary.inputPreparation.pdfRecoverySucceededCount}/${initialSummary.inputPreparation.pdfRecoveryCandidateCount}`
+                : `보관 ${initialSummary.inputPreparation.archiveFailedCount} · 변환 ${initialSummary.inputPreparation.conversionFailedCount} · PDF 복구 ${initialSummary.inputPreparation.pdfRecoveryFailedCount} 실패`}
               healthy={initialSummary.inputPreparation.healthy}
               icon={ServerIcon}
               title="원문·첨부 준비"

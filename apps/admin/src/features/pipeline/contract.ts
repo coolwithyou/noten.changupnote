@@ -259,6 +259,9 @@ export interface DeepPipelineSummary {
     conversionCacheHits: number
     conversionRegistrationSkipped: number
     conversionRegistrationWarnings: number
+    pdfRecoveryCandidateCount: number
+    pdfRecoverySucceededCount: number
+    pdfRecoveryFailedCount: number
     budgetExhausted: boolean
     healthy: boolean
   }
@@ -396,6 +399,37 @@ export interface DeepPipelinePromotion {
   afterSha256: string | null
   appliedAt: string | null
   updatedAt: string
+}
+
+export interface DeepPipelineModelCost {
+  totalUsd: number | null
+  primaryUsd: number | null
+  auditUsd: number | null
+  adjudicationUsd: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+}
+
+export interface DeepPipelineLandingObservation {
+  id: string
+  requestId: string | null
+  observedAt: string
+  surface: string
+  evaluatedGrantCount: number
+  returnedGrantCount: number
+  result: {
+    rank: number
+    eligibility: string
+    bucket: string
+    recommendationTier: string | null
+    verificationCompleteness: number | null
+    evidenceCoverage: number | null
+    matchConfidence: number | null
+    relevanceScore: number | null
+    priorityScore: number | null
+    rulesetVer: string | null
+    scoringVer: string | null
+  }
 }
 
 export interface DeepPipelineAdminAction {
@@ -551,6 +585,8 @@ export interface DeepPipelineNoticeDetail {
   exceptions: DeepPipelineException[]
   attachments: DeepPipelineAttachment[]
   promotions: DeepPipelinePromotion[]
+  modelCost: DeepPipelineModelCost
+  landingObservations: DeepPipelineLandingObservation[]
   adminActions: DeepPipelineAdminAction[]
   aggregateSplitCase: DeepPipelineAggregateSplitCase | null
 }

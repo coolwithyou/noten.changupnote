@@ -116,6 +116,7 @@ async function main(): Promise<void> {
       applyEnd: frozen.applyEnd ? new Date(frozen.applyEnd) : null,
       jobUpdatedAt: new Date(0),
       jobStatus: "quality_input_recovery",
+      sourceRevisionSha256: frozen.opaqueCommitmentSha256,
       opaqueCommitmentSha256: frozen.opaqueCommitmentSha256,
     };
   });

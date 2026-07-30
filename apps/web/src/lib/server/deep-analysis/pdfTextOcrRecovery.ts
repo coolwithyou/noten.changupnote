@@ -18,6 +18,7 @@ import {
   renderArchivedMarkdown,
   type GrantImageOcrAdapter,
 } from "@/lib/server/ingestion/grantAttachmentArchive";
+import { tesseractGrantImageOcr } from "@/lib/server/ingestion/tesseractImageOcr";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
 import { sha256Hex } from "./sourceRevision";
 
@@ -25,7 +26,8 @@ const execFileAsync = promisify(execFile);
 const MIN_EXTRACTED_TEXT_CHARS = 200;
 const MIN_OCR_TEXT_CHARS = 20;
 const MIN_OCR_CONFIDENCE = 0.6;
-const MAX_LOCAL_RENDER_PAGES = 20;
+// 대용량 통합 공고는 OCR로 밀어붙이지 않고 기존 사람 분리 절차에 남긴다.
+const MAX_IMAGE_OCR_PAGES = 20;
 
 export interface PdfTextOcrRecoveryTarget {
   grantId: string;
@@ -159,7 +161,7 @@ export async function recoverPdfTextOcrCandidates(input: {
   db: CunoteDb;
   storage: R2ObjectStorage;
   candidates: readonly PdfTextOcrRecoveryCandidate[];
-  imageOcr: GrantImageOcrAdapter;
+  imageOcr?: GrantImageOcrAdapter;
 }): Promise<PdfTextOcrRecoveryResult> {
   const results: PdfTextOcrRecoveryResult["results"] = [];
   const failures: PdfTextOcrRecoveryResult["failures"] = [];
@@ -202,7 +204,7 @@ async function recoverOneCandidate(input: {
   db: CunoteDb;
   storage: R2ObjectStorage;
   candidate: PdfTextOcrRecoveryCandidate;
-  imageOcr: GrantImageOcrAdapter;
+  imageOcr?: GrantImageOcrAdapter;
 }): Promise<PdfTextOcrRecoveryResult["results"][number]> {
   const pdf = await input.storage.getObjectBytes(
     input.candidate.pdfStorageKey,
@@ -214,10 +216,17 @@ async function recoverOneCandidate(input: {
   let mode: PdfTextOcrRecoveryResult["results"][number]["mode"];
   let markdown: string;
   let averageConfidence: number | null = null;
+  let converter = "quality-pdftotext-layout-v1";
   if (extracted.length >= MIN_EXTRACTED_TEXT_CHARS) {
     mode = "pdftotext_layout";
     markdown = extracted;
   } else {
+    if (input.candidate.pageCount > MAX_IMAGE_OCR_PAGES) {
+      throw new Error(
+        `PDF has ${input.candidate.pageCount} image pages; OCR cap is `
+        + `${MAX_IMAGE_OCR_PAGES} and this notice requires human split review`,
+      );
+    }
     const images = input.candidate.pageImages.length > 0
       ? await loadVerifiedPageImages({
         storage: input.storage,
@@ -234,10 +243,11 @@ async function recoverOneCandidate(input: {
     const ocr = await buildPdfPageOcrMarkdown({
       title: input.candidate.title,
       images,
-      imageOcr: input.imageOcr,
+      imageOcr: input.imageOcr ?? tesseractGrantImageOcr,
     });
     markdown = ocr.markdown;
     averageConfidence = ocr.averageConfidence;
+    converter = ocr.converter;
   }
 
   const archiveUrl = input.candidate.sourceUrl
@@ -273,9 +283,7 @@ async function recoverOneCandidate(input: {
     sha256: markdownSha256,
     contentType: "text/markdown; charset=utf-8",
     metadata: {
-      converter: mode === "pdftotext_layout"
-        ? "quality-pdftotext-layout-v1"
-        : "quality-macos-vision-pdf-ocr-v1",
+      converter,
       recoveryMode: mode,
       pageCount: input.candidate.pageCount,
       charCount: markdown.length,
@@ -312,10 +320,11 @@ export async function buildPdfPageOcrMarkdown(input: {
     contentType: string | null;
   }>;
   imageOcr: GrantImageOcrAdapter;
-}): Promise<{ markdown: string; averageConfidence: number }> {
+}): Promise<{ markdown: string; averageConfidence: number; converter: string }> {
   if (input.images.length === 0) throw new Error("PDF OCR has no page images");
   const pages = [];
   let confidenceTotal = 0;
+  const converters = new Set<string>();
   for (const image of input.images) {
     const ocr = await input.imageOcr({
       filename: `${basename(input.title, ".pdf")}-page-${image.page}.png`,
@@ -334,11 +343,13 @@ export async function buildPdfPageOcrMarkdown(input: {
       throw new Error(`PDF page ${image.page} OCR returned insufficient text`);
     }
     confidenceTotal += confidence;
+    converters.add(ocr.converter);
     pages.push(`## Page ${image.page}\n\n${text}`);
   }
   return {
     markdown: pages.join("\n\n"),
     averageConfidence: confidenceTotal / input.images.length,
+    converter: [...converters].sort().join("+"),
   };
 }
 
@@ -392,10 +403,10 @@ async function renderLocalPdfPages(input: {
   pdf: Buffer;
   pageCount: number;
 }): Promise<Array<{ page: number; body: Buffer; contentType: string | null }>> {
-  if (input.pageCount > MAX_LOCAL_RENDER_PAGES) {
+  if (input.pageCount > MAX_IMAGE_OCR_PAGES) {
     throw new Error(
       `PDF has ${input.pageCount} pages without text/page images; local OCR cap is `
-      + `${MAX_LOCAL_RENDER_PAGES}`,
+      + `${MAX_IMAGE_OCR_PAGES}`,
     );
   }
   const directory = await mkdtemp(join(tmpdir(), "cunote-pdf-render-"));

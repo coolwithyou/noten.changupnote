@@ -51,6 +51,7 @@ import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
 import { annotateMatchCardConfirmationQuestions } from "./matches/annotateConfirmationQuestions";
 import { annotateMatchCardWriteSupport } from "./matches/annotateWriteSupport";
+import { recordLandingMatchObservation } from "./teaser/landingMatchObservation";
 import {
   loadCriterionConfirmations,
   refreshMatchStates,
@@ -1371,6 +1372,19 @@ export async function loadProductTeaser(
     const tier = recommendationTierForMatch(match);
     return tier === "needs_core_review" || tier === "needs_profile_input";
   });
+  try {
+    await recordLandingMatchObservation({
+      creditsSystem: repositories.creditsSystem,
+      result,
+      observedAt: asOf,
+    });
+  } catch (error) {
+    // 관측 저장 장애가 사용자 매칭 자체를 막지는 않는다. 원문 입력이나 사업자번호는 로그에 남기지 않는다.
+    console.error(
+      "Landing match observation persistence failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
   return result;
 }
 
