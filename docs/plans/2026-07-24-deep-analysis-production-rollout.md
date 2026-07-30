@@ -5780,3 +5780,40 @@ AQ13의 사람 검토 terminal route가 실제 신규 공고에서도 작동하�
   drift 수정은 이 체크포인트에 포함하지 않았다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r5-exact-2-2026-07-30.json`이다.
+
+### AQ15 R5 자동 공고 승격·랜딩 검증 — `S14 PASS`, `LANDING DEEP 2`, `HUMAN PARTIAL` (2026-07-30)
+
+AQ14에서 발행하지 않고 남긴 BizInfo 자동 경로 1건만 기존 S12~S14 release로
+승격했다. 새 모델 호출, 세 번째 공고, Vercel/Cloud Run/Scheduler 변경은 없었다.
+
+1. 최초 immutable release는 분석 정확도가 아니라 기존 실험실의 코호트 성과 기준인
+   `coverage >= 1.5x`, `structured >= 50%` 때문에 `STOP 4/6`이었다. 대상은
+   criterion `9/9 correct`, wrong `0`, missed `0`, audit `concur`,
+   matcher `auto_promotable`이었다.
+2. `d3477a2`는 일반 사람 검수 release의 6개 게이트를 바꾸지 않는다. 봉인된
+   production deep-analysis `auto_promotable` release에서만 상대 coverage와
+   structured 비율을 관찰 지표로 내리고, 정밀도·오류율·누락·비용·source drift,
+   shadow와 dry-run은 계속 발행을 차단한다.
+3. 새 release `deep-production-r1-20260730T023838Z-d3477a23`은 blocking gate
+   `4/4`, 1공고 × 125회사 shadow issue `0`, dry-run baseline `1/1`,
+   canary/all promotion을 통과해 `active`가 됐다. S12 publication, S13 serving,
+   S14 freshness도 모두 `passed`이며 실제 repository는 딥분석 criterion 9개와
+   동일한 SHA를 반환했다.
+4. production `POST https://changupnote.com/api/web/teaser`는 캐시된 개발용
+   사업자번호로 HTTP 200을 반환하고 딥분석 승격 공고 2건을 평가했다. 새 충남
+   장애인기업 공고는 매칭 유니버스에 들어갔지만 해당 사업자에는 부적합해 숨겨졌고,
+   기존 딥분석 공고 1건만 `conditional`로 반환됐다. 즉 새 공고가 무조건 노출된
+   것이 아니라 딥분석 criterion으로 실제 필터링됐다.
+5. 성북구 사람 검토 공고는 현재 `stale`로 이동했다. 이전/현재 봉인 입력을 비교한
+   결과 9,254자와 모든 첨부 chunk hash는 같고, 달라진 값은 수집 메타데이터
+   `$.detail.fetched_at`, `$.id`뿐이었다. 실제 원문 변경이 아닌 raw payload
+   revision 오염이므로 유료 재실행이나 감사 자동합의를 하지 않았다.
+
+판정:
+
+- 자동 경로의 `사업자번호 → 딥분석 승격 공고 → matcher → 결과 필터링`은 PASS다.
+- 사람 검토 경로는 계정 생성만으로 완료되지 않는다. 수집 메타데이터를 revision
+  fingerprint에서 제외하고 기존 검토 대상을 안전하게 복구하는 좁은 후속
+  체크포인트가 필요하다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r5-auto-promotion-2026-07-30.json`이다.

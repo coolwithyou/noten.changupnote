@@ -1,0 +1,160 @@
+{
+  "schema": "deep-analysis-r5-auto-promotion-evidence-v1",
+  "checkpoint": "R5_AUTO_PROMOTION_AND_LANDING",
+  "capturedAt": "2026-07-30T02:45:38Z",
+  "status": "AUTO_PROMOTABLE_1_PUBLISHED_S14_PASS_HUMAN_CASE_STALE_CAUSE_IDENTIFIED",
+  "scope": {
+    "newPaidModelCalls": 0,
+    "newAnalyzedNotices": 0,
+    "promotionTargetCount": 1,
+    "humanReviewMutationCount": 0,
+    "schemaOrMigrationAdded": false,
+    "cloudRunOrSchedulerChanged": false,
+    "vercelDeployed": false
+  },
+  "gateCorrection": {
+    "commit": "d3477a237c1dba00a113500dc9f40913e664b92b",
+    "reason": "독립 감사와 matcher readiness를 통과한 개별 deep-analysis release를 실험 코호트의 상대 coverage 및 structured 비율이 차단했다.",
+    "stillBlocking": [
+      "strict_precision",
+      "wrong_rate",
+      "missed_per_notice",
+      "cost_per_notice_usd",
+      "source_drift",
+      "shadow_guard",
+      "dry_run_baseline"
+    ],
+    "observedOnlyForDeepAutoPromotableRelease": [
+      "coverage_ratio",
+      "structured_ratio"
+    ],
+    "generalHumanReviewedLabReleaseUnchanged": true,
+    "verification": {
+      "labReleaseTest": "PASS",
+      "webTypecheck": "PASS",
+      "deepAnalysisContract": "PASS"
+    }
+  },
+  "abandonedPreparedRelease": {
+    "releaseId": "deep-production-r1-20260730T023426Z-a70d2196",
+    "status": "prepared",
+    "aggregateVerdict": "STOP",
+    "promotionWrites": 0,
+    "reason": "교정 전 immutable release의 상대 coverage 및 structured 비율 차단을 보존했다."
+  },
+  "activeRelease": {
+    "releaseId": "deep-production-r1-20260730T023838Z-d3477a23",
+    "gitCommit": "d3477a237c1dba00a113500dc9f40913e664b92b",
+    "manifestSha256": "f2038b23c31b0abbbb01aea69de1998b00789e5ec5c357a4751098f3b89380ac",
+    "releasePlanSha256": "5fb77b4f89fdf9536422a55424c4a47927f2925e63e70deaa82b629e16b9c461",
+    "status": "active",
+    "grant": {
+      "grantId": "a66f875d-e873-4166-ace6-27348e4c4b10",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124754",
+      "title": "[충남] 2026년 장애인기업 마케팅(홍보물 제작) 지원 공고",
+      "deepAnalysisRunId": "6e79186f-0347-4060-8ba6-66ce4ee3871b",
+      "publicRunId": "da-20260729T152909023Z-905310b9-881d-4b32-a8f7-7f472236a4a1",
+      "criterionCount": 9,
+      "confirmationQuestionCount": 0,
+      "costUsd": 0.243266
+    },
+    "aggregate": {
+      "verdict": "GO",
+      "blockingGatesPassed": "4/4",
+      "observedMetricsPassed": "4/6",
+      "strictPrecision": 1,
+      "wrongRate": 0,
+      "missedPerNotice": 0,
+      "costPerNoticeUsd": 0.243266,
+      "coverageRatioObserved": 1.2857142857142858,
+      "structuredRatioObserved": 0.4444444444444444,
+      "sourceDriftCount": 0
+    },
+    "shadow": {
+      "verdict": "PASS",
+      "grantCount": 1,
+      "companyCount": 125,
+      "grantCompanyPairs": 125,
+      "guardIssueCount": 0,
+      "baselineDriftCount": 0,
+      "sourceDriftCount": 0,
+      "eligibilityMatrix": {
+        "conditional_to_conditional": 125
+      }
+    },
+    "dryRun": {
+      "verdict": "PASS",
+      "baselineMatches": "1/1",
+      "sourceDriftCount": 0
+    },
+    "promotionVerification": {
+      "canary": "PASS",
+      "all": "PASS"
+    },
+    "servingVerification": {
+      "verdict": "PASS",
+      "checked": 1,
+      "publicationComplete": "passed",
+      "servingComplete": "passed",
+      "analysisFresh": "passed",
+      "afterSha256": "90c2c99bd2062a1a53c2bd9c1a31345cbd61a05a2cc04350796116a7d2a37955",
+      "repositoryCriteriaSha256": "5a5c4381ea7f1785305230cd5664ce6a01cbcae135879c5aca6d3b81abba69b7",
+      "traceSha256": "33ffa1b03f991c300b3f4304df7d7d393749d47ac6cefc751a6e8646db2cef93"
+    }
+  },
+  "landingVerification": {
+    "endpoint": "POST https://changupnote.com/api/web/teaser",
+    "businessNumber": "746-**-00***",
+    "httpStatus": 200,
+    "durationMs": 1175,
+    "evaluatedDeepPromotedGrantCount": 2,
+    "matchingUniverse": [
+      {
+        "grantId": "a66f875d-e873-4166-ace6-27348e4c4b10",
+        "title": "[충남] 2026년 장애인기업 마케팅(홍보물 제작) 지원 공고",
+        "criterionCount": 9
+      },
+      {
+        "grantId": "c418c645-53ae-4cd9-959d-4ae5d5fe4d4f",
+        "title": "2026 디지털커머스 전문기관(소담스퀘어 in 전주) 소상공인 지원 프로그램 지원대상 모집 공고",
+        "criterionCount": 5
+      }
+    ],
+    "resultCounts": {
+      "eligible": 0,
+      "conditional": 1,
+      "ineligible": 1
+    },
+    "returnedMatchCount": 1,
+    "interpretation": "새 충남 장애인기업 공고는 딥분석 매칭 유니버스에 포함됐지만 개발용 사업자 프로필에는 부적합해 결과 카드에서 제외됐다. 다른 딥분석 공고 1건은 conditional로 반환됐다."
+  },
+  "humanReviewCase": {
+    "grantId": "a843d0f1-9f74-4ac4-8d0d-c480e2d52757",
+    "source": "kstartup",
+    "sourceId": "178648",
+    "title": "성북구 한성대 벤처창업지원센터 하반기 입주기업 모집공고",
+    "previousRoute": "human_review_required",
+    "currentOpsProjection": "stale",
+    "paidRerunPerformed": false,
+    "contentComparison": {
+      "totalCharsBefore": 9254,
+      "totalCharsAfter": 9254,
+      "attachmentChunkHashesUnchanged": true,
+      "changedRawPayloadPaths": [
+        "$.detail.fetched_at",
+        "$.id"
+      ],
+      "actualNoticeContentChangeObserved": false
+    },
+    "rootCause": "수집 시각과 수집 행 id가 raw payload hash 및 deep-analysis source revision에 포함돼 동일 공고가 새 revision으로 오인됐다.",
+    "nextBoundary": "유료 재분석이나 감사 자동합의 전에 수집 메타데이터를 revision fingerprint에서 제외하고 기존 사람 검토 결과를 안전하게 복구할 방법을 별도 체크포인트로 검증한다."
+  },
+  "goalAssessment": {
+    "businessNumberToDeepMatching": "PASS",
+    "autoPromotableNoticePublished": "PASS_1_OF_1",
+    "s12ToS14": "PASS",
+    "humanReviewCaseReady": "PARTIAL_STALE_FALSE_POSITIVE_IDENTIFIED",
+    "overall": "자동 경로는 실제 랜딩까지 완료했다. 사람 검토 경로는 실제 원문 변경이 아닌 수집 메타데이터 revision 문제를 해결해야 한다."
+  }
+}
