@@ -1,0 +1,223 @@
+{
+  "schema": "deep-analysis-r8-deterministic-evidence-repair-evidence-v1",
+  "checkpoint": "R8_DETERMINISTIC_EVIDENCE_REPAIR",
+  "capturedAt": "2026-07-30T11:12:13Z",
+  "status": "DEPLOYED_OFFLINE_REPLAY_PASS_NO_PAID_RERUN_MONITOR_EXISTING_DRIFT",
+  "scope": {
+    "target": "R8 BizInfo 공고에서 source_span 표기 차이 2건 때문에 전체 22축 Opus repair가 실행된 비용 경로",
+    "newPaidModelCallCount": 0,
+    "newNoticeRunCount": 0,
+    "promotionExecuted": false,
+    "landingChanged": false,
+    "promptChanged": false,
+    "modelChanged": false,
+    "validatorRelaxed": false,
+    "schemaOrMigrationAdded": false,
+    "vercelDeployed": false
+  },
+  "baseline": {
+    "grantId": "6d8a08b5-f145-4767-ae15-c30f745eb03e",
+    "source": "bizinfo",
+    "sourceId": "PBLN_000000000122935",
+    "runId": "da-20260730T102930360Z-c8e166a8-8096-4cfc-a7c0-1bf48067d431",
+    "totalCostUsd": 0.950133,
+    "primary": {
+      "model": "claude-opus-4-8",
+      "passCount": 2,
+      "inputTokens": 88682,
+      "outputTokens": 15373,
+      "costUsd": 0.827735,
+      "initialPass": {
+        "inputTokens": 23892,
+        "outputTokens": 7676,
+        "costUsd": 0.31136
+      },
+      "wholeResultRepairPass": {
+        "inputTokens": 64790,
+        "outputTokens": 7697,
+        "costUsd": 0.516375
+      }
+    },
+    "audit": {
+      "model": "claude-sonnet-5",
+      "costUsd": 0.068818
+    },
+    "adjudication": {
+      "model": "claude-sonnet-5",
+      "costUsd": 0.05358
+    },
+    "initialValidationIssues": [
+      {
+        "code": "evidence_not_grounded",
+        "criterionIndex": 14,
+        "cause": "HWP 평가표의 (70 점) 레이아웃 표기가 source_span에서 누락됨"
+      },
+      {
+        "code": "evidence_not_grounded",
+        "criterionIndex": 17,
+        "cause": "HWP 평가표의 가점 표기와 글머리·줄배치 차이"
+      }
+    ],
+    "finding": "두 오류 모두 criterion 의미나 22축 판단 오류가 아니라 봉인 원문 안의 점수표 레이아웃 표기 차이였지만, 기존 경로는 전체 결과를 Opus로 다시 생성했다."
+  },
+  "implementation": {
+    "commit": "d53483b63434396d531c8b02caf809b2c27f3215",
+    "repairVersion": "deep-analysis-repair-v3",
+    "behavior": [
+      "evidence_not_grounded만 deterministic 교정 후보로 취급한다.",
+      "봉인 원문에서 유일한 exact 후보가 있고 추가 토큰이 점수·배점 레이아웃 표기뿐일 때 source_span만 교정한다.",
+      "교정 직후 기존 validator 전체를 다시 통과하면 모델 repair를 호출하지 않는다.",
+      "후보가 여러 개이거나 의미 토큰·안전하지 않은 숫자가 추가되거나 다른 validation issue가 남으면 기존 LLM repair로 fail-closed fallback한다.",
+      "적용된 교정은 raw artifact와 model_call_passed receipt의 deterministicEvidenceRepairCount에 기록한다.",
+      "후보 검색은 앞쪽 장거리 decoy가 많아도 가장 짧은 실제 후보가 잘리지 않도록 bounded shortest-candidate 순서를 사용한다."
+    ],
+    "safetyBoundaries": {
+      "uniqueCandidateRequired": true,
+      "semanticInsertionRejected": true,
+      "numericInsertionWithoutScoreMarkerRejected": true,
+      "maximumExtraChars": 128,
+      "maximumLengthRatio": 2.5,
+      "llmFallbackPreserved": true,
+      "validatorUnchanged": true
+    }
+  },
+  "offlineReplay": {
+    "input": "R8의 봉인 input과 첫 primary pass를 저장 artifact에서 재생",
+    "paidModelCalled": false,
+    "initialIssueCount": 2,
+    "initialIssueCodes": [
+      "evidence_not_grounded",
+      "evidence_not_grounded"
+    ],
+    "deterministicRepairCount": 2,
+    "repairedCriterionIndexes": [
+      14,
+      17
+    ],
+    "modelPassCountAfterRepair": 1,
+    "finalValidationValid": true,
+    "finalIssueCount": 0,
+    "historicalWholeRepairCostAvoidableUsd": 0.516375,
+    "counterfactualTotalCostUsd": 0.433758,
+    "counterfactualTotalReductionPercent": 54.34765448626666,
+    "measurementCaveat": "counterfactualTotalCostUsd는 같은 audit/adjudication 비용을 가정한 오프라인 추정치이며 신규 유료 실행 실측값이 아니다."
+  },
+  "verification": {
+    "deepAnalysisContract": "PASS",
+    "webTypecheck": "PASS",
+    "webProductionBuild": "PASS",
+    "buildWarning": "기존 Turbopack NFT 경고만 존재",
+    "regressions": [
+      "유일한 점수표 후보는 모델 호출 없이 교정 후 validator를 통과한다.",
+      "후보가 둘이면 deterministic 교정을 하지 않고 기존 모델 repair를 호출한다.",
+      "불가 같은 의미 토큰 삽입은 deterministic 교정을 거부한다.",
+      "점수 표식 없는 숫자 삽입은 deterministic 교정을 거부한다.",
+      "앞쪽 장거리 decoy 20건 뒤의 짧은 실제 후보를 유지한다."
+    ]
+  },
+  "deployment": {
+    "project": "changupnote-com",
+    "region": "asia-northeast3",
+    "gcloudConfiguration": "cunote-codex-dev",
+    "baseAccount": "sw@noten.im",
+    "impersonatedServiceAccount": "cunote-codex-dev@changupnote-com.iam.gserviceaccount.com",
+    "buildId": "2e4e324e-4824-4aca-b561-def5f33c113a",
+    "buildStatus": "SUCCESS",
+    "sourceStaging": "gs://changupnote-com_cloudbuild/cunote-codex-dev/source/1785409396.649863-b19dd02e798845a883e8feeb9bc493b1.tgz",
+    "sourceCommit": "d53483b63434396d531c8b02caf809b2c27f3215",
+    "imageDigest": "sha256:9c7af83a3750b1016aaabe20119755e31f458fd51f1eabb506a1b2ba9578e8a3",
+    "jobs": {
+      "cunote-deep-analysis": {
+        "generation": "80/80",
+        "ready": true,
+        "smokeExecution": "cunote-deep-analysis-clbwn",
+        "smokeVerdict": "PASS",
+        "workerMode": "observe_only",
+        "claimScope": "unconfigured",
+        "claimCohortCount": 0,
+        "claimed": 0,
+        "enqueueSkipped": true,
+        "analysisSkipped": true,
+        "budgetMutationSkipped": true
+      },
+      "cunote-deep-analysis-input-preparation": {
+        "generation": "29/29",
+        "ready": true,
+        "smokeExecution": "cunote-deep-analysis-input-preparation-xpsmn",
+        "smokeVerdict": "PASS",
+        "targetCount": 0,
+        "sealedCount": 0,
+        "unresolvedCount": 0
+      },
+      "cunote-deep-analysis-serving-monitor": {
+        "generation": "22/22",
+        "ready": true,
+        "smokeExecution": "cunote-deep-analysis-serving-monitor-fj59n",
+        "smokeVerdict": "FAIL_EXISTING_SERVING_DRIFT"
+      }
+    },
+    "runtimePreservation": {
+      "serviceAccounts": true,
+      "commandsAndArgs": true,
+      "environmentAndSecretReferences": true,
+      "schedulerConfiguration": true,
+      "mainPerNoticeCostCapUsd": 2,
+      "mainMaxJobs": 1,
+      "mainClaimEnvironmentVariableCount": 0
+    }
+  },
+  "servingMonitor": {
+    "verdict": "FAIL",
+    "checkedReleases": 5,
+    "checkedItems": 6,
+    "passedItems": 4,
+    "failedItems": 2,
+    "newestRelease": {
+      "releaseId": "deep-production-r1-20260730T083955Z-f5d22dea",
+      "verdict": "PASS",
+      "checked": 2,
+      "passed": 2
+    },
+    "existingDrift": [
+      {
+        "releaseId": "deep-production-r1-20260725T022203Z-5fcb677b",
+        "grantId": "807ba64b-05ec-4709-9b15-005a6142b9e7",
+        "issues": [
+          "state_hash mismatch",
+          "criterion stable keys mismatch"
+        ]
+      },
+      {
+        "releaseId": "deep-production-r1-20260729T143537Z-1f0ade00",
+        "grantId": "ac6a4ea4-5c38-40d6-8bf8-33e681fe9424",
+        "issues": [
+          "state_hash mismatch",
+          "criterion stable keys mismatch",
+          "active question anchors 2개 누락"
+        ]
+      }
+    ],
+    "assessment": "실패 2건은 이번 코드 배포 전에 만들어진 과거 active release의 현재 DB drift다. 최신 R7 release는 2/2 PASS이므로 deterministic repair 배포 실패로 분류하지 않는다."
+  },
+  "goalAssessment": {
+    "costCauseNarrowed": "PASS",
+    "unnecessaryWholeOpusRepairRemovedForReplayedCase": "PASS",
+    "accuracyGuardPreserved": "PASS",
+    "productionJobsUpdated": "PASS",
+    "livePaidCostMeasured": "NOT_EXECUTED_BY_SCOPE",
+    "verdict": "의미 판단이 필요 없는 HWP 점수표 source_span 차이만 무료로 교정하고, 조금이라도 불명확하면 기존 모델과 validator로 되돌리는 좁은 비용 개선이 배포됐다."
+  },
+  "overengineeringAssessment": {
+    "verdict": "BOUNDED",
+    "notDone": [
+      "프롬프트 또는 모델 교체",
+      "validator 완화",
+      "전체 22축 부분 재생성 프로토콜 신설",
+      "새 공고 유료 실행",
+      "기존 공고 재분석 또는 재승격",
+      "과거 serving drift 수선",
+      "DB schema 또는 migration 추가",
+      "Vercel 배포"
+    ]
+  }
+}

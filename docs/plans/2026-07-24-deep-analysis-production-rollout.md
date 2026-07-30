@@ -6009,3 +6009,53 @@ AQ19에서 실제 랜딩 경로까지 확인한 뒤, 세 route가 새 공고에�
   승인 범위로 분리한다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r8-exact-2-2026-07-30.json`이다.
+
+### AQ21 R8 근거 교정 비용 개선 — `REPLAY PASS`, `AVOIDABLE $0.516375`, `NO PAID RERUN` (2026-07-30)
+
+AQ20의 두 공고가 모두 분석·자동 판정에 성공했지만 비용이 `$0.186220`과
+`$0.950133`으로 크게 벌어진 원인을 저장 artifact와 단계별 사용량으로 좁혔다.
+두 번째 공고는 첫 Opus pass `$0.311360` 뒤 전체 결과 repair
+`$0.516375`를 한 번 더 호출했고, audit `$0.068818`, adjudication
+`$0.053580`이 더해졌다.
+
+1. 첫 pass의 validation 실패는 criterion index `14`, `17`의
+   `evidence_not_grounded` 두 건뿐이었다. HWP 평가표에서 각각 `(70 점)`과
+   `가점` 표기·글머리·줄배치가 source span에 빠진 문제이며 22축 의미 판단 오류가
+   아니었다. 기존 경로는 이 두 문자열을 고치기 위해 64,790 input token과 7,697
+   output token으로 전체 결과를 다시 생성했다.
+2. `deep-analysis-repair-v3`는 모델 repair 전에 봉인 원문에서 exact 후보를 찾는다.
+   후보가 유일하고 추가된 토큰이 점수·배점 레이아웃 표기뿐일 때 source span만
+   교정한 뒤 기존 validator 전체를 다시 실행한다. 통과하면 모델을 호출하지 않고,
+   후보가 여러 개이거나 의미 토큰·점수 표식 없는 숫자·다른 오류가 남으면 기존
+   LLM repair로 fail-closed fallback한다.
+3. 저장된 R8 첫 pass를 외부 호출 없이 재생한 결과 초기 issue `2`건을 criterion
+   `14`, `17`의 deterministic repair `2`건으로 고쳤고, model pass `1`회 상태에서
+   validator issue `0`, valid `true`가 됐다. 같은 audit/adjudication 비용을
+   가정하면 총비용은 `$0.433758`로 추정되어 역사적 전체 repair
+   `$0.516375`를 피한다. 이는 오프라인 counterfactual이며 새 유료 실행 실측값은
+   아니다.
+4. 모호한 후보 2건, 의미 토큰 `불가` 삽입, 점수 표식 없는 숫자 삽입은 교정을
+   거부하고 모델 fallback으로 남는 회귀를 고정했다. 앞쪽에 장거리 decoy 20건이
+   있어도 가장 짧은 실제 표 후보가 검색 제한에서 밀리지 않는 테스트도 추가했다.
+   deep-analysis 전체 계약, web typecheck, production build가 통과했다.
+5. exact commit `d53483b`를 image digest
+   `sha256:9c7af83a3750b1016aaabe20119755e31f458fd51f1eabb506a1b2ba9578e8a3`로
+   세 Cloud Run Job에 배포했다. generation은 main `80/80`, input `29/29`,
+   monitor `22/22`이며 main은 `observe_only`, claim scope 미설정, cost cap
+   `$2`를 유지한다. main과 input smoke는 mutation 없이 통과했다.
+6. serving monitor의 전체 verdict는 과거 active release 2건의 DB drift 때문에
+   FAIL이다. 5 release, 6 item 중 4 item은 통과했고 최신 R7 release는
+   `2/2 PASS`다. 실패는 7월 25일 1건의 state hash·criterion key 불일치와
+   7월 29일 1건의 같은 불일치·question anchor 2개 누락이며 이번 비용 개선
+   배포와 분리해 보존했다.
+
+판정:
+
+- 의미 판단이 필요 없는 HWP 평가표 source span 표기 차이 때문에 전체 Opus 결과를
+  재생성하던 비용 경로는 제거됐다.
+- validator, 프롬프트, 모델, 22축 판정, audit/adjudication은 완화하지 않았다.
+  불명확한 경우의 기존 유료 fallback도 유지한다.
+- 새 공고 유료 실행, 재승격, 랜딩 변경, 과거 serving drift 수선은 하지 않았다.
+  다음 비용 실측은 별도 bounded 신규 공고 실행에서 확인한다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r8-deterministic-evidence-repair-2026-07-30.json`이다.
