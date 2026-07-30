@@ -4,6 +4,7 @@ import {
   assertManifestConfirmation,
   canonicalJson,
   createPromotionReleaseManifest,
+  isPromotionAggregateGateBlocking,
   isUnexplainedPromotionShadowTransition,
   releasePlanItemHasUnsafePendingCriteria,
   mergePromotionApprovalGateEvidence,
@@ -154,6 +155,26 @@ function manifest() {
     releasePlanItemHasUnsafePendingCriteria(autoPromotableItem),
     false,
     "봉인된 R1~R3 auto-promotable receipt의 conditional_only는 보존 발행해야 한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([pendingItem], "coverage_ratio"),
+    true,
+    "일반 사람 검수 release의 상대 coverage 게이트는 계속 발행을 차단해야 한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([autoPromotableItem], "coverage_ratio"),
+    false,
+    "봉인된 deep auto-promotable release에서 상대 coverage는 관찰 지표여야 한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([autoPromotableItem], "structured_ratio"),
+    false,
+    "봉인된 deep auto-promotable release에서 structured 비율은 관찰 지표여야 한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([autoPromotableItem], "wrong_rate"),
+    true,
+    "봉인된 deep release도 오류율은 계속 발행을 차단해야 한다",
   );
 }
 

@@ -190,6 +190,32 @@ export function isAutoPromotableDeepAnalysisReadiness(value: unknown): boolean {
     && readiness.blockers.length === 0;
 }
 
+export type PromotionAggregateGateId =
+  | "strict_precision"
+  | "wrong_rate"
+  | "missed_per_notice"
+  | "coverage_ratio"
+  | "cost_per_notice_usd"
+  | "structured_ratio";
+
+/**
+ * 사람 검수 실험 release의 6개 게이트는 그대로 유지한다. 다만 독립 감사와 matcher
+ * readiness까지 봉인된 production deep-analysis release에서는 정확성·누락·비용과
+ * source drift만 발행 차단 조건이다. 상대 coverage와 structured 비율은 코호트
+ * 도입 성과 지표라 개별 공고의 문서 특성만으로 안전한 conditional 발행을 막지 않는다.
+ */
+export function isPromotionAggregateGateBlocking(
+  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
+  gateId: PromotionAggregateGateId,
+): boolean {
+  const deepAutoPromotableRelease =
+    plans.length > 0
+    && plans.every((item) =>
+      isAutoPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness));
+  if (!deepAutoPromotableRelease) return true;
+  return gateId !== "coverage_ratio" && gateId !== "structured_ratio";
+}
+
 /**
  * 일반 Lab release는 기존처럼 needs_review를 fail-closed한다. 프로덕션
  * deep-analysis release만 R1~R3 auto-promotable receipt가 manifest에 봉인된

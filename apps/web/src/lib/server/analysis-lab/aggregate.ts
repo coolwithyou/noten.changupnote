@@ -27,8 +27,10 @@ import {
 import type { CohortFileV2 } from "./cohort-file";
 import { verifyPromotionSourceArtifact } from "./promotion-candidates";
 import {
+  isPromotionAggregateGateBlocking,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
+  type PromotionAggregateGateId,
   writeImmutablePromotionArtifact,
 } from "./promotion-release";
 import { type ReviewedRun, selectReviewedRuns } from "./reviewed-runs";
@@ -101,42 +103,54 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     ? costs.reduce((sum, cost) => sum + cost, 0) / costs.length
     : 0;
   const structuredRatio = correct > 0 ? structured / correct : 0;
-  const gates = [
+  const gates: Array<{
+    id: PromotionAggregateGateId;
+    threshold: { operator: "gte" | "lte"; value: number };
+    actual: number | null;
+    pass: boolean;
+    blocking: boolean;
+  }> = [
     {
       id: "strict_precision",
       threshold: { operator: "gte", value: GATES.strictPrecisionMin },
       actual: strictPrecision,
       pass: strictPrecision >= GATES.strictPrecisionMin,
+      blocking: isPromotionAggregateGateBlocking(plans, "strict_precision"),
     },
     {
       id: "wrong_rate",
       threshold: { operator: "lte", value: GATES.wrongRateMax },
       actual: wrongRate,
       pass: wrongRate <= GATES.wrongRateMax,
+      blocking: isPromotionAggregateGateBlocking(plans, "wrong_rate"),
     },
     {
       id: "missed_per_notice",
       threshold: { operator: "lte", value: GATES.missedPerNoticeMax },
       actual: missedPerNotice,
       pass: missedPerNotice <= GATES.missedPerNoticeMax,
+      blocking: isPromotionAggregateGateBlocking(plans, "missed_per_notice"),
     },
     {
       id: "coverage_ratio",
       threshold: { operator: "gte", value: GATES.coverageRatioMin },
       actual: Number.isFinite(coverageRatio) ? coverageRatio : null,
       pass: coverageRatio >= GATES.coverageRatioMin,
+      blocking: isPromotionAggregateGateBlocking(plans, "coverage_ratio"),
     },
     {
       id: "cost_per_notice_usd",
       threshold: { operator: "lte", value: GATES.costPerNoticeMaxUsd },
       actual: costPerNotice,
       pass: costPerNotice <= GATES.costPerNoticeMaxUsd,
+      blocking: isPromotionAggregateGateBlocking(plans, "cost_per_notice_usd"),
     },
     {
       id: "structured_ratio",
       threshold: { operator: "gte", value: GATES.structuredRatioMin },
       actual: structuredRatio,
       pass: structuredRatio >= GATES.structuredRatioMin,
+      blocking: isPromotionAggregateGateBlocking(plans, "structured_ratio"),
     },
   ];
   const sourceDrift: string[] = [];
@@ -144,7 +158,8 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     const verified = await verifyPromotionSourceArtifact(source);
     for (const changed of verified.changed) sourceDrift.push(`${source.grantId}:${changed}`);
   }
-  const go = gates.every((gate) => gate.pass) && sourceDrift.length === 0;
+  const blockingGates = gates.filter((gate) => gate.blocking);
+  const go = blockingGates.every((gate) => gate.pass) && sourceDrift.length === 0;
   const artifact = {
     schema: "analysis-lab-promotion-aggregate-v1",
     releaseId,
@@ -155,7 +170,11 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     totals: { correct, needsEdit, wrong, unsure, missed, currentTotal, structured },
     gates,
     sourceDrift,
-    verdict: go ? "GO" : gates.filter((gate) => gate.pass).length >= 5 ? "ITERATE" : "STOP",
+    verdict: go
+      ? "GO"
+      : blockingGates.filter((gate) => gate.pass).length >= blockingGates.length - 1
+        ? "ITERATE"
+        : "STOP",
   };
   await writeImmutablePromotionArtifact(
     promotionReleaseArtifactPath(releaseId, "aggregate.json"),
@@ -163,7 +182,9 @@ async function aggregateRelease(releaseId: string): Promise<void> {
   );
   console.log(
     `[aggregate] release ${artifact.verdict}: ${releaseId} · ` +
-    `gate ${gates.filter((gate) => gate.pass).length}/${gates.length} · source drift ${sourceDrift.length}`,
+    `blocking gate ${blockingGates.filter((gate) => gate.pass).length}/${blockingGates.length}` +
+    ` · observed metric ${gates.filter((gate) => gate.pass).length}/${gates.length}` +
+    ` · source drift ${sourceDrift.length}`,
   );
   if (!go) process.exitCode = 2;
 }
