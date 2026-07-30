@@ -29,7 +29,7 @@
 Vercel에는 별도 프로젝트 `changupnote-ops`가 생성되었고 production deploy는 준비 상태다.
 
 - Project: `noten/changupnote-ops`
-- Production deployment: `dpl_3h3DKTovgLiG6D8VLWwNNcs9Pe9f`
+- Production deployment: `dpl_CrcGYKkYLLZS2ZhyfRkwhCUMSZ8k`
 - Default alias: `https://changupnote-ops.vercel.app`
 - Smoke: `/`는 `/login`으로 redirect, `/login`은 200, 로그인 전 `/api/admin/status`와 `/api/matches/live`는 401
 
