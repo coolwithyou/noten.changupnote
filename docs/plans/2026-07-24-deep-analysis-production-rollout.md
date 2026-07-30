@@ -6149,3 +6149,58 @@ K-Startup `178355`, “아시아 창업 엑스포(FLY ASIA 2026) FLY ASIA 해외
   수선은 하지 않았다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r10-production-one-2026-07-30.json`이다.
+
+### AQ24 R11 최신 자동 수집분 순차 4건 production 평가 — `E2E 3/4`, `INPUT BLOCK 1`, `LANDING 3/3` (2026-07-30)
+
+같은 최신 BizInfo 자동 수집 시각의 활성 비통합 공고 중 v24 실행·승격 이력이 없는
+4건을 골라, 한 건이 끝나기 전 다음 건을 열지 않는 방식으로 입력 봉인부터 분석,
+독립 AI 감사, 자동 경로 판정, release gate, serving, 사업자번호 랜딩까지 확인했다.
+프롬프트·모델·스키마·배포와 과거 release drift는 변경하지 않았다.
+
+1. 충남 재기지원 공고는 HWP 1건을 포함한 7,647자를 봉인했다. Opus primary
+   repair 1회 뒤 22축·criterion 7건과 exact evidence를 통과했고, 독립 Sonnet
+   audit도 valid `concur`여서 `auto_promotable`이 됐다. 비용은 `$0.548805`다.
+   release `deep-production-r1-20260730T135015Z-43263932`는 모든 승격·serving
+   gate를 통과했고 랜딩에서 대상 공고가 실제 반환됐다.
+2. FOOD WEEK KOREA 공고는 HWPX는 검증 전문이 있었지만 PDF 포스터가
+   `blocked_conversion`이었다. input preparation job은 HWPX/PDF surface를
+   `preview_ready`로 만들었으나 PDF를 deep-analysis가 소비하는 검증 markdown으로
+   연결하지 못했다. 실제 worker는 `input_not_sealed`로 비용 없이 차단했고 LLM,
+   승격, 랜딩 대상 검증은 실행하지 않았다. 기존 얕은 criterion 3건을 새 딥분석
+   결과로 오인하지 않았다.
+3. 강원 국제의료기기전시회 공고는 HWP 1건을 포함한 7,933자를 봉인하고 22축·
+   criterion 17건을 확정했다. audit 응답은 canonical contract issue 3건으로
+   invalid였지만 검증된 반대 finding은 없었다. hard criterion 8건만 사용자 확인
+   대상으로 보존한 `conditional_promotable`로 종결했고 `$0.597479`를 사용했다.
+   release `deep-production-r1-20260730T140223Z-43263932`는 모든 gate를 통과했고
+   랜딩에서도 대상이 `conditional`로 반환됐다.
+4. 경산 산업 AX 공고는 HWP 1건을 포함한 12,708자를 봉인했다. primary 1회로
+   22축·criterion 6건, exact evidence를 통과했고 valid `concur` audit,
+   disagreement·deferral 0으로 `auto_promotable`이 됐다. 비용은
+   `$0.333603`이다. release `deep-production-r1-20260730T140615Z-43263932`와
+   랜딩 노출까지 모두 통과했다.
+5. 합계는 입력 봉인·분석·승격·랜딩 `3/4`, 분석된 3건의 자동 경로 판정과
+   serving은 `3/3`이다. route는 `auto 2`, `conditional 1`, 사람 전체 검토
+   `0`이다. 모델 비용 합계는 `$1.479887`, 분석 공고 평균 `$0.493296`, 최대
+   `$0.597479`로 공고당 `$2` 상한 안이다.
+6. 전체 serving monitor는 9 release·10 item 중 과거 7월 25일/29일 release
+   두 건의 기존 state hash·criterion key·question anchor drift 때문에 FAIL이다.
+   이번 새 release 3건은 모두 PASS다. 영구 worker는 generation `92/92`,
+   `observe_only`, claim env 0으로 복구했고 활성 lease는 0이다. 최종 smoke
+   `cunote-deep-analysis-bt4nc`도 claim 0과 모든 mutation skip으로 통과했다.
+
+판정:
+
+- “봉인 가능한 최신 공고 → 딥분석 → 서로 다른 AI 검수 → 자동/조건부 판정 →
+  승격 → serving → 사업자번호 랜딩 매칭”은 실제 production에서 `3/3` 통과했다.
+- 네 건 전체의 완전 자동 사이클은 `3/4`다. 남은 핵심 병목은 모델 정확도나 자동
+  검수 완벽주의가 아니라, 변환된 PDF surface를 deep-analysis 검증 markdown으로
+  연결하지 못하는 입력 준비 단절이다.
+- 분석 가능한 공고에서는 invalid audit도 검증된 반대 finding이 없으면 전체를
+  사람 검토로 막지 않고 조건부 질문 영역으로 보존하는 단순화 정책이 실제로
+  작동했다.
+- 상시 무인 자동화 완료를 의미하지는 않는다. 수집은 자동이지만 main worker는
+  안전상 `observe_only`이며 승격은 이번에도 immutable release gate를 수동
+  오케스트레이션했다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r11-production-four-2026-07-30.json`이다.
