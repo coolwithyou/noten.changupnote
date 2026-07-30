@@ -1,0 +1,99 @@
+{
+  "schema": "deep-analysis-human-review-evidence-v1",
+  "checkpoint": "R5_HUMAN_REVIEW",
+  "capturedAt": "2026-07-30T03:35:58Z",
+  "status": "HUMAN_REVIEWED_NEEDS_EDIT_NOT_PROMOTABLE",
+  "reviewer": {
+    "actorType": "human_directed_codex_review",
+    "reviewMethod": "sealed input, primary normalized output, independent audit artifact, deterministic validation issue comparison"
+  },
+  "notice": {
+    "grantId": "a843d0f1-9f74-4ac4-8d0d-c480e2d52757",
+    "source": "kstartup",
+    "sourceId": "178648",
+    "title": "성북구 한성대 벤처창업지원센터 하반기 입주기업 모집공고",
+    "databaseRunId": "c9e3f99d-5a25-475b-8598-20752d9c7326",
+    "publicRunId": "da-20260729T152740796Z-83218fc9-d85c-4103-89fe-d10ccf87b9b7",
+    "inputSha256": "f188e9c1e795cd8c7288f3a41f0c755b084c585fd409ae0f137b97f7b69eea96",
+    "inputChars": 9254,
+    "includedAttachmentCount": 2,
+    "primaryCriterionCount": 12,
+    "primaryContractValid": true,
+    "primaryEvidenceGrounded": true,
+    "auditVerdict": "unsure",
+    "auditValidationValid": false
+  },
+  "auditFinding": {
+    "issue": {
+      "code": "logical_conflict",
+      "path": "$.criteria[7]",
+      "message": "premises has the same value in required and exclusion criteria"
+    },
+    "humanConclusion": "AUDIT_NORMALIZATION_ERROR",
+    "reason": "원문은 입주 후 3개월 내 사업자주소 변경이 불가능한 기업을 제외한다. audit는 이를 주소 변경 가능 의무와 변경 불가능 배제로 이중 작성한 뒤 넓은 동일 source span을 value.note로 사용해 required와 exclusion을 같은 canonical 값으로 만들었다."
+  },
+  "primaryReview": {
+    "acceptedMeaning": [
+      {
+        "dimension": "biz_age",
+        "conclusion": "예비창업자 또는 신청일 기준 창업 3년 미만이라는 신청자격은 원문과 일치한다."
+      },
+      {
+        "dimension": "premises",
+        "conclusion": "입주 후 3개월 내 센터로 사업자주소 변경 가능, 본사가 아닌 연구소·지사 입주 불가 조건은 원문과 일치한다."
+      },
+      {
+        "dimension": "tax_compliance",
+        "conclusion": "국세·지방세 체납 기업 제외는 원문과 일치한다."
+      },
+      {
+        "dimension": "industry",
+        "conclusion": "폐수·소음·진동 공해 다발업종 제외는 원문과 일치한다."
+      },
+      {
+        "dimension": "other",
+        "conclusion": "동일 업태·업종의 창업 3년 이상 기존 사업자 보유 및 센터 부적합 대상 제외는 보수적인 text_only 보존이 적절하다."
+      }
+    ],
+    "requiredEdits": [
+      {
+        "dimension": "sanction",
+        "current": "사법기관으로부터 기소 중인 기업을 participation_restricted flag로 구조화",
+        "decision": "REMOVE_CANONICAL_FLAG_KEEP_TEXT_ONLY_EXCLUSION",
+        "reason": "기소 중 상태와 정부지원사업 참여제한은 동일한 현재 사실이 아니다."
+      },
+      {
+        "dimension": "region",
+        "current": "성북구 소재·거주 우대를 서울특별시 코드 11로 구조화",
+        "decision": "KEEP_EXACT_DISTRICT_AS_TEXT_ONLY_PREFERENCE",
+        "reason": "서울 전체 기업을 성북구 우대로 오인시키는 범위 확대가 발생한다."
+      },
+      {
+        "dimension": "target_type",
+        "current": "개인사업자, 법인사업자, 예비창업자를 하나의 target_type 목록으로 구조화",
+        "decision": "REMOVE_PRELIMINARY_FROM_LEGAL_TARGET_TYPE",
+        "reason": "예비창업 여부는 biz_age include_preliminary로 이미 표현되며 법적 사업자 유형과 다른 축이다."
+      },
+      {
+        "dimension": "size",
+        "current": "중소기업, 예비를 size 목록으로 구조화",
+        "decision": "REMOVE_PRELIMINARY_SIZE_VALUE",
+        "reason": "예비는 기업 규모가 아니며 biz_age와 중복된다."
+      }
+    ]
+  },
+  "finalDecision": {
+    "verdict": "needs_edit",
+    "autoPromotable": false,
+    "promotionPerformed": false,
+    "paidRerunPerformed": false,
+    "exceptionResolvedInProduction": false,
+    "reason": "audit 자체는 무효지만 primary도 의미 보정 없이 matcher에 발행하기에는 범위 확대와 축 혼합이 남아 있다."
+  },
+  "scope": {
+    "databaseWrites": 0,
+    "r2Writes": 0,
+    "paidModelCalls": 0,
+    "cloudChanges": 0
+  }
+}

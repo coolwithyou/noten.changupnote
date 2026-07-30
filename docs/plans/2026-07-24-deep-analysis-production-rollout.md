@@ -5817,3 +5817,24 @@ AQ14에서 발행하지 않고 남긴 BizInfo 자동 경로 1건만 기존 S12~S
   체크포인트가 필요하다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r5-auto-promotion-2026-07-30.json`이다.
+
+### AQ16 R5 사람 검토 — `NEEDS EDIT`, `PROMOTION 0`, `PAID CALL 0` (2026-07-30)
+
+AQ14에서 `human_review_required`로 남긴 K-Startup `178648`을 봉인 input,
+primary normalized output, 독립 audit artifact와 결정론 validation issue로 직접
+대조했다.
+
+1. audit의 `premises required/exclusion 동일 값` 충돌은 원문 충돌이 아니다.
+   “입주 후 3개월 내 주소 변경이 불가능한 기업 제외”를 audit가 가능 의무와 불가능
+   배제로 이중 작성하고 넓은 동일 source span을 canonical note로 사용한 정규화
+   오류다.
+2. 그러나 primary도 그대로 자동승격할 수 없다. `기소 중`을 정부지원사업
+   `participation_restricted`로 등치했고, 성북구 우대를 서울 전체 지역코드로
+   넓혔으며, 예비창업자를 법적 target type과 기업 size에 중복 입력했다.
+3. 업력 3년, 주소 이전·본사 입주, 세금 체납, 공해 업종, 동일 업태·업종 기존
+   사업자 보유 조건은 원문과 일치한다. 필요한 것은 재분석이 아니라 위 네 항목의
+   좁은 의미 보정이다.
+
+따라서 사람 verdict는 `needs_edit`, 자동승격은 `false`다. DB 예외 resolve,
+promotion, 유료 모델 재실행은 하지 않았다. 상세 evidence는
+`docs/evidence/deep-analysis/r5-human-review-2026-07-30.json`이다.
