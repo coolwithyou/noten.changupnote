@@ -35,7 +35,7 @@
 - Cloudflare zone id: `2b6743da9feeba07518367807bf6a7c7`.
 - Current WAF custom ruleset id: `7f1e1bddf00a42f2b88da2c0cfa33467`.
 - Current allowlist rule id: `350e2f8e8a964261b035b527a2f56c22`.
-- Current allowlist expression: `(http.host in {"changupnote.com" "www.changupnote.com" "dev.changupnote.com" "ops.changupnote.com" "dev.ops.changupnote.com"} and not ip.src in {125.184.29.37/32 183.96.140.195/32})`.
+- Current allowlist expression: `(http.host in {"changupnote.com" "www.changupnote.com" "dev.ops.changupnote.com"} and not ip.src in {125.184.29.37/32 183.96.140.195/32})`.
 - `dev.ops.changupnote.com` DNS CNAME points to the local Cloudflare Tunnel target `be924b5d-a8af-4c43-802c-cb000f391255.cfargotunnel.com`; local ingress is in `/Users/ffgg/.cloudflared/changupnote-dev.yml` and routes to `http://127.0.0.1:4011`.
 - Legacy web admin block rule id: `efe33e603ce3475e80d2f0124c6f9f11`.
 - Legacy web admin block expression: `(http.host in {"changupnote.com" "www.changupnote.com"} and (starts_with(http.request.uri.path, "/admin") or starts_with(http.request.uri.path, "/internal/live-match") or starts_with(http.request.uri.path, "/api/admin") or http.request.uri.path eq "/api/matches/live"))`.

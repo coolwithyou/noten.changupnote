@@ -35,7 +35,7 @@ Vercel에는 별도 프로젝트 `changupnote-ops`가 생성되었고 production
 
 2026-07-30에 프로젝트를 Vercel의 공식 project transfer로 `team-coolwithyou`에서 Pro 팀 `NOTEN`으로 이전했다. 프로젝트 id `prj_O71GjH8sXqXl4nNxOanOrWalfNHG`, production deployment와 history, `ops.changupnote.com`, 22개 sensitive production env를 보존했으며 기존 팀 범위에서는 프로젝트가 더 이상 조회되지 않는다. Cloudflare의 proxied `ops.changupnote.com -> cname.vercel-dns.com` CNAME은 변경 없이 새 소유 프로젝트로 연결된다. Ops 앱 자체의 Vercel Cron 정의는 없고, 서비스 Cron 9개는 별도 `noten/changupnote` 웹 프로젝트에서 Pro 상태로 활성화되어 있다.
 
-`ops.changupnote.com` 커스텀 도메인은 Vercel project domain API로 `changupnote-ops`에 연결했고, Cloudflare DNS/TXT 검증 후 verified 상태가 되었다. Cloudflare DNS에는 `ops.changupnote.com -> cname.vercel-dns.com` CNAME을 추가했고 proxy도 켰다. WAF allowlist expression에도 `ops.changupnote.com`을 포함했다.
+`ops.changupnote.com` 커스텀 도메인은 Vercel project domain API로 `changupnote-ops`에 연결했고, Cloudflare DNS/TXT 검증 후 verified 상태가 되었다. Cloudflare DNS에는 `ops.changupnote.com -> cname.vercel-dns.com` CNAME을 추가했고 proxy도 켰다. 2026-07-30 실측 기준 IP allowlist WAF 대상에는 `ops.changupnote.com`이 포함되지 않으므로 로그인 화면은 외부에서 열리며, 내부 화면과 API는 admin 인증 경계로 보호한다.
 
 로컬 admin 검증용 `dev.ops.changupnote.com`은 Cloudflare DNS에서 기존 `changupnote-dev` tunnel target인 `be924b5d-a8af-4c43-802c-cb000f391255.cfargotunnel.com`으로 CNAME을 추가했다. 로컬 cloudflared ingress config `/Users/ffgg/.cloudflared/changupnote-dev.yml`에는 `dev.ops.changupnote.com -> http://127.0.0.1:4011` rule을 추가했고 tunnel process를 재시작했다. HTTP 요청은 tunnel까지 도달하며, admin dev server가 떠 있지 않으면 502를 반환한다. HTTPS는 현재 Cloudflare edge certificate가 `dev.ops.changupnote.com` 같은 2단계 서브도메인을 커버하지 않아 TLS handshake가 실패한다. Cloudflare SSL certificate에 `dev.ops.changupnote.com`을 추가해야 HTTPS local test URL이 완성된다.
 
