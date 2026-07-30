@@ -6059,3 +6059,46 @@ AQ20의 두 공고가 모두 분석·자동 판정에 성공했지만 비용이 
   다음 비용 실측은 별도 bounded 신규 공고 실행에서 확인한다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r8-deterministic-evidence-repair-2026-07-30.json`이다.
+
+### AQ22 R9 개선 코드 신규 exact 1건 — `ANALYSIS PASS`, `CONDITIONAL`, `$0.630069` (2026-07-30)
+
+AQ21의 deterministic source span 교정을 배포한 digest로 신규 공고 한 건만
+실행했다. 활성·v24 job 없음·D-day 1 이상·HWP 포함·전문 봉인을 만족하는 후보 중
+K-Startup `178355`, “아시아 창업 엑스포(FLY ASIA 2026) FLY ASIA 해외
+어워즈 참가기업 모집 공고”를 골랐다. 두 번째 공고, promotion, 랜딩 반영,
+프롬프트·모델 변경은 하지 않았다.
+
+1. 공고와 HWP 2건, 총 16,610자를 3개 chunk로 봉인했다. input blocker는 0이고
+   source revision, input, attachment manifest hash를 고정한 단일 UUID/hash
+   bounded claim으로 실행했다.
+2. 첫 Opus pass는 22축과 exact evidence를 통과했지만 raw criterion 17개 중
+   index `11`이 `dimension=preferred`, `kind=preferred`를 반환했다. `preferred`는
+   kind이지 22축 dimension이 아니므로 `raw_contract_invalid`와
+   `normalization_drop`이 발생했다.
+3. 이 오류는 source span 표기 차이가 아니어서 AQ21의 무료 교정은 의도대로
+   적용되지 않았다(`deterministicEvidenceRepairCount=0`). 기존 모델 fallback
+   1회가 `$0.299725`를 사용해 계약을 교정했고, 최종 22축·criterion 16건,
+   response contract·axis coverage·evidence가 모두 통과했다. 첫 pass는
+   `$0.262560`, primary 합계는 `$0.562285`다.
+4. 독립 Sonnet audit는 `$0.067784`를 사용했지만 target type, 빈 industry·
+   certification·region 값 등 canonical contract issue 6건으로 invalid였다.
+   검증된 반대 finding이나 blocker는 없어 adjudication을 호출하지 않고 hard
+   criterion 12건만 사용자 확인으로 보존한 `conditional_promotable`로
+   종결했다. 총비용은 `$0.630069`, attempt는 1이다.
+5. 실행 창의 worker payload 4개 중 bounded active는 1개, 나머지 3개는
+   `observe_only`다. 총 claim/succeeded/failed는 `1/1/0`이며 cohort 밖 claim은
+   0이다. 영구 job은 실행 생성 직후 원래 runtime spec과 동일한 generation
+   `82/82`, `observe_only`, claim env 0으로 복구했다. 최종 smoke
+   `cunote-deep-analysis-4l74q`도 claim 0과 모든 mutation skip으로 통과했다.
+
+판정:
+
+- 개선 코드로 신규 한 건의 공고와 HWP 딥분석, 22축 검증, 독립 audit, 자동 경로
+  판정은 끝까지 작동했다. 결과는 실패나 사람 전체 검토가 아닌 조건부 상태다.
+- 이번 표본의 repair 원인은 enum 계약 오류이므로 AQ21의 source span 비용 절감
+  효과를 실측한 사례는 아니다. 대신 최적화가 범위 밖 오류를 잘못 고치지 않고 기존
+  fallback을 유지한다는 안전 경계를 실제 production에서 확인했다.
+- 이 한 건만으로 추가 enum 자동교정이나 audit contract 수정을 시작하지 않는다.
+  반복 빈도를 먼저 누적해 다음 비용 개선 대상을 판단한다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r9-exact-1-2026-07-30.json`이다.
