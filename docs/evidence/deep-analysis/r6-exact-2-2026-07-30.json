@@ -1,0 +1,230 @@
+{
+  "schema": "deep-analysis-r6-exact-2-evidence-v1",
+  "checkpoint": "R6_LIVE_EXACT_2",
+  "capturedAt": "2026-07-30T03:47:44.728Z",
+  "status": "ANALYSIS_TERMINAL_2_OF_2_AUTO_PROMOTABLE_0_HUMAN_READINESS_2_OPS_HUMAN_SURFACE_1",
+  "scope": {
+    "expectedGrantCount": 2,
+    "observedGrantCount": 2,
+    "outOfCohortRunCount": 0,
+    "claimCohortSha256": "84ebb333432ba393d0eada888349344873cf73e42bab40f4b4d83aa044663138",
+    "claimManifestSha256": "cc999eafc39ad219620b5740d2f1e41f91ad149153d0f7e53195fed814c43713",
+    "modelPolicyVersion": "deep-analysis-model-policy-v24",
+    "primaryModel": "claude-opus-4-8",
+    "auditModel": "claude-sonnet-5",
+    "perNoticeCostCapUsd": 2,
+    "aggregateCostCapUsd": 4,
+    "maxConcurrency": 1,
+    "additionalPaidRetryCount": 0,
+    "promotionCount": 0
+  },
+  "metrics": {
+    "sealedInputCount": 2,
+    "primaryContractAndEvidencePassedCount": 2,
+    "validIndependentAuditCount": 1,
+    "independentAuditConcurCount": 1,
+    "analysisTerminalCount": 2,
+    "promotionReadinessHumanReviewCount": 2,
+    "opsHumanReviewBucketCountForCohort": 1,
+    "autoPromotableCount": 0,
+    "totalCostUsd": 1.45084,
+    "maxPerGrantCostUsd": 1.020665,
+    "activeLeaseCountAfterRun": 0
+  },
+  "notices": [
+    {
+      "grantId": "bcb9c38d-1cfb-4839-b713-4e92669439d5",
+      "source": "kstartup",
+      "sourceId": "178613",
+      "title": "[화성] 2026 ESG 기반 산업안전 컨설팅 참여기업 모집 안내",
+      "sourceRevisionSha256": "de4e25ece2a19459f840ceda97e81b07d3c0ce72988ef1082cd0e8b0dd75a549",
+      "inputSha256": "c933bf0ed35158e6ce9f1c673a5dfe828db896ed53485988703f798cad65a51d",
+      "attachmentManifestSha256": "21a3d8354fc9c24f43f89639eae563b27628e249850de096ea72844a5503e683",
+      "inputChars": 4118,
+      "inputChunkCount": 2,
+      "includedAttachmentCount": 1,
+      "databaseRunId": "b9b80192-a58c-4eb1-8f97-1f0dc9bd5385",
+      "publicRunId": "da-20260730T033942428Z-429516e8-fffc-48b5-95d4-a8470e73c580",
+      "jobId": "cf124e9b-55a8-45c3-9b1a-0f50553dd7aa",
+      "jobStatus": "succeeded",
+      "attemptCount": 1,
+      "axisCount": 22,
+      "criterionCount": 4,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "concur",
+      "auditValidationValid": true,
+      "auditDisagreementCount": 0,
+      "matcherRepresentability": {
+        "direct": 0,
+        "conditionalOnly": 1,
+        "unsupportedRelation": 3,
+        "hardUnsupportedRelationCount": 3,
+        "reasonCode": "cross_dimension_alternative",
+        "sourceSpan": "화성시 관내 제조업 기업(뿌리기술 또는 관련 사업 분야)"
+      },
+      "promotionReadiness": {
+        "auditComplete": "passed",
+        "matcherRepresentable": "blocked",
+        "autoPromotable": "blocked",
+        "terminalRoute": "human_review_required",
+        "blocker": "unsupported_relation"
+      },
+      "opsBucket": "analysis_complete_not_published",
+      "opsClassificationGap": "promotion readiness는 human_review_required이나 Ops는 analysis_complete_not_published로 분류한다.",
+      "primaryCostUsd": 0.380195,
+      "auditCostUsd": 0.026164,
+      "adjudicationCostUsd": 0.023816,
+      "costUsd": 0.430175,
+      "interpretation": "분석과 독립 감사는 합의했지만 matcher 표현 검증기가 업종 내부의 또는를 지역·사업장·업종 간 대안관계로 넓혀 차단한 것으로 보여 사람 검토가 필요하다."
+    },
+    {
+      "grantId": "d299fe64-5529-44e2-bcbc-05e4d3a64a9a",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000124138",
+      "title": "2026년 충북청주 강소특구 X 심텍 AI 제조혁신 오픈이노베이션 지원사업 모집 공고",
+      "sourceRevisionSha256": "56cfefa94cadff490d75ac7e92c9693d6642758a60605448c519ad40406f8d1d",
+      "inputSha256": "7559dbd6d795e28abb11e52719d8c132e8da6229068334a4b0f7f35810db989b",
+      "attachmentManifestSha256": "7ab5db61efab7ceeca414338e3bc2db45628a5ae356150f3458891475e12a9a2",
+      "inputChars": 19539,
+      "inputChunkCount": 2,
+      "includedAttachmentCount": 1,
+      "databaseRunId": "b4b75d26-0904-4666-ad34-ca4061f1d8ab",
+      "publicRunId": "da-20260730T034238103Z-ea87b93e-df88-4281-b6ed-748799ec093d",
+      "jobId": "ccc47210-7e53-4a48-a807-5a7f54143616",
+      "jobStatus": "dead_letter",
+      "attemptCount": 1,
+      "axisCount": 22,
+      "criterionCount": 11,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "unsure",
+      "auditValidationValid": false,
+      "auditDisagreementCount": 18,
+      "auditValidationIssues": [
+        {
+          "path": "$.criteria[8].value.debt_ratio_pct_threshold",
+          "code": "canonical_contract_invalid",
+          "message": "must be {value, inclusive}."
+        },
+        {
+          "path": "$.criteria[11].value.self_kind",
+          "code": "canonical_contract_invalid",
+          "message": "self scope requires a valid self_kind or channel=incubation_tenancy."
+        },
+        {
+          "path": "$.criteria[11].value.self_kind",
+          "code": "canonical_contract_invalid",
+          "message": "contains an unknown prior_award self kind."
+        }
+      ],
+      "matcherRepresentability": {
+        "direct": 6,
+        "conditionalOnly": 3,
+        "unsupportedRelation": 2,
+        "hardUnsupportedRelationCount": 2,
+        "reasonCode": "cross_dimension_alternative"
+      },
+      "promotionReadiness": {
+        "auditComplete": "blocked",
+        "matcherRepresentable": "blocked",
+        "autoPromotable": "blocked",
+        "terminalRoute": "human_review_required",
+        "blockers": [
+          "audit_not_concur",
+          "unsupported_relation"
+        ]
+      },
+      "opsBucket": "human_review_required",
+      "primaryCostUsd": 0.918415,
+      "auditCostUsd": 0.10225,
+      "adjudicationCostUsd": null,
+      "costUsd": 1.020665,
+      "interpretation": "primary의 22축과 exact evidence는 통과했지만 독립 audit 출력이 canonical 계약 오류 3건으로 무효라 자동 합의하거나 재실행하지 않고 사람 검토로 보존했다."
+    }
+  ],
+  "cloudExecution": {
+    "project": "changupnote-com",
+    "region": "asia-northeast3",
+    "authenticatedAccount": "sw@noten.im",
+    "impersonatedServiceAccount": "cunote-codex-dev@changupnote-com.iam.gserviceaccount.com",
+    "imageDigest": "sha256:f88fee6b14ce3ee48ef1016e73189fb842c52d4cf7d0fc32a4148883e1085ab8",
+    "serviceRevision": "f1a33fd9d56ba65dc26ee2eeaccc4e646b1fac4",
+    "activeGeneration": 69,
+    "executions": [
+      {
+        "id": "cunote-deep-analysis-dls4p",
+        "status": "succeeded",
+        "duration": "2m18.45s"
+      },
+      {
+        "id": "cunote-deep-analysis-6w25n",
+        "status": "succeeded",
+        "duration": "3m30.19s"
+      }
+    ],
+    "finalWorkerGeneration": "70/70",
+    "finalWorkerMode": "observe_only",
+    "finalClaimScope": "unconfigured",
+    "finalSmokeExecution": "cunote-deep-analysis-vn868",
+    "finalSmokeVerdict": "PASS_CLAIM_0_ALL_MUTATIONS_SKIPPED"
+  },
+  "opsVerification": {
+    "verifierVerdict": "FAIL_PREEXISTING_SERVING_MONITOR_DRIFT_ONLY",
+    "activeTotal": 650,
+    "classifiedTotal": 650,
+    "buckets": {
+      "serving_complete_fresh": 2,
+      "analysis_complete_not_published": 1,
+      "in_progress": 645,
+      "human_review_required": 1,
+      "blocked_or_failed": 0,
+      "stale": 1
+    },
+    "workerHealthy": true,
+    "activeWorkerCount": 0,
+    "activeLeaseCount": 0,
+    "servingMonitor": {
+      "expectedItems": 4,
+      "checkedItems": 4,
+      "freshItems": 3,
+      "failedReceipts": 1,
+      "failureScope": "이번 exact-2 실행 이전부터 존재한 serving receipt drift"
+    },
+    "classificationGap": "화성 공고의 matcher readiness는 human_review_required이지만 analysis_complete_not_published로 표시된다."
+  },
+  "safety": {
+    "permanentWorkerRestoredToObserveOnly": true,
+    "claimScopeRemoved": true,
+    "activeLeaseCount": 0,
+    "outOfCohortRunCount": 0,
+    "additionalPaidRetryCount": 0,
+    "promotionCount": 0,
+    "schedulerChanged": false,
+    "vercelDeployed": false,
+    "workerImageChanged": false,
+    "schemaOrMigrationAdded": false
+  },
+  "goalAssessment": {
+    "sealedInput": "PASS_2_OF_2",
+    "primaryDocumentUnderstanding": "PASS_2_OF_2",
+    "analysisTerminal": "PASS_2_OF_2",
+    "automaticPath": "PASS_0_OF_2",
+    "humanReviewReadiness": "REQUIRED_2_OF_2",
+    "opsHumanReviewSurface": "PARTIAL_1_OF_2",
+    "verdict": "공고와 HWP를 읽는 딥분석 core는 2/2 작동했지만 자동 매칭 투입은 0/2다. 한 건은 audit 계약 오류, 한 건은 matcher 표현 검증의 과보수 가능성과 Ops 분류 간극이 남았다."
+  },
+  "overengineeringAssessment": {
+    "verdict": "NO_NEW_PRODUCT_SCOPE",
+    "notDone": [
+      "공고별 prompt 튜닝",
+      "유료 재실행",
+      "세 번째 공고 실행",
+      "자동 승격",
+      "랜딩 확대",
+      "Ops 분류 코드 수정",
+      "기존 serving drift 수정"
+    ],
+    "nextNarrowDecision": "matcher cross_dimension_alternative의 false blocker와 analysis_complete_not_published 대 human_review_required 분류 간극 두 항목만 좁게 검토한다."
+  }
+}

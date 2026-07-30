@@ -5838,3 +5838,46 @@ primary normalized output, 독립 audit artifact와 결정론 validation issue�
 따라서 사람 verdict는 `needs_edit`, 자동승격은 `false`다. DB 예외 resolve,
 promotion, 유료 모델 재실행은 하지 않았다. 상세 evidence는
 `docs/evidence/deep-analysis/r5-human-review-2026-07-30.json`이다.
+
+### AQ17 R6 신규 exact 2건 운영 검증 — `ANALYSIS 2/2`, `AUTO 0/2`, `OPS HUMAN 1/2` (2026-07-30)
+
+AQ16 사람 검토를 마친 뒤, 현재 활성·v24 분석 이력 없음·HWP 1건을 만족하는
+서로 다른 source의 새 공고 2건만 봉인했다. claim UUID/hash를 고정하고
+동시성·invocation당 job을 1로 둔 채 각 공고를 한 번씩 실행했다. 추가 유료
+재시도, 세 번째 공고, promotion은 0이다.
+
+1. K-Startup `178613`은 본문과 HWP 1건, 4,118자를 봉인했다. primary 22축,
+   criterion 4건, exact evidence와 독립 audit `concur`까지 통과했다. 총비용은
+   `$0.430175`다. 그러나 matcher readiness는 동일 원문
+   “화성시 관내 제조업 기업(뿌리기술 또는 관련 사업 분야)”의 `또는`를
+   region·premises·industry 간 대안으로 해석해 hard unsupported relation 3건을
+   만들었다. 실제 문맥상 업종 내부 선택일 가능성이 높지만 자동으로 완화하지 않고
+   `human_review_required`로 판정했다.
+2. BizInfo `PBLN_000000000124138`은 본문과 HWP 1건, 19,539자를 봉인했다.
+   primary 22축, criterion 11건과 exact evidence는 통과했다. 독립 audit가
+   debt ratio threshold 형태 1건과 prior-award `self_kind` 2건의 canonical
+   계약 오류를 내 `auditValidationValid=false`, `unsure`가 됐다. 총비용은
+   `$1.020665`이며 재실행 없이 `human_review_required`로 보존했다.
+3. exact cohort 밖의 run은 0, 두 job의 attempt는 각각 1, 합계 비용은
+   `$1.450840`, 공고별 최대는 `$1.020665`로 `$2` 상한 안이다.
+4. 영구 worker는 generation `70/70`, `observe_only`, claim scope 미설정으로
+   복구했다. smoke `cunote-deep-analysis-vn868`은 claim 0,
+   enqueue/analysis/budget mutation skip으로 성공했고 활성 worker·lease는 0이다.
+5. Ops verifier의 활성/분류는 `650/650`이다. BizInfo는
+   `human_review_required`로 보이지만 K-Startup은 promotion readiness가
+   사람 검토를 요구함에도 `analysis_complete_not_published`로 보인다. 즉 현재
+   관제는 matcher readiness blocker를 사람 검토 bucket에 반영하지 못하는
+   분류 간극이 있다. 전체 verifier의 기존 serving receipt drift 1건도 그대로
+   보존했다.
+
+판정:
+
+- 공고와 HWP를 읽고 22축·근거를 만드는 딥분석 core는 새 표본에서 `2/2` 작동했다.
+- 자동 매칭 투입 가능은 `0/2`다. 한 건은 audit 출력 계약 오류, 한 건은 matcher
+  표현 검증의 과보수 가능성 때문에 차단됐다.
+- 다음 범위는 공고별 prompt 튜닝이나 유료 재실행이 아니다. 공통 원인인
+  `cross_dimension_alternative` false blocker와 Ops의
+  `analysis_complete_not_published`/`human_review_required` 분류 간극만 좁게
+  검토한다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r6-exact-2-2026-07-30.json`이다.
