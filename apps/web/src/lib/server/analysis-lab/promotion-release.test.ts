@@ -6,6 +6,7 @@ import {
   createPromotionReleaseManifest,
   isPromotionAggregateGateBlocking,
   isUnexplainedPromotionShadowTransition,
+  promotionAggregateDecidedCount,
   releasePlanItemHasUnsafePendingCriteria,
   mergePromotionApprovalGateEvidence,
   planSha256,
@@ -206,6 +207,26 @@ function manifest() {
     isPromotionAggregateGateBlocking([autoPromotableItem], "wrong_rate"),
     true,
     "봉인된 deep release도 오류율은 계속 발행을 차단해야 한다",
+  );
+  assert.equal(
+    promotionAggregateDecidedCount([pendingItem], {
+      correct: 3,
+      needsEdit: 0,
+      wrong: 0,
+      unsure: 21,
+    }),
+    24,
+    "일반 사람 검수 release의 unsure는 기존 정밀도 분모에 남아야 한다",
+  );
+  assert.equal(
+    promotionAggregateDecidedCount([conditionalPromotableItem], {
+      correct: 3,
+      needsEdit: 0,
+      wrong: 0,
+      unsure: 21,
+    }),
+    3,
+    "조건부 deep release의 사용자 확인 deferral은 확정 정밀도 분모에서 빠져야 한다",
   );
 }
 

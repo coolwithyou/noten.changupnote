@@ -28,6 +28,7 @@ import type { CohortFileV2 } from "./cohort-file";
 import { verifyPromotionSourceArtifact } from "./promotion-candidates";
 import {
   isPromotionAggregateGateBlocking,
+  promotionAggregateDecidedCount,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
   type PromotionAggregateGateId,
@@ -94,7 +95,12 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     0,
   );
   const costs = plans.map((item) => item.costUsd).filter((cost): cost is number => cost !== null);
-  const decided = correct + needsEdit + wrong + unsure;
+  const decided = promotionAggregateDecidedCount(plans, {
+    correct,
+    needsEdit,
+    wrong,
+    unsure,
+  });
   const strictPrecision = decided > 0 ? correct / decided : 0;
   const wrongRate = decided > 0 ? wrong / decided : 0;
   const missedPerNotice = missed / plans.length;

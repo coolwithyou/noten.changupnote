@@ -223,6 +223,34 @@ export type PromotionAggregateGateId =
   | "cost_per_notice_usd"
   | "structured_ratio";
 
+export interface PromotionAggregateVerdictCounts {
+  correct: number;
+  needsEdit: number;
+  wrong: number;
+  unsure: number;
+}
+
+/**
+ * 일반 사람 검수 release의 unsure는 기존처럼 미확정 판정으로 정밀도 분모에 남긴다.
+ * production deep-analysis release에서는 자동 검수 결정이 봉인한 unsure가 모두
+ * 사용자 확인 질문으로 이관된 deferral이므로 확정 판정의 정밀도/오류율 분모에서 뺀다.
+ */
+export function promotionAggregateDecidedCount(
+  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
+  verdicts: PromotionAggregateVerdictCounts,
+): number {
+  const deferredUnsure = isPromotableDeepAnalysisRelease(plans)
+    ? verdicts.unsure
+    : 0;
+  return (
+    verdicts.correct
+    + verdicts.needsEdit
+    + verdicts.wrong
+    + verdicts.unsure
+    - deferredUnsure
+  );
+}
+
 /**
  * 사람 검수 실험 release의 6개 게이트는 그대로 유지한다. 다만 독립 감사와 matcher
  * readiness까지 봉인된 production deep-analysis release에서는 정확성·누락·비용과
@@ -233,12 +261,16 @@ export function isPromotionAggregateGateBlocking(
   plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
   gateId: PromotionAggregateGateId,
 ): boolean {
-  const deepPromotableRelease =
-    plans.length > 0
+  if (!isPromotableDeepAnalysisRelease(plans)) return true;
+  return gateId !== "coverage_ratio" && gateId !== "structured_ratio";
+}
+
+function isPromotableDeepAnalysisRelease(
+  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
+): boolean {
+  return plans.length > 0
     && plans.every((item) =>
       isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness));
-  if (!deepPromotableRelease) return true;
-  return gateId !== "coverage_ratio" && gateId !== "structured_ratio";
 }
 
 /**
