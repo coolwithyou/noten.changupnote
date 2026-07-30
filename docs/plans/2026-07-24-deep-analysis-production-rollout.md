@@ -5928,3 +5928,46 @@ AQ17 두 유형을 오프라인 회귀로 고정했다.
 production build를 통과했다. 실DB Ops 쿼리는 활성 공고 `650/650`을 분류했고
 worker `observe_only`, 활성 lease `0`을 확인했다. Ops 전체 verifier의 FAIL은
 기존 serving receipt 불일치 `2/4`이며 이번 범위에서 수정하지 않았다.
+
+### AQ19 R7 신규 exact 2건 조건부 승격·랜딩 — `2/2 PASS` (2026-07-30)
+
+AQ18의 세 route가 실제 신규 공고와 랜딩 경로에서 작동하는지만 확인했다. 서로 다른
+source, HWP 포함, 전문 봉인, D-day 1 이상인 활성 공고 2건을 단일-ID bounded
+scope로 한 번씩 실행했다. 세 번째 공고, 프롬프트·모델 변경, 추가 유료 재시도는
+없다.
+
+1. BizInfo `PBLN_000000000119777`은 첨부 1건과 5,781자를 봉인해 22축,
+   criterion 13건, contract·evidence를 통과했다. audit canonical 출력 1건은
+   무효였지만 검증된 반대 finding은 0건이라 10개 criterion만 사용자 확인으로
+   남긴 `conditional_promotable`이다. 비용은 `$0.263983`이다.
+2. K-Startup `177974`는 첨부 5건과 18,485자를 봉인해 22축, criterion 11건,
+   contract·evidence를 통과했다. primary repair 1회 뒤 audit canonical 출력
+   1건이 무효였지만 반대 finding은 0건이며 11개 criterion을 조건부로 보존했다.
+   비용은 `$0.753653`이다.
+3. 최초 release는 조건부로 이관된 `unsure` 21건을 strict precision 분모에
+   포함해 `12.5% / ITERATE`로 막혔다. `f5d22de`는 일반 사람 검수 release를
+   바꾸지 않고 production deep release의 봉인된 deferral만 확정 판정 분모에서
+   제외한다. 테스트에서 일반 release는 분모 24, 조건부 deep release는 3으로
+   고정했다.
+4. 새 release `deep-production-r1-20260730T083955Z-f5d22dea`는 aggregate
+   `GO(4/4)`, shadow `PASS(2공고 × 125회사, issue 0)`, dry-run `2/2`,
+   canary/all promotion과 full serving `2/2`를 통과해 `active`가 됐다.
+   `wrong=0`, `missed=0`, 공고당 평균 비용은 `$0.508818`이다.
+5. 실제 production `POST https://changupnote.com/api/web/teaser`에 저장된
+   개발 검증용 사업자번호를 입력했다. HTTP 200, 19축 프로필, 평가 공고 4건,
+   반환 3건이며 신규 두 공고가 모두 `conditional`로 포함되고 다음 질문
+   `size`가 생성됐다. 사업자번호 원문은 로그나 evidence에 남기지 않았다.
+6. 영구 worker는 generation `75/75`, 새 digest, `observe_only`, claim env
+   0으로 복구했다. 최종 smoke `cunote-deep-analysis-dswz6`는 claim 0과
+   enqueue/analysis/budget mutation skip으로 성공했고 활성 lease는 0이다.
+
+판정:
+
+- “사업자번호 → 회사 파악 → 딥분석 공고 criterion → matcher → 결과/다음 질문”은
+  신규 2건 모두 실제 production에서 작동한다.
+- 이는 두 공고를 무조건 eligible로 만든 결과가 아니다. 자동 검수가 확정하지 못한
+  조건은 삭제하거나 사람 전체 검토로 막지 않고 `conditional`로 보존했다.
+- 과거 active release의 serving drift 2건은 이번 실행 전부터 존재하며 신규 release
+  full serving `2/2 PASS`와 분리한다. 이번 범위에서는 수선하지 않았다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r7-conditional-promotion-2026-07-30.json`이다.

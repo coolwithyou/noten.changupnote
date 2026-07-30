@@ -1,0 +1,253 @@
+{
+  "schema": "deep-analysis-r7-conditional-promotion-evidence-v1",
+  "checkpoint": "R7_EXACT_2_CONDITIONAL_PROMOTION_AND_LANDING",
+  "capturedAt": "2026-07-30T08:46:38Z",
+  "status": "ANALYSIS_2_OF_2_CONDITIONAL_2_OF_2_PROMOTED_2_OF_2_LANDING_PASS",
+  "scope": {
+    "expectedGrantCount": 2,
+    "observedGrantCount": 2,
+    "outOfCohortRunCount": 0,
+    "additionalPaidRetryCount": 0,
+    "maxConcurrency": 1,
+    "perNoticeCostCapUsd": 2,
+    "modelPolicyVersion": "deep-analysis-model-policy-v24",
+    "primaryModel": "claude-opus-4-8",
+    "auditModel": "claude-sonnet-5",
+    "promptChanged": false,
+    "modelChanged": false,
+    "thirdNoticeRun": false,
+    "schemaOrMigrationAdded": false,
+    "vercelDeployed": false
+  },
+  "deployment": {
+    "sourceCommit": "cf26053d141ca1edbc82fb1ee0f2f3e7b5718477",
+    "buildId": "356239d4-cbce-44c8-9135-d7a31106a339",
+    "imageDigest": "sha256:d92056a8e4d1b800f7761e4d1218d77262892167a32089c4800b1b35ff4724dc",
+    "project": "changupnote-com",
+    "region": "asia-northeast3",
+    "authenticatedAccount": "sw@noten.im",
+    "impersonatedServiceAccount": "cunote-codex-dev@changupnote-com.iam.gserviceaccount.com",
+    "jobs": {
+      "main": "75/75",
+      "inputPreparation": "28/28",
+      "servingMonitor": "21/21"
+    },
+    "initialSmoke": {
+      "mainExecution": "cunote-deep-analysis-kgf99",
+      "mainVerdict": "PASS_OBSERVE_ONLY",
+      "inputPreparationExecution": "cunote-deep-analysis-input-preparation-thhp8",
+      "inputPreparationVerdict": "PASS_TARGET_0",
+      "servingMonitorExecution": "cunote-deep-analysis-serving-monitor-bvb97",
+      "servingMonitorVerdict": "FAIL_PREEXISTING_DRIFT_2_OF_4",
+      "interpretation": "새 이미지의 실행 오류가 아니라 이전 active release 2건의 state/question hash drift를 관제가 검출했다."
+    }
+  },
+  "selection": {
+    "activeWithoutV24JobCandidateCountScanned": 300,
+    "eligibleAfterTodayCount": 284,
+    "selectionRule": "서로 다른 source, HWP 포함, 입력 전문 봉인, D-day 1 이상, 800000자 상한 이하",
+    "plannedCohortSha256": "4dd21582895553ce960f4539b6822d5b5ad23f8611ce659b86a09f401f2619d4",
+    "executionMode": "각 공고를 단일-ID bounded scope로 순차 실행"
+  },
+  "metrics": {
+    "sealedInputCount": 2,
+    "primaryContractAndEvidencePassedCount": 2,
+    "analysisCompleteCount": 2,
+    "conditionalPromotableCount": 2,
+    "humanReviewRequiredCount": 0,
+    "promotedCount": 2,
+    "totalCostUsd": 1.017636,
+    "maxPerGrantCostUsd": 0.753653,
+    "activeLeaseCountAfterRun": 0
+  },
+  "notices": [
+    {
+      "grantId": "93c2323f-36f6-4a72-b998-f3debe924ff0",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000119777",
+      "title": "2026년 전통문화 크라우드 펀딩 연계 지원 사업 참여기업 모집 공고",
+      "inputChars": 5781,
+      "includedAttachmentCount": 1,
+      "sourceRevisionSha256": "92afbaaf427615d05fe812a2c51839ef65bf1d76edac1863c0631873464fc08e",
+      "inputSha256": "98f5d5d1165755e1e22108f2dbf9dd4f13847f8aab0712a33d7adbe0f9f71ac5",
+      "attachmentManifestSha256": "6532cc663763c01eb970250eeedf10de1818a1838fc37abc21273292e9b96c70",
+      "jobId": "7dc548bc-2767-46ed-b1f8-c72317c96dee",
+      "databaseRunId": "b1b4a359-9a2a-47e0-8f8f-6771e39b42c4",
+      "publicRunId": "da-20260730T082552158Z-95f899e3-3844-4509-922a-0879dfb9861b",
+      "cloudExecution": "cunote-deep-analysis-btcvd",
+      "attemptCount": 1,
+      "axisCount": 22,
+      "criterionCount": 13,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "unsure",
+      "auditValidationValid": false,
+      "auditValidationIssue": "target_type canonical contract invalid",
+      "verifiedContraryFindingCount": 0,
+      "deferredCriterionCount": 10,
+      "automationRoute": "conditional_promotable",
+      "costUsd": 0.263983,
+      "publishedCriterionCount": 13,
+      "activePerNoticeQuestionCount": 0
+    },
+    {
+      "grantId": "dca718ee-ddaf-4aed-80a1-c2d675847b61",
+      "source": "kstartup",
+      "sourceId": "177974",
+      "title": "2026년 연구개발특구 딥테크 스타트업 챌린지 참여기업 모집 공고",
+      "inputChars": 18485,
+      "includedAttachmentCount": 5,
+      "sourceRevisionSha256": "d1a7b5c011b1a2eec205dbb0c30636f86ac5166ad0c91335e55b7f439976499a",
+      "inputSha256": "bcc07a5850a02b570b44937a73f162b9c6d0aff281d796bc80ca2345496bb3fe",
+      "attachmentManifestSha256": "9bfe2b9ff9bc2d8cc7a716a44622f63f7eb6a78579fe32bfa82917b08a4e8fd6",
+      "jobId": "cb21d9d8-4406-4d43-b7b1-74b41f2d76d7",
+      "databaseRunId": "7743e495-f6a6-407c-8c70-d77ea2d634c4",
+      "publicRunId": "da-20260730T082858200Z-4fc376ad-b010-4d45-80e9-74c671fba776",
+      "cloudExecution": "cunote-deep-analysis-t9s65",
+      "attemptCount": 1,
+      "axisCount": 22,
+      "criterionCount": 11,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "primaryPassCount": 2,
+      "primaryRepairCount": 1,
+      "auditVerdict": "unsure",
+      "auditValidationValid": false,
+      "auditValidationIssue": "region canonical contract invalid",
+      "verifiedContraryFindingCount": 0,
+      "deferredCriterionCount": 11,
+      "automationRoute": "conditional_promotable",
+      "costUsd": 0.753653,
+      "publishedCriterionCount": 11,
+      "activePerNoticeQuestionCount": 0
+    }
+  ],
+  "aggregateGateCorrection": {
+    "abandonedPreparedRelease": {
+      "releaseId": "deep-production-r1-20260730T083357Z-cf26053d",
+      "status": "prepared",
+      "aggregateVerdict": "ITERATE",
+      "strictPrecisionBefore": 0.125,
+      "promotionWrites": 0
+    },
+    "rootCause": "conditional_promotable이 사용자 확인으로 넘긴 unsure 21건을 집계기가 확정 판정의 strict precision 분모에 포함했다.",
+    "correctionCommit": "f5d22deaaf2cca080186e46bc707d3b699ddaed9",
+    "correction": "production deep-analysis release에서만 봉인된 deferred unsure를 확정 정밀도와 오류율 분모에서 제외한다.",
+    "generalHumanReviewedReleaseUnchanged": true,
+    "verification": {
+      "promotionReleaseTest": "PASS",
+      "webTypecheck": "PASS"
+    }
+  },
+  "activeRelease": {
+    "releaseId": "deep-production-r1-20260730T083955Z-f5d22dea",
+    "gitCommit": "f5d22deaaf2cca080186e46bc707d3b699ddaed9",
+    "manifestSha256": "eaeace75936a53d6777a48ced57d4ab492c798921a3fe5d56e8f8555d6fcd152",
+    "releasePlanSha256": "1fac57a2c4f16f2ce189e8ccc8f95ed74516feef6c4c39f066d3c3b402a68893",
+    "status": "active",
+    "appliedCount": 2,
+    "aggregate": {
+      "verdict": "GO",
+      "blockingGatesPassed": "4/4",
+      "strictPrecision": 1,
+      "wrongRate": 0,
+      "missedPerNotice": 0,
+      "costPerNoticeUsd": 0.508818,
+      "coverageRatioObserved": 0.6,
+      "structuredRatioObserved": 4.333333333333333,
+      "sourceDriftCount": 0,
+      "deferredUnsureCount": 21
+    },
+    "shadow": {
+      "verdict": "PASS",
+      "grantCount": 2,
+      "companyCount": 125,
+      "grantCompanyPairs": 250,
+      "guardIssueCount": 0,
+      "baselineDriftCount": 0,
+      "sourceDriftCount": 0,
+      "eligibilityMatrix": {
+        "conditional_to_conditional": 250
+      },
+      "newlyIneligiblePairs": 0,
+      "allCompanyKeysPseudonymized": true
+    },
+    "dryRun": {
+      "verdict": "PASS",
+      "baselineMatches": "2/2",
+      "sourceDriftCount": 0
+    },
+    "promotionVerification": {
+      "canary": "PASS",
+      "all": "PASS"
+    },
+    "servingVerification": {
+      "verdict": "PASS",
+      "checked": 2,
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "landingVerification": {
+    "endpoint": "POST https://changupnote.com/api/web/teaser",
+    "businessNumberSource": "POPBILL_CHECK_CORP_NUM",
+    "rawBusinessNumberLogged": false,
+    "httpStatus": 200,
+    "ok": true,
+    "evaluatedGrantCount": 4,
+    "returnedMatchCount": 3,
+    "profileAxisCount": 19,
+    "nextQuestionDimension": "size",
+    "newNotices": [
+      {
+        "grantId": "93c2323f-36f6-4a72-b998-f3debe924ff0",
+        "found": true,
+        "eligibility": "conditional"
+      },
+      {
+        "grantId": "dca718ee-ddaf-4aed-80a1-c2d675847b61",
+        "found": true,
+        "eligibility": "conditional"
+      }
+    ],
+    "interpretation": "사업자번호로 회사 19축 프로필을 만들고 딥분석으로 발행된 두 공고를 matcher가 평가했다. 확인 전 애매한 조건은 eligible로 강제하지 않고 conditional과 다음 프로필 질문으로 남겼다."
+  },
+  "finalSafety": {
+    "workerMode": "observe_only",
+    "workerGeneration": "75/75",
+    "claimScope": "unconfigured",
+    "claimEnvironmentVariableCount": 0,
+    "activeLeaseCount": 0,
+    "finalSmokeExecution": "cunote-deep-analysis-dswz6",
+    "finalSmokeVerdict": "PASS_CLAIM_0_ALL_MUTATIONS_SKIPPED",
+    "schedulerChanged": false,
+    "serviceAccountsChanged": false,
+    "commandsOrArgsChanged": false
+  },
+  "knownOutOfScopeState": {
+    "preexistingServingMonitorDrift": "2/4 active items failed before this release",
+    "newReleaseServingVerification": "2/2 PASS",
+    "oldDriftRemediated": false,
+    "reason": "과거 release 상태 수선은 이번 exact-2 및 랜딩 검증 범위와 분리한다."
+  },
+  "goalAssessment": {
+    "noticeAndHwpDeepAnalysis": "PASS_2_OF_2",
+    "automaticValidationRouting": "PASS_CONDITIONAL_2_OF_2",
+    "promotionAndServing": "PASS_2_OF_2",
+    "businessNumberToDeepMatching": "PASS_2_OF_2",
+    "fullyResolvedWithoutUserInput": "NO_0_OF_2",
+    "verdict": "사업자번호 입력부터 딥분석 공고 매칭까지 실제 production 경로가 작동한다. 두 공고 모두 검증된 반대 finding 없이 조건부로 승격됐고, 부족한 회사 정보는 질문 전까지 conditional로 보존된다."
+  },
+  "overengineeringAssessment": {
+    "verdict": "BOUNDED",
+    "notDone": [
+      "프롬프트 또는 모델 변경",
+      "세 번째 공고 실행",
+      "전체 활성 공고 백필",
+      "과거 serving drift 수선",
+      "새 per-notice 질문 UI 구현",
+      "Vercel 배포",
+      "DB schema 또는 migration 추가"
+    ]
+  }
+}
