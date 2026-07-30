@@ -26,12 +26,14 @@
 
 `apps/web`에는 admin page/API route를 남기지 않는다. `apps/web/src/proxy.ts`가 사용자 앱에서 `/admin`, `/internal/live-match` 접근은 `ops.changupnote.com`으로 redirect하고, `/api/admin/*`, `/api/matches/live`는 `admin_moved_to_ops` 404로 닫는다.
 
-Vercel에는 신규 프로젝트 `changupnote-ops`가 생성되었고 production deploy는 준비 상태다.
+Vercel에는 별도 프로젝트 `changupnote-ops`가 생성되었고 production deploy는 준비 상태다.
 
-- Project: `team-coolwithyou/changupnote-ops`
-- Production deployment: `dpl_fFFPqisUYCwNp4iMpcydbCoTfYt1`
+- Project: `noten/changupnote-ops`
+- Production deployment: `dpl_3h3DKTovgLiG6D8VLWwNNcs9Pe9f`
 - Default alias: `https://changupnote-ops.vercel.app`
 - Smoke: `/`는 `/login`으로 redirect, `/login`은 200, 로그인 전 `/api/admin/status`와 `/api/matches/live`는 401
+
+2026-07-30에 프로젝트를 Vercel의 공식 project transfer로 `team-coolwithyou`에서 Pro 팀 `NOTEN`으로 이전했다. 프로젝트 id `prj_O71GjH8sXqXl4nNxOanOrWalfNHG`, production deployment와 history, `ops.changupnote.com`, 22개 sensitive production env를 보존했으며 기존 팀 범위에서는 프로젝트가 더 이상 조회되지 않는다. Cloudflare의 proxied `ops.changupnote.com -> cname.vercel-dns.com` CNAME은 변경 없이 새 소유 프로젝트로 연결된다. Ops 앱 자체의 Vercel Cron 정의는 없고, 서비스 Cron 9개는 별도 `noten/changupnote` 웹 프로젝트에서 Pro 상태로 활성화되어 있다.
 
 `ops.changupnote.com` 커스텀 도메인은 Vercel project domain API로 `changupnote-ops`에 연결했고, Cloudflare DNS/TXT 검증 후 verified 상태가 되었다. Cloudflare DNS에는 `ops.changupnote.com -> cname.vercel-dns.com` CNAME을 추가했고 proxy도 켰다. WAF allowlist expression에도 `ops.changupnote.com`을 포함했다.
 
