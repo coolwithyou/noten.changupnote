@@ -5971,3 +5971,41 @@ scope로 한 번씩 실행했다. 세 번째 공고, 프롬프트·모델 변경
   full serving `2/2 PASS`와 분리한다. 이번 범위에서는 수선하지 않았다.
 - 상세 evidence는
   `docs/evidence/deep-analysis/r7-conditional-promotion-2026-07-30.json`이다.
+
+### AQ20 R8 신규 exact 2건 자동 판정 — `ANALYSIS 2/2`, `AUTO 1`, `CONDITIONAL 1` (2026-07-30)
+
+AQ19에서 실제 랜딩 경로까지 확인한 뒤, 세 route가 새 공고에서도 반복되는지만
+다시 좁게 확인했다. 활성·v24 분석 이력 없음·D-day 1 이상·HWP 포함·전문 봉인
+가능 조건을 만족하는 서로 다른 source의 새 공고 2건을 단일-ID bounded scope로
+한 번씩 실행했다. 세 번째 공고, 프롬프트·모델 변경, 추가 유료 재시도, promotion,
+랜딩 재검증은 하지 않았다.
+
+1. K-Startup `177978`은 공고와 첨부 2건, 3,595자를 3개 chunk로 봉인했다.
+   primary 22축·criterion 4건, contract·exact evidence, 독립 audit `concur`를
+   모두 통과했고 deferral 없이 `auto_promotable`이 됐다. 비용은
+   `$0.186220`이다.
+2. BizInfo `PBLN_000000000122935`는 공고와 첨부 2건, 22,302자를 3개 chunk로
+   봉인했다. primary repair 1회 뒤 22축·criterion 24건, contract·exact
+   evidence를 통과했으며 독립 audit도 `concur`였다. 비용은 `$0.950133`이다.
+3. 두 번째 공고의 “본사 또는 공장이 전남·광주에 소재”는 `region`과
+   `premises` 두 축을 가로지르는 OR 관계다. 현재 matcher가 이 관계를 직접
+   표현하지 못하므로 공고 전체를 사람 검토로 막지 않고 해당 criterion index
+   `0, 1`만 사용자 확인 대상으로 남긴 `conditional_promotable`로 판정했다.
+4. 실행 창에는 두 run만 존재하고 cohort 밖 run은 0, attempt는 각각 1이다.
+   합계 비용은 `$1.136353`, 공고별 최대는 `$0.950133`으로 공고당 `$2` 상한
+   안이다. 두 공고 모두 `human_review_required`나 실패로 이동하지 않았다.
+5. 영구 worker는 generation `79/79`, `observe_only`, claim env 0으로
+   복구했다. 최종 smoke `cunote-deep-analysis-84fxt`는 claim 0과
+   enqueue/analysis/budget mutation skip으로 성공했고 활성 lease는 0이다.
+
+판정:
+
+- 공고와 HWP를 읽어 22축을 채우고 서로 다른 AI가 검수한 뒤 자동/조건부 경로로
+  나누는 핵심 구조는 새 표본에서도 `2/2` 작동했다.
+- 완전 자동 처리는 `1/2`이고, 나머지 `1/2`는 실패가 아니라 사용자에게 확인할
+  조건 두 개만 남긴 지속 가능한 조건부 상태다.
+- 이번 체크포인트는 분석과 경로 판정까지만이다. 두 결과는 아직 발행되지 않았으며
+  사업자번호 랜딩 매칭에 새로 투입하지 않았다. promotion과 랜딩 확인은 다음
+  승인 범위로 분리한다.
+- 상세 evidence는
+  `docs/evidence/deep-analysis/r8-exact-2-2026-07-30.json`이다.

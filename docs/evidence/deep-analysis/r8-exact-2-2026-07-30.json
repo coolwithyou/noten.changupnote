@@ -1,0 +1,202 @@
+{
+  "schema": "deep-analysis-r8-exact-2-evidence-v1",
+  "checkpoint": "R8_EXACT_2_AUTOMATION_ROUTE",
+  "capturedAt": "2026-07-30T10:36:37Z",
+  "status": "ANALYSIS_2_OF_2_AUTO_1_CONDITIONAL_1_PROMOTION_0",
+  "scope": {
+    "expectedGrantCount": 2,
+    "observedGrantCount": 2,
+    "outOfCohortRunCount": 0,
+    "additionalPaidRetryCount": 0,
+    "maxConcurrency": 1,
+    "perNoticeCostCapUsd": 2,
+    "modelPolicyVersion": "deep-analysis-model-policy-v24",
+    "primaryModel": "claude-opus-4-8",
+    "auditModel": "claude-sonnet-5",
+    "promptChanged": false,
+    "modelChanged": false,
+    "thirdNoticeRun": false,
+    "promotionExecuted": false,
+    "landingVerified": false,
+    "schemaOrMigrationAdded": false,
+    "vercelDeployed": false
+  },
+  "deployment": {
+    "sourceCommit": "cf26053d141ca1edbc82fb1ee0f2f3e7b5718477",
+    "imageDigest": "sha256:d92056a8e4d1b800f7761e4d1218d77262892167a32089c4800b1b35ff4724dc",
+    "project": "changupnote-com",
+    "region": "asia-northeast3",
+    "authenticatedAccount": "sw@noten.im",
+    "impersonatedServiceAccount": "cunote-codex-dev@changupnote-com.iam.gserviceaccount.com",
+    "jobs": {
+      "main": "79/79",
+      "inputPreparation": "28/28",
+      "servingMonitor": "21/21"
+    }
+  },
+  "selection": {
+    "rule": "활성, v24 분석 이력 없음, D-day 1 이상, HWP 포함, 입력 전문 봉인 가능, 서로 다른 source",
+    "plannedCohortSha256": "5299902cc9192b8d0a15a9c9499195ab5e0ab7c2c3db5086e43a7ba44893ffe3",
+    "executionMode": "각 공고를 단일-ID bounded scope로 순차 실행",
+    "skippedBeforeExecution": [
+      {
+        "grantId": "1f2df899-7bb9-4dd3-b961-74db87ba278c",
+        "source": "bizinfo",
+        "sourceId": "PBLN_000000000122793",
+        "reason": "blocked_fetch로 입력 전문을 봉인할 수 없어 유료 실행 전에 제외"
+      }
+    ]
+  },
+  "metrics": {
+    "sealedInputCount": 2,
+    "primaryContractAndEvidencePassedCount": 2,
+    "independentAuditPassedCount": 2,
+    "analysisCompleteCount": 2,
+    "autoPromotableCount": 1,
+    "conditionalPromotableCount": 1,
+    "humanReviewRequiredCount": 0,
+    "promotedCount": 0,
+    "totalCostUsd": 1.136353,
+    "maxPerGrantCostUsd": 0.950133,
+    "activeLeaseCountAfterRun": 0
+  },
+  "notices": [
+    {
+      "grantId": "1b090b24-b05c-4f42-ace2-b39ad96f7d50",
+      "source": "kstartup",
+      "sourceId": "177978",
+      "title": "12대 국가전략기술 분야 기술이전 수요 모집",
+      "inputChars": 3595,
+      "inputChunkCount": 3,
+      "includedAttachmentCount": 2,
+      "sourceRevisionSha256": "6924bf822e8deca02fe31f32c1cc3503c93d9e53955c01a2040c6143c7f7339c",
+      "inputSha256": "c6781186cdc824efa82b5d4c42f91dcbf7b04ea84ada619439f9ac33cd06eb1e",
+      "attachmentManifestSha256": "90fed5cd14b5d3239198a778d6f7c12ff63e2ce62fe33b428092cfce070f3540",
+      "claimCohortSha256": "d5c600e0c80199d6c4ece9ed3015098edc02fec2996615b66ebfc690c321be79",
+      "jobId": "ed25322e-20ec-406d-97ee-3a0bb689fb14",
+      "databaseRunId": "3103a75b-4d73-4ae5-b458-a8a6fcd31fa0",
+      "publicRunId": "da-20260730T102621223Z-585885b4-10dc-4ce3-adf4-51875f678d16",
+      "cloudExecution": "cunote-deep-analysis-tvxtg",
+      "cloudExecutionSucceeded": true,
+      "attemptCount": 1,
+      "axisCount": 22,
+      "criterionCount": 4,
+      "primaryPassCount": 1,
+      "primaryRepairCount": 0,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "concur",
+      "auditValidationValid": true,
+      "auditDisagreementCount": 0,
+      "deferredCriterionCount": 0,
+      "automationRoute": "auto_promotable",
+      "costUsd": 0.18622,
+      "promotionState": "not_published"
+    },
+    {
+      "grantId": "6d8a08b5-f145-4767-ae15-c30f745eb03e",
+      "source": "bizinfo",
+      "sourceId": "PBLN_000000000122935",
+      "title": "[전남] 2026년 동유럽(불가리아, 헝가리) 시장개척단 파견 참가기업 모집 공고",
+      "inputChars": 22302,
+      "inputChunkCount": 3,
+      "includedAttachmentCount": 2,
+      "sourceRevisionSha256": "64cb3a8280689d6afbf2ea5535023068c9a38f6a1aa850292f631593e4e67a7b",
+      "inputSha256": "104e60b1d704ad98464eb852324fc2611d33c02bac2f4889458f362ac59497aa",
+      "attachmentManifestSha256": "797c6e3e250157a386095544b6e2757cadde16add0dcdc5b5f2e8655ec128fde",
+      "claimCohortSha256": "d9555b60c450cd6fdf6c0dd79040b09087704a9053b25aa3f269f34d68b8e1f0",
+      "jobId": "9c9f36a0-7bde-4ce3-93ad-159a2ad9ca0e",
+      "databaseRunId": "3d9f5898-0449-49d8-8530-a480ff4a8e9b",
+      "publicRunId": "da-20260730T102930360Z-c8e166a8-8096-4cfc-a7c0-1bf48067d431",
+      "cloudExecution": "cunote-deep-analysis-fmlhw",
+      "cloudExecutionSucceeded": true,
+      "attemptCount": 1,
+      "axisCount": 22,
+      "criterionCount": 24,
+      "primaryPassCount": 2,
+      "primaryRepairCount": 1,
+      "primaryContractValid": true,
+      "evidenceGrounded": true,
+      "auditVerdict": "concur",
+      "auditValidationValid": true,
+      "auditDisagreementCount": 0,
+      "deferredCriterionCount": 2,
+      "deferredCriterionIndexes": [
+        0,
+        1
+      ],
+      "deferredRelation": {
+        "reasonCode": "cross_dimension_alternative",
+        "sourceSpan": "본사 또는 공장이 전남 ․광주에 소재한 (수출)중소기업",
+        "dimensions": [
+          "region",
+          "premises"
+        ],
+        "interpretation": "본사 또는 공장이라는 OR 관계를 현재 matcher가 두 축에 걸쳐 직접 표현하지 못해 해당 조건만 사용자 확인 대상으로 보존"
+      },
+      "automationRoute": "conditional_promotable",
+      "costUsd": 0.950133,
+      "promotionState": "not_published"
+    }
+  ],
+  "windowIsolation": {
+    "startedAtGte": "2026-07-30T10:26:00Z",
+    "startedAtLt": "2026-07-30T10:34:00Z",
+    "runCount": 2,
+    "expectedGrantRunCount": 2,
+    "outOfCohortRunCount": 0,
+    "attemptCounts": [
+      1,
+      1
+    ]
+  },
+  "finalSafety": {
+    "workerMode": "observe_only",
+    "workerGeneration": "79/79",
+    "claimScope": "unconfigured",
+    "claimEnvironmentVariableCount": 0,
+    "maxJobs": 1,
+    "maxConcurrentJobs": 1,
+    "maxEnqueueJobs": 1,
+    "perNoticeCostCapUsd": 2,
+    "activeLeaseCount": 0,
+    "finalSmokeExecution": "cunote-deep-analysis-84fxt",
+    "finalSmokeVerdict": "PASS_CLAIM_0_ALL_MUTATIONS_SKIPPED",
+    "finalSmoke": {
+      "ok": true,
+      "executionMode": "observe_only",
+      "claimScope": "unconfigured",
+      "claimCohortCount": 0,
+      "claimed": 0,
+      "succeeded": 0,
+      "failed": 0,
+      "enqueueSkipped": true,
+      "analysisSkipped": true,
+      "budgetMutationSkipped": true
+    },
+    "schedulerChanged": false,
+    "serviceAccountsChanged": false,
+    "commandsOrArgsChanged": false
+  },
+  "goalAssessment": {
+    "noticeAndHwpDeepAnalysis": "PASS_2_OF_2",
+    "automaticValidationRouting": "PASS_AUTO_1_CONDITIONAL_1",
+    "fullyResolvedWithoutUserInput": "PASS_1_OF_2",
+    "failedOrHumanReviewRequired": "NO_0_OF_2",
+    "promotionAndLanding": "NOT_EXECUTED_BY_SCOPE",
+    "verdict": "두 공고 모두 공고와 HWP를 봉인해 22축 분석과 독립 AI 검수를 통과했다. 한 건은 자동 승격 가능하고, 한 건은 교차축 OR 조건 두 개만 사용자 확인으로 남기는 조건부 승격 가능 상태다."
+  },
+  "overengineeringAssessment": {
+    "verdict": "BOUNDED",
+    "notDone": [
+      "프롬프트 또는 모델 변경",
+      "세 번째 공고 실행",
+      "실패하지 않은 공고의 재실행",
+      "전체 활성 공고 백필",
+      "새 사용자 질문 UI 구현",
+      "승격 또는 랜딩 재검증",
+      "Vercel 배포",
+      "DB schema 또는 migration 추가"
+    ]
+  }
+}
