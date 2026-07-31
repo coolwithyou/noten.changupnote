@@ -62,6 +62,29 @@ interface ResetResult {
   detachedAggregateChildren: number;
 }
 
+const RESET_APPEND_ONLY_TRIGGERS = [
+  {
+    table: "admin_deep_analysis_actions",
+    trigger: "admin_deep_analysis_actions_append_only",
+  },
+  {
+    table: "grant_deep_analysis_audits",
+    trigger: "grant_deep_analysis_audits_append_only",
+  },
+  {
+    table: "grant_deep_analysis_axis_results",
+    trigger: "grant_deep_analysis_axis_results_append_only",
+  },
+  {
+    table: "grant_deep_analysis_exception_events",
+    trigger: "grant_deep_analysis_exception_events_append_only",
+  },
+  {
+    table: "grant_deep_analysis_stage_receipts",
+    trigger: "grant_deep_analysis_stage_receipts_append_only",
+  },
+] as const;
+
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((argument) => argument.startsWith(prefix))
@@ -393,6 +416,9 @@ async function executeReset(
     }
     assertDeepAnalysisLayerRebuildPreconditions(currentPlan);
 
+    await assertResetTriggersEnabled(transaction);
+    await setResetTriggersEnabled(transaction, false);
+
     const keepRunIds = currentPlan.keepRuns.map((run) => run.id);
     const keepJobIds = [...new Set(currentPlan.keepRuns.map((run) => run.jobId))];
     const deletedLanding = await transaction.unsafe(
@@ -467,6 +493,8 @@ async function executeReset(
       "delete from grant_deep_analysis_jobs where not (id = any($1::uuid[]))",
       [keepJobIds],
     );
+    await setResetTriggersEnabled(transaction, true);
+    await assertResetTriggersEnabled(transaction);
 
     const result: ResetResult = {
       deleted: {
@@ -545,6 +573,47 @@ async function executeReset(
     }
     return { result, after };
   });
+}
+
+async function assertResetTriggersEnabled(
+  client: QueryClient,
+): Promise<void> {
+  const rows = await client.unsafe<Array<{
+    table_name: string;
+    trigger_name: string;
+    enabled: string;
+  }>>(`
+    select
+      table_class.relname as table_name,
+      trigger.tgname as trigger_name,
+      trigger.tgenabled as enabled
+    from pg_trigger trigger
+    join pg_class table_class on table_class.oid = trigger.tgrelid
+    where not trigger.tgisinternal
+      and trigger.tgname = any($1::text[])
+    order by table_class.relname, trigger.tgname
+  `, [RESET_APPEND_ONLY_TRIGGERS.map((entry) => entry.trigger)]);
+  const observed = new Map(
+    rows.map((row) => [`${row.table_name}.${row.trigger_name}`, row.enabled]),
+  );
+  for (const entry of RESET_APPEND_ONLY_TRIGGERS) {
+    const key = `${entry.table}.${entry.trigger}`;
+    if (observed.get(key) !== "O") {
+      throw new Error(`append-only trigger가 활성 상태가 아닙니다: ${key}`);
+    }
+  }
+}
+
+async function setResetTriggersEnabled(
+  client: QueryClient,
+  enabled: boolean,
+): Promise<void> {
+  const action = enabled ? "enable" : "disable";
+  for (const entry of RESET_APPEND_ONLY_TRIGGERS) {
+    await client.unsafe(
+      `alter table ${entry.table} ${action} trigger ${entry.trigger}`,
+    );
+  }
 }
 
 async function main(): Promise<number> {

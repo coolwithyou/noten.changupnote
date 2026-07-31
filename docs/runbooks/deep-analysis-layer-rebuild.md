@@ -58,6 +58,8 @@ storage 정리 대상으로 둔다.
 - dry-run `stateSha256` 앞 12자 이상과 backup 파일이 있어야 한다.
 - 트랜잭션 advisory lock, `lock_timeout=5s`, statement별 `120s` 제한을 사용한다.
 - `TRUNCATE CASCADE`를 사용하지 않고 FK 역순으로 명시적 `DELETE`를 수행한다.
+- reset 대상 append-only trigger 5개는 동일 트랜잭션 안에서만 비활성화하고 삭제 직후
+  재활성화한다. trigger 이름·상태가 예상과 다르면 rollback한다.
 - 삭제 count 또는 사후 count가 하나라도 다르면 전체 트랜잭션을 rollback한다.
 - 실행 receipt는 로컬 artifact와 `usage_events/deep_analysis_layer_rebuild`에 남긴다.
 
