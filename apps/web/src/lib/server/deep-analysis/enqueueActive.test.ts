@@ -109,6 +109,8 @@ assert.match(pendingSql, /deep_raw\.collected_at/);
 assert.match(pendingSql, /deep_attachment\.updated_at/);
 assert.match(pendingSql, /deep_artifact\.created_at/);
 assert.doesNotMatch(pendingSql, /deep_job\.updated_at/);
+assert.match(pendingSql, /date_trunc\(\s*'milliseconds'/);
+assert.match(sourceChangedAtSql, /date_trunc\(\s*'milliseconds'/);
 for (const renderedSql of [pendingSql, sourceChangedAtSql]) {
   assert.match(renderedSql, /"grants"\."id"/);
   assert.match(renderedSql, /"grants"\."source"/);
