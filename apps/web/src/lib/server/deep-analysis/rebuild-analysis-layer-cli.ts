@@ -375,7 +375,7 @@ async function executeReset(
     await transaction.unsafe("set local lock_timeout = '5s'");
     await transaction.unsafe("set local statement_timeout = '120s'");
     const [lock] = await transaction.unsafe<Array<{ acquired: boolean }>>(
-      "select pg_try_advisory_xact_lock(hashtext($1)) as acquired",
+      "select pg_try_advisory_xact_lock(hashtext($1::text)) as acquired",
       [DEEP_ANALYSIS_LAYER_REBUILD_LOCK],
     );
     if (!lock?.acquired) {
