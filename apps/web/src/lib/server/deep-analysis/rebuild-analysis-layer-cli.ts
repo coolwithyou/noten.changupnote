@@ -417,8 +417,8 @@ async function executeReset(
        set run_id = null,
            job_id = null,
            detail = detail || jsonb_build_object(
-             'analysisLayerResetStateSha256', $1,
-             'analysisLayerResetActor', $2
+             'analysisLayerResetStateSha256', $1::text,
+             'analysisLayerResetActor', $2::text
            )
        where (run_id is not null and not (run_id = any($3::uuid[])))
           or (job_id is not null and not (job_id = any($4::uuid[])))`,
