@@ -590,11 +590,14 @@ export function matchVerdictStatus(match: MatchCard): VerdictStatus {
   const tier = recommendationTierForMatch(match);
   if (match.status === "open" && match.eligibility === "eligible" && tier === "recommendable") return "open";
   if (isOneAnswerMatch(match)) return "one_answer";
+  // 하드 조건에서 이미 미해당으로 확정된 카드는 점수를 숨겨도 원문 검수 대상이 아니다.
+  // 전체 결과에서는 "이번엔 어려움"으로 정직하게 설명한다.
+  if (tier === "not_recommended" || match.eligibility === "ineligible") return "closed";
   if (
     tier === "needs_core_review" ||
     match.criteriaExtracted === false ||
     (tier === "needs_profile_input" && answerableUnknownDimensions(match).size === 0) ||
-    (tier !== "needs_profile_input" && match.scoreDisplay === "hidden")
+    (tier === "recommendable" && match.scoreDisplay === "hidden")
   ) {
     return "check_source";
   }
