@@ -208,7 +208,7 @@ export interface TeaserResult {
     needsProfileInput?: number;
     /** 사용자가 답할 수 있는 미확인 축이 정확히 하나인 공고 수. */
     oneAnswer?: number;
-    /** 원문·구조화 확인이 먼저 필요한 공고 수. */
+    /** 내부 호환 필드. 사용자 티저에서는 OPS 검수 대기 공고를 숨기므로 0이다. */
     needsCoreReview?: number;
     /** 취득·준비 조건을 갖추면 다시 판정할 수 있는 공고 수. */
     preparable?: number;

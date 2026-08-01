@@ -40,12 +40,17 @@ export function buildTeaser<TPayload>({
     match: withMatchRanking(item, company, matchNormalizedGrant(item, company), { asOf }),
   }));
   const sorted = sortMatchedGrants(matched);
-  const nextQuestion = planProfileQuestions(sorted, {
+  // 자동 검수·승격이 끝나지 않은 공고의 불확실성은 OPS가 해소할 문제다.
+  // 일반 사용자에게 카드나 질문으로 넘기지 않고, 전체 대조 범위(searchContext)에만 포함한다.
+  const servingReady = sorted.filter((entry) =>
+    recommendationTierForMatch(entry.match) !== "needs_core_review"
+  );
+  const nextQuestion = planProfileQuestions(servingReady, {
     asOf,
     limit: 1,
     excludeDimensions: activeUnknownQuestionDimensions(company, asOf),
   })[0]?.question ?? null;
-  const cards = sorted.map((entry) => toMatchCard(entry, { asOf }));
+  const cards = servingReady.map((entry) => toMatchCard(entry, { asOf }));
   const allRecommendableCards = cards.filter(isRecommendableCard);
   const openRecommendableCards = allRecommendableCards.filter((card) => card.status === "open");
   const visibleRecommendableCards = allRecommendableCards.filter(
@@ -57,9 +62,6 @@ export function buildTeaser<TPayload>({
     (card) => recommendationTierForCard(card) === "needs_profile_input",
   ).length;
   const oneAnswerCount = cards.filter(isOneAnswerCard).length;
-  const needsCoreReviewCount = cards.filter(
-    (card) => recommendationTierForCard(card) === "needs_core_review",
-  ).length;
   const notRecommendedCards = cards.filter(isNotRecommendedCard);
   const {
     recommendable: recommendableMatches,
@@ -70,16 +72,16 @@ export function buildTeaser<TPayload>({
     ...(reviewNeededLimit === undefined ? {} : { reviewNeededLimit }),
   });
   const visibleMatches = [...recommendableMatches, ...reviewNeededMatches];
-  const counts = countByEligibility(matched.map((entry) => entry.match));
-  const deadlineSoon = matched.filter((entry) => {
+  const counts = countByEligibility(servingReady.map((entry) => entry.match));
+  const deadlineSoon = servingReady.filter((entry) => {
     const dDay = daysUntil(entry.item.grant.apply_end ?? null, asOf);
     return entry.match.eligibility !== "ineligible" && dDay !== null && dDay >= 0 && dDay <= 7;
   }).length;
 
   const result: TeaserResult = {
     attributes: companyAttributes(company),
-    estimatedMaxAmount: sumRecommendableAmount(matched),
-    conditionalUpside: sumReviewNeededAmount(matched),
+    estimatedMaxAmount: sumRecommendableAmount(servingReady),
+    conditionalUpside: sumReviewNeededAmount(servingReady),
     counts: {
       ...counts,
       deadlineSoon,
@@ -88,7 +90,7 @@ export function buildTeaser<TPayload>({
       reviewNeeded: reviewNeededCards.length,
       needsProfileInput: needsProfileInputCount,
       oneAnswer: oneAnswerCount,
-      needsCoreReview: needsCoreReviewCount,
+      needsCoreReview: 0,
       preparable: cards.filter(isPreparableMatchCard).length,
       notRecommended: notRecommendedCards.length,
     },
@@ -149,7 +151,6 @@ function selectVisibleTeaserBuckets(
 function balanceReviewNeededCards(cards: MatchCard[]): MatchCard[] {
   const buckets = [
     cards.filter(isOneAnswerCard),
-    cards.filter((card) => recommendationTierForCard(card) === "needs_core_review"),
     cards.filter((card) =>
       recommendationTierForCard(card) === "needs_profile_input" && !isOneAnswerCard(card)
     ),
@@ -178,8 +179,7 @@ function isRecommendableCard(card: MatchCard): boolean {
 }
 
 function isReviewNeededCard(card: MatchCard): boolean {
-  const tier = recommendationTierForCard(card);
-  return tier === "needs_core_review" || tier === "needs_profile_input";
+  return recommendationTierForCard(card) === "needs_profile_input";
 }
 
 function isNotRecommendedCard(card: MatchCard): boolean {
@@ -201,6 +201,17 @@ function recommendationTierForCard(card: MatchCard): NonNullable<MatchCard["reco
   return card.recommendationTier ?? (card.eligibility === "eligible" ? "recommendable" : card.eligibility === "ineligible" ? "not_recommended" : "needs_profile_input");
 }
 
+function recommendationTierForMatch(
+  match: MatchedGrant<unknown>["match"],
+): NonNullable<MatchCard["recommendationTier"]> {
+  return match.review_gate?.tier ??
+    (match.eligibility === "eligible"
+      ? "recommendable"
+      : match.eligibility === "ineligible"
+        ? "not_recommended"
+        : "needs_profile_input");
+}
+
 function sumRecommendableAmount<TPayload>(
   matched: Array<MatchedGrant<TPayload>>,
 ): number {
@@ -214,9 +225,7 @@ function sumReviewNeededAmount<TPayload>(
 ): number {
   return matched
     .filter((entry) => {
-      const tier = entry.match.review_gate?.tier ??
-        (entry.match.eligibility === "eligible" ? "recommendable" : entry.match.eligibility === "ineligible" ? "not_recommended" : "needs_profile_input");
-      return tier === "needs_core_review" || tier === "needs_profile_input";
+      return recommendationTierForMatch(entry.match) === "needs_profile_input";
     })
     .reduce((sum, entry) => sum + supportAmountMax(entry.item.grant.support_amount), 0);
 }

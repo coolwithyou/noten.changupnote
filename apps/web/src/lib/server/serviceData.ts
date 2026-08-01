@@ -1368,10 +1368,8 @@ export async function loadProductTeaser(
   result.matches = await annotateMatchCardConfirmationQuestions(result.matches);
   result.recommendableMatches = result.matches.filter((match) =>
     recommendationTierForMatch(match) === "recommendable" && match.status === "open");
-  result.reviewNeededMatches = result.matches.filter((match) => {
-    const tier = recommendationTierForMatch(match);
-    return tier === "needs_core_review" || tier === "needs_profile_input";
-  });
+  result.reviewNeededMatches = result.matches.filter((match) =>
+    recommendationTierForMatch(match) === "needs_profile_input");
   try {
     await recordLandingMatchObservation({
       creditsSystem: repositories.creditsSystem,
