@@ -118,7 +118,16 @@ export function matchGrantCriteria(
     review_gate: reviewGate,
     quality,
   };
-  const question = nextQuestion(unknown_fields);
+  const actionableUnknownFields = unique(
+    ruleTrace
+      .filter((entry) =>
+        entry.result === "unknown"
+        && (entry.kind === "required" || entry.kind === "exclusion"))
+      .map((entry) => entry.dimension),
+  );
+  const question = eligibility === "conditional"
+    ? nextQuestion(actionableUnknownFields)
+    : null;
   if (question) result.next_question = question;
   return result;
 }
@@ -131,9 +140,15 @@ function confirmationAwareExtractionManifest(
   if (!manifest?.warnings.includes("text_only_criterion_present")) return manifest;
   const textOnlyIndexes = criteria.flatMap((criterion, index) =>
     criterion.operator === "text_only" ? [index] : []);
+  const blockingTextOnlyIndexes = textOnlyIndexes.filter((index) => {
+    const criterion = criteria[index];
+    return criterion?.kind === "required" || criterion?.kind === "exclusion";
+  });
   if (
     textOnlyIndexes.length === 0
-    || textOnlyIndexes.some((index) => traceEntries[index]?.resolution !== "confirmed_by_user")
+    || blockingTextOnlyIndexes.some(
+      (index) => traceEntries[index]?.resolution !== "confirmed_by_user",
+    )
   ) return manifest;
   const warnings = manifest.warnings.filter((warning) => warning !== "text_only_criterion_present");
   return {
@@ -1569,6 +1584,14 @@ function isHardUnknownTrace(entry: RuleTraceEntry): boolean {
 }
 
 function isCoreReviewTrace(entry: RuleTraceEntry, criterion: GrantCriterion | undefined): boolean {
+  // 검수된 구조화 인증 criterion에 회사 보유값만 없는 경우는 공고 원문 문제가 아니라
+  // 프로필 입력으로 해소할 수 있다. text_only·needs_review·고위험 신호는 기존 차단을 유지한다.
+  if (
+    entry.dimension === "certification"
+    && criterion?.operator !== "text_only"
+    && criterion?.needs_review !== true
+    && !hasHighRiskSignal(criterion, entry)
+  ) return false;
   return criterion?.needs_review === true ||
     CORE_GATE_DIMENSIONS.has(entry.dimension) ||
     hasHighRiskSignal(criterion, entry);

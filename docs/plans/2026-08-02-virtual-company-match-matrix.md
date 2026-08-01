@@ -26,7 +26,11 @@
 - 마감일: 2026-08-21
 - 주요 필수조건: 충남, 장애인기업, 장애인기업 확인서
 
-충남·장애인기업·확인서 프로필로 현재 matcher를 실행하면 장애인기업과 확인서는 통과하지만 최종 tier는 `needs_core_review`가 된다. 승격 필터는 통과했지만 matcher가 소비하는 검수 완료 신호가 함께 hydrate되지 않는 경로를 먼저 확인해야 한다.
+충남·장애인기업·확인서 프로필로 현재 matcher를 실행하면 필수조건은 통과하지만 최종 tier는 `needs_core_review`가 됐다. 원인은 검수 완료 신호의 누락이 아니라, 신청 자격과 무관한 `preferred text_only` 평가항목까지 `text_only_criterion_present` 전역 경고로 묶여 전체 공고를 차단한 것이었다.
+
+교정 범위는 `preferred text_only`만 남은 검수 완료 공고가 신청 자격 판정을 차단하지 않게 하는 것으로 한정한다. `required`·`exclusion`의 `text_only`는 사용자 확인 전까지 기존처럼 차단한다.
+
+첫 매트릭스 실행에서는 두 경계도 함께 확인됐다. 검수된 구조화 인증의 회사 보유값 누락은 공고 원문 문제가 아니므로 `needs_profile_input`으로 보내고, 필수조건에서 이미 탈락한 공고에는 우대평가용 미확인 값을 질문하지 않는다.
 
 이 문제는 가상 기업 프로필이나 기대값을 느슨하게 만들어 숨기지 않는다. 매트릭스는 이를 제품 회귀로 실패시킨다.
 
@@ -101,6 +105,8 @@ interface VirtualCompanyScenario {
 interface VirtualCompanyTarget {
   source: "bizinfo" | "kstartup";
   sourceId: string;
+  expectedExtractorVersion: string;
+  expectedRevision: string;
   expected: "recommendable" | "not_recommended" | "needs_profile_input";
   expectedCriterionResults?: Partial<
     Record<CriterionDimension, "pass" | "fail" | "unknown" | "text_only">
@@ -170,7 +176,7 @@ interface VirtualCompanyTarget {
 - `needs_rebaseline`: 승격 분석 revision이 변경됨
 - `infrastructure_error`: DB·서버 접근 실패
 
-승격된 공고가 `needs_core_review`로 남으면 딱 하나의 seam만 교정한다. 활성/canary 승격 원장의 applied deep-analysis run이 matcher의 검수 완료 신호로 전달되게 하되 matcher의 일반 안전장치는 완화하지 않는다.
+승격된 공고가 `preferred text_only`만으로 `needs_core_review`에 남으면 matcher의 manifest 정규화 seam 하나만 교정한다. 신청 자격에 관여하는 `required`·`exclusion`의 `text_only` 안전장치는 완화하지 않는다.
 
 ### 체크포인트 V4 — 랜딩 전체 흐름
 

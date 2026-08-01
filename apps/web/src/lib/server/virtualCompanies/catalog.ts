@@ -20,6 +20,8 @@ export type VirtualCompanyCriterionResult = "pass" | "fail" | "unknown" | "text_
 export interface VirtualCompanyTarget {
   source: "bizinfo" | "kstartup";
   sourceId: string;
+  expectedExtractorVersion: string;
+  expectedRevision: string;
   expected: VirtualCompanyExpectedTier;
   expectedCriterionResults?: Partial<Record<CriterionDimension, VirtualCompanyCriterionResult>>;
 }
@@ -45,6 +47,8 @@ interface VirtualCompanyDefinition {
 const TARGET_GRANT = {
   source: "bizinfo" as const,
   sourceId: "PBLN_000000000124754",
+  expectedExtractorVersion: "deep-analysis-v11/deep-analysis-model-policy-v24",
+  expectedRevision: "3acb65efebc57b7e28afae05c7f0ea8de307d94692068e5ec8386b3c4e026cbd",
 };
 
 const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
@@ -206,7 +210,7 @@ function materializeScenario(
   };
   for (const dimension of definition.completeEvidenceDimensions) {
     profile.profile_evidence![dimension] = {
-      sourceKind: "derived",
+      sourceKind: "self_declared",
       provider: "cunote_virtual_company",
       asOf: asOfIso,
       axisCompleteness: "complete",
