@@ -96,6 +96,36 @@ const [fallback] = mergeReviewedExtractionManifestState([hydrated], [{
 assert.equal(fallback?.extraction_manifest?.reviewedAt, reviewedAt);
 assert.equal(fallback?.extraction_manifest?.extractorVersion, "reviewer:fallback");
 
+const promotedAt = "2026-07-12T03:00:00.000Z";
+const [promoted] = mergeReviewedExtractionManifestState([hydrated], [{
+  grantId: hydrated.grant.id ?? null,
+  output: {
+    reviewedAt: promotedAt,
+    parserVersion: "deep-analysis-v12/deep-analysis-model-policy-v25",
+  },
+  ts: new Date(promotedAt),
+  modelVer: "deep-analysis-v12",
+}]);
+assert.equal(promoted?.extraction_manifest?.reviewedAt, promotedAt);
+assert.equal(
+  promoted?.extraction_manifest?.extractorVersion,
+  "deep-analysis-v12/deep-analysis-model-policy-v25",
+);
+assert.equal(promoted?.extraction_manifest?.readiness, "reviewed");
+
+const [sealedPromotion] = mergeReviewedExtractionManifestState([entry], [{
+  grantId: entry.grant.id ?? null,
+  output: {
+    reviewedAt: promotedAt,
+    parserVersion: "deep-analysis-v12/deep-analysis-model-policy-v25",
+    resolvedWarnings: ["attachment_fetch_incomplete"],
+  },
+  ts: new Date(promotedAt),
+  modelVer: "deep-analysis-v12",
+}]);
+assert.deepEqual(sealedPromotion?.extraction_manifest?.warnings, []);
+assert.equal(sealedPromotion?.extraction_manifest?.readiness, "reviewed");
+
 console.log(JSON.stringify({
   ok: true,
   checked: [
@@ -105,5 +135,7 @@ console.log(JSON.stringify({
     "converted_manifest_ready",
     "reviewed_log_manifest_hydration",
     "reviewed_log_metadata_fallback",
+    "active_deep_promotion_manifest_hydration",
+    "sealed_deep_input_resolves_legacy_attachment_warning",
   ],
 }, null, 2));

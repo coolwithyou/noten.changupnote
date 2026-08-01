@@ -31,11 +31,12 @@ import { labRunFilePath, readLabRun } from "./run-store";
 
 export const LAB_CONFIRMATIONS_SCHEMA = "lab-confirmations-v1";
 /**
- * confirmations-v1 (2026-07-23): 보강 패스 최초판 — 생성 규칙은 lab-deep-v3 의
+ * confirmations-v2 (2026-08-01): 신청 진실성·서류 절차를 매칭 질문에서 제외한다.
+ * 생성 규칙은 lab-deep-v3 의
  * CONFIRMATION_PROMPT_RULES(extractor.ts 단일 원천)를 그대로 쓰고, 보강 모드 지시
  * (확정 exclusion 대상 한정·비해당 생략)만 덧붙인다.
  */
-export const CONFIRMATIONS_PROMPT_VERSION = "confirmations-v1";
+export const CONFIRMATIONS_PROMPT_VERSION = "confirmations-v2";
 export const CONFIRMATIONS_TOOL_NAME = "emit_exclusion_confirmations";
 export const CONFIRMATIONS_DEFAULT_MODEL = "claude-sonnet-5";
 

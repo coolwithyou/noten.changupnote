@@ -38,6 +38,7 @@ import {
   collapseConfirmedGrantOccurrences,
   companyProfileValueForDimension,
   companyProfileToFieldUpdates,
+  isNonMatchingApplicationCriterion,
   maskCorpNum,
   matchNormalizedGrant,
   normalizeCompanyIndustryProfile,
@@ -325,20 +326,99 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
   ): Promise<Array<NormalizedGrant<TPayload>>> {
     const grantIds = grants.flatMap((entry) => entry.grant.id ? [entry.grant.id] : []);
     if (grantIds.length === 0) return grants;
-    const rows = await this.db.client
-      .select({
-        grantId: schema.extractionLog.grantId,
-        output: schema.extractionLog.output,
-        ts: schema.extractionLog.ts,
-        modelVer: schema.extractionLog.modelVer,
-      })
-      .from(schema.extractionLog)
-      .where(and(
-        eq(schema.extractionLog.status, "labeled"),
-        inArray(schema.extractionLog.grantId, grantIds),
-      ))
-      .orderBy(desc(schema.extractionLog.ts));
-    return mergeReviewedExtractionManifestState(grants, rows);
+    const [labeledRows, promotedRows] = await Promise.all([
+      this.db.client
+        .select({
+          grantId: schema.extractionLog.grantId,
+          output: schema.extractionLog.output,
+          ts: schema.extractionLog.ts,
+          modelVer: schema.extractionLog.modelVer,
+        })
+        .from(schema.extractionLog)
+        .where(and(
+          eq(schema.extractionLog.status, "labeled"),
+          inArray(schema.extractionLog.grantId, grantIds),
+        )),
+      this.db.client
+        .select({
+          grantId: schema.analysisLabPromotionItems.grantId,
+          deepAnalysisRunId: schema.analysisLabPromotionItems.deepAnalysisRunId,
+          appliedAt: schema.analysisLabPromotionItems.appliedAt,
+          promptVersion: schema.grantDeepAnalysisRuns.promptVersion,
+          modelPolicyVersion: schema.grantDeepAnalysisRuns.modelPolicyVersion,
+        })
+        .from(schema.analysisLabPromotionItems)
+        .innerJoin(
+          schema.analysisLabPromotionReleases,
+          eq(
+            schema.analysisLabPromotionReleases.id,
+            schema.analysisLabPromotionItems.releaseDbId,
+          ),
+        )
+        .innerJoin(
+          schema.grantDeepAnalysisRuns,
+          eq(
+            schema.grantDeepAnalysisRuns.id,
+            schema.analysisLabPromotionItems.deepAnalysisRunId,
+          ),
+        )
+        .where(and(
+          inArray(schema.analysisLabPromotionItems.grantId, grantIds),
+          eq(schema.analysisLabPromotionItems.status, "applied"),
+          isNotNull(schema.analysisLabPromotionItems.appliedAt),
+          inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
+          eq(schema.grantDeepAnalysisRuns.status, "passed"),
+        )),
+    ]);
+    const promotedRunIds = uniqueStrings(promotedRows.flatMap((row) =>
+      row.deepAnalysisRunId ? [row.deepAnalysisRunId] : []));
+    const inputStageRows = promotedRunIds.length > 0
+      ? await this.db.client
+        .select({
+          runId: schema.grantDeepAnalysisStageReceipts.runId,
+          stage: schema.grantDeepAnalysisStageReceipts.stage,
+          status: schema.grantDeepAnalysisStageReceipts.status,
+        })
+        .from(schema.grantDeepAnalysisStageReceipts)
+        .where(and(
+          inArray(schema.grantDeepAnalysisStageReceipts.runId, promotedRunIds),
+          inArray(schema.grantDeepAnalysisStageReceipts.stage, [
+            "attachment_inventory_complete",
+            "attachment_archive_complete",
+            "attachment_text_complete",
+            "input_coverage_verified",
+            "input_sealed",
+          ]),
+          inArray(schema.grantDeepAnalysisStageReceipts.status, ["passed", "not_applicable"]),
+        ))
+      : [];
+    const verifiedInputStages = new Set(
+      inputStageRows.map((row) => `${row.runId}:${row.stage}`),
+    );
+    const promotionReviewRows: ReviewedExtractionMetadataRow[] = promotedRows.flatMap((row) => {
+      if (!row.appliedAt) return [];
+      const reviewedAt = row.appliedAt.toISOString();
+      const inputVerified = row.deepAnalysisRunId
+        ? DEEP_ANALYSIS_INPUT_VERIFICATION_STAGES.every((stage) =>
+            verifiedInputStages.has(`${row.deepAnalysisRunId}:${stage}`))
+        : false;
+      return [{
+        grantId: row.grantId,
+        output: {
+          reviewedAt,
+          parserVersion: `${row.promptVersion}/${row.modelPolicyVersion}`,
+          ...(inputVerified ? {
+            resolvedWarnings: DEEP_ANALYSIS_VERIFIED_INPUT_WARNING_CODES,
+          } : {}),
+        },
+        ts: row.appliedAt,
+        modelVer: row.promptVersion,
+      }];
+    });
+    return mergeReviewedExtractionManifestState(
+      grants,
+      [...labeledRows, ...promotionReviewRows],
+    );
   }
 
   private async loadAttachmentArchives(
@@ -376,7 +456,7 @@ export function mergeReviewedExtractionManifestState<TPayload>(
   rows: ReviewedExtractionMetadataRow[],
 ): Array<NormalizedGrant<TPayload>> {
   const latestByGrant = new Map<string, ReviewedExtractionMetadataRow>();
-  for (const row of rows) {
+  for (const row of [...rows].sort((left, right) => right.ts.getTime() - left.ts.getTime())) {
     if (row.grantId && !latestByGrant.has(row.grantId)) latestByGrant.set(row.grantId, row);
   }
   return grants.map((entry) => {
@@ -385,14 +465,41 @@ export function mergeReviewedExtractionManifestState<TPayload>(
     if (!review) return entry;
     const output = isPlainRecord(review.output) ? review.output : {};
     const reviewedAt = typeof output.reviewedAt === "string" ? output.reviewedAt : review.ts.toISOString();
+    const resolvedWarnings = Array.isArray(output.resolvedWarnings)
+      ? output.resolvedWarnings.filter(isVerifiedInputWarningCode)
+      : [];
     return {
       ...entry,
       extraction_manifest: buildGrantExtractionManifest(entry, {
         reviewedAt,
         extractorVersion: typeof output.parserVersion === "string" ? output.parserVersion : review.modelVer,
+        resolvedWarnings,
       }),
     };
   });
+}
+
+const DEEP_ANALYSIS_INPUT_VERIFICATION_STAGES = [
+  "attachment_inventory_complete",
+  "attachment_archive_complete",
+  "attachment_text_complete",
+  "input_coverage_verified",
+  "input_sealed",
+] as const;
+
+const DEEP_ANALYSIS_VERIFIED_INPUT_WARNING_CODES = [
+  "source_field_missing",
+  "source_section_missing",
+  "attachment_fetch_incomplete",
+  "attachment_conversion_failed",
+  "attachment_conversion_incomplete",
+] as const;
+
+function isVerifiedInputWarningCode(
+  value: unknown,
+): value is (typeof DEEP_ANALYSIS_VERIFIED_INPUT_WARNING_CODES)[number] {
+  return typeof value === "string"
+    && (DEEP_ANALYSIS_VERIFIED_INPUT_WARNING_CODES as readonly string[]).includes(value);
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -1116,7 +1223,9 @@ function hydrateGrants<TPayload>(
   return [...grouped.values()].map((entry) => ({
     raw: toGrantRaw<TPayload>(entry.raw, entry.grant),
     grant: toGrant(entry.grant),
-    criteria: entry.criteria.map(toGrantCriterion),
+    criteria: entry.criteria
+      .map(toGrantCriterion)
+      .filter((criterion) => !isNonMatchingApplicationCriterion(criterion)),
   }));
 }
 

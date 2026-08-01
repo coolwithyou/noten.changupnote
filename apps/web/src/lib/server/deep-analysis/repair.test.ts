@@ -55,7 +55,7 @@ const execution: DeepAnalysisExecution = {
   passes: [{ kind: "single", chunkId: null, inputChars: 10, result }],
 };
 const validation = {
-  validatorVersion: "deep-analysis-validator-v4" as const,
+  validatorVersion: "deep-analysis-validator-v5" as const,
   valid: false,
   responseContractValid: true,
   axisCoverageComplete: false,

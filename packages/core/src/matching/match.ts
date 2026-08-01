@@ -38,7 +38,7 @@ import {
 } from "../disqualification/canonical.js";
 import { activeNumericQuestionRange, type NumericQuestionRange } from "../company/question-answer-state.js";
 
-export const RULESET_VERSION = "ruleset-kstartup-spine-v7";
+export const RULESET_VERSION = "ruleset-kstartup-spine-v8";
 export const SCORING_VERSION = "scoring-verification-v3";
 
 const CORE_GATE_DIMENSIONS = new Set<CriterionDimension>([
@@ -93,14 +93,19 @@ export function matchGrantCriteria(
   const unknown_fields = unique(
     ruleTrace.filter((entry) => entry.result === "unknown").map((entry) => entry.dimension),
   );
+  const extractionManifest = confirmationAwareExtractionManifest(
+    canonicalCriteria,
+    ruleTrace,
+    options.extractionManifest,
+  );
   const reviewGate = buildReviewGate({
     eligibility,
     traceEntries: ruleTrace,
     criteria: canonicalCriteria,
     criteriaExtracted: true,
-    ...(options.extractionManifest ? { extractionManifest: options.extractionManifest } : {}),
+    ...(extractionManifest ? { extractionManifest } : {}),
   });
-  const quality = buildMatchQuality(canonicalCriteria, ruleTrace, reviewGate, options.extractionManifest);
+  const quality = buildMatchQuality(canonicalCriteria, ruleTrace, reviewGate, extractionManifest);
 
   const result: MatchResult = {
     eligibility,
@@ -116,6 +121,30 @@ export function matchGrantCriteria(
   const question = nextQuestion(unknown_fields);
   if (question) result.next_question = question;
   return result;
+}
+
+function confirmationAwareExtractionManifest(
+  criteria: GrantCriterion[],
+  traceEntries: RuleTraceEntry[],
+  manifest: GrantExtractionManifest | undefined,
+): GrantExtractionManifest | undefined {
+  if (!manifest?.warnings.includes("text_only_criterion_present")) return manifest;
+  const textOnlyIndexes = criteria.flatMap((criterion, index) =>
+    criterion.operator === "text_only" ? [index] : []);
+  if (
+    textOnlyIndexes.length === 0
+    || textOnlyIndexes.some((index) => traceEntries[index]?.resolution !== "confirmed_by_user")
+  ) return manifest;
+  const warnings = manifest.warnings.filter((warning) => warning !== "text_only_criterion_present");
+  return {
+    ...manifest,
+    warnings,
+    readiness: warnings.length > 0
+      ? "partial"
+      : manifest.reviewedAt
+        ? "reviewed"
+        : "structured_unreviewed",
+  };
 }
 
 /** 공고 입력 완전성까지 포함하는 제품 경로용 매칭 진입점. */

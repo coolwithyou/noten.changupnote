@@ -703,6 +703,50 @@ check("비결격 확인 답변은 exclusion unknown을 pass로 소거하고 elig
   assert.equal(result.review_gate?.tier, "recommendable");
 });
 
+check("검수된 text_only의 유일한 경고는 사용자 확인 뒤 해소되어 추천 가능해진다", () => {
+  const result = matchGrantCriteria(confirmationFixtureCriteria(), company, {
+    confirmations: [{ criterion_id: "criterion-exclusion-1", disqualified: false }],
+    extractionManifest: {
+      grantId: "bizinfo:confirmation-ready",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 0,
+      attachmentsFetched: 0,
+      attachmentsConverted: 0,
+      sectionsDetected: ["required", "exclusion"],
+      extractorVersion: "deep-analysis-v12/deep-analysis-model-policy-v25",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      reviewedAt: "2026-08-01T00:01:00.000Z",
+      warnings: ["text_only_criterion_present"],
+      readiness: "partial",
+    },
+  });
+  assert.equal(result.review_gate?.tier, "recommendable");
+  assert.equal(result.quality.extractionReadiness, "reviewed");
+});
+
+check("첨부 누락 경고는 사용자 확인으로 소거되지 않는다", () => {
+  const result = matchGrantCriteria(confirmationFixtureCriteria(), company, {
+    confirmations: [{ criterion_id: "criterion-exclusion-1", disqualified: false }],
+    extractionManifest: {
+      grantId: "bizinfo:confirmation-still-partial",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 1,
+      attachmentsFetched: 0,
+      attachmentsConverted: 0,
+      sectionsDetected: ["required", "exclusion"],
+      extractorVersion: "deep-analysis-v12/deep-analysis-model-policy-v25",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      reviewedAt: "2026-08-01T00:01:00.000Z",
+      warnings: ["text_only_criterion_present", "attachment_fetch_incomplete"],
+      readiness: "partial",
+    },
+  });
+  assert.equal(result.review_gate?.tier, "needs_core_review");
+  assert.equal(result.quality.extractionReadiness, "partial");
+});
+
 check("결격 확인 답변은 hardFail로 ineligible을 확정한다", () => {
   const result = matchGrantCriteria(confirmationFixtureCriteria(), company, {
     confirmations: [{ criterion_id: "criterion-exclusion-1", disqualified: true }],

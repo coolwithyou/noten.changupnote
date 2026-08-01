@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import type { MatchCard } from "@cunote/contracts";
-import { applyConfirmationQuestionCounts } from "./annotateConfirmationQuestions";
+import {
+  applyActionableConfirmationQuestions,
+  type ConfirmationQuestionAnchor,
+} from "./annotateConfirmationQuestions";
 import {
   normalizeConfirmationAnswerType,
   normalizeConfirmationOptions,
@@ -139,20 +142,56 @@ assert.deepEqual(readAnswerValues(["a"]), []);
 
 /* ── 카드 주석 적용: 빈 집계(빈 테이블 경로)는 카드를 그대로 두고 필드도 싣지 않는다 ── */
 
-const cards = [card("11111111-1111-1111-8111-111111111111"), card("22222222-2222-1222-8222-222222222222")];
-const untouched = applyConfirmationQuestionCounts(cards, new Map());
+const actionableGrantId = "11111111-1111-1111-8111-111111111111";
+const blockedGrantId = "22222222-2222-1222-8222-222222222222";
+const cards = [
+  card(actionableGrantId, [{
+    dimension: "prior_award",
+    kind: "exclusion",
+    result: "unknown",
+    label: "동일 사업 수혜 이력",
+    sourceSpan: "동일 사업에 선정된 이력이 있는 기업은 제외",
+    checklistSection: "needs_check",
+  }]),
+  card(blockedGrantId, [
+    {
+      dimension: "other",
+      kind: "exclusion",
+      result: "text_only",
+      label: "허위 정보 제출",
+      sourceSpan: "허위 또는 과장된 정보 제출 시 선정 취소",
+      checklistSection: "needs_check",
+    },
+    {
+      dimension: "industry",
+      kind: "required",
+      result: "unknown",
+      label: "금융 AI 기업",
+      sourceSpan: "금융 AI 기업 모집",
+      checklistSection: "needs_check",
+    },
+  ]),
+];
+const untouched = applyActionableConfirmationQuestions(cards, []);
 assert.equal(untouched, cards, "빈 집계는 입력 배열을 그대로 반환해야 한다");
 assert.equal(untouched[0]?.confirmationQuestionCount, undefined);
 
-const annotated = applyConfirmationQuestionCounts(
-  cards,
-  new Map([
-    ["11111111-1111-1111-8111-111111111111", 3],
-    ["33333333-3333-1333-8333-333333333333", 5],
-  ]),
+const anchors: ConfirmationQuestionAnchor[] = [
+  anchor("q-actionable", actionableGrantId, "prior_award", "동일 사업에 선정된 이력이 있는 기업은 제외"),
+  anchor("q-low-value", blockedGrantId, "other", "허위 또는 과장된 정보 제출 시 선정 취소"),
+];
+const annotated = applyActionableConfirmationQuestions(cards, anchors);
+assert.equal(annotated[0]?.confirmationQuestionCount, 1, "모든 hard unknown을 해소하는 질문은 노출한다");
+assert.equal(
+  annotated[1]?.confirmationQuestionCount,
+  undefined,
+  "답해도 업종 blocker가 남는 질문은 먼저 노출하지 않는다",
 );
-assert.equal(annotated[0]?.confirmationQuestionCount, 3);
-assert.equal(annotated[1]?.confirmationQuestionCount, undefined, "집계에 없는 공고는 필드를 싣지 않는다");
+
+const reconfirm = applyActionableConfirmationQuestions([
+  { ...cards[0]!, userConfirmedCount: 1, ruleTrace: [] },
+], anchors);
+assert.equal(reconfirm[0]?.confirmationQuestionCount, 1, "기존 답변이 있으면 재확인 진입을 유지한다");
 
 console.log("grant-confirmation-answers: ok");
 
@@ -160,7 +199,7 @@ function failCode(result: ReturnType<typeof validateConfirmationAnswers>): strin
   return result.ok ? null : result.code;
 }
 
-function card(grantId: string): MatchCard {
+function card(grantId: string, ruleTrace: MatchCard["ruleTrace"]): MatchCard {
   return {
     grantId,
     source: "bizinfo",
@@ -171,6 +210,22 @@ function card(grantId: string): MatchCard {
     bucket: "conditional",
     fitScore: 50,
     writeSupport: "unknown",
-    ruleTrace: [],
+    ruleTrace,
   } as unknown as MatchCard;
+}
+
+function anchor(
+  questionId: string,
+  grantId: string,
+  dimension: ConfirmationQuestionAnchor["dimension"],
+  sourceSpan: string,
+): ConfirmationQuestionAnchor {
+  return {
+    questionId,
+    grantId,
+    dimension,
+    kind: "exclusion",
+    operator: dimension === "prior_award" ? "exists" : "text_only",
+    sourceSpan,
+  };
 }

@@ -780,7 +780,7 @@ export const grantConfirmationQuestions = pgTable("grant_confirmation_questions"
   // company_fact | per_notice
   reusable: text("reusable").notNull(),
   conditionKey: text("condition_key"),
-  // lab-deep-v3 | confirmations-v1(보강 패스)
+  // deep-analysis-v* | confirmations-v*(보강 패스)
   promptVer: text("prompt_ver").notNull(),
   // { runId, auditState } — 발행 출처·감사 상태 필수 기록
   provenance: jsonb("provenance").$type<Record<string, unknown>>().notNull(),

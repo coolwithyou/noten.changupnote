@@ -5,7 +5,7 @@ import type {
   GrantConfirmationsResult,
   MatchCard,
 } from "@cunote/contracts";
-import { toMatchCard } from "@cunote/core";
+import { isNonMatchingApplicationCriterion, toMatchCard } from "@cunote/core";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { getServiceRepositories, resolveProductCompanyProfile } from "../serviceData";
@@ -195,8 +195,16 @@ async function loadQuestionRows(grantId: string): Promise<QuestionRow[]> {
       answerType: schema.grantConfirmationQuestions.answerType,
       options: schema.grantConfirmationQuestions.options,
       createdAt: schema.grantConfirmationQuestions.createdAt,
+      dimension: schema.grantCriteria.dimension,
+      kind: schema.grantCriteria.kind,
+      operator: schema.grantCriteria.operator,
+      sourceSpan: schema.grantCriteria.sourceSpan,
     })
     .from(schema.grantConfirmationQuestions)
+    .innerJoin(
+      schema.grantCriteria,
+      eq(schema.grantCriteria.id, schema.grantConfirmationQuestions.grantCriteriaId),
+    )
     .where(and(
       eq(schema.grantConfirmationQuestions.grantId, grantId),
       isNull(schema.grantConfirmationQuestions.invalidatedAt),
@@ -205,12 +213,19 @@ async function loadQuestionRows(grantId: string): Promise<QuestionRow[]> {
       asc(schema.grantConfirmationQuestions.createdAt),
       asc(schema.grantConfirmationQuestions.id),
     );
-  return rows.map((row) => ({
-    id: row.id,
-    prompt: row.prompt,
-    answerType: normalizeConfirmationAnswerType(row.answerType),
-    options: normalizeConfirmationOptions(row.options),
-  }));
+  return rows
+    .filter((row) => !isNonMatchingApplicationCriterion({
+      dimension: row.dimension,
+      kind: row.kind,
+      operator: row.operator,
+      source_span: row.sourceSpan,
+    }))
+    .map((row) => ({
+      id: row.id,
+      prompt: row.prompt,
+      answerType: normalizeConfirmationAnswerType(row.answerType),
+      options: normalizeConfirmationOptions(row.options),
+    }));
 }
 
 async function loadAnswerDtos(input: {
