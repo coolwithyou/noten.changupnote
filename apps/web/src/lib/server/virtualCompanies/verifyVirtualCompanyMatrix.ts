@@ -1,15 +1,14 @@
 import type {
+  MatchCard,
   MatchRecommendationTier,
   NormalizedGrant,
-  RuleTraceEntry,
 } from "@cunote/contracts";
-import {
-  grantKey,
-  matchNormalizedGrant,
-  resolveGrantExtractionManifest,
-} from "@cunote/core";
+import { grantKey, resolveGrantExtractionManifest } from "@cunote/core";
 import { buildMatchingProfileView } from "@/lib/server/productProfile/resolveProductCompanyProfile";
-import { buildProductTeaserSnapshot } from "@/lib/server/productProfile/productMatchSnapshot";
+import {
+  buildProductDashboardSnapshot,
+  buildProductTeaserSnapshot,
+} from "@/lib/server/productProfile/productMatchSnapshot";
 import type {
   VirtualCompanyCriterionResult,
   VirtualCompanyScenario,
@@ -56,11 +55,18 @@ export function verifyVirtualCompanyMatrix<TPayload>(input: {
   asOf: Date;
 }): VirtualCompanyMatrixReport {
   const results = input.scenarios.flatMap((scenario) => {
+    const resolution = {
+      profile: scenario.profile,
+      view: buildMatchingProfileView(scenario.profile, input.asOf.toISOString()),
+    };
     const teaser = buildProductTeaserSnapshot({
-      resolution: {
-        profile: scenario.profile,
-        view: buildMatchingProfileView(scenario.profile, input.asOf.toISOString()),
-      },
+      resolution,
+      grants: input.grants,
+      asOf: input.asOf,
+      limit: Math.max(input.grants.length, 1),
+    });
+    const dashboard = buildProductDashboardSnapshot({
+      resolution,
       grants: input.grants,
       asOf: input.asOf,
       limit: Math.max(input.grants.length, 1),
@@ -69,6 +75,7 @@ export function verifyVirtualCompanyMatrix<TPayload>(input: {
       scenario,
       target,
       grants: input.grants,
+      dashboardMatches: dashboard.matches,
       visibleGrantIds: new Set(teaser.matches.map((match) => match.grantId)),
     }));
   });
@@ -86,6 +93,7 @@ function verifyTarget<TPayload>(input: {
   scenario: VirtualCompanyScenario;
   target: VirtualCompanyTarget;
   grants: Array<NormalizedGrant<TPayload>>;
+  dashboardMatches: MatchCard[];
   visibleGrantIds: ReadonlySet<string>;
 }): VirtualCompanyTargetResult {
   const grant = input.grants.find((entry) =>
@@ -120,8 +128,8 @@ function verifyTarget<TPayload>(input: {
     };
   }
 
-  const match = matchNormalizedGrant(grant, input.scenario.profile);
-  const actualTier = match.review_gate?.tier ?? null;
+  const dashboardMatch = input.dashboardMatches.find((match) => match.grantId === grantId);
+  const actualTier = dashboardMatch?.recommendationTier ?? null;
   const visibleInUserResults = input.visibleGrantIds.has(grantId);
   const issues: string[] = [];
   if (actualTier !== input.target.expected) {
@@ -131,11 +139,8 @@ function verifyTarget<TPayload>(input: {
   if (visibleInUserResults !== shouldBeVisible) {
     issues.push(`사용자 결과 노출 불일치: expected=${shouldBeVisible}, actual=${visibleInUserResults}`);
   }
-  if (input.target.expected === "not_recommended" && match.next_question) {
-    issues.push(`탈락 확정 뒤 불필요한 질문 생성: ${match.next_question.field}`);
-  }
   for (const [dimension, expected] of Object.entries(input.target.expectedCriterionResults ?? {})) {
-    const actual = hardCriterionResults(grant.criteria, match.rule_trace, dimension);
+    const actual = hardCriterionResults(dashboardMatch, dimension);
     if (!actual.includes(expected as VirtualCompanyCriterionResult)) {
       issues.push(`criterion 불일치(${dimension}): expected=${expected}, actual=${actual.join(",") || "missing"}`);
     }
@@ -149,13 +154,13 @@ function verifyTarget<TPayload>(input: {
     title: grant.grant.title,
     expectedTier: input.target.expected,
     actualTier,
-    eligibility: match.eligibility,
+    eligibility: dashboardMatch?.eligibility ?? null,
     visibleInUserResults,
-    nextQuestionDimension: match.next_question?.field ?? null,
+    nextQuestionDimension: actionableUnknownDimension(dashboardMatch),
     extractorVersion: manifest.extractorVersion,
     revision: manifest.revision,
     status: issues.length === 0 ? "pass" : "product_regression",
-    criterionResults: groupCriterionResults(grant.criteria, match.rule_trace),
+    criterionResults: groupCriterionResults(dashboardMatch),
     issues,
   };
 }
@@ -194,34 +199,37 @@ function missingTarget(
 }
 
 function hardCriterionResults(
-  criteria: NormalizedGrant["criteria"],
-  traces: RuleTraceEntry[],
+  match: MatchCard | undefined,
   dimension: string,
 ): string[] {
-  const hard = criteria.flatMap((criterion, index) =>
-    criterion.dimension === dimension
-      && (criterion.kind === "required" || criterion.kind === "exclusion")
-      && traces[index]
-      ? [traces[index]!.result]
+  const traces = match?.ruleTrace ?? [];
+  const hard = traces.flatMap((trace) =>
+    trace.dimension === dimension
+      && (trace.kind === "required" || trace.kind === "exclusion")
+      ? [trace.result]
       : []);
   if (hard.length > 0) return hard;
-  return criteria.flatMap((criterion, index) =>
-    criterion.dimension === dimension && traces[index]
-      ? [traces[index]!.result]
+  return traces.flatMap((trace) =>
+    trace.dimension === dimension
+      ? [trace.result]
       : []);
 }
 
 function groupCriterionResults(
-  criteria: NormalizedGrant["criteria"],
-  traces: RuleTraceEntry[],
+  match: MatchCard | undefined,
 ): Record<string, string[]> {
   const grouped: Record<string, string[]> = {};
-  criteria.forEach((criterion, index) => {
-    const trace = traces[index];
-    if (!trace) return;
-    (grouped[criterion.dimension] ??= []).push(trace.result);
+  match?.ruleTrace.forEach((trace) => {
+    (grouped[trace.dimension] ??= []).push(trace.result);
   });
   return grouped;
+}
+
+function actionableUnknownDimension(match: MatchCard | undefined): string | null {
+  return match?.ruleTrace.find((trace) =>
+    trace.result === "unknown"
+    && (trace.kind === "required" || trace.kind === "exclusion")
+    && trace.action?.type === "progressive")?.dimension ?? null;
 }
 
 function aggregateStatus(

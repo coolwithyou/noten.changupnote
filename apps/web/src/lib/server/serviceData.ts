@@ -1414,7 +1414,11 @@ export async function resolveAnonymousProductCompanyProfile(
     : null;
   if (virtualScenario) {
     const profile = ephemeralProfile
-      ? mergeCompanyProfilesForEnrichmentAt(virtualScenario.profile, ephemeralProfile, asOfIso)
+      ? assembleCompanyProfile({
+          baseProfile: virtualScenario.profile,
+          updates: companyProfileToFieldUpdates(ephemeralProfile),
+          asOf: asOfIso,
+        }).profile
       : virtualScenario.profile;
     return buildVirtualCompanyResolution(profile, asOfIso);
   }

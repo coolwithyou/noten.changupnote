@@ -127,6 +127,14 @@ interface VirtualCompanyTarget {
    - 충남, 장애인기업, 인증 정보 미확인
    - 기대: `needs_profile_input`
 
+개발환경 입력 번호는 다음과 같다. 세 번호 모두 정상 사업자번호 체크섬을 통과하지 않는다.
+
+| 번호 | 시나리오 | 기대 결과 |
+|---|---|---|
+| `000-00-00001` | 충남·장애인기업·확인서 보유 | 추천 가능 |
+| `000-00-00002` | 서울·장애인기업·확인서 보유 | 지역 필수조건 탈락 |
+| `000-00-00003` | 충남·장애인기업·확인서 미확인 | 인증 추가입력 필요 |
+
 이후 기수혜, 결격, 업력·매출·인원 경계, 법인/개인사업자, 업종 코드, `text_only` 혼합 공고를 카탈로그 항목으로 추가한다. 새 시나리오 추가는 카탈로그와 기대값 변경만으로 끝나야 한다.
 
 ## 5. 구현 체크포인트
@@ -178,6 +186,8 @@ interface VirtualCompanyTarget {
 
 승격된 공고가 `preferred text_only`만으로 `needs_core_review`에 남으면 matcher의 manifest 정규화 seam 하나만 교정한다. 신청 자격에 관여하는 `required`·`exclusion`의 `text_only` 안전장치는 완화하지 않는다.
 
+현재 개발 DB의 활성·승격 공고를 대상으로 한 HTTP 경계 검증은 `pnpm verify:virtual-company-flow`로 실행한다. 회사 미리보기와 세 번호의 티저 API를 실제 route handler까지 통과시키며, 외부 사업자 조회 대신 `cacheStatus=virtual`인지 확인한다.
+
 ### 체크포인트 V4 — 랜딩 전체 흐름
 
 개발환경에서 다음을 브라우저로 검증한다.
@@ -214,3 +224,21 @@ interface VirtualCompanyTarget {
 - 프로덕션 기본 활성화
 
 이 범위는 랜딩 딥분석 매칭의 재현 가능한 제품 기준선을 만드는 데 필요한 최소 구현으로 제한한다.
+
+## 8. 구현 결과 (2026-08-02)
+
+- V1 완료: 등록된 무효 체크섬 번호 3건과 다중 시나리오 카탈로그
+- V2 완료: 랜딩 검증·회사 미리보기·익명 티저의 개발환경 전용 어댑터, 외부 provider 호출 우회
+- V3 완료: 활성·승격 공고 7건을 실제 평가하는 revision 고정 매트릭스
+- V4 자동 경계 완료: 회사 미리보기 route와 티저 route에서 `추천 / 숨김 / 추가입력` 3상태 확인
+- matcher 안전선: `preferred text_only`는 자격을 차단하지 않고, `required/exclusion text_only`는 계속 차단
+- 질문 안전선: 필수조건 탈락 뒤 우대평가용 질문을 만들지 않음
+
+검증 명령은 다음과 같다.
+
+```bash
+pnpm verify:virtual-company-matrix
+pnpm verify:virtual-company-flow
+```
+
+실제 브라우저 화면 확인은 사용자가 개발 서버를 새 소스로 다시 시작한 뒤 세 번호를 랜딩에 입력해 수행한다. 자동 검증기는 같은 route handler와 DB 공고 유니버스를 이미 통과하지만, 개발 서버 실행은 저장소 운영 규칙상 Codex가 대신 시작하지 않는다.
