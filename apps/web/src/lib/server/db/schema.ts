@@ -672,6 +672,26 @@ export const grantRaw = pgTable("grant_raw", {
   sourceIdIdx: uniqueIndex("grant_raw_source_id_idx").on(table.source, table.sourceId),
 }));
 
+/**
+ * 신규·변경 공고의 수집 이력. grant_raw는 source별 최신 snapshot을 upsert하므로
+ * 일별 운영 추이를 안정적으로 복원하려면 revision 단위 append-only 기록이 필요하다.
+ */
+export const grantCollectionEvents = pgTable("grant_collection_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  source: grantSourceEnum("source").notNull(),
+  sourceId: text("source_id").notNull(),
+  rawHash: text("raw_hash").notNull(),
+  revisionKind: text("revision_kind").notNull(),
+  collectedAt: timestamp("collected_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  revisionIdx: uniqueIndex("grant_collection_events_revision_idx")
+    .on(table.source, table.sourceId, table.rawHash),
+  collectedAtIdx: index("grant_collection_events_collected_at_idx").on(table.collectedAt),
+  revisionKindCheck: check("grant_collection_events_revision_kind_check", sql`
+    ${table.revisionKind} IN ('new', 'changed', 'observed')
+  `),
+}));
+
 export const grants = pgTable("grants", {
   id: uuid("id").defaultRandom().primaryKey(),
   source: grantSourceEnum("source").notNull(),

@@ -252,6 +252,7 @@
     "verify:deep-analysis-ops": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/admin/src/lib/auth/routeAccess.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/admin/src/lib/server/admin/deepPipeline.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/admin/src/scripts/verify-deep-analysis-ops.ts",
     "verify:ops-admin-live": "tsx packages/contracts/scripts/verify-ops-admin-live.ts",
     "verify:admin-notice-pipeline": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/admin/noticePipelineGraph.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/admin/noticePipelineActions.test.ts",
+    "verify:notice-calendar": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/features/notice-calendar/calendar.test.ts",
     "verify:admin-support-report": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/admin/verify-support-ticket-report.ts",
     "verify:admin-support-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/admin/verify-support-ticket-email-handoff.ts",
     "verify:support-ticket-intake-email-handoff": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/support/verify-support-ticket-intake-email-handoff.ts",

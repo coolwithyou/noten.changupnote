@@ -182,6 +182,25 @@ export async function publishNormalizedGrants<TPayload>(
           },
         });
 
+      if (revisionKind !== "unchanged") {
+        await tx
+          .insert(schema.grantCollectionEvents)
+          .values({
+            source: entry.raw.source,
+            sourceId: entry.raw.source_id,
+            rawHash: nextRawHash,
+            revisionKind,
+            collectedAt,
+          })
+          .onConflictDoNothing({
+            target: [
+              schema.grantCollectionEvents.source,
+              schema.grantCollectionEvents.sourceId,
+              schema.grantCollectionEvents.rawHash,
+            ],
+          });
+      }
+
       const [grant] = await tx
         .insert(schema.grants)
         .values(grantInsertValues(entry.grant, collectedAt))
