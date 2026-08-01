@@ -77,6 +77,11 @@ import {
   buildProductTeaserSnapshot,
   type ProductDashboardResult,
 } from "./productProfile/productMatchSnapshot";
+import {
+  isVirtualCompanyServerEnabled,
+  resolveVirtualCompanyScenario,
+  type VirtualCompanyScenario,
+} from "./virtualCompanies/catalog";
 
 const SAMPLE_PATH = "samples/kstartup_announcement_sample.json";
 const ENRICHMENT_CACHE_PROVIDER = "popbill";
@@ -1370,25 +1375,27 @@ export async function loadProductTeaser(
     recommendationTierForMatch(match) === "recommendable" && match.status === "open");
   result.reviewNeededMatches = result.matches.filter((match) =>
     recommendationTierForMatch(match) === "needs_profile_input");
-  try {
-    await recordLandingMatchObservation({
-      creditsSystem: repositories.creditsSystem,
-      result,
-      observedAt: asOf,
-    });
-  } catch (error) {
-    // 관측 저장 장애가 사용자 매칭 자체를 막지는 않는다. 원문 입력이나 사업자번호는 로그에 남기지 않는다.
-    console.error(
-      "Landing match observation persistence failed:",
-      error instanceof Error ? error.message : String(error),
-    );
+  if (!virtualScenarioForRequest(body, asOf)) {
+    try {
+      await recordLandingMatchObservation({
+        creditsSystem: repositories.creditsSystem,
+        result,
+        observedAt: asOf,
+      });
+    } catch (error) {
+      // 관측 저장 장애가 사용자 매칭 자체를 막지는 않는다. 원문 입력이나 사업자번호는 로그에 남기지 않는다.
+      console.error(
+        "Landing match observation persistence failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
   return result;
 }
 
 export async function resolveAnonymousProductCompanyProfile(
   body: Partial<TeaserRequest>,
-  options: { asOf?: Date } = {},
+  options: { asOf?: Date; allowVirtual?: boolean } = {},
 ): Promise<ResolvedProductCompanyProfile> {
   const asOf = options.asOf ?? new Date();
   const asOfIso = asOf.toISOString();
@@ -1402,6 +1409,15 @@ export async function resolveAnonymousProductCompanyProfile(
   const ephemeralProfile = normalizedRequestProfile && Object.keys(normalizedRequestProfile).length > 0
     ? normalizedRequestProfile
     : undefined;
+  const virtualScenario = (options.allowVirtual ?? isVirtualCompanyServerEnabled())
+    ? virtualScenarioForRequest(body, asOf)
+    : null;
+  if (virtualScenario) {
+    const profile = ephemeralProfile
+      ? mergeCompanyProfilesForEnrichmentAt(virtualScenario.profile, ephemeralProfile, asOfIso)
+      : virtualScenario.profile;
+    return buildVirtualCompanyResolution(profile, asOfIso);
+  }
   return resolveProductCompanyProfile({
     context: "anonymous_teaser",
     ...(body.bizNo ? { bizNo: body.bizNo } : {}),
@@ -1415,10 +1431,23 @@ export async function loadProductCompanyPreview(
   options: {
     asOf?: Date;
     publicRequestKey?: string;
+    allowVirtual?: boolean;
     dependencies?: ProductCompanyPreviewDependencies;
   } = {},
 ): Promise<CompanyPreviewResult> {
   const bizNo = bizNoInput.trim();
+  const asOf = options.asOf ?? new Date();
+  const virtualScenario = (options.allowVirtual ?? isVirtualCompanyServerEnabled())
+    ? resolveVirtualCompanyScenario(bizNo, { asOf })
+    : null;
+  if (virtualScenario) {
+    return buildCompanyPreviewResult({
+      bizNo: virtualScenario.bizNo,
+      profile: virtualScenario.profile,
+      checkedAt: asOf.toISOString(),
+      cacheStatus: "virtual",
+    });
+  }
   if (!bizNo || !isValidBizNoChecksum(bizNo)) {
     throw new ServiceDataError(
       "invalid_biz_no",
@@ -1428,7 +1457,6 @@ export async function loadProductCompanyPreview(
     );
   }
 
-  const asOf = options.asOf ?? new Date();
   const dependencies = options.dependencies ?? {
     resolveAnonymous: resolveAnonymousProductCompanyProfile,
     acquirePublicBase: loadCompanyProfileFromSourceWithEvidence,
@@ -1475,6 +1503,35 @@ export async function loadProductCompanyPreview(
       ? { cacheStatus: acquisitionEvidence?.cacheStatus ?? "hit" }
       : {}),
   });
+}
+
+function virtualScenarioForRequest(
+  body: Partial<TeaserRequest>,
+  asOf: Date,
+): VirtualCompanyScenario | null {
+  return body.bizNo ? resolveVirtualCompanyScenario(body.bizNo, { asOf }) : null;
+}
+
+function buildVirtualCompanyResolution(
+  profile: CompanyProfile,
+  asOf: string,
+): ResolvedProductCompanyProfile {
+  return {
+    context: "anonymous_teaser",
+    asOf,
+    stateScope: "request",
+    profile,
+    decisions: [],
+    view: buildMatchingProfileView(profile, asOf),
+    sourceReceipts: [{
+      source: "anonymous_ephemeral",
+      state: "consumed",
+      observationCount: Object.keys(profile.profile_evidence ?? {}).length,
+      reason: "virtual_company_fixture",
+    }],
+    persistence: "none",
+    refreshStatus: "not_requested",
+  };
 }
 
 function buildCompanyPreviewResult(input: {

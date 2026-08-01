@@ -1,9 +1,10 @@
 import type { ActionResult, ProductTeaserResult, TeaserRequest } from "@cunote/contracts";
-import { isValidBizNoChecksum } from "@cunote/contracts";
 import { NextResponse } from "next/server";
+import { isAcceptedLandingBizNo } from "@/lib/virtualCompanies";
 import { ProductProfileAnswerError } from "@/lib/server/productProfile/normalizeProductProfileAnswers";
 import { ProductProfileResolutionError } from "@/lib/server/productProfile/resolveProductCompanyProfile";
 import { loadProductTeaser, ServiceDataError } from "@/lib/server/serviceData";
+import { isVirtualCompanyServerEnabled } from "@/lib/server/virtualCompanies/catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,7 +14,9 @@ export async function POST(request: Request) {
     const body = await readBody(request);
     // API 직접 호출 방어: 사업자번호가 있으면 체크섬으로 명백한 무효 번호를 과금 전에 걸러낸다.
     const requestedBizNo = body.bizNo?.trim();
-    if (requestedBizNo && !isValidBizNoChecksum(requestedBizNo)) {
+    if (requestedBizNo && !isAcceptedLandingBizNo(requestedBizNo, {
+      allowVirtual: isVirtualCompanyServerEnabled(),
+    })) {
       return NextResponse.json<ActionResult<ProductTeaserResult>>({
         ok: false,
         error: {

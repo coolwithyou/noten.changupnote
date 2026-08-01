@@ -36,4 +36,3 @@ export function isEnabledFlag(value: string | undefined): boolean {
 export function isVirtualCompanyClientEnabled(): boolean {
   return isEnabledFlag(process.env.NEXT_PUBLIC_CUNOTE_VIRTUAL_COMPANY_ENABLED);
 }
-

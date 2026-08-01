@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import type { ActionResult, CompanyPreviewResult, TeaserRequest } from "@cunote/contracts";
-import { isValidBizNoChecksum } from "@cunote/contracts";
 import { toast } from "sonner";
 import type { BusinessLookupSuggestion } from "@/lib/businessLookupSuggestions";
 import {
@@ -14,6 +13,10 @@ import {
 } from "@/lib/client/businessLookupSuggestions";
 import { recordLandingEvent } from "@/lib/client/landingEvents";
 import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
+import {
+  isAcceptedLandingBizNo,
+  isVirtualCompanyClientEnabled,
+} from "@/lib/virtualCompanies";
 import {
   clearResumeFlag,
   filterLandingLookupSuggestions,
@@ -163,7 +166,7 @@ export function useBizLookup(): BizLookupController {
       });
       return;
     }
-    if (!isValidBizNoChecksum(digits)) {
+    if (!isAcceptedLandingBizNo(digits, { allowVirtual: isVirtualCompanyClientEnabled() })) {
       recordLandingEvent({
         event: "biz_no_validation_failed",
         requestId,
