@@ -106,6 +106,59 @@ check("인증 text_only required도 숫자 점수를 숨긴다", () => {
   assert.equal(result.review_gate?.scoreDisplay, "hidden");
 });
 
+check("검수된 구조화 인증의 회사값 누락은 원문 검수가 아니라 프로필 입력으로 보낸다", () => {
+  const result = matchGrantCriteria([{
+    dimension: "certification",
+    operator: "in",
+    kind: "required",
+    confidence: 0.95,
+    value: { certs: ["장애인기업 확인서"] },
+    source_span: "장애인기업 확인서 발급 업체",
+  }], company, {
+    extractionManifest: {
+      grantId: "bizinfo:certification-profile-input",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 1,
+      attachmentsFetched: 1,
+      attachmentsConverted: 1,
+      sectionsDetected: ["required"],
+      extractorVersion: "deep-analysis-v11/deep-analysis-model-policy-v24",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      reviewedAt: "2026-08-01T00:01:00.000Z",
+      warnings: [],
+      readiness: "reviewed",
+    },
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.review_gate?.tier, "needs_profile_input");
+  assert.equal(result.next_question?.field, "certification");
+});
+
+check("필수조건 탈락 뒤에는 우대조건 미확인 질문을 만들지 않는다", () => {
+  const result = matchGrantCriteria([
+    {
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      confidence: 0.95,
+      source_span: "충청남도 소재 기업",
+      value: { regions: ["44"] },
+    },
+    {
+      dimension: "revenue",
+      operator: "text_only",
+      kind: "preferred",
+      confidence: 0.9,
+      source_span: "전년 대비 매출액 증가율 평가",
+      value: {},
+    },
+  ], company);
+  assert.equal(result.eligibility, "ineligible");
+  assert.equal(result.review_gate?.tier, "not_recommended");
+  assert.equal(result.next_question, undefined);
+});
+
 check("핵심 unknown 없이 필수 조건을 통과하면 recommendable/numeric", () => {
   const criteria: GrantCriterion[] = [
     {
@@ -701,6 +754,123 @@ check("비결격 확인 답변은 exclusion unknown을 pass로 소거하고 elig
   assert.deepEqual(result.unknown_fields, []);
   // 해소된 entry는 더 이상 unknown 게이트에 걸리지 않아 추천 가능 tier까지 열린다.
   assert.equal(result.review_gate?.tier, "recommendable");
+});
+
+check("검수된 text_only의 유일한 경고는 사용자 확인 뒤 해소되어 추천 가능해진다", () => {
+  const result = matchGrantCriteria(confirmationFixtureCriteria(), company, {
+    confirmations: [{ criterion_id: "criterion-exclusion-1", disqualified: false }],
+    extractionManifest: {
+      grantId: "bizinfo:confirmation-ready",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 0,
+      attachmentsFetched: 0,
+      attachmentsConverted: 0,
+      sectionsDetected: ["required", "exclusion"],
+      extractorVersion: "deep-analysis-v12/deep-analysis-model-policy-v25",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      reviewedAt: "2026-08-01T00:01:00.000Z",
+      warnings: ["text_only_criterion_present"],
+      readiness: "partial",
+    },
+  });
+  assert.equal(result.review_gate?.tier, "recommendable");
+  assert.equal(result.quality.extractionReadiness, "reviewed");
+});
+
+check("검수된 preferred text_only만 남으면 신청 자격 판정을 차단하지 않는다", () => {
+  const result = matchGrantCriteria([
+    {
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      confidence: 0.95,
+      source_span: "충청남도 소재 장애인기업",
+      value: { regions: ["44"], labels: ["충남"] },
+    },
+    {
+      dimension: "biz_age",
+      operator: "gte",
+      kind: "required",
+      confidence: 0.95,
+      source_span: "사업자등록을 완료한 기업",
+      value: { min_months: 1 },
+    },
+    {
+      dimension: "other",
+      operator: "text_only",
+      kind: "preferred",
+      confidence: 0.9,
+      source_span: "홍보물의 활용성과 기대효과를 평가한다.",
+      value: { note: "활용성과 기대효과는 평가 시 우대" },
+    },
+  ], {
+    ...company,
+    region: { code: "44", label: "충남" },
+  }, {
+    extractionManifest: {
+      grantId: "bizinfo:preferred-text-only-ready",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 1,
+      attachmentsFetched: 1,
+      attachmentsConverted: 1,
+      sectionsDetected: ["required", "preferred"],
+      extractorVersion: "deep-analysis-v11/deep-analysis-model-policy-v24",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      reviewedAt: "2026-08-01T00:01:00.000Z",
+      warnings: ["text_only_criterion_present"],
+      readiness: "partial",
+    },
+  });
+  assert.equal(result.eligibility, "eligible");
+  assert.equal(result.review_gate?.tier, "recommendable");
+  assert.equal(result.quality.extractionReadiness, "reviewed");
+  assert.equal(result.rule_trace[2]?.result, "unknown");
+});
+
+check("검수된 required text_only는 사용자 확인 전까지 계속 차단한다", () => {
+  const result = matchGrantCriteria(confirmationFixtureCriteria(), company, {
+    extractionManifest: {
+      grantId: "bizinfo:required-text-only-blocked",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 0,
+      attachmentsFetched: 0,
+      attachmentsConverted: 0,
+      sectionsDetected: ["required", "exclusion"],
+      extractorVersion: "deep-analysis-v11/deep-analysis-model-policy-v24",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      reviewedAt: "2026-08-01T00:01:00.000Z",
+      warnings: ["text_only_criterion_present"],
+      readiness: "partial",
+    },
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.review_gate?.tier, "needs_core_review");
+  assert.equal(result.quality.extractionReadiness, "partial");
+});
+
+check("첨부 누락 경고는 사용자 확인으로 소거되지 않는다", () => {
+  const result = matchGrantCriteria(confirmationFixtureCriteria(), company, {
+    confirmations: [{ criterion_id: "criterion-exclusion-1", disqualified: false }],
+    extractionManifest: {
+      grantId: "bizinfo:confirmation-still-partial",
+      revision: "r1",
+      sourceFieldsSeen: ["criteria"],
+      attachmentsExpected: 1,
+      attachmentsFetched: 0,
+      attachmentsConverted: 0,
+      sectionsDetected: ["required", "exclusion"],
+      extractorVersion: "deep-analysis-v12/deep-analysis-model-policy-v25",
+      completedAt: "2026-08-01T00:00:00.000Z",
+      reviewedAt: "2026-08-01T00:01:00.000Z",
+      warnings: ["text_only_criterion_present", "attachment_fetch_incomplete"],
+      readiness: "partial",
+    },
+  });
+  assert.equal(result.review_gate?.tier, "needs_core_review");
+  assert.equal(result.quality.extractionReadiness, "partial");
 });
 
 check("결격 확인 답변은 hardFail로 ineligible을 확정한다", () => {

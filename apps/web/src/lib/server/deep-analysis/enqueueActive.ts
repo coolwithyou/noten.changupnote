@@ -85,28 +85,31 @@ export function deepAnalysisSourceObservationSql(
     )
   `;
   const sourceChangedAt = sql<Date>`
-    GREATEST(
-      ${grantUpdatedAt},
-      COALESCE((
-        SELECT MAX(deep_raw.collected_at)
-        FROM grant_raw AS deep_raw
-        WHERE deep_raw.source = ${grantSource}
-          AND deep_raw.source_id = ${grantSourceId}
-      ), ${grantUpdatedAt}),
-      COALESCE((
-        SELECT MAX(deep_attachment.updated_at)
-        FROM grant_attachment_archives AS deep_attachment
-        WHERE deep_attachment.source = ${grantSource}
-          AND deep_attachment.source_id = ${grantSourceId}
-      ), ${grantUpdatedAt}),
-      COALESCE((
-        SELECT MAX(GREATEST(deep_surface.updated_at, deep_artifact.created_at))
-        FROM grant_application_surfaces AS deep_surface
-        JOIN document_artifacts AS deep_artifact
-          ON deep_artifact.surface_id = deep_surface.id
-          AND deep_artifact.kind = 'markdown'
-        WHERE deep_surface.grant_id = ${grantId}
-      ), ${grantUpdatedAt})
+    date_trunc(
+      'milliseconds',
+      GREATEST(
+        ${grantUpdatedAt},
+        COALESCE((
+          SELECT MAX(deep_raw.collected_at)
+          FROM grant_raw AS deep_raw
+          WHERE deep_raw.source = ${grantSource}
+            AND deep_raw.source_id = ${grantSourceId}
+        ), ${grantUpdatedAt}),
+        COALESCE((
+          SELECT MAX(deep_attachment.updated_at)
+          FROM grant_attachment_archives AS deep_attachment
+          WHERE deep_attachment.source = ${grantSource}
+            AND deep_attachment.source_id = ${grantSourceId}
+        ), ${grantUpdatedAt}),
+        COALESCE((
+          SELECT MAX(GREATEST(deep_surface.updated_at, deep_artifact.created_at))
+          FROM grant_application_surfaces AS deep_surface
+          JOIN document_artifacts AS deep_artifact
+            ON deep_artifact.surface_id = deep_surface.id
+            AND deep_artifact.kind = 'markdown'
+          WHERE deep_surface.grant_id = ${grantId}
+        ), ${grantUpdatedAt})
+      )
     )
   `.mapWith(schema.grants.updatedAt);
   return {

@@ -85,12 +85,29 @@ const unknownStatusMatch = {
   grantId: "grant-status-unknown",
   status: "unknown",
 } as MatchCard;
+const hiddenScoreHardFailMatch = {
+  ...reviewMatch,
+  grantId: "grant-hard-fail-hidden-score",
+  eligibility: "ineligible",
+  recommendationTier: "not_recommended",
+  scoreDisplay: "hidden",
+  ruleTrace: [{
+    dimension: "region",
+    result: "fail",
+    label: "충남 대상 - 귀사 서울",
+  }],
+} as MatchCard;
 
 assert.equal(matchVerdictStatus(openMatch), "open");
 assert.equal(matchVerdictStatus(answerMatch), "one_answer");
 assert.equal(matchVerdictStatus(multiAnswerMatch), "closed");
 assert.equal(matchVerdictStatus(reviewMatch), "check_source");
 assert.equal(matchVerdictStatus(unknownStatusMatch), "check_source");
+assert.equal(
+  matchVerdictStatus(hiddenScoreHardFailMatch),
+  "closed",
+  "확정 미해당 공고를 점수 숨김만으로 원문 확인 필요로 표시하면 안 됨",
+);
 const grouped = groupMatchesForDisplay([
   openMatch,
   answerMatch,

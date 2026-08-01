@@ -199,7 +199,7 @@ export async function runDeepGrantAnalysis(options: {
 
 /**
  * v3 confirmation tool 스키마 조각 — buildDeepAnalysisToolSchema 의 criteria[].confirmation
- * 정의이자, 경량 보강 CLI(confirmations.ts, promptVersion confirmations-v1)가 재사용하는
+ * 정의이자, 경량 보강 CLI(confirmations.ts)가 재사용하는
  * 단일 원천이다(이중 관리 금지). 구조를 바꾸면 양쪽 promptVersion 을 함께 재고할 것.
  */
 export const CONFIRMATION_TOOL_SCHEMA = {
@@ -784,7 +784,7 @@ function normalizeUsage(usage: Record<string, unknown> | undefined): DeepAnalysi
 
 /**
  * v3 confirmation 생성 규칙 원문 — DEEP_ANALYSIS_SYSTEM_PROMPT 본문의 일부(스프레드 삽입,
- * 조인 결과 불변)이자, 경량 보강 CLI(confirmations.ts, promptVersion confirmations-v1)가
+ * 조인 결과 불변)이자, 경량 보강 CLI(confirmations.ts)가
  * 그대로 공유하는 단일 원천이다(이중 관리 금지). 문구 수정은 곧 프롬프트 개정이다 —
  * 양쪽 promptVersion 을 함께 재고할 것.
  */
@@ -794,7 +794,7 @@ export const CONFIRMATION_PROMPT_RULES = [
   "대상 예: prior_award 의 수혜·참여 이력 조건, other/text_only 의 절차·자격 조건. tax_compliance/credit_status/sanction 의 표준 플래그 결격에는 만들지 않는다(공용 확인 절차가 따로 있다). 표준 플래그로 담기지 않는 특수 조건이면 예외로 생성한다.",
   "prompt 는 source_span 원문의 특정성을 그대로 유지한 존댓말 객관식 질문 문장으로 쓴다. canonical 값 기준으로 일반화하지 마라. 예: 원문이 '타 정부지원사업에서 체계적합성시험비를 기 지원받은 경우'라면 '다른 정부지원사업에서 체계적합성시험비를 지원받은 적이 있나요?' 로 묻는다 — '올해 다른 지원사업 수혜를 받은 적이 있나요?' 같은 일반화 금지.",
   "options 는 2~4개. value 는 영문 snake_case, label 은 한국어. 결격에 해당하는 선택지는 disqualifies=true 로 표시하고, disqualifies true/false 선택지가 각각 최소 1개씩 있어야 한다. '잘 모르겠어요' 선택지는 만들지 마라(확인 UI가 공통 제공한다).",
-  "reusable: 답이 이 공고와 무관하게 성립하는 기업의 사실(특정 항목 수혜 이력, 사업 참여 이력 등)이면 company_fact, 이 공고에서만 유효한 선언(서류 허위 없음, 주관기업으로 참여 등)이면 per_notice.",
+  "reusable: 답이 이 공고와 무관하게 성립하는 기업의 사실(특정 항목 수혜 이력, 사업 참여 이력 등)이면 company_fact, 이 공고에서만 유효한 신청 역할 선언(주관기업으로 참여 등)이면 per_notice.",
   "company_fact 이면 condition_key 에 그 사실을 식별하는 안정적인 영문 snake_case 키를 쓴다(예: prior_award_system_conformity_test_fee). per_notice 면 condition_key 를 생략한다.",
 ];
 
@@ -806,6 +806,8 @@ export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
   "financial_health의 구조화 criterion에 impairment_excluded가 full을 포함하면 자본전액잠식 결격을 이미 반영한 것이다. 같은 자본전액잠식 문구를 별도 text_only criterion으로 중복 만들지 말고, audit에서 그런 audit_only 후보가 나오면 primary 누락이 아니라 중복으로 판단하라.";
 export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
   "criteria는 신청 시점의 자격·지원 제한·우대·평가점수처럼 신청 가능 판단과 사업자 매칭에 직접 쓰이는 규정만 포함한다. 본 사업 선정 후의 협약 이행, 수행내용 준수, 보고 의무와 그 위반에 따른 지원 취소·중단·환수 사유는 criterion으로 만들지 말고 analysis_markdown과 program_intent.caution_notes에만 기록한다. 동일 사실이 신청자격·지원 제한에도 명시되면 그 신청 단계 문장만 criterion 근거로 쓴다. 예: '지원 취소' 아래의 '협약서 등 관련 문서에서 명시한 사항을 2회 이상 위반'과 '지원신청서 및 계획서 내용과 수행내용이 상이'는 sanction/other criterion이 아니다. '회원가입시 ... 서류 제출 (영리기관만 해당)'처럼 괄호가 제출서류 적용 범위만 한정하고 신청 대상을 명시하지 않으면 target_type 조건이 아니다.";
+export const DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE =
+  "신청서·계획서·제출자료를 허위·거짓·과장 없이 작성한다는 진실성 서약, 표절·도용 금지, 서류 미제출·미비·양식 미준수 같은 접수 절차는 회사가 현재 보유한 자격 사실이 아니다. 이런 문구는 other/text_only exclusion, confirmation, condition_found로 만들지 말고 analysis_markdown 또는 program_intent.caution_notes의 신청 체크사항으로만 보존한다. 다만 과거 허위 제출로 인해 현재 정부사업 참여제한·제재 중이라는 명시적 상태는 sanction criterion으로 추출한다.";
 export const DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE =
   "신청서·서식의 빈칸·체크박스·기업정보 기재란과 제출서류 목록은 정보수집·증빙 요구일 뿐이다. 납세증명서·사업자등록증·보험서류 같은 문서의 제출 요구만으로 신청자격·결격·우대·배점 조건이나 ambiguous 후보를 만들지 마라. 주변 문구나 공고 본문에 그 문서가 증명하는 사실의 필수·제외·우대·배점 효과가 명시되지 않았다면 해당 축은 inspected_no_condition이다. 다만 서식 안에서도 신청자격·결격·서약·우대·배점이 문장으로 명시되면 그 명시 문장을 근거로 조건을 추출한다.";
 export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
@@ -845,6 +847,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "필수조건은 required, 제외대상은 exclusion, 우대조건은 preferred 로 분리한다.",
   "criteria 는 신청 가능 여부, 결격, 우대, 평가점수에 실제 영향을 주는 명시적 규정만 만든다.",
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
@@ -879,7 +882,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "[value canonical 규칙]",
   "region={regions:[시도코드],nationwide?}, biz_age={min_months?,max_months?,include_preliminary?}, industry={tags:[문자열]}, size={sizes:[정규 규모]}, revenue={min_krw?,max_krw?}, employees={min?,max?}, founder_age={ranges:[{min?,max?,label}]}, founder_trait={traits:[문자열]}, certification={certs:[문자열]}, ip={types:[문자열]}, target_type={targets:[문자열]}.",
   "위 canonical value 를 채울 수 없으면 빈 배열·빈 객체를 내지 말고 operator=text_only, dimension=other, value={note:근거문장} 으로 둔다.",
-  "서류 허위·미제출·표절·기타 부적합 같은 절차·재량 조건은 other/text_only exclusion 으로 둔다.",
+  "현재 사업자 상태로 판정할 수 없는 포괄적 '기타 부적합' 재량 문구는 분석 주의사항으로만 보존하고 criterion으로 만들지 마라.",
   "premises(사업장·입주공간 조건)와 export_performance(수출실적 조건)도 누락하지 않는다. 현재 matcher의 canonical 값이 열리기 전까지 이 두 축은 해당 dimension을 유지하고 operator=text_only, value={\"note\":\"근거문장\"}로 추출한다. other로 강등하지 마라.",
   "모든 criteria 는 근거 문장만 담은 source_span 이 반드시 있어야 한다. 근거를 특정할 수 없으면 그 조건은 만들지 마라.",
   "",

@@ -1,5 +1,6 @@
-import { and, count, inArray, isNull } from "drizzle-orm";
-import type { MatchCard } from "@cunote/contracts";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import type { CriterionDimension, CriterionKind, MatchCard } from "@cunote/contracts";
+import { isNonMatchingApplicationCriterion } from "@cunote/core";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 
@@ -16,49 +17,109 @@ export async function annotateMatchCardConfirmationQuestions(
   const grantIds = matches.map((match) => match.grantId).filter(isUuid);
   if (grantIds.length === 0) return matches;
 
-  let counts: ReadonlyMap<string, number>;
+  let anchors: ConfirmationQuestionAnchor[];
   try {
-    counts = await loadConfirmationQuestionCounts(grantIds);
+    anchors = await loadConfirmationQuestionAnchors(grantIds);
   } catch (error) {
     console.warn(
       `확인 질문 수 주석 조회 실패(주석 없이 폴백): ${error instanceof Error ? error.message : String(error)}`,
     );
     return matches;
   }
-  return applyConfirmationQuestionCounts(matches, counts);
+  return applyActionableConfirmationQuestions(matches, anchors);
 }
 
 /**
- * 집계 결과를 카드에 적용한다(순수 — 테스트 대상). 질문이 없는 공고(빈 테이블 포함)는
- * 필드를 싣지 않아 CTA 게이트(count > 0)가 자연히 닫힌다.
+ * 질문을 카드에 적용한다(순수 — 테스트 대상).
+ *
+ * 아직 답하지 않은 카드에서는 모든 hard unknown이 발행 질문으로 해소될 때만 CTA를 연다.
+ * 즉 질문 하나를 답해도 업종·사업자 유형 같은 다른 blocker가 그대로 남는 저가치 진입을
+ * 먼저 노출하지 않는다. 이미 답한 카드는 재확인 진입을 위해 유효 질문 수를 계속 싣는다.
  */
-export function applyConfirmationQuestionCounts(
+export function applyActionableConfirmationQuestions(
   matches: MatchCard[],
-  counts: ReadonlyMap<string, number>,
+  anchors: readonly ConfirmationQuestionAnchor[],
 ): MatchCard[] {
-  if (counts.size === 0) return matches;
+  if (anchors.length === 0) return matches;
+  const anchorsByGrant = new Map<string, ConfirmationQuestionAnchor[]>();
+  for (const anchor of anchors) {
+    anchorsByGrant.set(anchor.grantId, [...(anchorsByGrant.get(anchor.grantId) ?? []), anchor]);
+  }
   return matches.map((match) => {
-    const questionCount = counts.get(match.grantId);
-    return questionCount && questionCount > 0
-      ? { ...match, confirmationQuestionCount: questionCount }
+    const grantAnchors = anchorsByGrant.get(match.grantId) ?? [];
+    if (grantAnchors.length === 0) return match;
+    if ((match.userConfirmedCount ?? 0) > 0) {
+      return { ...match, confirmationQuestionCount: uniqueQuestionCount(grantAnchors) };
+    }
+    const hardUnknowns = match.ruleTrace.filter((trace) =>
+      (trace.result === "unknown" || trace.result === "text_only")
+      && (trace.kind === "required" || trace.kind === "exclusion"));
+    if (hardUnknowns.length === 0) return match;
+    const matchedQuestionIds = new Set<string>();
+    for (const trace of hardUnknowns) {
+      const matched = grantAnchors.filter((anchor) => anchorMatchesTrace(anchor, trace));
+      if (matched.length === 0) return match;
+      for (const anchor of matched) matchedQuestionIds.add(anchor.questionId);
+    }
+    return matchedQuestionIds.size > 0
+      ? { ...match, confirmationQuestionCount: matchedQuestionIds.size }
       : match;
   });
 }
 
-async function loadConfirmationQuestionCounts(grantIds: string[]): Promise<Map<string, number>> {
+export interface ConfirmationQuestionAnchor {
+  questionId: string;
+  grantId: string;
+  dimension: CriterionDimension;
+  kind: CriterionKind;
+  operator: string;
+  sourceSpan: string | null;
+}
+
+async function loadConfirmationQuestionAnchors(grantIds: string[]): Promise<ConfirmationQuestionAnchor[]> {
   const db = getCunoteDb();
   const rows = await db
     .select({
+      questionId: schema.grantConfirmationQuestions.id,
       grantId: schema.grantConfirmationQuestions.grantId,
-      questionCount: count(schema.grantConfirmationQuestions.id),
+      dimension: schema.grantCriteria.dimension,
+      kind: schema.grantCriteria.kind,
+      operator: schema.grantCriteria.operator,
+      sourceSpan: schema.grantCriteria.sourceSpan,
     })
     .from(schema.grantConfirmationQuestions)
+    .innerJoin(
+      schema.grantCriteria,
+      eq(schema.grantCriteria.id, schema.grantConfirmationQuestions.grantCriteriaId),
+    )
     .where(and(
       inArray(schema.grantConfirmationQuestions.grantId, grantIds),
       isNull(schema.grantConfirmationQuestions.invalidatedAt),
-    ))
-    .groupBy(schema.grantConfirmationQuestions.grantId);
-  return new Map(rows.map((row) => [row.grantId, row.questionCount]));
+    ));
+  return rows.filter((row) => !isNonMatchingApplicationCriterion({
+    dimension: row.dimension,
+    kind: row.kind,
+    operator: row.operator,
+    source_span: row.sourceSpan,
+  }));
+}
+
+function anchorMatchesTrace(
+  anchor: ConfirmationQuestionAnchor,
+  trace: MatchCard["ruleTrace"][number],
+): boolean {
+  return anchor.dimension === trace.dimension
+    && anchor.kind === trace.kind
+    && normalizeSpan(anchor.sourceSpan) !== ""
+    && normalizeSpan(anchor.sourceSpan) === normalizeSpan(trace.sourceSpan);
+}
+
+function uniqueQuestionCount(anchors: readonly ConfirmationQuestionAnchor[]): number {
+  return new Set(anchors.map((anchor) => anchor.questionId)).size;
+}
+
+function normalizeSpan(value: string | null | undefined): string {
+  return (value ?? "").normalize("NFC").replace(/\s+/g, " ").trim();
 }
 
 function isUuid(value: string): boolean {

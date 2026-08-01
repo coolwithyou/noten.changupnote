@@ -26,6 +26,7 @@ export * from "./company/assemble-company-profile.js";
 export * from "./company/question-answer-state.js";
 export * from "./company/update-profile-field.js";
 export * from "./criteria/canonicalize.js";
+export * from "./criteria/matching-scope.js";
 // 지역 코드·라벨·정규화 유틸 — 매칭 파이프라인 내부 전용이었으나 비로그인 공개 캘린더가
 // 시도 코드 검증(VALID_SIDO_CODES)과 토큰 확장(expandRegionToken, 수도권→3코드)을 공유해야 한다.
 // 배럴(export *) 체인에 없던 심볼이라 named export로만 노출한다(이름 충돌 회피 — export * 금지).

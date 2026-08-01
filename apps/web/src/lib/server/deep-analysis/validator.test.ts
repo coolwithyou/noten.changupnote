@@ -251,6 +251,58 @@ assert.equal(validateDeepAnalysisResult({
   issue.code === "canonical_contract_invalid" && issue.path.endsWith(".operator")
 )), true);
 
+for (const [label, nonMatchingSpan] of [
+  ["신청 진실성 서약", "허위 또는 과장된 정보 제출 시 선정 취소 및 향후 지원 제한 등의 불이익이 있을 수 있습니다."],
+  ["서류 접수 절차", "접수 마감일까지 계획서 등 제반서류를 제출 완료하지 않은 경우"],
+  ["선정 후 수행 일치 의무", "지원신청서 및 계획서 내용과 수행내용이 상이할 경우"],
+  ["협약 이행 의무", "협약서 등 관련 문서의 명시사항을 2회 이상 위반하거나 시정요구에 응하지 않을 경우"],
+] as const) {
+  const nonMatchingSeal = sealDeepAnalysisInput({
+    grantId: `grant-non-matching-${label}`,
+    sourceRevisionSha256: "3".repeat(64),
+    structuredText: nonMatchingSpan,
+    attachments: [],
+  });
+  const validation = validateDeepAnalysisResult({
+    seal: nonMatchingSeal,
+    result: result([
+      criterion({
+        dimension: "other",
+        operator: "text_only",
+        kind: "exclusion",
+        value: { note: nonMatchingSpan },
+        sourceSpan: nonMatchingSpan,
+      }),
+    ], axes(["other"])),
+  });
+  assert.equal(validation.valid, false, `${label}은 매칭 criterion으로 승격할 수 없다`);
+  assert.equal(
+    validation.issues.some((issue) => issue.code === "non_matching_criterion"),
+    true,
+    `${label}은 결정론적 scope issue를 남긴다`,
+  );
+}
+
+const currentSanctionSpan = "허위자료 제출로 현재 정부지원사업 참여제한 중인 기업은 신청할 수 없다.";
+const currentSanctionSeal = sealDeepAnalysisInput({
+  grantId: "grant-current-sanction",
+  sourceRevisionSha256: "4".repeat(64),
+  structuredText: currentSanctionSpan,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: currentSanctionSeal,
+  result: result([
+    criterion({
+      dimension: "sanction",
+      operator: "in",
+      kind: "exclusion",
+      value: { flags: ["participation_restricted"] },
+      sourceSpan: currentSanctionSpan,
+    }),
+  ], axes(["sanction"])),
+}).valid, true, "현재 참여제한 상태는 신청 시점 결격으로 보존한다");
+
 const mismatch = validateDeepAnalysisResult({
   seal,
   result: result([criterion()], axes()),

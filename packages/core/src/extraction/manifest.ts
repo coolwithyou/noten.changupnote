@@ -16,6 +16,8 @@ export interface BuildGrantExtractionManifestOptions {
   extractorVersion?: string;
   completedAt?: string;
   reviewedAt?: string | null;
+  /** 별도 검증 원장이 해소했음을 입증한 legacy completeness 경고. */
+  resolvedWarnings?: GrantExtractionWarningCode[];
 }
 
 /**
@@ -45,6 +47,7 @@ export function buildGrantExtractionManifest<TPayload>(
       attachment.conversion?.status === "skipped" ||
       attachment.conversion?.status === "failed").length,
   );
+  const resolvedWarnings = new Set(options.resolvedWarnings ?? []);
   const warnings = extractionWarnings({
     criteria: entry.criteria,
     sourceFieldsExpected: options.sourceFieldsExpected ?? [],
@@ -56,7 +59,7 @@ export function buildGrantExtractionManifest<TPayload>(
     attachmentsFetched,
     attachmentsConverted,
     attachmentsProcessed,
-  });
+  }).filter((warning) => !resolvedWarnings.has(warning));
   const reviewedAt = cleanText(options.reviewedAt);
   const readiness = extractionReadiness(entry.criteria, warnings, Boolean(reviewedAt));
 

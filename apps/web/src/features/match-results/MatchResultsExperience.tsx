@@ -16,6 +16,7 @@ import { ProgramsExperience } from "./Programs";
 import { ResultsHero } from "./ResultsHero";
 import { EmptyState, ErrorState, LoadingState, NoMatchingGrantsState } from "./States";
 import { NextQuestionCard } from "./NextQuestionCard";
+import { AnalysisScopeCard } from "./AnalysisScopeCard";
 import {
   PENDING_TEASER_STORAGE_KEY,
   TEASER_FALLBACK_MESSAGE,
@@ -199,8 +200,6 @@ export function MatchResultsExperience() {
       (teaser.counts.openNow ?? displayGroups?.open.length ?? 0) === 0 &&
       (teaser.counts.oneAnswer ?? displayGroups?.oneAnswer.length ?? 0) === 0 &&
       (teaser.counts.preparable ?? displayGroups?.preparable.length ?? 0) === 0 &&
-      (teaser.counts.needsCoreReview ?? displayGroups?.checkSource.length ?? 0) === 0 &&
-      (displayGroups?.checkSource.length ?? 0) === 0 &&
       (displayGroups?.upcoming.length ?? 0) === 0 &&
       teaser.nextQuestion === null,
   );
@@ -231,6 +230,7 @@ export function MatchResultsExperience() {
               empty={noMatchingGrants}
               questionsExhausted={teaser.nextQuestion === null}
             />
+            <AnalysisScopeCard context={teaser.searchContext} />
             {noMatchingGrants ? (
               <NoMatchingGrantsState
                 onSubscribe={() => void saveAndContinue()}

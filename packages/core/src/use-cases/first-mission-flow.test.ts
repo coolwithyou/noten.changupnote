@@ -59,6 +59,23 @@ assert.equal(mixedBuckets.reviewNeededMatches?.length, 3, "검토 필요 후보�
 assert.equal(mixedBuckets.counts.needsProfileInput, 8);
 assert.equal(mixedBuckets.counts.oneAnswer, 8);
 
+const servingBoundary = buildTeaser({
+  company: beforeProfile,
+  grants: [ageGrant("serving-ready", 20, 39), partialAgeGrant("ops-review")],
+  asOf: new Date("2026-07-12T00:00:00.000Z"),
+  limit: 8,
+});
+assert.equal(servingBoundary.searchContext?.evaluatedGrantCount, 2, "분석 범위에는 OPS 검수 대상도 포함해야 한다");
+assert.deepEqual(
+  servingBoundary.matches.map((match) => match.sourceId),
+  ["serving-ready"],
+  "자동 검수·승격 전 공고를 사용자 카드로 노출하면 안 된다",
+);
+assert.equal(servingBoundary.counts.conditional, 1, "사용자 결과 건수는 서빙 가능한 공고만 집계해야 한다");
+assert.equal(servingBoundary.counts.needsCoreReview, 0, "OPS 검수 대기 건수를 사용자 응답에 노출하면 안 된다");
+assert.equal(servingBoundary.reviewNeededMatches?.length, 1);
+assert.equal(servingBoundary.nextQuestion?.affectedGrantCount, 1, "숨긴 공고가 사용자 질문을 만들면 안 된다");
+
 const multipleAnswersNeeded = buildTeaser({
   company: beforeProfile,
   grants: [multiAnswerGrant("multi-answer")],
@@ -204,6 +221,17 @@ function revenueGrant(sourceId: string): NormalizedGrant<Record<string, never>> 
     confidence: 1,
     source_span: "최근 연 매출 10억원 이하",
   }];
+  return entry;
+}
+
+function partialAgeGrant(sourceId: string): NormalizedGrant<Record<string, never>> {
+  const entry = ageGrant(sourceId, 20, 39);
+  entry.grant.title = "OPS 검수 대기 사업";
+  entry.extraction_manifest = {
+    ...entry.extraction_manifest!,
+    readiness: "partial",
+    reviewedAt: null,
+  };
   return entry;
 }
 

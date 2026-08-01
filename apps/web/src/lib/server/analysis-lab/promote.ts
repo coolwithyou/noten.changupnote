@@ -20,6 +20,7 @@
 // 가능한 포트 인터페이스(PromotionWritePort)와 실행 오케스트레이션만 정의한다(테스트는 페이크).
 import { createHash } from "node:crypto";
 import type { GrantCriterion } from "@cunote/contracts";
+import { nonMatchingCriterionReason } from "@cunote/core";
 import type {
   LabAudit,
   LabConfirmationOption,
@@ -264,7 +265,7 @@ export interface PromotionQuestionPlan {
   answerType: "single" | "multi";
   reusable: LabConfirmationReusable;
   conditionKey: string | null;
-  /** 인라인이면 런의 promptVersion(lab-deep-v3), 사이드카면 confirmations-v1. */
+  /** 인라인이면 런의 promptVersion, 사이드카면 confirmations 전용 promptVersion. */
   promptVer: string;
   /** v3 인라인 여부(원본 런 기준) — 계획 출력용. */
   inline: boolean;
@@ -335,8 +336,23 @@ export function planGrantPromotion(input: {
     overlay: input.overlay,
   });
   const selected = resolutions.filter((item) => publishesCriterion(item.state));
-  const conversion = convertSelectedLabCriteria(mergedRun, {
-    selections: selected.map((item) => ({
+  const scopeRejected = selected.filter((item) => {
+    const criterion = mergedRun.criteria[item.criterionIndex];
+    return criterion
+      ? nonMatchingCriterionReason({
+          dimension: criterion.dimension,
+          operator: criterion.operator,
+          kind: criterion.kind,
+          source_span: criterion.sourceSpan,
+        }) !== null
+      : false;
+  });
+  const scopeRejectedIndexes = new Set(scopeRejected.map((item) => item.criterionIndex));
+  const publishableSelected = selected.filter(
+    (item) => !scopeRejectedIndexes.has(item.criterionIndex),
+  );
+  const converted = convertSelectedLabCriteria(mergedRun, {
+    selections: publishableSelected.map((item) => ({
       criterionIndex: item.criterionIndex,
       needsReview: criterionNeedsReview(item.state),
     })),
@@ -350,8 +366,18 @@ export function planGrantPromotion(input: {
     missedConditions: (input.review?.axisReviews ?? input.aiReview?.axisReviews ?? [])
       .filter((axis) => axis.verdict === "missed_condition").length,
   });
+  const conversion = scopeRejected.length === 0
+    ? converted
+    : {
+        ...converted,
+        report: {
+          ...converted.report,
+          inputRows: converted.report.inputRows + scopeRejected.length,
+          dropped: converted.report.dropped + scopeRejected.length,
+        },
+      };
 
-  const rowCriterionIndexes = selected.map((item) => item.criterionIndex);
+  const rowCriterionIndexes = publishableSelected.map((item) => item.criterionIndex);
   const criterionIndexByPosition = conversion.criteria.map((criterion) => {
     const rowIndex = rowIndexFromCriterionId(criterion.id);
     return rowCriterionIndexes[rowIndex] ?? -1;
@@ -383,7 +409,7 @@ export function planGrantPromotion(input: {
       answerType: confirmation.answerType,
       reusable: confirmation.reusable,
       conditionKey: confirmation.conditionKey,
-      // 인라인은 런 세대(lab-deep-v3), 보강 사이드카는 자체 promptVersion(confirmations-v1).
+      // 인라인은 런 세대, 보강 사이드카는 자체 promptVersion.
       promptVer: inline ? input.run.promptVersion : (input.sidecar?.promptVersion ?? CONFIRMATIONS_PROMPT_VERSION),
       inline,
       provenance: {

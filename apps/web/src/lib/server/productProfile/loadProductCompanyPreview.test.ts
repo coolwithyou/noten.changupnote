@@ -5,7 +5,11 @@ import {
   ProductProfileResolutionError,
   type ResolvedProductCompanyProfile,
 } from "./resolveProductCompanyProfile";
-import { loadProductCompanyPreview, ServiceDataError } from "../serviceData";
+import {
+  loadProductCompanyPreview,
+  resolveAnonymousProductCompanyProfile,
+  ServiceDataError,
+} from "../serviceData";
 
 const asOf = new Date("2026-07-14T12:00:00.000Z");
 const bizNo = "7465400870";
@@ -131,6 +135,40 @@ assert.equal(unstored.name, profile.name);
 assert.equal(unstored.cacheStatus, "none");
 assert.equal(resolveCalls, 1, "an unstored paid result must not enter a cache-only resolver again");
 assert.equal(acquisitionCalls, 1, "an unstored paid result must not be reacquired in the same request");
+
+resolveCalls = 0;
+acquisitionCalls = 0;
+const virtual = await loadProductCompanyPreview("0000000001", {
+  asOf,
+  allowVirtual: true,
+  dependencies: {
+    async resolveAnonymous() {
+      resolveCalls += 1;
+      throw new Error("virtual company must not enter the real resolver");
+    },
+    async acquirePublicBase() {
+      acquisitionCalls += 1;
+      throw new Error("virtual company must not acquire provider data");
+    },
+  },
+});
+assert.equal(virtual.name, "창업노트 가상기업 — 충남 장애인기업");
+assert.equal(virtual.cacheStatus, "virtual");
+assert.equal(resolveCalls, 0);
+assert.equal(acquisitionCalls, 0);
+
+await assert.rejects(
+  () => loadProductCompanyPreview("0000000001", { asOf, allowVirtual: false }),
+  (error: unknown) => error instanceof ServiceDataError && error.code === "invalid_biz_no",
+);
+
+const virtualResolution = await resolveAnonymousProductCompanyProfile(
+  { bizNo: "0000000003", answers: [{ field: "certification", value: ["장애인기업 확인서"] }] },
+  { asOf, allowVirtual: true },
+);
+assert.deepEqual(virtualResolution.profile.certs, ["장애인기업 확인서"]);
+assert.equal(virtualResolution.profile.region?.code, "44");
+assert.equal(virtualResolution.sourceReceipts[0]?.reason, "virtual_company_fixture");
 
 console.log("productProfile/loadProductCompanyPreview.test.ts: all assertions passed");
 

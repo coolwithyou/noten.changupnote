@@ -27,6 +27,12 @@ export function buildActionQueue({
   const enrichableUnknowns = new Set<string>();
 
   for (const match of matches) {
+    // 이미 확정적으로 신청할 수 없는 공고는 추가 입력으로 결과가 바뀌지 않는다.
+    // 남아 있는 unknown/text_only trace가 사용자 행동으로 승격되지 않게 한다.
+    if (match.eligibility === "ineligible" || match.recommendationTier === "not_recommended") {
+      continue;
+    }
+
     if (match.eligibility === "eligible") {
       addAction(actions, `apply:${match.grantId}`, {
         kind: "apply",

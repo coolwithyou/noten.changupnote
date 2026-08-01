@@ -81,7 +81,6 @@ export function ProgramsExperience({
   const visibleOpen = showAllOpen ? groups.open : groups.open.slice(0, DEFAULT_VISIBLE_OPEN);
   const totalOpen = Math.max(teaser.counts.openNow ?? 0, groups.open.length);
   const totalOneAnswer = Math.max(teaser.counts.oneAnswer ?? 0, groups.oneAnswer.length);
-  const totalCheckSource = Math.max(teaser.counts.needsCoreReview ?? 0, groups.checkSource.length);
   const totalPreparable = Math.max(teaser.counts.preparable ?? 0, groups.preparable.length);
 
   return (
@@ -153,17 +152,6 @@ export function ProgramsExperience({
           matches={groups.preparable}
           status="closed"
           emptyCopy="결과를 저장하면 필요한 준비 조건을 이어서 확인할 수 있어요."
-          onOpenProfile={onOpenProfile}
-          onPrepare={onPrepare}
-          preparing={preparing}
-          onOpenConfirmation={openConfirmation}
-        />
-        <ResultBucket
-          label="원문 확인 필요"
-          count={totalCheckSource}
-          matches={groups.checkSource}
-          status="check_source"
-          emptyCopy="원문 확인이 필요한 공고는 현재 목록에 없어요."
           onOpenProfile={onOpenProfile}
           onPrepare={onPrepare}
           preparing={preparing}

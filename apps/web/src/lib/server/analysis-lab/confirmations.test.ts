@@ -18,6 +18,7 @@ import type {
 } from "@/features/dev/analysis-lab/contract";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import {
+  CONFIRMATIONS_PROMPT_VERSION,
   LAB_CONFIRMATIONS_SCHEMA,
   mergeConfirmationsIntoRun,
   normalizeConfirmationsPayload,
@@ -285,7 +286,7 @@ function sidecarFixture(items: LabConfirmationsFile["items"], overrides: Partial
   assert.notEqual(stored, null, "저장본이 파싱 계약을 통과한다");
   assert.deepEqual(stored!.items.map((item) => item.criterionIndex), [1]);
   assert.equal(stored!.schema, LAB_CONFIRMATIONS_SCHEMA);
-  assert.equal(stored!.promptVersion, "confirmations-v1");
+  assert.equal(stored!.promptVersion, CONFIRMATIONS_PROMPT_VERSION);
   assert.equal(stored!.costUsd, 0.0123);
 
   // 기존 사이드카 존재 → 스킵(API 재호출 없음).

@@ -204,6 +204,29 @@ const baseSidecar = fixtureSidecar([
 ]);
 
 {
+  const honestySpan = "허위 또는 과장된 정보 제출 시 선정 취소 및 향후 지원 제한 등의 불이익이 있을 수 있습니다.";
+  const run = fixtureRun([
+    criterion({
+      dimension: "other",
+      kind: "exclusion",
+      operator: "text_only",
+      value: { note: honestySpan },
+      sourceSpan: honestySpan,
+      spanVerified: true,
+      confirmation: confirmation("제출 정보에 허위 또는 과장이 없음을 확인하시나요?"),
+    }),
+  ]);
+  const review = fixtureReview([
+    { criterionIndex: 0, verdict: "correct", note: null },
+  ]);
+  const plan = planGrantPromotion({ run, review, origin: "human", sidecar: null });
+  assert.equal(plan.criteria.length, 0, "신청 진실성 서약은 과거 검수 산출물이어도 승격하지 않는다");
+  assert.equal(plan.questions.length, 0, "비자격 서약 질문도 함께 차단한다");
+  assert.equal(plan.conversion.inputRows, 1);
+  assert.equal(plan.conversion.dropped, 1, "승격 차단은 conversion drop으로 무은폐한다");
+}
+
+{
   const plan = planGrantPromotion({ run: baseRun, review: baseReview, origin: "human", sidecar: baseSidecar });
 
   // ② correct 만 편입 — needs_edit/wrong 은 발행에서 제외, verdict 집계는 무은폐.

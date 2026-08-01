@@ -13,6 +13,7 @@ import {
 import {
   EXCEPTION_FLAG_COVERAGE,
   canonicalizeGrantCriterion,
+  nonMatchingCriterionReason,
   validateGrantCriteriaContract,
   type DisqualificationException,
   type DisqualificationFlag,
@@ -20,7 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v4" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v5" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -32,6 +33,7 @@ export type DeepAnalysisValidationIssueCode =
   | "canonical_contract_invalid"
   | "semantic_duplicate"
   | "logical_conflict"
+  | "non_matching_criterion"
   | "input_not_sealed";
 
 export interface DeepAnalysisValidationIssue {
@@ -117,6 +119,7 @@ export function validateDeepAnalysisResult(input: {
   }
   validateRequiredExclusionConflicts(validatedCriteria, issues);
   validateStartupStageTargetDuplicates(validatedCriteria, issues);
+  validateApplicationMatchingScope(validatedCriteria, issues);
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
   for (const dimension of CRITERION_DIMENSIONS) criteriaByDimension.set(dimension, []);
@@ -159,6 +162,7 @@ export function validateDeepAnalysisResult(input: {
     "canonical_contract_invalid",
     "semantic_duplicate",
     "logical_conflict",
+    "non_matching_criterion",
   ]);
   const axisIssueCodes = new Set<DeepAnalysisValidationIssueCode>([
     "axis_coverage_invalid",
@@ -187,6 +191,22 @@ export function validateDeepAnalysisResult(input: {
       ]),
     ) as Record<CriterionDimension, string[]>,
   };
+}
+
+function validateApplicationMatchingScope(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  for (const item of criteria) {
+    const reason = nonMatchingCriterionReason(item.canonicalCriterion);
+    if (!reason) continue;
+    issues.push({
+      code: "non_matching_criterion",
+      path: `$.criteria[${item.index}]`,
+      message:
+        `${reason}: application procedure or post-selection obligation cannot be used for company matching; preserve it only in analysis/caution text.`,
+    });
+  }
 }
 
 const STARTUP_STAGE_TARGETS = new Set([
