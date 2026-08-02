@@ -48,6 +48,7 @@ export function FieldCard({
   onAsk,
   onNext,
   onRequestSuggestion,
+  canAsk,
   canLocateInDocument,
   isLocatingInDocument,
   onStartLocate,
@@ -71,6 +72,7 @@ export function FieldCard({
   onAsk: () => void;
   onNext: () => void;
   onRequestSuggestion: () => void;
+  canAsk: boolean;
   canLocateInDocument: boolean;
   isLocatingInDocument: boolean;
   onStartLocate: () => void;
@@ -278,12 +280,14 @@ export function FieldCard({
       </CardContent>
 
       {/* ⑺ 하단 채팅 진입 */}
-      <CardFooter className="justify-center bg-card">
-        <Button type="button" size="sm" variant="ghost" onClick={onAsk} className="text-muted-foreground">
-          <HelpCircle data-icon="inline-start" aria-hidden />
-          이 항목이 궁금하면 물어보세요
-        </Button>
-      </CardFooter>
+      {canAsk ? (
+        <CardFooter className="justify-center bg-card">
+          <Button type="button" size="sm" variant="ghost" onClick={onAsk} className="text-muted-foreground">
+            <HelpCircle data-icon="inline-start" aria-hidden />
+            이 항목이 궁금하면 물어보세요
+          </Button>
+        </CardFooter>
+      ) : null}
     </Card>
   );
 }

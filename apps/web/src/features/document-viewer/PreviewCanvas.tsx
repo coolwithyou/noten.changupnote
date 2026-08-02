@@ -85,9 +85,10 @@ const STUDIO_OVERLAY_CLASS = {
   active: "border-2 border-dashed border-studio bg-studio-soft",
 };
 
-function pageImageUrl(grantId: string, key: string): string {
+function pageImageUrl(grantId: string, key: string, accessBizNo?: string | null): string {
   const encoded = key.split("/").map((part) => encodeURIComponent(part)).join("/");
-  return `/api/web/grants/${encodeURIComponent(grantId)}/page-image/${encoded}`;
+  const base = `/api/web/grants/${encodeURIComponent(grantId)}/page-image/${encoded}`;
+  return accessBizNo ? `${base}?biz=${encodeURIComponent(accessBizNo)}` : base;
 }
 
 export function PreviewCanvas({
@@ -105,6 +106,7 @@ export function PreviewCanvas({
   locatingFieldId = null,
   onLocateField,
   onRhwpAnchorsChange,
+  pageImageAccessBizNo = null,
 }: {
   grantId: string;
   grantTitle: string;
@@ -124,6 +126,8 @@ export function PreviewCanvas({
   locatingFieldId?: string | null;
   onLocateField?: (anchor: RhwpFieldAnchor) => void;
   onRhwpAnchorsChange?: (fieldIds: ReadonlySet<string>) => void;
+  /** 개발용 가상 기업 workspace에서만 페이지 이미지 read 권한을 전달한다. */
+  pageImageAccessBizNo?: string | null;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -248,7 +252,7 @@ export function PreviewCanvas({
                 sourceUrl={rhwpSourceUrl}
                 pageIndex={pageIndex}
                 fields={rhwpFields}
-                fallbackSrc={currentPage ? pageImageUrl(grantId, currentPage.storageKey) : null}
+                fallbackSrc={currentPage ? pageImageUrl(grantId, currentPage.storageKey, pageImageAccessBizNo) : null}
                 alt={`${grantTitle} ${pageIndex + 1}페이지`}
                 onLoad={centerSelectedOverlay}
                 onReady={handleRhwpReady}
@@ -259,7 +263,7 @@ export function PreviewCanvas({
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={pageImageUrl(grantId, currentPage!.storageKey)}
+                src={pageImageUrl(grantId, currentPage!.storageKey, pageImageAccessBizNo)}
                 alt={`${grantTitle} ${currentPage!.page}페이지`}
                 className="pointer-events-none block w-full select-none"
                 draggable={false}

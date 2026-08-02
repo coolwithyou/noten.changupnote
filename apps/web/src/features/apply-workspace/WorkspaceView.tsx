@@ -65,6 +65,7 @@ export function WorkspaceView({
   // Workspace 내부 API(page image/chat/conversion)는 grants.id UUID 계약이다. 공개 route param을
   // 다시 전달하면 bizinfo%3A... 같은 source key가 UUID 전용 API로 흘러가므로 서버 로더의 id만 쓴다.
   const grantId = data.grant.id;
+  const virtualPreview = data.execution.mode === "virtual_preview" ? data.execution : null;
   const router = useRouter();
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
@@ -187,9 +188,25 @@ export function WorkspaceView({
   }, [data.ladder, data.connectedFields.length, authoringTasks, answers, studioTaskStates, pendingLabels]);
 
   async function patchAnswer(label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) {
-    if (!data.draftId) return;
     const key = answerKey(label);
     const prev = answersRef.current;
+    if (virtualPreview) {
+      const optimistic = optimisticApply(prev, key, entry);
+      setAnswers(optimistic);
+      answersRef.current = optimistic;
+      if (entry.status === "accepted" || entry.status === "edited" || entry.status === "dismissed") {
+        const currentTask = authoringTasks.find((task) => answerKey(task.label) === key);
+        const next = nextIncompleteTask({
+          tasks: authoringTasks,
+          ...(currentTask ? { afterFieldId: currentTask.fieldId } : {}),
+          answers: optimistic,
+          studioTaskStates,
+        });
+        setSelectedFieldId(next?.fieldId ?? null);
+      }
+      return;
+    }
+    if (!data.draftId) return;
     setAnswers(optimisticApply(prev, key, entry));
     setPendingLabels((current) => {
       const next = new Set(current);
@@ -313,6 +330,10 @@ export function WorkspaceView({
   }
 
   function handleAskField(field: ConnectedDocumentField) {
+    if (virtualPreview) {
+      toast.info("가상 기업 미리보기에서는 AI 질문을 실행하지 않습니다.");
+      return;
+    }
     chat.askField({ label: field.label, section: field.section, fieldId: field.fieldId });
     setShowChat(true);
   }
@@ -387,6 +408,7 @@ export function WorkspaceView({
       locatingFieldId={locatingFieldId}
       onLocateField={handleLocateField}
       onRhwpAnchorsChange={handleRhwpAnchorsChange}
+      pageImageAccessBizNo={virtualPreview?.bizNo ?? null}
     />
   );
 
@@ -429,6 +451,7 @@ export function WorkspaceView({
           : data.headRevision?.savedAt,
       )}
       persistedMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
+      virtualPreview={Boolean(virtualPreview)}
     />
   );
 
@@ -437,7 +460,9 @@ export function WorkspaceView({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-6">
         <div className="min-w-0">
           <Link
-            href={`/grants/${encodeURIComponent(grantId)}`}
+            href={virtualPreview
+              ? `/grants/${encodeURIComponent(grantId)}?biz=${encodeURIComponent(virtualPreview.bizNo)}`
+              : `/grants/${encodeURIComponent(grantId)}`}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
           >
             <ChevronLeft className="size-3.5" aria-hidden />
@@ -510,7 +535,9 @@ export function WorkspaceView({
               items={data.documents.map((document) => ({ value: document.documentKey, label: document.label }))}
               onValueChange={(next) => {
                 if (next && next !== data.activeDocumentKey) {
-                  router.push(`/grants/${encodeURIComponent(grantId)}/workspace?document=${encodeURIComponent(next)}`);
+                  const params = new URLSearchParams({ document: next });
+                  if (virtualPreview) params.set("biz", virtualPreview.bizNo);
+                  router.push(`/grants/${encodeURIComponent(grantId)}/workspace?${params.toString()}`);
                 }
               }}
             >
@@ -530,6 +557,15 @@ export function WorkspaceView({
           ) : null}
         </div>
       </div>
+
+      {virtualPreview ? (
+        <div className="border-b border-brand/20 bg-surface-brand px-4 py-2.5 text-sm text-text-nav sm:px-6" role="status">
+          <strong className="text-brand">가상 기업 작성 미리보기</strong>
+          <span className="ml-2">
+            {virtualPreview.companyName} 기준으로 열었어요. 자동으로 연결 가능한 기업정보만 제안되며, 이 탭에서 바꾼 값은 새로고침하면 초기화되고 실제 회사·초안에는 저장되지 않습니다.
+          </span>
+        </div>
+      ) : null}
 
       {studioDraftId === data.draftId && data.draftId ? (
         <div className={authoringMode === "studio" ? "flex min-h-0 flex-1" : "hidden"}>
@@ -557,12 +593,18 @@ export function WorkspaceView({
                 {data.honestNotice}
               </div>
             ) : null}
-            <ChatPanelView
-              controller={chat}
-              greeting={greeting}
-              variant="front"
-              institutionContact={institutionContact}
-            />
+            {virtualPreview ? (
+              <div className="rounded-[var(--radius-lg)] border bg-card px-4 py-5 text-sm text-muted-foreground">
+                가상 기업 미리보기에서는 저장이나 AI 작성을 실행하지 않습니다. 작성 항목이 준비된 공고에서 입력 흐름을 확인해 주세요.
+              </div>
+            ) : (
+              <ChatPanelView
+                controller={chat}
+                greeting={greeting}
+                variant="front"
+                institutionContact={institutionContact}
+              />
+            )}
           </div>
         </div>
       ) : (
@@ -577,7 +619,7 @@ export function WorkspaceView({
       )}
 
       {/* 채팅 Sheet 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. 진입점(💬)은 (a) 확인 카드뿐. */}
-      {data.ladder === "a" ? (
+      {data.ladder === "a" && !virtualPreview ? (
         <Sheet open={showChat} onOpenChange={setShowChat}>
           <SheetContent className="flex w-full flex-col gap-0 p-3 sm:max-w-md">
             <SheetTitle className="sr-only">이 공고에 대해 물어보기</SheetTitle>

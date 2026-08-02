@@ -245,6 +245,9 @@ function splitIndustryLabels(value: string | null | undefined): string[] {
  * 멱등(idempotent): 이미 정규화된 프로필을 다시 넣어도 결과가 동일하다.
  */
 export function normalizeCompanyIndustryProfile(profile: CompanyProfile): CompanyProfile {
+  // 업종 관측 자체가 없는 프로필에 `industries: []`를 만들면 다음 조립에서 빈 업종을
+  // 실제 업데이트로 오인한다. 미관측(undefined)과 관측된 값의 정규화를 구분한다.
+  if (profile.industries === undefined && profile.industry_codes === undefined) return profile;
   const rawIndustries = profile.industries ?? [];
   const existingCodes = profile.industry_codes ?? [];
   const { labels, codes } = splitIndustryEntries(rawIndustries);

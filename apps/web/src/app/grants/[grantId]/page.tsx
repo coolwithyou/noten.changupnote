@@ -10,6 +10,10 @@ import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
 import { recordLessonExposures, type LessonExposureInput } from "@/lib/server/knowledge/knowledgeRepo";
 import { matchApprovedLessonsForGrant, matchFieldLessonTips } from "@/lib/server/knowledge/lessonContext";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
+import {
+  isVirtualCompanyServerEnabled,
+  resolveVirtualCompanyScenario,
+} from "@/lib/server/virtualCompanies/catalog";
 
 export const dynamic = "force-dynamic";
 
@@ -17,28 +21,38 @@ interface GrantDetailPageProps {
   params: Promise<{
     grantId: string;
   }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
-export default async function GrantDetailPage({ params }: GrantDetailPageProps) {
-  const { grantId } = await params;
-  const access = await loadGrantAccess(grantId);
-  const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId, userId: access.userId });
+export default async function GrantDetailPage({ params, searchParams }: GrantDetailPageProps) {
+  const [{ grantId }, query] = await Promise.all([params, searchParams]);
+  const requestedBizNo = firstParam(query.biz);
+  const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
+    ? resolveVirtualCompanyScenario(requestedBizNo)
+    : null;
+  const access = virtualScenario ? null : await loadGrantAccess(grantId);
+  const sheet = await loadServiceApplySheet(grantId, virtualScenario
+    ? { virtualBizNo: virtualScenario.bizNo }
+    : { companyId: access!.companyId, userId: access!.userId });
   if (!sheet) notFound();
-  const preparation = await loadInitialPreparation(sheet.grant.id, access, sheet);
-  const previewAvailability = await loadPreviewAvailability(sheet.grant.id);
-  const lessonGuide = await loadLessonGuide(sheet.grant.title, sheet.grant.agency);
+  const [preparation, previewAvailability, lessonGuide, remainingUses] = await Promise.all([
+    access ? loadInitialPreparation(sheet.grant.id, access, sheet) : Promise.resolve(null),
+    virtualScenario ? Promise.resolve(null) : loadPreviewAvailability(sheet.grant.id),
+    loadLessonGuide(sheet.grant.title, sheet.grant.agency),
+    virtualScenario ? Promise.resolve(null) : getRemainingAssistantUses(),
+  ]);
   const fieldLessonTips = await loadFieldLessonTips(sheet, preparation);
   // 노출 텔레메트리(지식 루프 K1): 매칭 결과를 렌더 시점에 raw 기록한다.
-  await recordLessonExposureEvents({
-    grantId: sheet.grant.id,
-    companyId: access.companyId ?? null,
-    userId: access.userId ?? null,
-    lessonGuide,
-    fieldLessonTips,
-  });
-  const user = (await getOptionalHeaderUser()) ?? fallbackHeaderUserForDemoAccess(access);
-  // 과금 접점 ①: CTA 캡션 옆 "도우미 1회 사용 · 남은 N회" 칩. 환산 불가·조회 실패는 null → 비노출.
-  const remainingUses = await getRemainingAssistantUses();
+  if (access) {
+    await recordLessonExposureEvents({
+      grantId: sheet.grant.id,
+      companyId: access.companyId ?? null,
+      userId: access.userId ?? null,
+      lessonGuide,
+      fieldLessonTips,
+    });
+  }
+  const user = (await getOptionalHeaderUser()) ?? (access ? fallbackHeaderUserForDemoAccess(access) : null);
   return (
     <AppShell user={user}>
       <GrantOverviewView
@@ -46,9 +60,15 @@ export default async function GrantDetailPage({ params }: GrantDetailPageProps) 
         lessonGuide={lessonGuide}
         previewAvailability={previewAvailability}
         remainingUses={remainingUses}
+        virtualCompanyName={virtualScenario?.name ?? null}
+        virtualCompanyBizNo={virtualScenario?.bizNo ?? null}
       />
     </AppShell>
   );
+}
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 // 노출 텔레메트리 기록(지식 루프 K1). 서버가 이미 들고 있는 매칭 결과에서 이벤트를 조립해

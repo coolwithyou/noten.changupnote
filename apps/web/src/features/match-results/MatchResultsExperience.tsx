@@ -11,6 +11,7 @@ import type {
 } from "@cunote/contracts";
 import { Button } from "@/components/ui/button";
 import { safeInternalPath } from "@/lib/navigation/safeInternalPath";
+import { isVirtualCompanyBizNo } from "@/lib/virtualCompanies";
 import { ProfileSection } from "./ProfileSection";
 import { ProgramsExperience } from "./Programs";
 import { ResultsHero } from "./ResultsHero";
@@ -250,6 +251,7 @@ export function MatchResultsExperience() {
                 </div>
                 <ProgramsExperience
                   teaser={teaser}
+                  virtualBizNo={bizNo && isVirtualCompanyBizNo(bizNo) ? bizNo : null}
                   onPrepare={saveAndContinue}
                   onOpenProfile={() => setProfileOpen(true)}
                   preparing={continuing}

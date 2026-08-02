@@ -33,15 +33,23 @@ export function GrantOverviewView({
   lessonGuide = null,
   previewAvailability = null,
   remainingUses = null,
+  virtualCompanyName = null,
+  virtualCompanyBizNo = null,
 }: {
   sheet: ApplySheet;
   lessonGuide?: GrantLessonGuideDto | null;
   previewAvailability?: GrantPreviewAvailability | null;
   /** 남은 도우미 횟수(서버 환산). null 이면 과금 칩 비노출. */
   remainingUses?: number | null;
+  /** 가상 기업 상세와 비영속 workspace 미리보기를 구분해 안내한다. */
+  virtualCompanyName?: string | null;
+  /** 등록된 가상 기업만 비영속 workspace 미리보기로 전달한다. */
+  virtualCompanyBizNo?: string | null;
 }) {
   const grantId = sheet.grant.id;
-  const workspaceHref = `/grants/${encodeURIComponent(grantId)}/workspace`;
+  const workspaceHref = virtualCompanyBizNo
+    ? `/grants/${encodeURIComponent(grantId)}/workspace?biz=${encodeURIComponent(virtualCompanyBizNo)}`
+    : `/grants/${encodeURIComponent(grantId)}/workspace`;
   const verdict = grantOverviewVerdict(sheet);
   const cta = grantOverviewCta(sheet, previewAvailability);
   const showConversionPoll = (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
@@ -63,6 +71,13 @@ export function GrantOverviewView({
           {sheet.grant.agency ?? "운영기관 확인 필요"}
         </p>
       </header>
+
+      {virtualCompanyName ? (
+        <div className="mt-5 rounded-2xl border border-border-brand-soft bg-surface-brand px-4 py-3.5 text-sm leading-6 text-text-nav">
+          <strong className="block text-brand">가상 기업 기준 상세 결과</strong>
+          <span>{virtualCompanyName}의 기업정보로 공고 조건을 다시 판정했어요. 이 화면에서는 실제 회사나 초안 데이터를 저장하지 않습니다.</span>
+        </div>
+      ) : null}
 
       {/* ② 핵심 3지표 */}
       <section className="mt-7" aria-label="공고 핵심 정보">
@@ -88,11 +103,13 @@ export function GrantOverviewView({
             className: "w-full text-balance whitespace-normal",
           })}
         >
-          {cta.label}
+          {virtualCompanyName ? "가상 기업으로 지원서 미리보기" : cta.label}
         </Link>
         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
-          <p className="text-center text-[13px] leading-5 text-text-tertiary">{cta.caption}</p>
-          {usageChipRemaining !== null ? (
+          <p className="text-center text-[13px] leading-5 text-text-tertiary">
+            {virtualCompanyName ? "실제 회사나 초안에 저장하지 않고 작성 화면을 확인해요" : cta.caption}
+          </p>
+          {!virtualCompanyName && usageChipRemaining !== null ? (
             <Badge
               className={
                 usageChipRemaining <= 0

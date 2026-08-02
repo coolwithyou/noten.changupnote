@@ -121,6 +121,30 @@ assert.equal(
   "compound key insertion order must not change the serialized assembly result",
 );
 
+const profileWithoutIndustry = assembleCompanyProfile({
+  baseProfile: { confidence: {} },
+  updates: [{
+    field: "region",
+    value: { code: "44", label: "충남" },
+    sourceKind: "self_declared",
+    provider: "cunote_virtual_company",
+    asOf,
+    axisCompleteness: "complete",
+    confidence: 1,
+  }],
+  asOf,
+}).profile;
+assert.equal(
+  Object.hasOwn(profileWithoutIndustry, "industries"),
+  false,
+  "업종 관측이 없는 프로필 조립은 빈 업종 배열을 만들어서는 안 됨",
+);
+assert.equal(
+  Object.hasOwn(profileWithoutIndustry, "industry_codes"),
+  false,
+  "업종 코드 관측도 없으면 미관측 상태를 보존해야 함",
+);
+
 const legacyEmployee = update("employees", 12, "authoritative_api", "kcomwel", asOf, 0.9);
 const versionedEmployee: CompanyProfileFieldUpdate = {
   ...legacyEmployee,

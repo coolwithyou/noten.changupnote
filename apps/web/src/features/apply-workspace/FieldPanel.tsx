@@ -72,6 +72,7 @@ export function FieldPanel({
   workingDocument,
   studioServerSaved,
   persistedMaterializedAnswers,
+  virtualPreview,
 }: {
   ladder: WorkspaceLadder;
   grantId: string;
@@ -107,6 +108,7 @@ export function FieldPanel({
   workingDocument: RhwpWorkingDocument | null;
   studioServerSaved: boolean;
   persistedMaterializedAnswers: Record<string, string>;
+  virtualPreview: boolean;
 }) {
   const tipsByLabel = fieldLessonTips?.byLabel ?? {};
 
@@ -228,7 +230,9 @@ export function FieldPanel({
               {hasDuplicateConflicts ? "확인 가능한 항목 검토 끝" : "모든 항목 확인 끝!"}
             </CardTitle>
             <CardDescription>
-              {hasDuplicateConflicts
+              {virtualPreview
+                ? "가상 기업으로 입력 흐름을 끝까지 확인했어요. 입력값은 실제 초안에 저장되지 않습니다."
+                : hasDuplicateConflicts
                 ? `이름이 겹치는 ${duplicateFieldCount.toLocaleString("ko-KR")}개 항목은 자동 채움에서 제외됩니다. 내려받은 원본 파일에서 직접 확인하고 입력해 주세요.`
                 : "확정한 값으로 원본 신청서를 채웠어요. 내려받아 제출 전에 마지막으로 확인해 주세요."}
             </CardDescription>
@@ -251,6 +255,8 @@ export function FieldPanel({
                 persistedMaterializedAnswers={persistedMaterializedAnswers}
                 serverRevisionAvailable={studioServerSaved}
               />
+            ) : virtualPreview ? (
+              <p className="text-sm text-muted-foreground">가상 기업 미리보기 완료 · 저장 및 다운로드는 실행하지 않았습니다.</p>
             ) : (
               <p className="text-sm text-muted-foreground">이 서류는 원본 양식 채움을 지원하지 않습니다.</p>
             )}
@@ -325,6 +331,7 @@ export function FieldPanel({
           if (nextTask) onSelectField(nextTask.fieldId);
         }}
         onRequestSuggestion={() => onRequestSuggestion(activeField)}
+        canAsk={!virtualPreview}
         canLocateInDocument={rhwpAnchorsReady}
         isLocatingInDocument={locatingFieldId === activeField.fieldId}
         onStartLocate={() => onStartLocateField(activeField.fieldId)}

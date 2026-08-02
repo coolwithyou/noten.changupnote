@@ -1,8 +1,15 @@
 import { notFound } from "next/navigation";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
-import { loadGrantWorkspaceData } from "@/lib/server/documents/workspaceData";
+import {
+  loadGrantWorkspaceData,
+  loadVirtualGrantWorkspaceData,
+} from "@/lib/server/documents/workspaceData";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
+import {
+  isVirtualCompanyServerEnabled,
+  resolveVirtualCompanyScenario,
+} from "@/lib/server/virtualCompanies/catalog";
 import { buildChatGreeting } from "@/lib/server/chat/greeting";
 import { WorkspaceView } from "@/features/apply-workspace/WorkspaceView";
 import { buildInstitutionContact } from "@/features/apply-workspace/workspacePresentation";
@@ -22,15 +29,25 @@ interface WorkspacePageProps {
  * 로더 내부의 draft ensure·시드는 멱등 서버 write 이며, 실제 필드 값 변경은 PATCH(write 권한)로만 이뤄진다.
  */
 export default async function GrantWorkspacePage({ params, searchParams }: WorkspacePageProps) {
-  const { grantId } = await params;
-  const access = await loadWorkspaceAccess(grantId);
-  const sheet = await loadServiceApplySheet(grantId, { companyId: access.companyId, userId: access.userId });
+  const [{ grantId }, query] = await Promise.all([params, searchParams]);
+  const requestedBizNo = firstParam(query.biz);
+  const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
+    ? resolveVirtualCompanyScenario(requestedBizNo)
+    : null;
+  const access = virtualScenario ? null : await loadWorkspaceAccess(grantId);
+  const sheet = await loadServiceApplySheet(grantId, virtualScenario
+    ? { virtualBizNo: virtualScenario.bizNo }
+    : { companyId: access!.companyId, userId: access!.userId });
   if (!sheet) notFound();
 
-  const query = await searchParams;
   const requestedDocumentKey = firstParam(query.document) ?? null;
-
-  const data = await loadGrantWorkspaceData({ sheet, access, requestedDocumentKey });
+  const data = virtualScenario
+    ? await loadVirtualGrantWorkspaceData({
+        sheet,
+        virtualCompany: virtualScenario,
+        requestedDocumentKey,
+      })
+    : await loadGrantWorkspaceData({ sheet, access: access!, requestedDocumentKey });
   const greeting = buildChatGreeting({
     title: sheet.grant.title,
     applyEnd: sheet.schedule.applyEnd,

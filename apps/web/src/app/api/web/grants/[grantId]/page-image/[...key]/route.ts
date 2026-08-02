@@ -6,6 +6,10 @@ import { CompanyAccessForbiddenError } from "@/lib/server/auth/companyAccessPoli
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
+import {
+  isVirtualCompanyServerEnabled,
+  resolveVirtualCompanyScenario,
+} from "@/lib/server/virtualCompanies/catalog";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,20 +28,30 @@ const KEY_PREFIX = "grant-convert/";
  * - `grant-convert/` 프리픽스 밖 임의 키 조회 차단.
  * - R2 스트리밍, `Cache-Control: private, max-age=3600`.
  */
-export async function GET(_request: Request, context: RouteContext) {
-  try {
-    await requireCompanyAccess();
-  } catch (error) {
-    if (error instanceof AuthRequiredError) {
-      return new NextResponse("Unauthorized", { status: 401 });
+export async function GET(request: Request, context: RouteContext) {
+  const { grantId, key: segments } = await context.params;
+  const requestedBizNo = new URL(request.url).searchParams.get("biz");
+  const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
+    ? resolveVirtualCompanyScenario(requestedBizNo)
+    : null;
+  const virtualReadAllowed = virtualScenario
+    ? await virtualScenarioTargetsGrant(grantId, virtualScenario.targets)
+    : false;
+
+  if (!virtualReadAllowed) {
+    try {
+      await requireCompanyAccess();
+    } catch (error) {
+      if (error instanceof AuthRequiredError) {
+        return new NextResponse("Unauthorized", { status: 401 });
+      }
+      if (error instanceof CompanyAccessForbiddenError) {
+        return new NextResponse("Forbidden", { status: 403 });
+      }
+      return new NextResponse("Not Found", { status: 404 });
     }
-    if (error instanceof CompanyAccessForbiddenError) {
-      return new NextResponse("Forbidden", { status: 403 });
-    }
-    return new NextResponse("Not Found", { status: 404 });
   }
 
-  const { grantId, key: segments } = await context.params;
   const key = (segments ?? []).map((segment) => decodeURIComponent(segment)).join("/");
 
   if (!key.startsWith(KEY_PREFIX)) {
@@ -65,6 +79,19 @@ export async function GET(_request: Request, context: RouteContext) {
   } catch {
     return new NextResponse("Not Found", { status: 404 });
   }
+}
+
+async function virtualScenarioTargetsGrant(
+  grantId: string,
+  targets: readonly { source: string; sourceId: string }[],
+): Promise<boolean> {
+  const db = getCunoteDb();
+  const [grant] = await db
+    .select({ source: schema.grants.source, sourceId: schema.grants.sourceId })
+    .from(schema.grants)
+    .where(eq(schema.grants.id, grantId))
+    .limit(1);
+  return Boolean(grant && targets.some((target) => target.source === grant.source && target.sourceId === grant.sourceId));
 }
 
 /**

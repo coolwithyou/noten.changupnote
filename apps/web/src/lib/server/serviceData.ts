@@ -414,16 +414,39 @@ export async function loadServiceApplySheet(
     userId?: string;
     limit?: number;
     asOf?: Date;
+    /** 개발용 가상 기업의 읽기 전용 상세 판정. 저장 companyId와 함께 사용할 수 없다. */
+    virtualBizNo?: string;
   } = {},
 ): Promise<ApplySheet | null> {
   const asOf = options.asOf ?? new Date();
   const grantId = decodeGrantIdSegment(grantIdSegment);
+  if (options.virtualBizNo && (options.companyId || options.userId)) {
+    throw new ServiceDataError(
+      "virtual_company_scope_conflict",
+      "가상 기업 상세와 저장 회사 범위를 함께 사용할 수 없습니다.",
+      400,
+      "virtualBizNo",
+    );
+  }
+  const virtualScenario = options.virtualBizNo && isVirtualCompanyServerEnabled()
+    ? resolveVirtualCompanyScenario(options.virtualBizNo, { asOf })
+    : null;
+  if (options.virtualBizNo && !virtualScenario) {
+    throw new ServiceDataError(
+      "virtual_company_unavailable",
+      "등록된 개발용 가상 기업을 찾지 못했습니다.",
+      404,
+      "virtualBizNo",
+    );
+  }
   const [resolution, grants] = await Promise.all([
-    resolveDashboardProductProfile({
-      ...(options.companyId ? { companyId: options.companyId } : {}),
-      ...(options.userId ? { userId: options.userId } : {}),
-      asOf,
-    }),
+    virtualScenario
+      ? Promise.resolve(buildVirtualCompanyResolution(virtualScenario.profile, asOf.toISOString()))
+      : resolveDashboardProductProfile({
+          ...(options.companyId ? { companyId: options.companyId } : {}),
+          ...(options.userId ? { userId: options.userId } : {}),
+          asOf,
+        }),
     repositories.grants.findGrantById(grantId, { asOf, limit: options.limit ?? 80 }),
   ]);
   if (!grants) return null;

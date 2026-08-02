@@ -10,10 +10,20 @@ loadMonorepoEnv();
 process.env.CUNOTE_REPOSITORY_ADAPTER = "drizzle";
 process.env.CUNOTE_VIRTUAL_COMPANY_ENABLED = "true";
 
-const [{ POST: preview }, { POST: teaser }, { closeCunoteDb }] = await Promise.all([
+const [
+  { POST: preview },
+  { POST: teaser },
+  { closeCunoteDb },
+  { loadServiceApplySheet },
+  { loadVirtualGrantWorkspaceData },
+  { resolveVirtualCompanyScenario },
+] = await Promise.all([
   import("@/app/api/web/company-preview/route"),
   import("@/app/api/web/teaser/route"),
   import("@/lib/server/db/client"),
+  import("@/lib/server/serviceData"),
+  import("@/lib/server/documents/workspaceData"),
+  import("@/lib/server/virtualCompanies/catalog"),
 ]);
 
 try {
@@ -49,6 +59,27 @@ try {
     });
   }
 
+  const detail = await loadServiceApplySheet("a66f875d-e873-4166-ace6-27348e4c4b10", {
+    virtualBizNo: "0000000001",
+  });
+  assert.ok(detail);
+  assert.equal(detail.satisfied.filter((criterion) =>
+    criterion.kind === "required" || criterion.kind === "exclusion").length, 3);
+  assert.equal(detail.needsCheck.filter((criterion) =>
+    criterion.kind === "required" || criterion.kind === "exclusion").length, 0);
+  const scenario = resolveVirtualCompanyScenario("0000000001");
+  assert.ok(scenario);
+  const workspace = await loadVirtualGrantWorkspaceData({
+    sheet: detail,
+    virtualCompany: scenario,
+  });
+  assert.equal(workspace.execution.mode, "virtual_preview");
+  assert.equal(workspace.draftId, null, "가상 기업 workspace는 DB draft를 만들면 안 됩니다.");
+  assert.deepEqual(workspace.initialDrafts, []);
+  assert.deepEqual(workspace.suggestableLabels, [], "가상 기업 workspace는 유료 AI 제안 접점을 열면 안 됩니다.");
+  assert.equal(workspace.pollConversion, false, "가상 기업 workspace는 변환 write poll을 실행하면 안 됩니다.");
+  assert.ok(workspace.documents.length > 0, "실제 공고의 작성형 문서를 불러와야 합니다.");
+
   console.log(JSON.stringify({
     status: "pass",
     preview: {
@@ -56,6 +87,27 @@ try {
       cacheStatus: previewBody.data?.cacheStatus,
     },
     flows: flowResults,
+    detail: {
+      grantId: detail.grant.id,
+      hardSatisfied: detail.satisfied.filter((criterion) =>
+        criterion.kind === "required" || criterion.kind === "exclusion").length,
+      hardNeedsCheck: detail.needsCheck.filter((criterion) =>
+        criterion.kind === "required" || criterion.kind === "exclusion").length,
+    },
+    workspace: {
+      mode: workspace.execution.mode,
+      documentCount: workspace.documents.length,
+      connectedFieldCount: workspace.connectedFields.length,
+      seededAnswerCount: Object.keys(workspace.fieldAnswers).length,
+      pageCount: workspace.pages.length,
+      draftId: workspace.draftId,
+      fields: workspace.connectedFields.map((field) => ({
+        fieldKey: field.fieldKey,
+        label: field.label,
+        mappedCompanyField: field.mappedCompanyField,
+        fillStrategy: field.fillStrategy,
+      })),
+    },
   }, null, 2));
 } finally {
   await closeCunoteDb();

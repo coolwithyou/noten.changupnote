@@ -27,6 +27,7 @@ const router: AppRouterInstance = {
 };
 
 const data: WorkspaceData = {
+  execution: { mode: "persistent" },
   ladder: "a",
   activeDocumentKey: "application_form::신청서::::0",
   documents: [{
@@ -181,5 +182,28 @@ assert.ok(studioHtml.includes("문서에서 편집"), "반복 표에는 Studio �
 assert.ok(studioHtml.includes("빠른 작성"), "빠른 작성 모드 전환이 보여야 합니다.");
 assert.ok(studioHtml.includes("문서 직접 편집"), "문서 직접 편집 모드 전환이 보여야 합니다.");
 assert.equal(studioHtml.includes("<textarea"), false, "반복 표를 textarea로 축약하면 안 됩니다.");
+
+const virtualHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        execution: {
+          mode: "virtual_preview",
+          bizNo: "0000000001",
+          companyName: "창업노트 가상기업 — 충남 장애인기업",
+        },
+        draftId: null,
+        connectedFields: [],
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.ok(virtualHtml.includes("가상 기업 작성 미리보기"), "가상 기업 workspace임을 명확히 안내해야 합니다.");
+assert.ok(virtualHtml.includes("실제 회사·초안에는 저장되지 않습니다"), "비영속 저장 경계를 안내해야 합니다.");
+assert.ok(virtualHtml.includes("biz=0000000001"), "페이지 이미지와 돌아가기 링크에 가상 기업 범위를 유지해야 합니다.");
+assert.equal(virtualHtml.includes("문서 직접 편집"), false, "가상 기업 미리보기에서 영속 RHWP 편집을 열면 안 됩니다.");
 
 console.log("WorkspaceView grant UUID render regression passed");

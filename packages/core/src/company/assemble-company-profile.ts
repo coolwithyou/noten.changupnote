@@ -253,9 +253,10 @@ export function companyProfileValueForDimension(profile: CompanyProfile, field: 
   switch (field) {
     case "region": return profile.region;
     case "biz_age": return profile.biz_age_months;
-    case "industry": return profile.industries || profile.industry_codes
-      ? [...(profile.industries ?? []), ...(profile.industry_codes ?? [])]
-      : undefined;
+    case "industry": {
+      const values = [...(profile.industries ?? []), ...(profile.industry_codes ?? [])];
+      return values.length > 0 ? values : undefined;
+    }
     case "size": return profile.size;
     case "revenue": return profile.revenue_krw;
     case "employees": return profile.employees_count;

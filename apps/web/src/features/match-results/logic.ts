@@ -26,6 +26,7 @@ import {
   upsertBusinessLookupSuggestion,
   writeLocalBusinessLookupSuggestions,
 } from "@/lib/client/businessLookupSuggestions";
+import { isVirtualCompanyBizNo, normalizeVirtualCompanyBizNo } from "@/lib/virtualCompanies";
 
 /* ───────────────────────── storage keys / constants ───────────────────────── */
 
@@ -133,6 +134,14 @@ export function confirmationResumePath(bizNo: string, grantId: string): string {
     confirm: grantId,
   });
   return `/matches?${params.toString()}`;
+}
+
+/** 등록된 가상 기업만 읽기 전용 공고 상세까지 같은 프로필 맥락을 이어간다. */
+export function matchDetailHref(match: MatchCard, virtualBizNo?: string | null): string {
+  const base = match.detailUrl ?? `/grants/${encodeURIComponent(match.grantId)}`;
+  if (!virtualBizNo || !isVirtualCompanyBizNo(virtualBizNo)) return base;
+  const separator = base.includes("?") ? "&" : "?";
+  return `${base}${separator}biz=${encodeURIComponent(normalizeVirtualCompanyBizNo(virtualBizNo))}`;
 }
 
 /* ───────────────────────── business lookup memory ───────────────────────── */

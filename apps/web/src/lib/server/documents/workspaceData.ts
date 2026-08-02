@@ -9,7 +9,14 @@
  * 사다리 판정은 DB 신호(`grant_application_surfaces.extractionStatus`)로 결정론적으로 계산한다.
  * fields_ready 인데 실제 연결 필드가 0건인 edge case 는 보수적으로 (b)로 낮춰 잡는다(§4.4 의도).
  */
-import type { ApplicationPrep, ApplySheet, DocumentDraft, DraftableDocument, MissingFieldQuestion } from "@cunote/contracts";
+import type {
+  ApplicationPrep,
+  ApplySheet,
+  CompanyProfile,
+  DocumentDraft,
+  DraftableDocument,
+  MissingFieldQuestion,
+} from "@cunote/contracts";
 import type { CompanyAccess } from "../auth/companyGuard";
 import { matchFieldLessonTips, type FieldLessonTipsDto } from "../knowledge/lessonContext";
 import {
@@ -27,7 +34,7 @@ import {
   seedGrantDocumentDraftProfileAnswers,
 } from "./grantDocumentDrafts";
 import { getDraftRevisionHead } from "./documentRevisions";
-import type { SeedFieldInput } from "./seedProfileAnswers";
+import { seedProfileFieldAnswers, type SeedFieldInput } from "./seedProfileAnswers";
 
 /** 성능 저하 사다리(§4.4): (a) 완전 경험 · (b) 프리뷰+필드 분석 중 · (c) 채팅 전면 폴백. */
 export type WorkspaceLadder = "a" | "b" | "c";
@@ -45,7 +52,17 @@ export interface WorkspaceGrantMeta {
   status: string;
 }
 
+export type WorkspaceExecution =
+  | { mode: "persistent" }
+  | {
+      mode: "virtual_preview";
+      bizNo: string;
+      companyName: string;
+    };
+
 export interface WorkspaceData {
+  /** 저장 경계를 명시한다. virtual_preview는 브라우저 메모리 외의 write를 허용하지 않는다. */
+  execution: WorkspaceExecution;
   ladder: WorkspaceLadder;
   /** 선택된 문서(draftableDocument.documentKey). draftable 문서가 없으면 null. */
   activeDocumentKey: string | null;
@@ -103,17 +120,14 @@ export async function loadGrantWorkspaceData(input: {
     status: sheet.grant.status,
   };
   const draftable = sheet.applicationPrep.draftableDocuments;
-  const documents: WorkspaceDocumentOption[] = draftable.map((doc) => ({
-    documentKey: doc.documentKey,
-    label: doc.canonicalName || doc.name,
-    hwpxTemplateAvailable: doc.hwpxTemplateAvailable,
-  }));
+  const documents = buildWorkspaceDocumentOptions(draftable);
 
   const initialDrafts = await listGrantDocumentDraftsForGrant({ grantId: grant.id, access });
 
   // draftable 문서가 하나도 없으면 (c) 폴백(채팅 전면 + 빈 초안 워크스페이스).
   if (draftable.length === 0) {
     return {
+      execution: { mode: "persistent" },
       ladder: "c",
       activeDocumentKey: null,
       documents,
@@ -135,56 +149,19 @@ export async function loadGrantWorkspaceData(input: {
     };
   }
 
-  const preview = await loadGrantDocumentPreview({ grantId: grant.id });
-  const surfaces = preview?.surfaces ?? [];
-  const pollConversion = surfaces.some((surface) => surface.extractionStatus === "pending");
-
-  // sourceAttachment 표현 차이 해소(documentFieldLink 계약 참조): draftable 문서는 원본 **파일명**,
-  // surface·grant_document_fields 는 **R2 스토리지 키**를 갖는다. grant_attachment_archives 단일
-  // 원천(공유 resolveArchiveStorageKey)으로 파일명→키를 해석해 매칭한다. 해석 실패는 페이지를
-  // 깨뜨리지 않고 매칭 불가(→ 사다리 (c))로만 이어진다.
-  const storageKeyByDocumentKey = new Map<string, string | null>();
-  await Promise.all(
-    draftable.map(async (doc) => {
-      if (!doc.sourceAttachment) {
-        storageKeyByDocumentKey.set(doc.documentKey, null);
-        return;
-      }
-      try {
-        const archive = await resolveArchiveStorageKey({
-          source: sheet.grant.source,
-          sourceId: sheet.grant.sourceId,
-          filename: doc.sourceAttachment,
-        });
-        storageKeyByDocumentKey.set(doc.documentKey, archive?.storageKey ?? null);
-      } catch (error) {
-        console.warn(
-          `Workspace 첨부 스토리지 키 해석 실패(매칭 생략): ${error instanceof Error ? error.message : String(error)}`,
-        );
-        storageKeyByDocumentKey.set(doc.documentKey, null);
-      }
-    }),
-  );
-
-  const matchSurfaceFor = (doc: DraftableDocument) =>
-    matchDocumentSurface({
-      document: doc,
-      storageKey: storageKeyByDocumentKey.get(doc.documentKey) ?? null,
-      surfaces,
-    });
-
-  // 활성 문서: ?document= 유효값 우선. 기본 선택은 "매칭 surface 가 있고 페이지 이미지가 있는 문서"
-  // 우선(§4.3 — 첫 문서가 surface 없는 문서라 실경험 (a)(b)가 가려지는 것을 방지), 없으면 첫 문서.
-  const requestedDocument = input.requestedDocumentKey
-    ? draftable.find((doc) => doc.documentKey === input.requestedDocumentKey)
-    : undefined;
-  const activeDocument =
-    requestedDocument
-      ?? draftable.find((doc) => (matchSurfaceFor(doc)?.pageCount ?? 0) > 0)
-      ?? draftable[0]!;
-
-  const matchedSurface = matchSurfaceFor(activeDocument);
-  const activeStorageKey = storageKeyByDocumentKey.get(activeDocument.documentKey) ?? null;
+  const documentContext = await loadWorkspaceDocumentContext({
+    sheet,
+    ...(input.requestedDocumentKey !== undefined
+      ? { requestedDocumentKey: input.requestedDocumentKey }
+      : {}),
+  });
+  const {
+    activeDocument,
+    connectedFields,
+    matchedSurface,
+    pages,
+    pollConversion,
+  } = documentContext;
 
   // draft ensure(§6.3): documentKey 별 1행. 없으면 기존 생성 경로 재사용(빈 draft 발명 금지).
   const existingDraft = initialDrafts.find((draft) => draft.documentKey === activeDocument.documentKey);
@@ -208,16 +185,6 @@ export async function loadGrantWorkspaceData(input: {
       sourceAttachment: activeDocument.sourceAttachment,
     });
   }
-
-  // 연결 필드: surfaceId 우선, 없으면 sourceAttachment 폴백(documentFieldLink 단일 원천).
-  // 폴백 키는 해석된 스토리지 키다 — grant_document_fields.sourceAttachment 는 surface 값(키)의
-  // 사본이라 원본 파일명으로는 매칭되지 않는다(documentFieldLink 계약).
-  const connectedFields = await loadConnectedDocumentFields({
-    source: sheet.grant.source,
-    sourceId: sheet.grant.sourceId,
-    surfaceId: matchedSurface?.id ?? null,
-    sourceAttachment: activeStorageKey,
-  });
 
   // 프로필 시드(멱등). 시드 결과의 fieldAnswers 를 초기 상태로 쓴다(연결 필드 없으면 현재 답변 그대로).
   const seedFields: SeedFieldInput[] = connectedFields.map((field) => ({
@@ -257,10 +224,6 @@ export async function loadGrantWorkspaceData(input: {
       }
     : null;
 
-  const pages = matchedSurface
-    ? (preview?.pages ?? []).filter((page) => page.surfaceId === matchedSurface.id)
-    : [];
-
   const { ladder, honestNotice } = classifyWorkspace({
     document: activeDocument,
     surface: matchedSurface,
@@ -268,6 +231,7 @@ export async function loadGrantWorkspaceData(input: {
   });
 
   return {
+    execution: { mode: "persistent" },
     ladder,
     activeDocumentKey: activeDocument.documentKey,
     documents,
@@ -286,6 +250,202 @@ export async function loadGrantWorkspaceData(input: {
     initialDrafts,
     pollConversion,
     honestNotice,
+  };
+}
+
+/**
+ * 개발용 가상 기업 workspace read model.
+ *
+ * 실제 승격 공고의 문서·surface·필드를 그대로 읽지만 draft ensure, surface 연결, 프로필 시드 저장,
+ * revision 조회를 전혀 수행하지 않는다. 반환된 답변은 브라우저 메모리에서만 수정할 수 있다.
+ */
+export async function loadVirtualGrantWorkspaceData(input: {
+  sheet: ApplySheet;
+  virtualCompany: {
+    bizNo: string;
+    name: string;
+    profile: CompanyProfile;
+  };
+  requestedDocumentKey?: string | null;
+}): Promise<WorkspaceData> {
+  const { sheet, virtualCompany } = input;
+  const grant: WorkspaceGrantMeta = {
+    id: sheet.grant.id,
+    title: sheet.grant.title,
+    agency: sheet.grant.agency,
+    status: sheet.grant.status,
+  };
+  const draftable = sheet.applicationPrep.draftableDocuments;
+  const documents = buildWorkspaceDocumentOptions(draftable);
+  const execution: WorkspaceExecution = {
+    mode: "virtual_preview",
+    bizNo: virtualCompany.bizNo,
+    companyName: virtualCompany.name,
+  };
+
+  if (draftable.length === 0) {
+    return {
+      execution,
+      ladder: "c",
+      activeDocumentKey: null,
+      documents,
+      draftId: null,
+      headRevision: null,
+      hwpxTemplateAvailable: false,
+      connectedFields: [],
+      fieldAnswers: {},
+      duplicateLabels: [],
+      suggestableLabels: [],
+      fieldLessonTips: null,
+      pages: [],
+      grant,
+      missingFields: [],
+      prep: sheet.applicationPrep,
+      initialDrafts: [],
+      pollConversion: false,
+      honestNotice: "이 공고에는 아직 작성형 서류가 없습니다.",
+    };
+  }
+
+  const {
+    activeDocument,
+    connectedFields,
+    matchedSurface,
+    pages,
+  } = await loadWorkspaceDocumentContext({
+    sheet,
+    ...(input.requestedDocumentKey !== undefined
+      ? { requestedDocumentKey: input.requestedDocumentKey }
+      : {}),
+  });
+  const seedFields: SeedFieldInput[] = connectedFields.map((field) => ({
+    label: field.label,
+    mappedCompanyField: field.mappedCompanyField,
+    fieldId: field.fieldId,
+  }));
+  const fieldAnswers = seedProfileFieldAnswers({
+    fields: seedFields,
+    profile: virtualCompany.profile,
+    current: {},
+  });
+  const { duplicateLabels } = detectDuplicateNormalizedLabels(connectedFields.map((field) => field.label));
+  const fieldLessonTips = connectedFields.length > 0
+    ? await loadFieldLessonTipsSafe({
+        title: sheet.grant.title,
+        agency: sheet.grant.agency,
+        fields: connectedFields.map((field) => ({ label: field.label, fieldKey: field.fieldKey })),
+      })
+    : null;
+  const { ladder, honestNotice } = classifyWorkspace({
+    document: activeDocument,
+    surface: matchedSurface,
+    connectedFieldsCount: connectedFields.length,
+  });
+
+  return {
+    execution,
+    ladder,
+    activeDocumentKey: activeDocument.documentKey,
+    documents,
+    draftId: null,
+    headRevision: null,
+    hwpxTemplateAvailable: activeDocument.hwpxTemplateAvailable,
+    connectedFields,
+    fieldAnswers,
+    duplicateLabels: [...duplicateLabels],
+    // 가상 미리보기에서는 유료 AI 제안 접점을 열지 않는다.
+    suggestableLabels: [],
+    fieldLessonTips,
+    pages,
+    grant,
+    missingFields: [],
+    prep: sheet.applicationPrep,
+    initialDrafts: [],
+    // 변환 poll은 서버 write를 일으킬 수 있으므로 가상 미리보기에서 마운트하지 않는다.
+    pollConversion: false,
+    honestNotice,
+  };
+}
+
+interface WorkspaceDocumentContext {
+  activeDocument: DraftableDocument;
+  connectedFields: ConnectedDocumentField[];
+  matchedSurface: PreviewSurface | null;
+  pages: PreviewPage[];
+  pollConversion: boolean;
+}
+
+function buildWorkspaceDocumentOptions(draftable: readonly DraftableDocument[]): WorkspaceDocumentOption[] {
+  return draftable.map((doc) => ({
+    documentKey: doc.documentKey,
+    label: doc.canonicalName || doc.name,
+    hwpxTemplateAvailable: doc.hwpxTemplateAvailable,
+  }));
+}
+
+/** 문서 선택·surface·필드·페이지 조회를 persistent/virtual 두 실행 모드가 공유하는 read seam. */
+async function loadWorkspaceDocumentContext(input: {
+  sheet: ApplySheet;
+  requestedDocumentKey?: string | null;
+}): Promise<WorkspaceDocumentContext> {
+  const { sheet } = input;
+  const draftable = sheet.applicationPrep.draftableDocuments;
+  if (draftable.length === 0) throw new Error("작성형 문서가 없는 공고의 workspace context를 요청했습니다.");
+
+  const preview = await loadGrantDocumentPreview({ grantId: sheet.grant.id });
+  const surfaces = preview?.surfaces ?? [];
+  const storageKeyByDocumentKey = new Map<string, string | null>();
+  await Promise.all(
+    draftable.map(async (doc) => {
+      if (!doc.sourceAttachment) {
+        storageKeyByDocumentKey.set(doc.documentKey, null);
+        return;
+      }
+      try {
+        const archive = await resolveArchiveStorageKey({
+          source: sheet.grant.source,
+          sourceId: sheet.grant.sourceId,
+          filename: doc.sourceAttachment,
+        });
+        storageKeyByDocumentKey.set(doc.documentKey, archive?.storageKey ?? null);
+      } catch (error) {
+        console.warn(
+          `Workspace 첨부 스토리지 키 해석 실패(매칭 생략): ${error instanceof Error ? error.message : String(error)}`,
+        );
+        storageKeyByDocumentKey.set(doc.documentKey, null);
+      }
+    }),
+  );
+
+  const matchSurfaceFor = (doc: DraftableDocument) => matchDocumentSurface({
+    document: doc,
+    storageKey: storageKeyByDocumentKey.get(doc.documentKey) ?? null,
+    surfaces,
+  });
+  const requestedDocument = input.requestedDocumentKey
+    ? draftable.find((doc) => doc.documentKey === input.requestedDocumentKey)
+    : undefined;
+  const activeDocument = requestedDocument
+    ?? draftable.find((doc) => (matchSurfaceFor(doc)?.pageCount ?? 0) > 0)
+    ?? draftable[0]!;
+  const matchedSurface = matchSurfaceFor(activeDocument);
+  const activeStorageKey = storageKeyByDocumentKey.get(activeDocument.documentKey) ?? null;
+  const connectedFields = await loadConnectedDocumentFields({
+    source: sheet.grant.source,
+    sourceId: sheet.grant.sourceId,
+    surfaceId: matchedSurface?.id ?? null,
+    sourceAttachment: activeStorageKey,
+  });
+  const pages = matchedSurface
+    ? (preview?.pages ?? []).filter((page) => page.surfaceId === matchedSurface.id)
+    : [];
+
+  return {
+    activeDocument,
+    connectedFields,
+    matchedSurface,
+    pages,
+    pollConversion: surfaces.some((surface) => surface.extractionStatus === "pending"),
   };
 }
 

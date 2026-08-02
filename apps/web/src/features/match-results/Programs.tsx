@@ -25,6 +25,7 @@ import {
   groupMatchesForDisplay,
   isUrgentDday,
   matchCriterionPresentation,
+  matchDetailHref,
   matchVerdictStatus,
   writeSupportCta,
 } from "./logic";
@@ -41,6 +42,7 @@ export function ProgramsExperience({
   onConfirmationSaved,
   onRequestConfirmation,
   autoOpenConfirmationGrantId,
+  virtualBizNo = null,
 }: {
   teaser: ProductTeaserResult;
   onPrepare: (grantId?: string) => void;
@@ -53,6 +55,8 @@ export function ProgramsExperience({
   onRequestConfirmation?: (match: MatchCard) => void;
   /** 저장·로그인 복귀 후 자동으로 열 확인 질문 대상. */
   autoOpenConfirmationGrantId?: string | null;
+  /** 등록된 개발용 가상 기업만 공고 상세의 읽기 전용 맥락으로 전달한다. */
+  virtualBizNo?: string | null;
 }) {
   const groups = groupMatchesForDisplay(teaser.matches);
   const [showAllOpen, setShowAllOpen] = useState(false);
@@ -103,6 +107,7 @@ export function ProgramsExperience({
                 onPrepare={onPrepare}
                 preparing={preparing}
                 onOpenConfirmation={openConfirmation}
+                virtualBizNo={virtualBizNo}
               />
             ))}
             {groups.upcoming.slice(0, 1).map((match) => (
@@ -115,6 +120,7 @@ export function ProgramsExperience({
                 onPrepare={onPrepare}
                 preparing={preparing}
                 onOpenConfirmation={openConfirmation}
+                virtualBizNo={virtualBizNo}
               />
             ))}
           </div>
@@ -147,6 +153,7 @@ export function ProgramsExperience({
           onPrepare={onPrepare}
           preparing={preparing}
           onOpenConfirmation={openConfirmation}
+          virtualBizNo={virtualBizNo}
         />
         <ResultBucket
           label="준비하면 열려요"
@@ -158,6 +165,7 @@ export function ProgramsExperience({
           onPrepare={onPrepare}
           preparing={preparing}
           onOpenConfirmation={openConfirmation}
+          virtualBizNo={virtualBizNo}
         />
       </div>
 
@@ -185,6 +193,7 @@ function ResultBucket({
   onPrepare,
   preparing,
   onOpenConfirmation,
+  virtualBizNo = null,
 }: {
   label: string;
   count: number;
@@ -196,6 +205,7 @@ function ResultBucket({
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
+  virtualBizNo?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -219,6 +229,7 @@ function ResultBucket({
                 onPrepare={onPrepare}
                 preparing={preparing}
                 onOpenConfirmation={onOpenConfirmation}
+                virtualBizNo={virtualBizNo}
               />
             ))
           ) : (
@@ -252,6 +263,7 @@ function ExpandableProgramCard({
   onPrepare,
   preparing,
   onOpenConfirmation,
+  virtualBizNo = null,
 }: {
   match: MatchCard;
   status: NoticeCardStatus;
@@ -262,6 +274,7 @@ function ExpandableProgramCard({
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
+  virtualBizNo?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const cardStatus = status === "upcoming" ? status : matchVerdictStatus(match);
@@ -292,6 +305,7 @@ function ExpandableProgramCard({
       onPrepare={onPrepare}
       preparing={preparing}
       onOpenConfirmation={onOpenConfirmation}
+      virtualBizNo={virtualBizNo}
       {...(className === undefined ? {} : { className })}
     />
   );
@@ -306,6 +320,7 @@ function ExpandedProgramCard({
   onPrepare,
   preparing,
   onOpenConfirmation,
+  virtualBizNo,
   className,
 }: {
   match: MatchCard;
@@ -316,13 +331,14 @@ function ExpandedProgramCard({
   onPrepare: (grantId?: string) => void;
   preparing: boolean;
   onOpenConfirmation: (match: MatchCard) => void;
+  virtualBizNo?: string | null;
   className?: string;
 }) {
   const criteria = matchCriterionPresentation(match);
   const hardTotal = criteria.hardPassed.length + criteria.hardFailed.length + criteria.hardNeedsCheck.length;
   const primaryHardCheck = criteria.hardNeedsCheck[0];
   const primaryPreferredInput = criteria.preferredNeedsInput[0];
-  const detailHref = match.detailUrl ?? `/grants/${encodeURIComponent(match.grantId)}`;
+  const detailHref = matchDetailHref(match, virtualBizNo);
   // 확인하기 CTA — one_answer/check_source 판정이고 발행된 확인 질문이 있을 때만(현재 테이블이
   // 비어 있어 미노출, B-4 승격 파이프라인 이후 활성). 어휘는 4상태 그대로, 결과 예고 문구 금지(D9).
   const verdict = matchVerdictStatus(match);
@@ -503,7 +519,7 @@ function ExpandedProgramCard({
       ) : null}
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-        <a href={`/grants/${encodeURIComponent(match.grantId)}`} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
+        <a href={detailHref} className="text-sm font-semibold text-brand no-underline hover:text-brand-hover">
           조건 전체 보기
         </a>
         {match.detailUrl ? (

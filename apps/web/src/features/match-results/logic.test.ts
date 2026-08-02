@@ -11,6 +11,7 @@ import {
   groupMatchesForDisplay,
   matchCriterionPresentation,
   matchingProfileCoverage,
+  matchDetailHref,
   matchVerdictStatus,
   profileCoverageLabel,
   profileFieldAsOfLabel,
@@ -167,6 +168,15 @@ assert.equal(profileSheetValueState({
 assert.equal(
   confirmationResumePath("123-45-67890", "grant/confirmation"),
   "/matches?biz=1234567890&confirm=grant%2Fconfirmation",
+);
+assert.equal(
+  matchDetailHref({ ...openMatch, detailUrl: "/grants/grant-open" }, "000-00-00001"),
+  "/grants/grant-open?biz=0000000001",
+);
+assert.equal(
+  matchDetailHref({ ...openMatch, detailUrl: "/grants/grant-open" }, "7465400870"),
+  "/grants/grant-open",
+  "실제 사업자번호는 상세 URL에 추가하지 않음",
 );
 
 function teaserFixture(matches: MatchCard[], knownCount: number): ProductTeaserResult {
