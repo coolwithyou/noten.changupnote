@@ -23,6 +23,7 @@ import {
   loadOrCreateLabAudit,
   readLabAuditFileAt,
 } from "./audit-store";
+import { resolveLabLlmBinding } from "./claude-cli-transport";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 
 loadMonorepoEnv();
@@ -61,14 +62,6 @@ function shortTitle(title: string, max = 30): string {
     out += ch;
   }
   return out;
-}
-
-function requireApiKey(): string {
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY 가 없습니다 — 모노레포 루트 .env(.env.local)를 확인하세요.");
-  }
-  return apiKey;
 }
 
 /** 감사 비용 추정 — ai-review CLI 의 추정식 동형(추출 런 입력 토큰 + 오버헤드 ~8K + 출력 ~3K). */
@@ -200,7 +193,8 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const apiKey = requireApiKey();
+  // transport 분기 + api 키 요구 스킵을 binding 이 흡수한다(계획 §5 #3 — 결정 ①로 감사 레인 포함).
+  const binding = await resolveLabLlmBinding();
   console.log(`[ai-audit] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${costCapUsd}`);
 
   let okCount = 0;
@@ -232,7 +226,9 @@ async function main(): Promise<number> {
             run: entry.run,
             audit: entry.audit,
             auditModel,
-            apiKey,
+            apiKey: binding.apiKey,
+            ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
+            transport: binding.transport,
             force,
           });
           if (outcome.status === "input_drift") {

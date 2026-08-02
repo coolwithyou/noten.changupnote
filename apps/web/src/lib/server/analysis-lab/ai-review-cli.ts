@@ -40,6 +40,7 @@ import {
   type RunComparisonInput,
 } from "./ai-review-compare";
 import { collectAiReviewsForAudit, toAiReviewForAudit } from "./audit-store";
+import { resolveLabTransport } from "./claude-cli-transport";
 import { readCohortFileV2, cohortFilePath } from "./cohort-file";
 import { DIMENSION_LABELS } from "./diff";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
@@ -540,6 +541,13 @@ async function runAuditListMode(model: string): Promise<number> {
 // ---- 메인 -------------------------------------------------------------------------
 
 async function main(): Promise<number> {
+  // 결정 ①(계획 §9): ai-review 레인은 transport 를 배선하지 않는다 — 감지 시 안내만 출력해
+  // roundtrip 레인과 같은 "구독으로 도는 줄 아는" 조용한 오해를 방지한다(Phase 5 이연).
+  if (resolveLabTransport() === "claude-cli") {
+    console.log(
+      "[ai-review] ANALYSIS_LAB_TRANSPORT=claude-cli 감지 — ai-review 레인은 API를 유지합니다(전환 제외, 계획 §9 결정 ①).",
+    );
+  }
   const model = resolveAiReviewModel(readArg("model"));
   const force = hasFlag("force");
   const grantIds = readCsvArg("grant-ids");

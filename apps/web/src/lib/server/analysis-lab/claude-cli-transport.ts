@@ -279,9 +279,12 @@ async function assembleSuccessResponse(
     JSON.stringify({
       content: [{ type: "tool_use", name: request.toolName, input }],
       stop_reason: cliJson.stop_reason ?? "tool_use",
-      // 실측: input_tokens/output_tokens/cache_creation_input_tokens/cache_read_input_tokens —
-      // Anthropic API 와 필드명 동일 → 무변환 통과(normalizeUsage 가 그대로 소화).
-      usage: cliJson.usage,
+      // 필드명은 Anthropic API 와 동일(실측)하나 한 가지 보정이 필수다: CLI 는 프롬프트를
+      // cache_creation_input_tokens 로 계상해 input_tokens 가 2 따위로 온다(92k 자 실공고 실측).
+      // normalizeUsage 는 cache_creation 을 읽지 않으므로 그대로 통과시키면 명목 입력이
+      // 통째로 소실돼 비용 게이트(costPerNotice·--max-cost-usd)가 과소 계상된다(계획 §4-4 위반).
+      // → input_tokens 에 cache_creation 을 합산해 "API 로 돌렸다면"의 명목 입력을 보존한다.
+      usage: withCacheCreationFoldedIntoInput(cliJson.usage),
     }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
@@ -325,6 +328,15 @@ function buildErrorTailBody(outcome: CliExecOutcome, resultText: string, version
     .join("\n")
     .slice(0, 2_000);
   return `${exitNote}${merged || "claude CLI 실행 실패(출력 없음)"}\n(claude ${version})`;
+}
+
+/** usage 의 input_tokens 에 cache_creation_input_tokens 를 합산(사유는 호출부 주석). 그 외 필드 무변환. */
+function withCacheCreationFoldedIntoInput(usage: unknown): unknown {
+  if (!isRecord(usage)) return usage;
+  const input = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
+  const cacheCreation =
+    typeof usage.cache_creation_input_tokens === "number" ? usage.cache_creation_input_tokens : 0;
+  return { ...usage, input_tokens: input + cacheCreation };
 }
 
 // ── 공용 ─────────────────────────────────────────────────────────────────────

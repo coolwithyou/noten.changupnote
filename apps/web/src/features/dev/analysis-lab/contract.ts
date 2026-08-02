@@ -156,6 +156,11 @@ export interface LabRun {
   sourceId: string;
   title: string;
   model: string;
+  /**
+   * 추론 전송층 provenance — "claude-cli" 는 Max 구독(claude CLI) 경유 실행(계획 §2 원칙 4).
+   * 기존 런 파일에는 없다(하위 호환 optional — undefined 는 api 로 해석한다).
+   */
+  transport?: "api" | "claude-cli";
   promptVersion: string;
   startedAt: string;
   durationMs: number;
@@ -333,6 +338,11 @@ export interface LabAudit {
   aiAuditModel?: string | null;
   aiAuditPromptVersion?: string | null;
   aiAuditedAt?: string | null;
+  /**
+   * AI 블라인드 감사의 추론 전송층 provenance — "claude-cli" 는 Max 구독(claude CLI) 경유.
+   * 기존 감사 파일에는 없다(하위 호환 optional — undefined 는 api 로 해석한다).
+   */
+  aiAuditTransport?: "api" | "claude-cli";
 }
 
 /** PUT 본문의 항목 판정 — 판정한 항목만 보낸다(부분 저장). 서버는 저장본 대상 목록에 병합만 한다. */

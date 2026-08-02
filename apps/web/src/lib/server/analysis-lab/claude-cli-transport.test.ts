@@ -222,7 +222,13 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   assert.equal(block.type, "tool_use");
   assert.equal(block.name, "deep_grant_analysis", "tool_choice.name 으로 재조립");
   assert.deepEqual(block.input, STRUCTURED_OUTPUT, "structured_output 우선 사용");
-  assert.deepEqual(payload.usage, SUCCESS_USAGE, "usage 필드명 무변환 통과");
+  // input_tokens 만 보정(2 + cache_creation 12,713 — CLI 가 프롬프트를 cache_creation 으로
+  // 계상해 명목 입력이 소실되는 실측 결함의 회복), 그 외 필드는 무변환 통과.
+  assert.deepEqual(
+    payload.usage,
+    { ...SUCCESS_USAGE, input_tokens: 2 + 12_713 },
+    "usage: input_tokens 에 cache_creation 합산, 나머지 필드 무변환",
+  );
   assert.equal(payload.stop_reason, "tool_use");
 
   // structured_output 부재 → result JSON.parse 폴백

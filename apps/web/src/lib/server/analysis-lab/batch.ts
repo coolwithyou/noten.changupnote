@@ -21,6 +21,7 @@ import {
 } from "@/features/dev/analysis-lab/notice-period";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
+import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER, resolveLabTransport } from "./claude-cli-transport";
 import { cohortFilePath, readCohortFileV2, type CohortEntry } from "./cohort-file";
 import { analysisLabDir } from "./run-store";
 
@@ -232,6 +233,8 @@ interface BatchOutcome {
   startedCount: number;
   totalCostUsd: number;
   costCapped: boolean;
+  /** claude-cli 윈도 소진 감지 — costCapped 와 동일하게 신규 착수만 중단한다(계획 §5 #6). */
+  windowExhausted: boolean;
 }
 
 async function runTargets(targets: CohortEntry[], options: BatchOptions): Promise<BatchOutcome> {
@@ -244,12 +247,14 @@ async function runTargets(targets: CohortEntry[], options: BatchOptions): Promis
     startedCount: 0,
     totalCostUsd: 0,
     costCapped: false,
+    windowExhausted: false,
   };
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
     for (;;) {
-      if (outcome.costCapped) return; // 상한 도달 — 신규 착수만 중단(진행분은 각 워커가 완료)
+      // 상한 도달·윈도 소진 — 신규 착수만 중단(진행분은 각 워커가 완료)
+      if (outcome.costCapped || outcome.windowExhausted) return;
       const index = nextIndex;
       if (index >= targets.length) return;
       nextIndex += 1;
@@ -273,6 +278,17 @@ async function runTargets(targets: CohortEntry[], options: BatchOptions): Promis
           console.log(
             `[batch] (${ordinal}) error 런 저장: [${target.stratum}] ${run.title} · ${seconds}s · ${run.error.slice(0, 160)}`,
           );
+          // Max 사용량 윈도 소진(계획 §5 #6-①): error 런에 transport 마커가 보이면 costCapped
+          // 와 동일하게 신규 착수만 중단한다 — 소진 후 잔여 타깃 전부가 스폰→실패→불변 error
+          // 런으로 축적되는 것을 차단(기본 재실행은 error 런을 보류하므로 재개도 안 된다).
+          // 윈도 리셋 후 같은 명령 재실행 시 미착수 공고는 자연 재개되고, 소진 시점에 이미
+          // 착수됐던 소수 error 런만 --retry-errors 대상이다.
+          if (!outcome.windowExhausted && run.error.includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER)) {
+            outcome.windowExhausted = true;
+            console.log(
+              "[batch] Max 사용량 윈도 소진 감지 — 신규 착수를 중단합니다(진행분은 완료). 윈도 리셋 후 같은 명령으로 재실행하세요.",
+            );
+          }
         }
       } catch (caught) {
         // 공고 미존재(LabGrantNotFoundError) 등 — 런 저장 없이 실패. 기록하고 계속.
@@ -303,6 +319,12 @@ async function main(): Promise<number> {
   if (typeof options === "string") {
     console.error(`[batch] 설정 오류: ${options}`);
     return 1;
+  }
+
+  // 전송층 선검증(계획 §5 #6-②) — env 오타(resolveLabTransport throw)를 배치 시작 전에 fail-fast.
+  const transport = resolveLabTransport();
+  if (transport === "claude-cli") {
+    console.log("[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다(API 토큰 미지출, 명목 비용만 집계).");
   }
 
   const cohort = await readCohortFileV2();
@@ -405,7 +427,10 @@ async function main(): Promise<number> {
   );
   console.log(
     `총비용 $${outcome.totalCostUsd.toFixed(4)} · 소요 ${((Date.now() - startedMs) / 1000).toFixed(1)}s` +
-      (outcome.costCapped ? " · 비용 상한 도달" : ""),
+      (outcome.costCapped ? " · 비용 상한 도달" : "") +
+      (outcome.windowExhausted
+        ? " · Max 사용량 윈도 소진 감지 — 신규 착수 중단, 윈도 리셋 후 같은 명령 재실행"
+        : ""),
   );
   return 0;
 }

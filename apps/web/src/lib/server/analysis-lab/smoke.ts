@@ -6,6 +6,7 @@
 import { closeCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { runLabAnalysis } from "./analyze";
+import { resolveLabTransport } from "./claude-cli-transport";
 import { loadLabCohort } from "./cohort";
 import { labRunFilePath } from "./run-store";
 
@@ -21,6 +22,8 @@ function hasFlag(name: string): boolean {
 }
 
 async function main(): Promise<void> {
+  // 전송층 선검증(계획 §5 #6 — batch 와 동일 1줄): env 오타를 실행 전에 fail-fast.
+  const transport = resolveLabTransport();
   let grantId = readArg("grantId");
   if (!grantId) {
     const cohort = await loadLabCohort({ refresh: hasFlag("refresh") });
@@ -39,6 +42,7 @@ async function main(): Promise<void> {
   console.log("\n===== 딥분석 스모크 요약 =====");
   console.log(`제목: ${run.title}`);
   console.log(`모델: ${run.model} · promptVersion: ${run.promptVersion}`);
+  console.log(`transport: ${run.transport ?? transport}`);
   console.log(`소요: ${(run.durationMs / 1000).toFixed(1)}s · error: ${run.error ?? "없음"}`);
   console.log(`입력: 총 ${run.inputTotalChars.toLocaleString()}자 · sha256 ${run.inputSha256.slice(0, 12)}…`);
   for (const block of run.inputBlocks) {

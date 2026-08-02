@@ -16,6 +16,7 @@
 //     criterion 으로 포착된 조건) 판정에 전체 목록이 필요하기 때문이다.
 //
 // Anthropic 호출·재시도·가격표·rubric 추출은 ai-review.ts 의 것을 재사용한다(중복 구현 금지).
+import { writeFile } from "node:fs/promises";
 import { CRITERION_DIMENSIONS, type CriterionDimension } from "@cunote/contracts";
 import type {
   LabAudit,
@@ -321,6 +322,11 @@ export async function runAiAudit(options: {
   /** true 면 aiAudit 기록이 있는 항목도 재판정한다(humanVerdict 보유 항목은 불변). */
   force?: boolean;
   fetchImpl?: typeof fetch;
+  /**
+   * 추론 전송층 provenance(계획 §5 #3) — 전달되면 감사 파일에 aiAuditTransport 로 기록된다.
+   * 미전달이면 미기입(기존 파일과 동일 — 하위 호환).
+   */
+  transport?: "api" | "claude-cli";
 }): Promise<AiAuditOutcome> {
   const { run, audit, auditModel } = options;
 
@@ -429,6 +435,16 @@ export async function runAiAudit(options: {
     );
   }
 
+  // 감사 provenance(계획 §5 #3) — aiAuditModel 등 최상위 aiAudit* 메타와 같은 파일 자리에
+  // aiAuditTransport 를 기입한다. audit-store 의 병합 함수는 판정 메타만 담당하므로(무수정
+  // 확인 대상 — 계획 §5 표), 저장 직후 같은 파일에 additive 로 덧쓴다. readAuditFile 은
+  // 통과 파싱이고 applyAiAuditJudgments 는 ...stored 스프레드라 이후 병합에도 보존된다.
+  let auditAfter = saved.audit;
+  if (options.transport !== undefined) {
+    auditAfter = { ...saved.audit, aiAuditTransport: options.transport };
+    await writeFile(saved.path, `${JSON.stringify(auditAfter, null, 2)}\n`, "utf8");
+  }
+
   return {
     status: "audited",
     applied: saved.applied,
@@ -436,7 +452,7 @@ export async function runAiAudit(options: {
     concurCount: comparison.concurCount,
     disagreeCount: comparison.disagreeCount,
     unsureCount: comparison.unsureCount,
-    auditAfter: saved.audit,
+    auditAfter,
     usage: totalUsage,
     costUsd: computeAiReviewCostUsd(auditModel, totalUsage),
     durationMs: Date.now() - startedMs,

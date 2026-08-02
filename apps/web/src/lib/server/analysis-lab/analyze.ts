@@ -1,6 +1,8 @@
 // 공모 딥분석 실험실 — 오케스트레이션 (dev 전용).
 // grantId → 공고+원본 payload+첨부 로드(read-only) → 입력 조립 → Opus 딥분석 → 서버 검증 →
 // A/B diff 계산 → LabRun 조립 → spike-out 에 불변 저장 → 반환.
+// 전송층은 ANALYSIS_LAB_TRANSPORT 로 분기(api 기본 | claude-cli — Max 구독, claude-cli-transport.ts)하고
+// 어느 쪽이었는지 LabRun.transport 로 항상 기록한다(계획 §5 #1 provenance).
 // 실패해도 error 를 담은 LabRun 을 저장·반환한다(입력 메타 보존). DB에는 어떤 쓰기도 하지 않는다.
 import { and, eq } from "drizzle-orm";
 import { getCunoteDb } from "@/lib/server/db/client";
@@ -10,6 +12,7 @@ import {
   type LabCurrentCriterion,
   type LabRun,
 } from "@/features/dev/analysis-lab/contract";
+import { resolveLabLlmBinding, resolveLabTransport } from "./claude-cli-transport";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, runDeepGrantAnalysis, type DeepAnalysisResult } from "./extractor";
 import { assembleLabInput, type LabInputArchive } from "./input";
@@ -116,11 +119,19 @@ export async function runLabAnalysis(grantId: string): Promise<LabRun> {
   }));
 
   // ── 딥분석 호출(실패해도 error 런으로 보존) ─────────────────────
+  // transport 해석(순수 env 파싱)은 try 밖 — 성공/실패(error) 런 모두 같은 값을 기록해야
+  // provenance 가 오염되지 않는다(계획 §5 #1). binding 구체화(api 키 부재 throw 가능)는
+  // 기존처럼 try 안 — "실패해도 error 런 저장" 계약(상단 주석)을 보존한다.
+  const transport = resolveLabTransport();
   let extraction: DeepAnalysisResult | null = null;
   let error: string | null = null;
   try {
-    const apiKey = await resolveAnthropicApiKey();
-    extraction = await runDeepGrantAnalysis({ apiKey, inputText: input.text });
+    const binding = await resolveLabLlmBinding();
+    extraction = await runDeepGrantAnalysis({
+      apiKey: binding.apiKey,
+      inputText: input.text,
+      ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
+    });
   } catch (caught) {
     error = caught instanceof Error ? caught.message.slice(0, 2_000) : String(caught).slice(0, 2_000);
   }
@@ -132,6 +143,7 @@ export async function runLabAnalysis(grantId: string): Promise<LabRun> {
     sourceId: grant.sourceId,
     title: grant.title,
     model: extraction?.model ?? resolveLabModel(),
+    transport,
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     startedAt: startedAt.toISOString(),
     durationMs: Date.now() - startedAt.getTime(),
@@ -154,23 +166,4 @@ export async function runLabAnalysis(grantId: string): Promise<LabRun> {
   };
   await saveLabRun(run);
   return run;
-}
-
-/**
- * ANTHROPIC_API_KEY 해석. Next dev 런타임은 apps/web/.env.local 만 자동 로드하므로
- * 루트 .env 의 키가 안 보일 수 있다 → loadMonorepoEnv 로 보강 후에도 없으면 명확히 실패.
- * (키 값은 절대 로그·응답에 출력하지 않는다.)
- */
-async function resolveAnthropicApiKey(): Promise<string> {
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
-    const { loadMonorepoEnv } = await import("../loadMonorepoEnv");
-    loadMonorepoEnv();
-  }
-  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error(
-      "ANTHROPIC_API_KEY 가 설정되어 있지 않습니다. 모노레포 루트 .env(.env.local)에 키를 넣고 dev 서버를 재시작해주세요.",
-    );
-  }
-  return apiKey;
 }

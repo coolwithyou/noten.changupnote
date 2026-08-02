@@ -14,6 +14,7 @@
 import { existsSync } from "node:fs";
 import { AI_REVIEW_ADOPTED, type LabReview, type LabRun } from "@/features/dev/analysis-lab/contract";
 import { computeAiReviewCostUsd } from "./ai-review";
+import { resolveLabTransport } from "./claude-cli-transport";
 import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import {
   CONFIRMATIONS_PROMPT_VERSION,
@@ -91,6 +92,13 @@ interface ConfirmationTargetEntry {
 }
 
 async function main(): Promise<number> {
+  // 결정 ①(계획 §9): confirmations 레인은 transport 를 배선하지 않는다 — 감지 시 안내만
+  // 출력해 조용한 오해를 방지한다(Phase 5 이연, 배선 방법은 계획 §5 #4 에 기록).
+  if (resolveLabTransport() === "claude-cli") {
+    console.log(
+      "[confirmations] ANALYSIS_LAB_TRANSPORT=claude-cli 감지 — confirmations 레인은 API를 유지합니다(전환 제외, 계획 §9 결정 ①).",
+    );
+  }
   const model = resolveConfirmationsModel(readArg("model"));
   const force = hasFlag("force");
   const dryRun = hasFlag("dry-run");
