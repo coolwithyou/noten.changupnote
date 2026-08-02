@@ -112,6 +112,10 @@ for (const ladderWord of ["원본 양식 채움", "필드 분석 중", "채팅�
 assert.equal(html.includes("HWPX 다운로드"), false, "상시 하단 다운로드 바가 제거돼야 합니다.");
 // 상단 바 back 링크는 "공고 요약"으로 노출된다.
 assert.ok(html.includes("공고 요약"), "상단 바에 '공고 요약' 링크가 있어야 합니다.");
+assert.ok(
+  html.includes("문서 직접 편집"),
+  "준비된 HWP/HWPX draft는 복합 과제가 없어도 RHWP Studio 직접 편집 진입점을 보여야 합니다.",
+);
 
 // 승인된 값은 프리뷰 오버레이 안에 실제 기입처럼 렌더돼야 한다.
 const confirmedValue = "주식회사 창업노트";
@@ -204,6 +208,6 @@ const virtualHtml = renderToStaticMarkup(
 assert.ok(virtualHtml.includes("가상 기업 작성 미리보기"), "가상 기업 workspace임을 명확히 안내해야 합니다.");
 assert.ok(virtualHtml.includes("실제 회사·초안에는 저장되지 않습니다"), "비영속 저장 경계를 안내해야 합니다.");
 assert.ok(virtualHtml.includes("biz=0000000001"), "페이지 이미지와 돌아가기 링크에 가상 기업 범위를 유지해야 합니다.");
-assert.equal(virtualHtml.includes("문서 직접 편집"), false, "가상 기업 미리보기에서 영속 RHWP 편집을 열면 안 됩니다.");
+assert.ok(virtualHtml.includes("문서 직접 편집"), "가상 기업 목표 공고의 RHWP 로컬 편집 진입점을 보여야 합니다.");
 
 console.log("WorkspaceView grant UUID render regression passed");

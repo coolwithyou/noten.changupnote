@@ -5,7 +5,8 @@ import { resolveRhwpFieldAnchors, type RhwpAnchorDocument, type RhwpFieldAnchor 
 import { exportVerifiedRhwpDocument, loadRhwp, type RhwpDocumentFormat } from "./client";
 
 export interface RhwpWorkingDocument {
-  draftId: string;
+  /** persistent draft 또는 가상 문서 탭을 구분하는 불투명한 클라이언트 identity. */
+  sourceKey: string;
   bytes: Uint8Array;
   format: RhwpDocumentFormat;
   filename: string;
@@ -17,6 +18,17 @@ export interface RhwpWorkingDocument {
   materializedAnswers: Record<string, string>;
   skipped: Array<{ label: string; reason: string }>;
 }
+
+export type RhwpWorkingDocumentTransport =
+  | {
+      mode: "persistent";
+      draftId: string;
+    }
+  | {
+      mode: "local_preview";
+      sourceKey: string;
+      sourceUrl: string;
+    };
 
 interface SourceDocument {
   bytes: Uint8Array;
@@ -31,12 +43,17 @@ export interface RhwpStudioCompatibilityDocument {
   reflowLinesegs(): number;
 }
 
-export async function fetchRhwpSourceDocument(draftId: string): Promise<SourceDocument> {
-  const response = await fetch(
-    `/api/web/document-drafts/${encodeURIComponent(draftId)}/source-file?revision=head`,
-    { cache: "no-store" },
-  );
+export async function fetchRhwpSourceDocument(
+  transport: RhwpWorkingDocumentTransport,
+): Promise<SourceDocument> {
+  const response = await fetch(sourceUrlForTransport(transport), { cache: "no-store" });
   if (!response.ok) throw new Error(await sourceFileErrorMessage(response));
+  if (
+    transport.mode === "local_preview"
+    && response.headers.get("x-cunote-preview-mode") !== "local-only"
+  ) {
+    throw new Error("가상 기업 원본의 비영속 읽기 경계를 확인하지 못했습니다.");
+  }
   const format = response.headers.get("x-cunote-document-format");
   if (format !== "hwp" && format !== "hwpx") throw new Error("원본 문서 형식을 확인하지 못했습니다.");
   const encodedFilename = response.headers.get("x-cunote-document-filename");
@@ -50,7 +67,7 @@ export async function fetchRhwpSourceDocument(draftId: string): Promise<SourceDo
 }
 
 export async function prepareRhwpWorkingDocument(input: {
-  draftId: string;
+  transport: RhwpWorkingDocumentTransport;
   answers: DraftFieldAnswers;
   connectedFields: readonly ConnectedDocumentField[];
   manualAnchors: readonly RhwpFieldAnchor[];
@@ -59,9 +76,10 @@ export async function prepareRhwpWorkingDocument(input: {
   /** base bytes를 head API에서 가져오는 경우 서버 revision에 이미 반영된 fieldId→값. */
   baseMaterializedAnswers?: Record<string, string>;
 }): Promise<RhwpWorkingDocument> {
-  const source = input.base?.draftId === input.draftId
+  const sourceKey = sourceKeyForTransport(input.transport);
+  const source = input.base?.sourceKey === sourceKey
     ? input.base
-    : await fetchRhwpSourceDocument(input.draftId);
+    : await fetchRhwpSourceDocument(input.transport);
   const rhwp = await loadRhwp();
   const document = new rhwp.HwpDocument(source.bytes);
   try {
@@ -91,7 +109,7 @@ export async function prepareRhwpWorkingDocument(input: {
     normalizeRhwpStudioCompatibility(document, source.format);
     const verification = exportVerifiedRhwpDocument({ rhwp, document, format: source.format });
     return {
-      draftId: input.draftId,
+      sourceKey,
       bytes: verification.bytes,
       format: source.format,
       filename: source.filename,
@@ -104,6 +122,16 @@ export async function prepareRhwpWorkingDocument(input: {
   } finally {
     document.free();
   }
+}
+
+export function sourceKeyForTransport(transport: RhwpWorkingDocumentTransport): string {
+  return transport.mode === "persistent" ? `draft:${transport.draftId}` : transport.sourceKey;
+}
+
+function sourceUrlForTransport(transport: RhwpWorkingDocumentTransport): string {
+  return transport.mode === "persistent"
+    ? `/api/web/document-drafts/${encodeURIComponent(transport.draftId)}/source-file?revision=head`
+    : transport.sourceUrl;
 }
 
 /**

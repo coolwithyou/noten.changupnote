@@ -109,6 +109,7 @@ export const SESSION_WEB_ROUTES = [
   "GET /api/web/grants/[grantId]/preparation",
   "GET /api/web/grants/[grantId]/package",
   "GET /api/web/grants/[grantId]/page-image/[...key]",
+  "GET /api/web/grants/[grantId]/virtual-source-file",
   "POST /api/web/grants/[grantId]/drafts",
   "POST /api/web/grants/[grantId]/conversions/poll",
   "GET /api/web/document-drafts/[draftId]",

@@ -124,7 +124,7 @@ async function downloadWithRhwp(input: {
   persistedMaterializedAnswers?: Record<string, string>;
 }): Promise<{ format: RhwpDocumentFormat; skipped: Array<{ label: string; reason: string }> }> {
   const document = await prepareRhwpWorkingDocument({
-    draftId: input.draftId,
+    transport: { mode: "persistent", draftId: input.draftId },
     answers: input.answers,
     connectedFields: input.connectedFields,
     manualAnchors: input.manualAnchors,

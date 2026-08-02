@@ -1,7 +1,58 @@
 import assert from "node:assert/strict";
 import type { RhwpEditableDocument, RhwpEditField } from "./editPlan";
 import type { RhwpFieldAnchor } from "./fieldAnchors";
-import { normalizeRhwpStudioCompatibility, prepareRhwpDeltaFields } from "./workingDocument";
+import {
+  fetchRhwpSourceDocument,
+  normalizeRhwpStudioCompatibility,
+  prepareRhwpDeltaFields,
+  sourceKeyForTransport,
+} from "./workingDocument";
+
+assert.equal(
+  sourceKeyForTransport({ mode: "persistent", draftId: "draft-1" }),
+  "draft:draft-1",
+);
+assert.equal(
+  sourceKeyForTransport({ mode: "local_preview", sourceKey: "virtual:1", sourceUrl: "/source" }),
+  "virtual:1",
+);
+
+const originalFetch = globalThis.fetch;
+let requestedUrl = "";
+try {
+  globalThis.fetch = async (input) => {
+    requestedUrl = String(input);
+    return new Response(new Uint8Array([1, 2, 3]), {
+      headers: {
+        "x-cunote-document-format": "hwp",
+        "x-cunote-document-filename": encodeURIComponent("가상 지원서.hwp"),
+        "x-cunote-preview-mode": "local-only",
+      },
+    });
+  };
+  const localSource = await fetchRhwpSourceDocument({
+    mode: "local_preview",
+    sourceKey: "virtual:1",
+    sourceUrl: "/api/virtual-source",
+  });
+  assert.equal(requestedUrl, "/api/virtual-source");
+  assert.equal(localSource.filename, "가상 지원서.hwp");
+  assert.deepEqual([...localSource.bytes], [1, 2, 3]);
+
+  globalThis.fetch = async () => new Response(new Uint8Array([1]), {
+    headers: { "x-cunote-document-format": "hwp" },
+  });
+  await assert.rejects(
+    fetchRhwpSourceDocument({
+      mode: "local_preview",
+      sourceKey: "virtual:1",
+      sourceUrl: "/api/unscoped-source",
+    }),
+    /비영속 읽기 경계/,
+  );
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 let reflowCalls = 0;
 const warningDocument = {

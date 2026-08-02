@@ -6,10 +6,7 @@ import { CompanyAccessForbiddenError } from "@/lib/server/auth/companyAccessPoli
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
-import {
-  isVirtualCompanyServerEnabled,
-  resolveVirtualCompanyScenario,
-} from "@/lib/server/virtualCompanies/catalog";
+import { resolveVirtualCompanyGrantAccess } from "@/lib/server/virtualCompanies/grantAccess";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,12 +28,10 @@ const KEY_PREFIX = "grant-convert/";
 export async function GET(request: Request, context: RouteContext) {
   const { grantId, key: segments } = await context.params;
   const requestedBizNo = new URL(request.url).searchParams.get("biz");
-  const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
-    ? resolveVirtualCompanyScenario(requestedBizNo)
-    : null;
-  const virtualReadAllowed = virtualScenario
-    ? await virtualScenarioTargetsGrant(grantId, virtualScenario.targets)
-    : false;
+  const virtualReadAllowed = Boolean(await resolveVirtualCompanyGrantAccess({
+    grantId,
+    bizNo: requestedBizNo,
+  }));
 
   if (!virtualReadAllowed) {
     try {
@@ -79,19 +74,6 @@ export async function GET(request: Request, context: RouteContext) {
   } catch {
     return new NextResponse("Not Found", { status: 404 });
   }
-}
-
-async function virtualScenarioTargetsGrant(
-  grantId: string,
-  targets: readonly { source: string; sourceId: string }[],
-): Promise<boolean> {
-  const db = getCunoteDb();
-  const [grant] = await db
-    .select({ source: schema.grants.source, sourceId: schema.grants.sourceId })
-    .from(schema.grants)
-    .where(eq(schema.grants.id, grantId))
-    .limit(1);
-  return Boolean(grant && targets.some((target) => target.source === grant.source && target.sourceId === grant.sourceId));
 }
 
 /**

@@ -29,7 +29,11 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { parsePositionBbox, parsePositionPage } from "@/lib/documents/bbox";
 import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import type { RhwpFieldAnchor, RhwpFieldDescriptor } from "@/lib/rhwp/fieldAnchors";
-import type { RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
+import {
+  sourceKeyForTransport,
+  type RhwpWorkingDocument,
+  type RhwpWorkingDocumentTransport,
+} from "@/lib/rhwp/workingDocument";
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
@@ -77,7 +81,7 @@ export function WorkspaceView({
   const [locatingFieldId, setLocatingFieldId] = useState<string | null>(null);
   const [manualAnchors, setManualAnchors] = useState<RhwpFieldAnchor[]>([]);
   const [authoringMode, setAuthoringMode] = useState<Extract<DocumentAuthoringMode, "quick" | "studio">>("quick");
-  const [studioDraftId, setStudioDraftId] = useState<string | null>(null);
+  const [studioSourceKey, setStudioSourceKey] = useState<string | null>(null);
   const [studioTaskStates, setStudioTaskStates] = useState<StudioTaskStates>({});
   const [workingDocument, setWorkingDocument] = useState<RhwpWorkingDocument | null>(null);
   const [workingPreviewUrl, setWorkingPreviewUrl] = useState<string | null>(null);
@@ -103,13 +107,31 @@ export function WorkspaceView({
     () => authoringTasks.filter((task) => task.mode === "studio"),
     [authoringTasks],
   );
+  const studioTransport = useMemo<RhwpWorkingDocumentTransport | null>(() => {
+    if (data.ladder !== "a") return null;
+    if (data.draftId) return { mode: "persistent", draftId: data.draftId };
+    if (!virtualPreview || !data.activeDocumentKey) return null;
+    const params = new URLSearchParams({
+      biz: virtualPreview.bizNo,
+      document: data.activeDocumentKey,
+    });
+    return {
+      mode: "local_preview",
+      sourceKey: `virtual:${grantId}:${virtualPreview.bizNo}:${data.activeDocumentKey}`,
+      sourceUrl: `/api/web/grants/${encodeURIComponent(grantId)}/virtual-source-file?${params.toString()}`,
+    };
+  }, [data.activeDocumentKey, data.draftId, data.ladder, grantId, virtualPreview]);
+  const currentStudioSourceKey = studioTransport ? sourceKeyForTransport(studioTransport) : null;
+  // Studio는 복합 과제 전용 화면이 아니라 준비된 HWP/HWPX 전체 문서 편집기이기도 하다.
+  // 따라서 모든 필드가 quick으로 분류돼도 ladder (a)의 원본 draft에서는 직접 열 수 있어야 한다.
+  const canOpenStudio = studioTransport !== null;
 
   useEffect(() => {
     setAuthoringMode("quick");
-    setStudioDraftId(null);
+    setStudioSourceKey(null);
     setStudioTaskStates({});
     setWorkingDocument(null);
-  }, [data.draftId]);
+  }, [currentStudioSourceKey]);
 
   useEffect(() => {
     if (!workingDocument) {
@@ -345,7 +367,7 @@ export function WorkspaceView({
   }
 
   function openStudio(fieldId?: string) {
-    if (!data.draftId) {
+    if (!studioTransport) {
       toast.error("원본 문서가 준비된 뒤 직접 편집할 수 있습니다.");
       return;
     }
@@ -353,9 +375,8 @@ export function WorkspaceView({
       ?? studioTasks.find((task) => task.fieldId === selectedFieldId)
       ?? studioTasks.find((task) => !isAuthoringTaskComplete({ task, answers, studioTaskStates }))
       ?? studioTasks[0];
-    if (!target) return;
-    setSelectedFieldId(target.fieldId);
-    setStudioDraftId(data.draftId);
+    if (target) setSelectedFieldId(target.fieldId);
+    setStudioSourceKey(sourceKeyForTransport(studioTransport));
     setAuthoringMode("studio");
   }
 
@@ -400,7 +421,7 @@ export function WorkspaceView({
       selectedFieldId={selectedFieldId}
       onSelectField={handleSelectField}
       fill
-      rhwpSourceUrl={(workingDocument?.draftId === data.draftId ? workingPreviewUrl : null) ?? (data.draftId
+      rhwpSourceUrl={(workingDocument?.sourceKey === currentStudioSourceKey ? workingPreviewUrl : null) ?? (data.draftId
         ? `/api/web/document-drafts/${encodeURIComponent(data.draftId)}/source-file?revision=head`
         : null)}
       rhwpFields={rhwpFields}
@@ -488,7 +509,7 @@ export function WorkspaceView({
               ) : null}
             </div>
           ) : null}
-          {data.ladder === "a" && studioTasks.length > 0 ? (
+          {canOpenStudio ? (
             <ToggleGroup
               value={[authoringMode]}
               onValueChange={(value) => {
@@ -567,12 +588,12 @@ export function WorkspaceView({
         </div>
       ) : null}
 
-      {studioDraftId === data.draftId && data.draftId ? (
+      {studioSourceKey === currentStudioSourceKey && studioTransport ? (
         <div className={authoringMode === "studio" ? "flex min-h-0 flex-1" : "hidden"}>
           <RhwpStudioSurface
-            key={data.draftId}
+            key={currentStudioSourceKey}
             ref={studioSurfaceRef}
-            draftId={data.draftId}
+            transport={studioTransport}
             answers={answers}
             quickFields={quickFields}
             manualAnchors={manualAnchors}

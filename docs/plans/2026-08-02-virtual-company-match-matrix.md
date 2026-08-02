@@ -308,6 +308,21 @@ pnpm verify:virtual-company-flow
 - `/document-drafts/*`, `/chat`, AI 제안, credit 요청 0회
 - 일반 기업의 autosave·manual save·revision 테스트 전부 유지
 
+구현 상태(2026-08-02):
+
+- 등록된 가상 기업 번호와 정확한 목표 공고, 서버가 다시 해석한 `documentKey`가 모두 일치할 때만
+  원본을 읽는 target-scoped endpoint를 추가했다. 페이지 이미지도 같은 접근 경계를 공유한다.
+- RHWP 전송 계약을 `persistent`와 `local_preview`로 분리하고, `local_preview`에서는 persist 콜백
+  자체를 호출하지 않는 어댑터를 단위 테스트로 고정했다. 편집본 반영과 다운로드는 현재 탭의 검증된
+  바이트만 사용한다.
+- 읽기 경로 실측에서 대상 문서 `application_form::신청서::::0`의 원본은 HWP 162,304 bytes,
+  3쪽, SHA-256 `a0ddaf420a59b17b0293e01f2309d0fb597294000153b073d8ae222181e22b77`로 다시 열렸다.
+- RHWP 전송·working document·Studio/Workspace 렌더·route policy·web typecheck와 프로덕션 빌드는
+  통과했다. 기존 NFT 전체 추적 경고 1건은 유지된다.
+- 실행 중이던 `127.0.0.1:4010` 개발 서버가 모든 요청을 무응답으로 유지해 브라우저 완료 게이트 중
+  편집 전후 SHA 변경과 네트워크 write 0건 실측은 아직 보류한다. 개발 서버 재시작 후 이 두 증거를
+  확보하기 전에는 V6를 완료로 표시하지 않는다.
+
 ### V7 — 재현 가능한 시나리오 회귀
 
 1. 시나리오별 `grant source/sourceId + analysis revision + document source SHA-256`를 고정한다.
