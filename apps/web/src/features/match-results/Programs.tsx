@@ -19,10 +19,12 @@ import { MatchFeedbackControls } from "@/features/opportunity-map/MatchFeedbackC
 import { cn } from "@/lib/utils";
 import { ConfirmationSheet } from "./ConfirmationSheet";
 import {
-  criterionResultText,
+  criterionEvidencePresentation,
+  criterionSubjectLabel,
   formatDday,
   groupMatchesForDisplay,
   isUrgentDday,
+  matchCriterionPresentation,
   matchVerdictStatus,
   writeSupportCta,
 } from "./logic";
@@ -316,11 +318,10 @@ function ExpandedProgramCard({
   onOpenConfirmation: (match: MatchCard) => void;
   className?: string;
 }) {
-  const passed = match.ruleTrace.filter((criterion) => criterion.result === "pass");
-  const needsCheck = match.ruleTrace.filter(
-    (criterion) => criterion.result === "unknown" || criterion.result === "text_only",
-  );
-  const primaryCheck = needsCheck[0];
+  const criteria = matchCriterionPresentation(match);
+  const hardTotal = criteria.hardPassed.length + criteria.hardFailed.length + criteria.hardNeedsCheck.length;
+  const primaryHardCheck = criteria.hardNeedsCheck[0];
+  const primaryPreferredInput = criteria.preferredNeedsInput[0];
   const detailHref = match.detailUrl ?? `/grants/${encodeURIComponent(match.grantId)}`;
   // 확인하기 CTA — one_answer/check_source 판정이고 발행된 확인 질문이 있을 때만(현재 테이블이
   // 비어 있어 미노출, B-4 승격 파이프라인 이후 활성). 어휘는 4상태 그대로, 결과 예고 문구 금지(D9).
@@ -391,19 +392,89 @@ function ExpandedProgramCard({
       </div>
 
       <div className="mt-4 border-t border-border-subtle pt-4 text-[15px] text-ink">
-        충족 <strong>{passed.length}건</strong> <CheckIcon className="inline size-4 text-brand-mint-ink" strokeWidth={3} />
-        <span className="mx-2 text-text-quaternary">·</span>
-        확인 필요 <strong className="text-brand">{needsCheck.length}건</strong>
+        필수 자격 <strong>{criteria.hardPassed.length}/{hardTotal}</strong> 충족
+        {criteria.hardNeedsCheck.length === 0 && criteria.hardFailed.length === 0 ? (
+          <CheckIcon className="ml-1 inline size-4 text-brand-mint-ink" strokeWidth={3} />
+        ) : null}
+        {criteria.hardNeedsCheck.length > 0 ? (
+          <>
+            <span className="mx-2 text-text-quaternary">·</span>
+            자격 확인 필요 <strong className="text-brand">{criteria.hardNeedsCheck.length}건</strong>
+          </>
+        ) : null}
       </div>
 
-      {primaryCheck ? (
+      {criteria.hardPassed.length > 0 ? (
+        <div className="mt-3 overflow-hidden rounded-xl border border-border-subtle bg-surface-soft/60">
+          <div className="border-b border-border-subtle px-3.5 py-2.5 text-[12px] font-bold text-text-secondary">
+            필수자격 충족 근거
+          </div>
+          {criteria.hardPassed.map((trace, index) => {
+            const evidence = criterionEvidencePresentation(trace);
+            return (
+              <div
+                key={`${trace.dimension}-${trace.kind}-${index}`}
+                className={cn(
+                  "flex items-start gap-2.5 px-3.5 py-3",
+                  index > 0 && "border-t border-border-subtle",
+                )}
+              >
+                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-brand-mint-soft text-brand-mint-ink">
+                  <CheckIcon className="size-3.5" aria-hidden="true" strokeWidth={3} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-bold text-ink">{evidence.dimensionLabel}</div>
+                  <dl className="mt-1.5 grid gap-x-5 gap-y-1.5 text-[13px] leading-5 sm:grid-cols-2">
+                    <div className="min-w-0">
+                      <dt className="text-[11px] font-semibold text-text-tertiary">공고 조건</dt>
+                      <dd className="break-words font-medium text-text-nav">{evidence.requirement}</dd>
+                    </div>
+                    <div className="min-w-0">
+                      <dt className="text-[11px] font-semibold text-brand-mint-ink">확인된 기업 정보</dt>
+                      <dd className="break-words font-medium text-text-nav">{evidence.companyValue}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {criteria.preferredPassed.length > 0 || criteria.preferredNeedsInput.length > 0 || criteria.evaluationNotes.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[13px] text-text-secondary">
+          {criteria.preferredPassed.length > 0 ? <span>우대 확인 {criteria.preferredPassed.length}건</span> : null}
+          {criteria.preferredNeedsInput.length > 0 ? (
+            <span>우대점수 추가 확인 {criteria.preferredNeedsInput.length}건</span>
+          ) : null}
+          {criteria.evaluationNotes.length > 0 ? (
+            <span>선정평가·준비 {criteria.evaluationNotes.length}건</span>
+          ) : null}
+        </div>
+      ) : null}
+
+      {primaryHardCheck ? (
         <div className="mt-3 flex items-start gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
           <HelpCircleIcon className="mt-1 size-4 shrink-0 text-brand" />
           <span className="min-w-0 flex-1">
-            {primaryCheck.label} — {criterionResultText(primaryCheck.result)}
+            이 정보가 없어 신청 자격 판정을 보류했어요. {criterionSubjectLabel(primaryHardCheck.label)}
+          </span>
+          {primaryHardCheck.action?.type === "progressive" ? (
+            <Button type="button" variant="link" onClick={onOpenProfile} className="h-auto shrink-0 px-0 text-[13px]">
+              자격정보 채우기
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {primaryPreferredInput ? (
+        <div className="mt-3 flex items-start gap-2 rounded-xl bg-surface-soft px-3.5 py-3 text-sm leading-6 text-text-nav">
+          <HelpCircleIcon className="mt-1 size-4 shrink-0 text-brand" />
+          <span className="min-w-0 flex-1">
+            우대점수 확인에 활용할 수 있어요. {criterionSubjectLabel(primaryPreferredInput.label)}
           </span>
           <Button type="button" variant="link" onClick={onOpenProfile} className="h-auto shrink-0 px-0 text-[13px]">
-            내 정보에서 채우기
+            우대정보 채우기
           </Button>
         </div>
       ) : null}

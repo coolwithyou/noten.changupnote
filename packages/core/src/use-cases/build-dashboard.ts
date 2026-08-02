@@ -10,7 +10,10 @@ import { activeUnknownQuestionDimensions } from "../company/question-answer-stat
 import { withMatchRanking } from "../matching/ranking.js";
 import { buildActionQueue } from "./build-action-queue.js";
 import { buildRoadmap } from "./build-roadmap.js";
-import { isPreparableMatchCard } from "./select-match-cards.js";
+import {
+  answerableHardUnknownDimensions,
+  isPreparableMatchCard,
+} from "./select-match-cards.js";
 import {
   countByEligibility,
   companySummary,
@@ -119,9 +122,7 @@ function dashboardCounts<TPayload>(
     if (tier === "needs_core_review") needsCoreReview += 1;
 
     const card = toMatchCard(entry, { asOf });
-    const answerableUnknownCount = new Set(card.ruleTrace
-      .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
-      .map((trace) => trace.dimension)).size;
+    const answerableUnknownCount = answerableHardUnknownDimensions(card).size;
     if (tier === "recommendable" && card.status === "open") openNow += 1;
     if (tier === "needs_profile_input" && answerableUnknownCount === 1) oneAnswer += 1;
     if (isPreparableMatchCard(card)) preparable += 1;

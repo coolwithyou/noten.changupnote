@@ -12,7 +12,10 @@ import {
   toMatchCard,
   type MatchedGrant,
 } from "./match-card.js";
-import { isPreparableMatchCard } from "./select-match-cards.js";
+import {
+  answerableHardUnknownDimensions,
+  isPreparableMatchCard,
+} from "./select-match-cards.js";
 
 export interface BuildTeaserOptions<TPayload = unknown> {
   company: CompanyProfile;
@@ -188,13 +191,7 @@ function isNotRecommendedCard(card: MatchCard): boolean {
 
 function isOneAnswerCard(card: MatchCard): boolean {
   if (recommendationTierForCard(card) !== "needs_profile_input") return false;
-  return answerableUnknownDimensions(card).size === 1;
-}
-
-function answerableUnknownDimensions(card: MatchCard): Set<string> {
-  return new Set(card.ruleTrace
-    .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
-    .map((trace) => trace.dimension));
+  return answerableHardUnknownDimensions(card).size === 1;
 }
 
 function recommendationTierForCard(card: MatchCard): NonNullable<MatchCard["recommendationTier"]> {

@@ -1,4 +1,4 @@
-import type { MatchCard } from "@cunote/contracts";
+import type { CriterionDimension, MatchCard } from "@cunote/contracts";
 
 export const MATCH_STATUS_FILTERS = [
   "all",
@@ -77,9 +77,21 @@ export function isPreparableMatchCard(match: MatchCard): boolean {
         : "needs_profile_input"
   );
   if (tier !== "needs_profile_input") return false;
+  return answerableHardUnknownDimensions(match).size > 1;
+}
+
+/**
+ * 사용자의 답변으로 해소할 수 있는 필수·배제 미확인 축만 센다.
+ * 우대평가용 progressive 항목은 자격 판정을 막지 않으므로 "답하면 확정"/"준비하면 열려요"
+ * 버킷 수에 포함하지 않는다.
+ */
+export function answerableHardUnknownDimensions(match: MatchCard): Set<CriterionDimension> {
   return new Set(match.ruleTrace
-    .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
-    .map((trace) => trace.dimension)).size > 1;
+    .filter((trace) =>
+      trace.result === "unknown"
+      && trace.action?.type === "progressive"
+      && (trace.kind === "required" || trace.kind === "exclusion"))
+    .map((trace) => trace.dimension));
 }
 
 function matchesStatus(match: MatchCard, status: Exclude<MatchStatusFilter, "all">): boolean {

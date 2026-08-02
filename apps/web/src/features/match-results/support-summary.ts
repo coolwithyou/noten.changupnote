@@ -71,8 +71,8 @@ export function buildSupportSummary(
 
   return {
     kind: "fallback",
-    text: "공고문 확인 필요",
-    accessibleText: "지원 내용: 공고문 확인 필요",
+    text: "지원 내용은 공고문 참고",
+    accessibleText: "지원 금액과 혜택은 공고문 참고",
   };
 }
 

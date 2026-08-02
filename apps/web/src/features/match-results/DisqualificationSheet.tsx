@@ -16,7 +16,12 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { matchingPrecision, profileRowStatus } from "./logic";
+import {
+  matchingProfileCoverage,
+  profileCoverageLabel,
+  profileRowStatus,
+  type MatchingProfileCoverageSummary,
+} from "./logic";
 
 const AXES: readonly DisqualificationAxis[] = ["tax_compliance", "credit_status", "sanction"];
 
@@ -69,8 +74,8 @@ export function DisqualificationSheet({
 }) {
   const [held, setHeld] = useState<Set<DisqualificationFlag>>(new Set());
   const [expandedAxis, setExpandedAxis] = useState<DisqualificationAxis | null>(null);
-  // 시트 진입 시점의 정밀도를 기준선으로 잡아 완료 컷에서 delta를 표기한다.
-  const [baselinePct] = useState(() => matchingPrecision(teaser).pct);
+  // 시트 진입 시점의 확인된 기업정보 수를 기준선으로 잡아 완료 컷에서 증가량을 표기한다.
+  const [baselineKnown] = useState(() => matchingProfileCoverage(teaser).known);
 
   const statuses = useMemo(
     () =>
@@ -81,8 +86,8 @@ export function DisqualificationSheet({
     [teaser],
   );
   const allKnown = AXES.every((axis) => statuses[axis] === "known");
-  const precision = matchingPrecision(teaser);
-  const delta = precision.pct - baselinePct;
+  const coverage = matchingProfileCoverage(teaser);
+  const delta = coverage.known - baselineKnown;
 
   function toggleFlag(flag: DisqualificationFlag, checked: boolean) {
     setHeld((current) => {
@@ -128,7 +133,7 @@ export function DisqualificationSheet({
       <ScrollArea className="min-h-0 flex-1">
         <div className="px-6 pt-4 pb-6">
           {allKnown ? (
-            <CompletionView pct={precision.pct} delta={delta} onClose={onClose} />
+            <CompletionView coverage={coverage} delta={delta} onClose={onClose} />
           ) : (
             <>
               <div className="rounded-[14px] bg-surface-soft px-4 py-3.5">
@@ -253,7 +258,15 @@ function AxisCard({
   );
 }
 
-function CompletionView({ pct, delta, onClose }: { pct: number; delta: number; onClose: () => void }) {
+function CompletionView({
+  coverage,
+  delta,
+  onClose,
+}: {
+  coverage: MatchingProfileCoverageSummary;
+  delta: number;
+  onClose: () => void;
+}) {
   return (
     <div className="flex flex-col items-center pt-4 text-center">
       <div className="flex size-[52px] items-center justify-center rounded-full bg-brand-mint text-2xl font-extrabold text-white shadow-[var(--shadow-mint-check)]">
@@ -262,11 +275,11 @@ function CompletionView({ pct, delta, onClose }: { pct: number; delta: number; o
       <p className="mt-4 text-[19px] font-extrabold text-ink">결격 여부 확인 완료 ✓</p>
       <div className="mt-5 w-full rounded-[14px] border border-brand-tint bg-landing-step-blue px-4 py-3.5 text-left shadow-[var(--shadow-landing-step)]">
         <PrecisionGauge
-          pct={pct}
-          label={`매칭 정밀도 ${pct}%`}
-          caption="확인한 만큼 판정이 정확해져요"
+          pct={coverage.pct}
+          label={profileCoverageLabel(coverage)}
+          caption="확인한 기업정보를 자격 판정에 반영했어요"
           meta=""
-          {...(delta > 0 ? { delta: `+${delta}%p` } : {})}
+          {...(delta > 0 ? { delta: `+${delta}개` } : {})}
         />
       </div>
       <Button type="button" className="mt-4 w-full" onClick={onClose}>

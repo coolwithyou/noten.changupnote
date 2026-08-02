@@ -4,26 +4,32 @@ import type { ProductTeaserResult } from "@cunote/contracts";
 import { PrecisionGauge } from "@/components/app/precision-gauge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { groupMatchesForDisplay, matchingPrecision, teaserComparisonLabel } from "./logic";
+import {
+  groupMatchesForDisplay,
+  matchingProfileCoverage,
+  profileCoverageLabel,
+  resultsCoverageCaption,
+  teaserComparisonLabel,
+} from "./logic";
 
 export function ResultsHero({
   teaser,
   onSave,
   saving,
-  precisionDelta,
+  coverageDelta,
   empty = false,
   questionsExhausted = false,
 }: {
   teaser: ProductTeaserResult;
   onSave: () => void;
   saving: boolean;
-  precisionDelta?: number;
+  coverageDelta?: number;
   empty?: boolean;
   /** 물어볼 질문이 소진된 상태(teaser.nextQuestion === null) — 게이지 캡션을 분기한다. */
   questionsExhausted?: boolean;
 }) {
   const groups = groupMatchesForDisplay(teaser.matches);
-  const precision = matchingPrecision(teaser);
+  const coverage = matchingProfileCoverage(teaser);
   const comparisonLabel = teaserComparisonLabel(teaser);
   const openCount = teaser.counts.openNow ?? groups.open.length;
   const oneAnswerCount = teaser.counts.oneAnswer ?? groups.oneAnswer.length;
@@ -63,13 +69,11 @@ export function ResultsHero({
 
       <div className={cn("rounded-2xl border border-brand-tint bg-landing-step-blue px-5 py-[18px] shadow-[var(--shadow-landing-step)]", !empty && "mt-8")}>
         <PrecisionGauge
-          pct={precision.pct}
-          {...(precisionDelta && precisionDelta > 0 ? { delta: `+${precisionDelta}%p` } : {})}
-          label={`매칭 정밀도 ${precision.pct}%`}
-          caption={
-            questionsExhausted ? "물어볼 질문에 모두 답했어요" : "회사를 더 설명할수록 결과가 정확해져요"
-          }
-          meta={`자동으로 확인 ${precision.known} · 직접 채우면 +${precision.remaining}`}
+          pct={coverage.pct}
+          {...(coverageDelta && coverageDelta > 0 ? { delta: `+${coverageDelta}개` } : {})}
+          label={profileCoverageLabel(coverage)}
+          caption={resultsCoverageCaption({ questionsExhausted, hasActionableMatches })}
+          meta={`전체 기업정보 ${coverage.total}개 중 ${coverage.known}개 확인`}
         />
       </div>
     </section>

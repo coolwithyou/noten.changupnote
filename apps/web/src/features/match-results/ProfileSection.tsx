@@ -66,7 +66,8 @@ import {
   profileInputSuggestions,
   profileInputText,
   revenueUnitLabel,
-  matchingPrecision,
+  matchingProfileCoverage,
+  profileCoverageLabel,
   toRevenueUnit,
   type AnswerImpactSummary,
   type ProfileFieldView,
@@ -101,7 +102,7 @@ interface ProfileSheetRow {
 interface SavedFieldFeedback {
   key: CriterionDimension;
   label: string;
-  beforePct: number;
+  beforeKnown: number;
 }
 
 export function ProfileSection({
@@ -121,7 +122,7 @@ export function ProfileSection({
   answerImpact?: AnswerImpactSummary | null;
 }) {
   const fields = useMemo(() => buildProfileFields(teaser), [teaser]);
-  const precision = matchingPrecision(teaser);
+  const coverage = matchingProfileCoverage(teaser);
   const rows = useMemo(() => buildProfileSheetRows(teaser, fields), [fields, teaser]);
   const groupedRows = useMemo(() => {
     const automatic: ProfileSheetRow[] = [];
@@ -135,7 +136,7 @@ export function ProfileSection({
   const [activeFieldKey, setActiveFieldKey] = useState<CriterionDimension | null>(null);
   const [savedFeedback, setSavedFeedback] = useState<SavedFieldFeedback | null>(null);
   const [view, setView] = useState<ProfileSheetView>("profile");
-  const savedDelta = savedFeedback ? precision.pct - savedFeedback.beforePct : 0;
+  const savedDelta = savedFeedback ? coverage.known - savedFeedback.beforeKnown : 0;
   // 시트 내 저장 완료(savedFeedback) 직후에만 마지막 반영 요약의 새 확정 건수를 노출한다.
   const savedNewlyOpen = savedFeedback ? answerImpact?.newlyOpen ?? 0 : 0;
 
@@ -157,9 +158,9 @@ export function ProfileSection({
     answer: MatchingProfileAnswerRequest,
   ) {
     if (!row.field) return;
-    const beforePct = precision.pct;
+    const beforeKnown = coverage.known;
     await onAnswer(answer);
-    setSavedFeedback({ key: row.field.key, label: row.label, beforePct });
+    setSavedFeedback({ key: row.field.key, label: row.label, beforeKnown });
     setActiveFieldKey(null);
   }
 
@@ -210,7 +211,7 @@ export function ProfileSection({
                       {savedNewlyOpen > 0
                         ? `공고 ${savedNewlyOpen.toLocaleString("ko-KR")}건이 새로 확정됐어요`
                         : savedDelta > 0
-                          ? `매칭 정밀도가 ${savedDelta}%p 올랐어요`
+                          ? `확인된 기업정보가 ${savedDelta}개 늘었어요`
                           : `${savedFeedback.label} 정보를 매칭 결과에 반영했어요`}
                     </AlertDescription>
                   </Alert>
@@ -218,10 +219,10 @@ export function ProfileSection({
 
                 <div className="mt-[18px] rounded-[14px] border border-brand-tint bg-landing-step-blue px-4 py-3.5 shadow-[var(--shadow-landing-step)]">
                   <PrecisionGauge
-                    pct={precision.pct}
-                    {...(savedDelta > 0 ? { delta: `+${savedDelta}%p` } : {})}
-                    label={`매칭 정밀도 ${precision.pct}%`}
-                    caption="빈 항목을 채우면 더 정확해져요"
+                    pct={coverage.pct}
+                    {...(savedDelta > 0 ? { delta: `+${savedDelta}개` } : {})}
+                    label={profileCoverageLabel(coverage)}
+                    caption="사업자 정보와 직접 확인한 내용을 함께 보여드려요"
                     meta=""
                   />
                 </div>
@@ -473,7 +474,7 @@ function ProfileVerificationGroup({
           label="지원사업 수혜 이력"
           confirmed={priorConfirmed}
           confirmedLabel="확인됨 ✓"
-          subtitle="과거 수혜 여부로 판정이 갈리는 공고가 있어요"
+          subtitle={priorAwardImpactCopy(teaser)}
           onClick={onOpenPriorAward}
         />
       </div>
@@ -526,17 +527,41 @@ function VerificationRow({
   );
 }
 
-/** 결격 행 부제 — nextQuestion이 결격 축이고 실데이터가 있으면 확정 건수를, 아니면 일반 문구. */
+/** 결격 행 부제 — 실제 필수·배제 미확인 공고가 있을 때만 자격 판정 영향을 약속한다. */
 function disqualificationImpactCopy(teaser: ProductTeaserResult): string {
-  const question = teaser.nextQuestion;
-  if (
-    question &&
-    (DISQUALIFICATION_AXES as readonly string[]).includes(question.dimension) &&
-    question.affectedGrantCount > 0
-  ) {
-    return `해당 없음을 확인하면 공고 ${question.affectedGrantCount.toLocaleString("ko-KR")}건이 확정돼요`;
+  const affected = hardUnknownGrantCount(teaser, DISQUALIFICATION_AXES);
+  return affected > 0
+    ? `공고 ${affected.toLocaleString("ko-KR")}건의 필수 결격조건 판정에 필요한 정보예요`
+    : "새 공고의 결격조건 확인에 활용할 수 있어요";
+}
+
+function priorAwardImpactCopy(teaser: ProductTeaserResult): string {
+  const hardAffected = hardUnknownGrantCount(teaser, ["prior_award"]);
+  if (hardAffected > 0) {
+    return `공고 ${hardAffected.toLocaleString("ko-KR")}건의 신청 자격 판정에 필요한 정보예요`;
   }
-  return "체납·신용·제재 여부로 판정이 갈리는 공고가 있어요";
+  const preferredAffected = new Set(teaser.matches
+    .filter((match) => match.ruleTrace.some((trace) =>
+      trace.dimension === "prior_award"
+      && trace.kind === "preferred"
+      && (trace.result === "unknown" || trace.result === "text_only")))
+    .map((match) => match.grantId)).size;
+  return preferredAffected > 0
+    ? `공고 ${preferredAffected.toLocaleString("ko-KR")}건의 우대점수 확인에 활용할 수 있어요`
+    : "새 공고의 수혜 이력 조건 확인에 활용할 수 있어요";
+}
+
+function hardUnknownGrantCount(
+  teaser: ProductTeaserResult,
+  dimensions: readonly CriterionDimension[],
+): number {
+  const dimensionSet = new Set<CriterionDimension>(dimensions);
+  return new Set(teaser.matches
+    .filter((match) => match.ruleTrace.some((trace) =>
+      dimensionSet.has(trace.dimension)
+      && (trace.kind === "required" || trace.kind === "exclusion")
+      && (trace.result === "unknown" || trace.result === "text_only")))
+    .map((match) => match.grantId)).size;
 }
 
 function buildProfileSheetRows(

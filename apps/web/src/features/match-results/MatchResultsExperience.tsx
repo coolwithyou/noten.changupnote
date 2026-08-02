@@ -23,7 +23,8 @@ import {
   TeaserError,
   confirmationResumePath,
   groupMatchesForDisplay,
-  matchingPrecision,
+  matchingProfileCoverage,
+  profileCoverageLabel,
   rememberBusinessLookup,
   summarizeAnswerImpact,
   type AnswerImpactSummary,
@@ -203,7 +204,7 @@ export function MatchResultsExperience() {
       (displayGroups?.upcoming.length ?? 0) === 0 &&
       teaser.nextQuestion === null,
   );
-  const precision = teaser ? matchingPrecision(teaser) : null;
+  const coverage = teaser ? matchingProfileCoverage(teaser) : null;
 
   return (
     <div className="min-h-screen w-full overflow-x-hidden bg-background text-foreground">
@@ -226,7 +227,7 @@ export function MatchResultsExperience() {
               teaser={teaser}
               onSave={() => void saveAndContinue()}
               saving={continuing}
-              {...(answerImpact ? { precisionDelta: answerImpact.precisionDelta } : {})}
+              {...(answerImpact ? { coverageDelta: answerImpact.coverageDelta } : {})}
               empty={noMatchingGrants}
               questionsExhausted={teaser.nextQuestion === null}
             />
@@ -265,14 +266,14 @@ export function MatchResultsExperience() {
                       }
                     : {})}
                 />
-                {precision ? (
+                {coverage ? (
                   <Button
                     type="button"
                     variant="ghost"
                     onClick={() => setProfileOpen(true)}
                     className="mx-auto mt-7 flex h-auto max-w-full rounded-full border border-border-subtle bg-surface-soft px-[22px] py-2.5 text-center text-sm font-medium whitespace-normal text-text-secondary hover:bg-surface-muted"
                   >
-                    자동으로 확인한 정보 {precision.known}개 · 직접 채울 정보 {precision.remaining}개 ·
+                    {profileCoverageLabel(coverage)} ·
                     <span className="font-bold text-brand">보기</span>
                   </Button>
                 ) : null}

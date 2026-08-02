@@ -13,7 +13,10 @@ import type {
   WriteSupportLevel,
 } from "@cunote/contracts";
 import { WRITE_SUPPORT_LABELS } from "@cunote/contracts";
-import { isPreparableMatchCard } from "@cunote/core";
+import {
+  answerableHardUnknownDimensions,
+  isPreparableMatchCard,
+} from "@cunote/core";
 import { URGENT_MAX_DDAY } from "@/components/app/notice-card";
 import type { VerdictStatus } from "@/components/app/verdict-badge";
 import { buildSupportSummary, formatKrwAmount } from "./support-summary";
@@ -188,6 +191,51 @@ const PROFILE_DIMENSION_LABELS: Record<CriterionDimension, string> = {
   export_performance: "수출 실적",
   other: "기타 조건",
 };
+
+export interface CriterionEvidencePresentation {
+  dimensionLabel: string;
+  requirement: string;
+  companyValue: string;
+}
+
+/**
+ * matcher가 판정에 사용한 rule trace를 사용자가 비교하기 쉬운 두 값으로 나눈다.
+ * 판정 근거를 새로 추론하지 않고, matcher label의 공고 조건/귀사 값과 companyValue만 사용한다.
+ */
+export function criterionEvidencePresentation(
+  trace: MatchCard["ruleTrace"][number],
+): CriterionEvidencePresentation {
+  const normalizedLabel = criterionSubjectLabel(trace.label);
+  const [rawRequirement, rawCompanyValue] = normalizedLabel.split(/\s+[—-]\s+귀사\s*/u, 2);
+  let requirement = (rawRequirement ?? normalizedLabel).trim();
+
+  if (trace.dimension === "region") {
+    requirement = requirement.replace(/\b\d{2}\b/gu, (code) => (
+      REGION_OPTIONS.find((option) => option.value === code)?.label ?? code
+    ));
+    if (/^(?:전국|소재지 제한 없음)(?:\s+대상)?$/u.test(requirement)) {
+      requirement = "소재지 제한 없음";
+    } else if (!/제외|미해당/u.test(requirement)) {
+      requirement = requirement.replace(/\s+대상$/u, " 소재 기업");
+      if (!/소재|지역|기업/u.test(requirement)) requirement = `${requirement} 소재 기업`;
+    }
+  } else if (trace.dimension === "founder_trait") {
+    requirement = requirement.replace(/^대표자\s+(?:속성|특성)\s*/u, "");
+  } else if (trace.dimension === "certification") {
+    requirement = requirement.replace(/^인증(?:·확인서)?\s*/u, "");
+    if (!/보유|없음|미해당/u.test(requirement)) requirement = `${requirement} 보유`;
+  }
+
+  const companyValue = trace.companyValue?.trim()
+    || rawCompanyValue?.trim()
+    || "확인된 기업정보와 일치";
+
+  return {
+    dimensionLabel: PROFILE_DIMENSION_LABELS[trace.dimension],
+    requirement,
+    companyValue,
+  };
+}
 
 export function evidenceCheckedNote(evidence: TeaserResult["companyEvidence"]): string | null {
   if (!evidence || evidence.provider !== "popbill" || !evidence.checkedAt) return null;
@@ -569,18 +617,12 @@ export interface MatchDisplayGroups {
 /** 사용자 입력으로 해소할 미확인 축이 정확히 하나일 때만 "답하면 확정"으로 약속한다. */
 export function isOneAnswerMatch(match: MatchCard): boolean {
   if (recommendationTierForMatch(match) !== "needs_profile_input") return false;
-  return answerableUnknownDimensions(match).size === 1;
+  return answerableHardUnknownDimensions(match).size === 1;
 }
 
 export function isMultiAnswerMatch(match: MatchCard): boolean {
   if (recommendationTierForMatch(match) !== "needs_profile_input") return false;
-  return answerableUnknownDimensions(match).size > 1;
-}
-
-function answerableUnknownDimensions(match: MatchCard): Set<CriterionDimension> {
-  return new Set(match.ruleTrace
-    .filter((trace) => trace.result === "unknown" && trace.action?.type === "progressive")
-    .map((trace) => trace.dimension));
+  return answerableHardUnknownDimensions(match).size > 1;
 }
 
 /** 서버 판정·추천 tier를 화면의 고정 4상태 어휘로만 투영한다. */
@@ -596,7 +638,7 @@ export function matchVerdictStatus(match: MatchCard): VerdictStatus {
   if (
     tier === "needs_core_review" ||
     match.criteriaExtracted === false ||
-    (tier === "needs_profile_input" && answerableUnknownDimensions(match).size === 0) ||
+    (tier === "needs_profile_input" && answerableHardUnknownDimensions(match).size === 0) ||
     (tier === "recommendable" && match.scoreDisplay === "hidden")
   ) {
     return "check_source";
@@ -642,7 +684,7 @@ export function groupMatchesForDisplay(matches: readonly MatchCard[]): MatchDisp
   return groups;
 }
 
-export interface MatchingPrecisionSummary {
+export interface MatchingProfileCoverageSummary {
   pct: number;
   known: number;
   partial: number;
@@ -650,8 +692,8 @@ export interface MatchingPrecisionSummary {
   total: number;
 }
 
-/** 백엔드 전용 점수 대신 확인 필드 비율로 정밀도를 보수적으로 근사한다. */
-export function matchingPrecision(teaser: ProductTeaserResult): MatchingPrecisionSummary {
+/** 기업정보 전체 축 중 현재 확인된 축의 범위. 매칭 확률이나 선정 가능성 점수가 아니다. */
+export function matchingProfileCoverage(teaser: ProductTeaserResult): MatchingProfileCoverageSummary {
   const { knownCount: known, partialCount: partial, unknownCount } = teaser.profileView;
   const total = Math.max(1, teaser.profileView.rows.length);
   return {
@@ -663,14 +705,77 @@ export function matchingPrecision(teaser: ProductTeaserResult): MatchingPrecisio
   };
 }
 
+export function profileCoverageLabel(coverage: MatchingProfileCoverageSummary): string {
+  return `기업정보 확인 ${coverage.known}/${coverage.total}개`;
+}
+
+export function resultsCoverageCaption(input: {
+  questionsExhausted: boolean;
+  hasActionableMatches: boolean;
+}): string {
+  if (!input.questionsExhausted) {
+    return "아래 질문에 답하면 신청 가능 여부를 더 확인할 수 있어요";
+  }
+  return input.hasActionableMatches
+    ? "현재 공고의 필수 자격 판정에 필요한 정보는 확인됐어요"
+    : "현재 추가로 답할 필수 자격 질문은 없어요";
+}
+
+export interface MatchCriterionPresentation {
+  hardPassed: MatchCard["ruleTrace"];
+  hardFailed: MatchCard["ruleTrace"];
+  hardNeedsCheck: MatchCard["ruleTrace"];
+  preferredPassed: MatchCard["ruleTrace"];
+  preferredNeedsInput: MatchCard["ruleTrace"];
+  evaluationNotes: MatchCard["ruleTrace"];
+}
+
+/** 필수 자격, 사용자가 채울 우대정보, 선정평가 참고항목을 화면에서 섞지 않도록 분리한다. */
+export function matchCriterionPresentation(match: MatchCard): MatchCriterionPresentation {
+  const result: MatchCriterionPresentation = {
+    hardPassed: [],
+    hardFailed: [],
+    hardNeedsCheck: [],
+    preferredPassed: [],
+    preferredNeedsInput: [],
+    evaluationNotes: [],
+  };
+
+  for (const trace of match.ruleTrace) {
+    const hard = trace.kind === "required" || trace.kind === "exclusion";
+    if (hard) {
+      if (trace.result === "pass") result.hardPassed.push(trace);
+      else if (trace.result === "fail") result.hardFailed.push(trace);
+      else result.hardNeedsCheck.push(trace);
+      continue;
+    }
+    if (trace.kind !== "preferred") continue;
+    if (trace.result === "pass") result.preferredPassed.push(trace);
+    else if (trace.result === "unknown" && trace.action?.type === "progressive") {
+      result.preferredNeedsInput.push(trace);
+    } else if (trace.result === "unknown" || trace.result === "text_only") {
+      result.evaluationNotes.push(trace);
+    }
+  }
+
+  return result;
+}
+
+export function criterionSubjectLabel(label: string): string {
+  return label
+    .replace(/\s*[—-]\s*(?:확인 필요|원문 확인)\s*$/u, "")
+    .replace(/\s*(?:확인 필요|원문 확인)\s*$/u, "")
+    .trim();
+}
+
 export interface AnswerImpactSummary {
   newlyOpen: number;
   newlyOpenGrantIds: string[];
   newlyClosed: number;
   changed: number;
-  previousPrecision: number;
-  nextPrecision: number;
-  precisionDelta: number;
+  previousKnown: number;
+  nextKnown: number;
+  coverageDelta: number;
 }
 
 /** 동일 공고 id의 전후 판정만 비교한다. 선정 가능성이나 확률로 해석하지 않는다. */
@@ -696,16 +801,16 @@ export function summarizeAnswerImpact(
     if (next === "closed") newlyClosed += 1;
   }
 
-  const previousPrecision = matchingPrecision(before).pct;
-  const nextPrecision = matchingPrecision(after).pct;
+  const previousKnown = matchingProfileCoverage(before).known;
+  const nextKnown = matchingProfileCoverage(after).known;
   return {
     newlyOpen,
     newlyOpenGrantIds,
     newlyClosed,
     changed,
-    previousPrecision,
-    nextPrecision,
-    precisionDelta: nextPrecision - previousPrecision,
+    previousKnown,
+    nextKnown,
+    coverageDelta: nextKnown - previousKnown,
   };
 }
 

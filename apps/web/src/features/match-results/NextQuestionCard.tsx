@@ -55,9 +55,9 @@ function AnswerImpactCard({ impact }: { impact: AnswerImpactSummary }) {
     impact.newlyOpen > 0 ? `새로 확정 ${impact.newlyOpen}건` : null,
     impact.newlyClosed > 0 ? `대상 아님으로 정리 ${impact.newlyClosed}건` : null,
   ].filter((value): value is string => value !== null);
-  const precisionCopy =
-    impact.precisionDelta !== 0
-      ? `정밀도 ${impact.previousPrecision}% → ${impact.nextPrecision}%`
+  const coverageCopy =
+    impact.coverageDelta !== 0
+      ? `기업정보 확인 ${impact.previousKnown}개 → ${impact.nextKnown}개`
       : null;
 
   return (
@@ -70,7 +70,7 @@ function AnswerImpactCard({ impact }: { impact: AnswerImpactSummary }) {
         {impact.changed === 0
           ? "이 답변으로 바뀐 공고는 없어요."
           : movementParts.join(" · ")}
-        {precisionCopy ? ` ${impact.changed === 0 ? "" : "· "}${precisionCopy}` : ""}
+        {coverageCopy ? ` ${impact.changed === 0 ? "" : "· "}${coverageCopy}` : ""}
       </p>
     </section>
   );

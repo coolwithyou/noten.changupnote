@@ -85,6 +85,23 @@ assert.equal(multipleAnswersNeeded.counts.needsProfileInput, 1);
 assert.equal(multipleAnswersNeeded.counts.oneAnswer, 0, "두 축이 비었으면 답변 하나로 확정된다고 약속하면 안 됨");
 assert.equal(multipleAnswersNeeded.counts.preparable, 1);
 
+const oneRequiredPlusPreferred = buildTeaser({
+  company: beforeProfile,
+  grants: [requiredWithPreferredGrant("required-plus-preferred")],
+  asOf: new Date("2026-07-12T00:00:00.000Z"),
+});
+assert.equal(oneRequiredPlusPreferred.nextQuestion?.dimension, "founder_age");
+assert.equal(
+  oneRequiredPlusPreferred.counts.oneAnswer,
+  1,
+  "우대정보가 비어 있어도 필수 미확인 축이 하나면 답하면 확정 1건이어야 함",
+);
+assert.equal(
+  oneRequiredPlusPreferred.counts.preparable,
+  0,
+  "우대정보 미확인을 두 번째 필수 질문으로 세면 안 됨",
+);
+
 const upcomingGrant = ageGrant("upcoming", 20, 39);
 upcomingGrant.grant.status = "upcoming";
 const upcomingTeaser = buildTeaser({
@@ -248,6 +265,24 @@ function multiAnswerGrant(sourceId: string): NormalizedGrant<Record<string, neve
       value: { max_krw: 1_000_000_000 },
       confidence: 1,
       source_span: "최근 연 매출 10억원 이하",
+    },
+  ];
+  return entry;
+}
+
+function requiredWithPreferredGrant(sourceId: string): NormalizedGrant<Record<string, never>> {
+  const entry = ageGrant(sourceId, 20, 39);
+  entry.grant.title = "필수 연령과 우대 수혜이력 확인 사업";
+  entry.criteria = [
+    ...entry.criteria,
+    {
+      id: `criterion:${sourceId}:prior-award`,
+      dimension: "prior_award",
+      kind: "preferred",
+      operator: "not_in",
+      value: { scope: "self", note: "동일 사업 과거 수혜 여부" },
+      confidence: 1,
+      source_span: "동일 사업 과거 수혜 이력이 없는 기업 우대",
     },
   ];
   return entry;

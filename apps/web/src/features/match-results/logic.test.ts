@@ -5,13 +5,18 @@ import { normalizeManualProfile } from "@/lib/server/teaser/resolveTeaserCompany
 import {
   buildProfileAnswer,
   buildProfilePatch,
+  criterionEvidencePresentation,
+  criterionSubjectLabel,
   confirmationResumePath,
   groupMatchesForDisplay,
-  matchingPrecision,
+  matchCriterionPresentation,
+  matchingProfileCoverage,
   matchVerdictStatus,
+  profileCoverageLabel,
   profileFieldAsOfLabel,
   profileInputSuggestions,
   profileSheetValueState,
+  resultsCoverageCaption,
   summarizeAnswerImpact,
 } from "./logic";
 
@@ -30,6 +35,7 @@ const answerMatch = {
   recommendationTier: "needs_profile_input",
   ruleTrace: [{
     dimension: "region",
+    kind: "required",
     result: "unknown",
     action: { type: "progressive", target: "region", label: "지금 확인" },
   }],
@@ -51,11 +57,13 @@ const preparableMatch = {
   ruleTrace: [
     {
       dimension: "industry",
+      kind: "required",
       result: "unknown",
       action: { type: "progressive", target: "industry", label: "지금 확인" },
     },
     {
       dimension: "revenue",
+      kind: "required",
       result: "unknown",
       action: { type: "progressive", target: "revenue", label: "지금 확인" },
     },
@@ -75,6 +83,7 @@ const multiAnswerMatch = {
     ...answerMatch.ruleTrace,
     {
       dimension: "revenue",
+      kind: "required",
       result: "unknown",
       action: { type: "progressive", target: "revenue", label: "지금 확인" },
     },
@@ -93,13 +102,33 @@ const hiddenScoreHardFailMatch = {
   scoreDisplay: "hidden",
   ruleTrace: [{
     dimension: "region",
+    kind: "required",
     result: "fail",
     label: "충남 대상 - 귀사 서울",
   }],
 } as MatchCard;
+const answerWithPreferredMatch = {
+  ...answerMatch,
+  grantId: "grant-answer-with-preferred",
+  ruleTrace: [
+    ...answerMatch.ruleTrace,
+    {
+      dimension: "prior_award",
+      kind: "preferred",
+      result: "unknown",
+      label: "수혜·참여 이력 확인 필요",
+      action: { type: "progressive", target: "prior_award", label: "지금 확인" },
+    },
+  ],
+} as MatchCard;
 
 assert.equal(matchVerdictStatus(openMatch), "open");
 assert.equal(matchVerdictStatus(answerMatch), "one_answer");
+assert.equal(
+  matchVerdictStatus(answerWithPreferredMatch),
+  "one_answer",
+  "우대정보 미확인은 필수 자격 질문 수에 포함하면 안 됨",
+);
 assert.equal(matchVerdictStatus(multiAnswerMatch), "closed");
 assert.equal(matchVerdictStatus(reviewMatch), "check_source");
 assert.equal(matchVerdictStatus(unknownStatusMatch), "check_source");
@@ -111,13 +140,14 @@ assert.equal(
 const grouped = groupMatchesForDisplay([
   openMatch,
   answerMatch,
+  answerWithPreferredMatch,
   multiAnswerMatch,
   reviewMatch,
   preparableMatch,
   hardFailLegacyPreparableMatch,
   unknownStatusMatch,
 ]);
-assert.equal(grouped.oneAnswer.length, 1);
+assert.equal(grouped.oneAnswer.length, 2);
 assert.equal(grouped.preparable.length, 2);
 assert.equal(grouped.checkSource.length, 2);
 assert.equal(grouped.closed.length, 1, "hard fail은 legacy preparable bucket이어도 준비 목록에서 제외");
@@ -153,15 +183,85 @@ function teaserFixture(matches: MatchCard[], knownCount: number): ProductTeaserR
 
 const beforeImpact = teaserFixture([answerMatch], 0);
 const afterImpact = teaserFixture([{ ...answerMatch, eligibility: "eligible", recommendationTier: "recommendable" }], 1);
-assert.equal(matchingPrecision(beforeImpact).pct, 0);
+const beforeCoverage = matchingProfileCoverage(beforeImpact);
+assert.equal(beforeCoverage.pct, 0);
+assert.equal(profileCoverageLabel(beforeCoverage), "기업정보 확인 0/2개");
+assert.equal(
+  resultsCoverageCaption({ questionsExhausted: true, hasActionableMatches: true }),
+  "현재 공고의 필수 자격 판정에 필요한 정보는 확인됐어요",
+);
+assert.equal(
+  resultsCoverageCaption({ questionsExhausted: false, hasActionableMatches: false }),
+  "아래 질문에 답하면 신청 가능 여부를 더 확인할 수 있어요",
+);
 assert.deepEqual(summarizeAnswerImpact(beforeImpact, afterImpact), {
   newlyOpen: 1,
   newlyOpenGrantIds: ["grant-answer"],
   newlyClosed: 0,
   changed: 1,
-  previousPrecision: 0,
-  nextPrecision: 50,
-  precisionDelta: 50,
+  previousKnown: 0,
+  nextKnown: 1,
+  coverageDelta: 1,
+});
+
+const criterionPresentation = matchCriterionPresentation({
+  ...openMatch,
+  ruleTrace: [
+    { dimension: "region", kind: "required", result: "pass", label: "충남" },
+    { dimension: "founder_trait", kind: "required", result: "pass", label: "장애인기업" },
+    { dimension: "certification", kind: "required", result: "pass", label: "장애인기업 확인서" },
+    {
+      dimension: "prior_award",
+      kind: "preferred",
+      result: "unknown",
+      label: "수혜·참여 이력 확인 필요",
+      action: { type: "progressive", target: "prior_award", label: "지금 확인" },
+    },
+    ...(["other", "other", "biz_age", "employees", "revenue"] as const).map((dimension) => ({
+      dimension,
+      kind: "preferred" as const,
+      result: "text_only" as const,
+      label: `${dimension} 원문 확인 필요`,
+    })),
+  ],
+} as MatchCard);
+assert.equal(criterionPresentation.hardPassed.length, 3);
+assert.equal(criterionPresentation.hardNeedsCheck.length, 0);
+assert.equal(criterionPresentation.preferredNeedsInput.length, 1);
+assert.equal(criterionPresentation.evaluationNotes.length, 5);
+assert.equal(criterionSubjectLabel("수혜·참여 이력 확인 필요"), "수혜·참여 이력");
+assert.deepEqual(criterionEvidencePresentation({
+  dimension: "region",
+  kind: "required",
+  result: "pass",
+  label: "44 대상 - 귀사 충남",
+  companyValue: "충남",
+} as MatchCard["ruleTrace"][number]), {
+  dimensionLabel: "소재 지역",
+  requirement: "충남 소재 기업",
+  companyValue: "충남",
+});
+assert.deepEqual(criterionEvidencePresentation({
+  dimension: "founder_trait",
+  kind: "required",
+  result: "pass",
+  label: "대표자 속성 장애인기업 - 귀사 장애인기업",
+  companyValue: "장애인기업",
+} as MatchCard["ruleTrace"][number]), {
+  dimensionLabel: "대표자 특성",
+  requirement: "장애인기업",
+  companyValue: "장애인기업",
+});
+assert.deepEqual(criterionEvidencePresentation({
+  dimension: "certification",
+  kind: "required",
+  result: "pass",
+  label: "인증 장애인기업 확인서 - 귀사 장애인기업 확인서",
+  companyValue: "장애인기업 확인서",
+} as MatchCard["ruleTrace"][number]), {
+  dimensionLabel: "인증·확인서",
+  requirement: "장애인기업 확인서 보유",
+  companyValue: "장애인기업 확인서",
 });
 
 assert.deepEqual(profileInputSuggestions("target_type"), ["개인사업자", "법인"]);
