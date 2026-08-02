@@ -1,13 +1,14 @@
 # Claude CLI Transport — 로컬 딥분석을 Max 구독으로 실행
 
-> **🟡 진행 상황 (2026-08-02)**
+> **🟢 진행 상황 (2026-08-02) — 게이트 통과·채택 확정, 운용 가능 상태**
 > - Phase 0 (드레스 리허설 실측) **완료** — 실제 22축 스키마로 `--json-schema` 프로브 통과, 하류 정규화 8/8 spanVerified. 본 문서 §3에 실측 기록.
 > - 문서 적대 검증 **완료·반영** — 팩트체크 40항목 대조 4건 정정(단방향 의존 주장 철회 등) + 레드팀 10건 반영(윈도 소진 batch 분기 §5#6, stdin EPIPE 프로토콜, 합성 400 오진 회피, AbortError 명세, roundtrip 레인 제외 등).
 > - **열린 결정 2건 사용자 확정(2026-08-02)** — ① 초기 전환 범위 = 추출 + **ai-audit** (ai-review·confirmations는 API 유지) ② lab CLI 레인 모델 = **claude-opus-5** (구독 한도 넉넉 — 다운시프트 불요). §9에 결정 기록.
 > - **Phase 1 완료(2026-08-02, 463a7ac)** — 실측 ①~⑤ 전부 확정(§7 Phase 1 행에 결과 기록: opus-5 가용·api_error_status 보존 발견·stdin 정상·**--safe-mode 격리 확정**·감사 스키마 강제) + `claude-cli-transport.ts`·테스트 8/8·`lab:transport:test` 추가. tsc 0건.
 > - **Phase 2 완료(2026-08-02)** — 배선 8파일 + 통합 스모크 전 구간 통과(§7 Phase 2 행에 결과): API 무영향 실증(transport:"api"), 92,573자 실공고 구독 완주 239.5s, 감사 체인 E2E(opus-5 추출 4/4 spanVerified → fable-5 검수 API 유지 → sonnet-5 감사 구독, `aiAuditTransport` 기록). **실측 결함 1건 발견·수정**: CLI가 프롬프트를 cache_creation으로 계상해 명목 입력 소실 → shim이 input_tokens에 합산 보정(§4-4). 잔여: dev 웹 라우트 CLI 스폰 확인(사용자 동반 — dev 서버는 사용자 기동).
 > - **Phase 3 완료(2026-08-02) — 채택 권고(조건부 GO)**: 수치 게이트는 미달(축 41.5%·감사 48.8%)이나 동일 모델 대조군(sonnet-5 양측 16.7%)으로 지표 자체가 실행 간 비결정성 지배임을 증명, §8-2 재판정 절차(원문 대조 59건)에서 **CLI 압도 우세**(추출 30:3, 감사 19:1)·환각 0·spanVerified 100%. 정본: `docs/research/2026-08-02-구독전환-AB-섀도-비교.md`. 운용 조건 3개(사람 표본 감사 유지·타임아웃 900s 동봉·결함 패턴 사례집 등재).
-> - 다음: 사용자 확인 후 Phase 4(대량 운용 개시 + .env.example 문서화). 잔여 사용자 동반: dev 웹 라우트 CLI 스폰 확인.
+> - **Phase 4 완료(2026-08-02) — 채택 확정(사용자 게이트 판정 지시)**: `.env.example`에 ANALYSIS_LAB_* 9종 문서화(8종 드리프트 해소), 운용 조건 ③ 이행(CLI 결함 패턴 2종을 검수 가이드 §5 사례집에 등재 — 축 구조화 값 오배치·exclusion 연산자 반전). **운용 개시 가능**: `ANALYSIS_LAB_TIMEOUT_MS=900000 ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 pnpm lab:batch ...` / 감사: `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:ai-audit -- ...`
+> - 잔여: [사용자 동반] dev 웹 라우트 CLI 스폰 1회 확인(dev 서버 기동 시). [선택·Phase 5] ai-review·confirmations 확대(§9 결정 ① 유보 레인 — 착수 조건: 소규모 일치율 검증). [운용] 사람 표본 감사 유지(운용 조건 ①).
 
 - 타당성 검토 정본: `docs/research/2026-08-02-구독모델-딥분석-실행-타당성-검토.md`
 - 결정 사항: **Anthropic 모델만 사용, Codex 레인 제외.** 운영 allowlist(`DEEP_ANALYSIS_PRIMARY_MODELS`)는 불변. **lab CLI 레인의 운용 모델은 `claude-opus-5`** — 코드 계약 검증 완료: `assertDeepAnalysisModelEffort`(contracts deep-analysis.ts:314-321)는 effort 호환만 검사하고 opus-5는 `DEEP_ANALYSIS_EFFORT_MODELS` 포함(effort high 유효), primary allowlist 검사(`assertDeepAnalysisModelPair`)는 운영 worker policy에서만 발화, `costPolicy.ts:36`에 opus-5 가격($5/$25) 등재로 costUsd·비용 게이트 정상 작동, 순환 가드 무충돌(추출 opus-5 ≠ 감사 sonnet-5 ≠ 검수 fable-5). 즉 `ANALYSIS_LAB_MODEL=claude-opus-5`는 코드 무수정으로 유효하다.
@@ -216,7 +217,7 @@ ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 pnpm lab:smok
 | **1** | ~~transport 모듈 + 유닛 테스트 + `lab:transport:test`~~ **완료(2026-08-02)**. 실측 결과: ①`claude-opus-5` 가용 — 실제 딥분석 워크로드 87초, modelUsage 에코 `claude-opus-5`, 하류 정규화 8/8 spanVerified, 명목 $0.32 ②에러 형태: **`api_error_status`로 API HTTP status 보존**(404 실측) → §4-3 매핑 단순화, `subtype`은 에러여도 "success"(판별은 `is_error`) ③stdin 전달 정상(exit 0) ④사용자 스코프 CLAUDE.md **로드됨**(Karpathy 등 노출, cache 2,162tok) → **`--safe-mode`로 격리 확정**(NONE·cache 0·OAuth 유지) — 고정 세트 편입, §8-2 교란 변수 해소. 부수 발견: safe-mode 시 modelUsage에 haiku 보조 호출 공존 → 모델 에코 가드는 "포함(subset)" 검사 ⑤감사 스키마(동적 enum [1,3]·min/maxItems) 정확히 강제(8.8초). 구현: `claude-cli-transport.ts` 342줄(마커 상수 export 포함), 테스트 8블록 전부 통과, tsc 0건. 스펙 편차 2건 승인: `resolveLabLlmBinding` async(§4-1 반영), 테스트는 repo 컨벤션(plain assert) | 완료 |
 | **2** | ~~배선 + 회귀·격리 + 통합 스모크~~ **완료(2026-08-02)**. 배선 8파일(+94/-34, analyze의 try 밖/안 분리·batch 윈도 소진 중단 분기·aiAuditTransport 기입·안내 로그 2곳). 검증: 회귀 7종 PASS·tsc 0건·격리 rg 2종 통과(deep-analysis 참조 0, import처=진입점 정확 일치). 스모크 실측: ① env 미설정 → transport:"api" 기록·65.2s·기존 경로 무영향 ② 구독(claude-cli·opus-5) 92,573자 실공고 239.5s 완주(540s 내 — 대형 공고 벽시계 겸, 타임아웃 상향 불요) ③ 감사 체인 E2E: 대구 공고 opus-5 추출(4/4 spanVerified·166s) → fable-5 검수 API 유지+안내 로그(8.2s·$0.18) → sonnet-5 감사 구독(34s·concur 1/1·`aiAuditTransport:"claude-cli"` 기록, 기존 트랙 감사 데이터 무접촉). **실측 결함 1건 수정**: usage 입력 소실 → cache_creation 합산 보정(§4-4). 잔여 1건(사용자 동반): dev 웹 라우트에서 CLI 스폰 동작 확인(dev 서버 사용자 기동 필요) | 완료 |
 | **3** | ~~A/B 섀도 비교~~ **완료(2026-08-02) — 채택 권고**. 기존 런이 v2/v3 프롬프트로 판명돼 양측 신규 실행으로 전환(API $2.5). 표면 게이트 미달 → 동일 모델 대조군으로 지표 불성립 증명 → 원문 대조 판정 59건(추출 38: CLI 30·API 3·동등 4·양쪽결함 1 / 감사 21: CLI 19·API 1·방어가능 1)으로 재판정. CLI 환각 0, spanVerified 104/104·14/14 일관 100%. 감사 미러는 스크래치 cwd 전환으로 원본 무접촉(드리프트 5건 정당 스킵·지표 오염 차단). 정본 리포트: docs/research/2026-08-02-구독전환-AB-섀도-비교.md | 완료 |
-| **4** | 채택 시: `lab:batch`를 `ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5`로 대량 실행 운용 시작. `.env.example`에 `ANALYSIS_LAB_TRANSPORT` 문서화(기존 `ANALYSIS_LAB_*` env 8종 — MODEL/MAX_TOKENS/TIMEOUT_MS/REVIEW_MODEL/AUDIT_MODEL/CONFIRMATION_MODEL/INPUT_CHAR_CAP/ARTIFACT_HMAC_KEY — 전부 미등재인 드리프트도 이때 함께 정리) | — |
+| **4** | ~~채택·운용 준비~~ **완료(2026-08-02) — 채택 확정**. `.env.example`에 ANALYSIS_LAB_* 9종(TRANSPORT 포함) 문서화, 운용 조건 ③ 이행(검수 가이드 §5에 결함 패턴 2종 등재). 운용 명령 확정: `ANALYSIS_LAB_TIMEOUT_MS=900000 ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 pnpm lab:batch ...` (타임아웃 상향은 고밀도 공고 540s 초과 실측 근거 — Phase 3 §5) | 완료 |
 | **5** | (선택) 잔여 사이드카 확대(ai-review·confirmations) — §9 결정 ①의 유보 레인. 착수 조건: §8-2 방식의 소규모 일치율 검증 통과(ai-review는 AI_REVIEW_ADOPTED 캘리브레이션 결속이라 특히 신중) | — |
 
 ## 8. 리스크·갭
@@ -261,4 +262,4 @@ shim은 claude CLI 2.1.219의 JSON 출력 계약(`structured_output`, `modelUsag
 - [x] Phase 2 배선 후 §6-2 회귀 전부 통과, §6-3 격리 0건, §6-4 스모크(추출+감사) 합격 — 2026-08-02 완료 (dev 웹 라우트 스폰 확인만 사용자 동반 잔여)
 - [x] env 미설정 시 동작이 현재와 완전 동일함을 스모크로 확인 — 2026-08-02 완료 (transport:"api"·opus-4-8·65.2s)
 - [x] Phase 3 A/B 비교 리포트 작성·판정 — 2026-08-02 완료, **채택 권고**(원문 대조 재판정 기준; 운용 조건 3개)
-- [ ] 채택 시 `.env.example`·본 문서 진행 상황 블록 갱신
+- [x] 채택 확정 및 `.env.example`·본 문서 진행 상황 블록 갱신 — 2026-08-02 완료 (운용 조건 ③ 사례집 등재 포함)
