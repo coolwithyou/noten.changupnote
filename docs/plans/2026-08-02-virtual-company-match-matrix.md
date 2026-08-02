@@ -319,9 +319,14 @@ pnpm verify:virtual-company-flow
   3쪽, SHA-256 `a0ddaf420a59b17b0293e01f2309d0fb597294000153b073d8ae222181e22b77`로 다시 열렸다.
 - RHWP 전송·working document·Studio/Workspace 렌더·route policy·web typecheck와 프로덕션 빌드는
   통과했다. 기존 NFT 전체 추적 경고 1건은 유지된다.
-- 실행 중이던 `127.0.0.1:4010` 개발 서버가 모든 요청을 무응답으로 유지해 브라우저 완료 게이트 중
-  편집 전후 SHA 변경과 네트워크 write 0건 실측은 아직 보류한다. 개발 서버 재시작 후 이 두 증거를
-  확보하기 전에는 V6를 완료로 표시하지 않는다.
+- 개발 서버 재기동 후 `dev.changupnote.com`에서 실제 RHWP Studio를 열어 글꼴 확인을 처리하고
+  `V6 로컬 편집 검증` 문구를 입력했다. 다운로드본은 HWP 147,968 bytes, 3쪽, SHA-256
+  `4f84fbaa96269f616f07a24cff00c9eb211168666edd21d5c4271aec2fdbfe8c`였고, 문구 검색 1건을
+  확인했다. 원본 SHA와 달라졌지만 페이지 수는 3쪽으로 유지됐다.
+- 로컬 반영 직전 네트워크 로그를 비운 뒤 반영 구간 요청 0건, 다운로드 직전 다시 비운 뒤 다운로드
+  구간 요청 0건을 확인했다. `/document-drafts/*`, `/chat`, AI 제안, credit 요청은 발생하지 않았다.
+- 정상 원본 endpoint는 `200 + private, no-store + x-cunote-preview-mode: local-only`, 실제 사업자번호와
+  등록되지 않은 `documentKey`는 각각 404를 반환했다. V6 완료 게이트를 모두 충족했다.
 
 ### V7 — 재현 가능한 시나리오 회귀
 
