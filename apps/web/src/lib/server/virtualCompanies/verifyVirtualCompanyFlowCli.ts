@@ -66,7 +66,7 @@ try {
       assert.equal(body.ok, true);
       assert.ok(body.data);
       for (const targetExpectation of scenario.targets) {
-        const target = body.data.matches.find((match) =>
+        const target: ProductTeaserResult["matches"][number] | undefined = body.data.matches.find((match) =>
           match.source === targetExpectation.source && match.sourceId === targetExpectation.sourceId);
         const expectedVisible = targetExpectation.expectedWritingEntry !== "hidden";
         assert.equal(Boolean(target), expectedVisible);
