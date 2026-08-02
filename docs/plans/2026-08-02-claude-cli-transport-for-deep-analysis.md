@@ -4,7 +4,8 @@
 > - Phase 0 (드레스 리허설 실측) **완료** — 실제 22축 스키마로 `--json-schema` 프로브 통과, 하류 정규화 8/8 spanVerified. 본 문서 §3에 실측 기록.
 > - 문서 적대 검증 **완료·반영** — 팩트체크 40항목 대조 4건 정정(단방향 의존 주장 철회 등) + 레드팀 10건 반영(윈도 소진 batch 분기 §5#6, stdin EPIPE 프로토콜, 합성 400 오진 회피, AbortError 명세, roundtrip 레인 제외 등).
 > - **열린 결정 2건 사용자 확정(2026-08-02)** — ① 초기 전환 범위 = 추출 + **ai-audit** (ai-review·confirmations는 API 유지) ② lab CLI 레인 모델 = **claude-opus-5** (구독 한도 넉넉 — 다운시프트 불요). §9에 결정 기록.
-> - Phase 1~5 미착수. 다음 착수는 Phase 1(transport 모듈).
+> - **Phase 1 완료(2026-08-02)** — 실측 ①~⑤ 전부 확정(§7 Phase 1 행에 결과 기록: opus-5 가용·api_error_status 보존 발견·stdin 정상·**--safe-mode 격리 확정**·감사 스키마 강제) + `claude-cli-transport.ts`(342줄)·테스트 8/8·`lab:transport:test` 추가. tsc 0건.
+> - 다음 착수는 Phase 2(배선 4곳 + 안내 로그 2곳 + 스모크).
 
 - 타당성 검토 정본: `docs/research/2026-08-02-구독모델-딥분석-실행-타당성-검토.md`
 - 결정 사항: **Anthropic 모델만 사용, Codex 레인 제외.** 운영 allowlist(`DEEP_ANALYSIS_PRIMARY_MODELS`)는 불변. **lab CLI 레인의 운용 모델은 `claude-opus-5`** — 코드 계약 검증 완료: `assertDeepAnalysisModelEffort`(contracts deep-analysis.ts:314-321)는 effort 호환만 검사하고 opus-5는 `DEEP_ANALYSIS_EFFORT_MODELS` 포함(effort high 유효), primary allowlist 검사(`assertDeepAnalysisModelPair`)는 운영 worker policy에서만 발화, `costPolicy.ts:36`에 opus-5 가격($5/$25) 등재로 costUsd·비용 게이트 정상 작동, 순환 가드 무충돌(추출 opus-5 ≠ 감사 sonnet-5 ≠ 검수 fable-5). 즉 `ANALYSIS_LAB_MODEL=claude-opus-5`는 코드 무수정으로 유효하다.
@@ -73,15 +74,20 @@ export function resolveLabTransport(): "api" | "claude-cli";
 export function buildClaudeCliFetch(config?: {
   claudeBinary?: string;   // 기본 "claude" (PATH 해석)
   scratchCwd?: string;     // 기본: os.tmpdir() 하위 고정 빈 디렉터리(생성 보장) — 프로젝트 스코프 CLAUDE.md·.mcp.json 차단.
-                           // 사용자 스코프(~/.claude/CLAUDE.md·user MCP)는 cwd와 무관하게 로드될 수 있음 — Phase 1 ④ 실측 항목
+                           // 사용자 스코프(~/.claude/CLAUDE.md·user MCP)는 --safe-mode 고정 플래그가 차단(Phase 1 ④ 실측 확정)
+  execFileImpl?: typeof execFile;  // 테스트 주입용
 }): typeof fetch;
 
-/** transport 분기 + apiKey 요구 스킵을 한 곳으로: 진입점 4곳이 공용으로 쓴다. */
-export function resolveLabLlmBinding(): {
+/** transport 분기 + apiKey 요구 스킵을 한 곳으로: 진입점들이 공용으로 쓴다.
+ *  구현상 async — api 분기의 loadMonorepoEnv 보강이 동적 import라 Promise 반환. Phase 2 배선 시 await 필요. */
+export function resolveLabLlmBinding(): Promise<{
   transport: "api" | "claude-cli";
   apiKey: string;              // claude-cli면 더미 "subscription" (shim이 x-api-key를 무시)
   fetchImpl: typeof fetch | undefined;  // api면 undefined(기존 전역 fetch)
-};
+}>;
+
+/** 윈도 소진 마커 상수 — Phase 2의 batch 중단 분기(§5 #6)는 문자열 하드코딩 대신 이것을 import한다. */
+export const CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER = "[CLAUDE_CLI_WINDOW_EXHAUSTED]";
 ```
 
 `resolveLabLlmBinding`의 api 분기는 기존 `resolveAnthropicApiKey`/`requireApiKey` 동작(loadMonorepoEnv 보강 후 `ANTHROPIC_API_KEY` 없으면 throw)을 그대로 위임한다.
@@ -99,7 +105,7 @@ shim은 `fetch(url, init)`로 들어온 `init.body`(JSON)를 해석한다. 호�
 | `tool_choice.name` | (응답 재조립 시 `tool_use.name`으로 사용) | |
 | `output_config.effort` | `--effort <값>` | extractor가 effort 지원 모델에 `high` 전송 — 그대로 매핑 |
 | `max_tokens` | **매핑 불가 — 알려진 갭** | §8-1 참조 |
-| (고정 플래그) | `--output-format json --tools "" --no-session-persistence` | Phase 0 실측 세트 그대로. 추가 격리 플래그는 넣지 않는다(실측 안 된 조합 금지) |
+| (고정 플래그) | `--output-format json --tools "" --no-session-persistence --safe-mode` | Phase 0 실측 세트 + **`--safe-mode`(Phase 1 ④ 실측 확정)**: 사용자 스코프 `~/.claude/CLAUDE.md`·user MCP 로드를 차단하면서 OAuth(구독) 인증은 유지. `--bare`는 절대 금지(OAuth 미사용 → API 과금 전환) |
 
 실행: `execFile(claudeBinary, argv, { cwd: scratchCwd, maxBuffer: 64MB, signal: init.signal })`.
 
@@ -128,12 +134,12 @@ new Response(JSON.stringify({
 2. `structured_output`이 없고 `result`도 JSON 파싱 불가면 throw (메시지에 `result` 앞 500자 포함).
 3. `is_error: true` 또는 exit ≠ 0 → 에러 경로(아래).
 
-에러 경로 — 기존 재시도·에러 계약에 합류시키기 위해 **합성 HTTP 상태**로 돌려준다:
+에러 경로 — 기존 재시도·에러 계약에 합류시키기 위해 **합성 HTTP 상태**로 돌려준다. **Phase 1 ② 실측으로 단순화**: CLI는 API 에러의 HTTP status를 `api_error_status` 필드로 보존한다(실측: 없는 모델 → `is_error:true, api_error_status:404, result="There's an issue with the selected model..."`, 이때 `subtype`은 "success"로 오므로 에러 판별은 `is_error`로만):
 
 | CLI 실패 양상 | 합성 응답 | 기존 코드의 반응 |
 |---|---|---|
-| stderr/result에 rate-limit·overloaded 류 시그널 | `status: 529` + body=stderr tail | extractor/ai-review의 1회 재시도(5s) 합류 |
-| Max 사용량 윈도 소진 시그널(수 시간 지속) | `status: 400` + **고정 한국어 본문만** — 마커 `[CLAUDE_CLI_WINDOW_EXHAUSTED]` 포함, **stderr tail 병합 금지**. CLI가 에코하는 API 에러 JSON의 `invalid_request_error`가 섞이면 ai-review.ts:552의 `/retention\|zero data\|invalid_request/i` 분기가 "fable-5 ZDR 설정" 오진 메시지로 둔갑시킨다 | 추출 레인: error 런 저장 후 **batch가 run.error의 마커를 감지해 costCapped와 동일하게 신규 착수 중단**(§5 배선 #6). 사이드카 레인: CLI들의 겉(outer) 재시도 1회 후 실패(ai-review-cli.ts:425-448 등 — "즉시"는 아님) |
+| `is_error` + `api_error_status` 존재 (API 에러 에코) | **그 status 그대로** + body=`result` | 404/403 → "모델 접근 불가", 429/500/529 → 1회 재시도(5s) — 기존 분기 자연 발화, 텍스트 추측 불필요 |
+| `api_error_status` 없는 CLI 자체 에러 중 윈도 소진 시그널(수 시간 지속) | `status: 400` + **고정 한국어 본문만** — 마커 `[CLAUDE_CLI_WINDOW_EXHAUSTED]` 포함, **stderr tail 병합 금지**. CLI가 에코하는 API 에러 JSON의 `invalid_request_error`가 섞이면 ai-review.ts:552의 `/retention\|zero data\|invalid_request/i` 분기가 "fable-5 ZDR 설정" 오진 메시지로 둔갑시킨다 | 추출 레인: error 런 저장 후 **batch가 run.error의 마커를 감지해 costCapped와 동일하게 신규 착수 중단**(§5 배선 #6). 사이드카 레인: CLI들의 겉(outer) 재시도 1회 후 실패(ai-review-cli.ts:425-448 등 — "즉시"는 아님) |
 | 그 외 exit ≠ 0 / is_error | `status: 500` + body=stderr+result tail | 1회 재시도 후 실패. tail 컷은 기존 코드가 레인별로 수행: 추출 1,000자(extractor.ts:155) / 사이드카 일반 800자·특수 분기 500자(ai-review.ts:549·555·559) |
 
 시그널 문자열 매칭은 구현 시 실제 에러를 1회 유발해 확정한다(§7 Phase 1 체크리스트 ②). 판별 불가 에러는 500(재시도 쪽)이 기본값. 합성 400 본문이 위 정규식에 미매치함은 유닛으로 고정한다(§6-1).
@@ -204,7 +210,7 @@ ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 pnpm lab:smok
 | Phase | 내용 | 규모 추정 |
 |---|---|---|
 | **0** | ~~드레스 리허설 실측~~ **완료** (§3) | — |
-| **1** | transport 모듈 + 유닛 테스트 + `lab:transport:test` 스크립트. 체크리스트: ①**`claude-opus-5` 풀 id 1회 실측**(Max 구독 CLI 가용 확인 — 결정 ②의 전제, 거의 확실하나 미실측) ②에러 시그널 문자열 실측 확정(잘못된 플래그로 1회 유발) ③stdin 프롬프트 전달 1회 실측(`cat prompt.txt \| claude -p --output-format json ...` — §4-2 stdin 고정의 전제) ④**사용자 스코프 컨텍스트 로드 실측**: `~/.claude/CLAUDE.md`·user MCP가 `-p` 런에 로드되는지 확인(verbose/usage로 판별) — 로드되면 격리 플래그 1종을 실측 후 고정 세트에 편입, 불가하면 §8-2 교란 변수로 명기 ⑤**ai-audit 대표 스키마 실측 1회**: 감사 tool 스키마는 `criterion_index`가 동적 enum + min/maxItems 고정이라 추출 스키마보다 제약이 강함 — `--json-schema`가 이를 강제하는지 확인(결정 ①로 감사 레인이 Phase 2에 포함되므로 필수) | 모듈 ~200줄 + 테스트 ~250줄 |
+| **1** | ~~transport 모듈 + 유닛 테스트 + `lab:transport:test`~~ **완료(2026-08-02)**. 실측 결과: ①`claude-opus-5` 가용 — 실제 딥분석 워크로드 87초, modelUsage 에코 `claude-opus-5`, 하류 정규화 8/8 spanVerified, 명목 $0.32 ②에러 형태: **`api_error_status`로 API HTTP status 보존**(404 실측) → §4-3 매핑 단순화, `subtype`은 에러여도 "success"(판별은 `is_error`) ③stdin 전달 정상(exit 0) ④사용자 스코프 CLAUDE.md **로드됨**(Karpathy 등 노출, cache 2,162tok) → **`--safe-mode`로 격리 확정**(NONE·cache 0·OAuth 유지) — 고정 세트 편입, §8-2 교란 변수 해소. 부수 발견: safe-mode 시 modelUsage에 haiku 보조 호출 공존 → 모델 에코 가드는 "포함(subset)" 검사 ⑤감사 스키마(동적 enum [1,3]·min/maxItems) 정확히 강제(8.8초). 구현: `claude-cli-transport.ts` 342줄(마커 상수 export 포함), 테스트 8블록 전부 통과, tsc 0건. 스펙 편차 2건 승인: `resolveLabLlmBinding` async(§4-1 반영), 테스트는 repo 컨벤션(plain assert) | 완료 |
 | **2** | 배선(#1 analyze + #3 ai-audit-cli + #5 contract + #6 batch/smoke, #2·#4는 안내 로그만) + 회귀·격리 검증(§6-2·6-3) + 통합 스모크(§6-4, 추출+감사). dev 웹 라우트 스폰 확인. **대형 공고 1건 벽시계 실측** — Phase 0은 소형 입력 sonnet-5로 108초였고, 실전은 대형 입력 + claude-opus-5 + effort high + CLI 추가 턴 오버헤드라 540s 초과 가능 → 필요 시 배치 명령에 `ANALYSIS_LAB_TIMEOUT_MS` 상향 동봉(기존 env, 코드 무수정) | ~70줄 diff |
 | **3** | **A/B 섀도 비교** (§8-2) — 채택 게이트 (추출 레인 + 감사 레인 각각) | 실행·판독 |
 | **4** | 채택 시: `lab:batch`를 `ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5`로 대량 실행 운용 시작. `.env.example`에 `ANALYSIS_LAB_TRANSPORT` 문서화(기존 `ANALYSIS_LAB_*` env 8종 — MODEL/MAX_TOKENS/TIMEOUT_MS/REVIEW_MODEL/AUDIT_MODEL/CONFIRMATION_MODEL/INPUT_CHAR_CAP/ARTIFACT_HMAC_KEY — 전부 미등재인 드리프트도 이때 함께 정리) | — |
@@ -218,7 +224,7 @@ CLI에는 요청 단위 `max_tokens` 개념이 없어 `ANALYSIS_LAB_MAX_TOKENS`(
 
 ### 8-2. 행동 동등성 — A/B 섀도 비교가 채택 게이트
 
-`--system-prompt`로 대체해도 CLI 하네스가 원시 API 호출과 바이트 동일하지는 않다(구조화 출력용 내부 툴 턴 등, Phase 0에서 `num_turns: 2` 관측). 사용자 스코프 컨텍스트(`~/.claude/CLAUDE.md`·user MCP)가 로드된다면 모든 구독 런에 API 런에는 없는 머신별 프롬프트 델타가 체계적으로 섞인다 — Phase 1 ④의 실측·격리 결과를 이 비교의 전제로 삼고, 격리 불가 시 교란 변수로 판독에 참작한다. 채택 전 필수 절차:
+`--system-prompt`로 대체해도 CLI 하네스가 원시 API 호출과 바이트 동일하지는 않다(구조화 출력용 내부 툴 턴 등, Phase 0에서 `num_turns: 2` 관측). 사용자 스코프 컨텍스트 교란 변수는 **해소됨**: Phase 1 ④ 실측에서 로드가 확인됐고 `--safe-mode`가 격리함을 재실측으로 증명해 고정 플래그로 편입했다(§4-2). 채택 전 필수 절차:
 
 결정 ②(lab CLI 레인 = claude-opus-5)로 신규 레인은 기존 런과 **transport와 모델이 동시에** 다르다. 비교를 2단으로 설계해 원인을 분해한다:
 
@@ -248,7 +254,7 @@ shim은 claude CLI 2.1.219의 JSON 출력 계약(`structured_output`, `modelUsag
 
 ## 10. 완료 정의 (DoD)
 
-- [ ] Phase 1 유닛 테스트 전부 통과 + 실측 체크리스트 ①~⑤ 확인(`claude-opus-5` 가용·ai-audit 스키마 포함)
+- [x] Phase 1 유닛 테스트 전부 통과 + 실측 체크리스트 ①~⑤ 확인(`claude-opus-5` 가용·ai-audit 스키마 포함) — 2026-08-02 완료
 - [ ] Phase 2 배선 후 §6-2 회귀 전부 통과, §6-3 격리 0건, §6-4 스모크(추출+감사) 합격
 - [ ] env 미설정 시 동작이 현재와 완전 동일함을 스모크로 확인 (운영 무영향 증명)
 - [ ] Phase 3 A/B 비교 리포트 작성·판정 — 추출 본비교 + 감사 concur 검증 (채택/보류)
