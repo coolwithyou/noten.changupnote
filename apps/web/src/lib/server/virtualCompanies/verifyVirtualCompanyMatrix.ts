@@ -139,6 +139,12 @@ function verifyTarget<TPayload>(input: {
   if (visibleInUserResults !== shouldBeVisible) {
     issues.push(`사용자 결과 노출 불일치: expected=${shouldBeVisible}, actual=${visibleInUserResults}`);
   }
+  const nextQuestionDimension = actionableUnknownDimension(dashboardMatch);
+  if (nextQuestionDimension !== input.target.expectedNextQuestionDimension) {
+    issues.push(
+      `다음 질문 축 불일치: expected=${input.target.expectedNextQuestionDimension ?? "null"}, actual=${nextQuestionDimension ?? "null"}`,
+    );
+  }
   for (const [dimension, expected] of Object.entries(input.target.expectedCriterionResults ?? {})) {
     const actual = hardCriterionResults(dashboardMatch, dimension);
     if (!actual.includes(expected as VirtualCompanyCriterionResult)) {
@@ -156,7 +162,7 @@ function verifyTarget<TPayload>(input: {
     actualTier,
     eligibility: dashboardMatch?.eligibility ?? null,
     visibleInUserResults,
-    nextQuestionDimension: actionableUnknownDimension(dashboardMatch),
+    nextQuestionDimension,
     extractorVersion: manifest.extractorVersion,
     revision: manifest.revision,
     status: issues.length === 0 ? "pass" : "product_regression",
@@ -235,8 +241,8 @@ function actionableUnknownDimension(match: MatchCard | undefined): string | null
 function aggregateStatus(
   results: VirtualCompanyTargetResult[],
 ): VirtualCompanyMatrixReport["status"] {
-  if (results.some((result) => result.status === "product_regression")) return "product_regression";
   if (results.some((result) => result.status === "needs_rebaseline")) return "needs_rebaseline";
+  if (results.some((result) => result.status === "product_regression")) return "product_regression";
   if (results.some((result) => result.status === "scenario_stale")) return "scenario_stale";
   return "pass";
 }

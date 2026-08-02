@@ -335,6 +335,25 @@ pnpm verify:virtual-company-flow
 3. 공고 revision 또는 원본 SHA가 바뀌면 자동 보정하지 않고 `needs_rebaseline`로 중단한다.
 4. 최소 3상태(추천 가능·필수 탈락·프로필 추가입력)를 랜딩부터 작성 진입까지 반복 검증한다.
 
+구현 상태(2026-08-02):
+
+- 각 시나리오 목표에 공고 source/sourceId, extractor version, analysis revision, 작성 문서 key와 원본
+  SHA-256을 함께 고정했다. revision 또는 문서 key/SHA가 달라지면 `needs_rebaseline`을
+  `product_regression`보다 우선해 반환한다.
+- 같은 원본에서 작성 문서 수·연결 필드 수·자동 시드 수·수동 질문 수·페이지 수만 달라지면
+  `product_regression`으로 분리한다. 원본 교체와 제품 코드 회귀를 같은 실패로 취급하지 않는다.
+- `verify:virtual-company-flow`는 별도 하드코딩 목록 대신 카탈로그의 모든 시나리오/목표를 순회하고,
+  실제 활성·승격 공고 매트릭스와 회사 preview·teaser route, 공고 상세, R2 원본, 비영속 workspace를
+  한 실행에서 검증한다. 새 목표 공고가 추가돼도 첫 번째 공고의 원본을 재사용하지 않는다.
+- 현재 활성·승격 공고 7건에서 세 상태가 모두 통과했다: 완전 충족은 `recommendable + 작성 가능`,
+  지역 탈락은 `not_recommended + 숨김`, 인증 미확인은 `needs_profile_input + certification 질문`이다.
+- 대상 원본은 `application_form::신청서::::0`, HWP 162,304 bytes, SHA-256
+  `a0ddaf420a59b17b0293e01f2309d0fb597294000153b073d8ae222181e22b77`로 세 시나리오 모두 일치했다.
+  작성 가능 시나리오는 문서 2개, 연결 필드 6개, 자동 시드 0개, 수동 질문 6개, 페이지 4개,
+  `draftId=null`로 기준값과 일치했다.
+- 카탈로그 불변식·기준선 비교 단위 테스트, web typecheck,
+  `pnpm verify:virtual-company-matrix`, `pnpm verify:virtual-company-flow`가 통과했다.
+
 ### 보류 범위
 
 - 가상 기업 DB company/draft 생성

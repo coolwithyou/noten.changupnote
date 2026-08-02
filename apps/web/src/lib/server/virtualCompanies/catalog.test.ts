@@ -29,6 +29,8 @@ for (const identity of VIRTUAL_COMPANY_IDENTITIES) {
   assert.equal(scenario?.id, identity.id);
   assert.equal(scenario?.profile.name, scenario?.name);
   assert.equal(scenario?.targets.length, 1);
+  assert.match(scenario?.targets[0]?.expectedRevision ?? "", /^[a-f0-9]{64}$/);
+  assert.match(scenario?.targets[0]?.expectedDocument.sourceSha256 ?? "", /^[a-f0-9]{64}$/);
 }
 
 assert.equal(isVirtualCompanyBizNo("0000000004"), false);
@@ -67,14 +69,20 @@ assert.equal(perfect?.profile.region?.code, "44");
 assert.deepEqual(perfect?.profile.traits, ["장애인기업"]);
 assert.deepEqual(perfect?.profile.certs, ["장애인기업 확인서"]);
 assert.equal(perfect?.profile.profile_evidence?.certification?.provider, "cunote_virtual_company");
+assert.equal(perfect?.targets[0]?.expectedWritingEntry, "available");
+assert.equal(perfect?.targets[0]?.expectedAuthoring?.documentCount, 2);
+assert.equal(perfect?.targets[0]?.expectedAuthoring?.manualQuestionCount, 6);
 
 const regionFail = resolveVirtualCompanyScenario("0000000002", { asOf });
 assert.equal(regionFail?.profile.region?.code, "11");
 assert.equal(regionFail?.targets[0]?.expected, "not_recommended");
+assert.equal(regionFail?.targets[0]?.expectedWritingEntry, "hidden");
 
 const certMissing = resolveVirtualCompanyScenario("0000000003", { asOf });
 assert.equal(certMissing?.profile.certs, undefined);
 assert.equal(certMissing?.profile.profile_evidence?.certification, undefined);
 assert.equal(certMissing?.targets[0]?.expected, "needs_profile_input");
+assert.equal(certMissing?.targets[0]?.expectedNextQuestionDimension, "certification");
+assert.equal(certMissing?.targets[0]?.expectedWritingEntry, "needs_profile_input");
 
 console.log("virtualCompanies/catalog.test.ts: all assertions passed");

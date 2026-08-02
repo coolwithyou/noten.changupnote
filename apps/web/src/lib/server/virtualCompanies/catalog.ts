@@ -17,12 +17,43 @@ export type VirtualCompanyExpectedTier =
 
 export type VirtualCompanyCriterionResult = "pass" | "fail" | "unknown" | "text_only";
 
+export type VirtualCompanyWritingEntry =
+  | "available"
+  | "hidden"
+  | "needs_profile_input";
+
+export interface VirtualCompanyDocumentBaseline {
+  documentKey: string;
+  sourceSha256: string;
+}
+
+export interface VirtualCompanyAuthoringBaseline {
+  documentCount: number;
+  connectedFieldCount: number;
+  seededAnswerCount: number;
+  manualQuestionCount: number;
+  pageCount: number;
+}
+
+const WRITING_ENTRY_BY_TIER: Record<
+  VirtualCompanyExpectedTier,
+  VirtualCompanyWritingEntry
+> = {
+  recommendable: "available",
+  not_recommended: "hidden",
+  needs_profile_input: "needs_profile_input",
+};
+
 export interface VirtualCompanyTarget {
   source: "bizinfo" | "kstartup";
   sourceId: string;
   expectedExtractorVersion: string;
   expectedRevision: string;
   expected: VirtualCompanyExpectedTier;
+  expectedNextQuestionDimension: CriterionDimension | null;
+  expectedWritingEntry: VirtualCompanyWritingEntry;
+  expectedDocument: VirtualCompanyDocumentBaseline;
+  expectedAuthoring?: VirtualCompanyAuthoringBaseline;
   expectedCriterionResults?: Partial<Record<CriterionDimension, VirtualCompanyCriterionResult>>;
 }
 
@@ -49,6 +80,10 @@ const TARGET_GRANT = {
   sourceId: "PBLN_000000000124754",
   expectedExtractorVersion: "deep-analysis-v11/deep-analysis-model-policy-v24",
   expectedRevision: "3acb65efebc57b7e28afae05c7f0ea8de307d94692068e5ec8386b3c4e026cbd",
+  expectedDocument: {
+    documentKey: "application_form::신청서::::0",
+    sourceSha256: "a0ddaf420a59b17b0293e01f2309d0fb597294000153b073d8ae222181e22b77",
+  },
 };
 
 const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
@@ -61,6 +96,15 @@ const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
     targets: [{
       ...TARGET_GRANT,
       expected: "recommendable",
+      expectedNextQuestionDimension: null,
+      expectedWritingEntry: "available",
+      expectedAuthoring: {
+        documentCount: 2,
+        connectedFieldCount: 6,
+        seededAnswerCount: 0,
+        manualQuestionCount: 6,
+        pageCount: 4,
+      },
       expectedCriterionResults: {
         region: "pass",
         founder_trait: "pass",
@@ -77,6 +121,8 @@ const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
     targets: [{
       ...TARGET_GRANT,
       expected: "not_recommended",
+      expectedNextQuestionDimension: null,
+      expectedWritingEntry: "hidden",
       expectedCriterionResults: {
         region: "fail",
         founder_trait: "pass",
@@ -93,6 +139,8 @@ const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
     targets: [{
       ...TARGET_GRANT,
       expected: "needs_profile_input",
+      expectedNextQuestionDimension: "certification",
+      expectedWritingEntry: "needs_profile_input",
       expectedCriterionResults: {
         region: "pass",
         founder_trait: "pass",
@@ -167,6 +215,33 @@ function validateDefinitions(definitions: readonly VirtualCompanyDefinition[]): 
     if (definitionIds.has(definition.id)) throw new Error(`가상 기업 정의가 중복되었습니다: ${definition.id}`);
     if (!IDENTITY_IDS.has(definition.id)) throw new Error(`등록되지 않은 가상 기업 정의입니다: ${definition.id}`);
     if (definition.targets.length === 0) throw new Error(`가상 기업 목표 공고가 없습니다: ${definition.id}`);
+    for (const target of definition.targets) {
+      if (!/^[a-f0-9]{64}$/.test(target.expectedRevision)) {
+        throw new Error(`가상 기업 분석 revision은 SHA-256이어야 합니다: ${definition.id}`);
+      }
+      if (!target.expectedDocument.documentKey.trim()) {
+        throw new Error(`가상 기업 기준 문서 키가 비어 있습니다: ${definition.id}`);
+      }
+      if (!/^[a-f0-9]{64}$/.test(target.expectedDocument.sourceSha256)) {
+        throw new Error(`가상 기업 기준 문서 SHA-256이 올바르지 않습니다: ${definition.id}`);
+      }
+      if (target.expectedWritingEntry !== WRITING_ENTRY_BY_TIER[target.expected]) {
+        throw new Error(`가상 기업 매칭과 작성 진입 기대값이 충돌합니다: ${definition.id}`);
+      }
+      if (target.expectedWritingEntry === "available" && !target.expectedAuthoring) {
+        throw new Error(`작성 가능 시나리오의 작성 기대값이 없습니다: ${definition.id}`);
+      }
+      if (target.expectedWritingEntry !== "available" && target.expectedAuthoring) {
+        throw new Error(`작성 진입 전 시나리오에는 작성 기대값을 둘 수 없습니다: ${definition.id}`);
+      }
+      if (target.expectedAuthoring) {
+        for (const [name, count] of Object.entries(target.expectedAuthoring)) {
+          if (!Number.isInteger(count) || count < 0) {
+            throw new Error(`가상 기업 작성 기대값은 0 이상의 정수여야 합니다: ${definition.id}.${name}`);
+          }
+        }
+      }
+    }
     definitionIds.add(definition.id);
   }
   if (definitionIds.size !== VIRTUAL_COMPANY_IDENTITIES.length) {
