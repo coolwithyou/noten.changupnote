@@ -1,5 +1,8 @@
 // 공모 딥분석 실험실 — 층화 확대 배치 러너 CLI (tsx 단독 실행, dev 서버 불필요).
 // cohort.json(v2)의 entries 를 대상으로 runLabAnalysis 를 동시성 제한 워커 풀로 실행한다.
+// 코어(스캔→기간 가드→워커 풀→가드 중단→요약)는 batch-runner.ts 로 추출됐다(2026-08-03
+// §3-1) — 이 파일은 argv 파싱 + env 로드 + 이벤트의 콘솔 렌더 + exit code 만 담당하는
+// 얇은 래퍼다. 로그 라인 포맷·exit code 는 추출 전과 동일해야 한다(합격선).
 // **버전 무관** ok 런이 이미 있는 공고는 스킵(재개 멱등성 + 우발 재분석 가드 — Phase B-0,
 // batch-plan.ts 상단 주석: v3 승격 여파로 v2 ok 런 30건이 통째로 재분석되는 ~$12 함정 차단).
 // 구버전 ok 런 보유 공고의 현행 버전 재분석은 --reanalyze-outdated 로만 허용한다.
@@ -12,23 +15,24 @@
 //       pnpm lab:batch -- --retry-errors                (현행 버전 error 런만 있는 공고도 대상 포함)
 //       pnpm lab:batch -- --reanalyze-outdated          (구버전 ok 런만 있는 공고도 대상 포함)
 // 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. DB에는 어떤 쓰기도 하지 않는다.
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
 import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
-import {
-  classifyNoticePeriod,
-  type NoticePeriodStatus,
-} from "@/features/dev/analysis-lab/notice-period";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
-import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER, resolveLabTransport } from "./claude-cli-transport";
-import { cohortFilePath, readCohortFileV2, type CohortEntry } from "./cohort-file";
-import { analysisLabDir } from "./run-store";
+import { partitionCohortEntries } from "./batch-plan";
+import {
+  LabCohortMissingError,
+  PERIOD_SKIP_LABELS,
+  estimatePerGrantCostUsd,
+  runLabBatch,
+  scanExistingRuns,
+  type LabBatchPeriodSkipStatus,
+  type LabBatchPeriodSkippedEntry,
+  type LabBatchSummary,
+} from "./batch-runner";
+import { resolveLabTransport } from "./claude-cli-transport";
+import { cohortFilePath, readCohortFileV2 } from "./cohort-file";
 
 loadMonorepoEnv();
 
-/** 파일럿 실측 공고당 비용(계획 문서 §4 "비용·시간") — 기존 ok 런이 없을 때의 추정 기준. */
-const FALLBACK_COST_PER_GRANT_USD = 0.395;
 const DEFAULT_LIMIT = 10;
 const DEFAULT_CONCURRENCY = 2;
 const MAX_CONCURRENCY = 3;
@@ -87,229 +91,243 @@ function parseOptions(): BatchOptions | string {
   };
 }
 
-// ---- 기존 런 스캔(스킵 판정) ---------------------------------------------------
-// grantId→경로 매핑이 없으므로 spike-out/analysis-lab/<source>__<sourceId>/ 를 전수
-// 스캔한다(run-store.readLabRun 과 같은 접근 — dev 실험실 규모라 비용 무시 가능).
-// GrantRunState 는 batch-plan.ts 소유(분할 순수 로직과 공유).
+// ---- 콘솔 렌더(추출 전 로그 라인 포맷 그대로 — 합격선) --------------------------
 
-interface RunScan {
-  states: Map<string, GrantRunState>;
-  /** 현행 버전 ok 런들의 costUsd 표본 — dry-run 예상 비용의 근거. */
-  okCostSamples: number[];
+function printCohortMissing(): void {
+  console.error(`[batch] cohort.json 이 없거나 형식이 깨졌습니다: ${cohortFilePath()}`);
+  console.error("[batch] 실험실 UI(/dev/analysis-lab) 또는 코호트 선정 CLI로 코호트를 먼저 생성해주세요.");
 }
 
-async function scanExistingRuns(): Promise<RunScan> {
-  const states = new Map<string, GrantRunState>();
-  const okCostSamples: number[] = [];
-  const root = analysisLabDir();
-  let entries: string[] = [];
-  try {
-    entries = await readdir(root);
-  } catch {
-    return { states, okCostSamples }; // 산출물 디렉토리 자체가 없으면 전원 미분석
+/** dry-run(래퍼 자체 계산)과 실행 경로(plan 이벤트)가 공유하는 계획 표시 값. */
+interface PlanView {
+  cohortTotal: number;
+  cohortLabel: string | null;
+  skippedOk: number;
+  skippedOkOutdatedOnly: number;
+  heldError: number;
+  periodSkippedCount: number;
+  runnable: number;
+  targets: number;
+}
+
+function printPlanLines(view: PlanView, options: BatchOptions): void {
+  console.log(
+    `[batch] promptVersion=${ANALYSIS_LAB_PROMPT_VERSION} · 코호트 ${view.cohortTotal}건` +
+      (view.cohortLabel ? ` (${view.cohortLabel})` : ""),
+  );
+  console.log(
+    `[batch] 스킵(ok 런 보유·버전 무관) ${view.skippedOk}` +
+      (view.skippedOkOutdatedOnly > 0
+        ? ` (현행 ${view.skippedOk - view.skippedOkOutdatedOnly} · 구버전만 ${view.skippedOkOutdatedOnly})`
+        : "") +
+      ` · 보류(error 런만, --retry-errors 미지정) ${view.heldError} · 기간 스킵 ${view.periodSkippedCount} · 잔여 ${view.runnable} → 이번 실행 대상 ${view.targets}건 (limit=${options.limit}${options.reanalyzeOutdated ? " · --reanalyze-outdated" : ""})`,
+  );
+}
+
+function printZeroTargetAdvisory(view: PlanView, options: BatchOptions): void {
+  console.error("[batch] 실행 대상이 0건입니다 — 이미 전부 분석되었거나 보류·기간 스킵 상태입니다.");
+  if (view.heldError > 0) console.error("[batch] error 런만 있는 공고를 재시도하려면 --retry-errors 를 지정하세요.");
+  if (view.skippedOkOutdatedOnly > 0 && !options.reanalyzeOutdated) {
+    console.error(
+      `[batch] 구버전 ok 런만 보유한 공고 ${view.skippedOkOutdatedOnly}건은 우발 재분석 가드로 스킵됐습니다 — 현행 버전(${ANALYSIS_LAB_PROMPT_VERSION}) 재분석은 --reanalyze-outdated 를 지정하세요.`,
+    );
   }
-  for (const entry of entries) {
-    if (!entry.includes("__")) continue; // cohort.json 등 파일 제외
-    let files: string[] = [];
-    try {
-      files = await readdir(join(root, entry));
-    } catch {
-      continue;
-    }
-    for (const file of files) {
-      if (!file.startsWith("run-") || !file.endsWith(".json")) continue;
-      // 부속 파일(검수·AI 검수·감사·질문 사이드카)은 런이 아니다 — 버전 무관 스킵 판정에서
-      // 런으로 오인되면 안 된다(파일명 + 아래 startedAt 이중 방어, e4556df 오인 편입 전례).
-      if (
-        file.endsWith(".review.json") ||
-        file.includes(".ai-review.") ||
-        file.includes(".audit.") ||
-        file.includes(".confirmations.")
-      ) {
-        continue;
-      }
-      let parsed: {
-        grantId?: unknown;
-        promptVersion?: unknown;
-        startedAt?: unknown;
-        error?: unknown;
-        costUsd?: unknown;
-      };
-      try {
-        parsed = JSON.parse(await readFile(join(root, entry, file), "utf8")) as typeof parsed;
-      } catch {
-        continue; // 깨진 파일은 판정에서 제외(불변 저장소라 원본은 건드리지 않는다)
-      }
-      if (
-        typeof parsed.grantId !== "string" ||
-        typeof parsed.promptVersion !== "string" ||
-        typeof parsed.startedAt !== "string" // 런 파일 표식 — run-store readRunFile 관행
-      ) {
-        continue;
-      }
-      const current = parsed.promptVersion === ANALYSIS_LAB_PROMPT_VERSION;
-      const ok = parsed.error === null;
-      const state =
-        states.get(parsed.grantId) ?? { okCurrent: false, okOutdated: false, errorCurrent: false };
-      if (ok && current) {
-        state.okCurrent = true;
-        if (typeof parsed.costUsd === "number") okCostSamples.push(parsed.costUsd);
-      } else if (ok) {
-        state.okOutdated = true;
-      } else if (current) {
-        // 구버전 error 런은 종전대로 판정에 쓰지 않는다(보류 사유는 현행 버전 실패만).
-        state.errorCurrent = true;
-      }
-      states.set(parsed.grantId, state);
-    }
+  if (view.periodSkippedCount > 0) {
+    console.error(
+      "[batch] 기간 미상 공고는 실험실 UI 카드에서 기간을 특정(저장)하면 대상에 편입됩니다.",
+    );
   }
-  return { states, okCostSamples };
 }
 
-// ---- 모집기간 가드(2026-07-23 정책) ---------------------------------------------
-// 배치 실행 시 각 공고의 "현재" applyStart/applyEnd 를 DB에서 읽어 기간 정책 위반이면
-// 스킵한다(비파괴 — 동결 코호트 파일·기존 런은 건드리지 않는다). dry-run 은 DB 모듈을
-// 로드하지 않는 기존 불변식을 지키기 위해 이 가드를 수행하지 않는다(실행 시점에만 확인).
-
-const PERIOD_SKIP_LABELS: Record<Exclude<NoticePeriodStatus, "eligible">, string> = {
-  closed: "마감(applyEnd 과거)",
-  not_started: "접수 시작 전(applyStart 미래)",
-  unknown: "기간 미상(applyEnd null) — 감사로 기간 특정 필요",
-};
-
-interface PeriodSplit {
-  runnable: CohortEntry[];
-  skipped: Array<{ entry: CohortEntry; status: Exclude<NoticePeriodStatus, "eligible"> }>;
+/** 예상 비용 — 현행 버전 ok 런 평균, 없으면 파일럿 실측 기본값. */
+function printEstimateLine(perGrantUsd: number, sampleCount: number, targetCount: number): void {
+  const basis = sampleCount > 0 ? `기존 ok 런 ${sampleCount}건 평균` : "파일럿 실측 기본값";
+  console.log(
+    `[batch] 예상 비용 ≈ $${(perGrantUsd * targetCount).toFixed(2)} (공고당 $${perGrantUsd.toFixed(4)}, ${basis})`,
+  );
 }
 
-// cohort.ts 와 같은 이유의 가드 — uuid 형식이 아닌 id 를 inArray 에 넣으면 쿼리 전체가 죽는다.
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function printSummaryLines(args: {
+  summary: LabBatchSummary;
+  periodSkippedEntries: LabBatchPeriodSkippedEntry[];
+  costCapSeen: boolean;
+  windowExhaustedSeen: boolean;
+}): void {
+  const { summary } = args;
+  console.log("\n===== 배치 요약 =====");
+  console.log(
+    `성공 ${summary.ok} · 실패(error 런) ${summary.errorRuns} · 실패(런 미저장) ${summary.unsavedFailures} · 미착수(비용 상한) ${summary.notStarted}`,
+  );
+  const periodSkipCounts = args.periodSkippedEntries.reduce(
+    (acc, { status }) => {
+      acc[status] += 1;
+      return acc;
+    },
+    { closed: 0, not_started: 0, unknown: 0 } as Record<LabBatchPeriodSkipStatus, number>,
+  );
+  console.log(
+    `스킵(ok·버전 무관) ${summary.skippedOk}` +
+      (summary.skippedOkOutdatedOnly > 0 ? ` (구버전만 ${summary.skippedOkOutdatedOnly})` : "") +
+      ` · 보류(error) ${summary.heldError} · 기간 스킵 ${summary.periodSkipped}` +
+      (summary.periodSkipped > 0
+        ? ` (마감 ${periodSkipCounts.closed} · 시작 전 ${periodSkipCounts.not_started} · 기간 미상 ${periodSkipCounts.unknown})`
+        : ""),
+  );
+  console.log(
+    `총비용 $${summary.totalCostUsd.toFixed(4)} · 소요 ${(summary.durationMs / 1000).toFixed(1)}s` +
+      (args.costCapSeen ? " · 비용 상한 도달" : "") +
+      (args.windowExhaustedSeen
+        ? " · Max 사용량 윈도 소진 감지 — 신규 착수 중단, 윈도 리셋 후 같은 명령 재실행"
+        : ""),
+  );
+}
 
-async function splitByPeriodPolicy(entries: CohortEntry[]): Promise<PeriodSplit> {
-  const split: PeriodSplit = { runnable: [], skipped: [] };
-  if (entries.length === 0) return split;
+// ---- dry-run (러너 미경유 — DB 미로드 불변식) -----------------------------------
+// 기간 가드(DB)·analyze 로드 없이 계획만 출력한다. 러너는 기간 가드를 무조건 수행하므로
+// dry-run 은 추출 전과 동일하게 스캔+분할만 직접 수행한다(scanExistingRuns 는 러너 export 재사용).
 
-  // 실행 경로에서만 DB 를 로드한다(dry-run 경로의 "DB 미로드" 불변식 유지 — runTargets 와 동형).
-  const [{ getCunoteDb }, schema, { inArray }] = await Promise.all([
-    import("../db/client"),
-    import("../db/schema"),
-    import("drizzle-orm"),
-  ]);
-  const validIds = entries.map((entry) => entry.grantId).filter((id) => UUID_PATTERN.test(id));
-  const rows = validIds.length
-    ? await getCunoteDb()
-        .select({
-          id: schema.grants.id,
-          applyStart: schema.grants.applyStart,
-          applyEnd: schema.grants.applyEnd,
-        })
-        .from(schema.grants)
-        .where(inArray(schema.grants.id, validIds))
-    : [];
-  const byId = new Map(rows.map((row) => [row.id, row]));
-
-  const now = new Date();
-  for (const entry of entries) {
-    const grant = byId.get(entry.grantId);
-    if (!grant) {
-      // 공고 미존재는 기간 정책 위반이 아니다 — 기존 경로(runLabAnalysis 의
-      // LabGrantNotFoundError → 런 미저장 실패 기록)를 그대로 태운다.
-      split.runnable.push(entry);
-      continue;
-    }
-    const status = classifyNoticePeriod(grant.applyStart, grant.applyEnd, now);
-    if (status === "eligible") split.runnable.push(entry);
-    else split.skipped.push({ entry, status });
+async function runDryRun(options: BatchOptions): Promise<number> {
+  const cohort = await readCohortFileV2();
+  if (!cohort) {
+    printCohortMissing();
+    return 1;
   }
-  return split;
-}
-
-// ---- 실행(동시성 제한 워커 풀) -------------------------------------------------
-
-interface BatchOutcome {
-  okCount: number;
-  errorRunCount: number; // error 런으로 저장된 실패
-  thrownCount: number; // 런 저장 없이 던져진 실패(공고 미존재 등)
-  startedCount: number;
-  totalCostUsd: number;
-  costCapped: boolean;
-  /** claude-cli 윈도 소진 감지 — costCapped 와 동일하게 신규 착수만 중단한다(계획 §5 #6). */
-  windowExhausted: boolean;
-}
-
-async function runTargets(targets: CohortEntry[], options: BatchOptions): Promise<BatchOutcome> {
-  // dry-run 경로가 DB 모듈을 아예 로드하지 않도록 실행 시점에만 가져온다(read-only 신뢰).
-  const { runLabAnalysis } = await import("./analyze");
-  const outcome: BatchOutcome = {
-    okCount: 0,
-    errorRunCount: 0,
-    thrownCount: 0,
-    startedCount: 0,
-    totalCostUsd: 0,
-    costCapped: false,
-    windowExhausted: false,
+  const { states, okCostSamples } = await scanExistingRuns();
+  const partition = partitionCohortEntries(cohort.entries, states, {
+    retryErrors: options.retryErrors,
+    reanalyzeOutdated: options.reanalyzeOutdated,
+  });
+  const targets = partition.pending.slice(0, options.limit);
+  const view: PlanView = {
+    cohortTotal: cohort.entries.length,
+    cohortLabel: cohort.experimentLabel,
+    skippedOk: partition.skippedOk.length,
+    skippedOkOutdatedOnly: partition.skippedOkOutdatedOnly.length,
+    heldError: partition.heldError.length,
+    periodSkippedCount: 0, // dry-run 은 기간 가드를 수행하지 않는다(아래 주의 문구)
+    runnable: partition.pending.length,
+    targets: targets.length,
   };
-  let nextIndex = 0;
-
-  async function worker(): Promise<void> {
-    for (;;) {
-      // 상한 도달·윈도 소진 — 신규 착수만 중단(진행분은 각 워커가 완료)
-      if (outcome.costCapped || outcome.windowExhausted) return;
-      const index = nextIndex;
-      if (index >= targets.length) return;
-      nextIndex += 1;
-      const target = targets[index]!;
-      const ordinal = `${index + 1}/${targets.length}`;
-      outcome.startedCount += 1;
-      console.log(`[batch] (${ordinal}) 시작: [${target.stratum}] ${target.grantId}`);
-      const startedMs = Date.now();
-      try {
-        const run = await runLabAnalysis(target.grantId);
-        const seconds = ((Date.now() - startedMs) / 1000).toFixed(1);
-        const cost = run.costUsd ?? 0;
-        outcome.totalCostUsd += cost;
-        if (run.error === null) {
-          outcome.okCount += 1;
-          console.log(
-            `[batch] (${ordinal}) ok: [${target.stratum}] ${run.title} · ${seconds}s · $${cost.toFixed(4)} · 누적 $${outcome.totalCostUsd.toFixed(4)}`,
-          );
-        } else {
-          outcome.errorRunCount += 1;
-          console.log(
-            `[batch] (${ordinal}) error 런 저장: [${target.stratum}] ${run.title} · ${seconds}s · ${run.error.slice(0, 160)}`,
-          );
-          // Max 사용량 윈도 소진(계획 §5 #6-①): error 런에 transport 마커가 보이면 costCapped
-          // 와 동일하게 신규 착수만 중단한다 — 소진 후 잔여 타깃 전부가 스폰→실패→불변 error
-          // 런으로 축적되는 것을 차단(기본 재실행은 error 런을 보류하므로 재개도 안 된다).
-          // 윈도 리셋 후 같은 명령 재실행 시 미착수 공고는 자연 재개되고, 소진 시점에 이미
-          // 착수됐던 소수 error 런만 --retry-errors 대상이다.
-          if (!outcome.windowExhausted && run.error.includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER)) {
-            outcome.windowExhausted = true;
-            console.log(
-              "[batch] Max 사용량 윈도 소진 감지 — 신규 착수를 중단합니다(진행분은 완료). 윈도 리셋 후 같은 명령으로 재실행하세요.",
-            );
-          }
-        }
-      } catch (caught) {
-        // 공고 미존재(LabGrantNotFoundError) 등 — 런 저장 없이 실패. 기록하고 계속.
-        outcome.thrownCount += 1;
-        const seconds = ((Date.now() - startedMs) / 1000).toFixed(1);
-        console.error(
-          `[batch] (${ordinal}) 실패(런 미저장): [${target.stratum}] ${target.grantId} · ${seconds}s · ${caught instanceof Error ? caught.message : String(caught)}`,
-        );
-      }
-      if (!outcome.costCapped && outcome.totalCostUsd >= options.maxCostUsd) {
-        outcome.costCapped = true;
-        console.log(
-          `[batch] 누적 비용 $${outcome.totalCostUsd.toFixed(4)} ≥ 상한 $${options.maxCostUsd} — 신규 착수를 중단합니다(진행분은 완료).`,
-        );
-      }
-    }
+  printPlanLines(view, options);
+  if (targets.length === 0) {
+    printZeroTargetAdvisory(view, options);
+    return 1;
   }
+  const estimate = estimatePerGrantCostUsd(okCostSamples);
+  printEstimateLine(estimate.perGrantUsd, estimate.sampleCount, targets.length);
+  console.log("[batch] --dry-run — 대상 목록만 출력하고 종료합니다(API 호출 0).");
+  console.log(
+    "[batch] 주의: 모집기간 가드(마감·시작 전·기간 미상 스킵)는 DB 미로드 원칙상 dry-run 에 반영되지 않습니다 — 실제 실행 시 대상이 줄어들 수 있습니다.",
+  );
+  for (const target of targets) console.log(`  - [${target.stratum}] ${target.grantId}`);
+  return 0;
+}
 
-  const workerCount = Math.min(options.concurrency, targets.length);
-  await Promise.all(Array.from({ length: workerCount }, () => worker()));
-  return outcome;
+// ---- 실행 경로(러너 위임 + 이벤트 콘솔 렌더) ------------------------------------
+
+async function runBatchViaRunner(options: BatchOptions): Promise<number> {
+  // 이벤트는 러너 안에서 동기 방출되므로 콘솔 라인 순서는 추출 전과 동일하다.
+  let planTargets = -1;
+  let periodSkippedEntries: LabBatchPeriodSkippedEntry[] = [];
+  let costCapSeen = false;
+  let windowExhaustedSeen = false;
+  try {
+    await runLabBatch({
+      limit: options.limit,
+      concurrency: options.concurrency,
+      maxCostUsd: options.maxCostUsd,
+      retryErrors: options.retryErrors,
+      reanalyzeOutdated: options.reanalyzeOutdated,
+      onEvent: (event) => {
+        switch (event.type) {
+          case "plan": {
+            planTargets = event.targets;
+            periodSkippedEntries = event.periodSkippedEntries;
+            for (const skipped of event.periodSkippedEntries) {
+              console.log(
+                `[batch] 기간 정책 스킵: [${skipped.stratum}] ${skipped.grantId} · ${PERIOD_SKIP_LABELS[skipped.status]}`,
+              );
+            }
+            const view: PlanView = {
+              cohortTotal: event.total,
+              cohortLabel: event.cohortLabel,
+              skippedOk: event.skippedOk,
+              skippedOkOutdatedOnly: event.skippedOkOutdatedOnly,
+              heldError: event.heldError,
+              periodSkippedCount: event.periodSkipped,
+              runnable: event.runnable,
+              targets: event.targets,
+            };
+            printPlanLines(view, options);
+            if (event.targets === 0) {
+              printZeroTargetAdvisory(view, options);
+              break;
+            }
+            printEstimateLine(event.estimatedCostPerGrantUsd, event.costSampleCount, event.targets);
+            console.log(
+              `[batch] 실행 시작 — concurrency=${options.concurrency} · max-cost-usd=$${options.maxCostUsd}`,
+            );
+            break;
+          }
+          case "target-started":
+            console.log(
+              `[batch] (${event.index + 1}/${event.total}) 시작: [${event.stratum}] ${event.grantId}`,
+            );
+            break;
+          case "target-ok": {
+            const seconds = (event.durationMs / 1000).toFixed(1);
+            console.log(
+              `[batch] (${event.index + 1}/${event.total}) ok: [${event.stratum}] ${event.title} · ${seconds}s · $${(event.costUsd ?? 0).toFixed(4)} · 누적 $${event.cumulativeCostUsd.toFixed(4)}`,
+            );
+            break;
+          }
+          case "target-error": {
+            const seconds = (event.durationMs / 1000).toFixed(1);
+            if (event.runSaved) {
+              console.log(
+                `[batch] (${event.index + 1}/${event.total}) error 런 저장: [${event.stratum}] ${event.title ?? event.grantId} · ${seconds}s · ${event.message.slice(0, 160)}`,
+              );
+            } else {
+              console.error(
+                `[batch] (${event.index + 1}/${event.total}) 실패(런 미저장): [${event.stratum}] ${event.grantId} · ${seconds}s · ${event.message}`,
+              );
+            }
+            break;
+          }
+          case "guard-stop":
+            if (event.reason === "cost-cap") {
+              costCapSeen = true;
+              console.log(
+                `[batch] 누적 비용 $${event.cumulativeCostUsd.toFixed(4)} ≥ 상한 $${options.maxCostUsd} — 신규 착수를 중단합니다(진행분은 완료).`,
+              );
+            } else {
+              windowExhaustedSeen = true;
+              console.log(
+                "[batch] Max 사용량 윈도 소진 감지 — 신규 착수를 중단합니다(진행분은 완료). 윈도 리셋 후 같은 명령으로 재실행하세요.",
+              );
+            }
+            break;
+          case "finished":
+            if (planTargets !== 0) {
+              printSummaryLines({
+                summary: event.summary,
+                periodSkippedEntries,
+                costCapSeen,
+                windowExhaustedSeen,
+              });
+            }
+            break;
+        }
+      },
+    });
+  } catch (caught) {
+    if (caught instanceof LabCohortMissingError) {
+      printCohortMissing();
+      return 1;
+    }
+    throw caught; // 그 외는 부트스트랩 .catch 가 "[batch] 실패:" + exit 1 로 처리(추출 전과 동일)
+  }
+  return planTargets === 0 ? 1 : 0;
 }
 
 // ---- 메인 ---------------------------------------------------------------------
@@ -327,112 +345,8 @@ async function main(): Promise<number> {
     console.log("[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다(API 토큰 미지출, 명목 비용만 집계).");
   }
 
-  const cohort = await readCohortFileV2();
-  if (!cohort) {
-    console.error(`[batch] cohort.json 이 없거나 형식이 깨졌습니다: ${cohortFilePath()}`);
-    console.error("[batch] 실험실 UI(/dev/analysis-lab) 또는 코호트 선정 CLI로 코호트를 먼저 생성해주세요.");
-    return 1;
-  }
-
-  const { states, okCostSamples } = await scanExistingRuns();
-  // 분할 규칙은 batch-plan.ts(순수 — 테스트 대상) 소유: 버전 무관 ok 스킵 + 탈출구 2종.
-  const { skippedOk, skippedOkOutdatedOnly, heldError, pending } = partitionCohortEntries(
-    cohort.entries,
-    states,
-    { retryErrors: options.retryErrors, reanalyzeOutdated: options.reanalyzeOutdated },
-  );
-  // 모집기간 가드 — 실행 시에만 DB로 확인해 위반(마감·시작 전·기간 미상)을 스킵한다(비파괴).
-  let periodSkipped: PeriodSplit["skipped"] = [];
-  let runnablePending = pending;
-  if (!options.dryRun) {
-    const split = await splitByPeriodPolicy(pending);
-    runnablePending = split.runnable;
-    periodSkipped = split.skipped;
-    for (const { entry, status } of periodSkipped) {
-      console.log(
-        `[batch] 기간 정책 스킵: [${entry.stratum}] ${entry.grantId} · ${PERIOD_SKIP_LABELS[status]}`,
-      );
-    }
-  }
-  const targets = runnablePending.slice(0, options.limit);
-
-  console.log(
-    `[batch] promptVersion=${ANALYSIS_LAB_PROMPT_VERSION} · 코호트 ${cohort.entries.length}건` +
-      (cohort.experimentLabel ? ` (${cohort.experimentLabel})` : ""),
-  );
-  console.log(
-    `[batch] 스킵(ok 런 보유·버전 무관) ${skippedOk.length}` +
-      (skippedOkOutdatedOnly.length > 0
-        ? ` (현행 ${skippedOk.length - skippedOkOutdatedOnly.length} · 구버전만 ${skippedOkOutdatedOnly.length})`
-        : "") +
-      ` · 보류(error 런만, --retry-errors 미지정) ${heldError.length} · 기간 스킵 ${periodSkipped.length} · 잔여 ${runnablePending.length} → 이번 실행 대상 ${targets.length}건 (limit=${options.limit}${options.reanalyzeOutdated ? " · --reanalyze-outdated" : ""})`,
-  );
-
-  if (targets.length === 0) {
-    console.error("[batch] 실행 대상이 0건입니다 — 이미 전부 분석되었거나 보류·기간 스킵 상태입니다.");
-    if (heldError.length > 0) console.error("[batch] error 런만 있는 공고를 재시도하려면 --retry-errors 를 지정하세요.");
-    if (skippedOkOutdatedOnly.length > 0 && !options.reanalyzeOutdated) {
-      console.error(
-        `[batch] 구버전 ok 런만 보유한 공고 ${skippedOkOutdatedOnly.length}건은 우발 재분석 가드로 스킵됐습니다 — 현행 버전(${ANALYSIS_LAB_PROMPT_VERSION}) 재분석은 --reanalyze-outdated 를 지정하세요.`,
-      );
-    }
-    if (periodSkipped.length > 0) {
-      console.error(
-        "[batch] 기간 미상 공고는 실험실 UI 카드에서 기간을 특정(저장)하면 대상에 편입됩니다.",
-      );
-    }
-    return 1;
-  }
-
-  // 예상 비용 — 현행 버전 ok 런 평균, 없으면 파일럿 실측 기본값.
-  const perGrant =
-    okCostSamples.length > 0
-      ? okCostSamples.reduce((sum, cost) => sum + cost, 0) / okCostSamples.length
-      : FALLBACK_COST_PER_GRANT_USD;
-  const basis = okCostSamples.length > 0 ? `기존 ok 런 ${okCostSamples.length}건 평균` : "파일럿 실측 기본값";
-  console.log(`[batch] 예상 비용 ≈ $${(perGrant * targets.length).toFixed(2)} (공고당 $${perGrant.toFixed(4)}, ${basis})`);
-
-  if (options.dryRun) {
-    console.log("[batch] --dry-run — 대상 목록만 출력하고 종료합니다(API 호출 0).");
-    console.log(
-      "[batch] 주의: 모집기간 가드(마감·시작 전·기간 미상 스킵)는 DB 미로드 원칙상 dry-run 에 반영되지 않습니다 — 실제 실행 시 대상이 줄어들 수 있습니다.",
-    );
-    for (const target of targets) console.log(`  - [${target.stratum}] ${target.grantId}`);
-    return 0;
-  }
-
-  console.log(`[batch] 실행 시작 — concurrency=${options.concurrency} · max-cost-usd=$${options.maxCostUsd}`);
-  const startedMs = Date.now();
-  const outcome = await runTargets(targets, options);
-  const notStarted = targets.length - outcome.startedCount;
-
-  console.log("\n===== 배치 요약 =====");
-  console.log(
-    `성공 ${outcome.okCount} · 실패(error 런) ${outcome.errorRunCount} · 실패(런 미저장) ${outcome.thrownCount} · 미착수(비용 상한) ${notStarted}`,
-  );
-  const periodSkipCounts = periodSkipped.reduce(
-    (acc, { status }) => {
-      acc[status] += 1;
-      return acc;
-    },
-    { closed: 0, not_started: 0, unknown: 0 } as Record<Exclude<NoticePeriodStatus, "eligible">, number>,
-  );
-  console.log(
-    `스킵(ok·버전 무관) ${skippedOk.length}` +
-      (skippedOkOutdatedOnly.length > 0 ? ` (구버전만 ${skippedOkOutdatedOnly.length})` : "") +
-      ` · 보류(error) ${heldError.length} · 기간 스킵 ${periodSkipped.length}` +
-      (periodSkipped.length > 0
-        ? ` (마감 ${periodSkipCounts.closed} · 시작 전 ${periodSkipCounts.not_started} · 기간 미상 ${periodSkipCounts.unknown})`
-        : ""),
-  );
-  console.log(
-    `총비용 $${outcome.totalCostUsd.toFixed(4)} · 소요 ${((Date.now() - startedMs) / 1000).toFixed(1)}s` +
-      (outcome.costCapped ? " · 비용 상한 도달" : "") +
-      (outcome.windowExhausted
-        ? " · Max 사용량 윈도 소진 감지 — 신규 착수 중단, 윈도 리셋 후 같은 명령 재실행"
-        : ""),
-  );
-  return 0;
+  if (options.dryRun) return runDryRun(options);
+  return runBatchViaRunner(options);
 }
 
 /** 실행 경로에서만 DB 커넥션이 생기므로, 로드된 경우에 한해 닫는다(dry-run 은 no-op). */

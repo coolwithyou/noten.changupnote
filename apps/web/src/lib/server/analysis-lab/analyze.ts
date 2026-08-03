@@ -2,7 +2,9 @@
 // grantId → 공고+원본 payload+첨부 로드(read-only) → 입력 조립 → Opus 딥분석 → 서버 검증 →
 // A/B diff 계산 → LabRun 조립 → spike-out 에 불변 저장 → 반환.
 // 전송층은 ANALYSIS_LAB_TRANSPORT 로 분기(api 기본 | claude-cli — Max 구독, claude-cli-transport.ts)하고
-// 어느 쪽이었는지 LabRun.transport 로 항상 기록한다(계획 §5 #1 provenance).
+// 어느 쪽이었는지 LabRun.transport 로 항상 기록한다(계획 §5 #1 provenance). 배치 러너
+// (batch-runner.ts)·웹 잡처럼 env 대신 명시 지정이 필요한 호출부는 opts 오버라이드
+// (transport/model)를 쓴다 — 미지정 시 기존 env 경로와 100% 동일하다.
 // 실패해도 error 를 담은 LabRun 을 저장·반환한다(입력 메타 보존). DB에는 어떤 쓰기도 하지 않는다.
 import { and, eq } from "drizzle-orm";
 import { getCunoteDb } from "@/lib/server/db/client";
@@ -12,7 +14,12 @@ import {
   type LabCurrentCriterion,
   type LabRun,
 } from "@/features/dev/analysis-lab/contract";
-import { resolveLabLlmBinding, resolveLabTransport } from "./claude-cli-transport";
+import {
+  buildClaudeCliFetch,
+  resolveLabLlmBinding,
+  resolveLabTransport,
+  type LabLlmBinding,
+} from "./claude-cli-transport";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, runDeepGrantAnalysis, type DeepAnalysisResult } from "./extractor";
 import { assembleLabInput, type LabInputArchive } from "./input";
@@ -26,7 +33,42 @@ export class LabGrantNotFoundError extends Error {
   }
 }
 
-export async function runLabAnalysis(grantId: string): Promise<LabRun> {
+/** env 대신 명시 지정하는 호출부(배치 러너·웹 잡)용 오버라이드 — 미지정 필드는 기존 env 경로. */
+export interface LabAnalysisOverrides {
+  /** env(ANALYSIS_LAB_TRANSPORT)보다 우선하는 전송층 지정. */
+  transport?: "api" | "claude-cli";
+  /** env(ANALYSIS_LAB_MODEL)보다 우선하는 모델 지정(풀 id — 별칭 금지, 가격표·파일 키 결속). */
+  model?: string;
+}
+
+/**
+ * transport 오버라이드용 binding 구성 — claude-cli-transport.ts 의 resolveLabLlmBinding 과
+ * 분기별 동일 동작이되, env 재해석(resolveLabTransport) 대신 지정 transport 로 분기한다.
+ * 원본 모듈은 env 단일 경로만 제공한다 — 동작을 바꿀 때는 양쪽을 함께 재고할 것.
+ */
+async function resolveLabLlmBindingForTransport(
+  transport: "api" | "claude-cli",
+): Promise<LabLlmBinding> {
+  if (transport === "claude-cli") {
+    return { transport, apiKey: "subscription", fetchImpl: buildClaudeCliFetch() };
+  }
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    const { loadMonorepoEnv } = await import("../loadMonorepoEnv");
+    loadMonorepoEnv();
+  }
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+  if (!apiKey) {
+    throw new Error(
+      "ANTHROPIC_API_KEY 가 설정되어 있지 않습니다. 모노레포 루트 .env(.env.local)에 키를 넣고 dev 서버를 재시작해주세요.",
+    );
+  }
+  return { transport, apiKey, fetchImpl: undefined };
+}
+
+export async function runLabAnalysis(
+  grantId: string,
+  opts?: LabAnalysisOverrides,
+): Promise<LabRun> {
   const db = getCunoteDb();
   const startedAt = new Date();
   const runId = buildLabRunId(startedAt);
@@ -119,18 +161,22 @@ export async function runLabAnalysis(grantId: string): Promise<LabRun> {
   }));
 
   // ── 딥분석 호출(실패해도 error 런으로 보존) ─────────────────────
-  // transport 해석(순수 env 파싱)은 try 밖 — 성공/실패(error) 런 모두 같은 값을 기록해야
-  // provenance 가 오염되지 않는다(계획 §5 #1). binding 구체화(api 키 부재 throw 가능)는
-  // 기존처럼 try 안 — "실패해도 error 런 저장" 계약(상단 주석)을 보존한다.
-  const transport = resolveLabTransport();
+  // transport 해석(순수 env 파싱 또는 명시 오버라이드)은 try 밖 — 성공/실패(error) 런 모두
+  // 같은 값을 기록해야 provenance 가 오염되지 않는다(계획 §5 #1). binding 구체화(api 키
+  // 부재 throw 가능)는 기존처럼 try 안 — "실패해도 error 런 저장" 계약(상단 주석)을 보존한다.
+  const transport = opts?.transport ?? resolveLabTransport();
   let extraction: DeepAnalysisResult | null = null;
   let error: string | null = null;
   try {
-    const binding = await resolveLabLlmBinding();
+    const binding =
+      opts?.transport === undefined
+        ? await resolveLabLlmBinding()
+        : await resolveLabLlmBindingForTransport(opts.transport);
     extraction = await runDeepGrantAnalysis({
       apiKey: binding.apiKey,
       inputText: input.text,
       ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
+      ...(opts?.model !== undefined ? { model: opts.model } : {}),
     });
   } catch (caught) {
     error = caught instanceof Error ? caught.message.slice(0, 2_000) : String(caught).slice(0, 2_000);
@@ -142,7 +188,9 @@ export async function runLabAnalysis(grantId: string): Promise<LabRun> {
     source: grant.source,
     sourceId: grant.sourceId,
     title: grant.title,
-    model: extraction?.model ?? resolveLabModel(),
+    // 실패(error) 런에도 오버라이드 모델을 기록한다 — extraction 이 없으면 env 폴백 전에
+    // 오버라이드가 우선해야 provenance 가 실제 요청 모델과 일치한다.
+    model: extraction?.model ?? opts?.model ?? resolveLabModel(),
     transport,
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     startedAt: startedAt.toISOString(),

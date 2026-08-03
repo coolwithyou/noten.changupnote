@@ -1,6 +1,7 @@
 // 공모 딥분석 실험실(dev 전용) — 서버(lib/server/analysis-lab)와 UI(features/dev/analysis-lab)가
 // 공유하는 단일 계약. 프로덕션 코드와 격리된 스파이크 트랙이며, DB에는 어떤 쓰기도 하지 않는다.
 // 런 결과는 spike-out/analysis-lab/ 에 불변 JSON으로 저장된다.
+import type { NoticePeriodStatus } from "./notice-period";
 import type {
   CriterionDimension,
   DeepAnalysisAssessmentStatus,
@@ -56,6 +57,11 @@ export interface LabRunSummary {
   costUsd: number | null;
   ok: boolean;
   error: string | null;
+  /**
+   * 추론 전송층 provenance — LabRun.transport 를 그대로 통과시킨다(run-store toRunSummary).
+   * transport 기록 이전의 구런 파일에는 없다(하위 호환 optional — undefined 는 api 로 해석).
+   */
+  transport?: "api" | "claude-cli";
   /** 검수 시트(<runId>.review.json)가 있으면 마지막 저장 시각, 없으면 null. */
   reviewedAt: string | null;
   /**
@@ -377,6 +383,181 @@ export interface LabRunAuditSummary {
   totalItems: number | null;
 }
 
+// ---- 배치 운영 대시보드(ops) — 깔때기·transport 현황 (2026-08-03 계획 §3-4) ----
+// GET /api/dev/analysis-lab/ops/summary → LabOpsSummary (?refresh=1 로 파일 스캔 캐시 무효화).
+// 서버 집계는 lib/server/analysis-lab/ops-summary.ts 가 소유한다. 전부 additive 신규 타입.
+
+/**
+ * 깔때기 6단계(계획 §2) — 아카이빙 총계 → 모집기간 3분할 → 코호트 → 딥분석 4버킷 →
+ * 검수/감사 3분할(무은폐) → 승격. 모든 수치는 집계 시점 스냅샷이다.
+ */
+export interface LabOpsFunnel {
+  /** ① grants servingState='visible' 총계(grantServingVisiblePredicate — 전 소스). */
+  archivedVisible: number;
+  /** ① 의 LAB_SOURCES(kstartup/bizinfo) 한정 수치 — ② 3분할의 분모. */
+  archivedVisibleLabSources: number;
+  /** ② 모집기간에 오늘(KST)이 포함(withinApplyPeriod 기준) — LAB_SOURCES·visible 한정. */
+  openToday: number;
+  /** ② 기간 미상(applyEnd IS NULL) 예외 큐 — LAB_SOURCES·visible 한정. */
+  periodUnknown: number;
+  /** ② 마감·시작 전(위 두 갈래의 나머지) — LAB_SOURCES·visible 한정. */
+  closedOrNotStarted: number;
+  /** ③ cohort.json(v2) entries 수 — 파일이 없으면 0. */
+  cohortSize: number;
+  /** ③ 실험 라벨(cohort.json experimentLabel) — 없으면 null. */
+  cohortLabel: string | null;
+  /** ③ 코호트 선정 시각(cohort.json selectedAt) — 없으면 null. */
+  cohortSelectedAt: string | null;
+  /** ④ partitionCohortEntries 4버킷 — 현행 promptVersion ok 런 보유. */
+  analysisOkCurrent: number;
+  /** ④ 구버전 ok 런"만" 보유(--reanalyze-outdated 대상). */
+  analysisOkOutdatedOnly: number;
+  /** ④ 현행 버전 error 런만 보유(--retry-errors 대상 보류). */
+  analysisErrorHeld: number;
+  /** ④ 미분석 잔여(실행 대상). */
+  analysisPending: number;
+  /** ⑤ 사람 검수(review.json) 확정 공고 수 — 공고당 최신 1건 dedupe 후. */
+  humanReviewed: number;
+  /** ⑤ 감사 확정(사람 판정 포함 — provenance.auditedCount > 0) 공고 수. */
+  auditConfirmed: number;
+  /** ⑤ AI 블라인드 감사 일치만으로 자동 확정(사람 판정 0건) 공고 수 — 무은폐 분리 표기. */
+  auditAiAutoConfirmed: number;
+  /** ⑤ 감사 대기(파일 미생성·미완료) 공고 수. */
+  auditPending: number;
+  /** ⑥ 승격 반영 공고 수 — promotion items status='applied' AND rolled_back_at IS NULL, DISTINCT grantId. */
+  promotedGrants: number;
+}
+
+/** 현재 프로세스의 transport 모드 + 코호트 런 파일의 transport 분포. */
+export interface LabOpsTransportStatus {
+  /** 현 프로세스 resolveLabTransport() 결과. */
+  resolved: "api" | "claude-cli";
+  /** resolveLabModel() 결과. */
+  model: string;
+  /** env ANALYSIS_LAB_TRANSPORT 설정 여부(빈 문자열은 unset 취급). */
+  envSource: "env" | "unset";
+  /** claude --version 출력(가능하면) — 실패·미설치면 null(필수 아님). */
+  cliVersion: string | null;
+  /** 코호트 런 파일 전수의 transport 분포 — 현행 버전 ok 런 기준(undefined transport 는 api). */
+  runsByTransport: { api: number; claudeCli: number };
+}
+
+export interface LabOpsSummary {
+  funnel: LabOpsFunnel;
+  transportStatus: LabOpsTransportStatus;
+  generatedAt: string;
+  /** true 면 모듈 메모리 캐시(TTL 30s) 응답 — ?refresh=1 로 무효화 가능. */
+  cacheHit: boolean;
+}
+
+// ---- 배치 잡 (ops/batch 라우트·배치 운영 탭이 공유하는 계약) ----
+// 이벤트 union 은 batch-runner(서버)와 UI 가 같은 모양을 봐야 하므로 여기(계약)가 단일 원천이다.
+
+/** 모집기간 정책 위반 상태 — notice-period classifyNoticePeriod 의 "eligible" 밖 3종. */
+export type LabBatchPeriodSkipStatus = Exclude<NoticePeriodStatus, "eligible">;
+
+/** plan 이벤트의 기간 정책 스킵 상세 — CLI 로그 라인 재현·UI 상세 표기가 공유한다. */
+export interface LabBatchPeriodSkippedEntry {
+  grantId: string;
+  stratum: string;
+  status: LabBatchPeriodSkipStatus;
+}
+
+/**
+ * 배치 진행 이벤트. target 계열의 index 는 **0 기반**이다(표기 ordinal 은 index+1).
+ * 옵셔널 additive 필드(plan 의 runnable/periodSkippedEntries/estimatedCostPerGrantUsd/
+ * costSampleCount · target-error 의 title/durationMs)는 러너(batch-runner)가 항상 채워
+ * 방출하지만, 이 계약 도입 전 잔상(batch-job.json 구 스냅샷) 호환을 위해 옵셔널로 둔다.
+ */
+export type LabBatchEvent =
+  | {
+      type: "plan";
+      cohortLabel: string | null;
+      total: number;
+      skippedOk: number;
+      skippedOkOutdatedOnly: number;
+      heldError: number;
+      periodSkipped: number;
+      targets: number;
+      /** perGrant × targets. 대상 0건이면 null(추정 표기 없음 — CLI 동작과 동형). */
+      estimatedCostUsd: number | null;
+      /** 기간 가드 통과 후 잔여(pending − periodSkipped) — limit 적용 전. */
+      runnable?: number;
+      periodSkippedEntries?: LabBatchPeriodSkippedEntry[];
+      /** 공고당 예상 비용 — 현행 버전 ok 런 평균, 표본이 없으면 파일럿 실측 기본값. */
+      estimatedCostPerGrantUsd?: number;
+      /** 추정 근거가 된 현행 버전 ok 런 표본 수. 0 이면 파일럿 실측 기본값 사용. */
+      costSampleCount?: number;
+    }
+  | { type: "target-started"; index: number; total: number; grantId: string; stratum: string }
+  | {
+      type: "target-ok";
+      index: number;
+      total: number;
+      grantId: string;
+      stratum: string;
+      title: string;
+      durationMs: number;
+      costUsd: number | null;
+      cumulativeCostUsd: number;
+    }
+  | {
+      type: "target-error";
+      index: number;
+      total: number;
+      grantId: string;
+      stratum: string;
+      /** true=error 런으로 저장된 실패, false=런 저장 없이 던져진 실패(공고 미존재 등). */
+      runSaved: boolean;
+      message: string;
+      /** runSaved=true 면 런의 공고 제목, 미저장 실패면 null(additive — 로그 재현용). */
+      title?: string | null;
+      durationMs?: number;
+    }
+  | { type: "guard-stop"; reason: "cost-cap" | "window-exhausted"; cumulativeCostUsd: number }
+  | { type: "finished"; summary: LabBatchSummary };
+
+export interface LabBatchSummary {
+  ok: number;
+  errorRuns: number;
+  unsavedFailures: number;
+  notStarted: number;
+  skippedOk: number;
+  skippedOkOutdatedOnly: number;
+  heldError: number;
+  periodSkipped: number;
+  totalCostUsd: number;
+  durationMs: number;
+  stopReason: "completed" | "cost-cap" | "window-exhausted" | "aborted";
+}
+
+/** POST ops/batch 본문 — transport/model 미지정 시 서버 env(resolveLabTransport/resolveLabModel)를 따른다. */
+export interface LabBatchStartRequest {
+  limit: number;
+  concurrency: number;
+  maxCostUsd: number;
+  retryErrors: boolean;
+  reanalyzeOutdated: boolean;
+  transport?: "api" | "claude-cli";
+  model?: string;
+}
+
+/** GET/POST/DELETE ops/batch 응답 — 동시 1잡(싱글턴). state=idle 이면 나머지는 직전 잡 잔상 또는 null. */
+export interface LabBatchJobSnapshot {
+  jobId: string | null;
+  state: "idle" | "running" | "finished" | "aborted" | "error";
+  startedAt: string | null;
+  finishedAt: string | null;
+  options: (LabBatchStartRequest & { transport: "api" | "claude-cli"; model: string }) | null;
+  progress: { total: number; started: number; ok: number; error: number; cumulativeCostUsd: number } | null;
+  guardStop: { reason: "cost-cap" | "window-exhausted"; cumulativeCostUsd: number } | null;
+  summary: LabBatchSummary | null;
+  /** 최근 이벤트 링 버퍼(최대 200건) — 폴링 UI 가 그대로 렌더한다. */
+  events: LabBatchEvent[];
+  /** 러너 자체 실패(인프라) — 게이트 중단·error 런과 구분된다. */
+  error: string | null;
+}
+
 // ---- API 계약 (모든 라우트는 dev 전용: production 이면 404) ----
 // GET  /api/dev/analysis-lab/cohort           → LabCohortResponse (?refresh=1 로 코호트 재선정)
 // POST /api/dev/analysis-lab/analyze          → LabAnalyzeResponse (본문: LabAnalyzeRequest, 동기 수 분 소요)
@@ -385,6 +566,10 @@ export interface LabRunAuditSummary {
 // PUT  /api/dev/analysis-lab/review           → 본문 LabReviewUpsertRequest → LabReviewResponse
 // GET  /api/dev/analysis-lab/audit?grantId=&runId=&model= → LabAuditResponse (감사 파일 없으면 생성 — §9)
 // PUT  /api/dev/analysis-lab/audit            → 본문 LabAuditUpsertRequest → LabAuditResponse
+// GET  /api/dev/analysis-lab/ops/summary      → LabOpsSummary (?refresh=1 로 파일 스캔 캐시 무효화)
+// POST /api/dev/analysis-lab/ops/batch        → LabBatchJobSnapshot (본문 LabBatchStartRequest, 실행 중이면 409)
+// GET  /api/dev/analysis-lab/ops/batch        → LabBatchJobSnapshot (2~5s 폴링)
+// DELETE /api/dev/analysis-lab/ops/batch      → LabBatchJobSnapshot (abort — 진행분은 완료 저장)
 
 export interface LabCohortResponse {
   model: string;

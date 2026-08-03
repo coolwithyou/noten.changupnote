@@ -1,9 +1,10 @@
 "use client";
 
-import { FileCheck2, SearchCheck } from "lucide-react";
+import { FileCheck2, Gauge, SearchCheck } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AnalysisLab } from "./AnalysisLab";
 import { ApplicationRoundtripLab } from "./ApplicationRoundtripLab";
+import { BatchOpsTab } from "./BatchOpsTab";
 
 export function AnalysisLabWorkspace() {
   return (
@@ -19,11 +20,16 @@ export function AnalysisLabWorkspace() {
               <FileCheck2 data-icon="inline-start" />
               지원서 왕복 실험
             </TabsTrigger>
+            <TabsTrigger value="batch-ops" className="px-3">
+              <Gauge data-icon="inline-start" />
+              배치 운영
+            </TabsTrigger>
           </TabsList>
         </div>
       </div>
       <TabsContent value="criteria"><AnalysisLab /></TabsContent>
       <TabsContent value="application-roundtrip"><ApplicationRoundtripLab /></TabsContent>
+      <TabsContent value="batch-ops"><BatchOpsTab /></TabsContent>
     </Tabs>
   );
 }

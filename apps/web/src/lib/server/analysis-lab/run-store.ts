@@ -143,6 +143,9 @@ function toRunSummary(
     error: run.error,
     reviewedAt,
     auditStatus,
+    // 전송층 provenance 통과 — 구런(transport 미기록)은 키 자체를 생략한다
+    // (계약상 undefined 는 api 로 해석, exactOptionalPropertyTypes 준수).
+    ...(run.transport !== undefined ? { transport: run.transport } : {}),
   };
 }
 
