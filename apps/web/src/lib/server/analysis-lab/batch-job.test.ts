@@ -4,7 +4,9 @@
 // 거부 — 라우트 409 경로) + 완료 후 재시작 허용 ③ abort(신호 전달·전이는 러너 종료 시점)
 // ④ 이벤트 링 버퍼 200 상한 ⑤ 러너 throw → state error ⑥ HMR 스태시(globalThis 심볼 —
 // 모듈 로컬 상태 없음 검증) ⑦ 재시작 강등(running 잔상 → aborted + 안내, finished 잔상
-// 그대로, 파일 없음 → idle).
+// 그대로, 파일 없음 → idle) ⑧ CLI 관측 브리지(origin "cli" 파일: pid 생존 → running 유지
+// + 캐시 금지·매 GET 재독 / pid 사망 → aborted 강등 / 생존 CLI running 중 웹 시작 → busy /
+// 종결 메모리 잔상보다 살아 있는 CLI running 우선).
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -396,6 +398,103 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   writeFileSync(corruptPath, "{broken", "utf8");
   assert.equal(getLabBatchJobSnapshot({ snapshotPathImpl: () => corruptPath }).state, "idle");
   console.log("✅ 재시작 강등 — running→aborted(안내 부여)·finished 보존·없음/파손→idle");
+}
+
+// ---- ⑧ CLI 관측 브리지 — origin "cli" 파일 폴백의 pid 생존 판정·busy 승격 ---------
+{
+  /** CLI(batch.ts 관측 브리지)가 남기는 형태의 스냅샷 — origin "cli" + 기록 프로세스 pid. */
+  const cliFixture = (overrides: Partial<LabBatchJobSnapshot> = {}): LabBatchJobSnapshot => ({
+    ...persistedFixture("running"),
+    jobId: "job-cli-1",
+    origin: "cli",
+    pid: process.pid,
+    ...overrides,
+  });
+
+  // pid 생존(현재 프로세스) → running 그대로(origin 라벨 유지) + 메모리 캐시 금지.
+  clearStash();
+  const alivePath = join(tempRoot, "t8-cli-alive.json");
+  writeFileSync(alivePath, JSON.stringify(cliFixture(), null, 2), "utf8");
+  const aliveDeps: LabBatchJobDeps = { snapshotPathImpl: () => alivePath };
+  const alive = getLabBatchJobSnapshot(aliveDeps);
+  assert.equal(alive.state, "running", "CLI 프로세스 생존 — running 유지(강등 없음)");
+  assert.equal(alive.origin, "cli", "라벨용 origin 유지");
+  assert.equal(alive.error, null, "생존 중엔 안내 메시지 없음");
+  const stashAfterCli = (globalThis as unknown as Record<symbol, unknown>)[STASH_KEY] as
+    | { job: unknown }
+    | undefined;
+  assert.equal(stashAfterCli?.job ?? null, null, "CLI 스냅샷은 메모리 캐시 금지");
+  // 파일 갱신(CLI 진행)이 다음 GET 에 즉시 반영 — 매 GET 재독의 실증.
+  writeFileSync(
+    alivePath,
+    JSON.stringify(
+      cliFixture({ progress: { total: 5, started: 4, ok: 3, error: 1, cumulativeCostUsd: 1.2 } }),
+      null,
+      2,
+    ),
+    "utf8",
+  );
+  assert.equal(getLabBatchJobSnapshot(aliveDeps).progress?.ok, 3, "파일 갱신 즉시 반영(재독)");
+
+  // 생존 CLI running 중 웹 잡 시작 → busy(웹·CLI 동시 실행 금지의 코드 승격).
+  assert.throws(
+    () => startLabBatchJob(request(), { ...aliveDeps, runBatchImpl: async () => summaryFixture() }),
+    (caught: unknown) => {
+      assert.ok(caught instanceof LabBatchJobBusyError, "LabBatchJobBusyError throw");
+      assert.equal(caught.snapshot.origin, "cli", "busy 스냅샷은 CLI 잡");
+      assert.equal(caught.snapshot.state, "running");
+      return true;
+    },
+  );
+
+  // pid 사망(pid_max 밖 — ESRCH) → 기존 관행대로 aborted 강등 + CLI 종료 안내.
+  clearStash();
+  const deadPath = join(tempRoot, "t8-cli-dead.json");
+  writeFileSync(deadPath, JSON.stringify(cliFixture({ pid: 999_999 }), null, 2), "utf8");
+  const dead = getLabBatchJobSnapshot({ snapshotPathImpl: () => deadPath });
+  assert.equal(dead.state, "aborted", "CLI 프로세스 사망 — aborted 강등");
+  assert.equal(dead.origin, "cli", "강등 후에도 origin 유지");
+  assert.match(dead.error ?? "", /CLI 배치 프로세스 종료 감지/, "CLI 종료 안내(완료 런은 저장됨)");
+
+  // pid 사망 CLI 잔상은 웹 시작을 막지 않는다 — 새 웹 잡이 파일을 대체한다.
+  clearStash();
+  writeFileSync(deadPath, JSON.stringify(cliFixture({ pid: 999_999 }), null, 2), "utf8");
+  const webStarted = startLabBatchJob(request(), {
+    snapshotPathImpl: () => deadPath,
+    resolveTransportImpl: () => "api",
+    resolveModelImpl: () => "claude-test-model",
+    runBatchImpl: async () => summaryFixture(),
+  });
+  assert.equal(webStarted.state, "running", "사망 CLI 잔상 위로 웹 잡 시작 허용");
+  await waitUntil(
+    () => getLabBatchJobSnapshot({ snapshotPathImpl: () => deadPath }).state === "finished",
+    "사망 잔상 대체 웹 잡 완료",
+  );
+  // 영속 체인 flush 대기 — 아래 파일 덮어쓰기가 웹 잡의 늦은 write 에 뒤집히지 않게.
+  await waitUntil(() => {
+    try {
+      return (JSON.parse(readFileSync(deadPath, "utf8")) as { state?: unknown }).state === "finished";
+    } catch {
+      return false;
+    }
+  }, "웹 잡 최종 상태 파일 flush");
+
+  // 종결 메모리 잔상보다 CLI 파일이 우선 — 웹 잡도 종료 시 자신을 같은 파일에 남기므로,
+  // 파일이 origin "cli" 라는 것은 곧 "직전 웹 잡 이후의 더 새로운 기록"이다.
+  writeFileSync(deadPath, JSON.stringify(cliFixture({ jobId: "job-cli-2" }), null, 2), "utf8");
+  const preempted = getLabBatchJobSnapshot({ snapshotPathImpl: () => deadPath });
+  assert.equal(preempted.jobId, "job-cli-2", "살아 있는 CLI running 이 종결 메모리 잔상보다 우선");
+  assert.equal(preempted.state, "running");
+  // 종결(finished) CLI 파일도 마찬가지 — 완료된 CLI 배치 결과가 잔상에 가려지면 안 된다.
+  writeFileSync(
+    deadPath,
+    JSON.stringify(cliFixture({ jobId: "job-cli-2", state: "finished", finishedAt: "2026-08-03T01:00:00.000Z" }), null, 2),
+    "utf8",
+  );
+  const finishedCli = getLabBatchJobSnapshot({ snapshotPathImpl: () => deadPath });
+  assert.equal(finishedCli.jobId, "job-cli-2", "종결 CLI 파일도 종결 메모리 잔상보다 우선");
+  assert.equal(finishedCli.state, "finished");
+  console.log("✅ CLI 관측 브리지 — pid 생존 running 유지(재독)·사망 강등·busy 승격·잔상 우선순위");
 }
 
 clearStash();

@@ -71,6 +71,7 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
         </CardDescription>
         <CardAction className="flex items-center gap-2">
           {snapshot.state === "running" ? <Spinner /> : null}
+          {snapshot.origin === "cli" ? <Badge variant="outline">CLI 실행</Badge> : null}
           <Badge variant={stateMeta.variant}>{stateMeta.label}</Badge>
         </CardAction>
       </CardHeader>

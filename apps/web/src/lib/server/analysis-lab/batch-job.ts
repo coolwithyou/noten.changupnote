@@ -11,6 +11,11 @@
 //   소멸하면, GET 이 이 파일을 "직전 잡 잔상(stale, process-restarted)"으로 복원한다 —
 //   저장 당시 running 이던 잡은 aborted 로 강등한다(CLI Ctrl-C 와 동일 의미론: 완료 런은
 //   run-store 에 저장돼 있고, 같은 옵션 재실행이 곧 재개다).
+// - **CLI 관측 브리지(2026-08-03)**: CLI 배치(batch.ts)도 같은 파일에 origin "cli" + pid 로
+//   스냅샷을 중계한다. 파일 폴백은 origin "cli" 면 pid 생존 판정으로 가른다 — 살아 있으면
+//   running 그대로(진행은 파일이 유일한 채널이라 메모리 캐시 금지·매 GET 재독), 죽었는데
+//   running 이면 aborted 강등. 웹 잡 시작은 살아 있는 CLI running 스냅샷을 busy 로 거부한다
+//   (웹·CLI 동시 실행 금지 규칙의 코드 승격 — 동시 쓰기 배제).
 // - abort 는 신규 착수만 중단한다(러너 계약) — 상태 전이는 러너 종료 시점에 finished/aborted.
 // - 러너 자체 throw(인프라 실패·LabCohortMissingError 포함)는 state "error" + error 메시지로
 //   흡수한다 — 게이트 중단(guard-stop)·error 런과 구분된다.
@@ -34,6 +39,9 @@ const EVENT_RING_LIMIT = 200;
 
 /** 프로세스 재시작 강등 시의 안내 — UI 가 그대로 노출한다. */
 const PROCESS_RESTARTED_MESSAGE = "dev 서버 재시작으로 잡이 소멸(완료 런은 저장됨)";
+
+/** CLI 스냅샷의 pid 사망 강등 안내 — UI 가 그대로 노출한다(관측 브리지). */
+const CLI_PROCESS_EXITED_MESSAGE = "CLI 배치 프로세스 종료 감지(완료 런은 저장됨)";
 
 // ---- 공개 계약 -----------------------------------------------------------------
 
@@ -106,13 +114,17 @@ function cloneSnapshot(snapshot: LabBatchJobSnapshot): LabBatchJobSnapshot {
   return structuredClone(snapshot);
 }
 
-function batchJobFilePath(): string {
+/**
+ * 스냅샷 영속 파일 경로 — 웹 잡 관리자와 CLI 관측 브리지(batch.ts)가 같은 파일을 쓴다
+ * (동시 쓰기는 busy 가드 + 동시 실행 금지 규칙으로 배제 — 상단 설계 주석).
+ */
+export function labBatchJobFilePath(): string {
   return join(analysisLabDir(), "batch-job.json");
 }
 
 /** 상태 변화 시점의 스냅샷을 직렬화해 베스트에포트로 기록한다(실패 무시 — 잡 진행 우선). */
 function schedulePersist(store: LabBatchJobStore, snapshot: LabBatchJobSnapshot, deps?: LabBatchJobDeps): void {
-  const path = deps?.snapshotPathImpl?.() ?? batchJobFilePath();
+  const path = deps?.snapshotPathImpl?.() ?? labBatchJobFilePath();
   const payload = JSON.stringify(snapshot, null, 2);
   store.persistChain = store.persistChain
     .then(async () => {
@@ -124,8 +136,12 @@ function schedulePersist(store: LabBatchJobStore, snapshot: LabBatchJobSnapshot,
     });
 }
 
-/** 러너 이벤트 1건을 스냅샷에 반영 — 링 버퍼 push + progress 누적. */
-function applyEvent(snapshot: LabBatchJobSnapshot, event: LabBatchEvent): void {
+/**
+ * 러너 이벤트 1건을 스냅샷에 반영 — 링 버퍼 push(상한 200) + progress 누적.
+ * CLI 관측 브리지(batch.ts)도 이 함수를 공유한다 — 웹·CLI 스냅샷의 직렬화 형태가
+ * 갈라지면 파일 폴백(GET)이 깨지므로, 반영 규칙은 여기가 단일 원천이다.
+ */
+export function applyLabBatchEvent(snapshot: LabBatchJobSnapshot, event: LabBatchEvent): void {
   snapshot.events.push(event);
   if (snapshot.events.length > EVENT_RING_LIMIT) {
     snapshot.events.splice(0, snapshot.events.length - EVENT_RING_LIMIT);
@@ -178,13 +194,9 @@ function isPersistedSnapshot(value: unknown): value is LabBatchJobSnapshot {
   );
 }
 
-/**
- * batch-job.json 을 "직전 잡 잔상(stale, process-restarted)"으로 복원한다.
- * 저장 당시 running 이던 잡은 프로세스 재시작으로 이미 소멸했으므로 aborted 로 강등하고
- * 안내 메시지를 error 에 부여한다(완료 런은 run-store 에 저장돼 있어 재실행=재개).
- */
-function restorePersistedSnapshot(deps?: LabBatchJobDeps): LabBatchJobSnapshot | null {
-  const path = deps?.snapshotPathImpl?.() ?? batchJobFilePath();
+/** 파일 원본을 최소 검증만 거쳐 읽는다 — 강등 판단 이전의 raw 스냅샷(busy 가드도 사용). */
+function readPersistedSnapshot(deps?: LabBatchJobDeps): LabBatchJobSnapshot | null {
+  const path = deps?.snapshotPathImpl?.() ?? labBatchJobFilePath();
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(path, "utf8"));
@@ -192,10 +204,51 @@ function restorePersistedSnapshot(deps?: LabBatchJobDeps): LabBatchJobSnapshot |
     return null; // 파일 없음·JSON 파손 — 잔상 없음
   }
   if (!isPersistedSnapshot(parsed)) return null;
-  if (parsed.state === "running") {
-    return { ...parsed, state: "aborted", error: PROCESS_RESTARTED_MESSAGE };
-  }
   return parsed;
+}
+
+/**
+ * pid 생존 판정 — signal 0 은 신호 전달 없이 존재 확인만 한다. EPERM 은 "존재하지만 권한
+ * 없음"이므로 생존으로 본다(다른 uid 소유 프로세스 — ESRCH 만 사망).
+ */
+function isPidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (caught) {
+    return (caught as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * 파일에 "지금 살아서 도는" CLI 배치 스냅샷이 있으면 반환한다(관측 브리지) —
+ * origin "cli" + state running + pid 생존의 3중 조건. 그 외(웹 스냅샷·종결·pid 사망)는 null.
+ */
+function readLiveCliSnapshot(deps?: LabBatchJobDeps): LabBatchJobSnapshot | null {
+  const parsed = readPersistedSnapshot(deps);
+  if (!parsed || parsed.origin !== "cli" || parsed.state !== "running") return null;
+  if (typeof parsed.pid !== "number" || !isPidAlive(parsed.pid)) return null;
+  return parsed;
+}
+
+/**
+ * batch-job.json 을 "직전 잡 잔상(stale, process-restarted)"으로 복원한다.
+ * - origin "cli"(관측 브리지): running 이라도 기록 프로세스(pid)가 살아 있으면 **그대로**
+ *   반환한다(진행 중 — 라벨용 origin 유지). pid 가 죽었는데 running 이면 웹 관행대로
+ *   aborted 강등 + CLI 종료 안내를 부여한다.
+ * - origin "web"(또는 부재): 저장 당시 running 이던 잡은 프로세스 재시작으로 이미
+ *   소멸했으므로 aborted 로 강등하고 안내 메시지를 error 에 부여한다(완료 런은
+ *   run-store 에 저장돼 있어 재실행=재개).
+ */
+function restorePersistedSnapshot(deps?: LabBatchJobDeps): LabBatchJobSnapshot | null {
+  const parsed = readPersistedSnapshot(deps);
+  if (!parsed) return null;
+  if (parsed.state !== "running") return parsed;
+  if (parsed.origin === "cli") {
+    if (typeof parsed.pid === "number" && isPidAlive(parsed.pid)) return parsed;
+    return { ...parsed, state: "aborted", error: CLI_PROCESS_EXITED_MESSAGE };
+  }
+  return { ...parsed, state: "aborted", error: PROCESS_RESTARTED_MESSAGE };
 }
 
 // ---- 공개 API ------------------------------------------------------------------
@@ -214,6 +267,10 @@ export function startLabBatchJob(
   if (store.job && store.job.snapshot.state === "running") {
     throw new LabBatchJobBusyError(cloneSnapshot(store.job.snapshot));
   }
+  // CLI 배치(관측 브리지)가 실행 중이면 웹 잡 시작 금지 — 웹·CLI 동시 실행 금지 규칙의
+  // 코드 승격. pid 가 죽은 CLI running 잔상은 막지 않는다(새 웹 잡이 파일을 대체한다).
+  const liveCli = readLiveCliSnapshot(deps);
+  if (liveCli) throw new LabBatchJobBusyError(liveCli);
 
   const transport = request.transport ?? (deps?.resolveTransportImpl ?? resolveLabTransport)();
   const model = request.model ?? (deps?.resolveModelImpl ?? resolveLabModel)();
@@ -252,7 +309,7 @@ export function startLabBatchJob(
     signal: controller.signal,
     onEvent: (event) => {
       if (store.job !== job) return; // 슬롯을 새 잡이 차지한 뒤의 늦은 이벤트 방어
-      applyEvent(snapshot, event);
+      applyLabBatchEvent(snapshot, event);
       schedulePersist(store, snapshot, deps);
     },
   })
@@ -276,14 +333,24 @@ export function startLabBatchJob(
 }
 
 /**
- * 현재 잡 스냅샷 — 메모리 잡(진행 중이거나 직전 완료 잔상)이 있으면 그 사본.
- * 없으면 batch-job.json 잔상을 복원(running 이던 잡은 aborted 강등)해 메모리에 올리고,
- * 그것도 없으면 초기(idle) 상태를 돌려준다.
+ * 현재 잡 스냅샷 — 실행 중인 메모리 잡(웹 소유)이 있으면 그 사본이 항상 진실이다.
+ * 그 외에는 batch-job.json 을 본다(web running 잔상은 aborted 강등, CLI 스냅샷은 pid
+ * 생존 판정 — restorePersistedSnapshot 참조). CLI 관측 브리지 특칙 2가지:
+ * - 파일이 origin "cli" 면 **종결 메모리 잔상보다 파일이 우선**한다 — 웹 잡도 종료 시
+ *   자신을 같은 파일에 남기므로, 파일에 CLI 스냅샷이 있다는 것은 곧 "직전 웹 잡 이후의
+ *   더 새로운 기록"이라는 뜻이다(잔상이 가리면 브리지가 무용해진다).
+ * - CLI 스냅샷은 메모리에 캐시하지 않는다 — 진행 갱신·종료·재실행이 전부 파일로만
+ *   도착하므로 매 GET 재독해야 한다(dev 폴링 3s 에 파일 1회 읽기 — 비용 무시 가능).
+ * 파일도 없으면 종결 메모리 잔상 또는 초기(idle) 상태를 돌려준다.
  */
 export function getLabBatchJobSnapshot(deps?: LabBatchJobDeps): LabBatchJobSnapshot {
   const store = jobStore();
-  if (store.job) return cloneSnapshot(store.job.snapshot);
+  if (store.job && store.job.snapshot.state === "running") {
+    return cloneSnapshot(store.job.snapshot);
+  }
   const restored = restorePersistedSnapshot(deps);
+  if (restored?.origin === "cli") return restored; // CLI 스냅샷 캐시 금지 — 매 GET 재독
+  if (store.job) return cloneSnapshot(store.job.snapshot);
   if (restored) {
     store.job = { snapshot: restored, controller: null }; // 잔상 캐시 — 매 GET 파일 재독 방지
     return cloneSnapshot(restored);

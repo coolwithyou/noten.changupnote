@@ -1,8 +1,9 @@
 // 공모 딥분석 실험실 — 층화 확대 배치 러너 CLI (tsx 단독 실행, dev 서버 불필요).
 // cohort.json(v2)의 entries 를 대상으로 runLabAnalysis 를 동시성 제한 워커 풀로 실행한다.
 // 코어(스캔→기간 가드→워커 풀→가드 중단→요약)는 batch-runner.ts 로 추출됐다(2026-08-03
-// §3-1) — 이 파일은 argv 파싱 + env 로드 + 이벤트의 콘솔 렌더 + exit code 만 담당하는
-// 얇은 래퍼다. 로그 라인 포맷·exit code 는 추출 전과 동일해야 한다(합격선).
+// §3-1) — 이 파일은 argv 파싱 + env 로드 + 이벤트의 콘솔 렌더 + exit code + 관측 브리지
+// (batch-job.json 베스트에포트 기록 — 아래 CliBatchRecorder)만 담당하는 얇은 래퍼다.
+// 로그 라인 포맷·exit code 는 추출 전과 동일해야 한다(합격선).
 // **버전 무관** ok 런이 이미 있는 공고는 스킵(재개 멱등성 + 우발 재분석 가드 — Phase B-0,
 // batch-plan.ts 상단 주석: v3 승격 여파로 v2 ok 런 30건이 통째로 재분석되는 ~$12 함정 차단).
 // 구버전 ok 런 보유 공고의 현행 버전 재분석은 --reanalyze-outdated 로만 허용한다.
@@ -15,8 +16,15 @@
 //       pnpm lab:batch -- --retry-errors                (현행 버전 error 런만 있는 공고도 대상 포함)
 //       pnpm lab:batch -- --reanalyze-outdated          (구버전 ok 런만 있는 공고도 대상 포함)
 // 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. DB에는 어떤 쓰기도 하지 않는다.
-import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
+import { randomBytes } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import {
+  ANALYSIS_LAB_PROMPT_VERSION,
+  type LabBatchJobSnapshot,
+} from "@/features/dev/analysis-lab/contract";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { applyLabBatchEvent, labBatchJobFilePath } from "./batch-job";
 import { partitionCohortEntries } from "./batch-plan";
 import {
   LabCohortMissingError,
@@ -24,12 +32,15 @@ import {
   estimatePerGrantCostUsd,
   runLabBatch,
   scanExistingRuns,
+  type LabBatchEvent,
   type LabBatchPeriodSkipStatus,
   type LabBatchPeriodSkippedEntry,
   type LabBatchSummary,
+  type LabBatchTransport,
 } from "./batch-runner";
 import { resolveLabTransport } from "./claude-cli-transport";
 import { cohortFilePath, readCohortFileV2 } from "./cohort-file";
+import { resolveLabModel } from "./extractor";
 
 loadMonorepoEnv();
 
@@ -223,10 +234,97 @@ async function runDryRun(options: BatchOptions): Promise<number> {
   return 0;
 }
 
+// ---- 관측 브리지 — 웹 대시보드용 스냅샷 기록(베스트에포트, 2026-08-03) -------------
+// CLI 배치 진행을 웹 잡 관리자(batch-job.ts)와 같은 파일(spike-out/analysis-lab/
+// batch-job.json)에 **같은 LabBatchJobSnapshot 직렬화 형태**로 중계한다 — 웹 GET 폴백이
+// origin "cli" + pid 생존 판정으로 running 을 그대로 노출한다. 반영 규칙(링 200·progress
+// 누적)은 batch-job.ts 의 applyLabBatchEvent 를 공유한다(형태 단일 원천).
+// 기록 실패는 전부 조용히 무시한다 — 배치 본연 동작(분석·로그·exit code)에 무영향.
+// dry-run 경로는 무기록(파일 무접촉). 쓰기는 동기(writeFileSync) — 이벤트 간격(런당 수십 초)
+// 대비 무시 가능한 비용이고, process.exit 가 비동기 쓰기를 자르는 함정을 원천 차단한다.
+
+interface CliBatchRecorder {
+  /** 러너 이벤트 반영 + 기록. finished 이벤트에서 종료 상태(finished/aborted)로 전이한다. */
+  record: (event: LabBatchEvent) => void;
+  /** 러너 자체 throw(인프라 실패) — state "error" 로 최종 기록한다. */
+  fail: (message: string) => void;
+}
+
+const NOOP_RECORDER: CliBatchRecorder = { record: () => {}, fail: () => {} };
+
+/** 관측 브리지 레코더 — 초기화 실패 시 무해한 no-op 로 강등된다(배치 본연 동작 무영향). */
+function createCliBatchRecorder(options: BatchOptions, transport: LabBatchTransport): CliBatchRecorder {
+  try {
+    const path = labBatchJobFilePath();
+    mkdirSync(dirname(path), { recursive: true });
+    const startedAt = new Date();
+    const snapshot: LabBatchJobSnapshot = {
+      // 웹 잡 관리자와 같은 jobId 규약(콜론 제거 ISO + 랜덤 6hex) — origin 이 출처를 가른다.
+      jobId: `job-${startedAt.toISOString().replace(/:/g, "")}-${randomBytes(3).toString("hex")}`,
+      state: "running",
+      origin: "cli",
+      pid: process.pid,
+      startedAt: startedAt.toISOString(),
+      finishedAt: null,
+      options: {
+        limit: options.limit,
+        concurrency: options.concurrency,
+        maxCostUsd: options.maxCostUsd,
+        retryErrors: options.retryErrors,
+        reanalyzeOutdated: options.reanalyzeOutdated,
+        transport,
+        model: resolveLabModel(),
+      },
+      progress: { total: 0, started: 0, ok: 0, error: 0, cumulativeCostUsd: 0 },
+      guardStop: null,
+      summary: null,
+      events: [],
+      error: null,
+    };
+    const persist = (): void => {
+      try {
+        writeFileSync(path, JSON.stringify(snapshot, null, 2), "utf8");
+      } catch {
+        // 베스트에포트 — 디스크 실패가 배치 진행을 막으면 안 된다
+      }
+    };
+    persist();
+    return {
+      record: (event) => {
+        try {
+          applyLabBatchEvent(snapshot, event);
+          if (event.type === "finished") {
+            // 웹 잡 관리자의 종료 전이와 동형 — Ctrl-C 등 비정상 종료는 기록 없이 남고,
+            // 웹 폴백이 pid 사망으로 aborted 강등한다(설계된 경로).
+            snapshot.state = event.summary.stopReason === "aborted" ? "aborted" : "finished";
+            snapshot.finishedAt = new Date().toISOString();
+          }
+          persist();
+        } catch {
+          // 베스트에포트
+        }
+      },
+      fail: (message) => {
+        try {
+          snapshot.state = "error";
+          snapshot.error = message;
+          snapshot.finishedAt = new Date().toISOString();
+          persist();
+        } catch {
+          // 베스트에포트
+        }
+      },
+    };
+  } catch {
+    return NOOP_RECORDER;
+  }
+}
+
 // ---- 실행 경로(러너 위임 + 이벤트 콘솔 렌더) ------------------------------------
 
-async function runBatchViaRunner(options: BatchOptions): Promise<number> {
+async function runBatchViaRunner(options: BatchOptions, transport: LabBatchTransport): Promise<number> {
   // 이벤트는 러너 안에서 동기 방출되므로 콘솔 라인 순서는 추출 전과 동일하다.
+  const recorder = createCliBatchRecorder(options, transport);
   let planTargets = -1;
   let periodSkippedEntries: LabBatchPeriodSkippedEntry[] = [];
   let costCapSeen = false;
@@ -239,6 +337,7 @@ async function runBatchViaRunner(options: BatchOptions): Promise<number> {
       retryErrors: options.retryErrors,
       reanalyzeOutdated: options.reanalyzeOutdated,
       onEvent: (event) => {
+        recorder.record(event); // 관측 브리지 — 콘솔 렌더와 무관하게 베스트에포트 기록
         switch (event.type) {
           case "plan": {
             planTargets = event.targets;
@@ -321,6 +420,8 @@ async function runBatchViaRunner(options: BatchOptions): Promise<number> {
       },
     });
   } catch (caught) {
+    // 러너 자체 throw — 웹 잡 관리자의 state "error" 흡수와 동형으로 최종 기록한다.
+    recorder.fail(caught instanceof Error ? caught.message : String(caught));
     if (caught instanceof LabCohortMissingError) {
       printCohortMissing();
       return 1;
@@ -345,8 +446,8 @@ async function main(): Promise<number> {
     console.log("[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다(API 토큰 미지출, 명목 비용만 집계).");
   }
 
-  if (options.dryRun) return runDryRun(options);
-  return runBatchViaRunner(options);
+  if (options.dryRun) return runDryRun(options); // 무기록 — 관측 브리지는 실행 경로 전용
+  return runBatchViaRunner(options, transport);
 }
 
 /** 실행 경로에서만 DB 커넥션이 생기므로, 로드된 경우에 한해 닫는다(dry-run 은 no-op). */

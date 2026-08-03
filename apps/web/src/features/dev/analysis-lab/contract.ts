@@ -546,6 +546,16 @@ export interface LabBatchStartRequest {
 export interface LabBatchJobSnapshot {
   jobId: string | null;
   state: "idle" | "running" | "finished" | "aborted" | "error";
+  /**
+   * 잡 출처(관측 브리지, 2026-08-03) — "cli" 는 CLI 배치(pnpm lab:batch)가 batch-job.json
+   * 으로 중계한 스냅샷. 부재는 "web"(웹 잡 관리자 batch-job.ts 소유 — 하위 호환 optional).
+   */
+  origin?: "web" | "cli";
+  /**
+   * origin "cli" 일 때 기록 프로세스 pid — 웹 폴백(batch-job.ts)이 생존 판정
+   * (process.kill(pid, 0))에 써서 running 유지/aborted 강등을 가른다. web 스냅샷은 미기록.
+   */
+  pid?: number | null;
   startedAt: string | null;
   finishedAt: string | null;
   options: (LabBatchStartRequest & { transport: "api" | "claude-cli"; model: string }) | null;
