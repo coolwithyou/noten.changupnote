@@ -1,7 +1,7 @@
 # 딥 분석 시점 Kordoc 바이너리 선분석 통합 계획
 
 > 작성일: 2026-08-04  
-> 상태: 구현 대기 — 체크포인트 1부터 순차 적용  
+> 상태: 체크포인트 1 구현 중  
 > 범위: 딥 분석과 HWP/HWPX 빠른 작성 분석의 실행 시점·결과 결속·서빙 준비 보장  
 > 비범위: 공고 수집 정책 변경, 22축 매칭 규칙 변경, 사용자 지원서 작성 UI 재설계, Cloud Run 활성화·배포
 
@@ -38,7 +38,7 @@
 | `not_applicable` | HWP/HWPX가 없거나 지원 양식이 아님 | 빠른 작성 미노출 |
 | `failed` | 원본·파서·모델·저장 실패 | 운영 재처리 대상으로 분리, 사용자에게 지연 분석을 시작하지 않음 |
 
-`pending` 또는 결과 부재인 공고를 조용히 사용자에게 서빙하지 않는다. 다만 체크포인트 2의 승격 게이트 전까지는 이 규칙을 관측만 하고 기존 서빙을 차단하지 않는다.
+`pending` 또는 결과 부재인 지원 양식을 빠른 작성 준비 완료로 조용히 표시하지 않는다. 이 상태는 **공고 열람·22축 매칭 전체를 차단하지 않고 빠른 작성 capability에만 적용**한다. 체크포인트 2의 capability 게이트 전까지는 이 규칙을 관측만 하고 기존 서빙을 차단하지 않는다.
 
 ### 2.3 모델과 비용
 
@@ -159,8 +159,11 @@ applicationRoundtrip?: {
 
 같은 원본을 불필요하게 다시 분석하지 않는 키는 다음 조합이다.
 
+실제 분석·저장의 정본은 문서 surface별이다.
+
 ```text
-grantId
+surfaceId
++ storageKey
 + sourceSha256
 + APPLICATION_ROUNDTRIP_VERSION
 + Kordoc engineVersion
@@ -169,7 +172,9 @@ grantId
 + transport class(api | claude-cli)
 ```
 
-체크포인트 1은 불변 산출물과 결속을 먼저 만들고, 체크포인트 2에서 이 키로 기존 산출물 재사용과 DB materialization 멱등성을 구현한다.
+공고 sibling run의 aggregate identity는 정렬된 `(surfaceId, storageKey, sourceSha256)` 목록의 manifest SHA-256이다. 공고 상태는 surface별 결과에서 파생하며, 한 문서의 `review_required`가 다른 문서의 `complete` 필드 사용을 가리지 않게 한다.
+
+체크포인트 1은 불변 산출물과 결속을 먼저 만들고, 체크포인트 2에서 이 키로 기존 산출물 재사용과 DB materialization 멱등성을 구현한다. 문서 처리 상한에 걸린 surface는 버리지 않고 `skipped_limit`으로 명시한 뒤 다음 bounded job에서 처리한다.
 
 ## 6. 실패 정책
 
@@ -220,11 +225,12 @@ grantId
 구현:
 
 1. roundtrip artifact 검증기와 source SHA/version 멱등성 확인
-2. 승격 트랜잭션에서 지원 surface·field map materialization
-3. `complete/partial/review_required/not_applicable/failed` 운영 상태 저장
-4. 지원 바이너리가 있는데 상태가 `pending/missing`이면 관측 경고
-5. 작업공간 트리거를 stale/missing 복구 전용으로 전환
-6. 가상 기업 E2E에서 매칭 → 공고 상세 → 작업공간이 선계산 필드를 즉시 읽는지 검증
+2. `document_artifacts.kind=field_candidates`의 content-addressed 불변 JSON 저장
+3. 승격 트랜잭션에서 지원 surface·field map materialization
+4. `complete/partial/review_required/not_applicable/failed` 운영 상태 저장
+5. 지원 바이너리가 있는데 상태가 `pending/missing`이면 관측 경고
+6. 작업공간 트리거를 stale/missing 복구 전용으로 전환
+7. 가상 기업 E2E에서 매칭 → 공고 상세 → 작업공간이 선계산 필드를 즉시 읽는지 검증
 
 초기에는 승격 차단을 `observe_only`로 측정한다. 실제 차단 전 최소 2건의 정상 공고와 1건의 부분/검토 공고를 통과시킨다.
 
@@ -238,7 +244,7 @@ grantId
 
 1. production API transport adapter를 같은 coordinator 인터페이스에 연결
 2. `deep-analysis/processor.ts`의 seal 검증 직후 Kordoc 전용 멱등 작업을 enqueue하고 22축 primary를 기다림 없이 시작
-3. Kordoc 전용 worker의 lease·retry·heartbeat·동시성을 deep worker와 분리
+3. surface 단위 전용 job과 heartbeat를 두고 identity unique, lease·retry·heartbeat·동시성을 deep worker와 분리
 4. Cloud Run worker에는 구독 transport가 절대 유입되지 않는 격리 테스트
 5. ops에 공고별 두 분석의 시작·완료·원본 수·문서 수·필드 수·상태·버전·비용·오류 노출
 6. `preview_ready`인데 field map이 없는 기존 HWP/HWPX를 bounded cohort로 산출
@@ -246,6 +252,18 @@ grantId
 8. 관측 데이터가 안정된 뒤 승격 fail-closed 여부를 별도 결정
 
 운영 worker mode 변경, Scheduler 수정, 실제 배포는 이 체크포인트 구현과 검증 후 별도 승인으로만 수행한다.
+
+### 7.4 2026-08-04 읽기 전용 backlog 기준선
+
+계획 수립 중 production DB를 read-only transaction으로 집계했으며 쓰기는 롤백했다.
+
+- 비마감 visible `preview_ready` HWP/HWPX 중 field map이 없는 우선 대상: **513 surface / 311 공고 / 약 96MB**
+- 전체 visible open 기준: 787 surface / 약 143MB
+- `fields_ready`: 2 surface뿐이며, Kordoc 자동 map은 1건 5 fields
+- 비마감 후보의 공고당 surface: p50 1, p95 4, 최대 11
+- `document_artifacts.kind=field_candidates`: 현재 0건
+
+따라서 첫 운영 backfill은 전체 513건을 즉시 처리하지 않는다. 체크포인트 3에서 20~50 surface observe-only cohort로 R2·DB·coverage·모델 usage를 먼저 측정한 뒤 동시성과 일일 한도를 결정한다.
 
 ## 8. 과구현 방지선
 
