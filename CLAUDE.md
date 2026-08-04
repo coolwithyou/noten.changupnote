@@ -9,6 +9,7 @@ cunote — 사업자번호 하나로 공공 지원사업을 찾고 지원서 작
 - Gate 0 (HWP 렌더링): `docs/gate0-hwp-render-spike-plan.md` — **통과 완료** (60/60, LibreOffice+H2Orestart 확정)
 - Gate 1 (라벨링): `docs/gate1-field-map-labeling-guide.md` + `spike-labels/`
 - Phase 2 변환 서버: `docs/phase2-conversion-server-implementation-plan.md`
+- **구독 딥분석 운용(2026-08-04 확정)**: lab 4레인 전부 `ANALYSIS_LAB_TRANSPORT=claude-cli` 준수(추출·검수·감사·confirmations, 정례 운용 API 실지출 0). 상태 정본 `docs/plans/HANDOFF-2026-08-03.md`, 운용 안내 `docs/explainers/구독모델로-딥분석-돌리는-법.md`, 배치 관리 UI `/dev/analysis-lab` "배치 운영" 탭(`docs/plans/2026-08-03-subscription-batch-ops-dashboard.md`). 구독은 로컬 dev·실험실 한정(운영 경로는 API 유지)
 
 ## Vercel CLI·배포 (중요)
 
