@@ -60,7 +60,19 @@ export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
 const MAX_TOKENS = 16_000;
-const TIMEOUT_MS = 540_000;
+const DEFAULT_TIMEOUT_MS = 540_000;
+
+/**
+ * LLM 호출 타임아웃 — ANALYSIS_LAB_TIMEOUT_MS env 존중(추출 레인 extractor.ts 동형), 기본 540s.
+ * claude-cli transport 는 API 대비 수 배 느려(검수 런당 최장 305s 실측 — 2026-08-04 검증 문서 §5)
+ * 대형 공고에서 상향이 필요할 수 있다. callAnthropicToolModel 공용이라 검수·감사·confirmations
+ * 레인이 함께 따른다.
+ */
+function resolveTimeoutMs(): number {
+  const raw = process.env.ANALYSIS_LAB_TIMEOUT_MS?.trim();
+  const parsed = raw ? Number.parseInt(raw, 10) : Number.NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
+}
 
 // 일시 오류(레이트리밋·과부하·서버 오류) 1회 재시도 — extractor.ts 선례.
 const RETRYABLE_STATUSES = new Set([429, 500, 529]);
@@ -93,6 +105,12 @@ export interface AiReviewFile {
   grantId: string;
   reviewerKind: "ai";
   model: string;
+  /**
+   * 추론 전송층 provenance(계획 §5 #2 — Phase 5 배선, 2026-08-04 검수 레인 GO).
+   * 전달된 실행만 기록되며, 기록 이전 구파일·미전달 실행은 필드 없음 = api 로 해석
+   * (감사 레인 LabAudit.aiAuditTransport 와 동형 — 하위 호환 optional).
+   */
+  aiReviewTransport?: "api" | "claude-cli";
   promptVersion: typeof AI_REVIEW_PROMPT_VERSION;
   /** 판정 rubric 으로 삽입된 검수 가이드 전문의 sha256 (provenance). */
   guideSha256: string;
@@ -511,9 +529,10 @@ export async function callAnthropicToolModel(options: {
     // temperature/top_p/top_k/thinking 절대 미포함 — 상단 주석의 모델별 규칙.
   });
 
+  const timeoutMs = resolveTimeoutMs();
   const attempt = async (): Promise<Response> => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       return await (options.fetchImpl ?? fetch)("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -527,7 +546,7 @@ export async function callAnthropicToolModel(options: {
       });
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error(`Anthropic 호출이 타임아웃됐습니다(${TIMEOUT_MS}ms).`);
+        throw new Error(`Anthropic 호출이 타임아웃됐습니다(${timeoutMs}ms).`);
       }
       throw error;
     } finally {
@@ -589,6 +608,11 @@ export async function runAiReview(options: {
   /** true 면 기존 ai-review 파일을 덮어쓴다. 기본은 존재 시 스킵(멱등). */
   force?: boolean;
   fetchImpl?: typeof fetch;
+  /**
+   * 추론 전송층 provenance(계획 §5 #2) — 전달되면 검수 파일에 aiReviewTransport 로 기록된다.
+   * 미전달이면 미기입(기존 파일과 동일 — 하위 호환, 감사 레인 runAiAudit.transport 와 동형).
+   */
+  transport?: "api" | "claude-cli";
 }): Promise<AiReviewOutcome> {
   const { run, model } = options;
 
@@ -662,6 +686,7 @@ export async function runAiReview(options: {
     grantId: run.grantId,
     reviewerKind: "ai",
     model,
+    ...(options.transport !== undefined ? { aiReviewTransport: options.transport } : {}),
     promptVersion: AI_REVIEW_PROMPT_VERSION,
     guideSha256,
     inputSha256Verified: true,

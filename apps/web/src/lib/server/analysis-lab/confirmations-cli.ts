@@ -13,8 +13,8 @@
 //   건드리지 않으며, 쓰기는 사이드카 <runId>.confirmations.json 생성뿐이다.
 import { existsSync } from "node:fs";
 import { AI_REVIEW_ADOPTED, type LabReview, type LabRun } from "@/features/dev/analysis-lab/contract";
-import { computeAiReviewCostUsd } from "./ai-review";
-import { resolveLabTransport } from "./claude-cli-transport";
+import { callAnthropicToolModel, computeAiReviewCostUsd, reassembleLabInputForRun } from "./ai-review";
+import { resolveLabLlmBinding, resolveLabTransport } from "./claude-cli-transport";
 import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import {
   CONFIRMATIONS_PROMPT_VERSION,
@@ -23,6 +23,7 @@ import {
   runConfirmations,
   selectConfirmationTargets,
   type ConfirmationTarget,
+  type ConfirmationsLlmDeps,
 } from "./confirmations";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
@@ -92,13 +93,6 @@ interface ConfirmationTargetEntry {
 }
 
 async function main(): Promise<number> {
-  // 결정 ①(계획 §9): confirmations 레인은 transport 를 배선하지 않는다 — 감지 시 안내만
-  // 출력해 조용한 오해를 방지한다(Phase 5 이연, 배선 방법은 계획 §5 #4 에 기록).
-  if (resolveLabTransport() === "claude-cli") {
-    console.log(
-      "[confirmations] ANALYSIS_LAB_TRANSPORT=claude-cli 감지 — confirmations 레인은 API를 유지합니다(전환 제외, 계획 §9 결정 ①).",
-    );
-  }
   const model = resolveConfirmationsModel(readArg("model"));
   const force = hasFlag("force");
   const dryRun = hasFlag("dry-run");
@@ -116,7 +110,25 @@ async function main(): Promise<number> {
   // 클로저(worker) 안에서도 non-null 로 좁혀지도록 별도 상수에 고정한다(ai-audit-cli 관행).
   const costCapUsd: number = maxCostUsd;
 
-  console.log(`[confirmations] 보강 모델 ${model} · promptVersion=${CONFIRMATIONS_PROMPT_VERSION}`);
+  // Phase 5 배선(계획 §5 #4 — 2026-08-04 검수 레인 GO): transport=claude-cli 면 완전한
+  // ConfirmationsLlmDeps(3필드 전부 필수)를 구성해 fetchImpl(CLI shim)을 callModel 에
+  // 주입한다. api 경로에서는 deps 미전달(undefined) → runConfirmations 의 기존
+  // loadDefaultLlmDeps 경로 보존. confirmations.ts 자체는 무수정(DI 로 흡수).
+  // claude-cli binding 은 키 불요·무부작용이라 dry-run 전에 안전하게 구성된다(도달 확인 로그 포함).
+  const binding = resolveLabTransport() === "claude-cli" ? await resolveLabLlmBinding() : null;
+  const fetchImpl = binding?.fetchImpl;
+  const deps: ConfirmationsLlmDeps | undefined = binding
+    ? {
+        reassembleInput: reassembleLabInputForRun,
+        callModel: (o) => callAnthropicToolModel({ ...o, ...(fetchImpl ? { fetchImpl } : {}) }),
+        computeCostUsd: computeAiReviewCostUsd,
+      }
+    : undefined;
+  console.log(
+    `[confirmations] 보강 모델 ${model} · promptVersion=${CONFIRMATIONS_PROMPT_VERSION} · ` +
+      `transport=${binding ? binding.transport : "api"}` +
+      (deps ? " · ConfirmationsLlmDeps 구성(fetchImpl 주입, 계획 §5 #4)" : ""),
+  );
 
   // 대상 수집 — aggregate 가 쓰는 공유 로더 재사용(직접 재구현 금지, 계획 명세):
   //   ① 사람 review.json 보유 런(코호트 필터·dedupe 포함) ② 감사 완료 병합 런.
@@ -186,8 +198,12 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const apiKey = requireApiKey();
-  console.log(`[confirmations] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${costCapUsd}`);
+  // api 경로는 기존 requireApiKey 흐름 그대로 — claude-cli 면 binding 이 키 요구를 흡수한다.
+  const apiKey = binding?.apiKey ?? requireApiKey();
+  console.log(
+    `[confirmations] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${costCapUsd} · ` +
+      `transport=${binding ? binding.transport : "api"}`,
+  );
 
   let okCount = 0;
   let failCount = 0;
@@ -219,6 +235,7 @@ async function main(): Promise<number> {
             apiKey,
             sidecarPath: entry.sidecarPath,
             force,
+            ...(deps ? { deps } : {}),
           });
           if (outcome.status === "input_drift") {
             driftCount += 1;

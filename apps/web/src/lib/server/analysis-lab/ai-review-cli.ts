@@ -40,7 +40,7 @@ import {
   type RunComparisonInput,
 } from "./ai-review-compare";
 import { collectAiReviewsForAudit, toAiReviewForAudit } from "./audit-store";
-import { resolveLabTransport } from "./claude-cli-transport";
+import { resolveLabLlmBinding, resolveLabTransport, type LabLlmBinding } from "./claude-cli-transport";
 import { readCohortFileV2, cohortFilePath } from "./cohort-file";
 import { DIMENSION_LABELS } from "./diff";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
@@ -106,6 +106,24 @@ function requireApiKey(): string {
     throw new Error("ANTHROPIC_API_KEY 가 없습니다 — 모노레포 루트 .env(.env.local)를 확인하세요.");
   }
   return apiKey;
+}
+
+/**
+ * Phase 5 배선(계획 §5 #2 — 2026-08-04 검수 레인 GO): transport=claude-cli 면 binding 이
+ * 키 요구를 흡수하고 fetchImpl(CLI shim)을 준다. api 경로는 기존 requireApiKey 흐름 그대로
+ * (binding = null). 결과의 transport 는 runAiReview 에 전달돼 사이드카 aiReviewTransport 로
+ * 기록된다(감사 레인 동형).
+ */
+async function resolveReviewBinding(): Promise<{
+  binding: LabLlmBinding | null;
+  apiKey: string;
+  transport: "api" | "claude-cli";
+}> {
+  if (resolveLabTransport() === "claude-cli") {
+    const binding = await resolveLabLlmBinding();
+    return { binding, apiKey: binding.apiKey, transport: binding.transport };
+  }
+  return { binding: null, apiKey: requireApiKey(), transport: "api" };
 }
 
 // ---- spike-out 스캔(기본 모드·감사 모드 공용) --------------------------------------
@@ -177,8 +195,10 @@ function estimateReviewCostUsd(model: string, run: LabRun): number | null {
 // ---- 캘리브레이션 모드 -------------------------------------------------------------
 
 async function runCalibrateMode(model: string, force: boolean): Promise<number> {
-  const apiKey = requireApiKey();
-  console.log(`[calibrate] 판정 모델: ${model} · promptVersion=${AI_REVIEW_PROMPT_VERSION}`);
+  const { binding, apiKey, transport } = await resolveReviewBinding();
+  console.log(
+    `[calibrate] 판정 모델: ${model} · promptVersion=${AI_REVIEW_PROMPT_VERSION} · transport=${transport}`,
+  );
 
   // 대상 = 사람 review.json 보유 런 전수(파일럿 3건) — reviewed-runs 공유 모듈의 전수 스캔.
   const selection = await selectReviewedRuns({ scanAll: true });
@@ -196,7 +216,14 @@ async function runCalibrateMode(model: string, force: boolean): Promise<number> 
   for (const target of targets) {
     const label = `${target.run.source}/${target.run.sourceId} ${shortTitle(target.run.title)}`;
     try {
-      const outcome = await runAiReview({ run: target.run, model, apiKey, force });
+      const outcome = await runAiReview({
+        run: target.run,
+        model,
+        apiKey,
+        force,
+        ...(binding?.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
+        transport,
+      });
       if (outcome.status === "input_drift") {
         failures.push(
           `${label}: 원문 드리프트 — 재조립 sha ${outcome.actualSha256.slice(0, 12)}… ≠ 런 sha ${outcome.expectedSha256.slice(0, 12)}… (검수 불가·스킵)`,
@@ -374,7 +401,8 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
   const targets = pending.slice(0, options.limit);
 
   console.log(
-    `[ai-review] 기본 모드 · 판정 모델 ${options.model} · 코호트 ${cohort.entries.length}건` +
+    `[ai-review] 기본 모드 · 판정 모델 ${options.model} · transport=${resolveLabTransport()} · ` +
+      `코호트 ${cohort.entries.length}건` +
       (cohort.experimentLabel ? ` (${cohort.experimentLabel})` : "") +
       (options.grantIds ? ` · 지정 대상 ${options.grantIds.size}건` : ""),
   );
@@ -401,8 +429,10 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
     return 0;
   }
 
-  const apiKey = requireApiKey();
-  console.log(`[ai-review] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${options.maxCostUsd}`);
+  const { binding, apiKey, transport } = await resolveReviewBinding();
+  console.log(
+    `[ai-review] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${options.maxCostUsd} · transport=${transport}`,
+  );
 
   let okCount = 0;
   let failCount = 0;
@@ -425,7 +455,14 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
       // error 1회 재시도(§ CLI 스펙) — runAiReview 내부의 HTTP 재시도와 별개의 겉 재시도.
       for (let attemptNo = 1; attemptNo <= 2; attemptNo += 1) {
         try {
-          const outcome = await runAiReview({ run, model: options.model, apiKey, force: options.force });
+          const outcome = await runAiReview({
+            run,
+            model: options.model,
+            apiKey,
+            force: options.force,
+            ...(binding?.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
+            transport,
+          });
           const seconds = ((Date.now() - startedMs) / 1000).toFixed(1);
           if (outcome.status === "input_drift") {
             driftCount += 1;
@@ -541,13 +578,9 @@ async function runAuditListMode(model: string): Promise<number> {
 // ---- 메인 -------------------------------------------------------------------------
 
 async function main(): Promise<number> {
-  // 결정 ①(계획 §9): ai-review 레인은 transport 를 배선하지 않는다 — 감지 시 안내만 출력해
-  // roundtrip 레인과 같은 "구독으로 도는 줄 아는" 조용한 오해를 방지한다(Phase 5 이연).
-  if (resolveLabTransport() === "claude-cli") {
-    console.log(
-      "[ai-review] ANALYSIS_LAB_TRANSPORT=claude-cli 감지 — ai-review 레인은 API를 유지합니다(전환 제외, 계획 §9 결정 ①).",
-    );
-  }
+  // Phase 5 배선(2026-08-04): 검수 레인 구독 전환 GO —
+  // docs/research/2026-08-04-검수레인-구독전환-일치율-검증.md. transport 분기는
+  // resolveReviewBinding 이 담당한다(안내 로그였던 "API 유지" 이연 조치는 종료).
   const model = resolveAiReviewModel(readArg("model"));
   const force = hasFlag("force");
   const grantIds = readCsvArg("grant-ids");
