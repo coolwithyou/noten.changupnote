@@ -11,6 +11,12 @@ import {
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { acquireGrantPublicationLock } from "./grantPublicationLock";
+import {
+  hasPromotionProtectedCriteria,
+  selectPromotionProtectedGrantIds,
+  warnPromotionProtectedSkip,
+} from "./normalizedGrantPublisher";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 
 loadMonorepoEnv();
@@ -37,6 +43,18 @@ try {
     plans.push({ annotation, plan: planReviewedGrantPublication(annotation, current), current });
   }
 
+  // P1 승격 보호 가드 (docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md §3 P1):
+  // stable_key 행이 있는 grant 는 승격 큐레이션 세트가 서빙 중 — reviewed 재발행(delete→insert)과
+  // 그 파생 쓰기(fIndustries·reviewed extraction_log)로 말소·모순을 만들지 않는다.
+  // 이 일괄 판별은 dry-run 안내·사전 스킵용이고, write 의 최종 결정(정본)은 grant별 트랜잭션
+  // 안에서 발행 lock 획득 후 재판별한다(lab:promote --write 와의 TOCTOU 경쟁 창 해소).
+  const promotionProtectedGrantIds = await selectPromotionProtectedGrantIds(
+    db,
+    plans
+      .map((item) => item.current.grant.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0),
+  );
+
   if (!write) {
     console.log(JSON.stringify({
       mode: "dry-run",
@@ -46,10 +64,16 @@ try {
       unreviewedCount: unreviewed.length,
       unreviewedAction: "skipped",
       publishableCount: plans.length,
-      criteriaCount: plans.reduce((sum, item) => sum + item.plan.criteria.length, 0),
+      promotionProtectedCount: promotionProtectedGrantIds.size,
+      // write 실효과와 일치: 보호 스킵분 criteria 는 criteriaCount 에서 제외하고 별도 병기.
+      criteriaCount: plans.reduce((sum, item) =>
+        sum + (promotionProtectedGrantIds.has(item.current.grant.id ?? "") ? 0 : item.plan.criteria.length), 0),
+      promotionProtectedSkippedCriteriaCount: plans.reduce((sum, item) =>
+        sum + (promotionProtectedGrantIds.has(item.current.grant.id ?? "") ? item.plan.criteria.length : 0), 0),
       staleMatchStateAction: "delete by grant; rebuilt by match-state refresh",
       plans: plans.map((item) => ({
         grantId: item.plan.grantId,
+        promotionProtected: promotionProtectedGrantIds.has(item.current.grant.id ?? ""),
         source: item.plan.source,
         sourceId: item.plan.sourceId,
         reviewerId: item.plan.reviewerId,
@@ -60,10 +84,28 @@ try {
     }, null, 2));
   } else {
     const results = [];
+    const promotionProtectedSkipped: string[] = [];
     for (const item of plans) {
       const grantRowId = item.current.grant.id;
       if (!grantRowId) throw new Error(`current grant row id missing: ${item.plan.grantId}`);
+      if (promotionProtectedGrantIds.has(grantRowId)) {
+        // criteria 교체만이 아니라 fIndustries·reviewed extraction_log 도 승격 세트와 모순을
+        // 만들므로 이 grant 의 발행 전체를 스킵한다.
+        warnPromotionProtectedSkip(`${item.plan.grantId} (grant ${grantRowId})`);
+        promotionProtectedSkipped.push(item.plan.grantId);
+        continue;
+      }
       const result = await db.transaction(async (tx) => {
+        // 정본 판별: 발행 lock 획득 후 보호 여부를 재판별한다 — 위 일괄 판별 이후
+        // lab:promote --write 가 끼어든 경쟁 창(TOCTOU)을 닫는다.
+        await acquireGrantPublicationLock(tx, grantRowId);
+        const lockedCriteria = await tx
+          .select({ stableKey: schema.grantCriteria.stableKey })
+          .from(schema.grantCriteria)
+          .where(eq(schema.grantCriteria.grantId, grantRowId));
+        if (hasPromotionProtectedCriteria(lockedCriteria)) {
+          return { promotionProtected: true as const };
+        }
         await tx.delete(schema.grantCriteria).where(eq(schema.grantCriteria.grantId, grantRowId));
         if (item.plan.criteria.length > 0) {
           await tx.insert(schema.grantCriteria).values(item.plan.criteria.map((criterion) =>
@@ -100,8 +142,13 @@ try {
           modelVer: item.plan.parserVersion,
           promptVer: "matching-v3",
         });
-        return { deletedMatchStateCount: deletedStates.length };
+        return { promotionProtected: false as const, deletedMatchStateCount: deletedStates.length };
       });
+      if (result.promotionProtected) {
+        warnPromotionProtectedSkip(`${item.plan.grantId} (grant ${grantRowId})`);
+        promotionProtectedSkipped.push(item.plan.grantId);
+        continue;
+      }
       const refreshed = await repositories.grants.findGrantById(`${item.plan.source}:${item.plan.sourceId}`);
       if (!refreshed?.extraction_manifest?.reviewedAt) {
         throw new Error(`reviewed extraction manifest hydration failed: ${item.plan.grantId}`);
@@ -117,6 +164,8 @@ try {
     console.log(JSON.stringify({
       mode: "write",
       publishedCount: results.length,
+      promotionProtectedSkippedCount: promotionProtectedSkipped.length,
+      promotionProtectedSkippedGrantIds: promotionProtectedSkipped,
       matchStateRefreshRequired: true,
       results,
     }, null, 2));

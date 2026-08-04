@@ -1,4 +1,4 @@
-import { and, eq, inArray, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, notInArray } from "drizzle-orm";
 import type {
   Grant,
   GrantCriterion,
@@ -23,6 +23,7 @@ import {
   expandConfirmedGrantComponentIds,
   matchingAttachmentRevisionProjection,
   type PublishedGrantRevisionKind,
+  type PublishedGrantRevisionSnapshot,
 } from "./grantRevisionInvalidation";
 import { runGrantRevisionScopedRefresh } from "../matches/grantRevisionScopedRefreshCore";
 
@@ -44,6 +45,14 @@ export interface NormalizedGrantPublishResult extends NormalizedGrantPublishPlan
   matchStateRefreshRequired: boolean;
   /** grant-scope 재계산 대상. confirmed member 변경 시 canonical component도 포함한다. */
   matchStateRefreshGrantIds: string[];
+  /**
+   * P1 승격 보호(promotion-protected): 기존 criteria에 stable_key 행이 있어 criteria 교체를
+   * 스킵하고 승격 큐레이션 세트를 보존한 grant 수.
+   * (docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md §1.5·§3 P1)
+   */
+  promotionProtectedCount: number;
+  /** 보호가 발동한 공고 source_id 목록 — 수집 크론 로그·감사에서 보호 발동 확인용. */
+  promotionProtectedSourceIds: string[];
   /** T7 후크: surface 생성/변환 job 등록 중 발생한 경고 (아카이브는 성공). */
   conversionWarnings?: string[];
 }
@@ -91,7 +100,7 @@ export async function publishNormalizedGrants<TPayload>(
 
   const conversionWarnings: string[] = [];
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const confirmedLinks = await tx
       .select({
         canonicalGrantId: schema.dedupLinks.canonicalGrantId,
@@ -107,6 +116,7 @@ export async function publishNormalizedGrants<TPayload>(
     const refreshGrantIds = new Set<string>();
     const invalidatedStateKeys = new Set<string>();
     const invalidatedCompanyIds = new Set<string>();
+    const promotionProtectedSourceIds: string[] = [];
 
     for (const entry of entries) {
       const nextRawHash = hashGrantRawPayload(entry.raw.payload);
@@ -143,21 +153,17 @@ export async function publishNormalizedGrants<TPayload>(
         ? await tx.select().from(schema.grantCriteria)
           .where(eq(schema.grantCriteria.grantId, previous.grantId))
         : [];
-      const revisionKind = classifyPublishedGrantRevision(previous ? {
-        rawHash: previous.rawHash,
-        matchingProjectionHash: hashGrantRawPayload(storedMatchingProjection(previous.grant, previousCriteria)),
-        attachments: matchingAttachmentRevisionProjection(previous.attachments),
-        parserVersion: previous.parserVersion,
-        modelVer: previous.modelVer,
-        promptVer: previous.promptVer,
-      } : null, {
-        rawHash: nextRawHash,
-        matchingProjectionHash: hashGrantRawPayload(incomingMatchingProjection(entry)),
-        attachments: matchingAttachmentRevisionProjection(rawAttachments(entry.raw.attachments)),
-        parserVersion: entry.grant.parser_version ?? null,
-        modelVer: entry.grant.model_ver ?? null,
-        promptVer: entry.grant.prompt_ver ?? null,
+      // P1 승격 보호(promotion-protected) 판별 — 추가 쿼리 없이, 위에서 이미 읽은
+      // previousCriteria(advisory lock 획득 후 재조회 baseline)를 재사용한다.
+      const promotionProtected = hasPromotionProtectedCriteria(previousCriteria);
+      const { stored, incoming } = computePublishRevisionSnapshots({
+        previous,
+        previousCriteria,
+        entry,
+        nextRawHash,
+        promotionProtected,
       });
+      const revisionKind = classifyPublishedGrantRevision(stored, incoming);
       revisionCounts[revisionKind] += 1;
 
       await tx
@@ -230,11 +236,18 @@ export async function publishNormalizedGrants<TPayload>(
         }
       }
 
-      await tx.delete(schema.grantCriteria).where(eq(schema.grantCriteria.grantId, grant.id));
-      if (entry.criteria.length > 0) {
-        await tx.insert(schema.grantCriteria).values(
-          entry.criteria.map((criterion) => criterionInsertValues(grant.id, criterion)),
-        );
+      if (promotionProtected) {
+        // P1 승격 보호: delete·insert 모두 스킵해 승격 큐레이션 세트를 완전 보존한다.
+        // 파서 criteria 를 병존 삽입하면 의미가 겹치는 행이 이중 매칭을 만들므로 금지.
+        // 이 grant 의 criteria 갱신은 재분석→재승격(lab:promote) 경로만 허용한다.
+        promotionProtectedSourceIds.push(entry.grant.source_id);
+      } else {
+        await tx.delete(schema.grantCriteria).where(eq(schema.grantCriteria.grantId, grant.id));
+        if (entry.criteria.length > 0) {
+          await tx.insert(schema.grantCriteria).values(
+            entry.criteria.map((criterion) => criterionInsertValues(grant.id, criterion)),
+          );
+        }
       }
 
       const archivedAttachments = grantAttachmentArchiveRows(entry);
@@ -343,43 +356,208 @@ export async function publishNormalizedGrants<TPayload>(
       matchStateRefreshedCount,
       matchStateRefreshRequired: invalidatedStateKeys.size > 0 && matchStateRefreshedCount === 0,
       matchStateRefreshGrantIds: [...refreshGrantIds].sort(),
+      promotionProtectedCount: promotionProtectedSourceIds.length,
+      promotionProtectedSourceIds: [...promotionProtectedSourceIds].sort(),
       ...(conversionWarnings.length > 0 ? { conversionWarnings } : {}),
     };
   });
+
+  if (result.promotionProtectedCount > 0) {
+    // 관측성: 수집 크론(Vercel) 함수 로그에 보호 발동을 1줄로 남긴다 — 커밋된 publish에만 기록.
+    console.warn(
+      `[grant-publish] source=${options.source} promotionProtected=${result.promotionProtectedCount} `
+      + `sourceIds=${result.promotionProtectedSourceIds.join(",")} — 승격 보호 grant는 criteria 교체 스킵(큐레이션 세트 보존)`,
+    );
+  }
+  return result;
 }
 
 function numberField(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+/**
+ * P1 승격 보호(promotion-protected) 판별 — grant의 기존 criteria에 stable_key(NOT NULL) 행이
+ * 하나라도 있으면 딥분석 승격 큐레이션 세트가 서빙 중인 상태다.
+ *
+ * 이 판별이 스키마 확장 없이 자기정합적인 근거:
+ *  1) 승격 엔진(analysis-lab/promote-cli)은 발행하는 모든 행에 stableKey를 부여하고,
+ *     승격 세트 밖의 stale 행(파서가 남긴 NULL 행 포함)을 삭제한다 → 승격 후 전 행 NOT NULL.
+ *  2) 수집 파서 발행(criterionInsertValues 직행)은 stableKey를 세팅하지 않는다(NULL).
+ *  3) 승격 롤백은 승격 전 원본(NULL) 행을 복원한다 → 롤백 즉시 보호 해제.
+ */
+export function hasPromotionProtectedCriteria(
+  criteria: Array<Pick<typeof schema.grantCriteria.$inferSelect, "stableKey">>,
+): boolean {
+  return criteria.some((criterion) => criterion.stableKey !== null);
+}
+
+/**
+ * 수동 CLI(재정규화·reviewed 재발행)용 배치 판별 — grantIds 중 승격 보호 상태인 id 집합.
+ * publisher 경로는 이미 읽는 previousCriteria를 재사용하므로 이 쿼리를 쓰지 않는다(추가 비용 0).
+ */
+export async function selectPromotionProtectedGrantIds(
+  db: CunoteDbSession,
+  grantIds: string[],
+): Promise<Set<string>> {
+  if (grantIds.length === 0) return new Set();
+  const rows = await db
+    .select({ grantId: schema.grantCriteria.grantId })
+    .from(schema.grantCriteria)
+    .where(and(
+      inArray(schema.grantCriteria.grantId, grantIds),
+      isNotNull(schema.grantCriteria.stableKey),
+    ))
+    .groupBy(schema.grantCriteria.grantId);
+  return new Set(rows.map((row) => row.grantId));
+}
+
+/** 수동 CLI 공통: 승격 보호 grant의 criteria 교체를 스킵할 때 남기는 stderr 경고 1줄. */
+export function promotionProtectedSkipWarning(grantRef: string): string {
+  return `[promotion-protected] ${grantRef}: 승격 보호로 criteria 유지(교체 스킵) — 갱신은 재분석→재승격(lab:promote) 경로로`;
+}
+
+export function warnPromotionProtectedSkip(grantRef: string): void {
+  process.stderr.write(`${promotionProtectedSkipWarning(grantRef)}\n`);
+}
+
+interface StoredGrantRevisionRow {
+  grant: typeof schema.grants.$inferSelect;
+  rawHash: string | null;
+  attachments: unknown;
+  parserVersion: string | null;
+  modelVer: string | null;
+  promptVer: string | null;
+}
+
+/**
+ * revision 지문(snapshot) 계산.
+ *
+ * 승격 보호 grant는 stored·incoming 양측 matchingProjectionHash를 criteria 제외로 대칭 계산한다:
+ *  - criteria 자리에는 양측 모두 빈 배열을 넣어 projection 형태({grant, criteria})를 보존한다.
+ *  - stored 쪽 grant는 매칭 projection 필드로 좁힌다(pickStoredGrantProjectionFields).
+ *    비보호 경로의 storedMatchingProjection은 DB 행 전체를 spread 하므로 id·updatedAt·
+ *    servingState 등 incoming 쪽에 없는 키가 항상 섞여, criteria만 제외해서는 양측 지문이
+ *    같아질 수 없다. 보호 경로의 목적은 "본문·필드·첨부·추출기 버전의 실변화만 changed 신호로
+ *    남기고, 승격분≠파서분 차이만으로 매 사이클 changed가 되는 영구 재분류를 차단"하는 것이므로
+ *    양측을 동일한 매칭 projection 필드 집합으로 맞춘다.
+ *
+ * 비보호 grant 경로는 P1 이전 계산과 바이트 단위 동일해야 한다(전체 행 spread 그대로) —
+ * 지문이 바뀌면 전 공고가 일시에 changed로 재분류되는 사고가 난다. 절대 변경 금지.
+ */
+export function computePublishRevisionSnapshots<TPayload>(input: {
+  previous: StoredGrantRevisionRow | null | undefined;
+  previousCriteria: Array<typeof schema.grantCriteria.$inferSelect>;
+  entry: NormalizedGrant<TPayload>;
+  nextRawHash: string;
+  promotionProtected: boolean;
+}): { stored: PublishedGrantRevisionSnapshot | null; incoming: PublishedGrantRevisionSnapshot } {
+  const { previous, previousCriteria, entry, nextRawHash, promotionProtected } = input;
+  const storedProjection = previous
+    ? (promotionProtected
+      ? {
+        grant: normalizedGrantProjection(pickStoredGrantProjectionFields(previous.grant)),
+        criteria: normalizedCriteriaProjection([]),
+      }
+      : storedMatchingProjection(previous.grant, previousCriteria))
+    : null;
+  const incomingProjection = promotionProtected
+    ? {
+      grant: normalizedGrantProjection(incomingGrantProjectionInput(entry)),
+      criteria: normalizedCriteriaProjection([]),
+    }
+    : incomingMatchingProjection(entry);
+  return {
+    stored: previous ? {
+      rawHash: previous.rawHash,
+      matchingProjectionHash: hashGrantRawPayload(storedProjection),
+      attachments: matchingAttachmentRevisionProjection(previous.attachments),
+      parserVersion: previous.parserVersion,
+      modelVer: previous.modelVer,
+      promptVer: previous.promptVer,
+    } : null,
+    incoming: {
+      rawHash: nextRawHash,
+      matchingProjectionHash: hashGrantRawPayload(incomingProjection),
+      attachments: matchingAttachmentRevisionProjection(rawAttachments(entry.raw.attachments)),
+      parserVersion: entry.grant.parser_version ?? null,
+      modelVer: entry.grant.model_ver ?? null,
+      promptVer: entry.grant.prompt_ver ?? null,
+    },
+  };
+}
+
+/**
+ * stored grant 행을 매칭 projection 필드로만 좁힌다 — 승격 보호 지문 전용.
+ * 비보호 경로(storedMatchingProjection)는 기존과 동일하게 전체 행을 그대로 넘긴다(바이트 호환).
+ */
+function pickStoredGrantProjectionFields(
+  grant: typeof schema.grants.$inferSelect,
+): Parameters<typeof normalizedGrantProjection>[0] {
+  return {
+    title: grant.title,
+    url: grant.url,
+    agencyJurisdiction: grant.agencyJurisdiction,
+    agencyOperator: grant.agencyOperator,
+    agencyPrimary: grant.agencyPrimary,
+    categoryL1: grant.categoryL1,
+    categoryL2: grant.categoryL2,
+    applyStart: grant.applyStart,
+    applyEnd: grant.applyEnd,
+    applyMethod: grant.applyMethod,
+    supportAmount: grant.supportAmount,
+    benefits: grant.benefits,
+    requiredDocuments: grant.requiredDocuments,
+    status: grant.status,
+    fRegions: grant.fRegions,
+    fIndustries: grant.fIndustries,
+    fBizAgeMinMonths: grant.fBizAgeMinMonths,
+    fBizAgeMaxMonths: grant.fBizAgeMaxMonths,
+    fSizes: grant.fSizes,
+    fFounderTraits: grant.fFounderTraits,
+    fRequiredCerts: grant.fRequiredCerts,
+    fApplyMethods: grant.fApplyMethods,
+    fAuthoringMode: grant.fAuthoringMode,
+    // 잠재 리스크: overallConfidence 는 float4(real) 왕복 값 — 파서가 소수 2자리 round 를 유지하는
+    // 한 incoming 과 대칭이지만, 그 불변식이 깨지면 보호 grant 가 상시 changed 로 흐를 수 있다.
+    overallConfidence: grant.overallConfidence,
+  };
+}
+
+function incomingGrantProjectionInput<TPayload>(
+  entry: NormalizedGrant<TPayload>,
+): Parameters<typeof normalizedGrantProjection>[0] {
+  return {
+    title: entry.grant.title,
+    url: entry.grant.url ?? null,
+    agencyJurisdiction: entry.grant.agency_jurisdiction ?? null,
+    agencyOperator: entry.grant.agency_operator ?? null,
+    agencyPrimary: entry.grant.agency_primary ?? null,
+    categoryL1: entry.grant.category_l1 ?? null,
+    categoryL2: entry.grant.category_l2 ?? null,
+    applyStart: dateValue(entry.grant.apply_start),
+    applyEnd: dateValue(entry.grant.apply_end),
+    applyMethod: entry.grant.apply_method ?? null,
+    supportAmount: entry.grant.support_amount ?? null,
+    benefits: entry.grant.benefits ?? null,
+    requiredDocuments: entry.grant.required_documents ?? null,
+    status: entry.grant.status,
+    fRegions: entry.grant.f_regions,
+    fIndustries: entry.grant.f_industries,
+    fBizAgeMinMonths: entry.grant.f_biz_age_min_months ?? null,
+    fBizAgeMaxMonths: entry.grant.f_biz_age_max_months ?? null,
+    fSizes: entry.grant.f_sizes,
+    fFounderTraits: entry.grant.f_founder_traits,
+    fRequiredCerts: entry.grant.f_required_certs,
+    fApplyMethods: entry.grant.f_apply_methods ?? [],
+    fAuthoringMode: entry.grant.f_authoring_mode ?? "unknown",
+    overallConfidence: entry.grant.overall_confidence,
+  };
+}
+
 function incomingMatchingProjection<TPayload>(entry: NormalizedGrant<TPayload>): Record<string, unknown> {
   return {
-    grant: normalizedGrantProjection({
-      title: entry.grant.title,
-      url: entry.grant.url ?? null,
-      agencyJurisdiction: entry.grant.agency_jurisdiction ?? null,
-      agencyOperator: entry.grant.agency_operator ?? null,
-      agencyPrimary: entry.grant.agency_primary ?? null,
-      categoryL1: entry.grant.category_l1 ?? null,
-      categoryL2: entry.grant.category_l2 ?? null,
-      applyStart: dateValue(entry.grant.apply_start),
-      applyEnd: dateValue(entry.grant.apply_end),
-      applyMethod: entry.grant.apply_method ?? null,
-      supportAmount: entry.grant.support_amount ?? null,
-      benefits: entry.grant.benefits ?? null,
-      requiredDocuments: entry.grant.required_documents ?? null,
-      status: entry.grant.status,
-      fRegions: entry.grant.f_regions,
-      fIndustries: entry.grant.f_industries,
-      fBizAgeMinMonths: entry.grant.f_biz_age_min_months ?? null,
-      fBizAgeMaxMonths: entry.grant.f_biz_age_max_months ?? null,
-      fSizes: entry.grant.f_sizes,
-      fFounderTraits: entry.grant.f_founder_traits,
-      fRequiredCerts: entry.grant.f_required_certs,
-      fApplyMethods: entry.grant.f_apply_methods ?? [],
-      fAuthoringMode: entry.grant.f_authoring_mode ?? "unknown",
-      overallConfidence: entry.grant.overall_confidence,
-    }),
+    grant: normalizedGrantProjection(incomingGrantProjectionInput(entry)),
     criteria: normalizedCriteriaProjection(entry.criteria.map((criterion) => ({
       dimension: criterion.dimension,
       operator: criterion.operator,

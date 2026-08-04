@@ -29,6 +29,12 @@ import {
 import { closeCunoteDb, getCunoteDb } from "../db/client";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import * as schema from "../db/schema";
+import { acquireGrantPublicationLock } from "./grantPublicationLock";
+import {
+  hasPromotionProtectedCriteria,
+  selectPromotionProtectedGrantIds,
+  warnPromotionProtectedSkip,
+} from "./normalizedGrantPublisher";
 import { assessPriorAwardIndependentReview, type PriorAwardReviewCandidate } from "./priorAwardReviewGate";
 
 loadMonorepoEnv();
@@ -67,6 +73,9 @@ async function main() {
     startedAt: startedIso,
     targetCount: 0,
     renormalizedGrants: 0,
+    promotionProtectedGrants: 0,
+    /** 보호 grant 가 보존 중인 criteria 행 수 — criteriaBefore/After 집계에서 분리(왜곡 제거). */
+    criteriaProtectedPreserved: 0,
     criteriaBefore: 0,
     criteriaAfter: 0,
     newDisqCriteria: 0,
@@ -94,7 +103,16 @@ async function main() {
     summary.targetCount = rows.length;
     const asOf = new Date();
     if (priorAwardSplit) {
-      const candidates = buildPriorAwardCandidates(rows, asOf);
+      // P1 승격 보호 grant 는 어차피 쓰기에서 스킵되므로 prior_award 독립검수 후보에서도
+      // 제외한다 — 스킵될 grant 때문에 --write 검수 게이트가 불필요하게 실패하는 것을 방지.
+      const protectedForCandidates = await selectPromotionProtectedGrantIds(
+        db,
+        rows.map((row) => row.id),
+      );
+      const candidates = buildPriorAwardCandidates(
+        rows.filter((row) => !protectedForCandidates.has(row.id)),
+        asOf,
+      );
       const assessment = assessPriorAwardIndependentReview(
         candidates,
         priorAwardAnnotationsPath ? readFileSync(priorAwardAnnotationsPath, "utf8") : null,
@@ -131,6 +149,8 @@ async function processBatch(
   asOf: Date,
   summary: {
     renormalizedGrants: number;
+    promotionProtectedGrants: number;
+    criteriaProtectedPreserved: number;
     criteriaBefore: number;
     criteriaAfter: number;
     newDisqCriteria: number;
@@ -148,14 +168,29 @@ async function processBatch(
   // 배치 내 기존 criteria 수(비교용)
   const grantIds = chunk.map((r) => r.id);
   if (grantIds.length === 0) return;
+  // P1 승격 보호 가드 (docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md §3 P1):
+  // stable_key 행이 있는 grant 는 승격 큐레이션 세트가 서빙 중 — 이 CLI 의 delete→insert 로
+  // 말소하면 안 된다. 이 배치 판별은 사전 안내·집계용이고, write 의 최종 결정(정본)은 grant별
+  // 트랜잭션 안에서 발행 lock 획득 후 재판별한다(lab:promote --write 와의 TOCTOU 경쟁 창 해소).
+  const protectedGrantIds = await selectPromotionProtectedGrantIds(db, grantIds);
+
   const beforeCounts = (await db
     .select({ grantId: schema.grantCriteria.grantId })
     .from(schema.grantCriteria)
     .where(inArray(schema.grantCriteria.grantId, grantIds))) as Array<{ grantId: string }>;
-  summary.criteriaBefore += beforeCounts.length;
+  // 보호 grant 가 보존 중인 criteria 는 before/after 비교 집계에서 분리한다(왜곡 제거).
+  for (const beforeRow of beforeCounts) {
+    if (protectedGrantIds.has(beforeRow.grantId)) summary.criteriaProtectedPreserved += 1;
+    else summary.criteriaBefore += 1;
+  }
 
   for (const row of chunk) {
     try {
+      if (protectedGrantIds.has(row.id)) {
+        warnPromotionProtectedSkip(`kstartup:${row.sourceId} (grant ${row.id})`);
+        summary.promotionProtectedGrants += 1;
+        continue;
+      }
       const normalized = normalizeKStartupAnnouncement(row.payload, {
         asOf,
         collectedAt: asOf,
@@ -164,18 +199,16 @@ async function processBatch(
       const grant = normalized.grant;
       const criteria = normalized.criteria;
 
-      // 신규 결격 criteria 집계
-      for (const c of criteria) {
-        if (c.dimension === "prior_award") summary.priorAwardCriteria += 1;
-        if (disqDims.has(c.dimension)) {
-          summary.newDisqCriteria += 1;
-          summary.disqByDimension[c.dimension] = (summary.disqByDimension[c.dimension] ?? 0) + 1;
-        }
-      }
-      summary.criteriaAfter += criteria.length;
-
       if (write) {
-        await db.transaction(async (tx) => {
+        const applied = await db.transaction(async (tx) => {
+          // 정본 판별: 발행 lock 획득 후 보호 여부를 재판별한다 — 사전 배치 판별 이후
+          // lab:promote --write 가 끼어든 경쟁 창(TOCTOU)을 닫는다.
+          await acquireGrantPublicationLock(tx, row.id);
+          const lockedCriteria = await tx
+            .select({ stableKey: schema.grantCriteria.stableKey })
+            .from(schema.grantCriteria)
+            .where(eq(schema.grantCriteria.grantId, row.id));
+          if (hasPromotionProtectedCriteria(lockedCriteria)) return false;
           await tx
             .update(schema.grants)
             .set(grantUpdateValues(grant, asOf))
@@ -186,8 +219,24 @@ async function processBatch(
               criteria.map((c) => criterionInsertValues(row.id, c)),
             );
           }
+          return true;
         });
+        if (!applied) {
+          warnPromotionProtectedSkip(`kstartup:${row.sourceId} (grant ${row.id})`);
+          summary.promotionProtectedGrants += 1;
+          continue;
+        }
       }
+
+      // 집계는 적용(또는 dry-run 적용 예정) grant 만 — 보호 스킵분은 위에서 분리했다.
+      for (const c of criteria) {
+        if (c.dimension === "prior_award") summary.priorAwardCriteria += 1;
+        if (disqDims.has(c.dimension)) {
+          summary.newDisqCriteria += 1;
+          summary.disqByDimension[c.dimension] = (summary.disqByDimension[c.dimension] ?? 0) + 1;
+        }
+      }
+      summary.criteriaAfter += criteria.length;
       summary.renormalizedGrants += 1;
     } catch (error) {
       summary.errors.push({
