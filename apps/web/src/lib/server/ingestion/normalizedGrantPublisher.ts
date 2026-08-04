@@ -433,17 +433,18 @@ interface StoredGrantRevisionRow {
 /**
  * revision 지문(snapshot) 계산.
  *
- * 승격 보호 grant는 stored·incoming 양측 matchingProjectionHash를 criteria 제외로 대칭 계산한다:
- *  - criteria 자리에는 양측 모두 빈 배열을 넣어 projection 형태({grant, criteria})를 보존한다.
- *  - stored 쪽 grant는 매칭 projection 필드로 좁힌다(pickStoredGrantProjectionFields).
- *    비보호 경로의 storedMatchingProjection은 DB 행 전체를 spread 하므로 id·updatedAt·
- *    servingState 등 incoming 쪽에 없는 키가 항상 섞여, criteria만 제외해서는 양측 지문이
- *    같아질 수 없다. 보호 경로의 목적은 "본문·필드·첨부·추출기 버전의 실변화만 changed 신호로
- *    남기고, 승격분≠파서분 차이만으로 매 사이클 changed가 되는 영구 재분류를 차단"하는 것이므로
- *    양측을 동일한 매칭 projection 필드 집합으로 맞춘다.
+ * stored·incoming 양측 grant projection은 동일한 매칭 필드 집합으로 대칭 계산한다(P1-b, 전 공고).
+ * 이전에는 stored 쪽이 DB 행 전체를 spread 해 id·updatedAt·servingState·embedding 등 비교
+ * 대상이 아닌 잡음이 지문에 섞였고("수집 시각은 의도적으로 비교하지 않는다"는
+ * grantRevisionInvalidation 의 의도와 상충), 기존 grant 재발행은 구조적으로 unchanged 가 될 수
+ * 없었다. rawHash 는 스냅샷에 그대로 포함되므로 원문 실변화 시 changed 판정은 불변이며, 이
+ * 대칭화로 판정이 달라지는 것은 same-raw 재발행(원문 동일 재발행) 경로뿐이다 —
+ * 2026-08 메인 세션 30일 실측: unchanged 0건·changed 86건 전수 raw_hash 실변화,
+ * same-raw 재발행 0건(비대칭은 휴면 상태였고, 이 변경은 뇌관 제거 + P1 보호/비보호 비일관성 해소).
  *
- * 비보호 grant 경로는 P1 이전 계산과 바이트 단위 동일해야 한다(전체 행 spread 그대로) —
- * 지문이 바뀌면 전 공고가 일시에 changed로 재분류되는 사고가 난다. 절대 변경 금지.
+ * 승격 보호 grant는 추가로 criteria를 양측 대칭 제외한다(빈 배열로 {grant, criteria} 형태 보존) —
+ * 승격분≠파서분 차이만으로 매 사이클 changed가 되는 영구 재분류를 차단하고, 본문·필드·첨부·
+ * 추출기 버전의 실변화만 changed 신호로 남긴다.
  */
 export function computePublishRevisionSnapshots<TPayload>(input: {
   previous: StoredGrantRevisionRow | null | undefined;
@@ -454,12 +455,7 @@ export function computePublishRevisionSnapshots<TPayload>(input: {
 }): { stored: PublishedGrantRevisionSnapshot | null; incoming: PublishedGrantRevisionSnapshot } {
   const { previous, previousCriteria, entry, nextRawHash, promotionProtected } = input;
   const storedProjection = previous
-    ? (promotionProtected
-      ? {
-        grant: normalizedGrantProjection(pickStoredGrantProjectionFields(previous.grant)),
-        criteria: normalizedCriteriaProjection([]),
-      }
-      : storedMatchingProjection(previous.grant, previousCriteria))
+    ? storedMatchingProjection(previous.grant, promotionProtected ? [] : previousCriteria)
     : null;
   const incomingProjection = promotionProtected
     ? {
@@ -488,8 +484,8 @@ export function computePublishRevisionSnapshots<TPayload>(input: {
 }
 
 /**
- * stored grant 행을 매칭 projection 필드로만 좁힌다 — 승격 보호 지문 전용.
- * 비보호 경로(storedMatchingProjection)는 기존과 동일하게 전체 행을 그대로 넘긴다(바이트 호환).
+ * stored grant 행을 매칭 projection 필드로만 좁힌다 — stored·incoming 지문 대칭의 기준 필드
+ * 집합(P1-b 부터 보호 여부와 무관하게 전 공고에 적용).
  */
 function pickStoredGrantProjectionFields(
   grant: typeof schema.grants.$inferSelect,
@@ -579,7 +575,12 @@ function storedMatchingProjection(
   criteria: Array<typeof schema.grantCriteria.$inferSelect>,
 ): Record<string, unknown> {
   return {
-    grant: normalizedGrantProjection(grant),
+    // P1-b: DB 행 전체 spread 금지 — 매칭 projection 필드로 절단해 incoming 과 대칭 계산한다.
+    // (이전에는 id·updatedAt·servingState·embedding 등 잡음이 stored 지문에 섞여 기존 grant
+    //  재발행이 구조적으로 unchanged 가 될 수 없었다. rawHash 는 스냅샷에 그대로 포함되므로
+    //  원문 실변화 시 changed 는 불변 — 판정이 달라지는 것은 same-raw 재발행뿐이며, 30일 실측
+    //  unchanged 0·changed 86 전수 raw 실변화·same-raw 재발행 0으로 휴면 경로였다.)
+    grant: normalizedGrantProjection(pickStoredGrantProjectionFields(grant)),
     criteria: normalizedCriteriaProjection(criteria.map((criterion) => ({
       dimension: criterion.dimension,
       operator: criterion.operator,

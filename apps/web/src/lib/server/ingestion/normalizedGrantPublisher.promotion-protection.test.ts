@@ -3,8 +3,12 @@
 //
 // 검증 항목:
 //  ① 보호 grant → criteria 무접촉(delete·insert 0회) + criteria 차이만으로는 revision unchanged
-//  ② 비보호 grant → P1 이전 계산과 바이트 단위 동일(revision 지문 포함). baseline* 은 P1 이전
-//     구현의 **동결 사본**(해시·첨부 projection까지 인라인 — 라이브 모듈 변경도 잡아내는 회귀 핀)
+//  ② 비보호 grant → P1-b 대칭 지문과 바이트 단위 동일. baseline* 은 P1-b 기준 지문 구현의
+//     **동결 사본**(해시·첨부 projection까지 인라인 — 라이브 모듈 변경도 잡아내는 회귀 핀).
+//     주의: P1-b 에서 stored 측을 매칭 필드로 절단하는 **의도된 동작 변경**이 있었고, 이
+//     baseline 은 그 변경을 반영해 갱신됐다(P1 이전 전체 행 spread 기준이 아님).
+//  ②-b P1-b 대칭 효과: 비보호 same-raw 재발행 + DB 행 잡음(updatedAt·servingState·embedding)만
+//     → unchanged, 실변화(제목·rawHash)는 changed 유지
 //  ③ 롤백 복원 상태(전부 NULL stable_key) → 보호 해제, delete→insert 재개
 //  ④ 수동 CLI 가드 경고 경로(stderr 1줄) + selectPromotionProtectedGrantIds 쿼리 경로
 import assert from "node:assert/strict";
@@ -252,6 +256,18 @@ function makeStoredCriterionRow(overrides: Partial<StoredCriterionRow> = {}): St
   };
 }
 
+/** parserCriterion() 의 발행 결과를 그대로 반영한 stored 행 — same-raw 재발행(무변화) 픽스처용. */
+function makeParserMirrorCriterionRow(overrides: Partial<StoredCriterionRow> = {}): StoredCriterionRow {
+  return makeStoredCriterionRow({
+    value: { regions: ["서울"] },
+    confidence: 0.8,
+    rawText: "서울 소재 기업",
+    parserVersion: "parser-1",
+    stableKey: null,
+    ...overrides,
+  });
+}
+
 function makePreviousRow(
   entry: NormalizedGrant<Record<string, unknown>>,
   grant: StoredGrantRow,
@@ -290,11 +306,13 @@ assert.equal(
 );
 
 // ---------------------------------------------------------------------------
-// ② 비보호 grant 지문: P1 이전 구현 동결 사본(baseline)과 바이트 단위 동일
+// ② 비보호 grant 지문: P1-b 대칭 지문 동결 사본(baseline)과 바이트 단위 동일
 // ---------------------------------------------------------------------------
-// 아래 baseline* 함수들은 P1 변경 직전 코드의 원문 복사본이며, 해시(grantRawHash.ts)와
+// 아래 baseline* 함수들은 P1-b 기준 지문 구현의 동결 사본이며, 해시(grantRawHash.ts)와
 // 첨부 projection(grantRevisionInvalidation.ts)까지 **동결 인라인**한다 — 라이브 모듈이
-// 나중에 바뀌어도 이 핀은 P1 시점 지문을 그대로 재현해 회귀를 잡는다.
+// 나중에 바뀌어도 이 핀은 P1-b 시점 지문을 그대로 재현해 회귀를 잡는다.
+// (의도된 동작 변경: P1-b 에서 stored 측 grant 를 전체 행 spread 대신 매칭 projection 필드로
+//  절단하도록 바꿨고, 이 baseline 사본도 그 기준으로 갱신됐다.)
 
 function baselineStableJsonStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
@@ -426,12 +444,42 @@ function baselineNormalizedCriteriaProjection(
     .sort((left, right) => baselineHashGrantRawPayload(left).localeCompare(baselineHashGrantRawPayload(right)));
 }
 
+/** P1-b 의도된 동작 변경 반영: stored 측은 매칭 projection 필드로 절단한다(전체 행 spread 아님). */
+function baselinePickStoredGrantProjectionFields(grant: StoredGrantRow) {
+  return {
+    title: grant.title,
+    url: grant.url,
+    agencyJurisdiction: grant.agencyJurisdiction,
+    agencyOperator: grant.agencyOperator,
+    agencyPrimary: grant.agencyPrimary,
+    categoryL1: grant.categoryL1,
+    categoryL2: grant.categoryL2,
+    applyStart: grant.applyStart,
+    applyEnd: grant.applyEnd,
+    applyMethod: grant.applyMethod,
+    supportAmount: grant.supportAmount,
+    benefits: grant.benefits,
+    requiredDocuments: grant.requiredDocuments,
+    status: grant.status,
+    fRegions: grant.fRegions,
+    fIndustries: grant.fIndustries,
+    fBizAgeMinMonths: grant.fBizAgeMinMonths,
+    fBizAgeMaxMonths: grant.fBizAgeMaxMonths,
+    fSizes: grant.fSizes,
+    fFounderTraits: grant.fFounderTraits,
+    fRequiredCerts: grant.fRequiredCerts,
+    fApplyMethods: grant.fApplyMethods,
+    fAuthoringMode: grant.fAuthoringMode,
+    overallConfidence: grant.overallConfidence,
+  };
+}
+
 function baselineStoredMatchingProjection(
   grant: StoredGrantRow,
   criteria: StoredCriterionRow[],
 ): Record<string, unknown> {
   return {
-    grant: baselineNormalizedGrantProjection(grant),
+    grant: baselineNormalizedGrantProjection(baselinePickStoredGrantProjectionFields(grant)),
     criteria: baselineNormalizedCriteriaProjection(criteria.map((criterion) => ({
       dimension: criterion.dimension,
       operator: criterion.operator,
@@ -578,6 +626,73 @@ assertUnprotectedSnapshotsMatchBaseline(
 }
 
 // ---------------------------------------------------------------------------
+// ②-b P1-b 대칭 효과(비보호 지문): same-raw 재발행 + DB 행 잡음만 → unchanged,
+//     실변화(제목·rawHash)는 changed 유지
+// ---------------------------------------------------------------------------
+
+{
+  const entry = makeEntry();
+  // DB 행 잡음: 매칭 projection 밖 컬럼만 다르다(updatedAt·servingState·embedding).
+  const noisyStored = makeStoredGrantRow({
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    servingState: "staged",
+    embedding: [0.1, 0.2],
+  });
+  const previous = makePreviousRow(entry, noisyStored);
+  const nextRawHash = hashGrantRawPayload(entry.raw.payload);
+  const mirroredCriteria = [makeParserMirrorCriterionRow()];
+
+  const snapshots = computePublishRevisionSnapshots({
+    previous,
+    previousCriteria: mirroredCriteria,
+    entry,
+    nextRawHash,
+    promotionProtected: false,
+  });
+  assert.equal(
+    snapshots.stored?.matchingProjectionHash,
+    snapshots.incoming.matchingProjectionHash,
+    "P1-b: 24필드·criteria 동일 시 stored·incoming projection hash 가 일치해야 한다(잡음 절단)",
+  );
+  assert.equal(
+    classifyPublishedGrantRevision(snapshots.stored, snapshots.incoming),
+    "unchanged",
+    "P1-b: 비보호 same-raw 재발행 + DB 행 잡음만으로는 unchanged 여야 한다",
+  );
+
+  // 실변화는 그대로 changed: 제목 변경.
+  const titleChanged = makeEntry({ title: "테스트 공고 (연장)" });
+  const titleSnapshots = computePublishRevisionSnapshots({
+    previous: makePreviousRow(titleChanged, noisyStored),
+    previousCriteria: mirroredCriteria,
+    entry: titleChanged,
+    nextRawHash: hashGrantRawPayload(titleChanged.raw.payload),
+    promotionProtected: false,
+  });
+  assert.equal(
+    classifyPublishedGrantRevision(titleSnapshots.stored, titleSnapshots.incoming),
+    "changed",
+    "P1-b: 비보호 grant 의 24필드 실변화(제목)는 changed 를 유지해야 한다",
+  );
+
+  // 실변화는 그대로 changed: 원문(rawHash) 변경 — rawHash 는 스냅샷에 직접 포함된다.
+  const rawChangedEntry = makeEntry();
+  rawChangedEntry.raw.payload = { ...rawChangedEntry.raw.payload, body: "본문 수정" };
+  const rawSnapshots = computePublishRevisionSnapshots({
+    previous, // rawHash 는 원래 payload 기준
+    previousCriteria: mirroredCriteria,
+    entry: rawChangedEntry,
+    nextRawHash: hashGrantRawPayload(rawChangedEntry.raw.payload),
+    promotionProtected: false,
+  });
+  assert.equal(
+    classifyPublishedGrantRevision(rawSnapshots.stored, rawSnapshots.incoming),
+    "changed",
+    "P1-b: 비보호 grant 의 원문(rawHash) 실변화는 changed 를 유지해야 한다",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ① 보호 grant 지문: criteria 차이만으로는 unchanged, 실변화(제목·원문·첨부)는 changed 유지
 // ---------------------------------------------------------------------------
 
@@ -606,7 +721,8 @@ assertUnprotectedSnapshotsMatchBaseline(
     "보호 grant: 승격분≠파서분 criteria 차이만으로는 changed 가 되지 않아야 한다(영구 재분류 차단)",
   );
 
-  // 동일 입력을 비보호로 계산하면 criteria 차이(및 stored 전체 행 spread)로 changed — 가드 효과 대조.
+  // 동일 입력을 비보호로 계산하면 승격분≠파서분 criteria 차이로 changed — 가드 효과 대조.
+  // (P1-b 이후 stored 잡음은 지문에 없으므로 changed 원인은 순수하게 criteria 차이다.)
   const unprotectedSnapshots = computePublishRevisionSnapshots({
     previous,
     previousCriteria: promotedCriteria,
@@ -867,9 +983,42 @@ const countOps = (ops: RecordedOp[], op: RecordedOp["op"], table: unknown) =>
   assert.equal(countOps(ops, "insert", schema.grantCriteria), 1, "비보호 grant: criteria insert 재개");
   assert.equal(result.promotionProtectedCount, 0);
   assert.deepEqual(result.promotionProtectedSourceIds, []);
-  // 비보호 stored projection 은 기존대로 DB 행 전체를 spread 하므로(P1 이전 동일)
-  // incoming 과 구조가 달라 changed 로 분류된다 — P1 이전과 동일한 동작.
+  // 복원된 stored criteria(승격 큐레이션 내용) ≠ 파서 criteria 이므로 changed —
+  // P1-b 이후 stored 잡음은 지문에 없고, changed 원인은 순수하게 criteria 차이다.
   assert.deepEqual(result.revisionCounts, { new: 0, unchanged: 0, changed: 1 });
+}
+
+// (D) P1-b 대칭 효과 통합: 비보호 same-raw 재발행 + DB 행 잡음만 → unchanged.
+// criteria 교체(delete→insert)는 revisionKind 와 무관하게 기존대로 수행되고,
+// match_state 무효화·수집 이벤트는 발생하지 않아야 한다.
+{
+  const entry = makeEntry();
+  const noisyStored = makeStoredGrantRow({
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+    servingState: "staged",
+    embedding: [0.1, 0.2],
+  });
+  const previousRow = makePreviousRow(entry, noisyStored);
+  const { db, ops } = createFakeDb({
+    previousRow,
+    previousCriteria: [makeParserMirrorCriterionRow()],
+  });
+
+  const result = await publishNormalizedGrants(db, [entry], {
+    source: "kstartup",
+    collectedAt: COLLECTED_AT,
+  });
+
+  assert.deepEqual(
+    result.revisionCounts,
+    { new: 0, unchanged: 1, changed: 0 },
+    "P1-b: 비보호 same-raw 재발행에서 DB 행 잡음(updatedAt·servingState·embedding)만으로는 unchanged",
+  );
+  assert.equal(countOps(ops, "delete", schema.grantCriteria), 1, "unchanged 여도 criteria 교체는 기존대로 수행");
+  assert.equal(countOps(ops, "insert", schema.grantCriteria), 1, "unchanged 여도 criteria 교체는 기존대로 수행");
+  assert.equal(countOps(ops, "insert", schema.grantCollectionEvents), 0, "unchanged 이므로 수집 이벤트 없음");
+  assert.equal(countOps(ops, "delete", schema.matchState), 0, "unchanged 이므로 match_state 무효화 없음");
+  assert.equal(result.promotionProtectedCount, 0);
 }
 
 // (C) 보호 grant 라도 실변화(제목)는 changed + match_state 무효화 경로 유지, criteria 는 여전히 무접촉
