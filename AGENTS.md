@@ -58,5 +58,5 @@
 
 - **현재 운영의 유료 LLM 딥분석은 자동으로 돌지 않는다**: Cloud Run 메인 워커가 `DEEP_ANALYSIS_WORKER_MODE=observe_only` + `CLAIM_SCOPE=unconfigured` 2단 fail-closed(하트비트만 기록). 개발 기간에는 이 상태를 유지하고 **분석은 로컬 구독 lab이 유일 경로**다. 조사 정본: `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
 - 로컬 lab은 DB에 런을 쓰지 않는다(spike-out 파일). DB 쓰기 접점은 `lab:promote --write` 순간뿐이며 3중 확인(release+write+confirm)이 걸려 있다.
-- **⚠️ 승격 전 필수 선행**: 수집 publisher(`normalizedGrantPublisher.ts:233`)가 재발행 시 criteria를 무조건 전삭제→재삽입하므로, 승격 보호 가드(P1 — 위 조사 문서 §3) 구현 전에는 `lab:promote --write` 실발행을 하지 않는다(승격분이 다음 수집 사이클에 말소되고 유령 질문·원장 모순 발생).
+- ~~⚠️ 승격 전 필수 선행~~ → **P1 구현 완료(2026-08-04, 커밋 c79e2c0)**: 수집 publisher가 승격 보호(stable_key 행 존재) grant의 criteria 교체를 스킵하고, 보호 지문을 대칭 계산한다. 수동 CLI 2종(renormalize·publish-reviewed)도 tx 내 락+재판별 가드. **`lab:promote --write` 실발행 금지 조건은 해제됨** — 게이트 통과 시 실발행 가능(운용 조건: `pnpm verify:promotion-protection`이 test 체인에 배선돼 회귀를 잡는다).
 - 운영 딥분석을 켤 때는(사용자 결정) `CLAIM_SCOPE=bounded`(cohort sha256 화이트리스트)로 시작하고 로컬 lab 코호트와 상호배타 집합 유지, 켜기 전 pending 큐(누적 중) 정리.
