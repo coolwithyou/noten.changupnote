@@ -71,7 +71,7 @@ assert.deepEqual(perfect?.profile.certs, ["장애인기업 확인서"]);
 assert.equal(perfect?.profile.profile_evidence?.certification?.provider, "cunote_virtual_company");
 assert.equal(perfect?.targets[0]?.expectedWritingEntry, "available");
 assert.equal(perfect?.targets[0]?.expectedAuthoring?.documentCount, 2);
-assert.equal(perfect?.targets[0]?.expectedAuthoring?.manualQuestionCount, 6);
+assert.equal(perfect?.targets[0]?.expectedAuthoring?.manualQuestionCount, 5);
 
 const regionFail = resolveVirtualCompanyScenario("0000000002", { asOf });
 assert.equal(regionFail?.profile.region?.code, "11");

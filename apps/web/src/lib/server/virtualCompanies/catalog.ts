@@ -100,9 +100,9 @@ const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
       expectedWritingEntry: "available",
       expectedAuthoring: {
         documentCount: 2,
-        connectedFieldCount: 6,
+        connectedFieldCount: 5,
         seededAnswerCount: 0,
-        manualQuestionCount: 6,
+        manualQuestionCount: 5,
         pageCount: 4,
       },
       expectedCriterionResults: {

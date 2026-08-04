@@ -6,6 +6,7 @@ import {
   classifyRoundtripDocument,
   generateRoundtripSampleValue,
   assessRoundtripInputField,
+  inferRoundtripInputKind,
 } from "./core";
 
 assert.equal(VERSION, "4.2.3", "왕복 실험은 검증된 Kordoc 4.2.3을 사용해야 한다");
@@ -34,6 +35,10 @@ assert.equal(
 assert.equal(assessRoundtripInputField({ label: "사업계획서 작성 목차", type: "text", row: 0 }).recommended, false);
 assert.equal(assessRoundtripInputField({ label: "2026년    월     일", type: "date", row: 12 }).recommended, false);
 assert.equal(assessRoundtripInputField({ label: "대표자명", type: "text", row: 2 }).recommended, true);
+assert.equal(assessRoundtripInputField({ label: "회사소개*", type: "text", row: 1, required: true }).recommended, true);
+assert.equal(assessRoundtripInputField({ label: "기업소개", type: "text", row: 3 }).recommended, true);
+assert.equal(assessRoundtripInputField({ label: "혁신성*", type: "text", row: 4, required: true }).recommended, true);
+assert.equal(inferRoundtripInputKind("회사소개*", "text"), "textarea");
 
 assert.deepEqual(
   generateRoundtripSampleValue({ label: "사업자등록번호", type: "idnum" }),

@@ -59,6 +59,8 @@ export interface ConnectedDocumentField {
   fillStrategy: string;
   position: Record<string, unknown> | null;
   visualEvidence: Record<string, unknown> | null;
+  /** 자동 필드 분석기 버전 판정용 provenance. */
+  parserVersion?: string;
 }
 
 /**
@@ -99,6 +101,7 @@ export async function loadConnectedDocumentFields(input: {
       fillStrategy: schema.grantDocumentFields.fillStrategy,
       position: schema.grantDocumentFields.position,
       visualEvidence: schema.grantDocumentFields.visualEvidence,
+      parserVersion: schema.grantDocumentFields.parserVersion,
     })
     .from(schema.grantDocumentFields)
     .where(where);
@@ -115,5 +118,6 @@ export async function loadConnectedDocumentFields(input: {
     fillStrategy: row.fillStrategy,
     position: row.position,
     visualEvidence: row.visualEvidence,
+    parserVersion: row.parserVersion,
   }));
 }

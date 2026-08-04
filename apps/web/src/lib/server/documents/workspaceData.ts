@@ -35,6 +35,10 @@ import {
 } from "./grantDocumentDrafts";
 import { getDraftRevisionHead } from "./documentRevisions";
 import { seedProfileFieldAnswers, type SeedFieldInput } from "./seedProfileAnswers";
+import {
+  APPLICATION_FIELD_PARSER_VERSION,
+  classifyApplicationFieldMap,
+} from "./applicationFieldVersion";
 
 /** 성능 저하 사다리(§4.4): (a) 완전 경험 · (b) 프리뷰+필드 분석 중 · (c) 채팅 전면 폴백. */
 export type WorkspaceLadder = "a" | "b" | "c";
@@ -99,7 +103,7 @@ export interface WorkspaceData {
   initialDrafts: DocumentDraft[];
   /** pending surface 가 있어 변환 폴링을 마운트할지. */
   pollConversion: boolean;
-  /** (c) 상태 정직 고지 문구. (a)(b)는 null. */
+  /** 성능 저하 또는 부분 필드 커버리지를 정직하게 고지하는 문구. */
   honestNotice: string | null;
 }
 
@@ -228,6 +232,7 @@ export async function loadGrantWorkspaceData(input: {
     document: activeDocument,
     surface: matchedSurface,
     connectedFieldsCount: connectedFields.length,
+    fieldMapNeedsRefresh: automatedFieldMapNeedsRefresh(connectedFields),
   });
 
   return {
@@ -340,6 +345,7 @@ export async function loadVirtualGrantWorkspaceData(input: {
     document: activeDocument,
     surface: matchedSurface,
     connectedFieldsCount: connectedFields.length,
+    fieldMapNeedsRefresh: automatedFieldMapNeedsRefresh(connectedFields),
   });
 
   return {
@@ -477,8 +483,12 @@ function matchDocumentSurface(input: {
  */
 function classifyWorkspace(input: {
   document: { sourceAttachment: string | null; hwpxTemplateAvailable: boolean };
-  surface: Pick<PreviewSurface, "type" | "format" | "extractionStatus" | "pageCount"> | null;
+  surface: Pick<
+    PreviewSurface,
+    "type" | "format" | "extractionStatus" | "extractionVersion" | "confidence" | "pageCount"
+  > | null;
   connectedFieldsCount: number;
+  fieldMapNeedsRefresh: boolean;
 }): { ladder: WorkspaceLadder; honestNotice: string | null } {
   const { document, surface } = input;
 
@@ -515,8 +525,16 @@ function classifyWorkspace(input: {
     return { ladder: "c", honestNotice: UNSUPPORTED_FORMAT_NOTICE };
   }
 
-  if (surface.extractionStatus === "fields_ready" && input.connectedFieldsCount >= 1) {
-    return { ladder: "a", honestNotice: null };
+  if (surface.extractionStatus === "fields_ready" && input.connectedFieldsCount >= 1 && !input.fieldMapNeedsRefresh) {
+    const partialCoverage = surface.extractionVersion === APPLICATION_FIELD_PARSER_VERSION
+      && surface.confidence !== null
+      && surface.confidence < 0.99;
+    return {
+      ladder: "a",
+      honestNotice: partialCoverage
+        ? "빠른 작성에는 위치를 안전하게 확정한 항목만 표시합니다. 구조가 합쳐진 구간은 문서 직접 편집에서 함께 확인해 주세요."
+        : null,
+    };
   }
   if (surface.pageCount > 0) {
     // preview_ready, 또는 fields_ready·0필드 → 프리뷰는 있으나 필드 미완.
@@ -526,6 +544,10 @@ function classifyWorkspace(input: {
     ladder: "c",
     honestNotice: "원본 양식을 아직 불러오지 못했습니다. 준비되면 자동으로 채움 화면으로 전환됩니다.",
   };
+}
+
+function automatedFieldMapNeedsRefresh(fields: ConnectedDocumentField[]): boolean {
+  return classifyApplicationFieldMap(fields.map((field) => field.parserVersion ?? "")) === "stale_automated";
 }
 
 async function loadFieldLessonTipsSafe(input: {

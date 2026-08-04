@@ -161,6 +161,7 @@ export function extractLocatedRoundtripFields(
         label,
         type: field.type,
         row: field.row,
+        required: field.required ?? false,
       });
       fields.push({
         fieldInstanceId,
@@ -220,13 +221,14 @@ function suppressValueCellDuplicates(fields: RoundtripFieldCandidate[]): void {
 }
 
 const POSITIVE_INPUT_LABEL = /(회사명|기업명|업체명|단체명|상호|법인명|기관명|대표자|성명|이름|신청인|담당자|책임자|사업자|법인번호|주민등록|연락처|전화|휴대|이메일|email|전자우편|주소|소재지|과제명|사업명|아이템명|제품명|서비스명|주생산품|설립|개업|직위|부서|홈페이지|지원금|사업비|예산|금액|계좌|은행|예금주|매출|고용|인원|자본금|기간|일자|날짜|년도|연도)/i;
-const CONTENT_INPUT_LABEL = /(개요|현황|계획|목표|필요성|전략|기대효과|시장|기술|실적|역량|일정|자금|추진|문제|해결|활용|성과|기타사항|주요내용|세부내용)/i;
+const CONTENT_INPUT_LABEL = /((회사|기업|업체|단체|기관|제품|서비스|기술)소개|개요|현황|계획|목표|필요성|전략|기대효과|시장|기술|실적|역량|일정|자금|추진|문제|해결|활용|성과|기타사항|주요내용|세부내용)/i;
 const NON_INPUT_LABEL = /^(연번|순번|번호|구분|항목|서류명|제출서류|제출형식|형식|비고|배점|평가항목|확인|단위|천원|원|적용법률|법률)$/i;
 
 export function assessRoundtripInputField(input: {
   label: string;
   type: RoundtripFieldType;
   row: number;
+  required?: boolean;
 }): { recommended: boolean; likelihood: number; signals: string[] } {
   const normalized = normalizeRoundtripLabel(input.label);
   const signals: string[] = [];
@@ -242,6 +244,10 @@ export function assessRoundtripInputField(input: {
   if (input.type !== "text") {
     score += 2;
     signals.push(`${input.type} 형식 추론`);
+  }
+  if (input.required) {
+    score += 4;
+    signals.push("필수 표시가 있는 양식 셀");
   }
   if (normalized.length >= 2 && normalized.length <= 24) score += 1;
   if (NON_INPUT_LABEL.test(normalized)) {
@@ -280,7 +286,7 @@ export function inferRoundtripInputKind(
   type: RoundtripFieldType,
 ): RoundtripFieldInputKind {
   const normalized = normalizeRoundtripLabel(label);
-  if (/(개요|현황|계획|목표|필요성|전략|기대효과|시장|기술|실적|역량|일정|추진|문제|해결|활용|성과|주요내용|세부내용)/.test(normalized)) {
+  if (/((회사|기업|업체|단체|기관|제품|서비스|기술)소개|개요|현황|계획|목표|필요성|전략|기대효과|시장|기술|실적|역량|일정|추진|문제|해결|활용|성과|주요내용|세부내용)/.test(normalized)) {
     return "textarea";
   }
   if (type === "amount" || /(매출|금액|예산|사업비|지원금|자본금|연구개발비|종업원수|직원수|인원)/.test(normalized)) {

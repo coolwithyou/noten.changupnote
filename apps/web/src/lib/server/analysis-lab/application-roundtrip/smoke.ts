@@ -21,6 +21,10 @@ try {
   const run = await runApplicationRoundtripAnalysis(grantId);
   const document = run.documents.find((item) => item.attachmentId === run.recommendedAttachmentId);
   if (!document) throw new Error(`빈 필드가 있는 추천 문서가 없습니다: ${run.recommendationReason}`);
+  if (document.fieldCoverage.status === "review_required") {
+    const labels = document.fieldCoverage.unresolvedCandidates.map((candidate) => candidate.label).join(", ");
+    throw new Error(`입력 필드 누락 검수가 끝나지 않았습니다: ${labels}`);
+  }
   const fields = selectSmokeFields(document.fields.filter((field) => field.recommendedInput));
   const choiceGroups = document.choiceGroups ?? [];
   if (fields.length === 0 && choiceGroups.length === 0) throw new Error("추천 문서에 채울 입력 대상이 없습니다.");
@@ -61,6 +65,7 @@ try {
     rawEmptyFields: document.emptyFieldCount,
     recommendedInputFields: document.recommendedInputFieldCount,
     fieldPlanning: document.fieldPlanning,
+    fieldCoverage: document.fieldCoverage,
     requestedFields: fill.requestedFieldCount,
     verifiedFields: fill.verifiedFieldCount,
     detectedChoiceGroups: choiceGroups.length,

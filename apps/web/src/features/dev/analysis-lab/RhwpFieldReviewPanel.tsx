@@ -58,6 +58,7 @@ interface CandidateReview {
   hitCount: number;
   kordocLocation: string;
   rhwpLocation: string | null;
+  recommended: boolean;
 }
 
 interface ViewerReadyState {
@@ -343,7 +344,9 @@ function ViewerContent({ state, onStart }: { state: ViewerState; onStart: () => 
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
                       <span className="break-words text-xs font-medium">{review.label}</span>
-                      <Badge variant="outline">{review.kind === "choice" ? "객관식" : "입력"}</Badge>
+                      <Badge variant="outline">
+                        {review.kind === "choice" ? "객관식" : review.recommended ? "입력" : "제외 후보"}
+                      </Badge>
                     </div>
                     <p className="mt-1 text-[11px] text-muted-foreground">
                       Kordoc {review.kordocLocation}
@@ -396,6 +399,7 @@ function buildCandidateReviews(
         ? `문단 블록 ${field.location.blockIndex + 1}`
         : `표 ${field.location.blockIndex + 1} · 행 ${field.location.row + 1} · 열 ${field.location.col + 1}`,
       rhwpLocation: chosen ? formatRhwpLocation(chosen) : null,
+      recommended: field.recommendedInput,
     };
   });
 
@@ -421,6 +425,7 @@ function buildCandidateReviews(
       hitCount: groupMatch.hits.length + optionMatches.reduce((sum, entry) => sum + entry.result.hits.length, 0),
       kordocLocation: `표 ${group.location.tableIndex + 1} · 행 ${group.location.row + 1}`,
       rhwpLocation: firstHit ? formatRhwpLocation(firstHit) : null,
+      recommended: true,
     };
   });
 

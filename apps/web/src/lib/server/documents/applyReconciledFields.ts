@@ -28,6 +28,12 @@ export interface ApplyReconciledFieldsInput {
   db: CunoteDbSession;
   surfaceId: string;
   fields: ReconciledField[];
+  /** 저장 provenance. 생략하면 기존 review/reconcile 경로 버전을 유지한다. */
+  parserVersion?: string;
+  /** 자동 분석기의 surface 상태 provenance. 기존 리뷰 경로는 생략해 현재 값을 보존한다. */
+  extractionVersion?: string;
+  /** 0~1 필드 커버리지 신뢰도. 기존 리뷰 경로는 생략해 현재 값을 보존한다. */
+  extractionConfidence?: number;
   /** field 에 documentCategory/documentName 이 없을 때의 기본값. */
   defaults?: { documentCategory?: string; documentName?: string };
 }
@@ -64,6 +70,7 @@ export async function applyReconciledFields(
   input: ApplyReconciledFieldsInput,
 ): Promise<ApplyReconciledFieldsResult> {
   const { db, surfaceId, fields } = input;
+  const parserVersion = input.parserVersion?.trim() || RECONCILE_PARSER_VERSION;
   const ctx = await loadSurfaceContext(db, surfaceId);
 
   // (surfaceId, fieldKey) 기존 행 조회 → fieldKey 별 id 맵.
@@ -100,7 +107,7 @@ export async function applyReconciledFields(
       mappedCompanyField: field.mappedCompanyField,
       fillStrategy: field.fillStrategy,
       confidence: field.confidence,
-      parserVersion: RECONCILE_PARSER_VERSION,
+      parserVersion,
       surfaceId,
       position,
       visualEvidence: field.visualEvidence,
@@ -122,9 +129,17 @@ export async function applyReconciledFields(
   }
 
   // surface extraction_status → fields_ready (Phase 4 상위 상태).
+  const surfaceUpdate: Partial<typeof schema.grantApplicationSurfaces.$inferInsert> = {
+    extractionStatus: "fields_ready",
+    updatedAt: new Date(),
+  };
+  if (input.extractionVersion) surfaceUpdate.extractionVersion = input.extractionVersion;
+  if (typeof input.extractionConfidence === "number") {
+    surfaceUpdate.confidence = Math.min(1, Math.max(0, input.extractionConfidence));
+  }
   await db
     .update(schema.grantApplicationSurfaces)
-    .set({ extractionStatus: "fields_ready", updatedAt: new Date() })
+    .set(surfaceUpdate)
     .where(eq(schema.grantApplicationSurfaces.id, surfaceId));
 
   return {

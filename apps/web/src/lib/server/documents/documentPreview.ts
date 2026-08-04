@@ -29,6 +29,8 @@ export interface PreviewSurface {
   format: string;
   sourceAttachment: string | null;
   extractionStatus: string;
+  extractionVersion: string | null;
+  confidence: number | null;
   /** 이 surface 에 속한 page_image artifact 수. */
   pageCount: number;
 }
@@ -120,6 +122,8 @@ export async function loadGrantDocumentPreview(input: {
       format: schema.grantApplicationSurfaces.format,
       sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
       extractionStatus: schema.grantApplicationSurfaces.extractionStatus,
+      extractionVersion: schema.grantApplicationSurfaces.extractionVersion,
+      confidence: schema.grantApplicationSurfaces.confidence,
     })
     .from(schema.grantApplicationSurfaces)
     .where(eq(schema.grantApplicationSurfaces.grantId, input.grantId))
@@ -171,6 +175,8 @@ export async function loadGrantDocumentPreview(input: {
     format: row.format,
     sourceAttachment: row.sourceAttachment,
     extractionStatus: row.extractionStatus,
+    extractionVersion: row.extractionVersion,
+    confidence: row.confidence,
     pageCount: pageCountBySurface.get(row.id) ?? 0,
   }));
 

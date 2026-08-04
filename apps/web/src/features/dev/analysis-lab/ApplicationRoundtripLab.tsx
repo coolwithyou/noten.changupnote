@@ -323,7 +323,7 @@ export function ApplicationRoundtripLab() {
               sourceUrl={`/api/dev/hwp-preview/file?id=${encodeURIComponent(selectedDocument.attachmentId)}`}
               filename={selectedDocument.filename}
               sourceLabel="원본"
-              fields={inputFields}
+              fields={selectedDocument.fields}
               choiceGroups={choiceGroups}
             />
           ) : null}
@@ -638,10 +638,31 @@ function ParsedDocuments({ run }: { run: ApplicationRoundtripRun }) {
                       ? `LLM ${document.fieldPlanning.acceptedCount}/${document.fieldPlanning.candidateCount}`
                       : "규칙 폴백"}
                   </Badge>
+                  <Badge variant={document.fieldCoverage.status === "complete" ? "default" : "secondary"}>
+                    {document.fieldCoverage.status === "complete"
+                      ? "필드 커버리지 완료"
+                      : document.fieldCoverage.status === "partial"
+                        ? `부분 커버리지 ${document.fieldCoverage.structuralWarningCount}건`
+                        : `검수 필요 ${document.fieldCoverage.unresolvedCandidateCount}건`}
+                  </Badge>
                 </div>
                 <p className="text-xs text-muted-foreground">{document.roleSignals.join(" · ") || "뚜렷한 역할 신호 없음"}</p>
                 {document.fieldPlanning.warning ? (
                   <p className="text-xs text-muted-foreground">{document.fieldPlanning.warning}</p>
+                ) : null}
+                {document.fieldCoverage.unresolvedCandidates.length > 0 ? (
+                  <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2 text-xs">
+                    {document.fieldCoverage.unresolvedCandidates.map((issue) => (
+                      <p key={issue.fieldInstanceId}>{issue.label} — {issue.reason}</p>
+                    ))}
+                  </div>
+                ) : null}
+                {document.fieldCoverage.structuralWarnings.length > 0 ? (
+                  <div className="rounded-md border p-2 text-xs text-muted-foreground">
+                    {document.fieldCoverage.structuralWarnings.map((issue) => (
+                      <p key={issue.fieldInstanceId}>{issue.label} — {issue.reason}</p>
+                    ))}
+                  </div>
                 ) : null}
               </>
             )}

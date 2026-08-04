@@ -125,6 +125,27 @@ export interface RoundtripFieldPlanningSummary {
   warning: string | null;
 }
 
+export interface RoundtripFieldCoverageIssue {
+  fieldInstanceId: string;
+  label: string;
+  reason: string;
+  location: RoundtripFieldLocation;
+}
+
+/**
+ * Kordoc 후보를 최종 입력 필드로 낮출 때의 누락 검수 결과.
+ * partial 은 안전하게 확정한 필드는 쓸 수 있지만 일부 구조가 접혀 원문 직접 확인이 필요함을 뜻한다.
+ */
+export interface RoundtripFieldCoverageSummary {
+  status: "complete" | "partial" | "review_required";
+  rawEmptyCandidateCount: number;
+  acceptedInputCount: number;
+  unresolvedCandidateCount: number;
+  structuralWarningCount: number;
+  unresolvedCandidates: RoundtripFieldCoverageIssue[];
+  structuralWarnings: RoundtripFieldCoverageIssue[];
+}
+
 export type RoundtripChoiceSelectionMode = "single" | "multiple";
 export type RoundtripChoiceSource = "hwp-form-control";
 
@@ -179,6 +200,7 @@ export interface RoundtripParsedDocument {
   recommendedInputFieldCount: number;
   recommendedChoiceGroupCount: number;
   fieldPlanning: RoundtripFieldPlanningSummary;
+  fieldCoverage: RoundtripFieldCoverageSummary;
   markdownPreview: string;
   warnings: string[];
   error: string | null;

@@ -40,6 +40,7 @@ import type { WorkspaceData } from "@/lib/server/documents/workspaceData";
 import type { ChatMessageContent } from "@/lib/chat/messageContent";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
 import { PreviewCanvas, type PreviewOverlayField } from "@/features/document-viewer/PreviewCanvas";
+import { ApplicationFieldAnalysisTrigger } from "./ApplicationFieldAnalysisTrigger";
 import { answerKey, fieldVisualState, optimisticApply } from "./fieldAnswerState";
 import { ChatPanelView, useGrantChat } from "./ChatPanel";
 import {
@@ -588,6 +589,12 @@ export function WorkspaceView({
         </div>
       ) : null}
 
+      {authoringMode !== "studio" && data.ladder !== "c" && data.honestNotice ? (
+        <div className="mx-3 mt-3 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-800 dark:text-amber-300 lg:mx-4">
+          {data.honestNotice}
+        </div>
+      ) : null}
+
       {studioSourceKey === currentStudioSourceKey && studioTransport ? (
         <div className={authoringMode === "studio" ? "flex min-h-0 flex-1" : "hidden"}>
           <RhwpStudioSurface
@@ -663,6 +670,9 @@ export function WorkspaceView({
       ) : null}
 
       {data.pollConversion ? <ConversionPollTrigger grantId={grantId} /> : null}
+      {data.ladder === "b" && data.draftId && !virtualPreview ? (
+        <ApplicationFieldAnalysisTrigger draftId={data.draftId} />
+      ) : null}
     </div>
   );
 }

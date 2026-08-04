@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import { and, eq, isNotNull } from "drizzle-orm";
-import { parse, VERSION } from "kordoc";
+import { VERSION } from "kordoc";
 import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
-  type RoundtripChoiceGroup,
   type RoundtripFieldPlanningSummary,
   type RoundtripParsedDocument,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
@@ -14,17 +13,15 @@ import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStora
 import {
   classifyRoundtripDocument,
   declaredRoundtripFormat,
-  extractLocatedRoundtripFields,
   likelyApplicationRole,
 } from "./core";
-import { extractContextualRoundtripFields } from "./editable-regions";
-import { planRoundtripFields } from "./field-planner";
+import { analyzeRoundtripDocument } from "./analyze-document";
+import { emptyRoundtripFieldCoverage } from "./field-coverage";
 import {
   buildRoundtripRunId,
   saveRoundtripRun,
   type RoundtripRunManifest,
 } from "./store";
-import { extractHwpFormChoiceGroups } from "./hwp-form-controls";
 
 const MAX_DOCUMENTS = 10;
 const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
@@ -139,84 +136,26 @@ export async function runApplicationRoundtripAnalysis(grantId: string): Promise<
         throw new Error("DB의 원본 SHA-256과 R2에서 읽은 바이트가 일치하지 않습니다.");
       }
 
-      const parsed = await parse(object.body);
-      if (!parsed.success) throw new Error(`${parsed.code}: ${parsed.error}`);
-      if (parsed.fileType !== "hwp" && parsed.fileType !== "hwpx") {
-        throw new Error(`확장자는 ${attachment.format}이지만 실제 감지 형식은 ${parsed.fileType}입니다.`);
-      }
-
-      const located = extractLocatedRoundtripFields(parsed.blocks, sourceSha256);
-      const contextualFields = extractContextualRoundtripFields(parsed.blocks, sourceSha256);
-      const allFields = [...located.fields, ...contextualFields];
-      const warnings = (parsed.warnings ?? []).map((warning) => `${warning.code}: ${warning.message}`);
-      let choiceGroups: RoundtripChoiceGroup[] = [];
-      if (parsed.fileType === "hwp") {
-        try {
-          choiceGroups = extractHwpFormChoiceGroups(object.body, sourceSha256);
-          suppressChoiceBackedTextFields(allFields, choiceGroups.map((group) => group.normalizedLabel));
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          warnings.push(`HWP_FORM_CONTROL_SCAN_FAILED: ${message}`);
-        }
-      }
-      const classification = classifyRoundtripDocument({
-        filename: attachment.filename,
-        markdown: parsed.markdown,
-        fields: allFields,
-        formConfidence: located.formConfidence,
-      });
-      const planned = likelyApplicationRole(classification.role)
-        ? await planRoundtripFields({
-          fields: allFields,
-          markdown: parsed.markdown,
-          apiKey: resolveAnthropicApiKey(),
-        })
-        : {
-          fields: allFields,
-          summary: skippedFieldPlanning(allFields.length),
-        };
-      suppressContextBackedFormFields(planned.fields);
-      suppressUnsafeKordocHeaderFields(planned.fields);
-      planned.summary = finalizeFieldPlanning(planned.summary, planned.fields);
-      if (planned.summary.warning) warnings.push(`FIELD_PLAN: ${planned.summary.warning}`);
       const attachmentId = createHash("sha256")
         .update(`${attachment.storageKey}:${sourceSha256}`)
         .digest("hex")
         .slice(0, 20);
-      const document: RoundtripParsedDocument = {
+      const analyzed = await analyzeRoundtripDocument({
         attachmentId,
         filename: attachment.filename,
         declaredFormat: attachment.format,
-        detectedFormat: parsed.fileType,
         sourceSha256,
-        byteLength,
-        parseDurationMs: Date.now() - parseStarted,
-        parsedChars: parsed.markdown.length,
-        blockCount: parsed.blocks.length,
-        tableCount: parsed.blocks.filter((block) => block.type === "table").length,
-        formConfidence: located.formConfidence,
-        role: classification.role,
-        roleConfidence: classification.confidence,
-        roleScores: classification.scores,
-        roleSignals: classification.signals,
-        fields: planned.fields,
-        choiceGroups,
-        emptyFieldCount: planned.fields.filter((field) => field.source === "kordoc-form" && field.empty).length,
-        recommendedInputFieldCount: planned.fields.filter((field) => field.recommendedInput).length,
-        recommendedChoiceGroupCount: choiceGroups.length,
-        fieldPlanning: planned.summary,
-        markdownPreview: parsed.markdown.slice(0, 2_400),
-        warnings,
-        error: null,
-      };
-      documents.push(document);
-      markdownByAttachmentId.set(attachmentId, parsed.markdown);
+        body: object.body,
+        apiKey: resolveAnthropicApiKey(),
+      });
+      documents.push(analyzed.document);
+      markdownByAttachmentId.set(attachmentId, analyzed.markdown);
       manifest.attachments.push({
         attachmentId,
         filename: attachment.filename,
         storageKey: attachment.storageKey,
         sourceSha256,
-        detectedFormat: parsed.fileType,
+        detectedFormat: analyzed.document.detectedFormat as "hwp" | "hwpx",
       });
     } catch (error) {
       const attachmentId = createHash("sha256")
@@ -245,6 +184,7 @@ export async function runApplicationRoundtripAnalysis(grantId: string): Promise<
         recommendedInputFieldCount: 0,
         recommendedChoiceGroupCount: 0,
         fieldPlanning: skippedFieldPlanning(0),
+        fieldCoverage: emptyRoundtripFieldCoverage(),
         markdownPreview: "",
         warnings: [],
         error: error instanceof Error ? error.message : String(error),
@@ -291,79 +231,6 @@ function recommendationScore(document: RoundtripParsedDocument): number {
     + document.recommendedChoiceGroupCount * 3
     + document.formConfidence * 10
     + document.roleConfidence * 5;
-}
-
-function suppressChoiceBackedTextFields(
-  fields: RoundtripParsedDocument["fields"],
-  normalizedChoiceLabels: string[],
-): void {
-  const labels = new Set(normalizedChoiceLabels);
-  for (const field of fields) {
-    if (!labels.has(field.normalizedLabel)) continue;
-    field.recommendedInput = false;
-    field.inputLikelihood = Math.min(field.inputLikelihood, 0.1);
-    field.inputSignals.push("HWP 네이티브 객관식 양식 개체로 대체");
-  }
-}
-
-function suppressContextBackedFormFields(fields: RoundtripParsedDocument["fields"]): void {
-  const contextual = fields.filter((field) => field.source === "contextual-region" && field.recommendedInput);
-  for (const field of fields) {
-    if (field.source !== "kordoc-form") continue;
-    const duplicate = contextual.find((candidate) => {
-      if (candidate.location.blockIndex !== field.location.blockIndex) return false;
-      const labelsOverlap = candidate.normalizedLabel === field.normalizedLabel
-        || candidate.normalizedLabel.startsWith(field.normalizedLabel)
-        || field.normalizedLabel.startsWith(candidate.normalizedLabel);
-      if (!labelsOverlap) return false;
-      return candidate.location.row === field.location.row
-        || Math.abs(candidate.location.row - field.location.row) <= 1;
-    });
-    if (!duplicate) continue;
-    field.recommendedInput = false;
-    field.inputLikelihood = Math.min(field.inputLikelihood, 0.1);
-    field.inputSignals.push(`구조가 더 구체적인 “${duplicate.label}” 입력으로 대체`);
-  }
-}
-
-function suppressUnsafeKordocHeaderFields(fields: RoundtripParsedDocument["fields"]): void {
-  const knownLabels = new Set(fields.map((field) => field.normalizedLabel));
-  for (const field of fields) {
-    if (field.source !== "kordoc-form" || !field.recommendedInput) continue;
-    const valueLabel = field.originalValue ? normalizeLoose(field.originalValue) : "";
-    const valueLooksLikeAnotherLabel = valueLabel.length > 0
-      && valueLabel !== field.normalizedLabel
-      && (knownLabels.has(valueLabel)
-        || /^(성명|직위|전화번호|이메일|특허등록|책임자|본과제에서역할|개인정보이용동의자필서명)$/.test(valueLabel));
-    const ambiguousChoiceWithoutOptions = field.options.length === 0
-      && field.inputKind === "text"
-      && /(여부|체크)/.test(field.normalizedLabel);
-    if (!valueLooksLikeAnotherLabel && !ambiguousChoiceWithoutOptions) continue;
-    field.recommendedInput = false;
-    field.inputLikelihood = Math.min(field.inputLikelihood, 0.1);
-    field.inputSignals.push(
-      valueLooksLikeAnotherLabel
-        ? "인접 표 머리글을 값으로 오인한 Kordoc 후보 안전 차단"
-        : "선택지 위치가 없는 여부·체크 필드 안전 차단",
-    );
-  }
-}
-
-function normalizeLoose(value: string): string {
-  return value.normalize("NFKC").replace(/[\s:：·ㆍ._\-()\[\]{}<>「」『』]/g, "").toLowerCase();
-}
-
-function finalizeFieldPlanning(
-  summary: RoundtripFieldPlanningSummary,
-  fields: RoundtripParsedDocument["fields"],
-): RoundtripFieldPlanningSummary {
-  const acceptedCount = fields.filter((field) => field.recommendedInput).length;
-  return {
-    ...summary,
-    candidateCount: fields.length,
-    acceptedCount,
-    rejectedCount: fields.length - acceptedCount,
-  };
 }
 
 function resolveAnthropicApiKey(): string | null {
