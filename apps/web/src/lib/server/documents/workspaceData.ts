@@ -35,10 +35,13 @@ import {
 } from "./grantDocumentDrafts";
 import { getDraftRevisionHead } from "./documentRevisions";
 import { seedProfileFieldAnswers, type SeedFieldInput } from "./seedProfileAnswers";
+import { classifyApplicationFieldMap } from "./applicationFieldVersion";
 import {
-  APPLICATION_FIELD_PARSER_VERSION,
-  classifyApplicationFieldMap,
-} from "./applicationFieldVersion";
+  loadSurfaceApplicationPrecomputeState,
+  shouldRecoverApplicationPrecompute,
+  type ApplicationPrecomputeStatus,
+  type SurfaceApplicationPrecomputeState,
+} from "./applicationPrecomputeState";
 
 /** 성능 저하 사다리(§4.4): (a) 완전 경험 · (b) 프리뷰+필드 분석 중 · (c) 채팅 전면 폴백. */
 export type WorkspaceLadder = "a" | "b" | "c";
@@ -105,6 +108,10 @@ export interface WorkspaceData {
   pollConversion: boolean;
   /** 성능 저하 또는 부분 필드 커버리지를 정직하게 고지하는 문구. */
   honestNotice: string | null;
+  /** 현재 원본 SHA·계약 버전에 결속된 Kordoc 선분석의 종결 상태. */
+  applicationPrecomputeStatus: ApplicationPrecomputeStatus | null;
+  /** 작업공간 진입 분석은 선분석이 없거나 stale·materialization 누락일 때만 복구용으로 실행한다. */
+  fieldAnalysisRecoveryNeeded: boolean;
 }
 
 const HWP_FAMILY_FORMATS = new Set(["hwp", "hwpx"]);
@@ -150,6 +157,8 @@ export async function loadGrantWorkspaceData(input: {
       initialDrafts,
       pollConversion: false,
       honestNotice: "이 공고에는 아직 작성형 서류가 없습니다. 채팅으로 먼저 물어보세요.",
+      applicationPrecomputeStatus: null,
+      fieldAnalysisRecoveryNeeded: false,
     };
   }
 
@@ -165,6 +174,7 @@ export async function loadGrantWorkspaceData(input: {
     matchedSurface,
     pages,
     pollConversion,
+    applicationPrecomputeState,
   } = documentContext;
 
   // draft ensure(§6.3): documentKey 별 1행. 없으면 기존 생성 경로 재사용(빈 draft 발명 금지).
@@ -233,7 +243,13 @@ export async function loadGrantWorkspaceData(input: {
     surface: matchedSurface,
     connectedFieldsCount: connectedFields.length,
     fieldMapNeedsRefresh: automatedFieldMapNeedsRefresh(connectedFields),
+    applicationPrecomputeState,
   });
+  const currentPrecomputeStatus = applicationPrecomputeState?.current
+    ? applicationPrecomputeState.status
+    : null;
+  const fieldAnalysisRecoveryNeeded = ladder === "b"
+    && shouldRecoverApplicationPrecompute(applicationPrecomputeState, connectedFields.length);
 
   return {
     execution: { mode: "persistent" },
@@ -255,6 +271,8 @@ export async function loadGrantWorkspaceData(input: {
     initialDrafts,
     pollConversion,
     honestNotice,
+    applicationPrecomputeStatus: currentPrecomputeStatus,
+    fieldAnalysisRecoveryNeeded,
   };
 }
 
@@ -309,6 +327,8 @@ export async function loadVirtualGrantWorkspaceData(input: {
       initialDrafts: [],
       pollConversion: false,
       honestNotice: "이 공고에는 아직 작성형 서류가 없습니다.",
+      applicationPrecomputeStatus: null,
+      fieldAnalysisRecoveryNeeded: false,
     };
   }
 
@@ -317,6 +337,7 @@ export async function loadVirtualGrantWorkspaceData(input: {
     connectedFields,
     matchedSurface,
     pages,
+    applicationPrecomputeState,
   } = await loadWorkspaceDocumentContext({
     sheet,
     ...(input.requestedDocumentKey !== undefined
@@ -346,7 +367,11 @@ export async function loadVirtualGrantWorkspaceData(input: {
     surface: matchedSurface,
     connectedFieldsCount: connectedFields.length,
     fieldMapNeedsRefresh: automatedFieldMapNeedsRefresh(connectedFields),
+    applicationPrecomputeState,
   });
+  const currentPrecomputeStatus = applicationPrecomputeState?.current
+    ? applicationPrecomputeState.status
+    : null;
 
   return {
     execution,
@@ -370,6 +395,8 @@ export async function loadVirtualGrantWorkspaceData(input: {
     // 변환 poll은 서버 write를 일으킬 수 있으므로 가상 미리보기에서 마운트하지 않는다.
     pollConversion: false,
     honestNotice,
+    applicationPrecomputeStatus: currentPrecomputeStatus,
+    fieldAnalysisRecoveryNeeded: false,
   };
 }
 
@@ -379,6 +406,7 @@ interface WorkspaceDocumentContext {
   matchedSurface: PreviewSurface | null;
   pages: PreviewPage[];
   pollConversion: boolean;
+  applicationPrecomputeState: SurfaceApplicationPrecomputeState | null;
 }
 
 function buildWorkspaceDocumentOptions(draftable: readonly DraftableDocument[]): WorkspaceDocumentOption[] {
@@ -436,12 +464,17 @@ async function loadWorkspaceDocumentContext(input: {
     ?? draftable[0]!;
   const matchedSurface = matchSurfaceFor(activeDocument);
   const activeStorageKey = storageKeyByDocumentKey.get(activeDocument.documentKey) ?? null;
-  const connectedFields = await loadConnectedDocumentFields({
-    source: sheet.grant.source,
-    sourceId: sheet.grant.sourceId,
-    surfaceId: matchedSurface?.id ?? null,
-    sourceAttachment: activeStorageKey,
-  });
+  const [connectedFields, applicationPrecomputeState] = await Promise.all([
+    loadConnectedDocumentFields({
+      source: sheet.grant.source,
+      sourceId: sheet.grant.sourceId,
+      surfaceId: matchedSurface?.id ?? null,
+      sourceAttachment: activeStorageKey,
+    }),
+    matchedSurface
+      ? loadSurfaceApplicationPrecomputeState({ surfaceId: matchedSurface.id })
+      : Promise.resolve(null),
+  ]);
   const pages = matchedSurface
     ? (preview?.pages ?? []).filter((page) => page.surfaceId === matchedSurface.id)
     : [];
@@ -452,6 +485,7 @@ async function loadWorkspaceDocumentContext(input: {
     matchedSurface,
     pages,
     pollConversion: surfaces.some((surface) => surface.extractionStatus === "pending"),
+    applicationPrecomputeState,
   };
 }
 
@@ -489,6 +523,7 @@ function classifyWorkspace(input: {
   > | null;
   connectedFieldsCount: number;
   fieldMapNeedsRefresh: boolean;
+  applicationPrecomputeState: SurfaceApplicationPrecomputeState | null;
 }): { ladder: WorkspaceLadder; honestNotice: string | null } {
   const { document, surface } = input;
 
@@ -525,9 +560,29 @@ function classifyWorkspace(input: {
     return { ladder: "c", honestNotice: UNSUPPORTED_FORMAT_NOTICE };
   }
 
+  if (input.applicationPrecomputeState?.current) {
+    if (input.applicationPrecomputeState.status === "review_required") {
+      return {
+        ladder: "b",
+        honestNotice: "자동으로 위치를 확정하기 어려운 항목이 있어 원본 문서에서 직접 확인해야 합니다.",
+      };
+    }
+    if (input.applicationPrecomputeState.status === "not_applicable") {
+      return {
+        ladder: "b",
+        honestNotice: "이 문서에서는 빠른 작성 대상으로 안전하게 확정할 항목을 찾지 못했습니다.",
+      };
+    }
+    if (input.applicationPrecomputeState.status === "failed") {
+      return {
+        ladder: "b",
+        honestNotice: "작성 항목 자동 분석을 완료하지 못했습니다. 원본 문서에서 직접 작성할 수 있습니다.",
+      };
+    }
+  }
+
   if (surface.extractionStatus === "fields_ready" && input.connectedFieldsCount >= 1 && !input.fieldMapNeedsRefresh) {
-    const partialCoverage = surface.extractionVersion === APPLICATION_FIELD_PARSER_VERSION
-      && surface.confidence !== null
+    const partialCoverage = surface.confidence !== null
       && surface.confidence < 0.99;
     return {
       ladder: "a",

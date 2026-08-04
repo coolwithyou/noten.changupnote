@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import type { ActionResult } from "@cunote/contracts";
 import type { ApplicationFieldAnalysisResult } from "@/lib/server/documents/applicationFieldAnalysis";
 
-/** ladder (b)에 진입한 선택 문서 하나만 분석하고, fields_ready가 되면 서버 화면을 다시 읽는다. */
+/** 선분석이 없거나 stale·materialization 누락인 선택 문서만 복구 분석하고 서버 화면을 다시 읽는다. */
 export function ApplicationFieldAnalysisTrigger({ draftId }: { draftId: string }) {
   const router = useRouter();
   const firedRef = useRef(false);

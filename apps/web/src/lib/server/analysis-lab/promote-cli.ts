@@ -45,10 +45,15 @@ import { selectReviewedRuns } from "./reviewed-runs";
 import { modelSlug } from "./run-store";
 import { getCunoteDb, type CunoteDb } from "../db/client";
 import * as schema from "../db/schema";
+import {
+  applyPreparedGrantApplicationPrecompute,
+  prepareGrantApplicationPrecompute,
+} from "../documents/applicationPrecomputeMaterialization";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import { acquireGrantPublicationLock } from "../ingestion/grantPublicationLock";
 import { criterionInsertValues } from "../ingestion/normalizedGrantPublisher";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { verifyPromotionSourceArtifact } from "./promotion-candidates";
 import {
   assertManifestConfirmation,
@@ -102,11 +107,12 @@ function createDrizzlePromotionPort(
   releaseContext?: {
     releaseDbId: string;
     itemByGrantId: ReadonlyMap<string, PromotionReleasePlanItem>;
+    materializeApplicationPrecompute?: (grantId: string, parentLabRunId: string) => Promise<void>;
   },
 ): PromotionWritePort {
   return {
     async publishGrant(plan: GrantPromotionPlan) {
-      return db.transaction(async (tx) => {
+      const publishResult = await db.transaction(async (tx) => {
         const releasePlanItem = releaseContext?.itemByGrantId.get(plan.grantId);
         if (releaseContext && !releasePlanItem) {
           throw new Error(`release manifest 밖의 공고 쓰기 거부: ${plan.grantId}`);
@@ -387,6 +393,19 @@ function createDrizzlePromotionPort(
         }
         return result;
       });
+      // 22축 승격과 지원서 선분석은 독립 실패 경계다. 선분석 projection 실패가
+      // 매칭 승격 receipt를 되돌리거나 release를 실패시키지 않도록 observe-only로 실행한다.
+      if (releaseContext?.materializeApplicationPrecompute) {
+        try {
+          await releaseContext.materializeApplicationPrecompute(plan.grantId, plan.runId);
+        } catch (error) {
+          console.warn(
+            `[promote] Kordoc 선분석 materialization observe-only 실패: ${plan.grantId} · `
+              + (error instanceof Error ? error.message : String(error)),
+          );
+        }
+      }
+      return publishResult;
     },
   };
 }
@@ -551,9 +570,36 @@ async function mainRelease(releaseId: string): Promise<number> {
   if (statusUpdated.length !== 1) throw new Error("release 실행 상태 CAS가 실패했습니다.");
 
   const itemByGrantId = new Map(manifest.plans.map((item) => [item.grantId, item]));
+  const applicationStorage = createR2ObjectStorageFromEnv();
+  if (!applicationStorage) {
+    console.warn("[promote] R2 설정이 없어 Kordoc 지원서 선분석 materialization을 건너뜁니다.");
+  }
   const port = createDrizzlePromotionPort(db, confirmedLinks, {
     releaseDbId: release.id,
     itemByGrantId,
+    ...(applicationStorage
+      ? {
+          materializeApplicationPrecompute: async (grantId: string, parentLabRunId: string) => {
+            const prepared = await prepareGrantApplicationPrecompute({
+              grantId,
+              parentLabRunId,
+              db,
+              storage: applicationStorage,
+            });
+            if (!prepared) {
+              console.log(`[promote] Kordoc 선분석 없음: ${grantId}`);
+              return;
+            }
+            const applied = await db.transaction((tx) =>
+              applyPreparedGrantApplicationPrecompute({ db: tx, prepared }));
+            console.log(
+              `[promote] Kordoc 선분석 반영: ${grantId} · `
+                + `materialized ${applied.materialized} · reused ${applied.reused} · `
+                + `protected ${applied.protected} · terminal ${applied.terminalOnly} · fields ${applied.fields}`,
+            );
+          },
+        }
+      : {}),
   });
   const outcomes = await executePromotionWrites(
     targetItems.map((item) => item.promotionPlan),

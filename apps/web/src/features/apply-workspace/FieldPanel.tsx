@@ -24,6 +24,7 @@ import type { ConnectedDocumentField } from "@/lib/server/documents/documentFiel
 import type { DraftFieldAnswers, DraftFieldAnswerStatus } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTipsDto } from "@/lib/server/knowledge/lessonContext";
 import type { WorkspaceLadder } from "@/lib/server/documents/workspaceData";
+import type { ApplicationPrecomputeStatus } from "@/lib/server/documents/applicationPrecomputeState";
 import type { RhwpFieldAnchor } from "@/lib/rhwp/fieldAnchors";
 import type { RhwpWorkingDocument } from "@/lib/rhwp/workingDocument";
 import { answerKey } from "./fieldAnswerState";
@@ -43,6 +44,7 @@ export type WorkspacePanelMode = "single" | "list";
 
 export function FieldPanel({
   ladder,
+  applicationPrecomputeStatus,
   grantId,
   activeDocumentKey,
   connectedFields,
@@ -75,6 +77,7 @@ export function FieldPanel({
   virtualPreview,
 }: {
   ladder: WorkspaceLadder;
+  applicationPrecomputeStatus: ApplicationPrecomputeStatus | null;
   grantId: string;
   activeDocumentKey: string | null;
   connectedFields: ConnectedDocumentField[];
@@ -115,10 +118,17 @@ export function FieldPanel({
   // wrapper(WorkspaceView)는 스크롤만 담당한다(R4 이중 프레임 방지) — 표면(테두리·bg)은
   // 각 모드가 직접 진다: single 은 FieldCard(Card)가, 나머지 모드는 아래 자체 컨테이너가.
   if (ladder === "b") {
+    const terminalPrecompute = applicationPrecomputeStatus === "review_required"
+      || applicationPrecomputeStatus === "not_applicable"
+      || applicationPrecomputeStatus === "failed"
+      ? applicationPrecomputeStatus
+      : null;
     return (
       <div className="grid gap-3 rounded-[var(--radius-xl)] border bg-card p-4">
-        <FieldAnalyzingNotice />
-        {activeDocumentKey ? (
+        {terminalPrecompute
+          ? <ApplicationPrecomputeTerminalNotice status={terminalPrecompute} />
+          : <FieldAnalyzingNotice />}
+        {!terminalPrecompute && activeDocumentKey ? (
           <MissingFieldQuestions
             grantId={grantId}
             documentKey={activeDocumentKey}
@@ -359,6 +369,33 @@ function FieldStateIcon({ state }: { state: ReturnType<typeof workspaceFieldStat
   if (state === "filled") return <Check className="shrink-0 text-success" aria-label="확인 완료" />;
   if (state === "reviewing") return <CircleDot className="shrink-0 text-primary" aria-label="확인 중" />;
   return <Circle className="shrink-0 text-muted-foreground" aria-label="미입력" />;
+}
+
+function ApplicationPrecomputeTerminalNotice({
+  status,
+}: {
+  status: Extract<ApplicationPrecomputeStatus, "review_required" | "not_applicable" | "failed">;
+}) {
+  const copy = status === "review_required"
+    ? {
+        title: "원본 문서에서 확인할 항목이 있습니다",
+        description: "자동 분석만으로 입력 위치를 안전하게 확정하기 어려웠습니다. 문서 직접 편집에서 원본을 보며 작성해 주세요.",
+      }
+    : status === "not_applicable"
+      ? {
+          title: "빠른 작성 항목을 찾지 못했습니다",
+          description: "자동으로 채울 수 있는 입력 위치가 확인되지 않았습니다. 원본 문서를 직접 편집할 수 있습니다.",
+        }
+      : {
+          title: "작성 항목 자동 분석을 완료하지 못했습니다",
+          description: "반복 분석을 자동으로 실행하지 않습니다. 원본 문서를 직접 편집해 작성을 계속할 수 있습니다.",
+        };
+  return (
+    <div className="grid gap-1 rounded-[var(--radius-lg)] border border-amber-500/30 bg-amber-500/[0.06] p-3 text-sm">
+      <span className="font-medium text-foreground">{copy.title}</span>
+      <span className="text-muted-foreground">{copy.description}</span>
+    </div>
+  );
 }
 
 function FieldAnalyzingNotice() {

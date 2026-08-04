@@ -81,6 +81,8 @@ const data: WorkspaceData = {
   initialDrafts: [],
   pollConversion: false,
   honestNotice: null,
+  applicationPrecomputeStatus: "complete",
+  fieldAnalysisRecoveryNeeded: false,
 };
 
 const html = renderToStaticMarkup(
@@ -116,6 +118,26 @@ assert.ok(
   html.includes("문서 직접 편집"),
   "준비된 HWP/HWPX draft는 복합 과제가 없어도 RHWP Studio 직접 편집 진입점을 보여야 합니다.",
 );
+
+// current terminal 선분석은 무한 재분석처럼 보이지 않고 직접 편집으로 이어져야 한다.
+const reviewRequiredHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        ladder: "b",
+        applicationPrecomputeStatus: "review_required",
+        fieldAnalysisRecoveryNeeded: false,
+        honestNotice: "자동으로 위치를 확정하기 어려운 항목이 있습니다.",
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.equal(reviewRequiredHtml.includes("작성 항목을 분석하고 있습니다"), false);
+assert.ok(reviewRequiredHtml.includes("원본 문서에서 확인할 항목이 있습니다"));
+assert.ok(reviewRequiredHtml.includes("문서 직접 편집"));
 
 // 승인된 값은 프리뷰 오버레이 안에 실제 기입처럼 렌더돼야 한다.
 const confirmedValue = "주식회사 창업노트";

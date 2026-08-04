@@ -7,7 +7,8 @@
  *     (sha16 = 직렬화 JSON 의 sha256 앞 16자 — seed/conversion 키 관례와 동일한 shortHash).
  *   - document_artifacts: kind=`field_candidates`, metadata `{engine, engineVersion, layer,
  *     candidateCount, extractedAt}`.
- *   - 멱등: (surfaceId, kind, metadata.engine) 기준 앱측 upsert
+ *   - 멱등: 일반 엔진은 (surfaceId, kind, metadata.engine), 선분석은 여기에
+ *     analysisVersion + sourceSha256을 더한 identity 기준 앱측 upsert
  *     (document_artifacts 에 metadata 유니크 인덱스가 없어 select→update/insert; 관례는
  *     surfaceConversion.upsertDocumentArtifacts 와 동일).
  */
@@ -26,12 +27,18 @@ export interface SaveFieldCandidatesResult {
   artifactId: string;
   engine: string;
   candidateCount: number;
+  sha256: string;
   created: boolean;
 }
 
 export interface FieldCandidateStore {
   /** CandidateSet 을 R2 + document_artifacts 로 저장한다 (엔진 단위 멱등). */
-  saveFieldCandidates(input: { surfaceId: string; set: CandidateSet }): Promise<SaveFieldCandidatesResult>;
+  saveFieldCandidates(input: {
+    surfaceId: string;
+    set: CandidateSet;
+    /** engine 공통 메타 외의 분석 identity·상태. 정본 필드는 아래에서 덮어쓴다. */
+    metadata?: Record<string, unknown>;
+  }): Promise<SaveFieldCandidatesResult>;
   /** surface 의 모든 field_candidates 를 R2 에서 읽어 CandidateSet[] 로 반환한다. */
   loadFieldCandidates(surfaceId: string): Promise<CandidateSet[]>;
 }
@@ -72,15 +79,17 @@ export function createFieldCandidateStore(deps: {
   }
 
   return {
-    async saveFieldCandidates({ surfaceId, set }) {
+    async saveFieldCandidates({ surfaceId, set, metadata: extraMetadata }) {
       const ref = await surfaceRef(surfaceId);
       const body = JSON.stringify(set);
+      const sha256 = createHash("sha256").update(body).digest("hex");
       const sha16 = shortHash(body);
       const storageKey = `grant-convert/${ref.source}/${ref.sourceId}/field_candidates/${sha16}-${fileSafe(set.engine)}.json`;
 
       const put = await storage.putObject({ key: storageKey, body, contentType: "application/json" });
 
       const metadata: Record<string, unknown> = {
+        ...extraMetadata,
         engine: set.engine,
         engineVersion: set.engineVersion,
         layer: set.layer,
@@ -88,7 +97,10 @@ export function createFieldCandidateStore(deps: {
         extractedAt: set.extractedAt,
       };
 
-      // 멱등: 같은 surface + kind + metadata.engine 이 있으면 update.
+      // 선분석은 원본 SHA/분석 계약이 바뀌면 과거 pointer를 덮지 않고 새 artifact 행을 남긴다.
+      // identity가 없는 기존 호출은 종전의 엔진 단위 upsert 계약을 그대로 유지한다.
+      const analysisVersion = stringMetadata(extraMetadata?.analysisVersion);
+      const sourceSha256 = stringMetadata(extraMetadata?.sourceSha256);
       const existing = await db
         .select({ id: schema.documentArtifacts.id, metadata: schema.documentArtifacts.metadata })
         .from(schema.documentArtifacts)
@@ -99,7 +111,13 @@ export function createFieldCandidateStore(deps: {
           ),
         );
       const match = existing.find(
-        (row) => (row.metadata as { engine?: unknown } | null)?.engine === set.engine,
+        (row) => {
+          const rowMetadata = row.metadata as Record<string, unknown> | null;
+          if (rowMetadata?.engine !== set.engine) return false;
+          if (!analysisVersion || !sourceSha256) return true;
+          return rowMetadata.analysisVersion === analysisVersion
+            && rowMetadata.sourceSha256 === sourceSha256;
+        },
       );
 
       const values = {
@@ -108,7 +126,7 @@ export function createFieldCandidateStore(deps: {
         storageKey,
         url: put.url,
         contentType: "application/json",
-        sha256: createHash("sha256").update(body).digest("hex"),
+        sha256,
         metadata,
       };
 
@@ -123,6 +141,7 @@ export function createFieldCandidateStore(deps: {
           artifactId: match.id,
           engine: set.engine,
           candidateCount: set.candidates.length,
+          sha256,
           created: false,
         };
       }
@@ -137,6 +156,7 @@ export function createFieldCandidateStore(deps: {
         artifactId: inserted[0]!.id,
         engine: set.engine,
         candidateCount: set.candidates.length,
+        sha256,
         created: true,
       };
     },
@@ -162,4 +182,8 @@ export function createFieldCandidateStore(deps: {
       return sets;
     },
   };
+}
+
+function stringMetadata(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
 }

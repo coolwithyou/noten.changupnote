@@ -45,6 +45,7 @@ export function buildApplicationRoundtripReference(input: {
   }
 
   const run = input.result.value;
+  const sourceCount = run.sourceCount ?? run.documents.length;
   const applicationDocuments = run.documents.filter(isApplicationDocument);
   if (run.error) {
     return {
@@ -53,7 +54,7 @@ export function buildApplicationRoundtripReference(input: {
       transport: input.transport,
       model: input.model,
       documentCount: run.documents.length,
-      sourceCount: run.documents.length,
+      sourceCount,
       errorCode: run.failureCode ?? "all_documents_failed",
       error: run.error,
     };
@@ -67,7 +68,7 @@ export function buildApplicationRoundtripReference(input: {
         transport: input.transport,
         model: input.model,
         documentCount: run.documents.length,
-        sourceCount: run.documents.length,
+        sourceCount,
         errorCode: runFailureCode,
         error: null,
       };
@@ -78,7 +79,7 @@ export function buildApplicationRoundtripReference(input: {
       transport: input.transport,
       model: input.model,
       documentCount: run.documents.length,
-      sourceCount: run.documents.length,
+      sourceCount,
       errorCode: null,
       error: null,
     };
@@ -109,7 +110,7 @@ export function buildApplicationRoundtripReference(input: {
     transport: input.transport,
     model: input.model,
     documentCount: run.documents.length,
-    sourceCount: run.documents.length,
+    sourceCount,
     errorCode: runFailureCode,
     error: null,
   };

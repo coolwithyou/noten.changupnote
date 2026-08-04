@@ -1,7 +1,7 @@
 # 딥 분석 시점 Kordoc 바이너리 선분석 통합 계획
 
 > 작성일: 2026-08-04  
-> 상태: 체크포인트 1 완료 · 체크포인트 2 대기
+> 상태: 체크포인트 1·2 구현 및 검증 완료 · 체크포인트 3 대기
 > 범위: 딥 분석과 HWP/HWPX 빠른 작성 분석의 실행 시점·결과 결속·서빙 준비 보장  
 > 비범위: 공고 수집 정책 변경, 22축 매칭 규칙 변경, 사용자 지원서 작성 UI 재설계, Cloud Run 활성화·배포
 
@@ -232,6 +232,31 @@ surfaceId
 커밋 기준: 위 검증이 전부 통과한 한글 커밋 1개. Cloud Run·Vercel 배포 없음.
 
 ### 체크포인트 2 — 승격 materialization과 사용자 대기 제거
+
+상태: **구현·검증 완료** (2026-08-04)
+
+구현 결과:
+
+- `LabRun`·roundtrip run·manifest의 grant/parent/version/source SHA seal을 검증한다.
+- surface별 `field_candidates` JSON을 content-addressed R2 key에 저장하고, 원본 SHA·분석 버전 identity가 바뀌면 과거 artifact pointer를 덮지 않는다.
+- 22축 승격이 완료된 뒤 별도 짧은 transaction에서 `grant_document_fields` projection을 적용한다. 실패는 observe-only로 기록해 유효한 매칭 승격을 되돌리지 않는다.
+- `complete/partial`만 안전 필드를 materialize하고 `review_required/not_applicable/failed`는 종결 artifact만 보존한다.
+- 작업공간은 current artifact를 먼저 읽고, missing/stale 또는 완료 artifact의 projection 누락일 때만 사용자 진입 복구 분석을 한 번 실행한다.
+- current 종결 상태는 반복 분석 대신 직접 편집 안내와 RHWP Studio 진입점을 제공한다.
+- 문서 10개 상한 밖 원본은 `document_limit_exceeded`로 봉인해 조용한 누락 완료를 막는다.
+
+검증 증거:
+
+- `pnpm lab:roundtrip:test`
+- `pnpm lab:application-precompute:test`
+- `pnpm lab:application-materialization:test`
+- `pnpm lab:promote:test`
+- `pnpm test:apply-workspace`
+- `pnpm verify:virtual-company-flow`: 5개 공고 평가 → 목표 공고 추천 → 필수조건 3건 충족 → HWP 원본 SHA 확인 → 저장 필드 5개 workspace 즉시 조회
+- `pnpm --filter @cunote/web typecheck`
+- `pnpm build:web`
+
+유료 모델 호출·운영 materialization 쓰기·Cloud Run/Vercel 배포는 수행하지 않았다. 승격 차단은 아직 열지 않았고, 체크포인트 3에서 2건의 정상 공고와 1건의 부분/검토 공고를 observe-only로 측정한 뒤 별도 판단한다.
 
 목표: 선계산 artifact를 승격 시 운영 `grant_document_fields`로 materialize해 사용자 접근 시 계산을 없앤다.
 

@@ -102,6 +102,28 @@ function deferred<T>() {
   assert.equal(reference.errorCode, "document_analysis_failed");
 }
 
+// bounded 문서 상한 밖 원본이 있으면 처리한 문서가 완전해도 전체 선분석은 partial이다.
+{
+  const complete = document("complete", 2);
+  const run = {
+    runId: "roundtrip-document-limit",
+    documents: [complete],
+    sourceCount: 11,
+    skippedDocumentCount: 10,
+    recommendedAttachmentId: complete.attachmentId,
+    failureCode: "document_limit_exceeded",
+    error: null,
+  } as unknown as ApplicationRoundtripRun;
+  const reference = buildApplicationRoundtripReference({
+    result: { status: "fulfilled", value: run },
+    transport: "claude-cli",
+    model: "claude-opus-5",
+  });
+  assert.equal(reference.status, "partial");
+  assert.equal(reference.sourceCount, 11);
+  assert.equal(reference.errorCode, "document_limit_exceeded");
+}
+
 console.log("application precompute tests: ok");
 
 function document(

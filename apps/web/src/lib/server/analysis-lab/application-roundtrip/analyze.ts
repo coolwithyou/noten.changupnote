@@ -86,7 +86,7 @@ export async function runApplicationRoundtripAnalysis(
     );
 
   const seenStorageKeys = new Set<string>();
-  const eligible = archiveRows
+  const allEligible = archiveRows
     .flatMap((row) => {
       const format = declaredRoundtripFormat(row.filename);
       return format && row.storageKey ? [{ ...row, format, storageKey: row.storageKey }] : [];
@@ -96,8 +96,8 @@ export async function runApplicationRoundtripAnalysis(
       seenStorageKeys.add(row.storageKey);
       return true;
     })
-    .sort((a, b) => filenamePriority(b.filename) - filenamePriority(a.filename))
-    .slice(0, MAX_DOCUMENTS);
+    .sort((a, b) => filenamePriority(b.filename) - filenamePriority(a.filename));
+  const eligible = allEligible.slice(0, MAX_DOCUMENTS);
   if (eligible.length === 0) {
     throw new ApplicationRoundtripAnalyzeError(
       "hwp_attachment_not_found",
@@ -221,7 +221,8 @@ export async function runApplicationRoundtripAnalysis(
       && (document.recommendedInputFieldCount > 0 || document.recommendedChoiceGroupCount > 0))
     .sort((a, b) => recommendationScore(b) - recommendationScore(a))[0] ?? null;
   const successful = documents.filter((document) => document.error === null).length;
-  const failureCode = aggregateFailureCode(documents, successful);
+  const skippedDocumentCount = Math.max(0, allEligible.length - eligible.length);
+  const failureCode = aggregateFailureCode(documents, successful, skippedDocumentCount);
   const run: ApplicationRoundtripRun = {
     version: APPLICATION_ROUNDTRIP_VERSION,
     runId,
@@ -240,6 +241,8 @@ export async function runApplicationRoundtripAnalysis(
     failureCode,
     startedAt: started.toISOString(),
     durationMs: Date.now() - startedMs,
+    sourceCount: allEligible.length,
+    skippedDocumentCount,
     documents,
     recommendedAttachmentId: recommended?.attachmentId ?? null,
     recommendationReason: recommended
@@ -295,6 +298,7 @@ function skippedFieldPlanning(
 function aggregateFailureCode(
   documents: RoundtripParsedDocument[],
   successfulCount: number,
+  skippedDocumentCount: number,
 ): RoundtripFailureCode | null {
   if (successfulCount === 0) return "all_documents_failed";
   const fieldPlanningCodes = new Set(
@@ -302,6 +306,7 @@ function aggregateFailureCode(
   );
   const priorities: RoundtripFailureCode[] = [
     "window_exhausted",
+    "document_limit_exceeded",
     "document_analysis_failed",
     "request_timeout",
     "transport_not_configured",
@@ -313,6 +318,7 @@ function aggregateFailureCode(
   for (const code of priorities) {
     if (fieldPlanningCodes.has(code)) return code;
   }
+  if (skippedDocumentCount > 0) return "document_limit_exceeded";
   return documents.some((document) => document.error !== null) ? "document_analysis_failed" : null;
 }
 

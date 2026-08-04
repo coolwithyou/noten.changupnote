@@ -1,8 +1,8 @@
 // Kordoc 지원서 왕복 실험실(dev 전용) 공유 계약.
 // 운영 DB/R2는 읽기만 하고, 분석·채움 산출물은 spike-out 아래에만 저장한다.
 
-/** v4: 주입형 LLM provenance·실패 코드·bounded 후보 chunk 실행. */
-export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v4";
+/** v5: 전체 원본 수·문서 상한 초과를 봉인해 누락을 정상 완료로 오인하지 않는다. */
+export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v5";
 
 export type RoundtripDocumentFormat = "hwp" | "hwpx";
 export type RoundtripDocumentRole =
@@ -79,6 +79,7 @@ export type RoundtripFailureCode =
   | "http_error"
   | "invalid_response"
   | "request_failed"
+  | "document_limit_exceeded"
   | "document_analysis_failed"
   | "all_documents_failed";
 export type RoundtripFieldInputKind =
@@ -245,6 +246,10 @@ export interface ApplicationRoundtripRun {
   failureCode?: RoundtripFailureCode | null;
   startedAt: string;
   durationMs: number;
+  /** 중복 제거 뒤 발견한 전체 HWP/HWPX 원본 수. 구런은 documents.length로 해석한다. */
+  sourceCount?: number;
+  /** 한 실행의 bounded 문서 상한 때문에 다음 실행으로 넘긴 원본 수. */
+  skippedDocumentCount?: number;
   documents: RoundtripParsedDocument[];
   recommendedAttachmentId: string | null;
   recommendationReason: string;

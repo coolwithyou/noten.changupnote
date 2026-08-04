@@ -108,8 +108,11 @@ export function WorkspaceView({
     () => authoringTasks.filter((task) => task.mode === "studio"),
     [authoringTasks],
   );
+  const terminalApplicationPrecompute = data.applicationPrecomputeStatus === "review_required"
+    || data.applicationPrecomputeStatus === "not_applicable"
+    || data.applicationPrecomputeStatus === "failed";
   const studioTransport = useMemo<RhwpWorkingDocumentTransport | null>(() => {
-    if (data.ladder !== "a") return null;
+    if (data.ladder !== "a" && !terminalApplicationPrecompute) return null;
     if (data.draftId) return { mode: "persistent", draftId: data.draftId };
     if (!virtualPreview || !data.activeDocumentKey) return null;
     const params = new URLSearchParams({
@@ -121,7 +124,7 @@ export function WorkspaceView({
       sourceKey: `virtual:${grantId}:${virtualPreview.bizNo}:${data.activeDocumentKey}`,
       sourceUrl: `/api/web/grants/${encodeURIComponent(grantId)}/virtual-source-file?${params.toString()}`,
     };
-  }, [data.activeDocumentKey, data.draftId, data.ladder, grantId, virtualPreview]);
+  }, [data.activeDocumentKey, data.draftId, data.ladder, grantId, terminalApplicationPrecompute, virtualPreview]);
   const currentStudioSourceKey = studioTransport ? sourceKeyForTransport(studioTransport) : null;
   // Studio는 복합 과제 전용 화면이 아니라 준비된 HWP/HWPX 전체 문서 편집기이기도 하다.
   // 따라서 모든 필드가 quick으로 분류돼도 ladder (a)의 원본 draft에서는 직접 열 수 있어야 한다.
@@ -437,6 +440,7 @@ export function WorkspaceView({
   const fieldPanel = (
     <FieldPanel
       ladder={data.ladder}
+      applicationPrecomputeStatus={data.applicationPrecomputeStatus}
       grantId={grantId}
       activeDocumentKey={data.activeDocumentKey}
       connectedFields={data.connectedFields}
@@ -670,7 +674,7 @@ export function WorkspaceView({
       ) : null}
 
       {data.pollConversion ? <ConversionPollTrigger grantId={grantId} /> : null}
-      {data.ladder === "b" && data.draftId && !virtualPreview ? (
+      {data.fieldAnalysisRecoveryNeeded && data.draftId && !virtualPreview ? (
         <ApplicationFieldAnalysisTrigger draftId={data.draftId} />
       ) : null}
     </div>
