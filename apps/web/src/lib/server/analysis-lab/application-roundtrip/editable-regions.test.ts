@@ -85,6 +85,7 @@ const planned = await planRoundtripFields({
     explicitRequestModel = (JSON.parse(String(init?.body)) as { model: string }).model;
     return new Response(JSON.stringify({
       stop_reason: "tool_use",
+      usage: { input_tokens: 1_000, output_tokens: 100, cache_read_input_tokens: 0 },
       content: [{
         type: "tool_use",
         name: "emit_application_field_plan",
@@ -114,6 +115,10 @@ assert.equal(planned.summary.timeoutMs, 900_000);
 assert.equal(planned.summary.candidateConcurrency, 1);
 assert.equal(planned.summary.parentLabRunId, "run-parent-test");
 assert.equal(planned.summary.failureCode, null);
+assert.equal(planned.summary.requestCount, 1);
+assert.equal(planned.summary.inputTokens, 1_000);
+assert.equal(planned.summary.outputTokens, 100);
+assert.equal(planned.summary.costUsd, 0.0075);
 
 const manyFields = Array.from({ length: 45 }, (_, index) => plannerField(revenue2024, index));
 
@@ -134,6 +139,10 @@ assert.equal(bounded.calls(), 3, "45개 후보는 20개 단위 3회 요청");
 assert.equal(bounded.maxActive(), 2, "explicit 후보 chunk 동시성 상한 준수");
 assert.deepEqual(bounded.models(), ["claude-opus-5", "claude-opus-5", "claude-opus-5"]);
 assert.equal(boundedPlan.summary.candidateConcurrency, 2);
+assert.equal(boundedPlan.summary.requestCount, 3);
+assert.equal(boundedPlan.summary.inputTokens, 300);
+assert.equal(boundedPlan.summary.outputTokens, 60);
+assert.equal(boundedPlan.summary.costUsd, 0.003);
 
 const subscriptionDefault = fakePlannerFetch(4);
 const subscriptionDefaultPlan = await planRoundtripFields({
@@ -274,6 +283,7 @@ function fakePlannerFetch(delayMs: number): {
     active -= 1;
     return new Response(JSON.stringify({
       stop_reason: "tool_use",
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0 },
       content: [{
         type: "tool_use",
         name: "emit_application_field_plan",

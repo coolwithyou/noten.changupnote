@@ -470,6 +470,13 @@
       "when": 1785164511672,
       "tag": "0066_high_diamondback",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1785840450995,
+      "tag": "0067_familiar_anthem",
+      "breakpoints": true
     }
   ]
 }

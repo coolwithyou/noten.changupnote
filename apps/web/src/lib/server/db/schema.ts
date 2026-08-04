@@ -2404,6 +2404,114 @@ export const documentArtifacts = pgTable("document_artifacts", {
   shaIdx: index("document_artifacts_sha_idx").on(table.sha256),
 }));
 
+/**
+ * 지원 바이너리(HWP/HWPX) 빠른 작성 선분석 전용 큐.
+ *
+ * 22축 딥분석 큐와 수명주기·lease·heartbeat를 섞지 않는다. 같은 surface 원본과
+ * 분석 계약은 DB unique identity로 한 번만 처리하며, deepAnalysisRunId는 같은 공고에서
+ * 두 분석이 함께 시작됐는지를 관제하기 위한 느슨한 상관관계다.
+ */
+export const grantApplicationPrecomputeJobs = pgTable("grant_application_precompute_jobs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  surfaceId: uuid("surface_id").notNull()
+    .references(() => grantApplicationSurfaces.id, { onDelete: "restrict" }),
+  grantId: uuid("grant_id").notNull().references(() => grants.id, { onDelete: "restrict" }),
+  deepAnalysisRunId: uuid("deep_analysis_run_id")
+    .references(() => grantDeepAnalysisRuns.id, { onDelete: "set null" }),
+  sourceSha256: text("source_sha256").notNull(),
+  analysisVersion: text("analysis_version").notNull(),
+  priority: integer("priority").default(0).notNull(),
+  status: text("status").default("pending").notNull(),
+  resultStatus: text("result_status"),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(3).notNull(),
+  availableAt: timestamp("available_at", { withTimezone: true }).defaultNow().notNull(),
+  leasedAt: timestamp("leased_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  workerId: text("worker_id"),
+  lastErrorCode: text("last_error_code"),
+  lastErrorMessage: text("last_error_message"),
+  resultArtifactId: uuid("result_artifact_id")
+    .references(() => documentArtifacts.id, { onDelete: "set null" }),
+  resultSummary: jsonb("result_summary").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+  requestCount: integer("request_count"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  identityIdx: uniqueIndex("grant_application_precompute_jobs_identity_idx")
+    .on(table.surfaceId, table.sourceSha256, table.analysisVersion),
+  grantCreatedIdx: index("grant_application_precompute_jobs_grant_created_idx")
+    .on(table.grantId, table.createdAt),
+  claimableIdx: index("grant_application_precompute_jobs_claimable_idx")
+    .on(table.status, table.availableAt, table.priority)
+    .where(sql`${table.status} IN ('pending', 'retry_wait')`),
+  leaseExpiryIdx: index("grant_application_precompute_jobs_lease_expiry_idx")
+    .on(table.leaseExpiresAt)
+    .where(sql`${table.status} = 'leased'`),
+  statusCheck: check("grant_application_precompute_jobs_status_check", sql`
+    ${table.status} IN (
+      'pending', 'leased', 'retry_wait', 'succeeded', 'blocked', 'dead_letter', 'canceled'
+    )
+  `),
+  resultStatusCheck: check("grant_application_precompute_jobs_result_status_check", sql`
+    ${table.resultStatus} IS NULL OR ${table.resultStatus} IN (
+      'complete', 'partial', 'review_required', 'not_applicable', 'failed'
+    )
+  `),
+  sourceHashCheck: check("grant_application_precompute_jobs_source_hash_check", sql`
+    ${table.sourceSha256} ~ '^[0-9a-f]{64}$'
+  `),
+  attemptsCheck: check("grant_application_precompute_jobs_attempts_check", sql`
+    ${table.attemptCount} >= 0
+    AND ${table.maxAttempts} > 0
+    AND ${table.attemptCount} <= ${table.maxAttempts}
+  `),
+  leaseCheck: check("grant_application_precompute_jobs_lease_check", sql`
+    (${table.status} = 'leased'
+      AND ${table.leasedAt} IS NOT NULL
+      AND ${table.leaseExpiresAt} IS NOT NULL
+      AND ${table.workerId} IS NOT NULL)
+    OR (${table.status} <> 'leased')
+  `),
+  terminalCheck: check("grant_application_precompute_jobs_terminal_check", sql`
+    (${table.status} = 'succeeded'
+      AND ${table.resultStatus} IS NOT NULL
+      AND ${table.completedAt} IS NOT NULL)
+    OR (${table.status} <> 'succeeded')
+  `),
+}));
+
+/** 전용 Kordoc worker의 생존·진행 상태. deep-analysis heartbeat와 의도적으로 분리한다. */
+export const grantApplicationPrecomputeWorkerHeartbeats = pgTable(
+  "grant_application_precompute_worker_heartbeats",
+  {
+    workerId: text("worker_id").primaryKey(),
+    serviceRevision: text("service_revision").notNull(),
+    analysisVersion: text("analysis_version").notNull(),
+    status: text("status").notNull(),
+    currentJobId: uuid("current_job_id")
+      .references(() => grantApplicationPrecomputeJobs.id, { onDelete: "set null" }),
+    lastErrorCode: text("last_error_code"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>().default(sql`'{}'::jsonb`).notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+    heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (table) => ({
+    heartbeatIdx: index("grant_application_precompute_worker_heartbeats_heartbeat_idx")
+      .on(table.heartbeatAt),
+    statusHeartbeatIdx: index("grant_application_precompute_worker_heartbeats_status_heartbeat_idx")
+      .on(table.status, table.heartbeatAt),
+    statusCheck: check("grant_application_precompute_worker_heartbeats_status_check", sql`
+      ${table.status} IN ('idle', 'running', 'degraded', 'stopped')
+    `),
+  }),
+);
+
 // --- 운영 지식 인제스천: Knowledge Source / Review Lesson ---
 // 설계: 마스터 18.5(ReviewLesson) + docs/plans/2026-07-05-ops-knowledge-ingestion.md §6.1
 // 제3 유입 채널(운영 보고 문서) — 보고서가 올 때마다 지식 레이어가 누적적으로 강화된다.

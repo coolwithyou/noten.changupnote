@@ -653,6 +653,20 @@ export interface PipelineSummary {
   total: number
   sources: PipelineSourceSummary[]
   buckets: PipelineBucketSummary[]
+  applicationPrecompute: {
+    totalJobs: number
+    queued: number
+    running: number
+    succeeded: number
+    needsAttention: number
+    sourceCount: number
+    documentCount: number
+    fieldCount: number
+    costUsd: number | null
+    workerStatus: string | null
+    workerHeartbeatAt: string | null
+    workerStale: boolean
+  }
   refreshAfterSeconds: number
 }
 
@@ -731,7 +745,53 @@ export interface PipelineSurfaceDetail {
   extractionVersion: string | null
   confidence: number | null
   sourceUrl: string | null
+  applicationPrecompute: {
+    jobId: string
+    status: string
+    resultStatus: string | null
+    analysisVersion: string
+    sourceSha256: string
+    model: string | null
+    transport: string | null
+    fieldCount: number
+    candidateCount: number
+    requestCount: number
+    inputTokens: number
+    outputTokens: number
+    costUsd: number | null
+    errorCode: string | null
+    errorMessage: string | null
+    startedAt: string | null
+    completedAt: string | null
+  } | null
   updatedAt: string
+}
+
+export interface PipelineAnalysisPairDetail {
+  deepAnalysis: {
+    jobId: string | null
+    jobStatus: string | null
+    runId: string | null
+    runStatus: string | null
+    model: string | null
+    costUsd: number | null
+    errorCode: string | null
+    startedAt: string | null
+    completedAt: string | null
+  }
+  applicationPrecompute: {
+    sourceCount: number
+    jobCount: number
+    completedCount: number
+    fieldCount: number
+    costUsd: number | null
+    latestStatus: string | null
+    latestResultStatus: string | null
+    analysisVersion: string | null
+    errorCode: string | null
+    startedAt: string | null
+    completedAt: string | null
+  }
 }
 
 export interface PipelineHistoryDetail {
@@ -774,6 +834,7 @@ export interface PipelineNoticeDetail {
   criteria: PipelineCriterionDetail[]
   attachments: PipelineAttachmentDetail[]
   surfaces: PipelineSurfaceDetail[]
+  analyses: PipelineAnalysisPairDetail
   history: PipelineHistoryDetail[]
   adminActions: PipelineAdminActionDetail[]
   goldenSet: PipelineGoldenSetDetail[]

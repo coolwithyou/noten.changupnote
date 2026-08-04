@@ -34,8 +34,10 @@ export default async function NoticePipelinePage({
 
   const urlSearchParams = toUrlSearchParams(rawSearchParams)
   const query = parsePipelineQuery(urlSearchParams)
-  const summary = await getPipelineSummary(query)
-  const notices = await getPipelineNotices(query)
+  const [summary, notices] = await Promise.all([
+    getPipelineSummary(query),
+    getPipelineNotices(query),
+  ])
   if (query.page > notices.pageCount) {
     if (notices.pageCount === 1) urlSearchParams.delete("page")
     else urlSearchParams.set("page", String(notices.pageCount))

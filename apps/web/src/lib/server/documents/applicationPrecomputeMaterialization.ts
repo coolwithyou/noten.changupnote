@@ -29,7 +29,7 @@ import {
 import { applyReconciledFields } from "./applyReconciledFields";
 import { createFieldCandidateStore } from "./fieldCandidateStore";
 
-interface MaterializationSurface {
+export interface MaterializationSurface {
   id: string;
   title: string;
   type: string;
@@ -56,7 +56,7 @@ export interface PreparedApplicationPrecomputeSurface extends ApplicationPrecomp
 
 export interface PreparedGrantApplicationPrecompute {
   grantId: string;
-  parentLabRunId: string;
+  parentLabRunId: string | null;
   roundtripRunId: string;
   surfaces: PreparedApplicationPrecomputeSurface[];
 }
@@ -131,18 +131,32 @@ export function buildApplicationPrecomputeMaterializationPlan(input: {
       }
       const document = documentByAttachmentId.get(attachment.attachmentId);
       if (!document) throw new Error(`roundtrip manifest 문서가 누락됐습니다: ${attachment.attachmentId}`);
-      const outcome = classifyDocument(document);
-      return surfacePlan({
+      return buildApplicationPrecomputeSurfacePlan({
         surface,
         run,
         analysisVersion,
         sourceSha256,
         document,
-        status: outcome.status,
-        errorCode: outcome.errorCode,
-        fields: outcome.materialize ? buildReconciledApplicationFields(document) : [],
       });
     });
+}
+
+/** 운영 worker와 lab 승격이 공유하는 단일 surface 판정·artifact 계약. */
+export function buildApplicationPrecomputeSurfacePlan(input: {
+  surface: MaterializationSurface;
+  run: ApplicationRoundtripRun;
+  analysisVersion: string;
+  sourceSha256: string;
+  document: RoundtripParsedDocument;
+  parentDeepAnalysisRunId?: string | null;
+}): ApplicationPrecomputeSurfacePlan {
+  const outcome = classifyDocument(input.document);
+  return surfacePlan({
+    ...input,
+    status: outcome.status,
+    errorCode: outcome.errorCode,
+    fields: outcome.materialize ? buildReconciledApplicationFields(input.document) : [],
+  });
 }
 
 /** local immutable 산출물을 읽고 content-addressed R2 artifact를 먼저 준비한다. DB field projection은 건드리지 않는다. */
@@ -292,13 +306,31 @@ export async function applyPreparedGrantApplicationPrecompute(input: {
 }
 
 export function applicationPrecomputeAnalysisVersion(run: ApplicationRoundtripRun): string {
-  const identity = JSON.stringify({
+  return buildApplicationPrecomputeAnalysisVersion({
     contractVersion: run.version,
     engine: run.engine,
     engineVersion: run.engineVersion,
     transport: run.transport ?? "api",
     requestedModel: run.requestedModel ?? "unknown",
     candidateLimit: run.candidateLimit ?? null,
+  });
+}
+
+export function buildApplicationPrecomputeAnalysisVersion(input: {
+  contractVersion: string;
+  engine: string;
+  engineVersion: string;
+  transport: "api" | "claude-cli";
+  requestedModel: string;
+  candidateLimit: number | null;
+}): string {
+  const identity = JSON.stringify({
+    contractVersion: input.contractVersion,
+    engine: input.engine,
+    engineVersion: input.engineVersion,
+    transport: input.transport,
+    requestedModel: input.requestedModel,
+    candidateLimit: input.candidateLimit,
   });
   return `${APPLICATION_PRECOMPUTE_VERSION_PREFIX}:${createHash("sha256").update(identity).digest("hex").slice(0, 20)}`;
 }
@@ -312,6 +344,7 @@ function surfacePlan(input: {
   status: ApplicationPrecomputeStatus;
   errorCode: ApplicationPrecomputeArtifactMetadata["errorCode"];
   fields: ReconciledField[];
+  parentDeepAnalysisRunId?: string | null;
 }): ApplicationPrecomputeSurfacePlan {
   const candidateSet = candidateSetFor(input.run, input.document);
   const metadata: ApplicationPrecomputeArtifactMetadata = {
@@ -325,12 +358,17 @@ function surfacePlan(input: {
     sourceSha256: input.sourceSha256,
     resultStatus: input.status,
     roundtripRunId: input.run.runId,
-    parentLabRunId: input.run.parentLabRunId!,
+    parentLabRunId: input.run.parentLabRunId ?? null,
+    parentDeepAnalysisRunId: input.parentDeepAnalysisRunId ?? null,
     transport: input.run.transport ?? "api",
     requestedModel: input.run.requestedModel ?? "unknown",
     fieldCount: input.fields.length,
     coverageStatus: input.document?.fieldCoverage.status ?? null,
     errorCode: input.errorCode,
+    requestCount: input.document?.fieldPlanning.requestCount ?? 0,
+    inputTokens: input.document?.fieldPlanning.inputTokens ?? 0,
+    outputTokens: input.document?.fieldPlanning.outputTokens ?? 0,
+    costUsd: input.document?.fieldPlanning.costUsd ?? null,
   };
   return {
     surfaceId: input.surface.id,

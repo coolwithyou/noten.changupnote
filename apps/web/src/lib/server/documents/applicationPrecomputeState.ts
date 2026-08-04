@@ -28,12 +28,17 @@ export interface ApplicationPrecomputeArtifactMetadata extends Record<string, un
   sourceSha256: string;
   resultStatus: ApplicationPrecomputeStatus;
   roundtripRunId: string;
-  parentLabRunId: string;
+  parentLabRunId: string | null;
+  parentDeepAnalysisRunId?: string | null;
   transport: "api" | "claude-cli";
   requestedModel: string;
   fieldCount: number;
   coverageStatus: "complete" | "partial" | "review_required" | null;
   errorCode: RoundtripFailureCode | "roundtrip_surface_missing" | null;
+  requestCount?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number | null;
 }
 
 export interface SurfaceApplicationPrecomputeState {

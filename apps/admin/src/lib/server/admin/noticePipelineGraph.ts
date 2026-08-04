@@ -17,6 +17,7 @@ import {
   type PipelineCriterionDetail,
   type PipelineCriterionDot,
   type PipelineHistoryDetail,
+  type PipelineAnalysisPairDetail,
   type PipelineLens,
   type PipelineMeasurement,
   type PipelineGoldenSetDetail,
@@ -298,6 +299,20 @@ interface PipelineSummaryAggregateRow {
   count: number
 }
 
+interface ApplicationPrecomputeSummaryRow {
+  total_jobs: number
+  queued: number
+  running: number
+  succeeded: number
+  needs_attention: number
+  source_count: number
+  document_count: number
+  field_count: number
+  cost_usd: string | number | null
+  worker_status: string | null
+  worker_heartbeat_at: Date | null
+}
+
 interface CountRow {
   value: number
 }
@@ -344,6 +359,46 @@ interface SurfaceDetailRow {
   confidence: number | null
   source_url: string | null
   updated_at: Date
+  precompute_job_id: string | null
+  precompute_status: string | null
+  precompute_result_status: string | null
+  precompute_analysis_version: string | null
+  precompute_source_sha256: string | null
+  precompute_summary: Record<string, unknown> | null
+  precompute_request_count: number | null
+  precompute_input_tokens: number | null
+  precompute_output_tokens: number | null
+  precompute_cost_usd: string | number | null
+  precompute_error_code: string | null
+  precompute_error_message: string | null
+  precompute_started_at: Date | null
+  precompute_completed_at: Date | null
+}
+
+interface DeepAnalysisPairRow {
+  job_id: string | null
+  job_status: string | null
+  run_id: string | null
+  run_status: string | null
+  model: string | null
+  cost_usd: string | number | null
+  error_code: string | null
+  started_at: Date | null
+  completed_at: Date | null
+}
+
+interface ApplicationPrecomputePairRow {
+  source_count: number
+  job_count: number
+  completed_count: number
+  field_count: number
+  cost_usd: string | number | null
+  latest_status: string | null
+  latest_result_status: string | null
+  analysis_version: string | null
+  error_code: string | null
+  started_at: Date | null
+  completed_at: Date | null
 }
 
 interface HistoryDetailRow {
@@ -456,23 +511,27 @@ export async function getPipelineSummary(
   input: Pick<PipelineQueryState, "lens" | "includeClosed">,
 ): Promise<PipelineSummary> {
   const sql = getAdminSql()
-  const rows = await sql.unsafe<PipelineSummaryAggregateRow[]>(
-    `${PIPELINE_SUMMARY_CTE}
-    select
-      source,
-      management_state,
-      pipeline_status,
-      deadline_bucket,
-      count(*)::int as count
-    from summary_base
-    group by source, management_state, pipeline_status, deadline_bucket`,
-    [input.includeClosed],
-  )
-  const sourceRows = await loadSourceHealth(sql)
+  const [rows, sourceRows, applicationPrecomputeRows] = await Promise.all([
+    sql.unsafe<PipelineSummaryAggregateRow[]>(
+      `${PIPELINE_SUMMARY_CTE}
+      select
+        source,
+        management_state,
+        pipeline_status,
+        deadline_bucket,
+        count(*)::int as count
+      from summary_base
+      group by source, management_state, pipeline_status, deadline_bucket`,
+      [input.includeClosed],
+    ),
+    loadSourceHealth(sql),
+    loadApplicationPrecomputeSummary(sql),
+  ])
 
   return buildPipelineSummary({
     rows,
     sourceRows,
+    applicationPrecompute: applicationPrecomputeRows[0],
     lens: input.lens,
   })
 }
@@ -573,6 +632,8 @@ export async function getPipelineNoticeDetail(input: {
     historyRows,
     adminActionRows,
     goldenSetRows,
+    deepAnalysisRows,
+    applicationPrecomputeRows,
   ] = await Promise.all([
     sql<CriterionDetailRow[]>`
       select
@@ -609,18 +670,39 @@ export async function getPipelineNoticeDetail(input: {
     `,
     sql<SurfaceDetailRow[]>`
       select
-        id,
-        title,
-        type,
-        format,
-        extraction_status,
-        extraction_version,
-        confidence,
-        source_url,
-        updated_at
-      from grant_application_surfaces
-      where grant_id = ${base.grant_id}
-      order by updated_at desc, id
+        surface.id,
+        surface.title,
+        surface.type,
+        surface.format,
+        surface.extraction_status,
+        surface.extraction_version,
+        surface.confidence,
+        surface.source_url,
+        surface.updated_at,
+        precompute.id as precompute_job_id,
+        precompute.status as precompute_status,
+        precompute.result_status as precompute_result_status,
+        precompute.analysis_version as precompute_analysis_version,
+        precompute.source_sha256 as precompute_source_sha256,
+        precompute.result_summary as precompute_summary,
+        precompute.request_count as precompute_request_count,
+        precompute.input_tokens as precompute_input_tokens,
+        precompute.output_tokens as precompute_output_tokens,
+        precompute.cost_usd as precompute_cost_usd,
+        precompute.last_error_code as precompute_error_code,
+        precompute.last_error_message as precompute_error_message,
+        precompute.started_at as precompute_started_at,
+        precompute.completed_at as precompute_completed_at
+      from grant_application_surfaces surface
+      left join lateral (
+        select job.*
+        from grant_application_precompute_jobs job
+        where job.surface_id = surface.id
+        order by job.created_at desc, job.id desc
+        limit 1
+      ) precompute on true
+      where surface.grant_id = ${base.grant_id}
+      order by surface.updated_at desc, surface.id
     `,
     sql<HistoryDetailRow[]>`
       select
@@ -664,6 +746,50 @@ export async function getPipelineNoticeDetail(input: {
         )
       order by golden_ver desc, id
     `,
+    sql<DeepAnalysisPairRow[]>`
+      select
+        job.id as job_id,
+        job.status as job_status,
+        run.run_id,
+        run.status as run_status,
+        run.model,
+        run.cost_usd,
+        coalesce(run.error_code, job.last_error_code) as error_code,
+        run.started_at,
+        run.completed_at
+      from grant_deep_analysis_jobs job
+      left join lateral (
+        select latest_run.*
+        from grant_deep_analysis_runs latest_run
+        where latest_run.job_id = job.id
+        order by latest_run.started_at desc, latest_run.id desc
+        limit 1
+      ) run on true
+      where job.grant_id = ${base.grant_id}
+      order by job.created_at desc, job.id desc
+      limit 1
+    `,
+    sql<ApplicationPrecomputePairRow[]>`
+      with jobs as (
+        select job.*,
+          row_number() over (order by job.created_at desc, job.id desc) as newest
+        from grant_application_precompute_jobs job
+        where job.grant_id = ${base.grant_id}
+      )
+      select
+        count(distinct surface_id)::int as source_count,
+        count(*)::int as job_count,
+        count(*) filter (where status = 'succeeded')::int as completed_count,
+        coalesce(sum((result_summary->>'fieldCount')::int), 0)::int as field_count,
+        sum(cost_usd) as cost_usd,
+        max(status) filter (where newest = 1) as latest_status,
+        max(result_status) filter (where newest = 1) as latest_result_status,
+        max(analysis_version) filter (where newest = 1) as analysis_version,
+        max(last_error_code) filter (where newest = 1) as error_code,
+        min(started_at) as started_at,
+        max(completed_at) as completed_at
+      from jobs
+    `,
   ])
 
   const notice = toNoticeItem(base)
@@ -680,6 +806,7 @@ export async function getPipelineNoticeDetail(input: {
     criteria: criteriaRows.map(toCriterionDetail),
     attachments: attachmentRows.map(toAttachmentDetail),
     surfaces: surfaceRows.map(toSurfaceDetail),
+    analyses: toAnalysisPairDetail(deepAnalysisRows[0], applicationPrecomputeRows[0]),
     history: historyRows.map(toHistoryDetail),
     adminActions: adminActionRows.map(toAdminActionDetail),
     goldenSet: goldenSetRows.map(toGoldenSetDetail),
@@ -768,6 +895,7 @@ export async function getPipelineMeasurement(): Promise<PipelineMeasurement> {
 function buildPipelineSummary(input: {
   rows: PipelineSummaryAggregateRow[]
   sourceRows: SourceHealthRow[]
+  applicationPrecompute: ApplicationPrecomputeSummaryRow | undefined
   lens: PipelineLens
 }): PipelineSummary {
   const bucketKeys = bucketKeysForLens(input.lens)
@@ -818,8 +946,55 @@ function buildPipelineSummary(input: {
     total: input.rows.reduce((total, row) => total + row.count, 0),
     sources,
     buckets: [...buckets.values()],
+    applicationPrecompute: {
+      totalJobs: input.applicationPrecompute?.total_jobs ?? 0,
+      queued: input.applicationPrecompute?.queued ?? 0,
+      running: input.applicationPrecompute?.running ?? 0,
+      succeeded: input.applicationPrecompute?.succeeded ?? 0,
+      needsAttention: input.applicationPrecompute?.needs_attention ?? 0,
+      sourceCount: input.applicationPrecompute?.source_count ?? 0,
+      documentCount: input.applicationPrecompute?.document_count ?? 0,
+      fieldCount: input.applicationPrecompute?.field_count ?? 0,
+      costUsd: nullableNumber(input.applicationPrecompute?.cost_usd),
+      workerStatus: input.applicationPrecompute?.worker_status ?? null,
+      workerHeartbeatAt: dateString(input.applicationPrecompute?.worker_heartbeat_at ?? null),
+      workerStale: !input.applicationPrecompute?.worker_heartbeat_at
+        || Date.now() - input.applicationPrecompute.worker_heartbeat_at.getTime() > 15 * 60 * 1_000,
+    },
     refreshAfterSeconds: REFRESH_AFTER_SECONDS,
   }
+}
+
+async function loadApplicationPrecomputeSummary(
+  sql: postgres.Sql,
+): Promise<ApplicationPrecomputeSummaryRow[]> {
+  return sql<ApplicationPrecomputeSummaryRow[]>`
+    WITH target_jobs AS (
+      SELECT job.*
+      FROM grant_application_precompute_jobs job
+      JOIN grants grant_row ON grant_row.id = job.grant_id
+      WHERE grant_row.serving_state = 'visible'
+        AND grant_row.status IN ('open', 'upcoming')
+    ), latest_worker AS (
+      SELECT status, heartbeat_at
+      FROM grant_application_precompute_worker_heartbeats
+      ORDER BY heartbeat_at DESC
+      LIMIT 1
+    )
+    SELECT
+      count(*)::int AS total_jobs,
+      count(*) FILTER (WHERE job.status IN ('pending', 'retry_wait'))::int AS queued,
+      count(*) FILTER (WHERE job.status = 'leased')::int AS running,
+      count(*) FILTER (WHERE job.status = 'succeeded')::int AS succeeded,
+      count(*) FILTER (WHERE job.status IN ('blocked', 'dead_letter'))::int AS needs_attention,
+      count(DISTINCT job.surface_id)::int AS source_count,
+      coalesce(sum((job.result_summary->>'documentCount')::int), 0)::int AS document_count,
+      coalesce(sum((job.result_summary->>'fieldCount')::int), 0)::int AS field_count,
+      sum(job.cost_usd) AS cost_usd,
+      (SELECT status FROM latest_worker) AS worker_status,
+      (SELECT heartbeat_at FROM latest_worker) AS worker_heartbeat_at
+    FROM target_jobs job
+  `
 }
 
 async function loadSourceHealth(sql: postgres.Sql): Promise<SourceHealthRow[]> {
@@ -948,6 +1123,7 @@ function toAttachmentDetail(row: AttachmentDetailRow): PipelineAttachmentDetail 
 }
 
 function toSurfaceDetail(row: SurfaceDetailRow): PipelineSurfaceDetail {
+  const summary = row.precompute_summary ?? {}
   return {
     id: row.id,
     title: row.title,
@@ -957,7 +1133,63 @@ function toSurfaceDetail(row: SurfaceDetailRow): PipelineSurfaceDetail {
     extractionVersion: row.extraction_version,
     confidence: row.confidence,
     sourceUrl: row.source_url,
+    applicationPrecompute: row.precompute_job_id
+      && row.precompute_status
+      && row.precompute_analysis_version
+      && row.precompute_source_sha256
+      ? {
+        jobId: row.precompute_job_id,
+        status: row.precompute_status,
+        resultStatus: row.precompute_result_status,
+        analysisVersion: row.precompute_analysis_version,
+        sourceSha256: row.precompute_source_sha256,
+        model: stringValue(summary.model),
+        transport: stringValue(summary.transport),
+        fieldCount: integerValue(summary.fieldCount),
+        candidateCount: integerValue(summary.candidateCount),
+        requestCount: row.precompute_request_count ?? 0,
+        inputTokens: row.precompute_input_tokens ?? 0,
+        outputTokens: row.precompute_output_tokens ?? 0,
+        costUsd: nullableNumber(row.precompute_cost_usd),
+        errorCode: row.precompute_error_code,
+        errorMessage: row.precompute_error_message,
+        startedAt: dateString(row.precompute_started_at),
+        completedAt: dateString(row.precompute_completed_at),
+      }
+      : null,
     updatedAt: row.updated_at.toISOString(),
+  }
+}
+
+function toAnalysisPairDetail(
+  deep: DeepAnalysisPairRow | undefined,
+  precompute: ApplicationPrecomputePairRow | undefined,
+): PipelineAnalysisPairDetail {
+  return {
+    deepAnalysis: {
+      jobId: deep?.job_id ?? null,
+      jobStatus: deep?.job_status ?? null,
+      runId: deep?.run_id ?? null,
+      runStatus: deep?.run_status ?? null,
+      model: deep?.model ?? null,
+      costUsd: nullableNumber(deep?.cost_usd),
+      errorCode: deep?.error_code ?? null,
+      startedAt: dateString(deep?.started_at ?? null),
+      completedAt: dateString(deep?.completed_at ?? null),
+    },
+    applicationPrecompute: {
+      sourceCount: precompute?.source_count ?? 0,
+      jobCount: precompute?.job_count ?? 0,
+      completedCount: precompute?.completed_count ?? 0,
+      fieldCount: precompute?.field_count ?? 0,
+      costUsd: nullableNumber(precompute?.cost_usd),
+      latestStatus: precompute?.latest_status ?? null,
+      latestResultStatus: precompute?.latest_result_status ?? null,
+      analysisVersion: precompute?.analysis_version ?? null,
+      errorCode: precompute?.error_code ?? null,
+      startedAt: dateString(precompute?.started_at ?? null),
+      completedAt: dateString(precompute?.completed_at ?? null),
+    },
   }
 }
 
@@ -1087,6 +1319,20 @@ function formatCriterionValue(value: unknown): string {
 
 function dateString(value: Date | null): string | null {
   return value ? value.toISOString() : null
+}
+
+function nullableNumber(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null
+}
+
+function integerValue(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0
 }
 
 function zeroRecord<const T extends readonly string[]>(keys: T): Record<T[number], number> {

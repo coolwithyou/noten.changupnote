@@ -5,6 +5,7 @@ import type {
   RoundtripFieldPlanningSummary,
   RoundtripLlmTransport,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
+import { priceDeepAnalysisUsage } from "@/lib/server/deep-analysis/costPolicy";
 
 const TOOL_NAME = "emit_application_field_plan";
 const DEFAULT_MODEL = "claude-sonnet-5";
@@ -25,6 +26,23 @@ interface AnthropicToolUseBlock {
 interface AnthropicResponse {
   content?: Array<AnthropicToolUseBlock | { type: string; text?: string }>;
   stop_reason?: string;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
+}
+
+interface FieldPlannerUsage {
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
+interface FieldDecisionBatch {
+  decisions: FieldDecision[];
+  usage: FieldPlannerUsage;
 }
 
 interface FieldDecision {
@@ -122,7 +140,8 @@ export async function planRoundtripFields(options: {
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
       }),
     );
-    const decisions = decisionBatches.flat();
+    const decisions = decisionBatches.flatMap((batch) => batch.decisions);
+    const usage = sumPlannerUsage(decisionBatches.map((batch) => batch.usage));
     if (decisions.length === 0) {
       throw new FieldPlanningError("invalid_response", "모델이 후보 판정 배열을 비워 반환했습니다.");
     }
@@ -144,6 +163,7 @@ export async function planRoundtripFields(options: {
           ? `LLM이 ${candidates.length}개 후보 중 ${byId.size}개만 반환해 나머지는 구조 규칙을 유지했습니다.`
           : null,
         null,
+        usage,
       ),
     };
   } catch (error) {
@@ -171,7 +191,7 @@ async function requestFieldDecisions(input: {
   candidates: RoundtripFieldCandidate[];
   markdown: string;
   fetchImpl?: typeof fetch;
-}): Promise<FieldDecision[]> {
+}): Promise<FieldDecisionBatch> {
   const candidatePayload = input.candidates.map((field) => ({
     candidate_id: field.fieldInstanceId,
     proposed_label: field.label,
@@ -240,8 +260,12 @@ async function requestFieldDecisions(input: {
     }
   };
 
+  let requestCount = 1;
   let response = await attempt();
-  if (RETRYABLE_STATUSES.has(response.status)) response = await attempt();
+  if (RETRYABLE_STATUSES.has(response.status)) {
+    requestCount += 1;
+    response = await attempt();
+  }
   const body = await response.text();
   if (!response.ok) {
     throw new FieldPlanningError(
@@ -266,7 +290,15 @@ async function requestFieldDecisions(input: {
   }
   const raw = isRecord(toolUse.input) && Array.isArray(toolUse.input.decisions) ? toolUse.input.decisions : [];
   const allowed = new Set(input.candidates.map((candidate) => candidate.fieldInstanceId));
-  return raw.flatMap((value) => normalizeDecision(value, allowed));
+  return {
+    decisions: raw.flatMap((value) => normalizeDecision(value, allowed)),
+    usage: {
+      requestCount,
+      inputTokens: nonNegativeInteger(payload.usage?.input_tokens),
+      outputTokens: nonNegativeInteger(payload.usage?.output_tokens),
+      cacheReadTokens: nonNegativeInteger(payload.usage?.cache_read_input_tokens),
+    },
+  };
 }
 
 function buildFieldPlanToolSchema() {
@@ -377,6 +409,7 @@ function buildSummary(
   fields: RoundtripFieldCandidate[],
   warning: string | null,
   failureCode: RoundtripFailureCode | null,
+  usage: FieldPlannerUsage = emptyPlannerUsage(),
 ): RoundtripFieldPlanningSummary {
   const acceptedCount = fields.filter((field) => field.recommendedInput).length;
   return {
@@ -394,7 +427,28 @@ function buildSummary(
     candidateConcurrency: runtime.candidateConcurrency,
     parentLabRunId: runtime.parentLabRunId,
     failureCode,
+    ...usage,
+    costUsd: status === "llm" && usage.inputTokens + usage.outputTokens > 0
+      ? priceDeepAnalysisUsage({ model: runtime.requestedModel, usage })
+      : null,
   };
+}
+
+function emptyPlannerUsage(): FieldPlannerUsage {
+  return { requestCount: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+}
+
+function sumPlannerUsage(items: readonly FieldPlannerUsage[]): FieldPlannerUsage {
+  return items.reduce<FieldPlannerUsage>((sum, item) => ({
+    requestCount: sum.requestCount + item.requestCount,
+    inputTokens: sum.inputTokens + item.inputTokens,
+    outputTokens: sum.outputTokens + item.outputTokens,
+    cacheReadTokens: sum.cacheReadTokens + item.cacheReadTokens,
+  }), emptyPlannerUsage());
+}
+
+function nonNegativeInteger(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
 function cloneField(field: RoundtripFieldCandidate): RoundtripFieldCandidate {

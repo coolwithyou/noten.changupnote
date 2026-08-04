@@ -291,6 +291,20 @@ surfaceId
 
 운영 worker mode 변경, Scheduler 수정, 실제 배포는 이 체크포인트 구현과 검증 후 별도 승인으로만 수행한다.
 
+#### 구현 결과 (2026-08-04)
+
+- [x] 운영 Kordoc worker는 공용 `analyzeRoundtripDocument`에 `transport: "api"`를 명시해 같은 문서·필드 계약을 사용한다.
+- [x] 봉인 검증 직후 전용 enqueue와 22축 primary를 병렬 착수하고, enqueue 오류가 22축 결과를 폐기하지 않도록 분리했다.
+- [x] surface + 원본 SHA + 분석 버전 unique job, 독립 lease/retry/heartbeat, API usage·비용 원장을 추가했다.
+- [x] `/notice-pipeline` 요약과 공고 상세에 22축/Kordoc 시작·완료·문서·필드·버전·비용·오류를 노출했다.
+- [x] 과거 대상은 `application-precompute:backfill`의 기본 dry-run, 1회 최대 50 surface로 제한했다. 신규 딥분석 enqueue 우선순위 100, 과거 backfill -100으로 신규를 우선한다.
+- [x] 운영 진입점에 구독 CLI import와 `ANALYSIS_LAB_TRANSPORT`가 없고 API transport가 고정되는 격리 테스트를 추가했다.
+- [ ] migration `0067_familiar_anthem.sql` 적용, worker active 전환, Scheduler/Cloud Run 배포, 실제 20~50건 cohort 실행은 이 체크포인트에서 수행하지 않았다.
+- [ ] 승격 fail-closed 여부는 observe-only cohort의 coverage·비용·오류 관측 후 결정한다.
+
+검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
+`pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
+
 ### 7.4 2026-08-04 읽기 전용 backlog 기준선
 
 계획 수립 중 production DB를 read-only transaction으로 집계했으며 쓰기는 롤백했다.

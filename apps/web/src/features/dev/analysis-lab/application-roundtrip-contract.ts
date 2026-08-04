@@ -144,6 +144,12 @@ export interface RoundtripFieldPlanningSummary {
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
   failureCode?: RoundtripFailureCode | null;
+  /** API/CLI 응답 usage를 합산한 관제용 실제 사용량. 구 산출물 호환을 위해 optional이다. */
+  requestCount?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  costUsd?: number | null;
 }
 
 export interface RoundtripFieldCoverageIssue {

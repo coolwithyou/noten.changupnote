@@ -253,6 +253,7 @@ function NoticeDetailTabs({
     <Tabs defaultValue="criteria">
       <TabsList variant="line" className="w-full justify-start overflow-x-auto">
         <TabsTrigger value="criteria">22축 기본 추출</TabsTrigger>
+        <TabsTrigger value="analyses">딥분석·빠른 작성</TabsTrigger>
         <TabsTrigger value="attachments">첨부·변환</TabsTrigger>
         <TabsTrigger value="demo">데모</TabsTrigger>
         <TabsTrigger value="history">이력</TabsTrigger>
@@ -263,6 +264,9 @@ function NoticeDetailTabs({
           canMutate={canMutate}
           onRequestAction={onRequestAction}
         />
+      </TabsContent>
+      <TabsContent value="analyses" className="pt-4">
+        <AnalysisPairPanel detail={detail} />
       </TabsContent>
       <TabsContent value="attachments" className="pt-4">
         <AttachmentPanel
@@ -370,6 +374,64 @@ function CriteriaTable({
           })}
         </TableBody>
       </Table>
+    </div>
+  )
+}
+
+function AnalysisPairPanel({ detail }: { detail: PipelineNoticeDetail }) {
+  const deep = detail.analyses.deepAnalysis
+  const precompute = detail.analyses.applicationPrecompute
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>22축 딥분석</CardTitle>
+          <CardDescription>공고 자격·제외·우대·평가 조건과 AI 자동 검수 상태입니다.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <AnalysisValue label="Queue" value={deep.jobStatus} />
+          <AnalysisValue label="Run" value={deep.runStatus} />
+          <AnalysisValue label="모델" value={deep.model} />
+          <AnalysisValue label="비용" value={formatCost(deep.costUsd)} />
+          <AnalysisValue label="시작" value={formatOptionalDateTime(deep.startedAt)} />
+          <AnalysisValue label="완료" value={formatOptionalDateTime(deep.completedAt)} />
+          {deep.errorCode ? (
+            <div className="sm:col-span-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-xs text-muted-foreground">오류</p>
+              <p className="mt-1 font-medium text-destructive">{deep.errorCode}</p>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Kordoc 빠른 작성 선분석</CardTitle>
+          <CardDescription>지원 바이너리에서 사용자 입력 필드를 미리 판정한 상태입니다.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
+          <AnalysisValue label="원본·작업" value={`${precompute.sourceCount}개 · ${precompute.jobCount}건`} />
+          <AnalysisValue label="완료" value={`${precompute.completedCount}/${precompute.jobCount}건`} />
+          <AnalysisValue label="최신 상태" value={precompute.latestResultStatus ?? precompute.latestStatus} />
+          <AnalysisValue label="생성 필드" value={`${precompute.fieldCount}개`} />
+          <AnalysisValue label="비용" value={formatCost(precompute.costUsd)} />
+          <AnalysisValue label="완료 시각" value={formatOptionalDateTime(precompute.completedAt)} />
+          {precompute.errorCode ? (
+            <div className="sm:col-span-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-xs text-muted-foreground">오류</p>
+              <p className="mt-1 font-medium text-destructive">{precompute.errorCode}</p>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function AnalysisValue({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="rounded-lg border p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="mt-1 break-all font-medium">{value ?? "없음"}</p>
     </div>
   )
 }
@@ -512,9 +574,27 @@ function AttachmentPanel({
                   {surface.type} · {surface.format} · {formatDateTime(surface.updatedAt)}
                 </p>
               </div>
-              <Badge variant={surface.extractionStatus === "failed" ? "destructive" : "secondary"}>
-                {surface.extractionStatus}
-              </Badge>
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={surface.extractionStatus === "failed" ? "destructive" : "secondary"}>
+                  {surface.extractionStatus}
+                </Badge>
+                {surface.applicationPrecompute ? (
+                  <Badge variant={
+                    surface.applicationPrecompute.status === "blocked"
+                      || surface.applicationPrecompute.status === "dead_letter"
+                      ? "destructive"
+                      : "outline"
+                  }>
+                    빠른 작성 {surface.applicationPrecompute.resultStatus ?? surface.applicationPrecompute.status}
+                    {` · 필드 ${surface.applicationPrecompute.fieldCount}`}
+                    {surface.applicationPrecompute.costUsd === null
+                      ? ""
+                      : ` · $${surface.applicationPrecompute.costUsd.toFixed(4)}`}
+                  </Badge>
+                ) : (
+                  <Badge variant="outline">빠른 작성 미시작</Badge>
+                )}
+              </div>
             </div>
           )) : (
             <Alert>
@@ -722,6 +802,10 @@ function formatDateTime(value: string): string {
 
 function formatOptionalDateTime(value: string | null): string {
   return value ? formatDateTime(value) : "없음"
+}
+
+function formatCost(value: number | null): string {
+  return value === null ? "미집계" : `$${value.toFixed(4)}`
 }
 
 function uniqueLabels(values: Array<string | null>): string {
