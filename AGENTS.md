@@ -53,3 +53,10 @@
 - **원칙(사용자 확정)**: 고단가 모델(fable-5 등)을 API로 돌리지 않는다 — 로컬 대량 작업은 구독이 기본. 단, 구독 실행은 **로컬 dev·실험실 한정**(약관 경계) — 운영 worker·Cloud Run·사용자 대면 경로는 API 유지.
 - 배치의 시각적 실행·관리: dev 서버 `/dev/analysis-lab` → "배치 운영" 탭(깔때기·transport 선택·진행 스트림, CLI 시작 배치도 표시). dev 웹 레인의 구독 스위치는 `apps/web/.env.development.local`(파일 삭제+재기동으로 API 복귀). **웹·CLI 배치 동시 실행 금지**(코드 가드 있음).
 - 운용 안내 정본: `docs/explainers/구독모델로-딥분석-돌리는-법.md`, 트랙 상태 정본: `docs/plans/HANDOFF-2026-08-03.md`. 검수 사이드카는 모델별(`.ai-review.<model>.json`)이라 `--model=claude-fable-5` 명시 필수(기본 sonnet-5로 돌리면 전부 재검수됨).
+
+## 딥분석 — 운영 크론과 로컬 구독의 겹침 방지 (2026-08-04 조사 확정)
+
+- **현재 운영의 유료 LLM 딥분석은 자동으로 돌지 않는다**: Cloud Run 메인 워커가 `DEEP_ANALYSIS_WORKER_MODE=observe_only` + `CLAIM_SCOPE=unconfigured` 2단 fail-closed(하트비트만 기록). 개발 기간에는 이 상태를 유지하고 **분석은 로컬 구독 lab이 유일 경로**다. 조사 정본: `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
+- 로컬 lab은 DB에 런을 쓰지 않는다(spike-out 파일). DB 쓰기 접점은 `lab:promote --write` 순간뿐이며 3중 확인(release+write+confirm)이 걸려 있다.
+- **⚠️ 승격 전 필수 선행**: 수집 publisher(`normalizedGrantPublisher.ts:233`)가 재발행 시 criteria를 무조건 전삭제→재삽입하므로, 승격 보호 가드(P1 — 위 조사 문서 §3) 구현 전에는 `lab:promote --write` 실발행을 하지 않는다(승격분이 다음 수집 사이클에 말소되고 유령 질문·원장 모순 발생).
+- 운영 딥분석을 켤 때는(사용자 결정) `CLAIM_SCOPE=bounded`(cohort sha256 화이트리스트)로 시작하고 로컬 lab 코호트와 상호배타 집합 유지, 켜기 전 pending 큐(누적 중) 정리.
