@@ -73,6 +73,35 @@ function deferred<T>() {
   assert.equal(reference.documentCount, 2);
 }
 
+// 일부 문서 파싱 실패가 있으면 성공 문서에서 지원서를 찾지 못했어도 not_applicable로 숨기지 않는다.
+{
+  const unrelated = {
+    ...document("complete", 0),
+    attachmentId: "attachment-announcement",
+    role: "announcement",
+  } as RoundtripParsedDocument;
+  const failed = {
+    ...document("review_required", 0),
+    attachmentId: "attachment-failed",
+    role: "unknown",
+    error: "Kordoc parse failed",
+  } as RoundtripParsedDocument;
+  const run = {
+    runId: "roundtrip-partial-parse-failure",
+    documents: [unrelated, failed],
+    recommendedAttachmentId: null,
+    failureCode: "document_analysis_failed",
+    error: null,
+  } as unknown as ApplicationRoundtripRun;
+  const reference = buildApplicationRoundtripReference({
+    result: { status: "fulfilled", value: run },
+    transport: "claude-cli",
+    model: "claude-opus-5",
+  });
+  assert.equal(reference.status, "review_required");
+  assert.equal(reference.errorCode, "document_analysis_failed");
+}
+
 console.log("application precompute tests: ok");
 
 function document(

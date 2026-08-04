@@ -58,7 +58,20 @@ export function buildApplicationRoundtripReference(input: {
       error: run.error,
     };
   }
+  const runFailureCode = run.failureCode ?? null;
   if (applicationDocuments.length === 0 || run.recommendedAttachmentId === null) {
+    if (runFailureCode !== null) {
+      return {
+        status: "review_required",
+        runId: run.runId,
+        transport: input.transport,
+        model: input.model,
+        documentCount: run.documents.length,
+        sourceCount: run.documents.length,
+        errorCode: runFailureCode,
+        error: null,
+      };
+    }
     return {
       status: "not_applicable",
       runId: run.runId,
@@ -83,7 +96,7 @@ export function buildApplicationRoundtripReference(input: {
   const hasPartial = applicationDocuments.some(
     (document) => document.fieldCoverage.status === "partial",
   );
-  const plannerFailed = run.failureCode !== null && run.failureCode !== undefined;
+  const plannerFailed = runFailureCode !== null;
   const status: LabApplicationRoundtripReference["status"] =
     usableDocuments.length === 0 && hasReviewRequired
       ? "review_required"
@@ -97,7 +110,7 @@ export function buildApplicationRoundtripReference(input: {
     model: input.model,
     documentCount: run.documents.length,
     sourceCount: run.documents.length,
-    errorCode: run.failureCode ?? null,
+    errorCode: runFailureCode,
     error: null,
   };
 }
