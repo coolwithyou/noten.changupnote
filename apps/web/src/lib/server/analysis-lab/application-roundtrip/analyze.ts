@@ -4,7 +4,9 @@ import { VERSION } from "kordoc";
 import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
+  type RoundtripFailureCode,
   type RoundtripFieldPlanningSummary,
+  type RoundtripLlmTransport,
   type RoundtripParsedDocument,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
 import { getCunoteDb } from "@/lib/server/db/client";
@@ -16,6 +18,7 @@ import {
   likelyApplicationRole,
 } from "./core";
 import { analyzeRoundtripDocument } from "./analyze-document";
+import { resolveRoundtripFieldPlannerRuntimeConfig } from "./field-planner";
 import { emptyRoundtripFieldCoverage } from "./field-coverage";
 import {
   buildRoundtripRunId,
@@ -34,9 +37,24 @@ export class ApplicationRoundtripAnalyzeError extends Error {
   }
 }
 
-export async function runApplicationRoundtripAnalysis(grantId: string): Promise<ApplicationRoundtripRun> {
+export interface ApplicationRoundtripAnalysisOptions {
+  apiKey?: string | null;
+  fetchImpl?: typeof fetch;
+  model?: string;
+  timeoutMs?: number;
+  transport?: RoundtripLlmTransport;
+  candidateConcurrency?: number;
+  parentLabRunId?: string | null;
+}
+
+export async function runApplicationRoundtripAnalysis(
+  grantId: string,
+  options?: ApplicationRoundtripAnalysisOptions,
+): Promise<ApplicationRoundtripRun> {
   const started = new Date();
   const startedMs = Date.now();
+  const plannerRuntime = resolveRoundtripFieldPlannerRuntimeConfig(options);
+  const apiKey = options?.apiKey === undefined ? resolveAnthropicApiKey() : options.apiKey;
   const db = getCunoteDb();
   const grantRows = await db
     .select({
@@ -146,7 +164,13 @@ export async function runApplicationRoundtripAnalysis(grantId: string): Promise<
         declaredFormat: attachment.format,
         sourceSha256,
         body: object.body,
-        apiKey: resolveAnthropicApiKey(),
+        apiKey,
+        model: plannerRuntime.requestedModel,
+        timeoutMs: plannerRuntime.timeoutMs,
+        transport: plannerRuntime.transport,
+        candidateConcurrency: plannerRuntime.candidateConcurrency,
+        parentLabRunId: plannerRuntime.parentLabRunId,
+        ...(options?.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
       });
       documents.push(analyzed.document);
       markdownByAttachmentId.set(attachmentId, analyzed.markdown);
@@ -183,7 +207,7 @@ export async function runApplicationRoundtripAnalysis(grantId: string): Promise<
         emptyFieldCount: 0,
         recommendedInputFieldCount: 0,
         recommendedChoiceGroupCount: 0,
-        fieldPlanning: skippedFieldPlanning(0),
+        fieldPlanning: skippedFieldPlanning(0, plannerRuntime, "document_analysis_failed"),
         fieldCoverage: emptyRoundtripFieldCoverage(),
         markdownPreview: "",
         warnings: [],
@@ -197,6 +221,7 @@ export async function runApplicationRoundtripAnalysis(grantId: string): Promise<
       && (document.recommendedInputFieldCount > 0 || document.recommendedChoiceGroupCount > 0))
     .sort((a, b) => recommendationScore(b) - recommendationScore(a))[0] ?? null;
   const successful = documents.filter((document) => document.error === null).length;
+  const failureCode = aggregateFailureCode(documents, successful);
   const run: ApplicationRoundtripRun = {
     version: APPLICATION_ROUNDTRIP_VERSION,
     runId,
@@ -206,6 +231,13 @@ export async function runApplicationRoundtripAnalysis(grantId: string): Promise<
     title: grant.title,
     engine: "kordoc",
     engineVersion: VERSION,
+    parentLabRunId: plannerRuntime.parentLabRunId,
+    transport: plannerRuntime.transport,
+    requestedModel: plannerRuntime.requestedModel,
+    timeoutMs: plannerRuntime.timeoutMs,
+    candidateLimit: plannerRuntime.candidateLimit,
+    candidateConcurrency: plannerRuntime.candidateConcurrency,
+    failureCode,
     startedAt: started.toISOString(),
     durationMs: Date.now() - startedMs,
     documents,
@@ -237,7 +269,11 @@ function resolveAnthropicApiKey(): string | null {
   return process.env.ANTHROPIC_API_KEY?.trim() || process.env.ANTROPHIC_API_KEY?.trim() || null;
 }
 
-function skippedFieldPlanning(candidateCount: number): RoundtripFieldPlanningSummary {
+function skippedFieldPlanning(
+  candidateCount: number,
+  runtime: ReturnType<typeof resolveRoundtripFieldPlannerRuntimeConfig>,
+  failureCode: RoundtripFailureCode | null,
+): RoundtripFieldPlanningSummary {
   return {
     status: "skipped",
     model: null,
@@ -246,7 +282,38 @@ function skippedFieldPlanning(candidateCount: number): RoundtripFieldPlanningSum
     acceptedCount: 0,
     rejectedCount: candidateCount,
     warning: null,
+    transport: runtime.transport,
+    requestedModel: runtime.requestedModel,
+    timeoutMs: runtime.timeoutMs,
+    candidateLimit: runtime.candidateLimit,
+    candidateConcurrency: runtime.candidateConcurrency,
+    parentLabRunId: runtime.parentLabRunId,
+    failureCode,
   };
+}
+
+function aggregateFailureCode(
+  documents: RoundtripParsedDocument[],
+  successfulCount: number,
+): RoundtripFailureCode | null {
+  if (successfulCount === 0) return "all_documents_failed";
+  const fieldPlanningCodes = new Set(
+    documents.flatMap((document) => document.fieldPlanning.failureCode ? [document.fieldPlanning.failureCode] : []),
+  );
+  const priorities: RoundtripFailureCode[] = [
+    "window_exhausted",
+    "document_analysis_failed",
+    "request_timeout",
+    "transport_not_configured",
+    "http_error",
+    "invalid_response",
+    "request_failed",
+    "api_key_missing",
+  ];
+  for (const code of priorities) {
+    if (fieldPlanningCodes.has(code)) return code;
+  }
+  return documents.some((document) => document.error !== null) ? "document_analysis_failed" : null;
 }
 
 function roleLabel(role: RoundtripParsedDocument["role"]): string {

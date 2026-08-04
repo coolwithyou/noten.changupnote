@@ -1,16 +1,20 @@
 import type {
+  RoundtripFailureCode,
   RoundtripFieldCandidate,
   RoundtripFieldInputKind,
   RoundtripFieldPlanningSummary,
+  RoundtripLlmTransport,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
 
 const TOOL_NAME = "emit_application_field_plan";
 const DEFAULT_MODEL = "claude-sonnet-5";
 const DEFAULT_MAX_TOKENS = 8_000;
 const DEFAULT_TIMEOUT_MS = 180_000;
-const MAX_LLM_CANDIDATES = 180;
+export const ROUNDTRIP_FIELD_CANDIDATE_LIMIT = 180;
 const LLM_CANDIDATES_PER_REQUEST = 20;
+const MAX_LLM_BATCHES = Math.ceil(ROUNDTRIP_FIELD_CANDIDATE_LIMIT / LLM_CANDIDATES_PER_REQUEST);
 const RETRYABLE_STATUSES = new Set([429, 500, 529]);
+const WINDOW_EXHAUSTED_MARKER = "[CLAUDE_CLI_WINDOW_EXHAUSTED]";
 
 interface AnthropicToolUseBlock {
   type: "tool_use";
@@ -33,44 +37,95 @@ interface FieldDecision {
   suggestedLabel: string;
 }
 
+export interface RoundtripFieldPlannerRuntimeConfig {
+  transport: RoundtripLlmTransport;
+  requestedModel: string;
+  timeoutMs: number;
+  candidateLimit: number;
+  candidateConcurrency: number;
+  parentLabRunId: string | null;
+}
+
+class FieldPlanningError extends Error {
+  constructor(readonly code: RoundtripFailureCode, message: string) {
+    super(message);
+    this.name = "FieldPlanningError";
+  }
+}
+
+export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
+  model?: string;
+  timeoutMs?: number;
+  transport?: RoundtripLlmTransport;
+  candidateConcurrency?: number;
+  parentLabRunId?: string | null;
+}): RoundtripFieldPlannerRuntimeConfig {
+  const transport = options?.transport ?? "api";
+  const defaultConcurrency = transport === "claude-cli" ? 1 : MAX_LLM_BATCHES;
+  return {
+    transport,
+    requestedModel: resolveModel(options?.model),
+    timeoutMs: resolveTimeoutMs(options?.timeoutMs),
+    candidateLimit: ROUNDTRIP_FIELD_CANDIDATE_LIMIT,
+    candidateConcurrency: positiveInteger(options?.candidateConcurrency) ?? defaultConcurrency,
+    parentLabRunId: options?.parentLabRunId?.trim() || null,
+  };
+}
+
 export async function planRoundtripFields(options: {
   fields: RoundtripFieldCandidate[];
   markdown: string;
   apiKey: string | null;
   fetchImpl?: typeof fetch;
+  model?: string;
+  timeoutMs?: number;
+  transport?: RoundtripLlmTransport;
+  candidateConcurrency?: number;
+  parentLabRunId?: string | null;
 }): Promise<{ fields: RoundtripFieldCandidate[]; summary: RoundtripFieldPlanningSummary }> {
   const startedMs = Date.now();
+  const runtime = resolveRoundtripFieldPlannerRuntimeConfig(options);
   const fields = options.fields.map(cloneField);
-  const candidates = fields.slice(0, MAX_LLM_CANDIDATES);
+  const candidates = fields.slice(0, runtime.candidateLimit);
   if (candidates.length === 0) {
-    return { fields, summary: buildSummary("skipped", null, 0, fields, "판정할 입력 후보가 없습니다.") };
+    return {
+      fields,
+      summary: buildSummary(runtime, "skipped", null, 0, fields, "판정할 입력 후보가 없습니다.", null),
+    };
   }
   if (!options.apiKey) {
     return {
       fields,
       summary: buildSummary(
+        runtime,
         "heuristic_fallback",
         null,
         Date.now() - startedMs,
         fields,
         "ANTHROPIC_API_KEY가 없어 결정적 후보 규칙만 적용했습니다.",
+        "api_key_missing",
       ),
     };
   }
 
-  const model = resolveModel();
   try {
-    const decisionBatches = await Promise.all(
-      chunkCandidates(candidates).map((batch) => requestFieldDecisions({
+    const decisionBatches = await mapWithConcurrency(
+      chunkCandidates(candidates),
+      runtime.candidateConcurrency,
+      (batch) => requestFieldDecisions({
         apiKey: options.apiKey!,
-        model,
+        model: runtime.requestedModel,
+        timeoutMs: runtime.timeoutMs,
+        transport: runtime.transport,
         candidates: batch,
         markdown: options.markdown,
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-      })),
+      }),
     );
     const decisions = decisionBatches.flat();
-    if (decisions.length === 0) throw new Error("모델이 후보 판정 배열을 비워 반환했습니다.");
+    if (decisions.length === 0) {
+      throw new FieldPlanningError("invalid_response", "모델이 후보 판정 배열을 비워 반환했습니다.");
+    }
     const byId = new Map(decisions.map((decision) => [decision.candidateId, decision]));
     for (const field of fields) {
       const decision = byId.get(field.fieldInstanceId);
@@ -80,24 +135,29 @@ export async function planRoundtripFields(options: {
     return {
       fields,
       summary: buildSummary(
+        runtime,
         "llm",
-        model,
+        runtime.requestedModel,
         Date.now() - startedMs,
         fields,
         byId.size < candidates.length
           ? `LLM이 ${candidates.length}개 후보 중 ${byId.size}개만 반환해 나머지는 구조 규칙을 유지했습니다.`
           : null,
+        null,
       ),
     };
   } catch (error) {
+    const failureCode = classifyFieldPlanningFailure(error);
     return {
       fields,
       summary: buildSummary(
+        runtime,
         "heuristic_fallback",
-        model,
+        runtime.requestedModel,
         Date.now() - startedMs,
         fields,
         `LLM 필드 판정 실패: ${error instanceof Error ? error.message : String(error)}`,
+        failureCode,
       ),
     };
   }
@@ -106,6 +166,8 @@ export async function planRoundtripFields(options: {
 async function requestFieldDecisions(input: {
   apiKey: string;
   model: string;
+  timeoutMs: number;
+  transport: RoundtripLlmTransport;
   candidates: RoundtripFieldCandidate[];
   markdown: string;
   fetchImpl?: typeof fetch;
@@ -144,11 +206,18 @@ async function requestFieldDecisions(input: {
     tool_choice: { type: "tool", name: TOOL_NAME },
   });
 
+  const requestFetch = input.fetchImpl ?? (input.transport === "api" ? fetch : null);
+  if (!requestFetch) {
+    throw new FieldPlanningError(
+      "transport_not_configured",
+      "claude-cli transport에 fetchImpl이 주입되지 않아 API 자동 폴백 없이 중단했습니다.",
+    );
+  }
   const attempt = async (): Promise<Response> => {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), resolveTimeoutMs());
+    const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
     try {
-      return await (input.fetchImpl ?? fetch)("https://api.anthropic.com/v1/messages", {
+      return await requestFetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -158,6 +227,14 @@ async function requestFieldDecisions(input: {
         signal: controller.signal,
         body: requestBody,
       });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new FieldPlanningError(
+          "request_timeout",
+          `Anthropic field plan 호출이 타임아웃됐습니다(${input.timeoutMs}ms).`,
+        );
+      }
+      throw error;
     } finally {
       clearTimeout(timeout);
     }
@@ -166,12 +243,27 @@ async function requestFieldDecisions(input: {
   let response = await attempt();
   if (RETRYABLE_STATUSES.has(response.status)) response = await attempt();
   const body = await response.text();
-  if (!response.ok) throw new Error(`Anthropic field plan failed: ${response.status} ${body.slice(0, 500)}`);
-  const payload = JSON.parse(body) as AnthropicResponse;
+  if (!response.ok) {
+    throw new FieldPlanningError(
+      body.includes(WINDOW_EXHAUSTED_MARKER) ? "window_exhausted" : "http_error",
+      `Anthropic field plan failed: ${response.status} ${body.slice(0, 500)}`,
+    );
+  }
+  let payload: AnthropicResponse;
+  try {
+    payload = JSON.parse(body) as AnthropicResponse;
+  } catch {
+    throw new FieldPlanningError("invalid_response", `Anthropic field plan JSON 파싱 실패: ${body.slice(0, 500)}`);
+  }
   const toolUse = payload.content?.find(
     (block): block is AnthropicToolUseBlock => block.type === "tool_use" && "name" in block && block.name === TOOL_NAME,
   );
-  if (!toolUse) throw new Error(`도구 응답이 없습니다(stop_reason=${payload.stop_reason ?? "unknown"}).`);
+  if (!toolUse) {
+    throw new FieldPlanningError(
+      "invalid_response",
+      `도구 응답이 없습니다(stop_reason=${payload.stop_reason ?? "unknown"}).`,
+    );
+  }
   const raw = isRecord(toolUse.input) && Array.isArray(toolUse.input.decisions) ? toolUse.input.decisions : [];
   const allowed = new Set(input.candidates.map((candidate) => candidate.fieldInstanceId));
   return raw.flatMap((value) => normalizeDecision(value, allowed));
@@ -278,11 +370,13 @@ function findSurroundingText(markdown: string, field: RoundtripFieldCandidate): 
 }
 
 function buildSummary(
+  runtime: RoundtripFieldPlannerRuntimeConfig,
   status: RoundtripFieldPlanningSummary["status"],
   model: string | null,
   durationMs: number,
   fields: RoundtripFieldCandidate[],
   warning: string | null,
+  failureCode: RoundtripFailureCode | null,
 ): RoundtripFieldPlanningSummary {
   const acceptedCount = fields.filter((field) => field.recommendedInput).length;
   return {
@@ -293,6 +387,13 @@ function buildSummary(
     acceptedCount,
     rejectedCount: fields.length - acceptedCount,
     warning,
+    transport: runtime.transport,
+    requestedModel: runtime.requestedModel,
+    timeoutMs: runtime.timeoutMs,
+    candidateLimit: runtime.candidateLimit,
+    candidateConcurrency: runtime.candidateConcurrency,
+    parentLabRunId: runtime.parentLabRunId,
+    failureCode,
   };
 }
 
@@ -307,8 +408,8 @@ function cloneField(field: RoundtripFieldCandidate): RoundtripFieldCandidate {
   };
 }
 
-function resolveModel(): string {
-  return process.env.APPLICATION_ROUNDTRIP_MODEL?.trim() || DEFAULT_MODEL;
+function resolveModel(explicit?: string): string {
+  return explicit?.trim() || process.env.APPLICATION_ROUNDTRIP_MODEL?.trim() || DEFAULT_MODEL;
 }
 
 function resolveMaxTokens(): number {
@@ -316,7 +417,9 @@ function resolveMaxTokens(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_TOKENS;
 }
 
-function resolveTimeoutMs(): number {
+function resolveTimeoutMs(explicit?: number): number {
+  const explicitTimeout = positiveInteger(explicit);
+  if (explicitTimeout !== null) return explicitTimeout;
   const parsed = Number.parseInt(process.env.APPLICATION_ROUNDTRIP_TIMEOUT_MS ?? "", 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TIMEOUT_MS;
 }
@@ -344,4 +447,37 @@ function chunkCandidates(fields: RoundtripFieldCandidate[]): RoundtripFieldCandi
     chunks.push(fields.slice(index, index + LLM_CANDIDATES_PER_REQUEST));
   }
   return chunks;
+}
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (values.length === 0) return [];
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    for (;;) {
+      const index = nextIndex;
+      if (index >= values.length) return;
+      nextIndex += 1;
+      results[index] = await mapper(values[index]!, index);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, () => worker()),
+  );
+  return results;
+}
+
+function classifyFieldPlanningFailure(error: unknown): RoundtripFailureCode {
+  if (error instanceof FieldPlanningError) return error.code;
+  if (error instanceof Error && error.name === "AbortError") return "request_timeout";
+  if (error instanceof Error && error.message.includes(WINDOW_EXHAUSTED_MARKER)) return "window_exhausted";
+  return "request_failed";
+}
+
+function positiveInteger(value: number | undefined): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : null;
 }

@@ -15,6 +15,7 @@
 //       pnpm lab:batch -- --limit=10 --concurrency=2 --max-cost-usd=5
 //       pnpm lab:batch -- --retry-errors                (현행 버전 error 런만 있는 공고도 대상 포함)
 //       pnpm lab:batch -- --reanalyze-outdated          (구버전 ok 런만 있는 공고도 대상 포함)
+//       ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:batch -- --with-application-roundtrip
 // 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. DB에는 어떤 쓰기도 하지 않는다.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -76,6 +77,8 @@ interface BatchOptions {
   retryErrors: boolean;
   /** 구버전 ok 런"만" 보유한 공고를 대상에 편입한다 — 우발 재분석 가드의 명시적 탈출구. */
   reanalyzeOutdated: boolean;
+  withApplicationRoundtrip: boolean;
+  roundtripModel?: string;
 }
 
 /** 옵션 검증 — 오류면 사유 문자열 반환(호출부에서 안내 후 exit 1). */
@@ -83,6 +86,8 @@ function parseOptions(): BatchOptions | string {
   const limit = readNumberArg("limit", DEFAULT_LIMIT);
   const concurrency = readNumberArg("concurrency", DEFAULT_CONCURRENCY);
   const maxCostUsd = readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
+  const withApplicationRoundtrip = hasFlag("with-application-roundtrip");
+  const roundtripModel = readArg("roundtrip-model")?.trim();
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
     return "--limit 은 1 이상의 정수여야 합니다.";
   }
@@ -92,6 +97,12 @@ function parseOptions(): BatchOptions | string {
   if (maxCostUsd === null || maxCostUsd <= 0) {
     return "--max-cost-usd 는 0보다 큰 숫자여야 합니다.";
   }
+  if (roundtripModel !== undefined && roundtripModel.length === 0) {
+    return "--roundtrip-model 은 비어 있을 수 없습니다.";
+  }
+  if (roundtripModel !== undefined && !withApplicationRoundtrip) {
+    return "--roundtrip-model 은 --with-application-roundtrip 과 함께 지정해야 합니다.";
+  }
   return {
     limit,
     concurrency,
@@ -99,6 +110,8 @@ function parseOptions(): BatchOptions | string {
     dryRun: hasFlag("dry-run"),
     retryErrors: hasFlag("retry-errors"),
     reanalyzeOutdated: hasFlag("reanalyze-outdated"),
+    withApplicationRoundtrip,
+    ...(roundtripModel !== undefined ? { roundtripModel } : {}),
   };
 }
 
@@ -274,6 +287,8 @@ function createCliBatchRecorder(options: BatchOptions, transport: LabBatchTransp
         reanalyzeOutdated: options.reanalyzeOutdated,
         transport,
         model: resolveLabModel(),
+        ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
+        ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
       },
       progress: { total: 0, started: 0, ok: 0, error: 0, cumulativeCostUsd: 0 },
       guardStop: null,
@@ -336,6 +351,8 @@ async function runBatchViaRunner(options: BatchOptions, transport: LabBatchTrans
       maxCostUsd: options.maxCostUsd,
       retryErrors: options.retryErrors,
       reanalyzeOutdated: options.reanalyzeOutdated,
+      ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
+      ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
       onEvent: (event) => {
         recorder.record(event); // 관측 브리지 — 콘솔 렌더와 무관하게 베스트에포트 기록
         switch (event.type) {
@@ -442,8 +459,20 @@ async function main(): Promise<number> {
 
   // 전송층 선검증(계획 §5 #6-②) — env 오타(resolveLabTransport throw)를 배치 시작 전에 fail-fast.
   const transport = resolveLabTransport();
+  if (options.withApplicationRoundtrip && transport !== "claude-cli") {
+    console.error(
+      "[batch] 설정 오류: --with-application-roundtrip 은 현재 로컬 Max 구독 transport(ANALYSIS_LAB_TRANSPORT=claude-cli)에서만 허용됩니다.",
+    );
+    return 1;
+  }
   if (transport === "claude-cli") {
     console.log("[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다(API 토큰 미지출, 명목 비용만 집계).");
+  }
+  if (options.withApplicationRoundtrip) {
+    console.log(
+      `[batch] Kordoc 지원 양식 선분석을 딥 분석과 함께 실행합니다` +
+        (options.roundtripModel ? ` (model=${options.roundtripModel})` : " (딥 분석 모델 상속)"),
+    );
   }
 
   if (options.dryRun) return runDryRun(options); // 무기록 — 관측 브리지는 실행 경로 전용

@@ -2,7 +2,7 @@
 // 실행: pnpm lab:batch-runner:test
 // 검증: ① plan 이벤트 정확성(partitionCohortEntries 결과와 일치·기간 스킵·예상 비용)
 // ② 비용 상한 → guard-stop(cost-cap) + 신규 착수 중단 ③ 윈도 소진 마커 → guard-stop(window-exhausted)
-// ④ abort → stopReason aborted + 진행분 완료 ⑤ transport/model 오버라이드의 runLabAnalysis 전달
+// ④ abort → stopReason aborted + 진행분 완료 ⑤ transport/model/roundtrip 오버라이드의 runLabAnalysis 전달
 // ⑥ 대상 0건 → 분석 무호출 finished ⑦ 오버라이드 오타 fail-fast(이벤트 무방출).
 import assert from "node:assert/strict";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
@@ -262,6 +262,47 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   console.log("✅ 윈도 소진 — 마커 감지 guard-stop(window-exhausted)·신규 착수 중단");
 }
 
+// Kordoc sidecar 윈도 소진은 딥 분석 성공을 유지하면서 신규 착수만 중단한다.
+{
+  const analyzed: string[] = [];
+  const events: LabBatchEvent[] = [];
+  const summary = await runLabBatch(
+    baseOptions(events, { withApplicationRoundtrip: true }),
+    makeDeps({
+      entries: [entry("sw1"), entry("sw2"), entry("sw3")],
+      run: async (grantId) => {
+        analyzed.push(grantId);
+        return {
+          ...okResult(`공고 ${grantId}`, 0.1),
+          applicationRoundtrip: {
+            status: "partial",
+            runId: "roundtrip-sidecar",
+            transport: "claude-cli",
+            model: "claude-opus-5",
+            documentCount: 1,
+            sourceCount: 1,
+            errorCode: "window_exhausted",
+            error: null,
+          },
+        };
+      },
+    }),
+  );
+  assert.deepEqual(analyzed, ["sw1"]);
+  assert.deepEqual(eventTypes(events), [
+    "plan",
+    "target-started",
+    "target-ok",
+    "guard-stop",
+    "finished",
+  ]);
+  assert.equal(summary.ok, 1, "sidecar 실패가 딥 분석 성공 집계를 바꾸지 않는다");
+  assert.equal(summary.errorRuns, 0);
+  assert.equal(summary.notStarted, 2);
+  assert.equal(summary.stopReason, "window-exhausted");
+  console.log("✅ Kordoc 윈도 소진 — 딥 분석 성공 유지·신규 착수 중단");
+}
+
 // ---- ④ abort → stopReason aborted + 진행분 완료 --------------------------------
 {
   // concurrency=2 로 g1·g2 가 동시에 착수된 뒤 abort — 진행분 2건은 끝까지 완료(런 저장
@@ -300,7 +341,12 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 
 // ---- ⑤ transport/model 오버라이드 전달 ----------------------------------------
 {
-  const received: Array<{ transport?: string; model?: string } | undefined> = [];
+  const received: Array<{
+    transport?: string;
+    model?: string;
+    withApplicationRoundtrip?: boolean;
+    roundtripModel?: string;
+  } | undefined> = [];
   const run: LabBatchAnalysisImpl = async (grantId, overrides) => {
     received.push(overrides);
     return okResult(grantId, 0.1);
@@ -329,11 +375,25 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   assert.deepEqual(modelOnly, { model: "claude-test-2" });
   assert.ok(!("transport" in modelOnly), "미지정 transport 는 키 자체가 없어야 한다");
 
+  // Kordoc 선분석 opt-in — false는 키를 만들지 않고 true/model만 명시 전달한다.
+  received.length = 0;
+  await runLabBatch(
+    baseOptions([], {
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-roundtrip",
+    }),
+    makeDeps({ entries: [entry("t-roundtrip")], run }),
+  );
+  assert.deepEqual(received, [{
+    withApplicationRoundtrip: true,
+    roundtripModel: "claude-opus-roundtrip",
+  }]);
+
   // 둘 다 미지정 — overrides 인자 자체가 undefined(기존 env 경로 100% 보존).
   received.length = 0;
   await runLabBatch(baseOptions([]), makeDeps({ entries: [entry("t4")], run }));
   assert.deepEqual(received, [undefined]);
-  console.log("✅ 오버라이드 — transport/model 전달·미지정 시 undefined(env 경로 보존)");
+  console.log("✅ 오버라이드 — transport/model/roundtrip 전달·미지정 시 undefined(env 경로 보존)");
 }
 
 // ---- ⑥ 대상 0건 → 분석 무호출 finished ----------------------------------------

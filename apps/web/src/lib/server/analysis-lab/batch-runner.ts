@@ -18,6 +18,7 @@ import {
   type LabBatchPeriodSkipStatus,
   type LabBatchPeriodSkippedEntry,
   type LabBatchSummary,
+  type LabApplicationRoundtripReference,
 } from "@/features/dev/analysis-lab/contract";
 import { classifyNoticePeriod } from "@/features/dev/analysis-lab/notice-period";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
@@ -40,6 +41,10 @@ export interface LabBatchRunnerOptions {
   transport?: LabBatchTransport;
   /** env(ANALYSIS_LAB_MODEL)보다 우선하는 명시 오버라이드. 미지정 시 기존 env 경로. */
   model?: string;
+  /** 같은 grantId의 Kordoc 지원 양식 분석을 딥 분석과 함께 시작한다. */
+  withApplicationRoundtrip?: boolean;
+  /** 미지정 시 딥 분석 모델을 상속한다. */
+  roundtripModel?: string;
   onEvent?: (event: LabBatchEvent) => void;
   /** abort 시 신규 착수만 중단한다 — 진행분은 각 워커가 완료하고 런도 저장된다. */
   signal?: AbortSignal;
@@ -93,11 +98,17 @@ export interface LabBatchRunResult {
   title: string;
   costUsd: number | null;
   error: string | null;
+  applicationRoundtrip?: LabApplicationRoundtripReference;
 }
 
 export type LabBatchAnalysisImpl = (
   grantId: string,
-  overrides?: { transport?: LabBatchTransport; model?: string },
+  overrides?: {
+    transport?: LabBatchTransport;
+    model?: string;
+    withApplicationRoundtrip?: boolean;
+    roundtripModel?: string;
+  },
 ) => Promise<LabBatchRunResult>;
 
 export interface LabBatchRunnerDeps {
@@ -387,10 +398,15 @@ export async function runLabBatch(
 
   // transport/model 오버라이드 — 둘 다 미지정이면 undefined 를 넘겨 기존 env 경로를 100% 보존.
   const analysisOverrides =
-    options.transport !== undefined || options.model !== undefined
+    options.transport !== undefined
+      || options.model !== undefined
+      || options.withApplicationRoundtrip === true
+      || options.roundtripModel !== undefined
       ? {
           ...(options.transport !== undefined ? { transport: options.transport } : {}),
           ...(options.model !== undefined ? { model: options.model } : {}),
+          ...(options.withApplicationRoundtrip === true ? { withApplicationRoundtrip: true } : {}),
+          ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
         }
       : undefined;
 
@@ -455,19 +471,18 @@ export async function runLabBatch(
             title: run.title,
             durationMs,
           });
-          // Max 사용량 윈도 소진(계획 §5 #6-①): error 런에 transport 마커가 보이면 costCapped
-          // 와 동일하게 신규 착수만 중단한다 — 소진 후 잔여 타깃 전부가 스폰→실패→불변 error
-          // 런으로 축적되는 것을 차단(기본 재실행은 error 런을 보류하므로 재개도 안 된다).
-          // 윈도 리셋 후 같은 명령 재실행 시 미착수 공고는 자연 재개되고, 소진 시점에 이미
-          // 착수됐던 소수 error 런만 --retry-errors 대상이다.
-          if (!state.windowExhausted && run.error.includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER)) {
-            state.windowExhausted = true;
-            emit({
-              type: "guard-stop",
-              reason: "window-exhausted",
-              cumulativeCostUsd: state.totalCostUsd,
-            });
-          }
+        }
+        // primary error 마커뿐 아니라 Kordoc sidecar의 구조화 failureCode도 같은 Max 윈도
+        // 중단 신호다. sidecar 실패는 딥 분석 성공 집계를 바꾸지 않되 신규 착수는 막는다.
+        const windowExhausted = run.error?.includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER) === true
+          || run.applicationRoundtrip?.errorCode === "window_exhausted";
+        if (!state.windowExhausted && windowExhausted) {
+          state.windowExhausted = true;
+          emit({
+            type: "guard-stop",
+            reason: "window-exhausted",
+            cumulativeCostUsd: state.totalCostUsd,
+          });
         }
       } catch (caught) {
         // 공고 미존재(LabGrantNotFoundError) 등 — 런 저장 없이 실패. 기록하고 계속.

@@ -1,7 +1,8 @@
 // Kordoc 지원서 왕복 실험실(dev 전용) 공유 계약.
 // 운영 DB/R2는 읽기만 하고, 분석·채움 산출물은 spike-out 아래에만 저장한다.
 
-export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v3";
+/** v4: 주입형 LLM provenance·실패 코드·bounded 후보 chunk 실행. */
+export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v4";
 
 export type RoundtripDocumentFormat = "hwp" | "hwpx";
 export type RoundtripDocumentRole =
@@ -69,6 +70,17 @@ export type RoundtripFieldType =
   | "idnum";
 
 export type RoundtripFieldSource = "kordoc-form" | "contextual-region";
+export type RoundtripLlmTransport = "api" | "claude-cli";
+export type RoundtripFailureCode =
+  | "api_key_missing"
+  | "transport_not_configured"
+  | "request_timeout"
+  | "window_exhausted"
+  | "http_error"
+  | "invalid_response"
+  | "request_failed"
+  | "document_analysis_failed"
+  | "all_documents_failed";
 export type RoundtripFieldInputKind =
   | "text"
   | "textarea"
@@ -123,6 +135,14 @@ export interface RoundtripFieldPlanningSummary {
   acceptedCount: number;
   rejectedCount: number;
   warning: string | null;
+  /** 신규 런 provenance. 기존 저장 파일과 테스트 픽스처 호환을 위해 additive optional이다. */
+  transport?: RoundtripLlmTransport;
+  requestedModel?: string;
+  timeoutMs?: number;
+  candidateLimit?: number;
+  candidateConcurrency?: number;
+  parentLabRunId?: string | null;
+  failureCode?: RoundtripFailureCode | null;
 }
 
 export interface RoundtripFieldCoverageIssue {
@@ -215,6 +235,14 @@ export interface ApplicationRoundtripRun {
   title: string;
   engine: "kordoc";
   engineVersion: string;
+  /** 같은 공고의 딥분석 런과 결속하는 additive provenance. */
+  parentLabRunId?: string | null;
+  transport?: RoundtripLlmTransport;
+  requestedModel?: string;
+  timeoutMs?: number;
+  candidateLimit?: number;
+  candidateConcurrency?: number;
+  failureCode?: RoundtripFailureCode | null;
   startedAt: string;
   durationMs: number;
   documents: RoundtripParsedDocument[];

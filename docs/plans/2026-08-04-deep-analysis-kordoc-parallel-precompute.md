@@ -1,7 +1,7 @@
 # 딥 분석 시점 Kordoc 바이너리 선분석 통합 계획
 
 > 작성일: 2026-08-04  
-> 상태: 체크포인트 1 구현 중  
+> 상태: 체크포인트 1 완료 · 체크포인트 2 대기
 > 범위: 딥 분석과 HWP/HWPX 빠른 작성 분석의 실행 시점·결과 결속·서빙 준비 보장  
 > 비범위: 공고 수집 정책 변경, 22축 매칭 규칙 변경, 사용자 지원서 작성 UI 재설계, Cloud Run 활성화·배포
 
@@ -193,6 +193,19 @@ surfaceId
 ## 7. 구현 체크포인트
 
 ### 체크포인트 1 — 로컬 구독 분석에서 동시 선계산
+
+상태: **구현·검증 완료** (2026-08-04)
+
+검증 증거:
+
+- `pnpm lab:roundtrip:test`
+- `pnpm lab:application-precompute:test`
+- `pnpm lab:batch-runner:test`
+- `pnpm --filter @cunote/web typecheck`
+- `pnpm --filter @cunote/web build`
+- 운영 `deep-analysis/` 경로의 `claude-cli-transport`·`ANALYSIS_LAB_TRANSPORT` 참조 0건
+
+유료 모델 호출·운영 DB 쓰기·Cloud Run/Vercel 배포는 수행하지 않았다.
 
 목표: 사용자가 요구한 실행 시점과 고급 구독 모델 배선을 먼저 실제 코드로 만든다. 운영 DB·서빙은 건드리지 않는다.
 

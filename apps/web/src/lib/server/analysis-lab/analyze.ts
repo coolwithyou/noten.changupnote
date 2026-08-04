@@ -20,6 +20,10 @@ import {
   resolveLabTransport,
   type LabLlmBinding,
 } from "./claude-cli-transport";
+import {
+  buildApplicationRoundtripReference,
+  runAnalysisPair,
+} from "./application-precompute";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, runDeepGrantAnalysis, type DeepAnalysisResult } from "./extractor";
 import { assembleLabInput, type LabInputArchive } from "./input";
@@ -39,6 +43,10 @@ export interface LabAnalysisOverrides {
   transport?: "api" | "claude-cli";
   /** env(ANALYSIS_LAB_MODEL)보다 우선하는 모델 지정(풀 id — 별칭 금지, 가격표·파일 키 결속). */
   model?: string;
+  /** 같은 grantId의 Kordoc 빠른 작성 선분석을 형제 작업으로 시작한다. */
+  withApplicationRoundtrip?: boolean;
+  /** 미지정 시 ANALYSIS_LAB_ROUNDTRIP_MODEL 또는 딥 분석 모델을 상속한다. */
+  roundtripModel?: string;
 }
 
 /**
@@ -165,22 +173,70 @@ export async function runLabAnalysis(
   // 같은 값을 기록해야 provenance 가 오염되지 않는다(계획 §5 #1). binding 구체화(api 키
   // 부재 throw 가능)는 기존처럼 try 안 — "실패해도 error 런 저장" 계약(상단 주석)을 보존한다.
   const transport = opts?.transport ?? resolveLabTransport();
-  let extraction: DeepAnalysisResult | null = null;
-  let error: string | null = null;
-  try {
-    const binding =
-      opts?.transport === undefined
-        ? await resolveLabLlmBinding()
-        : await resolveLabLlmBindingForTransport(opts.transport);
-    extraction = await runDeepGrantAnalysis({
-      apiKey: binding.apiKey,
-      inputText: input.text,
-      ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
-      ...(opts?.model !== undefined ? { model: opts.model } : {}),
+  const requestedModel = opts?.model ?? resolveLabModel();
+  const roundtripModel = opts?.roundtripModel
+    ?? (process.env.ANALYSIS_LAB_ROUNDTRIP_MODEL?.trim() || requestedModel);
+  // 같은 binding Promise를 두 형제 작업이 공유한다. API 키 부재/CLI 준비 실패도 primary는
+  // error LabRun, sidecar는 failed reference로 각각 종결돼 한쪽이 다른 쪽을 덮지 않는다.
+  const bindingPromise = opts?.transport === undefined
+    ? resolveLabLlmBinding()
+    : resolveLabLlmBindingForTransport(opts.transport);
+  const runPrimary = async (): Promise<{
+    extraction: DeepAnalysisResult | null;
+    error: string | null;
+  }> => {
+    try {
+      const binding = await bindingPromise;
+      const extraction = await runDeepGrantAnalysis({
+        apiKey: binding.apiKey,
+        inputText: input.text,
+        ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
+        ...(opts?.model !== undefined ? { model: opts.model } : {}),
+      });
+      return { extraction, error: null };
+    } catch (caught) {
+      return {
+        extraction: null,
+        error: caught instanceof Error
+          ? caught.message.slice(0, 2_000)
+          : String(caught).slice(0, 2_000),
+      };
+    }
+  };
+
+  let primary: Awaited<ReturnType<typeof runPrimary>>;
+  let applicationRoundtrip: LabRun["applicationRoundtrip"];
+  if (opts?.withApplicationRoundtrip === true) {
+    const paired = await runAnalysisPair({
+      primary: runPrimary,
+      application: async () => {
+        const [binding, roundtripModule] = await Promise.all([
+          bindingPromise,
+          import("./application-roundtrip/analyze"),
+        ]);
+        return roundtripModule.runApplicationRoundtripAnalysis(grantId, {
+          apiKey: binding.apiKey,
+          model: roundtripModel,
+          timeoutMs: resolveRoundtripTimeoutMs(),
+          transport,
+          candidateConcurrency: transport === "claude-cli" ? 1 : 2,
+          parentLabRunId: runId,
+          ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
+        });
+      },
     });
-  } catch (caught) {
-    error = caught instanceof Error ? caught.message.slice(0, 2_000) : String(caught).slice(0, 2_000);
+    primary = paired.primary;
+    if (paired.application) {
+      applicationRoundtrip = buildApplicationRoundtripReference({
+        result: paired.application,
+        transport,
+        model: roundtripModel,
+      });
+    }
+  } else {
+    primary = await runPrimary();
   }
+  const { extraction, error } = primary;
 
   const run: LabRun = {
     runId,
@@ -190,7 +246,7 @@ export async function runLabAnalysis(
     title: grant.title,
     // 실패(error) 런에도 오버라이드 모델을 기록한다 — extraction 이 없으면 env 폴백 전에
     // 오버라이드가 우선해야 provenance 가 실제 요청 모델과 일치한다.
-    model: extraction?.model ?? opts?.model ?? resolveLabModel(),
+    model: extraction?.model ?? requestedModel,
     transport,
     promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     startedAt: startedAt.toISOString(),
@@ -210,8 +266,16 @@ export async function runLabAnalysis(
       proposed: extraction?.criteria ?? [],
       assessments: extraction?.axisAssessments ?? [],
     }),
+    ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),
     error,
   };
   await saveLabRun(run);
   return run;
+}
+
+function resolveRoundtripTimeoutMs(): number {
+  const raw = process.env.ANALYSIS_LAB_ROUNDTRIP_TIMEOUT_MS?.trim()
+    || process.env.ANALYSIS_LAB_TIMEOUT_MS?.trim();
+  const parsed = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 540_000;
 }

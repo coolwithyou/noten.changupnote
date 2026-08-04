@@ -155,6 +155,22 @@ export interface LabDimensionDiff {
 
 export type LabUsage = DeepAnalysisUsage;
 
+/**
+ * 같은 공고 딥 분석 시점에 병렬 선계산한 Kordoc 지원 양식 결과 참조.
+ * 실제 문서별 후보와 좌표는 불변 application-roundtrip artifact가 소유하고,
+ * LabRun에는 두 실행의 결속과 빠른 작성 준비 상태만 남긴다.
+ */
+export interface LabApplicationRoundtripReference {
+  status: "complete" | "partial" | "review_required" | "not_applicable" | "failed";
+  runId: string | null;
+  transport: "api" | "claude-cli";
+  model: string;
+  documentCount: number;
+  sourceCount: number;
+  errorCode: string | null;
+  error: string | null;
+}
+
 export interface LabRun {
   runId: string;
   grantId: string;
@@ -182,6 +198,8 @@ export interface LabRun {
   axisAssessments: LabAxisAssessment[];
   taxonomyProposals: LabTaxonomyProposal[];
   dimensionDiffs: LabDimensionDiff[];
+  /** 구런과 Kordoc 미실행 런에는 없다. */
+  applicationRoundtrip?: LabApplicationRoundtripReference;
   error: string | null;
 }
 
@@ -540,6 +558,10 @@ export interface LabBatchStartRequest {
   reanalyzeOutdated: boolean;
   transport?: "api" | "claude-cli";
   model?: string;
+  /** 로컬 구독 배치에서 같은 공고의 Kordoc 지원 양식 선분석을 함께 실행한다. */
+  withApplicationRoundtrip?: boolean;
+  /** 미지정 시 딥 분석 모델을 상속한다. */
+  roundtripModel?: string;
 }
 
 /** GET/POST/DELETE ops/batch 응답 — 동시 1잡(싱글턴). state=idle 이면 나머지는 직전 잡 잔상 또는 null. */

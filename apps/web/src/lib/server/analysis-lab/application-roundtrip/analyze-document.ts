@@ -2,6 +2,7 @@ import { parse } from "kordoc";
 import type {
   RoundtripDocumentFormat,
   RoundtripFieldPlanningSummary,
+  RoundtripLlmTransport,
   RoundtripParsedDocument,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
 import {
@@ -10,7 +11,10 @@ import {
   likelyApplicationRole,
 } from "./core";
 import { extractContextualRoundtripFields } from "./editable-regions";
-import { planRoundtripFields } from "./field-planner";
+import {
+  planRoundtripFields,
+  resolveRoundtripFieldPlannerRuntimeConfig,
+} from "./field-planner";
 import { finalizeRoundtripFieldCoverage } from "./field-coverage";
 import { extractHwpFormChoiceGroups } from "./hwp-form-controls";
 
@@ -21,6 +25,12 @@ export interface AnalyzeRoundtripDocumentInput {
   sourceSha256: string;
   body: Uint8Array;
   apiKey: string | null;
+  fetchImpl?: typeof fetch;
+  model?: string;
+  timeoutMs?: number;
+  transport?: RoundtripLlmTransport;
+  candidateConcurrency?: number;
+  parentLabRunId?: string | null;
 }
 
 /**
@@ -31,6 +41,7 @@ export async function analyzeRoundtripDocument(
   input: AnalyzeRoundtripDocumentInput,
 ): Promise<{ document: RoundtripParsedDocument; markdown: string }> {
   const startedMs = Date.now();
+  const plannerRuntime = resolveRoundtripFieldPlannerRuntimeConfig(input);
   const parsed = await parse(Buffer.from(input.body));
   if (!parsed.success) throw new Error(`${parsed.code}: ${parsed.error}`);
   if (parsed.fileType !== "hwp" && parsed.fileType !== "hwpx") {
@@ -62,10 +73,16 @@ export async function analyzeRoundtripDocument(
         fields: allFields,
         markdown: parsed.markdown,
         apiKey: input.apiKey,
+        model: plannerRuntime.requestedModel,
+        timeoutMs: plannerRuntime.timeoutMs,
+        transport: plannerRuntime.transport,
+        candidateConcurrency: plannerRuntime.candidateConcurrency,
+        parentLabRunId: plannerRuntime.parentLabRunId,
+        ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
       })
     : {
         fields: allFields,
-        summary: skippedFieldPlanning(allFields.length),
+        summary: skippedFieldPlanning(allFields.length, plannerRuntime),
       };
   suppressContextBackedFormFields(planned.fields);
   suppressUnsafeKordocHeaderFields(planned.fields);
@@ -184,7 +201,10 @@ function finalizeFieldPlanning(
   };
 }
 
-function skippedFieldPlanning(candidateCount: number): RoundtripFieldPlanningSummary {
+function skippedFieldPlanning(
+  candidateCount: number,
+  runtime: ReturnType<typeof resolveRoundtripFieldPlannerRuntimeConfig>,
+): RoundtripFieldPlanningSummary {
   return {
     status: "skipped",
     model: null,
@@ -193,5 +213,12 @@ function skippedFieldPlanning(candidateCount: number): RoundtripFieldPlanningSum
     acceptedCount: 0,
     rejectedCount: candidateCount,
     warning: null,
+    transport: runtime.transport,
+    requestedModel: runtime.requestedModel,
+    timeoutMs: runtime.timeoutMs,
+    candidateLimit: runtime.candidateLimit,
+    candidateConcurrency: runtime.candidateConcurrency,
+    parentLabRunId: runtime.parentLabRunId,
+    failureCode: null,
   };
 }
