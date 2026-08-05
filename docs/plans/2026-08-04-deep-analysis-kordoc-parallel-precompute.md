@@ -1,7 +1,7 @@
 # 딥 분석 시점 Kordoc 바이너리 선분석 통합 계획
 
 > 작성일: 2026-08-04  
-> 상태: 체크포인트 1·2 완료 · 체크포인트 3 제한 운영 검증 완료 · 상시화 안전 게이트와 운영 migration 적용 완료(Cloud Run 활성화 대기)
+> 상태: 체크포인트 1·2 완료 · 체크포인트 3 제한 운영 검증 완료 · Kordoc 상시 worker 활성화 완료(딥분석 worker는 observe-only 유지)
 > 범위: 딥 분석과 HWP/HWPX 빠른 작성 분석의 실행 시점·결과 결속·서빙 준비 보장  
 > 비범위: 공고 수집 정책 변경, 22축 매칭 규칙 변경, 사용자 지원서 작성 UI 재설계, 별도 범용 workflow/Cloud Run Job 신설
 
@@ -343,7 +343,17 @@ surfaceId
 - [x] LLM `timeout/http/invalid response/request failed`는 Kordoc 구조 후보를 버리지 않고 `partial` 또는 `review_required`로 정상 종결한다. API key·transport 설정 실패는 계속 차단하며, 부분 성공 usage는 완료 시 0으로 덮지 않고 attempt 실제 비용과 보수 reserve를 유지한다.
 - [x] `0068_glamorous_dagger.sql`을 운영 DB에 적용했다. 적용 전 succeeded 21·leased 0을 확인했고, 적용 후 attempt 21건·charged cost `$2.761890`, lease token 잔존 0건, field map 619건(Kordoc 568·reconcile 51)으로 기존 결과가 보존됨을 확인했다.
 - [x] 기존 `cunote-deep-analysis` Cloud Run execution이 명시적 `APPLICATION_PRECOMPUTE_EXECUTE=1`일 때만 독립 Kordoc queue cycle을 추가 실행하도록 배선했다. 플래그가 없으면 heartbeat를 포함한 mutation 0건이고, 딥분석 worker mode와 Kordoc worker mode·claim scope·일일 비용 상한은 서로 독립이다.
-- [ ] Cloud Run의 딥분석 worker는 `observe_only`를 유지하고 Kordoc만 `active/all`, invocation당 1건·동시성 1·일일 `$2`로 활성화한다. 정확한 3개 Job image 배포와 수동 smoke·Scheduler 실행 확인은 `sw@noten.im` 재인증 후 수행한다.
+- [x] Cloud Run의 딥분석 worker는 `observe_only`를 유지하고 Kordoc만 `active/all`, invocation당 1건·동시성 1·일일 `$2`로 활성화했다. 정확한 3개 Job image 배포와 수동 smoke·Scheduler 실행을 확인했다.
+
+#### 상시화 운영 적용 증거 (2026-08-05)
+
+- [x] `sw@noten.im` base account, `changupnote-com`, `asia-northeast3`를 다시 인증했고 tokeninfo에서 실제 API actor가 `cunote-codex-dev@changupnote-com.iam.gserviceaccount.com`임을 확인했다.
+- [x] exact source commit `e00cee9a346ff88ae879f3739c8802949976a03e`를 원격 `main`에 push한 뒤 Cloud Build `0a9316bc-61a3-462b-825e-432c26bc06ab`로 빌드했다. 세 Job은 immutable digest `sha256:dd059e081c536a0e9197583883271ab885434af6ceda1f28d3b35e9047da63b0`와 같은 commit SHA를 사용한다.
+- [x] Ready generation은 main `96/96`, input preparation `32/32`, serving monitor `25/25`다. 기존 runtime service account, timeout, retry 0, command/args, secret 참조와 Scheduler의 enabled·주기·KST 설정을 보존했다.
+- [x] main observe-only smoke `cunote-deep-analysis-6n7l2`는 22축 enqueue·analysis·budget mutation 0건, Kordoc observe-only claim 0건으로 성공했다. input preparation `cunote-deep-analysis-input-preparation-qztl9`도 성공했다.
+- [x] Kordoc active smoke `cunote-deep-analysis-lwdr5`와 5분 정시 Scheduler execution `cunote-deep-analysis-4cdc8`은 모두 성공했다. 두 실행은 deep worker `observe_only`, Kordoc `active/all`, `claimed=0`, `budgetStopped=true`, 오류 0을 기록했다.
+- [x] 적용 후 DB read-only 검증은 job 21건 전부 succeeded, attempt 21건 전부 succeeded, charged cost `$2.761890` 불변이다. 최신 heartbeat는 API/Sonnet 5, 일일 cap `$2`, reserve `$0.5`, active/all과 budget stop을 동일하게 기록했다.
+- [!] serving monitor 수동 execution `cunote-deep-analysis-serving-monitor-9s4zx`는 새 release `deep-production-r1-20260805T072410Z-036af33b`를 PASS했지만 2026-07-31의 일부 과거 active release에서 promotion snapshot 이후 criteria hash·trace가 바뀐 기존 drift를 찾아 전체 FAIL했다. Kordoc 활성화와 무관하며 이 기록을 삭제하거나 monitor를 우회하지 않았다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
