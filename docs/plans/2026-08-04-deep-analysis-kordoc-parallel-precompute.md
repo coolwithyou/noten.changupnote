@@ -315,7 +315,7 @@ surfaceId
 - [x] 기존 상한은 완료 비용만 비교해 다음 한 건만큼 초과할 수 있었다. cohort 최대 실측 `$0.293390`보다 여유 있는 기본 `$0.50` job reserve를 claim 전에 합산하도록 보강했다.
 - [x] 비용 중단 invocation에서 claimed 0 / budgetStopped true, 남은 6건 pending·attempt 0을 확인했다.
 - [x] `/notice-pipeline` 서버 detail 조회로 deep-analysis pending과 Kordoc job 2/2 완료, surface별 모델·토큰·비용·필드·상태가 노출되는 것을 확인했다.
-- [ ] 남은 6건은 다음 일일 예산 창 또는 별도 승인 상한에서 재개한다. 현재 cohort는 과거 backlog라 deepAnalysisRunId가 null이며, 신규 공고에서 두 분석의 실제 동시 시작 증명은 production deep worker 활성화 뒤 별도 확인한다.
+- [x] 기존 pending 6건과 신규 동시 시작 공고 1건을 6개 grant bounded scope·동시성 1로 모두 종결했다. 기존 `$1.885886`에서 추가 비용은 `$0.876004`였고, 임시 invocation 상한 `$4` 안에서 최종 누적 `$2.761890`으로 끝났다. Scheduler·Cloud Run·기본 `$2` 정책은 변경하지 않았다.
 
 #### 신규 공고 동시 시작 검증 (2026-08-05)
 
@@ -325,8 +325,11 @@ surfaceId
 - [x] `input_sealed` receipt는 `06:20:23.218556Z`, 같은 run에 결속된 Kordoc job 생성은 `06:20:23.311275Z`였다. Kordoc enqueue는 primary 완료 receipt `06:22:09.139028Z`보다 약 106초 앞서므로 후처리 순차 실행이 아니라 같은 봉인 시점의 병렬 착수임을 확인했다.
 - [x] `/notice-pipeline` 서버 detail은 딥분석 `succeeded/passed`와 비용, Kordoc `pending`과 HWP surface·원본 SHA·analysisVersion을 같은 공고에서 노출했다.
 - [x] Kordoc active worker를 같은 grant 한 건으로 제한해 재실행했으며, 일일 비용 `$1.885886 / $2`와 job reserve `$0.50` 때문에 claim 0 / success 0 / failure 0 / `budgetStopped=true`로 종료했다. pending job의 attempt는 0으로 보존됐으며 상한을 높이거나 우회하지 않았다.
-- [ ] 이 run은 분석 완료까지의 증명이다. 현재 `publication_complete=false`, `serving_complete=false`, `first_blocking_stage=publication_complete`이며 promotion item도 0건이므로 이번 v25 결과가 아직 랜딩 매칭 projection에 반영됐다고 보지 않는다.
-- [ ] 다음 일일 예산 창에서 신규 Kordoc job 1건과 기존 pending 6건을 bounded 처리하고, 신규 HWP가 종결 artifact·field map으로 materialize되는지 확인한다. 이후 승격은 별도 promotion gate를 통과시켜 publication·serving·fresh receipt와 랜딩 반영을 검증한다.
+- [x] 신규 HWP는 `complete`, 후보 8개 중 필드 7개를 materialize했고 workspace 저장 경로가 216ms에 같은 7개를 읽었다. 상태는 `current=true`, 원본 SHA와 artifact가 일치했으며 추가 모델 호출은 없었다. ops 상세도 Sonnet 5/API, 요청 1회, `$0.022426`, 필드 7개와 완료 시각을 노출했다.
+- [x] 나머지 6건은 `partial` 2건(필드 50+37), `review_required` 1건, `not_applicable` 3건으로 정상 종결됐다. `review_required/not_applicable`은 필드를 자동 반영하지 않았고 전체 7건에서 실패·retry·dead letter는 0건이었다.
+- [x] release `deep-production-r1-20260805T072410Z-036af33b`를 준비하고 aggregate `GO`(blocking 4/4, source drift 0), shadow `PASS`(공고 1 × 회사 131, issue 0), dry-run `PASS`(baseline 1/1, source drift 0)를 통과한 뒤 현재 사용자 승인과 분리된 실행 actor로 canary·전체 승격했다.
+- [x] release와 item은 각각 `active`·`applied`다. promotion snapshot 검증 issue 0, canary와 전체 serving 검증이 모두 PASS했고 `analysis_complete`, `publication_complete`, `serving_complete`, `analysis_fresh`가 전부 true이며 blocker가 없다. 랜딩의 `requireDeepAnalysisPromotion=true` active universe에서도 대상 공고와 새 criteria 3건을 읽었다.
+- [ ] 운영 도구 후속 개선: `lab:aggregate` release 경로는 standalone 실행 시 env를 로드하지 않고 성공 뒤 DB 연결을 닫지 않으며, `lab:shadow` release는 로컬에 32자 이상 HMAC 키가 없으면 실행할 수 없다. 이번 검증은 값을 출력·저장하지 않는 임시 HMAC과 선행 env loader로 실행했지만, 반복 운영 전 CLI 자체의 공용 env/종료 계약을 보강한다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
