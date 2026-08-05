@@ -9,6 +9,7 @@
     "dev:web:roundtrip": "CUNOTE_WEB_PORT=4020 CUNOTE_DEV_TUNNEL=0 NEXTAUTH_URL=http://127.0.0.1:4020 node scripts/dev-web.mjs",
     "dev:ops": "node scripts/dev-ops.mjs",
     "build:packages": "pnpm --filter @cunote/contracts build && pnpm --filter @cunote/core build",
+    "test:deep-analysis-runtime-control": "TSX_TSCONFIG_PATH=packages/contracts/tsconfig.json node --import tsx packages/contracts/src/deep-analysis-runtime-control.test.ts",
     "build:web": "pnpm build:packages && pnpm --filter @cunote/web build",
     "build:admin": "pnpm build:packages && pnpm --filter @cunote/admin build",
     "db:generate": "drizzle-kit generate",

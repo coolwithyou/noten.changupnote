@@ -55,12 +55,19 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RhwpFieldReviewPanel } from "./RhwpFieldReviewPanel";
+import { localAnalysisRequestHeaders } from "./useLocalAnalysisRuntime";
 
 const COHORT_URL = "/api/dev/analysis-lab/application-roundtrip/cohort";
 const ANALYZE_URL = "/api/dev/analysis-lab/application-roundtrip/analyze";
 const FILL_URL = "/api/dev/analysis-lab/application-roundtrip/fill";
 
-export function ApplicationRoundtripLab() {
+export function ApplicationRoundtripLab({
+  analysisAllowed,
+  analysisOwnerId,
+}: {
+  analysisAllowed: boolean;
+  analysisOwnerId: string | null;
+}) {
   const [cohort, setCohort] = useState<RoundtripCohortResponse | null>(null);
   const [cohortLoading, setCohortLoading] = useState(true);
   const [selectedGrantId, setSelectedGrantId] = useState("");
@@ -141,7 +148,10 @@ export function ApplicationRoundtripLab() {
     try {
       const response = await fetch(ANALYZE_URL, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          ...localAnalysisRequestHeaders(analysisOwnerId),
+        },
         body: JSON.stringify({ grantId: selectedGrantId }),
       });
       if (!response.ok) throw new Error(await readErrorMessage(response, "Kordoc 분석에 실패했습니다."));
@@ -270,7 +280,7 @@ export function ApplicationRoundtripLab() {
             <h2 className="font-medium">2. 공고 첨부 전체 파싱·역할 판정</h2>
             <p className="text-xs text-muted-foreground">확장자가 아닌 매직바이트 감지 결과와 문서 내용·양식 구조를 함께 봅니다.</p>
           </div>
-          <Button onClick={() => void analyze()} disabled={!selectedNotice || analyzing || filling}>
+          <Button onClick={() => void analyze()} disabled={!analysisAllowed || !selectedNotice || analyzing || filling}>
             {analyzing ? <Spinner data-icon="inline-start" /> : <FileSearch data-icon="inline-start" />}
             {analyzing ? "HWP 첨부 파싱 중…" : "Kordoc 전체 파싱"}
           </Button>

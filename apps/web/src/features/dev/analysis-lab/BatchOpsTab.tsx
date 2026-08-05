@@ -18,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { BatchOpsConsole } from "./BatchOpsConsole";
 import { BatchOpsFunnelBoard } from "./BatchOpsFunnelBoard";
 import { BatchOpsProgressStream } from "./BatchOpsProgressStream";
+import { localAnalysisRequestHeaders } from "./useLocalAnalysisRuntime";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 배치 운영 탭 (dev 전용) — 구독(claude CLI) 딥분석 배치를 명시적으로 실행·관찰·관리한다.
@@ -39,7 +40,13 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
   }
 }
 
-export function BatchOpsTab() {
+export function BatchOpsTab({
+  analysisAllowed,
+  analysisOwnerId,
+}: {
+  analysisAllowed: boolean;
+  analysisOwnerId: string | null;
+}) {
   const [summary, setSummary] = useState<LabOpsSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [summaryRefreshing, setSummaryRefreshing] = useState(false);
@@ -123,7 +130,10 @@ export function BatchOpsTab() {
       try {
         const response = await fetch(BATCH_URL, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...localAnalysisRequestHeaders(analysisOwnerId),
+          },
           body: JSON.stringify(request),
         });
         if (response.status === 404) {
@@ -149,7 +159,7 @@ export function BatchOpsTab() {
         setStarting(false);
       }
     },
-    [loadBatch],
+    [analysisOwnerId, loadBatch],
   );
 
   const stopBatch = useCallback(async () => {
@@ -223,6 +233,7 @@ export function BatchOpsTab() {
       ) : null}
 
       <BatchOpsConsole
+        analysisAllowed={analysisAllowed}
         summary={summary}
         snapshot={snapshot}
         starting={starting}

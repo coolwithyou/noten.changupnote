@@ -2,6 +2,7 @@ import { redirect } from "next/navigation"
 
 import { OpsDashboardShell } from "@/components/OpsDashboardShell"
 import { DeepPipelinePageView } from "@/features/pipeline/DeepPipelinePageView"
+import { DeepAnalysisRuntimeControlCard } from "@/features/pipeline/DeepAnalysisRuntimeControlCard"
 import {
   DEEP_PIPELINE_ROLES,
   defaultAdminPath,
@@ -10,6 +11,7 @@ import {
   getDeepPipelineSummary,
   parseDeepPipelineQuery,
 } from "@/lib/server/admin/deepPipeline"
+import { getDeepAnalysisRuntimeControlStatus } from "@/lib/server/admin/deepAnalysisRuntimeControl"
 import { getOptionalAdminSession } from "@/lib/server/auth/adminSession"
 
 export const dynamic = "force-dynamic"
@@ -30,7 +32,10 @@ export default async function PipelinePage({
   }
 
   const query = parseDeepPipelineQuery(toUrlSearchParams(rawSearchParams))
-  const summary = await getDeepPipelineSummary(query)
+  const [summary, runtimeControl] = await Promise.all([
+    getDeepPipelineSummary(query),
+    getDeepAnalysisRuntimeControlStatus(),
+  ])
 
   return (
     <OpsDashboardShell
@@ -41,6 +46,11 @@ export default async function PipelinePage({
         role: session.user.role,
       }}
     >
+      <DeepAnalysisRuntimeControlCard
+        initialStatus={runtimeControl}
+        role={session.user.role}
+        workerExecutionMode={summary.worker.executionMode}
+      />
       <DeepPipelinePageView
         initialSummary={summary}
         query={query}

@@ -1429,6 +1429,44 @@ export const grantDeepAnalysisWorkerHeartbeats = pgTable("grant_deep_analysis_wo
 }));
 
 /**
+ * 유료 분석 실행 권한의 단일 정본. Scheduler와 배포 환경은 상위 실행 가능성만 제공하고,
+ * 실제 운영 API 또는 로컬 구독 신규 착수는 이 singleton row가 허용해야 한다.
+ */
+export const deepAnalysisRuntimeControl = pgTable("deep_analysis_runtime_control", {
+  controlKey: text("control_key").default("global").primaryKey(),
+  mode: text("mode").default("paused").notNull(),
+  generation: integer("generation").default(1).notNull(),
+  changedBy: text("changed_by").default("migration").notNull(),
+  changeReason: text("change_reason"),
+  localOwnerId: text("local_owner_id"),
+  localLeaseExpiresAt: timestamp("local_lease_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  singletonCheck: check("deep_analysis_runtime_control_singleton_check", sql`
+    ${table.controlKey} = 'global'
+  `),
+  modeCheck: check("deep_analysis_runtime_control_mode_check", sql`
+    ${table.mode} IN ('paused', 'production_api', 'local_subscription')
+  `),
+  generationCheck: check("deep_analysis_runtime_control_generation_check", sql`
+    ${table.generation} > 0
+  `),
+  localLeaseCheck: check("deep_analysis_runtime_control_local_lease_check", sql`
+    (
+      ${table.mode} = 'local_subscription'
+      AND ${table.localOwnerId} IS NOT NULL
+      AND ${table.localLeaseExpiresAt} IS NOT NULL
+    )
+    OR (
+      ${table.mode} <> 'local_subscription'
+      AND ${table.localOwnerId} IS NULL
+      AND ${table.localLeaseExpiresAt} IS NULL
+    )
+  `),
+}));
+
+/**
  * 한 번 봉인된 입력에 대한 모델 실행. stage receipt와 axis/audit 결과는 이 run을
  * 참조하고, source revision이 바뀌면 current projection에서 stale로 파생한다.
  */

@@ -5,6 +5,7 @@ import { runApplicationPrecomputeWorkerCycle } from "@/lib/server/documents/appl
 import { enqueueActiveDeepAnalysisJobs } from "./enqueueActive";
 import { processDeepAnalysisJob } from "./processor";
 import { runDeepAnalysisWorkerInvocation } from "./workerLoop";
+import { isProductionDeepAnalysisAllowed } from "./runtimeControl";
 import {
   assertDeepAnalysisClaimScopeConfigured,
   resolveDeepAnalysisWorkerPolicy,
@@ -48,7 +49,8 @@ const modelMetadata = {
 };
 
 try {
-  if (policy.executionMode === "observe_only") {
+  const runtime = await isProductionDeepAnalysisAllowed(db);
+  if (policy.executionMode === "observe_only" || !runtime.allowed) {
     const result = {
       claimed: 0,
       succeeded: 0,
@@ -59,6 +61,9 @@ try {
     };
     const metadata = {
       executionMode: policy.executionMode,
+      runtimeMode: runtime.control.mode,
+      runtimeGeneration: runtime.control.generation,
+      runtimeBlocked: !runtime.allowed,
       enqueueSkipped: true,
       analysisSkipped: true,
       budgetMutationSkipped: true,
@@ -101,6 +106,8 @@ try {
       policy,
       invocationMetadata: {
         executionMode: policy.executionMode,
+        runtimeMode: runtime.control.mode,
+        runtimeGeneration: runtime.control.generation,
         ...claimMetadata,
         ...modelMetadata,
         enqueue: enqueueResult,
@@ -123,6 +130,8 @@ try {
       serviceRevision,
       modelPolicyVersion: policy.modelPolicyVersion,
       executionMode: policy.executionMode,
+      runtimeMode: runtime.control.mode,
+      runtimeGeneration: runtime.control.generation,
       ...claimMetadata,
       ...modelMetadata,
       enqueue: enqueueResult,
@@ -134,6 +143,7 @@ try {
     db,
     workerId: `${workerId}-application`.slice(0, 200),
     serviceRevision,
+    runtimeAllowed: runtime.allowed,
   });
   if (applicationPrecompute.enabled) {
     console.log(JSON.stringify({

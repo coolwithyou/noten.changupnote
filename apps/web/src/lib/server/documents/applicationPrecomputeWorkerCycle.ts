@@ -30,6 +30,7 @@ export async function runApplicationPrecomputeWorkerCycle(input: {
   db: CunoteDb;
   workerId: string;
   serviceRevision: string;
+  runtimeAllowed: boolean;
   env?: Readonly<Record<string, string | undefined>>;
   execute?: boolean;
   storage?: R2ObjectStorage | null;
@@ -37,7 +38,8 @@ export async function runApplicationPrecomputeWorkerCycle(input: {
   heartbeat?: typeof writeApplicationPrecomputeHeartbeat;
 }): Promise<ApplicationPrecomputeWorkerCycleResult> {
   const env = input.env ?? process.env;
-  const execute = input.execute ?? env.APPLICATION_PRECOMPUTE_EXECUTE?.trim() === "1";
+  const execute = input.runtimeAllowed
+    && (input.execute ?? env.APPLICATION_PRECOMPUTE_EXECUTE?.trim() === "1");
   if (!execute) {
     return {
       enabled: false,

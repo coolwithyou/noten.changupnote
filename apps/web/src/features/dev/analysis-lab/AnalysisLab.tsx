@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { auditBadgeMeta, noticeAuditStatus } from "./labels";
 import { NoticeCard } from "./NoticeCard";
 import { RunDetail } from "./RunDetail";
+import { localAnalysisRequestHeaders } from "./useLocalAnalysisRuntime";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 공모 딥분석 실험실 (dev 전용) — 코호트 공고들을 Opus 로 딥분석하고,
@@ -56,7 +57,13 @@ async function readErrorMessage(response: Response, fallback: string): Promise<s
   }
 }
 
-export function AnalysisLab() {
+export function AnalysisLab({
+  analysisAllowed,
+  analysisOwnerId,
+}: {
+  analysisAllowed: boolean;
+  analysisOwnerId: string | null;
+}) {
   const [cohort, setCohort] = useState<LabCohortResponse | null>(null);
   const [cohortLoading, setCohortLoading] = useState(true);
   const [cohortError, setCohortError] = useState<string | null>(null);
@@ -224,7 +231,10 @@ export function AnalysisLab() {
         // 주의: 분석은 1~5분 걸릴 수 있다 — fetch 에 클라이언트 타임아웃을 두지 않는다.
         const response = await fetch(ANALYZE_URL, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            ...localAnalysisRequestHeaders(analysisOwnerId),
+          },
           body: JSON.stringify({ grantId }),
         });
         if (!response.ok) {
@@ -262,7 +272,7 @@ export function AnalysisLab() {
         setAnalyzingGrantId(null);
       }
     },
-    [loadCohort],
+    [analysisOwnerId, loadCohort],
   );
 
   const registerCard = useCallback(
@@ -357,7 +367,7 @@ export function AnalysisLab() {
                   notice={notice}
                   analyzing={analyzingGrantId === notice.grantId}
                   elapsedSec={elapsedSec}
-                  analyzeDisabled={analyzingGrantId !== null}
+                  analyzeDisabled={analyzingGrantId !== null || !analysisAllowed}
                   analyzeError={analyzeErrors[notice.grantId] ?? null}
                   analyzeNotice={analyzeNotices[notice.grantId] ?? null}
                   selectedRunId={selected?.grantId === notice.grantId ? selected.runId : null}

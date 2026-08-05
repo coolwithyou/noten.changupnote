@@ -64,6 +64,9 @@ export interface LabBatchJobDeps {
   /** 스냅샷 영속 파일 경로 — 기본 spike-out/analysis-lab/batch-job.json. */
   snapshotPathImpl?: () => string;
   nowImpl?: () => Date;
+  /** 장기 실행 중 로컬 runtime lease 갱신. 실패하면 신규 target 착수를 중단한다. */
+  keepAliveImpl?: () => Promise<void>;
+  keepAliveIntervalMs?: number;
 }
 
 // ---- globalThis 심볼 스태시 (HMR 생존) ------------------------------------------
@@ -73,6 +76,7 @@ interface InternalLabBatchJob {
   snapshot: LabBatchJobSnapshot;
   /** 파일에서 복원된 잔상 잡은 controller 가 없다(abort 불가 — 이미 죽은 잡). */
   controller: AbortController | null;
+  keepAliveTimer: ReturnType<typeof setInterval> | null;
 }
 
 interface LabBatchJobStore {
@@ -292,9 +296,21 @@ export function startLabBatchJob(
     events: [],
     error: null,
   };
-  const job: InternalLabBatchJob = { snapshot, controller };
+  const keepAliveIntervalMs = deps?.keepAliveIntervalMs ?? 45_000;
+  const job: InternalLabBatchJob = { snapshot, controller, keepAliveTimer: null };
   store.job = job;
   schedulePersist(store, snapshot, deps);
+
+  if (deps?.keepAliveImpl) {
+    job.keepAliveTimer = setInterval(() => {
+      void deps.keepAliveImpl?.().catch((caught: unknown) => {
+        if (store.job !== job || snapshot.state !== "running") return;
+        snapshot.error = `로컬 분석 권한 갱신 실패: ${caught instanceof Error ? caught.message : String(caught)}`;
+        controller.abort();
+        schedulePersist(store, snapshot, deps);
+      });
+    }, keepAliveIntervalMs);
+  }
 
   const runBatch = deps?.runBatchImpl ?? ((options: LabBatchRunnerOptions) => runLabBatch(options));
   // fire-and-forget — await 금지(계획 §3-1: 진행은 onEvent, 종료는 then/catch 로 수렴).
@@ -306,6 +322,8 @@ export function startLabBatchJob(
     reanalyzeOutdated: request.reanalyzeOutdated,
     transport,
     model,
+    ...(request.withApplicationRoundtrip === true ? { withApplicationRoundtrip: true } : {}),
+    ...(request.roundtripModel ? { roundtripModel: request.roundtripModel } : {}),
     signal: controller.signal,
     onEvent: (event) => {
       if (store.job !== job) return; // 슬롯을 새 잡이 차지한 뒤의 늦은 이벤트 방어
@@ -315,6 +333,7 @@ export function startLabBatchJob(
   })
     .then((summary) => {
       if (store.job !== job) return;
+      clearKeepAlive(job);
       snapshot.summary = summary;
       snapshot.state = summary.stopReason === "aborted" ? "aborted" : "finished";
       snapshot.finishedAt = now().toISOString();
@@ -322,6 +341,7 @@ export function startLabBatchJob(
     })
     .catch((caught: unknown) => {
       if (store.job !== job) return;
+      clearKeepAlive(job);
       // 러너 자체 실패(인프라·LabCohortMissingError 등) — 게이트 중단·error 런과 구분되는 잡 실패.
       snapshot.state = "error";
       snapshot.error = caught instanceof Error ? caught.message : String(caught);
@@ -352,10 +372,16 @@ export function getLabBatchJobSnapshot(deps?: LabBatchJobDeps): LabBatchJobSnaps
   if (restored?.origin === "cli") return restored; // CLI 스냅샷 캐시 금지 — 매 GET 재독
   if (store.job) return cloneSnapshot(store.job.snapshot);
   if (restored) {
-    store.job = { snapshot: restored, controller: null }; // 잔상 캐시 — 매 GET 파일 재독 방지
+    store.job = { snapshot: restored, controller: null, keepAliveTimer: null }; // 잔상 캐시 — 매 GET 파일 재독 방지
     return cloneSnapshot(restored);
   }
   return idleSnapshot();
+}
+
+function clearKeepAlive(job: InternalLabBatchJob): void {
+  if (!job.keepAliveTimer) return;
+  clearInterval(job.keepAliveTimer);
+  job.keepAliveTimer = null;
 }
 
 /**

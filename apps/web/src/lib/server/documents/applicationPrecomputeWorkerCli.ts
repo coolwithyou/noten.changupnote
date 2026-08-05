@@ -1,6 +1,7 @@
 import { loadMonorepoEnv } from "@/lib/server/loadMonorepoEnv";
 import { closeCunoteDb, getCunoteDb } from "@/lib/server/db/client";
 import { runApplicationPrecomputeWorkerCycle } from "./applicationPrecomputeWorkerCycle";
+import { isProductionDeepAnalysisAllowed } from "@/lib/server/deep-analysis/runtimeControl";
 
 loadMonorepoEnv();
 
@@ -15,13 +16,22 @@ const workerId = (process.env.CLOUD_RUN_EXECUTION || process.env.HOSTNAME || `lo
 const serviceRevision = (process.env.K_REVISION || process.env.GIT_COMMIT_SHA || "local-unversioned").slice(0, 200);
 
 try {
+  const runtime = await isProductionDeepAnalysisAllowed(db);
   const result = await runApplicationPrecomputeWorkerCycle({
     db,
     workerId,
     serviceRevision,
+    runtimeAllowed: runtime.allowed,
     execute: true,
   });
-  console.log(JSON.stringify({ ok: true, workerId, serviceRevision, ...result }));
+  console.log(JSON.stringify({
+    ok: true,
+    workerId,
+    serviceRevision,
+    runtimeMode: runtime.control.mode,
+    runtimeGeneration: runtime.control.generation,
+    ...result,
+  }));
 } finally {
   await closeCunoteDb();
 }

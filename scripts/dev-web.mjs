@@ -23,6 +23,7 @@ const forwardedArgs = rawArgs.filter((arg) => arg !== "--no-tunnel");
 
 const repositoryAdapter = process.env.CUNOTE_REPOSITORY_ADAPTER ??
   (hasDatabaseUrl() ? "drizzle" : undefined);
+const analysisLabTransport = process.env.ANALYSIS_LAB_TRANSPORT?.trim() || "claude-cli";
 
 console.log(
   [
@@ -31,6 +32,7 @@ console.log(
     `- 로컬 접속: ${localUrl}`,
     `- HTTPS 접속: ${tunnelUrl}`,
     `- 데이터 어댑터: ${repositoryAdapter ?? "runtime"}`,
+    `- 로컬 분석 transport: ${analysisLabTransport}`,
     `- Cloudflare 터널: ${tunnelDisabled ? "비활성(--no-tunnel)" : "자동 기동"}`,
     "",
   ].join("\n"),
@@ -58,6 +60,7 @@ const webChild = spawn("pnpm", pnpmArgs, {
   env: {
     ...process.env,
     ...(repositoryAdapter ? { CUNOTE_REPOSITORY_ADAPTER: repositoryAdapter } : {}),
+    ANALYSIS_LAB_TRANSPORT: analysisLabTransport,
     NEXTAUTH_URL: process.env.NEXTAUTH_URL ?? tunnelUrl,
   },
 });

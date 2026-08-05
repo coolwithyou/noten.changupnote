@@ -41,6 +41,7 @@ const DEFAULT_MAX_COST_USD = "5";
 const MAX_CONCURRENCY = 3;
 
 export function BatchOpsConsole({
+  analysisAllowed,
   summary,
   snapshot,
   starting,
@@ -48,6 +49,7 @@ export function BatchOpsConsole({
   onStart,
   onStop,
 }: {
+  analysisAllowed: boolean;
   summary: LabOpsSummary | null;
   snapshot: LabBatchJobSnapshot | null;
   starting: boolean;
@@ -56,7 +58,6 @@ export function BatchOpsConsole({
   onStop: () => void;
 }) {
   // 사용자가 건드리기 전에는 서버 해석(resolved)을 따라간다 — summary 로드 전 기본은 api.
-  const [transportChoice, setTransportChoice] = useState<"api" | "claude-cli" | null>(null);
   const [model, setModel] = useState("");
   const [limitText, setLimitText] = useState(DEFAULT_LIMIT);
   const [concurrencyText, setConcurrencyText] = useState(DEFAULT_CONCURRENCY);
@@ -64,8 +65,7 @@ export function BatchOpsConsole({
   const [retryErrors, setRetryErrors] = useState(false);
   const [reanalyzeOutdated, setReanalyzeOutdated] = useState(false);
 
-  const resolvedTransport = summary?.transportStatus.resolved ?? "api";
-  const transport = transportChoice ?? resolvedTransport;
+  const transport = "claude-cli" as const;
 
   const limit = Number(limitText);
   const concurrency = Number(concurrencyText);
@@ -88,6 +88,7 @@ export function BatchOpsConsole({
       retryErrors,
       reanalyzeOutdated,
       transport,
+      withApplicationRoundtrip: true,
       ...(trimmedModel ? { model: trimmedModel } : {}),
     });
   };
@@ -97,7 +98,7 @@ export function BatchOpsConsole({
       <CardHeader>
         <CardTitle>실행 콘솔</CardTitle>
         <CardDescription>
-          구독(claude CLI) 또는 API 로 딥분석 배치를 시작합니다 — 동시 1잡(웹 기준).
+          구독(claude CLI)으로 22축 딥분석과 Kordoc 지원서 선분석을 함께 시작합니다 — 동시 1잡(웹 기준).
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -109,19 +110,13 @@ export function BatchOpsConsole({
               size="sm"
               spacing={1}
               value={[transport]}
-              onValueChange={(values) => {
-                const next = values.at(-1) as "api" | "claude-cli" | undefined;
-                if (next) setTransportChoice(next);
-              }}
-              disabled={running}
+              disabled
               aria-label="추론 transport 선택"
             >
               <ToggleGroupItem value="claude-cli">구독 (claude CLI)</ToggleGroupItem>
-              <ToggleGroupItem value="api">API</ToggleGroupItem>
             </ToggleGroup>
             <FieldDescription>
-              기본값은 현재 서버 해석({resolvedTransport === "claude-cli" ? "구독" : "API"}) —
-              여기서 고르면 env 보다 우선합니다.
+              로컬 실행은 구독 transport로 고정됩니다. 서버도 API transport를 거부합니다.
             </FieldDescription>
           </Field>
 
@@ -221,7 +216,7 @@ export function BatchOpsConsole({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button onClick={handleStart} disabled={running || starting || !formValid}>
+          <Button onClick={handleStart} disabled={!analysisAllowed || running || starting || !formValid}>
             {starting ? <Spinner data-icon="inline-start" /> : <Play data-icon="inline-start" />}
             배치 시작
           </Button>
@@ -236,6 +231,10 @@ export function BatchOpsConsole({
           {running ? (
             <span className="text-xs text-muted-foreground">
               배치 실행 중 — 완료·중단 후 다시 시작할 수 있습니다.
+            </span>
+          ) : !analysisAllowed ? (
+            <span className="text-xs text-destructive">
+              위에서 로컬 구독 분석 권한을 먼저 획득해 주세요.
             </span>
           ) : !formValid ? (
             <span className="text-xs text-destructive">

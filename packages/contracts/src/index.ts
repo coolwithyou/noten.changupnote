@@ -661,5 +661,6 @@ export interface MatchResult {
 
 export * from "./bizno.js";
 export * from "./deep-analysis.js";
+export * from "./deep-analysis-runtime-control.js";
 export * from "./dto.js";
 export * from "./openapi.js";

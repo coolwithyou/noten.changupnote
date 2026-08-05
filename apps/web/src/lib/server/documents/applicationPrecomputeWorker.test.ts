@@ -78,6 +78,7 @@ const disabledCycle = await runApplicationPrecomputeWorkerCycle({
   db: {} as CunoteDb,
   workerId: "worker-application",
   serviceRevision: "test",
+  runtimeAllowed: true,
   env: {},
   heartbeat: async () => { cycleHeartbeatCount += 1; },
 });
@@ -85,12 +86,29 @@ assert.equal(disabledCycle.enabled, false);
 assert.equal(disabledCycle.executionMode, "disabled");
 assert.equal(cycleHeartbeatCount, 0, "execute flag가 없으면 heartbeat mutation도 만들면 안 된다");
 
+const runtimeBlockedCycle = await runApplicationPrecomputeWorkerCycle({
+  db: {} as CunoteDb,
+  workerId: "worker-application",
+  serviceRevision: "test",
+  runtimeAllowed: false,
+  env: {
+    APPLICATION_PRECOMPUTE_EXECUTE: "1",
+    APPLICATION_PRECOMPUTE_WORKER_MODE: "active",
+    APPLICATION_PRECOMPUTE_CLAIM_SCOPE: "all",
+  },
+  heartbeat: async () => { cycleHeartbeatCount += 1; },
+});
+assert.equal(runtimeBlockedCycle.enabled, false);
+assert.equal(runtimeBlockedCycle.executionMode, "disabled");
+assert.equal(cycleHeartbeatCount, 0, "runtime control이 막으면 heartbeat·claim mutation도 없어야 한다");
+
 let observeExecutionMode: unknown = null;
 let observeAnalysisSkipped: unknown = null;
 const observeCycle = await runApplicationPrecomputeWorkerCycle({
   db: {} as CunoteDb,
   workerId: "worker-application",
   serviceRevision: "test",
+  runtimeAllowed: true,
   env: { APPLICATION_PRECOMPUTE_EXECUTE: "1" },
   heartbeat: async (input) => {
     cycleHeartbeatCount += 1;
@@ -312,6 +330,7 @@ const activeCycle = await runApplicationPrecomputeWorkerCycle({
   storage: fakeStorage,
   workerId: "worker-application",
   serviceRevision: "test",
+  runtimeAllowed: true,
   env: {
     APPLICATION_PRECOMPUTE_EXECUTE: "1",
     APPLICATION_PRECOMPUTE_WORKER_MODE: "active",

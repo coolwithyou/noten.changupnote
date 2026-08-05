@@ -18,7 +18,7 @@
 //       ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:batch -- --with-application-roundtrip
 // 주의: api transport면 Anthropic API 비용이 발생하고, claude-cli면 Max 구독 사용량을 쓴다.
 // DB에는 어떤 쓰기도 하지 않는다.
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
@@ -338,7 +338,11 @@ function createCliBatchRecorder(options: BatchOptions, transport: LabBatchTransp
 
 // ---- 실행 경로(러너 위임 + 이벤트 콘솔 렌더) ------------------------------------
 
-async function runBatchViaRunner(options: BatchOptions, transport: LabBatchTransport): Promise<number> {
+async function runBatchViaRunner(
+  options: BatchOptions,
+  transport: LabBatchTransport,
+  signal?: AbortSignal,
+): Promise<number> {
   // 이벤트는 러너 안에서 동기 방출되므로 콘솔 라인 순서는 추출 전과 동일하다.
   const recorder = createCliBatchRecorder(options, transport);
   let planTargets = -1;
@@ -354,6 +358,7 @@ async function runBatchViaRunner(options: BatchOptions, transport: LabBatchTrans
       reanalyzeOutdated: options.reanalyzeOutdated,
       ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
       ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
+      ...(signal ? { signal } : {}),
       onEvent: (event) => {
         recorder.record(event); // 관측 브리지 — 콘솔 렌더와 무관하게 베스트에포트 기록
         switch (event.type) {
@@ -460,16 +465,16 @@ async function main(): Promise<number> {
 
   // 전송층 선검증(계획 §5 #6-②) — env 오타(resolveLabTransport throw)를 배치 시작 전에 fail-fast.
   const transport = resolveLabTransport();
-  if (options.withApplicationRoundtrip && transport !== "claude-cli") {
+  if (!options.dryRun && transport !== "claude-cli") {
     console.error(
-      "[batch] 설정 오류: --with-application-roundtrip 은 현재 로컬 Max 구독 transport(ANALYSIS_LAB_TRANSPORT=claude-cli)에서만 허용됩니다.",
+      "[batch] 설정 오류: 로컬 실행은 ANALYSIS_LAB_TRANSPORT=claude-cli에서만 허용됩니다.",
     );
     return 1;
   }
   if (transport === "claude-cli") {
     console.log("[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다(API 토큰 미지출, 명목 비용만 집계).");
   }
-  if (options.withApplicationRoundtrip) {
+  if (!options.dryRun) {
     console.log(
       `[batch] Kordoc 지원 양식 선분석을 딥 분석과 함께 실행합니다` +
         (options.roundtripModel ? ` (model=${options.roundtripModel})` : " (딥 분석 모델 상속)"),
@@ -477,7 +482,50 @@ async function main(): Promise<number> {
   }
 
   if (options.dryRun) return runDryRun(options); // 무기록 — 관측 브리지는 실행 경로 전용
-  return runBatchViaRunner(options, transport);
+
+  const executionOptions = { ...options, withApplicationRoundtrip: true };
+  const { getCunoteDb } = await import("../db/client");
+  const {
+    acquireLocalSubscriptionLease,
+    releaseLocalSubscriptionLease,
+    renewLocalSubscriptionLease,
+  } = await import("../deep-analysis/runtimeControl");
+  const db = getCunoteDb();
+  const ownerId = randomUUID();
+  await acquireLocalSubscriptionLease({
+    db,
+    ownerId,
+    changedBy: `local-cli:${process.pid}`,
+    reason: "로컬 구독 CLI 배치 실행",
+  });
+  const controller = new AbortController();
+  let renewalInFlight = false;
+  const renewalState: { errorMessage: string | null } = { errorMessage: null };
+  const renewalTimer = setInterval(() => {
+    if (renewalInFlight || controller.signal.aborted) return;
+    renewalInFlight = true;
+    void renewLocalSubscriptionLease({ db, ownerId })
+      .catch((caught: unknown) => {
+        renewalState.errorMessage = caught instanceof Error ? caught.message : String(caught);
+        controller.abort();
+      })
+      .finally(() => { renewalInFlight = false; });
+  }, 45_000);
+  try {
+    const code = await runBatchViaRunner(executionOptions, transport, controller.signal);
+    if (renewalState.errorMessage) {
+      console.error(`[batch] 로컬 분석 권한 갱신 실패: ${renewalState.errorMessage}`);
+      return 1;
+    }
+    return code;
+  } finally {
+    clearInterval(renewalTimer);
+    await releaseLocalSubscriptionLease({
+      db,
+      ownerId,
+      changedBy: `local-cli:${process.pid}`,
+    }).catch(() => undefined);
+  }
 }
 
 /** 실행 경로에서만 DB 커넥션이 생기므로, 로드된 경우에 한해 닫는다(dry-run 은 no-op). */

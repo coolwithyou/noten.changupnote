@@ -146,10 +146,13 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   const path = join(tempRoot, "t1.json");
   const release = deferred();
   let receivedOptions: LabBatchRunnerOptions | null = null;
+  let keepAliveCount = 0;
   const deps: LabBatchJobDeps = {
     resolveTransportImpl: () => "claude-cli",
     resolveModelImpl: () => "claude-test-model",
     snapshotPathImpl: () => path,
+    keepAliveIntervalMs: 5,
+    keepAliveImpl: async () => { keepAliveCount += 1; },
     runBatchImpl: async (options) => {
       receivedOptions = options;
       const emit = options.onEvent ?? (() => {});
@@ -166,7 +169,10 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
     },
   };
 
-  const started = startLabBatchJob(request(), deps);
+  const started = startLabBatchJob(request({
+    withApplicationRoundtrip: true,
+    roundtripModel: "claude-roundtrip-test",
+  }), deps);
   assert.equal(started.state, "running");
   assert.ok(started.jobId?.startsWith("job-"), "jobId 부여");
   assert.equal(started.options?.transport, "claude-cli", "미지정 transport 는 resolver 로 확정해 기록");
@@ -183,11 +189,17 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   assert.equal(options.transport, "claude-cli");
   assert.equal(options.model, "claude-test-model");
   assert.equal(options.limit, 5);
+  assert.equal(options.withApplicationRoundtrip, true, "Kordoc 형제 분석 옵션 전달");
+  assert.equal(options.roundtripModel, "claude-roundtrip-test", "Kordoc 모델 옵션 전달");
   assert.ok(options.signal instanceof AbortSignal, "AbortController 신호 전달");
 
   assert.equal(getLabBatchJobSnapshot(deps).state, "running", "완료 전 GET 은 running");
+  await waitUntil(() => keepAliveCount > 0, "로컬 runtime lease keepalive");
   release.resolve();
   await waitUntil(() => getLabBatchJobSnapshot(deps).state === "finished", "잡 완료 전이");
+  const keepAliveAtFinish = keepAliveCount;
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(keepAliveCount, keepAliveAtFinish, "잡 종결 시 keepalive timer 해제");
 
   const done = getLabBatchJobSnapshot(deps);
   assert.equal(done.jobId, started.jobId);

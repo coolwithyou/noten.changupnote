@@ -13,6 +13,13 @@ import {
   getLabBatchJobSnapshot,
   startLabBatchJob,
 } from "@/lib/server/analysis-lab/batch-job";
+import { getCunoteDb } from "@/lib/server/db/client";
+import {
+  DeepAnalysisRuntimeControlError,
+  assertLocalSubscriptionAnalysisAllowed,
+  localAnalysisOwnerFromRequest,
+  renewLocalSubscriptionLease,
+} from "@/lib/server/deep-analysis/runtimeControl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,6 +86,7 @@ function parseStartRequest(body: unknown): LabBatchStartRequest | string {
     maxCostUsd,
     retryErrors: record.retryErrors === true,
     reanalyzeOutdated: record.reanalyzeOutdated === true,
+    withApplicationRoundtrip: true,
     ...(transport !== undefined ? { transport } : {}),
     ...(model !== undefined ? { model } : {}),
   };
@@ -92,12 +100,37 @@ export async function POST(request: Request) {
   if (typeof parsed === "string") {
     return NextResponse.json({ error: "invalid_request", message: parsed }, { status: 400 });
   }
+  if (parsed.transport !== "claude-cli") {
+    return NextResponse.json(
+      {
+        error: "subscription_transport_required",
+        message: "로컬 분석은 claude-cli 구독 transport만 사용할 수 있습니다.",
+      },
+      { status: 409 },
+    );
+  }
 
   try {
+    const ownerId = localAnalysisOwnerFromRequest(request);
+    const db = getCunoteDb();
+    await assertLocalSubscriptionAnalysisAllowed({
+      db,
+      ownerId,
+    });
     // 시작 자체는 동기(러너는 fire-and-forget) — 202 + 시작 직후 스냅샷, 진행은 GET 폴링.
-    const snapshot = startLabBatchJob(parsed);
+    const snapshot = startLabBatchJob(parsed, {
+      keepAliveImpl: async () => {
+        await renewLocalSubscriptionLease({ db, ownerId: ownerId ?? "" });
+      },
+    });
     return NextResponse.json(snapshot, { status: 202 });
   } catch (caught) {
+    if (caught instanceof DeepAnalysisRuntimeControlError) {
+      return NextResponse.json(
+        { error: caught.code, message: caught.message },
+        { status: caught.status },
+      );
+    }
     if (caught instanceof LabBatchJobBusyError) {
       return NextResponse.json(caught.snapshot, { status: 409 });
     }

@@ -3,6 +3,13 @@
 import { NextResponse } from "next/server";
 import { LabGrantNotFoundError, runLabAnalysis } from "@/lib/server/analysis-lab/analyze";
 import type { LabAnalyzeResponse } from "@/features/dev/analysis-lab/contract";
+import { getCunoteDb } from "@/lib/server/db/client";
+import { resolveLabTransport } from "@/lib/server/analysis-lab/claude-cli-transport";
+import {
+  DeepAnalysisRuntimeControlError,
+  localAnalysisOwnerFromRequest,
+  runWithLocalSubscriptionLeaseHeartbeat,
+} from "@/lib/server/deep-analysis/runtimeControl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,10 +36,29 @@ export async function POST(request: Request) {
   }
 
   try {
-    const run = await runLabAnalysis(grantId);
+    if (resolveLabTransport() !== "claude-cli") {
+      return NextResponse.json(
+        {
+          error: "subscription_transport_required",
+          message: "로컬 분석은 ANALYSIS_LAB_TRANSPORT=claude-cli에서만 실행할 수 있습니다.",
+        },
+        { status: 409 },
+      );
+    }
+    const run = await runWithLocalSubscriptionLeaseHeartbeat({
+      db: getCunoteDb(),
+      ownerId: localAnalysisOwnerFromRequest(request),
+      run: () => runLabAnalysis(grantId, {
+        transport: "claude-cli",
+        withApplicationRoundtrip: true,
+      }),
+    });
     const response: LabAnalyzeResponse = { run };
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof DeepAnalysisRuntimeControlError) {
+      return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
+    }
     if (error instanceof LabGrantNotFoundError) {
       return NextResponse.json({ error: "grant_not_found", message: error.message }, { status: 404 });
     }
