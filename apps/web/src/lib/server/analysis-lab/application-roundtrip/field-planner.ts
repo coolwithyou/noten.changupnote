@@ -40,6 +40,10 @@ interface FieldPlannerUsage {
   cacheReadTokens: number;
 }
 
+export interface RoundtripFieldPlannerUsageEvent extends FieldPlannerUsage {
+  costUsd: number;
+}
+
 interface FieldDecisionBatch {
   decisions: FieldDecision[];
   usage: FieldPlannerUsage;
@@ -100,6 +104,7 @@ export async function planRoundtripFields(options: {
   transport?: RoundtripLlmTransport;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
+  onUsage?: (usage: RoundtripFieldPlannerUsageEvent) => Promise<void> | void;
 }): Promise<{ fields: RoundtripFieldCandidate[]; summary: RoundtripFieldPlanningSummary }> {
   const startedMs = Date.now();
   const runtime = resolveRoundtripFieldPlannerRuntimeConfig(options);
@@ -130,15 +135,22 @@ export async function planRoundtripFields(options: {
     const decisionBatches = await mapWithConcurrency(
       chunkCandidates(candidates),
       runtime.candidateConcurrency,
-      (batch) => requestFieldDecisions({
-        apiKey: options.apiKey!,
-        model: runtime.requestedModel,
-        timeoutMs: runtime.timeoutMs,
-        transport: runtime.transport,
-        candidates: batch,
-        markdown: options.markdown,
-        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-      }),
+      async (batch) => {
+        const result = await requestFieldDecisions({
+          apiKey: options.apiKey!,
+          model: runtime.requestedModel,
+          timeoutMs: runtime.timeoutMs,
+          transport: runtime.transport,
+          candidates: batch,
+          markdown: options.markdown,
+          ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        });
+        await options.onUsage?.({
+          ...result.usage,
+          costUsd: priceDeepAnalysisUsage({ model: runtime.requestedModel, usage: result.usage }) ?? 0,
+        });
+        return result;
+      },
     );
     const decisions = decisionBatches.flatMap((batch) => batch.decisions);
     const usage = sumPlannerUsage(decisionBatches.map((batch) => batch.usage));

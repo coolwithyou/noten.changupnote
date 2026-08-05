@@ -2429,6 +2429,7 @@ export const grantApplicationPrecomputeJobs = pgTable("grant_application_precomp
   leasedAt: timestamp("leased_at", { withTimezone: true }),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   workerId: text("worker_id"),
+  leaseToken: uuid("lease_token"),
   lastErrorCode: text("last_error_code"),
   lastErrorMessage: text("last_error_message"),
   resultArtifactId: uuid("result_artifact_id")
@@ -2475,14 +2476,69 @@ export const grantApplicationPrecomputeJobs = pgTable("grant_application_precomp
     (${table.status} = 'leased'
       AND ${table.leasedAt} IS NOT NULL
       AND ${table.leaseExpiresAt} IS NOT NULL
-      AND ${table.workerId} IS NOT NULL)
-    OR (${table.status} <> 'leased')
+      AND ${table.workerId} IS NOT NULL
+      AND ${table.leaseToken} IS NOT NULL)
+    OR (${table.status} <> 'leased' AND ${table.leaseToken} IS NULL)
   `),
   terminalCheck: check("grant_application_precompute_jobs_terminal_check", sql`
     (${table.status} = 'succeeded'
       AND ${table.resultStatus} IS NOT NULL
       AND ${table.completedAt} IS NOT NULL)
     OR (${table.status} <> 'succeeded')
+  `),
+}));
+
+/**
+ * Kordoc worker의 claim 한 번을 비용·펜싱 단위로 기록한다. job 최종 상태와 분리해
+ * 실패·만료 attempt의 보수 예약 비용도 일일 상한에서 사라지지 않게 한다.
+ */
+export const grantApplicationPrecomputeAttempts = pgTable("grant_application_precompute_attempts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  jobId: uuid("job_id").notNull()
+    .references(() => grantApplicationPrecomputeJobs.id, { onDelete: "restrict" }),
+  attemptCount: integer("attempt_count").notNull(),
+  workerId: text("worker_id").notNull(),
+  leaseToken: uuid("lease_token").notNull(),
+  status: text("status").default("leased").notNull(),
+  reservedCostUsd: numeric("reserved_cost_usd", { precision: 12, scale: 6 }).notNull(),
+  actualRequestCount: integer("actual_request_count").default(0).notNull(),
+  actualInputTokens: integer("actual_input_tokens").default(0).notNull(),
+  actualOutputTokens: integer("actual_output_tokens").default(0).notNull(),
+  actualCostUsd: numeric("actual_cost_usd", { precision: 12, scale: 6 }).default("0").notNull(),
+  chargedCostUsd: numeric("charged_cost_usd", { precision: 12, scale: 6 }).notNull(),
+  usageComplete: boolean("usage_complete").default(false).notNull(),
+  lastErrorCode: text("last_error_code"),
+  startedAt: timestamp("started_at", { withTimezone: true }).defaultNow().notNull(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (table) => ({
+  jobAttemptIdx: uniqueIndex("grant_application_precompute_attempts_job_attempt_idx")
+    .on(table.jobId, table.attemptCount),
+  leaseTokenIdx: uniqueIndex("grant_application_precompute_attempts_lease_token_idx")
+    .on(table.leaseToken),
+  startedAtIdx: index("grant_application_precompute_attempts_started_at_idx")
+    .on(table.startedAt),
+  activeIdx: index("grant_application_precompute_attempts_active_idx")
+    .on(table.status, table.startedAt)
+    .where(sql`${table.status} = 'leased'`),
+  statusCheck: check("grant_application_precompute_attempts_status_check", sql`
+    ${table.status} IN ('leased', 'succeeded', 'failed', 'expired')
+  `),
+  countsCheck: check("grant_application_precompute_attempts_counts_check", sql`
+    ${table.attemptCount} > 0
+    AND ${table.actualRequestCount} >= 0
+    AND ${table.actualInputTokens} >= 0
+    AND ${table.actualOutputTokens} >= 0
+  `),
+  costsCheck: check("grant_application_precompute_attempts_costs_check", sql`
+    ${table.reservedCostUsd} >= 0
+    AND ${table.actualCostUsd} >= 0
+    AND ${table.chargedCostUsd} >= ${table.actualCostUsd}
+  `),
+  terminalCheck: check("grant_application_precompute_attempts_terminal_check", sql`
+    (${table.status} = 'leased' AND ${table.completedAt} IS NULL)
+    OR (${table.status} <> 'leased' AND ${table.completedAt} IS NOT NULL)
   `),
 }));
 

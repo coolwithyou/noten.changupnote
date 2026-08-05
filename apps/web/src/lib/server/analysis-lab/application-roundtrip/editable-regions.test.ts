@@ -72,6 +72,12 @@ assert.match(edited[2]!.text!, /^AI 문서 자동화 기술/);
 assert.match(edited[2]!.text!, /\(정량 지표\)/);
 
 let explicitRequestModel: string | null = null;
+const usageEvents: Array<{
+  requestCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+}> = [];
 const planned = await planRoundtripFields({
   fields: [revenue2024],
   markdown: "매출액 2024년 (천원)",
@@ -81,6 +87,7 @@ const planned = await planRoundtripFields({
   transport: "claude-cli",
   candidateConcurrency: 1,
   parentLabRunId: "run-parent-test",
+  onUsage: (usage) => { usageEvents.push(usage); },
   fetchImpl: async (_input, init) => {
     explicitRequestModel = (JSON.parse(String(init?.body)) as { model: string }).model;
     return new Response(JSON.stringify({
@@ -119,6 +126,11 @@ assert.equal(planned.summary.requestCount, 1);
 assert.equal(planned.summary.inputTokens, 1_000);
 assert.equal(planned.summary.outputTokens, 100);
 assert.equal(planned.summary.costUsd, 0.0075);
+assert.equal(usageEvents.length, 1);
+assert.equal(usageEvents[0]?.requestCount, 1);
+assert.equal(usageEvents[0]?.inputTokens, 1_000);
+assert.equal(usageEvents[0]?.outputTokens, 100);
+assert.equal(usageEvents[0]?.costUsd, 0.0075);
 
 const manyFields = Array.from({ length: 45 }, (_, index) => plannerField(revenue2024, index));
 

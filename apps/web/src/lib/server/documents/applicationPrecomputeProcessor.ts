@@ -16,7 +16,11 @@ import {
   buildApplicationPrecomputeSurfacePlan,
   type PreparedApplicationPrecomputeSurface,
 } from "./applicationPrecomputeMaterialization";
-import type { ApplicationPrecomputeJob } from "./applicationPrecomputeQueue";
+import {
+  recordApplicationPrecomputeAttemptUsage,
+  renewApplicationPrecomputeLease,
+  type ApplicationPrecomputeJob,
+} from "./applicationPrecomputeQueue";
 import type { ApplicationPrecomputeWorkerPolicy } from "./applicationPrecomputePolicy";
 import { createFieldCandidateStore } from "./fieldCandidateStore";
 
@@ -122,7 +126,21 @@ export async function processApplicationPrecomputeJob(input: {
     timeoutMs: input.policy.timeoutMs,
     transport: "api",
     candidateConcurrency: input.policy.candidateConcurrency,
+    onPlannerUsage: (usage) => recordApplicationPrecomputeAttemptUsage({
+      db: input.db,
+      job: input.job,
+      requestCount: usage.requestCount,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      costUsd: usage.costUsd,
+    }),
   })).document;
+
+  await renewApplicationPrecomputeLease({
+    db: input.db,
+    job: input.job,
+    leaseSeconds: input.policy.leaseSeconds,
+  });
 
   if (likelyApplicationRole(document.role) && document.fieldPlanning.status !== "llm") {
     const code = document.fieldPlanning.failureCode ?? "field_planner_failed";
@@ -201,15 +219,22 @@ export async function processApplicationPrecomputeJob(input: {
     artifactId: saved.artifactId,
     artifactSha256: saved.sha256,
   };
-  const applied = await input.db.transaction(async (tx) => applyPreparedGrantApplicationPrecompute({
-    db: tx,
-    prepared: {
-      grantId: row.grantId,
-      parentLabRunId: null,
-      roundtripRunId: run.runId,
-      surfaces: [prepared],
-    },
-  }));
+  const applied = await input.db.transaction(async (tx) => {
+    await renewApplicationPrecomputeLease({
+      db: tx,
+      job: input.job,
+      leaseSeconds: input.policy.leaseSeconds,
+    });
+    return applyPreparedGrantApplicationPrecompute({
+      db: tx,
+      prepared: {
+        grantId: row.grantId,
+        parentLabRunId: null,
+        roundtripRunId: run.runId,
+        surfaces: [prepared],
+      },
+    });
+  });
   const planning = document.fieldPlanning;
   return {
     resultStatus: plan.status,

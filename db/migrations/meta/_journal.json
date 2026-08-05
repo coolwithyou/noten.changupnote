@@ -477,6 +477,13 @@
       "when": 1785840450995,
       "tag": "0067_familiar_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1785932453415,
+      "tag": "0068_glamorous_dagger",
+      "breakpoints": true
     }
   ]
 }

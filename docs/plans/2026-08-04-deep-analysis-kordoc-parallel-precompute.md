@@ -1,7 +1,7 @@
 # 딥 분석 시점 Kordoc 바이너리 선분석 통합 계획
 
 > 작성일: 2026-08-04  
-> 상태: 체크포인트 1·2 구현 및 검증 완료 · 체크포인트 3 대기
+> 상태: 체크포인트 1·2 완료 · 체크포인트 3 제한 운영 검증 완료 · 상시화 안전 게이트 코드 검증 완료(운영 적용 대기)
 > 범위: 딥 분석과 HWP/HWPX 빠른 작성 분석의 실행 시점·결과 결속·서빙 준비 보장  
 > 비범위: 공고 수집 정책 변경, 22축 매칭 규칙 변경, 사용자 지원서 작성 UI 재설계, Cloud Run 활성화·배포
 
@@ -330,6 +330,15 @@ surfaceId
 - [x] release `deep-production-r1-20260805T072410Z-036af33b`를 준비하고 aggregate `GO`(blocking 4/4, source drift 0), shadow `PASS`(공고 1 × 회사 131, issue 0), dry-run `PASS`(baseline 1/1, source drift 0)를 통과한 뒤 현재 사용자 승인과 분리된 실행 actor로 canary·전체 승격했다.
 - [x] release와 item은 각각 `active`·`applied`다. promotion snapshot 검증 issue 0, canary와 전체 serving 검증이 모두 PASS했고 `analysis_complete`, `publication_complete`, `serving_complete`, `analysis_fresh`가 전부 true이며 blocker가 없다. 랜딩의 `requireDeepAnalysisPromotion=true` active universe에서도 대상 공고와 새 criteria 3건을 읽었다.
 - [x] 운영 도구 후속 개선: `lab:aggregate`와 `lab:shadow`가 웹 개발 환경과 같은 analysis-lab env 계약을 읽고, aggregate도 성공·실패 후 DB 연결을 닫는다. `pnpm lab:shadow-key:init`은 gitignored `apps/web/.env.development.local`에 전용 32-byte 랜덤 HMAC 키를 한 번만 생성·재사용하며 값은 출력하지 않고 파일 권한을 `0600`으로 고정한다.
+
+#### 상시화 안전 게이트 — 코드 체크포인트 (2026-08-05)
+
+- [x] claim마다 UUID lease token과 attempt 원장을 함께 생성한다. 모델 batch가 성공할 때마다 request·token·비용을 원장에 누적하고, 실패·만료 attempt는 최소 job reserve를 일일 비용에 남겨 이미 지출됐을 수 있는 비용이 사라지지 않게 했다.
+- [x] 일일 비용과 동시 실행 capacity 확인, 비용 reserve, job lease, attempt 생성은 전역 advisory lock 안의 단일 SQL로 묶었다. 분석 버전이 바뀌어도 서로 다른 worker가 같은 일일 예산을 중복 예약하지 않는다.
+- [x] lease는 처리 시작·처리 중·종결 직전에 갱신한다. complete/fail/materialization은 `job + attempt + worker_id + lease_token + leased status`를 검증해 소유권을 잃은 worker의 결과 덮어쓰기를 거부한다.
+- [x] 만료 lease sweep은 재시도 가능한 job을 `retry_wait`로, 최종 attempt에서 만료된 job을 `dead_letter`로 종결한다. 아직 claim되지 않았지만 공고가 비노출·마감 상태로 바뀐 job은 `canceled`로 정리한다.
+- [x] worker invocation 자체를 실행하는 회귀 테스트로 sweep→claim→renewal→process→complete 순서, 비용 중단, 재시도 실패, lease 탈취, 주기 갱신을 검증했다. migration은 현재 leased job이 있으면 중단하고 기존 attempt 비용을 보수적으로 이관한다.
+- [ ] `0068_glamorous_dagger.sql` 운영 적용, worker active 상시화, Scheduler·Cloud Run 배포는 아직 수행하지 않았다. C6 자동 필드 말소 가드, enqueue 실패 관제, heuristic 종결 정책은 다음 분리 체크포인트다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.

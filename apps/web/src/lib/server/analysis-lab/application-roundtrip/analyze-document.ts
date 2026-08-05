@@ -14,6 +14,7 @@ import { extractContextualRoundtripFields } from "./editable-regions";
 import {
   planRoundtripFields,
   resolveRoundtripFieldPlannerRuntimeConfig,
+  type RoundtripFieldPlannerUsageEvent,
 } from "./field-planner";
 import { finalizeRoundtripFieldCoverage } from "./field-coverage";
 import { extractHwpFormChoiceGroups } from "./hwp-form-controls";
@@ -31,6 +32,7 @@ export interface AnalyzeRoundtripDocumentInput {
   transport?: RoundtripLlmTransport;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
+  onPlannerUsage?: (usage: RoundtripFieldPlannerUsageEvent) => Promise<void> | void;
 }
 
 /**
@@ -78,6 +80,7 @@ export async function analyzeRoundtripDocument(
         transport: plannerRuntime.transport,
         candidateConcurrency: plannerRuntime.candidateConcurrency,
         parentLabRunId: plannerRuntime.parentLabRunId,
+        ...(input.onPlannerUsage ? { onUsage: input.onPlannerUsage } : {}),
         ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
       })
     : {
