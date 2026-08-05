@@ -47,7 +47,11 @@ import {
 } from "./validator";
 import type { DeepAnalysisWorkerPolicy } from "./workerPolicy";
 import { completeDeepAnalysisJob } from "./workerState";
-import { startPrimaryWithApplicationPrecompute } from "./parallelApplicationPrecompute";
+import {
+  applicationPrecomputeEnqueueExceptionEvent,
+  startPrimaryWithApplicationPrecompute,
+  type ParallelApplicationOutcome,
+} from "./parallelApplicationPrecompute";
 
 export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v4" as const;
 
@@ -229,14 +233,24 @@ export async function processDeepAnalysisJob(input: {
     try {
       primary = await parallel.primary;
     } catch (error) {
-      await parallel.application;
+      const applicationPrecompute = await parallel.application;
+      const applicationPrecomputeObservationError = await observeApplicationPrecomputeEnqueue({
+        db: input.db,
+        runId: run.id,
+        actor,
+        outcome: applicationPrecompute,
+      });
       const message = error instanceof Error ? error.message : String(error);
       await appendVerifiedDeepAnalysisStageReceipt({
         ...receiptContext,
         stage: "model_call_passed",
         status: "failed",
         verifierVersion: DEEP_ANALYSIS_PROCESSOR_VERSION,
-        evidence: { error: message.slice(0, 2_000) },
+        evidence: {
+          error: message.slice(0, 2_000),
+          applicationPrecompute,
+          applicationPrecomputeObservationError,
+        },
       });
       await finishCurrentRun({
         status: "failed",
@@ -246,6 +260,12 @@ export async function processDeepAnalysisJob(input: {
       throw error;
     }
     const applicationPrecompute = await parallel.application;
+    const applicationPrecomputeObservationError = await observeApplicationPrecomputeEnqueue({
+      db: input.db,
+      runId: run.id,
+      actor,
+      outcome: applicationPrecompute,
+    });
 
     let validation = validateDeepAnalysisResult({ seal, result: primary.result });
     try {
@@ -325,6 +345,7 @@ export async function processDeepAnalysisJob(input: {
         actualCostUsd: primary.result.costUsd,
         rawArtifactKey: rawArtifact.key,
         applicationPrecompute,
+        applicationPrecomputeObservationError,
         auditRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
       },
     });
@@ -668,6 +689,22 @@ export async function processDeepAnalysisJob(input: {
       }
     }
     throw error;
+  }
+}
+
+async function observeApplicationPrecomputeEnqueue(input: {
+  db: CunoteDbSession;
+  runId: string;
+  actor: string;
+  outcome: ParallelApplicationOutcome<unknown>;
+}): Promise<string | null> {
+  const event = applicationPrecomputeEnqueueExceptionEvent(input);
+  if (!event) return null;
+  try {
+    await appendDeepAnalysisExceptionEvent(input.db, event);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message.slice(0, 2_000) : String(error).slice(0, 2_000);
   }
 }
 

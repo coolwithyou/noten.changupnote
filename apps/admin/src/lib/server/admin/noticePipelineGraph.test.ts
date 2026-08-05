@@ -1,4 +1,6 @@
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
 
 import {
   deriveManagementState,
@@ -137,5 +139,11 @@ assert.equal(
   1,
   "invalid page numbers fall back to the first page",
 )
+
+const graphSource = await readFile(fileURLToPath(new URL("./noticePipelineGraph.ts", import.meta.url)), "utf8")
+assert.match(graphSource, /application_precompute_enqueue_failed/u)
+assert.match(graphSource, /application_precompute_enqueue/u)
+assert.match(graphSource, /SELECT count\(\*\) FROM enqueue_failures/iu)
+assert.match(graphSource, /select reason_code from enqueue_failure/iu)
 
 console.log("admin pipeline graph: 16 cases passed")

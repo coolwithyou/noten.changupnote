@@ -5,7 +5,10 @@ import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { CunoteDb, CunoteDbSession } from "@/lib/server/db/client";
 import type { R2ObjectStorage } from "@/lib/server/storage/r2ObjectStorage";
-import { startPrimaryWithApplicationPrecompute } from "@/lib/server/deep-analysis/parallelApplicationPrecompute";
+import {
+  applicationPrecomputeEnqueueExceptionEvent,
+  startPrimaryWithApplicationPrecompute,
+} from "@/lib/server/deep-analysis/parallelApplicationPrecompute";
 import {
   canStartApplicationPrecomputeJob,
   runApplicationPrecomputeWorkerInvocation,
@@ -383,6 +386,28 @@ const softFailure = startPrimaryWithApplicationPrecompute({
 });
 assert.equal(await softFailure.primary, "primary-still-ok");
 assert.deepEqual(await softFailure.application, { result: null, error: "queue unavailable" });
+assert.equal(applicationPrecomputeEnqueueExceptionEvent({
+  runId: "run-id",
+  actor: "worker",
+  outcome: { result: { enqueued: 1 }, error: null },
+}), null);
+assert.deepEqual(applicationPrecomputeEnqueueExceptionEvent({
+  runId: "run-id",
+  actor: "worker",
+  outcome: { result: null, error: "queue unavailable" },
+}), {
+  runId: "run-id",
+  exceptionKey: "run-id:application_precompute_enqueue",
+  eventType: "opened",
+  reasonCode: "application_precompute_enqueue_failed",
+  actorType: "system",
+  actor: "worker",
+  detail: {
+    component: "application_precompute_enqueue",
+    terminalRoute: "operational_attention",
+    error: "queue unavailable",
+  },
+});
 
 // 운영 그래프는 로컬 구독 transport를 import하거나 환경변수로 선택하지 않는다.
 const root = fileURLToPath(new URL("../../../../../../", import.meta.url));
@@ -404,6 +429,10 @@ const processorSource = await readFile(
   "utf8",
 );
 assert.match(processorSource, /transport:\s*"api"/u, "운영 Kordoc 호출은 API transport로 고정");
+assert.ok(
+  [...processorSource.matchAll(/applicationPrecomputeObservationError/gu)].length >= 4,
+  "primary 성공·실패 모두 enqueue 관제 기록 결과를 stage receipt에 남겨야 한다",
+);
 
 const safetyMigration = await readFile(
   `${root}/db/migrations/0068_glamorous_dagger.sql`,

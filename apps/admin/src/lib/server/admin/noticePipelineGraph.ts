@@ -770,7 +770,26 @@ export async function getPipelineNoticeDetail(input: {
       limit 1
     `,
     sql<ApplicationPrecomputePairRow[]>`
-      with jobs as (
+      with latest_run as (
+        select run.id
+        from grant_deep_analysis_runs run
+        where run.grant_id = ${base.grant_id}
+        order by run.started_at desc, run.id desc
+        limit 1
+      ), enqueue_failure as (
+        select event.reason_code
+        from latest_run run
+        join lateral (
+          select latest.*
+          from grant_deep_analysis_exception_events latest
+          where latest.run_id = run.id
+            and latest.exception_key = run.id::text || ':application_precompute_enqueue'
+          order by latest.created_at desc, latest.id desc
+          limit 1
+        ) event on true
+        where event.event_type <> 'resolved'
+          and event.reason_code = 'application_precompute_enqueue_failed'
+      ), jobs as (
         select job.*,
           row_number() over (order by job.created_at desc, job.id desc) as newest
         from grant_application_precompute_jobs job
@@ -785,7 +804,10 @@ export async function getPipelineNoticeDetail(input: {
         max(status) filter (where newest = 1) as latest_status,
         max(result_status) filter (where newest = 1) as latest_result_status,
         max(analysis_version) filter (where newest = 1) as analysis_version,
-        max(last_error_code) filter (where newest = 1) as error_code,
+        coalesce(
+          max(last_error_code) filter (where newest = 1),
+          (select reason_code from enqueue_failure)
+        ) as error_code,
         min(started_at) as started_at,
         max(completed_at) as completed_at
       from jobs
@@ -969,12 +991,33 @@ async function loadApplicationPrecomputeSummary(
   sql: postgres.Sql,
 ): Promise<ApplicationPrecomputeSummaryRow[]> {
   return sql<ApplicationPrecomputeSummaryRow[]>`
-    WITH target_jobs AS (
+    WITH target_grants AS (
+      SELECT id
+      FROM grants
+      WHERE serving_state = 'visible'
+        AND status IN ('open', 'upcoming')
+    ), target_jobs AS (
       SELECT job.*
       FROM grant_application_precompute_jobs job
-      JOIN grants grant_row ON grant_row.id = job.grant_id
-      WHERE grant_row.serving_state = 'visible'
-        AND grant_row.status IN ('open', 'upcoming')
+      JOIN target_grants grant_row ON grant_row.id = job.grant_id
+    ), latest_runs AS (
+      SELECT DISTINCT ON (run.grant_id) run.id, run.grant_id
+      FROM grant_deep_analysis_runs run
+      JOIN target_grants grant_row ON grant_row.id = run.grant_id
+      ORDER BY run.grant_id, run.started_at DESC, run.id DESC
+    ), enqueue_failures AS (
+      SELECT event.id
+      FROM latest_runs run
+      JOIN LATERAL (
+        SELECT latest.*
+        FROM grant_deep_analysis_exception_events latest
+        WHERE latest.run_id = run.id
+          AND latest.exception_key = run.id::text || ':application_precompute_enqueue'
+        ORDER BY latest.created_at DESC, latest.id DESC
+        LIMIT 1
+      ) event ON true
+      WHERE event.event_type <> 'resolved'
+        AND event.reason_code = 'application_precompute_enqueue_failed'
     ), latest_worker AS (
       SELECT status, heartbeat_at
       FROM grant_application_precompute_worker_heartbeats
@@ -986,7 +1029,10 @@ async function loadApplicationPrecomputeSummary(
       count(*) FILTER (WHERE job.status IN ('pending', 'retry_wait'))::int AS queued,
       count(*) FILTER (WHERE job.status = 'leased')::int AS running,
       count(*) FILTER (WHERE job.status = 'succeeded')::int AS succeeded,
-      count(*) FILTER (WHERE job.status IN ('blocked', 'dead_letter'))::int AS needs_attention,
+      (
+        count(*) FILTER (WHERE job.status IN ('blocked', 'dead_letter'))
+        + (SELECT count(*) FROM enqueue_failures)
+      )::int AS needs_attention,
       count(DISTINCT job.surface_id)::int AS source_count,
       coalesce(sum((job.result_summary->>'documentCount')::int), 0)::int AS document_count,
       coalesce(sum((job.result_summary->>'fieldCount')::int), 0)::int AS field_count,

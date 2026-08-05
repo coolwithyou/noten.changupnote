@@ -339,7 +339,8 @@ surfaceId
 - [x] 만료 lease sweep은 재시도 가능한 job을 `retry_wait`로, 최종 attempt에서 만료된 job을 `dead_letter`로 종결한다. 아직 claim되지 않았지만 공고가 비노출·마감 상태로 바뀐 job은 `canceled`로 정리한다.
 - [x] worker invocation 자체를 실행하는 회귀 테스트로 sweep→claim→renewal→process→complete 순서, 비용 중단, 재시도 실패, lease 탈취, 주기 갱신을 검증했다. migration은 현재 leased job이 있으면 중단하고 기존 attempt 비용을 보수적으로 이관한다.
 - [x] C6 말소 경로를 닫았다. `extract:grant-document-fields --write`는 해당 공고의 `grant-document-field-extraction-v1` 행만 짧은 transaction으로 교체하며 Kordoc·사람 검수·reconcile 필드는 보존한다.
-- [ ] `0068_glamorous_dagger.sql` 운영 적용, worker active 상시화, Scheduler·Cloud Run 배포는 아직 수행하지 않았다. enqueue 실패 관제와 heuristic 종결 정책은 다음 분리 체크포인트다.
+- [x] Kordoc enqueue 실패를 최신 딥분석 run의 append-only `application_precompute_enqueue_failed` 운영 예외로 기록한다. 22축 결과는 실패시키지 않고 성공·실패 primary receipt에도 outcome을 남기며 `/notice-pipeline` 요약과 공고 상세에서 현재 오류로 집계한다.
+- [ ] `0068_glamorous_dagger.sql` 운영 적용, worker active 상시화, Scheduler·Cloud Run 배포는 아직 수행하지 않았다. heuristic 종결 정책은 다음 분리 체크포인트다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
