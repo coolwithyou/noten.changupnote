@@ -4,6 +4,7 @@ import { VERSION as KORDOC_VERSION } from "kordoc";
 import {
   APPLICATION_ROUNDTRIP_VERSION,
   type ApplicationRoundtripRun,
+  type RoundtripFailureCode,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
 import { analyzeRoundtripDocument } from "@/lib/server/analysis-lab/application-roundtrip/analyze-document";
 import { likelyApplicationRole } from "@/lib/server/analysis-lab/application-roundtrip/core";
@@ -142,7 +143,14 @@ export async function processApplicationPrecomputeJob(input: {
     leaseSeconds: input.policy.leaseSeconds,
   });
 
-  if (likelyApplicationRole(document.role) && document.fieldPlanning.status !== "llm") {
+  if (
+    likelyApplicationRole(document.role)
+    && document.fieldPlanning.status !== "llm"
+    && !isApplicationPrecomputeHeuristicFallbackAllowed(
+      document.fieldPlanning.status,
+      document.fieldPlanning.failureCode ?? null,
+    )
+  ) {
     const code = document.fieldPlanning.failureCode ?? "field_planner_failed";
     throw new ApplicationPrecomputeProcessingError(
       code,
@@ -265,4 +273,20 @@ function isRetryableFailure(code: string): boolean {
   return code === "request_timeout"
     || code === "http_error"
     || code === "request_failed";
+}
+
+const ALLOWED_HEURISTIC_FALLBACK_FAILURES = new Set<RoundtripFailureCode>([
+  "request_timeout",
+  "http_error",
+  "invalid_response",
+  "request_failed",
+]);
+
+export function isApplicationPrecomputeHeuristicFallbackAllowed(
+  status: string,
+  failureCode: RoundtripFailureCode | null,
+): boolean {
+  return status === "heuristic_fallback"
+    && failureCode !== null
+    && ALLOWED_HEURISTIC_FALLBACK_FAILURES.has(failureCode);
 }

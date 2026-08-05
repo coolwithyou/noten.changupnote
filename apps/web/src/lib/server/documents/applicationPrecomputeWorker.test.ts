@@ -15,7 +15,10 @@ import {
   runWithApplicationPrecomputeLeaseRenewal,
   type ApplicationPrecomputeWorkerDependencies,
 } from "./applicationPrecomputeWorker";
-import { ApplicationPrecomputeProcessingError } from "./applicationPrecomputeProcessor";
+import {
+  ApplicationPrecomputeProcessingError,
+  isApplicationPrecomputeHeuristicFallbackAllowed,
+} from "./applicationPrecomputeProcessor";
 import {
   assertApplicationPrecomputePolicyCanExecute,
   resolveApplicationPrecomputeWorkerPolicy,
@@ -40,6 +43,11 @@ assert.equal(defaults.model, "claude-sonnet-5");
 assert.equal(defaults.maxJobsPerInvocation, 2);
 assert.equal(defaults.maxConcurrentJobs, 1);
 assert.equal(defaults.jobCostReserveUsd, 0.5);
+assert.equal(isApplicationPrecomputeHeuristicFallbackAllowed("heuristic_fallback", "request_timeout"), true);
+assert.equal(isApplicationPrecomputeHeuristicFallbackAllowed("heuristic_fallback", "invalid_response"), true);
+assert.equal(isApplicationPrecomputeHeuristicFallbackAllowed("heuristic_fallback", "api_key_missing"), false);
+assert.equal(isApplicationPrecomputeHeuristicFallbackAllowed("heuristic_fallback", "transport_not_configured"), false);
+assert.equal(isApplicationPrecomputeHeuristicFallbackAllowed("llm", null), false);
 
 assert.equal(canStartApplicationPrecomputeJob({
   spentUsd: 1.49,
@@ -182,6 +190,8 @@ assert.match(renderedMutationSql, /owned_job AS MATERIALIZED/u);
 assert.match(renderedMutationSql, /FOR UPDATE/u);
 assert.match(renderedMutationSql, /grant_application_precompute_attempts/u);
 assert.match(renderedMutationSql, /lease_token = \$\d+::uuid/u);
+assert.match(renderedMutationSql, /greatest\(actual_cost_usd,/u);
+assert.match(renderedMutationSql, /greatest\(reserved_cost_usd, actual_cost_usd,/u);
 
 assert.equal(await failApplicationPrecomputeJob({
   db: mutationDb([{ id: leasedJob.id }]),
@@ -429,8 +439,12 @@ const processorSource = await readFile(
   "utf8",
 );
 assert.match(processorSource, /transport:\s*"api"/u, "운영 Kordoc 호출은 API transport로 고정");
+const deepProcessorSource = await readFile(
+  `${root}/apps/web/src/lib/server/deep-analysis/processor.ts`,
+  "utf8",
+);
 assert.ok(
-  [...processorSource.matchAll(/applicationPrecomputeObservationError/gu)].length >= 4,
+  [...deepProcessorSource.matchAll(/applicationPrecomputeObservationError/gu)].length >= 4,
   "primary 성공·실패 모두 enqueue 관제 기록 결과를 stage receipt에 남겨야 한다",
 );
 

@@ -382,6 +382,7 @@ export async function completeApplicationPrecomputeJob(input: {
   const leaseToken = requiredLeaseToken(input.job);
   const now = input.now ?? new Date();
   const actualCost = input.costUsd ?? 0;
+  const usageComplete = input.costUsd !== null || input.resultStatus === "not_applicable";
   const completed = await input.db.execute<{ id: string }>(sql`
     WITH owned_job AS MATERIALIZED (
       SELECT job.id
@@ -394,12 +395,15 @@ export async function completeApplicationPrecomputeJob(input: {
     ), finished_attempt AS (
       UPDATE grant_application_precompute_attempts
       SET status = 'succeeded',
-          actual_request_count = ${input.requestCount},
-          actual_input_tokens = ${input.inputTokens},
-          actual_output_tokens = ${input.outputTokens},
-          actual_cost_usd = ${actualCost.toFixed(6)}::numeric,
-          charged_cost_usd = ${actualCost.toFixed(6)}::numeric,
-          usage_complete = true,
+          actual_request_count = greatest(actual_request_count, ${input.requestCount}),
+          actual_input_tokens = greatest(actual_input_tokens, ${input.inputTokens}),
+          actual_output_tokens = greatest(actual_output_tokens, ${input.outputTokens}),
+          actual_cost_usd = greatest(actual_cost_usd, ${actualCost.toFixed(6)}::numeric),
+          charged_cost_usd = CASE
+            WHEN ${usageComplete} THEN greatest(actual_cost_usd, ${actualCost.toFixed(6)}::numeric)
+            ELSE greatest(reserved_cost_usd, actual_cost_usd, ${actualCost.toFixed(6)}::numeric)
+          END,
+          usage_complete = ${usageComplete},
           completed_at = ${now.toISOString()}::timestamptz,
           updated_at = ${now.toISOString()}::timestamptz
       WHERE job_id = ${input.job.id}::uuid
@@ -408,15 +412,17 @@ export async function completeApplicationPrecomputeJob(input: {
         AND lease_token = ${leaseToken}::uuid
         AND status = 'leased'
         AND EXISTS (SELECT 1 FROM owned_job WHERE owned_job.id = job_id)
-      RETURNING job_id
+      RETURNING job_id, actual_request_count, actual_input_tokens,
+        actual_output_tokens, actual_cost_usd
     )
     UPDATE grant_application_precompute_jobs job
     SET status = 'succeeded', result_status = ${input.resultStatus},
         result_artifact_id = ${input.artifactId}::uuid,
         result_summary = ${JSON.stringify(input.resultSummary)}::jsonb,
-        request_count = ${input.requestCount}, input_tokens = ${input.inputTokens},
-        output_tokens = ${input.outputTokens},
-        cost_usd = ${input.costUsd === null ? null : input.costUsd.toFixed(6)}::numeric,
+        request_count = (SELECT actual_request_count FROM finished_attempt),
+        input_tokens = (SELECT actual_input_tokens FROM finished_attempt),
+        output_tokens = (SELECT actual_output_tokens FROM finished_attempt),
+        cost_usd = (SELECT actual_cost_usd FROM finished_attempt),
         completed_at = ${now.toISOString()}::timestamptz,
         lease_expires_at = NULL, worker_id = NULL, lease_token = NULL,
         last_error_code = NULL, last_error_message = NULL,

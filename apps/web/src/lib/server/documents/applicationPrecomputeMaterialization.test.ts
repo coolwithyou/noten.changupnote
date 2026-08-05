@@ -110,6 +110,35 @@ assert.throws(
   assert.equal(planned?.candidateSet.candidates.length, 1);
 }
 
+// LLM 일반 실패 뒤 구조 후보가 안전하면 heuristic 필드를 partial로 보존한다.
+{
+  const heuristicDocument = {
+    ...document,
+    fields: document.fields.map((field) => ({
+      ...field,
+      analysisSource: "heuristic" as const,
+      llmConfidence: null,
+    })),
+    fieldPlanning: {
+      ...document.fieldPlanning,
+      status: "heuristic_fallback" as const,
+      failureCode: "request_timeout" as const,
+      warning: "LLM 필드 판정 실패: timed out",
+      model: "claude-sonnet-5",
+    },
+  };
+  const heuristicRun = roundtripRun(heuristicDocument);
+  const [planned] = buildApplicationPrecomputeMaterializationPlan({
+    labRun,
+    roundtripRun: heuristicRun,
+    manifest,
+    surfaces: [surface(STORAGE_KEY, SOURCE_SHA)],
+  });
+  assert.equal(planned?.status, "partial");
+  assert.equal(planned?.errorCode, "request_timeout");
+  assert.equal(planned?.fields.length, 1);
+}
+
 console.log("application precompute materialization tests: ok");
 
 function surface(sourceAttachment: string, sourceSha256: string) {
