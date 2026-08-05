@@ -6,6 +6,7 @@ import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { activeGrantApplyEndCutoff } from "../repositories/activeGrantFilter";
 import { createR2ObjectStorageFromEnv, type R2ObjectStorage } from "../storage/r2ObjectStorage";
+import { replaceLegacyGrantDocumentFields } from "../documents/replaceLegacyGrantDocumentFields";
 
 loadMonorepoEnv();
 
@@ -143,13 +144,12 @@ async function extractGrantDocumentFieldsFromDb(
     }
 
     if (input.write) {
-      await input.db
-        .delete(schema.grantDocumentFields)
-        .where(eq(schema.grantDocumentFields.grantId, row.id));
-      if (fields.length > 0) {
-        await input.db.insert(schema.grantDocumentFields).values(fields.map((field) => toGrantDocumentFieldInsert(row, field)));
-        writtenFieldCount += fields.length;
-      }
+      const replaced = await replaceLegacyGrantDocumentFields({
+        db: input.db,
+        grantId: row.id,
+        fields: fields.map((field) => toGrantDocumentFieldInsert(row, field)),
+      });
+      writtenFieldCount += replaced.insertedCount;
     }
 
     if (samples.length < 12 && fields.length > 0) {
@@ -412,6 +412,6 @@ function printHelp() {
     "  --offset=<n>                   offset",
     "  --asOf=<iso>                   현재 공고 판정 기준일",
     "  --skip-markdown                R2 markdown 본문 읽기 생략",
-    "  --write                        grant_document_fields 교체 저장",
+    "  --write                        legacy parser 소유 grant_document_fields만 교체 저장",
   ].join("\n"));
 }
