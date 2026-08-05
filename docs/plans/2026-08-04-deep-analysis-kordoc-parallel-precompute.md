@@ -302,6 +302,15 @@ surfaceId
 - [ ] migration `0067_familiar_anthem.sql` 적용, worker active 전환, Scheduler/Cloud Run 배포, 실제 20~50건 cohort 실행은 이 체크포인트에서 수행하지 않았다.
 - [ ] 승격 fail-closed 여부는 observe-only cohort의 coverage·비용·오류 관측 후 결정한다.
 
+#### 운영 준비 체크포인트 (2026-08-05)
+
+- [x] `0067_familiar_anthem.sql`을 현재 연결된 운영 DB에 적용했다. 전용 job/heartbeat 테이블과 8개 인덱스를 확인했고 적용 직후 두 테이블은 모두 0건이었다.
+- [x] Next 개발 서버만 `apps/web/.env.development.local`을 읽고 루트의 `pnpm lab:*` CLI는 읽지 않던 설정 분기를 제거했다. 딥분석 배치, 스모크, AI 검수, 블라인드 감사, 확인 질문 CLI가 동일 로컬 env를 우선 읽는다.
+- [x] 독립 Kordoc smoke와 dev API route도 공용 analyzer에 lab binding을 명시 주입한다. `claude-cli` binding 누락 시 field planner는 API로 폴백하지 않고 중단하는 기존 가드를 유지한다.
+- [x] 실제 batch dry-run에서 `transport=claude-cli`, Kordoc 형제 분석의 딥분석 모델 상속, API 토큰 미지출 로그를 확인했다.
+- [x] backfill `--limit=20` dry-run 결과 eligible 20, protected 0, current 0이었다. dry-run이므로 enqueue/job/model 호출은 모두 0건이다.
+- [ ] 다음 운영 관측 단계는 이 20건을 명시적으로 enqueue한 뒤 production API worker를 bounded cohort로 실행하는 것이다. 이는 로컬 Max 구독 배치와 다른 운영 경로이며 worker active 전환과 배포 승인을 함께 받아 수행한다.
+
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
 

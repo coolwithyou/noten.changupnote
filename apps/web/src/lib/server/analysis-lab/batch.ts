@@ -16,7 +16,8 @@
 //       pnpm lab:batch -- --retry-errors                (현행 버전 error 런만 있는 공고도 대상 포함)
 //       pnpm lab:batch -- --reanalyze-outdated          (구버전 ok 런만 있는 공고도 대상 포함)
 //       ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:batch -- --with-application-roundtrip
-// 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. DB에는 어떤 쓰기도 하지 않는다.
+// 주의: api transport면 Anthropic API 비용이 발생하고, claude-cli면 Max 구독 사용량을 쓴다.
+// DB에는 어떤 쓰기도 하지 않는다.
 import { randomBytes } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -24,7 +25,7 @@ import {
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabBatchJobSnapshot,
 } from "@/features/dev/analysis-lab/contract";
-import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { applyLabBatchEvent, labBatchJobFilePath } from "./batch-job";
 import { partitionCohortEntries } from "./batch-plan";
 import {
@@ -43,7 +44,7 @@ import { resolveLabTransport } from "./claude-cli-transport";
 import { cohortFilePath, readCohortFileV2 } from "./cohort-file";
 import { resolveLabModel } from "./extractor";
 
-loadMonorepoEnv();
+loadAnalysisLabEnv();
 
 const DEFAULT_LIMIT = 10;
 const DEFAULT_CONCURRENCY = 2;

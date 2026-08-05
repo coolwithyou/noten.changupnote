@@ -9,7 +9,7 @@
 //   그중 verdict=correct 확정 exclusion criterion 만 LLM 에 전달하며, v3 인라인 confirmation
 //   보유 criterion 과 기존 사이드카 보유 런은 제외한다(--force 는 사이드카 재생성).
 //   --dry-run 은 대상·예상 비용만 출력(API 호출 0).
-// 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. 런·검수·감사 파일은 절대
+// 주의: --dry-run 이 아니면 선택 transport의 모델 사용량이 발생한다(api=비용, claude-cli=Max 구독). 런·검수·감사 파일은 절대
 //   건드리지 않으며, 쓰기는 사이드카 <runId>.confirmations.json 생성뿐이다.
 import { existsSync } from "node:fs";
 import { AI_REVIEW_ADOPTED, type LabReview, type LabRun } from "@/features/dev/analysis-lab/contract";
@@ -26,9 +26,9 @@ import {
   type ConfirmationsLlmDeps,
 } from "./confirmations";
 import { selectReviewedRuns } from "./reviewed-runs";
-import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 
-loadMonorepoEnv();
+loadAnalysisLabEnv();
 
 const DEFAULT_LIMIT = 50;
 const CONCURRENCY = 2;

@@ -2,15 +2,16 @@
 // 실행: pnpm lab:smoke                          (코호트 1건 자동 선택 — markdown 보유 공고 우선)
 //       pnpm lab:smoke -- --grantId=<uuid>      (특정 공고 지정)
 //       pnpm lab:smoke -- --refresh             (코호트 재선정 후 실행)
-// env 는 loadMonorepoEnv 관행으로 루트 .env(.env.local)에서 로드한다. DB에는 어떤 쓰기도 하지 않는다.
+// env 는 apps/web/.env.development.local 을 우선해 웹 개발 서버와 같은 구독 transport를 쓴다.
+// DB에는 어떤 쓰기도 하지 않는다.
 import { closeCunoteDb } from "../db/client";
-import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { runLabAnalysis } from "./analyze";
 import { resolveLabTransport } from "./claude-cli-transport";
 import { loadLabCohort } from "./cohort";
 import { labRunFilePath } from "./run-store";
 
-loadMonorepoEnv();
+loadAnalysisLabEnv();
 
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;

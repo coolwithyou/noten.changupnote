@@ -13,7 +13,7 @@
 //         → AI 검수 파일에서 사람 감사 대상(비-correct 전수 + missed_condition 플래그 전수 +
 //           correct 시드(42) 결정론 20%)을 산출해 콘솔 표 + audit/<stamp>.json 으로 저장.
 //       공통: --force (기존 ai-review 파일 덮어쓰기)
-// 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. 사람 review.json 은 절대
+// 주의: --dry-run 이 아니면 선택 transport의 모델 사용량이 발생한다(api=비용, claude-cli=Max 구독). 사람 review.json 은 절대
 //       건드리지 않으며 새로 쓰는 파일은 <runId>.ai-review.<modelSlug>.json 과 audit/*.json 뿐이다.
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
@@ -43,11 +43,11 @@ import { collectAiReviewsForAudit, toAiReviewForAudit } from "./audit-store";
 import { resolveLabLlmBinding, resolveLabTransport, type LabLlmBinding } from "./claude-cli-transport";
 import { readCohortFileV2, cohortFilePath } from "./cohort-file";
 import { DIMENSION_LABELS } from "./diff";
-import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
 
-loadMonorepoEnv();
+loadAnalysisLabEnv();
 
 const DEFAULT_LIMIT = 10;
 const CONCURRENCY = 2;

@@ -5,9 +5,12 @@
  *   pnpm lab:roundtrip:smoke -- --grant-id <uuid>
  * grant-id를 생략하면 파일명 기준 지원서 후보가 있는 첫 공고를 사용한다.
  */
+import { loadAnalysisLabEnv } from "../../loadMonorepoEnv";
 import { loadApplicationRoundtripCohort } from "./cohort";
-import { runApplicationRoundtripAnalysis } from "./analyze";
+import { runLabApplicationRoundtripAnalysis } from "./lab-runner";
 import { fillApplicationRoundtrip } from "./fill";
+
+loadAnalysisLabEnv();
 
 const requestedGrantId = argument("--grant-id");
 
@@ -18,7 +21,7 @@ try {
   )?.grantId;
   if (!grantId) throw new Error("왕복 smoke 대상 공고를 찾지 못했습니다.");
 
-  const run = await runApplicationRoundtripAnalysis(grantId);
+  const run = await runLabApplicationRoundtripAnalysis(grantId);
   const document = run.documents.find((item) => item.attachmentId === run.recommendedAttachmentId);
   if (!document) throw new Error(`빈 필드가 있는 추천 문서가 없습니다: ${run.recommendationReason}`);
   if (document.fieldCoverage.status === "review_required") {

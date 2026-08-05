@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import {
   ApplicationRoundtripAnalyzeError,
-  runApplicationRoundtripAnalysis,
 } from "@/lib/server/analysis-lab/application-roundtrip/analyze";
+import { runLabApplicationRoundtripAnalysis } from "@/lib/server/analysis-lab/application-roundtrip/lab-runner";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const grantId = typeof body?.grantId === "string" ? body.grantId.trim() : "";
   if (!grantId) return NextResponse.json({ error: "invalid_grant_id", message: "grantId가 필요합니다." }, { status: 400 });
   try {
-    return NextResponse.json({ run: await runApplicationRoundtripAnalysis(grantId) });
+    return NextResponse.json({ run: await runLabApplicationRoundtripAnalysis(grantId) });
   } catch (error) {
     if (error instanceof ApplicationRoundtripAnalyzeError) {
       return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });

@@ -10,7 +10,7 @@
 //   파일을 먼저 동결한 뒤 같은 실행에서 판정한다.
 //   --dry-run 은 대상·예상 비용만 출력(API 호출 0). --force 는 aiAudit 기록 항목 재판정
 //   (humanVerdict 보유 항목은 어떤 경우에도 불변).
-// 주의: --dry-run 이 아니면 실제 Anthropic API 비용이 발생한다. 사람 review.json 과
+// 주의: --dry-run 이 아니면 선택 transport의 모델 사용량이 발생한다(api=비용, claude-cli=Max 구독). 사람 review.json 과
 //   humanVerdict/note 는 절대 건드리지 않으며, 쓰기는 기존 감사 파일의 aiAudit* 필드
 //   병합뿐이다(파일 삭제·재생성 없음).
 import { join } from "node:path";
@@ -24,9 +24,9 @@ import {
   readLabAuditFileAt,
 } from "./audit-store";
 import { resolveLabLlmBinding } from "./claude-cli-transport";
-import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 
-loadMonorepoEnv();
+loadAnalysisLabEnv();
 
 const DEFAULT_LIMIT = 50;
 const CONCURRENCY = 2;
