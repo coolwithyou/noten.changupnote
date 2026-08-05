@@ -8,6 +8,7 @@ const originalCwd = process.cwd();
 const original = {
   transport: process.env.ANALYSIS_LAB_TRANSPORT,
   model: process.env.ANALYSIS_LAB_MODEL,
+  artifactHmacKey: process.env.ANALYSIS_LAB_ARTIFACT_HMAC_KEY,
   apiKey: process.env.ANTHROPIC_API_KEY,
 };
 const root = mkdtempSync(join(tmpdir(), "cunote-analysis-env-"));
@@ -16,18 +17,20 @@ try {
   mkdirSync(join(root, "apps/web"), { recursive: true });
   writeFileSync(
     join(root, "apps/web/.env.development.local"),
-    "ANALYSIS_LAB_TRANSPORT=claude-cli\nANALYSIS_LAB_MODEL=claude-opus-5\n",
+    `ANALYSIS_LAB_TRANSPORT=claude-cli\nANALYSIS_LAB_MODEL=claude-opus-5\nANALYSIS_LAB_ARTIFACT_HMAC_KEY=${"a".repeat(64)}\n`,
   );
   writeFileSync(join(root, ".env"), "ANALYSIS_LAB_TRANSPORT=api\nANTHROPIC_API_KEY=test-key\n");
   process.chdir(root);
   delete process.env.ANALYSIS_LAB_TRANSPORT;
   delete process.env.ANALYSIS_LAB_MODEL;
+  delete process.env.ANALYSIS_LAB_ARTIFACT_HMAC_KEY;
   delete process.env.ANTHROPIC_API_KEY;
 
   loadAnalysisLabEnv();
 
   assert.equal(process.env.ANALYSIS_LAB_TRANSPORT, "claude-cli");
   assert.equal(process.env.ANALYSIS_LAB_MODEL, "claude-opus-5");
+  assert.equal(process.env.ANALYSIS_LAB_ARTIFACT_HMAC_KEY, "a".repeat(64));
   assert.equal(process.env.ANTHROPIC_API_KEY, "test-key");
 
   process.env.ANALYSIS_LAB_TRANSPORT = "api";
@@ -37,6 +40,7 @@ try {
   process.chdir(originalCwd);
   restore("ANALYSIS_LAB_TRANSPORT", original.transport);
   restore("ANALYSIS_LAB_MODEL", original.model);
+  restore("ANALYSIS_LAB_ARTIFACT_HMAC_KEY", original.artifactHmacKey);
   restore("ANTHROPIC_API_KEY", original.apiKey);
   rmSync(root, { recursive: true, force: true });
 }

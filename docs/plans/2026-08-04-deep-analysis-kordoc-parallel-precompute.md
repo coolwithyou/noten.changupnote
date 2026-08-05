@@ -329,7 +329,7 @@ surfaceId
 - [x] 나머지 6건은 `partial` 2건(필드 50+37), `review_required` 1건, `not_applicable` 3건으로 정상 종결됐다. `review_required/not_applicable`은 필드를 자동 반영하지 않았고 전체 7건에서 실패·retry·dead letter는 0건이었다.
 - [x] release `deep-production-r1-20260805T072410Z-036af33b`를 준비하고 aggregate `GO`(blocking 4/4, source drift 0), shadow `PASS`(공고 1 × 회사 131, issue 0), dry-run `PASS`(baseline 1/1, source drift 0)를 통과한 뒤 현재 사용자 승인과 분리된 실행 actor로 canary·전체 승격했다.
 - [x] release와 item은 각각 `active`·`applied`다. promotion snapshot 검증 issue 0, canary와 전체 serving 검증이 모두 PASS했고 `analysis_complete`, `publication_complete`, `serving_complete`, `analysis_fresh`가 전부 true이며 blocker가 없다. 랜딩의 `requireDeepAnalysisPromotion=true` active universe에서도 대상 공고와 새 criteria 3건을 읽었다.
-- [ ] 운영 도구 후속 개선: `lab:aggregate` release 경로는 standalone 실행 시 env를 로드하지 않고 성공 뒤 DB 연결을 닫지 않으며, `lab:shadow` release는 로컬에 32자 이상 HMAC 키가 없으면 실행할 수 없다. 이번 검증은 값을 출력·저장하지 않는 임시 HMAC과 선행 env loader로 실행했지만, 반복 운영 전 CLI 자체의 공용 env/종료 계약을 보강한다.
+- [x] 운영 도구 후속 개선: `lab:aggregate`와 `lab:shadow`가 웹 개발 환경과 같은 analysis-lab env 계약을 읽고, aggregate도 성공·실패 후 DB 연결을 닫는다. `pnpm lab:shadow-key:init`은 gitignored `apps/web/.env.development.local`에 전용 32-byte 랜덤 HMAC 키를 한 번만 생성·재사용하며 값은 출력하지 않고 파일 권한을 `0600`으로 고정한다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.

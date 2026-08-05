@@ -25,7 +25,7 @@ import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { buildGrantAnalysisShadowMatch } from "../ingestion/grantAnalysisPilotVariants";
-import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { resolveSystemProductCompanyProfile } from "../productProfile/resolveProductCompanyProfile";
 import { createDrizzleRepositories } from "../repositories/drizzle";
 import { selectReviewedRuns } from "./reviewed-runs";
@@ -49,7 +49,7 @@ import {
   type ShadowConversionReport,
 } from "./shadow-convert";
 
-loadMonorepoEnv();
+loadAnalysisLabEnv();
 
 // ---- argv 파싱 (batch.ts 관행 — 라이브러리 없이) --------------------------------
 

@@ -35,6 +35,9 @@ import {
   writeImmutablePromotionArtifact,
 } from "./promotion-release";
 import { type ReviewedRun, selectReviewedRuns } from "./reviewed-runs";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+
+loadAnalysisLabEnv();
 
 /** --all 전수 스캔에서 코호트에 없는 공고의 층 표기. */
 const OUTSIDE_STRATUM = "(코호트 외)";
@@ -617,4 +620,19 @@ async function main() {
   );
 }
 
-void main();
+/** release 집계가 연 DB 커넥션을 성공·실패와 관계없이 닫아 CLI가 즉시 종료되게 한다. */
+async function closeDbIfLoaded(): Promise<void> {
+  try {
+    const { closeCunoteDb } = await import("../db/client");
+    await closeCunoteDb();
+  } catch {
+    // 집계 결과보다 정리 오류를 우선하지 않는다.
+  }
+}
+
+main()
+  .catch((error) => {
+    console.error("[aggregate] 실패:", error instanceof Error ? error.message : error);
+    process.exitCode = 1;
+  })
+  .finally(closeDbIfLoaded);
