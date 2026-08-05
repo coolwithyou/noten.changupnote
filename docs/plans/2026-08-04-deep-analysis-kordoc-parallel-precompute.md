@@ -317,6 +317,17 @@ surfaceId
 - [x] `/notice-pipeline` 서버 detail 조회로 deep-analysis pending과 Kordoc job 2/2 완료, surface별 모델·토큰·비용·필드·상태가 노출되는 것을 확인했다.
 - [ ] 남은 6건은 다음 일일 예산 창 또는 별도 승인 상한에서 재개한다. 현재 cohort는 과거 backlog라 deepAnalysisRunId가 null이며, 신규 공고에서 두 분석의 실제 동시 시작 증명은 production deep worker 활성화 뒤 별도 확인한다.
 
+#### 신규 공고 동시 시작 검증 (2026-08-05)
+
+- [x] 비마감 visible 공고 `[한양대학교] 2026년 제23기 한양스타트업아카데미 교육생 모집`(`kstartup:178677`) 1건을 bounded claim으로 고정했다. 실행 전 입력은 7,656자·첨부 5건으로 봉인됐고 현재 v25 run과 Kordoc job은 모두 0건이었다.
+- [x] exact commit `e87d77c0016d16a19abd51febd55435e23268d72`의 production deep worker를 최대 1건·동시성 1로 실행했다. enqueue 1 / claim 1 / success 1 / failure 0이며 22축 전부, 독립 감사 `concur`, exception 0건으로 `analysis_complete`를 통과했다.
+- [x] 딥분석 run `da-20260805T062018039Z-213eef61-2f6f-41bc-bd6f-c039cca0c23d`의 실제 사용량은 input 62,973 / output 8,865 token, 총비용 `$0.446805`였다.
+- [x] `input_sealed` receipt는 `06:20:23.218556Z`, 같은 run에 결속된 Kordoc job 생성은 `06:20:23.311275Z`였다. Kordoc enqueue는 primary 완료 receipt `06:22:09.139028Z`보다 약 106초 앞서므로 후처리 순차 실행이 아니라 같은 봉인 시점의 병렬 착수임을 확인했다.
+- [x] `/notice-pipeline` 서버 detail은 딥분석 `succeeded/passed`와 비용, Kordoc `pending`과 HWP surface·원본 SHA·analysisVersion을 같은 공고에서 노출했다.
+- [x] Kordoc active worker를 같은 grant 한 건으로 제한해 재실행했으며, 일일 비용 `$1.885886 / $2`와 job reserve `$0.50` 때문에 claim 0 / success 0 / failure 0 / `budgetStopped=true`로 종료했다. pending job의 attempt는 0으로 보존됐으며 상한을 높이거나 우회하지 않았다.
+- [ ] 이 run은 분석 완료까지의 증명이다. 현재 `publication_complete=false`, `serving_complete=false`, `first_blocking_stage=publication_complete`이며 promotion item도 0건이므로 이번 v25 결과가 아직 랜딩 매칭 projection에 반영됐다고 보지 않는다.
+- [ ] 다음 일일 예산 창에서 신규 Kordoc job 1건과 기존 pending 6건을 bounded 처리하고, 신규 HWP가 종결 artifact·field map으로 materialize되는지 확인한다. 이후 승격은 별도 promotion gate를 통과시켜 publication·serving·fresh receipt와 랜딩 반영을 검증한다.
+
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
 
