@@ -2,6 +2,7 @@ import { eq, sql } from "drizzle-orm";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { postgresUuidArray } from "@/lib/server/deep-analysis/sqlArray";
+import { activeGrantApplyEndCutoff } from "@/lib/server/repositories/activeGrantFilter";
 import { APPLICATION_FIELD_PARSER_PREFIX } from "./applicationFieldVersion";
 import type { ApplicationPrecomputeStatus } from "./applicationPrecomputeState";
 
@@ -137,6 +138,7 @@ async function loadEligibleSurfaces(
   input: { grantId?: string; limit: number },
 ): Promise<EligibleSurfaceRow[]> {
   const grantFilter = input.grantId ? sql`AND surface.grant_id = ${input.grantId}::uuid` : sql``;
+  const activeCutoffIso = activeGrantApplyEndCutoff().toISOString();
   return db.execute<EligibleSurfaceRow>(sql`
     SELECT
       surface.id::text AS surface_id,
@@ -157,6 +159,7 @@ async function loadEligibleSurfaces(
     LEFT JOIN grant_document_fields field ON field.surface_id = surface.id
     WHERE grant_row.serving_state = 'visible'
       AND grant_row.status IN ('open', 'upcoming')
+      AND (grant_row.apply_end IS NULL OR grant_row.apply_end >= ${activeCutoffIso}::timestamptz)
       AND surface.type = 'file_template'
       AND surface.format IN ('hwp', 'hwpx')
       AND surface.extraction_status IN ('preview_ready', 'fields_ready')

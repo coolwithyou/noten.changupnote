@@ -9,7 +9,10 @@ import {
   assertApplicationPrecomputePolicyCanExecute,
   resolveApplicationPrecomputeWorkerPolicy,
 } from "./applicationPrecomputePolicy";
-import { claimApplicationPrecomputeJob } from "./applicationPrecomputeQueue";
+import {
+  claimApplicationPrecomputeJob,
+  planApplicationPrecomputeBackfill,
+} from "./applicationPrecomputeQueue";
 
 // 기본값은 실행·비용 변이를 만들지 않는 observe-only/unconfigured다.
 const defaults = resolveApplicationPrecomputeWorkerPolicy({});
@@ -70,6 +73,26 @@ await assert.rejects(
     claimGrantIds: [],
   }),
   /claimGrantIds must be omitted/u,
+);
+
+// status=open 값이 남아 있어도 실제 apply_end가 지난 surface는 backfill 후보에서 제외한다.
+let renderedBackfillSql = "";
+const backfillDb = {
+  execute: async (query: SQL) => {
+    renderedBackfillSql = new PgDialect().sqlToQuery(query).sql;
+    return [];
+  },
+} as unknown as CunoteDbSession;
+await planApplicationPrecomputeBackfill({
+  db: backfillDb,
+  analysisVersion: bounded.analysisVersion,
+  limit: 20,
+  write: false,
+});
+assert.match(
+  renderedBackfillSql,
+  /grant_row\.apply_end IS NULL OR grant_row\.apply_end >= \$\d+::timestamptz/u,
+  "stale status만 믿지 않고 실제 마감일을 함께 검사해야 한다",
 );
 
 // primary가 Kordoc enqueue 완료를 기다리지 않고 시작·완료할 수 있다.

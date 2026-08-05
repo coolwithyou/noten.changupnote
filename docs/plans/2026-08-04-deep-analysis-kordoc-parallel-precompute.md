@@ -308,7 +308,8 @@ surfaceId
 - [x] Next 개발 서버만 `apps/web/.env.development.local`을 읽고 루트의 `pnpm lab:*` CLI는 읽지 않던 설정 분기를 제거했다. 딥분석 배치, 스모크, AI 검수, 블라인드 감사, 확인 질문 CLI가 동일 로컬 env를 우선 읽는다.
 - [x] 독립 Kordoc smoke와 dev API route도 공용 analyzer에 lab binding을 명시 주입한다. `claude-cli` binding 누락 시 field planner는 API로 폴백하지 않고 중단하는 기존 가드를 유지한다.
 - [x] 실제 batch dry-run에서 `transport=claude-cli`, Kordoc 형제 분석의 딥분석 모델 상속, API 토큰 미지출 로그를 확인했다.
-- [x] backfill `--limit=20` dry-run 결과 eligible 20, protected 0, current 0이었다. dry-run이므로 enqueue/job/model 호출은 모두 0건이다.
+- [x] 최초 backfill `--limit=20` 상세 검수에서 `status=open`이지만 실제 7월 마감인 stale 공고 20건이 드러났다. enqueue 전에 실제 `apply_end` 한국 날짜 cutoff를 추가하고 회귀 테스트로 고정했다.
+- [x] 보정 후 dry-run cohort는 비마감 surface 20건 / 공고 16건 / 원본 약 1.78MB이며 protected 0, current 0이다. dry-run이므로 enqueue/job/model 호출은 모두 0건이다.
 - [ ] 다음 운영 관측 단계는 이 20건을 명시적으로 enqueue한 뒤 production API worker를 bounded cohort로 실행하는 것이다. 이는 로컬 Max 구독 배치와 다른 운영 경로이며 worker active 전환과 배포 승인을 함께 받아 수행한다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
