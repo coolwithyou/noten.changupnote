@@ -69,7 +69,7 @@ export async function getDeepAnalysisRuntimeControlStatus(
         (
           SELECT count(*)::int
           FROM grant_application_precompute_jobs
-          WHERE queue_status = 'leased'
+          WHERE status = 'leased'
             AND lease_expires_at > now()
         ) AS active_application_leases
     `,
