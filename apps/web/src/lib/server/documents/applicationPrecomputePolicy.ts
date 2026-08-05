@@ -16,6 +16,7 @@ export interface ApplicationPrecomputeWorkerPolicy {
   maxJobsPerInvocation: number;
   maxConcurrentJobs: number;
   dailyCostCapUsd: number;
+  jobCostReserveUsd: number;
 }
 
 export function resolveApplicationPrecomputeWorkerPolicy(
@@ -45,6 +46,7 @@ export function resolveApplicationPrecomputeWorkerPolicy(
     maxJobsPerInvocation: integerEnv(env.APPLICATION_PRECOMPUTE_MAX_JOBS, 2, 1, 25),
     maxConcurrentJobs: integerEnv(env.APPLICATION_PRECOMPUTE_MAX_CONCURRENT_JOBS, 1, 1, 2),
     dailyCostCapUsd: numberEnv(env.APPLICATION_PRECOMPUTE_DAILY_COST_CAP_USD, 2, 0.01, 1_000),
+    jobCostReserveUsd: numberEnv(env.APPLICATION_PRECOMPUTE_JOB_COST_RESERVE_USD, 0.5, 0.01, 100),
   };
 }
 

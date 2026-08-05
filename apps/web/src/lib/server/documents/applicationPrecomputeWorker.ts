@@ -53,7 +53,12 @@ export async function runApplicationPrecomputeWorkerInvocation(input: {
     metadata: invocationMetadata(input.policy, result),
   });
   for (let index = 0; index < input.policy.maxJobsPerInvocation; index += 1) {
-    if (await applicationPrecomputeDailySpendUsd(input.db) >= input.policy.dailyCostCapUsd) {
+    const spentUsd = await applicationPrecomputeDailySpendUsd(input.db);
+    if (!canStartApplicationPrecomputeJob({
+      spentUsd,
+      dailyCostCapUsd: input.policy.dailyCostCapUsd,
+      jobCostReserveUsd: input.policy.jobCostReserveUsd,
+    })) {
       result.budgetStopped = true;
       break;
     }
@@ -136,6 +141,17 @@ function invocationMetadata(
     model: policy.model,
     transport: "api",
     dailyCostCapUsd: policy.dailyCostCapUsd,
+    jobCostReserveUsd: policy.jobCostReserveUsd,
     ...result,
   };
+}
+
+/** 완료 비용만 보는 상한이 다음 한 건만큼 초과하지 않도록 claim 전에 보수 예약한다. */
+export function canStartApplicationPrecomputeJob(input: {
+  spentUsd: number;
+  dailyCostCapUsd: number;
+  jobCostReserveUsd: number;
+}): boolean {
+  return input.spentUsd < input.dailyCostCapUsd
+    && input.spentUsd + input.jobCostReserveUsd <= input.dailyCostCapUsd;
 }

@@ -310,7 +310,12 @@ surfaceId
 - [x] 실제 batch dry-run에서 `transport=claude-cli`, Kordoc 형제 분석의 딥분석 모델 상속, API 토큰 미지출 로그를 확인했다.
 - [x] 최초 backfill `--limit=20` 상세 검수에서 `status=open`이지만 실제 7월 마감인 stale 공고 20건이 드러났다. enqueue 전에 실제 `apply_end` 한국 날짜 cutoff를 추가하고 회귀 테스트로 고정했다.
 - [x] 보정 후 dry-run cohort는 비마감 surface 20건 / 공고 16건 / 원본 약 1.78MB이며 protected 0, current 0이다. dry-run이므로 enqueue/job/model 호출은 모두 0건이다.
-- [ ] 다음 운영 관측 단계는 이 20건을 명시적으로 enqueue한 뒤 production API worker를 bounded cohort로 실행하는 것이다. 이는 로컬 Max 구독 배치와 다른 운영 경로이며 worker active 전환과 배포 승인을 함께 받아 수행한다.
+- [x] 20건을 단일 analysisVersion과 16개 grant bounded scope로 enqueue하고 동시성 1로 관측했다. 일일 상한 직전까지 14건 모두 성공(complete 8, partial 2, not_applicable 4), 실패 0, artifact 14, field 469개를 저장했다.
+- [x] 실제 비용은 44 request / input 456,653 / output 97,258 token / `$1.885886`이었다. not_applicable 4건은 모델 호출과 비용이 모두 0이었다.
+- [x] 기존 상한은 완료 비용만 비교해 다음 한 건만큼 초과할 수 있었다. cohort 최대 실측 `$0.293390`보다 여유 있는 기본 `$0.50` job reserve를 claim 전에 합산하도록 보강했다.
+- [x] 비용 중단 invocation에서 claimed 0 / budgetStopped true, 남은 6건 pending·attempt 0을 확인했다.
+- [x] `/notice-pipeline` 서버 detail 조회로 deep-analysis pending과 Kordoc job 2/2 완료, surface별 모델·토큰·비용·필드·상태가 노출되는 것을 확인했다.
+- [ ] 남은 6건은 다음 일일 예산 창 또는 별도 승인 상한에서 재개한다. 현재 cohort는 과거 backlog라 deepAnalysisRunId가 null이며, 신규 공고에서 두 분석의 실제 동시 시작 증명은 production deep worker 활성화 뒤 별도 확인한다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.

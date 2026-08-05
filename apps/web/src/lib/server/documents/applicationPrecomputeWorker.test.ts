@@ -5,6 +5,7 @@ import type { SQL } from "drizzle-orm";
 import { PgDialect } from "drizzle-orm/pg-core";
 import type { CunoteDbSession } from "@/lib/server/db/client";
 import { startPrimaryWithApplicationPrecompute } from "@/lib/server/deep-analysis/parallelApplicationPrecompute";
+import { canStartApplicationPrecomputeJob } from "./applicationPrecomputeWorker";
 import {
   assertApplicationPrecomputePolicyCanExecute,
   resolveApplicationPrecomputeWorkerPolicy,
@@ -21,6 +22,18 @@ assert.equal(defaults.claimScope, "unconfigured");
 assert.equal(defaults.model, "claude-sonnet-5");
 assert.equal(defaults.maxJobsPerInvocation, 2);
 assert.equal(defaults.maxConcurrentJobs, 1);
+assert.equal(defaults.jobCostReserveUsd, 0.5);
+
+assert.equal(canStartApplicationPrecomputeJob({
+  spentUsd: 1.49,
+  dailyCostCapUsd: 2,
+  jobCostReserveUsd: 0.5,
+}), true);
+assert.equal(canStartApplicationPrecomputeJob({
+  spentUsd: 1.51,
+  dailyCostCapUsd: 2,
+  jobCostReserveUsd: 0.5,
+}), false, "다음 job 예약액까지 포함해 일일 상한 전에 멈춰야 한다");
 
 assert.throws(
   () => assertApplicationPrecomputePolicyCanExecute({ ...defaults, executionMode: "active" }),
