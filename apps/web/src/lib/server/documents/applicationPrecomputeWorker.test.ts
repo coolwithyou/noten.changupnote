@@ -15,6 +15,7 @@ import {
   runWithApplicationPrecomputeLeaseRenewal,
   type ApplicationPrecomputeWorkerDependencies,
 } from "./applicationPrecomputeWorker";
+import { runApplicationPrecomputeWorkerCycle } from "./applicationPrecomputeWorkerCycle";
 import {
   ApplicationPrecomputeProcessingError,
   isApplicationPrecomputeHeuristicFallbackAllowed,
@@ -71,6 +72,37 @@ const bounded = resolveApplicationPrecomputeWorkerPolicy({
 });
 assert.doesNotThrow(() => assertApplicationPrecomputePolicyCanExecute(bounded));
 assert.equal(bounded.claimScope, "bounded");
+
+let cycleHeartbeatCount = 0;
+const disabledCycle = await runApplicationPrecomputeWorkerCycle({
+  db: {} as CunoteDb,
+  workerId: "worker-application",
+  serviceRevision: "test",
+  env: {},
+  heartbeat: async () => { cycleHeartbeatCount += 1; },
+});
+assert.equal(disabledCycle.enabled, false);
+assert.equal(disabledCycle.executionMode, "disabled");
+assert.equal(cycleHeartbeatCount, 0, "execute flag가 없으면 heartbeat mutation도 만들면 안 된다");
+
+let observeExecutionMode: unknown = null;
+let observeAnalysisSkipped: unknown = null;
+const observeCycle = await runApplicationPrecomputeWorkerCycle({
+  db: {} as CunoteDb,
+  workerId: "worker-application",
+  serviceRevision: "test",
+  env: { APPLICATION_PRECOMPUTE_EXECUTE: "1" },
+  heartbeat: async (input) => {
+    cycleHeartbeatCount += 1;
+    observeExecutionMode = input.metadata?.executionMode;
+    observeAnalysisSkipped = input.metadata?.analysisSkipped;
+  },
+});
+assert.equal(observeCycle.enabled, true);
+assert.equal(observeCycle.executionMode, "observe_only");
+assert.equal(cycleHeartbeatCount, 1);
+assert.equal(observeExecutionMode, "observe_only");
+assert.equal(observeAnalysisSkipped, true);
 
 // 전용 claim은 bounded grant UUID를 PostgreSQL uuid[]로 렌더링하고 별도 lease를 잡는다.
 const claimedJob = {
@@ -275,6 +307,29 @@ assert.equal(completionCount, 1);
 assert.deepEqual(invocationEvents.slice(1, 6), ["sweep", "claim", "heartbeat", "renew", "process"]);
 assert.ok(invocationEvents.indexOf("complete") > invocationEvents.indexOf("process"));
 
+const activeCycle = await runApplicationPrecomputeWorkerCycle({
+  db: fakeDb,
+  storage: fakeStorage,
+  workerId: "worker-application",
+  serviceRevision: "test",
+  env: {
+    APPLICATION_PRECOMPUTE_EXECUTE: "1",
+    APPLICATION_PRECOMPUTE_WORKER_MODE: "active",
+    APPLICATION_PRECOMPUTE_CLAIM_SCOPE: "bounded",
+    APPLICATION_PRECOMPUTE_CLAIM_GRANT_IDS: "00000000-0000-4000-8000-000000000001",
+    APPLICATION_PRECOMPUTE_MAX_JOBS: "1",
+    ANTHROPIC_API_KEY: "test-key",
+  },
+  dependencies: {
+    ...successfulDependencies,
+    claim: async () => null,
+    dailySpend: async () => 1.51,
+  },
+});
+assert.equal(activeCycle.executionMode, "active");
+assert.equal(activeCycle.budgetStopped, true);
+assert.equal(activeCycle.claimed, 0);
+
 let budgetProcessCount = 0;
 const budgetInvocation = await runApplicationPrecomputeWorkerInvocation({
   db: fakeDb,
@@ -427,6 +482,7 @@ const productionFiles = [
   "apps/web/src/lib/server/documents/applicationPrecomputeQueue.ts",
   "apps/web/src/lib/server/documents/applicationPrecomputeProcessor.ts",
   "apps/web/src/lib/server/documents/applicationPrecomputeWorker.ts",
+  "apps/web/src/lib/server/documents/applicationPrecomputeWorkerCycle.ts",
   "apps/web/src/lib/server/documents/applicationPrecomputeWorkerCli.ts",
 ];
 for (const relative of productionFiles) {
@@ -446,6 +502,15 @@ const deepProcessorSource = await readFile(
 assert.ok(
   [...deepProcessorSource.matchAll(/applicationPrecomputeObservationError/gu)].length >= 4,
   "primary 성공·실패 모두 enqueue 관제 기록 결과를 stage receipt에 남겨야 한다",
+);
+const deepWorkerCliSource = await readFile(
+  `${root}/apps/web/src/lib/server/deep-analysis/worker-cli.ts`,
+  "utf8",
+);
+assert.match(
+  deepWorkerCliSource,
+  /runApplicationPrecomputeWorkerCycle/u,
+  "기존 Cloud Run main execution이 전용 Kordoc queue cycle도 호출해야 한다",
 );
 
 const safetyMigration = await readFile(

@@ -1,9 +1,9 @@
 # 딥 분석 시점 Kordoc 바이너리 선분석 통합 계획
 
 > 작성일: 2026-08-04  
-> 상태: 체크포인트 1·2 완료 · 체크포인트 3 제한 운영 검증 완료 · 상시화 안전 게이트 코드 검증 완료(운영 적용 대기)
+> 상태: 체크포인트 1·2 완료 · 체크포인트 3 제한 운영 검증 완료 · 상시화 안전 게이트와 운영 migration 적용 완료(Cloud Run 활성화 대기)
 > 범위: 딥 분석과 HWP/HWPX 빠른 작성 분석의 실행 시점·결과 결속·서빙 준비 보장  
-> 비범위: 공고 수집 정책 변경, 22축 매칭 규칙 변경, 사용자 지원서 작성 UI 재설계, Cloud Run 활성화·배포
+> 비범위: 공고 수집 정책 변경, 22축 매칭 규칙 변경, 사용자 지원서 작성 UI 재설계, 별도 범용 workflow/Cloud Run Job 신설
 
 ## 1. 결론
 
@@ -341,7 +341,9 @@ surfaceId
 - [x] C6 말소 경로를 닫았다. `extract:grant-document-fields --write`는 해당 공고의 `grant-document-field-extraction-v1` 행만 짧은 transaction으로 교체하며 Kordoc·사람 검수·reconcile 필드는 보존한다.
 - [x] Kordoc enqueue 실패를 최신 딥분석 run의 append-only `application_precompute_enqueue_failed` 운영 예외로 기록한다. 22축 결과는 실패시키지 않고 성공·실패 primary receipt에도 outcome을 남기며 `/notice-pipeline` 요약과 공고 상세에서 현재 오류로 집계한다.
 - [x] LLM `timeout/http/invalid response/request failed`는 Kordoc 구조 후보를 버리지 않고 `partial` 또는 `review_required`로 정상 종결한다. API key·transport 설정 실패는 계속 차단하며, 부분 성공 usage는 완료 시 0으로 덮지 않고 attempt 실제 비용과 보수 reserve를 유지한다.
-- [ ] `0068_glamorous_dagger.sql` 운영 적용, worker active 상시화, Scheduler·Cloud Run 배포는 아직 수행하지 않았다.
+- [x] `0068_glamorous_dagger.sql`을 운영 DB에 적용했다. 적용 전 succeeded 21·leased 0을 확인했고, 적용 후 attempt 21건·charged cost `$2.761890`, lease token 잔존 0건, field map 619건(Kordoc 568·reconcile 51)으로 기존 결과가 보존됨을 확인했다.
+- [x] 기존 `cunote-deep-analysis` Cloud Run execution이 명시적 `APPLICATION_PRECOMPUTE_EXECUTE=1`일 때만 독립 Kordoc queue cycle을 추가 실행하도록 배선했다. 플래그가 없으면 heartbeat를 포함한 mutation 0건이고, 딥분석 worker mode와 Kordoc worker mode·claim scope·일일 비용 상한은 서로 독립이다.
+- [ ] Cloud Run의 딥분석 worker는 `observe_only`를 유지하고 Kordoc만 `active/all`, invocation당 1건·동시성 1·일일 `$2`로 활성화한다. 정확한 3개 Job image 배포와 수동 smoke·Scheduler 실행 확인은 `sw@noten.im` 재인증 후 수행한다.
 
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
