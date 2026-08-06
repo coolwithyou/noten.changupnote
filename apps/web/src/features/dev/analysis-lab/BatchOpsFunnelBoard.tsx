@@ -1,9 +1,10 @@
 "use client";
 
-import { RefreshCw } from "lucide-react";
+import { ChevronDown, RefreshCw } from "lucide-react";
 import type { LabOpsSummary } from "./contract";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   Card,
   CardAction,
@@ -33,28 +34,29 @@ export function BatchOpsFunnelBoard({
 }) {
   const { funnel } = summary;
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>깔때기 현황</CardTitle>
-        <CardDescription>
-          아카이빙 → 모집기간 → 코호트 → 딥분석 → 검수·감사 → 승격 (집계 시점 스냅샷)
-        </CardDescription>
-        <CardAction className="flex items-center gap-2">
-          <Badge variant="outline" className="tabular-nums">
-            {formatDateTime(summary.generatedAt)} · {summary.cacheHit ? "캐시" : "실측"}
-          </Badge>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
-            {refreshing ? (
-              <Spinner data-icon="inline-start" />
-            ) : (
-              <RefreshCw data-icon="inline-start" />
-            )}
-            새로고침
-          </Button>
-        </CardAction>
-      </CardHeader>
-      <CardContent>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+    <Collapsible>
+      <Card>
+        <CardHeader>
+          <CardTitle>전체 처리 흐름</CardTitle>
+          <CardDescription className="tabular-nums">
+            수집 {funnel.archivedVisible.toLocaleString("ko-KR")} → 딥분석 완료 {funnel.analysisOkCurrent.toLocaleString("ko-KR")} → 매칭 반영 {funnel.promotedGrants.toLocaleString("ko-KR")}
+          </CardDescription>
+          <CardAction className="flex items-center gap-2">
+            <Badge variant="outline" className="hidden tabular-nums 2xl:inline-flex">
+              {formatDateTime(summary.generatedAt)} · {summary.cacheHit ? "캐시" : "실측"}
+            </Badge>
+            <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
+              {refreshing ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
+              새로고침
+            </Button>
+            <CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>
+              단계별 보기 <ChevronDown data-icon="inline-end" />
+            </CollapsibleTrigger>
+          </CardAction>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent>
+        <ol className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <FunnelStage step="①" title="아카이빙 visible">
             <BigNumber value={funnel.archivedVisible} label="전 소스" />
             <p className="text-xs text-muted-foreground tabular-nums">
@@ -71,7 +73,7 @@ export function BatchOpsFunnelBoard({
             <p className="text-[11px] text-muted-foreground">실험 소스·visible 한정 3분할</p>
           </FunnelStage>
 
-          <FunnelStage step="③" title="코호트 편입">
+          <FunnelStage step="③" title="분석 대상 목록">
             <BigNumber value={funnel.cohortSize} label="공고" />
             <p className="truncate text-xs text-muted-foreground" title={funnel.cohortLabel ?? undefined}>
               {funnel.cohortLabel ?? "라벨 없음"}
@@ -104,9 +106,11 @@ export function BatchOpsFunnelBoard({
             <BigNumber value={funnel.promotedGrants} label="공고" />
             <p className="text-xs text-muted-foreground">applied · 롤백 제외 · 중복 제거</p>
           </FunnelStage>
-        </div>
-      </CardContent>
-    </Card>
+        </ol>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
 
@@ -121,12 +125,13 @@ function FunnelStage({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-muted/20 p-3">
-      <span className="text-xs font-medium text-muted-foreground">
-        {step} {title}
+    <li className="flex min-w-0 flex-col gap-3 rounded-xl bg-muted/50 p-4 ring-1 ring-foreground/5">
+      <span className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        <Badge variant="outline">{step}</Badge>
+        {title}
       </span>
       <div className="flex flex-1 flex-col justify-end gap-1.5">{children}</div>
-    </div>
+    </li>
   );
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleCheck, CircleX } from "lucide-react";
+import { CircleCheck, CircleX, FileCheck2, SearchCheck } from "lucide-react";
 import type { LabBatchEvent, LabBatchJobSnapshot, LabBatchSummary } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -53,6 +53,20 @@ const STATE_META: Record<
 
 export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnapshot }) {
   const { progress } = snapshot;
+  const completedWithoutTargets = snapshot.state === "finished"
+    && snapshot.summary?.stopReason === "completed"
+    && (progress?.total ?? 0) === 0;
+  if (completedWithoutTargets) {
+    return (
+      <Alert>
+        <CircleCheck />
+        <AlertTitle>직전 실행은 처리 없이 종료됐습니다</AlertTitle>
+        <AlertDescription>
+          새로 분석할 공고가 없어 모델을 호출하지 않았습니다. 새 공고가 대기열에 들어오면 여기에서 다시 시작할 수 있습니다.
+        </AlertDescription>
+      </Alert>
+    );
+  }
   const doneCount = progress ? progress.ok + progress.error : 0;
   const percent = progress && progress.total > 0 ? (doneCount / progress.total) * 100 : 0;
   // 링 버퍼는 오래된 순으로 도착한다 — 표시는 최근순.
@@ -62,11 +76,9 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
   return (
     <Card>
       <CardHeader>
-        <CardTitle>진행 스트림</CardTitle>
+        <CardTitle>현재 실행</CardTitle>
         <CardDescription className="tabular-nums">
-          {snapshot.options
-            ? `${snapshot.options.transport === "claude-cli" ? "구독 (claude CLI)" : "API"} · ${snapshot.options.model} · limit ${snapshot.options.limit} · 동시 ${snapshot.options.concurrency} · 상한 ${formatUsd(snapshot.options.maxCostUsd)}`
-            : "직전 잡 정보 없음"}
+          {snapshot.options ? `공고 최대 ${snapshot.options.limit}건 · 동시 ${snapshot.options.concurrency}건` : "직전 잡 정보 없음"}
           {snapshot.startedAt ? ` · ${formatDateTime(snapshot.startedAt)} 시작` : ""}
         </CardDescription>
         <CardAction className="flex items-center gap-2">
@@ -76,6 +88,22 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-3">
+            <SearchCheck />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">22축 딥분석</p>
+              <p className="truncate text-xs text-muted-foreground">공고별 성공·오류를 독립 기록</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-3">
+            <FileCheck2 />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">지원서 빠른 작성 분석</p>
+              <p className="truncate text-xs text-muted-foreground">완료·부분·검토 필요를 별도 표시</p>
+            </div>
+          </div>
+        </div>
         {snapshot.error ? (
           <Alert variant="destructive">
             <AlertTitle>러너 실패 (인프라)</AlertTitle>
@@ -130,7 +158,7 @@ function EventRow({ event }: { event: LabBatchEvent }) {
     case "plan":
       return (
         <p className="px-1 py-1 text-xs text-muted-foreground tabular-nums">
-          계획 — 대상 {event.targets}건 / 코호트 {event.total}건
+          계획 — 실행 대상 {event.targets}건 / 전체 목록 {event.total}건
           {event.cohortLabel ? ` (${event.cohortLabel})` : ""} · 예상 명목{" "}
           {event.estimatedCostUsd !== null ? formatUsd(event.estimatedCostUsd) : "미상"} · ok 스킵{" "}
           {event.skippedOk} · 구버전만 {event.skippedOkOutdatedOnly} · error 보류 {event.heldError}{" "}
@@ -140,7 +168,7 @@ function EventRow({ event }: { event: LabBatchEvent }) {
     case "target-started":
       return (
         <p className="px-1 py-1 text-xs text-muted-foreground tabular-nums">
-          ({event.index}/{event.total}) 시작 — {event.grantId} · {event.stratum}
+          ({event.index + 1}/{event.total}) 시작 — {event.grantId} · {event.stratum}
         </p>
       );
     case "target-ok":
@@ -148,14 +176,22 @@ function EventRow({ event }: { event: LabBatchEvent }) {
         <div className="flex items-start gap-1.5 px-1 py-1 text-xs">
           <CircleCheck className="mt-0.5 size-3.5 shrink-0 text-primary" />
           <p className="min-w-0 break-words">
-            <span className="tabular-nums">
-              ({event.index}/{event.total})
-            </span>{" "}
+            <span className="tabular-nums">({event.index + 1}/{event.total})</span>{" "}
             <span className="font-medium">{event.title}</span>{" "}
             <span className="text-muted-foreground tabular-nums">
               · {formatDurationMs(event.durationMs)} ·{" "}
               {event.costUsd !== null ? formatUsd(event.costUsd) : "비용 미상"} · 누적{" "}
               {formatUsd(event.cumulativeCostUsd)}
+            </span>
+            <span className="mt-1 flex flex-wrap gap-1.5">
+              <Badge>22축 완료</Badge>
+              {event.applicationRoundtrip ? (
+                <Badge variant={roundtripBadgeVariant(event.applicationRoundtrip.status)}>
+                  Kordoc {roundtripStatusLabel(event.applicationRoundtrip.status)}
+                </Badge>
+              ) : (
+                <Badge variant="outline">Kordoc 기록 없음</Badge>
+              )}
             </span>
           </p>
         </div>
@@ -165,9 +201,7 @@ function EventRow({ event }: { event: LabBatchEvent }) {
         <div className="flex items-start gap-1.5 px-1 py-1 text-xs">
           <CircleX className="mt-0.5 size-3.5 shrink-0 text-destructive" />
           <p className="min-w-0 break-words">
-            <span className="tabular-nums">
-              ({event.index}/{event.total})
-            </span>{" "}
+            <span className="tabular-nums">({event.index + 1}/{event.total})</span>{" "}
             {event.grantId} — <span className="text-destructive">{event.message}</span>
             {event.runSaved ? null : (
               <span className="text-muted-foreground"> (런 미저장)</span>
@@ -192,6 +226,26 @@ function EventRow({ event }: { event: LabBatchEvent }) {
         </p>
       );
   }
+}
+
+function roundtripStatusLabel(status: NonNullable<Extract<LabBatchEvent, { type: "target-ok" }>["applicationRoundtrip"]>["status"]): string {
+  const labels = {
+    complete: "완료",
+    partial: "부분 완료",
+    review_required: "검토 필요",
+    not_applicable: "대상 아님",
+    failed: "실패",
+  } as const;
+  return labels[status];
+}
+
+function roundtripBadgeVariant(
+  status: NonNullable<Extract<LabBatchEvent, { type: "target-ok" }>["applicationRoundtrip"]>["status"],
+): "default" | "secondary" | "outline" | "destructive" {
+  if (status === "complete") return "default";
+  if (status === "failed") return "destructive";
+  if (status === "partial" || status === "review_required") return "secondary";
+  return "outline";
 }
 
 /** 종료 요약 표 — finished/aborted 시 summary 를 항목별로 펼친다. */

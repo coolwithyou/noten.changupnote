@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, CircleCheck, Circle, CircleHelp } from "lucide-react";
+import { ChevronDown, CircleCheck, Circle, CircleHelp, RefreshCw, SearchCheck } from "lucide-react";
 import {
   ANALYSIS_LAB_GATES,
   type LabAnalyzeResponse,
@@ -33,6 +33,7 @@ import { auditBadgeMeta, noticeAuditStatus } from "./labels";
 import { NoticeCard } from "./NoticeCard";
 import { RunDetail } from "./RunDetail";
 import { localAnalysisRequestHeaders } from "./useLocalAnalysisRuntime";
+import { AnalysisLabPageHeader, AnalysisMetric } from "./AnalysisLabPageHeader";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 공모 딥분석 실험실 (dev 전용) — 코호트 공고들을 Opus 로 딥분석하고,
@@ -108,7 +109,7 @@ export function AnalysisLab({
         const url = options.refresh ? `${COHORT_URL}?refresh=1` : COHORT_URL;
         const response = await fetch(url);
         if (!response.ok) {
-          setCohortError(await readErrorMessage(response, "코호트를 불러오지 못했습니다."));
+          setCohortError(await readErrorMessage(response, "분석 대상 목록을 불러오지 못했습니다."));
           return;
         }
         const data = (await response.json()) as LabCohortResponse;
@@ -133,7 +134,7 @@ export function AnalysisLab({
           setAnalyzeNotices({});
         }
       } catch {
-        if (!options.silent) setCohortError("네트워크 오류로 코호트를 불러오지 못했습니다.");
+        if (!options.silent) setCohortError("네트워크 오류로 분석 대상 목록을 불러오지 못했습니다.");
       } finally {
         if (!options.silent) setCohortLoading(false);
       }
@@ -295,40 +296,41 @@ export function AnalysisLab({
     selectedNotice?.runs.find((item) => item.runId === selected?.runId) ?? null;
 
   // 필터 적용된 카드 목록 — 켜면 검수 대기(성공 런 검수 없음) 공고만 남는다.
-  const visibleNotices = cohort
+  const visibleNoticeBase = cohort
     ? showPendingOnly
       ? cohort.notices.filter((notice) => !hasReviewedOkRun(notice))
       : cohort.notices
     : [];
+  const visibleNotices = [...visibleNoticeBase].sort(
+    (left, right) => Number(hasReviewedOkRun(left)) - Number(hasReviewedOkRun(right)),
+  );
+  const reviewedNoticeCount = cohort?.notices.filter(hasReviewedOkRun).length ?? 0;
+  const savedRunCount = cohort?.notices.reduce((sum, notice) => sum + notice.runs.length, 0) ?? 0;
+  const pendingNoticeCount = Math.max(0, (cohort?.notices.length ?? 0) - reviewedNoticeCount);
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold">공모 딥분석 실험실</h1>
-          <Badge variant="outline">dev</Badge>
-          {cohort ? (
-            <>
-              <Badge variant="secondary">{cohort.model}</Badge>
-              <Badge variant="secondary">{cohort.promptVersion}</Badge>
-            </>
-          ) : null}
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-muted-foreground">
-            dev 전용 · DB 쓰기 없음 — 코호트 공고를 Opus 로 딥분석하고 grant_criteria 22축이
-            어떻게 채워지는지 비교합니다. 런 결과는 파일로 불변 저장됩니다.
-          </p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => void loadCohort({ refresh: true })}
-            disabled={cohortLoading || analyzingGrantId !== null}
-          >
-            코호트 재선정
+    <main className="flex w-full min-w-0 flex-col gap-6 pb-12">
+      <AnalysisLabPageHeader
+        icon={SearchCheck}
+        eyebrow="22-AXIS DEEP ANALYSIS"
+        title="공고 조건 딥분석"
+        description="공고와 첨부 원문을 분석한 22축 자격조건을 현재 DB와 비교하고, 검수 결과를 다음 개선에 남깁니다."
+        badges={cohort ? <><Badge variant="secondary">{cohort.model}</Badge><Badge variant="outline">{cohort.promptVersion}</Badge></> : null}
+        action={(
+          <Button variant="outline" size="sm" onClick={() => void loadCohort()} disabled={cohortLoading || analyzingGrantId !== null}>
+            <RefreshCw data-icon="inline-start" /> 목록 다시 불러오기
           </Button>
-        </div>
-      </header>
+        )}
+      />
+
+      {cohort ? (
+        <section aria-label="딥분석 검수 지표" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <AnalysisMetric label="대상 공고" value={cohort.notices.length} description="현재 분석 대상 목록" />
+          <AnalysisMetric label="검수 대기" value={pendingNoticeCount} description="아직 사람 판정이 없는 공고" />
+          <AnalysisMetric label="검수 완료" value={reviewedNoticeCount} description="성공 런 검수가 저장된 공고" />
+          <AnalysisMetric label="저장된 런" value={savedRunCount} description="파일로 보존된 전체 분석 실행" />
+        </section>
+      ) : null}
 
       <UsageGuide
         open={guideOpen}
@@ -338,7 +340,7 @@ export function AnalysisLab({
 
       {cohortError ? (
         <Alert variant="destructive">
-          <AlertTitle>코호트 로드 실패</AlertTitle>
+          <AlertTitle>분석 대상 목록 로드 실패</AlertTitle>
           <AlertDescription className="break-words">{cohortError}</AlertDescription>
         </Alert>
       ) : null}
@@ -352,92 +354,64 @@ export function AnalysisLab({
         />
       ) : null}
 
-      {cohortLoading ? (
-        <section className="grid gap-4 lg:grid-cols-3">
-          <Skeleton className="h-64 w-full" />
-          <Skeleton className="h-64 w-full" />
-          <Skeleton className="h-64 w-full" />
-        </section>
-      ) : cohort && cohort.notices.length > 0 ? (
-        visibleNotices.length > 0 ? (
-          <section className="grid items-start gap-4 lg:grid-cols-3">
-            {visibleNotices.map((notice) => (
-              <div key={notice.grantId} ref={registerCard(notice.grantId)} className="scroll-mt-6">
-                <NoticeCard
-                  notice={notice}
-                  analyzing={analyzingGrantId === notice.grantId}
-                  elapsedSec={elapsedSec}
-                  analyzeDisabled={analyzingGrantId !== null || !analysisAllowed}
-                  analyzeError={analyzeErrors[notice.grantId] ?? null}
-                  analyzeNotice={analyzeNotices[notice.grantId] ?? null}
-                  selectedRunId={selected?.grantId === notice.grantId ? selected.runId : null}
-                  onAnalyze={() => void analyze(notice.grantId)}
-                  onSelectRun={(runId) => void selectRun(notice.grantId, runId)}
-                  onReview={() => openReview(notice)}
-                  onPeriodSaved={() => void loadCohort({ silent: true })}
-                />
-              </div>
-            ))}
-          </section>
-        ) : (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyTitle>검수 대기 공고가 없습니다</EmptyTitle>
-              <EmptyDescription>
-                모든 공고가 검수됨 상태입니다 — &ldquo;검수 대기만 보기&rdquo;를 끄면 전체
-                카드가 다시 보입니다.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        )
-      ) : cohort ? (
-        <Empty className="border">
-          <EmptyHeader>
-            <EmptyTitle>코호트가 비어 있습니다</EmptyTitle>
-            <EmptyDescription>
-              조건에 맞는 공고가 없습니다. 코호트 재선정을 눌러 다시 시도해 주세요.
-            </EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      ) : null}
-
-      {/* 상세 패널 — 선택된 런 */}
-      <div ref={detailRef} className="scroll-mt-6">
-        {runLoading ? (
-          <div className="flex items-center justify-center gap-2 rounded-xl border border-border p-10 text-sm text-muted-foreground">
-            <Spinner />
-            런을 불러오는 중…
+      <section className="grid items-start gap-6 xl:grid-cols-[minmax(340px,0.72fr)_minmax(0,1.28fr)]">
+        <div className="flex min-w-0 flex-col gap-3">
+          <div>
+            <h3 className="font-medium">공고 대기열</h3>
+            <p className="text-xs text-muted-foreground">검수 대기 공고를 먼저 보여줍니다. 분석하거나 결과를 확인할 공고를 선택하세요.</p>
           </div>
-        ) : runError ? (
-          <Alert variant="destructive">
-            <AlertTitle>런 로드 실패</AlertTitle>
-            <AlertDescription className="break-words">{runError}</AlertDescription>
-          </Alert>
-        ) : run ? (
-          <RunDetail
-            run={run}
-            tab={detailTab}
-            onTabChange={setDetailTab}
-            noticeUrl={selectedNotice?.url ?? null}
-            benefits={selectedNotice?.benefits ?? []}
-            auditStatus={selectedRunSummary?.auditStatus ?? null}
-            onReviewSaved={() => void loadCohort({ silent: true })}
-            onReviewDirtyChange={(dirty) => {
-              reviewDirtyRef.current = dirty;
-            }}
-          />
-        ) : !cohortLoading && cohort ? (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyTitle>선택된 런이 없습니다</EmptyTitle>
-              <EmptyDescription>
-                공고 카드의 &ldquo;최신 런 검수하기&rdquo;를 누르거나 &ldquo;저장된 런&rdquo;에서 런을 선택하면
-                분석 문서·필드 채움·검수 패널이 여기에 열립니다.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : null}
-      </div>
+          {cohortLoading ? (
+            <><Skeleton className="h-64 w-full" /><Skeleton className="h-64 w-full" /></>
+          ) : cohort && cohort.notices.length > 0 ? (
+            visibleNotices.length > 0 ? (
+              <div className="grid items-start gap-3">
+                {visibleNotices.map((notice) => (
+                  <div key={notice.grantId} ref={registerCard(notice.grantId)} className="scroll-mt-6">
+                    <NoticeCard
+                      notice={notice}
+                      analyzing={analyzingGrantId === notice.grantId}
+                      elapsedSec={elapsedSec}
+                      analyzeDisabled={analyzingGrantId !== null || !analysisAllowed}
+                      analyzeError={analyzeErrors[notice.grantId] ?? null}
+                      analyzeNotice={analyzeNotices[notice.grantId] ?? null}
+                      selectedRunId={selected?.grantId === notice.grantId ? selected.runId : null}
+                      onAnalyze={() => void analyze(notice.grantId)}
+                      onSelectRun={(runId) => void selectRun(notice.grantId, runId)}
+                      onReview={() => openReview(notice)}
+                      onPeriodSaved={() => void loadCohort({ silent: true })}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty className="border"><EmptyHeader><EmptyTitle>검수 대기 공고가 없습니다</EmptyTitle><EmptyDescription>필터를 끄면 전체 공고를 다시 볼 수 있습니다.</EmptyDescription></EmptyHeader></Empty>
+            )
+          ) : cohort ? (
+            <Empty className="border"><EmptyHeader><EmptyTitle>분석 대상 목록이 비어 있습니다</EmptyTitle><EmptyDescription>배치 운영에서 새 분석 대상을 골라 주세요.</EmptyDescription></EmptyHeader></Empty>
+          ) : null}
+        </div>
+
+        <div ref={detailRef} className="min-w-0 scroll-mt-6 xl:sticky xl:top-6">
+          {runLoading ? (
+            <div className="flex items-center justify-center gap-2 rounded-xl border p-10 text-sm text-muted-foreground"><Spinner />런을 불러오는 중…</div>
+          ) : runError ? (
+            <Alert variant="destructive"><AlertTitle>런 로드 실패</AlertTitle><AlertDescription className="break-words">{runError}</AlertDescription></Alert>
+          ) : run ? (
+            <RunDetail
+              run={run}
+              tab={detailTab}
+              onTabChange={setDetailTab}
+              noticeUrl={selectedNotice?.url ?? null}
+              benefits={selectedNotice?.benefits ?? []}
+              auditStatus={selectedRunSummary?.auditStatus ?? null}
+              onReviewSaved={() => void loadCohort({ silent: true })}
+              onReviewDirtyChange={(dirty) => { reviewDirtyRef.current = dirty; }}
+            />
+          ) : !cohortLoading && cohort ? (
+            <Empty className="min-h-72 border"><EmptyHeader><EmptyTitle>분석 결과를 선택하세요</EmptyTitle><EmptyDescription>왼쪽 공고에서 새 분석을 실행하거나 저장된 런을 열면 22축 diff와 검수 화면이 여기에 표시됩니다.</EmptyDescription></EmptyHeader></Empty>
+          ) : <Skeleton className="h-72 w-full" />}
+        </div>
+      </section>
     </main>
   );
 }
@@ -487,15 +461,15 @@ function UsageGuide({
             데려다줍니다.
           </GuideStep>
           <GuideStep step={4}>
-            코호트 {noticeCount > 0 ? `${noticeCount}건이` : "전 공고가"} 모두{" "}
+            분석 대상 {noticeCount > 0 ? `${noticeCount}건이` : "전 공고가"} 모두{" "}
             <span className="font-medium">검수됨</span>이 되면 터미널에서{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
             를 실행합니다 — 통과 기준 {GATE_COUNT}종을 자동 판정합니다.
           </GuideStep>
         </div>
         <p className="text-xs text-muted-foreground">
-          ⚠️ 검수 중에는 &ldquo;코호트 재선정&rdquo;을 누르지 마세요 — 공고 카드가 바뀌면 기존 런에
-          화면으로 접근할 수 없게 됩니다(파일은 남습니다).
+          분석 대상은 배치 운영 화면에서 추가합니다. 이 화면의 목록 새로고침은 기존 대상을
+          교체하지 않습니다.
         </p>
       </CollapsibleContent>
     </Collapsible>
@@ -536,6 +510,7 @@ function ReviewProgressBoard({
 }) {
   const reviewedCount = notices.filter(hasReviewedOkRun).length;
   const allDone = reviewedCount === notices.length && notices.length > 0;
+  const [listOpen, setListOpen] = useState(false);
 
   return (
     <section className="flex flex-col gap-2.5 rounded-xl border border-border p-4">
@@ -557,8 +532,13 @@ function ReviewProgressBoard({
         </div>
       </div>
       <Progress value={notices.length > 0 ? (reviewedCount / notices.length) * 100 : 0} />
-      <div className="flex flex-col gap-1">
-        {notices.map((notice) => {
+      <Collapsible open={listOpen} onOpenChange={setListOpen}>
+        <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="w-full justify-between" />}>
+          전체 공고별 상태 {listOpen ? "접기" : "보기"}
+          <ChevronDown data-icon="inline-end" />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="flex flex-col gap-1 pt-2">
+          {notices.map((notice) => {
           const reviewed = hasReviewedOkRun(notice);
           // 감사 상태(§9) — 사람 검수 없는 공고의 AI 검수 감사 진행을 최소 표시한다.
           const auditStatus = reviewed ? null : noticeAuditStatus(notice);
@@ -587,11 +567,12 @@ function ReviewProgressBoard({
               ) : null}
             </Button>
           );
-        })}
-      </div>
+          })}
+        </CollapsibleContent>
+      </Collapsible>
       {allDone ? (
         <Alert>
-          <AlertTitle>코호트 검수 완료 🎉</AlertTitle>
+          <AlertTitle>분석 대상 검수 완료</AlertTitle>
           <AlertDescription>
             터미널에서{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">

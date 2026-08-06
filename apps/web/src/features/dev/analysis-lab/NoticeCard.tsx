@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarClock, ClipboardCheck } from "lucide-react";
+import { CalendarClock, ChevronDown, ClipboardCheck, Paperclip } from "lucide-react";
 import type { LabNoticeSummary, LabRunSummary } from "./contract";
 import { classifyNoticePeriod } from "./notice-period";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import {
   auditBadgeMeta,
   formatBytes,
@@ -73,6 +74,7 @@ export function NoticeCard({
   /** 기간 미상 공고의 기간을 저장한 뒤 목록 재로드 — 배지 해제 확인용. */
   onPeriodSaved: () => void;
 }) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
   // 런 목록은 startedAt desc — 첫 성공 런이 곧 최신 성공 런이다.
   const latestOkRun = notice.runs.find((run) => run.ok);
   // 검수 완료 판정·버튼 라벨은 성공 런 기준 — openReview 가 여는 대상과 일치시킨다.
@@ -96,7 +98,6 @@ export function NoticeCard({
           ) : periodStatus === "closed" ? (
             <Badge variant="outline">접수 마감</Badge>
           ) : null}
-          <span className="font-mono text-[11px] text-muted-foreground">{notice.sourceId}</span>
           <span className="ms-auto flex items-center gap-1.5">
             {auditBadge ? (
               <Badge variant={auditBadge.variant} className="tabular-nums">
@@ -145,83 +146,66 @@ export function NoticeCard({
           )}
         </div>
 
-        {/* 첨부 상태 — markdown 확보 여부와 크기 */}
-        <div className="flex flex-col gap-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
-            첨부 {notice.attachments.length}건
-          </span>
-          {notice.attachments.length === 0 ? (
-            <span className="text-xs text-muted-foreground">첨부 없음</span>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {notice.attachments.map((attachment, index) => (
-                <li key={index} className="flex flex-wrap items-center gap-1.5 text-xs">
-                  <span className="max-w-full truncate" title={attachment.filename}>
-                    {attachment.filename}
-                  </span>
-                  {attachment.markdownAvailable ? (
-                    <Badge variant="secondary">
-                      MD {formatBytes(attachment.markdownBytes)}
-                    </Badge>
-                  ) : (
-                    <Badge variant="outline">
-                      MD 없음{attachment.conversionStatus ? ` · ${attachment.conversionStatus}` : ""}
-                    </Badge>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
           <Badge variant="outline" className="tabular-nums">
-            현재 criteria {notice.currentCriteriaCount}개
+            첨부 {notice.attachments.length}건
+          </Badge>
+          <Badge variant="outline" className="tabular-nums">
+            현재 DB 조건 {notice.currentCriteriaCount}개
           </Badge>
           <Badge variant="outline" className="tabular-nums">런 {notice.runs.length}개</Badge>
         </div>
 
-        {/* 런 선택 — 선택 시 하단에 상세·검수 패널이 열린다 */}
-        {notice.runs.length > 0 ? (
-          <Field>
-            <FieldLabel htmlFor={`analysis-lab-run-select-${notice.grantId}`}>
-              저장된 런
-            </FieldLabel>
-            <Select
-              items={notice.runs.map((run) => ({
-                value: run.runId,
-                label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}${run.reviewedAt ? " · 검수됨" : ""}${runAuditSuffix(run)}`,
-              }))}
-              value={selectedRunId}
-              onValueChange={(value) => {
-                if (typeof value === "string") onSelectRun(value);
-              }}
-            >
-              <SelectTrigger
-                id={`analysis-lab-run-select-${notice.grantId}`}
-                size="sm"
-                className="w-full text-sm"
-              >
-                <SelectValue placeholder="런 선택" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  {notice.runs.map((run) => (
-                    <SelectItem key={run.runId} value={run.runId}>
-                      {formatDateTime(run.startedAt)} · {run.promptVersion}
-                      {run.ok ? "" : " · 실패"}
-                      {run.reviewedAt ? " · 검수됨" : ""}
-                      {runAuditSuffix(run)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-            <FieldDescription>
-              런을 선택하면 페이지 하단에 상세·검수 패널이 열립니다.
-            </FieldDescription>
-          </Field>
-        ) : null}
+        <Collapsible open={detailsOpen} onOpenChange={setDetailsOpen}>
+          <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="w-full justify-between" />}>
+            <span className="flex items-center gap-2"><Paperclip /> 첨부·과거 실행 보기</span>
+            <ChevronDown data-icon="inline-end" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-col gap-3 pt-3">
+            <p className="font-mono text-[11px] text-muted-foreground">공고 ID {notice.sourceId}</p>
+            {notice.attachments.length === 0 ? (
+              <span className="text-xs text-muted-foreground">첨부 없음</span>
+            ) : (
+              <ul className="flex flex-col gap-1">
+                {notice.attachments.map((attachment, index) => (
+                  <li key={index} className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs">
+                    <span className="min-w-0 flex-1 truncate" title={attachment.filename}>{attachment.filename}</span>
+                    <Badge variant={attachment.markdownAvailable ? "secondary" : "outline"}>
+                      {attachment.markdownAvailable ? `MD ${formatBytes(attachment.markdownBytes)}` : "MD 없음"}
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {notice.runs.length > 0 ? (
+              <Field>
+                <FieldLabel htmlFor={`analysis-lab-run-select-${notice.grantId}`}>저장된 런</FieldLabel>
+                <Select
+                  items={notice.runs.map((run) => ({
+                    value: run.runId,
+                    label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}${run.reviewedAt ? " · 검수됨" : ""}${runAuditSuffix(run)}`,
+                  }))}
+                  value={selectedRunId}
+                  onValueChange={(value) => { if (typeof value === "string") onSelectRun(value); }}
+                >
+                  <SelectTrigger id={`analysis-lab-run-select-${notice.grantId}`} size="sm" className="w-full text-sm">
+                    <SelectValue placeholder="과거 런 선택" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {notice.runs.map((run) => (
+                        <SelectItem key={run.runId} value={run.runId}>
+                          {formatDateTime(run.startedAt)} · {run.promptVersion}{run.ok ? "" : " · 실패"}{run.reviewedAt ? " · 검수됨" : ""}{runAuditSuffix(run)}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <FieldDescription>선택한 결과가 오른쪽 상세 패널에 열립니다.</FieldDescription>
+              </Field>
+            ) : null}
+          </CollapsibleContent>
+        </Collapsible>
 
         {analyzeError ? (
           <Alert variant="destructive">
@@ -241,7 +225,7 @@ export function NoticeCard({
         {latestOkRun ? (
           <Button onClick={onReview} disabled={analyzing}>
             <ClipboardCheck data-icon="inline-start" />
-            {reviewed ? "검수 이어서 하기" : "최신 런 검수하기"}
+            {reviewed ? "검수 결과 보기" : "최신 런 검수하기"}
           </Button>
         ) : null}
         <Button

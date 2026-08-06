@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef } from "react";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, FileCheck2, SearchCheck } from "lucide-react";
 import type {
   LabBenefitBadge,
   LabProgramIntent,
@@ -123,12 +123,42 @@ export function RunDetail({
           </Alert>
         ) : null}
 
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-3">
+            <SearchCheck />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">22축 딥분석</p>
+              <p className="text-xs text-muted-foreground">{run.error ? "실패" : `${run.criteria.length}개 조건 제안`}</p>
+            </div>
+            <Badge variant={run.error ? "destructive" : "default"} className="ms-auto">
+              {run.error ? "확인 필요" : "완료"}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-3">
+            <FileCheck2 />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Kordoc 빠른 작성</p>
+              <p className="text-xs text-muted-foreground">
+                {run.applicationRoundtrip
+                  ? `문서 ${run.applicationRoundtrip.documentCount}개 · 원본 ${run.applicationRoundtrip.sourceCount}개`
+                  : "이 런에는 선분석 기록이 없습니다"}
+              </p>
+            </div>
+            <Badge
+              variant={run.applicationRoundtrip ? roundtripBadgeVariant(run.applicationRoundtrip.status) : "outline"}
+              className="ms-auto"
+            >
+              {run.applicationRoundtrip ? roundtripStatusLabel(run.applicationRoundtrip.status) : "미실행"}
+            </Badge>
+          </div>
+        </div>
+
         {/* 감사 탭이 없는 런으로 전환됐는데 tab 이 audit 이면 필드 탭으로 폴백(빈 화면 방지). */}
         <Tabs
           value={tab === "audit" && !showAuditTab ? "fields" : tab}
           onValueChange={(value) => onTabChange(String(value))}
         >
-          <TabsList>
+          <TabsList className="max-w-full overflow-x-auto">
             <TabsTrigger value="document">분석 문서</TabsTrigger>
             <TabsTrigger value="fields">필드 채움</TabsTrigger>
             <TabsTrigger value="review">검수</TabsTrigger>
@@ -189,6 +219,26 @@ export function RunDetail({
       </CardContent>
     </Card>
   );
+}
+
+function roundtripStatusLabel(status: NonNullable<LabRun["applicationRoundtrip"]>["status"]): string {
+  const labels = {
+    complete: "완료",
+    partial: "부분 완료",
+    review_required: "검토 필요",
+    not_applicable: "대상 아님",
+    failed: "실패",
+  } as const;
+  return labels[status];
+}
+
+function roundtripBadgeVariant(
+  status: NonNullable<LabRun["applicationRoundtrip"]>["status"],
+): "default" | "secondary" | "outline" | "destructive" {
+  if (status === "complete") return "default";
+  if (status === "failed") return "destructive";
+  if (status === "partial" || status === "review_required") return "secondary";
+  return "outline";
 }
 
 /** 공모의 정성적 방향성(programIntent) 카드. */

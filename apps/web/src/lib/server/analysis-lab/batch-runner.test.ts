@@ -296,6 +296,10 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
     "guard-stop",
     "finished",
   ]);
+  const okEvent = events.find((event) => event.type === "target-ok");
+  assert.ok(okEvent && okEvent.type === "target-ok");
+  assert.equal(okEvent.applicationRoundtrip?.status, "partial");
+  assert.equal(okEvent.applicationRoundtrip?.errorCode, "window_exhausted");
   assert.equal(summary.ok, 1, "sidecar 실패가 딥 분석 성공 집계를 바꾸지 않는다");
   assert.equal(summary.errorRuns, 0);
   assert.equal(summary.notStarted, 2);

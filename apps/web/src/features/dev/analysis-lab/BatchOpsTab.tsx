@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Copy } from "lucide-react";
+import { ChevronDown, Copy, Gauge, ListChecks, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import type { LabBatchJobSnapshot, LabBatchStartRequest, LabOpsSummary } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -9,12 +9,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { AnalysisLabPageHeader, AnalysisMetric } from "./AnalysisLabPageHeader";
+import { AutomaticTargetSelectionCard } from "./AutomaticTargetSelectionCard";
 import { BatchOpsConsole } from "./BatchOpsConsole";
 import { BatchOpsFunnelBoard } from "./BatchOpsFunnelBoard";
 import { BatchOpsProgressStream } from "./BatchOpsProgressStream";
@@ -183,18 +188,29 @@ export function BatchOpsTab({
     }
   }, []);
 
+  const staleEmptyRun = Boolean(
+    snapshot?.summary
+    && (snapshot.progress?.total ?? 0) === 0
+    && (summary === null || summary.funnel.analysisPending > 0),
+  );
+  const hasBatchHistory = Boolean(
+    snapshot
+    && !staleEmptyRun
+    && (snapshot.jobId !== null || snapshot.state !== "idle"),
+  );
+  const showCompletionSteps = Boolean(snapshot?.summary && (snapshot.progress?.total ?? 0) > 0);
+
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold">배치 운영</h1>
-          <Badge variant="outline">dev</Badge>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          구독(claude CLI) 딥분석 배치를 명시적으로 실행·관찰합니다 — 깔때기·transport 현황은
-          집계 시점 스냅샷이며 DB 쓰기는 없습니다.
-        </p>
-      </header>
+    <main className="flex w-full min-w-0 flex-col gap-6 pb-12">
+      <AnalysisLabPageHeader
+        icon={Gauge}
+        eyebrow="BATCH ANALYSIS"
+        title="대기 공고 분석 실행"
+        description="새로 들어온 공고의 22축 딥분석과 지원서 빠른 작성 분석을 한 번에 실행하고 진행 상태를 확인합니다."
+        badges={summary ? (
+          <Badge variant="secondary">{summary.transportStatus.resolved === "claude-cli" ? "구독 모델" : "API"}</Badge>
+        ) : null}
+      />
 
       {summaryError ? (
         <Alert variant="destructive">
@@ -203,16 +219,17 @@ export function BatchOpsTab({
         </Alert>
       ) : null}
 
-      <ModeCard summary={summary} loading={summaryLoading} />
-
       {summaryLoading && !summary ? (
-        <Skeleton className="h-56 w-full" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-28" />)}
+        </div>
       ) : summary ? (
-        <BatchOpsFunnelBoard
-          summary={summary}
-          refreshing={summaryRefreshing}
-          onRefresh={() => void loadSummary({ refresh: true })}
-        />
+        <section aria-label="핵심 운영 지표" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <AnalysisMetric label="분석 대기" value={summary.funnel.analysisPending} description="지금 배치에서 시작할 수 있는 공고" />
+          <AnalysisMetric label="딥분석 완료" value={summary.funnel.analysisOkCurrent} description="현행 모델·프롬프트 기준 성공" />
+          <AnalysisMetric label="검수 대기" value={summary.funnel.auditPending} description="사람 또는 AI 판정이 필요한 공고" />
+          <AnalysisMetric label="승격 반영" value={summary.funnel.promotedGrants} description="매칭 대상에 반영된 공고" />
+        </section>
       ) : null}
 
       {batchRouteMissing ? (
@@ -232,36 +249,81 @@ export function BatchOpsTab({
         </Alert>
       ) : null}
 
-      <BatchOpsConsole
-        analysisAllowed={analysisAllowed}
-        summary={summary}
-        snapshot={snapshot}
-        starting={starting}
-        stopping={stopping}
-        onStart={(request) => void startBatch(request)}
-        onStop={() => void stopBatch()}
-      />
+      <section className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)]">
+        <div className="flex min-w-0 flex-col gap-6">
+          {hasBatchHistory && snapshot ? (
+            <BatchOpsProgressStream snapshot={snapshot} />
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>현재 실행</CardTitle>
+                <CardDescription>배치를 시작하면 공고별 딥분석·Kordoc 진행 상태가 이곳에 표시됩니다.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Empty className="border py-10">
+                  <EmptyHeader>
+                    <EmptyTitle>실행 중인 배치가 없습니다</EmptyTitle>
+                    <EmptyDescription>
+                      오른쪽의 새 배치 시작에서 대기 공고 수를 확인하고 실행하세요.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              </CardContent>
+            </Card>
+          )}
+          {showCompletionSteps ? <NextStepsCard /> : null}
+        </div>
+        <div className="flex min-w-0 flex-col gap-4 xl:sticky xl:top-6">
+          <AutomaticTargetSelectionCard
+            analysisAllowed={analysisAllowed}
+            analysisOwnerId={analysisOwnerId}
+            pendingCount={summary?.funnel.analysisPending ?? null}
+            batchRunning={running}
+            onSelected={() => void loadSummary({ refresh: true })}
+          />
+          <BatchOpsConsole
+            analysisAllowed={analysisAllowed}
+            summary={summary}
+            snapshot={snapshot}
+            starting={starting}
+            stopping={stopping}
+            onStart={(request) => void startBatch(request)}
+            onStop={() => void stopBatch()}
+          />
+          <ModeCard summary={summary} loading={summaryLoading} />
+        </div>
+      </section>
 
-      {snapshot && (snapshot.jobId !== null || snapshot.state !== "idle") ? (
-        <BatchOpsProgressStream snapshot={snapshot} />
+      {summary ? (
+        <BatchOpsFunnelBoard
+          summary={summary}
+          refreshing={summaryRefreshing}
+          onRefresh={() => void loadSummary({ refresh: true })}
+        />
       ) : null}
 
-      <NextStepsCard />
     </main>
   );
 }
 
-/** 모드 카드 — 현 프로세스의 transport 해석 + 코호트 런(현행 ok)의 transport 분포. */
+/** 모드 카드 — 현 프로세스의 transport 해석 + 분석 대상 런(현행 ok)의 transport 분포. */
 function ModeCard({ summary, loading }: { summary: LabOpsSummary | null; loading: boolean }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>실행 모드</CardTitle>
-        <CardDescription>
-          현 프로세스의 transport 해석과 코호트 런(현행 ok)의 transport 분포
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
+    <Collapsible>
+      <Card size="sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><ShieldCheck /> 실행 환경</CardTitle>
+          <CardDescription>
+            {summary?.transportStatus.resolved === "claude-cli" ? "Claude 구독으로 실행 · API 비용 $0" : "호출 방식을 확인하세요"}
+          </CardDescription>
+          <CardAction>
+            <CollapsibleTrigger render={<Button variant="ghost" size="sm" />}>
+              상세 보기 <ChevronDown data-icon="inline-end" />
+            </CollapsibleTrigger>
+          </CardAction>
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className="flex flex-col gap-3">
         {loading && !summary ? (
           <Skeleton className="h-16 w-full" />
         ) : summary ? (
@@ -272,7 +334,7 @@ function ModeCard({ summary, loading }: { summary: LabOpsSummary | null; loading
               ) : (
                 <Badge variant="secondary">API</Badge>
               )}
-              <Badge variant="outline">{summary.transportStatus.model}</Badge>
+              <Badge variant="outline" className="max-w-full truncate">{summary.transportStatus.model}</Badge>
               <Badge variant="outline">
                 {summary.transportStatus.envSource === "env"
                   ? "ANALYSIS_LAB_TRANSPORT 설정됨"
@@ -286,9 +348,8 @@ function ModeCard({ summary, loading }: { summary: LabOpsSummary | null; loading
                 <Badge variant="outline">CLI 버전 미확인</Badge>
               )}
             </div>
-            <p className="text-sm text-muted-foreground tabular-nums">
-              런 분포(현행 ok) — API {summary.transportStatus.runsByTransport.api}건 · 구독{" "}
-              {summary.transportStatus.runsByTransport.claudeCli}건
+            <p className="text-xs text-muted-foreground tabular-nums">
+              완료 런: 구독 {summary.transportStatus.runsByTransport.claudeCli}건 · API {summary.transportStatus.runsByTransport.api}건
             </p>
             {summary.transportStatus.resolved === "claude-cli" ? (
               <p className="text-xs text-muted-foreground">
@@ -299,20 +360,21 @@ function ModeCard({ summary, loading }: { summary: LabOpsSummary | null; loading
         ) : (
           <p className="text-sm text-muted-foreground">운영 요약을 불러오지 못했습니다.</p>
         )}
-      </CardContent>
-    </Card>
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
 
 /** 다음 단계 — v1 은 검수/감사/집계 실행 트리거 없음. 터미널 명령 안내 + 복사(UsageGuide 관행). */
 function NextStepsCard() {
   return (
-    <Card>
+    <Card size="sm">
       <CardHeader>
-        <CardTitle>다음 단계 — 검수·감사·집계</CardTitle>
+        <CardTitle className="flex items-center gap-2"><ListChecks /> 완료 후 검수</CardTitle>
         <CardDescription>
-          v1 은 실행 트리거를 두지 않습니다 — 배치 완료 후 터미널에서 아래 명령을 순서대로
-          실행하세요.
+          배치가 끝나면 AI 검수와 게이트 집계를 순서대로 실행합니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">

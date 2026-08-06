@@ -457,6 +457,9 @@ export async function runLabBatch(
             durationMs,
             costUsd: run.costUsd,
             cumulativeCostUsd: state.totalCostUsd,
+            ...(run.applicationRoundtrip !== undefined
+              ? { applicationRoundtrip: run.applicationRoundtrip }
+              : {}),
           });
         } else {
           state.errorRunCount += 1;

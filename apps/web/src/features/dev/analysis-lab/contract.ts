@@ -19,7 +19,9 @@ import type {
 
 // v2: 구조화 필드 렌더를 인용 친화("라벨: 값")로 변경 + 인용 지침 강화 — v1 런과 입력 형식이 다르다.
 // v5: 운영 v2와 동일하게 investment 상한을 안전한 text_only로 제한한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v5";
+// v6: 복합 투자·조건부 업종·휴폐업·상태무관 협약이력의 부분 구조화를 차단한다.
+// v7: 협약 전 이전 가능한 지역 대안을 현재 소재지 hard-fail로 축약하지 않는다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v7";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
@@ -468,6 +470,39 @@ export interface LabOpsSummary {
   cacheHit: boolean;
 }
 
+// ---- 신규 분석 대상 자동 선정 (로컬 구독 전용) -------------------------------
+
+export interface LabAutomaticTargetSelectionRequest {
+  count: number;
+  /** 미지정 시 ANALYSIS_LAB_SELECTION_MODEL → ANALYSIS_LAB_MODEL 순으로 해석한다. */
+  model?: string;
+}
+
+export interface LabAutomaticTargetSelectionItem {
+  grantId: string;
+  title: string;
+  source: string;
+  reason: string;
+  stratum: string;
+}
+
+export interface LabAutomaticTargetSelectionResult {
+  version: string;
+  selectionId: string;
+  selectedAt: string;
+  transport: "claude-cli";
+  model: string;
+  requestedCount: number;
+  eligibleCandidateCount: number;
+  shortlistCount: number;
+  previousTargetCount: number;
+  targetCount: number;
+  candidateSha256: string;
+  usage: LabUsage | null;
+  evidencePath: string;
+  selected: LabAutomaticTargetSelectionItem[];
+}
+
 // ---- 배치 잡 (ops/batch 라우트·배치 운영 탭이 공유하는 계약) ----
 // 이벤트 union 은 batch-runner(서버)와 UI 가 같은 모양을 봐야 하므로 여기(계약)가 단일 원천이다.
 
@@ -518,6 +553,8 @@ export type LabBatchEvent =
       durationMs: number;
       costUsd: number | null;
       cumulativeCostUsd: number;
+      /** 같은 공고에서 함께 실행된 Kordoc 빠른 작성 선분석의 독립 종결 상태. */
+      applicationRoundtrip?: LabApplicationRoundtripReference;
     }
   | {
       type: "target-error";
@@ -599,6 +636,7 @@ export interface LabBatchJobSnapshot {
 // GET  /api/dev/analysis-lab/audit?grantId=&runId=&model= → LabAuditResponse (감사 파일 없으면 생성 — §9)
 // PUT  /api/dev/analysis-lab/audit            → 본문 LabAuditUpsertRequest → LabAuditResponse
 // GET  /api/dev/analysis-lab/ops/summary      → LabOpsSummary (?refresh=1 로 파일 스캔 캐시 무효화)
+// POST /api/dev/analysis-lab/ops/targets      → LabAutomaticTargetSelectionResult
 // POST /api/dev/analysis-lab/ops/batch        → LabBatchJobSnapshot (본문 LabBatchStartRequest, 실행 중이면 409)
 // GET  /api/dev/analysis-lab/ops/batch        → LabBatchJobSnapshot (2~5s 폴링)
 // DELETE /api/dev/analysis-lab/ops/batch      → LabBatchJobSnapshot (abort — 진행분은 완료 저장)

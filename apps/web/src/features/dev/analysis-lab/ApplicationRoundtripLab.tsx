@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Check,
   CheckCircle2,
+  FileCheck2,
   FileInput,
   FileSearch,
   RefreshCw,
@@ -56,6 +57,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { RhwpFieldReviewPanel } from "./RhwpFieldReviewPanel";
 import { localAnalysisRequestHeaders } from "./useLocalAnalysisRuntime";
+import { AnalysisLabPageHeader, AnalysisMetric } from "./AnalysisLabPageHeader";
+import { AnalysisLabErrorAlert } from "./AnalysisLabErrorAlert";
 
 const COHORT_URL = "/api/dev/analysis-lab/application-roundtrip/cohort";
 const ANALYZE_URL = "/api/dev/analysis-lab/application-roundtrip/analyze";
@@ -118,6 +121,12 @@ export function ApplicationRoundtripLab({
   );
   const choiceGroups = selectedDocument?.choiceGroups ?? [];
   const progress = fillResult ? 100 : selectedDocument ? 75 : run ? 50 : selectedGrantId ? 25 : 0;
+  const candidateAttachmentCount = cohort?.notices.reduce((sum, notice) => sum + notice.attachments.length, 0) ?? 0;
+  const parsedDocumentCount = run?.documents.length ?? 0;
+  const recognizedFieldCount = run?.documents.reduce(
+    (sum, document) => sum + document.recommendedInputFieldCount + document.recommendedChoiceGroupCount,
+    0,
+  ) ?? 0;
 
   const chooseGrant = (grantId: string) => {
     setSelectedGrantId(grantId);
@@ -154,7 +163,7 @@ export function ApplicationRoundtripLab({
         },
         body: JSON.stringify({ grantId: selectedGrantId }),
       });
-      if (!response.ok) throw new Error(await readErrorMessage(response, "Kordoc 분석에 실패했습니다."));
+      if (!response.ok) throw new Error(await readErrorMessage(response, "지원서 양식 분석에 실패했습니다."));
       const data = (await response.json()) as { run: ApplicationRoundtripRun };
       setRun(data.run);
       const recommended = data.run.documents.find(
@@ -169,7 +178,7 @@ export function ApplicationRoundtripLab({
         setFieldChoiceValues({});
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Kordoc 분석에 실패했습니다.");
+      setError(caught instanceof Error ? caught.message : "지원서 양식 분석에 실패했습니다.");
     } finally {
       inFlightRef.current = false;
       setAnalyzing(false);
@@ -214,46 +223,47 @@ export function ApplicationRoundtripLab({
   };
 
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-8">
-      <header className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-semibold">지원서 왕복 실험</h1>
-          <Badge variant="outline">dev</Badge>
-          {cohort ? <Badge variant="secondary">Kordoc {cohort.engineVersion}</Badge> : null}
-        </div>
-        <p className="text-sm text-muted-foreground">
-          공고의 HWP/HWPX 원본을 파싱하고 LLM으로 빈 셀·단위·예시·작성 안내문까지 판정한 뒤,
-          rhwp 원본 미리보기와 교차 검색으로 필드 위치를 검토합니다. 샘플 저장본은 진단 산출물이며 DB와 R2에는 쓰지 않습니다.
-        </p>
-      </header>
+    <main className="flex w-full min-w-0 flex-col gap-6 pb-12">
+      <AnalysisLabPageHeader
+        icon={FileCheck2}
+        eyebrow="QUICK FORM PREPARATION"
+        title="빠른 작성 필드 검수"
+        description="HWP/HWPX 지원서의 입력칸과 선택지를 미리 찾아, 빠진 항목이 없는지 원본에서 확인합니다."
+        badges={cohort ? <Badge variant="secondary">분석 엔진 {cohort.engineVersion}</Badge> : null}
+        action={(
+          <Button variant="outline" size="sm" onClick={() => void loadCohort()} disabled={cohortLoading || analyzing || filling}>
+            <RefreshCw data-icon="inline-start" /> 후보 새로고침
+          </Button>
+        )}
+      />
+
+      <section aria-label="빠른 작성 분석 지표" className={`grid gap-3 sm:grid-cols-2 ${run ? "xl:grid-cols-4" : "xl:grid-cols-2"}`}>
+        <AnalysisMetric label="후보 공고" value={cohort?.notices.length ?? "—"} description="HWP/HWPX가 보관된 공고" />
+        <AnalysisMetric label="후보 첨부" value={cohort ? candidateAttachmentCount : "—"} description="분석 가능한 바이너리 원본" />
+        {run ? <AnalysisMetric label="분석한 문서" value={parsedDocumentCount} description="현재 실행에서 읽은 문서" /> : null}
+        {run ? <AnalysisMetric label="찾은 입력 필드" value={recognizedFieldCount} description="텍스트 입력과 객관식 합계" /> : null}
+      </section>
 
       <ProcessProgress value={progress} />
 
       {error ? (
-        <Alert variant="destructive">
-          <AlertTitle>실험을 계속하지 못했습니다</AlertTitle>
-          <AlertDescription className="break-words">{error}</AlertDescription>
-        </Alert>
+        <AnalysisLabErrorAlert title="지원서 분석 정보를 불러오지 못했습니다" message={error} />
       ) : null}
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="font-medium">1. 지원서 후보 공고 선택</h2>
-            <p className="text-xs text-muted-foreground">파일명 힌트로 먼저 좁히고, 다음 단계에서 실제 문서를 전부 파싱합니다.</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => void loadCohort()} disabled={cohortLoading || analyzing || filling}>
-            <RefreshCw data-icon="inline-start" />
-            후보 새로고침
-          </Button>
-        </div>
+      <div className="grid items-start gap-6 xl:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle>1. 분석할 공고 선택</CardTitle>
+          <CardDescription>첨부파일 힌트를 확인하고 먼저 한 공고를 선택하세요.</CardDescription>
+        </CardHeader>
+        <CardContent>
         {cohortLoading ? (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3">
             <Skeleton className="h-44" />
             <Skeleton className="h-44" />
           </div>
         ) : cohort && cohort.notices.length > 0 ? (
-          <div className="grid items-start gap-3 md:grid-cols-2">
+          <div className="grid items-start gap-3">
             {cohort.notices.map((notice) => (
               <NoticeCandidateCard
                 key={notice.grantId}
@@ -272,19 +282,25 @@ export function ApplicationRoundtripLab({
             </EmptyHeader>
           </Empty>
         )}
-      </section>
+        </CardContent>
+      </Card>
 
-      <section className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="font-medium">2. 공고 첨부 전체 파싱·역할 판정</h2>
-            <p className="text-xs text-muted-foreground">확장자가 아닌 매직바이트 감지 결과와 문서 내용·양식 구조를 함께 봅니다.</p>
-          </div>
-          <Button onClick={() => void analyze()} disabled={!analysisAllowed || !selectedNotice || analyzing || filling}>
+      <Card>
+        <CardHeader>
+          <CardTitle>2. 지원서 양식 분석</CardTitle>
+          <CardDescription>선택한 공고의 모든 HWP/HWPX를 읽고 지원서와 입력 항목을 찾습니다.</CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          {!analysisAllowed ? (
+            <Alert>
+              <AlertTitle>구독 분석 모드를 먼저 켜세요</AlertTitle>
+              <AlertDescription>왼쪽 분석 모드에서 권한을 열면 선택한 공고의 첨부 분석을 시작할 수 있습니다.</AlertDescription>
+            </Alert>
+          ) : null}
+          <Button className="w-full" onClick={() => void analyze()} disabled={!analysisAllowed || !selectedNotice || analyzing || filling}>
             {analyzing ? <Spinner data-icon="inline-start" /> : <FileSearch data-icon="inline-start" />}
-            {analyzing ? "HWP 첨부 파싱 중…" : "Kordoc 전체 파싱"}
+            {analyzing ? "지원서 첨부 분석 중…" : "지원서 양식 분석"}
           </Button>
-        </div>
         {selectedNotice ? (
           <Alert>
             <AlertTitle>{selectedNotice.title}</AlertTitle>
@@ -294,13 +310,15 @@ export function ApplicationRoundtripLab({
           </Alert>
         ) : null}
         {run ? <ParsedDocuments run={run} /> : null}
-      </section>
+        </CardContent>
+      </Card>
+      </div>
 
       {run ? (
-        <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="font-medium">3. 입력 대상 문서·필드 확인</h2>
-            <p className="text-xs text-muted-foreground">Kordoc 구조 후보와 LLM 맥락 판정을 결합하고, 같은 원본을 rhwp로 다시 열어 텍스트 검색과 실제 배치를 교차 검토합니다.</p>
+        <section className="flex flex-col gap-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10 sm:p-6">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-base font-medium">3. 인식 결과를 원본에서 검증</h2>
+            <p className="text-sm text-muted-foreground">문서를 선택하면 분석 위치와 rhwp 원본을 함께 보여줍니다. 빠진 필드가 없는지 여기서 확인하세요.</p>
           </div>
           <FieldGroup>
             <Field>
@@ -441,7 +459,7 @@ export function ApplicationRoundtripLab({
               key={`filled:${fillResult.fillId}`}
               sourceUrl={fillResult.downloadUrl}
               filename={fillResult.outputFilename}
-              sourceLabel="Kordoc 채움본"
+              sourceLabel="빠른 작성 채움본"
               fields={inputFields}
               choiceGroups={choiceGroups}
               diagnosticSource
@@ -561,15 +579,15 @@ function ProcessProgress({ value }: { value: number }) {
   return (
     <Card size="sm">
       <CardHeader>
-        <CardTitle>왕복 검증 진행률</CardTitle>
-        <CardDescription>후보 선택 → 전 첨부 파싱 → 필드 확인 → 채움 파일 재파싱</CardDescription>
+        <CardTitle>빠른 작성 준비 단계</CardTitle>
+        <CardDescription>공고 선택 → 첨부 분석 → 필드 확인 → 채움본 재검증</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <Progress value={value} />
         <div className="grid grid-cols-4 gap-2 text-center text-[11px] text-muted-foreground">
           <span className={value >= 25 ? "font-medium text-foreground" : ""}>공고</span>
-          <span className={value >= 50 ? "font-medium text-foreground" : ""}>파싱</span>
-          <span className={value >= 75 ? "font-medium text-foreground" : ""}>필드</span>
+          <span className={value >= 50 ? "font-medium text-foreground" : ""}>첨부 분석</span>
+          <span className={value >= 75 ? "font-medium text-foreground" : ""}>필드 확인</span>
           <span className={value >= 100 ? "font-medium text-foreground" : ""}>재검증</span>
         </div>
       </CardContent>
@@ -619,7 +637,7 @@ function ParsedDocuments({ run }: { run: ApplicationRoundtripRun }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>파싱 결과 {run.documents.length}개</CardTitle>
+        <CardTitle>첨부 분석 결과 {run.documents.length}개</CardTitle>
         <CardDescription>{run.engine} {run.engineVersion} · {formatDuration(run.durationMs)} · 런 {run.runId}</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 lg:grid-cols-2">
@@ -628,7 +646,7 @@ function ParsedDocuments({ run }: { run: ApplicationRoundtripRun }) {
             <div className="flex flex-wrap items-start justify-between gap-2">
               <span className="min-w-0 flex-1 break-words font-medium">{document.filename}</span>
               <Badge variant={document.error ? "destructive" : likelyRole(document.role) ? "default" : "secondary"}>
-                {document.error ? "파싱 실패" : roleLabel(document.role)}
+                {document.error ? "분석 실패" : roleLabel(document.role)}
               </Badge>
             </div>
             {document.error ? (
@@ -661,7 +679,7 @@ function ParsedDocuments({ run }: { run: ApplicationRoundtripRun }) {
                   <p className="text-xs text-muted-foreground">{document.fieldPlanning.warning}</p>
                 ) : null}
                 {document.fieldCoverage.unresolvedCandidates.length > 0 ? (
-                  <div className="rounded-md border border-amber-500/30 bg-amber-500/[0.06] p-2 text-xs">
+                  <div className="rounded-md bg-warning-soft p-2 text-xs ring-1 ring-warning/20">
                     {document.fieldCoverage.unresolvedCandidates.map((issue) => (
                       <p key={issue.fieldInstanceId}>{issue.label} — {issue.reason}</p>
                     ))}
@@ -688,19 +706,19 @@ function FillResultCard({ result }: { result: RoundtripFillResult }) {
   const failedChoices = result.choiceVerifications.filter((item) => item.status !== "matched");
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="font-medium">4. 저장본 재파싱 검증</h2>
+      <h2 className="font-medium">4. 저장본 다시 읽어 검증</h2>
       <Card className={result.allVerified ? "ring-2 ring-primary/40" : "ring-2 ring-destructive/40"}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CheckCircle2 className={result.allVerified ? "text-primary" : "text-destructive"} />
-            {result.allVerified ? "요청한 입력이 모두 재파싱 검증됐습니다" : "일부 입력은 저장본에서 일치하지 않았습니다"}
+            {result.allVerified ? "요청한 입력이 저장본에 모두 반영됐습니다" : "일부 입력은 저장본에서 일치하지 않았습니다"}
           </CardTitle>
           <CardDescription>{result.outputFilename} · {result.fillMode} · {formatDuration(result.durationMs)}</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
             <Metric label="텍스트 요청" value={`${result.requestedFieldCount}개`} />
-            <Metric label="Kordoc 채움" value={`${result.kordocFilledCount}개`} />
+            <Metric label="자동 채움" value={`${result.kordocFilledCount}개`} />
             <Metric label="텍스트 검증" value={`${result.verifiedFieldCount}개`} />
             <Metric label="객관식 요청" value={`${result.requestedChoiceGroupCount}개`} />
             <Metric label="CheckBox 변경" value={`${result.formControlPatchedCount}개`} />
@@ -740,7 +758,7 @@ function FillResultCard({ result }: { result: RoundtripFillResult }) {
           ) : null}
         </CardContent>
         <CardFooter>
-          <span className="text-xs text-muted-foreground">원시 Kordoc 산출물은 아래 rhwp 진단 입력으로만 사용합니다. 에디터의 자기 재로드 검증을 통과하기 전에는 직접 다운로드할 수 없습니다.</span>
+          <span className="text-xs text-muted-foreground">원시 분석 산출물은 아래 rhwp 진단 입력으로만 사용합니다. 에디터의 자기 재로드 검증을 통과하기 전에는 직접 다운로드할 수 없습니다.</span>
         </CardFooter>
       </Card>
     </section>

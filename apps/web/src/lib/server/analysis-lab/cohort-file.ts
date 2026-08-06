@@ -2,7 +2,7 @@
 // 공유하는 단일 모듈. v2 는 층화 확대 실험용으로 층(stratum)·시드·실험 라벨을 기록하며,
 // v1 파일({grantIds})은 stratum "pilot" 으로 정규화해 읽는다(하위 호환).
 // 층 식별자 형식: "<source>/<tier>" (예: "bizinfo/thick", "kstartup/thin") 또는 "pilot".
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { analysisLabDir } from "./run-store";
 
@@ -82,7 +82,11 @@ export async function readCohortFileV2(): Promise<CohortFileV2 | null> {
 export async function writeCohortFileV2(file: CohortFileV2): Promise<void> {
   const path = cohortFilePath();
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(file, null, 2)}\n`, "utf8");
+  // 분석 대상 자동 선정과 배치 요약이 동시에 파일을 읽어도 반쪽 JSON을 보지 않도록
+  // 같은 디렉터리의 임시 파일을 완성한 뒤 원자적으로 교체한다.
+  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(file, null, 2)}\n`, "utf8");
+  await rename(temporaryPath, path);
 }
 
 /**

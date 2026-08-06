@@ -688,7 +688,7 @@ function ReviewGuide({
             </Badge>
           </div>
           <p className="text-xs text-muted-foreground">
-            &ldquo;수정 필요&rdquo;·&ldquo;판단 불가&rdquo;도 정확 비율의 분모에 들어갑니다. 코호트 전 공고를
+            &ldquo;수정 필요&rdquo;·&ldquo;판단 불가&rdquo;도 정확 비율의 분모에 들어갑니다. 분석 대상 전 공고를
             검수·저장한 뒤 터미널에서{" "}
             <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">pnpm lab:aggregate</code>
             를 실행하면 🟢/🟡/🔴 종합 판정이 나옵니다.
