@@ -4,7 +4,7 @@
  * 규범: docs/plans/2026-07-09-apply-experience-v2.md §7.4(v2.4)·ADR-3/7/8.
  *
  * POST /api/web/document-drafts/[draftId]/field-suggestions
- * body: { labels: string[]; mode: "generate" | "regenerate"; currentValue?: string }
+ * body: { labels: string[]; mode: "generate" | "regenerate"; currentValue?: string; sourceText: string }
  * → 200 { ok: true, data: { suggestions: Record<label, { value, basis }> } }
  *
  * - runtime nodejs · force-dynamic · requireCompanyAccess({permission:"write"})(제안 생성·저장 = 변이).
@@ -27,6 +27,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const CURRENT_VALUE_MAX_LENGTH = 4000;
+const SOURCE_TEXT_MAX_LENGTH = 4000;
 const LABEL_MAX_LENGTH = 160;
 
 interface RouteContext {
@@ -37,6 +38,7 @@ interface ParsedBody {
   labels: string[];
   mode: "generate" | "regenerate";
   currentValue?: string;
+  sourceText: string;
 }
 
 export async function POST(request: Request, context: RouteContext) {
@@ -50,6 +52,7 @@ export async function POST(request: Request, context: RouteContext) {
       labels: body.labels,
       mode: body.mode,
       ...(body.currentValue !== undefined ? { currentValue: body.currentValue } : {}),
+      sourceText: body.sourceText,
     });
     return NextResponse.json<ActionResult<FieldSuggestResult>>({ ok: true, data });
   } catch (error) {
@@ -93,7 +96,27 @@ function parseBody(body: unknown): ParsedBody {
     throw new FieldSuggestError("invalid_mode", "mode 는 generate 또는 regenerate 여야 합니다.", 400);
   }
 
-  const parsed: ParsedBody = { labels, mode: modeRaw };
+  const sourceTextRaw = record.sourceText;
+  if (typeof sourceTextRaw !== "string" || !sourceTextRaw.trim()) {
+    throw new FieldSuggestError(
+      "source_text_required",
+      "보강할 내용을 먼저 입력해 주세요.",
+      400,
+    );
+  }
+  if (sourceTextRaw.length > SOURCE_TEXT_MAX_LENGTH) {
+    throw new FieldSuggestError(
+      "source_text_too_long",
+      `sourceText 는 ${SOURCE_TEXT_MAX_LENGTH}자까지 보낼 수 있습니다.`,
+      400,
+    );
+  }
+
+  const parsed: ParsedBody = {
+    labels,
+    mode: modeRaw,
+    sourceText: sourceTextRaw.trim(),
+  };
 
   const currentValueRaw = record.currentValue;
   if (currentValueRaw !== undefined) {

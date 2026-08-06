@@ -4,7 +4,7 @@
  * 필드 확인 카드 (Apply Experience v2 · 재정의 §2-② 7슬롯 구조).
  *
  * 위→아래 고정 슬롯: ⑴ 상단 라벨(확인이 필요한 항목 N개 중 M번째) ⑵ 필드명 + 위치 캡션
- * ⑶ 설명 한 줄 ⑷ 값 박스(A 자동값 확인) 또는 변형 B(직접 입력 + 힌트 + 초안 제안 받기 링크)
+ * ⑶ 설명 한 줄 ⑷ 값 박스(A 자동값 확인) 또는 변형 B(직접 입력 + 입력 기반 보강 링크)
  * ⑸ 주 CTA 1개 ⑹ 보조 링크 2개(직접 수정·건너뛰기 / 편집 중엔 되돌리기·입력 취소)
  * ⑺ 하단 💬 이 항목이 궁금하면 물어보세요.
  *
@@ -48,6 +48,7 @@ export function FieldCard({
   onAsk,
   onNext,
   onRequestSuggestion,
+  onKeepOriginal,
   canAsk,
   canLocateInDocument,
   isLocatingInDocument,
@@ -71,7 +72,8 @@ export function FieldCard({
   onUndo: () => void;
   onAsk: () => void;
   onNext: () => void;
-  onRequestSuggestion: () => void;
+  onRequestSuggestion: (sourceText: string) => void;
+  onKeepOriginal: () => void;
   canAsk: boolean;
   canLocateInDocument: boolean;
   isLocatingInDocument: boolean;
@@ -83,6 +85,8 @@ export function FieldCard({
   const [editing, setEditing] = useState(isSelected && !hasValue);
   const [draftValue, setDraftValue] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputHintId = `${field.fieldId}-input-hint`;
+  const normalizedDraftValue = draftValue.trim();
   const canSuggest = isSuggestable && (answer?.status === undefined || answer.status === "suggested");
   const canUndo = answer?.suggestedValue !== undefined && answer.status !== "suggested";
   const options = extractFieldOptions(field.fieldType, field.sourceSpan);
@@ -113,7 +117,7 @@ export function FieldCard({
   const primaryAction = (() => {
     if (editing) {
       return (
-        <Button type="button" className="w-full" onClick={commitEdit} disabled={isPending || !draftValue.trim()}>
+        <Button type="button" className="w-full" onClick={commitEdit} disabled={isPending || !normalizedDraftValue}>
           {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Check data-icon="inline-start" aria-hidden />}
           입력 완료
         </Button>
@@ -123,7 +127,7 @@ export function FieldCard({
       return (
         <Button type="button" className="w-full" onClick={onAccept} disabled={isPending || isSuggesting}>
           {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Check data-icon="inline-start" aria-hidden />}
-          이 값으로 채우기
+          이 제안 사용하기
         </Button>
       );
     }
@@ -205,14 +209,19 @@ export function FieldCard({
                 value={draftValue}
                 onChange={(event) => setDraftValue(event.currentTarget.value)}
                 aria-label={`${field.label} 값`}
-                placeholder={`${field.label}을(를) 입력해 주세요.`}
+                aria-describedby={inputHintId}
+                placeholder={
+                  /회사소개|기업소개/.test(field.label.replace(/\s+/g, ""))
+                    ? "어떤 제품을 누구에게 제공하는지, 차별점과 주요 성과를 메모처럼 적어 주세요."
+                    : `${field.label}에 포함할 사실을 키워드나 짧은 문장으로 적어 주세요.`
+                }
                 rows={4}
               />
             )}
-            <p className="text-xs text-muted-foreground">
+            <p id={inputHintId} className="text-xs text-muted-foreground">
               {isChoiceField
                 ? "원본 양식의 선택지 중 하나를 골라 주세요. 입력 완료 전까지 저장되지 않아요."
-                : "공고 기준에 맞게 자유롭게 입력하세요. 저장 전까지 반영되지 않아요."}
+                : "메모처럼 짧게 적어도 괜찮아요. 입력한 사실은 유지한 채 공고에 어울리는 문장으로 다듬어드려요."}
             </p>
             {canSuggest && !isChoiceField ? (
               <Button
@@ -220,13 +229,25 @@ export function FieldCard({
                 size="sm"
                 variant="link"
                 className="self-start px-0"
-                onClick={onRequestSuggestion}
-                disabled={isPending || isSuggesting}
+                onClick={() => onRequestSuggestion(normalizedDraftValue)}
+                disabled={isPending || isSuggesting || !normalizedDraftValue}
               >
                 {isSuggesting ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Sparkles data-icon="inline-start" aria-hidden />}
-                초안 제안 받기
+                {isSuggesting ? "공고에 맞게 다듬는 중" : "입력한 내용 보강하기"}
               </Button>
             ) : null}
+          </div>
+        ) : answer?.status === "suggested" && answer.suggestionInput ? (
+          <div className="flex flex-col gap-3">
+            <div className="rounded-[var(--radius-lg)] bg-muted/50 p-4">
+              <p className="mb-1 text-xs font-semibold text-muted-foreground">내가 입력한 내용</p>
+              <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{answer.suggestionInput}</p>
+            </div>
+            <div className="rounded-[var(--radius-lg)] bg-primary/10 p-4">
+              <p className="mb-1 text-xs font-semibold text-primary">보강 제안</p>
+              <p className="whitespace-pre-wrap break-words text-base font-semibold leading-relaxed">{value}</p>
+              {answer.basis ? <p className="mt-2 text-xs text-muted-foreground">{answer.basis} 기준</p> : null}
+            </div>
           </div>
         ) : (
           <div className={state === "reviewing" ? "rounded-[var(--radius-lg)] bg-primary/10 p-4" : "rounded-[var(--radius-lg)] bg-muted/50 p-4"}>
@@ -257,10 +278,16 @@ export function FieldCard({
               <Button type="button" size="sm" variant="link" onClick={startEditing} disabled={isPending}>
                 {isChoiceField ? "선택 수정" : "직접 수정"}
               </Button>
-              <Button type="button" size="sm" variant="link" onClick={onDismiss} disabled={isPending || answer?.status === "dismissed"}>
-                <SkipForward data-icon="inline-start" aria-hidden />
-                건너뛰기
-              </Button>
+              {answer?.status === "suggested" && answer.suggestionInput ? (
+                <Button type="button" size="sm" variant="link" onClick={onKeepOriginal} disabled={isPending}>
+                  원문 유지
+                </Button>
+              ) : (
+                <Button type="button" size="sm" variant="link" onClick={onDismiss} disabled={isPending || answer?.status === "dismissed"}>
+                  <SkipForward data-icon="inline-start" aria-hidden />
+                  건너뛰기
+                </Button>
+              )}
             </>
           )}
         </div>

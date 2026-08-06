@@ -429,7 +429,7 @@ export async function seedGrantDocumentDraftProfileAnswers(input: {
 export async function applyLlmFieldSuggestions(input: {
   draftId: string;
   access: CompanyAccess;
-  suggestions: Record<string, { value: string; basis: string }>;
+  suggestions: Record<string, { value: string; basis: string; suggestionInput?: string }>;
 }): Promise<{ fieldAnswers: DraftFieldAnswers; filledFields: Record<string, string> }> {
   assertDraftId(input.draftId);
   const current = await getGrantDocumentDraftRow({ draftId: input.draftId, access: input.access });

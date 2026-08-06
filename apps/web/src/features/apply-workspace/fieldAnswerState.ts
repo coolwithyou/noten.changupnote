@@ -58,6 +58,7 @@ export function optimisticApply(
     updatedAt: new Date().toISOString(),
   };
   if (suggestedValue !== undefined) merged.suggestedValue = suggestedValue;
+  if (existing?.suggestionInput !== undefined) merged.suggestionInput = existing.suggestionInput;
   if (existing?.basis !== undefined) merged.basis = existing.basis;
   if (existing?.fieldId !== undefined) merged.fieldId = existing.fieldId;
   return { ...current, [key]: merged };

@@ -96,7 +96,7 @@ export function FieldPanel({
   /** "이 항목이 뭐예요?" → 채팅 프리필(ADR-9). */
   onAskField: (field: ConnectedDocumentField) => void;
   /** "제안 받기"/"다시 제안" → LLM 필드 제안(P4). */
-  onRequestSuggestion: (field: ConnectedDocumentField) => void;
+  onRequestSuggestion: (field: ConnectedDocumentField, sourceText: string) => void;
   mode: WorkspacePanelMode;
   draftId: string | null;
   hwpxTemplateAvailable: boolean;
@@ -340,7 +340,11 @@ export function FieldPanel({
         onNext={() => {
           if (nextTask) onSelectField(nextTask.fieldId);
         }}
-        onRequestSuggestion={() => onRequestSuggestion(activeField)}
+        onRequestSuggestion={(sourceText) => onRequestSuggestion(activeField, sourceText)}
+        onKeepOriginal={() => {
+          const suggestionInput = answers[key]?.suggestionInput;
+          if (suggestionInput !== undefined) patchAnswer(key, { value: suggestionInput, status: "edited" });
+        }}
         canAsk={!virtualPreview}
         canLocateInDocument={rhwpAnchorsReady}
         isLocatingInDocument={locatingFieldId === activeField.fieldId}

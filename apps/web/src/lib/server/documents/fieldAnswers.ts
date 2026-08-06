@@ -20,6 +20,8 @@ export interface DraftFieldAnswer {
   source: DraftFieldAnswerSource;
   /** 제안 원본 (수정 추적·undo·교정률 KPI 용). */
   suggestedValue?: string;
+  /** LLM 보강을 요청할 때 사용자가 직접 입력한 원문(제안 비교·원문 유지용). */
+  suggestionInput?: string;
   /** 근거 표시용 ("사업자 정보", "공고문 인용" 등). */
   basis?: string;
   /** grant_document_fields.id (있을 때만). */
@@ -145,7 +147,12 @@ export function mergeTemplateSuggestions(
  */
 export function mergeLlmSuggestions(
   current: DraftFieldAnswers,
-  suggestions: Record<string, { value: string; basis: string; fieldId?: string }>,
+  suggestions: Record<string, {
+    value: string;
+    basis: string;
+    fieldId?: string;
+    suggestionInput?: string;
+  }>,
   options?: { at?: string },
 ): DraftFieldAnswers {
   const at = options?.at ?? nowIso();
@@ -165,6 +172,8 @@ export function mergeLlmSuggestions(
       basis,
       updatedAt: at,
     };
+    const suggestionInput = normalizeAnswerValue(suggestion.suggestionInput ?? "");
+    if (suggestionInput) answer.suggestionInput = suggestionInput;
     const fieldId = suggestion.fieldId ?? existing?.fieldId;
     if (fieldId !== undefined) answer.fieldId = fieldId;
     next[label] = answer;
@@ -201,6 +210,7 @@ export function applyFieldAnswerPatch(
       updatedAt: at,
     };
     if (suggestedValue !== undefined) merged.suggestedValue = suggestedValue;
+    if (existing?.suggestionInput !== undefined) merged.suggestionInput = existing.suggestionInput;
     if (existing?.basis !== undefined) merged.basis = existing.basis;
     if (existing?.fieldId !== undefined) merged.fieldId = existing.fieldId;
     next[label] = merged;
@@ -228,6 +238,7 @@ export function syncUserFilledFields(
     const suggestedValue = existing?.suggestedValue
       ?? (existing?.status === "suggested" ? existing.value : undefined);
     if (suggestedValue !== undefined) merged.suggestedValue = suggestedValue;
+    if (existing?.suggestionInput !== undefined) merged.suggestionInput = existing.suggestionInput;
     if (existing?.fieldId !== undefined) merged.fieldId = existing.fieldId;
     next[label] = merged;
   }

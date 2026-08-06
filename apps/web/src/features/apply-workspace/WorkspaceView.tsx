@@ -295,11 +295,13 @@ export function WorkspaceView({
     }
   }
 
-  async function requestSuggestion(field: ConnectedDocumentField) {
+  async function requestSuggestion(field: ConnectedDocumentField, sourceText: string) {
     if (!data.draftId) return;
+    const normalizedSourceText = sourceText.trim();
+    if (!normalizedSourceText) return;
     const key = answerKey(field.label);
     const existing = answersRef.current[key];
-    // 값이 이미 있으면(제안 상태) '다시 제안', 없으면 최초 '제안 받기'.
+    // 기존 제안을 편집해 다시 보강하는 경우에만 regenerate 로 기록한다.
     const mode: "generate" | "regenerate" = existing?.value ? "regenerate" : "generate";
     setSuggestingLabels((current) => {
       const next = new Set(current);
@@ -315,20 +317,24 @@ export function WorkspaceView({
           body: JSON.stringify({
             labels: [field.label],
             mode,
-            ...(mode === "regenerate" && existing?.value ? { currentValue: existing.value } : {}),
+            sourceText: normalizedSourceText,
           }),
         },
       );
       const payload = (await response.json()) as ActionResult<{
-        suggestions: Record<string, { value: string; basis: string }>;
+        suggestions: Record<string, {
+          value: string;
+          basis: string;
+          suggestionInput?: string;
+        }>;
       }>;
       if (!response.ok || !payload.ok || !payload.data) {
-        throw new Error(payload.error?.message ?? "제안을 생성하지 못했습니다.");
+        throw new Error(payload.error?.message ?? "입력한 내용을 보강하지 못했습니다.");
       }
       // 응답 suggestions 는 이미 서버가 suggested/llm 로 저장한 값이다(저장-반환 일치). 로컬 반영만 한다.
       const suggestion = payload.data.suggestions[field.label] ?? payload.data.suggestions[key];
       if (!suggestion) {
-        toast.error("근거 있는 제안을 만들지 못했습니다. 잠시 후 다시 시도해 주세요.");
+        toast.error("입력한 사실을 유지한 보강안을 만들지 못했습니다. 내용을 조금 더 구체적으로 적어 주세요.");
         return;
       }
       setAnswers((cur) => {
@@ -338,6 +344,7 @@ export function WorkspaceView({
           status: "suggested",
           source: "llm",
           suggestedValue: suggestion.value,
+          suggestionInput: suggestion.suggestionInput ?? normalizedSourceText,
           basis: suggestion.basis,
           updatedAt: new Date().toISOString(),
         };
@@ -345,7 +352,7 @@ export function WorkspaceView({
         return { ...cur, [key]: nextEntry };
       });
     } catch (caught) {
-      toast.error(caught instanceof Error ? caught.message : "제안을 생성하지 못했습니다.");
+      toast.error(caught instanceof Error ? caught.message : "입력한 내용을 보강하지 못했습니다.");
     } finally {
       setSuggestingLabels((current) => {
         const next = new Set(current);

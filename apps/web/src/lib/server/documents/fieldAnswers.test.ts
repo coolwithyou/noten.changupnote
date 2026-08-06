@@ -18,6 +18,7 @@ import {
   type DraftFieldAnswers,
   deriveFilledFields,
   detectDuplicateNormalizedLabels,
+  mergeLlmSuggestions,
   mergeTemplateSuggestions,
   resolveFieldAnswers,
 } from "./fieldAnswers";
@@ -153,6 +154,34 @@ check("⑤ listSuggestedUnfilled: suggested 는 Unfilled 정직 보고, dismisse
 
   // fieldAnswers 미존재(미백필 draft)면 빈 목록 — 다운로드 흐름 회귀 없음.
   assert.deepEqual(listSuggestedUnfilled({ fieldAnswers: null, filledFields: {} }), []);
+});
+
+// ⑥ 사용자 입력 기반 보강은 원문을 제안 계보에 저장하고 확정·수정 뒤에도 보존한다.
+check("⑥ mergeLlmSuggestions: 보강 원문 저장 · 후속 PATCH 계보 보존", () => {
+  const sourceText = "산업 현장의 반복 문서 업무를 줄이는 서비스를 만들고 있습니다.";
+  const merged = mergeLlmSuggestions(
+    {},
+    {
+      회사소개: {
+        value: "당사는 산업 현장의 반복적인 문서 업무를 효율화하는 서비스를 제공합니다.",
+        basis: "사용자가 작성한 회사소개",
+        suggestionInput: sourceText,
+      },
+    },
+    { at: ISO },
+  );
+
+  assert.equal(merged.회사소개?.status, "suggested");
+  assert.equal(merged.회사소개?.suggestionInput, sourceText);
+
+  const keptOriginal = applyFieldAnswerPatch(
+    merged,
+    { 회사소개: { value: sourceText, status: "edited" } },
+    { at: ISO },
+  );
+  assert.equal(keptOriginal.회사소개?.value, sourceText);
+  assert.equal(keptOriginal.회사소개?.suggestionInput, sourceText);
+  assert.ok(keptOriginal.회사소개?.suggestedValue?.includes("문서 업무를 효율화"));
 });
 
 console.log(`\n✅ ${passed}개 통과`);
