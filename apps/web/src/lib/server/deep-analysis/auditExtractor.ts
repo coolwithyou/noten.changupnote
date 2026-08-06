@@ -13,14 +13,21 @@ import { priceDeepAnalysisUsage } from "./costPolicy";
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
+  DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
+  DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
+  DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
+  DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
+  DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE,
   normalizeCriteria,
 } from "./extractor";
 import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
@@ -30,7 +37,7 @@ import {
 } from "./auditScope";
 
 export const DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION =
-  "deep-analysis-audit-candidates-v5" as const;
+  "deep-analysis-audit-candidates-v7" as const;
 export const DEEP_ANALYSIS_AUDIT_TOOL_NAME =
   "emit_deep_analysis_audit_candidates" as const;
 
@@ -88,8 +95,15 @@ export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
+  DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
+  DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
+  DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
+  DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
+  DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
   "지역 코드는 서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50을 사용한다.",
   "region={regions:[시도코드],nationwide?}, biz_age={min_months?,max_months?,include_preliminary?}, industry={tags:[문자열]}, size={sizes:[예비|소상공인|소기업|중소기업|중견기업|대기업]}, revenue={min_krw?,max_krw?}, employees={min?,max?}, founder_age={ranges:[{min?,max?,label}]}, founder_trait={traits:[문자열]}, certification={certs:[문자열]}, ip={types:[문자열]}, target_type={targets:[문자열]} 형식을 사용한다.",
   "세금·공과금 체납은 dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[national_tax_delinquent|local_tax_delinquent|customs_delinquent|social_insurance_delinquent]를 사용한다. 예외는 payment_deferral_approved, tax_debt_repaid_with_proof, restart_funding_recipient, retry_guarantee_recipient 중 원문에 명시된 값만 value.exceptions에 둔다.",
@@ -98,7 +112,7 @@ export const DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT = [
   "재무건전성은 dimension=financial_health, kind=exclusion, value에 debt_ratio_pct_threshold, impairment_excluded, min_interest_coverage 중 원문에 있는 값만 둔다. impairment_excluded는 반드시 [\"partial\"|\"full\"] 배열이며, 자본잠식만 언급하면 [\"partial\",\"full\"], 자본전액잠식이면 [\"full\"]을 사용한다.",
   "prior_award exclusion은 범위를 반드시 value.scope로 명시한다. 동일·유사 지원, 동일 과제, 본 사업 과거 선정, 당해연도 타부처 중복은 scope=self와 self_kind를 쓰고, 창업보육센터·지역센터 입주 이력은 scope=self, channel=incubation_tenancy를 사용한다.",
   "특정 사업·사업유형 수혜 이력은 scope=program|program_type과 비어 있지 않은 programs를 사용한다. 금액 임계가 붙은 과거 지원 이력처럼 현재 prior_award canonical로 무손실 표현할 수 없거나 범위를 특정할 수 없으면 other/text_only exclusion과 exact evidence note로 보존한다.",
-  "고용보험·피보험자 조건은 insured_workforce, 투자유치 하한은 investment/gte와 value.min_total_krw를 사용한다. 투자 상한은 investment/text_only와 value.note로 보존한다.",
+  "고용보험·피보험자 조건은 insured_workforce를 사용한다. 추가 전제가 없는 단순 누적 투자유치 하한만 investment/gte와 value.min_total_krw를 사용하고, 투자 상한과 기간·기관유형 등이 결합된 복합 투자조건은 investment/text_only와 value.note로 보존한다.",
   "premises와 export_performance는 해당 dimension의 text_only와 value.note로 보존한다.",
   "canonical value를 안전하게 만들 수 없는 명시적 매칭 규정은 other/text_only와 value.note로 보존한다.",
 ].join("\n");

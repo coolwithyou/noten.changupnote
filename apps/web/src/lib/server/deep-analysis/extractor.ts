@@ -821,7 +821,21 @@ export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
 export const DEEP_ANALYSIS_LOCALITY_PREMISES_RULE =
   "시·군·구 단위 소재지 요건은 region의 시도 코드만으로 의미가 완전히 보존되지 않는다. 예를 들어 '하남시 관내 본사 또는 공장'이면 region에 경기 41을 required로 두는 동시에 premises에 시군구와 본사·공장 조건을 그대로 담은 required/text_only criterion을 별도로 만든다. 시도보다 좁은 소재지 요건을 시도 코드 하나로만 끝내지 마라.";
 export const DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE =
-  "prior_award states의 completed는 사업 수행을 끝냈다는 뜻으로만 한정하지 않고 선정·수혜 사실이 확정된 상태를 뜻한다. 원문이 '선정된', '선정 이력', '지원을 받은'이면 completed, 현재 참여·수행 중이면 participating, 교육·프로그램 수료·졸업이면 graduated를 사용한다. 명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라.";
+  "prior_award states의 completed는 사업 수행을 끝냈다는 뜻으로만 한정하지 않고 선정·수혜 사실이 확정된 상태를 뜻한다. 원문이 '선정된', '선정 이력', '지원을 받은'이면 completed, 현재 참여·수행 중이면 participating, 교육·프로그램 수료·졸업이면 graduated를 사용한다. 다만 원문이 '협약을 체결했던 이력'처럼 상태를 가리지 않고 중단처분·중도포기까지 명시적으로 포함하면 states를 넣지 말고 해당 program의 모든 이력을 대상으로 보존한다. states=[\"completed\"]로 범위를 줄이지 마라. 명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라.";
+export const DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE =
+  "하나의 신청조건이 금액·기간·기관유형·투자형태처럼 여러 전제를 AND로 결합하고 현재 canonical value가 그 전제를 모두 표현하지 못하면, 표현 가능한 일부만 구조화해 자동 pass가 가능하게 만들지 마라. 해당 축을 유지한 operator=text_only와 value.note에 전체 조건을 무손실 보존한다. 예: '공고 마감일로부터 2년 이내 투자기관으로부터 총 1천만원 이상 투자'는 현재 investment의 누적 총액만으로 기간과 투자기관을 판정할 수 없으므로 investment/gte가 아니라 investment/text_only 한 건으로 보존한다.";
+export const DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE =
+  "업종명이 자격·등록·신고 상태 같은 다른 전제 아래 예시로 열거되면 업종 자체의 무조건 배제로 축약하지 마라. 예: '금융정보분석원의 신고·등록이 되지 않은 자(가상자산 매매·중개업 등)'는 FIU 미신고가 핵심 전제이므로 industry/not_in tags로 모든 가상자산 업종을 배제하지 말고, 전체 조건을 industry/text_only와 value.note로 보존한다.";
+export const DEEP_ANALYSIS_BUSINESS_STATUS_RULE =
+  "휴업과 폐업을 함께 배제하는 '휴·폐업' 조건은 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"suspended\",\"closed\"],\"labels\":[\"휴폐업\"]}로 추출한다. statuses=[\"closed\"]로 휴업을 누락하지 마라.";
+export const DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE =
+  "기관에서 발생한 환수금 등의 반환이 종결되지 않았다는 조건은 부정수급 발생을 뜻하지 않는다. 원문이 부정수급을 별도로 명시하지 않으면 sanction/subsidy_fraud로 축약하지 말고 sanction/text_only와 value.note에 반환 미종결 조건과 예외를 함께 보존한다.";
+export const DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE =
+  "법령·별표의 제외업종을 구조화할 때는 열거된 모든 행을 끝까지 검사한다. '그 밖에 경제질서 및 미풍양속에 현저히 어긋나는 업종으로서 부령으로 정하는 업종' 같은 마지막 포괄 행을 note에만 남기고 tags에서 누락하지 마라. 안전한 업종 코드나 태그로 판정할 수 없는 행은 별도 industry/text_only로 보존해 부분 열거만으로 자동 pass가 나지 않게 한다.";
+export const DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE =
+  "다수의 사업자등록증 보유 시 창업여부 기준표에 따라 창업일·업력을 계산하라는 문구는 독립 자격조건이 아니라 biz_age 판정 방법이다. other/text_only criterion이나 confirmation을 만들지 말고, 실제 기준표에서 추출한 biz_age criterion의 note와 analysis_markdown에 계산 방법으로 합쳐 보존한다.";
+export const DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE =
+  "현재 소재지가 대상 지역 밖이어도 협약체결 전까지 이전하고 확약서를 제출하면 신청할 수 있는 대안 경로가 있으면, 현재 region 값만 보는 region/in criterion으로 즉시 탈락시키지 마라. 이전 기한·대상 지역·확약 조건을 모두 포함한 region/text_only 한 건으로 보존하고, 같은 조건의 일부만 region/in으로 중복 구조화하지 마라. 예: 현재 수도권 기업도 협약 전 비수도권 이전 예정이면 가능한 공고는 비수도권 코드만 region/in으로 만들면 안 된다.";
 
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
@@ -854,21 +868,27 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
+  DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
+  DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
+  DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   "업종은 dimension=industry 의 value.tags 배열에 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 로 남긴다.",
-  "휴폐업 제외는 dimension=business_status, operator=not_in, kind=exclusion, value={\"statuses\":[\"closed\"],\"labels\":[\"휴폐업\"]} 로 추출한다.",
+  DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
+  DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   "",
   "[결격(배제) 조건 canonical 매핑 — 반드시 아래 축으로 분해한다]",
   "- 세금·공과금 체납: dimension=tax_compliance, operator=in, kind=exclusion, value.flags=[국세=national_tax_delinquent, 지방세=local_tax_delinquent, 관세=customs_delinquent, 4대보험료=social_insurance_delinquent] 중 해당. 납부기한 연장·징수유예 예외→exceptions=[\"payment_deferral_approved\"], 세금·특수채무 변제 완료 후 증빙 가능→[\"tax_debt_repaid_with_proof\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
   "- 신용·금융 상태: dimension=credit_status, operator=in, kind=exclusion, value.flags=[연체=credit_delinquency, 채무불이행=loan_default, 부도=bond_default, 회생·개인회생=rehabilitation_in_progress, 파산=bankruptcy_filed, 법정관리·청산=court_receivership, 금융질서문란=financial_misconduct, 압류=asset_seizure, 보증금지·보증제한=guarantee_restricted] 중 해당. 채무변제 완료 후 증빙 가능→exceptions=[\"credit_debt_repaid_with_proof\"], 채무조정합의 체결→[\"debt_adjustment_agreement\"], 법원 회생·변제계획 인가→[\"court_plan_approved\"], 파산 면책결정 확정→[\"bankruptcy_discharge_confirmed\"], 변제 정상이행 예외→[\"repayment_plan_in_good_standing\"], 시효소멸 예외→[\"statute_expired\"], 재창업자금 지원 예외→[\"restart_funding_recipient\"], 재도전기업주 재기지원보증 예외→[\"retry_guarantee_recipient\"].",
-  "- 제재·참여제한: dimension=sanction, operator=in, kind=exclusion, value.flags=[참여제한=participation_restricted, 부정수급·환수=subsidy_fraud, 보조금법위반·특수관계=subsidy_law_violation, 의무불이행=obligation_breach, 임금체불명단=wage_arrears_listed, 중대재해명단=serious_accident_listed, 협약·계약위반=agreement_breach] 중 해당.",
+  "- 제재·참여제한: dimension=sanction, operator=in, kind=exclusion, value.flags=[참여제한=participation_restricted, 명시적 부정수급=subsidy_fraud, 보조금법위반·특수관계=subsidy_law_violation, 의무불이행=obligation_breach, 임금체불명단=wage_arrears_listed, 중대재해명단=serious_accident_listed, 협약·계약위반=agreement_breach] 중 해당.",
+  DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE,
   "- 재무건전성: dimension=financial_health, kind=exclusion, value.debt_ratio_pct_threshold={\"value\":숫자,\"inclusive\":이상=true/초과=false}, value.impairment_excluded=[\"partial\"|\"full\"](자본잠식만 언급 시 [\"partial\",\"full\"]), value.min_interest_coverage=숫자.",
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   "- 고용보험·피보험자: dimension=insured_workforce, value.employment_insurance_required=true / min_insured·max_insured 숫자 / no_layoff_within_months 숫자.",
-  "- 투자유치 하한(이상): dimension=investment, operator=gte, value.min_total_krw(원 단위 정수). rounds / tips_operator_required도 지원한다. 'N원 미만·이하' 같은 투자유치 상한은 현재 matcher canonical에 없으므로 dimension=investment를 유지하되 operator=text_only, value={\"note\":\"근거문장\"}로 둔다. lte와 min_total_krw를 결합하지 마라.",
+  "- 투자유치 하한(이상): 기간·기관유형·형태 같은 추가 전제가 없는 단순 누적총액 하한만 dimension=investment, operator=gte, value.min_total_krw(원 단위 정수)로 구조화한다. rounds / tips_operator_required도 지원한다. 'N원 미만·이하' 같은 투자유치 상한 또는 현재 value가 전제를 모두 담지 못하는 복합 조건은 dimension=investment를 유지하되 operator=text_only, value={\"note\":\"근거문장\"}로 둔다. lte와 min_total_krw를 결합하지 마라.",
   "- 배제업종(유흥주점·사행시설·암호화자산·부동산·도박 등): dimension=industry, operator=not_in, kind=exclusion, value.tags=[업종명].",
   "",
   "[수혜·참여 이력 — prior_award]",

@@ -6,12 +6,21 @@
 // ④ 판정 비교(compareAiAuditVerdicts — concur/불일치/unsure) ⑤ 응답 검증(대상 부분집합 강제).
 import assert from "node:assert/strict";
 import {
+  buildAiAuditSystemPrompt,
   compareAiAuditVerdicts,
   selectPendingAuditItems,
   validateAiAuditPayload,
 } from "./ai-audit";
 import { applyAiAuditJudgments, isLabAuditComplete } from "./audit-store";
 import { isAiAuditConcur, type LabAudit, type LabAuditItem } from "@/features/dev/analysis-lab/contract";
+
+{
+  const systemPrompt = buildAiAuditSystemPrompt("검수 기준서");
+  assert.match(systemPrompt, /투자일자 범위나\s*투자기관 유형 필드는 없다/);
+  assert.match(systemPrompt, /exclusion\+not_in만 보고 정상 기업을 배제한다고 추정하지 말고/);
+  assert.match(systemPrompt, /이번 작업은 표본 감사\(독립 2차 판정\)다/);
+  console.log("✅ AI 감사 프롬프트 — 검수 매처 계약과 감사 범위 공유");
+}
 
 function auditFixture(items: LabAuditItem[]): LabAudit {
   return {

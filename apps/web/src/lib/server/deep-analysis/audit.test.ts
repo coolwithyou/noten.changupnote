@@ -46,7 +46,7 @@ assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /조건이 없는 축을 표현�
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /primary_source_ref/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /impairment_excluded는 반드시.*배열/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /prior_award exclusion은 범위를 반드시/);
-assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v5");
+assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v7");
 assert.equal(DEEP_ANALYSIS_AUDIT_SCOPE_VERSION, "deep-analysis-match-impacting-scope-v1");
 
 const auditToolSchema = buildDeepAnalysisAuditToolSchema();

@@ -251,6 +251,139 @@ assert.equal(validateDeepAnalysisResult({
   issue.code === "canonical_contract_invalid" && issue.path.endsWith(".operator")
 )), true);
 
+for (const testCase of [
+  {
+    label: "기간이 결합된 투자금 일부 구조화",
+    dimension: "investment" as const,
+    operator: "gte" as const,
+    value: { min_total_krw: 10_000_000 },
+    span: "사업 공고 마감일로부터 2년 이내(’24.8.10~’26.8.10) 투자기관으로부터 총 1천만원 이상 투자 받은 기업",
+    message: "time window",
+  },
+  {
+    label: "FIU 신고 전제를 버린 업종 배제",
+    dimension: "industry" as const,
+    operator: "not_in" as const,
+    value: { tags: ["가상화폐 거래소업"] },
+    span: "금융정보분석원의 신고·등록이 되지 않은 자(가상화폐 거래소업 등)",
+    message: "registration-qualified",
+  },
+  {
+    label: "휴업을 빠뜨린 휴폐업 배제",
+    dimension: "business_status" as const,
+    operator: "not_in" as const,
+    value: { statuses: ["closed"], labels: ["휴폐업"] },
+    span: "신청일 기준 사업자가 휴·폐업 중인 자",
+    message: "suspended and closed",
+  },
+  {
+    label: "중도포기를 빠뜨린 협약 이력",
+    dimension: "prior_award" as const,
+    operator: "in" as const,
+    value: { scope: "program", programs: ["프리 팁스"], states: ["completed"] },
+    span: "프리 팁스 사업에 선정되어 협약을 체결했던 이력이 있는 자(중단처분·중도포기자 포함)",
+    message: "must omit states",
+  },
+  {
+    label: "환수금 반환 미종결을 부정수급으로 축약",
+    dimension: "sanction" as const,
+    operator: "in" as const,
+    value: { flags: ["subsidy_fraud"] },
+    span: "창업진흥원으로부터 발생한 환수금 등의 반환이 종결되지 않은 자",
+    message: "does not imply subsidy fraud",
+  },
+] as const) {
+  const semanticSeal = sealDeepAnalysisInput({
+    grantId: `grant-semantic-${testCase.dimension}`,
+    sourceRevisionSha256: "7".repeat(64),
+    structuredText: testCase.span,
+    attachments: [],
+  });
+  const validation = validateDeepAnalysisResult({
+    seal: semanticSeal,
+    result: result([
+      criterion({
+        dimension: testCase.dimension,
+        operator: testCase.operator,
+        kind: "exclusion",
+        value: testCase.value,
+        sourceSpan: testCase.span,
+      }),
+    ], axes([testCase.dimension])),
+  });
+  assert.equal(validation.valid, false, `${testCase.label}은 운영 검증을 통과할 수 없다`);
+  assert.equal(
+    validation.issues.some((issue) => (
+      issue.code === "canonical_contract_invalid"
+      && issue.message.includes(testCase.message)
+    )),
+    true,
+    `${testCase.label}은 구체적 의미 손실 issue를 남긴다`,
+  );
+}
+
+const completeBusinessStatusSpan = "신청일 기준 사업자가 휴·폐업 중인 자";
+const completeBusinessStatusSeal = sealDeepAnalysisInput({
+  grantId: "grant-complete-business-status",
+  sourceRevisionSha256: "8".repeat(64),
+  structuredText: completeBusinessStatusSpan,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: completeBusinessStatusSeal,
+  result: result([
+    criterion({
+      dimension: "business_status",
+      operator: "not_in",
+      kind: "exclusion",
+      value: { statuses: ["suspended", "closed"], labels: ["휴폐업"] },
+      sourceSpan: completeBusinessStatusSpan,
+    }),
+  ], axes(["business_status"])),
+}).valid, true, "휴업·폐업을 모두 보존한 status criterion은 통과한다");
+
+const futureRegionAlternativeSpan =
+  "협약체결 전까지 비수도권으로 주소지 이전 예정인 경우 확약서를 제출하여야 한다.";
+const futureRegionAlternativeSeal = sealDeepAnalysisInput({
+  grantId: "grant-future-region-alternative",
+  sourceRevisionSha256: "9".repeat(64),
+  structuredText: futureRegionAlternativeSpan,
+  attachments: [],
+});
+const unsafeFutureRegionValidation = validateDeepAnalysisResult({
+  seal: futureRegionAlternativeSeal,
+  result: result([
+    criterion({
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      value: { regions: ["비수도권"] },
+      sourceSpan: futureRegionAlternativeSpan,
+    }),
+  ], axes(["region"])),
+});
+assert.equal(unsafeFutureRegionValidation.valid, false, "이전 예정 대안을 현재 소재지 조건으로 축약할 수 없다");
+assert.equal(
+  unsafeFutureRegionValidation.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.message.includes("future relocation alternative")
+  )),
+  true,
+  "이전 예정 대안의 의미 손실을 결정론적으로 차단한다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: futureRegionAlternativeSeal,
+  result: result([
+    criterion({
+      dimension: "region",
+      operator: "text_only",
+      kind: "required",
+      value: { note: futureRegionAlternativeSpan },
+      sourceSpan: futureRegionAlternativeSpan,
+    }),
+  ], axes(["region"])),
+}).valid, true, "이전 기한과 확약 조건을 보존한 region/text_only는 통과한다");
+
 for (const [label, nonMatchingSpan] of [
   ["신청 진실성 서약", "허위 또는 과장된 정보 제출 시 선정 취소 및 향후 지원 제한 등의 불이익이 있을 수 있습니다."],
   ["서류 접수 절차", "접수 마감일까지 계획서 등 제반서류를 제출 완료하지 않은 경우"],

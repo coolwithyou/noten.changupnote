@@ -13,6 +13,15 @@ import {
   type AiReviewForAudit,
   type RunComparisonInput,
 } from "./ai-review-compare";
+import { buildSystemPrompt } from "./ai-review";
+
+{
+  const systemPrompt = buildSystemPrompt("검수 기준서");
+  assert.match(systemPrompt, /투자일자 범위나\s*투자기관 유형 필드는 없다/);
+  assert.match(systemPrompt, /존재하지 않는 필드를 새로 만들라고 needs_edit 하지 마라/);
+  assert.match(systemPrompt, /exclusion\+not_in만 보고 정상 기업을 배제한다고 추정하지 말고/);
+  console.log("✅ AI 검수 프롬프트 — 현재 매처 계약과 exclusion 극성 공유");
+}
 
 function comparisonFixture(): RunComparisonInput[] {
   return [

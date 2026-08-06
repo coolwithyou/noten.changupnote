@@ -31,6 +31,33 @@ function evalOne(criterion: GrantCriterion, company: CompanyProfile) {
 
 const baseConfidence = { region: 0.8 } as const;
 
+// ── business_status ───────────────────────────────────────────────────────
+
+const inactiveCriterion: GrantCriterion = {
+  dimension: "business_status",
+  operator: "not_in",
+  kind: "exclusion",
+  confidence: 0.9,
+  value: { statuses: ["suspended", "closed"], labels: ["휴폐업"] },
+  source_span: "신청일 기준 휴·폐업 중인 기업은 제외",
+};
+
+check("[business_status] 정상 영업 → pass", () => {
+  const { entry } = evalOne(inactiveCriterion, {
+    business_status: { active: true, label: "정상" },
+    confidence: { ...baseConfidence, business_status: 0.8 },
+  });
+  assert.equal(entry.result, "pass");
+});
+
+check("[business_status] 휴업 또는 폐업 상태 → fail", () => {
+  const { entry } = evalOne(inactiveCriterion, {
+    business_status: { active: false, label: "휴업" },
+    confidence: { ...baseConfidence, business_status: 0.8 },
+  });
+  assert.equal(entry.result, "fail");
+});
+
 // ── tax_compliance ──────────────────────────────────────────────────────────
 
 const taxCriterion: GrantCriterion = {

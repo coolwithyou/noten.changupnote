@@ -943,8 +943,10 @@ function evaluateBusinessStatus(criterion: GrantCriterion, company: CompanyProfi
 
   const value = criterion.value as { statuses?: string[]; labels?: string[] };
   const statuses = value.statuses ?? [];
-  const isClosedExcluded = statuses.includes("closed") || /휴.?폐업|폐업/.test(criterion.source_span ?? "");
-  if (!isClosedExcluded) {
+  const isInactiveExcluded = statuses.includes("closed")
+    || statuses.includes("suspended")
+    || /휴.?폐업|폐업/.test(criterion.source_span ?? "");
+  if (!isInactiveExcluded) {
     return trace(criterion, "unknown", "영업상태 조건 원문 확인 필요", status);
   }
 

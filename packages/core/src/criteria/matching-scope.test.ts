@@ -23,6 +23,14 @@ assert.equal(
   nonMatchingCriterionReason(criterion("협약서 등 관련 문서의 명시사항을 2회 이상 위반하거나 시정요구에 응하지 않을 경우")),
   "post_selection_obligation",
 );
+assert.equal(
+  nonMatchingCriterionReason(criterion(
+    "다수의 사업자등록증(개인·법인)을 보유한 경우, 창업여부 기준표에 따라 신청 자격 적합여부 결정",
+    { kind: "required" },
+  )),
+  "eligibility_calculation_instruction",
+  "창업여부 계산 안내는 독립 required criterion이 아니다",
+);
 
 assert.equal(
   isNonMatchingApplicationCriterion(criterion("정부지원사업 참여제한 중인 기업은 신청할 수 없음", {

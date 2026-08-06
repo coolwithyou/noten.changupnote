@@ -21,7 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v5" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v7" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -461,6 +461,7 @@ function validateCriterion(
   };
   const canonicalCriterion = canonicalizeGrantCriterion(grantCriterion);
   validateExceptionCoverage(criterion, index, issues);
+  validateMatcherSemanticCompleteness(criterion, index, issues);
   if (criterion.dimension === "target_type") {
     const value = isRecord(canonicalCriterion.value) ? canonicalCriterion.value : {};
     const targets = Array.isArray(value.targets)
@@ -551,6 +552,86 @@ function validateCriterion(
     semanticSha256,
     evidenceRefs,
   };
+}
+
+function validateMatcherSemanticCompleteness(
+  criterion: DeepAnalysisCriterion,
+  index: number,
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  if (criterion.operator === "text_only") return;
+  const span = (criterion.sourceSpan ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  const value = isRecord(criterion.value) ? criterion.value : {};
+  const reject = (message: string, path = "") => {
+    issues.push({
+      code: "canonical_contract_invalid",
+      path: `$.criteria[${index}]${path}`,
+      message,
+    });
+  };
+
+  if (
+    criterion.dimension === "investment"
+    && (/(?:공고|접수)\s*(?:마감일?)?.{0,24}\d+\s*년\s*이내/u.test(span)
+      || /[’']?\d{2,4}[.\-/]\d{1,2}[.\-/]\d{1,2}.{0,12}(?:~|∼|부터).{0,12}[’']?\d{2,4}[.\-/]\d{1,2}[.\-/]\d{1,2}/u.test(span))
+  ) {
+    reject(
+      "Investment amount combined with a time window is not losslessly representable; use investment/text_only with the complete predicate.",
+      ".operator",
+    );
+  }
+
+  if (
+    criterion.dimension === "region"
+    && /(?:협약|선정).{0,24}(?:전|체결).{0,24}(?:이전|주소지)/u.test(span)
+    && /(?:이전\s*예정|확약서|이전\s*완료)/u.test(span)
+  ) {
+    reject(
+      "A future relocation alternative cannot be reduced to the company's current region; use region/text_only with the full alternative path.",
+      ".operator",
+    );
+  }
+
+  if (
+    criterion.dimension === "industry"
+    && /신고.{0,6}등록.{0,16}(?:되지\s*않|아니|미등록)/u.test(span)
+  ) {
+    reject(
+      "A registration-qualified industry exclusion cannot be reduced to unconditional industry tags; use industry/text_only.",
+      ".operator",
+    );
+  }
+
+  if (criterion.dimension === "business_status" && /휴\s*[·‧ㆍ/・-]?\s*폐업/u.test(span)) {
+    const statuses = stringArray(value.statuses);
+    if (!statuses.includes("suspended") || !statuses.includes("closed")) {
+      reject(
+        "휴·폐업 exclusion requires both suspended and closed statuses.",
+        ".value.statuses",
+      );
+    }
+  }
+
+  if (
+    criterion.dimension === "prior_award"
+    && /(?:중단\s*처분|중도\s*포기)/u.test(span)
+    && stringArray(value.states).length > 0
+  ) {
+    reject(
+      "A program-history exclusion that explicitly includes termination or withdrawal must omit states so every agreement history is covered.",
+      ".value.states",
+    );
+  }
+
+  if (
+    criterion.dimension === "sanction"
+    && /환수금.{0,40}반환.{0,20}(?:종결되지\s*않|미종결)/u.test(span)
+  ) {
+    reject(
+      "Unresolved refund repayment does not imply subsidy fraud; preserve the complete condition as sanction/text_only.",
+      ".operator",
+    );
+  }
 }
 
 function validateExceptionCoverage(

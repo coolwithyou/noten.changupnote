@@ -55,7 +55,7 @@ export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
  *   ③ 다른 축 criterion 으로 이미 포착된 조건은 빈 축 missed_condition 아님
  * v1 산출물은 <파일명>.v1 로 rename 보존. 재개정은 §9 상 불가(1회 한정 소진).
  */
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v2";
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v3";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -246,6 +246,14 @@ export function buildSystemPrompt(rubric: string): string {
     "- [빈 축 중복 배제] 원문에 그 축과 관련된 문구가 실재해도, 그 조건이 이미 다른 축의 제안",
     "  criterion 으로 포착되어 있으면 그 축의 missed_condition 이 아니다. 축 재배정이 더",
     "  적절하다는 의견은 해당 criterion 의 검수 note 에서 다룬다(빈 축 판정이 아니라).",
+    "- [현재 매처 계약] 검수는 현재 제품이 실제로 지원하는 프로필·value 계약을 기준으로 한다.",
+    "  investment 구조값은 누적 투자총액(min_total_krw), 라운드, TIPS 여부뿐이며 투자일자 범위나",
+    "  투자기관 유형 필드는 없다. 기간·기관유형 등이 금액과 결합된 조건을 전체 investment/text_only로",
+    "  보존해 자동 pass를 막았다면 correct다. 존재하지 않는 필드를 새로 만들라고 needs_edit 하지 마라.",
+    "- [exclusion 극성] kind=exclusion은 조건에 해당하는 기업을 fail시키는 극성이다. 현재 industry와",
+    "  business_status 매처는 exclusion criterion에서 in/not_in 표기와 무관하게 값이 겹치거나 비활성",
+    "  상태이면 fail로 판정한다. 따라서 exclusion+not_in만 보고 정상 기업을 배제한다고 추정하지 말고",
+    "  kind와 실제 value가 원문의 배제 대상을 정확히 가리키는지 판정하라.",
     "- 모든 criterion 인덱스와 모든 빈 축을 빠짐없이 정확히 한 번씩 판정하라.",
   ].join("\n");
 }
