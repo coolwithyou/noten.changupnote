@@ -21,6 +21,8 @@ import {
 import {
   hashFile,
   hashFileIfPresent,
+  isVerifiedLocalLabSourceArtifact,
+  VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
   type PromotionSourceArtifact,
 } from "./promotion-release";
 import { selectReviewedRuns } from "./reviewed-runs";
@@ -37,15 +39,53 @@ export interface PromotionCandidate {
   sourceArtifact: PromotionSourceArtifact;
 }
 
+export interface PromotionCandidateSelectionOptions {
+  grantId?: string;
+  auditedLocalCanary?: boolean;
+}
+
+/**
+ * 주간 사람검수 release와 별개로 여는 유일한 우회 경로다. 정확히 한 공고를 지정하고,
+ * 구독 transport의 AI 검수+감사가 모두 봉인된 경우에만 후보 1건을 반환한다.
+ */
+export function selectPromotionCandidatesForRelease(
+  candidates: readonly PromotionCandidate[],
+  options: PromotionCandidateSelectionOptions = {},
+): PromotionCandidate[] {
+  if (!options.grantId) return [...candidates];
+  if (!options.auditedLocalCanary) {
+    throw new Error("단일 로컬 승격은 --audited-local-canary 명시가 필요합니다.");
+  }
+  const selected = candidates.filter((candidate) => candidate.plan.grantId === options.grantId);
+  if (selected.length !== 1) {
+    throw new Error(`단일 로컬 승격 후보는 정확히 1건이어야 합니다: ${options.grantId} (${selected.length}건)`);
+  }
+  const [candidate] = selected;
+  if (
+    !candidate
+    || candidate.source.origin !== "audited"
+    || candidate.source.run.transport !== "claude-cli"
+    || candidate.source.run.error !== null
+    || candidate.sourceArtifact.localLabEvidence?.reviewMethod !== "ai_audit"
+    || !isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact)
+  ) {
+    throw new Error(`AI 검수·감사가 봉인된 구독 분석만 단일 로컬 승격할 수 있습니다: ${options.grantId}`);
+  }
+  return [candidate];
+}
+
 /**
  * release 준비 전용 후보 수집. 미완 감사/pending은 의도적으로 포함하지 않는다.
  * 준비 이후의 aggregate/shadow/promote는 이 함수를 다시 호출하지 않고 manifest만 소비한다.
  */
-export async function loadConfirmedPromotionCandidates(): Promise<PromotionCandidate[]> {
-  const reviewedSelection = await selectReviewedRuns({ scanAll: false });
+export async function loadConfirmedPromotionCandidates(options: {
+  scanAll?: boolean;
+} = {}): Promise<PromotionCandidate[]> {
+  const scanAll = options.scanAll === true;
+  const reviewedSelection = await selectReviewedRuns({ scanAll });
   const audited = await loadAuditedConfirmedReviews({
     model: AI_REVIEW_ADOPTED.model,
-    scanAll: false,
+    scanAll,
   });
   const sources = dedupePromotionSources(reviewedSelection.reviewed, audited.confirmed);
   const candidates: PromotionCandidate[] = [];
@@ -69,6 +109,36 @@ export async function loadConfirmedPromotionCandidates(): Promise<PromotionCandi
       runSha256: await hashFile(runPath),
       confirmationsSha256: await hashFileIfPresent(confirmationPath) ?? null,
       overlaySha256: await hashFileIfPresent(overlayPath) ?? null,
+      ...(run.transport === "claude-cli"
+        ? {
+            localLabEvidence: {
+              schema: VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
+              transport: "claude-cli" as const,
+              model: run.model,
+              promptVersion: run.promptVersion,
+              inputSha256: run.inputSha256,
+              reviewMethod: source.origin === "human" ? "human" as const : "ai_audit" as const,
+              ...(source.origin === "audited" && source.auditEvidence
+                ? {
+                    reviewModel: source.auditEvidence.reviewModel,
+                    reviewPromptVersion: source.auditEvidence.reviewPromptVersion,
+                    ...(source.auditEvidence.reviewTransport === "claude-cli"
+                      ? { reviewTransport: "claude-cli" as const }
+                      : {}),
+                    ...(source.auditEvidence.auditModel
+                      ? { auditModel: source.auditEvidence.auditModel }
+                      : {}),
+                    ...(source.auditEvidence.auditPromptVersion
+                      ? { auditPromptVersion: source.auditEvidence.auditPromptVersion }
+                      : {}),
+                    ...(source.auditEvidence.auditTransport === "claude-cli"
+                      ? { auditTransport: "claude-cli" as const }
+                      : {}),
+                  }
+                : {}),
+            },
+          }
+        : {}),
     };
     if (source.origin === "human") {
       artifact.reviewSha256 = await hashFile(
@@ -133,6 +203,57 @@ export async function verifyPromotionSourceArtifact(
   const changed = checks
     .filter(([, expected, actual]) => expected !== undefined && expected !== actual)
     .map(([name]) => name);
+  if (artifact.localLabEvidence) {
+    if (run.transport !== artifact.localLabEvidence.transport) changed.push("transport");
+    if (run.model !== artifact.localLabEvidence.model) changed.push("model");
+    if (run.promptVersion !== artifact.localLabEvidence.promptVersion) changed.push("prompt_version");
+    if (run.inputSha256 !== artifact.localLabEvidence.inputSha256) changed.push("input_evidence");
+    try {
+      const { reassembleLabInputForRun } = await import("./ai-review");
+      const currentInput = await reassembleLabInputForRun(run);
+      if (currentInput.inputSha256 !== run.inputSha256) changed.push("input");
+    } catch {
+      changed.push("input_unavailable");
+    }
+    if (artifact.localLabEvidence.reviewMethod === "ai_audit") {
+      const suffix = modelSlug(artifact.localLabEvidence.reviewModel ?? "");
+      const reviewPath = runPath.replace(/\.json$/, `.ai-review.${suffix}.json`);
+      const auditPath = labAuditFilePath(
+        run.source,
+        run.sourceId,
+        run.runId,
+        artifact.localLabEvidence.reviewModel ?? "",
+      );
+      const [{ readAiReviewFile }, { isLabAuditComplete, readLabAuditFileAt }] = await Promise.all([
+        import("./ai-review"),
+        import("./audit-store"),
+      ]);
+      const [review, audit] = await Promise.all([
+        readAiReviewFile(reviewPath),
+        readLabAuditFileAt(auditPath),
+      ]);
+      if (
+        !review
+        || review.model !== artifact.localLabEvidence.reviewModel
+        || review.promptVersion !== artifact.localLabEvidence.reviewPromptVersion
+        || review.aiReviewTransport !== artifact.localLabEvidence.reviewTransport
+        || review.inputSha256Verified !== true
+      ) {
+        changed.push("ai_review_provenance");
+      }
+      if (
+        !audit
+        || !isLabAuditComplete(audit)
+        || audit.model !== artifact.localLabEvidence.reviewModel
+        || audit.aiPromptVersion !== artifact.localLabEvidence.reviewPromptVersion
+        || audit.aiAuditModel !== artifact.localLabEvidence.auditModel
+        || audit.aiAuditPromptVersion !== artifact.localLabEvidence.auditPromptVersion
+        || audit.aiAuditTransport !== artifact.localLabEvidence.auditTransport
+      ) {
+        changed.push("ai_audit_provenance");
+      }
+    }
+  }
   return { ok: changed.length === 0, changed };
 }
 

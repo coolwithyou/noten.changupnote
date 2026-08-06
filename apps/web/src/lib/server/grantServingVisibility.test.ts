@@ -37,8 +37,21 @@ assert.match(
 );
 assert.match(
   activeListSource,
-  /analysisLabPromotionItems[\s\S]*deepAnalysisRunId[\s\S]*"applied"[\s\S]*\["active", "canary_passed"\]/,
-  "deep-analysis-only reads must require applied promotion provenance from an active release",
+  /listServingPromotionGrantIds\(\)/,
+  "deep-analysis-only reads must resolve trusted promotion provenance before querying grants",
+);
+const promotionResolverSource = between(
+  repositorySource,
+  "private async listServingPromotionGrantIds(",
+  "async findGrantById(",
+);
+assert.match(promotionResolverSource, /analysisLabPromotionItems/);
+assert.match(promotionResolverSource, /status, "applied"/);
+assert.match(promotionResolverSource, /\["active", "canary_passed"\]/);
+assert.match(
+  promotionResolverSource,
+  /filter\(isPromotionItemServingEligible\)/,
+  "serving provenance must require an applied item, active release, and the shared evidence verifier",
 );
 assert.match(
   between(repositorySource, "async findGrantById(", "async listGrantsByIds("),

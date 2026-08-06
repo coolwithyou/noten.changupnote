@@ -57,11 +57,21 @@ export type PromotionOrigin = "human" | "audited" | "pending";
  */
 export type PromotionAuditState = "human_reviewed" | "ai_audit_concur" | "mixed_resolution";
 
+export interface PromotionAuditedSourceEvidence {
+  reviewModel: string;
+  reviewPromptVersion: string;
+  reviewTransport: "api" | "claude-cli" | null;
+  auditModel: string | null;
+  auditPromptVersion: string | null;
+  auditTransport: "api" | "claude-cli" | null;
+}
+
 export interface PromotionSource {
   run: LabRun;
   review?: LabReview;
   aiReview?: AiCriterionReviewSnapshot;
   audit?: LabAudit | null;
+  auditEvidence?: PromotionAuditedSourceEvidence;
   overlay?: HumanReviewOverlay | null;
   origin: PromotionOrigin;
 }
@@ -73,7 +83,11 @@ export interface PromotionSource {
  */
 export function dedupePromotionSources(
   human: Array<{ run: LabRun; review: LabReview }>,
-  audited: Array<{ run: LabRun; review: LabReview }>,
+  audited: Array<{
+    run: LabRun;
+    review: LabReview;
+    auditEvidence?: PromotionAuditedSourceEvidence;
+  }>,
 ): PromotionSource[] {
   const byGrant = new Map<string, PromotionSource>();
   for (const item of human) {
@@ -81,7 +95,12 @@ export function dedupePromotionSources(
   }
   for (const item of audited) {
     if (!byGrant.has(item.run.grantId)) {
-      byGrant.set(item.run.grantId, { run: item.run, review: item.review, origin: "audited" });
+      byGrant.set(item.run.grantId, {
+        run: item.run,
+        review: item.review,
+        ...(item.auditEvidence ? { auditEvidence: item.auditEvidence } : {}),
+        origin: "audited",
+      });
     }
   }
   return [...byGrant.values()].sort((a, b) => a.run.grantId.localeCompare(b.run.grantId));

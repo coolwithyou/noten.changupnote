@@ -8,7 +8,28 @@ import { analysisLabDir } from "./run-store";
 export const PROMOTION_RELEASE_SCHEMA = "analysis-lab-promotion-release-v1" as const;
 export const PROMOTION_DRY_RUN_SCHEMA = "analysis-lab-promotion-dry-run-v1" as const;
 export const PROMOTION_APPROVAL_SCHEMA = "analysis-lab-promotion-approval-v1" as const;
+export const VERIFIED_LOCAL_LAB_SOURCE_SCHEMA = "verified-local-lab-source-v1" as const;
 export const MIN_CONFIRM_HASH_PREFIX = 12;
+
+export type PromotionServingProvenance =
+  | "production_deep_run"
+  | "verified_local_lab"
+  | "experiment_only";
+
+export interface VerifiedLocalLabSourceEvidence {
+  schema: typeof VERIFIED_LOCAL_LAB_SOURCE_SCHEMA;
+  transport: "claude-cli";
+  model: string;
+  promptVersion: string;
+  inputSha256: string;
+  reviewMethod: "human" | "ai_audit";
+  reviewModel?: string;
+  reviewPromptVersion?: string;
+  reviewTransport?: "claude-cli";
+  auditModel?: string;
+  auditPromptVersion?: string;
+  auditTransport?: "claude-cli";
+}
 
 export interface PromotionSourceArtifact {
   grantId: string;
@@ -30,6 +51,11 @@ export interface PromotionSourceArtifact {
   auditArtifactKey?: string;
   /** 조건부 승격도 원본 audit 판정과 함께 manifest hash에 봉인한다. */
   auditVerdict?: "concur" | "unsure";
+  /**
+   * 로컬 구독 분석을 운영 deep run으로 위장하지 않고 별도 provenance로 봉인한다.
+   * 이 증거와 review/audit 파일 해시가 모두 있을 때만 제품 서빙 후보가 된다.
+   */
+  localLabEvidence?: VerifiedLocalLabSourceEvidence;
 }
 
 export interface PromotionReleasePlanItem {
@@ -63,6 +89,8 @@ export interface PromotionReleaseManifestBody {
   buildDigest: string;
   cohortLabel: string;
   canaryGrantIds: string[];
+  /** 구 release에는 없으며, 부재 시 experiment_only와 동일하게 서빙에서 제외한다. */
+  servingProvenance?: PromotionServingProvenance;
   releasePlanSha256: string;
   sourceArtifacts: PromotionSourceArtifact[];
   plans: PromotionReleasePlanItem[];
@@ -319,7 +347,7 @@ export function isUnexplainedPromotionShadowTransition(
 }
 
 export function createPromotionReleaseManifest(
-  input: Omit<PromotionReleaseManifestBody, "schema" | "releasePlanSha256">,
+  input: Omit<PromotionReleaseManifestBody, "schema" | "releasePlanSha256" | "servingProvenance">,
 ): PromotionReleaseManifest {
   const plans = [...input.plans].sort((left, right) => left.grantId.localeCompare(right.grantId));
   const sourceArtifacts = [...input.sourceArtifacts]
@@ -329,6 +357,7 @@ export function createPromotionReleaseManifest(
     ...input,
     schema: PROMOTION_RELEASE_SCHEMA,
     canaryGrantIds,
+    servingProvenance: resolvePromotionServingProvenance(sourceArtifacts),
     sourceArtifacts,
     plans,
     releasePlanSha256: releasePlanSha256(plans),
@@ -353,6 +382,12 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
   }
   assertSafeReleaseId(manifest.releaseId);
   const typed = manifest as PromotionReleaseManifest;
+  if (
+    typed.servingProvenance !== undefined
+    && typed.servingProvenance !== resolvePromotionServingProvenance(typed.sourceArtifacts)
+  ) {
+    throw new Error("release serving provenance가 source artifact와 일치하지 않습니다.");
+  }
   const expectedPlanHash = releasePlanSha256(typed.plans);
   if (expectedPlanHash !== typed.releasePlanSha256) {
     throw new Error("release plan hash가 manifest 내용과 일치하지 않습니다.");
@@ -409,6 +444,52 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     if (!seenGrantIds.has(grantId)) throw new Error(`canary가 release plan 밖에 있습니다: ${grantId}`);
   }
   return typed;
+}
+
+export function resolvePromotionServingProvenance(
+  artifacts: readonly PromotionSourceArtifact[],
+): PromotionServingProvenance {
+  if (artifacts.length === 0) return "experiment_only";
+  if (artifacts.every((artifact) => Boolean(artifact.deepAnalysisRunId))) {
+    return "production_deep_run";
+  }
+  if (artifacts.every(isVerifiedLocalLabSourceArtifact)) {
+    return "verified_local_lab";
+  }
+  return "experiment_only";
+}
+
+export function isVerifiedLocalLabSourceArtifact(
+  artifact: PromotionSourceArtifact,
+): boolean {
+  const evidence = artifact.localLabEvidence;
+  if (
+    artifact.deepAnalysisRunId
+    || evidence?.schema !== VERIFIED_LOCAL_LAB_SOURCE_SCHEMA
+    || evidence.transport !== "claude-cli"
+    || !evidence.model.trim()
+    || !evidence.promptVersion.trim()
+    || !isSha256(evidence.inputSha256)
+    || !isSha256(artifact.runSha256)
+  ) {
+    return false;
+  }
+  if (evidence.reviewMethod === "human") return isSha256(artifact.reviewSha256);
+  if (evidence.reviewMethod === "ai_audit") {
+    return isSha256(artifact.aiReviewSha256)
+      && isSha256(artifact.auditSha256)
+      && Boolean(evidence.reviewModel?.trim())
+      && Boolean(evidence.reviewPromptVersion?.trim())
+      && evidence.reviewTransport === "claude-cli"
+      && Boolean(evidence.auditModel?.trim())
+      && Boolean(evidence.auditPromptVersion?.trim())
+      && evidence.auditTransport === "claude-cli";
+  }
+  return false;
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/i.test(value);
 }
 
 export function assertManifestConfirmation(

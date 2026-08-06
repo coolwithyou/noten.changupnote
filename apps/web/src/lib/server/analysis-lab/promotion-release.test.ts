@@ -12,6 +12,7 @@ import {
   planSha256,
   pseudonymizePromotionCompanyKey,
   validatePromotionReleaseManifest,
+  VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
   type PromotionReleasePlanItem,
 } from "./promotion-release";
 
@@ -100,11 +101,57 @@ function manifest() {
   );
   const first = manifest();
   const second = manifest();
+  assert.equal(first.servingProvenance, "experiment_only");
   assert.equal(first.releasePlanSha256, second.releasePlanSha256);
   assert.equal(first.manifestSha256, second.manifestSha256);
   assert.deepEqual(validatePromotionReleaseManifest(first), first);
   assert.doesNotThrow(() => assertManifestConfirmation(first, first.manifestSha256.slice(0, 12)));
   assert.throws(() => assertManifestConfirmation(first, "short"), /12자/);
+}
+
+{
+  const verifiedLocal = createPromotionReleaseManifest({
+    releaseId: "deep-local-test-r1",
+    revision: 1,
+    createdAt: "2026-08-06T00:00:00.000Z",
+    gitCommit: "d".repeat(40),
+    buildDigest: "e".repeat(40),
+    cohortLabel: "local-canary",
+    canaryGrantIds: [plan.grantId],
+    sourceArtifacts: [{
+      grantId: plan.grantId,
+      runId: plan.runId,
+      runSha256: "f".repeat(64),
+      aiReviewSha256: "1".repeat(64),
+      auditSha256: "2".repeat(64),
+      overlaySha256: null,
+      confirmationsSha256: null,
+      localLabEvidence: {
+        schema: VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
+        transport: "claude-cli",
+        model: "claude-opus-5",
+        promptVersion: "lab-deep-v7",
+        inputSha256: "3".repeat(64),
+        reviewMethod: "ai_audit",
+        reviewModel: "claude-fable-5",
+        reviewPromptVersion: "ai-review-v3",
+        reviewTransport: "claude-cli",
+        auditModel: "claude-sonnet-5",
+        auditPromptVersion: "ai-audit-v2",
+        auditTransport: "claude-cli",
+      },
+    }],
+    plans: [planItem],
+  });
+  assert.equal(verifiedLocal.servingProvenance, "verified_local_lab");
+  assert.deepEqual(validatePromotionReleaseManifest(verifiedLocal), verifiedLocal);
+
+  verifiedLocal.servingProvenance = "production_deep_run";
+  assert.throws(
+    () => validatePromotionReleaseManifest(verifiedLocal),
+    /serving provenance/,
+    "source artifact와 다른 provenance 표시는 거부해야 한다",
+  );
 }
 
 {

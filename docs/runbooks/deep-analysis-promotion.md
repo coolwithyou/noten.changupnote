@@ -48,6 +48,24 @@ ANALYSIS_LAB_ARTIFACT_HMAC_KEY=<32자-이상-secret> \
 pnpm lab:promote -- --release=<release-id> --dry-run
 ```
 
+로컬 구독 분석 1건을 먼저 canary로 검증할 때는 기존 주간 사람검수 배치의 게이트를
+완화하지 않고, 다음의 별도 단건 경로만 사용합니다. 이 경로는 `claude-cli` 실행, 성공 런,
+AI 검수·독립 감사, run/review/audit/input 해시가 모두 맞는 정확한 `grantId` 한 건만
+허용합니다.
+
+```bash
+pnpm lab:release -- \
+  --prepare \
+  --cohort=local-canary-YYYY-MM-DD \
+  --grantId=<검증할-grant-id> \
+  --audited-local-canary \
+  --actor=<준비자>
+```
+
+manifest의 `servingProvenance`가 `verified_local_lab`인지 확인한 뒤 아래 aggregate,
+shadow, dry-run, 분리 승인, canary 승격 순서를 그대로 따릅니다. 기존 local release,
+API transport, 단순 `runId`만 있는 승격 행은 랜딩 서빙 대상이 아닙니다.
+
 확인할 값:
 
 - 세 산출물의 `releaseId`, `manifestSha256`, `releasePlanSha256`이 동일합니다.

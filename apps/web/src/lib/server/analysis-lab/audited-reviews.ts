@@ -160,6 +160,14 @@ export interface AuditedConfirmedRun {
   run: LabRun;
   review: LabReview;
   provenance: AuditedReviewProvenance;
+  auditEvidence: {
+    reviewModel: string;
+    reviewPromptVersion: string;
+    reviewTransport: "api" | "claude-cli" | null;
+    auditModel: string | null;
+    auditPromptVersion: string | null;
+    auditTransport: "api" | "claude-cli" | null;
+  };
 }
 
 /** 감사 대기(파일 미생성이면 decided/total null) — 무은폐 표시용. */
@@ -257,7 +265,19 @@ export async function loadAuditedConfirmedReviews(options: {
       continue;
     }
     const merged = mergeAuditedReview(item.review, audit);
-    confirmed.push({ run: item.run, review: merged.review, provenance: merged.provenance });
+    confirmed.push({
+      run: item.run,
+      review: merged.review,
+      provenance: merged.provenance,
+      auditEvidence: {
+        reviewModel: item.review.model,
+        reviewPromptVersion: item.review.promptVersion,
+        reviewTransport: item.review.aiReviewTransport ?? null,
+        auditModel: audit.aiAuditModel ?? null,
+        auditPromptVersion: audit.aiAuditPromptVersion ?? null,
+        auditTransport: audit.aiAuditTransport ?? null,
+      },
+    });
   }
 
   return { confirmed, pending };

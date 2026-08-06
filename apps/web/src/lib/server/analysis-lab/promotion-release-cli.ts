@@ -2,7 +2,10 @@ import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { and, eq, inArray } from "drizzle-orm";
 import { applyPublishGuards } from "./promote";
-import { loadConfirmedPromotionCandidates } from "./promotion-candidates";
+import {
+  loadConfirmedPromotionCandidates,
+  selectPromotionCandidatesForRelease,
+} from "./promotion-candidates";
 import {
   assertManifestConfirmation,
   createPromotionReleaseManifest,
@@ -116,14 +119,25 @@ function selectCanaries(
 async function prepare(): Promise<number> {
   const cohort = readArg("cohort")?.trim();
   const actor = readArg("actor")?.trim();
+  const grantId = readArg("grantId")?.trim();
+  const auditedLocalCanary = hasFlag("audited-local-canary");
   const revision = Number(readArg("revision") ?? "1");
   if (!cohort) throw new Error("--cohort가 필요합니다. 예: --cohort=2026-W30");
   if (!actor) throw new Error("--actor에 준비 담당자 식별자가 필요합니다.");
   if (!Number.isInteger(revision) || revision < 1) throw new Error("--revision은 1 이상의 정수여야 합니다.");
+  if (auditedLocalCanary && !grantId) {
+    throw new Error("--audited-local-canary는 --grantId와 함께 사용해야 합니다.");
+  }
   const build = assertCleanGitTree();
-  await assertDispatchCollected(cohort);
+  if (!auditedLocalCanary) await assertDispatchCollected(cohort);
 
-  const candidates = await loadConfirmedPromotionCandidates();
+  const candidates = selectPromotionCandidatesForRelease(
+    await loadConfirmedPromotionCandidates({ scanAll: Boolean(grantId) }),
+    {
+      ...(grantId ? { grantId } : {}),
+      auditedLocalCanary,
+    },
+  );
   if (candidates.length === 0) throw new Error("확정된 promotion candidate가 0건입니다.");
   const guarded = applyPublishGuards(candidates.map((candidate) => candidate.plan));
   if (guarded.refused.length > 0) {

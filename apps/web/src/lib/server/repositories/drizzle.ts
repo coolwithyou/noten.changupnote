@@ -3,7 +3,6 @@ import {
   asc,
   desc,
   eq,
-  exists,
   gte,
   inArray,
   isNotNull,
@@ -79,6 +78,10 @@ import { withCunoteDbUser } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { grantServingVisiblePredicate } from "@/lib/server/grantServingVisibility";
 import {
+  isPromotionItemServingEligible,
+  resolvePromotionServingEvidence,
+} from "@/lib/server/analysis-lab/promotion-serving";
+import {
   activeGrantApplyEndCutoff,
   isClearlyStaleUndatedGrant,
   isKStartupRecruitmentClosedPayload,
@@ -122,26 +125,14 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       and(eq(schema.grants.status, "unknown"), activeGrantApplyEndWhere(options.asOf)),
     );
     const requestedLimit = options.limit ?? 100;
-    const deepAnalysisPromotionFilter = options.requireDeepAnalysisPromotion
-      ? exists(
-        this.db.client
-          .select({ one: sql`1` })
-          .from(schema.analysisLabPromotionItems)
-          .innerJoin(
-            schema.analysisLabPromotionReleases,
-            eq(
-              schema.analysisLabPromotionReleases.id,
-              schema.analysisLabPromotionItems.releaseDbId,
-            ),
-          )
-          .where(and(
-            eq(schema.analysisLabPromotionItems.grantId, schema.grants.id),
-            isNotNull(schema.analysisLabPromotionItems.deepAnalysisRunId),
-            eq(schema.analysisLabPromotionItems.status, "applied"),
-            inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
-          )),
-      )
-      : undefined;
+    const servingPromotionGrantIds = options.requireDeepAnalysisPromotion
+      ? await this.listServingPromotionGrantIds()
+      : null;
+    const deepAnalysisPromotionFilter = servingPromotionGrantIds === null
+      ? undefined
+      : servingPromotionGrantIds.length > 0
+        ? inArray(schema.grants.id, servingPromotionGrantIds)
+        : sql<boolean>`false`;
     const confirmedMemberFilter = options.includeConfirmedDuplicates
       ? undefined
       : notExists(this.db.client
@@ -256,6 +247,33 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       : collapseConfirmedGrantOccurrences(hydrated, confirmedLinks);
   }
 
+  private async listServingPromotionGrantIds(): Promise<string[]> {
+    const rows = await this.db.client
+      .select({
+        grantId: schema.analysisLabPromotionItems.grantId,
+        runId: schema.analysisLabPromotionItems.runId,
+        planSha256: schema.analysisLabPromotionItems.planSha256,
+        deepAnalysisRunId: schema.analysisLabPromotionItems.deepAnalysisRunId,
+        releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
+        manifest: schema.analysisLabPromotionReleases.manifest,
+      })
+      .from(schema.analysisLabPromotionItems)
+      .innerJoin(
+        schema.analysisLabPromotionReleases,
+        eq(
+          schema.analysisLabPromotionReleases.id,
+          schema.analysisLabPromotionItems.releaseDbId,
+        ),
+      )
+      .where(and(
+        eq(schema.analysisLabPromotionItems.status, "applied"),
+        inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
+      ));
+    return uniqueStrings(rows
+      .filter(isPromotionItemServingEligible)
+      .map((row) => row.grantId));
+  }
+
   async findGrantById(grantId: string, _options: GrantListOptions = {}): Promise<NormalizedGrant<TPayload> | null> {
     const parsed = parseGrantId(grantId);
     const rows = await this.db.client
@@ -342,10 +360,15 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
       this.db.client
         .select({
           grantId: schema.analysisLabPromotionItems.grantId,
+          runId: schema.analysisLabPromotionItems.runId,
+          planSha256: schema.analysisLabPromotionItems.planSha256,
           deepAnalysisRunId: schema.analysisLabPromotionItems.deepAnalysisRunId,
           appliedAt: schema.analysisLabPromotionItems.appliedAt,
+          releaseManifestSha256: schema.analysisLabPromotionReleases.manifestSha256,
+          manifest: schema.analysisLabPromotionReleases.manifest,
           promptVersion: schema.grantDeepAnalysisRuns.promptVersion,
           modelPolicyVersion: schema.grantDeepAnalysisRuns.modelPolicyVersion,
+          deepRunStatus: schema.grantDeepAnalysisRuns.status,
         })
         .from(schema.analysisLabPromotionItems)
         .innerJoin(
@@ -355,7 +378,7 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
             schema.analysisLabPromotionItems.releaseDbId,
           ),
         )
-        .innerJoin(
+        .leftJoin(
           schema.grantDeepAnalysisRuns,
           eq(
             schema.grantDeepAnalysisRuns.id,
@@ -367,10 +390,14 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
           eq(schema.analysisLabPromotionItems.status, "applied"),
           isNotNull(schema.analysisLabPromotionItems.appliedAt),
           inArray(schema.analysisLabPromotionReleases.status, ["active", "canary_passed"]),
-          eq(schema.grantDeepAnalysisRuns.status, "passed"),
         )),
     ]);
-    const promotedRunIds = uniqueStrings(promotedRows.flatMap((row) =>
+    const servingPromotedRows = promotedRows.filter((row) => {
+      const evidence = resolvePromotionServingEvidence(row);
+      return evidence?.kind === "verified_local_lab"
+        || (evidence?.kind === "production_deep_run" && row.deepRunStatus === "passed");
+    });
+    const promotedRunIds = uniqueStrings(servingPromotedRows.flatMap((row) =>
       row.deepAnalysisRunId ? [row.deepAnalysisRunId] : []));
     const inputStageRows = promotedRunIds.length > 0
       ? await this.db.client
@@ -395,24 +422,33 @@ class DrizzleGrantRepository<TPayload> implements GrantRepository<TPayload> {
     const verifiedInputStages = new Set(
       inputStageRows.map((row) => `${row.runId}:${row.stage}`),
     );
-    const promotionReviewRows: ReviewedExtractionMetadataRow[] = promotedRows.flatMap((row) => {
+    const promotionReviewRows: ReviewedExtractionMetadataRow[] = servingPromotedRows.flatMap((row) => {
       if (!row.appliedAt) return [];
       const reviewedAt = row.appliedAt.toISOString();
-      const inputVerified = row.deepAnalysisRunId
+      const servingEvidence = resolvePromotionServingEvidence(row);
+      if (!servingEvidence) return [];
+      const inputVerified = servingEvidence.kind === "production_deep_run"
         ? DEEP_ANALYSIS_INPUT_VERIFICATION_STAGES.every((stage) =>
-            verifiedInputStages.has(`${row.deepAnalysisRunId}:${stage}`))
+            verifiedInputStages.has(`${servingEvidence.deepAnalysisRunId}:${stage}`))
         : false;
+      const promptVersion = servingEvidence.kind === "verified_local_lab"
+        ? servingEvidence.evidence.promptVersion
+        : row.promptVersion;
+      const modelPolicyVersion = servingEvidence.kind === "verified_local_lab"
+        ? "local-subscription"
+        : row.modelPolicyVersion;
+      if (!promptVersion || !modelPolicyVersion) return [];
       return [{
         grantId: row.grantId,
         output: {
           reviewedAt,
-          parserVersion: `${row.promptVersion}/${row.modelPolicyVersion}`,
+          parserVersion: `${promptVersion}/${modelPolicyVersion}`,
           ...(inputVerified ? {
             resolvedWarnings: DEEP_ANALYSIS_VERIFIED_INPUT_WARNING_CODES,
           } : {}),
         },
         ts: row.appliedAt,
-        modelVer: row.promptVersion,
+        modelVer: promptVersion,
       }];
     });
     return mergeReviewedExtractionManifestState(

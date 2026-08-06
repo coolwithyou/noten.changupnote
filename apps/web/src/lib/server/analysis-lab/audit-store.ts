@@ -65,6 +65,7 @@ export interface AuditSourceAiReview {
   runId: string;
   grantId: string;
   model: string;
+  aiReviewTransport?: "api" | "claude-cli";
   promptVersion: string;
   createdAt: string;
   criterionReviews: Array<{ criterionIndex: number; verdict: LabCriterionVerdict; note: string | null }>;
@@ -97,6 +98,9 @@ async function readAiReviewFileLenient(path: string): Promise<AuditSourceAiRevie
           runId: parsed.runId,
           grantId: parsed.grantId,
           model: parsed.model,
+          ...(parsed.aiReviewTransport === "api" || parsed.aiReviewTransport === "claude-cli"
+            ? { aiReviewTransport: parsed.aiReviewTransport }
+            : {}),
           promptVersion: parsed.promptVersion,
           createdAt: typeof parsed.createdAt === "string" ? parsed.createdAt : "",
           criterionReviews: parsed.criterionReviews,
