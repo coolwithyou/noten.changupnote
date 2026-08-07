@@ -304,6 +304,37 @@ function manifest() {
     true,
     "판정 근거 없는 eligibility 변화는 계속 차단해야 한다",
   );
+
+  assert.equal(
+    isUnexplainedPromotionShadowTransition({
+      eligibility: "conditional",
+      tier: "needs_core_review",
+      decided: 0,
+      unknownHard: 3,
+    }, {
+      eligibility: "conditional",
+      tier: "needs_profile_input",
+      decided: 0,
+      unknownHard: 5,
+    }),
+    false,
+    "비구조 검토를 질문 가능한 조건으로 바꾼 동일 eligibility 전환은 설명 가능하다",
+  );
+  assert.equal(
+    isUnexplainedPromotionShadowTransition({
+      eligibility: "conditional",
+      tier: "needs_core_review",
+      decided: 0,
+      unknownHard: 3,
+    }, {
+      eligibility: "conditional",
+      tier: "needs_profile_input",
+      decided: 0,
+      unknownHard: 1,
+    }),
+    true,
+    "조건 삭제로 unknown hard가 줄어든 상태 개선은 계속 차단한다",
+  );
 }
 
 {

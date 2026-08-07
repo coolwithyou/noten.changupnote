@@ -330,8 +330,10 @@ interface PromotionShadowState {
 
 /**
  * 판정(pass/fail) 없이 결과가 바뀌면 원칙적으로 차단한다. 단, eligibility는
- * conditional로 유지되고 새 hard unknown 근거가 늘어
- * needs_profile_input→needs_core_review로 보수화된 경우는 설명 가능한 변화다.
+ * conditional로 유지되는 두 안전한 전환은 설명 가능하다.
+ * - 새 hard unknown 근거가 늘어 needs_profile_input→needs_core_review로 보수화
+ * - 비구조 text-only를 질문 가능한 criterion으로 바꿔 needs_core_review→needs_profile_input
+ *   (unknown hard를 줄이지 않아 조건 삭제에 의한 상태 개선은 허용하지 않는다)
  */
 export function isUnexplainedPromotionShadowTransition(
   before: PromotionShadowState,
@@ -346,7 +348,13 @@ export function isUnexplainedPromotionShadowTransition(
     && before.tier === "needs_profile_input"
     && after.tier === "needs_core_review"
     && after.unknownHard > before.unknownHard;
-  return !explainedConditionalReview;
+  const explainedActionableProfileInput =
+    before.eligibility === "conditional"
+    && after.eligibility === "conditional"
+    && before.tier === "needs_core_review"
+    && after.tier === "needs_profile_input"
+    && after.unknownHard >= before.unknownHard;
+  return !explainedConditionalReview && !explainedActionableProfileInput;
 }
 
 export function createPromotionReleaseManifest(
