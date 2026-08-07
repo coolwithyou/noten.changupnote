@@ -36,6 +36,9 @@ export function verifyVirtualCompanyFlowBaseline(input: {
   target: VirtualCompanyTarget;
   actual: VirtualCompanyFlowObservation;
 }): VirtualCompanyFlowBaselineResult {
+  if (!input.target.expectedDocument) {
+    throw new Error("작성 기준선 검증에는 expectedDocument가 필요합니다.");
+  }
   const rebaselineIssues: string[] = [];
   const regressionIssues: string[] = [];
   const expectedAuthoring = input.target.expectedAuthoring ?? null;

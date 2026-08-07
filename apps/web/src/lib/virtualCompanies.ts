@@ -4,6 +4,7 @@ export const VIRTUAL_COMPANY_IDENTITIES = [
   { id: "virtual-chungnam-disabled-perfect", bizNo: "0000000001" },
   { id: "virtual-chungnam-disabled-region-fail", bizNo: "0000000002" },
   { id: "virtual-chungnam-disabled-cert-missing", bizNo: "0000000003" },
+  { id: "virtual-future-work-experience-perfect", bizNo: "0000000004" },
 ] as const;
 
 const VIRTUAL_BIZ_NO_SET = new Set<string>(

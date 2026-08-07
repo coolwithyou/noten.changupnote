@@ -26,12 +26,15 @@ import {
 } from "@/features/dev/analysis-lab/contract";
 import {
   collectAiReviewsForAudit,
-  isLabAuditComplete,
   readLabAuditFileAt,
   type AuditSourceAiReview,
   type CollectedAiReview,
 } from "./audit-store";
 import { PILOT_STRATUM, readCohortFileV2 } from "./cohort-file";
+import {
+  LAB_DETERMINISTIC_AUDIT_POLICY_VERSION,
+  resolveDeterministicAuditDisagreement,
+} from "./deterministic-audit-resolution";
 import { modelSlug } from "./run-store";
 
 // ---- 병합 (순수 — 테스트 대상) -----------------------------------------------------
@@ -50,6 +53,8 @@ export interface AuditedReviewProvenance {
   aiConcurCount: number;
   /** AI 감사 기록 중 비일치(불일치·unsure) 항목 수 — 사람 판정이 필요한(했던) 갈래. */
   aiDisagreeCount: number;
+  /** 제품 계약으로 해소한 AI 불일치 criterion index. 존재할 때만 기록한다. */
+  deterministicResolvedCriterionIndexes?: number[];
   /** AI 블라인드 감사 모델 — 미실행 감사 파일이면 null. */
   aiAuditModel: string | null;
 }
@@ -71,7 +76,11 @@ export type AuditedAiReviewInput = Pick<
  * 감사 안 된(또는 미판정) 항목은 AI 판정·note 그대로. reviewerEmail 은 감사자 이메일
  * (대상 0건 공허 완료 감사는 저장 이력이 없어 null — 마커 문자열로 대체).
  */
-export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAudit): MergedAuditedReview {
+export function mergeAuditedReview(
+  aiReview: AuditedAiReviewInput,
+  audit: LabAudit,
+  run?: LabRun,
+): MergedAuditedReview {
   if (aiReview.runId !== audit.runId || aiReview.grantId !== audit.grantId) {
     throw new Error(
       `감사 병합 대상 불일치: ai-review ${aiReview.grantId}/${aiReview.runId} vs audit ${audit.grantId}/${audit.runId}`,
@@ -85,6 +94,7 @@ export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAud
   let aiAuditedCount = 0;
   let aiConcurCount = 0;
   let aiDisagreeCount = 0;
+  const deterministicResolvedCriterionIndexes: number[] = [];
   for (const item of audit.items) {
     if (item.kind === "criterion" && item.criterionIndex !== undefined) {
       criterionAudits.set(item.criterionIndex, item);
@@ -102,10 +112,23 @@ export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAud
       if (item.humanVerdict === null && isAiAuditConcur(item)) aiConcurCount += 1;
       else if (!isAiAuditConcur(item)) aiDisagreeCount += 1;
     }
+    if (run && resolveDeterministicAuditDisagreement(run, item)) {
+      deterministicResolvedCriterionIndexes.push(item.criterionIndex!);
+    }
   }
 
   const criterionReviews: LabCriterionReview[] = aiReview.criterionReviews.map((ai) => {
     const audited = criterionAudits.get(ai.criterionIndex);
+    const deterministic = run && audited
+      ? resolveDeterministicAuditDisagreement(run, audited)
+      : null;
+    if (deterministic) {
+      return {
+        criterionIndex: ai.criterionIndex,
+        verdict: deterministic.verdict,
+        note: deterministic.note,
+      };
+    }
     if (!audited || audited.humanVerdict === null) {
       return { criterionIndex: ai.criterionIndex, verdict: ai.verdict, note: ai.note };
     }
@@ -149,6 +172,9 @@ export function mergeAuditedReview(aiReview: AuditedAiReviewInput, audit: LabAud
       aiAuditedCount,
       aiConcurCount,
       aiDisagreeCount,
+      ...(deterministicResolvedCriterionIndexes.length > 0
+        ? { deterministicResolvedCriterionIndexes }
+        : {}),
       aiAuditModel: audit.aiAuditModel ?? null,
     },
   };
@@ -167,6 +193,8 @@ export interface AuditedConfirmedRun {
     auditModel: string | null;
     auditPromptVersion: string | null;
     auditTransport: "api" | "claude-cli" | null;
+    deterministicPolicyVersion?: string;
+    deterministicResolvedCriterionIndexes?: number[];
   };
 }
 
@@ -184,6 +212,14 @@ export interface AuditedReviewSelection {
   confirmed: AuditedConfirmedRun[];
   /** 감사 미완 공고 — 집계에서 제외되며 건수를 출력에 병기한다. */
   pending: AuditedPendingNotice[];
+}
+
+/** 일반 감사 완료 규칙에 제품 계약으로 결정 가능한 불일치만 더한 run-aware 게이트. */
+export function isLabAuditCompleteForRun(run: LabRun, audit: LabAudit): boolean {
+  return audit.items.every((item) =>
+    item.humanVerdict !== null
+    || isAiAuditConcur(item)
+    || resolveDeterministicAuditDisagreement(run, item) !== null);
 }
 
 /**
@@ -254,7 +290,7 @@ export async function loadAuditedConfirmedReviews(options: {
       );
     }
     const audit = await readLabAuditFileAt(join(item.dir, `${item.review.runId}.audit.${slug}.json`));
-    if (!audit || !isLabAuditComplete(audit)) {
+    if (!audit || !isLabAuditCompleteForRun(item.run, audit)) {
       pending.push({
         grantId: item.review.grantId,
         runId: item.review.runId,
@@ -264,7 +300,7 @@ export async function loadAuditedConfirmedReviews(options: {
       });
       continue;
     }
-    const merged = mergeAuditedReview(item.review, audit);
+    const merged = mergeAuditedReview(item.review, audit, item.run);
     confirmed.push({
       run: item.run,
       review: merged.review,
@@ -276,6 +312,13 @@ export async function loadAuditedConfirmedReviews(options: {
         auditModel: audit.aiAuditModel ?? null,
         auditPromptVersion: audit.aiAuditPromptVersion ?? null,
         auditTransport: audit.aiAuditTransport ?? null,
+        ...(merged.provenance.deterministicResolvedCriterionIndexes?.length
+          ? {
+              deterministicPolicyVersion: LAB_DETERMINISTIC_AUDIT_POLICY_VERSION,
+              deterministicResolvedCriterionIndexes:
+                merged.provenance.deterministicResolvedCriterionIndexes,
+            }
+          : {}),
       },
     });
   }

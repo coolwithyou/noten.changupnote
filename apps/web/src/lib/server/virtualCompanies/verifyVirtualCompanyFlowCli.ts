@@ -68,7 +68,7 @@ try {
       for (const targetExpectation of scenario.targets) {
         const target: ProductTeaserResult["matches"][number] | undefined = body.data.matches.find((match) =>
           match.source === targetExpectation.source && match.sourceId === targetExpectation.sourceId);
-        const expectedVisible = targetExpectation.expectedWritingEntry !== "hidden";
+        const expectedVisible = targetExpectation.expected !== "not_recommended";
         assert.equal(Boolean(target), expectedVisible);
         if (expectedVisible) assert.equal(target?.recommendationTier, targetExpectation.expected);
         flowResults.push({
@@ -111,10 +111,21 @@ try {
           virtualBizNo: scenario.bizNo,
         });
         assert.ok(detail, `${scenario.id} 공고 상세를 찾지 못했습니다.`);
+        detailResults.push({
+          scenarioId: scenario.id,
+          grantId: detail.grant.id,
+          hardSatisfied: detail.satisfied.filter((criterion) =>
+            criterion.kind === "required" || criterion.kind === "exclusion").length,
+          hardNeedsCheck: detail.needsCheck.filter((criterion) =>
+            criterion.kind === "required" || criterion.kind === "exclusion").length,
+        });
+        if (target.verificationScope === "matching_only") continue;
+        assert.ok(target.expectedDocument, `${scenario.id} 작성 기준 문서가 없습니다.`);
+        const expectedDocument = target.expectedDocument;
         const sourceDocument = detail.applicationPrep.draftableDocuments.find(
-          (document) => document.documentKey === target.expectedDocument.documentKey,
+          (document) => document.documentKey === expectedDocument.documentKey,
         );
-        const sourceCacheKey = `${matrixResult.grantId}\u0000${target.expectedDocument.documentKey}`;
+        const sourceCacheKey = `${matrixResult.grantId}\u0000${expectedDocument.documentKey}`;
         let source = sourceCache.get(sourceCacheKey) ?? null;
         if (!source && sourceDocument) {
           source = await loadDraftSourceFile({
@@ -133,7 +144,7 @@ try {
           ? await loadVirtualGrantWorkspaceData({
               sheet: detail,
               virtualCompany: scenario,
-              requestedDocumentKey: target.expectedDocument.documentKey,
+              requestedDocumentKey: expectedDocument.documentKey,
             })
           : null;
         if (workspace) {
@@ -168,14 +179,6 @@ try {
           source: target.source,
           sourceId: target.sourceId,
           baseline,
-        });
-        detailResults.push({
-          scenarioId: scenario.id,
-          grantId: detail.grant.id,
-          hardSatisfied: detail.satisfied.filter((criterion) =>
-            criterion.kind === "required" || criterion.kind === "exclusion").length,
-          hardNeedsCheck: detail.needsCheck.filter((criterion) =>
-            criterion.kind === "required" || criterion.kind === "exclusion").length,
         });
         documentSourceResults.push({
           scenarioId: scenario.id,

@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { DeepAnalysisPromotionReadiness } from "../deep-analysis/promotion";
 import type { GrantPromotionPlan } from "./promote";
+import { LAB_DETERMINISTIC_AUDIT_POLICY_VERSION } from "./deterministic-audit-resolution";
 import { analysisLabDir } from "./run-store";
 
 export const PROMOTION_RELEASE_SCHEMA = "analysis-lab-promotion-release-v1" as const;
@@ -29,6 +30,8 @@ export interface VerifiedLocalLabSourceEvidence {
   auditModel?: string;
   auditPromptVersion?: string;
   auditTransport?: "claude-cli";
+  deterministicPolicyVersion?: string;
+  deterministicResolvedCriterionIndexes?: number[];
 }
 
 export interface PromotionSourceArtifact {
@@ -476,7 +479,16 @@ export function isVerifiedLocalLabSourceArtifact(
   }
   if (evidence.reviewMethod === "human") return isSha256(artifact.reviewSha256);
   if (evidence.reviewMethod === "ai_audit") {
-    return isSha256(artifact.aiReviewSha256)
+    const deterministicIndexes = evidence.deterministicResolvedCriterionIndexes;
+    const deterministicEvidenceValid = evidence.deterministicPolicyVersion === undefined
+      ? evidence.deterministicResolvedCriterionIndexes === undefined
+      : evidence.deterministicPolicyVersion === LAB_DETERMINISTIC_AUDIT_POLICY_VERSION
+        && Array.isArray(deterministicIndexes)
+        && deterministicIndexes.length > 0
+        && deterministicIndexes.every((index) => Number.isInteger(index) && index >= 0)
+        && new Set(deterministicIndexes).size === deterministicIndexes.length;
+    return deterministicEvidenceValid
+      && isSha256(artifact.aiReviewSha256)
       && isSha256(artifact.auditSha256)
       && Boolean(evidence.reviewModel?.trim())
       && Boolean(evidence.reviewPromptVersion?.trim())

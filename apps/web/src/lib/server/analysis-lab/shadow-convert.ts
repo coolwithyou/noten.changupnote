@@ -21,7 +21,7 @@ import {
 import type { LabCriterion, LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
 
 export const ANALYSIS_LAB_SHADOW_SOURCE_PREFIX = "lab-shadow";
-export const ANALYSIS_LAB_SHADOW_PARSER_VERSION = "analysis-lab-shadow-v1";
+export const ANALYSIS_LAB_SHADOW_PARSER_VERSION = "analysis-lab-shadow-v2";
 /** 변환 산출 criterion 의 source_field — 현행 파이프라인 산출과 육안 구분용. */
 export const ANALYSIS_LAB_SHADOW_SOURCE_FIELD = "analysis_lab_deep";
 
@@ -55,16 +55,58 @@ export interface ShadowConversionResult {
  * needs_review 를 싣지 않는 것이 계약이다(위 모듈 주석) — Boolean(undefined)=false.
  */
 function toLlmRow(criterion: LabCriterion, needsReview = false): Record<string, unknown> {
+  const normalized = normalizeParentheticalTargetExclusion(criterion);
   return {
-    dimension: criterion.dimension,
-    kind: criterion.kind,
-    operator: criterion.operator,
-    value: criterion.value,
-    confidence: criterion.confidence,
-    ...(criterion.sourceSpan ? { source_span: criterion.sourceSpan } : {}),
+    dimension: normalized.dimension,
+    kind: normalized.kind,
+    operator: normalized.operator,
+    value: normalized.value,
+    confidence: normalized.confidence,
+    ...(normalized.sourceSpan ? { source_span: normalized.sourceSpan } : {}),
     source_field: ANALYSIS_LAB_SHADOW_SOURCE_FIELD,
     needs_review: needsReview,
   };
+}
+
+/**
+ * "(중앙행정기관) 국토부, 행안부 … 등 참여불가"에서 `등`은 배제 유형을 더 여는 말이
+ * 아니라 괄호 안 유형의 기관 예시를 더 여는 말이다. 괄호 유형 1개와 value target이
+ * 정확히 일치하고 참여/신청 불가가 명시된 경우에만 exclusion 목록을 closed로 교정한다.
+ */
+function normalizeParentheticalTargetExclusion(criterion: LabCriterion): LabCriterion {
+  if (
+    criterion.dimension !== "target_type"
+    || criterion.kind !== "exclusion"
+    || criterion.operator !== "not_in"
+    || !criterion.sourceSpan
+  ) {
+    return criterion;
+  }
+  const value = record(criterion.value);
+  const targets = Array.isArray(value.targets)
+    ? value.targets.filter((target): target is string => typeof target === "string" && target.trim().length > 0)
+    : [];
+  if (value.list_semantics !== "open" || targets.length !== 1) return criterion;
+
+  const source = criterion.sourceSpan.normalize("NFC").replace(/\s+/g, " ").trim();
+  const category = /^[-–—•·]?\s*\(([^)]+)\)/.exec(source)?.[1];
+  if (!category || compact(category) !== compact(targets[0]!)) return criterion;
+  if (!/(?:참여|신청|지원)\s*(?:이\s*)?(?:불가|금지|제외)/.test(source)) return criterion;
+
+  return {
+    ...criterion,
+    value: { ...value, list_semantics: "closed" },
+  };
+}
+
+function compact(value: string): string {
+  return value.normalize("NFC").replace(/[\s·ㆍ_-]/g, "");
+}
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
 }
 
 export interface LabCriterionSelection {

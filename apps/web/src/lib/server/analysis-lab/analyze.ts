@@ -26,7 +26,11 @@ import {
 } from "./application-precompute";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, runDeepGrantAnalysis, type DeepAnalysisResult } from "./extractor";
-import { assembleLabInput, type LabInputArchive } from "./input";
+import {
+  applyLabVerifiedConversionArtifacts,
+  assembleLabInput,
+  type LabInputArchive,
+} from "./input";
 import { buildLabRunId, saveLabRun } from "./run-store";
 
 /** 공고 자체가 없을 때 — 라우트는 404 로 매핑한다(런 저장 없음). */
@@ -111,7 +115,9 @@ export async function runLabAnalysis(
   const archiveRows = await db
     .select({
       filename: schema.grantAttachmentArchives.filename,
+      storageKey: schema.grantAttachmentArchives.storageKey,
       markdownStorageKey: schema.grantAttachmentArchives.markdownStorageKey,
+      markdownSha256: schema.grantAttachmentArchives.markdownSha256,
       markdownBytes: schema.grantAttachmentArchives.markdownBytes,
     })
     .from(schema.grantAttachmentArchives)
@@ -121,11 +127,36 @@ export async function runLabAnalysis(
         eq(schema.grantAttachmentArchives.sourceId, grant.sourceId),
       ),
     );
-  const archives: LabInputArchive[] = archiveRows.map((row) => ({
+  const convertedArtifactRows = await db
+    .select({
+      sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
+      title: schema.grantApplicationSurfaces.title,
+      storageKey: schema.documentArtifacts.storageKey,
+      sha256: schema.documentArtifacts.sha256,
+      metadata: schema.documentArtifacts.metadata,
+    })
+    .from(schema.grantApplicationSurfaces)
+    .innerJoin(
+      schema.documentArtifacts,
+      eq(schema.documentArtifacts.surfaceId, schema.grantApplicationSurfaces.id),
+    )
+    .where(and(
+      eq(schema.grantApplicationSurfaces.grantId, grant.id),
+      eq(schema.documentArtifacts.kind, "markdown"),
+    ));
+  const archives: LabInputArchive[] = applyLabVerifiedConversionArtifacts(archiveRows.map((row) => ({
     filename: row.filename,
+    storageKey: row.storageKey ?? null,
     markdownStorageKey: row.markdownStorageKey ?? null,
+    markdownSha256: row.markdownSha256 ?? null,
     markdownBytes: row.markdownBytes ?? null,
-  }));
+  })), convertedArtifactRows.map((row) => ({
+    sourceAttachment: row.sourceAttachment,
+    title: row.title,
+    storageKey: row.storageKey,
+    sha256: row.sha256,
+    markdownChars: numericMetadataValue(row.metadata, "charCount"),
+  })));
 
   // ── 입력 조립(구조화 필드 + 첨부 markdown 전문, 캡·sha256 포함) ──
   const input = await assembleLabInput({
@@ -271,6 +302,14 @@ export async function runLabAnalysis(
   };
   await saveLabRun(run);
   return run;
+}
+
+function numericMetadataValue(
+  metadata: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 function resolveRoundtripTimeoutMs(): number {

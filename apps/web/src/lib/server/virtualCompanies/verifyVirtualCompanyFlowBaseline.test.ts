@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { VirtualCompanyTarget } from "./catalog";
 import { verifyVirtualCompanyFlowBaseline } from "./verifyVirtualCompanyFlowBaseline";
 
-const target: VirtualCompanyTarget = {
+const target = {
   source: "bizinfo",
   sourceId: "target",
   expectedExtractorVersion: "extractor",
@@ -21,7 +21,7 @@ const target: VirtualCompanyTarget = {
     manualQuestionCount: 6,
     pageCount: 4,
   },
-};
+} satisfies VirtualCompanyTarget;
 
 const pass = verifyVirtualCompanyFlowBaseline({
   target,

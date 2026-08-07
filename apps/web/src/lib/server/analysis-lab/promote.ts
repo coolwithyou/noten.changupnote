@@ -55,7 +55,11 @@ export type PromotionOrigin = "human" | "audited" | "pending";
  * 감사 병합 런은 개별 항목의 확정 주체(사람 감사 vs AI 블라인드 일치)가 병합 후 구분되지
  * 않으므로 런 단위 출처로 기록한다(항목 단위 세분화는 후속 — provenance 무결성 우선).
  */
-export type PromotionAuditState = "human_reviewed" | "ai_audit_concur" | "mixed_resolution";
+export type PromotionAuditState =
+  | "human_reviewed"
+  | "ai_audit_concur"
+  | "deterministic_contract"
+  | "mixed_resolution";
 
 export interface PromotionAuditedSourceEvidence {
   reviewModel: string;
@@ -64,6 +68,8 @@ export interface PromotionAuditedSourceEvidence {
   auditModel: string | null;
   auditPromptVersion: string | null;
   auditTransport: "api" | "claude-cli" | null;
+  deterministicPolicyVersion?: string;
+  deterministicResolvedCriterionIndexes?: number[];
 }
 
 export interface PromotionSource {
@@ -342,6 +348,7 @@ export function planGrantPromotion(input: {
   audit?: LabAudit | null | undefined;
   overlay?: HumanReviewOverlay | null | undefined;
   origin: PromotionOrigin;
+  deterministicResolvedCriterionIndexes?: number[];
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
 }): GrantPromotionPlan {
@@ -406,7 +413,9 @@ export function planGrantPromotion(input: {
     input.origin === "human"
       ? "human_reviewed"
       : input.origin === "audited"
-        ? "ai_audit_concur"
+        ? (input.deterministicResolvedCriterionIndexes?.length ?? 0) > 0
+          ? "deterministic_contract"
+          : "ai_audit_concur"
         : "mixed_resolution";
   const criterionStableKeys = conversion.criteria.map(criterionStableKey);
   const resolutionByIndex = new Map(resolutions.map((item) => [item.criterionIndex, item]));
@@ -483,10 +492,14 @@ function questionAuditState(
     origin: PromotionOrigin;
     audit?: LabAudit | null | undefined;
     overlay?: HumanReviewOverlay | null | undefined;
+    deterministicResolvedCriterionIndexes?: number[] | undefined;
   },
   resolution: CriterionResolution,
 ): PromotionAuditState {
   if (input.origin === "human") return "human_reviewed";
+  if (input.deterministicResolvedCriterionIndexes?.includes(resolution.criterionIndex)) {
+    return "deterministic_contract";
+  }
   if (input.origin === "audited") return "ai_audit_concur";
   const overlayDecision = input.overlay?.items.some((item) =>
     item.itemKind === "criterion"

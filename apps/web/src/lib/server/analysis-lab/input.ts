@@ -1,6 +1,7 @@
 // 공모 딥분석 실험실 — LLM 입력 조립 (dev 전용, read-only).
 // ① 공고 구조화 필드 블록(grants 행 + grant_raw.payload 소스별 주요 필드)
-// ② 첨부 markdown 전문 블록들(R2 markdownStorageKey → stripYamlFrontmatter, 본문성 우선 정렬)
+// ② 첨부 markdown 전문 블록들(archive 포인터 또는 같은 원본의 검증된 document artifact
+//    → R2 로드 → stripYamlFrontmatter, 본문성 우선 정렬)
 // 총량 캡(기본 120,000자, env ANALYSIS_LAB_INPUT_CHAR_CAP) 안에서 블록별 chars/truncated 를 기록하고
 // 최종 입력 텍스트 전체의 sha256 을 산출한다. source_span 검증은 이 최종 텍스트 기준으로 이루어진다.
 // 렌더 방식은 grantAnalysisPilotExtractor 의 renderBalancedPilotInput 을 참고했다.
@@ -33,8 +34,49 @@ export interface LabInputGrant {
 
 export interface LabInputArchive {
   filename: string;
+  storageKey?: string | null;
   markdownStorageKey: string | null;
+  markdownSha256?: string | null;
   markdownBytes: number | null;
+}
+
+export interface LabVerifiedConversionArtifact {
+  sourceAttachment: string | null;
+  title: string;
+  storageKey: string;
+  sha256: string | null;
+  markdownChars?: number | null;
+}
+
+/**
+ * 첨부 보관행의 markdown 포인터가 비어 있어도 문서 변환 파이프라인이 같은 원본에서
+ * 만든 SHA 검증 markdown을 딥분석 입력으로 재사용한다. 운영 prepareInput과 같은
+ * exact storage-key 우선, 유일한 filename 보조 매칭 규칙이다.
+ */
+export function applyLabVerifiedConversionArtifacts(
+  archives: LabInputArchive[],
+  artifacts: LabVerifiedConversionArtifact[],
+): LabInputArchive[] {
+  return archives.map((archive) => {
+    if (archive.markdownStorageKey) return archive;
+    const exactMatches = artifacts.filter((artifact) => (
+      Boolean(archive.storageKey)
+      && artifact.sourceAttachment === archive.storageKey
+    ));
+    const titleMatches = artifacts.filter((artifact) => artifact.title === archive.filename);
+    const artifact = exactMatches.length === 1
+      ? exactMatches[0]
+      : exactMatches.length > 1
+        ? undefined
+        : (titleMatches.length === 1 ? titleMatches[0] : undefined);
+    if (!artifact?.sha256) return archive;
+    return {
+      ...archive,
+      markdownStorageKey: artifact.storageKey,
+      markdownSha256: artifact.sha256,
+      markdownBytes: artifact.markdownChars ?? archive.markdownBytes,
+    };
+  });
 }
 
 export interface LabAssembledInput {
@@ -312,6 +354,12 @@ async function loadAttachmentBlocks(
     }
     try {
       const raw = await storage.getObjectText(archive.markdownStorageKey);
+      if (
+        archive.markdownSha256
+        && createHash("sha256").update(raw).digest("hex") !== archive.markdownSha256
+      ) {
+        throw new Error("markdown SHA-256 mismatch");
+      }
       const body = stripYamlFrontmatter(raw).trim();
       if (body) {
         blocks.push({ label: `첨부 공고문: ${archive.filename}`, body });

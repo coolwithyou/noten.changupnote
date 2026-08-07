@@ -6,7 +6,14 @@ import {
 import { and, desc, eq } from "drizzle-orm";
 import { AI_REVIEW_ADOPTED } from "@/features/dev/analysis-lab/contract";
 import { labAuditFilePath } from "./audit-store";
-import { loadAuditedConfirmedReviews } from "./audited-reviews";
+import {
+  isLabAuditCompleteForRun,
+  loadAuditedConfirmedReviews,
+} from "./audited-reviews";
+import {
+  LAB_DETERMINISTIC_AUDIT_POLICY_VERSION,
+  resolveDeterministicAuditDisagreement,
+} from "./deterministic-audit-resolution";
 import { labConfirmationsFilePath, readLabConfirmationsFile } from "./confirmations";
 import {
   humanReviewOverlayFilePath,
@@ -101,6 +108,12 @@ export async function loadConfirmedPromotionCandidates(options: {
       review: source.review,
       overlay,
       origin: source.origin,
+      ...(source.auditEvidence?.deterministicResolvedCriterionIndexes
+        ? {
+            deterministicResolvedCriterionIndexes:
+              source.auditEvidence.deterministicResolvedCriterionIndexes,
+          }
+        : {}),
       sidecar,
     });
     const artifact: PromotionSourceArtifact = {
@@ -133,6 +146,14 @@ export async function loadConfirmedPromotionCandidates(options: {
                       : {}),
                     ...(source.auditEvidence.auditTransport === "claude-cli"
                       ? { auditTransport: "claude-cli" as const }
+                      : {}),
+                    ...(source.auditEvidence.deterministicPolicyVersion
+                      ? {
+                          deterministicPolicyVersion:
+                            source.auditEvidence.deterministicPolicyVersion,
+                          deterministicResolvedCriterionIndexes:
+                            source.auditEvidence.deterministicResolvedCriterionIndexes,
+                        }
                       : {}),
                   }
                 : {}),
@@ -224,7 +245,7 @@ export async function verifyPromotionSourceArtifact(
         run.runId,
         artifact.localLabEvidence.reviewModel ?? "",
       );
-      const [{ readAiReviewFile }, { isLabAuditComplete, readLabAuditFileAt }] = await Promise.all([
+      const [{ readAiReviewFile }, { readLabAuditFileAt }] = await Promise.all([
         import("./ai-review"),
         import("./audit-store"),
       ]);
@@ -243,7 +264,7 @@ export async function verifyPromotionSourceArtifact(
       }
       if (
         !audit
-        || !isLabAuditComplete(audit)
+        || !isLabAuditCompleteForRun(run, audit)
         || audit.model !== artifact.localLabEvidence.reviewModel
         || audit.aiPromptVersion !== artifact.localLabEvidence.reviewPromptVersion
         || audit.aiAuditModel !== artifact.localLabEvidence.auditModel
@@ -251,6 +272,23 @@ export async function verifyPromotionSourceArtifact(
         || audit.aiAuditTransport !== artifact.localLabEvidence.auditTransport
       ) {
         changed.push("ai_audit_provenance");
+      }
+      if (audit) {
+        const resolved = audit.items.flatMap((item) =>
+          resolveDeterministicAuditDisagreement(run, item) ? [item.criterionIndex!] : [])
+          .sort((a, b) => a - b);
+        const expected = [...(artifact.localLabEvidence.deterministicResolvedCriterionIndexes ?? [])]
+          .sort((a, b) => a - b);
+        if (JSON.stringify(resolved) !== JSON.stringify(expected)) {
+          changed.push("deterministic_audit_resolution");
+        }
+        if (
+          resolved.length > 0
+          && artifact.localLabEvidence.deterministicPolicyVersion
+            !== LAB_DETERMINISTIC_AUDIT_POLICY_VERSION
+        ) {
+          changed.push("deterministic_audit_policy");
+        }
       }
     }
   }

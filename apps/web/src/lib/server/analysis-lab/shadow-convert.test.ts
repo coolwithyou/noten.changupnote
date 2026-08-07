@@ -225,4 +225,46 @@ assert.deepEqual(
   "실제 신청기업 업종 조건만 발행한다",
 );
 
+// ---- 시나리오: 괄호형 배제 유형의 기관 예시 `등`은 target 목록을 열지 않는다 -------
+
+const parentheticalExclusions = convertReviewedLabRun(fixtureRun([
+  criterion({
+    dimension: "target_type",
+    kind: "exclusion",
+    operator: "not_in",
+    value: { targets: ["중앙행정기관"], list_semantics: "open" },
+    sourceSpan: "- (중앙행정기관) 국토부, 행안부, 우체국, 세무서 등 참여불가",
+    spanVerified: true,
+  }),
+  criterion({
+    dimension: "target_type",
+    kind: "exclusion",
+    operator: "not_in",
+    value: { targets: ["지방자치단체"], list_semantics: "open" },
+    sourceSpan: "(지방자치단체) 서울시, 경기도, 지자체 산하 보건소 및 도서관 등 참여불가",
+    spanVerified: true,
+  }),
+  criterion({
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: { targets: ["기업", "공공기관"], list_semantics: "open" },
+    sourceSpan: "기업, 공공기관 등 참여 가능",
+    spanVerified: true,
+  }),
+]), fixtureReview({
+  criterionReviews: [
+    { criterionIndex: 0, verdict: "correct", note: null },
+    { criterionIndex: 1, verdict: "correct", note: null },
+    { criterionIndex: 2, verdict: "correct", note: null },
+  ],
+  axisReviews: [],
+}));
+assert.deepEqual(
+  parentheticalExclusions.criteria.map((item) =>
+    (item.value as { list_semantics?: string }).list_semantics),
+  ["closed", "closed", "open"],
+  "괄호로 이름 붙인 단일 배제 유형만 closed로 교정하고 신청대상 열린 목록은 보존한다",
+);
+
 console.log("shadow-convert tests: ok");

@@ -51,8 +51,13 @@ export interface VirtualCompanyTarget {
   expectedRevision: string;
   expected: VirtualCompanyExpectedTier;
   expectedNextQuestionDimension: CriterionDimension | null;
-  expectedWritingEntry: VirtualCompanyWritingEntry;
-  expectedDocument: VirtualCompanyDocumentBaseline;
+  /**
+   * 매칭만 검증할 공고는 matching_only로 둔다. 지원서 양식이 확인된 공고만
+   * matching_and_writing으로 확장해 문서 기준선을 요구한다.
+   */
+  verificationScope?: "matching_and_writing" | "matching_only";
+  expectedWritingEntry?: VirtualCompanyWritingEntry;
+  expectedDocument?: VirtualCompanyDocumentBaseline;
   expectedAuthoring?: VirtualCompanyAuthoringBaseline;
   expectedCriterionResults?: Partial<Record<CriterionDimension, VirtualCompanyCriterionResult>>;
 }
@@ -84,6 +89,14 @@ const TARGET_GRANT = {
     documentKey: "application_form::신청서::::0",
     sourceSha256: "a0ddaf420a59b17b0293e01f2309d0fb597294000153b073d8ae222181e22b77",
   },
+};
+
+const FUTURE_WORK_EXPERIENCE_TARGET = {
+  source: "bizinfo" as const,
+  sourceId: "PBLN_000000000121794",
+  expectedExtractorVersion: "lab-deep-v9/local-subscription",
+  expectedRevision: "b85a8afe8fe699626c8363625e604f174ffae0c8486fcbc818f7b9e6db749e29",
+  verificationScope: "matching_only" as const,
 };
 
 const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
@@ -145,6 +158,23 @@ const DEFINITIONS: readonly VirtualCompanyDefinition[] = [
         region: "pass",
         founder_trait: "pass",
         certification: "unknown",
+      },
+    }],
+  },
+  {
+    id: "virtual-future-work-experience-perfect",
+    name: "창업노트 가상기업 — 미래내일 참여기업",
+    purpose: "고용보험 피보험자 20인 이상 참여기업 공고의 필수조건을 모두 만족하는 기준 시나리오",
+    profile: futureWorkExperienceCompanyProfile(),
+    completeEvidenceDimensions: ["target_type", "prior_award", "insured_workforce", "business_status"],
+    targets: [{
+      ...FUTURE_WORK_EXPERIENCE_TARGET,
+      expected: "recommendable",
+      expectedNextQuestionDimension: null,
+      expectedCriterionResults: {
+        target_type: "pass",
+        insured_workforce: "pass",
+        prior_award: "pass",
       },
     }],
   },
@@ -219,20 +249,27 @@ function validateDefinitions(definitions: readonly VirtualCompanyDefinition[]): 
       if (!/^[a-f0-9]{64}$/.test(target.expectedRevision)) {
         throw new Error(`가상 기업 분석 revision은 SHA-256이어야 합니다: ${definition.id}`);
       }
-      if (!target.expectedDocument.documentKey.trim()) {
-        throw new Error(`가상 기업 기준 문서 키가 비어 있습니다: ${definition.id}`);
-      }
-      if (!/^[a-f0-9]{64}$/.test(target.expectedDocument.sourceSha256)) {
-        throw new Error(`가상 기업 기준 문서 SHA-256이 올바르지 않습니다: ${definition.id}`);
-      }
-      if (target.expectedWritingEntry !== WRITING_ENTRY_BY_TIER[target.expected]) {
-        throw new Error(`가상 기업 매칭과 작성 진입 기대값이 충돌합니다: ${definition.id}`);
-      }
-      if (target.expectedWritingEntry === "available" && !target.expectedAuthoring) {
-        throw new Error(`작성 가능 시나리오의 작성 기대값이 없습니다: ${definition.id}`);
-      }
-      if (target.expectedWritingEntry !== "available" && target.expectedAuthoring) {
-        throw new Error(`작성 진입 전 시나리오에는 작성 기대값을 둘 수 없습니다: ${definition.id}`);
+      const verificationScope = target.verificationScope ?? "matching_and_writing";
+      if (verificationScope === "matching_only") {
+        if (target.expectedDocument || target.expectedWritingEntry || target.expectedAuthoring) {
+          throw new Error(`매칭 전용 시나리오에는 작성 기준값을 둘 수 없습니다: ${definition.id}`);
+        }
+      } else {
+        if (!target.expectedDocument?.documentKey.trim()) {
+          throw new Error(`가상 기업 기준 문서 키가 비어 있습니다: ${definition.id}`);
+        }
+        if (!/^[a-f0-9]{64}$/.test(target.expectedDocument.sourceSha256)) {
+          throw new Error(`가상 기업 기준 문서 SHA-256이 올바르지 않습니다: ${definition.id}`);
+        }
+        if (target.expectedWritingEntry !== WRITING_ENTRY_BY_TIER[target.expected]) {
+          throw new Error(`가상 기업 매칭과 작성 진입 기대값이 충돌합니다: ${definition.id}`);
+        }
+        if (target.expectedWritingEntry === "available" && !target.expectedAuthoring) {
+          throw new Error(`작성 가능 시나리오의 작성 기대값이 없습니다: ${definition.id}`);
+        }
+        if (target.expectedWritingEntry !== "available" && target.expectedAuthoring) {
+          throw new Error(`작성 진입 전 시나리오에는 작성 기대값을 둘 수 없습니다: ${definition.id}`);
+        }
       }
       if (target.expectedAuthoring) {
         for (const [name, count] of Object.entries(target.expectedAuthoring)) {
@@ -267,6 +304,31 @@ function disabledCompanyProfile(input: {
       region: 1,
       founder_trait: 1,
       ...(input.includeCertification ? { certification: 1 } : {}),
+      business_status: 1,
+    },
+  };
+}
+
+function futureWorkExperienceCompanyProfile(): Omit<CompanyProfile, "profile_evidence"> {
+  return {
+    target_types: ["기업"],
+    insured_workforce: {
+      employment_insurance_active: true,
+      insured_count: 25,
+    },
+    prior_awards: [],
+    prior_award_history: {
+      records: [],
+      self_flags: { same_project: false },
+      known_programs: [],
+      known_program_types: [],
+    },
+    business_status: { active: true, label: "계속사업자" },
+    list_completeness: { target_type: "complete", prior_award: "complete" },
+    confidence: {
+      target_type: 1,
+      prior_award: 1,
+      insured_workforce: 1,
       business_status: 1,
     },
   };

@@ -12,8 +12,12 @@ import {
   type AiReviewForAudit,
 } from "./ai-review-compare";
 import { buildAuditItemsForRun, isLabAuditComplete } from "./audit-store";
-import { mergeAuditedReview, type AuditedAiReviewInput } from "./audited-reviews";
-import type { LabAudit, LabAuditItem } from "@/features/dev/analysis-lab/contract";
+import {
+  isLabAuditCompleteForRun,
+  mergeAuditedReview,
+  type AuditedAiReviewInput,
+} from "./audited-reviews";
+import type { LabAudit, LabAuditItem, LabRun } from "@/features/dev/analysis-lab/contract";
 
 // ── 픽스처 — ai-review-compare.test.ts 의 감사 표본 픽스처와 같은 구조 ─────────────
 function auditPoolFixture(): AiReviewForAudit[] {
@@ -326,6 +330,99 @@ const aiReviewFixture: AuditedAiReviewInput = {
     "provenance — 사람/AI 감사 갈래 분리 집계",
   );
   console.log("✅ AI 블라인드 감사 — concur 자동 완료·병합 결과 불변·provenance 집계");
+}
+
+// ── ⑥ 제품 계약 결정 규칙 — 현재 동일 사업 중복참여를 과거 수혜로 오해한 검수만 해소 ──
+{
+  const run: LabRun = {
+    runId: "run-deterministic-same-project",
+    grantId: "00000000-0000-4000-8000-000000000777",
+    source: "bizinfo",
+    sourceId: "PBLN_DETERMINISTIC",
+    title: "동일 사업 중복참여 테스트",
+    model: "claude-opus-5",
+    promptVersion: "lab-deep-v9",
+    startedAt: "2026-08-07T00:00:00.000Z",
+    durationMs: 1,
+    inputBlocks: [],
+    inputTotalChars: 1,
+    inputSha256: "0".repeat(64),
+    usage: null,
+    costUsd: null,
+    analysisMarkdown: "",
+    programIntent: null,
+    criteria: [{
+      dimension: "prior_award",
+      kind: "exclusion",
+      operator: "exists",
+      value: { scope: "self", self_kind: "same_project", channel: "general" },
+      confidence: 0.9,
+      sourceSpan: "(중복참여불가) 동일 사업 내 타 운영기관 중복 참여 불가",
+      spanVerified: true,
+      note: null,
+    }],
+    axisAssessments: [],
+    taxonomyProposals: [],
+    dimensionDiffs: [],
+    error: null,
+  };
+  const review: AuditedAiReviewInput = {
+    grantId: run.grantId,
+    runId: run.runId,
+    model: "claude-fable-5",
+    promptVersion: "ai-review-v5",
+    criterionReviews: [{
+      criterionIndex: 0,
+      verdict: "needs_edit",
+      note: "동시 중복 참여 조건인데 prior_award이면 과거 수혜 이력까지 배제한다.",
+    }],
+    axisReviews: [],
+  };
+  const audit: LabAudit = {
+    schema: "lab-audit-v1",
+    grantId: run.grantId,
+    runId: run.runId,
+    model: review.model,
+    aiPromptVersion: review.promptVersion,
+    aiAuditModel: "claude-sonnet-5",
+    aiAuditPromptVersion: "ai-audit-v4",
+    auditorEmail: null,
+    createdAt: "2026-08-07T00:01:00.000Z",
+    updatedAt: "2026-08-07T00:01:00.000Z",
+    items: [{
+      kind: "criterion",
+      criterionIndex: 0,
+      reason: "ai_non_correct",
+      aiVerdict: "needs_edit",
+      aiNote: review.criterionReviews[0]!.note,
+      humanVerdict: null,
+      note: null,
+      aiAuditVerdict: "correct",
+      aiAuditNote: "same_project 계약과 일치",
+    }],
+    overallNote: null,
+  };
+
+  assert.equal(isLabAuditComplete(audit), false, "일반 감사 규칙에서는 불일치가 계속 대기한다");
+  assert.equal(
+    isLabAuditCompleteForRun(run, audit),
+    true,
+    "원문·criterion·오지적 사유·독립 감사 모두 일치할 때만 계약 규칙으로 완료한다",
+  );
+  const merged = mergeAuditedReview(review, audit, run);
+  assert.equal(merged.review.criterionReviews[0]?.verdict, "correct");
+  assert.deepEqual(merged.provenance.deterministicResolvedCriterionIndexes, [0]);
+
+  const unrelated = {
+    ...audit,
+    items: [{ ...audit.items[0]!, aiNote: "값을 다시 확인해야 한다." }],
+  } satisfies LabAudit;
+  assert.equal(
+    isLabAuditCompleteForRun(run, unrelated),
+    false,
+    "과거 수혜로 오해한 지적이 아니면 같은 criterion도 자동 해소하지 않는다",
+  );
+  console.log("✅ 결정 규칙 — same_project 과거수혜 오해만 자동 해소·나머지는 대기");
 }
 
 console.log("\naudited-reviews 테스트 전부 통과");

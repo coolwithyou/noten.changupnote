@@ -15,7 +15,7 @@ import {
 const asOf = new Date("2026-08-02T00:00:00.000Z");
 const scenarios = listVirtualCompanyScenarios({ asOf });
 
-assert.equal(scenarios.length, 3);
+assert.equal(scenarios.length, 4);
 assert.equal(new Set(scenarios.map((scenario) => scenario.id)).size, scenarios.length);
 assert.equal(new Set(scenarios.map((scenario) => scenario.bizNo)).size, scenarios.length);
 
@@ -30,11 +30,13 @@ for (const identity of VIRTUAL_COMPANY_IDENTITIES) {
   assert.equal(scenario?.profile.name, scenario?.name);
   assert.equal(scenario?.targets.length, 1);
   assert.match(scenario?.targets[0]?.expectedRevision ?? "", /^[a-f0-9]{64}$/);
-  assert.match(scenario?.targets[0]?.expectedDocument.sourceSha256 ?? "", /^[a-f0-9]{64}$/);
+  if (scenario?.targets[0]?.verificationScope !== "matching_only") {
+    assert.match(scenario?.targets[0]?.expectedDocument?.sourceSha256 ?? "", /^[a-f0-9]{64}$/);
+  }
 }
 
-assert.equal(isVirtualCompanyBizNo("0000000004"), false);
-assert.equal(isAcceptedLandingBizNo("0000000004", { allowVirtual: true }), false);
+assert.equal(isVirtualCompanyBizNo("0000000005"), false);
+assert.equal(isAcceptedLandingBizNo("0000000005", { allowVirtual: true }), false);
 assert.equal(isAcceptedLandingBizNo("746-54-00870", { allowVirtual: false }), true);
 assert.equal(resolveVirtualCompanyScenario("7465400870", { asOf }), null);
 
@@ -84,5 +86,14 @@ assert.equal(certMissing?.profile.profile_evidence?.certification, undefined);
 assert.equal(certMissing?.targets[0]?.expected, "needs_profile_input");
 assert.equal(certMissing?.targets[0]?.expectedNextQuestionDimension, "certification");
 assert.equal(certMissing?.targets[0]?.expectedWritingEntry, "needs_profile_input");
+
+const futureWorkExperience = resolveVirtualCompanyScenario("0000000004", { asOf });
+assert.equal(futureWorkExperience?.profile.target_types?.[0], "기업");
+assert.equal(futureWorkExperience?.profile.insured_workforce?.insured_count, 25);
+assert.equal(futureWorkExperience?.profile.prior_award_history?.self_flags?.same_project, false);
+assert.equal(futureWorkExperience?.profile.profile_evidence?.insured_workforce?.provider, "cunote_virtual_company");
+assert.equal(futureWorkExperience?.targets[0]?.sourceId, "PBLN_000000000121794");
+assert.equal(futureWorkExperience?.targets[0]?.verificationScope, "matching_only");
+assert.equal(futureWorkExperience?.targets[0]?.expectedWritingEntry, undefined);
 
 console.log("virtualCompanies/catalog.test.ts: all assertions passed");

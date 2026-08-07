@@ -423,8 +423,15 @@ async function main() {
   // §9 완화 개정: 감사 항목의 확정 주체(사람 vs AI 블라인드 일치 자동확정)도 병기한다.
   const humanAuditedItems = auditedConfirmed.reduce((sum, item) => sum + item.provenance.auditedCount, 0);
   const aiConcurItems = auditedConfirmed.reduce((sum, item) => sum + item.provenance.aiConcurCount, 0);
+  const deterministicItems = auditedConfirmed.reduce(
+    (sum, item) => sum + (item.provenance.deterministicResolvedCriterionIndexes?.length ?? 0),
+    0,
+  );
   const auditBreakdown =
-    aiConcurItems > 0 ? ` · 감사 항목: 사람 ${humanAuditedItems} + AI 블라인드 일치 자동확정 ${aiConcurItems}` : "";
+    aiConcurItems > 0 || deterministicItems > 0
+      ? ` · 감사 항목: 사람 ${humanAuditedItems} + AI 블라인드 일치 자동확정 ${aiConcurItems}`
+        + (deterministicItems > 0 ? ` + 제품 계약 해소 ${deterministicItems}` : "")
+      : "";
   const methodologyLine =
     `검수 방법론: 사람 전수 ${reviewed.length}건 + AI(${AI_REVIEW_ADOPTED.model}·${AI_REVIEW_ADOPTED.promptVersion})+감사 ${auditedConfirmed.length}건(§9)` +
     ` · 캘리브레이션 일치 criterion ${AI_REVIEW_ADOPTED.calibration.criterionAgreement}·빈 축 ${AI_REVIEW_ADOPTED.calibration.emptyAxisAgreement}` +
@@ -474,8 +481,12 @@ async function main() {
     // 기본은 공고당 1줄 요약(30~100건 스케일 대비) — criterion 사유·누락·메모는 --verbose.
     // 감사 확정 AI 검수는 검수 주체 마커를 병기한다(§9 — 방법론 은폐 금지).
     const auditTag = item.auditProvenance
-      ? ` [AI+감사(뒤집힘 ${item.auditProvenance.overturnedCount}${
+        ? ` [AI+감사(뒤집힘 ${item.auditProvenance.overturnedCount}${
           item.auditProvenance.aiConcurCount > 0 ? `·AI일치 ${item.auditProvenance.aiConcurCount}` : ""
+        }${
+          item.auditProvenance.deterministicResolvedCriterionIndexes?.length
+            ? `·계약해소 ${item.auditProvenance.deterministicResolvedCriterionIndexes.length}`
+            : ""
         })]`
       : "";
     console.log(

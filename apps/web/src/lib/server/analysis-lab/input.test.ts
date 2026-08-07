@@ -2,7 +2,12 @@
 // 핵심: markdown 미생성 첨부(변환 실패·미시도)가 조용히 사라지지 않고
 // blocks 메타(첨부 미투입)와 모델 고지([입력 한계 고지])에 나타나야 한다(178352 실사례 회귀 방지).
 import assert from "node:assert/strict";
-import { assembleLabInput, type LabAttachmentTextStorage, type LabInputArchive } from "./input";
+import {
+  applyLabVerifiedConversionArtifacts,
+  assembleLabInput,
+  type LabAttachmentTextStorage,
+  type LabInputArchive,
+} from "./input";
 
 const GRANT = {
   source: "kstartup",
@@ -30,6 +35,30 @@ const fakeStorage = (objects: Record<string, string>): LabAttachmentTextStorage 
 });
 
 async function run() {
+  // ⓪ archive 변환 포인터가 비어도 같은 원본의 검증된 surface markdown을 재사용한다.
+  {
+    const hydrated = applyLabVerifiedConversionArtifacts([
+      archive({ filename: "공고문.pdf", storageKey: "archive/source.pdf" }),
+    ], [{
+      sourceAttachment: "archive/source.pdf",
+      title: "공고문.pdf",
+      storageKey: "converted/source.md",
+      sha256: "a".repeat(64),
+      markdownChars: 791,
+    }]);
+    assert.equal(hydrated[0]?.markdownStorageKey, "converted/source.md");
+    assert.equal(hydrated[0]?.markdownSha256, "a".repeat(64));
+    assert.equal(hydrated[0]?.markdownBytes, 791);
+
+    const ambiguous = applyLabVerifiedConversionArtifacts([
+      archive({ filename: "중복.pdf" }),
+    ], [
+      { sourceAttachment: null, title: "중복.pdf", storageKey: "a.md", sha256: "a".repeat(64) },
+      { sourceAttachment: null, title: "중복.pdf", storageKey: "b.md", sha256: "b".repeat(64) },
+    ]);
+    assert.equal(ambiguous[0]?.markdownStorageKey, null, "이름만 같은 복수 artifact는 임의 연결하지 않는다");
+  }
+
   // ① markdown 없는 첨부 → unavailable("변환 안 됨") + 고지문 + input_missing 유도 문구
   {
     const result = await assembleLabInput(
@@ -117,7 +146,26 @@ async function run() {
     assert.match(result.text, /공고문\.txt\(로드 실패\)/);
   }
 
-  console.log("input.test.ts: 5개 시나리오 전부 통과");
+  // ⑥ 검증된 artifact 포인터는 저장 본문 SHA가 달라지면 입력에 쓰지 않는다.
+  {
+    const result = await assembleLabInput(
+      {
+        grant: GRANT,
+        payload: null,
+        archives: [archive({
+          filename: "검증공고.pdf",
+          markdownStorageKey: "md/검증공고",
+          markdownSha256: "0".repeat(64),
+          markdownBytes: 30,
+        })],
+      },
+      { storage: fakeStorage({ "md/검증공고": "실제 본문" }) },
+    );
+    assert.match(result.text, /검증공고\.pdf\(로드 실패\)/);
+    assert.doesNotMatch(result.text, /첨부 공고문: 검증공고\.pdf/);
+  }
+
+  console.log("input.test.ts: 7개 시나리오 전부 통과");
 }
 
 run().catch((error) => {

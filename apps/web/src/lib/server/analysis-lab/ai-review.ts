@@ -39,7 +39,12 @@ import type {
 } from "@/features/dev/analysis-lab/contract";
 import type { AiAxisReview, AiCriterionReview } from "./ai-review-compare";
 import { DIMENSION_LABELS } from "./diff";
-import { assembleLabInput, type LabAssembledInput, type LabInputArchive } from "./input";
+import {
+  applyLabVerifiedConversionArtifacts,
+  assembleLabInput,
+  type LabAssembledInput,
+  type LabInputArchive,
+} from "./input";
 import { findMonorepoRoot, labRunFilePath, modelSlug } from "./run-store";
 
 // 파일명 슬러그의 소유자는 run-store 로 이동(감사 파일과 공용) — 기존 호출부 호환 재수출.
@@ -427,7 +432,7 @@ export function validateAiReviewPayload(
 /**
  * analyze.ts 의 공고 로드 → assembleLabInput 흐름을 복제한다(원본은 비export 인라인).
  * DB 모듈은 함수 안에서만 동적 import — --dry-run 등 비실행 경로가 DB 를 아예 로드하지
- * 않도록(batch.ts 관행). 여기의 select 3개가 이 파일의 유일한 DB 접근이다(쓰기 없음).
+ * 않도록(batch.ts 관행). 여기의 select 4개가 이 파일의 유일한 DB 접근이다(쓰기 없음).
  */
 export async function reassembleLabInputForRun(run: LabRun): Promise<LabAssembledInput> {
   const [{ getCunoteDb }, schema, { and, eq }] = await Promise.all([
@@ -464,7 +469,9 @@ export async function reassembleLabInputForRun(run: LabRun): Promise<LabAssemble
   const archiveRows = await db
     .select({
       filename: schema.grantAttachmentArchives.filename,
+      storageKey: schema.grantAttachmentArchives.storageKey,
       markdownStorageKey: schema.grantAttachmentArchives.markdownStorageKey,
+      markdownSha256: schema.grantAttachmentArchives.markdownSha256,
       markdownBytes: schema.grantAttachmentArchives.markdownBytes,
     })
     .from(schema.grantAttachmentArchives)
@@ -474,11 +481,36 @@ export async function reassembleLabInputForRun(run: LabRun): Promise<LabAssemble
         eq(schema.grantAttachmentArchives.sourceId, grant.sourceId),
       ),
     );
-  const archives: LabInputArchive[] = archiveRows.map((row) => ({
+  const convertedArtifactRows = await db
+    .select({
+      sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
+      title: schema.grantApplicationSurfaces.title,
+      storageKey: schema.documentArtifacts.storageKey,
+      sha256: schema.documentArtifacts.sha256,
+      metadata: schema.documentArtifacts.metadata,
+    })
+    .from(schema.grantApplicationSurfaces)
+    .innerJoin(
+      schema.documentArtifacts,
+      eq(schema.documentArtifacts.surfaceId, schema.grantApplicationSurfaces.id),
+    )
+    .where(and(
+      eq(schema.grantApplicationSurfaces.grantId, grant.id),
+      eq(schema.documentArtifacts.kind, "markdown"),
+    ));
+  const archives: LabInputArchive[] = applyLabVerifiedConversionArtifacts(archiveRows.map((row) => ({
     filename: row.filename,
+    storageKey: row.storageKey ?? null,
     markdownStorageKey: row.markdownStorageKey ?? null,
+    markdownSha256: row.markdownSha256 ?? null,
     markdownBytes: row.markdownBytes ?? null,
-  }));
+  })), convertedArtifactRows.map((row) => ({
+    sourceAttachment: row.sourceAttachment,
+    title: row.title,
+    storageKey: row.storageKey,
+    sha256: row.sha256,
+    markdownChars: numericMetadataValue(row.metadata, "charCount"),
+  })));
 
   return assembleLabInput({
     grant: {
@@ -496,6 +528,14 @@ export async function reassembleLabInputForRun(run: LabRun): Promise<LabAssemble
     payload: rawRows[0]?.payload ?? null,
     archives,
   });
+}
+
+function numericMetadataValue(
+  metadata: Record<string, unknown>,
+  key: string,
+): number | null {
+  const value = metadata[key];
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 }
 
 // ---- Anthropic 호출 ---------------------------------------------------------------

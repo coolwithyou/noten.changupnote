@@ -272,6 +272,20 @@ const baseSidecar = fixtureSidecar([
   const auditedPlan = planGrantPromotion({ run: baseRun, review: baseReview, origin: "audited", sidecar: baseSidecar });
   assert.equal(auditedPlan.auditState, "ai_audit_concur");
   assert.equal(auditedPlan.questions[0]?.provenance.auditState, "ai_audit_concur");
+
+  const deterministicPlan = planGrantPromotion({
+    run: baseRun,
+    review: baseReview,
+    origin: "audited",
+    deterministicResolvedCriterionIndexes: [1],
+    sidecar: baseSidecar,
+  });
+  assert.equal(deterministicPlan.auditState, "deterministic_contract");
+  assert.equal(
+    deterministicPlan.questions.find((item) => item.criterionIndex === 1)?.provenance.auditState,
+    "deterministic_contract",
+    "결정 규칙으로 해소된 질문은 일반 AI 일치로 위장하지 않는다",
+  );
 }
 
 // ---- 항목 resolver 승격 — 감사 미완도 pending 발행, 미확정 질문은 금지 ------------------
