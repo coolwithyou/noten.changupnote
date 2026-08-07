@@ -45,7 +45,7 @@ import type { LabAssembledInput } from "./input";
  * ai-audit-v1 (2026-07-23): §9 완화 개정 최초판 — ai-review-v2 시스템 프롬프트(동결 가이드
  * rubric + 판정 지시)를 그대로 공유하고, 감사 모드 지시(판정 대상 한정)만 덧붙인다.
  */
-export const AI_AUDIT_PROMPT_VERSION = "ai-audit-v2";
+export const AI_AUDIT_PROMPT_VERSION = "ai-audit-v3";
 export const AI_AUDIT_TOOL_NAME = "emit_deep_analysis_audit";
 export const AI_AUDIT_DEFAULT_MODEL = "claude-sonnet-5";
 

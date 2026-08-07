@@ -802,6 +802,8 @@ export const DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE =
   "business_status는 active/closed 같은 사업자등록상 운영 상태만 뜻한다. 지급불능·부도·파산·회생·법정관리·청산은 credit_status 플래그로만 표현하고, 동일 사실을 business_status criterion이나 condition_found로 중복 표현하지 마라. 예: 원문이 '부도 또는 파산기업(예정 포함)'이면 credit_status의 bond_default/bankruptcy_filed만 추출하고, 다른 휴업·폐업 근거가 없는 한 business_status는 inspected_no_condition이다.";
 export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
   "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
+export const DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE =
+  "신청대상 유형 열거에 '등', '예:', '포함하되 이에 한정되지 않음'처럼 예시임을 나타내는 표현이 있으면 target_type value.list_semantics=\"open\"으로 둔다. '다음 각 호에 한함', '아래 유형만', '이외 신청 불가'처럼 완전 열거가 명시된 경우에만 list_semantics=\"closed\"로 둔다. open 목록 밖 유형을 자동 탈락시키지 마라.";
 export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
   "financial_health의 구조화 criterion에 impairment_excluded가 full을 포함하면 자본전액잠식 결격을 이미 반영한 것이다. 같은 자본전액잠식 문구를 별도 text_only criterion으로 중복 만들지 말고, audit에서 그런 audit_only 후보가 나오면 primary 누락이 아니라 중복으로 판단하라.";
 export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
@@ -875,6 +877,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
+  DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   "업종은 dimension=industry 의 value.tags 배열에 짧은 한국어 정책 태그로 추출한다. 모호하면 text_only 로 남긴다.",
   DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
@@ -900,7 +903,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   ...CONFIRMATION_PROMPT_RULES,
   "",
   "[value canonical 규칙]",
-  "region={regions:[시도코드],nationwide?}, biz_age={min_months?,max_months?,include_preliminary?}, industry={tags:[문자열]}, size={sizes:[정규 규모]}, revenue={min_krw?,max_krw?}, employees={min?,max?}, founder_age={ranges:[{min?,max?,label}]}, founder_trait={traits:[문자열]}, certification={certs:[문자열]}, ip={types:[문자열]}, target_type={targets:[문자열]}.",
+  "region={regions:[시도코드],nationwide?}, biz_age={min_months?,max_months?,include_preliminary?}, industry={tags:[문자열]}, size={sizes:[정규 규모]}, revenue={min_krw?,max_krw?}, employees={min?,max?}, founder_age={ranges:[{min?,max?,label}]}, founder_trait={traits:[문자열]}, certification={certs:[문자열]}, ip={types:[문자열]}, target_type={targets:[문자열],list_semantics:\"open\"|\"closed\"}.",
   "위 canonical value 를 채울 수 없으면 빈 배열·빈 객체를 내지 말고 operator=text_only, dimension=other, value={note:근거문장} 으로 둔다.",
   "현재 사업자 상태로 판정할 수 없는 포괄적 '기타 부적합' 재량 문구는 분석 주의사항으로만 보존하고 criterion으로 만들지 마라.",
   "premises(사업장·입주공간 조건)와 export_performance(수출실적 조건)도 누락하지 않는다. 현재 matcher의 canonical 값이 열리기 전까지 이 두 축은 해당 dimension을 유지하고 operator=text_only, value={\"note\":\"근거문장\"}로 추출한다. other로 강등하지 마라.",

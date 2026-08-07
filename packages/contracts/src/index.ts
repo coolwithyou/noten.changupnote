@@ -244,6 +244,8 @@ export interface ListCriterionValue {
   programs?: string[];
   targets?: string[];
   types?: string[];
+  /** 공고의 신청대상 열거가 예시(open)인지 완전한 목록(closed)인지 구분한다. */
+  list_semantics?: "open" | "closed";
 }
 
 export interface TextOnlyCriterionValue {

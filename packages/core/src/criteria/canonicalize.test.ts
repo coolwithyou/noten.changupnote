@@ -52,6 +52,18 @@ assert.deepEqual(canonicalizeGrantCriterion(aliases[2]!).value, { traits: ["여�
 assert.equal(matchGrantCriteria(aliases, company).eligibility, "eligible");
 
 assert.deepEqual(canonicalizeGrantCriterion(criterion({
+  dimension: "target_type",
+  operator: "in",
+  value: {
+    targets: ["기업", "공공기관"],
+    list_semantics: "open",
+  },
+})).value, {
+  targets: ["기업", "공공기관"],
+  list_semantics: "open",
+}, "신청대상 열거 의미를 canonicalize 과정에서 보존한다");
+
+assert.deepEqual(canonicalizeGrantCriterion(criterion({
   dimension: "biz_age",
   operator: "between",
   value: { min: 0, max: 7, unit: "years", labels: ["창업 7년 이내"] },

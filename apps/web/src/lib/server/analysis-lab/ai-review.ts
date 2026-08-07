@@ -55,7 +55,7 @@ export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
  *   ③ 다른 축 criterion 으로 이미 포착된 조건은 빈 축 missed_condition 아님
  * v1 산출물은 <파일명>.v1 로 rename 보존. 재개정은 §9 상 불가(1회 한정 소진).
  */
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v3";
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v4";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -254,6 +254,9 @@ export function buildSystemPrompt(rubric: string): string {
     "  business_status 매처는 exclusion criterion에서 in/not_in 표기와 무관하게 값이 겹치거나 비활성",
     "  상태이면 fail로 판정한다. 따라서 exclusion+not_in만 보고 정상 기업을 배제한다고 추정하지 말고",
     "  kind와 실제 value가 원문의 배제 대상을 정확히 가리키는지 판정하라.",
+    "- [신청대상 열린 목록] 신청대상 열거에 '등', '예:'처럼 예시임을 나타내는 표현이 있으면",
+    "  target_type value.list_semantics=open이어야 한다. open 목록 밖 유형을 자동 탈락시키는",
+    "  닫힌 targets로 저장했다면 needs_edit이며, 명시적 완전 열거일 때만 closed가 정확하다.",
     "- 모든 criterion 인덱스와 모든 빈 축을 빠짐없이 정확히 한 번씩 판정하라.",
   ].join("\n");
 }

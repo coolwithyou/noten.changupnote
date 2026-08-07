@@ -463,6 +463,18 @@ function validateCriterion(
   validateExceptionCoverage(criterion, index, issues);
   validateMatcherSemanticCompleteness(criterion, index, issues);
   if (criterion.dimension === "target_type") {
+    const rawValue = isRecord(criterion.value) ? criterion.value : {};
+    if (
+      rawValue.list_semantics !== undefined
+      && rawValue.list_semantics !== "open"
+      && rawValue.list_semantics !== "closed"
+    ) {
+      issues.push({
+        code: "canonical_contract_invalid",
+        path: `$.criteria[${index}].value.list_semantics`,
+        message: "target_type value.list_semantics must be open or closed.",
+      });
+    }
     const value = isRecord(canonicalCriterion.value) ? canonicalCriterion.value : {};
     const targets = Array.isArray(value.targets)
       ? value.targets.filter((item): item is string => typeof item === "string" && Boolean(item.trim()))

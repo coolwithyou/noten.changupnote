@@ -727,13 +727,20 @@ function evaluateListCriterion(
  * 확정할 수 있다. 그 외 태그의 no-hit는 기존 positive-only 규칙대로 unknown을 유지한다.
  */
 function evaluateTargetType(criterion: GrantCriterion, company: CompanyProfile): RuleTraceEntry {
-  const required = ((criterion.value as ListCriterionValue).targets ?? []) as string[];
+  const criterionValue = criterion.value as ListCriterionValue;
+  const required = (criterionValue.targets ?? []) as string[];
+  const openList = criterionValue.list_semantics === "open";
   const requiredKinds = required.map(canonicalBusinessKindTarget);
   const companyKinds = unique((company.target_types ?? [])
     .map(canonicalBusinessKindTarget)
     .filter((value): value is "individual" | "corporation" => value !== null));
   const onlyBusinessKindRequirement = required.length > 0 && requiredKinds.every((value) => value !== null);
-  if (criterion.operator !== "exists" && onlyBusinessKindRequirement && companyKinds.length === 1) {
+  if (
+    !openList
+    && criterion.operator !== "exists"
+    && onlyBusinessKindRequirement
+    && companyKinds.length === 1
+  ) {
     const overlaps = requiredKinds.includes(companyKinds[0]!);
     const exclusion = criterion.operator === "not_in" || criterion.kind === "exclusion";
     const companyLabel = companyKinds[0] === "individual" ? "개인사업자" : "법인";
@@ -749,7 +756,7 @@ function evaluateTargetType(criterion: GrantCriterion, company: CompanyProfile):
     company.target_types,
     "targets",
     "신청대상",
-    isCompleteListField(company, "target_type"),
+    !openList && isCompleteListField(company, "target_type"),
   );
 }
 

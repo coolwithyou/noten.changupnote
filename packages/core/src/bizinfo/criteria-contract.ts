@@ -246,6 +246,18 @@ function validateDimensionValueSchema(
     if (dimension === "industry" && value.codes !== undefined) {
       requireStringArrayField(value.codes, `${path}.codes`, index, issues);
     }
+    if (
+      dimension === "target_type"
+      && value.list_semantics !== undefined
+      && value.list_semantics !== "open"
+      && value.list_semantics !== "closed"
+    ) {
+      issues.push({
+        index,
+        path: `${path}.list_semantics`,
+        message: "must be open|closed.",
+      });
+    }
     return;
   }
 

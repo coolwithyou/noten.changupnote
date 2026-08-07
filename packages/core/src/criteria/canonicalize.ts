@@ -65,7 +65,11 @@ export function canonicalizeCriterionValue(
     case "ip":
       return canonicalList(value, "types", ["types", "ip", "labels"]);
     case "target_type":
-      return canonicalList(value, "targets", ["targets", "types", "labels"]);
+      return canonicalList(value, "targets", ["targets", "types", "labels"], {
+        ...(value.list_semantics === "open" || value.list_semantics === "closed"
+          ? { listSemantics: value.list_semantics }
+          : {}),
+      });
     case "revenue":
       return canonicalNumeric(value, operator, kind, {
         minKey: "min_krw",
@@ -213,6 +217,7 @@ function canonicalList(
   options: {
     transform?: (value: string) => string | null;
     codes?: string[];
+    listSemantics?: "open" | "closed";
   } = {},
 ): CriterionValue {
   const transform = options.transform ?? ((item: string) => item);
@@ -225,6 +230,7 @@ function canonicalList(
   return compact({
     [canonicalKey]: entries,
     ...(options.codes && options.codes.length > 0 ? { codes: unique(options.codes) } : {}),
+    ...(options.listSemantics ? { list_semantics: options.listSemantics } : {}),
   });
 }
 

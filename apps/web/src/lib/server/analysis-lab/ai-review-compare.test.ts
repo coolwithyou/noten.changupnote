@@ -20,6 +20,10 @@ import { buildSystemPrompt } from "./ai-review";
   assert.match(systemPrompt, /투자일자 범위나\s*투자기관 유형 필드는 없다/);
   assert.match(systemPrompt, /존재하지 않는 필드를 새로 만들라고 needs_edit 하지 마라/);
   assert.match(systemPrompt, /exclusion\+not_in만 보고 정상 기업을 배제한다고 추정하지 말고/);
+  assert.match(
+    systemPrompt,
+    /신청대상 열거[\s\S]*등[\s\S]*list_semantics=open[\s\S]*목록 밖 유형을 자동 탈락/,
+  );
   console.log("✅ AI 검수 프롬프트 — 현재 매처 계약과 exclusion 극성 공유");
 }
 

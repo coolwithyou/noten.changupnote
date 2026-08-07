@@ -29,7 +29,7 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v19" as const;
+export const DEEP_ANALYSIS_AUDIT_PROMPT_VERSION = "deep-analysis-blind-audit-v20" as const;
 export const DEEP_ANALYSIS_BLIND_AUDIT_TASK_INSTRUCTION = [
   "이 실행은 primary를 보지 않는 독립 감사 분석이다.",
   "신청 가능 여부를 바꾸는 required·exclusion·결격 예외 criterion 후보만 반환하라.",

@@ -630,6 +630,66 @@ check("positive-only 신청대상 목록의 exact hit는 통과한다", () => {
   assert.equal(result.rule_trace[0]?.result, "pass");
 });
 
+check("열린 신청대상 열거의 no-hit는 회사 목록이 완전해도 탈락시키지 않는다", () => {
+  const result = matchGrantCriteria([{
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "기업, 공공기관, 지방공기업, 비영리단체 등",
+    value: {
+      targets: ["기업", "공공기관", "지방공기업", "비영리단체"],
+      list_semantics: "open",
+    },
+  }], {
+    ...company,
+    target_types: ["협동조합"],
+    list_completeness: { target_type: "complete" },
+    confidence: { ...company.confidence, target_type: 1 },
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.rule_trace[0]?.result, "unknown");
+});
+
+check("열린 법적 유형 열거는 상호배타 유형 최적화로 확정 탈락시키지 않는다", () => {
+  const result = matchGrantCriteria([{
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "법인사업자 등 참여 가능",
+    value: { targets: ["법인사업자"], list_semantics: "open" },
+  }], {
+    ...company,
+    target_types: ["개인사업자"],
+    list_completeness: { target_type: "complete" },
+    confidence: { ...company.confidence, target_type: 1 },
+  });
+  assert.equal(result.eligibility, "conditional");
+  assert.equal(result.rule_trace[0]?.result, "unknown");
+});
+
+check("닫힌 신청대상 열거의 no-hit는 회사 목록이 완전하면 탈락시킨다", () => {
+  const result = matchGrantCriteria([{
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    confidence: 0.9,
+    source_span: "신청대상은 아래 유형에 한함: 기업, 공공기관",
+    value: {
+      targets: ["기업", "공공기관"],
+      list_semantics: "closed",
+    },
+  }], {
+    ...company,
+    target_types: ["협동조합"],
+    list_completeness: { target_type: "complete" },
+    confidence: { ...company.confidence, target_type: 1 },
+  });
+  assert.equal(result.eligibility, "ineligible");
+  assert.equal(result.rule_trace[0]?.result, "fail");
+});
+
 check("첨부 추출이 미완료면 자격 통과와 별개로 추천 가능 게이트를 막는다", () => {
   const criteria: GrantCriterion[] = [{
     dimension: "region",

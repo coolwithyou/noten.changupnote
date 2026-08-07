@@ -114,6 +114,39 @@ assert.equal(
   true,
 );
 
+const openTargetTypeValidation = validateDeepAnalysisResult({
+  seal,
+  result: result([criterion({
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    value: { targets: ["기업", "공공기관"], list_semantics: "open" },
+  })], axes(["target_type"])),
+});
+assert.equal(openTargetTypeValidation.valid, true);
+assert.equal(
+  (openTargetTypeValidation.criteria[0]?.criterion.value as Record<string, unknown>).list_semantics,
+  "open",
+);
+
+const invalidTargetTypeListSemanticsValidation = validateDeepAnalysisResult({
+  seal,
+  result: result([criterion({
+    dimension: "target_type",
+    operator: "in",
+    kind: "required",
+    value: { targets: ["기업"], list_semantics: "examples" },
+  })], axes(["target_type"])),
+});
+assert.equal(invalidTargetTypeListSemanticsValidation.valid, false);
+assert.equal(
+  invalidTargetTypeListSemanticsValidation.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.path.endsWith(".value.list_semantics")
+  )),
+  true,
+);
+
 const startupEligibilityPhrase =
   "부산지역 예비 · 초기 창업패키지 및 창업중심대학에 선정된 예비창업자 및 초기창업자";
 const startupDuplicateSeal = sealDeepAnalysisInput({

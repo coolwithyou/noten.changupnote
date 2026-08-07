@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { DeepAnalysisModelResult } from "@cunote/contracts";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
+import { DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT } from "./auditExtractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
@@ -22,6 +23,7 @@ import {
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
   DEEP_ANALYSIS_SYSTEM_PROMPT,
+  DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE,
   buildDeepAnalysisToolSchema,
   resolveExactEvidenceSpan,
@@ -91,6 +93,18 @@ assert.equal(
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_STRUCTURED_TARGET_RULE),
   true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE),
+  true,
+);
+assert.equal(
+  DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /target_type=\{targets:\[문자열\],list_semantics:"open"\|"closed"\}/,
 );
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE),
