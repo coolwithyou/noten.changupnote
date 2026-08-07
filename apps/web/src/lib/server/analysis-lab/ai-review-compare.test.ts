@@ -24,6 +24,10 @@ import { buildSystemPrompt } from "./ai-review";
     systemPrompt,
     /신청대상 열거[\s\S]*등[\s\S]*list_semantics=open[\s\S]*목록 밖 유형을 자동 탈락/,
   );
+  assert.match(
+    systemPrompt,
+    /모집직무·지원직무[\s\S]*신청기업의 업종 자격이 아니다[\s\S]*industry\/text_only.*wrong/,
+  );
   console.log("✅ AI 검수 프롬프트 — 현재 매처 계약과 exclusion 극성 공유");
 }
 

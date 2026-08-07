@@ -181,4 +181,48 @@ assert.equal(empty.report.converted, 0);
 assert.equal(empty.report.missedConditions, 1);
 assert.equal(empty.report.error, null);
 
+// ---- 시나리오: 모집직무·업종/직무 미확정 조건은 검수가 놓쳐도 발행 차단 --------
+
+const industryBoundary = convertReviewedLabRun(fixtureRun([
+  criterion({
+    dimension: "industry",
+    kind: "required",
+    operator: "in",
+    value: { tags: ["IT"] },
+    sourceSpan: "ㅇ 모집직무 : 경영·사무 / 광고·마케팅 / IT",
+    note: "모집 직무 분야",
+  }),
+  criterion({
+    dimension: "industry",
+    kind: "required",
+    operator: "text_only",
+    value: {
+      note: "기업 업종 요건인지 청년 배치 직무분야인지 원문상 확정되지 않는다.",
+    },
+    sourceSpan: "경영·사무 / 광고·마케팅 / IT 분야 고용보험 피보험자수 20인 이상 기업",
+  }),
+  criterion({
+    dimension: "industry",
+    kind: "required",
+    operator: "in",
+    value: { tags: ["정보통신업"] },
+    sourceSpan: "정보통신업을 영위하는 중소기업만 신청할 수 있다.",
+  }),
+]), fixtureReview({
+  criterionReviews: [
+    { criterionIndex: 0, verdict: "correct", note: null },
+    { criterionIndex: 1, verdict: "correct", note: null },
+    { criterionIndex: 2, verdict: "correct", note: null },
+  ],
+  axisReviews: [],
+}));
+assert.equal(industryBoundary.report.inputRows, 3);
+assert.equal(industryBoundary.report.converted, 1);
+assert.equal(industryBoundary.report.dropped, 2);
+assert.deepEqual(
+  industryBoundary.criteria.map((item) => item.value),
+  [{ tags: ["정보통신업"] }],
+  "실제 신청기업 업종 조건만 발행한다",
+);
+
 console.log("shadow-convert tests: ok");

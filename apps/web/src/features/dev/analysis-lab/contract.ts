@@ -22,7 +22,8 @@ import type {
 // v6: 복합 투자·조건부 업종·휴폐업·상태무관 협약이력의 부분 구조화를 차단한다.
 // v7: 협약 전 이전 가능한 지역 대안을 현재 소재지 hard-fail로 축약하지 않는다.
 // v8: 신청대상의 예시 열거와 완전 열거를 구분해 목록 밖 유형의 오탈락을 막는다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v8";
+// v9: 모집직무·인력 수요 분야를 신청기업 업종으로 오분류하지 않는다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v9";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

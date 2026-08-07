@@ -55,7 +55,7 @@ export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
  *   ③ 다른 축 criterion 으로 이미 포착된 조건은 빈 축 missed_condition 아님
  * v1 산출물은 <파일명>.v1 로 rename 보존. 재개정은 §9 상 불가(1회 한정 소진).
  */
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v4";
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v5";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -257,6 +257,11 @@ export function buildSystemPrompt(rubric: string): string {
     "- [신청대상 열린 목록] 신청대상 열거에 '등', '예:'처럼 예시임을 나타내는 표현이 있으면",
     "  target_type value.list_semantics=open이어야 한다. open 목록 밖 유형을 자동 탈락시키는",
     "  닫힌 targets로 저장했다면 needs_edit이며, 명시적 완전 열거일 때만 closed가 정확하다.",
+    "- [업종과 모집직무 경계] 모집직무·지원직무·직무분야·인력 수요는 참여기업이 제공할",
+    "  업무 분야이지 신청기업의 업종 자격이 아니다. 이를 industry criterion으로 만들었다면",
+    "  wrong이다. 축약문만 있어 업종인지 직무인지 확정하지 못했다는 이유로 blocking",
+    "  industry/text_only를 만든 경우도 wrong이며, 첨부 누락이면 industry=input_missing으로 둔다.",
+    "  특정 업종 영위·KSIC·사업자등록 업태·종목·제외업종이 명시된 경우만 업종 조건이다.",
     "- 모든 criterion 인덱스와 모든 빈 축을 빠짐없이 정확히 한 번씩 판정하라.",
   ].join("\n");
 }

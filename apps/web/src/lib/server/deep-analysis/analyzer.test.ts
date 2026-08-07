@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import type { DeepAnalysisModelResult } from "@cunote/contracts";
 import { analyzeSealedDeepAnalysisInput } from "./analyzer";
+import { DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT } from "./auditAdjudication";
 import { DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT } from "./auditExtractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
@@ -15,6 +16,7 @@ import {
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
   DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
   DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
+  DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
@@ -101,6 +103,17 @@ assert.equal(
 assert.equal(
   DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE),
   true,
+);
+for (const prompt of [
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT,
+  DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
+]) {
+  assert.equal(prompt.includes(DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE), true);
+}
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /모집직무.*신청기업의 업종 자격이 아니다.*첨부도 입력에서 누락.*industry=input_missing/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,

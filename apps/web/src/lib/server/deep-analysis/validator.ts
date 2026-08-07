@@ -21,7 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v7" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v8" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -198,13 +198,21 @@ function validateApplicationMatchingScope(
   issues: DeepAnalysisValidationIssue[],
 ): void {
   for (const item of criteria) {
-    const reason = nonMatchingCriterionReason(item.canonicalCriterion);
+    const reason = nonMatchingCriterionReason({
+      ...item.canonicalCriterion,
+      value: item.criterion.value,
+      note: item.criterion.note,
+    });
     if (!reason) continue;
+    const message = reason === "program_job_field"
+      ? "Program job/placement field cannot be used as an applicant-company industry criterion; preserve it only in program intent."
+      : reason === "unresolved_industry_job_field"
+        ? "Unresolved industry-vs-job-field wording cannot become a blocking industry criterion; use input_missing when the disambiguating attachment is absent."
+        : `${reason}: application procedure or post-selection obligation cannot be used for company matching; preserve it only in analysis/caution text.`;
     issues.push({
       code: "non_matching_criterion",
       path: `$.criteria[${item.index}]`,
-      message:
-        `${reason}: application procedure or post-selection obligation cannot be used for company matching; preserve it only in analysis/caution text.`,
+      message,
     });
   }
 }

@@ -14,7 +14,10 @@
 // needs_edit/wrong/unsure 는 구조화된 수정값이 없어 변환하지 않고 건수만 보고한다.
 // missed_condition(누락 조건)도 마찬가지 — 후 지표가 하한 추정인 이유(계획 §7).
 import type { GrantCriterion } from "@cunote/contracts";
-import { normalizeGrantLlmCriteria } from "@cunote/core";
+import {
+  nonMatchingCriterionReason,
+  normalizeGrantLlmCriteria,
+} from "@cunote/core";
 import type { LabCriterion, LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
 
 export const ANALYSIS_LAB_SHADOW_SOURCE_PREFIX = "lab-shadow";
@@ -104,10 +107,15 @@ export function convertSelectedLabCriteria(
     missedConditions?: number;
   },
 ): ShadowConversionResult {
-  const rows = input.selections.flatMap(({ criterionIndex, needsReview }) => {
+  const selected = input.selections.flatMap(({ criterionIndex, needsReview }) => {
     const criterion = run.criteria[criterionIndex];
-    return criterion ? [toLlmRow(criterion, needsReview)] : [];
+    return criterion ? [{ criterion, needsReview }] : [];
   });
+  const rows = selected.flatMap(({ criterion, needsReview }) => (
+    isIndustryJobFieldMisclassification(criterion)
+      ? []
+      : [toLlmRow(criterion, needsReview)]
+  ));
 
   let criteria: GrantCriterion[] = [];
   let error: string | null = null;
@@ -139,11 +147,23 @@ export function convertSelectedLabCriteria(
         unsure: input.selections.filter((item) => item.needsReview).length,
       },
       missedConditions: input.missedConditions ?? 0,
-      inputRows: rows.length,
+      inputRows: selected.length,
       converted: criteria.length,
       downgraded,
-      dropped: error === null ? rows.length - criteria.length : rows.length,
+      dropped: error === null ? selected.length - criteria.length : selected.length,
       error,
     },
   };
+}
+
+function isIndustryJobFieldMisclassification(criterion: LabCriterion): boolean {
+  const reason = nonMatchingCriterionReason({
+    dimension: criterion.dimension,
+    operator: criterion.operator,
+    kind: criterion.kind,
+    value: criterion.value,
+    note: criterion.note,
+    source_span: criterion.sourceSpan,
+  });
+  return reason === "program_job_field" || reason === "unresolved_industry_job_field";
 }

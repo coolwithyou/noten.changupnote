@@ -31,6 +31,41 @@ assert.equal(
   "eligibility_calculation_instruction",
   "창업여부 계산 안내는 독립 required criterion이 아니다",
 );
+assert.equal(
+  nonMatchingCriterionReason(criterion(
+    "ㅇ 모집직무 : 경영·사무 / 광고·마케팅 / IT",
+    { dimension: "industry", kind: "required" },
+  )),
+  "program_job_field",
+  "모집직무는 신청기업 업종 자격조건이 아니다",
+);
+assert.equal(
+  nonMatchingCriterionReason(criterion(
+    "경영·사무 / 광고·마케팅 / IT 분야 고용보험 피보험자수 20인 이상 기업",
+    {
+      dimension: "industry",
+      kind: "required",
+      value: {
+        note: "기업 업종 요건인지 청년 배치 직무분야인지 원문상 확정되지 않는다.",
+      },
+    },
+  )),
+  "unresolved_industry_job_field",
+  "업종인지 직무인지 확정하지 못한 문구는 blocking 업종 criterion이 아니다",
+);
+assert.equal(
+  nonMatchingCriterionReason(criterion(
+    "정보통신업을 영위하는 중소기업만 신청할 수 있다.",
+    {
+      dimension: "industry",
+      operator: "in",
+      kind: "required",
+      value: { tags: ["정보통신업"] },
+    },
+  )),
+  null,
+  "신청기업의 업종을 명시한 실제 자격조건은 보존한다",
+);
 
 assert.equal(
   isNonMatchingApplicationCriterion(criterion("정부지원사업 참여제한 중인 기업은 신청할 수 없음", {

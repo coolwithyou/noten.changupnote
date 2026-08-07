@@ -129,6 +129,68 @@ assert.equal(
   "open",
 );
 
+const industryBoundaryText = [
+  "ㅇ 모집직무 : 경영·사무 / 광고·마케팅 / IT",
+  "경영·사무 / 광고·마케팅 / IT 분야 고용보험 피보험자수 20인 이상 기업",
+  "정보통신업을 영위하는 중소기업만 신청할 수 있다.",
+].join("\n");
+const industryBoundarySeal = sealDeepAnalysisInput({
+  grantId: "grant-industry-boundary",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: industryBoundaryText,
+  attachments: [],
+});
+const explicitJobField = criterion({
+  dimension: "industry",
+  operator: "in",
+  value: { tags: ["IT"] },
+  sourceSpan: "ㅇ 모집직무 : 경영·사무 / 광고·마케팅 / IT",
+});
+const explicitJobFieldValidation = validateDeepAnalysisResult({
+  seal: industryBoundarySeal,
+  result: result([explicitJobField], axes(["industry"])),
+});
+assert.equal(explicitJobFieldValidation.valid, false);
+assert.equal(
+  explicitJobFieldValidation.issues.some((issue) => (
+    issue.code === "non_matching_criterion"
+    && issue.message.includes("job/placement field")
+  )),
+  true,
+);
+
+const unresolvedIndustryJobField = criterion({
+  dimension: "industry",
+  operator: "text_only",
+  value: {
+    note: "기업 업종 요건인지 청년 배치 직무분야인지 원문상 확정되지 않는다.",
+  },
+  sourceSpan: "경영·사무 / 광고·마케팅 / IT 분야 고용보험 피보험자수 20인 이상 기업",
+});
+const unresolvedIndustryJobValidation = validateDeepAnalysisResult({
+  seal: industryBoundarySeal,
+  result: result([unresolvedIndustryJobField], axes(["industry"])),
+});
+assert.equal(unresolvedIndustryJobValidation.valid, false);
+assert.equal(
+  unresolvedIndustryJobValidation.issues.some((issue) => (
+    issue.code === "non_matching_criterion"
+    && issue.message.includes("industry-vs-job-field")
+  )),
+  true,
+);
+
+const actualIndustry = criterion({
+  dimension: "industry",
+  operator: "in",
+  value: { tags: ["정보통신업"] },
+  sourceSpan: "정보통신업을 영위하는 중소기업만 신청할 수 있다.",
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: industryBoundarySeal,
+  result: result([actualIndustry], axes(["industry"])),
+}).valid, true, "명시적인 신청기업 업종 자격은 보존한다");
+
 const invalidTargetTypeListSemanticsValidation = validateDeepAnalysisResult({
   seal,
   result: result([criterion({

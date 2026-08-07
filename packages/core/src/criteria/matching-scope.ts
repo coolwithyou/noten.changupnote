@@ -4,12 +4,16 @@ export type NonMatchingCriterionReason =
   | "application_truthfulness_declaration"
   | "application_document_procedure"
   | "eligibility_calculation_instruction"
+  | "program_job_field"
+  | "unresolved_industry_job_field"
   | "post_selection_obligation";
 
 type MatchingScopeCriterion = {
   dimension: GrantCriterion["dimension"];
   operator: string;
   kind: GrantCriterion["kind"];
+  value?: unknown;
+  note?: string | null;
   source_span?: string | null;
 };
 
@@ -28,6 +32,10 @@ const CURRENT_SANCTION_STATUS_PATTERN =
   /참여\s*제한\s*중|제재\s*(?:중|조치\s*대상)|현재.{0,20}(?:제한|금지)/u;
 const ELIGIBILITY_CALCULATION_PATTERN =
   /다수(?:의)?\s*사업자등록증.{0,80}창업여부\s*기준표.{0,80}(?:신청\s*자격|적합\s*여부|창업\s*여부).{0,40}(?:결정|확인|판정)/u;
+const PROGRAM_JOB_FIELD_PATTERN =
+  /(?:모집|지원|배치|인턴|일경험)\s*(?:대상\s*)?(?:직무|직종)|직무\s*분야|인력\s*수요|청년.{0,24}(?:부여|배치|수행).{0,12}직무/u;
+const UNRESOLVED_INDUSTRY_JOB_FIELD_PATTERN =
+  /(?:업종.{0,60}(?:직무|직종|일경험).{0,60}(?:불명확|모호|확정되지|구분.{0,8}(?:어렵|불가))|(?:직무|직종|일경험).{0,60}업종.{0,60}(?:불명확|모호|확정되지|구분.{0,8}(?:어렵|불가)))/u;
 
 /**
  * 사업자 매칭의 입력이 될 수 없는 신청 절차·사후 의무를 고정밀도로 식별한다.
@@ -41,6 +49,23 @@ export function nonMatchingCriterionReason(
 ): NonMatchingCriterionReason | null {
   const text = normalizeScopeText(criterion.source_span);
   if (!text) return null;
+
+  if (criterion.dimension === "industry") {
+    const semanticText = normalizeScopeText([
+      text,
+      criterion.note,
+      criterionValueNote(criterion.value),
+    ].filter(Boolean).join(" "));
+    if (PROGRAM_JOB_FIELD_PATTERN.test(text)) {
+      return "program_job_field";
+    }
+    if (
+      criterion.operator === "text_only"
+      && UNRESOLVED_INDUSTRY_JOB_FIELD_PATTERN.test(semanticText)
+    ) {
+      return "unresolved_industry_job_field";
+    }
+  }
 
   if (
     criterion.dimension === "other"
@@ -82,4 +107,10 @@ export function isNonMatchingApplicationCriterion(
 
 function normalizeScopeText(value: string | null | undefined): string {
   return (value ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function criterionValueNote(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const note = (value as Record<string, unknown>).note;
+  return typeof note === "string" ? note : null;
 }
