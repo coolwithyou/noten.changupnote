@@ -299,6 +299,8 @@ export interface AuditSelection {
 /**
  * 사람 감사 대상 산출 — ① AI 비-correct 판정 전수 ② missed_condition 플래그 전수
  * ③ correct 중 시드 고정 결정론 무작위 표본(기본 20%).
+ * 공고별 독립 감사 provenance가 비어 버리지 않도록 correct가 있는 각 런에서는
+ * 최소 1건을 포함한다. 전체 표본 수는 ceil(전체 correct×비율)과 런 수 중 큰 값이다.
  * 입력 순서와 무관하게 같은 시드면 같은 표본이 나온다(정렬 후 시드 셔플).
  */
 export function selectAuditTargets(
@@ -353,8 +355,25 @@ export function selectAuditTargets(
     shuffled[i] = shuffled[j]!;
     shuffled[j] = a;
   }
-  const sampleCount = correctPool.length === 0 ? 0 : Math.ceil(correctPool.length * options.sampleRatio);
-  const sampled = shuffled.slice(0, sampleCount).sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  const runKey = (target: AuditTarget): string => `${target.grantId}|${target.runId}`;
+  const correctRunCount = new Set(correctPool.map(runKey)).size;
+  const sampleCount = correctPool.length === 0
+    ? 0
+    : Math.max(Math.ceil(correctPool.length * options.sampleRatio), correctRunCount);
+  const sampledByKey = new Map<string, AuditTarget>();
+  const coveredRuns = new Set<string>();
+  for (const target of shuffled) {
+    const key = runKey(target);
+    if (coveredRuns.has(key)) continue;
+    coveredRuns.add(key);
+    sampledByKey.set(sortKey(target), target);
+  }
+  for (const target of shuffled) {
+    if (sampledByKey.size >= sampleCount) break;
+    sampledByKey.set(sortKey(target), target);
+  }
+  const sampled = [...sampledByKey.values()]
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 
   return {
     targets: [...nonCorrect, ...flags, ...sampled],

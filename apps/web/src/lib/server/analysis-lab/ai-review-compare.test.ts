@@ -209,6 +209,20 @@ function comparisonFixture(): RunComparisonInput[] {
 
   const differentSeed = selectAuditTargets(reviews, { seed: 7, sampleRatio: 0.2 });
   assert.equal(differentSeed.sampledCorrectCount, 2, "시드가 달라도 표본 크기는 동일");
+
+  const smallRun = selectAuditTargets([{
+    grantId: "small-grant",
+    runId: "small-run",
+    title: "조건 3개 공고",
+    criterionReviews: [
+      { criterionIndex: 0, verdict: "correct", note: null },
+      { criterionIndex: 1, verdict: "correct", note: null },
+      { criterionIndex: 2, verdict: "correct", note: null },
+    ],
+    axisReviews: [],
+  }], { seed: 42, sampleRatio: 0.2 });
+  assert.equal(smallRun.sampledCorrectCount, 1, "작은 공고도 독립 감사 표본을 최소 1건 가진다");
+  assert.equal(smallRun.targets[0]?.kind, "correct_sample");
   console.log("✅ selectAuditTargets — 결정론·전수 포함·표본 크기");
 }
 
