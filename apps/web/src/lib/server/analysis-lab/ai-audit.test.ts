@@ -18,6 +18,8 @@ import { isAiAuditConcur, type LabAudit, type LabAuditItem } from "@/features/de
   const systemPrompt = buildAiAuditSystemPrompt("검수 기준서");
   assert.match(systemPrompt, /투자일자 범위나\s*투자기관 유형 필드는 없다/);
   assert.match(systemPrompt, /exclusion\+not_in만 보고 정상 기업을 배제한다고 추정하지 말고/);
+  assert.match(systemPrompt, /첨부파일명·제출서류 목록[\s\S]*confirmed_absent/);
+  assert.match(systemPrompt, /배점·가점·최하점[\s\S]*preferred\/ranking/);
   assert.match(systemPrompt, /이번 작업은 표본 감사\(독립 2차 판정\)다/);
   console.log("✅ AI 감사 프롬프트 — 검수 매처 계약과 감사 범위 공유");
 }

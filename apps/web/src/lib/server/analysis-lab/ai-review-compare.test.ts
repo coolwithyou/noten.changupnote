@@ -28,7 +28,15 @@ import { buildSystemPrompt, validateAiReviewPayload } from "./ai-review";
     systemPrompt,
     /모집직무·지원직무[\s\S]*신청기업의 업종 자격이 아니다[\s\S]*industry\/text_only.*wrong/,
   );
-  assert.match(systemPrompt, /missed_condition 이면 match_impact도 필수/);
+  assert.match(systemPrompt, /실제 missed_condition이라고 확인된 경우에만 match_impact/);
+  assert.match(
+    systemPrompt,
+    /첨부파일명·제출서류 목록[\s\S]*파일명이나 다른 제출항목과 병렬이라는 이유만으로[\s\S]*confirmed_absent/,
+  );
+  assert.match(
+    systemPrompt,
+    /기업 사실에 따라 배점·가점·최하점[\s\S]*단순 절차가 아니라 preferred\/ranking/,
+  );
   console.log("✅ AI 검수 프롬프트 — 현재 매처 계약과 exclusion 극성 공유");
 }
 

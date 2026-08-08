@@ -59,9 +59,10 @@ export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
  *   ① §0 리트머스 우위 — §2 경계 규칙 패턴 매칭만으로 needs_edit 금지
  *   ② 통합공고류의 빈 축은 공고 자체 차원 요건으로만 판정
  *   ③ 다른 축 criterion 으로 이미 포착된 조건은 빈 축 missed_condition 아님
- * v1 산출물은 <파일명>.v1 로 rename 보존. 재개정은 §9 상 불가(1회 한정 소진).
+ * v7 (2026-08-09): 판정 어휘는 유지하고 제출자료와 실제 매칭 사실의 대칭 경계를 추가한다.
+ * 구 산출물은 promptVersion으로 구분하고 필요한 대상만 버전명으로 보존 후 재검수한다.
  */
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v6";
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v7";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -234,9 +235,17 @@ export function buildSystemPrompt(rubric: string): string {
     "- 빈 축 판정: confirmed_absent(그 축의 자격요건이 원문 전체에 없음을 확인) /",
     "  missed_condition(원문에 그 축의 요건이 실재하는데 추출이 못 잡음 — 누락).",
     "- missed_condition 이면 note 에 누락된 요건을 원문 문구 인용으로 서술한다(필수).",
-    "- missed_condition 이면 match_impact도 필수다. 신청 가능·불가를 바꾸는 필수자격·배제는",
-    "  eligibility, 우대·가점·평가순위만 바꾸는 조건은 ranking으로 판정한다. 제출서류나",
-    "  절차 문구만으로 영향도를 추측하지 말고, 불명확하면 안전하게 eligibility로 둔다.",
+    "- [제출자료 리트머스] 첨부파일명·제출서류 목록·서식 입력란·일반적인 유효기간 안내만 있고,",
+    "  그 문서가 증명하는 기업 사실의 신청자격·배제·우대·배점 효과가 본문·평가표·인접 문장에",
+    "  명시되지 않았다면 22축 조건이 아니다. 파일명이나 다른 제출항목과 병렬이라는 이유만으로",
+    "  효과를 추론하지 말고 해당 빈 축은 confirmed_absent로 판정한다.",
+    "- 반대로 제출자료가 증명하는 기업 사실에 따라 배점·가점·최하점 등 평가 결과가 달라진다고",
+    "  명시되어 있으면 단순 절차가 아니라 preferred/ranking이다. '서류 제출' 표현이 있다는 이유만으로",
+    "  올바른 preferred criterion을 other/절차로 바꾸지 말고, criterion의 value가 그 기업 사실과",
+    "  원문의 점수 효과를 같은 결론으로 보존하는지 §0 리트머스로 판정한다.",
+    "- 위 리트머스를 통과해 실제 missed_condition이라고 확인된 경우에만 match_impact를 정한다.",
+    "  신청 가능·불가를 바꾸는 필수자격·배제는 eligibility, 우대·가점·평가순위만 바꾸는 조건은",
+    "  ranking이다. 실제 조건인 것은 분명하지만 둘 중 영향도만 불명확할 때만 eligibility로 둔다.",
     "- [적대적 검증] 각 criterion 에 대해 \"이 criterion 을 이대로 DB에 넣고 매칭 판정에 썼을 때,",
     "  원문과 다른 판정 결론이 나오는 기업이 존재하는지\" 능동적으로 반증을 시도하라 —",
     "  반례가 될 기업을 구체적으로 상정하고 value·operator·kind 를 원문과 대조하라.",
