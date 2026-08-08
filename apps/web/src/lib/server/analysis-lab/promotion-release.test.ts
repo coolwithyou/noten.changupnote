@@ -232,6 +232,44 @@ function manifest() {
     false,
     "애매한 criterion만 needs_review로 봉인한 조건부 승격은 발행 가능해야 한다",
   );
+  const auditedLocalConditionalItem: PromotionReleasePlanItem = {
+    ...pendingItem,
+    promotionPlan: {
+      ...pendingItem.promotionPlan,
+      origin: "audited",
+      auditState: "deterministic_contract",
+      reviewRisk: {
+        schema: "promotion-review-risk-v1",
+        disposition: "conditional",
+        blockers: [],
+        deferrals: [{
+          code: "ranking_criterion_suppressed",
+          criterionIndex: 2,
+          verdict: "needs_edit",
+          detail: "오류가 있는 우대조건은 점수에서 제외",
+        }],
+        suppressedCriterionIndexes: [2],
+        suppressedVerdicts: { needsEdit: 1, wrong: 0, unsure: 0 },
+        deferredMissedConditions: 0,
+      },
+    },
+  };
+  assert.equal(
+    releasePlanItemHasUnsafePendingCriteria(auditedLocalConditionalItem),
+    false,
+    "release 준비가 허용한 독립 감사 local canary를 shadow가 다시 거부하지 않는다",
+  );
+  assert.equal(
+    releasePlanItemHasUnsafePendingCriteria({
+      ...auditedLocalConditionalItem,
+      promotionPlan: {
+        ...auditedLocalConditionalItem.promotionPlan,
+        auditState: "mixed_resolution",
+      },
+    }),
+    true,
+    "감사 근거가 봉인되지 않은 local plan은 계속 fail-closed한다",
+  );
   assert.equal(
     isPromotionAggregateGateBlocking([pendingItem], "coverage_ratio"),
     true,

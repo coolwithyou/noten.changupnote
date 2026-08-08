@@ -355,8 +355,8 @@ function isAuditedLocalConditionalPlan(plan: GrantPromotionPlan): boolean {
 
 /**
  * 일반 Lab release는 기존처럼 needs_review를 fail-closed한다. 프로덕션
- * deep-analysis release만 자동 검수 결정이 manifest에 봉인된 경우 예상된
- * needs_review criterion을 보존한 채 통과할 수 있다.
+ * deep-analysis release와 독립 감사된 local conditional canary만 결정 근거가
+ * manifest에 봉인된 경우 needs_review criterion을 unknown으로 보존할 수 있다.
  */
 export function releasePlanItemHasUnsafePendingCriteria(
   item: PromotionReleasePlanItem,
@@ -365,6 +365,7 @@ export function releasePlanItemHasUnsafePendingCriteria(
     (criterion, position) => criterion.needs_review === true ? [position] : [],
   );
   if (needsReviewPositions.length === 0) return false;
+  if (isAuditedLocalConditionalPlan(item.promotionPlan)) return false;
   if (!isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)) return true;
   const conditionalOnly = new Set(item.deepAnalysisConditionalOnlyCriteria ?? []);
   return needsReviewPositions.some((position) => !conditionalOnly.has(position));
