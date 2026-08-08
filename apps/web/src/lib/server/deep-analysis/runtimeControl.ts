@@ -13,6 +13,11 @@ const CONTROL_KEY = "global" as const;
 export const LOCAL_ANALYSIS_LEASE_TTL_SECONDS = 120;
 export const LOCAL_ANALYSIS_OWNER_HEADER = "x-cunote-local-analysis-owner";
 
+// DB lease는 운영 API와 로컬 구독 실행의 상호배타를 보장한다. 같은 owner가 브라우저
+// 요청을 중복 전송하는 경우까지 허용하면 연결이 끊긴 장시간 CLI 호출과 새 호출이 겹칠
+// 수 있으므로, 실제 로컬 프로세스 안에서는 분석 실행을 하나로 직렬화한다.
+let localSubscriptionRunActive = false;
+
 type RuntimeControlRow = typeof schema.deepAnalysisRuntimeControl.$inferSelect;
 
 export class DeepAnalysisRuntimeControlError extends Error {
@@ -21,7 +26,8 @@ export class DeepAnalysisRuntimeControlError extends Error {
       | "runtime_control_missing"
       | "runtime_control_conflict"
       | "local_owner_required"
-      | "local_subscription_not_allowed",
+      | "local_subscription_not_allowed"
+      | "local_analysis_already_running",
     message: string,
     readonly status = 409,
   ) {
@@ -90,6 +96,13 @@ export async function runWithLocalSubscriptionLeaseHeartbeat<T>(input: {
 }): Promise<T> {
   const ownerId = input.ownerId?.trim();
   await assertLocalSubscriptionAnalysisAllowed({ db: input.db, ownerId });
+  if (localSubscriptionRunActive) {
+    throw new DeepAnalysisRuntimeControlError(
+      "local_analysis_already_running",
+      "이 로컬 서버에서 다른 구독 분석이 실행 중입니다. 기존 실행이 끝난 뒤 다시 시도하세요.",
+    );
+  }
+  localSubscriptionRunActive = true;
   let renewalInFlight = false;
   const timer = setInterval(() => {
     if (renewalInFlight || !ownerId) return;
@@ -102,6 +115,7 @@ export async function runWithLocalSubscriptionLeaseHeartbeat<T>(input: {
     return await input.run();
   } finally {
     clearInterval(timer);
+    localSubscriptionRunActive = false;
   }
 }
 
