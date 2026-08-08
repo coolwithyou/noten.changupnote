@@ -4,6 +4,13 @@
 /** v5: 전체 원본 수·문서 상한 초과를 봉인해 누락을 정상 완료로 오인하지 않는다. */
 export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v5";
 
+/**
+ * 로컬 구독 Kordoc 필드 판정의 채택 모델.
+ * 사람 검수 대신 가장 높은 품질의 구독 모델 결과를 release 근거로 쓸 때 이 값과
+ * claude-cli provenance가 함께 봉인되어야 한다.
+ */
+export const APPLICATION_ROUNDTRIP_ADOPTED_MODEL = "claude-opus-5";
+
 export type RoundtripDocumentFormat = "hwp" | "hwpx";
 export type RoundtripDocumentRole =
   | "application_form"

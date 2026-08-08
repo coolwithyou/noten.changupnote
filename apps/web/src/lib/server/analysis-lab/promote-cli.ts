@@ -48,6 +48,7 @@ import * as schema from "../db/schema";
 import {
   applyPreparedGrantApplicationPrecompute,
   prepareGrantApplicationPrecompute,
+  type PreparedGrantApplicationPrecompute,
 } from "../documents/applicationPrecomputeMaterialization";
 import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInvalidation";
 import { acquireGrantPublicationLock } from "../ingestion/grantPublicationLock";
@@ -55,6 +56,11 @@ import { criterionInsertValues } from "../ingestion/normalizedGrantPublisher";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { verifyPromotionSourceArtifact } from "./promotion-candidates";
+import {
+  buildPromotionApplicationPrecomputeReceipt,
+  readBundledPromotionApplicationPrecompute,
+  type PromotionApplicationPrecomputeEvidence,
+} from "./application-precompute-release";
 import {
   assertManifestConfirmation,
   promotionReleaseArtifactPath,
@@ -107,11 +113,20 @@ function createDrizzlePromotionPort(
   releaseContext?: {
     releaseDbId: string;
     itemByGrantId: ReadonlyMap<string, PromotionReleasePlanItem>;
-    materializeApplicationPrecompute?: (grantId: string, parentLabRunId: string) => Promise<void>;
+    prepareApplicationPrecompute?: (
+      grantId: string,
+      parentLabRunId: string,
+    ) => Promise<{
+      prepared: PreparedGrantApplicationPrecompute;
+      evidence: PromotionApplicationPrecomputeEvidence;
+    } | null>;
   },
 ): PromotionWritePort {
   return {
     async publishGrant(plan: GrantPromotionPlan) {
+      const applicationPrecompute = releaseContext?.prepareApplicationPrecompute
+        ? await releaseContext.prepareApplicationPrecompute(plan.grantId, plan.runId)
+        : null;
       const publishResult = await db.transaction(async (tx) => {
         const releasePlanItem = releaseContext?.itemByGrantId.get(plan.grantId);
         if (releaseContext && !releasePlanItem) {
@@ -370,6 +385,25 @@ function createDrizzlePromotionPort(
           questionsInvalidated,
           matchStatesDeleted,
         };
+        const applicationPrecomputeReceipt = applicationPrecompute
+          ? await applyPreparedGrantApplicationPrecompute({
+              db: tx,
+              prepared: applicationPrecompute.prepared,
+            }).then((applied) => buildPromotionApplicationPrecomputeReceipt({
+              evidence: applicationPrecompute.evidence,
+              applied,
+            }))
+          : {
+              schema: "analysis-lab-application-precompute-receipt-v1",
+              status: "not_applicable",
+              roundtripRunId: null,
+              materialized: 0,
+              reused: 0,
+              protected: 0,
+              terminalOnly: 0,
+              fields: 0,
+              completedAt: new Date().toISOString(),
+            };
         if (releaseContext) {
           const afterSnapshot = await loadPromotionGrantSnapshot(tx, plan.grantId, confirmedLinks);
           const afterSha256 = promotionGrantSnapshotStateSha256(afterSnapshot);
@@ -378,6 +412,7 @@ function createDrizzlePromotionPort(
             .set({
               afterSnapshot: afterSnapshot as unknown as Record<string, unknown>,
               afterSha256,
+              applicationPrecomputeReceipt: applicationPrecomputeReceipt as unknown as Record<string, unknown>,
               status: "applied",
               error: null,
               appliedAt: new Date(),
@@ -393,18 +428,6 @@ function createDrizzlePromotionPort(
         }
         return result;
       });
-      // 22축 승격과 지원서 선분석은 독립 실패 경계다. 선분석 projection 실패가
-      // 매칭 승격 receipt를 되돌리거나 release를 실패시키지 않도록 observe-only로 실행한다.
-      if (releaseContext?.materializeApplicationPrecompute) {
-        try {
-          await releaseContext.materializeApplicationPrecompute(plan.grantId, plan.runId);
-        } catch (error) {
-          console.warn(
-            `[promote] Kordoc 선분석 materialization observe-only 실패: ${plan.grantId} · `
-              + (error instanceof Error ? error.message : String(error)),
-          );
-        }
-      }
       return publishResult;
     },
   };
@@ -554,6 +577,15 @@ async function mainRelease(releaseId: string): Promise<number> {
     nextRunningStatus = "applying";
   }
   if (targetItems.length === 0) throw new Error("release 쓰기 대상이 0건입니다.");
+  const sourceArtifactByGrantId = new Map(
+    manifest.sourceArtifacts.map((artifact) => [artifact.grantId, artifact]),
+  );
+  const requiresApplicationPrecompute = targetItems.some((item) =>
+    sourceArtifactByGrantId.get(item.grantId)?.applicationPrecompute !== undefined);
+  const applicationStorage = createR2ObjectStorageFromEnv();
+  if (requiresApplicationPrecompute && !applicationStorage) {
+    throw new Error("Kordoc release artifact 반영에 필요한 R2 설정이 없습니다.");
+  }
 
   const statusUpdated = await db
     .update(schema.analysisLabPromotionReleases)
@@ -570,33 +602,30 @@ async function mainRelease(releaseId: string): Promise<number> {
   if (statusUpdated.length !== 1) throw new Error("release 실행 상태 CAS가 실패했습니다.");
 
   const itemByGrantId = new Map(manifest.plans.map((item) => [item.grantId, item]));
-  const applicationStorage = createR2ObjectStorageFromEnv();
-  if (!applicationStorage) {
-    console.warn("[promote] R2 설정이 없어 Kordoc 지원서 선분석 materialization을 건너뜁니다.");
-  }
   const port = createDrizzlePromotionPort(db, confirmedLinks, {
     releaseDbId: release.id,
     itemByGrantId,
     ...(applicationStorage
       ? {
-          materializeApplicationPrecompute: async (grantId: string, parentLabRunId: string) => {
+          prepareApplicationPrecompute: async (grantId: string, parentLabRunId: string) => {
+            const evidence = sourceArtifactByGrantId.get(grantId)?.applicationPrecompute;
+            if (!evidence) return null;
+            const roundtripArtifacts = await readBundledPromotionApplicationPrecompute(evidence);
             const prepared = await prepareGrantApplicationPrecompute({
               grantId,
               parentLabRunId,
               db,
               storage: applicationStorage,
+              roundtripArtifacts,
             });
             if (!prepared) {
-              console.log(`[promote] Kordoc 선분석 없음: ${grantId}`);
-              return;
+              throw new Error(`release Kordoc 증거와 LabRun 참조가 일치하지 않습니다: ${grantId}`);
             }
-            const applied = await db.transaction((tx) =>
-              applyPreparedGrantApplicationPrecompute({ db: tx, prepared }));
             console.log(
-              `[promote] Kordoc 선분석 반영: ${grantId} · `
-                + `materialized ${applied.materialized} · reused ${applied.reused} · `
-                + `protected ${applied.protected} · terminal ${applied.terminalOnly} · fields ${applied.fields}`,
+              `[promote] Kordoc 선분석 준비: ${grantId} · `
+                + `surface ${prepared.surfaces.length} · model ${evidence.model}`,
             );
+            return { prepared, evidence };
           },
         }
       : {}),

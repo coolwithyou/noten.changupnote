@@ -150,7 +150,7 @@ export function buildApplicationPrecomputeSurfacePlan(input: {
   document: RoundtripParsedDocument;
   parentDeepAnalysisRunId?: string | null;
 }): ApplicationPrecomputeSurfacePlan {
-  const outcome = classifyDocument(input.document);
+  const outcome = classifyApplicationPrecomputeDocument(input.document);
   return surfacePlan({
     ...input,
     status: outcome.status,
@@ -165,10 +165,16 @@ export async function prepareGrantApplicationPrecompute(input: {
   parentLabRunId: string;
   db: CunoteDb;
   storage: R2ObjectStorage;
+  roundtripArtifacts?: {
+    run: ApplicationRoundtripRun;
+    manifest: RoundtripRunManifest;
+  };
 }): Promise<PreparedGrantApplicationPrecompute | null> {
   const labRun = await readLabRun(input.grantId, input.parentLabRunId);
   if (!labRun?.applicationRoundtrip?.runId) return null;
-  const artifacts = await readRoundtripRunArtifacts(input.grantId, labRun.applicationRoundtrip.runId);
+  const artifacts = input.roundtripArtifacts
+    ? { ...input.roundtripArtifacts, dir: "(release-bundle)" }
+    : await readRoundtripRunArtifacts(input.grantId, labRun.applicationRoundtrip.runId);
   if (!artifacts) throw new Error(`Kordoc 선분석 artifact를 찾지 못했습니다: ${input.grantId}`);
 
   const surfaceRows = await input.db
@@ -382,7 +388,7 @@ function surfacePlan(input: {
   };
 }
 
-function classifyDocument(document: RoundtripParsedDocument): {
+export function classifyApplicationPrecomputeDocument(document: RoundtripParsedDocument): {
   status: ApplicationPrecomputeStatus;
   errorCode: ApplicationPrecomputeArtifactMetadata["errorCode"];
   materialize: boolean;

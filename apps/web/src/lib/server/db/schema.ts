@@ -1741,6 +1741,9 @@ export const analysisLabPromotionItems = pgTable("analysis_lab_promotion_items",
   beforeSha256: text("before_sha256").notNull(),
   afterSnapshot: jsonb("after_snapshot").$type<Record<string, unknown>>(),
   afterSha256: text("after_sha256"),
+  /** Kordoc artifact 검증·materialization 결과. criteria 적용과 같은 transaction에서 기록한다. */
+  applicationPrecomputeReceipt: jsonb("application_precompute_receipt")
+    .$type<Record<string, unknown>>(),
   status: text("status").default("prepared").notNull(),
   error: text("error"),
   appliedAt: timestamp("applied_at", { withTimezone: true }),

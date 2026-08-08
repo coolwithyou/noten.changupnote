@@ -3,6 +3,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { DeepAnalysisPromotionReadiness } from "../deep-analysis/promotion";
 import type { GrantPromotionPlan } from "./promote";
+import {
+  validatePromotionApplicationPrecomputeEvidence,
+  type PromotionApplicationPrecomputeEvidence,
+} from "./application-precompute-release";
 import { LAB_DETERMINISTIC_AUDIT_POLICY_VERSION } from "./deterministic-audit-resolution";
 import { analysisLabDir } from "./run-store";
 
@@ -59,6 +63,8 @@ export interface PromotionSourceArtifact {
    * 이 증거와 review/audit 파일 해시가 모두 있을 때만 제품 서빙 후보가 된다.
    */
   localLabEvidence?: VerifiedLocalLabSourceEvidence;
+  /** clean worktree에서도 재현 가능한 고품질 구독 Kordoc release 번들. */
+  applicationPrecompute?: PromotionApplicationPrecomputeEvidence;
 }
 
 export interface PromotionReleasePlanItem {
@@ -534,6 +540,18 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
   }
   for (const grantId of typed.canaryGrantIds) {
     if (!seenGrantIds.has(grantId)) throw new Error(`canary가 release plan 밖에 있습니다: ${grantId}`);
+  }
+  for (const artifact of typed.sourceArtifacts) {
+    if (artifact.applicationPrecompute !== undefined) {
+      validatePromotionApplicationPrecomputeEvidence(artifact.applicationPrecompute);
+      if (
+        artifact.applicationPrecompute.releaseId !== typed.releaseId
+        || artifact.applicationPrecompute.grantId !== artifact.grantId
+        || artifact.applicationPrecompute.parentLabRunId !== artifact.runId
+      ) {
+        throw new Error(`Kordoc release evidence 결속이 올바르지 않습니다: ${artifact.grantId}`);
+      }
+    }
   }
   return typed;
 }

@@ -1,4 +1,5 @@
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
+import { verifyPromotionApplicationPrecomputeReceipt } from "./application-precompute-release";
 import {
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
@@ -25,7 +26,9 @@ export interface PromotionVerificationIssue {
     | "criterion_keys"
     | "question_anchor"
     | "question_definition"
-    | "answer_binding_deleted";
+    | "answer_binding_deleted"
+    | "application_precompute_receipt"
+    | "application_precompute_state";
   detail: string;
 }
 
@@ -138,6 +141,9 @@ async function main(): Promise<number> {
     .from(schema.analysisLabPromotionItems)
     .where(eq(schema.analysisLabPromotionItems.releaseDbId, release.id));
   const ledgerByGrant = new Map(ledgerItems.map((item) => [item.grantId, item]));
+  const sourceArtifactByGrantId = new Map(
+    manifest.sourceArtifacts.map((artifact) => [artifact.grantId, artifact]),
+  );
   const confirmedLinks = await db
     .select({
       canonicalGrantId: schema.dedupLinks.canonicalGrantId,
@@ -185,6 +191,55 @@ async function main(): Promise<number> {
         currentSnapshot,
         expectedStateSha256: ledgerItem.afterSha256,
       }));
+      const applicationEvidence = sourceArtifactByGrantId.get(planItem.grantId)
+        ?.applicationPrecompute;
+      if (applicationEvidence) {
+        const surfaces = await db
+          .select({
+            id: schema.grantApplicationSurfaces.id,
+            extractionStatus: schema.grantApplicationSurfaces.extractionStatus,
+          })
+          .from(schema.grantApplicationSurfaces)
+          .where(and(
+            eq(schema.grantApplicationSurfaces.grantId, planItem.grantId),
+            eq(schema.grantApplicationSurfaces.type, "file_template"),
+            inArray(schema.grantApplicationSurfaces.format, ["hwp", "hwpx"]),
+          ));
+        const surfaceIds = surfaces.map((surface) => surface.id);
+        const [fieldRows, artifactRows] = surfaceIds.length === 0
+          ? [[], []]
+          : await Promise.all([
+              db
+                .select({ id: schema.grantDocumentFields.id })
+                .from(schema.grantDocumentFields)
+                .where(inArray(schema.grantDocumentFields.surfaceId, surfaceIds)),
+              db
+                .select({ id: schema.documentArtifacts.id })
+                .from(schema.documentArtifacts)
+                .where(and(
+                  inArray(schema.documentArtifacts.surfaceId, surfaceIds),
+                  eq(schema.documentArtifacts.kind, "field_candidates"),
+                )),
+            ]);
+        const precomputeIssues = verifyPromotionApplicationPrecomputeReceipt({
+          receipt: ledgerItem.applicationPrecomputeReceipt,
+          evidence: applicationEvidence,
+          observedFieldCount: fieldRows.length,
+          observedFieldsReadySurfaceCount: surfaces.filter(
+            (surface) => surface.extractionStatus === "fields_ready",
+          ).length,
+          observedArtifactCount: artifactRows.length,
+        });
+        for (const issue of precomputeIssues) {
+          issues.push({
+            grantId: planItem.grantId,
+            code: issue === "receipt_mismatch"
+              ? "application_precompute_receipt"
+              : "application_precompute_state",
+            detail: issue,
+          });
+        }
+      }
     } else {
       const currentSha = promotionGrantSnapshotStateSha256(currentSnapshot);
       if (currentSha !== ledgerItem.beforeSha256) {

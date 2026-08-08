@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { and, eq, inArray } from "drizzle-orm";
+import { bundlePromotionApplicationPrecompute } from "./application-precompute-release";
 import { applyPublishGuards } from "./promote";
 import {
   loadConfirmedPromotionCandidates,
@@ -18,6 +19,7 @@ import {
   writeImmutablePromotionArtifact,
   type PromotionApprovalArtifact,
   type PromotionReleasePlanItem,
+  type PromotionSourceArtifact,
 } from "./promotion-release";
 import {
   loadPromotionGrantSnapshot,
@@ -215,6 +217,36 @@ async function prepare(): Promise<number> {
   const now = new Date();
   const releaseId = readArg("releaseId")?.trim()
     || releaseIdFor(cohort, revision, now, build.gitCommit);
+  const eligibleApplicationSurfaces = await db
+    .select({ grantId: schema.grantApplicationSurfaces.grantId })
+    .from(schema.grantApplicationSurfaces)
+    .where(and(
+      inArray(schema.grantApplicationSurfaces.grantId, grantIds),
+      eq(schema.grantApplicationSurfaces.type, "file_template"),
+      inArray(schema.grantApplicationSurfaces.format, ["hwp", "hwpx"]),
+    ));
+  const eligibleApplicationGrantIds = new Set(
+    eligibleApplicationSurfaces.map((surface) => surface.grantId),
+  );
+  const sourceArtifacts: PromotionSourceArtifact[] = [];
+  for (const candidate of candidates) {
+    const applicationPrecompute = candidate.sourceArtifact.localLabEvidence
+      ? await bundlePromotionApplicationPrecompute({ releaseId, labRun: candidate.source.run })
+      : null;
+    if (
+      candidate.sourceArtifact.localLabEvidence
+      && eligibleApplicationGrantIds.has(candidate.plan.grantId)
+      && applicationPrecompute === null
+    ) {
+      throw new Error(
+        `지원 양식이 있는 공고의 Kordoc 고품질 모델 증거가 없습니다: ${candidate.plan.grantId}`,
+      );
+    }
+    sourceArtifacts.push({
+      ...candidate.sourceArtifact,
+      ...(applicationPrecompute ? { applicationPrecompute } : {}),
+    });
+  }
   const manifest = createPromotionReleaseManifest({
     releaseId,
     revision,
@@ -223,7 +255,7 @@ async function prepare(): Promise<number> {
     buildDigest: build.buildDigest,
     cohortLabel: cohort,
     canaryGrantIds: selectCanaries(planItems, readArg("canary")),
-    sourceArtifacts: candidates.map((candidate) => candidate.sourceArtifact),
+    sourceArtifacts,
     plans: planItems,
   });
   await writeImmutablePromotionArtifact(

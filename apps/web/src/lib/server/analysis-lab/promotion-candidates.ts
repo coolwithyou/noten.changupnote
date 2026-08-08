@@ -14,6 +14,7 @@ import {
   LAB_DETERMINISTIC_AUDIT_POLICY_VERSION,
   resolveDeterministicAuditDisagreement,
 } from "./deterministic-audit-resolution";
+import { readBundledPromotionApplicationPrecompute } from "./application-precompute-release";
 import { labConfirmationsFilePath, readLabConfirmationsFile } from "./confirmations";
 import {
   humanReviewOverlayFilePath,
@@ -288,6 +289,26 @@ export async function verifyPromotionSourceArtifact(
             !== LAB_DETERMINISTIC_AUDIT_POLICY_VERSION
         ) {
           changed.push("deterministic_audit_policy");
+        }
+      }
+    }
+    if (run.applicationRoundtrip?.runId) {
+      if (!artifact.applicationPrecompute) {
+        changed.push("application_precompute_missing");
+      } else {
+        try {
+          const bundled = await readBundledPromotionApplicationPrecompute(
+            artifact.applicationPrecompute,
+          );
+          if (
+            bundled.run.runId !== run.applicationRoundtrip.runId
+            || bundled.run.transport !== run.applicationRoundtrip.transport
+            || bundled.run.requestedModel !== run.applicationRoundtrip.model
+          ) {
+            changed.push("application_precompute_provenance");
+          }
+        } catch {
+          changed.push("application_precompute_artifact");
         }
       }
     }

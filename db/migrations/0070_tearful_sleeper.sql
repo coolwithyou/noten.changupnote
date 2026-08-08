@@ -1,0 +1,1 @@
+ALTER TABLE "analysis_lab_promotion_items" ADD COLUMN "application_precompute_receipt" jsonb;
