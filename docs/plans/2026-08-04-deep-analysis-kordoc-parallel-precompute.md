@@ -358,7 +358,17 @@ surfaceId
 검증 명령은 `pnpm lab:roundtrip:test`, `pnpm application-precompute:test`,
 `pnpm verify:deep-analysis-contract`, web/admin typecheck·build다.
 
-### 7.4 2026-08-04 읽기 전용 backlog 기준선
+### 7.4 Kordoc 구독 자동 재판정 루프 (2026-08-09)
+
+- 로컬 `claude-cli` 경로는 기존 문서당 180개 후보 절단을 제거하고 모든 후보를 20개 묶음·동시성 1로 처리한다. 운영 API 경로는 비용 경계를 위해 180개 상한을 유지한다.
+- 최초 Opus 5 판정에서 응답이 빠졌거나 거절 확신이 0.75 미만인 후보만 최대 2회 다시 판정한다. 낮은 확신을 확정 거절로 바꾸지 않으며 두 번 뒤에도 모호하면 명시적 미해결로 종결한다.
+- 산출물에는 최초·재판정을 합친 request/token/명목 비용과 처리·미처리 후보 수, 재판정 횟수·대상 수·잔여 미해결 수·실패 코드를 기록한다. 계약은 `kordoc-application-roundtrip-v6`이다.
+- 미해결 후보가 남아도 Opus가 확정한 필드가 있으면 해당 필드만 `partial`로 materialize한다. 모호한 필드는 candidate artifact에 보존하고 빠른 작성에서 제외해 전체 양식을 버리지 않는다.
+- 배치 진행, 런 상세, Kordoc 검토 화면은 AI 재판정 횟수와 잔여 미해결 수를 표시한다. 구독 실패 시 API 자동 폴백은 계속 금지한다.
+
+검증 기준은 205개 후보 전수 처리, API 180개 상한 보존, 누락·저신뢰 후보 2회 이내 해소, 2회 뒤 모호한 후보의 비강제 종결, 안전 필드 `partial` materialization이다.
+
+### 7.5 2026-08-04 읽기 전용 backlog 기준선
 
 계획 수립 중 production DB를 read-only transaction으로 집계했으며 쓰기는 롤백했다.
 

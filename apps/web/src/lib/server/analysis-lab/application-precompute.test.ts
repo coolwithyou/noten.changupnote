@@ -73,6 +73,23 @@ function deferred<T>() {
   assert.equal(reference.documentCount, 2);
 }
 
+// review_required 문서 하나뿐이어도 확정 필드가 있으면 전체 차단 대신 부분 준비로 남긴다.
+{
+  const reviewWithSafeFields = document("review_required", 3);
+  const run = {
+    runId: "roundtrip-review-with-safe-fields",
+    documents: [reviewWithSafeFields],
+    recommendedAttachmentId: reviewWithSafeFields.attachmentId,
+    error: null,
+  } as unknown as ApplicationRoundtripRun;
+  const reference = buildApplicationRoundtripReference({
+    result: { status: "fulfilled", value: run },
+    transport: "claude-cli",
+    model: "claude-opus-5",
+  });
+  assert.equal(reference.status, "partial");
+}
+
 // 일부 문서 파싱 실패가 있으면 성공 문서에서 지원서를 찾지 못했어도 not_applicable로 숨기지 않는다.
 {
   const unrelated = {

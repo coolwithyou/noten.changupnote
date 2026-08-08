@@ -197,7 +197,14 @@ function EventRow({ event }: { event: LabBatchEvent }) {
                       variant={roundtripBadgeVariant(event.applicationRoundtrip.status)}
                       className="cursor-pointer transition-opacity hover:opacity-75"
                     >
-                      Kordoc {roundtripStatusLabel(event.applicationRoundtrip.status)} · 검토 열기
+                      Kordoc {roundtripStatusLabel(event.applicationRoundtrip.status)}
+                      {event.applicationRoundtrip.adjudicationRounds
+                        ? ` · AI 재판정 ${event.applicationRoundtrip.adjudicationRounds}회`
+                        : ""}
+                      {(event.applicationRoundtrip.remainingUnresolvedCandidateCount ?? 0) > 0
+                        ? ` · 미해결 ${event.applicationRoundtrip.remainingUnresolvedCandidateCount}건`
+                        : ""}
+                      {" · 검토 열기"}
                     </Badge>
                   </Link>
                 ) : (

@@ -14,6 +14,9 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 export const ROUNDTRIP_FIELD_CANDIDATE_LIMIT = 180;
 const LLM_CANDIDATES_PER_REQUEST = 20;
 const MAX_LLM_BATCHES = Math.ceil(ROUNDTRIP_FIELD_CANDIDATE_LIMIT / LLM_CANDIDATES_PER_REQUEST);
+const MAX_ADJUDICATION_ROUNDS = 2;
+const ACCEPT_INPUT_CONFIDENCE = 0.55;
+const ACCEPT_REJECTION_CONFIDENCE = 0.75;
 const RETRYABLE_STATUSES = new Set([429, 500, 529]);
 const WINDOW_EXHAUSTED_MARKER = "[CLAUDE_CLI_WINDOW_EXHAUSTED]";
 
@@ -63,7 +66,7 @@ export interface RoundtripFieldPlannerRuntimeConfig {
   transport: RoundtripLlmTransport;
   requestedModel: string;
   timeoutMs: number;
-  candidateLimit: number;
+  candidateLimit: number | null;
   candidateConcurrency: number;
   parentLabRunId: string | null;
 }
@@ -88,7 +91,9 @@ export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
     transport,
     requestedModel: resolveModel(options?.model),
     timeoutMs: resolveTimeoutMs(options?.timeoutMs),
-    candidateLimit: ROUNDTRIP_FIELD_CANDIDATE_LIMIT,
+    // 로컬 구독은 추가 API 비용 없이 전체 후보를 끝까지 훑는다. 운영 API 경로는
+    // 기존 비용 상한 180개를 보존해 이번 변경이 운영 지출을 우발적으로 늘리지 않는다.
+    candidateLimit: transport === "claude-cli" ? null : ROUNDTRIP_FIELD_CANDIDATE_LIMIT,
     candidateConcurrency: positiveInteger(options?.candidateConcurrency) ?? defaultConcurrency,
     parentLabRunId: options?.parentLabRunId?.trim() || null,
   };
@@ -109,7 +114,9 @@ export async function planRoundtripFields(options: {
   const startedMs = Date.now();
   const runtime = resolveRoundtripFieldPlannerRuntimeConfig(options);
   const fields = options.fields.map(cloneField);
-  const candidates = fields.slice(0, runtime.candidateLimit);
+  const candidates = runtime.candidateLimit === null
+    ? fields
+    : fields.slice(0, runtime.candidateLimit);
   if (candidates.length === 0) {
     return {
       fields,
@@ -131,55 +138,23 @@ export async function planRoundtripFields(options: {
     };
   }
 
-  try {
-    const decisionBatches = await mapWithConcurrency(
-      chunkCandidates(candidates),
-      runtime.candidateConcurrency,
-      async (batch) => {
-        const result = await requestFieldDecisions({
-          apiKey: options.apiKey!,
-          model: runtime.requestedModel,
-          timeoutMs: runtime.timeoutMs,
-          transport: runtime.transport,
-          candidates: batch,
-          markdown: options.markdown,
-          ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
-        });
-        await options.onUsage?.({
-          ...result.usage,
-          costUsd: priceDeepAnalysisUsage({ model: runtime.requestedModel, usage: result.usage }) ?? 0,
-        });
-        return result;
-      },
-    );
-    const decisions = decisionBatches.flatMap((batch) => batch.decisions);
-    const usage = sumPlannerUsage(decisionBatches.map((batch) => batch.usage));
-    if (decisions.length === 0) {
-      throw new FieldPlanningError("invalid_response", "모델이 후보 판정 배열을 비워 반환했습니다.");
-    }
-    const byId = new Map(decisions.map((decision) => [decision.candidateId, decision]));
-    for (const field of fields) {
-      const decision = byId.get(field.fieldInstanceId);
-      if (!decision) continue;
-      applyDecision(field, decision);
-    }
-    return {
-      fields,
-      summary: buildSummary(
-        runtime,
-        "llm",
-        runtime.requestedModel,
-        Date.now() - startedMs,
-        fields,
-        byId.size < candidates.length
-          ? `LLM이 ${candidates.length}개 후보 중 ${byId.size}개만 반환해 나머지는 구조 규칙을 유지했습니다.`
-          : null,
-        null,
-        usage,
-      ),
-    };
-  } catch (error) {
-    const failureCode = classifyFieldPlanningFailure(error);
+  const usageItems: FieldPlannerUsage[] = [];
+  const decidedCandidateIds = new Set<string>();
+  const adjudicatedCandidateIds = new Set<string>();
+  const primary = await requestDecisionPass({
+    candidates,
+    markdown: options.markdown,
+    apiKey: options.apiKey,
+    runtime,
+    round: 0,
+    ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+    ...(options.onUsage ? { onUsage: options.onUsage } : {}),
+  });
+  usageItems.push(...primary.usageItems);
+  applyDecisions(fields, primary.decisions, 0, decidedCandidateIds);
+
+  if (primary.decisions.length === 0) {
+    const failureCode = primary.failureCode ?? "invalid_response";
     return {
       fields,
       summary: buildSummary(
@@ -188,11 +163,179 @@ export async function planRoundtripFields(options: {
         runtime.requestedModel,
         Date.now() - startedMs,
         fields,
-        `LLM 필드 판정 실패: ${error instanceof Error ? error.message : String(error)}`,
+        primary.warning ?? "모델이 후보 판정 배열을 비워 반환했습니다.",
         failureCode,
+        sumPlannerUsage(usageItems),
+        {
+          processedCandidateCount: 0,
+          unprocessedCandidateCount: fields.length,
+          adjudicationStatus: runtime.transport === "claude-cli" ? "failed" : "skipped",
+          adjudicationRounds: 0,
+          adjudicatedCandidateCount: 0,
+          remainingUnresolvedCandidateCount: candidates.length,
+          adjudicationFailureCode: failureCode,
+        },
       ),
     };
   }
+
+  let unresolved = unresolvedDecisionCandidates(candidates, fields, decidedCandidateIds);
+  let adjudicationRounds = 0;
+  let adjudicationFailureCode: RoundtripFailureCode | null = null;
+  if (runtime.transport === "claude-cli") {
+    for (let round = 1; round <= MAX_ADJUDICATION_ROUNDS && unresolved.length > 0; round += 1) {
+      adjudicationRounds = round;
+      unresolved.forEach((field) => adjudicatedCandidateIds.add(field.fieldInstanceId));
+      const adjudication = await requestDecisionPass({
+        candidates: unresolved,
+        markdown: options.markdown,
+        apiKey: options.apiKey,
+        runtime,
+        round,
+        ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        ...(options.onUsage ? { onUsage: options.onUsage } : {}),
+      });
+      usageItems.push(...adjudication.usageItems);
+      applyDecisions(fields, adjudication.decisions, round, decidedCandidateIds);
+      adjudicationFailureCode = adjudication.failureCode;
+      unresolved = unresolvedDecisionCandidates(candidates, fields, decidedCandidateIds);
+      if (adjudication.decisions.length === 0 && adjudication.failureCode !== null) break;
+    }
+  }
+
+  const usage = sumPlannerUsage(usageItems);
+  const unprocessedCandidateCount = fields.filter(
+    (candidate) => !decidedCandidateIds.has(candidate.fieldInstanceId),
+  ).length;
+  const outOfScopeCandidateCount = Math.max(0, fields.length - candidates.length);
+  const remainingUnresolvedCandidateCount = unresolved.length + outOfScopeCandidateCount;
+  const adjudicationStatus: NonNullable<RoundtripFieldPlanningSummary["adjudicationStatus"]> =
+    runtime.transport !== "claude-cli"
+      ? "skipped"
+      : adjudicationRounds === 0
+        ? "not_needed"
+        : unresolved.length === 0
+          ? "resolved"
+          : adjudicationFailureCode !== null
+            ? "failed"
+            : "partial";
+  const warningParts = [
+    primary.warning,
+    remainingUnresolvedCandidateCount > 0
+      ? `${runtime.transport === "claude-cli" ? "자동 재판정 후에도" : "비용 상한 적용 후"} `
+        + `${remainingUnresolvedCandidateCount}개 후보가 미해결 상태입니다.`
+      : null,
+  ].filter((value): value is string => Boolean(value));
+  return {
+    fields,
+    summary: buildSummary(
+      runtime,
+      "llm",
+      runtime.requestedModel,
+      Date.now() - startedMs,
+      fields,
+      warningParts.length > 0 ? warningParts.join(" ") : null,
+      primary.failureCode !== null && unresolved.length > 0 ? primary.failureCode : null,
+      usage,
+      {
+        processedCandidateCount: decidedCandidateIds.size,
+        unprocessedCandidateCount,
+        adjudicationStatus,
+        adjudicationRounds,
+        adjudicatedCandidateCount: adjudicatedCandidateIds.size,
+        remainingUnresolvedCandidateCount,
+        adjudicationFailureCode,
+      },
+    ),
+  };
+}
+
+interface DecisionPassResult {
+  decisions: FieldDecision[];
+  usageItems: FieldPlannerUsage[];
+  failureCode: RoundtripFailureCode | null;
+  warning: string | null;
+}
+
+async function requestDecisionPass(input: {
+  candidates: RoundtripFieldCandidate[];
+  markdown: string;
+  apiKey: string;
+  runtime: RoundtripFieldPlannerRuntimeConfig;
+  round: number;
+  fetchImpl?: typeof fetch;
+  onUsage?: (usage: RoundtripFieldPlannerUsageEvent) => Promise<void> | void;
+}): Promise<DecisionPassResult> {
+  const results = await mapWithConcurrency(
+    chunkCandidates(input.candidates),
+    input.runtime.candidateConcurrency,
+    async (batch) => {
+      try {
+        const value = await requestFieldDecisions({
+          apiKey: input.apiKey,
+          model: input.runtime.requestedModel,
+          timeoutMs: input.runtime.timeoutMs,
+          transport: input.runtime.transport,
+          candidates: batch,
+          markdown: input.markdown,
+          adjudicationRound: input.round,
+          ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
+        });
+        await input.onUsage?.({
+          ...value.usage,
+          costUsd: priceDeepAnalysisUsage({ model: input.runtime.requestedModel, usage: value.usage }) ?? 0,
+        });
+        return { status: "fulfilled" as const, value };
+      } catch (error) {
+        return {
+          status: "rejected" as const,
+          error,
+          code: classifyFieldPlanningFailure(error),
+          message: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
+  const fulfilled = results.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+  const rejected = results.filter((result) => result.status === "rejected");
+  const failureCode = rejected[0]?.status === "rejected" ? rejected[0].code : null;
+  return {
+    decisions: fulfilled.flatMap((result) => result.decisions),
+    usageItems: fulfilled.map((result) => result.usage),
+    failureCode,
+    warning: rejected.length > 0
+      ? `${input.round === 0 ? "최초 판정" : `${input.round}차 재판정`} ${rejected.length}개 묶음이 실패했습니다: `
+        + rejected.map((result) => result.status === "rejected" ? result.message : "").filter(Boolean).join(" | ")
+      : null,
+  };
+}
+
+function applyDecisions(
+  fields: RoundtripFieldCandidate[],
+  decisions: FieldDecision[],
+  round: number,
+  decidedCandidateIds: Set<string>,
+): void {
+  const byId = new Map(decisions.map((decision) => [decision.candidateId, decision]));
+  for (const field of fields) {
+    const decision = byId.get(field.fieldInstanceId);
+    if (!decision) continue;
+    applyDecision(field, decision, round);
+    decidedCandidateIds.add(field.fieldInstanceId);
+  }
+}
+
+function unresolvedDecisionCandidates(
+  candidates: RoundtripFieldCandidate[],
+  fields: RoundtripFieldCandidate[],
+  decidedCandidateIds: ReadonlySet<string>,
+): RoundtripFieldCandidate[] {
+  const byId = new Map(fields.map((field) => [field.fieldInstanceId, field]));
+  return candidates.flatMap((candidate) => {
+    const field = byId.get(candidate.fieldInstanceId);
+    if (!field || !decidedCandidateIds.has(candidate.fieldInstanceId)) return [field ?? candidate];
+    return field.llmDecision === "uncertain" ? [field] : [];
+  });
 }
 
 async function requestFieldDecisions(input: {
@@ -202,6 +345,7 @@ async function requestFieldDecisions(input: {
   transport: RoundtripLlmTransport;
   candidates: RoundtripFieldCandidate[];
   markdown: string;
+  adjudicationRound: number;
   fetchImpl?: typeof fetch;
 }): Promise<FieldDecisionBatch> {
   const candidatePayload = input.candidates.map((field) => ({
@@ -216,6 +360,8 @@ async function requestFieldDecisions(input: {
     options: field.options.map((option) => option.label),
     empty: field.empty,
     structural_signals: field.inputSignals,
+    previous_decision: field.llmDecision ?? null,
+    previous_confidence: field.llmConfidence,
     surrounding_text: findSurroundingText(input.markdown, field),
   }));
   const requestBody = JSON.stringify({
@@ -223,12 +369,16 @@ async function requestFieldDecisions(input: {
     max_tokens: resolveMaxTokens(),
     system: [
       "너는 한국 정부지원사업 신청서의 사용자 입력 필드를 판정한다.",
+      input.adjudicationRound > 0
+        ? `이 요청은 최초 판정에서 누락되거나 확신이 낮았던 후보의 ${input.adjudicationRound}차 독립 재판정이다.`
+        : "이 요청은 최초 판정이다.",
       "각 candidate_id를 반드시 하나씩 판정하고, 문서에 실제로 신청자가 입력해야 하는 영역만 is_user_input=true로 둔다.",
       "빈 셀뿐 아니라 단위만 있는 셀, 파란색 예시 문구로 보이는 값, 괄호형 작성 안내문, □ 선택지, ○ 표시 지시문도 입력 대상일 수 있다.",
       "반대로 섹션명·표 머리글·포괄 라벨(예: 재무현황, 관련기술현황)과 이미 확정된 고정 문구는 입력 필드로 만들지 않는다.",
       "행 라벨과 열 머리글을 결합해 매출액·연도처럼 구체적인 필드를 선호한다.",
       "값을 작성하거나 추정하지 말고 필드의 의미와 입력 UI만 판정한다.",
       "candidate_id와 쓰기 위치는 바꾸거나 새로 만들지 않는다. evidence는 제공된 텍스트를 짧게 그대로 인용한다.",
+      "모든 candidate_id를 빠짐없이 반환한다. 원문만으로 판단 불가능할 때에만 confidence를 0.75 미만으로 둔다.",
     ].join("\n"),
     messages: [{
       role: "user",
@@ -371,18 +521,27 @@ function normalizeDecision(value: unknown, allowed: Set<string>): FieldDecision[
   }];
 }
 
-function applyDecision(field: RoundtripFieldCandidate, decision: FieldDecision): void {
+function applyDecision(field: RoundtripFieldCandidate, decision: FieldDecision, round: number): void {
   field.analysisSource = "llm";
   field.llmConfidence = decision.confidence;
-  field.recommendedInput = decision.isUserInput && decision.inputKind !== "none" && decision.confidence >= 0.55;
-  field.inputLikelihood = decision.confidence;
+  field.llmDecisionRound = round;
+  const acceptedInput = decision.isUserInput
+    && decision.inputKind !== "none"
+    && decision.confidence >= ACCEPT_INPUT_CONFIDENCE;
+  const acceptedRejection = !decision.isUserInput
+    && decision.confidence >= ACCEPT_REJECTION_CONFIDENCE;
+  field.llmDecision = acceptedInput ? "input" : acceptedRejection ? "not_input" : "uncertain";
+  field.recommendedInput = acceptedInput;
+  field.inputLikelihood = decision.isUserInput ? decision.confidence : 1 - decision.confidence;
   if (field.recommendedInput && decision.inputKind !== "none") {
     field.inputKind = compatibleInputKind(field, decision.inputKind);
   }
   if (decision.helpText) field.helperText = decision.helpText;
-  field.inputSignals.push(
-    field.recommendedInput ? "LLM 맥락 판정: 사용자 입력" : "LLM 맥락 판정: 입력 대상 아님",
-  );
+  field.inputSignals.push(field.llmDecision === "input"
+    ? `LLM 맥락 판정: 사용자 입력${round > 0 ? ` (${round}차 재판정)` : ""}`
+    : field.llmDecision === "not_input"
+      ? `LLM 맥락 판정: 입력 대상 아님${round > 0 ? ` (${round}차 재판정)` : ""}`
+      : `LLM 맥락 판정 보류${round > 0 ? ` (${round}차 재판정)` : ""}`);
   if (decision.suggestedLabel && decision.suggestedLabel !== field.label) {
     field.displayLabel = decision.suggestedLabel;
     field.inputSignals.push(`LLM 표시명 제안: ${decision.suggestedLabel}`);
@@ -422,6 +581,16 @@ function buildSummary(
   warning: string | null,
   failureCode: RoundtripFailureCode | null,
   usage: FieldPlannerUsage = emptyPlannerUsage(),
+  feedback?: Pick<
+    RoundtripFieldPlanningSummary,
+    | "processedCandidateCount"
+    | "unprocessedCandidateCount"
+    | "adjudicationStatus"
+    | "adjudicationRounds"
+    | "adjudicatedCandidateCount"
+    | "remainingUnresolvedCandidateCount"
+    | "adjudicationFailureCode"
+  >,
 ): RoundtripFieldPlanningSummary {
   const acceptedCount = fields.filter((field) => field.recommendedInput).length;
   return {
@@ -439,6 +608,7 @@ function buildSummary(
     candidateConcurrency: runtime.candidateConcurrency,
     parentLabRunId: runtime.parentLabRunId,
     failureCode,
+    ...feedback,
     ...usage,
     costUsd: status === "llm" && usage.inputTokens + usage.outputTokens > 0
       ? priceDeepAnalysisUsage({ model: runtime.requestedModel, usage })

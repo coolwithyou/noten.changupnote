@@ -88,7 +88,6 @@ export function buildApplicationRoundtripReference(input: {
   const usableDocuments = applicationDocuments.filter(
     (document) =>
       document.error === null
-      && document.fieldCoverage.status !== "review_required"
       && (document.recommendedInputFieldCount > 0 || document.recommendedChoiceGroupCount > 0),
   );
   const hasReviewRequired = applicationDocuments.some(
@@ -98,6 +97,28 @@ export function buildApplicationRoundtripReference(input: {
     (document) => document.fieldCoverage.status === "partial",
   );
   const plannerFailed = runFailureCode !== null;
+  const planningSummaries = applicationDocuments.flatMap((document) =>
+    document.fieldPlanning ? [document.fieldPlanning] : []);
+  const remainingUnresolvedCandidateCount = applicationDocuments.reduce(
+    (sum, document) => sum + document.fieldCoverage.unresolvedCandidateCount,
+    0,
+  );
+  const adjudicationRounds = Math.max(0, ...planningSummaries.map((summary) => summary.adjudicationRounds ?? 0));
+  const adjudicatedCandidateCount = planningSummaries.reduce(
+    (sum, summary) => sum + (summary.adjudicatedCandidateCount ?? 0),
+    0,
+  );
+  const adjudicationStatuses = planningSummaries.flatMap((summary) =>
+    summary.adjudicationStatus ? [summary.adjudicationStatus] : []);
+  const adjudicationStatus = adjudicationStatuses.includes("failed")
+    ? "failed" as const
+    : remainingUnresolvedCandidateCount > 0
+      ? "partial" as const
+      : adjudicationRounds > 0
+        ? "resolved" as const
+        : adjudicationStatuses.includes("skipped")
+          ? "skipped" as const
+          : "not_needed" as const;
   const status: LabApplicationRoundtripReference["status"] =
     usableDocuments.length === 0 && hasReviewRequired
       ? "review_required"
@@ -113,6 +134,10 @@ export function buildApplicationRoundtripReference(input: {
     sourceCount,
     errorCode: runFailureCode,
     error: null,
+    adjudicationStatus,
+    adjudicationRounds,
+    adjudicatedCandidateCount,
+    remainingUnresolvedCandidateCount,
   };
 }
 

@@ -92,7 +92,7 @@ assert.throws(
   assert.equal(planned?.fields.length, 0);
 }
 
-// 구조 검수가 review_required이면 후보는 보존하되 자동 field projection은 만들지 않는다.
+// 구조 검수가 review_required여도 확정된 안전 필드는 partial projection으로 보존한다.
 {
   const reviewDocument = {
     ...document,
@@ -105,8 +105,8 @@ assert.throws(
     manifest,
     surfaces: [surface(STORAGE_KEY, SOURCE_SHA)],
   });
-  assert.equal(planned?.status, "review_required");
-  assert.equal(planned?.fields.length, 0);
+  assert.equal(planned?.status, "partial");
+  assert.equal(planned?.fields.length, 1);
   assert.equal(planned?.candidateSet.candidates.length, 1);
 }
 

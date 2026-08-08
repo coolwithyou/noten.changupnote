@@ -398,10 +398,15 @@ export function classifyApplicationPrecomputeDocument(document: RoundtripParsedD
     return { status: "not_applicable", errorCode: null, materialize: false };
   }
   const errorCode = document.fieldPlanning.failureCode ?? null;
-  if (document.fieldCoverage.status === "review_required") {
-    return { status: "review_required", errorCode, materialize: false };
-  }
   const fields = buildReconciledApplicationFields(document);
+  if (document.fieldCoverage.status === "review_required") {
+    // 일부 후보가 끝내 모호하더라도 Opus가 확정한 안전 필드까지 버리면 빠른 작성
+    // 준비율이 불필요하게 0이 된다. 확정 필드만 partial로 투영하고 미해결 후보는
+    // immutable candidate artifact에 그대로 남겨 직접 편집으로 폴백한다.
+    return fields.length > 0
+      ? { status: "partial", errorCode, materialize: true }
+      : { status: "review_required", errorCode, materialize: false };
+  }
   if (fields.length === 0) return { status: "review_required", errorCode, materialize: false };
   if (document.fieldCoverage.status === "partial" || errorCode !== null) {
     return { status: "partial", errorCode, materialize: true };

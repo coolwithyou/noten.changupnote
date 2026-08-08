@@ -742,6 +742,31 @@ function ParsedDocuments({ run }: { run: ApplicationRoundtripRun }) {
                       ? `LLM ${document.fieldPlanning.acceptedCount}/${document.fieldPlanning.candidateCount}`
                       : "규칙 폴백"}
                   </Badge>
+                  {document.fieldPlanning.status === "llm" ? (
+                    <Badge variant="outline">
+                      후보 처리 {document.fieldPlanning.processedCandidateCount ?? document.fieldPlanning.candidateCount}
+                      /{document.fieldPlanning.candidateCount}
+                    </Badge>
+                  ) : null}
+                  {document.fieldPlanning.adjudicationStatus ? (
+                    <Badge
+                      variant={document.fieldPlanning.adjudicationStatus === "resolved" ? "default" : "secondary"}
+                    >
+                      재판정 {document.fieldPlanning.adjudicationStatus === "resolved"
+                        ? "해소"
+                        : document.fieldPlanning.adjudicationStatus === "not_needed"
+                          ? "불필요"
+                          : document.fieldPlanning.adjudicationStatus === "skipped"
+                            ? "미실행"
+                            : "잔여"}
+                      {document.fieldPlanning.adjudicationRounds
+                        ? ` ${document.fieldPlanning.adjudicationRounds}회`
+                        : ""}
+                      {(document.fieldPlanning.remainingUnresolvedCandidateCount ?? 0) > 0
+                        ? ` · ${document.fieldPlanning.remainingUnresolvedCandidateCount}건`
+                        : ""}
+                    </Badge>
+                  ) : null}
                   <Badge variant={document.fieldCoverage.status === "complete" ? "default" : "secondary"}>
                     {document.fieldCoverage.status === "complete"
                       ? "필드 커버리지 완료"

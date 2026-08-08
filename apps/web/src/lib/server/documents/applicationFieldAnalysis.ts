@@ -144,7 +144,8 @@ export async function ensureDraftApplicationFields(input: {
       409,
     );
   }
-  if (analyzed.document.fieldCoverage.status === "review_required") {
+  const fields = buildReconciledApplicationFields(analyzed.document);
+  if (analyzed.document.fieldCoverage.status === "review_required" && fields.length === 0) {
     const labels = analyzed.document.fieldCoverage.unresolvedCandidates
       .slice(0, 5)
       .map((candidate) => candidate.label)
@@ -155,7 +156,6 @@ export async function ensureDraftApplicationFields(input: {
       422,
     );
   }
-  const fields = buildReconciledApplicationFields(analyzed.document);
   if (fields.length === 0) {
     throw new ApplicationFieldAnalysisError(
       "application_fields_not_found",

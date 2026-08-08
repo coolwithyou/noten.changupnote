@@ -141,6 +141,12 @@ export function RunDetail({
               <p className="text-xs text-muted-foreground">
                 {run.applicationRoundtrip
                   ? `문서 ${run.applicationRoundtrip.documentCount}개 · 원본 ${run.applicationRoundtrip.sourceCount}개`
+                    + (run.applicationRoundtrip.adjudicationRounds
+                      ? ` · AI 재판정 ${run.applicationRoundtrip.adjudicationRounds}회`
+                      : "")
+                    + ((run.applicationRoundtrip.remainingUnresolvedCandidateCount ?? 0) > 0
+                      ? ` · 미해결 ${run.applicationRoundtrip.remainingUnresolvedCandidateCount}건`
+                      : "")
                   : "이 런에는 선분석 기록이 없습니다"}
               </p>
             </div>

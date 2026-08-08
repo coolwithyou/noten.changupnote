@@ -173,6 +173,11 @@ export interface LabApplicationRoundtripReference {
   sourceCount: number;
   errorCode: string | null;
   error: string | null;
+  /** 구독 모델이 최초 판정 뒤 미해결 후보를 자동 재판정한 결과 요약. */
+  adjudicationStatus?: "not_needed" | "resolved" | "partial" | "failed" | "skipped";
+  adjudicationRounds?: number;
+  adjudicatedCandidateCount?: number;
+  remainingUnresolvedCandidateCount?: number;
 }
 
 export interface LabRun {

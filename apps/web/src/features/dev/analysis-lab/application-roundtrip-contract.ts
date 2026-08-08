@@ -1,8 +1,8 @@
 // Kordoc 지원서 왕복 실험실(dev 전용) 공유 계약.
 // 운영 DB/R2는 읽기만 하고, 분석·채움 산출물은 spike-out 아래에만 저장한다.
 
-/** v5: 전체 원본 수·문서 상한 초과를 봉인해 누락을 정상 완료로 오인하지 않는다. */
-export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v5";
+/** v6: 구독 경로 전체 후보 판정과 미해결 후보 자동 재판정 provenance를 봉인한다. */
+export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v6";
 
 /**
  * 로컬 구독 Kordoc 필드 판정의 채택 모델.
@@ -132,6 +132,10 @@ export interface RoundtripFieldCandidate {
   options: RoundtripFieldOption[];
   analysisSource: "heuristic" | "llm";
   llmConfidence: number | null;
+  /** 0은 최초 판정, 1 이상은 미해결 후보 자동 재판정 횟수다. */
+  llmDecisionRound?: number;
+  /** 낮은 확신을 확정 거절로 오인하지 않기 위한 최종 모델 판정 상태다. */
+  llmDecision?: "input" | "not_input" | "uncertain";
   location: RoundtripFieldLocation;
 }
 
@@ -147,10 +151,19 @@ export interface RoundtripFieldPlanningSummary {
   transport?: RoundtripLlmTransport;
   requestedModel?: string;
   timeoutMs?: number;
-  candidateLimit?: number;
+  /** null이면 구독 경로에서 전체 후보를 처리했다는 뜻이다. */
+  candidateLimit?: number | null;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
   failureCode?: RoundtripFailureCode | null;
+  /** 최초 판정과 자동 재판정을 합친 실제 후보 처리 범위. */
+  processedCandidateCount?: number;
+  unprocessedCandidateCount?: number;
+  adjudicationStatus?: "not_needed" | "resolved" | "partial" | "failed" | "skipped";
+  adjudicationRounds?: number;
+  adjudicatedCandidateCount?: number;
+  remainingUnresolvedCandidateCount?: number;
+  adjudicationFailureCode?: RoundtripFailureCode | null;
   /** API/CLI 응답 usage를 합산한 관제용 실제 사용량. 구 산출물 호환을 위해 optional이다. */
   requestCount?: number;
   inputTokens?: number;
@@ -254,7 +267,7 @@ export interface ApplicationRoundtripRun {
   transport?: RoundtripLlmTransport;
   requestedModel?: string;
   timeoutMs?: number;
-  candidateLimit?: number;
+  candidateLimit?: number | null;
   candidateConcurrency?: number;
   failureCode?: RoundtripFailureCode | null;
   startedAt: string;

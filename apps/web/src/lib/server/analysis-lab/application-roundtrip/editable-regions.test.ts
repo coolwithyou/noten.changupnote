@@ -181,6 +181,73 @@ const apiDefaultPlan = await planRoundtripFields({
 assert.equal(apiDefaultPlan.summary.status, "llm");
 assert.equal(apiDefault.maxActive(), 3, "API는 기존처럼 문서의 모든 chunk를 병렬 처리");
 
+const overLegacyLimit = Array.from({ length: 205 }, (_, index) => plannerField(revenue2024, index));
+const subscriptionAll = fakePlannerFetch(0);
+const subscriptionAllPlan = await planRoundtripFields({
+  fields: overLegacyLimit,
+  markdown: "구독 전체 후보 처리",
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  transport: "claude-cli",
+  fetchImpl: subscriptionAll.fetchImpl,
+});
+assert.equal(subscriptionAll.calls(), 11, "구독 경로는 기존 180개 상한 뒤의 후보도 20개씩 모두 처리");
+assert.equal(subscriptionAllPlan.summary.candidateLimit, null);
+assert.equal(subscriptionAllPlan.summary.processedCandidateCount, 205);
+assert.equal(subscriptionAllPlan.summary.unprocessedCandidateCount, 0);
+
+const apiBounded = fakePlannerFetch(0);
+const apiBoundedPlan = await planRoundtripFields({
+  fields: overLegacyLimit,
+  markdown: "API 비용 상한 보존",
+  apiKey: "test-key",
+  model: "claude-sonnet-5",
+  transport: "api",
+  fetchImpl: apiBounded.fetchImpl,
+});
+assert.equal(apiBounded.calls(), 9, "API 경로는 180개 상한을 유지");
+assert.equal(apiBoundedPlan.summary.candidateLimit, 180);
+assert.equal(apiBoundedPlan.summary.processedCandidateCount, 180);
+assert.equal(apiBoundedPlan.summary.unprocessedCandidateCount, 25);
+assert.equal(apiBoundedPlan.summary.remainingUnresolvedCandidateCount, 25);
+
+const feedback = feedbackPlannerFetch();
+const feedbackPlan = await planRoundtripFields({
+  fields: overLegacyLimit.slice(0, 2),
+  markdown: "최초 누락과 저신뢰 후보를 재판정",
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  transport: "claude-cli",
+  fetchImpl: feedback.fetchImpl,
+});
+assert.equal(feedback.calls(), 3, "최초 판정 뒤 필요한 후보만 최대 2회 재판정");
+assert.deepEqual(feedback.batchSizes(), [2, 2, 1]);
+assert.equal(feedbackPlan.summary.adjudicationStatus, "resolved");
+assert.equal(feedbackPlan.summary.adjudicationRounds, 2);
+assert.equal(feedbackPlan.summary.adjudicatedCandidateCount, 2);
+assert.equal(feedbackPlan.summary.remainingUnresolvedCandidateCount, 0);
+assert.equal(feedbackPlan.summary.requestCount, 3);
+assert.equal(feedbackPlan.fields[0]?.llmDecision, "not_input");
+assert.equal(feedbackPlan.fields[0]?.llmDecisionRound, 1);
+assert.equal(feedbackPlan.fields[1]?.llmDecision, "input");
+assert.equal(feedbackPlan.fields[1]?.llmDecisionRound, 2);
+assert.match(feedbackPlan.fields[1]?.inputSignals.join(" ") ?? "", /2차 재판정/);
+
+const uncertain = alwaysUncertainPlannerFetch();
+const uncertainPlan = await planRoundtripFields({
+  fields: overLegacyLimit.slice(0, 1),
+  markdown: "원문만으로 확정 불가능한 후보",
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  transport: "claude-cli",
+  fetchImpl: uncertain.fetchImpl,
+});
+assert.equal(uncertain.calls(), 3, "최초 1회와 재판정 최대 2회 뒤 종료");
+assert.equal(uncertainPlan.summary.adjudicationStatus, "partial");
+assert.equal(uncertainPlan.summary.remainingUnresolvedCandidateCount, 1);
+assert.equal(uncertainPlan.fields[0]?.llmDecision, "uncertain");
+assert.equal(uncertainPlan.fields[0]?.recommendedInput, false, "모호한 후보를 억지로 입력 필드로 승격하지 않음");
+
 const heuristicWithoutKey = await planRoundtripFields({
   fields: [revenue2024],
   markdown: "키 없는 기존 heuristic 경로",
@@ -319,6 +386,87 @@ function fakePlannerFetch(delayMs: number): {
     maxActive: () => peak,
     models: () => requestedModels,
   };
+}
+
+function feedbackPlannerFetch(): {
+  fetchImpl: typeof fetch;
+  calls: () => number;
+  batchSizes: () => number[];
+} {
+  let callCount = 0;
+  const sizes: number[] = [];
+  const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callCount += 1;
+    const request = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+    const content = request.messages[0]?.content ?? "";
+    const candidates = JSON.parse(content.slice(content.indexOf("\n") + 1)) as Array<{
+      candidate_id: string;
+      proposed_label: string;
+    }>;
+    sizes.push(candidates.length);
+    const decisions = callCount === 1
+      ? [{ ...candidates[0]!, is_user_input: false, confidence: 0.4 }]
+      : callCount === 2
+        ? candidates.map((candidate, index) => ({
+            ...candidate,
+            is_user_input: false,
+            confidence: index === 0 ? 0.95 : 0.6,
+          }))
+        : candidates.map((candidate) => ({ ...candidate, is_user_input: true, confidence: 0.96 }));
+    return new Response(JSON.stringify({
+      stop_reason: "tool_use",
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0 },
+      content: [{
+        type: "tool_use",
+        name: "emit_application_field_plan",
+        input: {
+          decisions: decisions.map((decision) => ({
+            candidate_id: decision.candidate_id,
+            is_user_input: decision.is_user_input,
+            suggested_label: decision.proposed_label,
+            input_kind: decision.is_user_input ? "text" : "none",
+            confidence: decision.confidence,
+            help_text: "재판정 테스트",
+            evidence: decision.proposed_label,
+          })),
+        },
+      }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  return { fetchImpl, calls: () => callCount, batchSizes: () => sizes };
+}
+
+function alwaysUncertainPlannerFetch(): { fetchImpl: typeof fetch; calls: () => number } {
+  let callCount = 0;
+  const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callCount += 1;
+    const request = JSON.parse(String(init?.body)) as { messages: Array<{ content: string }> };
+    const content = request.messages[0]?.content ?? "";
+    const candidates = JSON.parse(content.slice(content.indexOf("\n") + 1)) as Array<{
+      candidate_id: string;
+      proposed_label: string;
+    }>;
+    return new Response(JSON.stringify({
+      stop_reason: "tool_use",
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0 },
+      content: [{
+        type: "tool_use",
+        name: "emit_application_field_plan",
+        input: {
+          decisions: candidates.map((candidate) => ({
+            candidate_id: candidate.candidate_id,
+            is_user_input: false,
+            suggested_label: candidate.proposed_label,
+            input_kind: "none",
+            confidence: 0.6,
+            help_text: "원문 정보 부족",
+            evidence: candidate.proposed_label,
+          })),
+        },
+      }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  return { fetchImpl, calls: () => callCount };
 }
 
 function abortingFetch(): typeof fetch {
