@@ -16,6 +16,7 @@ import {
   DEEP_ANALYSIS_LAYER_REBUILD_LOCK,
   type DeepAnalysisLayerCounts,
   type DeepAnalysisLayerKeepRun,
+  type DeepAnalysisLayerRebuildMode,
   type DeepAnalysisLayerRebuildPlan,
   type DeepAnalysisLayerRebuildState,
 } from "./analysisLayerRebuild";
@@ -39,6 +40,10 @@ interface KeepRunRow {
 interface CountRow {
   grants: number;
   attachment_archives: number;
+  application_surfaces: number;
+  document_artifacts: number;
+  non_field_document_artifacts: number;
+  page_image_artifacts: number;
   jobs: number;
   worker_heartbeats: number;
   runs: number;
@@ -53,14 +58,35 @@ interface CountRow {
   company_confirmations: number;
   match_state: number;
   landing_observations: number;
+  application_precompute_jobs: number;
+  application_precompute_attempts: number;
+  application_precompute_worker_heartbeats: number;
+  field_candidate_artifacts: number;
+  document_fields: number;
+  fields_ready_surfaces: number;
   leased_jobs: number;
+  leased_application_precompute_jobs: number;
+  leased_application_precompute_attempts: number;
 }
 
 interface ResetResult {
   deleted: DeepAnalysisLayerRebuildState["delete"];
+  reset: DeepAnalysisLayerRebuildState["reset"];
   detachedAdminActions: number;
   detachedAggregateChildren: number;
 }
+
+interface RebuildBuildSource {
+  gitCommit: string;
+  gitTree: string;
+  gitDirty: boolean;
+  implementationSha256: string;
+}
+
+const REBUILD_IMPLEMENTATION_PATHS = [
+  "apps/web/src/lib/server/deep-analysis/analysisLayerRebuild.ts",
+  "apps/web/src/lib/server/deep-analysis/rebuild-analysis-layer-cli.ts",
+] as const;
 
 const RESET_APPEND_ONLY_TRIGGERS = [
   {
@@ -85,6 +111,31 @@ const RESET_APPEND_ONLY_TRIGGERS = [
   },
 ] as const;
 
+const RESET_MUTATION_TABLES = [
+  "admin_deep_analysis_actions",
+  "analysis_lab_promotion_items",
+  "analysis_lab_promotion_releases",
+  "company_grant_confirmations",
+  "document_artifacts",
+  "grant_aggregate_split_children",
+  "grant_application_precompute_attempts",
+  "grant_application_precompute_jobs",
+  "grant_application_precompute_worker_heartbeats",
+  "grant_application_surfaces",
+  "grant_confirmation_questions",
+  "grant_criteria",
+  "grant_deep_analysis_audits",
+  "grant_deep_analysis_axis_results",
+  "grant_deep_analysis_exception_events",
+  "grant_deep_analysis_jobs",
+  "grant_deep_analysis_runs",
+  "grant_deep_analysis_stage_receipts",
+  "grant_deep_analysis_worker_heartbeats",
+  "grant_document_fields",
+  "match_state",
+  "usage_events",
+] as const;
+
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((argument) => argument.startsWith(prefix))
@@ -102,13 +153,20 @@ function git(args: string[]): string {
   }).trim();
 }
 
-function assertCleanGitTree(): { gitCommit: string; gitTree: string } {
-  if (git(["status", "--porcelain"])) {
+function readBuildSource(requireClean: boolean): RebuildBuildSource {
+  const gitDirty = Boolean(git(["status", "--porcelain"]));
+  if (requireClean && gitDirty) {
     throw new Error("분석계층 재구축 write는 clean git tree에서만 가능합니다.");
+  }
+  const implementationSha256 = createHash("sha256");
+  for (const path of REBUILD_IMPLEMENTATION_PATHS) {
+    implementationSha256.update(`${path}\0${git(["hash-object", "--", path])}\n`);
   }
   return {
     gitCommit: git(["rev-parse", "HEAD"]),
     gitTree: git(["rev-parse", "HEAD^{tree}"]),
+    gitDirty,
+    implementationSha256: implementationSha256.digest("hex"),
   };
 }
 
@@ -208,6 +266,18 @@ async function loadCounts(client: QueryClient): Promise<DeepAnalysisLayerCounts>
     select
       (select count(*)::int from grants) as grants,
       (select count(*)::int from grant_attachment_archives) as attachment_archives,
+      (select count(*)::int from grant_application_surfaces) as application_surfaces,
+      (select count(*)::int from document_artifacts) as document_artifacts,
+      (
+        select count(*)::int
+        from document_artifacts
+        where kind <> 'field_candidates'
+      ) as non_field_document_artifacts,
+      (
+        select count(*)::int
+        from document_artifacts
+        where kind = 'page_image'
+      ) as page_image_artifacts,
       (select count(*)::int from grant_deep_analysis_jobs) as jobs,
       (select count(*)::int from grant_deep_analysis_worker_heartbeats) as worker_heartbeats,
       (select count(*)::int from grant_deep_analysis_runs) as runs,
@@ -228,14 +298,51 @@ async function loadCounts(client: QueryClient): Promise<DeepAnalysisLayerCounts>
       ) as landing_observations,
       (
         select count(*)::int
+        from grant_application_precompute_jobs
+      ) as application_precompute_jobs,
+      (
+        select count(*)::int
+        from grant_application_precompute_attempts
+      ) as application_precompute_attempts,
+      (
+        select count(*)::int
+        from grant_application_precompute_worker_heartbeats
+      ) as application_precompute_worker_heartbeats,
+      (
+        select count(*)::int
+        from document_artifacts
+        where kind = 'field_candidates'
+      ) as field_candidate_artifacts,
+      (select count(*)::int from grant_document_fields) as document_fields,
+      (
+        select count(*)::int
+        from grant_application_surfaces
+        where extraction_status = 'fields_ready'
+      ) as fields_ready_surfaces,
+      (
+        select count(*)::int
         from grant_deep_analysis_jobs
         where status = 'leased'
-      ) as leased_jobs
+      ) as leased_jobs,
+      (
+        select count(*)::int
+        from grant_application_precompute_jobs
+        where status = 'leased'
+      ) as leased_application_precompute_jobs,
+      (
+        select count(*)::int
+        from grant_application_precompute_attempts
+        where status = 'leased'
+      ) as leased_application_precompute_attempts
   `);
   if (!row) throw new Error("분석계층 count를 읽지 못했습니다.");
   return {
     grants: row.grants,
     attachmentArchives: row.attachment_archives,
+    applicationSurfaces: row.application_surfaces,
+    documentArtifacts: row.document_artifacts,
+    nonFieldDocumentArtifacts: row.non_field_document_artifacts,
+    pageImageArtifacts: row.page_image_artifacts,
     jobs: row.jobs,
     workerHeartbeats: row.worker_heartbeats,
     runs: row.runs,
@@ -250,7 +357,18 @@ async function loadCounts(client: QueryClient): Promise<DeepAnalysisLayerCounts>
     companyConfirmations: row.company_confirmations,
     matchState: row.match_state,
     landingObservations: row.landing_observations,
+    applicationPrecomputeJobs: row.application_precompute_jobs,
+    applicationPrecomputeAttempts: row.application_precompute_attempts,
+    applicationPrecomputeWorkerHeartbeats:
+      row.application_precompute_worker_heartbeats,
+    fieldCandidateArtifacts: row.field_candidate_artifacts,
+    documentFields: row.document_fields,
+    fieldsReadySurfaces: row.fields_ready_surfaces,
     leasedJobs: row.leased_jobs,
+    leasedApplicationPrecomputeJobs:
+      row.leased_application_precompute_jobs,
+    leasedApplicationPrecomputeAttempts:
+      row.leased_application_precompute_attempts,
   };
 }
 
@@ -258,6 +376,7 @@ async function countPreserved(
   client: QueryClient,
   keepRunIds: string[],
   keepJobIds: string[],
+  before: DeepAnalysisLayerCounts,
 ): Promise<DeepAnalysisLayerRebuildState["preserve"]> {
   const [row] = await client.unsafe<Array<{
     stage_receipts: number;
@@ -289,8 +408,11 @@ async function countPreserved(
   `, [keepRunIds]);
   if (!row) throw new Error("보존 대상 count를 읽지 못했습니다.");
   return {
-    grants: (await loadCounts(client)).grants,
-    attachmentArchives: (await loadCounts(client)).attachmentArchives,
+    grants: before.grants,
+    attachmentArchives: before.attachmentArchives,
+    applicationSurfaces: before.applicationSurfaces,
+    nonFieldDocumentArtifacts: before.nonFieldDocumentArtifacts,
+    pageImageArtifacts: before.pageImageArtifacts,
     jobs: keepJobIds.length,
     runs: keepRunIds.length,
     stageReceipts: row.stage_receipts,
@@ -302,17 +424,26 @@ async function countPreserved(
 
 async function buildPlan(
   client: QueryClient,
-  build: { gitCommit: string; gitTree: string },
+  build: RebuildBuildSource,
+  mode: DeepAnalysisLayerRebuildMode,
 ): Promise<DeepAnalysisLayerRebuildPlan> {
-  const keepRuns = await loadKeepRuns(client);
+  const keepRuns = mode === "fresh_start" ? [] : await loadKeepRuns(client);
   const before = await loadCounts(client);
   const keepRunIds = keepRuns.map((run) => run.id);
   const keepJobIds = [...new Set(keepRuns.map((run) => run.jobId))];
-  const preserve = await countPreserved(client, keepRunIds, keepJobIds);
+  const preserve = await countPreserved(
+    client,
+    keepRunIds,
+    keepJobIds,
+    before,
+  );
   return createDeepAnalysisLayerRebuildPlan({
     generatedAt: new Date().toISOString(),
     gitCommit: build.gitCommit,
     gitTree: build.gitTree,
+    gitDirty: build.gitDirty,
+    implementationSha256: build.implementationSha256,
+    mode,
     keepRuns,
     before,
     deleteCounts: {
@@ -330,6 +461,15 @@ async function buildPlan(
       companyConfirmations: before.companyConfirmations,
       matchState: before.matchState,
       landingObservations: before.landingObservations,
+      applicationPrecomputeJobs: before.applicationPrecomputeJobs,
+      applicationPrecomputeAttempts: before.applicationPrecomputeAttempts,
+      applicationPrecomputeWorkerHeartbeats:
+        before.applicationPrecomputeWorkerHeartbeats,
+      fieldCandidateArtifacts: before.fieldCandidateArtifacts,
+      documentFields: before.documentFields,
+    },
+    resetCounts: {
+      fieldsReadySurfaces: before.fieldsReadySurfaces,
     },
     preserve,
   });
@@ -404,11 +544,38 @@ async function executeReset(
     if (!lock?.acquired) {
       throw new Error("다른 분석계층 재구축 작업이 실행 중입니다.");
     }
+    const [deepClaimLock] = await transaction.unsafe<Array<{
+      acquired: boolean;
+    }>>(
+      "select pg_try_advisory_xact_lock(hashtext($1::text)) as acquired",
+      [`cunote:deep-analysis-claim:${DEEP_ANALYSIS_MODEL_POLICY_VERSION}`],
+    );
+    if (!deepClaimLock?.acquired) {
+      throw new Error("딥분석 claim이 진행 중이어서 재구축할 수 없습니다.");
+    }
+    const [applicationClaimLock] = await transaction.unsafe<Array<{
+      acquired: boolean;
+    }>>(
+      "select pg_try_advisory_xact_lock(hashtext('cunote:application-precompute:claim')) as acquired",
+    );
+    if (!applicationClaimLock?.acquired) {
+      throw new Error("Kordoc claim이 진행 중이어서 재구축할 수 없습니다.");
+    }
+    await transaction.unsafe(
+      `lock table ${RESET_MUTATION_TABLES.join(", ")}
+       in share row exclusive mode`,
+    );
 
-    const currentPlan = await buildPlan(transaction, {
-      gitCommit: expectedPlan.gitCommit,
-      gitTree: expectedPlan.gitTree,
-    });
+    const currentPlan = await buildPlan(
+      transaction,
+      {
+        gitCommit: expectedPlan.gitCommit,
+        gitTree: expectedPlan.gitTree,
+        gitDirty: expectedPlan.source.gitDirty,
+        implementationSha256: expectedPlan.source.implementationSha256,
+      },
+      expectedPlan.mode,
+    );
     if (currentPlan.stateSha256 !== expectedPlan.stateSha256) {
       throw new Error(
         `dry-run 이후 DB 상태가 변했습니다: expected=${expectedPlan.stateSha256}, current=${currentPlan.stateSha256}`,
@@ -438,6 +605,37 @@ async function executeReset(
     const deletedPromotionReleases = await transaction.unsafe(
       "delete from analysis_lab_promotion_releases",
     );
+    const deletedApplicationPrecomputeHeartbeats = await transaction.unsafe(
+      "delete from grant_application_precompute_worker_heartbeats",
+    );
+    const deletedApplicationPrecomputeAttempts = await transaction.unsafe(
+      "delete from grant_application_precompute_attempts",
+    );
+    const deletedApplicationPrecomputeJobs = await transaction.unsafe(
+      "delete from grant_application_precompute_jobs",
+    );
+    const deletedDocumentFields = await transaction.unsafe(
+      "delete from grant_document_fields",
+    );
+    const deletedFieldCandidateArtifacts = await transaction.unsafe(
+      "delete from document_artifacts where kind = 'field_candidates'",
+    );
+    const resetFieldsReadySurfaces = await transaction.unsafe(`
+      update grant_application_surfaces surface
+      set extraction_status = case
+            when exists (
+              select 1
+              from document_artifacts artifact
+              where artifact.surface_id = surface.id
+                and artifact.kind = 'page_image'
+            ) then 'preview_ready'
+            else 'pending'
+          end,
+          extraction_version = null,
+          confidence = null,
+          updated_at = now()
+      where surface.extraction_status = 'fields_ready'
+    `);
     const detachedAdminActions = await transaction.unsafe(
       `update admin_deep_analysis_actions
        set run_id = null,
@@ -512,6 +710,18 @@ async function executeReset(
         companyConfirmations: affectedCount(deletedConfirmations),
         matchState: affectedCount(deletedMatchState),
         landingObservations: affectedCount(deletedLanding),
+        applicationPrecomputeJobs:
+          affectedCount(deletedApplicationPrecomputeJobs),
+        applicationPrecomputeAttempts:
+          affectedCount(deletedApplicationPrecomputeAttempts),
+        applicationPrecomputeWorkerHeartbeats:
+          affectedCount(deletedApplicationPrecomputeHeartbeats),
+        fieldCandidateArtifacts:
+          affectedCount(deletedFieldCandidateArtifacts),
+        documentFields: affectedCount(deletedDocumentFields),
+      },
+      reset: {
+        fieldsReadySurfaces: affectedCount(resetFieldsReadySurfaces),
       },
       detachedAdminActions: affectedCount(detachedAdminActions),
       detachedAggregateChildren: affectedCount(detachedAggregateChildren),
@@ -522,6 +732,11 @@ async function executeReset(
     ) {
       throw new Error(
         `삭제 count 불일치: expected=${JSON.stringify(currentPlan.delete)}, actual=${JSON.stringify(result.deleted)}`,
+      );
+    }
+    if (JSON.stringify(result.reset) !== JSON.stringify(currentPlan.reset)) {
+      throw new Error(
+        `reset count 불일치: expected=${JSON.stringify(currentPlan.reset)}, actual=${JSON.stringify(result.reset)}`,
       );
     }
 
@@ -539,13 +754,15 @@ async function executeReset(
       [
         currentPlan.stateSha256,
         JSON.stringify({
-          schema: "deep-analysis-layer-rebuild-receipt-v1",
+          schema: "deep-analysis-layer-rebuild-receipt-v2",
+          mode: currentPlan.mode,
           stateSha256: currentPlan.stateSha256,
           actor,
           gitCommit: currentPlan.gitCommit,
           backup,
           keepRunIds,
           deleted: result.deleted,
+          reset: result.reset,
         }),
       ],
     );
@@ -554,7 +771,14 @@ async function executeReset(
     if (
       after.grants !== currentPlan.preserve.grants
       || after.attachmentArchives !== currentPlan.preserve.attachmentArchives
+      || after.applicationSurfaces !== currentPlan.preserve.applicationSurfaces
+      || after.documentArtifacts
+        !== currentPlan.preserve.nonFieldDocumentArtifacts
+      || after.nonFieldDocumentArtifacts
+        !== currentPlan.preserve.nonFieldDocumentArtifacts
+      || after.pageImageArtifacts !== currentPlan.preserve.pageImageArtifacts
       || after.jobs !== currentPlan.preserve.jobs
+      || after.workerHeartbeats !== 0
       || after.runs !== currentPlan.preserve.runs
       || after.stageReceipts !== currentPlan.preserve.stageReceipts
       || after.axisResults !== currentPlan.preserve.axisResults
@@ -567,7 +791,15 @@ async function executeReset(
       || after.companyConfirmations !== 0
       || after.matchState !== 0
       || after.landingObservations !== 0
+      || after.applicationPrecomputeJobs !== 0
+      || after.applicationPrecomputeAttempts !== 0
+      || after.applicationPrecomputeWorkerHeartbeats !== 0
+      || after.fieldCandidateArtifacts !== 0
+      || after.documentFields !== 0
+      || after.fieldsReadySurfaces !== 0
       || after.leasedJobs !== 0
+      || after.leasedApplicationPrecomputeJobs !== 0
+      || after.leasedApplicationPrecomputeAttempts !== 0
     ) {
       throw new Error(`재구축 사후 count가 예상과 다릅니다: ${JSON.stringify(after)}`);
     }
@@ -618,15 +850,13 @@ async function setResetTriggersEnabled(
 
 async function main(): Promise<number> {
   const write = hasFlag("write");
-  const build = write
-    ? assertCleanGitTree()
-    : {
-        gitCommit: git(["rev-parse", "HEAD"]),
-        gitTree: git(["rev-parse", "HEAD^{tree}"]),
-      };
+  const mode: DeepAnalysisLayerRebuildMode = hasFlag("fresh-start")
+    ? "fresh_start"
+    : "preserve_current";
+  const build = readBuildSource(write);
   const client = postgres(databaseUrl(), { max: 1, prepare: false });
   try {
-    const plan = await buildPlan(client, build);
+    const plan = await buildPlan(client, build, mode);
     assertDeepAnalysisLayerRebuildPreconditions(plan);
     if (!write) {
       const path = await writeArtifact("plan", plan, plan.stateSha256);
@@ -641,10 +871,11 @@ async function main(): Promise<number> {
     const executedAt = new Date().toISOString();
     const { result, after } = await executeReset(client, plan, actor, backup);
     const receipt = {
-      schema: "deep-analysis-layer-rebuild-receipt-v1",
+      schema: "deep-analysis-layer-rebuild-receipt-v2",
       verdict: "PASS",
       executedAt,
       actor,
+      mode: plan.mode,
       stateSha256: plan.stateSha256,
       gitCommit: plan.gitCommit,
       backup,
