@@ -275,9 +275,8 @@ export async function annotateHwpxTemplateAvailability(input: {
 
   const db = getCunoteDb();
 
-  let hwpxArchiveFilenames = new Set<string>();
-  try {
-    const rows = await db
+  const [hwpxArchiveFilenames, hwpxSiblingFilenames] = await Promise.all([
+    db
       .select({
         filename: schema.grantAttachmentArchives.filename,
         storageKey: schema.grantAttachmentArchives.storageKey,
@@ -288,21 +287,19 @@ export async function annotateHwpxTemplateAvailability(input: {
           eq(schema.grantAttachmentArchives.source, input.grant.source),
           eq(schema.grantAttachmentArchives.sourceId, input.grant.sourceId),
         ),
-      );
-    hwpxArchiveFilenames = new Set(
-      rows
-        .filter((row) => row.storageKey && row.filename.toLowerCase().endsWith(".hwpx"))
-        .map((row) => row.filename),
-    );
-  } catch (error) {
-    console.warn(
-      `hwpx 보관본 플래그 조회 실패(해당 집합 비움으로 폴백): ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-
-  let hwpxSiblingFilenames = new Set<string>();
-  try {
-    const rows = await db
+      )
+      .then((rows) => new Set(
+        rows
+          .filter((row) => row.storageKey && row.filename.toLowerCase().endsWith(".hwpx"))
+          .map((row) => row.filename),
+      ))
+      .catch((error: unknown) => {
+        console.warn(
+          `hwpx 보관본 플래그 조회 실패(해당 집합 비움으로 폴백): ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return new Set<string>();
+      }),
+    db
       .select({ title: schema.grantApplicationSurfaces.title })
       .from(schema.documentArtifacts)
       .innerJoin(
@@ -315,13 +312,15 @@ export async function annotateHwpxTemplateAvailability(input: {
           eq(schema.grantApplicationSurfaces.sourceId, input.grant.sourceId),
           eq(schema.documentArtifacts.kind, HWPX_SIBLING_ARTIFACT_KIND),
         ),
-      );
-    hwpxSiblingFilenames = new Set(rows.map((row) => row.title));
-  } catch (error) {
-    console.warn(
-      `hwpx sibling 플래그 조회 실패(해당 집합 비움으로 폴백): ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+      )
+      .then((rows) => new Set(rows.map((row) => row.title)))
+      .catch((error: unknown) => {
+        console.warn(
+          `hwpx sibling 플래그 조회 실패(해당 집합 비움으로 폴백): ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return new Set<string>();
+      }),
+  ]);
 
   return resolveHwpxTemplateAvailability({
     documents: input.documents,

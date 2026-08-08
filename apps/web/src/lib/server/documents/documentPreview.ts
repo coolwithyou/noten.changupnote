@@ -93,46 +93,50 @@ function numberOrNull(value: unknown): number | null {
  */
 export async function loadGrantDocumentPreview(input: {
   grantId: string;
+  /** workspace처럼 연결 필드를 별도 로드하는 호출자는 전체 필드 중복 조회를 생략한다. */
+  includeFields?: boolean;
 }): Promise<GrantDocumentPreview | null> {
   if (!isUuid(input.grantId)) return null;
 
   const db = getCunoteDb();
 
-  const grantRows = await db
-    .select({
-      id: schema.grants.id,
-      title: schema.grants.title,
-      source: schema.grants.source,
-      sourceId: schema.grants.sourceId,
-      status: schema.grants.status,
-      agencyOperator: schema.grants.agencyOperator,
-    })
-    .from(schema.grants)
-    .where(eq(schema.grants.id, input.grantId))
-    .limit(1);
+  const [grantRows, surfaceRows] = await Promise.all([
+    db
+      .select({
+        id: schema.grants.id,
+        title: schema.grants.title,
+        source: schema.grants.source,
+        sourceId: schema.grants.sourceId,
+        status: schema.grants.status,
+        agencyOperator: schema.grants.agencyOperator,
+      })
+      .from(schema.grants)
+      .where(eq(schema.grants.id, input.grantId))
+      .limit(1),
+    db
+      .select({
+        id: schema.grantApplicationSurfaces.id,
+        title: schema.grantApplicationSurfaces.title,
+        type: schema.grantApplicationSurfaces.type,
+        format: schema.grantApplicationSurfaces.format,
+        sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
+        extractionStatus: schema.grantApplicationSurfaces.extractionStatus,
+        extractionVersion: schema.grantApplicationSurfaces.extractionVersion,
+        confidence: schema.grantApplicationSurfaces.confidence,
+      })
+      .from(schema.grantApplicationSurfaces)
+      .where(eq(schema.grantApplicationSurfaces.grantId, input.grantId))
+      .orderBy(asc(schema.grantApplicationSurfaces.createdAt)),
+  ]);
 
   const grantRow = grantRows[0];
   if (!grantRow) return null;
 
-  const surfaceRows = await db
-    .select({
-      id: schema.grantApplicationSurfaces.id,
-      title: schema.grantApplicationSurfaces.title,
-      type: schema.grantApplicationSurfaces.type,
-      format: schema.grantApplicationSurfaces.format,
-      sourceAttachment: schema.grantApplicationSurfaces.sourceAttachment,
-      extractionStatus: schema.grantApplicationSurfaces.extractionStatus,
-      extractionVersion: schema.grantApplicationSurfaces.extractionVersion,
-      confidence: schema.grantApplicationSurfaces.confidence,
-    })
-    .from(schema.grantApplicationSurfaces)
-    .where(eq(schema.grantApplicationSurfaces.grantId, input.grantId))
-    .orderBy(asc(schema.grantApplicationSurfaces.createdAt));
-
   const surfaceIds = surfaceRows.map((s) => s.id);
 
-  const artifactRows = surfaceIds.length
-    ? await db
+  const [artifactRows, fieldRows] = await Promise.all([
+    surfaceIds.length
+      ? db
         .select({
           id: schema.documentArtifacts.id,
           surfaceId: schema.documentArtifacts.surfaceId,
@@ -148,7 +152,34 @@ export async function loadGrantDocumentPreview(input: {
           ),
         )
         .orderBy(asc(schema.documentArtifacts.surfaceId), asc(schema.documentArtifacts.page))
-    : [];
+      : Promise.resolve([]),
+    input.includeFields === false
+      ? Promise.resolve([])
+      : db
+        .select({
+          id: schema.grantDocumentFields.id,
+          surfaceId: schema.grantDocumentFields.surfaceId,
+          documentName: schema.grantDocumentFields.documentName,
+          documentCategory: schema.grantDocumentFields.documentCategory,
+          section: schema.grantDocumentFields.section,
+          fieldKey: schema.grantDocumentFields.fieldKey,
+          label: schema.grantDocumentFields.label,
+          fieldType: schema.grantDocumentFields.fieldType,
+          required: schema.grantDocumentFields.required,
+          fillStrategy: schema.grantDocumentFields.fillStrategy,
+          confidence: schema.grantDocumentFields.confidence,
+          sourceSpan: schema.grantDocumentFields.sourceSpan,
+          mappedCompanyField: schema.grantDocumentFields.mappedCompanyField,
+          position: schema.grantDocumentFields.position,
+        })
+        .from(schema.grantDocumentFields)
+        .where(eq(schema.grantDocumentFields.grantId, input.grantId))
+        .orderBy(
+          asc(schema.grantDocumentFields.documentName),
+          asc(schema.grantDocumentFields.section),
+          asc(schema.grantDocumentFields.fieldKey),
+        ),
+  ]);
 
   const pages: PreviewPage[] = artifactRows.map((row) => {
     const metadata = (row.metadata ?? {}) as Record<string, unknown>;
@@ -179,31 +210,6 @@ export async function loadGrantDocumentPreview(input: {
     confidence: row.confidence,
     pageCount: pageCountBySurface.get(row.id) ?? 0,
   }));
-
-  const fieldRows = await db
-    .select({
-      id: schema.grantDocumentFields.id,
-      surfaceId: schema.grantDocumentFields.surfaceId,
-      documentName: schema.grantDocumentFields.documentName,
-      documentCategory: schema.grantDocumentFields.documentCategory,
-      section: schema.grantDocumentFields.section,
-      fieldKey: schema.grantDocumentFields.fieldKey,
-      label: schema.grantDocumentFields.label,
-      fieldType: schema.grantDocumentFields.fieldType,
-      required: schema.grantDocumentFields.required,
-      fillStrategy: schema.grantDocumentFields.fillStrategy,
-      confidence: schema.grantDocumentFields.confidence,
-      sourceSpan: schema.grantDocumentFields.sourceSpan,
-      mappedCompanyField: schema.grantDocumentFields.mappedCompanyField,
-      position: schema.grantDocumentFields.position,
-    })
-    .from(schema.grantDocumentFields)
-    .where(eq(schema.grantDocumentFields.grantId, input.grantId))
-    .orderBy(
-      asc(schema.grantDocumentFields.documentName),
-      asc(schema.grantDocumentFields.section),
-      asc(schema.grantDocumentFields.fieldKey),
-    );
 
   const fields: PreviewField[] = fieldRows.map((row) => ({
     id: row.id,

@@ -7,6 +7,7 @@ import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/se
 import { getRemainingAssistantUses } from "@/lib/server/credits/remainingUses";
 import { getGrantPreviewAvailability } from "@/lib/server/documents/documentPreview";
 import { loadGrantPreparation } from "@/lib/server/documents/grantPreparation";
+import { loadGrantApplySheetForHandoff } from "@/lib/server/grantApplySheetHandoff";
 import { recordLessonExposures, type LessonExposureInput } from "@/lib/server/knowledge/knowledgeRepo";
 import { matchApprovedLessonsForGrant, matchFieldLessonTips } from "@/lib/server/knowledge/lessonContext";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
@@ -31,7 +32,8 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
     ? resolveVirtualCompanyScenario(requestedBizNo)
     : null;
   const access = virtualScenario ? null : await loadGrantAccess(grantId);
-  const sheet = await loadServiceApplySheet(grantId, virtualScenario
+  const handoffKey = crypto.randomUUID();
+  const sheet = await loadGrantApplySheetForHandoff(grantId, handoffKey, virtualScenario
     ? { virtualBizNo: virtualScenario.bizNo }
     : { companyId: access!.companyId, userId: access!.userId });
   if (!sheet) notFound();
@@ -62,6 +64,7 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
         remainingUses={remainingUses}
         virtualCompanyName={virtualScenario?.name ?? null}
         virtualCompanyBizNo={virtualScenario?.bizNo ?? null}
+        handoffKey={handoffKey}
       />
     </AppShell>
   );

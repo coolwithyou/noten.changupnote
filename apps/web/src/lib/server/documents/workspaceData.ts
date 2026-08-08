@@ -133,10 +133,11 @@ export async function loadGrantWorkspaceData(input: {
   const draftable = sheet.applicationPrep.draftableDocuments;
   const documents = buildWorkspaceDocumentOptions(draftable);
 
-  const initialDrafts = await listGrantDocumentDraftsForGrant({ grantId: grant.id, access });
+  const initialDraftsPromise = listGrantDocumentDraftsForGrant({ grantId: grant.id, access });
 
   // draftable 문서가 하나도 없으면 (c) 폴백(채팅 전면 + 빈 초안 워크스페이스).
   if (draftable.length === 0) {
+    const initialDrafts = await initialDraftsPromise;
     return {
       execution: { mode: "persistent" },
       ladder: "c",
@@ -162,12 +163,15 @@ export async function loadGrantWorkspaceData(input: {
     };
   }
 
-  const documentContext = await loadWorkspaceDocumentContext({
-    sheet,
-    ...(input.requestedDocumentKey !== undefined
-      ? { requestedDocumentKey: input.requestedDocumentKey }
-      : {}),
-  });
+  const [initialDrafts, documentContext] = await Promise.all([
+    initialDraftsPromise,
+    loadWorkspaceDocumentContext({
+      sheet,
+      ...(input.requestedDocumentKey !== undefined
+        ? { requestedDocumentKey: input.requestedDocumentKey }
+        : {}),
+    }),
+  ]);
   const {
     activeDocument,
     connectedFields,
@@ -191,14 +195,14 @@ export async function loadGrantWorkspaceData(input: {
     activeDraft = created.draft;
   }
   const draftId = activeDraft.id;
-  if (matchedSurface && activeDocument.sourceAttachment) {
-    await linkGrantDocumentDraftSurface({
+  const surfaceLinkPromise = matchedSurface && activeDocument.sourceAttachment
+    ? linkGrantDocumentDraftSurface({
       draftId,
       access,
       surfaceId: matchedSurface.id,
       sourceAttachment: activeDocument.sourceAttachment,
-    });
-  }
+    })
+    : Promise.resolve({ linked: false });
 
   // 프로필 시드(멱등). 시드 결과의 fieldAnswers 를 초기 상태로 쓴다(연결 필드 없으면 현재 답변 그대로).
   const seedFields: SeedFieldInput[] = connectedFields.map((field) => ({
@@ -206,8 +210,6 @@ export async function loadGrantWorkspaceData(input: {
     mappedCompanyField: field.mappedCompanyField,
     fieldId: field.fieldId,
   }));
-  const seedResult = await seedGrantDocumentDraftProfileAnswers({ draftId, access, fields: seedFields });
-
   const { duplicateLabels } = detectDuplicateNormalizedLabels(connectedFields.map((field) => field.label));
 
   // '제안 받기' 노출 대상(P4): 서술형(프로필 미매핑) + manual류 아님. 서버 단일 원천(fieldSuggest) 판정.
@@ -220,7 +222,9 @@ export async function loadGrantWorkspaceData(input: {
     .map((field) => field.label);
 
   // Gate-1 표준 fieldKey와 label을 함께 전달해 동의어 필드도 같은 lesson에 연결한다.
-  const [fieldLessonTips, headRevisionRow] = await Promise.all([
+  const [, seedResult, fieldLessonTips, headRevisionRow] = await Promise.all([
+    surfaceLinkPromise,
+    seedGrantDocumentDraftProfileAnswers({ draftId, access, fields: seedFields }),
     connectedFields.length > 0
       ? loadFieldLessonTipsSafe({
           title: sheet.grant.title,
@@ -426,30 +430,32 @@ async function loadWorkspaceDocumentContext(input: {
   const draftable = sheet.applicationPrep.draftableDocuments;
   if (draftable.length === 0) throw new Error("작성형 문서가 없는 공고의 workspace context를 요청했습니다.");
 
-  const preview = await loadGrantDocumentPreview({ grantId: sheet.grant.id });
-  const surfaces = preview?.surfaces ?? [];
   const storageKeyByDocumentKey = new Map<string, string | null>();
-  await Promise.all(
-    draftable.map(async (doc) => {
-      if (!doc.sourceAttachment) {
-        storageKeyByDocumentKey.set(doc.documentKey, null);
-        return;
-      }
-      try {
-        const archive = await resolveArchiveStorageKey({
-          source: sheet.grant.source,
-          sourceId: sheet.grant.sourceId,
-          filename: doc.sourceAttachment,
-        });
-        storageKeyByDocumentKey.set(doc.documentKey, archive?.storageKey ?? null);
-      } catch (error) {
-        console.warn(
-          `Workspace 첨부 스토리지 키 해석 실패(매칭 생략): ${error instanceof Error ? error.message : String(error)}`,
-        );
-        storageKeyByDocumentKey.set(doc.documentKey, null);
-      }
-    }),
-  );
+  const [preview] = await Promise.all([
+    loadGrantDocumentPreview({ grantId: sheet.grant.id, includeFields: false }),
+    Promise.all(
+      draftable.map(async (doc) => {
+        if (!doc.sourceAttachment) {
+          storageKeyByDocumentKey.set(doc.documentKey, null);
+          return;
+        }
+        try {
+          const archive = await resolveArchiveStorageKey({
+            source: sheet.grant.source,
+            sourceId: sheet.grant.sourceId,
+            filename: doc.sourceAttachment,
+          });
+          storageKeyByDocumentKey.set(doc.documentKey, archive?.storageKey ?? null);
+        } catch (error) {
+          console.warn(
+            `Workspace 첨부 스토리지 키 해석 실패(매칭 생략): ${error instanceof Error ? error.message : String(error)}`,
+          );
+          storageKeyByDocumentKey.set(doc.documentKey, null);
+        }
+      }),
+    ),
+  ]);
+  const surfaces = preview?.surfaces ?? [];
 
   const matchSurfaceFor = (doc: DraftableDocument) => matchDocumentSurface({
     document: doc,

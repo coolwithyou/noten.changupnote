@@ -10,6 +10,7 @@ import {
   isVirtualCompanyServerEnabled,
   resolveVirtualCompanyScenario,
 } from "@/lib/server/virtualCompanies/catalog";
+import { loadGrantApplySheetForHandoff } from "@/lib/server/grantApplySheetHandoff";
 import { buildChatGreeting } from "@/lib/server/chat/greeting";
 import { WorkspaceView } from "@/features/apply-workspace/WorkspaceView";
 import { buildInstitutionContact } from "@/features/apply-workspace/workspacePresentation";
@@ -35,9 +36,13 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
     ? resolveVirtualCompanyScenario(requestedBizNo)
     : null;
   const access = virtualScenario ? null : await loadWorkspaceAccess(grantId);
-  const sheet = await loadServiceApplySheet(grantId, virtualScenario
+  const handoffKey = firstParam(query.handoff);
+  const sheetScope = virtualScenario
     ? { virtualBizNo: virtualScenario.bizNo }
-    : { companyId: access!.companyId, userId: access!.userId });
+    : { companyId: access!.companyId, userId: access!.userId };
+  const sheet = handoffKey
+    ? await loadGrantApplySheetForHandoff(grantId, handoffKey, sheetScope)
+    : await loadServiceApplySheet(grantId, sheetScope);
   if (!sheet) notFound();
 
   const requestedDocumentKey = firstParam(query.document) ?? null;

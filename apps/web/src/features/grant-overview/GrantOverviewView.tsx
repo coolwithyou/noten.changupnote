@@ -9,6 +9,7 @@ import type { GrantPreviewAvailability } from "@/lib/server/documents/documentPr
 import type { GrantLessonGuideDto } from "@/lib/server/knowledge/lessonContext";
 import { ConversionPollTrigger } from "@/features/apply-sheet/ConversionPollTrigger";
 import { EligibilityMatchAccordion } from "./EligibilityMatchAccordion";
+import { GrantWorkspaceLink } from "./GrantWorkspaceLink";
 import { RequiredDocumentsAccordion } from "./RequiredDocumentsAccordion";
 import { LessonGuideAccordion } from "./LessonGuideAccordion";
 import {
@@ -35,6 +36,7 @@ export function GrantOverviewView({
   remainingUses = null,
   virtualCompanyName = null,
   virtualCompanyBizNo = null,
+  handoffKey = null,
 }: {
   sheet: ApplySheet;
   lessonGuide?: GrantLessonGuideDto | null;
@@ -45,11 +47,15 @@ export function GrantOverviewView({
   virtualCompanyName?: string | null;
   /** 등록된 가상 기업만 비영속 workspace 미리보기로 전달한다. */
   virtualCompanyBizNo?: string | null;
+  /** 이 상세 렌더가 만든 ApplySheet를 workspace에서 재사용하기 위한 비민감 일회성 키. */
+  handoffKey?: string | null;
 }) {
   const grantId = sheet.grant.id;
-  const workspaceHref = virtualCompanyBizNo
-    ? `/grants/${encodeURIComponent(grantId)}/workspace?biz=${encodeURIComponent(virtualCompanyBizNo)}`
-    : `/grants/${encodeURIComponent(grantId)}/workspace`;
+  const workspaceQuery = [
+    virtualCompanyBizNo ? `biz=${encodeURIComponent(virtualCompanyBizNo)}` : null,
+    handoffKey ? `handoff=${encodeURIComponent(handoffKey)}` : null,
+  ].filter((value): value is string => value !== null).join("&");
+  const workspaceHref = `/grants/${encodeURIComponent(grantId)}/workspace${workspaceQuery ? `?${workspaceQuery}` : ""}`;
   const verdict = grantOverviewVerdict(sheet);
   const cta = grantOverviewCta(sheet, previewAvailability);
   const showConversionPoll = (previewAvailability?.pendingSurfaceCount ?? 0) > 0;
@@ -95,16 +101,15 @@ export function GrantOverviewView({
 
       {/* ③ 작성 지원 모드별 주 CTA 1개 */}
       <section className="mt-6">
-        <Link
+        <GrantWorkspaceLink
           href={workspaceHref}
+          label={virtualCompanyName ? "가상 기업으로 지원서 미리보기" : cta.label}
           className={buttonVariants({
             variant: cta.variant,
             size: "lg",
             className: "w-full text-balance whitespace-normal",
           })}
-        >
-          {virtualCompanyName ? "가상 기업으로 지원서 미리보기" : cta.label}
-        </Link>
+        />
         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
           <p className="text-center text-[13px] leading-5 text-text-tertiary">
             {virtualCompanyName ? "실제 회사나 초안에 저장하지 않고 작성 화면을 확인해요" : cta.caption}
