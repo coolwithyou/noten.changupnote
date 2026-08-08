@@ -17,6 +17,7 @@ import { WorkspaceView } from "@/features/apply-workspace/WorkspaceView";
 import { buildInstitutionContact } from "@/features/apply-workspace/workspacePresentation";
 import {
   buildGrantSimulationCompanyProfile,
+  GRANT_SIMULATION_BUSINESS_NUMBER,
   getGrantSimulationAdminIdentity,
 } from "@/lib/server/adminGrantSimulation";
 
@@ -64,6 +65,7 @@ export default async function GrantWorkspacePage({ params, searchParams }: Works
     ? await loadAdminGrantWorkspaceData({
         sheet,
         companyProfile: simulationProfile,
+        businessNumber: GRANT_SIMULATION_BUSINESS_NUMBER,
         reviewerEmail: adminIdentity.email,
         requestedDocumentKey,
       })

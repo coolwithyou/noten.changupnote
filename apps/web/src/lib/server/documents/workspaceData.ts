@@ -303,6 +303,7 @@ export async function loadVirtualGrantWorkspaceData(input: {
   return loadReadOnlyGrantWorkspaceData({
     sheet: input.sheet,
     companyProfile: input.virtualCompany.profile,
+    businessNumber: input.virtualCompany.bizNo,
     execution: {
       mode: "virtual_preview",
       bizNo: input.virtualCompany.bizNo,
@@ -318,12 +319,14 @@ export async function loadVirtualGrantWorkspaceData(input: {
 export async function loadAdminGrantWorkspaceData(input: {
   sheet: ApplySheet;
   companyProfile: CompanyProfile;
+  businessNumber: string;
   reviewerEmail: string;
   requestedDocumentKey?: string | null;
 }): Promise<WorkspaceData> {
   return loadReadOnlyGrantWorkspaceData({
     sheet: input.sheet,
     companyProfile: input.companyProfile,
+    businessNumber: input.businessNumber,
     execution: {
       mode: "admin_preview",
       companyName: "관리자 지원서 시뮬레이션 기업",
@@ -338,6 +341,7 @@ export async function loadAdminGrantWorkspaceData(input: {
 async function loadReadOnlyGrantWorkspaceData(input: {
   sheet: ApplySheet;
   companyProfile: CompanyProfile;
+  businessNumber: string;
   execution: Exclude<WorkspaceExecution, { mode: "persistent" }>;
   requestedDocumentKey?: string | null;
 }): Promise<WorkspaceData> {
@@ -398,6 +402,7 @@ async function loadReadOnlyGrantWorkspaceData(input: {
   const fieldAnswers = seedProfileFieldAnswers({
     fields: seedFields,
     profile: input.companyProfile,
+    identity: { businessNumber: input.businessNumber },
     current: {},
   });
   const { duplicateLabels } = detectDuplicateNormalizedLabels(connectedFields.map((field) => field.label));

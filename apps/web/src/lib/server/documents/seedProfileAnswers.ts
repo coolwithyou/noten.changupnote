@@ -23,16 +23,22 @@ export interface SeedFieldInput {
   fieldId?: string;
 }
 
+/** CompanyProfile 밖에 보관되는 회사 식별정보 중 지원서에 안전하게 복사할 값. */
+export interface CompanyIdentitySeed {
+  businessNumber?: string | null;
+}
+
 export const PROFILE_SEED_BASIS = "사업자 정보";
 
 /**
  * `mappedCompanyField` 키 → 회사 프로필 값(문자열) 매핑.
  * buildProfileCopyFields 의 포맷 규약과 일치시킨다(표시 일관성). 값이 없으면 null → 시드 제외.
- * CompanyProfile 에 없는 매핑(representative_name·biz_no 등)은 항상 null.
+ * CompanyProfile 에 없는 매핑은 identity 에서만 해소한다. 알 수 없는 값은 null.
  */
 export function resolveProfileValueForMappedField(
   mappedCompanyField: string,
   profile: CompanyProfile,
+  identity: CompanyIdentitySeed = {},
 ): string | null {
   switch (mappedCompanyField) {
     case "name":
@@ -53,8 +59,10 @@ export function resolveProfileValueForMappedField(
       return cleanText([...(profile.certs ?? []), ...(profile.ip ?? [])].join(", "));
     case "target_types":
       return cleanText(profile.target_types?.join(", "));
+    case "biz_no":
+      return formatBusinessNumber(identity.businessNumber);
     default:
-      // representative_name·biz_no 등은 CompanyProfile 에 소스가 없어 결정론 시드 불가.
+      // representative_name 등은 현재 신뢰 가능한 정본이 없어 결정론 시드 불가.
       return null;
   }
 }
@@ -66,6 +74,7 @@ export function resolveProfileValueForMappedField(
 export function seedProfileFieldAnswers(input: {
   fields: SeedFieldInput[];
   profile: CompanyProfile;
+  identity?: CompanyIdentitySeed;
   current: DraftFieldAnswers;
   at?: string;
 }): DraftFieldAnswers {
@@ -76,7 +85,11 @@ export function seedProfileFieldAnswers(input: {
     const label = normalizeAnswerLabel(field.label);
     if (!label) continue;
     if (next[label]) continue; // 멱등: 기존 답변 label 불변
-    const resolved = resolveProfileValueForMappedField(field.mappedCompanyField, input.profile);
+    const resolved = resolveProfileValueForMappedField(
+      field.mappedCompanyField,
+      input.profile,
+      input.identity,
+    );
     if (!resolved) continue;
     const value = normalizeAnswerValue(resolved);
     if (!value) continue;
@@ -103,4 +116,11 @@ function cleanText(value: string | null | undefined): string | null {
 function formatKrw(value: number | null | undefined): string | null {
   if (value === null || value === undefined) return null;
   return `${new Intl.NumberFormat("ko-KR").format(value)}원`;
+}
+
+function formatBusinessNumber(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/\D/g, "");
+  if (normalized.length !== 10) return null;
+  return `${normalized.slice(0, 3)}-${normalized.slice(3, 5)}-${normalized.slice(5)}`;
 }

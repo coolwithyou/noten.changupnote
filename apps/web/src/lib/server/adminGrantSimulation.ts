@@ -15,6 +15,9 @@ export interface GrantSimulationAdminIdentity {
   role: "owner" | "admin" | "reviewer";
 }
 
+/** 실제 체크섬을 통과하지 않는 관리자 전용 비영속 지원서 시뮬레이션 번호. */
+export const GRANT_SIMULATION_BUSINESS_NUMBER = "0000000099";
+
 /** 웹 세션 이메일이 활성화된 관리·검수 계정과 일치할 때만 읽기 전용 지원서 시뮬레이션을 연다. */
 export async function getGrantSimulationAdminIdentity(): Promise<GrantSimulationAdminIdentity | null> {
   const session = await getOptionalWebSession();

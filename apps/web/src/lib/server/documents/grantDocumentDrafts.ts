@@ -359,7 +359,8 @@ export async function patchGrantDocumentDraftFieldAnswers(input: {
 
 /**
  * 결정론적 프로필 시드 배선 (P2-7 / ADR-8 트랙①). 순수 함수 `seedProfileFieldAnswers`(seedProfileAnswers.ts)
- * 를 draft 로드·프로필 resolve·멱등 저장에 배선한다. workspace 로더가 draft ensure 직후 매 진입 시 호출한다.
+ * 를 draft 로드·프로필/회사 식별정보 resolve·멱등 저장에 배선한다. workspace 로더가 draft ensure 직후
+ * 매 진입 시 호출한다. 사업자번호는 CompanyProfile 이 아니라 companies 정본에서만 읽는다.
  *
  * 멱등: `seedProfileFieldAnswers` 는 이미 답변이 있는 label 을 불변으로 두고 새 label 만 추가하므로,
  * 병합 결과의 키 개수가 늘었을 때만 실제 DB update 한다(무의미한 write·이벤트 로그 방지). 시드 답변은
@@ -379,14 +380,29 @@ export async function seedGrantDocumentDraftProfileAnswers(input: {
     return { fieldAnswers: currentAnswers, filledFields: deriveFilledFields(currentAnswers), seeded: false };
   }
 
-  const resolution = await resolveProductCompanyProfile({
-    context: "owned_read",
-    companyId: input.access.companyId,
-    userId: input.access.userId,
-    asOf: new Date().toISOString(),
-  });
+  const repositories = getServiceRepositories();
+  const needsBusinessNumber = seedableFields.some((field) => field.mappedCompanyField === "biz_no");
+  const [resolution, businessNumber] = await Promise.all([
+    resolveProductCompanyProfile({
+      context: "owned_read",
+      companyId: input.access.companyId,
+      userId: input.access.userId,
+      asOf: new Date().toISOString(),
+    }),
+    needsBusinessNumber
+      ? repositories.companies.getCompanyBizNo({
+          companyId: input.access.companyId,
+          userId: input.access.userId,
+        })
+      : Promise.resolve(null),
+  ]);
 
-  const mergedAnswers = seedProfileFieldAnswers({ fields: seedableFields, profile: resolution.profile, current: currentAnswers });
+  const mergedAnswers = seedProfileFieldAnswers({
+    fields: seedableFields,
+    profile: resolution.profile,
+    identity: { businessNumber },
+    current: currentAnswers,
+  });
   const seeded = Object.keys(mergedAnswers).length !== Object.keys(currentAnswers).length;
   const filledFields = deriveFilledFields(mergedAnswers);
   if (!seeded) {
