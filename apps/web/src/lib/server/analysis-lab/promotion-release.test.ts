@@ -8,6 +8,7 @@ import {
   isUnexplainedPromotionShadowTransition,
   promotionAggregateDecidedCount,
   promotionAggregateEffectiveCounts,
+  promotionPlanHasUnsafeUnresolvedCriteria,
   releasePlanItemHasUnsafePendingCriteria,
   mergePromotionApprovalGateEvidence,
   planSha256,
@@ -305,6 +306,78 @@ function manifest() {
     ),
     { correct: 9, needsEdit: 0, wrong: 0, unsure: 0, missed: 0 },
     "실제로 억제한 ranking-only 오류만 gate 계산에서 제외하고 원본 totals는 보존한다",
+  );
+}
+
+{
+  const needsReviewCriterion = {
+    id: "lab-shadow:test:llm-1",
+    grant_id: plan.grantId,
+    dimension: "other" as const,
+    kind: "exclusion" as const,
+    operator: "text_only" as const,
+    value: { note: "사업장 입지 원문 확인" },
+    confidence: 0.9,
+    needs_review: true,
+    source_field: "analysis_lab_deep",
+    source_span: "도내 본사 또는 공장 소재",
+    parser_version: "analysis-lab-shadow-v2",
+  };
+  const auditedConditionalPlan: GrantPromotionPlan = {
+    ...plan,
+    origin: "audited",
+    auditState: "deterministic_contract",
+    criteria: [needsReviewCriterion],
+    criterionIndexByPosition: [1],
+    criterionStableKeys: ["stable-1"],
+    reviewRisk: {
+      schema: "promotion-review-risk-v1",
+      disposition: "conditional",
+      blockers: [],
+      deferrals: [{
+        code: "ranking_criterion_suppressed",
+        criterionIndex: 2,
+        verdict: "needs_edit",
+        detail: "오류가 있는 우대조건은 점수에서 제외",
+      }],
+      suppressedCriterionIndexes: [2],
+      suppressedVerdicts: { needsEdit: 1, wrong: 0, unsure: 0 },
+      deferredMissedConditions: 0,
+    },
+  };
+  assert.equal(
+    promotionPlanHasUnsafeUnresolvedCriteria(auditedConditionalPlan),
+    true,
+    "명시적 카나리 선택 없이는 local needs_review를 계속 차단한다",
+  );
+  assert.equal(
+    promotionPlanHasUnsafeUnresolvedCriteria(auditedConditionalPlan, { auditedLocalCanary: true }),
+    false,
+    "독립 감사된 단일 conditional 카나리만 needs_review를 unknown으로 보존할 수 있다",
+  );
+  assert.equal(
+    promotionPlanHasUnsafeUnresolvedCriteria({
+      ...auditedConditionalPlan,
+      resolutions: [{ criterionIndex: 1, state: "pending", decidedBy: null, note: null }],
+    }, { auditedLocalCanary: true }),
+    true,
+    "우대조건 억제 목록 밖 pending은 카나리에서도 차단한다",
+  );
+  assert.equal(
+    promotionPlanHasUnsafeUnresolvedCriteria({
+      ...auditedConditionalPlan,
+      resolutions: [{ criterionIndex: 2, state: "pending", decidedBy: null, note: "우대조건 오류" }],
+    }, { auditedLocalCanary: true }),
+    false,
+    "발행에서 이미 제거한 preferred pending은 중복 차단하지 않는다",
+  );
+  assert.equal(
+    promotionPlanHasUnsafeUnresolvedCriteria({
+      ...auditedConditionalPlan,
+      reviewRisk: { ...auditedConditionalPlan.reviewRisk!, disposition: "blocked" },
+    }, { auditedLocalCanary: true }),
+    true,
+    "자격 blocker가 있는 plan은 needs_review 예외를 받을 수 없다",
   );
 }
 

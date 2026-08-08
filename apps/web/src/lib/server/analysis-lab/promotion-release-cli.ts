@@ -12,6 +12,7 @@ import {
   hashFile,
   mergePromotionApprovalGateEvidence,
   planSha256,
+  promotionPlanHasUnsafeUnresolvedCriteria,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
   writeImmutablePromotionArtifact,
@@ -160,8 +161,7 @@ async function prepare(): Promise<number> {
   const unsafePlans = guarded.publishable.filter((plan) =>
     plan.conversion.dropped > 0
     || plan.droppedQuestionCandidates > 0
-    || plan.resolutions.some((resolution) => resolution.state === "pending")
-    || plan.criteria.some((criterion) => criterion.needs_review === true));
+    || promotionPlanHasUnsafeUnresolvedCriteria(plan, { auditedLocalCanary }));
   if (unsafePlans.length > 0) {
     throw new Error(
       `미확정·변환 드롭·질문 앵커 상실이 남아 release를 준비할 수 없습니다: ${unsafePlans

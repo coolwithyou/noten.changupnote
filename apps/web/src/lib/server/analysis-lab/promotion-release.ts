@@ -360,6 +360,37 @@ export function releasePlanItemHasUnsafePendingCriteria(
   return needsReviewPositions.some((position) => !conditionalOnly.has(position));
 }
 
+/**
+ * local-lab release 준비에서 미해소 criterion이 실제로 발행을 막아야 하는지 판정한다.
+ * 기본 정책은 기존처럼 pending/needs_review를 모두 차단한다. 단, 정확히 한 공고를
+ * `--audited-local-canary`로 지정한 경우에는 두 독립 AI의 감사가 끝났고 reviewRisk가
+ * conditional인 plan의 needs_review만 허용한다. 이 criterion은 matcher에서 hard fail로
+ * 쓰이지 않고 unknown으로 남으므로, 카나리에서 질문·조건부 노출을 검증할 수 있다.
+ *
+ * reviewRisk가 명시적으로 억제한 preferred criterion의 resolution은 발행 배열에서 이미
+ * 제외됐으므로 pending이어도 차단하지 않는다. 그 밖의 pending은 예외 없이 차단한다.
+ */
+export function promotionPlanHasUnsafeUnresolvedCriteria(
+  plan: GrantPromotionPlan,
+  options: { auditedLocalCanary?: boolean } = {},
+): boolean {
+  const suppressed = new Set(plan.reviewRisk?.suppressedCriterionIndexes ?? []);
+  if (plan.resolutions.some((resolution) =>
+    resolution.state === "pending" && !suppressed.has(resolution.criterionIndex))) {
+    return true;
+  }
+
+  const hasNeedsReview = plan.criteria.some((criterion) => criterion.needs_review === true);
+  if (!hasNeedsReview) return false;
+  return !(
+    options.auditedLocalCanary === true
+    && plan.origin === "audited"
+    && (plan.auditState === "ai_audit_concur" || plan.auditState === "deterministic_contract")
+    && plan.reviewRisk?.disposition === "conditional"
+    && plan.reviewRisk.blockers.length === 0
+  );
+}
+
 interface PromotionShadowState {
   eligibility: string;
   tier: string;
