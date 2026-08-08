@@ -28,6 +28,7 @@ import { extractFieldOptions } from "@/lib/documents/fieldOptions";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
 import type { DraftFieldAnswer } from "@/lib/server/documents/fieldAnswers";
 import type { FieldLessonTip } from "@/lib/server/knowledge/lessonContext";
+import { AiEnhancementStatus } from "./AiEnhancementStatus";
 import { fieldDescriptionLine, fieldPositionCaption, workspaceFieldState } from "./workspacePresentation";
 
 export function FieldCard({
@@ -86,6 +87,7 @@ export function FieldCard({
   const [draftValue, setDraftValue] = useState(value);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHintId = `${field.fieldId}-input-hint`;
+  const suggestionStatusId = `${field.fieldId}-suggestion-status`;
   const normalizedDraftValue = draftValue.trim();
   const canSuggest = isSuggestable && (answer?.status === undefined || answer.status === "suggested");
   const canUndo = answer?.suggestedValue !== undefined && answer.status !== "suggested";
@@ -117,7 +119,7 @@ export function FieldCard({
   const primaryAction = (() => {
     if (editing) {
       return (
-        <Button type="button" className="w-full" onClick={commitEdit} disabled={isPending || !normalizedDraftValue}>
+        <Button type="button" className="w-full" onClick={commitEdit} disabled={isPending || isSuggesting || !normalizedDraftValue}>
           {isPending ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Check data-icon="inline-start" aria-hidden />}
           입력 완료
         </Button>
@@ -181,7 +183,7 @@ export function FieldCard({
 
         {/* ⑷ 값 박스(A) 또는 변형 B(직접 입력) */}
         {editing ? (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2" aria-busy={isSuggesting}>
             {isChoiceField ? (
               <div className="grid gap-2" role="radiogroup" aria-label={`${field.label} 선택`}>
                 {options.map((option) => {
@@ -195,7 +197,7 @@ export function FieldCard({
                       role="radio"
                       aria-checked={selected}
                       onClick={() => setDraftValue(option)}
-                      disabled={isPending}
+                      disabled={isPending || isSuggesting}
                     >
                       {selected ? <Check data-icon="inline-start" aria-hidden /> : null}
                       {option}
@@ -209,7 +211,9 @@ export function FieldCard({
                 value={draftValue}
                 onChange={(event) => setDraftValue(event.currentTarget.value)}
                 aria-label={`${field.label} 값`}
-                aria-describedby={inputHintId}
+                aria-describedby={isSuggesting ? `${inputHintId} ${suggestionStatusId}` : inputHintId}
+                readOnly={isSuggesting}
+                className={isSuggesting ? "cursor-wait" : undefined}
                 placeholder={
                   /회사소개|기업소개/.test(field.label.replace(/\s+/g, ""))
                     ? "어떤 제품을 누구에게 제공하는지, 차별점과 주요 성과를 메모처럼 적어 주세요."
@@ -223,17 +227,19 @@ export function FieldCard({
                 ? "원본 양식의 선택지 중 하나를 골라 주세요. 입력 완료 전까지 저장되지 않아요."
                 : "메모처럼 짧게 적어도 괜찮아요. 입력한 사실은 유지한 채 공고에 어울리는 문장으로 다듬어드려요."}
             </p>
-            {canSuggest && !isChoiceField ? (
+            {canSuggest && !isChoiceField && isSuggesting ? (
+              <AiEnhancementStatus id={suggestionStatusId} />
+            ) : canSuggest && !isChoiceField ? (
               <Button
                 type="button"
                 size="sm"
                 variant="link"
                 className="self-start px-0"
                 onClick={() => onRequestSuggestion(normalizedDraftValue)}
-                disabled={isPending || isSuggesting || !normalizedDraftValue}
+                disabled={isPending || !normalizedDraftValue}
               >
-                {isSuggesting ? <Loader2 className="animate-spin" data-icon="inline-start" aria-hidden /> : <Sparkles data-icon="inline-start" aria-hidden />}
-                {isSuggesting ? "공고에 맞게 다듬는 중" : "입력한 내용 보강하기"}
+                <Sparkles data-icon="inline-start" aria-hidden />
+                입력한 내용 보강하기
               </Button>
             ) : null}
           </div>
@@ -265,11 +271,11 @@ export function FieldCard({
           {editing ? (
             <>
               {canUndo ? (
-                <Button type="button" size="sm" variant="link" onClick={onUndo} disabled={isPending}>
+                <Button type="button" size="sm" variant="link" onClick={onUndo} disabled={isPending || isSuggesting}>
                   제안 값으로 되돌리기
                 </Button>
               ) : null}
-              <Button type="button" size="sm" variant="link" onClick={() => setEditing(false)} disabled={isPending}>
+              <Button type="button" size="sm" variant="link" onClick={() => setEditing(false)} disabled={isPending || isSuggesting}>
                 입력 취소
               </Button>
             </>

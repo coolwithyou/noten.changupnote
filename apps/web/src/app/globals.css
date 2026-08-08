@@ -1135,3 +1135,174 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* 지원서 원문 보강 대기 상태: transform/opacity만 움직여 LLM 응답 중에도 부드럽게 유지한다. */
+.ai-enhancement-status {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  min-height: 5rem;
+  align-items: center;
+  gap: 0.875rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--primary) 24%, var(--border));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--primary) 6%, var(--card));
+  padding: 0.875rem 1rem;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, white 64%, transparent);
+}
+
+.ai-enhancement-status__scan {
+  position: absolute;
+  z-index: -1;
+  inset: 0 auto 0 0;
+  width: 42%;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    color-mix(in srgb, var(--primary) 8%, transparent) 28%,
+    color-mix(in srgb, var(--primary) 18%, transparent) 52%,
+    transparent 100%
+  );
+  opacity: 0.7;
+  transform: translate3d(-140%, 0, 0) skewX(-14deg);
+  animation: ai-enhancement-scan 960ms linear infinite;
+  will-change: transform;
+}
+
+.ai-enhancement-status__icon-frame {
+  position: relative;
+  display: grid;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 0.875rem;
+  background: color-mix(in srgb, var(--primary) 11%, var(--card));
+  color: var(--primary);
+}
+
+.ai-enhancement-status__icon-glow {
+  position: absolute;
+  inset: 0.375rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 32%, transparent);
+  opacity: 0.35;
+  transform: scale(0.92);
+  animation: ai-enhancement-glow 720ms cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+  will-change: transform, opacity;
+}
+
+.ai-enhancement-status__icon {
+  position: relative;
+  width: 1.125rem;
+  height: 1.125rem;
+  transform: rotate(-5deg) scale(0.96);
+  animation: ai-enhancement-sparkle 720ms cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+  will-change: transform, opacity;
+}
+
+.ai-enhancement-status__copy {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.ai-enhancement-status__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  color: var(--primary);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.ai-enhancement-status__dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1875rem;
+}
+
+.ai-enhancement-status__dots span {
+  width: 0.1875rem;
+  height: 0.1875rem;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.28;
+  transform: translate3d(0, 18%, 0);
+  animation: ai-enhancement-dot 720ms cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+  will-change: transform, opacity;
+}
+
+.ai-enhancement-status__dots span:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.ai-enhancement-status__dots span:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.ai-enhancement-status__title {
+  margin-top: 0.125rem;
+  color: var(--foreground);
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.45;
+}
+
+.ai-enhancement-status__description {
+  margin-top: 0.125rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+@keyframes ai-enhancement-scan {
+  to {
+    transform: translate3d(340%, 0, 0) skewX(-14deg);
+  }
+}
+
+@keyframes ai-enhancement-glow {
+  to {
+    opacity: 0.72;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes ai-enhancement-sparkle {
+  to {
+    opacity: 0.82;
+    transform: rotate(5deg) scale(1.04);
+  }
+}
+
+@keyframes ai-enhancement-dot {
+  to {
+    opacity: 0.9;
+    transform: translate3d(0, -18%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-enhancement-status__scan {
+    animation: none;
+    opacity: 0.12;
+    transform: translate3d(85%, 0, 0) skewX(-14deg);
+  }
+
+  .ai-enhancement-status__icon-glow,
+  .ai-enhancement-status__icon,
+  .ai-enhancement-status__dots span {
+    transform: none;
+    animation: ai-enhancement-fade 1.8s cubic-bezier(0.77, 0, 0.175, 1) infinite alternate;
+  }
+}
+
+@keyframes ai-enhancement-fade {
+  to {
+    opacity: 0.58;
+  }
+}

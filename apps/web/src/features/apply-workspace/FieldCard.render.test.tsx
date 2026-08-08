@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ConnectedDocumentField } from "@/lib/server/documents/documentFieldLink";
+import { AiEnhancementStatus } from "./AiEnhancementStatus";
 import { FieldCard } from "./FieldCard";
 
 (globalThis as typeof globalThis & { React: typeof React }).React = React;
@@ -104,5 +105,14 @@ assert.ok(suggestionHtml.includes("보강 제안"));
 assert.ok(suggestionHtml.includes(suggestedValue));
 assert.ok(suggestionHtml.includes("이 제안 사용하기"));
 assert.ok(suggestionHtml.includes("원문 유지"));
+
+const workingHtml = renderToStaticMarkup(
+  <AiEnhancementStatus id="field-company-introduction-suggestion-status" />,
+);
+assert.ok(workingHtml.includes('role="status"'));
+assert.ok(workingHtml.includes('aria-live="polite"'));
+assert.ok(workingHtml.includes("AI 보강 중"));
+assert.ok(workingHtml.includes("입력한 사실을 읽고 문장을 다듬고 있어요"));
+assert.ok(workingHtml.includes("공고 기준에 맞춰 구조와 표현을 정리하는 중입니다."));
 
 console.log("FieldCard input-enhancement render tests passed");
