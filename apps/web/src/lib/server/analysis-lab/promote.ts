@@ -44,6 +44,10 @@ import {
   type CriterionResolutionState,
 } from "./criterion-resolution";
 import { convertSelectedLabCriteria, type ShadowConversionReport } from "./shadow-convert";
+import {
+  assessPromotionReviewRisk,
+  type PromotionReviewRisk,
+} from "./promotion-review-risk";
 
 // ---- 대상 선정 (사람 우선 dedupe — confirmations-cli 규칙의 순수화) -------------------
 
@@ -328,6 +332,8 @@ export interface GrantPromotionPlan {
    * 질문이 되지 못한 수(변환 탈락 등) — 무은폐 원칙.
    */
   droppedQuestionCandidates: number;
+  /** 신규 plan의 오류 영향도 판정. 구 release manifest 호환을 위해 optional. */
+  reviewRisk?: PromotionReviewRisk;
 }
 
 /** 산출 criterion id(…:llm-<n>)에서 변환 입력 row 순번을 역산한다 — llm-criteria 의 id 계약. */
@@ -361,7 +367,15 @@ export function planGrantPromotion(input: {
     audit: input.audit,
     overlay: input.overlay,
   });
-  const selected = resolutions.filter((item) => publishesCriterion(item.state));
+  const reviewRisk = input.review
+    ? assessPromotionReviewRisk({ run: mergedRun, review: input.review })
+    : undefined;
+  const suppressedCriterionIndexes = new Set(
+    reviewRisk?.suppressedCriterionIndexes ?? [],
+  );
+  const selected = resolutions.filter((item) =>
+    publishesCriterion(item.state)
+    && !suppressedCriterionIndexes.has(item.criterionIndex));
   const scopeRejected = selected.filter((item) => {
     const criterion = mergedRun.criteria[item.criterionIndex];
     return criterion
@@ -484,6 +498,7 @@ export function planGrantPromotion(input: {
     conversion: conversion.report,
     questions,
     droppedQuestionCandidates,
+    ...(reviewRisk ? { reviewRisk } : {}),
   };
 }
 

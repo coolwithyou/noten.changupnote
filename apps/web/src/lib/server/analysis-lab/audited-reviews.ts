@@ -141,7 +141,12 @@ export function mergeAuditedReview(
   const axisReviews: LabAxisReview[] = aiReview.axisReviews.map((ai) => {
     const audited = axisAudits.get(ai.dimension);
     if (!audited || audited.humanVerdict === null) {
-      return { dimension: ai.dimension, verdict: ai.verdict, note: ai.note };
+      return {
+        dimension: ai.dimension,
+        verdict: ai.verdict,
+        note: ai.note,
+        ...(ai.matchImpact ? { matchImpact: ai.matchImpact } : {}),
+      };
     }
     return {
       dimension: ai.dimension,

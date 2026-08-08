@@ -225,12 +225,23 @@ export interface LabCriterionReview {
 
 export type LabEmptyAxisVerdict = "confirmed_absent" | "missed_condition";
 
+/**
+ * 누락된 조건이 제품 판정에 미치는 영향. 누락 조건은 아직 criterion이 없어 kind로
+ * 역산할 수 없으므로 검수·독립 감사 양쪽이 이 값을 명시해야 한다.
+ *
+ * - eligibility: 신청 가능/불가를 바꿀 수 있음 — 구조화 복구 전 승격 차단
+ * - ranking: 우대·가점·평가순위만 바꿈 — 해당 신호를 미반영한 조건부 승격 가능
+ */
+export type LabMissedConditionImpact = "eligibility" | "ranking";
+
 /** 제안이 없는 축에 대한 확인 — 재현율(누락) 골든 신호. */
 export interface LabAxisReview {
   dimension: CriterionDimension;
   verdict: LabEmptyAxisVerdict;
   /** missed_condition 이면 누락된 요건을 원문 기준으로 서술. */
   note: string | null;
+  /** 신규 검수는 missed_condition일 때 필수. 구 artifact 호환을 위해 optional. */
+  matchImpact?: LabMissedConditionImpact | null;
 }
 
 export interface LabReview {
@@ -276,16 +287,17 @@ export interface LabReviewResponse {
 
 /**
  * §9 검수 자동화 채택 기록 — 계획 문서 "§9 캘리브레이션 결과 기록"(2026-07-23)의 단일 정의.
- * 판정 모델 claude-fable-5 · 판정 프롬프트 ai-review-v2 가 사전 등록 채택 기준 3종을 충족:
+ * 판정 모델 claude-fable-5 · 최초 판정 프롬프트 ai-review-v2 가 사전 등록 채택 기준 3종을 충족:
  * criterion 일치 24/28 · correct→wrong 오검출 0 · 빈 축 일치 45/46 (개정 카드 1회 소진).
  * 집계 방법론 표기(aggregate)·감사 로더(audited-reviews)·감사 UI 가 이 상수를 공유한다 —
  * 수치·모델을 다른 곳에 하드코딩하지 말 것.
- * promptVersion 은 생성기 상수(ai-review.ts AI_REVIEW_PROMPT_VERSION)와 같아야 한다 —
- * §9 상 재개정 불가이므로 다르면 프로토콜 위반 신호다(로더가 불일치 시 경고 출력).
+ * v6는 기존 판정 어휘를 바꾸지 않고 missed_condition의 매칭 영향도만 추가한 정책 버전이다.
+ * promptVersion 은 생성기 상수(ai-review.ts AI_REVIEW_PROMPT_VERSION)와 같아야 하며,
+ * 다르면 새 영향도 계약을 적용하지 않은 artifact라는 경고를 출력한다.
  */
 export const AI_REVIEW_ADOPTED = {
   model: "claude-fable-5",
-  promptVersion: "ai-review-v2",
+  promptVersion: "ai-review-v6",
   calibration: {
     criterionAgreement: "24/28",
     correctToWrong: 0,
@@ -308,6 +320,8 @@ export interface LabAuditItem {
   /** AI 판정 스냅샷 — criterion 이면 LabCriterionVerdict, 축이면 LabEmptyAxisVerdict 어휘. */
   aiVerdict: string;
   aiNote: string | null;
+  /** AI 검수가 판정한 누락 조건 영향도. axis missed_condition에서만 사용한다. */
+  aiMatchImpact?: LabMissedConditionImpact | null;
   /** 사람 감사 판정 — null 이면 미판정. 동의면 aiVerdict 와 같은 값이 저장된다. */
   humanVerdict: LabCriterionVerdict | LabEmptyAxisVerdict | null;
   /** 사람 판정의 최종 작성자. 구 파일에는 없는 additive provenance. */
@@ -324,6 +338,8 @@ export interface LabAuditItem {
   aiAuditVerdict?: LabCriterionVerdict | LabEmptyAxisVerdict | null;
   /** AI 블라인드 감사 판정 사유 — 비-correct/missed_condition 판정이면 기록된다. */
   aiAuditNote?: string | null;
+  /** 독립 감사의 누락 조건 영향도. 1차와 일치해야 ranking 조건부 승격 근거가 된다. */
+  aiAuditMatchImpact?: LabMissedConditionImpact | null;
 }
 
 /**
@@ -336,12 +352,24 @@ export interface LabAuditItem {
 export function isAiAuditConcur(item: {
   aiVerdict: string;
   aiAuditVerdict?: string | null | undefined;
+  aiMatchImpact?: LabMissedConditionImpact | null | undefined;
+  aiAuditMatchImpact?: LabMissedConditionImpact | null | undefined;
 }): boolean {
-  return (
+  const verdictConcur = (
     item.aiAuditVerdict !== null &&
     item.aiAuditVerdict !== undefined &&
     item.aiAuditVerdict === item.aiVerdict &&
     item.aiAuditVerdict !== "unsure"
+  );
+  if (!verdictConcur) return false;
+  if (item.aiVerdict !== "missed_condition") return true;
+  // 구 artifact의 두 필드가 모두 없으면 기존 완료 판정은 보존하되, 승격 영향도는
+  // 별도 risk 판정에서 unknown(차단)으로 취급한다.
+  if (item.aiMatchImpact === undefined && item.aiAuditMatchImpact === undefined) return true;
+  return (
+    item.aiMatchImpact !== null
+    && item.aiMatchImpact !== undefined
+    && item.aiAuditMatchImpact === item.aiMatchImpact
   );
 }
 

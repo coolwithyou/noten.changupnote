@@ -275,6 +275,36 @@ const baseItems: LabAuditItem[] = [
     /감사 판정 누락/,
     "커버리지 누락은 정직하게 실패",
   );
+
+  const impactComparison = compareAiAuditVerdicts(
+    [{
+      ...baseItems[2]!,
+      aiMatchImpact: "ranking",
+    }],
+    [],
+    [{
+      dimension: "revenue",
+      verdict: "missed_condition",
+      matchImpact: "ranking",
+      note: "평가 우대 조건",
+    }],
+  );
+  assert.equal(impactComparison.concurCount, 1);
+  assert.equal(impactComparison.judgments[0]?.aiAuditMatchImpact, "ranking");
+  const impactMismatch = compareAiAuditVerdicts(
+    [{
+      ...baseItems[2]!,
+      aiMatchImpact: "eligibility",
+    }],
+    [],
+    [{
+      dimension: "revenue",
+      verdict: "missed_condition",
+      matchImpact: "ranking",
+      note: "평가 우대 조건",
+    }],
+  );
+  assert.equal(impactMismatch.disagreeCount, 1, "같은 누락 verdict라도 영향도가 다르면 불일치다");
   console.log("✅ selectPendingAuditItems·compareAiAuditVerdicts — 대상 선정·비교 집계");
 }
 
@@ -286,7 +316,12 @@ const baseItems: LabAuditItem[] = [
         { criterion_index: 3, verdict: "correct" },
         { criterion_index: 1, verdict: "needs_edit", note: "수정 사유" },
       ],
-      axis_reviews: [{ dimension: "revenue", verdict: "missed_condition", note: "원문 인용" }],
+      axis_reviews: [{
+        dimension: "revenue",
+        verdict: "missed_condition",
+        match_impact: "ranking",
+        note: "원문 인용",
+      }],
     },
     [1, 3],
     ["revenue"],
@@ -297,6 +332,20 @@ const baseItems: LabAuditItem[] = [
     good.criterionReviews.map((review) => review.criterionIndex),
     [1, 3],
     "인덱스 정렬",
+  );
+  assert.equal(good.axisReviews[0]?.matchImpact, "ranking");
+
+  assert.equal(
+    validateAiAuditPayload(
+      {
+        criterion_reviews: [{ criterion_index: 1, verdict: "correct" }],
+        axis_reviews: [{ dimension: "revenue", verdict: "missed_condition", note: "원문 인용" }],
+      },
+      [1],
+      ["revenue"],
+    ).ok,
+    false,
+    "누락 조건의 match_impact가 없으면 거부",
   );
 
   assert.equal(
@@ -339,6 +388,21 @@ const baseItems: LabAuditItem[] = [
     "판정 대상 밖 축 거부",
   );
   console.log("✅ validateAiAuditPayload — 대상 부분집합·note·커버리지 강제");
+}
+
+{
+  assert.equal(isAiAuditConcur({
+    aiVerdict: "missed_condition",
+    aiAuditVerdict: "missed_condition",
+    aiMatchImpact: "ranking",
+    aiAuditMatchImpact: "ranking",
+  }), true, "두 모델의 누락 영향도까지 같아야 조건부 근거가 된다");
+  assert.equal(isAiAuditConcur({
+    aiVerdict: "missed_condition",
+    aiAuditVerdict: "missed_condition",
+    aiMatchImpact: "ranking",
+    aiAuditMatchImpact: "eligibility",
+  }), false, "누락 verdict만 같고 영향도가 다르면 자동 합의가 아니다");
 }
 
 console.log("\nai-audit 테스트 전부 통과");

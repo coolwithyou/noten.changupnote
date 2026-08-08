@@ -24,6 +24,7 @@ import {
   type LabAuditItem,
   type LabCriterionVerdict,
   type LabEmptyAxisVerdict,
+  type LabMissedConditionImpact,
   type LabRun,
 } from "@/features/dev/analysis-lab/contract";
 import {
@@ -69,7 +70,12 @@ export interface AuditSourceAiReview {
   promptVersion: string;
   createdAt: string;
   criterionReviews: Array<{ criterionIndex: number; verdict: LabCriterionVerdict; note: string | null }>;
-  axisReviews: Array<{ dimension: CriterionDimension; verdict: LabEmptyAxisVerdict; note: string | null }>;
+  axisReviews: Array<{
+    dimension: CriterionDimension;
+    verdict: LabEmptyAxisVerdict;
+    note: string | null;
+    matchImpact?: LabMissedConditionImpact | null;
+  }>;
 }
 
 export interface CollectedAiReview {
@@ -196,6 +202,7 @@ export function buildAuditItemsForRun(pool: AiReviewForAudit[], runId: string): 
       reason: target.kind,
       aiVerdict: target.aiVerdict,
       aiNote: target.aiNote,
+      ...(target.aiMatchImpact ? { aiMatchImpact: target.aiMatchImpact } : {}),
       humanVerdict: null,
       note: null,
     }));
@@ -434,6 +441,7 @@ export interface LabAuditAiJudgment {
   dimension?: CriterionDimension | undefined;
   aiAuditVerdict: LabCriterionVerdict | LabEmptyAxisVerdict;
   aiAuditNote: string | null;
+  aiAuditMatchImpact?: LabMissedConditionImpact | null;
 }
 
 export type ApplyAiAuditOutcome =
@@ -493,6 +501,9 @@ export function applyAiAuditJudgments(
       judgment.aiAuditNote !== null && judgment.aiAuditNote.trim().length > 0
         ? judgment.aiAuditNote.trim()
         : null;
+    if (target.kind === "axis") {
+      target.aiAuditMatchImpact = judgment.aiAuditMatchImpact ?? null;
+    }
     applied += 1;
   }
 

@@ -261,23 +261,62 @@ export interface PromotionAggregateVerdictCounts {
   unsure: number;
 }
 
+export interface PromotionAggregateEffectiveCounts extends PromotionAggregateVerdictCounts {
+  missed: number;
+}
+
+/**
+ * 조건부 local-lab plan에서 이미 매칭 계산에서 억제한 ranking-only 오류를 정확성·누락
+ * 게이트의 실패로 다시 세지 않는다. 원래 totals는 manifest에 그대로 보존하고, 이 함수의
+ * effective 값만 게이트 계산에 사용한다.
+ */
+export function promotionAggregateEffectiveCounts(
+  plans: readonly Pick<PromotionReleasePlanItem, "promotionPlan">[],
+  counts: PromotionAggregateEffectiveCounts,
+): PromotionAggregateEffectiveCounts {
+  const deferred = plans.reduce((total, item) => {
+    const risk = item.promotionPlan.reviewRisk;
+    if (!risk || risk.disposition !== "conditional") return total;
+    return {
+      needsEdit: total.needsEdit + risk.suppressedVerdicts.needsEdit,
+      wrong: total.wrong + risk.suppressedVerdicts.wrong,
+      unsure: total.unsure + risk.suppressedVerdicts.unsure,
+      missed: total.missed + risk.deferredMissedConditions,
+    };
+  }, { needsEdit: 0, wrong: 0, unsure: 0, missed: 0 });
+  return {
+    correct: counts.correct,
+    needsEdit: Math.max(0, counts.needsEdit - deferred.needsEdit),
+    wrong: Math.max(0, counts.wrong - deferred.wrong),
+    unsure: Math.max(0, counts.unsure - deferred.unsure),
+    missed: Math.max(0, counts.missed - deferred.missed),
+  };
+}
+
 /**
  * 일반 사람 검수 release의 unsure는 기존처럼 미확정 판정으로 정밀도 분모에 남긴다.
  * production deep-analysis release에서는 자동 검수 결정이 봉인한 unsure가 모두
  * 사용자 확인 질문으로 이관된 deferral이므로 확정 판정의 정밀도/오류율 분모에서 뺀다.
  */
 export function promotionAggregateDecidedCount(
-  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
+  plans: readonly Pick<
+    PromotionReleasePlanItem,
+    "deepAnalysisReadiness" | "promotionPlan"
+  >[],
   verdicts: PromotionAggregateVerdictCounts,
 ): number {
+  const effective = promotionAggregateEffectiveCounts(plans, {
+    ...verdicts,
+    missed: 0,
+  });
   const deferredUnsure = isPromotableDeepAnalysisRelease(plans)
-    ? verdicts.unsure
+    ? effective.unsure
     : 0;
   return (
-    verdicts.correct
-    + verdicts.needsEdit
-    + verdicts.wrong
-    + verdicts.unsure
+    effective.correct
+    + effective.needsEdit
+    + effective.wrong
+    + effective.unsure
     - deferredUnsure
   );
 }

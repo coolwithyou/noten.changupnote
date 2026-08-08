@@ -23,6 +23,7 @@ import type {
   LabAuditItem,
   LabCriterionVerdict,
   LabEmptyAxisVerdict,
+  LabMissedConditionImpact,
   LabRun,
   LabUsage,
 } from "@/features/dev/analysis-lab/contract";
@@ -45,7 +46,7 @@ import type { LabAssembledInput } from "./input";
  * ai-audit-v1 (2026-07-23): §9 완화 개정 최초판 — ai-review-v2 시스템 프롬프트(동결 가이드
  * rubric + 판정 지시)를 그대로 공유하고, 감사 모드 지시(판정 대상 한정)만 덧붙인다.
  */
-export const AI_AUDIT_PROMPT_VERSION = "ai-audit-v4";
+export const AI_AUDIT_PROMPT_VERSION = "ai-audit-v5";
 export const AI_AUDIT_TOOL_NAME = "emit_deep_analysis_audit";
 export const AI_AUDIT_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -154,8 +155,13 @@ export function buildAiAuditToolSchema(
               dimension: targetAxes.length > 0 ? { type: "string", enum: [...targetAxes] } : { type: "string" },
               verdict: { type: "string", enum: [...AXIS_VERDICTS] },
               note: { type: "string", description: "missed_condition 이면 필수 — 누락 요건의 원문 문구 인용" },
+              match_impact: {
+                type: "string",
+                enum: ["eligibility", "ranking", "not_applicable"],
+                description: "missed_condition은 eligibility 또는 ranking, confirmed_absent는 not_applicable",
+              },
             },
-            required: ["dimension", "verdict"],
+            required: ["dimension", "verdict", "match_impact"],
           },
         },
       },
@@ -225,7 +231,20 @@ export function validateAiAuditPayload(
     if (verdict === "missed_condition" && !note) {
       return { ok: false, reason: `축 ${dimension}: missed_condition 판정에 원문 인용 note 없음` };
     }
-    axisReviews.push({ dimension: dimension as CriterionDimension, verdict: verdict as LabEmptyAxisVerdict, note });
+    const rawImpact = row.match_impact;
+    const validImpact = rawImpact === "eligibility" || rawImpact === "ranking";
+    if (verdict === "missed_condition" && !validImpact) {
+      return { ok: false, reason: `축 ${dimension}: missed_condition 판정에 match_impact 없음/어휘 밖` };
+    }
+    if (verdict === "confirmed_absent" && rawImpact !== "not_applicable") {
+      return { ok: false, reason: `축 ${dimension}: confirmed_absent의 match_impact는 not_applicable이어야 함` };
+    }
+    axisReviews.push({
+      dimension: dimension as CriterionDimension,
+      verdict: verdict as LabEmptyAxisVerdict,
+      note,
+      ...(validImpact ? { matchImpact: rawImpact as LabMissedConditionImpact } : {}),
+    });
   }
   if (axisReviews.length !== targetAxes.length) {
     return { ok: false, reason: `빈 축 커버리지 미달: ${axisReviews.length}/${targetAxes.length}` };
@@ -277,16 +296,29 @@ export function compareAiAuditVerdicts(
       // 커버리지 검증(validateAiAuditPayload)을 통과했으면 도달 불가 — 정직하게 실패한다.
       throw new Error(`감사 판정 누락: ${item.kind} ${item.criterionIndex ?? item.dimension ?? "?"}`);
     }
+    const auditMatchImpact = item.kind === "axis"
+      ? (review as AiAxisReview).matchImpact
+      : undefined;
     judgments.push({
       kind: item.kind,
       ...(item.criterionIndex !== undefined ? { criterionIndex: item.criterionIndex } : {}),
       ...(item.dimension !== undefined ? { dimension: item.dimension } : {}),
       aiAuditVerdict: review.verdict,
       aiAuditNote: review.note,
+      ...(auditMatchImpact ? { aiAuditMatchImpact: auditMatchImpact } : {}),
     });
-    if (review.verdict === "unsure") unsureCount += 1;
-    else if (review.verdict === item.aiVerdict) concurCount += 1;
-    else disagreeCount += 1;
+    if (review.verdict === "unsure") {
+      unsureCount += 1;
+    } else {
+      const impactConcur = review.verdict !== "missed_condition"
+        || (
+          item.aiMatchImpact !== null
+          && item.aiMatchImpact !== undefined
+          && auditMatchImpact === item.aiMatchImpact
+        );
+      if (review.verdict === item.aiVerdict && impactConcur) concurCount += 1;
+      else disagreeCount += 1;
+    }
   }
   return { judgments, concurCount, disagreeCount, unsureCount };
 }

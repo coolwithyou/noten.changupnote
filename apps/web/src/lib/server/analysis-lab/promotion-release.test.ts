@@ -7,6 +7,7 @@ import {
   isPromotionAggregateGateBlocking,
   isUnexplainedPromotionShadowTransition,
   promotionAggregateDecidedCount,
+  promotionAggregateEffectiveCounts,
   releasePlanItemHasUnsafePendingCriteria,
   mergePromotionApprovalGateEvidence,
   planSha256,
@@ -274,6 +275,36 @@ function manifest() {
     }),
     3,
     "조건부 deep release의 사용자 확인 deferral은 확정 정밀도 분모에서 빠져야 한다",
+  );
+
+  const rankingConditionalPlan: GrantPromotionPlan = {
+    ...plan,
+    reviewRisk: {
+      schema: "promotion-review-risk-v1",
+      disposition: "conditional",
+      blockers: [],
+      deferrals: [{
+        code: "ranking_criterion_suppressed",
+        criterionIndex: 2,
+        verdict: "needs_edit",
+        detail: "우대 criterion을 발행에서 제외",
+      }, {
+        code: "ranking_condition_unmodeled",
+        dimension: "ip",
+        detail: "평가 우대만 미반영",
+      }],
+      suppressedCriterionIndexes: [2],
+      suppressedVerdicts: { needsEdit: 1, wrong: 0, unsure: 0 },
+      deferredMissedConditions: 1,
+    },
+  };
+  assert.deepEqual(
+    promotionAggregateEffectiveCounts(
+      [{ ...planItem, promotionPlan: rankingConditionalPlan }],
+      { correct: 9, needsEdit: 1, wrong: 0, unsure: 0, missed: 1 },
+    ),
+    { correct: 9, needsEdit: 0, wrong: 0, unsure: 0, missed: 0 },
+    "실제로 억제한 ranking-only 오류만 gate 계산에서 제외하고 원본 totals는 보존한다",
   );
 }
 

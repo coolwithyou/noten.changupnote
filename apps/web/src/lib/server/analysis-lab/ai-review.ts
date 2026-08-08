@@ -34,6 +34,7 @@ import { CRITERION_DIMENSIONS, type CriterionDimension } from "@cunote/contracts
 import type {
   LabCriterionVerdict,
   LabEmptyAxisVerdict,
+  LabMissedConditionImpact,
   LabRun,
   LabUsage,
 } from "@/features/dev/analysis-lab/contract";
@@ -60,7 +61,7 @@ export const AI_REVIEW_SCHEMA = "lab-ai-review-v1";
  *   ③ 다른 축 criterion 으로 이미 포착된 조건은 빈 축 missed_condition 아님
  * v1 산출물은 <파일명>.v1 로 rename 보존. 재개정은 §9 상 불가(1회 한정 소진).
  */
-export const AI_REVIEW_PROMPT_VERSION = "ai-review-v5";
+export const AI_REVIEW_PROMPT_VERSION = "ai-review-v6";
 export const AI_REVIEW_TOOL_NAME = "emit_deep_analysis_review";
 export const AI_REVIEW_DEFAULT_MODEL = "claude-sonnet-5";
 
@@ -233,6 +234,9 @@ export function buildSystemPrompt(rubric: string): string {
     "- 빈 축 판정: confirmed_absent(그 축의 자격요건이 원문 전체에 없음을 확인) /",
     "  missed_condition(원문에 그 축의 요건이 실재하는데 추출이 못 잡음 — 누락).",
     "- missed_condition 이면 note 에 누락된 요건을 원문 문구 인용으로 서술한다(필수).",
+    "- missed_condition 이면 match_impact도 필수다. 신청 가능·불가를 바꾸는 필수자격·배제는",
+    "  eligibility, 우대·가점·평가순위만 바꾸는 조건은 ranking으로 판정한다. 제출서류나",
+    "  절차 문구만으로 영향도를 추측하지 말고, 불명확하면 안전하게 eligibility로 둔다.",
     "- [적대적 검증] 각 criterion 에 대해 \"이 criterion 을 이대로 DB에 넣고 매칭 판정에 썼을 때,",
     "  원문과 다른 판정 결론이 나오는 기업이 존재하는지\" 능동적으로 반증을 시도하라 —",
     "  반례가 될 기업을 구체적으로 상정하고 value·operator·kind 를 원문과 대조하라.",
@@ -343,8 +347,13 @@ export function buildAiReviewToolSchema(criteriaCount: number, emptyAxes: Criter
               dimension: { type: "string", enum: [...emptyAxes] },
               verdict: { type: "string", enum: [...AXIS_VERDICTS] },
               note: { type: "string", description: "missed_condition 이면 필수 — 누락 요건의 원문 문구 인용" },
+              match_impact: {
+                type: "string",
+                enum: ["eligibility", "ranking", "not_applicable"],
+                description: "missed_condition은 eligibility 또는 ranking, confirmed_absent는 not_applicable",
+              },
             },
-            required: ["dimension", "verdict"],
+            required: ["dimension", "verdict", "match_impact"],
           },
         },
       },
@@ -414,7 +423,20 @@ export function validateAiReviewPayload(
     if (verdict === "missed_condition" && !note) {
       return { ok: false, reason: `축 ${dimension}: missed_condition 판정에 원문 인용 note 없음` };
     }
-    axisReviews.push({ dimension: dimension as CriterionDimension, verdict: verdict as LabEmptyAxisVerdict, note });
+    const rawImpact = row.match_impact;
+    const validImpact = rawImpact === "eligibility" || rawImpact === "ranking";
+    if (verdict === "missed_condition" && !validImpact) {
+      return { ok: false, reason: `축 ${dimension}: missed_condition 판정에 match_impact 없음/어휘 밖` };
+    }
+    if (verdict === "confirmed_absent" && rawImpact !== "not_applicable") {
+      return { ok: false, reason: `축 ${dimension}: confirmed_absent의 match_impact는 not_applicable이어야 함` };
+    }
+    axisReviews.push({
+      dimension: dimension as CriterionDimension,
+      verdict: verdict as LabEmptyAxisVerdict,
+      note,
+      ...(validImpact ? { matchImpact: rawImpact as LabMissedConditionImpact } : {}),
+    });
   }
   if (axisReviews.length !== emptyAxes.length) {
     return { ok: false, reason: `빈 축 커버리지 미달: ${axisReviews.length}/${emptyAxes.length}` };

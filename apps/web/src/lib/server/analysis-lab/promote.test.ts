@@ -30,6 +30,7 @@ import {
   type GrantPromotionPlan,
   type PromotionGrantWriteResult,
 } from "./promote";
+import { assessPromotionReviewRisk } from "./promotion-review-risk";
 
 // ---- 픽스처 (shadow-convert.test / confirmations.test 관행) ---------------------------
 
@@ -118,6 +119,94 @@ function fixtureSidecar(
     items,
     ...overrides,
   };
+}
+
+// ---- 영향도별 승격 정책 — 실제 실패형 2건을 구조적으로 고정 -----------------------
+
+{
+  const rankingMissRun = fixtureRun([
+    criterion({
+      dimension: "industry",
+      kind: "required",
+      operator: "in",
+      value: { codes: ["C"] },
+      sourceSpan: "제조업 중소기업",
+      spanVerified: true,
+    }),
+  ]);
+  const rankingMissReview = fixtureReview(
+    [{ criterionIndex: 0, verdict: "correct", note: null }],
+    {
+      axisReviews: [{
+        dimension: "ip",
+        verdict: "missed_condition",
+        matchImpact: "ranking",
+        note: "해외인증·지식재산 보유 기업은 평가 우대",
+      }],
+    },
+  );
+  const risk = assessPromotionReviewRisk({ run: rankingMissRun, review: rankingMissReview });
+  assert.equal(risk.disposition, "conditional", "우대·가점 누락만 있으면 전체 공고를 차단하지 않는다");
+  assert.equal(risk.blockers.length, 0);
+  assert.equal(risk.deferredMissedConditions, 1);
+  const plan = planGrantPromotion({
+    run: rankingMissRun,
+    review: rankingMissReview,
+    origin: "audited",
+    sidecar: null,
+  });
+  assert.equal(plan.reviewRisk?.disposition, "conditional");
+  assert.equal(plan.criteria.length, 1, "확정된 필수자격은 그대로 발행한다");
+}
+
+{
+  const eligibilityMissRun = fixtureRun([
+    criterion({
+      dimension: "prior_award",
+      kind: "preferred",
+      operator: "not_exists",
+      value: { scope: "self", self_kind: "same_project", channel: "general" },
+      sourceSpan: "기 수혜 이력이 없는 기업 우대",
+      spanVerified: true,
+    }),
+  ]);
+  const eligibilityMissReview = fixtureReview(
+    [{ criterionIndex: 0, verdict: "needs_edit", note: "우대 범위 수정 필요" }],
+    {
+      axisReviews: [{
+        dimension: "tax_compliance",
+        verdict: "missed_condition",
+        matchImpact: "eligibility",
+        note: "국세·지방세 체납 기업은 신청 불가",
+      }],
+    },
+  );
+  const risk = assessPromotionReviewRisk({ run: eligibilityMissRun, review: eligibilityMissReview });
+  assert.equal(risk.disposition, "blocked", "신청자격 누락은 우대조건 억제로 상쇄할 수 없다");
+  assert.deepEqual(risk.suppressedCriterionIndexes, [0]);
+  assert.deepEqual(risk.suppressedVerdicts, { needsEdit: 1, wrong: 0, unsure: 0 });
+  assert.ok(risk.blockers.some((item) => item.code === "missed_eligibility_condition"));
+  const plan = planGrantPromotion({
+    run: eligibilityMissRun,
+    review: eligibilityMissReview,
+    origin: "audited",
+    sidecar: null,
+  });
+  assert.equal(plan.criteria.length, 0, "오분류된 우대조건은 매칭 점수에서 제거한다");
+  assert.equal(plan.reviewRisk?.disposition, "blocked");
+
+  const unknownImpact = assessPromotionReviewRisk({
+    run: eligibilityMissRun,
+    review: fixtureReview([], {
+      axisReviews: [{
+        dimension: "tax_compliance",
+        verdict: "missed_condition",
+        note: "구 artifact에는 영향도 없음",
+      }],
+    }),
+  });
+  assert.equal(unknownImpact.disposition, "blocked", "영향도 없는 구 누락 판정은 fail-closed한다");
+  assert.equal(unknownImpact.blockers[0]?.code, "missed_condition_impact_unknown");
 }
 
 // ---- ① 대상 dedupe — 사람 우선·grantId 정렬 -------------------------------------------

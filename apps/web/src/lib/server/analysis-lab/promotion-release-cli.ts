@@ -147,6 +147,16 @@ async function prepare(): Promise<number> {
         .join(", ")}`,
     );
   }
+  const reviewBlockedPlans = guarded.publishable.filter(
+    (plan) => plan.reviewRisk?.disposition === "blocked",
+  );
+  if (reviewBlockedPlans.length > 0) {
+    throw new Error(
+      `신청 가능 여부에 영향을 주는 검수 오류가 남아 release를 준비할 수 없습니다: ${reviewBlockedPlans
+        .map((plan) => `${plan.grantId}(${plan.reviewRisk?.blockers.map((item) => item.code).join(",")})`)
+        .join(", ")}`,
+    );
+  }
   const unsafePlans = guarded.publishable.filter((plan) =>
     plan.conversion.dropped > 0
     || plan.droppedQuestionCandidates > 0
@@ -251,7 +261,11 @@ async function prepare(): Promise<number> {
   console.log(`[release] 준비 완료: ${releaseId}`);
   console.log(`[release] manifest: ${manifest.manifestSha256}`);
   console.log(`[release] plan: ${manifest.releasePlanSha256}`);
-  console.log(`[release] 대상 ${manifest.plans.length}건 · canary ${manifest.canaryGrantIds.join(", ")}`);
+  console.log(
+    `[release] 대상 ${manifest.plans.length}건 · 조건부 ${manifest.plans.filter(
+      (item) => item.promotionPlan.reviewRisk?.disposition === "conditional",
+    ).length}건 · canary ${manifest.canaryGrantIds.join(", ")}`,
+  );
   return 0;
 }
 

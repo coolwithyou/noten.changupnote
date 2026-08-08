@@ -11,6 +11,7 @@ import type {
   LabAuditReason,
   LabCriterionVerdict,
   LabEmptyAxisVerdict,
+  LabMissedConditionImpact,
 } from "@/features/dev/analysis-lab/contract";
 import { seededRandom } from "./cohort-file";
 
@@ -26,6 +27,8 @@ export interface AiAxisReview {
   dimension: CriterionDimension;
   verdict: LabEmptyAxisVerdict;
   note: string | null;
+  /** 신규 missed_condition 판정의 제품 영향. 구 artifact는 필드가 없을 수 있다. */
+  matchImpact?: LabMissedConditionImpact | null;
 }
 
 /** verdict 고정 순서 — confusion matrix 행/열 인덱스의 단일 원천. */
@@ -280,6 +283,7 @@ export interface AuditTarget {
   dimension?: CriterionDimension;
   aiVerdict: string;
   aiNote: string | null;
+  aiMatchImpact?: LabMissedConditionImpact | null;
 }
 
 export interface AiReviewForAudit {
@@ -338,6 +342,7 @@ export function selectAuditTargets(
         dimension: item.dimension,
         aiVerdict: item.verdict,
         aiNote: item.note,
+        ...(item.matchImpact ? { aiMatchImpact: item.matchImpact } : {}),
       });
     }
   }

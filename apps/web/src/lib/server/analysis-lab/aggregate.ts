@@ -29,6 +29,7 @@ import { verifyPromotionSourceArtifact } from "./promotion-candidates";
 import {
   isPromotionAggregateGateBlocking,
   promotionAggregateDecidedCount,
+  promotionAggregateEffectiveCounts,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
   type PromotionAggregateGateId,
@@ -98,15 +99,22 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     0,
   );
   const costs = plans.map((item) => item.costUsd).filter((cost): cost is number => cost !== null);
+  const effectiveTotals = promotionAggregateEffectiveCounts(plans, {
+    correct,
+    needsEdit,
+    wrong,
+    unsure,
+    missed,
+  });
   const decided = promotionAggregateDecidedCount(plans, {
     correct,
     needsEdit,
     wrong,
     unsure,
   });
-  const strictPrecision = decided > 0 ? correct / decided : 0;
-  const wrongRate = decided > 0 ? wrong / decided : 0;
-  const missedPerNotice = missed / plans.length;
+  const strictPrecision = decided > 0 ? effectiveTotals.correct / decided : 0;
+  const wrongRate = decided > 0 ? effectiveTotals.wrong / decided : 0;
+  const missedPerNotice = effectiveTotals.missed / plans.length;
   const coverageRatio = currentTotal > 0 ? correct / currentTotal : Number.POSITIVE_INFINITY;
   const costPerNotice = costs.length > 0
     ? costs.reduce((sum, cost) => sum + cost, 0) / costs.length
@@ -177,6 +185,8 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     createdAt: new Date().toISOString(),
     noticeCount: plans.length,
     totals: { correct, needsEdit, wrong, unsure, missed, currentTotal, structured },
+    /** 원본 totals는 감사 증적으로 보존하고 gate 계산에는 발행 억제 이후 수치를 쓴다. */
+    effectiveTotals,
     gates,
     sourceDrift,
     verdict: go

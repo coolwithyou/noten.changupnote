@@ -13,7 +13,7 @@ import {
   type AiReviewForAudit,
   type RunComparisonInput,
 } from "./ai-review-compare";
-import { buildSystemPrompt } from "./ai-review";
+import { buildSystemPrompt, validateAiReviewPayload } from "./ai-review";
 
 {
   const systemPrompt = buildSystemPrompt("검수 기준서");
@@ -28,7 +28,40 @@ import { buildSystemPrompt } from "./ai-review";
     systemPrompt,
     /모집직무·지원직무[\s\S]*신청기업의 업종 자격이 아니다[\s\S]*industry\/text_only.*wrong/,
   );
+  assert.match(systemPrompt, /missed_condition 이면 match_impact도 필수/);
   console.log("✅ AI 검수 프롬프트 — 현재 매처 계약과 exclusion 극성 공유");
+}
+
+{
+  const valid = validateAiReviewPayload({
+    criterion_reviews: [{ criterion_index: 0, verdict: "correct" }],
+    axis_reviews: [{
+      dimension: "ip",
+      verdict: "missed_condition",
+      match_impact: "ranking",
+      note: "특허 보유 기업 평가 우대",
+    }],
+  }, 1, ["ip"]);
+  if (valid.ok === false) throw new Error(valid.reason);
+  assert.equal(valid.ok, true);
+  assert.equal(valid.axisReviews[0]?.matchImpact, "ranking");
+
+  assert.equal(validateAiReviewPayload({
+    criterion_reviews: [{ criterion_index: 0, verdict: "correct" }],
+    axis_reviews: [{
+      dimension: "ip",
+      verdict: "missed_condition",
+      note: "영향도 없는 구 응답",
+    }],
+  }, 1, ["ip"]).ok, false, "누락 영향도 없는 응답은 저장하지 않는다");
+  assert.equal(validateAiReviewPayload({
+    criterion_reviews: [{ criterion_index: 0, verdict: "correct" }],
+    axis_reviews: [{
+      dimension: "ip",
+      verdict: "confirmed_absent",
+      match_impact: "ranking",
+    }],
+  }, 1, ["ip"]).ok, false, "누락 없음 판정에 영향도를 붙인 응답도 거부한다");
 }
 
 function comparisonFixture(): RunComparisonInput[] {

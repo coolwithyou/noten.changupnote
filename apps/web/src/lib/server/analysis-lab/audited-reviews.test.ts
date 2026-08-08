@@ -35,7 +35,12 @@ function auditPoolFixture(): AiReviewForAudit[] {
       ],
       axisReviews: [
         { dimension: "biz_age", verdict: "confirmed_absent", note: null },
-        { dimension: "revenue", verdict: "missed_condition", note: "매출 요건 실재" },
+        {
+          dimension: "revenue",
+          verdict: "missed_condition",
+          matchImpact: "ranking",
+          note: "매출 요건 실재",
+        },
       ],
     },
     {
