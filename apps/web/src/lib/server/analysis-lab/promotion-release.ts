@@ -309,7 +309,7 @@ export function promotionAggregateDecidedCount(
     ...verdicts,
     missed: 0,
   });
-  const deferredUnsure = isPromotableDeepAnalysisRelease(plans)
+  const deferredUnsure = isPromotableAnalysisRelease(plans)
     ? effective.unsure
     : 0;
   return (
@@ -323,24 +323,34 @@ export function promotionAggregateDecidedCount(
 
 /**
  * 사람 검수 실험 release의 6개 게이트는 그대로 유지한다. 다만 독립 감사와 matcher
- * readiness까지 봉인된 production deep-analysis release에서는 정확성·누락·비용과
- * source drift만 발행 차단 조건이다. 상대 coverage와 structured 비율은 코호트
- * 도입 성과 지표라 개별 공고의 문서 특성만으로 안전한 conditional 발행을 막지 않는다.
+ * readiness까지 봉인된 production deep-analysis release와 독립 감사된 단일 local
+ * conditional canary에서는 정확성·누락·비용과 source drift만 발행 차단 조건이다.
+ * 상대 coverage와 structured 비율은 도입 성과 지표라 개별 공고의 문서 특성만으로
+ * 안전한 conditional 발행을 막지 않는다.
  */
 export function isPromotionAggregateGateBlocking(
-  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
+  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness" | "promotionPlan">[],
   gateId: PromotionAggregateGateId,
 ): boolean {
-  if (!isPromotableDeepAnalysisRelease(plans)) return true;
+  if (!isPromotableAnalysisRelease(plans)) return true;
   return gateId !== "coverage_ratio" && gateId !== "structured_ratio";
 }
 
-function isPromotableDeepAnalysisRelease(
-  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness">[],
+function isPromotableAnalysisRelease(
+  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness" | "promotionPlan">[],
 ): boolean {
   return plans.length > 0
-    && plans.every((item) =>
-      isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness));
+    && plans.every((item) => (
+      isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)
+      || isAuditedLocalConditionalPlan(item.promotionPlan)
+    ));
+}
+
+function isAuditedLocalConditionalPlan(plan: GrantPromotionPlan): boolean {
+  return plan.origin === "audited"
+    && (plan.auditState === "ai_audit_concur" || plan.auditState === "deterministic_contract")
+    && plan.reviewRisk?.disposition === "conditional"
+    && plan.reviewRisk.blockers.length === 0;
 }
 
 /**

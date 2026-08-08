@@ -307,6 +307,38 @@ function manifest() {
     { correct: 9, needsEdit: 0, wrong: 0, unsure: 0, missed: 0 },
     "실제로 억제한 ranking-only 오류만 gate 계산에서 제외하고 원본 totals는 보존한다",
   );
+  const auditedLocalItem = {
+    ...planItem,
+    promotionPlan: {
+      ...rankingConditionalPlan,
+      origin: "audited" as const,
+      auditState: "deterministic_contract" as const,
+    },
+  };
+  assert.equal(
+    isPromotionAggregateGateBlocking([auditedLocalItem], "structured_ratio"),
+    false,
+    "독립 감사된 local conditional 카나리의 구조화 비율은 관찰 지표다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([auditedLocalItem], "wrong_rate"),
+    true,
+    "local conditional 카나리도 실제 오류율은 계속 차단한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([{
+      ...auditedLocalItem,
+      promotionPlan: {
+        ...auditedLocalItem.promotionPlan,
+        reviewRisk: {
+          ...auditedLocalItem.promotionPlan.reviewRisk!,
+          disposition: "blocked" as const,
+        },
+      },
+    }], "structured_ratio"),
+    true,
+    "자격 blocker가 있는 local plan은 관찰 지표 예외를 받지 않는다",
+  );
 }
 
 {
