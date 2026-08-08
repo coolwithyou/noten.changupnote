@@ -17,6 +17,7 @@ import {
   mergeAuditedReview,
   type AuditedAiReviewInput,
 } from "./audited-reviews";
+import { assessPromotionReviewRisk } from "./promotion-review-risk";
 import type { LabAudit, LabAuditItem, LabRun } from "@/features/dev/analysis-lab/contract";
 
 // ── 픽스처 — ai-review-compare.test.ts 의 감사 표본 픽스처와 같은 구조 ─────────────
@@ -428,6 +429,117 @@ const aiReviewFixture: AuditedAiReviewInput = {
     "과거 수혜로 오해한 지적이 아니면 같은 criterion도 자동 해소하지 않는다",
   );
   console.log("✅ 결정 규칙 — same_project 과거수혜 오해만 자동 해소·나머지는 대기");
+}
+
+// ── ⑦ preferred 불일치 — 오류 근거가 있는 우대조건만 억제하고 자격은 유지 ──
+{
+  const run: LabRun = {
+    runId: "run-preferred-disagreement",
+    grantId: "00000000-0000-4000-8000-000000000778",
+    source: "bizinfo",
+    sourceId: "PBLN_PREFERRED_DISAGREEMENT",
+    title: "우대조건 불일치 테스트",
+    model: "claude-opus-5",
+    promptVersion: "lab-deep-v9",
+    startedAt: "2026-08-07T00:00:00.000Z",
+    durationMs: 1,
+    inputBlocks: [],
+    inputTotalChars: 1,
+    inputSha256: "1".repeat(64),
+    usage: null,
+    costUsd: null,
+    analysisMarkdown: "",
+    programIntent: null,
+    criteria: [{
+      dimension: "certification",
+      kind: "preferred",
+      operator: "exists",
+      value: { certs: ["수출유망중소기업"] },
+      confidence: 0.9,
+      sourceSpan: "수출유망중소기업 등 해외진출 준비기업 우대",
+      spanVerified: true,
+      note: "예시 대상을 정확히 모두 구조화했는지 검수 필요",
+    }],
+    axisAssessments: [],
+    taxonomyProposals: [],
+    dimensionDiffs: [],
+    error: null,
+  };
+  const review: AuditedAiReviewInput = {
+    grantId: run.grantId,
+    runId: run.runId,
+    model: "claude-fable-5",
+    promptVersion: "ai-review-v7",
+    criterionReviews: [{ criterionIndex: 0, verdict: "correct", note: null }],
+    axisReviews: [],
+  };
+  const audit: LabAudit = {
+    schema: "lab-audit-v1",
+    grantId: run.grantId,
+    runId: run.runId,
+    model: review.model,
+    aiPromptVersion: review.promptVersion,
+    aiAuditModel: "claude-sonnet-5",
+    aiAuditPromptVersion: "ai-audit-v6",
+    auditorEmail: null,
+    createdAt: "2026-08-07T00:01:00.000Z",
+    updatedAt: "2026-08-07T00:01:00.000Z",
+    items: [{
+      kind: "criterion",
+      criterionIndex: 0,
+      reason: "correct_sample",
+      aiVerdict: "correct",
+      aiNote: null,
+      humanVerdict: null,
+      note: null,
+      aiAuditVerdict: "needs_edit",
+      aiAuditNote: "원문의 추가 지정기업이 certs 목록에 누락됐다.",
+    }],
+    overallNote: null,
+  };
+
+  assert.equal(
+    isLabAuditCompleteForRun(run, audit),
+    true,
+    "구체적 오류가 있는 preferred 불일치는 보수적 억제로 종결한다",
+  );
+  const merged = mergeAuditedReview(review, audit, run);
+  assert.equal(merged.review.criterionReviews[0]?.verdict, "needs_edit");
+  assert.deepEqual(merged.provenance.deterministicResolvedCriterionIndexes, [0]);
+  const risk = assessPromotionReviewRisk({ run, review: merged.review });
+  assert.equal(risk.disposition, "conditional", "우대조건 억제는 자격 차단이 아니다");
+  assert.deepEqual(risk.suppressedCriterionIndexes, [0]);
+  assert.equal(risk.blockers.length, 0);
+
+  const hardCriterionRun: LabRun = {
+    ...run,
+    runId: "run-required-disagreement",
+    criteria: [{ ...run.criteria[0]!, kind: "required" }],
+  };
+  assert.equal(
+    isLabAuditCompleteForRun(hardCriterionRun, { ...audit, runId: hardCriterionRun.runId }),
+    false,
+    "같은 불일치라도 required는 자동 해소하지 않는다",
+  );
+  const evidenceMissing = {
+    ...audit,
+    items: [{ ...audit.items[0]!, aiAuditNote: null }],
+  } satisfies LabAudit;
+  assert.equal(
+    isLabAuditCompleteForRun(run, evidenceMissing),
+    false,
+    "비정확 판정에 구체적 note가 없으면 preferred도 자동 해소하지 않는다",
+  );
+  const unsure = {
+    ...audit,
+    items: [{ ...audit.items[0]!, aiAuditVerdict: "unsure" as const }],
+  } satisfies LabAudit;
+  assert.equal(
+    isLabAuditCompleteForRun(run, unsure),
+    false,
+    "unsure는 근거 부족이므로 자동 해소하지 않는다",
+  );
+  console.log("✅ preferred 불일치 — 근거 있는 우대조건만 억제·자격 불변");
 }
 
 console.log("\naudited-reviews 테스트 전부 통과");

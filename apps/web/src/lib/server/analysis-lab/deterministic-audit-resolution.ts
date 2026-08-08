@@ -1,17 +1,18 @@
-// 독립 AI 검수의 불일치를 일반적으로 덮지 않고, 제품 계약으로 참/거짓이 결정되는
-// 극히 좁은 오판만 자동 해소한다. 원문 패턴·criterion 구조·감사 판정을 모두 요구해
-// 새로운 의미를 추론하지 않으며, 정책 버전과 criterion index를 승격 증거에 봉인한다.
+// 독립 AI 검수의 불일치를 자격조건에서 일반적으로 덮지 않는다. 제품 계약으로
+// 참·거짓이 결정되는 극히 좁은 오판과, 자격과 분리된 preferred criterion의
+// 보수적 억제만 자동 종결한다. 정책 버전과 criterion index를 승격 증거에 봉인한다.
 import type {
   LabAuditItem,
   LabCriterion,
+  LabCriterionVerdict,
   LabRun,
 } from "@/features/dev/analysis-lab/contract";
 
 export const LAB_DETERMINISTIC_AUDIT_POLICY_VERSION =
-  "lab-deterministic-audit-v1" as const;
+  "lab-deterministic-audit-v2" as const;
 
 export interface DeterministicAuditResolution {
-  verdict: "correct";
+  verdict: Exclude<LabCriterionVerdict, "unsure">;
   policyVersion: typeof LAB_DETERMINISTIC_AUDIT_POLICY_VERSION;
   note: string;
 }
@@ -22,6 +23,16 @@ export interface DeterministicAuditResolution {
  * 확인했는데 1차 검수만 이를 과거 수혜 배제로 오해한 경우에는 계약 사실로 해소할 수 있다.
  */
 export function resolveDeterministicAuditDisagreement(
+  run: LabRun,
+  item: LabAuditItem,
+): DeterministicAuditResolution | null {
+  const sameProjectResolution = resolveCurrentSameProjectDisagreement(run, item);
+  if (sameProjectResolution) return sameProjectResolution;
+
+  return resolvePreferredCriterionDisagreement(run, item);
+}
+
+function resolveCurrentSameProjectDisagreement(
   run: LabRun,
   item: LabAuditItem,
 ): DeterministicAuditResolution | null {
@@ -44,6 +55,57 @@ export function resolveDeterministicAuditDisagreement(
     note:
       "결정 규칙: prior_award/self/same_project는 과거 수혜 records가 아니라 동일 과제의 현재 동시 참여 self flag를 판정한다.",
   };
+}
+
+/**
+ * preferred는 신청 가능 여부가 아니라 순위만 바꾼다. 두 모델 중 하나라도
+ * needs_edit/wrong이라면 더 낙관적인 correct 판정을 채택하지 않고 해당
+ * 우대조건만 매칭 점수에서 제외한다. unsure는 근거가 없으므로 자동 종결하지 않는다.
+ */
+function resolvePreferredCriterionDisagreement(
+  run: LabRun,
+  item: LabAuditItem,
+): DeterministicAuditResolution | null {
+  if (
+    item.kind !== "criterion"
+    || item.criterionIndex === undefined
+    || item.humanVerdict !== null
+    || !isDecisiveCriterionVerdict(item.aiVerdict)
+    || !isDecisiveCriterionVerdict(item.aiAuditVerdict)
+    || item.aiVerdict === item.aiAuditVerdict
+  ) {
+    return null;
+  }
+  const criterion = run.criteria[item.criterionIndex];
+  if (!criterion || criterion.kind !== "preferred") return null;
+  if (!hasActionablePreferredFinding(item)) return null;
+
+  const verdict = item.aiVerdict === "wrong" || item.aiAuditVerdict === "wrong"
+    ? "wrong"
+    : "needs_edit";
+  return {
+    verdict,
+    policyVersion: LAB_DETERMINISTIC_AUDIT_POLICY_VERSION,
+    note:
+      `보수적 우대조건 규칙: 1차 검수(${item.aiVerdict})와 독립 감사(${item.aiAuditVerdict}) 중 `
+      + `하나가 구체적 오류를 지적해 해당 preferred criterion만 매칭 점수에서 제외한다.`,
+  };
+}
+
+function hasActionablePreferredFinding(item: LabAuditItem): boolean {
+  return (
+    (item.aiVerdict === "needs_edit" || item.aiVerdict === "wrong")
+    && normalize(item.aiNote).length > 0
+  ) || (
+    (item.aiAuditVerdict === "needs_edit" || item.aiAuditVerdict === "wrong")
+    && normalize(item.aiAuditNote).length > 0
+  );
+}
+
+function isDecisiveCriterionVerdict(
+  verdict: LabCriterionVerdict | string | null | undefined,
+): verdict is Exclude<LabCriterionVerdict, "unsure"> {
+  return verdict === "correct" || verdict === "needs_edit" || verdict === "wrong";
 }
 
 function isCurrentSameProjectExclusion(criterion: LabCriterion): boolean {

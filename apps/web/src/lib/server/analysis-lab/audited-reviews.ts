@@ -53,7 +53,7 @@ export interface AuditedReviewProvenance {
   aiConcurCount: number;
   /** AI 감사 기록 중 비일치(불일치·unsure) 항목 수 — 사람 판정이 필요한(했던) 갈래. */
   aiDisagreeCount: number;
-  /** 제품 계약으로 해소한 AI 불일치 criterion index. 존재할 때만 기록한다. */
+  /** 결정 규칙으로 해소한 AI 불일치 criterion index. 존재할 때만 기록한다. */
   deterministicResolvedCriterionIndexes?: number[];
   /** AI 블라인드 감사 모델 — 미실행 감사 파일이면 null. */
   aiAuditModel: string | null;
@@ -219,7 +219,7 @@ export interface AuditedReviewSelection {
   pending: AuditedPendingNotice[];
 }
 
-/** 일반 감사 완료 규칙에 제품 계약으로 결정 가능한 불일치만 더한 run-aware 게이트. */
+/** 일반 감사 완료 규칙에 결정 가능한 계약·preferred 억제 불일치만 더한 run-aware 게이트. */
 export function isLabAuditCompleteForRun(run: LabRun, audit: LabAudit): boolean {
   return audit.items.every((item) =>
     item.humanVerdict !== null
