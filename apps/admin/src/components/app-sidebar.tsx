@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useEffect, useState } from "react"
 import {
   ActivityIcon,
   BadgeDollarSignIcon,
@@ -15,6 +16,7 @@ import {
   FileSearchIcon,
   FileClockIcon,
   LandmarkIcon,
+  LaptopIcon,
   LayoutDashboardIcon,
   ListChecksIcon,
   NetworkIcon,
@@ -25,6 +27,7 @@ import {
 } from "lucide-react"
 
 import { NavUser } from "@/components/nav-user"
+import { isLocalAdminHostname, LOCAL_ANALYSIS_LAB_URL } from "@/components/app-sidebar-environment"
 import { defaultAdminPath } from "@/lib/auth/routeAccess"
 import type { AdminRole } from "@/lib/server/auth/adminUsers"
 import {
@@ -95,6 +98,11 @@ interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
 
 export function AppSidebar({ user, ...props }: AppSidebarProps) {
   const pathname = usePathname()
+  const [isLocalHost, setIsLocalHost] = useState(false)
+
+  useEffect(() => {
+    setIsLocalHost(isLocalAdminHostname(window.location.hostname))
+  }, [])
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -139,6 +147,40 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                     </SidebarMenuItem>
                   )
                 })}
+                {group.label === "검수" ? (
+                  <SidebarMenuItem>
+                    {isLocalHost ? (
+                      <SidebarMenuButton
+                        tooltip="로컬 구독 분석"
+                        render={(
+                          <a
+                            href={LOCAL_ANALYSIS_LAB_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                          />
+                        )}
+                      >
+                        <LaptopIcon />
+                        <span>로컬 구독 분석</span>
+                        <span className="ml-auto text-[10px] font-medium text-primary group-data-[collapsible=icon]:hidden">
+                          로컬
+                        </span>
+                      </SidebarMenuButton>
+                    ) : (
+                      <SidebarMenuButton
+                        disabled
+                        tooltip="로컬 PC에서만 사용할 수 있습니다"
+                        className="opacity-45"
+                      >
+                        <LaptopIcon />
+                        <span>로컬 구독 분석</span>
+                        <span className="ml-auto text-[10px] group-data-[collapsible=icon]:hidden">
+                          로컬 전용
+                        </span>
+                      </SidebarMenuButton>
+                    )}
+                  </SidebarMenuItem>
+                ) : null}
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>

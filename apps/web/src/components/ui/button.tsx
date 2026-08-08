@@ -20,6 +20,10 @@ const buttonVariants = cva(
           "bg-brand-tint text-brand-hover hover:bg-[color-mix(in_srgb,var(--brand-tint),var(--brand)_10%)] aria-expanded:bg-brand-tint",
         "brand-outline":
           "border-border-card-hover bg-background text-brand-hover hover:bg-surface-brand aria-expanded:bg-surface-brand",
+        "admin-primary":
+          "bg-primary text-primary-foreground shadow-sm hover:bg-primary/90",
+        "admin-outline":
+          "border-border bg-background text-foreground shadow-xs hover:bg-muted aria-expanded:bg-muted",
         destructive:
           "bg-destructive text-white hover:bg-[color-mix(in_srgb,var(--destructive),#000_8%)] focus-visible:border-destructive/40 focus-visible:ring-destructive/20",
         link: "text-primary underline-offset-4 hover:underline",
@@ -29,6 +33,7 @@ const buttonVariants = cva(
           "h-12 gap-1.5 px-5 text-[15px] has-data-[icon=inline-end]:pr-4 has-data-[icon=inline-start]:pl-4",
         xs: "h-6 gap-1 rounded-[9px] px-2 text-xs has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "h-9 gap-1 rounded-[10px] px-3.5 text-[13.5px] has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2 [&_svg:not([class*='size-'])]:size-3.5",
+        admin: "h-8 gap-1 rounded-md px-3 text-xs font-medium shadow-none has-data-[icon=inline-end]:pr-2.5 has-data-[icon=inline-start]:pl-2.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-14 gap-1.5 rounded-[14px] px-6 text-[17px] has-data-[icon=inline-end]:pr-5 has-data-[icon=inline-start]:pl-5",
         icon: "size-10",
         "icon-xs": "size-6 rounded-[9px] [&_svg:not([class*='size-'])]:size-3",

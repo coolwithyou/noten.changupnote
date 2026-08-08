@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { getReviewerIdentity } from "@/lib/server/review/reviewAccess";
+import { getGrantSimulationAdminIdentity } from "@/lib/server/adminGrantSimulation";
 import { listReviewDocs, type ReviewStatus } from "@/lib/server/review/reviewDocsRepo";
 import { ReviewWorkspaceShell } from "@/features/review/ReviewWorkspaceShell";
 
@@ -70,7 +71,10 @@ function applyPeriodLabel(start: Date | null, end: Date | null): string | null {
 }
 
 export default async function ReviewListPage() {
-  const reviewer = await getReviewerIdentity();
+  const [reviewer, simulationIdentity] = await Promise.all([
+    getReviewerIdentity(),
+    getGrantSimulationAdminIdentity(),
+  ]);
   if (!reviewer) notFound();
 
   const docs = await listReviewDocs();
@@ -107,6 +111,7 @@ export default async function ReviewListPage() {
     <ReviewWorkspaceShell
       reviewerEmail={reviewer.email}
       currentPath="/internal/review"
+      showGrantSimulation={Boolean(simulationIdentity)}
       title="리뷰어 워크스페이스"
       description="검수 확정이 곧 golden 승격입니다. 누락 필드, 오분류, bbox 순서로 확인하세요."
       badge="Gate 1 · 필드맵 검수"

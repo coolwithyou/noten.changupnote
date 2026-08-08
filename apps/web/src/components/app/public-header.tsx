@@ -1,5 +1,7 @@
+import { headers } from "next/headers";
 import { AppHeader, type AppHeaderLink } from "@/components/app/app-header";
 import type { HeaderUser } from "@/lib/server/auth/session";
+import { shouldShowGrantSimulationNavigation } from "@/lib/server/adminGrantSimulation";
 
 interface PublicHeaderProps {
   user: HeaderUser | null;
@@ -19,6 +21,23 @@ const DEFAULT_LINKS: AppHeaderLink[] = [
  * 로그인: 제품 내비(≤3) + 아바타 드롭다운.
  * export 시그니처(user/links/loginCallbackUrl)는 기존 호출부 호환을 위해 유지한다.
  */
-export function PublicHeader({ user, links = DEFAULT_LINKS, loginCallbackUrl }: PublicHeaderProps) {
-  return <AppHeader user={user} links={links} loginCallbackUrl={loginCallbackUrl} />;
+export async function PublicHeader({ user, links = DEFAULT_LINKS, loginCallbackUrl }: PublicHeaderProps) {
+  const requestHeaders = await headers();
+  const requestHost = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const showGrantSimulation = user
+    ? await shouldShowGrantSimulationNavigation({
+      email: user.email,
+      name: user.name ?? null,
+      host: requestHost,
+    })
+    : false;
+
+  return (
+    <AppHeader
+      user={user}
+      links={links}
+      loginCallbackUrl={loginCallbackUrl}
+      showGrantSimulation={showGrantSimulation}
+    />
+  );
 }

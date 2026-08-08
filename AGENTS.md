@@ -8,6 +8,16 @@
 - Codex는 명시 요청이 없는 한 `pnpm dev:web`, `pnpm dev`, `next dev` 등 장기 실행 개발 서버를 시작하지 않는다.
 - 브라우저 검증이 필요하면 먼저 현재 실행 중인 서버와 포트를 확인하고, 서버가 없으면 사용자에게 실행을 요청한다.
 
+## 관리자 전용 UI
+
+- 관리자·검수자만 접근하는 화면은 클라이언트 서비스용 커스텀 디자인 토큰을 새로 확장하기보다 설치된 `shadcn/ui` 컴포넌트를 우선 조합한다.
+- 검색·필터 폼은 `Field`/`FieldGroup`, `InputGroup`, `Select`, `Button`을 사용하고, 상태 표시는 `Badge`, 정보 묶음은 `Card`, 펼침 영역은 `Accordion`/`Collapsible`, 긴 목록은 `ScrollArea` 등 의미에 맞는 shadcn 컴포넌트를 적극 활용한다.
+- 원시 `select`·임의 버튼 스타일·개별 색상값은 같은 역할의 shadcn 컴포넌트나 semantic variant가 없을 때만 사용한다.
+- 공용 shadcn 기본 변형에 사용자 서비스용 TDS 시각값이 포함되어 있으면 관리자 화면은 명시적인 `admin`/`compact` variant를 사용한다. 전역 토큰이나 기본 variant를 바꿔 일반 사용자 화면에 영향을 주지 않는다.
+- 관리자 화면의 전체 룩은 공식 `@shadcn` block 구성을 우선 참고한다. 클라이언트 TDS와 시각적으로 분리해야 할 때는 관리자 루트에 scoped shadcn semantic token 테마를 적용하고, Portal 표면에도 같은 테마를 전달한다.
+- 관리자 데이터 표면은 넓은 테이블을 무조건 사용하지 않는다. 열 잘림이나 수평 스크롤로 핵심 작업이 가려지면 카드·목록·접힘 구조로 바꾸고, 주요 상태·첨부파일·행동 버튼이 현재 뷰포트 안에서 완결되게 한다.
+- 이 원칙은 관리자 전용 화면에 한정한다. 일반 사용자 화면의 기존 디자인 시스템을 일괄 교체하거나 관리자 작업을 이유로 수정하지 않는다.
+
 ## Vercel deployment authentication
 
 - 이 저장소의 Vercel CLI 배포는 저장소 루트의 gitignored `.env.vercel.local`을 인증 정본으로 사용한다.

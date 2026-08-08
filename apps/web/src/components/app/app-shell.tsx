@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
+import { headers } from "next/headers";
 import { AppHeader } from "@/components/app/app-header";
 import type { HeaderUser } from "@/lib/server/auth/session";
+import { shouldShowGrantSimulationNavigation } from "@/lib/server/adminGrantSimulation";
 import { getRemainingAssistantUses } from "@/lib/server/credits/remainingUses";
 
 /**
@@ -12,10 +14,25 @@ import { getRemainingAssistantUses } from "@/lib/server/credits/remainingUses";
  * 환산 불가·조회 실패는 null 로 수렴해 pill 비노출(페이지는 절대 죽지 않는다).
  */
 export async function AppShell({ user, children }: { user: HeaderUser | null; children: ReactNode }) {
-  const remaining = user ? await getRemainingAssistantUses() : null;
+  const requestHeaders = await headers();
+  const requestHost = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host");
+  const [remaining, showGrantSimulation] = user
+    ? await Promise.all([
+      getRemainingAssistantUses(),
+      shouldShowGrantSimulationNavigation({
+        email: user.email,
+        name: user.name ?? null,
+        host: requestHost,
+      }),
+    ])
+    : [null, false] as const;
   return (
     <div className="flex min-h-svh flex-col bg-background">
-      <AppHeader user={user} remaining={remaining} />
+      <AppHeader
+        user={user}
+        remaining={remaining}
+        showGrantSimulation={showGrantSimulation}
+      />
       <main className="flex-1">{children}</main>
     </div>
   );

@@ -3,6 +3,10 @@ import { sanitizeDownloadFilename } from "@/lib/server/documents/downloadHeaders
 import { DraftSourceFileError, loadDraftSourceFile } from "@/lib/server/documents/draftSourceFile";
 import { loadServiceApplySheet } from "@/lib/server/serviceData";
 import { resolveVirtualCompanyGrantAccess } from "@/lib/server/virtualCompanies/grantAccess";
+import {
+  buildGrantSimulationCompanyProfile,
+  getGrantSimulationAdminIdentity,
+} from "@/lib/server/adminGrantSimulation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,18 +26,23 @@ export async function GET(request: Request, context: RouteContext) {
     const { grantId } = await context.params;
     const search = new URL(request.url).searchParams;
     const documentKey = search.get("document")?.trim() ?? "";
+    const adminIdentity = search.get("adminPreview") === "1"
+      ? await getGrantSimulationAdminIdentity()
+      : null;
     const scenario = await resolveVirtualCompanyGrantAccess({
       grantId,
       bizNo: search.get("biz"),
     });
-    if (!scenario) {
+    if (!scenario && !adminIdentity) {
       throw new DraftSourceFileError("virtual_company_grant_not_found", "원본 양식을 찾지 못했습니다.", 404);
     }
     if (!documentKey) {
       throw new DraftSourceFileError("virtual_document_required", "작성할 서류를 선택해 주세요.", 400);
     }
 
-    const sheet = await loadServiceApplySheet(grantId, { virtualBizNo: scenario.bizNo });
+    const sheet = adminIdentity
+      ? await loadServiceApplySheet(grantId, { simulationProfile: buildGrantSimulationCompanyProfile() })
+      : await loadServiceApplySheet(grantId, { virtualBizNo: scenario!.bizNo });
     const document = sheet?.applicationPrep.draftableDocuments.find(
       (candidate) => candidate.documentKey === documentKey,
     );

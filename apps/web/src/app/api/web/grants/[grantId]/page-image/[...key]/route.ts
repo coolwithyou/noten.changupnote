@@ -7,6 +7,7 @@ import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
 import { createR2ObjectStorageFromEnv } from "@/lib/server/storage/r2ObjectStorage";
 import { resolveVirtualCompanyGrantAccess } from "@/lib/server/virtualCompanies/grantAccess";
+import { getGrantSimulationAdminIdentity } from "@/lib/server/adminGrantSimulation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,13 +28,16 @@ const KEY_PREFIX = "grant-convert/";
  */
 export async function GET(request: Request, context: RouteContext) {
   const { grantId, key: segments } = await context.params;
-  const requestedBizNo = new URL(request.url).searchParams.get("biz");
+  const search = new URL(request.url).searchParams;
+  const requestedBizNo = search.get("biz");
   const virtualReadAllowed = Boolean(await resolveVirtualCompanyGrantAccess({
     grantId,
     bizNo: requestedBizNo,
   }));
+  const adminReadAllowed = search.get("adminPreview") === "1"
+    && Boolean(await getGrantSimulationAdminIdentity());
 
-  if (!virtualReadAllowed) {
+  if (!virtualReadAllowed && !adminReadAllowed) {
     try {
       await requireCompanyAccess();
     } catch (error) {

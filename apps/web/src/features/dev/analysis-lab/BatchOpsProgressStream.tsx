@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { CircleCheck, CircleX, FileCheck2, SearchCheck } from "lucide-react";
 import type { LabBatchEvent, LabBatchJobSnapshot, LabBatchSummary } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { roundtripReviewHref } from "./roundtripReviewNavigation";
 import {
   Card,
   CardAction,
@@ -186,9 +188,23 @@ function EventRow({ event }: { event: LabBatchEvent }) {
             <span className="mt-1 flex flex-wrap gap-1.5">
               <Badge>22축 완료</Badge>
               {event.applicationRoundtrip ? (
-                <Badge variant={roundtripBadgeVariant(event.applicationRoundtrip.status)}>
-                  Kordoc {roundtripStatusLabel(event.applicationRoundtrip.status)}
-                </Badge>
+                event.applicationRoundtrip.runId ? (
+                  <Link
+                    href={roundtripReviewHref(event.grantId, event.applicationRoundtrip.runId)}
+                    title="저장된 Kordoc 결과 검토하기"
+                  >
+                    <Badge
+                      variant={roundtripBadgeVariant(event.applicationRoundtrip.status)}
+                      className="cursor-pointer transition-opacity hover:opacity-75"
+                    >
+                      Kordoc {roundtripStatusLabel(event.applicationRoundtrip.status)} · 검토 열기
+                    </Badge>
+                  </Link>
+                ) : (
+                  <Badge variant={roundtripBadgeVariant(event.applicationRoundtrip.status)}>
+                    Kordoc {roundtripStatusLabel(event.applicationRoundtrip.status)}
+                  </Badge>
+                )
               ) : (
                 <Badge variant="outline">Kordoc 기록 없음</Badge>
               )}

@@ -85,10 +85,18 @@ const STUDIO_OVERLAY_CLASS = {
   active: "border-2 border-dashed border-studio bg-studio-soft",
 };
 
-function pageImageUrl(grantId: string, key: string, accessBizNo?: string | null): string {
+function pageImageUrl(
+  grantId: string,
+  key: string,
+  accessBizNo?: string | null,
+  adminPreview = false,
+): string {
   const encoded = key.split("/").map((part) => encodeURIComponent(part)).join("/");
   const base = `/api/web/grants/${encodeURIComponent(grantId)}/page-image/${encoded}`;
-  return accessBizNo ? `${base}?biz=${encodeURIComponent(accessBizNo)}` : base;
+  const search = new URLSearchParams();
+  if (accessBizNo) search.set("biz", accessBizNo);
+  if (adminPreview) search.set("adminPreview", "1");
+  return search.size > 0 ? `${base}?${search.toString()}` : base;
 }
 
 export function PreviewCanvas({
@@ -107,6 +115,7 @@ export function PreviewCanvas({
   onLocateField,
   onRhwpAnchorsChange,
   pageImageAccessBizNo = null,
+  pageImageAccessAdminPreview = false,
 }: {
   grantId: string;
   grantTitle: string;
@@ -128,6 +137,8 @@ export function PreviewCanvas({
   onRhwpAnchorsChange?: (fieldIds: ReadonlySet<string>) => void;
   /** 개발용 가상 기업 workspace에서만 페이지 이미지 read 권한을 전달한다. */
   pageImageAccessBizNo?: string | null;
+  /** 활성 관리·검수 계정의 읽기 전용 지원서 시뮬레이션 이미지 권한. */
+  pageImageAccessAdminPreview?: boolean;
 }) {
   const [pageIndex, setPageIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
@@ -252,7 +263,7 @@ export function PreviewCanvas({
                 sourceUrl={rhwpSourceUrl}
                 pageIndex={pageIndex}
                 fields={rhwpFields}
-                fallbackSrc={currentPage ? pageImageUrl(grantId, currentPage.storageKey, pageImageAccessBizNo) : null}
+                fallbackSrc={currentPage ? pageImageUrl(grantId, currentPage.storageKey, pageImageAccessBizNo, pageImageAccessAdminPreview) : null}
                 alt={`${grantTitle} ${pageIndex + 1}페이지`}
                 onLoad={centerSelectedOverlay}
                 onReady={handleRhwpReady}
@@ -263,7 +274,7 @@ export function PreviewCanvas({
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={pageImageUrl(grantId, currentPage!.storageKey, pageImageAccessBizNo)}
+                src={pageImageUrl(grantId, currentPage!.storageKey, pageImageAccessBizNo, pageImageAccessAdminPreview)}
                 alt={`${grantTitle} ${currentPage!.page}페이지`}
                 className="pointer-events-none block w-full select-none"
                 draggable={false}

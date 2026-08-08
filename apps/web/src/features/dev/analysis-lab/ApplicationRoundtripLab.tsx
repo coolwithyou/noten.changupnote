@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -59,6 +60,11 @@ import { RhwpFieldReviewPanel } from "./RhwpFieldReviewPanel";
 import { localAnalysisRequestHeaders } from "./useLocalAnalysisRuntime";
 import { AnalysisLabPageHeader, AnalysisMetric } from "./AnalysisLabPageHeader";
 import { AnalysisLabErrorAlert } from "./AnalysisLabErrorAlert";
+import {
+  adminGrantSimulationHref,
+  adminGrantSimulationListHref,
+  readRoundtripReviewTarget,
+} from "./roundtripReviewNavigation";
 
 const COHORT_URL = "/api/dev/analysis-lab/application-roundtrip/cohort";
 const ANALYZE_URL = "/api/dev/analysis-lab/application-roundtrip/analyze";
@@ -81,6 +87,8 @@ export function ApplicationRoundtripLab({
   const [fieldChoiceValues, setFieldChoiceValues] = useState<Record<string, string[]>>({});
   const [analyzing, setAnalyzing] = useState(false);
   const [filling, setFilling] = useState(false);
+  const [loadingStoredRun, setLoadingStoredRun] = useState(false);
+  const [storedRunLoaded, setStoredRunLoaded] = useState(false);
   const [fillResult, setFillResult] = useState<RoundtripFillResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const inFlightRef = useRef(false);
@@ -93,9 +101,7 @@ export function ApplicationRoundtripLab({
       if (!response.ok) throw new Error(await readErrorMessage(response, "지원서 후보 공고를 불러오지 못했습니다."));
       const data = (await response.json()) as RoundtripCohortResponse;
       setCohort(data);
-      setSelectedGrantId((current) => current && data.notices.some((notice) => notice.grantId === current)
-        ? current
-        : data.notices[0]?.grantId ?? "");
+      setSelectedGrantId((current) => current || data.notices[0]?.grantId || "");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "지원서 후보 공고를 불러오지 못했습니다.");
     } finally {
@@ -136,6 +142,7 @@ export function ApplicationRoundtripLab({
     setChoiceValues({});
     setFieldChoiceValues({});
     setFillResult(null);
+    setStoredRunLoaded(false);
     setError(null);
   };
 
@@ -147,6 +154,49 @@ export function ApplicationRoundtripLab({
     setFillResult(null);
     setError(null);
   }, []);
+
+  const applyRun = useCallback((nextRun: ApplicationRoundtripRun, stored: boolean) => {
+    setSelectedGrantId(nextRun.grantId);
+    setRun(nextRun);
+    setStoredRunLoaded(stored);
+    const recommended = nextRun.documents.find(
+      (document) => document.attachmentId === nextRun.recommendedAttachmentId,
+    ) ?? nextRun.documents.find((document) => document.error === null
+      && (document.recommendedInputFieldCount > 0 || document.recommendedChoiceGroupCount > 0)) ?? null;
+    if (recommended) chooseDocument(recommended);
+    else {
+      setSelectedAttachmentId("");
+      setValues({});
+      setChoiceValues({});
+      setFieldChoiceValues({});
+    }
+  }, [chooseDocument]);
+
+  useEffect(() => {
+    const target = readRoundtripReviewTarget(window.location.search);
+    if (!target) return;
+    const { grantId, runId } = target;
+    const controller = new AbortController();
+    setLoadingStoredRun(true);
+    setError(null);
+    void fetch(`${ANALYZE_URL}?${new URLSearchParams({ grantId, runId }).toString()}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await readErrorMessage(response, "저장된 Kordoc 결과를 불러오지 못했습니다."));
+        return response.json() as Promise<{ run: ApplicationRoundtripRun }>;
+      })
+      .then((data) => applyRun(data.run, true))
+      .catch((caught: unknown) => {
+        if (controller.signal.aborted) return;
+        setError(caught instanceof Error ? caught.message : "저장된 Kordoc 결과를 불러오지 못했습니다.");
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingStoredRun(false);
+      });
+    return () => controller.abort();
+  }, [applyRun]);
 
   const analyze = async () => {
     if (!selectedGrantId || inFlightRef.current) return;
@@ -165,18 +215,7 @@ export function ApplicationRoundtripLab({
       });
       if (!response.ok) throw new Error(await readErrorMessage(response, "지원서 양식 분석에 실패했습니다."));
       const data = (await response.json()) as { run: ApplicationRoundtripRun };
-      setRun(data.run);
-      const recommended = data.run.documents.find(
-        (document) => document.attachmentId === data.run.recommendedAttachmentId,
-      ) ?? data.run.documents.find((document) => document.error === null
-        && (document.recommendedInputFieldCount > 0 || document.recommendedChoiceGroupCount > 0)) ?? null;
-      if (recommended) chooseDocument(recommended);
-      else {
-        setSelectedAttachmentId("");
-        setValues({});
-        setChoiceValues({});
-        setFieldChoiceValues({});
-      }
+      applyRun(data.run, false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "지원서 양식 분석에 실패했습니다.");
     } finally {
@@ -231,9 +270,20 @@ export function ApplicationRoundtripLab({
         description="HWP/HWPX 지원서의 입력칸과 선택지를 미리 찾아, 빠진 항목이 없는지 원본에서 확인합니다."
         badges={cohort ? <Badge variant="secondary">분석 엔진 {cohort.engineVersion}</Badge> : null}
         action={(
-          <Button variant="outline" size="sm" onClick={() => void loadCohort()} disabled={cohortLoading || analyzing || filling}>
-            <RefreshCw data-icon="inline-start" /> 후보 새로고침
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              nativeButton={false}
+              variant="outline"
+              size="sm"
+              render={<Link href={adminGrantSimulationListHref()} target="_blank" />}
+            >
+              관리자 공고 목록
+              <ArrowRight data-icon="inline-end" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => void loadCohort()} disabled={cohortLoading || analyzing || filling}>
+              <RefreshCw data-icon="inline-start" /> 후보 새로고침
+            </Button>
+          </div>
         )}
       />
 
@@ -248,6 +298,22 @@ export function ApplicationRoundtripLab({
 
       {error ? (
         <AnalysisLabErrorAlert title="지원서 분석 정보를 불러오지 못했습니다" message={error} />
+      ) : null}
+
+      {loadingStoredRun ? (
+        <Alert>
+          <Spinner />
+          <AlertTitle>저장된 배치 결과를 여는 중입니다</AlertTitle>
+          <AlertDescription>재분석하지 않고 해당 Kordoc 런과 원본 문서를 불러옵니다.</AlertDescription>
+        </Alert>
+      ) : storedRunLoaded && run ? (
+        <Alert>
+          <CheckCircle2 />
+          <AlertTitle>배치에서 저장된 Kordoc 결과를 검토 중입니다</AlertTitle>
+          <AlertDescription>
+            {run.title} · {run.runId}. 아래에서 문서별 필드와 원본 위치를 대조하고 샘플 채움까지 확인할 수 있습니다.
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       <div className="grid items-start gap-6 xl:grid-cols-2">
@@ -297,7 +363,7 @@ export function ApplicationRoundtripLab({
               <AlertDescription>왼쪽 분석 모드에서 권한을 열면 선택한 공고의 첨부 분석을 시작할 수 있습니다.</AlertDescription>
             </Alert>
           ) : null}
-          <Button className="w-full" onClick={() => void analyze()} disabled={!analysisAllowed || !selectedNotice || analyzing || filling}>
+          <Button className="w-full" onClick={() => void analyze()} disabled={!analysisAllowed || !selectedGrantId || analyzing || filling}>
             {analyzing ? <Spinner data-icon="inline-start" /> : <FileSearch data-icon="inline-start" />}
             {analyzing ? "지원서 첨부 분석 중…" : "지원서 양식 분석"}
           </Button>
@@ -316,9 +382,19 @@ export function ApplicationRoundtripLab({
 
       {run ? (
         <section className="flex flex-col gap-4 rounded-xl bg-card p-4 ring-1 ring-foreground/10 sm:p-6">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-base font-medium">3. 인식 결과를 원본에서 검증</h2>
-            <p className="text-sm text-muted-foreground">문서를 선택하면 분석 위치와 rhwp 원본을 함께 보여줍니다. 빠진 필드가 없는지 여기서 확인하세요.</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="flex flex-col gap-1">
+              <h2 className="text-base font-medium">3. 인식 결과를 원본에서 검증</h2>
+              <p className="text-sm text-muted-foreground">문서를 선택하면 분석 위치와 rhwp 원본을 함께 보여줍니다. 빠진 필드가 없는지 여기서 확인하세요.</p>
+            </div>
+            <Button
+              nativeButton={false}
+              variant="outline"
+              size="sm"
+              render={<Link href={adminGrantSimulationHref(run.grantId)} target="_blank" />}
+            >
+              <ArrowRight data-icon="inline-end" /> 관리자 지원서 시뮬레이션
+            </Button>
           </div>
           <FieldGroup>
             <Field>

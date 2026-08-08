@@ -416,16 +416,28 @@ export async function loadServiceApplySheet(
     asOf?: Date;
     /** 개발용 가상 기업의 읽기 전용 상세 판정. 저장 companyId와 함께 사용할 수 없다. */
     virtualBizNo?: string;
+    /** 활성 관리·검수 계정이 모든 공고의 빠른 작성 경로를 확인할 때만 쓰는 비영속 프로필. */
+    simulationProfile?: CompanyProfile;
   } = {},
 ): Promise<ApplySheet | null> {
   const asOf = options.asOf ?? new Date();
   const grantId = decodeGrantIdSegment(grantIdSegment);
-  if (options.virtualBizNo && (options.companyId || options.userId)) {
+  if (
+    (options.virtualBizNo || options.simulationProfile)
+    && (options.companyId || options.userId)
+  ) {
     throw new ServiceDataError(
       "virtual_company_scope_conflict",
       "가상 기업 상세와 저장 회사 범위를 함께 사용할 수 없습니다.",
       400,
       "virtualBizNo",
+    );
+  }
+  if (options.virtualBizNo && options.simulationProfile) {
+    throw new ServiceDataError(
+      "simulation_scope_conflict",
+      "가상 기업과 관리자 시뮬레이션 프로필을 함께 사용할 수 없습니다.",
+      400,
     );
   }
   const virtualScenario = options.virtualBizNo && isVirtualCompanyServerEnabled()
@@ -440,7 +452,9 @@ export async function loadServiceApplySheet(
     );
   }
   const [resolution, grants] = await Promise.all([
-    virtualScenario
+    options.simulationProfile
+      ? Promise.resolve(buildVirtualCompanyResolution(options.simulationProfile, asOf.toISOString()))
+      : virtualScenario
       ? Promise.resolve(buildVirtualCompanyResolution(virtualScenario.profile, asOf.toISOString()))
       : resolveDashboardProductProfile({
           ...(options.companyId ? { companyId: options.companyId } : {}),

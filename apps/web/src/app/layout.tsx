@@ -22,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="ko"
       className={`font-sans ${pretendard.variable}`}
       data-scroll-behavior="smooth"
+      suppressHydrationWarning
     >
       <body>
         <TooltipProvider>{children}</TooltipProvider>

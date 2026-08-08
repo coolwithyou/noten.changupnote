@@ -71,6 +71,8 @@ export function WorkspaceView({
   // 다시 전달하면 bizinfo%3A... 같은 source key가 UUID 전용 API로 흘러가므로 서버 로더의 id만 쓴다.
   const grantId = data.grant.id;
   const virtualPreview = data.execution.mode === "virtual_preview" ? data.execution : null;
+  const adminPreview = data.execution.mode === "admin_preview" ? data.execution : null;
+  const readOnlyPreview = virtualPreview ?? adminPreview;
   const router = useRouter();
   const [answers, setAnswers] = useState<DraftFieldAnswers>(data.fieldAnswers);
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null);
@@ -114,17 +116,16 @@ export function WorkspaceView({
   const studioTransport = useMemo<RhwpWorkingDocumentTransport | null>(() => {
     if (data.ladder !== "a" && !terminalApplicationPrecompute) return null;
     if (data.draftId) return { mode: "persistent", draftId: data.draftId };
-    if (!virtualPreview || !data.activeDocumentKey) return null;
-    const params = new URLSearchParams({
-      biz: virtualPreview.bizNo,
-      document: data.activeDocumentKey,
-    });
+    if (!readOnlyPreview || !data.activeDocumentKey) return null;
+    const params = new URLSearchParams({ document: data.activeDocumentKey });
+    if (virtualPreview) params.set("biz", virtualPreview.bizNo);
+    if (adminPreview) params.set("adminPreview", "1");
     return {
       mode: "local_preview",
-      sourceKey: `virtual:${grantId}:${virtualPreview.bizNo}:${data.activeDocumentKey}`,
+      sourceKey: `${readOnlyPreview.mode}:${grantId}:${data.activeDocumentKey}`,
       sourceUrl: `/api/web/grants/${encodeURIComponent(grantId)}/virtual-source-file?${params.toString()}`,
     };
-  }, [data.activeDocumentKey, data.draftId, data.ladder, grantId, terminalApplicationPrecompute, virtualPreview]);
+  }, [adminPreview, data.activeDocumentKey, data.draftId, data.ladder, grantId, readOnlyPreview, terminalApplicationPrecompute, virtualPreview]);
   const currentStudioSourceKey = studioTransport ? sourceKeyForTransport(studioTransport) : null;
   // Studio는 복합 과제 전용 화면이 아니라 준비된 HWP/HWPX 전체 문서 편집기이기도 하다.
   // 따라서 모든 필드가 quick으로 분류돼도 ladder (a)의 원본 draft에서는 직접 열 수 있어야 한다.
@@ -216,7 +217,7 @@ export function WorkspaceView({
   async function patchAnswer(label: string, entry: { value?: string; status: DraftFieldAnswerStatus }) {
     const key = answerKey(label);
     const prev = answersRef.current;
-    if (virtualPreview) {
+    if (readOnlyPreview) {
       const optimistic = optimisticApply(prev, key, entry);
       setAnswers(optimistic);
       answersRef.current = optimistic;
@@ -363,8 +364,8 @@ export function WorkspaceView({
   }
 
   function handleAskField(field: ConnectedDocumentField) {
-    if (virtualPreview) {
-      toast.info("가상 기업 미리보기에서는 AI 질문을 실행하지 않습니다.");
+    if (readOnlyPreview) {
+      toast.info("읽기 전용 시뮬레이션에서는 AI 질문을 실행하지 않습니다.");
       return;
     }
     chat.askField({ label: field.label, section: field.section, fieldId: field.fieldId });
@@ -441,6 +442,7 @@ export function WorkspaceView({
       onLocateField={handleLocateField}
       onRhwpAnchorsChange={handleRhwpAnchorsChange}
       pageImageAccessBizNo={virtualPreview?.bizNo ?? null}
+      pageImageAccessAdminPreview={Boolean(adminPreview)}
     />
   );
 
@@ -484,7 +486,7 @@ export function WorkspaceView({
           : data.headRevision?.savedAt,
       )}
       persistedMaterializedAnswers={data.headRevision?.materializedAnswers ?? EMPTY_MATERIALIZED_ANSWERS}
-      virtualPreview={Boolean(virtualPreview)}
+      readOnlyPreview={Boolean(readOnlyPreview)}
     />
   );
 
@@ -495,7 +497,9 @@ export function WorkspaceView({
           <Link
             href={virtualPreview
               ? `/grants/${encodeURIComponent(grantId)}?biz=${encodeURIComponent(virtualPreview.bizNo)}`
-              : `/grants/${encodeURIComponent(grantId)}`}
+              : adminPreview
+                ? `/grants/${encodeURIComponent(grantId)}?adminPreview=1`
+                : `/grants/${encodeURIComponent(grantId)}`}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
           >
             <ChevronLeft className="size-3.5" aria-hidden />
@@ -570,6 +574,7 @@ export function WorkspaceView({
                 if (next && next !== data.activeDocumentKey) {
                   const params = new URLSearchParams({ document: next });
                   if (virtualPreview) params.set("biz", virtualPreview.bizNo);
+                  if (adminPreview) params.set("adminPreview", "1");
                   router.push(`/grants/${encodeURIComponent(grantId)}/workspace?${params.toString()}`);
                 }
               }}
@@ -591,11 +596,11 @@ export function WorkspaceView({
         </div>
       </div>
 
-      {virtualPreview ? (
+      {readOnlyPreview ? (
         <div className="border-b border-brand/20 bg-surface-brand px-4 py-2.5 text-sm text-text-nav sm:px-6" role="status">
-          <strong className="text-brand">가상 기업 작성 미리보기</strong>
+          <strong className="text-brand">{adminPreview ? "관리자 빠른 작성 시뮬레이션" : "가상 기업 작성 미리보기"}</strong>
           <span className="ml-2">
-            {virtualPreview.companyName} 기준으로 열었어요. 자동으로 연결 가능한 기업정보만 제안되며, 이 탭에서 바꾼 값은 새로고침하면 초기화되고 실제 회사·초안에는 저장되지 않습니다.
+            {readOnlyPreview.companyName} 기준으로 열었어요. 자동으로 연결 가능한 기업정보만 제안되며, 이 탭에서 바꾼 값은 새로고침하면 초기화되고 실제 회사·초안에는 저장되지 않습니다.
           </span>
         </div>
       ) : null}
@@ -632,9 +637,9 @@ export function WorkspaceView({
                 {data.honestNotice}
               </div>
             ) : null}
-            {virtualPreview ? (
+            {readOnlyPreview ? (
               <div className="rounded-[var(--radius-lg)] border bg-card px-4 py-5 text-sm text-muted-foreground">
-                가상 기업 미리보기에서는 저장이나 AI 작성을 실행하지 않습니다. 작성 항목이 준비된 공고에서 입력 흐름을 확인해 주세요.
+                읽기 전용 시뮬레이션에서는 저장이나 AI 작성을 실행하지 않습니다. 작성 항목이 준비된 공고에서 입력 흐름을 확인해 주세요.
               </div>
             ) : (
               <ChatPanelView
@@ -658,7 +663,7 @@ export function WorkspaceView({
       )}
 
       {/* 채팅 Sheet 오버레이(§2-④) — 닫으면 확인 루프가 그 자리에 그대로 있다. 진입점(💬)은 (a) 확인 카드뿐. */}
-      {data.ladder === "a" && !virtualPreview ? (
+      {data.ladder === "a" && !readOnlyPreview ? (
         <Sheet open={showChat} onOpenChange={setShowChat}>
           <SheetContent className="flex w-full flex-col gap-0 p-3 sm:max-w-md">
             <SheetTitle className="sr-only">이 공고에 대해 물어보기</SheetTitle>
@@ -681,7 +686,7 @@ export function WorkspaceView({
       ) : null}
 
       {data.pollConversion ? <ConversionPollTrigger grantId={grantId} /> : null}
-      {data.fieldAnalysisRecoveryNeeded && data.draftId && !virtualPreview ? (
+      {data.fieldAnalysisRecoveryNeeded && data.draftId && !readOnlyPreview ? (
         <ApplicationFieldAnalysisTrigger draftId={data.draftId} />
       ) : null}
     </div>

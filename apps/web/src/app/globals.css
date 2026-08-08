@@ -183,6 +183,80 @@
   --shadow-landing-question: 0 16px 44px rgba(49, 130, 246, 0.13);
 }
 
+/*
+ * 관리자·검수 워크스페이스 전용 shadcn neutral 테마.
+ * 공개 서비스의 changupnote/TDS 토큰을 상속하지 않도록 semantic token을
+ * 라우트 경계에서 다시 정의한다. Portal은 DOM 루트 밖에 렌더되므로 같은
+ * 토큰 세트를 .review-shadcn-portal에도 적용한다.
+ */
+.review-shadcn-theme,
+.review-shadcn-portal {
+  color-scheme: light;
+  --radius: 0.625rem;
+  --background: oklch(0.985 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  /* 관리자 상태 뱃지: 완료·진행·주의·실패·구독 경로를 빠르게 구분한다. */
+  --success: oklch(0.432 0.118 151.328);
+  --success-soft: oklch(0.962 0.044 156.743);
+  --info: oklch(0.488 0.217 264.376);
+  --info-soft: oklch(0.97 0.035 254.604);
+  --warning: oklch(0.476 0.114 61.907);
+  --warning-soft: oklch(0.973 0.071 103.193);
+  --danger: oklch(0.505 0.213 27.518);
+  --danger-soft: oklch(0.971 0.039 17.38);
+  --studio: oklch(0.491 0.27 292.581);
+  --studio-soft: oklch(0.969 0.041 293.756);
+
+  /* 공용 컴포넌트에 남아 있는 제품 확장 토큰도 neutral 의미로 재매핑한다. */
+  --brand: var(--primary);
+  --brand-hover: oklch(0.269 0 0);
+  --brand-tint: var(--accent);
+  --surface-soft: var(--muted);
+  --surface-muted: var(--muted);
+  --surface-muted-hover: oklch(0.922 0 0);
+  --text-nav: var(--foreground);
+  --text-secondary: var(--muted-foreground);
+  --text-tertiary: var(--muted-foreground);
+  --text-quaternary: oklch(0.708 0 0);
+  --border-card-hover: var(--border);
+  --shadow-cta: none;
+  --grad-cta: none;
+}
+
+.review-shadcn-theme {
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+.review-shadcn-theme [data-slot="card-title"] {
+  font-family: inherit;
+}
+
 @theme inline {
   --font-sans: var(--font-pretendard), "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", sans-serif;
   /* inline 모드에선 --font-sans가 런타임 변수로 방출되지 않으므로 스택을 반복한다 */
@@ -229,6 +303,8 @@
   --color-brand-tint: var(--brand-tint);
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);

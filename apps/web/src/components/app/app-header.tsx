@@ -19,6 +19,11 @@ const APP_HEADER_DEFAULT_LINKS: AppHeaderLink[] = [
   { href: "/settings#company-settings", label: "내 정보" },
 ];
 
+const GRANT_SIMULATION_LINK: AppHeaderLink = {
+  href: "/internal/review/grants",
+  label: "지원서 시뮬레이션",
+};
+
 export interface AppHeaderProps {
   user: HeaderUser | null;
   /** 로그인 상태에서 노출할 우측 내비 링크(최대 3개). 기본: 내 신청 현황 / 내 정보. */
@@ -32,6 +37,8 @@ export interface AppHeaderProps {
    * 0이면 소진 경고(오렌지) 표기. 과금 표면 라운드에서 실데이터를 배선한다.
    */
   remaining?: number | null;
+  /** 서버에서 확인한 개발 호스트의 활성 owner에게만 관리자 링크를 추가한다. */
+  showGrantSimulation?: boolean;
 }
 
 /**
@@ -46,8 +53,10 @@ export function AppHeader({
   loginCallbackUrl,
   homeHref = "/",
   remaining,
+  showGrantSimulation = false,
 }: AppHeaderProps) {
-  const navLinks = links.slice(0, MAX_HEADER_LINKS);
+  const navLinks = (showGrantSimulation ? [GRANT_SIMULATION_LINK, ...links] : links)
+    .slice(0, MAX_HEADER_LINKS);
   return (
     <header className="sticky top-0 z-40 flex h-14 items-center justify-between border-b border-border-subtle bg-background px-5 sm:h-16 sm:px-10">
       <a href={homeHref} className="flex items-center gap-[9px] no-underline" aria-label="창업노트 홈">

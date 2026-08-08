@@ -14,15 +14,32 @@ const badgeVariants = cva(
           "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
+        "admin-success":
+          "border-success/25 bg-success-soft text-success before:size-1.5 before:rounded-full before:bg-success before:content-['']",
+        "admin-info":
+          "border-info/25 bg-info-soft text-info before:size-1.5 before:rounded-full before:bg-info before:content-['']",
+        "admin-warning":
+          "border-warning/25 bg-warning-soft text-warning before:size-1.5 before:rounded-full before:bg-warning before:content-['']",
+        "admin-danger":
+          "border-danger/25 bg-danger-soft text-danger before:size-1.5 before:rounded-full before:bg-danger before:content-['']",
+        "admin-neutral":
+          "border-border bg-muted text-muted-foreground before:size-1.5 before:rounded-full before:bg-muted-foreground before:content-['']",
+        "admin-violet":
+          "border-studio/25 bg-studio-soft text-studio before:size-1.5 before:rounded-full before:bg-studio before:content-['']",
         outline:
           "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
         ghost:
           "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
         link: "text-primary underline-offset-4 hover:underline",
       },
+      size: {
+        default: "",
+        admin: "rounded-md px-1.5 py-0.5 text-[11px] font-medium",
+      },
     },
     defaultVariants: {
       variant: "default",
+      size: "default",
     },
   }
 )
@@ -30,6 +47,7 @@ const badgeVariants = cva(
 function Badge({
   className,
   variant = "default",
+  size = "default",
   render,
   ...props
 }: useRender.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
@@ -37,7 +55,7 @@ function Badge({
     defaultTagName: "span",
     props: mergeProps<"span">(
       {
-        className: cn(badgeVariants({ variant }), className),
+        className: cn(badgeVariants({ variant, size }), className),
       },
       props
     ),
@@ -45,6 +63,7 @@ function Badge({
     state: {
       slot: "badge",
       variant,
+      size,
     },
   })
 }

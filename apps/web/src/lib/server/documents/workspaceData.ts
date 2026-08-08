@@ -65,10 +65,15 @@ export type WorkspaceExecution =
       mode: "virtual_preview";
       bizNo: string;
       companyName: string;
+    }
+  | {
+      mode: "admin_preview";
+      companyName: string;
+      reviewerEmail: string;
     };
 
 export interface WorkspaceData {
-  /** 저장 경계를 명시한다. virtual_preview는 브라우저 메모리 외의 write를 허용하지 않는다. */
+  /** 저장 경계를 명시한다. preview 모드는 브라우저 메모리 외의 write를 허용하지 않는다. */
   execution: WorkspaceExecution;
   ladder: WorkspaceLadder;
   /** 선택된 문서(draftableDocument.documentKey). draftable 문서가 없으면 null. */
@@ -295,7 +300,48 @@ export async function loadVirtualGrantWorkspaceData(input: {
   };
   requestedDocumentKey?: string | null;
 }): Promise<WorkspaceData> {
-  const { sheet, virtualCompany } = input;
+  return loadReadOnlyGrantWorkspaceData({
+    sheet: input.sheet,
+    companyProfile: input.virtualCompany.profile,
+    execution: {
+      mode: "virtual_preview",
+      bizNo: input.virtualCompany.bizNo,
+      companyName: input.virtualCompany.name,
+    },
+    ...(input.requestedDocumentKey !== undefined
+      ? { requestedDocumentKey: input.requestedDocumentKey }
+      : {}),
+  });
+}
+
+/** 활성 관리·검수 계정이 회사·초안 write 없이 모든 공고의 빠른 작성 연결을 확인하는 read model. */
+export async function loadAdminGrantWorkspaceData(input: {
+  sheet: ApplySheet;
+  companyProfile: CompanyProfile;
+  reviewerEmail: string;
+  requestedDocumentKey?: string | null;
+}): Promise<WorkspaceData> {
+  return loadReadOnlyGrantWorkspaceData({
+    sheet: input.sheet,
+    companyProfile: input.companyProfile,
+    execution: {
+      mode: "admin_preview",
+      companyName: "관리자 지원서 시뮬레이션 기업",
+      reviewerEmail: input.reviewerEmail,
+    },
+    ...(input.requestedDocumentKey !== undefined
+      ? { requestedDocumentKey: input.requestedDocumentKey }
+      : {}),
+  });
+}
+
+async function loadReadOnlyGrantWorkspaceData(input: {
+  sheet: ApplySheet;
+  companyProfile: CompanyProfile;
+  execution: Exclude<WorkspaceExecution, { mode: "persistent" }>;
+  requestedDocumentKey?: string | null;
+}): Promise<WorkspaceData> {
+  const { sheet, execution } = input;
   const grant: WorkspaceGrantMeta = {
     id: sheet.grant.id,
     title: sheet.grant.title,
@@ -304,11 +350,6 @@ export async function loadVirtualGrantWorkspaceData(input: {
   };
   const draftable = sheet.applicationPrep.draftableDocuments;
   const documents = buildWorkspaceDocumentOptions(draftable);
-  const execution: WorkspaceExecution = {
-    mode: "virtual_preview",
-    bizNo: virtualCompany.bizNo,
-    companyName: virtualCompany.name,
-  };
 
   if (draftable.length === 0) {
     return {
@@ -344,6 +385,7 @@ export async function loadVirtualGrantWorkspaceData(input: {
     applicationPrecomputeState,
   } = await loadWorkspaceDocumentContext({
     sheet,
+    allowLocalApplicationPrecomputePreview: execution.mode === "admin_preview",
     ...(input.requestedDocumentKey !== undefined
       ? { requestedDocumentKey: input.requestedDocumentKey }
       : {}),
@@ -355,7 +397,7 @@ export async function loadVirtualGrantWorkspaceData(input: {
   }));
   const fieldAnswers = seedProfileFieldAnswers({
     fields: seedFields,
-    profile: virtualCompany.profile,
+    profile: input.companyProfile,
     current: {},
   });
   const { duplicateLabels } = detectDuplicateNormalizedLabels(connectedFields.map((field) => field.label));
@@ -425,6 +467,8 @@ function buildWorkspaceDocumentOptions(draftable: readonly DraftableDocument[]):
 async function loadWorkspaceDocumentContext(input: {
   sheet: ApplySheet;
   requestedDocumentKey?: string | null;
+  /** 로컬 관리자 시뮬레이션에서만 immutable lab Kordoc 산출물을 읽는다. */
+  allowLocalApplicationPrecomputePreview?: boolean;
 }): Promise<WorkspaceDocumentContext> {
   const { sheet } = input;
   const draftable = sheet.applicationPrep.draftableDocuments;
@@ -470,7 +514,7 @@ async function loadWorkspaceDocumentContext(input: {
     ?? draftable[0]!;
   const matchedSurface = matchSurfaceFor(activeDocument);
   const activeStorageKey = storageKeyByDocumentKey.get(activeDocument.documentKey) ?? null;
-  const [connectedFields, applicationPrecomputeState] = await Promise.all([
+  let [connectedFields, applicationPrecomputeState] = await Promise.all([
     loadConnectedDocumentFields({
       source: sheet.grant.source,
       sourceId: sheet.grant.sourceId,
@@ -481,6 +525,30 @@ async function loadWorkspaceDocumentContext(input: {
       ? loadSurfaceApplicationPrecomputeState({ surfaceId: matchedSurface.id })
       : Promise.resolve(null),
   ]);
+  if (
+    input.allowLocalApplicationPrecomputePreview
+    && matchedSurface
+    && connectedFields.length === 0
+    && !applicationPrecomputeState?.current
+  ) {
+    try {
+      const { loadLocalApplicationPrecomputePreview } = await import("./localApplicationPrecomputePreview");
+      const localPreview = await loadLocalApplicationPrecomputePreview({
+        grantId: sheet.grant.id,
+        source: sheet.grant.source,
+        sourceId: sheet.grant.sourceId,
+        surface: matchedSurface,
+      });
+      if (localPreview) {
+        connectedFields = localPreview.connectedFields;
+        applicationPrecomputeState = localPreview.state;
+      }
+    } catch (error) {
+      console.warn(
+        `Workspace 로컬 Kordoc 결과 연결 실패(관리자 미리보기만 생략): ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
   const pages = matchedSurface
     ? (preview?.pages ?? []).filter((page) => page.surfaceId === matchedSurface.id)
     : [];
@@ -583,6 +651,19 @@ function classifyWorkspace(input: {
       return {
         ladder: "b",
         honestNotice: "작성 항목 자동 분석을 완료하지 못했습니다. 원본 문서에서 직접 작성할 수 있습니다.",
+      };
+    }
+    if (
+      (input.applicationPrecomputeState.status === "complete"
+        || input.applicationPrecomputeState.status === "partial")
+      && input.connectedFieldsCount >= 1
+      && !input.fieldMapNeedsRefresh
+    ) {
+      return {
+        ladder: "a",
+        honestNotice: input.applicationPrecomputeState.status === "partial"
+          ? "빠른 작성에는 위치를 안전하게 확정한 항목만 표시합니다. 구조가 합쳐진 구간은 문서 직접 편집에서 함께 확인해 주세요."
+          : null,
       };
     }
   }

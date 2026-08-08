@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import {
   BookOpen,
-  ClipboardCheck,
+  FileSearch,
   FileText,
   LayoutDashboard,
   ShieldCheck,
@@ -26,6 +26,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 interface ReviewWorkspaceShellProps {
   reviewerEmail: string;
@@ -36,6 +37,9 @@ interface ReviewWorkspaceShellProps {
   actions?: ReactNode;
   children: ReactNode;
   metrics?: Array<{ label: string; value: string | number }>;
+  showGrantSimulation?: boolean;
+  density?: "default" | "compact";
+  theme?: "product" | "shadcn-neutral";
   document?: {
     docId: string;
     statusLabel: string;
@@ -53,15 +57,24 @@ export function ReviewWorkspaceShell({
   actions,
   children,
   metrics = [],
+  showGrantSimulation = false,
+  density = "default",
+  theme = "product",
   document,
 }: ReviewWorkspaceShellProps) {
   const navItems = [
     { href: "/internal/review", label: "문서 목록", icon: LayoutDashboard },
+    ...(showGrantSimulation
+      ? [{ href: "/internal/review/grants", label: "지원서 시뮬레이션", icon: FileSearch }]
+      : []),
     { href: "/internal/review/guide", label: "검수 가이드", icon: BookOpen },
   ];
 
   return (
-    <SidebarProvider>
+    <SidebarProvider
+      className={cn(theme === "shadcn-neutral" && "review-shadcn-theme")}
+      style={theme === "shadcn-neutral" ? { "--sidebar-width": "15rem" } as CSSProperties : undefined}
+    >
       <Sidebar>
         <SidebarHeader>
           <a href="/internal/review" className="flex min-w-0 items-center gap-2 rounded-[var(--radius-lg)] px-2 py-1.5">
@@ -160,22 +173,31 @@ export function ReviewWorkspaceShell({
       </Sidebar>
       <SidebarInset>
         <header className="sticky top-0 z-30 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/75">
-          <div className="flex min-h-14 items-center gap-2 px-4 lg:px-6">
+          <div className={cn(
+            "flex items-center gap-2 px-4",
+            density === "compact" ? "min-h-12 lg:px-4" : "min-h-14 lg:px-6",
+          )}>
             <SidebarTrigger />
             <Separator orientation="vertical" className="hidden h-6 sm:block" />
             <div className="flex min-w-0 flex-1 flex-col gap-0.5 py-2">
               <div className="flex flex-wrap items-center gap-2">
-                {badge ? <Badge variant="outline">{badge}</Badge> : null}
+                {badge ? <Badge size={density === "compact" ? "admin" : "default"} variant="outline">{badge}</Badge> : null}
                 <h1 className="truncate text-base font-semibold tracking-normal sm:text-lg">{title}</h1>
               </div>
               {description ? (
-                <p className="truncate text-sm text-muted-foreground">{description}</p>
+                <p className={cn(
+                  "truncate text-muted-foreground",
+                  density === "compact" ? "text-xs" : "text-sm",
+                )}>{description}</p>
               ) : null}
             </div>
             {actions ? <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">{actions}</div> : null}
           </div>
         </header>
-        <div className="flex w-full flex-1 flex-col gap-4 p-4 lg:p-6">
+        <div className={cn(
+          "flex w-full flex-1 flex-col",
+          density === "compact" ? "gap-3 p-3 lg:p-4" : "gap-4 p-4 lg:p-6",
+        )}>
           {children}
         </div>
       </SidebarInset>

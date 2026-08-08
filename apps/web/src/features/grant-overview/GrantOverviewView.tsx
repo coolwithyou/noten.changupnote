@@ -36,6 +36,7 @@ export function GrantOverviewView({
   remainingUses = null,
   virtualCompanyName = null,
   virtualCompanyBizNo = null,
+  adminPreview = false,
   handoffKey = null,
 }: {
   sheet: ApplySheet;
@@ -47,12 +48,15 @@ export function GrantOverviewView({
   virtualCompanyName?: string | null;
   /** 등록된 가상 기업만 비영속 workspace 미리보기로 전달한다. */
   virtualCompanyBizNo?: string | null;
+  /** 활성 관리·검수 계정이 매칭 상태와 무관하게 빠른 작성 연결을 검증하는 읽기 전용 모드. */
+  adminPreview?: boolean;
   /** 이 상세 렌더가 만든 ApplySheet를 workspace에서 재사용하기 위한 비민감 일회성 키. */
   handoffKey?: string | null;
 }) {
   const grantId = sheet.grant.id;
   const workspaceQuery = [
     virtualCompanyBizNo ? `biz=${encodeURIComponent(virtualCompanyBizNo)}` : null,
+    adminPreview ? "adminPreview=1" : null,
     handoffKey ? `handoff=${encodeURIComponent(handoffKey)}` : null,
   ].filter((value): value is string => value !== null).join("&");
   const workspaceHref = `/grants/${encodeURIComponent(grantId)}/workspace${workspaceQuery ? `?${workspaceQuery}` : ""}`;
@@ -78,7 +82,18 @@ export function GrantOverviewView({
         </p>
       </header>
 
-      {virtualCompanyName ? (
+      {adminPreview ? (
+        <div className="mt-5 rounded-2xl border border-brand/25 bg-surface-brand px-4 py-3.5 text-sm leading-6 text-text-nav">
+          <strong className="block text-brand">관리자 지원서 시뮬레이션</strong>
+          <span>매칭 여부와 관계없이 이 공고의 빠른 작성 필드 연결을 점검합니다. 입력값은 실제 회사나 초안에 저장되지 않습니다.</span>
+          <Link
+            href="/internal/review/grants"
+            className={buttonVariants({ variant: "link", size: "sm", className: "mt-1 h-auto px-0 text-brand" })}
+          >
+            관리자 공고 목록으로 돌아가기
+          </Link>
+        </div>
+      ) : virtualCompanyName ? (
         <div className="mt-5 rounded-2xl border border-border-brand-soft bg-surface-brand px-4 py-3.5 text-sm leading-6 text-text-nav">
           <strong className="block text-brand">가상 기업 기준 상세 결과</strong>
           <span>{virtualCompanyName}의 기업정보로 공고 조건을 다시 판정했어요. 이 화면에서는 실제 회사나 초안 데이터를 저장하지 않습니다.</span>
@@ -103,7 +118,7 @@ export function GrantOverviewView({
       <section className="mt-6">
         <GrantWorkspaceLink
           href={workspaceHref}
-          label={virtualCompanyName ? "가상 기업으로 지원서 미리보기" : cta.label}
+          label={adminPreview ? "관리자로 지원서 작성 흐름 확인" : virtualCompanyName ? "가상 기업으로 지원서 미리보기" : cta.label}
           className={buttonVariants({
             variant: cta.variant,
             size: "lg",
@@ -112,9 +127,11 @@ export function GrantOverviewView({
         />
         <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5">
           <p className="text-center text-[13px] leading-5 text-text-tertiary">
-            {virtualCompanyName ? "실제 회사나 초안에 저장하지 않고 작성 화면을 확인해요" : cta.caption}
+            {adminPreview
+              ? "모든 공고를 읽기 전용으로 열어 빠른 작성 연결 상태를 확인해요"
+              : virtualCompanyName ? "실제 회사나 초안에 저장하지 않고 작성 화면을 확인해요" : cta.caption}
           </p>
-          {!virtualCompanyName && usageChipRemaining !== null ? (
+          {!virtualCompanyName && !adminPreview && usageChipRemaining !== null ? (
             <Badge
               className={
                 usageChipRemaining <= 0

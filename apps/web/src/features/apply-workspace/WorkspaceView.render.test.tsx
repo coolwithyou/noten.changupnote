@@ -232,4 +232,53 @@ assert.ok(virtualHtml.includes("실제 회사·초안에는 저장되지 않습�
 assert.ok(virtualHtml.includes("biz=0000000001"), "페이지 이미지와 돌아가기 링크에 가상 기업 범위를 유지해야 합니다.");
 assert.ok(virtualHtml.includes("문서 직접 편집"), "가상 기업 목표 공고의 RHWP 로컬 편집 진입점을 보여야 합니다.");
 
+const adminPreviewHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        execution: {
+          mode: "admin_preview",
+          companyName: "관리자 지원서 시뮬레이션 기업",
+          reviewerEmail: "admin@noten.im",
+        },
+        draftId: null,
+        connectedFields: [],
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.ok(adminPreviewHtml.includes("관리자 빠른 작성 시뮬레이션"), "관리자 시뮬레이션 경계를 안내해야 합니다.");
+assert.ok(adminPreviewHtml.includes("실제 회사·초안에는 저장되지 않습니다"), "관리자 시뮬레이션의 비영속 경계를 안내해야 합니다.");
+assert.ok(adminPreviewHtml.includes("adminPreview=1"), "페이지 이미지와 돌아가기 링크에 관리자 시뮬레이션 범위를 유지해야 합니다.");
+assert.equal(adminPreviewHtml.includes("가상 기업 미리보기 완료"), false, "관리자 시뮬레이션을 가상 기업으로 표시하면 안 됩니다.");
+
+const adminPendingHtml = renderToStaticMarkup(
+  <AppRouterContext.Provider value={router}>
+    <WorkspaceView
+      data={{
+        ...data,
+        execution: {
+          mode: "admin_preview",
+          companyName: "관리자 지원서 시뮬레이션 기업",
+          reviewerEmail: "admin@noten.im",
+        },
+        ladder: "b",
+        applicationPrecomputeStatus: null,
+        connectedFields: [],
+      }}
+      greeting={{ text: "지원서 작성을 도와드릴게요.", generalNotice: true }}
+      institutionContact={null}
+    />
+  </AppRouterContext.Provider>,
+);
+assert.equal(
+  adminPendingHtml.includes("작성 항목을 분석하고 있습니다"),
+  false,
+  "읽기 전용 관리 화면은 실행 중인 분석이 없는데 무한 분석 중으로 표시하면 안 됩니다.",
+);
+assert.ok(adminPendingHtml.includes("빠른 작성 결과가 아직 연결되지 않았습니다"));
+
 console.log("WorkspaceView grant UUID render regression passed");

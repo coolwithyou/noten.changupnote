@@ -3,6 +3,7 @@ import {
   ApplicationRoundtripAnalyzeError,
 } from "@/lib/server/analysis-lab/application-roundtrip/analyze";
 import { runLabApplicationRoundtripAnalysis } from "@/lib/server/analysis-lab/application-roundtrip/lab-runner";
+import { readRoundtripRunArtifacts } from "@/lib/server/analysis-lab/application-roundtrip/store";
 import { resolveLabTransport } from "@/lib/server/analysis-lab/claude-cli-transport";
 import { getCunoteDb } from "@/lib/server/db/client";
 import {
@@ -14,6 +15,27 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 800;
+
+export async function GET(request: Request) {
+  if (process.env.NODE_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });
+  const search = new URL(request.url).searchParams;
+  const grantId = search.get("grantId")?.trim() ?? "";
+  const runId = search.get("runId")?.trim() ?? "";
+  if (!grantId || !runId) {
+    return NextResponse.json(
+      { error: "invalid_params", message: "grantId와 runId가 필요합니다." },
+      { status: 400 },
+    );
+  }
+  const artifacts = await readRoundtripRunArtifacts(grantId, runId);
+  if (!artifacts) {
+    return NextResponse.json(
+      { error: "roundtrip_run_not_found", message: "저장된 Kordoc 분석 결과를 찾지 못했습니다." },
+      { status: 404 },
+    );
+  }
+  return NextResponse.json({ run: artifacts.run });
+}
 
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });

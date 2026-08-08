@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import {
+  loadAdminGrantWorkspaceData,
   loadGrantWorkspaceData,
   loadVirtualGrantWorkspaceData,
 } from "@/lib/server/documents/workspaceData";
@@ -14,6 +15,10 @@ import { loadGrantApplySheetForHandoff } from "@/lib/server/grantApplySheetHando
 import { buildChatGreeting } from "@/lib/server/chat/greeting";
 import { WorkspaceView } from "@/features/apply-workspace/WorkspaceView";
 import { buildInstitutionContact } from "@/features/apply-workspace/workspacePresentation";
+import {
+  buildGrantSimulationCompanyProfile,
+  getGrantSimulationAdminIdentity,
+} from "@/lib/server/adminGrantSimulation";
 
 export const dynamic = "force-dynamic";
 
@@ -32,21 +37,37 @@ interface WorkspacePageProps {
 export default async function GrantWorkspacePage({ params, searchParams }: WorkspacePageProps) {
   const [{ grantId }, query] = await Promise.all([params, searchParams]);
   const requestedBizNo = firstParam(query.biz);
+  const requestedAdminPreview = firstParam(query.adminPreview) === "1";
   const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
     ? resolveVirtualCompanyScenario(requestedBizNo)
     : null;
-  const access = virtualScenario ? null : await loadWorkspaceAccess(grantId);
+  const adminIdentity = requestedAdminPreview ? await getGrantSimulationAdminIdentity() : null;
+  if (requestedAdminPreview && !adminIdentity) notFound();
+  if (virtualScenario && adminIdentity) notFound();
+  const access = virtualScenario || adminIdentity ? null : await loadWorkspaceAccess(grantId);
   const handoffKey = firstParam(query.handoff);
-  const sheetScope = virtualScenario
-    ? { virtualBizNo: virtualScenario.bizNo }
-    : { companyId: access!.companyId, userId: access!.userId };
-  const sheet = handoffKey
-    ? await loadGrantApplySheetForHandoff(grantId, handoffKey, sheetScope)
-    : await loadServiceApplySheet(grantId, sheetScope);
+  const sheetScope = adminIdentity
+    ? null
+    : virtualScenario
+      ? { virtualBizNo: virtualScenario.bizNo }
+      : { companyId: access!.companyId, userId: access!.userId };
+  const simulationProfile = adminIdentity ? buildGrantSimulationCompanyProfile() : null;
+  const sheet = simulationProfile
+    ? await loadServiceApplySheet(grantId, { simulationProfile })
+    : handoffKey && sheetScope
+      ? await loadGrantApplySheetForHandoff(grantId, handoffKey, sheetScope)
+      : await loadServiceApplySheet(grantId, sheetScope ?? {});
   if (!sheet) notFound();
 
   const requestedDocumentKey = firstParam(query.document) ?? null;
-  const data = virtualScenario
+  const data = adminIdentity && simulationProfile
+    ? await loadAdminGrantWorkspaceData({
+        sheet,
+        companyProfile: simulationProfile,
+        reviewerEmail: adminIdentity.email,
+        requestedDocumentKey,
+      })
+    : virtualScenario
     ? await loadVirtualGrantWorkspaceData({
         sheet,
         virtualCompany: virtualScenario,

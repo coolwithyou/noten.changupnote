@@ -1,6 +1,10 @@
 import { notFound } from "next/navigation";
 import { AppShell } from "@/components/app/app-shell";
 import { GrantOverviewView } from "@/features/grant-overview/GrantOverviewView";
+import {
+  buildGrantSimulationCompanyProfile,
+  getGrantSimulationAdminIdentity,
+} from "@/lib/server/adminGrantSimulation";
 import { requireCompanyAccess } from "@/lib/server/auth/companyGuard";
 import { redirectOnAuthRequired } from "@/lib/server/auth/pageRedirect";
 import { fallbackHeaderUserForDemoAccess, getOptionalHeaderUser } from "@/lib/server/auth/session";
@@ -28,20 +32,26 @@ interface GrantDetailPageProps {
 export default async function GrantDetailPage({ params, searchParams }: GrantDetailPageProps) {
   const [{ grantId }, query] = await Promise.all([params, searchParams]);
   const requestedBizNo = firstParam(query.biz);
+  const requestedAdminPreview = firstParam(query.adminPreview) === "1";
   const virtualScenario = requestedBizNo && isVirtualCompanyServerEnabled()
     ? resolveVirtualCompanyScenario(requestedBizNo)
     : null;
-  const access = virtualScenario ? null : await loadGrantAccess(grantId);
+  const adminIdentity = requestedAdminPreview ? await getGrantSimulationAdminIdentity() : null;
+  if (requestedAdminPreview && !adminIdentity) notFound();
+  if (virtualScenario && adminIdentity) notFound();
+  const access = virtualScenario || adminIdentity ? null : await loadGrantAccess(grantId);
   const handoffKey = crypto.randomUUID();
-  const sheet = await loadGrantApplySheetForHandoff(grantId, handoffKey, virtualScenario
-    ? { virtualBizNo: virtualScenario.bizNo }
-    : { companyId: access!.companyId, userId: access!.userId });
+  const sheet = adminIdentity
+    ? await loadServiceApplySheet(grantId, { simulationProfile: buildGrantSimulationCompanyProfile() })
+    : await loadGrantApplySheetForHandoff(grantId, handoffKey, virtualScenario
+      ? { virtualBizNo: virtualScenario.bizNo }
+      : { companyId: access!.companyId, userId: access!.userId });
   if (!sheet) notFound();
   const [preparation, previewAvailability, lessonGuide, remainingUses] = await Promise.all([
     access ? loadInitialPreparation(sheet.grant.id, access, sheet) : Promise.resolve(null),
     virtualScenario ? Promise.resolve(null) : loadPreviewAvailability(sheet.grant.id),
     loadLessonGuide(sheet.grant.title, sheet.grant.agency),
-    virtualScenario ? Promise.resolve(null) : getRemainingAssistantUses(),
+    virtualScenario || adminIdentity ? Promise.resolve(null) : getRemainingAssistantUses(),
   ]);
   const fieldLessonTips = await loadFieldLessonTips(sheet, preparation);
   // 노출 텔레메트리(지식 루프 K1): 매칭 결과를 렌더 시점에 raw 기록한다.
@@ -64,7 +74,8 @@ export default async function GrantDetailPage({ params, searchParams }: GrantDet
         remainingUses={remainingUses}
         virtualCompanyName={virtualScenario?.name ?? null}
         virtualCompanyBizNo={virtualScenario?.bizNo ?? null}
-        handoffKey={handoffKey}
+        adminPreview={Boolean(adminIdentity)}
+        handoffKey={adminIdentity ? null : handoffKey}
       />
     </AppShell>
   );

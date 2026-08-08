@@ -106,6 +106,91 @@ export async function listLabRunSummaries(source: string, sourceId: string): Pro
 }
 
 /**
+ * 관리자 상태 표면용 최신 런 읽기. grantId 전역 스캔 대신 source/sourceId 디렉터리 하나만
+ * 읽어 목록 40건에서도 파일시스템 비용이 공고 수에 선형으로 제한된다.
+ */
+export async function readLatestLabRun(source: string, sourceId: string): Promise<LabRun | null> {
+  const dir = runDirFor(source, sourceId);
+  let files: string[];
+  try {
+    files = await readdir(dir);
+  } catch {
+    return null;
+  }
+
+  let latest: LabRun | null = null;
+  for (const file of files) {
+    if (!isPrimaryRunFilename(file)) continue;
+    const run = await readRunFile(join(dir, file));
+    if (!run) continue;
+    if (!latest || run.startedAt > latest.startedAt) latest = run;
+  }
+  return latest;
+}
+
+const LATEST_LAB_RUN_INDEX_TTL_MS = 15_000;
+let latestLabRunIndexCache: { expiresAt: number; value: Map<string, LabRun> } | null = null;
+let latestLabRunIndexPromise: Promise<Map<string, LabRun>> | null = null;
+
+/**
+ * 관리자 필터용 최신 로컬 런 인덱스. 공고별 단건 목록은 readLatestLabRun을 쓰고,
+ * 전체 상태 필터가 선택된 경우에만 이 짧은 TTL 스냅샷으로 실험실 디렉터리를 한 번 스캔한다.
+ */
+export async function readLatestLabRunIndex(): Promise<Map<string, LabRun>> {
+  const now = Date.now();
+  if (latestLabRunIndexCache && latestLabRunIndexCache.expiresAt > now) {
+    return new Map(latestLabRunIndexCache.value);
+  }
+  if (latestLabRunIndexPromise) return new Map(await latestLabRunIndexPromise);
+
+  latestLabRunIndexPromise = buildLatestLabRunIndex();
+  try {
+    const value = await latestLabRunIndexPromise;
+    latestLabRunIndexCache = { expiresAt: now + LATEST_LAB_RUN_INDEX_TTL_MS, value };
+    return new Map(value);
+  } finally {
+    latestLabRunIndexPromise = null;
+  }
+}
+
+async function buildLatestLabRunIndex(): Promise<Map<string, LabRun>> {
+  const root = analysisLabDir();
+  let entries: string[];
+  try {
+    entries = await readdir(root);
+  } catch {
+    return new Map();
+  }
+
+  const runs = await Promise.all(entries
+    .filter((entry) => entry.includes("__"))
+    .map(async (entry) => {
+      const dir = join(root, entry);
+      let files: string[];
+      try {
+        files = await readdir(dir);
+      } catch {
+        return null;
+      }
+      let latest: LabRun | null = null;
+      for (const file of files) {
+        if (!isPrimaryRunFilename(file)) continue;
+        const run = await readRunFile(join(dir, file));
+        if (run && (!latest || run.startedAt > latest.startedAt)) latest = run;
+      }
+      return latest;
+    }));
+
+  const index = new Map<string, LabRun>();
+  for (const run of runs) {
+    if (!run) continue;
+    const current = index.get(run.grantId);
+    if (!current || run.startedAt > current.startedAt) index.set(run.grantId, run);
+  }
+  return index;
+}
+
+/**
  * 단건 읽기 — grantId + runId. 저장 디렉토리는 source__sourceId 키라서 grantId 만으로는
  * 경로를 못 만든다 → 하위 디렉토리를 스캔해 runId 파일을 찾고 grantId 일치를 확인한다
  * (런 수가 적은 dev 실험실이라 스캔 비용 무시 가능, DB 의존 없음).
@@ -218,4 +303,14 @@ async function readRunFile(path: string): Promise<LabRun | null> {
   } catch {
     return null;
   }
+}
+
+function isPrimaryRunFilename(file: string): boolean {
+  return file.startsWith("run-")
+    && file.endsWith(".json")
+    && !file.endsWith(".review.json")
+    && !file.includes(".ai-review.")
+    && !file.includes(".audit.")
+    && !file.includes(".confirmations.")
+    && !file.endsWith(".human-overlay.json");
 }
