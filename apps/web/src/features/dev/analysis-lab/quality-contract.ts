@@ -98,6 +98,29 @@ export interface AnalysisQualityReport {
   graphs: AnalysisQualityGraph[];
 }
 
+export interface AnalysisQualityBaselineComparison {
+  policyVersion: typeof ANALYSIS_QUALITY_POLICY_VERSION;
+  previousGeneratedAt: string;
+  currentGeneratedAt: string;
+  comparableGrants: number;
+  improved: number;
+  regressed: number;
+  unchanged: number;
+  hardGateRegressions: Array<{
+    grantId: string;
+    title: string;
+    previous: AnalysisQualityStatus;
+    current: AnalysisQualityStatus;
+  }>;
+  blockerDeltas: Array<{
+    nodeId: AnalysisQualityNodeId;
+    label: string;
+    previous: number;
+    current: number;
+    delta: number;
+  }>;
+}
+
 export function emptyQualityStatusCounts(): Record<AnalysisQualityStatus, number> {
   return {
     passed: 0,

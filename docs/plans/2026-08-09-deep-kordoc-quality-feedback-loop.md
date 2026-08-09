@@ -1,7 +1,7 @@
 # 딥분석·Kordoc 성공 기준과 품질 피드백 루프
 
 작성일: 2026-08-09  
-상태: 체크포인트 2 구현 완료, 30건 기준선 진행 중
+상태: 체크포인트 3 구현 완료, 제품 카나리 결속은 후속 범위
 범위: 로컬 구독 분석실 산출물의 판정·관측·회귀 비교. 분석 프롬프트 자체와 운영 worker는 변경하지 않는다.
 
 ## 1. 목표
@@ -115,3 +115,24 @@ Kordoc 원본·파싱 → 필드 판정 → 빠른 작성 반영 → workspace �
 4. **후속 제품 카나리**: 승격 receipt, 가상기업 매칭, workspace 채움 증거를 같은 그래프에 주입
 
 체크포인트 1~3에서는 분석 모델 호출, DB 쓰기, 승격, 운영 worker 변경을 하지 않는다.
+
+## 7. 실행 방법
+
+현재 현행 정책 최신 런을 읽기 전용으로 평가한다. 모델 호출과 DB 쓰기는 없다.
+
+```bash
+pnpm lab:quality -- --limit=30
+```
+
+비교 기준을 불변 JSON으로 남길 때만 `--write`를 명시한다.
+
+```bash
+pnpm lab:quality -- --limit=30 --write
+```
+
+이후 정책 변경 결과를 이전 파일과 비교한다. 같은 공고의 준비도가 `passed/partial`에서
+`held/failed`로 내려가면 하드 게이트 회귀로 별도 출력한다.
+
+```bash
+pnpm lab:quality -- --limit=30 --compare=spike-out/analysis-lab/quality-baselines/<기준선>.json
+```
