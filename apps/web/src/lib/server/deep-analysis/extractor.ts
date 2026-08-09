@@ -332,12 +332,20 @@ export function normalizeCriteria(rows: unknown, inputText: string): DeepAnalysi
       ? resolveExactEvidenceSpan(requestedSourceSpan, inputText) ?? requestedSourceSpan
       : null;
     const spanCheck = verifySpan(sourceSpan, normalizedInput, inputLines, inputText.length);
+    const value = normalizeCriterionValue({
+      rawValue: row.value,
+      dimension,
+      kind,
+      operator,
+      sourceSpan,
+      spanVerified: spanCheck.verified,
+    });
     const confirmation = normalizeConfirmation(row.confirmation);
     criteria.push({
       dimension,
       kind,
       operator,
-      value: isRecord(row.value) ? row.value : {},
+      value,
       confidence: boundedConfidence(row.confidence),
       sourceSpan,
       spanVerified: spanCheck.verified,
@@ -803,7 +811,9 @@ export const DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE =
 export const DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE =
   "중소기업·중견기업·대기업 같은 법정 기업 규모 분류는 size로만 표현한다. target_type은 개인사업자·법인사업자·협동조합·비영리법인처럼 신청 주체의 법적 형태나 역할 유형에만 사용한다. 동일한 규모 문구를 size와 target_type에 중복 criterion이나 condition_found로 만들지 마라. 법인인감 날인, 회사명·대표자 기재, 제출서식 같은 작성·제출 방식만으로 법인사업자 전용이라고 추정하지 마라. 개인사업자 배제나 법인만 신청 가능하다는 명시적 자격 문장이 없으면 target_type 조건이 아니다.";
 export const DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE =
-  "신청대상 유형 열거에 '등', '예:', '포함하되 이에 한정되지 않음'처럼 예시임을 나타내는 표현이 있으면 target_type value.list_semantics=\"open\"으로 둔다. '다음 각 호에 한함', '아래 유형만', '이외 신청 불가'처럼 완전 열거가 명시된 경우에만 list_semantics=\"closed\"로 둔다. open 목록 밖 유형을 자동 탈락시키지 마라.";
+  "신청대상 유형 열거에 '등', '예:', '포함하되 이에 한정되지 않음', '주로', '중심으로'처럼 예시임을 나타내는 표현이 있으면 target_type value.list_semantics=\"open\"으로 둔다. '다음 각 호에 한함', '아래 유형만', '이외 신청 불가'처럼 완전 열거가 명시됐거나, 지원대상·신청자격 문장이 신청 가능한 유형을 유한 목록으로 열거하면서 예시 표지가 없으면 list_semantics=\"closed\"로 둔다. open 목록 밖 유형을 자동 탈락시키지 마라.";
+export const DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE =
+  "각 criterion의 source_span은 한 입력 블록 안의 연속된 substring 하나를 공백·줄바꿈·문장부호까지 그대로 복사한다. 서로 떨어진 문장, 표의 비인접 행, 본문과 각주를 한 source_span으로 합치지 마라. 여러 문장이 같은 조건을 보충하면 criterion을 충분히 입증하는 가장 짧은 연속 구간 하나만 source_span으로 쓰고 나머지는 note와 analysis_markdown에 설명한다.";
 export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
   "financial_health의 구조화 criterion에 impairment_excluded가 full을 포함하면 자본전액잠식 결격을 이미 반영한 것이다. 같은 자본전액잠식 문구를 별도 text_only criterion으로 중복 만들지 말고, audit에서 그런 audit_only 후보가 나오면 primary 누락이 아니라 중복으로 판단하라.";
 export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
@@ -864,6 +874,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "[criteria — 22축 자격조건 분해]",
   "필수조건은 required, 제외대상은 exclusion, 우대조건은 preferred 로 분리한다.",
   "criteria 는 신청 가능 여부, 결격, 우대, 평가점수에 실제 영향을 주는 명시적 규정만 만든다.",
+  DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE,
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE,
@@ -934,6 +945,46 @@ function boundedConfidence(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, Math.min(1, value))
     : 0;
+}
+
+function normalizeCriterionValue(input: {
+  rawValue: unknown;
+  dimension: CriterionDimension;
+  kind: DeepAnalysisCriterionKind;
+  operator: string;
+  sourceSpan: string | null;
+  spanVerified: boolean;
+}): Record<string, unknown> {
+  const value = isRecord(input.rawValue) ? { ...input.rawValue } : {};
+  if (
+    input.dimension !== "target_type"
+    || input.kind !== "required"
+    || input.operator !== "in"
+    || !input.spanVerified
+    || !input.sourceSpan
+  ) {
+    return value;
+  }
+  const targets = stringArray(value.targets);
+  const normalizedSpan = normalizeEvidence(input.sourceSpan);
+  if (
+    targets.length === 0
+    || !targets.every((target) => normalizedSpan.includes(normalizeEvidence(target)))
+  ) {
+    return value;
+  }
+  return {
+    ...value,
+    list_semantics: hasOpenTargetTypeListMarker(normalizedSpan) ? "open" : "closed",
+  };
+}
+
+function hasOpenTargetTypeListMarker(sourceSpan: string): boolean {
+  return /(?:^|[\s,·/])등(?:은|는|이|가|을|를|의|과|도|으로)?(?:$|[\s,.)])/.test(sourceSpan)
+    || /예\s*:|예시|예컨대|일례/.test(sourceSpan)
+    || /포함하되\s*이에\s*한정되지/.test(sourceSpan)
+    || /포함(?:한|하는|하며|하고)/.test(sourceSpan)
+    || /(?:주로|대표적으로|중심으로)/.test(sourceSpan);
 }
 
 function cleanString(value: unknown): string | null {

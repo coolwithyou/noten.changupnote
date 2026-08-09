@@ -21,6 +21,7 @@ import {
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
+  DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
   DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE,
   DEEP_ANALYSIS_STRUCTURED_TARGET_RULE,
@@ -28,6 +29,7 @@ import {
   DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
   DEEP_ANALYSIS_UNRESOLVED_REFUND_RULE,
   buildDeepAnalysisToolSchema,
+  normalizeCriteria,
   resolveExactEvidenceSpan,
   runDeepGrantAnalysis,
 } from "./extractor";
@@ -103,6 +105,18 @@ assert.equal(
 assert.equal(
   DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE),
   true,
+);
+assert.match(
+  DEEP_ANALYSIS_TARGET_TYPE_LIST_SEMANTICS_RULE,
+  /지원대상·신청자격.*유한 목록.*예시 표지가 없으면.*closed/,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE,
+  /한 입력 블록 안의 연속된 substring 하나.*서로 떨어진 문장.*합치지 마라/,
 );
 for (const prompt of [
   DEEP_ANALYSIS_SYSTEM_PROMPT,
@@ -215,6 +229,45 @@ assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /회원가입시 .*서류 제출 \(영리기관만 해당\).*target_type 조건이 아니다/,
 );
+
+{
+  const exhaustiveSpan =
+    "경기도 내 본사 또는 공장이 소재한 창업 7년 이내 법인기업, 개인사업자, 예비창업자";
+  const [criterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["법인기업", "개인사업자", "예비창업자"],
+      list_semantics: "open",
+    },
+    confidence: 0.9,
+    source_span: exhaustiveSpan,
+  }], exhaustiveSpan);
+  assert.equal(
+    (criterion?.value as { list_semantics?: string }).list_semantics,
+    "closed",
+    "신청자격의 예시 표지 없는 유한 대상 열거는 목록 밖 유형을 허용하지 않는다",
+  );
+
+  const openSpan = "법인기업, 개인사업자, 예비창업자 등을 포함한 창업기업";
+  const [openCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["법인기업", "개인사업자", "예비창업자"],
+      list_semantics: "closed",
+    },
+    confidence: 0.9,
+    source_span: openSpan,
+  }], openSpan);
+  assert.equal(
+    (openCriterion?.value as { list_semantics?: string }).list_semantics,
+    "open",
+    "등과 같은 예시 표지가 있으면 모델 요청과 무관하게 열린 목록을 보존한다",
+  );
+}
 
 assert.equal(
   resolveExactEvidenceSpan("서울 소재 기업만 신청", "앞문장\n서울   소재\n기업만 신청\n뒷문장"),

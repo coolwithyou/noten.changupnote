@@ -23,7 +23,8 @@ import type {
 // v7: 협약 전 이전 가능한 지역 대안을 현재 소재지 hard-fail로 축약하지 않는다.
 // v8: 신청대상의 예시 열거와 완전 열거를 구분해 목록 밖 유형의 오탈락을 막는다.
 // v9: 모집직무·인력 수요 분야를 신청기업 업종으로 오분류하지 않는다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v9";
+// v10: 예시 표지 없는 신청대상 유한 열거를 닫고 source span의 비연속 결합을 금지한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v10";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
