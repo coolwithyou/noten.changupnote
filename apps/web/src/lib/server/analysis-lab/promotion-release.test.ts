@@ -296,6 +296,11 @@ function manifest() {
     "봉인된 deep release도 오류율은 계속 발행을 차단해야 한다",
   );
   assert.equal(
+    isPromotionAggregateGateBlocking([autoPromotableItem], "cost_per_notice_usd"),
+    true,
+    "운영 API 딥분석 release의 실제 비용은 계속 차단한다",
+  );
+  assert.equal(
     promotionAggregateDecidedCount([pendingItem], {
       correct: 3,
       needsEdit: 0,
@@ -457,6 +462,14 @@ function manifest() {
     }], "structured_ratio"),
     false,
     "verified local 카나리의 구조화 비율도 관찰 지표다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([{
+      ...planItem,
+      promotionPlan: auditedVerifiedPlan,
+    }], "cost_per_notice_usd"),
+    false,
+    "claude-cli local 카나리의 명목 API 환산 비용은 실제 지출 차단 지표가 아니다",
   );
   assert.equal(
     promotionPlanHasUnsafeUnresolvedCriteria({

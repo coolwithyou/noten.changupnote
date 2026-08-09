@@ -330,16 +330,23 @@ export function promotionAggregateDecidedCount(
 /**
  * 사람 검수 실험 release의 6개 게이트는 그대로 유지한다. 다만 독립 감사와 matcher
  * readiness까지 봉인된 production deep-analysis release와 독립 감사된 단일 local
- * conditional canary에서는 정확성·누락·비용과 source drift만 발행 차단 조건이다.
+ * conditional canary에서는 정확성·누락과 source drift를 발행 차단 조건으로 유지한다.
  * 상대 coverage와 structured 비율은 도입 성과 지표라 개별 공고의 문서 특성만으로
- * 안전한 conditional 발행을 막지 않는다.
+ * 안전한 conditional 발행을 막지 않는다. API 실행의 비용은 계속 차단하지만, 독립
+ * 감사된 claude-cli local canary의 costUsd는 구독 사용량을 API 단가로 환산한 명목값이므로
+ * 실제 추가 지출 게이트로 사용하지 않고 관찰 지표로만 남긴다.
  */
 export function isPromotionAggregateGateBlocking(
   plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness" | "promotionPlan">[],
   gateId: PromotionAggregateGateId,
 ): boolean {
   if (!isPromotableAnalysisRelease(plans)) return true;
-  return gateId !== "coverage_ratio" && gateId !== "structured_ratio";
+  if (gateId === "coverage_ratio" || gateId === "structured_ratio") return false;
+  if (
+    gateId === "cost_per_notice_usd"
+    && plans.every((item) => isAuditedLocalAcceptedPlan(item.promotionPlan))
+  ) return false;
+  return true;
 }
 
 function isPromotableAnalysisRelease(
