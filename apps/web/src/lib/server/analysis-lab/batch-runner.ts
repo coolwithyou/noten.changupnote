@@ -185,6 +185,7 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
         startedAt?: unknown;
         error?: unknown;
         costUsd?: unknown;
+        applicationRoundtrip?: { costUsd?: unknown };
       };
       try {
         parsed = JSON.parse(await readFile(join(root, entry, file), "utf8")) as typeof parsed;
@@ -204,7 +205,12 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
         states.get(parsed.grantId) ?? { okCurrent: false, okOutdated: false, errorCurrent: false };
       if (ok && current) {
         state.okCurrent = true;
-        if (typeof parsed.costUsd === "number") okCostSamples.push(parsed.costUsd);
+        if (typeof parsed.costUsd === "number") {
+          const roundtripCost = typeof parsed.applicationRoundtrip?.costUsd === "number"
+            ? parsed.applicationRoundtrip.costUsd
+            : 0;
+          okCostSamples.push(parsed.costUsd + roundtripCost);
+        }
       } else if (ok) {
         state.okOutdated = true;
       } else if (current) {
@@ -444,7 +450,8 @@ export async function runLabBatch(
       try {
         const run = await runAnalysis(target.grantId, analysisOverrides);
         const durationMs = Date.now() - targetStartedMs;
-        state.totalCostUsd += run.costUsd ?? 0;
+        const targetCostUsd = (run.costUsd ?? 0) + (run.applicationRoundtrip?.costUsd ?? 0);
+        state.totalCostUsd += targetCostUsd;
         if (run.error === null) {
           state.okCount += 1;
           emit({
@@ -455,7 +462,9 @@ export async function runLabBatch(
             stratum: target.stratum,
             title: run.title,
             durationMs,
-            costUsd: run.costUsd,
+            costUsd: targetCostUsd,
+            deepAnalysisCostUsd: run.costUsd,
+            applicationRoundtripCostUsd: run.applicationRoundtrip?.costUsd ?? null,
             cumulativeCostUsd: state.totalCostUsd,
             ...(run.applicationRoundtrip !== undefined
               ? { applicationRoundtrip: run.applicationRoundtrip }

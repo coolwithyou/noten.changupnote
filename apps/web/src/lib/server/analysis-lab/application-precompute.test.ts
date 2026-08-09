@@ -57,7 +57,27 @@ function deferred<T>() {
 // 사용할 수 있는 complete 문서와 review_required 문서가 섞이면 부분 준비로 남긴다.
 {
   const complete = document("complete", 2);
+  complete.fieldPlanning = {
+    status: "llm",
+    model: "claude-opus-5",
+    durationMs: 1,
+    candidateCount: 2,
+    acceptedCount: 2,
+    rejectedCount: 0,
+    warning: null,
+    costUsd: 0.42,
+  };
   const review = document("review_required", 0);
+  review.fieldPlanning = {
+    status: "llm",
+    model: "claude-opus-5",
+    durationMs: 1,
+    candidateCount: 1,
+    acceptedCount: 0,
+    rejectedCount: 1,
+    warning: null,
+    costUsd: 0.08,
+  };
   const run = {
     runId: "roundtrip-test",
     documents: [complete, review],
@@ -71,6 +91,7 @@ function deferred<T>() {
   });
   assert.equal(reference.status, "partial");
   assert.equal(reference.documentCount, 2);
+  assert.equal(reference.costUsd, 0.5, "문서별 최초·재판정 합산 비용을 reference에 보존");
 }
 
 // review_required 문서 하나뿐이어도 확정 필드가 있으면 전체 차단 대신 부분 준비로 남긴다.

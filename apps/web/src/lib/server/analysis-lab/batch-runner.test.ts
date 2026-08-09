@@ -221,7 +221,45 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   assert.equal(summary.notStarted, 1);
   assert.equal(summary.totalCostUsd, 6);
   assert.equal(summary.stopReason, "cost-cap");
-  console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·stopReason");
+console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·stopReason");
+}
+
+// 딥분석만이 아니라 같은 공고에서 병렬 실행한 Kordoc 명목 비용도 상한·이벤트에 합산한다.
+{
+  const analyzed: string[] = [];
+  const events: LabBatchEvent[] = [];
+  const summary = await runLabBatch(
+    baseOptions(events, { maxCostUsd: 5, withApplicationRoundtrip: true }),
+    makeDeps({
+      entries: [entry("kc1"), entry("kc2"), entry("kc3")],
+      run: async (grantId) => {
+        analyzed.push(grantId);
+        return {
+          ...okResult(`공고 ${grantId}`, 1),
+          applicationRoundtrip: {
+            status: "complete",
+            runId: `roundtrip-${grantId}`,
+            transport: "claude-cli",
+            model: "claude-opus-5",
+            documentCount: 1,
+            sourceCount: 1,
+            errorCode: null,
+            error: null,
+            costUsd: 2,
+          },
+        };
+      },
+    }),
+  );
+  assert.deepEqual(analyzed, ["kc1", "kc2"], "공고당 딥분석 $1 + Kordoc $2를 합산해 $5 상한에서 중단");
+  const okEvents = events.filter((event): event is Extract<LabBatchEvent, { type: "target-ok" }> =>
+    event.type === "target-ok");
+  assert.equal(okEvents[0]?.costUsd, 3);
+  assert.equal(okEvents[0]?.deepAnalysisCostUsd, 1);
+  assert.equal(okEvents[0]?.applicationRoundtripCostUsd, 2);
+  assert.equal(summary.totalCostUsd, 6);
+  assert.equal(summary.stopReason, "cost-cap");
+  console.log("✅ Kordoc 비용 합산 — 공고 총비용·상한·provenance 이벤트 일치");
 }
 
 // ---- ③ 윈도 소진 마커 → guard-stop(window-exhausted) ---------------------------

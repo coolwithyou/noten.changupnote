@@ -45,6 +45,7 @@ export function buildApplicationRoundtripReference(input: {
   }
 
   const run = input.result.value;
+  const costUsd = roundtripCostUsd(run);
   const sourceCount = run.sourceCount ?? run.documents.length;
   const applicationDocuments = run.documents.filter(isApplicationDocument);
   if (run.error) {
@@ -57,6 +58,7 @@ export function buildApplicationRoundtripReference(input: {
       sourceCount,
       errorCode: run.failureCode ?? "all_documents_failed",
       error: run.error,
+      costUsd,
     };
   }
   const runFailureCode = run.failureCode ?? null;
@@ -71,6 +73,7 @@ export function buildApplicationRoundtripReference(input: {
         sourceCount,
         errorCode: runFailureCode,
         error: null,
+        costUsd,
       };
     }
     return {
@@ -82,6 +85,7 @@ export function buildApplicationRoundtripReference(input: {
       sourceCount,
       errorCode: null,
       error: null,
+      costUsd,
     };
   }
 
@@ -134,11 +138,19 @@ export function buildApplicationRoundtripReference(input: {
     sourceCount,
     errorCode: runFailureCode,
     error: null,
+    costUsd,
     adjudicationStatus,
     adjudicationRounds,
     adjudicatedCandidateCount,
     remainingUnresolvedCandidateCount,
   };
+}
+
+function roundtripCostUsd(run: ApplicationRoundtripRun): number | null {
+  const planning = run.documents.flatMap((document) => document.fieldPlanning ? [document.fieldPlanning] : []);
+  if (planning.length === 0) return 0;
+  if (planning.some((summary) => summary.status === "llm" && typeof summary.costUsd !== "number")) return null;
+  return planning.reduce((sum, summary) => sum + (summary.costUsd ?? 0), 0);
 }
 
 function isApplicationDocument(document: RoundtripParsedDocument): boolean {

@@ -175,6 +175,8 @@ export interface LabApplicationRoundtripReference {
   sourceCount: number;
   errorCode: string | null;
   error: string | null;
+  /** 문서별 planner 최초 판정·재판정 usage를 합친 명목 API 환산 비용. 구런에는 없다. */
+  costUsd?: number | null;
   /** 구독 모델이 최초 판정 뒤 미해결 후보를 자동 재판정한 결과 요약. */
   adjudicationStatus?: "not_needed" | "resolved" | "partial" | "failed" | "skipped";
   adjudicationRounds?: number;
@@ -590,7 +592,11 @@ export type LabBatchEvent =
       stratum: string;
       title: string;
       durationMs: number;
+      /** 딥분석과 Kordoc을 합친 공고 단위 명목 API 환산 비용. */
       costUsd: number | null;
+      /** additive provenance — 구 batch-job 잔상에는 없다. */
+      deepAnalysisCostUsd?: number | null;
+      applicationRoundtripCostUsd?: number | null;
       cumulativeCostUsd: number;
       /** 같은 공고에서 함께 실행된 Kordoc 빠른 작성 선분석의 독립 종결 상태. */
       applicationRoundtrip?: LabApplicationRoundtripReference;
