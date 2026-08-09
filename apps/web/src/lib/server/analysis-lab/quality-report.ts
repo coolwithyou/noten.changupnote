@@ -36,7 +36,7 @@ export async function loadAnalysisQualityReport(
   const runs = [...index.values()]
     .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
     .slice(0, limit);
-  const graphs = await Promise.all(runs.map(loadRunQualityGraph));
+  const graphs = await Promise.all(runs.map(loadAnalysisQualityGraphForRun));
   return buildAnalysisQualityReport(graphs, limit);
 }
 
@@ -82,7 +82,8 @@ export function buildAnalysisQualityReport(
   };
 }
 
-async function loadRunQualityGraph(run: LabRun): Promise<AnalysisQualityGraph> {
+/** 정확한 배치 target 집합도 같은 그래프 판정기를 재사용할 수 있게 하는 단건 로더. */
+export async function loadAnalysisQualityGraphForRun(run: LabRun): Promise<AnalysisQualityGraph> {
   const [review, roundtripArtifacts, productEvidence] = await Promise.all([
     loadReviewEvidence(run),
     run.applicationRoundtrip?.runId
