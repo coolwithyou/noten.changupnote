@@ -511,11 +511,17 @@ async function loadWorkspaceDocumentContext(input: {
     storageKey: storageKeyByDocumentKey.get(doc.documentKey) ?? null,
     surfaces,
   });
-  const requestedDocument = input.requestedDocumentKey
-    ? draftable.find((doc) => doc.documentKey === input.requestedDocumentKey)
-    : undefined;
-  const activeDocument = requestedDocument
-    ?? draftable.find((doc) => (matchSurfaceFor(doc)?.pageCount ?? 0) > 0)
+  const activeDocumentKey = selectActiveWorkspaceDocumentKey({
+    documents: draftable.map((document) => ({
+      documentKey: document.documentKey,
+      sourceAttachment: document.sourceAttachment,
+      surface: matchSurfaceFor(document),
+    })),
+    ...(input.requestedDocumentKey !== undefined
+      ? { requestedDocumentKey: input.requestedDocumentKey }
+      : {}),
+  });
+  const activeDocument = draftable.find((document) => document.documentKey === activeDocumentKey)
     ?? draftable[0]!;
   const matchedSurface = matchSurfaceFor(activeDocument);
   const activeStorageKey = storageKeyByDocumentKey.get(activeDocument.documentKey) ?? null;
@@ -566,6 +572,35 @@ async function loadWorkspaceDocumentContext(input: {
     pollConversion: surfaces.some((surface) => surface.extractionStatus === "pending"),
     applicationPrecomputeState,
   };
+}
+
+/**
+ * workspace 기본 문서는 실제로 작성 가능한 surface를 우선한다. 페이지 이미지가 없는
+ * Kordoc 선분석 문서도 fields_ready면 첨부 없는 합성 문서보다 먼저 열어야 한다.
+ * 사용자가 명시한 documentKey가 있으면 이 자동 우선순위보다 항상 앞선다.
+ */
+export function selectActiveWorkspaceDocumentKey(input: {
+  documents: Array<{
+    documentKey: string;
+    sourceAttachment: string | null;
+    surface: Pick<PreviewSurface, "pageCount" | "extractionStatus"> | null;
+  }>;
+  requestedDocumentKey?: string | null;
+}): string {
+  if (input.documents.length === 0) {
+    throw new Error("작성형 문서가 없는 workspace에서 기본 문서를 선택할 수 없습니다.");
+  }
+  const requested = input.requestedDocumentKey
+    ? input.documents.find((document) => document.documentKey === input.requestedDocumentKey)
+    : null;
+  return (
+    requested
+    ?? input.documents.find((document) => (document.surface?.pageCount ?? 0) > 0)
+    ?? input.documents.find((document) => document.surface?.extractionStatus === "fields_ready")
+    ?? input.documents.find((document) => document.surface !== null)
+    ?? input.documents.find((document) => document.sourceAttachment !== null)
+    ?? input.documents[0]!
+  ).documentKey;
 }
 
 /**
