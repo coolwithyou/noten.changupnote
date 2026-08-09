@@ -206,6 +206,17 @@ function roundtripFixture(run: LabRun, document = documentFixture()): Applicatio
     true,
     "품질 그래프에 자동 교정 횟수 보존",
   );
+  const passedProduct = { status: "passed" as const, summary: "제품 카나리 통과" };
+  const productGraph = evaluateAnalysisQuality({
+    run,
+    review: { source: "ai_audit", review: reviewFixture(run), complete: true, currentPolicy: true },
+    roundtrip,
+    deepPromotion: passedProduct,
+    matchingCanary: passedProduct,
+    fieldMaterialization: passedProduct,
+    workspaceCanary: passedProduct,
+  });
+  assert.equal(productGraph.productReadiness, "passed", "네 제품 증거가 모두 결속되면 제품 레인 통과");
   console.log("✅ 품질 그래프 — 분석 완료와 제품 미검증을 분리");
 }
 

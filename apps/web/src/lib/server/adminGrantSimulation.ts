@@ -1,5 +1,4 @@
 import { and, eq, inArray } from "drizzle-orm";
-import type { CompanyProfile } from "@cunote/contracts";
 import { getOptionalWebSession } from "./auth/session";
 import { getCunoteDb } from "./db/client";
 import * as schema from "./db/schema";
@@ -7,6 +6,10 @@ import {
   isGrantSimulationNavigationAllowed,
   isGrantSimulationNavigationHost,
 } from "../grantSimulationNavigation";
+export {
+  buildGrantSimulationCompanyProfile,
+  GRANT_SIMULATION_BUSINESS_NUMBER,
+} from "./adminGrantSimulationProfile";
 
 export interface GrantSimulationAdminIdentity {
   adminUserId: string;
@@ -14,9 +17,6 @@ export interface GrantSimulationAdminIdentity {
   name: string | null;
   role: "owner" | "admin" | "reviewer";
 }
-
-/** 실제 체크섬을 통과하지 않는 관리자 전용 비영속 지원서 시뮬레이션 번호. */
-export const GRANT_SIMULATION_BUSINESS_NUMBER = "0000000099";
 
 /** 웹 세션 이메일이 활성화된 관리·검수 계정과 일치할 때만 읽기 전용 지원서 시뮬레이션을 연다. */
 export async function getGrantSimulationAdminIdentity(): Promise<GrantSimulationAdminIdentity | null> {
@@ -80,32 +80,4 @@ export async function shouldShowGrantSimulationNavigation(input: {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** 매칭 판정이 아니라 빠른 작성 필드 연결만 확인하기 위한 비영속 최소 프로필. */
-export function buildGrantSimulationCompanyProfile(): CompanyProfile {
-  const asOf = new Date().toISOString();
-  return {
-    name: "관리자 지원서 시뮬레이션 기업",
-    target_types: ["기업", "중소기업"],
-    business_status: { active: true, label: "계속사업자" },
-    list_completeness: { target_type: "complete" },
-    confidence: { target_type: 1, business_status: 1 },
-    profile_evidence: {
-      target_type: {
-        sourceKind: "self_declared",
-        provider: "cunote_admin_simulation",
-        asOf,
-        axisCompleteness: "complete",
-        confidence: 1,
-      },
-      business_status: {
-        sourceKind: "self_declared",
-        provider: "cunote_admin_simulation",
-        asOf,
-        axisCompleteness: "complete",
-        confidence: 1,
-      },
-    },
-  };
 }

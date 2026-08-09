@@ -21,6 +21,7 @@ import {
   mergeAuditedReview,
 } from "./audited-reviews";
 import { evaluateAnalysisQuality } from "./quality-graph";
+import { readLatestProductCanaryEvidence } from "./product-canary-evidence";
 import { readLabReview } from "./review-store";
 import { readLatestLabRunIndexForPrompt } from "./run-store";
 
@@ -82,16 +83,21 @@ export function buildAnalysisQualityReport(
 }
 
 async function loadRunQualityGraph(run: LabRun): Promise<AnalysisQualityGraph> {
-  const [review, roundtripArtifacts] = await Promise.all([
+  const [review, roundtripArtifacts, productEvidence] = await Promise.all([
     loadReviewEvidence(run),
     run.applicationRoundtrip?.runId
       ? readRoundtripRunArtifacts(run.grantId, run.applicationRoundtrip.runId)
       : Promise.resolve(null),
+    readLatestProductCanaryEvidence(run.grantId, run.runId),
   ]);
   return evaluateAnalysisQuality({
     run,
     review,
     roundtrip: roundtripArtifacts?.run ?? null,
+    deepPromotion: productEvidence?.deepPromotion ?? null,
+    matchingCanary: productEvidence?.matchingCanary ?? null,
+    fieldMaterialization: productEvidence?.fieldMaterialization ?? null,
+    workspaceCanary: productEvidence?.workspaceCanary ?? null,
   });
 }
 
