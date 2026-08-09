@@ -9,6 +9,7 @@ import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import {
   FALLBACK_COST_PER_GRANT_USD,
   runLabBatch,
+  selectRequestedCohortEntries,
   type LabBatchAnalysisImpl,
   type LabBatchEvent,
   type LabBatchPeriodSkipStatus,
@@ -481,6 +482,37 @@ console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·s
   assert.equal(called, 0);
   assert.equal(events.length, 0, "fail-fast — plan 이벤트조차 방출하지 않는다");
   console.log("✅ 오버라이드 오타 — 진입 시 1회 해석 fail-fast·이벤트 무방출");
+}
+
+// ---- ⑧ 정확한 grantIds 선택 ----------------------------------------------------
+{
+  const entries = [entry("g1"), entry("g2"), entry("g3")];
+  assert.deepEqual(
+    selectRequestedCohortEntries(entries, ["g3", "g1"]).map((item) => item.grantId),
+    ["g1", "g3"],
+    "실행 순서는 요청 배열이 아니라 동결 코호트 순서를 유지한다",
+  );
+  assert.throws(
+    () => selectRequestedCohortEntries(entries, ["missing"]),
+    /코호트에 없는 --grant-ids: missing/,
+  );
+
+  const called: string[] = [];
+  const events: LabBatchEvent[] = [];
+  await runLabBatch(
+    baseOptions(events, { grantIds: ["g2"] }),
+    makeDeps({
+      entries,
+      run: async (grantId) => {
+        called.push(grantId);
+        return okResult(grantId, 0.1);
+      },
+    }),
+  );
+  assert.deepEqual(called, ["g2"]);
+  assert.equal(planOf(events).total, 1);
+  assert.equal(planOf(events).targets, 1);
+  console.log("✅ grantIds — 코호트 안의 정확한 공고만 실행·누락은 fail-fast");
 }
 
 console.log("\nbatch-runner 테스트 전부 통과");

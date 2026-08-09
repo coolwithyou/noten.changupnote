@@ -34,6 +34,7 @@ import {
   estimatePerGrantCostUsd,
   runLabBatch,
   scanExistingRuns,
+  selectRequestedCohortEntries,
   type LabBatchEvent,
   type LabBatchPeriodSkipStatus,
   type LabBatchPeriodSkippedEntry,
@@ -80,6 +81,7 @@ interface BatchOptions {
   reanalyzeOutdated: boolean;
   withApplicationRoundtrip: boolean;
   roundtripModel?: string;
+  grantIds?: string[];
 }
 
 /** 옵션 검증 — 오류면 사유 문자열 반환(호출부에서 안내 후 exit 1). */
@@ -89,6 +91,8 @@ function parseOptions(): BatchOptions | string {
   const maxCostUsd = readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
   const withApplicationRoundtrip = hasFlag("with-application-roundtrip");
   const roundtripModel = readArg("roundtrip-model")?.trim();
+  const grantIdsRaw = readArg("grant-ids");
+  const grantIds = grantIdsRaw?.split(",").map((value) => value.trim()).filter(Boolean);
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
     return "--limit 은 1 이상의 정수여야 합니다.";
   }
@@ -104,6 +108,9 @@ function parseOptions(): BatchOptions | string {
   if (roundtripModel !== undefined && !withApplicationRoundtrip) {
     return "--roundtrip-model 은 --with-application-roundtrip 과 함께 지정해야 합니다.";
   }
+  if (grantIdsRaw !== undefined && (!grantIds || grantIds.length === 0 || new Set(grantIds).size !== grantIds.length)) {
+    return "--grant-ids 는 중복 없는 공고 ID를 쉼표로 지정해야 합니다.";
+  }
   return {
     limit,
     concurrency,
@@ -113,6 +120,7 @@ function parseOptions(): BatchOptions | string {
     reanalyzeOutdated: hasFlag("reanalyze-outdated"),
     withApplicationRoundtrip,
     ...(roundtripModel !== undefined ? { roundtripModel } : {}),
+    ...(grantIds ? { grantIds } : {}),
   };
 }
 
@@ -218,13 +226,14 @@ async function runDryRun(options: BatchOptions): Promise<number> {
     return 1;
   }
   const { states, okCostSamples } = await scanExistingRuns();
-  const partition = partitionCohortEntries(cohort.entries, states, {
+  const cohortEntries = selectRequestedCohortEntries(cohort.entries, options.grantIds);
+  const partition = partitionCohortEntries(cohortEntries, states, {
     retryErrors: options.retryErrors,
     reanalyzeOutdated: options.reanalyzeOutdated,
   });
   const targets = partition.pending.slice(0, options.limit);
   const view: PlanView = {
-    cohortTotal: cohort.entries.length,
+    cohortTotal: cohortEntries.length,
     cohortLabel: cohort.experimentLabel,
     skippedOk: partition.skippedOk.length,
     skippedOkOutdatedOnly: partition.skippedOkOutdatedOnly.length,
@@ -290,6 +299,7 @@ function createCliBatchRecorder(options: BatchOptions, transport: LabBatchTransp
         model: resolveLabModel(),
         ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
         ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
+        ...(options.grantIds ? { grantIds: options.grantIds } : {}),
       },
       progress: { total: 0, started: 0, ok: 0, error: 0, cumulativeCostUsd: 0 },
       guardStop: null,
@@ -358,6 +368,7 @@ async function runBatchViaRunner(
       reanalyzeOutdated: options.reanalyzeOutdated,
       ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
       ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
+      ...(options.grantIds ? { grantIds: options.grantIds } : {}),
       ...(signal ? { signal } : {}),
       onEvent: (event) => {
         recorder.record(event); // 관측 브리지 — 콘솔 렌더와 무관하게 베스트에포트 기록

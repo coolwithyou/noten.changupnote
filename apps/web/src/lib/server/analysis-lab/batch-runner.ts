@@ -45,6 +45,8 @@ export interface LabBatchRunnerOptions {
   withApplicationRoundtrip?: boolean;
   /** 미지정 시 딥 분석 모델을 상속한다. */
   roundtripModel?: string;
+  /** 코호트 안에서 정확히 이 공고들만 실행한다. */
+  grantIds?: string[];
   onEvent?: (event: LabBatchEvent) => void;
   /** abort 시 신규 착수만 중단한다 — 진행분은 각 워커가 완료하고 런도 저장된다. */
   signal?: AbortSignal;
@@ -294,6 +296,22 @@ function assertRunnerOptions(options: LabBatchRunnerOptions): void {
   if (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0) {
     throw new Error("maxCostUsd 는 0보다 큰 숫자여야 합니다.");
   }
+  if (options.grantIds && (options.grantIds.length === 0 || new Set(options.grantIds).size !== options.grantIds.length)) {
+    throw new Error("grantIds 는 중복 없는 1개 이상의 공고 ID여야 합니다.");
+  }
+}
+
+export function selectRequestedCohortEntries(
+  entries: readonly CohortEntry[],
+  grantIds?: readonly string[],
+): CohortEntry[] {
+  if (!grantIds) return [...entries];
+  const requested = new Set(grantIds);
+  const selected = entries.filter((entry) => requested.has(entry.grantId));
+  const found = new Set(selected.map((entry) => entry.grantId));
+  const missing = grantIds.filter((grantId) => !found.has(grantId));
+  if (missing.length > 0) throw new Error(`코호트에 없는 --grant-ids: ${missing.join(", ")}`);
+  return selected;
 }
 
 /**
@@ -326,10 +344,11 @@ export async function runLabBatch(
 
   const cohort = await (deps?.readCohortImpl ?? readCohortFileV2)();
   if (!cohort) throw new LabCohortMissingError(cohortFilePath());
+  const cohortEntries = selectRequestedCohortEntries(cohort.entries, options.grantIds);
 
   const { states, okCostSamples } = await (deps?.scanRunsImpl ?? scanExistingRuns)();
   // 분할 규칙은 batch-plan.ts(순수 — 테스트 대상) 소유: 버전 무관 ok 스킵 + 탈출구 2종.
-  const partition = partitionCohortEntries(cohort.entries, states, {
+  const partition = partitionCohortEntries(cohortEntries, states, {
     retryErrors: options.retryErrors,
     reanalyzeOutdated: options.reanalyzeOutdated,
   });
@@ -341,7 +360,7 @@ export async function runLabBatch(
   emit({
     type: "plan",
     cohortLabel: cohort.experimentLabel,
-    total: cohort.entries.length,
+    total: cohortEntries.length,
     skippedOk: partition.skippedOk.length,
     skippedOkOutdatedOnly: partition.skippedOkOutdatedOnly.length,
     heldError: partition.heldError.length,

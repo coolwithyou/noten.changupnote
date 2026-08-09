@@ -682,6 +682,8 @@ export interface LabBatchStartRequest {
   withApplicationRoundtrip?: boolean;
   /** 미지정 시 딥 분석 모델을 상속한다. */
   roundtripModel?: string;
+  /** CLI/관리자 재검증에서 코호트 안의 정확한 공고만 실행할 때 사용한다. */
+  grantIds?: string[];
 }
 
 /** GET/POST/DELETE ops/batch 응답 — 동시 1잡(싱글턴). state=idle 이면 나머지는 직전 잡 잔상 또는 null. */
