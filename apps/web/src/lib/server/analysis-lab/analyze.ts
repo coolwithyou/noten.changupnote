@@ -52,6 +52,10 @@ export interface LabAnalysisOverrides {
   withApplicationRoundtrip?: boolean;
   /** 미지정 시 ANALYSIS_LAB_ROUNDTRIP_MODEL 또는 딥 분석 모델을 상속한다. */
   roundtripModel?: string;
+  /** 완료된 독립 검수의 검증된 blocker만 재분석 지시로 전달한다. */
+  taskInstruction?: string;
+  /** taskInstruction의 원천을 런에 결속하는 provenance. */
+  reviewRepair?: NonNullable<LabRun["reviewRepair"]>;
 }
 
 /**
@@ -226,6 +230,7 @@ export async function runLabAnalysis(
         inputText: input.text,
         inputSha256: input.inputSha256,
         model: requestedModel,
+        ...(opts?.taskInstruction ? { taskInstruction: opts.taskInstruction } : {}),
         ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
       });
       return { extraction: validated.extraction, error: null, repairCount: validated.repairCount };
@@ -303,6 +308,7 @@ export async function runLabAnalysis(
       assessments: extraction?.axisAssessments ?? [],
     }),
     primaryRepairCount: primary.repairCount,
+    ...(opts?.reviewRepair ? { reviewRepair: opts.reviewRepair } : {}),
     ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),
     error,
   };

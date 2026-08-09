@@ -213,6 +213,14 @@ export interface LabRun {
   dimensionDiffs: LabDimensionDiff[];
   /** 운영과 같은 validator 교정 루프가 실제로 수행된 횟수. 구런에는 없다. */
   primaryRepairCount?: number;
+  /** 완료된 독립 검수의 blocking 판정을 Opus 재분석에 되먹임한 로컬 루프 provenance. */
+  reviewRepair?: {
+    sourceRunId: string;
+    reviewModel: string;
+    auditModel: string | null;
+    adjudicationModel: string | null;
+    blockingCount: number;
+  };
   /** 구런과 Kordoc 미실행 런에는 없다. */
   applicationRoundtrip?: LabApplicationRoundtripReference;
   error: string | null;

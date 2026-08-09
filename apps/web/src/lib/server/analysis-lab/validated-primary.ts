@@ -23,6 +23,7 @@ export async function runValidatedLabPrimary(input: {
   inputSha256: string;
   apiKey: string;
   model: string;
+  taskInstruction?: string;
   effort?: DeepAnalysisEffort | null;
   fetchImpl?: typeof fetch;
   runModel?: typeof runDeepGrantAnalysis;
@@ -42,6 +43,7 @@ export async function runValidatedLabPrimary(input: {
     inputText: input.inputText,
     evidenceText: input.inputText,
     model: input.model,
+    ...(input.taskInstruction ? { taskInstruction: input.taskInstruction } : {}),
     ...(input.effort === undefined ? {} : { effort: input.effort }),
   });
   const firstPass: DeepAnalysisModelPass = {
@@ -81,4 +83,3 @@ export async function runValidatedLabPrimary(input: {
   }
   return { extraction: execution.result, repairCount };
 }
-
