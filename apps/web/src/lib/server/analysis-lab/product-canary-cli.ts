@@ -1,21 +1,6 @@
 import { readFile } from "node:fs/promises";
-import {
-  buildGrantSimulationCompanyProfile,
-  GRANT_SIMULATION_BUSINESS_NUMBER,
-} from "../adminGrantSimulationProfile";
-import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import {
-  buildProductCanaryId,
-  evaluateProductCanaryObservation,
-  PRODUCT_CANARY_EVIDENCE_SCHEMA,
-  writeProductCanaryEvidence,
-  type ProductCanaryEvidence,
-} from "./product-canary-evidence";
-import {
-  promotionReleaseArtifactPath,
-  readPromotionReleaseManifest,
-} from "./promotion-release";
-import { readLabRun } from "./run-store";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+import type { ProductCanaryEvidence } from "./product-canary-evidence";
 
 interface VerificationArtifact {
   schema: "analysis-lab-promotion-verification-v1";
@@ -46,14 +31,30 @@ interface Options {
   reviewerEmail: string;
 }
 
-loadMonorepoEnv();
+loadAnalysisLabEnv();
 process.env.CUNOTE_REPOSITORY_ADAPTER = "drizzle";
 
 async function main(): Promise<number> {
   const options = parseOptions(process.argv.slice(2));
-  const [{ loadServiceApplySheet }, { loadAdminGrantWorkspaceData }] = await Promise.all([
+  const [
+    { buildGrantSimulationCompanyProfile, GRANT_SIMULATION_BUSINESS_NUMBER },
+    { loadServiceApplySheet },
+    { loadAdminGrantWorkspaceData },
+    {
+      buildProductCanaryId,
+      evaluateProductCanaryObservation,
+      PRODUCT_CANARY_EVIDENCE_SCHEMA,
+      writeProductCanaryEvidence,
+    },
+    { promotionReleaseArtifactPath, readPromotionReleaseManifest },
+    { readLabRun },
+  ] = await Promise.all([
+    import("../adminGrantSimulationProfile"),
     import("../serviceData"),
     import("../documents/workspaceData"),
+    import("./product-canary-evidence"),
+    import("./promotion-release"),
+    import("./run-store"),
   ]);
   const manifest = await readPromotionReleaseManifest(options.releaseId);
   const plan = manifest.plans.find((item) => item.grantId === options.grantId);
@@ -149,7 +150,11 @@ async function readArtifact<T>(path: string): Promise<T> {
 }
 
 function assertReleaseArtifact(
-  manifest: Awaited<ReturnType<typeof readPromotionReleaseManifest>>,
+  manifest: {
+    releaseId: string;
+    releasePlanSha256: string;
+    manifestSha256: string;
+  },
   artifact: VerificationArtifact | ShadowArtifact,
   schema: VerificationArtifact["schema"] | ShadowArtifact["schema"],
 ): void {

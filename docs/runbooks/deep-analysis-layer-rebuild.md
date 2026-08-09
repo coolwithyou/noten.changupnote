@@ -207,3 +207,24 @@ criteria나 field map을 임시 복원하지 않는다.
 - 새 기준 카나리만 다시 materialize·승격됨
 - 관리자 시뮬레이션에서 딥분석 근거와 빠른 작성 필드가 모두 즉시 표시됨
 - 랜딩 호출이 새 release 공고만 반환하고 새 관측을 기록함
+
+## 7. 첫 제품 카나리 증거 (2026-08-09)
+
+재구축 뒤 첫 로컬 구독 카나리는 G-Bio 공고
+`5e42c61c-ab7f-4900-86f1-0376e794bdce`로 고정했다. release
+`deep-quality-loop-gbio-20260809-r2-20260809T100130Z-057065bf`의 DB canary와
+검증 결과는 다음과 같다.
+
+- 딥분석: 22/22축, 조건 15/15 원문 근거, 독립 검수 blocker 0
+- 매칭: 회사 134개 shadow, source·baseline·guard issue 0
+- Kordoc: `complete`, 빠른 작성 필드 37개, 미해결·구조 경고 0
+- workspace: `admin_preview`, 사다리 A, 자동 채움 3개, draft write·conversion poll 0
+
+`pnpm lab:product-canary`는 기존 release verification과 shadow artifact를 다시 검증하고
+실제 서비스 상세·workspace 로더를 읽은 뒤 네 결과를
+`spike-out/analysis-lab/product-canary/<grantId>/<runId>/`에 불변 파일로 저장한다. 품질
+보고서는 이 파일을 읽어 제품 lane을 판정한다. Kordoc `partial`, 연결 필드 0, 사다리 B/C,
+draft write 또는 복구 poll은 제품 통과로 완화하지 않는다.
+
+현재 증거는 단일 공고 범위다. 5건·30건 확대 때도 release마다 이 명령을 실행해 네 노드가
+모두 통과한 공고만 제품 준비 완료로 센다.

@@ -385,6 +385,26 @@ surfaceId
 - 첫 v11 카나리에서 모델은 14개 조건을 축 설명에는 기록했지만 잘못된 원문 인용 때문에 정규화 결과가 0건이 됐다. 로컬 lab이 이를 `error=null`로 저장하던 운영 대비 공백을 확인해 운영과 같은 validator→최대 2회 Opus 교정 루프를 로컬 구독 경로에도 연결했다.
 - 최종 카나리 `run-2026-08-09T060021.477Z-4163de`는 validator 교정 1회 후 15/15 근거 검증, 22/22축, ambiguous·input_missing 0을 기록했다. Kordoc v7은 빠른 작성 37필드, 미해결·구조 경고 0으로 통과했고 Fable 검수와 Sonnet 감사도 차단·보류 0으로 동의했다.
 
+#### 제품 카나리 피드백 루프 (2026-08-09)
+
+- 분석 lane 통과를 제품 성공으로 간주하지 않는다. 품질 그래프에 `딥분석 승격 → 매칭 섀도 → Kordoc 필드 반영 → 읽기 전용 지원서 workspace` 네 제품 노드를 추가했고, 실제 증거가 없으면 `not_evaluated`로 남긴다.
+- 첫 G-Bio release 준비 과정에서 검증된 로컬 감사 결과가 `conditional`보다 엄격한 `verified`인데도 `needs_review` 변환 때문에 차단되는 비단조 가드를 수정했다. 신청자격 blocker 0인 `verified|conditional`만 로컬 단건 카나리에 허용하며 일반·혼합·운영 경로는 계속 fail-closed다.
+- 구독 `claude-cli`의 명목 API 환산 비용 `$1.0939555`가 `$1` 운영 비용 gate를 막던 문제를 분리했다. 로컬 구독 카나리는 비용을 관측값으로 남기되 blocking하지 않고, 실제 API release 비용 gate는 그대로 유지한다.
+- release `deep-quality-loop-gbio-20260809-r2-20260809T100130Z-057065bf`는 aggregate `GO`, shadow `PASS`(공고 1 × 회사 134, 회귀 0), dry-run과 canary verification `PASS`를 통과했다.
+- 첫 workspace 판정은 합성 `신청서`를 기본 선택해 연결 필드가 0개였다. 요청 문서 우선은 유지하고, 미지정 시 `preview page → fields_ready → surface 연결 → 원본 첨부 → 첫 문서` 순으로 선택해 Kordoc이 준비된 실제 사업계획서를 연다.
+- 최종 불변 제품 카나리는 승격 검증, 회사 134개 매칭 섀도, Kordoc `complete` 37필드 반영, 관리자 `admin_preview` 사다리 A·자동 채움 3개·draft write 0을 모두 통과했다. 품질 보고서에서도 해당 run의 제품 lane 네 노드와 `productReadiness`가 전부 `passed`다.
+
+재검증 명령:
+
+```bash
+pnpm lab:product-canary -- \
+  --release=deep-quality-loop-gbio-20260809-r2-20260809T100130Z-057065bf \
+  --grantId=5e42c61c-ab7f-4900-86f1-0376e794bdce \
+  --reviewer=sw@ba-ton.kr
+```
+
+이 결과는 단일 공고 제품 카나리 통과 증거다. 모집 중 전체 공고의 대량 분석·승격 허가는 아니며, 다음 확대는 동일 네 노드를 5건에서 먼저 확인한 뒤 30건으로 진행한다.
+
 #### 기존 검토 필요 사례 피드백 검증 (2026-08-09)
 
 - 과거 Opus 5 산출물 6개 공고의 봉인 원문과 `fieldCoverage.unresolvedCandidates`만 새 재판정기에 다시 넣었다. 불변 artifact와 DB는 덮어쓰지 않았고 운영 API 폴백도 사용하지 않았다.
