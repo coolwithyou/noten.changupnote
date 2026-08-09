@@ -431,7 +431,109 @@ const aiReviewFixture: AuditedAiReviewInput = {
   console.log("✅ 결정 규칙 — same_project 과거수혜 오해만 자동 해소·나머지는 대기");
 }
 
-// ── ⑦ preferred 불일치 — 오류 근거가 있는 우대조건만 억제하고 자격은 유지 ──
+// ── ⑦ 공식 신청대상과 서식 기재란 혼동 — 제품 계약으로만 자동 해소 ──
+{
+  const run: LabRun = {
+    runId: "run-deterministic-structured-target",
+    grantId: "00000000-0000-4000-8000-000000000779",
+    source: "bizinfo",
+    sourceId: "PBLN_STRUCTURED_TARGET",
+    title: "공식 신청대상 필드 테스트",
+    model: "claude-opus-5",
+    promptVersion: "lab-deep-v9",
+    startedAt: "2026-08-09T00:00:00.000Z",
+    durationMs: 1,
+    inputBlocks: [],
+    inputTotalChars: 1,
+    inputSha256: "2".repeat(64),
+    usage: null,
+    costUsd: null,
+    analysisMarkdown: "",
+    programIntent: null,
+    criteria: [{
+      dimension: "size",
+      kind: "required",
+      operator: "in",
+      value: { sizes: ["중소기업"] },
+      confidence: 0.7,
+      sourceSpan: "지원대상: 중소기업 (source_field: trgetNm)",
+      spanVerified: true,
+      note: "Bizinfo 공식 신청대상 필드 기준. 신청서의 기업 유형은 기재란(정보 수집)이므로 자격 근거로 사용하지 않음.",
+    }],
+    axisAssessments: [],
+    taxonomyProposals: [],
+    dimensionDiffs: [],
+    error: null,
+  };
+  const review: AuditedAiReviewInput = {
+    grantId: run.grantId,
+    runId: run.runId,
+    model: "claude-fable-5",
+    promptVersion: "ai-review-v7",
+    criterionReviews: [{
+      criterionIndex: 0,
+      verdict: "needs_edit",
+      note: "근거가 trgetNm뿐이고 신청서 서식의 기업 유형에 스타트업 / 중소기업 / 중견기업 / 그외를 병기해 비중소기업도 상정했다.",
+    }],
+    axisReviews: [],
+  };
+  const audit: LabAudit = {
+    schema: "lab-audit-v1",
+    grantId: run.grantId,
+    runId: run.runId,
+    model: review.model,
+    aiPromptVersion: review.promptVersion,
+    aiAuditModel: "claude-sonnet-5",
+    aiAuditPromptVersion: "ai-audit-v6",
+    auditorEmail: null,
+    createdAt: "2026-08-09T00:01:00.000Z",
+    updatedAt: "2026-08-09T00:01:00.000Z",
+    items: [{
+      kind: "criterion",
+      criterionIndex: 0,
+      reason: "ai_non_correct",
+      aiVerdict: "needs_edit",
+      aiNote: review.criterionReviews[0]!.note,
+      humanVerdict: null,
+      note: null,
+      aiAuditVerdict: "correct",
+      aiAuditNote: null,
+    }],
+    overallNote: null,
+  };
+
+  assert.equal(
+    isLabAuditCompleteForRun(run, audit),
+    true,
+    "공식 신청대상과 서식 기재란만 혼동한 경우 계약 규칙으로 완료한다",
+  );
+  const merged = mergeAuditedReview(review, audit, run);
+  assert.equal(merged.review.criterionReviews[0]?.verdict, "correct");
+  assert.deepEqual(merged.provenance.deterministicResolvedCriterionIndexes, [0]);
+
+  const noStructuredEvidence: LabRun = {
+    ...run,
+    runId: "run-no-structured-target",
+    criteria: [{ ...run.criteria[0]!, sourceSpan: "지원대상: 중소기업" }],
+  };
+  assert.equal(
+    isLabAuditCompleteForRun(noStructuredEvidence, { ...audit, runId: noStructuredEvidence.runId }),
+    false,
+    "trgetNm 근거가 봉인되지 않으면 자동 해소하지 않는다",
+  );
+  const unrelatedFinding = {
+    ...audit,
+    items: [{ ...audit.items[0]!, aiNote: "trgetNm 값 자체가 원문과 다르다." }],
+  } satisfies LabAudit;
+  assert.equal(
+    isLabAuditCompleteForRun(run, unrelatedFinding),
+    false,
+    "서식 기재란 혼동이 아닌 지적은 자동 해소하지 않는다",
+  );
+  console.log("✅ 공식 신청대상 — trgetNm과 서식 기재란 혼동만 자동 해소");
+}
+
+// ── ⑧ preferred 불일치 — 오류 근거가 있는 우대조건만 억제하고 자격은 유지 ──
 {
   const run: LabRun = {
     runId: "run-preferred-disagreement",
