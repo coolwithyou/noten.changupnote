@@ -348,14 +348,20 @@ function isPromotableAnalysisRelease(
   return plans.length > 0
     && plans.every((item) => (
       isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)
-      || isAuditedLocalConditionalPlan(item.promotionPlan)
+      || isAuditedLocalAcceptedPlan(item.promotionPlan)
     ));
 }
 
-function isAuditedLocalConditionalPlan(plan: GrantPromotionPlan): boolean {
+/**
+ * 독립 감사된 local canary의 reviewRisk가 blocked가 아니면 승격 가드가 받아들인다.
+ * verified는 conditional보다 강한 판정이므로, 변환 과정에서 text_only 등이
+ * needs_review로 강등됐다는 이유만으로 더 약한 conditional보다 엄격히 막아서는 안 된다.
+ * 두 경우 모두 matcher는 needs_review를 unknown으로 보존한다.
+ */
+function isAuditedLocalAcceptedPlan(plan: GrantPromotionPlan): boolean {
   return plan.origin === "audited"
     && (plan.auditState === "ai_audit_concur" || plan.auditState === "deterministic_contract")
-    && plan.reviewRisk?.disposition === "conditional"
+    && (plan.reviewRisk?.disposition === "verified" || plan.reviewRisk?.disposition === "conditional")
     && plan.reviewRisk.blockers.length === 0;
 }
 
@@ -371,7 +377,7 @@ export function releasePlanItemHasUnsafePendingCriteria(
     (criterion, position) => criterion.needs_review === true ? [position] : [],
   );
   if (needsReviewPositions.length === 0) return false;
-  if (isAuditedLocalConditionalPlan(item.promotionPlan)) return false;
+  if (isAuditedLocalAcceptedPlan(item.promotionPlan)) return false;
   if (!isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)) return true;
   const conditionalOnly = new Set(item.deepAnalysisConditionalOnlyCriteria ?? []);
   return needsReviewPositions.some((position) => !conditionalOnly.has(position));
@@ -403,7 +409,7 @@ export function promotionPlanHasUnsafeUnresolvedCriteria(
     options.auditedLocalCanary === true
     && plan.origin === "audited"
     && (plan.auditState === "ai_audit_concur" || plan.auditState === "deterministic_contract")
-    && plan.reviewRisk?.disposition === "conditional"
+    && (plan.reviewRisk?.disposition === "verified" || plan.reviewRisk?.disposition === "conditional")
     && plan.reviewRisk.blockers.length === 0
   );
 }

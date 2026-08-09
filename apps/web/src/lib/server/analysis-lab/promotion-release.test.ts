@@ -425,6 +425,39 @@ function manifest() {
     false,
     "독립 감사된 단일 conditional 카나리만 needs_review를 unknown으로 보존할 수 있다",
   );
+  const auditedVerifiedPlan: GrantPromotionPlan = {
+    ...auditedConditionalPlan,
+    reviewRisk: {
+      schema: "promotion-review-risk-v1",
+      disposition: "verified",
+      blockers: [],
+      deferrals: [],
+      suppressedCriterionIndexes: [],
+      suppressedVerdicts: { needsEdit: 0, wrong: 0, unsure: 0 },
+      deferredMissedConditions: 0,
+    },
+  };
+  assert.equal(
+    promotionPlanHasUnsafeUnresolvedCriteria(auditedVerifiedPlan, { auditedLocalCanary: true }),
+    false,
+    "독립 감사된 verified 카나리는 더 약한 conditional 카나리보다 엄격히 차단하지 않는다",
+  );
+  assert.equal(
+    releasePlanItemHasUnsafePendingCriteria({
+      ...planItem,
+      promotionPlan: auditedVerifiedPlan,
+    }),
+    false,
+    "verified local 카나리의 강등 criterion은 matcher unknown으로 보존 발행한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([{
+      ...planItem,
+      promotionPlan: auditedVerifiedPlan,
+    }], "structured_ratio"),
+    false,
+    "verified local 카나리의 구조화 비율도 관찰 지표다",
+  );
   assert.equal(
     promotionPlanHasUnsafeUnresolvedCriteria({
       ...auditedConditionalPlan,
