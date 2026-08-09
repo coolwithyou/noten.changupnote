@@ -24,7 +24,8 @@ import type {
 // v8: 신청대상의 예시 열거와 완전 열거를 구분해 목록 밖 유형의 오탈락을 막는다.
 // v9: 모집직무·인력 수요 분야를 신청기업 업종으로 오분류하지 않는다.
 // v10: 예시 표지 없는 신청대상 유한 열거를 닫고 source span의 비연속 결합을 금지한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v10";
+// v11: 반복된 신청기업 산업 범위를 text_only로 보존하고 validator 자동 교정을 적용한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v11";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**
@@ -208,6 +209,8 @@ export interface LabRun {
   axisAssessments: LabAxisAssessment[];
   taxonomyProposals: LabTaxonomyProposal[];
   dimensionDiffs: LabDimensionDiff[];
+  /** 운영과 같은 validator 교정 루프가 실제로 수행된 횟수. 구런에는 없다. */
+  primaryRepairCount?: number;
   /** 구런과 Kordoc 미실행 런에는 없다. */
   applicationRoundtrip?: LabApplicationRoundtripReference;
   error: string | null;

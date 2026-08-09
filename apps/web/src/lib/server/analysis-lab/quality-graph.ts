@@ -146,6 +146,9 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
         `축 ${run.axisAssessments.length}/${CRITERION_DIMENSIONS.length}`,
         `근거 검증 ${groundedCriteria}/${run.criteria.length}`,
         `애매 ${ambiguousAxes} · 입력 부족 ${inputMissingAxes}`,
+        ...(run.primaryRepairCount !== undefined
+          ? [`validator 자동 교정 ${run.primaryRepairCount}회`]
+          : []),
         ...contractIssues,
       ],
       nextAction: contractStatus === "passed" ? null : "현행 정책으로 재분석하거나 부족한 원문을 보강하세요.",

@@ -6,6 +6,7 @@ import { DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT } from "./auditExtractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
@@ -124,10 +125,15 @@ for (const prompt of [
   DEEP_ANALYSIS_AUDIT_ADJUDICATION_SYSTEM_PROMPT,
 ]) {
   assert.equal(prompt.includes(DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE), true);
+  assert.equal(prompt.includes(DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE), true);
 }
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /모집직무.*신청기업의 업종 자격이 아니다.*첨부도 입력에서 누락.*industry=input_missing/,
+);
+assert.match(
+  DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
+  /바이오 스타트업 모집.*industry\/text_only.*지원 과제의 주제.*program_intent/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,

@@ -180,6 +180,7 @@ function roundtripFixture(run: LabRun, document = documentFixture()): Applicatio
   const baseRun = runFixture();
   const roundtrip = roundtripFixture(baseRun);
   const run = runFixture({
+    primaryRepairCount: 1,
     applicationRoundtrip: {
       status: "complete",
       runId: roundtrip.runId,
@@ -200,6 +201,11 @@ function roundtripFixture(run: LabRun, document = documentFixture()): Applicatio
   assert.equal(graph.analysisReadiness, "passed");
   assert.equal(graph.productReadiness, "not_evaluated", "승격·카나리 증거를 성공으로 추정하지 않음");
   assert.equal(graph.metrics.requiredUnresolvedFields, 0);
+  assert.equal(
+    graph.nodes.find((node) => node.id === "deep_contract")?.evidence.includes("validator 자동 교정 1회"),
+    true,
+    "품질 그래프에 자동 교정 횟수 보존",
+  );
   console.log("✅ 품질 그래프 — 분석 완료와 제품 미검증을 분리");
 }
 

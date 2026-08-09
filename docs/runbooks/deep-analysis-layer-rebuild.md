@@ -13,10 +13,10 @@
 현재 분석 계약은 다음과 같다.
 
 - 운영 deep-analysis policy: `deep-analysis-model-policy-v25`
-- 운영 deep-analysis prompt: `deep-analysis-v16`
-- 로컬 lab prompt: `lab-deep-v9`
+- 운영 deep-analysis prompt: `deep-analysis-v18`
+- 로컬 lab prompt: `lab-deep-v11`
 - 로컬 transport/model: `claude-cli` / `claude-opus-5`
-- Kordoc roundtrip: `kordoc-application-roundtrip-v5`
+- Kordoc roundtrip: `kordoc-application-roundtrip-v7`
 - materialized field parser: `kordoc-rhwp-application-fields-v2`
 
 2026-08-08 읽기 전용 조사에서는 운영 DB에 v25/v16 보존 조건을 충족하는 run이 0건이었다.

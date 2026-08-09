@@ -25,13 +25,14 @@ import {
   runAnalysisPair,
 } from "./application-precompute";
 import { computeLabDimensionDiffs } from "./diff";
-import { resolveLabModel, runDeepGrantAnalysis, type DeepAnalysisResult } from "./extractor";
+import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
 import {
   applyLabVerifiedConversionArtifacts,
   assembleLabInput,
   type LabInputArchive,
 } from "./input";
 import { buildLabRunId, saveLabRun } from "./run-store";
+import { runValidatedLabPrimary } from "./validated-primary";
 
 /** 공고 자체가 없을 때 — 라우트는 404 로 매핑한다(런 저장 없음). */
 export class LabGrantNotFoundError extends Error {
@@ -215,19 +216,23 @@ export async function runLabAnalysis(
   const runPrimary = async (): Promise<{
     extraction: DeepAnalysisResult | null;
     error: string | null;
+    repairCount: number;
   }> => {
     try {
       const binding = await bindingPromise;
-      const extraction = await runDeepGrantAnalysis({
+      const validated = await runValidatedLabPrimary({
+        grantId,
         apiKey: binding.apiKey,
         inputText: input.text,
+        inputSha256: input.inputSha256,
+        model: requestedModel,
         ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
-        ...(opts?.model !== undefined ? { model: opts.model } : {}),
       });
-      return { extraction, error: null };
+      return { extraction: validated.extraction, error: null, repairCount: validated.repairCount };
     } catch (caught) {
       return {
         extraction: null,
+        repairCount: 0,
         error: caught instanceof Error
           ? caught.message.slice(0, 2_000)
           : String(caught).slice(0, 2_000),
@@ -297,6 +302,7 @@ export async function runLabAnalysis(
       proposed: extraction?.criteria ?? [],
       assessments: extraction?.axisAssessments ?? [],
     }),
+    primaryRepairCount: primary.repairCount,
     ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),
     error,
   };

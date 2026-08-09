@@ -2,7 +2,7 @@
 // 운영 DB/R2는 읽기만 하고, 분석·채움 산출물은 spike-out 아래에만 저장한다.
 
 /** v6: 구독 경로 전체 후보 판정과 미해결 후보 자동 재판정 provenance를 봉인한다. */
-export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v6";
+export const APPLICATION_ROUNDTRIP_VERSION = "kordoc-application-roundtrip-v7";
 
 /**
  * 로컬 구독 Kordoc 필드 판정의 채택 모델.
@@ -98,6 +98,7 @@ export type RoundtripFieldInputKind =
 export type RoundtripFieldWriteOperation =
   | "kordoc_field"
   | "replace_span"
+  | "insert_after_label"
   | "insert_before_unit"
   | "toggle_text_choice"
   | "replace_instruction";

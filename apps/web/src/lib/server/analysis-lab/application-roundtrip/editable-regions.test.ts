@@ -71,6 +71,73 @@ assert.match(editedTable.cells[1]![3]!.text, /\[참고\] 분류표 참조$/);
 assert.match(edited[2]!.text!, /^AI 문서 자동화 기술/);
 assert.match(edited[2]!.text!, /\(정량 지표\)/);
 
+const relocationPledgeText = [
+  "경기 권역 내 주소지 이전 확약서",
+  "1. 기업정보",
+  "회사명",
+  "사업자등록번호",
+  "현주소 (본점)",
+  "대표자 이름 / (인 또는 서명)",
+  "당사는 협약일로부터 1개월 이내에 사업장을 다음과 같이 이전 또는 신규등록 할 것을 확약합니다.",
+  "2. 이전/신규등록 정보",
+  "종류 / □ 본사 □ 지점 □ 연구소 □ 공장",
+  "등록 형태 / □ 신규설립    □ 이전",
+  "이전예정지역 / ※ 기초자치단체 단위까지 기재 예: 경기도 00구, 00군",
+  "20  년    월    일",
+  "기 업 명 :",
+  "대    표 :                   (인)",
+].join("\n");
+const relocationBlocks: IRBlock[] = [{
+  type: "table",
+  pageNumber: 8,
+  table: {
+    rows: 1,
+    cols: 1,
+    hasHeader: false,
+    cells: [row(relocationPledgeText)],
+  },
+}];
+const relocationFields = extractContextualRoundtripFields(relocationBlocks, "b".repeat(64));
+assert.equal(relocationFields.length, 10, "접힌 확약서를 10개 실제 입력 위치로 분해");
+assert.equal(relocationFields.filter((field) => field.writeOperation === "insert_after_label").length, 7);
+assert.equal(relocationFields.filter((field) => field.writeOperation === "toggle_text_choice").length, 2);
+assert.equal(relocationFields.filter((field) => field.writeOperation === "replace_span").length, 1);
+assert.ok(relocationFields.every((field) => field.location.target?.expectedText.length && field.location.target.textEnd <= relocationPledgeText.length));
+
+const relocationField = (label: string) => {
+  const field = relocationFields.find((candidate) => candidate.label === label);
+  assert.ok(field, `relocation field not found: ${label}`);
+  return field;
+};
+const siteType = relocationField("사업장 종류");
+const registrationType = relocationField("등록 형태");
+const relocationEdits = prepareContextualEdits(relocationFields, {
+  [relocationField("회사명").fieldInstanceId]: "주식회사 창업노트",
+  [relocationField("사업자등록번호").fieldInstanceId]: "000-00-00000",
+  [relocationField("현주소 (본점)").fieldInstanceId]: "서울특별시 강남구 테헤란로 1",
+  [relocationField("대표자 이름").fieldInstanceId]: "홍길동",
+  [relocationField("이전 예정 지역").fieldInstanceId]: "경기도 성남시",
+  [relocationField("확약일자").fieldInstanceId]: "2026년 8월 9일",
+  [relocationField("기업명 (서명)").fieldInstanceId]: "주식회사 창업노트",
+  [relocationField("대표자 (서명)").fieldInstanceId]: "홍길동",
+}, {
+  [siteType.fieldInstanceId]: [siteType.options[0]!.optionId],
+  [registrationType.fieldInstanceId]: [registrationType.options[1]!.optionId],
+});
+assert.equal(relocationEdits.length, 10);
+const editedRelocation = structuredClone(relocationBlocks);
+applyContextualEdits(editedRelocation, relocationEdits);
+const editedRelocationText = editedRelocation[0]!.table!.cells[0]![0]!.text;
+assert.match(editedRelocationText, /회사명 주식회사 창업노트\n사업자등록번호 000-00-00000/);
+assert.match(editedRelocationText, /현주소 \(본점\) 서울특별시 강남구 테헤란로 1/);
+assert.match(editedRelocationText, /대표자 이름 \/ 홍길동 \(인 또는 서명\)/);
+assert.match(editedRelocationText, /종류 \/ ☑ 본사 □ 지점 □ 연구소 □ 공장/);
+assert.match(editedRelocationText, /등록 형태 \/ □ 신규설립\s+☑ 이전/);
+assert.match(editedRelocationText, /이전예정지역 \/ 경기도 성남시 ※ 기초자치단체/);
+assert.match(editedRelocationText, /2026년 8월 9일/);
+assert.match(editedRelocationText, /기 업 명 : 주식회사 창업노트/);
+assert.match(editedRelocationText, /대    표 : 홍길동\s+\(인\)/);
+
 let explicitRequestModel: string | null = null;
 const usageEvents: Array<{
   requestCount: number;

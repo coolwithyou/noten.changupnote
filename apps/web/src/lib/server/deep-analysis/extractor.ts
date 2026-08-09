@@ -838,6 +838,8 @@ export const DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE =
   "하나의 신청조건이 금액·기간·기관유형·투자형태처럼 여러 전제를 AND로 결합하고 현재 canonical value가 그 전제를 모두 표현하지 못하면, 표현 가능한 일부만 구조화해 자동 pass가 가능하게 만들지 마라. 해당 축을 유지한 operator=text_only와 value.note에 전체 조건을 무손실 보존한다. 예: '공고 마감일로부터 2년 이내 투자기관으로부터 총 1천만원 이상 투자'는 현재 investment의 누적 총액만으로 기간과 투자기관을 판정할 수 없으므로 investment/gte가 아니라 investment/text_only 한 건으로 보존한다.";
 export const DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE =
   "업종명이 자격·등록·신고 상태 같은 다른 전제 아래 예시로 열거되면 업종 자체의 무조건 배제로 축약하지 마라. 예: '금융정보분석원의 신고·등록이 되지 않은 자(가상자산 매매·중개업 등)'는 FIU 미신고가 핵심 전제이므로 industry/not_in tags로 모든 가상자산 업종을 배제하지 말고, 전체 조건을 industry/text_only와 value.note로 보존한다.";
+export const DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE =
+  "공고명·사업목적·모집안내가 동일 산업의 기업·스타트업을 신청자로 반복 지칭하고 지원내용이나 신청서의 제품·기술 분류도 그 산업 범위로 한정하면, 신청대상 절에 KSIC·사업자등록 업태 문장이 없더라도 실제 신청기업의 산업 범위다. 이때 특정 업종 태그로 자동 탈락시키지 말고 industry/required/text_only 한 건과 value.note에 전체 범위를 보존하고, 신청자를 산업 기업으로 지칭한 exact source_span을 사용한다. 예: '바이오 스타트업 모집'과 바이오헬스 기업 발굴 목적, 제약·의료기기·AI-SaMD 신청 분류가 함께 있으면 industry/text_only다. 반대로 지원 과제의 주제·도입 기술·육성하려는 생태계만 언급하고 신청기업을 그 산업 기업으로 반복 지칭하지 않으면 program_intent일 뿐 업종 조건이 아니다.";
 export const DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE =
   "모집직무·지원직무·배치직무·직무분야·인력 수요 분야는 참여기업이 청년에게 제공할 업무나 프로그램 분야이지 신청기업의 업종 자격이 아니다. 이런 문구는 program_intent에만 보존하고 industry criterion이나 condition_found로 만들지 마라. 예: '모집직무: 경영·사무 / 광고·마케팅 / IT'는 업종 조건이 아니다. '경영·사무 / 광고·마케팅 / IT 분야 고용보험 피보험자수 20인 이상 기업'처럼 축약문만으로 기업 업종인지 모집직무인지 확정할 수 없고 상세 첨부도 입력에서 누락됐다면 industry/text_only를 만들지 말고 industry=input_missing으로 둔다. 상세 원문이 이를 모집직무로 명시하면 industry=inspected_no_condition이다. 신청기업이 특정 업종을 영위해야 한다거나 KSIC·사업자등록 업태·종목·제외업종을 명시한 경우에만 industry criterion을 만든다.";
 export const DEEP_ANALYSIS_BUSINESS_STATUS_RULE =
@@ -885,6 +887,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE,
   DEEP_ANALYSIS_CONDITIONAL_INDUSTRY_RULE,
+  DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
   DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
   DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,

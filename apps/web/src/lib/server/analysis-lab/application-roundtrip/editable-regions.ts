@@ -48,6 +48,19 @@ function extractTableContextualFields(
       const text = cell.text.trim();
       if (!text) return;
 
+      const embeddedPledgeFields = extractEmbeddedRelocationPledgeFields({
+        cell,
+        blockIndex,
+        row: rowIndex,
+        col: colIndex,
+        pageNumber,
+        sourceSha256,
+      });
+      if (embeddedPledgeFields.length > 0) {
+        fields.push(...embeddedPledgeFields);
+        return;
+      }
+
       const choiceOptions = parseTextChoiceOptions(text, sourceSha256, blockIndex, rowIndex, colIndex);
       if (choiceOptions.length >= 2) {
         const label = findRowLabel(table, rowIndex, colIndex) ?? `선택 항목 ${rowIndex + 1}`;
@@ -160,6 +173,128 @@ function extractTableContextualFields(
       }
     });
   });
+}
+
+/**
+ * Kordoc이 표 전체를 단일 셀로 접는 주소지 이전 확약서 유형을 실제 쓰기 위치로 분해한다.
+ * 제목 하나만으로 발동하지 않고 두 섹션과 핵심 라벨을 모두 확인해 다른 장문 셀에는 영향을 주지 않는다.
+ */
+function extractEmbeddedRelocationPledgeFields(input: {
+  cell: IRCell;
+  blockIndex: number;
+  row: number;
+  col: number;
+  pageNumber: number | null;
+  sourceSha256: string;
+}): RoundtripFieldCandidate[] {
+  const { cell, blockIndex, row, col, pageNumber, sourceSha256 } = input;
+  const text = cell.text;
+  if (
+    !/주소지 이전 확약서/.test(text)
+    || !/1\.\s*기업정보/.test(text)
+    || !/2\.\s*이전\/신규등록 정보/.test(text)
+    || !text.includes("사업자등록번호")
+    || !text.includes("이전예정지역")
+  ) return [];
+
+  const fields: RoundtripFieldCandidate[] = [];
+  const addLabelField = (config: {
+    label: string;
+    expectedText: string;
+    helperText: string;
+    sampleValue: string;
+  }) => {
+    const textStart = text.indexOf(config.expectedText);
+    if (textStart < 0) return;
+    fields.push(createContextualField({
+      sourceSha256,
+      blockIndex,
+      row,
+      col,
+      pageNumber,
+      label: config.label,
+      originalValue: "",
+      inputKind: "text",
+      writeOperation: "insert_after_label",
+      helperText: config.helperText,
+      unit: null,
+      options: [],
+      expectedText: config.expectedText,
+      textStart,
+      sampleValue: config.sampleValue,
+      sampleReason: "확약서 라벨 뒤 입력 샘플",
+      signals: ["단일 셀 확약서의 명시적 입력 라벨", "라벨 바로 뒤의 쓰기 위치"],
+      confidence: 0.99,
+    }));
+  };
+  const addChoiceField = (config: {
+    label: string;
+    pattern: RegExp;
+    inputKind: "single_choice" | "multiple_choice";
+  }) => {
+    const match = text.match(config.pattern);
+    const expectedText = match?.[1];
+    if (!expectedText || match?.index === undefined) return;
+    const textStart = match.index + match[0].indexOf(expectedText);
+    const options = parseTextChoiceOptions(expectedText, sourceSha256, blockIndex, row, col);
+    if (options.length < 2) return;
+    fields.push(createContextualField({
+      sourceSha256,
+      blockIndex,
+      row,
+      col,
+      pageNumber,
+      label: config.label,
+      originalValue: expectedText,
+      inputKind: config.inputKind,
+      writeOperation: "toggle_text_choice",
+      helperText: expectedText,
+      unit: null,
+      options,
+      expectedText,
+      textStart,
+      sampleValue: "",
+      sampleReason: "확약서 선택 항목 첫 값 샘플",
+      signals: ["단일 셀 확약서의 독립 선택지 묶음", "선택지 구간의 정확한 쓰기 위치"],
+      confidence: 0.99,
+    }));
+  };
+
+  addLabelField({ label: "회사명", expectedText: "회사명", helperText: "현재 회사명을 입력합니다.", sampleValue: "주식회사 창업노트" });
+  addLabelField({ label: "사업자등록번호", expectedText: "사업자등록번호", helperText: "사업자등록번호를 입력합니다.", sampleValue: "000-00-00000" });
+  addLabelField({ label: "현주소 (본점)", expectedText: "현주소 (본점)", helperText: "현재 본점 주소를 입력합니다.", sampleValue: "서울특별시 강남구 테헤란로 1" });
+  addLabelField({ label: "대표자 이름", expectedText: "대표자 이름 /", helperText: "대표자 이름을 입력합니다.", sampleValue: "홍길동" });
+  addChoiceField({ label: "사업장 종류", pattern: /종류\s*\/\s*(□[^\n]+)/, inputKind: "single_choice" });
+  addChoiceField({ label: "등록 형태", pattern: /등록 형태\s*\/\s*(□[^\n]+)/, inputKind: "single_choice" });
+  addLabelField({ label: "이전 예정 지역", expectedText: "이전예정지역 /", helperText: "이전 또는 신규 등록할 기초자치단체를 입력합니다.", sampleValue: "경기도 성남시" });
+
+  const dateMatch = text.match(/20\s+년\s+월\s+일/);
+  if (dateMatch?.index !== undefined) {
+    fields.push(createContextualField({
+      sourceSha256,
+      blockIndex,
+      row,
+      col,
+      pageNumber,
+      label: "확약일자",
+      originalValue: dateMatch[0],
+      inputKind: "text",
+      writeOperation: "replace_span",
+      helperText: "확약서 작성일을 입력합니다.",
+      unit: null,
+      options: [],
+      expectedText: dateMatch[0],
+      textStart: dateMatch.index,
+      sampleValue: "2026년 8월 9일",
+      sampleReason: "확약일자 샘플",
+      signals: ["단일 셀 확약서의 날짜 자리표시자", "날짜 구간의 정확한 쓰기 위치"],
+      confidence: 0.99,
+    }));
+  }
+
+  addLabelField({ label: "기업명 (서명)", expectedText: "기 업 명 :", helperText: "확약서 서명란의 기업명을 입력합니다.", sampleValue: "주식회사 창업노트" });
+  addLabelField({ label: "대표자 (서명)", expectedText: "대    표 :", helperText: "확약서 서명란의 대표자 이름을 입력합니다.", sampleValue: "홍길동" });
+  return fields;
 }
 
 function extractNarrativeFields(
@@ -463,6 +598,9 @@ function buildContextualDocumentValue(
   inputValue: string,
   selectedOptionIds: string[],
 ): string {
+  if (field.writeOperation === "insert_after_label") {
+    return `${field.location.target!.expectedText} ${inputValue}`;
+  }
   if (field.writeOperation === "insert_before_unit") return `${inputValue} (${field.unit})`;
   if (field.writeOperation === "toggle_text_choice") {
     return toggleTextChoiceMarkers(field.location.target!.expectedText, field.options, selectedOptionIds);
