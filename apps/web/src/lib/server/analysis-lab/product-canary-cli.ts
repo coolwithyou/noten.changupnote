@@ -3,10 +3,7 @@ import {
   buildGrantSimulationCompanyProfile,
   GRANT_SIMULATION_BUSINESS_NUMBER,
 } from "../adminGrantSimulationProfile";
-import { closeCunoteDb } from "../db/client";
-import { loadAdminGrantWorkspaceData } from "../documents/workspaceData";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { loadServiceApplySheet } from "../serviceData";
 import {
   buildProductCanaryId,
   evaluateProductCanaryObservation,
@@ -54,6 +51,10 @@ process.env.CUNOTE_REPOSITORY_ADAPTER = "drizzle";
 
 async function main(): Promise<number> {
   const options = parseOptions(process.argv.slice(2));
+  const [{ loadServiceApplySheet }, { loadAdminGrantWorkspaceData }] = await Promise.all([
+    import("../serviceData"),
+    import("../documents/workspaceData"),
+  ]);
   const manifest = await readPromotionReleaseManifest(options.releaseId);
   const plan = manifest.plans.find((item) => item.grantId === options.grantId);
   const source = manifest.sourceArtifacts.find((item) => item.grantId === options.grantId);
@@ -162,11 +163,20 @@ function assertReleaseArtifact(
 
 main()
   .then(async (code) => {
-    await closeCunoteDb();
+    await closeDbIfLoaded();
     process.exit(code);
   })
   .catch(async (error) => {
     console.error("[product-canary] 실패:", error instanceof Error ? error.message : error);
-    await closeCunoteDb();
+    await closeDbIfLoaded();
     process.exit(1);
   });
+
+async function closeDbIfLoaded(): Promise<void> {
+  try {
+    const { closeCunoteDb } = await import("../db/client");
+    await closeCunoteDb();
+  } catch {
+    // DB 정리 실패는 이미 산출된 카나리 판정을 가리지 않는다.
+  }
+}
