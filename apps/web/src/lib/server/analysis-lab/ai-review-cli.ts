@@ -46,6 +46,7 @@ import { DIMENSION_LABELS } from "./diff";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
+import { hasHumanReviewForRun } from "./run-review-policy";
 
 loadAnalysisLabEnv();
 
@@ -131,8 +132,8 @@ async function resolveReviewBinding(): Promise<{
 interface GrantRunScan {
   /** 현행 promptVersion 의 ok 런 중 최신 1건. */
   latestOkRun: LabRun | null;
-  /** 이 공고의 어떤 런에든 사람 검수(review.json)가 있으면 true. */
-  hasHumanReview: boolean;
+  /** 사람 검수가 결속된 불변 run ID. 과거 run 검수가 새 재분석을 막으면 안 된다. */
+  humanReviewedRunIds: Set<string>;
 }
 
 async function scanRunDirs(): Promise<Map<string, GrantRunScan>> {
@@ -175,8 +176,8 @@ async function scanRunDirs(): Promise<Map<string, GrantRunScan>> {
         continue;
       }
       if (typeof run.grantId !== "string" || typeof run.runId !== "string") continue;
-      const state = byGrant.get(run.grantId) ?? { latestOkRun: null, hasHumanReview: false };
-      if (reviewedRunIds.has(run.runId)) state.hasHumanReview = true;
+      const state = byGrant.get(run.grantId) ?? { latestOkRun: null, humanReviewedRunIds: new Set<string>() };
+      if (reviewedRunIds.has(run.runId)) state.humanReviewedRunIds.add(run.runId);
       if (run.error === null && run.promptVersion === ANALYSIS_LAB_PROMPT_VERSION) {
         if (!state.latestOkRun || run.startedAt > state.latestOkRun.startedAt) state.latestOkRun = run;
       }
@@ -383,7 +384,7 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
   }
   for (const entry of scopedEntries) {
     const state = scan.get(entry.grantId);
-    if (state?.hasHumanReview) {
+    if (state?.latestOkRun && state.humanReviewedRunIds.has(state.latestOkRun.runId)) {
       skippedHuman.push(entry.grantId);
       continue;
     }

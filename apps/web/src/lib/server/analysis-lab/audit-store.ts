@@ -10,8 +10,8 @@
 //      (사람 산출물이라 덮어쓰기 허용, createdAt·대상 목록·AI 판정 스냅샷은 보존).
 //      ②' AI 블라인드 감사(lab:ai-audit, §9 완화 개정)는 aiAuditVerdict/aiAuditNote 와
 //      최상위 aiAudit* 메타만 별도 병합한다 — 사람 판정 필드는 불가침(applyAiAuditJudgments).
-// 사람 review.json 보유 공고에는 감사 파일을 만들지 않는다(§9 — 사람 전수 검수가 항상
-// 우선이며, AI 검수 감사는 "사람 검수 없는 공고"의 표본 확인이다).
+// 같은 불변 run에 review.json이 있으면 감사 파일을 만들지 않는다(§9 — 사람 전수 검수가
+// 항상 우선). 같은 공고의 과거 run 검수는 새 prompt/model 재분석 run을 차단하지 않는다.
 // import 방향: audit-store → run-store/ai-review-compare 단방향. ai-review.ts 는 import
 // 하지 않는다(그 모듈은 input.ts 를 통해 R2 스토리지 체인을 끌고 온다) — AI 검수 파일은
 // 관대 파싱만 복제해 읽는다(형식 소유자: ai-review.ts 의 AiReviewFile/readAiReviewFile).
@@ -34,6 +34,7 @@ import {
   type AiReviewForAudit,
 } from "./ai-review-compare";
 import { analysisLabDir, labRunFilePath, modelSlug, readLabRun } from "./run-store";
+import { hasHumanReviewForRun } from "./run-review-policy";
 
 export const LAB_AUDIT_SCHEMA = "lab-audit-v1";
 
@@ -122,8 +123,7 @@ async function readAiReviewFileLenient(path: string): Promise<AuditSourceAiRevie
  * 지정 모델의 AI 검수 파일 전수 수집 — CLI(--audit-list)와 감사 파일 생성(§9 풀 결정론),
  * 감사 확정 로더(audited-reviews)가 같은 선정 규칙을 공유한다:
  *   - spike-out/analysis-lab/<source>__<sourceId>/ 의 <runId>.ai-review.<slug>.json 전수
- *   - 사람 review.json 이 하나라도 있는 공고 디렉토리는 통째로 제외(§9 — 사람 검수 우선.
- *     캘리브레이션용 파일럿 AI 검수의 감사 혼입 차단)
+ *   - AI 검수와 같은 runId의 사람 review.json이 있으면 그 run만 제외(§9 — 사람 검수 우선)
  */
 export async function collectAiReviewsForAudit(
   model: string,
@@ -147,7 +147,6 @@ export async function collectAiReviewsForAudit(
     } catch {
       continue;
     }
-    const hasHumanReview = files.some((file) => file.endsWith(".review.json"));
     for (const file of files) {
       if (!file.endsWith(suffix)) continue;
       const parsed = await readAiReviewFileLenient(join(dir, file));
@@ -155,7 +154,7 @@ export async function collectAiReviewsForAudit(
         console.warn(`[audit] AI 검수 파일 파싱 실패 — 건너뜀: ${entry}/${file}`);
         continue;
       }
-      if (hasHumanReview) {
+      if (hasHumanReviewForRun(files, parsed.runId)) {
         if (options.quiet !== true) console.log(`[audit] 사람 검수 보유 공고 제외: ${entry}/${parsed.runId}`);
         continue;
       }
@@ -260,7 +259,7 @@ export async function loadOrCreateLabAudit(options: {
   } catch {
     files = [];
   }
-  if (files.some((file) => file.endsWith(".review.json"))) {
+  if (hasHumanReviewForRun(files, run.runId)) {
     return { status: "human_review_exists" };
   }
 
