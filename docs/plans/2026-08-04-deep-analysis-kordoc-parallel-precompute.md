@@ -423,8 +423,9 @@ pnpm lab:product-canary -- \
 - `batch_terminal`, `sample_complete`, `subscription_provenance`, `deep_quality`, `application_quality` 다섯 게이트를 독립 판정한다.
 - provenance는 배치 요청과 각 LabRun 양쪽에서 딥분석·Kordoc `claude-cli/claude-opus-5` 및 Kordoc 병렬 실행을 확인한다. API나 다른 모델이 한 건이라도 섞이면 `BLOCKED`다.
 - Kordoc `partial`은 실패가 아니다. 확정 필드를 사용할 수 있고 `requiredUnresolvedFields=0`이면 안전 종결로 인정한다. 필수 입력이 하나라도 미해결이면 `ITERATE`로 남겨 해당 공고만 Opus 재판정한다.
-- 딥분석은 22축 추출만 성공해서는 통과하지 않는다. 현행 Fable AI 검수와 Sonnet 독립 감사까지 품질 그래프의 deep lane이 `passed`여야 한다.
+- 딥분석은 22축 추출만 성공해서는 통과하지 않는다. 현행 Fable AI 검수와 Sonnet 독립 감사까지 품질 그래프에 연결되어야 한다. 신청자격 차단 0건의 `passed`와 랭킹 신호만 보류한 `partial`은 모두 안전 종결이며, `held`는 재분석한다.
 - `pilot5`가 `GO`인 경우에만 30건 dry-run과 본 실행으로 넓힌다. `batch30`은 실행 후 동일 계약으로 결과를 다시 봉인한다. 이 루프는 승격·DB 쓰기·운영 자동화를 수행하지 않는다.
+- 재분석은 `--grant-ids=<uuid,...>`로 정확한 공고만 지정한다. 신청 가능성을 바꾸는 `eligibility` 차단만 `repair-held`로 다시 추출하고, 최근 5개 런의 고유 교정을 누적해 이전 수정의 회귀를 막는다. `ranking` 누락은 해당 신호를 억제한 `partial`로 종결해 대량 실행을 불필요하게 막지 않는다.
 
 실행 명령:
 
@@ -434,6 +435,15 @@ pnpm lab:bulk-readiness -- --stage=batch30 --write
 ```
 
 판정은 `GO`, `ITERATE`, `WAIT`, `BLOCKED` 중 하나이며 `WAIT`는 저장하지 않는다. 종결 판정 JSON은 `spike-out/analysis-lab/bulk-readiness/<batch-job-id>/` 아래 `wx`로 한 번만 기록한다.
+
+#### 5건 파일럿 종결 증거 (2026-08-09)
+
+- 원래 5건 배치 `job-2026-08-09T123533.012Z-346352`의 정확한 대상 스냅샷을 보존하고, 후속 재분석으로 `batch-job.json`이 바뀐 뒤 `--batch-job=<path>`로 다시 판정했다.
+- 현행 `lab-deep-v12` 기준 5건은 분석 준비도 완료 2·부분 완료 3, 보류·실패 0이다. 딥분석은 완료 3·랭킹 보류 부분 2, Kordoc는 완료 2·부분 1·대상 아님 2이며 필수 미해결은 전부 0건이다.
+- 3건 추가 재분석은 동시성 2에서 15분 55초, 딥분석+Kordoc 명목 `$4.5092195`, API 실지출 `$0`로 종결했다. 포항 공고의 HWP 3개·후보 약 97개는 11분 23초에 완주했고, Kordoc 재판정 1회 후 잔여 미해결 0건이었다.
+- Fable 검수 → Sonnet 감사 중 신청자격 누락 1건(원스톱 업력)은 Opus 재분석 후 검수 누락 0·감사 1/1 동의로 닫혔다. 포항 우대 신호 1건은 Fable/Sonnet 충돌을 Opus가 `ranking` 누락으로 확정했고, 정책대로 점수 미반영 `partial`로 종결했다.
+- 최종 `pilot5` 판정은 배치 종결·정확한 5/5 완주·구독 provenance·딥분석·Kordoc 다섯 게이트 전부 `passed`, 결론 `GO`다. 불변 증거는 `bulk-pilot5-2026-08-09T152042.931Z-91eeaf.json`이다.
+- 30건 dry-run은 현행 5건을 스킵하고 잔여 55건 중 30건을 자동 선정했다. 8건 측정 표본 기준 명목 예상은 공고당 `$1.7753`, 총 `$53.26`이므로 본 실행 폭주 가드는 `$65`로 올린다. 이 숫자는 API 예산이 아니며 구독 실지출은 0이다.
 
 ### 7.5 2026-08-04 읽기 전용 backlog 기준선
 
