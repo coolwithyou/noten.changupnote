@@ -45,7 +45,15 @@ import type {
   TeaserRequest,
 } from "@cunote/contracts";
 import { isValidBizNoChecksum } from "@cunote/contracts";
-import type { BizInfoProgram, KStartupAnnouncement, KStartupApiResponse, NtsBusinessStatusClassification, NtsBusinessStatusData, SmppCertificates } from "@cunote/core";
+import type {
+  BizInfoProgram,
+  KStartupAnnouncement,
+  KStartupApiResponse,
+  NtsBusinessStatusClassification,
+  NtsBusinessStatusData,
+  ServiceRepositories,
+  SmppCertificates,
+} from "@cunote/core";
 import { createServiceRepositories, getRepositoryAdapterName } from "./repositories/factory";
 import { annotateHwpxTemplateAvailability } from "./documents/draftHwpxExport";
 import { buildBizInfoSampleEntries } from "./ingestion/bizinfoSample";
@@ -150,10 +158,20 @@ type NtsPreGateResult = {
   statusData: NtsBusinessStatusData;
 } | null;
 
-const repositories = createServiceRepositories<ServiceGrantPayload>({
-  loadGrants: loadServiceGrantsFromSource,
-  loadCompanyProfile: loadCompanyProfileFromSource,
-});
+let serviceRepositories: ServiceRepositories<ServiceGrantPayload> | null = null;
+
+function resolveServiceRepositories(): ServiceRepositories<ServiceGrantPayload> {
+  // serviceData와 runtime repository loader가 서로 참조하므로 모듈 평가 중에는
+  // 어댑터를 만들지 않는다. 첫 사용 뒤에는 같은 인스턴스를 계속 재사용한다.
+  serviceRepositories ??= createServiceRepositories<ServiceGrantPayload>({
+    loadGrants: loadServiceGrantsFromSource,
+    loadCompanyProfile: loadCompanyProfileFromSource,
+  });
+  return serviceRepositories;
+}
+
+type ServiceEnrichmentCacheGetFresh =
+  ServiceRepositories<ServiceGrantPayload>["enrichmentCache"]["getFresh"];
 
 export interface LoadServiceGrantsOptions {
   limit?: number;
@@ -164,7 +182,7 @@ export async function loadServiceGrants({
   limit = 20,
   asOf = new Date(),
 }: LoadServiceGrantsOptions = {}): Promise<Array<NormalizedGrant<ServiceGrantPayload>>> {
-  return repositories.grants.listActiveGrants({ limit, asOf });
+  return resolveServiceRepositories().grants.listActiveGrants({ limit, asOf });
 }
 
 // 활성 공고 유니버스 hydration은 요청당 수천 행을 읽는 가장 비싼 경로라 프로세스 레벨로 짧게 캐시한다.
@@ -219,7 +237,7 @@ async function loadServiceGrantUniverseUncached(input: {
   asOf: Date;
   scanLimit: number;
 }): Promise<Array<NormalizedGrant<ServiceGrantPayload>>> {
-  const grants = await repositories.grants.listActiveGrants({
+  const grants = await resolveServiceRepositories().grants.listActiveGrants({
     asOf: input.asOf,
     // 상한을 넘겼는지 검출하기 위한 sentinel 한 건을 추가한다.
     limit: input.scanLimit + 1,
@@ -368,7 +386,7 @@ export async function loadServiceDashboard(options: {
   const stateCompanyId = options.companyId ?? company.id;
   const confirmationsByGrantId = stateCompanyId
     ? await loadCriterionConfirmations({
-      repositories,
+      repositories: resolveServiceRepositories(),
       companyId: stateCompanyId,
       grants,
     })
@@ -461,11 +479,17 @@ export async function loadServiceApplySheet(
           ...(options.userId ? { userId: options.userId } : {}),
           asOf,
         }),
-    repositories.grants.findGrantById(grantId, { asOf, limit: options.limit ?? 80 }),
+    resolveServiceRepositories().grants.findGrantById(grantId, {
+      asOf,
+      limit: options.limit ?? 80,
+    }),
   ]);
   if (!grants) return null;
   const company = resolution.profile;
-  const match = await repositories.matches.calculateGrantMatch({ company, grant: grants });
+  const match = await resolveServiceRepositories().matches.calculateGrantMatch({
+    company,
+    grant: grants,
+  });
 
   const sheet = buildApplySheet({
     entry: {
@@ -503,7 +527,7 @@ export async function enrichServiceCompany(input: {
       "bizNo",
     );
   }
-  const current = await repositories.companies.resolveCompanyProfile({
+  const current = await resolveServiceRepositories().companies.resolveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
   });
@@ -531,7 +555,7 @@ export async function enrichServiceCompany(input: {
     throw error;
   }
   const profile = mergeCompanyProfilesForEnrichmentAt(current, resolved.profile, asOf.toISOString());
-  await repositories.companies.saveCompanyProfile({
+  await resolveServiceRepositories().companies.saveCompanyProfile({
     companyId: input.companyId,
     userId: input.userId,
     profile,
@@ -605,7 +629,7 @@ async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promi
       // 신뢰할 수 없는 IP를 우회하더라도 무과금 NTS와 캐시 DB를 포함한 공개 miss 전체를
       // 신뢰 할당이 불필요한 영속 일일 hard cap으로 먼저 예약한다.
       await reservePublicLookupBudget({
-        cache: repositories.enrichmentCache,
+        cache: resolveServiceRepositories().enrichmentCache,
         clientKey: input.publicRequestKey,
         reservationKey: input.bizNo,
         now: input.now,
@@ -676,9 +700,9 @@ async function resolvePopbillCompanyResolution(input: PopbillLookupInput): Promi
 async function readCachedPopbillResolution(
   input: PopbillLookupInput,
 ): Promise<PopbillCompanyResolution | null> {
-  let cached: Awaited<ReturnType<typeof repositories.enrichmentCache.getFresh>>;
+  let cached: Awaited<ReturnType<ServiceEnrichmentCacheGetFresh>>;
   try {
-    cached = await repositories.enrichmentCache.getFresh({
+    cached = await resolveServiceRepositories().enrichmentCache.getFresh({
       provider: ENRICHMENT_CACHE_PROVIDER,
       bizNo: input.bizNo,
       scope: ENRICHMENT_CACHE_SCOPE,
@@ -737,7 +761,7 @@ async function claimPopbillLiveLookup(input: PopbillLookupInput): Promise<boolea
       state: "attempt_reserved",
       reservedAt: input.now.toISOString(),
     };
-    const claimed = await repositories.enrichmentCache.claim({
+    const claimed = await resolveServiceRepositories().enrichmentCache.claim({
       provider: POPBILL_LOOKUP_GUARD_PROVIDER,
       bizNo: input.bizNo,
       scope: POPBILL_LOOKUP_GUARD_SCOPE,
@@ -798,7 +822,7 @@ async function runLivePopbillLookup(
   let cacheStored = false;
 
   try {
-    await repositories.enrichmentCache.put({
+    await resolveServiceRepositories().enrichmentCache.put({
       provider: ENRICHMENT_CACHE_PROVIDER,
       bizNo: input.bizNo,
       scope: ENRICHMENT_CACHE_SCOPE,
@@ -864,7 +888,7 @@ async function settlePopbillLiveLookupGuard(input: {
   state: "cache_stored" | "cache_race_resolved";
 }): Promise<void> {
   const canonicalPayload = { state: input.state, settledAt: input.now.toISOString() };
-  await repositories.enrichmentCache.put({
+  await resolveServiceRepositories().enrichmentCache.put({
     provider: POPBILL_LOOKUP_GUARD_PROVIDER,
     bizNo: input.bizNo,
     scope: POPBILL_LOOKUP_GUARD_SCOPE,
@@ -879,7 +903,7 @@ async function settlePopbillLiveLookupGuard(input: {
 }
 
 async function releasePopbillLiveLookupGuard(bizNo: string): Promise<void> {
-  await repositories.enrichmentCache.deleteByBizNo({
+  await resolveServiceRepositories().enrichmentCache.deleteByBizNo({
     bizNo,
     provider: POPBILL_LOOKUP_GUARD_PROVIDER,
     scope: POPBILL_LOOKUP_GUARD_SCOPE,
@@ -896,7 +920,7 @@ async function recordPopbillLookupMetering(bizNo: string): Promise<void> {
   const contextRef: Record<string, unknown> = pepper
     ? { bizNoRef: createHmac("sha256", pepper).update(bizNo).digest("hex") }
     : { pepperMissing: true };
-  await repositories.creditsSystem.recordFreeUsageEvent({
+  await resolveServiceRepositories().creditsSystem.recordFreeUsageEvent({
     walletId: null,
     userId: null,
     companyId: null,
@@ -959,9 +983,9 @@ async function resolveNtsBusinessStatus(input: {
   bizNo: string;
   now: Date;
 }): Promise<NtsBusinessStatusData | null> {
-  let cached: Awaited<ReturnType<typeof repositories.enrichmentCache.getFresh>> = null;
+  let cached: Awaited<ReturnType<ServiceEnrichmentCacheGetFresh>> = null;
   try {
-    cached = await repositories.enrichmentCache.getFresh({
+    cached = await resolveServiceRepositories().enrichmentCache.getFresh({
       provider: NTS_CACHE_PROVIDER,
       bizNo: input.bizNo,
       scope: NTS_CACHE_SCOPE,
@@ -977,7 +1001,7 @@ async function resolveNtsBusinessStatus(input: {
   const statusData = await checkNtsBusinessStatus({ serviceKey: input.serviceKey, bizNo: input.bizNo });
   const canonicalPayload = statusData as unknown as Record<string, unknown>;
   try {
-    await repositories.enrichmentCache.put({
+    await resolveServiceRepositories().enrichmentCache.put({
       provider: NTS_CACHE_PROVIDER,
       bizNo: input.bizNo,
       scope: NTS_CACHE_SCOPE,
@@ -1149,9 +1173,9 @@ async function resolveSmppCertificates(input: {
   bizNo: string;
   now: Date;
 }): Promise<SmppCertificates | null> {
-  let cached: Awaited<ReturnType<typeof repositories.enrichmentCache.getFresh>> = null;
+  let cached: Awaited<ReturnType<ServiceEnrichmentCacheGetFresh>> = null;
   try {
-    cached = await repositories.enrichmentCache.getFresh({
+    cached = await resolveServiceRepositories().enrichmentCache.getFresh({
       provider: SMPP_CACHE_PROVIDER,
       bizNo: input.bizNo,
       scope: SMPP_CACHE_SCOPE,
@@ -1171,7 +1195,7 @@ async function resolveSmppCertificates(input: {
   });
   const canonicalPayload = certs as unknown as Record<string, unknown>;
   try {
-    await repositories.enrichmentCache.put({
+    await resolveServiceRepositories().enrichmentCache.put({
       provider: SMPP_CACHE_PROVIDER,
       bizNo: input.bizNo,
       scope: SMPP_CACHE_SCOPE,
@@ -1370,12 +1394,13 @@ export function buildCompanyEvidence(input: {
 }
 
 export function getServiceRepositories() {
-  return repositories;
+  return resolveServiceRepositories();
 }
 
 export async function resolveProductCompanyProfile(
   input: ResolveProductCompanyProfileInput,
 ): Promise<ResolvedProductCompanyProfile> {
+  const repositories = resolveServiceRepositories();
   return resolveProductCompanyProfileWithDependencies(input, {
     companies: repositories.companies,
     enrichmentCache: repositories.enrichmentCache,
@@ -1415,7 +1440,7 @@ export async function loadProductTeaser(
   if (!virtualScenarioForRequest(body, asOf)) {
     try {
       await recordLandingMatchObservation({
-        creditsSystem: repositories.creditsSystem,
+        creditsSystem: resolveServiceRepositories().creditsSystem,
         result,
         observedAt: asOf,
       });
@@ -1635,7 +1660,7 @@ async function resolveDashboardProductProfile(input: {
 }): Promise<Pick<ResolvedProductCompanyProfile, "profile" | "view" | "stateScope">> {
   if (!input.companyId) {
     // Sample/dev verification is the sole compatibility boundary without a persisted company id.
-    const profile = await repositories.companies.getDefaultCompanyProfile();
+    const profile = await resolveServiceRepositories().companies.getDefaultCompanyProfile();
     return {
       profile,
       view: buildMatchingProfileView(profile, input.asOf.toISOString()),
@@ -1665,7 +1690,7 @@ async function persistMatchStates(input: {
 }) {
   if (!input.companyId) return;
   await refreshMatchStates({
-    repositories,
+    repositories: resolveServiceRepositories(),
     company: input.company,
     grants: input.grants,
     asOf: input.asOf,

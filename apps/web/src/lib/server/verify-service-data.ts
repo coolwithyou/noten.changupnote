@@ -44,10 +44,11 @@ assert.equal(limitedDashboard.matches.length, 1, "dashboard response limit shoul
 assert.ok(limitedEvaluatedCount > limitedDashboard.matches.length, "dashboard counts must evaluate beyond response limit");
 const bizInfoMatch = dashboard.matches.find((match) => match.source === "bizinfo");
 
-assert.ok(bizInfoMatch, "dashboard should expose BizInfo sample match");
-assert.equal(bizInfoMatch.eligibility, "eligible");
+// 자동 검수·승격 전 needs_core_review 공고는 일반 사용자 대시보드에서 숨기되,
+// 관리자·개발 검증용 상세 접근과 신청 문서 계약은 계속 확인할 수 있어야 한다.
+assert.equal(bizInfoMatch, undefined, "dashboard should hide unreviewed BizInfo sample match");
 assert.ok(dashboard.matches.length > 1, "dashboard should expose multiple service matches");
-const bizInfoApplySheet = await loadServiceApplySheet(encodeURIComponent(bizInfoMatch.grantId), {
+const bizInfoApplySheet = await loadServiceApplySheet(encodeURIComponent("bizinfo:PBLN_SAMPLE"), {
   companyId: company.id,
   userId,
   limit: 80,
@@ -56,7 +57,7 @@ const bizInfoApplySheet = await loadServiceApplySheet(encodeURIComponent(bizInfo
 assert.ok(bizInfoApplySheet, "BizInfo sample apply sheet should resolve");
 assert.deepEqual(
   bizInfoApplySheet.documents.map((document) => document.name),
-  ["신청서", "사업자등록증", "재무제표"],
+  ["신청서", "사업자등록증", "재무제표", "사업계획서"],
 );
 assert.deepEqual(
   bizInfoApplySheet.sourceAttachments.map((attachment) => attachment.filename),
@@ -68,7 +69,7 @@ console.log(JSON.stringify({
   checked: [
     "service_grants_kstartup_sample",
     "service_grants_bizinfo_sample",
-    "service_dashboard_bizinfo_match",
+    "service_dashboard_hides_unreviewed_bizinfo_match",
     "service_dashboard_full_scan_separate_from_response_limit",
     "service_bizinfo_apply_documents",
     "service_bizinfo_apply_attachments",
@@ -77,10 +78,7 @@ console.log(JSON.stringify({
     source: entry.grant.source,
     sourceId: entry.grant.source_id,
   })),
-  bizInfoMatch: {
-    grantId: bizInfoMatch.grantId,
-    eligibility: bizInfoMatch.eligibility,
-  },
+  bizInfoMatch: null,
   bizInfoApplySheet: {
     documents: bizInfoApplySheet.documents.map((document) => document.name),
     sourceAttachments: bizInfoApplySheet.sourceAttachments.map((attachment) => attachment.filename),
