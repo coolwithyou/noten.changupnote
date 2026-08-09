@@ -12,6 +12,7 @@ loadAnalysisLabEnv();
 async function main(): Promise<number> {
   const grantIds = readCsvArg("grant-ids");
   const dryRun = process.argv.includes("--dry-run");
+  const existingOwnerId = readArg("owner-id")?.trim() || null;
   if (!grantIds || grantIds.size === 0) {
     console.error("[repair-held] 안전을 위해 정확한 --grant-ids=<uuid,...>가 필수입니다.");
     return 1;
@@ -42,17 +43,22 @@ async function main(): Promise<number> {
   const { getCunoteDb } = await import("../db/client");
   const {
     acquireLocalSubscriptionLease,
+    assertLocalSubscriptionAnalysisAllowed,
     releaseLocalSubscriptionLease,
     renewLocalSubscriptionLease,
   } = await import("../deep-analysis/runtimeControl");
   const db = getCunoteDb();
-  const ownerId = randomUUID();
-  await acquireLocalSubscriptionLease({
-    db,
-    ownerId,
-    changedBy: `local-review-repair:${process.pid}`,
-    reason: "독립 검수 blocker 구독 모델 재분석",
-  });
+  const ownerId = existingOwnerId ?? randomUUID();
+  if (existingOwnerId) {
+    await assertLocalSubscriptionAnalysisAllowed({ db, ownerId });
+  } else {
+    await acquireLocalSubscriptionLease({
+      db,
+      ownerId,
+      changedBy: `local-review-repair:${process.pid}`,
+      reason: "독립 검수 blocker 구독 모델 재분석",
+    });
+  }
   const renewal = setInterval(() => {
     void renewLocalSubscriptionLease({ db, ownerId }).catch(() => undefined);
   }, 45_000);
@@ -77,11 +83,13 @@ async function main(): Promise<number> {
     }
   } finally {
     clearInterval(renewal);
-    await releaseLocalSubscriptionLease({
-      db,
-      ownerId,
-      changedBy: `local-review-repair:${process.pid}`,
-    }).catch(() => undefined);
+    if (!existingOwnerId) {
+      await releaseLocalSubscriptionLease({
+        db,
+        ownerId,
+        changedBy: `local-review-repair:${process.pid}`,
+      }).catch(() => undefined);
+    }
   }
   return 0;
 }
