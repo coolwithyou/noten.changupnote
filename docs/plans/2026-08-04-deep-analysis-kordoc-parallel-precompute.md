@@ -415,6 +415,26 @@ pnpm lab:product-canary -- \
 - 실검증 중 연결이 끊긴 단건 요청과 같은 owner의 새 요청이 겹칠 수 있음을 발견했다. 로컬 프로세스에 단일 실행 락을 추가해 두 번째 요청은 모델 호출 전에 `local_analysis_already_running`으로 차단하고, 첫 실행 종료 뒤에는 락이 해제되도록 회귀 테스트로 고정했다.
 - 저장까지 포함한 v6 카나리는 장애인기업 마케팅 공고의 HWP 2개·후보 33개를 약 2분 9초에 처리했다. `claude-cli`/`claude-opus-5`, 처리 33/33, 잔여 미해결 0, 필드 5+2, 오류 0으로 `roundtrip-2026-08-08T200254.085Z-183b70` 불변 artifact가 생성됐다. 실행 중 같은 owner의 두 번째 dev API 요청도 실제로 409 차단됐다.
 
+### 7.6 구독 대량 분석 5→30 준비 루프 (2026-08-09)
+
+목표는 단건 성공을 근거로 전체 배치를 여는 대신, 정확한 배치 대상 집합을 기존 품질 그래프에 결속해 실패 종류만 좁혀 고치는 것이다.
+
+- `analysis-bulk-readiness-v1`은 `batch-job.json`의 `target-started/target-ok` ID를 정렬·중복 제거해 최신 현행 prompt 런과 연결한다. 최근 30건 같은 느슨한 시간창을 사용하지 않는다.
+- `batch_terminal`, `sample_complete`, `subscription_provenance`, `deep_quality`, `application_quality` 다섯 게이트를 독립 판정한다.
+- provenance는 배치 요청과 각 LabRun 양쪽에서 딥분석·Kordoc `claude-cli/claude-opus-5` 및 Kordoc 병렬 실행을 확인한다. API나 다른 모델이 한 건이라도 섞이면 `BLOCKED`다.
+- Kordoc `partial`은 실패가 아니다. 확정 필드를 사용할 수 있고 `requiredUnresolvedFields=0`이면 안전 종결로 인정한다. 필수 입력이 하나라도 미해결이면 `ITERATE`로 남겨 해당 공고만 Opus 재판정한다.
+- 딥분석은 22축 추출만 성공해서는 통과하지 않는다. 현행 Fable AI 검수와 Sonnet 독립 감사까지 품질 그래프의 deep lane이 `passed`여야 한다.
+- `pilot5`가 `GO`인 경우에만 30건 dry-run과 본 실행으로 넓힌다. `batch30`은 실행 후 동일 계약으로 결과를 다시 봉인한다. 이 루프는 승격·DB 쓰기·운영 자동화를 수행하지 않는다.
+
+실행 명령:
+
+```bash
+pnpm lab:bulk-readiness -- --stage=pilot5 --write
+pnpm lab:bulk-readiness -- --stage=batch30 --write
+```
+
+판정은 `GO`, `ITERATE`, `WAIT`, `BLOCKED` 중 하나이며 `WAIT`는 저장하지 않는다. 종결 판정 JSON은 `spike-out/analysis-lab/bulk-readiness/<batch-job-id>/` 아래 `wx`로 한 번만 기록한다.
+
 ### 7.5 2026-08-04 읽기 전용 backlog 기준선
 
 계획 수립 중 production DB를 read-only transaction으로 집계했으며 쓰기는 롤백했다.
