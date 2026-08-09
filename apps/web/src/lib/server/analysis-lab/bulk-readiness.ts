@@ -87,7 +87,7 @@ export function evaluateAnalysisBulkReadiness(input: {
       );
     }
     if (!graph) issues.push("품질 그래프 없음");
-    if (graph && graph.lanes.deep_analysis !== "passed") {
+    if (graph && !deepSafe(graph)) {
       issues.push(`딥분석 ${graph.lanes.deep_analysis}`);
     }
     if (graph && !applicationSafe(graph)) {
@@ -110,7 +110,10 @@ export function evaluateAnalysisBulkReadiness(input: {
     && items.length === expectedCount
     && items.every((item) => !item.issues.some((issue) => issue.includes("provenance") || issue.includes("LabRun 없음")));
   const deepPassed = items.length === expectedCount
-    && items.every((item) => item.deepStatus === "passed");
+    && items.every((item) => {
+      const graph = input.graphs.get(item.grantId);
+      return graph ? deepSafe(graph) : false;
+    });
   const applicationPassed = items.length === expectedCount
     && items.every((item) => {
       const graph = input.graphs.get(item.grantId);
@@ -151,10 +154,16 @@ export function evaluateAnalysisBulkReadiness(input: {
     ),
     gate(
       "deep_quality",
-      "딥분석·독립 검수",
+      "딥분석 안전 종결",
       batchWaiting && items.length < expectedCount ? "waiting" : deepPassed ? "passed" : "failed",
-      `${items.filter((item) => item.deepStatus === "passed").length}/${expectedCount}건 통과`,
-      items.filter((item) => item.deepStatus !== "passed").map((item) => `${item.grantId}: ${item.deepStatus ?? "미검증"}`),
+      `${items.filter((item) => {
+        const graph = input.graphs.get(item.grantId);
+        return graph ? deepSafe(graph) : false;
+      }).length}/${expectedCount}건 안전 종결`,
+      items.filter((item) => {
+        const graph = input.graphs.get(item.grantId);
+        return !graph || !deepSafe(graph);
+      }).map((item) => `${item.grantId}: ${item.deepStatus ?? "미검증"}`),
     ),
     gate(
       "application_quality",
@@ -184,7 +193,10 @@ export function evaluateAnalysisBulkReadiness(input: {
     batchPassed,
     samplePassed,
     provenancePassed,
-    deepFailedGrantIds: items.filter((item) => item.deepStatus !== "passed").map((item) => item.grantId),
+    deepFailedGrantIds: items.filter((item) => {
+      const graph = input.graphs.get(item.grantId);
+      return !graph || !deepSafe(graph);
+    }).map((item) => item.grantId),
     applicationFailedGrantIds: items.filter((item) => {
       const graph = input.graphs.get(item.grantId);
       return !graph || !applicationSafe(graph);
@@ -222,6 +234,10 @@ function applicationSafe(graph: AnalysisQualityGraph): boolean {
       || graph.lanes.application === "partial"
       || graph.lanes.application === "not_applicable")
     && graph.metrics.requiredUnresolvedFields === 0;
+}
+
+function deepSafe(graph: AnalysisQualityGraph): boolean {
+  return graph.lanes.deep_analysis === "passed" || graph.lanes.deep_analysis === "partial";
 }
 
 function targetIds(snapshot: LabBatchJobSnapshot, type: "target-started" | "target-ok"): string[] {

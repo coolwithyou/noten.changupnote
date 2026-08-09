@@ -19,6 +19,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { CriterionDimension } from "@cunote/contracts";
 import {
+  isAiAdjudicationResolved,
   isAiAuditConcur,
   type LabAudit,
   type LabAuditItem,
@@ -54,7 +55,8 @@ export function labAuditFilePath(source: string, sourceId: string, runId: string
  * (그 공고의 AI 검수는 감사 없이 확정 편입).
  */
 export function isLabAuditComplete(audit: LabAudit): boolean {
-  return audit.items.every((item) => item.humanVerdict !== null || isAiAuditConcur(item));
+  return audit.items.every((item) =>
+    item.humanVerdict !== null || isAiAuditConcur(item) || isAiAdjudicationResolved(item));
 }
 
 // ---- AI 검수 파일 수집 (CLI --audit-list 와 감사 생성이 공유하는 풀) ---------------
@@ -563,6 +565,122 @@ export async function saveLabAuditAiJudgments(options: {
   });
   if (merged.status === "invalid") return merged;
 
+  await writeFile(path, `${JSON.stringify(merged.audit, null, 2)}\n`, "utf8");
+  return { status: "ok", audit: merged.audit, applied: merged.applied, skippedHuman: merged.skippedHuman, path };
+}
+
+export interface LabAuditAiAdjudicationJudgment {
+  kind: "criterion" | "axis";
+  criterionIndex?: number;
+  dimension?: CriterionDimension;
+  verdict: LabCriterionVerdict | LabEmptyAxisVerdict;
+  note: string;
+  matchImpact?: LabMissedConditionImpact | null;
+}
+
+export type ApplyAiAdjudicationOutcome =
+  | { status: "ok"; audit: LabAudit; applied: number; skippedHuman: number }
+  | { status: "invalid"; message: string };
+
+/** 충돌 항목만 별도 AI provenance로 병합한다. 사람 판정과 합의 항목은 불가침이다. */
+export function applyAiAdjudicationJudgments(
+  stored: LabAudit,
+  options: {
+    model: string;
+    promptVersion: string;
+    transport: "api" | "claude-cli";
+    judgments: LabAuditAiAdjudicationJudgment[];
+    now?: string;
+  },
+): ApplyAiAdjudicationOutcome {
+  if (options.model === stored.model || options.model === stored.aiAuditModel) {
+    return { status: "invalid", message: `3차 판정 모델(${options.model})은 1차 검수·2차 감사 모델과 달라야 합니다.` };
+  }
+  const items = stored.items.map((item) => ({ ...item }));
+  const byKey = new Map(items.map((item) => [itemKeyOf(item), item]));
+  const seen = new Set<string>();
+  let applied = 0;
+  let skippedHuman = 0;
+  for (const judgment of options.judgments) {
+    const key = itemKeyOf(judgment);
+    if (seen.has(key)) return { status: "invalid", message: `3차 판정 항목이 중복되었습니다: ${key}` };
+    seen.add(key);
+    const target = byKey.get(key);
+    if (!target) return { status: "invalid", message: `감사 대상 목록에 없는 3차 판정입니다: ${key}` };
+    if (target.humanVerdict !== null) {
+      skippedHuman += 1;
+      continue;
+    }
+    if (target.aiAuditVerdict === undefined || target.aiAuditVerdict === null || isAiAuditConcur(target)) {
+      return { status: "invalid", message: `${key}: 독립 판정 충돌 항목이 아니므로 3차 판정할 수 없습니다.` };
+    }
+    const criterionVerdict = judgment.verdict === "correct" || judgment.verdict === "needs_edit" || judgment.verdict === "wrong";
+    const axisVerdict = judgment.verdict === "confirmed_absent" || judgment.verdict === "missed_condition";
+    if ((target.kind === "criterion" && !criterionVerdict) || (target.kind === "axis" && !axisVerdict)) {
+      return { status: "invalid", message: `${key}: 3차 판정 어휘가 대상 종류와 맞지 않습니다(${judgment.verdict}).` };
+    }
+    if (!judgment.note.trim()) return { status: "invalid", message: `${key}: 3차 판정 근거가 비어 있습니다.` };
+    if (judgment.verdict === "missed_condition"
+      && judgment.matchImpact !== "eligibility"
+      && judgment.matchImpact !== "ranking") {
+      return { status: "invalid", message: `${key}: 누락 조건의 매칭 영향도가 필요합니다.` };
+    }
+    target.aiAdjudicationVerdict = judgment.verdict;
+    target.aiAdjudicationNote = judgment.note.trim();
+    if (target.kind === "axis") target.aiAdjudicationMatchImpact = judgment.matchImpact ?? null;
+    applied += 1;
+  }
+  const now = options.now ?? new Date().toISOString();
+  return {
+    status: "ok",
+    applied,
+    skippedHuman,
+    audit: {
+      ...stored,
+      items,
+      aiAdjudicationModel: options.model,
+      aiAdjudicationPromptVersion: options.promptVersion,
+      aiAdjudicationTransport: options.transport,
+      aiAdjudicatedAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
+export type LabAuditAiAdjudicationSaveOutcome =
+  | { status: "ok"; audit: LabAudit; applied: number; skippedHuman: number; path: string }
+  | { status: "run_not_found" }
+  | { status: "audit_not_found" }
+  | { status: "audit_parse_failed"; path: string }
+  | { status: "invalid"; message: string };
+
+export async function saveLabAuditAiAdjudication(options: {
+  grantId: string;
+  runId: string;
+  model: string;
+  adjudicationModel: string;
+  promptVersion: string;
+  transport: "api" | "claude-cli";
+  judgments: LabAuditAiAdjudicationJudgment[];
+}): Promise<LabAuditAiAdjudicationSaveOutcome> {
+  const run = await readLabRun(options.grantId, options.runId);
+  if (!run) return { status: "run_not_found" };
+  const path = labAuditFilePath(run.source, run.sourceId, run.runId, options.model);
+  let stored: LabAudit | null;
+  try {
+    stored = await readAuditFile(path);
+  } catch (caught) {
+    if ((caught as NodeJS.ErrnoException).code === "ENOENT") return { status: "audit_not_found" };
+    return { status: "audit_parse_failed", path };
+  }
+  if (!stored) return { status: "audit_parse_failed", path };
+  const merged = applyAiAdjudicationJudgments(stored, {
+    model: options.adjudicationModel,
+    promptVersion: options.promptVersion,
+    transport: options.transport,
+    judgments: options.judgments,
+  });
+  if (merged.status === "invalid") return merged;
   await writeFile(path, `${JSON.stringify(merged.audit, null, 2)}\n`, "utf8");
   return { status: "ok", audit: merged.audit, applied: merged.applied, skippedHuman: merged.skippedHuman, path };
 }

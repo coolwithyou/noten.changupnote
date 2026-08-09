@@ -351,6 +351,14 @@ export interface LabAuditItem {
   aiAuditNote?: string | null;
   /** 독립 감사의 누락 조건 영향도. 1차와 일치해야 ranking 조건부 승격 근거가 된다. */
   aiAuditMatchImpact?: LabMissedConditionImpact | null;
+  /**
+   * 1차 검수와 블라인드 감사가 충돌했을 때만 실행하는 3차 고성능 모델의 최종 판정.
+   * 사람 판정을 흉내 내지 않고 별도 provenance로 보존한다. criterion의 unsure는 최종
+   * 판정으로 허용하지 않으며, missed_condition이면 match impact도 함께 확정해야 한다.
+   */
+  aiAdjudicationVerdict?: LabCriterionVerdict | LabEmptyAxisVerdict | null;
+  aiAdjudicationNote?: string | null;
+  aiAdjudicationMatchImpact?: LabMissedConditionImpact | null;
 }
 
 /**
@@ -384,6 +392,22 @@ export function isAiAuditConcur(item: {
   );
 }
 
+/** 두 독립 판정의 충돌을 3차 모델이 종결했는지 판정하는 단일 원천. */
+export function isAiAdjudicationResolved(item: {
+  kind: "criterion" | "axis";
+  aiAdjudicationVerdict?: string | null | undefined;
+  aiAdjudicationMatchImpact?: LabMissedConditionImpact | null | undefined;
+}): boolean {
+  const verdict = item.aiAdjudicationVerdict;
+  if (verdict === null || verdict === undefined || verdict === "unsure") return false;
+  if (item.kind === "criterion") {
+    return verdict === "correct" || verdict === "needs_edit" || verdict === "wrong";
+  }
+  if (verdict === "confirmed_absent") return true;
+  return verdict === "missed_condition"
+    && (item.aiAdjudicationMatchImpact === "eligibility" || item.aiAdjudicationMatchImpact === "ranking");
+}
+
 export interface LabAudit {
   schema: "lab-audit-v1";
   grantId: string;
@@ -410,6 +434,11 @@ export interface LabAudit {
    * 기존 감사 파일에는 없다(하위 호환 optional — undefined 는 api 로 해석한다).
    */
   aiAuditTransport?: "api" | "claude-cli";
+  /** 1차 검수와 2차 감사가 충돌한 항목만 종결한 3차 모델 provenance. */
+  aiAdjudicationModel?: string | null;
+  aiAdjudicationPromptVersion?: string | null;
+  aiAdjudicatedAt?: string | null;
+  aiAdjudicationTransport?: "api" | "claude-cli";
 }
 
 /** PUT 본문의 항목 판정 — 판정한 항목만 보낸다(부분 저장). 서버는 저장본 대상 목록에 병합만 한다. */

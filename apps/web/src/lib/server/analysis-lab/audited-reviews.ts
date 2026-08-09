@@ -14,6 +14,7 @@
 import { join } from "node:path";
 import {
   AI_REVIEW_ADOPTED,
+  isAiAdjudicationResolved,
   isAiAuditConcur,
   type LabAudit,
   type LabAuditItem,
@@ -53,10 +54,13 @@ export interface AuditedReviewProvenance {
   aiConcurCount: number;
   /** AI 감사 기록 중 비일치(불일치·unsure) 항목 수 — 사람 판정이 필요한(했던) 갈래. */
   aiDisagreeCount: number;
+  /** 두 독립 판정의 충돌을 3차 고성능 모델로 종결한 항목 수. */
+  aiAdjudicatedCount: number;
   /** 결정 규칙으로 해소한 AI 불일치 criterion index. 존재할 때만 기록한다. */
   deterministicResolvedCriterionIndexes?: number[];
   /** AI 블라인드 감사 모델 — 미실행 감사 파일이면 null. */
   aiAuditModel: string | null;
+  aiAdjudicationModel: string | null;
 }
 
 export interface MergedAuditedReview {
@@ -94,6 +98,7 @@ export function mergeAuditedReview(
   let aiAuditedCount = 0;
   let aiConcurCount = 0;
   let aiDisagreeCount = 0;
+  let aiAdjudicatedCount = 0;
   const deterministicResolvedCriterionIndexes: number[] = [];
   for (const item of audit.items) {
     if (item.kind === "criterion" && item.criterionIndex !== undefined) {
@@ -112,6 +117,7 @@ export function mergeAuditedReview(
       if (item.humanVerdict === null && isAiAuditConcur(item)) aiConcurCount += 1;
       else if (!isAiAuditConcur(item)) aiDisagreeCount += 1;
     }
+    if (item.humanVerdict === null && isAiAdjudicationResolved(item)) aiAdjudicatedCount += 1;
     if (run && resolveDeterministicAuditDisagreement(run, item)) {
       deterministicResolvedCriterionIndexes.push(item.criterionIndex!);
     }
@@ -122,11 +128,25 @@ export function mergeAuditedReview(
     const deterministic = run && audited
       ? resolveDeterministicAuditDisagreement(run, audited)
       : null;
+    if (audited?.humanVerdict !== null && audited?.humanVerdict !== undefined) {
+      return {
+        criterionIndex: ai.criterionIndex,
+        verdict: audited.humanVerdict as LabCriterionVerdict,
+        note: audited.note ?? ai.note,
+      };
+    }
     if (deterministic) {
       return {
         criterionIndex: ai.criterionIndex,
         verdict: deterministic.verdict,
         note: deterministic.note,
+      };
+    }
+    if (audited && isAiAdjudicationResolved(audited)) {
+      return {
+        criterionIndex: ai.criterionIndex,
+        verdict: audited.aiAdjudicationVerdict as LabCriterionVerdict,
+        note: audited.aiAdjudicationNote ?? ai.note,
       };
     }
     if (!audited || audited.humanVerdict === null) {
@@ -140,6 +160,14 @@ export function mergeAuditedReview(
   });
   const axisReviews: LabAxisReview[] = aiReview.axisReviews.map((ai) => {
     const audited = axisAudits.get(ai.dimension);
+    if (audited && audited.humanVerdict === null && isAiAdjudicationResolved(audited)) {
+      return {
+        dimension: ai.dimension,
+        verdict: audited.aiAdjudicationVerdict as LabEmptyAxisVerdict,
+        note: audited.aiAdjudicationNote ?? ai.note,
+        ...(audited.aiAdjudicationMatchImpact ? { matchImpact: audited.aiAdjudicationMatchImpact } : {}),
+      };
+    }
     if (!audited || audited.humanVerdict === null) {
       return {
         dimension: ai.dimension,
@@ -177,10 +205,12 @@ export function mergeAuditedReview(
       aiAuditedCount,
       aiConcurCount,
       aiDisagreeCount,
+      aiAdjudicatedCount,
       ...(deterministicResolvedCriterionIndexes.length > 0
         ? { deterministicResolvedCriterionIndexes }
         : {}),
       aiAuditModel: audit.aiAuditModel ?? null,
+      aiAdjudicationModel: audit.aiAdjudicationModel ?? null,
     },
   };
 }
@@ -198,6 +228,9 @@ export interface AuditedConfirmedRun {
     auditModel: string | null;
     auditPromptVersion: string | null;
     auditTransport: "api" | "claude-cli" | null;
+    adjudicationModel: string | null;
+    adjudicationPromptVersion: string | null;
+    adjudicationTransport: "api" | "claude-cli" | null;
     deterministicPolicyVersion?: string;
     deterministicResolvedCriterionIndexes?: number[];
   };
@@ -224,6 +257,7 @@ export function isLabAuditCompleteForRun(run: LabRun, audit: LabAudit): boolean 
   return audit.items.every((item) =>
     item.humanVerdict !== null
     || isAiAuditConcur(item)
+    || isAiAdjudicationResolved(item)
     || resolveDeterministicAuditDisagreement(run, item) !== null);
 }
 
@@ -317,6 +351,9 @@ export async function loadAuditedConfirmedReviews(options: {
         auditModel: audit.aiAuditModel ?? null,
         auditPromptVersion: audit.aiAuditPromptVersion ?? null,
         auditTransport: audit.aiAuditTransport ?? null,
+        adjudicationModel: audit.aiAdjudicationModel ?? null,
+        adjudicationPromptVersion: audit.aiAdjudicationPromptVersion ?? null,
+        adjudicationTransport: audit.aiAdjudicationTransport ?? null,
         ...(merged.provenance.deterministicResolvedCriterionIndexes?.length
           ? {
               deterministicPolicyVersion: LAB_DETERMINISTIC_AUDIT_POLICY_VERSION,

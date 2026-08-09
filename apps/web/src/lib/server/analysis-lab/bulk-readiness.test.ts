@@ -137,6 +137,28 @@ assert.equal(
   "비필수 미해결만 남은 Kordoc partial은 안전 종결",
 );
 
+const rankingDeferredGraphs = new Map(graphs);
+rankingDeferredGraphs.set("grant-3", graph(3, {
+  lanes: { deep_analysis: "partial", application: "passed", product: "not_evaluated" },
+  analysisReadiness: "partial",
+}));
+assert.equal(
+  evaluateAnalysisBulkReadiness({ stage: "pilot5", snapshot: snapshot(), runs, graphs: rankingDeferredGraphs }).verdict,
+  "GO",
+  "신청자격은 안전하고 랭킹 신호만 보류한 딥분석 partial은 안전 종결",
+);
+
+const heldDeepGraphs = new Map(graphs);
+heldDeepGraphs.set("grant-3", graph(3, {
+  lanes: { deep_analysis: "held", application: "passed", product: "not_evaluated" },
+  analysisReadiness: "held",
+}));
+assert.equal(
+  evaluateAnalysisBulkReadiness({ stage: "pilot5", snapshot: snapshot(), runs, graphs: heldDeepGraphs }).verdict,
+  "ITERATE",
+  "신청자격 쟁점이 남은 딥분석 held는 자동 통과시키지 않음",
+);
+
 const requiredGraphs = new Map(graphs);
 requiredGraphs.set("grant-2", graph(2, {
   lanes: { deep_analysis: "passed", application: "partial", product: "not_evaluated" },
