@@ -153,7 +153,15 @@ export async function readLatestLabRunIndex(): Promise<Map<string, LabRun>> {
   }
 }
 
-async function buildLatestLabRunIndex(): Promise<Map<string, LabRun>> {
+/**
+ * 품질 기준선용 현행 정책 최신 런 인덱스. 공고의 가장 최신 런이 구버전이어도 그보다 앞선
+ * 지정 정책 런을 찾는다. 일반 관리자 목록의 "실제 최신" 의미와 섞지 않기 위해 별도 API다.
+ */
+export async function readLatestLabRunIndexForPrompt(promptVersion: string): Promise<Map<string, LabRun>> {
+  return buildLatestLabRunIndex(promptVersion);
+}
+
+async function buildLatestLabRunIndex(promptVersion?: string): Promise<Map<string, LabRun>> {
   const root = analysisLabDir();
   let entries: string[];
   try {
@@ -176,6 +184,7 @@ async function buildLatestLabRunIndex(): Promise<Map<string, LabRun>> {
       for (const file of files) {
         if (!isPrimaryRunFilename(file)) continue;
         const run = await readRunFile(join(dir, file));
+        if (run && promptVersion !== undefined && run.promptVersion !== promptVersion) continue;
         if (run && (!latest || run.startedAt > latest.startedAt)) latest = run;
       }
       return latest;

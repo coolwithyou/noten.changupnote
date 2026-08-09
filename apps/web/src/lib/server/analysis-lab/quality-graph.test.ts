@@ -276,3 +276,15 @@ function roundtripFixture(run: LabRun, document = documentFixture()): Applicatio
   assert.equal(graph.nodes.find((node) => node.id === "input_sealed")?.status, "failed");
   console.log("✅ 계약 파손 — 실패를 부분 완료로 완화하지 않음");
 }
+
+{
+  const run = runFixture({ inputBlocks: [{ label: "변환 불가 ZIP", chars: 0, truncated: true }] });
+  const graph = evaluateAnalysisQuality({
+    run,
+    review: { source: "human", review: reviewFixture(run), complete: true, currentPolicy: true },
+    roundtrip: null,
+  });
+  assert.equal(graph.nodes.find((node) => node.id === "input_sealed")?.status, "partial");
+  assert.notEqual(graph.lanes.deep_analysis, "failed", "변환 불가 첨부를 계약 파손으로 과장하지 않음");
+  console.log("✅ 입력 범위 — 변환 불가 첨부는 명시적 부분 완료");
+}

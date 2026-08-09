@@ -7,63 +7,21 @@ import {
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
 import {
   ANALYSIS_LAB_PROMPT_VERSION,
-  type LabReview,
   type LabRun,
 } from "@/features/dev/analysis-lab/contract";
+import {
+  ANALYSIS_QUALITY_POLICY_VERSION,
+  type AnalysisQualityDownstreamEvidence,
+  type AnalysisQualityEdge,
+  type AnalysisQualityGraph,
+  type AnalysisQualityLane,
+  type AnalysisQualityMetrics,
+  type AnalysisQualityNode,
+  type AnalysisQualityNodeId,
+  type AnalysisQualityReviewEvidence,
+  type AnalysisQualityStatus,
+} from "@/features/dev/analysis-lab/quality-contract";
 import { assessPromotionReviewRisk } from "./promotion-review-risk";
-
-export const ANALYSIS_QUALITY_POLICY_VERSION = "analysis-quality-v1" as const;
-
-export type AnalysisQualityStatus =
-  | "passed"
-  | "partial"
-  | "held"
-  | "failed"
-  | "not_evaluated"
-  | "not_applicable";
-
-export type AnalysisQualityLane = "deep_analysis" | "application" | "product";
-
-export type AnalysisQualityNodeId =
-  | "input_sealed"
-  | "deep_contract"
-  | "independent_review"
-  | "deep_promotion"
-  | "matching_canary"
-  | "application_source"
-  | "field_adjudication"
-  | "field_materialization"
-  | "workspace_canary";
-
-export interface AnalysisQualityNode {
-  id: AnalysisQualityNodeId;
-  lane: AnalysisQualityLane;
-  label: string;
-  status: AnalysisQualityStatus;
-  hardGate: boolean;
-  summary: string;
-  evidence: string[];
-  nextAction: string | null;
-}
-
-export interface AnalysisQualityEdge {
-  from: AnalysisQualityNodeId;
-  to: AnalysisQualityNodeId;
-  kind: "sequence" | "feedback";
-}
-
-export interface AnalysisQualityReviewEvidence {
-  source: "human" | "ai_audit";
-  review: LabReview;
-  complete: boolean;
-  currentPolicy: boolean;
-}
-
-export interface AnalysisQualityDownstreamEvidence {
-  status: "passed" | "failed";
-  summary: string;
-  evidence?: string[];
-}
 
 export interface AnalysisQualityGraphInput {
   run: LabRun;
@@ -73,33 +31,6 @@ export interface AnalysisQualityGraphInput {
   fieldMaterialization?: AnalysisQualityDownstreamEvidence | null;
   matchingCanary?: AnalysisQualityDownstreamEvidence | null;
   workspaceCanary?: AnalysisQualityDownstreamEvidence | null;
-}
-
-export interface AnalysisQualityMetrics {
-  criteria: number;
-  groundedCriteria: number;
-  assessedAxes: number;
-  ambiguousAxes: number;
-  inputMissingAxes: number;
-  applicationDocuments: number;
-  fieldCandidates: number;
-  acceptedFields: number;
-  unresolvedFields: number;
-  requiredUnresolvedFields: number;
-}
-
-export interface AnalysisQualityGraph {
-  policyVersion: typeof ANALYSIS_QUALITY_POLICY_VERSION;
-  grantId: string;
-  runId: string;
-  title: string;
-  evaluatedAt: string;
-  analysisReadiness: AnalysisQualityStatus;
-  productReadiness: AnalysisQualityStatus;
-  lanes: Record<AnalysisQualityLane, AnalysisQualityStatus>;
-  nodes: AnalysisQualityNode[];
-  edges: AnalysisQualityEdge[];
-  metrics: AnalysisQualityMetrics;
 }
 
 const SHA256 = /^[a-f0-9]{64}$/;
@@ -151,11 +82,12 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
     ...(run.inputBlocks.length === 0 || run.inputTotalChars <= 0 ? ["봉인된 입력 블록이 없습니다."] : []),
     ...run.inputBlocks.filter((block) => block.truncated).map((block) => `입력 잘림: ${block.label}`),
   ];
-  const inputStatus: AnalysisQualityStatus = inputIssues.length === 0
-    ? "passed"
+  const inputContractBroken = !SHA256.test(run.inputSha256) || run.inputBlocks.length === 0 || run.inputTotalChars <= 0;
+  const inputStatus: AnalysisQualityStatus = inputContractBroken
+    ? "failed"
     : run.inputBlocks.some((block) => block.truncated)
-      ? "held"
-      : "failed";
+      ? "partial"
+      : "passed";
 
   const groundedCriteria = run.criteria.filter((criterion) =>
     criterion.spanVerified && Boolean(criterion.sourceSpan?.trim())).length;
@@ -190,9 +122,13 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
       label: "입력 봉인",
       status: inputStatus,
       hardGate: true,
-      summary: inputStatus === "passed" ? `입력 ${run.inputBlocks.length}개 블록의 해시가 봉인됐습니다.` : inputIssues[0]!,
+      summary: inputStatus === "passed"
+        ? `입력 ${run.inputBlocks.length}개 블록의 해시가 봉인됐습니다.`
+        : inputStatus === "partial"
+          ? `변환되지 않은 첨부 ${run.inputBlocks.filter((block) => block.truncated).length}건을 명시적으로 보류했습니다.`
+          : inputIssues[0]!,
       evidence: inputStatus === "passed" ? [`sha256 ${run.inputSha256}`, `총 ${run.inputTotalChars.toLocaleString()}자`] : inputIssues,
-      nextAction: inputStatus === "passed" ? null : "첨부 변환과 입력 조립을 다시 실행하세요.",
+      nextAction: inputStatus === "failed" ? "첨부 변환과 입력 조립을 다시 실행하세요." : null,
     },
     {
       id: "deep_contract",
@@ -202,7 +138,10 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
       hardGate: true,
       summary: contractStatus === "passed"
         ? `22축과 조건 ${run.criteria.length}건이 원문 근거로 검증됐습니다.`
-        : contractIssues[0] ?? `애매한 축 ${ambiguousAxes}건을 안전하게 보류했습니다.`,
+        : contractIssues[0]
+          ?? (inputMissingAxes > 0
+            ? `원문 입력이 부족한 축 ${inputMissingAxes}건이 남았습니다.`
+            : `애매한 축 ${ambiguousAxes}건을 안전하게 보류했습니다.`),
       evidence: [
         `축 ${run.axisAssessments.length}/${CRITERION_DIMENSIONS.length}`,
         `근거 검증 ${groundedCriteria}/${run.criteria.length}`,

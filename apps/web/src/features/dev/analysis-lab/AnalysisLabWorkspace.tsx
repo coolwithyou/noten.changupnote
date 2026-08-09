@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { FileCheck2, Gauge, SearchCheck, Sparkles } from "lucide-react";
+import { FileCheck2, Gauge, GitBranch, SearchCheck, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AnalysisLab } from "./AnalysisLab";
 import { ApplicationRoundtripLab } from "./ApplicationRoundtripLab";
 import { BatchOpsTab } from "./BatchOpsTab";
 import { LocalAnalysisRuntimeCard } from "./LocalAnalysisRuntimeCard";
+import { QualityGraphTab } from "./QualityGraphTab";
 import { useLocalAnalysisRuntime } from "./useLocalAnalysisRuntime";
 
 const WORKSPACES = [
@@ -28,6 +29,12 @@ const WORKSPACES = [
     title: "빠른 작성 검수",
     description: "지원서 입력칸과 채움 결과 확인",
     icon: FileCheck2,
+  },
+  {
+    value: "quality",
+    title: "품질 그래프",
+    description: "성공 기준과 재처리 지점 확인",
+    icon: GitBranch,
   },
 ] as const;
 type WorkspaceValue = (typeof WORKSPACES)[number]["value"];
@@ -114,6 +121,9 @@ export function AnalysisLabWorkspace() {
           </TabsContent>
           <TabsContent value="application-roundtrip">
             <ApplicationRoundtripLab analysisAllowed={runtime.allowed} analysisOwnerId={runtime.ownerId} />
+          </TabsContent>
+          <TabsContent value="quality">
+            <QualityGraphTab />
           </TabsContent>
         </div>
       </div>
