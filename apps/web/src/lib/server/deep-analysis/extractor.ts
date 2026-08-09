@@ -339,6 +339,8 @@ export function normalizeCriteria(rows: unknown, inputText: string): DeepAnalysi
       operator,
       sourceSpan,
       spanVerified: spanCheck.verified,
+      note: cleanString(row.note),
+      inputText,
     });
     const confirmation = normalizeConfirmation(row.confirmation);
     criteria.push({
@@ -825,7 +827,7 @@ export const DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE =
 export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
   "자격·결격 문장에 붙은 '단', '다만', '예외' 조건은 매칭 결과를 바꾸는 핵심 조건이다. 예외를 생략하거나 바로 앞뒤의 다른 criterion에 옮겨 붙이지 마라. 각 criterion의 value.exceptions에는 그 criterion에 실제 적용되는 canonical 예외만 넣고, source_span은 본문과 해당 예외 문구를 함께 포함해 글자 그대로 인용하라. 같은 flags라도 예외의 종류나 적용 대상이 다르면 의미가 다른 criterion이다.";
 export const DEEP_ANALYSIS_STRUCTURED_TARGET_RULE =
-  "sealed structured source의 rawPayload.trgetNm은 Bizinfo가 제공한 공식 신청대상 필드다. 이 값이 '중소기업'처럼 지원대상을 구체적으로 명시하면 첨부 본문에 같은 문장이 반복되지 않아도 해당 축 criterion의 유효한 근거로 사용하고, 첨부에 없다는 이유만으로 inspected_no_condition이나 unsure로 낮추지 마라. 다만 structured 신청대상과 공고 본문·첨부의 명시 조건이 서로 충돌하면 임의로 선택하지 말고 ambiguous로 남겨라.";
+  "sealed structured source의 rawPayload.trgetNm은 Bizinfo가 제공한 공식 신청대상 필드다. 이 값이 '중소기업'처럼 지원대상을 구체적으로 명시하면 첨부 본문에 같은 문장이 반복되지 않아도 해당 축 criterion의 유효한 근거로 사용하고, 첨부에 없다는 이유만으로 inspected_no_condition이나 unsure로 낮추지 마라. 다만 structured 신청대상과 공고 본문·첨부의 명시 조건이 서로 충돌하면 임의로 선택하지 말고 ambiguous로 남겨라. 특히 본문의 신청·추천 대상 문장이 규모를 한정하지 않고 기업·기관 등으로 열려 있으며 신청서의 신청주체 선택란도 대기업·중소기업·대학·공공기관처럼 structured target보다 넓은 유형을 명시하면, 그 선택란은 단독 자격근거가 아니라 본문과 결합해 structured target 충돌을 입증하는 근거다. 이 경우 structured target만으로 size required criterion을 만들지 마라.";
 export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
   "K-Startup의 rawPayload.biz_enyy와 biz_trgt_age처럼 포털 검색용 범주를 넓게 열거한 필드는 그 자체를 신청자격 상·하한으로 만들지 마라. 지원 가능한 모든 업력 또는 연령 범주를 사실상 전부 나열하면 비제한 검색 메타데이터이므로 criterion이나 ambiguous 근거가 아니다. 신청대상·신청자격 본문에 명시된 구체 조건이 있으면 그 문장을 우선하고, 양쪽이 모두 실제 자격 문장인데 충돌할 때만 ambiguous로 남겨라.";
 export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
@@ -957,6 +959,8 @@ function normalizeCriterionValue(input: {
   operator: string;
   sourceSpan: string | null;
   spanVerified: boolean;
+  note: string | null;
+  inputText: string;
 }): Record<string, unknown> {
   const value = isRecord(input.rawValue) ? { ...input.rawValue } : {};
   if (
@@ -978,8 +982,32 @@ function normalizeCriterionValue(input: {
   }
   return {
     ...value,
-    list_semantics: hasOpenTargetTypeListMarker(normalizedSpan) ? "open" : "closed",
+    list_semantics: hasOpenTargetTypeListMarker(normalizedSpan)
+      || hasDelegatedOpenTargetTypeEvidence({
+        sourceSpan: normalizedSpan,
+        note: input.note,
+        inputText: input.inputText,
+      })
+      ? "open"
+      : "closed",
   };
+}
+
+/**
+ * K-Startup 통합공고의 신청대상 요약은 표면상 유한 목록이지만, 바로 이어지는
+ * 상세 문구가 자격을 각 하위 공고에 위임한다. 모델이 이 위임을 근거로 open이라고
+ * 명시한 경우 source_span 한 줄만 보고 closed로 되돌리지 않는다. note만으로는
+ * 신뢰하지 않고 봉인 입력의 위임 문구와 요약 source를 함께 요구한다.
+ */
+function hasDelegatedOpenTargetTypeEvidence(input: {
+  sourceSpan: string;
+  note: string | null;
+  inputText: string;
+}): boolean {
+  if (!/신청대상\s*요약/.test(input.sourceSpan)) return false;
+  if (!input.note || !/(?:open|열린|완전열거가\s*아닌)\s*목록/i.test(input.note)) return false;
+  const normalizedInput = normalizeEvidence(input.inputText);
+  return /신청대상\s*상세\s*:\s*각\s*지원사업\s*모집\s*공고문\s*참고/.test(normalizedInput);
 }
 
 function hasOpenTargetTypeListMarker(sourceSpan: string): boolean {

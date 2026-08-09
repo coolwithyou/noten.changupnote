@@ -273,7 +273,34 @@ assert.match(
     "open",
     "등과 같은 예시 표지가 있으면 모델 요청과 무관하게 열린 목록을 보존한다",
   );
+
+  const delegatedInput = [
+    "신청대상 요약: 청소년,대학생,일반인,대학,연구기관,일반기업,1인 창조기업",
+    "신청대상 상세: 각 지원사업 모집 공고문 참고",
+  ].join("\n");
+  const [delegatedCriterion] = normalizeCriteria([{
+    dimension: "target_type",
+    kind: "required",
+    operator: "in",
+    value: {
+      targets: ["청소년", "대학생", "일반인", "대학", "연구기관", "일반기업", "1인 창조기업"],
+      list_semantics: "open",
+    },
+    confidence: 0.9,
+    source_span: delegatedInput.split("\n")[0],
+    note: "상세 자격을 하위 공고에 위임하므로 완전열거가 아닌 open 목록이다.",
+  }], delegatedInput);
+  assert.equal(
+    (delegatedCriterion?.value as { list_semantics?: string }).list_semantics,
+    "open",
+    "봉인 입력이 하위 공고에 상세 자격을 위임하면 요약 목록을 closed로 되돌리지 않는다",
+  );
 }
+
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /신청주체 선택란도 대기업·중소기업·대학·공공기관.*structured target 충돌/,
+);
 
 assert.equal(
   resolveExactEvidenceSpan("서울 소재 기업만 신청", "앞문장\n서울   소재\n기업만 신청\n뒷문장"),
