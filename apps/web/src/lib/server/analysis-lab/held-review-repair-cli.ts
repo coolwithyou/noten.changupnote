@@ -4,7 +4,7 @@ import { getLabBatchJobSnapshot } from "./batch-job";
 import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import { runLabAnalysis } from "./analyze";
 import { AI_ADJUDICATION_DEFAULT_MODEL } from "./ai-adjudication";
-import { buildHeldReviewRepairPlan } from "./held-review-repair";
+import { buildHeldReviewRepairPlan, combineHeldReviewRepairPlans } from "./held-review-repair";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 
 loadAnalysisLabEnv();
@@ -22,18 +22,32 @@ async function main(): Promise<number> {
     console.error(`[repair-held] 배치 ${batch.jobId}가 실행 중이므로 동시 모델 실행을 거부합니다.`);
     return 1;
   }
-  const selection = await loadAuditedConfirmedReviews({ model: AI_REVIEW_ADOPTED.model, scanAll: true });
-  const confirmedByGrant = new Map(selection.confirmed.map((item) => [item.run.grantId, item]));
-  const plans = [...grantIds].map((grantId) => {
-    const source = confirmedByGrant.get(grantId);
-    if (!source) throw new Error(`완료된 현행 독립 검수를 찾지 못했습니다: ${grantId}`);
-    const plan = buildHeldReviewRepairPlan({ run: source.run, review: source.review });
-    if (!plan) throw new Error(`신청자격 blocker가 없는 공고는 재분석하지 않습니다: ${grantId}`);
-    return { source, plan };
+  const selection = await loadAuditedConfirmedReviews({
+    model: AI_REVIEW_ADOPTED.model,
+    scanAll: true,
+    keepAllRuns: true,
   });
-  console.log(`[repair-held] 정확한 대상 ${plans.length}건 · blocker ${plans.reduce((sum, item) => sum + item.plan.blockingCount, 0)}건 · ${AI_ADJUDICATION_DEFAULT_MODEL}/claude-cli`);
+  const confirmedByGrant = new Map<string, typeof selection.confirmed>();
+  for (const item of selection.confirmed) {
+    const values = confirmedByGrant.get(item.run.grantId) ?? [];
+    values.push(item);
+    confirmedByGrant.set(item.run.grantId, values);
+  }
+  const plans = [...grantIds].map((grantId) => {
+    const history = (confirmedByGrant.get(grantId) ?? [])
+      .sort((a, b) => a.run.startedAt.localeCompare(b.run.startedAt));
+    const source = history.at(-1);
+    if (!source) throw new Error(`완료된 현행 독립 검수를 찾지 못했습니다: ${grantId}`);
+    const currentPlan = buildHeldReviewRepairPlan({ run: source.run, review: source.review });
+    if (!currentPlan) throw new Error(`신청자격 blocker가 없는 공고는 재분석하지 않습니다: ${grantId}`);
+    const plan = combineHeldReviewRepairPlans(history.map((item) =>
+      buildHeldReviewRepairPlan({ run: item.run, review: item.review })).filter((item): item is NonNullable<typeof item> => item !== null));
+    if (!plan) throw new Error(`누적 repair memory를 만들지 못했습니다: ${grantId}`);
+    return { source, plan, currentBlockingCount: currentPlan.blockingCount };
+  });
+  console.log(`[repair-held] 정확한 대상 ${plans.length}건 · 현재 blocker ${plans.reduce((sum, item) => sum + item.currentBlockingCount, 0)}건 · 누적 교정 ${plans.reduce((sum, item) => sum + item.plan.blockingCount, 0)}건 · ${AI_ADJUDICATION_DEFAULT_MODEL}/claude-cli`);
   for (const item of plans) {
-    console.log(`  - ${item.source.run.grantId} · ${item.source.run.runId} · ${item.plan.blockingCount} blocker`);
+    console.log(`  - ${item.source.run.grantId} · ${item.source.run.runId} · 현재 ${item.currentBlockingCount} / 누적 ${item.plan.blockingCount} blocker`);
   }
   if (dryRun) return 0;
   if ((process.env.ANALYSIS_LAB_TRANSPORT ?? "").trim() !== "claude-cli") {

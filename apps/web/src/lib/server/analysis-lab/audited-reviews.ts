@@ -273,6 +273,8 @@ export async function loadAuditedConfirmedReviews(options: {
   scanAll: boolean;
   /** true 면 stratum=pilot 공고 제외(게이트 표본 전용) — 파일럿은 사람 검수 보유라 보통 무의미. */
   excludePilotStratum?: boolean;
+  /** repair feedback memory처럼 같은 공고의 과거 완료 run도 필요할 때만 true. */
+  keepAllRuns?: boolean;
 }): Promise<AuditedReviewSelection> {
   const cohort = await readCohortFileV2();
   const stratumByGrant = new Map<string, string>();
@@ -297,26 +299,30 @@ export async function loadAuditedConfirmedReviews(options: {
     }
   }
 
-  // 같은 공고에 AI 검수가 여러 개면 최신 런 1건만(사람 검수 dedupe 와 같은 원칙).
-  const byGrant = new Map<string, CollectedAiReview>();
-  for (const item of pool) {
-    const previous = byGrant.get(item.review.grantId);
-    if (!previous) {
-      byGrant.set(item.review.grantId, item);
-      continue;
+  // 일반 집계는 같은 공고의 최신 런 1건만, repair memory는 과거 완료 런까지 보존한다.
+  let selected = pool;
+  if (options.keepAllRuns !== true) {
+    const byGrant = new Map<string, CollectedAiReview>();
+    for (const item of pool) {
+      const previous = byGrant.get(item.review.grantId);
+      if (!previous) {
+        byGrant.set(item.review.grantId, item);
+        continue;
+      }
+      const kept =
+        (previous.run?.startedAt ?? "") >= (item.run?.startedAt ?? "") ? previous : item;
+      byGrant.set(item.review.grantId, kept);
+      console.warn(
+        `[경고] 같은 공고의 AI 검수 중 최신 런만 감사 집계: ${kept.review.grantId} → ${kept.review.runId}`,
+      );
     }
-    const kept =
-      (previous.run?.startedAt ?? "") >= (item.run?.startedAt ?? "") ? previous : item;
-    byGrant.set(item.review.grantId, kept);
-    console.warn(
-      `[경고] 같은 공고의 AI 검수 중 최신 런만 감사 집계: ${kept.review.grantId} → ${kept.review.runId}`,
-    );
+    selected = [...byGrant.values()];
   }
 
   const slug = modelSlug(options.model);
   const confirmed: AuditedConfirmedRun[] = [];
   const pending: AuditedPendingNotice[] = [];
-  for (const item of byGrant.values()) {
+  for (const item of selected) {
     if (!item.run || item.run.error !== null) {
       console.warn(
         `[경고] AI 검수의 짝 런 파일이 없거나 실패 런 — 감사 집계 제외: ${item.review.grantId}/${item.review.runId}`,

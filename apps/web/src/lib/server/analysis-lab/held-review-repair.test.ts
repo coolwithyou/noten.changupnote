@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import type { LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
-import { buildHeldReviewRepairPlan } from "./held-review-repair";
+import {
+  buildHeldReviewRepairPlan,
+  combineHeldReviewRepairPlans,
+  LAB_HELD_REVIEW_MEMORY_RUN_LIMIT,
+} from "./held-review-repair";
 
 const run = {
   runId: "run-old",
@@ -34,4 +38,17 @@ const safe = buildHeldReviewRepairPlan({
   },
 });
 assert.equal(safe, null, "조건부 안전 종결을 불필요하게 재분석하지 않음");
+
+const cumulative = combineHeldReviewRepairPlans([
+  plan,
+  {
+    blockingCount: 2,
+    taskInstruction: "두 번째 run에서 확정한 교정",
+  },
+]);
+assert.ok(cumulative);
+assert.equal(cumulative.blockingCount, 3);
+assert.match(cumulative.taskInstruction, /상세 공고가 더 넓은 대상을 허용함/);
+assert.match(cumulative.taskInstruction, /두 번째 run에서 확정한 교정/);
+assert.equal(LAB_HELD_REVIEW_MEMORY_RUN_LIMIT, 5);
 console.log("✅ held review repair — 신청자격 blocker만 Opus 재분석 피드백으로 좁힘");

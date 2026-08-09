@@ -9,6 +9,30 @@ export interface HeldReviewRepairPlan {
   taskInstruction: string;
 }
 
+export const LAB_HELD_REVIEW_MEMORY_RUN_LIMIT = 5;
+
+/** 과거에 확정한 수정사항을 버리지 않고, 최근 N개 run의 고유 피드백만 누적한다. */
+export function combineHeldReviewRepairPlans(
+  plans: readonly HeldReviewRepairPlan[],
+): HeldReviewRepairPlan | null {
+  const unique = [...new Map(plans.map((plan) => [plan.taskInstruction, plan])).values()]
+    .slice(-LAB_HELD_REVIEW_MEMORY_RUN_LIMIT);
+  if (unique.length === 0) return null;
+  return {
+    blockingCount: unique.reduce((sum, plan) => sum + plan.blockingCount, 0),
+    taskInstruction: [
+      "아래는 이 공고의 반복 분석에서 독립 검수 그래프가 확정한 누적 교정 메모다.",
+      "가장 최근 문제만 고치며 앞선 교정을 되돌리지 말고, 모든 메모를 동시에 만족하는 새 22축 결과를 반환하라.",
+      `feedback_memory_version=${LAB_HELD_REVIEW_REPAIR_VERSION}`,
+      ...unique.flatMap((plan, index) => [
+        `<<<REPAIR_MEMORY_RUN_${index + 1}>>>`,
+        plan.taskInstruction,
+        `<<<END_REPAIR_MEMORY_RUN_${index + 1}>>>`,
+      ]),
+    ].join("\n"),
+  };
+}
+
 /** 완료된 독립 검수의 신청자격 blocker만 원문 재분석 피드백으로 만든다. */
 export function buildHeldReviewRepairPlan(input: {
   run: LabRun;
