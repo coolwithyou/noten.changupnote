@@ -288,7 +288,7 @@ assert.match(
     },
     confidence: 0.9,
     source_span: delegatedInput.split("\n")[0],
-    note: "상세 자격을 하위 공고에 위임하므로 완전열거가 아닌 open 목록이다.",
+    note: "상세 자격을 하위 공고에 위임하므로 완전열거가 아닌 개방형(open) 목록이다.",
   }], delegatedInput);
   assert.equal(
     (delegatedCriterion?.value as { list_semantics?: string }).list_semantics,

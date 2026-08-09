@@ -1005,7 +1005,11 @@ function hasDelegatedOpenTargetTypeEvidence(input: {
   inputText: string;
 }): boolean {
   if (!/신청대상\s*요약/.test(input.sourceSpan)) return false;
-  if (!input.note || !/(?:open|열린|완전열거가\s*아닌)\s*목록/i.test(input.note)) return false;
+  if (
+    !input.note
+    || !/(?:open|열린|개방형|완전열거가\s*아닌)/i.test(input.note)
+    || !/목록/.test(input.note)
+  ) return false;
   const normalizedInput = normalizeEvidence(input.inputText);
   return /신청대상\s*상세\s*:\s*각\s*지원사업\s*모집\s*공고문\s*참고/.test(normalizedInput);
 }
