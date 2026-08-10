@@ -44,6 +44,12 @@ import {
 import { resolveLabTransport } from "./claude-cli-transport";
 import { cohortFilePath, readCohortFileV2 } from "./cohort-file";
 import { resolveLabModel } from "./extractor";
+import {
+  MAX_CONSECUTIVE_LEASE_RENEWAL_FAILURES,
+  initialLeaseRenewalFailureState,
+  recordLeaseRenewalFailure,
+  recordLeaseRenewalSuccess,
+} from "./lease-renewal-policy";
 
 loadAnalysisLabEnv();
 
@@ -511,21 +517,31 @@ async function main(): Promise<number> {
   });
   const controller = new AbortController();
   let renewalInFlight = false;
-  const renewalState: { errorMessage: string | null } = { errorMessage: null };
+  const renewalState = initialLeaseRenewalFailureState();
   const renewalTimer = setInterval(() => {
     if (renewalInFlight || controller.signal.aborted) return;
     renewalInFlight = true;
     void renewLocalSubscriptionLease({ db, ownerId })
+      .then(() => {
+        recordLeaseRenewalSuccess(renewalState);
+      })
       .catch((caught: unknown) => {
-        renewalState.errorMessage = caught instanceof Error ? caught.message : String(caught);
-        controller.abort();
+        const errorMessage = caught instanceof Error ? caught.message : String(caught);
+        const failure = recordLeaseRenewalFailure(renewalState, errorMessage);
+        if (failure.shouldAbort) {
+          controller.abort();
+          return;
+        }
+        console.warn(
+          `[batch] 로컬 분석 권한 갱신 일시 실패(${failure.consecutiveFailures}/${MAX_CONSECUTIVE_LEASE_RENEWAL_FAILURES}) — 다음 주기에 재시도합니다: ${errorMessage}`,
+        );
       })
       .finally(() => { renewalInFlight = false; });
   }, 45_000);
   try {
     const code = await runBatchViaRunner(executionOptions, transport, controller.signal);
-    if (renewalState.errorMessage) {
-      console.error(`[batch] 로컬 분석 권한 갱신 실패: ${renewalState.errorMessage}`);
+    if (renewalState.fatalErrorMessage) {
+      console.error(`[batch] 로컬 분석 권한 갱신 실패: ${renewalState.fatalErrorMessage}`);
       return 1;
     }
     return code;

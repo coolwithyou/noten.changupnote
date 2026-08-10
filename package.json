@@ -62,7 +62,7 @@
     "lab:aggregate": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/aggregate.ts",
     "lab:shadow-key:init": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/init-shadow-key-cli.ts",
     "lab:batch": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/batch.ts",
-    "lab:batch-runner:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/batch-runner.test.ts",
+    "lab:batch-runner:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/batch-runner.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/lease-renewal-policy.test.ts",
     "lab:batch-job:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/batch-job.test.ts",
     "lab:shadow": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/shadow.ts",
     "lab:shadow:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/shadow-convert.test.ts",
