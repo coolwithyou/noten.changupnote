@@ -244,7 +244,7 @@ export interface LabBatchPeriodSplit {
 // cohort.ts 와 같은 이유의 가드 — uuid 형식이 아닌 id 를 inArray 에 넣으면 쿼리 전체가 죽는다.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function splitByPeriodPolicy(entries: CohortEntry[]): Promise<LabBatchPeriodSplit> {
+export async function splitByPeriodPolicy(entries: CohortEntry[]): Promise<LabBatchPeriodSplit> {
   const split: LabBatchPeriodSplit = { runnable: [], skipped: [] };
   if (entries.length === 0) return split;
 

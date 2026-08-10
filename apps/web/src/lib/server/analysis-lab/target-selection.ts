@@ -100,6 +100,8 @@ export async function selectAutomaticAnalysisTargets(
     apiKey: string;
     fetchImpl: typeof fetch;
     model?: string | undefined;
+    /** 반복형 에이전트는 신규 후보가 count보다 적으면 남은 수만 선정한다. */
+    allowFewer?: boolean;
   },
   dependencyOverrides: Partial<SelectionDependencies> = {},
 ): Promise<LabAutomaticTargetSelectionResult> {
@@ -113,25 +115,28 @@ export async function selectAutomaticAnalysisTargets(
   const existingEntries = current?.entries ?? [];
   const existingIds = new Set(existingEntries.map((entry) => entry.grantId));
   const analyzedIds = await deps.scanAnalyzedGrantIds();
+  const allCandidates = await deps.loadCandidates(now);
+  const eligibleCandidateIds = new Set(allCandidates.map((candidate) => candidate.grantId));
   const pendingExistingCount = existingEntries.filter(
-    (entry) => !analyzedIds.has(entry.grantId),
+    (entry) => !analyzedIds.has(entry.grantId) && eligibleCandidateIds.has(entry.grantId),
   ).length;
   if (pendingExistingCount > 0) {
     throw new AutomaticTargetSelectionConflictError(
       `현재 분석 대기 ${pendingExistingCount}건을 먼저 처리한 뒤 새 대상을 선정해 주세요.`,
     );
   }
-  const candidates = (await deps.loadCandidates(now)).filter(
+  const candidates = allCandidates.filter(
     (candidate) => !existingIds.has(candidate.grantId) && !analyzedIds.has(candidate.grantId),
   );
-  if (candidates.length < count) {
+  if (candidates.length === 0 || (!options.allowFewer && candidates.length < count)) {
     throw new Error(
       `신규 미분석·첨부 준비 완료 후보가 ${candidates.length}건뿐이라 ${count}건을 선정할 수 없습니다.`,
     );
   }
+  const selectionCount = options.allowFewer ? Math.min(count, candidates.length) : count;
 
-  const shortlist = buildBalancedShortlist(candidates, count);
-  if (shortlist.length < count) {
+  const shortlist = buildBalancedShortlist(candidates, selectionCount);
+  if (shortlist.length < selectionCount) {
     throw new Error(`Claude에 전달할 안전 후보가 ${shortlist.length}건뿐입니다.`);
   }
   const model = options.model?.trim()
@@ -141,13 +146,13 @@ export async function selectAutomaticAnalysisTargets(
     model,
     apiKey: options.apiKey,
     fetchImpl: options.fetchImpl,
-    count,
+    count: selectionCount,
     candidates: shortlist,
   });
   const validated = validateAutomaticTargetSelection(
     modelResult.selected,
     shortlist,
-    count,
+    selectionCount,
   );
 
   const selectedAt = now.toISOString();
@@ -287,7 +292,7 @@ export function validateAutomaticTargetSelection(
   });
 }
 
-async function loadAutomaticTargetCandidates(now: Date): Promise<AutomaticTargetCandidate[]> {
+export async function loadAutomaticTargetCandidates(now: Date): Promise<AutomaticTargetCandidate[]> {
   const dayStart = kstDayStartUtc(now);
   const nextDayStart = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
   const db = getCunoteDb();

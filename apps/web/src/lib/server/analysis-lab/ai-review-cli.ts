@@ -358,6 +358,8 @@ interface DefaultModeOptions {
   dryRun: boolean;
   maxCostUsd: number;
   force: boolean;
+  /** 반복형 에이전트 재개 시 기존 검수를 재사용하고 다음 감사 단계로 진행한다. */
+  allowEmpty: boolean;
   grantIds: ReadonlySet<string> | null;
 }
 
@@ -412,7 +414,12 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
       `보류(ok 런 없음) ${heldNoRun.length} · 잔여 ${pending.length} → 이번 실행 대상 ${targets.length}건 (limit=${options.limit})`,
   );
   if (targets.length === 0) {
-    console.error("[ai-review] 실행 대상이 0건입니다.");
+    const message = "[ai-review] 실행 대상이 0건입니다.";
+    if (options.allowEmpty) {
+      console.log(`${message} 기존 검수를 재사용합니다.`);
+      return 0;
+    }
+    console.error(message);
     return 1;
   }
 
@@ -603,7 +610,15 @@ async function main(): Promise<number> {
     console.error("[ai-review] 설정 오류: --max-cost-usd 는 0보다 큰 숫자여야 합니다.");
     return 1;
   }
-  return runDefaultMode({ model, limit, dryRun: hasFlag("dry-run"), maxCostUsd, force, grantIds });
+  return runDefaultMode({
+    model,
+    limit,
+    dryRun: hasFlag("dry-run"),
+    maxCostUsd,
+    force,
+    allowEmpty: hasFlag("allow-empty"),
+    grantIds,
+  });
 }
 
 function readCsvArg(name: string): ReadonlySet<string> | null {

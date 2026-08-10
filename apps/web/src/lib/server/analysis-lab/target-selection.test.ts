@@ -144,7 +144,10 @@ function candidate(
           entries: [{ grantId: "pending", stratum: "bizinfo/medium" }],
         }),
         scanAnalyzedGrantIds: async () => new Set(),
-        loadCandidates: async () => [candidate("01", "kstartup", "thick")],
+        loadCandidates: async () => [
+          candidate("pending", "bizinfo", "medium"),
+          candidate("01", "kstartup", "thick"),
+        ],
         callModel: async () => {
           modelCalls += 1;
           return { selected: [], usage: null };
@@ -155,6 +158,43 @@ function candidate(
   );
   assert.equal(modelCalls, 0);
   console.log("✅ 자동 선정 범위 가드 — 기존 대기 처리 전 추가 선정·모델 호출 차단");
+}
+
+// 마감·비노출 등으로 안전 후보에서 빠진 과거 대기는 새 모집 공고 선정을 영구 차단하지 않는다.
+{
+  let writtenTargetIds: string[] = [];
+  const result = await selectAutomaticAnalysisTargets(
+    {
+      count: 1,
+      transport: "claude-cli",
+      apiKey: "subscription",
+      fetchImpl: fetch,
+      model: "claude-test",
+    },
+    {
+      now: () => new Date("2026-08-06T01:00:00.000Z"),
+      readTargets: async () => ({
+        version: 2,
+        selectedAt: "2026-08-01T00:00:00.000Z",
+        seed: null,
+        experimentLabel: "old",
+        entries: [{ grantId: "expired", stratum: "bizinfo/medium" }],
+      }),
+      scanAnalyzedGrantIds: async () => new Set(),
+      loadCandidates: async () => [candidate("new", "kstartup", "thick")],
+      callModel: async ({ candidates }) => ({
+        selected: [{ grantId: candidates[0]!.grantId, reason: "현재 모집 중인 새 분석 대상" }],
+        usage: null,
+      }),
+      writeTargets: async (file) => {
+        writtenTargetIds = file.entries.map((entry) => entry.grantId);
+      },
+      writeEvidence: async () => undefined,
+    },
+  );
+  assert.deepEqual(writtenTargetIds, ["expired", "new"]);
+  assert.equal(result.selected[0]?.grantId, "new");
+  console.log("✅ 자동 선정 반복성 — 비활성 과거 대기는 새 모집 공고 선정을 차단하지 않음");
 }
 
 // 잘못된 모델 응답은 canonical 목록에 어떤 쓰기도 만들지 않는다.
@@ -190,4 +230,39 @@ function candidate(
   );
   assert.equal(writes, 0);
   console.log("✅ 자동 선정 실패 원자성 — 검증 실패 시 목록·근거 무수정");
+}
+
+// 반복형 에이전트는 신규 안전 후보가 요청 상한보다 적으면 남은 후보만 정확히 선정한다.
+{
+  const result = await selectAutomaticAnalysisTargets(
+    {
+      count: 3,
+      transport: "claude-cli",
+      apiKey: "subscription",
+      fetchImpl: fetch,
+      model: "claude-test",
+      allowFewer: true,
+    },
+    {
+      now: () => new Date("2026-08-06T01:00:00.000Z"),
+      readTargets: async () => null,
+      scanAnalyzedGrantIds: async () => new Set(),
+      loadCandidates: async () => [
+        candidate("01", "kstartup", "thick"),
+        candidate("02", "bizinfo", "medium"),
+      ],
+      callModel: async ({ count, candidates }) => ({
+        selected: candidates.slice(0, count).map((item) => ({
+          grantId: item.grantId,
+          reason: "남아 있는 안전한 신규 분석 대상",
+        })),
+        usage: null,
+      }),
+      writeTargets: async () => undefined,
+      writeEvidence: async () => undefined,
+    },
+  );
+  assert.equal(result.requestedCount, 3);
+  assert.equal(result.selected.length, 2);
+  console.log("✅ 자동 선정 소량 유입 — 요청 상한보다 적은 신규 공고도 반복 처리");
 }
