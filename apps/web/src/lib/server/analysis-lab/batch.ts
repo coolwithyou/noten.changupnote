@@ -22,6 +22,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import {
+  ANALYSIS_LAB_MAX_BATCH_CONCURRENCY,
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabBatchJobSnapshot,
 } from "@/features/dev/analysis-lab/contract";
@@ -41,7 +42,7 @@ import {
   type LabBatchSummary,
   type LabBatchTransport,
 } from "./batch-runner";
-import { resolveLabTransport } from "./claude-cli-transport";
+import { resolveClaudeCliMaxConcurrency, resolveLabTransport } from "./claude-cli-transport";
 import { cohortFilePath, readCohortFileV2 } from "./cohort-file";
 import { resolveLabModel } from "./extractor";
 import {
@@ -55,7 +56,6 @@ loadAnalysisLabEnv();
 
 const DEFAULT_LIMIT = 10;
 const DEFAULT_CONCURRENCY = 2;
-const MAX_CONCURRENCY = 3;
 const DEFAULT_MAX_COST_USD = 5;
 
 // ---- argv 파싱 (라이브러리 없이 smoke.ts 관행) ---------------------------------
@@ -102,8 +102,13 @@ function parseOptions(): BatchOptions | string {
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
     return "--limit 은 1 이상의 정수여야 합니다.";
   }
-  if (concurrency === null || !Number.isInteger(concurrency) || concurrency < 1 || concurrency > MAX_CONCURRENCY) {
-    return `--concurrency 는 1~${MAX_CONCURRENCY} 정수여야 합니다.`;
+  if (
+    concurrency === null
+    || !Number.isInteger(concurrency)
+    || concurrency < 1
+    || concurrency > ANALYSIS_LAB_MAX_BATCH_CONCURRENCY
+  ) {
+    return `--concurrency 는 1~${ANALYSIS_LAB_MAX_BATCH_CONCURRENCY} 정수여야 합니다.`;
   }
   if (maxCostUsd === null || maxCostUsd <= 0) {
     return "--max-cost-usd 는 0보다 큰 숫자여야 합니다.";
@@ -489,7 +494,10 @@ async function main(): Promise<number> {
     return 1;
   }
   if (transport === "claude-cli") {
-    console.log("[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다(API 토큰 미지출, 명목 비용만 집계).");
+    console.log(
+      "[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다"
+      + ` (API 토큰 미지출 · CLI 프로세스 전역 상한 ${resolveClaudeCliMaxConcurrency()})`,
+    );
   }
   if (!options.dryRun) {
     console.log(

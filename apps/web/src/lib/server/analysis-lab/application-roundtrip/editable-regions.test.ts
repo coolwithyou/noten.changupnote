@@ -214,14 +214,32 @@ const boundedPlan = await planRoundtripFields({
   fetchImpl: bounded.fetchImpl,
 });
 assert.equal(boundedPlan.summary.status, "llm");
-assert.equal(bounded.calls(), 3, "45개 후보는 20개 단위 3회 요청");
+assert.equal(bounded.calls(), 2, "45개 후보는 구독 경로 40개 단위 2회 요청");
 assert.equal(bounded.maxActive(), 2, "explicit 후보 chunk 동시성 상한 준수");
-assert.deepEqual(bounded.models(), ["claude-opus-5", "claude-opus-5", "claude-opus-5"]);
+assert.deepEqual(bounded.models(), ["claude-opus-5", "claude-opus-5"]);
 assert.equal(boundedPlan.summary.candidateConcurrency, 2);
-assert.equal(boundedPlan.summary.requestCount, 3);
-assert.equal(boundedPlan.summary.inputTokens, 300);
-assert.equal(boundedPlan.summary.outputTokens, 60);
-assert.equal(boundedPlan.summary.costUsd, 0.003);
+assert.equal(boundedPlan.summary.candidateBatchSize, 40);
+assert.equal(boundedPlan.summary.requestCount, 2);
+assert.equal(boundedPlan.summary.inputTokens, 200);
+assert.equal(boundedPlan.summary.outputTokens, 40);
+assert.equal(boundedPlan.summary.costUsd, 0.002);
+
+const missingInLargeBatch = missingDecisionPlannerFetch();
+const recoveredLargeBatch = await planRoundtripFields({
+  fields: manyFields,
+  markdown: "40개 묶음 누락 후보 자동 복구",
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  transport: "claude-cli",
+  candidateConcurrency: 2,
+  fetchImpl: missingInLargeBatch.fetchImpl,
+});
+assert.equal(missingInLargeBatch.calls(), 3, "최초 2묶음 + 누락 후보만 1차 재판정");
+assert.deepEqual(missingInLargeBatch.initialBatchSizes().sort((a, b) => a - b), [5, 40]);
+assert.equal(recoveredLargeBatch.summary.adjudicationRounds, 1);
+assert.equal(recoveredLargeBatch.summary.adjudicatedCandidateCount, 2);
+assert.equal(recoveredLargeBatch.summary.processedCandidateCount, 45);
+assert.equal(recoveredLargeBatch.summary.remainingUnresolvedCandidateCount, 0, "큰 묶음 누락을 품질 하락으로 숨기지 않음");
 
 const subscriptionDefault = fakePlannerFetch(4);
 const subscriptionDefaultPlan = await planRoundtripFields({
@@ -233,8 +251,8 @@ const subscriptionDefaultPlan = await planRoundtripFields({
   fetchImpl: subscriptionDefault.fetchImpl,
 });
 assert.equal(subscriptionDefaultPlan.summary.status, "llm");
-assert.equal(subscriptionDefault.maxActive(), 1, "구독 transport 기본 chunk 동시성은 1");
-assert.equal(subscriptionDefaultPlan.summary.candidateConcurrency, 1);
+assert.equal(subscriptionDefault.maxActive(), 2, "구독 transport 기본 chunk 동시성은 2");
+assert.equal(subscriptionDefaultPlan.summary.candidateConcurrency, 2);
 
 const apiDefault = fakePlannerFetch(8);
 const apiDefaultPlan = await planRoundtripFields({
@@ -246,7 +264,8 @@ const apiDefaultPlan = await planRoundtripFields({
   fetchImpl: apiDefault.fetchImpl,
 });
 assert.equal(apiDefaultPlan.summary.status, "llm");
-assert.equal(apiDefault.maxActive(), 3, "API는 기존처럼 문서의 모든 chunk를 병렬 처리");
+assert.equal(apiDefault.maxActive(), 3, "API는 기존 20개 묶음과 모든 chunk 병렬 처리를 보존");
+assert.equal(apiDefaultPlan.summary.candidateBatchSize, 20);
 
 const overLegacyLimit = Array.from({ length: 205 }, (_, index) => plannerField(revenue2024, index));
 const subscriptionAll = fakePlannerFetch(0);
@@ -258,7 +277,7 @@ const subscriptionAllPlan = await planRoundtripFields({
   transport: "claude-cli",
   fetchImpl: subscriptionAll.fetchImpl,
 });
-assert.equal(subscriptionAll.calls(), 11, "구독 경로는 기존 180개 상한 뒤의 후보도 20개씩 모두 처리");
+assert.equal(subscriptionAll.calls(), 6, "구독 경로는 180개 상한 뒤의 후보도 40개씩 모두 처리");
 assert.equal(subscriptionAllPlan.summary.candidateLimit, null);
 assert.equal(subscriptionAllPlan.summary.processedCandidateCount, 205);
 assert.equal(subscriptionAllPlan.summary.unprocessedCandidateCount, 0);
@@ -453,6 +472,50 @@ function fakePlannerFetch(delayMs: number): {
     maxActive: () => peak,
     models: () => requestedModels,
   };
+}
+
+function missingDecisionPlannerFetch(): {
+  fetchImpl: typeof fetch;
+  calls: () => number;
+  initialBatchSizes: () => number[];
+} {
+  let callCount = 0;
+  const initialSizes: number[] = [];
+  const fetchImpl = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callCount += 1;
+    const request = JSON.parse(String(init?.body)) as {
+      system: string;
+      messages: Array<{ content: string }>;
+    };
+    const content = request.messages[0]?.content ?? "";
+    const candidates = JSON.parse(content.slice(content.indexOf("\n") + 1)) as Array<{
+      candidate_id: string;
+      proposed_label: string;
+    }>;
+    const adjudication = request.system.includes("차 독립 재판정");
+    if (!adjudication) initialSizes.push(candidates.length);
+    const decided = adjudication ? candidates : candidates.slice(0, -1);
+    return new Response(JSON.stringify({
+      stop_reason: "tool_use",
+      usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 0 },
+      content: [{
+        type: "tool_use",
+        name: "emit_application_field_plan",
+        input: {
+          decisions: decided.map((candidate) => ({
+            candidate_id: candidate.candidate_id,
+            is_user_input: true,
+            suggested_label: candidate.proposed_label,
+            input_kind: "text",
+            confidence: 0.95,
+            help_text: "누락 자동 재판정 테스트",
+            evidence: candidate.proposed_label,
+          })),
+        },
+      }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  return { fetchImpl, calls: () => callCount, initialBatchSizes: () => initialSizes };
 }
 
 function feedbackPlannerFetch(): {

@@ -13,6 +13,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_CONCURRENCY = 4;
+const MAX_CONFIGURABLE_CONCURRENCY = 16;
 /** Max 사용량 윈도 소진 판별 시그널(CLI 자체 에러 텍스트 대상). */
 const WINDOW_EXHAUSTED_SIGNAL =
   /usage limit|session limit|rate limit|quota|limit reached|hit your .* limit|exceeded|resets?\s+\d/i;
@@ -46,26 +48,127 @@ export interface ClaudeCliFetchConfig {
   scratchCwd?: string;
   /** 테스트 주입용(node:child_process 콜백형). 기본 실 execFile. */
   execFileImpl?: typeof execFile;
+  /** 테스트·시뮬레이션용 스케줄러. 기본은 모든 fetch 인스턴스가 공유하는 프로세스 전역 스케줄러. */
+  scheduler?: ClaudeCliScheduler;
+}
+
+/**
+ * claude -p 프로세스 실행 상한. 공고 배치·딥분석·Kordoc·검수 레인이
+ * 서로 다른 fetch shim을 만들어도 동일 스케줄러를 통과해 Max 세션 폭주를 막는다.
+ */
+export interface ClaudeCliScheduler {
+  readonly maxConcurrency: number;
+  run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T>;
+}
+
+export function createClaudeCliScheduler(maxConcurrency: number): ClaudeCliScheduler {
+  if (!Number.isInteger(maxConcurrency) || maxConcurrency < 1 || maxConcurrency > MAX_CONFIGURABLE_CONCURRENCY) {
+    throw new Error(`Claude CLI 동시성은 1~${MAX_CONFIGURABLE_CONCURRENCY} 정수여야 합니다.`);
+  }
+  let active = 0;
+  const queue: Array<() => void> = [];
+
+  const drain = (): void => {
+    while (active < maxConcurrency) {
+      const launch = queue.shift();
+      if (!launch) return;
+      launch();
+    }
+  };
+
+  return {
+    maxConcurrency,
+    run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+      if (signal?.aborted) return Promise.reject(abortReason(signal));
+      return new Promise<T>((resolve, reject) => {
+        let queued = true;
+        const onAbort = (): void => {
+          if (!queued) return;
+          const index = queue.indexOf(launch);
+          if (index >= 0) queue.splice(index, 1);
+          queued = false;
+          reject(abortReason(signal));
+        };
+        const launch = (): void => {
+          if (!queued) return;
+          queued = false;
+          signal?.removeEventListener("abort", onAbort);
+          if (signal?.aborted) {
+            reject(abortReason(signal));
+            queueMicrotask(drain);
+            return;
+          }
+          active += 1;
+          // 슬롯 배정 즉시 task를 시작해 execFile이 AbortSignal 리스너를 붙인다.
+          // 한 microtask 늦추면 호출자의 즉시 abort가 리스너 등록보다 먼저 일어나 자식이 대기한다.
+          let pending: Promise<T>;
+          try {
+            pending = task();
+          } catch (error) {
+            reject(error);
+            active -= 1;
+            drain();
+            return;
+          }
+          void pending.then(resolve, reject).finally(() => {
+            active -= 1;
+            drain();
+          });
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        queue.push(launch);
+        drain();
+      });
+    },
+  };
+}
+
+export function resolveClaudeCliMaxConcurrency(): number {
+  const raw = process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY?.trim();
+  if (!raw) return DEFAULT_MAX_CONCURRENCY;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_CONFIGURABLE_CONCURRENCY) {
+    throw new Error(
+      `ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY는 1~${MAX_CONFIGURABLE_CONCURRENCY} 정수여야 합니다: "${raw}"`,
+    );
+  }
+  return parsed;
+}
+
+let sharedScheduler: ClaudeCliScheduler | null = null;
+
+function getSharedClaudeCliScheduler(): ClaudeCliScheduler {
+  sharedScheduler ??= createClaudeCliScheduler(resolveClaudeCliMaxConcurrency());
+  return sharedScheduler;
+}
+
+function abortReason(signal: AbortSignal | undefined): Error {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const error = new Error("The operation was aborted");
+  error.name = "AbortError";
+  return error;
 }
 
 export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch {
   const binary = config?.claudeBinary ?? "claude";
   const scratchCwd = config?.scratchCwd ?? join(tmpdir(), "cunote-claude-cli-transport");
   const execFileImpl = config?.execFileImpl ?? execFile;
+  const scheduler = config?.scheduler ?? getSharedClaudeCliScheduler();
   mkdirSync(scratchCwd, { recursive: true });
 
   const claudeCliFetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     // url 과 x-api-key 헤더는 의도적으로 무시한다 — 실행 대상이 원격 API 가 아니라
     // 로컬 claude 바이너리이고, 인증은 CLI 의 Keychain OAuth(Max 구독)가 담당하기 때문.
     const request = parseAnthropicRequest(init?.body);
-    const outcome = await runClaudeCli({
+    const signal = init?.signal ?? undefined;
+    const outcome = await scheduler.run(() => runClaudeCli({
       execFileImpl,
       binary,
       argv: buildArgv(request),
       cwd: scratchCwd,
-      signal: init?.signal ?? undefined,
+      signal,
       stdinText: request.content,
-    });
+    }), signal);
     const getVersion = () => resolveCliVersion(execFileImpl, binary);
     const cliJson = parseJsonSafe(outcome.stdout);
     if (isRecord(cliJson) && cliJson.is_error === false) {

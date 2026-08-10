@@ -45,7 +45,8 @@ export function buildApplicationRoundtripReference(input: {
   }
 
   const run = input.result.value;
-  const costUsd = roundtripCostUsd(run);
+  const costUsd = run.reusedFromRunId ? 0 : roundtripCostUsd(run);
+  const reuse = run.reusedFromRunId ? { reusedFromRunId: run.reusedFromRunId } : {};
   const sourceCount = run.sourceCount ?? run.documents.length;
   const applicationDocuments = run.documents.filter(isApplicationDocument);
   if (run.error) {
@@ -59,6 +60,7 @@ export function buildApplicationRoundtripReference(input: {
       errorCode: run.failureCode ?? "all_documents_failed",
       error: run.error,
       costUsd,
+      ...reuse,
     };
   }
   const runFailureCode = run.failureCode ?? null;
@@ -74,6 +76,7 @@ export function buildApplicationRoundtripReference(input: {
         errorCode: runFailureCode,
         error: null,
         costUsd,
+        ...reuse,
       };
     }
     return {
@@ -86,6 +89,7 @@ export function buildApplicationRoundtripReference(input: {
       errorCode: null,
       error: null,
       costUsd,
+      ...reuse,
     };
   }
 
@@ -143,6 +147,7 @@ export function buildApplicationRoundtripReference(input: {
     adjudicationRounds,
     adjudicatedCandidateCount,
     remainingUnresolvedCandidateCount,
+    ...reuse,
   };
 }
 

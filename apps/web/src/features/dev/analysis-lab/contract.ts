@@ -178,6 +178,8 @@ export interface LabApplicationRoundtripReference {
   error: string | null;
   /** 문서별 planner 최초 판정·재판정 usage를 합친 명목 API 환산 비용. 구런에는 없다. */
   costUsd?: number | null;
+  /** 새 모델 호출 대신 검증된 기존 Kordoc 불변 산출물을 재결속한 경우의 원본 runId. */
+  reusedFromRunId?: string;
   /** 구독 모델이 최초 판정 뒤 미해결 후보를 자동 재판정한 결과 요약. */
   adjudicationStatus?: "not_needed" | "resolved" | "partial" | "failed" | "skipped";
   adjudicationRounds?: number;
@@ -584,6 +586,9 @@ export interface LabAutomaticTargetSelectionResult {
 
 // ---- 배치 잡 (ops/batch 라우트·배치 운영 탭이 공유하는 계약) ----
 // 이벤트 union 은 batch-runner(서버)와 UI 가 같은 모양을 봐야 하므로 여기(계약)가 단일 원천이다.
+
+/** 공고 작업 인플라이트 상한. 실제 claude -p 프로세스는 전역 스케줄러가 별도로 더 낮게 제한한다. */
+export const ANALYSIS_LAB_MAX_BATCH_CONCURRENCY = 10;
 
 /** 모집기간 정책 위반 상태 — notice-period classifyNoticePeriod 의 "eligible" 밖 3종. */
 export type LabBatchPeriodSkipStatus = Exclude<NoticePeriodStatus, "eligible">;

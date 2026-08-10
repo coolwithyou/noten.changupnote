@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
 import {
   adminGrantSimulationAttachmentHref,
   adminGrantSimulationDetailHref,
@@ -80,7 +81,7 @@ const subscriptionState = resolveDeepAnalysisState({
   localRun: {
     error: null,
     model: "claude-opus-5",
-    promptVersion: "lab-deep-v9",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
     transport: "claude-cli",
   },
   servingEvidence: null,

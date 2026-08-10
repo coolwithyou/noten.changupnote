@@ -22,7 +22,7 @@ try {
   assert.equal(options.fetchImpl, fetchImpl);
   assert.equal(options.model, "claude-opus-5");
   assert.equal(options.timeoutMs, 900_000);
-  assert.equal(options.candidateConcurrency, 1);
+  assert.equal(options.candidateConcurrency, 2);
 } finally {
   restore("ANALYSIS_LAB_MODEL", original.model);
   restore("ANALYSIS_LAB_ROUNDTRIP_MODEL", original.roundtripModel);

@@ -83,6 +83,9 @@ async function main(): Promise<number> {
         model: AI_ADJUDICATION_DEFAULT_MODEL,
         withApplicationRoundtrip: true,
         roundtripModel: AI_ADJUDICATION_DEFAULT_MODEL,
+        ...(item.source.run.applicationRoundtrip?.runId
+          ? { reuseApplicationRoundtripRunId: item.source.run.applicationRoundtrip.runId }
+          : {}),
         taskInstruction: item.plan.taskInstruction,
         reviewRepair: {
           sourceRunId: item.source.run.runId,

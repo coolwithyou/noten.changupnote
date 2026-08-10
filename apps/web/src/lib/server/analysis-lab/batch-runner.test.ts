@@ -3,7 +3,8 @@
 // 검증: ① plan 이벤트 정확성(partitionCohortEntries 결과와 일치·기간 스킵·예상 비용)
 // ② 비용 상한 → guard-stop(cost-cap) + 신규 착수 중단 ③ 윈도 소진 마커 → guard-stop(window-exhausted)
 // ④ abort → stopReason aborted + 진행분 완료 ⑤ transport/model/roundtrip 오버라이드의 runLabAnalysis 전달
-// ⑥ 대상 0건 → 분석 무호출 finished ⑦ 오버라이드 오타 fail-fast(이벤트 무방출).
+// ⑥ 대상 0건 → 분석 무호출 finished ⑦ 오버라이드 오타 fail-fast(이벤트 무방출)
+// ⑧ 10건 작업 인플라이트(실제 CLI 프로세스 상한은 transport 스케줄러 소관).
 import assert from "node:assert/strict";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import {
@@ -380,6 +381,34 @@ console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·s
   );
   assert.ok(!events.some((event) => event.type === "guard-stop"), "abort 는 guard-stop 이 아니다");
   console.log("✅ abort — 신규 착수 중단·진행분 완료·stopReason aborted");
+}
+
+// ---- ⑤-a 10건 작업 인플라이트 ------------------------------------------------
+{
+  const release = deferred();
+  let started = 0;
+  let active = 0;
+  let maxActive = 0;
+  const entries = Array.from({ length: 10 }, (_, index) => entry(`parallel-${index + 1}`));
+  const summary = await runLabBatch(
+    baseOptions([], { concurrency: 10, limit: 10 }),
+    makeDeps({
+      entries,
+      run: async (grantId) => {
+        started += 1;
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        if (started === entries.length) release.resolve();
+        await release.promise;
+        active -= 1;
+        return okResult(grantId, 0.1);
+      },
+    }),
+  );
+  assert.equal(maxActive, 10, "공고 작업 10건이 모두 인플라이트로 진입");
+  assert.equal(summary.ok, 10);
+  assert.equal(summary.stopReason, "completed");
+  console.log("✅ 10건 인플라이트 — 배치 작업 10건 동시 진입 계약");
 }
 
 // ---- ⑤ transport/model 오버라이드 전달 ----------------------------------------

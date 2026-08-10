@@ -281,6 +281,7 @@ function evaluateApplication(input: AnalysisQualityGraphInput): AnalysisQualityN
       evidence: [
         `${roundtrip.version} · ${roundtrip.transport ?? "미기록"} · ${roundtrip.requestedModel ?? "미기록"}`,
         `원본 ${roundtrip.sourceCount ?? roundtrip.documents.length} · 처리 ${roundtrip.documents.length}`,
+        ...(roundtrip.reusedFromRunId ? [`검증된 불변 산출물 재결속: ${roundtrip.reusedFromRunId}`] : []),
         ...provenanceIssues,
       ],
       nextAction: sourceStatus === "passed" ? null : "현행 Kordoc 정책으로 이 공고만 다시 분석하세요.",

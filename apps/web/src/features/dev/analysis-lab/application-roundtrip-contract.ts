@@ -154,6 +154,8 @@ export interface RoundtripFieldPlanningSummary {
   timeoutMs?: number;
   /** null이면 구독 경로에서 전체 후보를 처리했다는 뜻이다. */
   candidateLimit?: number | null;
+  /** 한 모델 호출에 넣은 후보 수. 구독 경로는 미판정 자동 재판정을 전제로 더 큰 묶음을 쓴다. */
+  candidateBatchSize?: number;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
   failureCode?: RoundtripFailureCode | null;
@@ -265,10 +267,13 @@ export interface ApplicationRoundtripRun {
   engineVersion: string;
   /** 같은 공고의 딥분석 런과 결속하는 additive provenance. */
   parentLabRunId?: string | null;
+  /** 모델 재호출 없이 검증된 기존 불변 산출물을 새 딥분석 런에 재결속한 경우의 직접 원본. */
+  reusedFromRunId?: string;
   transport?: RoundtripLlmTransport;
   requestedModel?: string;
   timeoutMs?: number;
   candidateLimit?: number | null;
+  candidateBatchSize?: number;
   candidateConcurrency?: number;
   failureCode?: RoundtripFailureCode | null;
   startedAt: string;

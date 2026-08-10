@@ -34,7 +34,7 @@ export function buildLabApplicationRoundtripOptions(input: {
     apiKey: input.apiKey,
     model,
     timeoutMs,
-    candidateConcurrency: input.transport === "claude-cli" ? 1 : 2,
+    candidateConcurrency: 2,
     ...(input.fetchImpl ? { fetchImpl: input.fetchImpl } : {}),
   };
 }

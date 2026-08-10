@@ -3,12 +3,15 @@
 // 검증: ① 요청 번역(argv 조립·stdin 전달·대형 입력 ARG_MAX 회피·effort 생략)
 // ② 응답 재조립(200 tool_use·usage 무변환·result 폴백) ③ 가드(모델 에코·파싱 불가)
 // ④ abort → AbortError 명의 그대로 reject ⑤ resolveLabTransport env 해석
-// ⑥ 조기 종료 EPIPE 내성 ⑦ 윈도 소진 합성 400(오진 정규식 미매치) ⑧ api_error_status 통과.
+// ⑥ 조기 종료 EPIPE 내성 ⑦ 윈도 소진 합성 400(오진 정규식 미매치) ⑧ api_error_status 통과
+// ⑨ 전역 프로세스 상한·대기 중 abort ⑩ 1개/10개 스케줄링 벤치마크.
 import assert from "node:assert/strict";
 import type { execFile } from "node:child_process";
 import {
   CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER,
   buildClaudeCliFetch,
+  createClaudeCliScheduler,
+  resolveClaudeCliMaxConcurrency,
   resolveLabTransport,
 } from "./claude-cli-transport";
 
@@ -91,6 +94,20 @@ function valueAfter(args: string[], flag: string): string {
   const value = args[index + 1];
   assert.ok(value !== undefined, `${flag} 값 존재`);
   return value;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ---- 요청 픽스처 (extractor.ts:101-119 실 body 형태) -------------------------------
@@ -328,6 +345,24 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   console.log("✅ resolveLabTransport — 미설정/빈값/api/claude-cli/오타 fail-fast(env 복원)");
 }
 
+{
+  const saved = process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY;
+  try {
+    delete process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY;
+    assert.equal(resolveClaudeCliMaxConcurrency(), 4, "전역 CLI 기본 상한");
+    process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY = "6";
+    assert.equal(resolveClaudeCliMaxConcurrency(), 6);
+    process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY = "0";
+    assert.throws(() => resolveClaudeCliMaxConcurrency(), /MAX_CONCURRENCY/, "0은 fail-fast");
+    process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY = "4.5";
+    assert.throws(() => resolveClaudeCliMaxConcurrency(), /MAX_CONCURRENCY/, "정수 아니면 fail-fast");
+  } finally {
+    if (saved === undefined) delete process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY;
+    else process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY = saved;
+  }
+  console.log("✅ CLI 전역 상한 — 기본 4·env 오버라이드·오타 fail-fast");
+}
+
 // ---- ⑥ 조기 종료 내성(EPIPE) --------------------------------------------------------
 {
   const exitError = Object.assign(
@@ -421,6 +456,71 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   assert.equal(res.status, 400, "구독 세션 한도 429는 일반 429 재시도 루프로 보내지 않음");
   assert.ok((await res.text()).includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER));
   console.log("✅ api_error_status=429 세션 한도 — 전용 윈도 소진 마커로 승격");
+}
+
+// ---- ⑩ 전역 프로세스 상한·대기 중 abort --------------------------------------
+{
+  const scheduler = createClaudeCliScheduler(2);
+  let active = 0;
+  let maxActive = 0;
+  const completed: number[] = [];
+  await Promise.all(Array.from({ length: 10 }, (_, index) => scheduler.run(async () => {
+    active += 1;
+    maxActive = Math.max(maxActive, active);
+    await delay(4);
+    completed.push(index);
+    active -= 1;
+  })));
+  assert.equal(maxActive, 2, "10개 요청이 동시 진입해도 실행 프로세스는 전역 상한 2");
+  assert.equal(completed.length, 10);
+
+  const singleSlot = createClaudeCliScheduler(1);
+  const gate = deferred<void>();
+  const first = singleSlot.run(() => gate.promise);
+  const controller = new AbortController();
+  let queuedStarted = false;
+  const queued = singleSlot.run(async () => {
+    queuedStarted = true;
+  }, controller.signal);
+  controller.abort();
+  await assert.rejects(
+    queued,
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+    "대기열에서 타임아웃된 요청은 프로세스를 시작하지 않고 즉시 제거",
+  );
+  assert.equal(queuedStarted, false);
+  gate.resolve();
+  await first;
+  console.log("✅ 전역 스케줄러 — 실행 상한·대기열·abort 해제 계약");
+}
+
+// ---- ⑪ 1개/10개 스케줄링 모의 벤치마크 -----------------------------------
+{
+  async function measure(taskCount: number, maxConcurrency: number) {
+    const scheduler = createClaudeCliScheduler(maxConcurrency);
+    let active = 0;
+    let maxActive = 0;
+    const started = Date.now();
+    await Promise.all(Array.from({ length: taskCount }, () => scheduler.run(async () => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await delay(8);
+      active -= 1;
+    })));
+    return { durationMs: Date.now() - started, maxActive };
+  }
+
+  // 신규 계약의 단건은 딥분석 1 + Kordoc 후보 묶음 2개가 전역 상한 4 안에서 같이 실행된다.
+  const oneNotice = await measure(3, 4);
+  assert.equal(oneNotice.maxActive, 3, "단건은 primary + Kordoc 2-way를 전부 활용");
+
+  // 10건이 동시 진입하면 이론상 30개 하위 호출이 생기지만 프로세스는 4개를 넘지 않는다.
+  const tenNotices = await measure(30, 4);
+  assert.equal(tenNotices.maxActive, 4, "10건 인플라이트에서도 CLI 프로세스 상한 고정");
+  console.log(
+    `✅ 스케줄링 벤치마크 — 1건 ${oneNotice.durationMs}ms(max ${oneNotice.maxActive}) · `
+    + `10건 ${tenNotices.durationMs}ms(max ${tenNotices.maxActive})`,
+  );
 }
 
 console.log("\nclaude-cli-transport 테스트 전부 통과");

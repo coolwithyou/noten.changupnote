@@ -6,7 +6,10 @@
 // DELETE /api/dev/analysis-lab/ops/batch  → abort 후 스냅샷 (신규 착수만 중단 — 진행분은
 //        완료 저장, 상태 전이는 러너 종료 시점에 finished/aborted)
 import { NextResponse } from "next/server";
-import type { LabBatchStartRequest } from "@/features/dev/analysis-lab/contract";
+import {
+  ANALYSIS_LAB_MAX_BATCH_CONCURRENCY,
+  type LabBatchStartRequest,
+} from "@/features/dev/analysis-lab/contract";
 import {
   LabBatchJobBusyError,
   abortLabBatchJob,
@@ -23,9 +26,6 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-/** 웹 잡 동시성 상한 — CLI(batch.ts MAX_CONCURRENCY=3)보다 1 여유(계획 §3-2 실행 콘솔 범위). */
-const MAX_CONCURRENCY = 4;
 
 // Response body 는 일회성 스트림이라 인스턴스를 재사용하면 두 번째 응답부터 깨진다 — 매번 새로 만든다.
 const notFound = () => NextResponse.json({ error: "not_found" }, { status: 404 });
@@ -50,9 +50,9 @@ function parseStartRequest(body: unknown): LabBatchStartRequest | string {
     typeof concurrency !== "number" ||
     !Number.isInteger(concurrency) ||
     concurrency < 1 ||
-    concurrency > MAX_CONCURRENCY
+    concurrency > ANALYSIS_LAB_MAX_BATCH_CONCURRENCY
   ) {
-    return `concurrency 는 1~${MAX_CONCURRENCY} 정수여야 합니다.`;
+    return `concurrency 는 1~${ANALYSIS_LAB_MAX_BATCH_CONCURRENCY} 정수여야 합니다.`;
   }
   const maxCostUsd = record.maxCostUsd;
   if (typeof maxCostUsd !== "number" || !Number.isFinite(maxCostUsd) || maxCostUsd <= 0) {

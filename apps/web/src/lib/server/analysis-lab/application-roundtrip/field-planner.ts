@@ -12,8 +12,9 @@ const DEFAULT_MODEL = "claude-sonnet-5";
 const DEFAULT_MAX_TOKENS = 8_000;
 const DEFAULT_TIMEOUT_MS = 180_000;
 export const ROUNDTRIP_FIELD_CANDIDATE_LIMIT = 180;
-const LLM_CANDIDATES_PER_REQUEST = 20;
-const MAX_LLM_BATCHES = Math.ceil(ROUNDTRIP_FIELD_CANDIDATE_LIMIT / LLM_CANDIDATES_PER_REQUEST);
+const API_CANDIDATES_PER_REQUEST = 20;
+const SUBSCRIPTION_CANDIDATES_PER_REQUEST = 40;
+const MAX_API_LLM_BATCHES = Math.ceil(ROUNDTRIP_FIELD_CANDIDATE_LIMIT / API_CANDIDATES_PER_REQUEST);
 const MAX_ADJUDICATION_ROUNDS = 2;
 const ACCEPT_INPUT_CONFIDENCE = 0.55;
 const ACCEPT_REJECTION_CONFIDENCE = 0.75;
@@ -67,6 +68,7 @@ export interface RoundtripFieldPlannerRuntimeConfig {
   requestedModel: string;
   timeoutMs: number;
   candidateLimit: number | null;
+  candidateBatchSize: number;
   candidateConcurrency: number;
   parentLabRunId: string | null;
 }
@@ -86,7 +88,7 @@ export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
   parentLabRunId?: string | null;
 }): RoundtripFieldPlannerRuntimeConfig {
   const transport = options?.transport ?? "api";
-  const defaultConcurrency = transport === "claude-cli" ? 1 : MAX_LLM_BATCHES;
+  const defaultConcurrency = transport === "claude-cli" ? 2 : MAX_API_LLM_BATCHES;
   return {
     transport,
     requestedModel: resolveModel(options?.model),
@@ -94,6 +96,9 @@ export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
     // 로컬 구독은 추가 API 비용 없이 전체 후보를 끝까지 훑는다. 운영 API 경로는
     // 기존 비용 상한 180개를 보존해 이번 변경이 운영 지출을 우발적으로 늘리지 않는다.
     candidateLimit: transport === "claude-cli" ? null : ROUNDTRIP_FIELD_CANDIDATE_LIMIT,
+    candidateBatchSize: transport === "claude-cli"
+      ? SUBSCRIPTION_CANDIDATES_PER_REQUEST
+      : API_CANDIDATES_PER_REQUEST,
     candidateConcurrency: positiveInteger(options?.candidateConcurrency) ?? defaultConcurrency,
     parentLabRunId: options?.parentLabRunId?.trim() || null,
   };
@@ -267,7 +272,7 @@ async function requestDecisionPass(input: {
   onUsage?: (usage: RoundtripFieldPlannerUsageEvent) => Promise<void> | void;
 }): Promise<DecisionPassResult> {
   const results = await mapWithConcurrency(
-    chunkCandidates(input.candidates),
+    chunkCandidates(input.candidates, input.runtime.candidateBatchSize),
     input.runtime.candidateConcurrency,
     async (batch) => {
       try {
@@ -605,6 +610,7 @@ function buildSummary(
     requestedModel: runtime.requestedModel,
     timeoutMs: runtime.timeoutMs,
     candidateLimit: runtime.candidateLimit,
+    candidateBatchSize: runtime.candidateBatchSize,
     candidateConcurrency: runtime.candidateConcurrency,
     parentLabRunId: runtime.parentLabRunId,
     failureCode,
@@ -677,10 +683,10 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
-function chunkCandidates(fields: RoundtripFieldCandidate[]): RoundtripFieldCandidate[][] {
+function chunkCandidates(fields: RoundtripFieldCandidate[], batchSize: number): RoundtripFieldCandidate[][] {
   const chunks: RoundtripFieldCandidate[][] = [];
-  for (let index = 0; index < fields.length; index += LLM_CANDIDATES_PER_REQUEST) {
-    chunks.push(fields.slice(index, index + LLM_CANDIDATES_PER_REQUEST));
+  for (let index = 0; index < fields.length; index += batchSize) {
+    chunks.push(fields.slice(index, index + batchSize));
   }
   return chunks;
 }

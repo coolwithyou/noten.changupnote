@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  ANALYSIS_LAB_MAX_BATCH_CONCURRENCY,
   AI_REVIEW_ADOPTED,
   ANALYSIS_LAB_PROMPT_VERSION,
   type LabRun,
@@ -335,8 +336,12 @@ function assertOptions(options: SubscriptionAnalysisAgentOptions): void {
   if (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0) {
     throw new Error("maxCostUsd는 0보다 커야 합니다.");
   }
-  if (!Number.isInteger(options.concurrency) || options.concurrency < 1 || options.concurrency > 3) {
-    throw new Error("concurrency는 1~3 정수여야 합니다.");
+  if (
+    !Number.isInteger(options.concurrency)
+    || options.concurrency < 1
+    || options.concurrency > ANALYSIS_LAB_MAX_BATCH_CONCURRENCY
+  ) {
+    throw new Error(`concurrency는 1~${ANALYSIS_LAB_MAX_BATCH_CONCURRENCY} 정수여야 합니다.`);
   }
 }
 

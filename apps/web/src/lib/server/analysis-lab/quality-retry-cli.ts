@@ -72,6 +72,9 @@ async function main(): Promise<number> {
         model: "claude-opus-5",
         withApplicationRoundtrip: true,
         roundtripModel: "claude-opus-5",
+        ...(reason === "deep_contract" && target.run.applicationRoundtrip?.runId
+          ? { reuseApplicationRoundtripRunId: target.run.applicationRoundtrip.runId }
+          : {}),
       });
       if (result.error) throw new Error(`${result.grantId}: 재분석 실패: ${result.error}`);
       console.log(

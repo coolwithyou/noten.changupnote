@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import { ChevronDown, FileCheck2, OctagonX, Play, SearchCheck, Settings2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import type { LabBatchJobSnapshot, LabBatchStartRequest, LabOpsSummary } from "./contract";
+import {
+  ANALYSIS_LAB_MAX_BATCH_CONCURRENCY,
+  type LabBatchJobSnapshot,
+  type LabBatchStartRequest,
+  type LabOpsSummary,
+} from "./contract";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -38,14 +43,13 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 // 검증 실패의 최종 판정은 서버 소관이며 아래 상수·검증은 UI 선제 안내다.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** batch CLI 와 동일한 기본값·상한(batch.ts DEFAULT_* / MAX_CONCURRENCY — export 없어 표시용 복제). */
+/** 기본값은 안전한 2를 유지하고, 명시적으로 10건까지 인플라이트를 허용한다. */
 const DEFAULT_LIMIT = "30";
 const DEFAULT_CONCURRENCY = "2";
 // 로컬 구독 배치는 실제 API 과금이 없지만 러너가 모델 사용량을 명목 USD로 환산해
 // 폭주 가드를 적용한다. 모집 중 전건 분석에서도 이 비교값 때문에 조기 중단되지 않도록
 // 충분히 큰 기본값을 쓰되, API transport는 서버가 별도로 금지한다.
 const DEFAULT_MAX_COST_USD = "1000";
-const MAX_CONCURRENCY = 3;
 
 export function BatchOpsConsole({
   analysisAllowed,
@@ -80,7 +84,9 @@ export function BatchOpsConsole({
   const maxCostUsd = Number(maxCostText);
   const limitValid = Number.isInteger(limit) && limit >= 1;
   const concurrencyValid =
-    Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= MAX_CONCURRENCY;
+    Number.isInteger(concurrency)
+    && concurrency >= 1
+    && concurrency <= ANALYSIS_LAB_MAX_BATCH_CONCURRENCY;
   const maxCostValid = Number.isFinite(maxCostUsd) && maxCostUsd > 0;
   const formValid = limitValid && concurrencyValid && maxCostValid;
 
@@ -207,7 +213,9 @@ export function BatchOpsConsole({
                     aria-invalid={!concurrencyValid || undefined}
                     disabled={running}
                   />
-                  <FieldDescription>안전 범위 1~{MAX_CONCURRENCY}</FieldDescription>
+                  <FieldDescription>
+                    작업 1~{ANALYSIS_LAB_MAX_BATCH_CONCURRENCY}건 · CLI 프로세스는 전역 상한 별도
+                  </FieldDescription>
                 </Field>
                 <Field data-invalid={!maxCostValid || undefined}>
                   <FieldLabel htmlFor="batch-ops-max-cost">명목 비용 가드</FieldLabel>

@@ -24,6 +24,7 @@ import {
   buildApplicationRoundtripReference,
   runAnalysisPair,
 } from "./application-precompute";
+import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
 import {
@@ -50,6 +51,8 @@ export interface LabAnalysisOverrides {
   model?: string;
   /** 같은 grantId의 Kordoc 빠른 작성 선분석을 형제 작업으로 시작한다. */
   withApplicationRoundtrip?: boolean;
+  /** 딥분석만 재시도할 때 현재 원본·계약을 검증한 뒤 재결속할 기존 Kordoc runId. */
+  reuseApplicationRoundtripRunId?: string;
   /** 미지정 시 ANALYSIS_LAB_ROUNDTRIP_MODEL 또는 딥 분석 모델을 상속한다. */
   roundtripModel?: string;
   /** 완료된 독립 검수의 검증된 blocker만 재분석 지시로 전달한다. */
@@ -86,6 +89,9 @@ export async function runLabAnalysis(
   grantId: string,
   opts?: LabAnalysisOverrides,
 ): Promise<LabRun> {
+  if (opts?.reuseApplicationRoundtripRunId && opts.withApplicationRoundtrip !== true) {
+    throw new Error("reuseApplicationRoundtripRunId는 withApplicationRoundtrip=true와 함께 지정해야 합니다.");
+  }
   const db = getCunoteDb();
   const startedAt = new Date();
   const runId = buildLabRunId(startedAt);
@@ -121,6 +127,7 @@ export async function runLabAnalysis(
     .select({
       filename: schema.grantAttachmentArchives.filename,
       storageKey: schema.grantAttachmentArchives.storageKey,
+      sha256: schema.grantAttachmentArchives.sha256,
       markdownStorageKey: schema.grantAttachmentArchives.markdownStorageKey,
       markdownSha256: schema.grantAttachmentArchives.markdownSha256,
       markdownBytes: schema.grantAttachmentArchives.markdownBytes,
@@ -212,6 +219,21 @@ export async function runLabAnalysis(
   const requestedModel = opts?.model ?? resolveLabModel();
   const roundtripModel = opts?.roundtripModel
     ?? (process.env.ANALYSIS_LAB_ROUNDTRIP_MODEL?.trim() || requestedModel);
+  // 딥분석 모델을 시작하기 전에 원본 SHA·Kordoc 버전·모델·transport를 검증한다.
+  // fail-closed 하면 잘못된 재사용 때문에 비싼 primary를 돌린 뒤 발견하는 일이 없다.
+  const preparedRoundtripReuse = opts?.reuseApplicationRoundtripRunId
+    ? await prepareApplicationRoundtripReuse({
+        grantId,
+        sourceRunId: opts.reuseApplicationRoundtripRunId,
+        transport,
+        model: roundtripModel,
+        currentSources: archiveRows.map((archive) => ({
+          filename: archive.filename,
+          storageKey: archive.storageKey ?? null,
+          sha256: archive.sha256 ?? null,
+        })),
+      })
+    : null;
   // 같은 binding Promise를 두 형제 작업이 공유한다. API 키 부재/CLI 준비 실패도 primary는
   // error LabRun, sidecar는 failed reference로 각각 종결돼 한쪽이 다른 쪽을 덮지 않는다.
   const bindingPromise = opts?.transport === undefined
@@ -251,6 +273,7 @@ export async function runLabAnalysis(
     const paired = await runAnalysisPair({
       primary: runPrimary,
       application: async () => {
+        if (preparedRoundtripReuse) return preparedRoundtripReuse.materialize(runId);
         const [binding, roundtripModule] = await Promise.all([
           bindingPromise,
           import("./application-roundtrip/analyze"),
@@ -260,7 +283,7 @@ export async function runLabAnalysis(
           model: roundtripModel,
           timeoutMs: resolveRoundtripTimeoutMs(),
           transport,
-          candidateConcurrency: transport === "claude-cli" ? 1 : 2,
+          candidateConcurrency: 2,
           parentLabRunId: runId,
           ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
         });

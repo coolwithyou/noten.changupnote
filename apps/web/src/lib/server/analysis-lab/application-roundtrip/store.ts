@@ -92,6 +92,18 @@ export async function readRoundtripRunArtifacts(
   return null;
 }
 
+/** 재결속 시 불변 분석 JSON과 함께 복제해야 할 파싱 markdown을 모두 읽는다. */
+export async function readRoundtripMarkdownByAttachmentId(input: {
+  manifest: RoundtripRunManifest;
+  dir: string;
+}): Promise<Map<string, string>> {
+  const entries = await Promise.all(input.manifest.attachments.map(async (attachment) => [
+    attachment.attachmentId,
+    await readFile(join(input.dir, `${sanitizeSegment(attachment.attachmentId)}.parsed.md`), "utf8"),
+  ] as const));
+  return new Map(entries);
+}
+
 export async function saveRoundtripFill(input: {
   runDir: string;
   result: RoundtripFillResult;
