@@ -12,6 +12,7 @@ const APPLICATION_FILENAME = /(신청서|지원서|참가신청|입주신청|등
 const PLAN_FILENAME = /(사업\s*계획서|수행\s*계획서|제안서|발표자료|사업계획)/i;
 const ANNOUNCEMENT_FILENAME = /(공고문|모집공고|모집요강|사업공고|공고서|안내문|시행계획)/i;
 const EVIDENCE_FILENAME = /(동의서|서약서|확약서|증빙|체크리스트|개인정보|위임장|명부)/i;
+const GUIDANCE_FILENAME = /(관리\s*지침|운영\s*지침|업무\s*지침|가이드라인|매뉴얼)/i;
 
 const APPLICATION_BODY = /(신청인|신청기업|신청자|대표자\s*(성명|명)|담당자|연락처|사업자등록번호|접수번호)/gi;
 const PLAN_BODY = /(사업개요|창업아이템|문제인식|실현가능성|성장전략|시장현황|추진계획|사업화\s*계획|자금조달|수익모델)/gi;
@@ -43,6 +44,17 @@ export function classifyRoundtripDocument(input: {
   addFilenameSignal(input.filename, PLAN_FILENAME, "파일명에 사업·수행계획서 표현", scores, "businessPlan", 6, signals);
   addFilenameSignal(input.filename, ANNOUNCEMENT_FILENAME, "파일명에 공고문 표현", scores, "announcement", 6, signals);
   addFilenameSignal(input.filename, EVIDENCE_FILENAME, "파일명에 동의·증빙서류 표현", scores, "evidence", 5, signals);
+  if (
+    GUIDANCE_FILENAME.test(input.filename)
+    && !APPLICATION_FILENAME.test(input.filename)
+    && !PLAN_FILENAME.test(input.filename)
+  ) {
+    // 관리지침에는 신청자·사업계획·증빙 표현과 빈 표가 대량 포함될 수 있지만,
+    // 별도 신청 양식이 아닌 정책 문서를 빠른 작성 대상으로 보내면 수천 후보를
+    // LLM이 판정하게 된다. 파일명이 신청서/계획서를 함께 명시한 경우만 예외로 둔다.
+    scores.announcement += 12;
+    signals.push("파일명에 독립 관리·운영지침 표현");
+  }
 
   const body = input.markdown.slice(0, 80_000);
   const applicationHits = matchCount(body, APPLICATION_BODY);
