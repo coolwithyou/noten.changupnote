@@ -455,6 +455,7 @@ pnpm lab:bulk-readiness -- --stage=batch30 --write
 - 품질 그래프는 신청자격 blocker, Kordoc 원본/필드 판정, 22축/입력 봉인을 별도 실패 원인으로 접는다. 해당 공고 ID만 제한 재분석하고 매 사이클 뒤 그래프를 다시 평가한다.
 - `passed/partial/not_applicable`은 안전 종결, 나머지는 최대 설정 사이클 뒤 blocker와 함께 남긴다. 한 실행의 명령·대상·런·판정은 `spike-out/analysis-lab/agent-runs/`에 불변 JSON으로 기록한다.
 - 에이전트는 로컬 spike-out만 관리한다. 승격, 프로덕션 DB 쓰기, Cloud Run/Scheduler 변경은 수행하지 않는다.
+- ops `/subscription-agent`는 admin/owner가 계획·실행·중단을 제어하고, 분리 프로세스 PID·배치 스냅샷·실시간 로그·불변 보고서를 결합해 HMR/페이지 재접속 뒤에도 상태를 복원한다. 로컬 development 호스트 밖에서는 실행 API가 fail-closed다.
 
 계획 확인과 실행:
 
