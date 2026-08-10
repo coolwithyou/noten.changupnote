@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation"
 import { useEffect, useState } from "react"
 import {
   ActivityIcon,
+  BotIcon,
   BadgeDollarSignIcon,
   BanknoteIcon,
   BookOpenCheckIcon,
@@ -16,7 +17,6 @@ import {
   FileSearchIcon,
   FileClockIcon,
   LandmarkIcon,
-  LaptopIcon,
   LayoutDashboardIcon,
   ListChecksIcon,
   NetworkIcon,
@@ -27,7 +27,7 @@ import {
 } from "lucide-react"
 
 import { NavUser } from "@/components/nav-user"
-import { isLocalAdminHostname, LOCAL_ANALYSIS_LAB_URL } from "@/components/app-sidebar-environment"
+import { isLocalAdminHostname } from "@/components/app-sidebar-environment"
 import { defaultAdminPath } from "@/lib/auth/routeAccess"
 import type { AdminRole } from "@/lib/server/auth/adminUsers"
 import {
@@ -147,21 +147,16 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                     </SidebarMenuItem>
                   )
                 })}
-                {group.label === "검수" ? (
+                {group.label === "검수" && (user.role === "admin" || user.role === "owner") ? (
                   <SidebarMenuItem>
                     {isLocalHost ? (
                       <SidebarMenuButton
-                        tooltip="로컬 구독 분석"
-                        render={(
-                          <a
-                            href={LOCAL_ANALYSIS_LAB_URL}
-                            target="_blank"
-                            rel="noreferrer"
-                          />
-                        )}
+                        isActive={pathname.startsWith("/subscription-agent")}
+                        tooltip="구독 분석 에이전트"
+                        render={<Link href="/subscription-agent" />}
                       >
-                        <LaptopIcon />
-                        <span>로컬 구독 분석</span>
+                        <BotIcon />
+                        <span>구독 분석 에이전트</span>
                         <span className="ml-auto text-[10px] font-medium text-primary group-data-[collapsible=icon]:hidden">
                           로컬
                         </span>
@@ -169,11 +164,11 @@ export function AppSidebar({ user, ...props }: AppSidebarProps) {
                     ) : (
                       <SidebarMenuButton
                         disabled
-                        tooltip="로컬 PC에서만 사용할 수 있습니다"
+                        tooltip="구독 분석 에이전트는 로컬 PC에서만 사용할 수 있습니다"
                         className="opacity-45"
                       >
-                        <LaptopIcon />
-                        <span>로컬 구독 분석</span>
+                        <BotIcon />
+                        <span>구독 분석 에이전트</span>
                         <span className="ml-auto text-[10px] group-data-[collapsible=icon]:hidden">
                           로컬 전용
                         </span>

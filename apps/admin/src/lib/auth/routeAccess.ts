@@ -4,6 +4,7 @@ export const REVIEW_WORKSPACE_ROLES: readonly AdminRole[] = ["reviewer", "admin"
 export const REVIEW_ADJUDICATION_ROLES: readonly AdminRole[] = ["admin", "owner"];
 export const DEEP_PIPELINE_ROLES: readonly AdminRole[] = ["reviewer", "admin", "owner"];
 export const NOTICE_PIPELINE_ROLES: readonly AdminRole[] = ["viewer", "support", "admin", "owner"];
+export const SUBSCRIPTION_AGENT_ROLES: readonly AdminRole[] = ["admin", "owner"];
 
 export function isReviewWorkspacePath(pathname: string): boolean {
   return pathname === "/review" || pathname.startsWith("/review/");
@@ -30,6 +31,15 @@ export function isNoticePipelineApiPath(pathname: string): boolean {
     || pathname.startsWith("/api/admin/notice-pipeline/");
 }
 
+export function isSubscriptionAgentPath(pathname: string): boolean {
+  return pathname === "/subscription-agent" || pathname.startsWith("/subscription-agent/");
+}
+
+export function isSubscriptionAgentApiPath(pathname: string): boolean {
+  return pathname === "/api/admin/subscription-agent"
+    || pathname.startsWith("/api/admin/subscription-agent/");
+}
+
 /**
  * proxy와 서버 페이지가 공유하는 역할→경로 매트릭스.
  * API 자체의 메서드/객체 권한 검사를 대체하지 않는 보조 방어다.
@@ -52,6 +62,10 @@ export function canAccessAdminPath(role: AdminRole, pathname: string): boolean {
 
   if (isNoticePipelinePath(pathname) || isNoticePipelineApiPath(pathname)) {
     return NOTICE_PIPELINE_ROLES.includes(role);
+  }
+
+  if (isSubscriptionAgentPath(pathname) || isSubscriptionAgentApiPath(pathname)) {
+    return SUBSCRIPTION_AGENT_ROLES.includes(role);
   }
 
   // 검수 전용 역할은 /review/** 밖의 기존 운영·크레딧·지원 데이터에 접근하지 못한다.

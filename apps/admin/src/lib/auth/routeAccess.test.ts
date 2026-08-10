@@ -27,6 +27,10 @@ assert.equal(canAccessAdminPath("viewer", "/notice-pipeline"), true);
 assert.equal(canAccessAdminPath("support", "/api/admin/notice-pipeline/summary"), true);
 assert.equal(canAccessAdminPath("viewer", "/notice-calendar"), true);
 assert.equal(canAccessAdminPath("support", "/notice-calendar"), true);
+assert.equal(canAccessAdminPath("owner", "/subscription-agent"), true);
+assert.equal(canAccessAdminPath("admin", "/api/admin/subscription-agent"), true);
+assert.equal(canAccessAdminPath("reviewer", "/subscription-agent"), false);
+assert.equal(canAccessAdminPath("viewer", "/api/admin/subscription-agent"), false);
 assert.equal(defaultAdminPath("reviewer"), "/review");
 assert.equal(defaultAdminPath("admin"), "/");
 

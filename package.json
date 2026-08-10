@@ -76,6 +76,7 @@
     "lab:select-targets": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/target-selection-cli.ts",
     "lab:agent": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/subscription-analysis-agent.ts",
     "lab:agent:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/target-selection.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/subscription-analysis-agent.test.ts",
+    "verify:subscription-agent-ops": "TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/components/app-sidebar-environment.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/auth/routeAccess.test.ts && TSX_TSCONFIG_PATH=apps/admin/tsconfig.json node --import tsx apps/admin/src/lib/server/admin/subscriptionAgentOps.test.ts",
     "lab:ai-audit:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/ai-audit.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/ai-adjudication.test.ts",
     "lab:confirmation:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/extractor-confirmation.test.ts",
     "lab:confirmations": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/confirmations-cli.ts",
