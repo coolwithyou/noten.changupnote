@@ -14,6 +14,7 @@ import {
   DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION,
   DEEP_ANALYSIS_REPAIR_VERSION,
   repairDeepAnalysisEvidenceSpansDeterministically,
+  repairDeepAnalysisMatchingScopeDeterministically,
   repairDeepAnalysisExecution,
 } from "./repair";
 
@@ -83,7 +84,7 @@ const validation = {
     ].map((dimension) => [dimension, []]),
   ) as never,
 };
-assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v3");
+assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v4");
 assert.equal(
   findExactEvidenceSpanCandidates(requestedSpan, execution.evidenceText).length,
   2,
@@ -307,6 +308,106 @@ assert.equal(validateDeepAnalysisResult({
   seal: scoreTableCase.seal,
   result: locallyRepairedScoreTable.result,
 }).valid, true);
+
+const matchingScopeSpan = "신청서에 허위 또는 과장된 정보가 있는 경우 지원을 취소한다.";
+const matchingScopeSeal = sealDeepAnalysisInput({
+  grantId: "matching-scope-repair",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: matchingScopeSpan,
+  attachments: [],
+});
+const matchingScopeAxes = CRITERION_DIMENSIONS.map((dimension) => ({
+  dimension,
+  status: dimension === "other"
+    ? "condition_found" as const
+    : "inspected_no_condition" as const,
+  confidence: 0.9,
+  comment: "전문 검사",
+}));
+const nonMatchingCriterion = {
+  dimension: "other" as const,
+  kind: "exclusion" as const,
+  operator: "text_only" as const,
+  value: { note: matchingScopeSpan },
+  confidence: 0.9,
+  sourceSpan: matchingScopeSpan,
+  spanVerified: true,
+  spanOffsetRatio: 0,
+  note: null,
+};
+const matchingScopeResult: DeepAnalysisModelResult = {
+  ...result,
+  criteria: [nonMatchingCriterion],
+  axisAssessments: matchingScopeAxes,
+  rawToolInput: {
+    criteria: [{
+      dimension: nonMatchingCriterion.dimension,
+      kind: nonMatchingCriterion.kind,
+      operator: nonMatchingCriterion.operator,
+      value: nonMatchingCriterion.value,
+      confidence: nonMatchingCriterion.confidence,
+      source_span: nonMatchingCriterion.sourceSpan,
+    }],
+    axis_assessments: matchingScopeAxes.map((axis) => ({
+      dimension: axis.dimension,
+      status: axis.status,
+      confidence: axis.confidence,
+      comment: axis.comment,
+    })),
+  },
+};
+const matchingScopeExecution: DeepAnalysisExecution = {
+  result: matchingScopeResult,
+  evidenceText: renderDeepAnalysisChunks(matchingScopeSeal.chunks),
+  passes: [{
+    kind: "single",
+    chunkId: null,
+    inputChars: matchingScopeSpan.length,
+    result: matchingScopeResult,
+  }],
+};
+const matchingScopeValidation = validateDeepAnalysisResult({
+  seal: matchingScopeSeal,
+  result: matchingScopeResult,
+});
+assert.deepEqual(
+  matchingScopeValidation.issues.map((issue) => issue.code),
+  ["non_matching_criterion"],
+);
+const deterministicMatchingScopeRepair =
+  repairDeepAnalysisMatchingScopeDeterministically({
+    execution: matchingScopeExecution,
+    validation: matchingScopeValidation,
+  });
+assert.equal(deterministicMatchingScopeRepair.repairs.length, 1);
+assert.equal(deterministicMatchingScopeRepair.execution.result.criteria.length, 0);
+assert.equal(
+  deterministicMatchingScopeRepair.execution.result.axisAssessments
+    .find((axis) => axis.dimension === "other")?.status,
+  "inspected_no_condition",
+);
+assert.equal(
+  validateDeepAnalysisResult({
+    seal: matchingScopeSeal,
+    result: deterministicMatchingScopeRepair.execution.result,
+  }).valid,
+  true,
+);
+let matchingScopeFallbackModelCalled = false;
+const locallyRepairedMatchingScope = await repairDeepAnalysisExecution({
+  seal: matchingScopeSeal,
+  apiKey: "test",
+  model: "claude-opus-4-8",
+  failedExecution: matchingScopeExecution,
+  validation: matchingScopeValidation,
+  runModel: async () => {
+    matchingScopeFallbackModelCalled = true;
+    throw new Error("deterministic matching-scope repair must not call the model");
+  },
+});
+assert.equal(matchingScopeFallbackModelCalled, false);
+assert.equal(locallyRepairedMatchingScope.passes.length, 1);
+assert.equal(locallyRepairedMatchingScope.deterministicMatchingScopeRepairs?.length, 1);
 
 const awardScoreExactSpan =
   "무역의날 수출탑 수상(최근 2 년)               개인표창 제외\n" +

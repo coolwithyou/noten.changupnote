@@ -24,11 +24,20 @@ export interface DeepAnalysisDeterministicEvidenceRepair {
   strategy: "unique_layout_or_score_candidate";
 }
 
+export interface DeepAnalysisDeterministicMatchingScopeRepair {
+  issuePath: string;
+  criterionIndex: number;
+  dimension: DeepAnalysisModelResult["criteria"][number]["dimension"];
+  sourceSpan: string | null;
+  strategy: "remove_non_matching_application_criterion";
+}
+
 export interface DeepAnalysisExecution {
   result: DeepAnalysisModelResult;
   passes: DeepAnalysisModelPass[];
   evidenceText: string;
   deterministicEvidenceRepairs?: DeepAnalysisDeterministicEvidenceRepair[];
+  deterministicMatchingScopeRepairs?: DeepAnalysisDeterministicMatchingScopeRepair[];
 }
 
 type ModelRunner = typeof runDeepGrantAnalysis;

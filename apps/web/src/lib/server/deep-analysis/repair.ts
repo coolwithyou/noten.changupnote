@@ -9,6 +9,7 @@ import {
 import type { DeepAnalysisAuditAcceptedFinding } from "./auditAdjudication";
 import type {
   DeepAnalysisDeterministicEvidenceRepair,
+  DeepAnalysisDeterministicMatchingScopeRepair,
   DeepAnalysisExecution,
   DeepAnalysisModelPass,
 } from "./analyzer";
@@ -24,7 +25,7 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v3" as const;
+export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v4" as const;
 export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
   "deep-analysis-audit-retry-feedback-v1" as const;
 
@@ -131,22 +132,36 @@ export async function repairDeepAnalysisExecution(input: {
       result: executionToRepair.result,
     })
     : input.validation;
-  if (deterministic.repairs.length > 0 && validationToRepair.valid) {
-    return executionToRepair;
+  const matchingScope = repairDeepAnalysisMatchingScopeDeterministically({
+    execution: executionToRepair,
+    validation: validationToRepair,
+  });
+  const scopedExecutionToRepair = matchingScope.execution;
+  const scopedValidationToRepair = matchingScope.repairs.length > 0
+    ? validateDeepAnalysisResult({
+      seal: input.seal,
+      result: scopedExecutionToRepair.result,
+    })
+    : validationToRepair;
+  if (
+    (deterministic.repairs.length > 0 || matchingScope.repairs.length > 0)
+    && scopedValidationToRepair.valid
+  ) {
+    return scopedExecutionToRepair;
   }
 
   const runModel = input.runModel ?? runDeepGrantAnalysis;
   const evidenceRepairHints = buildDeepAnalysisEvidenceRepairHints({
-    execution: executionToRepair,
-    validation: validationToRepair,
+    execution: scopedExecutionToRepair,
+    validation: scopedValidationToRepair,
   });
   const repairInput = [
-    executionToRepair.evidenceText,
+    scopedExecutionToRepair.evidenceText,
     "",
     "<<<FAILED_RESULT_TO_REPAIR>>>",
     stableJson({
-      result: stripRaw(executionToRepair.result),
-      validatorIssues: validationToRepair.issues,
+      result: stripRaw(scopedExecutionToRepair.result),
+      validatorIssues: scopedValidationToRepair.issues,
       evidenceRepairHints,
     }),
     "<<<END_FAILED_RESULT_TO_REPAIR>>>",
@@ -154,7 +169,7 @@ export async function repairDeepAnalysisExecution(input: {
   const repaired = await runModel({
     apiKey: input.apiKey,
     inputText: repairInput,
-    evidenceText: executionToRepair.evidenceText,
+    evidenceText: scopedExecutionToRepair.evidenceText,
     model: input.model,
     ...(input.effort === undefined ? {} : { effort: input.effort }),
     taskInstruction: [
@@ -174,20 +189,121 @@ export async function repairDeepAnalysisExecution(input: {
     inputChars: repairInput.length,
     result: repaired,
   };
-  const passes = [...executionToRepair.passes, repairPass];
+  const passes = [...scopedExecutionToRepair.passes, repairPass];
   return {
-    evidenceText: executionToRepair.evidenceText,
+    evidenceText: scopedExecutionToRepair.evidenceText,
     passes,
-    ...(executionToRepair.deterministicEvidenceRepairs
+    ...(scopedExecutionToRepair.deterministicEvidenceRepairs
       ? {
         deterministicEvidenceRepairs:
-          executionToRepair.deterministicEvidenceRepairs,
+          scopedExecutionToRepair.deterministicEvidenceRepairs,
+      }
+      : {}),
+    ...(scopedExecutionToRepair.deterministicMatchingScopeRepairs
+      ? {
+        deterministicMatchingScopeRepairs:
+          scopedExecutionToRepair.deterministicMatchingScopeRepairs,
       }
       : {}),
     result: {
       ...repaired,
       usage: sumUsage(passes.map((pass) => pass.result.usage)),
       costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
+    },
+  };
+}
+
+/**
+ * validator가 신청 절차·선정 후 의무라고 확정한 criterion만 제거한다. 같은 축에 실제
+ * 매칭 criterion이 하나도 남지 않으면 축 상태도 함께 닫아, 모델이 같은 비매칭 문구를
+ * 교정 응답에서 반복해 전체 공고를 실패시키지 않게 한다.
+ */
+export function repairDeepAnalysisMatchingScopeDeterministically(input: {
+  execution: DeepAnalysisExecution;
+  validation: DeepAnalysisValidationResult;
+}): {
+  execution: DeepAnalysisExecution;
+  repairs: DeepAnalysisDeterministicMatchingScopeRepair[];
+} {
+  const issueIndexes = new Map<number, string>();
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "non_matching_criterion") continue;
+    const match = /^\$\.criteria\[(\d+)\]$/.exec(issue.path);
+    if (!match) continue;
+    issueIndexes.set(Number.parseInt(match[1]!, 10), issue.path);
+  }
+  if (issueIndexes.size === 0) {
+    return { execution: input.execution, repairs: [] };
+  }
+
+  const repairs: DeepAnalysisDeterministicMatchingScopeRepair[] = [];
+  const removedDimensions = new Set<CriterionDimension>();
+  const criteria = input.execution.result.criteria.filter((criterion, index) => {
+    const issuePath = issueIndexes.get(index);
+    if (!issuePath) return true;
+    removedDimensions.add(criterion.dimension);
+    repairs.push({
+      issuePath,
+      criterionIndex: index,
+      dimension: criterion.dimension,
+      sourceSpan: criterion.sourceSpan,
+      strategy: "remove_non_matching_application_criterion",
+    });
+    return false;
+  });
+  if (repairs.length === 0) {
+    return { execution: input.execution, repairs };
+  }
+
+  const remainingDimensions = new Set(criteria.map((criterion) => criterion.dimension));
+  const axisAssessments = input.execution.result.axisAssessments.map((axis) => (
+    removedDimensions.has(axis.dimension)
+    && !remainingDimensions.has(axis.dimension)
+    && axis.status === "condition_found"
+      ? {
+        ...axis,
+        status: "inspected_no_condition" as const,
+        comment: [
+          axis.comment,
+          "신청 절차 또는 선정 후 의무만 확인되어 매칭 조건에서는 제외함.",
+        ].filter(Boolean).join(" "),
+      }
+      : axis
+  ));
+
+  const rawToolInput = { ...input.execution.result.rawToolInput };
+  if (Array.isArray(rawToolInput.criteria)) {
+    rawToolInput.criteria = rawToolInput.criteria.filter((_, index) => !issueIndexes.has(index));
+  }
+  if (Array.isArray(rawToolInput.axis_assessments)) {
+    const normalizedByDimension = new Map(
+      axisAssessments.map((axis) => [axis.dimension, axis]),
+    );
+    rawToolInput.axis_assessments = rawToolInput.axis_assessments.map((rawAxis) => {
+      if (!isRecord(rawAxis) || typeof rawAxis.dimension !== "string") return rawAxis;
+      const normalized = normalizedByDimension.get(rawAxis.dimension as CriterionDimension);
+      return normalized ? {
+        ...rawAxis,
+        status: normalized.status,
+        comment: normalized.comment,
+      } : rawAxis;
+    });
+  }
+
+  return {
+    repairs,
+    execution: {
+      ...input.execution,
+      deterministicMatchingScopeRepairs: [
+        ...(input.execution.deterministicMatchingScopeRepairs ?? []),
+        ...repairs,
+      ],
+      result: {
+        ...input.execution.result,
+        criteria,
+        axisAssessments,
+        rawToolInput,
+      },
     },
   };
 }
