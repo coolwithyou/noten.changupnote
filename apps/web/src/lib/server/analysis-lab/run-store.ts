@@ -161,7 +161,20 @@ export async function readLatestLabRunIndexForPrompt(promptVersion: string): Pro
   return buildLatestLabRunIndex(promptVersion);
 }
 
-async function buildLatestLabRunIndex(promptVersion?: string): Promise<Map<string, LabRun>> {
+/**
+ * 반복 교정용 현행 성공 런 인덱스. 같은 정책의 최신 재시도가 실패했더라도 그 실패 런이
+ * 직전 성공 런을 가리지 않게 한다. 실패 산출물은 보존하되 복구 기준으로 사용하지 않는다.
+ */
+export async function readLatestSuccessfulLabRunIndexForPrompt(
+  promptVersion: string,
+): Promise<Map<string, LabRun>> {
+  return buildLatestLabRunIndex(promptVersion, true);
+}
+
+async function buildLatestLabRunIndex(
+  promptVersion?: string,
+  successfulOnly = false,
+): Promise<Map<string, LabRun>> {
   const root = analysisLabDir();
   let entries: string[];
   try {
@@ -185,6 +198,7 @@ async function buildLatestLabRunIndex(promptVersion?: string): Promise<Map<strin
         if (!isPrimaryRunFilename(file)) continue;
         const run = await readRunFile(join(dir, file));
         if (run && promptVersion !== undefined && run.promptVersion !== promptVersion) continue;
+        if (run && successfulOnly && run.error !== null) continue;
         if (run && (!latest || run.startedAt > latest.startedAt)) latest = run;
       }
       return latest;

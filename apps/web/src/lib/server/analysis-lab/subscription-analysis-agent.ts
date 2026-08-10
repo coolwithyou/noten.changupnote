@@ -24,7 +24,7 @@ import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import { loadAnalysisQualityGraphForRun } from "./quality-report";
 import {
   analysisLabDir,
-  readLatestLabRunIndexForPrompt,
+  readLatestSuccessfulLabRunIndexForPrompt,
 } from "./run-store";
 import {
   loadAutomaticTargetCandidates,
@@ -202,7 +202,7 @@ export async function inspectSubscriptionAgentWork(limit: number): Promise<Subsc
     retryErrors: true,
     reanalyzeOutdated: true,
   });
-  const index = await readLatestLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
+  const index = await readLatestSuccessfulLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
   const currentRuns = period.runnable.flatMap((entry) => {
     const run = index.get(entry.grantId);
     return run ? [run] : [];
@@ -227,7 +227,7 @@ export async function inspectSubscriptionAgentWork(limit: number): Promise<Subsc
 }
 
 async function loadCurrentRuns(grantIds: readonly string[]): Promise<LabRun[]> {
-  const index = await readLatestLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
+  const index = await readLatestSuccessfulLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
   return grantIds.flatMap((grantId) => {
     const run = index.get(grantId);
     return run && run.error === null ? [run] : [];
