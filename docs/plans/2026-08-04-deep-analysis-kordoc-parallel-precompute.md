@@ -445,6 +445,29 @@ pnpm lab:bulk-readiness -- --stage=batch30 --write
 - 최종 `pilot5` 판정은 배치 종결·정확한 5/5 완주·구독 provenance·딥분석·Kordoc 다섯 게이트 전부 `passed`, 결론 `GO`다. 불변 증거는 `bulk-pilot5-2026-08-09T152042.931Z-91eeaf.json`이다.
 - 30건 dry-run은 현행 5건을 스킵하고 잔여 55건 중 30건을 자동 선정했다. 8건 측정 표본 기준 명목 예상은 공고당 `$1.7753`, 총 `$53.26`이므로 본 실행 폭주 가드는 `$65`로 올린다. 이 숫자는 API 예산이 아니며 구독 실지출은 0이다.
 
+### 7.7 반복형 구독 분석 에이전트 (2026-08-10)
+
+목표는 매번 운영자가 신규 선정·배치·검수·감사·보정을 각각 기억해 실행하지 않아도, 앞으로 유입되는 공고와 이전 실패를 같은 품질 그래프 계약으로 지속 관리하는 것이다.
+
+- 외부 인터페이스는 `pnpm lab:agent` 하나다. 기본은 읽기·계획 모드이며 `--execute`를 명시해야 모델 호출을 시작한다.
+- 대상 우선순위는 `현행 held/failed 복구 → 현행 미분석 대기 → 신규 모집 안전 후보 자동 선정`이다. 마감·비노출된 과거 대기는 신규 선정을 막지 않는다.
+- 신규 선정·22축 추출·Kordoc·충돌 판정은 Opus 5, 독립 검수는 Fable 5, 블라인드 감사는 Sonnet 5로 역할을 분리한다. 모든 단계는 `claude-cli`만 허용하며 API 자동 폴백을 금지한다.
+- 품질 그래프는 신청자격 blocker, Kordoc 원본/필드 판정, 22축/입력 봉인을 별도 실패 원인으로 접는다. 해당 공고 ID만 제한 재분석하고 매 사이클 뒤 그래프를 다시 평가한다.
+- `passed/partial/not_applicable`은 안전 종결, 나머지는 최대 설정 사이클 뒤 blocker와 함께 남긴다. 한 실행의 명령·대상·런·판정은 `spike-out/analysis-lab/agent-runs/`에 불변 JSON으로 기록한다.
+- 에이전트는 로컬 spike-out만 관리한다. 승격, 프로덕션 DB 쓰기, Cloud Run/Scheduler 변경은 수행하지 않는다.
+
+계획 확인과 실행:
+
+```bash
+ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 \
+  pnpm lab:agent -- --count=30
+
+ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 \
+  pnpm lab:agent -- --count=30 --execute
+```
+
+완료 조건은 같은 명령을 반복했을 때 이전 성공 공고를 다시 소비하지 않고, 이전 보류를 신규보다 먼저 복구하며, 새 모집 공고만 다음 안전 후보로 추가되고, 모든 실제 하위 명령이 정확한 grant ID와 채택 모델을 전달하는 것이다.
+
 ### 7.5 2026-08-04 읽기 전용 backlog 기준선
 
 계획 수립 중 production DB를 read-only transaction으로 집계했으며 쓰기는 롤백했다.

@@ -27,6 +27,7 @@
 ## 현재 구현 핸드오프
 
 - [딥분석과 공고 첨부파일 선분석 운영 가이드](./guides/deep-analysis-and-application-precompute-operations.md) — 공고 수집부터 22축 매칭·Kordoc 빠른 작성까지의 실제 트리거, 산출물, 실패 경계와 운영 화면
+- [반복형 구독 분석 에이전트 운용법](./explainers/구독모델로-딥분석-돌리는-법.md#3-2-반복형-분석-에이전트-권장-사용법) — 신규 모집 공고 선정부터 딥분석·Kordoc·독립 검수·감사·원인별 보정을 한 명령으로 반복 실행
 - [딥분석 실행 모드 제어 설계](./architecture/deep-analysis-execution-mode-control.md) — 운영 API 자동화와 로컬 구독 분석을 상호배제하는 `paused / production_api / local_subscription` 제어 정본
 - [딥분석 실행 모드 제어 상세 구현 계획](./plans/2026-08-05-deep-analysis-runtime-control.md) — DB 게이트, ops 스위치, 로컬 lease, 검증·배포 순서의 현재 실행 정본
 - [딥분석·Kordoc 분석 계층 전체 재구축 Runbook](./runbooks/deep-analysis-layer-rebuild.md) — 런칭 전 구버전 분석 projection을 백업·dry-run·해시 확인 후 fresh-start하는 실행 정본
