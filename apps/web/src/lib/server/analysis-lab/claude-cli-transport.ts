@@ -14,9 +14,16 @@ import { join } from "node:path";
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 /** Max 사용량 윈도 소진 판별 시그널(CLI 자체 에러 텍스트 대상). */
-const WINDOW_EXHAUSTED_SIGNAL = /usage limit|rate limit|quota|limit reached|exceeded/i;
+const WINDOW_EXHAUSTED_SIGNAL =
+  /usage limit|session limit|rate limit|quota|limit reached|hit your .* limit|exceeded|resets?\s+\d/i;
 /** batch 가 신규 착수 중단 분기(§5 #6)에서 감지하는 마커 — 문자열 계약. */
 export const CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER = "[CLAUDE_CLI_WINDOW_EXHAUSTED]";
+
+/** 하위 CLI 루프가 재시도를 즉시 중단할 수 있는 문자열 계약. */
+export function isClaudeCliWindowExhaustedError(value: unknown): boolean {
+  const message = value instanceof Error ? value.message : String(value);
+  return message.includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER);
+}
 
 // ── transport 스위치 ─────────────────────────────────────────────────────────
 
@@ -298,26 +305,37 @@ async function assembleErrorResponse(
   const version = await getVersion();
   if (isRecord(cliJson) && cliJson.is_error === true) {
     const resultText = typeof cliJson.result === "string" ? cliJson.result : "";
+    const windowSignalText = `${resultText}\n${outcome.stderr}`;
     // CLI 가 API 에러를 에코한 경우 → 그 상태 그대로 통과시켜 기존 403/404 "모델 접근 불가"·
     // 429/500/529 재시도 분기를 자연 발화시킨다. 주의: 이때 subtype 은 "success" 로 온다(실측) —
     // 에러 판별은 subtype 이 아니라 is_error 로만 한다.
     if (typeof cliJson.api_error_status === "number") {
+      // Max 구독 한도는 실측상 api_error_status=429와 "session limit · resets ..."로
+      // 오기도 한다. 이를 일반 429로 넘기면 배치 루프가 모든 남은 공고를 2회씩
+      // 즉시 실패로 소진하므로, 전용 마커로 승격해 신규 착수를 fail-closed 한다.
+      if (cliJson.api_error_status === 429 && WINDOW_EXHAUSTED_SIGNAL.test(windowSignalText)) {
+        return buildWindowExhaustedResponse(version);
+      }
       return new Response(resultText, { status: cliJson.api_error_status });
     }
     // api_error_status 없는 CLI 자체 에러 — Max 사용량 윈도 소진 판별.
     // 고정 한국어 본문만 사용(stderr 병합 금지): CLI 가 에코하는 invalid_request_error 류가
     // 섞이면 ai-review.ts:552 의 /retention|zero data|invalid_request/i 분기가 오진한다.
-    if (WINDOW_EXHAUSTED_SIGNAL.test(`${resultText}\n${outcome.stderr}`)) {
-      return new Response(
-        `Claude Max 사용량 윈도 소진으로 판단됨 ${CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER} — ` +
-          `윈도 리셋 후 같은 명령으로 재실행하세요. (claude ${version})`,
-        { status: 400 },
-      );
+    if (WINDOW_EXHAUSTED_SIGNAL.test(windowSignalText)) {
+      return buildWindowExhaustedResponse(version);
     }
     return new Response(buildErrorTailBody(outcome, resultText, version), { status: 500 });
   }
   // stdout 파싱 불가(형태 미상 출력 포함) → 500. 진단을 위해 stdout 원문 tail 을 result 자리에 싣는다.
   return new Response(buildErrorTailBody(outcome, outcome.stdout, version), { status: 500 });
+}
+
+function buildWindowExhaustedResponse(version: string): Response {
+  return new Response(
+    `Claude Max 사용량 윈도 소진으로 판단됨 ${CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER} — ` +
+      `윈도 리셋 후 같은 명령으로 재실행하세요. (claude ${version})`,
+    { status: 400 },
+  );
 }
 
 /** stderr tail + result tail 을 합쳐 2,000자 컷 + CLI 버전. error.message 는 싣지 않는다(argv 에 시스템 프롬프트가 노출됨). */

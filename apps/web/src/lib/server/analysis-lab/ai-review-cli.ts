@@ -40,7 +40,12 @@ import {
   type RunComparisonInput,
 } from "./ai-review-compare";
 import { collectAiReviewsForAudit, toAiReviewForAudit } from "./audit-store";
-import { resolveLabLlmBinding, resolveLabTransport, type LabLlmBinding } from "./claude-cli-transport";
+import {
+  isClaudeCliWindowExhaustedError,
+  resolveLabLlmBinding,
+  resolveLabTransport,
+  type LabLlmBinding,
+} from "./claude-cli-transport";
 import { readCohortFileV2, cohortFilePath } from "./cohort-file";
 import { DIMENSION_LABELS } from "./diff";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
@@ -448,11 +453,12 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
   let driftCount = 0;
   let totalCostUsd = 0;
   let costCapped = false;
+  let windowExhausted = false;
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
     for (;;) {
-      if (costCapped) return;
+      if (costCapped || windowExhausted) return;
       const index = nextIndex;
       if (index >= targets.length) return;
       nextIndex += 1;
@@ -489,6 +495,14 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
           break;
         } catch (caught) {
           const message = caught instanceof Error ? caught.message : String(caught);
+          if (isClaudeCliWindowExhaustedError(caught)) {
+            windowExhausted = true;
+            failCount += 1;
+            console.error(
+              `[ai-review] (${ordinal}) Claude Max 사용량 윈도 소진 — 신규 착수 즉시 중단: ${label} · ${message.slice(0, 400)}`,
+            );
+            break;
+          }
           if (attemptNo === 1) {
             console.warn(`[ai-review] (${ordinal}) 실패 — 1회 재시도: ${label} · ${message.slice(0, 200)}`);
             continue;
@@ -514,7 +528,7 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
       `미착수 ${targets.length - okCount - failCount - refusalCount - driftCount}`,
   );
   console.log(`총비용 $${totalCostUsd.toFixed(4)}${costCapped ? " · 비용 상한 도달" : ""}`);
-  return 0;
+  return windowExhausted ? 2 : 0;
 }
 
 // ---- 감사 대상 산출 모드 -----------------------------------------------------------

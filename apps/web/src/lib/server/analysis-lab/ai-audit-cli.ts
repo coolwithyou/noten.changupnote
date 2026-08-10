@@ -23,7 +23,7 @@ import {
   loadOrCreateLabAudit,
   readLabAuditFileAt,
 } from "./audit-store";
-import { resolveLabLlmBinding } from "./claude-cli-transport";
+import { isClaudeCliWindowExhaustedError, resolveLabLlmBinding } from "./claude-cli-transport";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 
 loadAnalysisLabEnv();
@@ -208,11 +208,12 @@ async function main(): Promise<number> {
   let completedAudits = 0;
   let totalCostUsd = 0;
   let costCapped = false;
+  let windowExhausted = false;
   let nextIndex = 0;
 
   async function worker(): Promise<void> {
     for (;;) {
-      if (costCapped) return;
+      if (costCapped || windowExhausted) return;
       const index = nextIndex;
       if (index >= batch.length) return;
       nextIndex += 1;
@@ -258,6 +259,14 @@ async function main(): Promise<number> {
           break;
         } catch (caught) {
           const message = caught instanceof Error ? caught.message : String(caught);
+          if (isClaudeCliWindowExhaustedError(caught)) {
+            windowExhausted = true;
+            failCount += 1;
+            console.error(
+              `[ai-audit] (${ordinal}) Claude Max 사용량 윈도 소진 — 신규 착수 즉시 중단: ${label} · ${message.slice(0, 400)}`,
+            );
+            break;
+          }
           if (attemptNo === 1) {
             console.warn(`[ai-audit] (${ordinal}) 실패 — 1회 재시도: ${label} · ${message.slice(0, 200)}`);
             continue;
@@ -289,7 +298,7 @@ async function main(): Promise<number> {
   console.log(
     `완료 상태(전 항목 확정 — 게이트 편입 가능)가 된 감사 ${completedAudits}건 · 총비용 $${totalCostUsd.toFixed(4)}${costCapped ? " · 비용 상한 도달" : ""}`,
   );
-  return 0;
+  return windowExhausted ? 2 : 0;
 }
 
 function readCsvArg(name: string): ReadonlySet<string> | null {

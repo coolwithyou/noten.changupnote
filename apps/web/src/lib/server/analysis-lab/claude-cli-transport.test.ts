@@ -398,4 +398,29 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   console.log("✅ api_error_status 통과 — exit 1 이어도 stdout JSON 우선 파싱·404 재현");
 }
 
+// ---- ⑨ api_error_status=429 세션 한도 → 전용 윈도 소진 마커 ----------------
+{
+  const sessionLimitResult = "You've hit your session limit · resets 10:10pm (Asia/Seoul)";
+  const { impl } = makeFakeExecFile(() => ({
+    error: Object.assign(new Error("Command failed"), { code: 1 }),
+    stdout: JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      api_error_status: 429,
+      result: sessionLimitResult,
+      usage: { input_tokens: 0, output_tokens: 0 },
+      modelUsage: {},
+    }),
+    stderr: "",
+  }));
+  const res = await buildClaudeCliFetch({ execFileImpl: impl })(API_URL, {
+    method: "POST",
+    body: extractorBody("입력"),
+  });
+  assert.equal(res.status, 400, "구독 세션 한도 429는 일반 429 재시도 루프로 보내지 않음");
+  assert.ok((await res.text()).includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER));
+  console.log("✅ api_error_status=429 세션 한도 — 전용 윈도 소진 마커로 승격");
+}
+
 console.log("\nclaude-cli-transport 테스트 전부 통과");
