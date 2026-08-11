@@ -25,6 +25,11 @@ const MAX_ADJUDICATION_ROUNDS = 2;
 // 즉시 채택하면 표 머리글 같은 저신뢰 false positive가 자동 재판정을 우회한다.
 const ACCEPT_INPUT_CONFIDENCE = 0.75;
 const ACCEPT_REJECTION_CONFIDENCE = 0.75;
+// 저효율(round 0 + effort 지정) 판정은 실제 입력 필드를 conf 0.75~0.80 거절로 조용히
+// 놓치는 회귀가 canary에서 확인됐다(2026-08-11 계획 §2-3-3). 거절 수락 임계만 0.85로
+// 올려 경계 구간 [0.75, 0.85)를 uncertain으로 떨어뜨리고, 기본 effort 재판정이 회복한다.
+// 수락(input) 임계 0.75는 전 경우 불변 — 관측된 실패 모드가 거짓 거절뿐이다.
+const LOW_EFFORT_ACCEPT_REJECTION_CONFIDENCE = 0.85;
 const RETRYABLE_STATUSES = new Set([429, 500, 529]);
 const WINDOW_EXHAUSTED_MARKER = "[CLAUDE_CLI_WINDOW_EXHAUSTED]";
 
@@ -70,6 +75,8 @@ interface FieldDecision {
   suggestedLabel: string;
 }
 
+export type RoundtripFieldPlannerEffort = "low" | "medium" | "high";
+
 export interface RoundtripFieldPlannerRuntimeConfig {
   transport: RoundtripLlmTransport;
   requestedModel: string;
@@ -78,6 +85,8 @@ export interface RoundtripFieldPlannerRuntimeConfig {
   candidateBatchSize: number;
   candidateConcurrency: number;
   parentLabRunId: string | null;
+  /** round 0(최초 판정)에만 싣는 출력 effort. null이면 현행과 동일하게 미지정으로 호출한다. */
+  effort: RoundtripFieldPlannerEffort | null;
 }
 
 class FieldPlanningError extends Error {
@@ -87,12 +96,27 @@ class FieldPlanningError extends Error {
   }
 }
 
+/**
+ * Kordoc 판정 effort 해석 — 명시 옵션 우선, undefined면 env APPLICATION_ROUNDTRIP_EFFORT.
+ * 빈 문자열/미설정은 null(현행 = effort 미지정)이라 env 없이는 운영 동작이 변하지 않는다.
+ * 무효값은 resolveLabTransport와 같은 오타 fail-fast 계약이다.
+ */
+export function resolveRoundtripEffort(explicit?: string | null): RoundtripFieldPlannerEffort | null {
+  const raw = (explicit === undefined ? process.env.APPLICATION_ROUNDTRIP_EFFORT ?? "" : explicit ?? "").trim();
+  if (raw === "") return null;
+  if (raw === "low" || raw === "medium" || raw === "high") return raw;
+  throw new Error(
+    `APPLICATION_ROUNDTRIP_EFFORT 값이 잘못됐습니다: "${raw}" — 허용값은 "low"/"medium"/"high" 또는 미설정뿐입니다(오타 fail-fast).`,
+  );
+}
+
 export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
   model?: string;
   timeoutMs?: number;
   transport?: RoundtripLlmTransport;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
+  effort?: string | null;
 }): RoundtripFieldPlannerRuntimeConfig {
   const transport = options?.transport ?? "api";
   const defaultConcurrency = transport === "claude-cli"
@@ -110,6 +134,7 @@ export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
       : API_CANDIDATES_PER_REQUEST,
     candidateConcurrency: positiveInteger(options?.candidateConcurrency) ?? defaultConcurrency,
     parentLabRunId: options?.parentLabRunId?.trim() || null,
+    effort: resolveRoundtripEffort(options?.effort),
   };
 }
 
@@ -123,6 +148,7 @@ export async function planRoundtripFields(options: {
   transport?: RoundtripLlmTransport;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
+  effort?: string | null;
   onUsage?: (usage: RoundtripFieldPlannerUsageEvent) => Promise<void> | void;
 }): Promise<{ fields: RoundtripFieldCandidate[]; summary: RoundtripFieldPlanningSummary }> {
   const startedMs = Date.now();
@@ -165,7 +191,7 @@ export async function planRoundtripFields(options: {
     ...(options.onUsage ? { onUsage: options.onUsage } : {}),
   });
   usageItems.push(...primary.usageItems);
-  applyDecisions(fields, primary.decisions, 0, decidedCandidateIds);
+  applyDecisions(fields, primary.decisions, 0, decidedCandidateIds, runtime.effort !== null);
 
   if (primary.decisions.length === 0) {
     const failureCode = primary.failureCode ?? "invalid_response";
@@ -210,7 +236,8 @@ export async function planRoundtripFields(options: {
         ...(options.onUsage ? { onUsage: options.onUsage } : {}),
       });
       usageItems.push(...adjudication.usageItems);
-      applyDecisions(fields, adjudication.decisions, round, decidedCandidateIds);
+      // 재판정 라운드는 항상 기본 effort로 돌므로 저효율 임계(0.85)를 적용하지 않는다.
+      applyDecisions(fields, adjudication.decisions, round, decidedCandidateIds, false);
       adjudicationFailureCode = adjudication.failureCode;
       unresolved = unresolvedDecisionCandidates(candidates, fields, decidedCandidateIds);
       if (adjudication.decisions.length === 0 && adjudication.failureCode !== null) break;
@@ -290,6 +317,7 @@ async function requestDecisionPass(input: {
           model: input.runtime.requestedModel,
           timeoutMs: input.runtime.timeoutMs,
           transport: input.runtime.transport,
+          effort: input.runtime.effort,
           candidates: batch,
           markdown: input.markdown,
           adjudicationRound: input.round,
@@ -329,12 +357,13 @@ function applyDecisions(
   decisions: FieldDecision[],
   round: number,
   decidedCandidateIds: Set<string>,
+  lowEffortRound: boolean,
 ): void {
   const byId = new Map(decisions.map((decision) => [decision.candidateId, decision]));
   for (const field of fields) {
     const decision = byId.get(field.fieldInstanceId);
     if (!decision) continue;
-    applyDecision(field, decision, round);
+    applyDecision(field, decision, round, lowEffortRound);
     decidedCandidateIds.add(field.fieldInstanceId);
   }
 }
@@ -357,6 +386,7 @@ async function requestFieldDecisions(input: {
   model: string;
   timeoutMs: number;
   transport: RoundtripLlmTransport;
+  effort: RoundtripFieldPlannerEffort | null;
   candidates: RoundtripFieldCandidate[];
   markdown: string;
   adjudicationRound: number;
@@ -378,9 +408,13 @@ async function requestFieldDecisions(input: {
     previous_confidence: field.llmConfidence,
     surrounding_text: findSurroundingText(input.markdown, field),
   }));
+  // 2단 effort 설계(계획 §2-3-3): 저효율은 round 0(최초 판정)에만 싣는다. 재판정 라운드는
+  // 기본 effort로 되돌려 저효율이 uncertain으로 떨어뜨린 경계 후보를 회복한다.
+  const effort = input.adjudicationRound === 0 ? input.effort : null;
   const requestBody = JSON.stringify({
     model: input.model,
     max_tokens: resolveMaxTokens(),
+    ...(effort ? { output_config: { effort } } : {}),
     system: [
       "너는 한국 정부지원사업 신청서의 사용자 입력 필드를 판정한다.",
       input.adjudicationRound > 0
@@ -537,7 +571,13 @@ function normalizeDecision(value: unknown, allowed: Set<string>): FieldDecision[
   }];
 }
 
-function applyDecision(field: RoundtripFieldCandidate, decision: FieldDecision, round: number): void {
+function applyDecision(
+  field: RoundtripFieldCandidate,
+  decision: FieldDecision,
+  round: number,
+  // round 0이면서 effort가 지정된 저효율 판정인지. 재판정(round≥1)과 effort 미지정은 항상 false.
+  lowEffortRound: boolean,
+): void {
   field.analysisSource = "llm";
   field.llmConfidence = decision.confidence;
   field.llmDecisionRound = round;
@@ -545,7 +585,8 @@ function applyDecision(field: RoundtripFieldCandidate, decision: FieldDecision, 
     && decision.inputKind !== "none"
     && decision.confidence >= ACCEPT_INPUT_CONFIDENCE;
   const acceptedRejection = !decision.isUserInput
-    && decision.confidence >= ACCEPT_REJECTION_CONFIDENCE;
+    && decision.confidence
+      >= (lowEffortRound ? LOW_EFFORT_ACCEPT_REJECTION_CONFIDENCE : ACCEPT_REJECTION_CONFIDENCE);
   field.llmDecision = acceptedInput ? "input" : acceptedRejection ? "not_input" : "uncertain";
   field.recommendedInput = acceptedInput;
   field.inputLikelihood = decision.isUserInput ? decision.confidence : 1 - decision.confidence;
@@ -624,6 +665,7 @@ function buildSummary(
     candidateBatchSize: runtime.candidateBatchSize,
     candidateConcurrency: runtime.candidateConcurrency,
     parentLabRunId: runtime.parentLabRunId,
+    effort: runtime.effort,
     failureCode,
     ...feedback,
     ...usage,

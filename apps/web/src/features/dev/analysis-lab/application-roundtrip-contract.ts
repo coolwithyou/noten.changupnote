@@ -158,6 +158,8 @@ export interface RoundtripFieldPlanningSummary {
   candidateBatchSize?: number;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
+  /** round 0(최초 판정)에 명시한 출력 effort. null/부재는 effort 미지정(현행 동작)이다. */
+  effort?: "low" | "medium" | "high" | null;
   failureCode?: RoundtripFailureCode | null;
   /** 최초 판정과 자동 재판정을 합친 실제 후보 처리 범위. */
   processedCandidateCount?: number;
@@ -271,6 +273,8 @@ export interface ApplicationRoundtripRun {
   reusedFromRunId?: string;
   transport?: RoundtripLlmTransport;
   requestedModel?: string;
+  /** Kordoc round 0 판정에 요청한 effort. 구 산출물엔 없으며 null과 동치(미지정)로 해석한다. */
+  requestedEffort?: "low" | "medium" | "high" | null;
   timeoutMs?: number;
   candidateLimit?: number | null;
   candidateBatchSize?: number;

@@ -5,6 +5,7 @@ import {
   type RoundtripLlmTransport,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
 import { declaredRoundtripFormat } from "./core";
+import { resolveRoundtripEffort } from "./field-planner";
 import {
   buildRoundtripRunId,
   readRoundtripMarkdownByAttachmentId,
@@ -105,16 +106,23 @@ export function assertReusableApplicationRoundtrip(input: {
   currentSources: CurrentRoundtripSource[];
 }): void {
   const { run, manifest } = input;
+  // effort는 판정 품질에 개입하는 계약이라 현재 env 해석값과 산출물 provenance가 일치해야 한다.
+  // 호출부(analysis-lab/analyze.ts)의 시그니처는 바꾸지 않고 이 함수가 env를 직접 해석한다
+  // (암묵 결합 — 호출부는 병행 세션이 수정 중). 과거 산출물(requestedEffort 부재)은 null로
+  // 정규화해 "필드 없음 + env 미설정" 조합을 통과시킨다.
+  const currentEffort = resolveRoundtripEffort();
   if (
     run.version !== APPLICATION_ROUNDTRIP_VERSION
     || run.engine !== "kordoc"
     || run.engineVersion !== VERSION
     || run.transport !== input.transport
     || run.requestedModel !== input.model
+    || (run.requestedEffort ?? null) !== currentEffort
   ) {
     throw new ApplicationRoundtripReuseError(
       "contract_mismatch",
-      `Kordoc 재사용 계약이 다릅니다: ${run.version}/${run.engineVersion}/${run.transport}/${run.requestedModel}`,
+      `Kordoc 재사용 계약이 다릅니다: ${run.version}/${run.engineVersion}/${run.transport}/${run.requestedModel}`
+      + `/effort=${run.requestedEffort ?? "미지정"}(현재 ${currentEffort ?? "미지정"})`,
     );
   }
   if (

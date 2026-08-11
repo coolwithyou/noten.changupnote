@@ -16,6 +16,9 @@ import {
 } from "./store";
 
 const originalCwd = process.cwd();
+// effort env는 재사용 계약 판정에 개입하므로 셸 환경과 무관하게 테스트가 결정적이도록 통제한다.
+const originalEffortEnv = process.env.APPLICATION_ROUNDTRIP_EFFORT;
+delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
 const temporaryRoot = await mkdtemp(join(tmpdir(), "cunote-roundtrip-reuse-"));
 const sourceRunId = "roundtrip-2026-08-11T000000.000Z-a1b2c3";
 const sourceSha256 = "a".repeat(64);
@@ -110,8 +113,61 @@ try {
     (error: unknown) => hasReuseCode(error, "source_changed"),
     "산출물 내부 grantId가 요청 공고와 달라도 교차 재사용하지 않음",
   );
+
+  // 2단 effort 배선: 현재 env effort와 산출물 requestedEffort가 다르면 계약 불일치로 차단하되,
+  // 과거 산출물(필드 없음)은 null 동치라 env 미설정 조합에서는 통과해야 한다.
+  assert.doesNotThrow(
+    () => assertReusableApplicationRoundtrip({
+      grantId: "grant-1",
+      run: sourceRun(),
+      manifest: sourceManifest(),
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    "과거 산출물(requestedEffort 부재) + env 미설정은 null 동치로 통과",
+  );
+  process.env.APPLICATION_ROUNDTRIP_EFFORT = "medium";
+  assert.throws(
+    () => assertReusableApplicationRoundtrip({
+      grantId: "grant-1",
+      run: sourceRun(),
+      manifest: sourceManifest(),
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "contract_mismatch"),
+    "env effort가 지정됐는데 산출물은 effort 미지정이면 재사용하지 않음",
+  );
+  assert.doesNotThrow(
+    () => assertReusableApplicationRoundtrip({
+      grantId: "grant-1",
+      run: { ...sourceRun(), requestedEffort: "medium" },
+      manifest: sourceManifest(),
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    "산출물 effort와 env effort가 일치하면 통과",
+  );
+  delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
+  assert.throws(
+    () => assertReusableApplicationRoundtrip({
+      grantId: "grant-1",
+      run: { ...sourceRun(), requestedEffort: "medium" },
+      manifest: sourceManifest(),
+      transport: "claude-cli",
+      model: "claude-opus-5",
+      currentSources: [{ filename, storageKey, sha256: sourceSha256 }],
+    }),
+    (error: unknown) => hasReuseCode(error, "contract_mismatch"),
+    "산출물에 effort가 있는데 env 미설정이면 재사용하지 않음",
+  );
 } finally {
   process.chdir(originalCwd);
+  if (originalEffortEnv === undefined) delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
+  else process.env.APPLICATION_ROUNDTRIP_EFFORT = originalEffortEnv;
   await rm(temporaryRoot, { recursive: true, force: true });
 }
 

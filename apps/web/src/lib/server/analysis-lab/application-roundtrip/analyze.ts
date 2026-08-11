@@ -235,6 +235,7 @@ export async function runApplicationRoundtripAnalysis(
     parentLabRunId: plannerRuntime.parentLabRunId,
     transport: plannerRuntime.transport,
     requestedModel: plannerRuntime.requestedModel,
+    requestedEffort: plannerRuntime.effort,
     timeoutMs: plannerRuntime.timeoutMs,
     candidateLimit: plannerRuntime.candidateLimit,
     candidateBatchSize: plannerRuntime.candidateBatchSize,
@@ -293,6 +294,7 @@ function skippedFieldPlanning(
     candidateBatchSize: runtime.candidateBatchSize,
     candidateConcurrency: runtime.candidateConcurrency,
     parentLabRunId: runtime.parentLabRunId,
+    effort: runtime.effort,
     failureCode,
   };
 }
