@@ -217,6 +217,11 @@ export interface LabRun {
   dimensionDiffs: LabDimensionDiff[];
   /** 운영과 같은 validator 교정 루프가 실제로 수행된 횟수. 구런에는 없다. */
   primaryRepairCount?: number;
+  /**
+   * 패스별 validator 계측(2026-08-11 T4 — repair 상수화 원인 진단용). 구 런 파일엔 없다.
+   * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과, dedupe 없음).
+   */
+  primaryPasses?: Array<{ kind: "primary" | "repair"; durationMs: number; issueCodes: string[] }>;
   /** 완료된 독립 검수의 blocking 판정을 Opus 재분석에 되먹임한 로컬 루프 provenance. */
   reviewRepair?: {
     sourceRunId: string;

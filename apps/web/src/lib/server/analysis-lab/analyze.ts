@@ -244,6 +244,8 @@ export async function runLabAnalysis(
     extraction: DeepAnalysisResult | null;
     error: string | null;
     repairCount: number;
+    /** 패스별 validator 계측(2026-08-11 T4) — 실패 경로에는 싣지 않는다. */
+    passes?: NonNullable<LabRun["primaryPasses"]>;
   }> => {
     try {
       const binding = await bindingPromise;
@@ -256,7 +258,12 @@ export async function runLabAnalysis(
         ...(opts?.taskInstruction ? { taskInstruction: opts.taskInstruction } : {}),
         ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
       });
-      return { extraction: validated.extraction, error: null, repairCount: validated.repairCount };
+      return {
+        extraction: validated.extraction,
+        error: null,
+        repairCount: validated.repairCount,
+        passes: validated.passes,
+      };
     } catch (caught) {
       return {
         extraction: null,
@@ -334,6 +341,7 @@ export async function runLabAnalysis(
       assessments: extraction?.axisAssessments ?? [],
     }),
     primaryRepairCount: primary.repairCount,
+    ...(primary.passes ? { primaryPasses: primary.passes } : {}),
     ...(opts?.reviewRepair ? { reviewRepair: opts.reviewRepair } : {}),
     ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),
     error,
