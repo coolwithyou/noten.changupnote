@@ -7,7 +7,10 @@ import {
 import { renderDeepAnalysisChunks, type DeepAnalysisExecution } from "./analyzer";
 import { findExactEvidenceSpanCandidates } from "./extractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
-import { validateDeepAnalysisResult } from "./validator";
+import {
+  DEEP_ANALYSIS_VALIDATOR_VERSION,
+  validateDeepAnalysisResult,
+} from "./validator";
 import {
   buildDeepAnalysisAuditRetryFeedback,
   buildDeepAnalysisEvidenceRepairHints,
@@ -56,7 +59,7 @@ const execution: DeepAnalysisExecution = {
   passes: [{ kind: "single", chunkId: null, inputChars: 10, result }],
 };
 const validation = {
-  validatorVersion: "deep-analysis-validator-v8" as const,
+  validatorVersion: DEEP_ANALYSIS_VALIDATOR_VERSION,
   valid: false,
   responseContractValid: true,
   axisCoverageComplete: false,

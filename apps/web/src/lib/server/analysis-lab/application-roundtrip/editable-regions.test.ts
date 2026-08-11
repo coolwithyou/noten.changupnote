@@ -315,6 +315,11 @@ assert.equal(feedbackPlan.summary.remainingUnresolvedCandidateCount, 0);
 assert.equal(feedbackPlan.summary.requestCount, 3);
 assert.equal(feedbackPlan.fields[0]?.llmDecision, "not_input");
 assert.equal(feedbackPlan.fields[0]?.llmDecisionRound, 1);
+assert.equal(
+  feedbackPlan.fields[0]?.recommendedInput,
+  false,
+  "최초 저신뢰 입력 판정은 즉시 채택하지 않고 재판정에서 false positive를 제거",
+);
 assert.equal(feedbackPlan.fields[1]?.llmDecision, "input");
 assert.equal(feedbackPlan.fields[1]?.llmDecisionRound, 2);
 assert.match(feedbackPlan.fields[1]?.inputSignals.join(" ") ?? "", /2차 재판정/);
@@ -535,7 +540,7 @@ function feedbackPlannerFetch(): {
     }>;
     sizes.push(candidates.length);
     const decisions = callCount === 1
-      ? [{ ...candidates[0]!, is_user_input: false, confidence: 0.4 }]
+      ? [{ ...candidates[0]!, is_user_input: true, confidence: 0.6 }]
       : callCount === 2
         ? candidates.map((candidate, index) => ({
             ...candidate,

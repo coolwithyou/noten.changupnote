@@ -21,7 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v8" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v9" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -32,6 +32,7 @@ export type DeepAnalysisValidationIssueCode =
   | "evidence_not_grounded"
   | "canonical_contract_invalid"
   | "semantic_duplicate"
+  | "semantic_misattribution"
   | "logical_conflict"
   | "non_matching_criterion"
   | "input_not_sealed";
@@ -119,6 +120,7 @@ export function validateDeepAnalysisResult(input: {
   }
   validateRequiredExclusionConflicts(validatedCriteria, issues);
   validateStartupStageTargetDuplicates(validatedCriteria, issues);
+  validateLocationTenureBusinessAge(validatedCriteria, issues);
   validateApplicationMatchingScope(validatedCriteria, issues);
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
@@ -161,6 +163,7 @@ export function validateDeepAnalysisResult(input: {
     "normalization_drop",
     "canonical_contract_invalid",
     "semantic_duplicate",
+    "semantic_misattribution",
     "logical_conflict",
     "non_matching_criterion",
   ]);
@@ -191,6 +194,38 @@ export function validateDeepAnalysisResult(input: {
       ]),
     ) as Record<CriterionDimension, string[]>,
   };
+}
+
+const LOCATION_TENURE_CONTEXT_PATTERN =
+  /(?:소재|입주|사업장|본사|공장|주소지|거주|이전)/u;
+const DURATION_PATTERN = /\d+(?:\.\d+)?\s*(?:년|개월|월)\s*(?:이상|이하|초과|미만|이내|경과)?/u;
+const EXPLICIT_BUSINESS_AGE_PATTERN =
+  /(?:업력|사업\s*영위\s*기간|(?:설립|창업|개업)(?:\s*(?:일|한\s*지|된\s*지|후|이후|로부터))?\s*\d|사업\s*개시|사업자\s*등록(?:일)?(?:로부터|후|이후))/u;
+
+/**
+ * 소재·입주 기간은 사업체가 존속한 기간의 필요조건처럼 보일 수 있지만, 신청
+ * 자격의 의미는 premises에 있다. 별도의 설립·업력 근거 없이 같은 기간을
+ * biz_age로도 발행하면 실제 공고보다 강한 업력 조건을 만들어내므로 막는다.
+ */
+function validateLocationTenureBusinessAge(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  for (const item of criteria) {
+    if (item.criterion.dimension !== "biz_age") continue;
+    const sourceSpan = (item.criterion.sourceSpan ?? "").normalize("NFKC");
+    if (
+      !LOCATION_TENURE_CONTEXT_PATTERN.test(sourceSpan)
+      || !DURATION_PATTERN.test(sourceSpan)
+      || EXPLICIT_BUSINESS_AGE_PATTERN.test(sourceSpan)
+    ) continue;
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${item.index}]`,
+      message:
+        "The duration modifies location, occupancy, or premises rather than company age. Remove this biz_age criterion and set the biz_age axis to inspected_no_condition unless separate founding-age evidence exists; preserve the location-tenure rule as premises/text_only.",
+    });
+  }
 }
 
 function validateApplicationMatchingScope(

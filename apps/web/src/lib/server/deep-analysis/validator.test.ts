@@ -191,6 +191,64 @@ assert.equal(validateDeepAnalysisResult({
   result: result([actualIndustry], axes(["industry"])),
 }).valid, true, "명시적인 신청기업 업종 자격은 보존한다");
 
+const locationTenureSpan = "☞ 영천시 소재 1년 이상, 종사자 수 20인 미만 제조 중소기업";
+const locationTenureSeal = sealDeepAnalysisInput({
+  grantId: "grant-location-tenure",
+  sourceRevisionSha256: "a".repeat(64),
+  structuredText: locationTenureSpan,
+  attachments: [],
+});
+const misattributedBusinessAge = validateDeepAnalysisResult({
+  seal: locationTenureSeal,
+  result: result([
+    criterion({
+      dimension: "biz_age",
+      operator: "gte",
+      value: { min_months: 12 },
+      sourceSpan: locationTenureSpan,
+    }),
+  ], axes(["biz_age"])),
+});
+assert.equal(misattributedBusinessAge.valid, false, "소재 기간을 업력으로 추론할 수 없다");
+assert.equal(
+  misattributedBusinessAge.issues.some((issue) => (
+    issue.code === "semantic_misattribution"
+    && issue.message.includes("premises/text_only")
+  )),
+  true,
+  "소재 기간의 올바른 축과 biz_age 제거 방법을 repair feedback에 남긴다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: locationTenureSeal,
+  result: result([
+    criterion({
+      dimension: "premises",
+      operator: "text_only",
+      value: { note: locationTenureSpan },
+      sourceSpan: locationTenureSpan,
+    }),
+  ], axes(["premises"])),
+}).valid, true, "소재 기간을 premises/text_only로 무손실 보존하면 통과한다");
+
+const explicitBusinessAgeSpan = "영천시 소재 기업 중 설립 후 1년 이상인 중소기업";
+const explicitBusinessAgeSeal = sealDeepAnalysisInput({
+  grantId: "grant-explicit-business-age",
+  sourceRevisionSha256: "b".repeat(64),
+  structuredText: explicitBusinessAgeSpan,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: explicitBusinessAgeSeal,
+  result: result([
+    criterion({
+      dimension: "biz_age",
+      operator: "gte",
+      value: { min_months: 12 },
+      sourceSpan: explicitBusinessAgeSpan,
+    }),
+  ], axes(["biz_age"])),
+}).valid, true, "별도의 설립 기간 근거가 명시된 실제 업력 조건은 보존한다");
+
 const invalidTargetTypeListSemanticsValidation = validateDeepAnalysisResult({
   seal,
   result: result([criterion({
