@@ -11,13 +11,17 @@ import { execFile, type ExecFileException } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  EXECUTION_TIMEOUT_HEADER,
+  markExecutionScopedTimeoutFetch,
+} from "@/lib/server/deep-analysis/fetchTimeout";
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_CONCURRENCY = 4;
 const MAX_CONFIGURABLE_CONCURRENCY = 16;
 /** Max 사용량 윈도 소진 판별 시그널(CLI 자체 에러 텍스트 대상). */
 const WINDOW_EXHAUSTED_SIGNAL =
-  /usage limit|session limit|rate limit|quota|limit reached|hit your .* limit|exceeded|resets?\s+\d/i;
+  /usage limit(?: reached)?|session limit|quota(?: limit)?(?: reached|exhausted)|hit your (?:session|usage|weekly).* limit|resets?\s+(?:at\s+)?\d/i;
 /** batch 가 신규 착수 중단 분기(§5 #6)에서 감지하는 마커 — 문자열 계약. */
 export const CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER = "[CLAUDE_CLI_WINDOW_EXHAUSTED]";
 
@@ -50,7 +54,11 @@ export interface ClaudeCliFetchConfig {
   execFileImpl?: typeof execFile;
   /** 테스트·시뮬레이션용 스케줄러. 기본은 모든 fetch 인스턴스가 공유하는 프로세스 전역 스케줄러. */
   scheduler?: ClaudeCliScheduler;
+  /** 같은 공고/run의 하위 호출을 묶는 공정성 key. 미지정 시 fetch 인스턴스별 고유 key. */
+  schedulerKey?: ClaudeCliSchedulerKey;
 }
+
+export type ClaudeCliSchedulerKey = string | symbol;
 
 /**
  * claude -p 프로세스 실행 상한. 공고 배치·딥분석·Kordoc·검수 레인이
@@ -58,7 +66,7 @@ export interface ClaudeCliFetchConfig {
  */
 export interface ClaudeCliScheduler {
   readonly maxConcurrency: number;
-  run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T>;
+  run<T>(key: ClaudeCliSchedulerKey, task: () => Promise<T>, signal?: AbortSignal): Promise<T>;
 }
 
 export function createClaudeCliScheduler(maxConcurrency: number): ClaudeCliScheduler {
@@ -66,11 +74,42 @@ export function createClaudeCliScheduler(maxConcurrency: number): ClaudeCliSched
     throw new Error(`Claude CLI 동시성은 1~${MAX_CONFIGURABLE_CONCURRENCY} 정수여야 합니다.`);
   }
   let active = 0;
-  const queue: Array<() => void> = [];
+  const queuesByKey = new Map<ClaudeCliSchedulerKey, Array<() => void>>();
+  const readyKeys: ClaudeCliSchedulerKey[] = [];
+  const readyKeySet = new Set<ClaudeCliSchedulerKey>();
+
+  const scheduleKey = (key: ClaudeCliSchedulerKey): void => {
+    if (readyKeySet.has(key) || (queuesByKey.get(key)?.length ?? 0) === 0) return;
+    readyKeySet.add(key);
+    readyKeys.push(key);
+  };
+
+  const unscheduleKey = (key: ClaudeCliSchedulerKey): void => {
+    if (!readyKeySet.delete(key)) return;
+    const index = readyKeys.indexOf(key);
+    if (index >= 0) readyKeys.splice(index, 1);
+  };
+
+  const takeNext = (): (() => void) | undefined => {
+    while (readyKeys.length > 0) {
+      const key = readyKeys.shift()!;
+      readyKeySet.delete(key);
+      const queue = queuesByKey.get(key);
+      const launch = queue?.shift();
+      if (!queue || !launch) {
+        queuesByKey.delete(key);
+        continue;
+      }
+      if (queue.length > 0) scheduleKey(key);
+      else queuesByKey.delete(key);
+      return launch;
+    }
+    return undefined;
+  };
 
   const drain = (): void => {
     while (active < maxConcurrency) {
-      const launch = queue.shift();
+      const launch = takeNext();
       if (!launch) return;
       launch();
     }
@@ -78,16 +117,22 @@ export function createClaudeCliScheduler(maxConcurrency: number): ClaudeCliSched
 
   return {
     maxConcurrency,
-    run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    run<T>(key: ClaudeCliSchedulerKey, task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
       if (signal?.aborted) return Promise.reject(abortReason(signal));
       return new Promise<T>((resolve, reject) => {
         let queued = true;
         const onAbort = (): void => {
           if (!queued) return;
-          const index = queue.indexOf(launch);
-          if (index >= 0) queue.splice(index, 1);
+          const queue = queuesByKey.get(key);
+          const index = queue?.indexOf(launch) ?? -1;
+          if (queue && index >= 0) queue.splice(index, 1);
+          if (queue?.length === 0) {
+            queuesByKey.delete(key);
+            unscheduleKey(key);
+          }
           queued = false;
           reject(abortReason(signal));
+          drain();
         };
         const launch = (): void => {
           if (!queued) return;
@@ -116,7 +161,10 @@ export function createClaudeCliScheduler(maxConcurrency: number): ClaudeCliSched
           });
         };
         signal?.addEventListener("abort", onAbort, { once: true });
+        const queue = queuesByKey.get(key) ?? [];
+        if (!queuesByKey.has(key)) queuesByKey.set(key, queue);
         queue.push(launch);
+        scheduleKey(key);
         drain();
       });
     },
@@ -154,6 +202,7 @@ export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch
   const scratchCwd = config?.scratchCwd ?? join(tmpdir(), "cunote-claude-cli-transport");
   const execFileImpl = config?.execFileImpl ?? execFile;
   const scheduler = config?.scheduler ?? getSharedClaudeCliScheduler();
+  const schedulerKey = config?.schedulerKey ?? Symbol("claude-cli-fetch");
   mkdirSync(scratchCwd, { recursive: true });
 
   const claudeCliFetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -161,12 +210,14 @@ export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch
     // 로컬 claude 바이너리이고, 인증은 CLI 의 Keychain OAuth(Max 구독)가 담당하기 때문.
     const request = parseAnthropicRequest(init?.body);
     const signal = init?.signal ?? undefined;
-    const outcome = await scheduler.run(() => runClaudeCli({
+    const executionTimeoutMs = parseExecutionTimeoutMs(init?.headers);
+    const outcome = await scheduler.run(schedulerKey, () => runClaudeCliWithExecutionTimeout({
       execFileImpl,
       binary,
       argv: buildArgv(request),
       cwd: scratchCwd,
-      signal,
+      externalSignal: signal,
+      timeoutMs: executionTimeoutMs,
       stdinText: request.content,
     }), signal);
     const getVersion = () => resolveCliVersion(execFileImpl, binary);
@@ -176,7 +227,14 @@ export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch
     }
     return assembleErrorResponse(cliJson, outcome, getVersion);
   };
-  return claudeCliFetch as typeof fetch;
+  return markExecutionScopedTimeoutFetch(claudeCliFetch as typeof fetch);
+}
+
+function parseExecutionTimeoutMs(headers: HeadersInit | undefined): number {
+  const rawHeader = new Headers(headers).get(EXECUTION_TIMEOUT_HEADER)?.trim();
+  const raw = rawHeader || process.env.ANALYSIS_LAB_TIMEOUT_MS?.trim() || "";
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 540_000;
 }
 
 // ── 진입점 공용 바인딩 ───────────────────────────────────────────────────────
@@ -194,10 +252,18 @@ export interface LabLlmBinding {
  * api 분기는 analyze.ts 의 resolveAnthropicApiKey 와 동일 동작·동일 메시지
  * (loadMonorepoEnv 동적 import 가 필요해 async — 시그니처만 Promise 로 다르다).
  */
-export async function resolveLabLlmBinding(): Promise<LabLlmBinding> {
+export async function resolveLabLlmBinding(options?: {
+  schedulerKey?: ClaudeCliSchedulerKey;
+}): Promise<LabLlmBinding> {
   const transport = resolveLabTransport();
   if (transport === "claude-cli") {
-    return { transport, apiKey: "subscription", fetchImpl: buildClaudeCliFetch() };
+    return {
+      transport,
+      apiKey: "subscription",
+      fetchImpl: buildClaudeCliFetch(options?.schedulerKey === undefined
+        ? undefined
+        : { schedulerKey: options.schedulerKey }),
+    };
   }
   if (!process.env.ANTHROPIC_API_KEY?.trim()) {
     const { loadMonorepoEnv } = await import("../loadMonorepoEnv");
@@ -289,6 +355,35 @@ interface CliExecOutcome {
   error: ExecFileException | null;
   stdout: string;
   stderr: string;
+}
+
+async function runClaudeCliWithExecutionTimeout(options: {
+  execFileImpl: typeof execFile;
+  binary: string;
+  argv: string[];
+  cwd: string;
+  externalSignal: AbortSignal | undefined;
+  timeoutMs: number;
+  stdinText: string;
+}): Promise<CliExecOutcome> {
+  const controller = new AbortController();
+  const abortFromExternal = () => controller.abort(options.externalSignal?.reason);
+  if (options.externalSignal?.aborted) abortFromExternal();
+  else options.externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    return await runClaudeCli({
+      execFileImpl: options.execFileImpl,
+      binary: options.binary,
+      argv: options.argv,
+      cwd: options.cwd,
+      signal: controller.signal,
+      stdinText: options.stdinText,
+    });
+  } finally {
+    clearTimeout(timeout);
+    options.externalSignal?.removeEventListener("abort", abortFromExternal);
+  }
 }
 
 function runClaudeCli(options: {

@@ -6,6 +6,7 @@ import { DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT } from "./auditExtractor";
 import { sealDeepAnalysisInput } from "./inputManifest";
 import {
   DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE,
+  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
   DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
   DEEP_ANALYSIS_BUSINESS_CREDIT_AXIS_RULE,
   DEEP_ANALYSIS_BUSINESS_STATUS_RULE,
@@ -15,12 +16,15 @@ import {
   DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE,
   DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE,
+  DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
   DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
   DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
   DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE,
   DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
   DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
+  DEEP_ANALYSIS_RANKING_ACTOR_RULE,
   DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE,
   DEEP_ANALYSIS_SOURCE_SPAN_CONTIGUITY_RULE,
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -86,6 +90,10 @@ assert.equal(
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /허위·거짓·과장 없이 작성.*other\/text_only exclusion, confirmation, condition_found로 만들지 말고/,
+);
+assert.match(
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  /중복지원 신청을 하지 않겠다.*현재 또는 과거 수혜 사실이 아니므로 prior_award criterion.*만들지 마라/,
 );
 assert.doesNotMatch(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
@@ -159,6 +167,9 @@ for (const rule of [
   DEEP_ANALYSIS_INDUSTRY_ENUMERATION_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
   DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
+  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
+  DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
+  DEEP_ANALYSIS_RANKING_ACTOR_RULE,
 ]) {
   assert.equal(DEEP_ANALYSIS_SYSTEM_PROMPT.includes(rule), true);
 }
@@ -190,9 +201,29 @@ assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /협약체결 전까지 이전.*region\/in criterion으로 즉시 탈락시키지 마라/,
 );
+assert.match(
+  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
+  /수행기관·전문기관.*actor\/track scope가 없으므로.*other.*text_only/,
+);
+assert.match(
+  DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
+  /부채비율 500% 이상.*operator는 gte.*최근 N년 연속.*financial_health\/text_only/,
+);
+assert.match(
+  DEEP_ANALYSIS_RANKING_ACTOR_RULE,
+  /여성 종업원·여성 근로자 비율.*founder_trait로 구조화하지 말고/,
+);
 assert.equal(
   DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE),
   true,
+);
+assert.equal(
+  DEEP_ANALYSIS_SYSTEM_PROMPT.includes(DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE),
+  true,
+);
+assert.match(
+  DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
+  /참여자\(사\).*participating과 completed.*수혜 이력.*current_similar가 아니다/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
@@ -213,6 +244,10 @@ assert.match(
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,
   /하남시 관내 본사 또는 공장.*premises.*required\/text_only/,
+);
+assert.match(
+  DEEP_ANALYSIS_LOCALITY_PREMISES_RULE,
+  /본사가 관외여도 대상 공장·사업장이 관내.*region\/in을 만들지 말고 region\/text_only/,
 );
 assert.match(
   DEEP_ANALYSIS_SYSTEM_PROMPT,

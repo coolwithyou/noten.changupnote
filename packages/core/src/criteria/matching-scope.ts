@@ -3,6 +3,7 @@ import type { GrantCriterion } from "@cunote/contracts";
 export type NonMatchingCriterionReason =
   | "application_truthfulness_declaration"
   | "application_document_procedure"
+  | "application_duplicate_support_declaration"
   | "eligibility_calculation_instruction"
   | "program_job_field"
   | "unresolved_industry_job_field"
@@ -22,6 +23,8 @@ const APPLICATION_MATERIAL_PATTERN =
 const TRUTHFULNESS_PATTERN = /허위|거짓|과장|위조|변조|표절|도용/u;
 const DOCUMENT_PROCEDURE_PATTERN =
   /미제출|미비|누락|제출.{0,10}(?:완료하지|하지\s*않|않은)|제출\s*기한|기한\s*내\s*제출|양식.{0,12}(?:미준수|준수하지)|(?:서명|날인).{0,8}(?:누락|미비)/u;
+const DUPLICATE_SUPPORT_DECLARATION_PATTERN =
+  /(?:중복(?:적인)?\s*(?:지원\s*)?(?:신청|참여)|(?:지원사업|과제).{0,24}중복(?:적인)?\s*신청).{0,24}(?:하지\s*않겠|하지\s*아니하겠|않을\s*것|없음을\s*(?:확약|서약))/u;
 const POST_SELECTION_CONTEXT_PATTERN =
   /선정\s*후|지원\s*후|협약(?:서)?|사업\s*수행|수행\s*내용|실제\s*수행|성과\s*보고|중간\s*보고|최종\s*보고|시정\s*요구/u;
 const POST_SELECTION_BREACH_PATTERN =
@@ -75,6 +78,13 @@ export function nonMatchingCriterionReason(
     return "eligibility_calculation_instruction";
   }
   if (criterion.kind !== "exclusion") return null;
+
+  if (
+    (criterion.dimension === "prior_award" || criterion.dimension === "other")
+    && DUPLICATE_SUPPORT_DECLARATION_PATTERN.test(text)
+  ) {
+    return "application_duplicate_support_declaration";
+  }
 
   if (
     PLAN_VS_EXECUTION_PATTERN.test(text)

@@ -21,7 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { sha256Hex, stableJson } from "./sourceRevision";
 
-export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v9" as const;
+export const DEEP_ANALYSIS_VALIDATOR_VERSION = "deep-analysis-validator-v10" as const;
 
 export type DeepAnalysisValidationIssueCode =
   | "raw_contract_invalid"
@@ -111,6 +111,7 @@ export function validateDeepAnalysisResult(input: {
   const allValidatedCriteria = input.result.criteria.map((criterion, index) => (
     validateCriterion(input.seal, criterion, index, issues)
   ));
+  validateScopedSemanticDuplicates(allValidatedCriteria, issues);
   const validatedCriteria: DeepAnalysisValidatedCriterion[] = [];
   const semanticHashes = new Set<string>();
   for (const validated of allValidatedCriteria) {
@@ -122,6 +123,7 @@ export function validateDeepAnalysisResult(input: {
   validateStartupStageTargetDuplicates(validatedCriteria, issues);
   validateLocationTenureBusinessAge(validatedCriteria, issues);
   validateApplicationMatchingScope(validatedCriteria, issues);
+  validateActorAndTrackScope(validatedCriteria, issues);
 
   const criteriaByDimension = new Map<CriterionDimension, DeepAnalysisValidatedCriterion[]>();
   for (const dimension of CRITERION_DIMENSIONS) criteriaByDimension.set(dimension, []);
@@ -357,6 +359,100 @@ function normalizeComparableEvidence(value: string | null): string {
 
 function normalizeStartupStageTarget(value: string): string {
   return value.normalize("NFKC").replace(/[\s·ㆍ_-]/g, "");
+}
+
+const ROLE_LABELS = [
+  "신청기업",
+  "주관기업",
+  "주관기관",
+  "수혜기업",
+  "도입기업",
+  "제조기업",
+  "수행기관",
+  "전문기관",
+  "공급기업",
+  "디자인기업",
+  "참여기관",
+  "실증처",
+] as const;
+
+function criterionRoleLabels(item: DeepAnalysisValidatedCriterion): Set<string> {
+  const text = `${item.criterion.sourceSpan ?? ""} ${item.criterion.note ?? ""} ${
+    isRecord(item.criterion.value) && typeof item.criterion.value.note === "string"
+      ? item.criterion.value.note
+      : ""
+  }`.normalize("NFKC").replace(/\s+/g, " ");
+  return new Set(ROLE_LABELS.filter((label) => text.includes(label)));
+}
+
+/**
+ * 같은 canonical criterion이 역할별 근거에서 반복되면 현재 matcher는 첫 행만 남겨
+ * 역할 범위를 잃는다. 값이 같다는 이유만으로 수혜기업과 수행기업의 조건을 합치지 않는다.
+ */
+function validateScopedSemanticDuplicates(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const groups = new Map<string, DeepAnalysisValidatedCriterion[]>();
+  for (const item of criteria) {
+    const group = groups.get(item.semanticSha256) ?? [];
+    group.push(item);
+    groups.set(item.semanticSha256, group);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const roleSets = group.map(criterionRoleLabels);
+    const roleSignatures = new Set(roleSets.map((roles) => [...roles].sort().join("|")));
+    const allRoles = new Set(roleSets.flatMap((roles) => [...roles]));
+    if (allRoles.size < 2 || roleSignatures.size < 2) continue;
+    for (const duplicate of group.slice(1)) {
+      issues.push({
+        code: "semantic_duplicate",
+        path: `$.criteria[${duplicate.index}]`,
+        message:
+          "The same structured value is repeated for different applicant/beneficiary/provider roles. Do not silently merge role scope; preserve the complete role-specific rule as other/text_only or emit one structured criterion only when it is unconditional for every applicant role.",
+      });
+    }
+  }
+}
+
+const NON_APPLICANT_NOTE =
+  /(?:지원기업|신청기업).{0,32}(?:요구되지\s*않|요건이\s*아니|적용되지\s*않|별도로\s*확인되지\s*않)|(?:주관기업|주관기관).{0,40}(?:수행기관|전문기관|참여기관|공급기업|디자인기업).{0,24}(?:유형|자격|요건)/u;
+const TRACK_SCOPED_RULE =
+  /(?:지원유형|세부\s*유형|트랙|분야).{0,28}(?:경우|한해|한하여|만\s*적용|기준)|(?:신청\s*시에만|경우에만\s*(?:가점|적용|지원))/u;
+
+/**
+ * 현재 matcher criterion에는 actor/track 필드가 없다. 그 범위를 잃은 구조화 값은
+ * 다른 역할의 회사까지 자동 탈락·가점시킬 수 있으므로 text_only로 fail-closed 한다.
+ */
+function validateActorAndTrackScope(
+  criteria: DeepAnalysisValidatedCriterion[],
+  issues: DeepAnalysisValidationIssue[],
+): void {
+  const roleSplit = criteria.some((item) => criterionRoleLabels(item).size >= 2);
+  for (const item of criteria) {
+    if (item.criterion.operator === "text_only") continue;
+    const span = (item.criterion.sourceSpan ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+    const note = `${item.criterion.note ?? ""} ${
+      isRecord(item.criterion.value) && typeof item.criterion.value.note === "string"
+        ? item.criterion.value.note
+        : ""
+    }`.normalize("NFKC").replace(/\s+/g, " ").trim();
+    const roles = criterionRoleLabels(item);
+    const explicitlyNonApplicant = NON_APPLICANT_NOTE.test(note);
+    const oneRoleInsideSplit = roleSplit
+      && roles.size === 1
+      && [...roles].some((role) => role !== "신청기업" && role !== "주관기업");
+    if (!explicitlyNonApplicant && !oneRoleInsideSplit && !TRACK_SCOPED_RULE.test(`${span} ${note}`)) {
+      continue;
+    }
+    issues.push({
+      code: "semantic_misattribution",
+      path: `$.criteria[${item.index}]`,
+      message:
+        "A role- or track-scoped condition cannot be published as an unconditional structured company criterion because the matcher has no actor/track scope. Preserve the actor, track, alternatives, and full condition as other/text_only; use a structured criterion only if the source explicitly applies it to every applicant role.",
+    });
+  }
 }
 
 function stringArray(value: unknown): string[] {
@@ -648,6 +744,17 @@ function validateMatcherSemanticCompleteness(
   }
 
   if (
+    criterion.dimension === "region"
+    && /본사.{0,24}(?:관외|무관|외부)/u.test(span)
+    && /(?:공장|사업장).{0,28}(?:관내|소재|지역)/u.test(span)
+  ) {
+    reject(
+      "A current premises alternative allows an outside-region headquarters when the target factory/site is local; use region/text_only with the full headquarters-or-site path.",
+      ".operator",
+    );
+  }
+
+  if (
     criterion.dimension === "industry"
     && /신고.{0,6}등록.{0,16}(?:되지\s*않|아니|미등록)/u.test(span)
   ) {
@@ -676,6 +783,87 @@ function validateMatcherSemanticCompleteness(
       "A program-history exclusion that explicitly includes termination or withdrawal must omit states so every agreement history is covered.",
       ".value.states",
     );
+  }
+
+  if (criterion.dimension === "financial_health") {
+    const debtThreshold = isRecord(value.debt_ratio_pct_threshold)
+      ? value.debt_ratio_pct_threshold
+      : {};
+    const hasDebtThreshold = typeof debtThreshold.value === "number";
+    if (hasDebtThreshold && /부채\s*비율.{0,18}(?:이상|초과)/u.test(span) && criterion.operator !== "gte") {
+      reject(
+        "A debt-ratio lower boundary expressed as 이상/초과 requires operator=gte; exclusion kind does not reverse the numeric operator.",
+        ".operator",
+      );
+    }
+    if (hasDebtThreshold && /부채\s*비율.{0,18}(?:이하|미만)/u.test(span) && criterion.operator !== "lte") {
+      reject(
+        "A debt-ratio upper boundary expressed as 이하/미만 requires operator=lte; exclusion kind does not reverse the numeric operator.",
+        ".operator",
+      );
+    }
+    const hasUnrepresentedComposite = (
+      /부채\s*비율/u.test(span)
+      && /유동\s*비율/u.test(span)
+      && /(?:또는|거나|or)/iu.test(span)
+    ) || (
+      /최근\s*\d+\s*년/u.test(span)
+      && /연속/u.test(span)
+    ) || (
+      /(?:단|다만).{0,120}(?:예외|제외)/u.test(span)
+    );
+    if (hasDebtThreshold && hasUnrepresentedComposite) {
+      reject(
+        "A multi-year, liquidity-OR, or exception-qualified financial threshold is not losslessly representable; use financial_health/text_only with the complete predicate.",
+        ".operator",
+      );
+    }
+  }
+
+  if (
+    criterion.dimension === "credit_status"
+    && /면책\s*권자인\s*경우/u.test(span)
+  ) {
+    reject(
+      "Bankruptcy discharge wording cannot be reduced to bankruptcy/rehabilitation flags without preserving whether discharge is an exclusion or an exception; use credit_status/text_only.",
+      ".operator",
+    );
+  }
+
+  if (
+    criterion.dimension === "founder_trait"
+    && /여성\s*(?:종업원|근로자|직원|재직자)/u.test(span)
+  ) {
+    reject(
+      "Female employee/workforce share is not a founder trait; preserve the workforce-scoped preference as other/text_only.",
+      ".operator",
+    );
+  }
+
+  if (criterion.dimension === "prior_award") {
+    const selfKind = typeof value.self_kind === "string" ? value.self_kind : null;
+    if (
+      selfKind === "current_similar"
+      && /(?:수혜\s*이력|과거\s*지원|기\s*지원|지원\s*내역)/u.test(span)
+      && !/(?:현재|추진\s*중|수행\s*중|동시|중복\s*(?:참여|수행|지원))/u.test(span)
+    ) {
+      reject(
+        "Past benefit/support history cannot be narrowed to current_similar; use same_business_prior when explicit or other/text_only when the history scope is unresolved.",
+        ".value.self_kind",
+      );
+    }
+    const states = stringArray(value.states);
+    if (
+      states.length === 1
+      && states[0] === "participating"
+      && /참여자\s*\(?사\)?/u.test(span)
+      && !/(?:현재|참여\s*중|수행\s*중)/u.test(span)
+    ) {
+      reject(
+        "Unqualified 참여자(사) history is not current-only; include both participating and completed states.",
+        ".value.states",
+      );
+    }
   }
 
   if (

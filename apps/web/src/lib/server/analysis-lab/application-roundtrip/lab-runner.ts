@@ -10,7 +10,7 @@ import {
  * 공용 analyzer는 운영 API worker도 사용하므로 lab binding을 여기에서만 주입한다.
  */
 export async function runLabApplicationRoundtripAnalysis(grantId: string) {
-  const binding = await resolveLabLlmBinding();
+  const binding = await resolveLabLlmBinding({ schedulerKey: `application-roundtrip:${grantId}` });
   return runApplicationRoundtripAnalysis(grantId, buildLabApplicationRoundtripOptions({
     transport: binding.transport,
     apiKey: binding.apiKey,

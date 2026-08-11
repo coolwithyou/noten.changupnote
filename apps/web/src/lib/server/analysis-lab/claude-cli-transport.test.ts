@@ -4,7 +4,7 @@
 // ② 응답 재조립(200 tool_use·usage 무변환·result 폴백) ③ 가드(모델 에코·파싱 불가)
 // ④ abort → AbortError 명의 그대로 reject ⑤ resolveLabTransport env 해석
 // ⑥ 조기 종료 EPIPE 내성 ⑦ 윈도 소진 합성 400(오진 정규식 미매치) ⑧ api_error_status 통과
-// ⑨ 전역 프로세스 상한·대기 중 abort ⑩ 1개/10개 스케줄링 벤치마크.
+// ⑩ keyed round-robin 공정성·key 내부 FIFO·전역 상한·abort ⑪ 단일 key 4-slot drain.
 import assert from "node:assert/strict";
 import type { execFile } from "node:child_process";
 import {
@@ -13,6 +13,8 @@ import {
   createClaudeCliScheduler,
   resolveClaudeCliMaxConcurrency,
   resolveLabTransport,
+  type ClaudeCliScheduler,
+  type ClaudeCliSchedulerKey,
 } from "./claude-cli-transport";
 
 // ---- 페이크 execFile ---------------------------------------------------------------
@@ -458,28 +460,121 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   console.log("✅ api_error_status=429 세션 한도 — 전용 윈도 소진 마커로 승격");
 }
 
-// ---- ⑩ 전역 프로세스 상한·대기 중 abort --------------------------------------
+// ---- ⑩ 일시 rate limit·context exceeded는 전역 윈도 소진으로 오진하지 않음 ----
 {
-  const scheduler = createClaudeCliScheduler(2);
+  const { impl: rateLimitImpl } = makeFakeExecFile(() => ({
+    error: Object.assign(new Error("Command failed"), { code: 1 }),
+    stdout: JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      api_error_status: 429,
+      result: "Rate limit exceeded. Please retry shortly.",
+      usage: { input_tokens: 0, output_tokens: 0 },
+      modelUsage: {},
+    }),
+    stderr: "",
+  }));
+  const rateLimitResponse = await buildClaudeCliFetch({ execFileImpl: rateLimitImpl })(API_URL, {
+    method: "POST",
+    body: extractorBody("입력"),
+  });
+  assert.equal(rateLimitResponse.status, 429, "일시 429는 기존 재시도 분기로 전달");
+  assert.ok(!(await rateLimitResponse.text()).includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER));
+
+  const { impl: contextLimitImpl } = makeFakeExecFile(() => ({
+    error: Object.assign(new Error("Command failed"), { code: 1 }),
+    stdout: JSON.stringify({
+      type: "result",
+      subtype: "success",
+      is_error: true,
+      api_error_status: null,
+      result: "Maximum context length exceeded for this request.",
+      usage: { input_tokens: 0, output_tokens: 0 },
+      modelUsage: {},
+    }),
+    stderr: "",
+  }));
+  const contextLimitResponse = await buildClaudeCliFetch({ execFileImpl: contextLimitImpl })(API_URL, {
+    method: "POST",
+    body: extractorBody("입력"),
+  });
+  assert.equal(contextLimitResponse.status, 500, "컨텍스트 초과는 요청 오류로 유지");
+  assert.ok(!(await contextLimitResponse.text()).includes(CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER));
+  console.log("✅ 윈도 소진 오진 방지 — 일시 429·context exceeded는 전역 중단 안 함");
+}
+
+// ---- ⑪ key 공정성·FIFO·전역 상한·대기 중 abort -------------------------------
+{
+  const delegated = createClaudeCliScheduler(4);
+  const seenKeys: ClaudeCliSchedulerKey[] = [];
+  const observingScheduler: ClaudeCliScheduler = {
+    maxConcurrency: delegated.maxConcurrency,
+    run(key, task, signal) {
+      seenKeys.push(key);
+      return delegated.run(key, task, signal);
+    },
+  };
+  const { impl } = makeFakeExecFile(() => ({ stdout: successCliJson() }));
+  await buildClaudeCliFetch({
+    execFileImpl: impl,
+    scheduler: observingScheduler,
+    schedulerKey: "run-explicit-key",
+  })(API_URL, { method: "POST", body: extractorBody("key 전달") });
+  assert.deepEqual(seenKeys, ["run-explicit-key"], "fetch shim이 명시적 run/notice key를 스케줄러에 전달");
+
+  const fairScheduler = createClaudeCliScheduler(1);
+  const order: string[] = [];
+  function controlled(key: string, label: string) {
+    const started = deferred<void>();
+    const gate = deferred<void>();
+    const promise = fairScheduler.run(key, async () => {
+      order.push(label);
+      started.resolve();
+      await gate.promise;
+    });
+    return { started, gate, promise };
+  }
+
+  const a1 = controlled("notice-a", "a1");
+  await a1.started.promise;
+  const a2 = controlled("notice-a", "a2");
+  const a3 = controlled("notice-a", "a3");
+  const b1 = controlled("notice-b", "b1");
+  const b2 = controlled("notice-b", "b2");
+
+  a1.gate.resolve();
+  await a2.started.promise;
+  a2.gate.resolve();
+  await b1.started.promise;
+  b1.gate.resolve();
+  await a3.started.promise;
+  a3.gate.resolve();
+  await b2.started.promise;
+  b2.gate.resolve();
+  await Promise.all([a1.promise, a2.promise, a3.promise, b1.promise, b2.promise]);
+  assert.deepEqual(order, ["a1", "a2", "b1", "a3", "b2"], "key 내부 FIFO를 지키며 key 사이를 round-robin");
+
+  const scheduler = createClaudeCliScheduler(4);
   let active = 0;
   let maxActive = 0;
   const completed: number[] = [];
-  await Promise.all(Array.from({ length: 10 }, (_, index) => scheduler.run(async () => {
+  await Promise.all(Array.from({ length: 12 }, (_, index) => scheduler.run(`notice-${index % 3}`, async () => {
     active += 1;
     maxActive = Math.max(maxActive, active);
     await delay(4);
     completed.push(index);
     active -= 1;
   })));
-  assert.equal(maxActive, 2, "10개 요청이 동시 진입해도 실행 프로세스는 전역 상한 2");
-  assert.equal(completed.length, 10);
+  assert.equal(maxActive, 4, "여러 key 요청이 동시 진입해도 실행 프로세스는 전역 상한 4");
+  assert.equal(completed.length, 12);
 
   const singleSlot = createClaudeCliScheduler(1);
   const gate = deferred<void>();
-  const first = singleSlot.run(() => gate.promise);
+  const first = singleSlot.run("notice-a", () => gate.promise);
   const controller = new AbortController();
   let queuedStarted = false;
-  const queued = singleSlot.run(async () => {
+  const queued = singleSlot.run("notice-b", async () => {
     queuedStarted = true;
   }, controller.signal);
   controller.abort();
@@ -491,36 +586,63 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   assert.equal(queuedStarted, false);
   gate.resolve();
   await first;
-  console.log("✅ 전역 스케줄러 — 실행 상한·대기열·abort 해제 계약");
+  console.log("✅ keyed 전역 스케줄러 — key 공정성·FIFO·실행 상한·대기열 abort 계약");
 }
 
-// ---- ⑪ 1개/10개 스케줄링 모의 벤치마크 -----------------------------------
+// ---- ⑫ 실행 timeout은 스케줄러 대기 후 시작 -------------------------------
 {
-  async function measure(taskCount: number, maxConcurrency: number) {
-    const scheduler = createClaudeCliScheduler(maxConcurrency);
-    let active = 0;
-    let maxActive = 0;
-    const started = Date.now();
-    await Promise.all(Array.from({ length: taskCount }, () => scheduler.run(async () => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
-      await delay(8);
-      active -= 1;
-    })));
-    return { durationMs: Date.now() - started, maxActive };
-  }
+  const scheduler = createClaudeCliScheduler(1);
+  const gate = deferred<void>();
+  const blockerStarted = deferred<void>();
+  const blocker = scheduler.run("blocker", async () => {
+    blockerStarted.resolve();
+    await gate.promise;
+  });
+  await blockerStarted.promise;
 
-  // 신규 계약의 단건은 딥분석 1 + Kordoc 후보 묶음 2개가 전역 상한 4 안에서 같이 실행된다.
-  const oneNotice = await measure(3, 4);
-  assert.equal(oneNotice.maxActive, 3, "단건은 primary + Kordoc 2-way를 전부 활용");
+  const { impl } = makeFakeExecFile(() => ({ stdout: successCliJson() }));
+  const request = buildClaudeCliFetch({
+    execFileImpl: impl,
+    scheduler,
+    schedulerKey: "queued-request",
+  })(API_URL, {
+    method: "POST",
+    headers: { "x-cunote-execution-timeout-ms": "10" },
+    body: extractorBody("대기 후 실행"),
+  });
+  let settled = false;
+  void request.finally(() => { settled = true; });
+  await delay(30);
+  assert.equal(settled, false, "대기 30ms가 실행 timeout 10ms를 소진하지 않음");
+  gate.resolve();
+  await blocker;
+  assert.equal((await request).status, 200);
+  console.log("✅ 실행 기준 timeout — 스케줄러 대기시간 제외");
+}
 
-  // 10건이 동시 진입하면 이론상 30개 하위 호출이 생기지만 프로세스는 4개를 넘지 않는다.
-  const tenNotices = await measure(30, 4);
-  assert.equal(tenNotices.maxActive, 4, "10건 인플라이트에서도 CLI 프로세스 상한 고정");
-  console.log(
-    `✅ 스케줄링 벤치마크 — 1건 ${oneNotice.durationMs}ms(max ${oneNotice.maxActive}) · `
-    + `10건 ${tenNotices.durationMs}ms(max ${tenNotices.maxActive})`,
-  );
+// ---- ⑬ 단일 key도 전역 4슬롯을 work-conserving 방식으로 소진 ----------------
+{
+  const scheduler = createClaudeCliScheduler(4);
+  const gate = deferred<void>();
+  const firstWaveStarted = deferred<void>();
+  let active = 0;
+  let maxActive = 0;
+  let started = 0;
+  const tasks = Array.from({ length: 8 }, () => scheduler.run("only-notice", async () => {
+    active += 1;
+    started += 1;
+    maxActive = Math.max(maxActive, active);
+    if (started === 4) firstWaveStarted.resolve();
+    await gate.promise;
+    active -= 1;
+  }));
+  await firstWaveStarted.promise;
+  assert.equal(active, 4, "단일 heavy notice도 첫 파동에서 4슬롯을 모두 사용");
+  gate.resolve();
+  await Promise.all(tasks);
+  assert.equal(started, 8);
+  assert.equal(maxActive, 4, "단일 key drain도 전역 상한을 넘지 않음");
+  console.log("✅ 단일 key work-conserving drain — 전역 4슬롯 활용·상한 보존");
 }
 
 console.log("\nclaude-cli-transport 테스트 전부 통과");

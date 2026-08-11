@@ -16,10 +16,12 @@ export async function runAnalysisPair<TPrimary, TApplication>(input: {
   primary: () => Promise<TPrimary>;
   application?: () => Promise<TApplication>;
 }): Promise<{ primary: TPrimary; application: SettledTask<TApplication> | null }> {
+  // primary를 먼저 시작해 전역 CLI 대기열에서 Kordoc 하위 호출보다 앞선 순서를 보장한다.
+  // 둘은 여전히 await 전에 모두 시작하므로 형제 병렬성은 유지된다.
+  const primaryPromise = input.primary();
   const applicationPromise = input.application
     ? settle(input.application())
     : Promise.resolve(null);
-  const primaryPromise = input.primary();
   const [primary, application] = await Promise.all([primaryPromise, applicationPromise]);
   return { primary, application };
 }

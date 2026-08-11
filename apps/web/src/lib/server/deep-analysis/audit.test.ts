@@ -26,6 +26,12 @@ import {
 } from "./auditExtractor";
 import { createDeepAnalysisAuditEvidenceCatalog } from "./auditEvidence";
 import { sealDeepAnalysisInput } from "./inputManifest";
+import {
+  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
+  DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
+} from "./extractor";
 import { validateDeepAnalysisResult } from "./validator";
 
 const span = "서울 소재 기업만 신청 가능";
@@ -46,6 +52,14 @@ assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /조건이 없는 축을 표현�
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /primary_source_ref/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /impairment_excluded는 반드시.*배열/);
 assert.match(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT, /prior_award exclusion은 범위를 반드시/);
+for (const rule of [
+  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
+  DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
+  DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
+]) {
+  assert.equal(DEEP_ANALYSIS_AUDIT_SYSTEM_PROMPT.includes(rule), true);
+}
 assert.equal(DEEP_ANALYSIS_AUDIT_CONTRACT_VERSION, "deep-analysis-audit-candidates-v7");
 assert.equal(DEEP_ANALYSIS_AUDIT_SCOPE_VERSION, "deep-analysis-match-impacting-scope-v1");
 

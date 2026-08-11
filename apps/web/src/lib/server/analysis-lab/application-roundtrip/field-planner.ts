@@ -6,6 +6,10 @@ import type {
   RoundtripLlmTransport,
 } from "@/features/dev/analysis-lab/application-roundtrip-contract";
 import { priceDeepAnalysisUsage } from "@/lib/server/deep-analysis/costPolicy";
+import {
+  EXECUTION_TIMEOUT_HEADER,
+  hasExecutionScopedTimeout,
+} from "@/lib/server/deep-analysis/fetchTimeout";
 
 const TOOL_NAME = "emit_application_field_plan";
 const DEFAULT_MODEL = "claude-sonnet-5";
@@ -14,6 +18,7 @@ const DEFAULT_TIMEOUT_MS = 180_000;
 export const ROUNDTRIP_FIELD_CANDIDATE_LIMIT = 180;
 const API_CANDIDATES_PER_REQUEST = 20;
 const SUBSCRIPTION_CANDIDATES_PER_REQUEST = 40;
+const SUBSCRIPTION_CANDIDATE_CONCURRENCY = 2;
 const MAX_API_LLM_BATCHES = Math.ceil(ROUNDTRIP_FIELD_CANDIDATE_LIMIT / API_CANDIDATES_PER_REQUEST);
 const MAX_ADJUDICATION_ROUNDS = 2;
 // 프롬프트 계약과 동일한 임계값을 양방향에 적용한다. 입력 판정만 낮은 임계값으로
@@ -90,7 +95,9 @@ export function resolveRoundtripFieldPlannerRuntimeConfig(options?: {
   parentLabRunId?: string | null;
 }): RoundtripFieldPlannerRuntimeConfig {
   const transport = options?.transport ?? "api";
-  const defaultConcurrency = transport === "claude-cli" ? 2 : MAX_API_LLM_BATCHES;
+  const defaultConcurrency = transport === "claude-cli"
+    ? SUBSCRIPTION_CANDIDATE_CONCURRENCY
+    : MAX_API_LLM_BATCHES;
   return {
     transport,
     requestedModel: resolveModel(options?.model),
@@ -403,8 +410,9 @@ async function requestFieldDecisions(input: {
     );
   }
   const attempt = async (): Promise<Response> => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
+    const executionScopedTimeout = hasExecutionScopedTimeout(requestFetch);
+    const controller = executionScopedTimeout ? null : new AbortController();
+    const timeout = controller ? setTimeout(() => controller.abort(), input.timeoutMs) : null;
     try {
       return await requestFetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -412,8 +420,9 @@ async function requestFieldDecisions(input: {
           "content-type": "application/json",
           "x-api-key": input.apiKey,
           "anthropic-version": "2023-06-01",
+          ...(executionScopedTimeout ? { [EXECUTION_TIMEOUT_HEADER]: String(input.timeoutMs) } : {}),
         },
-        signal: controller.signal,
+        ...(controller ? { signal: controller.signal } : {}),
         body: requestBody,
       });
     } catch (error) {
@@ -425,7 +434,7 @@ async function requestFieldDecisions(input: {
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
     }
   };
 

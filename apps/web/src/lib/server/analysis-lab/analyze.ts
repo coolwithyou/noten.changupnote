@@ -68,9 +68,10 @@ export interface LabAnalysisOverrides {
  */
 async function resolveLabLlmBindingForTransport(
   transport: "api" | "claude-cli",
+  schedulerKey: string,
 ): Promise<LabLlmBinding> {
   if (transport === "claude-cli") {
-    return { transport, apiKey: "subscription", fetchImpl: buildClaudeCliFetch() };
+    return { transport, apiKey: "subscription", fetchImpl: buildClaudeCliFetch({ schedulerKey }) };
   }
   if (!process.env.ANTHROPIC_API_KEY?.trim()) {
     const { loadMonorepoEnv } = await import("../loadMonorepoEnv");
@@ -237,8 +238,8 @@ export async function runLabAnalysis(
   // 같은 binding Promise를 두 형제 작업이 공유한다. API 키 부재/CLI 준비 실패도 primary는
   // error LabRun, sidecar는 failed reference로 각각 종결돼 한쪽이 다른 쪽을 덮지 않는다.
   const bindingPromise = opts?.transport === undefined
-    ? resolveLabLlmBinding()
-    : resolveLabLlmBindingForTransport(opts.transport);
+    ? resolveLabLlmBinding({ schedulerKey: runId })
+    : resolveLabLlmBindingForTransport(opts.transport, runId);
   const runPrimary = async (): Promise<{
     extraction: DeepAnalysisResult | null;
     error: string | null;
@@ -283,6 +284,8 @@ export async function runLabAnalysis(
           model: roundtripModel,
           timeoutMs: resolveRoundtripTimeoutMs(),
           transport,
+          // 전역 CLI 4슬롯을 한 공고의 Kordoc이 모두 점유하지 않게 2-way로 제한한다.
+          // primary/repair와 겹치면 3슬롯, 단건 Kordoc만 남으면 다른 공고와 합쳐 4슬롯을 쓴다.
           candidateConcurrency: 2,
           parentLabRunId: runId,
           ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),

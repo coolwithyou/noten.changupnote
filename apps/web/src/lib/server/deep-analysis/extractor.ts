@@ -34,6 +34,10 @@ import {
   type DeepAnalysisUsage,
 } from "@cunote/contracts";
 import { priceDeepAnalysisUsage } from "./costPolicy";
+import {
+  EXECUTION_TIMEOUT_HEADER,
+  hasExecutionScopedTimeout,
+} from "./fetchTimeout";
 
 export const ANALYSIS_LAB_TOOL_NAME = "emit_deep_grant_analysis";
 
@@ -119,17 +123,21 @@ export async function runDeepGrantAnalysis(options: {
   });
 
   const attempt = async (): Promise<Response> => {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), resolveTimeoutMs());
+    const requestFetch = options.fetchImpl ?? fetch;
+    const timeoutMs = resolveTimeoutMs();
+    const executionScopedTimeout = hasExecutionScopedTimeout(requestFetch);
+    const controller = executionScopedTimeout ? null : new AbortController();
+    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
-      return await (options.fetchImpl ?? fetch)("https://api.anthropic.com/v1/messages", {
+      return await requestFetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-api-key": options.apiKey,
           "anthropic-version": "2023-06-01",
+          ...(executionScopedTimeout ? { [EXECUTION_TIMEOUT_HEADER]: String(timeoutMs) } : {}),
         },
-        signal: controller.signal,
+        ...(controller ? { signal: controller.signal } : {}),
         // Opus 4.8: temperature/top_p/top_k/thinking 절대 미포함(400 방지 — 상단 주석).
         body: requestBody,
       });
@@ -139,7 +147,7 @@ export async function runDeepGrantAnalysis(options: {
       }
       throw error;
     } finally {
-      clearTimeout(timeout);
+      if (timeout) clearTimeout(timeout);
     }
   };
 
@@ -821,7 +829,7 @@ export const DEEP_ANALYSIS_FINANCIAL_IMPAIRMENT_RULE =
 export const DEEP_ANALYSIS_APPLICATION_MATCHING_SCOPE_RULE =
   "criteria는 신청 시점의 자격·지원 제한·우대·평가점수처럼 신청 가능 판단과 사업자 매칭에 직접 쓰이는 규정만 포함한다. 본 사업 선정 후의 협약 이행, 수행내용 준수, 보고 의무와 그 위반에 따른 지원 취소·중단·환수 사유는 criterion으로 만들지 말고 analysis_markdown과 program_intent.caution_notes에만 기록한다. 동일 사실이 신청자격·지원 제한에도 명시되면 그 신청 단계 문장만 criterion 근거로 쓴다. 예: '지원 취소' 아래의 '협약서 등 관련 문서에서 명시한 사항을 2회 이상 위반'과 '지원신청서 및 계획서 내용과 수행내용이 상이'는 sanction/other criterion이 아니다. '회원가입시 ... 서류 제출 (영리기관만 해당)'처럼 괄호가 제출서류 적용 범위만 한정하고 신청 대상을 명시하지 않으면 target_type 조건이 아니다.";
 export const DEEP_ANALYSIS_NON_MATCHING_DECLARATION_RULE =
-  "신청서·계획서·제출자료를 허위·거짓·과장 없이 작성한다는 진실성 서약, 표절·도용 금지, 서류 미제출·미비·양식 미준수 같은 접수 절차는 회사가 현재 보유한 자격 사실이 아니다. 이런 문구는 other/text_only exclusion, confirmation, condition_found로 만들지 말고 analysis_markdown 또는 program_intent.caution_notes의 신청 체크사항으로만 보존한다. 다만 과거 허위 제출로 인해 현재 정부사업 참여제한·제재 중이라는 명시적 상태는 sanction criterion으로 추출한다.";
+  "신청서·계획서·제출자료를 허위·거짓·과장 없이 작성한다는 진실성 서약, 표절·도용 금지, 서류 미제출·미비·양식 미준수 같은 접수 절차는 회사가 현재 보유한 자격 사실이 아니다. '중복지원 신청을 하지 않겠다'처럼 미래 행동을 약속하는 확약도 현재 또는 과거 수혜 사실이 아니므로 prior_award criterion이나 confirmation으로 만들지 마라. 이런 문구는 other/text_only exclusion, confirmation, condition_found로 만들지 말고 analysis_markdown 또는 program_intent.caution_notes의 신청 체크사항으로만 보존한다. 다만 과거 허위 제출로 인해 현재 정부사업 참여제한·제재 중이라는 명시적 상태, 현재 동일 과제 중복참여, 당해연도 타 지원 수혜를 사실로 명시한 결격은 해당 canonical criterion으로 추출한다.";
 export const DEEP_ANALYSIS_DOCUMENT_ONLY_ELIGIBILITY_RULE =
   "신청서·서식의 빈칸·체크박스·기업정보 기재란과 제출서류 목록은 정보수집·증빙 요구일 뿐이다. 납세증명서·사업자등록증·보험서류 같은 문서의 제출 요구만으로 신청자격·결격·우대·배점 조건이나 ambiguous 후보를 만들지 마라. 주변 문구나 공고 본문에 그 문서가 증명하는 사실의 필수·제외·우대·배점 효과가 명시되지 않았다면 해당 축은 inspected_no_condition이다. 다만 서식 안에서도 신청자격·결격·서약·우대·배점이 문장으로 명시되면 그 명시 문장을 근거로 조건을 추출한다.";
 export const DEEP_ANALYSIS_ELIGIBILITY_EXCEPTION_RULE =
@@ -833,7 +841,7 @@ export const DEEP_ANALYSIS_STRUCTURED_FILTER_METADATA_RULE =
 export const DEEP_ANALYSIS_SCORING_TABLE_COMPLETENESS_RULE =
   "선정평가표·평가기준·배점표는 표 제목만 보지 말고 모든 평가항목, 하위 배점 행, 가점 행을 끝까지 검사한다. 점수를 바꾸는 서로 다른 사실은 각각 preferred criterion으로 보존하고 가장 가까운 22축에 배치한다. 안전한 canonical 값이 없으면 other/text_only와 원문 note로 남긴다. 같은 표의 다른 행을 추출했다는 이유로 외국어 홈페이지, 홍보자료, 인증, 사업장, 수출실적 같은 독립 배점 행을 생략하지 마라.";
 export const DEEP_ANALYSIS_LOCALITY_PREMISES_RULE =
-  "시·군·구 단위 소재지 요건은 region의 시도 코드만으로 의미가 완전히 보존되지 않는다. 예를 들어 '하남시 관내 본사 또는 공장'이면 region에 경기 41을 required로 두는 동시에 premises에 시군구와 본사·공장 조건을 그대로 담은 required/text_only criterion을 별도로 만든다. 시도보다 좁은 소재지 요건을 시도 코드 하나로만 끝내지 마라.";
+  "시·군·구 단위 소재지 요건은 region의 시도 코드만으로 의미가 완전히 보존되지 않는다. 예를 들어 '하남시 관내 본사 또는 공장'이면 region에 경기 41을 required로 두는 동시에 premises에 시군구와 본사·공장 조건을 그대로 담은 required/text_only criterion을 별도로 만든다. 다만 본사가 관외여도 대상 공장·사업장이 관내면 신청 가능한 대안이 있으면 현재 회사 본사 region만으로 선차단할 수 없으므로 region/in을 만들지 말고 region/text_only 한 건에 본사·공장 OR 경로를 모두 보존한다. 시도보다 좁은 소재지 요건이나 시설 대안을 시도 코드 하나로만 끝내지 마라.";
 export const DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE =
   "prior_award states의 completed는 사업 수행을 끝냈다는 뜻으로만 한정하지 않고 선정·수혜 사실이 확정된 상태를 뜻한다. 원문이 '선정된', '선정 이력', '지원을 받은'이면 completed, 현재 참여·수행 중이면 participating, 교육·프로그램 수료·졸업이면 graduated를 사용한다. 다만 원문이 '협약을 체결했던 이력'처럼 상태를 가리지 않고 중단처분·중도포기까지 명시적으로 포함하면 states를 넣지 말고 해당 program의 모든 이력을 대상으로 보존한다. states=[\"completed\"]로 범위를 줄이지 마라. 명시적 '선정된'을 completed로 표현한 결과를 수행완료 오분류로 감사하지 마라.";
 export const DEEP_ANALYSIS_COMPOUND_PREDICATE_RULE =
@@ -854,6 +862,14 @@ export const DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE =
   "다수의 사업자등록증 보유 시 창업여부 기준표에 따라 창업일·업력을 계산하라는 문구는 독립 자격조건이 아니라 biz_age 판정 방법이다. other/text_only criterion이나 confirmation을 만들지 말고, 실제 기준표에서 추출한 biz_age criterion의 note와 analysis_markdown에 계산 방법으로 합쳐 보존한다.";
 export const DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE =
   "현재 소재지가 대상 지역 밖이어도 협약체결 전까지 이전하고 확약서를 제출하면 신청할 수 있는 대안 경로가 있으면, 현재 region 값만 보는 region/in criterion으로 즉시 탈락시키지 마라. 이전 기한·대상 지역·확약 조건을 모두 포함한 region/text_only 한 건으로 보존하고, 같은 조건의 일부만 region/in으로 중복 구조화하지 마라. 예: 현재 수도권 기업도 협약 전 비수도권 이전 예정이면 가능한 공고는 비수도권 코드만 region/in으로 만들면 안 된다.";
+export const DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE =
+  "criterion을 만들기 전에 조건의 적용 주체와 트랙을 먼저 확정한다. 신청기업·주관기업, 수혜기업·도입기업, 수행기관·전문기관, 공급기업·디자인기업, 참여기관·파트너는 서로 다른 역할이다. 현재 criterion 계약에는 actor/track scope가 없으므로 특정 역할이나 특정 지원유형·분야·트랙에만 적용되는 조건을 전체 신청기업의 region/size/industry/target_type/certification/tax/sanction 등 구조화 criterion으로 발행하지 마라. 그 조건이 신청 구성의 필수요건이면 dimension=other, operator=text_only로 두고 value.note에 적용 역할, 트랙, 대안 경로를 모두 보존한다. 역할별 조건이 같은 값이어도 역할이 다른 criterion을 중복 구조화하지 말고, 모든 신청 역할에 무조건 공통인 경우에만 구조화 criterion 한 건으로 합친다. 예: 수행 전문기관의 등록·체납·참여제한은 지원기업 자신의 인증·결격이 아니며, 수혜기업만 소상공인인 컨소시엄에서 디자인기업까지 소상공인으로 제한하면 안 된다.";
+export const DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE =
+  "재무 임계의 방향과 복합 전제를 보존한다. exclusion이라도 원문 '부채비율 500% 이상'의 operator는 gte이고 '50% 이하'는 lte다. kind=exclusion이라는 이유로 operator 방향을 뒤집지 마라. 최근 N년 연속, 부채비율 또는 유동비율, 신용등급·설립연차·외국인투자 예외처럼 현재 financial_health value가 모두 표현하지 못하는 전제가 하나라도 결합되면 일부 숫자만 구조화하지 말고 financial_health/text_only와 전체 note로 보존한다.";
+export const DEEP_ANALYSIS_RANKING_ACTOR_RULE =
+  "preferred도 사실의 주체를 바꾸지 마라. 여성 대표·여성기업은 founder_trait로 표현할 수 있지만 여성 종업원·여성 근로자 비율은 대표자 특성이 아니므로 founder_trait로 구조화하지 말고 other/text_only에 비율과 적용 대상을 보존한다.";
+export const DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE =
+  "prior_award의 시간 범위를 문구보다 좁히지 마라. '참여자(사)'처럼 현재 여부가 없는 참여 이력은 participating만 쓰지 말고 participating과 completed를 함께 포함한다. '수혜 이력', '과거 지원내역', '기 지원'은 현재 동시 수행을 뜻하지 않으므로 current_similar가 아니다. 동일 사업의 과거 수혜는 same_business_prior, 동일 과제의 동시·중복 참여는 same_project, 당해연도 타 지원은 same_year_other_support를 쓰고, 어느 범위인지 확정할 수 없으면 other/text_only로 보존한다.";
 
 export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "너는 정부지원사업 공고를 깊게 분석하는 전문 분석가다.",
@@ -893,6 +909,9 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   DEEP_ANALYSIS_JOB_FIELD_INDUSTRY_BOUNDARY_RULE,
   DEEP_ANALYSIS_ELIGIBILITY_CALCULATION_RULE,
   DEEP_ANALYSIS_FUTURE_REGION_ALTERNATIVE_RULE,
+  DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
+  DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,
+  DEEP_ANALYSIS_RANKING_ACTOR_RULE,
   "지역 코드는 한국 시도 행정코드 2자리(서울 11, 부산 26, 대구 27, 인천 28, 광주 29, 대전 30, 울산 31, 세종 36, 경기 41, 강원 42, 충북 43, 충남 44, 전북 45, 전남 46, 경북 47, 경남 48, 제주 50)를 사용한다.",
   "규모 값은 예비, 소상공인, 소기업, 중소기업, 중견기업, 대기업 중에서만 사용한다.",
   DEEP_ANALYSIS_SIZE_TARGET_AXIS_RULE,
@@ -915,6 +934,7 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "",
   "[수혜·참여 이력 — prior_award]",
   DEEP_ANALYSIS_PRIOR_AWARD_STATE_RULE,
+  DEEP_ANALYSIS_PRIOR_AWARD_SCOPE_RULE,
   "- 동일·유사 지원 수행, 동일 과제 동시참여, 본 사업 과거 선정, 당해연도 타부처 중복은 dimension=prior_award, kind=exclusion, operator=exists, value={\"scope\":\"self\",\"self_kind\":\"current_similar|same_project|same_business_prior|same_year_other_support\",\"channel\":\"general\"}.",
   "- 특정 지원사업 참여·수혜·수료 이력은 operator=in, value={\"scope\":\"program\"|\"program_type\",\"programs\":[\"사업명\"],\"states\":[\"participating\"|\"completed\"|\"graduated\"]}. 최근 N년·개월 조건은 within={\"value\":N,\"unit\":\"year\"|\"month\"}.",
   "- 범위나 사업명을 특정할 수 없으면 other/text_only exclusion 으로 남긴다.",

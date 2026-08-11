@@ -26,7 +26,8 @@ import type {
 // v10: 예시 표지 없는 신청대상 유한 열거를 닫고 source span의 비연속 결합을 금지한다.
 // v11: 반복된 신청기업 산업 범위를 text_only로 보존하고 validator 자동 교정을 적용한다.
 // v12: 하위 공고 위임 대상은 열린 목록으로 보존하고 structured target 충돌을 좁힌다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v12";
+// v13: 역할·트랙 범위, 재무 복합조건, 과거수혜 시점의 전역 오귀속을 fail-closed 한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v13";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

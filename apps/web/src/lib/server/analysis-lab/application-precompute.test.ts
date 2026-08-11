@@ -33,7 +33,7 @@ function deferred<T>() {
       return application.promise;
     },
   });
-  assert.deepEqual(started.sort(), ["application", "primary"]);
+  assert.deepEqual(started, ["primary", "application"], "primary를 Kordoc보다 먼저 큐에 넣음");
   application.reject(new Error("Kordoc 실패"));
   primary.resolve("딥 분석 성공");
   const result = await pending;

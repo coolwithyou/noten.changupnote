@@ -475,6 +475,189 @@ for (const testCase of [
   );
 }
 
+const performerOnlySpan = "- 참여기관 : 정부출연연구기관, 대학 등";
+const performerOnlySeal = sealDeepAnalysisInput({
+  grantId: "grant-performer-only",
+  sourceRevisionSha256: "a".repeat(64),
+  structuredText: performerOnlySpan,
+  attachments: [],
+});
+const performerStructured = validateDeepAnalysisResult({
+  seal: performerOnlySeal,
+  result: result([
+    criterion({
+      dimension: "target_type",
+      operator: "in",
+      kind: "required",
+      value: { targets: ["정부출연연구기관", "대학"], list_semantics: "open" },
+      sourceSpan: performerOnlySpan,
+      note: "주관기관은 기업이며, 여기 열거된 유형은 컨소시엄 참여기관의 유형 요건이다.",
+    }),
+  ], axes(["target_type"])),
+});
+assert.equal(performerStructured.valid, false, "참여기관 유형을 신청기업 target_type으로 전역화할 수 없다");
+assert.equal(
+  performerStructured.issues.some((issue) => (
+    issue.code === "semantic_misattribution"
+    && issue.message.includes("actor/track scope")
+  )),
+  true,
+  "역할 범위 손실을 validator가 구체적으로 차단한다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: performerOnlySeal,
+  result: result([
+    criterion({
+      dimension: "other",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "참여기관은 정부출연연구기관, 대학 등이어야 한다." },
+      sourceSpan: performerOnlySpan,
+    }),
+  ], axes(["other"])),
+}).valid, true, "역할을 명시한 other/text_only는 안전하게 보존한다");
+
+const roleDuplicateBeneficiarySpan = "수혜기업 : 광주광역시 소재 기업";
+const roleDuplicateProviderSpan = "디자인기업 : 광주광역시 소재 기업";
+const roleDuplicateSeal = sealDeepAnalysisInput({
+  grantId: "grant-role-duplicate",
+  sourceRevisionSha256: "b".repeat(64),
+  structuredText: `${roleDuplicateBeneficiarySpan}\n${roleDuplicateProviderSpan}`,
+  attachments: [],
+});
+const roleDuplicate = validateDeepAnalysisResult({
+  seal: roleDuplicateSeal,
+  result: result([
+    criterion({
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      value: { regions: ["29"] },
+      sourceSpan: roleDuplicateBeneficiarySpan,
+      note: "수혜기업 소재지",
+    }),
+    criterion({
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      value: { regions: ["29"] },
+      sourceSpan: roleDuplicateProviderSpan,
+      note: "디자인기업 소재지",
+    }),
+  ], axes(["region"])),
+});
+assert.equal(roleDuplicate.valid, false, "역할별 동일 값은 의미 중복으로 조용히 합치지 않는다");
+assert.equal(
+  roleDuplicate.issues.some((issue) => (
+    issue.code === "semantic_duplicate"
+    && issue.message.includes("different applicant/beneficiary/provider roles")
+  )),
+  true,
+);
+
+for (const testCase of [
+  {
+    label: "부채비율 이상 방향을 lte로 뒤집음",
+    dimension: "financial_health" as const,
+    operator: "lte" as const,
+    value: { debt_ratio_pct_threshold: { value: 500, inclusive: true } },
+    span: "부채비율이 500% 이상인 기업",
+    message: "requires operator=gte",
+  },
+  {
+    label: "복합 재무조건을 부채비율만 구조화",
+    dimension: "financial_health" as const,
+    operator: "gte" as const,
+    value: { debt_ratio_pct_threshold: { value: 500, inclusive: true } },
+    span: "최근 2년 결산 재무제표상 부채비율이 연속 500% 이상 또는 유동비율이 연속 50% 이하인 기업(단, 신용평가등급 BBB 이상은 예외)",
+    message: "not losslessly representable",
+  },
+  {
+    label: "과거 수혜 이력을 현재 유사지원으로 축소",
+    dimension: "prior_award" as const,
+    operator: "exists" as const,
+    value: { scope: "self", self_kind: "current_similar", channel: "general" },
+    span: "타 기관에서 유사사업으로 수혜 이력이 있는 경우",
+    message: "cannot be narrowed to current_similar",
+  },
+  {
+    label: "여성 종업원 비율을 대표자 특성으로 오귀속",
+    dimension: "founder_trait" as const,
+    operator: "in" as const,
+    value: { traits: ["여성 종업원 20% 이상 기업"] },
+    span: "여성 종업원 20% 이상인 기업 우대",
+    message: "not a founder trait",
+  },
+] as const) {
+  const scopedSeal = sealDeepAnalysisInput({
+    grantId: `grant-structural-${testCase.dimension}`,
+    sourceRevisionSha256: "c".repeat(64),
+    structuredText: testCase.span,
+    attachments: [],
+  });
+  const validation = validateDeepAnalysisResult({
+    seal: scopedSeal,
+    result: result([
+      criterion({
+        dimension: testCase.dimension,
+        operator: testCase.operator,
+        kind: testCase.dimension === "founder_trait" ? "preferred" : "exclusion",
+        value: testCase.value,
+        sourceSpan: testCase.span,
+      }),
+    ], axes([testCase.dimension])),
+  });
+  assert.equal(validation.valid, false, `${testCase.label}은 운영 검증을 통과할 수 없다`);
+  assert.equal(
+    validation.issues.some((issue) => (
+      issue.code === "canonical_contract_invalid"
+      && issue.message.includes(testCase.message)
+    )),
+    true,
+    `${testCase.label}은 구체적 구조 손실 issue를 남긴다`,
+  );
+}
+
+const ambiguousParticipationSpan = "리빙랩 프로젝트 참여자(사) 우대";
+const ambiguousParticipationSeal = sealDeepAnalysisInput({
+  grantId: "grant-ambiguous-participation",
+  sourceRevisionSha256: "d".repeat(64),
+  structuredText: ambiguousParticipationSpan,
+  attachments: [],
+});
+assert.equal(validateDeepAnalysisResult({
+  seal: ambiguousParticipationSeal,
+  result: result([
+    criterion({
+      dimension: "prior_award",
+      operator: "in",
+      kind: "preferred",
+      value: {
+        scope: "program",
+        programs: ["리빙랩 프로젝트"],
+        states: ["participating"],
+      },
+      sourceSpan: ambiguousParticipationSpan,
+    }),
+  ], axes(["prior_award"])),
+}).valid, false, "현재라는 근거 없는 참여자 이력을 participating으로만 축소할 수 없다");
+assert.equal(validateDeepAnalysisResult({
+  seal: ambiguousParticipationSeal,
+  result: result([
+    criterion({
+      dimension: "prior_award",
+      operator: "in",
+      kind: "preferred",
+      value: {
+        scope: "program",
+        programs: ["리빙랩 프로젝트"],
+        states: ["participating", "completed"],
+      },
+      sourceSpan: ambiguousParticipationSpan,
+    }),
+  ], axes(["prior_award"])),
+}).valid, true, "참여 중과 과거 참여를 함께 보존한 상태 범위는 통과한다");
+
 const completeBusinessStatusSpan = "신청일 기준 사업자가 휴·폐업 중인 자";
 const completeBusinessStatusSeal = sealDeepAnalysisInput({
   grantId: "grant-complete-business-status",
@@ -497,6 +680,47 @@ assert.equal(validateDeepAnalysisResult({
 
 const futureRegionAlternativeSpan =
   "협약체결 전까지 비수도권으로 주소지 이전 예정인 경우 확약서를 제출하여야 한다.";
+const currentPremisesAlternativeSpan =
+  "본사가 관외에 소재한 경우에도 성능개선 대상 공장이 안산시 관내에 소재하면 신청 가능";
+const currentPremisesAlternativeSeal = sealDeepAnalysisInput({
+  grantId: "grant-current-premises-alternative",
+  sourceRevisionSha256: "e".repeat(64),
+  structuredText: currentPremisesAlternativeSpan,
+  attachments: [],
+});
+const unsafeCurrentPremisesRegion = validateDeepAnalysisResult({
+  seal: currentPremisesAlternativeSeal,
+  result: result([
+    criterion({
+      dimension: "region",
+      operator: "in",
+      kind: "required",
+      value: { regions: ["41"] },
+      sourceSpan: currentPremisesAlternativeSpan,
+    }),
+  ], axes(["region"])),
+});
+assert.equal(unsafeCurrentPremisesRegion.valid, false, "본사 밖·대상공장 관내 대안을 본사 region으로 선차단할 수 없다");
+assert.equal(
+  unsafeCurrentPremisesRegion.issues.some((issue) => (
+    issue.code === "canonical_contract_invalid"
+    && issue.message.includes("current premises alternative")
+  )),
+  true,
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: currentPremisesAlternativeSeal,
+  result: result([
+    criterion({
+      dimension: "region",
+      operator: "text_only",
+      kind: "required",
+      value: { note: currentPremisesAlternativeSpan },
+      sourceSpan: currentPremisesAlternativeSpan,
+    }),
+  ], axes(["region"])),
+}).valid, true, "본사·대상공장 OR 경로를 보존한 region/text_only는 통과한다");
+
 const futureRegionAlternativeSeal = sealDeepAnalysisInput({
   grantId: "grant-future-region-alternative",
   sourceRevisionSha256: "9".repeat(64),

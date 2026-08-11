@@ -241,18 +241,29 @@ assert.equal(recoveredLargeBatch.summary.adjudicatedCandidateCount, 2);
 assert.equal(recoveredLargeBatch.summary.processedCandidateCount, 45);
 assert.equal(recoveredLargeBatch.summary.remainingUnresolvedCandidateCount, 0, "큰 묶음 누락을 품질 하락으로 숨기지 않음");
 
+const originalCliMaxConcurrency = process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY;
+process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY = "4";
 const subscriptionDefault = fakePlannerFetch(4);
-const subscriptionDefaultPlan = await planRoundtripFields({
-  fields: manyFields,
-  markdown: "구독 기본 동시성",
-  apiKey: "subscription",
-  model: "claude-opus-5",
-  transport: "claude-cli",
-  fetchImpl: subscriptionDefault.fetchImpl,
-});
+let subscriptionDefaultPlan: Awaited<ReturnType<typeof planRoundtripFields>>;
+try {
+  subscriptionDefaultPlan = await planRoundtripFields({
+    fields: manyFields,
+    markdown: "구독 기본 동시성",
+    apiKey: "subscription",
+    model: "claude-opus-5",
+    transport: "claude-cli",
+    fetchImpl: subscriptionDefault.fetchImpl,
+  });
+} finally {
+  if (originalCliMaxConcurrency === undefined) {
+    delete process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY;
+  } else {
+    process.env.ANALYSIS_LAB_CLAUDE_CLI_MAX_CONCURRENCY = originalCliMaxConcurrency;
+  }
+}
 assert.equal(subscriptionDefaultPlan.summary.status, "llm");
-assert.equal(subscriptionDefault.maxActive(), 2, "구독 transport 기본 chunk 동시성은 2");
-assert.equal(subscriptionDefaultPlan.summary.candidateConcurrency, 2);
+assert.equal(subscriptionDefault.maxActive(), 2, "45개 후보의 2개 chunk를 모두 병렬 실행");
+assert.equal(subscriptionDefaultPlan.summary.candidateConcurrency, 2, "구독 Kordoc 기본 동시성은 primary 슬롯을 위해 2-way로 제한");
 
 const apiDefault = fakePlannerFetch(8);
 const apiDefaultPlan = await planRoundtripFields({
@@ -268,16 +279,32 @@ assert.equal(apiDefault.maxActive(), 3, "API는 기존 20개 묶음과 모든 ch
 assert.equal(apiDefaultPlan.summary.candidateBatchSize, 20);
 
 const overLegacyLimit = Array.from({ length: 205 }, (_, index) => plannerField(revenue2024, index));
-const subscriptionAll = fakePlannerFetch(0);
+const subscriptionSerial = fakePlannerFetch(8);
+const subscriptionSerialPlan = await planRoundtripFields({
+  fields: overLegacyLimit,
+  markdown: "구독 전체 후보 직렬 처리",
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  transport: "claude-cli",
+  candidateConcurrency: 1,
+  fetchImpl: subscriptionSerial.fetchImpl,
+});
+const subscriptionAll = fakePlannerFetch(8);
 const subscriptionAllPlan = await planRoundtripFields({
   fields: overLegacyLimit,
   markdown: "구독 전체 후보 처리",
   apiKey: "subscription",
   model: "claude-opus-5",
   transport: "claude-cli",
+  candidateConcurrency: 4,
   fetchImpl: subscriptionAll.fetchImpl,
 });
+assert.equal(subscriptionSerial.calls(), 6);
+assert.equal(subscriptionSerial.maxActive(), 1);
 assert.equal(subscriptionAll.calls(), 6, "구독 경로는 180개 상한 뒤의 후보도 40개씩 모두 처리");
+assert.equal(subscriptionAll.maxActive(), 4, "마지막 heavy notice는 후보 chunk에서 CLI 4슬롯을 활용");
+assert.equal(subscriptionSerialPlan.summary.requestCount, subscriptionAllPlan.summary.requestCount, "1대4 호출 수 불변");
+assert.deepEqual(subscriptionSerialPlan.fields, subscriptionAllPlan.fields, "1대4 결과 계약 불변");
 assert.equal(subscriptionAllPlan.summary.candidateLimit, null);
 assert.equal(subscriptionAllPlan.summary.processedCandidateCount, 205);
 assert.equal(subscriptionAllPlan.summary.unprocessedCandidateCount, 0);
@@ -297,6 +324,16 @@ assert.equal(apiBoundedPlan.summary.processedCandidateCount, 180);
 assert.equal(apiBoundedPlan.summary.unprocessedCandidateCount, 25);
 assert.equal(apiBoundedPlan.summary.remainingUnresolvedCandidateCount, 25);
 
+const feedbackSerial = feedbackPlannerFetch();
+const feedbackSerialPlan = await planRoundtripFields({
+  fields: overLegacyLimit.slice(0, 2),
+  markdown: "최초 누락과 저신뢰 후보를 직렬 재판정",
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  transport: "claude-cli",
+  candidateConcurrency: 1,
+  fetchImpl: feedbackSerial.fetchImpl,
+});
 const feedback = feedbackPlannerFetch();
 const feedbackPlan = await planRoundtripFields({
   fields: overLegacyLimit.slice(0, 2),
@@ -304,10 +341,16 @@ const feedbackPlan = await planRoundtripFields({
   apiKey: "subscription",
   model: "claude-opus-5",
   transport: "claude-cli",
+  candidateConcurrency: 4,
   fetchImpl: feedback.fetchImpl,
 });
+assert.equal(feedbackSerial.calls(), 3);
+assert.deepEqual(feedbackSerial.batchSizes(), [2, 2, 1]);
 assert.equal(feedback.calls(), 3, "최초 판정 뒤 필요한 후보만 최대 2회 재판정");
 assert.deepEqual(feedback.batchSizes(), [2, 2, 1]);
+assert.equal(feedbackSerialPlan.summary.requestCount, feedbackPlan.summary.requestCount, "재판정 포함 1대4 호출 수 불변");
+assert.equal(feedbackSerialPlan.summary.adjudicationRounds, feedbackPlan.summary.adjudicationRounds, "최대 2회 재판정 불변");
+assert.deepEqual(feedbackSerialPlan.fields, feedbackPlan.fields, "저신뢰 0.75 재판정 결과도 1대4 불변");
 assert.equal(feedbackPlan.summary.adjudicationStatus, "resolved");
 assert.equal(feedbackPlan.summary.adjudicationRounds, 2);
 assert.equal(feedbackPlan.summary.adjudicatedCandidateCount, 2);

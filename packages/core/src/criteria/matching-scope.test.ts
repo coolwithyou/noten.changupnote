@@ -25,6 +25,18 @@ assert.equal(
 );
 assert.equal(
   nonMatchingCriterionReason(criterion(
+    "여타 정부·지자체 지원사업에 중복적인 지원 신청을 하지 않겠으며,",
+    {
+      dimension: "prior_award",
+      operator: "exists",
+      value: { scope: "self", self_kind: "same_year_other_support" },
+    },
+  )),
+  "application_duplicate_support_declaration",
+  "미래형 중복지원 미신청 확약은 현재 수혜 사실이 아니다",
+);
+assert.equal(
+  nonMatchingCriterionReason(criterion(
     "다수의 사업자등록증(개인·법인)을 보유한 경우, 창업여부 기준표에 따라 신청 자격 적합여부 결정",
     { kind: "required" },
   )),
@@ -89,6 +101,24 @@ assert.equal(
   })),
   false,
   "과거 행위가 아니라 현재 참여제한 상태를 판정하는 구조화 criterion은 보존한다",
+);
+assert.equal(
+  isNonMatchingApplicationCriterion(criterion("현재 동일 과제에 중복 참여 중인 기업은 제외", {
+    dimension: "prior_award",
+    operator: "exists",
+    value: { scope: "self", self_kind: "same_project" },
+  })),
+  false,
+  "현재 중복 참여라는 명시적 사실은 보존한다",
+);
+assert.equal(
+  isNonMatchingApplicationCriterion(criterion("당해연도 다른 정부지원사업 수혜 기업은 제외", {
+    dimension: "prior_award",
+    operator: "exists",
+    value: { scope: "self", self_kind: "same_year_other_support" },
+  })),
+  false,
+  "당해연도 수혜라는 명시적 사실은 보존한다",
 );
 
 console.log("matching-scope: ok");
