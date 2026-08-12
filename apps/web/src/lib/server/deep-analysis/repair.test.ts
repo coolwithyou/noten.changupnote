@@ -16,6 +16,7 @@ import {
   buildDeepAnalysisEvidenceRepairHints,
   DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION,
   DEEP_ANALYSIS_REPAIR_VERSION,
+  repairDeepAnalysisAxisStatusesDeterministically,
   repairDeepAnalysisEvidenceSpansDeterministically,
   repairDeepAnalysisMatchingScopeDeterministically,
   repairDeepAnalysisExecution,
@@ -87,7 +88,7 @@ const validation = {
     ].map((dimension) => [dimension, []]),
   ) as never,
 };
-assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v4");
+assert.equal(DEEP_ANALYSIS_REPAIR_VERSION, "deep-analysis-repair-v5");
 assert.equal(
   findExactEvidenceSpanCandidates(requestedSpan, execution.evidenceText).length,
   2,
@@ -411,6 +412,172 @@ const locallyRepairedMatchingScope = await repairDeepAnalysisExecution({
 assert.equal(matchingScopeFallbackModelCalled, false);
 assert.equal(locallyRepairedMatchingScope.passes.length, 1);
 assert.equal(locallyRepairedMatchingScope.deterministicMatchingScopeRepairs?.length, 1);
+
+const axisSyncSpan = "사업영위 기간 10년 이상인 기업";
+const axisSyncSeal = sealDeepAnalysisInput({
+  grantId: "axis-status-repair",
+  sourceRevisionSha256: "a".repeat(64),
+  structuredText: axisSyncSpan,
+  attachments: [],
+});
+const axisSyncAxes = CRITERION_DIMENSIONS.map((dimension) => ({
+  dimension,
+  status: "inspected_no_condition" as const,
+  confidence: 0.9,
+  comment: "전문 검사",
+}));
+const axisSyncCriterion = {
+  dimension: "biz_age" as const,
+  kind: "required" as const,
+  operator: "gte" as const,
+  value: { min_months: 120 },
+  confidence: 0.95,
+  sourceSpan: axisSyncSpan,
+  spanVerified: true,
+  spanOffsetRatio: 0,
+  note: null,
+};
+const axisSyncResult: DeepAnalysisModelResult = {
+  ...result,
+  criteria: [axisSyncCriterion],
+  axisAssessments: axisSyncAxes,
+  rawToolInput: {
+    criteria: [{
+      dimension: axisSyncCriterion.dimension,
+      kind: axisSyncCriterion.kind,
+      operator: axisSyncCriterion.operator,
+      value: axisSyncCriterion.value,
+      confidence: axisSyncCriterion.confidence,
+      source_span: axisSyncCriterion.sourceSpan,
+    }],
+    axis_assessments: axisSyncAxes.map((axis) => ({
+      dimension: axis.dimension,
+      status: axis.status,
+      confidence: axis.confidence,
+      comment: axis.comment,
+    })),
+  },
+};
+const axisSyncExecution: DeepAnalysisExecution = {
+  result: axisSyncResult,
+  evidenceText: renderDeepAnalysisChunks(axisSyncSeal.chunks),
+  passes: [{
+    kind: "single",
+    chunkId: null,
+    inputChars: axisSyncSpan.length,
+    result: axisSyncResult,
+  }],
+};
+const axisSyncValidation = validateDeepAnalysisResult({
+  seal: axisSyncSeal,
+  result: axisSyncResult,
+});
+assert.deepEqual(
+  axisSyncValidation.issues.map((issue) => [issue.code, issue.path]),
+  [["axis_criterion_mismatch", "$.criteria.biz_age"]],
+);
+const deterministicAxisSync = repairDeepAnalysisAxisStatusesDeterministically({
+  execution: axisSyncExecution,
+  validation: axisSyncValidation,
+});
+assert.equal(deterministicAxisSync.repairs.length, 1);
+assert.equal(
+  deterministicAxisSync.execution.result.axisAssessments
+    .find((axis) => axis.dimension === "biz_age")?.status,
+  "condition_found",
+);
+assert.equal(
+  (deterministicAxisSync.execution.result.rawToolInput.axis_assessments as Array<Record<string, unknown>>)
+    .find((axis) => axis.dimension === "biz_age")?.status,
+  "condition_found",
+  "정규화 결과와 raw tool input을 대칭으로 교정한다",
+);
+assert.equal(validateDeepAnalysisResult({
+  seal: axisSyncSeal,
+  result: deterministicAxisSync.execution.result,
+}).valid, true);
+let axisSyncFallbackModelCalled = false;
+const locallyRepairedAxisSync = await repairDeepAnalysisExecution({
+  seal: axisSyncSeal,
+  apiKey: "test",
+  model: "claude-opus-4-8",
+  failedExecution: axisSyncExecution,
+  validation: axisSyncValidation,
+  runModel: async () => {
+    axisSyncFallbackModelCalled = true;
+    throw new Error("safe axis status repair must not call the model");
+  },
+});
+assert.equal(axisSyncFallbackModelCalled, false);
+assert.equal(locallyRepairedAxisSync.deterministicAxisRepairs?.length, 1);
+
+for (const heldStatus of ["ambiguous", "input_missing"] as const) {
+  const heldAxes = axisSyncAxes.map((axis) => axis.dimension === "biz_age"
+    ? { ...axis, status: heldStatus }
+    : axis);
+  const heldResult: DeepAnalysisModelResult = {
+    ...axisSyncResult,
+    axisAssessments: heldAxes,
+    rawToolInput: {
+      ...axisSyncResult.rawToolInput,
+      axis_assessments: heldAxes.map((axis) => ({
+        dimension: axis.dimension,
+        status: axis.status,
+        confidence: axis.confidence,
+        comment: axis.comment,
+      })),
+    },
+  };
+  const heldExecution: DeepAnalysisExecution = {
+    ...axisSyncExecution,
+    result: heldResult,
+  };
+  const heldValidation = validateDeepAnalysisResult({
+    seal: axisSyncSeal,
+    result: heldResult,
+  });
+  assert.deepEqual(
+    repairDeepAnalysisAxisStatusesDeterministically({
+      execution: heldExecution,
+      validation: heldValidation,
+    }),
+    { execution: heldExecution, repairs: [] },
+    `${heldStatus}는 실제 보류 의미이므로 condition_found로 자동 교정하지 않는다`,
+  );
+}
+
+const emptyFoundAxes = axisSyncAxes.map((axis) => axis.dimension === "biz_age"
+  ? { ...axis, status: "condition_found" as const }
+  : axis);
+const emptyFoundResult: DeepAnalysisModelResult = {
+  ...axisSyncResult,
+  criteria: [],
+  axisAssessments: emptyFoundAxes,
+  rawToolInput: {
+    criteria: [],
+    axis_assessments: emptyFoundAxes.map((axis) => ({
+      dimension: axis.dimension,
+      status: axis.status,
+      confidence: axis.confidence,
+      comment: axis.comment,
+    })),
+  },
+};
+const emptyFoundExecution: DeepAnalysisExecution = {
+  ...axisSyncExecution,
+  result: emptyFoundResult,
+};
+assert.deepEqual(
+  repairDeepAnalysisAxisStatusesDeterministically({
+    execution: emptyFoundExecution,
+    validation: validateDeepAnalysisResult({
+      seal: axisSyncSeal,
+      result: emptyFoundResult,
+    }),
+  }),
+  { execution: emptyFoundExecution, repairs: [] },
+  "criterion 없는 condition_found를 반대 방향으로 추측 교정하지 않는다",
+);
 
 const awardScoreExactSpan =
   "무역의날 수출탑 수상(최근 2 년)               개인표창 제외\n" +

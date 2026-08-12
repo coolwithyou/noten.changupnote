@@ -43,6 +43,7 @@ import { appendVerifiedDeepAnalysisStageReceipt } from "./receipts";
 import { stableJson } from "./sourceRevision";
 import {
   DEEP_ANALYSIS_VALIDATOR_VERSION,
+  decideDeepAnalysisValidationRoute,
   validateDeepAnalysisResult,
 } from "./validator";
 import type { DeepAnalysisWorkerPolicy } from "./workerPolicy";
@@ -53,7 +54,7 @@ import {
   type ParallelApplicationOutcome,
 } from "./parallelApplicationPrecompute";
 
-export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v4" as const;
+export const DEEP_ANALYSIS_PROCESSOR_VERSION = "deep-analysis-processor-v5" as const;
 
 type DeepAnalysisJob = typeof schema.grantDeepAnalysisJobs.$inferSelect;
 
@@ -268,8 +269,16 @@ export async function processDeepAnalysisJob(input: {
     });
 
     let validation = validateDeepAnalysisResult({ seal, result: primary.result });
+    let validationRoute = decideDeepAnalysisValidationRoute({
+      result: primary.result,
+      validation,
+    });
     try {
-      for (let repairAttempt = 0; repairAttempt < 2 && !validation.valid; repairAttempt += 1) {
+      for (
+        let repairAttempt = 0;
+        repairAttempt < 2 && validationRoute.route === "repair";
+        repairAttempt += 1
+      ) {
         primary = await repairDeepAnalysisExecution({
           seal,
           apiKey: input.apiKey,
@@ -279,6 +288,10 @@ export async function processDeepAnalysisJob(input: {
           validation,
         });
         validation = validateDeepAnalysisResult({ seal, result: primary.result });
+        validationRoute = decideDeepAnalysisValidationRoute({
+          result: primary.result,
+          validation,
+        });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -314,6 +327,9 @@ export async function processDeepAnalysisJob(input: {
         schema: "deep-analysis-raw-passes-v1",
         auditRetryFeedback: auditRetryFeedbackMetadata(auditRetryFeedback),
         deterministicEvidenceRepairs: primary.deterministicEvidenceRepairs ?? [],
+        deterministicMatchingScopeRepairs:
+          primary.deterministicMatchingScopeRepairs ?? [],
+        deterministicAxisRepairs: primary.deterministicAxisRepairs ?? [],
         passes: primary.passes.map((pass) => ({
           kind: pass.kind,
           chunkId: pass.chunkId,
@@ -341,6 +357,10 @@ export async function processDeepAnalysisJob(input: {
         repairCount: primary.passes.filter((pass) => pass.kind === "repair").length,
         deterministicEvidenceRepairCount:
           primary.deterministicEvidenceRepairs?.length ?? 0,
+        deterministicMatchingScopeRepairCount:
+          primary.deterministicMatchingScopeRepairs?.length ?? 0,
+        deterministicAxisRepairCount:
+          primary.deterministicAxisRepairs?.length ?? 0,
         usage: primary.result.usage,
         actualCostUsd: primary.result.costUsd,
         rawArtifactKey: rawArtifact.key,
@@ -398,6 +418,21 @@ export async function processDeepAnalysisJob(input: {
     );
   }
   if (!validation.valid) {
+    if (validationRoute.route === "hold") {
+      await openException(input.db, run.id, actor, "primary_validation_held", {
+        issues: validationRoute.holdIssues,
+        outputArtifactKey: outputArtifact.key,
+      });
+      const heldPaths = validationRoute.holdIssues.map((issue) => issue.path).join(", ");
+      await finishCurrentRun({
+        status: "blocked",
+        errorCode: "primary_validation_held",
+        errorMessage: validationRoute.holdIssues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join("; "),
+      });
+      throw new Error(`Deep analysis primary validation held: ${heldPaths}`);
+    }
     await openException(input.db, run.id, actor, "primary_validation_failed", {
       issues: validation.issues,
       outputArtifactKey: outputArtifact.key,

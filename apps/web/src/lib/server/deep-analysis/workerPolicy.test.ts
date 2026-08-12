@@ -152,6 +152,11 @@ assert.throws(
 assert.equal(classifyDeepAnalysisFailure(new Error("Anthropic 529 overloaded")), "retryable");
 assert.equal(classifyDeepAnalysisFailure(new Error("daily cost cap reached")), "budget");
 assert.equal(classifyDeepAnalysisFailure(new Error("blocked_conversion: hwp")), "input_blocked");
+assert.equal(
+  classifyDeepAnalysisFailure(new Error("Deep analysis primary validation held: $.axis_assessments.industry")),
+  "input_blocked",
+  "실제 unresolved 보류는 자동 재시도하지 않는 blocked 입력으로 분류한다",
+);
 assert.equal(classifyDeepAnalysisFailure(new Error("response contract invalid")), "non_retryable");
 assert.equal(resolveDeepAnalysisOperationalErrorCode({
   error: new Error("generic wrapper"),
@@ -162,6 +167,10 @@ assert.equal(resolveDeepAnalysisOperationalErrorCode({
   error: new Error("Deep analysis input is not sealed: blocked_conversion"),
   failureClass: "input_blocked",
 }), "input_not_sealed");
+assert.equal(resolveDeepAnalysisOperationalErrorCode({
+  error: new Error("Deep analysis primary validation held: $.axis_assessments.industry"),
+  failureClass: "input_blocked",
+}), "primary_validation_held");
 assert.equal(resolveDeepAnalysisOperationalErrorCode({
   error: new Error("Anthropic 529 overloaded"),
   failureClass: "retryable",

@@ -310,7 +310,10 @@ export function classifyDeepAnalysisFailure(error: unknown): DeepAnalysisFailure
     return "retryable";
   }
   if (/daily cost cap|per-notice cost cap|pending_budget/i.test(message)) return "budget";
-  if (/input (?:is )?not sealed|blocked_(?:fetch|conversion|cap)|unresolved attachment/i.test(message)) {
+  if (
+    /input (?:is )?not sealed|blocked_(?:fetch|conversion|cap)|unresolved attachment|primary validation held/i
+      .test(message)
+  ) {
     return "input_blocked";
   }
   return "non_retryable";
@@ -327,6 +330,7 @@ export function resolveDeepAnalysisOperationalErrorCode(input: {
     ? input.error.message
     : String(input.error);
   if (/source revision changed/i.test(message)) return "source_revision_changed";
+  if (/primary validation held/i.test(message)) return "primary_validation_held";
   if (/input (?:is )?not sealed|blocked_(?:fetch|conversion|cap)|unresolved attachment/i.test(message)) {
     return "input_not_sealed";
   }

@@ -8,6 +8,7 @@ import {
 } from "@cunote/contracts";
 import type { DeepAnalysisAuditAcceptedFinding } from "./auditAdjudication";
 import type {
+  DeepAnalysisDeterministicAxisRepair,
   DeepAnalysisDeterministicEvidenceRepair,
   DeepAnalysisDeterministicMatchingScopeRepair,
   DeepAnalysisExecution,
@@ -26,7 +27,7 @@ import {
   type DeepAnalysisValidationResult,
 } from "./validator";
 
-export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v4" as const;
+export const DEEP_ANALYSIS_REPAIR_VERSION = "deep-analysis-repair-v5" as const;
 export const DEEP_ANALYSIS_AUDIT_RETRY_FEEDBACK_VERSION =
   "deep-analysis-audit-retry-feedback-v1" as const;
 
@@ -152,32 +153,47 @@ export async function repairDeepAnalysisExecution(input: {
       result: scopedExecutionToRepair.result,
     })
     : fullValidationAfterEvidence;
-  const scopedRoute = decideDeepAnalysisValidationRoute({
-    result: scopedExecutionToRepair.result,
+  const axisStatus = repairDeepAnalysisAxisStatusesDeterministically({
+    execution: scopedExecutionToRepair,
     validation: fullScopedValidation,
   });
+  const axisExecutionToRepair = axisStatus.execution;
+  const fullAxisValidation = axisStatus.repairs.length > 0
+    ? validateDeepAnalysisResult({
+      seal: input.seal,
+      result: axisExecutionToRepair.result,
+    })
+    : fullScopedValidation;
+  const axisRoute = decideDeepAnalysisValidationRoute({
+    result: axisExecutionToRepair.result,
+    validation: fullAxisValidation,
+  });
   if (
-    (deterministic.repairs.length > 0 || matchingScope.repairs.length > 0)
-    && scopedRoute.route !== "repair"
+    (
+      deterministic.repairs.length > 0
+      || matchingScope.repairs.length > 0
+      || axisStatus.repairs.length > 0
+    )
+    && axisRoute.route !== "repair"
   ) {
-    return scopedExecutionToRepair;
+    return axisExecutionToRepair;
   }
   const scopedValidationToRepair = selectRepairableValidation({
-    result: scopedExecutionToRepair.result,
-    validation: fullScopedValidation,
+    result: axisExecutionToRepair.result,
+    validation: fullAxisValidation,
   });
 
   const runModel = input.runModel ?? runDeepGrantAnalysis;
   const evidenceRepairHints = buildDeepAnalysisEvidenceRepairHints({
-    execution: scopedExecutionToRepair,
+    execution: axisExecutionToRepair,
     validation: scopedValidationToRepair,
   });
   const repairInput = [
-    scopedExecutionToRepair.evidenceText,
+    axisExecutionToRepair.evidenceText,
     "",
     "<<<FAILED_RESULT_TO_REPAIR>>>",
     stableJson({
-      result: stripRaw(scopedExecutionToRepair.result),
+      result: stripRaw(axisExecutionToRepair.result),
       validatorIssues: scopedValidationToRepair.issues,
       evidenceRepairHints,
     }),
@@ -186,7 +202,7 @@ export async function repairDeepAnalysisExecution(input: {
   const repaired = await runModel({
     apiKey: input.apiKey,
     inputText: repairInput,
-    evidenceText: scopedExecutionToRepair.evidenceText,
+    evidenceText: axisExecutionToRepair.evidenceText,
     model: input.model,
     ...(input.effort === undefined ? {} : { effort: input.effort }),
     taskInstruction: [
@@ -206,26 +222,120 @@ export async function repairDeepAnalysisExecution(input: {
     inputChars: repairInput.length,
     result: repaired,
   };
-  const passes = [...scopedExecutionToRepair.passes, repairPass];
+  const passes = [...axisExecutionToRepair.passes, repairPass];
   return {
-    evidenceText: scopedExecutionToRepair.evidenceText,
+    evidenceText: axisExecutionToRepair.evidenceText,
     passes,
-    ...(scopedExecutionToRepair.deterministicEvidenceRepairs
+    ...(axisExecutionToRepair.deterministicEvidenceRepairs
       ? {
         deterministicEvidenceRepairs:
-          scopedExecutionToRepair.deterministicEvidenceRepairs,
+          axisExecutionToRepair.deterministicEvidenceRepairs,
       }
       : {}),
-    ...(scopedExecutionToRepair.deterministicMatchingScopeRepairs
+    ...(axisExecutionToRepair.deterministicMatchingScopeRepairs
       ? {
         deterministicMatchingScopeRepairs:
-          scopedExecutionToRepair.deterministicMatchingScopeRepairs,
+          axisExecutionToRepair.deterministicMatchingScopeRepairs,
       }
+      : {}),
+    ...(axisExecutionToRepair.deterministicAxisRepairs
+      ? { deterministicAxisRepairs: axisExecutionToRepair.deterministicAxisRepairs }
       : {}),
     result: {
       ...repaired,
       usage: sumUsage(passes.map((pass) => pass.result.usage)),
       costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
+    },
+  };
+}
+
+/**
+ * validator가 실제 criterion을 검증했는데 축만 inspected_no_condition으로 남은 경우에만
+ * 정규화 결과와 raw tool input의 축 상태를 함께 condition_found로 맞춘다. 의미상 보류인
+ * ambiguous/input_missing와 criterion 없는 반대 방향은 추측 교정하지 않는다.
+ */
+export function repairDeepAnalysisAxisStatusesDeterministically(input: {
+  execution: DeepAnalysisExecution;
+  validation: DeepAnalysisValidationResult;
+}): {
+  execution: DeepAnalysisExecution;
+  repairs: DeepAnalysisDeterministicAxisRepair[];
+} {
+  const candidateIssues = new Map<CriterionDimension, string>();
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "axis_criterion_mismatch") continue;
+    const match = /^\$\.criteria\.([a-z_]+)$/.exec(issue.path);
+    const dimension = match?.[1];
+    if (
+      !dimension
+      || !(CRITERION_DIMENSIONS as readonly string[]).includes(dimension)
+    ) continue;
+    candidateIssues.set(dimension as CriterionDimension, issue.path);
+  }
+  if (candidateIssues.size === 0) {
+    return { execution: input.execution, repairs: [] };
+  }
+
+  const invalidCriterionIndexes = new Set<number>();
+  for (const issue of input.validation.issues) {
+    const match = /^\$\.criteria\[(\d+)\](?:\.|$)/.exec(issue.path);
+    if (match) invalidCriterionIndexes.add(Number.parseInt(match[1]!, 10));
+  }
+  const validatedCriteriaByDimension = new Map<CriterionDimension, number>();
+  for (const item of input.validation.criteria) {
+    if (invalidCriterionIndexes.has(item.index)) continue;
+    validatedCriteriaByDimension.set(
+      item.criterion.dimension,
+      (validatedCriteriaByDimension.get(item.criterion.dimension) ?? 0) + 1,
+    );
+  }
+
+  const repairs: DeepAnalysisDeterministicAxisRepair[] = [];
+  const axisAssessments = input.execution.result.axisAssessments.map((axis) => {
+    const issuePath = candidateIssues.get(axis.dimension);
+    const criterionCount = validatedCriteriaByDimension.get(axis.dimension) ?? 0;
+    if (!issuePath || axis.status !== "inspected_no_condition" || criterionCount === 0) {
+      return axis;
+    }
+    repairs.push({
+      issuePath,
+      dimension: axis.dimension,
+      fromStatus: "inspected_no_condition",
+      toStatus: "condition_found",
+      criterionCount,
+      strategy: "align_axis_with_validated_criteria",
+    });
+    return { ...axis, status: "condition_found" as const };
+  });
+  if (repairs.length === 0) {
+    return { execution: input.execution, repairs };
+  }
+
+  const repairedDimensions = new Set(repairs.map((repair) => repair.dimension));
+  const rawToolInput = { ...input.execution.result.rawToolInput };
+  if (Array.isArray(rawToolInput.axis_assessments)) {
+    rawToolInput.axis_assessments = rawToolInput.axis_assessments.map((rawAxis) => (
+      isRecord(rawAxis)
+      && typeof rawAxis.dimension === "string"
+      && repairedDimensions.has(rawAxis.dimension as CriterionDimension)
+        ? { ...rawAxis, status: "condition_found" }
+        : rawAxis
+    ));
+  }
+
+  return {
+    repairs,
+    execution: {
+      ...input.execution,
+      deterministicAxisRepairs: [
+        ...(input.execution.deterministicAxisRepairs ?? []),
+        ...repairs,
+      ],
+      result: {
+        ...input.execution.result,
+        axisAssessments,
+        rawToolInput,
+      },
     },
   };
 }

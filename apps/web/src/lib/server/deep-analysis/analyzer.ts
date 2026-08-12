@@ -32,12 +32,22 @@ export interface DeepAnalysisDeterministicMatchingScopeRepair {
   strategy: "remove_non_matching_application_criterion";
 }
 
+export interface DeepAnalysisDeterministicAxisRepair {
+  issuePath: string;
+  dimension: DeepAnalysisModelResult["axisAssessments"][number]["dimension"];
+  fromStatus: "inspected_no_condition";
+  toStatus: "condition_found";
+  criterionCount: number;
+  strategy: "align_axis_with_validated_criteria";
+}
+
 export interface DeepAnalysisExecution {
   result: DeepAnalysisModelResult;
   passes: DeepAnalysisModelPass[];
   evidenceText: string;
   deterministicEvidenceRepairs?: DeepAnalysisDeterministicEvidenceRepair[];
   deterministicMatchingScopeRepairs?: DeepAnalysisDeterministicMatchingScopeRepair[];
+  deterministicAxisRepairs?: DeepAnalysisDeterministicAxisRepair[];
 }
 
 type ModelRunner = typeof runDeepGrantAnalysis;
