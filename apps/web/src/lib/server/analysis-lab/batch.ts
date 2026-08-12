@@ -174,7 +174,7 @@ function printPlanLines(view: PlanView, options: BatchOptions): void {
       (view.skippedOkOutdatedOnly > 0
         ? ` (현행 ${view.skippedOk - view.skippedOkOutdatedOnly} · 구버전만 ${view.skippedOkOutdatedOnly})`
         : "") +
-      ` · 보류(error 런만, --retry-errors 미지정) ${view.heldError} · 기간 스킵 ${view.periodSkippedCount} · 잔여 ${view.runnable} → 이번 실행 대상 ${view.targets}건 (limit=${options.limit}${options.reanalyzeOutdated ? " · --reanalyze-outdated" : ""})`,
+      ` · 보류(error 런만) ${view.heldError} · 기간 스킵 ${view.periodSkippedCount} · 잔여 ${view.runnable} → 이번 실행 대상 ${view.targets}건 (limit=${options.limit}${options.reanalyzeOutdated ? " · --reanalyze-outdated" : ""})`,
   );
 }
 
