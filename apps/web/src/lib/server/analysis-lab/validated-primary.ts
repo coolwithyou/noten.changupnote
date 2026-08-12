@@ -1,5 +1,9 @@
 import type { DeepAnalysisModelPass } from "@/lib/server/deep-analysis/analyzer";
 import type { DeepAnalysisEffort, DeepAnalysisModelResult } from "@cunote/contracts";
+import type {
+  LabPrimaryPassDiagnostic,
+  LabPrimaryPassIssue,
+} from "@/features/dev/analysis-lab/contract";
 import { repairDeepAnalysisExecution } from "@/lib/server/deep-analysis/repair";
 import { runDeepGrantAnalysis } from "@/lib/server/deep-analysis/extractor";
 import { sealDeepAnalysisInput } from "@/lib/server/deep-analysis/inputManifest";
@@ -11,6 +15,7 @@ import {
 const MAX_LAB_PRIMARY_REPAIRS = 2;
 /** 패스당 issue 코드 기록 상한 — 폭주 방어. dedupe는 하지 않는다(반복 빈도가 진단 정보). */
 const MAX_PASS_ISSUE_CODES = 20;
+const MAX_PASS_ISSUE_DETAILS = 64;
 
 export interface ValidatedLabPrimaryResult {
   extraction: DeepAnalysisModelResult;
@@ -19,12 +24,72 @@ export interface ValidatedLabPrimaryResult {
    * 패스별 validator 계측(2026-08-11 T4 1단계) — 어떤 issue 가 첫 패스를 떨어뜨리는지 진단용.
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과).
    */
-  passes: Array<{ kind: "primary" | "repair"; durationMs: number; issueCodes: string[] }>;
+  passes: LabPrimaryPassDiagnostic[];
 }
 
-/** 패스 직후 validation 이슈 코드를 앞 N개까지 수집한다. */
-function collectPassIssueCodes(issues: readonly DeepAnalysisValidationIssue[]): string[] {
-  return issues.slice(0, MAX_PASS_ISSUE_CODES).map((issue) => issue.code);
+/** 패스 직후 validator 진단을 bounded snapshot으로 남긴다. */
+function collectPassDiagnostic(input: {
+  kind: LabPrimaryPassDiagnostic["kind"];
+  durationMs: number;
+  issues: readonly DeepAnalysisValidationIssue[];
+  result: DeepAnalysisModelResult;
+}): LabPrimaryPassDiagnostic {
+  return {
+    kind: input.kind,
+    durationMs: input.durationMs,
+    issueCodes: input.issues.slice(0, MAX_PASS_ISSUE_CODES).map((issue) => issue.code),
+    issueCount: input.issues.length,
+    issues: input.issues.slice(0, MAX_PASS_ISSUE_DETAILS).map((issue) => (
+      snapshotPassIssue(issue, input.result)
+    )),
+    issuesTruncated: input.issues.length > MAX_PASS_ISSUE_DETAILS,
+  };
+}
+
+function snapshotPassIssue(
+  issue: DeepAnalysisValidationIssue,
+  result: DeepAnalysisModelResult,
+): LabPrimaryPassIssue {
+  const axisDimension = /^\$\.axis_assessments\.([a-z_]+)(?:\.|$)/.exec(issue.path)?.[1]
+    ?? /^\$\.criteria\.([a-z_]+)(?:\.|$)/.exec(issue.path)?.[1];
+  const axisIndex = /^\$\.axis_assessments\[(\d+)\]/.exec(issue.path)?.[1];
+  const criterionIndex = /^\$\.criteria\[(\d+)\]/.exec(issue.path)?.[1];
+  const axis = axisDimension
+    ? result.axisAssessments.find((candidate) => candidate.dimension === axisDimension)
+    : axisIndex !== undefined
+      ? result.axisAssessments[Number.parseInt(axisIndex, 10)]
+      : undefined;
+  const criterion = criterionIndex !== undefined
+    ? result.criteria[Number.parseInt(criterionIndex, 10)]
+    : axisDimension
+      ? result.criteria.find((candidate) => candidate.dimension === axisDimension)
+      : undefined;
+  return {
+    code: issue.code,
+    path: issue.path,
+    message: issue.message,
+    ...(axis
+      ? {
+          axis: {
+            dimension: axis.dimension,
+            status: axis.status,
+            comment: axis.comment,
+          },
+        }
+      : {}),
+    ...(criterion
+      ? {
+          criterion: {
+            dimension: criterion.dimension,
+            kind: criterion.kind,
+            operator: criterion.operator,
+            value: criterion.value,
+            sourceSpan: criterion.sourceSpan,
+            note: criterion.note,
+          },
+        }
+      : {}),
+  };
 }
 
 /**
@@ -76,11 +141,12 @@ export async function runValidatedLabPrimary(input: {
     evidenceText: input.inputText,
   };
   let validation = validateDeepAnalysisResult({ seal, result: execution.result });
-  passes.push({
+  passes.push(collectPassDiagnostic({
     kind: "primary",
     durationMs: firstDurationMs,
-    issueCodes: collectPassIssueCodes(validation.issues),
-  });
+    issues: validation.issues,
+    result: execution.result,
+  }));
   let repairCount = 0;
   while (!validation.valid && repairCount < MAX_LAB_PRIMARY_REPAIRS) {
     // 결정적 교정만으로 끝나면 수 ms — 그 자체가 "모델 repair 없이 해결" 신호라 그대로 기록한다.
@@ -97,11 +163,12 @@ export async function runValidatedLabPrimary(input: {
     const repairDurationMs = Date.now() - repairStartedAt;
     repairCount += 1;
     validation = validateDeepAnalysisResult({ seal, result: execution.result });
-    passes.push({
+    passes.push(collectPassDiagnostic({
       kind: "repair",
       durationMs: repairDurationMs,
-      issueCodes: collectPassIssueCodes(validation.issues),
-    });
+      issues: validation.issues,
+      result: execution.result,
+    }));
   }
   if (!validation.valid) {
     const issues = validation.issues

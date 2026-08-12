@@ -7,7 +7,11 @@ import {
 } from "@cunote/contracts";
 import { runValidatedLabPrimary } from "./validated-primary";
 
-const inputText = "공고\n서울 소재 중소기업만 신청할 수 있다.";
+const inputText = [
+  "공고",
+  "서울 소재 중소기업만 신청할 수 있다.",
+  "서울 사업장에 입주한 지 3년 이상인 기업을 우대한다.",
+].join("\n");
 const sourceSpan = "서울 소재 중소기업만 신청할 수 있다.";
 const validCriterion: DeepAnalysisCriterion = {
   dimension: "region",
@@ -102,6 +106,54 @@ assert.equal(clean.passes[0]?.kind, "primary");
 assert.deepEqual(clean.passes[0]?.issueCodes, [], "통과 패스는 issueCodes 빈 배열");
 assert.ok((clean.passes[0]?.durationMs ?? -1) >= 0, "패스 durationMs 는 0 이상");
 
+// issueCodes 20개 상한과 별개로 전체 issue 수와 경로별 축 snapshot을 보존한다.
+let unresolvedCalls = 0;
+const diagnosedUnresolved = await runValidatedLabPrimary({
+  grantId: "grant-lab-unresolved-diagnostics",
+  inputText,
+  inputSha256: "d".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    unresolvedCalls += 1;
+    return unresolvedCalls === 1 ? unresolvedResult() : result(true);
+  },
+});
+const unresolvedPass = diagnosedUnresolved.passes[0];
+assert.equal(unresolvedPass?.issueCodes.length, 20, "기존 issueCodes 폭주 상한은 유지");
+assert.equal(unresolvedPass?.issueCount, 22, "상한과 무관한 전체 issue 수 보존");
+assert.equal(unresolvedPass?.issues?.length, 22, "22축 unresolved detail 전부 보존");
+assert.equal(unresolvedPass?.issuesTruncated, false);
+assert.deepEqual(unresolvedPass?.issues?.[0]?.axis, {
+  dimension: CRITERION_DIMENSIONS[0],
+  status: "ambiguous",
+  comment: "근거 충돌",
+});
+assert.match(unresolvedPass?.issues?.[0]?.path ?? "", /^\$\.axis_assessments\./);
+
+// criterion 단위 semantic issue는 문제 criterion snapshot을 함께 남긴다.
+let semanticCalls = 0;
+const diagnosedSemantic = await runValidatedLabPrimary({
+  grantId: "grant-lab-semantic-diagnostics",
+  inputText,
+  inputSha256: "e".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    semanticCalls += 1;
+    return semanticCalls === 1 ? semanticInvalidResult() : result(true);
+  },
+});
+const semanticIssue = diagnosedSemantic.passes[0]?.issues?.find(
+  (issue) => issue.code === "semantic_misattribution",
+);
+assert.equal(semanticIssue?.criterion?.dimension, "biz_age");
+assert.equal(semanticIssue?.criterion?.operator, "gte");
+assert.equal(
+  semanticIssue?.criterion?.sourceSpan,
+  "서울 사업장에 입주한 지 3년 이상인 기업을 우대한다.",
+);
+
 let failedCalls = 0;
 await assert.rejects(
   runValidatedLabPrimary({
@@ -132,3 +184,45 @@ function rawCriterion(criterion: DeepAnalysisCriterion): Record<string, unknown>
   };
 }
 
+function unresolvedResult(): DeepAnalysisModelResult {
+  const assessments: DeepAnalysisAxisAssessment[] = CRITERION_DIMENSIONS.map((dimension) => ({
+    dimension,
+    status: "ambiguous",
+    confidence: 0.5,
+    comment: "근거 충돌",
+  }));
+  return {
+    ...result(true),
+    criteria: [],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function semanticInvalidResult(): DeepAnalysisModelResult {
+  const invalidCriterion: DeepAnalysisCriterion = {
+    dimension: "biz_age",
+    kind: "preferred",
+    operator: "gte",
+    value: { min_months: 36 },
+    confidence: 0.9,
+    sourceSpan: "서울 사업장에 입주한 지 3년 이상인 기업을 우대한다.",
+    spanVerified: true,
+    note: null,
+  };
+  const assessments = axes(false).map((axis) => axis.dimension === "biz_age"
+    ? { ...axis, status: "condition_found" as const }
+    : axis);
+  return {
+    ...result(true),
+    criteria: [invalidCriterion],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [rawCriterion(invalidCriterion)],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}

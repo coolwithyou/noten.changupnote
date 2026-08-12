@@ -188,6 +188,29 @@ export interface LabApplicationRoundtripReference {
   remainingUnresolvedCandidateCount?: number;
 }
 
+export interface LabPrimaryPassIssue {
+  code: string;
+  path: string;
+  message: string;
+  axis?: Pick<LabAxisAssessment, "dimension" | "status" | "comment">;
+  criterion?: Pick<
+    LabCriterion,
+    "dimension" | "kind" | "operator" | "value" | "sourceSpan" | "note"
+  >;
+}
+
+export interface LabPrimaryPassDiagnostic {
+  kind: "primary" | "repair";
+  durationMs: number;
+  /** 구 런 호환용 앞 20개 issue code. 정확한 총량은 issueCount를 사용한다. */
+  issueCodes: string[];
+  /** 해당 패스 validator issue의 정확한 전체 개수. */
+  issueCount?: number;
+  /** 원인 재현용 bounded snapshot. 최대 64건이며 구 런에는 없다. */
+  issues?: LabPrimaryPassIssue[];
+  issuesTruncated?: boolean;
+}
+
 export interface LabRun {
   runId: string;
   grantId: string;
@@ -221,7 +244,7 @@ export interface LabRun {
    * 패스별 validator 계측(2026-08-11 T4 — repair 상수화 원인 진단용). 구 런 파일엔 없다.
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과, dedupe 없음).
    */
-  primaryPasses?: Array<{ kind: "primary" | "repair"; durationMs: number; issueCodes: string[] }>;
+  primaryPasses?: LabPrimaryPassDiagnostic[];
   /** 완료된 독립 검수의 blocking 판정을 Opus 재분석에 되먹임한 로컬 루프 provenance. */
   reviewRepair?: {
     sourceRunId: string;
