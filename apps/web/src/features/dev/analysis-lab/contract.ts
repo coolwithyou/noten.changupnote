@@ -27,7 +27,8 @@ import type {
 // v11: 반복된 신청기업 산업 범위를 text_only로 보존하고 validator 자동 교정을 적용한다.
 // v12: 하위 공고 위임 대상은 열린 목록으로 보존하고 structured target 충돌을 좁힌다.
 // v13: 역할·트랙 범위, 재무 복합조건, 과거수혜 시점의 전역 오귀속을 fail-closed 한다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v14";
+// v15: 실제 원문 충돌·입력 누락은 보류로 보존하고 canonical 불안만 text_only로 닫는다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v15";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

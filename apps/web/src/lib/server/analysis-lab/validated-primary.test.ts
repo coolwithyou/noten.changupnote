@@ -137,6 +137,27 @@ assert.deepEqual(unresolvedPass?.issues?.[0]?.axis, {
 });
 assert.match(unresolvedPass?.issues?.[0]?.path ?? "", /^\$\.axis_assessments\./);
 
+let missingInputCalls = 0;
+const heldMissingInput = await runValidatedLabPrimary({
+  grantId: "grant-lab-input-missing",
+  inputText,
+  inputSha256: "1".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    missingInputCalls += 1;
+    return inputMissingResult();
+  },
+});
+assert.equal(missingInputCalls, 1, "실제 input_missing도 전체 재생성을 호출하지 않음");
+assert.equal(heldMissingInput.outcome, "held");
+assert.equal(heldMissingInput.repairCount, 0);
+assert.deepEqual(
+  heldMissingInput.passes[0]?.issues?.map((issue) => issue.code),
+  ["unresolved_axis"],
+);
+assert.equal(heldMissingInput.passes[0]?.issues?.[0]?.axis?.status, "input_missing");
+
 // criterion 단위 semantic issue는 문제 criterion snapshot을 함께 남긴다.
 let semanticCalls = 0;
 const diagnosedSemantic = await runValidatedLabPrimary({
@@ -261,6 +282,25 @@ function semanticInvalidResult(): DeepAnalysisModelResult {
     axisAssessments: assessments,
     rawToolInput: {
       criteria: [rawCriterion(invalidCriterion)],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function inputMissingResult(): DeepAnalysisModelResult {
+  const assessments = axes(false).map((axis) => axis.dimension === "industry"
+    ? {
+      ...axis,
+      status: "input_missing" as const,
+      comment: "공고가 가리키는 상세 업종 첨부가 입력에 없음",
+    }
+    : axis);
+  return {
+    ...result(true),
+    criteria: [],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [],
       axis_assessments: assessments.map((axis) => ({ ...axis })),
     },
   };

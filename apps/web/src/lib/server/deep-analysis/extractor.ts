@@ -951,14 +951,14 @@ export const DEEP_ANALYSIS_SYSTEM_PROMPT = [
   "[axis_assessments — 22축 전수 검사(premises·export_performance 포함, 각 축 정확히 한 번)]",
   "status=condition_found: 입력에서 해당 축 조건을 찾았고 criteria 로도 냈다.",
   "status=inspected_no_condition: 제공된 모든 입력 블록을 검사했지만 해당 축 조건이 없다.",
-  "status=ambiguous: 관련 문구는 있으나 안전하게 구조화할 수 없다.",
+  "status=ambiguous: 서로 충돌하는 명시 근거가 있어 condition_found와 inspected_no_condition 중 어느 쪽도 안전하게 결정할 수 없다.",
   "status=input_missing: 공고가 첨부나 상세문을 가리키지만 해당 내용이 입력에 없어 검사할 수 없다.",
   "inspected_no_condition 과 input_missing 을 절대 혼동하지 마라. comment 에는 판단 근거를 짧게 남겨라.",
-  // 축 종결 규율(2026-08-12 lab-deep-v14): 종전에는 repair 지시문에만 있던 규율이라 첫 패스가
-  // ambiguous/input_missing 헤징 → unresolved_axis → 전 런 repair(9/9 실측)로 이어졌다.
-  // validator 는 두 상태를 미해결로 실패시키므로(analysis-complete 계약) 같은 규율을 첫 패스에 명시한다.
-  "도구 응답을 내기 전에 ambiguous 와 input_missing 으로 남긴 축을 하나씩 재검토한다. 원문 전체를 다시 읽어 근거 문장이 있으면 condition_found 로 종결하며 criterion 을 만들고, 어떤 조건 문구도 없으면 inspected_no_condition 으로 종결한다.",
-  "관련 문구는 있으나 canonical 구조화가 불안하다는 이유만으로 ambiguous 를 쓰지 마라 — 그 경우 해당 축 operator=text_only criterion 과 condition_found 로 보존한다. ambiguous 는 서로 충돌하는 명시 근거가 원문에 실제로 남는 경우에만, input_missing 은 공고가 가리키는 상세 문서가 입력에 정말 없는 경우에만 사용하고 comment 에 충돌·누락 근거를 명시한다.",
+  // 축 보류 규율(2026-08-13 lab-deep-v15 / deep-analysis-v21): 실제 충돌·입력 누락은
+  // 분석 실패가 아니라 안전한 hold다. 그 외의 canonical 표현 불안만 text_only로 종결한다.
+  "도구 응답을 내기 전에 ambiguous 와 input_missing 잠정 축을 하나씩 재검토한다. 원문 전체를 다시 읽어 서로 충돌하는 명시 근거가 실제로 남으면 ambiguous 상태를 그대로 유지하고, 공고가 가리키는 상세 문서가 입력에 실제로 없으면 input_missing 상태를 그대로 유지한다. comment에는 충돌한 근거 또는 누락된 입력을 구체적으로 적는다.",
+  "실제 충돌이나 입력 누락이 아닌 축은 근거 문장이 있으면 criterion과 condition_found로, 어떤 조건 문구도 없으면 inspected_no_condition으로 종결한다. validator를 통과시키기 위해 실제 ambiguous 또는 input_missing을 inspected_no_condition으로 바꾸지 마라.",
+  "관련 문구의 canonical 구조화만 불안하다는 이유로 ambiguous를 쓰지 마라. 그 경우 해당 축 operator=text_only criterion과 condition_found로 원문 의미를 보존한다.",
   "",
   "[taxonomy_proposals — 22축에 담기지 않는 반복 요건의 신규 축 제안]",
   "기존 축 어디에도 자연스럽게 들어가지 않는 요건 유형이 보이면 proposed_dimension(영문 snake_case), rationale(한국어 근거), example_span(원문 인용)으로 제안한다. 없으면 빈 배열.",

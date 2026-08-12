@@ -140,6 +140,24 @@ assert.match(
   /모집직무.*신청기업의 업종 자격이 아니다.*첨부도 입력에서 누락.*industry=input_missing/,
 );
 assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /서로 충돌하는 명시 근거가 실제로 남으면.*ambiguous.*그대로 유지/,
+  "실제 원문 충돌을 억지로 condition/no_condition으로 종결하지 않는다",
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /공고가 가리키는 상세 문서가 입력에 실제로 없으면.*input_missing.*그대로 유지/,
+  "실제 입력 누락을 inspected_no_condition으로 위장하지 않는다",
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /validator를 통과시키기 위해.*inspected_no_condition.*바꾸지 마라/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /canonical 구조화만 불안.*operator=text_only criterion.*condition_found/,
+);
+assert.match(
   DEEP_ANALYSIS_APPLICANT_INDUSTRY_SCOPE_RULE,
   /바이오 스타트업 모집.*industry\/text_only.*지원 과제의 주제.*program_intent/,
 );
