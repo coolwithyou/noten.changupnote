@@ -1,6 +1,6 @@
 # 딥분석 품질 회복 구현 계획 (2026-08-13)
 
-> 상태: 정적 구현·회귀 검증 완료, live canary 실행 승인 대기. CP2(`lab-deep-v14`)의 10건 실측을 정적 증거로 사용한다.
+> 상태: 정적 구현·회귀 검증 및 125015 v15 live canary GO, 층화·버전 코호트 검증 진행. CP2(`lab-deep-v14`)의 10건 실측을 기준선으로 사용한다.
 > 선행 근거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`
 > 안전 경계: 이 계획의 제품 데이터 검증은 분석 LLM/API/배치/2차 교정을 호출하지 않는다. 코드·계획의 Claude 읽기 전용 리뷰만 수행한다. 운영 worker는 `observe_only`를 유지하며 배포·승격도 하지 않는다.
 
@@ -268,7 +268,7 @@ GREEN:
 | 4 | `3c16cf3` | 프롬프트 `lab-deep-v15`/`deep-analysis-v21`. 실제 충돌·입력 누락은 hold, canonical 표현 불안만 `text_only + condition_found`로 정렬 |
 | 4-r | `29f0491` | 최종 리뷰 후 held 오류가 attempt 여유·소진과 무관하게 terminal `blocked`가 되는 상태 매핑을 순수 회귀 테스트로 고정 |
 
-기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 이 정적 구현은 repair율·실모델 의미 품질의 개선을 아직 입증하지 않는다. 사용자 승인 뒤 125015 단건 canary에서 새 지표를 관측해야 한다.
+기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 125015 단건 canary는 v13 repair 2회 후 실패를 v15 first-pass held·repair 0으로 바꾸고 실제 size 충돌과 Kordoc complete를 보존해 단건 GO를 받았다. 모집단 repair율·실모델 의미 품질은 층화 코호트에서 추가 검증한다.
 
 ## 6. 계획 자체의 테스트 행렬
 
