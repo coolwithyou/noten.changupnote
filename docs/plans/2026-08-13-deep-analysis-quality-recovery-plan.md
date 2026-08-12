@@ -1,14 +1,14 @@
 # 딥분석 품질 회복 구현 계획 (2026-08-13)
 
-> 상태: 구현 전 정밀 계획. CP2(`lab-deep-v14`)의 10건 실측을 정적 증거로 사용한다.
+> 상태: 정적 구현·회귀 검증 완료, live canary 실행 승인 대기. CP2(`lab-deep-v14`)의 10건 실측을 정적 증거로 사용한다.
 > 선행 근거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`
-> 안전 경계: 이 계획의 구현·테스트는 LLM/API/배치/2차 교정을 호출하지 않는다. 운영 worker는 `observe_only`를 유지하며 배포·승격도 하지 않는다.
+> 안전 경계: 이 계획의 제품 데이터 검증은 분석 LLM/API/배치/2차 교정을 호출하지 않는다. 코드·계획의 Claude 읽기 전용 리뷰만 수행한다. 운영 worker는 `observe_only`를 유지하며 배포·승격도 하지 않는다.
 
 ## 1. 목표와 성공 정의
 
 목표는 repair 횟수를 억지로 낮추는 것이 아니라, **의미 오류만 교정하고 실제 입력 부족·근거 충돌은 정직하게 보류**하는 것이다.
 
-성공은 다음 네 조건을 동시에 만족해야 한다.
+성공은 다음 다섯 조건을 동시에 만족해야 한다.
 
 1. 첫 패스 validator 이슈의 정확한 총량·경로·해당 criterion/axis를 로컬 런에서 재현할 수 있다.
 2. `ambiguous`·`input_missing`만 남은 결과는 LLM repair를 반복하지 않고 `held`로 종결한다.
@@ -236,7 +236,7 @@ RED:
 GREEN:
 
 - v15/v21 문구와 버전 갱신.
-- 175783형 입력 누락, 124866형 structured target 충돌, 121794형 직무/업종 구분 fixture를 fake transport로 고정한다. 실제 모델 응답 품질을 흉내 내는 테스트는 만들지 않고, route·보존 계약만 검증한다.
+- input_missing은 fake transport로 1회 hold를 고정하고, structured target 충돌과 직무/업종 구분은 기존 prompt contract fixture가 유지되는지 검증한다. 실제 모델 응답 품질을 흉내 내는 테스트는 만들지 않고, route·보존 계약만 검증한다.
 
 검증:
 
@@ -256,6 +256,19 @@ GREEN:
 - 리뷰 지적은 코드 수정 후 관련 커밋에 포함하거나 별도 한국어 후속 커밋으로 남긴다.
 
 커밋 제목: `딥분석 품질 회복 계약과 검증 절차를 기록하다`
+
+## 5-1. 구현 결과 (2026-08-13)
+
+| 순서 | 커밋 | 구현·검증 결과 |
+|---:|---|---|
+| 0 | `1de06b5` | 상세 계획과 CP2 실패 근거를 정본화하고 Claude 적대적 계획 리뷰의 P0/P1을 반영 |
+| 1 | `ef3a984` | issue code 20개 호환 상한과 별개로 정확한 `issueCount`, 최대 64개 path/message/axis/criterion 진단을 보존 |
+| 2 | `af65bf2` | 공유 `accept/repair/hold` 판정, lab held sentinel, 실패 extraction·전 패스 진단 보존, mixed issue에서 hold를 repair prompt에서 제외 |
+| 3 | `9e33f6a` | 운영 processor가 같은 route를 사용하고 held를 `blocked`로 종결. validated criterion + `inspected_no_condition` 한 방향만 raw/normalized 축을 대칭 교정 |
+| 4 | `3c16cf3` | 프롬프트 `lab-deep-v15`/`deep-analysis-v21`. 실제 충돌·입력 누락은 hold, canonical 표현 불안만 `text_only + condition_found`로 정렬 |
+| 4-r | `29f0491` | 최종 리뷰 후 held 오류가 attempt 여유·소진과 무관하게 terminal `blocked`가 되는 상태 매핑을 순수 회귀 테스트로 고정 |
+
+기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 이 정적 구현은 repair율·실모델 의미 품질의 개선을 아직 입증하지 않는다. 사용자 승인 뒤 125015 단건 canary에서 새 지표를 관측해야 한다.
 
 ## 6. 계획 자체의 테스트 행렬
 
@@ -299,12 +312,28 @@ Claude 읽기 전용 적대적 리뷰 판정은 **CONDITIONAL GO**였다. 구현
 
 과구현 지적은 없었다. DB 상태·queue·generic patch schema·semantic 자동 재매핑을 만들지 않는 현재 비목표를 유지한다.
 
+### 구현 후 적대적 리뷰
+
+구현 후 핵심 상태 전이(`validator → processor → worker policy`)를 다시 Claude 읽기 전용 리뷰에 제출했다. strict valid 유지, repair loop의 hold 조기 탈출, held run의 blocked 종결, `primary_validation_held → input_blocked` 비재시도 경로를 추적한 결과 **APPROVE, 미해결 P0/P1 0** 판정을 받았다. 더 큰 전체 diff Sonnet 리뷰 두 시도는 로컬 구독 CLI 경합으로 각각 5분간 출력이 없어 중단했으며, 코드나 저장소 상태는 변경하지 않았다.
+
+### 최종 검증 증거
+
+- `pnpm verify:deep-analysis-contract` — 전체 통과
+- `pnpm lab:quality:test` — 전체 통과
+- `pnpm test:deep-analysis-runtime-control` — 전체 통과
+- `pnpm verify:promotion-protection` — 전체 통과
+- `pnpm --filter @cunote/web typecheck` — 통과
+- `pnpm --filter @cunote/web build` — production build 성공
+- `git diff --check` — 통과
+
+build에는 기존 `archiveKStartupCore.ts`의 동적 파일 패턴과 NFT 추적 범위 경고가 남았지만 컴파일·TypeScript·페이지 생성은 모두 성공했다. 이번 변경의 live LLM/API/배치, 2차 교정, 배포, 승격은 실행하지 않았다.
+
 ## 9. 최종 실행 게이트
 
 정적 구현 완료 후에도 live 실행은 자동으로 이어가지 않는다.
 
 1. 전체 `verify:deep-analysis-contract`, `lab:quality:test`, web typecheck, 관련 runtime test 통과.
-2. 커밋별 diff 리뷰와 최종 Claude 적대적 리뷰에서 P0/P1 지적 0.
+2. 커밋별 diff 리뷰와 최종 Claude 적대적 리뷰에서 미해결 P0/P1 지적 0.
 3. 사용자 승인 후에만 125015 단건 canary.
 4. canary가 의미 보존·route·repair 회귀를 통과하면 층화된 새 코호트 배치.
 5. Kordoc field-level canary와 독립 Fable/Sonnet 검수는 별도 승인된 실행 단계로 유지.

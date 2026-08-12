@@ -1,7 +1,7 @@
 # 딥분석·Kordoc 단건 처리 속도 개선 계획
 
 > 작성일: 2026-08-11
-> 상태: T0·T1·T4 일부 채택·구현, CP2 repair 게이트 실패(2026-08-13 00:58 KST 최종: 성공 10건 중 repair 7건). 현황 정본은 `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`.
+> 상태: T0·T1 구현, CP2 repair 게이트 실패(2026-08-13 00:58 KST 최종: 성공 10건 중 repair 7건), T4 CP2-b 정적 품질 회복 구현 완료·live canary 승인 대기. 현황 정본은 `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`.
 > 범위: lab 구독(claude-cli) 경로의 단건·배치 처리 속도. 품질 게이트 계약(quality-graph·promote)은 절차로만 관통하고 완화하지 않는다.
 > 비범위: 운영 API 경로 변경, 22축 매칭 규칙 변경, 수집 정책 변경.
 > 근거 조사: 같은 날 오전 10건 배치(run-2026-08-11T015659.*) 실측 + 과거 run 데이터 마이닝 + 실코드 경로 A/B 마이크로벤치. 세부 수치는 §2.
@@ -189,7 +189,7 @@ T1 배선 완료 직후 같은 3공고를 실제 경로(lab:roundtrip:smoke → 
 
 - 성공 10/10 · window-exhausted·timeout 0 · 배치 wall 38.03분 · **건당 wall 평균 12.23분**(4.33~25.63분) — 08-11 검증 배치(24.5분)에서 재반감. 명목 비용 $23.81(구독 실지출 0).
 - Kordoc provenance: 새 roundtrip 산출물 9/9 `requestedEffort: "medium"`·claude-cli(첨부 없음 1건 해당 없음).
-- **repair율 70%(7/10: 0회 3 · 1회 5 · 2회 2) → CP2 게이트(<20%) 실패.** v14 효과는 실재하나(무repair 0/9→3/10) 게이트에 크게 미달. 첫 패스 issue: `unresolved_axis` 29(5개 런 — 이 중 20건이 175783 1건에 집중, 계측 상한 20 도달) · `semantic_misattribution` 2 · `canonical_contract_invalid` 1.
+- **repair율 70%(7/10: 0회 3 · 1회 5 · 2회 2) → CP2 게이트(<20%) 실패.** v14 효과는 실재하나(무repair 0/9→3/10) 게이트에 크게 미달. 첫 패스 issue: `unresolved_axis` **관측 최소 29**(5개 런 — 이 중 20건이 175783 1건에 집중, 계측 상한 20 도달) · `semantic_misattribution` 2 · `canonical_contract_invalid` 1.
 - **repair 회귀 관측**: 120145는 첫 패스 issue가 semantic 1건뿐이었으나 repair(22축 풀 재생성)가 `axis_criterion_mismatch` 13건을 신규 유발해 2차 repair를 지불 — repair 국소화(실패 축만 재생성) 검토의 직접 근거. CP2-b 정적 재현 대상에 포함할 것.
 - 의미 강제 확인: 10런 220축의 최종 상태는 condition_found 71 · inspected_no_condition 149 · **ambiguous·input_missing 0** — 진짜 판단불가·입력결핍도 validator 계약이 inspected_no_condition으로 눌러 닫는다. v15 수정안에서 프롬프트 정합(잔존 지시 규칙 3곳 개정)만으로 갈지 validator 계약 개정(comment 근거 있는 unresolved 허용)까지 갈지의 판단 근거. 참고: 확인 루프(confirmations)는 축 상태를 소비하지 않아 축 종결 강화와 무간섭(confirmations.ts 확인).
 - 잔존 unresolved_axis의 편중: 축 단위 산발(4런 1~5건)과 입력 결핍 공고 단위 대량 헤징(175783형)이 다른 문제다 — 정적 재현 시 두 유형을 분리해 다룰 것.
@@ -218,9 +218,9 @@ T1 배선 완료 직후 같은 3공고를 실제 경로(lab:roundtrip:smoke → 
 3. **CP1-b (T4 2단계, 08-12)**: `unresolved_axis` 원인 = 프롬프트(ambiguous/input_missing 허용·지시)와 validator(무조건 실패) 간 계약 충돌. repair 지시문의 축 종결 규율을 첫 패스 시스템 프롬프트로 승격(extractor.ts axis 섹션), **프롬프트 v13→v14**. validator 계약 불변.
    - canary(08-12 밤, 2/3 완주 — 3번째 125015는 로컬 중단으로 미완): **178559 repair 0·첫 패스 issue 0**(v11 이후 최초의 무repair 런, v13에선 repair 1), 125126은 repair 1 유지(첫 패스 unresolved_axis 4 잔존). 표본 2로는 방향 확인까지 — **규모 판정은 CP2(다음 정례 배치 repair율 <20%)**로 위임. 125015는 `--retry-errors`로 자격을 획득할 뿐 limit 선정에 자동 편입되지 않는다.
    - 부수 발견: batch.ts 실행 경로가 `withApplicationRoundtrip: true`를 **무조건 강제**한다(08-04 형제 실행 불변식 — `--with-application-roundtrip` 플래그는 사실상 장식). 따라서 **모든 lab:batch 호출에 `APPLICATION_ROUNDTRIP_EFFORT=medium` env가 필수 동반** — 누락 시 Kordoc이 기본 effort로 실행돼 창·시간을 낭비한다(이 canary에서 실측). runbook 반영 필요.
-4. **CP2**: ❌ 실패(08-13 00:58 KST 최종). v14 성공 10건 중 repair 7건(70%), 첫 패스 `unresolved_axis` 29건·`semantic_misattribution` 2건·`canonical_contract_invalid` 1건. 속도는 평균 12.23분·최대 25.63분·배치 wall 38.03분으로 통과.
-5. **CP2-b**: 자동 추가 실행 전 잔존 첫 패스 issue를 정적 재현하고 v15 수정안·페이크 transport 회귀 테스트를 만든다. 00:58에 시작됐다가 런 미저장으로 종료된 125015 시도는 재시도하지 않고, 수정·검증·실행 승인 후에만 명시 타깃으로 재현성을 확인한다.
-6. **CP3**: CP2-b 통과 전에 시작하지 않는다. 통과 후 T2+T3+T5 구현(계약·엔진 버전 bump, §2.1 개정) → 신규 3건 + 기존 1건 재분석으로 품질 그래프 전 노드 passed 확인.
+4. **CP2**: ❌ 실패(08-13 00:58 KST 최종). v14 성공 10건 중 repair 7건(70%), 첫 패스 `unresolved_axis` 관측 최소 29건·`semantic_misattribution` 2건·`canonical_contract_invalid` 1건. 속도는 평균 12.23분·최대 25.63분·배치 wall 38.03분으로 통과.
+5. **CP2-b**: ✅ 정적 구현·회귀 검증 완료(`ef3a984`, `af65bf2`, `9e33f6a`, `3c16cf3`, `29f0491`). 정확한 진단, accept/repair/hold, 운영 blocked 종결, 안전한 축 교정, v15/v21 프롬프트 계약과 비재시도 상태 테스트를 반영했다. 실제 repair율·의미 품질은 미실측이며, 125015 명시 타깃 canary는 별도 실행 승인 후에만 시작한다.
+6. **CP3**: CP2-b live canary 품질 게이트 통과 전에 시작하지 않는다. 통과 후 T2+T3+T5 구현(계약·엔진 버전 bump, §2.1 개정) → 신규 3건 + 기존 1건 재분석으로 품질 그래프 전 노드 passed 확인.
 7. **CP4**: 층화·버전된 코호트에서 확대 배치로 종합 효과를 실측한다. `<20%`를 모집단 주장으로 쓰려면 단측 95% 상한 기준의 순차 표본 규칙(무repair 최소 14건, repair 1건이면 최소 22건)을 사전 고정한다.
 
 ## 6. 리스크·미결
