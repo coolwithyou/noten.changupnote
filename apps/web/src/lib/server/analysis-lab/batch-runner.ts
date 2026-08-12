@@ -23,7 +23,13 @@ import {
 import { classifyNoticePeriod } from "@/features/dev/analysis-lab/notice-period";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER, resolveLabTransport } from "./claude-cli-transport";
-import { cohortFilePath, readCohortFileV2, type CohortEntry, type CohortFileV2 } from "./cohort-file";
+import {
+  cohortFilePath,
+  cohortSnapshotFilePath,
+  readCohortFileV2,
+  type CohortEntry,
+  type CohortFileV2,
+} from "./cohort-file";
 import { analysisLabDir } from "./run-store";
 
 // ---- 공개 계약 -----------------------------------------------------------------
@@ -47,6 +53,8 @@ export interface LabBatchRunnerOptions {
   roundtripModel?: string;
   /** 코호트 안에서 정확히 이 공고들만 실행한다. */
   grantIds?: string[];
+  /** 기본 cohort.json 대신 불변 cohort.<label>.json 을 읽는다. */
+  cohortSnapshot?: string;
   onEvent?: (event: LabBatchEvent) => void;
   /** abort 시 신규 착수만 중단한다 — 진행분은 각 워커가 완료하고 런도 저장된다. */
   signal?: AbortSignal;
@@ -117,7 +125,7 @@ export interface LabBatchRunnerDeps {
   runAnalysisImpl?: LabBatchAnalysisImpl;
   scanRunsImpl?: () => Promise<LabBatchRunScan>;
   splitPeriodImpl?: (entries: CohortEntry[]) => Promise<LabBatchPeriodSplit>;
-  readCohortImpl?: () => Promise<CohortFileV2 | null>;
+  readCohortImpl?: (path: string) => Promise<CohortFileV2 | null>;
 }
 
 // ---- 비용 추정 -----------------------------------------------------------------
@@ -342,8 +350,11 @@ export async function runLabBatch(
   resolveEffectiveTransport(options.transport);
   const emit = options.onEvent ?? (() => {});
 
-  const cohort = await (deps?.readCohortImpl ?? readCohortFileV2)();
-  if (!cohort) throw new LabCohortMissingError(cohortFilePath());
+  const cohortPath = options.cohortSnapshot
+    ? cohortSnapshotFilePath(options.cohortSnapshot)
+    : cohortFilePath();
+  const cohort = await (deps?.readCohortImpl ?? readCohortFileV2)(cohortPath);
+  if (!cohort) throw new LabCohortMissingError(cohortPath);
   const cohortEntries = selectRequestedCohortEntries(cohort.entries, options.grantIds);
 
   const { states, okCostSamples } = await (deps?.scanRunsImpl ?? scanExistingRuns)();

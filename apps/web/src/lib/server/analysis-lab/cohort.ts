@@ -39,6 +39,7 @@ import {
 import { kstDayStartUtc } from "@/features/dev/analysis-lab/notice-period";
 import {
   PILOT_STRATUM,
+  cohortSnapshotFilePath,
   readCohortFileV2,
   writeCohortFileV2,
   type CohortEntry,
@@ -104,6 +105,58 @@ export interface LabCohortMeta {
 
 export interface LabCohortResult extends LabCohortResponse {
   cohortMeta: LabCohortMeta;
+}
+
+export interface FreezeLabCohortSnapshotOptions {
+  size: number;
+  seed: number;
+  /** 파일명과 실험 메타에 함께 쓰는 불변 라벨. */
+  experimentLabel: string;
+}
+
+export interface FrozenLabCohortSnapshot {
+  path: string;
+  file: CohortFileV2;
+  quotas: NonNullable<LabCohortMeta["quotas"]>;
+  warnings: string[];
+  excludedCanonicalCount: number;
+}
+
+/**
+ * 현행 cohort.json 을 건드리지 않고 새 층화 표본을 불변 파일로 동결한다. 기존 정본의
+ * grantId 는 전부 제외해 시간에 따른 새 표본 게이트가 과거 표본 재사용으로 흐려지지 않게 한다.
+ */
+export async function freezeLabCohortSnapshot(
+  options: FreezeLabCohortSnapshotOptions,
+): Promise<FrozenLabCohortSnapshot> {
+  const db = getCunoteDb();
+  const size = normalizeSize(options.size);
+  const warnings: string[] = [];
+  const canonical = await readCohortFileV2();
+  const excludedCanonicalIds = canonical?.entries.map((entry) => entry.grantId) ?? [];
+  const fresh = await selectFreshCohort(db, {
+    size,
+    stratified: true,
+    seed: options.seed,
+    experimentLabel: options.experimentLabel,
+    stored: null,
+    excludeIds: excludedCanonicalIds,
+    warnings,
+  });
+  if (fresh.file.entries.length !== size || fresh.quotas === null) {
+    throw new Error(
+      `층화 코호트 재고가 부족합니다: 요청 ${size}건 · 선정 ${fresh.file.entries.length}건 — 스냅샷을 쓰지 않습니다.`,
+    );
+  }
+  const path = cohortSnapshotFilePath(options.experimentLabel);
+  await writeCohortFileV2(fresh.file, { path, exclusive: true });
+  return {
+    path,
+    file: fresh.file,
+    quotas: fresh.quotas,
+    warnings,
+    excludedCanonicalCount: excludedCanonicalIds.length,
+  };
 }
 
 export async function loadLabCohort(options: LoadLabCohortOptions = {}): Promise<LabCohortResult> {
@@ -203,6 +256,7 @@ interface FreshSelectionInput {
   seed: number | undefined;
   experimentLabel: string | null;
   stored: CohortFileV2 | null;
+  excludeIds?: string[];
   warnings: string[];
 }
 
@@ -248,7 +302,10 @@ async function selectFreshCohort(
   if (input.stratified) {
     // 시드는 미지정 시 시각 기반으로 생성하되 반드시 파일에 기록한다(사후 재현 가능).
     seed = input.seed ?? Date.now() >>> 0;
-    const candidates = await loadStratumCandidates(db, preserved.map((entry) => entry.grantId));
+    const candidates = await loadStratumCandidates(
+      db,
+      [...new Set([...preserved.map((entry) => entry.grantId), ...(input.excludeIds ?? [])])],
+    );
     const selection = selectStratifiedCohort(candidates, needed, seed);
     warnings.push(...selection.warnings);
     quotas = selection.quotas;
@@ -261,7 +318,11 @@ async function selectFreshCohort(
     ];
   } else {
     // 비층화(현행 동작) — stratum 은 파일럿과 의미가 같은 "pilot" 로 기록한다.
-    const ids = await selectCohortGrantIds(db, needed, preserved.map((entry) => entry.grantId));
+    const ids = await selectCohortGrantIds(
+      db,
+      needed,
+      [...new Set([...preserved.map((entry) => entry.grantId), ...(input.excludeIds ?? [])])],
+    );
     entries = [...preserved, ...ids.map((grantId) => ({ grantId, stratum: PILOT_STRATUM }))];
   }
 

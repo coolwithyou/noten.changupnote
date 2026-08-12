@@ -4,7 +4,8 @@
 // ② 비용 상한 → guard-stop(cost-cap) + 신규 착수 중단 ③ 윈도 소진 마커 → guard-stop(window-exhausted)
 // ④ abort → stopReason aborted + 진행분 완료 ⑤ transport/model/roundtrip 오버라이드의 runLabAnalysis 전달
 // ⑥ 대상 0건 → 분석 무호출 finished ⑦ 오버라이드 오타 fail-fast(이벤트 무방출)
-// ⑧ 10건 작업 인플라이트(실제 CLI 프로세스 상한은 transport 스케줄러 소관).
+// ⑧ 10건 작업 인플라이트(실제 CLI 프로세스 상한은 transport 스케줄러 소관)
+// ⑨ 불변 코호트 스냅샷 경로 선택과 경로 조작 차단.
 import assert from "node:assert/strict";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import {
@@ -542,6 +543,31 @@ console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·s
   assert.equal(planOf(events).total, 1);
   assert.equal(planOf(events).targets, 1);
   console.log("✅ grantIds — 코호트 안의 정확한 공고만 실행·누락은 fail-fast");
+}
+
+// ---- ⑨ 불변 코호트 스냅샷 선택 -----------------------------------------------
+{
+  let receivedPath = "";
+  const deps = makeDeps({
+    entries: [entry("snapshot-1")],
+    run: async (grantId) => okResult(grantId, 0.1),
+  });
+  deps.readCohortImpl = async (path) => {
+    receivedPath = path;
+    return makeCohort([entry("snapshot-1")]);
+  };
+  await runLabBatch(baseOptions([], { cohortSnapshot: "deep-v15-cp2b-pilot5" }), deps);
+  assert.match(
+    receivedPath,
+    /cohort\.deep-v15-cp2b-pilot5\.json$/,
+    "러너가 정본 대신 지정한 불변 스냅샷을 읽는다",
+  );
+  await assert.rejects(
+    runLabBatch(baseOptions([], { cohortSnapshot: "../escape" }), deps),
+    /코호트 스냅샷 라벨 형식/,
+    "경로 조작은 파일 읽기 전에 거부한다",
+  );
+  console.log("✅ 코호트 스냅샷 — 명시 파일 선택·경로 조작 fail-fast");
 }
 
 console.log("\nbatch-runner 테스트 전부 통과");

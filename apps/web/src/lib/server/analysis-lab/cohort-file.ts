@@ -29,14 +29,29 @@ export function cohortFilePath(): string {
   return join(analysisLabDir(), "cohort.json");
 }
 
+const COHORT_SNAPSHOT_LABEL_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,78}[a-z0-9])?$/;
+
+/**
+ * 불변 코호트 스냅샷 경로. 라벨은 파일명 조각으로만 쓰이므로 소문자·숫자·하이픈만
+ * 허용한다. CLI 입력이 analysis-lab 루트 밖으로 탈출하지 못하게 하는 단일 경계다.
+ */
+export function cohortSnapshotFilePath(label: string): string {
+  if (!COHORT_SNAPSHOT_LABEL_PATTERN.test(label)) {
+    throw new Error(
+      `코호트 스냅샷 라벨 형식이 잘못됐습니다: "${label}" — 소문자·숫자·하이픈 1~80자만 허용합니다.`,
+    );
+  }
+  return join(analysisLabDir(), `cohort.${label}.json`);
+}
+
 /**
  * cohort.json 을 v2 로 정규화해 읽는다. v1({grantIds: string[]})은 stratum "pilot" 으로
  * 변환한다. 파일이 없거나 형식이 깨졌으면 null.
  */
-export async function readCohortFileV2(): Promise<CohortFileV2 | null> {
+export async function readCohortFileV2(path = cohortFilePath()): Promise<CohortFileV2 | null> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(cohortFilePath(), "utf8"));
+    parsed = JSON.parse(await readFile(path, "utf8"));
   } catch {
     return null;
   }
@@ -79,9 +94,18 @@ export async function readCohortFileV2(): Promise<CohortFileV2 | null> {
   return null;
 }
 
-export async function writeCohortFileV2(file: CohortFileV2): Promise<void> {
-  const path = cohortFilePath();
+export async function writeCohortFileV2(
+  file: CohortFileV2,
+  options: { path?: string; exclusive?: boolean } = {},
+): Promise<void> {
+  const path = options.path ?? cohortFilePath();
   await mkdir(dirname(path), { recursive: true });
+  if (options.exclusive) {
+    // 게이트 표본은 실행 후에도 같은 이름으로 바뀌면 안 된다. run-store 와 같은 wx 계약으로
+    // 기존 스냅샷을 덮어쓰지 않고 즉시 실패한다.
+    await writeFile(path, `${JSON.stringify(file, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
+    return;
+  }
   // 분석 대상 자동 선정과 배치 요약이 동시에 파일을 읽어도 반쪽 JSON을 보지 않도록
   // 같은 디렉터리의 임시 파일을 완성한 뒤 원자적으로 교체한다.
   const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;

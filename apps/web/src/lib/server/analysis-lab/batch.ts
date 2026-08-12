@@ -43,7 +43,7 @@ import {
   type LabBatchTransport,
 } from "./batch-runner";
 import { resolveClaudeCliMaxConcurrency, resolveLabTransport } from "./claude-cli-transport";
-import { cohortFilePath, readCohortFileV2 } from "./cohort-file";
+import { cohortFilePath, cohortSnapshotFilePath, readCohortFileV2 } from "./cohort-file";
 import { resolveLabModel } from "./extractor";
 import {
   MAX_CONSECUTIVE_LEASE_RENEWAL_FAILURES,
@@ -88,6 +88,7 @@ interface BatchOptions {
   withApplicationRoundtrip: boolean;
   roundtripModel?: string;
   grantIds?: string[];
+  cohortSnapshot?: string;
 }
 
 /** 옵션 검증 — 오류면 사유 문자열 반환(호출부에서 안내 후 exit 1). */
@@ -99,6 +100,7 @@ function parseOptions(): BatchOptions | string {
   const roundtripModel = readArg("roundtrip-model")?.trim();
   const grantIdsRaw = readArg("grant-ids");
   const grantIds = grantIdsRaw?.split(",").map((value) => value.trim()).filter(Boolean);
+  const cohortSnapshot = readArg("cohort-snapshot")?.trim();
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
     return "--limit 은 1 이상의 정수여야 합니다.";
   }
@@ -122,6 +124,13 @@ function parseOptions(): BatchOptions | string {
   if (grantIdsRaw !== undefined && (!grantIds || grantIds.length === 0 || new Set(grantIds).size !== grantIds.length)) {
     return "--grant-ids 는 중복 없는 공고 ID를 쉼표로 지정해야 합니다.";
   }
+  if (cohortSnapshot !== undefined) {
+    try {
+      cohortSnapshotFilePath(cohortSnapshot);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }
   return {
     limit,
     concurrency,
@@ -132,13 +141,14 @@ function parseOptions(): BatchOptions | string {
     withApplicationRoundtrip,
     ...(roundtripModel !== undefined ? { roundtripModel } : {}),
     ...(grantIds ? { grantIds } : {}),
+    ...(cohortSnapshot !== undefined ? { cohortSnapshot } : {}),
   };
 }
 
 // ---- 콘솔 렌더(추출 전 로그 라인 포맷 그대로 — 합격선) --------------------------
 
-function printCohortMissing(): void {
-  console.error(`[batch] cohort.json 이 없거나 형식이 깨졌습니다: ${cohortFilePath()}`);
+function printCohortMissing(path = cohortFilePath()): void {
+  console.error(`[batch] 코호트 파일이 없거나 형식이 깨졌습니다: ${path}`);
   console.error("[batch] 실험실 UI(/dev/analysis-lab) 또는 코호트 선정 CLI로 코호트를 먼저 생성해주세요.");
 }
 
@@ -231,9 +241,12 @@ function printSummaryLines(args: {
 // dry-run 은 추출 전과 동일하게 스캔+분할만 직접 수행한다(scanExistingRuns 는 러너 export 재사용).
 
 async function runDryRun(options: BatchOptions): Promise<number> {
-  const cohort = await readCohortFileV2();
+  const path = options.cohortSnapshot
+    ? cohortSnapshotFilePath(options.cohortSnapshot)
+    : cohortFilePath();
+  const cohort = await readCohortFileV2(path);
   if (!cohort) {
-    printCohortMissing();
+    printCohortMissing(path);
     return 1;
   }
   const { states, okCostSamples } = await scanExistingRuns();
@@ -380,6 +393,7 @@ async function runBatchViaRunner(
       ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
       ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
       ...(options.grantIds ? { grantIds: options.grantIds } : {}),
+      ...(options.cohortSnapshot ? { cohortSnapshot: options.cohortSnapshot } : {}),
       ...(signal ? { signal } : {}),
       onEvent: (event) => {
         recorder.record(event); // 관측 브리지 — 콘솔 렌더와 무관하게 베스트에포트 기록
@@ -468,7 +482,7 @@ async function runBatchViaRunner(
     // 러너 자체 throw — 웹 잡 관리자의 state "error" 흡수와 동형으로 최종 기록한다.
     recorder.fail(caught instanceof Error ? caught.message : String(caught));
     if (caught instanceof LabCohortMissingError) {
-      printCohortMissing();
+      printCohortMissing(caught.path);
       return 1;
     }
     throw caught; // 그 외는 부트스트랩 .catch 가 "[batch] 실패:" + exit 1 로 처리(추출 전과 동일)
