@@ -1,8 +1,8 @@
 # 딥분석 품질 회복 구현 계획 (2026-08-13)
 
-> 상태: 정적 구현·회귀 검증 및 125015 v15 live canary GO, 층화·버전 코호트 검증 진행. CP2(`lab-deep-v14`)의 10건 실측을 기준선으로 사용한다.
+> 상태: 정적 구현·125015 canary·불변 층화 v17 pilot5까지 GO. v17은 publishable 4·held 1·repair 0/5이며, 모집단 `<20%` 주장은 0 repair 누적 14건까지 보류한다. CP2(`lab-deep-v14`)의 10건 실측을 기준선으로 사용한다.
 > 선행 근거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`
-> 안전 경계: 이 계획의 제품 데이터 검증은 분석 LLM/API/배치/2차 교정을 호출하지 않는다. 코드·계획의 Claude 읽기 전용 리뷰만 수행한다. 운영 worker는 `observe_only`를 유지하며 배포·승격도 하지 않는다.
+> 안전 경계: 사용자 승인으로 exact canary와 불변 pilot5까지만 로컬 구독 CLI로 실행했다. 범용 `lab:agent --execute`, 2차 교정, 운영 worker 활성화, 배포·승격은 실행하지 않았고 `observe_only`를 유지한다.
 
 ## 1. 목표와 성공 정의
 
@@ -267,8 +267,12 @@ GREEN:
 | 3 | `9e33f6a` | 운영 processor가 같은 route를 사용하고 held를 `blocked`로 종결. validated criterion + `inspected_no_condition` 한 방향만 raw/normalized 축을 대칭 교정 |
 | 4 | `3c16cf3` | 프롬프트 `lab-deep-v15`/`deep-analysis-v21`. 실제 충돌·입력 누락은 hold, canonical 표현 불안만 `text_only + condition_found`로 정렬 |
 | 4-r | `29f0491` | 최종 리뷰 후 held 오류가 attempt 여유·소진과 무관하게 terminal `blocked`가 되는 상태 매핑을 순수 회귀 테스트로 고정 |
+| 5 | `947d932` | 기존 정본을 보존하는 불변 층화 코호트 동결과 `--cohort-snapshot` 소비 경로. label 경로 조작·덮어쓰기 차단 |
+| 6 | `240f533` | v15 pilot repair 원문 재검토 뒤 현재 제재 오탐, 주관기관 신청주체, 면책 과축약, 역할 한정 평가를 최소 규칙으로 개선 |
+| 7 | `1b1dc47` | package dist를 재빌드한 뒤 `lab-deep-v17`/`deep-analysis-v23` 런타임 계약 고정 |
+| 8 | `9281d38` | 모든 `lab:batch` 실행 전에 package runtime freshness를 강제하고 CLI 잡에 불변 코호트 라벨 기록 |
 
-기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 125015 단건 canary는 v13 repair 2회 후 실패를 v15 first-pass held·repair 0으로 바꾸고 실제 size 충돌과 Kordoc complete를 보존해 단건 GO를 받았다. 모집단 repair율·실모델 의미 품질은 층화 코호트에서 추가 검증한다.
+기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 125015 단건은 v13 repair 2회 실패를 v15 first-pass held·repair 0으로 바꿨고, v17 불변 pilot5는 publishable 4·held 1·repair 0·신규 issue 0으로 종결했다. 평균 wall은 같은 표본 v15 687.5초에서 v17 427.8초로 줄었다. 0/5의 단측 95% 상한은 45.1%이므로 모집단 `<20%` 주장은 0 repair 누적 14건까지 보류한다.
 
 ## 6. 계획 자체의 테스트 행렬
 
@@ -326,15 +330,16 @@ Claude 읽기 전용 적대적 리뷰 판정은 **CONDITIONAL GO**였다. 구현
 - `pnpm --filter @cunote/web build` — production build 성공
 - `git diff --check` — 통과
 
-build에는 기존 `archiveKStartupCore.ts`의 동적 파일 패턴과 NFT 추적 범위 경고가 남았지만 컴파일·TypeScript·페이지 생성은 모두 성공했다. 이번 변경의 live LLM/API/배치, 2차 교정, 배포, 승격은 실행하지 않았다.
+build에는 기존 `archiveKStartupCore.ts`의 동적 파일 패턴과 NFT 추적 범위 경고가 남았지만 컴파일·TypeScript·페이지 생성은 모두 성공했다. 이후 사용자 승인 범위에서 exact canary와 pilot5만 실행했고, 범용 에이전트·2차 교정·배포·승격은 실행하지 않았다.
 
 ## 9. 최종 실행 게이트
 
 정적 구현 완료 후에도 live 실행은 자동으로 이어가지 않는다.
 
 1. 전체 `verify:deep-analysis-contract`, `lab:quality:test`, web typecheck, 관련 runtime test 통과.
-2. 커밋별 diff 리뷰와 최종 Claude 적대적 리뷰에서 미해결 P0/P1 지적 0.
-3. 사용자 승인 후에만 125015 단건 canary.
-4. canary가 의미 보존·route·repair 회귀를 통과하면 층화된 새 코호트 배치.
-5. Kordoc field-level canary와 독립 Fable/Sonnet 검수는 별도 승인된 실행 단계로 유지.
-6. 전체 재생성 semantic repair가 새 issue를 만들 가능성은 잔여 리스크다. canary에서 `repair 후 신규 issue 발생률=0`이 아니면 patch schema를 별도 설계하고 확대 배치를 중단한다.
+2. 커밋별 diff 리뷰와 상태 전이 대상 Claude 적대적 리뷰에서 미해결 P0/P1 지적 0. 전체 변경 재리뷰용 Claude CLI는 응답 없이 timeout되어 승인 근거로 세지 않았고, 자체 적대적 재리뷰에서 발견한 stale package 선행 게이트·코호트 provenance 누락은 `9281d38`로 종결.
+3. [완료] 125015 단건 canary: held·repair 0·Kordoc complete.
+4. [완료] 불변 층화 v17 pilot5: publishable 4·held 1·repair 0·신규 issue 0.
+5. [다음] 같은 규칙으로 0 repair 누적 14건 통계 게이트. repair가 1건이면 모집단 판정 최소 표본은 22건으로 바뀐다.
+6. Kordoc field-level canary와 독립 Fable/Sonnet 검수는 별도 실행 단계로 유지한다.
+7. 전체 재생성 semantic repair가 새 issue를 만들 가능성은 잔여 리스크다. 후속에서 `repair 후 신규 issue 발생률=0`이 아니면 patch schema를 별도 설계하고 확대를 중단한다.
