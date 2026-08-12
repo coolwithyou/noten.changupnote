@@ -1,7 +1,7 @@
 # 딥분석·Kordoc 단건 처리 속도 개선 계획
 
 > 작성일: 2026-08-11
-> 상태: 제안(검증 데이터 확보 완료 · 채택 대기)
+> 상태: T0·T1·T4 일부 채택·구현, CP2 repair 게이트 실패(2026-08-13 00:58 KST 최종: 성공 10건 중 repair 7건). 현황 정본은 `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`.
 > 범위: lab 구독(claude-cli) 경로의 단건·배치 처리 속도. 품질 게이트 계약(quality-graph·promote)은 절차로만 관통하고 완화하지 않는다.
 > 비범위: 운영 API 경로 변경, 22축 매칭 규칙 변경, 수집 정책 변경.
 > 근거 조사: 같은 날 오전 10건 배치(run-2026-08-11T015659.*) 실측 + 과거 run 데이터 마이닝 + 실코드 경로 A/B 마이크로벤치. 세부 수치는 §2.
@@ -169,9 +169,11 @@ T1 배선 완료 직후 같은 3공고를 실제 경로(lab:roundtrip:smoke → 
 | 시나리오 | 건당 호출 수 | Kordoc 호출당 | 슬롯 | 10건 배치 wall | 단건 fresh |
 |---|---:|---:|---:|---:|---:|
 | 현행 | 14.6 | 2.15분 | 4 | ~79분 (건당 평균 57분) | 17~21분 |
-| T0만 | 14.6 | 2.15분 | 4→8 | ~40분 (건당 15~20분) | 17~21분 |
-| T0+T1+T2 | 14.6 | ~0.6분 | 8 | ~18~22분 | ~8~10분 |
-| 전체(T0~T5, T4 포함) | ~10.4 (Kordoc 10.2 + 딥 1.1패스) | ~0.6분 | 8 | **~14분** | **~4~5분** |
+| T0만(기본 상한 4 유지) | 14.6 | 2.15분 | 4 | 처리량 불변, 실측 72분(건당 평균 24.5분) | 17~21분 |
+| T0+조건부 전역 상한 8 | 14.6 | 2.15분 | 8 | ~40분(미검증) | 15~20분(미검증) |
+| T0+T1+T2(상한 8 가정) | 14.6 | ~0.6분 | 8 | ~18~22분 | ~8~10분 |
+| 전체(T0~T5, T4 포함, 상한 8 가정) | ~10.4 (Kordoc 10.2 + 딥 1.1패스) | ~0.6분 | 8 | **~14분** | **~4~5분** |
+| 전체(T0~T5, T4 포함, 현재 상한 4) | ~10.4 (Kordoc 10.2 + 딥 1.1패스) | ~0.6분 | 4 | **~26~28분** | **~4~5분** |
 
 전체 적용 후에는 딥 1패스(3.7분)가 단건 시간의 지배 항으로 남는다 — 그때 T6(딥 effort medium canary)의 우선순위가 올라간다.
 
@@ -181,7 +183,17 @@ T1 배선 완료 직후 같은 3공고를 실제 경로(lab:roundtrip:smoke → 
 - **건당 wall 평균 24.5분(오전 57분, −57%) · 최대 37.2분(78.5분, −53%)** — T0(인플라이트 4)의 예측이 실측으로 확정.
 - **repair는 v13에서도 상수(성공 9런 전부 ≥1)** — `primaryPasses` 계측 첫 수확: 첫 패스 실패 주범은 **`unresolved_axis`(9/9 전원)**, 부성분 `semantic_misattribution`(4) · `evidence_not_grounded`(2) · `canonical_contract_invalid`(1). 딥 패스가 첫 5.8~10.9분 + repair 3.3~8.7분으로 이제 단건 시간의 지배 항 — T4 2단계(첫 패스에서 22축 종결 강제 또는 무조건 축의 결정적 종결)가 최우선 후속.
 - Kordoc 재판정 부하: 요청 128→133(+3.9%) — §2-3-3 추정(+10~15%)보다 양호.
-- 판정 드리프트(22문서, 기준=오전 v12 확정): 일치 3,080/3,218(95.7%). 입력 손실 90 중 **63건(70%)이 124870의 638후보 메뉴형 양식 1개 문서에 집중**(해당 문서 제외 손실률 ~1.0%), 125015(936후보)는 99.1% 일치. 이 배치는 2단 effort와 codex의 editable-regions 변경이 동시 적용돼 드리프트의 단독 귀속은 불가 — 정오 판정은 기준 diff가 아니라 **검수·감사 레인**(lab:ai-review→lab:ai-audit)이 담당한다. 대형 메뉴형 양식의 판정 안정성은 별도 관찰 항목.
+- 판정 드리프트(22문서, 기준=오전 v12 확정): 일치 3,080/3,218(95.7%). 입력 손실 90 중 **63건(70%)이 124870의 638후보 메뉴형 양식 1개 문서에 집중**(해당 문서 제외 손실률 ~1.0%), 125015(936후보)는 99.1% 일치. 이 배치는 2단 effort와 codex의 editable-regions 변경이 동시 적용돼 드리프트의 단독 귀속은 불가능하다. 또한 이것은 Kordoc 필드 판정 문제라 딥분석 criteria·빈 축만 보는 lab:ai-review→lab:ai-audit로 정오를 판정할 수 없다. 대형 메뉴형 양식은 별도 field-level Kordoc canary가 필요하다.
+
+### 4-3. CP2 검증 배치 실측 (2026-08-13 00:19~00:58 KST, v14 첫 규모 검증 10건)
+
+- 성공 10/10 · window-exhausted·timeout 0 · 배치 wall 38.03분 · **건당 wall 평균 12.23분**(4.33~25.63분) — 08-11 검증 배치(24.5분)에서 재반감. 명목 비용 $23.81(구독 실지출 0).
+- Kordoc provenance: 새 roundtrip 산출물 9/9 `requestedEffort: "medium"`·claude-cli(첨부 없음 1건 해당 없음).
+- **repair율 70%(7/10: 0회 3 · 1회 5 · 2회 2) → CP2 게이트(<20%) 실패.** v14 효과는 실재하나(무repair 0/9→3/10) 게이트에 크게 미달. 첫 패스 issue: `unresolved_axis` 29(5개 런 — 이 중 20건이 175783 1건에 집중, 계측 상한 20 도달) · `semantic_misattribution` 2 · `canonical_contract_invalid` 1.
+- **repair 회귀 관측**: 120145는 첫 패스 issue가 semantic 1건뿐이었으나 repair(22축 풀 재생성)가 `axis_criterion_mismatch` 13건을 신규 유발해 2차 repair를 지불 — repair 국소화(실패 축만 재생성) 검토의 직접 근거. CP2-b 정적 재현 대상에 포함할 것.
+- 의미 강제 확인: 10런 220축의 최종 상태는 condition_found 71 · inspected_no_condition 149 · **ambiguous·input_missing 0** — 진짜 판단불가·입력결핍도 validator 계약이 inspected_no_condition으로 눌러 닫는다. v15 수정안에서 프롬프트 정합(잔존 지시 규칙 3곳 개정)만으로 갈지 validator 계약 개정(comment 근거 있는 unresolved 허용)까지 갈지의 판단 근거. 참고: 확인 루프(confirmations)는 축 상태를 소비하지 않아 축 종결 강화와 무간섭(confirmations.ts 확인).
+- 잔존 unresolved_axis의 편중: 축 단위 산발(4런 1~5건)과 입력 결핍 공고 단위 대량 헤징(175783형)이 다른 문제다 — 정적 재현 시 두 유형을 분리해 다룰 것.
+- 125015(0aa42679)는 코호트 순서 편향으로 이번 10건에 미선정(리뷰 문서 §6-①) — 타깃 실행은 원인 수정·승인 전 보류(§5 CP2-b).
 
 ## 4-1. 실행 현황·협업 분담 (2026-08-11 13시대)
 
@@ -190,9 +202,9 @@ T1 배선 완료 직후 같은 3공고를 실제 경로(lab:roundtrip:smoke → 
 | 항목 | 담당 | 상태 |
 |---|---|---|
 | T0 운용값 (runbook 반영: 배치 conc 10→4 권장·근거) | 이 세션 | ✅ `docs/explainers/구독모델로-딥분석-돌리는-법.md` 반영 완료 |
-| 스케줄러 키별 공정성(schedulerKey — 공고 간 기아 방지, P2 보강) | codex 세션 | 🔨 미커밋 진행 중 (`claude-cli-transport.ts`) |
-| T5 동시성 부분(candidateConcurrency 하드코딩 2 → 전역 상한 해석) | codex 세션 | 🔨 미커밋 진행 중 (`analyze.ts`·`lab-runner.ts`·`field-planner.ts`) |
-| T4 방향(repair 규칙의 첫 패스 프롬프트 승격 + validator·matching-scope 확장) | codex 세션 | 🔨 미커밋 진행 중 (`extractor.ts` 규칙 4종 추가·`validator.ts` +190줄) |
+| 스케줄러 키별 공정성(schedulerKey — 공고 간 기아 방지, P2 보강) | codex 세션 | ✅ `9f66186` 커밋·테스트 완료 |
+| T5 동시성 부분(candidateConcurrency 하드코딩 2 → 설정화) | 후속 트랙 | ⏸ 미구현 — `9f66186`은 2-way 제한을 보존·명시화함 |
+| T4 구조 validator·matching-scope 확장 | codex 세션 | ✅ `9f66186` 커밋·테스트 완료. 프롬프트 v14는 `85c210d`, CP2에서 불충분 판정 |
 | T1 effort 품질 canary(low·medium 각 3공고 8콜, 판정 일치 검증) | 이 세션 | ✅ 완료 — 순수 하향 기각, **2단 설계 확정**(§2-3-3) |
 | T1 배선(2단 effort + 거절 임계 0.85 + env + provenance) | 이 세션(서브에이전트) | ✅ 구현·재canary 통과·**기본값 전환 완료**(17:26 — 손실 0건, §2-3-4. runbook env 등재) |
 | T4 계측(LabRun에 validator issue 코드·패스별 시간) | 이 세션(서브에이전트) | ✅ 구현 완료(17:25 — `LabRun.primaryPasses` additive, validated-primary·batch-runner 테스트 통과). 다음 배치 1회로 최빈 issue 코드 표 수집 가능 |
@@ -202,13 +214,14 @@ T1 배선 완료 직후 같은 3공고를 실제 경로(lab:roundtrip:smoke → 
 1. **CP0 (즉시)**: 다음 배치부터 T0 운용값 적용. 측정: 건당 wall 중앙값, 요청 wall 최대치(900s 마진), 세션 한도 신호.
 2. **CP1**: ✅ 완료(08-11 저녁, §4-2). 검증 배치 실측 — 건당 −57%, 재판정 부하 +3.9%, `unresolved_axis`가 repair 주범으로 확정.
    - 품질 게이트(08-12): **Fable 검수 9/9 완료** — criterion 130건 중 correct 124 · needs_edit 6, 실패·원문 드리프트 0. **Sonnet 감사 8/9 완료** — 판정 26항목 중 일치 25 · 불일치 1 · unsure 0, 감사 7건 전 항목 확정(게이트 편입 가능). 잔여: 불일치 1항목 사람 판정, 감사 실패 1건(용인시 — 타임아웃 후 일시 DB 오류, 재시도 대상), needs_edit 6건은 held-review repair 흐름 입력.
-   - Kordoc 드리프트 우려(§4-2)에 대한 게이트 답변: 검수·감사가 실질 이상을 잡지 않았다 — 124870 메뉴형 양식 집중 드리프트는 관찰 항목 유지.
+   - 품질 게이트의 범위는 딥분석 criteria·빈 축까지다. Kordoc 필드 드리프트는 이 게이트로 무해성을 입증할 수 없으며 별도 field-level canary가 필요하다.
 3. **CP1-b (T4 2단계, 08-12)**: `unresolved_axis` 원인 = 프롬프트(ambiguous/input_missing 허용·지시)와 validator(무조건 실패) 간 계약 충돌. repair 지시문의 축 종결 규율을 첫 패스 시스템 프롬프트로 승격(extractor.ts axis 섹션), **프롬프트 v13→v14**. validator 계약 불변.
-   - canary(08-12 밤, 2/3 완주 — 3번째 125015는 로컬 중단으로 미완): **178559 repair 0·첫 패스 issue 0**(v11 이후 최초의 무repair 런, v13에선 repair 1), 125126은 repair 1 유지(첫 패스 unresolved_axis 4 잔존). 표본 2로는 방향 확인까지 — **규모 판정은 CP2(다음 정례 배치 repair율 <20%)**로 위임. 125015는 다음 배치에서 `--retry-errors`로 자연 재시도.
+   - canary(08-12 밤, 2/3 완주 — 3번째 125015는 로컬 중단으로 미완): **178559 repair 0·첫 패스 issue 0**(v11 이후 최초의 무repair 런, v13에선 repair 1), 125126은 repair 1 유지(첫 패스 unresolved_axis 4 잔존). 표본 2로는 방향 확인까지 — **규모 판정은 CP2(다음 정례 배치 repair율 <20%)**로 위임. 125015는 `--retry-errors`로 자격을 획득할 뿐 limit 선정에 자동 편입되지 않는다.
    - 부수 발견: batch.ts 실행 경로가 `withApplicationRoundtrip: true`를 **무조건 강제**한다(08-04 형제 실행 불변식 — `--with-application-roundtrip` 플래그는 사실상 장식). 따라서 **모든 lab:batch 호출에 `APPLICATION_ROUNDTRIP_EFFORT=medium` env가 필수 동반** — 누락 시 Kordoc이 기본 effort로 실행돼 창·시간을 낭비한다(이 canary에서 실측). runbook 반영 필요.
-4. **CP2**: T4 2단계 확대 검증 — 다음 정례 배치에서 repair 발생률 20% 미만 확인(canary는 CP1-b).
-5. **CP3**: T2+T3+T5 구현(계약·엔진 버전 bump, §2.1 개정) → 신규 3건 + 기존 1건 재분석으로 품질 그래프 전 노드 passed 확인.
-6. **CP4**: 20건 확대 배치로 종합 효과 실측 → 본 문서 §4 표를 실측으로 갱신.
+4. **CP2**: ❌ 실패(08-13 00:58 KST 최종). v14 성공 10건 중 repair 7건(70%), 첫 패스 `unresolved_axis` 29건·`semantic_misattribution` 2건·`canonical_contract_invalid` 1건. 속도는 평균 12.23분·최대 25.63분·배치 wall 38.03분으로 통과.
+5. **CP2-b**: 자동 추가 실행 전 잔존 첫 패스 issue를 정적 재현하고 v15 수정안·페이크 transport 회귀 테스트를 만든다. 00:58에 시작됐다가 런 미저장으로 종료된 125015 시도는 재시도하지 않고, 수정·검증·실행 승인 후에만 명시 타깃으로 재현성을 확인한다.
+6. **CP3**: CP2-b 통과 전에 시작하지 않는다. 통과 후 T2+T3+T5 구현(계약·엔진 버전 bump, §2.1 개정) → 신규 3건 + 기존 1건 재분석으로 품질 그래프 전 노드 passed 확인.
+7. **CP4**: 층화·버전된 코호트에서 확대 배치로 종합 효과를 실측한다. `<20%`를 모집단 주장으로 쓰려면 단측 95% 상한 기준의 순차 표본 규칙(무repair 최소 14건, repair 1건이면 최소 22건)을 사전 고정한다.
 
 ## 6. 리스크·미결
 
