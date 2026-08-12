@@ -103,6 +103,14 @@ assert.equal(
   "과거 행위가 아니라 현재 참여제한 상태를 판정하는 구조화 criterion은 보존한다",
 );
 assert.equal(
+  isNonMatchingApplicationCriterion(criterion(
+    "진흥원 및 정부 또는 지자체의 각종 협약 및 계약 위반으로 참여제한 조치 중인가?",
+    { dimension: "sanction", operator: "in" },
+  )),
+  false,
+  "협약 위반 문구라도 현재 참여제한 조치 중인 상태를 묻는 결격은 보존한다",
+);
+assert.equal(
   isNonMatchingApplicationCriterion(criterion("현재 동일 과제에 중복 참여 중인 기업은 제외", {
     dimension: "prior_award",
     operator: "exists",

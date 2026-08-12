@@ -28,7 +28,8 @@ import type {
 // v12: 하위 공고 위임 대상은 열린 목록으로 보존하고 structured target 충돌을 좁힌다.
 // v13: 역할·트랙 범위, 재무 복합조건, 과거수혜 시점의 전역 오귀속을 fail-closed 한다.
 // v15: 실제 원문 충돌·입력 누락은 보류로 보존하고 canonical 불안만 text_only로 닫는다.
-export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v15";
+// v16: 면책 방향 불명확·역할 한정 평가요소의 첫 패스 무손실 표현을 구체화한다.
+export const ANALYSIS_LAB_PROMPT_VERSION = "lab-deep-v16";
 export const ANALYSIS_LAB_DEFAULT_MODEL = "claude-opus-4-8";
 
 /**

@@ -221,7 +221,11 @@ assert.match(
 );
 assert.match(
   DEEP_ANALYSIS_ACTOR_TRACK_SCOPE_RULE,
-  /수행기관·전문기관.*actor\/track scope가 없으므로.*other.*text_only/,
+  /수행기관·전문기관.*actor\/track scope가 없으므로.*other.*text_only.*수행기관 개발역량.*지재권.*other\/text_only preferred/,
+);
+assert.match(
+  DEEP_ANALYSIS_SYSTEM_PROMPT,
+  /면책권자.*파산·회생 플래그로 축약하지 말고.*credit_status\/text_only/,
 );
 assert.match(
   DEEP_ANALYSIS_FINANCIAL_THRESHOLD_RULE,

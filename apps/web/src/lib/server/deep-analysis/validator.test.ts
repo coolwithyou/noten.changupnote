@@ -520,6 +520,41 @@ assert.equal(validateDeepAnalysisResult({
   ], axes(["other"])),
 }).valid, true, "역할을 명시한 other/text_only는 안전하게 보존한다");
 
+const leadApplicantSanctionSpan = "주관기관이 현재 정부지원사업 참여제한 조치 중이면 신청할 수 없다.";
+const mixedApplicantRolesSpan = "주관기관과 참여기관은 공동으로 과제를 수행한다.";
+const leadApplicantSanctionSeal = sealDeepAnalysisInput({
+  grantId: "grant-lead-applicant-sanction",
+  sourceRevisionSha256: "f".repeat(64),
+  structuredText: `${leadApplicantSanctionSpan}\n${mixedApplicantRolesSpan}`,
+  attachments: [],
+});
+const leadApplicantSanction = validateDeepAnalysisResult({
+  seal: leadApplicantSanctionSeal,
+  result: result([
+    criterion({
+      dimension: "sanction",
+      operator: "in",
+      kind: "exclusion",
+      value: { flags: ["participation_restricted"] },
+      sourceSpan: leadApplicantSanctionSpan,
+    }),
+    criterion({
+      dimension: "other",
+      operator: "text_only",
+      kind: "required",
+      value: { note: mixedApplicantRolesSpan },
+      sourceSpan: mixedApplicantRolesSpan,
+    }),
+  ], axes(["sanction", "other"])),
+});
+assert.equal(
+  leadApplicantSanction.issues.some((issue) => (
+    issue.code === "semantic_misattribution" && issue.message.includes("actor/track scope")
+  )),
+  false,
+  "주관기관은 주관기업과 같은 신청 주체이므로 역할 분리 공고에서도 전역 오귀속이 아니다",
+);
+
 const roleDuplicateBeneficiarySpan = "수혜기업 : 광주광역시 소재 기업";
 const roleDuplicateProviderSpan = "디자인기업 : 광주광역시 소재 기업";
 const roleDuplicateSeal = sealDeepAnalysisInput({

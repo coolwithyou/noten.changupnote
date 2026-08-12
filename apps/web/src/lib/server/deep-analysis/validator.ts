@@ -514,7 +514,9 @@ function validateActorAndTrackScope(
     const explicitlyNonApplicant = NON_APPLICANT_NOTE.test(note);
     const oneRoleInsideSplit = roleSplit
       && roles.size === 1
-      && [...roles].some((role) => role !== "신청기업" && role !== "주관기업");
+      && [...roles].some((role) => (
+        role !== "신청기업" && role !== "주관기업" && role !== "주관기관"
+      ));
     if (!explicitlyNonApplicant && !oneRoleInsideSplit && !TRACK_SCOPED_RULE.test(`${span} ${note}`)) {
       continue;
     }

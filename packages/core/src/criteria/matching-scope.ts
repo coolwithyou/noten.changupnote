@@ -32,7 +32,7 @@ const POST_SELECTION_BREACH_PATTERN =
 const PLAN_VS_EXECUTION_PATTERN =
   /(?:신청서|계획서).{0,40}(?:수행\s*내용|실제\s*수행).{0,24}(?:상이|불일치)|(?:수행\s*내용|실제\s*수행).{0,40}(?:신청서|계획서).{0,24}(?:상이|불일치)/u;
 const CURRENT_SANCTION_STATUS_PATTERN =
-  /참여\s*제한\s*중|제재\s*(?:중|조치\s*대상)|현재.{0,20}(?:제한|금지)/u;
+  /참여\s*제한\s*(?:조치\s*)?중|제재\s*(?:중|조치\s*대상)|현재.{0,20}(?:제한|금지)/u;
 const ELIGIBILITY_CALCULATION_PATTERN =
   /다수(?:의)?\s*사업자등록증.{0,80}창업여부\s*기준표.{0,80}(?:신청\s*자격|적합\s*여부|창업\s*여부).{0,40}(?:결정|확인|판정)/u;
 const PROGRAM_JOB_FIELD_PATTERN =
