@@ -33,7 +33,10 @@ import {
   type LabInputArchive,
 } from "./input";
 import { buildLabRunId, saveLabRun } from "./run-store";
-import { runValidatedLabPrimary } from "./validated-primary";
+import {
+  runValidatedLabPrimary,
+  ValidatedLabPrimaryError,
+} from "./validated-primary";
 
 /** 공고 자체가 없을 때 — 라우트는 404 로 매핑한다(런 저장 없음). */
 export class LabGrantNotFoundError extends Error {
@@ -244,7 +247,8 @@ export async function runLabAnalysis(
     extraction: DeepAnalysisResult | null;
     error: string | null;
     repairCount: number;
-    /** 패스별 validator 계측(2026-08-11 T4) — 실패 경로에는 싣지 않는다. */
+    outcome?: NonNullable<LabRun["primaryValidationOutcome"]>;
+    /** 패스별 validator 계측(2026-08-11 T4) — validator 최종 실패에도 보존한다. */
     passes?: NonNullable<LabRun["primaryPasses"]>;
   }> => {
     try {
@@ -260,11 +264,22 @@ export async function runLabAnalysis(
       });
       return {
         extraction: validated.extraction,
-        error: null,
+        error: validated.outcome === "held"
+          ? buildPrimaryValidationHeldError(validated.passes)
+          : null,
         repairCount: validated.repairCount,
+        outcome: validated.outcome,
         passes: validated.passes,
       };
     } catch (caught) {
+      if (caught instanceof ValidatedLabPrimaryError) {
+        return {
+          extraction: caught.extraction,
+          repairCount: caught.repairCount,
+          passes: caught.passes,
+          error: caught.message.slice(0, 2_000),
+        };
+      }
       return {
         extraction: null,
         repairCount: 0,
@@ -341,6 +356,7 @@ export async function runLabAnalysis(
       assessments: extraction?.axisAssessments ?? [],
     }),
     primaryRepairCount: primary.repairCount,
+    ...(primary.outcome ? { primaryValidationOutcome: primary.outcome } : {}),
     ...(primary.passes ? { primaryPasses: primary.passes } : {}),
     ...(opts?.reviewRepair ? { reviewRepair: opts.reviewRepair } : {}),
     ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),
@@ -348,6 +364,13 @@ export async function runLabAnalysis(
   };
   await saveLabRun(run);
   return run;
+}
+
+function buildPrimaryValidationHeldError(
+  passes: NonNullable<LabRun["primaryPasses"]>,
+): string {
+  const paths = passes.at(-1)?.issues?.map((issue) => issue.path).slice(0, 8) ?? [];
+  return `primary_validation_held: ${paths.join(", ") || "unresolved_axis"}`.slice(0, 2_000);
 }
 
 function numericMetadataValue(

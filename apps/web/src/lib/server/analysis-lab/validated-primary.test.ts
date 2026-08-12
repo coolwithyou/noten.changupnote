@@ -5,7 +5,10 @@ import {
   type DeepAnalysisCriterion,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
-import { runValidatedLabPrimary } from "./validated-primary";
+import {
+  runValidatedLabPrimary,
+  ValidatedLabPrimaryError,
+} from "./validated-primary";
 
 const inputText = [
   "공고",
@@ -120,6 +123,9 @@ const diagnosedUnresolved = await runValidatedLabPrimary({
   },
 });
 const unresolvedPass = diagnosedUnresolved.passes[0];
+assert.equal(unresolvedCalls, 1, "unresolved-only는 LLM repair를 호출하지 않음");
+assert.equal(diagnosedUnresolved.outcome, "held");
+assert.equal(diagnosedUnresolved.repairCount, 0);
 assert.equal(unresolvedPass?.issueCodes.length, 20, "기존 issueCodes 폭주 상한은 유지");
 assert.equal(unresolvedPass?.issueCount, 22, "상한과 무관한 전체 issue 수 보존");
 assert.equal(unresolvedPass?.issues?.length, 22, "22축 unresolved detail 전부 보존");
@@ -154,9 +160,33 @@ assert.equal(
   "서울 사업장에 입주한 지 3년 이상인 기업을 우대한다.",
 );
 
+let mixedCalls = 0;
+const repairedMixed = await runValidatedLabPrimary({
+  grantId: "grant-lab-mixed-route",
+  inputText,
+  inputSha256: "f".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async (options) => {
+    mixedCalls += 1;
+    if (mixedCalls > 1) {
+      assert.match(options.inputText, /normalization_drop/);
+      assert.doesNotMatch(
+        options.inputText,
+        /unresolved_axis/,
+        "mixed repair prompt는 보류 issue를 모델 교정 대상으로 되먹이지 않음",
+      );
+    }
+    return mixedCalls === 1 ? mixedUnresolvedResult() : result(true);
+  },
+});
+assert.equal(mixedCalls, 2, "unresolved와 실제 계약 오류가 섞이면 repair");
+assert.equal(repairedMixed.outcome, "publishable");
+
 let failedCalls = 0;
-await assert.rejects(
-  runValidatedLabPrimary({
+let failedError: unknown;
+try {
+  await runValidatedLabPrimary({
     grantId: "grant-lab-repair-failed",
     inputText,
     inputSha256: "b".repeat(64),
@@ -166,9 +196,18 @@ await assert.rejects(
       failedCalls += 1;
       return result(false);
     },
-  }),
+  });
+} catch (error) {
+  failedError = error;
+}
+assert.ok(failedError instanceof ValidatedLabPrimaryError);
+assert.match(
+  failedError.message,
   /validator 교정 2회 뒤에도 실패.*normalization_drop.*axis_criterion_mismatch/,
 );
+assert.equal(failedError.repairCount, 2);
+assert.equal(failedError.passes.length, 3, "실패해도 primary+repair 진단 전부 운반");
+assert.equal(failedError.extraction.criteria.length, 0, "마지막 실패 extraction 보존");
 assert.equal(failedCalls, 3, "최초 1회와 교정 최대 2회 뒤 실패");
 
 console.log("analysis-lab validated primary tests: ok");
@@ -225,4 +264,17 @@ function semanticInvalidResult(): DeepAnalysisModelResult {
       axis_assessments: assessments.map((axis) => ({ ...axis })),
     },
   };
+}
+
+function mixedUnresolvedResult(): DeepAnalysisModelResult {
+  const mixed = unresolvedResult();
+  (mixed.rawToolInput.criteria as Array<Record<string, unknown>>).push({
+    dimension: "region",
+    kind: "required",
+    operator: "unknown_operator",
+    value: {},
+    confidence: 0.5,
+    source_span: sourceSpan,
+  });
+  return mixed;
 }

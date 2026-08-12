@@ -8,6 +8,7 @@ import { repairDeepAnalysisExecution } from "@/lib/server/deep-analysis/repair";
 import { runDeepGrantAnalysis } from "@/lib/server/deep-analysis/extractor";
 import { sealDeepAnalysisInput } from "@/lib/server/deep-analysis/inputManifest";
 import {
+  decideDeepAnalysisValidationRoute,
   type DeepAnalysisValidationIssue,
   validateDeepAnalysisResult,
 } from "@/lib/server/deep-analysis/validator";
@@ -20,11 +21,24 @@ const MAX_PASS_ISSUE_DETAILS = 64;
 export interface ValidatedLabPrimaryResult {
   extraction: DeepAnalysisModelResult;
   repairCount: number;
+  outcome: "publishable" | "held";
   /**
    * 패스별 validator 계측(2026-08-11 T4 1단계) — 어떤 issue 가 첫 패스를 떨어뜨리는지 진단용.
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과).
    */
   passes: LabPrimaryPassDiagnostic[];
+}
+
+export class ValidatedLabPrimaryError extends Error {
+  constructor(
+    message: string,
+    public readonly extraction: DeepAnalysisModelResult,
+    public readonly repairCount: number,
+    public readonly passes: LabPrimaryPassDiagnostic[],
+  ) {
+    super(message);
+    this.name = "ValidatedLabPrimaryError";
+  }
 }
 
 /** 패스 직후 validator 진단을 bounded snapshot으로 남긴다. */
@@ -147,8 +161,9 @@ export async function runValidatedLabPrimary(input: {
     issues: validation.issues,
     result: execution.result,
   }));
+  let route = decideDeepAnalysisValidationRoute({ result: execution.result, validation });
   let repairCount = 0;
-  while (!validation.valid && repairCount < MAX_LAB_PRIMARY_REPAIRS) {
+  while (route.route === "repair" && repairCount < MAX_LAB_PRIMARY_REPAIRS) {
     // 결정적 교정만으로 끝나면 수 ms — 그 자체가 "모델 repair 없이 해결" 신호라 그대로 기록한다.
     const repairStartedAt = Date.now();
     execution = await repairDeepAnalysisExecution({
@@ -169,16 +184,24 @@ export async function runValidatedLabPrimary(input: {
       issues: validation.issues,
       result: execution.result,
     }));
+    route = decideDeepAnalysisValidationRoute({ result: execution.result, validation });
   }
-  if (!validation.valid) {
+  if (route.route === "repair") {
     const issues = validation.issues
       .slice(0, 8)
       .map((issue) => `${issue.code}:${issue.path}`)
       .join(", ");
-    // 최종 실패 throw 는 passes 를 싣지 않는다 — v1 계측 범위는 성공 런 한정.
-    throw new Error(
+    throw new ValidatedLabPrimaryError(
       `로컬 딥분석이 validator 교정 ${repairCount}회 뒤에도 실패했습니다: ${issues}`,
+      execution.result,
+      repairCount,
+      passes,
     );
   }
-  return { extraction: execution.result, repairCount, passes };
+  return {
+    extraction: execution.result,
+    repairCount,
+    outcome: route.route === "accept" ? "publishable" : "held",
+    passes,
+  };
 }

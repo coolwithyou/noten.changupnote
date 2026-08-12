@@ -240,6 +240,8 @@ export interface LabRun {
   dimensionDiffs: LabDimensionDiff[];
   /** 운영과 같은 validator 교정 루프가 실제로 수행된 횟수. 구런에는 없다. */
   primaryRepairCount?: number;
+  /** strict 승격 가능 또는 입력/근거 보류. 구런에는 없고 error/null 계약으로 종전 해석한다. */
+  primaryValidationOutcome?: "publishable" | "held";
   /**
    * 패스별 validator 계측(2026-08-11 T4 — repair 상수화 원인 진단용). 구 런 파일엔 없다.
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과, dedupe 없음).

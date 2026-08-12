@@ -6,7 +6,10 @@ import {
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
 import { sealDeepAnalysisInput } from "./inputManifest";
-import { validateDeepAnalysisResult } from "./validator";
+import {
+  decideDeepAnalysisValidationRoute,
+  validateDeepAnalysisResult,
+} from "./validator";
 
 const sourceSpan = "본 사업은 서울 소재 중소기업만 신청할 수 있다.";
 const seal = sealDeepAnalysisInput({
@@ -1002,6 +1005,75 @@ unresolved.axisAssessments[0] = {
   status: "ambiguous",
 };
 (unresolved.rawToolInput.axis_assessments as Array<Record<string, unknown>>)[0]!.status = "ambiguous";
-assert.equal(validateDeepAnalysisResult({ seal, result: unresolved }).valid, false);
+const unresolvedValidation = validateDeepAnalysisResult({ seal, result: unresolved });
+assert.equal(unresolvedValidation.valid, false);
+assert.equal(
+  decideDeepAnalysisValidationRoute({ result: unresolved, validation: unresolvedValidation }).route,
+  "hold",
+  "실제 ambiguous만 남으면 모델 오류가 아니라 hold",
+);
+assert.equal(
+  decideDeepAnalysisValidationRoute({
+    result: result([criterion()], axes(["region"])),
+    validation: valid,
+  }).route,
+  "accept",
+);
+
+const mixedUnresolved = result([], axes());
+mixedUnresolved.axisAssessments[0] = {
+  ...mixedUnresolved.axisAssessments[0]!,
+  status: "input_missing",
+};
+(mixedUnresolved.rawToolInput.axis_assessments as Array<Record<string, unknown>>)[0]!.status = "input_missing";
+(mixedUnresolved.rawToolInput.criteria as Array<Record<string, unknown>>).push({
+  dimension: "region",
+  operator: "unknown_operator",
+  kind: "required",
+  value: {},
+  source_span: sourceSpan,
+});
+const mixedValidation = validateDeepAnalysisResult({ seal, result: mixedUnresolved });
+assert.equal(
+  decideDeepAnalysisValidationRoute({ result: mixedUnresolved, validation: mixedValidation }).route,
+  "repair",
+  "hold와 실제 응답 계약 오류가 섞이면 repair 우선",
+);
+
+const malformedUnresolvedValidation = {
+  ...unresolvedValidation,
+  issues: unresolvedValidation.issues.map((issue, index) => index === 0
+    ? { ...issue, path: "$.axis_assessments.unknown_axis" }
+    : issue),
+};
+assert.equal(
+  decideDeepAnalysisValidationRoute({
+    result: unresolved,
+    validation: malformedUnresolvedValidation,
+  }).route,
+  "repair",
+  "해석 불가능한 unresolved path는 fail-closed repair",
+);
+
+const partiallyKnown = result([criterion()], axes(["region"]));
+partiallyKnown.axisAssessments[0] = {
+  ...partiallyKnown.axisAssessments[0]!,
+  status: "input_missing",
+  comment: "확정 지역 요건은 있으나 추가 상세 첨부가 누락됨",
+};
+(partiallyKnown.rawToolInput.axis_assessments as Array<Record<string, unknown>>)[0]!.status = "input_missing";
+const partiallyKnownValidation = validateDeepAnalysisResult({ seal, result: partiallyKnown });
+assert.deepEqual(
+  new Set(partiallyKnownValidation.issues.map((issue) => issue.code)),
+  new Set(["axis_criterion_mismatch", "unresolved_axis"]),
+);
+assert.equal(
+  decideDeepAnalysisValidationRoute({
+    result: partiallyKnown,
+    validation: partiallyKnownValidation,
+  }).route,
+  "hold",
+  "같은 축의 확정 criterion과 추가 입력 누락은 전체 재생성 없이 hold",
+);
 
 console.log("deep-analysis validator tests passed");

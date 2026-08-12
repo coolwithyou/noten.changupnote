@@ -77,6 +77,7 @@ export function evaluateAnalysisQuality(input: AnalysisQualityGraphInput): Analy
 
 function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQualityNode[] {
   const { run } = input;
+  const validationHeld = run.primaryValidationOutcome === "held";
   const inputIssues = [
     ...(!SHA256.test(run.inputSha256) ? ["입력 SHA-256이 없거나 형식이 올바르지 않습니다."] : []),
     ...(run.inputBlocks.length === 0 || run.inputTotalChars <= 0 ? ["봉인된 입력 블록이 없습니다."] : []),
@@ -92,7 +93,7 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
   const groundedCriteria = run.criteria.filter((criterion) =>
     criterion.spanVerified && Boolean(criterion.sourceSpan?.trim())).length;
   const contractIssues = [
-    ...(run.error ? [`분석 오류: ${run.error}`] : []),
+    ...(run.error && !validationHeld ? [`분석 오류: ${run.error}`] : []),
     ...(run.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION
       ? [`구 분석 정책: ${run.promptVersion} (현재 ${ANALYSIS_LAB_PROMPT_VERSION})`]
       : []),
@@ -107,7 +108,12 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
   const inputMissingAxes = run.axisAssessments.filter((axis) => axis.status === "input_missing").length;
   const ambiguousAxes = run.axisAssessments.filter((axis) => axis.status === "ambiguous").length;
   let contractStatus: AnalysisQualityStatus = "passed";
-  if (run.error || !hasExactDeepAnalysisAxisCoverage(run.axisAssessments) || groundedCriteria !== run.criteria.length) {
+  if (
+    (run.error && !validationHeld)
+    || (validationHeld && inputMissingAxes === 0 && ambiguousAxes === 0)
+    || !hasExactDeepAnalysisAxisCoverage(run.axisAssessments)
+    || groundedCriteria !== run.criteria.length
+  ) {
     contractStatus = "failed";
   } else if (run.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION || inputMissingAxes > 0) {
     contractStatus = "held";

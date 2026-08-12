@@ -68,6 +68,78 @@ export interface DeepAnalysisValidationResult {
   axisCriterionSemanticHashes: Record<CriterionDimension, string[]>;
 }
 
+export type DeepAnalysisValidationRoute =
+  | { route: "accept"; repairIssues: []; holdIssues: [] }
+  | {
+      route: "repair";
+      repairIssues: DeepAnalysisValidationIssue[];
+      holdIssues: DeepAnalysisValidationIssue[];
+    }
+  | {
+      route: "hold";
+      repairIssues: [];
+      holdIssues: DeepAnalysisValidationIssue[];
+    };
+
+/**
+ * strict validator 결과를 실행 선택으로 해석한다. unresolved-only는 의미를 꾸며서
+ * 통과시키거나 전체 22축을 다시 생성하지 않고 보류한다. hold 축에 criterion이 함께 있어
+ * 생긴 axis mismatch도 같은 보류 원인의 일부로 본다. 그 밖의 계약 오류가 하나라도 섞이면
+ * 기존 repair를 유지하고, path나 axis 상태가 예상과 다르면 fail-closed repair한다.
+ */
+export function decideDeepAnalysisValidationRoute(input: {
+  result: DeepAnalysisModelResult;
+  validation: DeepAnalysisValidationResult;
+}): DeepAnalysisValidationRoute {
+  if (input.validation.valid) {
+    return { route: "accept", repairIssues: [], holdIssues: [] };
+  }
+  const heldDimensions = new Set<CriterionDimension>();
+  for (const issue of input.validation.issues) {
+    if (issue.code !== "unresolved_axis") continue;
+    const dimension = criterionDimensionFromIssuePath(issue.path, "axis_assessments");
+    const axis = dimension
+      ? input.result.axisAssessments.find((candidate) => candidate.dimension === dimension)
+      : undefined;
+    if (axis?.status === "ambiguous" || axis?.status === "input_missing") {
+      heldDimensions.add(axis.dimension);
+    }
+  }
+  const holdIssues: DeepAnalysisValidationIssue[] = [];
+  const repairIssues: DeepAnalysisValidationIssue[] = [];
+  for (const issue of input.validation.issues) {
+    const unresolvedDimension = issue.code === "unresolved_axis"
+      ? criterionDimensionFromIssuePath(issue.path, "axis_assessments")
+      : null;
+    if (unresolvedDimension && heldDimensions.has(unresolvedDimension)) {
+      holdIssues.push(issue);
+      continue;
+    }
+    const mismatchedCriterionDimension = issue.code === "axis_criterion_mismatch"
+      ? criterionDimensionFromIssuePath(issue.path, "criteria")
+      : null;
+    if (mismatchedCriterionDimension && heldDimensions.has(mismatchedCriterionDimension)) {
+      holdIssues.push(issue);
+    } else {
+      repairIssues.push(issue);
+    }
+  }
+  if (repairIssues.length > 0 || holdIssues.length === 0) {
+    return { route: "repair", repairIssues, holdIssues };
+  }
+  return { route: "hold", repairIssues: [], holdIssues };
+}
+
+function criterionDimensionFromIssuePath(
+  path: string,
+  collection: "axis_assessments" | "criteria",
+): CriterionDimension | null {
+  const raw = new RegExp(`^\\$\\.${collection}\\.([a-z_]+)$`).exec(path)?.[1];
+  return raw && (CRITERION_DIMENSIONS as readonly string[]).includes(raw)
+    ? raw as CriterionDimension
+    : null;
+}
+
 export function validateDeepAnalysisResult(input: {
   seal: DeepAnalysisInputSeal;
   result: DeepAnalysisModelResult;

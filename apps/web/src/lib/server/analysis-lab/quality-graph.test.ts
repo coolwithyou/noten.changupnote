@@ -295,6 +295,26 @@ function roundtripFixture(run: LabRun, document = documentFixture()): Applicatio
 }
 
 {
+  const heldAxes = runFixture().axisAssessments.map((axis) => axis.dimension === "industry"
+    ? { ...axis, status: "input_missing" as const, comment: "상세 첨부 누락" }
+    : axis);
+  const run = runFixture({
+    primaryValidationOutcome: "held",
+    axisAssessments: heldAxes,
+    error: "primary_validation_held: $.axis_assessments.industry",
+  });
+  const graph = evaluateAnalysisQuality({ run, review: null, roundtrip: null });
+  const contract = graph.nodes.find((node) => node.id === "deep_contract");
+  assert.equal(contract?.status, "held", "held sentinel을 일반 분석 실패로 표시하지 않음");
+  assert.equal(
+    contract?.evidence.some((item) => item.startsWith("분석 오류:")),
+    false,
+    "명시적 held provenance면 error sentinel을 오류 증거로 중복 표시하지 않음",
+  );
+  console.log("✅ 딥분석 — 보류 sentinel과 일반 분석 오류를 구분");
+}
+
+{
   const run = runFixture({ inputBlocks: [{ label: "변환 불가 ZIP", chars: 0, truncated: true }] });
   const graph = evaluateAnalysisQuality({
     run,

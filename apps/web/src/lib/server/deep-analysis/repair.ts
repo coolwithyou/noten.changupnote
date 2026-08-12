@@ -21,6 +21,7 @@ import {
 import type { DeepAnalysisInputSeal } from "./inputManifest";
 import { stableJson } from "./sourceRevision";
 import {
+  decideDeepAnalysisValidationRoute,
   validateDeepAnalysisResult,
   type DeepAnalysisValidationResult,
 } from "./validator";
@@ -121,34 +122,50 @@ export async function repairDeepAnalysisExecution(input: {
   validation: DeepAnalysisValidationResult;
   runModel?: typeof runDeepGrantAnalysis;
 }): Promise<DeepAnalysisExecution> {
-  const deterministic = repairDeepAnalysisEvidenceSpansDeterministically({
-    execution: input.failedExecution,
+  const initialValidationToRepair = selectRepairableValidation({
+    result: input.failedExecution.result,
     validation: input.validation,
   });
+  const deterministic = repairDeepAnalysisEvidenceSpansDeterministically({
+    execution: input.failedExecution,
+    validation: initialValidationToRepair,
+  });
   const executionToRepair = deterministic.execution;
-  const validationToRepair = deterministic.repairs.length > 0
+  const fullValidationAfterEvidence = deterministic.repairs.length > 0
     ? validateDeepAnalysisResult({
       seal: input.seal,
       result: executionToRepair.result,
     })
     : input.validation;
+  const validationToRepair = selectRepairableValidation({
+    result: executionToRepair.result,
+    validation: fullValidationAfterEvidence,
+  });
   const matchingScope = repairDeepAnalysisMatchingScopeDeterministically({
     execution: executionToRepair,
     validation: validationToRepair,
   });
   const scopedExecutionToRepair = matchingScope.execution;
-  const scopedValidationToRepair = matchingScope.repairs.length > 0
+  const fullScopedValidation = matchingScope.repairs.length > 0
     ? validateDeepAnalysisResult({
       seal: input.seal,
       result: scopedExecutionToRepair.result,
     })
-    : validationToRepair;
+    : fullValidationAfterEvidence;
+  const scopedRoute = decideDeepAnalysisValidationRoute({
+    result: scopedExecutionToRepair.result,
+    validation: fullScopedValidation,
+  });
   if (
     (deterministic.repairs.length > 0 || matchingScope.repairs.length > 0)
-    && scopedValidationToRepair.valid
+    && scopedRoute.route !== "repair"
   ) {
     return scopedExecutionToRepair;
   }
+  const scopedValidationToRepair = selectRepairableValidation({
+    result: scopedExecutionToRepair.result,
+    validation: fullScopedValidation,
+  });
 
   const runModel = input.runModel ?? runDeepGrantAnalysis;
   const evidenceRepairHints = buildDeepAnalysisEvidenceRepairHints({
@@ -211,6 +228,16 @@ export async function repairDeepAnalysisExecution(input: {
       costUsd: sumDeepAnalysisActualCosts(passes.map((pass) => pass.result.costUsd)),
     },
   };
+}
+
+function selectRepairableValidation(input: {
+  result: DeepAnalysisModelResult;
+  validation: DeepAnalysisValidationResult;
+}): DeepAnalysisValidationResult {
+  const route = decideDeepAnalysisValidationRoute(input);
+  return route.route === "repair" && route.holdIssues.length > 0
+    ? { ...input.validation, issues: route.repairIssues }
+    : input.validation;
 }
 
 /**
