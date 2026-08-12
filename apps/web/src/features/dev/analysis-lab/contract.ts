@@ -741,7 +741,12 @@ export interface LabBatchJobSnapshot {
   pid?: number | null;
   startedAt: string | null;
   finishedAt: string | null;
-  options: (LabBatchStartRequest & { transport: "api" | "claude-cli"; model: string }) | null;
+  options: (LabBatchStartRequest & {
+    transport: "api" | "claude-cli";
+    model: string;
+    /** origin=cli가 불변 코호트를 선택했을 때 실행 재현을 위해 기록하는 라벨. */
+    cohortSnapshot?: string;
+  }) | null;
   progress: { total: number; started: number; ok: number; error: number; cumulativeCostUsd: number } | null;
   guardStop: { reason: "cost-cap" | "window-exhausted"; cumulativeCostUsd: number } | null;
   summary: LabBatchSummary | null;

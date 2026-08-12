@@ -420,6 +420,10 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
     jobId: "job-cli-1",
     origin: "cli",
     pid: process.pid,
+    options: {
+      ...persistedFixture("running").options!,
+      cohortSnapshot: "deep-v17-cp2b-pilot5",
+    },
     ...overrides,
   });
 
@@ -431,6 +435,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   const alive = getLabBatchJobSnapshot(aliveDeps);
   assert.equal(alive.state, "running", "CLI 프로세스 생존 — running 유지(강등 없음)");
   assert.equal(alive.origin, "cli", "라벨용 origin 유지");
+  assert.equal(alive.options?.cohortSnapshot, "deep-v17-cp2b-pilot5", "불변 코호트 provenance 유지");
   assert.equal(alive.error, null, "생존 중엔 안내 메시지 없음");
   const stashAfterCli = (globalThis as unknown as Record<symbol, unknown>)[STASH_KEY] as
     | { job: unknown }

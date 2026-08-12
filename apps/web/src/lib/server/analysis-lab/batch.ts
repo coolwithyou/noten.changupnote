@@ -324,6 +324,7 @@ function createCliBatchRecorder(options: BatchOptions, transport: LabBatchTransp
         ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
         ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
         ...(options.grantIds ? { grantIds: options.grantIds } : {}),
+        ...(options.cohortSnapshot ? { cohortSnapshot: options.cohortSnapshot } : {}),
       },
       progress: { total: 0, started: 0, ok: 0, error: 0, cumulativeCostUsd: 0 },
       guardStop: null,
