@@ -163,13 +163,10 @@ export async function failDeepAnalysisJob(
 ): Promise<"retry_wait" | "pending_budget" | "blocked" | "dead_letter"> {
   const now = input.now ?? new Date();
   const exhausted = input.job.attemptCount >= input.job.maxAttempts;
-  const status = input.failureClass === "budget"
-    ? "pending_budget"
-    : input.failureClass === "input_blocked"
-      ? "blocked"
-      : input.failureClass === "retryable" && !exhausted
-        ? "retry_wait"
-        : "dead_letter";
+  const status = resolveDeepAnalysisFailureStatus({
+    failureClass: input.failureClass,
+    exhausted,
+  });
   await db.update(schema.grantDeepAnalysisJobs).set({
     status,
     availableAt: status === "retry_wait"
@@ -182,6 +179,17 @@ export async function failDeepAnalysisJob(
     updatedAt: now,
   }).where(eq(schema.grantDeepAnalysisJobs.id, input.job.id));
   return status;
+}
+
+export function resolveDeepAnalysisFailureStatus(input: {
+  failureClass: DeepAnalysisFailureClass;
+  exhausted: boolean;
+}): "retry_wait" | "pending_budget" | "blocked" | "dead_letter" {
+  if (input.failureClass === "budget") return "pending_budget";
+  if (input.failureClass === "input_blocked") return "blocked";
+  return input.failureClass === "retryable" && !input.exhausted
+    ? "retry_wait"
+    : "dead_letter";
 }
 
 export function isDeepAnalysisHeartbeatStale(

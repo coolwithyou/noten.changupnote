@@ -19,6 +19,7 @@ import {
   deferDeepAnalysisJobsForBudget,
   isDeepAnalysisHeartbeatStale,
   repairGenericDeepAnalysisJobErrorCodes,
+  resolveDeepAnalysisFailureStatus,
 } from "./workerState";
 
 const policy = resolveDeepAnalysisWorkerPolicy({});
@@ -157,6 +158,16 @@ assert.equal(
   "input_blocked",
   "실제 unresolved 보류는 자동 재시도하지 않는 blocked 입력으로 분류한다",
 );
+assert.equal(resolveDeepAnalysisFailureStatus({
+  failureClass: classifyDeepAnalysisFailure(
+    new Error("Deep analysis primary validation held: $.axis_assessments.industry"),
+  ),
+  exhausted: false,
+}), "blocked", "held는 attempt가 남아도 자동 retry하지 않는다");
+assert.equal(resolveDeepAnalysisFailureStatus({
+  failureClass: "input_blocked",
+  exhausted: true,
+}), "blocked", "held/input-blocked는 attempt 소진 여부와 무관하게 terminal blocked다");
 assert.equal(classifyDeepAnalysisFailure(new Error("response contract invalid")), "non_retryable");
 assert.equal(resolveDeepAnalysisOperationalErrorCode({
   error: new Error("generic wrapper"),
