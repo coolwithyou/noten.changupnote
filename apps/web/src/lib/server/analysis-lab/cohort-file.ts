@@ -19,6 +19,8 @@ export interface CohortFileV2 {
   seed: number | null;
   /** 실험 라벨 — 예: "expansion-s1". 파일럿(v1)은 null. */
   experimentLabel: string | null;
+  /** 이 표본을 만들 때 대상에서 제외한 불변 코호트 라벨. 구 파일은 부재 가능. */
+  excludedSnapshotLabels?: string[];
   entries: CohortEntry[];
 }
 
@@ -42,6 +44,17 @@ export function cohortSnapshotFilePath(label: string): string {
     );
   }
   return join(analysisLabDir(), `cohort.${label}.json`);
+}
+
+/** CLI의 쉼표 목록을 검증된 불변 코호트 라벨로 바꾼다. 중복은 실수로 보고 fail-fast한다. */
+export function parseCohortSnapshotLabels(raw: string | undefined): string[] {
+  if (raw === undefined) return [];
+  const labels = raw.split(",").map((label) => label.trim()).filter(Boolean);
+  if (labels.length === 0 || new Set(labels).size !== labels.length) {
+    throw new Error("--exclude-snapshots 는 중복 없는 코호트 스냅샷 라벨을 쉼표로 지정해야 합니다.");
+  }
+  for (const label of labels) cohortSnapshotFilePath(label);
+  return labels;
 }
 
 /**
@@ -75,6 +88,13 @@ export async function readCohortFileV2(path = cohortFilePath()): Promise<CohortF
       selectedAt: typeof record.selectedAt === "string" ? record.selectedAt : "",
       seed: typeof record.seed === "number" ? record.seed : null,
       experimentLabel: typeof record.experimentLabel === "string" ? record.experimentLabel : null,
+      ...(Array.isArray(record.excludedSnapshotLabels)
+        ? {
+            excludedSnapshotLabels: record.excludedSnapshotLabels.filter(
+              (label): label is string => typeof label === "string",
+            ),
+          }
+        : {}),
       entries,
     };
   }

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   cohortSnapshotFilePath,
+  parseCohortSnapshotLabels,
   readCohortFileV2,
   writeCohortFileV2,
   type CohortFileV2,
@@ -15,6 +16,7 @@ const file: CohortFileV2 = {
   selectedAt: "2026-08-13T00:00:00.000Z",
   seed: 20260813,
   experimentLabel: "deep-v15-cp2b-pilot5",
+  excludedSnapshotLabels: ["deep-v14-baseline"],
   entries: [{ grantId: "g1", stratum: "bizinfo/thick" }],
 };
 
@@ -25,6 +27,16 @@ assert.match(
 for (const invalid of ["", "../escape", "UPPER", "dot.name", "trailing-"]) {
   assert.throws(() => cohortSnapshotFilePath(invalid), /코호트 스냅샷 라벨 형식/);
 }
+assert.deepEqual(parseCohortSnapshotLabels(undefined), []);
+assert.deepEqual(
+  parseCohortSnapshotLabels("deep-v17-cp2b-pilot5,deep-v14-baseline"),
+  ["deep-v17-cp2b-pilot5", "deep-v14-baseline"],
+);
+assert.throws(
+  () => parseCohortSnapshotLabels("deep-v17-cp2b-pilot5,deep-v17-cp2b-pilot5"),
+  /중복 없는/,
+);
+assert.throws(() => parseCohortSnapshotLabels("../escape"), /코호트 스냅샷 라벨 형식/);
 
 const root = await mkdtemp(join(tmpdir(), "cunote-cohort-file-"));
 try {

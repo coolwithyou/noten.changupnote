@@ -112,6 +112,8 @@ export interface FreezeLabCohortSnapshotOptions {
   seed: number;
   /** 파일명과 실험 메타에 함께 쓰는 불변 라벨. */
   experimentLabel: string;
+  /** 신규 표본과 겹치면 안 되는 이전 불변 코호트 라벨. */
+  excludeSnapshotLabels?: string[];
 }
 
 export interface FrozenLabCohortSnapshot {
@@ -120,11 +122,13 @@ export interface FrozenLabCohortSnapshot {
   quotas: NonNullable<LabCohortMeta["quotas"]>;
   warnings: string[];
   excludedCanonicalCount: number;
+  excludedSnapshotCount: number;
+  excludedGrantCount: number;
 }
 
 /**
- * 현행 cohort.json 을 건드리지 않고 새 층화 표본을 불변 파일로 동결한다. 기존 정본의
- * grantId 는 전부 제외해 시간에 따른 새 표본 게이트가 과거 표본 재사용으로 흐려지지 않게 한다.
+ * 현행 cohort.json 을 건드리지 않고 새 층화 표본을 불변 파일로 동결한다. 기존 정본과
+ * 명시한 이전 불변 코호트의 grantId를 제외해 시간에 따른 게이트가 과거 표본과 겹치지 않게 한다.
  */
 export async function freezeLabCohortSnapshot(
   options: FreezeLabCohortSnapshotOptions,
@@ -134,13 +138,23 @@ export async function freezeLabCohortSnapshot(
   const warnings: string[] = [];
   const canonical = await readCohortFileV2();
   const excludedCanonicalIds = canonical?.entries.map((entry) => entry.grantId) ?? [];
+  const excludeSnapshotLabels = options.excludeSnapshotLabels ?? [];
+  const excludedSnapshotIds: string[] = [];
+  for (const label of excludeSnapshotLabels) {
+    const snapshot = await readCohortFileV2(cohortSnapshotFilePath(label));
+    if (!snapshot || snapshot.entries.length === 0) {
+      throw new Error(`제외할 코호트 스냅샷이 없거나 형식이 깨졌습니다: ${label}`);
+    }
+    excludedSnapshotIds.push(...snapshot.entries.map((entry) => entry.grantId));
+  }
+  const excludedGrantIds = [...new Set([...excludedCanonicalIds, ...excludedSnapshotIds])];
   const fresh = await selectFreshCohort(db, {
     size,
     stratified: true,
     seed: options.seed,
     experimentLabel: options.experimentLabel,
     stored: null,
-    excludeIds: excludedCanonicalIds,
+    excludeIds: excludedGrantIds,
     warnings,
   });
   if (fresh.file.entries.length !== size || fresh.quotas === null) {
@@ -148,14 +162,24 @@ export async function freezeLabCohortSnapshot(
       `층화 코호트 재고가 부족합니다: 요청 ${size}건 · 선정 ${fresh.file.entries.length}건 — 스냅샷을 쓰지 않습니다.`,
     );
   }
+  const overlap = fresh.file.entries.filter((entry) => excludedGrantIds.includes(entry.grantId));
+  if (overlap.length > 0) {
+    throw new Error(`제외 코호트와 신규 표본이 겹칩니다: ${overlap.map((entry) => entry.grantId).join(",")}`);
+  }
   const path = cohortSnapshotFilePath(options.experimentLabel);
-  await writeCohortFileV2(fresh.file, { path, exclusive: true });
+  const file: CohortFileV2 = {
+    ...fresh.file,
+    ...(excludeSnapshotLabels.length > 0 ? { excludedSnapshotLabels: excludeSnapshotLabels } : {}),
+  };
+  await writeCohortFileV2(file, { path, exclusive: true });
   return {
     path,
-    file: fresh.file,
+    file,
     quotas: fresh.quotas,
     warnings,
     excludedCanonicalCount: excludedCanonicalIds.length,
+    excludedSnapshotCount: excludeSnapshotLabels.length,
+    excludedGrantCount: excludedGrantIds.length,
   };
 }
 

@@ -3,7 +3,7 @@
 // DB read-only, LLM/API 호출 없음. 같은 라벨의 기존 파일은 덮어쓰지 않는다.
 import { closeCunoteDb } from "../db/client";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
-import { cohortSnapshotFilePath } from "./cohort-file";
+import { cohortSnapshotFilePath, parseCohortSnapshotLabels } from "./cohort-file";
 import { freezeLabCohortSnapshot } from "./cohort";
 
 loadAnalysisLabEnv();
@@ -17,6 +17,7 @@ async function main(): Promise<number> {
   const label = readArg("label")?.trim();
   const size = Number(readArg("size"));
   const seed = Number(readArg("seed"));
+  const excludeSnapshotLabels = parseCohortSnapshotLabels(readArg("exclude-snapshots"));
   if (!label) throw new Error("--label 이 필요합니다.");
   cohortSnapshotFilePath(label); // DB 조회 전 경로/라벨 fail-fast.
   if (!Number.isInteger(size) || size < 1 || size > 200) {
@@ -26,12 +27,19 @@ async function main(): Promise<number> {
     throw new Error("--seed 는 0~4294967295 정수여야 합니다.");
   }
 
-  const frozen = await freezeLabCohortSnapshot({ size, seed, experimentLabel: label });
+  const frozen = await freezeLabCohortSnapshot({
+    size,
+    seed,
+    experimentLabel: label,
+    ...(excludeSnapshotLabels.length > 0 ? { excludeSnapshotLabels } : {}),
+  });
   console.log(
     `[cohort-freeze] ${frozen.file.entries.length}건 동결 · label=${label} · seed=${seed}`,
   );
   console.log(
-    `[cohort-freeze] 기존 정본 ${frozen.excludedCanonicalCount}건 제외 · 파일=${frozen.path}`,
+    `[cohort-freeze] 기존 정본 ${frozen.excludedCanonicalCount}건` +
+      ` · 스냅샷 ${frozen.excludedSnapshotCount}개` +
+      ` · 중복 제거 공고 ${frozen.excludedGrantCount}건 제외 · 파일=${frozen.path}`,
   );
   console.log(
     `[cohort-freeze] 쿼터 통합공고 ${frozen.quotas.unified.achieved}/${frozen.quotas.unified.target}`
