@@ -260,6 +260,11 @@ export interface LabRun {
   /** strict 승격 가능 또는 입력/근거 보류. 구런에는 없고 error/null 계약으로 종전 해석한다. */
   primaryValidationOutcome?: "publishable" | "held";
   /**
+   * 랜딩 매칭 후보 준비도. conditional은 확인된 조건으로 우선 매칭하되 남은 축을
+   * 사업자 질문으로 보완하고, deferred는 공고 근거가 너무 부족해 후보 발행을 보류한다.
+   */
+  matchingReadiness?: "ready" | "conditional" | "deferred";
+  /**
    * 패스별 validator 계측(2026-08-11 T4 — repair 상수화 원인 진단용). 구 런 파일엔 없다.
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과, dedupe 없음).
    */

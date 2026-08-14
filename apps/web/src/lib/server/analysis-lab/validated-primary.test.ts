@@ -129,6 +129,7 @@ assert.equal(clean.repairCount, 0);
 assert.equal(clean.deterministicPrimaryRepairCount, 0);
 assert.equal(clean.modelPrimaryRepairCount, 0);
 assert.equal(clean.newIssueAfterRepairCount, 0);
+assert.equal(clean.matchingReadiness, "ready");
 assert.equal(clean.passes.length, 1, "무repair 성공은 primary 패스 1개만 계측");
 assert.equal(clean.passes[0]?.kind, "primary");
 assert.deepEqual(clean.passes[0]?.issueCodes, [], "통과 패스는 issueCodes 빈 배열");
@@ -170,6 +171,7 @@ const diagnosedUnresolved = await runValidatedLabPrimary({
 const unresolvedPass = diagnosedUnresolved.passes[0];
 assert.equal(unresolvedCalls, 1, "unresolved-only는 LLM repair를 호출하지 않음");
 assert.equal(diagnosedUnresolved.outcome, "held");
+assert.equal(diagnosedUnresolved.matchingReadiness, "deferred");
 assert.equal(diagnosedUnresolved.repairCount, 0);
 assert.equal(unresolvedPass?.issueCodes.length, 20, "기존 issueCodes 폭주 상한은 유지");
 assert.equal(unresolvedPass?.issueCount, 22, "상한과 무관한 전체 issue 수 보존");
@@ -183,7 +185,7 @@ assert.deepEqual(unresolvedPass?.issues?.[0]?.axis, {
 assert.match(unresolvedPass?.issues?.[0]?.path ?? "", /^\$\.axis_assessments\./);
 
 let missingInputCalls = 0;
-const heldMissingInput = await runValidatedLabPrimary({
+const conditionalMissingInput = await runValidatedLabPrimary({
   grantId: "grant-lab-input-missing",
   inputText,
   inputSha256: "1".repeat(64),
@@ -195,13 +197,36 @@ const heldMissingInput = await runValidatedLabPrimary({
   },
 });
 assert.equal(missingInputCalls, 1, "실제 input_missing도 전체 재생성을 호출하지 않음");
-assert.equal(heldMissingInput.outcome, "held");
-assert.equal(heldMissingInput.repairCount, 0);
+assert.equal(conditionalMissingInput.outcome, "publishable");
+assert.equal(conditionalMissingInput.matchingReadiness, "conditional");
+assert.equal(conditionalMissingInput.repairCount, 0);
 assert.deepEqual(
-  heldMissingInput.passes[0]?.issues?.map((issue) => issue.code),
+  conditionalMissingInput.passes[0]?.issues?.map((issue) => issue.code),
   ["unresolved_axis"],
 );
-assert.equal(heldMissingInput.passes[0]?.issues?.[0]?.axis?.status, "input_missing");
+assert.equal(conditionalMissingInput.passes[0]?.issues?.[0]?.axis?.status, "input_missing");
+
+const sourceInsufficient = await runValidatedLabPrimary({
+  grantId: "grant-lab-source-insufficient",
+  inputText,
+  inputSha256: "3".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => mostlyMissingInputResult(),
+});
+assert.equal(sourceInsufficient.outcome, "held");
+assert.equal(sourceInsufficient.matchingReadiness, "deferred");
+
+const unresolvedWithCriterion = await runValidatedLabPrimary({
+  grantId: "grant-lab-unresolved-with-criterion",
+  inputText,
+  inputSha256: "4".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => ambiguousCriterionResult(),
+});
+assert.equal(unresolvedWithCriterion.outcome, "held");
+assert.equal(unresolvedWithCriterion.matchingReadiness, "deferred");
 
 // criterion 단위 semantic issue는 문제 criterion snapshot을 함께 남긴다.
 let semanticCalls = 0;
@@ -370,6 +395,49 @@ function inputMissingResult(): DeepAnalysisModelResult {
     axisAssessments: assessments,
     rawToolInput: {
       criteria: [],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function mostlyMissingInputResult(): DeepAnalysisModelResult {
+  const assessments = CRITERION_DIMENSIONS.map((dimension) => ({
+    dimension,
+    status: dimension === "size" ? "condition_found" as const : "input_missing" as const,
+    confidence: 0.5,
+    comment: dimension === "size" ? "소상공인" : "상세 공고문이 입력에 없음",
+  }));
+  const sizeCriterion: DeepAnalysisCriterion = {
+    dimension: "size",
+    kind: "required",
+    operator: "in",
+    value: { sizes: ["소상공인"] },
+    confidence: 0.9,
+    sourceSpan: "서울 소재 중소기업만 신청할 수 있다.",
+    spanVerified: true,
+    note: null,
+  };
+  return {
+    ...result(true),
+    criteria: [sizeCriterion],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [rawCriterion(sizeCriterion)],
+      axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function ambiguousCriterionResult(): DeepAnalysisModelResult {
+  const assessments = axes(true).map((axis) => axis.dimension === "region"
+    ? { ...axis, status: "ambiguous" as const, comment: "지역 문구가 충돌함" }
+    : axis);
+  return {
+    ...result(true),
+    criteria: [validCriterion],
+    axisAssessments: assessments,
+    rawToolInput: {
+      criteria: [rawCriterion(validCriterion)],
       axis_assessments: assessments.map((axis) => ({ ...axis })),
     },
   };

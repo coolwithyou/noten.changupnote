@@ -368,6 +368,7 @@ async function executePreparedLabAnalysisInternal(
     repairCount: number;
     repairProvenance: NonNullable<LabRun["primaryRepairProvenance"]>;
     outcome?: NonNullable<LabRun["primaryValidationOutcome"]>;
+    matchingReadiness?: NonNullable<LabRun["matchingReadiness"]>;
     /** 패스별 validator 계측(2026-08-11 T4) — validator 최종 실패에도 보존한다. */
     passes?: NonNullable<LabRun["primaryPasses"]>;
   }> => {
@@ -395,6 +396,7 @@ async function executePreparedLabAnalysisInternal(
           newIssueAfterRepairCount: validated.newIssueAfterRepairCount,
         },
         outcome: validated.outcome,
+        matchingReadiness: validated.matchingReadiness,
         passes: validated.passes,
       };
     } catch (caught) {
@@ -495,6 +497,7 @@ async function executePreparedLabAnalysisInternal(
     primaryRepairCount: primary.repairCount,
     primaryRepairProvenance: primary.repairProvenance,
     ...(primary.outcome ? { primaryValidationOutcome: primary.outcome } : {}),
+    ...(primary.matchingReadiness ? { matchingReadiness: primary.matchingReadiness } : {}),
     ...(primary.passes ? { primaryPasses: primary.passes } : {}),
     ...(opts?.reviewRepair ? { reviewRepair: opts.reviewRepair } : {}),
     ...(applicationRoundtrip !== undefined ? { applicationRoundtrip } : {}),

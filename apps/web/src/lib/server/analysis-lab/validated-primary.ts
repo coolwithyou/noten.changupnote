@@ -10,6 +10,7 @@ import { runDeepGrantAnalysis } from "@/lib/server/deep-analysis/extractor";
 import { sealDeepAnalysisInput } from "@/lib/server/deep-analysis/inputManifest";
 import {
   decideDeepAnalysisValidationRoute,
+  type DeepAnalysisValidationRoute,
   type DeepAnalysisValidationIssue,
   validateDeepAnalysisResult,
 } from "@/lib/server/deep-analysis/validator";
@@ -26,6 +27,7 @@ export interface ValidatedLabPrimaryResult extends LabPrimaryRepairProvenance {
   modelPrimaryRepairCount: number;
   newIssueAfterRepairCount: number;
   outcome: "publishable" | "held";
+  matchingReadiness: "ready" | "conditional" | "deferred";
   /**
    * 패스별 validator 계측(2026-08-11 T4 1단계) — 어떤 issue 가 첫 패스를 떨어뜨리는지 진단용.
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과).
@@ -246,13 +248,30 @@ export async function runValidatedLabPrimary(input: {
       passes,
     );
   }
+  const matchingReadiness = classifyMatchingReadiness(execution.result, route);
   return {
     extraction: execution.result,
     repairCount,
     deterministicPrimaryRepairCount,
     modelPrimaryRepairCount,
     newIssueAfterRepairCount,
-    outcome: route.route === "accept" ? "publishable" : "held",
+    outcome: matchingReadiness === "deferred" ? "held" : "publishable",
+    matchingReadiness,
     passes,
   };
+}
+
+function classifyMatchingReadiness(
+  result: DeepAnalysisModelResult,
+  route: Exclude<DeepAnalysisValidationRoute, { route: "repair" }>,
+): ValidatedLabPrimaryResult["matchingReadiness"] {
+  if (route.route === "accept") return "ready";
+  if (route.holdIssues.some((issue) => issue.code !== "unresolved_axis")) return "deferred";
+
+  // 한 축만 확인된 공고는 포털의 거친 대상 라벨 수준이라 실제 랭킹 근거로 부족하다.
+  // 두 축 이상을 확인했다면 확인된 조건으로 후보를 만들고, unresolved 축은 대표자 질문으로 남긴다.
+  const resolvedAxisCount = result.axisAssessments.filter(
+    (axis) => axis.status === "condition_found" || axis.status === "inspected_no_condition",
+  ).length;
+  return resolvedAxisCount >= 2 ? "conditional" : "deferred";
 }
