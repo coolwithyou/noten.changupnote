@@ -165,7 +165,67 @@ async function run() {
     assert.doesNotMatch(result.text, /첨부 공고문: 검증공고\.pdf/);
   }
 
-  console.log("input.test.ts: 7개 시나리오 전부 통과");
+  // ⑦ 실제 입력 조립 provenance는 archive 입력 순서와 무관한 canonical manifest SHA로 고정된다.
+  {
+    process.env.ANALYSIS_LAB_INPUT_CHAR_CAP = "80";
+    try {
+      const mismatchedRaw = "---\nsource: mismatch\n---\n실제 다른 본문\n";
+      const longRaw = `---\nsource: long\n---\n${"가".repeat(300)}\n`;
+      const archives = [
+        archive({
+          filename: "a-mismatch.md",
+          storageKey: "archive/a",
+          markdownStorageKey: "md/a",
+          markdownSha256: "0".repeat(64),
+          markdownBytes: 1_000,
+        }),
+        archive({
+          filename: "b-long.md",
+          storageKey: "archive/b",
+          markdownStorageKey: "md/b",
+          markdownSha256: "76eb64b349983e29f4add18ce9e96c477e297555ea93d8a7f7de6c09974d8aad",
+          markdownBytes: 999,
+        }),
+        archive({
+          filename: "c-missing.hwp",
+          storageKey: "archive/c",
+        }),
+      ];
+      const storage = fakeStorage({
+        "md/a": mismatchedRaw,
+        "md/b": longRaw,
+      });
+      const forward = await assembleLabInput(
+        { grant: GRANT, payload: null, archives },
+        { storage },
+      );
+      const reversed = await assembleLabInput(
+        { grant: GRANT, payload: null, archives: [...archives].reverse() },
+        { storage },
+      );
+
+      assert.equal(
+        forward.attachmentManifestSha256,
+        "543b9c80c3b6855c839a2fc3760ba427e89f1b78a4dc7b67316f6bc438ed4664",
+      );
+      assert.equal(reversed.attachmentManifestSha256, forward.attachmentManifestSha256);
+      assert.equal(
+        reversed.inputSha256,
+        forward.inputSha256,
+        "입력 archive 순서가 바뀌어도 조립 결과가 같아야 한다",
+      );
+      assert.deepEqual(
+        forward.blocks.find((block) => block.label === "첨부 공고문: b-long.md"),
+        { label: "첨부 공고문: b-long.md", chars: 56, truncated: true },
+      );
+      assert.match(forward.text, /a-mismatch\.md\(로드 실패\)/);
+      assert.match(forward.text, /c-missing\.hwp\(변환 안 됨\)/);
+    } finally {
+      delete process.env.ANALYSIS_LAB_INPUT_CHAR_CAP;
+    }
+  }
+
+  console.log("input.test.ts: 8개 시나리오 전부 통과");
 }
 
 run().catch((error) => {

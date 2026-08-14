@@ -248,6 +248,7 @@ export async function runLabAnalysis(
     extraction: DeepAnalysisResult | null;
     error: string | null;
     repairCount: number;
+    repairProvenance: NonNullable<LabRun["primaryRepairProvenance"]>;
     outcome?: NonNullable<LabRun["primaryValidationOutcome"]>;
     /** 패스별 validator 계측(2026-08-11 T4) — validator 최종 실패에도 보존한다. */
     passes?: NonNullable<LabRun["primaryPasses"]>;
@@ -269,6 +270,11 @@ export async function runLabAnalysis(
         // 구 artifact의 primary_validation_held sentinel은 reader classifier에서만 호환한다.
         error: null,
         repairCount: validated.repairCount,
+        repairProvenance: {
+          deterministicPrimaryRepairCount: validated.deterministicPrimaryRepairCount,
+          modelPrimaryRepairCount: validated.modelPrimaryRepairCount,
+          newIssueAfterRepairCount: validated.newIssueAfterRepairCount,
+        },
         outcome: validated.outcome,
         passes: validated.passes,
       };
@@ -277,6 +283,11 @@ export async function runLabAnalysis(
         return {
           extraction: caught.extraction,
           repairCount: caught.repairCount,
+          repairProvenance: {
+            deterministicPrimaryRepairCount: caught.deterministicPrimaryRepairCount,
+            modelPrimaryRepairCount: caught.modelPrimaryRepairCount,
+            newIssueAfterRepairCount: caught.newIssueAfterRepairCount,
+          },
           passes: caught.passes,
           error: caught.message.slice(0, 2_000),
         };
@@ -284,6 +295,11 @@ export async function runLabAnalysis(
       return {
         extraction: null,
         repairCount: 0,
+        repairProvenance: {
+          deterministicPrimaryRepairCount: 0,
+          modelPrimaryRepairCount: 0,
+          newIssueAfterRepairCount: 0,
+        },
         error: caught instanceof Error
           ? caught.message.slice(0, 2_000)
           : String(caught).slice(0, 2_000),
@@ -344,6 +360,7 @@ export async function runLabAnalysis(
     inputBlocks: input.blocks,
     inputTotalChars: input.totalChars,
     inputSha256: input.inputSha256,
+    attachmentManifestSha256: input.attachmentManifestSha256,
     usage: extraction?.usage ?? null,
     costUsd: extraction?.costUsd ?? null,
     analysisMarkdown: extraction?.analysisMarkdown ?? "",
@@ -357,6 +374,7 @@ export async function runLabAnalysis(
       assessments: extraction?.axisAssessments ?? [],
     }),
     primaryRepairCount: primary.repairCount,
+    primaryRepairProvenance: primary.repairProvenance,
     ...(primary.outcome ? { primaryValidationOutcome: primary.outcome } : {}),
     ...(primary.passes ? { primaryPasses: primary.passes } : {}),
     ...(opts?.reviewRepair ? { reviewRepair: opts.reviewRepair } : {}),

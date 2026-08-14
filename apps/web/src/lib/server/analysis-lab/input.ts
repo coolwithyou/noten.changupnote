@@ -85,11 +85,19 @@ export interface LabAssembledInput {
   blocks: LabInputBlock[];
   totalChars: number;
   inputSha256: string;
+  /** 주입형 legacy assembler는 생략할 수 있고, assembleLabInput의 구체 반환에서는 필수다. */
+  attachmentManifestSha256?: string;
+}
+
+export interface LabAssembledInputWithAttachmentManifest extends LabAssembledInput {
+  /** 실제 첨부 로드 결과까지 포함한 canonical attachment manifest의 SHA-256. */
+  attachmentManifestSha256: string;
 }
 
 interface DraftBlock {
   label: string;
   body: string;
+  attachmentProvenance?: AttachmentProvenance;
 }
 
 export async function assembleLabInput(
@@ -99,7 +107,7 @@ export async function assembleLabInput(
     archives: LabInputArchive[];
   },
   deps: { storage?: LabAttachmentTextStorage | null } = {},
-): Promise<LabAssembledInput> {
+): Promise<LabAssembledInputWithAttachmentManifest> {
   const cap = labInputCharCap();
   const structured: DraftBlock = {
     label: "공고 구조화 필드",
@@ -123,12 +131,22 @@ export async function assembleLabInput(
     if (remaining <= 0) {
       blocks.push({ label: draft.label, chars: 0, truncated: true });
       cappedLabels.push(`${draft.label}(전체 제외)`);
+      if (draft.attachmentProvenance) {
+        draft.attachmentProvenance.outcome = "truncated";
+        draft.attachmentProvenance.unavailableReason = null;
+        draft.attachmentProvenance.inputChars = 0;
+      }
       continue;
     }
     const body = draft.body.slice(0, remaining);
     const truncated = body.length < draft.body.length;
     remaining -= body.length;
     blocks.push({ label: draft.label, chars: body.length, truncated });
+    if (draft.attachmentProvenance) {
+      draft.attachmentProvenance.outcome = truncated ? "truncated" : "loaded";
+      draft.attachmentProvenance.unavailableReason = null;
+      draft.attachmentProvenance.inputChars = body.length;
+    }
     if (truncated) cappedLabels.push(`${draft.label}(뒷부분 잘림)`);
     if (body.trim()) renderedBlocks.push(`[블록: ${draft.label}]\n${body}`);
   }
@@ -176,6 +194,7 @@ export async function assembleLabInput(
     blocks,
     totalChars: text.length,
     inputSha256: createHash("sha256").update(text).digest("hex"),
+    attachmentManifestSha256: hashAttachmentManifest(attachment.provenance),
   };
 }
 
@@ -289,6 +308,19 @@ export function announcementScore(filename: string): number {
 export const BODY_MARKDOWN_MIN_BYTES = 2_000;
 
 type UnavailableReason = "markdown_missing" | "r2_unconfigured" | "load_failed" | "cap_exceeded";
+type AttachmentOutcome = "loaded" | "truncated" | "unavailable";
+
+interface AttachmentProvenance {
+  filename: string;
+  storageKey: string | null;
+  markdownStorageKey: string | null;
+  declaredMarkdownSha256: string | null;
+  markdownBytes: number | null;
+  outcome: AttachmentOutcome | "pending";
+  unavailableReason: UnavailableReason | null;
+  actualContentSha256: string | null;
+  inputChars: number;
+}
 
 const UNAVAILABLE_REASON_LABELS: Record<UnavailableReason, string> = {
   markdown_missing: "변환 안 됨",
@@ -306,6 +338,7 @@ interface AttachmentLoadResult {
   blocks: DraftBlock[];
   /** 입력에 포함되지 못한 markdown 첨부 — 조용히 버리지 않고 호출자에게 돌려 고지한다(M1). */
   unavailable: Array<{ filename: string; reason: UnavailableReason }>;
+  provenance: AttachmentProvenance[];
 }
 
 async function loadAttachmentBlocks(
@@ -313,63 +346,166 @@ async function loadAttachmentBlocks(
   budget: number,
   injectedStorage?: LabAttachmentTextStorage | null,
 ): Promise<AttachmentLoadResult> {
+  const candidates = archives.map((archive) => ({
+    archive,
+    provenance: createAttachmentProvenance(archive),
+  }));
   // markdown 미생성 첨부(변환 실패·미시도)도 조용히 버리지 않고 고지한다 — 고지가 없으면
   // 모델이 그 첨부의 존재를 모른 채 inspected_no_condition 으로 오판한다(178352 실사례).
-  const markdownMissing: AttachmentLoadResult["unavailable"] = archives
-    .filter((archive) => !archive.markdownStorageKey)
-    .map((archive) => ({ filename: archive.filename, reason: "markdown_missing" as const }));
-  const withMarkdown = archives
-    .filter((archive): archive is LabInputArchive & { markdownStorageKey: string } =>
-      Boolean(archive.markdownStorageKey))
+  const markdownMissingCandidates = candidates
+    .filter(({ archive }) => !archive.markdownStorageKey)
+    .sort((a, b) => compareAttachmentIdentity(a.archive, b.archive));
+  for (const { provenance } of markdownMissingCandidates) {
+    provenance.outcome = "unavailable";
+    provenance.unavailableReason = "markdown_missing";
+  }
+  const markdownMissing: AttachmentLoadResult["unavailable"] = markdownMissingCandidates
+    .map(({ archive }) => ({ filename: archive.filename, reason: "markdown_missing" as const }));
+  const withMarkdown = candidates
+    .filter((candidate): candidate is typeof candidate & {
+      archive: LabInputArchive & { markdownStorageKey: string };
+    } => Boolean(candidate.archive.markdownStorageKey))
     .sort((a, b) => {
-      const scoreDelta = announcementScore(b.filename) - announcementScore(a.filename);
+      const scoreDelta =
+        announcementScore(b.archive.filename) - announcementScore(a.archive.filename);
       if (scoreDelta !== 0) return scoreDelta;
-      return (b.markdownBytes ?? 0) - (a.markdownBytes ?? 0);
+      const byteDelta = (b.archive.markdownBytes ?? 0) - (a.archive.markdownBytes ?? 0);
+      if (byteDelta !== 0) return byteDelta;
+      return compareAttachmentIdentity(a.archive, b.archive);
     });
-  if (withMarkdown.length === 0) return { blocks: [], unavailable: markdownMissing };
+  if (withMarkdown.length === 0) {
+    return {
+      blocks: [],
+      unavailable: markdownMissing,
+      provenance: candidates.map((item) => item.provenance),
+    };
+  }
 
   const storage = injectedStorage === undefined ? createR2ObjectStorageFromEnv() : injectedStorage;
   if (!storage) {
+    for (const { provenance } of withMarkdown) {
+      provenance.outcome = "unavailable";
+      provenance.unavailableReason = "r2_unconfigured";
+    }
     // R2 env 미설정 — 구조화 필드만으로 진행하되, 어떤 첨부가 빠졌는지는 고지한다.
     return {
       blocks: [],
       unavailable: [
         ...markdownMissing,
-        ...withMarkdown.map((archive) => ({
+        ...withMarkdown.map(({ archive }) => ({
           filename: archive.filename,
           reason: "r2_unconfigured" as const,
         })),
       ],
+      provenance: candidates.map((item) => item.provenance),
     };
   }
 
   const blocks: DraftBlock[] = [];
   const unavailable: AttachmentLoadResult["unavailable"] = [...markdownMissing];
   let loadedChars = 0;
-  for (const archive of withMarkdown) {
+  for (const { archive, provenance } of withMarkdown) {
     // 캡 예산을 이미 소진했으면 더 읽지 않는다(M2) — 본문성 우선 정렬이라 뒤쪽은 서식류.
     if (loadedChars >= budget) {
+      provenance.outcome = "unavailable";
+      provenance.unavailableReason = "cap_exceeded";
       unavailable.push({ filename: archive.filename, reason: "cap_exceeded" });
       continue;
     }
     try {
       const raw = await storage.getObjectText(archive.markdownStorageKey);
+      // declared hash 검증이나 frontmatter 제거보다 먼저, storage가 돌려준 raw text 자체를 고정한다.
+      const actualContentSha256 = createHash("sha256").update(raw, "utf8").digest("hex");
+      provenance.actualContentSha256 = actualContentSha256;
       if (
         archive.markdownSha256
-        && createHash("sha256").update(raw).digest("hex") !== archive.markdownSha256
+        && actualContentSha256 !== archive.markdownSha256
       ) {
         throw new Error("markdown SHA-256 mismatch");
       }
       const body = stripYamlFrontmatter(raw).trim();
+      provenance.outcome = "loaded";
+      provenance.unavailableReason = null;
       if (body) {
-        blocks.push({ label: `첨부 공고문: ${archive.filename}`, body });
+        blocks.push({
+          label: `첨부 공고문: ${archive.filename}`,
+          body,
+          attachmentProvenance: provenance,
+        });
         loadedChars += body.length;
       }
     } catch {
+      provenance.outcome = "unavailable";
+      provenance.unavailableReason = "load_failed";
+      provenance.inputChars = 0;
       unavailable.push({ filename: archive.filename, reason: "load_failed" });
     }
   }
-  return { blocks, unavailable };
+  return { blocks, unavailable, provenance: candidates.map((item) => item.provenance) };
+}
+
+function createAttachmentProvenance(archive: LabInputArchive): AttachmentProvenance {
+  return {
+    filename: archive.filename,
+    storageKey: archive.storageKey ?? null,
+    markdownStorageKey: archive.markdownStorageKey ?? null,
+    declaredMarkdownSha256: archive.markdownSha256 ?? null,
+    markdownBytes: archive.markdownBytes ?? null,
+    outcome: "pending",
+    unavailableReason: null,
+    actualContentSha256: null,
+    inputChars: 0,
+  };
+}
+
+function compareAttachmentIdentity(left: LabInputArchive, right: LabInputArchive): number {
+  return compareCanonicalText(
+    JSON.stringify([
+      left.filename,
+      left.storageKey ?? null,
+      left.markdownStorageKey ?? null,
+      left.markdownSha256 ?? null,
+      left.markdownBytes ?? null,
+    ]),
+    JSON.stringify([
+      right.filename,
+      right.storageKey ?? null,
+      right.markdownStorageKey ?? null,
+      right.markdownSha256 ?? null,
+      right.markdownBytes ?? null,
+    ]),
+  );
+}
+
+function compareCanonicalText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/**
+ * v1 canonicalization: 모든 optional metadata를 null로 채운 고정 키 순서 객체를 만들고,
+ * 각 객체의 JSON 문자열을 locale 비의존 ordinal 순서로 정렬한 뒤 whitespace 없는
+ * `{schemaVersion,attachments}` JSON의 UTF-8 bytes를 SHA-256 한다.
+ */
+function hashAttachmentManifest(provenance: AttachmentProvenance[]): string {
+  const attachments = provenance.map((item) => {
+    if (item.outcome === "pending") {
+      throw new Error(`attachment provenance outcome unresolved: ${item.filename}`);
+    }
+    return {
+      filename: item.filename,
+      storageKey: item.storageKey,
+      markdownStorageKey: item.markdownStorageKey,
+      declaredMarkdownSha256: item.declaredMarkdownSha256,
+      markdownBytes: item.markdownBytes,
+      outcome: item.outcome,
+      unavailableReason: item.unavailableReason,
+      actualContentSha256: item.actualContentSha256,
+      inputChars: item.inputChars,
+    };
+  }).sort((left, right) =>
+    compareCanonicalText(JSON.stringify(left), JSON.stringify(right)));
+  const canonicalJson = JSON.stringify({ schemaVersion: 1, attachments });
+  return createHash("sha256").update(canonicalJson, "utf8").digest("hex");
 }
 
 // ── 렌더 유틸 ─────────────────────────────────────────────────────

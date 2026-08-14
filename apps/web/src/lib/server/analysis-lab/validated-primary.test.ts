@@ -5,10 +5,22 @@ import {
   type DeepAnalysisCriterion,
   type DeepAnalysisModelResult,
 } from "@cunote/contracts";
+import type { LabRun } from "@/features/dev/analysis-lab/contract";
 import {
   runValidatedLabPrimary,
   ValidatedLabPrimaryError,
 } from "./validated-primary";
+
+const contractRepairProvenance = {
+  deterministicPrimaryRepairCount: 1,
+  modelPrimaryRepairCount: 2,
+  newIssueAfterRepairCount: 3,
+} satisfies NonNullable<LabRun["primaryRepairProvenance"]>;
+assert.deepEqual(contractRepairProvenance, {
+  deterministicPrimaryRepairCount: 1,
+  modelPrimaryRepairCount: 2,
+  newIssueAfterRepairCount: 3,
+});
 
 const inputText = [
   "공고",
@@ -75,6 +87,9 @@ const repaired = await runValidatedLabPrimary({
 });
 assert.equal(calls, 2, "정규화 누락을 1회 교정");
 assert.equal(repaired.repairCount, 1);
+assert.equal(repaired.deterministicPrimaryRepairCount, 0);
+assert.equal(repaired.modelPrimaryRepairCount, 1);
+assert.equal(repaired.newIssueAfterRepairCount, 0);
 assert.equal(repaired.extraction.criteria.length, 1);
 assert.equal(repaired.extraction.usage?.inputTokens, 20, "교정 호출 usage 합산");
 assert.equal(repaired.extraction.costUsd, 0.2, "교정 호출 명목 비용 합산");
@@ -104,10 +119,33 @@ const clean = await runValidatedLabPrimary({
 });
 assert.equal(cleanCalls, 1, "무repair 성공은 모델 호출 1회");
 assert.equal(clean.repairCount, 0);
+assert.equal(clean.deterministicPrimaryRepairCount, 0);
+assert.equal(clean.modelPrimaryRepairCount, 0);
+assert.equal(clean.newIssueAfterRepairCount, 0);
 assert.equal(clean.passes.length, 1, "무repair 성공은 primary 패스 1개만 계측");
 assert.equal(clean.passes[0]?.kind, "primary");
 assert.deepEqual(clean.passes[0]?.issueCodes, [], "통과 패스는 issueCodes 빈 배열");
 assert.ok((clean.passes[0]?.durationMs ?? -1) >= 0, "패스 durationMs 는 0 이상");
+
+// model pass가 늘지 않은 repair iteration은 결정적 primary repair로 계수한다.
+let deterministicCalls = 0;
+const deterministicallyRepaired = await runValidatedLabPrimary({
+  grantId: "grant-lab-deterministic-repair",
+  inputText,
+  inputSha256: "2".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    deterministicCalls += 1;
+    if (deterministicCalls > 1) throw new Error("결정적 교정은 모델을 다시 호출하면 안 됨");
+    return deterministicAxisMismatchResult();
+  },
+});
+assert.equal(deterministicCalls, 1);
+assert.equal(deterministicallyRepaired.repairCount, 1);
+assert.equal(deterministicallyRepaired.deterministicPrimaryRepairCount, 1);
+assert.equal(deterministicallyRepaired.modelPrimaryRepairCount, 0);
+assert.equal(deterministicallyRepaired.newIssueAfterRepairCount, 0);
 
 // issueCodes 20개 상한과 별개로 전체 issue 수와 경로별 축 snapshot을 보존한다.
 let unresolvedCalls = 0;
@@ -181,6 +219,27 @@ assert.equal(
   "서울 사업장에 입주한 지 3년 이상인 기업을 우대한다.",
 );
 
+// repair 전에는 없던 code+path issue가 다음 validation에 나타나면 새 유입으로 계수한다.
+let transitionCalls = 0;
+const repairedWithNewIssue = await runValidatedLabPrimary({
+  grantId: "grant-lab-new-issue-transition",
+  inputText,
+  inputSha256: "3".repeat(64),
+  apiKey: "subscription",
+  model: "claude-opus-5",
+  runModel: async () => {
+    transitionCalls += 1;
+    if (transitionCalls === 1) return result(false);
+    if (transitionCalls === 2) return semanticInvalidResult();
+    return result(true);
+  },
+});
+assert.equal(transitionCalls, 3);
+assert.equal(repairedWithNewIssue.repairCount, 2);
+assert.equal(repairedWithNewIssue.deterministicPrimaryRepairCount, 0);
+assert.equal(repairedWithNewIssue.modelPrimaryRepairCount, 2);
+assert.equal(repairedWithNewIssue.newIssueAfterRepairCount, 1);
+
 let mixedCalls = 0;
 const repairedMixed = await runValidatedLabPrimary({
   grantId: "grant-lab-mixed-route",
@@ -227,6 +286,9 @@ assert.match(
   /validator 교정 2회 뒤에도 실패.*normalization_drop.*axis_criterion_mismatch/,
 );
 assert.equal(failedError.repairCount, 2);
+assert.equal(failedError.deterministicPrimaryRepairCount, 0);
+assert.equal(failedError.modelPrimaryRepairCount, 2);
+assert.equal(failedError.newIssueAfterRepairCount, 0);
 assert.equal(failedError.passes.length, 3, "실패해도 primary+repair 진단 전부 운반");
 assert.equal(failedError.extraction.criteria.length, 0, "마지막 실패 extraction 보존");
 assert.equal(failedCalls, 3, "최초 1회와 교정 최대 2회 뒤 실패");
@@ -302,6 +364,18 @@ function inputMissingResult(): DeepAnalysisModelResult {
     rawToolInput: {
       criteria: [],
       axis_assessments: assessments.map((axis) => ({ ...axis })),
+    },
+  };
+}
+
+function deterministicAxisMismatchResult(): DeepAnalysisModelResult {
+  const mismatchedAxes = axes(false);
+  return {
+    ...result(true),
+    axisAssessments: mismatchedAxes,
+    rawToolInput: {
+      criteria: [rawCriterion(validCriterion)],
+      axis_assessments: mismatchedAxes.map((axis) => ({ ...axis })),
     },
   };
 }

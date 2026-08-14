@@ -216,6 +216,16 @@ export interface LabPrimaryPassDiagnostic {
   issuesTruncated?: boolean;
 }
 
+/**
+ * validator repair iteration의 실행 소유권과 issue transition provenance.
+ * 구 런에는 없으므로 LabRun에서 optional이며, 세 count는 같은 실행에서 함께 기록한다.
+ */
+export interface LabPrimaryRepairProvenance {
+  deterministicPrimaryRepairCount: number;
+  modelPrimaryRepairCount: number;
+  newIssueAfterRepairCount: number;
+}
+
 export interface LabRun {
   runId: string;
   grantId: string;
@@ -234,6 +244,8 @@ export interface LabRun {
   inputBlocks: LabInputBlock[];
   inputTotalChars: number;
   inputSha256: string;
+  /** 실제 첨부 로드·잘림·실패 상태를 봉인한 manifest SHA. 구 런에는 없다. */
+  attachmentManifestSha256?: string;
   usage: LabUsage | null;
   costUsd: number | null;
   /** 사람이 읽는 한국어 분석 문서(마크다운). */
@@ -252,6 +264,8 @@ export interface LabRun {
    * issueCodes 는 그 패스 결과의 validation 이슈 코드(빈 배열 = 그 패스로 통과, dedupe 없음).
    */
   primaryPasses?: LabPrimaryPassDiagnostic[];
+  /** 구 런에는 없으며, 부재 시 repair 소유권과 신규 issue 유입 여부를 추측하지 않는다. */
+  primaryRepairProvenance?: LabPrimaryRepairProvenance;
   /** 완료된 독립 검수의 blocking 판정을 Opus 재분석에 되먹임한 로컬 루프 provenance. */
   reviewRepair?: {
     sourceRunId: string;
