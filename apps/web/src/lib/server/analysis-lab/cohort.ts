@@ -50,6 +50,11 @@ import { BODY_MARKDOWN_MIN_BYTES, announcementScore } from "./input";
 import { analysisLabDir, listLabRunSummaries } from "./run-store";
 import { assertAnalysisLabCohortMutationAdmitted } from "./analysis-execution-admission";
 import {
+  DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
+  DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
+  DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
+} from "./deep-repair-formal-policy";
+import {
   LAB_SOURCES,
   RICH_CRITERIA_MIN,
   TIER_FALLBACK,
@@ -126,6 +131,22 @@ export interface FrozenLabCohortSnapshot {
   excludedSnapshotCount: number;
   excludedGrantCount: number;
 }
+
+export interface DeepRepairPlanningTarget {
+  readonly grantId: string;
+  readonly source: string;
+  readonly title: string;
+  readonly stratum: string;
+}
+
+export interface DeepRepairPlanningSelection {
+  readonly targets: readonly DeepRepairPlanningTarget[];
+  readonly quotas: NonNullable<LabCohortMeta["quotas"]>;
+  readonly warnings: readonly string[];
+}
+
+const DEEP_REPAIR_PLANNING_SIZE = DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE;
+const DEEP_REPAIR_PLANNING_SEED = 20260814;
 
 /**
  * 현행 cohort.json 을 건드리지 않고 새 층화 표본을 불변 파일로 동결한다. 기존 정본과
@@ -606,6 +627,78 @@ async function loadStratumCandidates(
       isRichCriteria: (criteriaByGrant.get(row.id) ?? 0) >= RICH_CRITERIA_MIN,
     };
   });
+}
+
+/**
+ * Gate R proposal 전용 read-only 선정. 기존 cohort 파일을 만들거나 바꾸지 않고, 호출자가
+ * 명시한 과거 run/snapshot 공고를 제외한 뒤 고정 seed로 정확히 30건을 뽑는다. 첫 15건은
+ * formal gate의 최소 표본에서도 여섯 층이 모두 관측되도록 결정론적으로 재배열한다.
+ */
+export async function selectDeepRepairPlanningTargets(options: {
+  readonly excludeGrantIds: readonly string[];
+}): Promise<DeepRepairPlanningSelection> {
+  const excluded = [...new Set(options.excludeGrantIds.map((id) => {
+    if (!UUID_PATTERN.test(id)) {
+      throw new Error(`deep repair planning exclusion grantId must be a UUID: ${id}`);
+    }
+    return id.toLowerCase();
+  }))];
+  const candidates = await loadStratumCandidates(getCunoteDb(), excluded);
+  const selection = selectStratifiedCohort(
+    candidates,
+    DEEP_REPAIR_PLANNING_SIZE,
+    DEEP_REPAIR_PLANNING_SEED,
+  );
+  if (selection.selected.length !== DEEP_REPAIR_PLANNING_SIZE) {
+    throw new Error(
+      `deep repair planning inventory insufficient: expected ${DEEP_REPAIR_PLANNING_SIZE}, got ${selection.selected.length}`,
+    );
+  }
+  const selectedIds = new Set<string>();
+  for (const target of selection.selected) {
+    if (selectedIds.has(target.grantId) || excluded.includes(target.grantId)) {
+      throw new Error(`deep repair planning selection overlap: ${target.grantId}`);
+    }
+    selectedIds.add(target.grantId);
+  }
+  const ordered = orderDeepRepairPlanningTargets(selection.selected);
+  return {
+    targets: ordered.map(({ grantId, source, title, stratum }) => ({
+      grantId,
+      source,
+      title,
+      stratum,
+    })),
+    quotas: selection.quotas,
+    warnings: selection.warnings,
+  };
+}
+
+function orderDeepRepairPlanningTargets(
+  selected: readonly StratumCandidate[],
+): StratumCandidate[] {
+  const remaining = [...selected];
+  const prefix: StratumCandidate[] = [];
+  for (const stratum of DEEP_REPAIR_FORMAL_REQUIRED_STRATA) {
+    const index = remaining.findIndex((target) => target.stratum === stratum);
+    if (index < 0) {
+      throw new Error(`deep repair planning missing required stratum: ${stratum}`);
+    }
+    prefix.push(remaining.splice(index, 1)[0]!);
+  }
+  let cursor = 0;
+  while (prefix.length < DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE) {
+    const stratum = DEEP_REPAIR_FORMAL_REQUIRED_STRATA[
+      cursor % DEEP_REPAIR_FORMAL_REQUIRED_STRATA.length
+    ]!;
+    const index = remaining.findIndex((target) => target.stratum === stratum);
+    if (index >= 0) prefix.push(remaining.splice(index, 1)[0]!);
+    cursor += 1;
+    if (cursor > DEEP_REPAIR_PLANNING_SIZE * DEEP_REPAIR_FORMAL_REQUIRED_STRATA.length) {
+      throw new Error("deep repair planning could not form the first 15 target prefix");
+    }
+  }
+  return [...prefix, ...remaining];
 }
 
 // ── 비층화 선정 로직 (파일럿과 동일) ───────────────────────────────

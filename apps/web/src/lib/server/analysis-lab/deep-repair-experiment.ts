@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import {
+  DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE as MAX_SAMPLE_SIZE,
+  DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE as MIN_SAMPLE_SIZE,
+  DEEP_REPAIR_FORMAL_REQUIRED_STRATA as REQUIRED_STRATA,
+} from "./deep-repair-formal-policy";
 
 type ExperimentMode = "formal" | "legacy_shadow";
 type Formation = "prospective" | "retrospective_concat";
@@ -146,22 +151,12 @@ interface ExecutionProvenance {
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const FULL_GIT_SHA_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
-const MIN_SAMPLE_SIZE = 15;
-const MAX_SAMPLE_SIZE = 30;
 const GOOD_REPAIR_RATE = 0.1;
 const BAD_REPAIR_RATE = 0.2;
 const ALPHA = 0.05;
 const BETA = 0.2;
 const GO_BOUNDARY = Math.log(BETA / (1 - ALPHA));
 const NO_GO_BOUNDARY = Math.log((1 - BETA) / ALPHA);
-const REQUIRED_STRATA = [
-  "bizinfo/thick",
-  "bizinfo/medium",
-  "bizinfo/thin",
-  "kstartup/thick",
-  "kstartup/medium",
-  "kstartup/thin",
-] as const;
 
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
