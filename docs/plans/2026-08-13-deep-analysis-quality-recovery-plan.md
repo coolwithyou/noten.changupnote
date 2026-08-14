@@ -4,6 +4,7 @@
 > 선행 근거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`
 > 안전 경계: 사용자 승인으로 exact canary, 불변 pilot5, 비중복 확대 10건을 로컬 구독 CLI로 실행했다. 확대 게이트 실패 뒤 추가 배치를 중단했다. 범용 `lab:agent --execute`, 2차 교정, 운영 worker 활성화, 배포·승격은 실행하지 않았다. 당시 worker는 `observe_only`였지만 2026-08-14 live 재확인은 gcloud 재인증 대기로 Gate R 미충족이다.
 > 현행 계약 정정: 이 문서의 초기 sentinel/error 소비자 설계는 P0에서 대체됐다. 신규 held는 `primaryValidationOutcome=held`, `error=null` terminal이며 중앙 `classifyLabRunOutcome`/`isPublishableLabRun`만 성공 권한을 판정한다. 아래 과거 설계와 현행 계약이 충돌하면 `docs/research/2026-08-14-구독-딥분석-반복실패-구조진단-및-개선-설계.md`가 우선한다.
+> Gate R 후속 상태: `52663e6`에서 exact proposal·approval·plan·receipt-bound 단건 Adapter와 issuer까지 구현·검증했지만, 현행 worker 영수증·사용자 approval·발급 authority가 없어 live 판정은 계속 NO-GO다.
 
 ## 1. 목표와 성공 정의
 
@@ -342,8 +343,8 @@ build에는 기존 `archiveKStartupCore.ts`의 동적 파일 패턴과 NFT 추�
 1. [완료] P0~P3 상태·비용·lane·불변 experiment kernel과 관련 회귀/typecheck/build GREEN.
 2. [완료] legacy live entrypoint, cohort mutation, runtime lease acquire/renew, promotion approve/write의 정적 admission 차단과 독립 재감사 치명 0·중요 0.
 3. [완료·NO-GO 증거] v17 pilot5 0/5 `CONTINUE`, 누적 6/15 `NO_GO` shadow replay.
-4. [미충족] 전용 gcloud configuration으로 Cloud Run worker `observe_only`와 bounded claim 상태를 현행 시점에 재확인한 영수증.
-5. [미충족] exact plan·artifact·receipt를 실제 실행과 결속하고 실행 중 신규 target 편입을 금지하는 최소 live Adapter.
+4. [미충족] 전용 gcloud configuration으로 Cloud Run worker `observe_only + CLAIM_SCOPE=unconfigured`를 현행 시점에 재확인한 영수증.
+5. [완료] exact proposal·approval·plan·artifact·receipt를 실제 단건 실행과 결속하고 실행 중 신규 target 편입을 금지하는 최소 live Adapter·issuer.
 6. [미충족] grant/cohort/plan SHA·만료·중단 조건에 결속된 새 비중복 단건 canary의 사용자 승인.
 
 전체 재생성 repair는 기존 표본에서 신규 issue 0이므로 patch schema 즉시 도입을 보류한다. 원문 분류가
