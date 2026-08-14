@@ -2,6 +2,7 @@ import {
   currentDeepRepairLiveExecutionBinding,
   type DeepRepairLiveExecutionBinding,
 } from "./deep-repair-live-experiment";
+import { currentApplicationRoundtripCanaryExecutionBinding } from "./application-roundtrip/canary";
 
 export type AnalysisLabReceiptBoundExecutionBinding = DeepRepairLiveExecutionBinding;
 
@@ -67,7 +68,7 @@ export function assertAnalysisLabLiveExecutionAdmitted(
 
 /** exact prepared 경계가 검증된 뒤 같은 core callback의 하위 transport만 통과시킨다. */
 export function assertAnalysisLabReceiptBoundTransportAdmitted(): void {
-  if (!currentDeepRepairLiveExecutionBinding()) {
+  if (!currentDeepRepairLiveExecutionBinding() && !currentApplicationRoundtripCanaryExecutionBinding()) {
     throw new AnalysisLabExecutionPausedError("모델 실행");
   }
 }

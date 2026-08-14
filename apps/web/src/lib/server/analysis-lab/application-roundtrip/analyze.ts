@@ -45,6 +45,8 @@ export interface ApplicationRoundtripAnalysisOptions {
   transport?: RoundtripLlmTransport;
   candidateConcurrency?: number;
   parentLabRunId?: string | null;
+  /** proposal-bound canary가 실제 분석을 허용한 원본 SHA-256 집합. */
+  sourceSha256s?: readonly string[];
 }
 
 export async function runApplicationRoundtripAnalysis(
@@ -97,7 +99,18 @@ export async function runApplicationRoundtripAnalysis(
       return true;
     })
     .sort((a, b) => filenamePriority(b.filename) - filenamePriority(a.filename));
-  const eligible = allEligible.slice(0, MAX_DOCUMENTS);
+  const exactSourceSha256s = normalizeExactSourceSha256s(options?.sourceSha256s);
+  const eligiblePool = exactSourceSha256s === null
+    ? allEligible
+    : allEligible.filter((row) => row.sha256 && exactSourceSha256s.has(row.sha256.toLowerCase()));
+  if (exactSourceSha256s !== null && eligiblePool.length !== exactSourceSha256s.size) {
+    throw new ApplicationRoundtripAnalyzeError(
+      "source_binding_mismatch",
+      "proposal이 허용한 Kordoc 원본 SHA-256을 DB에서 exact하게 찾지 못했습니다.",
+      409,
+    );
+  }
+  const eligible = eligiblePool.slice(0, MAX_DOCUMENTS);
   if (eligible.length === 0) {
     throw new ApplicationRoundtripAnalyzeError(
       "hwp_attachment_not_found",
@@ -152,6 +165,9 @@ export async function runApplicationRoundtripAnalysis(
       sourceSha256 = createHash("sha256").update(object.body).digest("hex");
       if (attachment.sha256 && /^[a-f0-9]{64}$/i.test(attachment.sha256) && attachment.sha256 !== sourceSha256) {
         throw new Error("DB의 원본 SHA-256과 R2에서 읽은 바이트가 일치하지 않습니다.");
+      }
+      if (exactSourceSha256s !== null && !exactSourceSha256s.has(sourceSha256)) {
+        throw new Error("R2 원본 SHA-256이 proposal allowlist와 일치하지 않습니다.");
       }
 
       const attachmentId = createHash("sha256")
@@ -221,7 +237,7 @@ export async function runApplicationRoundtripAnalysis(
       && (document.recommendedInputFieldCount > 0 || document.recommendedChoiceGroupCount > 0))
     .sort((a, b) => recommendationScore(b) - recommendationScore(a))[0] ?? null;
   const successful = documents.filter((document) => document.error === null).length;
-  const skippedDocumentCount = Math.max(0, allEligible.length - eligible.length);
+  const skippedDocumentCount = Math.max(0, eligiblePool.length - eligible.length);
   const failureCode = aggregateFailureCode(documents, successful, skippedDocumentCount);
   const run: ApplicationRoundtripRun = {
     version: APPLICATION_ROUNDTRIP_VERSION,
@@ -243,7 +259,7 @@ export async function runApplicationRoundtripAnalysis(
     failureCode,
     startedAt: started.toISOString(),
     durationMs: Date.now() - startedMs,
-    sourceCount: allEligible.length,
+    sourceCount: eligiblePool.length,
     skippedDocumentCount,
     documents,
     recommendedAttachmentId: recommended?.attachmentId ?? null,
@@ -254,6 +270,24 @@ export async function runApplicationRoundtripAnalysis(
   };
   await saveRoundtripRun({ run, manifest, markdownByAttachmentId });
   return run;
+}
+
+function normalizeExactSourceSha256s(values: readonly string[] | undefined): Set<string> | null {
+  if (values === undefined) return null;
+  if (values.length === 0) throw new ApplicationRoundtripAnalyzeError(
+    "source_binding_mismatch",
+    "Kordoc 원본 SHA-256 allowlist가 비었습니다.",
+    409,
+  );
+  const normalized = values.map((value) => value.toLowerCase());
+  if (normalized.some((value) => !/^[a-f0-9]{64}$/u.test(value)) || new Set(normalized).size !== normalized.length) {
+    throw new ApplicationRoundtripAnalyzeError(
+      "source_binding_mismatch",
+      "Kordoc 원본 SHA-256 allowlist가 유효하지 않습니다.",
+      409,
+    );
+  }
+  return new Set(normalized);
 }
 
 function filenamePriority(filename: string): number {
