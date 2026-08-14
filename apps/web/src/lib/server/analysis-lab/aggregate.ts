@@ -37,6 +37,7 @@ import {
 } from "./promotion-release";
 import { type ReviewedRun, selectReviewedRuns } from "./reviewed-runs";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+import { summarizeReviewedRunCosts } from "./aggregate-cost-policy";
 
 loadAnalysisLabEnv();
 
@@ -538,10 +539,10 @@ async function main() {
   // 기계판정 가능(구조화, operator≠text_only) — A 는 현행 DB 전체, B 는 "정확" 확정분만.
   const machineA = stats.reduce((sum, item) => sum + item.currentMachine, 0);
   const machineB = stats.reduce((sum, item) => sum + item.correctStructured, 0);
-  const costs = stats
-    .map((item) => item.run.costUsd)
-    .filter((cost): cost is number => cost !== null);
-  const costTotal = costs.reduce((sum, cost) => sum + cost, 0);
+  const costSummary = summarizeReviewedRunCosts(
+    stats.map((item) => item.run),
+    GATES.costPerNoticeMaxUsd,
+  );
 
   const decided = correct + needsEdit + wrong + unsure;
   const strictPrecision = decided > 0 ? correct / decided : 0;
@@ -550,7 +551,6 @@ async function main() {
   // 분모는 게이트 표본 전체(사람 전수 + 감사 확정 AI 검수) 공고 수.
   const missedPerNotice = missed / stats.length;
   const coverageRatio = currentTotal > 0 ? correct / currentTotal : Number.POSITIVE_INFINITY;
-  const costPerNotice = costs.length > 0 ? costTotal / costs.length : 0;
   // 구조화 비율 게이트 — 정확 확정 B 중 구조화. 승격 근거는 contract.ts GATES 주석 참조.
   const structuredRatio = correct > 0 ? machineB / correct : 0;
 
@@ -571,7 +571,21 @@ async function main() {
       ` | A→B 배수(관찰 지표·게이트 아님): 현행 A ${machineA}건 → B ${machineB}건` +
       `${machineA > 0 ? ` = ${(machineB / machineA).toFixed(2)}x` : " (A 0건·비교 불가)"}`,
   );
-  console.log(`비용 — 공고당 평균 $${costPerNotice.toFixed(3)}\n`);
+  if (costSummary.api.runCount > 0) {
+    console.log(
+      `API 비용 — 표본 ${costSummary.api.costSampleCount}/${costSummary.api.runCount}건 · `
+      + `합계 $${costSummary.api.totalUsd.toFixed(3)} · 공고당 평균 `
+      + `${costSummary.api.averageUsd === null ? "미상" : `$${costSummary.api.averageUsd.toFixed(3)}`}`,
+    );
+  }
+  if (costSummary.subscription.runCount > 0) {
+    console.log(
+      `구독 명목 비용 telemetry — 표본 ${costSummary.subscription.costSampleCount}/${costSummary.subscription.runCount}건 · `
+      + `합계 $${costSummary.subscription.totalUsd.toFixed(3)} · 공고당 평균 `
+      + `${costSummary.subscription.averageUsd === null ? "미상" : `$${costSummary.subscription.averageUsd.toFixed(3)}`}`,
+    );
+  }
+  console.log("");
 
   printPositionDiagnostics(stats, missed);
 
@@ -609,15 +623,17 @@ async function main() {
         coverageRatio >= GATES.coverageRatioMin,
       ),
     },
-    {
-      pass: costPerNotice <= GATES.costPerNoticeMaxUsd,
-      line: gateLine(
-        "비용(공고당)",
-        `$${costPerNotice.toFixed(3)}`,
-        `≤ $${GATES.costPerNoticeMaxUsd}`,
-        costPerNotice <= GATES.costPerNoticeMaxUsd,
-      ),
-    },
+    ...(costSummary.apiCostGate
+      ? [{
+          pass: costSummary.apiCostGate.pass,
+          line: gateLine(
+            "API 비용(공고당)",
+            `$${costSummary.apiCostGate.actualUsd.toFixed(3)}`,
+            `≤ $${costSummary.apiCostGate.maxUsd}`,
+            costSummary.apiCostGate.pass,
+          ),
+        }]
+      : []),
     {
       pass: structuredRatio >= GATES.structuredRatioMin,
       line: gateLine(
