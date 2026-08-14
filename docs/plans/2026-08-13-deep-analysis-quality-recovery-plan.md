@@ -1,8 +1,8 @@
 # 딥분석 품질 회복 구현 계획 (2026-08-13)
 
-> 상태: 정적 구현·125015 canary·불변 층화 v17 pilot5까지 GO. v17은 publishable 4·held 1·repair 0/5이며, 모집단 `<20%` 주장은 0 repair 누적 14건까지 보류한다. CP2(`lab-deep-v14`)의 10건 실측을 기준선으로 사용한다.
+> 상태 정정(2026-08-14): 정적 구현·125015 canary·v17 pilot5는 GO였지만, 비중복 확대 10건에서 publishable 7·held 3·repair 6/10이 재현돼 누적 6/15(40%)로 `<20%` 게이트에 실패했다. repair 후 신규 issue는 0이나 명목 비용 상한과 Kordoc 미해결 게이트도 실패해 추가 대량 실행을 중단한다.
 > 선행 근거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`
-> 안전 경계: 사용자 승인으로 exact canary와 불변 pilot5까지만 로컬 구독 CLI로 실행했다. 범용 `lab:agent --execute`, 2차 교정, 운영 worker 활성화, 배포·승격은 실행하지 않았고 `observe_only`를 유지한다.
+> 안전 경계: 사용자 승인으로 exact canary, 불변 pilot5, 비중복 확대 10건을 로컬 구독 CLI로 실행했다. 확대 게이트 실패 뒤 추가 배치를 중단했다. 범용 `lab:agent --execute`, 2차 교정, 운영 worker 활성화, 배포·승격은 실행하지 않았고 `observe_only`를 유지한다.
 
 ## 1. 목표와 성공 정의
 
@@ -272,7 +272,7 @@ GREEN:
 | 7 | `1b1dc47` | package dist를 재빌드한 뒤 `lab-deep-v17`/`deep-analysis-v23` 런타임 계약 고정 |
 | 8 | `9281d38` | 모든 `lab:batch` 실행 전에 package runtime freshness를 강제하고 CLI 잡에 불변 코호트 라벨 기록 |
 
-기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 125015 단건은 v13 repair 2회 실패를 v15 first-pass held·repair 0으로 바꿨고, v17 불변 pilot5는 publishable 4·held 1·repair 0·신규 issue 0으로 종결했다. 평균 wall은 같은 표본 v15 687.5초에서 v17 427.8초로 줄었다. 0/5의 단측 95% 상한은 45.1%이므로 모집단 `<20%` 주장은 0 repair 누적 14건까지 보류한다.
+기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 125015 단건은 v13 repair 2회 실패를 v15 first-pass held·repair 0으로 바꿨고, v17 불변 pilot5는 publishable 4·held 1·repair 0·신규 issue 0으로 종결했다. 평균 wall은 같은 표본 v15 687.5초에서 v17 427.8초로 줄었다. 당시 0/5의 단측 95% 상한은 45.1%여서 모집단 `<20%` 주장을 보류했고, 이후 확대 결과는 §9의 6/15 NO-GO로 반영했다.
 
 ## 6. 계획 자체의 테스트 행렬
 
@@ -340,6 +340,6 @@ build에는 기존 `archiveKStartupCore.ts`의 동적 파일 패턴과 NFT 추�
 2. 커밋별 diff 리뷰와 상태 전이 대상 Claude 적대적 리뷰에서 미해결 P0/P1 지적 0. 전체 변경 재리뷰용 Claude CLI는 응답 없이 timeout되어 승인 근거로 세지 않았고, 자체 적대적 재리뷰에서 발견한 stale package 선행 게이트·코호트 provenance 누락은 `9281d38`로 종결.
 3. [완료] 125015 단건 canary: held·repair 0·Kordoc complete.
 4. [완료] 불변 층화 v17 pilot5: publishable 4·held 1·repair 0·신규 issue 0.
-5. [다음] 같은 규칙으로 0 repair 누적 14건 통계 게이트. repair가 1건이면 모집단 판정 최소 표본은 22건으로 바뀐다.
-6. Kordoc field-level canary와 독립 Fable/Sonnet 검수는 별도 실행 단계로 유지한다.
-7. 전체 재생성 semantic repair가 새 issue를 만들 가능성은 잔여 리스크다. 후속에서 `repair 후 신규 issue 발생률=0`이 아니면 patch schema를 별도 설계하고 확대를 중단한다.
+5. [완료·NO-GO] pilot5·정본과 겹치지 않는 확대 10건: publishable 7·held 3·repair 6/10·신규 issue 0. 누적 repair 6/15(40%).
+6. [차단] repair 10개 first-pass issue 원문 분류, 동시 실행 예약 비용을 포함한 cap 보정, Kordoc field-level canary 전에는 추가 배치를 실행하지 않는다.
+7. 전체 재생성 repair는 이번 표본에서 신규 issue 0이므로 patch schema 즉시 도입은 보류한다. 원문 분류가 반복 가능한 최소 seam을 입증할 때만 별도 버전으로 설계한다.
