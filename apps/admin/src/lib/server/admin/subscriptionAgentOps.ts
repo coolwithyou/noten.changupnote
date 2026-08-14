@@ -416,6 +416,10 @@ async function readReportHistory(root: string): Promise<SubscriptionAgentReportS
 
 async function readBatchSnapshot(root: string): Promise<SubscriptionAgentBatchSnapshot> {
   const value = await readJson(join(analysisLabDir(root), "batch-job.json"))
+  return parseSubscriptionAgentBatchSnapshot(value)
+}
+
+export function parseSubscriptionAgentBatchSnapshot(value: unknown): SubscriptionAgentBatchSnapshot {
   if (!isRecord(value)) return idleBatch()
   const progress = isRecord(value.progress) ? value.progress : {}
   const summary = isRecord(value.summary) ? value.summary : {}
@@ -431,6 +435,7 @@ async function readBatchSnapshot(root: string): Promise<SubscriptionAgentBatchSn
     total: numberValue(progress.total),
     started: numberValue(progress.started),
     ok: numberValue(progress.ok),
+    held: numberValue(progress.held),
     error: numberValue(progress.error),
     nominalCostUsd: numberValue(progress.cumulativeCostUsd),
     stopReason: typeof summary.stopReason === "string" ? summary.stopReason : null,
@@ -448,6 +453,7 @@ function idleBatch(): SubscriptionAgentBatchSnapshot {
     total: 0,
     started: 0,
     ok: 0,
+    held: 0,
     error: 0,
     nominalCostUsd: 0,
     stopReason: null,

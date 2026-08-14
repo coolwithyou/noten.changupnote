@@ -50,6 +50,15 @@ try {
     writeFile(join(roundtripDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`),
   ]);
 
+  await assert.rejects(
+    () => bundlePromotionApplicationPrecompute({
+      releaseId,
+      labRun: { ...labRun(), primaryValidationOutcome: "held", error: null },
+    }),
+    /provenance가 release 기준을 충족하지 않습니다/,
+    "held 런의 Kordoc 결과는 별도로 완료됐어도 release 번들로 승격할 수 없다",
+  );
+
   const evidence = await bundlePromotionApplicationPrecompute({
     releaseId,
     labRun: labRun(),

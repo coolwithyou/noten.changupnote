@@ -27,6 +27,7 @@ import { DimensionDiffTable } from "./DimensionDiffTable";
 import { MarkdownView } from "./MarkdownView";
 import { ReviewSheet } from "./ReviewSheet";
 import { formatDateTime, formatDuration, formatUsd, sourceLabel } from "./labels";
+import { classifyLabRunOutcome } from "./run-outcome";
 
 // 선택된 런의 상세 패널 — ① 분석 문서(마크다운) ② 필드 채움(22축 diff) ③ 검수 ④ 실행 메타
 // (+ AI 검수가 있고 사람 검수가 없는 런이면 ⑤ 감사 — §9 표본 감사).
@@ -56,7 +57,10 @@ export function RunDetail({
   /** 검수·감사 시트 미저장 판정 여부 통지 — 부모가 분석 완료 시 화면 탈취를 보류하는 데 쓴다. */
   onReviewDirtyChange?: (dirty: boolean) => void;
 }) {
-  const showAuditTab = Boolean(auditStatus) && !run.error;
+  const runOutcome = classifyLabRunOutcome(run);
+  const validationHeld = runOutcome === "held";
+  const runFailed = runOutcome === "failed";
+  const showAuditTab = Boolean(auditStatus) && runOutcome === "publishable";
 
   // 검수·감사 시트가 각자 dirty 를 통지하므로 OR 로 합쳐 부모에 전달한다 — 한쪽 저장이
   // 다른 쪽의 미저장 초안 보호(분석 완료 시 화면 탈취 보류)를 풀지 않도록.
@@ -116,10 +120,17 @@ export function RunDetail({
         ) : null}
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {run.error ? (
+        {runFailed ? (
           <Alert variant="destructive">
             <AlertTitle>런 오류</AlertTitle>
-            <AlertDescription className="break-words">{run.error}</AlertDescription>
+            <AlertDescription className="break-words">{run.error ?? "outcome/error 계약 불일치"}</AlertDescription>
+          </Alert>
+        ) : validationHeld ? (
+          <Alert>
+            <AlertTitle>primary 품질 보류</AlertTitle>
+            <AlertDescription>
+              실행은 종료됐지만 validator 계약을 만족하지 못해 검수·승격·자동 재실행에서 제외됩니다.
+            </AlertDescription>
           </Alert>
         ) : null}
 
@@ -128,10 +139,12 @@ export function RunDetail({
             <SearchCheck />
             <div className="min-w-0">
               <p className="text-sm font-medium">22축 딥분석</p>
-              <p className="text-xs text-muted-foreground">{run.error ? "실패" : `${run.criteria.length}개 조건 제안`}</p>
+              <p className="text-xs text-muted-foreground">
+                {runFailed ? "실패" : validationHeld ? "validator 보류" : `${run.criteria.length}개 조건 제안`}
+              </p>
             </div>
-            <Badge variant={run.error ? "destructive" : "default"} className="ms-auto">
-              {run.error ? "확인 필요" : "완료"}
+            <Badge variant={runFailed ? "destructive" : validationHeld ? "outline" : "default"} className="ms-auto">
+              {runFailed ? "확인 필요" : validationHeld ? "품질 보류" : "완료"}
             </Badge>
           </div>
           <div className="flex items-center gap-3 rounded-xl bg-muted/60 p-3">

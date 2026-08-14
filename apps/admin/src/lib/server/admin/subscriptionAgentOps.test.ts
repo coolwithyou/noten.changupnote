@@ -3,9 +3,23 @@ import assert from "node:assert/strict"
 import {
   buildSubscriptionAgentProcessSpec,
   inferSubscriptionAgentStage,
+  parseSubscriptionAgentBatchSnapshot,
   parseSubscriptionAgentPlanOutput,
   summarizeSubscriptionAgentReport,
 } from "./subscriptionAgentOps"
+
+{
+  const batch = parseSubscriptionAgentBatchSnapshot({
+    state: "finished",
+    jobId: "job-held",
+    progress: { total: 5, started: 5, ok: 4, held: 1, error: 0, cumulativeCostUsd: 3.2 },
+    summary: { stopReason: "completed" },
+    options: { transport: "claude-cli", model: "claude-opus-5" },
+  })
+  assert.equal(batch.held, 1)
+  assert.equal(batch.ok + batch.held + batch.error, batch.total)
+  console.log("✅ 구독 에이전트 ops 배치 — primary held를 완료 진행률에 보존")
+}
 
 {
   const plan = parseSubscriptionAgentPlanOutput(

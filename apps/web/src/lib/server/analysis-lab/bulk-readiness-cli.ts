@@ -9,7 +9,7 @@ import {
   type AnalysisBulkReadinessStage,
 } from "./bulk-readiness";
 import { loadAnalysisQualityGraphForRun } from "./quality-report";
-import { analysisLabDir, readLatestLabRunIndexForPrompt } from "./run-store";
+import { analysisLabDir, readLatestTerminalLabRunIndexForPrompt } from "./run-store";
 
 loadAnalysisLabEnv();
 
@@ -21,7 +21,7 @@ async function main(): Promise<number> {
     .filter((event) => event.type === "target-started")
     .sort((left, right) => left.index - right.index)
     .map((event) => event.grantId))];
-  const index = await readLatestLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
+  const index = await readLatestTerminalLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
   const runs = new Map(targetIds.flatMap((grantId) => {
     const run = index.get(grantId);
     return run ? [[grantId, run] as const] : [];

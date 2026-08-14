@@ -150,7 +150,14 @@ export function applyLabBatchEvent(snapshot: LabBatchJobSnapshot, event: LabBatc
   if (snapshot.events.length > EVENT_RING_LIMIT) {
     snapshot.events.splice(0, snapshot.events.length - EVENT_RING_LIMIT);
   }
-  const progress = snapshot.progress ?? { total: 0, started: 0, ok: 0, error: 0, cumulativeCostUsd: 0 };
+  const progress = snapshot.progress ?? {
+    total: 0,
+    started: 0,
+    ok: 0,
+    held: 0,
+    error: 0,
+    cumulativeCostUsd: 0,
+  };
   snapshot.progress = progress;
   switch (event.type) {
     case "plan":
@@ -161,6 +168,10 @@ export function applyLabBatchEvent(snapshot: LabBatchJobSnapshot, event: LabBatc
       break;
     case "target-ok":
       progress.ok += 1;
+      progress.cumulativeCostUsd = event.cumulativeCostUsd;
+      break;
+    case "target-held":
+      progress.held = (progress.held ?? 0) + 1;
       progress.cumulativeCostUsd = event.cumulativeCostUsd;
       break;
     case "target-error":
@@ -290,7 +301,7 @@ export function startLabBatchJob(
     startedAt: startedAt.toISOString(),
     finishedAt: null,
     options: { ...request, transport, model },
-    progress: { total: 0, started: 0, ok: 0, error: 0, cumulativeCostUsd: 0 },
+    progress: { total: 0, started: 0, ok: 0, held: 0, error: 0, cumulativeCostUsd: 0 },
     guardStop: null,
     summary: null,
     events: [],

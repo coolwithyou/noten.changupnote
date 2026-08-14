@@ -4,6 +4,7 @@ import { join } from "node:path";
 import type { AnalysisQualityGraph } from "@/features/dev/analysis-lab/quality-contract";
 import type { LabBatchJobSnapshot, LabRun } from "@/features/dev/analysis-lab/contract";
 import { analysisLabDir } from "./run-store";
+import { isPublishableLabRun } from "./run-outcome";
 
 export const ANALYSIS_BULK_READINESS_SCHEMA = "analysis-bulk-readiness-v1" as const;
 export const ANALYSIS_BULK_READINESS_MODEL = "claude-opus-5" as const;
@@ -55,6 +56,8 @@ export function evaluateAnalysisBulkReadiness(input: {
   const expectedCount = input.stage === "pilot5" ? 5 : 30;
   const started = targetIds(input.snapshot, "target-started");
   const ok = new Set(targetIds(input.snapshot, "target-ok"));
+  const held = new Set(targetIds(input.snapshot, "target-held"));
+  const terminal = new Set([...ok, ...held]);
   const errors = input.snapshot.events.filter((event) => event.type === "target-error");
   const batchSubscriptionConfigured = input.snapshot.options?.transport === "claude-cli"
     && input.snapshot.options.model === ANALYSIS_BULK_READINESS_MODEL
@@ -67,14 +70,16 @@ export function evaluateAnalysisBulkReadiness(input: {
     && (input.snapshot.summary.notStarted ?? 0) === 0
     && errors.length === 0;
   const samplePassed = started.length === expectedCount
-    && ok.size === expectedCount
-    && started.every((grantId) => ok.has(grantId));
+    && terminal.size === expectedCount
+    && started.every((grantId) => terminal.has(grantId));
 
   const items = started.map((grantId): AnalysisBulkReadinessItem => {
     const run = input.runs.get(grantId) ?? null;
     const graph = input.graphs.get(grantId) ?? null;
     const issues: string[] = [];
     if (!run) issues.push("현행 LabRun 없음");
+    if (held.has(grantId)) issues.push("배치 primary 품질 보류");
+    if (run && !isPublishableLabRun(run)) issues.push("primary 품질 보류");
     if (run && (run.transport !== "claude-cli" || run.model !== ANALYSIS_BULK_READINESS_MODEL)) {
       issues.push(`구독 provenance 불일치: ${run.transport ?? "api"}/${run.model}`);
     }
@@ -111,8 +116,11 @@ export function evaluateAnalysisBulkReadiness(input: {
     && items.every((item) => !item.issues.some((issue) => issue.includes("provenance") || issue.includes("LabRun 없음")));
   const deepPassed = items.length === expectedCount
     && items.every((item) => {
+      const run = input.runs.get(item.grantId);
       const graph = input.graphs.get(item.grantId);
-      return graph ? deepSafe(graph) : false;
+      return !held.has(item.grantId) && run && isPublishableLabRun(run) && graph
+        ? deepSafe(graph)
+        : false;
     });
   const applicationPassed = items.length === expectedCount
     && items.every((item) => {
@@ -136,7 +144,7 @@ export function evaluateAnalysisBulkReadiness(input: {
       "sample_complete",
       "정확한 표본 완주",
       batchWaiting ? "waiting" : samplePassed ? "passed" : "failed",
-      `${ok.size}/${expectedCount}건 성공 · 시작 ${started.length}건`,
+      `${terminal.size}/${expectedCount}건 terminal (발행 가능 ${ok.size} · 품질 보류 ${held.size}) · 시작 ${started.length}건`,
       [`대상 중복 ${started.length - new Set(started).size}건`],
     ),
     gate(
@@ -157,12 +165,16 @@ export function evaluateAnalysisBulkReadiness(input: {
       "딥분석 안전 종결",
       batchWaiting && items.length < expectedCount ? "waiting" : deepPassed ? "passed" : "failed",
       `${items.filter((item) => {
+        const run = input.runs.get(item.grantId);
         const graph = input.graphs.get(item.grantId);
-        return graph ? deepSafe(graph) : false;
+        return !held.has(item.grantId) && run && isPublishableLabRun(run) && graph
+          ? deepSafe(graph)
+          : false;
       }).length}/${expectedCount}건 안전 종결`,
       items.filter((item) => {
+        const run = input.runs.get(item.grantId);
         const graph = input.graphs.get(item.grantId);
-        return !graph || !deepSafe(graph);
+        return held.has(item.grantId) || !run || !isPublishableLabRun(run) || !graph || !deepSafe(graph);
       }).map((item) => `${item.grantId}: ${item.deepStatus ?? "미검증"}`),
     ),
     gate(
@@ -194,8 +206,9 @@ export function evaluateAnalysisBulkReadiness(input: {
     samplePassed,
     provenancePassed,
     deepFailedGrantIds: items.filter((item) => {
+      const run = input.runs.get(item.grantId);
       const graph = input.graphs.get(item.grantId);
-      return !graph || !deepSafe(graph);
+      return held.has(item.grantId) || !run || !isPublishableLabRun(run) || !graph || !deepSafe(graph);
     }).map((item) => item.grantId),
     applicationFailedGrantIds: items.filter((item) => {
       const graph = input.graphs.get(item.grantId);
@@ -240,7 +253,10 @@ function deepSafe(graph: AnalysisQualityGraph): boolean {
   return graph.lanes.deep_analysis === "passed" || graph.lanes.deep_analysis === "partial";
 }
 
-function targetIds(snapshot: LabBatchJobSnapshot, type: "target-started" | "target-ok"): string[] {
+function targetIds(
+  snapshot: LabBatchJobSnapshot,
+  type: "target-started" | "target-ok" | "target-held",
+): string[] {
   const indexed = snapshot.events
     .filter((event): event is Extract<(typeof snapshot.events)[number], { type: typeof type }> => event.type === type)
     .sort((left, right) => left.index - right.index);

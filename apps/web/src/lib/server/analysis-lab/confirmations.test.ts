@@ -349,14 +349,31 @@ function sidecarFixture(items: LabConfirmationsFile["items"], overrides: Partial
     { grantId: "g-ok-current" },
     { grantId: "g-ok-outdated" },
     { grantId: "g-error-current" },
+    { grantId: "g-held-current" },
+    { grantId: "g-held-current-with-outdated-ok" },
     { grantId: "g-fresh" },
     { grantId: "g-outdated-plus-error" },
   ];
   const states = new Map<string, GrantRunState>([
-    ["g-ok-current", { okCurrent: true, okOutdated: false, errorCurrent: false }],
-    ["g-ok-outdated", { okCurrent: false, okOutdated: true, errorCurrent: false }],
-    ["g-error-current", { okCurrent: false, okOutdated: false, errorCurrent: true }],
-    ["g-outdated-plus-error", { okCurrent: false, okOutdated: true, errorCurrent: true }],
+    ["g-ok-current", { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false }],
+    ["g-ok-outdated", { okCurrent: false, okOutdated: true, heldCurrent: false, errorCurrent: false }],
+    ["g-error-current", { okCurrent: false, okOutdated: false, heldCurrent: false, errorCurrent: true }],
+    ["g-held-current", {
+      okCurrent: false,
+      okOutdated: false,
+      errorCurrent: false,
+      heldCurrent: true,
+    }],
+    ["g-held-current-with-outdated-ok", {
+      okCurrent: false,
+      okOutdated: true,
+      errorCurrent: false,
+      heldCurrent: true,
+    }],
+    [
+      "g-outdated-plus-error",
+      { okCurrent: false, okOutdated: true, heldCurrent: false, errorCurrent: true },
+    ],
   ]);
 
   // 기본(플래그 없음): 구버전 ok 런 보유도 스킵 — v3 승격 여파 ~$12 재분석 함정 차단.
@@ -372,11 +389,21 @@ function sidecarFixture(items: LabConfirmationsFile["items"], overrides: Partial
     "구버전만 보유분은 부분집합으로 구분 표기",
   );
   assert.deepEqual(guarded.heldError.map((entry) => entry.grantId), ["g-error-current"]);
+  assert.deepEqual(
+    guarded.skippedHeld.map((entry) => entry.grantId),
+    ["g-held-current", "g-held-current-with-outdated-ok"],
+    "현행 primary held는 구버전 publishable보다 우선하는 별도 terminal",
+  );
   assert.deepEqual(guarded.pending.map((entry) => entry.grantId), ["g-fresh"], "신규만 대상");
 
   // --reanalyze-outdated: 구버전 ok 런 보유 공고가 다시 대상에 편입된다(탈출구).
   const reanalyze = partitionCohortEntries(entries, states, { retryErrors: false, reanalyzeOutdated: true });
   assert.deepEqual(reanalyze.skippedOk.map((entry) => entry.grantId), ["g-ok-current"], "현행 ok 만 스킵");
+  assert.deepEqual(
+    reanalyze.skippedHeld.map((entry) => entry.grantId),
+    ["g-held-current", "g-held-current-with-outdated-ok"],
+    "reanalyze 탈출구도 현행 held를 재착수하지 않음",
+  );
   assert.deepEqual(reanalyze.skippedOkOutdatedOnly, [], "탈출구에서는 구버전만 스킵 분류가 없다");
   assert.deepEqual(
     reanalyze.pending.map((entry) => entry.grantId),
@@ -395,6 +422,11 @@ function sidecarFixture(items: LabConfirmationsFile["items"], overrides: Partial
     both.pending.map((entry) => entry.grantId),
     ["g-ok-outdated", "g-error-current", "g-fresh", "g-outdated-plus-error"],
     "두 탈출구 동시 지정 시 현행 ok 외 전부 대상",
+  );
+  assert.deepEqual(
+    both.skippedHeld.map((entry) => entry.grantId),
+    ["g-held-current", "g-held-current-with-outdated-ok"],
+    "--retry-errors는 primary held terminal을 재실행하지 않는다",
   );
   console.log("✅ batch 가드 — 버전 무관 ok 스킵·--reanalyze-outdated/--retry-errors 탈출구");
 }

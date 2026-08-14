@@ -81,12 +81,27 @@ function graph(input: {
     graph({ grantId: "kordoc", readiness: "held", application: "held" }),
     graph({ grantId: "deep", readiness: "failed", deep: "failed" }),
     graph({ grantId: "unknown", readiness: "held", review: "held" }),
-  ], new Set(["eligibility"]));
+  ], new Set(["eligibility"]), new Map([
+    ["done", "publishable"],
+    ["eligibility", "publishable"],
+    ["kordoc", "publishable"],
+    ["deep", "publishable"],
+    ["unknown", "publishable"],
+  ]));
   assert.deepEqual(decision.completed, ["done"]);
   assert.deepEqual(decision.eligibilityRepair, ["eligibility"]);
   assert.deepEqual(decision.applicationRetry, ["kordoc"]);
   assert.deepEqual(decision.deepRetry, ["deep"]);
   assert.equal(decision.blocked[0]?.grantId, "unknown");
+
+  const missingOutcome = classifySubscriptionAgentGraphs(
+    [graph({ grantId: "missing-outcome", readiness: "partial" })],
+    new Set(),
+    new Map(),
+  );
+  assert.equal(missingOutcome.completed.length, 0);
+  assert.equal(missingOutcome.blocked[0]?.grantId, "missing-outcome");
+  assert.match(missingOutcome.blocked[0]?.reasons[0] ?? "", /outcome evidence 없음/);
   console.log("✅ 구독 분석 에이전트 그래프 — 종결·신청자격·Kordoc·22축 원인별 분기");
 }
 
@@ -157,6 +172,45 @@ function graph(input: {
   ]);
   assert.equal(result.report.cycles.length, 1);
   console.log("✅ 구독 분석 에이전트 인터페이스 — 단일 호출 전체 품질 루프 종결");
+}
+
+// primary held terminal은 성공 런 누락 실패·Fable 검수·자동 repair로 번지지 않는다.
+{
+  const commands: string[] = [];
+  const heldRun = {
+    grantId: "held-primary",
+    runId: "run-held-primary",
+    primaryValidationOutcome: "held",
+    error: null,
+  } as unknown as LabRun;
+  const result = await runSubscriptionAnalysisAgent(
+    { count: 1, maxCycles: 3, maxCostUsd: 65, concurrency: 1 },
+    {
+      inspectWork: async () => ({
+        analysisIds: ["held-primary"],
+        recoveryIds: [],
+        newCandidateCount: 0,
+      }),
+      selectTargets: async () => [],
+      runCommand: async (command) => { commands.push(command.script); },
+      readCurrentRuns: async () => [heldRun],
+      loadGraphs: async () => [graph({
+        grantId: "held-primary",
+        readiness: "partial",
+        deep: "partial",
+        review: "held",
+      })],
+      loadEligibilityRepairable: async () => new Set(),
+      writeReport: async () => "/tmp/subscription-agent-held-primary-test.json",
+      now: () => new Date("2026-08-10T00:00:00.000Z"),
+    },
+  );
+  assert.deepEqual(commands, ["lab:batch"], "held 이후 검수·감사·repair 미실행");
+  assert.equal(result.report.status, "partial");
+  assert.equal(result.report.error, null, "held는 agent 실패가 아님");
+  assert.equal(result.report.cycles[0]?.decision.blocked[0]?.grantId, "held-primary");
+  assert.deepEqual(result.report.cycles[0]?.decision.deepRetry, []);
+  console.log("✅ primary held agent — 부분 종결·후속 모델/재실행 차단");
 }
 
 // 처리할 기존 작업이 없으면 새 모집 공고를 고른 뒤 같은 실행에서 분석한다.

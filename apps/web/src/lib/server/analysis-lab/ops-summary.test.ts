@@ -16,6 +16,7 @@ assert.notEqual(OUTDATED_PROMPT_VERSION, ANALYSIS_LAB_PROMPT_VERSION, "구버전
 interface RunFixture {
   grantId: string;
   promptVersion?: string;
+  primaryValidationOutcome?: "publishable" | "held";
   error?: string | null;
   transport?: "api" | "claude-cli";
   /** false 면 startedAt 을 고의로 뺀다(이중 방어 ② 검증용). */
@@ -29,6 +30,9 @@ function runBody(fixture: RunFixture): string {
     promptVersion: fixture.promptVersion ?? ANALYSIS_LAB_PROMPT_VERSION,
     error: fixture.error ?? null,
   };
+  if (fixture.primaryValidationOutcome !== undefined) {
+    body.primaryValidationOutcome = fixture.primaryValidationOutcome;
+  }
   if (fixture.withStartedAt !== false) body.startedAt = "2026-08-01T00:00:00.000Z";
   if (fixture.transport !== undefined) body.transport = fixture.transport;
   return JSON.stringify(body);
@@ -95,23 +99,51 @@ function runBody(fixture: RunFixture): string {
       runBody({ grantId: "g5", transport: "claude-cli" }),
       "utf8",
     );
+    // g6: 신규 형식 primary held(error:null) · g7: 구 sentinel held.
+    await writeFile(
+      join(dirB, "run-2026-08-01T000008.000Z-888888.json"),
+      runBody({ grantId: "g6", primaryValidationOutcome: "held" }),
+      "utf8",
+    );
+    await writeFile(
+      join(dirB, "run-2026-08-01T000009.000Z-777777.json"),
+      runBody({ grantId: "g7", error: "primary_validation_held: $.axis_assessments.size" }),
+      "utf8",
+    );
+    // g8: 같은 현행 prompt의 과거 publishable 뒤 최신 held. 모든 런을 OR하면 ok+held가
+    // 동시에 켜져 partition에서 publishable로 오분류된다. 최신 품질 종결만 권위가 있다.
+    await writeFile(
+      join(dirB, "run-2026-08-01T000010.000Z-666666.json"),
+      runBody({ grantId: "g8", transport: "claude-cli" }),
+      "utf8",
+    );
+    await writeFile(
+      join(dirB, "run-2026-08-01T000011.000Z-555555.json"),
+      runBody({ grantId: "g8", primaryValidationOutcome: "held", transport: "claude-cli" }),
+      "utf8",
+    );
+    await writeFile(
+      join(dirB, "run-2026-08-01T000012.000Z-444444.json"),
+      runBody({ grantId: "g8", error: "provider timeout", transport: "claude-cli" }),
+      "utf8",
+    );
 
-    const cohortGrantIds = new Set(["g1", "g2", "g3", "g4"]);
+    const cohortGrantIds = new Set(["g1", "g2", "g3", "g4", "g6", "g7", "g8"]);
     const scan = await scanLabRunsForOps(root, cohortGrantIds);
 
     assert.deepEqual(
       scan.states.get("g1"),
-      { okCurrent: true, okOutdated: false, errorCurrent: false },
+      { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false },
       "g1 — 현행 ok",
     );
     assert.deepEqual(
       scan.states.get("g2"),
-      { okCurrent: false, okOutdated: true, errorCurrent: false },
+      { okCurrent: false, okOutdated: true, heldCurrent: false, errorCurrent: false },
       "g2 — 구버전 ok 만",
     );
     assert.deepEqual(
       scan.states.get("g3"),
-      { okCurrent: false, okOutdated: false, errorCurrent: true },
+      { okCurrent: false, okOutdated: false, heldCurrent: false, errorCurrent: true },
       "g3 — 현행 error 만",
     );
     assert.equal(
@@ -121,18 +153,33 @@ function runBody(fixture: RunFixture): string {
     );
     assert.deepEqual(
       scan.states.get("g5"),
-      { okCurrent: true, okOutdated: false, errorCurrent: false },
+      { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false },
       "g5 — 코호트 밖이어도 states 에는 포함",
     );
     assert.deepEqual(
+      scan.states.get("g6"),
+      { okCurrent: false, okOutdated: false, heldCurrent: true, errorCurrent: false },
+      "g6 — 신규 held(error:null)",
+    );
+    assert.deepEqual(
+      scan.states.get("g7"),
+      { okCurrent: false, okOutdated: false, heldCurrent: true, errorCurrent: false },
+      "g7 — 구 held sentinel 호환",
+    );
+    assert.deepEqual(
+      scan.states.get("g8"),
+      { okCurrent: false, okOutdated: false, heldCurrent: true, errorCurrent: false },
+      "g8 — 과거 publishable을 최신 held가 대체하고 이후 provider 실패는 종결을 지우지 않음",
+    );
+    assert.deepEqual(
       scan.runsByTransport,
-      { api: 1, claudeCli: 1 },
-      "transport 분포 — 코호트 공고의 현행 ok 런만(g1 두 건: 미기록→api, claude-cli), g5 제외",
+      { api: 1, claudeCli: 0 },
+      "transport 분포 — grant별 최신 현행 publishable만 집계하고 최신 held인 g8은 제외",
     );
     console.log("✅ 런 스캐너 — 이중 방어(사이드카·startedAt)·transport 분포·코호트 한정");
 
     // ---- ② 스캔 결과 → partitionCohortEntries 접속(④ 4버킷) -------------------------
-    const entries: CohortEntry[] = ["g1", "g2", "g3", "g4"].map((grantId) => ({
+    const entries: CohortEntry[] = ["g1", "g2", "g3", "g4", "g6", "g7"].map((grantId) => ({
       grantId,
       stratum: "pilot",
     }));
@@ -143,6 +190,7 @@ function runBody(fixture: RunFixture): string {
     assert.deepEqual(partition.skippedOk.map((entry) => entry.grantId), ["g1", "g2"]);
     assert.deepEqual(partition.skippedOkOutdatedOnly.map((entry) => entry.grantId), ["g2"]);
     assert.deepEqual(partition.heldError.map((entry) => entry.grantId), ["g3"]);
+    assert.deepEqual(partition.skippedHeld.map((entry) => entry.grantId), ["g6", "g7"]);
     assert.deepEqual(partition.pending.map((entry) => entry.grantId), ["g4"]);
     console.log("✅ 스캔 → partitionCohortEntries — ④ 4버킷 접속");
 
@@ -175,11 +223,12 @@ function runBody(fixture: RunFixture): string {
       openToday: 40,
       periodUnknown: 7,
       closedOrNotStarted: 53, // 100 - 40 - 7
-      cohortSize: 4,
+      cohortSize: 6,
       cohortLabel: "expansion-s1",
       cohortSelectedAt: "2026-08-01T00:00:00.000Z",
       analysisOkCurrent: 1, // skippedOk 2 - 구버전만 1
       analysisOkOutdatedOnly: 1,
+      analysisValidationHeld: 2,
       analysisErrorHeld: 1,
       analysisPending: 1,
       humanReviewed: 30,

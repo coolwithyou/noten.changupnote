@@ -18,6 +18,7 @@ import {
   type LabBatchRunResult,
   type LabBatchRunnerDeps,
   type LabBatchRunnerOptions,
+  type LabBatchSummary,
 } from "./batch-runner";
 import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER } from "./claude-cli-transport";
 import type { CohortEntry, CohortFileV2 } from "./cohort-file";
@@ -44,6 +45,13 @@ function okResult(title: string, costUsd: number | null): LabBatchRunResult {
 
 function errorResult(title: string, message: string): LabBatchRunResult {
   return { title, costUsd: null, error: message };
+}
+
+function heldResult(
+  title: string,
+  costUsd: number,
+): LabBatchRunResult & { primaryValidationOutcome: "held" } {
+  return { title, costUsd, primaryValidationOutcome: "held", error: null };
 }
 
 /** deps 조립 — 미지정 필드는 "빈 상태"(런 없음·기간 전원 통과) 페이크. */
@@ -114,9 +122,9 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   // g4: 기간 마감(스킵) · g5: 대상.
   const entries = [entry("g1"), entry("g2"), entry("g3"), entry("g4", "kstartup/thin"), entry("g5")];
   const states = new Map<string, GrantRunState>([
-    ["g1", { okCurrent: true, okOutdated: false, errorCurrent: false }],
-    ["g2", { okCurrent: false, okOutdated: true, errorCurrent: false }],
-    ["g3", { okCurrent: false, okOutdated: false, errorCurrent: true }],
+    ["g1", { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false }],
+    ["g2", { okCurrent: false, okOutdated: true, heldCurrent: false, errorCurrent: false }],
+    ["g3", { okCurrent: false, okOutdated: false, heldCurrent: false, errorCurrent: true }],
   ]);
   const analyzed: string[] = [];
   const events: LabBatchEvent[] = [];
@@ -145,6 +153,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   assert.equal(plan.skippedOk, expected.skippedOk.length); // 2 (g1, g2)
   assert.equal(plan.skippedOk, 2);
   assert.equal(plan.skippedOkOutdatedOnly, expected.skippedOkOutdatedOnly.length); // 1 (g2)
+  assert.equal(plan.skippedHeld, 0);
   assert.equal(plan.heldError, expected.heldError.length); // 1 (g3)
   assert.equal(plan.periodSkipped, 1);
   assert.deepEqual(plan.periodSkippedEntries, [
@@ -159,11 +168,13 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   assert.deepEqual(eventTypes(events), ["plan", "target-started", "target-ok", "finished"]);
   assert.deepEqual(summary, {
     ok: 1,
+    held: 0,
     errorRuns: 0,
     unsavedFailures: 0,
     notStarted: 0,
     skippedOk: 2,
     skippedOkOutdatedOnly: 1,
+    skippedHeld: 0,
     heldError: 1,
     periodSkipped: 1,
     totalCostUsd: 0.5,
@@ -190,6 +201,42 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   assert.equal(plan.targets, 2, "limit=2 슬라이스");
   assert.equal(plan.estimatedCostUsd, FALLBACK_COST_PER_GRANT_USD * 2);
   console.log("✅ plan 이벤트 — 표본 없음 파일럿 기본값·limit 슬라이스");
+}
+
+// ---- ①-보강: primary held는 성공·오류가 아닌 별도 terminal -------------------
+{
+  const events: LabBatchEvent[] = [];
+  const summary = await runLabBatch(
+    baseOptions(events),
+    makeDeps({
+      entries: [entry("held-1")],
+      run: async () => heldResult("보류 공고", 0.75),
+    }),
+  );
+
+  assert.deepEqual(
+    eventTypes(events),
+    ["plan", "target-started", "target-held", "finished"],
+    "held는 target-ok/target-error로 접지 않는다",
+  );
+  const heldEvent = events.find((event) => event.type === ("target-held" as LabBatchEvent["type"])) as
+    | (LabBatchEvent & {
+        type: "target-held";
+        title: string;
+        costUsd: number | null;
+        cumulativeCostUsd: number;
+      })
+    | undefined;
+  assert.ok(heldEvent, "target-held 이벤트 존재");
+  assert.equal(heldEvent.title, "보류 공고");
+  assert.equal(heldEvent.costUsd, 0.75, "held도 명목 비용 telemetry를 잃지 않는다");
+  assert.equal(heldEvent.cumulativeCostUsd, 0.75);
+  assert.equal(summary.ok, 0);
+  assert.equal((summary as LabBatchSummary & { held: number }).held, 1);
+  assert.equal(summary.errorRuns, 0);
+  assert.equal(summary.unsavedFailures, 0);
+  assert.equal(summary.stopReason, "completed");
+  console.log("✅ primary held — 별도 terminal 이벤트·요약·telemetry 보존");
 }
 
 // ---- ② 비용 상한 → guard-stop(cost-cap) + 신규 착수 중단 -----------------------
@@ -477,7 +524,10 @@ console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·s
     baseOptions(events),
     makeDeps({
       entries: [entry("z1")],
-      states: new Map([["z1", { okCurrent: true, okOutdated: false, errorCurrent: false }]]),
+      states: new Map([[
+        "z1",
+        { okCurrent: true, okOutdated: false, heldCurrent: false, errorCurrent: false },
+      ]]),
       run: async (grantId) => {
         called += 1;
         return okResult(grantId, 0.1);

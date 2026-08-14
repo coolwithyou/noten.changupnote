@@ -56,6 +56,7 @@ export interface SubscriptionAgentBatchSnapshot {
   total: number
   started: number
   ok: number
+  held: number
   error: number
   nominalCostUsd: number
   stopReason: string | null

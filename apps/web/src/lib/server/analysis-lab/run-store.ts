@@ -12,6 +12,7 @@ import {
   type LabRunAuditSummary,
   type LabRunSummary,
 } from "@/features/dev/analysis-lab/contract";
+import { classifyLabRunOutcome, isPublishableLabRun, isTerminalLabRun } from "./run-outcome";
 
 /** process.cwd() 에서 위로 pnpm-workspace.yaml 을 탐색해 모노레포 루트를 찾는다. */
 export function findMonorepoRoot(): string {
@@ -168,12 +169,29 @@ export async function readLatestLabRunIndexForPrompt(promptVersion: string): Pro
 export async function readLatestSuccessfulLabRunIndexForPrompt(
   promptVersion: string,
 ): Promise<Map<string, LabRun>> {
-  return buildLatestLabRunIndex(promptVersion, true);
+  return readLatestPublishableLabRunIndexForPrompt(promptVersion);
+}
+
+/** 명시적 publishable 인덱스. 구 successful 이름은 호환 wrapper로만 유지한다. */
+export async function readLatestPublishableLabRunIndexForPrompt(
+  promptVersion: string,
+): Promise<Map<string, LabRun>> {
+  return buildLatestLabRunIndex(promptVersion, "publishable");
+}
+
+/**
+ * 자동 실행 상태 회복용 terminal 인덱스. publishable과 held를 포함하며,
+ * 나중의 provider 실패가 직전 terminal을 가리지 않는다.
+ */
+export async function readLatestTerminalLabRunIndexForPrompt(
+  promptVersion: string,
+): Promise<Map<string, LabRun>> {
+  return buildLatestLabRunIndex(promptVersion, "terminal");
 }
 
 async function buildLatestLabRunIndex(
   promptVersion?: string,
-  successfulOnly = false,
+  outcomeFilter: "publishable" | "terminal" | null = null,
 ): Promise<Map<string, LabRun>> {
   const root = analysisLabDir();
   let entries: string[];
@@ -193,15 +211,13 @@ async function buildLatestLabRunIndex(
       } catch {
         return null;
       }
-      let latest: LabRun | null = null;
+      const candidates: LabRun[] = [];
       for (const file of files) {
         if (!isPrimaryRunFilename(file)) continue;
         const run = await readRunFile(join(dir, file));
-        if (run && promptVersion !== undefined && run.promptVersion !== promptVersion) continue;
-        if (run && successfulOnly && run.error !== null) continue;
-        if (run && (!latest || run.startedAt > latest.startedAt)) latest = run;
+        if (run) candidates.push(run);
       }
-      return latest;
+      return selectLatestLabRunForPrompt(candidates, promptVersion, outcomeFilter);
     }));
 
   const index = new Map<string, LabRun>();
@@ -211,6 +227,22 @@ async function buildLatestLabRunIndex(
     if (!current || run.startedAt > current.startedAt) index.set(run.grantId, run);
   }
   return index;
+}
+
+/** 파일 순서와 무관하게 정책에 맞는 최신 런을 고른다. */
+export function selectLatestLabRunForPrompt(
+  runs: readonly LabRun[],
+  promptVersion?: string,
+  outcomeFilter: "publishable" | "terminal" | null = null,
+): LabRun | null {
+  let latest: LabRun | null = null;
+  for (const run of runs) {
+    if (promptVersion !== undefined && run.promptVersion !== promptVersion) continue;
+    if (outcomeFilter === "publishable" && !isPublishableLabRun(run)) continue;
+    if (outcomeFilter === "terminal" && !isTerminalLabRun(run)) continue;
+    if (!latest || run.startedAt > latest.startedAt) latest = run;
+  }
+  return latest;
 }
 
 /**
@@ -247,7 +279,8 @@ function toRunSummary(
     promptVersion: run.promptVersion,
     durationMs: run.durationMs,
     costUsd: run.costUsd,
-    ok: run.error === null,
+    outcome: classifyLabRunOutcome(run),
+    ok: isPublishableLabRun(run),
     error: run.error,
     reviewedAt,
     auditStatus,

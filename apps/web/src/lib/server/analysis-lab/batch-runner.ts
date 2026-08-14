@@ -17,7 +17,7 @@ import {
   type LabBatchEvent as LabBatchEventContract,
   type LabBatchPeriodSkipStatus,
   type LabBatchPeriodSkippedEntry,
-  type LabBatchSummary,
+  type LabBatchSummary as LabBatchSummaryContract,
   type LabApplicationRoundtripReference,
 } from "@/features/dev/analysis-lab/contract";
 import { classifyNoticePeriod } from "@/features/dev/analysis-lab/notice-period";
@@ -31,6 +31,8 @@ import {
   type CohortFileV2,
 } from "./cohort-file";
 import { analysisLabDir } from "./run-store";
+import { resolveGrantRunStates, type ScannedLabRunStateRecord } from "./run-scan-state";
+import { classifyLabRunOutcome } from "./run-outcome";
 
 // ---- 공개 계약 -----------------------------------------------------------------
 
@@ -62,7 +64,11 @@ export interface LabBatchRunnerOptions {
 
 // 계약(contract.ts)이 소유한 타입의 러너 관점 재수출 — 기존 소비처(batch.ts·테스트)의
 // import 경로("./batch-runner")를 보존한다.
-export type { LabBatchPeriodSkipStatus, LabBatchPeriodSkippedEntry, LabBatchSummary };
+export type { LabBatchPeriodSkipStatus, LabBatchPeriodSkippedEntry };
+
+/** 러너는 held 집계를 항상 채우며 contract의 optional은 구 스냅샷 복원용이다. */
+export type LabBatchSummary = Omit<LabBatchSummaryContract, "held" | "skippedHeld"> &
+  Required<Pick<LabBatchSummaryContract, "held" | "skippedHeld">>;
 
 type LabBatchPlanEventContract = Extract<LabBatchEventContract, { type: "plan" }>;
 type LabBatchTargetErrorEventContract = Extract<LabBatchEventContract, { type: "target-error" }>;
@@ -81,15 +87,18 @@ export type LabBatchEvent =
       Required<
         Pick<
           LabBatchPlanEventContract,
-          "runnable" | "periodSkippedEntries" | "estimatedCostPerGrantUsd" | "costSampleCount"
+          "runnable" | "periodSkippedEntries" | "estimatedCostPerGrantUsd" | "costSampleCount" | "skippedHeld"
         >
       >)
   | Extract<LabBatchEventContract, { type: "target-started" }>
   | Extract<LabBatchEventContract, { type: "target-ok" }>
+  | Extract<LabBatchEventContract, { type: "target-held" }>
   | (LabBatchTargetErrorEventContract &
       Required<Pick<LabBatchTargetErrorEventContract, "title" | "durationMs">>)
   | Extract<LabBatchEventContract, { type: "guard-stop" }>
-  | Extract<LabBatchEventContract, { type: "finished" }>;
+  | (Omit<Extract<LabBatchEventContract, { type: "finished" }>, "summary"> & {
+      summary: LabBatchSummary;
+    });
 
 /** cohort.json 부재·형식 파손 — 래퍼가 잡아 기존 안내 문구 + exit 1 로 매핑한다. */
 export class LabCohortMissingError extends Error {
@@ -107,6 +116,7 @@ export class LabCohortMissingError extends Error {
 export interface LabBatchRunResult {
   title: string;
   costUsd: number | null;
+  primaryValidationOutcome?: "publishable" | "held";
   error: string | null;
   applicationRoundtrip?: LabApplicationRoundtripReference;
 }
@@ -160,14 +170,18 @@ export interface LabBatchRunScan {
 }
 
 export async function scanExistingRuns(): Promise<LabBatchRunScan> {
-  const states = new Map<string, GrantRunState>();
+  type BatchScannedRun = ScannedLabRunStateRecord & {
+    costUsd?: unknown;
+    applicationRoundtrip?: { costUsd?: unknown };
+  };
+  const records: BatchScannedRun[] = [];
   const okCostSamples: number[] = [];
   const root = analysisLabDir();
   let entries: string[] = [];
   try {
     entries = await readdir(root);
   } catch {
-    return { states, okCostSamples }; // 산출물 디렉토리 자체가 없으면 전원 미분석
+    return { states: new Map(), okCostSamples }; // 산출물 디렉토리 자체가 없으면 전원 미분석
   }
   for (const entry of entries) {
     if (!entry.includes("__")) continue; // cohort.json 등 파일 제외
@@ -185,7 +199,8 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
         file.endsWith(".review.json") ||
         file.includes(".ai-review.") ||
         file.includes(".audit.") ||
-        file.includes(".confirmations.")
+        file.includes(".confirmations.") ||
+        file.endsWith(".human-overlay.json")
       ) {
         continue;
       }
@@ -193,6 +208,7 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
         grantId?: unknown;
         promptVersion?: unknown;
         startedAt?: unknown;
+        primaryValidationOutcome?: unknown;
         error?: unknown;
         costUsd?: unknown;
         applicationRoundtrip?: { costUsd?: unknown };
@@ -209,25 +225,25 @@ export async function scanExistingRuns(): Promise<LabBatchRunScan> {
       ) {
         continue;
       }
-      const current = parsed.promptVersion === ANALYSIS_LAB_PROMPT_VERSION;
-      const ok = parsed.error === null;
-      const state =
-        states.get(parsed.grantId) ?? { okCurrent: false, okOutdated: false, errorCurrent: false };
-      if (ok && current) {
-        state.okCurrent = true;
-        if (typeof parsed.costUsd === "number") {
-          const roundtripCost = typeof parsed.applicationRoundtrip?.costUsd === "number"
-            ? parsed.applicationRoundtrip.costUsd
-            : 0;
-          okCostSamples.push(parsed.costUsd + roundtripCost);
-        }
-      } else if (ok) {
-        state.okOutdated = true;
-      } else if (current) {
-        // 구버전 error 런은 종전대로 판정에 쓰지 않는다(보류 사유는 현행 버전 실패만).
-        state.errorCurrent = true;
-      }
-      states.set(parsed.grantId, state);
+      records.push({
+        ...parsed,
+        grantId: parsed.grantId,
+        promptVersion: parsed.promptVersion,
+        startedAt: parsed.startedAt,
+        identity: `${entry}/${file}`,
+      });
+    }
+  }
+  const resolved = resolveGrantRunStates(records, ANALYSIS_LAB_PROMPT_VERSION);
+  const states = new Map<string, GrantRunState>();
+  for (const [grantId, item] of resolved) {
+    states.set(grantId, item.state);
+    const run = item.state.okCurrent ? item.latestCurrentTerminal : null;
+    if (run && typeof run.costUsd === "number") {
+      const roundtripCost = typeof run.applicationRoundtrip?.costUsd === "number"
+        ? run.applicationRoundtrip.costUsd
+        : 0;
+      okCostSamples.push(run.costUsd + roundtripCost);
     }
   }
   return { states, okCostSamples };
@@ -374,6 +390,7 @@ export async function runLabBatch(
     total: cohortEntries.length,
     skippedOk: partition.skippedOk.length,
     skippedOkOutdatedOnly: partition.skippedOkOutdatedOnly.length,
+    skippedHeld: partition.skippedHeld.length,
     heldError: partition.heldError.length,
     periodSkipped: periodSplit.skipped.length,
     targets: targets.length,
@@ -390,6 +407,7 @@ export async function runLabBatch(
 
   const buildSummary = (state: {
     okCount: number;
+    heldCount: number;
     errorRunCount: number;
     thrownCount: number;
     startedCount: number;
@@ -399,11 +417,13 @@ export async function runLabBatch(
     durationMs: number;
   }): LabBatchSummary => ({
     ok: state.okCount,
+    held: state.heldCount,
     errorRuns: state.errorRunCount,
     unsavedFailures: state.thrownCount,
     notStarted: targets.length - state.startedCount,
     skippedOk: partition.skippedOk.length,
     skippedOkOutdatedOnly: partition.skippedOkOutdatedOnly.length,
+    skippedHeld: partition.skippedHeld.length,
     heldError: partition.heldError.length,
     periodSkipped: periodSplit.skipped.length,
     totalCostUsd: state.totalCostUsd,
@@ -420,6 +440,7 @@ export async function runLabBatch(
   if (targets.length === 0) {
     const summary = buildSummary({
       okCount: 0,
+      heldCount: 0,
       errorRunCount: 0,
       thrownCount: 0,
       startedCount: 0,
@@ -451,6 +472,7 @@ export async function runLabBatch(
 
   const state = {
     okCount: 0,
+    heldCount: 0,
     errorRunCount: 0,
     thrownCount: 0,
     startedCount: 0,
@@ -482,10 +504,29 @@ export async function runLabBatch(
         const durationMs = Date.now() - targetStartedMs;
         const targetCostUsd = (run.costUsd ?? 0) + (run.applicationRoundtrip?.costUsd ?? 0);
         state.totalCostUsd += targetCostUsd;
-        if (run.error === null) {
+        const runOutcome = classifyLabRunOutcome(run);
+        if (runOutcome === "publishable") {
           state.okCount += 1;
           emit({
             type: "target-ok",
+            index,
+            total: targets.length,
+            grantId: target.grantId,
+            stratum: target.stratum,
+            title: run.title,
+            durationMs,
+            costUsd: targetCostUsd,
+            deepAnalysisCostUsd: run.costUsd,
+            applicationRoundtripCostUsd: run.applicationRoundtrip?.costUsd ?? null,
+            cumulativeCostUsd: state.totalCostUsd,
+            ...(run.applicationRoundtrip !== undefined
+              ? { applicationRoundtrip: run.applicationRoundtrip }
+              : {}),
+          });
+        } else if (runOutcome === "held") {
+          state.heldCount += 1;
+          emit({
+            type: "target-held",
             index,
             total: targets.length,
             grantId: target.grantId,
@@ -509,7 +550,7 @@ export async function runLabBatch(
             grantId: target.grantId,
             stratum: target.stratum,
             runSaved: true,
-            message: run.error,
+            message: run.error ?? "run_outcome_contract_mismatch",
             title: run.title,
             durationMs,
           });

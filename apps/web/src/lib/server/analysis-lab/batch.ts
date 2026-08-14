@@ -158,6 +158,7 @@ interface PlanView {
   cohortLabel: string | null;
   skippedOk: number;
   skippedOkOutdatedOnly: number;
+  skippedHeld: number;
   heldError: number;
   periodSkippedCount: number;
   runnable: number;
@@ -174,7 +175,7 @@ function printPlanLines(view: PlanView, options: BatchOptions): void {
       (view.skippedOkOutdatedOnly > 0
         ? ` (현행 ${view.skippedOk - view.skippedOkOutdatedOnly} · 구버전만 ${view.skippedOkOutdatedOnly})`
         : "") +
-      ` · 보류(error 런만) ${view.heldError} · 기간 스킵 ${view.periodSkippedCount} · 잔여 ${view.runnable} → 이번 실행 대상 ${view.targets}건 (limit=${options.limit}${options.reanalyzeOutdated ? " · --reanalyze-outdated" : ""})`,
+      ` · 품질 held 스킵 ${view.skippedHeld} · 보류(error 런만) ${view.heldError} · 기간 스킵 ${view.periodSkippedCount} · 잔여 ${view.runnable} → 이번 실행 대상 ${view.targets}건 (limit=${options.limit}${options.reanalyzeOutdated ? " · --reanalyze-outdated" : ""})`,
   );
 }
 
@@ -210,7 +211,7 @@ function printSummaryLines(args: {
   const { summary } = args;
   console.log("\n===== 배치 요약 =====");
   console.log(
-    `성공 ${summary.ok} · 실패(error 런) ${summary.errorRuns} · 실패(런 미저장) ${summary.unsavedFailures} · 미착수(비용 상한) ${summary.notStarted}`,
+    `성공 ${summary.ok} · 품질 보류 ${summary.held} · 실패(error 런) ${summary.errorRuns} · 실패(런 미저장) ${summary.unsavedFailures} · 미착수 ${summary.notStarted}`,
   );
   const periodSkipCounts = args.periodSkippedEntries.reduce(
     (acc, { status }) => {
@@ -222,7 +223,7 @@ function printSummaryLines(args: {
   console.log(
     `스킵(ok·버전 무관) ${summary.skippedOk}` +
       (summary.skippedOkOutdatedOnly > 0 ? ` (구버전만 ${summary.skippedOkOutdatedOnly})` : "") +
-      ` · 보류(error) ${summary.heldError} · 기간 스킵 ${summary.periodSkipped}` +
+      ` · 품질 held 스킵 ${summary.skippedHeld} · 보류(error) ${summary.heldError} · 기간 스킵 ${summary.periodSkipped}` +
       (summary.periodSkipped > 0
         ? ` (마감 ${periodSkipCounts.closed} · 시작 전 ${periodSkipCounts.not_started} · 기간 미상 ${periodSkipCounts.unknown})`
         : ""),
@@ -261,6 +262,7 @@ async function runDryRun(options: BatchOptions): Promise<number> {
     cohortLabel: cohort.experimentLabel,
     skippedOk: partition.skippedOk.length,
     skippedOkOutdatedOnly: partition.skippedOkOutdatedOnly.length,
+    skippedHeld: partition.skippedHeld.length,
     heldError: partition.heldError.length,
     periodSkippedCount: 0, // dry-run 은 기간 가드를 수행하지 않는다(아래 주의 문구)
     runnable: partition.pending.length,
@@ -326,7 +328,7 @@ function createCliBatchRecorder(options: BatchOptions, transport: LabBatchTransp
         ...(options.grantIds ? { grantIds: options.grantIds } : {}),
         ...(options.cohortSnapshot ? { cohortSnapshot: options.cohortSnapshot } : {}),
       },
-      progress: { total: 0, started: 0, ok: 0, error: 0, cumulativeCostUsd: 0 },
+      progress: { total: 0, started: 0, ok: 0, held: 0, error: 0, cumulativeCostUsd: 0 },
       guardStop: null,
       summary: null,
       events: [],
@@ -412,6 +414,7 @@ async function runBatchViaRunner(
               cohortLabel: event.cohortLabel,
               skippedOk: event.skippedOk,
               skippedOkOutdatedOnly: event.skippedOkOutdatedOnly,
+              skippedHeld: event.skippedHeld,
               heldError: event.heldError,
               periodSkippedCount: event.periodSkipped,
               runnable: event.runnable,
@@ -437,6 +440,13 @@ async function runBatchViaRunner(
             const seconds = (event.durationMs / 1000).toFixed(1);
             console.log(
               `[batch] (${event.index + 1}/${event.total}) ok: [${event.stratum}] ${event.title} · ${seconds}s · $${(event.costUsd ?? 0).toFixed(4)} · 누적 $${event.cumulativeCostUsd.toFixed(4)}`,
+            );
+            break;
+          }
+          case "target-held": {
+            const seconds = (event.durationMs / 1000).toFixed(1);
+            console.log(
+              `[batch] (${event.index + 1}/${event.total}) held: [${event.stratum}] ${event.title} · ${seconds}s · $${(event.costUsd ?? 0).toFixed(4)} · 누적 $${event.cumulativeCostUsd.toFixed(4)}`,
             );
             break;
           }

@@ -4,7 +4,7 @@ import {
   DEEP_ANALYSIS_MODEL_POLICY_VERSION,
 } from "@cunote/contracts";
 import { and, desc, eq } from "drizzle-orm";
-import { AI_REVIEW_ADOPTED } from "@/features/dev/analysis-lab/contract";
+import { AI_REVIEW_ADOPTED, type LabRun } from "@/features/dev/analysis-lab/contract";
 import { labAuditFilePath } from "./audit-store";
 import {
   isLabAuditCompleteForRun,
@@ -51,6 +51,10 @@ export interface PromotionCandidate {
 export interface PromotionCandidateSelectionOptions {
   grantId?: string;
   auditedLocalCanary?: boolean;
+}
+
+export interface PromotionSourceVerificationDeps {
+  readRunImpl?: (grantId: string, runId: string) => Promise<LabRun | null>;
 }
 
 /**
@@ -183,13 +187,16 @@ export async function loadConfirmedPromotionCandidates(options: {
 
 export async function verifyPromotionSourceArtifact(
   artifact: PromotionSourceArtifact,
+  deps: PromotionSourceVerificationDeps = {},
 ): Promise<{ ok: boolean; changed: string[] }> {
   if (artifact.deepAnalysisRunId) {
     return verifyDeepAnalysisPromotionSourceArtifact(artifact);
   }
-  const run = await import("./run-store").then(({ readLabRun }) =>
-    readLabRun(artifact.grantId, artifact.runId));
+  let readRunImpl = deps.readRunImpl;
+  if (!readRunImpl) ({ readLabRun: readRunImpl } = await import("./run-store"));
+  const run = await readRunImpl(artifact.grantId, artifact.runId);
   if (!run) return { ok: false, changed: ["run_missing"] };
+  if (!isPublishableLabRun(run)) return { ok: false, changed: ["run_outcome"] };
   const runPath = labRunFilePath(run.source, run.sourceId, run.runId);
   const checks: Array<[string, string | null | undefined, string | null]> = [
     ["run", artifact.runSha256, await hashFileIfPresent(runPath) ?? null],
@@ -226,7 +233,6 @@ export async function verifyPromotionSourceArtifact(
   const changed = checks
     .filter(([, expected, actual]) => expected !== undefined && expected !== actual)
     .map(([name]) => name);
-  if (!isPublishableLabRun(run)) changed.push("run_outcome");
   if (artifact.localLabEvidence) {
     if (run.transport !== artifact.localLabEvidence.transport) changed.push("transport");
     if (run.model !== artifact.localLabEvidence.model) changed.push("model");

@@ -46,6 +46,30 @@ const cases = [
     run: { primaryValidationOutcome: "unknown", error: null },
     expected: "failed",
   },
+  {
+    label: "null outcome fails closed",
+    run: { primaryValidationOutcome: null, error: null },
+    expected: "failed",
+  },
+  {
+    label: "explicit publishable without error field fails closed",
+    run: { primaryValidationOutcome: "publishable" },
+    expected: "failed",
+  },
+  {
+    label: "explicit held without error field fails closed",
+    run: { primaryValidationOutcome: "held" },
+    expected: "failed",
+  },
+  {
+    label: "publishable plus held sentinel is inconsistent",
+    run: {
+      primaryValidationOutcome: "publishable",
+      error: "primary_validation_held: $.axis_assessments.industry",
+    },
+    expected: "failed",
+  },
+  { label: "non-string error fails closed", run: { error: 503 }, expected: "failed" },
   { label: "missing error fails closed", run: {}, expected: "failed" },
 ] as const;
 

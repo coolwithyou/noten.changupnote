@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { GrantPromotionPlan } from "./promote";
 import {
   selectPromotionCandidatesForRelease,
+  verifyPromotionSourceArtifact,
   type PromotionCandidate,
 } from "./promotion-candidates";
 import {
@@ -226,6 +227,13 @@ assert.equal(
     }),
     /봉인된 구독 분석/,
     "held 런은 error:null이어도 audited local canary로 우회할 수 없다",
+  );
+  assert.deepEqual(
+    await verifyPromotionSourceArtifact(heldCandidate.sourceArtifact, {
+      readRunImpl: async () => heldCandidate.source.run,
+    }),
+    { ok: false, changed: ["run_outcome"] },
+    "실제 source artifact 재검증도 held를 fail-closed로 차단한다",
   );
 }
 

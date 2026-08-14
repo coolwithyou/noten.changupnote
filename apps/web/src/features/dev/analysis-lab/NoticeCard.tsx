@@ -183,7 +183,7 @@ export function NoticeCard({
                 <Select
                   items={notice.runs.map((run) => ({
                     value: run.runId,
-                    label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${run.ok ? "" : " · 실패"}${run.reviewedAt ? " · 검수됨" : ""}${runAuditSuffix(run)}`,
+                    label: `${formatDateTime(run.startedAt)} · ${run.promptVersion}${runOutcomeSuffix(run)}${run.reviewedAt ? " · 검수됨" : ""}${runAuditSuffix(run)}`,
                   }))}
                   value={selectedRunId}
                   onValueChange={(value) => { if (typeof value === "string") onSelectRun(value); }}
@@ -195,7 +195,7 @@ export function NoticeCard({
                     <SelectGroup>
                       {notice.runs.map((run) => (
                         <SelectItem key={run.runId} value={run.runId}>
-                          {formatDateTime(run.startedAt)} · {run.promptVersion}{run.ok ? "" : " · 실패"}{run.reviewedAt ? " · 검수됨" : ""}{runAuditSuffix(run)}
+                          {formatDateTime(run.startedAt)} · {run.promptVersion}{runOutcomeSuffix(run)}{run.reviewedAt ? " · 검수됨" : ""}{runAuditSuffix(run)}
                         </SelectItem>
                       ))}
                     </SelectGroup>
@@ -363,4 +363,10 @@ function NoticePeriodForm({ grantId, onSaved }: { grantId: string; onSaved: () =
       </Button>
     </div>
   );
+}
+
+function runOutcomeSuffix(run: LabRunSummary): string {
+  if (run.outcome === "held") return " · 품질 보류";
+  if (run.outcome === "failed") return " · 실패";
+  return "";
 }

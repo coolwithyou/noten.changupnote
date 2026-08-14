@@ -264,9 +264,9 @@ export async function runLabAnalysis(
       });
       return {
         extraction: validated.extraction,
-        error: validated.outcome === "held"
-          ? buildPrimaryValidationHeldError(validated.passes)
-          : null,
+        // held는 validator가 의도한 품질 terminal이지 실행 오류가 아니다.
+        // 구 artifact의 primary_validation_held sentinel은 reader classifier에서만 호환한다.
+        error: null,
         repairCount: validated.repairCount,
         outcome: validated.outcome,
         passes: validated.passes,
@@ -364,13 +364,6 @@ export async function runLabAnalysis(
   };
   await saveLabRun(run);
   return run;
-}
-
-function buildPrimaryValidationHeldError(
-  passes: NonNullable<LabRun["primaryPasses"]>,
-): string {
-  const paths = passes.at(-1)?.issues?.map((issue) => issue.path).slice(0, 8) ?? [];
-  return `primary_validation_held: ${paths.join(", ") || "unresolved_axis"}`.slice(0, 2_000);
 }
 
 function numericMetadataValue(

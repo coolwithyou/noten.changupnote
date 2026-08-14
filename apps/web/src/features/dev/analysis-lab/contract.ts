@@ -66,6 +66,8 @@ export interface LabRunSummary {
   promptVersion: string;
   durationMs: number;
   costUsd: number | null;
+  /** publishable/held/failed 도메인 판정. ok는 구 클라이언트 호환용이다. */
+  outcome: "publishable" | "held" | "failed";
   ok: boolean;
   error: string | null;
   /**
@@ -547,6 +549,8 @@ export interface LabOpsFunnel {
   analysisOkCurrent: number;
   /** ④ 구버전 ok 런"만" 보유(--reanalyze-outdated 대상). */
   analysisOkOutdatedOnly: number;
+  /** ④ 현행 primary held terminal 보유(자동 재실행 금지). */
+  analysisValidationHeld: number;
   /** ④ 현행 버전 error 런만 보유(--retry-errors 대상 보류). */
   analysisErrorHeld: number;
   /** ④ 미분석 잔여(실행 대상). */
@@ -647,6 +651,8 @@ export type LabBatchEvent =
       total: number;
       skippedOk: number;
       skippedOkOutdatedOnly: number;
+      /** 현행 primary held terminal 보유 스킵. 구 스냅샷에는 없다. */
+      skippedHeld?: number;
       heldError: number;
       periodSkipped: number;
       targets: number;
@@ -679,6 +685,22 @@ export type LabBatchEvent =
       applicationRoundtrip?: LabApplicationRoundtripReference;
     }
   | {
+      /** primary validator가 보류로 정상 종결한 실행. 성공·오류 집계에 속하지 않는다. */
+      type: "target-held";
+      index: number;
+      total: number;
+      grantId: string;
+      stratum: string;
+      title: string;
+      durationMs: number;
+      /** 딱분석과 Kordoc을 합친 명목 API 환산 telemetry. 중단 기준이 아니다. */
+      costUsd: number | null;
+      deepAnalysisCostUsd?: number | null;
+      applicationRoundtripCostUsd?: number | null;
+      cumulativeCostUsd: number;
+      applicationRoundtrip?: LabApplicationRoundtripReference;
+    }
+  | {
       type: "target-error";
       index: number;
       total: number;
@@ -696,11 +718,15 @@ export type LabBatchEvent =
 
 export interface LabBatchSummary {
   ok: number;
+  /** 이 배치에서 primary held로 정상 종결한 건수. 구 스냅샷은 undefined. */
+  held?: number;
   errorRuns: number;
   unsavedFailures: number;
   notStarted: number;
   skippedOk: number;
   skippedOkOutdatedOnly: number;
+  /** 기존 현행 held terminal 보유로 스킵한 건수. 구 스냅샷은 undefined. */
+  skippedHeld?: number;
   heldError: number;
   periodSkipped: number;
   totalCostUsd: number;
@@ -747,7 +773,15 @@ export interface LabBatchJobSnapshot {
     /** origin=cli가 불변 코호트를 선택했을 때 실행 재현을 위해 기록하는 라벨. */
     cohortSnapshot?: string;
   }) | null;
-  progress: { total: number; started: number; ok: number; error: number; cumulativeCostUsd: number } | null;
+  progress: {
+    total: number;
+    started: number;
+    ok: number;
+    /** 구 스냅샷에는 없다. */
+    held?: number;
+    error: number;
+    cumulativeCostUsd: number;
+  } | null;
   guardStop: { reason: "cost-cap" | "window-exhausted"; cumulativeCostUsd: number } | null;
   summary: LabBatchSummary | null;
   /** 최근 이벤트 링 버퍼(최대 200건) — 폴링 UI 가 그대로 렌더한다. */

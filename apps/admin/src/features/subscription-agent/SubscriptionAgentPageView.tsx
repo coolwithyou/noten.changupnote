@@ -129,7 +129,7 @@ export function SubscriptionAgentPageView({
   }
 
   const progress = snapshot.batch.total > 0
-    ? Math.min(100, ((snapshot.batch.ok + snapshot.batch.error) / snapshot.batch.total) * 100)
+    ? Math.min(100, ((snapshot.batch.ok + snapshot.batch.held + snapshot.batch.error) / snapshot.batch.total) * 100)
     : 0
   const latest = snapshot.latestReport
   const workflowCommands = snapshot.runtime.runId
@@ -194,7 +194,7 @@ export function SubscriptionAgentPageView({
           icon={ListRestartIcon}
           label="기존 품질 보정"
           value={snapshot.plan ? `${snapshot.plan.recoveryCount}건` : "계획 필요"}
-          description="이전 held·failed를 신규보다 먼저 처리"
+          description="재시도 가능한 failed를 신규보다 먼저 처리"
         />
         <MetricCard
           icon={FileSearchIcon}
@@ -326,13 +326,14 @@ export function SubscriptionAgentPageView({
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="font-medium">딥분석·Kordoc 배치</span>
             <span className="text-muted-foreground tabular-nums">
-              {snapshot.batch.ok + snapshot.batch.error} / {snapshot.batch.total}
+              {snapshot.batch.ok + snapshot.batch.held + snapshot.batch.error} / {snapshot.batch.total}
             </span>
           </div>
           <Progress value={progress} aria-label="딥분석과 Kordoc 배치 진행률" />
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
             <InlineMetric label="시작" value={`${snapshot.batch.started}건`} />
             <InlineMetric label="성공" value={`${snapshot.batch.ok}건`} />
+            <InlineMetric label="품질 보류" value={`${snapshot.batch.held}건`} />
             <InlineMetric label="실패" value={`${snapshot.batch.error}건`} />
             <InlineMetric label="명목 비용" value={`$${snapshot.batch.nominalCostUsd.toFixed(2)}`} />
             <InlineMetric

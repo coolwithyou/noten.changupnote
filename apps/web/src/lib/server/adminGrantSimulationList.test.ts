@@ -95,6 +95,25 @@ assert.deepEqual(subscriptionState, {
   serving: false,
 });
 
+const heldSubscriptionState = resolveDeepAnalysisState({
+  localRun: {
+    primaryValidationOutcome: "held",
+    error: null,
+    model: "claude-opus-5",
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+    transport: "claude-cli",
+  },
+  servingEvidence: null,
+  latestDbRun: null,
+  deepRunById: new Map(),
+});
+assert.deepEqual(heldSubscriptionState, {
+  status: "blocked",
+  transport: "subscription",
+  model: "claude-opus-5",
+  serving: false,
+});
+
 const productionState = resolveDeepAnalysisState({
   localRun: null,
   servingEvidence: { kind: "production_deep_run", deepAnalysisRunId: "deep-1" },

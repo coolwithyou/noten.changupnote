@@ -35,6 +35,7 @@ import { resolveLabTransport } from "./claude-cli-transport";
 import { resolveLabModel } from "./extractor";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
+import { resolveGrantRunStates, type ScannedLabRunStateRecord } from "./run-scan-state";
 import { LAB_SOURCES } from "./strata";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -60,10 +61,9 @@ export async function scanLabRunsForOps(
   rootDir: string,
   cohortGrantIds: ReadonlySet<string>,
 ): Promise<LabOpsRunScan> {
-  const scan: LabOpsRunScan = {
-    states: new Map(),
-    runsByTransport: { api: 0, claudeCli: 0 },
-  };
+  type OpsScannedRun = ScannedLabRunStateRecord & { transport?: unknown };
+  const records: OpsScannedRun[] = [];
+  const scan: LabOpsRunScan = { states: new Map(), runsByTransport: { api: 0, claudeCli: 0 } };
   let entries: string[] = [];
   try {
     entries = await readdir(rootDir);
@@ -95,6 +95,7 @@ export async function scanLabRunsForOps(
         grantId?: unknown;
         promptVersion?: unknown;
         startedAt?: unknown;
+        primaryValidationOutcome?: unknown;
         error?: unknown;
         transport?: unknown;
       };
@@ -110,25 +111,20 @@ export async function scanLabRunsForOps(
       ) {
         continue;
       }
-      const current = parsed.promptVersion === ANALYSIS_LAB_PROMPT_VERSION;
-      const ok = parsed.error === null;
-      const state =
-        scan.states.get(parsed.grantId) ??
-        { okCurrent: false, okOutdated: false, errorCurrent: false };
-      if (ok && current) {
-        state.okCurrent = true;
-        if (cohortGrantIds.has(parsed.grantId)) {
-          if (parsed.transport === "claude-cli") scan.runsByTransport.claudeCli += 1;
-          else scan.runsByTransport.api += 1; // undefined(구런)·"api" 모두 api
-        }
-      } else if (ok) {
-        state.okOutdated = true;
-      } else if (current) {
-        // 구버전 error 런은 판정에 쓰지 않는다(batch.ts 와 동일 — 보류 사유는 현행 실패만).
-        state.errorCurrent = true;
-      }
-      scan.states.set(parsed.grantId, state);
+      records.push({
+        ...parsed,
+        grantId: parsed.grantId,
+        promptVersion: parsed.promptVersion,
+        startedAt: parsed.startedAt,
+        identity: `${entry}/${file}`,
+      });
     }
+  }
+  for (const [grantId, item] of resolveGrantRunStates(records, ANALYSIS_LAB_PROMPT_VERSION)) {
+    scan.states.set(grantId, item.state);
+    if (!item.state.okCurrent || !cohortGrantIds.has(grantId)) continue;
+    if (item.latestCurrentTerminal?.transport === "claude-cli") scan.runsByTransport.claudeCli += 1;
+    else scan.runsByTransport.api += 1; // undefined(구런)·"api" 모두 api
   }
   return scan;
 }
@@ -174,6 +170,7 @@ export function buildLabOpsFunnel(input: {
     cohortSelectedAt: cohort && cohort.selectedAt.length > 0 ? cohort.selectedAt : null,
     analysisOkCurrent: partition.skippedOk.length - partition.skippedOkOutdatedOnly.length,
     analysisOkOutdatedOnly: partition.skippedOkOutdatedOnly.length,
+    analysisValidationHeld: partition.skippedHeld.length,
     analysisErrorHeld: partition.heldError.length,
     analysisPending: partition.pending.length,
     humanReviewed: input.humanReviewedCount,

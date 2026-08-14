@@ -20,6 +20,7 @@ import {
   type PromotionServingEvidence,
 } from "./analysis-lab/promotion-serving";
 import { readLatestLabRun, readLatestLabRunIndex } from "./analysis-lab/run-store";
+import { classifyLabRunOutcome } from "./analysis-lab/run-outcome";
 import { getCunoteDb } from "./db/client";
 import * as schema from "./db/schema";
 
@@ -674,7 +675,7 @@ interface DeepAnalysisDbRun {
 }
 
 export function resolveDeepAnalysisState(input: {
-  localRun: Pick<LabRun, "error" | "model" | "promptVersion" | "transport"> | null;
+  localRun: Pick<LabRun, "primaryValidationOutcome" | "error" | "model" | "promptVersion" | "transport"> | null;
   servingEvidence: PromotionServingEvidence | null;
   latestDbRun: DeepAnalysisDbRun | null;
   deepRunById: ReadonlyMap<string, DeepAnalysisDbRun>;
@@ -696,8 +697,11 @@ export function resolveDeepAnalysisState(input: {
     };
   }
   if (input.localRun) {
+    const outcome = classifyLabRunOutcome(input.localRun);
     return {
-      status: input.localRun.error
+      status: outcome === "held"
+        ? "blocked"
+        : outcome === "failed"
         ? "failed"
         : input.localRun.promptVersion === ANALYSIS_LAB_PROMPT_VERSION
           ? "complete"

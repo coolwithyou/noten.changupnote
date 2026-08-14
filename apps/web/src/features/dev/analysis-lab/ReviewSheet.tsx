@@ -29,6 +29,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { ConfirmationPreview } from "./ConfirmationPreview";
+import { classifyLabRunOutcome } from "./run-outcome";
 import {
   AXIS_STATUS_META,
   criterionValueEntries,
@@ -393,14 +394,19 @@ export function ReviewSheet({
     }
   };
 
-  // 실패한 런은 판정 대상이 아니다 — 검수를 저장해도 서버가 400 으로 거부한다.
-  if (run.error) {
+  // publishable 이외는 판정 대상이 아니다 — 서버 저장 가드와 같은 truth table.
+  const runOutcome = classifyLabRunOutcome(run);
+  if (runOutcome !== "publishable") {
     return (
-      <Alert variant="destructive">
-        <AlertTitle>실패한 런은 검수할 수 없습니다</AlertTitle>
+      <Alert variant={runOutcome === "failed" ? "destructive" : "default"}>
+        <AlertTitle>
+          {runOutcome === "held"
+            ? "품질 보류 런은 검수할 수 없습니다"
+            : "실패한 런은 검수할 수 없습니다"}
+        </AlertTitle>
         <AlertDescription>
-          이 런은 오류로 끝나 판정 대상이 아닙니다 — 공고 카드의 &ldquo;저장된 런&rdquo;에서 성공
-          런을 선택하거나 딥분석을 다시 실행해 주세요.
+          이 런은 발행 가능한 판정 대상이 아닙니다. 공고 카드의 &ldquo;저장된 런&rdquo;에서
+          publishable 런을 선택해 주세요.
         </AlertDescription>
       </Alert>
     );

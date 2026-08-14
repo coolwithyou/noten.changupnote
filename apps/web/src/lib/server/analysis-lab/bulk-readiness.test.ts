@@ -159,6 +159,61 @@ assert.equal(
   "신청자격 쟁점이 남은 딥분석 held는 자동 통과시키지 않음",
 );
 
+// primary held는 표본 실행 완주에는 포함하되 품질 GO로는 올라갈 수 없다.
+{
+  const heldSnapshot = snapshot();
+  heldSnapshot.events = heldSnapshot.events.map((event) => {
+    if (event.type !== "target-ok" || event.grantId !== "grant-4") return event;
+    return { ...event, type: "target-held" as const };
+  });
+  heldSnapshot.progress = {
+    total: 5,
+    started: 5,
+    ok: 4,
+    held: 1,
+    error: 0,
+    cumulativeCostUsd: 0,
+  };
+  heldSnapshot.summary = heldSnapshot.summary
+    ? { ...heldSnapshot.summary, ok: 4, held: 1 }
+    : null;
+  const heldRuns = new Map(runs);
+  heldRuns.set("grant-4", {
+    ...run(4),
+    primaryValidationOutcome: "held",
+    error: null,
+  });
+  const heldPartialGraphs = new Map(graphs);
+  heldPartialGraphs.set("grant-4", graph(4, {
+    analysisReadiness: "partial",
+    lanes: { deep_analysis: "partial", application: "passed", product: "not_evaluated" },
+  }));
+  const heldReadiness = evaluateAnalysisBulkReadiness({
+    stage: "pilot5",
+    snapshot: heldSnapshot,
+    runs: heldRuns,
+    graphs: heldPartialGraphs,
+  });
+  assert.equal(heldReadiness.gates.find((gate) => gate.id === "batch_terminal")?.status, "passed");
+  assert.equal(heldReadiness.gates.find((gate) => gate.id === "sample_complete")?.status, "passed");
+  assert.equal(heldReadiness.gates.find((gate) => gate.id === "deep_quality")?.status, "failed");
+  assert.equal(heldReadiness.verdict, "ITERATE");
+
+  const mismatchedLatestRuns = new Map(runs);
+  const mismatchedReadiness = evaluateAnalysisBulkReadiness({
+    stage: "pilot5",
+    snapshot: heldSnapshot,
+    runs: mismatchedLatestRuns,
+    graphs: heldPartialGraphs,
+  });
+  assert.equal(
+    mismatchedReadiness.gates.find((gate) => gate.id === "deep_quality")?.status,
+    "failed",
+    "snapshot target-held는 별도 latest publishable run map으로 덮을 수 없음",
+  );
+  assert.equal(mismatchedReadiness.verdict, "ITERATE");
+}
+
 const requiredGraphs = new Map(graphs);
 requiredGraphs.set("grant-2", graph(2, {
   lanes: { deep_analysis: "passed", application: "partial", product: "not_evaluated" },

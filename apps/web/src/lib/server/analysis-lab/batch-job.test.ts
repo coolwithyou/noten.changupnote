@@ -14,16 +14,16 @@ import { join } from "node:path";
 import type {
   LabBatchJobSnapshot,
   LabBatchStartRequest,
-  LabBatchSummary,
 } from "@/features/dev/analysis-lab/contract";
 import {
   LabBatchJobBusyError,
+  applyLabBatchEvent,
   abortLabBatchJob,
   getLabBatchJobSnapshot,
   startLabBatchJob,
   type LabBatchJobDeps,
 } from "./batch-job";
-import type { LabBatchEvent, LabBatchRunnerOptions } from "./batch-runner";
+import type { LabBatchEvent, LabBatchRunnerOptions, LabBatchSummary } from "./batch-runner";
 
 // ---- 픽스처 헬퍼 ---------------------------------------------------------------
 
@@ -49,11 +49,13 @@ function request(overrides: Partial<LabBatchStartRequest> = {}): LabBatchStartRe
 function summaryFixture(overrides: Partial<LabBatchSummary> = {}): LabBatchSummary {
   return {
     ok: 0,
+    held: 0,
     errorRuns: 0,
     unsavedFailures: 0,
     notStarted: 0,
     skippedOk: 0,
     skippedOkOutdatedOnly: 0,
+    skippedHeld: 0,
     heldError: 0,
     periodSkipped: 0,
     totalCostUsd: 0,
@@ -71,6 +73,7 @@ function planEvent(targets: number): LabBatchEvent {
     total: targets,
     skippedOk: 0,
     skippedOkOutdatedOnly: 0,
+    skippedHeld: 0,
     heldError: 0,
     periodSkipped: 0,
     targets,
@@ -80,6 +83,28 @@ function planEvent(targets: number): LabBatchEvent {
     estimatedCostPerGrantUsd: 0.4,
     costSampleCount: 1,
   };
+}
+
+// ---- additive held 진행 집계 — 구 progress(held 미기록)도 0에서 복원 ---------
+{
+  const legacy = persistedFixture("running");
+  assert.equal(legacy.progress?.held, undefined, "구 스냅샷 형태");
+  applyLabBatchEvent(legacy, {
+    type: "target-held",
+    index: 1,
+    total: 5,
+    grantId: "held-1",
+    stratum: "pilot",
+    title: "보류 공고",
+    durationMs: 100,
+    costUsd: 0.4,
+    cumulativeCostUsd: 0.8,
+  });
+  assert.equal(legacy.progress?.held, 1);
+  assert.equal(legacy.progress?.ok, 1, "기존 성공 집계 보존");
+  assert.equal(legacy.progress?.error, 1, "기존 실패 집계 보존");
+  assert.equal(legacy.progress?.cumulativeCostUsd, 0.8);
+  console.log("✅ target-held 진행 집계 — 구 스냅샷 additive 복원");
 }
 
 function startedEvent(index: number, total: number, grantId: string): LabBatchEvent {

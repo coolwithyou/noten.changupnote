@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { CircleCheck, CircleX, FileCheck2, SearchCheck } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleX, FileCheck2, SearchCheck } from "lucide-react";
 import type { LabBatchEvent, LabBatchJobSnapshot, LabBatchSummary } from "./contract";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -69,7 +69,8 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
       </Alert>
     );
   }
-  const doneCount = progress ? progress.ok + progress.error : 0;
+  const heldCount = progress?.held ?? 0;
+  const doneCount = progress ? progress.ok + heldCount + progress.error : 0;
   const percent = progress && progress.total > 0 ? (doneCount / progress.total) * 100 : 0;
   // 링 버퍼는 오래된 순으로 도착한다 — 표시는 최근순.
   const events = [...snapshot.events].reverse();
@@ -127,7 +128,7 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
           <div className="flex flex-col gap-1.5">
             <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
               <span className="font-medium tabular-nums">
-                {doneCount} / {progress.total} 완료 (성공 {progress.ok} · 실패 {progress.error})
+                {doneCount} / {progress.total} 완료 (성공 {progress.ok} · 품질 보류 {heldCount} · 실패 {progress.error})
               </span>
               <span className="text-muted-foreground tabular-nums">
                 누적 명목 {formatUsd(progress.cumulativeCostUsd)}
@@ -163,7 +164,8 @@ function EventRow({ event }: { event: LabBatchEvent }) {
           계획 — 실행 대상 {event.targets}건 / 전체 목록 {event.total}건
           {event.cohortLabel ? ` (${event.cohortLabel})` : ""} · 예상 명목{" "}
           {event.estimatedCostUsd !== null ? formatUsd(event.estimatedCostUsd) : "미상"} · ok 스킵{" "}
-          {event.skippedOk} · 구버전만 {event.skippedOkOutdatedOnly} · error 보류 {event.heldError}{" "}
+          {event.skippedOk} · 구버전만 {event.skippedOkOutdatedOnly} · 품질 held {event.skippedHeld ?? 0}
+          {" "}· error 보류 {event.heldError}{" "}
           · 기간 스킵 {event.periodSkipped}
         </p>
       );
@@ -232,6 +234,21 @@ function EventRow({ event }: { event: LabBatchEvent }) {
           </p>
         </div>
       );
+    case "target-held":
+      return (
+        <div className="flex items-start gap-1.5 px-1 py-1 text-xs">
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0 text-amber-600" />
+          <p className="min-w-0 break-words">
+            <span className="tabular-nums">({event.index + 1}/{event.total})</span>{" "}
+            <span className="font-medium">{event.title}</span>{" "}
+            <span className="text-muted-foreground tabular-nums">
+              · primary 품질 보류 · {formatDurationMs(event.durationMs)} ·{" "}
+              {event.costUsd !== null ? formatUsd(event.costUsd) : "비용 미상"} · 누적{" "}
+              {formatUsd(event.cumulativeCostUsd)}
+            </span>
+          </p>
+        </div>
+      );
     case "guard-stop":
       return (
         <Alert className="my-1">
@@ -244,8 +261,9 @@ function EventRow({ event }: { event: LabBatchEvent }) {
     case "finished":
       return (
         <p className="px-1 py-1 text-xs font-medium tabular-nums">
-          종료 — {STOP_REASON_LABELS[event.summary.stopReason]} · 성공 {event.summary.ok} · error
-          런 {event.summary.errorRuns} · 누적 명목 {formatUsd(event.summary.totalCostUsd)}
+          종료 — {STOP_REASON_LABELS[event.summary.stopReason]} · 성공 {event.summary.ok} · 품질
+          보류 {event.summary.held ?? 0} · error 런 {event.summary.errorRuns} · 누적 명목{" "}
+          {formatUsd(event.summary.totalCostUsd)}
         </p>
       );
   }
@@ -276,11 +294,13 @@ function BatchSummaryTable({ summary }: { summary: LabBatchSummary }) {
   const rows: Array<[string, string]> = [
     ["종료 사유", STOP_REASON_LABELS[summary.stopReason]],
     ["성공 런", `${summary.ok}건`],
+    ["품질 보류 런", `${summary.held ?? 0}건`],
     ["error 런(저장됨)", `${summary.errorRuns}건`],
     ["런 저장 실패", `${summary.unsavedFailures}건`],
     ["미착수", `${summary.notStarted}건`],
     ["ok 스킵(현행)", `${summary.skippedOk}건`],
     ["구버전만 스킵", `${summary.skippedOkOutdatedOnly}건`],
+    ["품질 held 스킵", `${summary.skippedHeld ?? 0}건`],
     ["error 보류", `${summary.heldError}건`],
     ["기간 스킵", `${summary.periodSkipped}건`],
     ["누적 명목 비용", formatUsd(summary.totalCostUsd)],

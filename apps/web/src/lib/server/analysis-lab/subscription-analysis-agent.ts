@@ -25,8 +25,9 @@ import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import { loadAnalysisQualityGraphForRun } from "./quality-report";
 import {
   analysisLabDir,
-  readLatestSuccessfulLabRunIndexForPrompt,
+  readLatestTerminalLabRunIndexForPrompt,
 } from "./run-store";
+import { classifyLabRunOutcome, isPublishableLabRun } from "./run-outcome";
 import {
   loadAutomaticTargetCandidates,
 } from "./target-selection";
@@ -140,11 +141,13 @@ export async function runSubscriptionAnalysisAgent(
       const runIdsByGrant = new Map(currentRuns.map((run) => [run.grantId, run.runId]));
       const missingRuns = activeIds.filter((grantId) => !runIdsByGrant.has(grantId));
       if (missingRuns.length > 0) {
-        throw new Error(`현행 성공 런을 만들지 못한 공고: ${missingRuns.join(", ")}`);
+        throw new Error(`현행 terminal 런을 만들지 못한 공고: ${missingRuns.join(", ")}`);
       }
 
       let graphs = await deps.loadGraphs(currentRuns);
+      let runOutcomes = new Map(currentRuns.map((run) => [run.grantId, classifyLabRunOutcome(run)]));
       const reviewIds = graphs.filter((graph) => {
+        if (runOutcomes.get(graph.grantId) !== "publishable") return false;
         const review = graph.nodes.find((node) => node.id === "independent_review");
         return review?.status === "held" || review?.status === "failed";
       }).map((graph) => graph.grantId);
@@ -161,10 +164,11 @@ export async function runSubscriptionAnalysisAgent(
         );
         currentRuns = await deps.readCurrentRuns(activeIds);
         graphs = await deps.loadGraphs(currentRuns);
+        runOutcomes = new Map(currentRuns.map((run) => [run.grantId, classifyLabRunOutcome(run)]));
       }
 
       const eligibilityRepairable = await deps.loadEligibilityRepairable(activeIds, currentRuns);
-      const decision = classifySubscriptionAgentGraphs(graphs, eligibilityRepairable);
+      const decision = classifySubscriptionAgentGraphs(graphs, eligibilityRepairable, runOutcomes);
       report.cycles.push({
         cycle,
         grantIds: [...activeIds],
@@ -203,12 +207,12 @@ export async function inspectSubscriptionAgentWork(limit: number): Promise<Subsc
     retryErrors: true,
     reanalyzeOutdated: true,
   });
-  const index = await readLatestSuccessfulLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
+  const index = await readLatestTerminalLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
   const currentRuns = period.runnable.flatMap((entry) => {
     const run = index.get(entry.grantId);
     return run ? [run] : [];
   });
-  const graphs = await Promise.all(currentRuns.map(loadAnalysisQualityGraphForRun));
+  const graphs = await Promise.all(currentRuns.filter(isPublishableLabRun).map(loadAnalysisQualityGraphForRun));
   const recoveryIds = graphs
     .filter((graph) => !isTerminalAnalysisStatus(graph.analysisReadiness))
     .map((graph) => graph.grantId)
@@ -228,10 +232,10 @@ export async function inspectSubscriptionAgentWork(limit: number): Promise<Subsc
 }
 
 async function loadCurrentRuns(grantIds: readonly string[]): Promise<LabRun[]> {
-  const index = await readLatestSuccessfulLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
+  const index = await readLatestTerminalLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
   return grantIds.flatMap((grantId) => {
     const run = index.get(grantId);
-    return run && run.error === null ? [run] : [];
+    return run ? [run] : [];
   });
 }
 

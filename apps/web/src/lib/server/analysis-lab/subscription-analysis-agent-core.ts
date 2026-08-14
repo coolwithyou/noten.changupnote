@@ -2,6 +2,7 @@ import type {
   AnalysisQualityGraph,
   AnalysisQualityStatus,
 } from "@/features/dev/analysis-lab/quality-contract";
+import type { LabRunOutcome } from "./run-outcome";
 
 export const SUBSCRIPTION_ANALYSIS_AGENT_VERSION = "subscription-analysis-agent-v1";
 export const SUBSCRIPTION_ANALYSIS_AGENT_MODELS = {
@@ -72,6 +73,7 @@ export function isTerminalAnalysisStatus(status: AnalysisQualityStatus): boolean
 export function classifySubscriptionAgentGraphs(
   graphs: readonly AnalysisQualityGraph[],
   eligibilityRepairable: ReadonlySet<string>,
+  runOutcomes: ReadonlyMap<string, LabRunOutcome>,
 ): SubscriptionAgentGraphDecision {
   const decision: SubscriptionAgentGraphDecision = {
     completed: [],
@@ -81,6 +83,28 @@ export function classifySubscriptionAgentGraphs(
     blocked: [],
   };
   for (const graph of graphs) {
+    const runOutcome = runOutcomes.get(graph.grantId);
+    if (runOutcome === "held") {
+      decision.blocked.push({
+        grantId: graph.grantId,
+        reasons: ["primary validator 품질 보류 — 명시적 새 experiment 없이 자동 재실행 금지"],
+      });
+      continue;
+    }
+    if (runOutcome === "failed") {
+      decision.blocked.push({
+        grantId: graph.grantId,
+        reasons: ["LabRun outcome/error 계약 불일치"],
+      });
+      continue;
+    }
+    if (runOutcome !== "publishable") {
+      decision.blocked.push({
+        grantId: graph.grantId,
+        reasons: ["LabRun outcome evidence 없음 — 자동 품질 분기 금지"],
+      });
+      continue;
+    }
     if (isTerminalAnalysisStatus(graph.analysisReadiness)) {
       decision.completed.push(graph.grantId);
       continue;

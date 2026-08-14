@@ -81,11 +81,12 @@ export function BatchOpsFunnelBoard({
             </p>
           </FunnelStage>
 
-          <FunnelStage step="④" title="딥분석 4버킷">
+          <FunnelStage step="④" title="딥분석 상태 분리">
             <BigNumber value={funnel.analysisOkCurrent} label="ok·현행" />
             <div className="flex flex-col gap-1">
               <SplitRow label="구버전만" value={funnel.analysisOkOutdatedOnly} />
-              <SplitRow label="error 보류" value={funnel.analysisErrorHeld} />
+              <SplitRow label="품질 보류" value={funnel.analysisValidationHeld} />
+              <SplitRow label="error 재시도 보류" value={funnel.analysisErrorHeld} />
               <SplitRow label="잔여(실행 대상)" value={funnel.analysisPending} />
             </div>
           </FunnelStage>

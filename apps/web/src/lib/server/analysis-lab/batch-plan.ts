@@ -10,6 +10,8 @@ export interface GrantRunState {
   okCurrent: boolean;
   /** 구버전 promptVersion 의 ok 런 존재 → 기본 스킵, --reanalyze-outdated 로만 대상 편입. */
   okOutdated: boolean;
+  /** 현행 promptVersion의 primary held terminal 존재 → 자동 재실행 금지. */
+  heldCurrent: boolean;
   /** 현행 promptVersion 의 error 런 존재 → --retry-errors 없으면 보류. */
   errorCurrent: boolean;
 }
@@ -19,6 +21,8 @@ export interface CohortPartition<E> {
   skippedOk: E[];
   /** 그중 구버전 ok 런"만" 보유한 공고 — 요약 표기·--reanalyze-outdated 안내용 부분집합. */
   skippedOkOutdatedOnly: E[];
+  /** 현행 primary held terminal 보유 스킵(--retry-errors로 해제할 수 없음). */
+  skippedHeld: E[];
   /** 현행 버전 error 런만 있어 보류(--retry-errors 미지정). */
   heldError: E[];
   /** 실행 대상. */
@@ -26,8 +30,9 @@ export interface CohortPartition<E> {
 }
 
 /**
- * 코호트 엔트리 분할 — 우선순위: 현행 ok 스킵 > 구버전 ok 스킵(--reanalyze-outdated 로 해제)
- * > 현행 error 보류(--retry-errors 로 해제) > 대상. 구버전 ok + 현행 error 를 함께 가진
+ * 코호트 엔트리 분할 — 우선순위: 현행 ok > 현행 held > 구버전 ok
+ * (--reanalyze-outdated 로 해제) > 현행 error 보류(--retry-errors 로 해제) > 대상.
+ * 구버전 ok + 현행 error 를 함께 가진
  * 공고는 --reanalyze-outdated 시 error 런 보유 공고로 취급한다(--retry-errors 규칙 적용).
  */
 export function partitionCohortEntries<E extends { grantId: string }>(
@@ -38,6 +43,7 @@ export function partitionCohortEntries<E extends { grantId: string }>(
   const partition: CohortPartition<E> = {
     skippedOk: [],
     skippedOkOutdatedOnly: [],
+    skippedHeld: [],
     heldError: [],
     pending: [],
   };
@@ -45,6 +51,8 @@ export function partitionCohortEntries<E extends { grantId: string }>(
     const state = states.get(entry.grantId);
     if (state?.okCurrent) {
       partition.skippedOk.push(entry);
+    } else if (state?.heldCurrent) {
+      partition.skippedHeld.push(entry);
     } else if (state?.okOutdated && !options.reanalyzeOutdated) {
       partition.skippedOk.push(entry);
       partition.skippedOkOutdatedOnly.push(entry);

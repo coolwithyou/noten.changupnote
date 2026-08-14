@@ -321,6 +321,26 @@ function roundtripFixture(run: LabRun, document = documentFixture()): Applicatio
   const run = runFixture({
     primaryValidationOutcome: "held",
     axisAssessments: heldAxes,
+    error: null,
+  });
+  const graph = evaluateAnalysisQuality({ run, review: null, roundtrip: null });
+  const contract = graph.nodes.find((node) => node.id === "deep_contract");
+  assert.equal(contract?.status, "held", "신규 held(error:null)도 품질 terminal로 보존");
+  assert.equal(
+    contract?.evidence.some((item) => item.startsWith("분석 오류:")),
+    false,
+    "신규 held를 인프라 실패로 표시하지 않음",
+  );
+  console.log("✅ 딥분석 — 신규 held(error:null) 품질 terminal 보존");
+}
+
+{
+  const heldAxes = runFixture().axisAssessments.map((axis) => axis.dimension === "industry"
+    ? { ...axis, status: "input_missing" as const, comment: "상세 첨부 누락" }
+    : axis);
+  const run = runFixture({
+    primaryValidationOutcome: "held",
+    axisAssessments: heldAxes,
     error: "provider timeout",
   });
   const graph = evaluateAnalysisQuality({ run, review: null, roundtrip: null });

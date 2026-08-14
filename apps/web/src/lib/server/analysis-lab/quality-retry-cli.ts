@@ -9,7 +9,7 @@ import { loadAnalysisQualityGraphForRun } from "./quality-report";
 import { readLatestLabRunIndexForPrompt } from "./run-store";
 import { runLabAnalysis } from "./analyze";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
-import { isPublishableLabRun } from "./run-outcome";
+import { classifyLabRunOutcome, isPublishableLabRun } from "./run-outcome";
 
 loadAnalysisLabEnv();
 
@@ -77,7 +77,9 @@ async function main(): Promise<number> {
           ? { reuseApplicationRoundtripRunId: target.run.applicationRoundtrip.runId }
           : {}),
       });
-      if (result.error) throw new Error(`${result.grantId}: 재분석 실패: ${result.error}`);
+      if (!isPublishableLabRun(result)) {
+        throw new Error(`${result.grantId}: 재분석이 발행 가능하게 종결되지 않음 (${classifyLabRunOutcome(result)})`);
+      }
       console.log(
         `[repair-quality] 완료 ${result.grantId} · ${result.runId} · `
         + `criteria ${result.criteria.length} · Kordoc ${result.applicationRoundtrip?.status ?? "미실행"}`,
