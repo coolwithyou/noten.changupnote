@@ -21,6 +21,8 @@ const SUBSCRIPTION_CANDIDATES_PER_REQUEST = 40;
 const SUBSCRIPTION_CANDIDATE_CONCURRENCY = 2;
 const MAX_API_LLM_BATCHES = Math.ceil(ROUNDTRIP_FIELD_CANDIDATE_LIMIT / API_CANDIDATES_PER_REQUEST);
 const MAX_ADJUDICATION_ROUNDS = 2;
+const TRIAGE_LOWER_BOUND = 0.25;
+const TRIAGE_UPPER_BOUND = 0.75;
 // 프롬프트 계약과 동일한 임계값을 양방향에 적용한다. 입력 판정만 낮은 임계값으로
 // 즉시 채택하면 표 머리글 같은 저신뢰 false positive가 자동 재판정을 우회한다.
 const ACCEPT_INPUT_CONFIDENCE = 0.75;
@@ -154,13 +156,30 @@ export async function planRoundtripFields(options: {
   const startedMs = Date.now();
   const runtime = resolveRoundtripFieldPlannerRuntimeConfig(options);
   const fields = options.fields.map(cloneField);
+  const triageCandidates = runtime.transport === "claude-cli"
+    ? fields.filter(needsLlmTriage)
+    : fields;
   const candidates = runtime.candidateLimit === null
-    ? fields
-    : fields.slice(0, runtime.candidateLimit);
+    ? triageCandidates
+    : triageCandidates.slice(0, runtime.candidateLimit);
+  const triageTelemetry = {
+    llmCandidateCount: triageCandidates.length,
+    deterministicDecisionCount: fields.length - triageCandidates.length,
+  };
   if (candidates.length === 0) {
     return {
       fields,
-      summary: buildSummary(runtime, "skipped", null, 0, fields, "판정할 입력 후보가 없습니다.", null),
+      summary: buildSummary(
+        runtime,
+        "skipped",
+        null,
+        0,
+        fields,
+        "판정할 경계 후보가 없습니다.",
+        null,
+        emptyPlannerUsage(),
+        triageTelemetry,
+      ),
     };
   }
   if (!options.apiKey) {
@@ -174,6 +193,8 @@ export async function planRoundtripFields(options: {
         fields,
         "ANTHROPIC_API_KEY가 없어 결정적 후보 규칙만 적용했습니다.",
         "api_key_missing",
+        emptyPlannerUsage(),
+        triageTelemetry,
       ),
     };
   }
@@ -214,6 +235,7 @@ export async function planRoundtripFields(options: {
           adjudicatedCandidateCount: 0,
           remainingUnresolvedCandidateCount: candidates.length,
           adjudicationFailureCode: failureCode,
+          ...triageTelemetry,
         },
       ),
     };
@@ -245,10 +267,10 @@ export async function planRoundtripFields(options: {
   }
 
   const usage = sumPlannerUsage(usageItems);
-  const unprocessedCandidateCount = fields.filter(
+  const unprocessedCandidateCount = triageCandidates.filter(
     (candidate) => !decidedCandidateIds.has(candidate.fieldInstanceId),
   ).length;
-  const outOfScopeCandidateCount = Math.max(0, fields.length - candidates.length);
+  const outOfScopeCandidateCount = Math.max(0, triageCandidates.length - candidates.length);
   const remainingUnresolvedCandidateCount = unresolved.length + outOfScopeCandidateCount;
   const adjudicationStatus: NonNullable<RoundtripFieldPlanningSummary["adjudicationStatus"]> =
     runtime.transport !== "claude-cli"
@@ -286,6 +308,7 @@ export async function planRoundtripFields(options: {
         adjudicatedCandidateCount: adjudicatedCandidateIds.size,
         remainingUnresolvedCandidateCount,
         adjudicationFailureCode,
+        ...triageTelemetry,
       },
     ),
   };
@@ -647,6 +670,8 @@ function buildSummary(
     | "adjudicatedCandidateCount"
     | "remainingUnresolvedCandidateCount"
     | "adjudicationFailureCode"
+    | "llmCandidateCount"
+    | "deterministicDecisionCount"
   >,
 ): RoundtripFieldPlanningSummary {
   const acceptedCount = fields.filter((field) => field.recommendedInput).length;
@@ -674,6 +699,13 @@ function buildSummary(
       : null,
   };
 }
+
+export function isSubscriptionRoundtripLlmCandidate(field: RoundtripFieldCandidate): boolean {
+  return field.inputLikelihood > TRIAGE_LOWER_BOUND
+    && field.inputLikelihood < TRIAGE_UPPER_BOUND;
+}
+
+const needsLlmTriage = isSubscriptionRoundtripLlmCandidate;
 
 function emptyPlannerUsage(): FieldPlannerUsage {
   return { requestCount: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };

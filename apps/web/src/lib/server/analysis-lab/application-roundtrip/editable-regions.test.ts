@@ -139,6 +139,7 @@ assert.match(editedRelocationText, /기 업 명 : 주식회사 창업노트/);
 assert.match(editedRelocationText, /대    표 : 홍길동\s+\(인\)/);
 
 let explicitRequestModel: string | null = null;
+const ambiguousRevenue = { ...revenue2024, inputLikelihood: 0.59 };
 const usageEvents: Array<{
   requestCount: number;
   inputTokens: number;
@@ -146,7 +147,7 @@ const usageEvents: Array<{
   costUsd: number;
 }> = [];
 const planned = await planRoundtripFields({
-  fields: [revenue2024],
+  fields: [ambiguousRevenue],
   markdown: "매출액 2024년 (천원)",
   apiKey: "test-key",
   model: "claude-opus-5",
@@ -383,7 +384,7 @@ assert.equal(uncertainPlan.fields[0]?.llmDecision, "uncertain");
 assert.equal(uncertainPlan.fields[0]?.recommendedInput, false, "모호한 후보를 억지로 입력 필드로 승격하지 않음");
 
 const heuristicWithoutKey = await planRoundtripFields({
-  fields: [revenue2024],
+  fields: [ambiguousRevenue],
   markdown: "키 없는 기존 heuristic 경로",
   apiKey: null,
   model: "claude-sonnet-5",
@@ -401,7 +402,7 @@ globalThis.fetch = (async () => {
 }) as typeof fetch;
 try {
   const missingTransport = await planRoundtripFields({
-    fields: [revenue2024],
+    fields: [ambiguousRevenue],
     markdown: "구독 fetch 미주입",
     apiKey: "subscription",
     model: "claude-opus-5",
@@ -415,7 +416,7 @@ try {
 }
 
 const windowExhausted = await planRoundtripFields({
-  fields: [revenue2024],
+  fields: [ambiguousRevenue],
   markdown: "구독 윈도 소진",
   apiKey: "subscription",
   model: "claude-opus-5",
@@ -429,7 +430,7 @@ assert.equal(windowExhausted.summary.status, "heuristic_fallback");
 assert.equal(windowExhausted.summary.failureCode, "window_exhausted");
 
 const timedOut = await planRoundtripFields({
-  fields: [revenue2024],
+  fields: [ambiguousRevenue],
   markdown: "타임아웃",
   apiKey: "subscription",
   model: "claude-opus-5",
@@ -460,6 +461,7 @@ function plannerField(base: ReturnType<typeof requiredField>, index: number) {
     label: `입력 후보 ${index}`,
     displayLabel: `입력 후보 ${index}`,
     normalizedLabel: `입력후보${index}`,
+    inputLikelihood: 0.59,
     inputSignals: [...base.inputSignals],
     options: base.options.map((option) => ({ ...option })),
     location: base.location.target

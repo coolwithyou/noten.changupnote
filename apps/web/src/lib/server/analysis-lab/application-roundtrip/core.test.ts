@@ -37,6 +37,19 @@ assert.equal(
   "독립 관리지침의 빈 표와 신청 관련 서술을 빠른 작성 양식으로 오인하면 안 된다",
 );
 
+const policyDocument = classifyRoundtripDocument({
+  filename: "붙임 3-1. 산업기술혁신사업 공통 운영요령(고시 제2024-218호).hwpx",
+  markdown: "사업자 대표자 신청기업 사업개요 추진계획 개인정보 수집".repeat(80),
+  fields: Array.from({ length: 905 }, (_, index) =>
+    field({ id: `policy-${index}`, label: `정책 표 ${index}`, occurrence: index })),
+  formConfidence: 0.64,
+});
+assert.equal(
+  policyDocument.role,
+  "announcement",
+  "법령·규정·운영요령의 대량 빈 표를 신청서로 오인해 LLM 비용을 쓰면 안 된다",
+);
+
 const guidanceWithApplication = classifyRoundtripDocument({
   filename: "관리지침 및 신청서.hwpx",
   markdown: "신청기업 대표자 담당자 연락처 사업자등록번호",

@@ -114,6 +114,32 @@ try {
     assert.equal(summary.effort, null);
     console.log("✅ effort 미설정 — 요청 본문·거절 임계 모두 현행 그대로");
   }
+
+  // ---- ⑤ 확정 후보는 결정 규칙으로 끝내고 경계 후보만 LLM 판정 ----------------------
+  {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = buildFetch(bodies, [[decision("ambiguous", true, 0.9)]]);
+    const { fields, summary } = await planRoundtripFields({
+      fields: [
+        candidate("certain-input", { inputLikelihood: 0.86, recommendedInput: true }),
+        candidate("ambiguous", { inputLikelihood: 0.59, recommendedInput: false }),
+        candidate("certain-non-input", { inputLikelihood: 0.14, recommendedInput: false }),
+      ],
+      markdown: "회사명: ____",
+      apiKey: "test-key",
+      fetchImpl,
+      transport: "claude-cli",
+    });
+    const payload = ((bodies[0]?.messages as Array<{ content: string }>)[0]?.content ?? "");
+    assert.match(payload, /ambiguous/);
+    assert.doesNotMatch(payload, /certain-input|certain-non-input/);
+    assert.equal(fields.find((field) => field.fieldInstanceId === "certain-input")?.recommendedInput, true);
+    assert.equal(fields.find((field) => field.fieldInstanceId === "certain-non-input")?.recommendedInput, false);
+    assert.equal(summary.candidateCount, 3, "구조 후보 총수는 보존");
+    assert.equal(summary.llmCandidateCount, 1, "LLM 요청 대상은 경계 후보만 기록");
+    assert.equal(summary.deterministicDecisionCount, 2, "결정 규칙으로 종결한 후보 수 기록");
+    console.log("✅ Kordoc triage — 경계 후보만 LLM 판정");
+  }
 } finally {
   if (originalEffortEnv === undefined) delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
   else process.env.APPLICATION_ROUNDTRIP_EFFORT = originalEffortEnv;
@@ -121,7 +147,10 @@ try {
 
 console.log("application roundtrip field-planner effort tests: ok");
 
-function candidate(id: string): RoundtripFieldCandidate {
+function candidate(
+  id: string,
+  overrides: Partial<Pick<RoundtripFieldCandidate, "inputLikelihood" | "recommendedInput">> = {},
+): RoundtripFieldCandidate {
   return {
     fieldInstanceId: id,
     label: `${id} 라벨`,
@@ -131,8 +160,8 @@ function candidate(id: string): RoundtripFieldCandidate {
     type: "text",
     required: false,
     empty: true,
-    recommendedInput: false,
-    inputLikelihood: 0.5,
+    recommendedInput: overrides.recommendedInput ?? false,
+    inputLikelihood: overrides.inputLikelihood ?? 0.5,
     inputSignals: [],
     sampleValue: "",
     sampleReason: "",

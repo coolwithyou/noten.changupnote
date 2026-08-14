@@ -157,6 +157,10 @@ export interface RoundtripFieldPlanningSummary {
   /** 한 모델 호출에 넣은 후보 수. 구독 경로는 미판정 자동 재판정을 전제로 더 큰 묶음을 쓴다. */
   candidateBatchSize?: number;
   candidateConcurrency?: number;
+  /** 구조 후보 중 실제 LLM 판정이 필요했던 경계 후보 수. 구독 triage provenance다. */
+  llmCandidateCount?: number;
+  /** 강한 입력/비입력 신호로 모델 없이 종결한 후보 수. */
+  deterministicDecisionCount?: number;
   parentLabRunId?: string | null;
   /** round 0(최초 판정)에 명시한 출력 effort. null/부재는 effort 미지정(현행 동작)이다. */
   effort?: "low" | "medium" | "high" | null;
