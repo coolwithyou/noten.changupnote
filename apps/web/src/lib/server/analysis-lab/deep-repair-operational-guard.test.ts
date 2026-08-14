@@ -37,6 +37,7 @@ const evidence: DeepRepairOperationalEvidence = {
 function cloudRunV1(
   overrides: Record<string, unknown> = {},
   gitCommitSha = GIT_SHA,
+  includeClaimScope = true,
 ): Record<string, unknown> {
   return {
     apiVersion: "run.googleapis.com/v1",
@@ -57,7 +58,9 @@ function cloudRunV1(
                 env: [
                   { name: "GIT_COMMIT_SHA", value: gitCommitSha },
                   { name: "DEEP_ANALYSIS_WORKER_MODE", value: "observe_only" },
-                  { name: "DEEP_ANALYSIS_CLAIM_SCOPE", value: "unconfigured" },
+                  ...(includeClaimScope
+                    ? [{ name: "DEEP_ANALYSIS_CLAIM_SCOPE", value: "unconfigured" }]
+                    : []),
                 ],
               }],
             },
@@ -73,6 +76,7 @@ function cloudRunV1(
 function cloudRunV2(
   overrides: Record<string, unknown> = {},
   gitCommitSha = GIT_SHA,
+  includeClaimScope = true,
 ): Record<string, unknown> {
   return {
     name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
@@ -89,7 +93,9 @@ function cloudRunV2(
           env: [
             { name: "GIT_COMMIT_SHA", value: gitCommitSha },
             { name: "DEEP_ANALYSIS_WORKER_MODE", value: "observe_only" },
-            { name: "DEEP_ANALYSIS_CLAIM_SCOPE", value: "unconfigured" },
+            ...(includeClaimScope
+              ? [{ name: "DEEP_ANALYSIS_CLAIM_SCOPE", value: "unconfigured" }]
+              : []),
           ],
         }],
       },
@@ -106,6 +112,7 @@ function commandHarness(input: {
   readonly executionPages?: readonly Record<string, unknown>[];
   readonly workerContractSafe?: boolean;
   readonly gitCommitSha?: string;
+  readonly includeClaimScope?: boolean;
 }) {
   const calls: Array<{
     file: string;
@@ -118,7 +125,11 @@ function commandHarness(input: {
     calls.push({ file, args, signal: options.signal, input: options.input });
     if (file === "gcloud" && args[0] === "auth") return { stdout: "secret-access-token\n" };
     if (file === "gcloud" && args[0] === "run") {
-      return { stdout: JSON.stringify(input.v1 ?? cloudRunV1({}, input.gitCommitSha)) };
+      return {
+        stdout: JSON.stringify(
+          input.v1 ?? cloudRunV1({}, input.gitCommitSha, input.includeClaimScope),
+        ),
+      };
     }
     if (file === "curl" && args.at(-1) === "https://oauth2.googleapis.com/tokeninfo") {
       return { stdout: JSON.stringify({ email: input.tokenInfoEmail ?? PRINCIPAL }) };
@@ -131,7 +142,11 @@ function commandHarness(input: {
       return { stdout: JSON.stringify(value) };
     }
     if (file === "curl") {
-      return { stdout: JSON.stringify(input.v2 ?? cloudRunV2({}, input.gitCommitSha)) };
+      return {
+        stdout: JSON.stringify(
+          input.v2 ?? cloudRunV2({}, input.gitCommitSha, input.includeClaimScope),
+        ),
+      };
     }
     if (file === "git") {
       if (input.workerContractSafe === false) throw new Error("not an ancestor");
@@ -155,6 +170,21 @@ function commandHarness(input: {
     validUntil: "2026-08-14T03:10:00.000Z",
   });
   assert.equal(harness.calls.length, 6);
+}
+
+{
+  const harness = commandHarness({ includeClaimScope: false });
+  const captured = await createDeepRepairOperationalEvidenceCaptureUnsafeForTest({
+    execFile: harness.execFile,
+    now: () => new Date("2026-08-14T02:55:00.000Z"),
+  })(new AbortController().signal);
+
+  assert.equal(
+    captured.claimScope,
+    "unconfigured",
+    "safe worker가 미설정 DEEP_ANALYSIS_CLAIM_SCOPE를 fail-closed로 해석하는 계약과 evidence가 같아야 한다",
+  );
+  assert.equal(harness.calls.at(-1)?.file, "git", "safe worker ancestry는 계속 증명해야 한다");
 }
 
 {
@@ -209,7 +239,7 @@ function commandHarness(input: {
       executions: [{
         name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/old-worker",
         uid: "a0fb5d10-4764-47b1-9624-438f0fcc85fb",
-        job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+        job: "cunote-deep-analysis",
         completionTime: "",
         runningCount: 1,
       }],
@@ -236,13 +266,13 @@ function commandHarness(input: {
       executions: [
         {
           name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/failed",
-          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          job: "cunote-deep-analysis",
           completionTime: "2026-08-14T02:50:00.123456789Z",
           failedCount: 1,
         },
         {
           name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/cancelled",
-          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          job: "cunote-deep-analysis",
           completionTime: "2026-08-14T02:51:00Z",
           cancelledCount: 1,
         },
@@ -307,7 +337,7 @@ function commandHarness(input: {
       {
         executions: [{
           name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/completed",
-          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          job: "cunote-deep-analysis",
           completionTime: "2026-08-14T02:50:00Z",
           failedCount: 1,
         }],
@@ -316,7 +346,7 @@ function commandHarness(input: {
       {
         executions: [{
           name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/pending",
-          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          job: "cunote-deep-analysis",
           runningCount: 0,
         }],
       },

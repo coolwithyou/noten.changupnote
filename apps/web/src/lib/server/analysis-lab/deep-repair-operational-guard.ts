@@ -221,7 +221,7 @@ async function assertNoActiveCloudRunExecutions(
       if (
         !name.startsWith(expectedPrefix)
         || name.length === expectedPrefix.length
-        || requiredString(execution.job, "Cloud Run v2 execution job") !== JOB_V2_NAME
+        || requiredString(execution.job, "Cloud Run v2 execution job") !== JOB
       ) {
         throw invalid("Cloud Run v2 execution이 고정 Job 소속이 아닙니다.");
       }
@@ -347,7 +347,7 @@ function containerSnapshot(
     imageDigest: digest,
     gitCommitSha: requiredEnv(env, "GIT_COMMIT_SHA", label),
     workerMode: requiredEnv(env, "DEEP_ANALYSIS_WORKER_MODE", label),
-    claimScope: requiredEnv(env, "DEEP_ANALYSIS_CLAIM_SCOPE", label),
+    claimScope: claimScopeEnv(env, label),
   };
 }
 
@@ -399,22 +399,43 @@ function assertEvidenceTarget(evidence: DeepRepairOperationalEvidence): void {
   }
 }
 
-function literalEnvironment(value: unknown, label: string): ReadonlyMap<string, string> {
+function literalEnvironment(
+  value: unknown,
+  label: string,
+): ReadonlyMap<string, string | null> {
   if (!Array.isArray(value)) throw invalid(`${label} env가 배열이 아닙니다.`);
-  const result = new Map<string, string>();
+  const result = new Map<string, string | null>();
   for (const item of value) {
     const entry = requiredRecord(item, `${label} env entry`);
     const name = requiredString(entry.name, `${label} env name`);
     if (result.has(name)) throw invalid(`${label} env에 ${name}가 중복됐습니다.`);
-    if (typeof entry.value === "string") result.set(name, entry.value);
+    result.set(name, typeof entry.value === "string" ? entry.value : null);
   }
   return result;
 }
 
-function requiredEnv(env: ReadonlyMap<string, string>, name: string, label: string): string {
+function requiredEnv(
+  env: ReadonlyMap<string, string | null>,
+  name: string,
+  label: string,
+): string {
   const value = env.get(name);
-  if (value === undefined) throw invalid(`${label} ${name} literal env가 없습니다.`);
+  if (value === undefined || value === null) {
+    throw invalid(`${label} ${name} literal env가 없습니다.`);
+  }
   return value;
+}
+
+function claimScopeEnv(
+  env: ReadonlyMap<string, string | null>,
+  label: string,
+): string {
+  const value = env.get("DEEP_ANALYSIS_CLAIM_SCOPE");
+  if (value === undefined) return "unconfigured";
+  if (value === null) {
+    throw invalid(`${label} DEEP_ANALYSIS_CLAIM_SCOPE literal env가 없습니다.`);
+  }
+  return value.trim() === "" ? "unconfigured" : value;
 }
 
 function onlyContainer(value: unknown, label: string): Record<string, unknown> {
