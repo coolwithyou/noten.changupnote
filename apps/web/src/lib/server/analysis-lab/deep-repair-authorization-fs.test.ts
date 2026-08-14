@@ -23,7 +23,7 @@ try {
     [join(rootDir, "plans", `${planSha}.json`), Buffer.from("plan\n")],
     [join(rootDir, "cohorts", "exact.json"), Buffer.from("cohort\n")],
     [join(rootDir, "receipts", `${receiptSha}.json`), Buffer.from("receipt\n")],
-    [join(rootDir, "attempts", planSha, "00", "start.json"), Buffer.from("start\n")],
+    [join(rootDir, "attempts", planSha, "00", "claim.json"), Buffer.from("start\n")],
   ] as const;
   for (const [path, bytes] of fixtures) {
     await mkdir(dirname(path), { recursive: true });

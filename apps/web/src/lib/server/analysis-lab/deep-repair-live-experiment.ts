@@ -13,6 +13,8 @@ import {
 } from "./deep-repair-experiment";
 import { evaluateAnalysisQuality } from "./quality-graph";
 import { classifyLabRunOutcome } from "./run-outcome";
+import { validateDeepRepairAttemptRecoveryArtifact } from "./deep-repair-recovery";
+import { validateDeepRepairLiveReceipt } from "./deep-repair-live-receipt";
 
 type Sha256 = string;
 
@@ -30,6 +32,8 @@ export type DeepRepairLiveExecutionErrorCode =
   | "plan_not_canonical"
   | "parent_receipt_not_found"
   | "parent_receipt_invalid"
+  | "attempt_recovered"
+  | "attempt_artifact_invalid"
   | "gate_not_continuable"
   | "production_guard_not_found"
   | "production_guard_invalid"
@@ -94,6 +98,9 @@ interface DeepRepairExecutionAuthority {
   readonly runtime: {
     readonly ownerId: string;
     readonly expectedGeneration: number;
+    readonly databaseObservedAt: string;
+    readonly activeDeepLeases: 0;
+    readonly activeApplicationLeases: 0;
   };
   readonly operationalEvidenceSha256: Sha256;
   readonly approvalSha256: Sha256;
@@ -175,6 +182,8 @@ export interface DeepRepairLiveArtifactRepository {
   readLiveReceipt(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readObservations(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readEvaluatorReceipt(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
+  readRecoveryApproval(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
+  readRecoveryReceipt(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readAttempt(key: DeepRepairLiveAttemptKey): Promise<{
     readonly start: DeepRepairLiveStoredArtifact;
     readonly terminal: DeepRepairLiveStoredArtifact | null;
@@ -338,11 +347,20 @@ export function createDeepRepairLiveExperiment(
       const attemptKey = { planSha256: plan.planSha256, sequence: nextSequence };
       const existing = await dependencies.repository.readAttempt(attemptKey);
       if (existing) {
-        const start = normalizeLiveStart(parseStoredJson(existing.start, "live start"));
+        const start = normalizeLiveStart(parseAttemptArtifact(existing.start, "live start", true));
         assertLiveStartBinding(start, { authority, authoritySha256, plan, target, nextSequence });
         assertApprovalTime(approval, new Date(start.startedAt));
         if (existing.terminal) {
-          const receipt = normalizeLiveReceipt(parseStoredJson(existing.terminal, "terminal receipt"));
+          await rejectIfAttemptRecovery({
+            repository: dependencies.repository,
+            artifact: existing.terminal,
+            authority,
+            authoritySha256,
+            plan,
+            target,
+            claimArtifactSha256: rawSha256(existing.start.bytes),
+          });
+          const receipt = normalizeLiveReceipt(parseAttemptArtifact(existing.terminal, "terminal receipt", true));
           assertLiveReceiptBinding(receipt, { authority, authoritySha256, plan, target, nextSequence });
           await assertContentAddressedReceipt(dependencies.repository, receipt);
           await validateLiveTerminalEvidence({
@@ -465,7 +483,16 @@ export function createDeepRepairLiveExperiment(
           if (!claimed) {
             const raced = await dependencies.repository.readAttempt(attemptKey);
             if (raced?.terminal) {
-              const receipt = normalizeLiveReceipt(parseStoredJson(raced.terminal, "terminal receipt"));
+              await rejectIfAttemptRecovery({
+                repository: dependencies.repository,
+                artifact: raced.terminal,
+                authority,
+                authoritySha256,
+                plan,
+                target,
+                claimArtifactSha256: rawSha256(raced.start.bytes),
+              });
+              const receipt = normalizeLiveReceipt(parseAttemptArtifact(raced.terminal, "terminal receipt", true));
               assertLiveReceiptBinding(receipt, { authority, authoritySha256, plan, target, nextSequence });
               await assertContentAddressedReceipt(dependencies.repository, receipt);
               await validateLiveTerminalEvidence({
@@ -483,7 +510,7 @@ export function createDeepRepairLiveExperiment(
               };
             }
             if (raced?.start) {
-              const racedStart = normalizeLiveStart(parseStoredJson(raced.start, "live start"));
+              const racedStart = normalizeLiveStart(parseAttemptArtifact(raced.start, "live start", true));
               assertLiveStartBinding(racedStart, { authority, authoritySha256, plan, target, nextSequence });
               return { kind: "ambiguous" as const, start: racedStart };
             }
@@ -614,7 +641,7 @@ export function createDeepRepairLiveExperiment(
             const committed = await dependencies.repository.readAttempt(attemptKey);
             if (!committed?.terminal) throw new Error("terminal receipt read-back missing");
             const storedReceipt = normalizeLiveReceipt(
-              parseStoredJson(committed.terminal, "committed terminal receipt"),
+              parseAttemptArtifact(committed.terminal, "committed terminal receipt", false),
             );
             const addressedArtifact = await dependencies.repository.readLiveReceipt(receipt.receiptSha256);
             if (!addressedArtifact) throw new Error("content-addressed receipt read-back missing");
@@ -701,11 +728,29 @@ function normalizeAuthority(value: unknown): DeepRepairExecutionAuthority {
       runtime: {
         ownerId: text(runtime.ownerId, "authority.runtime.ownerId"),
         expectedGeneration: nonNegativeInteger(runtime.expectedGeneration, "authority.runtime.expectedGeneration"),
+        databaseObservedAt: isoDate(
+          runtime.databaseObservedAt,
+          "authority.runtime.databaseObservedAt",
+        ),
+        activeDeepLeases: zero(
+          runtime.activeDeepLeases,
+          "authority.runtime.activeDeepLeases",
+        ),
+        activeApplicationLeases: zero(
+          runtime.activeApplicationLeases,
+          "authority.runtime.activeApplicationLeases",
+        ),
       },
       operationalEvidenceSha256: sha(source.operationalEvidenceSha256, "authority.operationalEvidenceSha256"),
       approvalSha256: sha(source.approvalSha256, "authority.approvalSha256"),
     };
     if (!OWNER_ID_PATTERN.test(normalized.runtime.ownerId)) throw new Error("runtime ownerId must be UUID v4");
+    if (
+      normalized.runtime.activeDeepLeases !== 0
+      || normalized.runtime.activeApplicationLeases !== 0
+    ) {
+      throw new Error("runtime active lease counts must both be zero");
+    }
     if (canonicalJson(value) !== canonicalJson(normalized)) throw new Error("authority must be canonical");
     return normalized;
   } catch (error) {
@@ -883,49 +928,7 @@ function normalizeLiveStart(value: unknown): DeepRepairLiveStart {
 
 function normalizeLiveReceipt(value: unknown): DeepRepairLiveReceipt {
   try {
-    const source = asRecord(value, "receipt");
-    const target = asRecord(source.target, "receipt.target");
-    const receipt = {
-      schema: literal(source.schema, "deep-repair-live-receipt-v1", "receipt.schema"),
-      receiptSha256: sha(source.receiptSha256, "receipt.receiptSha256"),
-      planSha256: sha(source.planSha256, "receipt.planSha256"),
-      manifestSha256: sha(source.manifestSha256, "receipt.manifestSha256"),
-      parentReceiptSha256: nullableSha(source.parentReceiptSha256, "receipt.parentReceiptSha256"),
-      authoritySha256: sha(source.authoritySha256, "receipt.authoritySha256"),
-      attemptId: text(source.attemptId, "receipt.attemptId"),
-      target: {
-        sequence: nonNegativeInteger(target.sequence, "receipt.target.sequence"),
-        waveId: text(target.waveId, "receipt.target.waveId"),
-        grantId: text(target.grantId, "receipt.target.grantId"),
-      },
-      startedAt: isoDate(source.startedAt, "receipt.startedAt"),
-      finishedAt: isoDate(source.finishedAt, "receipt.finishedAt"),
-      lifecycle: literal(source.lifecycle, "finished", "receipt.lifecycle"),
-      noticeOutcome: oneOf(source.noticeOutcome, ["publishable", "held", "failed"] as const, "receipt.noticeOutcome"),
-      promotionEligibility: literal(source.promotionEligibility, "not_evaluated", "receipt.promotionEligibility"),
-      runArtifactPath: nullableText(source.runArtifactPath, "receipt.runArtifactPath"),
-      runArtifactSha256: nullableSha(source.runArtifactSha256, "receipt.runArtifactSha256"),
-      observationsSha256: nullableSha(source.observationsSha256, "receipt.observationsSha256"),
-      evaluatorReceiptSha256: nullableSha(source.evaluatorReceiptSha256, "receipt.evaluatorReceiptSha256"),
-      observedCount: nonNegativeInteger(source.observedCount, "receipt.observedCount"),
-      gateVerdict: oneOf(
-        source.gateVerdict,
-        ["CONTINUE", "GO", "NO_GO", "INCONCLUSIVE", "INVALID"] as const,
-        "receipt.gateVerdict",
-      ),
-      nextAction: oneOf(
-        source.nextAction,
-        ["awaiting_user_authority", "new_user_authority_required", "stopped"] as const,
-        "receipt.nextAction",
-      ),
-      failureCode: nullableText(source.failureCode, "receipt.failureCode"),
-    } satisfies DeepRepairLiveReceipt;
-    const { receiptSha256, ...body } = receipt;
-    if (canonicalSha256(body) !== receiptSha256) {
-      throw new Error("receipt hash mismatch");
-    }
-    if (canonicalJson(value) !== canonicalJson(receipt)) throw new Error("receipt must be canonical");
-    return receipt;
+    return validateDeepRepairLiveReceipt(value);
   } catch (error) {
     throw rejection("parent_receipt_invalid", `live receipt 형식이 올바르지 않습니다: ${errorMessage(error)}`, true);
   }
@@ -1578,6 +1581,61 @@ function parseStoredJson(artifact: DeepRepairLiveStoredArtifact, label: string):
   }
 }
 
+function parseAttemptArtifact(
+  artifact: DeepRepairLiveStoredArtifact,
+  label: string,
+  _noModelStarted: boolean,
+): unknown {
+  return parseStoredJson(artifact, label);
+}
+
+async function rejectIfAttemptRecovery(input: {
+  readonly repository: DeepRepairLiveArtifactRepository;
+  readonly artifact: DeepRepairLiveStoredArtifact;
+  readonly authority: DeepRepairExecutionAuthority;
+  readonly authoritySha256: Sha256;
+  readonly plan: DeepRepairExperimentPlan;
+  readonly target: DeepRepairExperimentPlan["sequence"][number];
+  readonly claimArtifactSha256: Sha256;
+}): Promise<void> {
+  const parsed = parseStoredJson(input.artifact, "attempt resolution");
+  if (schemaOf(parsed) !== "deep-repair-attempt-recovery-v1") return;
+  try {
+    await validateDeepRepairAttemptRecoveryArtifact({
+      reader: input.repository,
+      artifact: input.artifact,
+      authoritySha256: input.authoritySha256,
+      planSha256: input.plan.planSha256,
+      manifestSha256: input.plan.manifestSha256,
+      seriesId: input.plan.manifest.seriesId,
+      attemptId: input.authority.attemptId,
+      target: {
+        sequence: input.target.sequence,
+        waveId: input.target.waveId,
+        grantId: input.target.grantId,
+      },
+      claimArtifactSha256: input.claimArtifactSha256,
+    });
+  } catch (error) {
+    throw rejection(
+      "attempt_artifact_invalid",
+      `attempt recovery artifact를 검증할 수 없습니다: ${errorMessage(error)}`,
+      true,
+    );
+  }
+  throw rejection(
+    "attempt_recovered",
+    "이 exact attempt는 승인된 recovery receipt로 종결됐습니다.",
+    true,
+  );
+}
+
+function schemaOf(value: unknown): unknown {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>).schema
+    : undefined;
+}
+
 function asRecord(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value as Record<string, unknown>;
@@ -1631,6 +1689,11 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], label: s
 function nonNegativeInteger(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`${label} must be a non-negative integer`);
   return value as number;
+}
+
+function zero(value: unknown, label: string): 0 {
+  if (value !== 0) throw new Error(`${label} must be zero`);
+  return 0;
 }
 
 function isoDate(value: unknown, label: string): string {

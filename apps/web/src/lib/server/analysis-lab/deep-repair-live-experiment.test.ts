@@ -49,6 +49,10 @@ function stored(value: unknown, path: string): DeepRepairLiveStoredArtifact {
   return { path, bytes: Buffer.from(`${JSON.stringify(value, null, 2)}\n`) };
 }
 
+function canonicalStored(value: unknown, path: string): DeepRepairLiveStoredArtifact {
+  return { path, bytes: Buffer.from(`${canonicalJson(value)}\n`) };
+}
+
 function storedSha256(artifact: DeepRepairLiveStoredArtifact): string {
   return createHash("sha256").update(artifact.bytes).digest("hex");
 }
@@ -121,6 +125,8 @@ class MemoryRepository implements DeepRepairLiveArtifactRepository {
   readonly receipts = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly observations = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly evaluatorReceipts = new Map<string, DeepRepairLiveStoredArtifact>();
+  readonly recoveryApprovals = new Map<string, DeepRepairLiveStoredArtifact>();
+  readonly recoveryReceipts = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly runArtifacts = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly starts = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly terminals = new Map<string, DeepRepairLiveStoredArtifact>();
@@ -134,6 +140,8 @@ class MemoryRepository implements DeepRepairLiveArtifactRepository {
   async readLiveReceipt(sha256: string) { return this.receipts.get(sha256) ?? null; }
   async readObservations(sha256: string) { return this.observations.get(sha256) ?? null; }
   async readEvaluatorReceipt(sha256: string) { return this.evaluatorReceipts.get(sha256) ?? null; }
+  async readRecoveryApproval(sha256: string) { return this.recoveryApprovals.get(sha256) ?? null; }
+  async readRecoveryReceipt(sha256: string) { return this.recoveryReceipts.get(sha256) ?? null; }
   async readAttempt(key: { planSha256: string; sequence: number }) {
     const slot = `${key.planSha256}:${key.sequence}`;
     const start = this.starts.get(slot);
@@ -216,7 +224,13 @@ function authority(input: {
     promptVersion: input.plan.manifest.policy.promptVersion,
     validatorVersion: input.plan.manifest.provenance.validatorVersion,
     qualityPolicyVersion: input.plan.manifest.policy.qualityPolicyVersion,
-    runtime: { ownerId: "123e4567-e89b-42d3-a456-426614174000", expectedGeneration: 67 },
+    runtime: {
+      ownerId: "123e4567-e89b-42d3-a456-426614174000",
+      expectedGeneration: 67,
+      databaseObservedAt: "2026-08-14T02:59:30.000Z",
+      activeDeepLeases: 0,
+      activeApplicationLeases: 0,
+    },
     operationalEvidenceSha256: input.operationalEvidenceSha256,
     approvalSha256: input.approvalSha256,
   };
@@ -514,6 +528,94 @@ function fixture(input: {
       && error.code === "issuance_not_found"
       && error.noModelStarted,
     "issuance winner marker가 없는 orphan authority는 실행할 수 없어야 한다",
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
+  const setup = fixture();
+  const key = { planSha256: setup.plan.planSha256, sequence: 0 };
+  await setup.repo.claimStart(key, {
+    schema: "deep-repair-live-start-v1",
+    planSha256: setup.plan.planSha256,
+    parentReceiptSha256: null,
+    authoritySha256: setup.authoritySha,
+    attemptId: setup.authority.attemptId,
+    target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
+    startedAt: "2026-08-14T03:00:00.000Z",
+  });
+  const slot = `${setup.plan.planSha256}:0`;
+  const startSha256 = storedSha256(setup.repo.starts.get(slot)!);
+  const recoveryApproval = {
+    schema: "deep-repair-recovery-approval-v1",
+    authoritySha256: setup.authoritySha,
+    planSha256: setup.plan.planSha256,
+    manifestSha256: setup.plan.manifestSha256,
+    seriesId: "deep-v18",
+    attemptId: setup.authority.attemptId,
+    target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
+    expectedAttempt: { state: "present", claimArtifactSha256: startSha256 },
+    expectedRuntime: {
+      mode: "paused",
+      generation: setup.authority.runtime.expectedGeneration + 2,
+      localOwnerId: null,
+      localLeaseExpiresAt: null,
+    },
+    approvedBy: "user@example.com",
+    approvedAt: "2026-08-14T03:01:00.000Z",
+    expiresAt: "2026-08-14T03:10:00.000Z",
+    confirmations: {
+      localProcessTerminated: true,
+      noAutomaticRetry: true,
+      preserveExistingArtifacts: true,
+    },
+    stopAfter: "recovery-only",
+  } as const;
+  const approvalArtifact = canonicalStored(recoveryApproval, "/recovery-approvals/approved.json");
+  const recoveryApprovalSha256 = storedSha256(approvalArtifact);
+  setup.repo.recoveryApprovals.set(recoveryApprovalSha256, approvalArtifact);
+  const receiptBody = {
+    schema: "deep-repair-attempt-recovery-v1",
+    recoveryApprovalSha256,
+    authoritySha256: setup.authoritySha,
+    planSha256: setup.plan.planSha256,
+    manifestSha256: setup.plan.manifestSha256,
+    seriesId: "deep-v18",
+    attemptId: setup.authority.attemptId,
+    target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
+    observedAttempt: {
+      state: "start_persisted_without_terminal",
+      claimArtifactSha256: startSha256,
+    },
+    modelExecution: "unknown",
+    runtime: {
+      before: recoveryApproval.expectedRuntime,
+      after: recoveryApproval.expectedRuntime,
+    },
+    seriesDisposition: "stopped",
+    statisticalContribution: "none",
+    automaticRetryAuthorized: false,
+    sameTargetRetryAuthorized: false,
+    promotionEligibility: "not_evaluated",
+  } as const;
+  const recoveryReceipt = {
+    ...receiptBody,
+    receiptSha256: canonicalSha256(receiptBody),
+  };
+  const recoveryArtifact = canonicalStored(recoveryReceipt, "/attempts/recovered/resolution.json");
+  setup.repo.terminals.set(slot, recoveryArtifact);
+  setup.repo.recoveryReceipts.set(recoveryReceipt.receiptSha256, recoveryArtifact);
+
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: setup.authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "attempt_recovered"
+      && error.noModelStarted,
+    "exact approval과 content receipt가 결속된 abandonment만 attempt를 봉인해야 한다",
   );
   assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
 }
@@ -889,6 +991,38 @@ function fixture(input: {
     signal: new AbortController().signal,
   });
   assert.equal(result.kind, "ambiguous");
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
+  const setup = fixture();
+  const key = { planSha256: setup.plan.planSha256, sequence: 0 };
+  await setup.repo.claimStart(key, {
+    schema: "deep-repair-live-start-v1",
+    planSha256: setup.plan.planSha256,
+    parentReceiptSha256: null,
+    authoritySha256: setup.authoritySha,
+    attemptId: setup.authority.attemptId,
+    target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
+    startedAt: "2026-08-14T03:00:00.000Z",
+  });
+  setup.repo.terminals.set(`${setup.plan.planSha256}:0`, stored({
+    schema: "deep-repair-attempt-recovery-v1",
+    observedAttemptState: "start_persisted_without_terminal",
+    seriesDisposition: "stopped",
+    statisticalContribution: "none",
+  }, "/attempts/recovered/resolution.json"));
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: setup.authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "attempt_artifact_invalid"
+      && error.noModelStarted,
+    "서명되지 않은 recovery 골격은 exact attempt를 봉인할 수 없어야 한다",
+  );
   assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
 }
 

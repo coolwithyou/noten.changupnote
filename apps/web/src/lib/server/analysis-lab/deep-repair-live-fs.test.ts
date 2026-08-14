@@ -57,6 +57,15 @@ try {
     null,
   );
 
+  const orphanAttemptKey = { planSha256: planSha, sequence: 1 };
+  const orphanResolutionPath = join(rootDir, "attempts", planSha, "01", "resolution.json");
+  await mkdir(join(rootDir, "attempts", planSha, "01"), { recursive: true });
+  await writeFile(orphanResolutionPath, '{"schema":"deep-repair-attempt-recovery-v1"}\n', "utf8");
+  await assert.rejects(
+    repository.readAttempt(orphanAttemptKey),
+    /resolution exists without claim/,
+  );
+
   const start = {
     schema: "deep-repair-live-start-v1" as const,
     planSha256: planSha,
@@ -116,7 +125,7 @@ try {
     /immutable artifact conflict/,
   );
 
-  const terminalBytes = await readFile(join(rootDir, "attempts", planSha, "00", "terminal.json"));
+  const terminalBytes = await readFile(join(rootDir, "attempts", planSha, "00", "resolution.json"));
   assert.equal(JSON.parse(terminalBytes.toString("utf8")).receiptSha256, receiptSha);
 } finally {
   await rm(rootDir, { recursive: true, force: true });

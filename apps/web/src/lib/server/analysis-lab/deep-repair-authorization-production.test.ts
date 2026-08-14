@@ -20,7 +20,7 @@ assert.match(source, /createDeepRepairAuthorizationFilesystemRepository\(\)/);
 assert.match(source, /captureOperationalEvidence:\s*captureCurrentDeepRepairOperationalEvidence/);
 assert.match(source, /readExecutionProvenance:\s*readCurrentDeepRepairExecutionProvenance/);
 assert.match(source, /prepareLabAnalysis\(grantId\)/);
-assert.match(source, /getDeepAnalysisRuntimeControl\(getCunoteDb\(\)\)/);
+assert.match(source, /readDeepAnalysisRuntimeAdmissionSnapshot\(getCunoteDb\(\)\)/);
 assert.match(source, /randomUUID\(\)/);
 
 for (const forbidden of [

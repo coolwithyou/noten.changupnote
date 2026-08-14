@@ -50,18 +50,24 @@ export function createDeepRepairLiveFilesystemRepository(options: {
       readStoredArtifact(join(rootDir, "observations", `${safeSha(sha256)}.json`)),
     readEvaluatorReceipt: (sha256) =>
       readStoredArtifact(join(rootDir, "evaluator-receipts", `${safeSha(sha256)}.json`)),
+    readRecoveryApproval: (sha256) =>
+      readStoredArtifact(join(rootDir, "recovery-approvals", `${safeSha(sha256)}.json`)),
+    readRecoveryReceipt: (sha256) =>
+      readStoredArtifact(join(rootDir, "recovery-receipts", `${safeSha(sha256)}.json`)),
     async readAttempt(key) {
       const attemptDir = attemptDirectory(rootDir, key);
-      const start = await readStoredArtifact(join(attemptDir, "start.json"));
-      if (!start) return null;
-      return {
-        start,
-        terminal: await readStoredArtifact(join(attemptDir, "terminal.json")),
-      };
+      const [start, terminal] = await Promise.all([
+        readStoredArtifact(join(attemptDir, "claim.json")),
+        readStoredArtifact(join(attemptDir, "resolution.json")),
+      ]);
+      if (!start && terminal) {
+        throw new Error(`invalid attempt: resolution exists without claim: ${attemptDir}`);
+      }
+      return start ? { start, terminal } : null;
     },
     async claimStart(key, start) {
       const attemptDir = attemptDirectory(rootDir, key);
-      const path = join(attemptDir, "start.json");
+      const path = join(attemptDir, "claim.json");
       return claimImmutableBytesAtomic(path, encodeJson(start));
     },
     async writeObservations(sha256, value) {
@@ -72,8 +78,8 @@ export function createDeepRepairLiveFilesystemRepository(options: {
     },
     async commitTerminal(key, receiptSha256, value: DeepRepairLiveReceipt) {
       const attemptDir = attemptDirectory(rootDir, key);
-      const startPath = join(attemptDir, "start.json");
-      const terminalPath = join(attemptDir, "terminal.json");
+      const startPath = join(attemptDir, "claim.json");
+      const terminalPath = join(attemptDir, "resolution.json");
       await access(startPath, constants.F_OK);
       const desired = encodeJson(value);
       const existing = await readBytesOrNull(terminalPath);

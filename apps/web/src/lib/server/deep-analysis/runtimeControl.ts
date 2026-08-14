@@ -20,6 +20,27 @@ let localSubscriptionRunActive = false;
 
 type RuntimeControlRow = typeof schema.deepAnalysisRuntimeControl.$inferSelect;
 
+interface RuntimeAdmissionRow extends Record<string, unknown> {
+  control_key: string;
+  mode: string;
+  generation: number;
+  changed_by: string;
+  change_reason: string | null;
+  local_owner_id: string | null;
+  local_lease_expires_at: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+  database_observed_at: Date | string;
+  active_deep_leases: number;
+  active_application_leases: number;
+}
+
+export interface DeepAnalysisRuntimeAdmissionSnapshot extends DeepAnalysisRuntimeControl {
+  databaseObservedAt: string;
+  activeDeepLeases: number;
+  activeApplicationLeases: number;
+}
+
 export class DeepAnalysisRuntimeControlError extends Error {
   constructor(
     readonly code:
@@ -34,6 +55,53 @@ export class DeepAnalysisRuntimeControlError extends Error {
     super(message);
     this.name = "DeepAnalysisRuntimeControlError";
   }
+}
+
+/** Runtime singleton과 두 운영 queue의 활성 lease를 동일 DB statement 시각으로 관측한다. */
+export async function readDeepAnalysisRuntimeAdmissionSnapshot(
+  db: CunoteDbSession,
+): Promise<DeepAnalysisRuntimeAdmissionSnapshot> {
+  const rows = await db.execute<RuntimeAdmissionRow>(sql`
+    WITH observed AS MATERIALIZED (
+      SELECT statement_timestamp() AS database_observed_at
+    )
+    SELECT
+      runtime.control_key,
+      runtime.mode,
+      runtime.generation,
+      runtime.changed_by,
+      runtime.change_reason,
+      runtime.local_owner_id,
+      runtime.local_lease_expires_at,
+      runtime.created_at,
+      runtime.updated_at,
+      observed.database_observed_at,
+      (
+        SELECT count(*)::int
+        FROM grant_deep_analysis_jobs
+        WHERE status = 'leased'
+          AND lease_expires_at > observed.database_observed_at
+      ) AS active_deep_leases,
+      (
+        SELECT count(*)::int
+        FROM grant_application_precompute_jobs
+        WHERE status = 'leased'
+          AND lease_expires_at > observed.database_observed_at
+      ) AS active_application_leases
+    FROM deep_analysis_runtime_control AS runtime
+    CROSS JOIN observed
+    WHERE runtime.control_key = ${CONTROL_KEY}
+    LIMIT 1
+  `);
+  const row = rows[0];
+  if (!row) {
+    throw new DeepAnalysisRuntimeControlError(
+      "runtime_control_missing",
+      "딥분석 실행 모드 정본이 없습니다. migration 0069를 먼저 적용하세요.",
+      503,
+    );
+  }
+  return serializeRuntimeAdmissionSnapshot(row);
 }
 
 export async function getDeepAnalysisRuntimeControl(
@@ -307,6 +375,50 @@ function serializeRuntimeControl(row: RuntimeControlRow): DeepAnalysisRuntimeCon
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
+}
+
+function serializeRuntimeAdmissionSnapshot(
+  row: RuntimeAdmissionRow,
+): DeepAnalysisRuntimeAdmissionSnapshot {
+  if (row.control_key !== CONTROL_KEY) {
+    throw new Error(`Unknown deep analysis runtime control key: ${row.control_key}`);
+  }
+  return {
+    controlKey: CONTROL_KEY,
+    mode: parseDeepAnalysisRuntimeMode(row.mode),
+    generation: requireGeneration(row.generation),
+    changedBy: row.changed_by,
+    changeReason: row.change_reason,
+    localOwnerId: row.local_owner_id,
+    localLeaseExpiresAt: optionalTimestampIso(row.local_lease_expires_at),
+    createdAt: timestampIso(row.created_at),
+    updatedAt: timestampIso(row.updated_at),
+    databaseObservedAt: timestampIso(row.database_observed_at),
+    activeDeepLeases: requireLeaseCount(row.active_deep_leases, "deep"),
+    activeApplicationLeases: requireLeaseCount(
+      row.active_application_leases,
+      "application",
+    ),
+  };
+}
+
+function optionalTimestampIso(value: Date | string | null): string | null {
+  return value === null ? null : timestampIso(value);
+}
+
+function timestampIso(value: Date | string): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    throw new Error(`Invalid deep analysis runtime timestamp: ${String(value)}`);
+  }
+  return date.toISOString();
+}
+
+function requireLeaseCount(value: number, label: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error(`Invalid ${label} analysis active lease count: ${String(value)}`);
+  }
+  return value;
 }
 
 function requireOwnerId(ownerId: string): string {

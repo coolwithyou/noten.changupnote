@@ -307,6 +307,9 @@ function fixture() {
         generation: 67,
         localOwnerId: null,
         localLeaseExpiresAt: null,
+        databaseObservedAt: "2026-08-14T02:59:30.000Z",
+        activeDeepLeases: 0,
+        activeApplicationLeases: 0,
       };
     },
   };
@@ -397,6 +400,12 @@ function installParentReceipt(
   assert.equal(authority.planSha256, setup.plan.planSha256);
   assert.equal((authority.runtime as Record<string, unknown>).expectedGeneration, 67);
   assert.equal((authority.runtime as Record<string, unknown>).ownerId, OWNER_ID);
+  assert.equal(
+    (authority.runtime as Record<string, unknown>).databaseObservedAt,
+    "2026-08-14T02:59:30.000Z",
+  );
+  assert.equal((authority.runtime as Record<string, unknown>).activeDeepLeases, 0);
+  assert.equal((authority.runtime as Record<string, unknown>).activeApplicationLeases, 0);
 
   let prepared = 0;
   let executed = 0;
@@ -412,6 +421,8 @@ function installParentReceipt(
     readLiveReceipt: (sha256) => setup.repository.readLiveReceipt(sha256),
     readObservations: async () => null,
     readEvaluatorReceipt: async () => null,
+    readRecoveryApproval: async () => null,
+    readRecoveryReceipt: async () => null,
     readAttempt: async () => null,
     async claimStart() { writes += 1; return false; },
     async writeObservations() { writes += 1; },
@@ -480,6 +491,40 @@ function installParentReceipt(
     executed: 0,
     writes: 0,
   });
+}
+
+for (const [label, activeDeepLeases, activeApplicationLeases] of [
+  ["deep", 1, 0],
+  ["application", 0, 1],
+] as const) {
+  const setup = fixture();
+  const issuer = createDeepRepairAuthorityIssuer({
+    ...setup.dependencies,
+    async readRuntimeControl() {
+      setup.calls.push("runtime");
+      return {
+        mode: "paused",
+        generation: 67,
+        localOwnerId: null,
+        localLeaseExpiresAt: null,
+        databaseObservedAt: "2026-08-14T02:59:30.000Z",
+        activeDeepLeases,
+        activeApplicationLeases,
+      };
+    },
+  });
+  await assert.rejects(
+    issuer.issueApprovedDeepRepairAuthority({
+      approvalId: setup.approvalSha256,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) => error instanceof DeepRepairAuthorizationError
+      && error.code === "runtime_not_quiescent",
+    `${label} active lease가 있으면 immutable authority를 쓰면 안 된다`,
+  );
+  assert.deepEqual(setup.calls, ["input", "provenance", "gcloud", "runtime"]);
+  assert.equal(setup.repository.authorities.size, 0);
+  assert.equal(setup.repository.issuances.size, 0);
 }
 
 {
@@ -601,6 +646,9 @@ function installParentReceipt(
         generation: 68,
         localOwnerId: OWNER_ID,
         localLeaseExpiresAt: "2026-08-14T03:02:00.000Z",
+        databaseObservedAt: "2026-08-14T02:59:30.000Z",
+        activeDeepLeases: 0,
+        activeApplicationLeases: 0,
       };
     },
   });

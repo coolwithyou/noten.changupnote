@@ -47,7 +47,7 @@ export function createDeepRepairAuthorizationFilesystemRepository(options: {
       join(rootDir, "receipts", `${safeSha(sha256)}.json`),
     ),
     readAttemptStart: (planSha256, sequence) => readArtifact(
-      join(rootDir, "attempts", safeSha(planSha256), safeSequence(sequence), "start.json"),
+      join(rootDir, "attempts", safeSha(planSha256), safeSequence(sequence), "claim.json"),
     ),
     readOperationalEvidence: (sha256) => readArtifact(
       join(rootDir, "operational-evidence", `${safeSha(sha256)}.json`),

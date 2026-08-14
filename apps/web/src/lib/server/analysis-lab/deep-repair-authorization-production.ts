@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { getCunoteDb } from "@/lib/server/db/client";
-import { getDeepAnalysisRuntimeControl } from "@/lib/server/deep-analysis/runtimeControl";
+import { readDeepAnalysisRuntimeAdmissionSnapshot } from "@/lib/server/deep-analysis/runtimeControl";
 import { prepareLabAnalysis } from "./analyze";
 import { createDeepRepairAuthorityIssuer } from "./deep-repair-authorization";
 import { createDeepRepairAuthorizationFilesystemRepository } from "./deep-repair-authorization-fs";
@@ -24,12 +24,15 @@ const issuer = createDeepRepairAuthorityIssuer({
   readExecutionProvenance: readCurrentDeepRepairExecutionProvenance,
   captureOperationalEvidence: captureCurrentDeepRepairOperationalEvidence,
   async readRuntimeControl() {
-    const control = await getDeepAnalysisRuntimeControl(getCunoteDb());
+    const control = await readDeepAnalysisRuntimeAdmissionSnapshot(getCunoteDb());
     return {
       mode: control.mode,
       generation: control.generation,
       localOwnerId: control.localOwnerId,
       localLeaseExpiresAt: control.localLeaseExpiresAt,
+      databaseObservedAt: control.databaseObservedAt,
+      activeDeepLeases: control.activeDeepLeases,
+      activeApplicationLeases: control.activeApplicationLeases,
     };
   },
 });

@@ -24,6 +24,7 @@ export type DeepRepairAuthorizationErrorCode =
   | "provenance_drift"
   | "operational_evidence_invalid"
   | "runtime_not_paused"
+  | "runtime_not_quiescent"
   | "issuance_invalid"
   | "issuance_conflict"
   | "aborted";
@@ -84,6 +85,9 @@ export interface DeepRepairAuthorizationDependencies {
     readonly generation: number;
     readonly localOwnerId: string | null;
     readonly localLeaseExpiresAt: string | null;
+    readonly databaseObservedAt: string;
+    readonly activeDeepLeases: number;
+    readonly activeApplicationLeases: number;
   }>;
 }
 
@@ -138,6 +142,9 @@ interface ExecutionAuthority {
   readonly runtime: {
     readonly ownerId: string;
     readonly expectedGeneration: number;
+    readonly databaseObservedAt: string;
+    readonly activeDeepLeases: 0;
+    readonly activeApplicationLeases: 0;
   };
   readonly operationalEvidenceSha256: Sha256;
   readonly approvalSha256: Sha256;
@@ -294,6 +301,16 @@ export function createDeepRepairAuthorityIssuer(
         ) {
           throw failure("runtime_not_paused", "runtime 정본이 paused exact generation 상태가 아닙니다.");
         }
+        if (
+          !Number.isFinite(Date.parse(runtime.databaseObservedAt))
+          || runtime.activeDeepLeases !== 0
+          || runtime.activeApplicationLeases !== 0
+        ) {
+          throw failure(
+            "runtime_not_quiescent",
+            "runtime DB snapshot에 active deep/application lease가 없음을 증명할 수 없습니다.",
+          );
+        }
         throwIfAborted(input.signal);
         const commitTime = dependencies.now();
         assertApprovalCurrent(approval, commitTime);
@@ -325,7 +342,13 @@ export function createDeepRepairAuthorityIssuer(
           promptVersion: plan.manifest.policy.promptVersion,
           validatorVersion: sealedProvenance.validatorVersion,
           qualityPolicyVersion: plan.manifest.policy.qualityPolicyVersion,
-          runtime: { ownerId, expectedGeneration: runtime.generation },
+          runtime: {
+            ownerId,
+            expectedGeneration: runtime.generation,
+            databaseObservedAt: runtime.databaseObservedAt,
+            activeDeepLeases: 0,
+            activeApplicationLeases: 0,
+          },
           operationalEvidenceSha256: evidenceSha256,
           approvalSha256,
         };
@@ -938,11 +961,23 @@ function normalizeAuthority(value: unknown): ExecutionAuthority {
       runtime: {
         ownerId: text(runtime.ownerId, "authority.runtime.ownerId"),
         expectedGeneration: integer(runtime.expectedGeneration, "authority.runtime.expectedGeneration"),
+        databaseObservedAt: iso(runtime.databaseObservedAt, "authority.runtime.databaseObservedAt"),
+        activeDeepLeases: zero(runtime.activeDeepLeases, "authority.runtime.activeDeepLeases"),
+        activeApplicationLeases: zero(
+          runtime.activeApplicationLeases,
+          "authority.runtime.activeApplicationLeases",
+        ),
       },
       operationalEvidenceSha256: sha(source.operationalEvidenceSha256, "authority.operationalEvidenceSha256"),
       approvalSha256: sha(source.approvalSha256, "authority.approvalSha256"),
     };
     if (!UUID_V4.test(normalized.runtime.ownerId)) throw new Error("authority ownerId must be UUID v4");
+    if (
+      normalized.runtime.activeDeepLeases !== 0
+      || normalized.runtime.activeApplicationLeases !== 0
+    ) {
+      throw new Error("authority runtime active lease counts must both be zero");
+    }
     if (canonicalJson(value) !== canonicalJson(normalized)) throw new Error("authority must be canonical");
     return normalized;
   } catch (error) {
@@ -1060,6 +1095,11 @@ function nullableSha(value: unknown, label: string): string | null {
 function integer(value: unknown, label: string): number {
   if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error(`${label} must be non-negative integer`);
   return value as number;
+}
+
+function zero(value: unknown, label: string): 0 {
+  if (value !== 0) throw new Error(`${label} must be zero`);
+  return 0;
 }
 
 function iso(value: unknown, label: string): string {
