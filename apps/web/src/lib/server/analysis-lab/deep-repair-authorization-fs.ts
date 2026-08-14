@@ -10,11 +10,12 @@ import {
   writeImmutableBytesAtomic,
 } from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
+import { ACTIVE_DEEP_REPAIR_SERIES_ID } from "./deep-repair-formal-policy";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
 const COHORT_PREFIX = "spike-out/analysis-lab/experiments/cohorts/";
 const PROPOSAL_PREFIX = "spike-out/analysis-lab/experiments/proposals/";
-const SERIES_MARKER_PATH = "spike-out/analysis-lab/experiments/series/deep-v18.json";
+const SERIES_MARKER_PATH = `spike-out/analysis-lab/experiments/series/${ACTIVE_DEEP_REPAIR_SERIES_ID}.json`;
 
 export function createDeepRepairAuthorizationFilesystemRepository(options: {
   readonly rootDir?: string;
@@ -23,7 +24,10 @@ export function createDeepRepairAuthorizationFilesystemRepository(options: {
   const cohortRoot = join(rootDir, "cohorts");
   return {
     readApproval: (sha256) => readArtifact(join(rootDir, "approvals", `${safeSha(sha256)}.json`)),
-    readSeriesMarker: () => readArtifact(join(rootDir, "series", "deep-v18.json"), SERIES_MARKER_PATH),
+    readSeriesMarker: () => readArtifact(
+      join(rootDir, "series", `${ACTIVE_DEEP_REPAIR_SERIES_ID}.json`),
+      SERIES_MARKER_PATH,
+    ),
     readProposal: (sha256) => readArtifact(
       join(rootDir, "proposals", `${safeSha(sha256)}.json`),
       `${PROPOSAL_PREFIX}${sha256}.json`,

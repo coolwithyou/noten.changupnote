@@ -6,6 +6,7 @@ import {
   type DeepRepairExperimentPlan,
 } from "./deep-repair-experiment";
 import type { DeepRepairOperationalEvidence } from "./deep-repair-live-experiment";
+import { ACTIVE_DEEP_REPAIR_SERIES_ID } from "./deep-repair-formal-policy";
 
 type Sha256 = string;
 
@@ -43,7 +44,9 @@ export interface DeepRepairAuthorizationStoredArtifact {
 
 export interface DeepRepairAuthorizationRepository {
   readApproval(sha256: Sha256): Promise<DeepRepairAuthorizationStoredArtifact | null>;
-  readSeriesMarker(seriesId: "deep-v18"): Promise<DeepRepairAuthorizationStoredArtifact | null>;
+  readSeriesMarker(
+    seriesId: typeof ACTIVE_DEEP_REPAIR_SERIES_ID,
+  ): Promise<DeepRepairAuthorizationStoredArtifact | null>;
   readProposal(sha256: Sha256): Promise<DeepRepairAuthorizationStoredArtifact | null>;
   readPlan(sha256: Sha256): Promise<DeepRepairAuthorizationStoredArtifact | null>;
   readCohort(path: string): Promise<DeepRepairAuthorizationStoredArtifact | null>;
@@ -159,7 +162,7 @@ interface IssuanceMarker {
 
 interface SeriesProposalMarker {
   readonly schema: "deep-repair-series-proposal-v1";
-  readonly seriesId: "deep-v18";
+  readonly seriesId: typeof ACTIVE_DEEP_REPAIR_SERIES_ID;
   readonly proposalPath: string;
   readonly proposalSha256: Sha256;
   readonly planSha256: Sha256;
@@ -197,9 +200,14 @@ export function createDeepRepairAuthorityIssuer(
       const existing = await dependencies.repository.readIssuance(approvalSha256);
       if (existing === null) assertApprovalCurrent(approval, dependencies.now());
 
-      const seriesMarkerArtifact = await dependencies.repository.readSeriesMarker("deep-v18");
+      const seriesMarkerArtifact = await dependencies.repository.readSeriesMarker(
+        ACTIVE_DEEP_REPAIR_SERIES_ID,
+      );
       if (seriesMarkerArtifact === null) {
-        throw failure("proposal_not_found", "deep-v18 final series commit marker를 찾지 못했습니다.");
+        throw failure(
+          "proposal_not_found",
+          `${ACTIVE_DEEP_REPAIR_SERIES_ID} final series commit marker를 찾지 못했습니다.`,
+        );
       }
       const seriesMarker = normalizeSeriesMarker(seriesMarkerArtifact);
       if (
@@ -325,7 +333,7 @@ export function createDeepRepairAuthorityIssuer(
         const evidenceSha256 = rawSha256(evidenceBytes);
         const authority: ExecutionAuthority = {
           schema: "deep-repair-execution-authority-v1",
-          attemptId: `deep-v18-${String(nextSequence).padStart(2, "0")}-${approvalSha256.slice(0, 12)}`,
+          attemptId: `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(nextSequence).padStart(2, "0")}-${approvalSha256.slice(0, 12)}`,
           planSha256: plan.planSha256,
           planArtifactSha256: approval.planArtifactSha256,
           manifestSha256: plan.manifestSha256,
@@ -462,7 +470,7 @@ async function inspectIssuance(
   const evidence = normalizeOperationalEvidence(parseJson(evidenceArtifact, "operational evidence"));
   const wave = plan.manifest.waves.find((candidate) => candidate.waveId === target.waveId);
   const expectedAttemptId =
-    `deep-v18-${String(target.sequence).padStart(2, "0")}-${approvalSha256.slice(0, 12)}`;
+    `${ACTIVE_DEEP_REPAIR_SERIES_ID}-${String(target.sequence).padStart(2, "0")}-${approvalSha256.slice(0, 12)}`;
   if (
     !wave
     || authority.attemptId !== expectedAttemptId
@@ -537,7 +545,7 @@ function normalizePlan(value: unknown, expectedSha256: string): DeepRepairExperi
     if (
       plan.planSha256 !== expectedSha256
       || canonicalJson(value) !== canonicalJson(plan)
-      || plan.manifest.seriesId !== "deep-v18"
+      || plan.manifest.seriesId !== ACTIVE_DEEP_REPAIR_SERIES_ID
       || plan.manifest.mode !== "formal"
       || plan.manifest.formation !== "prospective"
       || plan.manifest.objective !== "deep-primary-repair-rate"
@@ -582,13 +590,20 @@ function normalizeSeriesMarker(
   artifact: DeepRepairAuthorizationStoredArtifact,
 ): SeriesProposalMarker {
   try {
-    if (artifact.path !== "spike-out/analysis-lab/experiments/series/deep-v18.json") {
+    if (
+      artifact.path
+      !== `spike-out/analysis-lab/experiments/series/${ACTIVE_DEEP_REPAIR_SERIES_ID}.json`
+    ) {
       throw new Error("unexpected series marker path");
     }
     const source = record(parseJson(artifact, "series marker"), "series marker");
     const normalized: SeriesProposalMarker = {
       schema: literal(source.schema, "deep-repair-series-proposal-v1", "seriesMarker.schema"),
-      seriesId: literal(source.seriesId, "deep-v18", "seriesMarker.seriesId"),
+      seriesId: literal(
+        source.seriesId,
+        ACTIVE_DEEP_REPAIR_SERIES_ID,
+        "seriesMarker.seriesId",
+      ),
       proposalPath: text(source.proposalPath, "seriesMarker.proposalPath"),
       proposalSha256: sha(source.proposalSha256, "seriesMarker.proposalSha256"),
       planSha256: sha(source.planSha256, "seriesMarker.planSha256"),
@@ -676,7 +691,7 @@ function assertProposalBinding(
       || proposalPlan.planSha256 !== plan.planSha256
       || proposalPlan.rawSha256 !== approval.planArtifactSha256
       || proposalPlan.manifestSha256 !== plan.manifestSha256
-      || policy.seriesId !== "deep-v18"
+      || policy.seriesId !== ACTIVE_DEEP_REPAIR_SERIES_ID
       || integer(policy.seed, "proposal.policy.seed") !== PREPARATION_SEED
       || integer(policy.targetCount, "proposal.policy.targetCount") !== plan.sequence.length
       || integer(policy.waveSize, "proposal.policy.waveSize") !== PREPARATION_WAVE_SIZE

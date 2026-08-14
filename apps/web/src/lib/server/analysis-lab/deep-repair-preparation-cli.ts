@@ -1,17 +1,18 @@
 import { pathToFileURL } from "node:url";
 import { closeCunoteDb } from "../db/client";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+import { ACTIVE_DEEP_REPAIR_SERIES_ID } from "./deep-repair-formal-policy";
 import { prepareCurrentDeepRepairProposal } from "./deep-repair-preparation-production";
 
-const USAGE = "pnpm lab:experiment:prepare -- --series=deep-v18\n       pnpm lab:experiment:prepare -- --help";
+const USAGE = `pnpm lab:experiment:prepare -- --series=${ACTIVE_DEEP_REPAIR_SERIES_ID}\n       pnpm lab:experiment:prepare -- --help`;
 
 export type DeepRepairPreparationCliArgs =
   | { readonly kind: "help" }
-  | { readonly kind: "prepare"; readonly seriesId: "deep-v18" };
+  | { readonly kind: "prepare"; readonly seriesId: typeof ACTIVE_DEEP_REPAIR_SERIES_ID };
 
 export class DeepRepairPreparationCliUsageError extends Error {
   constructor() {
-    super(`허용 인자는 --series=deep-v18 또는 --help 하나뿐입니다.\n${USAGE}`);
+    super(`허용 인자는 --series=${ACTIVE_DEEP_REPAIR_SERIES_ID} 또는 --help 하나뿐입니다.\n${USAGE}`);
     this.name = "DeepRepairPreparationCliUsageError";
   }
 }
@@ -52,8 +53,8 @@ export function parseDeepRepairPreparationCliArgs(
   const normalized = argv[0] === "--" ? argv.slice(1) : argv;
   if (normalized.length !== 1) throw new DeepRepairPreparationCliUsageError();
   if (normalized[0] === "--help") return { kind: "help" };
-  if (normalized[0] === "--series=deep-v18") {
-    return { kind: "prepare", seriesId: "deep-v18" };
+  if (normalized[0] === `--series=${ACTIVE_DEEP_REPAIR_SERIES_ID}`) {
+    return { kind: "prepare", seriesId: ACTIVE_DEEP_REPAIR_SERIES_ID };
   }
   throw new DeepRepairPreparationCliUsageError();
 }

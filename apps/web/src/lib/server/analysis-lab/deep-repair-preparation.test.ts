@@ -35,6 +35,12 @@ const REQUIRED_STRATA = [
   "kstartup/thin",
 ] as const;
 
+assert.equal(
+  DEEP_REPAIR_PREPARATION_POLICY.seriesId,
+  "deep-v19",
+  "변경된 matching-readiness 코드는 새 불변 series에만 봉인해야 한다",
+);
+
 function exactSha(value: number): string {
   return value.toString(16).padStart(64, "0");
 }
@@ -97,7 +103,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
 
 {
   const { deps, writes, prepareCalls } = setup();
-  const result = await createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" });
+  const result = await createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" });
   assert.equal(result.plan.sequence.length, 30);
   assert.deepEqual(
     [...new Set(result.plan.sequence.slice(0, 15).map((target) => target.stratum))].sort(),
@@ -109,7 +115,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
   assert.equal(writes.filter((artifact) => artifact.path.includes("/cohorts/")).length, 2);
   assert.ok(writes.some((artifact) => artifact.path.endsWith(`/plans/${result.plan.planSha256}.json`)));
   assert.ok(writes.some((artifact) => artifact.path.endsWith(`/proposals/${result.proposalSha256}.json`)));
-  assert.equal(result.seriesMarkerPath, "spike-out/analysis-lab/experiments/series/deep-v18.json");
+  assert.equal(result.seriesMarkerPath, "spike-out/analysis-lab/experiments/series/deep-v19.json");
   assert.equal(writes.at(-1)?.path, result.seriesMarkerPath, "고정 series marker가 마지막 CAS여야 한다");
   assert.match(result.planArtifactSha256, /^[a-f0-9]{64}$/);
   assert.notEqual(
@@ -138,7 +144,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     title: "공고 1",
     waveId: "wave-1",
   });
-  assert.equal(proposal.policy.seriesId, "deep-v18");
+  assert.equal(proposal.policy.seriesId, "deep-v19");
   assert.equal(proposal.policy.seed, 20260814);
   assert.equal(proposal.policy.model, "claude-opus-5");
   assert.equal(proposal.policy.transport, "claude-cli");
@@ -302,7 +308,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
 }
 
 assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
-  seriesId: "deep-v18",
+  seriesId: "deep-v19",
   seed: 20260814,
   targetCount: 30,
   waveSize: 15,
@@ -314,8 +320,8 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
 {
   const first = setup();
   const second = setup();
-  const firstResult = await createDeepRepairProposalPreparer(first.deps).prepare({ seriesId: "deep-v18" });
-  const secondResult = await createDeepRepairProposalPreparer(second.deps).prepare({ seriesId: "deep-v18" });
+  const firstResult = await createDeepRepairProposalPreparer(first.deps).prepare({ seriesId: "deep-v19" });
+  const secondResult = await createDeepRepairProposalPreparer(second.deps).prepare({ seriesId: "deep-v19" });
   assert.equal(secondResult.plan.planSha256, firstResult.plan.planSha256);
   assert.equal(secondResult.planArtifactSha256, firstResult.planArtifactSha256);
   assert.equal(secondResult.proposalSha256, firstResult.proposalSha256);
@@ -340,7 +346,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" }),
     /excluded.*000000000001|000000000001.*excluded/i,
   );
   assert.equal(prepareCalls.length, 0);
@@ -358,7 +364,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     },
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" }),
     /R2 unavailable/,
   );
   assert.equal(writes.length, 0, "30번째 입력 준비 실패도 산출물을 남기면 안 된다");
@@ -378,7 +384,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" }),
     /grantId.*UUID|UUID.*grantId/i,
   );
   assert.equal(writes.length, 0);
@@ -401,7 +407,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" }),
     /provenance.*drift/i,
   );
   assert.equal(writes.length, 0, "provenance drift는 산출물을 남기면 안 된다");
@@ -415,7 +421,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     ),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" }),
     /historical exclusion set drift/i,
   );
   assert.equal(writes.length, 0, "과거 표본 집합 drift도 산출물을 남기면 안 된다");
@@ -440,7 +446,7 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     },
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" }),
     /selection.*drift|stratum.*drift/i,
   );
   assert.equal(writes.length, 0, "후보/stratum snapshot drift는 산출물을 남기면 안 된다");
@@ -460,15 +466,15 @@ assert.deepEqual(DEEP_REPAIR_PREPARATION_POLICY, {
     }),
   });
   await assert.rejects(
-    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v18" }),
+    createDeepRepairProposalPreparer(deps).prepare({ seriesId: "deep-v19" }),
     /first 15.*strata/i,
   );
   assert.equal(writes.length, 0);
 }
 
 await assert.rejects(
-  createDeepRepairProposalPreparer(setup().deps).prepare({ seriesId: "deep-v19" }),
-  /deep-v18/,
+  createDeepRepairProposalPreparer(setup().deps).prepare({ seriesId: "deep-v18" }),
+  /deep-v19/,
 );
 
 await assert.rejects(
@@ -477,29 +483,29 @@ await assert.rejects(
   "selector도 invalid exclusion을 DB 조회 전에 거부해야 한다",
 );
 
-assert.deepEqual(parseDeepRepairPreparationCliArgs(["--series=deep-v18"]), {
+assert.deepEqual(parseDeepRepairPreparationCliArgs(["--series=deep-v19"]), {
   kind: "prepare",
-  seriesId: "deep-v18",
+  seriesId: "deep-v19",
 });
-assert.deepEqual(parseDeepRepairPreparationCliArgs(["--", "--series=deep-v18"]), {
+assert.deepEqual(parseDeepRepairPreparationCliArgs(["--", "--series=deep-v19"]), {
   kind: "prepare",
-  seriesId: "deep-v18",
+  seriesId: "deep-v19",
 });
 assert.deepEqual(parseDeepRepairPreparationCliArgs(["--help"]), { kind: "help" });
 for (const argv of [
   [],
   ["--"],
-  ["--series", "deep-v18"],
-  ["--series=deep-v19"],
-  ["--series=deep-v18", "--help"],
+  ["--series", "deep-v19"],
+  ["--series=deep-v18"],
+  ["--series=deep-v19", "--help"],
   ["--model=claude-opus-5"],
   ["--seed=20260814"],
   ["--count=30"],
   ["--authority=abc"],
   ["--execute"],
-  ["deep-v18"],
+  ["deep-v19"],
 ]) {
-  assert.throws(() => parseDeepRepairPreparationCliArgs(argv), /--series=deep-v18|--help/);
+  assert.throws(() => parseDeepRepairPreparationCliArgs(argv), /--series=deep-v19|--help/);
 }
 assert.equal(deepRepairPreparationCliErrorExitCode(new Error("prepare failed")), 1);
 {
@@ -550,7 +556,7 @@ assert.equal(deepRepairPreparationCliErrorExitCode(new Error("prepare failed")),
 
     const planSetup = setup();
     const planResult = await createDeepRepairProposalPreparer(planSetup.deps).prepare({
-      seriesId: "deep-v18",
+      seriesId: "deep-v19",
     });
     const planArtifact = planSetup.writes.find((item) => item.path.includes("/plans/"))!;
     await write(planArtifact);
@@ -568,7 +574,7 @@ assert.equal(deepRepairPreparationCliErrorExitCode(new Error("prepare failed")),
     );
 
     const marker = planSetup.writes.at(-1)!;
-    assert.equal(marker.path, "spike-out/analysis-lab/experiments/series/deep-v18.json");
+    assert.equal(marker.path, "spike-out/analysis-lab/experiments/series/deep-v19.json");
     await write(marker);
     await write(marker);
     await assert.rejects(

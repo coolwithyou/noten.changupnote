@@ -7,6 +7,7 @@ import {
   type DeepRepairExperimentPlan,
 } from "./deep-repair-experiment";
 import {
+  ACTIVE_DEEP_REPAIR_SERIES_ID,
   DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
@@ -15,7 +16,7 @@ import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
 
 export const DEEP_REPAIR_PREPARATION_POLICY = Object.freeze({
-  seriesId: "deep-v18" as const,
+  seriesId: ACTIVE_DEEP_REPAIR_SERIES_ID,
   seed: 20260814,
   targetCount: DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
   waveSize: DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
@@ -29,7 +30,7 @@ const FULL_GIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ARTIFACT_PREFIX = "spike-out/analysis-lab/experiments/";
 const PREPARATION_ARTIFACT_PATH = /^spike-out\/analysis-lab\/experiments\/(cohorts|plans|proposals)\/([a-f0-9]{64})\.json$/;
-const SERIES_MARKER_PATH = "spike-out/analysis-lab/experiments/series/deep-v18.json";
+const SERIES_MARKER_PATH = `spike-out/analysis-lab/experiments/series/${ACTIVE_DEEP_REPAIR_SERIES_ID}.json` as const;
 
 export interface DeepRepairProposalTarget {
   readonly grantId: string;

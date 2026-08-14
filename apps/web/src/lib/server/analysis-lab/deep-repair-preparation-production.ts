@@ -7,6 +7,7 @@ import {
 } from "./deep-repair-preparation";
 import { readDeepRepairHistoricalGrantIds } from "./deep-repair-preparation-history";
 import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-provenance";
+import { ACTIVE_DEEP_REPAIR_SERIES_ID } from "./deep-repair-formal-policy";
 
 const preparer = createDeepRepairProposalPreparer({
   now: () => new Date(),
@@ -32,9 +33,9 @@ const preparer = createDeepRepairProposalPreparer({
   writeImmutableArtifact: createDeepRepairProposalFilesystemWriter(),
 });
 
-/** 모델·runtime lease·운영 조회 없이 deep-v18 proposal artifact만 준비한다. */
+/** 모델·runtime lease·운영 조회 없이 현재 formal series proposal artifact만 준비한다. */
 export function prepareCurrentDeepRepairProposal(input: {
-  readonly seriesId: "deep-v18";
+  readonly seriesId: typeof ACTIVE_DEEP_REPAIR_SERIES_ID;
 }): Promise<DeepRepairProposalPreparationResult> {
   return preparer.prepare(input);
 }
