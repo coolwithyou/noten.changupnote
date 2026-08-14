@@ -8,22 +8,27 @@ const LEGACY_COHORT_SNAPSHOT_FILE = /^cohort\..+\.json$/;
 const PRIMARY_RUN_FILE = /^run-[0-9TZ.\-]{10,40}(?:-[a-f0-9]{4,8})?\.json$/;
 const SERIES_MARKER_FILE = /^([a-z0-9][a-z0-9-]*)\.json$/;
 const PROPOSAL_LOGICAL_PREFIX = "spike-out/analysis-lab/experiments/proposals/";
+const FORMAL_BASELINE_COHORT_PREFIX = "cohort.deep-v17-cp2b-";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * proposal이 재사용하면 안 되는 모든 과거 grantId를 strict하게 읽는다. 관련 JSON이 깨졌거나
- * content-address가 맞지 않으면 일부만 제외한 표본을 만들지 않고 즉시 실패한다.
+ * `all`은 감사용 전체 이력, `formal-baseline`은 deep-v17 정식 비교 코호트와 이미 commit된
+ * experiment만 읽는다. proposal 준비는 희소 층을 고갈시키는 임의 과거 run까지 배제하지 않는다.
  */
 export async function readDeepRepairHistoricalGrantIds(options: {
   readonly rootDir?: string;
+  readonly scope?: "all" | "formal-baseline";
 } = {}): Promise<string[]> {
   const root = options.rootDir ?? analysisLabDir();
+  const scope = options.scope ?? "all";
   const ids = new Set<string>();
   const rootEntries = await readRequiredHistoryRoot(root);
 
   for (const entry of rootEntries) {
     if (!entry.isFile()) continue;
-    if (entry.name === "cohort.json" || LEGACY_COHORT_SNAPSHOT_FILE.test(entry.name)) {
+    const isCohort = entry.name === "cohort.json" || LEGACY_COHORT_SNAPSHOT_FILE.test(entry.name);
+    const isFormalBaseline = entry.name.startsWith(FORMAL_BASELINE_COHORT_PREFIX);
+    if (isCohort && (scope === "all" || isFormalBaseline)) {
       const label = `historical cohort ${entry.name}`;
       for (const grantId of await readLegacyCohortGrantIds(join(root, entry.name), label)) {
         ids.add(grantId);
@@ -31,7 +36,7 @@ export async function readDeepRepairHistoricalGrantIds(options: {
     }
   }
 
-  for (const entry of rootEntries) {
+  for (const entry of scope === "all" ? rootEntries : []) {
     if (!entry.isDirectory() || !entry.name.includes("__")) continue;
     const runDir = join(root, entry.name);
     for (const file of await readDirectoryOrEmpty(runDir)) {

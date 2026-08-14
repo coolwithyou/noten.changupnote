@@ -11,7 +11,7 @@ import { readCurrentDeepRepairExecutionProvenance } from "./deep-repair-runtime-
 const preparer = createDeepRepairProposalPreparer({
   now: () => new Date(),
   readExecutionProvenance: readCurrentDeepRepairExecutionProvenance,
-  listExcludedGrantIds: readDeepRepairHistoricalGrantIds,
+  listExcludedGrantIds: () => readDeepRepairHistoricalGrantIds({ scope: "formal-baseline" }),
   async selectTargets({ excludedGrantIds }) {
     return selectDeepRepairPlanningTargets({
       excludeGrantIds: excludedGrantIds,

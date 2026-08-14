@@ -182,6 +182,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     const runGrant = "00000000-0000-4000-8000-000000000003";
     const experimentGrant = "00000000-0000-4000-8000-000000000004";
     const orphanGrant = "00000000-0000-4000-8000-000000000005";
+    const formalBaselineGrant = "00000000-0000-4000-8000-000000000006";
     await writeFile(join(root, "cohort.json"), JSON.stringify({
       version: 2,
       entries: [{ grantId: canonicalGrant, stratum: "pilot" }],
@@ -189,6 +190,10 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     await writeFile(join(root, "cohort.old.json"), JSON.stringify({
       version: 1,
       grantIds: [snapshotGrant],
+    }));
+    await writeFile(join(root, "cohort.deep-v17-cp2b-pilot5.json"), JSON.stringify({
+      version: 1,
+      grantIds: [formalBaselineGrant],
     }));
     await mkdir(join(root, "bizinfo__one"));
     await writeFile(
@@ -239,7 +244,13 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
       snapshotGrant,
       runGrant,
       experimentGrant,
+      formalBaselineGrant,
     ], "atomic publisher의 orphan temp는 committed series history가 아니다");
+    assert.deepEqual(
+      await readDeepRepairHistoricalGrantIds({ rootDir: root, scope: "formal-baseline" }),
+      [experimentGrant, formalBaselineGrant],
+      "proposal은 정식 비교 코호트와 committed experiment만 제외해야 한다",
+    );
 
     await writeFile(join(root, "experiments", "series", ".unexpected.tmp"), "unexpected");
     await assert.rejects(
@@ -262,7 +273,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     );
     assert.deepEqual(
       await readDeepRepairHistoricalGrantIds({ rootDir: root }),
-      [canonicalGrant, snapshotGrant, runGrant, experimentGrant],
+      [canonicalGrant, snapshotGrant, runGrant, experimentGrant, formalBaselineGrant],
       "series marker가 참조하지 않은 orphan cohort는 선정 상태에 영향을 주면 안 된다",
     );
     await writeFile(join(root, "experiments", "cohorts", "nested", `${cohortSha}.json`), cohortBody);
