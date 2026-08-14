@@ -61,6 +61,7 @@
     "lab:roundtrip:smoke": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --env-file-if-exists=.env --env-file-if-exists=.env.local --import tsx apps/web/src/lib/server/analysis-lab/application-roundtrip/smoke.ts",
     "lab:aggregate": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/aggregate.ts",
     "lab:aggregate:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/aggregate-cost-policy.test.ts",
+    "lab:experiment:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/deep-repair-experiment.test.ts",
     "lab:shadow-key:init": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/init-shadow-key-cli.ts",
     "lab:batch": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/batch.ts",
     "lab:cohort:freeze": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/cohort-freeze-cli.ts",
