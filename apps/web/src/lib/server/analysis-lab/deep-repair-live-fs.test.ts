@@ -12,10 +12,12 @@ try {
   const authoritySha = SHA(1);
   const planSha = SHA(2);
   const evidenceSha = SHA(3);
+  const approvalSha = SHA(9);
   const attemptKey = { planSha256: planSha, sequence: 0 };
   const cohortRelativePath = "spike-out/analysis-lab/experiments/cohorts/wave-1.json";
   const fixtures = [
     [join(rootDir, "authorities", `${authoritySha}.json`), { authority: true }],
+    [join(rootDir, "approvals", `${approvalSha}.json`), { approval: true }],
     [join(rootDir, "plans", `${planSha}.json`), { plan: true }],
     [join(rootDir, "operational-evidence", `${evidenceSha}.json`), { evidence: true }],
     [join(rootDir, "cohorts", "wave-1.json"), { cohort: true }],
@@ -28,6 +30,10 @@ try {
   assert.deepEqual(
     JSON.parse(Buffer.from((await repository.readAuthority(authoritySha))!.bytes).toString("utf8")),
     { authority: true },
+  );
+  assert.deepEqual(
+    JSON.parse(Buffer.from((await repository.readApproval(approvalSha))!.bytes).toString("utf8")),
+    { approval: true },
   );
   assert.equal((await repository.readPlan(planSha))?.path, join(rootDir, "plans", `${planSha}.json`));
   assert.ok(await repository.readOperationalEvidence(evidenceSha));

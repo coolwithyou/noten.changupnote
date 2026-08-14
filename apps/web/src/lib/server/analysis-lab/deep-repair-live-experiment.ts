@@ -19,8 +19,11 @@ type Sha256 = string;
 export type DeepRepairLiveExecutionErrorCode =
   | "authority_not_found"
   | "authority_invalid"
-  | "authority_expired"
   | "authority_binding_mismatch"
+  | "approval_not_found"
+  | "approval_invalid"
+  | "approval_expired"
+  | "approval_binding_mismatch"
   | "plan_not_found"
   | "plan_not_canonical"
   | "parent_receipt_not_found"
@@ -91,6 +94,20 @@ interface DeepRepairExecutionAuthority {
     readonly expectedGeneration: number;
   };
   readonly operationalEvidenceSha256: Sha256;
+  readonly approvalSha256: Sha256;
+}
+
+interface DeepRepairUserApproval {
+  readonly schema: "deep-repair-user-approval-v1";
+  readonly proposalSha256: Sha256;
+  readonly planSha256: Sha256;
+  readonly planArtifactSha256: Sha256;
+  readonly parentReceiptSha256: Sha256 | null;
+  readonly sequence: number;
+  readonly waveId: string;
+  readonly grantId: string;
+  readonly model: string;
+  readonly promptVersion: string;
   readonly approvedBy: string;
   readonly approvedAt: string;
   readonly expiresAt: string;
@@ -141,6 +158,7 @@ export interface DeepRepairLiveReceipt {
 
 export interface DeepRepairLiveArtifactRepository {
   readAuthority(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
+  readApproval(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readOperationalEvidence(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readPlan(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readCohort(path: string): Promise<DeepRepairLiveStoredArtifact | null>;
@@ -255,6 +273,7 @@ export interface DeepRepairLiveExperiment {
 
 const SHA256_PATTERN = /^[a-f0-9]{64}$/;
 const OWNER_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const MAX_USER_APPROVAL_TTL_MS = 15 * 60_000;
 
 /**
  * 내부 조립 seam. production에서는 고정 조합 모듈만 호출할 수 있으며, 다른 production
@@ -299,12 +318,14 @@ export function createDeepRepairLiveExperiment(
         throw rejection("gate_not_continuable", `직전 gate가 ${parent.gateVerdict}이므로 다음 실행을 시작할 수 없습니다.`, true);
       }
       assertAuthorityBinding({ authority, authoritySha256, plan, nextSequence });
+      const approval = await loadAndValidateApproval(dependencies.repository, authority);
       const target = plan.sequence[nextSequence]!;
       const attemptKey = { planSha256: plan.planSha256, sequence: nextSequence };
       const existing = await dependencies.repository.readAttempt(attemptKey);
       if (existing) {
         const start = normalizeLiveStart(parseStoredJson(existing.start, "live start"));
         assertLiveStartBinding(start, { authority, authoritySha256, plan, target, nextSequence });
+        assertApprovalTime(approval, new Date(start.startedAt));
         if (existing.terminal) {
           const receipt = normalizeLiveReceipt(parseStoredJson(existing.terminal, "terminal receipt"));
           assertLiveReceiptBinding(receipt, { authority, authoritySha256, plan, target, nextSequence });
@@ -321,7 +342,7 @@ export function createDeepRepairLiveExperiment(
         }
         return { kind: "ambiguous", start };
       }
-      assertAuthorityTime(authority, now());
+      assertApprovalTime(approval, now());
       const targetWave = plan.manifest.waves.find((wave) => wave.waveId === target.waveId)!;
       const cohortArtifact = await dependencies.repository.readCohort(targetWave.cohort.artifactPath);
       if (
@@ -379,7 +400,7 @@ export function createDeepRepairLiveExperiment(
           },
           async (executionSignal) => {
           assertNotAborted(executionSignal);
-          assertAuthorityTime(authority, now());
+          assertApprovalTime(approval, now());
           assertOperationalEvidenceFresh(evidence, now());
           try {
             await dependencies.verifyOperationalEvidence(evidence, executionSignal);
@@ -397,8 +418,10 @@ export function createDeepRepairLiveExperiment(
             expectedProvenance,
           );
           assertNotAborted(executionSignal);
+          const currentApproval = await loadAndValidateApproval(dependencies.repository, authority);
+          assertNotAborted(executionSignal);
           const claimTime = now();
-          assertAuthorityTime(authority, claimTime);
+          assertApprovalTime(currentApproval, claimTime);
           assertOperationalEvidenceFresh(evidence, claimTime);
           const startedAt = claimTime.toISOString();
           const start: DeepRepairLiveStart = {
@@ -665,10 +688,7 @@ function normalizeAuthority(value: unknown): DeepRepairExecutionAuthority {
         expectedGeneration: nonNegativeInteger(runtime.expectedGeneration, "authority.runtime.expectedGeneration"),
       },
       operationalEvidenceSha256: sha(source.operationalEvidenceSha256, "authority.operationalEvidenceSha256"),
-      approvedBy: text(source.approvedBy, "authority.approvedBy"),
-      approvedAt: isoDate(source.approvedAt, "authority.approvedAt"),
-      expiresAt: isoDate(source.expiresAt, "authority.expiresAt"),
-      stopAfter: literal(source.stopAfter, "one-target", "authority.stopAfter"),
+      approvalSha256: sha(source.approvalSha256, "authority.approvalSha256"),
     };
     if (!OWNER_ID_PATTERN.test(normalized.runtime.ownerId)) throw new Error("runtime ownerId must be UUID v4");
     if (canonicalJson(value) !== canonicalJson(normalized)) throw new Error("authority must be canonical");
@@ -676,6 +696,63 @@ function normalizeAuthority(value: unknown): DeepRepairExecutionAuthority {
   } catch (error) {
     throw rejection("authority_invalid", `실행 authority 형식이 올바르지 않습니다: ${errorMessage(error)}`, true);
   }
+}
+
+function normalizeApproval(value: unknown): DeepRepairUserApproval {
+  try {
+    const source = asRecord(value, "approval");
+    const normalized: DeepRepairUserApproval = {
+      schema: literal(source.schema, "deep-repair-user-approval-v1", "approval.schema"),
+      proposalSha256: sha(source.proposalSha256, "approval.proposalSha256"),
+      planSha256: sha(source.planSha256, "approval.planSha256"),
+      planArtifactSha256: sha(source.planArtifactSha256, "approval.planArtifactSha256"),
+      parentReceiptSha256: nullableSha(source.parentReceiptSha256, "approval.parentReceiptSha256"),
+      sequence: nonNegativeInteger(source.sequence, "approval.sequence"),
+      waveId: text(source.waveId, "approval.waveId"),
+      grantId: text(source.grantId, "approval.grantId"),
+      model: text(source.model, "approval.model"),
+      promptVersion: text(source.promptVersion, "approval.promptVersion"),
+      approvedBy: text(source.approvedBy, "approval.approvedBy"),
+      approvedAt: isoDate(source.approvedAt, "approval.approvedAt"),
+      expiresAt: isoDate(source.expiresAt, "approval.expiresAt"),
+      stopAfter: literal(source.stopAfter, "one-target", "approval.stopAfter"),
+    };
+    const approvedAt = new Date(normalized.approvedAt).getTime();
+    const expiresAt = new Date(normalized.expiresAt).getTime();
+    if (expiresAt <= approvedAt || expiresAt - approvedAt > MAX_USER_APPROVAL_TTL_MS) {
+      throw new Error("approval validity window must be positive and at most 15 minutes");
+    }
+    if (canonicalJson(value) !== canonicalJson(normalized)) throw new Error("approval must be canonical");
+    return normalized;
+  } catch (error) {
+    throw rejection("approval_invalid", `사용자 승인 artifact 형식이 올바르지 않습니다: ${errorMessage(error)}`, true);
+  }
+}
+
+/**
+ * Content-addressed SHA 검증은 승인 내용의 무결성과 결속만 증명한다.
+ * approvedBy 문자열의 인증된 사용자 신원이나 실제 승인 행위는 외부 발급 경계가 보장해야 한다.
+ */
+async function loadAndValidateApproval(
+  repository: DeepRepairLiveArtifactRepository,
+  authority: DeepRepairExecutionAuthority,
+): Promise<DeepRepairUserApproval> {
+  const raw = await repository.readApproval(authority.approvalSha256);
+  if (raw === null) {
+    throw rejection("approval_not_found", `사용자 승인 artifact를 찾지 못했습니다: ${authority.approvalSha256}`, true);
+  }
+  if (rawSha256(raw.bytes) !== authority.approvalSha256) {
+    throw rejection("approval_invalid", "사용자 승인 artifact SHA-256이 authority와 일치하지 않습니다.", true);
+  }
+  let approval: DeepRepairUserApproval;
+  try {
+    approval = normalizeApproval(parseStoredJson(raw, "approval"));
+  } catch (error) {
+    if (error instanceof DeepRepairLiveExecutionError) throw error;
+    throw rejection("approval_invalid", `사용자 승인 artifact를 읽을 수 없습니다: ${errorMessage(error)}`, true);
+  }
+  assertApprovalBinding(approval, authority);
+  return approval;
 }
 
 function normalizeOperationalEvidence(value: unknown): DeepRepairOperationalEvidence {
@@ -842,6 +919,7 @@ async function loadAndValidateParentChain(input: {
       throw rejection("parent_receipt_invalid", "parent authority raw bytes를 exact SHA로 읽을 수 없습니다.", true);
     }
     let parentAuthority: DeepRepairExecutionAuthority;
+    let parentApproval: DeepRepairUserApproval;
     try {
       parentAuthority = normalizeAuthority(parseStoredJson(authorityRaw, "parent authority"));
       if (parentAuthority.planArtifactSha256 !== input.planArtifactSha256) {
@@ -853,6 +931,7 @@ async function loadAndValidateParentChain(input: {
         plan: input.plan,
         nextSequence: receipt.target.sequence,
       });
+      parentApproval = await loadAndValidateApproval(input.repository, parentAuthority);
     } catch (error) {
       throw rejection("parent_receipt_invalid", `parent authority binding이 올바르지 않습니다: ${errorMessage(error)}`, true);
     }
@@ -871,6 +950,15 @@ async function loadAndValidateParentChain(input: {
       target: expectedTarget,
       nextSequence: receipt.target.sequence,
     });
+    try {
+      assertApprovalTime(parentApproval, new Date(parentStart.startedAt));
+    } catch (error) {
+      throw rejection(
+        "parent_receipt_invalid",
+        `parent start 시점에 사용자 승인이 유효하지 않았습니다: ${errorMessage(error)}`,
+        true,
+      );
+    }
     const parentTerminal = normalizeLiveReceipt(parseStoredJson(parentAttempt.terminal, "parent terminal"));
     if (canonicalJson(parentTerminal) !== canonicalJson(receipt)) {
       throw rejection("parent_receipt_invalid", "parent plan slot terminal이 content-addressed receipt와 다릅니다.", true);
@@ -1107,6 +1195,29 @@ function assertAuthorityBinding(input: {
   }
 }
 
+function assertApprovalBinding(
+  approval: DeepRepairUserApproval,
+  authority: DeepRepairExecutionAuthority,
+): void {
+  if (
+    approval.planSha256 !== authority.planSha256
+    || approval.planArtifactSha256 !== authority.planArtifactSha256
+    || approval.parentReceiptSha256 !== authority.parentReceiptSha256
+    || approval.sequence !== authority.sequence
+    || approval.waveId !== authority.waveId
+    || approval.grantId !== authority.grantId
+    || approval.model !== authority.model
+    || approval.promptVersion !== authority.promptVersion
+    || approval.stopAfter !== "one-target"
+  ) {
+    throw rejection(
+      "approval_binding_mismatch",
+      "사용자 승인 artifact가 authority의 exact plan/parent/target/policy와 일치하지 않습니다.",
+      true,
+    );
+  }
+}
+
 function assertLiveStartBinding(
   start: DeepRepairLiveStart,
   input: {
@@ -1216,11 +1327,11 @@ function assertCohortArtifactBinding(
   }
 }
 
-function assertAuthorityTime(authority: DeepRepairExecutionAuthority, now: Date): void {
-  const approvedAt = new Date(authority.approvedAt).getTime();
-  const expiresAt = new Date(authority.expiresAt).getTime();
-  if (approvedAt > now.getTime() || expiresAt <= now.getTime() || expiresAt <= approvedAt) {
-    throw rejection("authority_expired", "authority 승인 시각 또는 만료 시각이 현재 실행을 허용하지 않습니다.", true);
+function assertApprovalTime(approval: DeepRepairUserApproval, now: Date): void {
+  const approvedAt = new Date(approval.approvedAt).getTime();
+  const expiresAt = new Date(approval.expiresAt).getTime();
+  if (approvedAt > now.getTime() || expiresAt <= now.getTime()) {
+    throw rejection("approval_expired", "사용자 승인이 아직 유효하지 않거나 만료됐습니다.", true);
   }
 }
 

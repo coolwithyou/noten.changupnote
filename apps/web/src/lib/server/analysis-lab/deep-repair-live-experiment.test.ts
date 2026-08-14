@@ -113,6 +113,7 @@ function formalPlan() {
 
 class MemoryRepository implements DeepRepairLiveArtifactRepository {
   readonly authorities = new Map<string, DeepRepairLiveStoredArtifact>();
+  readonly approvals = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly operationalEvidence = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly plans = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly cohorts = new Map<string, DeepRepairLiveStoredArtifact>();
@@ -124,6 +125,7 @@ class MemoryRepository implements DeepRepairLiveArtifactRepository {
   readonly terminals = new Map<string, DeepRepairLiveStoredArtifact>();
 
   async readAuthority(sha256: string) { return this.authorities.get(sha256) ?? null; }
+  async readApproval(sha256: string) { return this.approvals.get(sha256) ?? null; }
   async readOperationalEvidence(sha256: string) { return this.operationalEvidence.get(sha256) ?? null; }
   async readPlan(sha256: string) { return this.plans.get(sha256) ?? null; }
   async readCohort(path: string) { return this.cohorts.get(path) ?? null; }
@@ -186,6 +188,7 @@ function authority(input: {
   plan: ReturnType<typeof formalPlan>;
   planArtifactSha256: string;
   operationalEvidenceSha256: string;
+  approvalSha256: string;
   sequence?: number;
   parentReceiptSha256?: string | null;
 }) {
@@ -213,9 +216,34 @@ function authority(input: {
     qualityPolicyVersion: input.plan.manifest.policy.qualityPolicyVersion,
     runtime: { ownerId: "123e4567-e89b-42d3-a456-426614174000", expectedGeneration: 67 },
     operationalEvidenceSha256: input.operationalEvidenceSha256,
+    approvalSha256: input.approvalSha256,
+  };
+}
+
+function userApproval(input: {
+  plan: ReturnType<typeof formalPlan>;
+  planArtifactSha256: string;
+  sequence?: number;
+  parentReceiptSha256?: string | null;
+  approvedAt?: string;
+  expiresAt?: string;
+}) {
+  const sequence = input.sequence ?? 0;
+  const target = input.plan.sequence[sequence]!;
+  return {
+    schema: "deep-repair-user-approval-v1",
+    proposalSha256: SHA(9_000 + sequence),
+    planSha256: input.plan.planSha256,
+    planArtifactSha256: input.planArtifactSha256,
+    parentReceiptSha256: input.parentReceiptSha256 ?? null,
+    sequence,
+    waveId: target.waveId,
+    grantId: target.grantId,
+    model: input.plan.manifest.policy.model,
+    promptVersion: input.plan.manifest.policy.promptVersion,
     approvedBy: "user@example.com",
-    approvedAt: "2026-08-14T02:58:00.000Z",
-    expiresAt: "2026-08-14T03:10:00.000Z",
+    approvedAt: input.approvedAt ?? "2026-08-14T02:58:00.000Z",
+    expiresAt: input.expiresAt ?? "2026-08-14T03:10:00.000Z",
     stopAfter: "one-target",
   };
 }
@@ -281,10 +309,18 @@ function fixture(input: {
   const evidenceArtifact = stored(evidence, "/evidence/observe-only.json");
   const evidenceSha = storedSha256(evidenceArtifact);
   repo.operationalEvidence.set(evidenceSha, evidenceArtifact);
+  const approval = userApproval({
+    plan,
+    planArtifactSha256: storedSha256(planArtifact),
+  });
+  const approvalArtifact = stored(approval, "/approvals/canary-00.json");
+  const approvalSha = storedSha256(approvalArtifact);
+  repo.approvals.set(approvalSha, approvalArtifact);
   const approved = authority({
     plan,
     planArtifactSha256: storedSha256(planArtifact),
     operationalEvidenceSha256: evidenceSha,
+    approvalSha256: approvalSha,
   });
   const approvedArtifact = stored(approved, "/authorities/canary-00.json");
   const authoritySha = storedSha256(approvedArtifact);
@@ -346,6 +382,8 @@ function fixture(input: {
   return {
     plan,
     repo,
+    approval,
+    approvalSha,
     authority: approved,
     authoritySha,
     experiment: createDeepRepairLiveExperiment(deps),
@@ -403,10 +441,20 @@ function fixture(input: {
   });
   assert.equal(first.kind, "recorded");
   if (first.kind !== "recorded") throw new Error("expected first recorded result");
+  const nextApproval = userApproval({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const nextApprovalArtifact = stored(nextApproval, "/approvals/canary-01.json");
+  const nextApprovalSha = storedSha256(nextApprovalArtifact);
+  setup.repo.approvals.set(nextApprovalSha, nextApprovalArtifact);
   const nextAuthority = authority({
     plan: setup.plan,
     planArtifactSha256: setup.authority.planArtifactSha256,
     operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+    approvalSha256: nextApprovalSha,
     parentReceiptSha256: first.receipt.receiptSha256,
     sequence: 1,
   });
@@ -475,6 +523,82 @@ function fixture(input: {
       && error.noModelStarted,
   );
   assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
+}
+
+{
+  const setup = fixture();
+  const first = await setup.experiment.runApprovedCanary({
+    authorityId: setup.authoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(first.kind, "recorded");
+  if (first.kind !== "recorded") throw new Error("expected parent receipt");
+  const parentSlot = `${setup.plan.planSha256}:0`;
+  const parentStartArtifact = setup.repo.starts.get(parentSlot)!;
+  const retroactiveParentStart = JSON.parse(
+    Buffer.from(parentStartArtifact.bytes).toString("utf8"),
+  ) as Record<string, unknown>;
+  retroactiveParentStart.startedAt = "2026-08-14T02:57:59.999Z";
+  setup.repo.starts.set(parentSlot, stored(retroactiveParentStart, parentStartArtifact.path));
+  const nextApproval = userApproval({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const nextApprovalArtifact = stored(nextApproval, "/approvals/retroactive-parent-next.json");
+  const nextApprovalSha = storedSha256(nextApprovalArtifact);
+  setup.repo.approvals.set(nextApprovalSha, nextApprovalArtifact);
+  const nextAuthority = authority({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+    approvalSha256: nextApprovalSha,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const nextArtifact = stored(nextAuthority, "/authorities/retroactive-parent-next.json");
+  const nextAuthoritySha = storedSha256(nextArtifact);
+  setup.repo.authorities.set(nextAuthoritySha, nextArtifact);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: nextAuthoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "parent_receipt_invalid"
+      && error.message.includes("parent start 시점")
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
+}
+
+{
+  const setup = fixture();
+  await setup.repo.claimStart({
+    planSha256: setup.plan.planSha256,
+    sequence: 0,
+  }, {
+    schema: "deep-repair-live-start-v1",
+    planSha256: setup.plan.planSha256,
+    parentReceiptSha256: null,
+    authoritySha256: setup.authoritySha,
+    attemptId: setup.authority.attemptId,
+    target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
+    startedAt: "2026-08-14T02:57:59.999Z",
+  });
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: setup.authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_expired"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
 }
 
 {
@@ -589,6 +713,7 @@ function fixture(input: {
     plan: setup.plan,
     planArtifactSha256: (setup.authority as { planArtifactSha256: string }).planArtifactSha256,
     operationalEvidenceSha256: staleEvidenceSha,
+    approvalSha256: setup.approvalSha,
   });
   const staleAuthorityArtifact = stored(staleAuthority, "/authorities/stale.json");
   const staleAuthoritySha = storedSha256(staleAuthorityArtifact);
@@ -737,10 +862,20 @@ function fixture(input: {
   };
   parsed.notices[0]!.grantId = "tampered-grant";
   setup.repo.observations.set(first.receipt.observationsSha256, stored(parsed, exact.path));
+  const nextApproval = userApproval({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const nextApprovalArtifact = stored(nextApproval, "/approvals/tampered-parent.json");
+  const nextApprovalSha = storedSha256(nextApprovalArtifact);
+  setup.repo.approvals.set(nextApprovalSha, nextApprovalArtifact);
   const nextAuthority = authority({
     plan: setup.plan,
     planArtifactSha256: setup.authority.planArtifactSha256,
     operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+    approvalSha256: nextApprovalSha,
     parentReceiptSha256: first.receipt.receiptSha256,
     sequence: 1,
   });
@@ -777,7 +912,7 @@ function fixture(input: {
     }),
     (error: unknown) =>
       error instanceof DeepRepairLiveExecutionError
-      && error.code === "authority_expired"
+      && error.code === "approval_expired"
       && error.noModelStarted,
   );
   assert.deepEqual(setup.counts(), { prepared: 1, executed: 0, runtime: 1 });
@@ -801,7 +936,7 @@ function fixture(input: {
     }),
     (error: unknown) =>
       error instanceof DeepRepairLiveExecutionError
-      && error.code === "authority_expired"
+      && error.code === "approval_expired"
       && error.noModelStarted,
   );
   assert.deepEqual(setup.counts(), { prepared: 1, executed: 0, runtime: 1 });
@@ -969,10 +1104,20 @@ function fixture(input: {
     signal: new AbortController().signal,
   });
   assert.equal(inspected.kind, "inspected");
+  const retryApproval = userApproval({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    parentReceiptSha256: failed.receipt.receiptSha256,
+    sequence: 0,
+  });
+  const retryApprovalArtifact = stored(retryApproval, "/approvals/retry-failed-slot.json");
+  const retryApprovalSha = storedSha256(retryApprovalArtifact);
+  setup.repo.approvals.set(retryApprovalSha, retryApprovalArtifact);
   const retryAuthority = authority({
     plan: setup.plan,
     planArtifactSha256: setup.authority.planArtifactSha256,
     operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+    approvalSha256: retryApprovalSha,
     parentReceiptSha256: failed.receipt.receiptSha256,
     sequence: 0,
   });
@@ -990,6 +1135,269 @@ function fixture(input: {
       && error.noModelStarted,
   );
   assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
+}
+
+{
+  const setup = fixture();
+  const approvalBoundAuthority = {
+    ...setup.authority,
+    approvalSha256: SHA(9_500),
+  };
+  const artifact = stored(approvalBoundAuthority, "/authorities/missing-approval.json");
+  const authoritySha = storedSha256(artifact);
+  setup.repo.authorities.set(authoritySha, artifact);
+
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_not_found"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
+  const setup = fixture();
+  const exact = setup.repo.approvals.get(setup.approvalSha)!;
+  setup.repo.approvals.set(setup.approvalSha, {
+    ...exact,
+    bytes: Buffer.concat([Buffer.from(exact.bytes), Buffer.from(" ")]),
+  });
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: setup.authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_invalid"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
+  const setup = fixture();
+  const nonCanonicalApproval = { ...setup.approval, unboundNote: "self-attested" };
+  const approvalArtifact = stored(nonCanonicalApproval, "/approvals/non-canonical.json");
+  const approvalSha = storedSha256(approvalArtifact);
+  setup.repo.approvals.set(approvalSha, approvalArtifact);
+  const value = { ...setup.authority, approvalSha256: approvalSha };
+  const artifact = stored(value, "/authorities/non-canonical-approval.json");
+  const authoritySha = storedSha256(artifact);
+  setup.repo.authorities.set(authoritySha, artifact);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_invalid"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
+  const setup = fixture();
+  const tooLongApproval = {
+    ...setup.approval,
+    expiresAt: "2026-08-14T03:13:00.001Z",
+  };
+  const approvalArtifact = stored(tooLongApproval, "/approvals/ttl-too-long.json");
+  const approvalSha = storedSha256(approvalArtifact);
+  setup.repo.approvals.set(approvalSha, approvalArtifact);
+  const value = { ...setup.authority, approvalSha256: approvalSha };
+  const artifact = stored(value, "/authorities/ttl-too-long.json");
+  const authoritySha = storedSha256(artifact);
+  setup.repo.authorities.set(authoritySha, artifact);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_invalid"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
+  const setup = fixture();
+  const staleApproval = {
+    ...setup.approval,
+    approvedAt: "2026-08-14T02:40:00.000Z",
+    expiresAt: "2026-08-14T02:55:00.000Z",
+  };
+  const approvalArtifact = stored(staleApproval, "/approvals/stale.json");
+  const approvalSha = storedSha256(approvalArtifact);
+  setup.repo.approvals.set(approvalSha, approvalArtifact);
+  const value = { ...setup.authority, approvalSha256: approvalSha };
+  const artifact = stored(value, "/authorities/stale-approval.json");
+  const authoritySha = storedSha256(artifact);
+  setup.repo.authorities.set(authoritySha, artifact);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_expired"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+for (const [label, drift] of [
+  ["plan", { planSha256: SHA(9_601) }],
+  ["plan-artifact", { planArtifactSha256: SHA(9_602) }],
+  ["parent", { parentReceiptSha256: SHA(9_603) }],
+  ["sequence", { sequence: 1 }],
+  ["wave", { waveId: "wave-not-approved" }],
+  ["grant", { grantId: "grant-not-approved" }],
+  ["model", { model: "claude-not-approved" }],
+  ["prompt", { promptVersion: "prompt-not-approved" }],
+] as const) {
+  const setup = fixture();
+  const mismatchedApproval = { ...setup.approval, ...drift };
+  const approvalArtifact = stored(mismatchedApproval, `/approvals/mismatched-${label}.json`);
+  const approvalSha = storedSha256(approvalArtifact);
+  setup.repo.approvals.set(approvalSha, approvalArtifact);
+  const value = { ...setup.authority, approvalSha256: approvalSha };
+  const artifact = stored(value, `/authorities/mismatched-approval-${label}.json`);
+  const authoritySha = storedSha256(artifact);
+  setup.repo.authorities.set(authoritySha, artifact);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_binding_mismatch"
+      && error.noModelStarted,
+    label,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 }, label);
+}
+
+{
+  const setup = fixture();
+  const first = await setup.experiment.runApprovedCanary({
+    authorityId: setup.authoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(first.kind, "recorded");
+  if (first.kind !== "recorded") throw new Error("expected parent receipt");
+  setup.repo.approvals.delete(setup.approvalSha);
+  const nextApproval = userApproval({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const nextApprovalArtifact = stored(nextApproval, "/approvals/missing-parent-approval-next.json");
+  const nextApprovalSha = storedSha256(nextApprovalArtifact);
+  setup.repo.approvals.set(nextApprovalSha, nextApprovalArtifact);
+  const nextAuthority = authority({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+    approvalSha256: nextApprovalSha,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const nextArtifact = stored(nextAuthority, "/authorities/missing-parent-approval-next.json");
+  const nextAuthoritySha = storedSha256(nextArtifact);
+  setup.repo.authorities.set(nextAuthoritySha, nextArtifact);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: nextAuthoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "parent_receipt_invalid"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
+}
+
+{
+  const setup = fixture();
+  const first = await setup.experiment.runApprovedCanary({
+    authorityId: setup.authoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(first.kind, "recorded");
+  const expiredInspector = createDeepRepairLiveExperiment({
+    ...setup.deps,
+    now: () => new Date("2026-08-14T03:11:00.000Z"),
+  });
+  const inspected = await expiredInspector.runApprovedCanary({
+    authorityId: setup.authoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(inspected.kind, "inspected");
+  assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
+}
+
+{
+  const setup = fixture();
+  const first = await setup.experiment.runApprovedCanary({
+    authorityId: setup.authoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(first.kind, "recorded");
+  const approvalArtifact = setup.repo.approvals.get(setup.approvalSha)!;
+  setup.repo.approvals.set(setup.approvalSha, {
+    ...approvalArtifact,
+    bytes: Buffer.concat([Buffer.from(approvalArtifact.bytes), Buffer.from(" ")]),
+  });
+  await assert.rejects(
+    createDeepRepairLiveExperiment({
+      ...setup.deps,
+      now: () => new Date("2026-08-14T03:11:00.000Z"),
+    }).runApprovedCanary({
+      authorityId: setup.authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_invalid"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
+}
+
+{
+  const setup = fixture();
+  const disappearsBeforeClaim = createDeepRepairLiveExperiment({
+    ...setup.deps,
+    verifyOperationalEvidence: async () => {
+      setup.repo.approvals.delete(setup.approvalSha);
+    },
+  });
+  await assert.rejects(
+    disappearsBeforeClaim.runApprovedCanary({
+      authorityId: setup.authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "approval_not_found"
+      && error.noModelStarted,
+  );
+  assert.deepEqual(setup.counts(), { prepared: 1, executed: 0, runtime: 1 });
+  assert.equal(setup.repo.starts.size, 0);
 }
 
 console.log("deep-repair-live-experiment tests passed");
