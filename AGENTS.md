@@ -58,15 +58,16 @@
 
 ## 딥분석 실행 경로 — 구독(claude CLI) vs API (2026-08-04 확정)
 
+- **현재 실행 중단(2026-08-14 Gate R)**: 반복 실패 구조 개선 P0~P3는 구현됐지만 live authority Adapter와 사용자 canary 승인이 아직 없다. `lab:smoke`, `lab:batch` non-dry, `lab:agent --execute`, 자동 대상 선정, 단건/repair, 검수·감사·confirmations의 live 호출은 정적 admission이 차단한다. 허용 범위는 dry-run, plan-only, `createPlan/replay`다. runtime lease나 환경변수로 우회하지 않는다.
 - **로컬 실험실(analysis-lab)의 4레인 전부 구독 스위치를 따른다**: 추출(opus-5)·AI 검수(fable-5)·블라인드 감사(sonnet-5)·confirmations. `ANALYSIS_LAB_TRANSPORT=claude-cli` env가 스위치이고, 미설정이면 기존 API 경로(운영 무영향). 검수 레인 전환 근거는 `docs/research/2026-08-04-검수레인-구독전환-일치율-검증.md`(원문 대조 41:26 GO).
-- 대량 배치 명령(정본): `ANALYSIS_LAB_TIMEOUT_MS=900000 ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 pnpm lab:batch -- --limit=30` (구독 실행의 명목 USD는 API 환산 telemetry일 뿐 실행 상한이 아니다). 검수: `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:ai-review -- --model=claude-fable-5 ...`. 과거 `--max-cost-usd`를 구독 명령에 넘기면 1회 경고 후 무시되며 active 실행 정책이나 스냅샷에는 저장하지 않는다.
+- 현재 허용 명령은 `lab:batch -- --dry-run`, `lab:agent` plan-only, `lab:experiment:test` 같은 무호출 경로뿐이다. 과거 `--max-cost-usd`는 구독에서 1회 경고 후 무시되며 active 실행 정책이나 스냅샷에는 저장하지 않는다. 향후 live 실행은 legacy batch가 아니라 exact plan/receipt-bound `lab:experiment` Adapter가 소유한다.
 - **원칙(사용자 확정)**: 고단가 모델(fable-5 등)을 API로 돌리지 않는다 — 로컬 대량 작업은 구독이 기본. 단, 구독 실행은 **로컬 dev·실험실 한정**(약관 경계) — 운영 worker·Cloud Run·사용자 대면 경로는 API 유지.
-- 배치의 시각적 실행·관리: dev 서버 `/dev/analysis-lab` → "배치 운영" 탭(깔때기·transport 선택·진행 스트림, CLI 시작 배치도 표시). dev 웹 레인의 구독 스위치는 `apps/web/.env.development.local`(파일 삭제+재기동으로 API 복귀). **웹·CLI 배치 동시 실행 금지**(코드 가드 있음).
-- 운용 안내 정본: `docs/explainers/구독모델로-딥분석-돌리는-법.md`, 트랙 상태 정본: `docs/plans/HANDOFF-2026-08-03.md`. 검수 사이드카는 모델별(`.ai-review.<model>.json`)이라 `--model=claude-fable-5` 명시 필수(기본 sonnet-5로 돌리면 전부 재검수됨).
+- `/dev/analysis-lab`의 기존 실행 UI와 CLI는 진행 관측·dry-run 용도로만 남고 live start는 Gate R admission에서 거부된다.
+- 운용 안내 정본: `docs/explainers/구독모델로-딥분석-돌리는-법.md`; 현재 구조·재개 판정 정본: `docs/research/2026-08-14-구독-딥분석-반복실패-구조진단-및-개선-설계.md`; 최근 실패 증거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`. `HANDOFF-2026-08-03.md`는 역사 기록이다.
 
 ## 딥분석 — 운영 크론과 로컬 구독의 겹침 방지 (2026-08-04 조사 확정)
 
-- **현재 운영의 유료 LLM 딥분석은 자동으로 돌지 않는다**: Cloud Run 메인 워커가 `DEEP_ANALYSIS_WORKER_MODE=observe_only` + `CLAIM_SCOPE=unconfigured` 2단 fail-closed(하트비트만 기록). 개발 기간에는 이 상태를 유지하고 **분석은 로컬 구독 lab이 유일 경로**다. 조사 정본: `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
+- **운영의 유료 LLM 딥분석은 자동으로 돌리지 않는다**: 마지막 확인 상태는 Cloud Run 메인 워커의 `DEEP_ANALYSIS_WORKER_MODE=observe_only` + `CLAIM_SCOPE=unconfigured` 2단 fail-closed였고, 개발 기간에는 이를 유지한다. 2026-08-14 live 재확인은 gcloud 재인증 대기로 Gate R 미충족이며 로컬 구독 lab도 현재 정적 admission으로 중단돼 있다. 조사 정본: `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
 - 로컬 lab은 DB에 런을 쓰지 않는다(spike-out 파일). DB 쓰기 접점은 `lab:promote --write` 순간뿐이며 3중 확인(release+write+confirm)이 걸려 있다.
-- ~~⚠️ 승격 전 필수 선행~~ → **P1 구현 완료(2026-08-04, 커밋 c79e2c0)**: 수집 publisher가 승격 보호(stable_key 행 존재) grant의 criteria 교체를 스킵하고, 보호 지문을 대칭 계산한다. 수동 CLI 2종(renormalize·publish-reviewed)도 tx 내 락+재판별 가드. **`lab:promote --write` 실발행 금지 조건은 해제됨** — 게이트 통과 시 실발행 가능(운용 조건: `pnpm verify:promotion-protection`이 test 체인에 배선돼 회귀를 잡는다).
+- 승격 보호 구현(`c79e2c0`) 자체는 유지되지만 현재 Gate R 동안 local release `--approve`와 `lab:promote --write`는 별도 admission이 차단한다. Gate R과 exact end-to-end authority 없이 실발행하지 않는다.
 - 운영 딥분석을 켤 때는(사용자 결정) `CLAIM_SCOPE=bounded`(cohort sha256 화이트리스트)로 시작하고 로컬 lab 코호트와 상호배타 집합 유지, 켜기 전 pending 큐(누적 중) 정리.

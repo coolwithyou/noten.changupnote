@@ -2,7 +2,8 @@
 
 > 상태 정정(2026-08-14): 정적 구현·125015 canary·v17 pilot5는 GO였지만, 비중복 확대 10건에서 publishable 7·held 3·repair 6/10이 재현돼 누적 6/15(40%)로 `<20%` 게이트에 실패했다. repair 후 신규 issue는 0이나 Kordoc 미해결 게이트도 실패해 추가 대량 실행을 중단한다. 당시 구독 명목 비용 guard 초과는 역사적 중단 사실로만 보존하며, 현재 USD는 fan-out 관측 telemetry이고 실행·품질 게이트가 아니다.
 > 선행 근거: `docs/research/2026-08-13-딥분석-처리속도-트랙-리뷰-정리.md`
-> 안전 경계: 사용자 승인으로 exact canary, 불변 pilot5, 비중복 확대 10건을 로컬 구독 CLI로 실행했다. 확대 게이트 실패 뒤 추가 배치를 중단했다. 범용 `lab:agent --execute`, 2차 교정, 운영 worker 활성화, 배포·승격은 실행하지 않았고 `observe_only`를 유지한다.
+> 안전 경계: 사용자 승인으로 exact canary, 불변 pilot5, 비중복 확대 10건을 로컬 구독 CLI로 실행했다. 확대 게이트 실패 뒤 추가 배치를 중단했다. 범용 `lab:agent --execute`, 2차 교정, 운영 worker 활성화, 배포·승격은 실행하지 않았다. 당시 worker는 `observe_only`였지만 2026-08-14 live 재확인은 gcloud 재인증 대기로 Gate R 미충족이다.
+> 현행 계약 정정: 이 문서의 초기 sentinel/error 소비자 설계는 P0에서 대체됐다. 신규 held는 `primaryValidationOutcome=held`, `error=null` terminal이며 중앙 `classifyLabRunOutcome`/`isPublishableLabRun`만 성공 권한을 판정한다. 아래 과거 설계와 현행 계약이 충돌하면 `docs/research/2026-08-14-구독-딥분석-반복실패-구조진단-및-개선-설계.md`가 우선한다.
 
 ## 1. 목표와 성공 정의
 
@@ -53,7 +54,7 @@ CP2의 `<20% repair`는 구현 성공 조건이 아니다. 새 계약에서는 �
 
 - `DeepAnalysisValidationResult.valid`는 계속 **자동 승격 가능한 strict 결과**만 true다.
 - `ambiguous`·`input_missing`을 `inspected_no_condition`으로 강제 변환하지 않는다.
-- held 결과는 audit·promotion·subscription second-pass 입력이 아니다. lab에서는 비-null error sentinel로 기존 차단망을 그대로 탄다.
+- held 결과는 audit·promotion·subscription second-pass 입력이 아니다. 신규 lab run은 `error=null` terminal로 보존하되 중앙 outcome classifier가 모든 성공 소비자에서 fail-closed한다. 비-null sentinel은 legacy 읽기 호환에만 남는다.
 - 모델 repair는 raw pass, usage, cost를 계속 누적한다.
 - API 경로와 CLI 경로는 같은 validator→route→repair 정책을 사용한다.
 - 기존 런 파일은 optional 필드 부재 상태로 계속 읽힌다.
@@ -97,9 +98,9 @@ primaryValidationOutcome?: "publishable" | "held";
 ```
 
 - 구 런(undefined)은 `error === null`이면 종전 publishable로 해석한다.
-- held 런은 분석 결과와 axis 상태를 보존하되 `error="primary_validation_held: ..."`를 기록한다. 따라서 기존 `error === null` 성공 판정은 수정하지 않아도 fail-closed로 held를 제외한다.
+- 신규 held 런은 분석 결과와 axis 상태를 보존하고 `primaryValidationOutcome="held"`, `error=null`로 기록한다. legacy sentinel도 중앙 classifier에서 held로 읽는다.
 - `primaryValidationOutcome`은 quality graph가 held를 일반 분석 오류가 아닌 `partial/held`로 표시하기 위한 명시적 provenance다.
-- batch 성공 수·latest successful index·AI review·audit·confirmation·promotion은 기존 error 차단망으로 held를 제외한다. 커밋 검증에서 `run.error` 소비처 전수 검색 결과를 다시 확인한다.
+- batch 성공 수·latest terminal/publishable index·AI review·audit·confirmation·promotion은 `classifyLabRunOutcome` 또는 `isPublishableLabRun`으로 held를 제외한다. `error === null` 단독 판정은 성공 권한으로 쓰지 않는다.
 - quality graph는 기존 axis 상태를 사용해 `partial/held`를 표시한다.
 
 최대 repair 뒤에도 실패한 경우에는 `ValidatedLabPrimaryError`가 마지막 extraction·repair count·전체 pass diagnostics를 함께 운반한다. `analyze.ts`는 이를 error LabRun으로 불변 저장해 125015 같은 실패 사례도 첫 패스 진단을 잃지 않는다. 일반 transport/model 예외는 종전처럼 extraction 없는 error run으로 남긴다.
@@ -180,7 +181,7 @@ RED:
 - mixed unresolved + normalization/semantic issue → repair.
 - 잘못된 unresolved path → repair(fail closed).
 - held 런은 latest successful/AI review/batch ok에서 제외.
-- held 런의 error sentinel이 confirmation·audit·promotion을 포함한 기존 error 기반 소비처 전부에서 제외되는지 전수 확인.
+- legacy held sentinel과 신규 explicit held가 confirmation·audit·promotion을 포함한 중앙 outcome 소비처 전부에서 제외되는지 전수 확인.
 - 최대 repair 실패가 pass diagnostics와 마지막 extraction을 error LabRun에 보존.
 
 GREEN:
@@ -271,6 +272,7 @@ GREEN:
 | 6 | `240f533` | v15 pilot repair 원문 재검토 뒤 현재 제재 오탐, 주관기관 신청주체, 면책 과축약, 역할 한정 평가를 최소 규칙으로 개선 |
 | 7 | `1b1dc47` | package dist를 재빌드한 뒤 `lab-deep-v17`/`deep-analysis-v23` 런타임 계약 고정 |
 | 8 | `9281d38` | 모든 `lab:batch` 실행 전에 package runtime freshness를 강제하고 CLI 잡에 불변 코호트 라벨 기록 |
+| 9 | `f337380`·`3b28530` | 중앙 outcome 소비자를 먼저 교체한 뒤 신규 held를 `error=null` terminal로 전환하고 batch/agent/readiness를 분리 |
 
 기존 CP2 런은 `issueCodes` 앞 20개만 저장했으므로 과거의 `unresolved_axis 29건`은 재계산 가능한 정확값이 아니라 **관측 최소 29건**이다. 새 런부터 exact count와 bounded detail이 남는다. 125015 단건은 v13 repair 2회 실패를 v15 first-pass held·repair 0으로 바꿨고, v17 불변 pilot5는 publishable 4·held 1·repair 0·신규 issue 0으로 종결했다. 평균 wall은 같은 표본 v15 687.5초에서 v17 427.8초로 줄었다. 당시 0/5의 단측 95% 상한은 45.1%여서 모집단 `<20%` 주장을 보류했고, 이후 확대 결과는 §9의 6/15 NO-GO로 반영했다.
 
@@ -288,7 +290,7 @@ GREEN:
 | condition_found + criterion 없음 | repair | 불가 | 필요 |
 | issue path 파손 | repair/fail closed | 불가 | 필요 |
 | held 구런 필드 없음 | 종전 동작 | 종전 계약 | 종전 계약 |
-| held 신런 | 비-null error sentinel + quality graph held, 기존 성공 소비처에서 제외 | 불가 | 0 |
+| held 신런 | `primaryValidationOutcome=held`, `error=null` terminal + quality graph held, 중앙 성공 소비처에서 제외 | 불가 | 0 |
 | 최대 repair 실패 | error run에 마지막 extraction과 모든 pass 진단 보존 | 불가 | 최대 2 |
 
 ## 7. 정밀 리뷰 질문
@@ -307,7 +309,7 @@ Claude 읽기 전용 적대적 리뷰 판정은 **CONDITIONAL GO**였다. 구현
 
 | 지적 | 판정 | 계획 반영 |
 |---|---|---|
-| held를 `error=null`로 두면 다수의 error 기반 성공 소비처에서 fail-open | 수용 | 비-null `primary_validation_held` sentinel로 변경. 기존 성공 차단망 재사용 |
+| held를 `error=null`로 두면 당시 error 기반 소비처에서 fail-open | 후속 P0에서 재설계 | 중앙 outcome classifier와 소비자 전수 교체 뒤 신규 held를 `error=null` terminal로 전환. sentinel은 legacy 호환만 유지 |
 | criterion 존재만으로 ambiguous/input_missing axis를 condition_found로 바꾸면 의미 손실 | 수용 | 정확히 `inspected_no_condition`인 같은 축만 동기화. 두 hold 상태는 절대 변경 금지 |
 | 결정 교정 뒤 validator 재실행 순서 누락 | 수용 | 결정 교정 → 전체 revalidate → route 재계산 순서 명시·통합 테스트 추가 |
 | 운영 blocked가 자동 retry될 수 있음 | 확인 필요 | 현행 worker의 input-blocked→blocked terminal 경로를 테스트로 고정 |
@@ -334,12 +336,16 @@ build에는 기존 `archiveKStartupCore.ts`의 동적 파일 패턴과 NFT 추�
 
 ## 9. 최종 실행 게이트
 
-정적 구현 완료 후에도 live 실행은 자동으로 이어가지 않는다.
+이 절의 초기 canary/pilot 조건은 이미 실행됐고 확대 10건에서 NO-GO로 반증됐다. 현행 재개 조건은
+2026-08-14 구조 설계의 Gate R이며, 다음을 모두 충족하기 전에는 live 실행을 자동으로 이어가지 않는다.
 
-1. 전체 `verify:deep-analysis-contract`, `lab:quality:test`, web typecheck, 관련 runtime test 통과.
-2. 커밋별 diff 리뷰와 상태 전이 대상 Claude 적대적 리뷰에서 미해결 P0/P1 지적 0. 전체 변경 재리뷰용 Claude CLI는 응답 없이 timeout되어 승인 근거로 세지 않았고, 자체 적대적 재리뷰에서 발견한 stale package 선행 게이트·코호트 provenance 누락은 `9281d38`로 종결.
-3. [완료] 125015 단건 canary: held·repair 0·Kordoc complete.
-4. [완료] 불변 층화 v17 pilot5: publishable 4·held 1·repair 0·신규 issue 0.
-5. [완료·NO-GO] pilot5·정본과 겹치지 않는 확대 10건: publishable 7·held 3·repair 6/10·신규 issue 0. 누적 repair 6/15(40%).
-6. [차단] repair 10개 first-pass issue 원문 분류, 동시 실행 예약 비용을 포함한 cap 보정, Kordoc field-level canary 전에는 추가 배치를 실행하지 않는다.
-7. 전체 재생성 repair는 이번 표본에서 신규 issue 0이므로 patch schema 즉시 도입은 보류한다. 원문 분류가 반복 가능한 최소 seam을 입증할 때만 별도 버전으로 설계한다.
+1. [완료] P0~P3 상태·비용·lane·불변 experiment kernel과 관련 회귀/typecheck/build GREEN.
+2. [완료] legacy live entrypoint, cohort mutation, runtime lease acquire/renew, promotion approve/write의 정적 admission 차단과 독립 재감사 치명 0·중요 0.
+3. [완료·NO-GO 증거] v17 pilot5 0/5 `CONTINUE`, 누적 6/15 `NO_GO` shadow replay.
+4. [미충족] 전용 gcloud configuration으로 Cloud Run worker `observe_only`와 bounded claim 상태를 현행 시점에 재확인한 영수증.
+5. [미충족] exact plan·artifact·receipt를 실제 실행과 결속하고 실행 중 신규 target 편입을 금지하는 최소 live Adapter.
+6. [미충족] grant/cohort/plan SHA·만료·중단 조건에 결속된 새 비중복 단건 canary의 사용자 승인.
+
+전체 재생성 repair는 기존 표본에서 신규 issue 0이므로 patch schema 즉시 도입을 보류한다. 원문 분류가
+반복 가능한 최소 seam을 입증할 때만 별도 버전으로 설계하며, 구독 nominal USD cap이나 예약 ledger를
+다른 이름으로 재도입하지 않는다.
