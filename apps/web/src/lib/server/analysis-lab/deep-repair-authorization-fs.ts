@@ -1,10 +1,14 @@
-import { createHash, randomUUID } from "node:crypto";
-import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import type {
   DeepRepairAuthorizationRepository,
   DeepRepairAuthorizationStoredArtifact,
 } from "./deep-repair-authorization";
+import {
+  claimImmutableBytesAtomic,
+  writeImmutableBytesAtomic,
+} from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
 
 const SHA256 = /^[a-f0-9]{64}$/u;
@@ -66,35 +70,7 @@ export function createDeepRepairAuthorizationFilesystemRepository(options: {
     ),
     async claimIssuance(approvalSha256, bytes) {
       const path = join(rootDir, "issued-authorities", `${safeSha(approvalSha256)}.json`);
-      const directory = dirname(path);
-      const temporaryPath = join(
-        directory,
-        `.issuance-${approvalSha256}-${randomUUID()}.tmp`,
-      );
-      const desired = Buffer.from(bytes);
-      await mkdir(directory, { recursive: true });
-      await writeFile(temporaryPath, desired, { flag: "wx" });
-      try {
-        try {
-          // 완전히 기록된 같은-filesystem 임시 inode만 final path에 원자적으로 link한다.
-          // 따라서 동시 loser가 EEXIST 직후 zero/partial marker를 읽을 수 없다.
-          await link(temporaryPath, path);
-        } catch (error) {
-          if (isAlreadyExists(error)) return false;
-          throw error;
-        }
-        const stored = await readFile(path);
-        if (Buffer.compare(stored, desired) !== 0) {
-          throw new Error(`immutable issuance read-back mismatch: ${path}`);
-        }
-        return true;
-      } finally {
-        try {
-          await unlink(temporaryPath);
-        } catch (error) {
-          if (!isNotFound(error)) throw error;
-        }
-      }
+      return claimImmutableBytesAtomic(path, bytes);
     },
   };
 }
@@ -119,20 +95,7 @@ async function writeContentAddressed(
   if (rawSha256(bytes) !== expectedSha256) {
     throw new Error(`content address raw SHA-256 mismatch: ${path}`);
   }
-  await mkdir(dirname(path), { recursive: true });
-  try {
-    await writeFile(path, bytes, { flag: "wx" });
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error;
-    const existing = await readFile(path);
-    if (Buffer.compare(existing, Buffer.from(bytes)) !== 0) {
-      throw new Error(`immutable artifact conflict: ${path}`);
-    }
-  }
-  const stored = await readFile(path);
-  if (Buffer.compare(stored, Buffer.from(bytes)) !== 0) {
-    throw new Error(`immutable artifact read-back mismatch: ${path}`);
-  }
+  await writeImmutableBytesAtomic(path, bytes);
 }
 
 function safeSha(value: string): string {
@@ -156,10 +119,6 @@ function isWithin(root: string, candidate: string): boolean {
   const normalizedCandidate = resolve(candidate);
   return normalizedCandidate === normalizedRoot
     || normalizedCandidate.startsWith(`${normalizedRoot}${sep}`);
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "EEXIST");
 }
 
 function isNotFound(error: unknown): boolean {

@@ -1,6 +1,6 @@
 import { constants } from "node:fs";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, resolve, sep } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { analysisLabDir } from "./run-store";
 import type {
   DeepRepairLiveArtifactRepository,
@@ -8,6 +8,10 @@ import type {
   DeepRepairLiveStoredArtifact,
 } from "./deep-repair-live-experiment";
 import type { DeepRepairExperimentReceipt } from "./deep-repair-experiment";
+import {
+  claimImmutableBytesAtomic,
+  writeImmutableBytesAtomic,
+} from "./immutable-artifact-fs";
 
 const SHA256 = /^[a-f0-9]{64}$/;
 const COHORT_LOGICAL_PREFIX = "spike-out/analysis-lab/experiments/cohorts/";
@@ -58,19 +62,7 @@ export function createDeepRepairLiveFilesystemRepository(options: {
     async claimStart(key, start) {
       const attemptDir = attemptDirectory(rootDir, key);
       const path = join(attemptDir, "start.json");
-      await mkdir(attemptDir, { recursive: true });
-      try {
-        const desired = encodeJson(start);
-        await writeFile(path, desired, { flag: "wx" });
-        const stored = await readFile(path);
-        if (Buffer.compare(stored, desired) !== 0) {
-          throw new Error(`immutable artifact read-back mismatch: ${path}`);
-        }
-        return true;
-      } catch (error) {
-        if (isAlreadyExists(error)) return false;
-        throw error;
-      }
+      return claimImmutableBytesAtomic(path, encodeJson(start));
     },
     async writeObservations(sha256, value) {
       await writeImmutableJson(join(rootDir, "observations", `${safeSha(sha256)}.json`), value);
@@ -87,7 +79,7 @@ export function createDeepRepairLiveFilesystemRepository(options: {
       const existing = await readBytesOrNull(terminalPath);
       if (existing) {
         if (Buffer.compare(existing, desired) === 0) {
-          await writeImmutableBytes(
+          await writeImmutableBytesAtomic(
             join(rootDir, "receipts", `${safeSha(receiptSha256)}.json`),
             desired,
           );
@@ -95,11 +87,11 @@ export function createDeepRepairLiveFilesystemRepository(options: {
         }
         throw new Error(`immutable artifact conflict: ${terminalPath}`);
       }
-      await writeImmutableBytes(
+      await writeImmutableBytesAtomic(
         join(rootDir, "receipts", `${safeSha(receiptSha256)}.json`),
         desired,
       );
-      await writeImmutableBytes(terminalPath, desired);
+      await writeImmutableBytesAtomic(terminalPath, desired);
     },
   };
 }
@@ -119,24 +111,7 @@ async function readBytesOrNull(path: string): Promise<Buffer | null> {
 }
 
 async function writeImmutableJson(path: string, value: unknown): Promise<void> {
-  await writeImmutableBytes(path, encodeJson(value));
-}
-
-async function writeImmutableBytes(path: string, bytes: Buffer): Promise<void> {
-  await mkdir(dirname(path), { recursive: true });
-  try {
-    await writeFile(path, bytes, { flag: "wx" });
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error;
-    const existing = await readFile(path);
-    if (Buffer.compare(existing, bytes) !== 0) {
-      throw new Error(`immutable artifact conflict: ${path}`);
-    }
-  }
-  const stored = await readFile(path);
-  if (Buffer.compare(stored, bytes) !== 0) {
-    throw new Error(`immutable artifact read-back mismatch: ${path}`);
-  }
+  await writeImmutableBytesAtomic(path, encodeJson(value));
 }
 
 function encodeJson(value: unknown): Buffer {
@@ -163,10 +138,6 @@ function isWithin(root: string, candidate: string): boolean {
   const normalizedCandidate = resolve(candidate);
   return normalizedCandidate === normalizedRoot
     || normalizedCandidate.startsWith(`${normalizedRoot}${sep}`);
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "EEXIST");
 }
 
 function isNotFound(error: unknown): boolean {

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve, sep } from "node:path";
+import { join, relative, resolve, sep } from "node:path";
 import { ANALYSIS_LAB_PROMPT_VERSION } from "@/features/dev/analysis-lab/contract";
 import { ANALYSIS_QUALITY_POLICY_VERSION } from "@/features/dev/analysis-lab/quality-contract";
 import {
@@ -12,6 +11,7 @@ import {
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_REQUIRED_STRATA,
 } from "./deep-repair-formal-policy";
+import { writeImmutableBytesAtomic } from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
 
 export const DEEP_REPAIR_PREPARATION_POLICY = Object.freeze({
@@ -596,20 +596,7 @@ async function writePreparationArtifact(
   if (!isWithin(rootDir, path) || relative(rootDir, path).startsWith("..")) {
     throw new Error(`unsupported preparation artifact path: ${artifact.path}`);
   }
-  await mkdir(dirname(path), { recursive: true });
-  try {
-    await writeFile(path, artifact.bytes, { flag: "wx" });
-  } catch (error) {
-    if (!isAlreadyExists(error)) throw error;
-    const existing = await readFile(path);
-    if (Buffer.compare(existing, artifact.bytes) !== 0) {
-      throw new Error(`immutable artifact conflict: ${path}`);
-    }
-  }
-  const stored = await readFile(path);
-  if (Buffer.compare(stored, artifact.bytes) !== 0) {
-    throw new Error(`immutable artifact read-back mismatch: ${path}`);
-  }
+  await writeImmutableBytesAtomic(path, artifact.bytes);
 }
 
 function normalizeInputBlocks(
@@ -716,8 +703,4 @@ function sha256Bytes(bytes: Uint8Array): string {
 
 function isWithin(root: string, candidate: string): boolean {
   return candidate === root || candidate.startsWith(`${root}${sep}`);
-}
-
-function isAlreadyExists(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "EEXIST");
 }
