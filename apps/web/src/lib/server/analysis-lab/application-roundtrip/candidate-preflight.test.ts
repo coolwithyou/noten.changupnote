@@ -41,7 +41,7 @@ const preflight = createApplicationRoundtripCandidatePreflight({
       return [attachment("모집 공고문.hwp", "announcement")];
     }
     return [{
-      filename: "신청 서식.hwp",
+      filename: "공고문 및 신청서.hwp",
       storageKey: null,
       sha256: null,
       bytes: null,

@@ -6,6 +6,7 @@ import type {
 import {
   classifyRoundtripDocument,
   declaredRoundtripFormat,
+  hasLikelyApplicationFilename,
   likelyApplicationRole,
 } from "./core";
 
@@ -250,7 +251,9 @@ function classifyCandidateStatus(documents: readonly CandidateDocumentResult[]):
   const filenameNeedsSource = documents.some((document) => {
     if (document.error === null && document.role !== null) return document.role === "unknown";
     const hinted = classifyRoundtripDocument({ filename: document.filename, markdown: "", fields: [], formConfidence: 0 });
-    return likelyApplicationRole(hinted.role) || hinted.role === "unknown";
+    return hasLikelyApplicationFilename(document.filename)
+      || likelyApplicationRole(hinted.role)
+      || hinted.role === "unknown";
   });
   if (filenameNeedsSource) {
     return documents.some((document) => document.error !== null && document.sourceSha256 !== null)

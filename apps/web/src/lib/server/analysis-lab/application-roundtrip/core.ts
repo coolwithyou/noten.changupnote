@@ -377,6 +377,10 @@ export function likelyApplicationRole(role: RoundtripDocumentRole): boolean {
   return role === "application_form" || role === "business_plan" || role === "mixed_form";
 }
 
+export function hasLikelyApplicationFilename(filename: string): boolean {
+  return APPLICATION_FILENAME.test(filename) || PLAN_FILENAME.test(filename);
+}
+
 export function declaredRoundtripFormat(filename: string): "hwp" | "hwpx" | null {
   const lowered = filename.toLowerCase();
   if (lowered.endsWith(".hwpx")) return "hwpx";
