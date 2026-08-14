@@ -102,6 +102,8 @@ function commandHarness(input: {
   readonly tokenInfoEmail?: string;
   readonly v1?: Record<string, unknown>;
   readonly v2?: Record<string, unknown>;
+  readonly executions?: Record<string, unknown>;
+  readonly executionPages?: readonly Record<string, unknown>[];
   readonly workerContractSafe?: boolean;
   readonly gitCommitSha?: string;
 }) {
@@ -111,6 +113,7 @@ function commandHarness(input: {
     signal: AbortSignal;
     input: string | undefined;
   }> = [];
+  let executionPage = 0;
   const execFile: DeepRepairOperationalGuardExecFile = async (file, args, options) => {
     calls.push({ file, args, signal: options.signal, input: options.input });
     if (file === "gcloud" && args[0] === "auth") return { stdout: "secret-access-token\n" };
@@ -119,6 +122,13 @@ function commandHarness(input: {
     }
     if (file === "curl" && args.at(-1) === "https://oauth2.googleapis.com/tokeninfo") {
       return { stdout: JSON.stringify({ email: input.tokenInfoEmail ?? PRINCIPAL }) };
+    }
+    if (file === "curl" && args.at(-1)?.endsWith("/executions")) {
+      const value = input.executionPages?.[executionPage]
+        ?? input.executions
+        ?? { executions: [] };
+      executionPage += 1;
+      return { stdout: JSON.stringify(value) };
     }
     if (file === "curl") {
       return { stdout: JSON.stringify(input.v2 ?? cloudRunV2({}, input.gitCommitSha)) };
@@ -144,7 +154,7 @@ function commandHarness(input: {
     ...evidence,
     validUntil: "2026-08-14T03:10:00.000Z",
   });
-  assert.equal(harness.calls.length, 5);
+  assert.equal(harness.calls.length, 6);
 }
 
 {
@@ -155,7 +165,7 @@ function commandHarness(input: {
     signal,
   );
 
-  assert.equal(harness.calls.length, 5);
+  assert.equal(harness.calls.length, 6);
   assert.deepEqual(harness.calls[0]!.args, [
     "auth",
     "print-access-token",
@@ -176,18 +186,172 @@ function commandHarness(input: {
   assert.ok(harness.calls.every((call) => call.signal === signal));
   assert.equal(harness.calls[1]!.input, "secret-access-token");
   assert.match(harness.calls[3]!.input ?? "", /^Authorization: Bearer secret-access-token\n/u);
-  assert.deepEqual(harness.calls[4]!.args.slice(2), [
+  assert.equal(harness.calls[4]!.args.at(-1),
+    "https://run.googleapis.com/v2/projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions");
+  assert.deepEqual(harness.calls[5]!.args.slice(2), [
     "merge-base",
     "--is-ancestor",
     "ec8cec75566e9ba5d07aead3837ce48501b1b6a9",
     GIT_SHA,
   ]);
-  assert.equal(harness.calls[4]!.args[0], "-C");
-  assert.match(harness.calls[4]!.args[1] ?? "", /\/cunote$/u);
+  assert.equal(harness.calls[5]!.args[0], "-C");
+  assert.match(harness.calls[5]!.args[1] ?? "", /\/cunote$/u);
   assert.equal(
     harness.calls.some((call) => call.args.some((arg) => arg.includes("secret-access-token"))),
     false,
     "access token must not be exposed in child-process arguments",
+  );
+}
+
+{
+  const harness = commandHarness({
+    executions: {
+      executions: [{
+        name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/old-worker",
+        uid: "a0fb5d10-4764-47b1-9624-438f0fcc85fb",
+        job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+        completionTime: "",
+        runningCount: 1,
+      }],
+    },
+  });
+  await assert.rejects(
+    createDeepRepairOperationalGuardUnsafeForTest({ execFile: harness.execFile })(
+      evidence,
+      new AbortController().signal,
+    ),
+    /non-terminal Cloud Run execution|종결되지 않은 Cloud Run execution/i,
+    "과거 revision을 포함한 비종결 execution이 하나라도 있으면 로컬 모델 실행을 열면 안 된다",
+  );
+  assert.equal(
+    harness.calls.some((call) => call.file === "git"),
+    false,
+    "execution quiescence는 worker ancestry 검사보다 먼저 닫혀야 한다",
+  );
+}
+
+{
+  const harness = commandHarness({
+    executions: {
+      executions: [
+        {
+          name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/failed",
+          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          completionTime: "2026-08-14T02:50:00.123456789Z",
+          failedCount: 1,
+        },
+        {
+          name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/cancelled",
+          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          completionTime: "2026-08-14T02:51:00Z",
+          cancelledCount: 1,
+        },
+      ],
+    },
+  });
+  await createDeepRepairOperationalGuardUnsafeForTest({ execFile: harness.execFile })(
+    evidence,
+    new AbortController().signal,
+  );
+  assert.equal(harness.calls.at(-1)?.file, "git");
+}
+
+{
+  const harness = commandHarness({
+    executionPages: [
+      { executions: [], nextPageToken: "repeat" },
+      { executions: [], nextPageToken: "repeat" },
+    ],
+  });
+  await assert.rejects(
+    createDeepRepairOperationalGuardUnsafeForTest({ execFile: harness.execFile })(
+      evidence,
+      new AbortController().signal,
+    ),
+    /pagination token.*반복/i,
+  );
+}
+
+{
+  const harness = commandHarness({
+    executionPages: [
+      { executions: [], nextPageToken: "page-2" },
+      { executions: [] },
+    ],
+  });
+  const controller = new AbortController();
+  const reason = new Error("operator cancelled execution scan");
+  let executionCalls = 0;
+  const abortingExec: DeepRepairOperationalGuardExecFile = async (file, args, options) => {
+    if (file === "curl" && args.at(-1)?.endsWith("/executions")) {
+      executionCalls += 1;
+      if (executionCalls === 2) {
+        controller.abort(reason);
+        throw reason;
+      }
+    }
+    return harness.execFile(file, args, options);
+  };
+  await assert.rejects(
+    createDeepRepairOperationalEvidenceCaptureUnsafeForTest({ execFile: abortingExec })(
+      controller.signal,
+    ),
+    (error: unknown) => error === reason,
+    "pagination 중 사용자 abort는 production_guard_invalid로 오분류하면 안 된다",
+  );
+}
+
+{
+  const harness = commandHarness({
+    executionPages: [
+      {
+        executions: [{
+          name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/completed",
+          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          completionTime: "2026-08-14T02:50:00Z",
+          failedCount: 1,
+        }],
+        nextPageToken: "page-2",
+      },
+      {
+        executions: [{
+          name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/pending",
+          job: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
+          runningCount: 0,
+        }],
+      },
+    ],
+  });
+  await assert.rejects(
+    createDeepRepairOperationalEvidenceCaptureUnsafeForTest({ execFile: harness.execFile })(
+      new AbortController().signal,
+    ),
+    /종결되지 않은 Cloud Run execution/i,
+    "첫 페이지만 검사하면 안 되고 마지막 pagination token까지 active execution을 찾아야 한다",
+  );
+  const executionCalls = harness.calls.filter(
+    (call) => call.file === "curl" && call.args.at(-1)?.endsWith("/executions"),
+  );
+  assert.equal(executionCalls.length, 2);
+  assert.ok(executionCalls[1]!.args.includes("pageToken=page-2"));
+}
+
+{
+  const harness = commandHarness({
+    executions: {
+      executions: [{
+        name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis/executions/completed",
+        job: "projects/changupnote-com/locations/asia-northeast3/jobs/other",
+        completionTime: "2026-08-14T02:50:00Z",
+      }],
+    },
+  });
+  await assert.rejects(
+    createDeepRepairOperationalGuardUnsafeForTest({ execFile: harness.execFile })(
+      evidence,
+      new AbortController().signal,
+    ),
+    /고정 Job 소속/i,
   );
 }
 

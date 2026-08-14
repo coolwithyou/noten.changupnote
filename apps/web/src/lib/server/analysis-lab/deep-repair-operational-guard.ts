@@ -12,8 +12,9 @@ const PROJECT = "changupnote-com";
 const REGION = "asia-northeast3";
 const JOB = "cunote-deep-analysis";
 const TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
-const JOB_V2_URL =
-  `https://run.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/jobs/${JOB}`;
+const JOB_V2_NAME = `projects/${PROJECT}/locations/${REGION}/jobs/${JOB}`;
+const JOB_V2_URL = `https://run.googleapis.com/v2/${JOB_V2_NAME}`;
+const JOB_EXECUTIONS_V2_URL = `${JOB_V2_URL}/executions`;
 const MAX_BUFFER = 4 * 1024 * 1024;
 const OPERATIONAL_EVIDENCE_TTL_MS = 15 * 60_000;
 const MINIMUM_SAFE_WORKER_COMMIT = "ec8cec75566e9ba5d07aead3837ce48501b1b6a9";
@@ -175,8 +176,71 @@ async function readCurrentCloudRunSnapshot(
   if (v2.workerMode !== "observe_only" || v2.claimScope !== "unconfigured") {
     throw invalid("Cloud Run current snapshot이 observe_only + unconfigured가 아닙니다.");
   }
+  await assertNoActiveCloudRunExecutions(run, accessToken, signal);
   await assertSafeWorkerContract(run, v2.gitCommitSha, signal);
   return v2;
+}
+
+async function assertNoActiveCloudRunExecutions(
+  run: DeepRepairOperationalGuardExecFile,
+  accessToken: string,
+  signal: AbortSignal,
+): Promise<void> {
+  const seenPageTokens = new Set<string>();
+  let pageToken: string | null = null;
+  do {
+    signal.throwIfAborted();
+    const raw = await runSensitive(
+      run,
+      "curl",
+      [
+        "--fail-with-body",
+        "--silent",
+        "--show-error",
+        "--get",
+        "--header",
+        "@-",
+        "--data-urlencode",
+        "pageSize=100",
+        ...(pageToken === null ? [] : ["--data-urlencode", `pageToken=${pageToken}`]),
+        JOB_EXECUTIONS_V2_URL,
+      ],
+      signal,
+      "Cloud Run v2 executions",
+      `Authorization: Bearer ${accessToken}\nX-Goog-User-Project: ${PROJECT}\n`,
+    );
+    const response = parseObject(raw, "Cloud Run v2 executions");
+    const executions = response.executions === undefined ? [] : response.executions;
+    if (!Array.isArray(executions)) {
+      throw invalid("Cloud Run v2 executions가 배열이 아닙니다.");
+    }
+    for (const value of executions) {
+      const execution = requiredRecord(value, "Cloud Run v2 execution");
+      const name = requiredString(execution.name, "Cloud Run v2 execution name");
+      const expectedPrefix = `${JOB_V2_NAME}/executions/`;
+      if (
+        !name.startsWith(expectedPrefix)
+        || name.length === expectedPrefix.length
+        || requiredString(execution.job, "Cloud Run v2 execution job") !== JOB_V2_NAME
+      ) {
+        throw invalid("Cloud Run v2 execution이 고정 Job 소속이 아닙니다.");
+      }
+      if (typeof execution.completionTime !== "string" || execution.completionTime.length === 0) {
+        throw invalid(`종결되지 않은 Cloud Run execution이 있습니다: ${name}`);
+      }
+      isoString(execution.completionTime, "Cloud Run v2 execution completionTime");
+    }
+    const next = response.nextPageToken;
+    if (next === undefined || next === "") {
+      pageToken = null;
+      continue;
+    }
+    pageToken = requiredString(next, "Cloud Run v2 executions nextPageToken");
+    if (seenPageTokens.has(pageToken)) {
+      throw invalid("Cloud Run v2 executions pagination token이 반복됐습니다.");
+    }
+    seenPageTokens.add(pageToken);
+  } while (pageToken !== null);
 }
 
 async function assertSafeWorkerContract(
@@ -249,8 +313,7 @@ function parseCloudRunV1(raw: string): CloudRunSnapshot {
 
 function parseCloudRunV2(raw: string): CloudRunV2Snapshot {
   const job = parseObject(raw, "Cloud Run v2 job");
-  const expectedName = `projects/${PROJECT}/locations/${REGION}/jobs/${JOB}`;
-  if (requiredString(job.name, "Cloud Run v2 job name") !== expectedName) {
+  if (requiredString(job.name, "Cloud Run v2 job name") !== JOB_V2_NAME) {
     throw invalid("Cloud Run v2 job name이 고정 project/region/job과 다릅니다.");
   }
   const executionTemplate = requiredRecord(job.template, "Cloud Run v2 execution template");
@@ -419,6 +482,7 @@ async function runSensitive(
   try {
     return (await run(file, args, commandOptions(signal, input))).stdout;
   } catch {
+    signal.throwIfAborted();
     throw invalid(`${label} 조회에 실패했습니다.`);
   }
 }
