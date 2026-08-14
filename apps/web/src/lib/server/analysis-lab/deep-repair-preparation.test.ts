@@ -224,13 +224,30 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
       planArtifactSha256: exactSha(7002),
       manifestSha256: exactSha(7003),
     }));
+    await writeFile(
+      join(
+        root,
+        "experiments",
+        "series",
+        ".immutable-artifact-00000000-0000-4000-8000-000000000099.tmp",
+      ),
+      "partial temp bytes",
+    );
 
     assert.deepEqual(await readDeepRepairHistoricalGrantIds({ rootDir: root }), [
       canonicalGrant,
       snapshotGrant,
       runGrant,
       experimentGrant,
-    ]);
+    ], "atomic publisher의 orphan temp는 committed series history가 아니다");
+
+    await writeFile(join(root, "experiments", "series", ".unexpected.tmp"), "unexpected");
+    await assert.rejects(
+      readDeepRepairHistoricalGrantIds({ rootDir: root }),
+      /unexpected experiment series marker: \.unexpected\.tmp/,
+      "helper-owned exact temp 형식 이외의 entry는 계속 fail closed 해야 한다",
+    );
+    await unlink(join(root, "experiments", "series", ".unexpected.tmp"));
 
     await writeFile(join(root, "cohort.broken.json"), "{broken");
     await assert.rejects(

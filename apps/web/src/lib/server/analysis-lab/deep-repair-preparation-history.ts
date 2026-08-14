@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isImmutableArtifactTempFileName } from "./immutable-artifact-fs";
 import { analysisLabDir } from "./run-store";
 
 const LEGACY_COHORT_SNAPSHOT_FILE = /^cohort\..+\.json$/;
@@ -44,6 +45,7 @@ export async function readDeepRepairHistoricalGrantIds(options: {
   const seriesRoot = join(root, "experiments", "series");
   for (const entry of await readDirectoryOrEmpty(seriesRoot)) {
     if (!entry.isFile()) throw new Error(`unexpected experiment series entry: ${entry.name}`);
+    if (isImmutableArtifactTempFileName(entry.name)) continue;
     const match = SERIES_MARKER_FILE.exec(entry.name);
     if (!match) throw new Error(`unexpected experiment series marker: ${entry.name}`);
     const marker = await readJsonRecord(

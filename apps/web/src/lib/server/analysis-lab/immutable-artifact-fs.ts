@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { link, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
+
+const IMMUTABLE_ARTIFACT_TEMP_FILE =
+  /^\.immutable-artifact-[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.tmp$/u;
+
+export function isImmutableArtifactTempFileName(name: string): boolean {
+  return IMMUTABLE_ARTIFACT_TEMP_FILE.test(name);
+}
 
 /**
  * 완전히 기록된 같은-filesystem 임시 inode를 final path에 원자적으로 공개한다.
@@ -13,7 +20,7 @@ export async function claimImmutableBytesAtomic(
   const directory = dirname(path);
   const temporaryPath = join(
     directory,
-    `.${basename(path)}-${randomUUID()}.tmp`,
+    `.immutable-artifact-${randomUUID()}.tmp`,
   );
   const desired = Buffer.from(bytes);
 
