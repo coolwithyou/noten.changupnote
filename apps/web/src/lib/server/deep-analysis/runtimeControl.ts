@@ -123,6 +123,7 @@ export async function acquireLocalSubscriptionLease(input: {
   db: CunoteDb;
   ownerId: string;
   changedBy: string;
+  expectedGeneration?: number;
   reason?: string | null;
   now?: Date;
   ttlSeconds?: number;
@@ -130,6 +131,9 @@ export async function acquireLocalSubscriptionLease(input: {
   const ownerId = requireOwnerId(input.ownerId);
   const now = input.now ?? new Date();
   const leaseExpiresAt = leaseExpiry(now, input.ttlSeconds);
+  const expectedGeneration = input.expectedGeneration === undefined
+    ? null
+    : requireGeneration(input.expectedGeneration);
   const [row] = await input.db.update(schema.deepAnalysisRuntimeControl).set({
     mode: "local_subscription",
     generation: sql`${schema.deepAnalysisRuntimeControl.generation} + 1`,
@@ -138,19 +142,25 @@ export async function acquireLocalSubscriptionLease(input: {
     localOwnerId: ownerId,
     localLeaseExpiresAt: leaseExpiresAt,
     updatedAt: now,
-  }).where(and(
-    eq(schema.deepAnalysisRuntimeControl.controlKey, CONTROL_KEY),
-    or(
-      eq(schema.deepAnalysisRuntimeControl.mode, "paused"),
-      and(
-        eq(schema.deepAnalysisRuntimeControl.mode, "local_subscription"),
-        or(
-          eq(schema.deepAnalysisRuntimeControl.localOwnerId, ownerId),
-          lte(schema.deepAnalysisRuntimeControl.localLeaseExpiresAt, now),
+  }).where(expectedGeneration === null
+    ? and(
+      eq(schema.deepAnalysisRuntimeControl.controlKey, CONTROL_KEY),
+      or(
+        eq(schema.deepAnalysisRuntimeControl.mode, "paused"),
+        and(
+          eq(schema.deepAnalysisRuntimeControl.mode, "local_subscription"),
+          or(
+            eq(schema.deepAnalysisRuntimeControl.localOwnerId, ownerId),
+            lte(schema.deepAnalysisRuntimeControl.localLeaseExpiresAt, now),
+          ),
         ),
       ),
-    ),
-  )).returning();
+    )
+    : and(
+      eq(schema.deepAnalysisRuntimeControl.controlKey, CONTROL_KEY),
+      eq(schema.deepAnalysisRuntimeControl.mode, "paused"),
+      eq(schema.deepAnalysisRuntimeControl.generation, expectedGeneration),
+    )).returning();
   if (!row) {
     throw new DeepAnalysisRuntimeControlError(
       "runtime_control_conflict",
@@ -163,11 +173,13 @@ export async function acquireLocalSubscriptionLease(input: {
 export async function renewLocalSubscriptionLease(input: {
   db: CunoteDb;
   ownerId: string;
+  generation?: number;
   now?: Date;
   ttlSeconds?: number;
 }): Promise<DeepAnalysisRuntimeControl> {
   const ownerId = requireOwnerId(input.ownerId);
   const now = input.now ?? new Date();
+  const generation = input.generation === undefined ? null : requireGeneration(input.generation);
   const [row] = await input.db.update(schema.deepAnalysisRuntimeControl).set({
     localLeaseExpiresAt: leaseExpiry(now, input.ttlSeconds),
     updatedAt: now,
@@ -175,6 +187,9 @@ export async function renewLocalSubscriptionLease(input: {
     eq(schema.deepAnalysisRuntimeControl.controlKey, CONTROL_KEY),
     eq(schema.deepAnalysisRuntimeControl.mode, "local_subscription"),
     eq(schema.deepAnalysisRuntimeControl.localOwnerId, ownerId),
+    ...(generation === null
+      ? []
+      : [eq(schema.deepAnalysisRuntimeControl.generation, generation)]),
     gt(schema.deepAnalysisRuntimeControl.localLeaseExpiresAt, now),
   )).returning();
   if (!row) {
@@ -190,10 +205,12 @@ export async function releaseLocalSubscriptionLease(input: {
   db: CunoteDb;
   ownerId: string;
   changedBy: string;
+  generation?: number;
   now?: Date;
 }): Promise<DeepAnalysisRuntimeControl> {
   const ownerId = requireOwnerId(input.ownerId);
   const now = input.now ?? new Date();
+  const generation = input.generation === undefined ? null : requireGeneration(input.generation);
   const [row] = await input.db.update(schema.deepAnalysisRuntimeControl).set({
     mode: "paused",
     generation: sql`${schema.deepAnalysisRuntimeControl.generation} + 1`,
@@ -206,6 +223,9 @@ export async function releaseLocalSubscriptionLease(input: {
     eq(schema.deepAnalysisRuntimeControl.controlKey, CONTROL_KEY),
     eq(schema.deepAnalysisRuntimeControl.mode, "local_subscription"),
     eq(schema.deepAnalysisRuntimeControl.localOwnerId, ownerId),
+    ...(generation === null
+      ? []
+      : [eq(schema.deepAnalysisRuntimeControl.generation, generation)]),
   )).returning();
   if (!row) {
     throw new DeepAnalysisRuntimeControlError(
@@ -259,6 +279,13 @@ function requireOwnerId(ownerId: string): string {
     );
   }
   return normalized;
+}
+
+function requireGeneration(generation: number): number {
+  if (!Number.isSafeInteger(generation) || generation < 1) {
+    throw new Error("Deep analysis runtime generation must be a positive safe integer");
+  }
+  return generation;
 }
 
 function leaseExpiry(now: Date, ttlSeconds = LOCAL_ANALYSIS_LEASE_TTL_SECONDS): Date {

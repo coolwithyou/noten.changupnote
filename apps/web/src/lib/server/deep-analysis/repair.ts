@@ -119,10 +119,12 @@ export async function repairDeepAnalysisExecution(input: {
   apiKey: string;
   model: string;
   effort?: DeepAnalysisEffort | null;
+  signal?: AbortSignal;
   failedExecution: DeepAnalysisExecution;
   validation: DeepAnalysisValidationResult;
   runModel?: typeof runDeepGrantAnalysis;
 }): Promise<DeepAnalysisExecution> {
+  input.signal?.throwIfAborted();
   const initialValidationToRepair = selectRepairableValidation({
     result: input.failedExecution.result,
     validation: input.validation,
@@ -204,6 +206,7 @@ export async function repairDeepAnalysisExecution(input: {
     inputText: repairInput,
     evidenceText: axisExecutionToRepair.evidenceText,
     model: input.model,
+    ...(input.signal ? { signal: input.signal } : {}),
     ...(input.effort === undefined ? {} : { effort: input.effort }),
     taskInstruction: [
       "아래 원문과 직전 결과의 validator 실패 사유를 읽고 전체 22축 결과를 교정해서 다시 반환하라.",

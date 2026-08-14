@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   AnalysisLabExecutionPausedError,
   assertAnalysisLabCohortMutationAdmitted,
   assertAnalysisLabLiveExecutionAdmitted,
   assertAnalysisLabPromotionMutationAdmitted,
 } from "./analysis-execution-admission";
+import { currentDeepRepairLiveExecutionBinding } from "./deep-repair-live-experiment";
 
 assert.throws(
   () => assertAnalysisLabLiveExecutionAdmitted(),
@@ -16,6 +19,46 @@ assert.throws(
     && /모델 실행/.test(error.message),
   "Gate R 전 live 모델 실행은 환경변수나 lease만으로 열 수 없어야 한다",
 );
+
+assert.equal(
+  currentDeepRepairLiveExecutionBinding(),
+  null,
+  "core가 검증한 prepared.execute callback 밖에서는 capability가 존재하지 않는다",
+);
+
+const webSourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+for (const filename of recursiveTypeScriptFiles(webSourceRoot)) {
+  if (
+    filename.endsWith(".test.ts")
+    || filename.endsWith(".test.tsx")
+  ) continue;
+  const source = readFileSync(filename, "utf8");
+  for (const unsafe of [
+    {
+      name: "buildClaudeCliFetchUnsafeForTest",
+      definition: "/claude-cli-transport.ts",
+    },
+    {
+      name: "startLabBatchJobUnsafeForTest",
+      definition: "/batch-job.ts",
+    },
+  ]) {
+    if (filename.endsWith(unsafe.definition)) continue;
+    assert.ok(
+      !source.includes(unsafe.name),
+      `${filename}: test-only Gate 우회 import/call 금지(${unsafe.name})`,
+    );
+  }
+  if (
+    !filename.endsWith("/deep-repair-live-experiment.ts")
+    && !filename.endsWith("/deep-repair-live-production.ts")
+  ) {
+    assert.ok(
+      !source.includes("createDeepRepairLiveExperiment"),
+      `${filename}: live execution context를 여는 core factory는 고정 production 조합만 사용할 수 있다`,
+    );
+  }
+}
 
 assert.throws(
   () => assertAnalysisLabCohortMutationAdmitted(),
@@ -117,3 +160,15 @@ assert.match(
 );
 
 console.log("analysis-lab execution admission tests: ok");
+
+function recursiveTypeScriptFiles(root: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = join(root, entry.name);
+    if (entry.isDirectory()) files.push(...recursiveTypeScriptFiles(path));
+    else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) {
+      files.push(path);
+    }
+  }
+  return files;
+}

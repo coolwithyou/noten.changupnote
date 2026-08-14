@@ -94,8 +94,11 @@ export async function runDeepGrantAnalysis(options: {
   effort?: DeepAnalysisEffort | null;
   /** map-reduce synthesis처럼 기본 분석 지시를 더 좁혀야 할 때만 사용한다. */
   taskInstruction?: string;
+  /** lease/worker 중단 신호. 최초 호출·retry delay·후속 attempt에 모두 관통한다. */
+  signal?: AbortSignal;
   fetchImpl?: typeof fetch;
 }): Promise<DeepAnalysisResult> {
+  options.signal?.throwIfAborted();
   const model = options.model ?? resolveLabModel();
   const effort = options.effort === undefined
     ? supportsDeepAnalysisEffort(model) ? "high" : null
@@ -127,8 +130,10 @@ export async function runDeepGrantAnalysis(options: {
     const timeoutMs = resolveTimeoutMs();
     const executionScopedTimeout = hasExecutionScopedTimeout(requestFetch);
     const controller = executionScopedTimeout ? null : new AbortController();
+    const linkedSignal = linkAbortSignals(options.signal, controller?.signal);
     const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
+      options.signal?.throwIfAborted();
       return await requestFetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -137,23 +142,25 @@ export async function runDeepGrantAnalysis(options: {
           "anthropic-version": "2023-06-01",
           ...(executionScopedTimeout ? { [EXECUTION_TIMEOUT_HEADER]: String(timeoutMs) } : {}),
         },
-        ...(controller ? { signal: controller.signal } : {}),
+        ...(linkedSignal.signal ? { signal: linkedSignal.signal } : {}),
         // Opus 4.8: temperature/top_p/top_k/thinking 절대 미포함(400 방지 — 상단 주석).
         body: requestBody,
       });
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        if (options.signal?.aborted) options.signal.throwIfAborted();
         throw new Error(`Anthropic 딥분석 호출이 타임아웃됐습니다(${resolveTimeoutMs()}ms).`);
       }
       throw error;
     } finally {
       if (timeout) clearTimeout(timeout);
+      linkedSignal.cleanup();
     }
   };
 
   let response = await attempt();
   if (RETRYABLE_STATUSES.has(response.status)) {
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, RETRY_DELAY_MS));
+    await abortableDelay(RETRY_DELAY_MS, options.signal);
     response = await attempt();
   }
 
@@ -201,6 +208,54 @@ export async function runDeepGrantAnalysis(options: {
     rawResponseText: body,
     stopReason: payload.stop_reason ?? null,
   };
+}
+
+function linkAbortSignals(
+  externalSignal: AbortSignal | undefined,
+  timeoutSignal: AbortSignal | undefined,
+): { signal: AbortSignal | undefined; cleanup: () => void } {
+  if (!externalSignal) return { signal: timeoutSignal, cleanup: () => undefined };
+  if (!timeoutSignal || externalSignal === timeoutSignal) {
+    return { signal: externalSignal, cleanup: () => undefined };
+  }
+  const controller = new AbortController();
+  const abortFromExternal = () => controller.abort(externalSignal.reason);
+  const abortFromTimeout = () => controller.abort(timeoutSignal.reason);
+  externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+  timeoutSignal.addEventListener("abort", abortFromTimeout, { once: true });
+  // aborted 검사와 listener 부착 사이의 race도 수동 재확인으로 닫는다.
+  if (externalSignal.aborted) abortFromExternal();
+  if (timeoutSignal.aborted) abortFromTimeout();
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      externalSignal.removeEventListener("abort", abortFromExternal);
+      timeoutSignal.removeEventListener("abort", abortFromTimeout);
+    },
+  };
+}
+
+function abortableDelay(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  if (!signal) return new Promise((resolve) => setTimeout(resolve, ms));
+  signal.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
 }
 
 // ── tool 스키마(손으로 쓴 JSON Schema — pilot/llm-criteria 스타일) ─────

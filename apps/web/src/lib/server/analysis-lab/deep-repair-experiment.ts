@@ -62,7 +62,7 @@ interface PlannedTarget extends ExperimentTarget {
   readonly waveId: string;
 }
 
-interface DeepRepairExperimentPlan {
+export interface DeepRepairExperimentPlan {
   readonly schema: "deep-repair-experiment-plan-v1";
   readonly manifest: ExperimentManifest;
   readonly sequence: readonly PlannedTarget[];
@@ -77,7 +77,7 @@ interface GateCheckpoint {
   readonly statisticalVerdict: GateVerdict;
 }
 
-interface DeepRepairExperimentReceipt {
+export interface DeepRepairExperimentReceipt {
   readonly schema: "deep-repair-experiment-receipt-v1";
   readonly receiptSha256: string;
   readonly planSha256: string;

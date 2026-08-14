@@ -146,9 +146,11 @@ export async function runValidatedLabPrimary(input: {
   model: string;
   taskInstruction?: string;
   effort?: DeepAnalysisEffort | null;
+  signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   runModel?: typeof runDeepGrantAnalysis;
 }): Promise<ValidatedLabPrimaryResult> {
+  input.signal?.throwIfAborted();
   const seal = sealDeepAnalysisInput({
     grantId: input.grantId,
     sourceRevisionSha256: input.inputSha256,
@@ -166,6 +168,7 @@ export async function runValidatedLabPrimary(input: {
     inputText: input.inputText,
     evidenceText: input.inputText,
     model: input.model,
+    ...(input.signal ? { signal: input.signal } : {}),
     ...(input.taskInstruction ? { taskInstruction: input.taskInstruction } : {}),
     ...(input.effort === undefined ? {} : { effort: input.effort }),
   });
@@ -194,6 +197,7 @@ export async function runValidatedLabPrimary(input: {
   let modelPrimaryRepairCount = 0;
   let newIssueAfterRepairCount = 0;
   while (route.route === "repair" && repairCount < MAX_LAB_PRIMARY_REPAIRS) {
+    input.signal?.throwIfAborted();
     // 결정적 교정만으로 끝나면 수 ms — 그 자체가 "모델 repair 없이 해결" 신호라 그대로 기록한다.
     const repairStartedAt = Date.now();
     const modelPassCountBeforeRepair = execution.passes.length;
@@ -202,6 +206,7 @@ export async function runValidatedLabPrimary(input: {
       seal,
       apiKey: input.apiKey,
       model: input.model,
+      ...(input.signal ? { signal: input.signal } : {}),
       ...(input.effort === undefined ? {} : { effort: input.effort }),
       failedExecution: execution,
       validation,

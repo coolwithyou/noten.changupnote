@@ -21,6 +21,7 @@ import {
   abortLabBatchJob,
   getLabBatchJobSnapshot,
   startLabBatchJob,
+  startLabBatchJobUnsafeForTest,
   type LabBatchJobDeps,
 } from "./batch-job";
 import type { LabBatchEvent, LabBatchRunnerOptions, LabBatchSummary } from "./batch-runner";
@@ -71,10 +72,7 @@ function startAdmittedLabBatchJob(
   input: LabBatchStartRequest,
   deps: LabBatchJobDeps,
 ): LabBatchJobSnapshot {
-  return startLabBatchJob(input, {
-    assertExecutionAdmissionImpl: () => undefined,
-    ...deps,
-  });
+  return startLabBatchJobUnsafeForTest(input, deps);
 }
 
 {

@@ -6,6 +6,7 @@
 // (batch-runner.ts)·웹 잡처럼 env 대신 명시 지정이 필요한 호출부는 opts 오버라이드
 // (transport/model)를 쓴다 — 미지정 시 기존 env 경로와 100% 동일하다.
 // 실패해도 error 를 담은 LabRun 을 저장·반환한다(입력 메타 보존). DB에는 어떤 쓰기도 하지 않는다.
+import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { getCunoteDb } from "@/lib/server/db/client";
 import * as schema from "@/lib/server/db/schema";
@@ -25,13 +26,16 @@ import {
   runAnalysisPair,
 } from "./application-precompute";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
-import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
+import {
+  assertAnalysisLabLiveExecutionAdmitted,
+} from "./analysis-execution-admission";
 import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
 import {
   applyLabVerifiedConversionArtifacts,
   assembleLabInput,
+  type LabAssembledInputWithAttachmentManifest,
   type LabInputArchive,
 } from "./input";
 import { buildLabRunId, saveLabRun } from "./run-store";
@@ -64,6 +68,48 @@ export interface LabAnalysisOverrides {
   taskInstruction?: string;
   /** taskInstruction의 원천을 런에 결속하는 provenance. */
   reviewRepair?: NonNullable<LabRun["reviewRepair"]>;
+  /** receipt lease 상실을 구독 transport initial·repair 전 호출에 관통시킨다. */
+  signal?: AbortSignal;
+}
+
+export interface PreparedLabAnalysis {
+  readonly grant: {
+    readonly id: string;
+    readonly source: string;
+    readonly sourceId: string;
+    readonly title: string;
+  };
+  readonly input: LabAssembledInputWithAttachmentManifest;
+  readonly currentCriteria: readonly LabCurrentCriterion[];
+  readonly currentSources: readonly {
+    readonly filename: string;
+    readonly storageKey: string | null;
+    readonly sha256: string | null;
+  }[];
+}
+
+export interface PreparedLabAnalysisExecution {
+  readonly transport: "claude-cli";
+  readonly model: string;
+  readonly signal: AbortSignal;
+}
+
+export class AnalysisLabDeepOnlyExecutionError extends Error {
+  readonly code = "receipt_bound_deep_only_required" as const;
+
+  constructor() {
+    super("receipt-bound canary는 exact deep-primary 단건만 허용합니다.");
+    this.name = "AnalysisLabDeepOnlyExecutionError";
+  }
+}
+
+export class AnalysisLabPreparedInputIntegrityError extends Error {
+  readonly code = "prepared_input_integrity_mismatch" as const;
+
+  constructor() {
+    super("prepared analysis의 실제 input text와 봉인 SHA-256이 다릅니다.");
+    this.name = "AnalysisLabPreparedInputIntegrityError";
+  }
 }
 
 /**
@@ -74,9 +120,17 @@ export interface LabAnalysisOverrides {
 async function resolveLabLlmBindingForTransport(
   transport: "api" | "claude-cli",
   schedulerKey: string,
+  signal?: AbortSignal,
 ): Promise<LabLlmBinding> {
   if (transport === "claude-cli") {
-    return { transport, apiKey: "subscription", fetchImpl: buildClaudeCliFetch({ schedulerKey }) };
+    return {
+      transport,
+      apiKey: "subscription",
+      fetchImpl: buildClaudeCliFetch({
+        schedulerKey,
+        ...(signal ? { externalSignal: signal } : {}),
+      }),
+    };
   }
   if (!process.env.ANTHROPIC_API_KEY?.trim()) {
     const { loadMonorepoEnv } = await import("../loadMonorepoEnv");
@@ -97,9 +151,14 @@ export async function runLabAnalysis(
 ): Promise<LabRun> {
   assertApplicationRoundtripOptIn(opts ?? {});
   assertAnalysisLabLiveExecutionAdmitted();
-  const db = getCunoteDb();
   const startedAt = new Date();
-  const runId = buildLabRunId(startedAt);
+  const prepared = await prepareLabAnalysis(grantId);
+  return executePreparedLabAnalysisInternal(prepared, opts, startedAt);
+}
+
+/** DB·R2 read-only 입력 봉인. 모델·CLI·런 저장·Kordoc을 시작하지 않는다. */
+export async function prepareLabAnalysis(grantId: string): Promise<PreparedLabAnalysis> {
+  const db = getCunoteDb();
 
   // ── 공고 로드(없으면 런을 만들지 않고 즉시 실패 → 404) ──────────
   const grantRows = await db
@@ -216,12 +275,68 @@ export async function runLabAnalysis(
     sourceSpan: row.sourceSpan ?? null,
   }));
 
+  return {
+    grant: {
+      id: grant.id,
+      source: grant.source,
+      sourceId: grant.sourceId,
+      title: grant.title,
+    },
+    input,
+    currentCriteria,
+    currentSources: archiveRows.map((archive) => ({
+      filename: archive.filename,
+      storageKey: archive.storageKey ?? null,
+      sha256: archive.sha256 ?? null,
+    })),
+  };
+}
+
+/** authority-bound live Adapter 전용 deep-primary 단건 실행 표면. */
+export async function executePreparedLabAnalysis(
+  prepared: PreparedLabAnalysis,
+  execution: PreparedLabAnalysisExecution,
+): Promise<LabRun> {
+  assertDeepOnlyExecutionOptions(execution);
+  return executePreparedLabAnalysisInternal(prepared, {
+    transport: execution.transport,
+    model: execution.model,
+    signal: execution.signal,
+  });
+}
+
+async function executePreparedLabAnalysisInternal(
+  prepared: PreparedLabAnalysis,
+  opts: LabAnalysisOverrides | undefined,
+  legacyStartedAt?: Date,
+): Promise<LabRun> {
+  const { grant, input, currentCriteria } = prepared;
+  const grantId = grant.id;
+  const archiveRows = prepared.currentSources;
+  const startedAt = legacyStartedAt ?? new Date();
+  const runId = buildLabRunId(startedAt);
+
   // ── 딥분석 호출(실패해도 error 런으로 보존) ─────────────────────
   // transport 해석(순수 env 파싱 또는 명시 오버라이드)은 try 밖 — 성공/실패(error) 런 모두
   // 같은 값을 기록해야 provenance 가 오염되지 않는다(계획 §5 #1). binding 구체화(api 키
   // 부재 throw 가능)는 기존처럼 try 안 — "실패해도 error 런 저장" 계약(상단 주석)을 보존한다.
   const transport = opts?.transport ?? resolveLabTransport();
   const requestedModel = opts?.model ?? resolveLabModel();
+  if (transport !== "claude-cli" || hasReceiptBoundDeepOnlyViolation(opts)) {
+    throw new AnalysisLabDeepOnlyExecutionError();
+  }
+  assertAnalysisLabLiveExecutionAdmitted({
+    grantId,
+    inputSha256: input.inputSha256,
+    attachmentManifestSha256: input.attachmentManifestSha256,
+    model: requestedModel,
+    transport,
+    promptVersion: ANALYSIS_LAB_PROMPT_VERSION,
+  });
+  if (createHash("sha256").update(input.text).digest("hex") !== input.inputSha256) {
+    throw new AnalysisLabPreparedInputIntegrityError();
+  }
+  opts?.signal?.throwIfAborted();
   const roundtripModel = opts?.roundtripModel
     ?? (process.env.ANALYSIS_LAB_ROUNDTRIP_MODEL?.trim() || requestedModel);
   // 딥분석 모델을 시작하기 전에 원본 SHA·Kordoc 버전·모델·transport를 검증한다.
@@ -242,8 +357,11 @@ export async function runLabAnalysis(
   // 같은 binding Promise를 두 형제 작업이 공유한다. API 키 부재/CLI 준비 실패도 primary는
   // error LabRun, sidecar는 failed reference로 각각 종결돼 한쪽이 다른 쪽을 덮지 않는다.
   const bindingPromise = opts?.transport === undefined
-    ? resolveLabLlmBinding({ schedulerKey: runId })
-    : resolveLabLlmBindingForTransport(opts.transport, runId);
+    ? resolveLabLlmBinding({
+        schedulerKey: runId,
+        ...(opts?.signal ? { signal: opts.signal } : {}),
+      })
+    : resolveLabLlmBindingForTransport(opts.transport, runId, opts.signal);
   const runPrimary = async (): Promise<{
     extraction: DeepAnalysisResult | null;
     error: string | null;
@@ -261,6 +379,7 @@ export async function runLabAnalysis(
         inputText: input.text,
         inputSha256: input.inputSha256,
         model: requestedModel,
+        ...(opts?.signal ? { signal: opts.signal } : {}),
         ...(opts?.taskInstruction ? { taskInstruction: opts.taskInstruction } : {}),
         ...(binding.fetchImpl ? { fetchImpl: binding.fetchImpl } : {}),
       });
@@ -369,7 +488,7 @@ export async function runLabAnalysis(
     axisAssessments: extraction?.axisAssessments ?? [],
     taxonomyProposals: extraction?.taxonomyProposals ?? [],
     dimensionDiffs: computeLabDimensionDiffs({
-      current: currentCriteria,
+      current: [...currentCriteria],
       proposed: extraction?.criteria ?? [],
       assessments: extraction?.axisAssessments ?? [],
     }),
@@ -383,6 +502,27 @@ export async function runLabAnalysis(
   };
   await saveLabRun(run);
   return run;
+}
+
+function assertDeepOnlyExecutionOptions(execution: PreparedLabAnalysisExecution): void {
+  const allowed = new Set(["transport", "model", "signal"]);
+  if (
+    !execution
+    || execution.transport !== "claude-cli"
+    || execution.model.trim() === ""
+    || !(execution.signal instanceof AbortSignal)
+    || Object.keys(execution).some((key) => !allowed.has(key))
+  ) {
+    throw new AnalysisLabDeepOnlyExecutionError();
+  }
+}
+
+function hasReceiptBoundDeepOnlyViolation(opts: LabAnalysisOverrides | undefined): boolean {
+  return opts?.withApplicationRoundtrip === true
+    || opts?.reuseApplicationRoundtripRunId !== undefined
+    || opts?.roundtripModel !== undefined
+    || opts?.taskInstruction !== undefined
+    || opts?.reviewRepair !== undefined;
 }
 
 function numericMetadataValue(

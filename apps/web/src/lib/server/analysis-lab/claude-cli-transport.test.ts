@@ -10,6 +10,7 @@ import type { execFile } from "node:child_process";
 import {
   CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER,
   buildClaudeCliFetch as buildProductionClaudeCliFetch,
+  buildClaudeCliFetchUnsafeForTest,
   createClaudeCliScheduler,
   resolveClaudeCliMaxConcurrency,
   resolveLabTransport,
@@ -25,10 +26,7 @@ const FAKE_CLI_VERSION = "2.1.219-test (fake)";
 const API_URL = "https://api.anthropic.com/v1/messages";
 
 function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch {
-  return buildProductionClaudeCliFetch({
-    ...config,
-    assertExecutionAdmissionImpl: () => undefined,
-  });
+  return buildClaudeCliFetchUnsafeForTest(config);
 }
 
 assert.throws(
@@ -339,6 +337,65 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
     "AbortError 를 다른 에러로 감싸면 extractor.ts:136-139 타임아웃 분기가 죽는다",
   );
   console.log("✅ abort — AbortError 명의 그대로 reject(기존 타임아웃 분기 발화 계약)");
+}
+
+// ---- ⑤ resolveLabTransport ----------------------------------------------------------
+{
+  const controller = new AbortController();
+  controller.abort(new DOMException("lease lost", "AbortError"));
+  const { impl } = makeFakeExecFile(() => ({ stdout: successCliJson() }));
+  const fetchImpl = buildClaudeCliFetch({
+    execFileImpl: impl,
+    externalSignal: controller.signal,
+  });
+  await assert.rejects(
+    fetchImpl(API_URL, { method: "POST", body: extractorBody("입력") }),
+    (error: unknown) => error instanceof Error && error.name === "AbortError",
+    "request init에 signal이 없어도 receipt lease AbortSignal이 scheduler와 child까지 관통해야 한다",
+  );
+  console.log("✅ receipt lease abort — transport 인스턴스 외부 신호를 모든 요청에 결속");
+}
+
+{
+  const childSignals: AbortSignal[] = [];
+  const stubChild = { stdin: { on() {}, write() { return true; }, end() {} } };
+  const abortImpl = ((
+    _file: string,
+    args: string[],
+    opts: { signal?: AbortSignal },
+    cb: (error: Error | null, stdout: string, stderr: string) => void,
+  ) => {
+    if (args[0] === "--version") {
+      queueMicrotask(() => cb(null, FAKE_CLI_VERSION, ""));
+      return stubChild;
+    }
+    assert.ok(opts.signal);
+    childSignals.push(opts.signal);
+    opts.signal.addEventListener("abort", () => {
+      const error = new Error("The operation was aborted");
+      error.name = "AbortError";
+      cb(error, "", "");
+    }, { once: true });
+    return stubChild;
+  }) as unknown as typeof execFile;
+  const controller = new AbortController();
+  const fetchImpl = buildClaudeCliFetch({
+    execFileImpl: abortImpl,
+    externalSignal: controller.signal,
+  });
+  const initial = fetchImpl(API_URL, { method: "POST", body: extractorBody("initial") });
+  const repair = fetchImpl(API_URL, { method: "POST", body: extractorBody("repair") });
+  await Promise.resolve();
+  assert.equal(childSignals.length, 2, "initial과 repair가 각각 child process를 시작");
+  controller.abort(new DOMException("lease lost", "AbortError"));
+  const outcomes = await Promise.allSettled([initial, repair]);
+  assert.ok(outcomes.every((outcome) => (
+    outcome.status === "rejected"
+    && outcome.reason instanceof Error
+    && outcome.reason.name === "AbortError"
+  )));
+  assert.ok(childSignals.every((childSignal) => childSignal.aborted));
+  console.log("✅ initial+repair abort — 동일 receipt lease 신호가 모든 child process를 중단");
 }
 
 // ---- ⑤ resolveLabTransport ----------------------------------------------------------

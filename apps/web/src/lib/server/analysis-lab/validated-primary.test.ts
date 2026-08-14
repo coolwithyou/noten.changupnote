@@ -73,14 +73,21 @@ const result = (valid: boolean): DeepAnalysisModelResult => {
 };
 
 let calls = 0;
+const repairSignal = new AbortController().signal;
 const repaired = await runValidatedLabPrimary({
   grantId: "grant-lab-repair",
   inputText,
   inputSha256: "a".repeat(64),
   apiKey: "subscription",
   model: "claude-opus-5",
+  signal: repairSignal,
   runModel: async (options) => {
     calls += 1;
+    assert.equal(
+      options.signal,
+      repairSignal,
+      "동일 lease signal이 initial과 모든 model repair에 관통해야 한다",
+    );
     if (calls > 1) assert.match(options.taskInstruction ?? "", /validator 실패 사유/);
     return result(calls > 1);
   },

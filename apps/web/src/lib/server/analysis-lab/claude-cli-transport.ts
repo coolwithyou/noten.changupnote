@@ -15,7 +15,9 @@ import {
   EXECUTION_TIMEOUT_HEADER,
   markExecutionScopedTimeoutFetch,
 } from "@/lib/server/deep-analysis/fetchTimeout";
-import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
+import {
+  assertAnalysisLabReceiptBoundTransportAdmitted,
+} from "./analysis-execution-admission";
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_CONCURRENCY = 4;
@@ -57,8 +59,8 @@ export interface ClaudeCliFetchConfig {
   scheduler?: ClaudeCliScheduler;
   /** 같은 공고/run의 하위 호출을 묶는 공정성 key. 미지정 시 fetch 인스턴스별 고유 key. */
   schedulerKey?: ClaudeCliSchedulerKey;
-  /** 테스트 fake 전용 admission seam. 실제 caller는 생략해 Gate R 정적 차단을 적용한다. */
-  assertExecutionAdmissionImpl?: () => void;
+  /** receipt lease 상실을 이 fetch 인스턴스의 initial·repair 전체 호출에 관통시키는 신호. */
+  externalSignal?: AbortSignal;
 }
 
 export type ClaudeCliSchedulerKey = string | symbol;
@@ -201,29 +203,44 @@ function abortReason(signal: AbortSignal | undefined): Error {
 }
 
 export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch {
-  (config?.assertExecutionAdmissionImpl ?? assertAnalysisLabLiveExecutionAdmitted)();
+  assertAnalysisLabReceiptBoundTransportAdmitted();
+  return buildClaudeCliFetchInternal(config);
+}
+
+/** 실제 CLI를 fake로 치환하는 이 모듈 단위 테스트에서만 사용한다. production import 금지. */
+export function buildClaudeCliFetchUnsafeForTest(config?: ClaudeCliFetchConfig): typeof fetch {
+  return buildClaudeCliFetchInternal(config);
+}
+
+function buildClaudeCliFetchInternal(config?: ClaudeCliFetchConfig): typeof fetch {
   const binary = config?.claudeBinary ?? "claude";
   const scratchCwd = config?.scratchCwd ?? join(tmpdir(), "cunote-claude-cli-transport");
   const execFileImpl = config?.execFileImpl ?? execFile;
   const scheduler = config?.scheduler ?? getSharedClaudeCliScheduler();
   const schedulerKey = config?.schedulerKey ?? Symbol("claude-cli-fetch");
+  const externalSignal = config?.externalSignal;
   mkdirSync(scratchCwd, { recursive: true });
 
   const claudeCliFetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     // url 과 x-api-key 헤더는 의도적으로 무시한다 — 실행 대상이 원격 API 가 아니라
     // 로컬 claude 바이너리이고, 인증은 CLI 의 Keychain OAuth(Max 구독)가 담당하기 때문.
     const request = parseAnthropicRequest(init?.body);
-    const signal = init?.signal ?? undefined;
+    const linkedSignal = linkAbortSignals(init?.signal ?? undefined, externalSignal);
     const executionTimeoutMs = parseExecutionTimeoutMs(init?.headers);
-    const outcome = await scheduler.run(schedulerKey, () => runClaudeCliWithExecutionTimeout({
-      execFileImpl,
-      binary,
-      argv: buildArgv(request),
-      cwd: scratchCwd,
-      externalSignal: signal,
-      timeoutMs: executionTimeoutMs,
-      stdinText: request.content,
-    }), signal);
+    let outcome: CliExecOutcome;
+    try {
+      outcome = await scheduler.run(schedulerKey, () => runClaudeCliWithExecutionTimeout({
+        execFileImpl,
+        binary,
+        argv: buildArgv(request),
+        cwd: scratchCwd,
+        externalSignal: linkedSignal.signal,
+        timeoutMs: executionTimeoutMs,
+        stdinText: request.content,
+      }), linkedSignal.signal);
+    } finally {
+      linkedSignal.cleanup();
+    }
     const getVersion = () => resolveCliVersion(execFileImpl, binary);
     const cliJson = parseJsonSafe(outcome.stdout);
     if (isRecord(cliJson) && cliJson.is_error === false) {
@@ -258,16 +275,18 @@ export interface LabLlmBinding {
  */
 export async function resolveLabLlmBinding(options?: {
   schedulerKey?: ClaudeCliSchedulerKey;
+  signal?: AbortSignal;
 }): Promise<LabLlmBinding> {
-  assertAnalysisLabLiveExecutionAdmitted();
+  assertAnalysisLabReceiptBoundTransportAdmitted();
   const transport = resolveLabTransport();
   if (transport === "claude-cli") {
     return {
       transport,
       apiKey: "subscription",
-      fetchImpl: buildClaudeCliFetch(options?.schedulerKey === undefined
-        ? undefined
-        : { schedulerKey: options.schedulerKey }),
+      fetchImpl: buildClaudeCliFetch({
+        ...(options?.schedulerKey === undefined ? {} : { schedulerKey: options.schedulerKey }),
+        ...(options?.signal === undefined ? {} : { externalSignal: options.signal }),
+      }),
     };
   }
   if (!process.env.ANTHROPIC_API_KEY?.trim()) {
@@ -281,6 +300,30 @@ export async function resolveLabLlmBinding(options?: {
     );
   }
   return { transport, apiKey, fetchImpl: undefined };
+}
+
+function linkAbortSignals(
+  requestSignal: AbortSignal | undefined,
+  externalSignal: AbortSignal | undefined,
+): { signal: AbortSignal | undefined; cleanup: () => void } {
+  if (!requestSignal) return { signal: externalSignal, cleanup: () => undefined };
+  if (!externalSignal || requestSignal === externalSignal) {
+    return { signal: requestSignal, cleanup: () => undefined };
+  }
+  const controller = new AbortController();
+  const abortFromRequest = () => controller.abort(requestSignal.reason);
+  const abortFromExternal = () => controller.abort(externalSignal.reason);
+  requestSignal.addEventListener("abort", abortFromRequest, { once: true });
+  externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+  if (requestSignal.aborted) abortFromRequest();
+  if (externalSignal.aborted) abortFromExternal();
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      requestSignal.removeEventListener("abort", abortFromRequest);
+      externalSignal.removeEventListener("abort", abortFromExternal);
+    },
+  };
 }
 
 // ── 요청 번역 (Messages API body → argv + stdin) ────────────────────────────
@@ -373,8 +416,8 @@ async function runClaudeCliWithExecutionTimeout(options: {
 }): Promise<CliExecOutcome> {
   const controller = new AbortController();
   const abortFromExternal = () => controller.abort(options.externalSignal?.reason);
+  options.externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
   if (options.externalSignal?.aborted) abortFromExternal();
-  else options.externalSignal?.addEventListener("abort", abortFromExternal, { once: true });
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
   try {
     return await runClaudeCli({
