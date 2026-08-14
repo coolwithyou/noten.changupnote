@@ -12,7 +12,8 @@ const PRINCIPAL = "cunote-codex-dev@changupnote-com.iam.gserviceaccount.com";
 const JOB_UID = "cloud-run-job-uid-opaque";
 const JOB_ETAG = "BwY8xj88K1Q";
 const JOB_UPDATE_TIME = "2026-08-14T02:54:31.123456Z";
-const GIT_SHA = "1".repeat(40);
+const GIT_SHA = "e00cee9a346ff88ae879f3739c8802949976a03e";
+const PRE_CLAIM_SCOPE_GIT_SHA = "befbf3b5d56c5879e6ebb73e47486a721ead591e";
 const IMAGE_DIGEST = `sha256:${"2".repeat(64)}`;
 const IMAGE = `asia-northeast3-docker.pkg.dev/changupnote-com/deep-analysis/worker@${IMAGE_DIGEST}`;
 
@@ -33,7 +34,10 @@ const evidence: DeepRepairOperationalEvidence = {
   validUntil: "2026-08-14T03:15:00.000Z",
 };
 
-function cloudRunV1(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function cloudRunV1(
+  overrides: Record<string, unknown> = {},
+  gitCommitSha = GIT_SHA,
+): Record<string, unknown> {
   return {
     apiVersion: "run.googleapis.com/v1",
     kind: "Job",
@@ -51,7 +55,7 @@ function cloudRunV1(overrides: Record<string, unknown> = {}): Record<string, unk
               containers: [{
                 image: IMAGE,
                 env: [
-                  { name: "GIT_COMMIT_SHA", value: GIT_SHA },
+                  { name: "GIT_COMMIT_SHA", value: gitCommitSha },
                   { name: "DEEP_ANALYSIS_WORKER_MODE", value: "observe_only" },
                   { name: "DEEP_ANALYSIS_CLAIM_SCOPE", value: "unconfigured" },
                 ],
@@ -66,7 +70,10 @@ function cloudRunV1(overrides: Record<string, unknown> = {}): Record<string, unk
   };
 }
 
-function cloudRunV2(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function cloudRunV2(
+  overrides: Record<string, unknown> = {},
+  gitCommitSha = GIT_SHA,
+): Record<string, unknown> {
   return {
     name: "projects/changupnote-com/locations/asia-northeast3/jobs/cunote-deep-analysis",
     uid: JOB_UID,
@@ -80,7 +87,7 @@ function cloudRunV2(overrides: Record<string, unknown> = {}): Record<string, unk
         containers: [{
           image: IMAGE,
           env: [
-            { name: "GIT_COMMIT_SHA", value: GIT_SHA },
+            { name: "GIT_COMMIT_SHA", value: gitCommitSha },
             { name: "DEEP_ANALYSIS_WORKER_MODE", value: "observe_only" },
             { name: "DEEP_ANALYSIS_CLAIM_SCOPE", value: "unconfigured" },
           ],
@@ -95,6 +102,8 @@ function commandHarness(input: {
   readonly tokenInfoEmail?: string;
   readonly v1?: Record<string, unknown>;
   readonly v2?: Record<string, unknown>;
+  readonly workerContractSafe?: boolean;
+  readonly gitCommitSha?: string;
 }) {
   const calls: Array<{
     file: string;
@@ -106,12 +115,18 @@ function commandHarness(input: {
     calls.push({ file, args, signal: options.signal, input: options.input });
     if (file === "gcloud" && args[0] === "auth") return { stdout: "secret-access-token\n" };
     if (file === "gcloud" && args[0] === "run") {
-      return { stdout: JSON.stringify(input.v1 ?? cloudRunV1()) };
+      return { stdout: JSON.stringify(input.v1 ?? cloudRunV1({}, input.gitCommitSha)) };
     }
     if (file === "curl" && args.at(-1) === "https://oauth2.googleapis.com/tokeninfo") {
       return { stdout: JSON.stringify({ email: input.tokenInfoEmail ?? PRINCIPAL }) };
     }
-    if (file === "curl") return { stdout: JSON.stringify(input.v2 ?? cloudRunV2()) };
+    if (file === "curl") {
+      return { stdout: JSON.stringify(input.v2 ?? cloudRunV2({}, input.gitCommitSha)) };
+    }
+    if (file === "git") {
+      if (input.workerContractSafe === false) throw new Error("not an ancestor");
+      return { stdout: "" };
+    }
     throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
   };
   return { execFile, calls };
@@ -129,7 +144,7 @@ function commandHarness(input: {
     ...evidence,
     validUntil: "2026-08-14T03:10:00.000Z",
   });
-  assert.equal(harness.calls.length, 4);
+  assert.equal(harness.calls.length, 5);
 }
 
 {
@@ -140,7 +155,7 @@ function commandHarness(input: {
     signal,
   );
 
-  assert.equal(harness.calls.length, 4);
+  assert.equal(harness.calls.length, 5);
   assert.deepEqual(harness.calls[0]!.args, [
     "auth",
     "print-access-token",
@@ -161,11 +176,34 @@ function commandHarness(input: {
   assert.ok(harness.calls.every((call) => call.signal === signal));
   assert.equal(harness.calls[1]!.input, "secret-access-token");
   assert.match(harness.calls[3]!.input ?? "", /^Authorization: Bearer secret-access-token\n/u);
+  assert.deepEqual(harness.calls[4]!.args.slice(2), [
+    "merge-base",
+    "--is-ancestor",
+    "ec8cec75566e9ba5d07aead3837ce48501b1b6a9",
+    GIT_SHA,
+  ]);
+  assert.equal(harness.calls[4]!.args[0], "-C");
+  assert.match(harness.calls[4]!.args[1] ?? "", /\/cunote$/u);
   assert.equal(
     harness.calls.some((call) => call.args.some((arg) => arg.includes("secret-access-token"))),
     false,
     "access token must not be exposed in child-process arguments",
   );
+}
+
+{
+  const harness = commandHarness({
+    gitCommitSha: PRE_CLAIM_SCOPE_GIT_SHA,
+    workerContractSafe: false,
+  });
+  await assert.rejects(
+    createDeepRepairOperationalEvidenceCaptureUnsafeForTest({ execFile: harness.execFile })(
+      new AbortController().signal,
+    ),
+    /worker contract.*safe baseline|safe baseline.*worker contract/i,
+    "observe_only/unconfigured env를 실제 집행하지 않는 과거 worker image는 거부해야 한다",
+  );
+  assert.equal(harness.calls.at(-1)?.file, "git");
 }
 
 {

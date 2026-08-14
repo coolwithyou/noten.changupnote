@@ -281,9 +281,6 @@ export function createDeepRepairAuthorityIssuer(
           await dependencies.captureOperationalEvidence(input.signal),
         );
         assertEvidenceCurrent(evidence, dependencies.now());
-        if (evidence.gitCommitSha !== sealedProvenance.gitSha) {
-          throw failure("operational_evidence_invalid", "운영 evidence의 GIT_COMMIT_SHA가 plan provenance와 다릅니다.");
-        }
         throwIfAborted(input.signal);
 
         // 이 read 뒤에는 DB/gcloud/input/provenance 조회를 다시 하지 않고 immutable write만 수행한다.
@@ -463,7 +460,6 @@ async function inspectIssuance(
     || authority.validatorVersion !== plan.manifest.provenance.validatorVersion
     || authority.qualityPolicyVersion !== plan.manifest.policy.qualityPolicyVersion
     || authority.runtime.expectedGeneration < 1
-    || evidence.gitCommitSha !== plan.manifest.provenance.gitSha
     || Date.parse(evidence.observedAt) < Date.parse(approval.approvedAt)
     || Date.parse(evidence.observedAt) >= Date.parse(approval.expiresAt)
   ) {

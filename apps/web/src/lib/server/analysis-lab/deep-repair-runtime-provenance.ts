@@ -11,8 +11,15 @@ const FULL_GIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const RUNTIME_PACKAGES = ["contracts", "core"] as const;
 const EXECUTION_SOURCE_PATHS = [
   "apps/web/src/features/dev/analysis-lab",
+  "apps/web/src/lib/server/archive/grantArchiveData.ts",
+  "apps/web/src/lib/server/archive/grantArchiveSearch.ts",
   "apps/web/src/lib/server/analysis-lab",
+  "apps/web/src/lib/server/chat/grounding.ts",
+  "apps/web/src/lib/server/db/client.ts",
+  "apps/web/src/lib/server/db/schema.ts",
   "apps/web/src/lib/server/deep-analysis",
+  "apps/web/src/lib/server/loadMonorepoEnv.ts",
+  "apps/web/src/lib/server/storage/r2ObjectStorage.ts",
   "apps/web/package.json",
   "apps/web/tsconfig.json",
   "packages/contracts",

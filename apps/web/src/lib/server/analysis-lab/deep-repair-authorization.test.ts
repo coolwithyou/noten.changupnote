@@ -1038,23 +1038,48 @@ function installParentReceipt(
 
 {
   const setup = fixture();
-  const evidenceDrift = createDeepRepairAuthorityIssuer({
+  const deployedGitSha = "2".repeat(40);
+  const independentOperationalProvenance = createDeepRepairAuthorityIssuer({
     ...setup.dependencies,
     async captureOperationalEvidence() {
       setup.calls.push("gcloud");
-      return { ...setup.evidence, gitCommitSha: "2".repeat(40) };
+      return { ...setup.evidence, gitCommitSha: deployedGitSha };
     },
   });
-  await assert.rejects(
-    evidenceDrift.issueApprovedDeepRepairAuthority({
-      approvalId: setup.approvalSha256,
-      signal: new AbortController().signal,
-    }),
-    (error: unknown) =>
-      error instanceof DeepRepairAuthorizationError
-      && error.code === "operational_evidence_invalid",
+  const issued = await independentOperationalProvenance.issueApprovedDeepRepairAuthority({
+    approvalId: setup.approvalSha256,
+    signal: new AbortController().signal,
+  });
+  assert.equal(issued.kind, "issued");
+  const authorityArtifact = setup.repository.authorities.get(issued.authorityId);
+  assert.ok(authorityArtifact);
+  const issuedAuthority = JSON.parse(Buffer.from(authorityArtifact.bytes).toString("utf8")) as {
+    operationalEvidenceSha256: string;
+  };
+  const evidenceArtifact = setup.repository.evidences.get(
+    issuedAuthority.operationalEvidenceSha256,
   );
-  assert.deepEqual(setup.calls, ["input", "provenance", "gcloud"]);
+  assert.ok(evidenceArtifact);
+  const storedEvidence = JSON.parse(Buffer.from(evidenceArtifact.bytes).toString("utf8")) as {
+    gitCommitSha: string;
+  };
+  assert.equal(storedEvidence.gitCommitSha, deployedGitSha);
+  assert.notEqual(storedEvidence.gitCommitSha, setup.plan.manifest.provenance.gitSha);
+
+  const inspected = await independentOperationalProvenance.issueApprovedDeepRepairAuthority({
+    approvalId: setup.approvalSha256,
+    signal: new AbortController().signal,
+  });
+  assert.deepEqual(inspected, { kind: "inspected", authorityId: issued.authorityId });
+  assert.deepEqual(setup.calls, [
+    "input",
+    "provenance",
+    "gcloud",
+    "runtime",
+    "evidence-write",
+    "authority-write",
+    "issuance-claim",
+  ]);
 }
 
 {

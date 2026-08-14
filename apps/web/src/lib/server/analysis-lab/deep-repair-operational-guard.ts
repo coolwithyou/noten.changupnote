@@ -3,6 +3,7 @@ import {
   DeepRepairLiveExecutionError,
   type DeepRepairOperationalEvidence,
 } from "./deep-repair-live-experiment";
+import { findMonorepoRoot } from "./run-store";
 
 const CONFIGURATION = "cunote-codex-dev";
 const IMPERSONATED_PRINCIPAL =
@@ -15,6 +16,8 @@ const JOB_V2_URL =
   `https://run.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/jobs/${JOB}`;
 const MAX_BUFFER = 4 * 1024 * 1024;
 const OPERATIONAL_EVIDENCE_TTL_MS = 15 * 60_000;
+const MINIMUM_SAFE_WORKER_COMMIT = "ec8cec75566e9ba5d07aead3837ce48501b1b6a9";
+const FULL_GIT_SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 
 interface ExecFileOptions {
   readonly signal: AbortSignal;
@@ -172,7 +175,33 @@ async function readCurrentCloudRunSnapshot(
   if (v2.workerMode !== "observe_only" || v2.claimScope !== "unconfigured") {
     throw invalid("Cloud Run current snapshot이 observe_only + unconfigured가 아닙니다.");
   }
+  await assertSafeWorkerContract(run, v2.gitCommitSha, signal);
   return v2;
+}
+
+async function assertSafeWorkerContract(
+  run: DeepRepairOperationalGuardExecFile,
+  deployedGitSha: string,
+  signal: AbortSignal,
+): Promise<void> {
+  if (!FULL_GIT_SHA.test(deployedGitSha)) {
+    throw invalid("Cloud Run worker GIT_COMMIT_SHA가 full git SHA가 아닙니다.");
+  }
+  signal.throwIfAborted();
+  try {
+    await run("git", [
+      "-C",
+      findMonorepoRoot(),
+      "merge-base",
+      "--is-ancestor",
+      MINIMUM_SAFE_WORKER_COMMIT,
+      deployedGitSha,
+    ], commandOptions(signal));
+  } catch {
+    signal.throwIfAborted();
+    throw invalid("Cloud Run worker contract가 safe baseline descendant임을 증명할 수 없습니다.");
+  }
+  signal.throwIfAborted();
 }
 
 interface CloudRunSnapshot {

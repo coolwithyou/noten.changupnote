@@ -68,6 +68,7 @@
 ## 딥분석 — 운영 크론과 로컬 구독의 겹침 방지 (2026-08-04 조사 확정)
 
 - **운영의 유료 LLM 딥분석은 자동으로 돌리지 않는다**: 마지막 확인 상태는 Cloud Run 메인 워커의 `DEEP_ANALYSIS_WORKER_MODE=observe_only` + `CLAIM_SCOPE=unconfigured` 2단 fail-closed였고, 개발 기간에는 이를 유지한다. 2026-08-14 live 재확인은 gcloud 재인증 대기로 Gate R 미충족이며 로컬 구독 lab도 현재 정적 admission으로 중단돼 있다. 조사 정본: `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
+- proposal/plan의 git SHA는 로컬 구독 canary를 실행할 checkout 출처이고, 운영 evidence의 `GIT_COMMIT_SHA`는 현재 배포된 Cloud Run worker 출처다. 전자는 현재 로컬 git/package/validator와, 후자는 현재 Cloud Run UID/generation/etag/image/env 및 `ec8cec75566e9ba5d07aead3837ce48501b1b6a9` safe worker contract ancestry와 각각 exact 검증하지만 서로 같은 커밋일 필요는 없다. ancestry를 로컬 checkout에서 증명할 수 없으면 fail-closed하며 자동 fetch하지 않는다. Gate R 증거를 맞추기 위해 운영 worker를 로컬 HEAD로 재배포하지 않는다.
 - 로컬 LabRun과 분석 결과는 DB가 아니라 `spike-out`에 저장한다. proposal preparation과 authority issuer는 DB read-only이고, 사용자 승인 뒤의 단건 live Adapter만 exact-generation runtime lease 제어행을 acquire/renew/release로 갱신한다. 분석 결과를 서비스 DB에 쓰는 접점은 `lab:promote --write`뿐이며 3중 확인(release+write+confirm)이 걸려 있다.
 - 승격 보호 구현(`c79e2c0`) 자체는 유지되지만 현재 Gate R 동안 local release `--approve`와 `lab:promote --write`는 별도 admission이 차단한다. Gate R과 exact end-to-end authority 없이 실발행하지 않는다.
 - 운영 딥분석을 켤 때는(사용자 결정) `CLAIM_SCOPE=bounded`(cohort sha256 화이트리스트)로 시작하고 로컬 lab 코호트와 상호배타 집합 유지, 켜기 전 pending 큐(누적 중) 정리.
