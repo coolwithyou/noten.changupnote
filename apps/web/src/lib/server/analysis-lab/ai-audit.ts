@@ -41,6 +41,7 @@ import {
 import { saveLabAuditAiJudgments, type LabAuditAiJudgment } from "./audit-store";
 import { DIMENSION_LABELS } from "./diff";
 import type { LabAssembledInput } from "./input";
+import { isPublishableLabRun } from "./run-outcome";
 
 /**
  * ai-audit-v1 (2026-07-23): §9 완화 개정 최초판 — ai-review-v2 시스템 프롬프트(동결 가이드
@@ -373,8 +374,8 @@ export async function runAiAudit(options: {
       `감사 모델(${auditModel})이 AI 검수 모델(audit.model=${audit.model})과 같습니다 — 자기 확인 순환 금지(§9). 다른 모델을 지정하세요.`,
     );
   }
-  if (run.error !== null) {
-    throw new Error(`실패한 런은 감사 대상이 아닙니다: ${run.runId}`);
+  if (!isPublishableLabRun(run)) {
+    throw new Error(`발행 가능한 런이 아닙니다 — 감사 대상에서 제외합니다: ${run.runId}`);
   }
   if (run.runId !== audit.runId || run.grantId !== audit.grantId) {
     throw new Error(`감사 대상 불일치: run ${run.grantId}/${run.runId} vs audit ${audit.grantId}/${audit.runId}`);

@@ -27,6 +27,7 @@ import {
   saveLabAuditAiAdjudication,
   type LabAuditAiAdjudicationJudgment,
 } from "./audit-store";
+import { isPublishableLabRun } from "./run-outcome";
 
 export const AI_ADJUDICATION_PROMPT_VERSION = "ai-adjudication-v1";
 export const AI_ADJUDICATION_DEFAULT_MODEL = "claude-opus-5";
@@ -124,7 +125,9 @@ export async function runAiAdjudication(options: {
   if (model === options.audit.model || model === options.audit.aiAuditModel) {
     throw new Error(`3차 판정 모델(${model})은 1차 검수·2차 감사 모델과 달라야 합니다.`);
   }
-  if (options.run.error !== null) throw new Error(`실패한 런은 3차 판정할 수 없습니다: ${options.run.runId}`);
+  if (!isPublishableLabRun(options.run)) {
+    throw new Error(`발행 가능한 런이 아닙니다 — 3차 판정 대상에서 제외합니다: ${options.run.runId}`);
+  }
   if (options.run.runId !== options.audit.runId || options.run.grantId !== options.audit.grantId) {
     throw new Error("3차 판정의 런과 감사 파일이 일치하지 않습니다.");
   }

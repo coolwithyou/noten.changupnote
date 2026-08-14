@@ -15,6 +15,7 @@ import { join } from "node:path";
 import type { LabReview, LabRun } from "@/features/dev/analysis-lab/contract";
 import { PILOT_STRATUM, type CohortFileV2, readCohortFileV2 } from "./cohort-file";
 import { analysisLabDir } from "./run-store";
+import { isPublishableLabRun } from "./run-outcome";
 
 export interface ReviewedRun {
   run: LabRun;
@@ -77,9 +78,9 @@ export async function collectReviewedRuns(): Promise<ReviewedRun[]> {
 export function dedupeReviewedRuns(all: ReviewedRun[]): ReviewedRun[] {
   const byGrant = new Map<string, ReviewedRun>();
   for (const item of all) {
-    if (item.run.error !== null) {
+    if (!isPublishableLabRun(item.run)) {
       console.warn(
-        `[경고] 실패 런의 검수는 집계에서 제외: ${item.run.source}/${item.run.sourceId} ${item.run.runId}`,
+        `[경고] 발행 불가 런의 검수는 집계에서 제외: ${item.run.source}/${item.run.sourceId} ${item.run.runId}`,
       );
       continue;
     }

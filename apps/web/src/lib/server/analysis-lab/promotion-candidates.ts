@@ -36,6 +36,7 @@ import {
 import { selectReviewedRuns } from "./reviewed-runs";
 import { labReviewFilePath } from "./review-store";
 import { labRunFilePath, modelSlug } from "./run-store";
+import { isPublishableLabRun } from "./run-outcome";
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { prepareDeepAnalysisInput } from "../deep-analysis/prepareInput";
@@ -73,7 +74,7 @@ export function selectPromotionCandidatesForRelease(
     !candidate
     || candidate.source.origin !== "audited"
     || candidate.source.run.transport !== "claude-cli"
-    || candidate.source.run.error !== null
+    || !isPublishableLabRun(candidate.source.run)
     || candidate.sourceArtifact.localLabEvidence?.reviewMethod !== "ai_audit"
     || !isVerifiedLocalLabSourceArtifact(candidate.sourceArtifact)
   ) {
@@ -225,6 +226,7 @@ export async function verifyPromotionSourceArtifact(
   const changed = checks
     .filter(([, expected, actual]) => expected !== undefined && expected !== actual)
     .map(([name]) => name);
+  if (!isPublishableLabRun(run)) changed.push("run_outcome");
   if (artifact.localLabEvidence) {
     if (run.transport !== artifact.localLabEvidence.transport) changed.push("transport");
     if (run.model !== artifact.localLabEvidence.model) changed.push("model");

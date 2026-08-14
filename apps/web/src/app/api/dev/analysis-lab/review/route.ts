@@ -9,6 +9,7 @@ import {
   validateReviewerEmail,
 } from "@/lib/server/analysis-lab/review-store";
 import { readLabRun } from "@/lib/server/analysis-lab/run-store";
+import { isPublishableLabRun } from "@/lib/server/analysis-lab/run-outcome";
 import type {
   LabAxisReview,
   LabCriterionReview,
@@ -86,8 +87,8 @@ export async function PUT(request: Request) {
     );
   }
   // 실패한 런의 검수는 골든 신호가 아니다 — 집계·검수 완료 판정 오염을 서버에서 차단.
-  if (run.error) {
-    return badRequest("실패한 런은 검수 대상이 아닙니다 — 성공한 런을 검수해주세요.");
+  if (!isPublishableLabRun(run)) {
+    return badRequest("발행 가능한 런만 검수할 수 있습니다 — 보류·실패 런은 제외됩니다.");
   }
 
   const reviewerCheck = validateReviewerEmail(

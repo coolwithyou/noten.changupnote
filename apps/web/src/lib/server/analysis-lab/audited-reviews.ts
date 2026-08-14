@@ -32,6 +32,7 @@ import {
   type CollectedAiReview,
 } from "./audit-store";
 import { PILOT_STRATUM, readCohortFileV2 } from "./cohort-file";
+import { isPublishableLabRun } from "./run-outcome";
 import {
   LAB_DETERMINISTIC_AUDIT_POLICY_VERSION,
   resolveDeterministicAuditDisagreement,
@@ -323,9 +324,9 @@ export async function loadAuditedConfirmedReviews(options: {
   const confirmed: AuditedConfirmedRun[] = [];
   const pending: AuditedPendingNotice[] = [];
   for (const item of selected) {
-    if (!item.run || item.run.error !== null) {
+    if (!item.run || !isPublishableLabRun(item.run)) {
       console.warn(
-        `[경고] AI 검수의 짝 런 파일이 없거나 실패 런 — 감사 집계 제외: ${item.review.grantId}/${item.review.runId}`,
+        `[경고] AI 검수의 짝 런 파일이 없거나 발행 불가 런 — 감사 집계 제외: ${item.review.grantId}/${item.review.runId}`,
       );
       continue;
     }

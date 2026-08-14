@@ -9,6 +9,7 @@ import { loadAnalysisQualityGraphForRun } from "./quality-report";
 import { readLatestLabRunIndexForPrompt } from "./run-store";
 import { runLabAnalysis } from "./analyze";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+import { isPublishableLabRun } from "./run-outcome";
 
 loadAnalysisLabEnv();
 
@@ -31,7 +32,7 @@ async function main(): Promise<number> {
   const index = await readLatestLabRunIndexForPrompt(ANALYSIS_LAB_PROMPT_VERSION);
   const targets = await Promise.all([...grantIds].map(async (grantId) => {
     const run = index.get(grantId);
-    if (!run || run.error !== null) throw new Error(`현행 성공 런을 찾지 못했습니다: ${grantId}`);
+    if (!run || !isPublishableLabRun(run)) throw new Error(`현행 발행 가능 런을 찾지 못했습니다: ${grantId}`);
     const graph = await loadAnalysisQualityGraphForRun(run);
     const retryNodes = retryNodeIds(reason);
     const issues = graph.nodes.filter((node) =>

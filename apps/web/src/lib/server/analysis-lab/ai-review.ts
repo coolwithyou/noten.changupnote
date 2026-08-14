@@ -47,6 +47,7 @@ import {
   type LabInputArchive,
 } from "./input";
 import { findMonorepoRoot, labRunFilePath, modelSlug } from "./run-store";
+import { isPublishableLabRun } from "./run-outcome";
 
 // 파일명 슬러그의 소유자는 run-store 로 이동(감사 파일과 공용) — 기존 호출부 호환 재수출.
 export { modelSlug } from "./run-store";
@@ -709,8 +710,8 @@ export async function runAiReview(options: {
       `판정 모델(${model})이 추출 모델(run.model=${run.model})과 같습니다 — 자기 채점 순환 금지(§9). 다른 모델을 지정하세요.`,
     );
   }
-  if (run.error !== null) {
-    throw new Error(`실패한 런은 검수 대상이 아닙니다: ${run.runId}`);
+  if (!isPublishableLabRun(run)) {
+    throw new Error(`발행 가능한 런이 아닙니다 — 검수 대상에서 제외합니다: ${run.runId}`);
   }
 
   const path = aiReviewFilePath(run.source, run.sourceId, run.runId, model);

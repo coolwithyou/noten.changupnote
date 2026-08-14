@@ -54,6 +54,7 @@ import { expandConfirmedGrantComponentIds } from "../ingestion/grantRevisionInva
 import { acquireGrantPublicationLock } from "../ingestion/grantPublicationLock";
 import { criterionInsertValues } from "../ingestion/normalizedGrantPublisher";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { isPublishableLabRun } from "./run-outcome";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { verifyPromotionSourceArtifact } from "./promotion-candidates";
 import {
@@ -711,7 +712,7 @@ async function main(): Promise<number> {
   for (const candidate of await collectAiReviewsForAudit(AI_REVIEW_ADOPTED.model, { quiet: true })) {
     if (
       !candidate.run
-      || candidate.run.error !== null
+      || !isPublishableLabRun(candidate.run)
       || !pendingRunIds.has(candidate.run.runId)
       || sourceGrantIds.has(candidate.run.grantId)
     ) continue;

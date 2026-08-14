@@ -36,6 +36,7 @@ import {
 } from "./ai-review-compare";
 import { analysisLabDir, labRunFilePath, modelSlug, readLabRun } from "./run-store";
 import { hasHumanReviewForRun } from "./run-review-policy";
+import { isPublishableLabRun } from "./run-outcome";
 
 export const LAB_AUDIT_SCHEMA = "lab-audit-v1";
 
@@ -214,6 +215,7 @@ export function buildAuditItemsForRun(pool: AiReviewForAudit[], runId: string): 
 export type LabAuditLoadOutcome =
   | { status: "ok"; audit: LabAudit; run: LabRun; created: boolean }
   | { status: "run_not_found" }
+  | { status: "run_not_publishable" }
   /** 사람 review.json 보유 공고 — 감사 파일을 만들지 않는다(§9 사람 검수 우선). */
   | { status: "human_review_exists" }
   /** 지정 모델의 AI 검수 파일이 없다 — 감사 대상 산출 불가. */
@@ -252,6 +254,7 @@ export async function loadOrCreateLabAudit(options: {
 }): Promise<LabAuditLoadOutcome> {
   const run = await readLabRun(options.grantId, options.runId);
   if (!run) return { status: "run_not_found" };
+  if (!isPublishableLabRun(run)) return { status: "run_not_publishable" };
 
   const path = labAuditFilePath(run.source, run.sourceId, run.runId, options.model);
   const dir = dirname(path);
@@ -411,6 +414,9 @@ export async function saveLabAuditJudgments(options: {
 }): Promise<LabAuditSaveOutcome> {
   const run = await readLabRun(options.grantId, options.runId);
   if (!run) return { status: "run_not_found" };
+  if (!isPublishableLabRun(run)) {
+    return { status: "invalid", message: `발행 가능한 런이 아닙니다: ${run.runId}` };
+  }
 
   const path = labAuditFilePath(run.source, run.sourceId, run.runId, options.model);
   let stored: LabAudit | null;
@@ -547,6 +553,9 @@ export async function saveLabAuditAiJudgments(options: {
 }): Promise<LabAuditAiSaveOutcome> {
   const run = await readLabRun(options.grantId, options.runId);
   if (!run) return { status: "run_not_found" };
+  if (!isPublishableLabRun(run)) {
+    return { status: "invalid", message: `발행 가능한 런이 아닙니다: ${run.runId}` };
+  }
 
   const path = labAuditFilePath(run.source, run.sourceId, run.runId, options.model);
   let stored: LabAudit | null;
@@ -665,6 +674,9 @@ export async function saveLabAuditAiAdjudication(options: {
 }): Promise<LabAuditAiAdjudicationSaveOutcome> {
   const run = await readLabRun(options.grantId, options.runId);
   if (!run) return { status: "run_not_found" };
+  if (!isPublishableLabRun(run)) {
+    return { status: "invalid", message: `발행 가능한 런이 아닙니다: ${run.runId}` };
+  }
   const path = labAuditFilePath(run.source, run.sourceId, run.runId, options.model);
   let stored: LabAudit | null;
   try {

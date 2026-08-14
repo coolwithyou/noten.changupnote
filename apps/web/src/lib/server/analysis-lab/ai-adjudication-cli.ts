@@ -11,6 +11,7 @@ import { collectAiReviewsForAudit, readLabAuditFileAt } from "./audit-store";
 import { resolveLabLlmBinding } from "./claude-cli-transport";
 import { modelSlug } from "./run-store";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+import { isPublishableLabRun } from "./run-outcome";
 
 loadAnalysisLabEnv();
 
@@ -32,7 +33,7 @@ async function main(): Promise<number> {
   const found = new Set<string>();
   const slug = modelSlug(AI_REVIEW_ADOPTED.model);
   for (const item of collected) {
-    if (!runIds.has(item.review.runId) || !item.run || item.run.error !== null) continue;
+    if (!runIds.has(item.review.runId) || !item.run || !isPublishableLabRun(item.run)) continue;
     found.add(item.review.runId);
     const audit = await readLabAuditFileAt(join(item.dir, `${item.review.runId}.audit.${slug}.json`));
     if (!audit) throw new Error(`감사 파일이 없습니다: ${item.review.runId}`);

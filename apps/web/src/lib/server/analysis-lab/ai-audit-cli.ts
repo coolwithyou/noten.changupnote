@@ -25,6 +25,7 @@ import {
 } from "./audit-store";
 import { isClaudeCliWindowExhaustedError, resolveLabLlmBinding } from "./claude-cli-transport";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+import { isPublishableLabRun } from "./run-outcome";
 
 loadAnalysisLabEnv();
 
@@ -129,7 +130,7 @@ async function main(): Promise<number> {
   }
   if (createMissing) {
     for (const item of collected) {
-      if (!item.run || item.run.error !== null) continue;
+      if (!item.run || !isPublishableLabRun(item.run)) continue;
       const outcome = await loadOrCreateLabAudit({
         grantId: item.run.grantId,
         runId: item.run.runId,
@@ -149,7 +150,7 @@ async function main(): Promise<number> {
   let noAuditFile = 0;
   let alreadyDone = 0;
   for (const item of collected) {
-    if (!item.run || item.run.error !== null) continue;
+    if (!item.run || !isPublishableLabRun(item.run)) continue;
     const audit = await readLabAuditFileAt(join(item.dir, `${item.review.runId}.audit.${slug}.json`));
     if (!audit) {
       noAuditFile += 1;

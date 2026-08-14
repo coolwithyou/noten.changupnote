@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import type { LabReview } from "@/features/dev/analysis-lab/contract";
 import { labRunFilePath, readLabRun } from "./run-store";
+import { isPublishableLabRun } from "./run-outcome";
 
 /**
  * AI 라벨러로 간주하여 검수자에서 거부하는 패턴.
@@ -81,6 +82,9 @@ export async function saveLabReview(review: LabReview): Promise<LabReview> {
   if (!run) {
     // 라우트가 먼저 런 존재를 확인하므로 정상 흐름에서는 도달하지 않는다.
     throw new Error("검수 대상 런을 찾지 못했습니다 — 검수 시트는 런 없이 저장할 수 없습니다.");
+  }
+  if (!isPublishableLabRun(run)) {
+    throw new Error(`발행 가능한 런이 아닙니다 — 검수 시트를 저장할 수 없습니다: ${run.runId}`);
   }
   const path = labReviewFilePath(run.source, run.sourceId, run.runId);
   const existing = await readReviewFile(path);

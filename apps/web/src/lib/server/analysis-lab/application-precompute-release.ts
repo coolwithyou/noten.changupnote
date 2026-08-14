@@ -16,6 +16,7 @@ import {
   type RoundtripRunManifest,
 } from "./application-roundtrip/store";
 import { analysisLabDir } from "./run-store";
+import { isPublishableLabRun } from "./run-outcome";
 
 export const PROMOTION_APPLICATION_PRECOMPUTE_SCHEMA =
   "promotion-application-precompute-v1" as const;
@@ -269,7 +270,8 @@ function assertRoundtripProvenance(
   manifest: RoundtripRunManifest,
 ): void {
   if (
-    run.version !== APPLICATION_ROUNDTRIP_VERSION
+    !isPublishableLabRun(labRun)
+    || run.version !== APPLICATION_ROUNDTRIP_VERSION
     || run.grantId !== labRun.grantId
     || run.parentLabRunId !== labRun.runId
     || run.transport !== "claude-cli"

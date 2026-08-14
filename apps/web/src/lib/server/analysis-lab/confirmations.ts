@@ -28,6 +28,7 @@ import { DIMENSION_LABELS } from "./diff";
 import { CONFIRMATION_PROMPT_RULES, CONFIRMATION_TOOL_SCHEMA, normalizeConfirmation } from "./extractor";
 import type { LabAssembledInput } from "./input";
 import { labRunFilePath, readLabRun } from "./run-store";
+import { isPublishableLabRun } from "./run-outcome";
 
 export const LAB_CONFIRMATIONS_SCHEMA = "lab-confirmations-v1";
 /**
@@ -295,7 +296,7 @@ export function mergeConfirmationsIntoRun(run: LabRun, sidecar: LabConfirmations
  */
 export async function readLabRunWithConfirmations(grantId: string, runId: string): Promise<LabRun | null> {
   const run = await readLabRun(grantId, runId);
-  if (!run || run.error !== null) return run;
+  if (!run || !isPublishableLabRun(run)) return run;
   const sidecar = await readLabConfirmationsFile(
     labConfirmationsFilePath(run.source, run.sourceId, run.runId),
   );
@@ -359,8 +360,8 @@ export async function runConfirmations(options: {
   deps?: ConfirmationsLlmDeps;
 }): Promise<ConfirmationsOutcome> {
   const { run, review, model } = options;
-  if (run.error !== null) {
-    throw new Error(`실패한 런은 보강 대상이 아닙니다: ${run.runId}`);
+  if (!isPublishableLabRun(run)) {
+    throw new Error(`발행 가능한 런이 아닙니다 — 보강 대상에서 제외합니다: ${run.runId}`);
   }
   if (run.runId !== review.runId || run.grantId !== review.grantId) {
     throw new Error(

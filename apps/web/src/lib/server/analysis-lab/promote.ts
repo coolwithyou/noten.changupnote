@@ -48,6 +48,7 @@ import {
   assessPromotionReviewRisk,
   type PromotionReviewRisk,
 } from "./promotion-review-risk";
+import { isPublishableLabRun } from "./run-outcome";
 
 // ---- 대상 선정 (사람 우선 dedupe — confirmations-cli 규칙의 순수화) -------------------
 
@@ -358,6 +359,9 @@ export function planGrantPromotion(input: {
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
 }): GrantPromotionPlan {
+  if (!isPublishableLabRun(input.run)) {
+    throw new Error(`발행 가능한 런이 아닙니다: ${input.run.runId}`);
+  }
   // 질문 소스: v3 인라인 + 사이드카 병합(인라인 우선·범위 밖 드롭 — 기존 병합 규칙 재사용).
   const mergedRun = mergeConfirmationsIntoRun(input.run, input.sidecar);
   const resolutions = resolveCriterionStates({

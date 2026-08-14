@@ -21,6 +21,7 @@ import {
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
+import { isPublishableLabRun } from "./run-outcome";
 
 loadMonorepoEnv();
 
@@ -103,7 +104,7 @@ async function main(): Promise<number> {
   const notices: DispatchNoticeCandidate[] = [];
   const auditFileByRun = new Map<string, { path: string; sha256: string }>();
   for (const entry of collected) {
-    if (!entry.run || entry.run.error !== null) continue;
+    if (!entry.run || !isPublishableLabRun(entry.run)) continue;
     const auditPath = labAuditFilePath(
       entry.run.source,
       entry.run.sourceId,

@@ -78,6 +78,8 @@ export async function GET(request: Request) {
         { error: "run_not_found", message: "저장된 런을 찾지 못했습니다." },
         { status: 404 },
       );
+    case "run_not_publishable":
+      return badRequest("발행 가능한 런만 감사할 수 있습니다 — 보류·실패 런은 제외됩니다.");
     case "human_review_exists":
       return badRequest(
         "이 공고에는 사람 검수(review.json)가 있습니다 — 사람 전수 검수가 우선이며 감사 대상이 아닙니다(§9).",

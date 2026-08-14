@@ -315,6 +315,24 @@ function roundtripFixture(run: LabRun, document = documentFixture()): Applicatio
 }
 
 {
+  const heldAxes = runFixture().axisAssessments.map((axis) => axis.dimension === "industry"
+    ? { ...axis, status: "input_missing" as const, comment: "상세 첨부 누락" }
+    : axis);
+  const run = runFixture({
+    primaryValidationOutcome: "held",
+    axisAssessments: heldAxes,
+    error: "provider timeout",
+  });
+  const graph = evaluateAnalysisQuality({ run, review: null, roundtrip: null });
+  assert.equal(
+    graph.nodes.find((node) => node.id === "deep_contract")?.status,
+    "failed",
+    "held와 인프라 오류가 모순되면 fail-closed",
+  );
+  console.log("✅ 딥분석 — held/outcome 모순은 인프라 실패를 숨기지 않음");
+}
+
+{
   const run = runFixture({ inputBlocks: [{ label: "변환 불가 ZIP", chars: 0, truncated: true }] });
   const graph = evaluateAnalysisQuality({
     run,

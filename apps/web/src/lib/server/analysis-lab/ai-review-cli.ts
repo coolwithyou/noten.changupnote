@@ -52,6 +52,7 @@ import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
 import { hasHumanReviewForRun } from "./run-review-policy";
+import { isPublishableLabRun } from "./run-outcome";
 
 loadAnalysisLabEnv();
 
@@ -183,7 +184,7 @@ async function scanRunDirs(): Promise<Map<string, GrantRunScan>> {
       if (typeof run.grantId !== "string" || typeof run.runId !== "string") continue;
       const state = byGrant.get(run.grantId) ?? { latestOkRun: null, humanReviewedRunIds: new Set<string>() };
       if (reviewedRunIds.has(run.runId)) state.humanReviewedRunIds.add(run.runId);
-      if (run.error === null && run.promptVersion === ANALYSIS_LAB_PROMPT_VERSION) {
+      if (isPublishableLabRun(run) && run.promptVersion === ANALYSIS_LAB_PROMPT_VERSION) {
         if (!state.latestOkRun || run.startedAt > state.latestOkRun.startedAt) state.latestOkRun = run;
       }
       byGrant.set(run.grantId, state);

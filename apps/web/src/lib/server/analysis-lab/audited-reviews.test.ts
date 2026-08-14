@@ -207,7 +207,9 @@ const aiReviewFixture: AuditedAiReviewInput = {
     aiAuditedCount: 0,
     aiConcurCount: 0,
     aiDisagreeCount: 0,
+    aiAdjudicatedCount: 0,
     aiAuditModel: null,
+    aiAdjudicationModel: null,
   });
   console.log("✅ mergeAuditedReview — 동의/뒤집기/비감사·note 규칙·provenance");
 }
@@ -268,7 +270,9 @@ const aiReviewFixture: AuditedAiReviewInput = {
       aiAuditedCount: 0,
       aiConcurCount: 0,
       aiDisagreeCount: 0,
+      aiAdjudicatedCount: 0,
       aiAuditModel: null,
+      aiAdjudicationModel: null,
     },
     "미판정 항목은 audited/overturned 집계에서 제외",
   );
@@ -331,7 +335,9 @@ const aiReviewFixture: AuditedAiReviewInput = {
       aiAuditedCount: 2,
       aiConcurCount: 1, // #1 — 사람 판정 없는 정확 일치만 자동 확정으로 센다
       aiDisagreeCount: 1, // #3 — 불일치(사람 판정이 뒤따랐어도 불일치 기록은 유지)
+      aiAdjudicatedCount: 0,
       aiAuditModel: "claude-sonnet-5",
+      aiAdjudicationModel: null,
     },
     "provenance — 사람/AI 감사 갈래 분리 집계",
   );

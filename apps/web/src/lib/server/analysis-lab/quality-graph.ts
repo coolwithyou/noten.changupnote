@@ -22,6 +22,7 @@ import {
   type AnalysisQualityStatus,
 } from "@/features/dev/analysis-lab/quality-contract";
 import { assessPromotionReviewRisk } from "./promotion-review-risk";
+import { classifyLabRunOutcome } from "./run-outcome";
 
 export interface AnalysisQualityGraphInput {
   run: LabRun;
@@ -77,7 +78,9 @@ export function evaluateAnalysisQuality(input: AnalysisQualityGraphInput): Analy
 
 function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQualityNode[] {
   const { run } = input;
-  const validationHeld = run.primaryValidationOutcome === "held";
+  const runOutcome = classifyLabRunOutcome(run);
+  const validationHeld = runOutcome === "held";
+  const runFailed = runOutcome === "failed";
   const inputIssues = [
     ...(!SHA256.test(run.inputSha256) ? ["입력 SHA-256이 없거나 형식이 올바르지 않습니다."] : []),
     ...(run.inputBlocks.length === 0 || run.inputTotalChars <= 0 ? ["봉인된 입력 블록이 없습니다."] : []),
@@ -93,7 +96,7 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
   const groundedCriteria = run.criteria.filter((criterion) =>
     criterion.spanVerified && Boolean(criterion.sourceSpan?.trim())).length;
   const contractIssues = [
-    ...(run.error && !validationHeld ? [`분석 오류: ${run.error}`] : []),
+    ...(runFailed ? [`분석 오류: ${run.error ?? "outcome/error contract mismatch"}`] : []),
     ...(run.promptVersion !== ANALYSIS_LAB_PROMPT_VERSION
       ? [`구 분석 정책: ${run.promptVersion} (현재 ${ANALYSIS_LAB_PROMPT_VERSION})`]
       : []),
@@ -109,7 +112,7 @@ function evaluateDeepAnalysis(input: AnalysisQualityGraphInput): AnalysisQuality
   const ambiguousAxes = run.axisAssessments.filter((axis) => axis.status === "ambiguous").length;
   let contractStatus: AnalysisQualityStatus = "passed";
   if (
-    (run.error && !validationHeld)
+    runFailed
     || (validationHeld && inputMissingAxes === 0 && ambiguousAxes === 0)
     || !hasExactDeepAnalysisAxisCoverage(run.axisAssessments)
     || groundedCriteria !== run.criteria.length

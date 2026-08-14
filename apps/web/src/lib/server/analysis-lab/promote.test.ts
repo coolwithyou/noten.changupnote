@@ -121,6 +121,24 @@ function fixtureSidecar(
   };
 }
 
+// 신규 held 형식(error:null)이 도입돼도 최종 승격 seam은 publishable만 허용한다.
+{
+  const heldRun = fixtureRun([], {
+    primaryValidationOutcome: "held",
+    error: null,
+  });
+  assert.throws(
+    () => planGrantPromotion({
+      run: heldRun,
+      review: null,
+      origin: "pending",
+      sidecar: null,
+    }),
+    /발행 가능한 런이 아닙니다/,
+  );
+  console.log("✅ 승격 최종 방어 — held 런은 error:null이어도 계획 수립 차단");
+}
+
 // ---- 영향도별 승격 정책 — 실제 실패형 2건을 구조적으로 고정 -----------------------
 
 {

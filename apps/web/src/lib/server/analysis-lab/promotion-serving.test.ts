@@ -208,6 +208,25 @@ assert.equal(
     /audited-local-canary/,
     "주간 사람검수 게이트 생략은 명시적인 단일 canary에서만 허용해야 한다",
   );
+  const heldCandidate: PromotionCandidate = {
+    ...candidate,
+    source: {
+      ...candidate.source,
+      run: {
+        ...candidate.source.run,
+        primaryValidationOutcome: "held",
+        error: null,
+      },
+    },
+  };
+  assert.throws(
+    () => selectPromotionCandidatesForRelease([heldCandidate], {
+      grantId,
+      auditedLocalCanary: true,
+    }),
+    /봉인된 구독 분석/,
+    "held 런은 error:null이어도 audited local canary로 우회할 수 없다",
+  );
 }
 
 console.log("promotion serving provenance tests: ok");
