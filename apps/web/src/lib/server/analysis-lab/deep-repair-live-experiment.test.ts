@@ -320,6 +320,7 @@ function publishableRun(input: {
 
 function fixture(input: {
   repair?: "none" | "deterministic" | "model";
+  repairSequences?: ReadonlySet<number>;
   fail?: boolean;
 } = {}) {
   const plan = formalPlan();
@@ -388,7 +389,11 @@ function fixture(input: {
             const run = publishableRun({
               plan,
               sequence,
-              ...(input.repair === undefined ? {} : { repair: input.repair }),
+              ...(input.repairSequences?.has(sequence)
+                ? { repair: "deterministic" as const }
+                : input.repair === undefined
+                  ? {}
+                  : { repair: input.repair }),
             });
             if (input.fail) {
               delete run.primaryValidationOutcome;
@@ -416,6 +421,84 @@ function fixture(input: {
     operationalChecks: () => operationalChecks,
     observedExecutionBinding: () => observedExecutionBinding,
   };
+}
+
+{
+  const setup = fixture({ repairSequences: new Set([0]) });
+  let authorityId = setup.authoritySha;
+  let parentReceiptSha256: string | null = null;
+
+  for (let sequence = 0; sequence < 21; sequence += 1) {
+    if (sequence > 0) {
+      const approval = userApproval({
+        plan: setup.plan,
+        planArtifactSha256: setup.authority.planArtifactSha256,
+        parentReceiptSha256,
+        sequence,
+        approvedAt: NOW.toISOString(),
+      });
+      const approvalArtifact = stored(approval, `/approvals/sprt-${sequence}.json`);
+      const approvalSha = storedSha256(approvalArtifact);
+      setup.repo.approvals.set(approvalSha, approvalArtifact);
+      const nextAuthority = authority({
+        plan: setup.plan,
+        planArtifactSha256: setup.authority.planArtifactSha256,
+        operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+        approvalSha256: approvalSha,
+        parentReceiptSha256,
+        sequence,
+      });
+      authorityId = installIssuedAuthority(
+        setup.repo,
+        nextAuthority,
+        `/authorities/sprt-${sequence}.json`,
+      ).sha256;
+    }
+
+    const result = await setup.experiment.runApprovedCanary({
+      authorityId,
+      signal: new AbortController().signal,
+    });
+    assert.equal(result.kind, "recorded");
+    if (result.kind !== "recorded") throw new Error("expected recorded result");
+    parentReceiptSha256 = result.receipt.receiptSha256;
+    assert.equal(result.receipt.observedCount, sequence + 1);
+    assert.equal(
+      result.receipt.gateVerdict,
+      sequence === 20 ? "GO" : "CONTINUE",
+      "1/21 repair의 첫 GO를 부분 wave lifecycle 때문에 INVALID로 바꾸면 안 된다",
+    );
+    if (sequence === 20) {
+      assert.equal(result.receipt.nextAction, "stopped");
+      assert.ok(result.receipt.observationsSha256);
+      assert.ok(result.receipt.evaluatorReceiptSha256);
+      const observationsArtifact = setup.repo.observations.get(
+        result.receipt.observationsSha256,
+      );
+      const evaluatorArtifact = setup.repo.evaluatorReceipts.get(
+        result.receipt.evaluatorReceiptSha256,
+      );
+      assert.ok(observationsArtifact);
+      assert.ok(evaluatorArtifact);
+      const observations = JSON.parse(Buffer.from(observationsArtifact.bytes).toString("utf8")) as {
+        waveLifecycles: Array<{ waveId: string; status: string }>;
+      };
+      const evaluator = JSON.parse(Buffer.from(evaluatorArtifact.bytes).toString("utf8")) as {
+        statisticalVerdict: string | null;
+        verdict: string;
+        lifecycle: string;
+        invalidReasons: string[];
+      };
+      assert.deepEqual(observations.waveLifecycles, [
+        { waveId: "wave-1", status: "finished" },
+        { waveId: "wave-2", status: "finished" },
+      ]);
+      assert.equal(evaluator.statisticalVerdict, "GO");
+      assert.equal(evaluator.verdict, "GO");
+      assert.equal(evaluator.lifecycle, "finished");
+      assert.deepEqual(evaluator.invalidReasons, []);
+    }
+  }
 }
 
 {

@@ -964,7 +964,7 @@ async function loadAndValidateParentChain(input: {
     if (child && child.parentReceiptSha256 !== receipt.receiptSha256) {
       throw rejection("parent_receipt_invalid", "parent receipt chain 순서가 올바르지 않습니다.", true);
     }
-    child ??= receipt;
+    child = receipt;
     chainNewestFirst.push(receipt);
     cursor = receipt.parentReceiptSha256;
   }
@@ -972,6 +972,7 @@ async function loadAndValidateParentChain(input: {
   let previousNotices: Array<Record<string, unknown>> = [];
   let previousObservationsSha256: string | null = null;
   let previousEvaluatorReceiptSha256: string | null = null;
+  const latest = chainNewestFirst[0] ?? null;
   const chain = chainNewestFirst.reverse();
   for (let index = 0; index < chain.length; index += 1) {
     const receipt = chain[index]!;
@@ -1080,7 +1081,7 @@ async function loadAndValidateParentChain(input: {
     }
   }
   return {
-    latest: child,
+    latest,
     observations: { notices: structuredClone(previousNotices) },
   };
 }
@@ -1438,15 +1439,14 @@ function buildWaveLifecycles(
   plan: DeepRepairExperimentPlan,
   notices: ReadonlyArray<Record<string, unknown>>,
 ): Array<{ waveId: string; status: "finished" | "unknown" }> {
-  const observedGrantIds = new Set(notices.map((notice) => String(notice.grantId)));
   const observedWaveIds = new Set(notices.map((notice) => String(notice.waveId)));
   return plan.manifest.waves
     .filter((wave) => observedWaveIds.has(wave.waveId))
     .map((wave) => ({
       waveId: wave.waveId,
-      status: wave.targets.every((target) => observedGrantIds.has(target.grantId))
-        ? "finished" as const
-        : "unknown" as const,
+      // notices는 exact plan prefix의 terminal publishable/held만 포함한다. 여기서 lifecycle은
+      // 아직 모집하지 않은 wave 잔여 target이 아니라 관측된 실행 prefix의 완주 여부다.
+      status: "finished" as const,
     }));
 }
 
