@@ -33,6 +33,7 @@ import {
 import { selectReviewedRuns } from "./reviewed-runs";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 
 const DEFAULT_LIMIT = 50;
 const CONCURRENCY = 2;
@@ -195,26 +196,6 @@ async function main(): Promise<number> {
   // 클로저(worker) 안에서도 non-null 로 좁혀지도록 별도 상수에 고정한다(ai-audit-cli 관행).
   const costCapUsd: number = maxCostUsd;
 
-  // Phase 5 배선(계획 §5 #4 — 2026-08-04 검수 레인 GO): transport=claude-cli 면 완전한
-  // ConfirmationsLlmDeps(3필드 전부 필수)를 구성해 fetchImpl(CLI shim)을 callModel 에
-  // 주입한다. api 경로에서는 deps 미전달(undefined) → runConfirmations 의 기존
-  // loadDefaultLlmDeps 경로 보존. confirmations.ts 자체는 무수정(DI 로 흡수).
-  // claude-cli binding 은 키 불요·무부작용이라 dry-run 전에 안전하게 구성된다(도달 확인 로그 포함).
-  const binding = transport === "claude-cli" ? await resolveLabLlmBinding() : null;
-  const fetchImpl = binding?.fetchImpl;
-  const deps: ConfirmationsLlmDeps | undefined = binding
-    ? {
-        reassembleInput: reassembleLabInputForRun,
-        callModel: (o) => callAnthropicToolModel({ ...o, ...(fetchImpl ? { fetchImpl } : {}) }),
-        computeCostUsd: computeAiReviewCostUsd,
-      }
-    : undefined;
-  console.log(
-    `[confirmations] 보강 모델 ${model} · promptVersion=${CONFIRMATIONS_PROMPT_VERSION} · ` +
-      `transport=${binding ? binding.transport : "api"}` +
-      (deps ? " · ConfirmationsLlmDeps 구성(fetchImpl 주입, 계획 §5 #4)" : ""),
-  );
-
   // 대상 수집 — aggregate 가 쓰는 공유 로더 재사용(직접 재구현 금지, 계획 명세):
   //   ① 사람 review.json 보유 런(코호트 필터·dedupe 포함) ② 감사 완료 병합 런.
   const reviewedSelection = await selectReviewedRuns({ scanAll: false });
@@ -282,6 +263,24 @@ async function main(): Promise<number> {
     }
     return 0;
   }
+
+  assertAnalysisLabLiveExecutionAdmitted();
+  // 실제 호출 직전에만 binding을 만든다. dry-run/plan-only는 Gate R admission을
+  // 건드리지 않으며, live 경로는 공용 binding에서 fail-closed된다.
+  const binding = transport === "claude-cli" ? await resolveLabLlmBinding() : null;
+  const fetchImpl = binding?.fetchImpl;
+  const deps: ConfirmationsLlmDeps | undefined = binding
+    ? {
+        reassembleInput: reassembleLabInputForRun,
+        callModel: (o) => callAnthropicToolModel({ ...o, ...(fetchImpl ? { fetchImpl } : {}) }),
+        computeCostUsd: computeAiReviewCostUsd,
+      }
+    : undefined;
+  console.log(
+    `[confirmations] 보강 모델 ${model} · promptVersion=${CONFIRMATIONS_PROMPT_VERSION} · ` +
+      `transport=${binding ? binding.transport : "api"}` +
+      (deps ? " · ConfirmationsLlmDeps 구성(fetchImpl 주입, 계획 §5 #4)" : ""),
+  );
 
   // api 경로는 기존 requireApiKey 흐름 그대로 — claude-cli 면 binding 이 키 요구를 흡수한다.
   const apiKey = binding?.apiKey ?? requireApiKey();

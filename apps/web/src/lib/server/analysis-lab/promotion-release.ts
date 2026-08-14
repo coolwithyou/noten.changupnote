@@ -86,6 +86,8 @@ export interface PromotionReleasePlanItem {
   questionCountAfter: number;
   pendingCount: number;
   downgradedCount: number;
+  /** 기록 이전 release(undefined)는 legacy API 실행으로 해석한다. */
+  transport?: "api" | "claude-cli";
   costUsd: number | null;
 }
 
@@ -107,6 +109,19 @@ export interface PromotionReleaseManifestBody {
 
 export interface PromotionReleaseManifest extends PromotionReleaseManifestBody {
   manifestSha256: string;
+}
+
+/**
+ * transport 도입 전 release는 plan 대신 source artifact에만 실행 provenance가 있다.
+ * 명시값은 manifest 검증 후 사용하고, legacy는 검증된 local source만 구독으로 복원한다.
+ */
+export function resolvePromotionReleaseTransport(
+  plan: Pick<PromotionReleasePlanItem, "transport">,
+  source: PromotionSourceArtifact | undefined,
+): "api" | "claude-cli" {
+  if (plan.transport !== undefined) return plan.transport;
+  if (!source || source.deepAnalysisRunId) return "api";
+  return isVerifiedLocalLabSourceArtifact(source) ? "claude-cli" : "api";
 }
 
 export interface PromotionDryRunItem {
@@ -332,20 +347,24 @@ export function promotionAggregateDecidedCount(
  * readiness까지 봉인된 production deep-analysis release와 독립 감사된 단일 local
  * conditional canary에서는 정확성·누락과 source drift를 발행 차단 조건으로 유지한다.
  * 상대 coverage와 structured 비율은 도입 성과 지표라 개별 공고의 문서 특성만으로
- * 안전한 conditional 발행을 막지 않는다. API 실행의 비용은 계속 차단하지만, 독립
- * 감사된 claude-cli local canary의 costUsd는 구독 사용량을 API 단가로 환산한 명목값이므로
- * 실제 추가 지출 게이트로 사용하지 않고 관찰 지표로만 남긴다.
+ * 안전한 conditional 발행을 막지 않는다. API 실행의 비용은 계속 차단하지만,
+ * claude-cli costUsd는 구독 사용량을 API 단가로 환산한 명목값이므로 release 종류와
+ * 관계없이 실제 추가 지출 게이트로 사용하지 않고 관찰 지표로만 남긴다.
  */
 export function isPromotionAggregateGateBlocking(
-  plans: readonly Pick<PromotionReleasePlanItem, "deepAnalysisReadiness" | "promotionPlan">[],
+  plans: readonly Pick<
+    PromotionReleasePlanItem,
+    "deepAnalysisReadiness" | "promotionPlan" | "transport"
+  >[],
   gateId: PromotionAggregateGateId,
 ): boolean {
-  if (!isPromotableAnalysisRelease(plans)) return true;
-  if (gateId === "coverage_ratio" || gateId === "structured_ratio") return false;
   if (
     gateId === "cost_per_notice_usd"
-    && plans.every((item) => isAuditedLocalAcceptedPlan(item.promotionPlan))
+    && plans.length > 0
+    && plans.every((item) => item.transport === "claude-cli")
   ) return false;
+  if (!isPromotableAnalysisRelease(plans)) return true;
+  if (gateId === "coverage_ratio" || gateId === "structured_ratio") return false;
   return true;
 }
 
@@ -508,10 +527,21 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
   if (expectedManifestHash !== typed.manifestSha256) {
     throw new Error("manifest hash가 내용과 일치하지 않습니다.");
   }
-  const artifactGrantIds = new Set(typed.sourceArtifacts.map((item) => item.grantId));
+  const artifactGrantIds = new Set<string>();
+  for (const source of typed.sourceArtifacts) {
+    if (artifactGrantIds.has(source.grantId)) {
+      throw new Error(`source artifact grant 중복: ${source.grantId}`);
+    }
+    artifactGrantIds.add(source.grantId);
+  }
   const sourceArtifactByGrantId = new Map(
     typed.sourceArtifacts.map((item) => [item.grantId, item]),
   );
+  for (const source of typed.sourceArtifacts) {
+    if (source.deepAnalysisRunId && source.localLabEvidence) {
+      throw new Error(`release source provenance는 상호배타여야 합니다: ${source.grantId}`);
+    }
+  }
   const seenGrantIds = new Set<string>();
   for (const item of typed.plans) {
     if (seenGrantIds.has(item.grantId)) throw new Error(`manifest grant 중복: ${item.grantId}`);
@@ -525,8 +555,17 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     if (!artifactGrantIds.has(item.grantId)) {
       throw new Error(`source artifact 누락: ${item.grantId}`);
     }
+    const source = sourceArtifactByGrantId.get(item.grantId);
+    if (source?.runId !== item.promotionPlan.runId) {
+      throw new Error(`release source runId가 promotion plan과 불일치합니다: ${item.grantId}`);
+    }
+    if (item.transport !== undefined) {
+      const sourceTransport = resolvePromotionReleaseTransport({}, source);
+      if (item.transport !== sourceTransport) {
+        throw new Error(`release transport provenance 불일치: ${item.grantId}`);
+      }
+    }
     if (item.deepAnalysisReadiness !== undefined) {
-      const source = sourceArtifactByGrantId.get(item.grantId);
       const conditionalOnly = item.deepAnalysisConditionalOnlyCriteria;
       const needsReviewPositions = item.promotionPlan.criteria.flatMap(
         (criterion, position) => criterion.needs_review === true ? [position] : [],

@@ -8,6 +8,7 @@ import {
   selectAutomaticAnalysisTargets,
 } from "./target-selection";
 import { SUBSCRIPTION_ANALYSIS_AGENT_MODELS } from "./subscription-analysis-agent-core";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 
 loadAnalysisLabEnv();
@@ -21,6 +22,7 @@ async function main(): Promise<number> {
   if (resolveLabTransport() !== "claude-cli") {
     throw new Error("신규 대상 선정은 ANALYSIS_LAB_TRANSPORT=claude-cli에서만 실행합니다.");
   }
+  assertAnalysisLabLiveExecutionAdmitted();
   if (getLabBatchJobSnapshot().state === "running") {
     throw new Error("다른 분석 배치가 실행 중이므로 신규 대상을 선정할 수 없습니다.");
   }

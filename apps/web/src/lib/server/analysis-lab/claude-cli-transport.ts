@@ -15,6 +15,7 @@ import {
   EXECUTION_TIMEOUT_HEADER,
   markExecutionScopedTimeoutFetch,
 } from "@/lib/server/deep-analysis/fetchTimeout";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_CONCURRENCY = 4;
@@ -56,6 +57,8 @@ export interface ClaudeCliFetchConfig {
   scheduler?: ClaudeCliScheduler;
   /** 같은 공고/run의 하위 호출을 묶는 공정성 key. 미지정 시 fetch 인스턴스별 고유 key. */
   schedulerKey?: ClaudeCliSchedulerKey;
+  /** 테스트 fake 전용 admission seam. 실제 caller는 생략해 Gate R 정적 차단을 적용한다. */
+  assertExecutionAdmissionImpl?: () => void;
 }
 
 export type ClaudeCliSchedulerKey = string | symbol;
@@ -198,6 +201,7 @@ function abortReason(signal: AbortSignal | undefined): Error {
 }
 
 export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch {
+  (config?.assertExecutionAdmissionImpl ?? assertAnalysisLabLiveExecutionAdmitted)();
   const binary = config?.claudeBinary ?? "claude";
   const scratchCwd = config?.scratchCwd ?? join(tmpdir(), "cunote-claude-cli-transport");
   const execFileImpl = config?.execFileImpl ?? execFile;
@@ -255,6 +259,7 @@ export interface LabLlmBinding {
 export async function resolveLabLlmBinding(options?: {
   schedulerKey?: ClaudeCliSchedulerKey;
 }): Promise<LabLlmBinding> {
+  assertAnalysisLabLiveExecutionAdmitted();
   const transport = resolveLabTransport();
   if (transport === "claude-cli") {
     return {
@@ -531,7 +536,7 @@ async function assembleErrorResponse(
 function buildWindowExhaustedResponse(version: string): Response {
   return new Response(
     `Claude Max 사용량 윈도 소진으로 판단됨 ${CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER} — ` +
-      `윈도 리셋 후 같은 명령으로 재실행하세요. (claude ${version})`,
+      `자동 재실행하지 말고 별도 새 experiment 대상으로 검토하세요. (claude ${version})`,
     { status: 400 },
   );
 }

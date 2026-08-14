@@ -11,6 +11,7 @@ import { runLabAnalysis } from "./analyze";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { classifyLabRunOutcome, isPublishableLabRun } from "./run-outcome";
 import { resolveRepairApplicationRoundtripOptions } from "./application-roundtrip-policy";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 
 loadAnalysisLabEnv();
 
@@ -49,6 +50,7 @@ async function main(): Promise<number> {
     console.log(`  - ${target.run.grantId} · ${target.run.runId} · ${target.issues.map((node) => node.label).join(", ")}`);
   }
   if (dryRun) return 0;
+  assertAnalysisLabLiveExecutionAdmitted();
 
   const { getCunoteDb } = await import("../db/client");
   const {

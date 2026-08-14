@@ -59,15 +59,27 @@ export function evaluateAnalysisBulkReadiness(input: {
   const held = new Set(targetIds(input.snapshot, "target-held"));
   const terminal = new Set([...ok, ...held]);
   const errors = input.snapshot.events.filter((event) => event.type === "target-error");
+  const summary = input.snapshot.summary;
   const batchSubscriptionConfigured = input.snapshot.options?.transport === "claude-cli"
     && input.snapshot.options.model === ANALYSIS_BULK_READINESS_MODEL
     && input.snapshot.options.withApplicationRoundtrip === true;
   const batchWaiting = input.snapshot.state === "running";
+  const legacySubscriptionCostStopAfterCompletion =
+    input.snapshot.options?.transport === "claude-cli"
+    && summary !== null
+    && summary.stopReason === "cost-cap"
+    && (summary.notStarted ?? 0) === 0
+    && started.length > 0
+    && terminal.size === started.length
+    && started.every((grantId) => terminal.has(grantId));
   const batchPassed = input.snapshot.state === "finished"
-    && input.snapshot.summary?.stopReason === "completed"
-    && (input.snapshot.summary.errorRuns ?? 0) === 0
-    && (input.snapshot.summary.unsavedFailures ?? 0) === 0
-    && (input.snapshot.summary.notStarted ?? 0) === 0
+    && (
+      summary?.stopReason === "completed"
+      || legacySubscriptionCostStopAfterCompletion
+    )
+    && (summary?.errorRuns ?? 0) === 0
+    && (summary?.unsavedFailures ?? 0) === 0
+    && (summary?.notStarted ?? 0) === 0
     && errors.length === 0;
   const samplePassed = started.length === expectedCount
     && terminal.size === expectedCount
@@ -136,7 +148,9 @@ export function evaluateAnalysisBulkReadiness(input: {
       batchWaiting
         ? `배치가 실행 중입니다: ${input.snapshot.progress?.ok ?? 0}/${expectedCount}`
         : batchPassed
-          ? "비용·윈도·오류 중단 없이 정상 종결했습니다."
+          ? legacySubscriptionCostStopAfterCompletion
+            ? "구독 legacy 명목 비용 중단 기록이지만 전건 terminal로 종결했습니다."
+            : "윈도·오류 중단 없이 정상 종결했습니다."
           : `배치 상태 ${input.snapshot.state}, 중단 ${input.snapshot.summary?.stopReason ?? "미기록"}`,
       [`job ${input.snapshot.jobId ?? "없음"}`, `error events ${errors.length}`],
     ),

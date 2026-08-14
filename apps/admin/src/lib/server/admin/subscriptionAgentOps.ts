@@ -32,6 +32,9 @@ const DEFAULT_OPTIONS: SubscriptionAgentOpsOptions = {
 const MAX_LOG_LINES = 160
 const MAX_HISTORY = 12
 const ACTIVE_STATES = new Set(["planning", "running", "stopping"])
+const SUBSCRIPTION_AGENT_EXECUTION_ADMITTED = false
+const SUBSCRIPTION_AGENT_GATE_R_MESSAGE =
+  "Gate R이 아직 충족되지 않아 실제 구독 분석 실행을 일시중지했습니다. 계획 확인만 허용되며, exact canary 범위와 사용자 승인이 확정된 뒤 재개합니다."
 const COMMAND_STAGES = [
   ["신규 모집 공고 자동 선정", "selecting"],
   ["딥분석·Kordoc 병렬 실행", "analyzing"],
@@ -52,6 +55,21 @@ export class SubscriptionAgentOpsError extends Error {
     super(message)
     this.name = "SubscriptionAgentOpsError"
   }
+}
+
+/**
+ * Admin pre-spawn UX backstop. The analysis-lab CLI owns the authoritative
+ * execution circuit breaker, so a stale admin bundle still cannot start a
+ * model call. Keep this mirror fail-closed until the receipt-bound live
+ * experiment adapter replaces the legacy agent entrypoint.
+ */
+export function assertSubscriptionAgentExecutionAdmitted(): void {
+  if (SUBSCRIPTION_AGENT_EXECUTION_ADMITTED) return
+  throw new SubscriptionAgentOpsError(
+    "gate_r_not_satisfied",
+    SUBSCRIPTION_AGENT_GATE_R_MESSAGE,
+    423,
+  )
 }
 
 interface PersistedRuntime {
@@ -82,7 +100,9 @@ export async function getSubscriptionAgentOpsSnapshot(input: {
   return {
     refreshedAt: new Date().toISOString(),
     localAvailable: input.localAvailable,
-    executionAllowed: input.localAvailable && !ACTIVE_STATES.has(runtime.state),
+    executionAllowed: input.localAvailable
+      && SUBSCRIPTION_AGENT_EXECUTION_ADMITTED
+      && !ACTIVE_STATES.has(runtime.state),
     runtime,
     plan,
     batch,
@@ -115,6 +135,7 @@ export async function startSubscriptionAgentRun(input: {
   localAvailable: boolean
 }): Promise<SubscriptionAgentOpsSnapshot> {
   requireLocal(input.localAvailable)
+  assertSubscriptionAgentExecutionAdmitted()
   const root = findRepositoryRoot()
   assertNoActiveRuntime(await readRuntime(root))
 
@@ -539,6 +560,13 @@ function buildNextAction(input: {
       title: `${stageLabel(input.runtime.stage)} 진행 중`,
       description: "새 실행을 겹치지 말고 현재 단계와 실시간 로그를 확인하세요.",
       tone: "default",
+    }
+  }
+  if (!SUBSCRIPTION_AGENT_EXECUTION_ADMITTED) {
+    return {
+      title: "Gate R 확인 전 실제 실행 일시중지",
+      description: SUBSCRIPTION_AGENT_GATE_R_MESSAGE,
+      tone: "destructive",
     }
   }
   if (input.runtime.state === "failed") {

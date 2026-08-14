@@ -44,6 +44,7 @@ import {
   type SubscriptionAnalysisAgentReport,
 } from "./subscription-analysis-agent-core";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 
 loadAnalysisLabEnv();
 
@@ -383,9 +384,12 @@ async function main(): Promise<number> {
     + `신규 안전 후보 ${work.newCandidateCount} · 최대 ${options.count}건`,
   );
   if (!options.execute) {
-    console.log("[subscription-agent] 계획 확인만 완료했습니다. 실제 실행은 --execute를 추가하세요.");
+    console.log(
+      "[subscription-agent] 계획 확인만 완료했습니다. Gate R 전에는 --execute가 차단되며 이 계획은 실행 권한이 아닙니다.",
+    );
     return 0;
   }
+  assertAnalysisLabLiveExecutionAdmitted();
   const result = await runSubscriptionAnalysisAgent(options);
   console.log(`\n[subscription-agent] ${result.report.status} · 보고서 ${result.artifactPath}`);
   return result.report.status === "completed" ? 0 : result.report.status === "partial" ? 2 : 1;

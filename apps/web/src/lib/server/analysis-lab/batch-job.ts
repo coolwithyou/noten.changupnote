@@ -30,6 +30,7 @@ import type {
   LabBatchSummary,
 } from "@/features/dev/analysis-lab/contract";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 import { runLabBatch, type LabBatchRunnerOptions } from "./batch-runner";
 import { resolveLabTransport } from "./claude-cli-transport";
 import { resolveLabCostPolicy } from "./cost-policy";
@@ -57,6 +58,8 @@ export class LabBatchJobBusyError extends Error {
 
 /** 테스트 주입점 — 프로덕션 호출은 전부 생략한다(기본: 실구현 + 실제 spike-out 경로). */
 export interface LabBatchJobDeps {
+  /** Gate R 단위 테스트에서만 사용하는 admission 대체. 프로덕션은 정적 fail-closed. */
+  assertExecutionAdmissionImpl?: () => void;
   /** 배치 러너 대체(페이크) — 기본 runLabBatch. */
   runBatchImpl?: (options: LabBatchRunnerOptions) => Promise<LabBatchSummary>;
   /** transport 미지정 시 확정 함수 — 기본 resolveLabTransport(env). */
@@ -280,6 +283,7 @@ export function startLabBatchJob(
   request: LabBatchStartRequest,
   deps?: LabBatchJobDeps,
 ): LabBatchJobSnapshot {
+  (deps?.assertExecutionAdmissionImpl ?? assertAnalysisLabLiveExecutionAdmitted)();
   const store = jobStore();
   if (store.job && store.job.snapshot.state === "running") {
     throw new LabBatchJobBusyError(cloneSnapshot(store.job.snapshot));

@@ -25,6 +25,7 @@ import {
   runAnalysisPair,
 } from "./application-precompute";
 import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
@@ -95,6 +96,7 @@ export async function runLabAnalysis(
   opts?: LabAnalysisOverrides,
 ): Promise<LabRun> {
   assertApplicationRoundtripOptIn(opts ?? {});
+  assertAnalysisLabLiveExecutionAdmitted();
   const db = getCunoteDb();
   const startedAt = new Date();
   const runId = buildLabRunId(startedAt);

@@ -51,6 +51,7 @@ import {
   recordLeaseRenewalFailure,
   recordLeaseRenewalSuccess,
 } from "./lease-renewal-policy";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 
 loadAnalysisLabEnv();
 
@@ -242,7 +243,7 @@ function printSummaryLines(args: {
     `총 명목 API 환산량 $${summary.totalCostUsd.toFixed(4)} · 소요 ${(summary.durationMs / 1000).toFixed(1)}s` +
       (args.costCapSeen ? " · API 완료비용 상한 도달" : "") +
       (args.windowExhaustedSeen
-        ? " · Max 사용량 윈도 소진 감지 — 신규 착수 중단, 윈도 리셋 후 같은 명령 재실행"
+        ? " · Max 사용량 윈도 소진 감지 — 신규 착수 중단, 별도 새 experiment 검토"
         : ""),
   );
 }
@@ -489,7 +490,7 @@ async function runBatchViaRunner(
             } else {
               windowExhaustedSeen = true;
               console.log(
-                "[batch] Max 사용량 윈도 소진 감지 — 신규 착수를 중단합니다(진행분은 완료). 윈도 리셋 후 같은 명령으로 재실행하세요.",
+                "[batch] Max 사용량 윈도 소진 감지 — 신규 착수를 중단합니다(진행분은 완료). 자동 재실행하지 말고 별도 새 experiment로 검토하세요.",
               );
             }
             break;
@@ -560,6 +561,10 @@ async function main(): Promise<number> {
   }
 
   if (options.dryRun) return runDryRun(options); // 무기록 — 관측 브리지는 실행 경로 전용
+
+  // Gate R 전에는 기존 generic batch가 runtime lease를 스스로 획득해 실행 권한처럼
+  // 사용하는 경로를 닫는다. 향후 live 실행은 receipt-bound experiment Adapter가 소유한다.
+  assertAnalysisLabLiveExecutionAdmitted();
 
   const { getCunoteDb } = await import("../db/client");
   const {

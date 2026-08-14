@@ -32,6 +32,7 @@ import {
   promotionAggregateEffectiveCounts,
   promotionReleaseArtifactPath,
   readPromotionReleaseManifest,
+  resolvePromotionReleaseTransport,
   type PromotionAggregateGateId,
   writeImmutablePromotionArtifact,
 } from "./promotion-release";
@@ -82,6 +83,13 @@ async function aggregateRelease(releaseId: string): Promise<void> {
   const manifest = await readPromotionReleaseManifest(releaseId);
   const plans = manifest.plans;
   if (plans.length === 0) throw new Error("release manifest plan이 0건입니다.");
+  const sourceByGrantId = new Map(
+    manifest.sourceArtifacts.map((source) => [source.grantId, source]),
+  );
+  const plansWithEffectiveTransport = plans.map((plan) => ({
+    ...plan,
+    transport: resolvePromotionReleaseTransport(plan, sourceByGrantId.get(plan.grantId)),
+  }));
   const correct = plans.reduce((sum, item) => sum + item.promotionPlan.conversion.verdicts.correct, 0);
   const needsEdit = plans.reduce(
     (sum, item) => sum + item.promotionPlan.conversion.verdicts.needs_edit,
@@ -99,7 +107,10 @@ async function aggregateRelease(releaseId: string): Promise<void> {
       .filter((criterion) => criterion.operator !== "text_only").length,
     0,
   );
-  const costs = plans.map((item) => item.costUsd).filter((cost): cost is number => cost !== null);
+  const costSummary = summarizeReviewedRunCosts(
+    plansWithEffectiveTransport,
+    GATES.costPerNoticeMaxUsd,
+  );
   const effectiveTotals = promotionAggregateEffectiveCounts(plans, {
     correct,
     needsEdit,
@@ -117,9 +128,7 @@ async function aggregateRelease(releaseId: string): Promise<void> {
   const wrongRate = decided > 0 ? effectiveTotals.wrong / decided : 0;
   const missedPerNotice = effectiveTotals.missed / plans.length;
   const coverageRatio = currentTotal > 0 ? correct / currentTotal : Number.POSITIVE_INFINITY;
-  const costPerNotice = costs.length > 0
-    ? costs.reduce((sum, cost) => sum + cost, 0) / costs.length
-    : 0;
+  const costPerNotice = costSummary.apiCostGate?.actualUsd ?? 0;
   const structuredRatio = correct > 0 ? structured / correct : 0;
   const gates: Array<{
     id: PromotionAggregateGateId;
@@ -133,42 +142,45 @@ async function aggregateRelease(releaseId: string): Promise<void> {
       threshold: { operator: "gte", value: GATES.strictPrecisionMin },
       actual: strictPrecision,
       pass: strictPrecision >= GATES.strictPrecisionMin,
-      blocking: isPromotionAggregateGateBlocking(plans, "strict_precision"),
+      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "strict_precision"),
     },
     {
       id: "wrong_rate",
       threshold: { operator: "lte", value: GATES.wrongRateMax },
       actual: wrongRate,
       pass: wrongRate <= GATES.wrongRateMax,
-      blocking: isPromotionAggregateGateBlocking(plans, "wrong_rate"),
+      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "wrong_rate"),
     },
     {
       id: "missed_per_notice",
       threshold: { operator: "lte", value: GATES.missedPerNoticeMax },
       actual: missedPerNotice,
       pass: missedPerNotice <= GATES.missedPerNoticeMax,
-      blocking: isPromotionAggregateGateBlocking(plans, "missed_per_notice"),
+      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "missed_per_notice"),
     },
     {
       id: "coverage_ratio",
       threshold: { operator: "gte", value: GATES.coverageRatioMin },
       actual: Number.isFinite(coverageRatio) ? coverageRatio : null,
       pass: coverageRatio >= GATES.coverageRatioMin,
-      blocking: isPromotionAggregateGateBlocking(plans, "coverage_ratio"),
+      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "coverage_ratio"),
     },
     {
       id: "cost_per_notice_usd",
       threshold: { operator: "lte", value: GATES.costPerNoticeMaxUsd },
       actual: costPerNotice,
-      pass: costPerNotice <= GATES.costPerNoticeMaxUsd,
-      blocking: isPromotionAggregateGateBlocking(plans, "cost_per_notice_usd"),
+      pass: costSummary.apiCostGate?.pass ?? true,
+      blocking: isPromotionAggregateGateBlocking(
+        plansWithEffectiveTransport,
+        "cost_per_notice_usd",
+      ),
     },
     {
       id: "structured_ratio",
       threshold: { operator: "gte", value: GATES.structuredRatioMin },
       actual: structuredRatio,
       pass: structuredRatio >= GATES.structuredRatioMin,
-      blocking: isPromotionAggregateGateBlocking(plans, "structured_ratio"),
+      blocking: isPromotionAggregateGateBlocking(plansWithEffectiveTransport, "structured_ratio"),
     },
   ];
   const sourceDrift: string[] = [];
@@ -188,6 +200,8 @@ async function aggregateRelease(releaseId: string): Promise<void> {
     totals: { correct, needsEdit, wrong, unsure, missed, currentTotal, structured },
     /** 원본 totals는 감사 증적으로 보존하고 gate 계산에는 발행 억제 이후 수치를 쓴다. */
     effectiveTotals,
+    /** API 비용만 gate로 판정하고 구독 명목 USD는 transport별 telemetry로 보존한다. */
+    costTelemetry: costSummary,
     gates,
     sourceDrift,
     verdict: go

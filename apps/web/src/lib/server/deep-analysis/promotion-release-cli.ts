@@ -506,6 +506,7 @@ async function prepare(): Promise<number> {
         (resolution) => resolution.state === "pending",
       ).length,
       downgradedCount: 0,
+      transport: "api",
       costUsd: run.costUsd === null ? null : Number(run.costUsd),
     });
   }

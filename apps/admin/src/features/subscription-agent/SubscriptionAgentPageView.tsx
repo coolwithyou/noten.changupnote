@@ -181,6 +181,16 @@ export function SubscriptionAgentPageView({
         </Alert>
       ) : null}
 
+      {snapshot.localAvailable && !snapshot.executionAllowed && !active ? (
+        <Alert variant="destructive">
+          <TriangleAlertIcon />
+          <AlertTitle>Gate R 확인 전 실제 실행 일시중지</AlertTitle>
+          <AlertDescription>
+            계획 확인은 계속 사용할 수 있습니다. 실제 모델 실행은 exact canary 범위와 사용자 승인이 확정된 뒤 재개합니다.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       {error ? (
         <Alert variant="destructive">
           <TriangleAlertIcon />
@@ -300,7 +310,10 @@ export function SubscriptionAgentPageView({
                 현재 실행 중단
               </Button>
             ) : (
-              <Button onClick={() => void perform("start")} disabled={pendingAction !== null || !snapshot.localAvailable}>
+              <Button
+                onClick={() => void perform("start")}
+                disabled={pendingAction !== null || !snapshot.executionAllowed}
+              >
                 {pendingAction === "start" ? <Spinner data-icon="inline-start" /> : <PlayIcon data-icon="inline-start" />}
                 {count}건 실행
               </Button>
@@ -364,7 +377,7 @@ export function SubscriptionAgentPageView({
                 <Alert>
                   <ActivityIcon />
                   <AlertTitle>아직 실행 로그가 없습니다</AlertTitle>
-                  <AlertDescription>계획 확인은 모델을 호출하지 않으며, 실제 실행을 시작하면 단계별 로그가 나타납니다.</AlertDescription>
+                  <AlertDescription>계획 확인은 모델을 호출하지 않습니다. 과거 실행의 단계별 로그는 Gate R 증거로 보존됩니다.</AlertDescription>
                 </Alert>
               )}
             </TabsContent>

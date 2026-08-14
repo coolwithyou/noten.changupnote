@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { and, eq, inArray } from "drizzle-orm";
 import { bundlePromotionApplicationPrecompute } from "./application-precompute-release";
 import { applyPublishGuards } from "./promote";
+import { assertAnalysisLabPromotionMutationAdmitted } from "./analysis-execution-admission";
 import {
   loadConfirmedPromotionCandidates,
   selectPromotionCandidatesForRelease,
@@ -210,6 +211,7 @@ async function prepare(): Promise<number> {
       questionCountAfter: plan.questions.length,
       pendingCount: plan.resolutions.filter((item) => item.state === "pending").length,
       downgradedCount: plan.conversion.downgraded,
+      transport: candidateByGrantId.get(plan.grantId)?.source.run.transport ?? "api",
       costUsd: candidateByGrantId.get(plan.grantId)?.source.run.costUsd ?? null,
     });
   }
@@ -334,6 +336,7 @@ async function readGate(
 }
 
 async function approve(): Promise<number> {
+  assertAnalysisLabPromotionMutationAdmitted();
   const releaseId = readArg("release")?.trim();
   const actor = readArg("actor")?.trim();
   if (!releaseId) throw new Error("--release가 필요합니다.");

@@ -7,6 +7,7 @@ import { classifyLabRunOutcome, isPublishableLabRun } from "./run-outcome";
 import { AI_ADJUDICATION_DEFAULT_MODEL } from "./ai-adjudication";
 import { buildHeldReviewRepairPlan, combineHeldReviewRepairPlans } from "./held-review-repair";
 import { resolveRepairApplicationRoundtripOptions } from "./application-roundtrip-policy";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 
 loadAnalysisLabEnv();
@@ -52,6 +53,7 @@ async function main(): Promise<number> {
     console.log(`  - ${item.source.run.grantId} · ${item.source.run.runId} · 현재 ${item.currentBlockingCount} / 누적 ${item.plan.blockingCount} blocker`);
   }
   if (dryRun) return 0;
+  assertAnalysisLabLiveExecutionAdmitted();
   if ((process.env.ANALYSIS_LAB_TRANSPORT ?? "").trim() !== "claude-cli") {
     throw new Error("held 재분석은 ANALYSIS_LAB_TRANSPORT=claude-cli에서만 실행합니다.");
   }

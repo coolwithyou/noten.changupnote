@@ -26,8 +26,8 @@ import { formatDateTime, formatDurationMs, formatUsd } from "./batch-ops-format"
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GUARD_STOP_MESSAGES: Record<"cost-cap" | "window-exhausted", string> = {
-  "cost-cap": "API 완료 비용 상한 도달 — 상한을 올려 재실행하면 이어서 진행합니다.",
-  "window-exhausted": "Max 윈도 소진 — 리셋 후 재실행하세요.",
+  "cost-cap": "API 완료 비용 상한 도달 — Gate R 전에는 재실행하지 않습니다.",
+  "window-exhausted": "Max 윈도 소진 — 자동 재실행하지 않고 새 experiment 대상으로 검토합니다.",
 };
 
 const GUARD_STOP_TITLES: Record<"cost-cap" | "window-exhausted", string> = {
@@ -44,7 +44,7 @@ const STOP_REASON_LABELS: Record<LabBatchSummary["stopReason"], string> = {
 
 const LEGACY_SUBSCRIPTION_COST_GUARD_TITLE = "과거 구독 명목 비용 가드 도달";
 const LEGACY_SUBSCRIPTION_COST_GUARD_MESSAGE =
-  "이 중단 규칙은 폐기됐습니다. 현재 구독 실행에서는 명목 비용을 관측만 하므로 그대로 재실행하면 잔여 대상을 이어갑니다.";
+  "이 중단 규칙은 폐기됐습니다. 명목 비용은 telemetry로만 해석하며, Gate R 전에는 잔여 대상을 재실행하지 않습니다.";
 
 function guardStopTitle(
   reason: "cost-cap" | "window-exhausted",

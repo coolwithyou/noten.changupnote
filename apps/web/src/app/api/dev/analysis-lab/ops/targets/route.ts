@@ -17,6 +17,10 @@ import {
   localAnalysisOwnerFromRequest,
   renewLocalSubscriptionLease,
 } from "@/lib/server/deep-analysis/runtimeControl";
+import {
+  AnalysisLabExecutionPausedError,
+  assertAnalysisLabLiveExecutionAdmitted,
+} from "@/lib/server/analysis-lab/analysis-execution-admission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -79,6 +83,7 @@ export async function POST(request: Request) {
 
   selectionInFlight = true;
   try {
+    assertAnalysisLabLiveExecutionAdmitted();
     const ownerId = localAnalysisOwnerFromRequest(request);
     const db = getCunoteDb();
     await assertLocalSubscriptionAnalysisAllowed({ db, ownerId });
@@ -97,6 +102,12 @@ export async function POST(request: Request) {
     await renewLocalSubscriptionLease({ db, ownerId: ownerId ?? "" });
     return NextResponse.json(result, { status: 201 });
   } catch (error) {
+    if (error instanceof AnalysisLabExecutionPausedError) {
+      return NextResponse.json(
+        { error: error.code, message: error.message },
+        { status: 423 },
+      );
+    }
     if (error instanceof DeepAnalysisRuntimeControlError) {
       return NextResponse.json(
         { error: error.code, message: error.message },

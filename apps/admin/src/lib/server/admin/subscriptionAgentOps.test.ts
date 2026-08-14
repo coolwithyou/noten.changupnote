@@ -1,12 +1,32 @@
 import assert from "node:assert/strict"
 
 import {
+  assertSubscriptionAgentExecutionAdmitted,
   buildSubscriptionAgentProcessSpec,
   inferSubscriptionAgentStage,
   parseSubscriptionAgentBatchSnapshot,
   parseSubscriptionAgentPlanOutput,
+  startSubscriptionAgentRun,
   summarizeSubscriptionAgentReport,
 } from "./subscriptionAgentOps"
+
+assert.throws(
+  () => assertSubscriptionAgentExecutionAdmitted(),
+  (error: unknown) => error instanceof Error
+    && "code" in error
+    && error.code === "gate_r_not_satisfied",
+)
+console.log("✅ 구독 에이전트 ops 실행 — Gate R 전 프로세스 시작 차단")
+
+await assert.rejects(
+  () => startSubscriptionAgentRun({ count: 5, localAvailable: true }),
+  (error: unknown) => error instanceof Error
+    && "code" in error
+    && error.code === "gate_r_not_satisfied"
+    && "status" in error
+    && error.status === 423,
+  "start는 저장소 조회나 child spawn 전에 Gate R을 반환해야 한다",
+)
 
 {
   const batch = parseSubscriptionAgentBatchSnapshot({

@@ -48,6 +48,7 @@ import {
 import { resolveLabModel } from "./extractor";
 import { BODY_MARKDOWN_MIN_BYTES, announcementScore } from "./input";
 import { analysisLabDir, listLabRunSummaries } from "./run-store";
+import { assertAnalysisLabCohortMutationAdmitted } from "./analysis-execution-admission";
 import {
   LAB_SOURCES,
   RICH_CRITERIA_MIN,
@@ -133,6 +134,7 @@ export interface FrozenLabCohortSnapshot {
 export async function freezeLabCohortSnapshot(
   options: FreezeLabCohortSnapshotOptions,
 ): Promise<FrozenLabCohortSnapshot> {
+  assertAnalysisLabCohortMutationAdmitted();
   const db = getCunoteDb();
   const size = normalizeSize(options.size);
   const warnings: string[] = [];
@@ -184,6 +186,7 @@ export async function freezeLabCohortSnapshot(
 }
 
 export async function loadLabCohort(options: LoadLabCohortOptions = {}): Promise<LabCohortResult> {
+  if (options.refresh) assertAnalysisLabCohortMutationAdmitted();
   const db = getCunoteDb();
   const size = normalizeSize(options.size);
   const stored = await readCohortFileV2();
@@ -198,6 +201,7 @@ export async function loadLabCohort(options: LoadLabCohortOptions = {}): Promise
     file = await reuseStoredCohort(db, stored, warnings);
     stratified = file.entries.some((entry) => entry.stratum !== PILOT_STRATUM);
   } else {
+    assertAnalysisLabCohortMutationAdmitted();
     const fresh = await selectFreshCohort(db, {
       size,
       stratified,
@@ -374,6 +378,7 @@ async function reuseStoredCohort(
   const kept = stored.entries.filter((entry) => alive.has(entry.grantId));
   const dead = stored.entries.filter((entry) => !alive.has(entry.grantId));
   if (dead.length === 0) return stored;
+  assertAnalysisLabCohortMutationAdmitted();
 
   const reviewed = await reviewedGrantIdsOnDisk();
   for (const entry of dead) {

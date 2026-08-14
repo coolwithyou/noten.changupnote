@@ -54,6 +54,7 @@ import { analysisLabDir } from "./run-store";
 import { hasHumanReviewForRun } from "./run-review-policy";
 import { isPublishableLabRun } from "./run-outcome";
 import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 
 loadAnalysisLabEnv();
 
@@ -127,6 +128,7 @@ async function resolveReviewBinding(): Promise<{
   apiKey: string;
   transport: "api" | "claude-cli";
 }> {
+  assertAnalysisLabLiveExecutionAdmitted();
   if (resolveLabTransport() === "claude-cli") {
     const binding = await resolveLabLlmBinding();
     return { binding, apiKey: binding.apiKey, transport: binding.transport };

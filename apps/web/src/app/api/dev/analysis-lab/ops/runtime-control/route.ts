@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getCunoteDb } from "@/lib/server/db/client";
 import { resolveLabTransport } from "@/lib/server/analysis-lab/claude-cli-transport";
 import {
+  AnalysisLabExecutionPausedError,
+  assertAnalysisLabLiveExecutionAdmitted,
+} from "@/lib/server/analysis-lab/analysis-execution-admission";
+import {
   DeepAnalysisRuntimeControlError,
   acquireLocalSubscriptionLease,
   getDeepAnalysisRuntimeControl,
@@ -48,6 +52,7 @@ export async function POST(request: Request) {
     );
   }
   try {
+    if (action !== "release") assertAnalysisLabLiveExecutionAdmitted();
     const db = getCunoteDb();
     const control = action === "acquire"
       ? await acquireLocalSubscriptionLease({
@@ -69,6 +74,12 @@ export async function POST(request: Request) {
 }
 
 function controlError(error: unknown): Response {
+  if (error instanceof AnalysisLabExecutionPausedError) {
+    return NextResponse.json(
+      { error: error.code, message: error.message },
+      { status: 423 },
+    );
+  }
   if (error instanceof DeepAnalysisRuntimeControlError) {
     return NextResponse.json(
       { error: error.code, message: error.message },

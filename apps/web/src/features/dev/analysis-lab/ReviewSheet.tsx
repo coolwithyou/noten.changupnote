@@ -687,7 +687,7 @@ function ReviewGuide({
               커버리지(정확 B ÷ 현행 A) ≥ {gates.coverageRatioMin}배
             </Badge>
             <Badge variant="outline" className="tabular-nums">
-              공고당 비용 ≤ ${gates.costPerNoticeMaxUsd}
+              API 실행 공고당 비용 ≤ ${gates.costPerNoticeMaxUsd} · 구독은 telemetry
             </Badge>
             <Badge variant="outline" className="tabular-nums">
               구조화 비율(정확 확정 중 기계판정 가능) ≥ {Math.round(gates.structuredRatioMin * 100)}%

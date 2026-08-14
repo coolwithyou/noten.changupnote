@@ -20,6 +20,10 @@ import {
   renewLocalSubscriptionLease,
 } from "@/lib/server/deep-analysis/runtimeControl";
 import { parseLabBatchStartRequest } from "@/lib/server/analysis-lab/batch-start-request";
+import {
+  AnalysisLabExecutionPausedError,
+  assertAnalysisLabLiveExecutionAdmitted,
+} from "@/lib/server/analysis-lab/analysis-execution-admission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -50,6 +54,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    assertAnalysisLabLiveExecutionAdmitted();
     const ownerId = localAnalysisOwnerFromRequest(request);
     const db = getCunoteDb();
     await assertLocalSubscriptionAnalysisAllowed({
@@ -64,6 +69,12 @@ export async function POST(request: Request) {
     });
     return NextResponse.json(snapshot, { status: 202 });
   } catch (caught) {
+    if (caught instanceof AnalysisLabExecutionPausedError) {
+      return NextResponse.json(
+        { error: caught.code, message: caught.message },
+        { status: 423 },
+      );
+    }
     if (caught instanceof DeepAnalysisRuntimeControlError) {
       return NextResponse.json(
         { error: caught.code, message: caught.message },

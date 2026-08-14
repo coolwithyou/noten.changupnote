@@ -10,6 +10,10 @@ import {
   localAnalysisOwnerFromRequest,
   runWithLocalSubscriptionLeaseHeartbeat,
 } from "@/lib/server/deep-analysis/runtimeControl";
+import {
+  AnalysisLabExecutionPausedError,
+  assertAnalysisLabLiveExecutionAdmitted,
+} from "@/lib/server/analysis-lab/analysis-execution-admission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +49,7 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+    assertAnalysisLabLiveExecutionAdmitted();
     const run = await runWithLocalSubscriptionLeaseHeartbeat({
       db: getCunoteDb(),
       ownerId: localAnalysisOwnerFromRequest(request),
@@ -55,6 +60,9 @@ export async function POST(request: Request) {
     const response: LabAnalyzeResponse = { run };
     return NextResponse.json(response);
   } catch (error) {
+    if (error instanceof AnalysisLabExecutionPausedError) {
+      return NextResponse.json({ error: error.code, message: error.message }, { status: 423 });
+    }
     if (error instanceof DeepAnalysisRuntimeControlError) {
       return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
     }

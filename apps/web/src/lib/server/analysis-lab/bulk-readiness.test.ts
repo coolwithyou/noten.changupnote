@@ -125,6 +125,37 @@ const passed = evaluateAnalysisBulkReadiness({ stage: "pilot5", snapshot: snapsh
 assert.equal(passed.verdict, "GO");
 assert.ok(passed.gates.every((gate) => gate.status === "passed"));
 
+{
+  const legacySubscriptionCostStop = snapshot();
+  legacySubscriptionCostStop.summary = legacySubscriptionCostStop.summary
+    ? { ...legacySubscriptionCostStop.summary, stopReason: "cost-cap" }
+    : null;
+  legacySubscriptionCostStop.guardStop = {
+    reason: "cost-cap",
+    cumulativeCostUsd: 46.170396,
+  };
+  const readiness = evaluateAnalysisBulkReadiness({
+    stage: "pilot5",
+    snapshot: legacySubscriptionCostStop,
+    runs,
+    graphs,
+  });
+  assert.equal(
+    readiness.gates.find((gate) => gate.id === "batch_terminal")?.status,
+    "passed",
+    "구독 legacy cost-cap 뒤에도 전건 terminal이면 실행 완주로 해석한다",
+  );
+  assert.equal(readiness.verdict, "GO");
+
+  const apiCostStop = structuredClone(legacySubscriptionCostStop);
+  if (apiCostStop.options) apiCostStop.options.transport = "api";
+  assert.equal(
+    evaluateAnalysisBulkReadiness({ stage: "pilot5", snapshot: apiCostStop, runs, graphs }).verdict,
+    "BLOCKED",
+    "API cost-cap은 기존 완료 비용 soft stop 의미를 유지한다",
+  );
+}
+
 const partialGraphs = new Map(graphs);
 partialGraphs.set("grant-2", graph(2, {
   lanes: { deep_analysis: "passed", application: "partial", product: "not_evaluated" },

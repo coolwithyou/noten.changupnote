@@ -13,6 +13,7 @@ import {
   mergePromotionApprovalGateEvidence,
   planSha256,
   pseudonymizePromotionCompanyKey,
+  resolvePromotionReleaseTransport,
   validatePromotionReleaseManifest,
   VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
   type PromotionReleasePlanItem,
@@ -58,7 +59,7 @@ const planItem: PromotionReleasePlanItem = {
   costUsd: 0.25,
 };
 
-function manifest() {
+function manifest(item: PromotionReleasePlanItem = planItem) {
   return createPromotionReleaseManifest({
     releaseId: "deep-test-r1",
     revision: 1,
@@ -75,8 +76,17 @@ function manifest() {
       confirmationsSha256: null,
       reviewSha256: "1".repeat(64),
     }],
-    plans: [planItem],
+    plans: [item],
   });
+}
+
+{
+  const mismatchedTransport = manifest({ ...planItem, transport: "claude-cli" });
+  assert.throws(
+    () => validatePromotionReleaseManifest(mismatchedTransport),
+    /transport provenance/,
+    "API source를 claude-cli로 표시한 release manifest는 거부해야 한다",
+  );
 }
 
 {
@@ -111,6 +121,85 @@ function manifest() {
   assert.throws(() => assertManifestConfirmation(first, "short"), /12자/);
 }
 
+const verifiedLocalSource = {
+  grantId: plan.grantId,
+  runId: plan.runId,
+  runSha256: "f".repeat(64),
+  aiReviewSha256: "1".repeat(64),
+  auditSha256: "2".repeat(64),
+  overlaySha256: null,
+  confirmationsSha256: null,
+  localLabEvidence: {
+    schema: VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
+    transport: "claude-cli" as const,
+    model: "claude-opus-5",
+    promptVersion: "lab-deep-v7",
+    inputSha256: "3".repeat(64),
+    reviewMethod: "ai_audit" as const,
+    reviewModel: "claude-fable-5",
+    reviewPromptVersion: "ai-review-v3",
+    reviewTransport: "claude-cli" as const,
+    auditModel: "claude-sonnet-5",
+    auditPromptVersion: "ai-audit-v2",
+    auditTransport: "claude-cli" as const,
+  },
+};
+
+assert.equal(
+  resolvePromotionReleaseTransport({}, verifiedLocalSource),
+  "claude-cli",
+  "legacy verified-local source는 plan transport가 없어도 구독으로 복원한다",
+);
+assert.equal(
+  resolvePromotionReleaseTransport({}, manifest().sourceArtifacts[0]),
+  "api",
+  "legacy non-local source의 미기록 transport는 API로 유지한다",
+);
+assert.equal(
+  resolvePromotionReleaseTransport({}, {
+    ...verifiedLocalSource,
+    deepAnalysisRunId: "deep-run-1",
+  }),
+  "api",
+  "production deep provenance는 local evidence보다 API 해석이 우선한다",
+);
+
+{
+  const mismatchedRunSource = createPromotionReleaseManifest({
+    releaseId: "deep-mismatched-source-run-r1",
+    revision: 1,
+    createdAt: "2026-08-06T00:00:00.000Z",
+    gitCommit: "d".repeat(40),
+    buildDigest: "e".repeat(40),
+    cohortLabel: "mismatched-source-run",
+    canaryGrantIds: [plan.grantId],
+    sourceArtifacts: [{ ...verifiedLocalSource, runId: "run-other" }],
+    plans: [{ ...planItem, transport: "claude-cli" }],
+  });
+  assert.throws(
+    () => validatePromotionReleaseManifest(mismatchedRunSource),
+    /source runId.*불일치/,
+    "같은 grant의 다른 local run provenance로 API plan 비용을 위장할 수 없다",
+  );
+
+  const duplicateSource = createPromotionReleaseManifest({
+    releaseId: "deep-duplicate-source-r1",
+    revision: 1,
+    createdAt: "2026-08-06T00:00:00.000Z",
+    gitCommit: "d".repeat(40),
+    buildDigest: "e".repeat(40),
+    cohortLabel: "duplicate-source",
+    canaryGrantIds: [plan.grantId],
+    sourceArtifacts: [verifiedLocalSource, { ...verifiedLocalSource }],
+    plans: [{ ...planItem, transport: "claude-cli" }],
+  });
+  assert.throws(
+    () => validatePromotionReleaseManifest(duplicateSource),
+    /source artifact grant 중복/,
+    "grant별 source artifact는 정확히 하나여야 한다",
+  );
+}
+
 {
   const verifiedLocal = createPromotionReleaseManifest({
     releaseId: "deep-local-test-r1",
@@ -120,32 +209,11 @@ function manifest() {
     buildDigest: "e".repeat(40),
     cohortLabel: "local-canary",
     canaryGrantIds: [plan.grantId],
-    sourceArtifacts: [{
-      grantId: plan.grantId,
-      runId: plan.runId,
-      runSha256: "f".repeat(64),
-      aiReviewSha256: "1".repeat(64),
-      auditSha256: "2".repeat(64),
-      overlaySha256: null,
-      confirmationsSha256: null,
-      localLabEvidence: {
-        schema: VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
-        transport: "claude-cli",
-        model: "claude-opus-5",
-        promptVersion: "lab-deep-v7",
-        inputSha256: "3".repeat(64),
-        reviewMethod: "ai_audit",
-        reviewModel: "claude-fable-5",
-        reviewPromptVersion: "ai-review-v3",
-        reviewTransport: "claude-cli",
-        auditModel: "claude-sonnet-5",
-        auditPromptVersion: "ai-audit-v2",
-        auditTransport: "claude-cli",
-      },
-    }],
-    plans: [planItem],
+    sourceArtifacts: [verifiedLocalSource],
+    plans: [{ ...planItem, transport: "claude-cli" }],
   });
   assert.equal(verifiedLocal.servingProvenance, "verified_local_lab");
+  assert.equal(verifiedLocal.plans[0]?.transport, "claude-cli");
   assert.deepEqual(validatePromotionReleaseManifest(verifiedLocal), verifiedLocal);
 
   verifiedLocal.servingProvenance = "production_deep_run";
@@ -153,6 +221,26 @@ function manifest() {
     () => validatePromotionReleaseManifest(verifiedLocal),
     /serving provenance/,
     "source artifact와 다른 provenance 표시는 거부해야 한다",
+  );
+
+  const dualProvenance = createPromotionReleaseManifest({
+    releaseId: "deep-dual-source-test-r1",
+    revision: 1,
+    createdAt: "2026-08-06T00:00:00.000Z",
+    gitCommit: "d".repeat(40),
+    buildDigest: "e".repeat(40),
+    cohortLabel: "invalid-dual-source",
+    canaryGrantIds: [plan.grantId],
+    sourceArtifacts: [{
+      ...verifiedLocalSource,
+      deepAnalysisRunId: "deep-run-1",
+    }],
+    plans: [{ ...planItem, transport: "claude-cli" }],
+  });
+  assert.throws(
+    () => validatePromotionReleaseManifest(dualProvenance),
+    /source provenance.*상호배타/,
+    "production deep source와 verified-local source를 동시에 주장할 수 없다",
   );
 }
 
@@ -299,6 +387,24 @@ function manifest() {
     isPromotionAggregateGateBlocking([autoPromotableItem], "cost_per_notice_usd"),
     true,
     "운영 API 딥분석 release의 실제 비용은 계속 차단한다",
+  );
+  const subscriptionHumanItem: PromotionReleasePlanItem = {
+    ...pendingItem,
+    transport: "claude-cli",
+    costUsd: 99,
+  };
+  assert.equal(
+    isPromotionAggregateGateBlocking([subscriptionHumanItem], "cost_per_notice_usd"),
+    false,
+    "일반 사람 검수 release도 claude-cli 명목 비용으로 승격을 차단하지 않는다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([
+      subscriptionHumanItem,
+      { ...pendingItem, transport: "api", costUsd: 0.25 },
+    ], "cost_per_notice_usd"),
+    true,
+    "API가 섞인 release는 API subset 비용 게이트를 계속 차단 조건으로 사용한다",
   );
   assert.equal(
     promotionAggregateDecidedCount([pendingItem], {
@@ -467,9 +573,28 @@ function manifest() {
     isPromotionAggregateGateBlocking([{
       ...planItem,
       promotionPlan: auditedVerifiedPlan,
+      transport: "claude-cli",
     }], "cost_per_notice_usd"),
     false,
     "claude-cli local 카나리의 명목 API 환산 비용은 실제 지출 차단 지표가 아니다",
+  );
+  const auditedApiItem: PromotionReleasePlanItem = {
+    ...planItem,
+    promotionPlan: auditedVerifiedPlan,
+    transport: "api",
+  };
+  assert.equal(
+    isPromotionAggregateGateBlocking([auditedApiItem], "cost_per_notice_usd"),
+    true,
+    "audited plan이어도 API 실제 비용은 차단 게이트를 유지한다",
+  );
+  assert.equal(
+    isPromotionAggregateGateBlocking([
+      auditedApiItem,
+      { ...auditedApiItem, grantId: "mixed-subscription", transport: "claude-cli" },
+    ], "cost_per_notice_usd"),
+    true,
+    "audited API/구독 혼합 release도 API subset 비용을 차단 조건으로 유지한다",
   );
   assert.equal(
     promotionPlanHasUnsafeUnresolvedCriteria({

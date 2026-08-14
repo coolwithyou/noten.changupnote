@@ -7,6 +7,7 @@
 //   ?label=expansion-s1  실험 라벨(파일 기록)
 import { NextResponse } from "next/server";
 import { loadLabCohort, type LabCohortResult } from "@/lib/server/analysis-lab/cohort";
+import { AnalysisLabExecutionPausedError } from "@/lib/server/analysis-lab/analysis-execution-admission";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,12 +34,19 @@ export async function GET(request: Request) {
 
   const params = new URL(request.url).searchParams;
   const label = params.get("label")?.trim();
-  const cohort: LabCohortResult = await loadLabCohort({
-    refresh: parseBoolean(params.get("refresh")),
-    size: parseInteger(params.get("size")),
-    stratified: parseBoolean(params.get("stratified")),
-    seed: parseInteger(params.get("seed")),
-    experimentLabel: label && label.length > 0 ? label : undefined,
-  });
-  return NextResponse.json(cohort);
+  try {
+    const cohort: LabCohortResult = await loadLabCohort({
+      refresh: parseBoolean(params.get("refresh")),
+      size: parseInteger(params.get("size")),
+      stratified: parseBoolean(params.get("stratified")),
+      seed: parseInteger(params.get("seed")),
+      experimentLabel: label && label.length > 0 ? label : undefined,
+    });
+    return NextResponse.json(cohort);
+  } catch (error) {
+    if (error instanceof AnalysisLabExecutionPausedError) {
+      return NextResponse.json({ error: error.code, message: error.message }, { status: 423 });
+    }
+    throw error;
+  }
 }

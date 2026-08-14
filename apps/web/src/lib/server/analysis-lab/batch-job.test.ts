@@ -25,6 +25,7 @@ import {
 } from "./batch-job";
 import type { LabBatchEvent, LabBatchRunnerOptions, LabBatchSummary } from "./batch-runner";
 import { parseLabBatchStartRequest } from "./batch-start-request";
+import { AnalysisLabExecutionPausedError } from "./analysis-execution-admission";
 
 // ---- 픽스처 헬퍼 ---------------------------------------------------------------
 
@@ -64,6 +65,31 @@ function summaryFixture(overrides: Partial<LabBatchSummary> = {}): LabBatchSumma
     stopReason: "completed",
     ...overrides,
   };
+}
+
+function startAdmittedLabBatchJob(
+  input: LabBatchStartRequest,
+  deps: LabBatchJobDeps,
+): LabBatchJobSnapshot {
+  return startLabBatchJob(input, {
+    assertExecutionAdmissionImpl: () => undefined,
+    ...deps,
+  });
+}
+
+{
+  clearStash();
+  assert.throws(
+    () => startLabBatchJob(request({ transport: "claude-cli" }), {
+      runBatchImpl: async () => summaryFixture(),
+      snapshotPathImpl: () => join(tempRoot, "gate-r-blocked.json"),
+    }),
+    AnalysisLabExecutionPausedError,
+    "web batch는 runtime lease만으로 Gate R을 우회해 잡을 만들 수 없어야 한다",
+  );
+  assert.equal(getLabBatchJobSnapshot({
+    snapshotPathImpl: () => join(tempRoot, "gate-r-blocked-missing.json"),
+  }).state, "idle");
 }
 
 // ---- HTTP 시작 계약: Kordoc은 명시적 true일 때만 전달 -----------------
@@ -236,7 +262,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
     },
   };
 
-  const started = startLabBatchJob(request({
+  const started = startAdmittedLabBatchJob(request({
     withApplicationRoundtrip: true,
     roundtripModel: "claude-roundtrip-test",
   }), deps);
@@ -311,7 +337,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   };
   const { apiMaxCostUsd: _omittedApiMaxCostUsd, ...apiRequestWithoutCap } = request();
   assert.throws(
-    () => startLabBatchJob(apiRequestWithoutCap, deps),
+    () => startAdmittedLabBatchJob(apiRequestWithoutCap, deps),
     /apiMaxCostUsd 는 0보다 큰 유한한 숫자여야 합니다/,
     "API cap 누락은 running 스냅샷을 만들기 전에 fail-fast",
   );
@@ -335,7 +361,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
     },
   };
   assert.throws(
-    () => startLabBatchJob(request({ roundtripModel: "claude-opus-roundtrip" }), deps),
+    () => startAdmittedLabBatchJob(request({ roundtripModel: "claude-opus-roundtrip" }), deps),
     /roundtripModel은 withApplicationRoundtrip=true와 함께 지정해야 합니다/,
     "direct caller도 Kordoc 모델 단독 지정은 잡 생성 전에 거부",
   );
@@ -359,10 +385,10 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
     },
   };
 
-  const first = startLabBatchJob(request(), deps);
+  const first = startAdmittedLabBatchJob(request(), deps);
   assert.equal(first.options?.apiMaxCostUsd, 100, "API 잡 스냅샷은 완료 비용 soft stop을 보존");
   assert.throws(
-    () => startLabBatchJob(request(), deps),
+    () => startAdmittedLabBatchJob(request(), deps),
     (caught: unknown) => {
       assert.ok(caught instanceof LabBatchJobBusyError, "LabBatchJobBusyError throw");
       assert.equal(caught.snapshot.state, "running", "busy 에러가 현재 스냅샷 동봉(라우트 409 본문)");
@@ -375,7 +401,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   await waitUntil(() => getLabBatchJobSnapshot(deps).state === "finished", "1차 잡 완료");
 
   // 완료 후에는 새 잡 시작 허용 — 직전 잔상은 새 잡으로 대체된다.
-  const second = startLabBatchJob(request({ limit: 1 }), {
+  const second = startAdmittedLabBatchJob(request({ limit: 1 }), {
     ...deps,
     runBatchImpl: async () => summaryFixture({ ok: 1 }),
   });
@@ -400,7 +426,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
     },
   };
 
-  startLabBatchJob(request(), deps);
+  startAdmittedLabBatchJob(request(), deps);
   const afterAbort = abortLabBatchJob(deps);
   assert.equal(afterAbort.state, "running", "abort 직후는 running 유지 — 전이는 러너 종료 시점");
   await waitUntil(() => getLabBatchJobSnapshot(deps).state === "aborted", "aborted 전이");
@@ -433,7 +459,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
       return summaryFixture({ ok: total, totalCostUsd: total * 0.01 });
     },
   };
-  startLabBatchJob(request({ limit: total }), deps);
+  startAdmittedLabBatchJob(request({ limit: total }), deps);
   await waitUntil(() => getLabBatchJobSnapshot(deps).state === "finished", "링 버퍼 잡 완료");
   const snapshot = getLabBatchJobSnapshot(deps);
   assert.equal(snapshot.events.length, 200, "링 버퍼 상한 200");
@@ -455,7 +481,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
       throw new Error("cohort.json 이 없거나 형식이 깨졌습니다: /tmp/none");
     },
   };
-  startLabBatchJob(request(), deps);
+  startAdmittedLabBatchJob(request(), deps);
   await waitUntil(() => getLabBatchJobSnapshot(deps).state === "error", "error 전이");
   const failed = getLabBatchJobSnapshot(deps);
   assert.match(failed.error ?? "", /cohort\.json/, "러너 throw 메시지 기록");
@@ -474,7 +500,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
     snapshotPathImpl: () => path,
     runBatchImpl: async () => summaryFixture({ ok: 1 }),
   };
-  startLabBatchJob(request(), deps);
+  startAdmittedLabBatchJob(request(), deps);
   await waitUntil(() => getLabBatchJobSnapshot(deps).state === "finished", "잡 완료");
 
   const stash = (globalThis as unknown as Record<symbol, unknown>)[STASH_KEY];
@@ -501,7 +527,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   assert.equal(demoted.progress?.ok, 1, "완료분 집계 잔상 보존(완료 런은 저장됨)");
   assert.equal(demoted.options?.maxCostUsd, 3, "구 스냅샷의 명목 상한은 복원 호환용으로만 보존");
   // 복원 후 새 잡 시작 허용(강등된 잔상은 running 이 아니다).
-  const restarted = startLabBatchJob(request(), {
+  const restarted = startAdmittedLabBatchJob(request(), {
     snapshotPathImpl: () => runningPath,
     resolveTransportImpl: () => "api",
     resolveModelImpl: () => "claude-test-model",
@@ -579,7 +605,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
 
   // 생존 CLI running 중 웹 잡 시작 → busy(웹·CLI 동시 실행 금지의 코드 승격).
   assert.throws(
-    () => startLabBatchJob(request(), { ...aliveDeps, runBatchImpl: async () => summaryFixture() }),
+    () => startAdmittedLabBatchJob(request(), { ...aliveDeps, runBatchImpl: async () => summaryFixture() }),
     (caught: unknown) => {
       assert.ok(caught instanceof LabBatchJobBusyError, "LabBatchJobBusyError throw");
       assert.equal(caught.snapshot.origin, "cli", "busy 스냅샷은 CLI 잡");
@@ -600,7 +626,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   // pid 사망 CLI 잔상은 웹 시작을 막지 않는다 — 새 웹 잡이 파일을 대체한다.
   clearStash();
   writeFileSync(deadPath, JSON.stringify(cliFixture({ pid: 999_999 }), null, 2), "utf8");
-  const webStarted = startLabBatchJob(request(), {
+  const webStarted = startAdmittedLabBatchJob(request(), {
     snapshotPathImpl: () => deadPath,
     resolveTransportImpl: () => "api",
     resolveModelImpl: () => "claude-test-model",

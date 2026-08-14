@@ -100,7 +100,7 @@
     "lab:collect:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/collect-core.test.ts",
     "lab:collect": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/collect-cli.ts",
     "lab:reconcile": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/collect-cli.ts --reconcile",
-    "lab:transport:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/loadMonorepoEnv.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/local-artifact-hmac-key.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/claude-cli-transport.test.ts",
+    "lab:transport:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/loadMonorepoEnv.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/local-artifact-hmac-key.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/analysis-execution-admission.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/claude-cli-transport.test.ts",
     "lab:ops-summary:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/ops-summary.test.ts",
     "lab:quality": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/quality-baseline-cli.ts",
     "lab:bulk-readiness": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/bulk-readiness-cli.ts",

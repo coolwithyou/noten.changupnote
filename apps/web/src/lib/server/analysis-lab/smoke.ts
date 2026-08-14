@@ -10,6 +10,7 @@ import { runLabAnalysis } from "./analyze";
 import { resolveLabTransport } from "./claude-cli-transport";
 import { loadLabCohort } from "./cohort";
 import { labRunFilePath } from "./run-store";
+import { assertAnalysisLabLiveExecutionAdmitted } from "./analysis-execution-admission";
 
 loadAnalysisLabEnv();
 
@@ -23,6 +24,8 @@ function hasFlag(name: string): boolean {
 }
 
 async function main(): Promise<void> {
+  // --refresh/missing/stale cohort가 파일을 갱신하기 전에 Gate R을 강제한다.
+  assertAnalysisLabLiveExecutionAdmitted();
   // 전송층 선검증(계획 §5 #6 — batch 와 동일 1줄): env 오타를 실행 전에 fail-fast.
   const transport = resolveLabTransport();
   let grantId = readArg("grantId");

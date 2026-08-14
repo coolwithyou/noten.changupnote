@@ -72,6 +72,7 @@ import {
   type PromotionReleaseManifest,
   type PromotionReleasePlanItem,
 } from "./promotion-release";
+import { assertAnalysisLabPromotionMutationAdmitted } from "./analysis-execution-admission";
 import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotHashes,
@@ -477,6 +478,7 @@ async function mainRelease(releaseId: string): Promise<number> {
   const manifest = await readPromotionReleaseManifest(releaseId);
   const grantFilter = readArg("grantId")?.trim();
   const write = hasFlag("write");
+  if (write) assertAnalysisLabPromotionMutationAdmitted();
   const { db, release } = await loadReleaseLedger(releaseId);
   if (
     release.manifestSha256 !== manifest.manifestSha256

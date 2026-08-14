@@ -5,6 +5,10 @@ import {
 import { runLabApplicationRoundtripAnalysis } from "@/lib/server/analysis-lab/application-roundtrip/lab-runner";
 import { readRoundtripRunArtifacts } from "@/lib/server/analysis-lab/application-roundtrip/store";
 import { resolveLabTransport } from "@/lib/server/analysis-lab/claude-cli-transport";
+import {
+  AnalysisLabExecutionPausedError,
+  assertAnalysisLabLiveExecutionAdmitted,
+} from "@/lib/server/analysis-lab/analysis-execution-admission";
 import { getCunoteDb } from "@/lib/server/db/client";
 import {
   DeepAnalysisRuntimeControlError,
@@ -52,6 +56,7 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
+    assertAnalysisLabLiveExecutionAdmitted();
     return NextResponse.json({
       run: await runWithLocalSubscriptionLeaseHeartbeat({
         db: getCunoteDb(),
@@ -60,6 +65,9 @@ export async function POST(request: Request) {
       }),
     });
   } catch (error) {
+    if (error instanceof AnalysisLabExecutionPausedError) {
+      return NextResponse.json({ error: error.code, message: error.message }, { status: 423 });
+    }
     if (error instanceof DeepAnalysisRuntimeControlError) {
       return NextResponse.json({ error: error.code, message: error.message }, { status: error.status });
     }

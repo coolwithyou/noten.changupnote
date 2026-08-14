@@ -9,18 +9,33 @@ import assert from "node:assert/strict";
 import type { execFile } from "node:child_process";
 import {
   CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER,
-  buildClaudeCliFetch,
+  buildClaudeCliFetch as buildProductionClaudeCliFetch,
   createClaudeCliScheduler,
   resolveClaudeCliMaxConcurrency,
   resolveLabTransport,
   type ClaudeCliScheduler,
   type ClaudeCliSchedulerKey,
+  type ClaudeCliFetchConfig,
 } from "./claude-cli-transport";
+import { AnalysisLabExecutionPausedError } from "./analysis-execution-admission";
 
 // ---- 페이크 execFile ---------------------------------------------------------------
 
 const FAKE_CLI_VERSION = "2.1.219-test (fake)";
 const API_URL = "https://api.anthropic.com/v1/messages";
+
+function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch {
+  return buildProductionClaudeCliFetch({
+    ...config,
+    assertExecutionAdmissionImpl: () => undefined,
+  });
+}
+
+assert.throws(
+  () => buildProductionClaudeCliFetch(),
+  AnalysisLabExecutionPausedError,
+  "실 transport Adapter 자체도 Gate R을 우회해 claude 프로세스를 만들 수 없어야 한다",
+);
 
 interface RecordedStdin {
   chunks: string[];
