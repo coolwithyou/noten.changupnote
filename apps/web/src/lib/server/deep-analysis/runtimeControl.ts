@@ -201,6 +201,46 @@ export async function renewLocalSubscriptionLease(input: {
   return serializeRuntimeControl(row);
 }
 
+/**
+ * receipt-bound 실험이 비정상 종료된 뒤 남은 만료 lease만 정리한다. 관측했던
+ * generation/owner/expiry를 모두 CAS에 묶어 이후 획득·갱신된 lease를 건드리지 않는다.
+ */
+export async function recoverExpiredLocalSubscriptionLease(input: {
+  db: CunoteDb;
+  ownerId: string;
+  expectedGeneration: number;
+  expectedLeaseExpiresAt: Date;
+  changeReason: string;
+  now?: Date;
+}): Promise<DeepAnalysisRuntimeControl> {
+  const ownerId = requireOwnerId(input.ownerId);
+  const expectedGeneration = requireGeneration(input.expectedGeneration);
+  const now = input.now ?? new Date();
+  const [row] = await input.db.update(schema.deepAnalysisRuntimeControl).set({
+    mode: "paused",
+    generation: sql`${schema.deepAnalysisRuntimeControl.generation} + 1`,
+    changedBy: "lab:experiment:recover",
+    changeReason: input.changeReason,
+    localOwnerId: null,
+    localLeaseExpiresAt: null,
+    updatedAt: now,
+  }).where(and(
+    eq(schema.deepAnalysisRuntimeControl.controlKey, CONTROL_KEY),
+    eq(schema.deepAnalysisRuntimeControl.mode, "local_subscription"),
+    eq(schema.deepAnalysisRuntimeControl.generation, expectedGeneration),
+    eq(schema.deepAnalysisRuntimeControl.localOwnerId, ownerId),
+    eq(schema.deepAnalysisRuntimeControl.localLeaseExpiresAt, input.expectedLeaseExpiresAt),
+    lte(schema.deepAnalysisRuntimeControl.localLeaseExpiresAt, now),
+  )).returning();
+  if (!row) {
+    throw new DeepAnalysisRuntimeControlError(
+      "runtime_control_conflict",
+      "관측한 만료 lease와 현재 실행 권한이 일치하지 않아 복구하지 않았습니다.",
+    );
+  }
+  return serializeRuntimeControl(row);
+}
+
 export async function releaseLocalSubscriptionLease(input: {
   db: CunoteDb;
   ownerId: string;
