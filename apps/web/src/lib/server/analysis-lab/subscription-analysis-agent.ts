@@ -50,7 +50,6 @@ loadAnalysisLabEnv();
 export interface SubscriptionAnalysisAgentOptions {
   count: number;
   maxCycles: number;
-  maxCostUsd: number;
   concurrency: number;
 }
 
@@ -127,7 +126,6 @@ export async function runSubscriptionAnalysisAgent(
       await runCommands(
         buildInitialAgentCommands({
           grantIds: analysisIds,
-          maxCostUsd: options.maxCostUsd,
           concurrency: options.concurrency,
         }),
         deps,
@@ -157,7 +155,6 @@ export async function runSubscriptionAnalysisAgent(
           buildReviewAgentCommands({
             grantIds: reviewIds,
             runIds: reviewRunIds,
-            maxCostUsd: options.maxCostUsd,
           }),
           deps,
           report,
@@ -337,9 +334,6 @@ function assertOptions(options: SubscriptionAnalysisAgentOptions): void {
   if (!Number.isInteger(options.maxCycles) || options.maxCycles < 1 || options.maxCycles > 5) {
     throw new Error("maxCycles는 1~5 정수여야 합니다.");
   }
-  if (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0) {
-    throw new Error("maxCostUsd는 0보다 커야 합니다.");
-  }
   if (
     !Number.isInteger(options.concurrency)
     || options.concurrency < 1
@@ -349,22 +343,31 @@ function assertOptions(options: SubscriptionAnalysisAgentOptions): void {
   }
 }
 
-function parseCliOptions(args: string[]): SubscriptionAnalysisAgentOptions & { execute: boolean } {
+export function parseSubscriptionAnalysisAgentCliOptions(
+  args: string[],
+  warn: (message: string) => void = console.warn,
+): SubscriptionAnalysisAgentOptions & { execute: boolean } {
   let count = 30;
   let maxCycles = 3;
-  let maxCostUsd = 65;
   let concurrency = 2;
   let execute = false;
+  let legacyMaxCostSeen = false;
   for (const arg of args) {
     if (arg === "--") continue;
     if (arg === "--execute") execute = true;
     else if (arg.startsWith("--count=")) count = Number(arg.slice("--count=".length));
     else if (arg.startsWith("--max-cycles=")) maxCycles = Number(arg.slice("--max-cycles=".length));
-    else if (arg.startsWith("--max-cost-usd=")) maxCostUsd = Number(arg.slice("--max-cost-usd=".length));
+    else if (arg.startsWith("--max-cost-usd=")) legacyMaxCostSeen = true;
     else if (arg.startsWith("--concurrency=")) concurrency = Number(arg.slice("--concurrency=".length));
     else throw new Error(`알 수 없는 인자: ${arg}`);
   }
-  const options = { count, maxCycles, maxCostUsd, concurrency };
+  if (legacyMaxCostSeen) {
+    warn(
+      "[subscription-agent] --max-cost-usd는 구독 실행을 더 이상 중단하지 않으며 무시됩니다. "
+      + "명목 USD는 telemetry로만 기록됩니다.",
+    );
+  }
+  const options = { count, maxCycles, concurrency };
   assertOptions(options);
   return { ...options, execute };
 }
@@ -373,7 +376,7 @@ async function main(): Promise<number> {
   if ((process.env.ANALYSIS_LAB_TRANSPORT ?? "").trim() !== "claude-cli") {
     throw new Error("ANALYSIS_LAB_TRANSPORT=claude-cli가 필요합니다.");
   }
-  const options = parseCliOptions(process.argv.slice(2));
+  const options = parseSubscriptionAnalysisAgentCliOptions(process.argv.slice(2));
   const work = await inspectSubscriptionAgentWork(options.count);
   console.log(
     `[subscription-agent] 기존 품질 보정 ${work.recoveryIds.length} · 미분석 실행 ${work.analysisIds.length} · `

@@ -738,7 +738,8 @@ export interface LabBatchSummary {
 export interface LabBatchStartRequest {
   limit: number;
   concurrency: number;
-  maxCostUsd: number;
+  /** API transport에서만 쓰는 완료 비용 기준 soft stop. 로컬 구독 요청에는 넣지 않는다. */
+  apiMaxCostUsd?: number;
   retryErrors: boolean;
   reanalyzeOutdated: boolean;
   transport?: "api" | "claude-cli";
@@ -770,6 +771,8 @@ export interface LabBatchJobSnapshot {
   options: (LabBatchStartRequest & {
     transport: "api" | "claude-cli";
     model: string;
+    /** 2026-08-14 이전 구독 잡 스냅샷 호환. 새 실행 정책에는 사용하지 않는다. */
+    maxCostUsd?: number;
     /** origin=cli가 불변 코호트를 선택했을 때 실행 재현을 위해 기록하는 라벨. */
     cohortSnapshot?: string;
   }) | null;

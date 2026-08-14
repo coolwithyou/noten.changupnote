@@ -41,7 +41,6 @@ import {
     count: 30,
     maxCycles: 3,
     concurrency: 2,
-    maxCostUsd: 65,
   })
   assert.equal(spec.command, "pnpm")
   assert.deepEqual(spec.args, [
@@ -50,13 +49,13 @@ import {
     "--count=30",
     "--max-cycles=3",
     "--concurrency=2",
-    "--max-cost-usd=65",
     "--execute",
   ])
   assert.equal(spec.envOverrides.ANALYSIS_LAB_TRANSPORT, "claude-cli")
   assert.equal(spec.envOverrides.ANALYSIS_LAB_MODEL, "claude-opus-5")
   assert.equal(spec.envOverrides.ANTHROPIC_API_KEY, "")
-  console.log("✅ 구독 에이전트 ops 실행 — 정확한 상한과 API 폴백 차단")
+  assert.ok(spec.args.every((arg) => !arg.startsWith("--max-cost-usd=")))
+  console.log("✅ 구독 에이전트 ops 실행 — USD 진행 중단 제거와 API 폴백 차단")
 }
 
 {

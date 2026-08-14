@@ -17,6 +17,7 @@ import type {
   LabRun,
 } from "@/features/dev/analysis-lab/contract";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
+import { runConfirmationTaskPool } from "./confirmations-cli";
 import {
   CONFIRMATIONS_PROMPT_VERSION,
   LAB_CONFIRMATIONS_SCHEMA,
@@ -429,6 +430,60 @@ function sidecarFixture(items: LabConfirmationsFile["items"], overrides: Partial
     "--retry-errors는 primary held terminal을 재실행하지 않는다",
   );
   console.log("✅ batch 가드 — 버전 무관 ok 스킵·--reanalyze-outdated/--retry-errors 탈출구");
+}
+
+// ── ⑥ CLI worker pool — Max window marker 후 신규 착수 중단·진행분 보존·exit 2 ─────────
+{
+  const windowError = new Error("subscription window exhausted");
+  const started: string[] = [];
+  let markSecondStarted: (() => void) | undefined;
+  const secondStarted = new Promise<void>((resolve) => {
+    markSecondStarted = resolve;
+  });
+  let releaseInFlight: (() => void) | undefined;
+  const inFlightReleased = new Promise<void>((resolve) => {
+    releaseInFlight = resolve;
+  });
+  let markWindowObserved: (() => void) | undefined;
+  const windowObserved = new Promise<void>((resolve) => {
+    markWindowObserved = resolve;
+  });
+
+  const poolPromise = runConfirmationTaskPool({
+    targets: ["marker", "in-flight", "must-not-start"],
+    concurrency: 2,
+    execute: async (target) => {
+      started.push(target);
+      if (target === "marker") {
+        await secondStarted;
+        throw windowError;
+      }
+      if (target === "in-flight") {
+        markSecondStarted?.();
+        await inFlightReleased;
+      }
+      return target;
+    },
+    isWindowExhausted: (caught) => caught === windowError,
+    onSettled: (result) => {
+      if (result.status === "window_exhausted") markWindowObserved?.();
+    },
+  });
+
+  await windowObserved;
+  assert.deepEqual(started, ["marker", "in-flight"], "marker 후 세 번째 target은 신규 착수하지 않는다");
+  releaseInFlight?.();
+  const result = await poolPromise;
+  assert.equal(result.exitCode, 2, "window 소진 배치는 재개 가능한 exit code 2로 종료한다");
+  assert.deepEqual(
+    result.results.map((item) => [item.target, item.status, item.attempts]),
+    [
+      ["marker", "window_exhausted", 1],
+      ["in-flight", "completed", 1],
+    ],
+    "marker target은 재시도하지 않고 이미 진행 중인 target은 완료·보존한다",
+  );
+  console.log("✅ confirmations CLI — window marker 후 신규 착수 중단·진행분 보존·exit 2");
 }
 
 console.log("\n확정 결격 질문 보강(Phase B-0) 테스트 전부 통과");

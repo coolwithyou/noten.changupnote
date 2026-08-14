@@ -31,6 +31,7 @@ import type {
 } from "@/features/dev/analysis-lab/contract";
 import { runLabBatch, type LabBatchRunnerOptions } from "./batch-runner";
 import { resolveLabTransport } from "./claude-cli-transport";
+import { resolveLabCostPolicy } from "./cost-policy";
 import { resolveLabModel } from "./extractor";
 import { analysisLabDir } from "./run-store";
 
@@ -289,6 +290,15 @@ export function startLabBatchJob(
 
   const transport = request.transport ?? (deps?.resolveTransportImpl ?? resolveLabTransport)();
   const model = request.model ?? (deps?.resolveModelImpl ?? resolveLabModel)();
+  const costPolicy = resolveLabCostPolicy({
+    transport,
+    ...(request.apiMaxCostUsd !== undefined ? { apiMaxCostUsd: request.apiMaxCostUsd } : {}),
+  });
+  const { apiMaxCostUsd: _discardedApiMaxCostUsd, ...requestWithoutCostPolicy } = request;
+  const normalizedRequest: LabBatchStartRequest = {
+    ...requestWithoutCostPolicy,
+    ...(costPolicy.kind === "api-settled-usd-stop" ? { apiMaxCostUsd: costPolicy.maxUsd } : {}),
+  };
   const now = deps?.nowImpl ?? (() => new Date());
   const startedAt = now();
   // run-store buildLabRunId 와 같은 규약(콜론 제거 ISO + 랜덤 6hex) — 파일명·로그 안전.
@@ -300,7 +310,7 @@ export function startLabBatchJob(
     state: "running",
     startedAt: startedAt.toISOString(),
     finishedAt: null,
-    options: { ...request, transport, model },
+    options: { ...normalizedRequest, transport, model },
     progress: { total: 0, started: 0, ok: 0, held: 0, error: 0, cumulativeCostUsd: 0 },
     guardStop: null,
     summary: null,
@@ -326,15 +336,17 @@ export function startLabBatchJob(
   const runBatch = deps?.runBatchImpl ?? ((options: LabBatchRunnerOptions) => runLabBatch(options));
   // fire-and-forget — await 금지(계획 §3-1: 진행은 onEvent, 종료는 then/catch 로 수렴).
   void runBatch({
-    limit: request.limit,
-    concurrency: request.concurrency,
-    maxCostUsd: request.maxCostUsd,
-    retryErrors: request.retryErrors,
-    reanalyzeOutdated: request.reanalyzeOutdated,
+    limit: normalizedRequest.limit,
+    concurrency: normalizedRequest.concurrency,
+    ...(normalizedRequest.apiMaxCostUsd !== undefined
+      ? { apiMaxCostUsd: normalizedRequest.apiMaxCostUsd }
+      : {}),
+    retryErrors: normalizedRequest.retryErrors,
+    reanalyzeOutdated: normalizedRequest.reanalyzeOutdated,
     transport,
     model,
-    ...(request.withApplicationRoundtrip === true ? { withApplicationRoundtrip: true } : {}),
-    ...(request.roundtripModel ? { roundtripModel: request.roundtripModel } : {}),
+    ...(normalizedRequest.withApplicationRoundtrip === true ? { withApplicationRoundtrip: true } : {}),
+    ...(normalizedRequest.roundtripModel ? { roundtripModel: normalizedRequest.roundtripModel } : {}),
     signal: controller.signal,
     onEvent: (event) => {
       if (store.job !== job) return; // 슬롯을 새 잡이 차지한 뒤의 늦은 이벤트 방어

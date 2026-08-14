@@ -64,7 +64,7 @@
     "lab:batch": "pnpm verify:package-runtime-freshness && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/batch.ts",
     "lab:cohort:freeze": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/cohort-freeze-cli.ts",
     "lab:cohort:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/cohort-file.test.ts",
-    "lab:batch-runner:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/batch-runner.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/lease-renewal-policy.test.ts",
+    "lab:batch-runner:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/cost-policy.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/batch-runner.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/lease-renewal-policy.test.ts",
     "lab:run-outcome:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/run-outcome.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/run-outcome-consumers.test.ts && TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/run-store-selection.test.ts",
     "lab:batch-job:test": "TSX_TSCONFIG_PATH=apps/web/tsconfig.json node --import tsx apps/web/src/lib/server/analysis-lab/batch-job.test.ts",
     "lab:shadow": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/analysis-lab/shadow.ts",

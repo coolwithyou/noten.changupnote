@@ -11,8 +11,8 @@
 // 마감·시작 전·기간 미상(applyEnd null)이면 사유 로그와 함께 스킵한다(비파괴).
 // 실패는 analyze 가 error 런으로 저장하므로 배치는 기록만 하고 계속한다(런당 추가
 // 재시도 없음 — extractor 내부에 이미 1회 재시도가 있다).
-// 실행: pnpm lab:batch -- --dry-run                     (대상·예상 비용만, API 호출 0)
-//       pnpm lab:batch -- --limit=10 --concurrency=2 --max-cost-usd=5
+// 실행: pnpm lab:batch -- --dry-run                     (대상·예상 명목량만, 모델 호출 0)
+//       pnpm lab:batch -- --limit=10 --concurrency=2
 //       pnpm lab:batch -- --retry-errors                (현행 버전 error 런만 있는 공고도 대상 포함)
 //       pnpm lab:batch -- --reanalyze-outdated          (구버전 ok 런만 있는 공고도 대상 포함)
 //       ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:batch -- --with-application-roundtrip
@@ -56,7 +56,7 @@ loadAnalysisLabEnv();
 
 const DEFAULT_LIMIT = 10;
 const DEFAULT_CONCURRENCY = 2;
-const DEFAULT_MAX_COST_USD = 5;
+const DEFAULT_API_MAX_COST_USD = 5;
 
 // ---- argv 파싱 (라이브러리 없이 smoke.ts 관행) ---------------------------------
 
@@ -80,7 +80,10 @@ function readNumberArg(name: string, fallback: number): number | null {
 interface BatchOptions {
   limit: number;
   concurrency: number;
-  maxCostUsd: number;
+  /** 2026-08-14 이전 명령 호환. 구독 실행 정책이나 스냅샷에는 반영하지 않는다. */
+  legacyMaxCostArgSeen: boolean;
+  /** API transport에서만 기존 완료 비용 soft stop을 보존한다. */
+  apiMaxCostUsd?: number;
   dryRun: boolean;
   retryErrors: boolean;
   /** 구버전 ok 런"만" 보유한 공고를 대상에 편입한다 — 우발 재분석 가드의 명시적 탈출구. */
@@ -92,10 +95,13 @@ interface BatchOptions {
 }
 
 /** 옵션 검증 — 오류면 사유 문자열 반환(호출부에서 안내 후 exit 1). */
-function parseOptions(): BatchOptions | string {
+function parseOptions(transport: LabBatchTransport): BatchOptions | string {
   const limit = readNumberArg("limit", DEFAULT_LIMIT);
   const concurrency = readNumberArg("concurrency", DEFAULT_CONCURRENCY);
-  const maxCostUsd = readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
+  const rawMaxCostUsd = readArg("max-cost-usd");
+  const apiMaxCostUsd = transport === "api"
+    ? readNumberArg("max-cost-usd", DEFAULT_API_MAX_COST_USD)
+    : undefined;
   const withApplicationRoundtrip = hasFlag("with-application-roundtrip");
   const roundtripModel = readArg("roundtrip-model")?.trim();
   const grantIdsRaw = readArg("grant-ids");
@@ -112,8 +118,11 @@ function parseOptions(): BatchOptions | string {
   ) {
     return `--concurrency 는 1~${ANALYSIS_LAB_MAX_BATCH_CONCURRENCY} 정수여야 합니다.`;
   }
-  if (maxCostUsd === null || maxCostUsd <= 0) {
-    return "--max-cost-usd 는 0보다 큰 숫자여야 합니다.";
+  if (
+    transport === "api"
+    && (typeof apiMaxCostUsd !== "number" || apiMaxCostUsd <= 0)
+  ) {
+    return "--max-cost-usd 는 API 실행에서 0보다 큰 숫자여야 합니다.";
   }
   if (roundtripModel !== undefined && roundtripModel.length === 0) {
     return "--roundtrip-model 은 비어 있을 수 없습니다.";
@@ -134,7 +143,8 @@ function parseOptions(): BatchOptions | string {
   return {
     limit,
     concurrency,
-    maxCostUsd,
+    legacyMaxCostArgSeen: rawMaxCostUsd !== undefined,
+    ...(apiMaxCostUsd !== undefined && apiMaxCostUsd !== null ? { apiMaxCostUsd } : {}),
     dryRun: hasFlag("dry-run"),
     retryErrors: hasFlag("retry-errors"),
     reanalyzeOutdated: hasFlag("reanalyze-outdated"),
@@ -194,11 +204,11 @@ function printZeroTargetAdvisory(view: PlanView, options: BatchOptions): void {
   }
 }
 
-/** 예상 비용 — 현행 버전 ok 런 평균, 없으면 파일럿 실측 기본값. */
+/** 예상 API 환산량 — 구독에서는 관측 telemetry이며 실행 중단 기준이 아니다. */
 function printEstimateLine(perGrantUsd: number, sampleCount: number, targetCount: number): void {
   const basis = sampleCount > 0 ? `기존 ok 런 ${sampleCount}건 평균` : "파일럿 실측 기본값";
   console.log(
-    `[batch] 예상 비용 ≈ $${(perGrantUsd * targetCount).toFixed(2)} (공고당 $${perGrantUsd.toFixed(4)}, ${basis})`,
+    `[batch] 예상 명목 API 환산량 ≈ $${(perGrantUsd * targetCount).toFixed(2)} (공고당 $${perGrantUsd.toFixed(4)}, ${basis} · 구독 중단 기준 아님)`,
   );
 }
 
@@ -229,8 +239,8 @@ function printSummaryLines(args: {
         : ""),
   );
   console.log(
-    `총비용 $${summary.totalCostUsd.toFixed(4)} · 소요 ${(summary.durationMs / 1000).toFixed(1)}s` +
-      (args.costCapSeen ? " · 비용 상한 도달" : "") +
+    `총 명목 API 환산량 $${summary.totalCostUsd.toFixed(4)} · 소요 ${(summary.durationMs / 1000).toFixed(1)}s` +
+      (args.costCapSeen ? " · API 완료비용 상한 도달" : "") +
       (args.windowExhaustedSeen
         ? " · Max 사용량 윈도 소진 감지 — 신규 착수 중단, 윈도 리셋 후 같은 명령 재실행"
         : ""),
@@ -318,11 +328,13 @@ function createCliBatchRecorder(options: BatchOptions, transport: LabBatchTransp
       options: {
         limit: options.limit,
         concurrency: options.concurrency,
-        maxCostUsd: options.maxCostUsd,
         retryErrors: options.retryErrors,
         reanalyzeOutdated: options.reanalyzeOutdated,
         transport,
         model: resolveLabModel(),
+        ...(transport === "api" && options.apiMaxCostUsd !== undefined
+          ? { apiMaxCostUsd: options.apiMaxCostUsd }
+          : {}),
         ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
         ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
         ...(options.grantIds ? { grantIds: options.grantIds } : {}),
@@ -390,9 +402,12 @@ async function runBatchViaRunner(
     await runLabBatch({
       limit: options.limit,
       concurrency: options.concurrency,
-      maxCostUsd: options.maxCostUsd,
       retryErrors: options.retryErrors,
       reanalyzeOutdated: options.reanalyzeOutdated,
+      transport,
+      ...(transport === "api" && options.apiMaxCostUsd !== undefined
+        ? { apiMaxCostUsd: options.apiMaxCostUsd }
+        : {}),
       ...(options.withApplicationRoundtrip ? { withApplicationRoundtrip: true } : {}),
       ...(options.roundtripModel !== undefined ? { roundtripModel: options.roundtripModel } : {}),
       ...(options.grantIds ? { grantIds: options.grantIds } : {}),
@@ -427,7 +442,9 @@ async function runBatchViaRunner(
             }
             printEstimateLine(event.estimatedCostPerGrantUsd, event.costSampleCount, event.targets);
             console.log(
-              `[batch] 실행 시작 — concurrency=${options.concurrency} · max-cost-usd=$${options.maxCostUsd}`,
+              transport === "api"
+                ? `[batch] 실행 시작 — concurrency=${options.concurrency} · API 완료비용 soft stop=$${options.apiMaxCostUsd}`
+                : `[batch] 실행 시작 — concurrency=${options.concurrency} · 구독 명목 USD는 telemetry 전용`,
             );
             break;
           }
@@ -467,7 +484,7 @@ async function runBatchViaRunner(
             if (event.reason === "cost-cap") {
               costCapSeen = true;
               console.log(
-                `[batch] 누적 비용 $${event.cumulativeCostUsd.toFixed(4)} ≥ 상한 $${options.maxCostUsd} — 신규 착수를 중단합니다(진행분은 완료).`,
+                `[batch] API 완료비용 상한 도달($${event.cumulativeCostUsd.toFixed(4)}) — 신규 착수를 중단합니다(진행분은 완료).`,
               );
             } else {
               windowExhaustedSeen = true;
@@ -504,14 +521,15 @@ async function runBatchViaRunner(
 // ---- 메인 ---------------------------------------------------------------------
 
 async function main(): Promise<number> {
-  const options = parseOptions();
+  // transport를 먼저 확정해야 같은 legacy 인자를 API에서는 검증·보존하고,
+  // 구독에서는 값 형식과 무관하게 경고 후 완전히 무시할 수 있다.
+  const transport = resolveLabTransport();
+  const options = parseOptions(transport);
   if (typeof options === "string") {
     console.error(`[batch] 설정 오류: ${options}`);
     return 1;
   }
 
-  // 전송층 선검증(계획 §5 #6-②) — env 오타(resolveLabTransport throw)를 배치 시작 전에 fail-fast.
-  const transport = resolveLabTransport();
   if (!options.dryRun && transport !== "claude-cli") {
     console.error(
       "[batch] 설정 오류: 로컬 실행은 ANALYSIS_LAB_TRANSPORT=claude-cli에서만 허용됩니다.",
@@ -522,6 +540,12 @@ async function main(): Promise<number> {
     console.log(
       "[batch] transport=claude-cli — Max 구독(claude CLI) 경유로 실행합니다"
       + ` (API 토큰 미지출 · CLI 프로세스 전역 상한 ${resolveClaudeCliMaxConcurrency()})`,
+    );
+  }
+  if (transport === "claude-cli" && options.legacyMaxCostArgSeen) {
+    console.warn(
+      "[batch] 경고: --max-cost-usd는 구독 실행에서 더 이상 중단 기준이 아닙니다. "
+      + "명목 USD telemetry는 계속 기록하며 이 인자는 실행 정책과 잡 스냅샷에서 무시합니다.",
     );
   }
   if (!options.dryRun) {

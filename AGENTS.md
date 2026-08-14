@@ -59,7 +59,7 @@
 ## 딥분석 실행 경로 — 구독(claude CLI) vs API (2026-08-04 확정)
 
 - **로컬 실험실(analysis-lab)의 4레인 전부 구독 스위치를 따른다**: 추출(opus-5)·AI 검수(fable-5)·블라인드 감사(sonnet-5)·confirmations. `ANALYSIS_LAB_TRANSPORT=claude-cli` env가 스위치이고, 미설정이면 기존 API 경로(운영 무영향). 검수 레인 전환 근거는 `docs/research/2026-08-04-검수레인-구독전환-일치율-검증.md`(원문 대조 41:26 GO).
-- 대량 배치 명령(정본): `ANALYSIS_LAB_TIMEOUT_MS=900000 ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 pnpm lab:batch -- --limit=30 --max-cost-usd=1000` (명목 상한은 실지출이 아니라 폭주 감지용 비교값이다. 로컬 구독 배치는 실제 API 비용이 $0이므로 모집 중 전건 처리도 조기 중단되지 않게 충분히 크게 둔다). 검수: `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:ai-review -- --model=claude-fable-5 ...`.
+- 대량 배치 명령(정본): `ANALYSIS_LAB_TIMEOUT_MS=900000 ANALYSIS_LAB_TRANSPORT=claude-cli ANALYSIS_LAB_MODEL=claude-opus-5 pnpm lab:batch -- --limit=30` (구독 실행의 명목 USD는 API 환산 telemetry일 뿐 실행 상한이 아니다). 검수: `ANALYSIS_LAB_TRANSPORT=claude-cli pnpm lab:ai-review -- --model=claude-fable-5 ...`. 과거 `--max-cost-usd`를 구독 명령에 넘기면 1회 경고 후 무시되며 active 실행 정책이나 스냅샷에는 저장하지 않는다.
 - **원칙(사용자 확정)**: 고단가 모델(fable-5 등)을 API로 돌리지 않는다 — 로컬 대량 작업은 구독이 기본. 단, 구독 실행은 **로컬 dev·실험실 한정**(약관 경계) — 운영 worker·Cloud Run·사용자 대면 경로는 API 유지.
 - 배치의 시각적 실행·관리: dev 서버 `/dev/analysis-lab` → "배치 운영" 탭(깔때기·transport 선택·진행 스트림, CLI 시작 배치도 표시). dev 웹 레인의 구독 스위치는 `apps/web/.env.development.local`(파일 삭제+재기동으로 API 복귀). **웹·CLI 배치 동시 실행 금지**(코드 가드 있음).
 - 운용 안내 정본: `docs/explainers/구독모델로-딥분석-돌리는-법.md`, 트랙 상태 정본: `docs/plans/HANDOFF-2026-08-03.md`. 검수 사이드카는 모델별(`.ai-review.<model>.json`)이라 `--model=claude-fable-5` 명시 필수(기본 sonnet-5로 돌리면 전부 재검수됨).

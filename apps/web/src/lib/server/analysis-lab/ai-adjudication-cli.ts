@@ -19,13 +19,14 @@ async function main(): Promise<number> {
   const runIds = readCsvArg("run-ids");
   const dryRun = process.argv.includes("--dry-run");
   const model = readArg("model")?.trim() || AI_ADJUDICATION_DEFAULT_MODEL;
-  const maxCost = Number(readArg("max-cost-usd") ?? "10");
+  const legacyMaxCostUsd = readArg("max-cost-usd");
+  if (legacyMaxCostUsd !== undefined) {
+    console.warn(
+      `[ai-adjudicate] 경고: --max-cost-usd=${legacyMaxCostUsd} 는 claude-cli 전용 3차 판정에서 무시합니다(명목 비용 telemetry는 계속 기록).`,
+    );
+  }
   if (!runIds || runIds.size === 0) {
     console.error("[ai-adjudicate] 안전을 위해 정확한 --run-ids=<id,...>가 필수입니다.");
-    return 1;
-  }
-  if (!Number.isFinite(maxCost) || maxCost <= 0) {
-    console.error("[ai-adjudicate] --max-cost-usd는 0보다 큰 숫자여야 합니다.");
     return 1;
   }
   const collected = await collectAiReviewsForAudit(AI_REVIEW_ADOPTED.model, { quiet: true });
@@ -51,7 +52,6 @@ async function main(): Promise<number> {
   let totalCost = 0;
   let applied = 0;
   for (const target of targets) {
-    if (totalCost >= maxCost) break;
     const outcome = await runAiAdjudication({
       run: target.run,
       audit: target.audit,

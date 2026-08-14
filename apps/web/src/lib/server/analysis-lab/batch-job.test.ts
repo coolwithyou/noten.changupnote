@@ -39,7 +39,7 @@ function request(overrides: Partial<LabBatchStartRequest> = {}): LabBatchStartRe
   return {
     limit: 5,
     concurrency: 2,
-    maxCostUsd: 3,
+    apiMaxCostUsd: 100,
     retryErrors: false,
     reanalyzeOutdated: false,
     ...overrides,
@@ -202,6 +202,11 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   assert.ok(started.jobId?.startsWith("job-"), "jobId 부여");
   assert.equal(started.options?.transport, "claude-cli", "미지정 transport 는 resolver 로 확정해 기록");
   assert.equal(started.options?.model, "claude-test-model", "미지정 model 도 resolver 로 확정해 기록");
+  assert.ok(
+    started.options && !("maxCostUsd" in started.options),
+    "구독 잡 스냅샷에는 과거 명목 비용 상한을 active option으로 저장하지 않는다",
+  );
+  assert.equal(started.options?.apiMaxCostUsd, undefined, "구독 입력에 섞인 API cap도 정규화 단계에서 제거");
   assert.equal(started.progress?.total, 2, "plan 이벤트로 total 반영");
   assert.equal(started.progress?.started, 1);
   assert.equal(started.progress?.ok, 1);
@@ -214,6 +219,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   assert.equal(options.transport, "claude-cli");
   assert.equal(options.model, "claude-test-model");
   assert.equal(options.limit, 5);
+  assert.equal(options.apiMaxCostUsd, undefined, "구독 runner에는 API 비용 guard를 전달하지 않는다");
   assert.equal(options.withApplicationRoundtrip, true, "Kordoc 형제 분석 옵션 전달");
   assert.equal(options.roundtripModel, "claude-roundtrip-test", "Kordoc 모델 옵션 전달");
   assert.ok(options.signal instanceof AbortSignal, "AbortController 신호 전달");
@@ -247,6 +253,31 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   console.log("✅ 시작→진행→완료 — 옵션 확정 기록·progress 누적·finished 전이·영속 파일");
 }
 
+// ---- API 비용 정책 — 잡 생성 전에 필수 cap 검증·정규화 -------------------------
+{
+  clearStash();
+  const path = join(tempRoot, "t-api-cost-policy.json");
+  let runnerCalled = false;
+  const deps: LabBatchJobDeps = {
+    resolveTransportImpl: () => "api",
+    resolveModelImpl: () => "api-test-model",
+    snapshotPathImpl: () => path,
+    runBatchImpl: async () => {
+      runnerCalled = true;
+      return summaryFixture();
+    },
+  };
+  const { apiMaxCostUsd: _omittedApiMaxCostUsd, ...apiRequestWithoutCap } = request();
+  assert.throws(
+    () => startLabBatchJob(apiRequestWithoutCap, deps),
+    /apiMaxCostUsd 는 0보다 큰 유한한 숫자여야 합니다/,
+    "API cap 누락은 running 스냅샷을 만들기 전에 fail-fast",
+  );
+  assert.equal(runnerCalled, false, "정책 오류에서 runner 미착수");
+  assert.equal(getLabBatchJobSnapshot(deps).state, "idle", "정책 오류가 유령 running 잡을 남기지 않음");
+  console.log("✅ API 비용 정책 — 잡 생성 전 필수 cap 검증·구독 cap 제거");
+}
+
 // ---- ② busy — 실행 중 재시작 거부(라우트 409 경로) + 완료 후 재시작 허용 --------
 {
   clearStash();
@@ -263,6 +294,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   };
 
   const first = startLabBatchJob(request(), deps);
+  assert.equal(first.options?.apiMaxCostUsd, 100, "API 잡 스냅샷은 완료 비용 soft stop을 보존");
   assert.throws(
     () => startLabBatchJob(request(), deps),
     (caught: unknown) => {
@@ -401,6 +433,7 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   assert.equal(demoted.jobId, "job-stale-1", "직전 잡 식별 유지(stale, process-restarted)");
   assert.match(demoted.error ?? "", /dev 서버 재시작으로 잡이 소멸/, "강등 사유 안내");
   assert.equal(demoted.progress?.ok, 1, "완료분 집계 잔상 보존(완료 런은 저장됨)");
+  assert.equal(demoted.options?.maxCostUsd, 3, "구 스냅샷의 명목 상한은 복원 호환용으로만 보존");
   // 복원 후 새 잡 시작 허용(강등된 잔상은 running 이 아니다).
   const restarted = startLabBatchJob(request(), {
     snapshotPathImpl: () => runningPath,

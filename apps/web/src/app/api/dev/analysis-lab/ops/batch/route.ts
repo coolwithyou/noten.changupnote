@@ -54,10 +54,6 @@ function parseStartRequest(body: unknown): LabBatchStartRequest | string {
   ) {
     return `concurrency 는 1~${ANALYSIS_LAB_MAX_BATCH_CONCURRENCY} 정수여야 합니다.`;
   }
-  const maxCostUsd = record.maxCostUsd;
-  if (typeof maxCostUsd !== "number" || !Number.isFinite(maxCostUsd) || maxCostUsd <= 0) {
-    return "maxCostUsd 는 0보다 큰 숫자여야 합니다.";
-  }
   if (record.retryErrors !== undefined && typeof record.retryErrors !== "boolean") {
     return "retryErrors 는 boolean 이어야 합니다.";
   }
@@ -83,7 +79,6 @@ function parseStartRequest(body: unknown): LabBatchStartRequest | string {
   return {
     limit,
     concurrency,
-    maxCostUsd,
     retryErrors: record.retryErrors === true,
     reanalyzeOutdated: record.reanalyzeOutdated === true,
     withApplicationRoundtrip: true,

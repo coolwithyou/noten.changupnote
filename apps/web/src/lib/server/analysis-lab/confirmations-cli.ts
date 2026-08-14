@@ -12,9 +12,14 @@
 // 주의: --dry-run 이 아니면 선택 transport의 모델 사용량이 발생한다(api=비용, claude-cli=Max 구독). 런·검수·감사 파일은 절대
 //   건드리지 않으며, 쓰기는 사이드카 <runId>.confirmations.json 생성뿐이다.
 import { existsSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { AI_REVIEW_ADOPTED, type LabReview, type LabRun } from "@/features/dev/analysis-lab/contract";
 import { callAnthropicToolModel, computeAiReviewCostUsd, reassembleLabInputForRun } from "./ai-review";
-import { resolveLabLlmBinding, resolveLabTransport } from "./claude-cli-transport";
+import {
+  isClaudeCliWindowExhaustedError,
+  resolveLabLlmBinding,
+  resolveLabTransport,
+} from "./claude-cli-transport";
 import { loadAuditedConfirmedReviews } from "./audited-reviews";
 import {
   CONFIRMATIONS_PROMPT_VERSION,
@@ -27,8 +32,7 @@ import {
 } from "./confirmations";
 import { selectReviewedRuns } from "./reviewed-runs";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
-
-loadAnalysisLabEnv();
+import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
 
 const DEFAULT_LIMIT = 50;
 const CONCURRENCY = 2;
@@ -92,16 +96,97 @@ interface ConfirmationTargetEntry {
   sidecarPath: string;
 }
 
+export type ConfirmationTaskPoolItem<T, R> =
+  | { index: number; target: T; status: "completed"; attempts: number; value: R }
+  | { index: number; target: T; status: "failed"; attempts: number; error: unknown }
+  | { index: number; target: T; status: "window_exhausted"; attempts: number; error: unknown };
+
+/**
+ * confirmations CLI의 최소 worker-pool seam. Max window marker는 재시도하지 않고
+ * 공유 상태를 닫아 신규 target claim만 막는다. 이미 claim된 작업은 끝까지
+ * await하므로 그 안에서 쓰인 사이드카가 보존된다.
+ */
+export async function runConfirmationTaskPool<T, R>(options: {
+  targets: readonly T[];
+  concurrency: number;
+  execute: (target: T, index: number) => Promise<R>;
+  isWindowExhausted: (caught: unknown) => boolean;
+  shouldStopStarting?: () => boolean;
+  onRetry?: (item: { index: number; target: T; attempts: number; error: unknown }) => void | Promise<void>;
+  onSettled?: (item: ConfirmationTaskPoolItem<T, R>) => void | Promise<void>;
+}): Promise<{
+  results: Array<ConfirmationTaskPoolItem<T, R>>;
+  windowExhausted: boolean;
+  exitCode: 0 | 2;
+}> {
+  if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
+    throw new Error("concurrency 는 1 이상의 정수여야 합니다.");
+  }
+
+  const results: Array<ConfirmationTaskPoolItem<T, R>> = [];
+  let nextIndex = 0;
+  let windowExhausted = false;
+
+  async function settle(item: ConfirmationTaskPoolItem<T, R>): Promise<void> {
+    results.push(item);
+    await options.onSettled?.(item);
+  }
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (windowExhausted || options.shouldStopStarting?.()) return;
+      const index = nextIndex;
+      if (index >= options.targets.length) return;
+      nextIndex += 1;
+      const target = options.targets[index]!;
+      for (let attemptNo = 1; attemptNo <= 2; attemptNo += 1) {
+        try {
+          const value = await options.execute(target, index);
+          await settle({ index, target, status: "completed", attempts: attemptNo, value });
+          break;
+        } catch (caught) {
+          if (options.isWindowExhausted(caught)) {
+            windowExhausted = true;
+            await settle({ index, target, status: "window_exhausted", attempts: attemptNo, error: caught });
+            break;
+          }
+          if (attemptNo === 1) {
+            await options.onRetry?.({ index, target, attempts: attemptNo, error: caught });
+            continue;
+          }
+          await settle({ index, target, status: "failed", attempts: attemptNo, error: caught });
+        }
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(options.concurrency, options.targets.length) }, () => worker()),
+  );
+  results.sort((left, right) => left.index - right.index);
+  return { results, windowExhausted, exitCode: windowExhausted ? 2 : 0 };
+}
+
 async function main(): Promise<number> {
+  loadAnalysisLabEnv();
   const model = resolveConfirmationsModel(readArg("model"));
   const force = hasFlag("force");
   const dryRun = hasFlag("dry-run");
   const grantFilter = readArg("grantId")?.trim();
   const limit = readNumberArg("limit", DEFAULT_LIMIT);
-  const maxCostUsd = readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
+  const transport = resolveLabTransport();
+  const legacyMaxCostUsd = readArg("max-cost-usd");
+  const maxCostUsd = transport === "claude-cli"
+    ? DEFAULT_MAX_COST_USD
+    : readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
     console.error("[confirmations] 설정 오류: --limit 은 1 이상의 정수여야 합니다.");
     return 1;
+  }
+  if (transport === "claude-cli" && legacyMaxCostUsd !== undefined) {
+    console.warn(
+      `[confirmations] 경고: --max-cost-usd=${legacyMaxCostUsd} 는 claude-cli 구독 실행에서 무시합니다(명목 비용 telemetry는 계속 기록).`,
+    );
   }
   if (maxCostUsd === null || maxCostUsd <= 0) {
     console.error("[confirmations] 설정 오류: --max-cost-usd 는 0보다 큰 숫자여야 합니다.");
@@ -115,7 +200,7 @@ async function main(): Promise<number> {
   // 주입한다. api 경로에서는 deps 미전달(undefined) → runConfirmations 의 기존
   // loadDefaultLlmDeps 경로 보존. confirmations.ts 자체는 무수정(DI 로 흡수).
   // claude-cli binding 은 키 불요·무부작용이라 dry-run 전에 안전하게 구성된다(도달 확인 로그 포함).
-  const binding = resolveLabTransport() === "claude-cli" ? await resolveLabLlmBinding() : null;
+  const binding = transport === "claude-cli" ? await resolveLabLlmBinding() : null;
   const fetchImpl = binding?.fetchImpl;
   const deps: ConfirmationsLlmDeps | undefined = binding
     ? {
@@ -200,9 +285,14 @@ async function main(): Promise<number> {
 
   // api 경로는 기존 requireApiKey 흐름 그대로 — claude-cli 면 binding 이 키 요구를 흡수한다.
   const apiKey = binding?.apiKey ?? requireApiKey();
+  const costPolicy = resolveLabCostPolicy({
+    transport,
+    ...(transport === "api" ? { apiMaxCostUsd: costCapUsd } : {}),
+  });
   console.log(
-    `[confirmations] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${costCapUsd} · ` +
-      `transport=${binding ? binding.transport : "api"}`,
+    `[confirmations] 실행 시작 — concurrency=${CONCURRENCY} · ` +
+      `${costPolicy.kind === "api-settled-usd-stop" ? `max-cost-usd=$${costPolicy.maxUsd}` : "명목 비용=telemetry-only"} · ` +
+      `transport=${transport}`,
   );
 
   let okCount = 0;
@@ -214,74 +304,82 @@ async function main(): Promise<number> {
   let targetTotal = 0;
   let totalCostUsd = 0;
   let costCapped = false;
-  let nextIndex = 0;
-
-  async function worker(): Promise<void> {
-    for (;;) {
-      if (costCapped) return;
-      const index = nextIndex;
-      if (index >= batch.length) return;
-      nextIndex += 1;
-      const entry = batch[index]!;
+  const taskPool = await runConfirmationTaskPool({
+    targets: batch,
+    concurrency: CONCURRENCY,
+    execute: (entry) => runConfirmations({
+      run: entry.run,
+      review: entry.review,
+      model,
+      apiKey,
+      sidecarPath: entry.sidecarPath,
+      force,
+      ...(deps ? { deps } : {}),
+    }),
+    isWindowExhausted: isClaudeCliWindowExhaustedError,
+    shouldStopStarting: () => costCapped,
+    onRetry: ({ index, target: entry, error }) => {
+      const message = error instanceof Error ? error.message : String(error);
       const ordinal = `${index + 1}/${batch.length}`;
       const label = `${shortTitle(entry.run.title)} (${entry.run.runId})`;
-      // 오류 1회 재시도 — ai-audit CLI 관행(HTTP 재시도와 별개의 겉 재시도).
-      for (let attemptNo = 1; attemptNo <= 2; attemptNo += 1) {
-        try {
-          const outcome = await runConfirmations({
-            run: entry.run,
-            review: entry.review,
-            model,
-            apiKey,
-            sidecarPath: entry.sidecarPath,
-            force,
-            ...(deps ? { deps } : {}),
-          });
-          if (outcome.status === "input_drift") {
-            driftCount += 1;
-            console.warn(`[confirmations] (${ordinal}) 원문 드리프트 — 스킵: ${label}`);
-          } else if (outcome.status === "refusal") {
-            refusalCount += 1;
-            console.warn(`[confirmations] (${ordinal}) 생성 거부(refusal): ${label}`);
-          } else if (outcome.status === "exists") {
-            // 사전 필터 후 생긴 파일(동시 실행 경합) — 멱등 스킵.
-            existsCount += 1;
-            console.log(`[confirmations] (${ordinal}) 사이드카 이미 존재 — 스킵: ${label}`);
-          } else if (outcome.status === "no_targets") {
-            console.log(`[confirmations] (${ordinal}) 질문 대상 없음 — 스킵: ${label}`);
-          } else {
-            okCount += 1;
-            generatedTotal += outcome.generatedCount;
-            targetTotal += outcome.targetCount;
-            const cost = outcome.file.costUsd ?? 0;
-            totalCostUsd += cost;
-            console.log(
-              `[confirmations] (${ordinal}) 완료: ${label} · ${(outcome.durationMs / 1000).toFixed(1)}s · ` +
-                `질문 ${outcome.generatedCount}/${outcome.targetCount}건(비해당 생략 ${outcome.targetCount - outcome.generatedCount})` +
-                ` · $${cost.toFixed(4)} · 누적 $${totalCostUsd.toFixed(4)}`,
-            );
-          }
-          break;
-        } catch (caught) {
-          const message = caught instanceof Error ? caught.message : String(caught);
-          if (attemptNo === 1) {
-            console.warn(`[confirmations] (${ordinal}) 실패 — 1회 재시도: ${label} · ${message.slice(0, 200)}`);
-            continue;
-          }
-          failCount += 1;
-          console.error(`[confirmations] (${ordinal}) 실패(재시도 후에도): ${label} · ${message.slice(0, 400)}`);
-        }
+      console.warn(`[confirmations] (${ordinal}) 실패 — 1회 재시도: ${label} · ${message.slice(0, 200)}`);
+    },
+    onSettled: (result) => {
+      const entry = result.target;
+      const ordinal = `${result.index + 1}/${batch.length}`;
+      const label = `${shortTitle(entry.run.title)} (${entry.run.runId})`;
+      if (result.status === "window_exhausted") {
+        failCount += 1;
+        const message = result.error instanceof Error ? result.error.message : String(result.error);
+        console.error(
+          `[confirmations] (${ordinal}) Claude Max 사용량 윈도 소진 — 신규 착수 즉시 중단: ${label} · ${message.slice(0, 400)}`,
+        );
+        return;
       }
-      if (!costCapped && totalCostUsd >= costCapUsd) {
-        costCapped = true;
+      if (result.status === "failed") {
+        failCount += 1;
+        const message = result.error instanceof Error ? result.error.message : String(result.error);
+        console.error(`[confirmations] (${ordinal}) 실패(재시도 후에도): ${label} · ${message.slice(0, 400)}`);
+        return;
+      }
+
+      const outcome = result.value;
+      if (outcome.status === "input_drift") {
+        driftCount += 1;
+        console.warn(`[confirmations] (${ordinal}) 원문 드리프트 — 스킵: ${label}`);
+      } else if (outcome.status === "refusal") {
+        refusalCount += 1;
+        console.warn(`[confirmations] (${ordinal}) 생성 거부(refusal): ${label}`);
+      } else if (outcome.status === "exists") {
+        // 사전 필터 후 생긴 파일(동시 실행 경합) — 멱등 스킵.
+        existsCount += 1;
+        console.log(`[confirmations] (${ordinal}) 사이드카 이미 존재 — 스킵: ${label}`);
+      } else if (outcome.status === "no_targets") {
+        console.log(`[confirmations] (${ordinal}) 질문 대상 없음 — 스킵: ${label}`);
+      } else {
+        okCount += 1;
+        generatedTotal += outcome.generatedCount;
+        targetTotal += outcome.targetCount;
+        const cost = outcome.file.costUsd ?? 0;
+        totalCostUsd += cost;
         console.log(
-          `[confirmations] 누적 비용 $${totalCostUsd.toFixed(4)} ≥ 상한 $${costCapUsd} — 신규 착수 중단(진행분은 완료).`,
+          `[confirmations] (${ordinal}) 완료: ${label} · ${(outcome.durationMs / 1000).toFixed(1)}s · ` +
+            `질문 ${outcome.generatedCount}/${outcome.targetCount}건(비해당 생략 ${outcome.targetCount - outcome.generatedCount})` +
+            ` · $${cost.toFixed(4)} · 누적 $${totalCostUsd.toFixed(4)}`,
         );
       }
-    }
-  }
-
-  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batch.length) }, () => worker()));
+      if (
+        !costCapped
+        && costPolicy.kind === "api-settled-usd-stop"
+        && shouldStopForSettledCost(costPolicy, totalCostUsd)
+      ) {
+        costCapped = true;
+        console.log(
+          `[confirmations] 누적 비용 $${totalCostUsd.toFixed(4)} ≥ 상한 $${costPolicy.maxUsd} — 신규 착수 중단(진행분은 완료).`,
+        );
+      }
+    },
+  });
 
   console.log("\n===== 확정 결격 질문 보강 배치 요약 =====");
   console.log(
@@ -292,7 +390,7 @@ async function main(): Promise<number> {
     `생성 질문 ${generatedTotal}건 / 대상 criterion ${targetTotal}건 (자가신고 비해당 생략 ${targetTotal - generatedTotal}건)` +
       ` · 총비용 $${totalCostUsd.toFixed(4)}${costCapped ? " · 비용 상한 도달" : ""}`,
   );
-  return 0;
+  return taskPool.exitCode;
 }
 
 /** DB 커넥션이 로드된 경우에만 닫는다(dry-run 은 no-op) — ai-audit-cli 관행. */
@@ -305,14 +403,17 @@ async function closeDbIfLoaded(): Promise<void> {
   }
 }
 
-// verify 계열 스크립트의 커넥션 잔존 미종료 전례가 있어 명시적으로 정리·종료한다.
-main()
-  .then(async (code) => {
-    await closeDbIfLoaded();
-    process.exit(code);
-  })
-  .catch(async (error) => {
-    console.error("[confirmations] 실패:", error instanceof Error ? error.message : error);
-    await closeDbIfLoaded();
-    process.exit(1);
-  });
+const argvEntry = process.argv[1];
+if (argvEntry !== undefined && import.meta.url === pathToFileURL(argvEntry).href) {
+  // verify 계열 스크립트의 커넥션 잔존 미종료 전례가 있어 명시적으로 정리·종료한다.
+  main()
+    .then(async (code) => {
+      await closeDbIfLoaded();
+      process.exit(code);
+    })
+    .catch(async (error) => {
+      console.error("[confirmations] 실패:", error instanceof Error ? error.message : error);
+      await closeDbIfLoaded();
+      process.exit(1);
+    });
+}

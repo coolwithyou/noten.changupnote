@@ -353,7 +353,7 @@ function ModeCard({ summary, loading }: { summary: LabOpsSummary | null; loading
             </p>
             {summary.transportStatus.resolved === "claude-cli" ? (
               <p className="text-xs text-muted-foreground">
-                실지출 $0 — 표시 비용은 명목(게이트 잣대)입니다.
+                실지출 $0 — 표시 비용은 중단 게이트가 아닌 명목 telemetry입니다.
               </p>
             ) : null}
           </>

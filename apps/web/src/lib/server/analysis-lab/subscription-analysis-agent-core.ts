@@ -139,7 +139,6 @@ export function classifySubscriptionAgentGraphs(
 
 export function buildInitialAgentCommands(input: {
   grantIds: readonly string[];
-  maxCostUsd: number;
   concurrency: number;
 }): SubscriptionAgentCommand[] {
   if (input.grantIds.length === 0) return [];
@@ -154,7 +153,6 @@ export function buildInitialAgentCommands(input: {
       `--roundtrip-model=${SUBSCRIPTION_ANALYSIS_AGENT_MODELS.roundtrip}`,
       `--limit=${input.grantIds.length}`,
       `--concurrency=${input.concurrency}`,
-      `--max-cost-usd=${input.maxCostUsd}`,
       `--grant-ids=${grantIds}`,
     ],
   }];
@@ -163,7 +161,6 @@ export function buildInitialAgentCommands(input: {
 export function buildReviewAgentCommands(input: {
   grantIds: readonly string[];
   runIds: readonly string[];
-  maxCostUsd: number;
 }): SubscriptionAgentCommand[] {
   if (input.grantIds.length === 0) return [];
   const grantIds = input.grantIds.join(",");
@@ -174,7 +171,6 @@ export function buildReviewAgentCommands(input: {
       `--model=${SUBSCRIPTION_ANALYSIS_AGENT_MODELS.review}`,
       "--allow-empty",
       `--limit=${input.grantIds.length}`,
-      `--max-cost-usd=${input.maxCostUsd}`,
       `--grant-ids=${grantIds}`,
     ],
   }, {
@@ -184,7 +180,6 @@ export function buildReviewAgentCommands(input: {
       `--model=${SUBSCRIPTION_ANALYSIS_AGENT_MODELS.audit}`,
       "--create-missing",
       `--limit=${input.grantIds.length}`,
-      `--max-cost-usd=${input.maxCostUsd}`,
       `--grant-ids=${grantIds}`,
     ],
   }];
@@ -194,7 +189,6 @@ export function buildReviewAgentCommands(input: {
       script: "lab:ai-adjudicate",
       args: [
         `--model=${SUBSCRIPTION_ANALYSIS_AGENT_MODELS.adjudication}`,
-        `--max-cost-usd=${input.maxCostUsd}`,
         `--run-ids=${input.runIds.join(",")}`,
       ],
     });

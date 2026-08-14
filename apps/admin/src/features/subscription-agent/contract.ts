@@ -31,7 +31,6 @@ export interface SubscriptionAgentOpsOptions {
   count: 5 | 10 | 30
   maxCycles: number
   concurrency: number
-  maxCostUsd: number
 }
 
 export interface SubscriptionAgentOpsRuntime {

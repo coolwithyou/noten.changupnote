@@ -28,7 +28,6 @@ const DEFAULT_OPTIONS: SubscriptionAgentOpsOptions = {
   count: 30,
   maxCycles: 3,
   concurrency: 2,
-  maxCostUsd: 65,
 }
 const MAX_LOG_LINES = 160
 const MAX_HISTORY = 12
@@ -248,7 +247,6 @@ export function buildSubscriptionAgentProcessSpec(options: SubscriptionAgentOpsO
       `--count=${options.count}`,
       `--max-cycles=${options.maxCycles}`,
       `--concurrency=${options.concurrency}`,
-      `--max-cost-usd=${options.maxCostUsd}`,
       "--execute",
     ],
     envOverrides: {

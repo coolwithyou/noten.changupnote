@@ -53,6 +53,7 @@ import { selectReviewedRuns } from "./reviewed-runs";
 import { analysisLabDir } from "./run-store";
 import { hasHumanReviewForRun } from "./run-review-policy";
 import { isPublishableLabRun } from "./run-outcome";
+import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
 
 loadAnalysisLabEnv();
 
@@ -444,8 +445,14 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
   }
 
   const { binding, apiKey, transport } = await resolveReviewBinding();
+  const costPolicy = resolveLabCostPolicy({
+    transport,
+    ...(transport === "api" ? { apiMaxCostUsd: options.maxCostUsd } : {}),
+  });
   console.log(
-    `[ai-review] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${options.maxCostUsd} · transport=${transport}`,
+    `[ai-review] 실행 시작 — concurrency=${CONCURRENCY} · ` +
+      `${costPolicy.kind === "api-settled-usd-stop" ? `max-cost-usd=$${costPolicy.maxUsd}` : "명목 비용=telemetry-only"} · ` +
+      `transport=${transport}`,
   );
 
   let okCount = 0;
@@ -512,10 +519,14 @@ async function runDefaultMode(options: DefaultModeOptions): Promise<number> {
           console.error(`[ai-review] (${ordinal}) 실패(재시도 후에도): ${label} · ${message.slice(0, 400)}`);
         }
       }
-      if (!costCapped && totalCostUsd >= options.maxCostUsd) {
+      if (
+        !costCapped
+        && costPolicy.kind === "api-settled-usd-stop"
+        && shouldStopForSettledCost(costPolicy, totalCostUsd)
+      ) {
         costCapped = true;
         console.log(
-          `[ai-review] 누적 비용 $${totalCostUsd.toFixed(4)} ≥ 상한 $${options.maxCostUsd} — 신규 착수 중단(진행분은 완료).`,
+          `[ai-review] 누적 비용 $${totalCostUsd.toFixed(4)} ≥ 상한 $${costPolicy.maxUsd} — 신규 착수 중단(진행분은 완료).`,
         );
       }
     }
@@ -616,10 +627,19 @@ async function main(): Promise<number> {
   }
 
   const limit = readNumberArg("limit", DEFAULT_LIMIT);
-  const maxCostUsd = readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
+  const transport = resolveLabTransport();
+  const legacyMaxCostUsd = readArg("max-cost-usd");
+  const maxCostUsd = transport === "claude-cli"
+    ? DEFAULT_MAX_COST_USD
+    : readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
     console.error("[ai-review] 설정 오류: --limit 은 1 이상의 정수여야 합니다.");
     return 1;
+  }
+  if (transport === "claude-cli" && legacyMaxCostUsd !== undefined) {
+    console.warn(
+      `[ai-review] 경고: --max-cost-usd=${legacyMaxCostUsd} 는 claude-cli 구독 실행에서 무시합니다(명목 비용 telemetry는 계속 기록).`,
+    );
   }
   if (maxCostUsd === null || maxCostUsd <= 0) {
     console.error("[ai-review] 설정 오류: --max-cost-usd 는 0보다 큰 숫자여야 합니다.");

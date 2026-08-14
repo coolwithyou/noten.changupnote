@@ -11,7 +11,10 @@ import {
   buildReviewAgentCommands,
   classifySubscriptionAgentGraphs,
 } from "./subscription-analysis-agent-core";
-import { runSubscriptionAnalysisAgent } from "./subscription-analysis-agent";
+import {
+  parseSubscriptionAnalysisAgentCliOptions,
+  runSubscriptionAnalysisAgent,
+} from "./subscription-analysis-agent";
 
 function node(
   id: AnalysisQualityNode["id"],
@@ -107,16 +110,20 @@ function graph(input: {
 
 // 모든 하위 명령은 정확한 ID와 모델, Kordoc 병렬 실행을 전달한다.
 {
-  const batch = buildInitialAgentCommands({ grantIds: ["g1", "g2"], maxCostUsd: 65, concurrency: 2 });
+  const batch = buildInitialAgentCommands({ grantIds: ["g1", "g2"], concurrency: 2 });
   assert.match(batch[0]!.args.join(" "), /--with-application-roundtrip/);
   assert.match(batch[0]!.args.join(" "), /--grant-ids=g1,g2/);
-  const review = buildReviewAgentCommands({ grantIds: ["g1"], runIds: ["r1"], maxCostUsd: 65 });
+  const review = buildReviewAgentCommands({ grantIds: ["g1"], runIds: ["r1"] });
   assert.ok(review[0]!.args.includes("--allow-empty"));
   assert.deepEqual(review.map((command) => command.script), [
     "lab:ai-review",
     "lab:ai-audit",
     "lab:ai-adjudicate",
   ]);
+  assert.ok(
+    [...batch, ...review].every((command) => command.args.every((arg) => !arg.startsWith("--max-cost-usd="))),
+    "구독 하위 명령에는 USD 진행 중단 인자를 전달하지 않음",
+  );
   const repair = buildRepairAgentCommands({
     completed: [],
     eligibilityRepair: ["g1"],
@@ -132,6 +139,21 @@ function graph(input: {
   console.log("✅ 구독 분석 에이전트 명령 — 정확 대상·모델 역할·Kordoc 병렬 계약");
 }
 
+// 과거 구독 agent 인자는 명시적으로 1회 경고하되 실행 정책에는 남기지 않는다.
+{
+  const warnings: string[] = [];
+  const parsed = parseSubscriptionAnalysisAgentCliOptions([
+    "--count=5",
+    "--max-cost-usd=1",
+    "--max-cost-usd=999",
+    "--execute",
+  ], (message) => warnings.push(message));
+  assert.deepEqual(parsed, { count: 5, maxCycles: 3, concurrency: 2, execute: true });
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /더 이상 중단하지 않으며/);
+  console.log("✅ 구독 분석 에이전트 legacy 비용 인자 — 1회 경고 후 정책에서 제거");
+}
+
 // 외부 인터페이스 한 번으로 분석→검수→감사→충돌 판정→그래프 종결까지 수행한다.
 {
   const commands: string[] = [];
@@ -142,7 +164,7 @@ function graph(input: {
     error: null,
   } as unknown as LabRun;
   const result = await runSubscriptionAnalysisAgent(
-    { count: 1, maxCycles: 2, maxCostUsd: 65, concurrency: 2 },
+    { count: 1, maxCycles: 2, concurrency: 2 },
     {
       inspectWork: async () => ({ analysisIds: ["g1"], recoveryIds: [], newCandidateCount: 0 }),
       selectTargets: async () => {
@@ -184,7 +206,7 @@ function graph(input: {
     error: null,
   } as unknown as LabRun;
   const result = await runSubscriptionAnalysisAgent(
-    { count: 1, maxCycles: 3, maxCostUsd: 65, concurrency: 1 },
+    { count: 1, maxCycles: 3, concurrency: 1 },
     {
       inspectWork: async () => ({
         analysisIds: ["held-primary"],
@@ -224,7 +246,7 @@ function graph(input: {
     error: null,
   } as unknown as LabRun));
   const result = await runSubscriptionAnalysisAgent(
-    { count: 2, maxCycles: 2, maxCostUsd: 65, concurrency: 2 },
+    { count: 2, maxCycles: 2, concurrency: 2 },
     {
       inspectWork: async () => {
         inspectCalls += 1;
@@ -267,7 +289,7 @@ function graph(input: {
     error: null,
   } as unknown as LabRun;
   const result = await runSubscriptionAnalysisAgent(
-    { count: 1, maxCycles: 3, maxCostUsd: 65, concurrency: 2 },
+    { count: 1, maxCycles: 3, concurrency: 2 },
     {
       inspectWork: async () => ({
         analysisIds: [],

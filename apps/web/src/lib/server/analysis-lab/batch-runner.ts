@@ -23,6 +23,7 @@ import {
 import { classifyNoticePeriod } from "@/features/dev/analysis-lab/notice-period";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER, resolveLabTransport } from "./claude-cli-transport";
+import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
 import {
   cohortFilePath,
   cohortSnapshotFilePath,
@@ -41,7 +42,8 @@ export type LabBatchTransport = "api" | "claude-cli";
 export interface LabBatchRunnerOptions {
   limit: number;
   concurrency: number;
-  maxCostUsd: number;
+  /** API transport에서만 완료 비용 기준 신규 착수를 중단한다. 구독에서는 미지정한다. */
+  apiMaxCostUsd?: number;
   retryErrors: boolean;
   /** 구버전 ok 런"만" 보유한 공고를 대상에 편입한다 — 우발 재분석 가드의 명시적 탈출구. */
   reanalyzeOutdated: boolean;
@@ -317,9 +319,6 @@ function assertRunnerOptions(options: LabBatchRunnerOptions): void {
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1) {
     throw new Error("concurrency 는 1 이상의 정수여야 합니다.");
   }
-  if (!Number.isFinite(options.maxCostUsd) || options.maxCostUsd <= 0) {
-    throw new Error("maxCostUsd 는 0보다 큰 숫자여야 합니다.");
-  }
   if (options.grantIds && (options.grantIds.length === 0 || new Set(options.grantIds).size !== options.grantIds.length)) {
     throw new Error("grantIds 는 중복 없는 1개 이상의 공고 ID여야 합니다.");
   }
@@ -363,7 +362,11 @@ export async function runLabBatch(
 ): Promise<LabBatchSummary> {
   assertRunnerOptions(options);
   // 전송층 선검증 — env/오버라이드 오타를 코호트 읽기 전에 fail-fast(기존 main 순서와 동형).
-  resolveEffectiveTransport(options.transport);
+  const transport = resolveEffectiveTransport(options.transport);
+  const costPolicy = resolveLabCostPolicy({
+    transport,
+    ...(options.apiMaxCostUsd !== undefined ? { apiMaxCostUsd: options.apiMaxCostUsd } : {}),
+  });
   const emit = options.onEvent ?? (() => {});
 
   const cohortPath = options.cohortSnapshot
@@ -582,7 +585,7 @@ export async function runLabBatch(
           durationMs: Date.now() - targetStartedMs,
         });
       }
-      if (!state.costCapped && state.totalCostUsd >= options.maxCostUsd) {
+      if (!state.costCapped && shouldStopForSettledCost(costPolicy, state.totalCostUsd)) {
         state.costCapped = true;
         emit({ type: "guard-stop", reason: "cost-cap", cumulativeCostUsd: state.totalCostUsd });
       }

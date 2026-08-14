@@ -90,7 +90,7 @@ function baseOptions(
   return {
     limit: 10,
     concurrency: 1,
-    maxCostUsd: 100,
+    apiMaxCostUsd: 100,
     retryErrors: false,
     reanalyzeOutdated: false,
     onEvent: (event) => events.push(event),
@@ -244,7 +244,7 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
   const analyzed: string[] = [];
   const events: LabBatchEvent[] = [];
   const summary = await runLabBatch(
-    baseOptions(events, { maxCostUsd: 5 }),
+    baseOptions(events, { transport: "api", apiMaxCostUsd: 5 }),
     makeDeps({
       entries: [entry("c1"), entry("c2"), entry("c3")],
       run: async (grantId) => {
@@ -274,12 +274,41 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·stopReason");
 }
 
+// ---- ②-구독: 명목 USD는 telemetry 전용, 신규 착수 중단 없음 --------------------
+{
+  const analyzed: string[] = [];
+  const events: LabBatchEvent[] = [];
+  const summary = await runLabBatch(
+    baseOptions(events, { transport: "claude-cli" }),
+    makeDeps({
+      entries: [entry("subscription-1"), entry("subscription-2"), entry("subscription-3")],
+      run: async (grantId) => {
+        analyzed.push(grantId);
+        return okResult(`공고 ${grantId}`, 3);
+      },
+    }),
+  );
+  assert.deepEqual(
+    analyzed,
+    ["subscription-1", "subscription-2", "subscription-3"],
+    "구독은 과거 명목 $5를 넘어도 세 공고를 모두 실행한다",
+  );
+  assert.equal(summary.totalCostUsd, 9, "명목 USD telemetry는 계속 합산한다");
+  assert.equal(summary.stopReason, "completed");
+  assert.equal(summary.notStarted, 0);
+  assert.ok(
+    !events.some((event) => event.type === "guard-stop" && event.reason === "cost-cap"),
+    "구독 경로에는 cost-cap guard 이벤트가 없다",
+  );
+  console.log("✅ 구독 명목 비용 — 전건 실행·telemetry 유지·cost-cap 미적용");
+}
+
 // 딥분석만이 아니라 같은 공고에서 병렬 실행한 Kordoc 명목 비용도 상한·이벤트에 합산한다.
 {
   const analyzed: string[] = [];
   const events: LabBatchEvent[] = [];
   const summary = await runLabBatch(
-    baseOptions(events, { maxCostUsd: 5, withApplicationRoundtrip: true }),
+    baseOptions(events, { transport: "api", apiMaxCostUsd: 5, withApplicationRoundtrip: true }),
     makeDeps({
       entries: [entry("kc1"), entry("kc2"), entry("kc3")],
       run: async (grantId) => {

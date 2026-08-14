@@ -27,12 +27,6 @@ import {
   FieldLabel,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-  InputGroupText,
-} from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
 import { Toggle } from "@/components/ui/toggle";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -46,10 +40,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 /** 기본값은 안전한 2를 유지하고, 명시적으로 10건까지 인플라이트를 허용한다. */
 const DEFAULT_LIMIT = "30";
 const DEFAULT_CONCURRENCY = "2";
-// 로컬 구독 배치는 실제 API 과금이 없지만 러너가 모델 사용량을 명목 USD로 환산해
-// 폭주 가드를 적용한다. 모집 중 전건 분석에서도 이 비교값 때문에 조기 중단되지 않도록
-// 충분히 큰 기본값을 쓰되, API transport는 서버가 별도로 금지한다.
-const DEFAULT_MAX_COST_USD = "1000";
 
 export function BatchOpsConsole({
   analysisAllowed,
@@ -72,7 +62,6 @@ export function BatchOpsConsole({
   const [model, setModel] = useState("");
   const [limitText, setLimitText] = useState(DEFAULT_LIMIT);
   const [concurrencyText, setConcurrencyText] = useState(DEFAULT_CONCURRENCY);
-  const [maxCostText, setMaxCostText] = useState(DEFAULT_MAX_COST_USD);
   const [retryErrors, setRetryErrors] = useState(false);
   const [reanalyzeOutdated, setReanalyzeOutdated] = useState(false);
   const [limitEdited, setLimitEdited] = useState(false);
@@ -81,14 +70,12 @@ export function BatchOpsConsole({
 
   const limit = Number(limitText);
   const concurrency = Number(concurrencyText);
-  const maxCostUsd = Number(maxCostText);
   const limitValid = Number.isInteger(limit) && limit >= 1;
   const concurrencyValid =
     Number.isInteger(concurrency)
     && concurrency >= 1
     && concurrency <= ANALYSIS_LAB_MAX_BATCH_CONCURRENCY;
-  const maxCostValid = Number.isFinite(maxCostUsd) && maxCostUsd > 0;
-  const formValid = limitValid && concurrencyValid && maxCostValid;
+  const formValid = limitValid && concurrencyValid;
 
   const running = snapshot?.state === "running";
   const pendingCount = summary?.funnel.analysisPending ?? null;
@@ -106,7 +93,6 @@ export function BatchOpsConsole({
     onStart({
       limit,
       concurrency,
-      maxCostUsd,
       retryErrors,
       reanalyzeOutdated,
       transport,
@@ -202,37 +188,20 @@ export function BatchOpsConsole({
                 />
                 <FieldDescription>비워 두면 현재 로컬 모델을 사용합니다.</FieldDescription>
               </Field>
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                <Field data-invalid={!concurrencyValid || undefined}>
-                  <FieldLabel htmlFor="batch-ops-concurrency">동시 처리 수</FieldLabel>
-                  <Input
-                    id="batch-ops-concurrency"
-                    inputMode="numeric"
-                    value={concurrencyText}
-                    onChange={(event) => setConcurrencyText(event.target.value)}
-                    aria-invalid={!concurrencyValid || undefined}
-                    disabled={running}
-                  />
-                  <FieldDescription>
-                    작업 1~{ANALYSIS_LAB_MAX_BATCH_CONCURRENCY}건 · CLI 프로세스는 전역 상한 별도
-                  </FieldDescription>
-                </Field>
-                <Field data-invalid={!maxCostValid || undefined}>
-                  <FieldLabel htmlFor="batch-ops-max-cost">명목 비용 가드</FieldLabel>
-                  <InputGroup>
-                    <InputGroupAddon><InputGroupText>$</InputGroupText></InputGroupAddon>
-                    <InputGroupInput
-                      id="batch-ops-max-cost"
-                      inputMode="decimal"
-                      value={maxCostText}
-                      onChange={(event) => setMaxCostText(event.target.value)}
-                      aria-invalid={!maxCostValid || undefined}
-                      disabled={running}
-                    />
-                  </InputGroup>
-                  <FieldDescription>실제 과금이 아닌 폭주 감지용 비교값 · 기본 $1,000</FieldDescription>
-                </Field>
-              </div>
+              <Field data-invalid={!concurrencyValid || undefined}>
+                <FieldLabel htmlFor="batch-ops-concurrency">동시 처리 수</FieldLabel>
+                <Input
+                  id="batch-ops-concurrency"
+                  inputMode="numeric"
+                  value={concurrencyText}
+                  onChange={(event) => setConcurrencyText(event.target.value)}
+                  aria-invalid={!concurrencyValid || undefined}
+                  disabled={running}
+                />
+                <FieldDescription>
+                  작업 1~{ANALYSIS_LAB_MAX_BATCH_CONCURRENCY}건 · CLI 프로세스는 전역 상한 별도
+                </FieldDescription>
+              </Field>
               <Field>
                 <FieldLabel>다시 포함할 공고</FieldLabel>
                 <div className="flex flex-wrap gap-1.5">
@@ -250,7 +219,7 @@ export function BatchOpsConsole({
 
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <Badge variant="outline">실제 API 비용 $0</Badge>
-          <span>완료 결과는 로컬 파일에 보존됩니다.</span>
+          <span>명목 USD는 중단 없이 telemetry로만 기록됩니다.</span>
         </div>
       </CardContent>
       <CardFooter className="flex-col items-stretch gap-2 sm:flex-row">

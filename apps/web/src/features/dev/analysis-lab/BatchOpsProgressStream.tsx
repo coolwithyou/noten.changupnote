@@ -26,21 +26,52 @@ import { formatDateTime, formatDurationMs, formatUsd } from "./batch-ops-format"
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GUARD_STOP_MESSAGES: Record<"cost-cap" | "window-exhausted", string> = {
-  "cost-cap": "명목 상한 도달 — 상한을 올려 재실행하면 이어서 진행합니다.",
+  "cost-cap": "API 완료 비용 상한 도달 — 상한을 올려 재실행하면 이어서 진행합니다.",
   "window-exhausted": "Max 윈도 소진 — 리셋 후 재실행하세요.",
 };
 
 const GUARD_STOP_TITLES: Record<"cost-cap" | "window-exhausted", string> = {
-  "cost-cap": "명목 상한 도달",
+  "cost-cap": "API 완료 비용 상한 도달",
   "window-exhausted": "Max 윈도 소진",
 };
 
 const STOP_REASON_LABELS: Record<LabBatchSummary["stopReason"], string> = {
   completed: "정상 완료",
-  "cost-cap": "명목 상한 도달",
+  "cost-cap": "API 완료 비용 상한 도달",
   "window-exhausted": "Max 윈도 소진",
   aborted: "사용자 중단",
 };
+
+const LEGACY_SUBSCRIPTION_COST_GUARD_TITLE = "과거 구독 명목 비용 가드 도달";
+const LEGACY_SUBSCRIPTION_COST_GUARD_MESSAGE =
+  "이 중단 규칙은 폐기됐습니다. 현재 구독 실행에서는 명목 비용을 관측만 하므로 그대로 재실행하면 잔여 대상을 이어갑니다.";
+
+function guardStopTitle(
+  reason: "cost-cap" | "window-exhausted",
+  legacySubscriptionCostGuard: boolean,
+): string {
+  return reason === "cost-cap" && legacySubscriptionCostGuard
+    ? LEGACY_SUBSCRIPTION_COST_GUARD_TITLE
+    : GUARD_STOP_TITLES[reason];
+}
+
+function guardStopMessage(
+  reason: "cost-cap" | "window-exhausted",
+  legacySubscriptionCostGuard: boolean,
+): string {
+  return reason === "cost-cap" && legacySubscriptionCostGuard
+    ? LEGACY_SUBSCRIPTION_COST_GUARD_MESSAGE
+    : GUARD_STOP_MESSAGES[reason];
+}
+
+function stopReasonLabel(
+  reason: LabBatchSummary["stopReason"],
+  legacySubscriptionCostGuard: boolean,
+): string {
+  return reason === "cost-cap" && legacySubscriptionCostGuard
+    ? LEGACY_SUBSCRIPTION_COST_GUARD_TITLE
+    : STOP_REASON_LABELS[reason];
+}
 
 const STATE_META: Record<
   LabBatchJobSnapshot["state"],
@@ -75,6 +106,9 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
   // 링 버퍼는 오래된 순으로 도착한다 — 표시는 최근순.
   const events = [...snapshot.events].reverse();
   const stateMeta = STATE_META[snapshot.state];
+  // 신규 claude-cli 실행은 cost-cap을 만들 수 없다. 남아 있는 값은 구 정책의
+  // 호환 스냅샷이므로 API 상한으로 재해석하지 않는다.
+  const legacySubscriptionCostGuard = snapshot.options?.transport === "claude-cli";
 
   return (
     <Card>
@@ -116,9 +150,11 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
 
         {snapshot.guardStop ? (
           <Alert>
-            <AlertTitle>가드 중단 — {GUARD_STOP_TITLES[snapshot.guardStop.reason]}</AlertTitle>
+            <AlertTitle>
+              가드 중단 — {guardStopTitle(snapshot.guardStop.reason, legacySubscriptionCostGuard)}
+            </AlertTitle>
             <AlertDescription className="tabular-nums">
-              {GUARD_STOP_MESSAGES[snapshot.guardStop.reason]} (누적 명목{" "}
+              {guardStopMessage(snapshot.guardStop.reason, legacySubscriptionCostGuard)} (누적 명목{" "}
               {formatUsd(snapshot.guardStop.cumulativeCostUsd)})
             </AlertDescription>
           </Alert>
@@ -144,19 +180,34 @@ export function BatchOpsProgressStream({ snapshot }: { snapshot: LabBatchJobSnap
               <p className="px-1 py-2 text-xs text-muted-foreground">이벤트가 아직 없습니다.</p>
             ) : (
               events.map((event, index) => (
-                <EventRow key={`${snapshot.jobId ?? "job"}-${events.length - index}`} event={event} />
+                <EventRow
+                  key={`${snapshot.jobId ?? "job"}-${events.length - index}`}
+                  event={event}
+                  legacySubscriptionCostGuard={legacySubscriptionCostGuard}
+                />
               ))
             )}
           </div>
         </ScrollArea>
 
-        {snapshot.summary ? <BatchSummaryTable summary={snapshot.summary} /> : null}
+        {snapshot.summary ? (
+          <BatchSummaryTable
+            summary={snapshot.summary}
+            legacySubscriptionCostGuard={legacySubscriptionCostGuard}
+          />
+        ) : null}
       </CardContent>
     </Card>
   );
 }
 
-function EventRow({ event }: { event: LabBatchEvent }) {
+function EventRow({
+  event,
+  legacySubscriptionCostGuard,
+}: {
+  event: LabBatchEvent;
+  legacySubscriptionCostGuard: boolean;
+}) {
   switch (event.type) {
     case "plan":
       return (
@@ -252,16 +303,20 @@ function EventRow({ event }: { event: LabBatchEvent }) {
     case "guard-stop":
       return (
         <Alert className="my-1">
-          <AlertTitle>가드 중단 — {GUARD_STOP_TITLES[event.reason]}</AlertTitle>
+          <AlertTitle>
+            가드 중단 — {guardStopTitle(event.reason, legacySubscriptionCostGuard)}
+          </AlertTitle>
           <AlertDescription className="tabular-nums">
-            {GUARD_STOP_MESSAGES[event.reason]} (누적 명목 {formatUsd(event.cumulativeCostUsd)})
+            {guardStopMessage(event.reason, legacySubscriptionCostGuard)} (누적 명목{" "}
+            {formatUsd(event.cumulativeCostUsd)})
           </AlertDescription>
         </Alert>
       );
     case "finished":
       return (
         <p className="px-1 py-1 text-xs font-medium tabular-nums">
-          종료 — {STOP_REASON_LABELS[event.summary.stopReason]} · 성공 {event.summary.ok} · 품질
+          종료 — {stopReasonLabel(event.summary.stopReason, legacySubscriptionCostGuard)} · 성공{" "}
+          {event.summary.ok} · 품질
           보류 {event.summary.held ?? 0} · error 런 {event.summary.errorRuns} · 누적 명목{" "}
           {formatUsd(event.summary.totalCostUsd)}
         </p>
@@ -290,9 +345,15 @@ function roundtripBadgeVariant(
 }
 
 /** 종료 요약 표 — finished/aborted 시 summary 를 항목별로 펼친다. */
-function BatchSummaryTable({ summary }: { summary: LabBatchSummary }) {
+function BatchSummaryTable({
+  summary,
+  legacySubscriptionCostGuard,
+}: {
+  summary: LabBatchSummary;
+  legacySubscriptionCostGuard: boolean;
+}) {
   const rows: Array<[string, string]> = [
-    ["종료 사유", STOP_REASON_LABELS[summary.stopReason]],
+    ["종료 사유", stopReasonLabel(summary.stopReason, legacySubscriptionCostGuard)],
     ["성공 런", `${summary.ok}건`],
     ["품질 보류 런", `${summary.held ?? 0}건`],
     ["error 런(저장됨)", `${summary.errorRuns}건`],

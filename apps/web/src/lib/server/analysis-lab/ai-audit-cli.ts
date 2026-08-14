@@ -23,9 +23,14 @@ import {
   loadOrCreateLabAudit,
   readLabAuditFileAt,
 } from "./audit-store";
-import { isClaudeCliWindowExhaustedError, resolveLabLlmBinding } from "./claude-cli-transport";
+import {
+  isClaudeCliWindowExhaustedError,
+  resolveLabLlmBinding,
+  resolveLabTransport,
+} from "./claude-cli-transport";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { isPublishableLabRun } from "./run-outcome";
+import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
 
 loadAnalysisLabEnv();
 
@@ -86,10 +91,19 @@ async function main(): Promise<number> {
   const grantIds = readCsvArg("grant-ids");
   const createMissing = hasFlag("create-missing");
   const limit = readNumberArg("limit", DEFAULT_LIMIT);
-  const maxCostUsd = readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
+  const transport = resolveLabTransport();
+  const legacyMaxCostUsd = readArg("max-cost-usd");
+  const maxCostUsd = transport === "claude-cli"
+    ? DEFAULT_MAX_COST_USD
+    : readNumberArg("max-cost-usd", DEFAULT_MAX_COST_USD);
   if (limit === null || !Number.isInteger(limit) || limit < 1) {
     console.error("[ai-audit] 설정 오류: --limit 은 1 이상의 정수여야 합니다.");
     return 1;
+  }
+  if (transport === "claude-cli" && legacyMaxCostUsd !== undefined) {
+    console.warn(
+      `[ai-audit] 경고: --max-cost-usd=${legacyMaxCostUsd} 는 claude-cli 구독 실행에서 무시합니다(명목 비용 telemetry는 계속 기록).`,
+    );
   }
   if (maxCostUsd === null || maxCostUsd <= 0) {
     console.error("[ai-audit] 설정 오류: --max-cost-usd 는 0보다 큰 숫자여야 합니다.");
@@ -196,7 +210,15 @@ async function main(): Promise<number> {
 
   // transport 분기 + api 키 요구 스킵을 binding 이 흡수한다(계획 §5 #3 — 결정 ①로 감사 레인 포함).
   const binding = await resolveLabLlmBinding();
-  console.log(`[ai-audit] 실행 시작 — concurrency=${CONCURRENCY} · max-cost-usd=$${costCapUsd}`);
+  const costPolicy = resolveLabCostPolicy({
+    transport: binding.transport,
+    ...(binding.transport === "api" ? { apiMaxCostUsd: costCapUsd } : {}),
+  });
+  console.log(
+    `[ai-audit] 실행 시작 — concurrency=${CONCURRENCY} · ` +
+      `${costPolicy.kind === "api-settled-usd-stop" ? `max-cost-usd=$${costPolicy.maxUsd}` : "명목 비용=telemetry-only"} · ` +
+      `transport=${binding.transport}`,
+  );
 
   let okCount = 0;
   let failCount = 0;
@@ -276,10 +298,14 @@ async function main(): Promise<number> {
           console.error(`[ai-audit] (${ordinal}) 실패(재시도 후에도): ${label} · ${message.slice(0, 400)}`);
         }
       }
-      if (!costCapped && totalCostUsd >= costCapUsd) {
+      if (
+        !costCapped
+        && costPolicy.kind === "api-settled-usd-stop"
+        && shouldStopForSettledCost(costPolicy, totalCostUsd)
+      ) {
         costCapped = true;
         console.log(
-          `[ai-audit] 누적 비용 $${totalCostUsd.toFixed(4)} ≥ 상한 $${costCapUsd} — 신규 착수 중단(진행분은 완료).`,
+          `[ai-audit] 누적 비용 $${totalCostUsd.toFixed(4)} ≥ 상한 $${costPolicy.maxUsd} — 신규 착수 중단(진행분은 완료).`,
         );
       }
     }
