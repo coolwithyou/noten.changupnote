@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { closeCunoteDb } from "../db/client";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import {
   DeepRepairAuthorizationError,
   type DeepRepairAuthorityIssuanceResult,
@@ -69,6 +70,7 @@ async function main(argv: readonly string[]): Promise<void> {
     return;
   }
 
+  loadAnalysisLabEnv();
   const controller = new AbortController();
   let primaryError: unknown | null = null;
   let result: DeepRepairAuthorityIssuanceResult | null = null;

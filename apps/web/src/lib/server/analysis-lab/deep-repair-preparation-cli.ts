@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { closeCunoteDb } from "../db/client";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { prepareCurrentDeepRepairProposal } from "./deep-repair-preparation-production";
 
 const USAGE = "pnpm lab:experiment:prepare -- --series=deep-v18\n       pnpm lab:experiment:prepare -- --help";
@@ -64,6 +65,7 @@ async function main(argv: readonly string[]): Promise<void> {
     return;
   }
 
+  loadAnalysisLabEnv();
   let primaryError: unknown = null;
   let proposalPath: string | null = null;
   try {

@@ -77,6 +77,15 @@ assert.match(source, /issueApprovedDeepRepairAuthority\(\{/);
 assert.match(source, /process\.once\("SIGINT"/);
 assert.match(source, /process\.once\("SIGTERM"/);
 assert.match(source, /finally\s*\{[\s\S]*closeCunoteDb\(\)/);
+assert.match(
+  source,
+  /import\s*\{\s*loadAnalysisLabEnv\s*\}\s*from\s*["']\.\.\/loadMonorepoEnv["']/,
+);
+assert.ok(
+  source.indexOf("loadAnalysisLabEnv();")
+    < source.indexOf("issueApprovedDeepRepairAuthority({"),
+  "authority issuer는 gcloud/DB/R2 preflight 전에 analysis-lab env를 로드해야 한다",
+);
 assert.doesNotMatch(source, /--(?:authority|grant|model|generation|owner|force|expires-at)=?/u);
 assert.doesNotMatch(source, /dependency|override|factory|opener/iu);
 

@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import { closeCunoteDb } from "../db/client";
+import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import type { DeepRepairCanaryResult } from "./deep-repair-live-experiment";
 import { DeepRepairLiveExecutionError } from "./deep-repair-live-experiment";
 import { runApprovedCanary } from "./deep-repair-live-production";
@@ -75,6 +76,7 @@ async function main(argv: readonly string[]): Promise<0 | 2> {
       return 0;
     }
 
+    loadAnalysisLabEnv();
     process.once("SIGINT", onSigint);
     process.once("SIGTERM", onSigterm);
     executionRequested = true;

@@ -581,6 +581,16 @@ assert.doesNotMatch(
   /readAuthority|writeAuthority|readOperationalEvidence|runtimeAuthority|acquireLease|promotionEligibility/,
 );
 assert.match(
+  cliSource,
+  /import\s*\{\s*loadAnalysisLabEnv\s*\}\s*from\s*["']\.\.\/loadMonorepoEnv["']/,
+  "proposal CLI는 저장소의 analysis-lab env 로더를 명시적으로 사용해야 한다",
+);
+assert.ok(
+  cliSource.indexOf("loadAnalysisLabEnv();")
+    < cliSource.indexOf("prepareCurrentDeepRepairProposal({"),
+  "proposal CLI는 DB/R2 준비를 시작하기 전에 env를 로드해야 한다",
+);
+assert.match(
   preparationSource,
   /for \(const target of selected\) \{[\s\S]*await dependencies\.prepareTarget\(target\.grantId\)/,
   "30건 입력 준비는 scheduler 없이 순차 read-only여야 한다",

@@ -96,6 +96,14 @@ const source = readFileSync(new URL("./deep-repair-live-cli.ts", import.meta.url
 assert.match(source, /process\.once\("SIGINT"/);
 assert.match(source, /process\.once\("SIGTERM"/);
 assert.match(source, /finally\s*\{[\s\S]*closeCunoteDb\(\)/);
+assert.match(
+  source,
+  /import\s*\{\s*loadAnalysisLabEnv\s*\}\s*from\s*["']\.\.\/loadMonorepoEnv["']/,
+);
+assert.ok(
+  source.indexOf("loadAnalysisLabEnv();") < source.indexOf("runApprovedCanary({"),
+  "단건 live CLI는 DB/R2/lease/model preflight 전에 analysis-lab env를 로드해야 한다",
+);
 assert.doesNotMatch(source, /dependency|override|factory|opener/i);
 
 console.log("deep-repair-live-cli tests: ok");
