@@ -29,6 +29,7 @@ import type {
   LabBatchStartRequest,
   LabBatchSummary,
 } from "@/features/dev/analysis-lab/contract";
+import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
 import { runLabBatch, type LabBatchRunnerOptions } from "./batch-runner";
 import { resolveLabTransport } from "./claude-cli-transport";
 import { resolveLabCostPolicy } from "./cost-policy";
@@ -290,6 +291,7 @@ export function startLabBatchJob(
 
   const transport = request.transport ?? (deps?.resolveTransportImpl ?? resolveLabTransport)();
   const model = request.model ?? (deps?.resolveModelImpl ?? resolveLabModel)();
+  assertApplicationRoundtripOptIn(request);
   const costPolicy = resolveLabCostPolicy({
     transport,
     ...(request.apiMaxCostUsd !== undefined ? { apiMaxCostUsd: request.apiMaxCostUsd } : {}),

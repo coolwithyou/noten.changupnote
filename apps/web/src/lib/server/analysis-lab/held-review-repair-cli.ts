@@ -6,6 +6,7 @@ import { runLabAnalysis } from "./analyze";
 import { classifyLabRunOutcome, isPublishableLabRun } from "./run-outcome";
 import { AI_ADJUDICATION_DEFAULT_MODEL } from "./ai-adjudication";
 import { buildHeldReviewRepairPlan, combineHeldReviewRepairPlans } from "./held-review-repair";
+import { resolveRepairApplicationRoundtripOptions } from "./application-roundtrip-policy";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 
 loadAnalysisLabEnv();
@@ -82,11 +83,11 @@ async function main(): Promise<number> {
       const result = await runLabAnalysis(item.source.run.grantId, {
         transport: "claude-cli",
         model: AI_ADJUDICATION_DEFAULT_MODEL,
-        withApplicationRoundtrip: true,
-        roundtripModel: AI_ADJUDICATION_DEFAULT_MODEL,
-        ...(item.source.run.applicationRoundtrip?.runId
-          ? { reuseApplicationRoundtripRunId: item.source.run.applicationRoundtrip.runId }
-          : {}),
+        ...resolveRepairApplicationRoundtripOptions({
+          contract: "deep",
+          existingRunId: item.source.run.applicationRoundtrip?.runId,
+          model: AI_ADJUDICATION_DEFAULT_MODEL,
+        }),
         taskInstruction: item.plan.taskInstruction,
         reviewRepair: {
           sourceRunId: item.source.run.runId,

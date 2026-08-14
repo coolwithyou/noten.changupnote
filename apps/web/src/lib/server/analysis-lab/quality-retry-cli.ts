@@ -10,6 +10,7 @@ import { readLatestLabRunIndexForPrompt } from "./run-store";
 import { runLabAnalysis } from "./analyze";
 import { loadAnalysisLabEnv } from "../loadMonorepoEnv";
 import { classifyLabRunOutcome, isPublishableLabRun } from "./run-outcome";
+import { resolveRepairApplicationRoundtripOptions } from "./application-roundtrip-policy";
 
 loadAnalysisLabEnv();
 
@@ -71,11 +72,11 @@ async function main(): Promise<number> {
       const result = await runLabAnalysis(target.run.grantId, {
         transport: "claude-cli",
         model: "claude-opus-5",
-        withApplicationRoundtrip: true,
-        roundtripModel: "claude-opus-5",
-        ...(reason === "deep_contract" && target.run.applicationRoundtrip?.runId
-          ? { reuseApplicationRoundtripRunId: target.run.applicationRoundtrip.runId }
-          : {}),
+        ...resolveRepairApplicationRoundtripOptions({
+          contract: reason === "application" ? "application" : "deep",
+          existingRunId: target.run.applicationRoundtrip?.runId,
+          model: "claude-opus-5",
+        }),
       });
       if (!isPublishableLabRun(result)) {
         throw new Error(`${result.grantId}: 재분석이 발행 가능하게 종결되지 않음 (${classifyLabRunOutcome(result)})`);

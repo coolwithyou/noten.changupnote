@@ -7,10 +7,6 @@
 //        완료 저장, 상태 전이는 러너 종료 시점에 finished/aborted)
 import { NextResponse } from "next/server";
 import {
-  ANALYSIS_LAB_MAX_BATCH_CONCURRENCY,
-  type LabBatchStartRequest,
-} from "@/features/dev/analysis-lab/contract";
-import {
   LabBatchJobBusyError,
   abortLabBatchJob,
   getLabBatchJobSnapshot,
@@ -23,6 +19,7 @@ import {
   localAnalysisOwnerFromRequest,
   renewLocalSubscriptionLease,
 } from "@/lib/server/deep-analysis/runtimeControl";
+import { parseLabBatchStartRequest } from "@/lib/server/analysis-lab/batch-start-request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,64 +31,11 @@ function isProduction(): boolean {
   return process.env.NODE_ENV === "production";
 }
 
-/** 본문 검증 — 오류면 400 메시지(사유 문자열)를 반환한다. transport 오타도 여기서 잡는다. */
-function parseStartRequest(body: unknown): LabBatchStartRequest | string {
-  if (typeof body !== "object" || body === null || Array.isArray(body)) {
-    return "본문이 JSON 객체가 아닙니다.";
-  }
-  const record = body as Record<string, unknown>;
-
-  const limit = record.limit;
-  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) {
-    return "limit 은 1 이상의 정수여야 합니다.";
-  }
-  const concurrency = record.concurrency;
-  if (
-    typeof concurrency !== "number" ||
-    !Number.isInteger(concurrency) ||
-    concurrency < 1 ||
-    concurrency > ANALYSIS_LAB_MAX_BATCH_CONCURRENCY
-  ) {
-    return `concurrency 는 1~${ANALYSIS_LAB_MAX_BATCH_CONCURRENCY} 정수여야 합니다.`;
-  }
-  if (record.retryErrors !== undefined && typeof record.retryErrors !== "boolean") {
-    return "retryErrors 는 boolean 이어야 합니다.";
-  }
-  if (record.reanalyzeOutdated !== undefined && typeof record.reanalyzeOutdated !== "boolean") {
-    return "reanalyzeOutdated 는 boolean 이어야 합니다.";
-  }
-
-  let transport: "api" | "claude-cli" | undefined;
-  if (record.transport !== undefined) {
-    if (record.transport !== "api" && record.transport !== "claude-cli") {
-      return `transport 값이 잘못됐습니다: "${String(record.transport)}" — 허용값은 "api" 또는 "claude-cli" 뿐입니다(오타 fail-fast).`;
-    }
-    transport = record.transport;
-  }
-  let model: string | undefined;
-  if (record.model !== undefined) {
-    if (typeof record.model !== "string" || record.model.trim() === "") {
-      return "model 은 비어 있지 않은 문자열이어야 합니다.";
-    }
-    model = record.model.trim();
-  }
-
-  return {
-    limit,
-    concurrency,
-    retryErrors: record.retryErrors === true,
-    reanalyzeOutdated: record.reanalyzeOutdated === true,
-    withApplicationRoundtrip: true,
-    ...(transport !== undefined ? { transport } : {}),
-    ...(model !== undefined ? { model } : {}),
-  };
-}
-
 export async function POST(request: Request) {
   if (isProduction()) return notFound();
 
   const body: unknown = await request.json().catch(() => null);
-  const parsed = parseStartRequest(body);
+  const parsed = parseLabBatchStartRequest(body);
   if (typeof parsed === "string") {
     return NextResponse.json({ error: "invalid_request", message: parsed }, { status: 400 });
   }

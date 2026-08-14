@@ -593,6 +593,28 @@ console.log("✅ 비용 상한 — guard-stop(cost-cap)·신규 착수 중단·s
   console.log("✅ 오버라이드 오타 — 진입 시 1회 해석 fail-fast·이벤트 무방출");
 }
 
+// ---- ⑦-b Kordoc 모델은 명시적 opt-in과 함께만 허용 ------------------
+{
+  const events: LabBatchEvent[] = [];
+  let called = 0;
+  await assert.rejects(
+    runLabBatch(
+      baseOptions(events, { roundtripModel: "claude-opus-roundtrip" }),
+      makeDeps({
+        entries: [entry("roundtrip-without-opt-in")],
+        run: async (grantId) => {
+          called += 1;
+          return okResult(grantId, 0.1);
+        },
+      }),
+    ),
+    /roundtripModel은 withApplicationRoundtrip=true와 함께 지정해야 합니다/,
+  );
+  assert.equal(called, 0, "Kordoc opt-in 계약 위반은 어떤 공고도 착수하지 않는다");
+  assert.equal(events.length, 0, "계약 위반은 plan 이벤트 전에 fail-fast");
+  console.log("✅ Kordoc 모델 opt-in — 명시적 roundtrip 없이 단독 지정하면 fail-fast");
+}
+
 // ---- ⑧ 정확한 grantIds 선택 ----------------------------------------------------
 {
   const entries = [entry("g1"), entry("g2"), entry("g3")];

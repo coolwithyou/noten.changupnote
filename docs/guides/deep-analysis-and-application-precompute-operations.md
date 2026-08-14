@@ -107,7 +107,9 @@ workspace의 즉시 분석 POST는 신규·누락·오래된 결과를 복구하
 - `pnpm dev:web`은 별도 명시가 없으면 `ANALYSIS_LAB_TRANSPORT=claude-cli`를 기본 적용한다.
 - 명시적으로 다른 transport를 주면 화면은 열리지만 로컬 분석 권한 획득과 모델 실행은 거부된다.
 - 배치 실행은 자동이 아니라 운영자가 대상·건수·동시성과 fan-out telemetry를 확인하고 시작한다. 구독 경로의 명목 USD는 실행 상한이 아니다.
-- 로컬 단건·배치는 22축 분석과 Kordoc 지원서 선분석을 같은 공고에 함께 실행한다.
+- 로컬 단건 분석은 기본적으로 22축 딥분석만 실행한다. 배치 운영 UI는 end-to-end 검증을 위해
+  `withApplicationRoundtrip=true`를 명시해 같은 공고의 Kordoc 선분석도 함께 요청하며, CLI는
+  `--with-application-roundtrip`을 붙였을 때만 Kordoc lane을 실행한다.
 - 로컬 결과는 analysis-lab 불변 artifact다. 기존 검수·승격 gate를 통과하기 전 운영 매칭 DB를 직접 덮어쓰지 않는다.
 
 ## 5. 2026-08-05 확인 상태

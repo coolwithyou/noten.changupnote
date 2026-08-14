@@ -5,6 +5,8 @@ import {
   combineHeldReviewRepairPlans,
   LAB_HELD_REVIEW_MEMORY_RUN_LIMIT,
 } from "./held-review-repair";
+import { runLabAnalysis } from "./analyze";
+import { resolveRepairApplicationRoundtripOptions } from "./application-roundtrip-policy";
 
 const run = {
   runId: "run-old",
@@ -51,4 +53,50 @@ assert.equal(cumulative.blockingCount, 3);
 assert.match(cumulative.taskInstruction, /상세 공고가 더 넓은 대상을 허용함/);
 assert.match(cumulative.taskInstruction, /두 번째 run에서 확정한 교정/);
 assert.equal(LAB_HELD_REVIEW_MEMORY_RUN_LIMIT, 5);
+
+await assert.rejects(
+  runLabAnalysis("unused-grant", { roundtripModel: "claude-opus-roundtrip" }),
+  /roundtripModel은 withApplicationRoundtrip=true와 함께 지정해야 합니다/,
+  "단건 분석도 Kordoc 모델만 암묵적으로 지정할 수 없다",
+);
+await assert.rejects(
+  runLabAnalysis("unused-grant", { reuseApplicationRoundtripRunId: "kordoc-existing" }),
+  /reuseApplicationRoundtripRunId는 withApplicationRoundtrip=true와 함께 지정해야 합니다/,
+  "기존 Kordoc run 재사용도 명시적 opt-in 없이 실행할 수 없다",
+);
+
+assert.deepEqual(
+  resolveRepairApplicationRoundtripOptions({
+    contract: "deep",
+    existingRunId: "kordoc-existing",
+    model: "claude-opus-5",
+  }),
+  {
+    withApplicationRoundtrip: true,
+    reuseApplicationRoundtripRunId: "kordoc-existing",
+    roundtripModel: "claude-opus-5",
+  },
+  "deep repair는 기존 Kordoc run이 있을 때만 검증 후 재사용한다",
+);
+assert.deepEqual(
+  resolveRepairApplicationRoundtripOptions({
+    contract: "deep",
+    existingRunId: null,
+    model: "claude-opus-5",
+  }),
+  {},
+  "기존 Kordoc run이 없는 deep repair는 딥분석만 실행한다",
+);
+assert.deepEqual(
+  resolveRepairApplicationRoundtripOptions({
+    contract: "application",
+    existingRunId: "kordoc-existing",
+    model: "claude-opus-5",
+  }),
+  {
+    withApplicationRoundtrip: true,
+    roundtripModel: "claude-opus-5",
+  },
+  "application repair는 기존 run을 재사용하지 않고 end-to-end로 다시 실행한다",
+);
 console.log("✅ held review repair — 신청자격 blocker만 Opus 재분석 피드백으로 좁힘");

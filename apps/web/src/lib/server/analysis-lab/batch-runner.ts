@@ -21,6 +21,7 @@ import {
   type LabApplicationRoundtripReference,
 } from "@/features/dev/analysis-lab/contract";
 import { classifyNoticePeriod } from "@/features/dev/analysis-lab/notice-period";
+import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
 import { partitionCohortEntries, type GrantRunState } from "./batch-plan";
 import { CLAUDE_CLI_WINDOW_EXHAUSTED_MARKER, resolveLabTransport } from "./claude-cli-transport";
 import { resolveLabCostPolicy, shouldStopForSettledCost } from "./cost-policy";
@@ -361,6 +362,7 @@ export async function runLabBatch(
   deps?: LabBatchRunnerDeps,
 ): Promise<LabBatchSummary> {
   assertRunnerOptions(options);
+  assertApplicationRoundtripOptIn(options);
   // 전송층 선검증 — env/오버라이드 오타를 코호트 읽기 전에 fail-fast(기존 main 순서와 동형).
   const transport = resolveEffectiveTransport(options.transport);
   const costPolicy = resolveLabCostPolicy({

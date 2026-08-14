@@ -24,6 +24,7 @@ import {
   buildApplicationRoundtripReference,
   runAnalysisPair,
 } from "./application-precompute";
+import { assertApplicationRoundtripOptIn } from "./application-roundtrip-policy";
 import { prepareApplicationRoundtripReuse } from "./application-roundtrip/reuse";
 import { computeLabDimensionDiffs } from "./diff";
 import { resolveLabModel, type DeepAnalysisResult } from "./extractor";
@@ -93,9 +94,7 @@ export async function runLabAnalysis(
   grantId: string,
   opts?: LabAnalysisOverrides,
 ): Promise<LabRun> {
-  if (opts?.reuseApplicationRoundtripRunId && opts.withApplicationRoundtrip !== true) {
-    throw new Error("reuseApplicationRoundtripRunId는 withApplicationRoundtrip=true와 함께 지정해야 합니다.");
-  }
+  assertApplicationRoundtripOptIn(opts ?? {});
   const db = getCunoteDb();
   const startedAt = new Date();
   const runId = buildLabRunId(startedAt);

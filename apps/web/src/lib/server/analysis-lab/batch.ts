@@ -549,15 +549,18 @@ async function main(): Promise<number> {
     );
   }
   if (!options.dryRun) {
-    console.log(
-      `[batch] Kordoc 지원 양식 선분석을 딥 분석과 함께 실행합니다` +
-        (options.roundtripModel ? ` (model=${options.roundtripModel})` : " (딥 분석 모델 상속)"),
-    );
+    if (options.withApplicationRoundtrip) {
+      console.log(
+        `[batch] 실행 레인=딥분석+Kordoc 지원 양식 선분석` +
+          (options.roundtripModel ? ` (model=${options.roundtripModel})` : " (딥 분석 모델 상속)"),
+      );
+    } else {
+      console.log("[batch] 실행 레인=딥분석 단독 (Kordoc은 --with-application-roundtrip 명시 시에만 실행)");
+    }
   }
 
   if (options.dryRun) return runDryRun(options); // 무기록 — 관측 브리지는 실행 경로 전용
 
-  const executionOptions = { ...options, withApplicationRoundtrip: true };
   const { getCunoteDb } = await import("../db/client");
   const {
     acquireLocalSubscriptionLease,
@@ -596,7 +599,7 @@ async function main(): Promise<number> {
       .finally(() => { renewalInFlight = false; });
   }, 45_000);
   try {
-    const code = await runBatchViaRunner(executionOptions, transport, controller.signal);
+    const code = await runBatchViaRunner(options, transport, controller.signal);
     if (renewalState.fatalErrorMessage) {
       console.error(`[batch] 로컬 분석 권한 갱신 실패: ${renewalState.fatalErrorMessage}`);
       return 1;

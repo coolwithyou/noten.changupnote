@@ -24,6 +24,7 @@ import {
   type LabBatchJobDeps,
 } from "./batch-job";
 import type { LabBatchEvent, LabBatchRunnerOptions, LabBatchSummary } from "./batch-runner";
+import { parseLabBatchStartRequest } from "./batch-start-request";
 
 // ---- 픽스처 헬퍼 ---------------------------------------------------------------
 
@@ -63,6 +64,47 @@ function summaryFixture(overrides: Partial<LabBatchSummary> = {}): LabBatchSumma
     stopReason: "completed",
     ...overrides,
   };
+}
+
+// ---- HTTP 시작 계약: Kordoc은 명시적 true일 때만 전달 -----------------
+{
+  const baseRequest = {
+    limit: 5,
+    concurrency: 2,
+    retryErrors: false,
+    reanalyzeOutdated: false,
+    transport: "claude-cli",
+  };
+  assert.deepEqual(
+    parseLabBatchStartRequest({
+      ...baseRequest,
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-roundtrip",
+    }),
+    {
+      ...baseRequest,
+      withApplicationRoundtrip: true,
+      roundtripModel: "claude-opus-roundtrip",
+    },
+  );
+  const disabled = parseLabBatchStartRequest({
+    ...baseRequest,
+    withApplicationRoundtrip: false,
+  });
+  assert.notEqual(typeof disabled, "string");
+  assert.ok(
+    typeof disabled !== "string" && !("withApplicationRoundtrip" in disabled),
+    "false는 실행 옵션으로 전달하지 않는다",
+  );
+  assert.match(
+    String(parseLabBatchStartRequest({ ...baseRequest, withApplicationRoundtrip: "true" })),
+    /withApplicationRoundtrip 는 boolean/,
+  );
+  assert.match(
+    String(parseLabBatchStartRequest({ ...baseRequest, roundtripModel: "claude-opus-roundtrip" })),
+    /roundtripModel 은 withApplicationRoundtrip=true/,
+  );
+  console.log("✅ 배치 HTTP Kordoc opt-in — true만 전달·비boolean/단독 모델 fail-fast");
 }
 
 /** 러너가 방출하는 형태의 plan 이벤트 — additive 필드 전부 채움(러너 보장과 동형). */
@@ -276,6 +318,30 @@ async function waitUntil(predicate: () => boolean, label: string): Promise<void>
   assert.equal(runnerCalled, false, "정책 오류에서 runner 미착수");
   assert.equal(getLabBatchJobSnapshot(deps).state, "idle", "정책 오류가 유령 running 잡을 남기지 않음");
   console.log("✅ API 비용 정책 — 잡 생성 전 필수 cap 검증·구독 cap 제거");
+}
+
+// ---- Kordoc opt-in 정책 — direct job caller도 유령 running 잡 없이 fail-fast ----
+{
+  clearStash();
+  const path = join(tempRoot, "t-roundtrip-policy.json");
+  let runnerCalled = false;
+  const deps: LabBatchJobDeps = {
+    resolveTransportImpl: () => "claude-cli",
+    resolveModelImpl: () => "claude-test-model",
+    snapshotPathImpl: () => path,
+    runBatchImpl: async () => {
+      runnerCalled = true;
+      return summaryFixture();
+    },
+  };
+  assert.throws(
+    () => startLabBatchJob(request({ roundtripModel: "claude-opus-roundtrip" }), deps),
+    /roundtripModel은 withApplicationRoundtrip=true와 함께 지정해야 합니다/,
+    "direct caller도 Kordoc 모델 단독 지정은 잡 생성 전에 거부",
+  );
+  assert.equal(runnerCalled, false, "Kordoc 정책 오류에서 runner 미착수");
+  assert.equal(getLabBatchJobSnapshot(deps).state, "idle", "Kordoc 정책 오류가 유령 running 잡을 남기지 않음");
+  console.log("✅ Kordoc opt-in 정책 — direct job caller도 잡 생성 전 fail-fast");
 }
 
 // ---- ② busy — 실행 중 재시작 거부(라우트 409 경로) + 완료 후 재시작 허용 --------

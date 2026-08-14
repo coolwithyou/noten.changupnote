@@ -50,7 +50,6 @@ export async function POST(request: Request) {
       ownerId: localAnalysisOwnerFromRequest(request),
       run: () => runLabAnalysis(grantId, {
         transport: "claude-cli",
-        withApplicationRoundtrip: true,
       }),
     });
     const response: LabAnalyzeResponse = { run };
