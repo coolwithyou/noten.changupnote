@@ -189,6 +189,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     const experimentGrant = "00000000-0000-4000-8000-000000000004";
     const orphanGrant = "00000000-0000-4000-8000-000000000005";
     const formalBaselineGrant = "00000000-0000-4000-8000-000000000006";
+    const plannedOnlyGrant = "00000000-0000-4000-8000-000000000007";
     await writeFile(join(root, "cohort.json"), JSON.stringify({
       version: 2,
       entries: [{ grantId: canonicalGrant, stratum: "pilot" }],
@@ -220,7 +221,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
 
     const proposalBody = `${JSON.stringify({
       schema: "deep-repair-proposal-v1",
-      sequence: [{ grantId: experimentGrant }],
+      sequence: [{ grantId: experimentGrant }, { grantId: plannedOnlyGrant }],
     })}\n`;
     const proposalSha = createHash("sha256").update(proposalBody).digest("hex");
     await mkdir(join(root, "experiments", "proposals"), { recursive: true });
@@ -235,6 +236,18 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
       planArtifactSha256: exactSha(7002),
       manifestSha256: exactSha(7003),
     }));
+    await mkdir(
+      join(root, "experiments", "attempts", exactSha(7001), "00"),
+      { recursive: true },
+    );
+    await writeFile(
+      join(root, "experiments", "attempts", exactSha(7001), "00", "claim.json"),
+      JSON.stringify({
+        schema: "deep-repair-live-start-v1",
+        planSha256: exactSha(7001),
+        target: { sequence: 0, grantId: experimentGrant },
+      }),
+    );
     await writeFile(
       join(
         root,
@@ -251,11 +264,12 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
       runGrant,
       experimentGrant,
       formalBaselineGrant,
+      plannedOnlyGrant,
     ], "atomic publisher의 orphan temp는 committed series history가 아니다");
     assert.deepEqual(
       await readDeepRepairHistoricalGrantIds({ rootDir: root, scope: "formal-baseline" }),
       [experimentGrant, formalBaselineGrant],
-      "proposal은 정식 비교 코호트와 committed experiment만 제외해야 한다",
+      "formal 준비는 실제 착수한 target만 제외하고 미실행 계획 target은 재사용해야 한다",
     );
 
     await writeFile(join(root, "experiments", "series", ".unexpected.tmp"), "unexpected");
@@ -279,7 +293,7 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
     );
     assert.deepEqual(
       await readDeepRepairHistoricalGrantIds({ rootDir: root }),
-      [canonicalGrant, snapshotGrant, runGrant, experimentGrant, formalBaselineGrant],
+      [canonicalGrant, snapshotGrant, runGrant, experimentGrant, formalBaselineGrant, plannedOnlyGrant],
       "series marker가 참조하지 않은 orphan cohort는 선정 상태에 영향을 주면 안 된다",
     );
     await writeFile(join(root, "experiments", "cohorts", "nested", `${cohortSha}.json`), cohortBody);

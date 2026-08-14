@@ -12,8 +12,8 @@ const FORMAL_BASELINE_COHORT_PREFIX = "cohort.deep-v17-cp2b-";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
- * `all`은 감사용 전체 이력, `formal-baseline`은 deep-v17 정식 비교 코호트와 이미 commit된
- * experiment만 읽는다. proposal 준비는 희소 층을 고갈시키는 임의 과거 run까지 배제하지 않는다.
+ * `all`은 감사용 전체 이력, `formal-baseline`은 deep-v17 정식 비교 코호트와 실제 착수된
+ * experiment target만 읽는다. 계획만 되고 실행되지 않은 target은 후속 proposal에서 재사용한다.
  */
 export async function readDeepRepairHistoricalGrantIds(options: {
   readonly rootDir?: string;
@@ -61,7 +61,10 @@ export async function readDeepRepairHistoricalGrantIds(options: {
       marker.proposalSha256,
       `experiment series marker ${entry.name}.proposalSha256`,
     );
-    requiredSha(marker.planSha256, `experiment series marker ${entry.name}.planSha256`);
+    const planSha256 = requiredSha(
+      marker.planSha256,
+      `experiment series marker ${entry.name}.planSha256`,
+    );
     requiredSha(
       marker.planArtifactSha256,
       `experiment series marker ${entry.name}.planArtifactSha256`,
@@ -97,14 +100,51 @@ export async function readDeepRepairHistoricalGrantIds(options: {
         proposal.sequence[index],
         `experiment proposal ${proposalSha256}.sequence[${index}]`,
       );
-      ids.add(requiredGrantId(
+      const grantId = requiredGrantId(
         target.grantId,
         `experiment proposal ${proposalSha256}.sequence[${index}].grantId`,
-      ));
+      );
+      if (
+        scope === "all"
+        || await wasExperimentTargetStarted(root, planSha256, index, grantId)
+      ) {
+        ids.add(grantId);
+      }
     }
   }
 
   return [...ids].sort();
+}
+
+async function wasExperimentTargetStarted(
+  root: string,
+  planSha256: string,
+  sequence: number,
+  grantId: string,
+): Promise<boolean> {
+  const claimPath = join(
+    root,
+    "experiments",
+    "attempts",
+    planSha256,
+    String(sequence).padStart(2, "0"),
+    "claim.json",
+  );
+  const claimBytes = await readOptionalFile(claimPath);
+  if (claimBytes === null) return false;
+
+  const label = `experiment attempt ${planSha256}/${String(sequence).padStart(2, "0")}`;
+  const claim = parseJsonRecord(claimBytes, label);
+  const target = asRecord(claim.target, `${label}.target`);
+  if (
+    claim.schema !== "deep-repair-live-start-v1"
+    || claim.planSha256 !== planSha256
+    || target.sequence !== sequence
+    || requiredGrantId(target.grantId, `${label}.target.grantId`) !== grantId
+  ) {
+    throw new Error(`malformed ${label}`);
+  }
+  return true;
 }
 
 async function readLegacyCohortGrantIds(path: string, label: string): Promise<string[]> {
@@ -175,6 +215,15 @@ async function readDirectoryOrEmpty(path: string) {
     return await readdir(path, { withFileTypes: true });
   } catch (error) {
     if (isNotFound(error)) return [];
+    throw error;
+  }
+}
+
+async function readOptionalFile(path: string): Promise<Buffer | null> {
+  try {
+    return await readFile(path);
+  } catch (error) {
+    if (isNotFound(error)) return null;
     throw error;
   }
 }
