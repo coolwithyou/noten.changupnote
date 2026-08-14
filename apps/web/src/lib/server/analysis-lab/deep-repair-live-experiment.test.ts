@@ -114,6 +114,7 @@ function formalPlan() {
 class MemoryRepository implements DeepRepairLiveArtifactRepository {
   readonly authorities = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly approvals = new Map<string, DeepRepairLiveStoredArtifact>();
+  readonly issuances = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly operationalEvidence = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly plans = new Map<string, DeepRepairLiveStoredArtifact>();
   readonly cohorts = new Map<string, DeepRepairLiveStoredArtifact>();
@@ -126,6 +127,7 @@ class MemoryRepository implements DeepRepairLiveArtifactRepository {
 
   async readAuthority(sha256: string) { return this.authorities.get(sha256) ?? null; }
   async readApproval(sha256: string) { return this.approvals.get(sha256) ?? null; }
+  async readIssuance(approvalSha256: string) { return this.issuances.get(approvalSha256) ?? null; }
   async readOperationalEvidence(sha256: string) { return this.operationalEvidence.get(sha256) ?? null; }
   async readPlan(sha256: string) { return this.plans.get(sha256) ?? null; }
   async readCohort(path: string) { return this.cohorts.get(path) ?? null; }
@@ -248,6 +250,26 @@ function userApproval(input: {
   };
 }
 
+function installIssuedAuthority(
+  repo: MemoryRepository,
+  value: Record<string, unknown> & {
+    readonly approvalSha256: string;
+    readonly operationalEvidenceSha256: string;
+  },
+  path: string,
+): { readonly artifact: DeepRepairLiveStoredArtifact; readonly sha256: string } {
+  const artifact = stored(value, path);
+  const sha256 = storedSha256(artifact);
+  repo.authorities.set(sha256, artifact);
+  repo.issuances.set(value.approvalSha256, stored({
+    schema: "deep-repair-authority-issuance-v1",
+    approvalSha256: value.approvalSha256,
+    operationalEvidenceSha256: value.operationalEvidenceSha256,
+    authoritySha256: sha256,
+  }, `/issued-authorities/${value.approvalSha256}.json`));
+  return { artifact, sha256 };
+}
+
 function publishableRun(input: {
   plan: ReturnType<typeof formalPlan>;
   sequence?: number;
@@ -322,9 +344,11 @@ function fixture(input: {
     operationalEvidenceSha256: evidenceSha,
     approvalSha256: approvalSha,
   });
-  const approvedArtifact = stored(approved, "/authorities/canary-00.json");
-  const authoritySha = storedSha256(approvedArtifact);
-  repo.authorities.set(authoritySha, approvedArtifact);
+  const { artifact: approvedArtifact, sha256: authoritySha } = installIssuedAuthority(
+    repo,
+    approved,
+    "/authorities/canary-00.json",
+  );
   let prepared = 0;
   let executed = 0;
   let runtime = 0;
@@ -395,6 +419,49 @@ function fixture(input: {
 }
 
 {
+  const setup = fixture();
+  setup.repo.issuances.delete(setup.approvalSha);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: setup.authoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "issuance_not_found"
+      && error.noModelStarted,
+    "issuance winner marker가 없는 orphan authority는 실행할 수 없어야 한다",
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
+  const setup = fixture();
+  const orphan = {
+    ...setup.authority,
+    runtime: {
+      ...setup.authority.runtime,
+      ownerId: "223e4567-e89b-42d3-a456-426614174000",
+    },
+  };
+  const orphanArtifact = stored(orphan, "/authorities/race-loser.json");
+  const orphanSha = storedSha256(orphanArtifact);
+  setup.repo.authorities.set(orphanSha, orphanArtifact);
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: orphanSha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "issuance_invalid"
+      && error.noModelStarted,
+    "same approval의 CAS loser authority는 marker winner 대신 실행할 수 없어야 한다",
+  );
+  assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
+}
+
+{
   const setup = fixture({ repair: "deterministic" });
   const result = await setup.experiment.runApprovedCanary({
     authorityId: setup.authoritySha,
@@ -458,9 +525,11 @@ function fixture(input: {
     parentReceiptSha256: first.receipt.receiptSha256,
     sequence: 1,
   });
-  const nextArtifact = stored(nextAuthority, "/authorities/canary-01.json");
-  const nextAuthoritySha = storedSha256(nextArtifact);
-  setup.repo.authorities.set(nextAuthoritySha, nextArtifact);
+  const { sha256: nextAuthoritySha } = installIssuedAuthority(
+    setup.repo,
+    nextAuthority,
+    "/authorities/canary-01.json",
+  );
   const second = await setup.experiment.runApprovedCanary({
     authorityId: nextAuthoritySha,
     signal: new AbortController().signal,
@@ -472,6 +541,60 @@ function fixture(input: {
   assert.equal(second.receipt.observedCount, 2);
   assert.equal(second.receipt.gateVerdict, "CONTINUE");
   assert.deepEqual(setup.counts(), { prepared: 2, executed: 2, runtime: 2 });
+}
+
+{
+  const setup = fixture();
+  const first = await setup.experiment.runApprovedCanary({
+    authorityId: setup.authoritySha,
+    signal: new AbortController().signal,
+  });
+  assert.equal(first.kind, "recorded");
+  if (first.kind !== "recorded") throw new Error("expected first recorded result");
+  const parentIssuanceArtifact = setup.repo.issuances.get(setup.approvalSha)!;
+  const parentIssuance = JSON.parse(
+    Buffer.from(parentIssuanceArtifact.bytes).toString("utf8"),
+  ) as Record<string, unknown>;
+  setup.repo.issuances.set(setup.approvalSha, stored({
+    ...parentIssuance,
+    authoritySha256: SHA(9_990),
+  }, parentIssuanceArtifact.path));
+
+  const nextApproval = userApproval({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const nextApprovalArtifact = stored(nextApproval, "/approvals/parent-orphan-next.json");
+  const nextApprovalSha = storedSha256(nextApprovalArtifact);
+  setup.repo.approvals.set(nextApprovalSha, nextApprovalArtifact);
+  const nextAuthority = authority({
+    plan: setup.plan,
+    planArtifactSha256: setup.authority.planArtifactSha256,
+    operationalEvidenceSha256: setup.authority.operationalEvidenceSha256,
+    approvalSha256: nextApprovalSha,
+    parentReceiptSha256: first.receipt.receiptSha256,
+    sequence: 1,
+  });
+  const { sha256: nextAuthoritySha } = installIssuedAuthority(
+    setup.repo,
+    nextAuthority,
+    "/authorities/parent-orphan-next.json",
+  );
+
+  await assert.rejects(
+    setup.experiment.runApprovedCanary({
+      authorityId: nextAuthoritySha,
+      signal: new AbortController().signal,
+    }),
+    (error: unknown) =>
+      error instanceof DeepRepairLiveExecutionError
+      && error.code === "parent_receipt_invalid"
+      && error.noModelStarted,
+    "모든 parent authority도 approval-key issuance marker winner여야 한다",
+  );
+  assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
 }
 
 {
@@ -557,9 +680,11 @@ function fixture(input: {
     parentReceiptSha256: first.receipt.receiptSha256,
     sequence: 1,
   });
-  const nextArtifact = stored(nextAuthority, "/authorities/retroactive-parent-next.json");
-  const nextAuthoritySha = storedSha256(nextArtifact);
-  setup.repo.authorities.set(nextAuthoritySha, nextArtifact);
+  const { sha256: nextAuthoritySha } = installIssuedAuthority(
+    setup.repo,
+    nextAuthority,
+    "/authorities/retroactive-parent-next.json",
+  );
   await assert.rejects(
     setup.experiment.runApprovedCanary({
       authorityId: nextAuthoritySha,
@@ -687,9 +812,11 @@ function fixture(input: {
 {
   const setup = fixture();
   const drifted = { ...setup.authority, grantId: "grant-not-in-plan" };
-  const driftedArtifact = stored(drifted, "/authorities/drifted.json");
-  const driftedSha = storedSha256(driftedArtifact);
-  setup.repo.authorities.set(driftedSha, driftedArtifact);
+  const { sha256: driftedSha } = installIssuedAuthority(
+    setup.repo,
+    drifted,
+    "/authorities/drifted.json",
+  );
   await assert.rejects(
     setup.experiment.runApprovedCanary({
       authorityId: driftedSha,
@@ -697,8 +824,9 @@ function fixture(input: {
     }),
     (error: unknown) =>
       error instanceof DeepRepairLiveExecutionError
-      && error.code === "authority_binding_mismatch"
+      && error.code === "approval_binding_mismatch"
       && error.noModelStarted,
+    "승인과 다른 authority target은 plan 조회보다 먼저 거부해야 한다",
   );
   assert.deepEqual(setup.counts(), { prepared: 0, executed: 0, runtime: 0 });
 }
@@ -715,9 +843,11 @@ function fixture(input: {
     operationalEvidenceSha256: staleEvidenceSha,
     approvalSha256: setup.approvalSha,
   });
-  const staleAuthorityArtifact = stored(staleAuthority, "/authorities/stale.json");
-  const staleAuthoritySha = storedSha256(staleAuthorityArtifact);
-  setup.repo.authorities.set(staleAuthoritySha, staleAuthorityArtifact);
+  const { sha256: staleAuthoritySha } = installIssuedAuthority(
+    setup.repo,
+    staleAuthority,
+    "/authorities/stale.json",
+  );
   await assert.rejects(
     setup.experiment.runApprovedCanary({
       authorityId: staleAuthoritySha,
@@ -840,8 +970,9 @@ function fixture(input: {
     }),
     (error: unknown) =>
       error instanceof DeepRepairLiveExecutionError
-      && error.code === "authority_binding_mismatch"
+      && error.code === "issuance_invalid"
       && error.noModelStarted,
+    "commit marker winner가 아닌 forked authority는 terminal inspect에도 진입할 수 없어야 한다",
   );
   assert.deepEqual(setup.counts(), { prepared: 1, executed: 1, runtime: 1 });
 }
@@ -879,9 +1010,11 @@ function fixture(input: {
     parentReceiptSha256: first.receipt.receiptSha256,
     sequence: 1,
   });
-  const nextArtifact = stored(nextAuthority, "/authorities/tampered-parent.json");
-  const nextSha = storedSha256(nextArtifact);
-  setup.repo.authorities.set(nextSha, nextArtifact);
+  const { sha256: nextSha } = installIssuedAuthority(
+    setup.repo,
+    nextAuthority,
+    "/authorities/tampered-parent.json",
+  );
   await assert.rejects(
     setup.experiment.runApprovedCanary({
       authorityId: nextSha,
@@ -1121,9 +1254,11 @@ function fixture(input: {
     parentReceiptSha256: failed.receipt.receiptSha256,
     sequence: 0,
   });
-  const retryArtifact = stored(retryAuthority, "/authorities/retry-failed-slot.json");
-  const retrySha = storedSha256(retryArtifact);
-  setup.repo.authorities.set(retrySha, retryArtifact);
+  const { sha256: retrySha } = installIssuedAuthority(
+    setup.repo,
+    retryAuthority,
+    "/authorities/retry-failed-slot.json",
+  );
   await assert.rejects(
     setup.experiment.runApprovedCanary({
       authorityId: retrySha,
@@ -1240,9 +1375,11 @@ function fixture(input: {
   const approvalSha = storedSha256(approvalArtifact);
   setup.repo.approvals.set(approvalSha, approvalArtifact);
   const value = { ...setup.authority, approvalSha256: approvalSha };
-  const artifact = stored(value, "/authorities/stale-approval.json");
-  const authoritySha = storedSha256(artifact);
-  setup.repo.authorities.set(authoritySha, artifact);
+  const { sha256: authoritySha } = installIssuedAuthority(
+    setup.repo,
+    value,
+    "/authorities/stale-approval.json",
+  );
   await assert.rejects(
     setup.experiment.runApprovedCanary({
       authorityId: authoritySha,
@@ -1315,9 +1452,11 @@ for (const [label, drift] of [
     parentReceiptSha256: first.receipt.receiptSha256,
     sequence: 1,
   });
-  const nextArtifact = stored(nextAuthority, "/authorities/missing-parent-approval-next.json");
-  const nextAuthoritySha = storedSha256(nextArtifact);
-  setup.repo.authorities.set(nextAuthoritySha, nextArtifact);
+  const { sha256: nextAuthoritySha } = installIssuedAuthority(
+    setup.repo,
+    nextAuthority,
+    "/authorities/missing-parent-approval-next.json",
+  );
   await assert.rejects(
     setup.experiment.runApprovedCanary({
       authorityId: nextAuthoritySha,

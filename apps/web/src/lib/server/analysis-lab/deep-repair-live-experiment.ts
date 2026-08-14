@@ -24,6 +24,8 @@ export type DeepRepairLiveExecutionErrorCode =
   | "approval_invalid"
   | "approval_expired"
   | "approval_binding_mismatch"
+  | "issuance_not_found"
+  | "issuance_invalid"
   | "plan_not_found"
   | "plan_not_canonical"
   | "parent_receipt_not_found"
@@ -114,6 +116,13 @@ interface DeepRepairUserApproval {
   readonly stopAfter: "one-target";
 }
 
+interface DeepRepairAuthorityIssuanceMarker {
+  readonly schema: "deep-repair-authority-issuance-v1";
+  readonly approvalSha256: Sha256;
+  readonly operationalEvidenceSha256: Sha256;
+  readonly authoritySha256: Sha256;
+}
+
 interface DeepRepairLiveStart {
   readonly schema: "deep-repair-live-start-v1";
   readonly planSha256: Sha256;
@@ -159,6 +168,7 @@ export interface DeepRepairLiveReceipt {
 export interface DeepRepairLiveArtifactRepository {
   readAuthority(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readApproval(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
+  readIssuance(approvalSha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readOperationalEvidence(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readPlan(sha256: Sha256): Promise<DeepRepairLiveStoredArtifact | null>;
   readCohort(path: string): Promise<DeepRepairLiveStoredArtifact | null>;
@@ -296,6 +306,12 @@ export function createDeepRepairLiveExperiment(
         throw rejection("authority_invalid", "authority artifact SHA-256이 ID와 일치하지 않습니다.", true);
       }
       const authority = normalizeAuthority(parseStoredJson(authorityRaw, "authority"));
+      const approval = await loadAndValidateApproval(dependencies.repository, authority);
+      await assertCommittedIssuance(
+        dependencies.repository,
+        authority,
+        authoritySha256,
+      );
 
       const planRaw = await dependencies.repository.readPlan(authority.planSha256);
       if (planRaw === null) {
@@ -318,7 +334,6 @@ export function createDeepRepairLiveExperiment(
         throw rejection("gate_not_continuable", `직전 gate가 ${parent.gateVerdict}이므로 다음 실행을 시작할 수 없습니다.`, true);
       }
       assertAuthorityBinding({ authority, authoritySha256, plan, nextSequence });
-      const approval = await loadAndValidateApproval(dependencies.repository, authority);
       const target = plan.sequence[nextSequence]!;
       const attemptKey = { planSha256: plan.planSha256, sequence: nextSequence };
       const existing = await dependencies.repository.readAttempt(attemptKey);
@@ -729,6 +744,35 @@ function normalizeApproval(value: unknown): DeepRepairUserApproval {
   }
 }
 
+function normalizeIssuance(value: unknown): DeepRepairAuthorityIssuanceMarker {
+  try {
+    const source = asRecord(value, "issuance");
+    const normalized: DeepRepairAuthorityIssuanceMarker = {
+      schema: literal(
+        source.schema,
+        "deep-repair-authority-issuance-v1",
+        "issuance.schema",
+      ),
+      approvalSha256: sha(source.approvalSha256, "issuance.approvalSha256"),
+      operationalEvidenceSha256: sha(
+        source.operationalEvidenceSha256,
+        "issuance.operationalEvidenceSha256",
+      ),
+      authoritySha256: sha(source.authoritySha256, "issuance.authoritySha256"),
+    };
+    if (canonicalJson(value) !== canonicalJson(normalized)) {
+      throw new Error("issuance must be canonical");
+    }
+    return normalized;
+  } catch (error) {
+    throw rejection(
+      "issuance_invalid",
+      `authority issuance marker 형식이 올바르지 않습니다: ${errorMessage(error)}`,
+      true,
+    );
+  }
+}
+
 /**
  * Content-addressed SHA 검증은 승인 내용의 무결성과 결속만 증명한다.
  * approvedBy 문자열의 인증된 사용자 신원이나 실제 승인 행위는 외부 발급 경계가 보장해야 한다.
@@ -753,6 +797,33 @@ async function loadAndValidateApproval(
   }
   assertApprovalBinding(approval, authority);
   return approval;
+}
+
+async function assertCommittedIssuance(
+  repository: DeepRepairLiveArtifactRepository,
+  authority: DeepRepairExecutionAuthority,
+  authoritySha256: string,
+): Promise<void> {
+  const raw = await repository.readIssuance(authority.approvalSha256);
+  if (raw === null) {
+    throw rejection(
+      "issuance_not_found",
+      `approval에 commit된 authority issuance marker가 없습니다: ${authority.approvalSha256}`,
+      true,
+    );
+  }
+  const marker = normalizeIssuance(parseStoredJson(raw, "authority issuance marker"));
+  if (
+    marker.approvalSha256 !== authority.approvalSha256
+    || marker.operationalEvidenceSha256 !== authority.operationalEvidenceSha256
+    || marker.authoritySha256 !== authoritySha256
+  ) {
+    throw rejection(
+      "issuance_invalid",
+      "요청 authority가 approval-key issuance CAS winner와 일치하지 않습니다.",
+      true,
+    );
+  }
 }
 
 function normalizeOperationalEvidence(value: unknown): DeepRepairOperationalEvidence {
@@ -932,6 +1003,11 @@ async function loadAndValidateParentChain(input: {
         nextSequence: receipt.target.sequence,
       });
       parentApproval = await loadAndValidateApproval(input.repository, parentAuthority);
+      await assertCommittedIssuance(
+        input.repository,
+        parentAuthority,
+        receipt.authoritySha256,
+      );
     } catch (error) {
       throw rejection("parent_receipt_invalid", `parent authority binding이 올바르지 않습니다: ${errorMessage(error)}`, true);
     }

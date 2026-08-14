@@ -14,6 +14,7 @@ const TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo";
 const JOB_V2_URL =
   `https://run.googleapis.com/v2/projects/${PROJECT}/locations/${REGION}/jobs/${JOB}`;
 const MAX_BUFFER = 4 * 1024 * 1024;
+const OPERATIONAL_EVIDENCE_TTL_MS = 15 * 60_000;
 
 interface ExecFileOptions {
   readonly signal: AbortSignal;
@@ -37,90 +38,142 @@ export function createDeepRepairOperationalGuardUnsafeForTest(options: {
   return buildDeepRepairOperationalGuard(options.execFile ?? runExecFile);
 }
 
+export function createDeepRepairOperationalEvidenceCaptureUnsafeForTest(options: {
+  readonly execFile?: DeepRepairOperationalGuardExecFile;
+  readonly now?: () => Date;
+} = {}): (signal: AbortSignal) => Promise<DeepRepairOperationalEvidence> {
+  return buildDeepRepairOperationalEvidenceCapture(
+    options.execFile ?? runExecFile,
+    options.now ?? (() => new Date()),
+  );
+}
+
 function buildDeepRepairOperationalGuard(run: DeepRepairOperationalGuardExecFile): (
   evidence: DeepRepairOperationalEvidence,
   signal: AbortSignal,
 ) => Promise<void> {
   return async (evidence, signal): Promise<void> => {
     assertEvidenceTarget(evidence);
-
-    const accessToken = (await run("gcloud", [
-      "auth",
-      "print-access-token",
-      `--configuration=${CONFIGURATION}`,
-      `--impersonate-service-account=${IMPERSONATED_PRINCIPAL}`,
-    ], commandOptions(signal))).stdout.trim();
-    if (!accessToken || /\s/u.test(accessToken)) {
-      throw invalid("impersonated access token을 안전하게 확인하지 못했습니다.");
-    }
-
-    const tokenInfoRaw = await runSensitive(
-      run,
-      "curl",
-      [
-        "--fail-with-body",
-        "--silent",
-        "--show-error",
-        "--get",
-        "--data-urlencode",
-        "access_token@-",
-        TOKENINFO_URL,
-      ],
-      signal,
-      "tokeninfo",
-      accessToken,
-    );
-    const tokenInfo = parseObject(tokenInfoRaw, "tokeninfo");
-    if (requiredString(tokenInfo.email, "tokeninfo email") !== IMPERSONATED_PRINCIPAL) {
-      throw invalid("tokeninfo의 impersonated principal이 전용 서비스 계정과 다릅니다.");
-    }
-
-    const v1Raw = (await run("gcloud", [
-      "run",
-      "jobs",
-      "describe",
-      JOB,
-      `--configuration=${CONFIGURATION}`,
-      `--impersonate-service-account=${IMPERSONATED_PRINCIPAL}`,
-      `--project=${PROJECT}`,
-      `--region=${REGION}`,
-      "--format=json",
-    ], commandOptions(signal))).stdout;
-    const v1 = parseCloudRunV1(v1Raw);
-    assertSnapshot(evidence, v1, "gcloud v1");
-
-    // gcloud run jobs describe는 v1 resource를 반환해 etag/updateTime이 없다.
-    // 같은 impersonated token으로 v2 GET을 읽고 그 불변 필드까지 실행 직전에 고정한다.
-    const v2Raw = await runSensitive(
-      run,
-      "curl",
-      [
-        "--fail-with-body",
-        "--silent",
-        "--show-error",
-        "--header",
-        "@-",
-        JOB_V2_URL,
-      ],
-      signal,
-      "Cloud Run v2 job",
-      `Authorization: Bearer ${accessToken}\nX-Goog-User-Project: ${PROJECT}\n`,
-    );
-    const v2 = parseCloudRunV2(v2Raw);
-    assertSnapshot(evidence, v2, "Cloud Run v2");
-    if (v2.etag !== evidence.jobEtag) throw invalid("Cloud Run v2 job etag가 evidence와 다릅니다.");
-    if (v2.updateTime !== evidence.jobUpdateTime) {
+    const current = await readCurrentCloudRunSnapshot(run, signal);
+    assertSnapshot(evidence, current, "Cloud Run current snapshot");
+    if (current.etag !== evidence.jobEtag) throw invalid("Cloud Run v2 job etag가 evidence와 다릅니다.");
+    if (current.updateTime !== evidence.jobUpdateTime) {
       throw invalid("Cloud Run v2 job updateTime이 evidence와 다릅니다.");
     }
-    if (v2.observedGeneration !== v2.generation) {
-      throw invalid("Cloud Run v2 observedGeneration이 현재 generation과 다릅니다.");
-    }
-    if (v2.reconciling) throw invalid("Cloud Run v2 job이 아직 reconciling 중입니다.");
   };
 }
 
 export const verifyCurrentDeepRepairOperationalEvidence =
   buildDeepRepairOperationalGuard(runExecFile);
+
+export const captureCurrentDeepRepairOperationalEvidence =
+  buildDeepRepairOperationalEvidenceCapture(runExecFile, () => new Date());
+
+function buildDeepRepairOperationalEvidenceCapture(
+  run: DeepRepairOperationalGuardExecFile,
+  now: () => Date,
+): (signal: AbortSignal) => Promise<DeepRepairOperationalEvidence> {
+  return async (signal) => {
+    const current = await readCurrentCloudRunSnapshot(run, signal);
+    const observedAt = now();
+    if (!Number.isFinite(observedAt.getTime())) {
+      throw invalid("operational evidence 관측 시각이 올바르지 않습니다.");
+    }
+    return {
+      schema: "deep-repair-operational-evidence-v1",
+      project: PROJECT,
+      region: REGION,
+      job: JOB,
+      workerMode: "observe_only",
+      claimScope: "unconfigured",
+      jobUid: current.uid,
+      jobGeneration: current.generation,
+      jobEtag: current.etag,
+      jobUpdateTime: current.updateTime,
+      imageDigest: current.imageDigest,
+      gitCommitSha: current.gitCommitSha,
+      observedAt: observedAt.toISOString(),
+      validUntil: new Date(observedAt.getTime() + OPERATIONAL_EVIDENCE_TTL_MS).toISOString(),
+    };
+  };
+}
+
+async function readCurrentCloudRunSnapshot(
+  run: DeepRepairOperationalGuardExecFile,
+  signal: AbortSignal,
+): Promise<CloudRunV2Snapshot> {
+  const accessToken = (await run("gcloud", [
+    "auth",
+    "print-access-token",
+    `--configuration=${CONFIGURATION}`,
+    `--impersonate-service-account=${IMPERSONATED_PRINCIPAL}`,
+  ], commandOptions(signal))).stdout.trim();
+  if (!accessToken || /\s/u.test(accessToken)) {
+    throw invalid("impersonated access token을 안전하게 확인하지 못했습니다.");
+  }
+
+  const tokenInfoRaw = await runSensitive(
+    run,
+    "curl",
+    [
+      "--fail-with-body",
+      "--silent",
+      "--show-error",
+      "--get",
+      "--data-urlencode",
+      "access_token@-",
+      TOKENINFO_URL,
+    ],
+    signal,
+    "tokeninfo",
+    accessToken,
+  );
+  const tokenInfo = parseObject(tokenInfoRaw, "tokeninfo");
+  if (requiredString(tokenInfo.email, "tokeninfo email") !== IMPERSONATED_PRINCIPAL) {
+    throw invalid("tokeninfo의 impersonated principal이 전용 서비스 계정과 다릅니다.");
+  }
+
+  const v1Raw = (await run("gcloud", [
+    "run",
+    "jobs",
+    "describe",
+    JOB,
+    `--configuration=${CONFIGURATION}`,
+    `--impersonate-service-account=${IMPERSONATED_PRINCIPAL}`,
+    `--project=${PROJECT}`,
+    `--region=${REGION}`,
+    "--format=json",
+  ], commandOptions(signal))).stdout;
+  const v1 = parseCloudRunV1(v1Raw);
+
+  // gcloud run jobs describe는 v1 resource를 반환해 etag/updateTime이 없다.
+  // 같은 impersonated token으로 v2 GET을 읽고 두 parser의 공통 snapshot을 exact 비교한다.
+  const v2Raw = await runSensitive(
+    run,
+    "curl",
+    [
+      "--fail-with-body",
+      "--silent",
+      "--show-error",
+      "--header",
+      "@-",
+      JOB_V2_URL,
+    ],
+    signal,
+    "Cloud Run v2 job",
+    `Authorization: Bearer ${accessToken}\nX-Goog-User-Project: ${PROJECT}\n`,
+  );
+  const v2 = parseCloudRunV2(v2Raw);
+  assertSameSnapshot(v1, v2);
+  if (v2.observedGeneration !== v2.generation) {
+    throw invalid("Cloud Run v2 observedGeneration이 현재 generation과 다릅니다.");
+  }
+  if (v2.reconciling) throw invalid("Cloud Run v2 job이 아직 reconciling 중입니다.");
+  if (v2.workerMode !== "observe_only" || v2.claimScope !== "unconfigured") {
+    throw invalid("Cloud Run current snapshot이 observe_only + unconfigured가 아닙니다.");
+  }
+  return v2;
+}
 
 interface CloudRunSnapshot {
   readonly uid: string;
@@ -226,6 +279,19 @@ function assertSnapshot(
   }
   if (current.claimScope !== evidence.claimScope || current.claimScope !== "unconfigured") {
     throw invalid(`${label} claim scope가 unconfigured evidence와 다릅니다.`);
+  }
+}
+
+function assertSameSnapshot(v1: CloudRunSnapshot, v2: CloudRunSnapshot): void {
+  for (const [label, left, right] of [
+    ["job UID", v1.uid, v2.uid],
+    ["generation", v1.generation, v2.generation],
+    ["image digest", v1.imageDigest, v2.imageDigest],
+    ["GIT_COMMIT_SHA", v1.gitCommitSha, v2.gitCommitSha],
+    ["worker mode", v1.workerMode, v2.workerMode],
+    ["claim scope", v1.claimScope, v2.claimScope],
+  ] as const) {
+    if (left !== right) throw invalid(`gcloud v1과 Cloud Run v2의 ${label} snapshot이 다릅니다.`);
   }
 }
 

@@ -18,6 +18,7 @@ try {
   const fixtures = [
     [join(rootDir, "authorities", `${authoritySha}.json`), { authority: true }],
     [join(rootDir, "approvals", `${approvalSha}.json`), { approval: true }],
+    [join(rootDir, "issued-authorities", `${approvalSha}.json`), { issuance: true }],
     [join(rootDir, "plans", `${planSha}.json`), { plan: true }],
     [join(rootDir, "operational-evidence", `${evidenceSha}.json`), { evidence: true }],
     [join(rootDir, "cohorts", "wave-1.json"), { cohort: true }],
@@ -34,6 +35,10 @@ try {
   assert.deepEqual(
     JSON.parse(Buffer.from((await repository.readApproval(approvalSha))!.bytes).toString("utf8")),
     { approval: true },
+  );
+  assert.deepEqual(
+    JSON.parse(Buffer.from((await repository.readIssuance(approvalSha))!.bytes).toString("utf8")),
+    { issuance: true },
   );
   assert.equal((await repository.readPlan(planSha))?.path, join(rootDir, "plans", `${planSha}.json`));
   assert.ok(await repository.readOperationalEvidence(evidenceSha));

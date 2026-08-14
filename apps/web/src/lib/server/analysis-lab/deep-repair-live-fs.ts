@@ -21,6 +21,8 @@ export function createDeepRepairLiveFilesystemRepository(options: {
   return {
     readAuthority: (sha256) => readStoredArtifact(join(rootDir, "authorities", `${safeSha(sha256)}.json`)),
     readApproval: (sha256) => readStoredArtifact(join(rootDir, "approvals", `${safeSha(sha256)}.json`)),
+    readIssuance: (approvalSha256) =>
+      readStoredArtifact(join(rootDir, "issued-authorities", `${safeSha(approvalSha256)}.json`)),
     readOperationalEvidence: (sha256) =>
       readStoredArtifact(join(rootDir, "operational-evidence", `${safeSha(sha256)}.json`)),
     readPlan: (sha256) => readStoredArtifact(join(rootDir, "plans", `${safeSha(sha256)}.json`)),

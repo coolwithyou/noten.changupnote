@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import {
+  createDeepRepairOperationalEvidenceCaptureUnsafeForTest,
   createDeepRepairOperationalGuardUnsafeForTest,
   type DeepRepairOperationalGuardExecFile,
 } from "./deep-repair-operational-guard";
@@ -114,6 +115,21 @@ function commandHarness(input: {
     throw new Error(`unexpected command: ${file} ${args.join(" ")}`);
   };
   return { execFile, calls };
+}
+
+{
+  const harness = commandHarness({});
+  const signal = new AbortController().signal;
+  const captured = await createDeepRepairOperationalEvidenceCaptureUnsafeForTest({
+    execFile: harness.execFile,
+    now: () => new Date("2026-08-14T02:55:00.000Z"),
+  })(signal);
+
+  assert.deepEqual(captured, {
+    ...evidence,
+    validUntil: "2026-08-14T03:10:00.000Z",
+  });
+  assert.equal(harness.calls.length, 4);
 }
 
 {
@@ -285,15 +301,20 @@ for (const drift of driftCases) {
 
 {
   const sourceRoot = new URL("../../../", import.meta.url);
-  const unsafeFactory = "createDeepRepairOperationalGuardUnsafeForTest";
-  for (const path of await listProductionTypeScript(sourceRoot)) {
-    if (path.pathname.endsWith("/deep-repair-operational-guard.ts")) continue;
-    const source = await readFile(path, "utf8");
-    assert.equal(
-      source.includes(unsafeFactory),
-      false,
-      `${unsafeFactory} must not be imported or called by production source: ${path.pathname}`,
-    );
+  const unsafeFactories = [
+    "createDeepRepairOperationalGuardUnsafeForTest",
+    "createDeepRepairOperationalEvidenceCaptureUnsafeForTest",
+  ] as const;
+  for (const unsafeFactory of unsafeFactories) {
+    for (const path of await listProductionTypeScript(sourceRoot)) {
+      if (path.pathname.endsWith("/deep-repair-operational-guard.ts")) continue;
+      const source = await readFile(path, "utf8");
+      assert.equal(
+        source.includes(unsafeFactory),
+        false,
+        `${unsafeFactory} must not be imported or called by production source: ${path.pathname}`,
+      );
+    }
   }
 }
 

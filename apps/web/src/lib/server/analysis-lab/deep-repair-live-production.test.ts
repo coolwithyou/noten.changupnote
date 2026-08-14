@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { DeepRepairLiveExecutionError } from "./deep-repair-live-experiment";
 
 const production = await import("./deep-repair-live-production");
@@ -44,5 +46,53 @@ assert.doesNotMatch(
   /UnsafeForTest|dependencies|overrides/,
   "production 조합에 테스트용 dependency override를 연결하지 않는다",
 );
+
+const sourceRoot = fileURLToPath(new URL("../../../", import.meta.url));
+const productionSources = collectProductionSources(sourceRoot);
+for (const [symbol, allowed] of [
+  [
+    "createDeepRepairLiveExperiment",
+    new Set([
+      "lib/server/analysis-lab/deep-repair-live-experiment.ts",
+      "lib/server/analysis-lab/deep-repair-live-production.ts",
+    ]),
+  ],
+  [
+    "createDeepRepairLiveFilesystemRepository",
+    new Set([
+      "lib/server/analysis-lab/deep-repair-live-fs.ts",
+      "lib/server/analysis-lab/deep-repair-live-production.ts",
+    ]),
+  ],
+] as const) {
+  for (const path of productionSources) {
+    const relativePath = relative(sourceRoot, path);
+    if (allowed.has(relativePath)) continue;
+    assert.doesNotMatch(
+      readFileSync(path, "utf8"),
+      new RegExp(`\\b${symbol}\\b`, "u"),
+      `${symbol} production 조합 우회가 허용되지 않은 파일에 있습니다: ${relativePath}`,
+    );
+  }
+}
+
+function collectProductionSources(root: string): string[] {
+  const result: string[] = [];
+  const visit = (directory: string) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = resolve(directory, entry.name);
+      if (entry.isDirectory()) {
+        visit(path);
+      } else if (
+        /\.tsx?$/u.test(entry.name)
+        && !/\.(?:test|spec)\.tsx?$/u.test(entry.name)
+      ) {
+        result.push(path);
+      }
+    }
+  };
+  visit(root);
+  return result;
+}
 
 console.log("deep-repair-live-production tests: ok");
