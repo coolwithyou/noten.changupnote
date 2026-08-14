@@ -133,6 +133,9 @@ function nonNegativeInteger(value: unknown, label: string): number {
 
 function iso(value: unknown, label: string): string {
   const normalized = text(value, label);
-  if (!Number.isFinite(Date.parse(normalized))) throw new Error(`${label} must be ISO-8601`);
+  const date = new Date(normalized);
+  if (!Number.isFinite(date.getTime()) || date.toISOString() !== normalized) {
+    throw new Error(`${label} must be an exact ISO timestamp`);
+  }
   return normalized;
 }
