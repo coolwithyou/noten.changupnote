@@ -9,7 +9,7 @@ export interface ApplicationRoundtripCanaryExecutionBinding {
   readonly proposalSha256: string;
   readonly sequence: number;
   readonly grantId: string;
-  readonly sourceSha256: string;
+  readonly sourceSha256s: readonly string[];
   readonly model: "claude-opus-5";
   readonly transport: "claude-cli";
 }
@@ -45,12 +45,12 @@ export interface ApplicationRoundtripCanaryExecutionResult {
 }
 
 export interface ApplicationRoundtripCanaryReceipt {
-  readonly schema: "application-roundtrip-canary-receipt-v1";
+  readonly schema: "application-roundtrip-canary-receipt-v2";
   readonly receiptSha256: string;
   readonly proposalSha256: string;
   readonly sequence: number;
   readonly grantId: string;
-  readonly sourceSha256: string;
+  readonly sourceSha256s: readonly string[];
   readonly model: "claude-opus-5";
   readonly transport: "claude-cli";
   readonly status: "complete" | "partial" | "failed";
@@ -77,7 +77,7 @@ export interface ApplicationRoundtripCanaryRunner {
   run(input: {
     readonly proposalSha256: string;
     readonly sequence: number;
-    readonly sourceSha256: string;
+    readonly sourceSha256s: readonly string[];
     readonly signal: AbortSignal;
   }): Promise<{
     readonly status: ApplicationRoundtripCanaryReceipt["status"];
@@ -92,7 +92,7 @@ export function createApplicationRoundtripCanaryRunner(
     async run(input) {
       input.signal.throwIfAborted();
       assertSha(input.proposalSha256, "proposal SHA-256");
-      assertSha(input.sourceSha256, "source SHA-256");
+      const expectedSourceSha256s = normalizeSourceSha256s(input.sourceSha256s);
       if (!Number.isSafeInteger(input.sequence) || input.sequence < 0) {
         throw new Error("sequence가 유효하지 않습니다.");
       }
@@ -100,7 +100,7 @@ export function createApplicationRoundtripCanaryRunner(
       const proposal = parseProposal(await deps.readProposal(input.proposalSha256), input.proposalSha256);
       const target = proposal.executionTargets.find((candidate) => candidate.sequence === input.sequence);
       if (!target) throw new Error("proposal에 요청한 sequence 실행 대상이 없습니다.");
-      if (target.sourceSha256s.length !== 1 || target.sourceSha256s[0] !== input.sourceSha256) {
+      if (!sameOrderedValues(target.sourceSha256s, expectedSourceSha256s)) {
         throw new Error("proposal의 exact source SHA-256과 실행 요청이 다릅니다.");
       }
       if (proposal.policy.transport !== "claude-cli" || proposal.policy.model !== "claude-opus-5") {
@@ -111,7 +111,7 @@ export function createApplicationRoundtripCanaryRunner(
         proposalSha256: input.proposalSha256,
         sequence: input.sequence,
         grantId: target.grantId,
-        sourceSha256: input.sourceSha256,
+        sourceSha256s: Object.freeze([...expectedSourceSha256s]),
         model: proposal.policy.model,
         transport: proposal.policy.transport,
       });
@@ -122,18 +122,18 @@ export function createApplicationRoundtripCanaryRunner(
         signal: input.signal,
       }));
       input.signal.throwIfAborted();
-      assertExecutionBinding(executed, target.grantId, input.sourceSha256, proposal.policy.model);
+      assertExecutionBinding(executed, target.grantId, expectedSourceSha256s, proposal.policy.model);
 
       const status = classifyExecution(executed);
       const failureCode = status === "complete"
         ? null
         : executed.failureCode ?? executed.error ?? status;
       const body = {
-        schema: "application-roundtrip-canary-receipt-v1" as const,
+        schema: "application-roundtrip-canary-receipt-v2" as const,
         proposalSha256: input.proposalSha256,
         sequence: input.sequence,
         grantId: target.grantId,
-        sourceSha256: input.sourceSha256,
+        sourceSha256s: expectedSourceSha256s,
         model: proposal.policy.model,
         transport: proposal.policy.transport,
         status,
@@ -175,7 +175,7 @@ function parseProposal(bytes: Uint8Array, expectedSha256: string): ApplicationRo
 function assertExecutionBinding(
   executed: ApplicationRoundtripCanaryExecutionResult,
   grantId: string,
-  sourceSha256: string,
+  sourceSha256s: readonly string[],
   model: string,
 ): void {
   if (!executed.runId || !executed.artifactPath || executed.artifactBytes.byteLength === 0) {
@@ -184,14 +184,37 @@ function assertExecutionBinding(
   if (executed.transport !== "claude-cli" || executed.requestedModel !== model) {
     throw new Error("Kordoc 실행이 승인된 subscription model과 다릅니다.");
   }
+  const actualSourceSha256s = executed.documents.flatMap((document) =>
+    document.sourceSha256 === null ? [] : [document.sourceSha256]);
   if (
-    executed.sourceCount !== 1
+    executed.sourceCount !== sourceSha256s.length
     || executed.skippedDocumentCount !== 0
-    || executed.documents.length !== 1
-    || executed.documents[0]?.sourceSha256 !== sourceSha256
+    || executed.documents.length !== sourceSha256s.length
+    || !sameSet(actualSourceSha256s, sourceSha256s)
   ) {
-    throw new Error(`Kordoc 실행이 ${grantId}의 exact source 한 건과 다릅니다.`);
+    throw new Error(`Kordoc 실행이 ${grantId}의 exact source 집합과 다릅니다.`);
   }
+}
+
+function normalizeSourceSha256s(values: readonly string[]): readonly string[] {
+  if (values.length === 0) throw new Error("source SHA-256 집합이 비었습니다.");
+  const normalized = values.map((value) => {
+    assertSha(value, "source SHA-256");
+    return value;
+  });
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error("source SHA-256 집합에 중복이 있습니다.");
+  }
+  return Object.freeze(normalized);
+}
+
+function sameOrderedValues(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function sameSet(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length
+    && sameOrderedValues([...left].sort(), [...right].sort());
 }
 
 function classifyExecution(

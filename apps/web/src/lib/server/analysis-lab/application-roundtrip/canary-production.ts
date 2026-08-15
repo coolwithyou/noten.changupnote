@@ -37,7 +37,7 @@ const runner = createApplicationRoundtripCanaryRunner({
 export function runApprovedApplicationRoundtripCanary(input: {
   readonly proposalSha256: string;
   readonly sequence: number;
-  readonly sourceSha256: string;
+  readonly sourceSha256s: readonly string[];
   readonly signal: AbortSignal;
 }) {
   return runner.run(input);
