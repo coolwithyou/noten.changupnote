@@ -62,7 +62,7 @@ function canonicalSha256(value: unknown): string {
 function cohortArtifact(wave: number): DeepRepairAuthorizationStoredArtifact {
   return stored({
     schema: "deep-repair-cohort-v1",
-    seriesId: "deep-v19",
+    seriesId: "deep-v20",
     waveId: `wave-${wave + 1}`,
     selectedAt: "2026-08-14T00:00:00.000Z",
     seed: 20260814,
@@ -80,7 +80,7 @@ function fixture() {
   const cohorts = [cohortArtifact(0), cohortArtifact(1)];
   const plan = createDeepRepairExperimentPlan({
     schema: "deep-repair-series-manifest-v1",
-    seriesId: "deep-v19",
+    seriesId: "deep-v20",
     objective: "deep-primary-repair-rate",
     mode: "formal",
     formation: "prospective",
@@ -127,7 +127,7 @@ function fixture() {
     schema: "deep-repair-proposal-v1",
     preparedAt: "2026-08-14T02:45:00.000Z",
     policy: {
-      seriesId: "deep-v19",
+      seriesId: "deep-v20",
       seed: 20260814,
       targetCount: 30,
       waveSize: 15,
@@ -188,7 +188,7 @@ function fixture() {
   };
   const seriesMarker = {
     schema: "deep-repair-series-proposal-v1",
-    seriesId: "deep-v19",
+    seriesId: "deep-v20",
     proposalPath: `spike-out/analysis-lab/experiments/proposals/${proposalSha256}.json`,
     proposalSha256,
     planSha256: plan.planSha256,
@@ -197,7 +197,7 @@ function fixture() {
   };
   const seriesMarkerArtifact = canonicalStored(
     seriesMarker,
-    "spike-out/analysis-lab/experiments/series/deep-v19.json",
+    "spike-out/analysis-lab/experiments/series/deep-v20.json",
   );
   const approval = {
     schema: "deep-repair-user-approval-v1",
@@ -237,7 +237,7 @@ function fixture() {
 
   class MemoryRepository implements DeepRepairAuthorizationRepository {
     readonly approvals = new Map([[approvalSha256, approvalArtifact]]);
-    readonly seriesMarkers = new Map([["deep-v19", seriesMarkerArtifact]]);
+    readonly seriesMarkers = new Map([["deep-v20", seriesMarkerArtifact]]);
     readonly proposals = new Map([[proposalSha256, committedProposalArtifact]]);
     readonly plans = new Map([[plan.planSha256, planArtifact]]);
     readonly cohortArtifacts = new Map(cohorts.map((artifact) => [artifact.path, artifact]));
@@ -352,7 +352,7 @@ function installParentReceipt(
     manifestSha256: setup.plan.manifestSha256,
     parentReceiptSha256: null,
     authoritySha256: SHA(7_001),
-    attemptId: "deep-v19-00-parent",
+    attemptId: "deep-v20-00-parent",
     target: { sequence: 0, waveId: "wave-1", grantId: "grant-00" },
     startedAt: "2026-08-14T02:50:00.000Z",
     finishedAt: "2026-08-14T02:52:00.000Z",
@@ -868,7 +868,7 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
 
 {
   const setup = fixture();
-  setup.repository.seriesMarkers.delete("deep-v19");
+  setup.repository.seriesMarkers.delete("deep-v20");
   await assert.rejects(
     setup.issuer.issueApprovedDeepRepairAuthority({
       approvalId: setup.approvalSha256,
@@ -883,9 +883,9 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
 
 {
   const setup = fixture();
-  setup.repository.seriesMarkers.set("deep-v19", stored(
+  setup.repository.seriesMarkers.set("deep-v20", stored(
     setup.seriesMarker,
-    "spike-out/analysis-lab/experiments/series/deep-v19.json",
+    "spike-out/analysis-lab/experiments/series/deep-v20.json",
   ));
   await assert.rejects(
     setup.issuer.issueApprovedDeepRepairAuthority({
@@ -935,11 +935,11 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
   };
   setup.repository.proposals.clear();
   setup.repository.proposals.set(proposalSha256, proposalArtifact);
-  setup.repository.seriesMarkers.set("deep-v19", canonicalStored({
+  setup.repository.seriesMarkers.set("deep-v20", canonicalStored({
     ...setup.seriesMarker,
     proposalPath: proposalArtifact.path,
     proposalSha256,
-  }, "spike-out/analysis-lab/experiments/series/deep-v19.json"));
+  }, "spike-out/analysis-lab/experiments/series/deep-v20.json"));
   const approvalId = installApproval(setup, {
     ...setup.approval,
     proposalSha256,
@@ -952,7 +952,7 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
     (error: unknown) =>
       error instanceof DeepRepairAuthorizationError
       && error.code === "proposal_invalid",
-    "deep-v19 final marker는 다른 series proposal을 발급할 수 없어야 한다",
+    "deep-v20 final marker는 다른 series proposal을 발급할 수 없어야 한다",
   );
   assert.deepEqual(setup.calls, []);
 }
@@ -974,11 +974,11 @@ for (const [label, activeDeepLeases, activeApplicationLeases] of [
   };
   setup.repository.proposals.clear();
   setup.repository.proposals.set(proposalSha256, proposalArtifact);
-  setup.repository.seriesMarkers.set("deep-v19", canonicalStored({
+  setup.repository.seriesMarkers.set("deep-v20", canonicalStored({
     ...setup.seriesMarker,
     proposalPath: proposalArtifact.path,
     proposalSha256,
-  }, "spike-out/analysis-lab/experiments/series/deep-v19.json"));
+  }, "spike-out/analysis-lab/experiments/series/deep-v20.json"));
   const approvalId = installApproval(setup, {
     ...setup.approval,
     proposalSha256,
