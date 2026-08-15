@@ -25,6 +25,12 @@ import { AnalysisLabExecutionPausedError } from "./analysis-execution-admission"
 
 const FAKE_CLI_VERSION = "2.1.219-test (fake)";
 const API_URL = "https://api.anthropic.com/v1/messages";
+const MAX_AUTH_STATUS = {
+  loggedIn: true,
+  authMethod: "claude.ai",
+  apiProvider: "firstParty",
+  subscriptionType: "max",
+} as const;
 
 function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch {
   return buildClaudeCliFetchUnsafeForTest(config);
@@ -57,15 +63,24 @@ interface FakeOutcome {
 /** (file, args, opts, cb) 시그니처의 콜백형 페이크 — --version 호출은 공통 응답. */
 function makeFakeExecFile(
   respond: (call: RecordedCall) => FakeOutcome,
-  options: { epipeOnWrite?: boolean } = {},
-): { impl: typeof execFile; calls: RecordedCall[] } {
+  options: {
+    epipeOnWrite?: boolean;
+    authStatus?: Record<string, unknown>;
+  } = {},
+): { impl: typeof execFile; calls: RecordedCall[]; authStatusCalls: { count: number } } {
   const calls: RecordedCall[] = [];
+  const authStatusCalls = { count: 0 };
   const impl = ((
     file: string,
     args: string[],
     opts: Record<string, unknown>,
     cb: (error: Error | null, stdout: string, stderr: string) => void,
   ) => {
+    if (args[0] === "auth" && args[1] === "status") {
+      authStatusCalls.count += 1;
+      queueMicrotask(() => cb(null, JSON.stringify(options.authStatus ?? MAX_AUTH_STATUS), ""));
+      return { stdin: null };
+    }
     if (args[0] === "--version") {
       queueMicrotask(() => cb(null, FAKE_CLI_VERSION, ""));
       return { stdin: null };
@@ -101,7 +116,7 @@ function makeFakeExecFile(
       },
     };
   }) as unknown as typeof execFile;
-  return { impl, calls };
+  return { impl, calls, authStatusCalls };
 }
 
 function valueAfter(args: string[], flag: string): string {
@@ -194,7 +209,7 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
 // ---- ① 요청 번역 -------------------------------------------------------------------
 {
   const bigContent = `공고본문시작\n${"내".repeat(1_000_000)}\n공고본문끝`;
-  const { impl, calls } = makeFakeExecFile((call) => {
+  const { impl, calls, authStatusCalls } = makeFakeExecFile((call) => {
     const model = call.args[call.args.indexOf("--model") + 1] ?? "";
     return { stdout: successCliJson({ modelUsage: { [model]: {} } }) };
   });
@@ -236,6 +251,7 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   const blockCall = calls[2];
   assert.ok(blockCall);
   assert.equal(blockCall.stdin.chunks.join(""), "블록A\n블록B");
+  assert.equal(authStatusCalls.count, 1, "같은 fetch 인스턴스의 여러 요청은 Max 인증을 한 번만 확인");
   console.log("✅ 요청 번역 — argv 조립·stdin 전달·대형 입력 ARG_MAX 회피·effort 생략");
 }
 
@@ -277,6 +293,30 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
     else process.env.CUNOTE_TEST_SAFE_ENV = savedMarker;
   }
   console.log("✅ Max 인증 격리 — API 자격증명·provider override 제거, 일반 환경 유지");
+}
+
+{
+  const { impl, calls, authStatusCalls } = makeFakeExecFile(
+    () => ({ stdout: successCliJson() }),
+    {
+      authStatus: {
+        loggedIn: true,
+        authMethod: "claude.ai",
+        apiProvider: "firstParty",
+        subscriptionType: null,
+      },
+    },
+  );
+  await assert.rejects(
+    buildClaudeCliFetch({ execFileImpl: impl })(API_URL, {
+      method: "POST",
+      body: extractorBody("잘못된 인증"),
+    }),
+    /Max 구독 인증/,
+  );
+  assert.equal(authStatusCalls.count, 1, "모델 전에 인증 상태를 한 번 확인");
+  assert.equal(calls.length, 0, "Max 인증을 증명하지 못하면 모델 프로세스를 시작하지 않음");
+  console.log("✅ Max 인증 preflight — 구독 증명 실패 시 모델 착수 0");
 }
 
 // ---- ② 응답 재조립 -----------------------------------------------------------------
@@ -352,6 +392,10 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
     opts: { signal?: AbortSignal },
     cb: (error: Error | null, stdout: string, stderr: string) => void,
   ) => {
+    if (args[0] === "auth" && args[1] === "status") {
+      queueMicrotask(() => cb(null, JSON.stringify(MAX_AUTH_STATUS), ""));
+      return stubChild;
+    }
     if (args[0] === "--version") {
       queueMicrotask(() => cb(null, FAKE_CLI_VERSION, ""));
       return stubChild;
@@ -406,6 +450,10 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
     opts: { signal?: AbortSignal },
     cb: (error: Error | null, stdout: string, stderr: string) => void,
   ) => {
+    if (args[0] === "auth" && args[1] === "status") {
+      queueMicrotask(() => cb(null, JSON.stringify(MAX_AUTH_STATUS), ""));
+      return stubChild;
+    }
     if (args[0] === "--version") {
       queueMicrotask(() => cb(null, FAKE_CLI_VERSION, ""));
       return stubChild;
@@ -426,7 +474,7 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   });
   const initial = fetchImpl(API_URL, { method: "POST", body: extractorBody("initial") });
   const repair = fetchImpl(API_URL, { method: "POST", body: extractorBody("repair") });
-  await Promise.resolve();
+  await delay(0);
   assert.equal(childSignals.length, 2, "initial과 repair가 각각 child process를 시작");
   controller.abort(new DOMException("lease lost", "AbortError"));
   const outcomes = await Promise.allSettled([initial, repair]);

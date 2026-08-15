@@ -20,6 +20,8 @@ import {
 } from "./analysis-execution-admission";
 
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+const AUTH_STATUS_MAX_BUFFER_BYTES = 64 * 1024;
+const AUTH_STATUS_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_CONCURRENCY = 4;
 const MAX_CONFIGURABLE_CONCURRENCY = 16;
 const CLAUDE_SUBSCRIPTION_FORBIDDEN_ENV_KEYS = [
@@ -243,6 +245,7 @@ function buildClaudeCliFetchInternal(config?: ClaudeCliFetchConfig): typeof fetc
   const scheduler = config?.scheduler ?? getSharedClaudeCliScheduler();
   const schedulerKey = config?.schedulerKey ?? Symbol("claude-cli-fetch");
   const externalSignal = config?.externalSignal;
+  let authPreflight: Promise<void> | null = null;
   mkdirSync(scratchCwd, { recursive: true });
 
   const claudeCliFetch = async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -253,6 +256,13 @@ function buildClaudeCliFetchInternal(config?: ClaudeCliFetchConfig): typeof fetc
     const executionTimeoutMs = parseExecutionTimeoutMs(init?.headers);
     let outcome: CliExecOutcome;
     try {
+      authPreflight ??= verifyClaudeMaxSubscriptionAuth({
+        execFileImpl,
+        binary,
+        cwd: scratchCwd,
+        signal: linkedSignal.signal,
+      });
+      await authPreflight;
       outcome = await scheduler.run(schedulerKey, () => runClaudeCliWithExecutionTimeout({
         execFileImpl,
         binary,
@@ -273,6 +283,58 @@ function buildClaudeCliFetchInternal(config?: ClaudeCliFetchConfig): typeof fetc
     return assembleErrorResponse(cliJson, outcome, getVersion);
   };
   return markExecutionScopedTimeoutFetch(claudeCliFetch as typeof fetch);
+}
+
+function verifyClaudeMaxSubscriptionAuth(options: {
+  execFileImpl: typeof execFile;
+  binary: string;
+  cwd: string;
+  signal: AbortSignal | undefined;
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    try {
+      options.execFileImpl(
+        options.binary,
+        ["auth", "status", "--json"],
+        {
+          cwd: options.cwd,
+          env: buildClaudeSubscriptionChildEnv(),
+          maxBuffer: AUTH_STATUS_MAX_BUFFER_BYTES,
+          signal: options.signal,
+          timeout: AUTH_STATUS_TIMEOUT_MS,
+        },
+        (error, stdout) => {
+          if (error?.name === "AbortError") {
+            reject(error);
+            return;
+          }
+          let status: unknown = null;
+          try {
+            status = JSON.parse(String(stdout ?? ""));
+          } catch {
+            // 아래 공통 오류로 합류한다. stdout 원문은 자격증명 노출 방지를 위해 포함하지 않는다.
+          }
+          if (
+            error
+            || !isRecord(status)
+            || status.loggedIn !== true
+            || status.authMethod !== "claude.ai"
+            || status.apiProvider !== "firstParty"
+            || status.subscriptionType !== "max"
+          ) {
+            reject(new Error(
+              "Claude CLI Max 구독 인증을 증명하지 못했습니다. 모델을 시작하지 않습니다. "
+              + "`claude auth status --json`에서 claude.ai/firstParty/max 로그인을 확인하세요.",
+            ));
+            return;
+          }
+          resolve();
+        },
+      );
+    } catch (error) {
+      reject(error);
+    }
+  });
 }
 
 function parseExecutionTimeoutMs(headers: HeadersInit | undefined): number {
