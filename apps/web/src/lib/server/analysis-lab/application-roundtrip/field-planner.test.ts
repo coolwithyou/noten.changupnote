@@ -140,6 +140,30 @@ try {
     assert.equal(summary.deterministicDecisionCount, 2, "결정 규칙으로 종결한 후보 수 기록");
     console.log("✅ Kordoc triage — 경계 후보만 LLM 판정");
   }
+
+  // ---- ⑥ 반복되는 양의 저신뢰 판정은 optional 사용자 확인 입력으로 보존 --------------
+  {
+    const bodies: Array<Record<string, unknown>> = [];
+    const fetchImpl = buildFetch(bodies, [
+      [decision("conditional-input", true, 0.7)],
+      [decision("conditional-input", true, 0.72)],
+    ]);
+    const { fields, summary } = await planRoundtripFields({
+      fields: [candidate("conditional-input")],
+      markdown: "해당 란은 신청자가 확인하여 입력",
+      apiKey: "subscription",
+      fetchImpl,
+      transport: "claude-cli",
+    });
+    assert.equal(bodies.length, 2, "같은 양의 보류를 세 번째로 반복하지 않음");
+    assert.equal(summary.adjudicationStatus, "resolved");
+    assert.equal(summary.remainingUnresolvedCandidateCount, 0);
+    assert.equal(fields[0]?.llmDecision, "input");
+    assert.equal(fields[0]?.recommendedInput, true);
+    assert.equal(fields[0]?.required, false, "확정값이 아니라 optional 사용자 확인 입력");
+    assert.match(fields[0]?.inputSignals.join(" ") ?? "", /사용자 확인 입력으로 보존/);
+    console.log("✅ 반복 양의 보류 — optional 사용자 확인 입력으로 수렴");
+  }
 } finally {
   if (originalEffortEnv === undefined) delete process.env.APPLICATION_ROUNDTRIP_EFFORT;
   else process.env.APPLICATION_ROUNDTRIP_EFFORT = originalEffortEnv;

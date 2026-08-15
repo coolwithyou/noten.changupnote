@@ -27,6 +27,10 @@ const TRIAGE_UPPER_BOUND = 0.75;
 // 즉시 채택하면 표 머리글 같은 저신뢰 false positive가 자동 재판정을 우회한다.
 const ACCEPT_INPUT_CONFIDENCE = 0.75;
 const ACCEPT_REJECTION_CONFIDENCE = 0.75;
+// 모델이 같은 후보를 두 번 연속 입력 대상으로 보되 0.75 아래에서 머무르면 같은 문맥의
+// 추가 재판정은 새 정보를 만들지 못한다. 값을 추정하지 않고 optional 사용자 입력칸으로
+// 보존해 신청자가 최종 선택하게 한다. 전역 수락 임계는 낮추지 않는다.
+const USER_CONFIRMATION_INPUT_CONFIDENCE = 0.65;
 // 저효율(round 0 + effort 지정) 판정은 실제 입력 필드를 conf 0.75~0.80 거절로 조용히
 // 놓치는 회귀가 canary에서 확인됐다(2026-08-11 계획 §2-3-3). 거절 수락 임계만 0.85로
 // 올려 경계 구간 [0.75, 0.85)를 uncertain으로 떨어뜨리고, 기본 effort 재판정이 회복한다.
@@ -202,6 +206,7 @@ export async function planRoundtripFields(options: {
   const usageItems: FieldPlannerUsage[] = [];
   const decidedCandidateIds = new Set<string>();
   const adjudicatedCandidateIds = new Set<string>();
+  const likelyInputVotes = new Map<string, number>();
   const primary = await requestDecisionPass({
     candidates,
     markdown: options.markdown,
@@ -213,6 +218,7 @@ export async function planRoundtripFields(options: {
   });
   usageItems.push(...primary.usageItems);
   applyDecisions(fields, primary.decisions, 0, decidedCandidateIds, runtime.effort !== null);
+  recordLikelyInputVotes(primary.decisions, likelyInputVotes);
 
   if (primary.decisions.length === 0) {
     const failureCode = primary.failureCode ?? "invalid_response";
@@ -260,6 +266,8 @@ export async function planRoundtripFields(options: {
       usageItems.push(...adjudication.usageItems);
       // 재판정 라운드는 항상 기본 effort로 돌므로 저효율 임계(0.85)를 적용하지 않는다.
       applyDecisions(fields, adjudication.decisions, round, decidedCandidateIds, false);
+      recordLikelyInputVotes(adjudication.decisions, likelyInputVotes);
+      preserveRepeatedLikelyInputsForUser(fields, likelyInputVotes, round);
       adjudicationFailureCode = adjudication.failureCode;
       unresolved = unresolvedDecisionCandidates(candidates, fields, decidedCandidateIds);
       if (adjudication.decisions.length === 0 && adjudication.failureCode !== null) break;
@@ -312,6 +320,40 @@ export async function planRoundtripFields(options: {
       },
     ),
   };
+}
+
+function recordLikelyInputVotes(
+  decisions: readonly FieldDecision[],
+  votes: Map<string, number>,
+): void {
+  const seen = new Set<string>();
+  for (const decision of decisions) {
+    if (
+      seen.has(decision.candidateId)
+      || !decision.isUserInput
+      || decision.inputKind === "none"
+      || decision.confidence < USER_CONFIRMATION_INPUT_CONFIDENCE
+    ) continue;
+    seen.add(decision.candidateId);
+    votes.set(decision.candidateId, (votes.get(decision.candidateId) ?? 0) + 1);
+  }
+}
+
+function preserveRepeatedLikelyInputsForUser(
+  fields: RoundtripFieldCandidate[],
+  votes: ReadonlyMap<string, number>,
+  round: number,
+): void {
+  for (const field of fields) {
+    const voteCount = votes.get(field.fieldInstanceId) ?? 0;
+    if (field.llmDecision !== "uncertain" || voteCount < 2) continue;
+    field.llmDecision = "input";
+    field.recommendedInput = true;
+    field.llmDecisionRound = round;
+    field.inputSignals.push(
+      `LLM 반복 입력 후보 ${voteCount}회: 값을 추정하지 않고 사용자 확인 입력으로 보존`,
+    );
+  }
 }
 
 interface DecisionPassResult {
