@@ -22,6 +22,15 @@ import {
 const MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_CONCURRENCY = 4;
 const MAX_CONFIGURABLE_CONCURRENCY = 16;
+const CLAUDE_SUBSCRIPTION_FORBIDDEN_ENV_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_AUTH_TOKEN",
+  "ANTHROPIC_BASE_URL",
+  "CLAUDE_CODE_OAUTH_TOKEN",
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "CLAUDE_CODE_USE_FOUNDRY",
+] as const;
 /** Max 사용량 윈도 소진 판별 시그널(CLI 자체 에러 텍스트 대상). */
 const WINDOW_EXHAUSTED_SIGNAL =
   /usage limit(?: reached)?|session limit|quota(?: limit)?(?: reached|exhausted)|hit your (?:session|usage|weekly).* limit|resets?\s+(?:at\s+)?\d/i;
@@ -200,6 +209,21 @@ function abortReason(signal: AbortSignal | undefined): Error {
   const error = new Error("The operation was aborted");
   error.name = "AbortError";
   return error;
+}
+
+/**
+ * Max 구독 transport의 실제 인증 seam.
+ *
+ * analysis-lab 환경 로더는 API transport도 지원하므로 루트 `.env`의 API 키를
+ * 현재 프로세스에 보충할 수 있다. `execFile`이 그 환경을 암묵 상속하면
+ * `transport=claude-cli` receipt와 달리 Claude CLI가 API 자격증명을 사용할 수 있다.
+ * 자식에게는 일반 실행 환경을 유지하되, Keychain의 Claude.ai 인증을 우회할 수 있는
+ * API 자격증명과 provider override만 제거한다.
+ */
+function buildClaudeSubscriptionChildEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  for (const key of CLAUDE_SUBSCRIPTION_FORBIDDEN_ENV_KEYS) delete env[key];
+  return env;
 }
 
 export function buildClaudeCliFetch(config?: ClaudeCliFetchConfig): typeof fetch {
@@ -446,7 +470,12 @@ function runClaudeCli(options: {
     const child = options.execFileImpl(
       options.binary,
       options.argv,
-      { cwd: options.cwd, maxBuffer: MAX_BUFFER_BYTES, signal: options.signal },
+      {
+        cwd: options.cwd,
+        maxBuffer: MAX_BUFFER_BYTES,
+        signal: options.signal,
+        env: buildClaudeSubscriptionChildEnv(),
+      },
       (error, stdout, stderr) => {
         // abort 는 그대로 reject — 기존 호출부(extractor.ts:136-139)의 타임아웃 분기가
         // error.name === "AbortError" 로 발화한다. 다른 에러로 감싸면 오분류된다.
@@ -485,7 +514,7 @@ function resolveCliVersion(execFileImpl: typeof execFile, binary: string): Promi
   if (cliVersionCache !== null) return Promise.resolve(cliVersionCache);
   return new Promise<string>((resolve) => {
     try {
-      execFileImpl(binary, ["--version"], {}, (error, stdout) => {
+      execFileImpl(binary, ["--version"], { env: buildClaudeSubscriptionChildEnv() }, (error, stdout) => {
         const text = String(stdout ?? "").trim();
         cliVersionCache = error || !text ? "unknown" : text;
         resolve(cliVersionCache);

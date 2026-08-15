@@ -4,7 +4,8 @@
 // ② 응답 재조립(200 tool_use·usage 무변환·result 폴백) ③ 가드(모델 에코·파싱 불가)
 // ④ abort → AbortError 명의 그대로 reject ⑤ resolveLabTransport env 해석
 // ⑥ 조기 종료 EPIPE 내성 ⑦ 윈도 소진 합성 400(오진 정규식 미매치) ⑧ api_error_status 통과
-// ⑩ keyed round-robin 공정성·key 내부 FIFO·전역 상한·abort ⑪ 단일 key 4-slot drain.
+// ⑩ keyed round-robin 공정성·key 내부 FIFO·전역 상한·abort ⑪ 단일 key 4-slot drain
+// ⑫ Max 자식 환경의 API credential·provider override 격리.
 import assert from "node:assert/strict";
 import type { execFile } from "node:child_process";
 import {
@@ -44,7 +45,7 @@ interface RecordedStdin {
 interface RecordedCall {
   file: string;
   args: string[];
-  opts: { cwd?: string; maxBuffer?: number; signal?: AbortSignal };
+  opts: { cwd?: string; maxBuffer?: number; signal?: AbortSignal; env?: NodeJS.ProcessEnv };
   stdin: RecordedStdin;
 }
 interface FakeOutcome {
@@ -236,6 +237,46 @@ function successCliJson(overrides: Record<string, unknown> = {}): string {
   assert.ok(blockCall);
   assert.equal(blockCall.stdin.chunks.join(""), "블록A\n블록B");
   console.log("✅ 요청 번역 — argv 조립·stdin 전달·대형 입력 ARG_MAX 회피·effort 생략");
+}
+
+// ---- Max 인증 환경 격리 -------------------------------------------------------------
+
+{
+  const isolatedKeys = [
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+  ] as const;
+  const saved = new Map(isolatedKeys.map((key) => [key, process.env[key]]));
+  const savedMarker = process.env.CUNOTE_TEST_SAFE_ENV;
+  try {
+    for (const key of isolatedKeys) process.env[key] = `must-not-reach-child:${key}`;
+    process.env.CUNOTE_TEST_SAFE_ENV = "preserved";
+    const { impl, calls } = makeFakeExecFile(() => ({ stdout: successCliJson() }));
+    const res = await buildClaudeCliFetch({ execFileImpl: impl })(API_URL, {
+      method: "POST",
+      body: extractorBody("인증 환경 격리"),
+    });
+    assert.equal(res.status, 200);
+    const childEnv = calls[0]?.opts.env;
+    assert.ok(childEnv, "claude 자식 프로세스에는 명시적으로 격리한 환경을 전달해야 한다");
+    for (const key of isolatedKeys) {
+      assert.equal(childEnv[key], undefined, `${key}는 Max 구독 자식에 전달하면 안 된다`);
+    }
+    assert.equal(childEnv.CUNOTE_TEST_SAFE_ENV, "preserved", "일반 실행 환경은 유지해야 한다");
+  } finally {
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    if (savedMarker === undefined) delete process.env.CUNOTE_TEST_SAFE_ENV;
+    else process.env.CUNOTE_TEST_SAFE_ENV = savedMarker;
+  }
+  console.log("✅ Max 인증 격리 — API 자격증명·provider override 제거, 일반 환경 유지");
 }
 
 // ---- ② 응답 재조립 -----------------------------------------------------------------
