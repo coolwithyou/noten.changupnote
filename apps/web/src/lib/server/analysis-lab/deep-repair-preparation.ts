@@ -7,6 +7,7 @@ import {
   type DeepRepairExperimentPlan,
 } from "./deep-repair-experiment";
 import {
+  ACTIVE_DEEP_REPAIR_STRATA_VERSION,
   ACTIVE_DEEP_REPAIR_SERIES_ID,
   DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE,
@@ -368,7 +369,7 @@ function createPlan(
     objective: "deep-primary-repair-rate",
     mode: "formal",
     formation: "prospective",
-    strataVersion: "deep-repair-strata-v1",
+    strataVersion: ACTIVE_DEEP_REPAIR_STRATA_VERSION,
     provenance: {
       status: "complete",
       unavailable: [],

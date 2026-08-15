@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 import {
   DEEP_REPAIR_FORMAL_MAX_SAMPLE_SIZE as MAX_SAMPLE_SIZE,
   DEEP_REPAIR_FORMAL_MIN_SAMPLE_SIZE as MIN_SAMPLE_SIZE,
-  DEEP_REPAIR_FORMAL_REQUIRED_STRATA as REQUIRED_STRATA,
+  DEEP_REPAIR_FORMAL_SUPPORTED_STRATA as SUPPORTED_STRATA,
+  deepRepairRequiredStrataForVersion,
+  type DeepRepairStrataVersion,
 } from "./deep-repair-formal-policy";
 
 type ExperimentMode = "formal" | "legacy_shadow";
@@ -44,7 +46,7 @@ interface ExperimentManifest {
   readonly objective: "deep-primary-repair-rate";
   readonly mode: ExperimentMode;
   readonly formation: Formation;
-  readonly strataVersion: "deep-repair-strata-v1" | null;
+  readonly strataVersion: DeepRepairStrataVersion | null;
   readonly provenance: {
     readonly status: ProvenanceStatus;
     readonly unavailable: readonly string[];
@@ -269,7 +271,12 @@ function normalizeManifest(input: unknown): ExperimentManifest {
   const strataVersion =
     source.strataVersion === undefined || source.strataVersion === null
       ? null
-      : readLiteral(source, "strataVersion", ["deep-repair-strata-v1"] as const, "manifest");
+      : readLiteral(
+          source,
+          "strataVersion",
+          ["deep-repair-strata-v1", "deep-repair-strata-v2"] as const,
+          "manifest",
+        );
 
   const provenanceSource = asRecord(source.provenance, "manifest.provenance");
   const provenanceStatus = readLiteral(
@@ -308,7 +315,7 @@ function normalizeManifest(input: unknown): ExperimentManifest {
   }
   if (
     mode === "formal" &&
-    (strataVersion !== "deep-repair-strata-v1" ||
+    (strataVersion === null ||
       gitSha === null ||
       packageRuntimeSha256 === null ||
       validatorVersion === null)
@@ -429,11 +436,12 @@ function normalizeManifest(input: unknown): ExperimentManifest {
       throw new Error(`formal experiment plan must pre-seal exactly ${MAX_SAMPLE_SIZE} targets`);
     }
     const formalTargets = waves.flatMap((wave) => wave.targets);
+    const requiredStrata = deepRepairRequiredStrataForVersion(strataVersion!);
     const unsupportedStrata = [
       ...new Set(
         formalTargets
           .map((target) => target.stratum)
-          .filter((stratum) => !REQUIRED_STRATA.some((required) => required === stratum)),
+          .filter((stratum) => !SUPPORTED_STRATA.some((supported) => supported === stratum)),
       ),
     ];
     if (unsupportedStrata.length > 0) {
@@ -442,7 +450,7 @@ function normalizeManifest(input: unknown): ExperimentManifest {
     const minimumPrefixStrata = new Set(
       formalTargets.slice(0, MIN_SAMPLE_SIZE).map((target) => target.stratum),
     );
-    const missingPrefixStrata = REQUIRED_STRATA.filter(
+    const missingPrefixStrata = requiredStrata.filter(
       (stratum) => !minimumPrefixStrata.has(stratum),
     );
     if (missingPrefixStrata.length > 0) {
@@ -819,10 +827,11 @@ export function replayDeepRepairExperiment(
     statisticalVerdict !== null &&
     statisticalVerdict !== "CONTINUE"
   ) {
+    const requiredStrata = deepRepairRequiredStrataForVersion(plan.manifest.strataVersion!);
     const observedStrata = new Set(
       plan.sequence.slice(0, observations.length).map((target) => target.stratum),
     );
-    if (REQUIRED_STRATA.some((stratum) => !observedStrata.has(stratum))) {
+    if (requiredStrata.some((stratum) => !observedStrata.has(stratum))) {
       invalidReasons.push("required_strata_unobserved");
     }
   }

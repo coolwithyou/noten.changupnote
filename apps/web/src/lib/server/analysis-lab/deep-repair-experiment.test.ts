@@ -296,6 +296,15 @@ const wrongStrataVersion = syntheticManifest();
 wrongStrataVersion.strataVersion = "invented-strata-v2";
 assert.throws(() => createDeepRepairExperimentPlan(wrongStrataVersion), /deep-repair-strata-v1/);
 
+const exhaustedKstartupThickV2 = syntheticManifest();
+exhaustedKstartupThickV2.strataVersion = "deep-repair-strata-v2";
+for (const wave of exhaustedKstartupThickV2.waves) {
+  for (const target of wave.targets) {
+    if (target.stratum === "kstartup/thick") target.stratum = "kstartup/medium";
+  }
+}
+const exhaustedKstartupThickV2Plan = createDeepRepairExperimentPlan(exhaustedKstartupThickV2);
+
 const missingRequiredStratum = syntheticManifest();
 for (const target of missingRequiredStratum.waves[0]!.targets) target.stratum = "bizinfo/medium";
 assert.throws(() => createDeepRepairExperimentPlan(missingRequiredStratum), /required strata/);
@@ -326,6 +335,11 @@ const formalZeroOfFifteen = replayDeepRepairExperiment(
 assert.equal(formalZeroOfFifteen.statisticalVerdict, "GO");
 assert.equal(formalZeroOfFifteen.verdict, "GO");
 assert.equal(formalZeroOfFifteen.lifecycle, "finished");
+const v2ZeroOfFifteen = replayDeepRepairExperiment(
+  exhaustedKstartupThickV2Plan,
+  syntheticReplayInput(exhaustedKstartupThickV2Plan, Array<boolean>(15).fill(false)),
+);
+assert.equal(v2ZeroOfFifteen.verdict, "GO", "v2 필수 5층만 관측해도 통계 GO를 왜곡하지 않음");
 assert.deepEqual(formalZeroOfFifteen.executionProvenance, {
   gitSha: "a".repeat(40),
   packageRuntimeSha256: exactSha(8001),

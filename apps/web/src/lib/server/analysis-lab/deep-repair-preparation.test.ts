@@ -30,7 +30,6 @@ const REQUIRED_STRATA = [
   "bizinfo/thick",
   "bizinfo/medium",
   "bizinfo/thin",
-  "kstartup/thick",
   "kstartup/medium",
   "kstartup/thin",
 ] as const;
@@ -108,8 +107,9 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
   assert.deepEqual(
     [...new Set(result.plan.sequence.slice(0, 15).map((target) => target.stratum))].sort(),
     [...REQUIRED_STRATA].sort(),
-    "첫 15건이 여섯 층을 모두 포함해야 한다",
+    "첫 15건이 현행 비중복 모집단의 다섯 필수 층을 모두 포함해야 한다",
   );
+  assert.equal(result.plan.manifest.strataVersion, "deep-repair-strata-v2");
   assert.deepEqual(prepareCalls, targets().map((target) => target.grantId));
   assert.equal(writes.length, 5, "wave cohort 둘, plan, proposal, series marker만 쓴다");
   assert.equal(writes.filter((artifact) => artifact.path.includes("/cohorts/")).length, 2);
@@ -149,12 +149,11 @@ function setup(overrides: Partial<DeepRepairPreparationDependencies> = {}) {
   assert.equal(proposal.policy.model, "claude-opus-5");
   assert.equal(proposal.policy.transport, "claude-cli");
   assert.deepEqual(proposal.selection.strataCounts, {
-    "bizinfo/medium": 5,
-    "bizinfo/thick": 5,
-    "bizinfo/thin": 5,
-    "kstartup/medium": 5,
-    "kstartup/thick": 5,
-    "kstartup/thin": 5,
+    "bizinfo/medium": 6,
+    "bizinfo/thick": 6,
+    "bizinfo/thin": 6,
+    "kstartup/medium": 6,
+    "kstartup/thin": 6,
   });
   assert.deepEqual(proposal.selection.softQuotas, {
     richCriteria: { achieved: 6, target: 6 },
