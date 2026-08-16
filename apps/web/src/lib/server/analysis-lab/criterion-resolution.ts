@@ -15,7 +15,8 @@ export type CriterionResolutionState =
   | "confirmed_edited"
   | "confirmed_wrong"
   | "pending"
-  | "unaudited_correct";
+  | "unaudited_correct"
+  | "deep_repair_receipt";
 
 export interface CriterionResolution {
   criterionIndex: number;
@@ -35,6 +36,11 @@ export function resolveCriterionStates(input: {
   aiReview?: AiCriterionReviewSnapshot | null | undefined;
   audit?: LabAudit | null | undefined;
   overlay?: HumanReviewOverlay | null | undefined;
+  /**
+   * 봉인된 deep-repair run 자체를 승격 입력으로 채택한 경우의 terminal receipt.
+   * 사람 검수나 독립 감사를 가장하지 않고 별도 resolution provenance로 기록한다.
+   */
+  deepRepairReceiptSha256?: string | null | undefined;
 }): CriterionResolution[] {
   const humanByIndex = new Map(
     (input.humanReview?.criterionReviews ?? []).map((item) => [item.criterionIndex, item]),
@@ -87,6 +93,15 @@ export function resolveCriterionStates(input: {
       );
     }
 
+    if (input.deepRepairReceiptSha256) {
+      return {
+        criterionIndex,
+        state: "deep_repair_receipt",
+        decidedBy: input.deepRepairReceiptSha256,
+        note: null,
+      };
+    }
+
     const ai = aiByIndex.get(criterionIndex);
     if (ai?.verdict === "correct" && !audit) {
       return {
@@ -106,7 +121,10 @@ export function resolveCriterionStates(input: {
 }
 
 export function publishesCriterion(state: CriterionResolutionState): boolean {
-  return state === "confirmed_correct" || state === "unaudited_correct" || state === "pending";
+  return state === "confirmed_correct"
+    || state === "unaudited_correct"
+    || state === "pending"
+    || state === "deep_repair_receipt";
 }
 
 export function criterionNeedsReview(state: CriterionResolutionState): boolean {
@@ -116,7 +134,7 @@ export function criterionNeedsReview(state: CriterionResolutionState): boolean {
 }
 
 export function publishesConfirmationQuestion(state: CriterionResolutionState): boolean {
-  return state === "confirmed_correct";
+  return state === "confirmed_correct" || state === "deep_repair_receipt";
 }
 
 function fromVerdict(

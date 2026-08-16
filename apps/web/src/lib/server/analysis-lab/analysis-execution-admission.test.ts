@@ -6,7 +6,6 @@ import {
   AnalysisLabExecutionPausedError,
   assertAnalysisLabCohortMutationAdmitted,
   assertAnalysisLabLiveExecutionAdmitted,
-  assertAnalysisLabPromotionMutationAdmitted,
 } from "./analysis-execution-admission";
 import { currentDeepRepairLiveExecutionBinding } from "./deep-repair-live-experiment";
 
@@ -67,15 +66,6 @@ assert.throws(
     && error.code === "gate_r_not_satisfied"
     && /cohort mutation/.test(error.message),
   "Gate R 전 신규·대체 cohort 선정과 저장을 진행할 수 없어야 한다",
-);
-
-assert.throws(
-  () => assertAnalysisLabPromotionMutationAdmitted(),
-  (error: unknown) =>
-    error instanceof AnalysisLabExecutionPausedError
-    && error.code === "gate_r_not_satisfied"
-    && /promotion mutation/.test(error.message),
-  "Gate R 전 release approve/write도 정적 증거만으로 진행할 수 없어야 한다",
 );
 
 function cliSource(filename: string): string {

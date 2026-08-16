@@ -32,7 +32,7 @@ const RECEIPT_BINDING_FIELDS = [
 export class AnalysisLabExecutionPausedError extends Error {
   readonly code = "gate_r_not_satisfied" as const;
 
-  constructor(operation: "모델 실행" | "cohort mutation" | "promotion mutation") {
+  constructor(operation: "모델 실행" | "cohort mutation") {
     super(
       `Gate R이 아직 충족되지 않아 analysis-lab ${operation}을 중단합니다. `
       + "현재는 dry-run, plan-only, createPlan/replay만 허용하며 runtime lease나 환경변수로 우회할 수 없습니다.",
@@ -75,10 +75,6 @@ export function assertAnalysisLabReceiptBoundTransportAdmitted(): void {
 
 export function assertAnalysisLabCohortMutationAdmitted(): void {
   throw new AnalysisLabExecutionPausedError("cohort mutation");
-}
-
-export function assertAnalysisLabPromotionMutationAdmitted(): void {
-  throw new AnalysisLabExecutionPausedError("promotion mutation");
 }
 
 function normalizeExecutionExpectation(

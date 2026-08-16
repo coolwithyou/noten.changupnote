@@ -273,6 +273,50 @@ check("[계약 P4] 올바른 prior_award exclusion 은 직접 계약 검증도 �
   assert.deepEqual(issues, []);
 });
 
+check("[계약 P4] 같은 span의 포함 조건과 제외 조건은 서로 다른 의미로 보존", () => {
+  const span = "문화산업 분야 기업(단, 게임·공연 분야 제외)";
+  const issues = validateGrantCriteriaContract([
+    {
+      id: "industry-required",
+      grant_id: "g",
+      dimension: "industry",
+      operator: "text_only",
+      kind: "required",
+      value: { note: "문화산업 분야 기업" },
+      confidence: 0.9,
+      source_span: span,
+    },
+    {
+      id: "industry-exclusion",
+      grant_id: "g",
+      dimension: "industry",
+      operator: "not_in",
+      kind: "exclusion",
+      value: { tags: ["게임", "공연"] },
+      confidence: 0.9,
+      source_span: span,
+    },
+  ]);
+  assert.deepEqual(issues, []);
+});
+
+check("[계약 P4] 같은 의미 슬롯의 동일 span 중복은 계속 거부", () => {
+  const criterion = {
+    grant_id: "g",
+    dimension: "industry",
+    operator: "not_in",
+    kind: "exclusion",
+    value: { tags: ["게임", "공연"] },
+    confidence: 0.9,
+    source_span: "게임·공연 분야 제외",
+  } as const;
+  const issues = validateGrantCriteriaContract([
+    { ...criterion, id: "industry-exclusion-1" },
+    { ...criterion, id: "industry-exclusion-2" },
+  ]);
+  assert.ok(issues.some((issue) => /duplicate/.test(issue.message)), "동일 의미 중복 검출");
+});
+
 check("[계약 backstop] malformed prior_award exclusion 은 scope/program/state/within 위반 검출", () => {
   const issues = validateGrantCriteriaContract([
     { id: "x", grant_id: "g", dimension: "prior_award", operator: "in", kind: "exclusion", value: { scope: "program", programs: [], states: ["selected"], within: { value: 0, unit: "week" } }, confidence: 0.8, source_span: "수료자 제외." },

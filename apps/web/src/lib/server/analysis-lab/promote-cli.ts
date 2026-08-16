@@ -72,7 +72,7 @@ import {
   type PromotionReleaseManifest,
   type PromotionReleasePlanItem,
 } from "./promotion-release";
-import { assertAnalysisLabPromotionMutationAdmitted } from "./analysis-execution-admission";
+import { assertReceiptBackedPromotionMutationAdmitted } from "./promotion-mutation-admission";
 import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotHashes,
@@ -478,7 +478,7 @@ async function mainRelease(releaseId: string): Promise<number> {
   const manifest = await readPromotionReleaseManifest(releaseId);
   const grantFilter = readArg("grantId")?.trim();
   const write = hasFlag("write");
-  if (write) assertAnalysisLabPromotionMutationAdmitted();
+  if (write) assertReceiptBackedPromotionMutationAdmitted(manifest);
   const { db, release } = await loadReleaseLedger(releaseId);
   if (
     release.manifestSha256 !== manifest.manifestSha256
@@ -814,7 +814,13 @@ async function main(): Promise<number> {
     const existingQuestions = existingQuestionCounts.get(plan.grantId) ?? 0;
     console.log(
       `  - ${plan.grantId} · ${shortTitle(plan.title)} · [` +
-        `${plan.origin === "human" ? "사람 검수" : plan.origin === "audited" ? "감사 병합" : "항목 resolver"}] ` +
+        `${plan.origin === "human"
+          ? "사람 검수"
+          : plan.origin === "audited"
+            ? "감사 병합"
+            : plan.origin === "deep_repair"
+              ? "deep-repair receipt"
+              : "항목 resolver"}] ` +
         `A ${currentCriteriaCounts.get(plan.grantId) ?? 0}건 → B ${plan.criteria.length}건` +
         `(강등 ${plan.conversion.downgraded} · 드롭 ${plan.conversion.dropped}${plan.conversion.error ? " · 계약실패" : ""}) · ` +
         `질문 ${plan.questions.length}건(인라인 ${inlineCount} · 보강 ${plan.questions.length - inlineCount}` +

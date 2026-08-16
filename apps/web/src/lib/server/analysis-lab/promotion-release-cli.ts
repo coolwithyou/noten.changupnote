@@ -1,13 +1,17 @@
-import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { and, eq, inArray } from "drizzle-orm";
 import { bundlePromotionApplicationPrecompute } from "./application-precompute-release";
 import { applyPublishGuards } from "./promote";
-import { assertAnalysisLabPromotionMutationAdmitted } from "./analysis-execution-admission";
+import { assertReceiptBackedPromotionMutationAdmitted } from "./promotion-mutation-admission";
 import {
   loadConfirmedPromotionCandidates,
   selectPromotionCandidatesForRelease,
+  type PromotionCandidate,
 } from "./promotion-candidates";
+import {
+  loadDeepRepairPromotionCohort,
+  type DeepRepairPromotionCohort,
+} from "./deep-repair-promotion";
 import {
   assertManifestConfirmation,
   createPromotionReleaseManifest,
@@ -30,7 +34,7 @@ import {
 import { getCunoteDb } from "../db/client";
 import * as schema from "../db/schema";
 import { loadMonorepoEnv } from "../loadMonorepoEnv";
-import { findMonorepoRoot } from "./run-store";
+import { readPromotionBuildProvenance } from "./promotion-build-provenance";
 
 loadMonorepoEnv();
 
@@ -41,24 +45,6 @@ function readArg(name: string): string | undefined {
 
 function hasFlag(name: string): boolean {
   return process.argv.includes(`--${name}`);
-}
-
-function git(command: string[]): string {
-  return execFileSync("git", command, {
-    cwd: findMonorepoRoot(),
-    encoding: "utf8",
-  }).trim();
-}
-
-function assertCleanGitTree(): { gitCommit: string; buildDigest: string } {
-  const dirty = git(["status", "--porcelain"]);
-  if (dirty) {
-    throw new Error("release 준비·승인은 clean git tree에서만 가능합니다. 변경을 검증하고 커밋해주세요.");
-  }
-  return {
-    gitCommit: git(["rev-parse", "HEAD"]),
-    buildDigest: git(["rev-parse", "HEAD^{tree}"]),
-  };
 }
 
 function releaseIdFor(cohort: string, revision: number, now: Date, commit: string): string {
@@ -121,9 +107,14 @@ function selectCanaries(
 }
 
 async function prepare(): Promise<number> {
-  const cohort = readArg("cohort")?.trim();
+  const series = readArg("series")?.trim();
+  const cohort = readArg("cohort")?.trim() || series;
   const actor = readArg("actor")?.trim();
   const grantId = readArg("grantId")?.trim();
+  const exactGrantIds = (readArg("grantIds") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
   const auditedLocalCanary = hasFlag("audited-local-canary");
   const revision = Number(readArg("revision") ?? "1");
   if (!cohort) throw new Error("--cohort가 필요합니다. 예: --cohort=2026-W30");
@@ -132,16 +123,43 @@ async function prepare(): Promise<number> {
   if (auditedLocalCanary && !grantId) {
     throw new Error("--audited-local-canary는 --grantId와 함께 사용해야 합니다.");
   }
-  const build = assertCleanGitTree();
-  if (!auditedLocalCanary) await assertDispatchCollected(cohort);
+  if (series && (grantId || auditedLocalCanary)) {
+    throw new Error("--series 경로는 legacy --grantId/--audited-local-canary와 함께 사용할 수 없습니다.");
+  }
+  if (series && exactGrantIds.length === 0) {
+    throw new Error("--series 경로는 자동 대상 선정을 하지 않습니다. --grantIds exact CSV가 필요합니다.");
+  }
+  if (!series && exactGrantIds.length > 0) {
+    throw new Error("--grantIds는 --series와 함께 사용해야 합니다.");
+  }
+  const build = readPromotionBuildProvenance();
+  if (!series && !auditedLocalCanary) await assertDispatchCollected(cohort);
 
-  const candidates = selectPromotionCandidatesForRelease(
-    await loadConfirmedPromotionCandidates({ scanAll: Boolean(grantId) }),
-    {
-      ...(grantId ? { grantId } : {}),
-      auditedLocalCanary,
-    },
-  );
+  let deepRepairCohort: DeepRepairPromotionCohort | null = null;
+  let candidates: PromotionCandidate[];
+  if (series) {
+    deepRepairCohort = await loadDeepRepairPromotionCohort({
+      seriesId: series,
+      grantIds: exactGrantIds,
+    });
+    const excluded = [...deepRepairCohort.adminReview, ...deepRepairCohort.held];
+    if (excluded.length > 0) {
+      throw new Error(
+        `exact cohort에 자동 release 불가 대상이 있습니다: ${excluded
+          .map((item) => `${item.grantId}:${item.readiness.disposition}(${item.readiness.reasons.join("+")})`)
+          .join(", ")}`,
+      );
+    }
+    candidates = deepRepairCohort.candidates;
+  } else {
+    candidates = selectPromotionCandidatesForRelease(
+      await loadConfirmedPromotionCandidates({ scanAll: Boolean(grantId) }),
+      {
+        ...(grantId ? { grantId } : {}),
+        auditedLocalCanary,
+      },
+    );
+  }
   if (candidates.length === 0) throw new Error("확정된 promotion candidate가 0건입니다.");
   const guarded = applyPublishGuards(candidates.map((candidate) => candidate.plan));
   if (guarded.refused.length > 0) {
@@ -162,8 +180,9 @@ async function prepare(): Promise<number> {
     );
   }
   const unsafePlans = guarded.publishable.filter((plan) =>
-    plan.conversion.dropped > 0
-    || plan.droppedQuestionCandidates > 0
+    (plan.origin === "deep_repair"
+      ? plan.conversion.dropped !== (plan.scopeRejectedCriterionIndexes?.length ?? -1)
+      : plan.conversion.dropped > 0 || plan.droppedQuestionCandidates > 0)
     || promotionPlanHasUnsafeUnresolvedCriteria(plan, { auditedLocalCanary }));
   if (unsafePlans.length > 0) {
     throw new Error(
@@ -193,6 +212,12 @@ async function prepare(): Promise<number> {
   const candidateByGrantId = new Map(
     candidates.map((candidate) => [candidate.plan.grantId, candidate]),
   );
+  const deepRepairReadinessByGrantId = new Map(
+    (deepRepairCohort?.candidates ?? []).map((candidate) => [
+      candidate.plan.grantId,
+      candidate.readiness,
+    ]),
+  );
   const planItems: PromotionReleasePlanItem[] = [];
   const snapshotByGrant = new Map<string, Awaited<ReturnType<typeof loadPromotionGrantSnapshot>>>();
   for (const plan of guarded.publishable) {
@@ -211,6 +236,9 @@ async function prepare(): Promise<number> {
       questionCountAfter: plan.questions.length,
       pendingCount: plan.resolutions.filter((item) => item.state === "pending").length,
       downgradedCount: plan.conversion.downgraded,
+      ...(deepRepairReadinessByGrantId.has(plan.grantId)
+        ? { deepRepairReadiness: deepRepairReadinessByGrantId.get(plan.grantId)! }
+        : {}),
       transport: candidateByGrantId.get(plan.grantId)?.source.run.transport ?? "api",
       costUsd: candidateByGrantId.get(plan.grantId)?.source.run.costUsd ?? null,
     });
@@ -232,11 +260,15 @@ async function prepare(): Promise<number> {
   );
   const sourceArtifacts: PromotionSourceArtifact[] = [];
   for (const candidate of candidates) {
-    const applicationPrecompute = candidate.sourceArtifact.localLabEvidence
+    const requiresLegacyApplicationEvidence = Boolean(
+      candidate.sourceArtifact.localLabEvidence
+      && candidate.sourceArtifact.localLabEvidence.reviewMethod !== "deep_repair_receipt",
+    );
+    const applicationPrecompute = requiresLegacyApplicationEvidence
       ? await bundlePromotionApplicationPrecompute({ releaseId, labRun: candidate.source.run })
       : null;
     if (
-      candidate.sourceArtifact.localLabEvidence
+      requiresLegacyApplicationEvidence
       && eligibleApplicationGrantIds.has(candidate.plan.grantId)
       && applicationPrecompute === null
     ) {
@@ -297,9 +329,44 @@ async function prepare(): Promise<number> {
   console.log(`[release] plan: ${manifest.releasePlanSha256}`);
   console.log(
     `[release] 대상 ${manifest.plans.length}건 · 조건부 ${manifest.plans.filter(
-      (item) => item.promotionPlan.reviewRisk?.disposition === "conditional",
+      (item) => item.promotionPlan.reviewRisk?.disposition === "conditional"
+        || item.deepRepairReadiness?.disposition === "conditional",
     ).length}건 · canary ${manifest.canaryGrantIds.join(", ")}`,
   );
+  return 0;
+}
+
+async function inspectDeepRepairCohort(): Promise<number> {
+  const series = readArg("series")?.trim();
+  const grantIds = (readArg("grantIds") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (!series) throw new Error("--inspect에는 --series가 필요합니다.");
+  if (grantIds.length === 0) throw new Error("--inspect에는 --grantIds exact CSV가 필요합니다.");
+  const cohort = await loadDeepRepairPromotionCohort({ seriesId: series, grantIds });
+  console.log(JSON.stringify({
+    seriesId: cohort.seriesId,
+    proposalSha256: cohort.proposalSha256,
+    planSha256: cohort.planSha256,
+    manifestSha256: cohort.manifestSha256,
+    candidates: cohort.candidates.map((candidate) => ({
+      sequence: candidate.sourceArtifact.localLabEvidence?.deepRepair?.sequence,
+      grantId: candidate.plan.grantId,
+      runId: candidate.plan.runId,
+      runSha256: candidate.sourceArtifact.runSha256,
+      disposition: candidate.readiness.disposition,
+      reasons: candidate.readiness.reasons,
+      unresolvedAxes: candidate.readiness.unresolvedAxes,
+      sourceRevisionSha256: candidate.readiness.sourceRevisionSha256,
+      inputSha256: candidate.readiness.inputSha256,
+      attachmentManifestSha256: candidate.readiness.attachmentManifestSha256,
+      receiptSha256: candidate.readiness.receiptSha256,
+      criteriaCount: candidate.plan.criteria.length,
+    })),
+    adminReview: cohort.adminReview,
+    held: cohort.held,
+  }, null, 2));
   return 0;
 }
 
@@ -336,14 +403,14 @@ async function readGate(
 }
 
 async function approve(): Promise<number> {
-  assertAnalysisLabPromotionMutationAdmitted();
   const releaseId = readArg("release")?.trim();
   const actor = readArg("actor")?.trim();
   if (!releaseId) throw new Error("--release가 필요합니다.");
   if (!actor) throw new Error("--actor에 승인 담당자 식별자가 필요합니다.");
-  assertCleanGitTree();
+  readPromotionBuildProvenance();
   const manifest = await readPromotionReleaseManifest(releaseId);
   assertManifestConfirmation(manifest, readArg("confirm"));
+  assertReceiptBackedPromotionMutationAdmitted(manifest);
   const aggregate = await readGate(
     releaseId,
     "aggregate.json",
@@ -417,6 +484,7 @@ async function approve(): Promise<number> {
 }
 
 async function main(): Promise<number> {
+  if (hasFlag("inspect")) return inspectDeepRepairCohort();
   if (hasFlag("prepare")) return prepare();
   if (hasFlag("approve")) return approve();
   throw new Error("--prepare 또는 --approve 중 하나가 필요합니다.");

@@ -393,6 +393,25 @@ const baseSidecar = fixtureSidecar([
     "deterministic_contract",
     "결정 규칙으로 해소된 질문은 일반 AI 일치로 위장하지 않는다",
   );
+
+  const receiptSha256 = "d".repeat(64);
+  const deepRepairPlan = planGrantPromotion({
+    run: baseRun,
+    origin: "deep_repair",
+    deepRepairReceiptSha256: receiptSha256,
+    sidecar: baseSidecar,
+  });
+  assert.equal(deepRepairPlan.auditState, "deep_repair_receipt");
+  assert.ok(
+    deepRepairPlan.resolutions.every((item) => (
+      item.state === "deep_repair_receipt" && item.decidedBy === receiptSha256
+    )),
+    "terminal receipt는 사람 검수나 AI 감사가 아닌 독립 provenance여야 한다",
+  );
+  assert.equal(
+    deepRepairPlan.questions[0]?.provenance.auditState,
+    "deep_repair_receipt",
+  );
 }
 
 // ---- 항목 resolver 승격 — 감사 미완도 pending 발행, 미확정 질문은 금지 ------------------

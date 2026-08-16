@@ -65,9 +65,11 @@ export function validateGrantCriteriaContract(criteria: unknown): GrantCriteriaC
 }
 
 /**
- * (dimension, source_span) 중복 검출 — 분해기·LLM 이중 카운트 방지(P4).
- * 같은 차원의 같은 문장 span 으로 2개 이상 criterion 이 생기면 판정 근거가 중복 계산된다.
- * span 이 없는 criterion(text_only placeholder 등)은 대상에서 제외한다.
+ * (dimension, kind, operator, source_span) 중복 검출 — 분해기·LLM 이중 카운트 방지(P4).
+ * 같은 문장이 required 범위와 exclusion 예외를 동시에 담거나 상·하한을 함께 담을 수
+ * 있으므로 dimension/span만 같은 서로 다른 의미의 criterion은 허용한다. 동일한 의미
+ * 슬롯까지 겹칠 때만 중복으로 본다. span 없는 criterion(text_only placeholder 등)은
+ * 대상에서 제외한다.
  */
 function detectDuplicateDimensionSpans(criteria: unknown[]): GrantCriteriaContractIssue[] {
   const issues: GrantCriteriaContractIssue[] = [];
@@ -76,15 +78,17 @@ function detectDuplicateDimensionSpans(criteria: unknown[]): GrantCriteriaContra
     if (!criterion || typeof criterion !== "object") return;
     const record = criterion as Record<string, unknown>;
     const dimension = typeof record.dimension === "string" ? record.dimension : null;
+    const kind = typeof record.kind === "string" ? record.kind : null;
+    const operator = typeof record.operator === "string" ? record.operator : null;
     const span = typeof record.source_span === "string" ? record.source_span.trim() : "";
-    if (!dimension || !span) return;
-    const key = `${dimension}\u0000${span}`;
+    if (!dimension || !kind || !operator || !span) return;
+    const key = `${dimension}\u0000${kind}\u0000${operator}\u0000${span}`;
     const priorIndex = seen.get(key);
     if (priorIndex !== undefined) {
       issues.push({
         index,
         path: `$[${index}].source_span`,
-        message: `duplicate (dimension=${dimension}, span) also at $[${priorIndex}].`,
+        message: `duplicate (dimension=${dimension}, kind=${kind}, operator=${operator}, span) also at $[${priorIndex}].`,
       });
       return;
     }

@@ -192,6 +192,10 @@ export async function verifyPromotionSourceArtifact(
   if (artifact.deepAnalysisRunId) {
     return verifyDeepAnalysisPromotionSourceArtifact(artifact);
   }
+  if (artifact.localLabEvidence?.reviewMethod === "deep_repair_receipt") {
+    const { verifyDeepRepairPromotionSourceArtifact } = await import("./deep-repair-promotion");
+    return verifyDeepRepairPromotionSourceArtifact(artifact);
+  }
   let readRunImpl = deps.readRunImpl;
   if (!readRunImpl) ({ readLabRun: readRunImpl } = await import("./run-store"));
   const run = await readRunImpl(artifact.grantId, artifact.runId);

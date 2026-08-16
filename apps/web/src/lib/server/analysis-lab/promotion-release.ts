@@ -2,6 +2,7 @@ import { createHash, createHmac } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { DeepAnalysisPromotionReadiness } from "../deep-analysis/promotion";
+import type { DeepRepairPromotionReadiness } from "./deep-repair-promotion";
 import type { GrantPromotionPlan } from "./promote";
 import {
   validatePromotionApplicationPrecomputeEvidence,
@@ -14,6 +15,7 @@ export const PROMOTION_RELEASE_SCHEMA = "analysis-lab-promotion-release-v1" as c
 export const PROMOTION_DRY_RUN_SCHEMA = "analysis-lab-promotion-dry-run-v1" as const;
 export const PROMOTION_APPROVAL_SCHEMA = "analysis-lab-promotion-approval-v1" as const;
 export const VERIFIED_LOCAL_LAB_SOURCE_SCHEMA = "verified-local-lab-source-v1" as const;
+export const VERIFIED_DEEP_REPAIR_SOURCE_SCHEMA = "verified-deep-repair-source-v1" as const;
 export const MIN_CONFIRM_HASH_PREFIX = 12;
 
 export type PromotionServingProvenance =
@@ -27,7 +29,7 @@ export interface VerifiedLocalLabSourceEvidence {
   model: string;
   promptVersion: string;
   inputSha256: string;
-  reviewMethod: "human" | "ai_audit";
+  reviewMethod: "human" | "ai_audit" | "deep_repair_receipt";
   reviewModel?: string;
   reviewPromptVersion?: string;
   reviewTransport?: "claude-cli";
@@ -36,6 +38,30 @@ export interface VerifiedLocalLabSourceEvidence {
   auditTransport?: "claude-cli";
   deterministicPolicyVersion?: string;
   deterministicResolvedCriterionIndexes?: number[];
+  deepRepair?: VerifiedDeepRepairSourceEvidence;
+}
+
+/**
+ * deep-repair 실험의 통계 판정과 출시 자격을 분리한 source provenance.
+ * terminal/evaluator receipt는 실행 결속만 증명하고, 실제 출시 분류는 해당 run의
+ * publishable/readiness/repair transition과 prepare 시점 current revision이 소유한다.
+ */
+export interface VerifiedDeepRepairSourceEvidence {
+  schema: typeof VERIFIED_DEEP_REPAIR_SOURCE_SCHEMA;
+  seriesId: string;
+  sequence: number;
+  proposalSha256: string;
+  planSha256: string;
+  planArtifactSha256: string;
+  manifestSha256: string;
+  receiptSha256: string;
+  observationsSha256: string;
+  evaluatorReceiptSha256: string;
+  attachmentManifestSha256: string;
+  sourceRevisionSha256: string;
+  executionGitSha: string;
+  packageRuntimeSha256: string;
+  validatorVersion: string;
 }
 
 export interface PromotionSourceArtifact {
@@ -78,6 +104,8 @@ export interface PromotionReleasePlanItem {
    */
   deepAnalysisReadiness?: DeepAnalysisPromotionReadiness;
   deepAnalysisConditionalOnlyCriteria?: number[];
+  /** local deep-repair receipt 기반 closed-beta 분류와 current revision 결속. */
+  deepRepairReadiness?: DeepRepairPromotionReadiness;
   beforeCriteriaSha256: string;
   beforeQuestionsSha256: string;
   dedupComponentSha256: string;
@@ -226,6 +254,7 @@ export function releasePlanSha256(items: PromotionReleasePlanItem[]): string {
         promotionPlan: item.promotionPlan,
         deepAnalysisReadiness: item.deepAnalysisReadiness,
         deepAnalysisConditionalOnlyCriteria: item.deepAnalysisConditionalOnlyCriteria,
+        deepRepairReadiness: item.deepRepairReadiness,
       })),
   );
 }
@@ -375,7 +404,17 @@ function isPromotableAnalysisRelease(
     && plans.every((item) => (
       isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)
       || isAuditedLocalAcceptedPlan(item.promotionPlan)
+      || isDeepRepairReceiptAcceptedPlan(item.promotionPlan)
     ));
+}
+
+function isDeepRepairReceiptAcceptedPlan(plan: GrantPromotionPlan): boolean {
+  return plan.origin === "deep_repair"
+    && plan.auditState === "deep_repair_receipt"
+    && plan.resolutions.length > 0
+    && plan.resolutions.every((resolution) => resolution.state === "deep_repair_receipt")
+    && plan.conversion.error === null
+    && plan.conversion.dropped === (plan.scopeRejectedCriterionIndexes?.length ?? -1);
 }
 
 /**
@@ -404,6 +443,7 @@ export function releasePlanItemHasUnsafePendingCriteria(
   );
   if (needsReviewPositions.length === 0) return false;
   if (isAuditedLocalAcceptedPlan(item.promotionPlan)) return false;
+  if (isDeepRepairReceiptAcceptedPlan(item.promotionPlan)) return false;
   if (!isPromotableDeepAnalysisReadiness(item.deepAnalysisReadiness)) return true;
   const conditionalOnly = new Set(item.deepAnalysisConditionalOnlyCriteria ?? []);
   return needsReviewPositions.some((position) => !conditionalOnly.has(position));
@@ -431,6 +471,7 @@ export function promotionPlanHasUnsafeUnresolvedCriteria(
 
   const hasNeedsReview = plan.criteria.some((criterion) => criterion.needs_review === true);
   if (!hasNeedsReview) return false;
+  if (isDeepRepairReceiptAcceptedPlan(plan)) return false;
   return !(
     options.auditedLocalCanary === true
     && plan.origin === "audited"
@@ -589,6 +630,28 @@ export function validatePromotionReleaseManifest(value: unknown): PromotionRelea
     } else if (item.deepAnalysisConditionalOnlyCriteria !== undefined) {
       throw new Error(`deep-analysis readiness 없는 conditional 분류: ${item.grantId}`);
     }
+    if (item.promotionPlan.origin === "deep_repair") {
+      const readiness = item.deepRepairReadiness;
+      const evidence = source?.localLabEvidence?.deepRepair;
+      if (
+        !readiness
+        || (readiness.disposition !== "ready" && readiness.disposition !== "conditional")
+        || readiness.reasons.length > 0
+        || source?.localLabEvidence?.reviewMethod !== "deep_repair_receipt"
+        || !evidence
+        || evidence.receiptSha256 !== readiness.receiptSha256
+        || evidence.sourceRevisionSha256 !== readiness.sourceRevisionSha256
+        || source.localLabEvidence.inputSha256 !== readiness.inputSha256
+        || evidence.attachmentManifestSha256 !== readiness.attachmentManifestSha256
+        || item.promotionPlan.conversion.error !== null
+        || item.promotionPlan.conversion.dropped
+          !== (item.promotionPlan.scopeRejectedCriterionIndexes?.length ?? -1)
+      ) {
+        throw new Error(`deep-repair readiness 불일치: ${item.grantId}`);
+      }
+    } else if (item.deepRepairReadiness !== undefined) {
+      throw new Error(`deep-repair plan 없는 readiness: ${item.grantId}`);
+    }
   }
   for (const grantId of typed.canaryGrantIds) {
     if (!seenGrantIds.has(grantId)) throw new Error(`canary가 release plan 밖에 있습니다: ${grantId}`);
@@ -655,6 +718,29 @@ export function isVerifiedLocalLabSourceArtifact(
       && Boolean(evidence.auditModel?.trim())
       && Boolean(evidence.auditPromptVersion?.trim())
       && evidence.auditTransport === "claude-cli";
+  }
+  if (evidence.reviewMethod === "deep_repair_receipt") {
+    const deepRepair = evidence.deepRepair;
+    return deepRepair?.schema === VERIFIED_DEEP_REPAIR_SOURCE_SCHEMA
+      && Boolean(deepRepair.seriesId.trim())
+      && Number.isInteger(deepRepair.sequence)
+      && deepRepair.sequence >= 0
+      && isSha256(deepRepair.proposalSha256)
+      && isSha256(deepRepair.planSha256)
+      && isSha256(deepRepair.planArtifactSha256)
+      && isSha256(deepRepair.manifestSha256)
+      && isSha256(deepRepair.receiptSha256)
+      && isSha256(deepRepair.observationsSha256)
+      && isSha256(deepRepair.evaluatorReceiptSha256)
+      && isSha256(deepRepair.attachmentManifestSha256)
+      && isSha256(deepRepair.sourceRevisionSha256)
+      && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/i.test(deepRepair.executionGitSha)
+      && isSha256(deepRepair.packageRuntimeSha256)
+      && Boolean(deepRepair.validatorVersion.trim())
+      && artifact.sourceRevisionSha256 === deepRepair.sourceRevisionSha256
+      && artifact.aiReviewSha256 === undefined
+      && artifact.auditSha256 === undefined
+      && artifact.reviewSha256 === undefined;
   }
   return false;
 }

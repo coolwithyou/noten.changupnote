@@ -2,7 +2,6 @@
 //   pnpm deep-analysis:release -- --run=<db-run-uuid,...> --actor=<creator>
 // 통합공고 child release(case 전체 gate, 개별 --run 우회 불가):
 //   pnpm deep-analysis:release -- --aggregate-split-case=<case-uuid> --actor=<creator>
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   AGGREGATE_SPLIT_RELEASE_STAGE_KEYS,
@@ -31,7 +30,7 @@ import {
   promotionGrantSnapshotStateSha256,
 } from "../analysis-lab/promotion-snapshot";
 import { verifyPromotionSourceArtifact } from "../analysis-lab/promotion-candidates";
-import { findMonorepoRoot } from "../analysis-lab/run-store";
+import { readPromotionBuildProvenance } from "../analysis-lab/promotion-build-provenance";
 import { createR2ObjectStorageFromEnv } from "../storage/r2ObjectStorage";
 import { prepareDeepAnalysisInput } from "./prepareInput";
 import {
@@ -44,23 +43,6 @@ loadMonorepoEnv();
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
-}
-
-function git(command: string[]): string {
-  return execFileSync("git", command, {
-    cwd: findMonorepoRoot(),
-    encoding: "utf8",
-  }).trim();
-}
-
-function assertCleanGitTree(): { gitCommit: string; buildDigest: string } {
-  if (git(["status", "--porcelain"])) {
-    throw new Error("deep release 준비는 clean git tree에서만 가능합니다.");
-  }
-  return {
-    gitCommit: git(["rev-parse", "HEAD"]),
-    buildDigest: git(["rev-parse", "HEAD^{tree}"]),
-  };
 }
 
 function releaseIdFor(now: Date, commit: string): string {
@@ -273,7 +255,7 @@ async function prepare(): Promise<number> {
     throw new Error("--aggregate-split-case는 UUID여야 합니다.");
   }
   if (runIds.some((value) => !isUuid(value))) throw new Error("--run은 UUID CSV여야 합니다.");
-  const build = assertCleanGitTree();
+  const build = readPromotionBuildProvenance();
   const db = getCunoteDb();
   const storage = createR2ObjectStorageFromEnv();
   if (!storage) throw new Error("R2 환경변수가 필요합니다.");

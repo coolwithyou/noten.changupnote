@@ -53,7 +53,7 @@ import { isPublishableLabRun } from "./run-outcome";
 // ---- 대상 선정 (사람 우선 dedupe — confirmations-cli 규칙의 순수화) -------------------
 
 /** 검수 확정의 출처 — 사람 전수 검수(human) / AI 검수 + 감사 완료 병합(audited). */
-export type PromotionOrigin = "human" | "audited" | "pending";
+export type PromotionOrigin = "human" | "audited" | "pending" | "deep_repair";
 
 /**
  * 질문 provenance 의 감사 상태 — 스키마 계약(B-4 계획 §2).
@@ -64,6 +64,7 @@ export type PromotionAuditState =
   | "human_reviewed"
   | "ai_audit_concur"
   | "deterministic_contract"
+  | "deep_repair_receipt"
   | "mixed_resolution";
 
 export interface PromotionAuditedSourceEvidence {
@@ -327,6 +328,8 @@ export interface GrantPromotionPlan {
   resolutions: CriterionResolution[];
   /** 변환 보고 — 손실(강등·탈락·계약 실패) 무은폐. */
   conversion: ShadowConversionReport;
+  /** matcher 입력이 아닌 신청절차·사후의무로 명시적으로 제외한 원본 criterion index. */
+  scopeRejectedCriterionIndexes?: number[];
   questions: PromotionQuestionPlan[];
   /**
    * 병합 confirmation 을 보유한 correct exclusion 인데 발행 criteria 에 앵커를 잃어
@@ -356,6 +359,8 @@ export function planGrantPromotion(input: {
   overlay?: HumanReviewOverlay | null | undefined;
   origin: PromotionOrigin;
   deterministicResolvedCriterionIndexes?: number[];
+  /** 사람/AI 검수를 가장하지 않는 봉인된 deep-repair terminal receipt provenance. */
+  deepRepairReceiptSha256?: string;
   /** <runId>.confirmations.json 사이드카(없으면 null) — 병합 규칙은 confirmations.ts 그대로. */
   sidecar: LabConfirmationsFile | null;
 }): GrantPromotionPlan {
@@ -370,6 +375,7 @@ export function planGrantPromotion(input: {
     aiReview: input.aiReview,
     audit: input.audit,
     overlay: input.overlay,
+    deepRepairReceiptSha256: input.deepRepairReceiptSha256,
   });
   const reviewRisk = input.review
     ? assessPromotionReviewRisk({ run: mergedRun, review: input.review })
@@ -434,6 +440,8 @@ export function planGrantPromotion(input: {
         ? (input.deterministicResolvedCriterionIndexes?.length ?? 0) > 0
           ? "deterministic_contract"
           : "ai_audit_concur"
+        : input.origin === "deep_repair"
+          ? "deep_repair_receipt"
         : "mixed_resolution";
   const criterionStableKeys = conversion.criteria.map(criterionStableKey);
   const resolutionByIndex = new Map(resolutions.map((item) => [item.criterionIndex, item]));
@@ -500,6 +508,7 @@ export function planGrantPromotion(input: {
     criterionStableKeys,
     resolutions,
     conversion: conversion.report,
+    scopeRejectedCriterionIndexes: [...scopeRejectedIndexes].sort((left, right) => left - right),
     questions,
     droppedQuestionCandidates,
     ...(reviewRisk ? { reviewRisk } : {}),
@@ -512,6 +521,7 @@ function questionAuditState(
     audit?: LabAudit | null | undefined;
     overlay?: HumanReviewOverlay | null | undefined;
     deterministicResolvedCriterionIndexes?: number[] | undefined;
+    deepRepairReceiptSha256?: string | undefined;
   },
   resolution: CriterionResolution,
 ): PromotionAuditState {
@@ -520,6 +530,9 @@ function questionAuditState(
     return "deterministic_contract";
   }
   if (input.origin === "audited") return "ai_audit_concur";
+  if (input.origin === "deep_repair" && input.deepRepairReceiptSha256) {
+    return "deep_repair_receipt";
+  }
   const overlayDecision = input.overlay?.items.some((item) =>
     item.itemKind === "criterion"
     && item.criterionIndex === resolution.criterionIndex
