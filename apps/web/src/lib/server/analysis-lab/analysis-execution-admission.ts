@@ -21,7 +21,11 @@ const RECEIPT_BINDING_FIELDS = [
 ] as const satisfies readonly (keyof AnalysisLabReceiptBoundExecutionBinding)[];
 
 /**
- * Gate R circuit breaker.
+ * Gate R live-execution circuit breaker.
+ *
+ * 이 모듈은 모델 호출과 모델 실행을 위한 cohort mutation만 소유한다. 이미 봉인된 receipt를
+ * 소비하는 promotion release prepare/gate/approve/write는 별도 promotion admission이 소유하며,
+ * 이 모듈을 import해 Gate R target별 권한을 release 처리에 전이하면 안 된다.
  *
  * 현재 허용되는 경로는 모델 호출 없는 dry-run, plan-only, shadow replay뿐이다.
  * runtime lease는 운영 API와 로컬 실행의 상호배타만 증명하며 exact cohort/provenance와

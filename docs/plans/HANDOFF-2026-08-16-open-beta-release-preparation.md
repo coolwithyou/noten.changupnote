@@ -1,5 +1,12 @@
 # 클로즈드 베타 출시 준비 핸드오프
 
+> 후속 정정(2026-08-17): 이 문서의 §6은 당시 읽기 전용 인벤토리 세션에 주어진 권한만
+> 기록합니다. 이후 사용자가 seq 0~8 exact cohort의 `release approve까지`를 승인했으며,
+> 동일 grantId/run/source revision의 failed release 상위 revision은 그 처리 범위를 이어갑니다.
+> Gate R target별 승인은 live 모델 실행 전용이고 release 처리에 반복 적용하지 않습니다.
+> 현재 권한 정본은 `AGENTS.md`의 "딥분석 권한 종류 분리"와
+> `docs/runbooks/deep-analysis-promotion.md`입니다.
+
 - 작성일: 2026-08-16
 - 목적: `deep-v21` 실제 순차 실행 결과를 보존하고, 새 세션이 모델 실행이나 추가 가드 구현이 아니라 출시 가능한 공고의 읽기 전용 인벤토리부터 시작한다.
 - 실행 위치: `/Users/ffgg/noten.works/cunote`의 현재 worktree. `spike-out`의 gitignored artifact가 이 worktree에만 있으므로 새 worktree를 만들지 않는다.
@@ -22,7 +29,7 @@
 - 원문 미확보나 제한된 불명확성은 관리자에게 명확히 알리되, 그 자체로 모든 공고를 차단하지 않는다.
 - 구조화 필드와 상세 원문이 실제로 충돌하면 원문 미확보와 구분해 관리자 확인 대상으로 둔다.
 
-이 단계의 우선순위는 `분석 확대 → 출시 후보 확정 → 별도 승인 승격 → 실제 매칭 확인`이다. 다만 이번 새 세션의 첫 행동은 쓰기 없는 출시 후보 인벤토리다.
+이 단계의 우선순위는 `분석 확대 → 출시 후보 확정 → 승인된 release 처리 → 별도 승인 실승격 → 실제 매칭 확인`이다. 다만 이번 새 세션의 첫 행동은 쓰기 없는 출시 후보 인벤토리다.
 
 ## 2. 구현된 최소 변경과 검증
 
@@ -128,19 +135,24 @@ adf13c04fcd5c4b226628f23adff0cebe23b62bb86ccf5150e8491d73c632e94
 
 읽기 전용 조사에서 재현 가능한 blocker가 없으면 코드를 변경하지 않는다. 조사 결과와 exact grantId/revision/run SHA를 사용자에게 먼저 제시하고, 가장 빠른 release cohort와 예상 사용자 노출 범위를 제안한다.
 
-## 6. 쓰기 경계
+## 6. 당시 쓰기 경계와 후속 승인
 
-이 핸드오프는 다음 권한을 주지 않는다.
+이 핸드오프 자체는 다음 권한을 주지 않았다. 다만 이후 seq 0~8 exact cohort의 release
+approve까지는 별도 대화에서 승인됐고, 아래 금지 목록이 그 후속 승인을 취소하지 않는다.
 
 - deep-v21 sequence 10 이후 재개
 - `lab:experiment:issue` 또는 모델 호출
 - Kordoc·AI 검수·블라인드 감사·confirmations
-- `lab:promote --write`, release approve, DB 변경
+- `lab:promote --write`, 당시의 release approve·DB 변경
 - Vercel/GCP 배포, Cloudflare 변경
 - 운영 worker의 `observe_only` 해제
 - legacy batch/smoke/agent execute
 
-실제 승격은 읽기 전용 인벤토리로 exact cohort를 확정한 뒤, release SHA·grantId·run SHA·revision을 포함한 별도 승인 문구를 사용자에게 제시하고 명시적 승인을 받아야 한다. 승격 뒤에는 protected write 결과, active release/serving provenance, 실제 matcher 노출을 각각 확인한다.
+이 문서 작성 당시에는 exact cohort 확정 뒤 release 처리 범위를 사용자에게 제시해야 했다. 이후
+그 범위가 `release approve까지`로 승인됐으므로 동일 grantId/run/source revision의 failed release
+교체에는 재승인을 요구하지 않는다. 실제 `lab:promote --write`는 여전히 별도 명시 승인을 받은
+뒤 수행하고, 승격 뒤 protected write 결과, active release/serving provenance, 실제 matcher 노출을
+각각 확인한다.
 
 ## 7. 중단 및 해석 규칙
 

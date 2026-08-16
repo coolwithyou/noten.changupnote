@@ -6,8 +6,8 @@
 - plan SHA: `44d2e15b56905ebb716ddb0ccc9f52b7fc5ac00fa8ac2ecc7a4e9b9ba4a5e56f`
 - execution manifest SHA: `3a16970b5d5de5b58dd1e18dcb7d184a1e19feac0094318b2e2979e4f86f0c83`
 - 제안 cohort 이름: `deep-v21-closed-beta-seq-0-8`
-- 상태: revision 1 준비 후 legacy aggregate 불일치로 승인 전 중단. revision 2 생성과 모든
-  실쓰기는 별도 승인 대기
+- 상태: revision 1 준비 후 legacy aggregate 불일치로 승인 전 중단. 동일 exact 결속의 revision 2는
+  기존 `release approve까지` 처리 범위를 이어가며, 실제 `lab:promote --write`만 별도 승인 대기
 
 ## 1. 가장 빠른 exact cohort
 
@@ -67,10 +67,11 @@ held 0건으로 재현됐다. 진행 중/통과한 prepared release나 다른 co
 fail-closed한다. 같은 규칙은 이후 shadow/dry-run 실패도 새 revision 사유로 인정하고, 현재
 admission으로 승인 불가능한 legacy prepared 예약과 완전 rollback은 충돌에서 제외한다.
 
-공통 aggregate v2 계약과 typed source verification을 검증·커밋한 뒤에도 revision 2 release는
-자동 생성하지 않는다. 새 commit/build digest와 동일 exact 9건의 current revision 결속을 다시
-제시하고 별도 승인을 받은 경우에만 revision 2를 준비한다. 이후 aggregate v2, shadow,
-dry-run, 분리 승인을 거치고 `lab:promote --write`는 다시 별도 승인을 기다린다.
+공통 aggregate v2 계약과 typed source verification을 검증·커밋했고, 새 commit/build digest와
+동일 exact 9건의 current revision 결속도 다시 확인했다. 사용자가 이미 exact cohort에 대해
+`aggregate → shadow → dry-run → 다른 actor의 release approve까지`를 승인했으므로 revision 2는
+새 사용자 승인을 요구하지 않고 같은 범위를 이어간다. CLI의 분리 actor는 자기 승인 방지용
+원장 역할이며 별도 사용자 승인 작업이 아니다. `lab:promote --write`는 기존 범위 밖이므로 멈춘다.
 
 모델 호출, Kordoc, 검수·감사·confirmations, sequence 10 재개, DB write, 배포,
 Cloudflare 변경, 운영 `observe_only` 해제는 이 cohort 문서의 권한 범위가 아니다.

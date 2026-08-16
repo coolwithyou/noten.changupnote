@@ -35,7 +35,7 @@ export function LocalAnalysisRuntimeCard({ runtime }: { runtime: LocalAnalysisRu
           </Badge>
         </CardTitle>
         <CardDescription>
-          Gate R 동안 이 화면은 관찰 전용입니다. 신규 실행은 승인된 exact Adapter만 소유합니다.
+          live 모델 실행 Gate 동안 이 화면은 관찰 전용입니다. 신규 실행은 승인된 exact Adapter만 소유합니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -50,7 +50,7 @@ export function LocalAnalysisRuntimeCard({ runtime }: { runtime: LocalAnalysisRu
             disabled
           >
             <LockKeyhole data-icon="inline-start" />
-            Gate R 실행 차단
+            live 모델 실행 차단
           </Button>
         )}
 

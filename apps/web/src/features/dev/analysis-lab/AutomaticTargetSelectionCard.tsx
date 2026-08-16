@@ -38,7 +38,7 @@ export function AutomaticTargetSelectionCard({
   const [result, setResult] = useState<LabAutomaticTargetSelectionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const blockedReason = !analysisAllowed
-    ? "Gate R 동안 자동 대상 선정은 비활성입니다. exact 승인 범위만 사용하세요."
+    ? "live 모델 실행 Gate 동안 자동 대상 선정은 비활성입니다. exact 실행 승인 범위만 사용하세요."
     : pendingCount === null
       ? "현재 분석 대기 수를 확인하고 있습니다."
     : batchRunning

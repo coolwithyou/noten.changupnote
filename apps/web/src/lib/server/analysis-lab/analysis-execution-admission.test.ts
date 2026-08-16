@@ -59,6 +59,21 @@ for (const filename of recursiveTypeScriptFiles(webSourceRoot)) {
   }
 }
 
+for (const promotionFile of [
+  "./promotion-release-cli.ts",
+  "./promotion-aggregate-cli.ts",
+  "./promotion-mutation-admission.ts",
+  "./promote-cli.ts",
+  "./shadow.ts",
+]) {
+  const source = readFileSync(new URL(promotionFile, import.meta.url), "utf8");
+  assert.doesNotMatch(
+    source,
+    /analysis-execution-admission|assertAnalysisLabLiveExecutionAdmitted|gate_r_not_satisfied/,
+    `${promotionFile}: live 모델 Gate를 promotion release 처리 권한으로 전이하면 안 된다`,
+  );
+}
+
 assert.throws(
   () => assertAnalysisLabCohortMutationAdmitted(),
   (error: unknown) =>

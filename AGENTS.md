@@ -2,6 +2,19 @@
 
 창업노트 서비스를 개발할거야
 
+## 승인 범위 지속성과 재확인
+
+- 사용자의 명시적 승인은 `목표 + exact 대상 + 허용한 최대 변경 단계`의 범위로 해석한다. 그
+  범위는 목표가 완료되거나 사용자가 중단·변경할 때까지 유지되며, 네트워크 중단, 실패한
+  불변 산출물의 상위 revision, 같은 구현의 재시도만으로 새 승인을 요구하지 않는다.
+- 다시 확인하는 경우는 대상·데이터·외부 시스템·사용자 노출·쓰기 위험 상한이 승인 범위를
+  실질적으로 벗어날 때뿐이다. 단지 새 commit/hash/release ID가 생겼다는 이유만으로 반복
+  승인을 추가하지 않는다. 새 식별자는 기존 exact 결속과 동일한지 검증해 범위를 이어간다.
+- 시스템 내부의 준비자/검수자/승인자/실행자 역할 분리는 사용자 재승인과 구분한다. 사용자가
+  승인한 범위 안의 역할 분리 단계는 추가 질문 없이 수행한다.
+- 과거의 더 엄격한 실험 규칙은 그 실험의 live 실행에만 적용한다. 해당 규칙을 관련 없는
+  읽기·오프라인 검증·release 처리·일반 개발 작업으로 확대하지 않는다.
+
 ## Development server
 
 - 개발 서버는 사용자가 직접 띄운다.
@@ -56,7 +69,25 @@
 - To add/remove IPs, run `node tools/cloudflare-ip-allowlist.mjs add <CIDR...>` or `node tools/cloudflare-ip-allowlist.mjs remove <CIDR...>`.
 - DNS proxy can be restored with `node tools/cloudflare-ip-allowlist.mjs proxy-on`; turning it off bypasses Cloudflare WAF.
 
-## 딥분석 실행 경로 — 구독(claude CLI) vs API (2026-08-04 확정)
+## 딥분석 권한 종류 분리 (2026-08-17 확정)
+
+- **Gate R은 live 모델 실행 전용이다.** 모델 호출, 신규/대체 cohort 선정, 실행 lease, 비정상
+  종료 recovery처럼 모델 실행을 시작·재개하는 작업에만 target별 approval/authority를 요구한다.
+  읽기 전용 조사, 오프라인 테스트, 이미 봉인된 receipt를 소비하는 release 처리에 Gate R의
+  target별 승인 규칙을 전이하지 않는다.
+- **exact release 처리 권한은 범위로 유지한다.** 사용자가 exact grantId/run/source revision과
+  처리 상한(예: `release approve까지`)을 승인하면 `prepare → aggregate → shadow → dry-run →
+  release approve`가 하나의 연속 범위다. immutable gate 실패로 같은 cohort의 상위 release
+  revision을 만들 때 exact grantId/run/source revision이 그대로라면 새 사용자 승인을 묻지 않고
+  기존 범위를 이어간다. source drift나 cohort/run 변경, 사용자의 중단·범위 변경이 있을 때만
+  다시 확인한다.
+- **CLI의 준비자/승인자 분리는 사용자 재승인이 아니다.** `lab:release --approve`의 다른 actor는
+  자기 승인 방지를 위한 원장 역할 분리이며, 승인된 처리 범위 안에서 수행한다.
+- **실제 서비스 변경은 별도다.** `lab:promote --write`, 배포, Cloudflare 변경, 운영
+  `observe_only` 해제는 release 준비·gate·approve 권한에 포함되지 않으며 각각 명시적 사용자
+  승인이 필요하다. 반대로 이 쓰기 경계 때문에 그 이전 단계에 반복 승인을 추가하지 않는다.
+
+## 딥분석 모델 실행 경로 — 구독(claude CLI) vs API (2026-08-04 확정)
 
 - **현재 순차 재개 경계(2026-08-15 Gate R)**: API 인증 상속을 제거하고 Max preflight를 봉인한 `deep-v20` proposal `1730eb0a...`, plan `58bb96e8...`의 sequence 0 canary를 exact 승인으로 실행했다. receipt `10bad473...`는 `publishable/CONTINUE`, repair 1회·repair 후 신규 issue 0건이며, Anthropic Console은 실행 종료 뒤 새 API 요청 0건을 확인했다. 종료 뒤 runtime은 `paused` generation 123, active deep/application lease 0이다. 따라서 exact-next Adapter를 통한 **순차 대량 재개 기반**은 검증됐지만, 다음 sequence의 자동 권한은 생기지 않는다. `lab:smoke`, `lab:batch` non-dry, `lab:agent --execute`, 자동 대상 선정, 단건/repair, 검수·감사·confirmations의 legacy live 호출은 계속 정적 admission이 차단한다. 다음 실행은 별도 exact 범위 승인 아래 직전 terminal receipt를 parent로 한 target씩만 진행한다.
 - **로컬 실험실(analysis-lab)의 4레인 전부 구독 스위치를 따른다**: 추출(opus-5)·AI 검수(fable-5)·블라인드 감사(sonnet-5)·confirmations. `ANALYSIS_LAB_TRANSPORT=claude-cli` env가 스위치이고, 미설정이면 기존 API 경로(운영 무영향). 공용 transport는 매 실행 scope의 첫 모델 요청 전 `claude auth status --json`이 `claude.ai/firstParty/max`임을 증명하지 못하면 모델 착수 0회로 종료한다. 검수 레인 전환 근거는 `docs/research/2026-08-04-검수레인-구독전환-일치율-검증.md`(원문 대조 41:26 GO).
@@ -76,5 +107,7 @@
 - **운영의 유료 LLM 딥분석은 자동으로 돌리지 않는다**: 2026-08-14 재인증 뒤 Cloud Run 메인 워커 generation 97을 다시 확인했다. `DEEP_ANALYSIS_WORKER_MODE=observe_only`, 안전 worker가 미설정 scope를 fail-closed `unconfigured`로 해석하며, 비종결 Cloud Run execution은 0건이다. 개발 기간에는 이를 유지하고 로컬 구독 lab도 변경된 코드가 봉인된 새 proposal과 사용자 승인 전까지 정적 admission으로 중단한다. 조사 정본: `docs/research/2026-08-04-운영-딥분석-크론과-로컬-구독-겹침-조사.md`.
 - proposal/plan의 git SHA는 로컬 구독 canary를 실행할 checkout 출처이고, 운영 evidence의 `GIT_COMMIT_SHA`는 현재 배포된 Cloud Run worker 출처다. 전자는 현재 로컬 git/package/validator와, 후자는 현재 Cloud Run UID/generation/etag/image/env 및 `ec8cec75566e9ba5d07aead3837ce48501b1b6a9` safe worker contract ancestry와 각각 exact 검증하지만 서로 같은 커밋일 필요는 없다. ancestry를 로컬 checkout에서 증명할 수 없으면 fail-closed하며 자동 fetch하지 않는다. Gate R 증거를 맞추기 위해 운영 worker를 로컬 HEAD로 재배포하지 않는다.
 - 로컬 LabRun과 분석 결과는 DB가 아니라 `spike-out`에 저장한다. proposal preparation과 authority issuer는 DB read-only이고, 사용자 승인 뒤의 단건 live Adapter와 비정상 종료 recovery만 exact-generation runtime lease 제어행을 갱신한다. recovery는 분석 결과나 attempt artifact를 삭제·재실행하지 않는다. 분석 결과를 서비스 DB에 쓰는 접점은 `lab:promote --write`뿐이며 3중 확인(release+write+confirm)이 걸려 있다.
-- 승격 보호 구현(`c79e2c0`) 자체는 유지되지만 현재 Gate R 동안 local release `--approve`와 `lab:promote --write`는 별도 admission이 차단한다. Gate R과 exact end-to-end authority 없이 실발행하지 않는다.
+- 승격 보호 구현(`c79e2c0`)은 유지한다. local release prepare/gate/approve는 Gate R이 아니라
+  receipt 기반 promotion admission과 승인된 exact release 범위를 따른다. `lab:promote --write`는
+  실제 서비스 변경이므로 별도 명시 승인이 없으면 실행하지 않는다.
 - 운영 딥분석을 켤 때는(사용자 결정) `CLAIM_SCOPE=bounded`(cohort sha256 화이트리스트)로 시작하고 로컬 lab 코호트와 상호배타 집합 유지, 켜기 전 pending 큐(누적 중) 정리.

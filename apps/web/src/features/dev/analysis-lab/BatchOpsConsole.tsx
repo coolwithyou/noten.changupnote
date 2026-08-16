@@ -129,7 +129,7 @@ export function BatchOpsConsole({
 
         {!analysisAllowed ? (
           <Alert>
-            <AlertTitle>Gate R에서 배치 실행 차단</AlertTitle>
+            <AlertTitle>live 모델 실행 Gate에서 배치 차단</AlertTitle>
             <AlertDescription>이 화면은 진행 상태와 과거 결과 관찰만 지원합니다. 신규 실행은 exact Adapter 승인 범위에서만 가능합니다.</AlertDescription>
           </Alert>
         ) : null}

@@ -1,7 +1,8 @@
 # 딥 공고 분석 운영 승격 Runbook
 
 > 적용일: 2026-08-17
-> 상태: 신규 릴리스는 receipt 기반 exact cohort만 허용. 모든 실쓰기 별도 승인 대기
+> 상태: 신규 릴리스는 receipt 기반 exact cohort만 허용. exact release 처리 범위와 실제
+> `lab:promote --write` 권한을 분리
 > 상세 설계: `docs/plans/2026-07-24-deep-analysis-production-rollout.md`
 
 ## 1. 원칙
@@ -20,6 +21,10 @@
   증거로, production/deep-repair는 sealed readiness/receipt 증거로 공통 gate interface에
   투영합니다.
 - 준비자, 승인자, 실행자는 식별 가능한 서로 다른 담당자로 기록합니다.
+- Gate R은 live 모델 실행 권한만 소유합니다. 이미 봉인된 receipt를 사용하는 release 처리에
+  target별 실행 승인을 반복 적용하지 않습니다.
+- 사용자가 exact cohort와 처리 상한을 승인하면 그 범위는 같은 grantId/run/source revision의
+  실패 revision 교체에도 유지됩니다. CLI 승인자 actor 분리는 새 사용자 승인이 아닙니다.
 - 실발행은 manifest hash 앞 12자 이상을 직접 확인한 경우에만 허용합니다.
 - 사업자등록번호와 회사 원문 식별자는 릴리스 JSON·로그에 남기지 않습니다.
 
@@ -81,8 +86,10 @@ receipt admission으로 승인할 수 없는 legacy prepared 예약과 완전히
 
 ## 6. 릴리스 준비와 게이트
 
-receipt 기반 exact cohort는 사용자에게 grantId/run/revision/receipt 결속을 먼저 제시하고
-release 생성 승인을 받은 뒤에만 다음 형식으로 준비합니다.
+receipt 기반 exact cohort는 사용자에게 grantId/run/source revision/receipt 결속과 처리 상한을
+먼저 제시합니다. 사용자가 `release approve까지`처럼 범위를 승인하면 다음 준비와 세 gate,
+분리 actor approve까지 한 흐름으로 진행합니다. immutable gate 실패로 상위 revision을 만들더라도
+exact 결속이 같으면 새 사용자 승인을 요구하지 않습니다.
 
 ```bash
 pnpm lab:release -- \
@@ -131,7 +138,7 @@ aggregate v2는 두 증거를 한 숫자로 섞지 않습니다.
 - 변환 오류, 드롭, 질문 앵커 상실, baseline drift가 0입니다.
 - shadow JSON의 회사 키는 `company-...` 형태이며 원문 사업자등록번호가 없습니다.
 
-## 7. 분리 승인
+## 7. 원장 역할 분리 승인
 
 준비자가 아닌 승인자가 실행합니다.
 
@@ -144,7 +151,8 @@ pnpm lab:release -- \
 ```
 
 명령은 aggregate v2, shadow, dry-run의 파일 hash와 schema까지 다시 검증해
-`approval.json`과 DB 원장에 기록합니다.
+`approval.json`과 DB 원장에 기록합니다. 여기서 다른 승인자 actor는 자기 승인 방지를 위한
+원장 역할 분리이며, 사용자에게 같은 release 범위를 다시 승인받는 단계가 아닙니다.
 
 ## 8. 카나리와 전체 승격
 
@@ -200,6 +208,7 @@ pnpm lab:rollback -- \
 ## 10. 현재 중단 조건
 
 2026-08-17 현재 `deep-v21` sequence 0~8은 exact read-only inventory를 통과했고 sequence 9는
-실제 source conflict 관리자 확인 대상입니다. 아직 promotion release를 만들지 않았습니다.
-release 준비·승인, `lab:promote --write`, 배포와 운영 설정 변경은 사용자의 별도 승인 전까지
-실행하지 않습니다.
+실제 source conflict 관리자 확인 대상입니다. 사용자가 seq 0~8 exact cohort에 대해
+release approve까지 처리 범위를 승인했으므로, 같은 grantId/run/source revision을 유지하는
+revision 2 준비·세 gate·원장 역할 분리 approve는 재승인 없이 이어갑니다. `lab:promote --write`,
+배포와 운영 설정 변경은 이 범위에 포함되지 않습니다.

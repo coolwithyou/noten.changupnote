@@ -11,7 +11,9 @@ export class PromotionMutationAdmissionError extends Error {
 }
 
 /**
- * 모델 실행 Gate와 release mutation 권한을 분리한다.
+ * 모델 실행 Gate와 release mutation 권한을 분리한다. Gate R target별 approval/authority는
+ * 이 seam의 입력이 아니며, 승인된 exact release 처리 범위는 failed revision에서도 같은
+ * grantId/run/source revision 결속이 유지되는 동안 이어진다.
  *
  * 이 함수는 readPromotionReleaseManifest가 schema/hash를 검증한 뒤 호출한다. 모든 항목이
  * exact deep-repair receipt와 current revision readiness에 묶인 release만 mutation 경계를

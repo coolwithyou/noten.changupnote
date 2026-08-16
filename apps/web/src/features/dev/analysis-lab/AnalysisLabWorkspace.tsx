@@ -45,7 +45,7 @@ function isWorkspaceValue(value: string): value is WorkspaceValue {
 
 export function AnalysisLabWorkspace() {
   const runtime = useLocalAnalysisRuntime();
-  // Gate R: 이 UI는 관찰 전용이다. stale runtime lease가 있어도 live action prop을 열지 않는다.
+  // live 모델 실행 Gate: stale runtime lease가 있어도 live action prop을 열지 않는다.
   const liveExecutionAllowed = false;
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceValue>("batch-ops");
 
@@ -68,7 +68,7 @@ export function AnalysisLabWorkspace() {
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline">LOCAL DEV</Badge>
               <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                <Sparkles /> Gate R 관찰 전용
+                <Sparkles /> live 모델 실행 관찰 전용
               </span>
             </div>
             <div>
