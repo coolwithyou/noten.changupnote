@@ -11,6 +11,7 @@ import {
   resolvePromotionServingEvidence,
   type PromotionServingLedgerItem,
 } from "./promotion-serving";
+import { assertServingVerificationTargets } from "../deep-analysis/verify-serving-cli";
 
 const grantId = "00000000-0000-4000-8000-000000000001";
 const runId = "run-2026-08-06T000000.000Z-abcd";
@@ -110,6 +111,16 @@ function ledger(overrides: Partial<PromotionServingLedgerItem> = {}): PromotionS
     "lab-deep-v7",
   );
 }
+
+assert.doesNotThrow(
+  () => assertServingVerificationTargets([{ ...ledger(), status: "applied" }]),
+  "verified local lab item은 deepAnalysisRunId 없이도 serving 검증 대상이어야 한다",
+);
+assert.throws(
+  () => assertServingVerificationTargets([{ ...ledger(), status: "prepared" }]),
+  /applied promotion item/,
+  "미적용 local item은 serving 검증 대상이 아니어야 한다",
+);
 
 assert.equal(
   resolvePromotionServingEvidence(ledger({ deepAnalysisRunId: "00000000-0000-4000-8000-000000000099" }))?.kind,

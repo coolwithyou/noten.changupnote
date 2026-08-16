@@ -13,6 +13,11 @@ import {
   sha256Canonical,
   validatePromotionReleaseManifest,
 } from "../analysis-lab/promotion-release";
+import { verifyPromotionReleaseSources } from "../analysis-lab/promotion-candidates";
+import {
+  resolvePromotionServingEvidence,
+  type PromotionServingLedgerItem,
+} from "../analysis-lab/promotion-serving";
 import {
   loadPromotionGrantSnapshot,
   promotionGrantSnapshotStateSha256,
@@ -30,6 +35,17 @@ loadMonorepoEnv();
 function readArg(name: string): string | undefined {
   const prefix = `--${name}=`;
   return process.argv.find((argument) => argument.startsWith(prefix))?.slice(prefix.length);
+}
+
+export function assertServingVerificationTargets(
+  items: ReadonlyArray<PromotionServingLedgerItem & { status: string }>,
+): void {
+  if (items.some((item) => item.status !== "applied")) {
+    throw new Error("applied promotion item만 serving 검증할 수 있습니다.");
+  }
+  if (items.some((item) => !resolvePromotionServingEvidence(item))) {
+    throw new Error("서빙 가능한 production deep run 또는 verified local lab provenance가 필요합니다.");
+  }
 }
 
 async function main(): Promise<number> {
@@ -164,9 +180,15 @@ export async function verifyDeepAnalysisReleaseServing(input: {
     : manifest.plans.map((item) => item.grantId);
   const targets = itemRows.filter((item) => targetGrantIds.includes(item.grantId));
   if (targets.length !== targetGrantIds.length) throw new Error("serving 검증 대상 item이 누락됐습니다.");
-  if (targets.some((item) => item.status !== "applied" || !item.deepAnalysisRunId)) {
-    throw new Error("applied deep-analysis promotion item만 serving 검증할 수 있습니다.");
-  }
+  assertServingVerificationTargets(targets.map((item) => ({
+    grantId: item.grantId,
+    runId: item.runId,
+    planSha256: item.planSha256,
+    deepAnalysisRunId: item.deepAnalysisRunId,
+    releaseManifestSha256: release.manifestSha256,
+    manifest: release.manifest,
+    status: item.status,
+  })));
   const grantStateRows = await db
     .select({
       id: schema.grants.id,
@@ -209,6 +231,9 @@ export async function verifyDeepAnalysisReleaseServing(input: {
     .from(schema.dedupLinks)
     .where(eq(schema.dedupLinks.confirmed, true));
   const planByGrant = new Map(manifest.plans.map((item) => [item.grantId, item]));
+  const sourceArtifactByGrant = new Map(
+    manifest.sourceArtifacts.map((artifact) => [artifact.grantId, artifact]),
+  );
   const failures: Array<{ grantId: string; stage: string; issues: string[] }> = [];
   const passed: Array<{
     grantId: string;
@@ -222,20 +247,50 @@ export async function verifyDeepAnalysisReleaseServing(input: {
 
   for (const item of targets) {
     const planItem = planByGrant.get(item.grantId);
+    const sourceArtifact = sourceArtifactByGrant.get(item.grantId);
     const entry = entryByGrant.get(item.grantId);
-    const [run] = await db
-      .select()
-      .from(schema.grantDeepAnalysisRuns)
-      .where(eq(schema.grantDeepAnalysisRuns.id, item.deepAnalysisRunId!))
-      .limit(1);
-    if (!planItem || !run || !item.afterSha256) {
+    const servingEvidence = resolvePromotionServingEvidence({
+      grantId: item.grantId,
+      runId: item.runId,
+      planSha256: item.planSha256,
+      deepAnalysisRunId: item.deepAnalysisRunId,
+      releaseManifestSha256: release.manifestSha256,
+      manifest: release.manifest,
+    });
+    const [run] = item.deepAnalysisRunId
+      ? await db
+        .select()
+        .from(schema.grantDeepAnalysisRuns)
+        .where(eq(schema.grantDeepAnalysisRuns.id, item.deepAnalysisRunId))
+        .limit(1)
+      : [];
+    const localEvidence = servingEvidence?.kind === "verified_local_lab"
+      ? servingEvidence.evidence
+      : null;
+    const verifiedSourceRevisionSha256 = run?.sourceRevisionSha256
+      ?? sourceArtifact?.sourceRevisionSha256
+      ?? null;
+    if (
+      !planItem
+      || !item.afterSha256
+      || !verifiedSourceRevisionSha256
+      || (!run && (!localEvidence || !sourceArtifact))
+    ) {
       failures.push({
         grantId: item.grantId,
         stage: "publication_complete",
-        issues: ["promotion plan, deep run 또는 after hash 누락"],
+        issues: ["promotion plan, 서빙 provenance 또는 after hash 누락"],
       });
       continue;
     }
+    const appendProductionReceipt = async (input: {
+      stage: "publication_complete" | "serving_complete" | "analysis_fresh";
+      status: "passed" | "failed" | "stale";
+      evidence: Record<string, unknown>;
+    }): Promise<void> => {
+      if (!run) return;
+      await appendNextReceipt({ db, storage, run, ...input });
+    };
     const currentSnapshot = await loadPromotionGrantSnapshot(db, item.grantId, confirmedLinks);
     const beforeSnapshot = item.beforeSnapshot as unknown as PromotionGrantSnapshot;
     const publicationIssues = verifyAppliedPromotionSnapshot({
@@ -260,10 +315,7 @@ export async function verifyDeepAnalysisReleaseServing(input: {
       issueCount: publicationIssues.length,
       issues: publicationIssues,
     };
-    await appendNextReceipt({
-      db,
-      storage,
-      run,
+    await appendProductionReceipt({
       stage: "publication_complete",
       status: publicationIssues.length === 0 ? "passed" : "failed",
       evidence: publicationEvidence,
@@ -279,11 +331,11 @@ export async function verifyDeepAnalysisReleaseServing(input: {
     if (verificationMode === "publication_only") {
       passed.push({
         grantId: item.grantId,
-        runId: run.runId,
+        runId: run?.runId ?? item.runId,
         afterSha256: item.afterSha256,
         repositoryCriteriaSha256: "not_checked",
         traceSha256: "not_checked",
-        sourceRevisionSha256: run.sourceRevisionSha256,
+        sourceRevisionSha256: verifiedSourceRevisionSha256,
         verificationMode,
       });
       continue;
@@ -291,10 +343,7 @@ export async function verifyDeepAnalysisReleaseServing(input: {
 
     if (!entry) {
       const issues = ["production grant repository에서 공고를 읽지 못했습니다."];
-      await appendNextReceipt({
-        db,
-        storage,
-        run,
+      await appendProductionReceipt({
         stage: "serving_complete",
         status: "failed",
         evidence: {
@@ -321,10 +370,7 @@ export async function verifyDeepAnalysisReleaseServing(input: {
       const issues = [
         `grant serving_state가 visible이 아닙니다: ${servingState ?? "missing"}`,
       ];
-      await appendNextReceipt({
-        db,
-        storage,
-        run,
+      await appendProductionReceipt({
         stage: "serving_complete",
         status: "failed",
         evidence: {
@@ -386,10 +432,7 @@ export async function verifyDeepAnalysisReleaseServing(input: {
       }
     }
     const traceSha256 = sha256Canonical(traceRows);
-    await appendNextReceipt({
-      db,
-      storage,
-      run,
+    await appendProductionReceipt({
       stage: "serving_complete",
       status: traceIssues.length === 0 ? "passed" : "failed",
       evidence: {
@@ -418,24 +461,32 @@ export async function verifyDeepAnalysisReleaseServing(input: {
       continue;
     }
 
-    const currentInput = await prepareDeepAnalysisInput({
-      db,
-      storage,
-      grantId: item.grantId,
-      maxTotalChars: DEEP_ANALYSIS_DEFAULT_LIMITS.maxTotalInputChars,
-    });
     const freshnessIssues: string[] = [];
-    if (!currentInput.sealed) freshnessIssues.push("current input이 sealed가 아닙니다.");
-    if (currentInput.sourceRevisionSha256 !== run.sourceRevisionSha256) {
-      freshnessIssues.push("current source revision이 serving run과 다릅니다.");
+    let currentSourceRevisionSha256: string;
+    let currentInputSha256: string;
+    if (run) {
+      const currentInput = await prepareDeepAnalysisInput({
+        db,
+        storage,
+        grantId: item.grantId,
+        maxTotalChars: DEEP_ANALYSIS_DEFAULT_LIMITS.maxTotalInputChars,
+      });
+      currentSourceRevisionSha256 = currentInput.sourceRevisionSha256;
+      currentInputSha256 = currentInput.inputSha256;
+      if (!currentInput.sealed) freshnessIssues.push("current input이 sealed가 아닙니다.");
+      if (currentSourceRevisionSha256 !== run.sourceRevisionSha256) {
+        freshnessIssues.push("current source revision이 serving run과 다릅니다.");
+      }
+      if (currentInputSha256 !== run.inputSha256) {
+        freshnessIssues.push("current input hash가 serving run과 다릅니다.");
+      }
+    } else {
+      const drift = await verifyPromotionReleaseSources([sourceArtifact!]);
+      freshnessIssues.push(...drift.map((issue) => `release source drift:${issue}`));
+      currentSourceRevisionSha256 = verifiedSourceRevisionSha256;
+      currentInputSha256 = localEvidence!.inputSha256;
     }
-    if (currentInput.inputSha256 !== run.inputSha256) {
-      freshnessIssues.push("current input hash가 serving run과 다릅니다.");
-    }
-    await appendNextReceipt({
-      db,
-      storage,
-      run,
+    await appendProductionReceipt({
       stage: "analysis_fresh",
       status: freshnessIssues.length === 0 ? "passed" : "stale",
       evidence: {
@@ -445,10 +496,11 @@ export async function verifyDeepAnalysisReleaseServing(input: {
         monitorExecutionId,
         monitorRuntime,
         promotionItemId: item.id,
-        runSourceRevisionSha256: run.sourceRevisionSha256,
-        currentSourceRevisionSha256: currentInput.sourceRevisionSha256,
-        runInputSha256: run.inputSha256,
-        currentInputSha256: currentInput.inputSha256,
+        runSourceRevisionSha256: run?.sourceRevisionSha256
+          ?? sourceArtifact!.sourceRevisionSha256,
+        currentSourceRevisionSha256,
+        runInputSha256: run?.inputSha256 ?? localEvidence!.inputSha256,
+        currentInputSha256,
         issueCount: freshnessIssues.length,
         issues: freshnessIssues,
       },
@@ -463,11 +515,11 @@ export async function verifyDeepAnalysisReleaseServing(input: {
     }
     passed.push({
       grantId: item.grantId,
-      runId: run.runId,
+      runId: run?.runId ?? item.runId,
       afterSha256: item.afterSha256,
       repositoryCriteriaSha256,
       traceSha256,
-      sourceRevisionSha256: run.sourceRevisionSha256,
+      sourceRevisionSha256: verifiedSourceRevisionSha256,
       verificationMode,
     });
   }
