@@ -6,8 +6,9 @@
 - plan SHA: `44d2e15b56905ebb716ddb0ccc9f52b7fc5ac00fa8ac2ecc7a4e9b9ba4a5e56f`
 - execution manifest SHA: `3a16970b5d5de5b58dd1e18dcb7d184a1e19feac0094318b2e2979e4f86f0c83`
 - 제안 cohort 이름: `deep-v21-closed-beta-seq-0-8`
-- 상태: revision 1 준비 후 legacy aggregate 불일치로 승인 전 중단. 동일 exact 결속의 revision 2는
-  기존 `release approve까지` 처리 범위를 이어가며, 실제 `lab:promote --write`만 별도 승인 대기
+- 상태: revision 1은 legacy aggregate 불일치로 중단. 동일 exact 결속의 revision 2
+  `deep-deep-v21-closed-beta-seq-0-8-r2-20260816T231937Z-0dcd5712`는 aggregate `GO`,
+  shadow `PASS`, dry-run `PASS`, 분리 actor 승인을 거쳐 9건 모두 적용됐고 현재 `active`
 
 ## 1. 가장 빠른 exact cohort
 
@@ -22,7 +23,7 @@ sequence 0~8의 9건을 하나의 최초 클로즈드 베타 cohort로 제안한
 | 0 | `3d76caed-3df9-4a97-8554-51b38e954b26` | `run-2026-08-16T110956.775Z-6561c7` | `4c1034bca3e42b71acd11b8e5a916eacf8632e599fca71be7dea588cc1180d54` | ready | `5399898b032259bf916b24f525c667a2e59fbf3b1f60b97c1b038130960fab4d` | `31f3bd525fc5435b48f3d815cea80181ff3f5c0ccfe1fbba80ba7fc5de16e5ef` | 31 |
 | 1 | `b4b0f634-b068-4f30-b83f-e2863a22dbc9` | `run-2026-08-16T111951.820Z-c558b9` | `7b4603ee9941d9466b7b23578b4f37cfe3be05e8ffdeb348590f612070cfe233` | conditional | `a3672862d6c488f1d1d5178f0222c87d83c0ae7918fd42053d16c3a6621c392b` | `58f11149500fac50a120d8e1d9e531c89d2306b56a4eac92a49f2282636ebb3f` | 5 |
 | 2 | `87d36b6f-23f3-4484-8f08-fe8394ba5e10` | `run-2026-08-16T112508.431Z-aadeee` | `fef17148cb2ce735b4ad5e33a67c30beb95e17e37fe05a3124c976dedf543e4a` | conditional | `1c054364a5d478a36672df5ea7dfa024ecb76331951544f2872c62cc1cc50595` | `b79a59b46beeadc824241251e9f52bc66277b978a2077e110b3de58a77b24e24` | 3 |
-| 3 | `95b40166-cdc5-452f-82fc-ffd35f1b53d7` | `run-2026-08-16T112847.189Z-fa64a7` | `7a46a8ff241c07a2aebe65e6dc81c1eeb2ecaa4f7a1e0475fa963f4bd2000926` | ready | `bb447fbd4a87787d15c551d4a3fa297e46dca7287a25055ebbbafd5cf60a3419` | `341dd6aa8242b2ce8ec017774cd0a6e9e0f1d2af80e7a6d6b502d5e0af437296` | 12 |
+| 3 | `95b40166-cdc5-452f-82fc-ffd35f1b53d7` | `run-2026-08-16T112847.189Z-fa64a7` | `7a46a8ff241c07a2aebe65e6dc81c1eeb2ecaa4f7a1e0475fa963f4bd2000926` | ready | `92edc3068c51c63e25f87e3f846bab760374c18fdb4207858bbbfd3cae40fb45` | `341dd6aa8242b2ce8ec017774cd0a6e9e0f1d2af80e7a6d6b502d5e0af437296` | 12 |
 | 4 | `d80caca6-e654-4705-881c-2bdb42be8b32` | `run-2026-08-16T113248.782Z-c096c0` | `bfb52f8b6178ba9135fa9bec35bbfd030f5de4278fa71176398648a9209cf4dc` | conditional | `0f196bf38264ca63b5d623695ab4912b8024502b7a2b14a93a10c576bee1fa66` | `5e8649cb04c305c0ef806d462317a6e208b4648f4466510c3e94ca5c362eddaa` | 3 |
 | 5 | `68a8ae09-ccbd-4610-aa26-77cd9944894e` | `run-2026-08-16T113948.040Z-cd6092` | `17de7020d40a3470775f3aa4f9e31959c1f98f4669e237cb37078580e21f92cd` | conditional | `060d639c0d92057c3630a00469f494f6e0559aeecbed408accd9beaab35fbfbd` | `d430803ddbbbb0bae8dec2aa4134e64cb21131e616edfeecf88491f376652659` | 22 |
 | 6 | `f165d498-810c-4a69-a3be-190efd319175` | `run-2026-08-16T114659.268Z-f7a269` | `adbd01a87ba974717a4a6ccf05838cf53282af9a621c7152350a16506691025a` | conditional | `95712cbd89b558d684ea7e55411bbbd85815e1088eb4b83d323b96c667c7a9a5` | `0dcab622571812aa804e507faf87837c050e4f76d67f51e64ed0fb8a81872a6d` | 12 |
@@ -41,11 +42,11 @@ sequence 9의 `b8e1d002-dae1-402d-bc04-b14e9e9ef4f1`은 현재 source/input/atta
 
 ## 3. 현재 serving provenance
 
-현재 `active`/`canary_passed` release의 applied item은 3행이다. 과거 두 release
+현재 `active`/`canary_passed` release의 applied item은 12행이다. 과거 두 release
 `deep-2026-08-09-audited-canary-r3-20260808T161753Z-ead96b72`,
 `deep-2026-08-09-ai-kordoc-canary-r4-322e2286`은 serving resolver 결과가 `null`이라 제품
-후보에서 제외된다. `deep-quality-loop-gbio-20260809-r2-20260809T100130Z-057065bf`의 1건만
-`verified_local_lab` provenance로 서빙 가능하다. 위 exact 9건과 grantId가 겹치지 않는다.
+후보에서 제외된다. 기존 `deep-quality-loop-gbio-20260809-r2-20260809T100130Z-057065bf` 1건과
+이번 exact release 9건, 합계 10건이 `verified_local_lab` provenance로 서빙 가능하다.
 
 ## 4. revision 1 중단 증거와 다음 승인 경계
 
@@ -68,10 +69,17 @@ fail-closed한다. 같은 규칙은 이후 shadow/dry-run 실패도 새 revision
 admission으로 승인 불가능한 legacy prepared 예약과 완전 rollback은 충돌에서 제외한다.
 
 공통 aggregate v2 계약과 typed source verification을 검증·커밋했고, 새 commit/build digest와
-동일 exact 9건의 current revision 결속도 다시 확인했다. 사용자가 이미 exact cohort에 대해
-`aggregate → shadow → dry-run → 다른 actor의 release approve까지`를 승인했으므로 revision 2는
-새 사용자 승인을 요구하지 않고 같은 범위를 이어간다. CLI의 분리 actor는 자기 승인 방지용
-원장 역할이며 별도 사용자 승인 작업이 아니다. `lab:promote --write`는 기존 범위 밖이므로 멈춘다.
+동일 exact 9건의 current revision 결속도 다시 확인했다. revision 2의 manifest SHA는
+`257b9509a322a255f3902ee98dd4e61d63741d0c575f3fce34cc3d81fe46b7e1`, release plan SHA는
+`0423333151b086b4e4834fc937b3a94202c28a36c10c23cfcd9daf8ec27a1d77`이다. 준비자는
+`codex-closed-beta-preparer`, 승인자는 `codex-closed-beta-approver`, 실행자는
+`codex-closed-beta-executor`로 분리했다.
 
-모델 호출, Kordoc, 검수·감사·confirmations, sequence 10 재개, DB write, 배포,
-Cloudflare 변경, 운영 `observe_only` 해제는 이 cohort 문서의 권한 범위가 아니다.
+후속 사용자 지시에 따라 canary 1건 적용과 promotion snapshot 검증을 먼저 통과한 뒤 전체를
+적용했다. 최종 원장은 `active`, item은 `applied` 9/9, after hash 9/9다. 전체 publication snapshot,
+production repository criteria, 고정 프로필 matcher trace, current source/input 결속 검증도 9/9
+`PASS`다. 로컬 receipt release에 운영 deep-run FK를 강제하던 검증기 잔재는 제거하고
+`verified_local_lab` manifest provenance를 직접 검증하도록 바꿨다.
+
+모델 호출, Kordoc, 검수·감사·confirmations, sequence 10 재개, 배포, Cloudflare 변경,
+운영 `observe_only` 해제는 실행하지 않았다. sequence 9는 계속 관리자 확인 대상이다.
