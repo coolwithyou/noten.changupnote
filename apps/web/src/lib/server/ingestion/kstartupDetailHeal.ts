@@ -19,7 +19,7 @@ import { hashGrantRawPayload } from "./grantRawHash";
 import { attachmentsFromDetail, fetchKStartupDetailWithRetry } from "./kstartupDetailFetch";
 import { preserveArchivedKStartupAttachmentMetadata } from "./kstartupAttachmentSelection";
 
-export type HealDetailStatus = "updated" | "dry_run" | "no_raw" | "fetch_failed";
+export type HealDetailStatus = "updated" | "observed" | "dry_run" | "no_raw" | "fetch_failed";
 
 export interface HealDetailResult {
   ok: boolean;
@@ -60,12 +60,38 @@ export async function healKStartupGrantDetail(
 
   const nextPayload: Record<string, unknown> = { ...existing.payload, detail };
   const nextAttachments = preserveArchivedKStartupAttachmentMetadata(attachments, existing.attachments);
+  const observedAt = new Date(detail.fetched_at);
+  if (!Number.isFinite(observedAt.getTime())) {
+    return { ok: false, status: "fetch_failed", error: "invalid detail fetched_at" };
+  }
+
+  // 정기 재수집의 fetched_at만 달라진 경우 raw payload와 rawHash를 다시 쓰지 않는다.
+  // rawHash는 source revision의 일부이므로 관측 시각 갱신을 공고 내용 변경으로 만들면
+  // 동일한 분석 입력·첨부가 매주 stale 처리된다. collectedAt만 최신 관측 시각으로 이동해
+  // cron freshness는 유지하고, 실제 상세 내용/첨부가 바뀔 때만 revision을 전진시킨다.
+  if (isKStartupDetailMateriallyEqual({
+    previousDetail: existing.payload.detail,
+    currentDetail: detail,
+    previousAttachments: existing.attachments,
+    currentAttachments: nextAttachments,
+  })) {
+    await db
+      .update(schema.grantRaw)
+      .set({ collectedAt: observedAt })
+      .where(and(
+        eq(schema.grantRaw.source, "kstartup"),
+        eq(schema.grantRaw.sourceId, input.sourceId),
+      ));
+    return { ok: true, status: "observed", detail, attachments: nextAttachments };
+  }
+
   await db
     .update(schema.grantRaw)
     .set({
       payload: nextPayload,
       attachments: nextAttachments as unknown as Array<Record<string, unknown>>,
       rawHash: hashGrantRawPayload(nextPayload),
+      collectedAt: observedAt,
     })
     .where(and(
       eq(schema.grantRaw.source, "kstartup"),
@@ -84,6 +110,29 @@ export async function healKStartupGrantDetail(
     ));
 
   return { ok: true, status: "updated", detail, attachments: nextAttachments };
+}
+
+export function isKStartupDetailMateriallyEqual(input: {
+  previousDetail: unknown;
+  currentDetail: KStartupDetailContent;
+  previousAttachments: GrantRaw["attachments"] | null | undefined;
+  currentAttachments: GrantRaw["attachments"] | null | undefined;
+}): boolean {
+  const previous = detailMaterial(input.previousDetail);
+  if (!previous) return false;
+  return hashGrantRawPayload({
+    detail: previous,
+    attachments: input.previousAttachments ?? [],
+  }) === hashGrantRawPayload({
+    detail: detailMaterial(input.currentDetail),
+    attachments: input.currentAttachments ?? [],
+  });
+}
+
+function detailMaterial(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const { fetched_at: _observedAt, ...material } = value as Record<string, unknown>;
+  return material;
 }
 
 async function readGrantRawPayload(

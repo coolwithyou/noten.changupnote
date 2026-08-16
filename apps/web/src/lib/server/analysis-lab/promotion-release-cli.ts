@@ -4,6 +4,7 @@ import { applyPublishGuards } from "./promote";
 import { assertReceiptBackedPromotionMutationAdmitted } from "./promotion-mutation-admission";
 import { loadDeepRepairPromotionCohort } from "./deep-repair-promotion";
 import {
+  assertPromotionReleaseContinuationBinding,
   assertManifestConfirmation,
   createPromotionReleaseManifest,
   hashFile,
@@ -109,7 +110,9 @@ async function assertPreparedRevisionCanAdvance(input: {
   cohort: string;
   revision: number;
   grantIds: readonly string[];
-}): Promise<void> {
+  plans: PromotionReleasePlanItem[];
+  sourceArtifacts: ReturnType<typeof validatePromotionReleaseManifest>["sourceArtifacts"];
+}): Promise<{ supersededReleaseIds: string[]; refreshedSourceGrantIds: string[] }> {
   const db = getCunoteDb();
   const rows = await db
     .select({
@@ -127,6 +130,8 @@ async function assertPreparedRevisionCanAdvance(input: {
     .where(inArray(schema.analysisLabPromotionItems.grantId, [...input.grantIds]));
   const releases = [...new Map(rows.map((row) => [row.id, row])).values()];
   const requested = [...input.grantIds].sort();
+  const supersededReleaseIds: string[] = [];
+  const refreshedSourceGrantIds = new Set<string>();
   for (const release of releases) {
     if (release.status === "rolled_back") continue;
     if (release.status !== "prepared") {
@@ -159,7 +164,12 @@ async function assertPreparedRevisionCanAdvance(input: {
       throw new Error(`기존 prepared release의 aggregate가 종결되지 않았습니다: ${release.releaseId}`);
     }
     assertPreparedGateBinding(release.releaseId, manifest, "aggregate", aggregate);
-    if (aggregate.verdict === "ITERATE" || aggregate.verdict === "STOP") continue;
+    if (aggregate.verdict === "ITERATE" || aggregate.verdict === "STOP") {
+      const continuation = assertPromotionReleaseContinuationBinding(manifest, input);
+      continuation.refreshedSourceGrantIds.forEach((grantId) => refreshedSourceGrantIds.add(grantId));
+      supersededReleaseIds.push(release.releaseId);
+      continue;
+    }
     if (aggregate.verdict !== "GO") {
       throw new Error(`기존 prepared release aggregate 판정을 해석할 수 없습니다: ${release.releaseId}`);
     }
@@ -169,7 +179,12 @@ async function assertPreparedRevisionCanAdvance(input: {
       throw new Error(`기존 prepared release가 shadow 진행 중입니다: ${release.releaseId}`);
     }
     assertPreparedGateBinding(release.releaseId, manifest, "shadow", shadow);
-    if (shadow.verdict === "FAIL") continue;
+    if (shadow.verdict === "FAIL") {
+      const continuation = assertPromotionReleaseContinuationBinding(manifest, input);
+      continuation.refreshedSourceGrantIds.forEach((grantId) => refreshedSourceGrantIds.add(grantId));
+      supersededReleaseIds.push(release.releaseId);
+      continue;
+    }
     if (shadow.verdict !== "PASS") {
       throw new Error(`기존 prepared release shadow 판정을 해석할 수 없습니다: ${release.releaseId}`);
     }
@@ -179,12 +194,21 @@ async function assertPreparedRevisionCanAdvance(input: {
       throw new Error(`기존 prepared release가 dry-run 진행 중입니다: ${release.releaseId}`);
     }
     assertPreparedGateBinding(release.releaseId, manifest, "dry-run", dryRun);
-    if (dryRun.verdict === "FAIL") continue;
+    if (dryRun.verdict === "FAIL") {
+      const continuation = assertPromotionReleaseContinuationBinding(manifest, input);
+      continuation.refreshedSourceGrantIds.forEach((grantId) => refreshedSourceGrantIds.add(grantId));
+      supersededReleaseIds.push(release.releaseId);
+      continue;
+    }
     if (dryRun.verdict !== "PASS") {
       throw new Error(`기존 prepared release dry-run 판정을 해석할 수 없습니다: ${release.releaseId}`);
     }
     throw new Error(`기존 prepared release가 모든 gate를 통과해 대체할 수 없습니다: ${release.releaseId}`);
   }
+  return {
+    supersededReleaseIds,
+    refreshedSourceGrantIds: [...refreshedSourceGrantIds].sort(),
+  };
 }
 
 async function prepare(): Promise<number> {
@@ -211,7 +235,6 @@ async function prepare(): Promise<number> {
     throw new Error("자동 대상 선정을 하지 않습니다. --grantIds exact CSV가 필요합니다.");
   }
   const build = readPromotionBuildProvenance();
-  await assertPreparedRevisionCanAdvance({ cohort, revision, grantIds: exactGrantIds });
   const deepRepairCohort = await loadDeepRepairPromotionCohort({
     seriesId: series,
     grantIds: exactGrantIds,
@@ -309,6 +332,23 @@ async function prepare(): Promise<number> {
     });
   }
 
+  const sourceArtifacts = candidates.map((candidate) => candidate.sourceArtifact);
+  const continuation = await assertPreparedRevisionCanAdvance({
+    cohort,
+    revision,
+    grantIds: exactGrantIds,
+    plans: planItems,
+    sourceArtifacts,
+  });
+  if (continuation.supersededReleaseIds.length > 0) {
+    console.log(`[release] 실패 revision 대체: ${continuation.supersededReleaseIds.join(", ")}`);
+  }
+  if (continuation.refreshedSourceGrantIds.length > 0) {
+    console.log(
+      `[release] source provenance 갱신, promotion material 동일: ${continuation.refreshedSourceGrantIds.join(", ")}`,
+    );
+  }
+
   const now = new Date();
   const releaseId = readArg("releaseId")?.trim()
     || releaseIdFor(cohort, revision, now, build.gitCommit);
@@ -320,7 +360,7 @@ async function prepare(): Promise<number> {
     buildDigest: build.buildDigest,
     cohortLabel: cohort,
     canaryGrantIds: selectCanaries(planItems, readArg("canary")),
-    sourceArtifacts: candidates.map((candidate) => candidate.sourceArtifact),
+    sourceArtifacts,
     plans: planItems,
   });
   // 파일 또는 DB를 쓰기 전에 현재 mutation admission과 동일한 receipt 결속을 증명한다.

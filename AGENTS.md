@@ -78,9 +78,10 @@
 - **exact release 처리 권한은 범위로 유지한다.** 사용자가 exact grantId/run/source revision과
   처리 상한(예: `release approve까지`)을 승인하면 `prepare → aggregate → shadow → dry-run →
   release approve`가 하나의 연속 범위다. immutable gate 실패로 같은 cohort의 상위 release
-  revision을 만들 때 exact grantId/run/source revision이 그대로라면 새 사용자 승인을 묻지 않고
-  기존 범위를 이어간다. source drift나 cohort/run 변경, 사용자의 중단·범위 변경이 있을 때만
-  다시 확인한다.
+  revision을 만들 때 같은 grant/run, 분석 input, attachment manifest, promotion plan, 현재 DB
+  snapshot 결속이 모두 같으면 새 사용자 승인을 묻지 않고 기존 범위를 이어간다. source
+  provenance hash만 갱신된 경우에는 current revision으로 다시 봉인하고, 이들 material binding
+  중 하나가 바뀌거나 cohort/run이 달라질 때만 새로운 exact 범위로 취급한다.
 - **CLI의 준비자/승인자 분리는 사용자 재승인이 아니다.** `lab:release --approve`의 다른 actor는
   자기 승인 방지를 위한 원장 역할 분리이며, 승인된 처리 범위 안에서 수행한다.
 - **실제 서비스 변경은 별도다.** `lab:promote --write`, 배포, Cloudflare 변경, 운영
@@ -110,4 +111,7 @@
 - 승격 보호 구현(`c79e2c0`)은 유지한다. local release prepare/gate/approve는 Gate R이 아니라
   receipt 기반 promotion admission과 승인된 exact release 범위를 따른다. `lab:promote --write`는
   실제 서비스 변경이므로 별도 명시 승인이 없으면 실행하지 않는다.
+- K-Startup 상세 재수집에서 `detail.fetched_at` 같은 관측 메타데이터만 바뀐 경우 raw payload와
+  rawHash를 다시 쓰지 않는다. 최신 관측 시각은 `grant_raw.collected_at`으로 기록하고, 신청 방법,
+  제출서류, 첨부 등 실제 상세 내용이 달라진 경우에만 source revision을 전진시킨다.
 - 운영 딥분석을 켤 때는(사용자 결정) `CLAIM_SCOPE=bounded`(cohort sha256 화이트리스트)로 시작하고 로컬 lab 코호트와 상호배타 집합 유지, 켜기 전 pending 큐(누적 중) 정리.

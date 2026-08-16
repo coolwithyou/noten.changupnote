@@ -61,6 +61,7 @@ async function main(): Promise<void> {
   let processed = 0;
   let succeeded = 0;
   let updated = 0;
+  let observed = 0;
   let skippedNoUrl = 0;
   let skippedNoRaw = 0;
   const failures: FailureRecord[] = [];
@@ -113,6 +114,8 @@ async function main(): Promise<void> {
       }
     } else if (result.status === "updated") {
       updated += 1;
+    } else if (result.status === "observed") {
+      observed += 1;
     }
 
     logProgress(processed, targets.length);
@@ -120,7 +123,11 @@ async function main(): Promise<void> {
 
   console.log("\n요약");
   console.log(`  처리: ${processed}건 (성공 ${succeeded}, 실패 ${failures.length})`);
-  if (write) console.log(`  반영: grant_raw 갱신 ${updated}건 (grant_raw 없음 ${skippedNoRaw}건)`);
+  if (write) {
+    console.log(
+      `  반영: 내용 갱신 ${updated}건, 동일 내용 관측 ${observed}건 (grant_raw 없음 ${skippedNoRaw}건)`,
+    );
+  }
   console.log(`  detail URL 없음: ${skippedNoUrl}건`);
   console.log(`  서식성 파일(.hwp/.hwpx/.doc/.docx) 보유 공고: ${withFormFileCount}건`);
   console.log("  첨부 수 분포:");

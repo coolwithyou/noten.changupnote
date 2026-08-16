@@ -40,6 +40,7 @@ export async function GET(request: Request) {
     let processed = 0;
     let succeeded = 0;
     let updated = 0;
+    let observed = 0;
     let failed = 0;
     let skippedNoUrl = 0;
     let skippedNoRaw = 0;
@@ -74,6 +75,8 @@ export async function GET(request: Request) {
         else failed += 1;
       } else if (result.status === "updated") {
         updated += 1;
+      } else if (result.status === "observed") {
+        observed += 1;
       }
     }
 
@@ -85,6 +88,7 @@ export async function GET(request: Request) {
         processed,
         succeeded,
         updated,
+        observed,
         failed,
         skippedNoUrl,
         skippedNoRaw,
@@ -116,8 +120,9 @@ interface HealTarget {
 /**
  * 치유 대상 선정: 모집 중(status='open') K-Startup 공고 중 대응 grant_raw 가 존재하고
  *   1) payload.detail 이 없는 것(우선), 그다음
- *   2) detail.fetched_at 이 staleDays 보다 오래된 것.
- * fetched_at 은 ISO-8601(UTC) 문자열이라 사전식 비교 == 시간순 비교.
+ *   2) 마지막 detail 관측 시각이 staleDays 보다 오래된 것.
+ * 내용이 같았던 재수집은 payload.detail.fetched_at/rawHash를 흔들지 않고 grant_raw.collected_at
+ * 만 갱신하므로, 두 시각 중 최신 값을 관측 freshness로 사용한다.
  */
 async function selectHealTargets(
   db: ReturnType<typeof getCunoteDb>,
@@ -127,6 +132,10 @@ async function selectHealTargets(
   const staleCutoff = new Date(Date.now() - staleDays * 86_400_000).toISOString();
   const detailJson = sql`${schema.grantRaw.payload} -> 'detail'`;
   const fetchedAt = sql`${schema.grantRaw.payload} -> 'detail' ->> 'fetched_at'`;
+  const lastObservedAt = sql`GREATEST(
+    ${schema.grantRaw.collectedAt},
+    NULLIF(${fetchedAt}, '')::timestamptz
+  )`;
 
   const rows = await db
     .select({
@@ -145,9 +154,9 @@ async function selectHealTargets(
     .where(and(
       eq(schema.grants.source, "kstartup"),
       eq(schema.grants.status, "open"),
-      sql`(${detailJson} IS NULL OR ${fetchedAt} < ${staleCutoff})`,
+      sql`(${detailJson} IS NULL OR ${lastObservedAt} < ${staleCutoff})`,
     ))
-    .orderBy(sql`(${detailJson} IS NULL) DESC, ${fetchedAt} ASC NULLS FIRST`)
+    .orderBy(sql`(${detailJson} IS NULL) DESC, ${lastObservedAt} ASC NULLS FIRST`)
     .limit(limit);
 
   return rows.map((row) => {

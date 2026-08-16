@@ -334,7 +334,7 @@
     "verify:apply-method-classify": "tsx packages/core/scripts/verify-apply-method-classify.ts",
     "verify:authoring-mode": "tsx packages/core/scripts/verify-authoring-mode.ts",
     "verify:agency-normalize": "tsx packages/core/scripts/verify-agency-normalize.ts",
-    "verify:kstartup-detail": "tsx packages/core/scripts/verify-kstartup-detail.ts",
+    "verify:kstartup-detail": "tsx packages/core/scripts/verify-kstartup-detail.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/kstartupDetailHeal.test.ts",
     "verify:kstartup-attachment-markdown": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/kstartupAttachmentMarkdown.test.ts",
     "verify:kstartup-attachment-selection": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/kstartupAttachmentSelection.test.ts",
     "verify:archive-container-inspection": "tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/archiveContainerInspection.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/grantAttachmentArchive.magic-bytes.test.ts && tsx --tsconfig apps/web/tsconfig.json apps/web/src/lib/server/ingestion/grantArchiveWriteReceipt.test.ts",

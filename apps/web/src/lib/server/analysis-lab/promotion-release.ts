@@ -245,6 +245,95 @@ export function planSha256(plan: GrantPromotionPlan): string {
   return sha256Canonical(plan);
 }
 
+export interface PromotionReleaseContinuationBinding {
+  plans: PromotionReleasePlanItem[];
+  sourceArtifacts: PromotionSourceArtifact[];
+}
+
+/**
+ * 실패한 immutable gate를 새 release revision으로 다시 실행할 때의 권한 상속 경계.
+ *
+ * source revision 문자열만 바뀌었다는 이유로 사용자 승인을 다시 요구하지 않되, 같은 run,
+ * 분석 입력, 첨부 manifest, 승격 plan, 현재 DB snapshot 결속은 모두 그대로여야 한다. 이
+ * 함수가 허용하는 유일한 차이는 current source provenance를 다시 봉인한 두 revision 필드다.
+ */
+export function assertPromotionReleaseContinuationBinding(
+  previous: Pick<PromotionReleaseManifest, "plans" | "sourceArtifacts">,
+  current: PromotionReleaseContinuationBinding,
+): { refreshedSourceGrantIds: string[] } {
+  const previousPlans = new Map(previous.plans.map((item) => [item.grantId, item]));
+  const currentPlans = new Map(current.plans.map((item) => [item.grantId, item]));
+  const previousSources = new Map(previous.sourceArtifacts.map((item) => [item.grantId, item]));
+  const currentSources = new Map(current.sourceArtifacts.map((item) => [item.grantId, item]));
+  const grantIds = [...new Set([
+    ...previousPlans.keys(),
+    ...currentPlans.keys(),
+    ...previousSources.keys(),
+    ...currentSources.keys(),
+  ])].sort();
+  const changed: string[] = [];
+  const refreshedSourceGrantIds: string[] = [];
+
+  for (const grantId of grantIds) {
+    const previousPlan = previousPlans.get(grantId);
+    const currentPlan = currentPlans.get(grantId);
+    const previousSource = previousSources.get(grantId);
+    const currentSource = currentSources.get(grantId);
+    if (!previousPlan || !currentPlan || !previousSource || !currentSource) {
+      changed.push(`${grantId}:cohort_binding`);
+      continue;
+    }
+    if (
+      sha256Canonical(continuationPlanProjection(previousPlan))
+      !== sha256Canonical(continuationPlanProjection(currentPlan))
+    ) {
+      changed.push(`${grantId}:promotion_material`);
+    }
+    if (
+      sha256Canonical(continuationSourceProjection(previousSource))
+      !== sha256Canonical(continuationSourceProjection(currentSource))
+    ) {
+      changed.push(`${grantId}:source_material`);
+    }
+    if (previousSource.sourceRevisionSha256 !== currentSource.sourceRevisionSha256) {
+      refreshedSourceGrantIds.push(grantId);
+    }
+  }
+  if (changed.length > 0) {
+    throw new Error(
+      `이전 failed release와 현재 promotion material 결속이 다릅니다: ${changed.join(", ")}`,
+    );
+  }
+  return { refreshedSourceGrantIds };
+}
+
+function continuationPlanProjection(item: PromotionReleasePlanItem): PromotionReleasePlanItem {
+  if (!item.deepRepairReadiness) return item;
+  return {
+    ...item,
+    deepRepairReadiness: {
+      ...item.deepRepairReadiness,
+      sourceRevisionSha256: "current-source-revision",
+    },
+  };
+}
+
+function continuationSourceProjection(item: PromotionSourceArtifact): PromotionSourceArtifact {
+  const deepRepair = item.localLabEvidence?.deepRepair;
+  if (!deepRepair) return item;
+  return {
+    ...item,
+    sourceRevisionSha256: "current-source-revision",
+    localLabEvidence: {
+      ...item.localLabEvidence!,
+      deepRepair: {
+        ...deepRepair,
+        sourceRevisionSha256: "current-source-revision",
+      },
+    },
+  };
+}
+
 export function releasePlanSha256(items: PromotionReleasePlanItem[]): string {
   return sha256Canonical(
     [...items]

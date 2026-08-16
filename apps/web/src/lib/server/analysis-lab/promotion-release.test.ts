@@ -6,6 +6,7 @@ import {
   type PromotionAggregateGateId,
 } from "./promotion-gate-evidence";
 import {
+  assertPromotionReleaseContinuationBinding,
   assertManifestConfirmation,
   canonicalJson,
   createPromotionReleaseManifest,
@@ -19,6 +20,7 @@ import {
   validatePromotionReleaseManifest,
   VERIFIED_LOCAL_LAB_SOURCE_SCHEMA,
   type PromotionReleasePlanItem,
+  type PromotionSourceArtifact,
 } from "./promotion-release";
 
 const aggregateThresholds = {
@@ -170,6 +172,90 @@ const verifiedLocalSource = {
     auditTransport: "claude-cli" as const,
   },
 };
+
+{
+  const previousPlan: PromotionReleasePlanItem = {
+    ...planItem,
+    deepRepairReadiness: {
+      schema: "deep-repair-promotion-readiness-v1",
+      disposition: "ready",
+      reasons: [],
+      unresolvedAxes: [],
+      sourceRevisionSha256: "4".repeat(64),
+      inputSha256: "3".repeat(64),
+      attachmentManifestSha256: "5".repeat(64),
+      receiptSha256: "6".repeat(64),
+    },
+  };
+  const previousSource: PromotionSourceArtifact = {
+    ...verifiedLocalSource,
+    sourceRevisionSha256: "4".repeat(64),
+    localLabEvidence: {
+      ...verifiedLocalSource.localLabEvidence,
+      reviewMethod: "deep_repair_receipt",
+      deepRepair: {
+        schema: "verified-deep-repair-source-v1",
+        seriesId: "deep-v21",
+        sequence: 0,
+        proposalSha256: "7".repeat(64),
+        planSha256: "8".repeat(64),
+        planArtifactSha256: "9".repeat(64),
+        manifestSha256: "a".repeat(64),
+        receiptSha256: "6".repeat(64),
+        observationsSha256: "b".repeat(64),
+        evaluatorReceiptSha256: "c".repeat(64),
+        attachmentManifestSha256: "5".repeat(64),
+        sourceRevisionSha256: "4".repeat(64),
+        executionGitSha: "d".repeat(40),
+        packageRuntimeSha256: "e".repeat(64),
+        validatorVersion: "deep-analysis-validator-v10",
+      },
+    },
+  };
+  const currentPlan: PromotionReleasePlanItem = {
+    ...previousPlan,
+    deepRepairReadiness: {
+      ...previousPlan.deepRepairReadiness!,
+      sourceRevisionSha256: "f".repeat(64),
+    },
+  };
+  const currentSource: PromotionSourceArtifact = {
+    ...previousSource,
+    sourceRevisionSha256: "f".repeat(64),
+    localLabEvidence: {
+      ...previousSource.localLabEvidence!,
+      deepRepair: {
+        ...previousSource.localLabEvidence!.deepRepair!,
+        sourceRevisionSha256: "f".repeat(64),
+      },
+    },
+  };
+  assert.deepEqual(
+    assertPromotionReleaseContinuationBinding(
+      { plans: [previousPlan], sourceArtifacts: [previousSource] },
+      { plans: [currentPlan], sourceArtifacts: [currentSource] },
+    ),
+    { refreshedSourceGrantIds: [plan.grantId] },
+    "source provenance만 갱신되고 promotion material이 같으면 기존 승인 범위를 이어간다",
+  );
+  assert.throws(
+    () => assertPromotionReleaseContinuationBinding(
+      { plans: [previousPlan], sourceArtifacts: [previousSource] },
+      {
+        plans: [{
+          ...currentPlan,
+          deepRepairReadiness: {
+            ...currentPlan.deepRepairReadiness!,
+            inputSha256: "0".repeat(64),
+          },
+        }],
+        sourceArtifacts: [currentSource],
+      },
+    ),
+    /promotion material 결속/,
+    "분석 입력이 바뀐 경우에는 source revision 갱신으로 위장해 권한을 상속할 수 없다",
+  );
+}
 
 assert.equal(
   resolvePromotionReleaseTransport({}, verifiedLocalSource),
